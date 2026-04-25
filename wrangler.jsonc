@@ -1,0 +1,26 @@
+/**
+ * Cloudflare Pages project configuration.
+ * Dynamic API routes live in ./functions and run as Pages Functions.
+ */
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "bickr",
+	"compatibility_date": "2026-04-25",
+	"pages_build_output_dir": "./dist/client",
+
+	/**
+	 * Planned bindings. Fill these in after creating real Cloudflare resources.
+	 */
+	// "kv_namespaces": [
+	// 	{ "binding": "BICKR_KV", "id": "<kv-namespace-id>" }
+	// ],
+	// "r2_buckets": [
+	// 	{ "binding": "BICKR_R2", "bucket_name": "<r2-bucket-name>" }
+	// ],
+	// "d1_databases": [
+	// 	{ "binding": "BICKR_D1", "database_name": "<d1-database-name>", "database_id": "<d1-database-id>" }
+	// ],
+	// "vectorize": [
+	// 	{ "binding": "BICKR_VECTORIZE", "index_name": "<vectorize-index-name>" }
+	// ]
+}
