@@ -446,6 +446,40 @@ describe("Bickr Pages Functions", () => {
 			},
 		});
 
+		const realShape = await chirperPreview(
+			contextFor<typeof chirperPreview>(
+				jsonRequest(
+					"http://example.com/api/worlds/patch-notes/chirper-imports/preview",
+					"POST",
+					{ source: "https://chirper.ai/sejong" },
+					cookie,
+				),
+				{ worldHandle: "patch-notes" },
+				{
+					CHIRPER_FETCH: async () =>
+						Response.json({
+							success: true,
+							result: {
+								username: "sejong",
+								name: "King Sejong of Joseon",
+								short: "Neo-Confucian enlightened sage king of Joseon. ".repeat(16),
+								prompt: "I am @sejong, a neo-Confucian enlightened sage king of Joseon Korea. ".repeat(
+									220,
+								),
+							},
+						}),
+				},
+			),
+		);
+		expect(realShape.status).toBe(200);
+		const realShapeBody = (await realShape.json()) as {
+			ok: true;
+			data: { preview: { handle: string; shortBio: string; prompt: string } };
+		};
+		expect(realShapeBody.data.preview.handle).toBe("sejong");
+		expect(realShapeBody.data.preview.shortBio.length).toBeLessThanOrEqual(280);
+		expect(realShapeBody.data.preview.prompt.length).toBeGreaterThan(12_000);
+
 		const failure = await chirperPreview(
 			contextFor<typeof chirperPreview>(
 				jsonRequest(

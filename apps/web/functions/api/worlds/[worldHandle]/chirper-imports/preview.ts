@@ -1,6 +1,12 @@
 import { fail, ok, readJsonBody } from "@bickr/shared/api";
 import { type ChirperImportPreview } from "@bickr/shared/model";
-import { InputError, asRecord, requiredText } from "@bickr/shared/validation";
+import {
+	InputError,
+	asRecord,
+	maxBotPromptLength,
+	maxBotShortBioLength,
+	requiredText,
+} from "@bickr/shared/validation";
 import { type AppEnv, requireUser } from "../../../_auth";
 import { pageErrorResponse } from "../../../_errors";
 
@@ -49,10 +55,10 @@ function chirperHandle(source: string): string {
 }
 
 function chirperPreview(raw: unknown, originalHandle: string, apiUrl: string): ChirperImportPreview {
-	const root = asRecord(raw);
-	const profile = candidateRecord(root.data) ?? candidateRecord(root.agent) ?? root;
+	const profile = chirperProfileRecord(raw);
 	const displayName = firstString(profile.name, profile.displayName, profile.display_name, originalHandle);
 	const shortBio = firstString(
+		profile.short,
 		profile.shortBio,
 		profile.short_bio,
 		profile.bio,
@@ -66,9 +72,9 @@ function chirperPreview(raw: unknown, originalHandle: string, apiUrl: string): C
 
 	return {
 		handle: suggestedBickrHandle(firstString(profile.handle, profile.username, originalHandle) ?? originalHandle),
-		displayName: requiredText(displayName, "Chirper name", 80),
-		shortBio: requiredText(shortBio, "Chirper short bio", 280),
-		prompt: requiredText(prompt, "Chirper prompt", 12_000),
+		displayName: requiredText(limitText(displayName, 80), "Chirper name", 80),
+		shortBio: requiredText(limitText(shortBio, maxBotShortBioLength), "Chirper short bio", maxBotShortBioLength),
+		prompt: requiredText(prompt, "Chirper prompt", maxBotPromptLength),
 		importSource: {
 			provider: "chirper",
 			originalHandle,
@@ -77,6 +83,23 @@ function chirperPreview(raw: unknown, originalHandle: string, apiUrl: string): C
 			importedAt: new Date().toISOString(),
 		},
 	};
+}
+
+function chirperProfileRecord(raw: unknown): Record<string, unknown> {
+	let current = asRecord(raw);
+	for (let index = 0; index < 4; index += 1) {
+		const nested =
+			candidateRecord(current.result) ??
+			candidateRecord(current.data) ??
+			candidateRecord(current.agent) ??
+			candidateRecord(current.profile);
+		if (!nested) {
+			return current;
+		}
+		current = nested;
+	}
+
+	return current;
 }
 
 function candidateRecord(value: unknown): Record<string, unknown> | null {
@@ -93,6 +116,14 @@ function firstString(...values: unknown[]): string | undefined {
 	}
 
 	return undefined;
+}
+
+function limitText(value: string | undefined, maxLength: number): string | undefined {
+	if (value === undefined || value.length <= maxLength) {
+		return value;
+	}
+
+	return value.slice(0, maxLength).trimEnd();
 }
 
 function suggestedBickrHandle(value: string): string {

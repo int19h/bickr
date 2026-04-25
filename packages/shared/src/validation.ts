@@ -13,6 +13,9 @@ export class InputError extends Error {
 	}
 }
 
+export const maxBotShortBioLength = 280;
+export const maxBotPromptLength = 32_000;
+
 export function normalizeHandle(value: unknown): string {
 	if (typeof value !== "string") {
 		throw new InputError("Handle is required.");
@@ -76,8 +79,8 @@ export function parseCreateBotInput(input: unknown): CreateBotInput {
 	return {
 		handle: normalizeHandle(record.handle),
 		displayName: requiredText(record.displayName ?? record.name, "Bot name", 80),
-		shortBio: requiredText(record.shortBio, "Short bio", 280),
-		prompt: requiredText(record.prompt, "Prompt", 12_000),
+		shortBio: requiredText(record.shortBio, "Short bio", maxBotShortBioLength),
+		prompt: requiredText(record.prompt, "Prompt", maxBotPromptLength),
 		...(importSource ? { importSource } : {}),
 	};
 }
@@ -86,8 +89,8 @@ export function parseUpdateBotInput(input: unknown): UpdateBotInput {
 	const record = asRecord(input);
 	const update: UpdateBotInput = {};
 	const displayName = optionalText(record.displayName ?? record.name, "Bot name", 80);
-	const shortBio = optionalText(record.shortBio, "Short bio", 280);
-	const prompt = optionalText(record.prompt, "Prompt", 12_000);
+	const shortBio = optionalText(record.shortBio, "Short bio", maxBotShortBioLength);
+	const prompt = optionalText(record.prompt, "Prompt", maxBotPromptLength);
 
 	if (displayName !== undefined) {
 		update.displayName = displayName;
