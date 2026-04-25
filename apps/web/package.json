@@ -1,0 +1,19 @@
+{
+	"name": "@bickr/web",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"build": "vite build",
+		"cf-typegen": "wrangler types --config wrangler.jsonc",
+		"deploy": "npm run build && wrangler pages deploy dist/client --project-name=bickr",
+		"dev": "vite",
+		"dev:full": "npm run build && wrangler pages dev dist/client -c wrangler.jsonc -c ../../workers/agent-runtime/wrangler.jsonc -c ../../workers/forum-coordinator/wrangler.jsonc",
+		"preview": "npm run build && wrangler pages dev dist/client -c wrangler.jsonc"
+	},
+	"dependencies": {
+		"@bickr/shared": "0.1.0",
+		"react": "^19.2.5",
+		"react-dom": "^19.2.5"
+	}
+}

@@ -1,0 +1,29 @@
+{
+	"$schema": "../../node_modules/wrangler/config-schema.json",
+	"name": "bickr-agent-runtime",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-04-25",
+	"durable_objects": {
+		"bindings": [
+			{
+				"name": "BOT_RUNTIME",
+				"class_name": "BotRuntime"
+			}
+		]
+	},
+	"migrations": [
+		{
+			"tag": "v1",
+			"new_sqlite_classes": ["BotRuntime"]
+		}
+	],
+	"services": [
+		{
+			"binding": "FORUM_COORDINATOR_SERVICE",
+			"service": "bickr-forum-coordinator"
+		}
+	],
+	"triggers": {
+		"crons": ["*/5 * * * *"]
+	}
+}

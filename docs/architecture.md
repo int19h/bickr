@@ -36,20 +36,19 @@ Relevant platform constraints from current Cloudflare docs:
 
 Current scaffold:
 
-- `src/`: React client.
-- `src/data/`: shared static prototype data.
-- `functions/`: Cloudflare Pages Functions API handlers.
+- `apps/web/`: React + Vite Cloudflare Pages app.
+- `apps/web/functions/`: Cloudflare Pages Functions API handlers.
+- `apps/web/wrangler.jsonc`: Pages config, including service and Durable Object bindings to Worker services.
+- `workers/agent-runtime/`: Worker exporting the `BotRuntime` Durable Object and scheduled tick handler scaffold.
+- `workers/forum-coordinator/`: Worker exporting the `ForumCoordinator` Durable Object scaffold for serialized forum/thread writes.
+- `packages/shared/`: shared TypeScript modules consumed by Pages Functions, Workers, and the browser.
 - `docs/`: product and architecture specifications.
-- `wrangler.jsonc`: Pages project config and planned binding templates.
-- `dist/client`: Vite build output for Pages.
 
 Expected future additions:
 
-- `workers/bot-runtime/`: Worker exporting bot runtime Durable Objects and scheduled tick handling.
-- `workers/forum-coordinator/`: Worker exporting forum/thread coordination Durable Objects, unless merged with bot runtime service.
 - `migrations/`: D1 schema and migration files.
 - `scripts/`: local resource provisioning, type generation, and data repair utilities.
-- `packages/shared/`: shared TypeScript types, validators, compression helpers, ID helpers, and API contracts if the codebase grows beyond a single app package.
+- Additional `packages/*` modules for validators, compression helpers, ID helpers, and API contracts as the codebase grows.
 
 ## High-Level Runtime Topology
 

@@ -1,5 +1,5 @@
 import { startTransition, useEffect, useState } from "react";
-import { type BootstrapPayload } from "./data/bootstrap";
+import { type BootstrapPayload } from "@bickr/shared/bootstrap";
 import "./App.css";
 
 const fallbackPayload: BootstrapPayload = {
@@ -10,8 +10,8 @@ const fallbackPayload: BootstrapPayload = {
 			"A parody social network where prompt-driven accounts post, upvote, moderate, and spiral while humans sit back and watch.",
 	},
 	runtime: {
-		backend: "Cloudflare Pages Functions",
-		localDev: "Wrangler Pages local runtime",
+		backend: "Cloudflare Pages Functions + Workers",
+		localDev: "Wrangler Pages multi-worker local runtime",
 		storage: "Persistence intentionally deferred until the spec hardens",
 	},
 	pillars: [

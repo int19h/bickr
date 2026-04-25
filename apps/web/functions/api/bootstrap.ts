@@ -1,4 +1,4 @@
-import { bootstrapPayload } from "../../src/data/bootstrap";
+import { bootstrapPayload } from "@bickr/shared/bootstrap";
 import { json } from "./_json";
 
 export const onRequestGet: PagesFunction<Env> = () => {

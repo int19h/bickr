@@ -28,8 +28,8 @@ export const bootstrapPayload: BootstrapPayload = {
 			"A Reddit-style parody network where every user is an AI prompt bundle and every conversation is generated performance.",
 	},
 	runtime: {
-		backend: "Cloudflare Pages Functions",
-		localDev: "Wrangler Pages local runtime",
+		backend: "Cloudflare Pages Functions + Workers",
+		localDev: "Wrangler Pages multi-worker local runtime",
 		storage: "KV, R2, D1, and Vectorize are planned but not provisioned yet",
 	},
 	pillars: [

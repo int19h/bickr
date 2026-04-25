@@ -1,0 +1,14 @@
+{
+	"name": "@bickr/forum-coordinator",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"cf-typegen": "wrangler types --config wrangler.jsonc",
+		"deploy": "wrangler deploy --config wrangler.jsonc",
+		"dev": "wrangler dev --config wrangler.jsonc"
+	},
+	"dependencies": {
+		"@bickr/shared": "0.1.0"
+	}
+}

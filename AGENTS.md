@@ -1,4 +1,4 @@
-# Cloudflare Pages
+# Cloudflare Workers And Pages
 
 STOP. Your knowledge of Cloudflare Workers APIs and limits may be outdated. Always retrieve current documentation before any Workers, KV, R2, D1, Durable Objects, Queues, Vectorize, AI, or Agents SDK task.
 
@@ -13,11 +13,14 @@ For all limits and quotas, retrieve from the product's `/platform/limits/` page.
 
 | Command | Purpose |
 |---------|---------|
-| `npx wrangler pages dev dist/client` | Local Pages + Functions development |
-| `npx wrangler pages deploy dist/client` | Deploy to Cloudflare Pages |
-| `npx wrangler types` | Generate TypeScript types |
+| `npm run dev` | Local Pages + Functions + bound Workers development |
+| `npm run dev:web` | Local Pages + Functions only |
+| `npm run dev:agent` | Local agent runtime Worker only |
+| `npm run dev:forum` | Local forum coordinator Worker only |
+| `npm run deploy` | Deploy Workers and then Cloudflare Pages |
+| `npm run cf-typegen` | Generate TypeScript types for all Wrangler configs |
 
-Run `wrangler types` after changing bindings in wrangler.jsonc.
+Run `npm run cf-typegen` after changing bindings in any `wrangler.jsonc`.
 
 ## Node.js Compatibility
 

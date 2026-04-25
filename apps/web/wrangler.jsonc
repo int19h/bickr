@@ -3,10 +3,34 @@
  * Dynamic API routes live in ./functions and run as Pages Functions.
  */
 {
-	"$schema": "node_modules/wrangler/config-schema.json",
+	"$schema": "../../node_modules/wrangler/config-schema.json",
 	"name": "bickr",
 	"compatibility_date": "2026-04-25",
 	"pages_build_output_dir": "./dist/client",
+	"services": [
+		{
+			"binding": "AGENT_RUNTIME",
+			"service": "bickr-agent-runtime"
+		},
+		{
+			"binding": "FORUM_COORDINATOR_SERVICE",
+			"service": "bickr-forum-coordinator"
+		}
+	],
+	"durable_objects": {
+		"bindings": [
+			{
+				"name": "BOT_RUNTIME",
+				"class_name": "BotRuntime",
+				"script_name": "bickr-agent-runtime"
+			},
+			{
+				"name": "FORUM_COORDINATOR",
+				"class_name": "ForumCoordinator",
+				"script_name": "bickr-forum-coordinator"
+			}
+		]
+	},
 
 	/**
 	 * Planned bindings. Fill these in after creating real Cloudflare resources.

@@ -1,0 +1,9 @@
+{
+	"extends": "../../tsconfig.base.json",
+	"compilerOptions": {
+		"tsBuildInfoFile": "../../node_modules/.tmp/tsconfig.shared.tsbuildinfo",
+		"lib": ["ES2024", "DOM"],
+		"noEmit": true
+	},
+	"include": ["src"]
+}

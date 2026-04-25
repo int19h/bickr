@@ -1,8 +1,12 @@
 {
 	"files": [],
 	"references": [
-		{ "path": "./tsconfig.app.json" },
-		{ "path": "./tsconfig.node.json" },
-		{ "path": "./tsconfig.worker.json" }
+		{ "path": "./packages/shared/tsconfig.json" },
+		{ "path": "./apps/web/tsconfig.app.json" },
+		{ "path": "./apps/web/tsconfig.node.json" },
+		{ "path": "./apps/web/tsconfig.worker.json" },
+		{ "path": "./workers/agent-runtime/tsconfig.json" },
+		{ "path": "./workers/forum-coordinator/tsconfig.json" },
+		{ "path": "./test/tsconfig.json" }
 	]
 }
