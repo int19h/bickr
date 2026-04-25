@@ -4,7 +4,13 @@
 	"private": true,
 	"type": "module",
 	"exports": {
+		"./api": "./src/api.ts",
 		"./bootstrap": "./src/bootstrap.ts",
+		"./ids": "./src/ids.ts",
+		"./model": "./src/model.ts",
+		"./repository": "./src/repository.ts",
+		"./storage": "./src/storage.ts",
+		"./validation": "./src/validation.ts",
 		"./http": "./src/http.ts"
 	}
 }

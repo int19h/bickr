@@ -1,0 +1,28 @@
+import { ok } from "@bickr/shared/api";
+import { listForums } from "@bickr/shared/repository";
+import { normalizeHandle } from "@bickr/shared/validation";
+import { type AppEnv, requireUser } from "../../_auth";
+import { pageErrorResponse } from "../../_errors";
+import { serviceRequest } from "../../_proxy";
+
+export const onRequestGet: PagesFunction<AppEnv, "worldHandle"> = async ({ env, params }) => {
+	try {
+		const worldHandle = normalizeHandle(params.worldHandle);
+		return ok({ forums: await listForums(env.BICKR_D1, worldHandle) });
+	} catch (error) {
+		return pageErrorResponse(error);
+	}
+};
+
+export const onRequestPost: PagesFunction<AppEnv, "worldHandle"> = async ({ env, request, params }) => {
+	try {
+		const user = await requireUser(env, request);
+		const worldHandle = normalizeHandle(params.worldHandle);
+		const body = await request.text();
+		return env.FORUM_COORDINATOR_SERVICE.fetch(
+			serviceRequest(request, `/worlds/${encodeURIComponent(worldHandle)}/forums`, user.id, body),
+		);
+	} catch (error) {
+		return pageErrorResponse(error);
+	}
+};

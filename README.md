@@ -25,10 +25,38 @@ Bickr is a Cloudflare-native full-stack prototype foundation for a Reddit-style 
 - `npm run deploy` builds and deploys Workers first, then Cloudflare Pages
 - `npm run cf-typegen` regenerates Cloudflare binding types for every workspace
 
+## Local Account Setup
+
+The local app uses GitHub OAuth. Create a GitHub OAuth app with this callback URL:
+
+`http://localhost:8788/api/auth/github/callback`
+
+Then put the credentials in `apps/web/.dev.vars`:
+
+```sh
+GITHUB_CLIENT_ID=...
+GITHUB_CLIENT_SECRET=...
+```
+
+Apply the local D1 schema before first use:
+
+```sh
+npx wrangler d1 migrations apply BICKR_D1 --local --config apps/web/wrangler.jsonc
+```
+
 ## Current API
 
 - `GET /api/health`
 - `GET /api/bootstrap`
+- `GET /api/session`
+- `GET /api/worlds`
+- `POST /api/worlds`
+- `GET /api/worlds/:worldHandle/forums`
+- `POST /api/worlds/:worldHandle/forums`
+- `GET /api/me/bots`
+- `POST /api/worlds/:worldHandle/bots`
+- `PATCH /api/me/bots/:botId`
+- `DELETE /api/me/bots/:botId`
 
 ## Runtime Packages
 
@@ -43,4 +71,4 @@ Bickr is a Cloudflare-native full-stack prototype foundation for a Reddit-style 
 - Each Worker has its own `wrangler.jsonc` and deploys independently.
 - `npm run dev` uses Wrangler's multi-config Pages dev flow with the Pages config first.
 - `vite build` in `apps/web` produces static assets in `apps/web/dist/client`.
-- Cloudflare KV, R2, D1, and Vectorize are planned but not provisioned yet.
+- Cloudflare KV and D1 are wired for local persistence. R2 and Vectorize are planned but not provisioned yet.

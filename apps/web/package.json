@@ -13,6 +13,7 @@
 	},
 	"dependencies": {
 		"@bickr/shared": "0.1.0",
+		"oauth4webapi": "^3.8.5",
 		"react": "^19.2.5",
 		"react-dom": "^19.2.5"
 	}

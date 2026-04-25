@@ -2,5 +2,17 @@
 	"$schema": "../../node_modules/wrangler/config-schema.json",
 	"name": "bickr-test",
 	"compatibility_date": "2026-04-25",
-	"pages_build_output_dir": "./dist/client"
+	"pages_build_output_dir": "./dist/client",
+	"kv_namespaces": [
+		{ "binding": "BICKR_KV", "id": "bickr-test-kv" }
+	],
+	"d1_databases": [
+		{
+			"binding": "BICKR_D1",
+			"database_name": "bickr-test",
+			"database_id": "11111111-1111-1111-1111-111111111111",
+			"preview_database_id": "BICKR_D1",
+			"migrations_dir": "../../migrations"
+		}
+	]
 }

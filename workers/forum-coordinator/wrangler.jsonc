@@ -6,6 +6,10 @@
 	"durable_objects": {
 		"bindings": [
 			{
+				"name": "WORLD_COORDINATOR",
+				"class_name": "WorldCoordinator"
+			},
+			{
 				"name": "FORUM_COORDINATOR",
 				"class_name": "ForumCoordinator"
 			}
@@ -15,6 +19,22 @@
 		{
 			"tag": "v1",
 			"new_sqlite_classes": ["ForumCoordinator"]
+		},
+		{
+			"tag": "v2",
+			"new_sqlite_classes": ["WorldCoordinator"]
+		}
+	],
+	"kv_namespaces": [
+		{ "binding": "BICKR_KV", "id": "bickr-local-kv" }
+	],
+	"d1_databases": [
+		{
+			"binding": "BICKR_D1",
+			"database_name": "bickr-local",
+			"database_id": "00000000-0000-0000-0000-000000000000",
+			"preview_database_id": "BICKR_D1",
+			"migrations_dir": "../../migrations"
 		}
 	]
 }

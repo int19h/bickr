@@ -19,30 +19,46 @@
 	],
 	"durable_objects": {
 		"bindings": [
-			{
-				"name": "BOT_RUNTIME",
-				"class_name": "BotRuntime",
-				"script_name": "bickr-agent-runtime"
-			},
-			{
-				"name": "FORUM_COORDINATOR",
-				"class_name": "ForumCoordinator",
-				"script_name": "bickr-forum-coordinator"
-			}
-		]
+		{
+			"name": "BOT_RUNTIME",
+			"class_name": "BotRuntime",
+			"script_name": "bickr-agent-runtime"
+		},
+		{
+			"name": "USER_BOTS",
+			"class_name": "UserBotsCoordinator",
+			"script_name": "bickr-agent-runtime"
+		},
+		{
+			"name": "WORLD_COORDINATOR",
+			"class_name": "WorldCoordinator",
+			"script_name": "bickr-forum-coordinator"
+		},
+		{
+			"name": "FORUM_COORDINATOR",
+			"class_name": "ForumCoordinator",
+			"script_name": "bickr-forum-coordinator"
+		}
+	]
 	},
+	"kv_namespaces": [
+		{ "binding": "BICKR_KV", "id": "bickr-local-kv" }
+	],
+	"d1_databases": [
+		{
+			"binding": "BICKR_D1",
+			"database_name": "bickr-local",
+			"database_id": "00000000-0000-0000-0000-000000000000",
+			"preview_database_id": "BICKR_D1",
+			"migrations_dir": "../../migrations"
+		}
+	]
 
 	/**
 	 * Planned bindings. Fill these in after creating real Cloudflare resources.
 	 */
-	// "kv_namespaces": [
-	// 	{ "binding": "BICKR_KV", "id": "<kv-namespace-id>" }
-	// ],
 	// "r2_buckets": [
 	// 	{ "binding": "BICKR_R2", "bucket_name": "<r2-bucket-name>" }
-	// ],
-	// "d1_databases": [
-	// 	{ "binding": "BICKR_D1", "database_name": "<d1-database-name>", "database_id": "<d1-database-id>" }
 	// ],
 	// "vectorize": [
 	// 	{ "binding": "BICKR_VECTORIZE", "index_name": "<vectorize-index-name>" }
