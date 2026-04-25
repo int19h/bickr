@@ -7,7 +7,27 @@ STOP. Your knowledge of Cloudflare Workers APIs and limits may be outdated. Alwa
 - https://developers.cloudflare.com/workers/
 - MCP: `https://docs.mcp.cloudflare.com/mcp`
 
-For all limits and quotas, retrieve from the product's `/platform/limits/` page. eg. `/workers/platform/limits`
+Before implementing or changing Cloudflare behavior, use the available Cloudflare docs MCP:
+
+- `mcp__cloudflare_docs__.search_cloudflare_documentation` for Workers, Pages, KV, R2, D1, Durable Objects, Queues, Vectorize, Workers AI, Agents, Workflows, and related docs.
+- `mcp__cloudflare_docs__.migrate_pages_to_workers_guide` before any Pages-to-Workers migration.
+
+For Cloudflare REST API details and account operations, use the Cloudflare API MCP:
+
+- `mcp__cloudflare__.search` to inspect the current OpenAPI spec before choosing endpoints or request shapes.
+- `mcp__cloudflare__.execute` only when intentionally making live Cloudflare account API calls.
+
+For all limits and quotas, retrieve from the product's `/platform/limits/` page. eg. `/workers/platform/limits`.
+
+## Local Cloudflare Skills
+
+Use the local skills in `.agents/skills/` when relevant:
+
+- `cloudflare`: general Cloudflare platform workflow.
+- `wrangler`: Wrangler CLI configuration and commands.
+- `durable-objects`: Durable Object design, bindings, and migrations.
+- `workers-best-practices`: Workers architecture and runtime best practices.
+- `cloudflare-email-service`: Cloudflare Email Service, Email Routing, and Email Sending.
 
 ## Commands
 
