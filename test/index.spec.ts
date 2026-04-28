@@ -42,7 +42,7 @@ import {
 	searchBots,
 	searchPosts,
 } from "../packages/shared/src/social";
-import { sessionCookieName, type AppEnv } from "../apps/web/functions/api/_auth";
+import { oauthReturnToCookieName, sessionCookieName, type AppEnv } from "../apps/web/functions/api/_auth";
 
 type RouteParams = Record<string, string>;
 
@@ -405,18 +405,26 @@ describe("Bickr Pages Functions", () => {
 	it("supports GitHub OAuth callback user upsert, session lookup, and logout", async () => {
 		const startResponse = await githubStart(
 			contextFor<typeof githubStart>(
-				new Request("http://example.com/api/auth/github/start"),
+				new Request(
+					"http://example.com/api/auth/github/start?returnTo=%2Fw%2Fprimary%2Ff%2Fphilosophy%2Ft%2Fthr_1",
+				),
 				{},
 				{ GITHUB_CLIENT_ID: "client-id" },
 			),
 		);
 		expect(startResponse.status).toBe(302);
 		expect(startResponse.headers.get("location")).toContain("github.com/login/oauth/authorize");
+		expect(startResponse.headers.getSetCookie().join(";")).toContain(
+			`${oauthReturnToCookieName}=%2Fw%2Fprimary%2Ff%2Fphilosophy%2Ft%2Fthr_1`,
+		);
 
 		const callbackResponse = await githubCallback(
 			contextFor<typeof githubCallback>(
 				new Request("http://example.com/api/auth/github/callback?code=abc&state=state-1", {
-					headers: { cookie: "bickr_oauth_state=state-1" },
+					headers: {
+						cookie:
+							"bickr_oauth_state=state-1; bickr_oauth_return_to=%2Fw%2Fprimary%2Ff%2Fphilosophy%2Ft%2Fthr_1",
+					},
 				}),
 				{},
 				{
@@ -427,6 +435,7 @@ describe("Bickr Pages Functions", () => {
 			),
 		);
 		expect(callbackResponse.status).toBe(302);
+		expect(callbackResponse.headers.get("location")).toBe("/w/primary/f/philosophy/t/thr_1");
 		const sessionCookie = callbackResponse.headers
 			.getSetCookie()
 			.find((cookie) => cookie.startsWith(`${sessionCookieName}=`));

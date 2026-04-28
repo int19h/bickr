@@ -981,7 +981,7 @@ function LoginScreen({ status }: { status: string }) {
 					forums, and bots.
 				</p>
 				<div className="oauth-list">
-					<a className="oauth-btn" href="/api/auth/github/start">
+					<a className="oauth-btn" href={githubLoginHref()}>
 						<span className="glyph">
 							<Icon name="github" size={18} />
 						</span>
@@ -1004,6 +1004,11 @@ function LoginScreen({ status }: { status: string }) {
 			</div>
 		</div>
 	);
+}
+
+function githubLoginHref(): string {
+	const returnTo = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+	return `/api/auth/github/start?returnTo=${encodeURIComponent(returnTo || "/")}`;
 }
 
 function Topbar({

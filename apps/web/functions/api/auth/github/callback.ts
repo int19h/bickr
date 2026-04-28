@@ -5,6 +5,7 @@ import {
 	clearCookieHeader,
 	cookieHeader,
 	cookieValue,
+	oauthReturnToCookieName,
 	oauthStateCookieName,
 	sessionCookieName,
 	type AppEnv,
@@ -31,6 +32,7 @@ export const onRequestGet: PagesFunction<AppEnv> = async ({ env, request }) => {
 		if (!expectedState) {
 			return redirectWithError(request, "missing_state");
 		}
+		const returnTo = sanitizeReturnTo(cookieValue(request, oauthReturnToCookieName));
 
 		const url = new URL(request.url);
 		const client = githubClient(env);
@@ -82,17 +84,20 @@ export const onRequestGet: PagesFunction<AppEnv> = async ({ env, request }) => {
 		const response = new Response(null, {
 			status: 302,
 			headers: {
-				location: "/",
+				location: returnTo,
 				"cache-control": "no-store",
 			},
 		});
 
 		return appendSetCookie(
 			appendSetCookie(
-				response,
-				cookieHeader(request, sessionCookieName, session.cookieValue, { maxAge: 60 * 60 * 24 * 30 }),
+				appendSetCookie(
+					response,
+					cookieHeader(request, sessionCookieName, session.cookieValue, { maxAge: 60 * 60 * 24 * 30 }),
+				),
+				clearCookieHeader(request, oauthStateCookieName),
 			),
-			clearCookieHeader(request, oauthStateCookieName),
+			clearCookieHeader(request, oauthReturnToCookieName),
 		);
 	} catch (error) {
 		console.error("github oauth callback failed", error);
@@ -123,5 +128,25 @@ function redirectWithError(request: Request, code: string): Response {
 		},
 	});
 
-	return appendSetCookie(response, clearCookieHeader(request, oauthStateCookieName));
+	return appendSetCookie(
+		appendSetCookie(response, clearCookieHeader(request, oauthStateCookieName)),
+		clearCookieHeader(request, oauthReturnToCookieName),
+	);
+}
+
+function sanitizeReturnTo(value: string | null): string {
+	const fallback = "/";
+	const raw = value?.trim();
+	if (!raw || raw.length > 2048 || !raw.startsWith("/") || raw.startsWith("//") || raw.includes("\\")) {
+		return fallback;
+	}
+	try {
+		const parsed = new URL(raw, "https://bickr.local");
+		if (parsed.origin !== "https://bickr.local" || parsed.pathname.startsWith("/api/")) {
+			return fallback;
+		}
+		return `${parsed.pathname}${parsed.search}${parsed.hash}` || fallback;
+	} catch {
+		return fallback;
+	}
 }

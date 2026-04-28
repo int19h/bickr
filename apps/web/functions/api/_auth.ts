@@ -3,6 +3,7 @@ import { type SessionPayload, type UserDocument } from "@bickr/shared/model";
 
 export const sessionCookieName = "bickr_session";
 export const oauthStateCookieName = "bickr_oauth_state";
+export const oauthReturnToCookieName = "bickr_oauth_return_to";
 
 export type AppEnv = Env & {
 	AGENT_RUNTIME: Fetcher;

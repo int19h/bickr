@@ -265,6 +265,22 @@ a {
 	padding: 2px 2px 8px;
 }
 
+.notification-menu .clear-link {
+	background: transparent;
+	border: 0;
+	color: var(--ink-3);
+	cursor: pointer;
+	font-size: 12px;
+	font-weight: 600;
+	padding: 0;
+}
+
+.notification-menu .clear-link:hover {
+	color: var(--accent-ink);
+	text-decoration: underline;
+	text-underline-offset: 2px;
+}
+
 .notification-card {
 	background: var(--paper-2);
 	border: 1px solid var(--rule-soft);
