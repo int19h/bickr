@@ -238,6 +238,7 @@ export type HumanNotificationType =
 	| "vote_cast"
 	| "bot_followed"
 	| "spotlight_action"
+	| "spotlight_failed"
 	| "bot_runtime_failed";
 
 export type HumanNotification = {
@@ -467,6 +468,7 @@ export type BotRuntimeEventType =
 	| "tick_started"
 	| "input"
 	| "provider_request"
+	| "provider_retry"
 	| "provider_delta"
 	| "assistant_message"
 	| "tool_call"

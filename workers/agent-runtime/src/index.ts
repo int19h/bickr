@@ -24,6 +24,7 @@ import {
 	markNotificationsDelivered,
 	readThread,
 	recordBotRuntimeFailureHumanNotification,
+	recordSpotlightFailureHumanNotification,
 	recordSpotlightToolHumanNotification,
 	searchBots,
 	searchPosts,
@@ -117,7 +118,7 @@ class PersistentToolFailureError extends Error {
 
 type TickRunResult = {
 	runId: string;
-	status: "already_running" | "completed" | "failed" | "stopped";
+	status: "already_running" | "completed" | "failed" | "started" | "stopped";
 	error?: string;
 };
 
@@ -127,6 +128,7 @@ type TickOptions = {
 	mode?: TickMode;
 	injectionIds?: string[];
 	spotlightId?: string;
+	background?: boolean;
 };
 
 type InjectionMetadata = {
@@ -189,12 +191,24 @@ type ProviderSettings = {
 
 class ProviderRequestError extends Error {
 	readonly status: number;
+	readonly body: string;
 
 	constructor(status: number, model: string, endpoint: string, body: string) {
 		const suffix = body ? ` Provider response: ${body}` : "";
 		super(`Inference request failed with status ${status} for model "${model}" at ${endpoint}.${suffix}`);
 		this.name = "ProviderRequestError";
 		this.status = status;
+		this.body = body;
+	}
+}
+
+class ProviderRequestTimeoutError extends Error {
+	readonly timeoutMs: number;
+
+	constructor(timeoutMs: number) {
+		super(`Provider did not return response headers within ${Math.round(timeoutMs / 1000)} seconds.`);
+		this.name = "ProviderRequestTimeoutError";
+		this.timeoutMs = timeoutMs;
 	}
 }
 
@@ -216,7 +230,10 @@ class TickStoppedError extends Error {
 }
 
 const stopRequestStateKey = "stop_requested_run_id";
+const providerRequestTimeoutMs = 60_000;
 const providerStreamIdleTimeoutMs = 60_000;
+const providerMaxAttempts = 3;
+const providerRetryBaseDelayMs = 3_000;
 const fallbackProviderModel = "google/gemma-4-31b-it:free";
 const fallbackProviderBaseUrl = "https://openrouter.ai/api/v1";
 const legacyDefaultProviderModels = new Set([fallbackProviderModel, "openai/gpt-4o-mini", "openai/gpt-4o"]);
@@ -315,6 +332,10 @@ export class BotRuntime {
 					options.mode === "spotlight" ? "spotlight"
 					: request.headers.get("x-bickr-scheduler") ? "cron"
 					: "manual";
+				if (options.background) {
+					const run = await this.startBackgroundTick(botId, trigger, options);
+					return ok({ run });
+				}
 				const run = await this.runTick(botId, trigger, options);
 				return ok({ run });
 			}
@@ -381,6 +402,25 @@ export class BotRuntime {
 		console.error("bot runtime monitor WebSocket error", error);
 	}
 
+	private async startBackgroundTick(
+		botId: string,
+		trigger: "cron" | "manual" | "spotlight",
+		options: TickOptions,
+	): Promise<TickRunResult> {
+		const current = await this.status(botId);
+		if (this.activeRunId) {
+			return { runId: this.activeRunId, status: "already_running" };
+		}
+		if (current.status === "running") {
+			return { runId: current.activeRunId ?? "active", status: "already_running" };
+		}
+		const tick = this.runTick(botId, trigger, { ...options, background: false }).catch((error) => {
+			console.error("background bot tick failed", error);
+		});
+		this.state.waitUntil(tick);
+		return { runId: "background", status: "started" };
+	}
+
 	private async runTick(botId: string, trigger: "cron" | "manual" | "spotlight", options: TickOptions = {}): Promise<TickRunResult> {
 		const current = await this.status(botId);
 		if (this.activeRunId) {
@@ -401,14 +441,14 @@ export class BotRuntime {
 		this.clearStopRequest();
 		await this.setRuntimeIndex(bot, "running", runId, undefined, now);
 		await this.appendEvent(runId, "tick_started", { trigger, botId, handle: bot.handle });
+		const mode: TickMode = options.mode === "spotlight" ? "spotlight" : "normal";
+		const runContext: RunContext = {
+			mode,
+			...(options.spotlightId ? { spotlightId: options.spotlightId } : {}),
+			signal: abortController.signal,
+		};
 
 		try {
-			const mode: TickMode = options.mode === "spotlight" ? "spotlight" : "normal";
-			const runContext: RunContext = {
-				mode,
-				...(options.spotlightId ? { spotlightId: options.spotlightId } : {}),
-				signal: abortController.signal,
-			};
 			this.throwIfStopped(runId, abortController.signal);
 			const notifications =
 				mode === "spotlight" ? []
@@ -475,6 +515,14 @@ export class BotRuntime {
 						message: error.failure.message,
 						toolName: error.failure.toolName,
 					});
+					if (runContext.mode === "spotlight" && runContext.spotlightId) {
+						await recordSpotlightFailureHumanNotification(this.env.BICKR_D1, {
+							bot,
+							runId,
+							spotlightId: runContext.spotlightId,
+							message: error.message,
+						});
+					}
 				} catch (notificationError) {
 					console.warn("bot runtime failure notification failed", notificationError);
 				}
@@ -483,6 +531,18 @@ export class BotRuntime {
 			const message = error instanceof Error ? error.message : "Unexpected bot runtime error.";
 			await this.appendEvent(runId, "tick_failed", { message });
 			await this.setRuntimeIndex(bot, "failed", null, message, new Date().toISOString());
+			if (runContext.mode === "spotlight" && runContext.spotlightId) {
+				try {
+					await recordSpotlightFailureHumanNotification(this.env.BICKR_D1, {
+						bot,
+						runId,
+						spotlightId: runContext.spotlightId,
+						message,
+					});
+				} catch (notificationError) {
+					console.warn("spotlight failure notification failed", notificationError);
+				}
+			}
 			return { runId, status: "failed", error: message };
 		} finally {
 			if (this.activeRunId === runId) {
@@ -645,37 +705,22 @@ export class BotRuntime {
 		signal: AbortSignal,
 	): Promise<{ content: string; reasoning: string; reasoningDetails: ReasoningDetail[]; toolCalls: ToolCall[] }> {
 		const endpoint = providerChatCompletionsUrl(settings.baseUrl);
-		const response = await fetch(endpoint, {
-			method: "POST",
-			signal,
-			headers: {
-				authorization: `Bearer ${settings.apiKey ?? ""}`,
-				"content-type": "application/json",
+		const body = JSON.stringify({
+			model: settings.model,
+			messages,
+			tools: toolDefinitions,
+			tool_choice: "auto",
+			stream: true,
+			reasoning: {
+				enabled: true,
+				exclude: false,
 			},
-			body: JSON.stringify({
-				model: settings.model,
-				messages,
-				tools: toolDefinitions,
-				tool_choice: "auto",
-				stream: true,
-				reasoning: {
-					enabled: true,
-					exclude: false,
-				},
-				temperature: settings.temperature,
-				...(settings.topK !== undefined ? { top_k: settings.topK } : {}),
-				...(settings.topP !== undefined ? { top_p: settings.topP } : {}),
-				...(settings.minP !== undefined ? { min_p: settings.minP } : {}),
-			}),
+			temperature: settings.temperature,
+			...(settings.topK !== undefined ? { top_k: settings.topK } : {}),
+			...(settings.topP !== undefined ? { top_p: settings.topP } : {}),
+			...(settings.minP !== undefined ? { min_p: settings.minP } : {}),
 		});
-		if (!response.ok) {
-			throw new ProviderRequestError(
-				response.status,
-				settings.model,
-				endpoint,
-				await readLimitedText(response.body, 1_200),
-			);
-		}
+		const response = await this.fetchProviderWithRetry(settings, endpoint, body, runId, signal);
 		if (!response.body) {
 			throw new ProviderRequestError(502, settings.model, endpoint, "Provider did not return a streaming response body.");
 		}
@@ -751,6 +796,75 @@ export class BotRuntime {
 			reasoningDetails,
 			toolCalls: [...toolCalls.values()].filter((tool) => tool.function.name),
 		};
+	}
+
+	private async fetchProviderWithRetry(
+		settings: ProviderSettings,
+		endpoint: string,
+		body: string,
+		runId: string,
+		signal: AbortSignal,
+	): Promise<Response> {
+		let previousRetryKey: string | null = null;
+		for (let attempt = 1; attempt <= providerMaxAttempts; attempt += 1) {
+			this.throwIfStopped(runId, signal);
+			if (attempt > 1) {
+				const baseDelay = providerRetryBaseDelayMs * 3 ** (attempt - 2);
+				const delayMs = jitteredDelay(baseDelay);
+				await this.appendEvent(runId, "provider_retry", {
+					attempt,
+					maxAttempts: providerMaxAttempts,
+					delayMs,
+					reason: previousRetryKey,
+				});
+				await sleep(delayMs, signal);
+			}
+
+			let response: Response;
+			try {
+				response = await providerFetchWithHeaderTimeout(
+					endpoint,
+					{
+						method: "POST",
+						headers: {
+							authorization: `Bearer ${settings.apiKey ?? ""}`,
+							"content-type": "application/json",
+						},
+						body,
+					},
+					signal,
+					providerRequestTimeoutMs,
+				);
+			} catch (error) {
+				if (error instanceof TickStoppedError || isAbortError(error)) {
+					throw error;
+				}
+				if (error instanceof ProviderRequestTimeoutError) {
+					const retryKey = error.message;
+					if (attempt < providerMaxAttempts && (previousRetryKey === null || previousRetryKey === retryKey)) {
+						previousRetryKey = retryKey;
+						continue;
+					}
+				}
+				throw error;
+			}
+
+			if (response.ok) {
+				return response;
+			}
+
+			const bodyText = await readLimitedText(response.body, 1_200);
+			const error = new ProviderRequestError(response.status, settings.model, endpoint, bodyText);
+			if (isRetryableProviderStatus(response.status)) {
+				const retryKey = `${response.status}:${bodyText}`;
+				if (attempt < providerMaxAttempts && (previousRetryKey === null || previousRetryKey === retryKey)) {
+					previousRetryKey = retryKey;
+					continue;
+				}
+			}
+			throw error;
+		}
+		throw new ProviderRequestTimeoutError(providerRequestTimeoutMs);
 	}
 
 	private effectiveProviderSettings(bot: BotDocument, owner: UserDocument): ProviderSettings {
@@ -1113,13 +1227,16 @@ export class BotRuntime {
 	}
 
 	private loopInput(notifications: NotificationDocument[], injections: string[]) {
-		return {
-			notifications: notifications.map((notification) => ({
+		const messages = dedupeNotificationAuthorBios(
+			notifications.map((notification) => ({
 				id: notification.id,
 				type: notification.notificationType,
 				message: notification.message,
 				sourceObjectId: notification.sourceObjectId,
 			})),
+		);
+		return {
+			notifications: messages,
 			injections,
 			ping: notifications.length === 0 && injections.length === 0,
 		};
@@ -1911,6 +2028,8 @@ function runtimeContextLine(row: RuntimeRow): string {
 			return `thought_injected seq ${row.seq}: ${entityFields(payload, ["injectionId", "kind", "sourceId", "spotlightId"])} text=${truncateForContext(stringValue(payload.text) ?? "", 700)}`;
 		case "input":
 			return `input seq ${row.seq}: ${inputHistorySummary(payload)}`;
+		case "provider_retry":
+			return `provider_retry seq ${row.seq}: attempt=${stringValue(payload.attempt) ?? "?"}/${stringValue(payload.maxAttempts) ?? "?"} delayMs=${stringValue(payload.delayMs) ?? "?"} reason=${stringValue(payload.reason) ?? "unknown"}`;
 		case "tick_started":
 			return `tick_started seq ${row.seq}: run=${row.run_id} trigger=${stringValue(payload.trigger) ?? "unknown"} bot=${stringValue(payload.handle) ? `u/${stringValue(payload.handle)}` : stringValue(payload.botId) ?? "unknown"}`;
 		case "tick_completed":
@@ -2008,6 +2127,33 @@ function inputHistorySummary(payload: Record<string, unknown>): string {
 		)
 		.join(" | ");
 	return `ping=${payload.ping === true} notifications=${notifications.length}${notificationText ? ` [${notificationText}]` : ""} injections=${injections.length}${injections.length > 0 ? " delivered_as=assistant_thought" : ""}`;
+}
+
+function dedupeNotificationAuthorBios<T extends { message: string }>(notifications: T[]): T[] {
+	const seenHandles = new Set<string>();
+	return notifications.map((notification) => {
+		const handle = authorHandleWithBio(notification.message);
+		if (!handle) {
+			return notification;
+		}
+		if (!seenHandles.has(handle)) {
+			seenHandles.add(handle);
+			return notification;
+		}
+		return {
+			...notification,
+			message: stripNotificationAuthorBio(notification.message),
+		};
+	});
+}
+
+function authorHandleWithBio(message: string): string | null {
+	const match = /\(u\/([a-z0-9][a-z0-9-]{1,30}[a-z0-9])\)\nShort bio:/i.exec(message);
+	return match?.[1]?.toLowerCase() ?? null;
+}
+
+function stripNotificationAuthorBio(message: string): string {
+	return message.replace(/\nShort bio: [\s\S]*?(?= (?:replied in|mentioned you in) ")/, "");
 }
 
 function forumRef(record: Record<string, unknown>): string {
@@ -2354,6 +2500,66 @@ async function readStreamChunk(
 	}
 }
 
+async function providerFetchWithHeaderTimeout(
+	endpoint: string,
+	init: RequestInit,
+	signal: AbortSignal,
+	timeoutMs: number,
+): Promise<Response> {
+	if (signal.aborted) {
+		throw new TickStoppedError();
+	}
+	const controller = new AbortController();
+	let timedOut = false;
+	const abortFromParent = () => controller.abort();
+	const timeout = setTimeout(() => {
+		timedOut = true;
+		controller.abort();
+	}, timeoutMs);
+	signal.addEventListener("abort", abortFromParent, { once: true });
+	try {
+		return await fetch(endpoint, { ...init, signal: controller.signal });
+	} catch (error) {
+		if (timedOut) {
+			throw new ProviderRequestTimeoutError(timeoutMs);
+		}
+		if (signal.aborted) {
+			throw new TickStoppedError();
+		}
+		throw error;
+	} finally {
+		clearTimeout(timeout);
+		signal.removeEventListener("abort", abortFromParent);
+	}
+}
+
+function isRetryableProviderStatus(status: number): boolean {
+	return status === 408 || status === 409 || status === 425 || status === 429 || status === 500 || status === 502 || status === 503 || status === 504 || status === 529;
+}
+
+function jitteredDelay(baseMs: number): number {
+	const factor = 1 + (Math.random() * 2 - 1) / 3;
+	return Math.max(0, Math.round(baseMs * factor));
+}
+
+async function sleep(ms: number, signal: AbortSignal): Promise<void> {
+	if (signal.aborted) {
+		throw new TickStoppedError();
+	}
+	await new Promise<void>((resolve, reject) => {
+		const timeout = setTimeout(() => {
+			signal.removeEventListener("abort", abort);
+			resolve();
+		}, ms);
+		const abort = () => {
+			clearTimeout(timeout);
+			signal.removeEventListener("abort", abort);
+			reject(new TickStoppedError());
+		};
+		signal.addEventListener("abort", abort, { once: true });
+	});
+}
+
 async function readTickOptions(request: Request): Promise<TickOptions> {
 	const contentType = request.headers.get("content-type") ?? "";
 	if (!contentType.includes("application/json")) {
@@ -2366,10 +2572,12 @@ async function readTickOptions(request: Request): Promise<TickOptions> {
 		record.injectionIds.filter((id): id is string => typeof id === "string" && Boolean(id.trim())).map((id) => id.trim())
 	:	undefined;
 	const spotlightId = stringValue(record.spotlightId);
+	const background = record.background === true;
 	return {
 		mode,
 		...(injectionIds ? { injectionIds } : {}),
 		...(spotlightId ? { spotlightId } : {}),
+		...(background ? { background } : {}),
 	};
 }
 

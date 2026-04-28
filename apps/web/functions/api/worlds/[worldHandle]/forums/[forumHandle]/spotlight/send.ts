@@ -72,7 +72,7 @@ async function startSpotlightTick(
 			request,
 			`/bots/${encodeURIComponent(botId)}/tick`,
 			userId,
-			JSON.stringify({ mode: "spotlight", injectionIds: [injectionId], spotlightId }),
+			JSON.stringify({ mode: "spotlight", injectionIds: [injectionId], spotlightId, background: true }),
 		),
 	);
 }

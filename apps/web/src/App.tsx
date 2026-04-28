@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { CSSProperties, MouseEvent as ReactMouseEvent, ReactNode } from "react";
 import {
 	type BotSummary,
@@ -332,6 +332,16 @@ function App() {
 	);
 	const activeBotBlogForum =
 		activeBot ? activeForums.find((forum) => forum.personalBotId === activeBot.id) ?? null : null;
+	const ownedBotModels = useMemo(() => {
+		const models = new Set<string>();
+		for (const bot of bots) {
+			const model = bot.inferenceSettings.model?.trim();
+			if (model) {
+				models.add(model);
+			}
+		}
+		return [...models].sort((left, right) => left.localeCompare(right));
+	}, [bots]);
 
 	useEffect(() => {
 		if (route === "forum" && activeForum) {
@@ -904,6 +914,7 @@ function App() {
 							<BotEdit
 								bot={editingBot}
 								busy={busy}
+								modelSuggestions={ownedBotModels}
 								onBack={() =>
 									navigate({
 										route: "bot-profile",
@@ -2985,6 +2996,7 @@ function BotCard({
 function BotEdit({
 	bot,
 	busy,
+	modelSuggestions,
 	onBack,
 	onDelete,
 	onSave,
@@ -2992,6 +3004,7 @@ function BotEdit({
 }: {
 	bot: BotSummary;
 	busy: boolean;
+	modelSuggestions: string[];
 	onBack: () => void;
 	onDelete: (bot: BotSummary) => Promise<boolean>;
 	onSave: (botId: string, draft: UpdateBotInput) => Promise<boolean>;
@@ -3172,6 +3185,7 @@ function BotEdit({
 						</div>
 						<InferenceSettingsFields
 							draft={draft.inference}
+							modelSuggestions={modelSuggestions}
 							onChange={(inference) => setDraft((current) => ({ ...current, inference }))}
 							scope="bot"
 						/>
@@ -3501,13 +3515,16 @@ function ProfileScreen({
 
 function InferenceSettingsFields({
 	draft,
+	modelSuggestions = [],
 	onChange,
 	scope,
 }: {
 	draft: InferenceDraft;
+	modelSuggestions?: string[];
 	onChange: (draft: InferenceDraft) => void;
 	scope: "bot" | "profile";
 }) {
+	const modelListId = useId();
 	function patch(update: Partial<InferenceDraft>): void {
 		onChange({ ...draft, ...update });
 	}
@@ -3558,10 +3575,18 @@ function InferenceSettingsFields({
 				<Field help={scope === "bot" ? "Blank inherits the profile or environment model." : "Blank uses the environment model."} label="Model">
 					<input
 							className="input"
+							list={modelSuggestions.length > 0 ? modelListId : undefined}
 							onChange={(event) => patch({ model: event.target.value })}
 							placeholder="google/gemma-4-31b-it:free"
 							value={draft.model}
 						/>
+					{modelSuggestions.length > 0 && (
+						<datalist id={modelListId}>
+							{modelSuggestions.map((model) => (
+								<option key={model} value={model} />
+							))}
+						</datalist>
+					)}
 				</Field>
 				<Field help={scope === "bot" ? "Blank inherits the profile or OpenRouter default URL." : "Blank uses OpenRouter's default URL."} label="Base URL">
 					<input
@@ -4972,6 +4997,19 @@ function runtimeActivities(events: BotRuntimeEvent[]): RuntimeActivity[] {
 				});
 				break;
 			}
+			case "provider_retry":
+				finishRunStreams(streams, event.runId);
+				activities.push({
+					id: `event-${event.seq}`,
+					seq: event.seq,
+					createdAt: event.createdAt,
+					kind: "provider",
+					title: "Inference retry",
+					body: stringValue(payload.reason),
+					meta: `attempt ${stringValue(payload.attempt) ?? "?"}/${stringValue(payload.maxAttempts) ?? "?"} after ${formatDelay(payload.delayMs)}`,
+					raw: event,
+				});
+				break;
 			case "provider_delta":
 				appendProviderDelta(activities, streams, turnByRun, event, payload);
 				break;
@@ -5173,14 +5211,48 @@ function describeLoopInput(payload: Record<string, unknown>): string {
 		`${injections.length} injection${injections.length === 1 ? "" : "s"}`,
 		payload.ping === true ? "ping" : "",
 	].filter(Boolean);
-	const notificationLines = notifications.slice(0, 6).map((notification) => {
-		const record = asRuntimeRecord(notification);
-		const type = stringValue(record.type) ?? "notification";
-		const message = stringValue(record.message) ?? formatPayload(notification, 240);
-		return `- ${type}: ${message}`;
+	const displayNotifications = dedupeNotificationAuthorBios(
+		notifications.map((notification) => {
+			const record = asRuntimeRecord(notification);
+			return {
+				notification,
+				message: stringValue(record.message) ?? formatPayload(notification, 240),
+				type: stringValue(record.type) ?? "notification",
+			};
+		}),
+	);
+	const notificationLines = displayNotifications.slice(0, 6).map((notification) => {
+		return `- ${notification.type}: ${notification.message}`;
 	});
 	const injectionLines = injections.slice(0, 4).map((injection) => `- injection: ${String(injection)}`);
 	return [lines.join(" · "), ...notificationLines, ...injectionLines].filter(Boolean).join("\n");
+}
+
+function dedupeNotificationAuthorBios<T extends { message: string }>(notifications: T[]): T[] {
+	const seenHandles = new Set<string>();
+	return notifications.map((notification) => {
+		const handle = authorHandleWithBio(notification.message);
+		if (!handle) {
+			return notification;
+		}
+		if (!seenHandles.has(handle)) {
+			seenHandles.add(handle);
+			return notification;
+		}
+		return {
+			...notification,
+			message: stripNotificationAuthorBio(notification.message),
+		};
+	});
+}
+
+function authorHandleWithBio(message: string): string | null {
+	const match = /\(u\/([a-z0-9][a-z0-9-]{1,30}[a-z0-9])\)\nShort bio:/i.exec(message);
+	return match?.[1]?.toLowerCase() ?? null;
+}
+
+function stripNotificationAuthorBio(message: string): string {
+	return message.replace(/\nShort bio: [\s\S]*?(?= (?:replied in|mentioned you in) ")/, "");
 }
 
 function summarizeToolResult(result: unknown): string | undefined {
@@ -5476,6 +5548,14 @@ function secondsToMinutes(seconds: number): number {
 
 function formatTickIntervalMinutes(seconds: number): string {
 	return `${secondsToMinutes(seconds)} min`;
+}
+
+function formatDelay(value: unknown): string {
+	const ms = typeof value === "number" ? value : Number(value);
+	if (!Number.isFinite(ms)) {
+		return "a moment";
+	}
+	return `${Math.max(1, Math.round(ms / 1000))}s`;
 }
 
 function parsePositiveInteger(value: string): number {

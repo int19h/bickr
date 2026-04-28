@@ -716,6 +716,48 @@ export async function recordBotRuntimeFailureHumanNotification(
 	});
 }
 
+export async function recordSpotlightFailureHumanNotification(
+	db: D1DatabaseLike,
+	input: {
+		bot: BotDocument;
+		spotlightId: string;
+		runId: string;
+		message: string;
+		now?: string;
+	},
+): Promise<void> {
+	const now = input.now ?? new Date().toISOString();
+	const delivery = await db
+		.prepare(
+			`SELECT user_id AS userId, world_id AS worldId
+			 FROM spotlight_deliveries
+			 WHERE spotlight_id = ? AND bot_id = ?
+			 LIMIT 1`,
+		)
+		.bind(input.spotlightId, input.bot.id)
+		.first<{ userId: string; worldId: string }>();
+	if (!delivery) {
+		return;
+	}
+	await insertHumanNotification(db, {
+		userId: delivery.userId,
+		worldId: delivery.worldId,
+		eventKey: `spotlight_failed:${input.spotlightId}:${input.bot.id}:${input.runId}`,
+		notificationType: "spotlight_failed",
+		actor: input.bot,
+		sourceType: "spotlight",
+		sourceId: input.spotlightId,
+		targetType: "bot_loop",
+		targetId: input.bot.id,
+		title: `${input.bot.displayName} could not process spotlight`,
+		body: `u/${input.bot.handle} could not finish the spotlight tick: ${input.message}`,
+		urlPath: `/w/${encodeURIComponent(input.bot.homeWorldHandle)}/u/${encodeURIComponent(input.bot.handle)}/loop`,
+		spotlightId: input.spotlightId,
+		spotlightLabel: "spotlight failed",
+		now,
+	});
+}
+
 async function subscribedUsersForScopes(
 	db: D1DatabaseLike,
 	scopes: SubscriptionScopeTarget[],
