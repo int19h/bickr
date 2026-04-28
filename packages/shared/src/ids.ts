@@ -1,4 +1,17 @@
-export type IdPrefix = "usr" | "sid" | "wld" | "frm" | "bot" | "pid";
+export type IdPrefix =
+	| "usr"
+	| "sid"
+	| "wld"
+	| "frm"
+	| "bot"
+	| "pid"
+	| "thr"
+	| "pst"
+	| "cmt"
+	| "ntf"
+	| "spt"
+	| "hsb"
+	| "hnt";
 
 export function makeId(prefix: IdPrefix): string {
 	return `${prefix}_${crypto.randomUUID()}`;

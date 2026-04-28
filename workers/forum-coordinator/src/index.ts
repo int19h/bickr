@@ -1,6 +1,15 @@
 import { fail, ok, readJsonBody } from "@bickr/shared/api";
 import { RepositoryError, createForum, createWorld } from "@bickr/shared/repository";
-import { InputError, normalizeHandle, parseCreateForumInput, parseCreateWorldInput } from "@bickr/shared/validation";
+import { createComment, createThread, readThread, setVote } from "@bickr/shared/social";
+import {
+	InputError,
+	normalizeHandle,
+	parseCreateCommentInput,
+	parseCreateForumInput,
+	parseCreateThreadInput,
+	parseCreateWorldInput,
+	parseVoteInput,
+} from "@bickr/shared/validation";
 import { json } from "@bickr/shared/http";
 
 export interface Env {
@@ -45,9 +54,9 @@ export async function handleForumCoordinatorRequest(
 ): Promise<Response> {
 	try {
 		const url = new URL(request.url);
-		const userId = requireUserHeader(request);
 
 		if (request.method === "POST" && url.pathname === "/worlds") {
+			const userId = requireUserHeader(request);
 			const input = parseCreateWorldInput(await readJsonBody(request));
 			const world = await createWorld(env.BICKR_KV, env.BICKR_D1, input, userId);
 			return ok({ world, coordinator: objectId }, { status: 201 });
@@ -55,10 +64,53 @@ export async function handleForumCoordinatorRequest(
 
 		const forumMatch = /^\/worlds\/([^/]+)\/forums$/.exec(url.pathname);
 		if (request.method === "POST" && forumMatch) {
+			const userId = requireUserHeader(request);
 			const worldHandle = normalizeHandle(decodeURIComponent(forumMatch[1] ?? ""));
 			const input = parseCreateForumInput(await readJsonBody(request));
 			const forum = await createForum(env.BICKR_KV, env.BICKR_D1, worldHandle, input, userId);
 			return ok({ forum, coordinator: objectId }, { status: 201 });
+		}
+
+		const threadMatch = /^\/forums\/([^/]+)\/threads$/.exec(url.pathname);
+		if (request.method === "POST" && threadMatch) {
+			const actor = requireBotActor(request);
+			const forumId = decodeURIComponent(threadMatch[1] ?? "");
+			const input = parseCreateThreadInput(await readJsonBody(request));
+			const thread = await createThread(env.BICKR_KV, env.BICKR_D1, {
+				...input,
+				forumId,
+				authorBotId: actor.botId,
+			});
+			return ok({ thread, coordinator: objectId }, { status: 201 });
+		}
+
+		const commentMatch = /^\/threads\/([^/]+)\/comments$/.exec(url.pathname);
+		if (request.method === "POST" && commentMatch) {
+			const actor = requireBotActor(request);
+			const threadId = decodeURIComponent(commentMatch[1] ?? "");
+			const input = parseCreateCommentInput(await readJsonBody(request));
+			const thread = await createComment(env.BICKR_KV, env.BICKR_D1, {
+				...input,
+				threadId,
+				authorBotId: actor.botId,
+			});
+			return ok({ thread, coordinator: objectId }, { status: 201 });
+		}
+
+		const threadReadMatch = /^\/threads\/([^/]+)$/.exec(url.pathname);
+		if (request.method === "GET" && threadReadMatch) {
+			const thread = await readThread(env.BICKR_KV, decodeURIComponent(threadReadMatch[1] ?? ""));
+			return ok({ thread, coordinator: objectId });
+		}
+
+		if (request.method === "POST" && url.pathname === "/votes") {
+			const actor = requireBotActor(request);
+			const input = parseVoteInput(await readJsonBody(request));
+			const thread = await setVote(env.BICKR_KV, env.BICKR_D1, {
+				...input,
+				botId: actor.botId,
+			});
+			return ok({ thread, coordinator: objectId });
 		}
 
 		return fail("not_found", "Forum coordinator route not found.", 404);
@@ -108,6 +160,23 @@ export default {
 			return env.FORUM_COORDINATOR.get(objectId).fetch(request);
 		}
 
+		if (url.pathname.startsWith("/threads/")) {
+			const threadId = url.pathname.split("/")[2] ?? "unknown";
+			const objectId = env.FORUM_COORDINATOR.idFromName(threadId);
+			return env.FORUM_COORDINATOR.get(objectId).fetch(request);
+		}
+
+		if (url.pathname === "/votes") {
+			try {
+				const body = await readJsonBody(request.clone());
+				const input = parseVoteInput(body);
+				const objectId = env.FORUM_COORDINATOR.idFromName(input.targetId);
+				return env.FORUM_COORDINATOR.get(objectId).fetch(jsonRequest(url, request, body));
+			} catch (error) {
+				return errorResponse(error);
+			}
+		}
+
 		return json(
 			{
 				ok: false,
@@ -126,6 +195,15 @@ function requireUserHeader(request: Request): string {
 	}
 
 	return userId;
+}
+
+function requireBotActor(request: Request): { botId: string } {
+	const botId = request.headers.get("x-bickr-bot-id");
+	if (!botId) {
+		throw new RepositoryError("unauthorized", "Bot runtime authentication is required.", 401);
+	}
+
+	return { botId };
 }
 
 function jsonRequest(url: URL, original: Request, body: unknown): Request {

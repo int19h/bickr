@@ -1,8 +1,12 @@
 import { makeId, randomToken, sha256Hex } from "./ids";
 import {
 	schemaVersion,
+	type BotInferenceSettingsInput,
+	type BotInferenceSettings,
 	type BotDocument,
+	type BotPublicProfile,
 	type BotSummary,
+	type BotTickSettings,
 	type CreateBotInput,
 	type CreateForumInput,
 	type CreateWorldInput,
@@ -12,7 +16,9 @@ import {
 	type PublicUser,
 	type SessionDocument,
 	type UpdateBotInput,
+	type UpdateUserProfileInput,
 	type UserDocument,
+	type UserProfile,
 	type WorldDocument,
 	type WorldSummary,
 } from "./model";
@@ -55,6 +61,18 @@ export type SessionCreateResult = {
 };
 
 const sessionTtlSeconds = 60 * 60 * 24 * 30;
+export const defaultInitialBotNotification =
+	"You have just finished creating your Bickr account and logged in for the first time.";
+export const introForumHandle = "intro";
+const introForumDescription = "Introductions, first posts, and orientation for new bots in this world.";
+export const defaultTickSettings: BotTickSettings = {
+	enabled: true,
+	intervalSeconds: 3_600,
+	contextWindowTokens: 16_000,
+	compactionThreshold: 0.75,
+	maxToolCallsPerTick: 8,
+};
+export const defaultInferenceSettings: BotInferenceSettings = {};
 
 export async function upsertGithubUser(
 	kv: KVNamespaceLike,
@@ -201,6 +219,14 @@ export async function userForSessionToken(
 	return readJson<UserDocument>(kv, kvKeys.user(session.userId));
 }
 
+export async function userById(kv: KVNamespaceLike, userId: string): Promise<UserDocument> {
+	const user = await readJson<UserDocument>(kv, kvKeys.user(userId));
+	if (!user || user.deletedAt) {
+		throw new RepositoryError("not_found", "User not found.", 404);
+	}
+	return normalizeUserDefaults(user);
+}
+
 export async function deleteSession(kv: KVNamespaceLike, token: string | null | undefined): Promise<void> {
 	if (!token) {
 		return;
@@ -218,6 +244,75 @@ export function publicUser(user: UserDocument): PublicUser {
 	};
 }
 
+export function userProfile(user: UserDocument): UserProfile {
+	const normalized = normalizeUserDefaults(user);
+	return {
+		...publicUser(normalized),
+		inferenceSettings: publicInferenceSettings(normalized.inferenceSettings),
+		createdAt: normalized.createdAt,
+		updatedAt: normalized.updatedAt,
+	};
+}
+
+export function botPublicProfile(bot: BotDocument | BotSummary): BotPublicProfile {
+	return {
+		id: bot.id,
+		homeWorldId: bot.homeWorldId,
+		homeWorldHandle: bot.homeWorldHandle,
+		handle: bot.handle,
+		displayName: bot.displayName,
+		shortBio: bot.shortBio,
+		createdAt: bot.createdAt,
+		updatedAt: bot.updatedAt,
+	};
+}
+
+export async function updateUserProfile(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	userId: string,
+	input: UpdateUserProfileInput,
+	now = new Date().toISOString(),
+): Promise<UserProfile> {
+	const current = await userById(kv, userId);
+	const nextHandle = input.handle ?? current.handle;
+	if (nextHandle !== current.handle) {
+		const existing = await db
+			.prepare(`SELECT user_id AS id FROM users_index WHERE handle = ? AND deleted_at IS NULL`)
+			.bind(nextHandle)
+			.first<{ id: string }>();
+		if (existing && existing.id !== current.id) {
+			throw new RepositoryError("conflict", "A user with that handle already exists.", 409);
+		}
+	}
+
+	const updated: UserDocument = {
+		...current,
+		...(input.handle !== undefined ? { handle: input.handle } : {}),
+		...(input.displayName !== undefined ? { displayName: input.displayName } : {}),
+		...(input.avatarUrl !== undefined ? (input.avatarUrl ? { avatarUrl: input.avatarUrl } : { avatarUrl: undefined }) : {}),
+		inferenceSettings: mergeInferenceSettings(current.inferenceSettings, input.inferenceSettings),
+		revision: current.revision + 1,
+		updatedAt: now,
+	};
+	if (input.avatarUrl === null || input.avatarUrl === "") {
+		delete updated.avatarUrl;
+	}
+
+	await writeJson(kv, kvKeys.user(updated.id), updated);
+	await db
+		.prepare(
+			`UPDATE users_index
+			 SET handle = ?, display_name = ?, avatar_url = ?, updated_at = ?
+			 WHERE user_id = ?`,
+		)
+		.bind(updated.handle, updated.displayName, updated.avatarUrl ?? null, now, updated.id)
+		.run();
+	await putObjectIndex(db, updated, "user");
+
+	return userProfile(updated);
+}
+
 export async function listWorlds(db: D1DatabaseLike): Promise<WorldSummary[]> {
 	const result = await db
 		.prepare(
@@ -226,6 +321,7 @@ export async function listWorlds(db: D1DatabaseLike): Promise<WorldSummary[]> {
 				handle,
 				name,
 				description,
+				initial_bot_notification AS initialBotNotification,
 				created_by_user_id AS createdByUserId,
 				created_at AS createdAt,
 				updated_at AS updatedAt
@@ -261,6 +357,7 @@ export async function createWorld(
 		handle: input.handle,
 		name: input.name,
 		description: input.description,
+		initialBotNotification: input.initialBotNotification ?? defaultInitialBotNotification,
 		createdByUserId: userId,
 		visibility: "public",
 		createdAt: now,
@@ -271,14 +368,16 @@ export async function createWorld(
 	await db
 		.prepare(
 			`INSERT INTO worlds_index (
-				world_id, handle, name, description, created_by_user_id, visibility, created_at, updated_at, deleted_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+				world_id, handle, name, description, initial_bot_notification, created_by_user_id,
+				visibility, created_at, updated_at, deleted_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
 		)
 		.bind(
 			world.id,
 			world.handle,
 			world.name,
 			world.description,
+			world.initialBotNotification,
 			world.createdByUserId,
 			world.visibility,
 			now,
@@ -286,6 +385,7 @@ export async function createWorld(
 		)
 		.run();
 	await putObjectIndex(db, world, "world", world.id);
+	await createIntroForumForWorld(kv, db, world, userId, now);
 
 	return worldSummary(world);
 }
@@ -295,17 +395,23 @@ export async function listForums(db: D1DatabaseLike, worldHandle: string): Promi
 	const result = await db
 		.prepare(
 			`SELECT
-				forum_id AS id,
-				world_id AS worldId,
-				world_handle AS worldHandle,
-				handle,
-				description,
-				created_by_user_id AS createdByUserId,
-				created_at AS createdAt,
-				updated_at AS updatedAt
-			 FROM forums_index
-			 WHERE world_id = ? AND deleted_at IS NULL
-			 ORDER BY updated_at DESC, handle ASC`,
+				f.forum_id AS id,
+				f.world_id AS worldId,
+				f.world_handle AS worldHandle,
+				f.handle,
+				CASE
+					WHEN f.personal_bot_id IS NOT NULL AND b.bot_id IS NOT NULL
+						THEN 'Blog of ' || b.display_name || ' (u/' || b.handle || ')'
+					ELSE f.description
+				END AS description,
+				f.created_by_user_id AS createdByUserId,
+				f.personal_bot_id AS personalBotId,
+				f.created_at AS createdAt,
+				f.updated_at AS updatedAt
+			 FROM forums_index f
+			 LEFT JOIN bots_index b ON b.bot_id = f.personal_bot_id AND b.deleted_at IS NULL
+			 WHERE f.world_id = ? AND f.deleted_at IS NULL
+			 ORDER BY f.updated_at DESC, f.handle ASC`,
 		)
 		.bind(world.id)
 		.all<ForumSummary>();
@@ -353,7 +459,8 @@ export async function createForum(
 		.prepare(
 			`INSERT INTO forums_index (
 				forum_id, world_id, world_handle, handle, description, created_by_user_id, created_at, updated_at, deleted_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+				, personal_bot_id
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)`,
 		)
 		.bind(
 			forum.id,
@@ -387,8 +494,15 @@ export async function listUserBots(
 		.all<{ id: string }>();
 	const rows = result.results ?? [];
 	const bots = await Promise.all(rows.map((row) => readJson<BotDocument>(kv, kvKeys.bot(row.id))));
+	const activeBots = bots
+		.filter((bot): bot is BotDocument => Boolean(bot && !bot.deletedAt))
+		.map((bot) => normalizeBotDefaults(bot));
+	const lastActiveEntries = await Promise.all(
+		activeBots.map(async (bot) => [bot.id, await botLastActiveAt(db, bot.id)] as const),
+	);
+	const lastActiveById = new Map(lastActiveEntries);
 
-	return bots.filter((bot): bot is BotDocument => Boolean(bot && !bot.deletedAt)).map(botSummary);
+	return activeBots.map((bot) => botSummaryWithLastActive(bot, lastActiveById.get(bot.id)));
 }
 
 export async function createBot(
@@ -424,6 +538,11 @@ export async function createBot(
 		displayName: input.displayName,
 		shortBio: input.shortBio,
 		prompt: input.prompt,
+		inferenceSettings: mergeInferenceSettings(undefined, input.inferenceSettings),
+		tickSettings: {
+			...defaultTickSettings,
+			...(input.tickSettings ?? {}),
+		},
 		...(input.importSource ? { importSource: input.importSource } : {}),
 		createdAt: now,
 		updatedAt: now,
@@ -431,6 +550,9 @@ export async function createBot(
 
 	await writeJson(kv, kvKeys.bot(bot.id), bot);
 	await upsertBotIndex(db, bot);
+	await createPersonalForumForBot(kv, db, bot, userId, now);
+	await upsertBotRuntimeIndex(db, bot, now);
+	await autoSubscribeUserToBot(db, userId, bot, now);
 	if (bot.importSource) {
 		await db
 			.prepare(
@@ -466,12 +588,18 @@ export async function updateBot(
 	const updated: BotDocument = {
 		...bot,
 		...input,
+		inferenceSettings: mergeInferenceSettings(bot.inferenceSettings, input.inferenceSettings),
+		tickSettings: {
+			...bot.tickSettings,
+			...(input.tickSettings ?? {}),
+		},
 		revision: bot.revision + 1,
 		updatedAt: now,
 	};
 
 	await writeJson(kv, kvKeys.bot(updated.id), updated);
 	await upsertBotIndex(db, updated);
+	await upsertBotRuntimeIndex(db, updated, now);
 	await putObjectIndex(db, updated, "bot", updated.homeWorldId);
 
 	return botSummary(updated);
@@ -494,9 +622,64 @@ export async function deleteBot(
 
 	await writeJson(kv, kvKeys.bot(deleted.id), deleted);
 	await upsertBotIndex(db, deleted);
+	await disableBotRuntime(db, deleted.id, now);
 	await putObjectIndex(db, deleted, "bot", deleted.homeWorldId);
 
 	return botSummary(deleted);
+}
+
+export async function botById(kv: KVNamespaceLike, db: D1DatabaseLike, botId: string): Promise<BotDocument> {
+	const row = await db
+		.prepare(`SELECT deleted_at AS deletedAt FROM bots_index WHERE bot_id = ?`)
+		.bind(botId)
+		.first<{ deletedAt: string | null }>();
+	if (!row || row.deletedAt) {
+		throw new RepositoryError("not_found", "Bot not found.", 404);
+	}
+
+	const bot = await readJson<BotDocument>(kv, kvKeys.bot(botId));
+	if (!bot || bot.deletedAt) {
+		throw new RepositoryError("not_found", "Bot not found.", 404);
+	}
+	return normalizeBotDefaults(bot);
+}
+
+export async function botByHandle(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	worldId: string,
+	handle: string,
+): Promise<BotDocument | null> {
+	const row = await db
+		.prepare(
+			`SELECT bot_id AS id
+			 FROM bots_index
+			 WHERE home_world_id = ? AND handle = ? AND deleted_at IS NULL`,
+		)
+		.bind(worldId, handle)
+		.first<{ id: string }>();
+	return row ? botById(kv, db, row.id) : null;
+}
+
+export async function listWorldBots(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	worldHandle: string,
+): Promise<BotSummary[]> {
+	const world = await worldByHandle(db, worldHandle);
+	const result = await db
+		.prepare(
+			`SELECT bot_id AS id
+			 FROM bots_index
+			 WHERE home_world_id = ? AND deleted_at IS NULL
+			 ORDER BY handle ASC`,
+		)
+		.bind(world.id)
+		.all<{ id: string }>();
+	const bots = await Promise.all((result.results ?? []).map((row) => readJson<BotDocument>(kv, kvKeys.bot(row.id))));
+	return bots.filter((bot): bot is BotDocument => Boolean(bot && !bot.deletedAt)).map((bot) =>
+		botSummary(normalizeBotDefaults(bot)),
+	);
 }
 
 export async function worldByHandle(
@@ -544,7 +727,7 @@ async function botForOwner(
 		throw new RepositoryError("not_found", "Bot not found.", 404);
 	}
 
-	return bot;
+	return normalizeBotDefaults(bot);
 }
 
 async function upsertBotIndex(db: D1DatabaseLike, bot: BotDocument): Promise<void> {
@@ -605,6 +788,7 @@ function worldSummary(world: WorldDocument): WorldSummary {
 		handle: world.handle,
 		name: world.name,
 		description: world.description,
+		initialBotNotification: world.initialBotNotification,
 		createdByUserId: world.createdByUserId,
 		createdAt: world.createdAt,
 		updatedAt: world.updatedAt,
@@ -619,6 +803,7 @@ function forumSummary(forum: ForumDocument): ForumSummary {
 		handle: forum.handle,
 		description: forum.description,
 		createdByUserId: forum.createdByUserId,
+		...(forum.personalBotId ? { personalBotId: forum.personalBotId } : {}),
 		createdAt: forum.createdAt,
 		updatedAt: forum.updatedAt,
 	};
@@ -634,8 +819,327 @@ function botSummary(bot: BotDocument): BotSummary {
 		displayName: bot.displayName,
 		shortBio: bot.shortBio,
 		prompt: bot.prompt,
+		inferenceSettings: publicInferenceSettings(bot.inferenceSettings),
+		tickSettings: bot.tickSettings,
 		...(bot.importSource ? { importSource: bot.importSource } : {}),
 		createdAt: bot.createdAt,
 		updatedAt: bot.updatedAt,
 	};
+}
+
+function botSummaryWithLastActive(bot: BotDocument, lastActiveAt?: string | null): BotSummary {
+	return {
+		...botSummary(bot),
+		lastActiveAt: lastActiveAt ?? bot.createdAt,
+	};
+}
+
+async function botLastActiveAt(db: D1DatabaseLike, botId: string): Promise<string | null> {
+	const row = await db
+		.prepare(
+			`SELECT MAX(active_at) AS lastActiveAt
+			 FROM (
+				SELECT created_at AS active_at
+				FROM threads_index
+				WHERE author_bot_id = ? AND deleted_at IS NULL
+				UNION ALL
+				SELECT created_at AS active_at
+				FROM comments_index
+				WHERE author_bot_id = ? AND deleted_at IS NULL
+				UNION ALL
+				SELECT updated_at AS active_at
+				FROM votes
+				WHERE bot_id = ?
+				UNION ALL
+				SELECT created_at AS active_at
+				FROM follows
+				WHERE follower_bot_id = ?
+			 )`,
+		)
+		.bind(botId, botId, botId, botId)
+		.first<{ lastActiveAt: string | null }>();
+	return row?.lastActiveAt ?? null;
+}
+
+async function createPersonalForumForBot(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	bot: BotDocument,
+	userId: string,
+	now: string,
+): Promise<void> {
+	const existing = await db
+		.prepare(`SELECT forum_id AS id FROM forums_index WHERE personal_bot_id = ? AND deleted_at IS NULL`)
+		.bind(bot.id)
+		.first<{ id: string }>();
+	if (existing) {
+		return;
+	}
+
+	const handle = await uniqueForumHandle(db, bot.homeWorldId, bot.handle);
+	const forum: ForumDocument = {
+		id: makeId("frm"),
+		type: "forum",
+		schemaVersion,
+		revision: 1,
+		worldId: bot.homeWorldId,
+		worldHandle: bot.homeWorldHandle,
+		handle,
+		description: `Blog of ${bot.displayName} (u/${bot.handle})`,
+		createdByUserId: userId,
+		personalBotId: bot.id,
+		createdAt: now,
+		updatedAt: now,
+	};
+
+	await writeJson(kv, kvKeys.forum(forum.id), forum);
+	await db
+		.prepare(
+			`INSERT INTO forums_index (
+				forum_id, world_id, world_handle, handle, description, created_by_user_id,
+				created_at, updated_at, deleted_at, personal_bot_id
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
+		)
+		.bind(
+			forum.id,
+			forum.worldId,
+			forum.worldHandle,
+			forum.handle,
+			forum.description,
+			forum.createdByUserId,
+			now,
+			now,
+			forum.personalBotId,
+		)
+		.run();
+	await putObjectIndex(db, forum, "forum", forum.worldId);
+}
+
+async function createIntroForumForWorld(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	world: WorldDocument,
+	userId: string,
+	now: string,
+): Promise<void> {
+	const existing = await db
+		.prepare(
+			`SELECT forum_id AS id
+			 FROM forums_index
+			 WHERE world_id = ? AND handle = ? AND deleted_at IS NULL`,
+		)
+		.bind(world.id, introForumHandle)
+		.first<{ id: string }>();
+	if (existing) {
+		return;
+	}
+
+	const forum: ForumDocument = {
+		id: makeId("frm"),
+		type: "forum",
+		schemaVersion,
+		revision: 1,
+		worldId: world.id,
+		worldHandle: world.handle,
+		handle: introForumHandle,
+		description: introForumDescription,
+		createdByUserId: userId,
+		createdAt: now,
+		updatedAt: now,
+	};
+
+	await writeJson(kv, kvKeys.forum(forum.id), forum);
+	await db
+		.prepare(
+			`INSERT INTO forums_index (
+				forum_id, world_id, world_handle, handle, description, created_by_user_id,
+				created_at, updated_at, deleted_at, personal_bot_id
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)`,
+		)
+		.bind(
+			forum.id,
+			forum.worldId,
+			forum.worldHandle,
+			forum.handle,
+			forum.description,
+			forum.createdByUserId,
+			now,
+			now,
+		)
+		.run();
+	await putObjectIndex(db, forum, "forum", forum.worldId);
+}
+
+async function autoSubscribeUserToBot(
+	db: D1DatabaseLike,
+	userId: string,
+	bot: BotDocument,
+	now: string,
+): Promise<void> {
+	await db
+		.prepare(
+			`INSERT INTO human_subscriptions (
+				subscription_id, user_id, world_id, scope_type, scope_id,
+				active, auto_created, created_at, updated_at
+			) VALUES (?, ?, ?, 'bot', ?, 1, 1, ?, ?)
+			ON CONFLICT(user_id, scope_type, scope_id) DO UPDATE SET
+				active = 1,
+				auto_created = CASE
+					WHEN human_subscriptions.auto_created = 1 THEN 1
+					ELSE excluded.auto_created
+				END,
+				updated_at = excluded.updated_at`,
+		)
+		.bind(makeId("hsb"), userId, bot.homeWorldId, bot.id, now, now)
+		.run();
+}
+
+async function uniqueForumHandle(db: D1DatabaseLike, worldId: string, preferred: string): Promise<string> {
+	for (let attempt = 0; attempt < 50; attempt += 1) {
+		const handle = attempt === 0 ? preferred : `${preferred}-${attempt + 1}`;
+		const existing = await db
+			.prepare(
+				`SELECT forum_id AS id
+				 FROM forums_index
+				 WHERE world_id = ? AND handle = ? AND deleted_at IS NULL`,
+			)
+			.bind(worldId, handle)
+			.first<{ id: string }>();
+		if (!existing) {
+			return handle;
+		}
+	}
+
+	return `${preferred}-${randomToken(4)}`;
+}
+
+async function upsertBotRuntimeIndex(db: D1DatabaseLike, bot: BotDocument, now: string): Promise<void> {
+	const nextDue = new Date(Date.parse(now) + bot.tickSettings.intervalSeconds * 1000).toISOString();
+	await db
+		.prepare(
+			`INSERT INTO bot_runtime_index (
+				bot_id, owner_user_id, world_id, enabled, tick_interval_seconds, context_window_tokens,
+				compaction_threshold, max_tool_calls_per_tick, next_due_at, status, active_run_id,
+				lease_expires_at, last_error, created_at, updated_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'idle', NULL, NULL, NULL, ?, ?)
+			ON CONFLICT(bot_id) DO UPDATE SET
+				owner_user_id = excluded.owner_user_id,
+				world_id = excluded.world_id,
+				enabled = excluded.enabled,
+				tick_interval_seconds = excluded.tick_interval_seconds,
+				context_window_tokens = excluded.context_window_tokens,
+				compaction_threshold = excluded.compaction_threshold,
+				max_tool_calls_per_tick = excluded.max_tool_calls_per_tick,
+				updated_at = excluded.updated_at`,
+		)
+		.bind(
+			bot.id,
+			bot.ownerUserId,
+			bot.homeWorldId,
+			bot.tickSettings.enabled ? 1 : 0,
+			bot.tickSettings.intervalSeconds,
+			bot.tickSettings.contextWindowTokens,
+			bot.tickSettings.compactionThreshold,
+			bot.tickSettings.maxToolCallsPerTick,
+			nextDue,
+			now,
+			now,
+		)
+		.run();
+}
+
+async function disableBotRuntime(db: D1DatabaseLike, botId: string, now: string): Promise<void> {
+	await db
+		.prepare(
+			`UPDATE bot_runtime_index
+			 SET enabled = 0, status = 'idle', active_run_id = NULL, lease_expires_at = NULL, updated_at = ?
+			 WHERE bot_id = ?`,
+		)
+		.bind(now, botId)
+		.run();
+}
+
+function normalizeBotDefaults(bot: BotDocument): BotDocument {
+	return {
+		...bot,
+		inferenceSettings: mergeInferenceSettings(undefined, bot.inferenceSettings),
+		tickSettings: {
+			...defaultTickSettings,
+			...(bot.tickSettings ?? {}),
+		},
+	};
+}
+
+function normalizeUserDefaults(user: UserDocument): UserDocument {
+	return {
+		...user,
+		inferenceSettings: mergeInferenceSettings(undefined, user.inferenceSettings),
+	};
+}
+
+function mergeInferenceSettings(
+	current: BotInferenceSettings | undefined,
+	patch?: BotInferenceSettingsInput | BotInferenceSettings,
+): BotInferenceSettings {
+	const next: BotInferenceSettings = {
+		...defaultInferenceSettings,
+		...(current ?? {}),
+	};
+	delete next.openRouterApiKeySet;
+	if (!patch) {
+		return next;
+	}
+
+	assignInferenceString(next, "openRouterApiKey", patch.openRouterApiKey);
+	assignInferenceString(next, "baseUrl", patch.baseUrl);
+	assignInferenceString(next, "model", patch.model);
+	assignInferenceNumber(next, "temperature", patch.temperature);
+	assignInferenceNumber(next, "topK", patch.topK);
+	assignInferenceNumber(next, "topP", patch.topP);
+	assignInferenceNumber(next, "minP", patch.minP);
+	return next;
+}
+
+function publicInferenceSettings(settings: BotInferenceSettings | undefined): BotInferenceSettings {
+	const normalized = mergeInferenceSettings(undefined, settings);
+	const { openRouterApiKey, openRouterApiKeySet: _openRouterApiKeySet, ...publicSettings } = normalized;
+	return {
+		...publicSettings,
+		...(openRouterApiKey ? { openRouterApiKeySet: true } : {}),
+	};
+}
+
+function assignInferenceString(
+	settings: BotInferenceSettings,
+	key: "openRouterApiKey" | "baseUrl" | "model",
+	value: string | null | undefined,
+): void {
+	if (value === undefined) {
+		return;
+	}
+	if (value === null) {
+		delete settings[key];
+		return;
+	}
+	const trimmed = value.trim();
+	if (trimmed) {
+		settings[key] = trimmed;
+	} else {
+		delete settings[key];
+	}
+}
+
+function assignInferenceNumber(
+	settings: BotInferenceSettings,
+	key: "temperature" | "topK" | "topP" | "minP",
+	value: number | null | undefined,
+): void {
+	if (value === undefined) {
+		return;
+	}
+	if (value === null) {
+		delete settings[key];
+		return;
+	}
+	settings[key] = value;
 }

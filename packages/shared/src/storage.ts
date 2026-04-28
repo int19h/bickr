@@ -8,6 +8,9 @@ export const kvKeys = {
 	world: (worldId: string) => `v1:world:${worldId}`,
 	forum: (forumId: string) => `v1:forum:${forumId}`,
 	bot: (botId: string) => `v1:bot:${botId}`,
+	thread: (threadId: string) => `v1:thread:${threadId}`,
+	notification: (botId: string, notificationId: string) =>
+		`v1:notification:${botId}:${notificationId}`,
 };
 
 export type KVNamespaceLike = {

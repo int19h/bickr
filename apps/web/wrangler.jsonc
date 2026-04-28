@@ -52,15 +52,11 @@
 			"preview_database_id": "BICKR_D1",
 			"migrations_dir": "../../migrations"
 		}
-	]
-
+	],
 	/**
 	 * Planned bindings. Fill these in after creating real Cloudflare resources.
 	 */
 	// "r2_buckets": [
 	// 	{ "binding": "BICKR_R2", "bucket_name": "<r2-bucket-name>" }
 	// ],
-	// "vectorize": [
-	// 	{ "binding": "BICKR_VECTORIZE", "index_name": "<vectorize-index-name>" }
-	// ]
 }

@@ -5,7 +5,7 @@
 	"type": "module",
 	"scripts": {
 		"cf-typegen": "wrangler types --config wrangler.jsonc",
-		"deploy": "wrangler deploy --config wrangler.jsonc",
+		"deploy": "wrangler deploy --config wrangler.deploy.jsonc",
 		"dev": "wrangler dev --config wrangler.jsonc"
 	},
 	"dependencies": {

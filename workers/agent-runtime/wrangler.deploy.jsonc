@@ -37,8 +37,15 @@
 			"migrations_dir": "../../migrations"
 		}
 	],
-	// Workers AI and Vectorize are intentionally omitted from the default local config.
-	// They force Wrangler remote proxy startup in local dev; production deploys use wrangler.deploy.jsonc.
+	"ai": {
+		"binding": "AI"
+	},
+	"vectorize": [
+		{
+			"binding": "BICKR_BOT_VECTORIZE",
+			"index_name": "bickr-bot-search"
+		}
+	],
 	"services": [
 		{
 			"binding": "FORUM_COORDINATOR_SERVICE",

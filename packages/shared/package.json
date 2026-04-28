@@ -9,6 +9,7 @@
 		"./ids": "./src/ids.ts",
 		"./model": "./src/model.ts",
 		"./repository": "./src/repository.ts",
+		"./social": "./src/social.ts",
 		"./storage": "./src/storage.ts",
 		"./validation": "./src/validation.ts",
 		"./http": "./src/http.ts"
