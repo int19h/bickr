@@ -198,6 +198,16 @@ class ProviderRequestError extends Error {
 	}
 }
 
+class ProviderStreamIdleTimeoutError extends Error {
+	readonly timeoutMs: number;
+
+	constructor(timeoutMs: number) {
+		super(`Provider stream timed out after ${Math.round(timeoutMs / 1000)} seconds without data.`);
+		this.name = "ProviderStreamIdleTimeoutError";
+		this.timeoutMs = timeoutMs;
+	}
+}
+
 class TickStoppedError extends Error {
 	constructor() {
 		super("Tick stopped by owner.");
@@ -206,6 +216,7 @@ class TickStoppedError extends Error {
 }
 
 const stopRequestStateKey = "stop_requested_run_id";
+const providerStreamIdleTimeoutMs = 60_000;
 const fallbackProviderModel = "google/gemma-4-31b-it:free";
 const fallbackProviderBaseUrl = "https://openrouter.ai/api/v1";
 const legacyDefaultProviderModels = new Set([fallbackProviderModel, "openai/gpt-4o-mini", "openai/gpt-4o"]);
@@ -444,7 +455,9 @@ export class BotRuntime {
 			return { runId, status: "completed" };
 		} catch (error) {
 			if (error instanceof TickStoppedError || isAbortError(error)) {
-				await this.appendEvent(runId, "tick_stopped", { message: "Tick stopped by owner." });
+				if (!this.hasTerminalEvent(runId)) {
+					await this.appendEvent(runId, "tick_stopped", { message: "Tick stopped by owner." });
+				}
 				await this.setRuntimeIndex(bot, "idle", null, undefined, new Date().toISOString());
 				return { runId, status: "stopped" };
 			}
@@ -491,8 +504,11 @@ export class BotRuntime {
 		await this.appendEvent(runId, "tick_stop_requested", { message: "Stop requested by owner." });
 		if (this.activeRunId === runId && this.activeAbortController && !this.activeAbortController.signal.aborted) {
 			this.activeAbortController.abort();
+			return { stopped: true, runId, status: current.status };
 		}
-		return { stopped: true, runId, status: current.status };
+		const bot = await botById(this.env.BICKR_KV, this.env.BICKR_D1, botId);
+		await this.markRunStopped(bot, runId);
+		return { stopped: true, runId, status: "idle" };
 	}
 
 	private setStopRequest(runId: string): void {
@@ -521,16 +537,28 @@ export class BotRuntime {
 		if (signal.aborted) {
 			throw new TickStoppedError();
 		}
+		if (this.hasStopRequest(runId)) {
+			throw new TickStoppedError();
+		}
+	}
+
+	private hasStopRequest(runId: string): boolean {
 		const row = this.state.storage.sql
 			.exec<{ value_json: string }>(`SELECT value_json FROM runtime_state WHERE key = ?`, stopRequestStateKey)
 			.toArray()[0];
 		if (!row) {
-			return;
+			return false;
 		}
 		const requestedRunId = stringValue(JSON.parse(row.value_json));
-		if (requestedRunId === runId) {
-			throw new TickStoppedError();
+		return requestedRunId === runId;
+	}
+
+	private async markRunStopped(bot: BotDocument, runId: string): Promise<void> {
+		if (!this.hasTerminalEvent(runId)) {
+			await this.appendEvent(runId, "tick_stopped", { message: "Tick stopped by owner." });
 		}
+		await this.setRuntimeIndex(bot, "idle", null, undefined, new Date().toISOString());
+		this.clearStopRequest(runId);
 	}
 
 	private async runProviderLoop(
@@ -1418,6 +1446,16 @@ export class BotRuntime {
 				lastError: string | null;
 				tickIntervalSeconds: number;
 			}>();
+		if (row?.status === "running" && row.activeRunId && this.hasStopRequest(row.activeRunId) && this.activeRunId !== row.activeRunId) {
+			const bot = await botById(this.env.BICKR_KV, this.env.BICKR_D1, botId);
+			await this.markRunStopped(bot, row.activeRunId);
+			const nextDueAt = this.nextDue(bot);
+			return {
+				botId,
+				status: "idle",
+				nextDueAt,
+			};
+		}
 		if (row?.status === "running" && row.leaseExpiresAt && Date.parse(row.leaseExpiresAt) <= Date.now()) {
 			const message = "Tick lease expired before completion; marking runtime idle.";
 			if (row.activeRunId && !this.hasTerminalEvent(row.activeRunId)) {
@@ -2247,7 +2285,11 @@ function isAbortError(error: unknown): boolean {
 	);
 }
 
-async function* readSse(stream: ReadableStream<Uint8Array>, signal?: AbortSignal): AsyncGenerator<string> {
+async function* readSse(
+	stream: ReadableStream<Uint8Array>,
+	signal?: AbortSignal,
+	idleTimeoutMs = providerStreamIdleTimeoutMs,
+): AsyncGenerator<string> {
 	const reader = stream.getReader();
 	const decoder = new TextDecoder();
 	let buffer = "";
@@ -2256,7 +2298,7 @@ async function* readSse(stream: ReadableStream<Uint8Array>, signal?: AbortSignal
 			if (signal?.aborted) {
 				throw new TickStoppedError();
 			}
-			const { done, value } = await reader.read();
+			const { done, value } = await readStreamChunk(reader, idleTimeoutMs);
 			if (signal?.aborted) {
 				throw new TickStoppedError();
 			}
@@ -2281,6 +2323,34 @@ async function* readSse(stream: ReadableStream<Uint8Array>, signal?: AbortSignal
 		}
 	} finally {
 		reader.releaseLock();
+	}
+}
+
+async function readStreamChunk(
+	reader: ReadableStreamDefaultReader<Uint8Array>,
+	idleTimeoutMs: number,
+): Promise<ReadableStreamReadResult<Uint8Array>> {
+	let timeout: ReturnType<typeof setTimeout> | undefined;
+	try {
+		return await Promise.race([
+			reader.read(),
+			new Promise<never>((_, reject) => {
+				timeout = setTimeout(() => reject(new ProviderStreamIdleTimeoutError(idleTimeoutMs)), idleTimeoutMs);
+			}),
+		]);
+	} catch (error) {
+		if (error instanceof ProviderStreamIdleTimeoutError) {
+			try {
+				await reader.cancel(error.message);
+			} catch {
+				// The stream may already be closed or aborted by the provider.
+			}
+		}
+		throw error;
+	} finally {
+		if (timeout !== undefined) {
+			clearTimeout(timeout);
+		}
 	}
 }
 
