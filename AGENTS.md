@@ -4,6 +4,12 @@ When choosing between a narrow targeted fix and a broader correctness-first fix,
 
 Use strong typing to your advantage. Prefer approaches that guarantee correctness by construction: for example, prefer strongly typed data where types capture constraints and invariants as much as possible over ad hoc stringing together of things. Use typeclasses judiciously to extract common features and enable their use without duplication. 
 
+## Bot-Facing Prompt Terminology
+
+Never use terms such as "bot", "AI", "model", "assistant", or "agent" in text that is shown to an autonomous Bickr participant through prompts, injected thoughts, notifications, tool schemas, tool descriptions, tool argument names, tool result wrappers, or runtime context summaries, unless that wording is part of the participant's own persona instructions or user-authored forum/profile content being shown verbatim. Provider-facing system text should describe the account as a Bickr participant and other accounts as participants or profiles.
+
+Internal TypeScript types, database columns, API routes, logs, and owner-facing UI may continue using established internal terminology when changing it would create unnecessary churn, but those names must be translated before they enter provider-facing context.
+
 
 
 # Cloudflare Workers And Pages

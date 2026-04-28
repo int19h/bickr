@@ -26,6 +26,7 @@ import {
 	type SpotlightPreviewInput,
 	type ThreadDocument,
 	type ThreadSummary,
+	type VoteDetail,
 	type VoteInput,
 	type WorldDocument,
 } from "./model";
@@ -659,6 +660,16 @@ export async function recordSpotlightToolHumanNotification(
 		return;
 	}
 	const action = spotlightActionSummary(input.toolName, input.args, input.result, input.bot);
+	const standardNotification = spotlightStandardHumanNotification(input.toolName, input.result, input.bot, {
+		userId: delivery.userId,
+		worldId: delivery.worldId,
+		spotlightId: input.spotlightId,
+		now,
+	});
+	if (standardNotification) {
+		await insertOrAnnotateSpotlightHumanNotification(db, standardNotification);
+		return;
+	}
 	if (!action) {
 		return;
 	}
@@ -814,6 +825,33 @@ async function insertHumanNotification(
 			input.spotlightLabel ?? null,
 			input.now,
 		)
+		.run();
+}
+
+async function insertOrAnnotateSpotlightHumanNotification(
+	db: D1DatabaseLike,
+	input: HumanNotificationInput & { spotlightId: string; spotlightLabel: string },
+): Promise<void> {
+	const existing = await db
+		.prepare(
+			`SELECT notification_id AS id
+			 FROM human_notifications
+			 WHERE user_id = ? AND event_key = ?
+			 LIMIT 1`,
+		)
+		.bind(input.userId, input.eventKey)
+		.first<{ id: string }>();
+	if (!existing) {
+		await insertHumanNotification(db, input);
+	}
+	await db
+		.prepare(
+			`UPDATE human_notifications
+			 SET spotlight_id = COALESCE(spotlight_id, ?),
+			     spotlight_label = COALESCE(spotlight_label, ?)
+			 WHERE user_id = ? AND event_key = ?`,
+		)
+		.bind(input.spotlightId, input.spotlightLabel, input.userId, input.eventKey)
 		.run();
 }
 
@@ -1002,6 +1040,34 @@ export async function setVote(
 	}
 
 	return updated;
+}
+
+export async function listVotesForTarget(
+	db: D1DatabaseLike,
+	worldId: string,
+	targetType: "thread" | "comment",
+	targetId: string,
+): Promise<VoteDetail[]> {
+	const result = await db
+		.prepare(
+			`SELECT
+				v.bot_id AS botId,
+				b.handle,
+				b.display_name AS displayName,
+				v.value,
+				v.created_at AS createdAt,
+				v.updated_at AS updatedAt
+			 FROM votes v
+			 JOIN bots_index b ON b.bot_id = v.bot_id
+			 WHERE v.world_id = ?
+			   AND v.target_type = ?
+			   AND v.target_id = ?
+			   AND v.value != 0
+			 ORDER BY v.updated_at DESC`,
+		)
+		.bind(worldId, targetType, targetId)
+		.all<VoteDetail>();
+	return result.results ?? [];
 }
 
 export async function followBot(
@@ -2536,24 +2602,104 @@ function spotlightActionSummary(
 			...(targetId ? { targetId } : {}),
 		};
 	}
-	if (toolName === "follow_bot") {
-		const targetId = stringValue(argsRecord.botId);
+	if (toolName === "follow_bot" || toolName === "follow_profile") {
+		const targetId = stringValue(argsRecord.botId) ?? stringValue(argsRecord.profileId) ?? stringValue(argsRecord.username);
 		return {
-			title: `${bot.displayName} followed a bot after a spotlight`,
-			body: targetId ? `Followed bot ${targetId}.` : "Followed a bot.",
+			title: `${bot.displayName} followed a profile after a spotlight`,
+			body: targetId ? `Followed ${targetId}.` : "Followed a profile.",
 			urlPath: botUrlPath(bot),
 			targetType: "bot",
 			...(targetId ? { targetId } : {}),
 		};
 	}
-	if (toolName === "unfollow_bot") {
-		const targetId = stringValue(argsRecord.botId);
+	if (toolName === "unfollow_bot" || toolName === "unfollow_profile") {
+		const targetId = stringValue(argsRecord.botId) ?? stringValue(argsRecord.profileId) ?? stringValue(argsRecord.username);
 		return {
-			title: `${bot.displayName} unfollowed a bot after a spotlight`,
-			body: targetId ? `Unfollowed bot ${targetId}.` : "Unfollowed a bot.",
+			title: `${bot.displayName} unfollowed a profile after a spotlight`,
+			body: targetId ? `Unfollowed ${targetId}.` : "Unfollowed a profile.",
 			urlPath: botUrlPath(bot),
 			targetType: "bot",
 			...(targetId ? { targetId } : {}),
+		};
+	}
+	return null;
+}
+
+function spotlightStandardHumanNotification(
+	toolName: string,
+	result: unknown,
+	bot: BotDocument,
+	input: { userId: string; worldId: string; spotlightId: string; now: string },
+): (HumanNotificationInput & { spotlightId: string; spotlightLabel: string }) | null {
+	const thread = threadFromToolResult(result);
+	if (toolName === "create_post" && thread) {
+		return {
+			userId: input.userId,
+			worldId: input.worldId,
+			eventKey: `thread_created:${thread.id}`,
+			notificationType: "thread_created",
+			actor: bot,
+			sourceType: "thread",
+			sourceId: thread.id,
+			targetType: "forum",
+			targetId: thread.forumId,
+			title: `${bot.displayName} posted in f/${thread.forumHandle}`,
+			body: thread.rootPost.title,
+			urlPath: threadUrlPath(thread),
+			spotlightId: input.spotlightId,
+			spotlightLabel: "caused by spotlight",
+			now: input.now,
+		};
+	}
+	if (toolName === "reply_to_thread" && thread) {
+		const comment = newestComment(thread);
+		if (!comment) {
+			return null;
+		}
+		return {
+			userId: input.userId,
+			worldId: input.worldId,
+			eventKey: `comment_created:${comment.id}`,
+			notificationType: "comment_created",
+			actor: bot,
+			sourceType: "comment",
+			sourceId: comment.id,
+			targetType: "thread",
+			targetId: thread.id,
+			title: `${bot.displayName} replied in "${thread.rootPost.title}"`,
+			body: preview(comment.body),
+			urlPath: commentUrlPath(thread, comment.id),
+			spotlightId: input.spotlightId,
+			spotlightLabel: "caused by spotlight",
+			now: input.now,
+		};
+	}
+	if (toolName === "follow_bot" || toolName === "follow_profile") {
+		const record = runtimeRecord(result);
+		const profile = runtimeRecord(record.profile);
+		const followedId = stringValue(profile.id);
+		if (!followedId) {
+			return null;
+		}
+		return {
+			userId: input.userId,
+			worldId: input.worldId,
+			eventKey: `bot_followed:${bot.id}:${followedId}`,
+			notificationType: "bot_followed",
+			actor: bot,
+			sourceType: "follow",
+			sourceId: `${bot.id}:${followedId}`,
+			targetType: "bot",
+			targetId: followedId,
+			title: `${bot.displayName} followed ${stringValue(profile.displayName) ?? "a profile"}`,
+			body: `u/${bot.handle} followed u/${stringValue(profile.handle) ?? followedId}.`,
+			urlPath:
+				stringValue(profile.homeWorldHandle) && stringValue(profile.handle) ?
+					`/w/${encodeURIComponent(stringValue(profile.homeWorldHandle)!)}/u/${encodeURIComponent(stringValue(profile.handle)!)}`
+				:	botUrlPath(bot),
+			spotlightId: input.spotlightId,
+			spotlightLabel: "caused by spotlight",
+			now: input.now,
 		};
 	}
 	return null;
@@ -2571,8 +2717,12 @@ function threadFromToolResult(result: unknown): ThreadDocument | null {
 	return null;
 }
 
+function newestComment(thread: ThreadDocument): CommentDocument | undefined {
+	return [...thread.comments].sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt))[0];
+}
+
 function newestCommentId(thread: ThreadDocument): string | undefined {
-	return [...thread.comments].sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt))[0]?.id;
+	return newestComment(thread)?.id;
 }
 
 function stringValue(value: unknown): string | undefined {

@@ -25,6 +25,7 @@ import {
 	type UpdateBotInput,
 	type UpdateUserProfileInput,
 	type UserProfile,
+	type VoteDetail,
 	type WorldSummary,
 } from "@bickr/shared/model";
 import "./App.css";
@@ -2428,6 +2429,7 @@ function ThreadPage({
 				{commentTree.map((comment) => (
 					<CommentNode
 						comment={comment}
+						forumHandle={thread.forumHandle}
 						key={comment.id}
 						onToggle={(commentId, checked) => {
 							setRootSelected(false);
@@ -2439,6 +2441,7 @@ function ThreadPage({
 						selected={selectedComments}
 						subscriptions={subscriptions}
 						targetCommentId={targetCommentId}
+						threadId={thread.id}
 						worldHandle={thread.worldHandle}
 					/>
 				))}
@@ -2473,6 +2476,7 @@ function ThreadPage({
 
 function CommentNode({
 	comment,
+	forumHandle,
 	implied,
 	onReference,
 	onToggle,
@@ -2480,9 +2484,11 @@ function CommentNode({
 	selected,
 	subscriptions,
 	targetCommentId,
+	threadId,
 	worldHandle,
 }: {
 	comment: CommentTreeNode;
+	forumHandle: string;
 	implied: Set<string>;
 	onReference: OpenReference;
 	onToggle: (commentId: string, checked: boolean) => void;
@@ -2490,6 +2496,7 @@ function CommentNode({
 	selected: Record<string, boolean>;
 	subscriptions: HumanSubscription[];
 	targetCommentId: string | null;
+	threadId: string;
 	worldHandle: string;
 }) {
 	const checked = Boolean(selected[comment.id]);
@@ -2521,7 +2528,14 @@ function CommentNode({
 				<div className="head">
 					<Avatar actor="bot" colorSeed={comment.authorHandle} name={comment.authorDisplayName} size="sm" />
 					<Reference isBot kind="bot" name={comment.authorHandle} onOpen={() => onReference("bot", comment.authorHandle, { worldHandle })} />
-					<span>{comment.voteScore} votes</span>
+					<CommentVoteCount
+						commentId={comment.id}
+						forumHandle={forumHandle}
+						onReference={onReference}
+						threadId={threadId}
+						voteScore={comment.voteScore}
+						worldHandle={worldHandle}
+					/>
 					<span>{timeAgo(comment.createdAt)}</span>
 					{comment.readState?.isNew && <span className="new-mark">new</span>}
 					<span className="spacer" />
@@ -2551,6 +2565,7 @@ function CommentNode({
 						{comment.replies.map((reply) => (
 							<CommentNode
 								comment={reply}
+								forumHandle={forumHandle}
 								implied={implied}
 								key={reply.id}
 								onReference={onReference}
@@ -2559,6 +2574,7 @@ function CommentNode({
 								selected={selected}
 								subscriptions={subscriptions}
 								targetCommentId={targetCommentId}
+								threadId={threadId}
 								worldHandle={worldHandle}
 							/>
 						))}
@@ -2566,6 +2582,124 @@ function CommentNode({
 				)}
 			</div>
 		</div>
+	);
+}
+
+function CommentVoteCount({
+	commentId,
+	forumHandle,
+	onReference,
+	threadId,
+	voteScore,
+	worldHandle,
+}: {
+	commentId: string;
+	forumHandle: string;
+	onReference: OpenReference;
+	threadId: string;
+	voteScore: number;
+	worldHandle: string;
+}) {
+	const [open, setOpen] = useState(false);
+	const [votes, setVotes] = useState<VoteDetail[] | null>(null);
+	const [loading, setLoading] = useState(false);
+	const [error, setError] = useState("");
+	const wrapRef = useRef<HTMLSpanElement | null>(null);
+	const label = `${voteScore} vote${voteScore === 1 ? "" : "s"}`;
+
+	useEffect(() => {
+		setVotes(null);
+		setError("");
+	}, [commentId, voteScore]);
+
+	useEffect(() => {
+		if (!open || votes !== null || loading) {
+			return undefined;
+		}
+		let alive = true;
+		setLoading(true);
+		setError("");
+		void api<{ votes: VoteDetail[] }>(
+			`/api/worlds/${encodeURIComponent(worldHandle)}/forums/${encodeURIComponent(forumHandle)}/threads/${encodeURIComponent(threadId)}/comments/${encodeURIComponent(commentId)}/votes`,
+		).then((result) => {
+			if (!alive) {
+				return;
+			}
+			setLoading(false);
+			if (result.ok) {
+				setVotes(result.data.votes);
+			} else {
+				setError(result.message);
+			}
+		});
+		return () => {
+			alive = false;
+		};
+	}, [commentId, forumHandle, loading, open, threadId, voteScore, votes, worldHandle]);
+
+	useEffect(() => {
+		if (!open) {
+			return undefined;
+		}
+		const onPointerDown = (event: PointerEvent) => {
+			if (!wrapRef.current?.contains(event.target as Node)) {
+				setOpen(false);
+			}
+		};
+		const onKeyDown = (event: KeyboardEvent) => {
+			if (event.key === "Escape") {
+				setOpen(false);
+			}
+		};
+		document.addEventListener("pointerdown", onPointerDown);
+		document.addEventListener("keydown", onKeyDown);
+		return () => {
+			document.removeEventListener("pointerdown", onPointerDown);
+			document.removeEventListener("keydown", onKeyDown);
+		};
+	}, [open]);
+
+	return (
+		<span className="vote-popover-wrap" ref={wrapRef}>
+			<button
+				aria-expanded={open}
+				aria-haspopup="dialog"
+				className="vote-count"
+				onClick={() => setOpen((current) => !current)}
+				type="button"
+			>
+				{label}
+			</button>
+			{open && (
+				<span className="vote-popout" role="dialog">
+					<span className="vote-popout-title">Votes</span>
+					{loading && <span className="vote-empty">Loading votes...</span>}
+					{error && <span className="vote-empty">{error}</span>}
+					{!loading && !error && votes?.length === 0 && <span className="vote-empty">No votes yet.</span>}
+					{!loading && !error && votes && votes.length > 0 && (
+						<span className="vote-list">
+							{votes.map((vote) => (
+								<span className="vote-row" key={vote.botId}>
+									<span className="vote-voter">
+										<strong>{vote.displayName}</strong>
+										<Reference
+											isBot
+											kind="bot"
+											name={vote.handle}
+											onOpen={() => onReference("bot", vote.handle, { worldHandle })}
+											worldHandle={worldHandle}
+										/>
+									</span>
+									<span className={vote.value > 0 ? "vote-up" : "vote-down"}>
+										{vote.value > 0 ? "upvoted" : "downvoted"}
+									</span>
+								</span>
+							))}
+						</span>
+					)}
+				</span>
+			)}
+		</span>
 	);
 }
 
@@ -3116,7 +3250,7 @@ function BotEdit({
 							<Field hint="required" label="Short bio">
 								<textarea
 									className="textarea short-bio-editor"
-									maxLength={280}
+									maxLength={1200}
 									onChange={(event) => setDraft((current) => ({ ...current, shortBio: event.target.value }))}
 									rows={4}
 									value={draft.shortBio}
@@ -3827,11 +3961,12 @@ function CreateBotModal({
 						</div>
 					</Field>
 					<Field hint="required" label="Short bio">
-						<input
-							className="input"
-							maxLength={280}
+						<textarea
+							className="textarea short-bio-editor"
+							maxLength={1200}
 							onChange={(event) => setManualDraft((current) => ({ ...current, shortBio: event.target.value }))}
 							placeholder="Poetry editor. Smokes too much."
+							rows={4}
 							value={manualDraft.shortBio}
 						/>
 					</Field>
@@ -3918,10 +4053,11 @@ function CreateBotModal({
 								/>
 							</Field>
 							<Field hint="editable" label="Short bio">
-								<input
-									className="input"
-									maxLength={280}
+								<textarea
+									className="textarea short-bio-editor"
+									maxLength={1200}
 									onChange={(event) => setImportDraft((current) => ({ ...current, shortBio: event.target.value }))}
+									rows={4}
 									value={importDraft.shortBio}
 								/>
 							</Field>
@@ -5302,15 +5438,20 @@ function toolCallTitle(name: string, args: unknown): string {
 		case "search_posts_semantic":
 			return `Searching posts for "${stringValue(record.query) ?? ""}"`;
 		case "search_bots":
-			return `Searching bots for "${stringValue(record.query) ?? ""}"`;
+		case "search_profiles":
+			return `Searching profiles for "${stringValue(record.query) ?? ""}"`;
 		case "view_bot_profile":
+		case "view_profile":
 			return `Viewing u/${stringValue(record.username) ?? "..."}'s profile`;
 		case "view_bot_activity":
+		case "view_activity":
 			return `Viewing u/${stringValue(record.username) ?? "..."}'s activity`;
 		case "follow_bot":
-			return `Following bot ${shortId(stringValue(record.botId))}`;
+		case "follow_profile":
+			return `Following ${stringValue(record.username) ? `u/${stringValue(record.username)}` : shortId(stringValue(record.profileId) ?? stringValue(record.botId))}`;
 		case "unfollow_bot":
-			return `Unfollowing bot ${shortId(stringValue(record.botId))}`;
+		case "unfollow_profile":
+			return `Unfollowing ${stringValue(record.username) ? `u/${stringValue(record.username)}` : shortId(stringValue(record.profileId) ?? stringValue(record.botId))}`;
 		default:
 			return "Using tool";
 	}
@@ -5335,15 +5476,15 @@ function toolResultTitle(name: string, result: unknown): string {
 		const target = stringValue(record.targetCommentId);
 		return `Read comment ${shortId(target)}`;
 	}
-	if (name === "view_bot_profile") {
+	if (name === "view_bot_profile" || name === "view_profile") {
 		return `Viewed ${botLabel(record)}`;
 	}
-	if (name === "view_bot_activity") {
+	if (name === "view_bot_activity" || name === "view_activity") {
 		const bot = asRuntimeRecord(record.bot);
 		return `Viewed ${botLabel(bot)}'s activity`;
 	}
-	if (name === "search_bots") {
-		return "Bot search results";
+	if (name === "search_bots" || name === "search_profiles") {
+		return "Profile search results";
 	}
 	if (name === "search_posts" || name === "search_posts_semantic") {
 		return "Post search results";
@@ -5358,10 +5499,12 @@ function toolSummaryNode(name: string, args: unknown, result: unknown, worldHand
 	const argsRecord = asRuntimeRecord(args);
 	const resultRecord = asRuntimeRecord(result);
 	if (resultRecord.ok === false) {
+		const existingUrlPath = stringValue(resultRecord.existingUrlPath);
 		return (
 			<div className="tool-pretty error">
 				<span>{stringValue(resultRecord.message) ?? "Tool call failed."}</span>
 				{stringValue(resultRecord.guidance) && <span>{stringValue(resultRecord.guidance)}</span>}
+				{existingUrlPath && <a href={existingUrlPath}>Existing comment</a>}
 			</div>
 		);
 	}
@@ -5408,14 +5551,14 @@ function toolSummaryNode(name: string, args: unknown, result: unknown, worldHand
 			</div>
 		);
 	}
-	if (name === "view_bot_profile") {
+	if (name === "view_bot_profile" || name === "view_profile") {
 		return <BotProfileToolSummary bot={resultRecord} fallbackWorldHandle={worldHandle} />;
 	}
-	if (name === "view_bot_activity") {
+	if (name === "view_bot_activity" || name === "view_activity") {
 		const bot = asRuntimeRecord(resultRecord.bot);
 		return <BotProfileToolSummary bot={bot} fallbackWorldHandle={worldHandle} suffix="activity" />;
 	}
-	if (name === "search_bots" && Array.isArray(result)) {
+	if ((name === "search_bots" || name === "search_profiles") && Array.isArray(result)) {
 		return <div className="tool-pretty">{result.slice(0, 5).map((item) => botLink(asRuntimeRecord(item), worldHandle))}</div>;
 	}
 	if ((name === "search_posts" || name === "search_posts_semantic") && Array.isArray(result)) {

@@ -150,6 +150,15 @@ export type CommentDocument = {
 	readState?: CommentReadState;
 };
 
+export type VoteDetail = {
+	botId: string;
+	handle: string;
+	displayName: string;
+	value: number;
+	createdAt: string;
+	updatedAt: string;
+};
+
 export type ThreadReadState = {
 	isNew: boolean;
 	hasNewComments: boolean;

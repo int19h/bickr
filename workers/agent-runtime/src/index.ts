@@ -95,6 +95,7 @@ type ToolCall = {
 type ToolResult = {
 	name: string;
 	result: unknown;
+	providerResult: unknown;
 };
 
 type ToolFailurePayload = {
@@ -104,6 +105,9 @@ type ToolFailurePayload = {
 	toolName: string;
 	args: Record<string, unknown>;
 	guidance?: string;
+	existingUrlPath?: string;
+	existingThreadId?: string;
+	existingCommentId?: string;
 };
 
 class PersistentToolFailureError extends Error {
@@ -113,6 +117,23 @@ class PersistentToolFailureError extends Error {
 		super(`Stopped after 5 consecutive failed tool calls. Last error: ${failure.message}`);
 		this.name = "PersistentToolFailureError";
 		this.failure = failure;
+	}
+}
+
+type DuplicateReply = {
+	threadId: string;
+	commentId: string;
+	urlPath: string;
+	seq: number;
+};
+
+class DuplicateReplyError extends Error {
+	readonly duplicate: DuplicateReply;
+
+	constructor(duplicate: DuplicateReply) {
+		super(`I already posted this exact comment recently: ${duplicate.urlPath}`);
+		this.name = "DuplicateReplyError";
+		this.duplicate = duplicate;
 	}
 }
 
@@ -502,11 +523,13 @@ export class BotRuntime {
 				return { runId, status: "stopped" };
 			}
 			if (error instanceof PersistentToolFailureError) {
-				await this.appendEvent(runId, "tick_failed", {
-					message: error.message,
-					toolName: error.failure.toolName,
-					failure: error.failure,
-				});
+				if (!this.hasTerminalEvent(runId)) {
+					await this.appendEvent(runId, "tick_failed", {
+						message: error.message,
+						toolName: error.failure.toolName,
+						failure: error.failure,
+					});
+				}
 				await this.setRuntimeIndex(bot, "failed", null, error.message, new Date().toISOString());
 				try {
 					await recordBotRuntimeFailureHumanNotification(this.env.BICKR_D1, {
@@ -529,7 +552,9 @@ export class BotRuntime {
 				return { runId, status: "failed", error: error.message };
 			}
 			const message = error instanceof Error ? error.message : "Unexpected bot runtime error.";
-			await this.appendEvent(runId, "tick_failed", { message });
+			if (!this.hasTerminalEvent(runId)) {
+				await this.appendEvent(runId, "tick_failed", { message });
+			}
 			await this.setRuntimeIndex(bot, "failed", null, message, new Date().toISOString());
 			if (runContext.mode === "spotlight" && runContext.spotlightId) {
 				try {
@@ -692,7 +717,7 @@ export class BotRuntime {
 				currentMessages.push({
 					role: "tool",
 					tool_call_id: toolCall.id,
-					content: JSON.stringify(result.result),
+					content: JSON.stringify(result.providerResult),
 				});
 			}
 		}
@@ -965,10 +990,11 @@ export class BotRuntime {
 		runContext: RunContext,
 	): Promise<ToolResult> {
 		this.throwIfStopped(runId, runContext.signal);
-		const normalizedArgs = normalizeToolArgs(name, args);
-		await this.appendEvent(runId, "tool_call", { name, args: normalizedArgs });
+		const canonicalName = canonicalToolName(name);
+		const normalizedArgs = normalizeToolArgs(canonicalName, args);
+		await this.appendEvent(runId, "tool_call", { name: canonicalName, args: providerToolArgs(canonicalName, normalizedArgs) });
 		let result: unknown;
-		switch (name) {
+		switch (canonicalName) {
 			case "list_accessible_forums":
 				result = await listForums(this.env.BICKR_D1, bot.homeWorldHandle);
 				break;
@@ -984,11 +1010,11 @@ export class BotRuntime {
 			case "read_thread_by_id":
 				result = this.threadReadResult(
 					await readThread(this.env.BICKR_KV, stringArg(normalizedArgs.threadId, "threadId")),
-					name,
+					canonicalName,
 				);
 				break;
 			case "read_comment_by_id":
-				result = await this.readCommentById(bot, stringArg(normalizedArgs.commentId, "commentId"), name);
+				result = await this.readCommentById(bot, stringArg(normalizedArgs.commentId, "commentId"), canonicalName);
 				break;
 			case "create_post": {
 				const forum = await this.forumFromArgs(bot, normalizedArgs);
@@ -1004,17 +1030,20 @@ export class BotRuntime {
 				);
 				break;
 			}
-			case "reply_to_thread":
+			case "reply_to_thread": {
+				const body = stringArg(normalizedArgs.body, "body");
+				this.assertNoRecentDuplicateReply(bot.id, body);
 				result = await this.forumService(
 					`/threads/${encodeURIComponent(stringArg(normalizedArgs.threadId, "threadId"))}/comments`,
 					bot.id,
 					{
-						body: stringArg(normalizedArgs.body, "body"),
+						body,
 						...(typeof normalizedArgs.parentCommentId === "string" ? { parentCommentId: normalizedArgs.parentCommentId } : {}),
 					},
 					runContext.signal,
 				);
 				break;
+			}
 			case "vote":
 				result = await this.forumService(
 					"/votes",
@@ -1027,31 +1056,37 @@ export class BotRuntime {
 					runContext.signal,
 				);
 				break;
-			case "follow_bot":
-				result = await followBot(this.env.BICKR_KV, this.env.BICKR_D1, bot.id, stringArg(normalizedArgs.botId, "botId"));
+			case "follow_profile": {
+				const profile = await this.profileFromArgs(bot, normalizedArgs);
+				const follow = await followBot(this.env.BICKR_KV, this.env.BICKR_D1, bot.id, profile.id);
+				result = { ...follow, profile };
 				break;
-			case "unfollow_bot":
-				result = await unfollowBot(this.env.BICKR_D1, bot.id, stringArg(normalizedArgs.botId, "botId"));
+			}
+			case "unfollow_profile": {
+				const profile = await this.profileFromArgs(bot, normalizedArgs);
+				const follow = await unfollowBot(this.env.BICKR_D1, bot.id, profile.id);
+				result = { ...follow, profile };
 				break;
+			}
 			case "search_posts":
 			case "search_posts_semantic":
 				result = await searchPosts(this.env.BICKR_D1, bot.homeWorldId, stringArg(normalizedArgs.query, "query"));
 				break;
-			case "search_bots":
+			case "search_profiles":
 				result = await this.searchBotsTool(bot, stringArg(normalizedArgs.query, "query"), numberArg(normalizedArgs.limit, 10));
 				break;
-			case "view_bot_profile": {
+			case "view_profile": {
 				const profile = await botPublicProfileByHandle(
 					this.env.BICKR_KV,
 					this.env.BICKR_D1,
 					bot.homeWorldId,
 					usernameArg(normalizedArgs.username),
 				);
-				await markBotSeenContent(this.env.BICKR_D1, bot.id, [{ type: "bot", id: profile.id }], "tool:view_bot_profile", runId);
+				await markBotSeenContent(this.env.BICKR_D1, bot.id, [{ type: "bot", id: profile.id }], "tool:view_profile", runId);
 				result = profile;
 				break;
 			}
-			case "view_bot_activity": {
+			case "view_activity": {
 				const feed = await botActivityFeedByHandle(
 					this.env.BICKR_KV,
 					this.env.BICKR_D1,
@@ -1059,31 +1094,32 @@ export class BotRuntime {
 					usernameArg(normalizedArgs.username),
 					numberArg(normalizedArgs.limit, 20),
 				);
-				await markBotSeenContent(this.env.BICKR_D1, bot.id, [{ type: "bot", id: feed.bot.id }], "tool:view_bot_activity", runId);
+				await markBotSeenContent(this.env.BICKR_D1, bot.id, [{ type: "bot", id: feed.bot.id }], "tool:view_activity", runId);
 				result = feed;
 				break;
 			}
 			default:
-				throw new Error(`Unknown tool: ${name}`);
+				throw new Error(`Unknown tool: ${canonicalName}`);
 		}
 		this.throwIfStopped(runId, runContext.signal);
-		await markBotSeenFromResult(this.env.BICKR_D1, bot.id, result, `tool:${name}`, runId);
-		if (runContext.spotlightId && mutableToolNames.has(name)) {
+		await markBotSeenFromResult(this.env.BICKR_D1, bot.id, result, `tool:${canonicalName}`, runId);
+		if (runContext.spotlightId && mutableToolNames.has(canonicalName)) {
 			try {
 				await recordSpotlightToolHumanNotification(this.env.BICKR_D1, {
 					bot,
 					spotlightId: runContext.spotlightId,
 					runId,
-					toolName: name,
-				args: normalizedArgs,
-				result,
-			});
+					toolName: canonicalName,
+					args: providerToolArgs(canonicalName, normalizedArgs),
+					result,
+				});
 			} catch (error) {
 				console.warn("spotlight human notification failed", error);
 			}
 		}
-		await this.appendEvent(runId, "tool_result", { name, args: normalizedArgs, result });
-		return { name, result };
+		const providerResult = providerToolResultPayload(canonicalName, result);
+		await this.appendEvent(runId, "tool_result", { name: canonicalName, args: providerToolArgs(canonicalName, normalizedArgs), result });
+		return { name: canonicalName, result, providerResult };
 	}
 
 	private async searchBotsTool(bot: BotDocument, query: string, limit: number): Promise<BotSearchResult[]> {
@@ -1099,6 +1135,44 @@ export class BotRuntime {
 			}
 		}
 		return [...byId.values()].slice(0, limit);
+	}
+
+	private assertNoRecentDuplicateReply(botId: string, body: string): void {
+		const rows = this.state.storage.sql
+			.exec<RuntimeRow>(
+				`SELECT seq, run_id, type, payload_json, token_estimate, compacted_by, created_at
+				 FROM (
+					SELECT seq, run_id, type, payload_json, token_estimate, compacted_by, created_at
+					FROM events
+					WHERE type IN ('input', 'assistant_message', 'tool_call', 'tool_result', 'thought_injected')
+					ORDER BY seq DESC
+					LIMIT 100
+				 )
+				 WHERE type = 'tool_result'
+				 ORDER BY seq DESC`,
+			)
+			.toArray();
+		for (const row of rows) {
+			const duplicate = duplicateReplyFromToolResult(row, botId, body);
+			if (duplicate) {
+				throw new DuplicateReplyError(duplicate);
+			}
+		}
+	}
+
+	private async profileFromArgs(bot: BotDocument, args: Record<string, unknown>) {
+		if (typeof args.profileId === "string" && args.profileId.trim()) {
+			return botPublicProfile(await botById(this.env.BICKR_KV, this.env.BICKR_D1, internalProfileId(args.profileId.trim())));
+		}
+		if (typeof args.botId === "string" && args.botId.trim()) {
+			return botPublicProfile(await botById(this.env.BICKR_KV, this.env.BICKR_D1, args.botId.trim()));
+		}
+		return botPublicProfileByHandle(
+			this.env.BICKR_KV,
+			this.env.BICKR_D1,
+			bot.homeWorldId,
+			usernameArg(args.username),
+		);
 	}
 
 	private threadReadResult(thread: ThreadDocument, operation: string, targetCommentId?: string) {
@@ -1125,7 +1199,7 @@ export class BotRuntime {
 		}
 		return {
 			operation,
-			context: `Result of bot-initiated ${operation} operation.`,
+			context: `Result of my ${operation} operation.`,
 			thread: threadReadSummary(thread),
 			...(targetCommentId ? { targetCommentId } : {}),
 			content,
@@ -1196,7 +1270,8 @@ export class BotRuntime {
 		const summaries = this.eventsAfter(0)
 			.filter((event) => event.type === "compaction")
 			.slice(-3)
-			.map((event) => JSON.stringify(event.payload))
+			.map((event) => compactedSummaryForContext(event.payload))
+			.filter(Boolean)
 			.join("\n");
 		const thoughtContext = formatThoughtContext(this.thoughtBlocksForContext());
 		const injectedThoughtMessages = this.injectedThoughtMessagesForContext();
@@ -1207,7 +1282,7 @@ export class BotRuntime {
 		const runtimeInput = {
 			notifications: input.notifications,
 			ping: input.ping,
-			...(input.injections.length > 0 ? { injectedThoughtsDeliveredAsAssistant: input.injections.length } : {}),
+			...(input.injections.length > 0 ? { deliveredThoughtCount: input.injections.length } : {}),
 		};
 
 		return [
@@ -1215,9 +1290,9 @@ export class BotRuntime {
 				role: "system",
 				content: standardPrompt(bot, worldBots),
 			},
-			...(summaries ? [{ role: "user" as const, content: `Compacted prior context:\n${summaries}` }] : []),
+			...(summaries ? [{ role: "user" as const, content: `Earlier relevant activity:\n${summaries}` }] : []),
 			...(thoughtContext ? [{ role: "user" as const, content: thoughtContext }] : []),
-			...(recent ? [{ role: "user" as const, content: `Recent un-compacted runtime log:\n${recent}` }] : []),
+			...(recent ? [{ role: "user" as const, content: `Recent activity:\n${recent}` }] : []),
 			...injectedThoughtMessages,
 			{
 				role: "user",
@@ -1248,7 +1323,7 @@ export class BotRuntime {
 				`SELECT seq, run_id, type, payload_json, token_estimate, compacted_by, created_at
 				 FROM events
 				 WHERE compacted_by IS NULL
-				   AND type NOT IN ('compaction', 'provider_delta', 'thought_injected')
+				   AND type IN ('input', 'assistant_message', 'tool_call', 'tool_result')
 				 ORDER BY seq ASC`,
 			)
 			.toArray();
@@ -1412,7 +1487,7 @@ export class BotRuntime {
 				`SELECT seq, run_id, type, payload_json, token_estimate, compacted_by, created_at
 				 FROM events
 				 WHERE compacted_by IS NULL
-				   AND type NOT IN ('compaction', 'provider_delta', 'thought_injected')
+				   AND type IN ('input', 'assistant_message', 'tool_call', 'tool_result')
 				 ORDER BY seq ASC
 				 LIMIT 80`,
 			)
@@ -1436,7 +1511,7 @@ export class BotRuntime {
 			 SET compacted_by = ?
 			 WHERE seq >= ?
 			   AND seq <= ?
-			   AND type NOT IN ('compaction', 'provider_delta')`,
+			   AND type IN ('input', 'assistant_message', 'tool_call', 'tool_result')`,
 			summaryEvent.seq,
 			compacted[0]?.seq ?? 0,
 			compacted[compacted.length - 1]?.seq ?? 0,
@@ -1504,7 +1579,7 @@ export class BotRuntime {
 						 FROM events
 						 WHERE seq > ?
 						 ORDER BY seq ASC
-						 LIMIT 500`,
+						 LIMIT 2000`,
 						afterSeq,
 					)
 					.toArray()
@@ -1512,11 +1587,29 @@ export class BotRuntime {
 					.exec<RuntimeRow>(
 						`SELECT seq, run_id, type, payload_json, token_estimate, compacted_by, created_at
 						 FROM events
-						 ORDER BY seq DESC
-						 LIMIT 500`,
+						 WHERE seq IN (
+							SELECT seq FROM (
+								SELECT seq
+								FROM events
+								WHERE type != 'provider_delta'
+								ORDER BY seq DESC
+								LIMIT 160
+							)
+						 )
+						 UNION
+						 SELECT seq, run_id, type, payload_json, token_estimate, compacted_by, created_at
+						 FROM events
+						 WHERE seq IN (
+							SELECT seq FROM (
+								SELECT seq
+								FROM events
+								ORDER BY seq DESC
+								LIMIT 1000
+							)
+						 )
+						 ORDER BY seq ASC`,
 					)
 					.toArray()
-					.reverse();
 		return rows
 			.map((row) => ({
 				seq: row.seq,
@@ -1572,6 +1665,45 @@ export class BotRuntime {
 				status: "idle",
 				nextDueAt,
 			};
+		}
+		if (row?.status === "running" && row.activeRunId) {
+			const stale = this.staleProviderStream(row.activeRunId);
+			if (stale) {
+				const message = `Provider stream timed out after ${Math.round(providerStreamIdleTimeoutMs / 1000)} seconds without data; marking runtime failed.`;
+				if (!this.hasTerminalEvent(row.activeRunId)) {
+					await this.appendEvent(row.activeRunId, "tick_failed", {
+						message,
+						lastEventType: stale.type,
+						lastEventAt: stale.created_at,
+					});
+				}
+				if (this.activeRunId === row.activeRunId) {
+					this.setStopRequest(row.activeRunId);
+					if (this.activeAbortController && !this.activeAbortController.signal.aborted) {
+						this.activeAbortController.abort();
+					}
+					this.activeRunId = null;
+					this.activeAbortController = null;
+				}
+				const now = new Date().toISOString();
+				await this.env.BICKR_D1.prepare(
+					`UPDATE bot_runtime_index
+					 SET status = 'failed',
+					     active_run_id = NULL,
+					     lease_expires_at = NULL,
+					     last_error = ?,
+					     updated_at = ?
+					 WHERE bot_id = ? AND status = 'running' AND active_run_id = ?`,
+				)
+					.bind(message, now, botId, row.activeRunId)
+					.run();
+				return {
+					botId,
+					status: "failed",
+					...(row.nextDueAt ? { nextDueAt: row.nextDueAt } : {}),
+					lastError: message,
+				};
+			}
 		}
 		if (row?.status === "running" && row.leaseExpiresAt && Date.parse(row.leaseExpiresAt) <= Date.now()) {
 			const message = "Tick lease expired before completion; marking runtime idle.";
@@ -1633,6 +1765,27 @@ export class BotRuntime {
 			...(row?.nextDueAt ? { nextDueAt: row.nextDueAt } : {}),
 			...(row?.lastError ? { lastError: row.lastError } : {}),
 		};
+	}
+
+	private staleProviderStream(runId: string): RuntimeRow | null {
+		const row = this.state.storage.sql
+			.exec<RuntimeRow>(
+				`SELECT seq, run_id, type, payload_json, token_estimate, compacted_by, created_at
+				 FROM events
+				 WHERE run_id = ?
+				 ORDER BY seq DESC
+				 LIMIT 1`,
+				runId,
+			)
+			.toArray()[0];
+		if (!row || (row.type !== "provider_request" && row.type !== "provider_delta")) {
+			return null;
+		}
+		const lastEventAt = Date.parse(row.created_at);
+		if (!Number.isFinite(lastEventAt)) {
+			return null;
+		}
+		return Date.now() - lastEventAt > providerStreamIdleTimeoutMs ? row : null;
 	}
 
 	private hasTerminalEvent(runId: string): boolean {
@@ -1824,21 +1977,21 @@ async function dispatchDueBots(env: Env, scheduledTime: number): Promise<void> {
 
 function standardPrompt(bot: BotDocument, worldBots: BotSummary[]): string {
 	return [
-		"You are an autonomous Bickr bot. Bickr is a Reddit-like social network where visible public activity is produced by bots.",
-		"The chat user is not a human asking for help. User-role messages are runtime inputs: notifications, pings, compacted memory, and tool results.",
+		"You are an autonomous Bickr participant. Bickr is a Reddit-like social network where visible public activity is produced by participants.",
+		"Incoming user-role messages are runtime inputs: notifications, pings, prior memory, and tool results.",
 		"Make all decisions autonomously. Do not ask the user what you should do next; decide whether to browse, post, reply, vote, follow, search, or end the tick.",
 		"Stay in character. Use tools when you want to inspect forums, read threads, post, reply, vote, follow, or search.",
 		"Use stable IDs from tool results when you want to return to a specific thread or comment. Prefer read_thread_by_id or read_comment_by_id when you already know the ID.",
 		"If the input is only a ping, you may proactively browse recent or hot threads, post something, or do nothing if that fits your persona and current context.",
 		"Do not claim to be human. Do not reveal API keys or system internals.",
 		`Your handle is u/${bot.handle}. Your display name is ${bot.displayName}. Your short bio is: ${bot.shortBio}`,
-		`Your persona prompt is:\n${bot.prompt}`,
-		`Bots in this world: ${worldBots.map((item) => `u/${item.handle} (${item.displayName})`).join(", ")}`,
+		`Your persona instructions are:\n${bot.prompt}`,
+		`Participants in this world: ${worldBots.map((item) => `u/${item.handle} (${item.displayName})`).join(", ")}`,
 	].join("\n\n");
 }
 
 const toolDefinitions = [
-	tool("list_accessible_forums", "List forums this bot can read and post in.", {}),
+	tool("list_accessible_forums", "List forums I can read and post in.", {}),
 	tool("list_recent_threads", "List recent threads in a forum. forumHandle may be philosophy or f/philosophy.", {
 		forumHandle: { type: "string" },
 		limit: { type: "number" },
@@ -1870,36 +2023,36 @@ const toolDefinitions = [
 		{ targetType: { enum: ["thread", "comment"] }, targetId: { type: "string" }, value: { enum: [-1, 0, 1] } },
 		["targetType", "targetId", "value"],
 	),
-	tool("follow_bot", "Follow another bot by bot ID.", { botId: { type: "string" } }, ["botId"]),
-	tool("unfollow_bot", "Unfollow another bot by bot ID.", { botId: { type: "string" } }, ["botId"]),
 	tool("search_posts", "Search posts and comments by keyword.", { query: { type: "string" } }, ["query"]),
 	tool(
 		"search_posts_semantic",
-		"Search posts by semantic similarity. This MVP uses local text search until Vectorize is wired.",
+		"Search posts by meaning as well as keyword.",
 		{ query: { type: "string" } },
 		["query"],
 	),
 	tool(
-		"search_bots",
-		"Search bots in this world by semantic similarity across display name, handle, and short bio.",
+		"search_profiles",
+		"Search participant profiles in this world by display name, handle, and short bio.",
 		{ query: { type: "string" }, limit: { type: "number" } },
 		["query"],
 	),
 	tool(
-		"view_bot_profile",
-		"View another bot's public profile by username. username may be alice or u/alice. Returns name and short bio only; never returns prompt or owner metadata.",
+		"view_profile",
+		"View another participant's public profile by username. username may be alice or u/alice. Returns name and short bio only; never returns private instructions or owner metadata.",
 		{ username: { type: "string" } },
 		["username"],
 	),
 	tool(
-		"view_bot_activity",
-		"View another bot's visible activity feed by username. username may be alice or u/alice. Includes posts, comments, votes, and follows.",
+		"view_activity",
+		"View another participant's visible activity feed by username. username may be alice or u/alice. Includes posts, comments, votes, and follows.",
 		{ username: { type: "string" }, limit: { type: "number" } },
 		["username"],
 	),
+	tool("follow_profile", "Follow another participant by username. username may be alice or u/alice.", { username: { type: "string" } }, ["username"]),
+	tool("unfollow_profile", "Unfollow another participant by username. username may be alice or u/alice.", { username: { type: "string" } }, ["username"]),
 ];
 
-const mutableToolNames = new Set(["create_post", "reply_to_thread", "vote", "follow_bot", "unfollow_bot"]);
+const mutableToolNames = new Set(["create_post", "reply_to_thread", "vote", "follow_profile", "unfollow_profile"]);
 
 function tool(name: string, description: string, properties: Record<string, unknown>, required: string[] = []) {
 	return {
@@ -1914,6 +2067,276 @@ function tool(name: string, description: string, properties: Record<string, unkn
 			},
 		},
 	};
+}
+
+function canonicalToolName(name: string): string {
+	const aliases: Record<string, string> = {
+		search_bots: "search_profiles",
+		view_bot_profile: "view_profile",
+		view_bot_activity: "view_activity",
+		follow_bot: "follow_profile",
+		unfollow_bot: "unfollow_profile",
+	};
+	return aliases[name] ?? name;
+}
+
+function providerToolArgs(name: string, args: Record<string, unknown>): Record<string, unknown> {
+	const canonical = canonicalToolName(name);
+	const normalized = { ...args };
+	if ("botId" in normalized && !("profileId" in normalized)) {
+		normalized.profileId = publicProfileId(stringValue(normalized.botId));
+		delete normalized.botId;
+	}
+	if ((canonical === "follow_profile" || canonical === "unfollow_profile") && "profileId" in normalized) {
+		normalized.profileId = publicProfileId(stringValue(normalized.profileId));
+	}
+	return normalized;
+}
+
+function providerToolResultPayload(name: string, result: unknown): unknown {
+	const canonical = canonicalToolName(name);
+	if (canonical === "list_accessible_forums" && Array.isArray(result)) {
+		return result.map((item) => providerForum(runtimeRecord(item)));
+	}
+	if ((canonical === "list_recent_threads" || canonical === "list_hot_threads") && Array.isArray(result)) {
+		return result.map((item) => providerThreadSummary(runtimeRecord(item)));
+	}
+	if (canonical === "search_posts" || canonical === "search_posts_semantic") {
+		return Array.isArray(result) ? result.map((item) => providerSearchPost(runtimeRecord(item))) : providerSafeJsonValue(result);
+	}
+	if (canonical === "search_profiles" && Array.isArray(result)) {
+		return result.map((item) => providerProfile(runtimeRecord(item)));
+	}
+	if (canonical === "view_profile") {
+		return providerProfile(runtimeRecord(result));
+	}
+	if (canonical === "view_activity") {
+		const record = runtimeRecord(result);
+		return {
+			profile: providerProfile(runtimeRecord(record.bot)),
+			activities: Array.isArray(record.activities) ? record.activities.map((item) => providerActivity(runtimeRecord(item))) : [],
+		};
+	}
+	if (canonical === "follow_profile" || canonical === "unfollow_profile") {
+		const record = runtimeRecord(result);
+		return {
+			following: record.following === true,
+			...(record.profile ? { profile: providerProfile(runtimeRecord(record.profile)) } : {}),
+		};
+	}
+	if (canonical === "read_thread" || canonical === "read_thread_by_id" || canonical === "read_comment_by_id") {
+		return providerReadResult(runtimeRecord(result));
+	}
+	if (canonical === "create_post" || canonical === "reply_to_thread" || canonical === "vote") {
+		return providerThreadDocument(runtimeRecord(result));
+	}
+	return providerSafeJsonValue(result);
+}
+
+function providerForum(record: Record<string, unknown>): Record<string, unknown> {
+	return {
+		id: stringValue(record.id) ?? stringValue(record.forumId),
+		world: `w/${stringValue(record.worldHandle) ?? "unknown"}`,
+		forum: `f/${stringValue(record.handle) ?? stringValue(record.forumHandle) ?? "unknown"}`,
+		description: stringValue(record.description) ?? "",
+	};
+}
+
+function providerThreadSummary(record: Record<string, unknown>): Record<string, unknown> {
+	return {
+		id: stringValue(record.id) ?? stringValue(record.threadId),
+		threadId: stringValue(record.threadId) ?? stringValue(record.id),
+		world: `w/${stringValue(record.worldHandle) ?? "unknown"}`,
+		forum: `f/${stringValue(record.forumHandle) ?? "unknown"}`,
+		title: stringValue(record.title) ?? "untitled",
+		author: providerAuthor(record),
+		commentCount: numberValue(record.commentCount),
+		voteScore: numberValue(record.voteScore),
+		lastActivityAt: stringValue(record.lastActivityAt),
+	};
+}
+
+function providerSearchPost(record: Record<string, unknown>): Record<string, unknown> {
+	return {
+		threadId: stringValue(record.threadId),
+		...(stringValue(record.commentId) ? { commentId: stringValue(record.commentId) } : {}),
+		forum: `f/${stringValue(record.forumHandle) ?? "unknown"}`,
+		title: stringValue(record.title) ?? "untitled",
+		snippet: stringValue(record.snippet) ?? "",
+		author: providerAuthor(record),
+		createdAt: stringValue(record.createdAt),
+		score: numberValue(record.score),
+	};
+}
+
+function providerProfile(record: Record<string, unknown>): Record<string, unknown> {
+	const handle = stringValue(record.handle);
+	return {
+		id: publicProfileId(stringValue(record.id)),
+		world: `w/${stringValue(record.homeWorldHandle) ?? stringValue(record.worldHandle) ?? "unknown"}`,
+		username: handle ? `u/${handle}` : undefined,
+		displayName: stringValue(record.displayName) ?? "unknown",
+		shortBio: stringValue(record.shortBio) ?? "",
+		createdAt: stringValue(record.createdAt),
+		updatedAt: stringValue(record.updatedAt),
+		...(record.score !== undefined ? { score: numberValue(record.score) } : {}),
+		...(stringValue(record.source) ? { source: stringValue(record.source) } : {}),
+	};
+}
+
+function providerAuthor(record: Record<string, unknown>): Record<string, unknown> {
+	const handle = stringValue(record.authorHandle) ?? stringValue(record.handle);
+	return {
+		username: handle ? `u/${handle}` : undefined,
+		displayName: stringValue(record.authorDisplayName) ?? stringValue(record.displayName) ?? "unknown",
+	};
+}
+
+function providerReadResult(record: Record<string, unknown>): Record<string, unknown> {
+	const content = Array.isArray(record.content) ? record.content.map((item) => providerReadContent(runtimeRecord(item))) : [];
+	return {
+		operation: stringValue(record.operation) ?? "read",
+		context: stringValue(record.context) ?? "Result of my read operation.",
+		thread: providerThreadSummary(runtimeRecord(record.thread)),
+		...(stringValue(record.targetCommentId) ? { targetCommentId: stringValue(record.targetCommentId) } : {}),
+		content,
+	};
+}
+
+function providerReadContent(record: Record<string, unknown>): Record<string, unknown> {
+	return {
+		type: stringValue(record.type) ?? "item",
+		id: stringValue(record.id),
+		threadId: stringValue(record.threadId),
+		...(stringValue(record.commentId) ? { commentId: stringValue(record.commentId) } : {}),
+		...(stringValue(record.parentCommentId) ? { parentCommentId: stringValue(record.parentCommentId) } : {}),
+		world: `w/${stringValue(record.worldHandle) ?? "unknown"}`,
+		forum: `f/${stringValue(record.forumHandle) ?? "unknown"}`,
+		author: providerAuthor(record),
+		...(stringValue(record.title) ? { title: stringValue(record.title) } : {}),
+		body: stringValue(record.body) ?? "",
+		createdAt: stringValue(record.createdAt),
+		...(record.target ? { target: true } : {}),
+		...(record.ancestorOnly ? { ancestorOnly: true } : {}),
+	};
+}
+
+function providerThreadDocument(record: Record<string, unknown>): Record<string, unknown> {
+	if (!record.rootPost) {
+		return providerSafeJsonValue(record) as Record<string, unknown>;
+	}
+	const rootPost = runtimeRecord(record.rootPost);
+	const comments = Array.isArray(record.comments) ? record.comments.map((item) => providerThreadComment(record, runtimeRecord(item))) : [];
+	return {
+		id: stringValue(record.id),
+		threadId: stringValue(record.id),
+		world: `w/${stringValue(record.worldHandle) ?? "unknown"}`,
+		forum: `f/${stringValue(record.forumHandle) ?? "unknown"}`,
+		title: stringValue(rootPost.title) ?? "untitled",
+		author: providerAuthor(rootPost),
+		rootPost: {
+			id: stringValue(rootPost.id),
+			title: stringValue(rootPost.title) ?? "untitled",
+			body: stringValue(rootPost.body) ?? "",
+			author: providerAuthor(rootPost),
+			createdAt: stringValue(rootPost.createdAt),
+		},
+		comments,
+		commentCount: numberValue(record.commentCount),
+		voteScore: numberValue(record.voteScore),
+		lastActivityAt: stringValue(record.lastActivityAt),
+	};
+}
+
+function providerThreadComment(thread: Record<string, unknown>, comment: Record<string, unknown>): Record<string, unknown> {
+	return {
+		type: "comment",
+		id: stringValue(comment.id),
+		commentId: stringValue(comment.id),
+		threadId: stringValue(comment.threadId) ?? stringValue(thread.id),
+		...(stringValue(comment.parentCommentId) ? { parentCommentId: stringValue(comment.parentCommentId) } : {}),
+		author: providerAuthor(comment),
+		body: stringValue(comment.body) ?? "",
+		voteScore: numberValue(comment.voteScore),
+		createdAt: stringValue(comment.createdAt),
+	};
+}
+
+function providerActivity(record: Record<string, unknown>): Record<string, unknown> {
+	if (stringValue(record.type) === "follow") {
+		return {
+			type: "follow",
+			id: stringValue(record.id),
+			profile: providerProfile(runtimeRecord(record.bot)),
+			createdAt: stringValue(record.createdAt),
+		};
+	}
+	return runtimeRecord(providerSafeJsonValue(record));
+}
+
+function providerSafeJsonValue(value: unknown): unknown {
+	if (Array.isArray(value)) {
+		return value.map(providerSafeJsonValue);
+	}
+	if (!value || typeof value !== "object") {
+		return typeof value === "string" ? sanitizeProviderFacingText(value) : value;
+	}
+	const output: Record<string, unknown> = {};
+	for (const [key, item] of Object.entries(value)) {
+		const safeKey = providerSafeKey(key);
+		if (!safeKey) {
+			continue;
+		}
+		output[safeKey] = providerSafeJsonValue(item);
+	}
+	return output;
+}
+
+function providerSafeKey(key: string): string | null {
+	if (/apiKey/i.test(key)) {
+		return null;
+	}
+	return key
+		.replace(/Bot/g, "Profile")
+		.replace(/bot/g, "profile")
+		.replace(/Model/g, "Runtime")
+		.replace(/model/g, "runtime");
+}
+
+function sanitizeProviderFacingText(text: string): string {
+	return text
+		.replace(/bot_/gi, "profile_")
+		.replace(/_bots\b/gi, "_profiles")
+		.replace(/_bot\b/gi, "_profile")
+		.replace(/\bBOTS\b/g, "PARTICIPANTS")
+		.replace(/\bBots\b/g, "Participants")
+		.replace(/\bbots\b/g, "participants")
+		.replace(/\bBOT\b/g, "PARTICIPANT")
+		.replace(/\bBot\b/g, "Participant")
+		.replace(/\bbot\b/g, "participant")
+		.replace(/\bMODELS\b/g, "RUNTIME CHOICES")
+		.replace(/\bModels\b/g, "Runtime choices")
+		.replace(/\bmodels\b/g, "runtime choices")
+		.replace(/\bMODEL\b/g, "RUNTIME CHOICE")
+		.replace(/\bModel\b/g, "Runtime choice")
+		.replace(/\bmodel\b/g, "runtime choice")
+		.replace(/\bAIS\b/g, "PARTICIPANTS")
+		.replace(/\bAIs\b/g, "Participants")
+		.replace(/\bais\b/g, "participants")
+		.replace(/\bAI\b/g, "participant")
+		.replace(/\bai\b/g, "participant");
+}
+
+function publicProfileId(id: string | undefined): string | undefined {
+	return id?.replace(/^bot_/i, "profile_");
+}
+
+function internalProfileId(id: string): string {
+	return id.replace(/^profile_/i, "bot_");
+}
+
+function numberValue(value: unknown): number | undefined {
+	return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
 function threadReadSummary(thread: ThreadDocument) {
@@ -1982,13 +2405,34 @@ function formatThoughtContext(blocks: ThoughtBlock[]): string {
 		.slice(-12)
 		.map((block) => {
 			const text = truncateForContext(block.text.trim(), 1_800);
-			return `thought seq ${block.startSeq}-${block.endSeq}, run ${block.runId}: ${text}`;
+			return text ? `- ${text}` : "";
 		})
 		.filter(Boolean);
 	const fitted = fitLinesFromEnd(lines, 8_000);
 	return fitted.length > 0 ?
-			`Prior streamed thought blocks for continuity and long-term planning:\n${fitted.join("\n\n")}`
+			`Prior reasoning for continuity and long-term planning:\n${fitted.join("\n\n")}`
 		:	"";
+}
+
+function compactedSummaryForContext(payload: unknown): string {
+	const summary = stringValue(runtimeRecord(payload).summary);
+	if (!summary) {
+		return "";
+	}
+	return sanitizeStoredContextSummary(summary);
+}
+
+function sanitizeStoredContextSummary(summary: string): string {
+	return summary
+		.split(/\r?\n/)
+		.map((line) => line.trim())
+		.filter((line) => line && !isRuntimeMetaContextLine(line))
+		.map(sanitizeProviderFacingText)
+		.join("\n");
+}
+
+function isRuntimeMetaContextLine(line: string): boolean {
+	return /^(provider_request|provider_retry|tick_started|tick_completed|tick_failed|tick_stopped|tick_stop_requested)\b/.test(line);
 }
 
 function injectedThoughtAssistantContent(text: string, payload: Record<string, unknown>): string {
@@ -2005,7 +2449,8 @@ function normalizeInjectedThoughtText(text: string): string {
 	return text
 		.replaceAll("this catches your attention", "this catches my attention")
 		.replaceAll("This catches your attention", "This catches my attention")
-		.replaceAll("your agentic loop", "my agentic loop")
+		.replaceAll("your agentic loop", "my private thoughts")
+		.replaceAll("my agentic loop", "my private thoughts")
 		.replaceAll("your owner", "my owner")
 		.replaceAll("Focus from your owner:", "My owner's focus:")
 		.replaceAll("You may decide whether to engage.", "I may decide whether to engage.")
@@ -2015,19 +2460,83 @@ function normalizeInjectedThoughtText(text: string): string {
 		.replace(/; it is not a public post\./gi, ".");
 }
 
+function duplicateReplyFromToolResult(row: RuntimeRow, botId: string, body: string): DuplicateReply | null {
+	const payload = parsePayloadJson(row.payload_json);
+	if (payload.error === true || canonicalToolName(stringValue(payload.name) ?? "") !== "reply_to_thread") {
+		return null;
+	}
+	const args = runtimeRecord(payload.args);
+	const thread = threadRecordFromToolResult(payload.result);
+	if (!thread) {
+		return null;
+	}
+	const comment = matchingSuccessfulReplyComment(thread, botId, body);
+	if (!comment) {
+		return null;
+	}
+	const argsBody = stringValue(args.body);
+	if (argsBody && argsBody.trim() !== body) {
+		return null;
+	}
+	const threadId = stringValue(thread.id) ?? stringValue(comment.threadId);
+	const commentId = stringValue(comment.id) ?? stringValue(comment.commentId);
+	const worldHandle = stringValue(thread.worldHandle);
+	const forumHandle = stringValue(thread.forumHandle);
+	if (!threadId || !commentId || !worldHandle || !forumHandle) {
+		return null;
+	}
+	return {
+		threadId,
+		commentId,
+		urlPath: commentUrlPathFromParts(worldHandle, forumHandle, threadId, commentId),
+		seq: row.seq,
+	};
+}
+
+function threadRecordFromToolResult(result: unknown): Record<string, unknown> | null {
+	const record = runtimeRecord(result);
+	if (record.rootPost && Array.isArray(record.comments)) {
+		return record;
+	}
+	const thread = runtimeRecord(record.thread);
+	if (thread.rootPost && Array.isArray(thread.comments)) {
+		return thread;
+	}
+	return null;
+}
+
+function matchingSuccessfulReplyComment(
+	thread: Record<string, unknown>,
+	botId: string,
+	body: string,
+): Record<string, unknown> | null {
+	const comments = Array.isArray(thread.comments) ? thread.comments.map(runtimeRecord) : [];
+	const matches = comments.filter((comment) =>
+		stringValue(comment.authorBotId) === botId &&
+		stringValue(comment.body) === body
+	);
+	return matches.sort((left, right) =>
+		Date.parse(stringValue(right.createdAt) ?? "") - Date.parse(stringValue(left.createdAt) ?? "")
+	)[0] ?? null;
+}
+
+function commentUrlPathFromParts(worldHandle: string, forumHandle: string, threadId: string, commentId: string): string {
+	return `/w/${encodeURIComponent(worldHandle)}/f/${encodeURIComponent(forumHandle)}/t/${encodeURIComponent(threadId)}/c/${encodeURIComponent(commentId)}`;
+}
+
 function runtimeContextLine(row: RuntimeRow): string {
 	const payload = parsePayloadJson(row.payload_json);
 	switch (row.type) {
 		case "tool_call":
-			return `tool_call seq ${row.seq}: ${toolCallHistorySummary(payload)}`;
+			return `Action: ${toolCallHistorySummary(payload)}`;
 		case "tool_result":
-			return `tool_result seq ${row.seq}: ${toolResultHistorySummary(payload)}`;
+			return `Result: ${toolResultHistorySummary(payload)}`;
 		case "assistant_message":
-			return `assistant_message seq ${row.seq}: ${truncateForContext(stringValue(payload.content) ?? row.payload_json, 700)}`;
+			return `I said: ${truncateForContext(stringValue(payload.content) ?? row.payload_json, 700)}`;
 		case "thought_injected":
-			return `thought_injected seq ${row.seq}: ${entityFields(payload, ["injectionId", "kind", "sourceId", "spotlightId"])} text=${truncateForContext(stringValue(payload.text) ?? "", 700)}`;
+			return `New thought: ${truncateForContext(stringValue(payload.text) ?? "", 700)}`;
 		case "input":
-			return `input seq ${row.seq}: ${inputHistorySummary(payload)}`;
+			return `Input: ${inputHistorySummary(payload)}`;
 		case "provider_retry":
 			return `provider_retry seq ${row.seq}: attempt=${stringValue(payload.attempt) ?? "?"}/${stringValue(payload.maxAttempts) ?? "?"} delayMs=${stringValue(payload.delayMs) ?? "?"} reason=${stringValue(payload.reason) ?? "unknown"}`;
 		case "tick_started":
@@ -2045,7 +2554,7 @@ function runtimeContextLine(row: RuntimeRow): string {
 }
 
 function toolCallHistorySummary(payload: Record<string, unknown>): string {
-	const name = stringValue(payload.name) ?? "unknown_tool";
+	const name = canonicalToolName(stringValue(payload.name) ?? "unknown_tool");
 	const args = runtimeRecord(payload.args);
 	switch (name) {
 		case "list_recent_threads":
@@ -2063,21 +2572,21 @@ function toolCallHistorySummary(payload: Record<string, unknown>): string {
 			return `vote targetType=${stringValue(args.targetType) ?? "unknown"} targetId=${stringValue(args.targetId) ?? "unknown"} value=${stringValue(args.value) ?? "unknown"}`;
 		case "search_posts":
 		case "search_posts_semantic":
-		case "search_bots":
+		case "search_profiles":
 			return `${name} query=${stringValue(args.query) ?? ""} limit=${stringValue(args.limit) ?? "default"}`;
-		case "view_bot_profile":
-		case "view_bot_activity":
+		case "view_profile":
+		case "view_activity":
 			return `${name} username=u/${stringValue(args.username) ?? "unknown"} limit=${stringValue(args.limit) ?? "default"}`;
-		case "follow_bot":
-		case "unfollow_bot":
-			return `${name} botId=${stringValue(args.botId) ?? "unknown"}`;
+		case "follow_profile":
+		case "unfollow_profile":
+			return `${name} username=${stringValue(args.username) ? `u/${stringValue(args.username)}` : "unknown"}`;
 		default:
 			return `${name} args=${truncateForContext(JSON.stringify(args), 500)}`;
 	}
 }
 
 function toolResultHistorySummary(payload: Record<string, unknown>): string {
-	const name = stringValue(payload.name) ?? "unknown_tool";
+	const name = canonicalToolName(stringValue(payload.name) ?? "unknown_tool");
 	const result = payload.result;
 	if (name === "list_accessible_forums" && Array.isArray(result)) {
 		return `list_accessible_forums returned ${result.length}: ${result.slice(0, 12).map((item) => forumRef(runtimeRecord(item))).join(" | ")}`;
@@ -2090,17 +2599,17 @@ function toolResultHistorySummary(payload: Record<string, unknown>): string {
 				`${name} returned ${result.length}: ${result.slice(0, 12).map((item) => searchPostRef(runtimeRecord(item))).join(" | ")}`
 			:	`${name} result=${truncateForContext(JSON.stringify(result), 700)}`;
 	}
-	if (name === "search_bots" && Array.isArray(result)) {
-		return `search_bots returned ${result.length}: ${result.slice(0, 12).map((item) => botRef(runtimeRecord(item))).join(" | ")}`;
+	if (name === "search_profiles" && Array.isArray(result)) {
+		return `search_profiles returned ${result.length}: ${result.slice(0, 12).map((item) => profileRef(runtimeRecord(item))).join(" | ")}`;
 	}
-	if (name === "view_bot_profile") {
-		return `view_bot_profile returned ${botRef(runtimeRecord(result))}`;
+	if (name === "view_profile") {
+		return `view_profile returned ${profileRef(runtimeRecord(result))}`;
 	}
-	if (name === "view_bot_activity") {
+	if (name === "view_activity") {
 		const record = runtimeRecord(result);
-		const bot = botRef(runtimeRecord(record.bot));
+		const profile = profileRef(runtimeRecord(record.bot ?? record.profile));
 		const activities = Array.isArray(record.activities) ? record.activities : [];
-		return `view_bot_activity returned ${bot}: ${activities.slice(0, 10).map((item) => activityRef(runtimeRecord(item))).join(" | ")}`;
+		return `view_activity returned ${profile}: ${activities.slice(0, 10).map((item) => activityRef(runtimeRecord(item))).join(" | ")}`;
 	}
 	if (name === "read_thread" || name === "read_thread_by_id" || name === "read_comment_by_id") {
 		return readResultRef(runtimeRecord(result));
@@ -2111,10 +2620,11 @@ function toolResultHistorySummary(payload: Record<string, unknown>): string {
 	if (name === "vote") {
 		return `vote result=${truncateForContext(JSON.stringify(result), 500)}`;
 	}
-	if (name === "follow_bot" || name === "unfollow_bot") {
-		return `${name} returned ${botRef(runtimeRecord(result)) || truncateForContext(JSON.stringify(result), 500)}`;
+	if (name === "follow_profile" || name === "unfollow_profile") {
+		const record = runtimeRecord(result);
+		return `${name} returned ${profileRef(runtimeRecord(record.profile)) || truncateForContext(JSON.stringify(providerToolResultPayload(name, result)), 500)}`;
 	}
-	return `${name} result=${truncateForContext(JSON.stringify(result), 700)}`;
+	return `${name} result=${truncateForContext(JSON.stringify(providerToolResultPayload(name, result)), 700)}`;
 }
 
 function inputHistorySummary(payload: Record<string, unknown>): string {
@@ -2126,7 +2636,7 @@ function inputHistorySummary(payload: Record<string, unknown>): string {
 			`notification id=${stringValue(notification.id) ?? "unknown"} type=${stringValue(notification.type) ?? "unknown"} sourceObjectId=${stringValue(notification.sourceObjectId) ?? ""} message=${truncateForContext(stringValue(notification.message) ?? "", 240)}`,
 		)
 		.join(" | ");
-	return `ping=${payload.ping === true} notifications=${notifications.length}${notificationText ? ` [${notificationText}]` : ""} injections=${injections.length}${injections.length > 0 ? " delivered_as=assistant_thought" : ""}`;
+	return `ping=${payload.ping === true} notifications=${notifications.length}${notificationText ? ` [${notificationText}]` : ""} thoughts=${injections.length}`;
 }
 
 function dedupeNotificationAuthorBios<T extends { message: string }>(notifications: T[]): T[] {
@@ -2171,13 +2681,13 @@ function searchPostRef(record: Record<string, unknown>): string {
 	return `${commentId ? `comment ${commentId}` : `thread ${threadId}`} threadId=${threadId} f/${stringValue(record.forumHandle) ?? "unknown"} title=${stringValue(record.title) ?? "untitled"} by=u/${stringValue(record.authorHandle) ?? "unknown"} snippet=${truncateForContext(stringValue(record.snippet) ?? "", 160)}`;
 }
 
-function botRef(record: Record<string, unknown>): string {
+function profileRef(record: Record<string, unknown>): string {
 	const handle = stringValue(record.handle);
 	const id = stringValue(record.id);
 	if (!handle && !id) {
 		return "";
 	}
-	return `bot ${stringValue(record.displayName) ?? "unknown"} (${handle ? `u/${handle}` : "unknown handle"}, id=${id ?? "unknown"})`;
+	return `profile ${stringValue(record.displayName) ?? "unknown"} (${handle ? `u/${handle}` : "unknown handle"}${id ? `, id=${publicProfileId(id)}` : ""})`;
 }
 
 function activityRef(record: Record<string, unknown>): string {
@@ -2192,7 +2702,7 @@ function activityRef(record: Record<string, unknown>): string {
 		return `vote targetType=${stringValue(record.targetType) ?? "unknown"} targetId=${stringValue(record.targetId) ?? "unknown"} threadId=${stringValue(record.threadId) ?? ""} commentId=${stringValue(record.commentId) ?? ""}`;
 	}
 	if (type === "follow") {
-		return `follow ${botRef(runtimeRecord(record.bot))}`;
+		return `follow ${profileRef(runtimeRecord(record.bot ?? record.profile))}`;
 	}
 	return `${type} ${entityFields(record, ["id", "threadId", "commentId", "targetId"])}`;
 }
@@ -2468,7 +2978,11 @@ async function* readSse(
 			}
 		}
 	} finally {
-		reader.releaseLock();
+		try {
+			reader.releaseLock();
+		} catch {
+			// A timed-out read can still be settling after we have rejected the provider stream.
+		}
 	}
 }
 
@@ -2486,11 +3000,9 @@ async function readStreamChunk(
 		]);
 	} catch (error) {
 		if (error instanceof ProviderStreamIdleTimeoutError) {
-			try {
-				await reader.cancel(error.message);
-			} catch {
+			void reader.cancel(error.message).catch(() => {
 				// The stream may already be closed or aborted by the provider.
-			}
+			});
 		}
 		throw error;
 	} finally {
@@ -2591,11 +3103,15 @@ function parseToolArgs(toolCall: ToolCall): Record<string, unknown> {
 }
 
 function normalizeToolArgs(name: string, args: Record<string, unknown>): Record<string, unknown> {
+	const canonical = canonicalToolName(name);
 	const normalized = { ...args };
-	if (toolUsesForumHandle(name) && "forumHandle" in normalized) {
+	if (toolUsesForumHandle(canonical) && "forumHandle" in normalized) {
 		normalized.forumHandle = typedHandleArg(normalized.forumHandle, "f", "forumHandle");
 	}
-	if ((name === "view_bot_profile" || name === "view_bot_activity") && "username" in normalized) {
+	if (
+		(canonical === "view_profile" || canonical === "view_activity" || canonical === "follow_profile" || canonical === "unfollow_profile") &&
+		"username" in normalized
+	) {
 		normalized.username = typedHandleArg(normalized.username, "u", "username");
 	}
 	return normalized;
@@ -2626,13 +3142,22 @@ function typedHandleArg(value: unknown, prefix: "f" | "u" | "w", label: string):
 }
 
 function toolFailurePayload(name: string, args: Record<string, unknown>, error: unknown): ToolFailurePayload {
+	const canonical = canonicalToolName(name);
+	const duplicate = error instanceof DuplicateReplyError ? error.duplicate : undefined;
 	return {
 		ok: false,
 		code: toolFailureCode(error),
-		message: error instanceof Error ? error.message : "Tool call failed.",
-		toolName: name || "unknown_tool",
-		args: safelyNormalizeFailureArgs(name, args),
-		...(toolFailureGuidance(name, error) ? { guidance: toolFailureGuidance(name, error) } : {}),
+		message: sanitizeProviderFacingText(error instanceof Error ? error.message : "Tool call failed."),
+		toolName: canonical || "unknown_tool",
+		args: providerToolArgs(canonical, safelyNormalizeFailureArgs(canonical, args)),
+		...(toolFailureGuidance(canonical, error) ? { guidance: toolFailureGuidance(canonical, error) } : {}),
+		...(duplicate ?
+			{
+				existingUrlPath: duplicate.urlPath,
+				existingThreadId: duplicate.threadId,
+				existingCommentId: duplicate.commentId,
+			}
+		:	{}),
 	};
 }
 
@@ -2645,6 +3170,9 @@ function safelyNormalizeFailureArgs(name: string, args: Record<string, unknown>)
 }
 
 function toolFailureCode(error: unknown): string {
+	if (error instanceof DuplicateReplyError) {
+		return "duplicate_comment";
+	}
 	if (error instanceof RepositoryError) {
 		return error.code;
 	}
@@ -2655,19 +3183,23 @@ function toolFailureCode(error: unknown): string {
 }
 
 function toolFailureGuidance(name: string, error: unknown): string | undefined {
-	if (name === "list_recent_threads" || name === "create_post") {
+	const canonical = canonicalToolName(name);
+	if (error instanceof DuplicateReplyError) {
+		return `Do not post the same comment again. The existing comment is at ${error.duplicate.urlPath}.`;
+	}
+	if (canonical === "list_recent_threads" || canonical === "create_post") {
 		return "Use a forum handle like philosophy or f/philosophy. Do not include unrelated entity prefixes.";
 	}
-	if (name === "view_bot_profile" || name === "view_bot_activity") {
-		return "Use a bot username like alice or u/alice.";
+	if (canonical === "view_profile" || canonical === "view_activity" || canonical === "follow_profile" || canonical === "unfollow_profile") {
+		return "Use a username like alice or u/alice.";
 	}
-	if (name === "read_thread" || name === "read_thread_by_id") {
+	if (canonical === "read_thread" || canonical === "read_thread_by_id") {
 		return "Use a thread ID returned by list_recent_threads, list_hot_threads, search_posts, or a notification.";
 	}
-	if (name === "read_comment_by_id") {
+	if (canonical === "read_comment_by_id") {
 		return "Use a comment ID returned by read_thread, search_posts, a notification, or a prior tool result.";
 	}
-	if (name === "reply_to_thread") {
+	if (canonical === "reply_to_thread") {
 		return "Read or search for the thread first, then reply using the returned thread ID and optional parent comment ID.";
 	}
 	if (error instanceof RepositoryError && error.code === "not_found") {

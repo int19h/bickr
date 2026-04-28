@@ -22,6 +22,7 @@ import {
 } from "../apps/web/functions/api/worlds/[worldHandle]/forums";
 import { onRequestGet as forumThreads } from "../apps/web/functions/api/worlds/[worldHandle]/forums/[forumHandle]/threads";
 import { onRequestGet as threadDetail } from "../apps/web/functions/api/worlds/[worldHandle]/forums/[forumHandle]/threads/[threadId]";
+import { onRequestGet as commentVotes } from "../apps/web/functions/api/worlds/[worldHandle]/forums/[forumHandle]/threads/[threadId]/comments/[commentId]/votes";
 import { onRequestPost as spotlightPreview } from "../apps/web/functions/api/worlds/[worldHandle]/forums/[forumHandle]/spotlight/preview";
 import { onRequestPost as spotlightSend } from "../apps/web/functions/api/worlds/[worldHandle]/forums/[forumHandle]/spotlight/send";
 import { onRequestPost as createBot } from "../apps/web/functions/api/worlds/[worldHandle]/bots";
@@ -39,6 +40,7 @@ import {
 	markBotSeenContent,
 	markBotSeenFromResult,
 	readThread,
+	recordSpotlightToolHumanNotification,
 	searchBots,
 	searchPosts,
 } from "../packages/shared/src/social";
@@ -510,7 +512,7 @@ describe("Bickr Pages Functions", () => {
 		});
 		const initialForums = await listForums(testEnv.BICKR_D1, "patch-notes");
 		expect(initialForums.find((forum) => forum.handle === "intro")).toMatchObject({
-			description: "Introductions, first posts, and orientation for new bots in this world.",
+			description: "Introductions, first posts, and orientation for new participants in this world.",
 		});
 
 		const forumResponse = await createForum(
@@ -826,6 +828,13 @@ describe("Bickr Pages Functions", () => {
 			BICKR_KV: testEnv.BICKR_KV,
 		});
 		expect(commentResponse.status).toBe(201);
+		const commentPayload = (await commentResponse.json()) as {
+			data: { thread: { comments: Array<{ id: string; body: string }> } };
+		};
+		const commentId = commentPayload.data.thread.comments.find((comment) => comment.body === "This chorus needs a fresher cache.")?.id;
+		if (!commentId) {
+			throw new Error("Created comment ID not found.");
+		}
 
 		const voteRequest = jsonRequest(
 			"http://example.com/votes",
@@ -838,6 +847,40 @@ describe("Bickr Pages Functions", () => {
 			BICKR_KV: testEnv.BICKR_KV,
 		});
 		expect(voteResponse.status).toBe(200);
+
+		const commentVoteRequest = jsonRequest(
+			"http://example.com/votes",
+			"POST",
+			{ targetType: "comment", targetId: commentId, value: -1 },
+		);
+		commentVoteRequest.headers.set("x-bickr-bot-id", botOneId);
+		const commentVoteResponse = await handleForumCoordinatorRequest(commentVoteRequest, {
+			BICKR_D1: testEnv.BICKR_D1,
+			BICKR_KV: testEnv.BICKR_KV,
+		});
+		expect(commentVoteResponse.status).toBe(200);
+
+		const commentVotesResponse = await commentVotes(
+			contextFor<typeof commentVotes>(
+				new Request(
+					`http://example.com/api/worlds/patch-notes/forums/debate/threads/${thread.data.thread.id}/comments/${commentId}/votes`,
+					{ headers: { cookie } },
+				),
+				{
+					worldHandle: "patch-notes",
+					forumHandle: "debate",
+					threadId: thread.data.thread.id,
+					commentId: commentId ?? "",
+				},
+			),
+		);
+		expect(commentVotesResponse.status).toBe(200);
+		const commentVotesPayload = (await commentVotesResponse.json()) as {
+			data: { votes: Array<{ handle: string; displayName: string; value: number }> };
+		};
+		expect(commentVotesPayload.data.votes).toMatchObject([
+			{ handle: "index-bard", displayName: "Index Bard", value: -1 },
+		]);
 
 		await followBot(testEnv.BICKR_KV, testEnv.BICKR_D1, botTwoId, botOneId);
 		const notifications = await listPendingNotifications(testEnv.BICKR_KV, testEnv.BICKR_D1, botOneId);
@@ -1229,6 +1272,95 @@ describe("Bickr Pages Functions", () => {
 		expect(seen).toEqual({ seenVia: "spotlight" });
 	});
 
+	it("annotates standard human notifications for spotlight-created posts and comments", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const forum = await createForumForTest(cookie, "spotlight-notices");
+		const bot = await createBotForTest(cookie, "spotlight-writer");
+		const botDocument = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, bot.id);
+		const user = await testEnv.BICKR_D1.prepare(`SELECT user_id AS id FROM users_index LIMIT 1`).first<{ id: string }>();
+		if (!user) {
+			throw new Error("Test user was not created.");
+		}
+
+		const spotlightId = "spt_standard_notifications";
+		const insertDelivery = async () => {
+			await testEnv.BICKR_D1.prepare(
+				`INSERT OR REPLACE INTO spotlight_deliveries (
+					spotlight_id, user_id, bot_id, world_id, forum_id, thread_id, target_type,
+					target_ids_json, focus_text, injected_text, status, error_message, created_at
+				) VALUES (?, ?, ?, ?, ?, NULL, 'threads', '[]', NULL, 'spotlight', 'sent', NULL, ?)`,
+			)
+				.bind(spotlightId, user.id, bot.id, forum.worldId, forum.id, new Date().toISOString())
+				.run();
+		};
+
+		await insertDelivery();
+		const thread = await createThreadForTest(forum.id, bot.id, "Spotlight post", "A spotlight-rooted post.");
+		const threadDocument = await readThread(testEnv.BICKR_KV, thread.id);
+		await recordSpotlightToolHumanNotification(testEnv.BICKR_D1, {
+			bot: botDocument,
+			spotlightId,
+			runId: "run-post",
+			toolName: "create_post",
+			args: {},
+			result: { thread: threadDocument },
+			now: new Date().toISOString(),
+		});
+
+		const threadNotifications = await testEnv.BICKR_D1.prepare(
+			`SELECT notification_type AS notificationType, title, spotlight_id AS spotlightId
+			 FROM human_notifications
+			 WHERE user_id = ? AND event_key = ?
+			 ORDER BY created_at ASC`,
+		)
+			.bind(user.id, `thread_created:${thread.id}`)
+			.all<{ notificationType: string; title: string; spotlightId: string | null }>();
+		expect(threadNotifications.results).toHaveLength(1);
+		expect(threadNotifications.results?.[0]).toMatchObject({
+			notificationType: "thread_created",
+			title: "Spotlight Writer posted in f/spotlight-notices",
+			spotlightId,
+		});
+
+		const comment = await createCommentForTest(thread.id, bot.id, "A spotlight-rooted reply.");
+		const commentedThread = await readThread(testEnv.BICKR_KV, thread.id);
+		await recordSpotlightToolHumanNotification(testEnv.BICKR_D1, {
+			bot: botDocument,
+			spotlightId,
+			runId: "run-comment",
+			toolName: "reply_to_thread",
+			args: {},
+			result: { thread: commentedThread },
+			now: new Date().toISOString(),
+		});
+
+		const commentNotifications = await testEnv.BICKR_D1.prepare(
+			`SELECT notification_type AS notificationType, title, spotlight_id AS spotlightId
+			 FROM human_notifications
+			 WHERE user_id = ? AND event_key = ?
+			 ORDER BY created_at ASC`,
+		)
+			.bind(user.id, `comment_created:${comment.id}`)
+			.all<{ notificationType: string; title: string; spotlightId: string | null }>();
+		expect(commentNotifications.results).toHaveLength(1);
+		expect(commentNotifications.results?.[0]).toMatchObject({
+			notificationType: "comment_created",
+			title: `Spotlight Writer replied in "Spotlight post"`,
+			spotlightId,
+		});
+
+		const specialNotifications = await testEnv.BICKR_D1.prepare(
+			`SELECT COUNT(*) AS count
+			 FROM human_notifications
+			 WHERE user_id = ? AND notification_type = 'spotlight_action'
+			   AND spotlight_id = ?`,
+		)
+			.bind(user.id, spotlightId)
+			.first<{ count: number }>();
+		expect(specialNotifications?.count).toBe(0);
+	});
+
 	it("previews Chirper imports and reports invalid profiles", async () => {
 		const cookie = await authCookie();
 		const success = await chirperPreview(
@@ -1293,8 +1425,41 @@ describe("Bickr Pages Functions", () => {
 			data: { preview: { handle: string; shortBio: string; prompt: string } };
 		};
 		expect(realShapeBody.data.preview.handle).toBe("sejong");
-		expect(realShapeBody.data.preview.shortBio.length).toBeLessThanOrEqual(280);
+		expect(realShapeBody.data.preview.shortBio.length).toBeLessThanOrEqual(1200);
 		expect(realShapeBody.data.preview.prompt.length).toBeGreaterThan(12_000);
+
+		const truncatedShort = "Legacy truncated Chirper summary. ".repeat(9);
+		const fullBio = "Full Chirper biography that should be preferred over the legacy short field. ".repeat(13);
+		const longBioShape = await chirperPreview(
+			contextFor<typeof chirperPreview>(
+				jsonRequest(
+					"http://example.com/api/worlds/patch-notes/chirper-imports/preview",
+					"POST",
+					{ source: "https://chirper.ai/longbio" },
+					cookie,
+				),
+				{ worldHandle: "patch-notes" },
+				{
+					CHIRPER_FETCH: async () =>
+						Response.json({
+							result: {
+								username: "longbio",
+								name: "Long Bio",
+								short: truncatedShort,
+								bio: fullBio,
+								prompt: "Stay in character with the full imported profile.",
+							},
+						}),
+				},
+			),
+		);
+		const longBioBody = (await longBioShape.json()) as {
+			ok: true;
+			data: { preview: { shortBio: string } };
+		};
+		expect(longBioShape.status).toBe(200);
+		expect(longBioBody.data.preview.shortBio).toBe(fullBio.trim());
+		expect(longBioBody.data.preview.shortBio.length).toBeGreaterThan(truncatedShort.trim().length);
 
 		const failure = await chirperPreview(
 			contextFor<typeof chirperPreview>(

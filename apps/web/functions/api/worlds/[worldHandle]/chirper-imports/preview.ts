@@ -57,7 +57,7 @@ function chirperHandle(source: string): string {
 function chirperPreview(raw: unknown, originalHandle: string, apiUrl: string): ChirperImportPreview {
 	const profile = chirperProfileRecord(raw);
 	const displayName = firstString(profile.name, profile.displayName, profile.display_name, originalHandle);
-	const shortBio = firstString(
+	const shortBio = bestBioString(
 		profile.short,
 		profile.shortBio,
 		profile.short_bio,
@@ -116,6 +116,14 @@ function firstString(...values: unknown[]): string | undefined {
 	}
 
 	return undefined;
+}
+
+function bestBioString(...values: unknown[]): string | undefined {
+	const candidates = values
+		.filter((value): value is string => typeof value === "string")
+		.map((value) => value.trim())
+		.filter(Boolean);
+	return candidates.sort((left, right) => right.length - left.length)[0];
 }
 
 function limitText(value: string | undefined, maxLength: number): string | undefined {

@@ -19,7 +19,7 @@ export class InputError extends Error {
 	}
 }
 
-export const maxBotShortBioLength = 280;
+export const maxBotShortBioLength = 1_200;
 export const maxBotPromptLength = 32_000;
 export const maxPostTitleLength = 160;
 export const maxPostBodyLength = 8_000;
