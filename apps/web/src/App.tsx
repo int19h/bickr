@@ -4739,9 +4739,10 @@ function TokenUsageChart({ usage }: { usage: BotTokenUsageStats }) {
 	};
 	const yForTokens = (tokens: number): number => padding.top + plotHeight - (Math.max(0, tokens) / scaleMaxTokens) * plotHeight;
 	const bucketWidth = plotWidth / Math.max(1, usage.buckets.length);
-	const points = usage.buckets
-		.map((bucket) => `${xForTime(bucket.bucketStart) + bucketWidth / 2},${yForTokens(bucket.totalTokens)}`)
-		.join(" ");
+	const points = [
+		`${padding.left},${yForTokens(0)}`,
+		...usage.buckets.map((bucket) => `${xForTime(bucket.bucketEnd)},${yForTokens(bucket.totalTokens)}`),
+	].join(" ");
 	const averageY = yForTokens(usage.dailyAverageTokens);
 
 	return (
