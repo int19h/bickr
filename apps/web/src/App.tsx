@@ -5,6 +5,7 @@ import {
 	type BotRuntimeEvent,
 	type BotRuntimeStatus,
 	type BotTokenUsageStats,
+	type BotTokenUsageTotals,
 	type CommentDocument,
 	type BotInferenceSettings,
 	type BotInferenceSettingsInput,
@@ -3387,6 +3388,8 @@ function BotEdit({
 		prompt: bot.prompt,
 		inference: inferenceDraftFromSettings(bot.inferenceSettings),
 		tickIntervalMinutes: String(secondsToMinutes(bot.tickSettings.intervalSeconds)),
+		contextWindowTokens: String(bot.tickSettings.contextWindowTokens),
+		maxToolCallsPerTick: String(bot.tickSettings.maxToolCallsPerTick),
 	});
 	const [confirm, setConfirm] = useState(false);
 	const toast = useContext(ToastContext);
@@ -3398,22 +3401,42 @@ function BotEdit({
 			prompt: bot.prompt,
 			inference: inferenceDraftFromSettings(bot.inferenceSettings),
 			tickIntervalMinutes: String(secondsToMinutes(bot.tickSettings.intervalSeconds)),
+			contextWindowTokens: String(bot.tickSettings.contextWindowTokens),
+			maxToolCallsPerTick: String(bot.tickSettings.maxToolCallsPerTick),
 		});
-	}, [bot.displayName, bot.id, bot.inferenceSettings, bot.prompt, bot.shortBio, bot.tickSettings.intervalSeconds, bot.updatedAt]);
+	}, [
+		bot.displayName,
+		bot.id,
+		bot.inferenceSettings,
+		bot.prompt,
+		bot.shortBio,
+		bot.tickSettings.contextWindowTokens,
+		bot.tickSettings.intervalSeconds,
+		bot.tickSettings.maxToolCallsPerTick,
+		bot.updatedAt,
+	]);
 
 	const tickIntervalMinutes = parsePositiveInteger(draft.tickIntervalMinutes);
+	const contextWindowTokens = parsePositiveInteger(draft.contextWindowTokens);
+	const maxToolCallsPerTick = parsePositiveInteger(draft.maxToolCallsPerTick);
 	const dirty =
 		draft.displayName !== bot.displayName ||
 		draft.shortBio !== bot.shortBio ||
 		draft.prompt !== bot.prompt ||
 		tickIntervalMinutes !== secondsToMinutes(bot.tickSettings.intervalSeconds) ||
+		contextWindowTokens !== bot.tickSettings.contextWindowTokens ||
+		maxToolCallsPerTick !== bot.tickSettings.maxToolCallsPerTick ||
 		inferenceDraftChanged(draft.inference, bot.inferenceSettings);
 	const valid =
 		draft.displayName.trim().length > 0 &&
 		draft.shortBio.trim().length > 0 &&
 		draft.prompt.trim().length > 0 &&
 		tickIntervalMinutes >= 1 &&
-		tickIntervalMinutes <= 1440;
+		tickIntervalMinutes <= 1440 &&
+		contextWindowTokens >= 2000 &&
+		contextWindowTokens <= 1_000_000 &&
+		maxToolCallsPerTick >= 1 &&
+		maxToolCallsPerTick <= 32;
 
 	async function save(): Promise<void> {
 		const ok = await onSave(bot.id, {
@@ -3426,6 +3449,8 @@ function BotEdit({
 			}),
 			tickSettings: {
 				intervalSeconds: tickIntervalMinutes * 60,
+				contextWindowTokens,
+				maxToolCallsPerTick,
 			},
 		});
 		if (ok) {
@@ -3546,8 +3571,37 @@ function BotEdit({
 									<span className="suffix">minutes</span>
 								</div>
 							</Field>
-							<RuntimeRow label="Context budget" value={`${bot.tickSettings.contextWindowTokens} tokens`} />
-							<RuntimeRow label="Max tool calls" value={bot.tickSettings.maxToolCallsPerTick} />
+							<div className="field-row">
+								<Field help="Approximate context window used when preparing a tick. Higher values preserve more history." label="Context budget">
+									<div className="input-suffix">
+										<input
+											className="input"
+											min={2000}
+											max={1_000_000}
+											onChange={(event) =>
+												setDraft((current) => ({ ...current, contextWindowTokens: event.target.value }))
+											}
+											step={1000}
+											type="number"
+											value={draft.contextWindowTokens}
+										/>
+										<span className="suffix">tokens</span>
+									</div>
+								</Field>
+								<Field help="Maximum provider/tool rounds allowed before the tick is cut off." label="Max tool calls">
+									<input
+										className="input"
+										min={1}
+										max={32}
+										onChange={(event) =>
+											setDraft((current) => ({ ...current, maxToolCallsPerTick: event.target.value }))
+										}
+										step={1}
+										type="number"
+										value={draft.maxToolCallsPerTick}
+									/>
+								</Field>
+							</div>
 							<RuntimeRow label="Loop monitor" value="Open from the bot profile Loop action." />
 						</div>
 					</section>
@@ -4688,15 +4742,15 @@ function TokenUsagePanel({ usage }: { usage: BotTokenUsageStats | null }) {
 			<div className="token-metrics">
 				<div>
 					<span>24h</span>
-					<b>{formatTokenCount(usage?.last24Hours.totalTokens ?? 0)}</b>
+					<b>{formatTokenUsageTotals(usage?.last24Hours)}</b>
 				</div>
 				<div>
 					<span>7d</span>
-					<b>{formatTokenCount(usage?.last7Days.totalTokens ?? 0)}</b>
+					<b>{formatTokenUsageTotals(usage?.last7Days)}</b>
 				</div>
 				<div title={usage ? `Based on ${formatAverageDays(usage.dailyAverageDays)} of tracked usage.` : undefined}>
 					<span>Avg/day</span>
-					<b>{formatTokenCount(usage?.dailyAverageTokens ?? 0)}</b>
+					<b>{formatTokenUsageTotals(usage ? averageTokenUsageTotals(usage) : undefined)}</b>
 				</div>
 			</div>
 			{usage && hasUsage ?
@@ -4707,7 +4761,7 @@ function TokenUsagePanel({ usage }: { usage: BotTokenUsageStats | null }) {
 					{usage.models.slice(0, 4).map((model) => (
 						<div key={`${model.model}-${model.contextWindowTokens}`}>
 							<span>{model.model}</span>
-							<b>{formatTokenCount(model.totalTokens)}</b>
+							<b>{formatTokenUsageTotals(model)}</b>
 						</div>
 					))}
 				</div>
@@ -4739,50 +4793,61 @@ function TokenUsageChart({ usage }: { usage: BotTokenUsageStats }) {
 	};
 	const yForTokens = (tokens: number): number => padding.top + plotHeight - (Math.max(0, tokens) / scaleMaxTokens) * plotHeight;
 	const bucketWidth = plotWidth / Math.max(1, usage.buckets.length);
-	const points = [
-		`${padding.left},${yForTokens(0)}`,
-		...usage.buckets.map((bucket) => `${xForTime(bucket.bucketEnd)},${yForTokens(bucket.totalTokens)}`),
-	].join(" ");
+	const chartPoints = [
+		{ x: padding.left, totalTokens: 0, cachedTokens: 0 },
+		...usage.buckets.map((bucket) => ({
+			x: xForTime(bucket.bucketEnd),
+			totalTokens: bucket.totalTokens,
+			cachedTokens: Math.min(bucket.cachedTokens, bucket.totalTokens),
+		})),
+	];
+	const totalPoints = chartPoints.map((point) => `${point.x},${yForTokens(point.totalTokens)}`).join(" ");
+	const cachedPoints = chartPoints.map((point) => `${point.x},${yForTokens(point.cachedTokens)}`).join(" ");
+	const cachedArea = areaToBaselinePath(chartPoints, (point) => yForTokens(point.cachedTokens), yForTokens(0));
+	const remainderArea = areaBetweenPaths(
+		chartPoints,
+		(point) => yForTokens(point.totalTokens),
+		(point) => yForTokens(point.cachedTokens),
+	);
 	const averageY = yForTokens(usage.dailyAverageTokens);
 
 	return (
 		<div className="token-chart-wrap">
 			<svg aria-label="Seven day token usage" className="token-chart" role="img" viewBox={`0 0 ${width} ${height}`}>
+				{cachedArea && <path className="token-cached-area" d={cachedArea} />}
+				{remainderArea && <path className="token-remainder-area" d={remainderArea} />}
 				<line className="token-axis" x1={padding.left} x2={padding.left + plotWidth} y1={padding.top + plotHeight} y2={padding.top + plotHeight} />
 				<line className="token-axis" x1={padding.left} x2={padding.left} y1={padding.top} y2={padding.top + plotHeight} />
 				<line className="token-average-line" x1={padding.left} x2={padding.left + plotWidth} y1={averageY} y2={averageY}>
-					<title>{`Average: ${formatTokenCount(usage.dailyAverageTokens)} tokens/day across ${formatAverageDays(usage.dailyAverageDays)}`}</title>
+					<title>{`Average: ${formatTokenUsageTotals(averageTokenUsageTotals(usage))}/day across ${formatAverageDays(usage.dailyAverageDays)}`}</title>
 				</line>
 				<text className="token-average-label" x={padding.left + plotWidth - 4} y={Math.max(12, averageY - 6)}>
 					avg
 				</text>
 				{usage.buckets.map((bucket) => {
-					const x = xForTime(bucket.bucketStart) + 5;
-					const barWidth = Math.max(6, bucketWidth - 10);
-					const y = yForTokens(bucket.totalTokens);
-					const barHeight = padding.top + plotHeight - y;
+					const x = xForTime(bucket.bucketStart);
 					return (
 						<g key={bucket.bucketStart}>
 							<rect
-								className="token-bar"
-								height={Math.max(1, barHeight)}
-								rx="3"
-								width={barWidth}
+								className="token-day-hitbox"
+								height={plotHeight}
+								width={bucketWidth}
 								x={x}
-								y={padding.top + plotHeight - Math.max(1, barHeight)}
+								y={padding.top}
 							>
-								<title>{`${formatShortDate(bucket.bucketStart)}: ${formatTokenCount(bucket.totalTokens)} tokens`}</title>
+								<title>{`${formatShortDate(bucket.bucketStart)}: ${formatTokenUsageTotals(bucket)}`}</title>
 							</rect>
-							<text className="token-x-label" x={x + barWidth / 2} y={height - 10}>
+							<text className="token-x-label" x={x + bucketWidth / 2} y={height - 10}>
 								{formatShortDate(bucket.bucketStart)}
 							</text>
 						</g>
 					);
 				})}
-					{points && <polyline className="token-line" points={points} />}
-					<text className="token-y-label" x={padding.left - 8} y={padding.top + 4}>
-						{formatTokenCount(scaleMaxTokens)}
-					</text>
+				{cachedPoints && <polyline className="token-cached-line" points={cachedPoints} />}
+				{totalPoints && <polyline className="token-line" points={totalPoints} />}
+				<text className="token-y-label" x={padding.left - 8} y={padding.top + 4}>
+					{formatTokenCount(scaleMaxTokens)}
+				</text>
 				<text className="token-y-label" x={padding.left - 8} y={padding.top + plotHeight}>
 					0
 				</text>
@@ -4803,7 +4868,7 @@ function TokenUsageChart({ usage }: { usage: BotTokenUsageStats }) {
 							key={`${marker.usedAt}-${marker.model}-${index}`}
 							r="5.5"
 						>
-							<title>{`${formatFullDate(marker.usedAt)}\n${marker.model}\nContext: ${formatTokenCount(marker.contextWindowTokens)} tokens\n${previous}`}</title>
+							<title>{`${formatFullDate(marker.usedAt)}\n${marker.model}\nUsage: ${formatTokenUsageTotals(marker)}\nContext: ${formatTokenCount(marker.contextWindowTokens)} tokens\n${previous}`}</title>
 						</circle>
 					);
 				})}
@@ -6318,6 +6383,26 @@ function formatTickIntervalMinutes(seconds: number): string {
 	return `${secondsToMinutes(seconds)} min`;
 }
 
+type TokenUsageDisplayTotals = Pick<BotTokenUsageTotals, "cachedTokens" | "cost" | "totalTokens">;
+
+function formatTokenUsageTotals(totals: TokenUsageDisplayTotals | undefined): string {
+	if (!totals) {
+		return "0";
+	}
+	const cached = totals.cachedTokens > 0 ? ` (${formatTokenCount(totals.cachedTokens)} cached)` : "";
+	const cost = totals.cost !== null ? ` · ${formatTokenCost(totals.cost)}` : "";
+	return `${formatTokenCount(totals.totalTokens)}${cached}${cost}`;
+}
+
+function averageTokenUsageTotals(usage: BotTokenUsageStats): TokenUsageDisplayTotals {
+	const days = usage.dailyAverageDays > 0 ? usage.dailyAverageDays : 1;
+	return {
+		totalTokens: usage.dailyAverageTokens,
+		cachedTokens: Math.round(usage.last7Days.cachedTokens / days),
+		cost: usage.last7Days.cost === null ? null : usage.last7Days.cost / days,
+	};
+}
+
 function formatTokenCount(value: number): string {
 	if (!Number.isFinite(value)) {
 		return "0";
@@ -6330,6 +6415,53 @@ function formatTokenCount(value: number): string {
 		return `${Math.round(rounded / 1_000)}k`;
 	}
 	return rounded.toLocaleString();
+}
+
+function formatTokenCost(value: number): string {
+	if (!Number.isFinite(value)) {
+		return "$0.00";
+	}
+	const fractionDigits = Math.abs(value) > 0 && Math.abs(value) < 0.01 ? 4 : 2;
+	return new Intl.NumberFormat(undefined, {
+		currency: "USD",
+		maximumFractionDigits: fractionDigits,
+		minimumFractionDigits: fractionDigits,
+		style: "currency",
+	}).format(value);
+}
+
+function areaToBaselinePath<T extends { x: number }>(
+	points: T[],
+	yForPoint: (point: T) => number,
+	baselineY: number,
+): string {
+	if (points.length === 0) {
+		return "";
+	}
+	const first = points[0];
+	const last = points[points.length - 1];
+	if (!first || !last) {
+		return "";
+	}
+	const top = points.map((point) => `L ${point.x} ${yForPoint(point)}`).join(" ");
+	return `M ${first.x} ${baselineY} ${top} L ${last.x} ${baselineY} Z`;
+}
+
+function areaBetweenPaths<T extends { x: number }>(
+	points: T[],
+	yForUpperPoint: (point: T) => number,
+	yForLowerPoint: (point: T) => number,
+): string {
+	if (points.length === 0) {
+		return "";
+	}
+	const first = points[0];
+	if (!first) {
+		return "";
+	}
+	const upper = points.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${yForUpperPoint(point)}`);
+	const lower = [...points].reverse().map((point) => `L ${point.x} ${yForLowerPoint(point)}`);
+	return [...upper, ...lower, "Z"].join(" ");
 }
 
 function formatAverageDays(value: number): string {

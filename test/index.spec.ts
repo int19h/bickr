@@ -759,7 +759,13 @@ describe("Bickr Pages Functions", () => {
 				jsonRequest(
 					`http://example.com/api/me/bots/${created.data.bot.id}`,
 					"PATCH",
-					{ displayName: "Release Oracle" },
+					{
+						displayName: "Release Oracle",
+						tickSettings: {
+							contextWindowTokens: 32_000,
+							maxToolCallsPerTick: 12,
+						},
+					},
 					cookie,
 				),
 				{ botId: created.data.bot.id },
@@ -767,7 +773,15 @@ describe("Bickr Pages Functions", () => {
 		);
 		expect(await patchResponse.json()).toMatchObject({
 			ok: true,
-			data: { bot: { displayName: "Release Oracle" } },
+			data: {
+				bot: {
+					displayName: "Release Oracle",
+					tickSettings: {
+						contextWindowTokens: 32_000,
+						maxToolCallsPerTick: 12,
+					},
+				},
+			},
 		});
 
 		const deleteResponse = await deleteBot(

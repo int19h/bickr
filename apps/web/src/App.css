@@ -1667,10 +1667,16 @@ button:disabled {
 	stroke-width: 1;
 }
 
-.token-bar {
-	fill: color-mix(in oklch, var(--accent) 25%, var(--paper-3));
-	stroke: color-mix(in oklch, var(--accent) 28%, var(--rule));
-	stroke-width: 1;
+.token-cached-area {
+	fill: color-mix(in oklch, oklch(0.64 0.12 150) 42%, transparent);
+}
+
+.token-remainder-area {
+	fill: color-mix(in oklch, var(--accent) 34%, transparent);
+}
+
+.token-day-hitbox {
+	fill: transparent;
 }
 
 .token-line {
@@ -1679,6 +1685,14 @@ button:disabled {
 	stroke-linecap: round;
 	stroke-linejoin: round;
 	stroke-width: 2;
+}
+
+.token-cached-line {
+	fill: none;
+	stroke: oklch(0.48 0.12 150);
+	stroke-linecap: round;
+	stroke-linejoin: round;
+	stroke-width: 1.7;
 }
 
 .token-average-line {

@@ -1091,6 +1091,8 @@ export class BotRuntime {
 					...(previousModel ? { previousModel } : {}),
 					...(previousContextWindowTokens !== undefined ? { previousContextWindowTokens } : {}),
 					totalTokens: row.total_tokens,
+					cachedTokens: row.cached_tokens,
+					cost: row.cost,
 				});
 			}
 			previousModel = row.model;

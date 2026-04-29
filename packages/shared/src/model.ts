@@ -535,6 +535,8 @@ export type BotTokenUsageChangeMarker = {
 	previousModel?: string;
 	previousContextWindowTokens?: number;
 	totalTokens: number;
+	cachedTokens: number;
+	cost: number | null;
 };
 
 export type BotTokenUsageStats = {
