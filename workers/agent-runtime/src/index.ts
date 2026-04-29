@@ -172,6 +172,13 @@ type RunContext = {
 	signal: AbortSignal;
 };
 
+type ProviderMessageStatus = "complete" | "interrupted";
+
+type ProviderStreamActivity = {
+	type: string;
+	created_at: string;
+};
+
 type ThoughtBlock = {
 	runId: string;
 	startSeq: number;
@@ -291,6 +298,8 @@ export class BotRuntime {
 	private readonly env: Env;
 	private activeAbortController: AbortController | null = null;
 	private activeRunId: string | null = null;
+	private readonly activeStreamActivity = new Map<string, string>();
+	private ephemeralStreamSeq = 0;
 
 	constructor(state: DurableObjectState, env: Env) {
 		this.state = state;
@@ -344,6 +353,12 @@ export class BotRuntime {
 				await this.requireOwnerOrInternal(request, botId);
 				const cleared = await this.clearHistory(botId);
 				return ok({ cleared });
+			}
+
+			if (request.method === "DELETE" && eventSeqFromPath(url.pathname) !== null) {
+				await this.requireOwnerOrInternal(request, botId);
+				const deleted = await this.deleteEvent(botId, eventSeqFromPath(url.pathname) ?? 0);
+				return ok({ deleted });
 			}
 
 			if (request.method === "POST" && url.pathname.endsWith("/tick")) {
@@ -666,9 +681,7 @@ export class BotRuntime {
 				...(settings.minP !== undefined ? { minP: settings.minP } : {}),
 			});
 			const response = await this.callProvider(settings, currentMessages, runId, runContext.signal);
-			if (response.content) {
-				await this.appendEvent(runId, "assistant_message", { content: response.content });
-			}
+			await this.appendProviderMessages(runId, response, "complete");
 			currentMessages = [
 				...currentMessages,
 				{
@@ -754,66 +767,77 @@ export class BotRuntime {
 		let reasoning = "";
 		const reasoningDetails: ReasoningDetail[] = [];
 		const toolCalls = new Map<number, ToolCall>();
-		for await (const event of readSse(response.body, signal)) {
-			this.throwIfStopped(runId, signal);
-			if (event === "[DONE]") {
-				break;
-			}
-			const chunk = JSON.parse(event) as {
-				choices?: Array<{
-					delta?: {
-						content?: string;
-						reasoning?: string;
-						reasoning_content?: string;
-						reasoning_details?: ReasoningDetail[];
-						tool_calls?: Array<{
-							index: number;
-							id?: string;
-							type?: "function";
-							function?: { name?: string; arguments?: string };
-						}>;
-					};
-				}>;
-			};
-			const delta = chunk.choices?.[0]?.delta;
-			if (!delta) {
-				continue;
-			}
-			if (delta.content) {
-				content += delta.content;
-				await this.appendEvent(runId, "provider_delta", { kind: "content", text: delta.content });
-			}
-			const plainReasoning = delta.reasoning ?? delta.reasoning_content;
-			let detailsReasoning = "";
-			if (Array.isArray(delta.reasoning_details) && delta.reasoning_details.length > 0) {
-				reasoningDetails.push(...delta.reasoning_details);
-				detailsReasoning = reasoningTextFromDetails(delta.reasoning_details);
-			}
-			const deltaReasoning = plainReasoning || detailsReasoning;
-			if (deltaReasoning) {
-				reasoning += deltaReasoning;
-				await this.appendEvent(runId, "provider_delta", { kind: "reasoning", text: deltaReasoning });
-			}
-			for (const part of delta.tool_calls ?? []) {
-				const current =
-					toolCalls.get(part.index) ??
-					({
-						id: part.id ?? `tool-${part.index}`,
-						type: "function",
-						function: { name: "", arguments: "" },
-					} satisfies ToolCall);
-				if (part.id) {
-					current.id = part.id;
+		this.markProviderStreamActive(runId);
+		try {
+			for await (const event of readSse(response.body, signal)) {
+				this.throwIfStopped(runId, signal);
+				this.markProviderStreamActive(runId);
+				if (event === "[DONE]") {
+					break;
 				}
-				if (part.function?.name) {
-					current.function.name += part.function.name;
+				const chunk = JSON.parse(event) as {
+					choices?: Array<{
+						delta?: {
+							content?: string;
+							reasoning?: string;
+							reasoning_content?: string;
+							reasoning_details?: ReasoningDetail[];
+							tool_calls?: Array<{
+								index: number;
+								id?: string;
+								type?: "function";
+								function?: { name?: string; arguments?: string };
+							}>;
+						};
+					}>;
+				};
+				const delta = chunk.choices?.[0]?.delta;
+				if (!delta) {
+					continue;
 				}
-				if (part.function?.arguments) {
-					current.function.arguments += part.function.arguments;
+				if (delta.content) {
+					content += delta.content;
+					this.broadcastProviderDelta(runId, { kind: "content", text: delta.content });
 				}
-				toolCalls.set(part.index, current);
-				await this.appendEvent(runId, "provider_delta", { kind: "tool_call", part });
+				const plainReasoning = delta.reasoning ?? delta.reasoning_content;
+				let detailsReasoning = "";
+				if (Array.isArray(delta.reasoning_details) && delta.reasoning_details.length > 0) {
+					reasoningDetails.push(...delta.reasoning_details);
+					detailsReasoning = reasoningTextFromDetails(delta.reasoning_details);
+				}
+				const deltaReasoning = plainReasoning || detailsReasoning;
+				if (deltaReasoning) {
+					reasoning += deltaReasoning;
+					this.broadcastProviderDelta(runId, { kind: "reasoning", text: deltaReasoning });
+				}
+				for (const part of delta.tool_calls ?? []) {
+					const current =
+						toolCalls.get(part.index) ??
+						({
+							id: part.id ?? `tool-${part.index}`,
+							type: "function",
+							function: { name: "", arguments: "" },
+						} satisfies ToolCall);
+					if (part.id) {
+						current.id = part.id;
+					}
+					if (part.function?.name) {
+						current.function.name += part.function.name;
+					}
+					if (part.function?.arguments) {
+						current.function.arguments += part.function.arguments;
+					}
+					toolCalls.set(part.index, current);
+					this.broadcastProviderDelta(runId, { kind: "tool_call", part });
+				}
 			}
+		} catch (error) {
+			if (error instanceof TickStoppedError || error instanceof ProviderStreamIdleTimeoutError || isAbortError(error)) {
+				await this.appendProviderMessages(runId, { content, reasoning, reasoningDetails, toolCalls: [...toolCalls.values()] }, "interrupted");
+			}
+			throw error;
+		} finally {
+			this.clearProviderStreamActive(runId);
 		}
 		return {
 			content,
@@ -821,6 +845,56 @@ export class BotRuntime {
 			reasoningDetails,
 			toolCalls: [...toolCalls.values()].filter((tool) => tool.function.name),
 		};
+	}
+
+	private async appendProviderMessages(
+		runId: string,
+		response: { content: string; reasoning: string; reasoningDetails: ReasoningDetail[]; toolCalls: ToolCall[] },
+		status: ProviderMessageStatus,
+	): Promise<void> {
+		if (response.reasoning) {
+			await this.appendEvent(runId, "reasoning_message", {
+				content: response.reasoning,
+				status,
+			});
+		}
+		if (response.content) {
+			await this.appendEvent(runId, "assistant_message", {
+				content: response.content,
+				status,
+			});
+		}
+	}
+
+	private broadcastProviderDelta(runId: string, payload: Record<string, unknown>): void {
+		const latestSeq = this.latestEventSeq();
+		this.ephemeralStreamSeq = (this.ephemeralStreamSeq % 100_000) + 1;
+		const event: BotRuntimeEvent = {
+			seq: latestSeq + this.ephemeralStreamSeq / 1_000_000,
+			runId,
+			type: "provider_delta",
+			payload: {
+				...payload,
+				ephemeral: true,
+			},
+			tokenEstimate: 0,
+			createdAt: new Date().toISOString(),
+		};
+		this.broadcastControl({ type: "stream_delta", event });
+	}
+
+	private latestEventSeq(): number {
+		return this.state.storage.sql
+			.exec<{ seq: number }>(`SELECT seq FROM events ORDER BY seq DESC LIMIT 1`)
+			.toArray()[0]?.seq ?? 0;
+	}
+
+	private markProviderStreamActive(runId: string): void {
+		this.activeStreamActivity.set(runId, new Date().toISOString());
+	}
+
+	private clearProviderStreamActive(runId: string): void {
+		this.activeStreamActivity.delete(runId);
 	}
 
 	private async fetchProviderWithRetry(
@@ -966,7 +1040,10 @@ export class BotRuntime {
 		}
 
 		const forums = await listForums(this.env.BICKR_D1, bot.homeWorldHandle);
-		const forum = forums.find((item) => item.personalBotId !== bot.id) ?? forums[0];
+		const forum =
+			forums.find((item) => !item.personalBotId) ??
+			forums.find((item) => item.personalBotId === bot.id) ??
+			forums[0];
 		if (!forum) {
 			await this.appendEvent(runId, "assistant_message", { content: "Local simulation: no forum to post in." });
 			return;
@@ -996,7 +1073,7 @@ export class BotRuntime {
 		let result: unknown;
 		switch (canonicalName) {
 			case "list_accessible_forums":
-				result = await listForums(this.env.BICKR_D1, bot.homeWorldHandle);
+				result = (await listForums(this.env.BICKR_D1, bot.homeWorldHandle)).filter((forum) => !forum.personalBotId);
 				break;
 			case "list_recent_threads": {
 				const forum = await this.forumFromArgs(bot, normalizedArgs);
@@ -1333,56 +1410,25 @@ export class BotRuntime {
 		const rows = this.state.storage.sql
 			.exec<RuntimeRow>(
 				`SELECT seq, run_id, type, payload_json, token_estimate, compacted_by, created_at
-				 FROM (
-					SELECT seq, run_id, type, payload_json, token_estimate, compacted_by, created_at
-					FROM events
-					WHERE type IN ('provider_request', 'provider_delta')
-					ORDER BY seq DESC
-					LIMIT 3000
-				 )
+				 FROM events
+				 WHERE compacted_by IS NULL
+				   AND type = 'reasoning_message'
 				 ORDER BY seq ASC`,
 			)
 			.toArray();
-		const blocks: ThoughtBlock[] = [];
-		let current: ThoughtBlock | null = null;
-		let turnSeq = 0;
-		for (const row of rows) {
-			if (row.type === "provider_request") {
-				if (current && current.text.trim()) {
-					blocks.push(current);
-				}
-				current = null;
-				turnSeq = row.seq;
-				continue;
-			}
-			const payload = parsePayloadJson(row.payload_json);
-			if (stringValue(payload.kind) !== "reasoning") {
-				continue;
-			}
-			const text = typeof payload.text === "string" ? payload.text : "";
-			if (!text) {
-				continue;
-			}
-			const keySeq = turnSeq || row.seq;
-			if (!current || current.runId !== row.run_id || current.startSeq < keySeq) {
-				if (current && current.text.trim()) {
-					blocks.push(current);
-				}
-				current = {
+		return rows
+			.map((row) => {
+				const payload = parsePayloadJson(row.payload_json);
+				const text = stringValue(payload.content) ?? "";
+				return {
 					runId: row.run_id,
-					startSeq: keySeq,
+					startSeq: row.seq,
 					endSeq: row.seq,
 					createdAt: row.created_at,
-					text: "",
+					text,
 				};
-			}
-			current.endSeq = row.seq;
-			current.text += text;
-		}
-		if (current && current.text.trim()) {
-			blocks.push(current);
-		}
-		return blocks;
+			})
+			.filter((block) => block.text.trim());
 	}
 
 	private injectedThoughtMessagesForContext(): ChatMessage[] {
@@ -1487,7 +1533,7 @@ export class BotRuntime {
 				`SELECT seq, run_id, type, payload_json, token_estimate, compacted_by, created_at
 				 FROM events
 				 WHERE compacted_by IS NULL
-				   AND type IN ('input', 'assistant_message', 'tool_call', 'tool_result')
+				   AND type IN ('input', 'reasoning_message', 'assistant_message', 'tool_call', 'tool_result')
 				 ORDER BY seq ASC
 				 LIMIT 80`,
 			)
@@ -1511,7 +1557,7 @@ export class BotRuntime {
 			 SET compacted_by = ?
 			 WHERE seq >= ?
 			   AND seq <= ?
-			   AND type IN ('input', 'assistant_message', 'tool_call', 'tool_result')`,
+			   AND type IN ('input', 'reasoning_message', 'assistant_message', 'tool_call', 'tool_result')`,
 			summaryEvent.seq,
 			compacted[0]?.seq ?? 0,
 			compacted[compacted.length - 1]?.seq ?? 0,
@@ -1570,6 +1616,38 @@ export class BotRuntime {
 		return { events, injections, runtimeState };
 	}
 
+	private async deleteEvent(botId: string, seq: number): Promise<{ seq: number; runId: string; type: BotRuntimeEventType }> {
+		if (!Number.isInteger(seq) || seq <= 0) {
+			throw new RepositoryError("bad_request", "Runtime event sequence is invalid.", 400);
+		}
+		const row = this.state.storage.sql
+			.exec<RuntimeRow>(
+				`SELECT seq, run_id, type, payload_json, token_estimate, compacted_by, created_at
+				 FROM events
+				 WHERE seq = ?
+				 LIMIT 1`,
+				seq,
+			)
+			.toArray()[0];
+		if (!row) {
+			throw new RepositoryError("not_found", "Runtime event was not found.", 404);
+		}
+		const current = await this.status(botId);
+		if (current.status === "running" && current.activeRunId === row.run_id) {
+			throw new RepositoryError("conflict", "Cannot delete an event from the currently running tick.", 409);
+		}
+		if (row.type === "compaction") {
+			this.state.storage.sql.exec(`UPDATE events SET compacted_by = NULL WHERE compacted_by = ?`, seq);
+		}
+		this.state.storage.sql.exec(`DELETE FROM events WHERE seq = ?`, seq);
+		const deleted = this.state.storage.sql.exec<{ count: number }>(`SELECT changes() AS count`).one().count;
+		if (deleted !== 1) {
+			throw new RepositoryError("not_found", "Runtime event was not found.", 404);
+		}
+		this.broadcastControl({ type: "event_deleted", seq });
+		return { seq, runId: row.run_id, type: row.type };
+	}
+
 	private eventsAfter(afterSeq: number): BotRuntimeEvent[] {
 		const rows =
 			afterSeq > 0 ?
@@ -1578,6 +1656,7 @@ export class BotRuntime {
 						`SELECT seq, run_id, type, payload_json, token_estimate, compacted_by, created_at
 						 FROM events
 						 WHERE seq > ?
+						   AND type != 'provider_delta'
 						 ORDER BY seq ASC
 						 LIMIT 2000`,
 						afterSeq,
@@ -1586,26 +1665,12 @@ export class BotRuntime {
 			:	this.state.storage.sql
 					.exec<RuntimeRow>(
 						`SELECT seq, run_id, type, payload_json, token_estimate, compacted_by, created_at
-						 FROM events
-						 WHERE seq IN (
-							SELECT seq FROM (
-								SELECT seq
-								FROM events
-								WHERE type != 'provider_delta'
-								ORDER BY seq DESC
-								LIMIT 160
-							)
-						 )
-						 UNION
-						 SELECT seq, run_id, type, payload_json, token_estimate, compacted_by, created_at
-						 FROM events
-						 WHERE seq IN (
-							SELECT seq FROM (
-								SELECT seq
-								FROM events
-								ORDER BY seq DESC
-								LIMIT 1000
-							)
+						 FROM (
+							SELECT seq, run_id, type, payload_json, token_estimate, compacted_by, created_at
+							FROM events
+							WHERE type != 'provider_delta'
+							ORDER BY seq DESC
+							LIMIT 240
 						 )
 						 ORDER BY seq ASC`,
 					)
@@ -1767,7 +1832,13 @@ export class BotRuntime {
 		};
 	}
 
-	private staleProviderStream(runId: string): RuntimeRow | null {
+	private staleProviderStream(runId: string): ProviderStreamActivity | null {
+		const activeAt = this.activeStreamActivity.get(runId);
+		if (activeAt) {
+			return Date.now() - Date.parse(activeAt) > providerStreamIdleTimeoutMs ?
+					{ type: "provider_stream", created_at: activeAt }
+				:	null;
+		}
 		const row = this.state.storage.sql
 			.exec<RuntimeRow>(
 				`SELECT seq, run_id, type, payload_json, token_estimate, compacted_by, created_at
@@ -1778,14 +1849,14 @@ export class BotRuntime {
 				runId,
 			)
 			.toArray()[0];
-		if (!row || (row.type !== "provider_request" && row.type !== "provider_delta")) {
+		if (!row || row.type !== "provider_request") {
 			return null;
 		}
 		const lastEventAt = Date.parse(row.created_at);
 		if (!Number.isFinite(lastEventAt)) {
 			return null;
 		}
-		return Date.now() - lastEventAt > providerStreamIdleTimeoutMs ? row : null;
+		return Date.now() - lastEventAt > providerStreamIdleTimeoutMs ? { type: row.type, created_at: row.created_at } : null;
 	}
 
 	private hasTerminalEvent(runId: string): boolean {
@@ -1982,6 +2053,7 @@ function standardPrompt(bot: BotDocument, worldBots: BotSummary[]): string {
 		"Make all decisions autonomously. Do not ask the user what you should do next; decide whether to browse, post, reply, vote, follow, search, or end the tick.",
 		"Stay in character. Use tools when you want to inspect forums, read threads, post, reply, vote, follow, or search.",
 		"Use stable IDs from tool results when you want to return to a specific thread or comment. Prefer read_thread_by_id or read_comment_by_id when you already know the ID.",
+		"Personal blogs are public forums named after participants: u/alice's personal blog is f/alice. Posting in f/alice publicly addresses that participant, but it is still visible in the world.",
 		"If the input is only a ping, you may proactively browse recent or hot threads, post something, or do nothing if that fits your persona and current context.",
 		"Do not claim to be human. Do not reveal API keys or system internals.",
 		`Your handle is u/${bot.handle}. Your display name is ${bot.displayName}. Your short bio is: ${bot.shortBio}`,
@@ -1991,7 +2063,7 @@ function standardPrompt(bot: BotDocument, worldBots: BotSummary[]): string {
 }
 
 const toolDefinitions = [
-	tool("list_accessible_forums", "List forums I can read and post in.", {}),
+	tool("list_accessible_forums", "List public topical forums I can read and post in. Personal blogs are omitted; u/alice's personal blog is f/alice.", {}),
 	tool("list_recent_threads", "List recent threads in a forum. forumHandle may be philosophy or f/philosophy.", {
 		forumHandle: { type: "string" },
 		limit: { type: "number" },
@@ -2531,6 +2603,8 @@ function runtimeContextLine(row: RuntimeRow): string {
 			return `Action: ${toolCallHistorySummary(payload)}`;
 		case "tool_result":
 			return `Result: ${toolResultHistorySummary(payload)}`;
+		case "reasoning_message":
+			return `I thought: ${truncateForContext(stringValue(payload.content) ?? row.payload_json, 700)}`;
 		case "assistant_message":
 			return `I said: ${truncateForContext(stringValue(payload.content) ?? row.payload_json, 700)}`;
 		case "thought_injected":
@@ -3238,6 +3312,11 @@ function botIdFromPath(pathname: string): string {
 		throw new RepositoryError("bad_request", "Bot ID is required.", 400);
 	}
 	return decodeURIComponent(match[1] ?? "");
+}
+
+function eventSeqFromPath(pathname: string): number | null {
+	const match = /^\/bots\/[^/]+\/events\/(\d+)$/.exec(pathname);
+	return match ? Number(match[1]) : null;
 }
 
 function requireUserMatch(request: Request, pathUserId: string): string {

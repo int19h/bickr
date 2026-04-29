@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useId, useMemo, useRef, useState } from "react";
-import type { CSSProperties, MouseEvent as ReactMouseEvent, ReactNode } from "react";
+import type { AriaRole, CSSProperties, MouseEvent as ReactMouseEvent, ReactNode } from "react";
 import {
 	type BotSummary,
 	type BotRuntimeEvent,
@@ -49,7 +49,7 @@ type Route =
 	| "bot-edit"
 	| "my-bots"
 	| "profile";
-type Tab = "forums" | "bots" | "lore";
+type WorldTab = "forums" | "bots" | "lore";
 type BotCreateTab = "manual" | "chirper";
 type ImportState = "idle" | "loading" | "preview" | "error";
 type ThemePreference = "system" | "light" | "dark";
@@ -61,6 +61,7 @@ type ParsedRoute = {
 	threadId?: string;
 	commentId?: string;
 	botHandle?: string;
+	worldTab?: WorldTab;
 };
 
 type ReferenceKind = "world" | "forum" | "bot" | "human";
@@ -107,6 +108,7 @@ type RuntimeActivityKind =
 type RuntimeActivity = {
 	id: string;
 	seq: number;
+	seqLabel?: string;
 	createdAt: string;
 	kind: RuntimeActivityKind;
 	title: string;
@@ -122,9 +124,11 @@ type RuntimeActivity = {
 
 type WorldView = WorldSummary & {
 	bannerIdx: number;
+	botCount: number | null;
 	forumCount: number | null;
 	isMine: boolean;
 	myBotCount: number;
+	myForumCount: number;
 };
 
 type ReferenceData = {
@@ -133,6 +137,13 @@ type ReferenceData = {
 	botsByWorld: Record<string, BotSummary[]>;
 	forumsByWorld: Record<string, ForumSummary[]>;
 	worlds: WorldView[];
+};
+
+type HoverTooltipContextValue = {
+	activeId: string | null;
+	clear: () => void;
+	hide: (id: string) => void;
+	show: (id: string) => void;
 };
 
 type SubscriptionTarget = {
@@ -200,6 +211,12 @@ const ReferenceDataContext = createContext<ReferenceData>({
 const NavigationContext = createContext<{ navigate: (parsed: ParsedRoute) => void }>({
 	navigate: () => undefined,
 });
+const HoverTooltipContext = createContext<HoverTooltipContextValue>({
+	activeId: null,
+	clear: () => undefined,
+	hide: () => undefined,
+	show: () => undefined,
+});
 
 function App() {
 	const initialRoute = useMemo(() => parseBrowserRoute(), []);
@@ -221,6 +238,7 @@ function App() {
 	const [activeThreadId, setActiveThreadId] = useState<string | null>(initialRoute.threadId ?? null);
 	const [activeCommentId, setActiveCommentId] = useState<string | null>(initialRoute.commentId ?? null);
 	const [activeBotHandle, setActiveBotHandle] = useState<string | null>(initialRoute.botHandle ?? null);
+	const [activeWorldTab, setActiveWorldTab] = useState<WorldTab>(initialRoute.worldTab ?? "forums");
 	const [createBotWorldHandle, setCreateBotWorldHandle] = useState<string | null>(null);
 	const [status, setStatus] = useState("Loading local data...");
 	const [busy, setBusy] = useState(false);
@@ -234,6 +252,7 @@ function App() {
 		notifications: [],
 	});
 	const [subscriptions, setSubscriptions] = useState<HumanSubscription[]>([]);
+	const [activeTooltipId, setActiveTooltipId] = useState<string | null>(null);
 
 	useEffect(() => {
 		void refreshAll();
@@ -293,11 +312,15 @@ function App() {
 		return worlds.map((world) => ({
 			...world,
 			bannerIdx: hash(world.handle) % banners.length,
+			botCount: botsByWorld[world.handle]?.length ?? null,
 			forumCount: visibleForums(forumsByWorld[world.handle] ?? []).length,
 			isMine: Boolean(session.user && world.createdByUserId === session.user.id),
 			myBotCount: bots.filter((bot) => bot.homeWorldHandle === world.handle).length,
+			myForumCount: visibleForums(forumsByWorld[world.handle] ?? []).filter(
+				(forum) => Boolean(session.user && forum.createdByUserId === session.user.id),
+			).length,
 		}));
-	}, [bots, forumsByWorld, session.user, worlds]);
+	}, [bots, botsByWorld, forumsByWorld, session.user, worlds]);
 
 	const activeWorld = useMemo(
 		() => worldViews.find((world) => world.handle === activeWorldHandle) ?? null,
@@ -331,6 +354,15 @@ function App() {
 		}),
 		[activeWorldHandle, bots, botsByWorld, forumsByWorld, worldViews],
 	);
+	const hoverTooltip = useMemo<HoverTooltipContextValue>(
+		() => ({
+			activeId: activeTooltipId,
+			clear: () => setActiveTooltipId(null),
+			hide: (id) => setActiveTooltipId((current) => current === id ? null : current),
+			show: (id) => setActiveTooltipId(id),
+		}),
+		[activeTooltipId],
+	);
 	const activeBotBlogForum =
 		activeBot ? activeForums.find((forum) => forum.personalBotId === activeBot.id) ?? null : null;
 	const ownedBotModels = useMemo(() => {
@@ -363,12 +395,13 @@ function App() {
 		setActiveThreadId(parsed.threadId ?? null);
 		setActiveCommentId(parsed.commentId ?? null);
 		setActiveBotHandle(parsed.botHandle ?? null);
+		setActiveWorldTab(parsed.route === "world" ? parsed.worldTab ?? "forums" : "forums");
 	}
 
 	function navigate(parsed: ParsedRoute, replace = false): void {
 		applyRoute(parsed);
 		const nextPath = routePath(parsed);
-		if (window.location.pathname !== nextPath) {
+		if (currentLocationPath() !== nextPath) {
 			if (replace) {
 				window.history.replaceState(null, "", nextPath);
 			} else {
@@ -564,7 +597,8 @@ function App() {
 				item.id === notification.id ? { ...item, readAt: item.readAt ?? new Date().toISOString() } : item,
 			),
 		}));
-		navigate(parsePathname(new URL(notification.urlPath, window.location.origin).pathname));
+		const notificationUrl = new URL(notification.urlPath, window.location.origin);
+		navigate(parsePathname(notificationUrl.pathname, notificationUrl.search));
 	}
 
 	async function markAllNotificationsRead(): Promise<void> {
@@ -580,6 +614,54 @@ function App() {
 		} else {
 			setStatus(result.message);
 		}
+	}
+
+	async function startBotTick(bot: BotSummary): Promise<{ bot: BotSummary; error?: string; status: string }> {
+		try {
+			const result = await api<{ run: { runId: string; status: string; error?: string } }>(
+				`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/tick`,
+				{ method: "POST", body: { background: true } },
+			);
+			if (!result.ok) {
+				return { bot, error: result.message, status: "failed" };
+			}
+			return { bot, error: result.data.run.error, status: result.data.run.status };
+		} catch (error) {
+			return {
+				bot,
+				error: error instanceof Error ? error.message : "Request failed.",
+				status: "failed",
+			};
+		}
+	}
+
+	async function runBotTick(bot: BotSummary): Promise<void> {
+		setStatus(`Starting tick for u/${bot.handle}...`);
+		const result = await startBotTick(bot);
+		if (result.status === "started") {
+			setStatus(`Started tick for u/${bot.handle}.`);
+			return;
+		}
+		if (result.status === "already_running") {
+			setStatus(`u/${bot.handle} already has a tick running.`);
+			return;
+		}
+		setStatus(result.error ? `Could not start tick for u/${bot.handle}: ${result.error}` : `Tick ${result.status} for u/${bot.handle}.`);
+	}
+
+	async function runWorldBotTicks(worldHandle: string, targetBots: BotSummary[]): Promise<void> {
+		if (targetBots.length === 0) {
+			setStatus(`No owned bots in w/${worldHandle}.`);
+			return;
+		}
+		setStatus(`Starting ticks for ${targetBots.length} bot${targetBots.length === 1 ? "" : "s"} in w/${worldHandle}...`);
+		const results = await Promise.all(targetBots.map((bot) => startBotTick(bot)));
+		const started = results.filter((result) => result.status === "started").length;
+		const alreadyRunning = results.filter((result) => result.status === "already_running").length;
+		const failed = results.filter((result) => result.status !== "started" && result.status !== "already_running").length;
+		setStatus(
+			`w/${worldHandle}: ${started} started${alreadyRunning ? `, ${alreadyRunning} already running` : ""}${failed ? `, ${failed} failed` : ""}.`,
+		);
 	}
 
 	async function submit(action: () => Promise<string | void>): Promise<boolean> {
@@ -812,6 +894,7 @@ function App() {
 		<ToastProvider>
 			<NavigationContext.Provider value={{ navigate }}>
 				<ReferenceDataContext.Provider value={referenceData}>
+					<HoverTooltipContext.Provider value={hoverTooltip}>
 				<div className="shell">
 				<Topbar
 					busy={busy}
@@ -854,8 +937,10 @@ function App() {
 							onCreateForum={(payload) => createForum(activeWorld.handle, payload)}
 							onDeleteBot={deleteBot}
 							onOpenBotEdit={openBotEdit}
+							onRunBotTick={(bot) => void runBotTick(bot)}
 							onToggleSubscription={toggleSubscription}
 							subscribed={isSubscribed("world", activeWorld.id)}
+							tab={activeWorldTab}
 							world={activeWorld}
 						/>
 					)}
@@ -937,6 +1022,8 @@ function App() {
 							onCreateBot={openCreateBot}
 							onDelete={deleteBot}
 							onOpen={openBotProfile}
+							onRunBotTick={(bot) => void runBotTick(bot)}
+							onRunWorldBotTicks={(worldHandle, rows) => void runWorldBotTicks(worldHandle, rows)}
 							worlds={worldViews}
 						/>
 					)}
@@ -958,6 +1045,7 @@ function App() {
 				open={Boolean(createBotWorld)}
 				world={createBotWorld}
 			/>
+					</HoverTooltipContext.Provider>
 				</ReferenceDataContext.Provider>
 			</NavigationContext.Provider>
 		</ToastProvider>
@@ -1305,16 +1393,20 @@ function ActivityBanner({ label, onClick }: { label: string; onClick: () => void
 }
 
 function SpaLink({
+	"aria-selected": ariaSelected,
 	children,
 	className,
 	onNavigate,
+	role,
 	style,
 	title,
 	to,
 }: {
+	"aria-selected"?: boolean;
 	children: ReactNode;
 	className?: string;
 	onNavigate?: () => void;
+	role?: AriaRole;
 	style?: CSSProperties;
 	title?: string;
 	to: ParsedRoute;
@@ -1332,6 +1424,8 @@ function SpaLink({
 				onNavigate?.();
 				navigate(to);
 			}}
+			aria-selected={ariaSelected}
+			role={role}
 			style={style}
 			title={title}
 		>
@@ -1628,8 +1722,10 @@ function WorldDetail({
 	onCreateForum,
 	onDeleteBot,
 	onOpenBotEdit,
+	onRunBotTick,
 	onToggleSubscription,
 	subscribed,
+	tab,
 	world,
 }: {
 	bots: BotSummary[];
@@ -1640,15 +1736,27 @@ function WorldDetail({
 	onCreateForum: (input: CreateForumInput) => Promise<boolean>;
 	onDeleteBot: (bot: BotSummary) => Promise<boolean>;
 	onOpenBotEdit: (bot: BotSummary) => void;
+	onRunBotTick: (bot: BotSummary) => void;
 	onToggleSubscription: (target: SubscriptionTarget, active: boolean) => Promise<void>;
 	subscribed: boolean;
+	tab: WorldTab;
 	world: WorldView;
 }) {
-	const [tab, setTab] = useState<Tab>("forums");
 	const [forumModalOpen, setForumModalOpen] = useState(false);
 	const [confirmBot, setConfirmBot] = useState<BotSummary | null>(null);
 	const toast = useContext(ToastContext);
 	const publicForums = visibleForums(forums);
+	const ownedBotCount = bots.filter((bot) => bot.ownerUserId === currentUserId).length;
+	const ownedForumCount = publicForums.filter((forum) => forum.createdByUserId === currentUserId).length;
+	const botGroups = useMemo(() => {
+		const sortedBots = [...bots].sort((left, right) =>
+			left.handle.localeCompare(right.handle, undefined, { sensitivity: "base" }),
+		);
+		return [
+			{ key: "mine", title: "My bots", bots: sortedBots.filter((bot) => bot.ownerUserId === currentUserId) },
+			{ key: "other", title: "Other bots", bots: sortedBots.filter((bot) => bot.ownerUserId !== currentUserId) },
+		].filter((group) => group.bots.length > 0);
+	}, [bots, currentUserId]);
 
 	return (
 		<div className="main-inner">
@@ -1660,13 +1768,13 @@ function WorldDetail({
 						<Reference kind="world" name={world.handle} />
 						<span>/</span>
 						<span>
-							<b>{bots.length}</b> my bots
-							</span>
-							<span>/</span>
-							<span>
-								<b>{publicForums.length}</b> forums
-							</span>
-						</div>
+							<b>{bots.length}</b> bots <span className="muted">({ownedBotCount} mine)</span>
+						</span>
+						<span>/</span>
+						<span>
+							<b>{publicForums.length}</b> forums <span className="muted">({ownedForumCount} mine)</span>
+						</span>
+					</div>
 				</div>
 				<div className="actions">
 					<SubscriptionButton
@@ -1693,12 +1801,20 @@ function WorldDetail({
 			</div>
 
 				<div className="tabs" role="tablist">
-					<button aria-selected={tab === "forums"} onClick={() => setTab("forums")} role="tab" type="button">
+					<SpaLink
+						to={{ route: "world", worldHandle: world.handle, worldTab: "forums" }}
+						aria-selected={tab === "forums"}
+						role="tab"
+					>
 						Forums <span className="count">{publicForums.length}</span>
-					</button>
-				<button aria-selected={tab === "bots"} onClick={() => setTab("bots")} role="tab" type="button">
+					</SpaLink>
+				<SpaLink
+					to={{ route: "world", worldHandle: world.handle, worldTab: "bots" }}
+					aria-selected={tab === "bots"}
+					role="tab"
+				>
 					Bots <span className="count">{bots.length}</span>
-				</button>
+				</SpaLink>
 				<button aria-selected={tab === "lore"} disabled role="tab" title="Coming later" type="button">
 					Lore <span className="count">-</span>
 				</button>
@@ -1720,16 +1836,29 @@ function WorldDetail({
 					<EmptyState actionLabel="New bot" onAction={() => onCreateBot(world)} title="No bots in this world">
 						Create one from scratch or import a Chirper profile.
 					</EmptyState>
-				:	<div className="bot-grid">
-					{bots.map((bot) => (
-						<BotCard
-							bot={bot}
-							key={bot.id}
-							onDelete={bot.ownerUserId === currentUserId ? () => setConfirmBot(bot) : undefined}
-							onEdit={bot.ownerUserId === currentUserId ? () => onOpenBotEdit(bot) : undefined}
-							world={world}
-						/>
-					))}
+				:	<div className="bot-world-groups">
+						{botGroups.map((group) => (
+							<section className="bot-world-group" key={group.key}>
+								<div className="bot-world-head">
+									<span>{group.title}</span>
+									<span className="bot-world-head-actions">
+										{group.bots.length} bot{group.bots.length === 1 ? "" : "s"}
+									</span>
+								</div>
+								<div className="bot-grid">
+									{group.bots.map((bot) => (
+										<BotCard
+											bot={bot}
+											key={bot.id}
+											onDelete={bot.ownerUserId === currentUserId ? () => setConfirmBot(bot) : undefined}
+											onEdit={bot.ownerUserId === currentUserId ? () => onOpenBotEdit(bot) : undefined}
+											onRunTick={bot.ownerUserId === currentUserId ? () => onRunBotTick(bot) : undefined}
+											world={world}
+										/>
+									))}
+								</div>
+							</section>
+						))}
 					</div>)}
 
 			<CreateForumModal
@@ -1877,9 +2006,6 @@ function ForumRow({ forum }: { forum: ForumSummary }) {
 					<div className="desc">{forum.description}</div>
 				</div>
 				<div className="stats">
-					<span>
-						<b>{forum.personalBotId ? 1 : "-"}</b>personal
-					</span>
 					<SpaLink
 						className="btn ghost compact"
 						to={{ route: "forum", worldHandle: forum.worldHandle, forumHandle: forum.handle }}
@@ -3073,6 +3199,7 @@ function BotCard({
 	hideWorld = false,
 	onDelete,
 	onEdit,
+	onRunTick,
 	showActive = false,
 	world,
 }: {
@@ -3080,19 +3207,13 @@ function BotCard({
 	hideWorld?: boolean;
 	onDelete?: () => void;
 	onEdit?: () => void;
+	onRunTick?: () => void;
 	showActive?: boolean;
 	world?: WorldView | null;
 }) {
 	const canManage = Boolean(onDelete || onEdit);
 	return (
 		<article className="bot-card">
-			<SpaLink
-				className="card-hit-link"
-				title={`Open ${bot.displayName}`}
-				to={{ route: "bot-profile", worldHandle: bot.homeWorldHandle, botHandle: bot.handle }}
-			>
-				<span className="sr-only">Open {bot.displayName}</span>
-			</SpaLink>
 			{canManage && (
 				<div className="actions-overlay">
 					{onEdit && (
@@ -3108,9 +3229,20 @@ function BotCard({
 				</div>
 			)}
 			<div className="head">
-				<Avatar actor="bot" colorSeed={bot.handle} name={bot.displayName} />
+				<SpaLink
+					className="bot-avatar-link"
+					title={`Open ${bot.displayName}`}
+					to={{ route: "bot-profile", worldHandle: bot.homeWorldHandle, botHandle: bot.handle }}
+				>
+					<Avatar actor="bot" colorSeed={bot.handle} name={bot.displayName} />
+				</SpaLink>
 				<div className="bot-card-title">
-					<div className="name">{bot.displayName}</div>
+					<SpaLink
+						className="name bot-name-link"
+						to={{ route: "bot-profile", worldHandle: bot.homeWorldHandle, botHandle: bot.handle }}
+					>
+						{bot.displayName}
+					</SpaLink>
 					<div className="bot-ref-line">
 						<Reference isBot kind="bot" name={bot.handle} />
 						{bot.importSource && <span className="bot-badge">Chirper</span>}
@@ -3121,6 +3253,12 @@ function BotCard({
 			<div className="foot">
 				{!hideWorld && <span>{world ? <Reference kind="world" name={world.handle} /> : `w/${bot.homeWorldHandle}`}</span>}
 				{showActive && <span>active {timeAgoWithAgo(bot.lastActiveAt ?? bot.createdAt)}</span>}
+				{onRunTick && (
+					<button className="btn compact bot-run-tick" onClick={onRunTick} type="button">
+						<Icon name="refresh" size={12} />
+						Run tick
+					</button>
+				)}
 				<span>{showActive ? "edited" : "updated"} {showActive ? timeAgoWithAgo(bot.updatedAt) : timeAgo(bot.updatedAt)}</span>
 			</div>
 		</article>
@@ -3393,12 +3531,16 @@ function MyBotsScreen({
 	onCreateBot,
 	onDelete,
 	onOpen,
+	onRunBotTick,
+	onRunWorldBotTicks,
 	worlds,
 }: {
 	bots: BotSummary[];
 	onCreateBot: (world: WorldView | null) => void;
 	onDelete: (bot: BotSummary) => Promise<boolean>;
 	onOpen: (bot: BotSummary) => void;
+	onRunBotTick: (bot: BotSummary) => void;
+	onRunWorldBotTicks: (worldHandle: string, bots: BotSummary[]) => void;
 	worlds: WorldView[];
 }) {
 	const groups = useMemo(() => {
@@ -3450,7 +3592,17 @@ function MyBotsScreen({
 								<SpaLink to={{ route: "world", worldHandle: group.worldHandle }}>
 									<Reference kind="world" link={false} name={group.worldHandle} />
 								</SpaLink>
-								<span>{group.rows.length} bot{group.rows.length === 1 ? "" : "s"}</span>
+								<div className="bot-world-head-actions">
+									<span>{group.rows.length} bot{group.rows.length === 1 ? "" : "s"}</span>
+									<button
+										className="btn compact"
+										onClick={() => onRunWorldBotTicks(group.worldHandle, group.rows.map((row) => row.bot))}
+										type="button"
+									>
+										<Icon name="refresh" size={12} />
+										Run all ticks
+									</button>
+								</div>
 							</div>
 							<div className="bot-grid">
 								{group.rows.map(({ bot, world }) => (
@@ -3460,6 +3612,7 @@ function MyBotsScreen({
 										key={bot.id}
 										onDelete={() => setConfirmBot(bot)}
 										onEdit={() => onOpen(bot)}
+										onRunTick={() => onRunBotTick(bot)}
 										showActive
 										world={world}
 									/>
@@ -4080,13 +4233,15 @@ function CreateBotModal({
 function BotRuntimePanel({ bot, busy }: { bot: BotSummary; busy: boolean }) {
 	const [status, setStatus] = useState<BotRuntimeStatus | null>(null);
 	const [events, setEvents] = useState<BotRuntimeEvent[]>([]);
+	const [streamEvents, setStreamEvents] = useState<BotRuntimeEvent[]>([]);
 	const [connected, setConnected] = useState(false);
 	const [injection, setInjection] = useState("");
 	const [message, setMessage] = useState("");
 	const [clearConfirm, setClearConfirm] = useState(false);
+	const [pendingDeleteActivity, setPendingDeleteActivity] = useState<RuntimeActivity | null>(null);
 	const logRef = useRef<HTMLDivElement | null>(null);
 	const shouldStickToBottomRef = useRef(true);
-	const activities = useMemo(() => runtimeActivities(events), [events]);
+	const activities = useMemo(() => runtimeActivities([...events, ...streamEvents]), [events, streamEvents]);
 
 	useEffect(() => {
 		let closed = false;
@@ -4112,14 +4267,25 @@ function BotRuntimePanel({ bot, busy }: { bot: BotSummary; busy: boolean }) {
 			}
 		};
 		socket.onmessage = (event) => {
-			const payload = JSON.parse(event.data) as { type?: string; event?: BotRuntimeEvent; message?: string };
+			const payload = JSON.parse(event.data) as { type?: string; event?: BotRuntimeEvent; message?: string; seq?: number };
 			if (payload.type === "history_cleared") {
 				setEvents([]);
+				setStreamEvents([]);
 				setMessage("Loop history erased.");
+				return;
+			}
+			if (payload.type === "event_deleted" && Number.isInteger(payload.seq)) {
+				setEvents((current) => current.filter((item) => item.seq !== payload.seq));
+				setStreamEvents((current) => current.filter((item) => item.seq !== payload.seq));
+				return;
+			}
+			if (payload.type === "stream_delta" && payload.event) {
+				setStreamEvents((current) => [...current, payload.event!]);
 				return;
 			}
 			if (payload.event) {
 				setEvents((current) => upsertEvent(current, payload.event!));
+				setStreamEvents((current) => pruneStreamEventsForPersistentEvent(current, payload.event!));
 				if (["tick_completed", "tick_failed", "tick_stopped"].includes(payload.event.type)) {
 					void refresh();
 				}
@@ -4178,6 +4344,7 @@ function BotRuntimePanel({ bot, busy }: { bot: BotSummary; busy: boolean }) {
 		}
 		if (eventsResult.ok) {
 			setEvents((current) => mergeEvents(current, eventsResult.data.events));
+			setStreamEvents((current) => pruneStreamEventsForPersistentEvents(current, eventsResult.data.events));
 		}
 	}
 
@@ -4233,10 +4400,37 @@ function BotRuntimePanel({ bot, busy }: { bot: BotSummary; busy: boolean }) {
 		);
 		if (result.ok) {
 			setEvents([]);
+			setStreamEvents([]);
 			setMessage(`Reset ${result.data.cleared.events} runtime events.`);
 		} else {
 			setMessage(result.message);
 		}
+	}
+
+	async function deleteActivity(activity: RuntimeActivity): Promise<void> {
+		const seqs = activityEventSeqs(activity);
+		if (seqs.length === 0) {
+			setPendingDeleteActivity(null);
+			setMessage("This live stream row is not stored yet.");
+			return;
+		}
+		for (const seq of seqs) {
+			const result = await api<{ deleted: { seq: number; runId: string; type: string } }>(
+				`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/events/${encodeURIComponent(String(seq))}`,
+				{ method: "DELETE" },
+			);
+			if (!result.ok) {
+				setPendingDeleteActivity(null);
+				setMessage(result.message);
+				await refresh();
+				return;
+			}
+		}
+		setEvents((current) => current.filter((event) => !seqs.includes(event.seq)));
+		setStreamEvents((current) => current.filter((event) => !seqs.includes(event.seq)));
+		setPendingDeleteActivity(null);
+		setMessage(seqs.length === 1 ? `Deleted event #${seqs[0]}.` : `Deleted ${seqs.length} events from this row.`);
+		await refresh();
 	}
 
 	return (
@@ -4291,7 +4485,12 @@ function BotRuntimePanel({ bot, busy }: { bot: BotSummary; busy: boolean }) {
 				<div className="event-log" onScroll={trackLogScroll} ref={logRef}>
 					{activities.length === 0 && <div className="empty compact-empty">No runtime events yet.</div>}
 					{activities.slice(-80).map((activity) => (
-						<RuntimeActivityRow activity={activity} bot={bot} key={activity.id} />
+						<RuntimeActivityRow
+							activity={activity}
+							bot={bot}
+							key={activity.id}
+							onDelete={() => setPendingDeleteActivity(activity)}
+						/>
 					))}
 				</div>
 			</div>
@@ -4304,15 +4503,38 @@ function BotRuntimePanel({ bot, busy }: { bot: BotSummary; busy: boolean }) {
 				open={clearConfirm}
 				title="Reset Loop History"
 			/>
+			<Confirm
+				body={
+					pendingDeleteActivity ?
+						`Delete ${activityEventSeqs(pendingDeleteActivity).length === 1 ? `event #${activityEventSeqs(pendingDeleteActivity)[0]}` : "this log row"} from this bot's loop history? Public posts and comments will not be deleted.`
+					:	"Delete this event from the loop history?"
+				}
+				confirmText="Delete event"
+				danger
+				onClose={() => setPendingDeleteActivity(null)}
+				onConfirm={() => pendingDeleteActivity ? void deleteActivity(pendingDeleteActivity) : undefined}
+				open={Boolean(pendingDeleteActivity)}
+				title="Delete Runtime Event"
+			/>
 		</>
 	);
 }
 
-function RuntimeActivityRow({ activity, bot }: { activity: RuntimeActivity; bot: BotSummary }) {
+function RuntimeActivityRow({
+	activity,
+	bot,
+	onDelete,
+}: {
+	activity: RuntimeActivity;
+	bot: BotSummary;
+	onDelete: () => void;
+}) {
 	const [rawOpen, setRawOpen] = useState(false);
 	const [copied, setCopied] = useState(false);
 	const rawJson = useMemo(() => formatFullPayload(activity.raw ?? activity), [activity]);
 	const toolSummary = activity.toolName ? toolSummaryNode(activity.toolName, activity.args, activity.result, bot.homeWorldHandle) : null;
+	const seqLabel = activity.seqLabel ?? String(activity.seq);
+	const canDelete = activityEventSeqs(activity).length > 0;
 
 	async function copyRaw(): Promise<void> {
 		await navigator.clipboard?.writeText(rawJson);
@@ -4323,7 +4545,17 @@ function RuntimeActivityRow({ activity, bot }: { activity: RuntimeActivity; bot:
 	return (
 		<div className={`event-row activity-${activity.kind}`}>
 			<button
-				aria-label={`Inspect raw JSON for event ${activity.seq}`}
+				aria-label={`Delete event ${seqLabel}`}
+				className="event-delete-button"
+				disabled={!canDelete}
+				onClick={onDelete}
+				title={canDelete ? "Delete event" : "Live stream rows can be deleted after they finish"}
+				type="button"
+			>
+				<Icon name="trash" size={13} />
+			</button>
+			<button
+				aria-label={`Inspect raw JSON for event ${seqLabel}`}
 				className="raw-json-button"
 				onClick={() => setRawOpen((current) => !current)}
 				title="Inspect raw JSON"
@@ -4332,7 +4564,7 @@ function RuntimeActivityRow({ activity, bot }: { activity: RuntimeActivity; bot:
 				<Icon name="info" size={13} />
 			</button>
 			<div className="event-head">
-				<span>#{activity.seq}</span>
+				<span>#{seqLabel}</span>
 				<b>{activity.title}</b>
 				<span>{timeAgo(activity.createdAt)}</span>
 				{activity.streaming && <span className="streaming-pill">streaming</span>}
@@ -4659,6 +4891,8 @@ function Reference({
 }) {
 	const referenceData = useContext(ReferenceDataContext);
 	const { navigate } = useContext(NavigationContext);
+	const hoverTooltip = useContext(HoverTooltipContext);
+	const tooltipId = useId();
 	const meta = referenceMeta(referenceData, kind, name, worldHandle);
 	const route = referenceRoute(referenceData, kind, name, worldHandle);
 	const prefix = { world: "w/", forum: "f/", bot: "u/", human: "hu/" }[kind];
@@ -4669,7 +4903,13 @@ function Reference({
 		</span>
 	);
 	return (
-		<span className="ref-wrap">
+		<span
+			className="ref-wrap"
+			onBlur={() => hoverTooltip.hide(tooltipId)}
+			onFocus={() => meta ? hoverTooltip.show(tooltipId) : undefined}
+			onMouseEnter={() => meta ? hoverTooltip.show(tooltipId) : undefined}
+			onMouseLeave={() => hoverTooltip.hide(tooltipId)}
+		>
 			{link && route ?
 				<a
 					className="ref-button"
@@ -4680,6 +4920,7 @@ function Reference({
 						}
 						event.preventDefault();
 						event.stopPropagation();
+						hoverTooltip.clear();
 						if (onOpen) {
 							onOpen();
 						} else {
@@ -4695,6 +4936,7 @@ function Reference({
 					onClick={(event) => {
 						event.preventDefault();
 						event.stopPropagation();
+						hoverTooltip.clear();
 						onOpen();
 					}}
 					type="button"
@@ -4703,7 +4945,7 @@ function Reference({
 				</button>
 			:	content}
 			{meta && (
-				<span className="ref-popover" role="tooltip">
+				<span className={`ref-popover ${hoverTooltip.activeId === tooltipId ? "active" : ""}`} role="tooltip">
 					<span className="ref-pop-title">{meta.title}</span>
 					<span className="ref-pop-desc">{meta.description}</span>
 				</span>
@@ -4938,10 +5180,10 @@ async function api<T = unknown>(
 }
 
 function parseBrowserRoute(): ParsedRoute {
-	return parsePathname(window.location.pathname);
+	return parsePathname(window.location.pathname, window.location.search);
 }
 
-function parsePathname(pathname: string): ParsedRoute {
+function parsePathname(pathname: string, search = ""): ParsedRoute {
 	const parts = pathname.split("/").filter(Boolean).map(decodeURIComponent);
 	if (parts.length === 0) {
 		return { route: "worlds" };
@@ -4975,7 +5217,7 @@ function parsePathname(pathname: string): ParsedRoute {
 			}
 			return { route: "bot-profile", worldHandle, botHandle };
 		}
-		return { route: "world", worldHandle };
+		return { route: "world", worldHandle, worldTab: worldTabFromSearch(search) };
 	}
 	return { route: "worlds" };
 }
@@ -4984,8 +5226,10 @@ function routePath(parsed: ParsedRoute): string {
 	switch (parsed.route) {
 		case "worlds":
 			return "/";
-		case "world":
-			return `/w/${encodeURIComponent(parsed.worldHandle ?? "")}`;
+		case "world": {
+			const base = `/w/${encodeURIComponent(parsed.worldHandle ?? "")}`;
+			return parsed.worldTab && parsed.worldTab !== "forums" ? `${base}?tab=${encodeURIComponent(parsed.worldTab)}` : base;
+		}
 		case "forum":
 			return `/w/${encodeURIComponent(parsed.worldHandle ?? "")}/f/${encodeURIComponent(parsed.forumHandle ?? "")}`;
 		case "thread": {
@@ -5007,9 +5251,18 @@ function routePath(parsed: ParsedRoute): string {
 
 function canonicalizeCurrentPath(parsed: ParsedRoute): void {
 	const canonical = routePath(parsed);
-	if (window.location.pathname !== canonical) {
+	if (currentLocationPath() !== canonical) {
 		window.history.replaceState(null, "", canonical);
 	}
+}
+
+function currentLocationPath(): string {
+	return `${window.location.pathname}${window.location.search}`;
+}
+
+function worldTabFromSearch(search: string): WorldTab {
+	const tab = new URLSearchParams(search).get("tab");
+	return tab === "bots" ? "bots" : "forums";
 }
 
 function readThemePreference(): ThemePreference {
@@ -5088,6 +5341,51 @@ function mergeEvents(current: BotRuntimeEvent[], fetched: BotRuntimeEvent[]): Bo
 	return [...bySeq.values()].sort((left, right) => left.seq - right.seq);
 }
 
+function activityEventSeqs(activity: RuntimeActivity): number[] {
+	const raw = asRuntimeRecord(activity.raw);
+	const seqs: number[] = [];
+	if (Array.isArray(raw.events)) {
+		for (const event of raw.events) {
+			const seq = asRuntimeRecord(event).seq;
+			if (typeof seq === "number" && Number.isInteger(seq)) {
+				seqs.push(seq);
+			}
+		}
+	}
+	const rawSeq = raw.seq;
+	if (typeof rawSeq === "number" && Number.isInteger(rawSeq)) {
+		seqs.push(rawSeq);
+	}
+	if (Number.isInteger(activity.seq) && activity.seqLabel !== "live") {
+		seqs.push(activity.seq);
+	}
+	return [...new Set(seqs)].sort((left, right) => left - right);
+}
+
+function pruneStreamEventsForPersistentEvents(streamEvents: BotRuntimeEvent[], persistentEvents: BotRuntimeEvent[]): BotRuntimeEvent[] {
+	return persistentEvents.reduce(
+		(current, event) => pruneStreamEventsForPersistentEvent(current, event),
+		streamEvents,
+	);
+}
+
+function pruneStreamEventsForPersistentEvent(streamEvents: BotRuntimeEvent[], event: BotRuntimeEvent): BotRuntimeEvent[] {
+	if (["tick_completed", "tick_failed", "tick_stopped"].includes(event.type)) {
+		return streamEvents.filter((streamEvent) => streamEvent.runId !== event.runId);
+	}
+	const kind =
+		event.type === "reasoning_message" ? "reasoning"
+		: event.type === "assistant_message" ? "content"
+		: null;
+	if (!kind) {
+		return streamEvents;
+	}
+	return streamEvents.filter((streamEvent) => {
+		const payload = asRuntimeRecord(streamEvent.payload);
+		return streamEvent.runId !== event.runId || stringValue(payload.kind) !== kind;
+	});
+}
+
 function runtimeActivities(events: BotRuntimeEvent[]): RuntimeActivity[] {
 	const activities: RuntimeActivity[] = [];
 	const turnByRun = new Map<string, number>();
@@ -5148,6 +5446,9 @@ function runtimeActivities(events: BotRuntimeEvent[]): RuntimeActivity[] {
 				break;
 			case "provider_delta":
 				appendProviderDelta(activities, streams, turnByRun, event, payload);
+				break;
+			case "reasoning_message":
+				upsertReasoningMessage(activities, streams, turnByRun, event, payload);
 				break;
 			case "assistant_message":
 				upsertAssistantMessage(activities, streams, turnByRun, event, payload);
@@ -5275,6 +5576,7 @@ function appendProviderDelta(
 		activity = {
 			id: `stream-${streamKey}`,
 			seq: event.seq,
+			seqLabel: payload.ephemeral === true ? "live" : undefined,
 			createdAt: event.createdAt,
 			kind: kind === "reasoning" ? "reasoning" : "assistant",
 			title: kind === "reasoning" ? "Thought" : "Reasoning",
@@ -5301,6 +5603,35 @@ function finishRunStreams(streams: Map<string, RuntimeActivity>, runId: string):
 	}
 }
 
+function upsertReasoningMessage(
+	activities: RuntimeActivity[],
+	streams: Map<string, RuntimeActivity>,
+	turnByRun: Map<string, number>,
+	event: BotRuntimeEvent,
+	payload: Record<string, unknown>,
+): void {
+	const content = stringValue(payload.content) ?? "";
+	const turn = turnByRun.get(event.runId) ?? 0;
+	const stream = streams.get(`${event.runId}:${turn}:reasoning`);
+	if (stream) {
+		stream.body = content;
+		stream.streaming = false;
+		stream.meta = stringValue(payload.status) === "interrupted" ? "interrupted" : undefined;
+		appendRawStreamEvent(stream, event);
+		return;
+	}
+	activities.push({
+		id: `event-${event.seq}`,
+		seq: event.seq,
+		createdAt: event.createdAt,
+		kind: "reasoning",
+		title: "Thought",
+		body: content,
+		meta: stringValue(payload.status) === "interrupted" ? "interrupted" : undefined,
+		raw: event,
+	});
+}
+
 function upsertAssistantMessage(
 	activities: RuntimeActivity[],
 	streams: Map<string, RuntimeActivity>,
@@ -5318,6 +5649,7 @@ function upsertAssistantMessage(
 	if (stream) {
 		stream.body = content;
 		stream.streaming = false;
+		stream.meta = stringValue(payload.status) === "interrupted" ? "interrupted" : undefined;
 		appendRawStreamEvent(stream, event);
 		return;
 	}
@@ -5328,6 +5660,7 @@ function upsertAssistantMessage(
 		kind: "assistant",
 		title: "Reasoning",
 		body: content,
+		meta: stringValue(payload.status) === "interrupted" ? "interrupted" : undefined,
 		raw: event,
 	});
 }

@@ -479,6 +479,7 @@ export type BotRuntimeEventType =
 	| "provider_request"
 	| "provider_retry"
 	| "provider_delta"
+	| "reasoning_message"
 	| "assistant_message"
 	| "tool_call"
 	| "tool_result"
