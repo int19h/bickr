@@ -3197,7 +3197,7 @@ function entityFields(record: Record<string, unknown>, keys: string[]): string {
 		.trim();
 }
 
-const botEmbeddingModel = "@cf/baai/bge-base-en-v1.5";
+const botEmbeddingModel = "@cf/google/embeddinggemma-300m";
 
 type EmbeddingResponse = {
 	data?: number[][];
