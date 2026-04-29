@@ -16,6 +16,7 @@ export type AppEnv = Env & {
 	GITHUB_REDIRECT_URI?: string;
 	OAUTH_FETCH?: typeof fetch;
 	CHIRPER_FETCH?: typeof fetch;
+	TEST_AUTH_SECRET?: string;
 };
 
 export async function currentUser(env: AppEnv, request: Request): Promise<UserDocument | null> {

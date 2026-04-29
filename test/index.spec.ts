@@ -4,6 +4,7 @@ import { onRequestGet as bootstrap } from "../apps/web/functions/api/bootstrap";
 import { onRequestGet as githubStart } from "../apps/web/functions/api/auth/github/start";
 import { onRequestGet as githubCallback } from "../apps/web/functions/api/auth/github/callback";
 import { onRequestPost as logout } from "../apps/web/functions/api/auth/logout";
+import { onRequestPost as testLogin } from "../apps/web/functions/api/__test__/login";
 import { onRequestGet as health } from "../apps/web/functions/api/health";
 import { onRequestGet as meBots } from "../apps/web/functions/api/me/bots";
 import {
@@ -542,6 +543,173 @@ describe("Bickr Pages Functions", () => {
 
 		expect(response.status).toBe(401);
 		expect(await response.json()).toMatchObject({ ok: false, error: "unauthorized" });
+	});
+
+	it("keeps the local test login route disabled unless explicitly configured", async () => {
+		const disabled = await testLogin(
+			contextFor<typeof testLogin>(
+				jsonRequest("http://localhost/api/__test__/login", "POST", {
+					login: "manual-test-user",
+				}),
+			),
+		);
+		expect(disabled.status).toBe(404);
+
+		const remoteHost = await testLogin(
+			contextFor<typeof testLogin>(
+				jsonRequest("http://example.com/api/__test__/login", "POST", {
+					login: "manual-test-user",
+				}),
+				{},
+				{ TEST_AUTH_SECRET: "secret" },
+			),
+		);
+		expect(remoteHost.status).toBe(404);
+	});
+
+	it("rejects local test login requests with the wrong secret", async () => {
+		const response = await testLogin(
+			contextFor<typeof testLogin>(
+				jsonRequest(
+					"http://127.0.0.1/api/__test__/login",
+					"POST",
+					{ login: "manual-test-user" },
+					undefined,
+					{ "x-test-auth-secret": "wrong" },
+				),
+				{},
+				{ TEST_AUTH_SECRET: "correct" },
+			),
+		);
+
+		expect(response.status).toBe(401);
+		expect(await response.json()).toMatchObject({ ok: false, error: "unauthorized" });
+	});
+
+	it("supports local test login, session lookup, protected mutations, incomplete setup, and logout", async () => {
+		const completeLogin = await testLogin(
+			contextFor<typeof testLogin>(
+				jsonRequest(
+					"http://127.0.0.1/api/__test__/login",
+					"POST",
+					{
+						subject: "manual-test-complete",
+						login: "manual-test-complete",
+						handle: "manual-test-complete",
+						displayName: "Manual Test Complete",
+					},
+					undefined,
+					{ "x-test-auth-secret": "local-secret" },
+				),
+				{},
+				{ TEST_AUTH_SECRET: "local-secret" },
+			),
+		);
+		expect(completeLogin.status).toBe(201);
+		const completeCookie = completeLogin.headers
+			.getSetCookie()
+			.find((cookie) => cookie.startsWith(`${sessionCookieName}=`));
+		expect(completeCookie).toBeDefined();
+		expect(await completeLogin.json()).toMatchObject({
+			ok: true,
+			data: {
+				profile: {
+					handle: "manual-test-complete",
+					displayName: "Manual Test Complete",
+					profileComplete: true,
+				},
+			},
+		});
+
+		const sessionResponse = await session(
+			contextFor<typeof session>(
+				new Request("http://example.com/api/session", {
+					headers: { cookie: completeCookie! },
+				}),
+			),
+		);
+		expect(await sessionResponse.json()).toMatchObject({
+			ok: true,
+			data: {
+				authenticated: true,
+				user: {
+					handle: "manual-test-complete",
+					profileComplete: true,
+				},
+			},
+		});
+
+		const createdWorld = await createWorld(
+			contextFor<typeof createWorld>(
+				jsonRequest(
+					"http://example.com/api/worlds",
+					"POST",
+					{ handle: "manual-test-auth", name: "Manual Test Auth", description: "Local auth test" },
+					completeCookie!,
+				),
+			),
+		);
+		expect(createdWorld.status).toBe(201);
+
+		const logoutResponse = await logout(
+			contextFor<typeof logout>(
+				new Request("http://example.com/api/auth/logout", {
+					method: "POST",
+					headers: { cookie: completeCookie! },
+				}),
+			),
+		);
+		expect(logoutResponse.status).toBe(200);
+		expect(logoutResponse.headers.getSetCookie().join(";")).toContain("Max-Age=0");
+
+		const incompleteLogin = await testLogin(
+			contextFor<typeof testLogin>(
+				jsonRequest(
+					"http://127.0.0.1/api/__test__/login",
+					"POST",
+					{
+						subject: "manual-test-incomplete",
+						login: "manual-test-incomplete",
+						displayName: "Manual Test Incomplete",
+						profileComplete: false,
+					},
+					undefined,
+					{ "x-test-auth-secret": "local-secret" },
+				),
+				{},
+				{ TEST_AUTH_SECRET: "local-secret" },
+			),
+		);
+		const incompleteCookie = incompleteLogin.headers
+			.getSetCookie()
+			.find((cookie) => cookie.startsWith(`${sessionCookieName}=`));
+		expect(incompleteCookie).toBeDefined();
+		expect(await incompleteLogin.json()).toMatchObject({
+			ok: true,
+			data: {
+				profile: {
+					handle: "manual-test-incomplete",
+					profileComplete: false,
+				},
+			},
+		});
+
+		const blockedWorld = await createWorld(
+			contextFor<typeof createWorld>(
+				jsonRequest(
+					"http://example.com/api/worlds",
+					"POST",
+					{ handle: "manual-test-blocked", name: "Manual Test Blocked", description: "Incomplete setup" },
+					incompleteCookie!,
+				),
+			),
+		);
+		expect(blockedWorld.status).toBe(403);
+		expect(await blockedWorld.json()).toMatchObject({
+			ok: false,
+			error: "forbidden",
+			message: expect.stringContaining("Complete your profile"),
+		});
 	});
 
 	it("supports GitHub OAuth callback user upsert, session lookup, and logout", async () => {
@@ -2206,10 +2374,19 @@ async function pause(milliseconds: number): Promise<void> {
 	await new Promise<void>((resolve) => globalThis.setTimeout(resolve, milliseconds));
 }
 
-function jsonRequest(url: string, method: string, body: unknown, cookie?: string): Request {
+function jsonRequest(
+	url: string,
+	method: string,
+	body: unknown,
+	cookie?: string,
+	headerOverrides: Record<string, string> = {},
+): Request {
 	const headers = new Headers({ "content-type": "application/json" });
 	if (cookie) {
 		headers.set("cookie", cookie);
+	}
+	for (const [key, value] of Object.entries(headerOverrides)) {
+		headers.set(key, value);
 	}
 	return new Request(url, {
 		method,
