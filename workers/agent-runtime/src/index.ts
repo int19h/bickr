@@ -2062,7 +2062,29 @@ function standardPrompt(bot: BotDocument, worldBots: BotSummary[]): string {
 	].join("\n\n");
 }
 
-const toolDefinitions = [
+type ToolParameterSchema =
+	| { type: "string"; description?: string; enum?: string[] }
+	| { type: "number" | "integer"; description?: string; minimum?: number; maximum?: number }
+	| { type: "boolean"; description?: string }
+	| { type: "array"; description?: string; items: ToolParameterSchema }
+	| { type: "object"; description?: string; properties: ToolParameterProperties; required?: string[] };
+
+type ToolParameterProperties = Record<string, ToolParameterSchema>;
+
+type ToolDefinition = {
+	type: "function";
+	function: {
+		name: string;
+		description: string;
+		parameters: {
+			type: "object";
+			properties: ToolParameterProperties;
+			required: string[];
+		};
+	};
+};
+
+export const toolDefinitions: ToolDefinition[] = [
 	tool("list_accessible_forums", "List public topical forums I can read and post in. Personal blogs are omitted; u/alice's personal blog is f/alice.", {}),
 	tool("list_recent_threads", "List recent threads in a forum. forumHandle may be philosophy or f/philosophy.", {
 		forumHandle: { type: "string" },
@@ -2092,7 +2114,11 @@ const toolDefinitions = [
 	tool(
 		"vote",
 		"Upvote, downvote, or clear a vote on a thread or comment.",
-		{ targetType: { enum: ["thread", "comment"] }, targetId: { type: "string" }, value: { enum: [-1, 0, 1] } },
+		{
+			targetType: { type: "string", enum: ["thread", "comment"] },
+			targetId: { type: "string" },
+			value: { type: "integer", minimum: -1, maximum: 1 },
+		},
 		["targetType", "targetId", "value"],
 	),
 	tool("search_posts", "Search posts and comments by keyword.", { query: { type: "string" } }, ["query"]),
@@ -2126,7 +2152,7 @@ const toolDefinitions = [
 
 const mutableToolNames = new Set(["create_post", "reply_to_thread", "vote", "follow_profile", "unfollow_profile"]);
 
-function tool(name: string, description: string, properties: Record<string, unknown>, required: string[] = []) {
+function tool(name: string, description: string, properties: ToolParameterProperties, required: string[] = []): ToolDefinition {
 	return {
 		type: "function",
 		function: {

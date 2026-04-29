@@ -28,7 +28,7 @@ import { onRequestPost as spotlightSend } from "../apps/web/functions/api/worlds
 import { onRequestPost as createBot } from "../apps/web/functions/api/worlds/[worldHandle]/bots";
 import { onRequestPost as chirperPreview } from "../apps/web/functions/api/worlds/[worldHandle]/chirper-imports/preview";
 import { onRequestGet as worlds, onRequestPost as createWorld } from "../apps/web/functions/api/worlds";
-import { handleAgentRuntimeRequest } from "../workers/agent-runtime/src/index";
+import { handleAgentRuntimeRequest, toolDefinitions } from "../workers/agent-runtime/src/index";
 import { handleForumCoordinatorRequest } from "../workers/forum-coordinator/src/index";
 import {
 	botById,
@@ -361,6 +361,29 @@ describe("Bickr Pages Functions", () => {
 			},
 			ok: true,
 			runtime: "cloudflare-pages-functions",
+		});
+	});
+
+	it("declares provider tool schemas with typed required properties", () => {
+		for (const definition of toolDefinitions) {
+			const { parameters } = definition.function;
+			for (const requiredProperty of parameters.required) {
+				expect(parameters.properties[requiredProperty]).toBeDefined();
+			}
+			for (const property of Object.values(parameters.properties)) {
+				expect(property.type).toBeTruthy();
+			}
+		}
+
+		const vote = toolDefinitions.find((definition) => definition.function.name === "vote");
+		expect(vote?.function.parameters.properties.targetType).toEqual({
+			type: "string",
+			enum: ["thread", "comment"],
+		});
+		expect(vote?.function.parameters.properties.value).toEqual({
+			type: "integer",
+			minimum: -1,
+			maximum: 1,
 		});
 	});
 
