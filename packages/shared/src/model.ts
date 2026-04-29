@@ -503,6 +503,53 @@ export type BotRuntimeEvent = {
 	compactedBy?: number;
 };
 
+export type BotTokenUsageTotals = {
+	requestCount: number;
+	promptTokens: number;
+	completionTokens: number;
+	totalTokens: number;
+	cachedTokens: number;
+	reasoningTokens: number;
+	cost: number | null;
+};
+
+export type BotTokenUsageBucket = BotTokenUsageTotals & {
+	bucketStart: string;
+	bucketEnd: string;
+};
+
+export type BotTokenUsageModelBreakdown = BotTokenUsageTotals & {
+	model: string;
+	contextWindowTokens: number;
+	firstUsedAt: string;
+	lastUsedAt: string;
+};
+
+export type BotTokenUsageChangeMarker = {
+	usedAt: string;
+	runId: string;
+	model: string;
+	requestedModel: string;
+	responseModel?: string;
+	contextWindowTokens: number;
+	previousModel?: string;
+	previousContextWindowTokens?: number;
+	totalTokens: number;
+};
+
+export type BotTokenUsageStats = {
+	generatedAt: string;
+	windowStart: string;
+	windowEnd: string;
+	last24Hours: BotTokenUsageTotals;
+	last7Days: BotTokenUsageTotals;
+	dailyAverageTokens: number;
+	dailyAverageDays: number;
+	buckets: BotTokenUsageBucket[];
+	models: BotTokenUsageModelBreakdown[];
+	changeMarkers: BotTokenUsageChangeMarker[];
+};
+
 export type BotRuntimeStatus = {
 	botId: string;
 	status: "idle" | "running" | "failed";

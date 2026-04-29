@@ -45,6 +45,11 @@ import type {
 	BotRuntimeStatus,
 	BotSearchResult,
 	BotSummary,
+	BotTokenUsageBucket,
+	BotTokenUsageChangeMarker,
+	BotTokenUsageModelBreakdown,
+	BotTokenUsageStats,
+	BotTokenUsageTotals,
 	NotificationDocument,
 	ThreadDocument,
 	UserDocument,
@@ -96,6 +101,41 @@ type ToolResult = {
 	name: string;
 	result: unknown;
 	providerResult: unknown;
+};
+
+type ProviderUsage = {
+	promptTokens: number;
+	completionTokens: number;
+	totalTokens: number;
+	cachedTokens: number;
+	reasoningTokens: number;
+	cost: number | null;
+	raw: Record<string, unknown>;
+};
+
+type ProviderResponse = {
+	content: string;
+	reasoning: string;
+	reasoningDetails: ReasoningDetail[];
+	toolCalls: ToolCall[];
+	usage?: ProviderUsage;
+	responseId?: string;
+	responseModel?: string;
+};
+
+type ProviderUsageRow = {
+	created_at: string;
+	run_id: string;
+	model: string;
+	requested_model: string;
+	response_model: string | null;
+	context_window_tokens: number;
+	prompt_tokens: number;
+	completion_tokens: number;
+	total_tokens: number;
+	cached_tokens: number;
+	reasoning_tokens: number;
+	cost: number | null;
 };
 
 type ToolFailurePayload = {
@@ -262,6 +302,7 @@ const providerRequestTimeoutMs = 60_000;
 const providerStreamIdleTimeoutMs = 60_000;
 const providerMaxAttempts = 3;
 const providerRetryBaseDelayMs = 3_000;
+const dayMs = 24 * 60 * 60 * 1000;
 const fallbackProviderModel = "google/gemma-4-26b-a4b-it:free";
 const fallbackProviderBaseUrl = "https://openrouter.ai/api/v1";
 
@@ -290,6 +331,27 @@ CREATE TABLE IF NOT EXISTS injections (
 	created_at TEXT NOT NULL,
 	consumed_at TEXT
 );
+CREATE TABLE IF NOT EXISTS provider_usage (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	run_id TEXT NOT NULL,
+	request_seq INTEGER NOT NULL,
+	provider_response_id TEXT,
+	requested_model TEXT NOT NULL,
+	response_model TEXT,
+	model TEXT NOT NULL,
+	context_window_tokens INTEGER NOT NULL,
+	provider_base_url TEXT NOT NULL,
+	prompt_tokens INTEGER NOT NULL,
+	completion_tokens INTEGER NOT NULL,
+	total_tokens INTEGER NOT NULL,
+	cached_tokens INTEGER NOT NULL DEFAULT 0,
+	reasoning_tokens INTEGER NOT NULL DEFAULT 0,
+	cost REAL,
+	usage_json TEXT NOT NULL,
+	created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS provider_usage_created_at ON provider_usage (created_at);
+CREATE INDEX IF NOT EXISTS provider_usage_model_context ON provider_usage (model, context_window_tokens, created_at);
 `;
 
 export class BotRuntime {
@@ -346,6 +408,11 @@ export class BotRuntime {
 				await this.requireOwnerOrInternal(request, botId);
 				const after = Number(url.searchParams.get("after") ?? 0);
 				return ok({ events: this.eventsAfter(Number.isFinite(after) ? after : 0) });
+			}
+
+			if (request.method === "GET" && url.pathname.endsWith("/token-usage")) {
+				await this.requireOwnerOrInternal(request, botId);
+				return ok({ usage: this.tokenUsageStats() });
 			}
 
 			if (request.method === "DELETE" && url.pathname.endsWith("/events")) {
@@ -671,15 +738,28 @@ export class BotRuntime {
 		let consecutiveToolFailures = 0;
 		for (let turn = 0; turn < bot.tickSettings.maxToolCallsPerTick; turn += 1) {
 			this.throwIfStopped(runId, runContext.signal);
-			await this.appendEvent(runId, "provider_request", {
+			const requestEvent = await this.appendEvent(runId, "provider_request", {
 				model: settings.model,
 				messageCount: currentMessages.length,
+				contextWindowTokens: bot.tickSettings.contextWindowTokens,
 				temperature: settings.temperature,
 				...(settings.topK !== undefined ? { topK: settings.topK } : {}),
 				...(settings.topP !== undefined ? { topP: settings.topP } : {}),
 				...(settings.minP !== undefined ? { minP: settings.minP } : {}),
 			});
 			const response = await this.callProvider(settings, currentMessages, runId, runContext.signal);
+			if (response.usage) {
+				this.recordProviderUsage({
+					contextWindowTokens: bot.tickSettings.contextWindowTokens,
+					createdAt: requestEvent.createdAt,
+					providerResponseId: response.responseId,
+					requestSeq: requestEvent.seq,
+					responseModel: response.responseModel,
+					runId,
+					settings,
+					usage: response.usage,
+				});
+			}
 			await this.appendProviderMessages(runId, response, "complete");
 			currentMessages = [
 				...currentMessages,
@@ -740,7 +820,7 @@ export class BotRuntime {
 		messages: ChatMessage[],
 		runId: string,
 		signal: AbortSignal,
-	): Promise<{ content: string; reasoning: string; reasoningDetails: ReasoningDetail[]; toolCalls: ToolCall[] }> {
+	): Promise<ProviderResponse> {
 		const endpoint = providerChatCompletionsUrl(settings.baseUrl);
 		const body = JSON.stringify({
 			model: settings.model,
@@ -748,6 +828,9 @@ export class BotRuntime {
 			tools: toolDefinitions,
 			tool_choice: "auto",
 			stream: true,
+			stream_options: {
+				include_usage: true,
+			},
 			reasoning: {
 				enabled: true,
 				exclude: false,
@@ -766,6 +849,9 @@ export class BotRuntime {
 		let reasoning = "";
 		const reasoningDetails: ReasoningDetail[] = [];
 		const toolCalls = new Map<number, ToolCall>();
+		let usage: ProviderUsage | undefined;
+		let responseId: string | undefined;
+		let responseModel: string | undefined;
 		this.markProviderStreamActive(runId);
 		try {
 			for await (const event of readSse(response.body, signal)) {
@@ -775,6 +861,9 @@ export class BotRuntime {
 					break;
 				}
 				const chunk = JSON.parse(event) as {
+					id?: unknown;
+					model?: unknown;
+					usage?: unknown;
 					choices?: Array<{
 						delta?: {
 							content?: string;
@@ -790,6 +879,9 @@ export class BotRuntime {
 						};
 					}>;
 				};
+				responseId = stringValue(chunk.id) ?? responseId;
+				responseModel = stringValue(chunk.model) ?? responseModel;
+				usage = providerUsageFromValue(chunk.usage) ?? usage;
 				const delta = chunk.choices?.[0]?.delta;
 				if (!delta) {
 					continue;
@@ -843,12 +935,15 @@ export class BotRuntime {
 			reasoning,
 			reasoningDetails,
 			toolCalls: [...toolCalls.values()].filter((tool) => tool.function.name),
+			...(usage ? { usage } : {}),
+			...(responseId ? { responseId } : {}),
+			...(responseModel ? { responseModel } : {}),
 		};
 	}
 
 	private async appendProviderMessages(
 		runId: string,
-		response: { content: string; reasoning: string; reasoningDetails: ReasoningDetail[]; toolCalls: ToolCall[] },
+		response: ProviderResponse,
 		status: ProviderMessageStatus,
 	): Promise<void> {
 		if (response.reasoning) {
@@ -863,6 +958,145 @@ export class BotRuntime {
 				status,
 			});
 		}
+	}
+
+	private recordProviderUsage(input: {
+		contextWindowTokens: number;
+		createdAt: string;
+		providerResponseId?: string;
+		requestSeq: number;
+		responseModel?: string;
+		runId: string;
+		settings: ProviderSettings;
+		usage: ProviderUsage;
+	}): void {
+		const model = input.responseModel?.trim() || input.settings.model;
+		this.state.storage.sql.exec(
+			`INSERT INTO provider_usage (
+				run_id, request_seq, provider_response_id, requested_model, response_model, model,
+				context_window_tokens, provider_base_url, prompt_tokens, completion_tokens, total_tokens,
+				cached_tokens, reasoning_tokens, cost, usage_json, created_at
+			)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			input.runId,
+			input.requestSeq,
+			input.providerResponseId ?? null,
+			input.settings.model,
+			input.responseModel ?? null,
+			model,
+			input.contextWindowTokens,
+			input.settings.baseUrl,
+			input.usage.promptTokens,
+			input.usage.completionTokens,
+			input.usage.totalTokens,
+			input.usage.cachedTokens,
+			input.usage.reasoningTokens,
+			input.usage.cost,
+			JSON.stringify(input.usage.raw),
+			input.createdAt,
+		);
+	}
+
+	private tokenUsageStats(now = new Date()): BotTokenUsageStats {
+		const windowEndMs = now.getTime();
+		const windowStartMs = windowEndMs - 7 * dayMs;
+		const last24StartMs = windowEndMs - dayMs;
+		const windowStart = new Date(windowStartMs).toISOString();
+		const windowEnd = now.toISOString();
+		const rows = this.providerUsageRows(windowStart, windowEnd);
+		const buckets = sevenDayUsageBuckets(windowStartMs, rows);
+		const last24Hours = emptyUsageTotals();
+		const last7Days = emptyUsageTotals();
+		const models = new Map<string, BotTokenUsageModelBreakdown>();
+
+		for (const row of rows) {
+			const usedAt = Date.parse(row.created_at);
+			addUsageRow(last7Days, row);
+			if (Number.isFinite(usedAt) && usedAt >= last24StartMs) {
+				addUsageRow(last24Hours, row);
+			}
+			const modelKey = `${row.model}\u0000${row.context_window_tokens}`;
+			const current = models.get(modelKey);
+			if (current) {
+				addUsageRow(current, row);
+				current.firstUsedAt = row.created_at < current.firstUsedAt ? row.created_at : current.firstUsedAt;
+				current.lastUsedAt = row.created_at > current.lastUsedAt ? row.created_at : current.lastUsedAt;
+			} else {
+				const totals = emptyUsageTotals();
+				addUsageRow(totals, row);
+				models.set(modelKey, {
+					...totals,
+					model: row.model,
+					contextWindowTokens: row.context_window_tokens,
+					firstUsedAt: row.created_at,
+					lastUsedAt: row.created_at,
+				});
+			}
+		}
+		const dailyAverageDays = tokenUsageAverageDays(rows, windowEndMs);
+
+		return {
+			generatedAt: windowEnd,
+			windowStart,
+			windowEnd,
+			last24Hours,
+			last7Days,
+			dailyAverageTokens: dailyAverageDays > 0 ? Math.round(last7Days.totalTokens / dailyAverageDays) : 0,
+			dailyAverageDays,
+			buckets,
+			models: [...models.values()].sort((left, right) => right.totalTokens - left.totalTokens),
+			changeMarkers: this.tokenUsageChangeMarkers(windowStart, windowEnd),
+		};
+	}
+
+	private providerUsageRows(since: string, until: string): ProviderUsageRow[] {
+		return this.state.storage.sql
+			.exec<ProviderUsageRow>(
+				`SELECT created_at, run_id, model, requested_model, response_model, context_window_tokens,
+				        prompt_tokens, completion_tokens, total_tokens, cached_tokens, reasoning_tokens, cost
+				 FROM provider_usage
+				 WHERE created_at >= ?
+				   AND created_at <= ?
+				 ORDER BY created_at ASC, id ASC`,
+				since,
+				until,
+			)
+			.toArray();
+	}
+
+	private tokenUsageChangeMarkers(since: string, until: string): BotTokenUsageChangeMarker[] {
+		const previous = this.state.storage.sql
+			.exec<ProviderUsageRow>(
+				`SELECT created_at, run_id, model, requested_model, response_model, context_window_tokens,
+				        prompt_tokens, completion_tokens, total_tokens, cached_tokens, reasoning_tokens, cost
+				 FROM provider_usage
+				 WHERE created_at < ?
+				 ORDER BY created_at DESC, id DESC
+				 LIMIT 1`,
+				since,
+			)
+			.toArray()[0];
+		let previousModel = previous?.model;
+		let previousContextWindowTokens = previous?.context_window_tokens;
+		const markers: BotTokenUsageChangeMarker[] = [];
+		for (const row of this.providerUsageRows(since, until)) {
+			if (row.model !== previousModel || row.context_window_tokens !== previousContextWindowTokens) {
+				markers.push({
+					usedAt: row.created_at,
+					runId: row.run_id,
+					model: row.model,
+					requestedModel: row.requested_model,
+					...(row.response_model ? { responseModel: row.response_model } : {}),
+					contextWindowTokens: row.context_window_tokens,
+					...(previousModel ? { previousModel } : {}),
+					...(previousContextWindowTokens !== undefined ? { previousContextWindowTokens } : {}),
+					totalTokens: row.total_tokens,
+				});
+			}
+			previousModel = row.model;
+			previousContextWindowTokens = row.context_window_tokens;
+		}
+		return markers;
 	}
 
 	private broadcastProviderDelta(runId: string, payload: Record<string, unknown>): void {
@@ -2432,6 +2666,89 @@ function internalProfileId(id: string): string {
 
 function numberValue(value: unknown): number | undefined {
 	return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function integerValue(value: unknown): number | undefined {
+	return typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : undefined;
+}
+
+function providerUsageFromValue(value: unknown): ProviderUsage | undefined {
+	const record = runtimeRecord(value);
+	const promptTokens = integerValue(record.prompt_tokens);
+	const completionTokens = integerValue(record.completion_tokens);
+	const totalTokens = integerValue(record.total_tokens);
+	if (promptTokens === undefined || completionTokens === undefined || totalTokens === undefined) {
+		return undefined;
+	}
+	const promptDetails = runtimeRecord(record.prompt_tokens_details);
+	const completionDetails = runtimeRecord(record.completion_tokens_details);
+	return {
+		promptTokens,
+		completionTokens,
+		totalTokens,
+		cachedTokens: integerValue(promptDetails.cached_tokens) ?? 0,
+		reasoningTokens: integerValue(completionDetails.reasoning_tokens) ?? 0,
+		cost: numberValue(record.cost) ?? null,
+		raw: record,
+	};
+}
+
+function emptyUsageTotals(): BotTokenUsageTotals {
+	return {
+		requestCount: 0,
+		promptTokens: 0,
+		completionTokens: 0,
+		totalTokens: 0,
+		cachedTokens: 0,
+		reasoningTokens: 0,
+		cost: null,
+	};
+}
+
+function addUsageRow(total: BotTokenUsageTotals, row: ProviderUsageRow): void {
+	total.requestCount += 1;
+	total.promptTokens += row.prompt_tokens;
+	total.completionTokens += row.completion_tokens;
+	total.totalTokens += row.total_tokens;
+	total.cachedTokens += row.cached_tokens;
+	total.reasoningTokens += row.reasoning_tokens;
+	if (row.cost !== null) {
+		total.cost = (total.cost ?? 0) + row.cost;
+	}
+}
+
+function sevenDayUsageBuckets(windowStartMs: number, rows: ProviderUsageRow[]): BotTokenUsageBucket[] {
+	const buckets = Array.from({ length: 7 }, (_, index) => {
+		const bucketStartMs = windowStartMs + index * dayMs;
+		return {
+			...emptyUsageTotals(),
+			bucketStart: new Date(bucketStartMs).toISOString(),
+			bucketEnd: new Date(bucketStartMs + dayMs).toISOString(),
+		};
+	});
+	for (const row of rows) {
+		const usedAt = Date.parse(row.created_at);
+		if (!Number.isFinite(usedAt) || usedAt < windowStartMs) {
+			continue;
+		}
+		const bucketIndex = Math.min(6, Math.max(0, Math.floor((usedAt - windowStartMs) / dayMs)));
+		const bucket = buckets[bucketIndex];
+		if (bucket) {
+			addUsageRow(bucket, row);
+		}
+	}
+	return buckets;
+}
+
+function tokenUsageAverageDays(rows: ProviderUsageRow[], windowEndMs: number): number {
+	if (rows.length === 0) {
+		return 0;
+	}
+	const firstUsedAt = Date.parse(rows[0]?.created_at ?? "");
+	if (!Number.isFinite(firstUsedAt) || !Number.isFinite(windowEndMs) || firstUsedAt >= windowEndMs) {
+		return 1;
+	}
+	return Math.min(7, Math.max(1, Math.ceil((windowEndMs - firstUsedAt) / dayMs)));
 }
 
 function threadReadSummary(thread: ThreadDocument) {

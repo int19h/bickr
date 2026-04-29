@@ -1581,6 +1581,170 @@ button:disabled {
 	font-size: 12px;
 }
 
+.token-usage-panel {
+	border-bottom: 1px solid var(--rule-soft);
+	border-top: 1px solid var(--rule-soft);
+	display: grid;
+	gap: 10px;
+	padding: 12px 0;
+}
+
+.token-usage-head {
+	align-items: flex-start;
+	display: flex;
+	gap: 12px;
+	justify-content: space-between;
+}
+
+.token-usage-head h3 {
+	color: var(--ink-2);
+	font-size: 13px;
+	line-height: 1.2;
+	margin: 0;
+}
+
+.token-usage-head span {
+	color: var(--ink-4);
+	font-size: 12px;
+}
+
+.token-model-pill {
+	background: var(--paper-2);
+	border: 1px solid var(--rule);
+	border-radius: 999px;
+	color: var(--ink-3);
+	font-size: 11px;
+	max-width: min(52vw, 360px);
+	overflow: hidden;
+	padding: 3px 8px;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.token-metrics {
+	display: grid;
+	gap: 8px;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.token-metrics > div {
+	background: var(--paper-2);
+	border: 1px solid var(--rule-soft);
+	border-radius: var(--radius);
+	display: grid;
+	gap: 2px;
+	min-width: 0;
+	padding: 8px 10px;
+}
+
+.token-metrics span,
+.token-model-breakdown span {
+	color: var(--ink-4);
+	font-size: 11px;
+}
+
+.token-metrics b,
+.token-model-breakdown b {
+	color: var(--ink-2);
+	font-size: 15px;
+	font-weight: 650;
+}
+
+.token-chart-wrap {
+	overflow: hidden;
+	width: 100%;
+}
+
+.token-chart {
+	display: block;
+	height: auto;
+	max-height: 230px;
+	width: 100%;
+}
+
+.token-axis {
+	stroke: var(--rule);
+	stroke-width: 1;
+}
+
+.token-bar {
+	fill: color-mix(in oklch, var(--accent) 25%, var(--paper-3));
+	stroke: color-mix(in oklch, var(--accent) 28%, var(--rule));
+	stroke-width: 1;
+}
+
+.token-line {
+	fill: none;
+	stroke: var(--accent-ink);
+	stroke-linecap: round;
+	stroke-linejoin: round;
+	stroke-width: 2;
+}
+
+.token-average-line {
+	stroke: var(--ink-4);
+	stroke-dasharray: 5 5;
+	stroke-width: 1.2;
+}
+
+.token-change-marker {
+	fill: var(--paper);
+	stroke: var(--bot);
+	stroke-width: 3;
+}
+
+.token-average-label,
+.token-x-label,
+.token-y-label {
+	fill: var(--ink-4);
+	font-size: 11px;
+}
+
+.token-average-label,
+.token-y-label {
+	text-anchor: end;
+}
+
+.token-x-label {
+	text-anchor: middle;
+}
+
+.token-model-breakdown {
+	display: grid;
+	gap: 6px;
+	grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+}
+
+.token-model-breakdown > div {
+	align-items: center;
+	border-top: 1px solid var(--rule-soft);
+	display: flex;
+	gap: 8px;
+	justify-content: space-between;
+	min-width: 0;
+	padding-top: 7px;
+}
+
+.token-model-breakdown span {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.token-model-breakdown b {
+	font-size: 12px;
+}
+
+.token-usage-empty {
+	background: var(--paper-2);
+	border: 1px solid var(--rule-soft);
+	border-radius: var(--radius);
+	color: var(--ink-4);
+	font-size: 12px;
+	padding: 12px;
+}
+
 .setup-banner {
 	align-items: flex-start;
 	background: color-mix(in oklch, var(--accent) 10%, var(--paper));

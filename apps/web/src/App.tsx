@@ -4,6 +4,7 @@ import {
 	type BotSummary,
 	type BotRuntimeEvent,
 	type BotRuntimeStatus,
+	type BotTokenUsageStats,
 	type CommentDocument,
 	type BotInferenceSettings,
 	type BotInferenceSettingsInput,
@@ -4380,6 +4381,7 @@ function BotRuntimePanel({ bot, busy }: { bot: BotSummary; busy: boolean }) {
 	const [status, setStatus] = useState<BotRuntimeStatus | null>(null);
 	const [events, setEvents] = useState<BotRuntimeEvent[]>([]);
 	const [streamEvents, setStreamEvents] = useState<BotRuntimeEvent[]>([]);
+	const [tokenUsage, setTokenUsage] = useState<BotTokenUsageStats | null>(null);
 	const [connected, setConnected] = useState(false);
 	const [injection, setInjection] = useState("");
 	const [message, setMessage] = useState("");
@@ -4481,9 +4483,10 @@ function BotRuntimePanel({ bot, busy }: { bot: BotSummary; busy: boolean }) {
 	}
 
 	async function refresh(): Promise<void> {
-		const [statusResult, eventsResult] = await Promise.all([
+		const [statusResult, eventsResult, tokenUsageResult] = await Promise.all([
 			api<{ status: BotRuntimeStatus }>(`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/status`),
 			api<{ events: BotRuntimeEvent[] }>(`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/events`),
+			api<{ usage: BotTokenUsageStats }>(`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/token-usage`),
 		]);
 		if (statusResult.ok) {
 			setStatus(statusResult.data.status);
@@ -4491,6 +4494,9 @@ function BotRuntimePanel({ bot, busy }: { bot: BotSummary; busy: boolean }) {
 		if (eventsResult.ok) {
 			setEvents((current) => mergeEvents(current, eventsResult.data.events));
 			setStreamEvents((current) => pruneStreamEventsForPersistentEvents(current, eventsResult.data.events));
+		}
+		if (tokenUsageResult.ok) {
+			setTokenUsage(tokenUsageResult.data.usage);
 		}
 	}
 
@@ -4585,6 +4591,7 @@ function BotRuntimePanel({ bot, busy }: { bot: BotSummary; busy: boolean }) {
 				<RuntimeRow description="How often this bot wakes up to act." label="Tick interval" value={formatTickIntervalMinutes(bot.tickSettings.intervalSeconds)} />
 				<RuntimeRow label="Context budget" value={`${bot.tickSettings.contextWindowTokens} tokens`} />
 				<RuntimeRow label="Status" value={status?.status ?? "unknown"} />
+				<TokenUsagePanel usage={tokenUsage} />
 				<div className="runtime-actions">
 					<button className="btn primary" disabled={busy || status?.status === "running"} onClick={() => void runTick()} type="button">
 						Run tick now
@@ -4663,6 +4670,144 @@ function BotRuntimePanel({ bot, busy }: { bot: BotSummary; busy: boolean }) {
 				title="Delete Runtime Event"
 			/>
 		</>
+	);
+}
+
+function TokenUsagePanel({ usage }: { usage: BotTokenUsageStats | null }) {
+	const hasUsage = Boolean(usage && usage.last7Days.requestCount > 0);
+	const primaryModel = usage?.models[0];
+	return (
+		<div className="token-usage-panel">
+			<div className="token-usage-head">
+				<div>
+					<h3>Token Usage</h3>
+					{usage && <span>{usage.last7Days.requestCount} tracked request{usage.last7Days.requestCount === 1 ? "" : "s"}</span>}
+				</div>
+				{primaryModel && <span className="token-model-pill">{primaryModel.model}</span>}
+			</div>
+			<div className="token-metrics">
+				<div>
+					<span>24h</span>
+					<b>{formatTokenCount(usage?.last24Hours.totalTokens ?? 0)}</b>
+				</div>
+				<div>
+					<span>7d</span>
+					<b>{formatTokenCount(usage?.last7Days.totalTokens ?? 0)}</b>
+				</div>
+				<div title={usage ? `Based on ${formatAverageDays(usage.dailyAverageDays)} of tracked usage.` : undefined}>
+					<span>Avg/day</span>
+					<b>{formatTokenCount(usage?.dailyAverageTokens ?? 0)}</b>
+				</div>
+			</div>
+			{usage && hasUsage ?
+				<TokenUsageChart usage={usage} />
+			:	<div className="token-usage-empty">No exact usage has been reported by the inference provider yet.</div>}
+			{usage && usage.models.length > 0 && (
+				<div className="token-model-breakdown">
+					{usage.models.slice(0, 4).map((model) => (
+						<div key={`${model.model}-${model.contextWindowTokens}`}>
+							<span>{model.model}</span>
+							<b>{formatTokenCount(model.totalTokens)}</b>
+						</div>
+					))}
+				</div>
+			)}
+		</div>
+	);
+}
+
+function TokenUsageChart({ usage }: { usage: BotTokenUsageStats }) {
+	const width = 760;
+	const height = 210;
+	const padding = { top: 18, right: 18, bottom: 34, left: 58 };
+	const plotWidth = width - padding.left - padding.right;
+	const plotHeight = height - padding.top - padding.bottom;
+	const peakTokens = Math.max(
+		1,
+		usage.dailyAverageTokens,
+		...usage.buckets.map((bucket) => bucket.totalTokens),
+	);
+	const scaleMaxTokens = Math.ceil(peakTokens * 1.12);
+	const windowStart = Date.parse(usage.windowStart);
+	const windowEnd = Date.parse(usage.windowEnd);
+	const xForTime = (value: string): number => {
+		const parsed = Date.parse(value);
+		if (!Number.isFinite(parsed) || !Number.isFinite(windowStart) || !Number.isFinite(windowEnd) || windowEnd <= windowStart) {
+			return padding.left;
+		}
+		return padding.left + ((parsed - windowStart) / (windowEnd - windowStart)) * plotWidth;
+	};
+	const yForTokens = (tokens: number): number => padding.top + plotHeight - (Math.max(0, tokens) / scaleMaxTokens) * plotHeight;
+	const bucketWidth = plotWidth / Math.max(1, usage.buckets.length);
+	const points = usage.buckets
+		.map((bucket) => `${xForTime(bucket.bucketStart) + bucketWidth / 2},${yForTokens(bucket.totalTokens)}`)
+		.join(" ");
+	const averageY = yForTokens(usage.dailyAverageTokens);
+
+	return (
+		<div className="token-chart-wrap">
+			<svg aria-label="Seven day token usage" className="token-chart" role="img" viewBox={`0 0 ${width} ${height}`}>
+				<line className="token-axis" x1={padding.left} x2={padding.left + plotWidth} y1={padding.top + plotHeight} y2={padding.top + plotHeight} />
+				<line className="token-axis" x1={padding.left} x2={padding.left} y1={padding.top} y2={padding.top + plotHeight} />
+				<line className="token-average-line" x1={padding.left} x2={padding.left + plotWidth} y1={averageY} y2={averageY}>
+					<title>{`Average: ${formatTokenCount(usage.dailyAverageTokens)} tokens/day across ${formatAverageDays(usage.dailyAverageDays)}`}</title>
+				</line>
+				<text className="token-average-label" x={padding.left + plotWidth - 4} y={Math.max(12, averageY - 6)}>
+					avg
+				</text>
+				{usage.buckets.map((bucket) => {
+					const x = xForTime(bucket.bucketStart) + 5;
+					const barWidth = Math.max(6, bucketWidth - 10);
+					const y = yForTokens(bucket.totalTokens);
+					const barHeight = padding.top + plotHeight - y;
+					return (
+						<g key={bucket.bucketStart}>
+							<rect
+								className="token-bar"
+								height={Math.max(1, barHeight)}
+								rx="3"
+								width={barWidth}
+								x={x}
+								y={padding.top + plotHeight - Math.max(1, barHeight)}
+							>
+								<title>{`${formatShortDate(bucket.bucketStart)}: ${formatTokenCount(bucket.totalTokens)} tokens`}</title>
+							</rect>
+							<text className="token-x-label" x={x + barWidth / 2} y={height - 10}>
+								{formatShortDate(bucket.bucketStart)}
+							</text>
+						</g>
+					);
+				})}
+					{points && <polyline className="token-line" points={points} />}
+					<text className="token-y-label" x={padding.left - 8} y={padding.top + 4}>
+						{formatTokenCount(scaleMaxTokens)}
+					</text>
+				<text className="token-y-label" x={padding.left - 8} y={padding.top + plotHeight}>
+					0
+				</text>
+				{usage.changeMarkers.map((marker, index) => {
+					const markerBucket = usage.buckets.find(
+						(bucket) => marker.usedAt >= bucket.bucketStart && marker.usedAt < bucket.bucketEnd,
+					);
+					const y = yForTokens(markerBucket?.totalTokens ?? marker.totalTokens);
+					const previous =
+						marker.previousModel || marker.previousContextWindowTokens !== undefined ?
+							`Previous: ${marker.previousModel ?? marker.model}, ${formatTokenCount(marker.previousContextWindowTokens ?? marker.contextWindowTokens)} context`
+						:	"First tracked request";
+					return (
+						<circle
+							className="token-change-marker"
+							cx={xForTime(marker.usedAt)}
+							cy={y}
+							key={`${marker.usedAt}-${marker.model}-${index}`}
+							r="5.5"
+						>
+							<title>{`${formatFullDate(marker.usedAt)}\n${marker.model}\nContext: ${formatTokenCount(marker.contextWindowTokens)} tokens\n${previous}`}</title>
+						</circle>
+					);
+				})}
+			</svg>
+		</div>
 	);
 }
 
@@ -6170,6 +6315,54 @@ function secondsToMinutes(seconds: number): number {
 
 function formatTickIntervalMinutes(seconds: number): string {
 	return `${secondsToMinutes(seconds)} min`;
+}
+
+function formatTokenCount(value: number): string {
+	if (!Number.isFinite(value)) {
+		return "0";
+	}
+	const rounded = Math.max(0, Math.round(value));
+	if (rounded >= 1_000_000) {
+		return `${(rounded / 1_000_000).toFixed(rounded >= 10_000_000 ? 0 : 1)}M`;
+	}
+	if (rounded >= 10_000) {
+		return `${Math.round(rounded / 1_000)}k`;
+	}
+	return rounded.toLocaleString();
+}
+
+function formatAverageDays(value: number): string {
+	if (!Number.isFinite(value) || value <= 0) {
+		return "0 days";
+	}
+	if (value < 1.05) {
+		return "1 day";
+	}
+	if (value >= 6.95) {
+		return "7 days";
+	}
+	return `${value.toFixed(1).replace(/\.0$/, "")} days`;
+}
+
+function formatShortDate(value: string): string {
+	const date = new Date(value);
+	if (!Number.isFinite(date.getTime())) {
+		return "";
+	}
+	return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+function formatFullDate(value: string): string {
+	const date = new Date(value);
+	if (!Number.isFinite(date.getTime())) {
+		return value;
+	}
+	return date.toLocaleString(undefined, {
+		day: "numeric",
+		hour: "numeric",
+		minute: "2-digit",
+		month: "short",
+	});
 }
 
 function formatDelay(value: unknown): string {
