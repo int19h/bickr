@@ -636,6 +636,58 @@ describe("Bickr Pages Functions", () => {
 			topP: 0.8,
 		});
 		expect(created.data.bot.inferenceSettings.openRouterApiKey).toBeUndefined();
+
+		const noKeyModelResponse = await createBot(
+			contextFor<typeof createBot>(
+				jsonRequest(
+					"http://example.com/api/worlds/patch-notes/bots",
+					"POST",
+					{
+						handle: "default-only",
+						displayName: "Default Only",
+						shortBio: "Uses the shared default.",
+						prompt: "Do not customize provider settings.",
+						inferenceSettings: {
+							model: "anthropic/claude-3.5-haiku",
+						},
+					},
+					cookie,
+				),
+				{ worldHandle: "patch-notes" },
+			),
+		);
+		expect(noKeyModelResponse.status).toBe(201);
+		const noKeyModel = (await noKeyModelResponse.json()) as { data: { bot: BotBody } };
+		expect(noKeyModel.data.bot.inferenceSettings.model).toBeUndefined();
+
+		const customBaseModelResponse = await createBot(
+			contextFor<typeof createBot>(
+				jsonRequest(
+					"http://example.com/api/worlds/patch-notes/bots",
+					"POST",
+					{
+						handle: "custom-base",
+						displayName: "Custom Base",
+						shortBio: "Uses a local endpoint.",
+						prompt: "Use the custom endpoint.",
+						inferenceSettings: {
+							baseUrl: "http://localhost:11434/v1",
+							model: "local/model",
+						},
+					},
+					cookie,
+				),
+				{ worldHandle: "patch-notes" },
+			),
+		);
+		expect(customBaseModelResponse.status).toBe(201);
+		const customBaseModel = (await customBaseModelResponse.json()) as { data: { bot: BotBody } };
+		expect(customBaseModel.data.bot.inferenceSettings).toMatchObject({
+			baseUrl: "http://localhost:11434/v1",
+			model: "local/model",
+		});
+		expect(customBaseModel.data.bot.inferenceSettings.openRouterApiKeySet).toBeUndefined();
+
 		const runtimeRow = await testEnv.BICKR_D1.prepare(
 			`SELECT enabled, status FROM bot_runtime_index WHERE bot_id = ?`,
 		)
@@ -680,6 +732,19 @@ describe("Bickr Pages Functions", () => {
 			),
 		);
 		expect(duplicate.status).toBe(409);
+
+		for (const extraBot of [noKeyModel.data.bot, customBaseModel.data.bot]) {
+			const extraDelete = await deleteBot(
+				contextFor<typeof deleteBot>(
+					new Request(`http://example.com/api/me/bots/${extraBot.id}`, {
+						method: "DELETE",
+						headers: { cookie },
+					}),
+					{ botId: extraBot.id },
+				),
+			);
+			expect(extraDelete.status).toBe(200);
+		}
 
 		const listResponse = await meBots(
 			contextFor<typeof meBots>(new Request("http://example.com/api/me/bots", { headers: { cookie } })),
@@ -786,6 +851,57 @@ describe("Bickr Pages Functions", () => {
 		expect(await sessionResponse.json()).toMatchObject({
 			ok: true,
 			data: { user: { handle: "octo-admin", displayName: "Octo Admin", profileComplete: true } },
+		});
+
+		const noKeyModelResponse = await patchProfile(
+			contextFor<typeof patchProfile>(
+				jsonRequest(
+					"http://example.com/api/me/profile",
+					"PATCH",
+					{
+						inferenceSettings: {
+							openRouterApiKey: null,
+							baseUrl: null,
+							model: "anthropic/claude-3.5-haiku",
+						},
+					},
+					cookie,
+				),
+			),
+		);
+		expect(noKeyModelResponse.status).toBe(200);
+		const noKeyModelPayload = (await noKeyModelResponse.json()) as {
+			data: { profile: { inferenceSettings: Record<string, unknown> } };
+		};
+		expect(noKeyModelPayload.data.profile.inferenceSettings.model).toBeUndefined();
+		expect(noKeyModelPayload.data.profile.inferenceSettings.openRouterApiKeySet).toBeUndefined();
+
+		const customBaseModelResponse = await patchProfile(
+			contextFor<typeof patchProfile>(
+				jsonRequest(
+					"http://example.com/api/me/profile",
+					"PATCH",
+					{
+						inferenceSettings: {
+							baseUrl: "http://localhost:11434/v1",
+							model: "local/model",
+						},
+					},
+					cookie,
+				),
+			),
+		);
+		expect(customBaseModelResponse.status).toBe(200);
+		expect(await customBaseModelResponse.json()).toMatchObject({
+			ok: true,
+			data: {
+				profile: {
+					inferenceSettings: {
+						baseUrl: "http://localhost:11434/v1",
+						model: "local/model",
+					},
+				},
+			},
 		});
 	});
 

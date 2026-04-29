@@ -288,12 +288,15 @@ export async function updateUserProfile(
 		}
 	}
 
+	const inferenceSettings = mergeInferenceSettings(current.inferenceSettings, input.inferenceSettings);
+	enforceInferenceModelAccess(inferenceSettings);
+
 	const updated: UserDocument = {
 		...current,
 		...(input.handle !== undefined ? { handle: input.handle } : {}),
 		...(input.displayName !== undefined ? { displayName: input.displayName } : {}),
 		...(input.avatarUrl !== undefined ? (input.avatarUrl ? { avatarUrl: input.avatarUrl } : { avatarUrl: undefined }) : {}),
-		inferenceSettings: mergeInferenceSettings(current.inferenceSettings, input.inferenceSettings),
+		inferenceSettings,
 		profileCompletedAt: current.profileCompletedAt ?? now,
 		revision: current.revision + 1,
 		updatedAt: now,
@@ -529,6 +532,10 @@ export async function createBot(
 		throw new RepositoryError("conflict", "A bot with that handle already exists in this world.", 409);
 	}
 
+	const owner = await userById(kv, userId);
+	const inferenceSettings = mergeInferenceSettings(undefined, input.inferenceSettings);
+	enforceInferenceModelAccess(inferenceSettings, owner.inferenceSettings);
+
 	const bot: BotDocument = {
 		id: makeId("bot"),
 		type: "bot",
@@ -541,7 +548,7 @@ export async function createBot(
 		displayName: input.displayName,
 		shortBio: input.shortBio,
 		prompt: input.prompt,
-		inferenceSettings: mergeInferenceSettings(undefined, input.inferenceSettings),
+		inferenceSettings,
 		tickSettings: {
 			...defaultTickSettings,
 			...(input.tickSettings ?? {}),
@@ -588,10 +595,13 @@ export async function updateBot(
 	now = new Date().toISOString(),
 ): Promise<BotSummary> {
 	const bot = await botForOwner(kv, db, botId, userId);
+	const owner = await userById(kv, userId);
+	const inferenceSettings = mergeInferenceSettings(bot.inferenceSettings, input.inferenceSettings);
+	enforceInferenceModelAccess(inferenceSettings, owner.inferenceSettings);
 	const updated: BotDocument = {
 		...bot,
 		...input,
-		inferenceSettings: mergeInferenceSettings(bot.inferenceSettings, input.inferenceSettings),
+		inferenceSettings,
 		tickSettings: {
 			...bot.tickSettings,
 			...(input.tickSettings ?? {}),
@@ -1103,6 +1113,21 @@ function mergeInferenceSettings(
 	return next;
 }
 
+function enforceInferenceModelAccess(
+	settings: BotInferenceSettings,
+	inherited?: BotInferenceSettings,
+): BotInferenceSettings {
+	const canCustomizeModel =
+		hasInferenceText(settings.openRouterApiKey) ||
+		hasInferenceText(settings.baseUrl) ||
+		hasInferenceText(inherited?.openRouterApiKey) ||
+		hasInferenceText(inherited?.baseUrl);
+	if (!canCustomizeModel) {
+		delete settings.model;
+	}
+	return settings;
+}
+
 function publicInferenceSettings(settings: BotInferenceSettings | undefined): BotInferenceSettings {
 	const normalized = mergeInferenceSettings(undefined, settings);
 	const { openRouterApiKey, openRouterApiKeySet: _openRouterApiKeySet, ...publicSettings } = normalized;
@@ -1145,4 +1170,8 @@ function assignInferenceNumber(
 		return;
 	}
 	settings[key] = value;
+}
+
+function hasInferenceText(value: string | undefined): boolean {
+	return Boolean(value?.trim());
 }

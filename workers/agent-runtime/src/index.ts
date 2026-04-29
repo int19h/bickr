@@ -264,7 +264,6 @@ const providerMaxAttempts = 3;
 const providerRetryBaseDelayMs = 3_000;
 const fallbackProviderModel = "google/gemma-4-26b-a4b-it:free";
 const fallbackProviderBaseUrl = "https://openrouter.ai/api/v1";
-const legacyDefaultProviderModels = new Set([fallbackProviderModel, "openai/gpt-4o-mini", "openai/gpt-4o"]);
 
 const runtimeSchema = `
 CREATE TABLE IF NOT EXISTS events (
@@ -921,14 +920,17 @@ export class BotRuntime {
 
 			let response: Response;
 			try {
+				const headers: Record<string, string> = {
+					"content-type": "application/json",
+				};
+				if (settings.apiKey) {
+					headers.authorization = `Bearer ${settings.apiKey}`;
+				}
 				response = await providerFetchWithHeaderTimeout(
 					endpoint,
 					{
 						method: "POST",
-						headers: {
-							authorization: `Bearer ${settings.apiKey ?? ""}`,
-							"content-type": "application/json",
-						},
+						headers,
 						body,
 					},
 					signal,
@@ -970,26 +972,24 @@ export class BotRuntime {
 		const userSettings = owner.inferenceSettings ?? {};
 		const envModel = trimmed(this.env.OPENROUTER_MODEL);
 		const envBaseUrl = trimmed(this.env.OPENROUTER_BASE_URL);
+		const envApiKey = trimmed(this.env.OPENROUTER_API_KEY);
 		const userModel = trimmed(userSettings.model);
 		const botModel = trimmed(bot.inferenceSettings.model);
 		const userBaseUrl = trimmed(userSettings.baseUrl);
 		const botBaseUrl = trimmed(bot.inferenceSettings.baseUrl);
-		const botModelIsLegacyDefault = Boolean(botModel && legacyDefaultProviderModels.has(botModel));
-		const botBaseUrlIsLegacyDefault = botBaseUrl === fallbackProviderBaseUrl;
+		const userApiKey = trimmed(userSettings.openRouterApiKey);
+		const botApiKey = trimmed(bot.inferenceSettings.openRouterApiKey);
 		const botTemperatureIsLegacyDefault = bot.inferenceSettings.temperature === 0.9;
+		const hasUserProvider = Boolean(userApiKey || userBaseUrl);
+		const hasBotOrInheritedProvider = Boolean(botApiKey || botBaseUrl || hasUserProvider);
+		const hasCustomBaseUrl = Boolean(botBaseUrl || userBaseUrl);
 
 		const model =
-			botModel && (!botModelIsLegacyDefault || (!userModel && !envModel)) ? botModel
-			: userModel ? userModel
+			botModel && hasBotOrInheritedProvider ? botModel
+			: userModel && hasUserProvider ? userModel
 			: envModel ? envModel
-			: botModel ? botModel
 			: fallbackProviderModel;
-		const baseUrl =
-			botBaseUrl && (!botBaseUrlIsLegacyDefault || !userBaseUrl) ? botBaseUrl
-			: userBaseUrl ? userBaseUrl
-			: envBaseUrl ? envBaseUrl
-			: botBaseUrl ? botBaseUrl
-			: fallbackProviderBaseUrl;
+		const baseUrl = botBaseUrl ?? userBaseUrl ?? envBaseUrl ?? fallbackProviderBaseUrl;
 		const temperature =
 			bot.inferenceSettings.temperature !== undefined &&
 			(!botTemperatureIsLegacyDefault || userSettings.temperature === undefined) ?
@@ -999,10 +999,7 @@ export class BotRuntime {
 			: 0.9;
 
 		return {
-			apiKey:
-				trimmed(bot.inferenceSettings.openRouterApiKey) ??
-				trimmed(userSettings.openRouterApiKey) ??
-				trimmed(this.env.OPENROUTER_API_KEY),
+			apiKey: botApiKey ?? userApiKey ?? (hasCustomBaseUrl ? undefined : envApiKey),
 			baseUrl,
 			model,
 			temperature,

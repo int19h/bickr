@@ -87,6 +87,11 @@ type InferenceDraft = {
 	minP: string;
 };
 
+type InferenceModelUnlockContext = {
+	apiKeySet?: boolean;
+	baseUrl?: string;
+};
+
 type ProfileDraft = {
 	handle: string;
 	displayName: string;
@@ -247,6 +252,7 @@ function App() {
 	const [themePreference, setThemePreference] = useState<ThemePreference>(() => readThemePreference());
 	const [forumLoadedAtById, setForumLoadedAtById] = useState<Record<string, string>>({});
 	const [threadLoadedAtById, setThreadLoadedAtById] = useState<Record<string, string>>({});
+	const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
 	const [humanNotifications, setHumanNotifications] = useState<HumanNotificationSummary>({
 		unreadCount: 0,
 		notifications: [],
@@ -294,15 +300,18 @@ function App() {
 
 	useEffect(() => {
 		if (!session.authenticated || !session.user) {
+			setUserProfile(null);
 			setHumanNotifications({ unreadCount: 0, notifications: [] });
 			setSubscriptions([]);
 			return undefined;
 		}
 		if (!session.user.profileComplete) {
+			setUserProfile(null);
 			setHumanNotifications({ unreadCount: 0, notifications: [] });
 			setSubscriptions([]);
 			return undefined;
 		}
+		void loadUserProfile();
 		void loadHumanNotifications();
 		void loadSubscriptions();
 		const handle = window.setInterval(() => {
@@ -431,8 +440,14 @@ function App() {
 
 			if (sessionResult.ok) {
 				setSession(sessionResult.data);
+				if (sessionResult.data.authenticated && sessionResult.data.user?.profileComplete) {
+					await loadUserProfile();
+				} else {
+					setUserProfile(null);
+				}
 			} else {
 				setSession({ authenticated: false, user: null });
+				setUserProfile(null);
 			}
 
 			if (!worldsResult.ok) {
@@ -527,6 +542,20 @@ function App() {
 			return [];
 		}
 		throw new Error(result.message);
+	}
+
+	async function loadUserProfile(): Promise<UserProfile | null> {
+		const result = await api<{ profile: UserProfile }>("/api/me/profile");
+		if (result.ok) {
+			setUserProfile(result.data.profile);
+			return result.data.profile;
+		}
+		if (result.error === "unauthorized") {
+			setUserProfile(null);
+			return null;
+		}
+		setStatus(result.message);
+		return null;
 	}
 
 	async function loadHumanNotifications(status: "unread" | "all" = "unread"): Promise<void> {
@@ -836,6 +865,7 @@ function App() {
 				throw new Error(result.message);
 			}
 			saved = result.data.profile;
+			setUserProfile(result.data.profile);
 			setSession((current) => ({
 				...current,
 				user: {
@@ -1072,6 +1102,7 @@ function App() {
 								}
 								onDelete={deleteBot}
 								onSave={updateBot}
+								ownerInferenceSettings={userProfile?.inferenceSettings ?? null}
 								world={editingWorld}
 							/>
 						:	<PermissionState title="Bot edit is owner-only">
@@ -3337,6 +3368,7 @@ function BotEdit({
 	onBack,
 	onDelete,
 	onSave,
+	ownerInferenceSettings,
 	world,
 }: {
 	bot: BotSummary;
@@ -3345,6 +3377,7 @@ function BotEdit({
 	onBack: () => void;
 	onDelete: (bot: BotSummary) => Promise<boolean>;
 	onSave: (botId: string, draft: UpdateBotInput) => Promise<boolean>;
+	ownerInferenceSettings: BotInferenceSettings | null;
 	world: WorldView | null;
 }) {
 	const [draft, setDraft] = useState({
@@ -3386,7 +3419,10 @@ function BotEdit({
 			displayName: draft.displayName,
 			shortBio: draft.shortBio,
 			prompt: draft.prompt,
-			inferenceSettings: inferenceInputFromDraft(draft.inference),
+			inferenceSettings: inferenceInputFromDraft(draft.inference, {
+				apiKeySet: Boolean(ownerInferenceSettings?.openRouterApiKeySet),
+				baseUrl: ownerInferenceSettings?.baseUrl,
+			}),
 			tickSettings: {
 				intervalSeconds: tickIntervalMinutes * 60,
 			},
@@ -3522,6 +3558,8 @@ function BotEdit({
 						</div>
 						<InferenceSettingsFields
 							draft={draft.inference}
+							inheritedApiKeySet={Boolean(ownerInferenceSettings?.openRouterApiKeySet)}
+							inheritedBaseUrl={ownerInferenceSettings?.baseUrl}
 							modelSuggestions={modelSuggestions}
 							onChange={(inference) => setDraft((current) => ({ ...current, inference }))}
 							scope="bot"
@@ -3888,18 +3926,30 @@ function ProfileScreen({
 
 function InferenceSettingsFields({
 	draft,
+	inheritedApiKeySet = false,
+	inheritedBaseUrl,
 	modelSuggestions = [],
 	onChange,
 	scope,
 }: {
 	draft: InferenceDraft;
+	inheritedApiKeySet?: boolean;
+	inheritedBaseUrl?: string;
 	modelSuggestions?: string[];
 	onChange: (draft: InferenceDraft) => void;
 	scope: "bot" | "profile";
 }) {
 	const modelListId = useId();
+	const inheritedContext = useMemo<InferenceModelUnlockContext>(
+		() => ({
+			apiKeySet: inheritedApiKeySet,
+			baseUrl: inheritedBaseUrl,
+		}),
+		[inheritedApiKeySet, inheritedBaseUrl],
+	);
+	const modelLocked = !canCustomizeInferenceModel(draft, inheritedContext);
 	function patch(update: Partial<InferenceDraft>): void {
-		onChange({ ...draft, ...update });
+		onChange(normalizeInferenceDraftModel({ ...draft, ...update }, inheritedContext));
 	}
 
 	return (
@@ -3945,14 +3995,24 @@ function InferenceSettingsFields({
 				{draft.clearOpenRouterApiKey && <div className="help">The saved key will be removed on save.</div>}
 			</Field>
 			<div className="field-row">
-				<Field help={scope === "bot" ? "Blank inherits the profile or environment model." : "Blank uses the environment model."} label="Model">
+				<Field
+					help={
+						modelLocked ?
+							"Using the default model. Add an API key or custom base URL to choose another model."
+						: scope === "bot" ?
+							"Blank inherits the profile or environment model."
+						:	"Blank uses the environment model."
+					}
+					label="Model"
+				>
 					<input
-							className="input"
-							list={modelSuggestions.length > 0 ? modelListId : undefined}
-							onChange={(event) => patch({ model: event.target.value })}
-							placeholder="google/gemma-4-26b-a4b-it:free"
-							value={draft.model}
-						/>
+						className="input"
+						disabled={modelLocked}
+						list={modelSuggestions.length > 0 ? modelListId : undefined}
+						onChange={(event) => patch({ model: event.target.value })}
+						placeholder="google/gemma-4-26b-a4b-it:free"
+						value={modelLocked ? "" : draft.model}
+					/>
 					{modelSuggestions.length > 0 && (
 						<datalist id={modelListId}>
 							{modelSuggestions.map((model) => (
@@ -6207,18 +6267,45 @@ function inferenceDraftChanged(draft: InferenceDraft, settings: BotInferenceSett
 	);
 }
 
-function inferenceInputFromDraft(draft: InferenceDraft): BotInferenceSettingsInput {
+function inferenceInputFromDraft(
+	draft: InferenceDraft,
+	inherited?: InferenceModelUnlockContext,
+): BotInferenceSettingsInput {
+	const normalized = normalizeInferenceDraftModel(draft, inherited);
 	return {
-		...(draft.openRouterApiKey.trim() ? { openRouterApiKey: draft.openRouterApiKey.trim() }
-		: draft.clearOpenRouterApiKey ? { openRouterApiKey: null }
+		...(normalized.openRouterApiKey.trim() ? { openRouterApiKey: normalized.openRouterApiKey.trim() }
+		: normalized.clearOpenRouterApiKey ? { openRouterApiKey: null }
 		: {}),
-		baseUrl: nullableTextInput(draft.baseUrl),
-		model: nullableTextInput(draft.model),
-		temperature: nullableNumberInput(draft.temperature),
-		topK: nullableNumberInput(draft.topK),
-		topP: nullableNumberInput(draft.topP),
-		minP: nullableNumberInput(draft.minP),
+		baseUrl: nullableTextInput(normalized.baseUrl),
+		model: nullableTextInput(normalized.model),
+		temperature: nullableNumberInput(normalized.temperature),
+		topK: nullableNumberInput(normalized.topK),
+		topP: nullableNumberInput(normalized.topP),
+		minP: nullableNumberInput(normalized.minP),
 	};
+}
+
+function normalizeInferenceDraftModel(
+	draft: InferenceDraft,
+	inherited?: InferenceModelUnlockContext,
+): InferenceDraft {
+	if (canCustomizeInferenceModel(draft, inherited)) {
+		return draft;
+	}
+	return draft.model ? { ...draft, model: "" } : draft;
+}
+
+function canCustomizeInferenceModel(
+	draft: InferenceDraft,
+	inherited?: InferenceModelUnlockContext,
+): boolean {
+	return (
+		Boolean(draft.openRouterApiKey.trim()) ||
+		(draft.openRouterApiKeySet && !draft.clearOpenRouterApiKey) ||
+		Boolean(draft.baseUrl.trim()) ||
+		Boolean(inherited?.apiKeySet) ||
+		Boolean(inherited?.baseUrl?.trim())
+	);
 }
 
 function numericDraftValue(value: number | undefined): string {
