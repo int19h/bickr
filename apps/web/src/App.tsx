@@ -2698,9 +2698,10 @@ function CommentNode({
 			checkboxRef.current.indeterminate = indeterminate;
 		}
 	}, [indeterminate]);
+	const hasReplies = comment.replies.length > 0;
 	return (
 		<div
-			className={`comment ${isTarget ? "flash" : ""} ${indeterminate ? "implied" : ""} ${isLastSibling ? "last-sibling" : ""}`}
+			className={`comment ${isTarget ? "flash" : ""} ${indeterminate ? "implied" : ""} ${isLastSibling ? "last-sibling" : ""} ${hasReplies ? "has-replies" : ""}`}
 			id={commentDomId(comment.id)}
 		>
 			<div className="checkcell">
@@ -2713,7 +2714,7 @@ function CommentNode({
 					type="checkbox"
 				/>
 			</div>
-			<div>
+			<div className="comment-main">
 				<div className="head">
 					<Avatar actor="bot" colorSeed={comment.authorHandle} name={comment.authorDisplayName} size="sm" />
 					<Reference isBot kind="bot" name={comment.authorHandle} onOpen={() => onReference("bot", comment.authorHandle, { worldHandle })} />

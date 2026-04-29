@@ -2851,41 +2851,55 @@ button:disabled {
 	--comment-check: 28px;
 	--comment-gap: 12px;
 	--comment-left-pad: 18px;
+	--comment-pad-top: 10px;
+	--comment-checkbox-center: 9px;
+	--comment-checkbox-midline: 23px;
+	--comment-checkbox-bottom-from-main: 22px;
+	--comment-rail-offset: calc(var(--comment-gap) + var(--comment-check) - var(--comment-checkbox-center));
+	border-left: none;
 	border-radius: 4px;
 	display: grid;
 	gap: var(--comment-gap);
 	grid-template-columns: var(--comment-check) minmax(0, 1fr);
 	margin-left: 0;
-	padding: 10px 0 10px var(--comment-left-pad);
+	padding: var(--comment-pad-top) 0 10px var(--comment-left-pad);
 	position: relative;
 	transition: background 200ms;
 	white-space: normal;
 }
 
 .comment::before {
-	background: var(--rule-soft);
-	content: "";
-	height: 2px;
-	left: 0;
-	position: absolute;
-	top: 22px;
-	width: 14px;
+	content: none;
 }
 
 .comment::after {
-	background: var(--rule-soft);
-	bottom: -4px;
-	content: "";
-	left: 0;
-	position: absolute;
-	top: 0;
-	width: 2px;
+	content: none;
 }
 
-.comment:last-child::after,
-.comment.last-sibling::after {
-	bottom: auto;
-	height: 23px;
+.comment .replies > .comment {
+	--comment-left-pad: 0px;
+}
+
+.comment .replies > .comment::before {
+	background: var(--rule-soft);
+	content: "";
+	height: 2px;
+	left: calc(-1 * var(--comment-rail-offset));
+	position: absolute;
+	top: var(--comment-checkbox-midline);
+	width: var(--comment-rail-offset);
+	z-index: 2;
+}
+
+.comment .replies > .comment.last-sibling::after {
+	background: var(--paper);
+	bottom: -4px;
+	content: "";
+	left: calc(-1 * var(--comment-rail-offset));
+	position: absolute;
+	top: calc(var(--comment-checkbox-midline) + 1px);
+	width: 2px;
+	z-index: 1;
 }
 
 .comment.implied {
@@ -2902,6 +2916,8 @@ button:disabled {
 	display: grid;
 	place-items: start;
 	padding-top: 4px;
+	position: relative;
+	z-index: 3;
 }
 
 .comment .head {
@@ -2915,6 +2931,22 @@ button:disabled {
 
 .comment .head .spacer {
 	flex: 1;
+}
+
+.comment-main {
+	min-width: 0;
+	position: relative;
+}
+
+.comment.has-replies > .comment-main::before {
+	background: var(--rule-soft);
+	bottom: 0;
+	content: "";
+	left: calc(-1 * var(--comment-rail-offset));
+	position: absolute;
+	top: var(--comment-checkbox-bottom-from-main);
+	width: 2px;
+	z-index: 0;
 }
 
 .vote-popover-wrap {
@@ -3044,6 +3076,11 @@ button:disabled {
 	gap: 4px;
 	margin-top: 8px;
 	padding-left: 0;
+	position: relative;
+}
+
+.comment .replies::before {
+	content: none;
 }
 
 .profile-head {
@@ -3390,18 +3427,14 @@ button:disabled {
 	}
 
 	.comment .replies {
-		padding-left: 10px;
+		padding-left: 0;
 	}
 
 	.comment {
-		gap: 8px;
-		grid-template-columns: 24px minmax(0, 1fr);
+		--comment-check: 24px;
+		--comment-gap: 8px;
+		--comment-left-pad: 12px;
 		margin-left: 0;
-		padding-left: 12px;
-	}
-
-	.comment::before {
-		width: 9px;
 	}
 
 	.spot-panel {
