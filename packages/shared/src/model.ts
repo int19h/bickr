@@ -84,6 +84,7 @@ export type BotDocument = EntityDocument & {
 	shortBio: string;
 	prompt: string;
 	inferenceSettings: BotInferenceSettings;
+	toolSettings: BotToolSettings;
 	tickSettings: BotTickSettings;
 	importSource?: ChirperImportSource;
 };
@@ -109,6 +110,95 @@ export type BotInferenceSettingsInput = {
 	minP?: number | null;
 };
 
+export type OpenRouterWebSearchEngine = "auto" | "native" | "exa" | "firecrawl" | "parallel";
+export type OpenRouterWebFetchEngine = "auto" | "native" | "exa" | "openrouter" | "firecrawl";
+export type OpenRouterSearchContextSize = "low" | "medium" | "high";
+
+export type OpenRouterDatetimeToolSettings = {
+	enabled: boolean;
+	timezone?: string;
+};
+
+export type OpenRouterWebSearchUserLocation = {
+	type: "approximate";
+	city?: string;
+	region?: string;
+	country?: string;
+	timezone?: string;
+};
+
+export type OpenRouterWebSearchToolSettings = {
+	enabled: boolean;
+	engine?: OpenRouterWebSearchEngine;
+	maxResults?: number;
+	maxTotalResults?: number;
+	searchContextSize?: OpenRouterSearchContextSize;
+	userLocation?: OpenRouterWebSearchUserLocation;
+	allowedDomains?: string[];
+	excludedDomains?: string[];
+};
+
+export type OpenRouterWebFetchToolSettings = {
+	enabled: boolean;
+	engine?: OpenRouterWebFetchEngine;
+	maxUses?: number;
+	maxContentTokens?: number;
+	allowedDomains?: string[];
+	blockedDomains?: string[];
+};
+
+export type OpenRouterServerToolSettings = {
+	datetime?: OpenRouterDatetimeToolSettings;
+	webSearch?: OpenRouterWebSearchToolSettings;
+	webFetch?: OpenRouterWebFetchToolSettings;
+};
+
+export type BotToolSettings = {
+	openRouter?: OpenRouterServerToolSettings;
+};
+
+export type OpenRouterDatetimeToolSettingsInput = Partial<{
+	enabled: boolean;
+	timezone: string | null;
+}>;
+
+export type OpenRouterWebSearchUserLocationInput = Partial<{
+	city: string | null;
+	region: string | null;
+	country: string | null;
+	timezone: string | null;
+}>;
+
+export type OpenRouterWebSearchToolSettingsInput = Partial<{
+	enabled: boolean;
+	engine: OpenRouterWebSearchEngine | null;
+	maxResults: number | null;
+	maxTotalResults: number | null;
+	searchContextSize: OpenRouterSearchContextSize | null;
+	userLocation: OpenRouterWebSearchUserLocationInput | null;
+	allowedDomains: string[] | null;
+	excludedDomains: string[] | null;
+}>;
+
+export type OpenRouterWebFetchToolSettingsInput = Partial<{
+	enabled: boolean;
+	engine: OpenRouterWebFetchEngine | null;
+	maxUses: number | null;
+	maxContentTokens: number | null;
+	allowedDomains: string[] | null;
+	blockedDomains: string[] | null;
+}>;
+
+export type OpenRouterServerToolSettingsInput = Partial<{
+	datetime: OpenRouterDatetimeToolSettingsInput | null;
+	webSearch: OpenRouterWebSearchToolSettingsInput | null;
+	webFetch: OpenRouterWebFetchToolSettingsInput | null;
+}>;
+
+export type BotToolSettingsInput = Partial<{
+	openRouter: OpenRouterServerToolSettingsInput | null;
+}>;
+
 export type BotTickSettings = {
 	enabled: boolean;
 	intervalSeconds: number;
@@ -116,6 +206,8 @@ export type BotTickSettings = {
 	compactionThreshold: number;
 	maxToolCallsPerTick: number;
 };
+
+export const defaultProviderModel = "google/gemma-4-26b-a4b-it:free";
 
 export type PostDocument = {
 	id: string;
@@ -312,8 +404,9 @@ export type BotSummary = {
 	handle: string;
 	displayName: string;
 	shortBio: string;
-	prompt: string;
+	prompt?: string;
 	inferenceSettings: BotInferenceSettings;
+	toolSettings?: BotToolSettings;
 	tickSettings: BotTickSettings;
 	importSource?: ChirperImportSource;
 	lastActiveAt?: string;
@@ -587,12 +680,13 @@ export type CreateBotInput = {
 	shortBio: string;
 	prompt: string;
 	inferenceSettings?: BotInferenceSettingsInput;
+	toolSettings?: BotToolSettingsInput;
 	tickSettings?: Partial<BotTickSettings>;
 	importSource?: ChirperImportSource;
 };
 
 export type UpdateBotInput = Partial<
-	Pick<CreateBotInput, "displayName" | "shortBio" | "prompt" | "inferenceSettings" | "tickSettings">
+	Pick<CreateBotInput, "displayName" | "shortBio" | "prompt" | "inferenceSettings" | "toolSettings" | "tickSettings">
 >;
 
 export type UpdateUserProfileInput = Partial<Pick<UserProfile, "handle" | "displayName">> & {

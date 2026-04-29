@@ -6,10 +6,22 @@ import {
 	type BotDocument,
 	type BotPublicProfile,
 	type BotSummary,
+	type BotToolSettings,
+	type BotToolSettingsInput,
 	type BotTickSettings,
 	type CreateBotInput,
 	type CreateForumInput,
 	type CreateWorldInput,
+	type OpenRouterDatetimeToolSettings,
+	type OpenRouterDatetimeToolSettingsInput,
+	type OpenRouterServerToolSettings,
+	type OpenRouterServerToolSettingsInput,
+	type OpenRouterWebFetchToolSettings,
+	type OpenRouterWebFetchToolSettingsInput,
+	type OpenRouterWebSearchToolSettings,
+	type OpenRouterWebSearchToolSettingsInput,
+	type OpenRouterWebSearchUserLocation,
+	type OpenRouterWebSearchUserLocationInput,
 	type ForumDocument,
 	type ForumSummary,
 	type ProviderIdentityDocument,
@@ -73,6 +85,7 @@ export const defaultTickSettings: BotTickSettings = {
 	maxToolCallsPerTick: 8,
 };
 export const defaultInferenceSettings: BotInferenceSettings = {};
+export const defaultToolSettings: BotToolSettings = {};
 
 export async function upsertGithubUser(
 	kv: KVNamespaceLike,
@@ -508,7 +521,7 @@ export async function listUserBots(
 	);
 	const lastActiveById = new Map(lastActiveEntries);
 
-	return activeBots.map((bot) => botSummaryWithLastActive(bot, lastActiveById.get(bot.id)));
+	return activeBots.map((bot) => botSummaryWithLastActive(bot, lastActiveById.get(bot.id), { includeToolSettings: true }));
 }
 
 export async function createBot(
@@ -535,6 +548,7 @@ export async function createBot(
 	const owner = await userById(kv, userId);
 	const inferenceSettings = mergeInferenceSettings(undefined, input.inferenceSettings);
 	enforceInferenceModelAccess(inferenceSettings, owner.inferenceSettings);
+	const toolSettings = mergeToolSettings(undefined, input.toolSettings);
 
 	const bot: BotDocument = {
 		id: makeId("bot"),
@@ -549,6 +563,7 @@ export async function createBot(
 		shortBio: input.shortBio,
 		prompt: input.prompt,
 		inferenceSettings,
+		toolSettings,
 		tickSettings: {
 			...defaultTickSettings,
 			...(input.tickSettings ?? {}),
@@ -583,7 +598,7 @@ export async function createBot(
 	}
 	await putObjectIndex(db, bot, "bot", bot.homeWorldId);
 
-	return botSummary(bot);
+	return botSummary(bot, { includeToolSettings: true });
 }
 
 export async function updateBot(
@@ -598,10 +613,12 @@ export async function updateBot(
 	const owner = await userById(kv, userId);
 	const inferenceSettings = mergeInferenceSettings(bot.inferenceSettings, input.inferenceSettings);
 	enforceInferenceModelAccess(inferenceSettings, owner.inferenceSettings);
+	const toolSettings = mergeToolSettings(bot.toolSettings, input.toolSettings);
 	const updated: BotDocument = {
 		...bot,
 		...input,
 		inferenceSettings,
+		toolSettings,
 		tickSettings: {
 			...bot.tickSettings,
 			...(input.tickSettings ?? {}),
@@ -615,7 +632,7 @@ export async function updateBot(
 	await upsertBotRuntimeIndex(db, updated, now);
 	await putObjectIndex(db, updated, "bot", updated.homeWorldId);
 
-	return botSummary(updated);
+	return botSummary(updated, { includeToolSettings: true });
 }
 
 export async function deleteBot(
@@ -638,7 +655,7 @@ export async function deleteBot(
 	await disableBotRuntime(db, deleted.id, now);
 	await putObjectIndex(db, deleted, "bot", deleted.homeWorldId);
 
-	return botSummary(deleted);
+	return botSummary(deleted, { includeToolSettings: true });
 }
 
 export async function botById(kv: KVNamespaceLike, db: D1DatabaseLike, botId: string): Promise<BotDocument> {
@@ -691,7 +708,7 @@ export async function listWorldBots(
 		.all<{ id: string }>();
 	const bots = await Promise.all((result.results ?? []).map((row) => readJson<BotDocument>(kv, kvKeys.bot(row.id))));
 	return bots.filter((bot): bot is BotDocument => Boolean(bot && !bot.deletedAt)).map((bot) =>
-		botSummary(normalizeBotDefaults(bot)),
+		botSummary(normalizeBotDefaults(bot), { includePrompt: false }),
 	);
 }
 
@@ -822,7 +839,7 @@ function forumSummary(forum: ForumDocument): ForumSummary {
 	};
 }
 
-function botSummary(bot: BotDocument): BotSummary {
+function botSummary(bot: BotDocument, options: { includePrompt?: boolean; includeToolSettings?: boolean } = {}): BotSummary {
 	return {
 		id: bot.id,
 		homeWorldId: bot.homeWorldId,
@@ -831,8 +848,9 @@ function botSummary(bot: BotDocument): BotSummary {
 		handle: bot.handle,
 		displayName: bot.displayName,
 		shortBio: bot.shortBio,
-		prompt: bot.prompt,
+		...(options.includePrompt === false ? {} : { prompt: bot.prompt }),
 		inferenceSettings: publicInferenceSettings(bot.inferenceSettings),
+		...(options.includeToolSettings ? { toolSettings: publicToolSettings(bot.toolSettings) } : {}),
 		tickSettings: bot.tickSettings,
 		...(bot.importSource ? { importSource: bot.importSource } : {}),
 		createdAt: bot.createdAt,
@@ -840,9 +858,13 @@ function botSummary(bot: BotDocument): BotSummary {
 	};
 }
 
-function botSummaryWithLastActive(bot: BotDocument, lastActiveAt?: string | null): BotSummary {
+function botSummaryWithLastActive(
+	bot: BotDocument,
+	lastActiveAt?: string | null,
+	options: { includePrompt?: boolean; includeToolSettings?: boolean } = {},
+): BotSummary {
 	return {
-		...botSummary(bot),
+		...botSummary(bot, options),
 		lastActiveAt: lastActiveAt ?? bot.createdAt,
 	};
 }
@@ -1076,6 +1098,7 @@ function normalizeBotDefaults(bot: BotDocument): BotDocument {
 	return {
 		...bot,
 		inferenceSettings: mergeInferenceSettings(undefined, bot.inferenceSettings),
+		toolSettings: mergeToolSettings(undefined, bot.toolSettings),
 		tickSettings: {
 			...defaultTickSettings,
 			...(bot.tickSettings ?? {}),
@@ -1135,6 +1158,262 @@ function publicInferenceSettings(settings: BotInferenceSettings | undefined): Bo
 		...publicSettings,
 		...(openRouterApiKey ? { openRouterApiKeySet: true } : {}),
 	};
+}
+
+function mergeToolSettings(
+	current: BotToolSettings | undefined,
+	patch?: BotToolSettingsInput | BotToolSettings,
+): BotToolSettings {
+	const next: BotToolSettings = {
+		...defaultToolSettings,
+		...(current?.openRouter ? { openRouter: cloneOpenRouterToolSettings(current.openRouter) } : {}),
+	};
+	if (!patch) {
+		return next;
+	}
+	if (patch.openRouter === undefined) {
+		return next;
+	}
+	if (patch.openRouter === null) {
+		delete next.openRouter;
+		return next;
+	}
+	next.openRouter = mergeOpenRouterToolSettings(next.openRouter, patch.openRouter);
+	if (!next.openRouter) {
+		delete next.openRouter;
+	}
+	return next;
+}
+
+function publicToolSettings(settings: BotToolSettings | undefined): BotToolSettings {
+	return mergeToolSettings(undefined, settings);
+}
+
+function cloneOpenRouterToolSettings(settings: OpenRouterServerToolSettings): OpenRouterServerToolSettings {
+	return {
+		...(settings.datetime ? { datetime: { ...settings.datetime } } : {}),
+		...(settings.webSearch ?
+			{
+				webSearch: {
+					...settings.webSearch,
+					...(settings.webSearch.userLocation ?
+						{ userLocation: { ...settings.webSearch.userLocation } }
+					:	{}),
+					...(settings.webSearch.allowedDomains ?
+						{ allowedDomains: [...settings.webSearch.allowedDomains] }
+					:	{}),
+					...(settings.webSearch.excludedDomains ?
+						{ excludedDomains: [...settings.webSearch.excludedDomains] }
+					:	{}),
+				},
+			}
+		:	{}),
+		...(settings.webFetch ?
+			{
+				webFetch: {
+					...settings.webFetch,
+					...(settings.webFetch.allowedDomains ? { allowedDomains: [...settings.webFetch.allowedDomains] } : {}),
+					...(settings.webFetch.blockedDomains ? { blockedDomains: [...settings.webFetch.blockedDomains] } : {}),
+				},
+			}
+		:	{}),
+	};
+}
+
+function mergeOpenRouterToolSettings(
+	current: OpenRouterServerToolSettings | undefined,
+	patch: OpenRouterServerToolSettingsInput | OpenRouterServerToolSettings,
+): OpenRouterServerToolSettings | undefined {
+	const next = current ? cloneOpenRouterToolSettings(current) : {};
+	if (patch.datetime !== undefined) {
+		if (patch.datetime === null) {
+			delete next.datetime;
+		} else {
+			next.datetime = mergeOpenRouterDatetimeTool(next.datetime, patch.datetime);
+			if (!next.datetime) {
+				delete next.datetime;
+			}
+		}
+	}
+	if (patch.webSearch !== undefined) {
+		if (patch.webSearch === null) {
+			delete next.webSearch;
+		} else {
+			next.webSearch = mergeOpenRouterWebSearchTool(next.webSearch, patch.webSearch);
+			if (!next.webSearch) {
+				delete next.webSearch;
+			}
+		}
+	}
+	if (patch.webFetch !== undefined) {
+		if (patch.webFetch === null) {
+			delete next.webFetch;
+		} else {
+			next.webFetch = mergeOpenRouterWebFetchTool(next.webFetch, patch.webFetch);
+			if (!next.webFetch) {
+				delete next.webFetch;
+			}
+		}
+	}
+	return Object.keys(next).length > 0 ? next : undefined;
+}
+
+function mergeOpenRouterDatetimeTool(
+	current: OpenRouterDatetimeToolSettings | undefined,
+	patch: OpenRouterDatetimeToolSettingsInput | OpenRouterDatetimeToolSettings,
+): OpenRouterDatetimeToolSettings | undefined {
+	const next: Partial<OpenRouterDatetimeToolSettings> = current ? { ...current } : {};
+	if (patch.enabled !== undefined) {
+		next.enabled = patch.enabled;
+	}
+	assignToolString(next, "timezone", patch.timezone);
+	if (!next.enabled && !next.timezone) {
+		return undefined;
+	}
+	next.enabled ??= false;
+	return next as OpenRouterDatetimeToolSettings;
+}
+
+function mergeOpenRouterWebSearchTool(
+	current: OpenRouterWebSearchToolSettings | undefined,
+	patch: OpenRouterWebSearchToolSettingsInput | OpenRouterWebSearchToolSettings,
+): OpenRouterWebSearchToolSettings | undefined {
+	const next: Partial<OpenRouterWebSearchToolSettings> = current ?
+		{
+			...current,
+			...(current.userLocation ? { userLocation: { ...current.userLocation } } : {}),
+			...(current.allowedDomains ? { allowedDomains: [...current.allowedDomains] } : {}),
+			...(current.excludedDomains ? { excludedDomains: [...current.excludedDomains] } : {}),
+		}
+	:	{};
+	if (patch.enabled !== undefined) {
+		next.enabled = patch.enabled;
+	}
+	assignToolString(next, "engine", patch.engine);
+	assignToolNumber(next, "maxResults", patch.maxResults);
+	assignToolNumber(next, "maxTotalResults", patch.maxTotalResults);
+	assignToolString(next, "searchContextSize", patch.searchContextSize);
+	if (patch.userLocation !== undefined) {
+		next.userLocation =
+			patch.userLocation === null ? undefined : mergeOpenRouterUserLocation(next.userLocation, patch.userLocation);
+	}
+	assignToolStringList(next, "allowedDomains", patch.allowedDomains);
+	assignToolStringList(next, "excludedDomains", patch.excludedDomains);
+	if (!next.enabled && !webSearchHasParameters(next)) {
+		return undefined;
+	}
+	next.enabled ??= false;
+	return next as OpenRouterWebSearchToolSettings;
+}
+
+function mergeOpenRouterUserLocation(
+	current: OpenRouterWebSearchUserLocation | undefined,
+	patch: OpenRouterWebSearchUserLocationInput | OpenRouterWebSearchUserLocation,
+): OpenRouterWebSearchUserLocation | undefined {
+	const next: Partial<OpenRouterWebSearchUserLocation> = current ? { ...current } : { type: "approximate" };
+	assignToolString(next, "city", patch.city);
+	assignToolString(next, "region", patch.region);
+	assignToolString(next, "country", patch.country);
+	assignToolString(next, "timezone", patch.timezone);
+	return next.city || next.region || next.country || next.timezone ? next as OpenRouterWebSearchUserLocation : undefined;
+}
+
+function mergeOpenRouterWebFetchTool(
+	current: OpenRouterWebFetchToolSettings | undefined,
+	patch: OpenRouterWebFetchToolSettingsInput | OpenRouterWebFetchToolSettings,
+): OpenRouterWebFetchToolSettings | undefined {
+	const next: Partial<OpenRouterWebFetchToolSettings> = current ?
+		{
+			...current,
+			...(current.allowedDomains ? { allowedDomains: [...current.allowedDomains] } : {}),
+			...(current.blockedDomains ? { blockedDomains: [...current.blockedDomains] } : {}),
+		}
+	:	{};
+	if (patch.enabled !== undefined) {
+		next.enabled = patch.enabled;
+	}
+	assignToolString(next, "engine", patch.engine);
+	assignToolNumber(next, "maxUses", patch.maxUses);
+	assignToolNumber(next, "maxContentTokens", patch.maxContentTokens);
+	assignToolStringList(next, "allowedDomains", patch.allowedDomains);
+	assignToolStringList(next, "blockedDomains", patch.blockedDomains);
+	if (!next.enabled && !webFetchHasParameters(next)) {
+		return undefined;
+	}
+	next.enabled ??= false;
+	return next as OpenRouterWebFetchToolSettings;
+}
+
+function webSearchHasParameters(settings: Partial<OpenRouterWebSearchToolSettings>): boolean {
+	return Boolean(
+		settings.engine ||
+			settings.maxResults !== undefined ||
+			settings.maxTotalResults !== undefined ||
+			settings.searchContextSize ||
+			settings.userLocation ||
+			settings.allowedDomains ||
+			settings.excludedDomains,
+	);
+}
+
+function webFetchHasParameters(settings: Partial<OpenRouterWebFetchToolSettings>): boolean {
+	return Boolean(
+		settings.engine ||
+			settings.maxUses !== undefined ||
+			settings.maxContentTokens !== undefined ||
+			settings.allowedDomains ||
+			settings.blockedDomains,
+	);
+}
+
+function assignToolString<T extends object, K extends keyof T>(
+	settings: T,
+	key: K,
+	value: string | null | undefined,
+): void {
+	if (value === undefined) {
+		return;
+	}
+	if (value === null) {
+		delete settings[key];
+		return;
+	}
+	const trimmed = value.trim();
+	if (trimmed) {
+		settings[key] = trimmed as T[K];
+	} else {
+		delete settings[key];
+	}
+}
+
+function assignToolNumber<T extends object, K extends keyof T>(
+	settings: T,
+	key: K,
+	value: number | null | undefined,
+): void {
+	if (value === undefined) {
+		return;
+	}
+	if (value === null) {
+		delete settings[key];
+		return;
+	}
+	settings[key] = value as T[K];
+}
+
+function assignToolStringList<T extends object, K extends keyof T>(
+	settings: T,
+	key: K,
+	value: string[] | null | undefined,
+): void {
+	if (value === undefined) {
+		return;
+	}
+	if (value === null || value.length === 0) {
+		delete settings[key];
+		return;
+	}
+	settings[key] = [...value] as T[K];
 }
 
 function assignInferenceString(

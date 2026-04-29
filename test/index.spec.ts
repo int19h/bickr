@@ -25,10 +25,21 @@ import { onRequestGet as threadDetail } from "../apps/web/functions/api/worlds/[
 import { onRequestGet as commentVotes } from "../apps/web/functions/api/worlds/[worldHandle]/forums/[forumHandle]/threads/[threadId]/comments/[commentId]/votes";
 import { onRequestPost as spotlightPreview } from "../apps/web/functions/api/worlds/[worldHandle]/forums/[forumHandle]/spotlight/preview";
 import { onRequestPost as spotlightSend } from "../apps/web/functions/api/worlds/[worldHandle]/forums/[forumHandle]/spotlight/send";
-import { onRequestPost as createBot } from "../apps/web/functions/api/worlds/[worldHandle]/bots";
+import {
+	onRequestGet as worldBots,
+	onRequestPost as createBot,
+} from "../apps/web/functions/api/worlds/[worldHandle]/bots";
+import { onRequestGet as botActivity } from "../apps/web/functions/api/worlds/[worldHandle]/bots/[botHandle]/activity";
 import { onRequestPost as chirperPreview } from "../apps/web/functions/api/worlds/[worldHandle]/chirper-imports/preview";
 import { onRequestGet as worlds, onRequestPost as createWorld } from "../apps/web/functions/api/worlds";
-import { handleAgentRuntimeRequest, toolDefinitions } from "../workers/agent-runtime/src/index";
+import {
+	handleAgentRuntimeRequest,
+	isOpenRouterProviderBaseUrl,
+	openRouterServerToolSelection,
+	providerChatCompletionRequest,
+	toolUseRecoveryReminder,
+	toolDefinitions,
+} from "../workers/agent-runtime/src/index";
 import { handleForumCoordinatorRequest } from "../workers/forum-coordinator/src/index";
 import {
 	botById,
@@ -385,6 +396,105 @@ describe("Bickr Pages Functions", () => {
 			minimum: -1,
 			maximum: 1,
 		});
+
+		const recentThreads = toolDefinitions.find((definition) => definition.function.name === "list_recent_threads");
+		expect(recentThreads?.function.parameters.properties.limit?.type).toBe("number");
+		expect(recentThreads?.function.parameters.required).not.toContain("limit");
+	});
+
+	it("builds provider chat requests with explicit tool-call controls", () => {
+		const request = providerChatCompletionRequest(
+			{
+				baseUrl: "https://openrouter.ai/api/v1",
+				model: "test-model",
+				temperature: 0.2,
+			},
+			[{ role: "user", content: "hello" }],
+			toolDefinitions,
+		);
+
+		expect(request.tool_choice).toBe("auto");
+		expect(request.parallel_tool_calls).toBe(true);
+		expect(request.stream).toBe(true);
+		expect(request.stream_options.include_usage).toBe(true);
+		expect(request.tools).toBe(toolDefinitions);
+	});
+
+	it("builds a recovery reminder after no-tool ticks", () => {
+		expect(toolUseRecoveryReminder({ consecutiveNoToolTicks: 1 })).toContain(
+			"The previous tick ended without tool calls.",
+		);
+		expect(toolUseRecoveryReminder({ consecutiveNoToolTicks: 3 })).toContain(
+			"3 recent ticks ended without tool calls.",
+		);
+		expect(toolUseRecoveryReminder({ consecutiveNoToolTicks: 1 })).toContain("Emit tool calls with JSON arguments");
+	});
+
+	it("builds OpenRouter server tool request entries only for OpenRouter base URLs", () => {
+		const settings = {
+			openRouter: {
+				datetime: { enabled: true, timezone: "America/Los_Angeles" },
+				webSearch: {
+					enabled: true,
+					engine: "exa" as const,
+					maxResults: 3,
+					maxTotalResults: 9,
+					searchContextSize: "high" as const,
+					userLocation: { type: "approximate" as const, city: "San Francisco", country: "US" },
+					allowedDomains: ["example.com"],
+					excludedDomains: ["reddit.com"],
+				},
+				webFetch: {
+					enabled: true,
+					engine: "openrouter" as const,
+					maxUses: 2,
+					maxContentTokens: 50_000,
+					allowedDomains: ["docs.example.com"],
+					blockedDomains: ["private.example.com"],
+				},
+			},
+		};
+
+		expect(isOpenRouterProviderBaseUrl("https://openrouter.ai/api/v1")).toBe(true);
+		expect(isOpenRouterProviderBaseUrl("https://openrouter.ai/api/v1/chat/completions")).toBe(true);
+		expect(isOpenRouterProviderBaseUrl("http://localhost:11434/v1")).toBe(false);
+
+		const selection = openRouterServerToolSelection("https://openrouter.ai/api/v1/", settings);
+		expect(selection.suppressed).toEqual([]);
+		expect(selection.emitted).toEqual(["openrouter:datetime", "openrouter:web_search", "openrouter:web_fetch"]);
+		expect(selection.tools).toEqual([
+			{ type: "openrouter:datetime", parameters: { timezone: "America/Los_Angeles" } },
+			{
+				type: "openrouter:web_search",
+				parameters: {
+					engine: "exa",
+					max_results: 3,
+					max_total_results: 9,
+					search_context_size: "high",
+					user_location: { type: "approximate", city: "San Francisco", country: "US" },
+					allowed_domains: ["example.com"],
+					excluded_domains: ["reddit.com"],
+				},
+			},
+			{
+				type: "openrouter:web_fetch",
+				parameters: {
+					engine: "openrouter",
+					max_uses: 2,
+					max_content_tokens: 50_000,
+					allowed_domains: ["docs.example.com"],
+					blocked_domains: ["private.example.com"],
+				},
+			},
+		]);
+
+		const suppressed = openRouterServerToolSelection("http://localhost:11434/v1", settings);
+		expect(suppressed.tools).toEqual([]);
+		expect(suppressed.suppressed).toEqual(selection.emitted);
+
+		const disabled = openRouterServerToolSelection("https://openrouter.ai/api/v1", {});
+		expect(disabled.tools).toEqual([]);
+		expect([...toolDefinitions, ...disabled.tools].some((definition) => definition.type === "function")).toBe(true);
 	});
 
 	it("returns the bootstrap payload", async () => {
@@ -620,6 +730,34 @@ describe("Bickr Pages Functions", () => {
 							temperature: 0.4,
 							topP: 0.8,
 						},
+						toolSettings: {
+							openRouter: {
+								datetime: { enabled: true, timezone: "America/Los_Angeles" },
+								webSearch: {
+									enabled: true,
+									engine: "exa",
+									maxResults: 4,
+									maxTotalResults: 12,
+									searchContextSize: "medium",
+									userLocation: {
+										city: "San Francisco",
+										region: "California",
+										country: "US",
+										timezone: "America/Los_Angeles",
+									},
+									allowedDomains: [" Example.com ", "docs.example.com"],
+									excludedDomains: ["reddit.com"],
+								},
+								webFetch: {
+									enabled: true,
+									engine: "openrouter",
+									maxUses: 3,
+									maxContentTokens: 50_000,
+									allowedDomains: ["docs.example.com"],
+									blockedDomains: ["private.example.com"],
+								},
+							},
+						},
 					},
 					cookie,
 				),
@@ -636,6 +774,35 @@ describe("Bickr Pages Functions", () => {
 			topP: 0.8,
 		});
 		expect(created.data.bot.inferenceSettings.openRouterApiKey).toBeUndefined();
+		expect(created.data.bot.toolSettings).toMatchObject({
+			openRouter: {
+				datetime: { enabled: true, timezone: "America/Los_Angeles" },
+				webSearch: {
+					enabled: true,
+					engine: "exa",
+					maxResults: 4,
+					maxTotalResults: 12,
+					searchContextSize: "medium",
+					userLocation: {
+						type: "approximate",
+						city: "San Francisco",
+						region: "California",
+						country: "US",
+						timezone: "America/Los_Angeles",
+					},
+					allowedDomains: ["example.com", "docs.example.com"],
+					excludedDomains: ["reddit.com"],
+				},
+				webFetch: {
+					enabled: true,
+					engine: "openrouter",
+					maxUses: 3,
+					maxContentTokens: 50_000,
+					allowedDomains: ["docs.example.com"],
+					blockedDomains: ["private.example.com"],
+				},
+			},
+		});
 
 		const noKeyModelResponse = await createBot(
 			contextFor<typeof createBot>(
@@ -687,6 +854,47 @@ describe("Bickr Pages Functions", () => {
 			model: "local/model",
 		});
 		expect(customBaseModel.data.bot.inferenceSettings.openRouterApiKeySet).toBeUndefined();
+
+		const worldBotsResponse = await worldBots(
+			contextFor<typeof worldBots>(
+				new Request("http://example.com/api/worlds/patch-notes/bots"),
+				{ worldHandle: "patch-notes" },
+			),
+		);
+		const worldBotsPayload = (await worldBotsResponse.json()) as { data: { bots: BotBody[] } };
+		expect(worldBotsPayload.data.bots.find((bot) => bot.handle === "release-sage")?.prompt).toBeUndefined();
+
+		const clearedToolSettingsResponse = await patchBot(
+			contextFor<typeof patchBot>(
+				jsonRequest(
+					`http://example.com/api/me/bots/${created.data.bot.id}`,
+					"PATCH",
+					{
+						toolSettings: {
+							openRouter: {
+								datetime: { timezone: null },
+								webSearch: { allowedDomains: null, userLocation: null },
+								webFetch: null,
+							},
+						},
+					},
+					cookie,
+				),
+				{ botId: created.data.bot.id },
+			),
+		);
+		expect(clearedToolSettingsResponse.status, await clearedToolSettingsResponse.clone().text()).toBe(200);
+		const clearedToolSettings = (await clearedToolSettingsResponse.json()) as { data: { bot: BotBody } };
+		expect(clearedToolSettings.data.bot.toolSettings).toMatchObject({
+			openRouter: {
+				datetime: { enabled: true },
+				webSearch: { enabled: true },
+			},
+		});
+		const clearedOpenRouterTools = clearedToolSettings.data.bot.toolSettings?.openRouter as Record<string, unknown>;
+		expect(clearedOpenRouterTools).not.toHaveProperty("webFetch");
+		expect(clearedOpenRouterTools.webSearch).not.toHaveProperty("userLocation");
+		expect(clearedOpenRouterTools.webSearch).not.toHaveProperty("allowedDomains");
 
 		const runtimeRow = await testEnv.BICKR_D1.prepare(
 			`SELECT enabled, status FROM bot_runtime_index WHERE bot_id = ?`,
@@ -749,10 +957,12 @@ describe("Bickr Pages Functions", () => {
 		const listResponse = await meBots(
 			contextFor<typeof meBots>(new Request("http://example.com/api/me/bots", { headers: { cookie } })),
 		);
-		expect(await listResponse.json()).toMatchObject({
+		const listPayload = (await listResponse.json()) as { ok: true; data: { bots: BotBody[] } };
+		expect(listPayload).toMatchObject({
 			ok: true,
 			data: { bots: [{ handle: "release-sage", lastActiveAt: created.data.bot.createdAt }] },
 		});
+		expect(listPayload.data.bots.find((bot) => bot.handle === "release-sage")?.prompt).toBe("Treat every patch note like a prophecy.");
 
 		const patchResponse = await patchBot(
 			contextFor<typeof patchBot>(
@@ -802,6 +1012,68 @@ describe("Bickr Pages Functions", () => {
 			ok: true,
 			data: { bots: [] },
 		});
+	});
+
+	it("validates OpenRouter server tool settings", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+
+		const validResponse = await createBot(
+			contextFor<typeof createBot>(
+				jsonRequest(
+					"http://example.com/api/worlds/patch-notes/bots",
+					"POST",
+					{
+						handle: "tool-smith",
+						displayName: "Tool Smith",
+						shortBio: "Checks settings carefully.",
+						prompt: "Keep your tools tidy.",
+						toolSettings: {
+							openRouter: {
+								webSearch: {
+									enabled: false,
+									allowedDomains: [],
+								},
+							},
+						},
+					},
+					cookie,
+				),
+				{ worldHandle: "patch-notes" },
+			),
+		);
+		expect(validResponse.status).toBe(201);
+		const valid = (await validResponse.json()) as { data: { bot: BotBody } };
+		expect(valid.data.bot.toolSettings).toEqual({});
+
+		for (const toolSettings of [
+			{ openRouter: { datetime: { enabled: true, timezone: "Mars/Olympus" } } },
+			{ openRouter: { webSearch: { enabled: true, engine: "ask-jeeves" } } },
+			{ openRouter: { webSearch: { enabled: true, maxResults: 26 } } },
+			{ openRouter: { webSearch: { enabled: true, searchContextSize: "massive" } } },
+			{ openRouter: { webSearch: { enabled: true, allowedDomains: ["example.com", ""] } } },
+			{ openRouter: { webFetch: { enabled: true, engine: "wget" } } },
+			{ openRouter: { webFetch: { enabled: true, maxUses: 0 } } },
+		]) {
+			const response = await createBot(
+				contextFor<typeof createBot>(
+					jsonRequest(
+						"http://example.com/api/worlds/patch-notes/bots",
+						"POST",
+						{
+							handle: `bad-tools-${crypto.randomUUID().slice(0, 8)}`,
+							displayName: "Bad Tools",
+							shortBio: "Invalid configuration.",
+							prompt: "This should be rejected.",
+							toolSettings,
+						},
+						cookie,
+					),
+					{ worldHandle: "patch-notes" },
+				),
+			);
+			expect(response.status).toBe(400);
+		}
 	});
 
 	it("edits user profile defaults and redacts inference API keys", async () => {
@@ -1101,6 +1373,21 @@ describe("Bickr Pages Functions", () => {
 		expect(activity.activities.map((item) => item.type)).toEqual(
 			expect.arrayContaining(["comment", "vote", "follow"]),
 		);
+		const activityResponse = await botActivity(
+			contextFor<typeof botActivity>(
+				new Request("http://example.com/api/worlds/patch-notes/bots/cache-critic/activity"),
+				{ worldHandle: "patch-notes", botHandle: "cache-critic" },
+			),
+		);
+		expect(await activityResponse.json()).toMatchObject({
+			ok: true,
+			data: {
+				feed: {
+					bot: { handle: "cache-critic" },
+					activities: expect.arrayContaining([expect.objectContaining({ type: "comment" })]),
+				},
+			},
+		});
 
 		const myBotsResponse = await meBots(
 			contextFor<typeof meBots>(new Request("http://example.com/api/me/bots", { headers: { cookie } })),
@@ -1664,6 +1951,8 @@ type BotBody = {
 	displayName: string;
 	createdAt: string;
 	inferenceSettings: Record<string, unknown>;
+	prompt?: string;
+	toolSettings?: Record<string, unknown>;
 	lastActiveAt?: string;
 };
 

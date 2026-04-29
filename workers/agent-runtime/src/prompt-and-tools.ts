@@ -1,4 +1,4 @@
-import { type BotDocument, type BotSummary } from "@bickr/shared/model";
+import { type BotDocument, type BotSummary, type BotToolSettings } from "@bickr/shared/model";
 
 export function standardPrompt(bot: BotDocument, worldBots: BotSummary[]): string {
 	const participants = worldBots.map((item) => `u/${item.handle} (${item.displayName})`).join(", ");
@@ -46,6 +46,25 @@ export type FunctionToolDefinition = {
 			required: string[];
 		};
 	};
+};
+
+export type OpenRouterServerToolParameters = Record<
+	string,
+	string | number | string[] | { type: "approximate"; city?: string; region?: string; country?: string; timezone?: string }
+>;
+
+export type OpenRouterServerToolDefinition = {
+	type: "openrouter:datetime" | "openrouter:web_search" | "openrouter:web_fetch";
+	parameters?: OpenRouterServerToolParameters;
+};
+
+export type ProviderToolDefinition = FunctionToolDefinition | OpenRouterServerToolDefinition;
+
+export type OpenRouterServerToolSelection = {
+	enabled: string[];
+	emitted: string[];
+	suppressed: string[];
+	tools: OpenRouterServerToolDefinition[];
 };
 
 export const toolDefinitions: FunctionToolDefinition[] = [
@@ -135,4 +154,82 @@ function tool(name: string, description: string, properties: ToolParameterProper
 			},
 		},
 	};
+}
+
+export function isOpenRouterProviderBaseUrl(baseUrl: string): boolean {
+	let url: URL;
+	try {
+		url = new URL(baseUrl);
+	} catch {
+		return false;
+	}
+	if (url.protocol !== "https:" || url.hostname !== "openrouter.ai") {
+		return false;
+	}
+	const path = url.pathname.replace(/\/+$/, "");
+	return path === "/api/v1" || path === "/api/v1/chat/completions";
+}
+
+export function openRouterServerToolSelection(
+	baseUrl: string,
+	settings: BotToolSettings | undefined,
+): OpenRouterServerToolSelection {
+	const enabled = enabledOpenRouterServerToolNames(settings);
+	if (enabled.length === 0) {
+		return { enabled, emitted: [], suppressed: [], tools: [] };
+	}
+	if (!isOpenRouterProviderBaseUrl(baseUrl)) {
+		return { enabled, emitted: [], suppressed: enabled, tools: [] };
+	}
+	const tools = openRouterServerToolDefinitions(settings);
+	return { enabled, emitted: tools.map((item) => item.type), suppressed: [], tools };
+}
+
+function enabledOpenRouterServerToolNames(settings: BotToolSettings | undefined): string[] {
+	const openRouter = settings?.openRouter;
+	return [
+		...(openRouter?.datetime?.enabled ? ["openrouter:datetime"] : []),
+		...(openRouter?.webSearch?.enabled ? ["openrouter:web_search"] : []),
+		...(openRouter?.webFetch?.enabled ? ["openrouter:web_fetch"] : []),
+	];
+}
+
+function openRouterServerToolDefinitions(settings: BotToolSettings | undefined): OpenRouterServerToolDefinition[] {
+	const openRouter = settings?.openRouter;
+	const tools: OpenRouterServerToolDefinition[] = [];
+	if (openRouter?.datetime?.enabled) {
+		tools.push(openRouterServerTool("openrouter:datetime", {
+			...(openRouter.datetime.timezone ? { timezone: openRouter.datetime.timezone } : {}),
+		}));
+	}
+	if (openRouter?.webSearch?.enabled) {
+		const search = openRouter.webSearch;
+		tools.push(openRouterServerTool("openrouter:web_search", {
+			...(search.engine ? { engine: search.engine } : {}),
+			...(search.maxResults !== undefined ? { max_results: search.maxResults } : {}),
+			...(search.maxTotalResults !== undefined ? { max_total_results: search.maxTotalResults } : {}),
+			...(search.searchContextSize ? { search_context_size: search.searchContextSize } : {}),
+			...(search.userLocation ? { user_location: search.userLocation } : {}),
+			...(search.allowedDomains ? { allowed_domains: search.allowedDomains } : {}),
+			...(search.excludedDomains ? { excluded_domains: search.excludedDomains } : {}),
+		}));
+	}
+	if (openRouter?.webFetch?.enabled) {
+		const fetchSettings = openRouter.webFetch;
+		tools.push(openRouterServerTool("openrouter:web_fetch", {
+			...(fetchSettings.engine ? { engine: fetchSettings.engine } : {}),
+			...(fetchSettings.maxUses !== undefined ? { max_uses: fetchSettings.maxUses } : {}),
+			...(fetchSettings.maxContentTokens !== undefined ? { max_content_tokens: fetchSettings.maxContentTokens } : {}),
+			...(fetchSettings.allowedDomains ? { allowed_domains: fetchSettings.allowedDomains } : {}),
+			...(fetchSettings.blockedDomains ? { blocked_domains: fetchSettings.blockedDomains } : {}),
+		}));
+	}
+	return tools;
+}
+
+function openRouterServerTool(
+	type: OpenRouterServerToolDefinition["type"],
+	parameters: OpenRouterServerToolParameters,
+): OpenRouterServerToolDefinition {
+	return Object.keys(parameters).length > 0 ? { type, parameters } : { type };
 }

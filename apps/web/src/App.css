@@ -1551,6 +1551,37 @@ button:disabled {
 	padding: 4px 14px;
 }
 
+.tool-group {
+	background: var(--paper);
+	border: 1px solid var(--rule);
+	border-radius: var(--radius);
+	display: grid;
+	gap: 12px;
+	margin: 0;
+	padding: 12px;
+}
+
+.tool-group:disabled {
+	opacity: 0.62;
+}
+
+.tool-group-title {
+	align-items: center;
+	color: var(--ink);
+	display: flex;
+	font-size: 13px;
+	font-weight: 650;
+	gap: 8px;
+}
+
+.tool-group-title input {
+	margin: 0;
+}
+
+.domain-list {
+	min-height: 64px;
+}
+
 .live-runtime {
 	display: grid;
 	gap: 10px;
@@ -3326,19 +3357,46 @@ button:disabled {
 	padding: 4px 14px;
 }
 
-.profile-copy {
-	color: var(--ink-2);
-	font-size: 14px;
-	line-height: 1.6;
+.bot-activity-list {
+	border: 1px solid var(--rule-soft);
+	border-radius: var(--radius-lg);
+	overflow: hidden;
 }
 
-.owner-prompt {
+.bot-activity-card {
+	background: var(--paper);
+	border-top: 1px solid var(--rule-soft);
+	color: inherit;
+	display: grid;
+	gap: 5px;
+	padding: 12px 14px;
+	text-decoration: none;
+}
+
+.bot-activity-card:first-child {
+	border-top: 0;
+}
+
+.bot-activity-card:hover {
 	background: var(--paper-2);
-	border: 1px solid var(--rule-soft);
-	border-radius: var(--radius);
-	margin-top: 14px;
-	padding: 12px;
-	white-space: pre-wrap;
+}
+
+.activity-title {
+	color: var(--ink);
+	font-weight: 700;
+}
+
+.activity-body {
+	color: var(--ink-2);
+	line-height: 1.45;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.activity-meta {
+	color: var(--ink-3);
+	font-size: 12.5px;
 }
 
 .spot-panel {

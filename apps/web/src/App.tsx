@@ -1,6 +1,9 @@
 import { createContext, useContext, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { AriaRole, CSSProperties, MouseEvent as ReactMouseEvent, ReactNode } from "react";
 import {
+	defaultProviderModel,
+	type BotActivityFeed,
+	type BotActivityItem,
 	type BotSummary,
 	type BotRuntimeEvent,
 	type BotRuntimeStatus,
@@ -10,6 +13,11 @@ import {
 	type BotInferenceSettings,
 	type BotInferenceSettingsInput,
 	type ChirperImportPreview,
+	type BotToolSettings,
+	type BotToolSettingsInput,
+	type OpenRouterSearchContextSize,
+	type OpenRouterWebFetchEngine,
+	type OpenRouterWebSearchEngine,
 	type CreateForumInput,
 	type CreateWorldInput,
 	type ForumSummary,
@@ -88,6 +96,48 @@ type InferenceDraft = {
 	topP: string;
 	minP: string;
 };
+
+type OpenRouterDatetimeToolDraft = {
+	enabled: boolean;
+	timezone: string;
+};
+
+type OpenRouterWebSearchToolDraft = {
+	enabled: boolean;
+	engine: string;
+	maxResults: string;
+	maxTotalResults: string;
+	searchContextSize: string;
+	userLocationCity: string;
+	userLocationRegion: string;
+	userLocationCountry: string;
+	userLocationTimezone: string;
+	allowedDomains: string;
+	excludedDomains: string;
+};
+
+type OpenRouterWebFetchToolDraft = {
+	enabled: boolean;
+	engine: string;
+	maxUses: string;
+	maxContentTokens: string;
+	allowedDomains: string;
+	blockedDomains: string;
+};
+
+type BotToolDraft = {
+	openRouter: {
+		datetime: OpenRouterDatetimeToolDraft;
+		webSearch: OpenRouterWebSearchToolDraft;
+		webFetch: OpenRouterWebFetchToolDraft;
+	};
+};
+
+type OpenRouterToolInput = NonNullable<BotToolSettingsInput["openRouter"]>;
+type OpenRouterDatetimeToolInput = NonNullable<OpenRouterToolInput["datetime"]>;
+type OpenRouterWebSearchToolInput = NonNullable<OpenRouterToolInput["webSearch"]>;
+type OpenRouterWebSearchUserLocationInput = NonNullable<OpenRouterWebSearchToolInput["userLocation"]>;
+type OpenRouterWebFetchToolInput = NonNullable<OpenRouterToolInput["webFetch"]>;
 
 type InferenceModelUnlockContext = {
 	apiKeySet?: boolean;
@@ -353,12 +403,18 @@ function App() {
 	const activeBots = activeWorld ? (botsByWorld[activeWorld.handle] ?? bots.filter((bot) => bot.homeWorldHandle === activeWorld.handle)) : [];
 	const activeThreads = activeForum ? (threadsByForum[activeForum.id] ?? []) : [];
 	const activeThread = activeThreadId ? (threadDocuments[activeThreadId] ?? null) : null;
-	const activeBot =
-		activeWorld && activeBotHandle ?
-			activeBots.find((bot) => bot.handle === activeBotHandle) ??
-			bots.find((bot) => bot.homeWorldHandle === activeWorld.handle && bot.handle === activeBotHandle) ??
-			null
-		: null;
+	const activeBot = useMemo(() => {
+		if (!activeWorld || !activeBotHandle) {
+			return null;
+		}
+		const publicBot = activeBots.find((bot) => bot.handle === activeBotHandle) ?? null;
+		const ownedBot =
+			bots.find((bot) => bot.homeWorldHandle === activeWorld.handle && bot.handle === activeBotHandle) ?? null;
+		if (ownedBot?.ownerUserId === session.user?.id) {
+			return publicBot ? { ...publicBot, ...ownedBot } : ownedBot;
+		}
+		return publicBot ?? ownedBot;
+	}, [activeBotHandle, activeBots, activeWorld, bots, session.user?.id]);
 	const editingBot = activeBot;
 	const editingWorld =
 		editingBot ? worldViews.find((world) => world.handle === editingBot.homeWorldHandle) ?? activeWorld : null;
@@ -1074,6 +1130,7 @@ function App() {
 							blogForum={activeBotBlogForum}
 							isOwner={activeBot.ownerUserId === session.user.id}
 							onToggleSubscription={toggleSubscription}
+							ownerInferenceSettings={userProfile?.inferenceSettings ?? null}
 							subscribed={isSubscribed("bot", activeBot.id)}
 							world={activeWorld}
 						/>
@@ -2932,6 +2989,7 @@ function BotProfileScreen({
 	blogForum,
 	isOwner,
 	onToggleSubscription,
+	ownerInferenceSettings,
 	subscribed,
 	world,
 }: {
@@ -2939,9 +2997,38 @@ function BotProfileScreen({
 	blogForum: ForumSummary | null;
 	isOwner: boolean;
 	onToggleSubscription: (target: SubscriptionTarget, active: boolean) => Promise<void>;
+	ownerInferenceSettings: BotInferenceSettings | null;
 	subscribed: boolean;
 	world: WorldView;
 }) {
+	const [activityFeed, setActivityFeed] = useState<BotActivityFeed | null>(null);
+	const [activityLoading, setActivityLoading] = useState(false);
+	const [activityError, setActivityError] = useState("");
+	const effectiveModel = effectiveBotModel(bot, isOwner ? ownerInferenceSettings : null);
+
+	useEffect(() => {
+		let cancelled = false;
+		setActivityLoading(true);
+		setActivityError("");
+		setActivityFeed(null);
+		void api<{ feed: BotActivityFeed }>(
+			`/api/worlds/${encodeURIComponent(world.handle)}/bots/${encodeURIComponent(bot.handle)}/activity?limit=30`,
+		).then((result) => {
+			if (cancelled) {
+				return;
+			}
+			if (result.ok) {
+				setActivityFeed(result.data.feed);
+			} else {
+				setActivityError(result.message);
+			}
+			setActivityLoading(false);
+		});
+		return () => {
+			cancelled = true;
+		};
+	}, [bot.handle, world.handle]);
+
 	return (
 		<div className="main-inner">
 			<div className="thread-crumb">
@@ -3008,13 +3095,14 @@ function BotProfileScreen({
 				<div>
 					<section className="section">
 						<div className="section-head">
-							<h2>Bot profile</h2>
-							<span className="meta">read-only</span>
+							<h2>Activity</h2>
+							<span className="meta">visible public activity</span>
 						</div>
-						<div className="profile-copy">
-							<p>{bot.shortBio}</p>
-							{isOwner && <p className="owner-prompt">{bot.prompt}</p>}
-						</div>
+						<BotActivityList
+							activities={activityFeed?.activities ?? []}
+							error={activityError}
+							loading={activityLoading}
+						/>
 					</section>
 				</div>
 				<aside>
@@ -3032,8 +3120,9 @@ function BotProfileScreen({
 									/>
 								:	"not found"
 							}
-						/>
+					/>
 					<RuntimeRow label="Source" value={bot.importSource ? `chirper/${bot.importSource.originalHandle}` : "manual"} />
+					<RuntimeRow label="Model" value={effectiveModel} />
 					<RuntimeRow label="Tick interval" value={formatTickIntervalMinutes(bot.tickSettings.intervalSeconds)} />
 					<RuntimeRow label="Created" value={timeAgo(bot.createdAt)} />
 					<RuntimeRow label="Updated" value={timeAgo(bot.updatedAt)} />
@@ -3042,6 +3131,111 @@ function BotProfileScreen({
 			</div>
 		</div>
 	);
+}
+
+function BotActivityList({
+	activities,
+	error,
+	loading,
+}: {
+	activities: BotActivityItem[];
+	error: string;
+	loading: boolean;
+}) {
+	if (loading) {
+		return <div className="empty-state compact">Loading activity...</div>;
+	}
+	if (error) {
+		return <div className="runtime-message">{error}</div>;
+	}
+	if (activities.length === 0) {
+		return <div className="empty-state compact">No visible activity yet.</div>;
+	}
+	return (
+		<div className="bot-activity-list">
+			{activities.map((activity) => (
+				<BotActivityCard activity={activity} key={activity.id} />
+			))}
+		</div>
+	);
+}
+
+function BotActivityCard({ activity }: { activity: BotActivityItem }) {
+	const route = botActivityRoute(activity);
+	const summary = botActivitySummary(activity);
+	const createdAt = "updatedAt" in activity ? activity.updatedAt : activity.createdAt;
+	return (
+		<SpaLink className="bot-activity-card" to={route}>
+			<span className="activity-title">{summary.title}</span>
+			{summary.body && <span className="activity-body">{summary.body}</span>}
+			<span className="activity-meta">{summary.meta} / {timeAgo(createdAt)}</span>
+		</SpaLink>
+	);
+}
+
+function botActivityRoute(activity: BotActivityItem): ParsedRoute {
+	if (activity.type === "follow") {
+		return {
+			route: "bot-profile",
+			worldHandle: activity.bot.homeWorldHandle,
+			botHandle: activity.bot.handle,
+		};
+	}
+	if (activity.type === "comment" || (activity.type === "vote" && activity.commentId)) {
+		return {
+			route: "thread",
+			worldHandle: activity.worldHandle ?? "",
+			forumHandle: activity.forumHandle ?? "",
+			threadId: activity.threadId,
+			commentId: activity.type === "comment" ? activity.commentId : activity.commentId,
+		};
+	}
+	if (activity.type === "post") {
+		return {
+			route: "thread",
+			worldHandle: activity.worldHandle,
+			forumHandle: activity.forumHandle,
+			threadId: activity.threadId,
+		};
+	}
+	return {
+		route: "thread",
+		worldHandle: activity.worldHandle ?? "",
+		forumHandle: activity.forumHandle ?? "",
+		threadId: activity.threadId ?? activity.targetId,
+	};
+}
+
+function botActivitySummary(activity: BotActivityItem): { title: string; body?: string; meta: string } {
+	switch (activity.type) {
+		case "post":
+			return {
+				title: `Posted in f/${activity.forumHandle}: ${activity.title}`,
+				body: activity.bodyPreview,
+				meta: `${activity.voteScore} votes / ${activity.commentCount} comments`,
+			};
+		case "comment":
+			return {
+				title: `Replied in "${activity.threadTitle}"`,
+				body: activity.bodyPreview,
+				meta: `f/${activity.forumHandle} / ${activity.voteScore} votes`,
+			};
+		case "vote":
+			return {
+				title: `${activity.value > 0 ? "Upvoted" : "Downvoted"} ${activity.targetType === "thread" ? "thread" : "comment"}${activity.title ? ` in "${activity.title}"` : ""}`,
+				meta: [
+					activity.forumHandle ? `f/${activity.forumHandle}` : null,
+					activity.targetType,
+					activity.value > 0 ? "+1" : "-1",
+				].filter(Boolean).join(" / "),
+			};
+		case "follow":
+			return {
+				title: `Followed ${activity.bot.displayName} (u/${activity.bot.handle})`,
+				body: activity.bot.shortBio,
+				meta: `w/${activity.bot.homeWorldHandle}`,
+			};
+	}
 }
 
 function BotLoopScreen({
@@ -3385,8 +3579,9 @@ function BotEdit({
 	const [draft, setDraft] = useState({
 		displayName: bot.displayName,
 		shortBio: bot.shortBio,
-		prompt: bot.prompt,
+		prompt: bot.prompt ?? "",
 		inference: inferenceDraftFromSettings(bot.inferenceSettings),
+		tools: toolDraftFromSettings(bot.toolSettings),
 		tickIntervalMinutes: String(secondsToMinutes(bot.tickSettings.intervalSeconds)),
 		contextWindowTokens: String(bot.tickSettings.contextWindowTokens),
 		maxToolCallsPerTick: String(bot.tickSettings.maxToolCallsPerTick),
@@ -3398,8 +3593,9 @@ function BotEdit({
 		setDraft({
 			displayName: bot.displayName,
 			shortBio: bot.shortBio,
-			prompt: bot.prompt,
+			prompt: bot.prompt ?? "",
 			inference: inferenceDraftFromSettings(bot.inferenceSettings),
+			tools: toolDraftFromSettings(bot.toolSettings),
 			tickIntervalMinutes: String(secondsToMinutes(bot.tickSettings.intervalSeconds)),
 			contextWindowTokens: String(bot.tickSettings.contextWindowTokens),
 			maxToolCallsPerTick: String(bot.tickSettings.maxToolCallsPerTick),
@@ -3410,6 +3606,7 @@ function BotEdit({
 		bot.inferenceSettings,
 		bot.prompt,
 		bot.shortBio,
+		bot.toolSettings,
 		bot.tickSettings.contextWindowTokens,
 		bot.tickSettings.intervalSeconds,
 		bot.tickSettings.maxToolCallsPerTick,
@@ -3422,11 +3619,12 @@ function BotEdit({
 	const dirty =
 		draft.displayName !== bot.displayName ||
 		draft.shortBio !== bot.shortBio ||
-		draft.prompt !== bot.prompt ||
+		draft.prompt !== (bot.prompt ?? "") ||
 		tickIntervalMinutes !== secondsToMinutes(bot.tickSettings.intervalSeconds) ||
 		contextWindowTokens !== bot.tickSettings.contextWindowTokens ||
 		maxToolCallsPerTick !== bot.tickSettings.maxToolCallsPerTick ||
-		inferenceDraftChanged(draft.inference, bot.inferenceSettings);
+		inferenceDraftChanged(draft.inference, bot.inferenceSettings) ||
+		toolDraftChanged(draft.tools, bot.toolSettings);
 	const valid =
 		draft.displayName.trim().length > 0 &&
 		draft.shortBio.trim().length > 0 &&
@@ -3436,7 +3634,8 @@ function BotEdit({
 		contextWindowTokens >= 2000 &&
 		contextWindowTokens <= 1_000_000 &&
 		maxToolCallsPerTick >= 1 &&
-		maxToolCallsPerTick <= 32;
+		maxToolCallsPerTick <= 32 &&
+		toolDraftValid(draft.tools);
 
 	async function save(): Promise<void> {
 		const ok = await onSave(bot.id, {
@@ -3447,6 +3646,7 @@ function BotEdit({
 				apiKeySet: Boolean(ownerInferenceSettings?.openRouterApiKeySet),
 				baseUrl: ownerInferenceSettings?.baseUrl,
 			}),
+			toolSettings: toolInputFromDraft(draft.tools),
 			tickSettings: {
 				intervalSeconds: tickIntervalMinutes * 60,
 				contextWindowTokens,
@@ -3461,6 +3661,11 @@ function BotEdit({
 			);
 		}
 	}
+
+	const openRouterServerToolsAvailable = isOpenRouterBaseUrlForTools(
+		draft.inference.baseUrl,
+		ownerInferenceSettings?.baseUrl,
+	);
 
 	return (
 		<div className="main-inner">
@@ -3618,6 +3823,18 @@ function BotEdit({
 							modelSuggestions={modelSuggestions}
 							onChange={(inference) => setDraft((current) => ({ ...current, inference }))}
 							scope="bot"
+						/>
+					</section>
+
+					<section className="section">
+						<div className="section-head">
+							<h2>OpenRouter Server Tools</h2>
+							<span className="meta">opt-in per participant</span>
+						</div>
+						<OpenRouterServerToolFields
+							available={openRouterServerToolsAvailable}
+							draft={draft.tools}
+							onChange={(tools) => setDraft((current) => ({ ...current, tools }))}
 						/>
 					</section>
 
@@ -4136,6 +4353,262 @@ function InferenceSettingsFields({
 					/>
 				</Field>
 			</div>
+		</div>
+	);
+}
+
+const webSearchEngineOptions = ["auto", "native", "exa", "firecrawl", "parallel"];
+const webFetchEngineOptions = ["auto", "native", "exa", "openrouter", "firecrawl"];
+const searchContextSizeOptions = ["low", "medium", "high"];
+
+function OpenRouterServerToolFields({
+	available,
+	draft,
+	onChange,
+}: {
+	available: boolean;
+	draft: BotToolDraft;
+	onChange: (draft: BotToolDraft) => void;
+}) {
+	function patchOpenRouter(update: Partial<BotToolDraft["openRouter"]>): void {
+		onChange({ openRouter: { ...draft.openRouter, ...update } });
+	}
+
+	function patchDatetime(update: Partial<OpenRouterDatetimeToolDraft>): void {
+		patchOpenRouter({ datetime: { ...draft.openRouter.datetime, ...update } });
+	}
+
+	function patchWebSearch(update: Partial<OpenRouterWebSearchToolDraft>): void {
+		patchOpenRouter({ webSearch: { ...draft.openRouter.webSearch, ...update } });
+	}
+
+	function patchWebFetch(update: Partial<OpenRouterWebFetchToolDraft>): void {
+		patchOpenRouter({ webFetch: { ...draft.openRouter.webFetch, ...update } });
+	}
+
+	return (
+		<div className="field-stack">
+			{!available && <div className="help">Unavailable while this participant uses a non-OpenRouter base URL.</div>}
+			<fieldset className="tool-group" disabled={!available}>
+				<label className="tool-group-title">
+					<input
+						checked={draft.openRouter.datetime.enabled}
+						onChange={(event) => patchDatetime({ enabled: event.target.checked })}
+						type="checkbox"
+					/>
+					<span>Datetime</span>
+				</label>
+				<Field help="IANA timezone name. Blank uses OpenRouter's default." label="Timezone">
+					<input
+						className="input"
+						disabled={!draft.openRouter.datetime.enabled}
+						onChange={(event) => patchDatetime({ timezone: event.target.value })}
+						placeholder="America/Los_Angeles"
+						value={draft.openRouter.datetime.timezone}
+					/>
+				</Field>
+			</fieldset>
+			<fieldset className="tool-group" disabled={!available}>
+				<label className="tool-group-title">
+					<input
+						checked={draft.openRouter.webSearch.enabled}
+						onChange={(event) => patchWebSearch({ enabled: event.target.checked })}
+						type="checkbox"
+					/>
+					<span>Web Search</span>
+				</label>
+				<div className="field-row">
+					<Field label="Engine">
+						<select
+							className="input"
+							disabled={!draft.openRouter.webSearch.enabled}
+							onChange={(event) => patchWebSearch({ engine: event.target.value })}
+							value={draft.openRouter.webSearch.engine}
+						>
+							<option value="">default</option>
+							{webSearchEngineOptions.map((engine) => (
+								<option key={engine} value={engine}>
+									{engine}
+								</option>
+							))}
+						</select>
+					</Field>
+					<Field label="Context size">
+						<select
+							className="input"
+							disabled={!draft.openRouter.webSearch.enabled}
+							onChange={(event) => patchWebSearch({ searchContextSize: event.target.value })}
+							value={draft.openRouter.webSearch.searchContextSize}
+						>
+							<option value="">default</option>
+							{searchContextSizeOptions.map((size) => (
+								<option key={size} value={size}>
+									{size}
+								</option>
+							))}
+						</select>
+					</Field>
+				</div>
+				<div className="field-row">
+					<Field label="Max results">
+						<input
+							className="input"
+							disabled={!draft.openRouter.webSearch.enabled}
+							max={25}
+							min={1}
+							onChange={(event) => patchWebSearch({ maxResults: event.target.value })}
+							placeholder="5"
+							type="number"
+							value={draft.openRouter.webSearch.maxResults}
+						/>
+					</Field>
+					<Field label="Max total results">
+						<input
+							className="input"
+							disabled={!draft.openRouter.webSearch.enabled}
+							min={1}
+							onChange={(event) => patchWebSearch({ maxTotalResults: event.target.value })}
+							placeholder="default"
+							type="number"
+							value={draft.openRouter.webSearch.maxTotalResults}
+						/>
+					</Field>
+				</div>
+				<div className="field-row">
+					<Field label="Allowed domains">
+						<textarea
+							className="textarea domain-list"
+							disabled={!draft.openRouter.webSearch.enabled}
+							onChange={(event) => patchWebSearch({ allowedDomains: event.target.value })}
+							placeholder="example.com, docs.example.com"
+							rows={2}
+							value={draft.openRouter.webSearch.allowedDomains}
+						/>
+					</Field>
+					<Field label="Excluded domains">
+						<textarea
+							className="textarea domain-list"
+							disabled={!draft.openRouter.webSearch.enabled}
+							onChange={(event) => patchWebSearch({ excludedDomains: event.target.value })}
+							placeholder="reddit.com"
+							rows={2}
+							value={draft.openRouter.webSearch.excludedDomains}
+						/>
+					</Field>
+				</div>
+				<div className="field-row">
+					<Field label="Location city">
+						<input
+							className="input"
+							disabled={!draft.openRouter.webSearch.enabled}
+							onChange={(event) => patchWebSearch({ userLocationCity: event.target.value })}
+							placeholder="San Francisco"
+							value={draft.openRouter.webSearch.userLocationCity}
+						/>
+					</Field>
+					<Field label="Location region">
+						<input
+							className="input"
+							disabled={!draft.openRouter.webSearch.enabled}
+							onChange={(event) => patchWebSearch({ userLocationRegion: event.target.value })}
+							placeholder="California"
+							value={draft.openRouter.webSearch.userLocationRegion}
+						/>
+					</Field>
+				</div>
+				<div className="field-row">
+					<Field label="Location country">
+						<input
+							className="input"
+							disabled={!draft.openRouter.webSearch.enabled}
+							maxLength={2}
+							onChange={(event) => patchWebSearch({ userLocationCountry: event.target.value })}
+							placeholder="US"
+							value={draft.openRouter.webSearch.userLocationCountry}
+						/>
+					</Field>
+					<Field label="Location timezone">
+						<input
+							className="input"
+							disabled={!draft.openRouter.webSearch.enabled}
+							onChange={(event) => patchWebSearch({ userLocationTimezone: event.target.value })}
+							placeholder="America/Los_Angeles"
+							value={draft.openRouter.webSearch.userLocationTimezone}
+						/>
+					</Field>
+				</div>
+			</fieldset>
+			<fieldset className="tool-group" disabled={!available}>
+				<label className="tool-group-title">
+					<input
+						checked={draft.openRouter.webFetch.enabled}
+						onChange={(event) => patchWebFetch({ enabled: event.target.checked })}
+						type="checkbox"
+					/>
+					<span>Web Fetch</span>
+				</label>
+				<div className="field-row">
+					<Field label="Engine">
+						<select
+							className="input"
+							disabled={!draft.openRouter.webFetch.enabled}
+							onChange={(event) => patchWebFetch({ engine: event.target.value })}
+							value={draft.openRouter.webFetch.engine}
+						>
+							<option value="">default</option>
+							{webFetchEngineOptions.map((engine) => (
+								<option key={engine} value={engine}>
+									{engine}
+								</option>
+							))}
+						</select>
+					</Field>
+					<Field label="Max uses">
+						<input
+							className="input"
+							disabled={!draft.openRouter.webFetch.enabled}
+							min={1}
+							onChange={(event) => patchWebFetch({ maxUses: event.target.value })}
+							placeholder="default"
+							type="number"
+							value={draft.openRouter.webFetch.maxUses}
+						/>
+					</Field>
+				</div>
+				<Field label="Max content tokens">
+					<input
+						className="input"
+						disabled={!draft.openRouter.webFetch.enabled}
+						min={1}
+						onChange={(event) => patchWebFetch({ maxContentTokens: event.target.value })}
+						placeholder="50000"
+						type="number"
+						value={draft.openRouter.webFetch.maxContentTokens}
+					/>
+				</Field>
+				<div className="field-row">
+					<Field label="Allowed domains">
+						<textarea
+							className="textarea domain-list"
+							disabled={!draft.openRouter.webFetch.enabled}
+							onChange={(event) => patchWebFetch({ allowedDomains: event.target.value })}
+							placeholder="docs.example.com"
+							rows={2}
+							value={draft.openRouter.webFetch.allowedDomains}
+						/>
+					</Field>
+					<Field label="Blocked domains">
+						<textarea
+							className="textarea domain-list"
+							disabled={!draft.openRouter.webFetch.enabled}
+							onChange={(event) => patchWebFetch({ blockedDomains: event.target.value })}
+							placeholder="private.example.com"
+							rows={2}
+							value={draft.openRouter.webFetch.blockedDomains}
+						/>
+					</Field>
+				</div>
+			</fieldset>
 		</div>
 	);
 }
@@ -5783,7 +6256,7 @@ function runtimeActivities(events: BotRuntimeEvent[]): RuntimeActivity[] {
 					createdAt: event.createdAt,
 					kind: "provider",
 					title: "Inference request",
-					meta: `model: ${stringValue(payload.model) ?? "default"} · messages: ${stringValue(payload.messageCount) ?? "?"}`,
+					meta: providerRequestMeta(payload),
 					raw: event,
 				});
 				break;
@@ -6360,6 +6833,31 @@ function stringValue(value: unknown): string | undefined {
 	return undefined;
 }
 
+function providerRequestMeta(payload: Record<string, unknown>): string {
+	const parts = [
+		`model: ${stringValue(payload.model) ?? "default"}`,
+		`messages: ${stringValue(payload.messageCount) ?? "?"}`,
+	];
+	const serverTools = asRuntimeRecord(payload.openRouterServerTools);
+	const emitted = stringArrayValue(serverTools.emitted);
+	const suppressed = stringArrayValue(serverTools.suppressed);
+	if (emitted.length > 0) {
+		parts.push(`OR tools: ${emitted.map(shortOpenRouterToolName).join(", ")}`);
+	}
+	if (suppressed.length > 0) {
+		parts.push(`OR tools suppressed: ${suppressed.map(shortOpenRouterToolName).join(", ")}`);
+	}
+	return parts.join(" · ");
+}
+
+function stringArrayValue(value: unknown): string[] {
+	return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && item.length > 0) : [];
+}
+
+function shortOpenRouterToolName(value: string): string {
+	return value.replace(/^openrouter:/, "");
+}
+
 function numberValue(value: unknown): number | undefined {
 	return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
@@ -6611,6 +7109,166 @@ function inferenceInputFromDraft(
 	};
 }
 
+function toolDraftFromSettings(settings?: BotToolSettings): BotToolDraft {
+	const openRouter = settings?.openRouter;
+	return {
+		openRouter: {
+			datetime: {
+				enabled: Boolean(openRouter?.datetime?.enabled),
+				timezone: openRouter?.datetime?.timezone ?? "",
+			},
+			webSearch: {
+				enabled: Boolean(openRouter?.webSearch?.enabled),
+				engine: openRouter?.webSearch?.engine ?? "",
+				maxResults: numericDraftValue(openRouter?.webSearch?.maxResults),
+				maxTotalResults: numericDraftValue(openRouter?.webSearch?.maxTotalResults),
+				searchContextSize: openRouter?.webSearch?.searchContextSize ?? "",
+				userLocationCity: openRouter?.webSearch?.userLocation?.city ?? "",
+				userLocationRegion: openRouter?.webSearch?.userLocation?.region ?? "",
+				userLocationCountry: openRouter?.webSearch?.userLocation?.country ?? "",
+				userLocationTimezone: openRouter?.webSearch?.userLocation?.timezone ?? "",
+				allowedDomains: domainDraftValue(openRouter?.webSearch?.allowedDomains),
+				excludedDomains: domainDraftValue(openRouter?.webSearch?.excludedDomains),
+			},
+			webFetch: {
+				enabled: Boolean(openRouter?.webFetch?.enabled),
+				engine: openRouter?.webFetch?.engine ?? "",
+				maxUses: numericDraftValue(openRouter?.webFetch?.maxUses),
+				maxContentTokens: numericDraftValue(openRouter?.webFetch?.maxContentTokens),
+				allowedDomains: domainDraftValue(openRouter?.webFetch?.allowedDomains),
+				blockedDomains: domainDraftValue(openRouter?.webFetch?.blockedDomains),
+			},
+		},
+	};
+}
+
+function toolDraftChanged(draft: BotToolDraft, settings?: BotToolSettings): boolean {
+	return JSON.stringify(toolInputFromDraft(draft)) !== JSON.stringify(toolInputFromDraft(toolDraftFromSettings(settings)));
+}
+
+function toolInputFromDraft(draft: BotToolDraft): BotToolSettingsInput {
+	const openRouter: OpenRouterToolInput = {};
+	const datetime = openRouterDatetimeInputFromDraft(draft.openRouter.datetime);
+	const webSearch = openRouterWebSearchInputFromDraft(draft.openRouter.webSearch);
+	const webFetch = openRouterWebFetchInputFromDraft(draft.openRouter.webFetch);
+	if (datetime) {
+		openRouter.datetime = datetime;
+	}
+	if (webSearch) {
+		openRouter.webSearch = webSearch;
+	}
+	if (webFetch) {
+		openRouter.webFetch = webFetch;
+	}
+	return Object.keys(openRouter).length > 0 ? { openRouter } : {};
+}
+
+function openRouterDatetimeInputFromDraft(draft: OpenRouterDatetimeToolDraft): OpenRouterDatetimeToolInput | null {
+	const timezone = nullableTextInput(draft.timezone);
+	if (!draft.enabled && timezone === null) {
+		return null;
+	}
+	return {
+		enabled: draft.enabled,
+		timezone,
+	};
+}
+
+function openRouterWebSearchInputFromDraft(draft: OpenRouterWebSearchToolDraft): OpenRouterWebSearchToolInput | null {
+	const userLocation = userLocationInputFromDraft(draft);
+	const allowedDomains = domainListInput(draft.allowedDomains);
+	const excludedDomains = domainListInput(draft.excludedDomains);
+	const hasParameters = Boolean(
+		draft.engine.trim() ||
+			draft.maxResults.trim() ||
+			draft.maxTotalResults.trim() ||
+			draft.searchContextSize.trim() ||
+			userLocation ||
+			allowedDomains ||
+			excludedDomains,
+	);
+	if (!draft.enabled && !hasParameters) {
+		return null;
+	}
+	return {
+		enabled: draft.enabled,
+		engine: nullableTextInput(draft.engine) as OpenRouterWebSearchEngine | null,
+		maxResults: nullableIntegerInput(draft.maxResults),
+		maxTotalResults: nullableIntegerInput(draft.maxTotalResults),
+		searchContextSize: nullableTextInput(draft.searchContextSize) as OpenRouterSearchContextSize | null,
+		userLocation,
+		allowedDomains,
+		excludedDomains,
+	};
+}
+
+function userLocationInputFromDraft(draft: OpenRouterWebSearchToolDraft): OpenRouterWebSearchUserLocationInput | null {
+	const city = nullableTextInput(draft.userLocationCity);
+	const region = nullableTextInput(draft.userLocationRegion);
+	const country = nullableTextInput(draft.userLocationCountry);
+	const timezone = nullableTextInput(draft.userLocationTimezone);
+	return city || region || country || timezone ?
+			{
+				city,
+				region,
+				country,
+				timezone,
+			}
+		:	null;
+}
+
+function openRouterWebFetchInputFromDraft(draft: OpenRouterWebFetchToolDraft): OpenRouterWebFetchToolInput | null {
+	const allowedDomains = domainListInput(draft.allowedDomains);
+	const blockedDomains = domainListInput(draft.blockedDomains);
+	const hasParameters = Boolean(
+		draft.engine.trim() ||
+			draft.maxUses.trim() ||
+			draft.maxContentTokens.trim() ||
+			allowedDomains ||
+			blockedDomains,
+	);
+	if (!draft.enabled && !hasParameters) {
+		return null;
+	}
+	return {
+		enabled: draft.enabled,
+		engine: nullableTextInput(draft.engine) as OpenRouterWebFetchEngine | null,
+		maxUses: nullableIntegerInput(draft.maxUses),
+		maxContentTokens: nullableIntegerInput(draft.maxContentTokens),
+		allowedDomains,
+		blockedDomains,
+	};
+}
+
+function toolDraftValid(draft: BotToolDraft): boolean {
+	return (
+		validOptionalTimezone(draft.openRouter.datetime.timezone) &&
+		validOptionalInteger(draft.openRouter.webSearch.maxResults, 1, 25) &&
+		validOptionalInteger(draft.openRouter.webSearch.maxTotalResults, 1) &&
+		validOptionalTimezone(draft.openRouter.webSearch.userLocationTimezone) &&
+		validOptionalTextLength(draft.openRouter.webSearch.userLocationCountry, 2) &&
+		validOptionalInteger(draft.openRouter.webFetch.maxUses, 1) &&
+		validOptionalInteger(draft.openRouter.webFetch.maxContentTokens, 1)
+	);
+}
+
+function isOpenRouterBaseUrlForTools(draftBaseUrl: string, inheritedBaseUrl?: string): boolean {
+	return isOpenRouterProviderBaseUrl(draftBaseUrl.trim() || inheritedBaseUrl?.trim() || "https://openrouter.ai/api/v1");
+}
+
+function isOpenRouterProviderBaseUrl(baseUrl: string): boolean {
+	try {
+		const url = new URL(baseUrl);
+		if (url.protocol !== "https:" || url.hostname !== "openrouter.ai") {
+			return false;
+		}
+		const path = url.pathname.replace(/\/+$/, "");
+		return path === "/api/v1" || path === "/api/v1/chat/completions";
+	} catch {
+		return false;
+	}
+}
+
 function normalizeInferenceDraftModel(
 	draft: InferenceDraft,
 	inherited?: InferenceModelUnlockContext,
@@ -6634,6 +7292,25 @@ function canCustomizeInferenceModel(
 	);
 }
 
+function effectiveBotModel(bot: BotSummary, inherited?: BotInferenceSettings | null): string {
+	const botSettings = bot.inferenceSettings;
+	const botHasDirectProvider =
+		Boolean(botSettings.openRouterApiKeySet) ||
+		Boolean(botSettings.openRouterApiKey?.trim()) ||
+		Boolean(botSettings.baseUrl?.trim());
+	const inheritedHasProvider =
+		Boolean(inherited?.openRouterApiKeySet) ||
+		Boolean(inherited?.openRouterApiKey?.trim()) ||
+		Boolean(inherited?.baseUrl?.trim());
+	if (botSettings.model && (botHasDirectProvider || inheritedHasProvider || !inherited)) {
+		return botSettings.model;
+	}
+	if (inherited?.model && inheritedHasProvider) {
+		return inherited.model;
+	}
+	return defaultProviderModel;
+}
+
 function numericDraftValue(value: number | undefined): string {
 	return value === undefined ? "" : String(value);
 }
@@ -6646,6 +7323,50 @@ function nullableTextInput(value: string): string | null {
 function nullableNumberInput(value: string): number | null {
 	const trimmed = value.trim();
 	return trimmed ? Number(trimmed) : null;
+}
+
+function nullableIntegerInput(value: string): number | null {
+	const trimmed = value.trim();
+	return trimmed ? Math.trunc(Number(trimmed)) : null;
+}
+
+function domainDraftValue(value: string[] | undefined): string {
+	return value?.join(", ") ?? "";
+}
+
+function domainListInput(value: string): string[] | null {
+	const domains = value
+		.split(/[,\n]/)
+		.map((item) => item.trim().toLowerCase())
+		.filter(Boolean);
+	return domains.length > 0 ? domains : null;
+}
+
+function validOptionalInteger(value: string, min: number, max = Number.MAX_SAFE_INTEGER): boolean {
+	const trimmed = value.trim();
+	if (!trimmed) {
+		return true;
+	}
+	const parsed = Number(trimmed);
+	return Number.isInteger(parsed) && parsed >= min && parsed <= max;
+}
+
+function validOptionalTimezone(value: string): boolean {
+	const timezone = value.trim();
+	if (!timezone) {
+		return true;
+	}
+	try {
+		new Intl.DateTimeFormat("en-US", { timeZone: timezone }).format(new Date(0));
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+function validOptionalTextLength(value: string, maxLength: number): boolean {
+	const trimmed = value.trim();
+	return trimmed.length === 0 || trimmed.length <= maxLength;
 }
 
 function isValidBotDraft(draft: BotDraft): boolean {

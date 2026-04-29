@@ -37,26 +37,40 @@ import {
 	parseCreateBotInput,
 	parseUpdateBotInput,
 } from "@bickr/shared/validation";
-import type {
-	BotDocument,
-	CommentDocument,
-	BotRuntimeEvent,
-	BotRuntimeEventType,
-	BotRuntimeStatus,
-	BotSearchResult,
-	BotSummary,
-	BotTokenUsageBucket,
-	BotTokenUsageChangeMarker,
-	BotTokenUsageModelBreakdown,
-	BotTokenUsageStats,
-	BotTokenUsageTotals,
-	NotificationDocument,
-	ThreadDocument,
-	UserDocument,
+import {
+	defaultProviderModel,
+	type BotDocument,
+	type CommentDocument,
+	type BotRuntimeEvent,
+	type BotRuntimeEventType,
+	type BotRuntimeStatus,
+	type BotSearchResult,
+	type BotSummary,
+	type BotTokenUsageBucket,
+	type BotTokenUsageChangeMarker,
+	type BotTokenUsageModelBreakdown,
+	type BotTokenUsageStats,
+	type BotTokenUsageTotals,
+	type NotificationDocument,
+	type ThreadDocument,
+	type UserDocument,
 } from "@bickr/shared/model";
-import { mutableToolNames, standardPrompt, toolDefinitions } from "./prompt-and-tools";
+import {
+	mutableToolNames,
+	openRouterServerToolSelection,
+	standardPrompt,
+	toolDefinitions,
+	type ProviderToolDefinition,
+} from "./prompt-and-tools";
 
-export { toolDefinitions, type FunctionToolDefinition } from "./prompt-and-tools";
+export {
+	isOpenRouterProviderBaseUrl,
+	openRouterServerToolSelection,
+	toolDefinitions,
+	type OpenRouterServerToolDefinition,
+	type OpenRouterServerToolSelection,
+	type ProviderToolDefinition,
+} from "./prompt-and-tools";
 
 export interface Env {
 	BICKR_D1: D1Database;
@@ -195,6 +209,13 @@ type TickOptions = {
 	background?: boolean;
 };
 
+type LoopInput = {
+	notifications: Array<{ message: string }>;
+	injections: string[];
+	ping: boolean;
+	toolUseReminder?: string;
+};
+
 type InjectionMetadata = {
 	kind?: string;
 	sourceId?: string;
@@ -255,9 +276,40 @@ type ProviderSettings = {
 	baseUrl: string;
 	model: string;
 	temperature: number;
+	usesCustomBaseUrl?: boolean;
 	topK?: number;
 	topP?: number;
 	minP?: number;
+};
+
+type ProviderChatCompletionRequest = {
+	model: string;
+	messages: ChatMessage[];
+	tools: ProviderToolDefinition[];
+	tool_choice: typeof providerToolChoice;
+	parallel_tool_calls: typeof providerParallelToolCalls;
+	stream: true;
+	stream_options: {
+		include_usage: true;
+	};
+	reasoning: {
+		enabled: true;
+		exclude: false;
+	};
+	temperature: number;
+	top_k?: number;
+	top_p?: number;
+	min_p?: number;
+};
+
+type ProviderLoopOutcome = {
+	toolCallCount: number;
+};
+
+type ToolUseRecoveryState = {
+	consecutiveNoToolTicks: number;
+	lastRunId: string;
+	updatedAt: string;
 };
 
 class ProviderRequestError extends Error {
@@ -301,13 +353,51 @@ class TickStoppedError extends Error {
 }
 
 const stopRequestStateKey = "stop_requested_run_id";
+const toolUseRecoveryStateKey = "tool_use_recovery";
 const providerRequestTimeoutMs = 60_000;
 const providerStreamIdleTimeoutMs = 60_000;
 const providerMaxAttempts = 3;
 const providerRetryBaseDelayMs = 3_000;
+const providerToolChoice = "auto" as const;
+const providerParallelToolCalls = true;
+const providerContextReserveTokens = 2_500;
 const dayMs = 24 * 60 * 60 * 1000;
-const fallbackProviderModel = "google/gemma-4-26b-a4b-it:free";
+const fallbackProviderModel = defaultProviderModel;
 const fallbackProviderBaseUrl = "https://openrouter.ai/api/v1";
+
+export function toolUseRecoveryReminder(state: Pick<ToolUseRecoveryState, "consecutiveNoToolTicks">): string {
+	const prefix =
+		state.consecutiveNoToolTicks > 1 ?
+			`${state.consecutiveNoToolTicks} recent ticks ended without tool calls.`
+		:	"The previous tick ended without tool calls.";
+	return `${prefix} For this tick, use available function tools when browsing, reading, posting, replying, voting, following, or searching. Emit tool calls with JSON arguments matching the provided tool definitions. Only finish without tool calls when no lookup or visible action is appropriate.`;
+}
+
+export function providerChatCompletionRequest(
+	settings: ProviderSettings,
+	messages: ChatMessage[],
+	tools: ProviderToolDefinition[],
+): ProviderChatCompletionRequest {
+	return {
+		model: settings.model,
+		messages,
+		tools,
+		tool_choice: providerToolChoice,
+		parallel_tool_calls: providerParallelToolCalls,
+		stream: true,
+		stream_options: {
+			include_usage: true,
+		},
+		reasoning: {
+			enabled: true,
+			exclude: false,
+		},
+		temperature: settings.temperature,
+		...(settings.topK !== undefined ? { top_k: settings.topK } : {}),
+		...(settings.topP !== undefined ? { top_p: settings.topP } : {}),
+		...(settings.minP !== undefined ? { min_p: settings.minP } : {}),
+	};
+}
 
 const runtimeSchema = `
 CREATE TABLE IF NOT EXISTS events (
@@ -563,7 +653,7 @@ export class BotRuntime {
 					})();
 			this.throwIfStopped(runId, abortController.signal);
 			const injections = this.consumeInjections(mode === "spotlight" ? options.injectionIds ?? [] : undefined);
-			const input = this.loopInput(notifications, injections);
+			const input = this.loopInput(notifications, injections, this.pendingToolUseReminder());
 			await this.appendEvent(runId, "input", input);
 			if (mode === "spotlight" && injections.length === 0) {
 				await this.setRuntimeIndex(bot, "idle", null, undefined, new Date().toISOString());
@@ -586,10 +676,12 @@ export class BotRuntime {
 				await markNotificationsDelivered(this.env.BICKR_KV, this.env.BICKR_D1, notifications);
 			}
 
+			await this.compactIfNeeded(bot, runId);
 			const messages = await this.buildMessages(bot, input);
 			this.throwIfStopped(runId, abortController.signal);
-			if (providerSettings.apiKey || this.env.BICKR_SIMULATION_MODE === "provider") {
-				await this.runProviderLoop(bot, providerSettings, runId, messages, runContext);
+			if (providerSettings.apiKey || providerSettings.usesCustomBaseUrl || this.env.BICKR_SIMULATION_MODE === "provider") {
+				const outcome = await this.runProviderLoop(bot, providerSettings, runId, messages, runContext);
+				this.recordToolUseRecoveryOutcome(runId, outcome.toolCallCount);
 			} else {
 				await this.runLocalSimulation(bot, runId, input, runContext);
 			}
@@ -722,6 +814,66 @@ export class BotRuntime {
 		return requestedRunId === runId;
 	}
 
+	private pendingToolUseReminder(): string | undefined {
+		const state = this.toolUseRecoveryState();
+		return state ? toolUseRecoveryReminder(state) : undefined;
+	}
+
+	private recordToolUseRecoveryOutcome(runId: string, toolCallCount: number): void {
+		if (toolCallCount > 0) {
+			this.clearToolUseRecoveryState();
+			return;
+		}
+		this.setToolUseRecoveryState(runId);
+	}
+
+	private toolUseRecoveryState(): ToolUseRecoveryState | undefined {
+		const row = this.state.storage.sql
+			.exec<{ value_json: string }>(`SELECT value_json FROM runtime_state WHERE key = ?`, toolUseRecoveryStateKey)
+			.toArray()[0];
+		if (!row) {
+			return undefined;
+		}
+		try {
+			const record = runtimeRecord(JSON.parse(row.value_json));
+			const consecutiveNoToolTicks = integerValue(record.consecutiveNoToolTicks);
+			const lastRunId = stringValue(record.lastRunId);
+			const updatedAt = stringValue(record.updatedAt);
+			if (!consecutiveNoToolTicks || !lastRunId || !updatedAt) {
+				this.clearToolUseRecoveryState();
+				return undefined;
+			}
+			return { consecutiveNoToolTicks, lastRunId, updatedAt };
+		} catch {
+			this.clearToolUseRecoveryState();
+			return undefined;
+		}
+	}
+
+	private setToolUseRecoveryState(runId: string): void {
+		const previous = this.toolUseRecoveryState();
+		const consecutiveNoToolTicks =
+			previous && previous.lastRunId !== runId ? previous.consecutiveNoToolTicks + 1
+			: previous ? previous.consecutiveNoToolTicks
+			: 1;
+		const state: ToolUseRecoveryState = {
+			consecutiveNoToolTicks,
+			lastRunId: runId,
+			updatedAt: new Date().toISOString(),
+		};
+		this.state.storage.sql.exec(
+			`INSERT INTO runtime_state (key, value_json)
+			 VALUES (?, ?)
+			 ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json`,
+			toolUseRecoveryStateKey,
+			JSON.stringify(state),
+		);
+	}
+
+	private clearToolUseRecoveryState(): void {
+		this.state.storage.sql.exec(`DELETE FROM runtime_state WHERE key = ?`, toolUseRecoveryStateKey);
+	}
+
 	private async markRunStopped(bot: BotDocument, runId: string): Promise<void> {
 		if (!this.hasTerminalEvent(runId)) {
 			await this.appendEvent(runId, "tick_stopped", { message: "Tick stopped by owner." });
@@ -736,21 +888,32 @@ export class BotRuntime {
 		runId: string,
 		messages: ChatMessage[],
 		runContext: RunContext,
-	): Promise<void> {
+	): Promise<ProviderLoopOutcome> {
 		let currentMessages = [...messages];
 		let consecutiveToolFailures = 0;
+		let toolCallCount = 0;
 		for (let turn = 0; turn < bot.tickSettings.maxToolCallsPerTick; turn += 1) {
 			this.throwIfStopped(runId, runContext.signal);
+			const serverTools = openRouterServerToolSelection(settings.baseUrl, bot.toolSettings);
+			const providerTools: ProviderToolDefinition[] = [...toolDefinitions, ...serverTools.tools];
 			const requestEvent = await this.appendEvent(runId, "provider_request", {
 				model: settings.model,
 				messageCount: currentMessages.length,
+				toolCount: providerTools.length,
+				toolChoice: providerToolChoice,
+				parallelToolCalls: providerParallelToolCalls,
 				contextWindowTokens: bot.tickSettings.contextWindowTokens,
 				temperature: settings.temperature,
+				openRouterServerTools: {
+					enabled: serverTools.enabled,
+					emitted: serverTools.emitted,
+					suppressed: serverTools.suppressed,
+				},
 				...(settings.topK !== undefined ? { topK: settings.topK } : {}),
 				...(settings.topP !== undefined ? { topP: settings.topP } : {}),
 				...(settings.minP !== undefined ? { minP: settings.minP } : {}),
 			});
-			const response = await this.callProvider(settings, currentMessages, runId, runContext.signal);
+			const response = await this.callProvider(settings, currentMessages, providerTools, runId, runContext.signal);
 			if (response.usage) {
 				this.recordProviderUsage({
 					contextWindowTokens: bot.tickSettings.contextWindowTokens,
@@ -776,8 +939,9 @@ export class BotRuntime {
 				},
 			];
 			if (response.toolCalls.length === 0) {
-				return;
+				return { toolCallCount };
 			}
+			toolCallCount += response.toolCalls.length;
 
 			for (const toolCall of response.toolCalls) {
 				this.throwIfStopped(runId, runContext.signal);
@@ -816,33 +980,18 @@ export class BotRuntime {
 				});
 			}
 		}
+		return { toolCallCount };
 	}
 
 	private async callProvider(
 		settings: ProviderSettings,
 		messages: ChatMessage[],
+		tools: ProviderToolDefinition[],
 		runId: string,
 		signal: AbortSignal,
 	): Promise<ProviderResponse> {
 		const endpoint = providerChatCompletionsUrl(settings.baseUrl);
-		const body = JSON.stringify({
-			model: settings.model,
-			messages,
-			tools: toolDefinitions,
-			tool_choice: "auto",
-			stream: true,
-			stream_options: {
-				include_usage: true,
-			},
-			reasoning: {
-				enabled: true,
-				exclude: false,
-			},
-			temperature: settings.temperature,
-			...(settings.topK !== undefined ? { top_k: settings.topK } : {}),
-			...(settings.topP !== undefined ? { top_p: settings.topP } : {}),
-			...(settings.minP !== undefined ? { min_p: settings.minP } : {}),
-		});
+		const body = JSON.stringify(providerChatCompletionRequest(settings, messages, tools));
 		const response = await this.fetchProviderWithRetry(settings, endpoint, body, runId, signal);
 		if (!response.body) {
 			throw new ProviderRequestError(502, settings.model, endpoint, "Provider did not return a streaming response body.");
@@ -1242,6 +1391,7 @@ export class BotRuntime {
 			baseUrl,
 			model,
 			temperature,
+			...(hasCustomBaseUrl ? { usesCustomBaseUrl: true } : {}),
 			...(bot.inferenceSettings.topK !== undefined ? { topK: bot.inferenceSettings.topK }
 			: userSettings.topK !== undefined ? { topK: userSettings.topK }
 			: {}),
@@ -1577,7 +1727,7 @@ export class BotRuntime {
 
 	private async buildMessages(
 		bot: BotDocument,
-		input: { notifications: Array<{ message: string }>; injections: string[]; ping: boolean },
+		input: LoopInput,
 	): Promise<ChatMessage[]> {
 		const worldBots = await listWorldBots(this.env.BICKR_KV, this.env.BICKR_D1, bot.homeWorldHandle);
 		const summaries = this.eventsAfter(0)
@@ -1595,6 +1745,7 @@ export class BotRuntime {
 		const runtimeInput = {
 			notifications: input.notifications,
 			ping: input.ping,
+			...(input.toolUseReminder ? { toolUseReminder: input.toolUseReminder } : {}),
 			...(input.injections.length > 0 ? { deliveredThoughtCount: input.injections.length } : {}),
 		};
 
@@ -1614,7 +1765,7 @@ export class BotRuntime {
 		];
 	}
 
-	private loopInput(notifications: NotificationDocument[], injections: string[]) {
+	private loopInput(notifications: NotificationDocument[], injections: string[], toolUseReminder?: string): LoopInput {
 		const messages = dedupeNotificationAuthorBios(
 			notifications.map((notification) => ({
 				id: notification.id,
@@ -1627,6 +1778,7 @@ export class BotRuntime {
 			notifications: messages,
 			injections,
 			ping: notifications.length === 0 && injections.length === 0,
+			...(toolUseReminder ? { toolUseReminder } : {}),
 		};
 	}
 
@@ -1668,19 +1820,8 @@ export class BotRuntime {
 	}
 
 	private injectedThoughtMessagesForContext(): ChatMessage[] {
-		const rows = this.state.storage.sql
-			.exec<RuntimeRow>(
-				`SELECT seq, run_id, type, payload_json, token_estimate, compacted_by, created_at
-				 FROM events
-				 WHERE compacted_by IS NULL
-				   AND type = 'thought_injected'
-				 ORDER BY seq DESC
-				 LIMIT 12`,
-			)
-			.toArray()
-			.reverse();
 		const messages: ChatMessage[] = [];
-		for (const row of rows) {
+		for (const row of this.injectedThoughtRowsForContext()) {
 			const payload = parsePayloadJson(row.payload_json);
 			const text = stringValue(payload.text);
 			if (text) {
@@ -1691,6 +1832,20 @@ export class BotRuntime {
 			}
 		}
 		return messages;
+	}
+
+	private injectedThoughtRowsForContext(): RuntimeRow[] {
+		return this.state.storage.sql
+			.exec<RuntimeRow>(
+				`SELECT seq, run_id, type, payload_json, token_estimate, compacted_by, created_at
+				 FROM events
+				 WHERE compacted_by IS NULL
+				   AND type = 'thought_injected'
+				 ORDER BY seq DESC
+				 LIMIT 12`,
+			)
+			.toArray()
+			.reverse();
 	}
 
 	private consumeInjections(injectionIds?: string[]): string[] {
@@ -1759,7 +1914,10 @@ export class BotRuntime {
 
 	private async compactIfNeeded(bot: BotDocument, runId: string): Promise<void> {
 		const total = this.currentCompactionContextTokenEstimate();
-		const threshold = bot.tickSettings.contextWindowTokens * bot.tickSettings.compactionThreshold;
+		const threshold = Math.max(
+			1,
+			bot.tickSettings.contextWindowTokens * bot.tickSettings.compactionThreshold - providerContextReserveTokens,
+		);
 		if (total <= threshold) {
 			return;
 		}
@@ -1769,7 +1927,7 @@ export class BotRuntime {
 				`SELECT seq, run_id, type, payload_json, token_estimate, compacted_by, created_at
 				 FROM events
 				 WHERE compacted_by IS NULL
-				   AND type IN ('input', 'reasoning_message', 'assistant_message', 'tool_call', 'tool_result')
+				   AND type IN ('input', 'reasoning_message', 'assistant_message', 'tool_call', 'tool_result', 'thought_injected')
 				 ORDER BY seq ASC
 				 LIMIT 80`,
 			)
@@ -1793,7 +1951,7 @@ export class BotRuntime {
 			 SET compacted_by = ?
 			 WHERE seq >= ?
 			   AND seq <= ?
-			   AND type IN ('input', 'reasoning_message', 'assistant_message', 'tool_call', 'tool_result')`,
+			   AND type IN ('input', 'reasoning_message', 'assistant_message', 'tool_call', 'tool_result', 'thought_injected')`,
 			summaryEvent.seq,
 			compacted[0]?.seq ?? 0,
 			compacted[compacted.length - 1]?.seq ?? 0,
@@ -1803,7 +1961,9 @@ export class BotRuntime {
 	private currentCompactionContextTokenEstimate(): number {
 		const rowTokens = this.runtimeContextRows()
 			.reduce((total, row) => total + estimateTextTokens(runtimeContextLine(row)), 0);
-		return rowTokens + estimateTextTokens(formatThoughtContext(this.thoughtBlocksForContext()));
+		const injectedThoughtTokens = this.injectedThoughtRowsForContext()
+			.reduce((total, row) => total + estimateTextTokens(runtimeContextLine(row)), 0);
+		return rowTokens + injectedThoughtTokens + estimateTextTokens(formatThoughtContext(this.thoughtBlocksForContext()));
 	}
 
 	private async appendEvent(
@@ -2934,7 +3094,7 @@ function inputHistorySummary(payload: Record<string, unknown>): string {
 			`notification id=${stringValue(notification.id) ?? "unknown"} type=${stringValue(notification.type) ?? "unknown"} sourceObjectId=${stringValue(notification.sourceObjectId) ?? ""} message=${truncateForContext(stringValue(notification.message) ?? "", 240)}`,
 		)
 		.join(" | ");
-	return `ping=${payload.ping === true} notifications=${notifications.length}${notificationText ? ` [${notificationText}]` : ""} thoughts=${injections.length}`;
+	return `ping=${payload.ping === true} notifications=${notifications.length}${notificationText ? ` [${notificationText}]` : ""} thoughts=${injections.length} toolReminder=${Boolean(payload.toolUseReminder)}`;
 }
 
 function dedupeNotificationAuthorBios<T extends { message: string }>(notifications: T[]): T[] {
@@ -3507,6 +3667,9 @@ function toolFailureGuidance(name: string, error: unknown): string | undefined {
 }
 
 function numberArg(value: unknown, fallback: number): number {
+	if (value === null || value === undefined || value === "") {
+		return fallback;
+	}
 	const parsed = Number(value);
 	return Number.isFinite(parsed) ? Math.max(1, Math.min(50, Math.floor(parsed))) : fallback;
 }
