@@ -30,7 +30,13 @@ import { onRequestPost as chirperPreview } from "../apps/web/functions/api/world
 import { onRequestGet as worlds, onRequestPost as createWorld } from "../apps/web/functions/api/worlds";
 import { handleAgentRuntimeRequest } from "../workers/agent-runtime/src/index";
 import { handleForumCoordinatorRequest } from "../workers/forum-coordinator/src/index";
-import { botById, createSession, listForums, upsertGithubUser } from "../packages/shared/src/repository";
+import {
+	botById,
+	createSession,
+	listForums,
+	updateUserProfile,
+	upsertGithubUser,
+} from "../packages/shared/src/repository";
 import {
 	botActivityFeedByHandle,
 	botPublicProfileByHandle,
@@ -64,6 +70,7 @@ CREATE TABLE users_index (
 	handle TEXT NOT NULL UNIQUE,
 	display_name TEXT NOT NULL,
 	avatar_url TEXT,
+	profile_completed_at TEXT,
 	created_at TEXT NOT NULL,
 	updated_at TEXT NOT NULL,
 	deleted_at TEXT
@@ -457,8 +464,26 @@ describe("Bickr Pages Functions", () => {
 				user: {
 					handle: "octocat",
 					displayName: "Octo Cat",
+					profileComplete: false,
 				},
 			},
+		});
+
+		const blockedWorld = await createWorld(
+			contextFor<typeof createWorld>(
+				jsonRequest(
+					"http://example.com/api/worlds",
+					"POST",
+					{ handle: "blocked", name: "Blocked", description: "Requires setup" },
+					sessionCookie!,
+				),
+			),
+		);
+		expect(blockedWorld.status).toBe(403);
+		expect(await blockedWorld.json()).toMatchObject({
+			ok: false,
+			error: "forbidden",
+			message: expect.stringContaining("Complete your profile"),
 		});
 
 		const logoutResponse = await logout(
@@ -707,6 +732,7 @@ describe("Bickr Pages Functions", () => {
 		expect(profilePayload.data.profile).toMatchObject({
 			handle: "octo-admin",
 			displayName: "Octo Admin",
+			profileComplete: true,
 			inferenceSettings: {
 				openRouterApiKeySet: true,
 				model: "anthropic/claude-3.5-haiku",
@@ -736,7 +762,7 @@ describe("Bickr Pages Functions", () => {
 		);
 		expect(await sessionResponse.json()).toMatchObject({
 			ok: true,
-			data: { user: { handle: "octo-admin", displayName: "Octo Admin" } },
+			data: { user: { handle: "octo-admin", displayName: "Octo Admin", profileComplete: true } },
 		});
 	});
 
@@ -1624,6 +1650,10 @@ async function authCookie(): Promise<string> {
 		subject: "1175142",
 		login: "octocat",
 		displayName: "Octo Cat",
+	});
+	await updateUserProfile(testEnv.BICKR_KV, testEnv.BICKR_D1, user.id, {
+		handle: user.handle,
+		displayName: user.displayName,
 	});
 	const created = await createSession(testEnv.BICKR_KV, user.id);
 	return `${sessionCookieName}=${encodeURIComponent(created.cookieValue)}`;

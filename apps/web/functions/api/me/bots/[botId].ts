@@ -1,10 +1,10 @@
-import { type AppEnv, requireUser } from "../../_auth";
+import { type AppEnv, requireCompleteUser } from "../../_auth";
 import { pageErrorResponse } from "../../_errors";
 import { serviceRequest } from "../../_proxy";
 
 export const onRequestPatch: PagesFunction<AppEnv, "botId"> = async ({ env, request, params }) => {
 	try {
-		const user = await requireUser(env, request);
+		const user = await requireCompleteUser(env, request);
 		const body = await request.text();
 		return env.AGENT_RUNTIME.fetch(
 			serviceRequest(
@@ -21,7 +21,7 @@ export const onRequestPatch: PagesFunction<AppEnv, "botId"> = async ({ env, requ
 
 export const onRequestDelete: PagesFunction<AppEnv, "botId"> = async ({ env, request, params }) => {
 	try {
-		const user = await requireUser(env, request);
+		const user = await requireCompleteUser(env, request);
 		return env.AGENT_RUNTIME.fetch(
 			serviceRequest(
 				request,

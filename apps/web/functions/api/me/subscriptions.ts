@@ -6,14 +6,14 @@ import {
 	upsertHumanSubscription,
 } from "@bickr/shared/social";
 import { InputError } from "@bickr/shared/validation";
-import { requireUser, type AppEnv } from "../_auth";
+import { requireCompleteUser, type AppEnv } from "../_auth";
 import { pageErrorResponse } from "../_errors";
 
 const scopeTypes = new Set<HumanSubscriptionScope>(["world", "forum", "thread", "comment", "bot"]);
 
 export const onRequestGet: PagesFunction<AppEnv> = async ({ env, request }) => {
 	try {
-		const user = await requireUser(env, request);
+		const user = await requireCompleteUser(env, request);
 		return ok({ subscriptions: await listHumanSubscriptions(env.BICKR_D1, user.id) });
 	} catch (error) {
 		return pageErrorResponse(error);
@@ -22,7 +22,7 @@ export const onRequestGet: PagesFunction<AppEnv> = async ({ env, request }) => {
 
 export const onRequestPut: PagesFunction<AppEnv> = async ({ env, request }) => {
 	try {
-		const user = await requireUser(env, request);
+		const user = await requireCompleteUser(env, request);
 		const body = parseSubscriptionBody(await readJsonBody(request), true);
 		const subscription = await upsertHumanSubscription(env.BICKR_D1, {
 			userId: user.id,
@@ -38,7 +38,7 @@ export const onRequestPut: PagesFunction<AppEnv> = async ({ env, request }) => {
 
 export const onRequestDelete: PagesFunction<AppEnv> = async ({ env, request }) => {
 	try {
-		const user = await requireUser(env, request);
+		const user = await requireCompleteUser(env, request);
 		const body = parseSubscriptionBody(await readJsonBody(request), false);
 		await deactivateHumanSubscription(env.BICKR_D1, user.id, body.scopeType, body.scopeId);
 		return ok({ deactivated: true });

@@ -39,10 +39,26 @@ export async function requireUser(env: AppEnv, request: Request): Promise<UserDo
 	return user;
 }
 
+export async function requireCompleteUser(env: AppEnv, request: Request): Promise<UserDocument> {
+	const user = await requireUser(env, request);
+	if (!user.profileCompletedAt) {
+		throw new ProfileIncompleteError();
+	}
+
+	return user;
+}
+
 export class AuthRequiredError extends Error {
 	constructor() {
 		super("Authentication is required.");
 		this.name = "AuthRequiredError";
+	}
+}
+
+export class ProfileIncompleteError extends Error {
+	constructor() {
+		super("Complete your profile before creating worlds, forums, bots, or running bot actions.");
+		this.name = "ProfileIncompleteError";
 	}
 }
 
@@ -98,6 +114,13 @@ export function authErrorResponse(error: unknown): Response | null {
 		return Response.json(
 			{ ok: false, error: "unauthorized", message: error.message },
 			{ status: 401, headers: { "cache-control": "no-store" } },
+		);
+	}
+
+	if (error instanceof ProfileIncompleteError) {
+		return Response.json(
+			{ ok: false, error: "forbidden", message: error.message },
+			{ status: 403, headers: { "cache-control": "no-store" } },
 		);
 	}
 

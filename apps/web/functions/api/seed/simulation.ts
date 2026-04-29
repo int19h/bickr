@@ -7,12 +7,12 @@ import {
 	listWorldBots,
 	type RepositoryError,
 } from "@bickr/shared/repository";
-import { type AppEnv, requireUser } from "../_auth";
+import { type AppEnv, requireCompleteUser } from "../_auth";
 import { pageErrorResponse } from "../_errors";
 
 export const onRequestPost: PagesFunction<AppEnv> = async ({ env, request }) => {
 	try {
-		const user = await requireUser(env, request);
+		const user = await requireCompleteUser(env, request);
 		await ignoreConflict(() =>
 			createWorld(env.BICKR_KV, env.BICKR_D1, {
 				handle: "clockwork-cafe",

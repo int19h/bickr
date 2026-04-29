@@ -2,7 +2,7 @@ import { ok, readJsonBody } from "@bickr/shared/api";
 import { buildSpotlightPreview, forumByHandle } from "@bickr/shared/social";
 import { type SpotlightPreviewInput } from "@bickr/shared/model";
 import { normalizeHandle } from "@bickr/shared/validation";
-import { requireUser, type AppEnv } from "../../../../../_auth";
+import { requireCompleteUser, type AppEnv } from "../../../../../_auth";
 import { pageErrorResponse } from "../../../../../_errors";
 
 export const onRequestPost: PagesFunction<AppEnv, "worldHandle" | "forumHandle"> = async ({
@@ -11,7 +11,7 @@ export const onRequestPost: PagesFunction<AppEnv, "worldHandle" | "forumHandle">
 	params,
 }) => {
 	try {
-		const user = await requireUser(env, request);
+		const user = await requireCompleteUser(env, request);
 		const worldHandle = normalizeHandle(params.worldHandle);
 		const forumHandle = normalizeHandle(params.forumHandle);
 		const forum = await forumByHandle(env.BICKR_KV, env.BICKR_D1, worldHandle, forumHandle);

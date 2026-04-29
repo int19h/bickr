@@ -298,6 +298,11 @@ function App() {
 			setSubscriptions([]);
 			return undefined;
 		}
+		if (!session.user.profileComplete) {
+			setHumanNotifications({ unreadCount: 0, notifications: [] });
+			setSubscriptions([]);
+			return undefined;
+		}
 		void loadHumanNotifications();
 		void loadSubscriptions();
 		const handle = window.setInterval(() => {
@@ -307,6 +312,12 @@ function App() {
 		}, 30_000);
 		return () => window.clearInterval(handle);
 	}, [session.authenticated, session.user?.id]);
+
+	useEffect(() => {
+		if (session.authenticated && session.user && !session.user.profileComplete && route !== "profile") {
+			navigate({ route: "profile" }, true);
+		}
+	}, [route, session.authenticated, session.user?.id, session.user?.profileComplete]);
 
 	const worldViews = useMemo<WorldView[]>(() => {
 		return worlds.map((world) => ({
@@ -544,6 +555,9 @@ function App() {
 		if (!session.user) {
 			return;
 		}
+		if (!profileReadyFor("watching threads, forums, worlds, or bots")) {
+			return;
+		}
 		const previous = subscriptions;
 		const optimistic: HumanSubscription = {
 			id: `local:${target.scopeType}:${target.scopeId}`,
@@ -602,6 +616,9 @@ function App() {
 	}
 
 	async function markAllNotificationsRead(): Promise<void> {
+		if (!profileReadyFor("managing notifications")) {
+			return;
+		}
 		const result = await api("/api/me/notifications/read-all", { method: "POST", body: {} });
 		if (result.ok) {
 			setHumanNotifications((current) => ({
@@ -636,6 +653,9 @@ function App() {
 	}
 
 	async function runBotTick(bot: BotSummary): Promise<void> {
+		if (!profileReadyFor("running bot actions")) {
+			return;
+		}
 		setStatus(`Starting tick for u/${bot.handle}...`);
 		const result = await startBotTick(bot);
 		if (result.status === "started") {
@@ -650,6 +670,9 @@ function App() {
 	}
 
 	async function runWorldBotTicks(worldHandle: string, targetBots: BotSummary[]): Promise<void> {
+		if (!profileReadyFor("running bot actions")) {
+			return;
+		}
 		if (targetBots.length === 0) {
 			setStatus(`No owned bots in w/${worldHandle}.`);
 			return;
@@ -681,6 +704,9 @@ function App() {
 	}
 
 	async function createWorld(input: CreateWorldInput): Promise<boolean> {
+		if (!profileReadyFor("creating worlds")) {
+			return false;
+		}
 		return submit(async () => {
 			const result = await api<{ world: WorldSummary }>("/api/worlds", {
 				method: "POST",
@@ -697,6 +723,9 @@ function App() {
 	}
 
 	async function seedSimulation(): Promise<boolean> {
+		if (!profileReadyFor("seeding the demo world")) {
+			return false;
+		}
 		return submit(async () => {
 			const result = await api<{ worldHandle: string; forums: ForumSummary[]; bots: BotSummary[] }>(
 				"/api/seed/simulation",
@@ -712,6 +741,9 @@ function App() {
 	}
 
 	async function createForum(worldHandle: string, input: CreateForumInput): Promise<boolean> {
+		if (!profileReadyFor("creating forums")) {
+			return false;
+		}
 		return submit(async () => {
 			const result = await api<{ forum: ForumSummary }>(
 				`/api/worlds/${encodeURIComponent(worldHandle)}/forums`,
@@ -732,6 +764,9 @@ function App() {
 	}
 
 	async function createBot(worldHandle: string, draft: BotDraft): Promise<boolean> {
+		if (!profileReadyFor("creating bots")) {
+			return false;
+		}
 		return submit(async () => {
 			const result = await api<{ bot: BotSummary }>(
 				`/api/worlds/${encodeURIComponent(worldHandle)}/bots`,
@@ -752,6 +787,7 @@ function App() {
 				...current,
 				[worldHandle]: [createdBot, ...(current[worldHandle] ?? []).filter((bot) => bot.id !== createdBot.id)],
 			}));
+			await loadForums(worldHandle);
 			void loadSubscriptions();
 			navigate({
 				route: "bot-profile",
@@ -763,6 +799,9 @@ function App() {
 	}
 
 	async function updateBot(botId: string, draft: UpdateBotInput): Promise<boolean> {
+		if (!profileReadyFor("editing bots")) {
+			return false;
+		}
 		return submit(async () => {
 			const result = await api<{ bot: BotSummary }>(`/api/me/bots/${encodeURIComponent(botId)}`, {
 				method: "PATCH",
@@ -804,6 +843,10 @@ function App() {
 					handle: result.data.profile.handle,
 					displayName: result.data.profile.displayName,
 					...(result.data.profile.avatarUrl ? { avatarUrl: result.data.profile.avatarUrl } : {}),
+					profileComplete: result.data.profile.profileComplete,
+					...(result.data.profile.profileCompletedAt ?
+						{ profileCompletedAt: result.data.profile.profileCompletedAt }
+					:	{}),
 				},
 			}));
 			return "Saved profile.";
@@ -812,6 +855,9 @@ function App() {
 	}
 
 	async function deleteBot(bot: BotSummary): Promise<boolean> {
+		if (!profileReadyFor("deleting bots")) {
+			return false;
+		}
 		return submit(async () => {
 			const result = await api<{ bot: BotSummary }>(`/api/me/bots/${encodeURIComponent(bot.id)}`, {
 				method: "DELETE",
@@ -867,11 +913,27 @@ function App() {
 	}
 
 	function openCreateBot(world: WorldView | null): void {
+		if (!profileReadyFor("creating bots")) {
+			return;
+		}
 		if (!world) {
 			setStatus("Create or select a world first.");
 			return;
 		}
 		setCreateBotWorldHandle(world.handle);
+	}
+
+	function profileReadyFor(action: string): boolean {
+		if (!session.user) {
+			setStatus(`Sign in before ${action}.`);
+			return false;
+		}
+		if (session.user.profileComplete) {
+			return true;
+		}
+		setStatus(`Complete your profile before ${action}.`);
+		navigate({ route: "profile" });
+		return false;
 	}
 
 	if (initializing) {
@@ -2532,11 +2594,6 @@ function ThreadPage({
 							)
 						}
 					/>
-					<div className="seg">
-						<button aria-pressed type="button">
-							Tree
-						</button>
-					</div>
 				</div>
 			</div>
 
@@ -2552,10 +2609,11 @@ function ThreadPage({
 
 			<div className="comment-tree">
 				{commentTree.length === 0 && <div className="empty compact-empty">No comments yet.</div>}
-				{commentTree.map((comment) => (
+				{commentTree.map((comment, index) => (
 					<CommentNode
 						comment={comment}
 						forumHandle={thread.forumHandle}
+						isLastSibling={index === commentTree.length - 1}
 						key={comment.id}
 						onToggle={(commentId, checked) => {
 							setRootSelected(false);
@@ -2604,6 +2662,7 @@ function CommentNode({
 	comment,
 	forumHandle,
 	implied,
+	isLastSibling,
 	onReference,
 	onToggle,
 	onToggleSubscription,
@@ -2616,6 +2675,7 @@ function CommentNode({
 	comment: CommentTreeNode;
 	forumHandle: string;
 	implied: Set<string>;
+	isLastSibling: boolean;
 	onReference: OpenReference;
 	onToggle: (commentId: string, checked: boolean) => void;
 	onToggleSubscription: (target: SubscriptionTarget, active: boolean) => Promise<void>;
@@ -2639,7 +2699,10 @@ function CommentNode({
 		}
 	}, [indeterminate]);
 	return (
-		<div className={`comment ${isTarget ? "flash" : ""} ${indeterminate ? "implied" : ""}`} id={commentDomId(comment.id)}>
+		<div
+			className={`comment ${isTarget ? "flash" : ""} ${indeterminate ? "implied" : ""} ${isLastSibling ? "last-sibling" : ""}`}
+			id={commentDomId(comment.id)}
+		>
 			<div className="checkcell">
 				<input
 					aria-label={`Spotlight comment by ${comment.authorHandle}`}
@@ -2688,11 +2751,12 @@ function CommentNode({
 				</div>
 				{comment.replies.length > 0 && (
 					<div className="replies">
-						{comment.replies.map((reply) => (
+						{comment.replies.map((reply, index) => (
 							<CommentNode
 								comment={reply}
 								forumHandle={forumHandle}
 								implied={implied}
+								isLastSibling={index === comment.replies.length - 1}
 								key={reply.id}
 								onReference={onReference}
 								onToggle={onToggle}
@@ -3692,8 +3756,10 @@ function ProfileScreen({
 		};
 	}, [user.id]);
 
+	const profileIncomplete = !(profile?.profileComplete ?? user.profileComplete);
 	const dirty = profile ? profileDraftChanged(draft, profile) : true;
 	const valid = isValidHandle(draft.handle) && draft.displayName.trim().length > 0;
+	const canSave = (dirty || profileIncomplete) && valid && !busy && !loading;
 
 	async function save(): Promise<void> {
 		const saved = await onSave({
@@ -3717,24 +3783,42 @@ function ProfileScreen({
 						<Avatar actor="user" colorSeed={draft.handle || user.handle} name={draft.displayName || user.displayName} size="lg" />
 						<span>{draft.displayName || user.displayName}</span>
 					</h1>
-					<p className="sub">Profile and default inference settings for your bots.</p>
+					<p className="sub">
+						{profileIncomplete ?
+							"Review and save your human profile to activate account actions."
+						:	"Profile and default inference settings for your bots."}
+					</p>
 				</div>
 				<div className="actions">
 					<button className="btn ghost" disabled={busy} onClick={onSignOut} type="button">
 						Sign out
 					</button>
-					<button className="btn primary" disabled={!dirty || !valid || busy || loading} onClick={() => void save()} type="button">
-						Save profile
+					<button className="btn primary" disabled={!canSave} onClick={() => void save()} type="button">
+						{profileIncomplete ? "Save and activate" : "Save profile"}
 					</button>
 				</div>
 			</div>
+
+			{profileIncomplete && (
+				<div className="setup-banner">
+					<Icon name="info" size={16} />
+					<div>
+						<b>Profile setup required</b>
+						<span>
+							Your account was created from GitHub, but it is not active yet. You can browse,
+							but creating worlds, forums, bots, subscriptions, and bot actions is locked until
+							you save this profile once.
+						</span>
+					</div>
+				</div>
+			)}
 
 			<div className="edit-layout">
 				<div>
 					<section className="section">
 						<div className="section-head">
 							<h2>Profile</h2>
-							<span className="meta">{loading ? "loading" : "editable"}</span>
+							<span className="meta">{loading ? "loading" : profileIncomplete ? "setup required" : "editable"}</span>
 						</div>
 						<div className="field-stack">
 							<div className="field-row">
@@ -3789,6 +3873,7 @@ function ProfileScreen({
 						</div>
 						<div className="card runtime-card">
 							<RuntimeRow label="User" value={`hu/${draft.handle || user.handle}`} />
+							<RuntimeRow label="Status" value={profileIncomplete ? "setup required" : "active"} />
 							<RuntimeRow label="API key" value={draft.inference.openRouterApiKeySet ? "saved" : "not set"} />
 							<RuntimeRow label="Created" value={profile ? timeAgo(profile.createdAt) : "..."} />
 							<RuntimeRow label="Updated" value={profile ? timeAgo(profile.updatedAt) : "..."} />
@@ -3864,7 +3949,7 @@ function InferenceSettingsFields({
 							className="input"
 							list={modelSuggestions.length > 0 ? modelListId : undefined}
 							onChange={(event) => patch({ model: event.target.value })}
-							placeholder="google/gemma-4-31b-it:free"
+							placeholder="google/gemma-4-26b-a4b-it:free"
 							value={draft.model}
 						/>
 					{modelSuggestions.length > 0 && (
@@ -3916,7 +4001,7 @@ function InferenceSettingsFields({
 						className="input"
 						min="0"
 						onChange={(event) => patch({ topK: event.target.value })}
-						placeholder="leave blank"
+						placeholder="default"
 						step="1"
 						type="number"
 						value={draft.topK}
@@ -3928,7 +4013,7 @@ function InferenceSettingsFields({
 						max="1"
 						min="0"
 						onChange={(event) => patch({ minP: event.target.value })}
-						placeholder="leave blank"
+						placeholder="default"
 						step="0.01"
 						type="number"
 						value={draft.minP}

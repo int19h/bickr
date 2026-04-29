@@ -1,7 +1,7 @@
 import { normalizeHandle } from "@bickr/shared/validation";
 import { ok } from "@bickr/shared/api";
 import { listWorldBots } from "@bickr/shared/repository";
-import { type AppEnv, requireUser } from "../../_auth";
+import { type AppEnv, requireCompleteUser } from "../../_auth";
 import { pageErrorResponse } from "../../_errors";
 import { serviceRequest } from "../../_proxy";
 
@@ -16,7 +16,7 @@ export const onRequestGet: PagesFunction<AppEnv, "worldHandle"> = async ({ env, 
 
 export const onRequestPost: PagesFunction<AppEnv, "worldHandle"> = async ({ env, request, params }) => {
 	try {
-		const user = await requireUser(env, request);
+		const user = await requireCompleteUser(env, request);
 		const worldHandle = normalizeHandle(params.worldHandle);
 		const body = await request.text();
 		return env.AGENT_RUNTIME.fetch(

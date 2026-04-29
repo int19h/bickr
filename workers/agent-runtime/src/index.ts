@@ -262,7 +262,7 @@ const providerRequestTimeoutMs = 60_000;
 const providerStreamIdleTimeoutMs = 60_000;
 const providerMaxAttempts = 3;
 const providerRetryBaseDelayMs = 3_000;
-const fallbackProviderModel = "google/gemma-4-31b-it:free";
+const fallbackProviderModel = "google/gemma-4-26b-a4b-it:free";
 const fallbackProviderBaseUrl = "https://openrouter.ai/api/v1";
 const legacyDefaultProviderModels = new Set([fallbackProviderModel, "openai/gpt-4o-mini", "openai/gpt-4o"]);
 

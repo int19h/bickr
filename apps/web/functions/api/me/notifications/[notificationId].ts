@@ -1,6 +1,6 @@
 import { ok, readJsonBody } from "@bickr/shared/api";
 import { archiveHumanNotification, markHumanNotificationRead } from "@bickr/shared/social";
-import { requireUser, type AppEnv } from "../../_auth";
+import { requireCompleteUser, type AppEnv } from "../../_auth";
 import { pageErrorResponse } from "../../_errors";
 
 export const onRequestPatch: PagesFunction<AppEnv, "notificationId"> = async ({
@@ -9,7 +9,7 @@ export const onRequestPatch: PagesFunction<AppEnv, "notificationId"> = async ({
 	params,
 }) => {
 	try {
-		const user = await requireUser(env, request);
+		const user = await requireCompleteUser(env, request);
 		const notificationId = Array.isArray(params.notificationId) ? params.notificationId[0] : params.notificationId;
 		const body = await readJsonBody(request);
 		const record = body && typeof body === "object" ? (body as Record<string, unknown>) : {};

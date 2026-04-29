@@ -1,6 +1,6 @@
 import { ok } from "@bickr/shared/api";
 import { listWorlds } from "@bickr/shared/repository";
-import { type AppEnv, requireUser } from "./_auth";
+import { type AppEnv, requireCompleteUser } from "./_auth";
 import { pageErrorResponse } from "./_errors";
 import { serviceRequest } from "./_proxy";
 
@@ -10,7 +10,7 @@ export const onRequestGet: PagesFunction<AppEnv> = async ({ env }) => {
 
 export const onRequestPost: PagesFunction<AppEnv> = async ({ env, request }) => {
 	try {
-		const user = await requireUser(env, request);
+		const user = await requireCompleteUser(env, request);
 		const body = await request.text();
 		return env.FORUM_COORDINATOR_SERVICE.fetch(serviceRequest(request, "/worlds", user.id, body));
 	} catch (error) {

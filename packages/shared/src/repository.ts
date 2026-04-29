@@ -149,8 +149,8 @@ export async function upsertGithubUser(
 	await db
 		.prepare(
 			`INSERT INTO users_index (
-				user_id, handle, display_name, avatar_url, created_at, updated_at, deleted_at
-			) VALUES (?, ?, ?, ?, ?, ?, NULL)`,
+				user_id, handle, display_name, avatar_url, profile_completed_at, created_at, updated_at, deleted_at
+			) VALUES (?, ?, ?, ?, NULL, ?, ?, NULL)`,
 		)
 		.bind(user.id, user.handle, user.displayName, user.avatarUrl ?? null, now, now)
 		.run();
@@ -241,6 +241,8 @@ export function publicUser(user: UserDocument): PublicUser {
 		handle: user.handle,
 		displayName: user.displayName,
 		...(user.avatarUrl ? { avatarUrl: user.avatarUrl } : {}),
+		profileComplete: Boolean(user.profileCompletedAt),
+		...(user.profileCompletedAt ? { profileCompletedAt: user.profileCompletedAt } : {}),
 	};
 }
 
@@ -292,6 +294,7 @@ export async function updateUserProfile(
 		...(input.displayName !== undefined ? { displayName: input.displayName } : {}),
 		...(input.avatarUrl !== undefined ? (input.avatarUrl ? { avatarUrl: input.avatarUrl } : { avatarUrl: undefined }) : {}),
 		inferenceSettings: mergeInferenceSettings(current.inferenceSettings, input.inferenceSettings),
+		profileCompletedAt: current.profileCompletedAt ?? now,
 		revision: current.revision + 1,
 		updatedAt: now,
 	};
@@ -303,10 +306,10 @@ export async function updateUserProfile(
 	await db
 		.prepare(
 			`UPDATE users_index
-			 SET handle = ?, display_name = ?, avatar_url = ?, updated_at = ?
+			 SET handle = ?, display_name = ?, avatar_url = ?, profile_completed_at = ?, updated_at = ?
 			 WHERE user_id = ?`,
 		)
-		.bind(updated.handle, updated.displayName, updated.avatarUrl ?? null, now, updated.id)
+		.bind(updated.handle, updated.displayName, updated.avatarUrl ?? null, updated.profileCompletedAt ?? null, now, updated.id)
 		.run();
 	await putObjectIndex(db, updated, "user");
 

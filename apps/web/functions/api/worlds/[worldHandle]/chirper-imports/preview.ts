@@ -7,12 +7,12 @@ import {
 	maxBotShortBioLength,
 	requiredText,
 } from "@bickr/shared/validation";
-import { type AppEnv, requireUser } from "../../../_auth";
+import { type AppEnv, requireCompleteUser } from "../../../_auth";
 import { pageErrorResponse } from "../../../_errors";
 
 export const onRequestPost: PagesFunction<AppEnv, "worldHandle"> = async ({ env, request }) => {
 	try {
-		await requireUser(env, request);
+		await requireCompleteUser(env, request);
 		const body = asRecord(await readJsonBody(request));
 		const source = requiredText(body.source, "Chirper URL or handle", 500);
 		const originalHandle = chirperHandle(source);

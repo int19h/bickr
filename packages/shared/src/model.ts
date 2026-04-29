@@ -27,6 +27,7 @@ export type UserDocument = EntityDocument & {
 	displayName: string;
 	avatarUrl?: string;
 	inferenceSettings?: BotInferenceSettings;
+	profileCompletedAt?: string;
 };
 
 export type ProviderIdentityDocument = EntityDocument & {
@@ -214,6 +215,8 @@ export type PublicUser = {
 	handle: string;
 	displayName: string;
 	avatarUrl?: string;
+	profileComplete: boolean;
+	profileCompletedAt?: string;
 };
 
 export type UserProfile = PublicUser & {

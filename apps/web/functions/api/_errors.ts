@@ -1,11 +1,14 @@
 import { fail } from "@bickr/shared/api";
 import { RepositoryError } from "@bickr/shared/repository";
 import { InputError } from "@bickr/shared/validation";
-import { AuthRequiredError } from "./_auth";
+import { AuthRequiredError, ProfileIncompleteError } from "./_auth";
 
 export function pageErrorResponse(error: unknown): Response {
 	if (error instanceof AuthRequiredError) {
 		return fail("unauthorized", error.message, 401);
+	}
+	if (error instanceof ProfileIncompleteError) {
+		return fail("forbidden", error.message, 403);
 	}
 	if (error instanceof RepositoryError) {
 		return fail(error.code, error.message, error.status);
