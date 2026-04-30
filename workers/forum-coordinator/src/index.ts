@@ -9,6 +9,7 @@ import {
 } from "@bickr/shared/governance";
 import { RepositoryError, createForum, createWorld } from "@bickr/shared/repository";
 import { createComment, createThread, readThread, setVote } from "@bickr/shared/social";
+import { type ThreadDocument } from "@bickr/shared/model";
 import {
 	InputError,
 	normalizeHandle,
@@ -29,6 +30,25 @@ export interface Env {
 	FORUM_COORDINATOR: DurableObjectNamespace;
 }
 
+type CoordinatorContext = {
+	cache?: ThreadFreshCacheRef;
+	objectId: string;
+	storage?: DurableObjectStorage;
+};
+
+type ThreadFreshCacheEntry = {
+	expiresAt: string;
+	thread: ThreadDocument;
+	writtenAt: string;
+};
+
+type ThreadFreshCacheRef = {
+	entry: ThreadFreshCacheEntry | null;
+};
+
+const threadFreshCacheStorageKey = "thread-fresh-cache";
+const threadFreshCacheTtlMs = 5 * 60 * 1000;
+
 export class WorldCoordinator {
 	private readonly state: DurableObjectState;
 	private readonly env: Env;
@@ -39,13 +59,17 @@ export class WorldCoordinator {
 	}
 
 	async fetch(request: Request): Promise<Response> {
-		return handleForumCoordinatorRequest(request, this.env, this.state.id.toString());
+		return handleForumCoordinatorRequest(request, this.env, {
+			objectId: this.state.id.toString(),
+			storage: this.state.storage,
+		});
 	}
 }
 
 export class ForumCoordinator {
 	private readonly state: DurableObjectState;
 	private readonly env: Env;
+	private readonly threadFreshCache: ThreadFreshCacheRef = { entry: null };
 
 	constructor(state: DurableObjectState, env: Env) {
 		this.state = state;
@@ -53,15 +77,20 @@ export class ForumCoordinator {
 	}
 
 	async fetch(request: Request): Promise<Response> {
-		return handleForumCoordinatorRequest(request, this.env, this.state.id.toString());
+		return handleForumCoordinatorRequest(request, this.env, {
+			cache: this.threadFreshCache,
+			objectId: this.state.id.toString(),
+			storage: this.state.storage,
+		});
 	}
 }
 
 export async function handleForumCoordinatorRequest(
 	request: Request,
 	env: Pick<Env, "BICKR_D1" | "BICKR_KV">,
-	objectId = "direct",
+	context: CoordinatorContext | string = "direct",
 ): Promise<Response> {
+	const coordinator = typeof context === "string" ? { objectId: context } : context;
 	try {
 		const url = new URL(request.url);
 
@@ -69,7 +98,7 @@ export async function handleForumCoordinatorRequest(
 			const userId = requireUserHeader(request);
 			const input = parseCreateWorldInput(await readJsonBody(request));
 			const world = await createWorld(env.BICKR_KV, env.BICKR_D1, input, userId);
-			return ok({ world, coordinator: objectId }, { status: 201 });
+			return ok({ world, coordinator: coordinator.objectId }, { status: 201 });
 		}
 
 		const worldMatch = /^\/worlds\/([^/]+)$/.exec(url.pathname);
@@ -78,14 +107,14 @@ export async function handleForumCoordinatorRequest(
 			const worldHandle = normalizeHandle(decodeURIComponent(worldMatch[1] ?? ""));
 			const input = parseUpdateWorldInput(await readJsonBody(request));
 			const world = await updateWorld(env.BICKR_KV, env.BICKR_D1, worldHandle, userId, input);
-			return ok({ world, coordinator: objectId });
+			return ok({ world, coordinator: coordinator.objectId });
 		}
 
 		if (worldMatch && request.method === "DELETE") {
 			const userId = requireUserHeader(request);
 			const worldHandle = normalizeHandle(decodeURIComponent(worldMatch[1] ?? ""));
 			const world = await deleteWorld(env.BICKR_KV, env.BICKR_D1, worldHandle, userId);
-			return ok({ world, coordinator: objectId });
+			return ok({ world, coordinator: coordinator.objectId });
 		}
 
 		const forumMatch = /^\/worlds\/([^/]+)\/forums$/.exec(url.pathname);
@@ -94,7 +123,7 @@ export async function handleForumCoordinatorRequest(
 			const worldHandle = normalizeHandle(decodeURIComponent(forumMatch[1] ?? ""));
 			const input = parseCreateForumInput(await readJsonBody(request));
 			const forum = await createForum(env.BICKR_KV, env.BICKR_D1, worldHandle, input, userId);
-			return ok({ forum, coordinator: objectId }, { status: 201 });
+			return ok({ forum, coordinator: coordinator.objectId }, { status: 201 });
 		}
 
 		const forumManageMatch = /^\/worlds\/([^/]+)\/forums\/([^/]+)$/.exec(url.pathname);
@@ -104,7 +133,7 @@ export async function handleForumCoordinatorRequest(
 			const forumHandle = normalizeHandle(decodeURIComponent(forumManageMatch[2] ?? ""));
 			const input = parseUpdateForumInput(await readJsonBody(request));
 			const forum = await updateForum(env.BICKR_KV, env.BICKR_D1, worldHandle, forumHandle, userId, input);
-			return ok({ forum, coordinator: objectId });
+			return ok({ forum, coordinator: coordinator.objectId });
 		}
 
 		if (forumManageMatch && request.method === "DELETE") {
@@ -112,7 +141,7 @@ export async function handleForumCoordinatorRequest(
 			const worldHandle = normalizeHandle(decodeURIComponent(forumManageMatch[1] ?? ""));
 			const forumHandle = normalizeHandle(decodeURIComponent(forumManageMatch[2] ?? ""));
 			const forum = await deleteForum(env.BICKR_KV, env.BICKR_D1, worldHandle, forumHandle, userId);
-			return ok({ forum, coordinator: objectId });
+			return ok({ forum, coordinator: coordinator.objectId });
 		}
 
 		const threadMatch = /^\/forums\/([^/]+)\/threads$/.exec(url.pathname);
@@ -125,7 +154,7 @@ export async function handleForumCoordinatorRequest(
 				forumId,
 				authorBotId: actor.botId,
 			});
-			return ok({ thread, coordinator: objectId }, { status: 201 });
+			return ok({ thread, coordinator: coordinator.objectId }, { status: 201 });
 		}
 
 		const threadDeleteMatch = /^\/forums\/([^/]+)\/threads\/([^/]+)$/.exec(url.pathname);
@@ -133,8 +162,12 @@ export async function handleForumCoordinatorRequest(
 			const userId = requireUserHeader(request);
 			const forumId = decodeURIComponent(threadDeleteMatch[1] ?? "");
 			const threadId = decodeURIComponent(threadDeleteMatch[2] ?? "");
-			const thread = await deleteThread(env.BICKR_KV, env.BICKR_D1, forumId, threadId, userId);
-			return ok({ thread, coordinator: objectId });
+			const latestThread = await readFreshThread(coordinator, threadId);
+			const thread = await deleteThread(env.BICKR_KV, env.BICKR_D1, forumId, threadId, userId, undefined, {
+				...(latestThread ? { thread: latestThread } : {}),
+			});
+			await writeFreshThread(coordinator, thread);
+			return ok({ thread, coordinator: coordinator.objectId });
 		}
 
 		const commentMatch = /^\/threads\/([^/]+)\/comments$/.exec(url.pathname);
@@ -142,12 +175,16 @@ export async function handleForumCoordinatorRequest(
 			const actor = requireBotActor(request);
 			const threadId = decodeURIComponent(commentMatch[1] ?? "");
 			const input = parseCreateCommentInput(await readJsonBody(request));
+			const latestThread = await readFreshThread(coordinator, threadId);
 			const thread = await createComment(env.BICKR_KV, env.BICKR_D1, {
 				...input,
 				threadId,
 				authorBotId: actor.botId,
+			}, undefined, {
+				...(latestThread ? { thread: latestThread } : {}),
 			});
-			return ok({ thread, coordinator: objectId }, { status: 201 });
+			await writeFreshThread(coordinator, thread);
+			return ok({ thread, coordinator: coordinator.objectId }, { status: 201 });
 		}
 
 		const commentDeleteMatch = /^\/forums\/([^/]+)\/threads\/([^/]+)\/comments\/([^/]+)$/.exec(url.pathname);
@@ -156,24 +193,34 @@ export async function handleForumCoordinatorRequest(
 			const forumId = decodeURIComponent(commentDeleteMatch[1] ?? "");
 			const threadId = decodeURIComponent(commentDeleteMatch[2] ?? "");
 			const commentId = decodeURIComponent(commentDeleteMatch[3] ?? "");
-			const thread = await deleteComment(env.BICKR_KV, env.BICKR_D1, forumId, threadId, commentId, userId);
-			return ok({ thread, coordinator: objectId });
+			const latestThread = await readFreshThread(coordinator, threadId);
+			const thread = await deleteComment(env.BICKR_KV, env.BICKR_D1, forumId, threadId, commentId, userId, undefined, {
+				...(latestThread ? { thread: latestThread } : {}),
+			});
+			await writeFreshThread(coordinator, thread);
+			return ok({ thread, coordinator: coordinator.objectId });
 		}
 
 		const threadReadMatch = /^\/threads\/([^/]+)$/.exec(url.pathname);
 		if (request.method === "GET" && threadReadMatch) {
-			const thread = await readThread(env.BICKR_KV, decodeURIComponent(threadReadMatch[1] ?? ""));
-			return ok({ thread, coordinator: objectId });
+			const threadId = decodeURIComponent(threadReadMatch[1] ?? "");
+			const thread = await readFreshThread(coordinator, threadId) ?? await readThread(env.BICKR_KV, threadId);
+			return ok({ thread, coordinator: coordinator.objectId });
 		}
 
 		if (request.method === "POST" && url.pathname === "/votes") {
 			const actor = requireBotActor(request);
 			const input = parseVoteInput(await readJsonBody(request));
+			const threadId = request.headers.get("x-bickr-thread-id");
+			const latestThread = threadId ? await readFreshThread(coordinator, threadId) : null;
 			const thread = await setVote(env.BICKR_KV, env.BICKR_D1, {
 				...input,
 				botId: actor.botId,
+			}, undefined, {
+				...(latestThread ? { thread: latestThread } : {}),
 			});
-			return ok({ thread, coordinator: objectId });
+			await writeFreshThread(coordinator, thread);
+			return ok({ thread, coordinator: coordinator.objectId });
 		}
 
 		return fail("not_found", "Forum coordinator route not found.", 404);
@@ -241,6 +288,12 @@ export default {
 		}
 
 		if (url.pathname.startsWith("/forums/")) {
+			const threadMutationMatch = /^\/forums\/[^/]+\/threads\/([^/]+)(?:\/comments\/[^/]+)?$/.exec(url.pathname);
+			if (threadMutationMatch && request.method === "DELETE") {
+				const threadId = decodeURIComponent(threadMutationMatch[1] ?? "");
+				const objectId = env.FORUM_COORDINATOR.idFromName(threadId);
+				return env.FORUM_COORDINATOR.get(objectId).fetch(request);
+			}
 			const forumId = url.pathname.split("/")[2] ?? "unknown";
 			const objectId = env.FORUM_COORDINATOR.idFromName(forumId);
 			return env.FORUM_COORDINATOR.get(objectId).fetch(request);
@@ -256,8 +309,11 @@ export default {
 			try {
 				const body = await readJsonBody(request.clone());
 				const input = parseVoteInput(body);
-				const objectId = env.FORUM_COORDINATOR.idFromName(input.targetId);
-				return env.FORUM_COORDINATOR.get(objectId).fetch(jsonRequest(url, request, body));
+				const threadId = await voteCoordinatorName(env.BICKR_D1, input);
+				const objectId = env.FORUM_COORDINATOR.idFromName(threadId);
+				const forwarded = jsonRequest(url, request, body);
+				forwarded.headers.set("x-bickr-thread-id", threadId);
+				return env.FORUM_COORDINATOR.get(objectId).fetch(forwarded);
 			} catch (error) {
 				return errorResponse(error);
 			}
@@ -273,6 +329,81 @@ export default {
 		);
 	},
 } satisfies ExportedHandler<Env>;
+
+async function readFreshThread(
+	context: CoordinatorContext,
+	threadId: string,
+): Promise<ThreadDocument | null> {
+	const memoryEntry = freshCacheEntryForThread(context.cache?.entry ?? null, threadId, Date.now());
+	if (memoryEntry) {
+		if (memoryEntry.thread.deletedAt) {
+			throw new RepositoryError("not_found", "Thread not found.", 404);
+		}
+		return memoryEntry.thread;
+	}
+
+	if (context.cache?.entry) {
+		context.cache.entry = null;
+	}
+
+	const storedEntry = await context.storage?.get<ThreadFreshCacheEntry>(threadFreshCacheStorageKey);
+	const validStoredEntry = freshCacheEntryForThread(storedEntry ?? null, threadId, Date.now());
+	if (!validStoredEntry) {
+		if (storedEntry) {
+			await context.storage?.delete(threadFreshCacheStorageKey);
+		}
+		return null;
+	}
+
+	if (context.cache) {
+		context.cache.entry = validStoredEntry;
+	}
+	if (validStoredEntry.thread.deletedAt) {
+		throw new RepositoryError("not_found", "Thread not found.", 404);
+	}
+	return validStoredEntry.thread;
+}
+
+async function writeFreshThread(
+	context: CoordinatorContext,
+	thread: ThreadDocument,
+): Promise<void> {
+	const now = Date.now();
+	const entry: ThreadFreshCacheEntry = {
+		expiresAt: new Date(now + threadFreshCacheTtlMs).toISOString(),
+		thread,
+		writtenAt: new Date(now).toISOString(),
+	};
+	if (context.cache) {
+		context.cache.entry = entry;
+	}
+	await context.storage?.put(threadFreshCacheStorageKey, entry);
+}
+
+function freshCacheEntryForThread(
+	entry: ThreadFreshCacheEntry | null,
+	threadId: string,
+	nowMs: number,
+): ThreadFreshCacheEntry | null {
+	if (!entry || entry.thread.id !== threadId || Date.parse(entry.expiresAt) <= nowMs) {
+		return null;
+	}
+	return entry;
+}
+
+async function voteCoordinatorName(
+	db: D1Database,
+	input: { targetType: "thread" | "comment"; targetId: string },
+): Promise<string> {
+	if (input.targetType === "thread") {
+		return input.targetId;
+	}
+	const row = await db
+		.prepare(`SELECT thread_id AS threadId FROM comments_index WHERE comment_id = ? AND deleted_at IS NULL`)
+		.bind(input.targetId)
+		.first<{ threadId: string }>();
+	return row?.threadId ?? input.targetId;
+}
 
 function requireUserHeader(request: Request): string {
 	const userId = request.headers.get("x-bickr-user-id");

@@ -63,7 +63,7 @@ import {
 	toolDefinitions,
 } from "../workers/agent-runtime/src/index";
 import { standardPrompt } from "../workers/agent-runtime/src/prompt-and-tools";
-import { handleForumCoordinatorRequest } from "../workers/forum-coordinator/src/index";
+import forumCoordinatorWorker, { handleForumCoordinatorRequest } from "../workers/forum-coordinator/src/index";
 import {
 	botById,
 	createSession,
@@ -84,6 +84,7 @@ import {
 	searchBots,
 	searchPosts,
 } from "../packages/shared/src/social";
+import { type ThreadDocument } from "../packages/shared/src/model";
 import { oauthReturnToCookieName, sessionCookieName, type AppEnv } from "../apps/web/functions/api/_auth";
 
 type RouteParams = Record<string, string>;
@@ -2262,6 +2263,199 @@ describe("Bickr Pages Functions", () => {
 		);
 	});
 
+	it("uses the coordinator only for explicitly fresh thread detail reads", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const forum = await createForumForTest(cookie, "fresh-detail");
+		const author = await createBotForTest(cookie, "fresh-author");
+		const thread = await createThreadForTest(forum.id, author.id, "Fresh detail", "KV is the default path.");
+		const kvThread = await readThread(testEnv.BICKR_KV, thread.id);
+		const freshThread = {
+			...kvThread,
+			comments: [
+				{
+					id: "cmt_fresh_detail",
+					threadId: kvThread.id,
+					worldId: kvThread.worldId,
+					forumId: kvThread.forumId,
+					authorBotId: author.id,
+					authorHandle: author.handle,
+					authorDisplayName: author.displayName,
+					body: "Fresh coordinator comment.",
+					voteScore: 0,
+					createdAt: new Date().toISOString(),
+					updatedAt: new Date().toISOString(),
+				},
+			],
+			commentCount: 1,
+			lastActivityAt: new Date().toISOString(),
+			revision: kvThread.revision + 1,
+			updatedAt: new Date().toISOString(),
+		};
+		const blockedCoordinator = vi.fn(async () => {
+			throw new Error("Coordinator should not be called for default thread reads.");
+		});
+
+		const defaultResponse = await threadDetail(
+			contextFor<typeof threadDetail>(
+				new Request(`http://example.com/api/worlds/patch-notes/forums/fresh-detail/threads/${thread.id}`),
+				{ worldHandle: "patch-notes", forumHandle: "fresh-detail", threadId: thread.id },
+				{ FORUM_COORDINATOR_SERVICE: { fetch: blockedCoordinator } as unknown as Fetcher },
+			),
+		);
+		expect(defaultResponse.status).toBe(200);
+		expect(blockedCoordinator).not.toHaveBeenCalled();
+		const defaultPayload = (await defaultResponse.json()) as { data: { thread: { comments: unknown[] } } };
+		expect(defaultPayload.data.thread.comments).toHaveLength(0);
+
+		const freshCoordinator = vi.fn(async (request: Request) => {
+			expect(new URL(request.url).pathname).toBe(`/threads/${thread.id}`);
+			return Response.json({ ok: true, data: { thread: freshThread } });
+		});
+		const freshResponse = await threadDetail(
+			contextFor<typeof threadDetail>(
+				new Request(`http://example.com/api/worlds/patch-notes/forums/fresh-detail/threads/${thread.id}?fresh=1`),
+				{ worldHandle: "patch-notes", forumHandle: "fresh-detail", threadId: thread.id },
+				{ FORUM_COORDINATOR_SERVICE: { fetch: freshCoordinator } as unknown as Fetcher },
+			),
+		);
+		expect(freshResponse.status).toBe(200);
+		expect(freshCoordinator).toHaveBeenCalledTimes(1);
+		const freshPayload = (await freshResponse.json()) as {
+			data: { thread: { comments: Array<{ body: string }> } };
+		};
+		expect(freshPayload.data.thread.comments.map((comment) => comment.body)).toEqual([
+			"Fresh coordinator comment.",
+		]);
+	});
+
+	it("serves recent thread writes from the coordinator cache until the freshness window expires", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const forum = await createForumForTest(cookie, "fresh-cache");
+		const author = await createBotForTest(cookie, "cache-author");
+		const replier = await createBotForTest(cookie, "cache-replier");
+		const thread = await createThreadForTest(forum.id, author.id, "Fresh cache", "The KV copy can lag.");
+		const initialThread = await readThread(testEnv.BICKR_KV, thread.id);
+		const storage = memoryDurableStorage();
+		const cache = { entry: null as ThreadFreshCacheEntryForTest | null };
+		const context = {
+			cache,
+			objectId: "thread-cache-test",
+			storage: storage.storage,
+		};
+
+		const firstComment = jsonRequest(
+			`http://example.com/threads/${thread.id}/comments`,
+			"POST",
+			{ body: "First fresh comment." },
+		);
+		firstComment.headers.set("x-bickr-bot-id", replier.id);
+		expect(await handleForumCoordinatorRequest(firstComment, {
+			BICKR_D1: testEnv.BICKR_D1,
+			BICKR_KV: testEnv.BICKR_KV,
+		}, context)).toHaveProperty("status", 201);
+
+		await testEnv.BICKR_KV.put(`v1:thread:${thread.id}`, JSON.stringify(initialThread));
+		const secondComment = jsonRequest(
+			`http://example.com/threads/${thread.id}/comments`,
+			"POST",
+			{ body: "Second fresh comment." },
+		);
+		secondComment.headers.set("x-bickr-bot-id", replier.id);
+		const secondResponse = await handleForumCoordinatorRequest(secondComment, {
+			BICKR_D1: testEnv.BICKR_D1,
+			BICKR_KV: testEnv.BICKR_KV,
+		}, context);
+		const secondPayload = (await secondResponse.json()) as {
+			data: { thread: { comments: Array<{ body: string }> } };
+		};
+		expect(secondPayload.data.thread.comments.map((comment) => comment.body)).toEqual([
+			"First fresh comment.",
+			"Second fresh comment.",
+		]);
+
+		await testEnv.BICKR_KV.put(`v1:thread:${thread.id}`, JSON.stringify(initialThread));
+		const cachedRead = await handleForumCoordinatorRequest(
+			new Request(`http://example.com/threads/${thread.id}`),
+			{
+				BICKR_D1: testEnv.BICKR_D1,
+				BICKR_KV: testEnv.BICKR_KV,
+			},
+			context,
+		);
+		const cachedPayload = (await cachedRead.json()) as {
+			data: { thread: { comments: Array<{ body: string }> } };
+		};
+		expect(cachedPayload.data.thread.comments.map((comment) => comment.body)).toEqual([
+			"First fresh comment.",
+			"Second fresh comment.",
+		]);
+
+		const storedEntry = storage.values.get("thread-fresh-cache") as ThreadFreshCacheEntryForTest;
+		const expiredEntry = {
+			...storedEntry,
+			expiresAt: new Date(Date.now() - 1_000).toISOString(),
+		};
+		storage.values.set("thread-fresh-cache", expiredEntry);
+		cache.entry = expiredEntry;
+		const expiredRead = await handleForumCoordinatorRequest(
+			new Request(`http://example.com/threads/${thread.id}`),
+			{
+				BICKR_D1: testEnv.BICKR_D1,
+				BICKR_KV: testEnv.BICKR_KV,
+			},
+			context,
+		);
+		const expiredPayload = (await expiredRead.json()) as { data: { thread: { comments: unknown[] } } };
+		expect(expiredPayload.data.thread.comments).toHaveLength(0);
+	});
+
+	it("routes comment votes through the owning thread coordinator", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const forum = await createForumForTest(cookie, "vote-routing");
+		const author = await createBotForTest(cookie, "vote-author");
+		const voter = await createBotForTest(cookie, "vote-router");
+		const thread = await createThreadForTest(forum.id, author.id, "Vote routing", "Comments route by thread.");
+		const comment = await createCommentForTest(thread.id, author.id, "Vote on this comment.");
+		const routed: { name?: string; threadHeader?: string } = {};
+		const namespace = {
+			idFromName(name: string): DurableObjectId {
+				routed.name = name;
+				return name as unknown as DurableObjectId;
+			},
+			get(): Fetcher {
+				return {
+					fetch: async (request: Request) => {
+						routed.threadHeader = request.headers.get("x-bickr-thread-id") ?? undefined;
+						return Response.json({ ok: true });
+					},
+				} as unknown as Fetcher;
+			},
+		};
+		const voteRequest = jsonRequest("http://example.com/votes", "POST", {
+			targetType: "comment",
+			targetId: comment.id,
+			value: 1,
+		});
+		voteRequest.headers.set("x-bickr-bot-id", voter.id);
+
+		const response = await forumCoordinatorWorker.fetch(
+			voteRequest as unknown as Parameters<typeof forumCoordinatorWorker.fetch>[0],
+			{
+				BICKR_D1: testEnv.BICKR_D1,
+				BICKR_KV: testEnv.BICKR_KV,
+				FORUM_COORDINATOR: namespace,
+				WORLD_COORDINATOR: namespace,
+			} as unknown as Parameters<typeof forumCoordinatorWorker.fetch>[1],
+		);
+
+		expect(response.status).toBe(200);
+		expect(routed.name).toBe(thread.id);
+		expect(routed.threadHeader).toBe(thread.id);
+	});
+
 	it("allows forum, world, and bot owners to moderate owned surfaces", async () => {
 		const worldOwnerCookie = await authCookie();
 		const botOwnerCookie = await authCookieFor({
@@ -3270,6 +3464,12 @@ type TestComment = {
 	id: string;
 };
 
+type ThreadFreshCacheEntryForTest = {
+	expiresAt: string;
+	thread: ThreadDocument;
+	writtenAt: string;
+};
+
 type ThreadListPayload = {
 	data: {
 		threads: Array<{
@@ -3385,6 +3585,25 @@ async function execStatements(db: D1Database, sql: string): Promise<void> {
 			await db.prepare(trimmed).run();
 		}
 	}
+}
+
+function memoryDurableStorage(): {
+	storage: DurableObjectStorage;
+	values: Map<string, unknown>;
+} {
+	const values = new Map<string, unknown>();
+	return {
+		storage: {
+			delete: async (key: string) => {
+				values.delete(key);
+			},
+			get: async <T = unknown>(key: string) => values.get(key) as T | undefined,
+			put: async (key: string, value: unknown) => {
+				values.set(key, value);
+			},
+		} as unknown as DurableObjectStorage,
+		values,
+	};
 }
 
 async function authCookie(): Promise<string> {

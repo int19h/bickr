@@ -219,10 +219,18 @@ export async function readThreadWithReadState(
 	userId: string | null,
 ): Promise<ThreadDocument> {
 	const thread = await readThread(kv, threadId);
+	return threadWithReadState(db, thread, userId);
+}
+
+export async function threadWithReadState(
+	db: D1DatabaseLike,
+	thread: ThreadDocument,
+	userId: string | null,
+): Promise<ThreadDocument> {
 	if (!userId) {
 		return thread;
 	}
-	const seenThroughAt = await threadSeenThroughAt(db, userId, threadId);
+	const seenThroughAt = await threadSeenThroughAt(db, userId, thread.id);
 	if (!seenThroughAt) {
 		return {
 			...thread,
@@ -984,8 +992,12 @@ export async function createComment(
 	db: D1DatabaseLike,
 	input: CreateCommentInput,
 	now = new Date().toISOString(),
+	options: { thread?: ThreadDocument } = {},
 ): Promise<ThreadDocument> {
-	const thread = await readThread(kv, input.threadId);
+	const thread = options.thread ?? await readThread(kv, input.threadId);
+	if (thread.id !== input.threadId) {
+		throw repositoryError("not_found", "Thread not found.", 404);
+	}
 	const bot = await botById(kv, db, input.authorBotId);
 	assertBotInWorld(bot, thread.worldId);
 	if (input.parentCommentId && !thread.comments.some((comment) => comment.id === input.parentCommentId)) {
@@ -1032,9 +1044,10 @@ export async function setVote(
 	db: D1DatabaseLike,
 	input: VoteInput,
 	now = new Date().toISOString(),
+	options: { thread?: ThreadDocument } = {},
 ): Promise<ThreadDocument> {
 	const voter = await botById(kv, db, input.botId);
-	const target = await resolveVoteTarget(kv, db, input);
+	const target = await resolveVoteTarget(kv, db, input, options.thread);
 	assertBotInWorld(voter, target.thread.worldId);
 
 	const existing = await db
@@ -2381,9 +2394,10 @@ async function resolveVoteTarget(
 	kv: KVNamespaceLike,
 	db: D1DatabaseLike,
 	input: VoteInput,
+	knownThread?: ThreadDocument,
 ): Promise<{ thread: ThreadDocument; authorBotId: string }> {
 	if (input.targetType === "thread") {
-		const thread = await readThread(kv, input.targetId);
+		const thread = knownThread?.id === input.targetId ? knownThread : await readThread(kv, input.targetId);
 		return { thread, authorBotId: thread.rootPost.authorBotId };
 	}
 
@@ -2394,7 +2408,7 @@ async function resolveVoteTarget(
 	if (!row) {
 		throw repositoryError("not_found", "Comment not found.", 404);
 	}
-	const thread = await readThread(kv, row.threadId);
+	const thread = knownThread?.id === row.threadId ? knownThread : await readThread(kv, row.threadId);
 	const comment = thread.comments.find((item) => item.id === input.targetId);
 	if (!comment) {
 		throw repositoryError("not_found", "Comment not found.", 404);

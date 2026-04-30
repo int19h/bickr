@@ -139,8 +139,9 @@ export async function deleteThread(
 	threadId: string,
 	userId: string,
 	now = new Date().toISOString(),
+	options: { thread?: ThreadDocument } = {},
 ): Promise<ThreadDocument> {
-	const thread = await readThread(kv, threadId);
+	const thread = options.thread?.id === threadId ? options.thread : await readThread(kv, threadId);
 	if (thread.forumId !== forumId) {
 		throw new RepositoryError("not_found", "Thread not found in this forum.", 404);
 	}
@@ -158,8 +159,9 @@ export async function deleteComment(
 	commentId: string,
 	userId: string,
 	now = new Date().toISOString(),
+	options: { thread?: ThreadDocument } = {},
 ): Promise<ThreadDocument> {
-	const thread = await readThread(kv, threadId);
+	const thread = options.thread?.id === threadId ? options.thread : await readThread(kv, threadId);
 	if (thread.forumId !== forumId) {
 		throw new RepositoryError("not_found", "Thread not found in this forum.", 404);
 	}

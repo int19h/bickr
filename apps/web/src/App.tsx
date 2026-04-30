@@ -331,6 +331,8 @@ function App() {
 	const [themePreference, setThemePreference] = useState<ThemePreference>(() => readThemePreference());
 	const [forumLoadedAtById, setForumLoadedAtById] = useState<Record<string, string>>({});
 	const [threadLoadedAtById, setThreadLoadedAtById] = useState<Record<string, string>>({});
+	const [freshThreadRequestVersion, setFreshThreadRequestVersion] = useState(0);
+	const [threadActivityCheckVersionById, setThreadActivityCheckVersionById] = useState<Record<string, number>>({});
 	const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
 	const [humanNotifications, setHumanNotifications] = useState<HumanNotificationSummary>({
 		unreadCount: 0,
@@ -338,6 +340,7 @@ function App() {
 	});
 	const [subscriptions, setSubscriptions] = useState<HumanSubscription[]>([]);
 	const [activeTooltipId, setActiveTooltipId] = useState<string | null>(null);
+	const pendingFreshThreadIds = useRef(new Set<string>());
 
 	useEffect(() => {
 		void refreshAll();
@@ -489,9 +492,10 @@ function App() {
 
 	useEffect(() => {
 		if ((route === "thread" || activeCommentId) && activeForum && activeThreadId) {
-			void loadThread(activeForum, activeThreadId);
+			const fresh = pendingFreshThreadIds.current.delete(activeThreadId);
+			void loadThread(activeForum, activeThreadId, { fresh });
 		}
-	}, [route, activeForum?.id, activeThreadId, activeCommentId]);
+	}, [route, activeForum?.id, activeThreadId, activeCommentId, freshThreadRequestVersion]);
 
 	function applyRoute(parsed: ParsedRoute): void {
 		setRoute(parsed.route);
@@ -512,6 +516,77 @@ function App() {
 			} else {
 				window.history.pushState(null, "", nextPath);
 			}
+		}
+	}
+
+	function requestFreshThread(threadId: string): void {
+		pendingFreshThreadIds.current.add(threadId);
+		setFreshThreadRequestVersion((current) => current + 1);
+	}
+
+	function requestThreadActivityCheck(threadId: string): void {
+		setThreadActivityCheckVersionById((current) => ({
+			...current,
+			[threadId]: (current[threadId] ?? 0) + 1,
+		}));
+	}
+
+	function handleMainClick(event: ReactMouseEvent<HTMLElement>): void {
+		if (event.defaultPrevented) {
+			return;
+		}
+		const target = event.target;
+		if (!(target instanceof Element)) {
+			return;
+		}
+		const anchor = target.closest<HTMLAnchorElement>("a[data-fresh-thread-link][href]");
+		if (!anchor || !event.currentTarget.contains(anchor) || !shouldHandleSpaAnchorClick(event, anchor)) {
+			return;
+		}
+		const url = new URL(anchor.href, window.location.origin);
+		if (url.origin !== window.location.origin) {
+			return;
+		}
+		const parsed = parsePathname(url.pathname, url.search);
+		if (parsed.route !== "thread" || !parsed.threadId) {
+			return;
+		}
+		event.preventDefault();
+		requestFreshThread(parsed.threadId);
+		navigate(parsed);
+	}
+
+	async function refreshCurrentRoute(): Promise<void> {
+		setBusy(true);
+		try {
+			if (route === "thread" && activeForum && activeThreadId) {
+				await loadThread(activeForum, activeThreadId, { fresh: true });
+				setStatus("Thread refreshed");
+				return;
+			}
+			if (route === "forum" && activeForum) {
+				await loadThreads(activeForum);
+				setStatus("Forum refreshed");
+				return;
+			}
+			if ((route === "world" || route === "bot-profile" || route === "bot-loop" || route === "bot-edit") && activeWorld) {
+				await Promise.all([loadForums(activeWorld.handle), loadWorldBots(activeWorld.handle)]);
+				setStatus("World refreshed");
+				return;
+			}
+			if (route === "my-bots") {
+				await loadBots();
+				setStatus("Bots refreshed");
+				return;
+			}
+			if (route === "notifications") {
+				await loadHumanNotifications("all");
+				setStatus("Notifications refreshed");
+				return;
+			}
+			await refreshAll();
+		} finally {
+			setBusy(false);
 		}
 	}
 
@@ -599,10 +674,15 @@ function App() {
 		return result.data.threads;
 	}
 
-	async function loadThread(forum: ForumSummary, threadId: string): Promise<ThreadDocument | null> {
+	async function loadThread(
+		forum: ForumSummary,
+		threadId: string,
+		options: { fresh?: boolean } = {},
+	): Promise<ThreadDocument | null> {
 		setThreadLoading(true);
+		const params = options.fresh ? "?fresh=1" : "";
 		const result = await api<{ thread: ThreadDocument; loadedAt?: string }>(
-			`/api/worlds/${encodeURIComponent(forum.worldHandle)}/forums/${encodeURIComponent(forum.handle)}/threads/${encodeURIComponent(threadId)}`,
+			`/api/worlds/${encodeURIComponent(forum.worldHandle)}/forums/${encodeURIComponent(forum.handle)}/threads/${encodeURIComponent(threadId)}${params}`,
 		);
 		setThreadLoading(false);
 		if (!result.ok) {
@@ -667,6 +747,9 @@ function App() {
 		const summary = await fetchHumanNotifications(status, status === "all" ? 50 : 30);
 		if (summary) {
 			setHumanNotifications(summary);
+			if (activeThreadId && summary.notifications.some((notification) => notificationThreadId(notification) === activeThreadId)) {
+				requestThreadActivityCheck(activeThreadId);
+			}
 		}
 		return summary;
 	}
@@ -765,7 +848,11 @@ function App() {
 			return;
 		}
 		const notificationUrl = new URL(notification.urlPath, window.location.origin);
-		navigate(parsePathname(notificationUrl.pathname, notificationUrl.search));
+		const parsed = parsePathname(notificationUrl.pathname, notificationUrl.search);
+		if (parsed.route === "thread" && parsed.threadId) {
+			requestFreshThread(parsed.threadId);
+		}
+		navigate(parsed);
 		await loadHumanNotifications("unread");
 	}
 
@@ -1309,7 +1396,7 @@ function App() {
 					forum={activeForum}
 					onMarkAllNotificationsRead={() => void markAllNotificationsRead()}
 					onNotificationOpen={(notification) => void openHumanNotification(notification)}
-					onRefresh={() => void refreshAll()}
+					onRefresh={() => void refreshCurrentRoute()}
 					onRefreshNotifications={(status) => void loadHumanNotifications(status)}
 					onTheme={setThemePreference}
 					notifications={humanNotifications}
@@ -1326,7 +1413,7 @@ function App() {
 					route={route}
 					worlds={worldViews}
 				/>
-				<main className="main">
+				<main className="main" onClick={handleMainClick}>
 					{route === "worlds" && (
 						<WorldsScreen
 							busy={busy}
@@ -1377,6 +1464,7 @@ function App() {
 					)}
 					{route === "thread" && activeWorld && activeForum && (
 						<ThreadPage
+							activityCheckToken={activeThreadId ? threadActivityCheckVersionById[activeThreadId] ?? 0 : 0}
 							currentUserId={session.user.id}
 							forum={activeForum}
 							loadedAt={activeThreadId ? threadLoadedAtById[activeThreadId] : undefined}
@@ -1384,7 +1472,7 @@ function App() {
 							onDeleteComment={(thread, comment) => deleteComment(activeForum, thread, comment)}
 							onDeleteThread={(thread) => deleteThread(activeForum, thread)}
 							onReference={openReference}
-							onRefresh={() => activeThreadId ? loadThread(activeForum, activeThreadId) : Promise.resolve(null)}
+							onRefresh={() => activeThreadId ? loadThread(activeForum, activeThreadId, { fresh: true }) : Promise.resolve(null)}
 							onToggleSubscription={toggleSubscription}
 							ownedBots={bots}
 							subscriptions={subscriptions}
@@ -1906,6 +1994,21 @@ function shouldHandleSpaClick(event: ReactMouseEvent<HTMLAnchorElement>): boolea
 		!event.shiftKey &&
 		!event.altKey &&
 		event.currentTarget.target !== "_blank"
+	);
+}
+
+function shouldHandleSpaAnchorClick(
+	event: ReactMouseEvent,
+	anchor: HTMLAnchorElement,
+): boolean {
+	return (
+		event.button === 0 &&
+		!event.defaultPrevented &&
+		!event.metaKey &&
+		!event.ctrlKey &&
+		!event.shiftKey &&
+		!event.altKey &&
+		anchor.target !== "_blank"
 	);
 }
 
@@ -3299,6 +3402,7 @@ type CommentTreeNode = CommentDocument & {
 };
 
 function ThreadPage({
+	activityCheckToken,
 	currentUserId,
 	forum,
 	loadedAt,
@@ -3315,6 +3419,7 @@ function ThreadPage({
 	threadId,
 	world,
 }: {
+	activityCheckToken: number;
 	currentUserId: string;
 	forum: ForumSummary;
 	loadedAt?: string;
@@ -3379,6 +3484,19 @@ function ThreadPage({
 		const handle = window.setInterval(check, 18_000);
 		return () => window.clearInterval(handle);
 	}, [forum.handle, forum.worldHandle, loadedAt, threadId]);
+
+	useEffect(() => {
+		if (!activityCheckToken || !loadedAt || !threadId || document.visibilityState !== "visible") {
+			return;
+		}
+		void api<{ activity: ThreadActivityNotice }>(
+			`/api/worlds/${encodeURIComponent(forum.worldHandle)}/forums/${encodeURIComponent(forum.handle)}/threads/${encodeURIComponent(threadId)}/activity?since=${encodeURIComponent(loadedAt)}`,
+		).then((result) => {
+			if (result.ok) {
+				setActivityNotice(result.data.activity.newCommentCount > 0 ? result.data.activity : null);
+			}
+		});
+	}, [activityCheckToken, forum.handle, forum.worldHandle, loadedAt, threadId]);
 
 	if (!thread) {
 		return (
@@ -8300,7 +8418,7 @@ function toolSummaryNode(name: string, args: unknown, result: unknown, worldHand
 			<div className="tool-pretty error">
 				<span>{stringValue(resultRecord.message) ?? "Tool call failed."}</span>
 				{stringValue(resultRecord.guidance) && <span>{stringValue(resultRecord.guidance)}</span>}
-				{existingUrlPath && <a href={existingUrlPath}>Existing comment</a>}
+				{existingUrlPath && <a data-fresh-thread-link="true" href={existingUrlPath}>Existing comment</a>}
 			</div>
 		);
 	}
@@ -8317,7 +8435,7 @@ function toolSummaryNode(name: string, args: unknown, result: unknown, worldHand
 			:	null;
 		return url ?
 				<div className="tool-pretty">
-					<a href={url}>{stringValue(thread.title) ?? `Comment ${shortId(targetCommentId)}`}</a>
+					<a data-fresh-thread-link="true" href={url}>{stringValue(thread.title) ?? `Comment ${shortId(targetCommentId)}`}</a>
 					<span>comment {shortId(targetCommentId)}</span>
 				</div>
 			:	null;
@@ -8329,7 +8447,7 @@ function toolSummaryNode(name: string, args: unknown, result: unknown, worldHand
 		const voteScore = numberValue(thread.voteScore) ?? 0;
 		return (
 			<div className="tool-pretty">
-				{url ? <a href={url}>{title}</a> : <span>{title}</span>}
+				{url ? <a data-fresh-thread-link="true" href={url}>{title}</a> : <span>{title}</span>}
 				<span>
 					{commentCount} comments / {voteScore} votes
 				</span>
@@ -8405,7 +8523,7 @@ function postResultLink(record: Record<string, unknown>, fallbackWorldHandle: st
 	}
 	const url = `/w/${encodeURIComponent(fallbackWorldHandle)}/f/${encodeURIComponent(forumHandle)}/t/${encodeURIComponent(threadId)}${commentId ? `/c/${encodeURIComponent(commentId)}` : ""}`;
 	return (
-		<a href={url} key={`${threadId}:${commentId ?? "root"}`}>
+		<a data-fresh-thread-link="true" href={url} key={`${threadId}:${commentId ?? "root"}`}>
 			{stringValue(record.title) ?? shortId(threadId)}
 		</a>
 	);
@@ -8757,6 +8875,22 @@ function notificationMeta(notification: HumanNotification): string {
 	]
 		.filter(Boolean)
 		.join(" / ");
+}
+
+function notificationThreadId(notification: HumanNotification): string | null {
+	if (notification.targetType === "thread" && notification.targetId) {
+		return notification.targetId;
+	}
+	if (notification.sourceType === "thread" && notification.sourceId) {
+		return notification.sourceId;
+	}
+	try {
+		const url = new URL(notification.urlPath, window.location.origin);
+		const route = parsePathname(url.pathname, url.search);
+		return route.route === "thread" ? route.threadId ?? null : null;
+	} catch {
+		return null;
+	}
 }
 
 function formatPayload(value: unknown, maxLength = 2_400): string {
