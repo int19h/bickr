@@ -239,6 +239,7 @@ type IconName =
 	| "info"
 	| "upload"
 	| "refresh"
+	| "play"
 	| "sun"
 	| "moon"
 	| "monitor"
@@ -623,10 +624,16 @@ function App() {
 	async function fetchHumanNotifications(
 		status: "unread" | "all" = "unread",
 		limit = status === "all" ? 50 : 30,
+		offset = 0,
 	): Promise<HumanNotificationSummary | null> {
-		const result = await api<HumanNotificationSummary>(
-			`/api/me/notifications?status=${status}&limit=${limit}`,
-		);
+		const params = new URLSearchParams({
+			status,
+			limit: String(limit),
+		});
+		if (offset > 0) {
+			params.set("offset", String(offset));
+		}
+		const result = await api<HumanNotificationSummary>(`/api/me/notifications?${params}`);
 		if (result.ok) {
 			return result.data;
 		}
@@ -825,6 +832,17 @@ function App() {
 		setStatus(
 			`w/${worldHandle}: ${started} started${alreadyRunning ? `, ${alreadyRunning} already running` : ""}${paused ? `, ${paused} paused` : ""}${failed ? `, ${failed} failed` : ""}.`,
 		);
+	}
+
+	async function startBot(bot: BotSummary): Promise<void> {
+		if (bot.tickSettings.enabled) {
+			void runBotTick(bot);
+			return;
+		}
+		const ok = await updateBot(bot.id, { tickSettings: { enabled: true } });
+		if (ok) {
+			setStatus(`Started bot ${bot.handle}. Its next tick will be scheduled ASAP.`);
+		}
 	}
 
 	async function submit(action: () => Promise<string | void>): Promise<boolean> {
@@ -1308,6 +1326,7 @@ function App() {
 							onDeleteWorld={deleteWorld}
 							onOpenBotEdit={openBotEdit}
 							onRunBotTick={(bot) => void runBotTick(bot)}
+							onStartBot={(bot) => void startBot(bot)}
 							onToggleSubscription={toggleSubscription}
 							onUpdateForum={updateForum}
 							onUpdateWorld={updateWorld}
@@ -1406,6 +1425,7 @@ function App() {
 							onOpen={openBotProfile}
 							onRunBotTick={(bot) => void runBotTick(bot)}
 							onRunWorldBotTicks={(worldHandle, rows) => void runWorldBotTicks(worldHandle, rows)}
+							onStartBot={(bot) => void startBot(bot)}
 							worlds={worldViews}
 						/>
 					)}
@@ -2249,6 +2269,7 @@ function WorldDetail({
 	onDeleteWorld,
 	onOpenBotEdit,
 	onRunBotTick,
+	onStartBot,
 	onToggleSubscription,
 	onUpdateForum,
 	onUpdateWorld,
@@ -2267,6 +2288,7 @@ function WorldDetail({
 	onDeleteWorld: (world: WorldView) => Promise<boolean>;
 	onOpenBotEdit: (bot: BotSummary) => void;
 	onRunBotTick: (bot: BotSummary) => void;
+	onStartBot: (bot: BotSummary) => void;
 	onToggleSubscription: (target: SubscriptionTarget, active: boolean) => Promise<void>;
 	onUpdateForum: (forum: ForumSummary, input: UpdateForumInput) => Promise<boolean>;
 	onUpdateWorld: (worldHandle: string, input: UpdateWorldInput) => Promise<boolean>;
@@ -2298,7 +2320,7 @@ function WorldDetail({
 		[forumFilter, publicForums],
 	);
 	const filteredBots = useMemo(
-		() => bots.filter((bot) => matchesFilter(botFilter, bot.handle, bot.displayName, bot.shortBio)),
+		() => sortBotsForCards(bots.filter((bot) => matchesFilter(botFilter, bot.handle, bot.displayName, bot.shortBio))),
 		[botFilter, bots],
 	);
 	const ownedBotCount = bots.filter((bot) => bot.ownerUserId === currentUserId).length;
@@ -2306,10 +2328,9 @@ function WorldDetail({
 	const canManageWorld = world.createdByUserId === currentUserId;
 	const canDeleteWorld = canManageWorld && bots.length === 0;
 	const botGroups = useMemo(() => {
-		const sortedBots = sortByHandle(filteredBots);
 		return [
-			{ key: "mine", title: "My bots", bots: sortedBots.filter((bot) => bot.ownerUserId === currentUserId) },
-			{ key: "other", title: "Other bots", bots: sortedBots.filter((bot) => bot.ownerUserId !== currentUserId) },
+			{ key: "mine", title: "My bots", bots: filteredBots.filter((bot) => bot.ownerUserId === currentUserId) },
+			{ key: "other", title: "Other bots", bots: filteredBots.filter((bot) => bot.ownerUserId !== currentUserId) },
 		].filter((group) => group.bots.length > 0);
 	}, [currentUserId, filteredBots]);
 
@@ -2455,10 +2476,13 @@ function WorldDetail({
 											{group.bots.map((bot) => (
 												<BotCard
 													bot={bot}
+													hideWorld
 													key={bot.id}
 													onDelete={bot.ownerUserId === currentUserId ? () => setConfirmBot(bot) : undefined}
 													onEdit={bot.ownerUserId === currentUserId ? () => onOpenBotEdit(bot) : undefined}
 													onRunTick={bot.ownerUserId === currentUserId ? () => onRunBotTick(bot) : undefined}
+													onStart={bot.ownerUserId === currentUserId ? () => onStartBot(bot) : undefined}
+													showActive
 													world={world}
 												/>
 											))}
@@ -4363,6 +4387,7 @@ function BotCard({
 	onDelete,
 	onEdit,
 	onRunTick,
+	onStart,
 	showActive = false,
 	world,
 }: {
@@ -4371,12 +4396,14 @@ function BotCard({
 	onDelete?: () => void;
 	onEdit?: () => void;
 	onRunTick?: () => void;
+	onStart?: () => void;
 	showActive?: boolean;
 	world?: WorldView | null;
 }) {
 	const canManage = Boolean(onDelete || onEdit);
+	const paused = !bot.tickSettings.enabled;
 	return (
-		<article className="bot-card">
+		<article className={`bot-card ${paused ? "paused" : ""}`}>
 			{canManage && (
 				<div className="actions-overlay">
 					{onEdit && (
@@ -4416,19 +4443,32 @@ function BotCard({
 			<div className="tagline">{bot.shortBio}</div>
 			<div className="foot">
 				{!hideWorld && <span>{world ? <Reference kind="world" name={world.handle} /> : `w/${bot.homeWorldHandle}`}</span>}
-				{showActive && <span>active {timeAgoWithAgo(bot.lastActiveAt ?? bot.createdAt)}</span>}
-				{onRunTick && (
+				{showActive && (
+					paused ?
+						<span className="bot-status-label paused">PAUSED</span>
+					:	<span>active {timeAgoWithAgo(bot.lastActiveAt ?? bot.createdAt)}</span>
+				)}
+				{paused && onStart ? (
+					<button
+						className="btn compact primary bot-run-tick"
+						onClick={onStart}
+						title="Start this participant"
+						type="button"
+					>
+						<Icon name="play" size={12} />
+						Start
+					</button>
+				) : onRunTick ? (
 					<button
 						className="btn compact bot-run-tick"
-						disabled={!bot.tickSettings.enabled}
 						onClick={onRunTick}
-						title={bot.tickSettings.enabled ? "Run tick" : "Unpause before starting a loop run."}
+						title="Run tick"
 						type="button"
 					>
 						<Icon name="refresh" size={12} />
 						Run tick
 					</button>
-				)}
+				) : null}
 				<span>{showActive ? "edited" : "updated"} {showActive ? timeAgoWithAgo(bot.updatedAt) : timeAgo(bot.updatedAt)}</span>
 			</div>
 		</article>
@@ -4786,6 +4826,7 @@ function MyBotsScreen({
 	onOpen,
 	onRunBotTick,
 	onRunWorldBotTicks,
+	onStartBot,
 	worlds,
 }: {
 	bots: BotSummary[];
@@ -4794,6 +4835,7 @@ function MyBotsScreen({
 	onOpen: (bot: BotSummary) => void;
 	onRunBotTick: (bot: BotSummary) => void;
 	onRunWorldBotTicks: (worldHandle: string, bots: BotSummary[]) => void;
+	onStartBot: (bot: BotSummary) => void;
 	worlds: WorldView[];
 }) {
 	const [botFilter, setBotFilter] = useState("");
@@ -4814,7 +4856,7 @@ function MyBotsScreen({
 			.map(([worldHandle, rows]) => ({
 				worldHandle,
 				world: worldsByHandle.get(worldHandle) ?? null,
-				rows: rows.sort((left, right) => compareHandles(left.bot.handle, right.bot.handle)),
+				rows: rows.sort((left, right) => compareBotCardOrder(left.bot, right.bot)),
 			}));
 	}, [botFilter, bots, worlds]);
 	const defaultWorld = worlds[0] ?? null;
@@ -4880,6 +4922,7 @@ function MyBotsScreen({
 												onDelete={() => setConfirmBot(bot)}
 												onEdit={() => onOpen(bot)}
 												onRunTick={() => onRunBotTick(bot)}
+												onStart={() => onStartBot(bot)}
 												showActive
 												world={world}
 											/>
@@ -4929,20 +4972,22 @@ function NotificationsScreen({
 	onMarkRead,
 	onOpenNotification,
 }: {
-	onLoadNotifications: (status: "unread" | "all", limit?: number) => Promise<HumanNotificationSummary | null>;
+	onLoadNotifications: (status: "unread" | "all", limit?: number, offset?: number) => Promise<HumanNotificationSummary | null>;
 	onMarkAllRead: () => Promise<boolean>;
 	onMarkRead: (notification: HumanNotification) => Promise<string | null>;
 	onOpenNotification: (notification: HumanNotification) => void;
 }) {
+	const pageSize = 50;
 	const [summary, setSummary] = useState<HumanNotificationSummary>({ unreadCount: 0, notifications: [] });
 	const [groupMode, setGroupMode] = useState<NotificationGroupMode>("world");
 	const [filter, setFilter] = useState("");
 	const [loading, setLoading] = useState(true);
+	const [loadingMore, setLoadingMore] = useState(false);
 	const [message, setMessage] = useState("");
 
 	async function refresh(): Promise<void> {
 		setLoading(true);
-		const next = await onLoadNotifications("all", 100);
+		const next = await onLoadNotifications("all", pageSize, 0);
 		if (next) {
 			setSummary(next);
 			setMessage("");
@@ -4950,6 +4995,21 @@ function NotificationsScreen({
 			setMessage("Could not load notifications.");
 		}
 		setLoading(false);
+	}
+
+	async function loadMore(): Promise<void> {
+		setLoadingMore(true);
+		const next = await onLoadNotifications("all", pageSize, summary.nextOffset ?? summary.notifications.length);
+		if (next) {
+			setSummary((current) => ({
+				...next,
+				notifications: appendUniqueNotifications(current.notifications, next.notifications),
+			}));
+			setMessage("");
+		} else {
+			setMessage("Could not load more notifications.");
+		}
+		setLoadingMore(false);
 	}
 
 	useEffect(() => {
@@ -4965,6 +5025,7 @@ function NotificationsScreen({
 			return;
 		}
 		setSummary((current) => ({
+			...current,
 			unreadCount: Math.max(0, current.unreadCount - 1),
 			notifications: current.notifications.map((item) =>
 				item.id === notification.id ? { ...item, readAt } : item,
@@ -4979,6 +5040,7 @@ function NotificationsScreen({
 		}
 		const readAt = new Date().toISOString();
 		setSummary((current) => ({
+			...current,
 			unreadCount: 0,
 			notifications: current.notifications.map((notification) => ({
 				...notification,
@@ -5004,6 +5066,7 @@ function NotificationsScreen({
 		() => notificationGroups(filtered, groupMode),
 		[filtered, groupMode],
 	);
+	const canLoadMore = Boolean(summary.hasMore);
 
 	return (
 		<div className="main-inner notifications-page">
@@ -5041,6 +5104,7 @@ function NotificationsScreen({
 			<div className="notification-page-summary">
 				<span>{summary.unreadCount} unread</span>
 				<span>{filtered.length} shown</span>
+				<span>{summary.notifications.length} loaded</span>
 				{loading && <span>Loading...</span>}
 				{message && <span>{message}</span>}
 			</div>
@@ -5097,6 +5161,17 @@ function NotificationsScreen({
 					))}
 				</div>
 			}
+			{summary.notifications.length > 0 && (
+				<div className="notification-page-footer">
+					{canLoadMore ?
+						<button className="btn" disabled={loading || loadingMore} onClick={() => void loadMore()} type="button">
+							<Icon name="refresh" size={14} />
+							{loadingMore ? "Loading..." : "Load more"}
+						</button>
+					:	<span>All loaded</span>
+					}
+				</div>
+			)}
 		</div>
 	);
 }
@@ -6700,6 +6775,11 @@ function Icon({ name, size = 16 }: { name: IconName; size?: number }) {
 				<path d="M20 11a8 8 0 0 0-14.6-4M4 7V3m0 4h4M4 13a8 8 0 0 0 14.6 4M20 17v4m0-4h-4" />
 			</svg>
 		),
+		play: (
+			<svg height={size} viewBox="0 0 24 24" width={size} {...stroke}>
+				<path d="M8 5v14l11-7z" />
+			</svg>
+		),
 		sun: (
 			<svg height={size} viewBox="0 0 24 24" width={size} {...stroke}>
 				<circle cx="12" cy="12" r="4" />
@@ -8190,6 +8270,19 @@ function sortByHandle<T extends { handle: string }>(items: T[]): T[] {
 	return [...items].sort((left, right) => compareHandles(left.handle, right.handle));
 }
 
+function compareBotCardOrder(left: BotSummary, right: BotSummary): number {
+	const leftPaused = !left.tickSettings.enabled;
+	const rightPaused = !right.tickSettings.enabled;
+	if (leftPaused !== rightPaused) {
+		return leftPaused ? -1 : 1;
+	}
+	return compareHandles(left.handle, right.handle);
+}
+
+function sortBotsForCards<T extends BotSummary>(items: T[]): T[] {
+	return [...items].sort(compareBotCardOrder);
+}
+
 function normalizeFilterText(value: string): string {
 	return value
 		.normalize("NFKD")
@@ -8203,6 +8296,15 @@ function matchesFilter(query: string, ...values: Array<string | null | undefined
 		return true;
 	}
 	return values.some((value) => value !== undefined && value !== null && normalizeFilterText(value).includes(normalizedQuery));
+}
+
+function appendUniqueNotifications(
+	current: HumanNotification[],
+	next: HumanNotification[],
+): HumanNotification[] {
+	const seen = new Set(current.map((notification) => notification.id));
+	const appended = next.filter((notification) => !seen.has(notification.id));
+	return [...current, ...appended];
 }
 
 function notificationGroups(

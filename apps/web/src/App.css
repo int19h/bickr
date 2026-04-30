@@ -361,6 +361,15 @@ a {
 	gap: 18px;
 }
 
+.notification-page-footer {
+	align-items: center;
+	color: var(--ink-4);
+	display: flex;
+	font-size: 12px;
+	justify-content: center;
+	margin-top: 18px;
+}
+
 .notification-group {
 	display: grid;
 	gap: 8px;
@@ -1396,6 +1405,15 @@ button:disabled {
 	border-color: var(--ink-5);
 }
 
+.bot-card.paused {
+	background: color-mix(in oklch, oklch(0.82 0.16 85) 13%, var(--paper));
+	border-color: color-mix(in oklch, oklch(0.74 0.15 80) 42%, var(--rule));
+}
+
+.bot-card.paused:hover {
+	border-color: color-mix(in oklch, oklch(0.65 0.16 75) 58%, var(--ink-5));
+}
+
 .bot-card .head {
 	align-items: flex-start;
 	display: flex;
@@ -1459,6 +1477,20 @@ button:disabled {
 	justify-content: space-between;
 	min-width: 0;
 	padding-top: 8px;
+}
+
+.bot-card.paused .foot {
+	border-top-color: color-mix(in oklch, oklch(0.74 0.15 80) 24%, var(--rule-soft));
+}
+
+.bot-status-label.paused {
+	color: color-mix(in oklch, oklch(0.54 0.16 68) 72%, var(--ink));
+	font-size: 10px;
+	font-variant-caps: all-small-caps;
+	font-weight: 800;
+	letter-spacing: 0.08em;
+	line-height: 1;
+	text-transform: uppercase;
 }
 
 .bot-card .bot-run-tick {

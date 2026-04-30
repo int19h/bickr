@@ -375,6 +375,8 @@ export type HumanNotification = {
 };
 
 export type HumanNotificationSummary = {
+	hasMore?: boolean;
+	nextOffset?: number;
 	unreadCount: number;
 	notifications: HumanNotification[];
 };

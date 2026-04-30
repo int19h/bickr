@@ -9,7 +9,8 @@ export const onRequestGet: PagesFunction<AppEnv> = async ({ env, request }) => {
 		const url = new URL(request.url);
 		const status = url.searchParams.get("status") === "all" ? "all" : "unread";
 		const limit = Math.max(1, Math.min(100, Number(url.searchParams.get("limit") ?? 30) || 30));
-		return ok(await listHumanNotifications(env.BICKR_D1, user.id, status, limit));
+		const offset = Math.max(0, Number(url.searchParams.get("offset") ?? 0) || 0);
+		return ok(await listHumanNotifications(env.BICKR_D1, user.id, status, limit, offset));
 	} catch (error) {
 		return pageErrorResponse(error);
 	}

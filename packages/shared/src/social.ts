@@ -434,7 +434,10 @@ export async function listHumanNotifications(
 	userId: string,
 	status: "unread" | "all" = "unread",
 	limit = 30,
+	offset = 0,
 ): Promise<HumanNotificationSummary> {
+	const pageSize = Math.max(1, Math.floor(limit));
+	const pageOffset = Math.max(0, Math.floor(offset));
 	const unread = await db
 		.prepare(
 			`SELECT COUNT(*) AS count
@@ -489,13 +492,17 @@ export async function listHumanNotifications(
 			   AND forum_bot.deleted_at IS NULL
 			 WHERE hn.user_id = ? AND hn.archived_at IS NULL ${filter}
 			 ORDER BY hn.created_at DESC
-			 LIMIT ?`,
+			 LIMIT ? OFFSET ?`,
 		)
-		.bind(userId, limit)
+		.bind(userId, pageSize + 1, pageOffset)
 		.all<HumanNotificationRow>();
+	const rows = result.results ?? [];
+	const notifications = rows.slice(0, pageSize).map(humanNotificationFromRow);
 	return {
+		hasMore: rows.length > pageSize,
+		nextOffset: pageOffset + notifications.length,
 		unreadCount: unread?.count ?? 0,
-		notifications: (result.results ?? []).map(humanNotificationFromRow),
+		notifications,
 	};
 }
 
