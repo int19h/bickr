@@ -21,8 +21,16 @@ import {
 	onRequestGet as forums,
 	onRequestPost as createForum,
 } from "../apps/web/functions/api/worlds/[worldHandle]/forums";
+import {
+	onRequestDelete as deleteForumRoute,
+	onRequestPatch as patchForum,
+} from "../apps/web/functions/api/worlds/[worldHandle]/forums/[forumHandle]";
 import { onRequestGet as forumThreads } from "../apps/web/functions/api/worlds/[worldHandle]/forums/[forumHandle]/threads";
-import { onRequestGet as threadDetail } from "../apps/web/functions/api/worlds/[worldHandle]/forums/[forumHandle]/threads/[threadId]";
+import {
+	onRequestDelete as deleteThreadRoute,
+	onRequestGet as threadDetail,
+} from "../apps/web/functions/api/worlds/[worldHandle]/forums/[forumHandle]/threads/[threadId]";
+import { onRequestDelete as deleteCommentRoute } from "../apps/web/functions/api/worlds/[worldHandle]/forums/[forumHandle]/threads/[threadId]/comments/[commentId]";
 import { onRequestGet as commentVotes } from "../apps/web/functions/api/worlds/[worldHandle]/forums/[forumHandle]/threads/[threadId]/comments/[commentId]/votes";
 import { onRequestPost as spotlightPreview } from "../apps/web/functions/api/worlds/[worldHandle]/forums/[forumHandle]/spotlight/preview";
 import { onRequestPost as spotlightSend } from "../apps/web/functions/api/worlds/[worldHandle]/forums/[forumHandle]/spotlight/send";
@@ -33,6 +41,10 @@ import {
 import { onRequestGet as botActivity } from "../apps/web/functions/api/worlds/[worldHandle]/bots/[botHandle]/activity";
 import { onRequestPost as chirperPreview } from "../apps/web/functions/api/worlds/[worldHandle]/chirper-imports/preview";
 import { onRequestGet as worlds, onRequestPost as createWorld } from "../apps/web/functions/api/worlds";
+import {
+	onRequestDelete as deleteWorldRoute,
+	onRequestPatch as patchWorld,
+} from "../apps/web/functions/api/worlds/[worldHandle]";
 import {
 	handleAgentRuntimeRequest,
 	isOpenRouterProviderBaseUrl,
@@ -1576,6 +1588,175 @@ describe("Bickr Pages Functions", () => {
 		);
 	});
 
+	it("allows forum, world, and bot owners to moderate owned surfaces", async () => {
+		const worldOwnerCookie = await authCookie();
+		const botOwnerCookie = await authCookieFor({
+			subject: "222",
+			login: "reply-owner",
+			displayName: "Reply Owner",
+		});
+		const outsiderCookie = await authCookieFor({
+			subject: "333",
+			login: "outsider",
+			displayName: "Out Sider",
+		});
+		await seedWorld(worldOwnerCookie);
+		const forum = await createForumForTest(worldOwnerCookie, "moderation");
+		const ownerBot = await createBotForTest(worldOwnerCookie, "owner-bot");
+		const otherBot = await createBotForTest(botOwnerCookie, "other-bot");
+		const thread = await createThreadForTest(forum.id, otherBot.id, "Moderate this", "Needs a close read.");
+		const outsiderDelete = await deleteThreadRoute(
+			contextFor<typeof deleteThreadRoute>(
+				new Request(
+					`http://example.com/api/worlds/patch-notes/forums/moderation/threads/${thread.id}`,
+					{ method: "DELETE", headers: { cookie: outsiderCookie } },
+				),
+				{ worldHandle: "patch-notes", forumHandle: "moderation", threadId: thread.id },
+			),
+		);
+		expect(outsiderDelete.status).toBe(403);
+
+		const comment = await createCommentForTest(thread.id, otherBot.id, "Owner of the bot can remove this.");
+		const commentDelete = await deleteCommentRoute(
+			contextFor<typeof deleteCommentRoute>(
+				new Request(
+					`http://example.com/api/worlds/patch-notes/forums/moderation/threads/${thread.id}/comments/${comment.id}`,
+					{ method: "DELETE", headers: { cookie: botOwnerCookie } },
+				),
+				{ worldHandle: "patch-notes", forumHandle: "moderation", threadId: thread.id, commentId: comment.id },
+			),
+		);
+		expect(commentDelete.status).toBe(200);
+		const commentIndex = await testEnv.BICKR_D1.prepare(
+			`SELECT deleted_at AS deletedAt FROM comments_index WHERE comment_id = ?`,
+		)
+			.bind(comment.id)
+			.first<{ deletedAt: string | null }>();
+		expect(commentIndex?.deletedAt).toBeTruthy();
+
+		const threadDelete = await deleteThreadRoute(
+			contextFor<typeof deleteThreadRoute>(
+				new Request(
+					`http://example.com/api/worlds/patch-notes/forums/moderation/threads/${thread.id}`,
+					{ method: "DELETE", headers: { cookie: botOwnerCookie } },
+				),
+				{ worldHandle: "patch-notes", forumHandle: "moderation", threadId: thread.id },
+			),
+		);
+		expect(threadDelete.status).toBe(200);
+		const deletedThreadDetail = await threadDetail(
+			contextFor<typeof threadDetail>(
+				new Request(`http://example.com/api/worlds/patch-notes/forums/moderation/threads/${thread.id}`),
+				{ worldHandle: "patch-notes", forumHandle: "moderation", threadId: thread.id },
+			),
+		);
+		expect(deletedThreadDetail.status).toBe(404);
+
+		const patchForumResponse = await patchForum(
+			contextFor<typeof patchForum>(
+				jsonRequest(
+					"http://example.com/api/worlds/patch-notes/forums/moderation",
+					"PATCH",
+					{ description: "Moderation edits landed" },
+					worldOwnerCookie,
+				),
+				{ worldHandle: "patch-notes", forumHandle: "moderation" },
+			),
+		);
+		expect(patchForumResponse.status).toBe(200);
+		expect(await patchForumResponse.json()).toMatchObject({
+			data: { forum: { handle: "moderation", description: "Moderation edits landed" } },
+		});
+
+		const otherForumResponse = await createForum(
+			contextFor<typeof createForum>(
+				jsonRequest(
+					"http://example.com/api/worlds/patch-notes/forums",
+					"POST",
+					{ handle: "tenant-forum", description: "Created by another human." },
+					botOwnerCookie,
+				),
+				{ worldHandle: "patch-notes" },
+			),
+		);
+		const otherForum = ((await otherForumResponse.json()) as { data: { forum: TestForum } }).data.forum;
+		const otherForumThread = await createThreadForTest(otherForum.id, otherBot.id, "Tenant post", "World owner can remove the forum.");
+		const worldOwnerForumDelete = await deleteForumRoute(
+			contextFor<typeof deleteForumRoute>(
+				new Request("http://example.com/api/worlds/patch-notes/forums/tenant-forum", {
+					method: "DELETE",
+					headers: { cookie: worldOwnerCookie },
+				}),
+				{ worldHandle: "patch-notes", forumHandle: "tenant-forum" },
+			),
+		);
+		expect(worldOwnerForumDelete.status).toBe(200);
+		const deletedForumThread = await testEnv.BICKR_D1.prepare(
+			`SELECT deleted_at AS deletedAt FROM threads_index WHERE thread_id = ?`,
+		)
+			.bind(otherForumThread.id)
+			.first<{ deletedAt: string | null }>();
+		expect(deletedForumThread?.deletedAt).toBeTruthy();
+
+		const patchWorldResponse = await patchWorld(
+			contextFor<typeof patchWorld>(
+				jsonRequest(
+					"http://example.com/api/worlds/patch-notes",
+					"PATCH",
+					{ name: "Patch Notes Edited", description: "Updated world text." },
+					worldOwnerCookie,
+				),
+				{ worldHandle: "patch-notes" },
+			),
+		);
+		expect(patchWorldResponse.status).toBe(200);
+		expect(await patchWorldResponse.json()).toMatchObject({
+			data: { world: { handle: "patch-notes", name: "Patch Notes Edited" } },
+		});
+
+		const blockedWorldDelete = await deleteWorldRoute(
+			contextFor<typeof deleteWorldRoute>(
+				new Request("http://example.com/api/worlds/patch-notes", {
+					method: "DELETE",
+					headers: { cookie: worldOwnerCookie },
+				}),
+				{ worldHandle: "patch-notes" },
+			),
+		);
+		expect(blockedWorldDelete.status).toBe(403);
+
+		for (const [bot, cookie] of [
+			[ownerBot, worldOwnerCookie],
+			[otherBot, botOwnerCookie],
+		] as const) {
+			const response = await deleteBot(
+				contextFor<typeof deleteBot>(
+					new Request(`http://example.com/api/me/bots/${bot.id}`, {
+						method: "DELETE",
+						headers: { cookie },
+					}),
+					{ botId: bot.id },
+				),
+			);
+			expect(response.status).toBe(200);
+		}
+
+		const worldDelete = await deleteWorldRoute(
+			contextFor<typeof deleteWorldRoute>(
+				new Request("http://example.com/api/worlds/patch-notes", {
+					method: "DELETE",
+					headers: { cookie: worldOwnerCookie },
+				}),
+				{ worldHandle: "patch-notes" },
+			),
+		);
+		expect(worldDelete.status).toBe(200);
+		const listAfterDelete = await worlds(
+			contextFor<typeof worlds>(new Request("http://example.com/api/worlds")),
+		);
+		expect(await listAfterDelete.json()).toMatchObject({ data: { worlds: [] } });
+	});
+
 	it("returns and advances human read markers for forum and thread views", async () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);
@@ -2262,10 +2443,18 @@ async function execStatements(db: D1Database, sql: string): Promise<void> {
 }
 
 async function authCookie(): Promise<string> {
-	const user = await upsertGithubUser(testEnv.BICKR_KV, testEnv.BICKR_D1, {
+	return authCookieFor({
 		subject: "1175142",
 		login: "octocat",
 		displayName: "Octo Cat",
+	});
+}
+
+async function authCookieFor(profile: { subject: string; login: string; displayName: string }): Promise<string> {
+	const user = await upsertGithubUser(testEnv.BICKR_KV, testEnv.BICKR_D1, {
+		subject: profile.subject,
+		login: profile.login,
+		displayName: profile.displayName,
 	});
 	await updateUserProfile(testEnv.BICKR_KV, testEnv.BICKR_D1, user.id, {
 		handle: user.handle,

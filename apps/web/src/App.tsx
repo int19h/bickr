@@ -33,7 +33,9 @@ import {
 	type ThreadDocument,
 	type ThreadSummary,
 	type UpdateBotInput,
+	type UpdateForumInput,
 	type UpdateUserProfileInput,
+	type UpdateWorldInput,
 	type UserProfile,
 	type VoteDetail,
 	type WorldSummary,
@@ -809,6 +811,54 @@ function App() {
 		});
 	}
 
+	async function updateWorld(worldHandle: string, input: UpdateWorldInput): Promise<boolean> {
+		if (!profileReadyFor("editing worlds")) {
+			return false;
+		}
+		return submit(async () => {
+			const result = await api<{ world: WorldSummary }>(`/api/worlds/${encodeURIComponent(worldHandle)}`, {
+				method: "PATCH",
+				body: input,
+			});
+			if (!result.ok) {
+				throw new Error(result.message);
+			}
+			setWorlds((current) =>
+				current.map((world) => world.id === result.data.world.id ? result.data.world : world),
+			);
+			return `Saved world ${result.data.world.handle}.`;
+		});
+	}
+
+	async function deleteWorld(world: WorldView): Promise<boolean> {
+		if (!profileReadyFor("deleting worlds")) {
+			return false;
+		}
+		return submit(async () => {
+			const result = await api<{ world: WorldSummary }>(`/api/worlds/${encodeURIComponent(world.handle)}`, {
+				method: "DELETE",
+			});
+			if (!result.ok) {
+				throw new Error(result.message);
+			}
+			setWorlds((current) => current.filter((item) => item.id !== world.id));
+			setForumsByWorld((current) => {
+				const next = { ...current };
+				delete next[world.handle];
+				return next;
+			});
+			setBotsByWorld((current) => {
+				const next = { ...current };
+				delete next[world.handle];
+				return next;
+			});
+			if (activeWorldHandle === world.handle) {
+				navigate({ route: "worlds" });
+			}
+			return `Deleted world ${world.handle}.`;
+		});
+	}
+
 	async function seedSimulation(): Promise<boolean> {
 		if (!profileReadyFor("seeding the demo world")) {
 			return false;
@@ -850,6 +900,59 @@ function App() {
 		});
 	}
 
+	async function updateForum(forum: ForumSummary, input: UpdateForumInput): Promise<boolean> {
+		if (!profileReadyFor("editing forums")) {
+			return false;
+		}
+		return submit(async () => {
+			const result = await api<{ forum: ForumSummary }>(
+				`/api/worlds/${encodeURIComponent(forum.worldHandle)}/forums/${encodeURIComponent(forum.handle)}`,
+				{
+					method: "PATCH",
+					body: input,
+				},
+			);
+			if (!result.ok) {
+				throw new Error(result.message);
+			}
+			setForumsByWorld((current) => ({
+				...current,
+				[forum.worldHandle]: (current[forum.worldHandle] ?? []).map((item) =>
+					item.id === forum.id ? result.data.forum : item,
+				),
+			}));
+			return `Saved forum ${result.data.forum.handle}.`;
+		});
+	}
+
+	async function deleteForum(forum: ForumSummary): Promise<boolean> {
+		if (!profileReadyFor("deleting forums")) {
+			return false;
+		}
+		return submit(async () => {
+			const result = await api<{ forum: ForumSummary }>(
+				`/api/worlds/${encodeURIComponent(forum.worldHandle)}/forums/${encodeURIComponent(forum.handle)}`,
+				{ method: "DELETE" },
+			);
+			if (!result.ok) {
+				throw new Error(result.message);
+			}
+			setForumsByWorld((current) => ({
+				...current,
+				[forum.worldHandle]: (current[forum.worldHandle] ?? []).filter((item) => item.id !== forum.id),
+			}));
+			setThreadsByForum((current) => {
+				const next = { ...current };
+				delete next[forum.id];
+				return next;
+			});
+			if (activeForum?.id === forum.id) {
+				navigate({ route: "world", worldHandle: forum.worldHandle });
+			}
+			return `Deleted forum ${forum.handle}.`;
+		});
+	}
+
 	async function createBot(worldHandle: string, draft: BotDraft): Promise<boolean> {
 		if (!profileReadyFor("creating bots")) {
 			return false;
@@ -882,6 +985,64 @@ function App() {
 				botHandle: createdBot.handle,
 			});
 			return `Created bot ${createdBot.handle}.`;
+		});
+	}
+
+	async function deleteThread(forum: ForumSummary, thread: ThreadDocument | ThreadSummary): Promise<boolean> {
+		if (!profileReadyFor("deleting posts")) {
+			return false;
+		}
+		return submit(async () => {
+			const result = await api<{ thread: ThreadDocument }>(
+				`/api/worlds/${encodeURIComponent(forum.worldHandle)}/forums/${encodeURIComponent(forum.handle)}/threads/${encodeURIComponent(thread.id)}`,
+				{ method: "DELETE" },
+			);
+			if (!result.ok) {
+				throw new Error(result.message);
+			}
+			setThreadsByForum((current) => ({
+				...current,
+				[forum.id]: (current[forum.id] ?? []).filter((item) => item.id !== thread.id),
+			}));
+			setThreadDocuments((current) => {
+				const next = { ...current };
+				delete next[thread.id];
+				return next;
+			});
+			if (activeThreadId === thread.id) {
+				navigate({ route: "forum", worldHandle: forum.worldHandle, forumHandle: forum.handle });
+			}
+			return "Deleted post.";
+		});
+	}
+
+	async function deleteComment(forum: ForumSummary, thread: ThreadDocument, comment: CommentDocument): Promise<boolean> {
+		if (!profileReadyFor("deleting comments")) {
+			return false;
+		}
+		return submit(async () => {
+			const result = await api<{ thread: ThreadDocument }>(
+				`/api/worlds/${encodeURIComponent(forum.worldHandle)}/forums/${encodeURIComponent(forum.handle)}/threads/${encodeURIComponent(thread.id)}/comments/${encodeURIComponent(comment.id)}`,
+				{ method: "DELETE" },
+			);
+			if (!result.ok) {
+				throw new Error(result.message);
+			}
+			setThreadDocuments((current) => ({ ...current, [result.data.thread.id]: result.data.thread }));
+			setThreadsByForum((current) => ({
+				...current,
+				[forum.id]: (current[forum.id] ?? []).map((item) =>
+					item.id === result.data.thread.id ?
+						{
+							...item,
+							commentCount: result.data.thread.commentCount,
+							lastActivityAt: result.data.thread.lastActivityAt,
+							hotScore: result.data.thread.hotScore,
+						}
+					:	item,
+				),
+			}));
+			return "Deleted comment.";
 		});
 	}
 
@@ -1086,9 +1247,13 @@ function App() {
 							onCreateBot={openCreateBot}
 							onCreateForum={(payload) => createForum(activeWorld.handle, payload)}
 							onDeleteBot={deleteBot}
+							onDeleteForum={deleteForum}
+							onDeleteWorld={deleteWorld}
 							onOpenBotEdit={openBotEdit}
 							onRunBotTick={(bot) => void runBotTick(bot)}
 							onToggleSubscription={toggleSubscription}
+							onUpdateForum={updateForum}
+							onUpdateWorld={updateWorld}
 							subscribed={isSubscribed("world", activeWorld.id)}
 							tab={activeWorldTab}
 							world={activeWorld}
@@ -1097,11 +1262,15 @@ function App() {
 					{route === "forum" && activeWorld && activeForum && (
 						<ForumPage
 							forum={activeForum}
+							currentUserId={session.user.id}
 							loadedAt={forumLoadedAtById[activeForum.id]}
 							loading={threadsLoading}
+							onDeleteForum={deleteForum}
+							onDeleteThread={(thread) => deleteThread(activeForum, thread)}
 							onReference={openReference}
 							onRefresh={(sort) => loadThreads(activeForum, sort)}
 							onToggleSubscription={toggleSubscription}
+							onUpdateForum={updateForum}
 							ownedBots={bots}
 							subscribed={isSubscribed("forum", activeForum.id)}
 							threads={activeThreads}
@@ -1110,9 +1279,12 @@ function App() {
 					)}
 					{route === "thread" && activeWorld && activeForum && (
 						<ThreadPage
+							currentUserId={session.user.id}
 							forum={activeForum}
 							loadedAt={activeThreadId ? threadLoadedAtById[activeThreadId] : undefined}
 							loading={threadLoading}
+							onDeleteComment={(thread, comment) => deleteComment(activeForum, thread, comment)}
+							onDeleteThread={(thread) => deleteThread(activeForum, thread)}
 							onReference={openReference}
 							onRefresh={() => activeThreadId ? loadThread(activeForum, activeThreadId) : Promise.resolve(null)}
 							onToggleSubscription={toggleSubscription}
@@ -1865,6 +2037,107 @@ function CreateWorldModal({
 	);
 }
 
+function EditWorldModal({
+	busy,
+	onClose,
+	onSave,
+	open,
+	world,
+}: {
+	busy: boolean;
+	onClose: () => void;
+	onSave: (input: UpdateWorldInput) => Promise<boolean>;
+	open: boolean;
+	world: WorldView;
+}) {
+	const [name, setName] = useState(world.name);
+	const [description, setDescription] = useState(world.description);
+	const [initialBotNotification, setInitialBotNotification] = useState(world.initialBotNotification);
+	const toast = useContext(ToastContext);
+
+	useEffect(() => {
+		if (open) {
+			setName(world.name);
+			setDescription(world.description);
+			setInitialBotNotification(world.initialBotNotification);
+		}
+	}, [open, world.description, world.initialBotNotification, world.name]);
+
+	const valid = name.trim().length > 0 && description.trim().length > 0 && initialBotNotification.trim().length > 0;
+	const dirty =
+		name !== world.name ||
+		description !== world.description ||
+		initialBotNotification !== world.initialBotNotification;
+
+	async function submit(): Promise<void> {
+		const ok = await onSave({ name, description, initialBotNotification });
+		if (ok) {
+			toast.push(
+				<>
+					Saved <Reference kind="world" name={world.handle} />
+				</>,
+			);
+			onClose();
+		}
+	}
+
+	return (
+		<Modal
+			foot={
+				<>
+					<span className="help">World handles are permanent for now.</span>
+					<div className="right">
+						<button className="btn ghost" disabled={busy} onClick={onClose} type="button">
+							Cancel
+						</button>
+						<button className="btn primary" disabled={!dirty || !valid || busy} onClick={() => void submit()} type="button">
+							Save changes
+						</button>
+					</div>
+				</>
+			}
+			onClose={onClose}
+			open={open}
+			title="Edit world"
+			wide
+		>
+			<Field help={`bickr.local/w/${world.handle}`} label="Handle">
+				<div className="input-prefix">
+					<span className="prefix">w/</span>
+					<input className="input" disabled value={world.handle} />
+				</div>
+			</Field>
+			<Field hint="shown to humans" label="Name">
+				<input
+					autoFocus
+					className="input"
+					maxLength={80}
+					onChange={(event) => setName(event.target.value)}
+					value={name}
+				/>
+			</Field>
+			<Field hint="required" label="Short description">
+				<textarea
+					className="textarea"
+					maxLength={500}
+					onChange={(event) => setDescription(event.target.value)}
+					rows={4}
+					value={description}
+				/>
+			</Field>
+			<Field hint="required" label="Initial participant notification">
+				<textarea
+					className="textarea"
+					maxLength={1_000}
+					onChange={(event) => setInitialBotNotification(event.target.value)}
+					rows={4}
+					value={initialBotNotification}
+				/>
+			</Field>
+		</Modal>
+	);
+}
+
 function WorldDetail({
 	bots,
 	busy,
@@ -1873,9 +2146,13 @@ function WorldDetail({
 	onCreateBot,
 	onCreateForum,
 	onDeleteBot,
+	onDeleteForum,
+	onDeleteWorld,
 	onOpenBotEdit,
 	onRunBotTick,
 	onToggleSubscription,
+	onUpdateForum,
+	onUpdateWorld,
 	subscribed,
 	tab,
 	world,
@@ -1887,19 +2164,29 @@ function WorldDetail({
 	onCreateBot: (world: WorldView) => void;
 	onCreateForum: (input: CreateForumInput) => Promise<boolean>;
 	onDeleteBot: (bot: BotSummary) => Promise<boolean>;
+	onDeleteForum: (forum: ForumSummary) => Promise<boolean>;
+	onDeleteWorld: (world: WorldView) => Promise<boolean>;
 	onOpenBotEdit: (bot: BotSummary) => void;
 	onRunBotTick: (bot: BotSummary) => void;
 	onToggleSubscription: (target: SubscriptionTarget, active: boolean) => Promise<void>;
+	onUpdateForum: (forum: ForumSummary, input: UpdateForumInput) => Promise<boolean>;
+	onUpdateWorld: (worldHandle: string, input: UpdateWorldInput) => Promise<boolean>;
 	subscribed: boolean;
 	tab: WorldTab;
 	world: WorldView;
 }) {
 	const [forumModalOpen, setForumModalOpen] = useState(false);
 	const [confirmBot, setConfirmBot] = useState<BotSummary | null>(null);
+	const [worldEditOpen, setWorldEditOpen] = useState(false);
+	const [confirmWorld, setConfirmWorld] = useState(false);
+	const [editingForum, setEditingForum] = useState<ForumSummary | null>(null);
+	const [confirmForum, setConfirmForum] = useState<ForumSummary | null>(null);
 	const toast = useContext(ToastContext);
 	const publicForums = visibleForums(forums);
 	const ownedBotCount = bots.filter((bot) => bot.ownerUserId === currentUserId).length;
 	const ownedForumCount = publicForums.filter((forum) => forum.createdByUserId === currentUserId).length;
+	const canManageWorld = world.createdByUserId === currentUserId;
+	const canDeleteWorld = canManageWorld && bots.length === 0;
 	const botGroups = useMemo(() => {
 		const sortedBots = [...bots].sort((left, right) =>
 			left.handle.localeCompare(right.handle, undefined, { sensitivity: "base" }),
@@ -1939,6 +2226,24 @@ function WorldDetail({
 							)
 						}
 					/>
+					{canManageWorld && (
+						<>
+							<button className="btn" disabled={busy} onClick={() => setWorldEditOpen(true)} type="button">
+								<Icon name="edit" size={14} />
+								Edit
+							</button>
+							<button
+								className="btn danger"
+								disabled={busy || !canDeleteWorld}
+								onClick={() => setConfirmWorld(true)}
+								title={canDeleteWorld ? "Delete world" : "Delete all bots in this world first"}
+								type="button"
+							>
+								<Icon name="trash" size={14} />
+								Delete
+							</button>
+						</>
+					)}
 					{tab === "forums" ?
 						<button className="btn primary" disabled={busy} onClick={() => setForumModalOpen(true)} type="button">
 							<Icon name="plus" size={14} />
@@ -1979,7 +2284,20 @@ function WorldDetail({
 					</EmptyState>
 				:	<div className="list">
 						{publicForums.map((forum) => (
-							<ForumRow forum={forum} key={forum.id} />
+							<ForumRow
+								forum={forum}
+								key={forum.id}
+								onDelete={
+									canManageWorld || forum.createdByUserId === currentUserId ?
+										() => setConfirmForum(forum)
+									:	undefined
+								}
+								onEdit={
+									canManageWorld || forum.createdByUserId === currentUserId ?
+										() => setEditingForum(forum)
+									:	undefined
+								}
+							/>
 						))}
 					</div>)}
 
@@ -2019,6 +2337,73 @@ function WorldDetail({
 				onCreate={onCreateForum}
 				open={forumModalOpen}
 				world={world}
+			/>
+
+			<EditWorldModal
+				busy={busy}
+				onClose={() => setWorldEditOpen(false)}
+				onSave={(input) => onUpdateWorld(world.handle, input)}
+				open={worldEditOpen}
+				world={world}
+			/>
+
+			<EditForumModal
+				busy={busy}
+				forum={editingForum}
+				onClose={() => setEditingForum(null)}
+				onSave={(forum, input) => onUpdateForum(forum, input)}
+			/>
+
+			<Confirm
+				body={
+					<>
+						This will delete <Reference kind="world" name={world.handle} /> and every forum and post in it.
+					</>
+				}
+				confirmText="Delete world"
+				danger
+				onClose={() => setConfirmWorld(false)}
+				onConfirm={() => {
+					void onDeleteWorld(world).then((ok) => {
+						if (ok) {
+							toast.push(
+								<>
+									Deleted <Reference kind="world" name={world.handle} />
+								</>,
+							);
+						}
+					});
+				}}
+				open={confirmWorld}
+				title="Delete this world?"
+			/>
+
+			<Confirm
+				body={
+					confirmForum ?
+						<>
+							This will delete <Reference kind="forum" name={confirmForum.handle} /> and every post in it.
+						</>
+					:	null
+				}
+				confirmText="Delete forum"
+				danger
+				onClose={() => setConfirmForum(null)}
+				onConfirm={() => {
+					if (confirmForum) {
+						void onDeleteForum(confirmForum).then((ok) => {
+							if (ok) {
+								toast.push(
+									<>
+										Deleted <Reference kind="forum" name={confirmForum.handle} />
+									</>,
+								);
+							}
+						});
+					}
+				}}
+				open={Boolean(confirmForum)}
+				title="Delete this forum?"
 			/>
 
 			<Confirm
@@ -2138,7 +2523,94 @@ function CreateForumModal({
 	);
 }
 
-function ForumRow({ forum }: { forum: ForumSummary }) {
+function EditForumModal({
+	busy,
+	forum,
+	onClose,
+	onSave,
+}: {
+	busy: boolean;
+	forum: ForumSummary | null;
+	onClose: () => void;
+	onSave: (forum: ForumSummary, input: UpdateForumInput) => Promise<boolean>;
+}) {
+	const [description, setDescription] = useState("");
+	const toast = useContext(ToastContext);
+
+	useEffect(() => {
+		if (forum) {
+			setDescription(forum.description);
+		}
+	}, [forum]);
+
+	if (!forum) {
+		return null;
+	}
+	const activeForum = forum;
+
+	const valid = description.trim().length > 0;
+	const dirty = description !== activeForum.description;
+
+	async function submit(): Promise<void> {
+		const ok = await onSave(activeForum, { description });
+		if (ok) {
+			toast.push(
+				<>
+					Saved <Reference kind="forum" name={activeForum.handle} />
+				</>,
+			);
+			onClose();
+		}
+	}
+
+	return (
+		<Modal
+			foot={
+				<>
+					<span className="help">Forum handles are permanent for now.</span>
+					<div className="right">
+						<button className="btn ghost" disabled={busy} onClick={onClose} type="button">
+							Cancel
+						</button>
+						<button className="btn primary" disabled={!dirty || !valid || busy} onClick={() => void submit()} type="button">
+							Save changes
+						</button>
+					</div>
+				</>
+			}
+			onClose={onClose}
+			open={Boolean(forum)}
+			title="Edit forum"
+		>
+			<Field help={`bickr.local/w/${activeForum.worldHandle}/f/${activeForum.handle}`} label="Handle">
+				<div className="input-prefix">
+					<span className="prefix">f/</span>
+					<input className="input" disabled value={activeForum.handle} />
+				</div>
+			</Field>
+			<Field hint="required" label="Short description">
+				<textarea
+					autoFocus
+					className="textarea"
+					maxLength={500}
+					onChange={(event) => setDescription(event.target.value)}
+					rows={4}
+					value={description}
+				/>
+			</Field>
+		</Modal>
+	);
+}
+
+function ForumRow({
+	forum,
+	onDelete,
+	onEdit,
+}: {
+	forum: ForumSummary;
+	onDelete?: () => void;
+	onEdit?: () => void;
+}) {
 	return (
 		<article className="forum-row">
 			<SpaLink
@@ -2158,6 +2630,16 @@ function ForumRow({ forum }: { forum: ForumSummary }) {
 					<div className="desc">{forum.description}</div>
 				</div>
 				<div className="stats">
+					{onEdit && (
+						<button className="icon-btn" onClick={onEdit} title="Edit forum" type="button">
+							<Icon name="edit" size={14} />
+						</button>
+					)}
+					{onDelete && (
+						<button className="icon-btn danger" onClick={onDelete} title="Delete forum" type="button">
+							<Icon name="trash" size={14} />
+						</button>
+					)}
 					<SpaLink
 						className="btn ghost compact"
 						to={{ route: "forum", worldHandle: forum.worldHandle, forumHandle: forum.handle }}
@@ -2198,23 +2680,31 @@ function ForumDescription({
 }
 
 function ForumPage({
+	currentUserId,
 	forum,
 	loadedAt,
 	loading,
+	onDeleteForum,
+	onDeleteThread,
 	onReference,
 	onRefresh,
 	onToggleSubscription,
+	onUpdateForum,
 	ownedBots,
 	subscribed,
 	threads,
 	world,
 }: {
+	currentUserId: string;
 	forum: ForumSummary;
 	loadedAt?: string;
 	loading: boolean;
+	onDeleteForum: (forum: ForumSummary) => Promise<boolean>;
+	onDeleteThread: (thread: ThreadSummary) => Promise<boolean>;
 	onReference: OpenReference;
 	onRefresh: (sort: string) => Promise<ThreadSummary[]>;
 	onToggleSubscription: (target: SubscriptionTarget, active: boolean) => Promise<void>;
+	onUpdateForum: (forum: ForumSummary, input: UpdateForumInput) => Promise<boolean>;
 	ownedBots: BotSummary[];
 	subscribed: boolean;
 	threads: ThreadSummary[];
@@ -2227,8 +2717,14 @@ function ForumPage({
 	const [searchLoading, setSearchLoading] = useState(false);
 	const [searchMessage, setSearchMessage] = useState("");
 	const [activityNotice, setActivityNotice] = useState<ForumActivityNotice | null>(null);
+	const [editOpen, setEditOpen] = useState(false);
+	const [confirmForumDelete, setConfirmForumDelete] = useState(false);
+	const [confirmThread, setConfirmThread] = useState<ThreadSummary | null>(null);
+	const toast = useContext(ToastContext);
 	const selectedIds = Object.keys(selected).filter((id) => selected[id]);
 	const newCount = threads.filter((thread) => thread.readState?.isNew || thread.readState?.hasNewComments).length;
+	const ownedBotIds = useMemo(() => new Set(ownedBots.map((bot) => bot.id)), [ownedBots]);
+	const canModerateForum = world.createdByUserId === currentUserId || forum.createdByUserId === currentUserId;
 
 	useEffect(() => {
 		const query = search.trim();
@@ -2328,6 +2824,18 @@ function ForumPage({
 							)
 						}
 					/>
+					{canModerateForum && (
+						<>
+							<button className="btn" onClick={() => setEditOpen(true)} type="button">
+								<Icon name="edit" size={14} />
+								Edit
+							</button>
+							<button className="btn danger" onClick={() => setConfirmForumDelete(true)} type="button">
+								<Icon name="trash" size={14} />
+								Delete
+							</button>
+						</>
+					)}
 					<div className="seg" role="tablist">
 						<button aria-pressed={sort === "hot"} onClick={() => changeSort("hot")} type="button">
 							Hot
@@ -2424,6 +2932,11 @@ function ForumPage({
 						checked={Boolean(selected[thread.id])}
 						key={thread.id}
 						onCheck={(checked) => setSelected((current) => ({ ...current, [thread.id]: checked }))}
+						onDelete={
+							canModerateForum || ownedBotIds.has(thread.authorBotId) ?
+								() => setConfirmThread(thread)
+							:	undefined
+						}
 						onReference={onReference}
 						thread={thread}
 					/>
@@ -2441,6 +2954,61 @@ function ForumPage({
 					world={world}
 				/>
 			)}
+
+			<EditForumModal
+				busy={false}
+				forum={editOpen ? forum : null}
+				onClose={() => setEditOpen(false)}
+				onSave={onUpdateForum}
+			/>
+
+			<Confirm
+				body={
+					<>
+						This will delete <Reference kind="forum" name={forum.handle} /> and every post in it.
+					</>
+				}
+				confirmText="Delete forum"
+				danger
+				onClose={() => setConfirmForumDelete(false)}
+				onConfirm={() => {
+					void onDeleteForum(forum).then((ok) => {
+						if (ok) {
+							toast.push(
+								<>
+									Deleted <Reference kind="forum" name={forum.handle} />
+								</>,
+							);
+						}
+					});
+				}}
+				open={confirmForumDelete}
+				title="Delete this forum?"
+			/>
+
+			<Confirm
+				body={
+					confirmThread ?
+						<>
+							This will delete <b>{confirmThread.title}</b> and its comments.
+						</>
+					:	null
+				}
+				confirmText="Delete post"
+				danger
+				onClose={() => setConfirmThread(null)}
+				onConfirm={() => {
+					if (confirmThread) {
+						void onDeleteThread(confirmThread).then((ok) => {
+							if (ok) {
+								toast.push("Deleted post");
+							}
+						});
+					}
+				}}
+				open={Boolean(confirmThread)}
+				title="Delete this post?"
+			/>
 		</div>
 	);
 }
@@ -2448,11 +3016,13 @@ function ForumPage({
 function ForumThreadRow({
 	checked,
 	onCheck,
+	onDelete,
 	onReference,
 	thread,
 }: {
 	checked: boolean;
 	onCheck: (checked: boolean) => void;
+	onDelete?: () => void;
 	onReference: OpenReference;
 	thread: ThreadSummary;
 }) {
@@ -2515,6 +3085,20 @@ function ForumThreadRow({
 				</div>
 			</div>
 			<div className="right-meta">
+				{onDelete && (
+					<button
+						className="icon-btn danger"
+						onClick={(event) => {
+							event.preventDefault();
+							event.stopPropagation();
+							onDelete();
+						}}
+						title="Delete post"
+						type="button"
+					>
+						<Icon name="trash" size={13} />
+					</button>
+				)}
 				{readState?.isNew || readState?.hasNewComments ? <span className="new-mark dot" title="Unread" /> : null}
 			</div>
 		</div>
@@ -2526,9 +3110,12 @@ type CommentTreeNode = CommentDocument & {
 };
 
 function ThreadPage({
+	currentUserId,
 	forum,
 	loadedAt,
 	loading,
+	onDeleteComment,
+	onDeleteThread,
 	onReference,
 	onRefresh,
 	onToggleSubscription,
@@ -2539,9 +3126,12 @@ function ThreadPage({
 	threadId,
 	world,
 }: {
+	currentUserId: string;
 	forum: ForumSummary;
 	loadedAt?: string;
 	loading: boolean;
+	onDeleteComment: (thread: ThreadDocument, comment: CommentDocument) => Promise<boolean>;
+	onDeleteThread: (thread: ThreadDocument) => Promise<boolean>;
 	onReference: OpenReference;
 	onRefresh: () => Promise<ThreadDocument | null>;
 	onToggleSubscription: (target: SubscriptionTarget, active: boolean) => Promise<void>;
@@ -2555,8 +3145,13 @@ function ThreadPage({
 	const [selectedComments, setSelectedComments] = useState<Record<string, boolean>>({});
 	const [rootSelected, setRootSelected] = useState(false);
 	const [activityNotice, setActivityNotice] = useState<ThreadActivityNotice | null>(null);
+	const [confirmRootDelete, setConfirmRootDelete] = useState(false);
+	const [confirmComment, setConfirmComment] = useState<CommentDocument | null>(null);
+	const toast = useContext(ToastContext);
 	const commentTree = useMemo(() => buildCommentTree(thread?.comments ?? []), [thread?.comments]);
 	const selectedCommentIds = Object.keys(selectedComments).filter((id) => selectedComments[id]);
+	const ownedBotIds = useMemo(() => new Set(ownedBots.map((bot) => bot.id)), [ownedBots]);
+	const canModerateForum = world.createdByUserId === currentUserId || forum.createdByUserId === currentUserId;
 	const commentParentById = useMemo(
 		() => new Map((thread?.comments ?? []).map((comment) => [comment.id, comment.parentCommentId ?? null])),
 		[thread?.comments],
@@ -2608,6 +3203,7 @@ function ThreadPage({
 	const threadSubscribed = subscriptions.some((subscription) =>
 		subscription.scopeType === "thread" && subscription.scopeId === thread.id && subscription.active,
 	);
+	const canDeleteRoot = canModerateForum || ownedBotIds.has(thread.rootPost.authorBotId);
 
 	return (
 		<div className="main-inner thread-shell">
@@ -2664,6 +3260,14 @@ function ThreadPage({
 						<span>active {timeAgo(thread.lastActivityAt)}</span>
 					</div>
 				</div>
+				{canDeleteRoot && (
+					<div className="thread-root-actions">
+						<button className="btn danger compact" onClick={() => setConfirmRootDelete(true)} type="button">
+							<Icon name="trash" size={12} />
+							Delete
+						</button>
+					</div>
+				)}
 			</article>
 
 			<div className="spot-select-head">
@@ -2712,6 +3316,11 @@ function ThreadPage({
 						implied={impliedCommentIds}
 						onReference={onReference}
 						onToggleSubscription={onToggleSubscription}
+						onRequestDelete={
+							canModerateForum || ownedBotIds.has(comment.authorBotId) ?
+								setConfirmComment
+							:	undefined
+						}
 						selected={selectedComments}
 						subscriptions={subscriptions}
 						targetCommentId={targetCommentId}
@@ -2744,6 +3353,49 @@ function ThreadPage({
 					world={world}
 				/>
 			)}
+			<Confirm
+				body={
+					<>
+						This will delete <b>{thread.rootPost.title}</b> and all comments in the thread.
+					</>
+				}
+				confirmText="Delete post"
+				danger
+				onClose={() => setConfirmRootDelete(false)}
+				onConfirm={() => {
+					void onDeleteThread(thread).then((ok) => {
+						if (ok) {
+							toast.push("Deleted post");
+						}
+					});
+				}}
+				open={confirmRootDelete}
+				title="Delete this post?"
+			/>
+			<Confirm
+				body={
+					confirmComment ?
+						<>
+							This will delete the comment by <Reference isBot kind="bot" name={confirmComment.authorHandle} />.
+							Replies will remain in the thread.
+						</>
+					:	null
+				}
+				confirmText="Delete comment"
+				danger
+				onClose={() => setConfirmComment(null)}
+				onConfirm={() => {
+					if (confirmComment) {
+						void onDeleteComment(thread, confirmComment).then((ok) => {
+							if (ok) {
+								toast.push("Deleted comment");
+							}
+						});
+					}
+				}}
+				open={Boolean(confirmComment)}
+				title="Delete this comment?"
+			/>
 		</div>
 	);
 }
@@ -2754,6 +3406,7 @@ function CommentNode({
 	implied,
 	isLastSibling,
 	onReference,
+	onRequestDelete,
 	onToggle,
 	onToggleSubscription,
 	selected,
@@ -2767,6 +3420,7 @@ function CommentNode({
 	implied: Set<string>;
 	isLastSibling: boolean;
 	onReference: OpenReference;
+	onRequestDelete?: (comment: CommentDocument) => void;
 	onToggle: (commentId: string, checked: boolean) => void;
 	onToggleSubscription: (target: SubscriptionTarget, active: boolean) => Promise<void>;
 	selected: Record<string, boolean>;
@@ -2819,6 +3473,16 @@ function CommentNode({
 					<span>{timeAgo(comment.createdAt)}</span>
 					{comment.readState?.isNew && <span className="new-mark">new</span>}
 					<span className="spacer" />
+					{onRequestDelete && (
+						<button
+							className="comment-watch danger"
+							onClick={() => onRequestDelete(comment)}
+							type="button"
+						>
+							<Icon name="trash" size={12} />
+							delete
+						</button>
+					)}
 					<button
 						aria-pressed={subscribed}
 						className={`comment-watch ${subscribed ? "active" : ""}`}
@@ -2850,6 +3514,7 @@ function CommentNode({
 								isLastSibling={index === comment.replies.length - 1}
 								key={reply.id}
 								onReference={onReference}
+								onRequestDelete={onRequestDelete}
 								onToggle={onToggle}
 								onToggleSubscription={onToggleSubscription}
 								selected={selected}

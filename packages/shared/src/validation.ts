@@ -17,7 +17,9 @@ import {
 	type OpenRouterWebSearchToolSettingsInput,
 	type OpenRouterWebSearchUserLocationInput,
 	type UpdateBotInput,
+	type UpdateForumInput,
 	type UpdateUserProfileInput,
+	type UpdateWorldInput,
 	type VoteInput,
 } from "./model";
 
@@ -92,12 +94,46 @@ export function parseCreateWorldInput(input: unknown): CreateWorldInput {
 	};
 }
 
+export function parseUpdateWorldInput(input: unknown): UpdateWorldInput {
+	const record = asRecord(input);
+	const update: UpdateWorldInput = {};
+	if (record.name !== undefined) {
+		update.name = requiredText(record.name, "World name", 80);
+	}
+	if (record.description !== undefined) {
+		update.description = requiredText(record.description, "World description", 500);
+	}
+	if (record.initialBotNotification !== undefined) {
+		update.initialBotNotification = requiredText(
+			record.initialBotNotification,
+			"Initial bot notification",
+			1_000,
+		);
+	}
+	if (Object.keys(update).length === 0) {
+		throw new InputError("At least one world field must be provided.");
+	}
+	return update;
+}
+
 export function parseCreateForumInput(input: unknown): CreateForumInput {
 	const record = asRecord(input);
 	return {
 		handle: normalizeHandle(record.handle),
 		description: requiredText(record.description, "Forum description", 500),
 	};
+}
+
+export function parseUpdateForumInput(input: unknown): UpdateForumInput {
+	const record = asRecord(input);
+	const update: UpdateForumInput = {};
+	if (record.description !== undefined) {
+		update.description = requiredText(record.description, "Forum description", 500);
+	}
+	if (Object.keys(update).length === 0) {
+		throw new InputError("At least one forum field must be provided.");
+	}
+	return update;
 }
 
 export function parseCreateBotInput(input: unknown): CreateBotInput {

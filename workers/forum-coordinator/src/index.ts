@@ -1,4 +1,12 @@
 import { fail, ok, readJsonBody } from "@bickr/shared/api";
+import {
+	deleteComment,
+	deleteForum,
+	deleteThread,
+	deleteWorld,
+	updateForum,
+	updateWorld,
+} from "@bickr/shared/governance";
 import { RepositoryError, createForum, createWorld } from "@bickr/shared/repository";
 import { createComment, createThread, readThread, setVote } from "@bickr/shared/social";
 import {
@@ -8,6 +16,8 @@ import {
 	parseCreateForumInput,
 	parseCreateThreadInput,
 	parseCreateWorldInput,
+	parseUpdateForumInput,
+	parseUpdateWorldInput,
 	parseVoteInput,
 } from "@bickr/shared/validation";
 import { json } from "@bickr/shared/http";
@@ -62,6 +72,22 @@ export async function handleForumCoordinatorRequest(
 			return ok({ world, coordinator: objectId }, { status: 201 });
 		}
 
+		const worldMatch = /^\/worlds\/([^/]+)$/.exec(url.pathname);
+		if (worldMatch && request.method === "PATCH") {
+			const userId = requireUserHeader(request);
+			const worldHandle = normalizeHandle(decodeURIComponent(worldMatch[1] ?? ""));
+			const input = parseUpdateWorldInput(await readJsonBody(request));
+			const world = await updateWorld(env.BICKR_KV, env.BICKR_D1, worldHandle, userId, input);
+			return ok({ world, coordinator: objectId });
+		}
+
+		if (worldMatch && request.method === "DELETE") {
+			const userId = requireUserHeader(request);
+			const worldHandle = normalizeHandle(decodeURIComponent(worldMatch[1] ?? ""));
+			const world = await deleteWorld(env.BICKR_KV, env.BICKR_D1, worldHandle, userId);
+			return ok({ world, coordinator: objectId });
+		}
+
 		const forumMatch = /^\/worlds\/([^/]+)\/forums$/.exec(url.pathname);
 		if (request.method === "POST" && forumMatch) {
 			const userId = requireUserHeader(request);
@@ -69,6 +95,24 @@ export async function handleForumCoordinatorRequest(
 			const input = parseCreateForumInput(await readJsonBody(request));
 			const forum = await createForum(env.BICKR_KV, env.BICKR_D1, worldHandle, input, userId);
 			return ok({ forum, coordinator: objectId }, { status: 201 });
+		}
+
+		const forumManageMatch = /^\/worlds\/([^/]+)\/forums\/([^/]+)$/.exec(url.pathname);
+		if (forumManageMatch && request.method === "PATCH") {
+			const userId = requireUserHeader(request);
+			const worldHandle = normalizeHandle(decodeURIComponent(forumManageMatch[1] ?? ""));
+			const forumHandle = normalizeHandle(decodeURIComponent(forumManageMatch[2] ?? ""));
+			const input = parseUpdateForumInput(await readJsonBody(request));
+			const forum = await updateForum(env.BICKR_KV, env.BICKR_D1, worldHandle, forumHandle, userId, input);
+			return ok({ forum, coordinator: objectId });
+		}
+
+		if (forumManageMatch && request.method === "DELETE") {
+			const userId = requireUserHeader(request);
+			const worldHandle = normalizeHandle(decodeURIComponent(forumManageMatch[1] ?? ""));
+			const forumHandle = normalizeHandle(decodeURIComponent(forumManageMatch[2] ?? ""));
+			const forum = await deleteForum(env.BICKR_KV, env.BICKR_D1, worldHandle, forumHandle, userId);
+			return ok({ forum, coordinator: objectId });
 		}
 
 		const threadMatch = /^\/forums\/([^/]+)\/threads$/.exec(url.pathname);
@@ -84,6 +128,15 @@ export async function handleForumCoordinatorRequest(
 			return ok({ thread, coordinator: objectId }, { status: 201 });
 		}
 
+		const threadDeleteMatch = /^\/forums\/([^/]+)\/threads\/([^/]+)$/.exec(url.pathname);
+		if (request.method === "DELETE" && threadDeleteMatch) {
+			const userId = requireUserHeader(request);
+			const forumId = decodeURIComponent(threadDeleteMatch[1] ?? "");
+			const threadId = decodeURIComponent(threadDeleteMatch[2] ?? "");
+			const thread = await deleteThread(env.BICKR_KV, env.BICKR_D1, forumId, threadId, userId);
+			return ok({ thread, coordinator: objectId });
+		}
+
 		const commentMatch = /^\/threads\/([^/]+)\/comments$/.exec(url.pathname);
 		if (request.method === "POST" && commentMatch) {
 			const actor = requireBotActor(request);
@@ -95,6 +148,16 @@ export async function handleForumCoordinatorRequest(
 				authorBotId: actor.botId,
 			});
 			return ok({ thread, coordinator: objectId }, { status: 201 });
+		}
+
+		const commentDeleteMatch = /^\/forums\/([^/]+)\/threads\/([^/]+)\/comments\/([^/]+)$/.exec(url.pathname);
+		if (request.method === "DELETE" && commentDeleteMatch) {
+			const userId = requireUserHeader(request);
+			const forumId = decodeURIComponent(commentDeleteMatch[1] ?? "");
+			const threadId = decodeURIComponent(commentDeleteMatch[2] ?? "");
+			const commentId = decodeURIComponent(commentDeleteMatch[3] ?? "");
+			const thread = await deleteComment(env.BICKR_KV, env.BICKR_D1, forumId, threadId, commentId, userId);
+			return ok({ thread, coordinator: objectId });
 		}
 
 		const threadReadMatch = /^\/threads\/([^/]+)$/.exec(url.pathname);
@@ -141,6 +204,17 @@ export default {
 			}
 		}
 
+		const worldManageMatch = /^\/worlds\/([^/]+)$/.exec(url.pathname);
+		if (worldManageMatch && (request.method === "PATCH" || request.method === "DELETE")) {
+			try {
+				const worldHandle = normalizeHandle(decodeURIComponent(worldManageMatch[1] ?? ""));
+				const objectId = env.WORLD_COORDINATOR.idFromName(worldHandle);
+				return env.WORLD_COORDINATOR.get(objectId).fetch(request);
+			} catch (error) {
+				return errorResponse(error);
+			}
+		}
+
 		const forumCreateMatch = /^\/worlds\/([^/]+)\/forums$/.exec(url.pathname);
 		if (request.method === "POST" && forumCreateMatch) {
 			try {
@@ -149,6 +223,18 @@ export default {
 				const input = parseCreateForumInput(body);
 				const objectId = env.FORUM_COORDINATOR.idFromName(`${worldHandle}:${input.handle}`);
 				return env.FORUM_COORDINATOR.get(objectId).fetch(jsonRequest(url, request, body));
+			} catch (error) {
+				return errorResponse(error);
+			}
+		}
+
+		const forumManageMatch = /^\/worlds\/([^/]+)\/forums\/([^/]+)$/.exec(url.pathname);
+		if (forumManageMatch && (request.method === "PATCH" || request.method === "DELETE")) {
+			try {
+				const worldHandle = normalizeHandle(decodeURIComponent(forumManageMatch[1] ?? ""));
+				const forumHandle = normalizeHandle(decodeURIComponent(forumManageMatch[2] ?? ""));
+				const objectId = env.FORUM_COORDINATOR.idFromName(`${worldHandle}:${forumHandle}`);
+				return env.FORUM_COORDINATOR.get(objectId).fetch(request);
 			} catch (error) {
 				return errorResponse(error);
 			}

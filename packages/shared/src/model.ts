@@ -240,6 +240,7 @@ export type CommentDocument = {
 	voteScore: number;
 	createdAt: string;
 	updatedAt: string;
+	deletedAt?: string;
 	readState?: CommentReadState;
 };
 
@@ -669,10 +670,20 @@ export type CreateWorldInput = {
 	initialBotNotification?: string;
 };
 
+export type UpdateWorldInput = Partial<{
+	name: string;
+	description: string;
+	initialBotNotification: string;
+}>;
+
 export type CreateForumInput = {
 	handle: string;
 	description: string;
 };
+
+export type UpdateForumInput = Partial<{
+	description: string;
+}>;
 
 export type CreateBotInput = {
 	handle: string;

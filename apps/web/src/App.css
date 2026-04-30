@@ -1386,10 +1386,11 @@ button:disabled {
 }
 
 .forum-row .stats {
+	align-items: center;
 	color: var(--ink-4);
 	display: flex;
 	font-size: 12px;
-	gap: 14px;
+	gap: 6px;
 	white-space: nowrap;
 }
 
@@ -2884,6 +2885,9 @@ button:disabled {
 }
 
 .thread-row .right-meta {
+	align-items: center;
+	display: flex;
+	gap: 8px;
 	padding-top: 2px;
 }
 
@@ -3006,7 +3010,7 @@ button:disabled {
 	border-bottom: 1px solid var(--rule);
 	display: grid;
 	gap: 10px;
-	grid-template-columns: 24px 30px minmax(0, 1fr);
+	grid-template-columns: 24px 30px minmax(0, 1fr) auto;
 	margin-bottom: 6px;
 	padding: 18px 0 22px;
 }
@@ -3030,6 +3034,10 @@ button:disabled {
 	color: var(--ink-2);
 	font-size: 14px;
 	font-weight: 600;
+}
+
+.thread-root-actions {
+	padding-top: 4px;
 }
 
 .thread-root h1 {
@@ -3261,6 +3269,11 @@ button:disabled {
 .comment-watch:hover {
 	border-color: var(--accent);
 	color: var(--accent-ink);
+}
+
+.comment-watch.danger:hover {
+	border-color: color-mix(in oklch, var(--danger) 30%, var(--rule));
+	color: var(--danger);
 }
 
 .comment .head .anchor {
@@ -3659,7 +3672,7 @@ button:disabled {
 	}
 
 	.thread-root {
-		grid-template-columns: 24px minmax(0, 1fr);
+		grid-template-columns: 24px minmax(0, 1fr) auto;
 	}
 
 	.comment .replies {

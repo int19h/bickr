@@ -1042,6 +1042,127 @@ export async function setVote(
 	return updated;
 }
 
+export async function softDeleteThread(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	thread: ThreadDocument,
+	now = new Date().toISOString(),
+): Promise<ThreadDocument> {
+	if (thread.deletedAt) {
+		return thread;
+	}
+	const deleted: ThreadDocument = {
+		...thread,
+		revision: thread.revision + 1,
+		updatedAt: now,
+		deletedAt: now,
+	};
+	await writeJson(kv, kvKeys.thread(deleted.id), deleted);
+	await upsertThreadIndex(db, deleted);
+	await db
+		.prepare(`UPDATE comments_index SET deleted_at = ? WHERE thread_id = ? AND deleted_at IS NULL`)
+		.bind(now, deleted.id)
+		.run();
+	await db
+		.prepare(`DELETE FROM votes WHERE target_type = 'thread' AND target_id = ?`)
+		.bind(deleted.id)
+		.run();
+	await db
+		.prepare(
+			`DELETE FROM votes
+			 WHERE target_type = 'comment'
+			   AND target_id IN (SELECT comment_id FROM comments_index WHERE thread_id = ?)`,
+		)
+		.bind(deleted.id)
+		.run();
+	await putObjectIndex(db, deleted, "thread", deleted.worldId);
+	return deleted;
+}
+
+export async function softDeleteThreadsInForum(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	forumId: string,
+	now = new Date().toISOString(),
+): Promise<number> {
+	const result = await db
+		.prepare(`SELECT thread_id AS id FROM threads_index WHERE forum_id = ? AND deleted_at IS NULL`)
+		.bind(forumId)
+		.all<{ id: string }>();
+	let deletedCount = 0;
+	for (const row of result.results ?? []) {
+		const thread = await readJson<ThreadDocument>(kv, kvKeys.thread(row.id));
+		if (thread && !thread.deletedAt) {
+			await softDeleteThread(kv, db, thread, now);
+		} else {
+			await markThreadIndexesDeleted(db, row.id, now);
+		}
+		deletedCount += 1;
+	}
+	return deletedCount;
+}
+
+export async function softDeleteComment(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	thread: ThreadDocument,
+	commentId: string,
+	now = new Date().toISOString(),
+): Promise<ThreadDocument> {
+	const target = thread.comments.find((comment) => comment.id === commentId);
+	if (!target) {
+		throw repositoryError("not_found", "Comment not found.", 404);
+	}
+
+	const reparentedChildren: CommentDocument[] = [];
+	const comments = thread.comments.flatMap((comment) => {
+		if (comment.id === commentId) {
+			return [];
+		}
+		if (comment.parentCommentId !== commentId) {
+			return [comment];
+		}
+		const reparented: CommentDocument = {
+			...comment,
+			updatedAt: now,
+		};
+		if (target.parentCommentId) {
+			reparented.parentCommentId = target.parentCommentId;
+		} else {
+			delete reparented.parentCommentId;
+		}
+		reparentedChildren.push(reparented);
+		return [reparented];
+	});
+	const lastActivityAt = latestThreadActivityAt(thread.rootPost.createdAt, comments);
+	const updated: ThreadDocument = {
+		...thread,
+		comments,
+		commentCount: comments.length,
+		recentCommentCount: Math.min(comments.length, Math.max(0, thread.recentCommentCount - 1)),
+		hotScore: hotScore(thread.voteScore, comments.length, lastActivityAt),
+		lastActivityAt,
+		revision: thread.revision + 1,
+		updatedAt: now,
+	};
+
+	await writeJson(kv, kvKeys.thread(updated.id), updated);
+	await upsertThreadIndex(db, updated);
+	await db
+		.prepare(`UPDATE comments_index SET deleted_at = ? WHERE comment_id = ? AND deleted_at IS NULL`)
+		.bind(now, commentId)
+		.run();
+	for (const child of reparentedChildren) {
+		await upsertCommentIndex(db, updated, child);
+	}
+	await db
+		.prepare(`DELETE FROM votes WHERE target_type = 'comment' AND target_id = ?`)
+		.bind(commentId)
+		.run();
+	await putObjectIndex(db, updated, "thread", updated.worldId);
+	return updated;
+}
+
 export async function listVotesForTarget(
 	db: D1DatabaseLike,
 	worldId: string,
@@ -1242,7 +1363,7 @@ export async function searchPosts(
 					c.vote_score AS score
 				 FROM comments_index c
 				 JOIN threads_index t ON t.thread_id = c.thread_id
-				 WHERE c.world_id = ? AND c.deleted_at IS NULL AND lower(c.search_text) LIKE ? ESCAPE '\\'
+				 WHERE c.world_id = ? AND c.deleted_at IS NULL AND t.deleted_at IS NULL AND lower(c.search_text) LIKE ? ESCAPE '\\'
 				 ORDER BY c.created_at DESC
 				 LIMIT ?`,
 			)
@@ -1297,7 +1418,7 @@ export async function searchForumPosts(
 					c.vote_score AS score
 				 FROM comments_index c
 				 JOIN threads_index t ON t.thread_id = c.thread_id
-				 WHERE c.forum_id = ? AND c.deleted_at IS NULL AND lower(c.search_text) LIKE ? ESCAPE '\\'
+				 WHERE c.forum_id = ? AND c.deleted_at IS NULL AND t.deleted_at IS NULL AND lower(c.search_text) LIKE ? ESCAPE '\\'
 				 ORDER BY c.created_at DESC
 				 LIMIT ?`,
 			)
@@ -2124,6 +2245,41 @@ function applyVoteDelta(
 	};
 }
 
+async function markThreadIndexesDeleted(
+	db: D1DatabaseLike,
+	threadId: string,
+	now: string,
+): Promise<void> {
+	await db
+		.prepare(`UPDATE threads_index SET deleted_at = ? WHERE thread_id = ? AND deleted_at IS NULL`)
+		.bind(now, threadId)
+		.run();
+	await db
+		.prepare(`UPDATE comments_index SET deleted_at = ? WHERE thread_id = ? AND deleted_at IS NULL`)
+		.bind(now, threadId)
+		.run();
+	await db
+		.prepare(`DELETE FROM votes WHERE target_type = 'thread' AND target_id = ?`)
+		.bind(threadId)
+		.run();
+	await db
+		.prepare(
+			`DELETE FROM votes
+			 WHERE target_type = 'comment'
+			   AND target_id IN (SELECT comment_id FROM comments_index WHERE thread_id = ?)`,
+		)
+		.bind(threadId)
+		.run();
+}
+
+function latestThreadActivityAt(rootPostCreatedAt: string, comments: CommentDocument[]): string {
+	return comments.reduce(
+		(latest, comment) =>
+			Date.parse(comment.createdAt) > Date.parse(latest) ? comment.createdAt : latest,
+		rootPostCreatedAt,
+	);
+}
+
 async function resolveVoteTarget(
 	kv: KVNamespaceLike,
 	db: D1DatabaseLike,
@@ -2201,8 +2357,9 @@ async function upsertCommentIndex(
 			`INSERT INTO comments_index (
 				comment_id, thread_id, world_id, forum_id, author_bot_id, author_handle,
 				parent_comment_id, body_preview, search_text, vote_score, created_at, deleted_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(comment_id) DO UPDATE SET
+				parent_comment_id = excluded.parent_comment_id,
 				body_preview = excluded.body_preview,
 				search_text = excluded.search_text,
 				vote_score = excluded.vote_score,
@@ -2220,6 +2377,7 @@ async function upsertCommentIndex(
 			comment.body.toLowerCase(),
 			comment.voteScore,
 			comment.createdAt,
+			comment.deletedAt ?? null,
 		)
 		.run();
 }
