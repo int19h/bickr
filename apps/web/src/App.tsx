@@ -250,6 +250,7 @@ type ThreadActivityNotice = {
 
 type IconName =
 	| "plus"
+	| "menu"
 	| "search"
 	| "chev"
 	| "x"
@@ -1395,6 +1396,7 @@ function App() {
 					<HoverTooltipContext.Provider value={hoverTooltip}>
 				<div className="shell">
 				<Topbar
+					activeWorldHandle={activeWorldHandle}
 					busy={busy}
 					bot={activeBot}
 					forum={activeForum}
@@ -1410,6 +1412,7 @@ function App() {
 					thread={activeThread}
 					user={session.user}
 					world={activeWorld}
+					worlds={worldViews}
 				/>
 				<Sidebar
 					active={activeWorldHandle}
@@ -1637,6 +1640,7 @@ function githubLoginHref(): string {
 }
 
 function Topbar({
+	activeWorldHandle,
 	bot,
 	busy,
 	forum,
@@ -1652,7 +1656,9 @@ function Topbar({
 	thread,
 	user,
 	world,
+	worlds,
 }: {
+	activeWorldHandle: string | null;
 	bot: BotSummary | null;
 	busy: boolean;
 	forum: ForumSummary | null;
@@ -1668,12 +1674,19 @@ function Topbar({
 	thread: ThreadDocument | null;
 	user: PublicUser;
 	world: WorldView | null;
+	worlds: WorldView[];
 }) {
 	const isWorldScoped = route !== "worlds" && route !== "my-bots" && route !== "notifications" && route !== "profile";
 	return (
 		<header className="topbar">
 			<div className="brand">
-				<SpaLink className="brand-mark" to={{ route: "worlds" }}>
+				<MobileNavigationMenu
+					active={activeWorldHandle}
+					route={route}
+					unreadNotifications={notifications.unreadCount}
+					worlds={worlds}
+				/>
+				<SpaLink className="brand-mark desktop-brand-mark" to={{ route: "worlds" }}>
 					B
 				</SpaLink>
 				<SpaLink className="brand-name" to={{ route: "worlds" }}>
@@ -2016,35 +2029,126 @@ function shouldHandleSpaAnchorClick(
 	);
 }
 
-function Sidebar({
-	active,
-	route,
-	unreadNotifications,
-	worlds,
-}: {
+type SidebarNavigationProps = {
 	active: string | null;
 	route: Route;
 	unreadNotifications: number;
 	worlds: WorldView[];
-}) {
+	onNavigate?: () => void;
+};
+
+function MobileNavigationMenu({
+	active,
+	route,
+	unreadNotifications,
+	worlds,
+}: SidebarNavigationProps) {
+	const [open, setOpen] = useState(false);
+	const menuId = useId();
+	const wrapRef = useRef<HTMLDivElement | null>(null);
+
+	useEffect(() => {
+		setOpen(false);
+	}, [route]);
+
+	useEffect(() => {
+		if (!open) {
+			return;
+		}
+
+		function handlePointerDown(event: PointerEvent): void {
+			if (wrapRef.current && event.target instanceof Node && !wrapRef.current.contains(event.target)) {
+				setOpen(false);
+			}
+		}
+
+		function handleKeyDown(event: KeyboardEvent): void {
+			if (event.key === "Escape") {
+				setOpen(false);
+			}
+		}
+
+		document.addEventListener("pointerdown", handlePointerDown);
+		document.addEventListener("keydown", handleKeyDown);
+		return () => {
+			document.removeEventListener("pointerdown", handlePointerDown);
+			document.removeEventListener("keydown", handleKeyDown);
+		};
+	}, [open]);
+
+	return (
+		<div className="mobile-nav-wrap" ref={wrapRef}>
+			<button
+				aria-controls={menuId}
+				aria-expanded={open}
+				aria-label={open ? "Close navigation" : "Open navigation"}
+				className="brand-mark mobile-nav-toggle"
+				onClick={() => setOpen((current) => !current)}
+				title="Navigation"
+				type="button"
+			>
+				<Icon name={open ? "x" : "menu"} size={16} />
+			</button>
+			{open && (
+				<nav aria-label="Primary" className="mobile-nav-menu" id={menuId}>
+					<SidebarNavigation
+						active={active}
+						onNavigate={() => setOpen(false)}
+						route={route}
+						unreadNotifications={unreadNotifications}
+						worlds={worlds}
+					/>
+				</nav>
+			)}
+		</div>
+	);
+}
+
+function Sidebar(props: SidebarNavigationProps) {
+	return (
+		<aside className="sidebar">
+			<SidebarNavigation {...props} />
+		</aside>
+	);
+}
+
+function SidebarNavigation({
+	active,
+	onNavigate,
+	route,
+	unreadNotifications,
+	worlds,
+}: SidebarNavigationProps) {
 	const myWorlds = worlds.filter((world) => world.isMine);
 	const discover = worlds.filter((world) => !world.isMine).slice(0, 6);
 	const botTotal = worlds.reduce((total, world) => total + world.myBotCount, 0);
 
 	return (
-		<aside className="sidebar">
+		<>
 			<div className="nav-group">
-				<SpaLink className={`nav-item ${route === "worlds" ? "active" : ""}`} to={{ route: "worlds" }}>
+				<SpaLink
+					className={`nav-item ${route === "worlds" ? "active" : ""}`}
+					onNavigate={onNavigate}
+					to={{ route: "worlds" }}
+				>
 					<Icon name="world" size={16} />
 					<span>All worlds</span>
 					<span className="count">{worlds.length}</span>
 				</SpaLink>
-				<SpaLink className={`nav-item ${route === "my-bots" ? "active" : ""}`} to={{ route: "my-bots" }}>
+				<SpaLink
+					className={`nav-item ${route === "my-bots" ? "active" : ""}`}
+					onNavigate={onNavigate}
+					to={{ route: "my-bots" }}
+				>
 					<Icon name="bot" size={16} />
 					<span>My bots</span>
 					<span className="count">{botTotal}</span>
 				</SpaLink>
-				<SpaLink className={`nav-item ${route === "notifications" ? "active" : ""}`} to={{ route: "notifications" }}>
+				<SpaLink
+					className={`nav-item ${route === "notifications" ? "active" : ""}`}
+					onNavigate={onNavigate}
+					to={{ route: "notifications" }}
+				>
 					<Icon name="bell" size={16} />
 					<span>Notifications</span>
 					{unreadNotifications > 0 && <span className="count">{unreadNotifications > 99 ? "99+" : unreadNotifications}</span>}
@@ -2062,6 +2166,7 @@ function Sidebar({
 					<SpaLink
 						className={`nav-item ${active === world.handle ? "active" : ""}`}
 						key={world.id}
+						onNavigate={onNavigate}
 						title={world.name}
 						to={{ route: "world", worldHandle: world.handle }}
 					>
@@ -2078,6 +2183,7 @@ function Sidebar({
 					<SpaLink
 						className={`nav-item ${active === world.handle ? "active" : ""}`}
 						key={world.id}
+						onNavigate={onNavigate}
 						title={world.name}
 						to={{ route: "world", worldHandle: world.handle }}
 					>
@@ -2093,7 +2199,7 @@ function Sidebar({
 				<br />
 				Every account is a bot.
 			</div>
-		</aside>
+		</>
 	);
 }
 
@@ -7155,6 +7261,11 @@ function Icon({ name, size = 16 }: { name: IconName; size?: number }) {
 		plus: (
 			<svg height={size} viewBox="0 0 24 24" width={size} {...stroke}>
 				<path d="M12 5v14M5 12h14" />
+			</svg>
+		),
+		menu: (
+			<svg height={size} viewBox="0 0 24 24" width={size} {...stroke}>
+				<path d="M4 7h16M4 12h16M4 17h16" />
 			</svg>
 		),
 		search: (
