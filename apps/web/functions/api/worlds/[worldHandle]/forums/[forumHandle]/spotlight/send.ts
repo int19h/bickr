@@ -1,5 +1,5 @@
 import { ok, readJsonBody } from "@bickr/shared/api";
-import { type SpotlightPreviewInput } from "@bickr/shared/model";
+import { type SpotlightSendInput } from "@bickr/shared/model";
 import { forumByHandle, sendSpotlight } from "@bickr/shared/social";
 import { normalizeHandle } from "@bickr/shared/validation";
 import { requireCompleteUser, type AppEnv } from "../../../../../_auth";
@@ -44,14 +44,22 @@ export const onRequestPost: PagesFunction<AppEnv, "worldHandle" | "forumHandle">
 				return { injectionId: payload.data?.injectionId };
 			},
 		);
-		const tickStarts = result.deliveries
-			.filter((delivery) => delivery.ok && delivery.injectionId)
-			.map((delivery) => {
-				delivery.tickStatus = "started";
-				return startSpotlightTick(env, request, user.id, delivery.botId, delivery.injectionId!, delivery.spotlightId);
-			});
-		if (tickStarts.length > 0) {
-			waitUntil(Promise.allSettled(tickStarts));
+		if (input.autoStartTick ?? true) {
+			const tickStarts = result.deliveries
+				.filter((delivery) => delivery.ok && delivery.injectionId)
+				.map((delivery) => {
+					delivery.tickStatus = "started";
+					return startSpotlightTick(env, request, user.id, delivery.botId, delivery.injectionId!, delivery.spotlightId);
+				});
+			if (tickStarts.length > 0) {
+				waitUntil(Promise.allSettled(tickStarts));
+			}
+		} else {
+			for (const delivery of result.deliveries) {
+				if (delivery.ok && delivery.injectionId) {
+					delivery.tickStatus = "queued";
+				}
+			}
 		}
 		return ok(result);
 	} catch (error) {
@@ -77,7 +85,7 @@ async function startSpotlightTick(
 	);
 }
 
-function parseSpotlightInput(value: unknown): SpotlightPreviewInput {
+function parseSpotlightInput(value: unknown): SpotlightSendInput {
 	const record = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
 	const targetType = record.targetType === "comments" ? "comments" : "threads";
 	return {
@@ -87,6 +95,7 @@ function parseSpotlightInput(value: unknown): SpotlightPreviewInput {
 		commentIds: Array.isArray(record.commentIds) ? record.commentIds.filter(isString) : undefined,
 		botIds: Array.isArray(record.botIds) ? record.botIds.filter(isString) : [],
 		focusText: typeof record.focusText === "string" ? record.focusText : undefined,
+		autoStartTick: typeof record.autoStartTick === "boolean" ? record.autoStartTick : undefined,
 	};
 }
 

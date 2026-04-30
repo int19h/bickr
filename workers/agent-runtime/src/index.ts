@@ -202,9 +202,16 @@ class DuplicateReplyError extends Error {
 	}
 }
 
+class UnknownRuntimeTargetError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = "UnknownRuntimeTargetError";
+	}
+}
+
 type TickRunResult = {
 	runId: string;
-	status: "already_running" | "completed" | "failed" | "started" | "stopped";
+	status: "already_running" | "completed" | "failed" | "paused" | "started" | "stopped";
 	error?: string;
 };
 
@@ -262,10 +269,17 @@ type InjectionRow = {
 	spotlightId: string | null;
 };
 
+type KnownRuntimeTargets = {
+	threadIds: Set<string>;
+	commentIds: Set<string>;
+	commentThreadIds: Map<string, string>;
+};
+
 type RunContext = {
 	mode: TickMode;
 	spotlightId?: string;
 	signal: AbortSignal;
+	knownTargets: KnownRuntimeTargets;
 };
 
 type ProviderMessageStatus = "complete" | "interrupted";
@@ -641,6 +655,9 @@ export class BotRuntime {
 		if (current.status === "running") {
 			return { runId: current.activeRunId ?? "active", status: "already_running" };
 		}
+		if (!current.enabled) {
+			return pausedTickResult();
+		}
 		const tick = this.runTick(botId, trigger, { ...options, background: false }).catch((error) => {
 			console.error("background bot tick failed", error);
 		});
@@ -655,6 +672,9 @@ export class BotRuntime {
 		}
 		if (current.status === "running") {
 			return { runId: current.activeRunId ?? "active", status: "already_running" };
+		}
+		if (!current.enabled) {
+			return pausedTickResult();
 		}
 
 		const bot = await botById(this.env.BICKR_KV, this.env.BICKR_D1, botId);
@@ -673,6 +693,7 @@ export class BotRuntime {
 			mode,
 			...(options.spotlightId ? { spotlightId: options.spotlightId } : {}),
 			signal: abortController.signal,
+			knownTargets: emptyKnownRuntimeTargets(),
 		};
 
 		try {
@@ -694,11 +715,12 @@ export class BotRuntime {
 				this.pendingToolUseReminder(),
 			);
 			const input = builtInput.input;
+			rememberLoopInputTargets(runContext.knownTargets, input);
 			await this.appendEvent(runId, "input", input);
 			if (mode === "spotlight" && injections.length === 0) {
-				await this.setRuntimeIndex(bot, "idle", null, undefined, new Date().toISOString());
+				const nextDueAt = await this.setRuntimeIndex(bot, "idle", null, undefined, new Date().toISOString());
 				await this.appendEvent(runId, "tick_completed", {
-					nextDueAt: this.nextDue(bot),
+					...(nextDueAt ? { nextDueAt } : {}),
 					note: "No pending spotlight injection was available.",
 				});
 				return { runId, status: "completed" };
@@ -730,8 +752,8 @@ export class BotRuntime {
 			}
 
 			await this.compactIfNeeded(bot, runId);
-			await this.setRuntimeIndex(bot, "idle", null, undefined, new Date().toISOString());
-			await this.appendEvent(runId, "tick_completed", { nextDueAt: this.nextDue(bot) });
+			const nextDueAt = await this.setRuntimeIndex(bot, "idle", null, undefined, new Date().toISOString());
+			await this.appendEvent(runId, "tick_completed", { ...(nextDueAt ? { nextDueAt } : {}) });
 			return { runId, status: "completed" };
 		} catch (error) {
 			if (error instanceof TickStoppedError || isAbortError(error)) {
@@ -917,12 +939,13 @@ export class BotRuntime {
 		this.state.storage.sql.exec(`DELETE FROM runtime_state WHERE key = ?`, toolUseRecoveryStateKey);
 	}
 
-	private async markRunStopped(bot: BotDocument, runId: string): Promise<void> {
+	private async markRunStopped(bot: BotDocument, runId: string): Promise<string | null> {
 		if (!this.hasTerminalEvent(runId)) {
 			await this.appendEvent(runId, "tick_stopped", { message: "Tick stopped by request." });
 		}
-		await this.setRuntimeIndex(bot, "idle", null, undefined, new Date().toISOString());
+		const nextDueAt = await this.setRuntimeIndex(bot, "idle", null, undefined, new Date().toISOString());
 		this.clearStopRequest(runId);
+		return nextDueAt;
 	}
 
 	private async runProviderLoop(
@@ -2125,6 +2148,7 @@ export class BotRuntime {
 	private async status(botId: string): Promise<BotRuntimeStatus> {
 		const row = await this.env.BICKR_D1.prepare(
 			`SELECT
+				enabled,
 				status,
 				active_run_id AS activeRunId,
 				lease_expires_at AS leaseExpiresAt,
@@ -2136,21 +2160,23 @@ export class BotRuntime {
 		)
 			.bind(botId)
 			.first<{
+				enabled: number;
 				status: "idle" | "running" | "failed";
 				activeRunId: string | null;
 				leaseExpiresAt: string | null;
-				nextDueAt: string;
+				nextDueAt: string | null;
 				lastError: string | null;
 				tickIntervalSeconds: number;
 			}>();
+		const enabled = row?.enabled === 1;
 		if (row?.status === "running" && row.activeRunId && this.hasStopRequest(row.activeRunId) && this.activeRunId !== row.activeRunId) {
 			const bot = await botById(this.env.BICKR_KV, this.env.BICKR_D1, botId);
-			await this.markRunStopped(bot, row.activeRunId);
-			const nextDueAt = this.nextDue(bot);
+			const nextDueAt = await this.markRunStopped(bot, row.activeRunId);
 			return {
 				botId,
+				enabled,
 				status: "idle",
-				nextDueAt,
+				...(nextDueAt ? { nextDueAt } : {}),
 			};
 		}
 		if (row?.status === "running" && row.activeRunId) {
@@ -2186,8 +2212,9 @@ export class BotRuntime {
 					.run();
 				return {
 					botId,
+					enabled,
 					status: "failed",
-					...(row.nextDueAt ? { nextDueAt: row.nextDueAt } : {}),
+					...(enabled && row.nextDueAt ? { nextDueAt: row.nextDueAt } : {}),
 					lastError: message,
 				};
 			}
@@ -2210,7 +2237,7 @@ export class BotRuntime {
 				this.activeAbortController.abort();
 			}
 			const now = new Date().toISOString();
-			const nextDueAt = new Date(Date.parse(now) + row.tickIntervalSeconds * 1000).toISOString();
+			const nextDueAt = enabled ? new Date(Date.parse(now) + row.tickIntervalSeconds * 1000).toISOString() : null;
 			if (row.activeRunId) {
 				await this.env.BICKR_D1.prepare(
 					`UPDATE bot_runtime_index
@@ -2240,16 +2267,18 @@ export class BotRuntime {
 			}
 			return {
 				botId,
+				enabled,
 				status: "idle",
-				nextDueAt,
+				...(nextDueAt ? { nextDueAt } : {}),
 				lastError: message,
 			};
 		}
 		return {
 			botId,
+			enabled,
 			status: row?.status ?? "idle",
 			...(row?.activeRunId ? { activeRunId: row.activeRunId } : {}),
-			...(row?.nextDueAt ? { nextDueAt: row.nextDueAt } : {}),
+			...(enabled && row?.nextDueAt ? { nextDueAt: row.nextDueAt } : {}),
 			...(row?.lastError ? { lastError: row.lastError } : {}),
 		};
 	}
@@ -2301,8 +2330,14 @@ export class BotRuntime {
 		activeRunId: string | null,
 		lastError: string | undefined,
 		now: string,
-	): Promise<void> {
-		const nextDueAt = status === "idle" ? this.nextDue(bot, now) : new Date(Date.parse(now) + 15 * 60_000).toISOString();
+	): Promise<string | null> {
+		const enabled = await this.runtimeIndexEnabled(bot.id, bot.tickSettings.enabled);
+		const leaseExpiresAt = status === "running" ? new Date(Date.parse(now) + 15 * 60_000).toISOString() : null;
+		const nextDueAt =
+			status === "running" ? (enabled ? leaseExpiresAt : null)
+			: !enabled ? null
+			: status === "idle" ? this.nextDue(bot, now)
+			: new Date(Date.parse(now) + 15 * 60_000).toISOString();
 		await this.env.BICKR_D1.prepare(
 			`UPDATE bot_runtime_index
 			 SET status = ?, active_run_id = ?, lease_expires_at = ?, last_error = ?, next_due_at = ?, updated_at = ?
@@ -2311,17 +2346,29 @@ export class BotRuntime {
 			.bind(
 				status,
 				activeRunId,
-				status === "running" ? nextDueAt : null,
+				leaseExpiresAt,
 				lastError ?? null,
 				nextDueAt,
 				now,
 				bot.id,
 			)
 			.run();
+		return nextDueAt;
 	}
 
 	private nextDue(bot: BotDocument, from = new Date().toISOString()): string {
 		return new Date(Date.parse(from) + bot.tickSettings.intervalSeconds * 1000).toISOString();
+	}
+
+	private async runtimeIndexEnabled(botId: string, fallback: boolean): Promise<boolean> {
+		const row = await this.env.BICKR_D1.prepare(
+			`SELECT enabled
+			 FROM bot_runtime_index
+			 WHERE bot_id = ?`,
+		)
+			.bind(botId)
+			.first<{ enabled: number }>();
+		return row ? row.enabled === 1 : fallback;
 	}
 
 	private async requireOwnerOrInternal(request: Request, botId: string): Promise<void> {
@@ -2389,6 +2436,40 @@ export async function buildRuntimeLoopInput(
 		},
 		autoProfileSeenItems: [...autoProfileSeenItems.values()],
 	};
+}
+
+function emptyKnownRuntimeTargets(): KnownRuntimeTargets {
+	return {
+		threadIds: new Set<string>(),
+		commentIds: new Set<string>(),
+		commentThreadIds: new Map<string, string>(),
+	};
+}
+
+function rememberLoopInputTargets(targets: KnownRuntimeTargets, input: LoopInput): void {
+	for (const notification of input.notifications) {
+		rememberRuntimeTarget(targets, notification.threadId, notification.commentId);
+		rememberRuntimeTarget(targets, notification.threadId, notification.parentCommentId);
+		for (const item of notification.context?.content ?? []) {
+			rememberRuntimeTarget(
+				targets,
+				stringValue(item.threadId),
+				stringValue(item.commentId) ?? stringValue(item.id),
+			);
+		}
+	}
+}
+
+function rememberRuntimeTarget(targets: KnownRuntimeTargets, threadId: string | undefined, commentId?: string): void {
+	if (threadId) {
+		targets.threadIds.add(threadId);
+	}
+	if (commentId) {
+		targets.commentIds.add(commentId);
+		if (threadId) {
+			targets.commentThreadIds.set(commentId, threadId);
+		}
+	}
 }
 
 async function notificationMessageProfileSeenItem(
@@ -2524,6 +2605,7 @@ async function dispatchDueBots(env: Env, scheduledTime: number): Promise<void> {
 		`SELECT bot_id AS botId
 		 FROM bot_runtime_index
 		 WHERE enabled = 1
+		   AND next_due_at IS NOT NULL
 		   AND next_due_at <= ?
 		   AND (lease_expires_at IS NULL OR lease_expires_at <= ?)
 		 ORDER BY next_due_at ASC
@@ -3669,6 +3751,14 @@ async function sleep(ms: number, signal: AbortSignal): Promise<void> {
 	});
 }
 
+function pausedTickResult(): TickRunResult {
+	return {
+		runId: "paused",
+		status: "paused",
+		error: "This participant is paused. Unpause it before starting a loop run.",
+	};
+}
+
 async function readTickOptions(request: Request): Promise<TickOptions> {
 	const contentType = request.headers.get("content-type") ?? "";
 	if (!contentType.includes("application/json")) {
@@ -3770,6 +3860,9 @@ function toolFailureCode(error: unknown): string {
 	if (error instanceof DuplicateReplyError) {
 		return "duplicate_comment";
 	}
+	if (error instanceof UnknownRuntimeTargetError) {
+		return "unknown_runtime_target";
+	}
 	if (error instanceof RepositoryError) {
 		return error.code;
 	}
@@ -3783,6 +3876,9 @@ function toolFailureGuidance(name: string, error: unknown): string | undefined {
 	const canonical = canonicalToolName(name);
 	if (error instanceof DuplicateReplyError) {
 		return `Do not post the same comment again. The existing comment is at ${error.duplicate.urlPath}.`;
+	}
+	if (error instanceof UnknownRuntimeTargetError) {
+		return "Use a thread or comment ID from the current notification, injected context, or a recent tool result.";
 	}
 	if (canonical === "list_recent_threads" || canonical === "create_post") {
 		return "Use a forum handle like philosophy or f/philosophy. Do not include unrelated entity prefixes.";

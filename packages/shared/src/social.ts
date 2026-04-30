@@ -24,6 +24,7 @@ import {
 	type SpotlightIncludedContent,
 	type SpotlightPreview,
 	type SpotlightPreviewInput,
+	type SpotlightSendInput,
 	type ThreadDocument,
 	type ThreadSummary,
 	type VoteDetail,
@@ -1919,7 +1920,7 @@ export async function sendSpotlight(
 	db: D1DatabaseLike,
 	userId: string,
 	forum: ForumDocument,
-	input: SpotlightPreviewInput,
+	input: SpotlightSendInput,
 	inject: (botId: string, text: string, spotlightId: string) => Promise<{ injectionId?: string }>,
 	now = new Date().toISOString(),
 ): Promise<{ preview: SpotlightPreview; deliveries: SpotlightDeliveryResult[] }> {
@@ -2562,6 +2563,9 @@ async function ownedSpotlightBots(
 	}
 	if (selected.some((bot) => bot.homeWorldId !== forum.worldId)) {
 		throw repositoryError("forbidden", "Spotlight bots must be in the same world as the forum.", 403);
+	}
+	if (selected.some((bot) => !bot.tickSettings.enabled)) {
+		throw repositoryError("bad_request", "Spotlight can only target unpaused participants.", 400);
 	}
 	return selected;
 }

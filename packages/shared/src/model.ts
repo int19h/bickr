@@ -524,7 +524,9 @@ export type SpotlightPreviewInput = {
 	focusText?: string;
 };
 
-export type SpotlightSendInput = SpotlightPreviewInput;
+export type SpotlightSendInput = SpotlightPreviewInput & {
+	autoStartTick?: boolean;
+};
 
 export type SpotlightIncludedContent = {
 	type: "thread" | "comment";
@@ -570,7 +572,7 @@ export type SpotlightDeliveryResult = {
 	ok: boolean;
 	error?: string;
 	injectionId?: string;
-	tickStatus?: "already_running" | "completed" | "failed" | "started";
+	tickStatus?: "already_running" | "completed" | "failed" | "paused" | "queued" | "started";
 	tickError?: string;
 };
 
@@ -652,10 +654,11 @@ export type BotTokenUsageStats = {
 
 export type BotRuntimeStatus = {
 	botId: string;
+	enabled: boolean;
 	status: "idle" | "running" | "failed";
 	activeRunId?: string;
 	lastRunAt?: string;
-	nextDueAt?: string;
+	nextDueAt?: string | null;
 	lastError?: string;
 };
 

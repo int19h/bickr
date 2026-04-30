@@ -78,8 +78,8 @@ export const defaultInitialBotNotification =
 export const introForumHandle = "intro";
 const introForumDescription = "Introductions, first posts, and orientation for new participants in this world.";
 export const defaultTickSettings: BotTickSettings = {
-	enabled: true,
-	intervalSeconds: 3_600,
+	enabled: false,
+	intervalSeconds: 86_400,
 	contextWindowTokens: 16_000,
 	compactionThreshold: 0.75,
 	maxToolCallsPerTick: 8,
@@ -629,9 +629,7 @@ export async function updateBot(
 
 	await writeJson(kv, kvKeys.bot(updated.id), updated);
 	await upsertBotIndex(db, updated);
-	await upsertBotRuntimeIndex(db, updated, now, {
-		reschedule: shouldRescheduleBotRuntime(bot.tickSettings, updated.tickSettings, input.tickSettings),
-	});
+	await upsertBotRuntimeIndex(db, updated, now, shouldRescheduleBotRuntime(bot.tickSettings, updated.tickSettings, input.tickSettings));
 	await putObjectIndex(db, updated, "bot", updated.homeWorldId);
 
 	return botSummary(updated, { includeToolSettings: true });
@@ -1054,9 +1052,12 @@ async function upsertBotRuntimeIndex(
 	db: D1DatabaseLike,
 	bot: BotDocument,
 	now: string,
-	options: { reschedule?: boolean } = {},
+	options: { reschedule?: boolean; scheduleIfMissing?: boolean } = {},
 ): Promise<void> {
-	const nextDue = new Date(Date.parse(now) + bot.tickSettings.intervalSeconds * 1000).toISOString();
+	const nextDue =
+		!bot.tickSettings.enabled ? null
+		: options.scheduleIfMissing ? now
+		: new Date(Date.parse(now) + bot.tickSettings.intervalSeconds * 1000).toISOString();
 	await db
 		.prepare(
 			`INSERT INTO bot_runtime_index (
@@ -1073,7 +1074,10 @@ async function upsertBotRuntimeIndex(
 				compaction_threshold = excluded.compaction_threshold,
 				max_tool_calls_per_tick = excluded.max_tool_calls_per_tick,
 				next_due_at = CASE
+					WHEN excluded.enabled = 0 THEN NULL
+					WHEN ? THEN COALESCE(bot_runtime_index.next_due_at, excluded.next_due_at)
 					WHEN ? THEN excluded.next_due_at
+					WHEN bot_runtime_index.next_due_at IS NULL THEN excluded.next_due_at
 					ELSE bot_runtime_index.next_due_at
 				END,
 				updated_at = excluded.updated_at`,
@@ -1090,6 +1094,7 @@ async function upsertBotRuntimeIndex(
 			nextDue,
 			now,
 			now,
+			options.scheduleIfMissing ? 1 : 0,
 			options.reschedule ? 1 : 0,
 		)
 		.run();
@@ -1099,19 +1104,24 @@ function shouldRescheduleBotRuntime(
 	previous: BotTickSettings,
 	next: BotTickSettings,
 	patch?: Partial<BotTickSettings>,
-): boolean {
-	return Boolean(
-		patch &&
-			((patch.intervalSeconds !== undefined && next.intervalSeconds !== previous.intervalSeconds) ||
-				(patch.enabled !== undefined && next.enabled && !previous.enabled)),
-	);
+): { reschedule?: boolean; scheduleIfMissing?: boolean } {
+	if (!patch) {
+		return {};
+	}
+	if (patch.enabled !== undefined && next.enabled && !previous.enabled) {
+		return { scheduleIfMissing: true };
+	}
+	if (patch.intervalSeconds !== undefined && next.enabled && next.intervalSeconds !== previous.intervalSeconds) {
+		return { reschedule: true };
+	}
+	return {};
 }
 
 async function disableBotRuntime(db: D1DatabaseLike, botId: string, now: string): Promise<void> {
 	await db
 		.prepare(
 			`UPDATE bot_runtime_index
-			 SET enabled = 0, status = 'idle', active_run_id = NULL, lease_expires_at = NULL, updated_at = ?
+			 SET enabled = 0, status = 'idle', active_run_id = NULL, lease_expires_at = NULL, next_due_at = NULL, updated_at = ?
 			 WHERE bot_id = ?`,
 		)
 		.bind(now, botId)

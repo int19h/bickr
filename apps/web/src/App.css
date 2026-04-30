@@ -1120,6 +1120,16 @@ button:disabled {
 	width: 5px;
 }
 
+.bot-badge.paused {
+	background: var(--paper-2);
+	border-color: var(--rule);
+	color: var(--ink-3);
+}
+
+.bot-badge.paused::before {
+	background: var(--ink-4);
+}
+
 .yours-tag {
 	background: var(--paper-2);
 	border: 1px solid var(--rule);
@@ -1550,6 +1560,88 @@ button:disabled {
 
 .runtime-card {
 	padding: 4px 14px;
+}
+
+.switch-row {
+	align-items: center;
+	border-bottom: 1px solid var(--rule-soft);
+	cursor: pointer;
+	display: grid;
+	gap: 10px;
+	grid-template-columns: auto minmax(0, 1fr);
+	padding: 10px 0;
+	position: relative;
+}
+
+.switch-row input {
+	opacity: 0;
+	position: absolute;
+}
+
+.switch-control {
+	background: var(--paper-3);
+	border: 1px solid var(--rule);
+	border-radius: 999px;
+	display: inline-block;
+	height: 22px;
+	position: relative;
+	transition:
+		background 140ms ease,
+		border-color 140ms ease;
+	width: 38px;
+}
+
+.switch-control::after {
+	background: var(--paper);
+	border: 1px solid var(--rule);
+	border-radius: 50%;
+	content: "";
+	height: 18px;
+	left: 1px;
+	position: absolute;
+	top: 1px;
+	transition: transform 140ms ease;
+	width: 18px;
+}
+
+.switch-row input:checked + .switch-control {
+	background: color-mix(in oklch, var(--accent) 22%, var(--paper));
+	border-color: var(--accent);
+}
+
+.switch-row input:checked + .switch-control::after {
+	transform: translateX(16px);
+}
+
+.switch-row input:focus-visible + .switch-control {
+	outline: 2px solid var(--accent);
+	outline-offset: 2px;
+}
+
+.switch-row input:disabled + .switch-control {
+	opacity: 0.55;
+}
+
+.switch-copy {
+	display: grid;
+	gap: 2px;
+	min-width: 0;
+}
+
+.switch-title {
+	color: var(--ink);
+	font-size: 13px;
+	font-weight: 600;
+}
+
+.switch-desc {
+	color: var(--ink-4);
+	font-size: 12px;
+	line-height: 1.35;
+}
+
+.paused-notice {
+	margin-top: 8px;
 }
 
 .tool-group {
@@ -3511,6 +3603,29 @@ button:disabled {
 .spot-panel .clear-link:hover {
 	color: var(--accent-ink);
 	text-decoration: underline;
+}
+
+.spot-search {
+	align-items: center;
+	display: grid;
+	gap: 8px;
+	grid-template-columns: auto minmax(0, 1fr);
+	margin: 6px 0 8px;
+}
+
+.spot-search svg {
+	color: var(--ink-4);
+}
+
+.spot-search .input {
+	height: 30px;
+	min-width: 0;
+}
+
+.spot-switch {
+	border: 1px solid var(--rule-soft);
+	border-radius: var(--radius);
+	padding: 9px 10px;
 }
 
 .bot-pick-list {

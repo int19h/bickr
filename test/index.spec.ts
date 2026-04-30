@@ -245,7 +245,7 @@ CREATE TABLE bot_runtime_index (
 	context_window_tokens INTEGER NOT NULL,
 	compaction_threshold REAL NOT NULL,
 	max_tool_calls_per_tick INTEGER NOT NULL,
-	next_due_at TEXT NOT NULL,
+	next_due_at TEXT,
 	status TEXT NOT NULL,
 	active_run_id TEXT,
 	lease_expires_at TEXT,
@@ -1079,11 +1079,14 @@ describe("Bickr Pages Functions", () => {
 		expect(clearedOpenRouterTools.webSearch).not.toHaveProperty("allowedDomains");
 
 		const runtimeRow = await testEnv.BICKR_D1.prepare(
-			`SELECT enabled, status FROM bot_runtime_index WHERE bot_id = ?`,
+			`SELECT enabled, status, tick_interval_seconds AS tickIntervalSeconds, next_due_at AS nextDueAt
+			 FROM bot_runtime_index
+			 WHERE bot_id = ?`,
 		)
 			.bind(created.data.bot.id)
-			.first<{ enabled: number; status: string }>();
-		expect(runtimeRow).toMatchObject({ enabled: 1, status: "idle" });
+			.first<{ enabled: number; status: string; tickIntervalSeconds: number; nextDueAt: string | null }>();
+		expect(created.data.bot.tickSettings).toMatchObject({ enabled: false, intervalSeconds: 86_400 });
+		expect(runtimeRow).toMatchObject({ enabled: 0, status: "idle", tickIntervalSeconds: 86_400, nextDueAt: null });
 		const personalForums = await listForums(testEnv.BICKR_D1, "patch-notes");
 		const personalForum = personalForums.find((forum) => forum.personalBotId === created.data.bot.id);
 		expect(personalForum).toMatchObject({
@@ -1152,8 +1155,9 @@ describe("Bickr Pages Functions", () => {
 			 WHERE bot_id = ?`,
 		)
 			.bind(created.data.bot.id)
-			.first<{ nextDueAt: string }>();
-		expect(runtimeBeforePatch).toBeTruthy();
+			.first<{ nextDueAt: string | null }>();
+		expect(runtimeBeforePatch).toEqual({ nextDueAt: null });
+		const beforeUnpause = Date.now();
 
 		const patchResponse = await patchBot(
 			contextFor<typeof patchBot>(
@@ -1163,6 +1167,7 @@ describe("Bickr Pages Functions", () => {
 					{
 						displayName: "Release Oracle",
 						tickSettings: {
+							enabled: true,
 							intervalSeconds: 60,
 							contextWindowTokens: 32_000,
 							maxToolCallsPerTick: 12,
@@ -1179,6 +1184,7 @@ describe("Bickr Pages Functions", () => {
 				bot: {
 					displayName: "Release Oracle",
 					tickSettings: {
+						enabled: true,
 						intervalSeconds: 60,
 						contextWindowTokens: 32_000,
 						maxToolCallsPerTick: 12,
@@ -1188,14 +1194,36 @@ describe("Bickr Pages Functions", () => {
 		});
 
 		const runtimeAfterPatch = await testEnv.BICKR_D1.prepare(
-			`SELECT tick_interval_seconds AS tickIntervalSeconds, next_due_at AS nextDueAt
+			`SELECT enabled, tick_interval_seconds AS tickIntervalSeconds, next_due_at AS nextDueAt
 			 FROM bot_runtime_index
 			 WHERE bot_id = ?`,
 		)
 			.bind(created.data.bot.id)
-			.first<{ tickIntervalSeconds: number; nextDueAt: string }>();
-		expect(runtimeAfterPatch).toMatchObject({ tickIntervalSeconds: 60 });
-		expect(Date.parse(runtimeAfterPatch?.nextDueAt ?? "")).toBeLessThan(Date.parse(runtimeBeforePatch?.nextDueAt ?? ""));
+			.first<{ enabled: number; tickIntervalSeconds: number; nextDueAt: string | null }>();
+		expect(runtimeAfterPatch).toMatchObject({ enabled: 1, tickIntervalSeconds: 60 });
+		expect(Date.parse(runtimeAfterPatch?.nextDueAt ?? "")).toBeGreaterThanOrEqual(beforeUnpause - 1_000);
+		expect(Date.parse(runtimeAfterPatch?.nextDueAt ?? "")).toBeLessThanOrEqual(Date.now() + 1_000);
+
+		const pauseResponse = await patchBot(
+			contextFor<typeof patchBot>(
+				jsonRequest(
+					`http://example.com/api/me/bots/${created.data.bot.id}`,
+					"PATCH",
+					{ tickSettings: { enabled: false } },
+					cookie,
+				),
+				{ botId: created.data.bot.id },
+			),
+		);
+		expect(pauseResponse.status, await pauseResponse.clone().text()).toBe(200);
+		const runtimeAfterPause = await testEnv.BICKR_D1.prepare(
+			`SELECT enabled, next_due_at AS nextDueAt
+			 FROM bot_runtime_index
+			 WHERE bot_id = ?`,
+		)
+			.bind(created.data.bot.id)
+			.first<{ enabled: number; nextDueAt: string | null }>();
+		expect(runtimeAfterPause).toEqual({ enabled: 0, nextDueAt: null });
 
 		const deleteResponse = await deleteBot(
 			contextFor<typeof deleteBot>(
@@ -2051,8 +2079,8 @@ describe("Bickr Pages Functions", () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);
 		const forum = await createForumForTest(cookie, "spotlights");
-		const botOne = await createBotForTest(cookie, "spot-one");
-		const botTwo = await createBotForTest(cookie, "spot-two");
+		const botOne = await createBotForTest(cookie, "spot-one", { enabled: true });
+		const botTwo = await createBotForTest(cookie, "spot-two", { enabled: true });
 		await createWorld(
 			contextFor<typeof createWorld>(
 				jsonRequest(
@@ -2122,6 +2150,20 @@ describe("Bickr Pages Functions", () => {
 			),
 		);
 		expect(wrongWorldPreview.status).toBe(403);
+
+		const pausedBot = await createBotForTest(cookie, "spot-paused");
+		const pausedPreview = await spotlightPreview(
+			contextFor<typeof spotlightPreview>(
+				jsonRequest(
+					"http://example.com/api/worlds/patch-notes/forums/spotlights/spotlight/preview",
+					"POST",
+					{ targetType: "threads", threadIds: [thread.id], botIds: [pausedBot.id] },
+					cookie,
+				),
+				{ worldHandle: "patch-notes", forumHandle: "spotlights" },
+			),
+		);
+		expect(pausedPreview.status).toBe(400);
 
 		const commentPreviewResponse = await spotlightPreview(
 			contextFor<typeof spotlightPreview>(
@@ -2194,6 +2236,37 @@ describe("Bickr Pages Functions", () => {
 				`/bots/${botOne.id}/tick`,
 			]),
 		);
+
+		const queuedRuntimePaths: string[] = [];
+		const queuedSendResponse = await spotlightSend(
+			contextFor<typeof spotlightSend>(
+				jsonRequest(
+					"http://example.com/api/worlds/patch-notes/forums/spotlights/spotlight/send",
+					"POST",
+					{
+						targetType: "threads",
+						threadIds: [thread.id],
+						botIds: [botTwo.id],
+						autoStartTick: false,
+					},
+					cookie,
+				),
+				{ worldHandle: "patch-notes", forumHandle: "spotlights" },
+				{
+					AGENT_RUNTIME: {
+						fetch: async (request: Request) => {
+							queuedRuntimePaths.push(new URL(request.url).pathname);
+							return Response.json({ ok: true, data: { injectionId: "inj-queued" } });
+						},
+					} as unknown as Fetcher,
+				},
+			),
+		);
+		const queuedSendPayload = (await queuedSendResponse.json()) as SpotlightSendPayload;
+		expect(queuedSendPayload.data.deliveries).toMatchObject([
+			{ botId: botTwo.id, ok: true, injectionId: "inj-queued", tickStatus: "queued" },
+		]);
+		expect(queuedRuntimePaths).toEqual([`/bots/${botTwo.id}/inject`]);
 
 		const delivery = await testEnv.BICKR_D1.prepare(
 			`SELECT status, target_type AS targetType, focus_text AS focusText
@@ -2442,6 +2515,12 @@ type BotBody = {
 	inferenceSettings: Record<string, unknown>;
 	prompt?: string;
 	toolSettings?: Record<string, unknown>;
+	tickSettings: {
+		enabled: boolean;
+		intervalSeconds: number;
+		contextWindowTokens: number;
+		maxToolCallsPerTick: number;
+	};
 	lastActiveAt?: string;
 };
 
@@ -2627,7 +2706,7 @@ async function createForumForTest(cookie: string, handle: string): Promise<TestF
 	return payload.data.forum;
 }
 
-async function createBotForTest(cookie: string, handle: string): Promise<BotBody> {
+async function createBotForTest(cookie: string, handle: string, options: { enabled?: boolean } = {}): Promise<BotBody> {
 	const displayName = handle
 		.split("-")
 		.map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`)
@@ -2649,6 +2728,21 @@ async function createBotForTest(cookie: string, handle: string): Promise<BotBody
 		),
 	);
 	const payload = (await response.json()) as { data: { bot: BotBody } };
+	if (options.enabled !== undefined && payload.data.bot.tickSettings.enabled !== options.enabled) {
+		const patchResponse = await patchBot(
+			contextFor<typeof patchBot>(
+				jsonRequest(
+					`http://example.com/api/me/bots/${payload.data.bot.id}`,
+					"PATCH",
+					{ tickSettings: { enabled: options.enabled } },
+					cookie,
+				),
+				{ botId: payload.data.bot.id },
+			),
+		);
+		const patchPayload = (await patchResponse.json()) as { data: { bot: BotBody } };
+		return patchPayload.data.bot;
+	}
 	return payload.data.bot;
 }
 

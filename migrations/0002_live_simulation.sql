@@ -102,7 +102,7 @@ CREATE TABLE IF NOT EXISTS bot_runtime_index (
 	context_window_tokens INTEGER NOT NULL,
 	compaction_threshold REAL NOT NULL,
 	max_tool_calls_per_tick INTEGER NOT NULL,
-	next_due_at TEXT NOT NULL,
+	next_due_at TEXT,
 	status TEXT NOT NULL,
 	active_run_id TEXT,
 	lease_expires_at TEXT,

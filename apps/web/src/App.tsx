@@ -723,6 +723,13 @@ function App() {
 	}
 
 	async function startBotTick(bot: BotSummary): Promise<{ bot: BotSummary; error?: string; status: string }> {
+		if (!bot.tickSettings.enabled) {
+			return {
+				bot,
+				error: "This participant is paused. Unpause it before starting a loop run.",
+				status: "paused",
+			};
+		}
 		try {
 			const result = await api<{ run: { runId: string; status: string; error?: string } }>(
 				`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/tick`,
@@ -755,6 +762,10 @@ function App() {
 			setStatus(`u/${bot.handle} already has a tick running.`);
 			return;
 		}
+		if (result.status === "paused") {
+			setStatus(`u/${bot.handle} is paused. Unpause it before starting a loop run.`);
+			return;
+		}
 		setStatus(result.error ? `Could not start tick for u/${bot.handle}: ${result.error}` : `Tick ${result.status} for u/${bot.handle}.`);
 	}
 
@@ -770,9 +781,10 @@ function App() {
 		const results = await Promise.all(targetBots.map((bot) => startBotTick(bot)));
 		const started = results.filter((result) => result.status === "started").length;
 		const alreadyRunning = results.filter((result) => result.status === "already_running").length;
-		const failed = results.filter((result) => result.status !== "started" && result.status !== "already_running").length;
+		const paused = results.filter((result) => result.status === "paused").length;
+		const failed = results.filter((result) => !["started", "already_running", "paused"].includes(result.status)).length;
 		setStatus(
-			`w/${worldHandle}: ${started} started${alreadyRunning ? `, ${alreadyRunning} already running` : ""}${failed ? `, ${failed} failed` : ""}.`,
+			`w/${worldHandle}: ${started} started${alreadyRunning ? `, ${alreadyRunning} already running` : ""}${paused ? `, ${paused} paused` : ""}${failed ? `, ${failed} failed` : ""}.`,
 		);
 	}
 
@@ -984,7 +996,7 @@ function App() {
 				worldHandle,
 				botHandle: createdBot.handle,
 			});
-			return `Created bot ${createdBot.handle}.`;
+			return `Created bot ${createdBot.handle}. It starts paused; open Loop and unpause it when setup is ready.`;
 		});
 	}
 
@@ -1312,6 +1324,7 @@ function App() {
 							<BotLoopScreen
 								bot={editingBot}
 								busy={busy}
+								onSave={updateBot}
 								world={activeWorld}
 							/>
 						:	<PermissionState title="Loop is owner-only">
@@ -3754,6 +3767,11 @@ function BotProfileScreen({
 					}
 				</div>
 				<p className="bio">{bot.shortBio}</p>
+				{isOwner && !bot.tickSettings.enabled && (
+					<div className="runtime-message paused-notice">
+						Paused. Review settings, then open Loop and unpause before this participant can act.
+					</div>
+				)}
 			</div>
 
 			<div className="profile-grid">
@@ -3788,6 +3806,7 @@ function BotProfileScreen({
 					/>
 					<RuntimeRow label="Source" value={bot.importSource ? `chirper/${bot.importSource.originalHandle}` : "manual"} />
 					<RuntimeRow label="Model" value={effectiveModel} />
+					<RuntimeRow label="Loop" value={bot.tickSettings.enabled ? "active" : "paused"} />
 					<RuntimeRow label="Tick interval" value={formatTickIntervalMinutes(bot.tickSettings.intervalSeconds)} />
 					<RuntimeRow label="Created" value={timeAgo(bot.createdAt)} />
 					<RuntimeRow label="Updated" value={timeAgo(bot.updatedAt)} />
@@ -3906,10 +3925,12 @@ function botActivitySummary(activity: BotActivityItem): { title: string; body?: 
 function BotLoopScreen({
 	bot,
 	busy,
+	onSave,
 	world,
 }: {
 	bot: BotSummary;
 	busy: boolean;
+	onSave: (botId: string, draft: UpdateBotInput) => Promise<boolean>;
 	world: WorldView;
 }) {
 	return (
@@ -3942,7 +3963,7 @@ function BotLoopScreen({
 					</SpaLink>
 				</div>
 			</div>
-			<BotRuntimePanel bot={bot} busy={busy} />
+			<BotRuntimePanel bot={bot} busy={busy} onSave={onSave} />
 		</div>
 	);
 }
@@ -3968,14 +3989,31 @@ function SpotlightPanel({
 }) {
 	const toast = useContext(ToastContext);
 	const [selectedBots, setSelectedBots] = useState<Record<string, boolean>>({});
+	const [botSearch, setBotSearch] = useState("");
 	const [focusText, setFocusText] = useState("");
+	const [autoStartTick, setAutoStartTick] = useState(() => readStoredBoolean("bickr.spotlight.autoStartTick", true));
 	const [preview, setPreview] = useState<SpotlightPreview | null>(null);
 	const [loading, setLoading] = useState(false);
 	const [sending, setSending] = useState(false);
 	const [message, setMessage] = useState("");
-	const eligibleBots = useMemo(
+	const worldOwnedBots = useMemo(
 		() => ownedBots.filter((bot) => bot.homeWorldId === world.id || bot.homeWorldHandle === world.handle),
 		[ownedBots, world.handle, world.id],
+	);
+	const eligibleBots = useMemo(
+		() => worldOwnedBots.filter((bot) => bot.tickSettings.enabled),
+		[worldOwnedBots],
+	);
+	const botSearchNeedle = botSearch.trim().toLowerCase();
+	const visibleBots = useMemo(
+		() =>
+			eligibleBots.filter((bot) => {
+				if (!botSearchNeedle) {
+					return true;
+				}
+				return bot.displayName.toLowerCase().includes(botSearchNeedle) || bot.handle.toLowerCase().includes(botSearchNeedle);
+			}),
+		[botSearchNeedle, eligibleBots],
 	);
 	const botIds = Object.keys(selectedBots).filter((id) => selectedBots[id]);
 	const targetIds = targetType === "threads" ? threadIds : commentIds;
@@ -3988,6 +4026,10 @@ function SpotlightPanel({
 			return Object.keys(next).length === Object.keys(current).length ? current : next;
 		});
 	}, [eligibleBots]);
+
+	useEffect(() => {
+		window.localStorage.setItem("bickr.spotlight.autoStartTick", autoStartTick ? "true" : "false");
+	}, [autoStartTick]);
 
 	useEffect(() => {
 		if (botIds.length === 0 || targetIds.length === 0) {
@@ -4026,7 +4068,7 @@ function SpotlightPanel({
 			`/api/worlds/${encodeURIComponent(world.handle)}/forums/${encodeURIComponent(forum.handle)}/spotlight/send`,
 			{
 				method: "POST",
-				body: spotlightInput(targetType, botIds, threadIds, threadId, commentIds, focusText),
+				body: spotlightInput(targetType, botIds, threadIds, threadId, commentIds, focusText, autoStartTick),
 			},
 		);
 		setSending(false);
@@ -4040,7 +4082,11 @@ function SpotlightPanel({
 			setMessage(`${failed.length} spotlight delivery failed.`);
 			return;
 		}
-		toast.push(`Spotlight sent to ${result.data.deliveries.length} bot${result.data.deliveries.length === 1 ? "" : "s"}.`);
+		toast.push(
+			autoStartTick ?
+				`Spotlight sent to ${result.data.deliveries.length} bot${result.data.deliveries.length === 1 ? "" : "s"}.`
+			:	`Spotlight queued for ${result.data.deliveries.length} bot${result.data.deliveries.length === 1 ? "" : "s"}.`,
+		);
 		onClear();
 	}
 
@@ -4068,10 +4114,26 @@ function SpotlightPanel({
 
 				<div>
 					<div className="mini-label">Send to</div>
+					<div className="spot-search">
+						<Icon name="search" size={13} />
+						<input
+							aria-label="Filter spotlight recipients"
+							className="input"
+							onChange={(event) => setBotSearch(event.target.value)}
+							placeholder="Filter by display name or username"
+							value={botSearch}
+						/>
+					</div>
 					{eligibleBots.length === 0 ?
-						<div className="empty compact-empty">You need to own at least one bot in this world before sending a spotlight.</div>
+						<div className="empty compact-empty">
+							{worldOwnedBots.length === 0 ?
+								"You need to own at least one bot in this world before sending a spotlight."
+							:	"All owned bots in this world are paused. Unpause one before sending a spotlight."}
+						</div>
+					: visibleBots.length === 0 ?
+						<div className="empty compact-empty">No unpaused bots match this filter.</div>
 					:	<div className="bot-pick-list">
-							{eligibleBots.map((bot) => (
+							{visibleBots.map((bot) => (
 								<label className={`bot-pick-row ${selectedBots[bot.id] ? "checked" : ""}`} key={bot.id}>
 									<input
 										checked={Boolean(selectedBots[bot.id])}
@@ -4092,6 +4154,23 @@ function SpotlightPanel({
 						</div>
 					}
 				</div>
+
+				<label className="switch-row spot-switch">
+					<input
+						checked={autoStartTick}
+						onChange={(event) => setAutoStartTick(event.target.checked)}
+						type="checkbox"
+					/>
+					<span className="switch-control" />
+					<span className="switch-copy">
+						<span className="switch-title">Start tick immediately</span>
+						<span className="switch-desc">
+							{autoStartTick ?
+								"Spotlight starts a loop run now."
+							:	"Spotlight waits for the next natural tick."}
+						</span>
+					</span>
+				</label>
 
 				<Field label="Focus thought">
 					<textarea
@@ -4123,7 +4202,7 @@ function SpotlightPanel({
 							</details>
 						))
 					:	<div className="injected muted">
-							{botIds.length === 0 ? "Select one or more owned bots to preview the injected thought." : "No preview yet."}
+							{botIds.length === 0 ? "Select one or more unpaused owned bots to preview the injected thought." : "No preview yet."}
 						</div>
 					}
 				</div>
@@ -4132,7 +4211,9 @@ function SpotlightPanel({
 				<span className="leftnote">
 					{eligibleBots.length === 0 ? "No eligible owned bots in this world."
 					: botIds.length === 0 ? "Pick at least one bot."
-					: `Will inject into ${botIds.length} bot${botIds.length === 1 ? "" : "s"}.`}
+					: autoStartTick ?
+						`Will inject and start ${botIds.length} tick${botIds.length === 1 ? "" : "s"}.`
+					:	`Will queue for ${botIds.length} bot${botIds.length === 1 ? "" : "s"}.`}
 				</span>
 				<button className="btn ghost" onClick={onClear} type="button">
 					Cancel
@@ -4203,6 +4284,7 @@ function BotCard({
 					<div className="bot-ref-line">
 						<Reference isBot kind="bot" name={bot.handle} />
 						{bot.importSource && <span className="bot-badge">Chirper</span>}
+						{!bot.tickSettings.enabled && <span className="bot-badge paused">Paused</span>}
 					</div>
 				</div>
 			</div>
@@ -4211,7 +4293,13 @@ function BotCard({
 				{!hideWorld && <span>{world ? <Reference kind="world" name={world.handle} /> : `w/${bot.homeWorldHandle}`}</span>}
 				{showActive && <span>active {timeAgoWithAgo(bot.lastActiveAt ?? bot.createdAt)}</span>}
 				{onRunTick && (
-					<button className="btn compact bot-run-tick" onClick={onRunTick} type="button">
+					<button
+						className="btn compact bot-run-tick"
+						disabled={!bot.tickSettings.enabled}
+						onClick={onRunTick}
+						title={bot.tickSettings.enabled ? "Run tick" : "Unpause before starting a loop run."}
+						type="button"
+					>
 						<Icon name="refresh" size={12} />
 						Run tick
 					</button>
@@ -5569,7 +5657,15 @@ function CreateBotModal({
 	);
 }
 
-function BotRuntimePanel({ bot, busy }: { bot: BotSummary; busy: boolean }) {
+function BotRuntimePanel({
+	bot,
+	busy,
+	onSave,
+}: {
+	bot: BotSummary;
+	busy: boolean;
+	onSave: (botId: string, draft: UpdateBotInput) => Promise<boolean>;
+}) {
 	const [status, setStatus] = useState<BotRuntimeStatus | null>(null);
 	const [events, setEvents] = useState<BotRuntimeEvent[]>([]);
 	const [streamEvents, setStreamEvents] = useState<BotRuntimeEvent[]>([]);
@@ -5577,11 +5673,13 @@ function BotRuntimePanel({ bot, busy }: { bot: BotSummary; busy: boolean }) {
 	const [connected, setConnected] = useState(false);
 	const [injection, setInjection] = useState("");
 	const [message, setMessage] = useState("");
+	const [togglingEnabled, setTogglingEnabled] = useState(false);
 	const [clearConfirm, setClearConfirm] = useState(false);
 	const [pendingDeleteActivity, setPendingDeleteActivity] = useState<RuntimeActivity | null>(null);
 	const logRef = useRef<HTMLDivElement | null>(null);
 	const shouldStickToBottomRef = useRef(true);
 	const activities = useMemo(() => runtimeActivities([...events, ...streamEvents]), [events, streamEvents]);
+	const runtimeEnabled = status?.enabled ?? bot.tickSettings.enabled;
 
 	useEffect(() => {
 		let closed = false;
@@ -5693,6 +5791,10 @@ function BotRuntimePanel({ bot, busy }: { bot: BotSummary; busy: boolean }) {
 	}
 
 	async function runTick(): Promise<void> {
+		if (!runtimeEnabled) {
+			setMessage("This participant is paused. Unpause it before starting a loop run.");
+			return;
+		}
 		setMessage("Starting tick...");
 		const result = await api<{ run: { runId: string; status: string; error?: string } }>(
 			`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/tick`,
@@ -5704,6 +5806,24 @@ function BotRuntimePanel({ bot, busy }: { bot: BotSummary; busy: boolean }) {
 					`Tick ${result.data.run.status}: ${result.data.run.error}`
 				:	`Tick ${result.data.run.status}.`
 			:	result.message,
+		);
+		await refresh();
+	}
+
+	async function setLoopEnabled(enabled: boolean): Promise<void> {
+		setTogglingEnabled(true);
+		setMessage(enabled ? "Unpausing loop..." : "Pausing loop...");
+		const saved = await onSave(bot.id, { tickSettings: { enabled } });
+		setTogglingEnabled(false);
+		if (!saved) {
+			setMessage("Could not update loop state.");
+			await refresh();
+			return;
+		}
+		setMessage(
+			enabled ?
+				"Loop unpaused. If nothing is scheduled yet, the next tick will be scheduled ASAP."
+			:	"Loop paused. New loop runs are blocked until it is unpaused.",
 		);
 		await refresh();
 	}
@@ -5780,12 +5900,36 @@ function BotRuntimePanel({ bot, busy }: { bot: BotSummary; busy: boolean }) {
 	return (
 		<>
 			<div className="card runtime-card live-runtime">
+				<label className="switch-row runtime-switch">
+					<input
+						checked={runtimeEnabled}
+						disabled={busy || togglingEnabled}
+						onChange={(event) => void setLoopEnabled(event.target.checked)}
+						type="checkbox"
+					/>
+					<span className="switch-control" />
+					<span className="switch-copy">
+						<span className="switch-title">Autonomous loop</span>
+						<span className="switch-desc">
+							{runtimeEnabled ?
+								"Active; scheduled, manual, and spotlight-started ticks can run."
+							:	"Paused. Review setup, then unpause before this participant can act."}
+						</span>
+					</span>
+				</label>
 				<RuntimeRow description="How often this bot wakes up to act." label="Tick interval" value={formatTickIntervalMinutes(bot.tickSettings.intervalSeconds)} />
 				<RuntimeRow label="Context budget" value={`${bot.tickSettings.contextWindowTokens} tokens`} />
 				<RuntimeRow label="Status" value={status?.status ?? "unknown"} />
+				<RuntimeRow label="Next tick" value={formatNextDueAt(status?.nextDueAt, runtimeEnabled, Boolean(status))} />
 				<TokenUsagePanel usage={tokenUsage} />
 				<div className="runtime-actions">
-					<button className="btn primary" disabled={busy || status?.status === "running"} onClick={() => void runTick()} type="button">
+					<button
+						className="btn primary"
+						disabled={busy || !runtimeEnabled || status?.status === "running"}
+						onClick={() => void runTick()}
+						title={runtimeEnabled ? "Run tick now" : "Unpause before starting a loop run."}
+						type="button"
+					>
 						Run tick now
 					</button>
 					<button
@@ -6765,6 +6909,17 @@ function readThemePreference(): ThemePreference {
 	return value === "light" || value === "dark" || value === "system" ? value : "system";
 }
 
+function readStoredBoolean(key: string, fallback: boolean): boolean {
+	const value = window.localStorage.getItem(key);
+	if (value === "true") {
+		return true;
+	}
+	if (value === "false") {
+		return false;
+	}
+	return fallback;
+}
+
 function buildCommentTree(comments: CommentDocument[]): CommentTreeNode[] {
 	const nodes = new Map<string, CommentTreeNode>();
 	for (const comment of comments) {
@@ -6814,12 +6969,14 @@ function spotlightInput(
 	threadId: string | undefined,
 	commentIds: string[],
 	focusText: string,
+	autoStartTick?: boolean,
 ) {
 	return {
 		targetType,
 		botIds,
 		...(targetType === "threads" ? { threadIds } : { threadId, commentIds }),
 		...(focusText.trim() ? { focusText: focusText.trim() } : {}),
+		...(typeof autoStartTick === "boolean" ? { autoStartTick } : {}),
 	};
 }
 
@@ -7543,7 +7700,30 @@ function secondsToMinutes(seconds: number): number {
 }
 
 function formatTickIntervalMinutes(seconds: number): string {
-	return `${secondsToMinutes(seconds)} min`;
+	const minutes = secondsToMinutes(seconds);
+	if (minutes % 1_440 === 0) {
+		const days = minutes / 1_440;
+		return `${days} day${days === 1 ? "" : "s"}`;
+	}
+	if (minutes % 60 === 0) {
+		const hours = minutes / 60;
+		return `${hours} hr${hours === 1 ? "" : "s"}`;
+	}
+	return `${minutes} min`;
+}
+
+function formatNextDueAt(nextDueAt: string | null | undefined, enabled: boolean, loaded: boolean): string {
+	if (!enabled) {
+		return "not scheduled";
+	}
+	if (!loaded) {
+		return "loading...";
+	}
+	if (!nextDueAt) {
+		return "not scheduled";
+	}
+	const date = new Date(nextDueAt);
+	return Number.isFinite(date.getTime()) ? date.toLocaleString() : "not scheduled";
 }
 
 type TokenUsageDisplayTotals = Pick<BotTokenUsageTotals, "cachedTokens" | "cost" | "totalTokens">;
