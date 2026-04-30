@@ -1,5 +1,5 @@
 import { ok, readJsonBody } from "@bickr/shared/api";
-import { type SpotlightSendInput } from "@bickr/shared/model";
+import { type SpotlightDeliveryResult, type SpotlightSendInput } from "@bickr/shared/model";
 import { forumByHandle, sendSpotlight } from "@bickr/shared/social";
 import { normalizeHandle } from "@bickr/shared/validation";
 import { requireCompleteUser, type AppEnv } from "../../../../../_auth";
@@ -10,7 +10,6 @@ export const onRequestPost: PagesFunction<AppEnv, "worldHandle" | "forumHandle">
 	env,
 	request,
 	params,
-	waitUntil,
 }) => {
 	try {
 		const user = await requireCompleteUser(env, request);
@@ -45,15 +44,15 @@ export const onRequestPost: PagesFunction<AppEnv, "worldHandle" | "forumHandle">
 			},
 		);
 		if (input.autoStartTick ?? true) {
-			const tickStarts = result.deliveries
+			await Promise.all(result.deliveries
 				.filter((delivery) => delivery.ok && delivery.injectionId)
-				.map((delivery) => {
-					delivery.tickStatus = "started";
-					return startSpotlightTick(env, request, user.id, delivery.botId, delivery.injectionId!, delivery.spotlightId);
-				});
-			if (tickStarts.length > 0) {
-				waitUntil(Promise.allSettled(tickStarts));
-			}
+				.map(async (delivery) => {
+					const tick = await startSpotlightTick(env, request, user.id, delivery.botId, delivery.injectionId!, delivery.spotlightId);
+					delivery.tickStatus = tick.status;
+					if (tick.error) {
+						delivery.tickError = tick.error;
+					}
+				}));
 		} else {
 			for (const delivery of result.deliveries) {
 				if (delivery.ok && delivery.injectionId) {
@@ -74,8 +73,8 @@ async function startSpotlightTick(
 	botId: string,
 	injectionId: string,
 	spotlightId: string,
-): Promise<void> {
-	await env.AGENT_RUNTIME.fetch(
+): Promise<{ status: NonNullable<SpotlightDeliveryResult["tickStatus"]>; error?: string }> {
+	const response = await env.AGENT_RUNTIME.fetch(
 		serviceRequest(
 			request,
 			`/bots/${encodeURIComponent(botId)}/tick`,
@@ -83,6 +82,33 @@ async function startSpotlightTick(
 			JSON.stringify({ mode: "spotlight", injectionIds: [injectionId], spotlightId, background: true }),
 		),
 	);
+	const payload = (await response.json()) as {
+		ok?: boolean;
+		data?: { run?: { status?: string; error?: string } };
+		message?: string;
+	};
+	if (!response.ok || payload.ok === false) {
+		return { status: "failed", error: payload.message ?? `Tick start failed with status ${response.status}.` };
+	}
+	const run = payload.data?.run;
+	return {
+		status: spotlightTickStatus(run?.status),
+		...(run?.error ? { error: run.error } : {}),
+	};
+}
+
+function spotlightTickStatus(status: string | undefined): NonNullable<SpotlightDeliveryResult["tickStatus"]> {
+	switch (status) {
+		case "already_running":
+		case "completed":
+		case "failed":
+		case "paused":
+		case "queued":
+		case "started":
+			return status;
+		default:
+			return "failed";
+	}
 }
 
 function parseSpotlightInput(value: unknown): SpotlightSendInput {

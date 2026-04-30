@@ -629,6 +629,82 @@ describe("Bickr Pages Functions", () => {
 		expect(toolUseRecoveryReminder({ consecutiveNoToolTicks: 1 })).toContain("Emit tool calls with JSON arguments");
 	});
 
+	it("queues busy spotlight ticks only when the active tick misses the injection", async () => {
+		const unconsumedInjections = new Set(["inj-late"]);
+		const waitUntilPromises: Promise<unknown>[] = [];
+		const started: Array<{
+			botId: string;
+			trigger: string;
+			options: { mode?: string; injectionIds?: string[]; spotlightId?: string; background?: boolean };
+		}> = [];
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			activeRunId: "run-current",
+			state: {
+				storage: {
+					sql: memoryRuntimeSql({ unconsumedInjections }),
+				},
+				waitUntil: (promise: Promise<unknown>) => {
+					waitUntilPromises.push(promise);
+				},
+			},
+			status: async () => ({
+				botId: "bot-one",
+				enabled: true,
+				status: "running",
+				activeRunId: "run-current",
+			}),
+			runTick: async (botId: string, trigger: string, options: { mode?: string; injectionIds?: string[]; spotlightId?: string; background?: boolean }) => {
+				started.push({ botId, trigger, options });
+				return { runId: "run-followup", status: "completed" };
+			},
+		});
+		const startBackgroundTick = (BotRuntime.prototype as unknown as {
+			startBackgroundTick: (
+				botId: string,
+				trigger: "cron" | "manual" | "spotlight",
+				options: { mode?: "normal" | "spotlight"; injectionIds?: string[]; spotlightId?: string; background?: boolean },
+			) => Promise<{ runId: string; status: string }>;
+		}).startBackgroundTick.bind(runtime);
+		const startQueuedSpotlightTick = (BotRuntime.prototype as unknown as {
+			startQueuedSpotlightTick: (botId: string) => void;
+		}).startQueuedSpotlightTick.bind(runtime);
+
+		await expect(
+			startBackgroundTick("bot-one", "spotlight", {
+				mode: "spotlight",
+				injectionIds: ["inj-early"],
+				spotlightId: "spt-early",
+				background: true,
+			}),
+		).resolves.toMatchObject({ runId: "run-current", status: "queued" });
+		startQueuedSpotlightTick("bot-one");
+		await Promise.all(waitUntilPromises.splice(0));
+		expect(started).toEqual([]);
+
+		await expect(
+			startBackgroundTick("bot-one", "spotlight", {
+				mode: "spotlight",
+				injectionIds: ["inj-late"],
+				spotlightId: "spt-late",
+				background: true,
+			}),
+		).resolves.toMatchObject({ runId: "run-current", status: "queued" });
+		startQueuedSpotlightTick("bot-one");
+		await Promise.all(waitUntilPromises);
+		expect(started).toEqual([
+			{
+				botId: "bot-one",
+				trigger: "spotlight",
+				options: {
+					mode: "spotlight",
+					injectionIds: ["inj-late"],
+					spotlightId: "spt-late",
+					background: false,
+				},
+			},
+		]);
+	});
+
 	it("builds OpenRouter server tool request entries only for OpenRouter base URLs", () => {
 		const settings = {
 			openRouter: {
@@ -2852,6 +2928,44 @@ describe("Bickr Pages Functions", () => {
 			]),
 		);
 
+		const busyRuntimePaths: string[] = [];
+		const busySendResponse = await spotlightSend(
+			contextFor<typeof spotlightSend>(
+				jsonRequest(
+					"http://example.com/api/worlds/patch-notes/forums/spotlights/spotlight/send",
+					"POST",
+					{
+						targetType: "threads",
+						threadIds: [thread.id],
+						botIds: [botTwo.id],
+					},
+					cookie,
+				),
+				{ worldHandle: "patch-notes", forumHandle: "spotlights" },
+				{
+					AGENT_RUNTIME: {
+						fetch: async (request: Request) => {
+							busyRuntimePaths.push(new URL(request.url).pathname);
+							if (new URL(request.url).pathname.endsWith("/inject")) {
+								return Response.json({ ok: true, data: { injectionId: "inj-busy" } });
+							}
+							return Response.json({ ok: true, data: { run: { runId: "run-current", status: "queued" } } });
+						},
+					} as unknown as Fetcher,
+				},
+			),
+		);
+		const busySendPayload = (await busySendResponse.json()) as SpotlightSendPayload;
+		expect(busySendPayload.data.deliveries).toMatchObject([
+			{ botId: botTwo.id, ok: true, injectionId: "inj-busy", tickStatus: "queued" },
+		]);
+		expect(busyRuntimePaths).toEqual(
+			expect.arrayContaining([
+				`/bots/${botTwo.id}/inject`,
+				`/bots/${botTwo.id}/tick`,
+			]),
+		);
+
 		const queuedRuntimePaths: string[] = [];
 		const queuedSendResponse = await spotlightSend(
 			contextFor<typeof spotlightSend>(
@@ -3451,7 +3565,7 @@ function sseStream(events: Array<Record<string, unknown> | "[DONE]">): ReadableS
 	});
 }
 
-function memoryRuntimeSql() {
+function memoryRuntimeSql(options: { unconsumedInjections?: ReadonlySet<string> } = {}) {
 	const values = new Map<string, string>();
 	return {
 		exec<T>(sql: string, ...params: unknown[]) {
@@ -3461,8 +3575,17 @@ function memoryRuntimeSql() {
 					toArray: () => (value === undefined ? [] : [{ value_json: value } as T]),
 				};
 			}
+			if (/SELECT 1 AS found\s+FROM injections\s+WHERE id = \? AND consumed_at IS NULL/.test(sql)) {
+				const found = options.unconsumedInjections?.has(String(params[0])) ?? false;
+				return {
+					toArray: () => (found ? [{ found: 1 } as T] : []),
+				};
+			}
 			if (/INSERT INTO runtime_state/.test(sql)) {
 				values.set(String(params[0]), String(params[1]));
+			}
+			if (/DELETE FROM runtime_state WHERE key = \?/.test(sql)) {
+				values.delete(String(params[0]));
 			}
 			return {
 				one: () => ({} as T),

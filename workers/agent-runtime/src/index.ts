@@ -244,7 +244,7 @@ class PriorTargetReplyError extends Error {
 
 type TickRunResult = {
 	runId: string;
-	status: "already_running" | "completed" | "failed" | "paused" | "started" | "stopped";
+	status: "already_running" | "completed" | "failed" | "paused" | "queued" | "started" | "stopped";
 	error?: string;
 };
 
@@ -300,6 +300,18 @@ type InjectionRow = {
 	kind: string;
 	sourceId: string | null;
 	spotlightId: string | null;
+};
+
+type QueuedSpotlightTick = {
+	injectionId: string;
+	spotlightId: string;
+	createdAt: string;
+};
+
+type PendingSpotlightTick = {
+	spotlightId: string;
+	injectionIds: string[];
+	entries: QueuedSpotlightTick[];
 };
 
 type RunContext = {
@@ -456,6 +468,7 @@ class TickStoppedError extends Error {
 
 const stopRequestStateKey = "stop_requested_run_id";
 const toolUseRecoveryStateKey = "tool_use_recovery";
+const pendingSpotlightTicksStateKey = "pending_spotlight_ticks";
 const contextBudgetCacheStateKey = (fingerprint: string): string => `context_budget:${fingerprint}`;
 const providerRequestTimeoutMs = 60_000;
 const providerStreamIdleTimeoutMs = 60_000;
@@ -817,10 +830,10 @@ export class BotRuntime {
 	): Promise<TickRunResult> {
 		const current = await this.status(botId);
 		if (this.activeRunId) {
-			return { runId: this.activeRunId, status: "already_running" };
+			return this.busyTickResult(current, trigger, options);
 		}
 		if (current.status === "running") {
-			return { runId: current.activeRunId ?? "active", status: "already_running" };
+			return this.busyTickResult(current, trigger, options);
 		}
 		if (!current.enabled) {
 			return pausedTickResult();
@@ -835,10 +848,10 @@ export class BotRuntime {
 	private async runTick(botId: string, trigger: "cron" | "manual" | "spotlight", options: TickOptions = {}): Promise<TickRunResult> {
 		const current = await this.status(botId);
 		if (this.activeRunId) {
-			return { runId: this.activeRunId, status: "already_running" };
+			return this.busyTickResult(current, trigger, options);
 		}
 		if (current.status === "running") {
-			return { runId: current.activeRunId ?? "active", status: "already_running" };
+			return this.busyTickResult(current, trigger, options);
 		}
 		if (!current.enabled) {
 			return pausedTickResult();
@@ -861,6 +874,7 @@ export class BotRuntime {
 			...(options.spotlightId ? { spotlightId: options.spotlightId } : {}),
 			signal: abortController.signal,
 		};
+		let startQueuedSpotlightAfterRun = false;
 
 		try {
 			this.throwIfStopped(runId, abortController.signal);
@@ -888,6 +902,7 @@ export class BotRuntime {
 					...(nextDueAt ? { nextDueAt } : {}),
 					note: "No pending spotlight injection was available.",
 				});
+				startQueuedSpotlightAfterRun = true;
 				return { runId, status: "completed" };
 			}
 			if (mode !== "spotlight") {
@@ -919,6 +934,7 @@ export class BotRuntime {
 			await this.compactIfNeeded(bot, runId);
 			const nextDueAt = await this.setRuntimeIndex(bot, "idle", null, undefined, new Date().toISOString());
 			await this.appendEvent(runId, "tick_completed", { ...(nextDueAt ? { nextDueAt } : {}) });
+			startQueuedSpotlightAfterRun = true;
 			return { runId, status: "completed" };
 		} catch (error) {
 			if (error instanceof TickStoppedError || isAbortError(error)) {
@@ -981,7 +997,163 @@ export class BotRuntime {
 				this.activeRunId = null;
 			}
 			this.clearStopRequest(runId);
+			if (startQueuedSpotlightAfterRun) {
+				try {
+					this.startQueuedSpotlightTick(botId);
+				} catch (error) {
+					console.error("queued spotlight tick scheduling failed", error);
+				}
+			}
 		}
+	}
+
+	private busyTickResult(
+		current: BotRuntimeStatus,
+		trigger: "cron" | "manual" | "spotlight",
+		options: TickOptions,
+	): TickRunResult {
+		const runId = this.activeRunId ?? current.activeRunId ?? "active";
+		const spotlightRequested = trigger === "spotlight" || options.mode === "spotlight";
+		if (spotlightRequested) {
+			const queued = this.queuePendingSpotlightTick(runId, options);
+			if (queued) {
+				return queued;
+			}
+		}
+		return { runId, status: "already_running" };
+	}
+
+	private queuePendingSpotlightTick(activeRunId: string, options: TickOptions): TickRunResult | null {
+		if (options.mode !== "spotlight" || !options.spotlightId || !options.injectionIds?.length) {
+			return null;
+		}
+
+		const spotlightId = options.spotlightId;
+		const now = new Date().toISOString();
+		const existing = this.pendingSpotlightTickEntries();
+		const existingInjectionIds = new Set(existing.map((entry) => entry.injectionId));
+		const additions = uniqueStrings(options.injectionIds)
+			.filter((injectionId) => !existingInjectionIds.has(injectionId))
+			.map((injectionId) => ({
+				injectionId,
+				spotlightId,
+				createdAt: now,
+			}));
+		if (additions.length > 0) {
+			this.writePendingSpotlightTickEntries([...existing, ...additions]);
+		}
+		return { runId: activeRunId, status: "queued" };
+	}
+
+	private startQueuedSpotlightTick(botId: string): void {
+		const pending = this.takeNextPendingSpotlightTick();
+		if (!pending) {
+			return;
+		}
+		const tick = this.runTick(botId, "spotlight", {
+			mode: "spotlight",
+			injectionIds: pending.injectionIds,
+			spotlightId: pending.spotlightId,
+			background: false,
+		})
+			.then((result) => {
+				if (result.status === "paused") {
+					this.prependPendingSpotlightTickEntries(pending.entries);
+				}
+			})
+			.catch((error) => {
+				this.prependPendingSpotlightTickEntries(pending.entries);
+				console.error("queued spotlight tick failed to start", error);
+			});
+		this.state.waitUntil(tick);
+	}
+
+	private takeNextPendingSpotlightTick(): PendingSpotlightTick | null {
+		const unconsumed = this.pendingSpotlightTickEntries().filter((entry) => this.hasUnconsumedInjection(entry.injectionId));
+		if (unconsumed.length === 0) {
+			this.clearPendingSpotlightTickEntries();
+			return null;
+		}
+		const spotlightId = unconsumed[0]?.spotlightId;
+		if (!spotlightId) {
+			this.clearPendingSpotlightTickEntries();
+			return null;
+		}
+		const entries = unconsumed.filter((entry) => entry.spotlightId === spotlightId);
+		const remaining = unconsumed.filter((entry) => entry.spotlightId !== spotlightId);
+		this.writePendingSpotlightTickEntries(remaining);
+		return {
+			spotlightId,
+			injectionIds: entries.map((entry) => entry.injectionId),
+			entries,
+		};
+	}
+
+	private pendingSpotlightTickEntries(): QueuedSpotlightTick[] {
+		const row = this.state.storage.sql
+			.exec<{ value_json: string }>(`SELECT value_json FROM runtime_state WHERE key = ?`, pendingSpotlightTicksStateKey)
+			.toArray()[0];
+		if (!row) {
+			return [];
+		}
+		try {
+			const parsed = runtimeRecord(JSON.parse(row.value_json) as unknown);
+			const entries = Array.isArray(parsed.entries) ? parsed.entries : [];
+			return entries
+				.map((entry) => runtimeRecord(entry))
+				.map((entry) => ({
+					injectionId: stringValue(entry.injectionId) ?? "",
+					spotlightId: stringValue(entry.spotlightId) ?? "",
+					createdAt: stringValue(entry.createdAt) ?? "",
+				}))
+				.filter((entry) => entry.injectionId && entry.spotlightId && entry.createdAt);
+		} catch {
+			this.clearPendingSpotlightTickEntries();
+			return [];
+		}
+	}
+
+	private prependPendingSpotlightTickEntries(entries: QueuedSpotlightTick[]): void {
+		if (entries.length === 0) {
+			return;
+		}
+		const existing = this.pendingSpotlightTickEntries();
+		const prependedInjectionIds = new Set(entries.map((entry) => entry.injectionId));
+		this.writePendingSpotlightTickEntries([
+			...entries,
+			...existing.filter((entry) => !prependedInjectionIds.has(entry.injectionId)),
+		]);
+	}
+
+	private writePendingSpotlightTickEntries(entries: QueuedSpotlightTick[]): void {
+		if (entries.length === 0) {
+			this.clearPendingSpotlightTickEntries();
+			return;
+		}
+		this.state.storage.sql.exec(
+			`INSERT INTO runtime_state (key, value_json)
+			 VALUES (?, ?)
+			 ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json`,
+			pendingSpotlightTicksStateKey,
+			JSON.stringify({ entries }),
+		);
+	}
+
+	private clearPendingSpotlightTickEntries(): void {
+		this.state.storage.sql.exec(`DELETE FROM runtime_state WHERE key = ?`, pendingSpotlightTicksStateKey);
+	}
+
+	private hasUnconsumedInjection(injectionId: string): boolean {
+		const row = this.state.storage.sql
+			.exec<{ found: number }>(
+				`SELECT 1 AS found
+				 FROM injections
+				 WHERE id = ? AND consumed_at IS NULL
+				 LIMIT 1`,
+				injectionId,
+			)
+			.toArray()[0];
+		return Boolean(row);
 	}
 
 	private async stopTick(botId: string): Promise<{ stopped: boolean; runId?: string; status: BotRuntimeStatus["status"] }> {
@@ -4365,6 +4537,10 @@ function numberArg(value: unknown, fallback: number): number {
 function trimmed(value: string | undefined): string | undefined {
 	const text = value?.trim();
 	return text ? text : undefined;
+}
+
+function uniqueStrings(values: string[]): string[] {
+	return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
 }
 
 function stringValue(value: unknown): string | undefined {
