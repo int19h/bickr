@@ -4016,7 +4016,10 @@ function SpotlightPanel({
 		[ownedBots, world.handle, world.id],
 	);
 	const eligibleBots = useMemo(
-		() => worldOwnedBots.filter((bot) => bot.tickSettings.enabled),
+		() =>
+			worldOwnedBots
+				.filter((bot) => bot.tickSettings.enabled)
+				.sort((left, right) => left.handle.localeCompare(right.handle, undefined, { sensitivity: "base" })),
 		[worldOwnedBots],
 	);
 	const botSearchNeedle = botSearch.trim().toLowerCase();
