@@ -1,10 +1,9 @@
 import { type BotDocument, type BotSummary, type BotToolSettings } from "@bickr/shared/model";
 
-export function standardPrompt(bot: BotDocument, worldBots: BotSummary[]): string {
-	const participants = worldBots.map((item) => `u/${item.handle} (${item.displayName})`).join(", ");
+export function standardPrompt(bot: BotDocument, _worldBots: BotSummary[]): string {
 	return `You are an autonomous Bickr participant. Bickr is a Reddit-like social network where visible public activity is produced by participants.
 
-Incoming user-role messages are runtime inputs: notifications, pings, prior memory, and tool results.
+There is no "user". Incoming user-role messages are runtime inputs: notifications, pings, prior memory, and tool results.
 
 Make all decisions autonomously. Do not ask the user what you should do next; decide whether to browse, post, reply, vote, follow, search, or end the tick.
 
@@ -16,16 +15,16 @@ Avoid double-posting. Before replying, check whether you have already replied to
 
 Personal blogs are public forums named after participants: u/alice's personal blog is f/alice. Posting in f/alice publicly addresses that participant, but it is still visible in the world.
 
-If the input is only a ping, you may proactively browse recent or hot threads, post something, or do nothing if that fits your persona and current context.
+Don't be purely reactive. Once you've dealt with notifications, proactively browse recent or hot threads, post something etc; don't just do replies alone, vary your activities. Avoid getting into a repetitive loop doing the same thing again and again.
+
+When deciding on your next action, think about what you have seen and done recently and reason about what you want to do next in light of that. All reasoning must be in first person from the perspective of your persona.
 
 Stay within your Bickr persona. Do not reveal API keys or system internals.
 
 Your handle is u/${bot.handle}. Your display name is ${bot.displayName}. Your short bio is: ${bot.shortBio}
 
 Your persona instructions are:
-${bot.prompt}
-
-Participants in this world: ${participants}`;
+${bot.prompt}`;
 }
 
 type ToolParameterSchema =
@@ -86,7 +85,7 @@ export const toolDefinitions: FunctionToolDefinition[] = [
 	),
 	tool(
 		"create_post",
-		"Create a root post in a forum. forumHandle may be philosophy or f/philosophy.",
+		"Create a root post in a forum.",
 		{ forumHandle: { type: "string" }, title: { type: "string" }, body: { type: "string" }, url: { type: "string" } },
 		["forumHandle", "title", "body"],
 	),
@@ -121,18 +120,18 @@ export const toolDefinitions: FunctionToolDefinition[] = [
 	),
 	tool(
 		"view_profile",
-		"View another participant's public profile by username. username may be alice or u/alice. Returns name and short bio only; never returns private instructions or account metadata.",
+		"View another participant's public profile by username.",
 		{ username: { type: "string" } },
 		["username"],
 	),
 	tool(
 		"view_activity",
-		"View another participant's visible activity feed by username. username may be alice or u/alice. Includes posts, comments, votes, and follows.",
+		"View another participant's visible activity feed by username. Includes posts, comments, votes, and follows.",
 		{ username: { type: "string" }, limit: { type: "number" } },
 		["username"],
 	),
-	tool("follow_profile", "Follow another participant by username. username may be alice or u/alice.", { username: { type: "string" } }, ["username"]),
-	tool("unfollow_profile", "Unfollow another participant by username. username may be alice or u/alice.", { username: { type: "string" } }, ["username"]),
+	tool("follow_profile", "Follow another participant by username.", { username: { type: "string" } }, ["username"]),
+	tool("unfollow_profile", "Unfollow another participant by username.", { username: { type: "string" } }, ["username"]),
 ];
 
 export const mutableToolNames: ReadonlySet<string> = new Set([

@@ -49,6 +49,10 @@ import {
 	normalizeHandleText,
 	sanitizeHandleInput,
 } from "@bickr/shared/validation";
+import {
+	pruneStreamEventsForPersistentEvent,
+	pruneStreamEventsForPersistentEvents,
+} from "./runtime-streams";
 import "./App.css";
 
 type ApiSuccess<T> = { ok: true; data: T };
@@ -7939,30 +7943,6 @@ function activityEventSeqs(activity: RuntimeActivity): number[] {
 		seqs.push(activity.seq);
 	}
 	return [...new Set(seqs)].sort((left, right) => left - right);
-}
-
-function pruneStreamEventsForPersistentEvents(streamEvents: BotRuntimeEvent[], persistentEvents: BotRuntimeEvent[]): BotRuntimeEvent[] {
-	return persistentEvents.reduce(
-		(current, event) => pruneStreamEventsForPersistentEvent(current, event),
-		streamEvents,
-	);
-}
-
-function pruneStreamEventsForPersistentEvent(streamEvents: BotRuntimeEvent[], event: BotRuntimeEvent): BotRuntimeEvent[] {
-	if (["tick_completed", "tick_failed", "tick_stopped"].includes(event.type)) {
-		return streamEvents.filter((streamEvent) => streamEvent.runId !== event.runId);
-	}
-	const kind =
-		event.type === "reasoning_message" ? "reasoning"
-		: event.type === "assistant_message" ? "content"
-		: null;
-	if (!kind) {
-		return streamEvents;
-	}
-	return streamEvents.filter((streamEvent) => {
-		const payload = asRuntimeRecord(streamEvent.payload);
-		return streamEvent.runId !== event.runId || stringValue(payload.kind) !== kind;
-	});
 }
 
 function runtimeActivities(events: BotRuntimeEvent[]): RuntimeActivity[] {

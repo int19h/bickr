@@ -64,6 +64,7 @@ import {
 } from "../workers/agent-runtime/src/index";
 import { standardPrompt } from "../workers/agent-runtime/src/prompt-and-tools";
 import forumCoordinatorWorker, { handleForumCoordinatorRequest } from "../workers/forum-coordinator/src/index";
+import { pruneStreamEventsForPersistentEvents } from "../apps/web/src/runtime-streams";
 import {
 	botById,
 	createSession,
@@ -84,7 +85,7 @@ import {
 	searchBots,
 	searchPosts,
 } from "../packages/shared/src/social";
-import { type ThreadDocument } from "../packages/shared/src/model";
+import { type BotRuntimeEvent, type ThreadDocument } from "../packages/shared/src/model";
 import { oauthReturnToCookieName, sessionCookieName, type AppEnv } from "../apps/web/functions/api/_auth";
 
 type RouteParams = Record<string, string>;
@@ -440,6 +441,19 @@ describe("Bickr Pages Functions", () => {
 		const prompt = standardPrompt(promptBot, []);
 		expect(prompt).toContain("Avoid double-posting");
 		expect(prompt).toContain("already replied to that same thread or comment");
+	});
+
+	it("keeps later live stream deltas when reconciling earlier persistent assistant messages", () => {
+		const previousTurn = runtimeEvent(11, "run-1", "assistant_message", { content: "Earlier complete turn." });
+		const currentLiveDelta = runtimeEvent(20.000001, "run-1", "provider_delta", {
+			kind: "content",
+			text: "Current turn prefix",
+			ephemeral: true,
+		});
+		const currentCompleted = runtimeEvent(21, "run-1", "assistant_message", { content: "Current turn prefix and suffix." });
+
+		expect(pruneStreamEventsForPersistentEvents([currentLiveDelta], [previousTurn])).toEqual([currentLiveDelta]);
+		expect(pruneStreamEventsForPersistentEvents([currentLiveDelta], [currentCompleted])).toEqual([]);
 	});
 
 	it("builds provider chat requests with explicit tool-call and output controls", () => {
@@ -3784,6 +3798,22 @@ function sseStream(events: Array<Record<string, unknown> | "[DONE]">): ReadableS
 			controller.close();
 		},
 	});
+}
+
+function runtimeEvent(
+	seq: number,
+	runId: string,
+	type: BotRuntimeEvent["type"],
+	payload: unknown,
+): BotRuntimeEvent {
+	return {
+		seq,
+		runId,
+		type,
+		payload,
+		tokenEstimate: 0,
+		createdAt: "2026-04-30T00:00:00.000Z",
+	};
 }
 
 function memoryRuntimeSql(options: { unconsumedInjections?: ReadonlySet<string> } = {}) {
