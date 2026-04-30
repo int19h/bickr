@@ -249,7 +249,9 @@ a {
 	background: var(--paper);
 	border: 1px solid var(--rule);
 	border-radius: var(--radius-lg);
-	box-shadow: 0 24px 60px -22px rgba(0, 0, 0, 0.3);
+	box-shadow:
+		0 24px 60px -22px rgba(0, 0, 0, 0.3),
+		0 0 0 1px var(--rule-soft);
 	display: grid;
 	gap: 6px;
 	max-height: min(520px, calc(100vh - 72px));
@@ -1195,7 +1197,9 @@ button:disabled {
 	background: var(--paper);
 	border: 1px solid var(--rule);
 	border-radius: var(--radius);
-	box-shadow: var(--shadow);
+	box-shadow:
+		0 18px 44px -22px rgba(0, 0, 0, 0.45),
+		0 0 0 1px var(--rule-soft);
 	color: var(--ink-2);
 	display: none;
 	font-size: 12px;
@@ -1268,16 +1272,6 @@ button:disabled {
 	display: inline-block;
 	height: 5px;
 	width: 5px;
-}
-
-.bot-badge.paused {
-	background: var(--paper-2);
-	border-color: var(--rule);
-	color: var(--ink-3);
-}
-
-.bot-badge.paused::before {
-	background: var(--ink-4);
 }
 
 .yours-tag {
@@ -1432,6 +1426,10 @@ button:disabled {
 	min-width: 0;
 }
 
+.bot-card.manageable .bot-card-title {
+	padding-right: 64px;
+}
+
 .bot-card .name {
 	color: var(--ink);
 	display: block;
@@ -1503,6 +1501,18 @@ button:disabled {
 	position: absolute;
 	right: 10px;
 	top: 10px;
+}
+
+.bot-card .actions-overlay .icon-btn {
+	background: var(--paper);
+	box-shadow:
+		0 8px 22px -14px rgba(0, 0, 0, 0.55),
+		0 0 0 1px var(--rule-soft);
+	color: var(--ink-2);
+}
+
+.bot-card.paused .actions-overlay .icon-btn {
+	background: var(--paper-2);
 }
 
 .bot-card:hover .actions-overlay {
@@ -2188,7 +2198,9 @@ button:disabled {
 	background: var(--paper);
 	border: 1px solid var(--rule);
 	border-radius: var(--radius);
-	box-shadow: 0 20px 48px -20px rgba(0, 0, 0, 0.35);
+	box-shadow:
+		0 20px 48px -20px rgba(0, 0, 0, 0.35),
+		0 0 0 1px var(--rule-soft);
 	display: grid;
 	gap: 8px;
 	max-height: min(520px, calc(100vh - 120px));
@@ -3454,7 +3466,9 @@ button:disabled {
 	background: var(--paper);
 	border: 1px solid var(--rule);
 	border-radius: var(--radius);
-	box-shadow: var(--shadow);
+	box-shadow:
+		0 18px 44px -22px rgba(0, 0, 0, 0.45),
+		0 0 0 1px var(--rule-soft);
 	color: var(--ink);
 	display: grid;
 	font-size: 12px;

@@ -1377,6 +1377,7 @@ function App() {
 							bot={activeBot}
 							blogForum={activeBotBlogForum}
 							isOwner={activeBot.ownerUserId === session.user.id}
+							onReference={openReference}
 							onToggleSubscription={toggleSubscription}
 							ownerInferenceSettings={userProfile?.inferenceSettings ?? null}
 							subscribed={isSubscribed("bot", activeBot.id)}
@@ -3815,6 +3816,7 @@ function BotProfileScreen({
 	bot,
 	blogForum,
 	isOwner,
+	onReference,
 	onToggleSubscription,
 	ownerInferenceSettings,
 	subscribed,
@@ -3823,6 +3825,7 @@ function BotProfileScreen({
 	bot: BotSummary;
 	blogForum: ForumSummary | null;
 	isOwner: boolean;
+	onReference: OpenReference;
 	onToggleSubscription: (target: SubscriptionTarget, active: boolean) => Promise<void>;
 	ownerInferenceSettings: BotInferenceSettings | null;
 	subscribed: boolean;
@@ -3915,7 +3918,9 @@ function BotProfileScreen({
 						</button>
 					}
 				</div>
-				<p className="bio">{bot.shortBio}</p>
+				<p className="bio">
+					<RichText onReference={onReference} text={bot.shortBio} worldHandle={world.handle} />
+				</p>
 				{isOwner && !bot.tickSettings.enabled && (
 					<div className="paused-notice">
 						<Icon name="info" size={14} />
@@ -4402,8 +4407,9 @@ function BotCard({
 }) {
 	const canManage = Boolean(onDelete || onEdit);
 	const paused = !bot.tickSettings.enabled;
+	const cardClassName = ["bot-card", paused ? "paused" : "", canManage ? "manageable" : ""].filter(Boolean).join(" ");
 	return (
-		<article className={`bot-card ${paused ? "paused" : ""}`}>
+		<article className={cardClassName}>
 			{canManage && (
 				<div className="actions-overlay">
 					{onEdit && (
@@ -4436,7 +4442,6 @@ function BotCard({
 					<div className="bot-ref-line">
 						<Reference isBot kind="bot" name={bot.handle} />
 						{bot.importSource && <span className="bot-badge">Chirper</span>}
-						{!bot.tickSettings.enabled && <span className="bot-badge paused">Paused</span>}
 					</div>
 				</div>
 			</div>
@@ -7009,7 +7014,7 @@ function RichText({
 		const prefix = (match[1] ?? "").toLowerCase();
 		const name = match[2] ?? "";
 		if (index > cursor) {
-			parts.push(text.slice(cursor, index));
+			appendRichTextPlainSegment(parts, text.slice(cursor, index), cursor);
 		}
 		const kind: ReferenceKind = prefix === "u" ? "bot" : prefix === "w" ? "world" : "forum";
 		parts.push(
@@ -7025,12 +7030,24 @@ function RichText({
 		cursor = index + match[0].length;
 	}
 	if (cursor < text.length) {
-		parts.push(text.slice(cursor));
+		appendRichTextPlainSegment(parts, text.slice(cursor), cursor);
 	}
 	if (parts.length === 0) {
 		return null;
 	}
 	return <>{parts}</>;
+}
+
+function appendRichTextPlainSegment(parts: ReactNode[], text: string, offset: number): void {
+	const lines = text.split(/\r\n|\n|\r/);
+	for (let index = 0; index < lines.length; index += 1) {
+		if (index > 0) {
+			parts.push(<br key={`br:${offset}:${index}`} />);
+		}
+		if (lines[index]) {
+			parts.push(lines[index]);
+		}
+	}
 }
 
 function Modal({
