@@ -447,9 +447,48 @@ export async function listHumanNotifications(
 	const result = await db
 		.prepare(
 			`SELECT ${humanNotificationColumns}
-			 FROM human_notifications
-			 WHERE user_id = ? AND archived_at IS NULL ${filter}
-			 ORDER BY created_at DESC
+			 FROM human_notifications hn
+			 LEFT JOIN worlds_index w ON w.world_id = hn.world_id
+			 LEFT JOIN forums_index target_forum
+				ON hn.target_type = 'forum'
+			   AND hn.target_id = target_forum.forum_id
+			   AND target_forum.deleted_at IS NULL
+			 LEFT JOIN threads_index source_thread
+				ON hn.source_type = 'thread'
+			   AND hn.source_id = source_thread.thread_id
+			   AND source_thread.deleted_at IS NULL
+			 LEFT JOIN threads_index target_thread
+				ON hn.target_type = 'thread'
+			   AND hn.target_id = target_thread.thread_id
+			   AND target_thread.deleted_at IS NULL
+			 LEFT JOIN comments_index source_comment
+				ON hn.source_type = 'comment'
+			   AND hn.source_id = source_comment.comment_id
+			   AND source_comment.deleted_at IS NULL
+			 LEFT JOIN threads_index source_comment_thread
+				ON source_comment.thread_id = source_comment_thread.thread_id
+			   AND source_comment_thread.deleted_at IS NULL
+			 LEFT JOIN comments_index target_comment
+				ON hn.target_type = 'comment'
+			   AND hn.target_id = target_comment.comment_id
+			   AND target_comment.deleted_at IS NULL
+			 LEFT JOIN threads_index target_comment_thread
+				ON target_comment.thread_id = target_comment_thread.thread_id
+			   AND target_comment_thread.deleted_at IS NULL
+			 LEFT JOIN forums_index resolved_forum
+				ON resolved_forum.forum_id = COALESCE(
+					target_forum.forum_id,
+					source_thread.forum_id,
+					target_thread.forum_id,
+					source_comment_thread.forum_id,
+					target_comment_thread.forum_id
+				)
+			   AND resolved_forum.deleted_at IS NULL
+			 LEFT JOIN bots_index forum_bot
+				ON forum_bot.bot_id = resolved_forum.personal_bot_id
+			   AND forum_bot.deleted_at IS NULL
+			 WHERE hn.user_id = ? AND hn.archived_at IS NULL ${filter}
+			 ORDER BY hn.created_at DESC
 			 LIMIT ?`,
 		)
 		.bind(userId, limit)
@@ -1696,6 +1735,11 @@ type HumanNotificationRow = {
 	actorBotId: string | null;
 	actorHandle: string | null;
 	actorDisplayName: string | null;
+	worldHandle: string | null;
+	worldName: string | null;
+	forumId: string | null;
+	forumHandle: string | null;
+	forumName: string | null;
 	sourceType: string | null;
 	sourceId: string | null;
 	targetType: string | null;
@@ -1734,26 +1778,35 @@ type SubscriptionScopeTarget = {
 };
 
 const humanNotificationColumns = `
-	notification_id AS id,
-	user_id AS userId,
-	world_id AS worldId,
-	event_key AS eventKey,
-	notification_type AS notificationType,
-	actor_bot_id AS actorBotId,
-	actor_handle AS actorHandle,
-	actor_display_name AS actorDisplayName,
-	source_type AS sourceType,
-	source_id AS sourceId,
-	target_type AS targetType,
-	target_id AS targetId,
-	title,
-	body,
-	url_path AS urlPath,
-	spotlight_id AS spotlightId,
-	spotlight_label AS spotlightLabel,
-	created_at AS createdAt,
-	read_at AS readAt,
-	archived_at AS archivedAt
+	hn.notification_id AS id,
+	hn.user_id AS userId,
+	hn.world_id AS worldId,
+	hn.event_key AS eventKey,
+	hn.notification_type AS notificationType,
+	hn.actor_bot_id AS actorBotId,
+	hn.actor_handle AS actorHandle,
+	hn.actor_display_name AS actorDisplayName,
+	w.handle AS worldHandle,
+	w.name AS worldName,
+	resolved_forum.forum_id AS forumId,
+	resolved_forum.handle AS forumHandle,
+	CASE
+		WHEN resolved_forum.personal_bot_id IS NOT NULL AND forum_bot.bot_id IS NOT NULL
+			THEN 'Blog of ' || forum_bot.display_name || ' (u/' || forum_bot.handle || ')'
+		ELSE resolved_forum.description
+	END AS forumName,
+	hn.source_type AS sourceType,
+	hn.source_id AS sourceId,
+	hn.target_type AS targetType,
+	hn.target_id AS targetId,
+	hn.title,
+	hn.body,
+	hn.url_path AS urlPath,
+	hn.spotlight_id AS spotlightId,
+	hn.spotlight_label AS spotlightLabel,
+	hn.created_at AS createdAt,
+	hn.read_at AS readAt,
+	hn.archived_at AS archivedAt
 `;
 
 function subscriptionFromRow(row: HumanSubscriptionRow): HumanSubscription {
@@ -1780,6 +1833,11 @@ function humanNotificationFromRow(row: HumanNotificationRow): HumanNotification 
 		...(row.actorBotId ? { actorBotId: row.actorBotId } : {}),
 		...(row.actorHandle ? { actorHandle: row.actorHandle } : {}),
 		...(row.actorDisplayName ? { actorDisplayName: row.actorDisplayName } : {}),
+		...(row.worldHandle ? { worldHandle: row.worldHandle } : {}),
+		...(row.worldName ? { worldName: row.worldName } : {}),
+		...(row.forumId ? { forumId: row.forumId } : {}),
+		...(row.forumHandle ? { forumHandle: row.forumHandle } : {}),
+		...(row.forumName ? { forumName: row.forumName } : {}),
 		...(row.sourceType ? { sourceType: row.sourceType } : {}),
 		...(row.sourceId ? { sourceId: row.sourceId } : {}),
 		...(row.targetType ? { targetType: row.targetType } : {}),

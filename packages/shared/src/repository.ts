@@ -430,7 +430,7 @@ export async function listForums(db: D1DatabaseLike, worldHandle: string): Promi
 			 FROM forums_index f
 			 LEFT JOIN bots_index b ON b.bot_id = f.personal_bot_id AND b.deleted_at IS NULL
 			 WHERE f.world_id = ? AND f.deleted_at IS NULL
-			 ORDER BY f.updated_at DESC, f.handle ASC`,
+			 ORDER BY f.handle ASC`,
 		)
 		.bind(world.id)
 		.all<ForumSummary>();

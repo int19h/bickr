@@ -355,6 +355,11 @@ export type HumanNotification = {
 	actorBotId?: string;
 	actorHandle?: string;
 	actorDisplayName?: string;
+	worldHandle?: string;
+	worldName?: string;
+	forumId?: string;
+	forumHandle?: string;
+	forumName?: string;
 	sourceType?: string;
 	sourceId?: string;
 	targetType?: string;

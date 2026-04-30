@@ -60,11 +60,13 @@ type Route =
 	| "bot-loop"
 	| "bot-edit"
 	| "my-bots"
+	| "notifications"
 	| "profile";
 type WorldTab = "forums" | "bots" | "lore";
 type BotCreateTab = "manual" | "chirper";
 type ImportState = "idle" | "loading" | "preview" | "error";
 type ThemePreference = "system" | "light" | "dark";
+type NotificationGroupMode = "world" | "bot";
 
 type ParsedRoute = {
 	route: Route;
@@ -618,13 +620,26 @@ function App() {
 		return null;
 	}
 
-	async function loadHumanNotifications(status: "unread" | "all" = "unread"): Promise<void> {
+	async function fetchHumanNotifications(
+		status: "unread" | "all" = "unread",
+		limit = status === "all" ? 50 : 30,
+	): Promise<HumanNotificationSummary | null> {
 		const result = await api<HumanNotificationSummary>(
-			`/api/me/notifications?status=${status}&limit=${status === "all" ? 50 : 30}`,
+			`/api/me/notifications?status=${status}&limit=${limit}`,
 		);
 		if (result.ok) {
-			setHumanNotifications(result.data);
+			return result.data;
 		}
+		setStatus(result.message);
+		return null;
+	}
+
+	async function loadHumanNotifications(status: "unread" | "all" = "unread"): Promise<HumanNotificationSummary | null> {
+		const summary = await fetchHumanNotifications(status, status === "all" ? 50 : 30);
+		if (summary) {
+			setHumanNotifications(summary);
+		}
+		return summary;
 	}
 
 	async function loadSubscriptions(): Promise<void> {
@@ -689,45 +704,60 @@ function App() {
 		}
 	}
 
-	async function openHumanNotification(notification: HumanNotification): Promise<void> {
+	async function markHumanNotificationReadState(
+		notification: HumanNotification,
+		options: { removeUnread?: boolean } = { removeUnread: true },
+	): Promise<string | null> {
 		const result = await api(`/api/me/notifications/${encodeURIComponent(notification.id)}`, {
 			method: "PATCH",
 			body: { read: true },
 		});
 		if (!result.ok) {
 			setStatus(result.message);
-			return;
+			return null;
 		}
 		const wasUnread = !notification.readAt;
+		const readAt = notification.readAt ?? new Date().toISOString();
 		setHumanNotifications((current) => ({
 			unreadCount: Math.max(0, current.unreadCount - (wasUnread ? 1 : 0)),
 			notifications:
-				wasUnread ?
+				wasUnread && options.removeUnread !== false ?
 					current.notifications.filter((item) => item.id !== notification.id)
 				:	current.notifications.map((item) =>
-						item.id === notification.id ? { ...item, readAt: item.readAt ?? new Date().toISOString() } : item,
+						item.id === notification.id ? { ...item, readAt: item.readAt ?? readAt } : item,
 					),
 		}));
+		return readAt;
+	}
+
+	async function openHumanNotification(notification: HumanNotification): Promise<void> {
+		const readAt = await markHumanNotificationReadState(notification, { removeUnread: true });
+		if (!readAt) {
+			return;
+		}
 		const notificationUrl = new URL(notification.urlPath, window.location.origin);
 		navigate(parsePathname(notificationUrl.pathname, notificationUrl.search));
 		await loadHumanNotifications("unread");
 	}
 
-	async function markAllNotificationsRead(): Promise<void> {
+	async function markAllNotificationsRead(): Promise<boolean> {
 		if (!profileReadyFor("managing notifications")) {
-			return;
+			return false;
 		}
 		const result = await api("/api/me/notifications/read-all", { method: "POST", body: {} });
 		if (result.ok) {
+			const readAt = new Date().toISOString();
 			setHumanNotifications((current) => ({
 				unreadCount: 0,
 				notifications: current.notifications.map((notification) => ({
 					...notification,
-					readAt: notification.readAt ?? new Date().toISOString(),
+					readAt: notification.readAt ?? readAt,
 				})),
 			}));
+			return true;
 		} else {
 			setStatus(result.message);
+			return false;
 		}
 	}
 
@@ -1252,6 +1282,7 @@ function App() {
 				/>
 				<Sidebar
 					active={activeWorldHandle}
+					unreadNotifications={humanNotifications.unreadCount}
 					route={route}
 					worlds={worldViews}
 				/>
@@ -1378,6 +1409,14 @@ function App() {
 							worlds={worldViews}
 						/>
 					)}
+					{route === "notifications" && (
+						<NotificationsScreen
+							onLoadNotifications={fetchHumanNotifications}
+							onMarkAllRead={markAllNotificationsRead}
+							onMarkRead={markHumanNotificationReadState}
+							onOpenNotification={(notification) => void openHumanNotification(notification)}
+						/>
+					)}
 					{route === "profile" && (
 						<ProfileScreen
 							busy={busy}
@@ -1495,7 +1534,7 @@ function Topbar({
 	user: PublicUser;
 	world: WorldView | null;
 }) {
-	const isWorldScoped = route !== "worlds" && route !== "my-bots" && route !== "profile";
+	const isWorldScoped = route !== "worlds" && route !== "my-bots" && route !== "notifications" && route !== "profile";
 	return (
 		<header className="topbar">
 			<div className="brand">
@@ -1570,6 +1609,12 @@ function Topbar({
 						<>
 							<span className="sep">/</span>
 							<span className="current">My bots</span>
+						</>
+					)}
+					{route === "notifications" && (
+						<>
+							<span className="sep">/</span>
+							<span className="current">Notifications</span>
 						</>
 					)}
 					{route === "profile" && (
@@ -1695,12 +1740,7 @@ function NotificationBell({
 							>
 								<span className="notification-title">{notification.title}</span>
 								<span className="notification-body">{notification.body}</span>
-								<span className="notification-meta">
-									{notification.actorHandle ? `u/${notification.actorHandle}` : notification.notificationType}
-									{" / "}
-									{timeAgo(notification.createdAt)}
-									{notification.spotlightId ? " / caused by spotlight" : ""}
-								</span>
+								<span className="notification-meta">{notificationMeta(notification)}</span>
 							</a>
 						))}
 					<button className="notification-load" onClick={() => onRefresh("all")} type="button">
@@ -1740,6 +1780,35 @@ function ActivityBanner({ label, onClick }: { label: string; onClick: () => void
 			<Icon name="refresh" size={14} />
 			<span>{label}</span>
 		</button>
+	);
+}
+
+function FilterBox({
+	label,
+	onChange,
+	placeholder,
+	value,
+}: {
+	label: string;
+	onChange: (value: string) => void;
+	placeholder: string;
+	value: string;
+}) {
+	return (
+		<div className="list-filter">
+			<Icon name="search" size={14} />
+			<input
+				aria-label={label}
+				onChange={(event) => onChange(event.target.value)}
+				placeholder={placeholder}
+				value={value}
+			/>
+			{value && (
+				<button aria-label={`Clear ${label.toLowerCase()}`} onClick={() => onChange("")} type="button">
+					<Icon name="x" size={13} />
+				</button>
+			)}
+		</div>
 	);
 }
 
@@ -1800,10 +1869,12 @@ function shouldHandleSpaClick(event: ReactMouseEvent<HTMLAnchorElement>): boolea
 function Sidebar({
 	active,
 	route,
+	unreadNotifications,
 	worlds,
 }: {
 	active: string | null;
 	route: Route;
+	unreadNotifications: number;
 	worlds: WorldView[];
 }) {
 	const myWorlds = worlds.filter((world) => world.isMine);
@@ -1823,10 +1894,11 @@ function Sidebar({
 					<span>My bots</span>
 					<span className="count">{botTotal}</span>
 				</SpaLink>
-				<button className="nav-item disabled" disabled title="Coming later" type="button">
+				<SpaLink className={`nav-item ${route === "notifications" ? "active" : ""}`} to={{ route: "notifications" }}>
 					<Icon name="bell" size={16} />
 					<span>Notifications</span>
-				</button>
+					{unreadNotifications > 0 && <span className="count">{unreadNotifications > 99 ? "99+" : unreadNotifications}</span>}
+				</SpaLink>
 				<button className="nav-item disabled" disabled title="Coming later" type="button">
 					<Icon name="settings" size={16} />
 					<span>Settings</span>
@@ -2208,21 +2280,38 @@ function WorldDetail({
 	const [confirmWorld, setConfirmWorld] = useState(false);
 	const [editingForum, setEditingForum] = useState<ForumSummary | null>(null);
 	const [confirmForum, setConfirmForum] = useState<ForumSummary | null>(null);
+	const [forumFilter, setForumFilter] = useState("");
+	const [botFilter, setBotFilter] = useState("");
 	const toast = useContext(ToastContext);
-	const publicForums = visibleForums(forums);
+
+	useEffect(() => {
+		setForumFilter("");
+		setBotFilter("");
+	}, [world.id]);
+
+	const publicForums = useMemo(
+		() => sortByHandle(visibleForums(forums)),
+		[forums],
+	);
+	const filteredForums = useMemo(
+		() => publicForums.filter((forum) => matchesFilter(forumFilter, forum.handle, forum.description)),
+		[forumFilter, publicForums],
+	);
+	const filteredBots = useMemo(
+		() => bots.filter((bot) => matchesFilter(botFilter, bot.handle, bot.displayName, bot.shortBio)),
+		[botFilter, bots],
+	);
 	const ownedBotCount = bots.filter((bot) => bot.ownerUserId === currentUserId).length;
 	const ownedForumCount = publicForums.filter((forum) => forum.createdByUserId === currentUserId).length;
 	const canManageWorld = world.createdByUserId === currentUserId;
 	const canDeleteWorld = canManageWorld && bots.length === 0;
 	const botGroups = useMemo(() => {
-		const sortedBots = [...bots].sort((left, right) =>
-			left.handle.localeCompare(right.handle, undefined, { sensitivity: "base" }),
-		);
+		const sortedBots = sortByHandle(filteredBots);
 		return [
 			{ key: "mine", title: "My bots", bots: sortedBots.filter((bot) => bot.ownerUserId === currentUserId) },
 			{ key: "other", title: "Other bots", bots: sortedBots.filter((bot) => bot.ownerUserId !== currentUserId) },
 		].filter((group) => group.bots.length > 0);
-	}, [bots, currentUserId]);
+	}, [currentUserId, filteredBots]);
 
 	return (
 		<div className="main-inner">
@@ -2309,54 +2398,76 @@ function WorldDetail({
 					<EmptyState actionLabel="New forum" onAction={() => setForumModalOpen(true)} title="No forums in this world">
 						Forums are subject areas inside a world.
 					</EmptyState>
-				:	<div className="list">
-						{publicForums.map((forum) => (
-							<ForumRow
-								forum={forum}
-								key={forum.id}
-								onDelete={
-									canManageWorld || forum.createdByUserId === currentUserId ?
-										() => setConfirmForum(forum)
-									:	undefined
-								}
-								onEdit={
-									canManageWorld || forum.createdByUserId === currentUserId ?
-										() => setEditingForum(forum)
-									:	undefined
-								}
-							/>
-						))}
-					</div>)}
+				:	<>
+						<FilterBox
+							label="Filter forums"
+							onChange={setForumFilter}
+							placeholder="Filter by f/handle or forum name"
+							value={forumFilter}
+						/>
+						{filteredForums.length === 0 ?
+							<div className="empty compact-empty">No forums match this filter.</div>
+						:	<div className="list">
+								{filteredForums.map((forum) => (
+									<ForumRow
+										forum={forum}
+										key={forum.id}
+										onDelete={
+											canManageWorld || forum.createdByUserId === currentUserId ?
+												() => setConfirmForum(forum)
+											:	undefined
+										}
+										onEdit={
+											canManageWorld || forum.createdByUserId === currentUserId ?
+												() => setEditingForum(forum)
+											:	undefined
+										}
+									/>
+								))}
+							</div>
+						}
+					</>)}
 
 			{tab === "bots" &&
 				(bots.length === 0 ?
 					<EmptyState actionLabel="New bot" onAction={() => onCreateBot(world)} title="No bots in this world">
 						Create one from scratch or import a Chirper profile.
 					</EmptyState>
-				:	<div className="bot-world-groups">
-						{botGroups.map((group) => (
-							<section className="bot-world-group" key={group.key}>
-								<div className="bot-world-head">
-									<span>{group.title}</span>
-									<span className="bot-world-head-actions">
-										{group.bots.length} bot{group.bots.length === 1 ? "" : "s"}
-									</span>
-								</div>
-								<div className="bot-grid">
-									{group.bots.map((bot) => (
-										<BotCard
-											bot={bot}
-											key={bot.id}
-											onDelete={bot.ownerUserId === currentUserId ? () => setConfirmBot(bot) : undefined}
-											onEdit={bot.ownerUserId === currentUserId ? () => onOpenBotEdit(bot) : undefined}
-											onRunTick={bot.ownerUserId === currentUserId ? () => onRunBotTick(bot) : undefined}
-											world={world}
-										/>
-									))}
-								</div>
-							</section>
-						))}
-					</div>)}
+				:	<>
+						<FilterBox
+							label="Filter bots"
+							onChange={setBotFilter}
+							placeholder="Filter by u/handle or display name"
+							value={botFilter}
+						/>
+						{filteredBots.length === 0 ?
+							<div className="empty compact-empty">No bots match this filter.</div>
+						:	<div className="bot-world-groups">
+								{botGroups.map((group) => (
+									<section className="bot-world-group" key={group.key}>
+										<div className="bot-world-head">
+											<span>{group.title}</span>
+											<span className="bot-world-head-actions">
+												{group.bots.length} bot{group.bots.length === 1 ? "" : "s"}
+											</span>
+										</div>
+										<div className="bot-grid">
+											{group.bots.map((bot) => (
+												<BotCard
+													bot={bot}
+													key={bot.id}
+													onDelete={bot.ownerUserId === currentUserId ? () => setConfirmBot(bot) : undefined}
+													onEdit={bot.ownerUserId === currentUserId ? () => onOpenBotEdit(bot) : undefined}
+													onRunTick={bot.ownerUserId === currentUserId ? () => onRunBotTick(bot) : undefined}
+													world={world}
+												/>
+											))}
+										</div>
+									</section>
+								))}
+							</div>
+						}
+					</>)}
 
 			<CreateForumModal
 				busy={busy}
@@ -4017,21 +4128,13 @@ function SpotlightPanel({
 	);
 	const eligibleBots = useMemo(
 		() =>
-			worldOwnedBots
-				.filter((bot) => bot.tickSettings.enabled)
-				.sort((left, right) => left.handle.localeCompare(right.handle, undefined, { sensitivity: "base" })),
+			sortByHandle(worldOwnedBots.filter((bot) => bot.tickSettings.enabled)),
 		[worldOwnedBots],
 	);
-	const botSearchNeedle = botSearch.trim().toLowerCase();
 	const visibleBots = useMemo(
 		() =>
-			eligibleBots.filter((bot) => {
-				if (!botSearchNeedle) {
-					return true;
-				}
-				return bot.displayName.toLowerCase().includes(botSearchNeedle) || bot.handle.toLowerCase().includes(botSearchNeedle);
-			}),
-		[botSearchNeedle, eligibleBots],
+			eligibleBots.filter((bot) => matchesFilter(botSearch, bot.displayName, bot.handle)),
+		[botSearch, eligibleBots],
 	);
 	const botIds = Object.keys(selectedBots).filter((id) => selectedBots[id]);
 	const targetIds = targetType === "threads" ? threadIds : commentIds;
@@ -4693,22 +4796,27 @@ function MyBotsScreen({
 	onRunWorldBotTicks: (worldHandle: string, bots: BotSummary[]) => void;
 	worlds: WorldView[];
 }) {
+	const [botFilter, setBotFilter] = useState("");
 	const groups = useMemo(() => {
 		const worldsByHandle = new Map(worlds.map((world) => [world.handle, world]));
 		const grouped = new Map<string, Array<{ bot: BotSummary; world: WorldView | null }>>();
 		for (const bot of bots) {
+			const world = worldsByHandle.get(bot.homeWorldHandle) ?? null;
+			if (!matchesFilter(botFilter, bot.handle, bot.displayName, bot.shortBio, bot.homeWorldHandle, world?.name)) {
+				continue;
+			}
 			const rows = grouped.get(bot.homeWorldHandle) ?? [];
-			rows.push({ bot, world: worldsByHandle.get(bot.homeWorldHandle) ?? null });
+			rows.push({ bot, world });
 			grouped.set(bot.homeWorldHandle, rows);
 		}
 		return [...grouped.entries()]
-			.sort(([left], [right]) => left.localeCompare(right))
+			.sort(([left], [right]) => compareHandles(left, right))
 			.map(([worldHandle, rows]) => ({
 				worldHandle,
 				world: worldsByHandle.get(worldHandle) ?? null,
-				rows: rows.sort((left, right) => left.bot.handle.localeCompare(right.bot.handle, undefined, { sensitivity: "base" })),
+				rows: rows.sort((left, right) => compareHandles(left.bot.handle, right.bot.handle)),
 			}));
-	}, [bots, worlds]);
+	}, [botFilter, bots, worlds]);
 	const defaultWorld = worlds[0] ?? null;
 	const [confirmBot, setConfirmBot] = useState<BotSummary | null>(null);
 	const toast = useContext(ToastContext);
@@ -4735,42 +4843,53 @@ function MyBotsScreen({
 				>
 					Create one in any world.
 				</EmptyState>
-			:	<div className="bot-world-groups">
-					{groups.map((group) => (
-						<section className="bot-world-group" key={group.worldHandle}>
-							<div className="bot-world-head">
-								<SpaLink to={{ route: "world", worldHandle: group.worldHandle }}>
-									<Reference kind="world" link={false} name={group.worldHandle} />
-								</SpaLink>
-								<div className="bot-world-head-actions">
-									<span>{group.rows.length} bot{group.rows.length === 1 ? "" : "s"}</span>
-									<button
-										className="btn compact"
-										onClick={() => onRunWorldBotTicks(group.worldHandle, group.rows.map((row) => row.bot))}
-										type="button"
-									>
-										<Icon name="refresh" size={12} />
-										Run all ticks
-									</button>
-								</div>
-							</div>
-							<div className="bot-grid">
-								{group.rows.map(({ bot, world }) => (
-									<BotCard
-										bot={bot}
-										hideWorld
-										key={bot.id}
-										onDelete={() => setConfirmBot(bot)}
-										onEdit={() => onOpen(bot)}
-										onRunTick={() => onRunBotTick(bot)}
-										showActive
-										world={world}
-									/>
-								))}
-							</div>
-						</section>
-					))}
-				</div>
+			:	<>
+					<FilterBox
+						label="Filter bots"
+						onChange={setBotFilter}
+						placeholder="Filter by u/handle, display name, or world"
+						value={botFilter}
+					/>
+					{groups.length === 0 ?
+						<div className="empty compact-empty">No bots match this filter.</div>
+					:	<div className="bot-world-groups">
+							{groups.map((group) => (
+								<section className="bot-world-group" key={group.worldHandle}>
+									<div className="bot-world-head">
+										<SpaLink to={{ route: "world", worldHandle: group.worldHandle }}>
+											<Reference kind="world" link={false} name={group.worldHandle} />
+										</SpaLink>
+										<div className="bot-world-head-actions">
+											<span>{group.rows.length} bot{group.rows.length === 1 ? "" : "s"}</span>
+											<button
+												className="btn compact"
+												onClick={() => onRunWorldBotTicks(group.worldHandle, group.rows.map((row) => row.bot))}
+												type="button"
+											>
+												<Icon name="refresh" size={12} />
+												Run all ticks
+											</button>
+										</div>
+									</div>
+									<div className="bot-grid">
+										{group.rows.map(({ bot, world }) => (
+											<BotCard
+												bot={bot}
+												hideWorld
+												key={bot.id}
+												onDelete={() => setConfirmBot(bot)}
+												onEdit={() => onOpen(bot)}
+												onRunTick={() => onRunBotTick(bot)}
+												showActive
+												world={world}
+											/>
+										))}
+									</div>
+								</section>
+							))}
+						</div>
+					}
+				</>
 			}
 			<Confirm
 				body={
@@ -4800,6 +4919,184 @@ function MyBotsScreen({
 				open={Boolean(confirmBot)}
 				title="Delete this bot?"
 			/>
+		</div>
+	);
+}
+
+function NotificationsScreen({
+	onLoadNotifications,
+	onMarkAllRead,
+	onMarkRead,
+	onOpenNotification,
+}: {
+	onLoadNotifications: (status: "unread" | "all", limit?: number) => Promise<HumanNotificationSummary | null>;
+	onMarkAllRead: () => Promise<boolean>;
+	onMarkRead: (notification: HumanNotification) => Promise<string | null>;
+	onOpenNotification: (notification: HumanNotification) => void;
+}) {
+	const [summary, setSummary] = useState<HumanNotificationSummary>({ unreadCount: 0, notifications: [] });
+	const [groupMode, setGroupMode] = useState<NotificationGroupMode>("world");
+	const [filter, setFilter] = useState("");
+	const [loading, setLoading] = useState(true);
+	const [message, setMessage] = useState("");
+
+	async function refresh(): Promise<void> {
+		setLoading(true);
+		const next = await onLoadNotifications("all", 100);
+		if (next) {
+			setSummary(next);
+			setMessage("");
+		} else {
+			setMessage("Could not load notifications.");
+		}
+		setLoading(false);
+	}
+
+	useEffect(() => {
+		void refresh();
+	}, []);
+
+	async function markRead(notification: HumanNotification): Promise<void> {
+		if (notification.readAt) {
+			return;
+		}
+		const readAt = await onMarkRead(notification);
+		if (!readAt) {
+			return;
+		}
+		setSummary((current) => ({
+			unreadCount: Math.max(0, current.unreadCount - 1),
+			notifications: current.notifications.map((item) =>
+				item.id === notification.id ? { ...item, readAt } : item,
+			),
+		}));
+	}
+
+	async function markAllRead(): Promise<void> {
+		const ok = await onMarkAllRead();
+		if (!ok) {
+			return;
+		}
+		const readAt = new Date().toISOString();
+		setSummary((current) => ({
+			unreadCount: 0,
+			notifications: current.notifications.map((notification) => ({
+				...notification,
+				readAt: notification.readAt ?? readAt,
+			})),
+		}));
+	}
+
+	const filtered = useMemo(
+		() =>
+			summary.notifications.filter((notification) =>
+				matchesFilter(
+					filter,
+					notification.actorHandle,
+					notification.actorDisplayName,
+					notification.forumHandle,
+					notification.forumName,
+				),
+			),
+		[filter, summary.notifications],
+	);
+	const groups = useMemo(
+		() => notificationGroups(filtered, groupMode),
+		[filtered, groupMode],
+	);
+
+	return (
+		<div className="main-inner notifications-page">
+			<div className="page-header">
+				<div>
+					<h1>Notifications</h1>
+					<p className="sub">Recent activity from watched worlds, forums, threads, and participants.</p>
+				</div>
+				<div className="actions">
+					<div className="seg" role="tablist">
+						<button aria-pressed={groupMode === "world"} onClick={() => setGroupMode("world")} type="button">
+							By world
+						</button>
+						<button aria-pressed={groupMode === "bot"} onClick={() => setGroupMode("bot")} type="button">
+							By bot
+						</button>
+					</div>
+					<button className="btn" disabled={loading} onClick={() => void refresh()} type="button">
+						<Icon name="refresh" size={14} />
+						Refresh
+					</button>
+					<button className="btn" disabled={summary.unreadCount === 0} onClick={() => void markAllRead()} type="button">
+						Mark all read
+					</button>
+				</div>
+			</div>
+
+			<FilterBox
+				label="Filter notifications"
+				onChange={setFilter}
+				placeholder="Filter by u/handle, display name, f/handle, or forum name"
+				value={filter}
+			/>
+
+			<div className="notification-page-summary">
+				<span>{summary.unreadCount} unread</span>
+				<span>{filtered.length} shown</span>
+				{loading && <span>Loading...</span>}
+				{message && <span>{message}</span>}
+			</div>
+
+			{summary.notifications.length === 0 && !loading ?
+				<EmptyState title="No notifications yet">
+					Notifications appear here when watched activity happens.
+				</EmptyState>
+			: groups.length === 0 ?
+				<div className="empty compact-empty">No notifications match this filter.</div>
+			:	<div className="notification-groups">
+					{groups.map((group) => (
+						<section className="notification-group" key={group.key}>
+							<div className="notification-group-head">
+								<div>
+									<h2>{group.title}</h2>
+									{group.meta && <span>{group.meta}</span>}
+								</div>
+								<span>{group.notifications.length}</span>
+							</div>
+							<div className="notification-page-list">
+								{group.notifications.map((notification) => (
+									<article
+										className={`notification-page-card ${notification.readAt ? "" : "unread"}`}
+										key={notification.id}
+									>
+										<a
+											className="notification-page-link"
+											href={notification.urlPath}
+											onClick={(event) => {
+												if (!shouldHandleSpaClick(event)) {
+													return;
+												}
+												event.preventDefault();
+												onOpenNotification(notification);
+											}}
+										>
+											<span className="notification-title">{notification.title}</span>
+											<span className="notification-body">{notification.body}</span>
+											<span className="notification-meta">{notificationMeta(notification)}</span>
+										</a>
+										<div className="notification-page-actions">
+											{notification.readAt ?
+												<span className="read-state">Read {timeAgo(notification.readAt)}</span>
+											:	<button className="btn compact" onClick={() => void markRead(notification)} type="button">
+													Mark read
+												</button>
+											}
+										</div>
+									</article>
+								))}
+							</div>
+						</section>
+					))}
+				</div>
+			}
 		</div>
 	);
 }
@@ -6852,6 +7149,9 @@ function parsePathname(pathname: string, search = ""): ParsedRoute {
 	if (parts[0] === "me" && parts[1] === "bots") {
 		return { route: "my-bots" };
 	}
+	if (parts[0] === "me" && parts[1] === "notifications") {
+		return { route: "notifications" };
+	}
 	if (parts[0] === "me" && parts[1] === "profile") {
 		return { route: "profile" };
 	}
@@ -6905,6 +7205,8 @@ function routePath(parsed: ParsedRoute): string {
 			return `/w/${encodeURIComponent(parsed.worldHandle ?? "")}/u/${encodeURIComponent(parsed.botHandle ?? "")}/edit`;
 		case "my-bots":
 			return "/me/bots";
+		case "notifications":
+			return "/me/notifications";
 		case "profile":
 			return "/me/profile";
 	}
@@ -7878,6 +8180,67 @@ function parsePositiveInteger(value: string): number {
 
 function visibleForums(forums: ForumSummary[]): ForumSummary[] {
 	return forums.filter((forum) => !forum.personalBotId);
+}
+
+function compareHandles(left: string, right: string): number {
+	return left.localeCompare(right, undefined, { sensitivity: "base" });
+}
+
+function sortByHandle<T extends { handle: string }>(items: T[]): T[] {
+	return [...items].sort((left, right) => compareHandles(left.handle, right.handle));
+}
+
+function normalizeFilterText(value: string): string {
+	return value
+		.normalize("NFKD")
+		.replace(/[\u0300-\u036f]/g, "")
+		.toLowerCase();
+}
+
+function matchesFilter(query: string, ...values: Array<string | null | undefined>): boolean {
+	const normalizedQuery = normalizeFilterText(query.trim());
+	if (!normalizedQuery) {
+		return true;
+	}
+	return values.some((value) => value !== undefined && value !== null && normalizeFilterText(value).includes(normalizedQuery));
+}
+
+function notificationGroups(
+	notifications: HumanNotification[],
+	mode: NotificationGroupMode,
+): Array<{ key: string; title: string; meta: string; notifications: HumanNotification[] }> {
+	const groups = new Map<string, { key: string; title: string; meta: string; notifications: HumanNotification[] }>();
+	for (const notification of notifications) {
+		const key =
+			mode === "world" ? `world:${notification.worldId}`
+			: notification.actorBotId ? `bot:${notification.actorBotId}`
+			: notification.actorHandle ? `bot-handle:${notification.actorHandle}`
+			: "bot:none";
+		const fallbackTitle = mode === "world" ? "Unknown world" : "No participant";
+		const title =
+			mode === "world" ? (notification.worldHandle ? `w/${notification.worldHandle}` : fallbackTitle)
+			: notification.actorHandle ? `u/${notification.actorHandle}`
+			: fallbackTitle;
+		const meta =
+			mode === "world" ? notification.worldName ?? ""
+			: notification.actorDisplayName ?? "";
+		const group = groups.get(key) ?? { key, title, meta, notifications: [] };
+		group.notifications.push(notification);
+		groups.set(key, group);
+	}
+	return [...groups.values()].sort((left, right) => compareHandles(left.title, right.title));
+}
+
+function notificationMeta(notification: HumanNotification): string {
+	return [
+		notification.actorHandle ? `u/${notification.actorHandle}` : notification.notificationType.replace(/_/g, " "),
+		notification.forumHandle ? `f/${notification.forumHandle}` : "",
+		notification.worldHandle ? `w/${notification.worldHandle}` : "",
+		timeAgo(notification.createdAt),
+		notification.spotlightId ? "caused by spotlight" : "",
+	]
+		.filter(Boolean)
+		.join(" / ");
 }
 
 function formatPayload(value: unknown, maxLength = 2_400): string {
