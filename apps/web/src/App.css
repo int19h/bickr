@@ -3526,7 +3526,6 @@ button:disabled {
 	background: var(--paper);
 	border: 1px solid var(--rule);
 	border-radius: var(--radius-lg);
-	bottom: 16px;
 	box-shadow: 0 24px 60px -20px rgba(0, 0, 0, 0.2);
 	display: flex;
 	flex-direction: column;
@@ -3534,6 +3533,7 @@ button:disabled {
 	overflow: hidden;
 	position: fixed;
 	right: 16px;
+	top: 16px;
 	width: 380px;
 	z-index: 70;
 }
@@ -3541,7 +3541,7 @@ button:disabled {
 @keyframes spotIn {
 	from {
 		opacity: 0;
-		transform: translateY(12px);
+		transform: translateY(-12px);
 	}
 	to {
 		opacity: 1;
@@ -3819,10 +3819,10 @@ button:disabled {
 	}
 
 	.spot-panel {
-		bottom: 8px;
 		left: 8px;
 		max-height: 70vh;
 		right: 8px;
+		top: 8px;
 		width: auto;
 	}
 }
