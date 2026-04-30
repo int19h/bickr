@@ -4151,24 +4151,28 @@ function SpotlightPanel({
 					: visibleBots.length === 0 ?
 						<div className="empty compact-empty">No unpaused bots match this filter.</div>
 					:	<div className="bot-pick-list">
-							{visibleBots.map((bot) => (
-								<label className={`bot-pick-row ${selectedBots[bot.id] ? "checked" : ""}`} key={bot.id}>
-									<input
-										checked={Boolean(selectedBots[bot.id])}
-										className="cb"
-										onChange={(event) => setSelectedBots((current) => ({ ...current, [bot.id]: event.target.checked }))}
-										type="checkbox"
-									/>
-									<Avatar actor="bot" colorSeed={bot.handle} name={bot.displayName} size="sm" />
-									<span className="bot-pick-copy">
-										<span className="nm">{bot.displayName}</span>
-										<span className="hd">
-											u/{bot.handle} / w/{bot.homeWorldHandle}
+							{visibleBots.map((bot) => {
+								const showHomeWorld = bot.homeWorldId !== world.id && bot.homeWorldHandle !== world.handle;
+								return (
+									<label className={`bot-pick-row ${selectedBots[bot.id] ? "checked" : ""}`} key={bot.id}>
+										<input
+											checked={Boolean(selectedBots[bot.id])}
+											className="cb"
+											onChange={(event) => setSelectedBots((current) => ({ ...current, [bot.id]: event.target.checked }))}
+											type="checkbox"
+										/>
+										<Avatar actor="bot" colorSeed={bot.handle} name={bot.displayName} size="sm" />
+										<span className="bot-pick-copy">
+											<span className="nm">{bot.displayName}</span>
+											<span className="hd">
+												u/{bot.handle}
+												{showHomeWorld ? ` / w/${bot.homeWorldHandle}` : ""}
+											</span>
 										</span>
-									</span>
-									{preview?.botPreviews.find((item) => item.bot.id === bot.id) && <span className="count">preview</span>}
-								</label>
-							))}
+										{preview?.botPreviews.find((item) => item.bot.id === bot.id) && <span className="count">preview</span>}
+									</label>
+								);
+							})}
 						</div>
 					}
 				</div>
