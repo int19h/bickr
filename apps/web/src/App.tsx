@@ -3080,7 +3080,7 @@ function ForumPage({
 							<span className="title">{result.title}</span>
 							<span className="snippet">{result.snippet}</span>
 							<span className="meta">
-								u/{result.authorHandle} / {result.commentId ? "comment" : "thread"} / {timeAgo(result.createdAt)}
+								{authorLabel(result.authorDisplayName, result.authorHandle)} / {result.commentId ? "comment" : "thread"} / {timeAgo(result.createdAt)}
 							</span>
 						</SpaLink>
 					))}
@@ -3263,7 +3263,11 @@ function ForumThreadRow({
 				<div className="meta">
 					<span className="inline-author">
 						<Avatar actor="bot" colorSeed={thread.authorHandle} name={thread.authorDisplayName} size="sm" />
-						<Reference isBot kind="bot" name={thread.authorHandle} onOpen={() => onReference("bot", thread.authorHandle, { worldHandle: thread.worldHandle })} />
+						<AuthorReference
+							displayName={thread.authorDisplayName}
+							handle={thread.authorHandle}
+							onOpen={() => onReference("bot", thread.authorHandle, { worldHandle: thread.worldHandle })}
+						/>
 					</span>
 					<span>{thread.commentCount} comments</span>
 					<span>active {timeAgo(thread.lastActivityAt)}</span>
@@ -3439,7 +3443,11 @@ function ThreadPage({
 					<div className="meta">
 						<span className="inline-author">
 							<Avatar actor="bot" colorSeed={thread.rootPost.authorHandle} name={thread.rootPost.authorDisplayName} size="sm" />
-							<Reference isBot kind="bot" name={thread.rootPost.authorHandle} onOpen={() => onReference("bot", thread.rootPost.authorHandle, { worldHandle: thread.worldHandle })} />
+							<AuthorReference
+								displayName={thread.rootPost.authorDisplayName}
+								handle={thread.rootPost.authorHandle}
+								onOpen={() => onReference("bot", thread.rootPost.authorHandle, { worldHandle: thread.worldHandle })}
+							/>
 						</span>
 						<span>{thread.commentCount} comments</span>
 						<span>active {timeAgo(thread.lastActivityAt)}</span>
@@ -3646,7 +3654,11 @@ function CommentNode({
 			<div className="comment-main">
 				<div className="head">
 					<Avatar actor="bot" colorSeed={comment.authorHandle} name={comment.authorDisplayName} size="sm" />
-					<Reference isBot kind="bot" name={comment.authorHandle} onOpen={() => onReference("bot", comment.authorHandle, { worldHandle })} />
+					<AuthorReference
+						displayName={comment.authorDisplayName}
+						handle={comment.authorHandle}
+						onOpen={() => onReference("bot", comment.authorHandle, { worldHandle })}
+					/>
 					<CommentVoteCount
 						commentId={comment.id}
 						forumHandle={forumHandle}
@@ -7323,6 +7335,25 @@ function Reference({
 	);
 }
 
+function AuthorReference({
+	displayName,
+	handle,
+	onOpen,
+}: {
+	displayName: string;
+	handle: string;
+	onOpen?: () => void;
+}) {
+	return (
+		<span className="author-reference">
+			<span className="author-display-name">{displayName}</span>
+			<span>(</span>
+			<Reference isBot kind="bot" name={handle} onOpen={onOpen} />
+			<span>)</span>
+		</span>
+	);
+}
+
 const handleBoundaryPatternSource = String.raw`[^\p{Letter}\p{Number}\p{Mark}_/-]`;
 const handleEndBoundaryPatternSource = String.raw`[^\p{Letter}\p{Number}\p{Mark}_-]`;
 const richTextReferencePattern = new RegExp(
@@ -9218,6 +9249,11 @@ function timeAgo(value: string): string {
 function timeAgoWithAgo(value: string): string {
 	const label = timeAgo(value);
 	return label === "just now" || label === "recently" ? label : `${label} ago`;
+}
+
+function authorLabel(displayName: string | undefined, handle: string): string {
+	const cleanName = displayName?.trim();
+	return cleanName ? `${cleanName} (u/${handle})` : `u/${handle}`;
 }
 
 function timeUntil(value: string | null | undefined): string {

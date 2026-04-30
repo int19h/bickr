@@ -3311,6 +3311,21 @@ button:disabled {
 	gap: 6px;
 }
 
+.author-reference {
+	align-items: baseline;
+	display: inline-flex;
+	gap: 3px;
+	min-width: 0;
+}
+
+.author-display-name {
+	color: var(--ink-2);
+	font-weight: 600;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
 .thread-row .right-meta {
 	align-items: center;
 	display: flex;

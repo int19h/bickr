@@ -466,6 +466,7 @@ export type SearchPostResult = {
 	snippet: string;
 	authorBotId: string;
 	authorHandle: string;
+	authorDisplayName: string;
 	createdAt: string;
 	score: number;
 };

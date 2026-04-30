@@ -1393,6 +1393,7 @@ export async function searchPosts(
 					body_preview AS snippet,
 					author_bot_id AS authorBotId,
 					author_handle AS authorHandle,
+					author_display_name AS authorDisplayName,
 					created_at AS createdAt,
 					hot_score AS score
 				 FROM threads_index
@@ -1414,10 +1415,12 @@ export async function searchPosts(
 					c.body_preview AS snippet,
 					c.author_bot_id AS authorBotId,
 					c.author_handle AS authorHandle,
+					COALESCE(b.display_name, c.author_handle) AS authorDisplayName,
 					c.created_at AS createdAt,
 					c.vote_score AS score
 				 FROM comments_index c
 				 JOIN threads_index t ON t.thread_id = c.thread_id
+				 LEFT JOIN bots_index b ON b.bot_id = c.author_bot_id
 				 WHERE c.world_id = ? AND c.deleted_at IS NULL AND t.deleted_at IS NULL AND lower(c.search_text) LIKE ? ESCAPE '\\'
 				 ORDER BY c.created_at DESC
 				 LIMIT ?`,
@@ -1448,6 +1451,7 @@ export async function searchForumPosts(
 					body_preview AS snippet,
 					author_bot_id AS authorBotId,
 					author_handle AS authorHandle,
+					author_display_name AS authorDisplayName,
 					created_at AS createdAt,
 					hot_score AS score
 				 FROM threads_index
@@ -1469,10 +1473,12 @@ export async function searchForumPosts(
 					c.body_preview AS snippet,
 					c.author_bot_id AS authorBotId,
 					c.author_handle AS authorHandle,
+					COALESCE(b.display_name, c.author_handle) AS authorDisplayName,
 					c.created_at AS createdAt,
 					c.vote_score AS score
 				 FROM comments_index c
 				 JOIN threads_index t ON t.thread_id = c.thread_id
+				 LEFT JOIN bots_index b ON b.bot_id = c.author_bot_id
 				 WHERE c.forum_id = ? AND c.deleted_at IS NULL AND t.deleted_at IS NULL AND lower(c.search_text) LIKE ? ESCAPE '\\'
 				 ORDER BY c.created_at DESC
 				 LIMIT ?`,

@@ -62,6 +62,7 @@ import {
 	toolUseRecoveryReminder,
 	toolDefinitions,
 } from "../workers/agent-runtime/src/index";
+import { standardPrompt } from "../workers/agent-runtime/src/prompt-and-tools";
 import { handleForumCoordinatorRequest } from "../workers/forum-coordinator/src/index";
 import {
 	botById,
@@ -423,6 +424,21 @@ describe("Bickr Pages Functions", () => {
 		const recentThreads = toolDefinitions.find((definition) => definition.function.name === "list_recent_threads");
 		expect(recentThreads?.function.parameters.properties.limit?.type).toBe("number");
 		expect(recentThreads?.function.parameters.required).not.toContain("limit");
+
+		const reply = toolDefinitions.find((definition) => definition.function.name === "reply_to_thread");
+		expect(reply?.function.parameters.properties.allowAdditionalReply).toBeUndefined();
+	});
+
+	it("tells participants not to double-post in the fixed prompt", () => {
+		const promptBot = {
+			handle: "prompt-tester",
+			displayName: "Prompt Tester",
+			shortBio: "Tests prompts.",
+			prompt: "Stay terse.",
+		} as Parameters<typeof standardPrompt>[0];
+		const prompt = standardPrompt(promptBot, []);
+		expect(prompt).toContain("Avoid double-posting");
+		expect(prompt).toContain("already replied to that same thread or comment");
 	});
 
 	it("builds provider chat requests with explicit tool-call controls", () => {
@@ -2532,6 +2548,61 @@ describe("Bickr Pages Functions", () => {
 		expect(mention?.message).toContain("u/автор_1");
 	});
 
+	it("rejects repeat replies to the same comment unless explicitly overridden", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const forum = await createForumForTest(cookie, "repeat-replies");
+		const author = await createBotForTest(cookie, "repeat-target");
+		const replier = await createBotForTest(cookie, "repeat-replier");
+		const thread = await createThreadForTest(forum.id, author.id, "Repeat reply target", "Root body.");
+		const parent = await createCommentForTest(thread.id, author.id, "Target comment.");
+		await createCommentForTest(thread.id, replier.id, "Earlier reply.", parent.id);
+
+		const runtime = testRuntimeForToolExecution();
+		const executeTool = (BotRuntime.prototype as unknown as {
+			executeTool: (
+				bot: Awaited<ReturnType<typeof botById>>,
+				runId: string,
+				name: string,
+				args: Record<string, unknown>,
+				runContext: { mode: "normal"; signal: AbortSignal },
+			) => Promise<{ providerResult: unknown }>;
+		}).executeTool.bind(runtime);
+		const bot = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, replier.id);
+		const signal = new AbortController().signal;
+
+		const rejected = await executeTool(
+			bot,
+			"run-repeat-blocked",
+			"reply_to_thread",
+			{ threadId: thread.id, parentCommentId: parent.id, body: "Different follow-up." },
+			{ mode: "normal", signal },
+		).catch((error: unknown) => error);
+
+		expect(rejected).toBeInstanceOf(Error);
+		expect((rejected as Error).message).toContain(`I already replied to comment ${parent.id} before.`);
+		expect((rejected as Error).message).toContain("Earlier reply.");
+		expect((rejected as Error).message).toContain("allowAdditionalReply: true");
+		let currentThread = await readThread(testEnv.BICKR_KV, thread.id);
+		expect(currentThread.comments.filter((comment) => comment.parentCommentId === parent.id && comment.authorBotId === replier.id)).toHaveLength(1);
+
+		await executeTool(
+			bot,
+			"run-repeat-allowed",
+			"reply_to_thread",
+			{ threadId: thread.id, parentCommentId: parent.id, body: "Intentional second reply.", allowAdditionalReply: true },
+			{ mode: "normal", signal },
+		);
+		currentThread = await readThread(testEnv.BICKR_KV, thread.id);
+		expect(
+			currentThread.comments.find((comment) =>
+				comment.parentCommentId === parent.id &&
+				comment.authorBotId === replier.id &&
+				comment.body === "Intentional second reply."
+			),
+		).toBeDefined();
+	});
+
 	it("enriches reply notifications with parent-chain IDs and profile context", async () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);
@@ -3399,6 +3470,44 @@ function memoryRuntimeSql() {
 			};
 		},
 	};
+}
+
+function testRuntimeForToolExecution(): BotRuntime {
+	let seq = 0;
+	return Object.assign(Object.create(BotRuntime.prototype), {
+		env: {
+			BICKR_D1: testEnv.BICKR_D1,
+			BICKR_KV: testEnv.BICKR_KV,
+			FORUM_COORDINATOR_SERVICE: {
+				fetch: (request: Request) =>
+					handleForumCoordinatorRequest(request, {
+						BICKR_D1: testEnv.BICKR_D1,
+						BICKR_KV: testEnv.BICKR_KV,
+					}),
+			},
+		},
+		state: {
+			storage: {
+				sql: memoryRuntimeSql(),
+			},
+		},
+		appendEvent: async (runId: string, type: string, payload: unknown) => {
+			seq += 1;
+			return {
+				seq,
+				runId,
+				type,
+				payload,
+				tokenEstimate: 0,
+				createdAt: new Date().toISOString(),
+			};
+		},
+		throwIfStopped: (_runId: string, signal: AbortSignal) => {
+			if (signal.aborted) {
+				throw new Error("Unexpected abort.");
+			}
+		},
+	}) as BotRuntime;
 }
 
 async function oauthFetchMock(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {

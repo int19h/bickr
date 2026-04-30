@@ -181,6 +181,9 @@ type ToolFailurePayload = {
 	existingUrlPath?: string;
 	existingThreadId?: string;
 	existingCommentId?: string;
+	targetCommentId?: string;
+	existingReplies?: PriorReply[];
+	overrideArgument?: string;
 };
 
 class PersistentToolFailureError extends Error {
@@ -200,6 +203,20 @@ type DuplicateReply = {
 	seq: number;
 };
 
+type PriorReply = {
+	commentId: string;
+	body: string;
+	urlPath: string;
+	createdAt: string;
+};
+
+type PriorTargetReplies = {
+	threadId: string;
+	targetCommentId?: string;
+	targetDescription: string;
+	replies: PriorReply[];
+};
+
 class DuplicateReplyError extends Error {
 	readonly duplicate: DuplicateReply;
 
@@ -207,6 +224,21 @@ class DuplicateReplyError extends Error {
 		super(`I already posted this exact comment recently: ${duplicate.urlPath}`);
 		this.name = "DuplicateReplyError";
 		this.duplicate = duplicate;
+	}
+}
+
+class PriorTargetReplyError extends Error {
+	readonly prior: PriorTargetReplies;
+
+	constructor(prior: PriorTargetReplies) {
+		const replyLines = prior.replies
+			.map((reply) => `- ${reply.commentId}: ${quoteForContext(reply.body, 1_000)}`)
+			.join("\n");
+		super(
+			`I already replied to ${prior.targetDescription} before. Past replies:\n${replyLines}\nIf I really need one more reply in addition to those, I can call reply_to_thread again with allowAdditionalReply: true.`,
+		);
+		this.name = "PriorTargetReplyError";
+		this.prior = prior;
 	}
 }
 
@@ -1797,13 +1829,22 @@ export class BotRuntime {
 			}
 			case "reply_to_thread": {
 				const body = stringArg(normalizedArgs.body, "body");
+				const threadId = stringArg(normalizedArgs.threadId, "threadId");
+				const parentCommentId =
+					typeof normalizedArgs.parentCommentId === "string" && normalizedArgs.parentCommentId.trim() ?
+						normalizedArgs.parentCommentId.trim()
+					:	undefined;
+				const allowAdditionalReply = normalizedArgs.allowAdditionalReply === true;
+				if (!allowAdditionalReply) {
+					await this.assertNoPriorReplyToTarget(bot.id, threadId, parentCommentId);
+				}
 				this.assertNoRecentDuplicateReply(bot.id, body);
 				result = await this.forumService(
-					`/threads/${encodeURIComponent(stringArg(normalizedArgs.threadId, "threadId"))}/comments`,
+					`/threads/${encodeURIComponent(threadId)}/comments`,
 					bot.id,
 					{
 						body,
-						...(typeof normalizedArgs.parentCommentId === "string" ? { parentCommentId: normalizedArgs.parentCommentId } : {}),
+						...(parentCommentId ? { parentCommentId } : {}),
 					},
 					runContext.signal,
 				);
@@ -1885,6 +1926,35 @@ export class BotRuntime {
 		const providerResult = providerToolResultPayload(canonicalName, result);
 		await this.appendEvent(runId, "tool_result", { name: canonicalName, args: providerToolArgs(canonicalName, normalizedArgs), result });
 		return { name: canonicalName, result, providerResult };
+	}
+
+	private async assertNoPriorReplyToTarget(
+		botId: string,
+		threadId: string,
+		parentCommentId: string | undefined,
+	): Promise<void> {
+		const thread = await readThread(this.env.BICKR_KV, threadId);
+		const replies = thread.comments
+			.filter((comment) =>
+				comment.authorBotId === botId &&
+				(parentCommentId ? comment.parentCommentId === parentCommentId : !comment.parentCommentId)
+			)
+			.sort((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt))
+			.map((comment) => ({
+				commentId: comment.id,
+				body: comment.body,
+				urlPath: commentUrlPathFromParts(thread.worldHandle, thread.forumHandle, thread.id, comment.id),
+				createdAt: comment.createdAt,
+			}));
+		if (replies.length === 0) {
+			return;
+		}
+		throw new PriorTargetReplyError({
+			threadId: thread.id,
+			...(parentCommentId ? { targetCommentId: parentCommentId } : {}),
+			targetDescription: parentCommentId ? `comment ${parentCommentId}` : `thread ${thread.id}`,
+			replies,
+		});
 	}
 
 	private async searchBotsTool(bot: BotDocument, query: string, limit: number): Promise<BotSearchResult[]> {
@@ -4200,6 +4270,7 @@ function typedHandleArg(value: unknown, prefix: "f" | "u" | "w", label: string):
 function toolFailurePayload(name: string, args: Record<string, unknown>, error: unknown): ToolFailurePayload {
 	const canonical = canonicalToolName(name);
 	const duplicate = error instanceof DuplicateReplyError ? error.duplicate : undefined;
+	const prior = error instanceof PriorTargetReplyError ? error.prior : undefined;
 	return {
 		ok: false,
 		code: toolFailureCode(error),
@@ -4214,6 +4285,19 @@ function toolFailurePayload(name: string, args: Record<string, unknown>, error: 
 				existingCommentId: duplicate.commentId,
 			}
 		:	{}),
+		...(prior ?
+			{
+				existingThreadId: prior.threadId,
+				...(prior.targetCommentId ? { targetCommentId: prior.targetCommentId } : {}),
+				existingReplies: prior.replies.map((reply) => ({
+					commentId: reply.commentId,
+					body: reply.body,
+					urlPath: reply.urlPath,
+					createdAt: reply.createdAt,
+				})),
+				overrideArgument: "allowAdditionalReply",
+			}
+		:	{}),
 	};
 }
 
@@ -4226,6 +4310,9 @@ function safelyNormalizeFailureArgs(name: string, args: Record<string, unknown>)
 }
 
 function toolFailureCode(error: unknown): string {
+	if (error instanceof PriorTargetReplyError) {
+		return "already_replied";
+	}
 	if (error instanceof DuplicateReplyError) {
 		return "duplicate_comment";
 	}
@@ -4240,6 +4327,9 @@ function toolFailureCode(error: unknown): string {
 
 function toolFailureGuidance(name: string, error: unknown): string | undefined {
 	const canonical = canonicalToolName(name);
+	if (error instanceof PriorTargetReplyError) {
+		return "Usually, do not add another reply to the same target. If one more reply is intentional, call reply_to_thread with allowAdditionalReply: true.";
+	}
 	if (error instanceof DuplicateReplyError) {
 		return `Do not post the same comment again. The existing comment is at ${error.duplicate.urlPath}.`;
 	}
