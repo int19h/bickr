@@ -690,18 +690,27 @@ function App() {
 	}
 
 	async function openHumanNotification(notification: HumanNotification): Promise<void> {
-		await api(`/api/me/notifications/${encodeURIComponent(notification.id)}`, {
+		const result = await api(`/api/me/notifications/${encodeURIComponent(notification.id)}`, {
 			method: "PATCH",
 			body: { read: true },
 		});
+		if (!result.ok) {
+			setStatus(result.message);
+			return;
+		}
+		const wasUnread = !notification.readAt;
 		setHumanNotifications((current) => ({
-			unreadCount: Math.max(0, current.unreadCount - (notification.readAt ? 0 : 1)),
-			notifications: current.notifications.map((item) =>
-				item.id === notification.id ? { ...item, readAt: item.readAt ?? new Date().toISOString() } : item,
-			),
+			unreadCount: Math.max(0, current.unreadCount - (wasUnread ? 1 : 0)),
+			notifications:
+				wasUnread ?
+					current.notifications.filter((item) => item.id !== notification.id)
+				:	current.notifications.map((item) =>
+						item.id === notification.id ? { ...item, readAt: item.readAt ?? new Date().toISOString() } : item,
+					),
 		}));
 		const notificationUrl = new URL(notification.urlPath, window.location.origin);
 		navigate(parsePathname(notificationUrl.pathname, notificationUrl.search));
+		await loadHumanNotifications("unread");
 	}
 
 	async function markAllNotificationsRead(): Promise<void> {
