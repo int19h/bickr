@@ -6,6 +6,7 @@
 	"scripts": {
 		"cf-typegen": "wrangler types --config wrangler.jsonc",
 		"deploy": "wrangler deploy --config wrangler.jsonc",
+		"deploy:test": "wrangler deploy --config wrangler.jsonc --env test",
 		"dev": "wrangler dev --config wrangler.jsonc"
 	},
 	"dependencies": {

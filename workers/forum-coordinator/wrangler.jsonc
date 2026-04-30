@@ -36,5 +36,33 @@
 			"preview_database_id": "BICKR_D1",
 			"migrations_dir": "../../migrations"
 		}
-	]
+	],
+	"env": {
+		"test": {
+			"name": "bickr-forum-coordinator-test",
+			"durable_objects": {
+				"bindings": [
+					{
+						"name": "WORLD_COORDINATOR",
+						"class_name": "WorldCoordinator"
+					},
+					{
+						"name": "FORUM_COORDINATOR",
+						"class_name": "ForumCoordinator"
+					}
+				]
+			},
+			"kv_namespaces": [
+				{ "binding": "BICKR_KV", "id": "f153e4189e40485488cbbe0ca4ba91eb" }
+			],
+			"d1_databases": [
+				{
+					"binding": "BICKR_D1",
+					"database_name": "bickr-test",
+					"database_id": "d45193d4-15af-461d-84e7-9f8c276a30f8",
+					"migrations_dir": "../../migrations"
+				}
+			]
+		}
+	}
 }

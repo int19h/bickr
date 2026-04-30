@@ -629,7 +629,9 @@ export async function updateBot(
 
 	await writeJson(kv, kvKeys.bot(updated.id), updated);
 	await upsertBotIndex(db, updated);
-	await upsertBotRuntimeIndex(db, updated, now);
+	await upsertBotRuntimeIndex(db, updated, now, {
+		reschedule: shouldRescheduleBotRuntime(bot.tickSettings, updated.tickSettings, input.tickSettings),
+	});
 	await putObjectIndex(db, updated, "bot", updated.homeWorldId);
 
 	return botSummary(updated, { includeToolSettings: true });
@@ -1048,7 +1050,12 @@ async function uniqueForumHandle(db: D1DatabaseLike, worldId: string, preferred:
 	return `${preferred}-${randomToken(4)}`;
 }
 
-async function upsertBotRuntimeIndex(db: D1DatabaseLike, bot: BotDocument, now: string): Promise<void> {
+async function upsertBotRuntimeIndex(
+	db: D1DatabaseLike,
+	bot: BotDocument,
+	now: string,
+	options: { reschedule?: boolean } = {},
+): Promise<void> {
 	const nextDue = new Date(Date.parse(now) + bot.tickSettings.intervalSeconds * 1000).toISOString();
 	await db
 		.prepare(
@@ -1065,6 +1072,10 @@ async function upsertBotRuntimeIndex(db: D1DatabaseLike, bot: BotDocument, now: 
 				context_window_tokens = excluded.context_window_tokens,
 				compaction_threshold = excluded.compaction_threshold,
 				max_tool_calls_per_tick = excluded.max_tool_calls_per_tick,
+				next_due_at = CASE
+					WHEN ? THEN excluded.next_due_at
+					ELSE bot_runtime_index.next_due_at
+				END,
 				updated_at = excluded.updated_at`,
 		)
 		.bind(
@@ -1079,8 +1090,21 @@ async function upsertBotRuntimeIndex(db: D1DatabaseLike, bot: BotDocument, now: 
 			nextDue,
 			now,
 			now,
+			options.reschedule ? 1 : 0,
 		)
 		.run();
+}
+
+function shouldRescheduleBotRuntime(
+	previous: BotTickSettings,
+	next: BotTickSettings,
+	patch?: Partial<BotTickSettings>,
+): boolean {
+	return Boolean(
+		patch &&
+			((patch.intervalSeconds !== undefined && next.intervalSeconds !== previous.intervalSeconds) ||
+				(patch.enabled !== undefined && next.enabled && !previous.enabled)),
+	);
 }
 
 async function disableBotRuntime(db: D1DatabaseLike, botId: string, now: string): Promise<void> {

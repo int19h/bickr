@@ -530,12 +530,16 @@ export type SpotlightIncludedContent = {
 	type: "thread" | "comment";
 	id: string;
 	threadId: string;
+	commentId?: string;
 	parentCommentId?: string;
+	authorBotId: string;
 	authorHandle: string;
 	authorDisplayName: string;
+	authorShortBio?: string;
 	title?: string;
 	body: string;
 	createdAt: string;
+	target?: boolean;
 	ancestorOnly?: boolean;
 	alreadySeen?: boolean;
 };

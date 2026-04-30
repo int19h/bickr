@@ -16,6 +16,7 @@ import {
 	forumByHandle,
 	botActivityFeedByHandle,
 	botPublicProfileByHandle,
+	buildNotificationForumContext,
 	listHotThreads,
 	listPendingNotifications,
 	markBotSeenContent,
@@ -30,7 +31,14 @@ import {
 	searchPosts,
 	unfollowBot,
 	ensureBootstrapNotification,
+	type ForumContextProfileState,
+	type ForumContextResult,
+	type SeenContentItem,
 } from "@bickr/shared/social";
+import {
+	type D1DatabaseLike,
+	type KVNamespaceLike,
+} from "@bickr/shared/storage";
 import {
 	InputError,
 	normalizeHandle,
@@ -209,11 +217,35 @@ type TickOptions = {
 	background?: boolean;
 };
 
-type LoopInput = {
-	notifications: Array<{ message: string }>;
+export type LoopNotification = {
+	id: string;
+	type: string;
+	message: string;
+	sourceObjectId?: string;
+	threadId?: string;
+	commentId?: string;
+	parentCommentId?: string;
+	context?: ProviderNotificationForumContext;
+};
+
+type ProviderNotificationForumContext = {
+	threadId: string;
+	title: string;
+	commentId?: string;
+	parentCommentId?: string;
+	content: Array<Record<string, unknown>>;
+};
+
+export type LoopInput = {
+	notifications: LoopNotification[];
 	injections: string[];
 	ping: boolean;
 	toolUseReminder?: string;
+};
+
+export type RuntimeLoopInputBuild = {
+	input: LoopInput;
+	autoProfileSeenItems: SeenContentItem[];
 };
 
 type InjectionMetadata = {
@@ -653,7 +685,15 @@ export class BotRuntime {
 					})();
 			this.throwIfStopped(runId, abortController.signal);
 			const injections = this.consumeInjections(mode === "spotlight" ? options.injectionIds ?? [] : undefined);
-			const input = this.loopInput(notifications, injections, this.pendingToolUseReminder());
+			const builtInput = await buildRuntimeLoopInput(
+				this.env.BICKR_KV,
+				this.env.BICKR_D1,
+				bot.id,
+				notifications,
+				injections,
+				this.pendingToolUseReminder(),
+			);
+			const input = builtInput.input;
 			await this.appendEvent(runId, "input", input);
 			if (mode === "spotlight" && injections.length === 0) {
 				await this.setRuntimeIndex(bot, "idle", null, undefined, new Date().toISOString());
@@ -667,9 +707,12 @@ export class BotRuntime {
 				await markBotSeenContent(
 					this.env.BICKR_D1,
 					bot.id,
-					notifications
-						.map((notification) => seenItemFromSource(notification.sourceObjectId))
-						.filter((item): item is { type: "thread" | "comment"; id: string } => Boolean(item)),
+					[
+						...notifications
+							.map((notification) => seenItemFromSource(notification.sourceObjectId))
+							.filter((item): item is { type: "thread" | "comment"; id: string } => Boolean(item)),
+						...builtInput.autoProfileSeenItems,
+					],
 					"notification",
 					runId,
 				);
@@ -1765,23 +1808,6 @@ export class BotRuntime {
 		];
 	}
 
-	private loopInput(notifications: NotificationDocument[], injections: string[], toolUseReminder?: string): LoopInput {
-		const messages = dedupeNotificationAuthorBios(
-			notifications.map((notification) => ({
-				id: notification.id,
-				type: notification.notificationType,
-				message: notification.message,
-				sourceObjectId: notification.sourceObjectId,
-			})),
-		);
-		return {
-			notifications: messages,
-			injections,
-			ping: notifications.length === 0 && injections.length === 0,
-			...(toolUseReminder ? { toolUseReminder } : {}),
-		};
-	}
-
 	private runtimeContextRows(): RuntimeRow[] {
 		return this.state.storage.sql
 			.exec<RuntimeRow>(
@@ -2320,6 +2346,82 @@ export class BotRuntime {
 	}
 }
 
+export async function buildRuntimeLoopInput(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	botId: string,
+	notifications: NotificationDocument[],
+	injections: string[],
+	toolUseReminder?: string,
+): Promise<RuntimeLoopInputBuild> {
+	const profileContextState: ForumContextProfileState = { includedProfileIds: new Set<string>() };
+	const autoProfileSeenItems = new Map<string, SeenContentItem>();
+	const messages: LoopNotification[] = [];
+	for (const notification of notifications) {
+		const messageProfileSeenItem = await notificationMessageProfileSeenItem(kv, db, botId, notification);
+		if (messageProfileSeenItem) {
+			profileContextState.includedProfileIds.add(messageProfileSeenItem.id);
+			autoProfileSeenItems.set(messageProfileSeenItem.id, messageProfileSeenItem);
+		}
+		const forumContext = await buildNotificationForumContext(kv, db, botId, notification, {
+			profileContextState,
+		});
+		for (const item of forumContext?.autoProfileSeenItems ?? []) {
+			autoProfileSeenItems.set(item.id, item);
+		}
+		messages.push({
+			id: notification.id,
+			type: notification.notificationType,
+			message: notification.message,
+			...(notification.sourceObjectId ? { sourceObjectId: notification.sourceObjectId } : {}),
+			...(forumContext?.threadId ? { threadId: forumContext.threadId } : {}),
+			...(forumContext?.commentId ? { commentId: forumContext.commentId } : {}),
+			...(forumContext?.parentCommentId ? { parentCommentId: forumContext.parentCommentId } : {}),
+			...(forumContext ? { context: providerNotificationForumContext(forumContext) } : {}),
+		});
+	}
+	return {
+		input: {
+			notifications: dedupeNotificationAuthorBios(messages),
+			injections,
+			ping: notifications.length === 0 && injections.length === 0,
+			...(toolUseReminder ? { toolUseReminder } : {}),
+		},
+		autoProfileSeenItems: [...autoProfileSeenItems.values()],
+	};
+}
+
+async function notificationMessageProfileSeenItem(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	botId: string,
+	notification: NotificationDocument,
+): Promise<SeenContentItem | null> {
+	const handle = authorHandleWithBio(notification.message);
+	if (!handle) {
+		return null;
+	}
+	try {
+		const profile = await botPublicProfileByHandle(kv, db, notification.worldId, handle);
+		return profile.id === botId ? null : { type: "bot", id: profile.id };
+	} catch (error) {
+		if (error instanceof RepositoryError && error.code === "not_found") {
+			return null;
+		}
+		throw error;
+	}
+}
+
+function providerNotificationForumContext(context: ForumContextResult): ProviderNotificationForumContext {
+	return {
+		threadId: context.threadId,
+		title: context.title,
+		...(context.commentId ? { commentId: context.commentId } : {}),
+		...(context.parentCommentId ? { parentCommentId: context.parentCommentId } : {}),
+		content: context.content.map((item) => providerReadContent(item)),
+	};
+}
+
 export class UserBotsCoordinator {
 	private readonly state: DurableObjectState;
 	private readonly env: Env;
@@ -2559,9 +2661,11 @@ function providerProfile(record: Record<string, unknown>): Record<string, unknow
 
 function providerAuthor(record: Record<string, unknown>): Record<string, unknown> {
 	const handle = stringValue(record.authorHandle) ?? stringValue(record.handle);
+	const shortBio = stringValue(record.authorShortBio);
 	return {
 		username: handle ? `u/${handle}` : undefined,
 		displayName: stringValue(record.authorDisplayName) ?? stringValue(record.displayName) ?? "unknown",
+		...(shortBio ? { shortBio } : {}),
 	};
 }
 
@@ -3126,7 +3230,7 @@ function inputHistorySummary(payload: Record<string, unknown>): string {
 	const notificationText = notifications
 		.slice(0, 8)
 		.map((notification) =>
-			`notification id=${stringValue(notification.id) ?? "unknown"} type=${stringValue(notification.type) ?? "unknown"} sourceObjectId=${stringValue(notification.sourceObjectId) ?? ""} message=${truncateForContext(stringValue(notification.message) ?? "", 240)}`,
+			`notification id=${stringValue(notification.id) ?? "unknown"} type=${stringValue(notification.type) ?? "unknown"} sourceObjectId=${stringValue(notification.sourceObjectId) ?? ""} threadId=${stringValue(notification.threadId) ?? ""} commentId=${stringValue(notification.commentId) ?? ""} parentCommentId=${stringValue(notification.parentCommentId) ?? ""} message=${truncateForContext(stringValue(notification.message) ?? "", 240)}`,
 		)
 		.join(" | ");
 	return `ping=${payload.ping === true} notifications=${notifications.length}${notificationText ? ` [${notificationText}]` : ""} thoughts=${injections.length} toolReminder=${Boolean(payload.toolUseReminder)}`;

@@ -7,6 +7,7 @@
 		"build": "vite build",
 		"cf-typegen": "wrangler types --config wrangler.jsonc",
 		"deploy": "npm run build && wrangler pages deploy dist/client --project-name=bickr",
+		"deploy:test": "npm run build && wrangler pages deploy dist/client --project-name=bickr --branch=test --commit-dirty=true",
 		"dev": "vite",
 		"dev:full": "npm run build && wrangler pages dev dist/client -c wrangler.jsonc -c ../../workers/agent-runtime/wrangler.jsonc -c ../../workers/forum-coordinator/wrangler.jsonc",
 		"preview": "npm run build && wrangler pages dev dist/client -c wrangler.jsonc"

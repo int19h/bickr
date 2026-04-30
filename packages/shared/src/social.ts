@@ -1799,6 +1799,19 @@ export type SeenContentItem = {
 	id: string;
 };
 
+export type ForumContextProfileState = {
+	includedProfileIds: Set<string>;
+};
+
+export type ForumContextResult = {
+	threadId: string;
+	title: string;
+	commentId?: string;
+	parentCommentId?: string;
+	content: SpotlightIncludedContent[];
+	autoProfileSeenItems: SeenContentItem[];
+};
+
 export async function markBotSeenContent(
 	db: D1DatabaseLike,
 	botId: string,
@@ -1889,8 +1902,9 @@ export async function buildSpotlightPreview(
 	userId: string,
 	forum: ForumDocument,
 	input: SpotlightPreviewInput,
+	now = new Date().toISOString(),
 ): Promise<SpotlightPreview> {
-	const botPreviews = await buildSpotlightBotPreviews(kv, db, userId, forum, input);
+	const botPreviews = await buildSpotlightBotPreviews(kv, db, userId, forum, input, now);
 	return {
 		targetType: input.targetType,
 		worldHandle: forum.worldHandle,
@@ -1910,7 +1924,7 @@ export async function sendSpotlight(
 	now = new Date().toISOString(),
 ): Promise<{ preview: SpotlightPreview; deliveries: SpotlightDeliveryResult[] }> {
 	const spotlightId = makeId("spt");
-	const botPreviews = await buildSpotlightBotPreviews(kv, db, userId, forum, input);
+	const botPreviews = await buildSpotlightBotPreviews(kv, db, userId, forum, input, now);
 	const deliveries: SpotlightDeliveryResult[] = [];
 	for (const preview of botPreviews) {
 		let status = "sent";
@@ -1922,7 +1936,10 @@ export async function sendSpotlight(
 			await markBotSeenContent(
 				db,
 				preview.bot.id,
-				preview.content.map((item) => ({ type: item.type, id: item.id })),
+				[
+					...preview.content.map((item) => ({ type: item.type, id: item.id })),
+					...autoProfileSeenItems(preview.content),
+				],
 				"spotlight",
 				spotlightId,
 				now,
@@ -2491,6 +2508,7 @@ async function buildSpotlightBotPreviews(
 	userId: string,
 	forum: ForumDocument,
 	input: SpotlightPreviewInput,
+	now: string,
 ): Promise<SpotlightBotPreview[]> {
 	const selectedBots = await ownedSpotlightBots(kv, db, userId, forum, input.botIds);
 	if (selectedBots.length === 0) {
@@ -2506,7 +2524,14 @@ async function buildSpotlightBotPreviews(
 	const previews: SpotlightBotPreview[] = [];
 	for (const bot of selectedBots) {
 		const seen = await seenSetForBot(db, bot.id, allItems);
-		const content = spotlightContentForBot(threads, input, seen);
+		const content = await addAuthorShortBiosToContext(
+			kv,
+			db,
+			bot.id,
+			spotlightContentForBot(threads, input, seen),
+			now,
+			{ includedProfileIds: new Set() },
+		);
 		previews.push({
 			bot,
 			included: {
@@ -2539,6 +2564,81 @@ async function ownedSpotlightBots(
 		throw repositoryError("forbidden", "Spotlight bots must be in the same world as the forum.", 403);
 	}
 	return selected;
+}
+
+export async function buildNotificationForumContext(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	recipientBotId: string,
+	notification: NotificationDocument,
+	options: { now?: string; profileContextState?: ForumContextProfileState } = {},
+): Promise<ForumContextResult | null> {
+	const sourceObjectId = notification.sourceObjectId;
+	if (!sourceObjectId) {
+		return null;
+	}
+	const now = options.now ?? new Date().toISOString();
+	const profileContextState = options.profileContextState ?? { includedProfileIds: new Set<string>() };
+	if (sourceObjectId.startsWith("thr_")) {
+		const thread = await readThreadIfAvailable(kv, sourceObjectId);
+		if (!thread) {
+			return null;
+		}
+		const content = await addAuthorShortBiosToContext(
+			kv,
+			db,
+			recipientBotId,
+			[threadRootContextItem(thread, { target: true })],
+			now,
+			profileContextState,
+		);
+		return {
+			threadId: thread.id,
+			title: thread.rootPost.title,
+			content,
+			autoProfileSeenItems: autoProfileSeenItems(content),
+		};
+	}
+	if (!sourceObjectId.startsWith("cmt_")) {
+		return null;
+	}
+	const row = await db
+		.prepare(
+			`SELECT thread_id AS threadId
+			 FROM comments_index
+			 WHERE comment_id = ?
+			   AND deleted_at IS NULL
+			 LIMIT 1`,
+		)
+		.bind(sourceObjectId)
+		.first<{ threadId: string }>();
+	if (!row) {
+		return null;
+	}
+	const thread = await readThreadIfAvailable(kv, row.threadId);
+	if (!thread) {
+		return null;
+	}
+	const comment = thread.comments.find((item) => item.id === sourceObjectId);
+	if (!comment) {
+		return null;
+	}
+	const content = await addAuthorShortBiosToContext(
+		kv,
+		db,
+		recipientBotId,
+		commentContextContent(thread, [comment.id], new Set()),
+		now,
+		profileContextState,
+	);
+	return {
+		threadId: thread.id,
+		title: thread.rootPost.title,
+		commentId: comment.id,
+		...(comment.parentCommentId ? { parentCommentId: comment.parentCommentId } : {}),
+		content,
+		autoProfileSeenItems: autoProfileSeenItems(content),
+	};
 }
 
 async function spotlightThreads(
@@ -2588,15 +2688,18 @@ function spotlightContentForBot(
 	const content: SpotlightIncludedContent[] = [];
 	const included = new Set<string>();
 	for (const thread of threads) {
-		addRootThread(content, included, thread, seen.has(`thread:${thread.id}`));
-		const commentsById = new Map(thread.comments.map((comment) => [comment.id, comment]));
 		const orderedCommentIds =
 			input.targetType === "comments" ?
 				thread.comments.filter((comment) => (input.commentIds ?? []).includes(comment.id)).map((comment) => comment.id)
 			:	thread.comments.filter((comment) => !seen.has(`comment:${comment.id}`)).map((comment) => comment.id);
-		const spotlightedCommentIds = input.targetType === "comments" ? new Set(input.commentIds ?? []) : undefined;
-		for (const commentId of orderedCommentIds) {
-			addCommentWithAncestors(content, included, thread, commentsById, commentId, seen, spotlightedCommentIds);
+		addRootThread(content, included, thread, { alreadySeen: seen.has(`thread:${thread.id}`) });
+		const commentIds = input.targetType === "comments" ? new Set(input.commentIds ?? []) : undefined;
+		for (const item of commentContextContent(thread, orderedCommentIds, seen, commentIds)) {
+			const key = `${item.type}:${item.id}`;
+			if (!included.has(key)) {
+				included.add(key);
+				content.push(item);
+			}
 		}
 	}
 	return content;
@@ -2606,63 +2709,150 @@ function addRootThread(
 	content: SpotlightIncludedContent[],
 	included: Set<string>,
 	thread: ThreadDocument,
-	alreadySeen: boolean,
+	options: { alreadySeen?: boolean; target?: boolean } = {},
 ): void {
 	const key = `thread:${thread.id}`;
 	if (included.has(key)) {
 		return;
 	}
 	included.add(key);
-	content.push({
+	content.push(threadRootContextItem(thread, options));
+}
+
+function threadRootContextItem(
+	thread: ThreadDocument,
+	options: { alreadySeen?: boolean; target?: boolean } = {},
+): SpotlightIncludedContent {
+	return {
 		type: "thread",
 		id: thread.id,
 		threadId: thread.id,
+		authorBotId: thread.rootPost.authorBotId,
 		authorHandle: thread.rootPost.authorHandle,
 		authorDisplayName: thread.rootPost.authorDisplayName,
 		title: thread.rootPost.title,
 		body: thread.rootPost.body,
 		createdAt: thread.rootPost.createdAt,
-		alreadySeen,
-	});
+		...(options.target ? { target: true } : {}),
+		alreadySeen: Boolean(options.alreadySeen),
+	};
 }
 
-function addCommentWithAncestors(
-	content: SpotlightIncludedContent[],
-	included: Set<string>,
+function commentContextContent(
 	thread: ThreadDocument,
-	commentsById: Map<string, CommentDocument>,
-	commentId: string,
+	commentIds: string[],
 	seen: Set<string>,
 	spotlightedCommentIds?: ReadonlySet<string>,
-): void {
-	const chain: CommentDocument[] = [];
-	let current = commentsById.get(commentId);
-	while (current) {
-		chain.unshift(current);
-		current = current.parentCommentId ? commentsById.get(current.parentCommentId) : undefined;
+): SpotlightIncludedContent[] {
+	const content: SpotlightIncludedContent[] = [threadRootContextItem(thread, { alreadySeen: seen.has(`thread:${thread.id}`) })];
+	const included = new Set<string>([`thread:${thread.id}`]);
+	const commentsById = new Map(thread.comments.map((comment) => [comment.id, comment]));
+	const targetCommentIds = new Set(commentIds);
+	for (const commentId of commentIds) {
+		const chain: CommentDocument[] = [];
+		let current = commentsById.get(commentId);
+		while (current) {
+			chain.unshift(current);
+			current = current.parentCommentId ? commentsById.get(current.parentCommentId) : undefined;
+		}
+		for (let index = 0; index < chain.length; index += 1) {
+			const comment = chain[index];
+			if (!comment) {
+				continue;
+			}
+			const key = `comment:${comment.id}`;
+			if (included.has(key)) {
+				continue;
+			}
+			included.add(key);
+			content.push({
+				type: "comment",
+				id: comment.id,
+				commentId: comment.id,
+				threadId: thread.id,
+				...(comment.parentCommentId ? { parentCommentId: comment.parentCommentId } : {}),
+				authorBotId: comment.authorBotId,
+				authorHandle: comment.authorHandle,
+				authorDisplayName: comment.authorDisplayName,
+				body: comment.body,
+				createdAt: comment.createdAt,
+				target: targetCommentIds.has(comment.id),
+				ancestorOnly: spotlightedCommentIds ? !spotlightedCommentIds.has(comment.id) : index < chain.length - 1,
+				alreadySeen: seen.has(key),
+			});
+		}
 	}
-	for (let index = 0; index < chain.length; index += 1) {
-		const comment = chain[index];
-		if (!comment) {
+	return content;
+}
+
+async function addAuthorShortBiosToContext(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	recipientBotId: string,
+	content: SpotlightIncludedContent[],
+	now: string,
+	profileContextState: ForumContextProfileState,
+): Promise<SpotlightIncludedContent[]> {
+	const annotated: SpotlightIncludedContent[] = [];
+	for (const item of content) {
+		if (item.authorBotId === recipientBotId || profileContextState.includedProfileIds.has(item.authorBotId)) {
+			annotated.push(item);
 			continue;
 		}
-		const key = `comment:${comment.id}`;
-		if (included.has(key)) {
+		if (await botSeenRecently(db, recipientBotId, item.authorBotId, now)) {
+			annotated.push(item);
 			continue;
 		}
-		included.add(key);
-		content.push({
-			type: "comment",
-			id: comment.id,
-			threadId: thread.id,
-			...(comment.parentCommentId ? { parentCommentId: comment.parentCommentId } : {}),
-			authorHandle: comment.authorHandle,
-			authorDisplayName: comment.authorDisplayName,
-			body: comment.body,
-			createdAt: comment.createdAt,
-			ancestorOnly: spotlightedCommentIds ? !spotlightedCommentIds.has(comment.id) : index < chain.length - 1,
-			alreadySeen: seen.has(key),
+		const shortBio = await shortBioForProfile(kv, db, item.authorBotId);
+		if (!shortBio) {
+			annotated.push(item);
+			continue;
+		}
+		profileContextState.includedProfileIds.add(item.authorBotId);
+		annotated.push({
+			...item,
+			authorShortBio: shortBio,
 		});
+	}
+	return annotated;
+}
+
+async function shortBioForProfile(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	botId: string,
+): Promise<string | undefined> {
+	try {
+		return (await botById(kv, db, botId)).shortBio;
+	} catch (error) {
+		if (error instanceof RepositoryError && error.code === "not_found") {
+			return undefined;
+		}
+		throw error;
+	}
+}
+
+function autoProfileSeenItems(content: SpotlightIncludedContent[]): SeenContentItem[] {
+	const items = new Map<string, SeenContentItem>();
+	for (const item of content) {
+		if (item.authorShortBio) {
+			items.set(item.authorBotId, { type: "bot", id: item.authorBotId });
+		}
+	}
+	return [...items.values()];
+}
+
+async function readThreadIfAvailable(
+	kv: KVNamespaceLike,
+	threadId: string,
+): Promise<ThreadDocument | null> {
+	try {
+		return await readThread(kv, threadId);
+	} catch (error) {
+		if (error instanceof RepositoryError && error.code === "not_found") {
+			return null;
+		}
+		throw error;
 	}
 }
 
@@ -2689,14 +2879,23 @@ function spotlightText(
 	for (const item of content) {
 		if (item.type === "thread") {
 			const label = input.targetType === "comments" ? "Context thread" : "Spotlighted thread";
-			lines.push(`- ${label} "${item.title}" by u/${item.authorHandle}: ${item.body}`);
+			lines.push(`- ${label} threadId=${item.threadId} "${item.title}" by ${spotlightAuthor(item)}: ${item.body}`);
 		} else {
 			const prefix = item.ancestorOnly ? "  context parent comment" : "  spotlighted comment";
-			lines.push(`${prefix} by u/${item.authorHandle}${item.alreadySeen ? " (already seen, included for context)" : ""}: ${item.body}`);
+			const parent = item.parentCommentId ? ` parentCommentId=${item.parentCommentId}` : "";
+			lines.push(`${prefix} by ${spotlightAuthor(item)} commentId=${item.id} threadId=${item.threadId}${parent}${item.alreadySeen ? " (already seen, included for context)" : ""}: ${item.body}`);
 		}
+	}
+	if (input.targetType === "comments") {
+		lines.push("", "To reply to a spotlighted comment, use its threadId and set parentCommentId to that commentId.");
 	}
 	lines.push("", "I may decide whether to engage. I should stay in character.");
 	return lines.join("\n");
+}
+
+function spotlightAuthor(item: SpotlightIncludedContent): string {
+	const bio = item.authorShortBio ? `; profile: ${item.authorShortBio}` : "";
+	return `u/${item.authorHandle}${bio}`;
 }
 
 function trimmedFocus(value: string | undefined): string | undefined {

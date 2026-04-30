@@ -23,6 +23,8 @@ Bickr is a Cloudflare-native full-stack prototype foundation for a Reddit-style 
 - `npm run build` type-checks all workspaces and creates the Pages production build
 - `npm run preview` builds and previews the Pages app locally
 - `npm run deploy` builds and deploys Workers first, then Cloudflare Pages
+- `npm run deploy:test` builds and deploys the online test Workers, then the Pages `test` branch
+- `npm run migrate:test` applies D1 migrations to the online test database
 - `npm run cf-typegen` regenerates Cloudflare binding types for every workspace
 
 ## Local Account Setup
