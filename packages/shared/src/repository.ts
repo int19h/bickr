@@ -521,8 +521,14 @@ export async function listUserBots(
 		activeBots.map(async (bot) => [bot.id, await botLastActiveAt(db, bot.id)] as const),
 	);
 	const lastActiveById = new Map(lastActiveEntries);
+	const nextDueById = await botRuntimeNextDueAtById(db, activeBots.map((bot) => bot.id));
 
-	return activeBots.map((bot) => botSummaryWithLastActive(bot, lastActiveById.get(bot.id), { includeToolSettings: true }));
+	return activeBots.map((bot) =>
+		botSummaryWithLastActive(bot, lastActiveById.get(bot.id), {
+			includeToolSettings: true,
+			nextDueAt: nextDueById.get(bot.id) ?? null,
+		}),
+	);
 }
 
 export async function createBot(
@@ -599,7 +605,7 @@ export async function createBot(
 	}
 	await putObjectIndex(db, bot, "bot", bot.homeWorldId);
 
-	return botSummary(bot, { includeToolSettings: true });
+	return botSummary(bot, { includeToolSettings: true, nextDueAt: await botRuntimeNextDueAt(db, bot.id) });
 }
 
 export async function updateBot(
@@ -633,7 +639,7 @@ export async function updateBot(
 	await upsertBotRuntimeIndex(db, updated, now, shouldRescheduleBotRuntime(bot.tickSettings, updated.tickSettings, input.tickSettings));
 	await putObjectIndex(db, updated, "bot", updated.homeWorldId);
 
-	return botSummary(updated, { includeToolSettings: true });
+	return botSummary(updated, { includeToolSettings: true, nextDueAt: await botRuntimeNextDueAt(db, updated.id) });
 }
 
 export async function deleteBot(
@@ -656,7 +662,7 @@ export async function deleteBot(
 	await disableBotRuntime(db, deleted.id, now);
 	await putObjectIndex(db, deleted, "bot", deleted.homeWorldId);
 
-	return botSummary(deleted, { includeToolSettings: true });
+	return botSummary(deleted, { includeToolSettings: true, nextDueAt: null });
 }
 
 export async function botById(kv: KVNamespaceLike, db: D1DatabaseLike, botId: string): Promise<BotDocument> {
@@ -708,8 +714,17 @@ export async function listWorldBots(
 		.bind(world.id)
 		.all<{ id: string }>();
 	const bots = await Promise.all((result.results ?? []).map((row) => readJson<BotDocument>(kv, kvKeys.bot(row.id))));
-	return bots.filter((bot): bot is BotDocument => Boolean(bot && !bot.deletedAt)).map((bot) =>
-		botSummary(normalizeBotDefaults(bot), { includePrompt: false }),
+	const activeBots = bots.filter((bot): bot is BotDocument => Boolean(bot && !bot.deletedAt)).map((bot) => normalizeBotDefaults(bot));
+	const lastActiveEntries = await Promise.all(
+		activeBots.map(async (bot) => [bot.id, await botLastActiveAt(db, bot.id)] as const),
+	);
+	const lastActiveById = new Map(lastActiveEntries);
+	const nextDueById = await botRuntimeNextDueAtById(db, activeBots.map((bot) => bot.id));
+	return activeBots.map((bot) =>
+		botSummaryWithLastActive(bot, lastActiveById.get(bot.id), {
+			includePrompt: false,
+			nextDueAt: nextDueById.get(bot.id) ?? null,
+		}),
 	);
 }
 
@@ -835,7 +850,10 @@ function forumSummary(forum: ForumDocument): ForumSummary {
 	};
 }
 
-function botSummary(bot: BotDocument, options: { includePrompt?: boolean; includeToolSettings?: boolean } = {}): BotSummary {
+function botSummary(
+	bot: BotDocument,
+	options: { includePrompt?: boolean; includeToolSettings?: boolean; nextDueAt?: string | null } = {},
+): BotSummary {
 	return {
 		id: bot.id,
 		homeWorldId: bot.homeWorldId,
@@ -849,6 +867,7 @@ function botSummary(bot: BotDocument, options: { includePrompt?: boolean; includ
 		...(options.includeToolSettings ? { toolSettings: publicToolSettings(bot.toolSettings) } : {}),
 		tickSettings: bot.tickSettings,
 		...(bot.importSource ? { importSource: bot.importSource } : {}),
+		...(options.nextDueAt !== undefined ? { nextDueAt: options.nextDueAt } : {}),
 		createdAt: bot.createdAt,
 		updatedAt: bot.updatedAt,
 	};
@@ -857,12 +876,36 @@ function botSummary(bot: BotDocument, options: { includePrompt?: boolean; includ
 function botSummaryWithLastActive(
 	bot: BotDocument,
 	lastActiveAt?: string | null,
-	options: { includePrompt?: boolean; includeToolSettings?: boolean } = {},
+	options: { includePrompt?: boolean; includeToolSettings?: boolean; nextDueAt?: string | null } = {},
 ): BotSummary {
 	return {
 		...botSummary(bot, options),
 		lastActiveAt: lastActiveAt ?? bot.createdAt,
 	};
+}
+
+async function botRuntimeNextDueAt(db: D1DatabaseLike, botId: string): Promise<string | null> {
+	const row = await db
+		.prepare(`SELECT next_due_at AS nextDueAt FROM bot_runtime_index WHERE bot_id = ?`)
+		.bind(botId)
+		.first<{ nextDueAt: string | null }>();
+	return row?.nextDueAt ?? null;
+}
+
+async function botRuntimeNextDueAtById(db: D1DatabaseLike, botIds: string[]): Promise<Map<string, string | null>> {
+	if (botIds.length === 0) {
+		return new Map();
+	}
+	const placeholders = botIds.map(() => "?").join(", ");
+	const result = await db
+		.prepare(
+			`SELECT bot_id AS botId, next_due_at AS nextDueAt
+			 FROM bot_runtime_index
+			 WHERE bot_id IN (${placeholders})`,
+		)
+		.bind(...botIds)
+		.all<{ botId: string; nextDueAt: string | null }>();
+	return new Map((result.results ?? []).map((row) => [row.botId, row.nextDueAt]));
 }
 
 async function botLastActiveAt(db: D1DatabaseLike, botId: string): Promise<string | null> {

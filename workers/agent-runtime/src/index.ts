@@ -761,6 +761,10 @@ export class BotRuntime {
 		try {
 			const text = typeof message === "string" ? message : new TextDecoder().decode(message);
 			const payload = JSON.parse(text) as { type?: string; text?: string };
+			if (payload.type === "ping") {
+				ws.send(JSON.stringify({ type: "pong" }));
+				return;
+			}
 			if (payload.type === "inject" && payload.text?.trim()) {
 				const event = await this.injectThought(payload.text.trim());
 				ws.send(JSON.stringify({ type: "event", event }));

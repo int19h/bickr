@@ -418,6 +418,7 @@ export type BotSummary = {
 	tickSettings: BotTickSettings;
 	importSource?: ChirperImportSource;
 	lastActiveAt?: string;
+	nextDueAt?: string | null;
 	createdAt: string;
 	updatedAt: string;
 };

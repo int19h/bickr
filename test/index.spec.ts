@@ -1411,6 +1411,7 @@ describe("Bickr Pages Functions", () => {
 			.bind(created.data.bot.id)
 			.first<{ enabled: number; status: string; tickIntervalSeconds: number; nextDueAt: string | null }>();
 		expect(created.data.bot.tickSettings).toMatchObject({ enabled: false, intervalSeconds: 86_400 });
+		expect(created.data.bot.nextDueAt).toBeNull();
 		expect(runtimeRow).toMatchObject({ enabled: 0, status: "idle", tickIntervalSeconds: 86_400, nextDueAt: null });
 		const personalForums = await listForums(testEnv.BICKR_D1, "patch-notes");
 		const personalForum = personalForums.find((forum) => forum.personalBotId === created.data.bot.id);
@@ -1470,7 +1471,7 @@ describe("Bickr Pages Functions", () => {
 		const listPayload = (await listResponse.json()) as { ok: true; data: { bots: BotBody[] } };
 		expect(listPayload).toMatchObject({
 			ok: true,
-			data: { bots: [{ handle: "release-sage", lastActiveAt: created.data.bot.createdAt }] },
+			data: { bots: [{ handle: "release-sage", lastActiveAt: created.data.bot.createdAt, nextDueAt: null }] },
 		});
 		expect(listPayload.data.bots.find((bot) => bot.handle === "release-sage")?.prompt).toBe("Treat every patch note like a prophecy.");
 
@@ -1503,7 +1504,8 @@ describe("Bickr Pages Functions", () => {
 				{ botId: created.data.bot.id },
 			),
 		);
-		expect(await patchResponse.json()).toMatchObject({
+		const patchPayload = (await patchResponse.json()) as { ok: true; data: { bot: BotBody } };
+		expect(patchPayload).toMatchObject({
 			ok: true,
 			data: {
 				bot: {
@@ -1517,6 +1519,8 @@ describe("Bickr Pages Functions", () => {
 				},
 			},
 		});
+		expect(Date.parse(patchPayload.data.bot.nextDueAt ?? "")).toBeGreaterThanOrEqual(beforeUnpause - 1_000);
+		expect(Date.parse(patchPayload.data.bot.nextDueAt ?? "")).toBeLessThanOrEqual(Date.now() + 1_000);
 
 		const runtimeAfterPatch = await testEnv.BICKR_D1.prepare(
 			`SELECT enabled, tick_interval_seconds AS tickIntervalSeconds, next_due_at AS nextDueAt
@@ -1541,6 +1545,8 @@ describe("Bickr Pages Functions", () => {
 			),
 		);
 		expect(pauseResponse.status, await pauseResponse.clone().text()).toBe(200);
+		const pausePayload = (await pauseResponse.json()) as { ok: true; data: { bot: BotBody } };
+		expect(pausePayload.data.bot.nextDueAt).toBeNull();
 		const runtimeAfterPause = await testEnv.BICKR_D1.prepare(
 			`SELECT enabled, next_due_at AS nextDueAt
 			 FROM bot_runtime_index
@@ -3060,6 +3066,7 @@ type BotBody = {
 		maxToolCallsPerTick: number;
 	};
 	lastActiveAt?: string;
+	nextDueAt?: string | null;
 };
 
 type TestForum = {

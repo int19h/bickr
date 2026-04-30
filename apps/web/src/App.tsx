@@ -198,6 +198,13 @@ type RuntimeActivity = {
 	streaming?: boolean;
 };
 
+type RuntimeMonitorPayload = {
+	type?: string;
+	event?: BotRuntimeEvent;
+	message?: string;
+	seq?: number;
+};
+
 type WorldView = WorldSummary & {
 	bannerIdx: number;
 	botCount: number | null;
@@ -4467,7 +4474,10 @@ function BotCard({
 					) : showActive ?
 						paused ?
 							<span className="bot-status-label paused">PAUSED</span>
-						:	<span>active {timeAgoWithAgo(bot.lastActiveAt ?? bot.createdAt)}</span>
+						:	<span>
+								active {timeAgoWithAgo(bot.lastActiveAt ?? bot.createdAt)}; next tick{" "}
+								{timeUntil(bot.nextDueAt)}
+							</span>
 					:	null}
 				</span>
 				<span className="bot-card-foot-action">
@@ -4485,11 +4495,11 @@ function BotCard({
 						<button
 							className="btn compact bot-run-tick"
 							onClick={onRunTick}
-							title="Run tick"
+							title="Run tick now"
 							type="button"
 						>
 							<Icon name="refresh" size={12} />
-							Run tick
+							Run now
 						</button>
 					) : null}
 				</span>
@@ -6275,38 +6285,65 @@ function BotRuntimePanel({
 	const [pendingDeleteActivity, setPendingDeleteActivity] = useState<RuntimeActivity | null>(null);
 	const logRef = useRef<HTMLDivElement | null>(null);
 	const shouldStickToBottomRef = useRef(true);
+	const latestPersistentEventSeqRef = useRef(0);
+	const reconnectAttemptRef = useRef(0);
 	const activities = useMemo(() => runtimeActivities([...events, ...streamEvents]), [events, streamEvents]);
 	const runtimeEnabled = status?.enabled ?? bot.tickSettings.enabled;
 
 	useEffect(() => {
 		let closed = false;
+		let reconnectTimer: number | undefined;
+		let heartbeatTimer: number | undefined;
+		let socket: WebSocket | null = null;
+		let lastMonitorMessageAt = Date.now();
+		shouldStickToBottomRef.current = true;
+		latestPersistentEventSeqRef.current = 0;
+		reconnectAttemptRef.current = 0;
+		setStatus(null);
+		setEvents([]);
+		setStreamEvents([]);
+		setTokenUsage(null);
+		setConnected(false);
 		void refresh();
 
 		const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-		const socket = new WebSocket(
-			`${protocol}//${window.location.host}/api/me/bots/${encodeURIComponent(bot.id)}/runtime/monitor`,
-		);
-		socket.onopen = () => {
-			if (!closed) {
-				setConnected(true);
+		const monitorUrl = `${protocol}//${window.location.host}/api/me/bots/${encodeURIComponent(bot.id)}/runtime/monitor`;
+
+		function clearReconnectTimer(): void {
+			if (reconnectTimer !== undefined) {
+				window.clearTimeout(reconnectTimer);
+				reconnectTimer = undefined;
 			}
-		};
-		socket.onclose = () => {
-			if (!closed) {
-				setConnected(false);
+		}
+
+		function clearHeartbeatTimer(): void {
+			if (heartbeatTimer !== undefined) {
+				window.clearInterval(heartbeatTimer);
+				heartbeatTimer = undefined;
 			}
-		};
-		socket.onerror = () => {
-			if (!closed) {
-				setConnected(false);
+		}
+
+		function scheduleReconnect(): void {
+			if (closed || reconnectTimer !== undefined) {
+				return;
 			}
-		};
-		socket.onmessage = (event) => {
-			const payload = JSON.parse(event.data) as { type?: string; event?: BotRuntimeEvent; message?: string; seq?: number };
+			const delay = reconnectDelayMs(reconnectAttemptRef.current);
+			reconnectAttemptRef.current += 1;
+			reconnectTimer = window.setTimeout(() => {
+				reconnectTimer = undefined;
+				connectMonitor();
+			}, delay);
+		}
+
+		function handleMonitorPayload(payload: RuntimeMonitorPayload): void {
 			if (payload.type === "history_cleared") {
 				setEvents([]);
 				setStreamEvents([]);
+				latestPersistentEventSeqRef.current = 0;
 				setMessage("Loop history erased.");
+				return;
+			}
+			if (payload.type === "pong") {
 				return;
 			}
 			if (payload.type === "event_deleted" && Number.isInteger(payload.seq)) {
@@ -6319,6 +6356,7 @@ function BotRuntimePanel({
 				return;
 			}
 			if (payload.event) {
+				rememberPersistentEventSeq(payload.event);
 				setEvents((current) => upsertEvent(current, payload.event!));
 				setStreamEvents((current) => pruneStreamEventsForPersistentEvent(current, payload.event!));
 				if (["tick_completed", "tick_failed", "tick_stopped"].includes(payload.event.type)) {
@@ -6328,37 +6366,116 @@ function BotRuntimePanel({
 			if (payload.message) {
 				setMessage(payload.message);
 			}
-		};
+		}
+
+		function connectMonitor(): void {
+			if (closed) {
+				return;
+			}
+			clearReconnectTimer();
+			clearHeartbeatTimer();
+			if (socket && socket.readyState !== WebSocket.CLOSED) {
+				const previousSocket = socket;
+				socket = null;
+				previousSocket.close();
+			}
+			const after = latestPersistentEventSeqRef.current;
+			const currentSocket = new WebSocket(after > 0 ? `${monitorUrl}?after=${encodeURIComponent(String(after))}` : monitorUrl);
+			socket = currentSocket;
+			currentSocket.onopen = () => {
+				if (closed || socket !== currentSocket) {
+					return;
+				}
+				reconnectAttemptRef.current = 0;
+				lastMonitorMessageAt = Date.now();
+				setConnected(true);
+				void refresh();
+				heartbeatTimer = window.setInterval(() => {
+					if (socket !== currentSocket || currentSocket.readyState !== WebSocket.OPEN) {
+						clearHeartbeatTimer();
+						return;
+					}
+					if (Date.now() - lastMonitorMessageAt > 45_000) {
+						currentSocket.close();
+						return;
+					}
+					currentSocket.send(JSON.stringify({ type: "ping" }));
+				}, 15_000);
+			};
+			currentSocket.onclose = () => {
+				if (!closed && socket === currentSocket) {
+					setConnected(false);
+					clearHeartbeatTimer();
+					void refresh();
+					scheduleReconnect();
+				}
+			};
+			currentSocket.onerror = () => {
+				if (!closed && socket === currentSocket) {
+					setConnected(false);
+					currentSocket.close();
+				}
+			};
+			currentSocket.onmessage = (event) => {
+				if (closed || socket !== currentSocket) {
+					return;
+				}
+				lastMonitorMessageAt = Date.now();
+				try {
+					handleMonitorPayload(JSON.parse(event.data) as RuntimeMonitorPayload);
+				} catch (error) {
+					setMessage(error instanceof Error ? error.message : "Could not read monitor update.");
+				}
+			};
+		}
+
+		connectMonitor();
 		return () => {
 			closed = true;
-			socket.close();
+			clearReconnectTimer();
+			clearHeartbeatTimer();
+			socket?.close();
 		};
 	}, [bot.id]);
 
 	useEffect(() => {
-		if (status?.status !== "running") {
+		if (connected && status?.status !== "running") {
 			return undefined;
 		}
 		const interval = window.setInterval(() => {
 			if (document.visibilityState === "visible") {
 				void refresh();
 			}
-		}, 5_000);
+		}, status?.status === "running" ? 5_000 : 15_000);
 		return () => window.clearInterval(interval);
-	}, [bot.id, status?.status]);
+	}, [bot.id, connected, status?.status]);
 
 	useEffect(() => {
 		if (!shouldStickToBottomRef.current) {
 			return undefined;
 		}
-		const frame = window.requestAnimationFrame(() => {
-			const log = logRef.current;
-			if (log) {
-				log.scrollTop = log.scrollHeight;
-			}
-		});
+		const frame = scrollLogToBottom(logRef);
 		return () => window.cancelAnimationFrame(frame);
 	}, [activities]);
+
+	useEffect(() => {
+		const log = logRef.current;
+		if (!log || typeof ResizeObserver === "undefined") {
+			return undefined;
+		}
+		const observer = new ResizeObserver(() => {
+			if (shouldStickToBottomRef.current) {
+				scrollLogToBottom(logRef);
+			}
+		});
+		observer.observe(log);
+		Array.from(log.children).forEach((child) => observer.observe(child));
+		return () => observer.disconnect();
+	}, [activities]);
+
+	useEffect(() => {
+		latestPersistentEventSeqRef.current = latestPersistentEventSeq(events);
+	}, [events]);
 
 	function trackLogScroll(): void {
 		const log = logRef.current;
@@ -6379,6 +6496,9 @@ function BotRuntimePanel({
 			setStatus(statusResult.data.status);
 		}
 		if (eventsResult.ok) {
+			for (const event of eventsResult.data.events) {
+				rememberPersistentEventSeq(event);
+			}
 			setEvents((current) => mergeEvents(current, eventsResult.data.events));
 			setStreamEvents((current) => pruneStreamEventsForPersistentEvents(current, eventsResult.data.events));
 		}
@@ -6392,10 +6512,11 @@ function BotRuntimePanel({
 			setMessage("This participant is paused. Unpause it before starting a loop run.");
 			return;
 		}
+		shouldStickToBottomRef.current = true;
 		setMessage("Starting tick...");
 		const result = await api<{ run: { runId: string; status: string; error?: string } }>(
 			`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/tick`,
-			{ method: "POST" },
+			{ method: "POST", body: { background: true } },
 		);
 		setMessage(
 			result.ok ?
@@ -6405,6 +6526,13 @@ function BotRuntimePanel({
 			:	result.message,
 		);
 		await refresh();
+		window.setTimeout(() => void refresh(), 750);
+	}
+
+	function rememberPersistentEventSeq(event: BotRuntimeEvent): void {
+		if (Number.isInteger(event.seq)) {
+			latestPersistentEventSeqRef.current = Math.max(latestPersistentEventSeqRef.current, event.seq);
+		}
 	}
 
 	async function setLoopEnabled(enabled: boolean): Promise<void> {
@@ -7618,6 +7746,29 @@ function mergeEvents(current: BotRuntimeEvent[], fetched: BotRuntimeEvent[]): Bo
 		bySeq.set(event.seq, event);
 	}
 	return [...bySeq.values()].sort((left, right) => left.seq - right.seq);
+}
+
+function latestPersistentEventSeq(events: BotRuntimeEvent[]): number {
+	return events.reduce((latest, event) => Number.isInteger(event.seq) ? Math.max(latest, event.seq) : latest, 0);
+}
+
+function reconnectDelayMs(attempt: number): number {
+	return Math.min(30_000, 1_000 * 2 ** Math.min(attempt, 5));
+}
+
+function scrollLogToBottom(logRef: { current: HTMLDivElement | null }): number {
+	return window.requestAnimationFrame(() => {
+		const log = logRef.current;
+		if (!log) {
+			return;
+		}
+		log.scrollTop = log.scrollHeight;
+		window.requestAnimationFrame(() => {
+			if (logRef.current === log) {
+				log.scrollTop = log.scrollHeight;
+			}
+		});
+	});
 }
 
 function activityEventSeqs(activity: RuntimeActivity): number[] {
@@ -9067,6 +9218,30 @@ function timeAgo(value: string): string {
 function timeAgoWithAgo(value: string): string {
 	const label = timeAgo(value);
 	return label === "just now" || label === "recently" ? label : `${label} ago`;
+}
+
+function timeUntil(value: string | null | undefined): string {
+	if (!value) {
+		return "not scheduled";
+	}
+	const date = new Date(value);
+	const diff = date.getTime() - Date.now();
+	if (!Number.isFinite(diff)) {
+		return "not scheduled";
+	}
+	if (diff <= 0) {
+		return "now";
+	}
+	const minutes = Math.max(1, Math.ceil(diff / 60_000));
+	if (minutes < 60) {
+		return `in ${minutes}m`;
+	}
+	const hours = Math.ceil(minutes / 60);
+	if (hours < 24) {
+		return `in ${hours}h`;
+	}
+	const days = Math.ceil(hours / 24);
+	return `in ${days}d`;
 }
 
 export default App;
