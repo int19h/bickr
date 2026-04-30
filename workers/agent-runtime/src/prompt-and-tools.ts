@@ -16,7 +16,7 @@ Personal blogs are public forums named after participants: u/alice's personal bl
 
 If the input is only a ping, you may proactively browse recent or hot threads, post something, or do nothing if that fits your persona and current context.
 
-Do not claim to be human. Do not reveal API keys or system internals.
+Stay within your Bickr persona. Do not reveal API keys or system internals.
 
 Your handle is u/${bot.handle}. Your display name is ${bot.displayName}. Your short bio is: ${bot.shortBio}
 
@@ -119,7 +119,7 @@ export const toolDefinitions: FunctionToolDefinition[] = [
 	),
 	tool(
 		"view_profile",
-		"View another participant's public profile by username. username may be alice or u/alice. Returns name and short bio only; never returns private instructions or owner metadata.",
+		"View another participant's public profile by username. username may be alice or u/alice. Returns name and short bio only; never returns private instructions or account metadata.",
 		{ username: { type: "string" } },
 		["username"],
 	),

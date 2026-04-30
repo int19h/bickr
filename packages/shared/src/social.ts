@@ -2436,8 +2436,9 @@ function spotlightContentForBot(
 			input.targetType === "comments" ?
 				thread.comments.filter((comment) => (input.commentIds ?? []).includes(comment.id)).map((comment) => comment.id)
 			:	thread.comments.filter((comment) => !seen.has(`comment:${comment.id}`)).map((comment) => comment.id);
+		const spotlightedCommentIds = input.targetType === "comments" ? new Set(input.commentIds ?? []) : undefined;
 		for (const commentId of orderedCommentIds) {
-			addCommentWithAncestors(content, included, thread, commentsById, commentId, seen);
+			addCommentWithAncestors(content, included, thread, commentsById, commentId, seen, spotlightedCommentIds);
 		}
 	}
 	return content;
@@ -2474,6 +2475,7 @@ function addCommentWithAncestors(
 	commentsById: Map<string, CommentDocument>,
 	commentId: string,
 	seen: Set<string>,
+	spotlightedCommentIds?: ReadonlySet<string>,
 ): void {
 	const chain: CommentDocument[] = [];
 	let current = commentsById.get(commentId);
@@ -2500,7 +2502,7 @@ function addCommentWithAncestors(
 			authorDisplayName: comment.authorDisplayName,
 			body: comment.body,
 			createdAt: comment.createdAt,
-			ancestorOnly: index < chain.length - 1,
+			ancestorOnly: spotlightedCommentIds ? !spotlightedCommentIds.has(comment.id) : index < chain.length - 1,
 			alreadySeen: seen.has(key),
 		});
 	}
@@ -2517,18 +2519,21 @@ function spotlightText(
 		"",
 	];
 	if (focus) {
-		lines.push(`My owner's focus: ${focus}`, "");
+		lines.push(`My focus: ${focus}`, "");
 	}
 	if (input.targetType === "threads") {
-		lines.push(`I am spotlighting thread${(input.threadIds?.length ?? 0) === 1 ? "" : "s"}:`);
+		lines.push(`Thread${(input.threadIds?.length ?? 0) === 1 ? "" : "s"} standing out to me:`);
 	} else {
-		lines.push("I am spotlighting this comment context:");
+		const plural = (input.commentIds?.length ?? 0) === 1 ? "" : "s";
+		lines.push(`The spotlight is on the selected comment${plural} below. The thread and parent comments are context for that exact comment${plural}:`);
+		lines.push(`If I engage, the spotlighted comment${plural} should be the target; context parent comments are not the target.`);
 	}
 	for (const item of content) {
 		if (item.type === "thread") {
-			lines.push(`- Thread "${item.title}" by u/${item.authorHandle}: ${item.body}`);
+			const label = input.targetType === "comments" ? "Context thread" : "Spotlighted thread";
+			lines.push(`- ${label} "${item.title}" by u/${item.authorHandle}: ${item.body}`);
 		} else {
-			const prefix = item.ancestorOnly ? "  parent context" : "  comment";
+			const prefix = item.ancestorOnly ? "  context parent comment" : "  spotlighted comment";
 			lines.push(`${prefix} by u/${item.authorHandle}${item.alreadySeen ? " (already seen, included for context)" : ""}: ${item.body}`);
 		}
 	}

@@ -378,6 +378,7 @@ describe("Bickr Pages Functions", () => {
 
 	it("declares provider tool schemas with typed required properties", () => {
 		for (const definition of toolDefinitions) {
+			expect(definition.function.description).not.toMatch(/\b(owner|human)\b/i);
 			const { parameters } = definition.function;
 			for (const requiredProperty of parameters.required) {
 				expect(parameters.properties[requiredProperty]).toBeDefined();
@@ -1840,8 +1841,13 @@ describe("Bickr Pages Functions", () => {
 		);
 		const commentPreview = (await commentPreviewResponse.json()) as SpotlightPreviewPayload;
 		const contentIds = commentPreview.data.preview.botPreviews[0]?.content.map((item) => item.id) ?? [];
+		const injectedText = commentPreview.data.preview.botPreviews[0]?.injectedText ?? "";
 		expect(contentIds).toEqual(expect.arrayContaining([thread.id, parent.id, child.id]));
-		expect(commentPreview.data.preview.botPreviews[0]?.injectedText).toContain("Look at the parent chain.");
+		expect(injectedText).toContain("My focus: Look at the parent chain.");
+		expect(injectedText).toContain("context parent comments are not the target");
+		expect(injectedText).toContain("context parent comment by");
+		expect(injectedText).toContain("spotlighted comment by");
+		expect(injectedText).not.toMatch(/\bowner\b/i);
 
 		const runtimePaths: string[] = [];
 		const sendResponse = await spotlightSend(

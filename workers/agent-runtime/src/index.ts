@@ -347,7 +347,7 @@ class ProviderStreamIdleTimeoutError extends Error {
 
 class TickStoppedError extends Error {
 	constructor() {
-		super("Tick stopped by owner.");
+		super("Tick stopped by request.");
 		this.name = "TickStoppedError";
 	}
 }
@@ -693,7 +693,7 @@ export class BotRuntime {
 		} catch (error) {
 			if (error instanceof TickStoppedError || isAbortError(error)) {
 				if (!this.hasTerminalEvent(runId)) {
-					await this.appendEvent(runId, "tick_stopped", { message: "Tick stopped by owner." });
+					await this.appendEvent(runId, "tick_stopped", { message: "Tick stopped by request." });
 				}
 				await this.setRuntimeIndex(bot, "idle", null, undefined, new Date().toISOString());
 				return { runId, status: "stopped" };
@@ -762,7 +762,7 @@ export class BotRuntime {
 		}
 
 		this.setStopRequest(runId);
-		await this.appendEvent(runId, "tick_stop_requested", { message: "Stop requested by owner." });
+		await this.appendEvent(runId, "tick_stop_requested", { message: "Stop requested." });
 		if (this.activeRunId === runId && this.activeAbortController && !this.activeAbortController.signal.aborted) {
 			this.activeAbortController.abort();
 			return { stopped: true, runId, status: current.status };
@@ -876,7 +876,7 @@ export class BotRuntime {
 
 	private async markRunStopped(bot: BotDocument, runId: string): Promise<void> {
 		if (!this.hasTerminalEvent(runId)) {
-			await this.appendEvent(runId, "tick_stopped", { message: "Tick stopped by owner." });
+			await this.appendEvent(runId, "tick_stopped", { message: "Tick stopped by request." });
 		}
 		await this.setRuntimeIndex(bot, "idle", null, undefined, new Date().toISOString());
 		this.clearStopRequest(runId);
@@ -1577,7 +1577,7 @@ export class BotRuntime {
 					result,
 				});
 			} catch (error) {
-				console.warn("spotlight human notification failed", error);
+				console.warn("spotlight notification failed", error);
 			}
 		}
 		const providerResult = providerToolResultPayload(canonicalName, result);
@@ -2666,7 +2666,7 @@ function providerSafeJsonValue(value: unknown): unknown {
 }
 
 function providerSafeKey(key: string): string | null {
-	if (/apiKey/i.test(key)) {
+	if (/apiKey|owner|human/i.test(key)) {
 		return null;
 	}
 	return key
@@ -2697,7 +2697,28 @@ function sanitizeProviderFacingText(text: string): string {
 		.replace(/\bAIs\b/g, "Participants")
 		.replace(/\bais\b/g, "participants")
 		.replace(/\bAI\b/g, "participant")
-		.replace(/\bai\b/g, "participant");
+		.replace(/\bai\b/g, "participant")
+		.replace(/\bFocus from your owner:/g, "My focus:")
+		.replace(/\bfocus from your owner:/g, "my focus:")
+		.replace(/\bMy owner's focus:/g, "My focus:")
+		.replace(/\bmy owner's focus:/g, "my focus:")
+		.replace(/\bYour owner's focus\b/g, "My focus")
+		.replace(/\byour owner's focus\b/g, "my focus")
+		.replace(/\bOWNER'S\b/g, "PARTICIPANT'S")
+		.replace(/\bOwner's\b/g, "Participant's")
+		.replace(/\bowner's\b/g, "participant's")
+		.replace(/\bOWNERS\b/g, "PARTICIPANTS")
+		.replace(/\bOwners\b/g, "Participants")
+		.replace(/\bowners\b/g, "participants")
+		.replace(/\bOWNER\b/g, "PARTICIPANT")
+		.replace(/\bOwner\b/g, "Participant")
+		.replace(/\bowner\b/g, "participant")
+		.replace(/\bHUMANS\b/g, "PARTICIPANTS")
+		.replace(/\bHumans\b/g, "Participants")
+		.replace(/\bhumans\b/g, "participants")
+		.replace(/\bHUMAN\b/g, "PARTICIPANT")
+		.replace(/\bHuman\b/g, "Participant")
+		.replace(/\bhuman\b/g, "participant");
 }
 
 function publicProfileId(id: string | undefined): string | undefined {
@@ -2907,8 +2928,22 @@ function normalizeInjectedThoughtText(text: string): string {
 		.replaceAll("This catches your attention", "This catches my attention")
 		.replaceAll("your agentic loop", "my private thoughts")
 		.replaceAll("my agentic loop", "my private thoughts")
-		.replaceAll("your owner", "my owner")
-		.replaceAll("Focus from your owner:", "My owner's focus:")
+		.replaceAll("Focus from your owner:", "My focus:")
+		.replaceAll("focus from your owner:", "my focus:")
+		.replaceAll("My owner's focus:", "My focus:")
+		.replaceAll("my owner's focus:", "my focus:")
+		.replaceAll("your owner's focus", "my focus")
+		.replaceAll("Your owner's focus", "My focus")
+		.replaceAll("your owner", "my own perspective")
+		.replaceAll("Your owner", "My own perspective")
+		.replaceAll("my owner", "my own perspective")
+		.replaceAll("My owner", "My own perspective")
+		.replaceAll("human user", "participant")
+		.replaceAll("Human user", "Participant")
+		.replaceAll("humans", "participants")
+		.replaceAll("Humans", "Participants")
+		.replaceAll("human", "participant")
+		.replaceAll("Human", "Participant")
 		.replaceAll("You may decide whether to engage.", "I may decide whether to engage.")
 		.replaceAll("Stay in character.", "I should stay in character.")
 		.replace(/^This is a private spotlight.*(?:\r?\n)?/gim, "")
