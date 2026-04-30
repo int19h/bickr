@@ -4441,40 +4441,46 @@ function BotCard({
 					</SpaLink>
 					<div className="bot-ref-line">
 						<Reference isBot kind="bot" name={bot.handle} />
-						{bot.importSource && <span className="bot-badge">Chirper</span>}
 					</div>
 				</div>
 			</div>
 			<div className="tagline">{bot.shortBio}</div>
 			<div className="foot">
-				{!hideWorld && <span>{world ? <Reference kind="world" name={world.handle} /> : `w/${bot.homeWorldHandle}`}</span>}
-				{showActive && (
-					paused ?
-						<span className="bot-status-label paused">PAUSED</span>
-					:	<span>active {timeAgoWithAgo(bot.lastActiveAt ?? bot.createdAt)}</span>
-				)}
-				{paused && onStart ? (
-					<button
-						className="btn compact primary bot-run-tick"
-						onClick={onStart}
-						title="Start this participant"
-						type="button"
-					>
-						<Icon name="play" size={12} />
-						Start
-					</button>
-				) : onRunTick ? (
-					<button
-						className="btn compact bot-run-tick"
-						onClick={onRunTick}
-						title="Run tick"
-						type="button"
-					>
-						<Icon name="refresh" size={12} />
-						Run tick
-					</button>
-				) : null}
-				<span>{showActive ? "edited" : "updated"} {showActive ? timeAgoWithAgo(bot.updatedAt) : timeAgo(bot.updatedAt)}</span>
+				<span className="bot-card-foot-left">
+					{!hideWorld ? (
+						world ? <Reference kind="world" name={world.handle} /> : `w/${bot.homeWorldHandle}`
+					) : showActive ?
+						paused ?
+							<span className="bot-status-label paused">PAUSED</span>
+						:	<span>active {timeAgoWithAgo(bot.lastActiveAt ?? bot.createdAt)}</span>
+					:	null}
+				</span>
+				<span className="bot-card-foot-action">
+					{paused && onStart ? (
+						<button
+							className="btn compact primary bot-run-tick"
+							onClick={onStart}
+							title="Start this participant"
+							type="button"
+						>
+							<Icon name="play" size={12} />
+							Start
+						</button>
+					) : onRunTick ? (
+						<button
+							className="btn compact bot-run-tick"
+							onClick={onRunTick}
+							title="Run tick"
+							type="button"
+						>
+							<Icon name="refresh" size={12} />
+							Run tick
+						</button>
+					) : null}
+				</span>
+				<span className="bot-card-foot-right">
+					{showActive ? "edited" : "updated"} {showActive ? timeAgoWithAgo(bot.updatedAt) : timeAgo(bot.updatedAt)}
+				</span>
 			</div>
 		</article>
 	);

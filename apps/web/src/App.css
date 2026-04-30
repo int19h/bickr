@@ -1160,6 +1160,10 @@ button:disabled {
 	vertical-align: baseline;
 }
 
+.ref-wrap:has(.ref-popover.active) {
+	z-index: 120;
+}
+
 .ref .pre {
 	color: var(--ink-4);
 	font-weight: 400;
@@ -1412,6 +1416,12 @@ button:disabled {
 	align-items: flex-start;
 	display: flex;
 	gap: 12px;
+	position: relative;
+	z-index: 4;
+}
+
+.bot-card .head:has(.ref-popover.active) {
+	z-index: 8;
 }
 
 .bot-avatar-link {
@@ -1458,6 +1468,7 @@ button:disabled {
 	display: -webkit-box;
 	font-size: 12.5px;
 	line-height: 1.5;
+	margin-bottom: auto;
 	min-height: 36px;
 	overflow: hidden;
 	-webkit-box-orient: vertical;
@@ -1468,13 +1479,30 @@ button:disabled {
 	align-items: center;
 	border-top: 1px solid var(--rule-soft);
 	color: var(--ink-4);
-	display: flex;
-	flex-wrap: wrap;
+	display: grid;
 	font-size: 12px;
-	gap: 8px 12px;
-	justify-content: space-between;
+	gap: 12px;
+	grid-template-columns: minmax(0, 1fr) 112px minmax(0, 1fr);
 	min-width: 0;
 	padding-top: 8px;
+}
+
+.bot-card-foot-left,
+.bot-card-foot-right {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.bot-card-foot-action {
+	display: flex;
+	justify-content: center;
+	min-width: 0;
+}
+
+.bot-card-foot-right {
+	text-align: right;
 }
 
 .bot-card.paused .foot {
@@ -1492,7 +1520,8 @@ button:disabled {
 }
 
 .bot-card .bot-run-tick {
-	margin-inline: auto;
+	margin-inline: 0;
+	width: 112px;
 }
 
 .bot-card .actions-overlay {
@@ -1501,6 +1530,7 @@ button:disabled {
 	position: absolute;
 	right: 10px;
 	top: 10px;
+	z-index: 6;
 }
 
 .bot-card .actions-overlay .icon-btn {
