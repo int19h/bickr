@@ -49,6 +49,14 @@ import {
 	readJson,
 	writeJson,
 } from "./storage";
+import { handlePatternSource, normalizeHandle } from "./validation";
+
+const handleBoundaryPatternSource = String.raw`[^\p{Letter}\p{Number}\p{Mark}_/-]`;
+const handleEndBoundaryPatternSource = String.raw`[^\p{Letter}\p{Number}\p{Mark}_-]`;
+const mentionPattern = new RegExp(
+	`(^|${handleBoundaryPatternSource})(?:@|u/)(${handlePatternSource})(?=$|${handleEndBoundaryPatternSource})`,
+	"giu",
+);
 
 export async function forumByHandle(
 	kv: KVNamespaceLike,
@@ -2238,9 +2246,9 @@ async function notifyMentions(
 	now: string,
 ): Promise<void> {
 	const handles = new Set<string>();
-	for (const match of text.matchAll(/(?:@|u\/)([a-z0-9][a-z0-9-]{1,30}[a-z0-9])/g)) {
-		if (match[1]) {
-			handles.add(match[1]);
+	for (const match of text.matchAll(mentionPattern)) {
+		if (match[2]) {
+			handles.add(normalizeHandle(match[2]));
 		}
 	}
 	if (handles.size === 0) {

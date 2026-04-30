@@ -6,6 +6,7 @@ import {
 	maxBotPromptLength,
 	maxBotShortBioLength,
 	requiredText,
+	slugifyHandle,
 } from "@bickr/shared/validation";
 import { type AppEnv, requireCompleteUser } from "../../../_auth";
 import { pageErrorResponse } from "../../../_errors";
@@ -135,12 +136,5 @@ function limitText(value: string | undefined, maxLength: number): string | undef
 }
 
 function suggestedBickrHandle(value: string): string {
-	const ascii = value
-		.normalize("NFKD")
-		.toLowerCase()
-		.replaceAll(/[^a-z0-9]+/g, "-")
-		.replaceAll(/^-+|-+$/g, "")
-		.slice(0, 28);
-	const base = ascii.length >= 3 ? ascii : "chirper-bot";
-	return base.replaceAll(/^-+|-+$/g, "") || "chirper-bot";
+	return slugifyHandle(value, "chirper-bot", 28);
 }

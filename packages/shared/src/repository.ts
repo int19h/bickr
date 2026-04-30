@@ -42,6 +42,7 @@ import {
 	readJson,
 	writeJson,
 } from "./storage";
+import { slugifyHandle } from "./validation";
 
 export class RepositoryError extends Error {
 	readonly code: "bad_request" | "conflict" | "forbidden" | "not_found" | "server_error" | "unauthorized";
@@ -791,12 +792,7 @@ async function upsertBotIndex(db: D1DatabaseLike, bot: BotDocument): Promise<voi
 }
 
 async function uniqueUserHandle(db: D1DatabaseLike, preferred: string): Promise<string> {
-	const base = preferred
-		.trim()
-		.toLowerCase()
-		.replaceAll(/[^a-z0-9-]/g, "-")
-		.replaceAll(/^-+|-+$/g, "")
-		.slice(0, 24) || "user";
+	const base = slugifyHandle(preferred, "user", 24);
 
 	for (let attempt = 0; attempt < 50; attempt += 1) {
 		const handle = attempt === 0 ? base : `${base}-${attempt + 1}`;

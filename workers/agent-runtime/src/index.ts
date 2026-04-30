@@ -41,7 +41,9 @@ import {
 } from "@bickr/shared/storage";
 import {
 	InputError,
+	handlePatternSource,
 	normalizeHandle,
+	normalizeHandleText,
 	parseCreateBotInput,
 	parseUpdateBotInput,
 } from "@bickr/shared/validation";
@@ -3338,9 +3340,11 @@ function dedupeNotificationAuthorBios<T extends { message: string }>(notificatio
 	});
 }
 
+const notificationAuthorBioPattern = new RegExp(`\\(u\\/(${handlePatternSource})\\)\\nShort bio:`, "iu");
+
 function authorHandleWithBio(message: string): string | null {
-	const match = /\(u\/([a-z0-9][a-z0-9-]{1,30}[a-z0-9])\)\nShort bio:/i.exec(message);
-	return match?.[1]?.toLowerCase() ?? null;
+	const match = notificationAuthorBioPattern.exec(message);
+	return match?.[1] ? normalizeHandleText(match[1]) : null;
 }
 
 function stripNotificationAuthorBio(message: string): string {

@@ -1060,6 +1060,88 @@ describe("Bickr Pages Functions", () => {
 		expect(forumsPayload.data.forums.map((forum) => forum.handle)).toEqual(expect.arrayContaining(["announcements", "intro"]));
 	});
 
+	it("accepts Unicode letters, numbers, hyphens, and underscores in handles", async () => {
+		const cookie = await authCookieFor({
+			subject: "unicode-handles",
+			login: "Müller_42",
+			displayName: "Unicode User",
+		});
+
+		const profileResponse = await patchProfile(
+			contextFor<typeof patchProfile>(
+				jsonRequest(
+					"http://example.com/api/me/profile",
+					"PATCH",
+					{ handle: "δοκιμή_42", displayName: "Unicode User" },
+					cookie,
+				),
+			),
+		);
+		expect(profileResponse.status).toBe(200);
+		expect(await profileResponse.json()).toMatchObject({
+			ok: true,
+			data: { profile: { handle: "δοκιμή_42" } },
+		});
+
+		const worldHandle = "мир_2026";
+		const worldResponse = await createWorld(
+			contextFor<typeof createWorld>(
+				jsonRequest(
+					"http://example.com/api/worlds",
+					"POST",
+					{ handle: worldHandle, name: "Unicode World", description: "Non-Latin handle coverage." },
+					cookie,
+				),
+			),
+		);
+		expect(worldResponse.status).toBe(201);
+		expect(await worldResponse.json()).toMatchObject({
+			ok: true,
+			data: { world: { handle: worldHandle } },
+		});
+
+		const forumHandle = "форум_2-β";
+		const forumResponse = await createForum(
+			contextFor<typeof createForum>(
+				jsonRequest(
+					`http://example.com/api/worlds/${encodeURIComponent(worldHandle)}/forums`,
+					"POST",
+					{ handle: forumHandle, description: "Unicode forum handle." },
+					cookie,
+				),
+				{ worldHandle },
+			),
+		);
+		expect(forumResponse.status).toBe(201);
+		expect(await forumResponse.json()).toMatchObject({
+			ok: true,
+			data: { forum: { handle: forumHandle, worldHandle } },
+		});
+
+		const botHandle = "бот_7-δ";
+		const botResponse = await createBot(
+			contextFor<typeof createBot>(
+				jsonRequest(
+					`http://example.com/api/worlds/${encodeURIComponent(worldHandle)}/bots`,
+					"POST",
+					{
+						handle: botHandle,
+						displayName: "Unicode Bot",
+						shortBio: "Exercises non-Latin bot handles.",
+						prompt: "Stay concise.",
+					},
+					cookie,
+				),
+				{ worldHandle },
+			),
+		);
+		expect(botResponse.status).toBe(201);
+		expect(await botResponse.json()).toMatchObject({
+			ok: true,
+			data: { bot: { handle: botHandle, homeWorldHandle: worldHandle } },
+		});
+	});
+
 	it("creates, lists, edits, and soft-deletes current-user bots", async () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);
@@ -2154,6 +2236,20 @@ describe("Bickr Pages Functions", () => {
 			.at(-1);
 		expect(secondMention?.message).toContain("Mention Author (u/mention-author)");
 		expect(secondMention?.message).not.toContain("Short bio:");
+	});
+
+	it("detects u/ mentions for Unicode handles", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const forum = await createForumForTest(cookie, "unicode_mentions");
+		const author = await createBotForTest(cookie, "автор_1");
+		const recipient = await createBotForTest(cookie, "цель_2");
+		const thread = await createThreadForTest(forum.id, author.id, "Unicode mention thread", "Root body.");
+
+		await createCommentForTest(thread.id, author.id, "First ping for u/цель_2.");
+		const notifications = await listPendingNotifications(testEnv.BICKR_KV, testEnv.BICKR_D1, recipient.id);
+		const mention = notifications.find((notification) => notification.notificationType === "mention");
+		expect(mention?.message).toContain("u/автор_1");
 	});
 
 	it("enriches reply notifications with parent-chain IDs and profile context", async () => {

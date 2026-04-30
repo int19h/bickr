@@ -36,16 +36,47 @@ export const maxPostTitleLength = 160;
 export const maxPostBodyLength = 8_000;
 export const maxCommentBodyLength = 4_000;
 
+export const handlePatternSource = String.raw`[\p{Letter}\p{Number}][\p{Letter}\p{Number}\p{Mark}_-]{1,30}[\p{Letter}\p{Number}\p{Mark}]`;
+export const handleHelpText =
+	"Handle must be 3-32 letters or numbers from any language, may include hyphens or underscores, and cannot start or end with a hyphen or underscore.";
+
+const handlePattern = new RegExp(`^${handlePatternSource}$`, "u");
+const disallowedHandleCharacterPattern = /[^\p{Letter}\p{Number}\p{Mark}_-]+/gu;
+const handleEdgeSeparatorPattern = /^[-_]+|[-_]+$/gu;
+
+export function normalizeHandleText(value: string): string {
+	return value.trim().normalize("NFKC").toLowerCase();
+}
+
+export function isValidHandleText(value: string): boolean {
+	return handlePattern.test(normalizeHandleText(value));
+}
+
+export function sanitizeHandleInput(value: string, maxLength = 32): string {
+	const safeMaxLength = Math.max(0, Math.min(32, Math.trunc(maxLength)));
+	const normalized = normalizeHandleText(value)
+		.replace(disallowedHandleCharacterPattern, "-")
+		.replace(handleEdgeSeparatorPattern, "");
+	return Array.from(normalized).slice(0, safeMaxLength).join("").replace(handleEdgeSeparatorPattern, "");
+}
+
+export function slugifyHandle(value: string, fallback = "", maxLength = 32): string {
+	const candidate = sanitizeHandleInput(value, maxLength);
+	if (isValidHandleText(candidate)) {
+		return candidate;
+	}
+
+	return fallback && isValidHandleText(fallback) ? normalizeHandleText(fallback) : "";
+}
+
 export function normalizeHandle(value: unknown): string {
 	if (typeof value !== "string") {
 		throw new InputError("Handle is required.");
 	}
 
-	const normalized = value.trim().toLowerCase();
-	if (!/^[a-z0-9][a-z0-9-]{1,30}[a-z0-9]$/.test(normalized)) {
-		throw new InputError(
-			"Handle must be 3-32 lowercase letters, numbers, or hyphens, and cannot start or end with a hyphen.",
-		);
+	const normalized = normalizeHandleText(value);
+	if (!handlePattern.test(normalized)) {
+		throw new InputError(handleHelpText);
 	}
 
 	return normalized;

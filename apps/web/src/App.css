@@ -1482,13 +1482,12 @@ button:disabled {
 	display: grid;
 	font-size: 12px;
 	gap: 12px;
-	grid-template-columns: minmax(0, 1fr) 112px minmax(0, 1fr);
+	grid-template-columns: minmax(0, 1fr) 112px;
 	min-width: 0;
 	padding-top: 8px;
 }
 
-.bot-card-foot-left,
-.bot-card-foot-right {
+.bot-card-foot-left {
 	min-width: 0;
 	overflow: hidden;
 	text-overflow: ellipsis;
@@ -1497,12 +1496,8 @@ button:disabled {
 
 .bot-card-foot-action {
 	display: flex;
-	justify-content: center;
+	justify-content: flex-end;
 	min-width: 0;
-}
-
-.bot-card-foot-right {
-	text-align: right;
 }
 
 .bot-card.paused .foot {

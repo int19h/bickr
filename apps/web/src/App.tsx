@@ -40,6 +40,13 @@ import {
 	type VoteDetail,
 	type WorldSummary,
 } from "@bickr/shared/model";
+import {
+	handleHelpText,
+	handlePatternSource,
+	isValidHandleText,
+	normalizeHandleText,
+	sanitizeHandleInput,
+} from "@bickr/shared/validation";
 import "./App.css";
 
 type ApiSuccess<T> = { ok: true; data: T };
@@ -2129,7 +2136,7 @@ function CreateWorldModal({
 					value={name}
 				/>
 			</Field>
-			<Field help={handle ? `bickr.local/w/${handle}` : "3-32 lowercase letters, numbers, or hyphens"} hint="used in URLs" label="Handle">
+			<Field help={handle ? `bickr.local/w/${handle}` : handleHelpText} hint="used in URLs" label="Handle">
 				<div className="input-prefix">
 					<span className="prefix">w/</span>
 					<input
@@ -4477,9 +4484,6 @@ function BotCard({
 							Run tick
 						</button>
 					) : null}
-				</span>
-				<span className="bot-card-foot-right">
-					{showActive ? "edited" : "updated"} {showActive ? timeAgoWithAgo(bot.updatedAt) : timeAgo(bot.updatedAt)}
 				</span>
 			</div>
 		</article>
@@ -7003,6 +7007,13 @@ function Reference({
 	);
 }
 
+const handleBoundaryPatternSource = String.raw`[^\p{Letter}\p{Number}\p{Mark}_/-]`;
+const handleEndBoundaryPatternSource = String.raw`[^\p{Letter}\p{Number}\p{Mark}_-]`;
+const richTextReferencePattern = new RegExp(
+	`(^|${handleBoundaryPatternSource})([uwf])/(${handlePatternSource})(?=$|${handleEndBoundaryPatternSource})`,
+	"giu",
+);
+
 function RichText({
 	onReference,
 	text,
@@ -7013,20 +7024,21 @@ function RichText({
 	worldHandle?: string;
 }) {
 	const parts: ReactNode[] = [];
-	const pattern = /\b([uwf])\/([a-z0-9][a-z0-9-]{1,30}[a-z0-9])\b/gi;
 	let cursor = 0;
-	for (const match of text.matchAll(pattern)) {
+	for (const match of text.matchAll(richTextReferencePattern)) {
 		const index = match.index ?? 0;
-		const prefix = (match[1] ?? "").toLowerCase();
-		const name = match[2] ?? "";
-		if (index > cursor) {
-			appendRichTextPlainSegment(parts, text.slice(cursor, index), cursor);
+		const boundary = match[1] ?? "";
+		const refStart = index + boundary.length;
+		const prefix = (match[2] ?? "").toLowerCase();
+		const name = normalizeHandleText(match[3] ?? "");
+		if (refStart > cursor) {
+			appendRichTextPlainSegment(parts, text.slice(cursor, refStart), cursor);
 		}
 		const kind: ReferenceKind = prefix === "u" ? "bot" : prefix === "w" ? "world" : "forum";
 		parts.push(
 			<Reference
 				isBot={kind === "bot"}
-				key={`${index}:${prefix}:${name}`}
+				key={`${refStart}:${prefix}:${name}`}
 				kind={kind}
 				name={name}
 				onOpen={() => onReference(kind, name, { worldHandle })}
@@ -7794,9 +7806,11 @@ function dedupeNotificationAuthorBios<T extends { message: string }>(notificatio
 	});
 }
 
+const notificationAuthorBioPattern = new RegExp(`\\(u\\/(${handlePatternSource})\\)\\nShort bio:`, "iu");
+
 function authorHandleWithBio(message: string): string | null {
-	const match = /\(u\/([a-z0-9][a-z0-9-]{1,30}[a-z0-9])\)\nShort bio:/i.exec(message);
-	return match?.[1]?.toLowerCase() ?? null;
+	const match = notificationAuthorBioPattern.exec(message);
+	return match?.[1] ? normalizeHandleText(match[1]) : null;
 }
 
 function stripNotificationAuthorBio(message: string): string {
@@ -8734,17 +8748,11 @@ function isValidBotDraft(draft: BotDraft): boolean {
 }
 
 function isValidHandle(value: string): boolean {
-	return /^[a-z0-9][a-z0-9-]{1,30}[a-z0-9]$/.test(value);
+	return isValidHandleText(value);
 }
 
 function slugify(value: string): string {
-	return value
-		.toLowerCase()
-		.normalize("NFKD")
-		.replace(/[\u0300-\u036f]/g, "")
-		.replace(/[^a-z0-9]+/g, "-")
-		.replace(/^-+|-+$/g, "")
-		.slice(0, 32);
+	return sanitizeHandleInput(value);
 }
 
 function hash(value: string): number {
