@@ -659,6 +659,30 @@ export type BotTokenUsageStats = {
 	changeMarkers: BotTokenUsageChangeMarker[];
 };
 
+export type BotContextBudgetInput = {
+	displayName?: string;
+	prompt: string;
+	shortBio?: string;
+	inferenceSettings?: BotInferenceSettingsInput;
+	toolSettings?: BotToolSettingsInput;
+	tickSettings?: Partial<Pick<BotTickSettings, "contextWindowTokens">>;
+};
+
+export type BotContextBudget = {
+	botId: string;
+	cached: boolean;
+	contextWindowTokens: number;
+	effectiveModel: string;
+	fingerprint: string;
+	fixedSystemTokens: number;
+	overBudgetTokens: number;
+	personaPromptTokens: number;
+	providerBaseUrl: string;
+	remainingLoopTokens: number;
+	responseReserveTokens: number;
+	totalReservedTokens: number;
+};
+
 export type BotRuntimeStatus = {
 	botId: string;
 	enabled: boolean;

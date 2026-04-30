@@ -5,8 +5,11 @@ import {
 	botPublicProfile,
 	createBot,
 	deleteBot,
+	enforceInferenceModelAccess,
 	listForums,
 	listWorldBots,
+	mergeInferenceSettings,
+	mergeToolSettings,
 	RepositoryError,
 	updateBot,
 	userById,
@@ -44,10 +47,13 @@ import {
 	handlePatternSource,
 	normalizeHandle,
 	normalizeHandleText,
+	parseBotContextBudgetInput,
 	parseCreateBotInput,
 	parseUpdateBotInput,
 } from "@bickr/shared/validation";
 import {
+	type BotContextBudget,
+	type BotContextBudgetInput,
 	defaultProviderModel,
 	type BotDocument,
 	type CommentDocument,
@@ -305,7 +311,7 @@ type ReadContentItem = {
 	ancestorOnly?: boolean;
 };
 
-type ProviderSettings = {
+export type ProviderSettings = {
 	apiKey?: string;
 	baseUrl: string;
 	model: string;
@@ -314,6 +320,19 @@ type ProviderSettings = {
 	topK?: number;
 	topP?: number;
 	minP?: number;
+};
+
+export type PromptContextBudgetCounts = Pick<
+	BotContextBudget,
+	"fixedSystemTokens" | "personaPromptTokens" | "responseReserveTokens" | "contextWindowTokens"
+>;
+
+export type PromptContextBudgetFingerprintParts = {
+	botId: string;
+	effectiveModel: string;
+	fixedSystemFingerprint: string;
+	personaPromptFingerprint: string;
+	providerBaseUrl: string;
 };
 
 type ProviderChatCompletionRequest = {
@@ -329,6 +348,23 @@ type ProviderChatCompletionRequest = {
 	reasoning: {
 		enabled: true;
 		exclude: false;
+	};
+	temperature: number;
+	top_k?: number;
+	top_p?: number;
+	min_p?: number;
+};
+
+type ProviderTokenProbeRequest = {
+	model: string;
+	messages: ChatMessage[];
+	tools: ProviderToolDefinition[];
+	tool_choice: typeof providerToolChoice;
+	parallel_tool_calls: typeof providerParallelToolCalls;
+	stream: false;
+	max_tokens: 1;
+	reasoning: {
+		exclude: true;
 	};
 	temperature: number;
 	top_k?: number;
@@ -388,13 +424,14 @@ class TickStoppedError extends Error {
 
 const stopRequestStateKey = "stop_requested_run_id";
 const toolUseRecoveryStateKey = "tool_use_recovery";
+const contextBudgetCacheStateKey = (fingerprint: string): string => `context_budget:${fingerprint}`;
 const providerRequestTimeoutMs = 60_000;
 const providerStreamIdleTimeoutMs = 60_000;
 const providerMaxAttempts = 3;
 const providerRetryBaseDelayMs = 3_000;
 const providerToolChoice = "auto" as const;
 const providerParallelToolCalls = true;
-const providerContextReserveTokens = 2_500;
+export const providerContextReserveTokens = 2_500;
 const dayMs = 24 * 60 * 60 * 1000;
 const fallbackProviderModel = defaultProviderModel;
 const fallbackProviderBaseUrl = "https://openrouter.ai/api/v1";
@@ -430,6 +467,106 @@ export function providerChatCompletionRequest(
 		...(settings.topK !== undefined ? { top_k: settings.topK } : {}),
 		...(settings.topP !== undefined ? { top_p: settings.topP } : {}),
 		...(settings.minP !== undefined ? { min_p: settings.minP } : {}),
+	};
+}
+
+export function providerTokenProbeRequest(
+	settings: ProviderSettings,
+	messages: ChatMessage[],
+	tools: ProviderToolDefinition[],
+): ProviderTokenProbeRequest {
+	return {
+		model: settings.model,
+		messages,
+		tools,
+		tool_choice: providerToolChoice,
+		parallel_tool_calls: providerParallelToolCalls,
+		stream: false,
+		max_tokens: 1,
+		reasoning: {
+			exclude: true,
+		},
+		temperature: settings.temperature,
+		...(settings.topK !== undefined ? { top_k: settings.topK } : {}),
+		...(settings.topP !== undefined ? { top_p: settings.topP } : {}),
+		...(settings.minP !== undefined ? { min_p: settings.minP } : {}),
+	};
+}
+
+export function promptContextBudgetFromCounts(input: PromptContextBudgetCounts): Pick<
+	BotContextBudget,
+	"fixedSystemTokens" | "overBudgetTokens" | "personaPromptTokens" | "remainingLoopTokens" | "responseReserveTokens" | "totalReservedTokens"
+> {
+	const fixedSystemTokens = Math.max(0, Math.floor(input.fixedSystemTokens));
+	const personaPromptTokens = Math.max(0, Math.floor(input.personaPromptTokens));
+	const responseReserveTokens = Math.max(0, Math.floor(input.responseReserveTokens));
+	const contextWindowTokens = Math.max(0, Math.floor(input.contextWindowTokens));
+	const totalReservedTokens = fixedSystemTokens + personaPromptTokens + responseReserveTokens;
+	return {
+		fixedSystemTokens,
+		personaPromptTokens,
+		responseReserveTokens,
+		totalReservedTokens,
+		remainingLoopTokens: Math.max(0, contextWindowTokens - totalReservedTokens),
+		overBudgetTokens: Math.max(0, totalReservedTokens - contextWindowTokens),
+	};
+}
+
+export async function promptContextBudgetCacheFingerprint(
+	parts: PromptContextBudgetFingerprintParts,
+): Promise<string> {
+	return sha256Hex(JSON.stringify(parts));
+}
+
+export function effectiveProviderSettingsForBot(
+	bot: Pick<BotDocument, "inferenceSettings">,
+	owner: Pick<UserDocument, "inferenceSettings">,
+	env: Pick<Env, "OPENROUTER_API_KEY" | "OPENROUTER_BASE_URL" | "OPENROUTER_MODEL">,
+): ProviderSettings {
+	const userSettings = owner.inferenceSettings ?? {};
+	const envModel = trimmed(env.OPENROUTER_MODEL);
+	const envBaseUrl = trimmed(env.OPENROUTER_BASE_URL);
+	const envApiKey = trimmed(env.OPENROUTER_API_KEY);
+	const userModel = trimmed(userSettings.model);
+	const botModel = trimmed(bot.inferenceSettings.model);
+	const userBaseUrl = trimmed(userSettings.baseUrl);
+	const botBaseUrl = trimmed(bot.inferenceSettings.baseUrl);
+	const userApiKey = trimmed(userSettings.openRouterApiKey);
+	const botApiKey = trimmed(bot.inferenceSettings.openRouterApiKey);
+	const botTemperatureIsLegacyDefault = bot.inferenceSettings.temperature === 0.9;
+	const hasUserProvider = Boolean(userApiKey || userBaseUrl);
+	const hasBotOrInheritedProvider = Boolean(botApiKey || botBaseUrl || hasUserProvider);
+	const hasCustomBaseUrl = Boolean(botBaseUrl || userBaseUrl);
+
+	const model =
+		botModel && hasBotOrInheritedProvider ? botModel
+		: userModel && hasUserProvider ? userModel
+		: envModel ? envModel
+		: fallbackProviderModel;
+	const baseUrl = botBaseUrl ?? userBaseUrl ?? envBaseUrl ?? fallbackProviderBaseUrl;
+	const temperature =
+		bot.inferenceSettings.temperature !== undefined &&
+		(!botTemperatureIsLegacyDefault || userSettings.temperature === undefined) ?
+			bot.inferenceSettings.temperature
+		: userSettings.temperature !== undefined ? userSettings.temperature
+		: bot.inferenceSettings.temperature !== undefined ? bot.inferenceSettings.temperature
+		: 0.9;
+
+	return {
+		apiKey: botApiKey ?? userApiKey ?? (hasCustomBaseUrl ? undefined : envApiKey),
+		baseUrl,
+		model,
+		temperature,
+		...(hasCustomBaseUrl ? { usesCustomBaseUrl: true } : {}),
+		...(bot.inferenceSettings.topK !== undefined ? { topK: bot.inferenceSettings.topK }
+		: userSettings.topK !== undefined ? { topK: userSettings.topK }
+		: {}),
+		...(bot.inferenceSettings.topP !== undefined ? { topP: bot.inferenceSettings.topP }
+		: userSettings.topP !== undefined ? { topP: userSettings.topP }
+		: {}),
+		...(bot.inferenceSettings.minP !== undefined ? { minP: bot.inferenceSettings.minP }
+		: userSettings.minP !== undefined ? { minP: userSettings.minP }
+		: {}),
 	};
 }
 
@@ -540,6 +677,12 @@ export class BotRuntime {
 			if (request.method === "GET" && url.pathname.endsWith("/token-usage")) {
 				await this.requireOwnerOrInternal(request, botId);
 				return ok({ usage: this.tokenUsageStats() });
+			}
+
+			if (request.method === "POST" && url.pathname.endsWith("/context-budget")) {
+				await this.requireOwnerOrInternal(request, botId);
+				const input = parseBotContextBudgetInput(await readJsonBody(request));
+				return ok({ budget: await this.promptContextBudget(botId, input) });
 			}
 
 			if (request.method === "DELETE" && url.pathname.endsWith("/events")) {
@@ -1286,6 +1429,124 @@ export class BotRuntime {
 		};
 	}
 
+	private async promptContextBudget(botId: string, input: BotContextBudgetInput): Promise<BotContextBudget> {
+		const currentBot = await botById(this.env.BICKR_KV, this.env.BICKR_D1, botId);
+		const owner = await userById(this.env.BICKR_KV, currentBot.ownerUserId);
+		const inferenceSettings = enforceInferenceModelAccess(
+			mergeInferenceSettings(currentBot.inferenceSettings, input.inferenceSettings),
+			owner.inferenceSettings,
+		);
+		const toolSettings = mergeToolSettings(currentBot.toolSettings, input.toolSettings);
+		const bot: BotDocument = {
+			...currentBot,
+			displayName: input.displayName ?? currentBot.displayName,
+			prompt: input.prompt,
+			shortBio: input.shortBio ?? currentBot.shortBio,
+			inferenceSettings,
+			toolSettings,
+			tickSettings: {
+				...currentBot.tickSettings,
+				...(input.tickSettings ?? {}),
+			},
+		};
+		const settings = this.effectiveProviderSettings(bot, owner);
+		if (!settings.apiKey && !settings.usesCustomBaseUrl && this.env.BICKR_SIMULATION_MODE !== "provider") {
+			throw new InputError("Configure an OpenRouter API key or custom inference base URL to compute exact tokens.");
+		}
+
+		const worldBots = await listWorldBots(this.env.BICKR_KV, this.env.BICKR_D1, bot.homeWorldHandle);
+		const serverTools = openRouterServerToolSelection(settings.baseUrl, bot.toolSettings);
+		const providerTools: ProviderToolDefinition[] = [...toolDefinitions, ...serverTools.tools];
+		const fixedPromptBot = { ...bot, prompt: "" };
+		const fixedSystemMessage = standardPrompt(fixedPromptBot, worldBots);
+		const fullSystemMessage = standardPrompt(bot, worldBots);
+		const fixedSystemFingerprint = await sha256Hex(JSON.stringify({
+			system: fixedSystemMessage,
+			tools: providerTools,
+		}));
+		const personaPromptFingerprint = await sha256Hex(input.prompt);
+		const fingerprint = await promptContextBudgetCacheFingerprint({
+			botId,
+			effectiveModel: settings.model,
+			fixedSystemFingerprint,
+			personaPromptFingerprint,
+			providerBaseUrl: settings.baseUrl,
+		});
+		const cachedCounts = this.contextBudgetCachedCounts(fingerprint);
+		const counts =
+			cachedCounts ??
+			await (async () => {
+				const fixedUsage = await this.fetchPromptTokenProbeUsage(
+					settings,
+					[{ role: "system", content: fixedSystemMessage }],
+					providerTools,
+				);
+				const fullUsage = await this.fetchPromptTokenProbeUsage(
+					settings,
+					[{ role: "system", content: fullSystemMessage }],
+					providerTools,
+				);
+				const next = {
+					fixedSystemTokens: fixedUsage.promptTokens,
+					personaPromptTokens: Math.max(0, fullUsage.promptTokens - fixedUsage.promptTokens),
+				};
+				this.setContextBudgetCachedCounts(fingerprint, next);
+				return next;
+			})();
+		const budget = promptContextBudgetFromCounts({
+			...counts,
+			contextWindowTokens: bot.tickSettings.contextWindowTokens,
+			responseReserveTokens: providerContextReserveTokens,
+		});
+		return {
+			botId,
+			cached: Boolean(cachedCounts),
+			contextWindowTokens: bot.tickSettings.contextWindowTokens,
+			effectiveModel: settings.model,
+			fingerprint,
+			providerBaseUrl: settings.baseUrl,
+			...budget,
+		};
+	}
+
+	private contextBudgetCachedCounts(
+		fingerprint: string,
+	): Pick<PromptContextBudgetCounts, "fixedSystemTokens" | "personaPromptTokens"> | null {
+		const row = this.state.storage.sql
+			.exec<{ value_json: string }>(`SELECT value_json FROM runtime_state WHERE key = ?`, contextBudgetCacheStateKey(fingerprint))
+			.toArray()[0];
+		if (!row) {
+			return null;
+		}
+		try {
+			const record = runtimeRecord(JSON.parse(row.value_json));
+			const fixedSystemTokens = integerValue(record.fixedSystemTokens);
+			const personaPromptTokens = integerValue(record.personaPromptTokens);
+			if (fixedSystemTokens === undefined || personaPromptTokens === undefined) {
+				return null;
+			}
+			return { fixedSystemTokens, personaPromptTokens };
+		} catch {
+			return null;
+		}
+	}
+
+	private setContextBudgetCachedCounts(
+		fingerprint: string,
+		counts: Pick<PromptContextBudgetCounts, "fixedSystemTokens" | "personaPromptTokens">,
+	): void {
+		this.state.storage.sql.exec(
+			`INSERT INTO runtime_state (key, value_json)
+			 VALUES (?, ?)
+			 ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json`,
+			contextBudgetCacheStateKey(fingerprint),
+			JSON.stringify({
+				...counts,
+				createdAt: new Date().toISOString(),
+			}),
+		);
+	}
+
 	private providerUsageRows(since: string, until: string): ProviderUsageRow[] {
 		return this.state.storage.sql
 			.exec<ProviderUsageRow>(
@@ -1403,52 +1664,42 @@ export class BotRuntime {
 		throw new ProviderRequestError(response.status, settings.model, endpoint, bodyText);
 	}
 
-	private effectiveProviderSettings(bot: BotDocument, owner: UserDocument): ProviderSettings {
-		const userSettings = owner.inferenceSettings ?? {};
-		const envModel = trimmed(this.env.OPENROUTER_MODEL);
-		const envBaseUrl = trimmed(this.env.OPENROUTER_BASE_URL);
-		const envApiKey = trimmed(this.env.OPENROUTER_API_KEY);
-		const userModel = trimmed(userSettings.model);
-		const botModel = trimmed(bot.inferenceSettings.model);
-		const userBaseUrl = trimmed(userSettings.baseUrl);
-		const botBaseUrl = trimmed(bot.inferenceSettings.baseUrl);
-		const userApiKey = trimmed(userSettings.openRouterApiKey);
-		const botApiKey = trimmed(bot.inferenceSettings.openRouterApiKey);
-		const botTemperatureIsLegacyDefault = bot.inferenceSettings.temperature === 0.9;
-		const hasUserProvider = Boolean(userApiKey || userBaseUrl);
-		const hasBotOrInheritedProvider = Boolean(botApiKey || botBaseUrl || hasUserProvider);
-		const hasCustomBaseUrl = Boolean(botBaseUrl || userBaseUrl);
-
-		const model =
-			botModel && hasBotOrInheritedProvider ? botModel
-			: userModel && hasUserProvider ? userModel
-			: envModel ? envModel
-			: fallbackProviderModel;
-		const baseUrl = botBaseUrl ?? userBaseUrl ?? envBaseUrl ?? fallbackProviderBaseUrl;
-		const temperature =
-			bot.inferenceSettings.temperature !== undefined &&
-			(!botTemperatureIsLegacyDefault || userSettings.temperature === undefined) ?
-				bot.inferenceSettings.temperature
-			: userSettings.temperature !== undefined ? userSettings.temperature
-			: bot.inferenceSettings.temperature !== undefined ? bot.inferenceSettings.temperature
-			: 0.9;
-
-		return {
-			apiKey: botApiKey ?? userApiKey ?? (hasCustomBaseUrl ? undefined : envApiKey),
-			baseUrl,
-			model,
-			temperature,
-			...(hasCustomBaseUrl ? { usesCustomBaseUrl: true } : {}),
-			...(bot.inferenceSettings.topK !== undefined ? { topK: bot.inferenceSettings.topK }
-			: userSettings.topK !== undefined ? { topK: userSettings.topK }
-			: {}),
-			...(bot.inferenceSettings.topP !== undefined ? { topP: bot.inferenceSettings.topP }
-			: userSettings.topP !== undefined ? { topP: userSettings.topP }
-			: {}),
-			...(bot.inferenceSettings.minP !== undefined ? { minP: bot.inferenceSettings.minP }
-			: userSettings.minP !== undefined ? { minP: userSettings.minP }
-			: {}),
+	private async fetchPromptTokenProbeUsage(
+		settings: ProviderSettings,
+		messages: ChatMessage[],
+		tools: ProviderToolDefinition[],
+	): Promise<ProviderUsage> {
+		const endpoint = providerChatCompletionsUrl(settings.baseUrl);
+		const headers: Record<string, string> = {
+			"content-type": "application/json",
 		};
+		if (settings.apiKey) {
+			headers.authorization = `Bearer ${settings.apiKey}`;
+		}
+		const response = await providerFetchWithHeaderTimeout(
+			endpoint,
+			{
+				method: "POST",
+				headers,
+				body: JSON.stringify(providerTokenProbeRequest(settings, messages, tools)),
+			},
+			new AbortController().signal,
+			providerRequestTimeoutMs,
+		);
+		if (!response.ok) {
+			const bodyText = await readLimitedText(response.body, 1_200);
+			throw new ProviderRequestError(response.status, settings.model, endpoint, bodyText);
+		}
+		const payload = runtimeRecord(await response.json());
+		const usage = providerUsageFromValue(payload.usage);
+		if (!usage) {
+			throw new ProviderRequestError(502, settings.model, endpoint, "Provider did not return token usage.");
+		}
+		return usage;
+	}
+
+	private effectiveProviderSettings(bot: BotDocument, owner: UserDocument): ProviderSettings {
+		return effectiveProviderSettingsForBot(bot, owner, this.env);
 	}
 
 	private async runLocalSimulation(
@@ -3648,6 +3899,11 @@ function providerChatCompletionsUrl(baseUrl: string): string {
 
 function estimateTextTokens(text: string): number {
 	return Math.max(1, Math.ceil(text.length / 4));
+}
+
+async function sha256Hex(text: string): Promise<string> {
+	const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+	return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 function parsePayloadJson(payloadJson: string): Record<string, unknown> {

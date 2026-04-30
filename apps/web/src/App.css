@@ -872,6 +872,130 @@ button:disabled {
 	min-height: 260px;
 }
 
+.prompt-budget {
+	display: grid;
+	gap: 8px;
+	margin-top: 10px;
+}
+
+.prompt-budget-head {
+	align-items: center;
+	display: flex;
+	gap: 12px;
+	justify-content: space-between;
+}
+
+.prompt-budget-head > div {
+	display: grid;
+	gap: 1px;
+	min-width: 0;
+}
+
+.prompt-budget-title {
+	color: var(--ink-2);
+	font-size: 12px;
+	font-weight: 600;
+}
+
+.prompt-budget-meta {
+	color: var(--ink-4);
+	font-size: 12px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.prompt-budget-strip {
+	background: var(--paper-2);
+	border: 1px solid var(--rule);
+	border-radius: var(--radius);
+	display: flex;
+	height: 30px;
+	overflow: hidden;
+	width: 100%;
+}
+
+.prompt-budget-strip.indeterminate {
+	background:
+		repeating-linear-gradient(
+			-45deg,
+			var(--paper-2) 0,
+			var(--paper-2) 9px,
+			var(--paper-3) 9px,
+			var(--paper-3) 18px
+		);
+}
+
+.prompt-budget-segment {
+	align-items: center;
+	border-right: 1px solid color-mix(in oklch, var(--paper) 55%, transparent);
+	color: #15120e;
+	display: flex;
+	flex: 0 0 auto;
+	font-size: 11px;
+	font-weight: 600;
+	justify-content: center;
+	min-width: 8px;
+	overflow: hidden;
+	padding: 0 6px;
+	white-space: nowrap;
+}
+
+.prompt-budget-segment:last-child {
+	border-right: 0;
+}
+
+.prompt-budget-segment span {
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.prompt-budget-segment.system,
+.prompt-budget-legend i.system {
+	background: oklch(0.68 0.09 215);
+}
+
+.prompt-budget-segment.persona,
+.prompt-budget-legend i.persona {
+	background: oklch(0.74 0.12 65);
+}
+
+.prompt-budget-segment.loop,
+.prompt-budget-legend i.loop {
+	background: oklch(0.72 0.11 145);
+}
+
+.prompt-budget-segment.response,
+.prompt-budget-legend i.response {
+	background: oklch(0.74 0.10 310);
+}
+
+.prompt-budget-strip.over {
+	border-color: var(--danger);
+}
+
+.prompt-budget-legend {
+	color: var(--ink-4);
+	display: flex;
+	flex-wrap: wrap;
+	font-size: 11px;
+	gap: 8px 12px;
+}
+
+.prompt-budget-legend span {
+	align-items: center;
+	display: inline-flex;
+	gap: 5px;
+}
+
+.prompt-budget-legend i {
+	border: 1px solid color-mix(in oklch, var(--ink) 12%, transparent);
+	border-radius: 2px;
+	display: inline-block;
+	height: 9px;
+	width: 9px;
+}
+
 .input-prefix {
 	align-items: stretch;
 	background: var(--paper);
@@ -1907,6 +2031,10 @@ button:disabled {
 .runtime-message {
 	color: var(--ink-3);
 	font-size: 12px;
+}
+
+.runtime-message.error {
+	color: var(--danger);
 }
 
 .token-usage-panel {

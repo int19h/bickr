@@ -4,6 +4,7 @@ import {
 	defaultProviderModel,
 	type BotActivityFeed,
 	type BotActivityItem,
+	type BotContextBudget,
 	type BotSummary,
 	type BotRuntimeEvent,
 	type BotRuntimeStatus,
@@ -44,6 +45,7 @@ import {
 	handleHelpText,
 	handlePatternSource,
 	isValidHandleText,
+	maxBotPromptLength,
 	normalizeHandleText,
 	sanitizeHandleInput,
 } from "@bickr/shared/validation";
@@ -107,6 +109,12 @@ type InferenceDraft = {
 	topP: string;
 	minP: string;
 };
+
+type PromptBudgetState =
+	| { status: "idle" }
+	| { status: "loading"; requestKey: string }
+	| { status: "ready"; budget: BotContextBudget; requestKey: string }
+	| { status: "error"; message: string; requestKey: string };
 
 type OpenRouterDatetimeToolDraft = {
 	enabled: boolean;
@@ -4520,6 +4528,7 @@ function BotEdit({
 		maxToolCallsPerTick: String(bot.tickSettings.maxToolCallsPerTick),
 	});
 	const [confirm, setConfirm] = useState(false);
+	const [promptBudget, setPromptBudget] = useState<PromptBudgetState>({ status: "idle" });
 	const toast = useContext(ToastContext);
 
 	useEffect(() => {
@@ -4549,6 +4558,16 @@ function BotEdit({
 	const tickIntervalMinutes = parsePositiveInteger(draft.tickIntervalMinutes);
 	const contextWindowTokens = parsePositiveInteger(draft.contextWindowTokens);
 	const maxToolCallsPerTick = parsePositiveInteger(draft.maxToolCallsPerTick);
+	const inferenceInheritance: InferenceModelUnlockContext = {
+		apiKeySet: Boolean(ownerInferenceSettings?.openRouterApiKeySet),
+		...(ownerInferenceSettings?.baseUrl ? { baseUrl: ownerInferenceSettings.baseUrl } : {}),
+	};
+	const promptBudgetRequestKey = botPromptBudgetRequestKey(bot.id, draft, ownerInferenceSettings);
+	const promptBudgetReady =
+		promptBudget.status === "ready" && promptBudget.requestKey === promptBudgetRequestKey ? promptBudget.budget : null;
+	const promptBudgetError =
+		promptBudget.status === "error" && promptBudget.requestKey === promptBudgetRequestKey ? promptBudget.message : "";
+	const promptBudgetLoading = promptBudget.status === "loading" && promptBudget.requestKey === promptBudgetRequestKey;
 	const dirty =
 		draft.displayName !== bot.displayName ||
 		draft.shortBio !== bot.shortBio ||
@@ -4562,6 +4581,7 @@ function BotEdit({
 		draft.displayName.trim().length > 0 &&
 		draft.shortBio.trim().length > 0 &&
 		draft.prompt.trim().length > 0 &&
+		draft.prompt.length <= maxBotPromptLength &&
 		tickIntervalMinutes >= 1 &&
 		tickIntervalMinutes <= 1440 &&
 		contextWindowTokens >= 2000 &&
@@ -4575,10 +4595,7 @@ function BotEdit({
 			displayName: draft.displayName,
 			shortBio: draft.shortBio,
 			prompt: draft.prompt,
-			inferenceSettings: inferenceInputFromDraft(draft.inference, {
-				apiKeySet: Boolean(ownerInferenceSettings?.openRouterApiKeySet),
-				baseUrl: ownerInferenceSettings?.baseUrl,
-			}),
+			inferenceSettings: inferenceInputFromDraft(draft.inference, inferenceInheritance),
 			toolSettings: toolInputFromDraft(draft.tools),
 			tickSettings: {
 				intervalSeconds: tickIntervalMinutes * 60,
@@ -4592,6 +4609,33 @@ function BotEdit({
 					Saved <Reference isBot kind="bot" name={bot.handle} />
 				</>,
 			);
+		}
+	}
+
+	async function computePromptBudget(): Promise<void> {
+		if (!draft.prompt.trim() || contextWindowTokens < 2_000 || contextWindowTokens > 1_000_000) {
+			return;
+		}
+		const requestKey = promptBudgetRequestKey;
+		setPromptBudget({ status: "loading", requestKey });
+		const result = await api<{ budget: BotContextBudget }>(
+			`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/context-budget`,
+			{
+				method: "POST",
+				body: {
+					displayName: draft.displayName,
+					prompt: draft.prompt,
+					shortBio: draft.shortBio,
+					inferenceSettings: inferenceInputFromDraft(draft.inference, inferenceInheritance),
+					toolSettings: toolInputFromDraft(draft.tools),
+					tickSettings: { contextWindowTokens },
+				},
+			},
+		);
+		if (result.ok) {
+			setPromptBudget({ status: "ready", budget: result.data.budget, requestKey });
+		} else {
+			setPromptBudget({ status: "error", message: result.message, requestKey });
 		}
 	}
 
@@ -4677,15 +4721,25 @@ function BotEdit({
 					<section className="section">
 						<div className="section-head">
 							<h2>Prompt</h2>
-							<span className="meta">{draft.prompt.length} chars</span>
+							<span className="meta">
+								{draft.prompt.length.toLocaleString()} / {maxBotPromptLength.toLocaleString()} chars
+							</span>
 						</div>
-						<Field help="Runtime assembly comes later; this stores the bot's core character prompt.">
+						<Field>
 							<textarea
 								className="textarea prompt-editor"
+								maxLength={maxBotPromptLength}
 								onChange={(event) => setDraft((current) => ({ ...current, prompt: event.target.value }))}
 								value={draft.prompt}
 							/>
 						</Field>
+						<PromptContextBudgetChart
+							budget={promptBudgetReady}
+							contextWindowTokens={contextWindowTokens}
+							error={promptBudgetError}
+							loading={promptBudgetLoading}
+							onCompute={() => void computePromptBudget()}
+						/>
 					</section>
 
 					<section className="section">
@@ -4832,6 +4886,138 @@ function BotEdit({
 			/>
 		</div>
 	);
+}
+
+type PromptBudgetChartSegment = {
+	key: string;
+	className: string;
+	description: string;
+	label: string;
+	tokens: number;
+};
+
+function PromptContextBudgetChart({
+	budget,
+	contextWindowTokens,
+	error,
+	loading,
+	onCompute,
+}: {
+	budget: BotContextBudget | null;
+	contextWindowTokens: number;
+	error: string;
+	loading: boolean;
+	onCompute: () => void;
+}) {
+	const resolvedContextWindowTokens =
+		contextWindowTokens >= 2_000 && contextWindowTokens <= 1_000_000 ?
+			contextWindowTokens
+		:	budget?.contextWindowTokens ?? 0;
+	const segments = budget ? promptBudgetSegments(budget, resolvedContextWindowTokens) : [];
+	const totalReservedTokens = segments.reduce((total, segment) => total + segment.tokens, 0);
+	const denominator = Math.max(1, resolvedContextWindowTokens, totalReservedTokens);
+	const overBudgetTokens = budget ? Math.max(0, totalReservedTokens - resolvedContextWindowTokens) : 0;
+
+	return (
+		<div className="prompt-budget">
+			<div className="prompt-budget-head">
+				<div>
+					<span className="prompt-budget-title">Context window</span>
+					<span className="prompt-budget-meta">
+						{budget ?
+							`${formatExactTokenCount(resolvedContextWindowTokens)} tokens · ${budget.effectiveModel}`
+						:	"Exact token counts not computed"}
+					</span>
+				</div>
+				<button className="btn compact" disabled={loading} onClick={onCompute} type="button">
+					<Icon name="refresh" size={12} />
+					{loading ? "Computing..." : budget ? "Refresh tokens" : "Compute tokens"}
+				</button>
+			</div>
+			{budget ?
+				<div
+					aria-label={`Context window budget for ${budget.effectiveModel}`}
+					className={`prompt-budget-strip ${overBudgetTokens > 0 ? "over" : ""}`}
+				>
+					{segments.map((segment) => {
+						const percent = (segment.tokens / denominator) * 100;
+						return (
+							<div
+								aria-label={`${segment.label}: ${formatExactTokenCount(segment.tokens)} tokens`}
+								className={`prompt-budget-segment ${segment.className}`}
+								key={segment.key}
+								style={{ flexBasis: `${percent}%` }}
+								tabIndex={0}
+								title={`${segment.description}: ${formatExactTokenCount(segment.tokens)} tokens`}
+							>
+								<span>{segment.label}</span>
+							</div>
+						);
+					})}
+				</div>
+			:	<div className="prompt-budget-strip indeterminate" aria-label="Context window budget not computed" />}
+			<div className="prompt-budget-legend">
+				{budget ?
+					segments.map((segment) => (
+						<span key={segment.key}>
+							<i className={segment.className} />
+							{segment.label} {formatTokenCount(segment.tokens)}
+						</span>
+					))
+				:	<span>Counts are computed on demand through the effective provider.</span>}
+			</div>
+			{budget?.cached && <div className="help">Using cached counts for this prompt and effective model.</div>}
+			{overBudgetTokens > 0 && (
+				<div className="runtime-message error">
+					Over budget by {formatExactTokenCount(overBudgetTokens)} tokens before loop inputs.
+				</div>
+			)}
+			{error && <div className="runtime-message error">{error}</div>}
+		</div>
+	);
+}
+
+function promptBudgetSegments(
+	budget: BotContextBudget,
+	contextWindowTokens: number,
+): PromptBudgetChartSegment[] {
+	const fixedSystemTokens = Math.max(0, budget.fixedSystemTokens);
+	const personaPromptTokens = Math.max(0, budget.personaPromptTokens);
+	const responseReserveTokens = Math.max(0, budget.responseReserveTokens);
+	const remainingLoopTokens = Math.max(
+		0,
+		contextWindowTokens - fixedSystemTokens - personaPromptTokens - responseReserveTokens,
+	);
+	return [
+		{
+			key: "system",
+			className: "system",
+			label: "System",
+			tokens: fixedSystemTokens,
+			description: "Fixed runtime prompt and available tool schemas",
+		},
+		{
+			key: "persona",
+			className: "persona",
+			label: "Persona",
+			tokens: personaPromptTokens,
+			description: "Prompt text from this editor",
+		},
+		{
+			key: "loop",
+			className: "loop",
+			label: "Loop inputs",
+			tokens: remainingLoopTokens,
+			description: "Space left for notifications, recent activity, focus, and tool results",
+		},
+		{
+			key: "response",
+			className: "response",
+			label: "Response",
+			tokens: responseReserveTokens,
+			description: "Reserved for the model response",
+		},
+	];
 }
 
 function MyBotsScreen({
@@ -5962,6 +6148,7 @@ function CreateBotModal({
 					<Field help="The bot's core character prompt." label="Prompt">
 						<textarea
 							className="textarea"
+							maxLength={maxBotPromptLength}
 							onChange={(event) => setManualDraft((current) => ({ ...current, prompt: event.target.value }))}
 							placeholder="You are M. Ginsberg, the chronically aggrieved poetry editor..."
 							rows={6}
@@ -6053,6 +6240,7 @@ function CreateBotModal({
 							<Field hint="editable" label="Prompt">
 								<textarea
 									className="textarea"
+									maxLength={maxBotPromptLength}
 									onChange={(event) => setImportDraft((current) => ({ ...current, prompt: event.target.value }))}
 									rows={6}
 									value={importDraft.prompt}
@@ -8201,6 +8389,13 @@ function formatTokenCount(value: number): string {
 	return rounded.toLocaleString();
 }
 
+function formatExactTokenCount(value: number): string {
+	if (!Number.isFinite(value)) {
+		return "0";
+	}
+	return Math.max(0, Math.round(value)).toLocaleString();
+}
+
 function formatTokenCost(value: number): string {
 	if (!Number.isFinite(value)) {
 		return "$0.00";
@@ -8661,6 +8856,71 @@ function canCustomizeInferenceModel(
 	);
 }
 
+function botPromptBudgetRequestKey(
+	botId: string,
+	draft: { displayName: string; inference: InferenceDraft; prompt: string; shortBio: string; tools: BotToolDraft },
+	inherited?: BotInferenceSettings | null,
+): string {
+	return JSON.stringify({
+		botId,
+		baseUrl: effectiveInferenceDraftBaseUrl(draft.inference, inherited),
+		credential: inferenceDraftCredentialState(draft.inference, inherited),
+		displayName: draft.displayName,
+		model: effectiveInferenceDraftModel(draft.inference, inherited),
+		prompt: draft.prompt,
+		shortBio: draft.shortBio,
+		tools: toolInputFromDraft(draft.tools),
+	});
+}
+
+function effectiveInferenceDraftModel(
+	draft: InferenceDraft,
+	inherited?: BotInferenceSettings | null,
+): string {
+	const draftHasProvider =
+		Boolean(draft.openRouterApiKey.trim()) ||
+		(draft.openRouterApiKeySet && !draft.clearOpenRouterApiKey) ||
+		Boolean(draft.baseUrl.trim());
+	const inheritedHasProvider =
+		Boolean(inherited?.openRouterApiKeySet) ||
+		Boolean(inherited?.openRouterApiKey?.trim()) ||
+		Boolean(inherited?.baseUrl?.trim());
+	const draftModel = draft.model.trim();
+	if (draftModel && (draftHasProvider || inheritedHasProvider)) {
+		return draftModel;
+	}
+	if (inherited?.model && inheritedHasProvider) {
+		return inherited.model;
+	}
+	return defaultProviderModel;
+}
+
+function effectiveInferenceDraftBaseUrl(
+	draft: InferenceDraft,
+	inherited?: BotInferenceSettings | null,
+): string {
+	return draft.baseUrl.trim() || inherited?.baseUrl?.trim() || "https://openrouter.ai/api/v1";
+}
+
+function inferenceDraftCredentialState(
+	draft: InferenceDraft,
+	inherited?: BotInferenceSettings | null,
+): string {
+	if (draft.openRouterApiKey.trim()) {
+		return "draft";
+	}
+	if (draft.clearOpenRouterApiKey) {
+		return "cleared";
+	}
+	if (draft.openRouterApiKeySet) {
+		return "saved";
+	}
+	if (inherited?.openRouterApiKeySet || inherited?.openRouterApiKey?.trim()) {
+		return "inherited";
+	}
+	return "none";
+}
+
 function effectiveBotModel(bot: BotSummary, inherited?: BotInferenceSettings | null): string {
 	const botSettings = bot.inferenceSettings;
 	const botHasDirectProvider =
@@ -8743,7 +9003,8 @@ function isValidBotDraft(draft: BotDraft): boolean {
 		isValidHandle(draft.handle) &&
 		draft.displayName.trim().length > 0 &&
 		draft.shortBio.trim().length > 0 &&
-		draft.prompt.trim().length > 0
+		draft.prompt.trim().length > 0 &&
+		draft.prompt.length <= maxBotPromptLength
 	);
 }
 

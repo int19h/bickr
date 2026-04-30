@@ -11,6 +11,7 @@ import {
 	onRequestDelete as deleteBot,
 	onRequestPatch as patchBot,
 } from "../apps/web/functions/api/me/bots/[botId]";
+import { onRequestPost as contextBudgetRoute } from "../apps/web/functions/api/me/bots/[botId]/runtime/context-budget";
 import {
 	onRequestGet as getProfile,
 	onRequestPatch as patchProfile,
@@ -53,7 +54,11 @@ import {
 	formatRuntimeInputForContext,
 	isOpenRouterProviderBaseUrl,
 	openRouterServerToolSelection,
+	promptContextBudgetCacheFingerprint,
+	promptContextBudgetFromCounts,
 	providerChatCompletionRequest,
+	providerContextReserveTokens,
+	providerTokenProbeRequest,
 	toolUseRecoveryReminder,
 	toolDefinitions,
 } from "../workers/agent-runtime/src/index";
@@ -436,6 +441,76 @@ describe("Bickr Pages Functions", () => {
 		expect(request.stream).toBe(true);
 		expect(request.stream_options.include_usage).toBe(true);
 		expect(request.tools).toBe(toolDefinitions);
+	});
+
+	it("builds minimal provider probes for exact prompt-token counts", () => {
+		const request = providerTokenProbeRequest(
+			{
+				baseUrl: "https://openrouter.ai/api/v1",
+				model: "test-model",
+				temperature: 0.2,
+			},
+			[{ role: "system", content: "Count this." }],
+			toolDefinitions,
+		);
+
+		expect(request.stream).toBe(false);
+		expect(request.max_tokens).toBe(1);
+		expect(request.reasoning).toEqual({ exclude: true });
+		expect(request.tool_choice).toBe("auto");
+		expect(request.tools).toBe(toolDefinitions);
+	});
+
+	it("calculates prompt context budget segments and over-budget counts", () => {
+		expect(
+			promptContextBudgetFromCounts({
+				contextWindowTokens: 10_000,
+				fixedSystemTokens: 2_000,
+				personaPromptTokens: 1_500,
+				responseReserveTokens: providerContextReserveTokens,
+			}),
+		).toMatchObject({
+			remainingLoopTokens: 4_000,
+			overBudgetTokens: 0,
+			totalReservedTokens: 6_000,
+		});
+
+		expect(
+			promptContextBudgetFromCounts({
+				contextWindowTokens: 3_000,
+				fixedSystemTokens: 2_000,
+				personaPromptTokens: 1_500,
+				responseReserveTokens: providerContextReserveTokens,
+			}),
+		).toMatchObject({
+			remainingLoopTokens: 0,
+			overBudgetTokens: 3_000,
+			totalReservedTokens: 6_000,
+		});
+	});
+
+	it("includes prompt, model, provider, and system fingerprints in context budget cache keys", async () => {
+		const base = {
+			botId: "bot_one",
+			effectiveModel: "openrouter/auto",
+			fixedSystemFingerprint: "system-a",
+			personaPromptFingerprint: "prompt-a",
+			providerBaseUrl: "https://openrouter.ai/api/v1",
+		};
+
+		const original = await promptContextBudgetCacheFingerprint(base);
+		await expect(
+			promptContextBudgetCacheFingerprint({ ...base, personaPromptFingerprint: "prompt-b" }),
+		).resolves.not.toBe(original);
+		await expect(
+			promptContextBudgetCacheFingerprint({ ...base, effectiveModel: "anthropic/claude" }),
+		).resolves.not.toBe(original);
+		await expect(
+			promptContextBudgetCacheFingerprint({ ...base, providerBaseUrl: "https://example.test/v1" }),
+		).resolves.not.toBe(original);
+		await expect(
+			promptContextBudgetCacheFingerprint({ ...base, fixedSystemFingerprint: "system-b" }),
+		).resolves.not.toBe(original);
 	});
 
 	it("formats runtime history as first-person notes instead of transcript commands", () => {
@@ -1492,6 +1567,205 @@ describe("Bickr Pages Functions", () => {
 		expect(await afterDelete.json()).toMatchObject({
 			ok: true,
 			data: { bots: [] },
+		});
+	});
+
+	it("proxies prompt context budget requests to the agent runtime service", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const createResponse = await createBot(
+			contextFor<typeof createBot>(
+				jsonRequest(
+					"http://example.com/api/worlds/patch-notes/bots",
+					"POST",
+					{
+						handle: "budget-sage",
+						displayName: "Budget Sage",
+						shortBio: "Counts context.",
+						prompt: "Stay inside the window.",
+					},
+					cookie,
+				),
+				{ worldHandle: "patch-notes" },
+			),
+		);
+		const created = (await createResponse.json()) as { data: { bot: BotBody } };
+		const proxied: { body?: unknown; path?: string; userId?: string | null } = {};
+		const response = await contextBudgetRoute(
+			contextFor<typeof contextBudgetRoute>(
+				jsonRequest(
+					`http://example.com/api/me/bots/${created.data.bot.id}/runtime/context-budget`,
+					"POST",
+					{
+						prompt: "Stay inside the larger window.",
+						tickSettings: { contextWindowTokens: 64_000 },
+					},
+					cookie,
+				),
+				{ botId: created.data.bot.id },
+				{
+					AGENT_RUNTIME: {
+						fetch: async (request: Request) => {
+							proxied.path = new URL(request.url).pathname;
+							proxied.userId = request.headers.get("x-bickr-user-id");
+							proxied.body = await request.json();
+							return Response.json({
+								ok: true,
+								data: {
+									budget: {
+										botId: created.data.bot.id,
+										cached: false,
+										contextWindowTokens: 64_000,
+										effectiveModel: "openrouter/auto",
+										fingerprint: "budget-test",
+										fixedSystemTokens: 1_000,
+										overBudgetTokens: 0,
+										personaPromptTokens: 100,
+										providerBaseUrl: "https://openrouter.ai/api/v1",
+										remainingLoopTokens: 60_400,
+										responseReserveTokens: providerContextReserveTokens,
+										totalReservedTokens: 3_600,
+									},
+								},
+							});
+						},
+					} as unknown as Fetcher,
+				},
+			),
+		);
+
+		expect(response.status).toBe(200);
+		expect(proxied.path).toBe(`/bots/${created.data.bot.id}/context-budget`);
+		expect(proxied.userId).toBeTruthy();
+		expect(proxied.body).toMatchObject({
+			prompt: "Stay inside the larger window.",
+			tickSettings: { contextWindowTokens: 64_000 },
+		});
+	});
+
+	it("computes and caches prompt context budgets from mocked provider usage", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const createResponse = await createBot(
+			contextFor<typeof createBot>(
+				jsonRequest(
+					"http://example.com/api/worlds/patch-notes/bots",
+					"POST",
+					{
+						handle: "count-sage",
+						displayName: "Count Sage",
+						shortBio: "Measures prompts.",
+						prompt: "Stay brief.",
+						inferenceSettings: {
+							baseUrl: "https://provider.example/v1",
+							model: "provider/test-model",
+						},
+					},
+					cookie,
+				),
+				{ worldHandle: "patch-notes" },
+			),
+		);
+		const created = (await createResponse.json()) as { data: { bot: BotBody } };
+		const promptTokens = [200, 260];
+		const calls: Array<{ content: string }> = [];
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			env: {
+				BICKR_D1: testEnv.BICKR_D1,
+				BICKR_KV: testEnv.BICKR_KV,
+			},
+			fetchPromptTokenProbeUsage: async (_settings: unknown, messages: Array<{ content?: string | null }>) => {
+				calls.push({ content: messages[0]?.content ?? "" });
+				const promptTokenCount = promptTokens.shift() ?? 999;
+				return {
+					promptTokens: promptTokenCount,
+					completionTokens: 1,
+					totalTokens: promptTokenCount + 1,
+					cachedTokens: 0,
+					reasoningTokens: 0,
+					cost: null,
+					raw: { prompt_tokens: promptTokenCount, completion_tokens: 1, total_tokens: promptTokenCount + 1 },
+				};
+			},
+			state: {
+				storage: {
+					sql: memoryRuntimeSql(),
+				},
+			},
+		});
+		const promptContextBudget = (BotRuntime.prototype as unknown as {
+			promptContextBudget: (botId: string, input: unknown) => Promise<{
+				cached: boolean;
+				fixedSystemTokens: number;
+				personaPromptTokens: number;
+				remainingLoopTokens: number;
+			}>;
+		}).promptContextBudget.bind(runtime);
+
+		const first = await promptContextBudget(created.data.bot.id, {
+			prompt: "Stay brief with exact counts.",
+			tickSettings: { contextWindowTokens: 10_000 },
+		});
+		expect(first).toMatchObject({
+			cached: false,
+			fixedSystemTokens: 200,
+			personaPromptTokens: 60,
+			remainingLoopTokens: 7_240,
+		});
+		expect(calls).toHaveLength(2);
+		expect(calls[0]?.content).not.toContain("Stay brief with exact counts.");
+		expect(calls[1]?.content).toContain("Stay brief with exact counts.");
+
+		const second = await promptContextBudget(created.data.bot.id, {
+			prompt: "Stay brief with exact counts.",
+			tickSettings: { contextWindowTokens: 10_000 },
+		});
+		expect(second.cached).toBe(true);
+		expect(second.personaPromptTokens).toBe(60);
+		expect(calls).toHaveLength(2);
+	});
+
+	it("allows bot prompts up to 64000 characters and rejects longer prompts", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const exactLimit = await createBot(
+			contextFor<typeof createBot>(
+				jsonRequest(
+					"http://example.com/api/worlds/patch-notes/bots",
+					"POST",
+					{
+						handle: "long-prompt",
+						displayName: "Long Prompt",
+						shortBio: "Uses the full prompt limit.",
+						prompt: "x".repeat(64_000),
+					},
+					cookie,
+				),
+				{ worldHandle: "patch-notes" },
+			),
+		);
+		expect(exactLimit.status).toBe(201);
+
+		const tooLong = await createBot(
+			contextFor<typeof createBot>(
+				jsonRequest(
+					"http://example.com/api/worlds/patch-notes/bots",
+					"POST",
+					{
+						handle: "too-long-prompt",
+						displayName: "Too Long Prompt",
+						shortBio: "Should be rejected.",
+						prompt: "x".repeat(64_001),
+					},
+					cookie,
+				),
+				{ worldHandle: "patch-notes" },
+			),
+		);
+		expect(tooLong.status).toBe(400);
+		expect(await tooLong.json()).toMatchObject({
+			ok: false,
+			message: "Prompt must be 64000 characters or fewer.",
 		});
 	});
 
@@ -3097,6 +3371,27 @@ function sseStream(events: Array<Record<string, unknown> | "[DONE]">): ReadableS
 			controller.close();
 		},
 	});
+}
+
+function memoryRuntimeSql() {
+	const values = new Map<string, string>();
+	return {
+		exec<T>(sql: string, ...params: unknown[]) {
+			if (/SELECT value_json FROM runtime_state WHERE key = \?/.test(sql)) {
+				const value = values.get(String(params[0]));
+				return {
+					toArray: () => (value === undefined ? [] : [{ value_json: value } as T]),
+				};
+			}
+			if (/INSERT INTO runtime_state/.test(sql)) {
+				values.set(String(params[0]), String(params[1]));
+			}
+			return {
+				one: () => ({} as T),
+				toArray: () => [],
+			};
+		},
+	};
 }
 
 async function oauthFetchMock(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {

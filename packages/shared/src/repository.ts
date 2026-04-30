@@ -1143,7 +1143,7 @@ function normalizeUserDefaults(user: UserDocument): UserDocument {
 	};
 }
 
-function mergeInferenceSettings(
+export function mergeInferenceSettings(
 	current: BotInferenceSettings | undefined,
 	patch?: BotInferenceSettingsInput | BotInferenceSettings,
 ): BotInferenceSettings {
@@ -1166,7 +1166,7 @@ function mergeInferenceSettings(
 	return next;
 }
 
-function enforceInferenceModelAccess(
+export function enforceInferenceModelAccess(
 	settings: BotInferenceSettings,
 	inherited?: BotInferenceSettings,
 ): BotInferenceSettings {
@@ -1190,7 +1190,7 @@ function publicInferenceSettings(settings: BotInferenceSettings | undefined): Bo
 	};
 }
 
-function mergeToolSettings(
+export function mergeToolSettings(
 	current: BotToolSettings | undefined,
 	patch?: BotToolSettingsInput | BotToolSettings,
 ): BotToolSettings {

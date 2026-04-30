@@ -1,5 +1,6 @@
 import {
 	type BotInferenceSettingsInput,
+	type BotContextBudgetInput,
 	type BotToolSettingsInput,
 	type BotTickSettings,
 	type ChirperImportSource,
@@ -31,7 +32,7 @@ export class InputError extends Error {
 }
 
 export const maxBotShortBioLength = 1_200;
-export const maxBotPromptLength = 32_000;
+export const maxBotPromptLength = 64_000;
 export const maxPostTitleLength = 160;
 export const maxPostBodyLength = 8_000;
 export const maxCommentBodyLength = 4_000;
@@ -218,6 +219,24 @@ export function parseUpdateBotInput(input: unknown): UpdateBotInput {
 	}
 
 	return update;
+}
+
+export function parseBotContextBudgetInput(input: unknown): BotContextBudgetInput {
+	const record = asRecord(input);
+	const tickSettings =
+		record.tickSettings === undefined ?
+			undefined
+		:	pickContextWindowTickSettings(parseTickSettings(record.tickSettings));
+	return {
+		...(record.displayName === undefined ? {} : { displayName: requiredText(record.displayName, "Bot name", 80) }),
+		prompt: requiredText(record.prompt, "Prompt", maxBotPromptLength),
+		...(record.shortBio === undefined ? {} : { shortBio: requiredText(record.shortBio, "Short bio", maxBotShortBioLength) }),
+		...(record.inferenceSettings === undefined ?
+			{}
+		:	{ inferenceSettings: parseInferenceSettings(record.inferenceSettings) }),
+		...(record.toolSettings === undefined ? {} : { toolSettings: parseToolSettings(record.toolSettings) }),
+		...(tickSettings === undefined ? {} : { tickSettings }),
+	};
 }
 
 export function parseUpdateUserProfileInput(input: unknown): UpdateUserProfileInput {
@@ -642,6 +661,10 @@ function parseTickSettings(value: unknown): Partial<BotTickSettings> {
 		);
 	}
 	return settings;
+}
+
+function pickContextWindowTickSettings(settings: Partial<BotTickSettings>): Pick<BotTickSettings, "contextWindowTokens"> | undefined {
+	return settings.contextWindowTokens === undefined ? undefined : { contextWindowTokens: settings.contextWindowTokens };
 }
 
 function boundedInteger(value: unknown, label: string, min: number, max: number): number {
