@@ -202,13 +202,6 @@ class DuplicateReplyError extends Error {
 	}
 }
 
-class UnknownRuntimeTargetError extends Error {
-	constructor(message: string) {
-		super(message);
-		this.name = "UnknownRuntimeTargetError";
-	}
-}
-
 type TickRunResult = {
 	runId: string;
 	status: "already_running" | "completed" | "failed" | "paused" | "started" | "stopped";
@@ -269,17 +262,10 @@ type InjectionRow = {
 	spotlightId: string | null;
 };
 
-type KnownRuntimeTargets = {
-	threadIds: Set<string>;
-	commentIds: Set<string>;
-	commentThreadIds: Map<string, string>;
-};
-
 type RunContext = {
 	mode: TickMode;
 	spotlightId?: string;
 	signal: AbortSignal;
-	knownTargets: KnownRuntimeTargets;
 };
 
 type ProviderMessageStatus = "complete" | "interrupted";
@@ -693,7 +679,6 @@ export class BotRuntime {
 			mode,
 			...(options.spotlightId ? { spotlightId: options.spotlightId } : {}),
 			signal: abortController.signal,
-			knownTargets: emptyKnownRuntimeTargets(),
 		};
 
 		try {
@@ -715,7 +700,6 @@ export class BotRuntime {
 				this.pendingToolUseReminder(),
 			);
 			const input = builtInput.input;
-			rememberLoopInputTargets(runContext.knownTargets, input);
 			await this.appendEvent(runId, "input", input);
 			if (mode === "spotlight" && injections.length === 0) {
 				const nextDueAt = await this.setRuntimeIndex(bot, "idle", null, undefined, new Date().toISOString());
@@ -1808,25 +1792,20 @@ export class BotRuntime {
 			.slice(-30)
 			.map((event) => runtimeContextLine(event))
 			.join("\n");
-		const runtimeInput = {
-			notifications: input.notifications,
-			ping: input.ping,
-			...(input.toolUseReminder ? { toolUseReminder: input.toolUseReminder } : {}),
-			...(input.injections.length > 0 ? { deliveredThoughtCount: input.injections.length } : {}),
-		};
+		const runtimeInput = formatRuntimeInputForContext(input);
 
 		return [
 			{
 				role: "system",
 				content: standardPrompt(bot, worldBots),
 			},
-			...(summaries ? [{ role: "user" as const, content: `Earlier relevant activity:\n${summaries}` }] : []),
+			...(summaries ? [{ role: "user" as const, content: `My earlier notes:\n${summaries}` }] : []),
 			...(thoughtContext ? [{ role: "user" as const, content: thoughtContext }] : []),
-			...(recent ? [{ role: "user" as const, content: `Recent activity:\n${recent}` }] : []),
+			...(recent ? [{ role: "user" as const, content: `My recent activity:\n${recent}` }] : []),
 			...injectedThoughtMessages,
 			{
 				role: "user",
-				content: JSON.stringify(runtimeInput),
+				content: runtimeInput,
 			},
 		];
 	}
@@ -2436,40 +2415,6 @@ export async function buildRuntimeLoopInput(
 		},
 		autoProfileSeenItems: [...autoProfileSeenItems.values()],
 	};
-}
-
-function emptyKnownRuntimeTargets(): KnownRuntimeTargets {
-	return {
-		threadIds: new Set<string>(),
-		commentIds: new Set<string>(),
-		commentThreadIds: new Map<string, string>(),
-	};
-}
-
-function rememberLoopInputTargets(targets: KnownRuntimeTargets, input: LoopInput): void {
-	for (const notification of input.notifications) {
-		rememberRuntimeTarget(targets, notification.threadId, notification.commentId);
-		rememberRuntimeTarget(targets, notification.threadId, notification.parentCommentId);
-		for (const item of notification.context?.content ?? []) {
-			rememberRuntimeTarget(
-				targets,
-				stringValue(item.threadId),
-				stringValue(item.commentId) ?? stringValue(item.id),
-			);
-		}
-	}
-}
-
-function rememberRuntimeTarget(targets: KnownRuntimeTargets, threadId: string | undefined, commentId?: string): void {
-	if (threadId) {
-		targets.threadIds.add(threadId);
-	}
-	if (commentId) {
-		targets.commentIds.add(commentId);
-		if (threadId) {
-			targets.commentThreadIds.set(commentId, threadId);
-		}
-	}
 }
 
 async function notificationMessageProfileSeenItem(
@@ -3090,7 +3035,7 @@ function sanitizeStoredContextSummary(summary: string): string {
 		.split(/\r?\n/)
 		.map((line) => line.trim())
 		.filter((line) => line && !isRuntimeMetaContextLine(line))
-		.map(sanitizeProviderFacingText)
+		.map((line) => neutralizeTranscriptLikeText(sanitizeProviderFacingText(line)))
 		.join("\n");
 }
 
@@ -3203,32 +3148,44 @@ function commentUrlPathFromParts(worldHandle: string, forumHandle: string, threa
 
 function runtimeContextLine(row: RuntimeRow): string {
 	const payload = parsePayloadJson(row.payload_json);
-	switch (row.type) {
+	return formatRuntimeEventForContext(row.type, payload, {
+		rawPayload: row.payload_json,
+		runId: row.run_id,
+		seq: row.seq,
+	});
+}
+
+export function formatRuntimeEventForContext(
+	type: BotRuntimeEventType,
+	payload: Record<string, unknown>,
+	details: { rawPayload?: string; runId?: string; seq?: number } = {},
+): string {
+	switch (type) {
 		case "tool_call":
-			return `Action: ${toolCallHistorySummary(payload)}`;
+			return `I decided to ${toolCallHistorySummary(payload)}.`;
 		case "tool_result":
-			return `Result: ${toolResultHistorySummary(payload)}`;
+			return toolResultHistorySummary(payload);
 		case "reasoning_message":
-			return `I thought: ${truncateForContext(stringValue(payload.content) ?? row.payload_json, 700)}`;
+			return `I was thinking:\n${markdownQuoteForContext(stringValue(payload.content) ?? details.rawPayload ?? "", 700)}`;
 		case "assistant_message":
-			return `I said: ${truncateForContext(stringValue(payload.content) ?? row.payload_json, 700)}`;
+			return `I wrote to myself:\n${markdownQuoteForContext(stringValue(payload.content) ?? details.rawPayload ?? "", 700)}`;
 		case "thought_injected":
-			return `New thought: ${truncateForContext(stringValue(payload.text) ?? "", 700)}`;
+			return `I received a new thought or focus: ${quoteForContext(stringValue(payload.text) ?? "", 700)}`;
 		case "input":
-			return `Input: ${inputHistorySummary(payload)}`;
+			return inputHistorySummary(payload);
 		case "provider_retry":
-			return `provider_retry seq ${row.seq}: attempt=${stringValue(payload.attempt) ?? "?"}/${stringValue(payload.maxAttempts) ?? "?"} delayMs=${stringValue(payload.delayMs) ?? "?"} reason=${stringValue(payload.reason) ?? "unknown"}`;
+			return `I retried an inference request, attempt ${stringValue(payload.attempt) ?? "?"} of ${stringValue(payload.maxAttempts) ?? "?"}, because ${safeContextText(stringValue(payload.reason) ?? "the previous attempt failed", 160)}.`;
 		case "tick_started":
-			return `tick_started seq ${row.seq}: run=${row.run_id} trigger=${stringValue(payload.trigger) ?? "unknown"} bot=${stringValue(payload.handle) ? `u/${stringValue(payload.handle)}` : stringValue(payload.botId) ?? "unknown"}`;
+			return `I started a tick from ${stringValue(payload.trigger) ?? "an unknown trigger"}.`;
 		case "tick_completed":
-			return `tick_completed seq ${row.seq}: nextDueAt=${stringValue(payload.nextDueAt) ?? "unknown"}`;
+			return `I finished the tick${stringValue(payload.nextDueAt) ? ` and expect to wake again around ${stringValue(payload.nextDueAt)}` : ""}.`;
 		case "tick_failed":
-			return `tick_failed seq ${row.seq}: ${stringValue(payload.message) ?? row.payload_json}`;
+			return `My tick failed: ${safeContextText(stringValue(payload.message) ?? details.rawPayload ?? "", 700)}`;
 		case "tick_stopped":
 		case "tick_stop_requested":
-			return `${row.type} seq ${row.seq}: ${stringValue(payload.message) ?? row.payload_json}`;
+			return `My tick was stopped: ${safeContextText(stringValue(payload.message) ?? details.rawPayload ?? "", 700)}`;
 		default:
-			return `${row.type} seq ${row.seq}: ${truncateForContext(row.payload_json, 700)}`;
+			return `I recorded ${safeContextText(type, 80)}${details.seq ? ` event ${details.seq}` : ""}.`;
 	}
 }
 
@@ -3236,86 +3193,136 @@ function toolCallHistorySummary(payload: Record<string, unknown>): string {
 	const name = canonicalToolName(stringValue(payload.name) ?? "unknown_tool");
 	const args = runtimeRecord(payload.args);
 	switch (name) {
-		case "list_recent_threads":
-			return `list_recent_threads forum=f/${stringValue(args.forumHandle) ?? "unknown"} limit=${stringValue(args.limit) ?? "default"}`;
+		case "list_recent_threads": {
+			const limit = stringValue(args.limit);
+			return `look at recent threads in f/${stringValue(args.forumHandle) ?? "unknown"}${limit ? `, up to ${limit}` : ""}`;
+		}
 		case "read_thread":
 		case "read_thread_by_id":
-			return `${name} threadId=${stringValue(args.threadId) ?? "unknown"}`;
+			return `read thread ${stringValue(args.threadId) ?? "unknown"}`;
 		case "read_comment_by_id":
-			return `read_comment_by_id commentId=${stringValue(args.commentId) ?? "unknown"}`;
-		case "reply_to_thread":
-			return `reply_to_thread threadId=${stringValue(args.threadId) ?? "unknown"} parentCommentId=${stringValue(args.parentCommentId) ?? ""} body=${truncateForContext(stringValue(args.body) ?? "", 300)}`;
+			return `read comment ${stringValue(args.commentId) ?? "unknown"}`;
+		case "reply_to_thread": {
+			const parentCommentId = stringValue(args.parentCommentId);
+			return `reply to thread ${stringValue(args.threadId) ?? "unknown"}${parentCommentId ? ` under comment ${parentCommentId}` : ""} with ${quoteForContext(stringValue(args.body) ?? "", 240)}`;
+		}
 		case "create_post":
-			return `create_post forum=f/${stringValue(args.forumHandle) ?? "unknown"} title=${stringValue(args.title) ?? "untitled"}`;
-		case "vote":
-			return `vote targetType=${stringValue(args.targetType) ?? "unknown"} targetId=${stringValue(args.targetId) ?? "unknown"} value=${stringValue(args.value) ?? "unknown"}`;
+			return `write a post in f/${stringValue(args.forumHandle) ?? "unknown"} titled ${quoteForContext(stringValue(args.title) ?? "untitled", 140)}`;
+		case "vote": {
+			const value = Number(args.value);
+			const direction = value > 0 ? "upvote" : value < 0 ? "downvote" : "clear my vote on";
+			return `${direction} ${stringValue(args.targetType) ?? "item"} ${stringValue(args.targetId) ?? "unknown"}`;
+		}
 		case "search_posts":
 		case "search_posts_semantic":
-		case "search_profiles":
-			return `${name} query=${stringValue(args.query) ?? ""} limit=${stringValue(args.limit) ?? "default"}`;
+			return `search posts for ${quoteForContext(stringValue(args.query) ?? "", 160)}`;
+		case "search_profiles": {
+			const limit = stringValue(args.limit);
+			return `search profiles for ${quoteForContext(stringValue(args.query) ?? "", 160)}${limit ? `, up to ${limit}` : ""}`;
+		}
 		case "view_profile":
-		case "view_activity":
-			return `${name} username=u/${stringValue(args.username) ?? "unknown"} limit=${stringValue(args.limit) ?? "default"}`;
+			return `view u/${stringValue(args.username) ?? "unknown"}'s profile`;
+		case "view_activity": {
+			const limit = stringValue(args.limit);
+			return `view u/${stringValue(args.username) ?? "unknown"}'s activity${limit ? `, up to ${limit} items` : ""}`;
+		}
 		case "follow_profile":
+			return `follow ${stringValue(args.username) ? `u/${stringValue(args.username)}` : "that profile"}`;
 		case "unfollow_profile":
-			return `${name} username=${stringValue(args.username) ? `u/${stringValue(args.username)}` : "unknown"}`;
+			return `unfollow ${stringValue(args.username) ? `u/${stringValue(args.username)}` : "that profile"}`;
 		default:
-			return `${name} args=${truncateForContext(JSON.stringify(args), 500)}`;
+			return `use ${safeContextText(name, 120)}`;
 	}
 }
 
 function toolResultHistorySummary(payload: Record<string, unknown>): string {
 	const name = canonicalToolName(stringValue(payload.name) ?? "unknown_tool");
 	const result = payload.result;
+	const failed = runtimeRecord(result);
+	if (failed.ok === false) {
+		const message = safeContextText(stringValue(failed.message) ?? "the operation failed", 240);
+		const guidance = stringValue(failed.guidance);
+		return `That did not work while I was trying to ${toolCallHistorySummary(payload)}. The error was: ${message}${guidance ? ` Guidance I received: ${safeContextText(guidance, 240)}` : ""}`;
+	}
 	if (name === "list_accessible_forums" && Array.isArray(result)) {
-		return `list_accessible_forums returned ${result.length}: ${result.slice(0, 12).map((item) => forumRef(runtimeRecord(item))).join(" | ")}`;
+		return `I found ${result.length} public forum${result.length === 1 ? "" : "s"}: ${result.slice(0, 12).map((item) => forumRef(runtimeRecord(item))).join("; ") || "none"}.`;
 	}
 	if ((name === "list_recent_threads" || name === "list_hot_threads") && Array.isArray(result)) {
-		return `${name} returned ${result.length}: ${result.slice(0, 12).map((item) => threadSummaryRef(runtimeRecord(item))).join(" | ")}`;
+		const kind = name === "list_recent_threads" ? "recent" : "hot";
+		return `I saw ${result.length} ${kind} thread${result.length === 1 ? "" : "s"}: ${result.slice(0, 12).map((item) => threadSummaryRef(runtimeRecord(item))).join("; ") || "none"}.`;
 	}
 	if (name === "search_posts" || name === "search_posts_semantic") {
 		return Array.isArray(result) ?
-				`${name} returned ${result.length}: ${result.slice(0, 12).map((item) => searchPostRef(runtimeRecord(item))).join(" | ")}`
-			:	`${name} result=${truncateForContext(JSON.stringify(result), 700)}`;
+				`I found ${result.length} matching post${result.length === 1 ? "" : "s"} or comment${result.length === 1 ? "" : "s"}: ${result.slice(0, 12).map((item) => searchPostRef(runtimeRecord(item))).join("; ") || "none"}.`
+			:	"I finished the search.";
 	}
 	if (name === "search_profiles" && Array.isArray(result)) {
-		return `search_profiles returned ${result.length}: ${result.slice(0, 12).map((item) => profileRef(runtimeRecord(item))).join(" | ")}`;
+		return `I found ${result.length} profile${result.length === 1 ? "" : "s"}: ${result.slice(0, 12).map((item) => profileRef(runtimeRecord(item))).filter(Boolean).join("; ") || "none"}.`;
 	}
 	if (name === "view_profile") {
-		return `view_profile returned ${profileRef(runtimeRecord(result))}`;
+		return `I viewed ${profileRef(runtimeRecord(result)) || "that profile"}.`;
 	}
 	if (name === "view_activity") {
 		const record = runtimeRecord(result);
 		const profile = profileRef(runtimeRecord(record.bot ?? record.profile));
 		const activities = Array.isArray(record.activities) ? record.activities : [];
-		return `view_activity returned ${profile}: ${activities.slice(0, 10).map((item) => activityRef(runtimeRecord(item))).join(" | ")}`;
+		return `I viewed ${profile || "that profile"}'s recent activity: ${activities.slice(0, 10).map((item) => activityRef(runtimeRecord(item))).join("; ") || "no recent items"}.`;
 	}
 	if (name === "read_thread" || name === "read_thread_by_id" || name === "read_comment_by_id") {
 		return readResultRef(runtimeRecord(result));
 	}
 	if (name === "create_post" || name === "reply_to_thread") {
-		return mutationThreadResultRef(runtimeRecord(result));
+		return mutationThreadResultRef(name, runtimeRecord(result));
 	}
 	if (name === "vote") {
-		return `vote result=${truncateForContext(JSON.stringify(result), 500)}`;
+		return "My vote was recorded.";
 	}
 	if (name === "follow_profile" || name === "unfollow_profile") {
 		const record = runtimeRecord(result);
-		return `${name} returned ${profileRef(runtimeRecord(record.profile)) || truncateForContext(JSON.stringify(providerToolResultPayload(name, result)), 500)}`;
+		return `${name === "follow_profile" ? "I followed" : "I unfollowed"} ${profileRef(runtimeRecord(record.profile)) || "that profile"}.`;
 	}
-	return `${name} result=${truncateForContext(JSON.stringify(providerToolResultPayload(name, result)), 700)}`;
+	return `I finished using ${safeContextText(name, 120)}.`;
+}
+
+export function formatRuntimeInputForContext(input: LoopInput): string {
+	const lines = ["My current situation:"];
+	if (input.ping) {
+		lines.push("- I was only pinged, with no new notifications or focus items.");
+	}
+	if (input.notifications.length > 0) {
+		lines.push(`- I have ${input.notifications.length} notification${input.notifications.length === 1 ? "" : "s"}:`);
+		for (const notification of input.notifications.slice(0, 8)) {
+			lines.push(`  - ${notificationSummary(runtimeRecord(notification))}`);
+		}
+	}
+	if (input.injections.length > 0) {
+		lines.push(`- I have ${input.injections.length} new thought or focus item${input.injections.length === 1 ? "" : "s"} in this tick; the text appears above as my own current focus.`);
+	}
+	if (input.toolUseReminder) {
+		lines.push(`- Reminder for this tick: ${safeContextText(input.toolUseReminder, 500)}`);
+	}
+	if (lines.length === 1) {
+		lines.push("- I have no new notifications or focus items.");
+	}
+	return lines.join("\n");
 }
 
 function inputHistorySummary(payload: Record<string, unknown>): string {
 	const notifications = Array.isArray(payload.notifications) ? payload.notifications.map(runtimeRecord) : [];
 	const injections = Array.isArray(payload.injections) ? payload.injections : [];
-	const notificationText = notifications
-		.slice(0, 8)
-		.map((notification) =>
-			`notification id=${stringValue(notification.id) ?? "unknown"} type=${stringValue(notification.type) ?? "unknown"} sourceObjectId=${stringValue(notification.sourceObjectId) ?? ""} threadId=${stringValue(notification.threadId) ?? ""} commentId=${stringValue(notification.commentId) ?? ""} parentCommentId=${stringValue(notification.parentCommentId) ?? ""} message=${truncateForContext(stringValue(notification.message) ?? "", 240)}`,
-		)
-		.join(" | ");
-	return `ping=${payload.ping === true} notifications=${notifications.length}${notificationText ? ` [${notificationText}]` : ""} thoughts=${injections.length} toolReminder=${Boolean(payload.toolUseReminder)}`;
+	const parts = [];
+	if (payload.ping === true) {
+		parts.push("I was pinged");
+	}
+	parts.push(`I had ${notifications.length} notification${notifications.length === 1 ? "" : "s"}`);
+	if (injections.length > 0) {
+		parts.push(`${injections.length} new thought or focus item${injections.length === 1 ? "" : "s"}`);
+	}
+	if (payload.toolUseReminder) {
+		parts.push("a reminder to use tools when appropriate");
+	}
+	const notificationText = notifications.slice(0, 4).map(notificationSummary).join("; ");
+	return `At that point, ${parts.join(", ")}.${notificationText ? ` Notifications: ${notificationText}.` : ""}`;
 }
 
 function dedupeNotificationAuthorBios<T extends { message: string }>(notifications: T[]): T[] {
@@ -3345,19 +3352,117 @@ function stripNotificationAuthorBio(message: string): string {
 	return message.replace(/\nShort bio: [\s\S]*?(?= (?:replied in|mentioned you in) ")/, "");
 }
 
+function notificationSummary(notification: Record<string, unknown>): string {
+	const id = stringValue(notification.id);
+	const type = stringValue(notification.type) ?? "general";
+	const message = safeContextText(stringValue(notification.message) ?? "", 260);
+	const targets = [
+		stringValue(notification.threadId) ? `thread ${stringValue(notification.threadId)}` : "",
+		stringValue(notification.commentId) ? `comment ${stringValue(notification.commentId)}` : "",
+		stringValue(notification.parentCommentId) ? `parent comment ${stringValue(notification.parentCommentId)}` : "",
+	].filter(Boolean);
+	const context = notificationContextSummary(runtimeRecord(notification.context));
+	return [
+		`${type} notification${id ? ` ${id}` : ""}: ${message || "no message"}`,
+		targets.length > 0 ? `It pointed at ${targets.join(", ")}.` : "",
+		context,
+	].filter(Boolean).join(" ");
+}
+
+function notificationContextSummary(context: Record<string, unknown>): string {
+	const threadId = stringValue(context.threadId);
+	const title = stringValue(context.title);
+	const content = Array.isArray(context.content) ? context.content.map(runtimeRecord) : [];
+	if (!threadId && content.length === 0) {
+		return "";
+	}
+	const target = [
+		threadId ? `thread ${threadId}` : "",
+		title ? quoteForContext(title, 120) : "",
+		stringValue(context.commentId) ? `comment ${stringValue(context.commentId)}` : "",
+	].filter(Boolean).join(" ");
+	const snippets = content.slice(0, 6).map(readContentItemRef).join("; ");
+	return `Context included ${target || "forum content"}${snippets ? `: ${snippets}` : ""}.`;
+}
+
+function safeContextText(text: string, limit: number): string {
+	return truncateForContext(neutralizeTranscriptLikeText(sanitizeProviderFacingText(text).replace(/\s+/g, " ").trim()), limit);
+}
+
+function quoteForContext(text: string, limit: number): string {
+	return `"${safeContextText(text, limit).replaceAll("\"", "'")}"`;
+}
+
+function markdownQuoteForContext(text: string, limit: number): string {
+	const prepared = truncateForContext(neutralizeTranscriptLikeText(sanitizeProviderFacingText(text).trim()), limit).trim();
+	if (!prepared) {
+		return "> (empty)";
+	}
+	return prepared.split(/\r?\n/).map((line) => `> ${line}`).join("\n");
+}
+
+function neutralizeTranscriptLikeText(text: string): string {
+	return text
+		.split(/\r?\n/)
+		.map((line) => {
+			const trimmed = line.trimStart();
+			const indentation = line.slice(0, line.length - trimmed.length);
+			const match = /^(Action|Result|Input|New thought):\s*/i.exec(trimmed);
+			if (!match) {
+				return line;
+			}
+			const rest = trimmed.slice(match[0].length);
+			return `${indentation}I wrote a transcript-like ${match[1]?.toLowerCase() ?? "note"} line as text: ${rest}`;
+		})
+		.join("\n");
+}
+
+function forumHandleFromRecord(record: Record<string, unknown>): string {
+	const forumHandle = stringValue(record.forumHandle);
+	if (forumHandle) {
+		return forumHandle.replace(/^f\//, "");
+	}
+	return (stringValue(record.forum) ?? "unknown").replace(/^f\//, "");
+}
+
+function authorHandleFromRecord(record: Record<string, unknown>): string {
+	const author = runtimeRecord(record.author);
+	return (stringValue(record.authorHandle) ?? stringValue(author.username) ?? "unknown").replace(/^u\//, "");
+}
+
+function readContentItemRef(record: Record<string, unknown>): string {
+	const id = stringValue(record.commentId) ?? stringValue(record.id) ?? "unknown";
+	const threadId = stringValue(record.threadId) ?? "unknown";
+	const title = stringValue(record.title);
+	const body = stringValue(record.body);
+	const target =
+		record.target === true ? " This was the focused item."
+		: record.ancestorOnly === true ? " This was parent context."
+		: "";
+	if (stringValue(record.type) === "thread") {
+		return `root post for thread ${threadId} in f/${forumHandleFromRecord(record)}${title ? ` titled ${quoteForContext(title, 120)}` : ""} by u/${authorHandleFromRecord(record)}${body ? `: ${quoteForContext(body, 180)}` : ""}`;
+	}
+	const parentCommentId = stringValue(record.parentCommentId);
+	return `comment ${id} in thread ${threadId}${parentCommentId ? ` under comment ${parentCommentId}` : ""} in f/${forumHandleFromRecord(record)} by u/${authorHandleFromRecord(record)}${body ? `: ${quoteForContext(body, 180)}` : ""}${target}`;
+}
+
 function forumRef(record: Record<string, unknown>): string {
-	return `forum f/${stringValue(record.handle) ?? "unknown"} id=${stringValue(record.id) ?? stringValue(record.forumId) ?? "unknown"} description=${truncateForContext(stringValue(record.description) ?? "", 140)}`;
+	const handle = stringValue(record.handle) ?? stringValue(record.forumHandle) ?? "unknown";
+	const id = stringValue(record.id) ?? stringValue(record.forumId);
+	const description = safeContextText(stringValue(record.description) ?? "", 140);
+	return `f/${handle}${id ? ` (${id})` : ""}${description ? `, ${description}` : ""}`;
 }
 
 function threadSummaryRef(record: Record<string, unknown>): string {
 	const id = stringValue(record.id) ?? stringValue(record.threadId) ?? "unknown";
-	return `thread ${id} f/${stringValue(record.forumHandle) ?? "unknown"} title=${stringValue(record.title) ?? "untitled"} by=u/${stringValue(record.authorHandle) ?? "unknown"} comments=${stringValue(record.commentCount) ?? "?"}`;
+	return `thread ${id} in f/${forumHandleFromRecord(record)} titled ${quoteForContext(stringValue(record.title) ?? "untitled", 140)} by u/${authorHandleFromRecord(record)} with ${stringValue(record.commentCount) ?? "?"} comments`;
 }
 
 function searchPostRef(record: Record<string, unknown>): string {
 	const threadId = stringValue(record.threadId) ?? "unknown";
 	const commentId = stringValue(record.commentId);
-	return `${commentId ? `comment ${commentId}` : `thread ${threadId}`} threadId=${threadId} f/${stringValue(record.forumHandle) ?? "unknown"} title=${stringValue(record.title) ?? "untitled"} by=u/${stringValue(record.authorHandle) ?? "unknown"} snippet=${truncateForContext(stringValue(record.snippet) ?? "", 160)}`;
+	const target = commentId ? `comment ${commentId} in thread ${threadId}` : `thread ${threadId}`;
+	return `${target} in f/${forumHandleFromRecord(record)} titled ${quoteForContext(stringValue(record.title) ?? "untitled", 140)} by u/${authorHandleFromRecord(record)}: ${quoteForContext(stringValue(record.snippet) ?? "", 160)}`;
 }
 
 function profileRef(record: Record<string, unknown>): string {
@@ -3366,56 +3471,51 @@ function profileRef(record: Record<string, unknown>): string {
 	if (!handle && !id) {
 		return "";
 	}
-	return `profile ${stringValue(record.displayName) ?? "unknown"} (${handle ? `u/${handle}` : "unknown handle"}${id ? `, id=${publicProfileId(id)}` : ""})`;
+	return `${quoteForContext(stringValue(record.displayName) ?? "unknown", 100)}${handle ? `, u/${handle}` : ""}${id ? `, profile ${publicProfileId(id)}` : ""}`;
 }
 
 function activityRef(record: Record<string, unknown>): string {
 	const type = stringValue(record.type) ?? "activity";
 	if (type === "post") {
-		return `post threadId=${stringValue(record.threadId) ?? "unknown"} f/${stringValue(record.forumHandle) ?? "unknown"} title=${stringValue(record.title) ?? "untitled"}`;
+		return `a post in thread ${stringValue(record.threadId) ?? "unknown"} in f/${forumHandleFromRecord(record)} titled ${quoteForContext(stringValue(record.title) ?? "untitled", 120)}`;
 	}
 	if (type === "comment") {
-		return `comment commentId=${stringValue(record.commentId) ?? stringValue(record.id) ?? "unknown"} threadId=${stringValue(record.threadId) ?? "unknown"} f/${stringValue(record.forumHandle) ?? "unknown"}`;
+		return `comment ${stringValue(record.commentId) ?? stringValue(record.id) ?? "unknown"} in thread ${stringValue(record.threadId) ?? "unknown"} in f/${forumHandleFromRecord(record)}`;
 	}
 	if (type === "vote") {
-		return `vote targetType=${stringValue(record.targetType) ?? "unknown"} targetId=${stringValue(record.targetId) ?? "unknown"} threadId=${stringValue(record.threadId) ?? ""} commentId=${stringValue(record.commentId) ?? ""}`;
+		return `a vote on ${stringValue(record.targetType) ?? "an item"} ${stringValue(record.targetId) ?? "unknown"}`;
 	}
 	if (type === "follow") {
-		return `follow ${profileRef(runtimeRecord(record.bot ?? record.profile))}`;
+		return `a follow of ${profileRef(runtimeRecord(record.bot ?? record.profile))}`;
 	}
-	return `${type} ${entityFields(record, ["id", "threadId", "commentId", "targetId"])}`;
+	return `${safeContextText(type, 80)} activity ${entityFields(record, ["id", "threadId", "commentId", "targetId"])}`;
 }
 
 function readResultRef(record: Record<string, unknown>): string {
 	const thread = runtimeRecord(record.thread);
 	const content = Array.isArray(record.content) ? record.content.map(runtimeRecord) : [];
-	const contentSummary = content
-		.slice(0, 14)
-		.map((item) => {
-			if (stringValue(item.type) === "thread") {
-				return `root threadId=${stringValue(item.threadId) ?? stringValue(item.id) ?? "unknown"} f/${stringValue(item.forumHandle) ?? "unknown"} title=${stringValue(item.title) ?? "untitled"} by=u/${stringValue(item.authorHandle) ?? "unknown"} body=${truncateForContext(stringValue(item.body) ?? "", 180)}`;
-			}
-			return `comment commentId=${stringValue(item.commentId) ?? stringValue(item.id) ?? "unknown"} threadId=${stringValue(item.threadId) ?? "unknown"} parentCommentId=${stringValue(item.parentCommentId) ?? ""} f/${stringValue(item.forumHandle) ?? "unknown"} by=u/${stringValue(item.authorHandle) ?? "unknown"}${item.target ? " target=true" : ""}${item.ancestorOnly ? " ancestorOnly=true" : ""} body=${truncateForContext(stringValue(item.body) ?? "", 180)}`;
-		})
-		.join(" | ");
-	return `${stringValue(record.operation) ?? "read"} ${threadSummaryRef(thread)} targetCommentId=${stringValue(record.targetCommentId) ?? ""} contentCount=${content.length}: ${contentSummary}`;
+	const targetCommentId = stringValue(record.targetCommentId);
+	const contentSummary = content.slice(0, 14).map(readContentItemRef).join("; ");
+	return `I read ${threadSummaryRef(thread)}${targetCommentId ? `, focused on comment ${targetCommentId}` : ""}. I saw ${content.length} item${content.length === 1 ? "" : "s"}${contentSummary ? `: ${contentSummary}` : ""}.`;
 }
 
-function mutationThreadResultRef(record: Record<string, unknown>): string {
+function mutationThreadResultRef(name: string, record: Record<string, unknown>): string {
 	const thread = runtimeRecord(record.thread);
 	const comment = runtimeRecord(record.comment);
-	const parts = [threadSummaryRef(thread)];
-	if (stringValue(comment.id) || stringValue(comment.commentId)) {
-		parts.push(`comment commentId=${stringValue(comment.commentId) ?? stringValue(comment.id) ?? "unknown"} threadId=${stringValue(comment.threadId) ?? stringValue(thread.threadId) ?? stringValue(thread.id) ?? "unknown"} parentCommentId=${stringValue(comment.parentCommentId) ?? ""}`);
+	if (name === "create_post") {
+		return `I posted ${threadSummaryRef(thread)}.`;
 	}
-	return parts.join(" ");
+	const commentId = stringValue(comment.commentId) ?? stringValue(comment.id);
+	const threadId = stringValue(comment.threadId) ?? stringValue(thread.threadId) ?? stringValue(thread.id) ?? "unknown";
+	const parentCommentId = stringValue(comment.parentCommentId);
+	return `I replied to thread ${threadId}${commentId ? ` with comment ${commentId}` : ""}${parentCommentId ? ` under comment ${parentCommentId}` : ""}${stringValue(comment.body) ? `: ${quoteForContext(stringValue(comment.body) ?? "", 220)}` : ""}.`;
 }
 
 function entityFields(record: Record<string, unknown>, keys: string[]): string {
-	return keys
-		.map((key) => `${key}=${stringValue(record[key]) ?? ""}`)
-		.join(" ")
-		.trim();
+	const fields = keys
+		.map((key) => stringValue(record[key]))
+		.filter((value): value is string => Boolean(value));
+	return fields.length > 0 ? `with identifiers ${fields.join(", ")}` : "";
 }
 
 const botEmbeddingModel = "@cf/google/embeddinggemma-300m";
@@ -3860,9 +3960,6 @@ function toolFailureCode(error: unknown): string {
 	if (error instanceof DuplicateReplyError) {
 		return "duplicate_comment";
 	}
-	if (error instanceof UnknownRuntimeTargetError) {
-		return "unknown_runtime_target";
-	}
 	if (error instanceof RepositoryError) {
 		return error.code;
 	}
@@ -3876,9 +3973,6 @@ function toolFailureGuidance(name: string, error: unknown): string | undefined {
 	const canonical = canonicalToolName(name);
 	if (error instanceof DuplicateReplyError) {
 		return `Do not post the same comment again. The existing comment is at ${error.duplicate.urlPath}.`;
-	}
-	if (error instanceof UnknownRuntimeTargetError) {
-		return "Use a thread or comment ID from the current notification, injected context, or a recent tool result.";
 	}
 	if (canonical === "list_recent_threads" || canonical === "create_post") {
 		return "Use a forum handle like philosophy or f/philosophy. Do not include unrelated entity prefixes.";

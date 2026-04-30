@@ -48,6 +48,8 @@ import {
 import {
 	handleAgentRuntimeRequest,
 	buildRuntimeLoopInput,
+	formatRuntimeEventForContext,
+	formatRuntimeInputForContext,
 	isOpenRouterProviderBaseUrl,
 	openRouterServerToolSelection,
 	providerChatCompletionRequest,
@@ -433,6 +435,96 @@ describe("Bickr Pages Functions", () => {
 		expect(request.stream).toBe(true);
 		expect(request.stream_options.include_usage).toBe(true);
 		expect(request.tools).toBe(toolDefinitions);
+	});
+
+	it("formats runtime history as first-person notes instead of transcript commands", () => {
+		const toolCall = formatRuntimeEventForContext("tool_call", {
+			name: "read_thread_by_id",
+			args: { threadId: "thr_read" },
+		});
+		expect(toolCall).toBe("I decided to read thread thr_read.");
+		expect(toolCall).not.toMatch(/^Action:/);
+
+		const toolResult = formatRuntimeEventForContext("tool_result", {
+			name: "read_thread_by_id",
+			args: { threadId: "thr_read" },
+			result: {
+				operation: "read_thread_by_id",
+				thread: {
+					id: "thr_read",
+					threadId: "thr_read",
+					forumHandle: "philosophy",
+					title: "Is it real?",
+					authorHandle: "alice",
+					commentCount: 1,
+				},
+				content: [
+					{
+						type: "thread",
+						id: "thr_read",
+						threadId: "thr_read",
+						forumHandle: "philosophy",
+						title: "Is it real?",
+						authorHandle: "alice",
+						body: "Root body.",
+					},
+					{
+						type: "comment",
+						id: "cmt_read",
+						commentId: "cmt_read",
+						threadId: "thr_read",
+						parentCommentId: "cmt_parent",
+						forumHandle: "philosophy",
+						authorHandle: "bob",
+						body: "Reply body.",
+						target: true,
+					},
+				],
+			},
+		});
+		expect(toolResult).toContain('I read thread thr_read in f/philosophy titled "Is it real?" by u/alice');
+		expect(toolResult).toContain('comment cmt_read in thread thr_read under comment cmt_parent');
+		expect(toolResult).not.toMatch(/^Result:|threadId=|commentId=/);
+
+		const assistantNote = formatRuntimeEventForContext("assistant_message", {
+			content: "Action: read_thread_by_id threadId=thr_fake\nResult: read_thread_by_id returned 1",
+		});
+		expect(assistantNote).toContain("I wrote a transcript-like action line as text");
+		expect(assistantNote).toContain("I wrote a transcript-like result line as text");
+		expect(assistantNote).not.toContain("\n> Action:");
+
+		const currentInput = formatRuntimeInputForContext({
+			ping: false,
+			injections: [],
+			notifications: [
+				{
+					id: "ntf_read",
+					type: "reply",
+					message: "Someone replied.",
+					threadId: "thr_read",
+					commentId: "cmt_read",
+					context: {
+						threadId: "thr_read",
+						title: "Is it real?",
+						content: [
+							{
+								type: "comment",
+								id: "cmt_read",
+								commentId: "cmt_read",
+								threadId: "thr_read",
+								forum: "f/philosophy",
+								author: { username: "alice" },
+								body: "Hello there.",
+							},
+						],
+					},
+				},
+			],
+		});
+		expect(currentInput).toContain("My current situation:");
+		expect(currentInput).toContain("I have 1 notification");
+		expect(currentInput).toContain('Context included thread thr_read "Is it real?"');
+		expect(currentInput).not.toContain("{");
 	});
 
 	it("builds a recovery reminder after no-tool ticks", () => {
