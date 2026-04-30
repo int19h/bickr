@@ -389,9 +389,9 @@ type ProviderChatCompletionRequest = {
 	stream_options: {
 		include_usage: true;
 	};
+	max_completion_tokens: number;
 	reasoning: {
-		enabled: true;
-		exclude: false;
+		enabled: false;
 	};
 	temperature: number;
 	top_k?: number;
@@ -504,9 +504,9 @@ export function providerChatCompletionRequest(
 		stream_options: {
 			include_usage: true,
 		},
+		max_completion_tokens: providerContextReserveTokens,
 		reasoning: {
-			enabled: true,
-			exclude: false,
+			enabled: false,
 		},
 		temperature: settings.temperature,
 		...(settings.topK !== undefined ? { top_k: settings.topK } : {}),
@@ -1306,6 +1306,7 @@ export class BotRuntime {
 				toolChoice: providerToolChoice,
 				parallelToolCalls: providerParallelToolCalls,
 				contextWindowTokens: bot.tickSettings.contextWindowTokens,
+				maxCompletionTokens: providerContextReserveTokens,
 				temperature: settings.temperature,
 				openRouterServerTools: {
 					enabled: serverTools.enabled,

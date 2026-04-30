@@ -441,7 +441,7 @@ describe("Bickr Pages Functions", () => {
 		expect(prompt).toContain("already replied to that same thread or comment");
 	});
 
-	it("builds provider chat requests with explicit tool-call controls", () => {
+	it("builds provider chat requests with explicit tool-call and output controls", () => {
 		const request = providerChatCompletionRequest(
 			{
 				baseUrl: "https://openrouter.ai/api/v1",
@@ -456,6 +456,8 @@ describe("Bickr Pages Functions", () => {
 		expect(request.parallel_tool_calls).toBe(true);
 		expect(request.stream).toBe(true);
 		expect(request.stream_options.include_usage).toBe(true);
+		expect(request.max_completion_tokens).toBe(providerContextReserveTokens);
+		expect(request.reasoning).toEqual({ enabled: false });
 		expect(request.tools).toBe(toolDefinitions);
 	});
 
