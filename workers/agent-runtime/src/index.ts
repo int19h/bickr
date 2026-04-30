@@ -1042,11 +1042,44 @@ export class BotRuntime {
 	): Promise<ProviderResponse> {
 		const endpoint = providerChatCompletionsUrl(settings.baseUrl);
 		const body = JSON.stringify(providerChatCompletionRequest(settings, messages, tools));
-		const response = await this.fetchProviderWithRetry(settings, endpoint, body, runId, signal);
-		if (!response.body) {
-			throw new ProviderRequestError(502, settings.model, endpoint, "Provider did not return a streaming response body.");
-		}
+		let previousRetryKey: string | null = null;
+		for (let attempt = 1; attempt <= providerMaxAttempts; attempt += 1) {
+			this.throwIfStopped(runId, signal);
+			if (attempt > 1) {
+				const baseDelay = providerRetryBaseDelayMs * 3 ** (attempt - 2);
+				const delayMs = jitteredDelay(baseDelay);
+				await this.appendEvent(runId, "provider_retry", {
+					attempt,
+					maxAttempts: providerMaxAttempts,
+					delayMs,
+					reason: previousRetryKey,
+				});
+				await sleep(delayMs, signal);
+			}
 
+			try {
+				const stream = await this.fetchProviderResponse(settings, endpoint, body, signal);
+				return await this.consumeProviderResponse(runId, stream, signal);
+			} catch (error) {
+				if (error instanceof TickStoppedError || isAbortError(error)) {
+					throw error;
+				}
+				const retryKey = providerRetryKey(error);
+				if (retryKey && attempt < providerMaxAttempts && (previousRetryKey === null || previousRetryKey === retryKey)) {
+					previousRetryKey = retryKey;
+					continue;
+				}
+				throw error;
+			}
+		}
+		throw new ProviderRequestTimeoutError(providerRequestTimeoutMs);
+	}
+
+	private async consumeProviderResponse(
+		runId: string,
+		stream: ReadableStream<Uint8Array>,
+		signal: AbortSignal,
+	): Promise<ProviderResponse> {
 		let content = "";
 		let reasoning = "";
 		const reasoningDetails: ReasoningDetail[] = [];
@@ -1056,7 +1089,7 @@ export class BotRuntime {
 		let responseModel: string | undefined;
 		this.markProviderStreamActive(runId);
 		try {
-			for await (const event of readSse(response.body, signal)) {
+			for await (const event of readSse(stream, signal)) {
 				this.throwIfStopped(runId, signal);
 				this.markProviderStreamActive(runId);
 				if (event === "[DONE]") {
@@ -1334,76 +1367,38 @@ export class BotRuntime {
 		this.activeStreamActivity.delete(runId);
 	}
 
-	private async fetchProviderWithRetry(
+	private async fetchProviderResponse(
 		settings: ProviderSettings,
 		endpoint: string,
 		body: string,
-		runId: string,
 		signal: AbortSignal,
-	): Promise<Response> {
-		let previousRetryKey: string | null = null;
-		for (let attempt = 1; attempt <= providerMaxAttempts; attempt += 1) {
-			this.throwIfStopped(runId, signal);
-			if (attempt > 1) {
-				const baseDelay = providerRetryBaseDelayMs * 3 ** (attempt - 2);
-				const delayMs = jitteredDelay(baseDelay);
-				await this.appendEvent(runId, "provider_retry", {
-					attempt,
-					maxAttempts: providerMaxAttempts,
-					delayMs,
-					reason: previousRetryKey,
-				});
-				await sleep(delayMs, signal);
-			}
-
-			let response: Response;
-			try {
-				const headers: Record<string, string> = {
-					"content-type": "application/json",
-				};
-				if (settings.apiKey) {
-					headers.authorization = `Bearer ${settings.apiKey}`;
-				}
-				response = await providerFetchWithHeaderTimeout(
-					endpoint,
-					{
-						method: "POST",
-						headers,
-						body,
-					},
-					signal,
-					providerRequestTimeoutMs,
-				);
-			} catch (error) {
-				if (error instanceof TickStoppedError || isAbortError(error)) {
-					throw error;
-				}
-				if (error instanceof ProviderRequestTimeoutError) {
-					const retryKey = error.message;
-					if (attempt < providerMaxAttempts && (previousRetryKey === null || previousRetryKey === retryKey)) {
-						previousRetryKey = retryKey;
-						continue;
-					}
-				}
-				throw error;
-			}
-
-			if (response.ok) {
-				return response;
-			}
-
-			const bodyText = await readLimitedText(response.body, 1_200);
-			const error = new ProviderRequestError(response.status, settings.model, endpoint, bodyText);
-			if (isRetryableProviderStatus(response.status)) {
-				const retryKey = `${response.status}:${bodyText}`;
-				if (attempt < providerMaxAttempts && (previousRetryKey === null || previousRetryKey === retryKey)) {
-					previousRetryKey = retryKey;
-					continue;
-				}
-			}
-			throw error;
+	): Promise<ReadableStream<Uint8Array>> {
+		const headers: Record<string, string> = {
+			"content-type": "application/json",
+		};
+		if (settings.apiKey) {
+			headers.authorization = `Bearer ${settings.apiKey}`;
 		}
-		throw new ProviderRequestTimeoutError(providerRequestTimeoutMs);
+		const response = await providerFetchWithHeaderTimeout(
+			endpoint,
+			{
+				method: "POST",
+				headers,
+				body,
+			},
+			signal,
+			providerRequestTimeoutMs,
+		);
+
+		if (response.ok) {
+			if (!response.body) {
+				throw new ProviderRequestError(502, settings.model, endpoint, "Provider did not return a streaming response body.");
+			}
+			return response.body;
+		}
+
+		const bodyText = await readLimitedText(response.body, 1_200);
+		throw new ProviderRequestError(response.status, settings.model, endpoint, bodyText);
 	}
 
 	private effectiveProviderSettings(bot: BotDocument, owner: UserDocument): ProviderSettings {
@@ -3826,6 +3821,16 @@ async function providerFetchWithHeaderTimeout(
 
 function isRetryableProviderStatus(status: number): boolean {
 	return status === 408 || status === 409 || status === 425 || status === 429 || status === 500 || status === 502 || status === 503 || status === 504 || status === 529;
+}
+
+function providerRetryKey(error: unknown): string | null {
+	if (error instanceof ProviderRequestTimeoutError || error instanceof ProviderStreamIdleTimeoutError) {
+		return error.message;
+	}
+	if (error instanceof ProviderRequestError && isRetryableProviderStatus(error.status)) {
+		return `${error.status}:${error.body}`;
+	}
+	return null;
 }
 
 function jitteredDelay(baseMs: number): number {

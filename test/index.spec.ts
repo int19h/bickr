@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { env as testEnv } from "cloudflare:test";
 import { onRequestGet as bootstrap } from "../apps/web/functions/api/bootstrap";
 import { onRequestGet as githubStart } from "../apps/web/functions/api/auth/github/start";
@@ -48,6 +48,7 @@ import {
 import {
 	handleAgentRuntimeRequest,
 	buildRuntimeLoopInput,
+	BotRuntime,
 	formatRuntimeEventForContext,
 	formatRuntimeInputForContext,
 	isOpenRouterProviderBaseUrl,
@@ -602,6 +603,81 @@ describe("Bickr Pages Functions", () => {
 		const disabled = openRouterServerToolSelection("https://openrouter.ai/api/v1", {});
 		expect(disabled.tools).toEqual([]);
 		expect([...toolDefinitions, ...disabled.tools].some((definition) => definition.type === "function")).toBe(true);
+	});
+
+	it("retries provider stream idle timeouts", async () => {
+		vi.useFakeTimers();
+		try {
+			const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+			const fetchProviderResponse = vi
+				.fn<() => Promise<ReadableStream<Uint8Array>>>()
+				.mockResolvedValueOnce(neverStream())
+				.mockResolvedValueOnce(sseStream([
+					{
+						id: "response-recovered",
+						model: "test/model",
+						choices: [{ delta: { content: "Recovered." } }],
+					},
+					"[DONE]",
+				]));
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				appendEvent: async (_runId: string, type: string, payload: Record<string, unknown>) => {
+					events.push({ type, payload });
+					return {
+						seq: events.length,
+						runId: _runId,
+						type,
+						payload,
+						tokenEstimate: 0,
+						createdAt: new Date().toISOString(),
+					};
+				},
+				broadcastProviderDelta: () => {},
+				clearProviderStreamActive: () => {},
+				fetchProviderResponse,
+				markProviderStreamActive: () => {},
+				throwIfStopped: (_runId: string, signal: AbortSignal) => {
+					if (signal.aborted) {
+						throw new Error("Unexpected abort.");
+					}
+				},
+			});
+			const callProvider = (BotRuntime.prototype as unknown as {
+				callProvider: (
+					settings: Record<string, unknown>,
+					messages: Array<Record<string, unknown>>,
+					tools: Array<Record<string, unknown>>,
+					runId: string,
+					signal: AbortSignal,
+				) => Promise<{ content: string; toolCalls: unknown[] }>;
+			}).callProvider.bind(runtime);
+
+			const response = callProvider(
+				{
+					baseUrl: "https://openrouter.ai/api/v1",
+					model: "test/model",
+					temperature: 0.7,
+				},
+				[{ role: "user", content: "Act." }],
+				[],
+				"run-stream-retry",
+				new AbortController().signal,
+			);
+			await vi.advanceTimersByTimeAsync(90_000);
+
+			await expect(response).resolves.toMatchObject({ content: "Recovered.", toolCalls: [] });
+			expect(fetchProviderResponse).toHaveBeenCalledTimes(2);
+			expect(events).toContainEqual({
+				type: "provider_retry",
+				payload: expect.objectContaining({
+					attempt: 2,
+					maxAttempts: 3,
+					reason: "Provider stream timed out after 60 seconds without data.",
+				}),
+			});
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("returns the bootstrap payload", async () => {
@@ -2907,6 +2983,23 @@ function jsonRequest(
 		method,
 		headers,
 		body: JSON.stringify(body),
+	});
+}
+
+function neverStream(): ReadableStream<Uint8Array> {
+	return new ReadableStream<Uint8Array>();
+}
+
+function sseStream(events: Array<Record<string, unknown> | "[DONE]">): ReadableStream<Uint8Array> {
+	const encoder = new TextEncoder();
+	return new ReadableStream<Uint8Array>({
+		start(controller) {
+			for (const event of events) {
+				const data = event === "[DONE]" ? "[DONE]" : JSON.stringify(event);
+				controller.enqueue(encoder.encode(`data: ${data}\n\n`));
+			}
+			controller.close();
+		},
 	});
 }
 
