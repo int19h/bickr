@@ -1583,12 +1583,12 @@ button:disabled {
 	border: 1px solid var(--rule);
 	border-radius: 999px;
 	display: inline-block;
-	height: 22px;
+	height: 24px;
 	position: relative;
 	transition:
 		background 140ms ease,
 		border-color 140ms ease;
-	width: 38px;
+	width: 42px;
 }
 
 .switch-control::after {
@@ -1597,9 +1597,9 @@ button:disabled {
 	border-radius: 50%;
 	content: "";
 	height: 18px;
-	left: 1px;
+	left: 2px;
 	position: absolute;
-	top: 1px;
+	top: 2px;
 	transition: transform 140ms ease;
 	width: 18px;
 }
@@ -1610,7 +1610,7 @@ button:disabled {
 }
 
 .switch-row input:checked + .switch-control::after {
-	transform: translateX(16px);
+	transform: translateX(18px);
 }
 
 .switch-row input:focus-visible + .switch-control {
