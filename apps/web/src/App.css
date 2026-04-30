@@ -1640,10 +1640,6 @@ button:disabled {
 	line-height: 1.35;
 }
 
-.paused-notice {
-	margin-top: 8px;
-}
-
 .tool-group {
 	background: var(--paper);
 	border: 1px solid var(--rule);
@@ -3436,6 +3432,27 @@ button:disabled {
 	max-width: none;
 	overflow-wrap: anywhere;
 	white-space: pre-wrap;
+}
+
+.profile-head .paused-notice {
+	align-items: center;
+	background: color-mix(in oklch, oklch(0.82 0.16 85) 22%, var(--paper));
+	border: 1px solid color-mix(in oklch, oklch(0.74 0.15 80) 52%, var(--rule));
+	border-radius: var(--radius);
+	color: var(--ink);
+	display: flex;
+	font-size: 13.5px;
+	font-weight: 600;
+	gap: 8px;
+	grid-column: 1 / -1;
+	line-height: 1.4;
+	margin-top: -8px;
+	padding: 9px 11px;
+}
+
+.profile-head .paused-notice svg {
+	color: oklch(0.58 0.15 75);
+	flex: 0 0 auto;
 }
 
 .short-bio-editor {

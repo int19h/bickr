@@ -989,12 +989,17 @@ function App() {
 				...current,
 				[worldHandle]: [createdBot, ...(current[worldHandle] ?? []).filter((bot) => bot.id !== createdBot.id)],
 			}));
-			await loadForums(worldHandle);
-			void loadSubscriptions();
+			setCreateBotWorldHandle(null);
 			navigate({
 				route: "bot-profile",
 				worldHandle,
 				botHandle: createdBot.handle,
+			});
+			void loadForums(worldHandle).catch((error) => {
+				setStatus(error instanceof Error ? error.message : "Could not refresh forums after creating bot.");
+			});
+			void loadSubscriptions().catch((error) => {
+				setStatus(error instanceof Error ? error.message : "Could not refresh subscriptions after creating bot.");
 			});
 			return `Created bot ${createdBot.handle}. It starts paused; open Loop and unpause it when setup is ready.`;
 		});
@@ -3768,8 +3773,9 @@ function BotProfileScreen({
 				</div>
 				<p className="bio">{bot.shortBio}</p>
 				{isOwner && !bot.tickSettings.enabled && (
-					<div className="runtime-message paused-notice">
-						Paused. Review settings, then open Loop and unpause before this participant can act.
+					<div className="paused-notice">
+						<Icon name="info" size={14} />
+						<span>Paused. Review settings, then open Loop and unpause before this participant can act.</span>
 					</div>
 				)}
 			</div>
