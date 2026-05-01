@@ -847,6 +847,78 @@ button:disabled {
 	color: var(--danger);
 }
 
+.translatable-text {
+	position: relative;
+}
+
+.translatable-content {
+	overflow-wrap: inherit;
+}
+
+.translation-controls {
+	align-items: center;
+	background: color-mix(in oklch, var(--paper) 92%, transparent);
+	border: 1px solid var(--rule);
+	border-radius: 5px;
+	box-shadow: 0 8px 24px -18px rgba(0, 0, 0, 0.45);
+	display: inline-flex;
+	gap: 2px;
+	opacity: 0;
+	padding: 2px;
+	pointer-events: none;
+	position: absolute;
+	right: 0;
+	top: 0;
+	transform: translateY(-72%);
+	transition: opacity 80ms;
+	z-index: 5;
+}
+
+.translatable-text:hover > .translation-controls,
+.translatable-text:focus-within > .translation-controls {
+	opacity: 1;
+	pointer-events: auto;
+}
+
+.translation-action {
+	align-items: center;
+	background: transparent;
+	border-radius: 3px;
+	color: var(--ink-3);
+	cursor: pointer;
+	display: inline-grid;
+	height: 22px;
+	justify-content: center;
+	padding: 0;
+	width: 22px;
+}
+
+.translation-action:hover:not(:disabled) {
+	background: var(--paper-2);
+	color: var(--ink);
+}
+
+.translation-action:disabled {
+	color: var(--ink-5);
+	cursor: default;
+}
+
+.spinner {
+	animation: spin 800ms linear infinite;
+	border: 2px solid var(--rule);
+	border-top-color: var(--ink-3);
+	border-radius: 50%;
+	display: inline-block;
+	height: 13px;
+	width: 13px;
+}
+
+@keyframes spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+
 .field,
 .field-stack {
 	display: flex;
@@ -1253,6 +1325,7 @@ button:disabled {
 	flex-direction: column;
 	overflow: hidden;
 	padding: 0;
+	position: relative;
 	text-align: left;
 	transition: border-color 80ms;
 }
@@ -1286,11 +1359,16 @@ button:disabled {
 
 .world-card-description {
 	color: var(--ink-3);
-	display: -webkit-box;
+	display: block;
 	font-size: 13px;
 	line-height: 1.45;
 	margin-bottom: 10px;
 	min-height: 38px;
+	overflow: visible;
+}
+
+.world-card-description > .translatable-content {
+	display: -webkit-box;
 	overflow: hidden;
 	-webkit-box-orient: vertical;
 	-webkit-line-clamp: 2;
@@ -3463,9 +3541,14 @@ button:disabled {
 
 .thread-row .preview {
 	color: var(--ink-3);
-	display: -webkit-box;
+	display: block;
 	font-size: 13px;
 	line-height: 1.5;
+	overflow: visible;
+}
+
+.thread-row .preview .translatable-content {
+	display: -webkit-box;
 	overflow: hidden;
 	-webkit-box-orient: vertical;
 	-webkit-line-clamp: 2;

@@ -18,6 +18,7 @@ import {
 	onRequestGet as getProfile,
 	onRequestPatch as patchProfile,
 } from "../apps/web/functions/api/me/profile";
+import { onRequestPost as translateText } from "../apps/web/functions/api/me/translate";
 import { onRequestDelete as unlinkAuthIdentity } from "../apps/web/functions/api/me/auth/identities/[provider]";
 import { onRequestGet as runtimeHealth } from "../apps/web/functions/api/runtime/health";
 import { onRequestGet as session } from "../apps/web/functions/api/session";
@@ -55,17 +56,20 @@ import {
 	BotRuntime,
 	formatRuntimeEventForContext,
 	formatRuntimeInputForContext,
-	isOpenRouterProviderBaseUrl,
-	openRouterServerToolSelection,
 	promptContextBudgetCacheFingerprint,
 	promptContextBudgetFromCounts,
 	providerChatCompletionRequest,
-	providerContextReserveTokens,
+	providerTranslationRequest,
 	providerTokenProbeRequest,
 	toolUseRecoveryReminder,
-	toolDefinitions,
 } from "../workers/agent-runtime/src/index";
-import { standardPrompt } from "../workers/agent-runtime/src/prompt-and-tools";
+import {
+	isOpenRouterProviderBaseUrl,
+	openRouterServerToolSelection,
+	standardPrompt,
+	toolDefinitions,
+} from "../workers/agent-runtime/src/prompt-and-tools";
+import { providerContextReserveTokens } from "../workers/agent-runtime/src/provider-requests";
 import forumCoordinatorWorker, { handleForumCoordinatorRequest } from "../workers/forum-coordinator/src/index";
 import { pruneStreamEventsForPersistentEvents } from "../apps/web/src/runtime-streams";
 import {
@@ -88,7 +92,7 @@ import {
 	searchBots,
 	searchPosts,
 } from "../packages/shared/src/social";
-import { type BotRuntimeEvent, type ThreadDocument } from "../packages/shared/src/model";
+import { defaultTranslationPrompt, type BotRuntimeEvent, type ThreadDocument } from "../packages/shared/src/model";
 import { sessionCookieName, type AppEnv } from "../apps/web/functions/api/_auth";
 import { oauthCookieNames } from "../apps/web/functions/api/auth/_oauth";
 
@@ -478,6 +482,42 @@ describe("Bickr Pages Functions", () => {
 		expect(request.max_completion_tokens).toBe(providerContextReserveTokens);
 		expect(request.reasoning).toEqual({ effort: "none" });
 		expect(request.tools).toBe(toolDefinitions);
+	});
+
+	it("builds translation requests with strict structured output and no tools", () => {
+		const request = providerTranslationRequest(
+			{
+				baseUrl: "https://openrouter.ai/api/v1",
+				model: "openai/gpt-4o-mini",
+				prompt: "Translate to Pirate.",
+			},
+			"Hello world.",
+		);
+
+		expect(request.model).toBe("openai/gpt-4o-mini");
+		expect(request.messages).toEqual([
+			{ role: "system", content: "Translate to Pirate." },
+			{ role: "user", content: "Hello world." },
+		]);
+		expect("tools" in request).toBe(false);
+		expect(request.stream).toBe(false);
+		expect(request.temperature).toBe(0);
+		expect(request.reasoning).toEqual({ effort: "none" });
+		expect(request.response_format).toEqual({
+			type: "json_schema",
+			json_schema: {
+				name: "translation",
+				strict: true,
+				schema: {
+					type: "object",
+					properties: {
+						translation: { type: "string" },
+					},
+					required: ["translation"],
+					additionalProperties: false,
+				},
+			},
+		});
 	});
 
 	it("builds minimal provider probes for exact prompt-token counts", () => {
@@ -2252,6 +2292,9 @@ describe("Bickr Pages Functions", () => {
 						inferenceSettings: {
 							openRouterApiKey: "sk-or-user-secret",
 							model: "anthropic/claude-3.5-haiku",
+							translation: {
+								model: "openai/gpt-4o-mini",
+							},
 							temperature: 0.7,
 							topK: 40,
 							topP: 0.92,
@@ -2270,11 +2313,15 @@ describe("Bickr Pages Functions", () => {
 			handle: "octo-admin",
 			displayName: "Octo Admin",
 			profileComplete: true,
-			inferenceSettings: {
-				openRouterApiKeySet: true,
-				model: "anthropic/claude-3.5-haiku",
-				temperature: 0.7,
-				topK: 40,
+				inferenceSettings: {
+					openRouterApiKeySet: true,
+					model: "anthropic/claude-3.5-haiku",
+					translation: {
+						model: "openai/gpt-4o-mini",
+						prompt: defaultTranslationPrompt,
+					},
+					temperature: 0.7,
+					topK: 40,
 				topP: 0.92,
 				minP: 0.04,
 			},
@@ -2312,6 +2359,9 @@ describe("Bickr Pages Functions", () => {
 							openRouterApiKey: null,
 							baseUrl: null,
 							model: "anthropic/claude-3.5-haiku",
+							translation: {
+								model: "openai/gpt-4o-mini",
+							},
 						},
 					},
 					cookie,
@@ -2323,6 +2373,7 @@ describe("Bickr Pages Functions", () => {
 			data: { profile: { inferenceSettings: Record<string, unknown> } };
 		};
 		expect(noKeyModelPayload.data.profile.inferenceSettings.model).toBeUndefined();
+		expect(noKeyModelPayload.data.profile.inferenceSettings.translation).toBeUndefined();
 		expect(noKeyModelPayload.data.profile.inferenceSettings.openRouterApiKeySet).toBeUndefined();
 
 		const customBaseModelResponse = await patchProfile(
@@ -2334,6 +2385,10 @@ describe("Bickr Pages Functions", () => {
 						inferenceSettings: {
 							baseUrl: "http://localhost:11434/v1",
 							model: "local/model",
+							translation: {
+								model: "local/translator",
+								prompt: "Translate into Scots.",
+							},
 						},
 					},
 					cookie,
@@ -2348,10 +2403,116 @@ describe("Bickr Pages Functions", () => {
 					inferenceSettings: {
 						baseUrl: "http://localhost:11434/v1",
 						model: "local/model",
+						translation: {
+							model: "local/translator",
+							prompt: "Translate into Scots.",
+						},
 					},
 				},
 			},
 		});
+	});
+
+	it("translates text through the authenticated profile translation route", async () => {
+		const cookie = await authCookie();
+		await patchProfile(
+			contextFor<typeof patchProfile>(
+				jsonRequest(
+					"http://example.com/api/me/profile",
+					"PATCH",
+					{
+						inferenceSettings: {
+							openRouterApiKey: "sk-or-translation-secret",
+							translation: {
+								model: "openai/gpt-4o-mini",
+								prompt: "Translate into French.",
+							},
+						},
+					},
+					cookie,
+				),
+			),
+		);
+		const providerRequests: Request[] = [];
+		const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+			const request = new Request(input, init);
+			providerRequests.push(request);
+			return Response.json({
+				choices: [{ message: { content: JSON.stringify({ translation: "Bonjour." }) } }],
+			});
+		});
+		try {
+			const response = await translateText(
+				contextFor<typeof translateText>(
+					jsonRequest("http://example.com/api/me/translate", "POST", { text: "Hello." }, cookie),
+				),
+			);
+			expect(response.status).toBe(200);
+			expect(await response.json()).toMatchObject({
+				ok: true,
+				data: { translation: "Bonjour." },
+			});
+			expect(providerRequests).toHaveLength(1);
+			expect(providerRequests[0]?.headers.get("authorization")).toBe("Bearer sk-or-translation-secret");
+			const providerBody = await providerRequests[0]!.json() as Record<string, unknown>;
+			expect(providerBody).toMatchObject({
+				model: "openai/gpt-4o-mini",
+				stream: false,
+				temperature: 0,
+			});
+		} finally {
+			fetchSpy.mockRestore();
+		}
+	});
+
+	it("rejects translation without auth, configured model, or parseable provider JSON", async () => {
+		const unauthorized = await translateText(
+			contextFor<typeof translateText>(
+				jsonRequest("http://example.com/api/me/translate", "POST", { text: "Hello." }),
+			),
+		);
+		expect(unauthorized.status).toBe(401);
+
+		const cookie = await authCookie();
+		const missingModel = await translateText(
+			contextFor<typeof translateText>(
+				jsonRequest("http://example.com/api/me/translate", "POST", { text: "Hello." }, cookie),
+			),
+		);
+		expect(missingModel.status).toBe(400);
+
+		await patchProfile(
+			contextFor<typeof patchProfile>(
+				jsonRequest(
+					"http://example.com/api/me/profile",
+					"PATCH",
+					{
+						inferenceSettings: {
+							openRouterApiKey: "sk-or-translation-secret",
+							translation: {
+								model: "openai/gpt-4o-mini",
+							},
+						},
+					},
+					cookie,
+				),
+			),
+		);
+		const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+			Response.json({
+				choices: [{ message: { content: "not json" } }],
+			}),
+		);
+		try {
+			const malformed = await translateText(
+				contextFor<typeof translateText>(
+					jsonRequest("http://example.com/api/me/translate", "POST", { text: "Hello." }, cookie),
+				),
+			);
+			expect(malformed.status).toBe(502);
+		} finally {
+			fetchSpy.mockRestore();
+		}
 	});
 
 	it("supports bot-authored threads, replies, votes, follows, notifications, and search", async () => {

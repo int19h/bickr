@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useId, useMemo, useRef, useState 
 import type { AriaRole, CSSProperties, MouseEvent as ReactMouseEvent, ReactNode } from "react";
 import {
 	defaultProviderModel,
+	defaultTranslationPrompt,
 	authProviders,
 	type AuthProvider,
 	type BotActivityFeed,
@@ -111,6 +112,8 @@ type InferenceDraft = {
 	openRouterApiKeySet: boolean;
 	baseUrl: string;
 	model: string;
+	translationModel: string;
+	translationPrompt: string;
 	temperature: string;
 	topK: string;
 	topP: string;
@@ -236,6 +239,12 @@ type HoverTooltipContextValue = {
 	show: (id: string) => void;
 };
 
+type TranslationContextValue = {
+	enabled: boolean;
+	model: string;
+	prompt: string;
+};
+
 type SubscriptionTarget = {
 	scopeType: HumanSubscriptionScope;
 	scopeId: string;
@@ -275,6 +284,8 @@ type IconName =
 	| "moon"
 	| "monitor"
 	| "sparkles"
+	| "translate"
+	| "original"
 	| "arrowUp"
 	| "arrowDown";
 
@@ -309,6 +320,11 @@ const HoverTooltipContext = createContext<HoverTooltipContextValue>({
 	clear: () => undefined,
 	hide: () => undefined,
 	show: () => undefined,
+});
+const TranslationContext = createContext<TranslationContextValue>({
+	enabled: false,
+	model: "",
+	prompt: defaultTranslationPrompt,
 });
 
 function App() {
@@ -480,6 +496,15 @@ function App() {
 		}),
 		[activeTooltipId],
 	);
+	const translationContext = useMemo<TranslationContextValue>(() => {
+		const translation = userProfile?.inferenceSettings.translation;
+		const model = translation?.model?.trim() ?? "";
+		return {
+			enabled: model.length > 0,
+			model,
+			prompt: translation?.prompt?.trim() || defaultTranslationPrompt,
+		};
+	}, [userProfile?.inferenceSettings.translation]);
 	const activeBotBlogForum =
 		activeBot ? activeForums.find((forum) => forum.personalBotId === activeBot.id) ?? null : null;
 	const ownedBotModels = useMemo(() => {
@@ -1414,6 +1439,7 @@ function App() {
 			<NavigationContext.Provider value={{ navigate }}>
 				<ReferenceDataContext.Provider value={referenceData}>
 					<HoverTooltipContext.Provider value={hoverTooltip}>
+					<TranslationContext.Provider value={translationContext}>
 				<div className="shell">
 				<Topbar
 					activeWorldHandle={activeWorldHandle}
@@ -1595,6 +1621,7 @@ function App() {
 				ownedBots={bots}
 				world={createBotWorld}
 			/>
+					</TranslationContext.Provider>
 					</HoverTooltipContext.Provider>
 				</ReferenceDataContext.Provider>
 			</NavigationContext.Provider>
@@ -2298,14 +2325,17 @@ function WorldsScreen({
 
 function WorldCard({ world }: { world: WorldView }) {
 	return (
-		<SpaLink className="world-card" to={{ route: "world", worldHandle: world.handle }}>
+		<article className="world-card">
+			<SpaLink className="card-hit-link" to={{ route: "world", worldHandle: world.handle }}>
+				<span className="sr-only">Open {world.name}</span>
+			</SpaLink>
 			<span className="banner" style={{ background: banners[world.bannerIdx] }} />
 			<span className="body">
 				<span className="world-card-title">
 					{world.name}
 					{world.isMine && <span className="yours-tag">Yours</span>}
 				</span>
-				<span className="world-card-description">{world.description}</span>
+				<TranslatableText as="span" className="world-card-description" text={world.description} />
 				<span className="world-ref-row">
 					<Reference kind="world" link={false} name={world.handle} />
 				</span>
@@ -2318,7 +2348,7 @@ function WorldCard({ world }: { world: WorldView }) {
 					</span>
 				</span>
 			</span>
-		</SpaLink>
+		</article>
 	);
 }
 
@@ -2609,8 +2639,8 @@ function WorldDetail({
 		<div className="main-inner">
 			<div className="page-header">
 				<div className="page-title-block">
-					<h1>{world.name}</h1>
-					<p className="sub">{world.description}</p>
+					<TranslatableText as="h1" text={world.name} />
+					<TranslatableText as="p" className="sub" text={world.description} />
 					<div className="inline-meta">
 						<Reference kind="world" name={world.handle} />
 						<span>/</span>
@@ -3060,7 +3090,7 @@ function ForumRow({
 						<Reference kind="forum" name={forum.handle} />
 						{forum.personalBotId && <span className="bot-badge">personal</span>}
 					</div>
-					<div className="desc">{forum.description}</div>
+					<TranslatableText as="div" className="desc" text={forum.description} />
 				</div>
 				<div className="stats">
 					{onEdit && (
@@ -3095,7 +3125,14 @@ function ForumDescription({
 	const data = useContext(ReferenceDataContext);
 	const bot = personalForumBot(forum, data);
 	if (!bot) {
-		return <>{forum.description}</>;
+		return (
+			<TranslatableText
+				onReference={onReference}
+				rich={Boolean(onReference)}
+				text={forum.description}
+				worldHandle={forum.worldHandle}
+			/>
+		);
 	}
 	return (
 		<>
@@ -3227,7 +3264,7 @@ function ForumPage({
 					</div>
 					<h1>
 						<Reference kind="forum" name={forum.handle} />
-						<span>{forum.handle.replace(/-/g, " ")}</span>
+						<TranslatableText as="span" text={forum.handle.replace(/-/g, " ")} />
 					</h1>
 					<p className="desc">
 						<ForumDescription forum={forum} onReference={onReference} />
@@ -3506,7 +3543,12 @@ function ForumThreadRow({
 					)}
 				</div>
 				<div className="preview">
-					<RichText onReference={onReference} text={thread.bodyPreview} worldHandle={thread.worldHandle} />
+					<TranslatableText
+						onReference={onReference}
+						rich
+						text={thread.bodyPreview}
+						worldHandle={thread.worldHandle}
+					/>
 				</div>
 				<div className="meta">
 					<span className="inline-author">
@@ -3693,16 +3735,17 @@ function ThreadPage({
 				</div>
 				<div>
 					<h1>
-						{thread.rootPost.title}
+						<TranslatableText as="span" text={thread.rootPost.title} />
 						{thread.readState?.isNew && <span className="new-mark">new</span>}
 					</h1>
-					<div className="body">
-						<RichText
-							onReference={onReference}
-							text={thread.rootPost.body}
-							worldHandle={thread.worldHandle}
-						/>
-					</div>
+					<TranslatableText
+						as="div"
+						className="body"
+						onReference={onReference}
+						rich
+						text={thread.rootPost.body}
+						worldHandle={thread.worldHandle}
+					/>
 					<div className="meta">
 						<span className="inline-author">
 							<Avatar actor="bot" colorSeed={thread.rootPost.authorHandle} name={thread.rootPost.authorDisplayName} size="sm" />
@@ -3961,9 +4004,14 @@ function CommentNode({
 						#{comment.id.slice(-6)}
 					</a>
 				</div>
-				<div className="body">
-					<RichText onReference={onReference} text={comment.body} worldHandle={worldHandle} />
-				</div>
+				<TranslatableText
+					as="div"
+					className="body"
+					onReference={onReference}
+					rich
+					text={comment.body}
+					worldHandle={worldHandle}
+				/>
 				{comment.replies.length > 0 && (
 					<div className="replies">
 						{comment.replies.map((reply, index) => (
@@ -4171,7 +4219,9 @@ function BotProfileScreen({
 			<div className="profile-head">
 				<Avatar actor="bot" colorSeed={bot.handle} name={bot.displayName} size="xl" />
 				<div className="meta">
-					<h1 className="name">{bot.displayName}</h1>
+					<h1 className="name">
+						<TranslatableText as="span" text={bot.displayName} />
+					</h1>
 					<div className="handle">
 						<Reference isBot kind="bot" name={bot.handle} /> in{" "}
 						<Reference kind="world" name={world.handle} />
@@ -4215,9 +4265,14 @@ function BotProfileScreen({
 						</button>
 					}
 				</div>
-				<p className="bio">
-					<RichText onReference={onReference} text={bot.shortBio} worldHandle={world.handle} />
-				</p>
+				<TranslatableText
+					as="p"
+					className="bio"
+					onReference={onReference}
+					rich
+					text={bot.shortBio}
+					worldHandle={world.handle}
+				/>
 				{isOwner && !bot.tickSettings.enabled && (
 					<div className="paused-notice">
 						<Icon name="info" size={14} />
@@ -4741,7 +4796,7 @@ function BotCard({
 					</div>
 				</div>
 			</div>
-			<div className="tagline">{bot.shortBio}</div>
+			<TranslatableText as="div" className="tagline" text={bot.shortBio} />
 			<div className="foot">
 				<span className="bot-card-foot-left">
 					{!hideWorld ? (
@@ -5712,7 +5767,7 @@ function ProfileScreen({
 			handle: draft.handle,
 			displayName: draft.displayName,
 			avatarUrl: draft.avatarUrl.trim() || null,
-			inferenceSettings: inferenceInputFromDraft(draft.inference),
+			inferenceSettings: inferenceInputFromDraft(draft.inference, undefined, { includeTranslation: true }),
 		});
 		if (saved) {
 			setProfile(saved);
@@ -6011,6 +6066,38 @@ function InferenceSettingsFields({
 					/>
 				</Field>
 			</div>
+			{scope === "profile" && (
+				<div className="translation-settings">
+					<div className="field-row">
+						<Field
+							help={
+								modelLocked ?
+									"Add an API key or custom base URL before enabling translation."
+								:	"Blank disables translation controls on content text."
+							}
+							label="Translation model"
+						>
+							<input
+								className="input"
+								disabled={modelLocked}
+								list={modelSuggestions.length > 0 ? modelListId : undefined}
+								onChange={(event) => patch({ translationModel: event.target.value })}
+								placeholder="openai/gpt-4o-mini"
+								value={modelLocked ? "" : draft.translationModel}
+							/>
+						</Field>
+						<Field help="Sent with the source text for each translation request." label="Translation prompt">
+							<input
+								className="input"
+								disabled={modelLocked || !draft.translationModel.trim()}
+								onChange={(event) => patch({ translationPrompt: event.target.value })}
+								placeholder={defaultTranslationPrompt}
+								value={draft.translationPrompt}
+							/>
+						</Field>
+					</div>
+				</div>
+			)}
 			<div className="field-row">
 				<Field label="Temperature">
 					<input
@@ -7616,6 +7703,18 @@ function Icon({ name, size = 16 }: { name: IconName; size?: number }) {
 				<path d="M19 16l.7 2.3L22 19l-2.3.7L19 22l-.7-2.3L16 19l2.3-.7zM5 2l.7 2.3L8 5l-2.3.7L5 8l-.7-2.3L2 5l2.3-.7z" />
 			</svg>
 		),
+		translate: (
+			<svg height={size} viewBox="0 0 24 24" width={size} {...stroke}>
+				<path d="M4 5h9M8.5 3v2M10 5c-.7 3.6-2.7 6.4-6 8" />
+				<path d="M5.8 8.8c1 1.4 2.3 2.5 3.8 3.3M13 21l4-10 4 10M14.4 17.5h5.2" />
+			</svg>
+		),
+		original: (
+			<svg height={size} viewBox="0 0 24 24" width={size} {...stroke}>
+				<path d="M7 4h7l4 4v12H7z" />
+				<path d="M14 4v4h4M10 13h5M10 17h4" />
+			</svg>
+		),
 		arrowUp: (
 			<svg height={size} viewBox="0 0 24 24" width={size} {...stroke}>
 				<path d="M12 19V5M6 11l6-6 6 6" />
@@ -7830,6 +7929,137 @@ const richTextReferencePattern = new RegExp(
 	`(^|${handleBoundaryPatternSource})([uwf])/(${handlePatternSource})(?=$|${handleEndBoundaryPatternSource})`,
 	"giu",
 );
+
+const translationCacheVersion = 1;
+const translationCacheStorageKey = "bickr.translation.cache.v1";
+const translationViewStorageKey = "bickr.translation.view.v1";
+
+function TranslatableText({
+	as,
+	className,
+	onReference,
+	rich = false,
+	text,
+	worldHandle,
+}: {
+	as?: "div" | "h1" | "p" | "span";
+	className?: string;
+	onReference?: OpenReference;
+	rich?: boolean;
+	text: string;
+	worldHandle?: string;
+}) {
+	const translationConfig = useContext(TranslationContext);
+	const toast = useContext(ToastContext);
+	const cacheKey =
+		translationConfig.enabled && text.trim() ?
+			translationCacheKey(text, translationConfig.model, translationConfig.prompt)
+		:	null;
+	const [cachedTranslation, setCachedTranslation] = useState<string | null>(() =>
+		cacheKey ? readTranslationCacheValue(cacheKey) : null,
+	);
+	const [showTranslation, setShowTranslation] = useState(() => {
+		if (!cacheKey) {
+			return false;
+		}
+		return Boolean(readTranslationCacheValue(cacheKey) && (readTranslationViewState(cacheKey) ?? true));
+	});
+	const [loading, setLoading] = useState(false);
+	const Tag = as ?? "span";
+	const visibleText = showTranslation && cachedTranslation ? cachedTranslation : text;
+	const enabled = Boolean(cacheKey);
+
+	useEffect(() => {
+		if (!cacheKey) {
+			setCachedTranslation(null);
+			setShowTranslation(false);
+			setLoading(false);
+			return;
+		}
+		const nextTranslation = readTranslationCacheValue(cacheKey);
+		setCachedTranslation(nextTranslation);
+		setShowTranslation(Boolean(nextTranslation && (readTranslationViewState(cacheKey) ?? true)));
+		setLoading(false);
+	}, [cacheKey]);
+
+	async function translate(): Promise<void> {
+		if (!cacheKey || loading) {
+			return;
+		}
+		setLoading(true);
+		const result = await api<{ translation: string }>("/api/me/translate", {
+			method: "POST",
+			body: { text },
+		});
+		setLoading(false);
+		if (!result.ok) {
+			toast.push(result.message);
+			return;
+		}
+		writeTranslationCacheValue(cacheKey, result.data.translation);
+		writeTranslationViewState(cacheKey, true);
+		setCachedTranslation(result.data.translation);
+		setShowTranslation(true);
+	}
+
+	function toggle(): void {
+		if (!cacheKey || !cachedTranslation) {
+			return;
+		}
+		const next = !showTranslation;
+		writeTranslationViewState(cacheKey, next);
+		setShowTranslation(next);
+	}
+
+	return (
+		<Tag className={["translatable-text", className ?? ""].filter(Boolean).join(" ")}>
+			<span className="translatable-content">
+				{rich && onReference ?
+					<RichText onReference={onReference} text={visibleText} worldHandle={worldHandle} />
+				:	<PlainText text={visibleText} />}
+			</span>
+			{enabled && (
+				<span className="translation-controls">
+					<button
+						aria-label={cachedTranslation ? "Re-translate" : "Translate"}
+						className="translation-action"
+						disabled={loading}
+						onClick={(event) => {
+							event.preventDefault();
+							event.stopPropagation();
+							void translate();
+						}}
+						title={cachedTranslation ? "Re-translate" : "Translate"}
+						type="button"
+					>
+						{loading ? <span className="spinner" /> : <Icon name={cachedTranslation ? "refresh" : "translate"} size={13} />}
+					</button>
+					{cachedTranslation && (
+						<button
+							aria-label={showTranslation ? "Show original" : "Show translation"}
+							className="translation-action"
+							onClick={(event) => {
+								event.preventDefault();
+								event.stopPropagation();
+								toggle();
+							}}
+							title={showTranslation ? "Show original" : "Show translation"}
+							type="button"
+						>
+							<Icon name={showTranslation ? "original" : "translate"} size={13} />
+						</button>
+					)}
+				</span>
+			)}
+		</Tag>
+	);
+}
+
+function PlainText({ text }: { text: string }) {
+	const parts: ReactNode[] = [];
+	appendRichTextPlainSegment(parts, text, 0);
+	return <>{parts}</>;
+}
 
 function RichText({
 	onReference,
@@ -9270,7 +9500,7 @@ function profileDraftChanged(draft: ProfileDraft, profile: UserProfile): boolean
 		draft.handle !== profile.handle ||
 		draft.displayName !== profile.displayName ||
 		draft.avatarUrl.trim() !== (profile.avatarUrl ?? "") ||
-		inferenceDraftChanged(draft.inference, profile.inferenceSettings)
+		inferenceDraftChanged(draft.inference, profile.inferenceSettings, { includeTranslation: true })
 	);
 }
 
@@ -9281,6 +9511,8 @@ function inferenceDraftFromSettings(settings: BotInferenceSettings): InferenceDr
 		openRouterApiKeySet: Boolean(settings.openRouterApiKeySet),
 		baseUrl: settings.baseUrl ?? "",
 		model: settings.model ?? "",
+		translationModel: settings.translation?.model ?? "",
+		translationPrompt: settings.translation?.prompt ?? defaultTranslationPrompt,
 		temperature: numericDraftValue(settings.temperature),
 		topK: numericDraftValue(settings.topK),
 		topP: numericDraftValue(settings.topP),
@@ -9288,12 +9520,17 @@ function inferenceDraftFromSettings(settings: BotInferenceSettings): InferenceDr
 	};
 }
 
-function inferenceDraftChanged(draft: InferenceDraft, settings: BotInferenceSettings): boolean {
+function inferenceDraftChanged(
+	draft: InferenceDraft,
+	settings: BotInferenceSettings,
+	options: { includeTranslation?: boolean } = {},
+): boolean {
 	return (
 		Boolean(draft.openRouterApiKey.trim()) ||
 		draft.clearOpenRouterApiKey ||
 		draft.baseUrl.trim() !== (settings.baseUrl ?? "") ||
 		draft.model.trim() !== (settings.model ?? "") ||
+		(Boolean(options.includeTranslation) && translationDraftChanged(draft, settings)) ||
 		draft.temperature.trim() !== numericDraftValue(settings.temperature) ||
 		draft.topK.trim() !== numericDraftValue(settings.topK) ||
 		draft.topP.trim() !== numericDraftValue(settings.topP) ||
@@ -9301,9 +9538,22 @@ function inferenceDraftChanged(draft: InferenceDraft, settings: BotInferenceSett
 	);
 }
 
+function translationDraftChanged(draft: InferenceDraft, settings: BotInferenceSettings): boolean {
+	const draftModel = draft.translationModel.trim();
+	const settingsModel = settings.translation?.model ?? "";
+	if (draftModel !== settingsModel) {
+		return true;
+	}
+	if (!draftModel) {
+		return false;
+	}
+	return draft.translationPrompt.trim() !== (settings.translation?.prompt ?? defaultTranslationPrompt);
+}
+
 function inferenceInputFromDraft(
 	draft: InferenceDraft,
 	inherited?: InferenceModelUnlockContext,
+	options: { includeTranslation?: boolean } = {},
 ): BotInferenceSettingsInput {
 	const normalized = normalizeInferenceDraftModel(draft, inherited);
 	return {
@@ -9312,10 +9562,22 @@ function inferenceInputFromDraft(
 		: {}),
 		baseUrl: nullableTextInput(normalized.baseUrl),
 		model: nullableTextInput(normalized.model),
+		...(options.includeTranslation ? { translation: translationInputFromDraft(normalized) } : {}),
 		temperature: nullableNumberInput(normalized.temperature),
 		topK: nullableNumberInput(normalized.topK),
 		topP: nullableNumberInput(normalized.topP),
 		minP: nullableNumberInput(normalized.minP),
+	};
+}
+
+function translationInputFromDraft(draft: InferenceDraft): BotInferenceSettingsInput["translation"] {
+	const model = nullableTextInput(draft.translationModel);
+	if (!model) {
+		return null;
+	}
+	return {
+		model,
+		prompt: nullableTextInput(draft.translationPrompt) ?? defaultTranslationPrompt,
 	};
 }
 
@@ -9486,7 +9748,7 @@ function normalizeInferenceDraftModel(
 	if (canCustomizeInferenceModel(draft, inherited)) {
 		return draft;
 	}
-	return draft.model ? { ...draft, model: "" } : draft;
+	return draft.model || draft.translationModel ? { ...draft, model: "", translationModel: "" } : draft;
 }
 
 function canCustomizeInferenceModel(
@@ -9665,6 +9927,52 @@ function botDraftFromExistingBot(bot: BotSummary): BotDraft {
 
 function isValidHandle(value: string): boolean {
 	return isValidHandleText(value);
+}
+
+function translationCacheKey(text: string, model: string, prompt: string): string {
+	return `${translationCacheVersion}:${hash(`${model}\n${prompt}\n${text}`)}:${text.length}`;
+}
+
+function readTranslationCacheValue(key: string): string | null {
+	const value = readTranslationStorage(translationCacheStorageKey)[key];
+	return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function writeTranslationCacheValue(key: string, translation: string): void {
+	const cache = readTranslationStorage(translationCacheStorageKey);
+	cache[key] = translation;
+	writeTranslationStorage(translationCacheStorageKey, cache);
+}
+
+function readTranslationViewState(key: string): boolean | null {
+	const value = readTranslationStorage(translationViewStorageKey)[key];
+	return typeof value === "boolean" ? value : null;
+}
+
+function writeTranslationViewState(key: string, showTranslation: boolean): void {
+	const state = readTranslationStorage(translationViewStorageKey);
+	state[key] = showTranslation;
+	writeTranslationStorage(translationViewStorageKey, state);
+}
+
+function readTranslationStorage(key: string): Record<string, string | boolean> {
+	try {
+		const raw = window.localStorage.getItem(key);
+		const parsed = raw ? JSON.parse(raw) : {};
+		return parsed && typeof parsed === "object" && !Array.isArray(parsed) ?
+				(parsed as Record<string, string | boolean>)
+			:	{};
+	} catch {
+		return {};
+	}
+}
+
+function writeTranslationStorage(key: string, value: Record<string, string | boolean>): void {
+	try {
+		window.localStorage.setItem(key, JSON.stringify(value));
+	} catch {
+		// Browser storage can be unavailable or full; translation still works for the current render.
+	}
 }
 
 function slugify(value: string): string {

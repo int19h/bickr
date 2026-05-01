@@ -50,10 +50,12 @@ import {
 	parseBotContextBudgetInput,
 	parseCreateBotInput,
 	parseUpdateBotInput,
+	requiredText,
 } from "@bickr/shared/validation";
 import {
 	type BotContextBudget,
 	type BotContextBudgetInput,
+	defaultTranslationPrompt,
 	defaultProviderModel,
 	type BotDocument,
 	type CommentDocument,
@@ -78,15 +80,7 @@ import {
 	toolDefinitions,
 	type ProviderToolDefinition,
 } from "./prompt-and-tools";
-
-export {
-	isOpenRouterProviderBaseUrl,
-	openRouterServerToolSelection,
-	toolDefinitions,
-	type OpenRouterServerToolDefinition,
-	type OpenRouterServerToolSelection,
-	type ProviderToolDefinition,
-} from "./prompt-and-tools";
+import { providerContextReserveTokens } from "./provider-requests";
 
 export interface Env {
 	BICKR_D1: D1Database;
@@ -416,6 +410,41 @@ type ProviderTokenProbeRequest = {
 	min_p?: number;
 };
 
+type TranslationProviderSettings = {
+	apiKey?: string;
+	baseUrl: string;
+	model: string;
+	prompt: string;
+};
+
+type ProviderTranslationRequest = {
+	model: string;
+	messages: ChatMessage[];
+	stream: false;
+	response_format: {
+		type: "json_schema";
+		json_schema: {
+			name: "translation";
+			strict: true;
+			schema: {
+				type: "object";
+				properties: {
+					translation: {
+						type: "string";
+					};
+				};
+				required: ["translation"];
+				additionalProperties: false;
+			};
+		};
+	};
+	max_completion_tokens: number;
+	reasoning: {
+		effort: "none";
+	};
+	temperature: 0;
+};
+
 type ProviderLoopOutcome = {
 	toolCallCount: number;
 };
@@ -476,7 +505,7 @@ const providerMaxAttempts = 3;
 const providerRetryBaseDelayMs = 3_000;
 const providerToolChoice = "auto" as const;
 const providerParallelToolCalls = true;
-export const providerContextReserveTokens = 2_500;
+const providerTranslationMaxCompletionTokens = 8_192;
 const dayMs = 24 * 60 * 60 * 1000;
 const fallbackProviderModel = defaultProviderModel;
 const fallbackProviderBaseUrl = "https://openrouter.ai/api/v1";
@@ -535,6 +564,40 @@ export function providerTokenProbeRequest(
 		...(settings.topK !== undefined ? { top_k: settings.topK } : {}),
 		...(settings.topP !== undefined ? { top_p: settings.topP } : {}),
 		...(settings.minP !== undefined ? { min_p: settings.minP } : {}),
+	};
+}
+
+export function providerTranslationRequest(
+	settings: TranslationProviderSettings,
+	text: string,
+): ProviderTranslationRequest {
+	return {
+		model: settings.model,
+		messages: [
+			{ role: "system", content: settings.prompt },
+			{ role: "user", content: text },
+		],
+		stream: false,
+		response_format: {
+			type: "json_schema",
+			json_schema: {
+				name: "translation",
+				strict: true,
+				schema: {
+					type: "object",
+					properties: {
+						translation: { type: "string" },
+					},
+					required: ["translation"],
+					additionalProperties: false,
+				},
+			},
+		},
+		max_completion_tokens: providerTranslationMaxCompletionTokens,
+		reasoning: {
+			effort: "none",
+		},
+		temperature: 0,
 	};
 }
 
@@ -612,6 +675,29 @@ export function effectiveProviderSettingsForBot(
 		...(bot.inferenceSettings.minP !== undefined ? { minP: bot.inferenceSettings.minP }
 		: userSettings.minP !== undefined ? { minP: userSettings.minP }
 		: {}),
+	};
+}
+
+export function effectiveProviderSettingsForTranslation(
+	user: Pick<UserDocument, "inferenceSettings">,
+	env: Pick<Env, "OPENROUTER_API_KEY" | "OPENROUTER_BASE_URL">,
+): TranslationProviderSettings | null {
+	const userSettings = user.inferenceSettings ?? {};
+	const translation = userSettings.translation;
+	const model = trimmed(translation?.model);
+	if (!model) {
+		return null;
+	}
+	const userBaseUrl = trimmed(userSettings.baseUrl);
+	const envBaseUrl = trimmed(env.OPENROUTER_BASE_URL);
+	const userApiKey = trimmed(userSettings.openRouterApiKey);
+	const envApiKey = trimmed(env.OPENROUTER_API_KEY);
+	const hasCustomBaseUrl = Boolean(userBaseUrl);
+	return {
+		apiKey: userApiKey ?? (hasCustomBaseUrl ? undefined : envApiKey),
+		baseUrl: userBaseUrl ?? envBaseUrl ?? fallbackProviderBaseUrl,
+		model,
+		prompt: trimmed(translation?.prompt) ?? defaultTranslationPrompt,
 	};
 }
 
@@ -2943,6 +3029,70 @@ function providerNotificationForumContext(context: ForumContextResult): Provider
 	};
 }
 
+type TranslationInput = {
+	text: string;
+};
+
+function parseTranslationInput(input: unknown): TranslationInput {
+	const record = runtimeRecord(input);
+	return {
+		text: requiredText(record.text, "Translation text", 16_000),
+	};
+}
+
+async function translateForUser(
+	env: Pick<Env, "BICKR_KV" | "OPENROUTER_API_KEY" | "OPENROUTER_BASE_URL">,
+	userId: string,
+	text: string,
+): Promise<string> {
+	const user = await userById(env.BICKR_KV, userId);
+	const settings = effectiveProviderSettingsForTranslation(user, env);
+	if (!settings) {
+		throw new InputError("Configure a translation model in profile inference settings before translating text.");
+	}
+	return fetchProviderTranslation(settings, text);
+}
+
+async function fetchProviderTranslation(settings: TranslationProviderSettings, text: string): Promise<string> {
+	const endpoint = providerChatCompletionsUrl(settings.baseUrl);
+	const headers: Record<string, string> = {
+		"content-type": "application/json",
+	};
+	if (settings.apiKey) {
+		headers.authorization = `Bearer ${settings.apiKey}`;
+	}
+	const response = await providerFetchWithHeaderTimeout(
+		endpoint,
+		{
+			method: "POST",
+			headers,
+			body: JSON.stringify(providerTranslationRequest(settings, text)),
+		},
+		new AbortController().signal,
+		providerRequestTimeoutMs,
+	);
+	if (!response.ok) {
+		const bodyText = await readLimitedText(response.body, 1_200);
+		throw new ProviderRequestError(response.status, settings.model, endpoint, bodyText);
+	}
+	const payload = runtimeRecord(await response.json());
+	const choices = Array.isArray(payload.choices) ? payload.choices : [];
+	const firstChoice = runtimeRecord(choices[0]);
+	const message = runtimeRecord(firstChoice.message);
+	const content = typeof message.content === "string" ? message.content : "";
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(content);
+	} catch {
+		throw new ProviderRequestError(502, settings.model, endpoint, "Provider translation response was not valid JSON.");
+	}
+	const translation = runtimeRecord(parsed).translation;
+	if (typeof translation !== "string" || translation.trim().length === 0) {
+		throw new ProviderRequestError(502, settings.model, endpoint, "Provider translation response did not include translation.");
+	}
+	return translation.trim();
+}
+
 export class UserBotsCoordinator {
 	private readonly state: DurableObjectState;
 	private readonly env: Env;
@@ -2959,11 +3109,27 @@ export class UserBotsCoordinator {
 
 export async function handleAgentRuntimeRequest(
 	request: Request,
-	env: Pick<Env, "BICKR_D1" | "BICKR_KV" | "AI" | "BICKR_BOT_VECTORIZE">,
+	env: Pick<
+		Env,
+		| "BICKR_D1"
+		| "BICKR_KV"
+		| "AI"
+		| "BICKR_BOT_VECTORIZE"
+		| "OPENROUTER_API_KEY"
+		| "OPENROUTER_BASE_URL"
+	>,
 	objectId = "direct",
 ): Promise<Response> {
 	try {
 		const url = new URL(request.url);
+		const translateMatch = /^\/users\/([^/]+)\/translate$/.exec(url.pathname);
+		if (request.method === "POST" && translateMatch) {
+			const userId = requireUserMatch(request, decodeURIComponent(translateMatch[1] ?? ""));
+			const input = parseTranslationInput(await readJsonBody(request));
+			const translation = await translateForUser(env, userId, input.text);
+			return ok({ translation, coordinator: objectId });
+		}
+
 		const createMatch = /^\/users\/([^/]+)\/worlds\/([^/]+)\/bots$/.exec(url.pathname);
 		if (request.method === "POST" && createMatch) {
 			const userId = requireUserMatch(request, decodeURIComponent(createMatch[1] ?? ""));

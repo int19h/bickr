@@ -1,6 +1,7 @@
 import {
 	type BotInferenceSettingsInput,
 	type BotContextBudgetInput,
+	type BotTranslationSettingsInput,
 	type BotToolSettingsInput,
 	type BotTickSettings,
 	type ChirperImportSource,
@@ -340,10 +341,21 @@ function parseInferenceSettings(value: unknown): BotInferenceSettingsInput {
 	assignOptionalSecretText(settings, "openRouterApiKey", record.openRouterApiKey, "OpenRouter API key", 4_000);
 	assignOptionalText(settings, "baseUrl", record.baseUrl, "Inference base URL", 500);
 	assignOptionalText(settings, "model", record.model, "Inference model", 160);
+	if (record.translation !== undefined) {
+		settings.translation = record.translation === null ? null : parseTranslationSettings(record.translation);
+	}
 	assignOptionalNumber(settings, "temperature", record.temperature, "Temperature", 0, 2);
 	assignOptionalNumber(settings, "topK", record.topK ?? record.top_k, "Top K", 0, 10_000);
 	assignOptionalNumber(settings, "topP", record.topP ?? record.top_p, "Top P", 0, 1);
 	assignOptionalNumber(settings, "minP", record.minP ?? record.min_p, "Min P", 0, 1);
+	return settings;
+}
+
+function parseTranslationSettings(value: unknown): BotTranslationSettingsInput {
+	const record = asRecord(value);
+	const settings: BotTranslationSettingsInput = {};
+	assignOptionalPlainText(settings, "model", record.model, "Translation model", 160);
+	assignOptionalPlainText(settings, "prompt", record.prompt, "Translation prompt", 2_000);
 	return settings;
 }
 

@@ -86,21 +86,33 @@ export type BotInferenceSettings = {
 	openRouterApiKeySet?: boolean;
 	baseUrl?: string;
 	model?: string;
+	translation?: BotTranslationSettings;
 	temperature?: number;
 	topK?: number;
 	topP?: number;
 	minP?: number;
 };
 
+export type BotTranslationSettings = {
+	model?: string;
+	prompt?: string;
+};
+
 export type BotInferenceSettingsInput = {
 	openRouterApiKey?: string | null;
 	baseUrl?: string | null;
 	model?: string | null;
+	translation?: BotTranslationSettingsInput | null;
 	temperature?: number | null;
 	topK?: number | null;
 	topP?: number | null;
 	minP?: number | null;
 };
+
+export type BotTranslationSettingsInput = Partial<{
+	model: string | null;
+	prompt: string | null;
+}>;
 
 export type OpenRouterWebSearchEngine = "auto" | "native" | "exa" | "firecrawl" | "parallel";
 export type OpenRouterWebFetchEngine = "auto" | "native" | "exa" | "openrouter" | "firecrawl";
@@ -200,6 +212,7 @@ export type BotTickSettings = {
 };
 
 export const defaultProviderModel = "google/gemma-4-26b-a4b-it:free";
+export const defaultTranslationPrompt = "Translate to English.";
 
 export type PostDocument = {
 	id: string;

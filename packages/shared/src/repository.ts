@@ -2,12 +2,15 @@ import { makeId, randomToken, sha256Hex } from "./ids";
 import {
 	schemaVersion,
 	authProviders,
+	defaultTranslationPrompt,
 	type AuthProvider,
 	type BotInferenceSettingsInput,
 	type BotInferenceSettings,
 	type BotDocument,
 	type BotPublicProfile,
 	type BotSummary,
+	type BotTranslationSettings,
+	type BotTranslationSettingsInput,
 	type BotToolSettings,
 	type BotToolSettingsInput,
 	type BotTickSettings,
@@ -1397,6 +1400,7 @@ export function mergeInferenceSettings(
 	const next: BotInferenceSettings = {
 		...defaultInferenceSettings,
 		...(current ?? {}),
+		...(current?.translation ? { translation: { ...current.translation } } : {}),
 	};
 	delete next.openRouterApiKeySet;
 	if (!patch) {
@@ -1406,6 +1410,14 @@ export function mergeInferenceSettings(
 	assignInferenceString(next, "openRouterApiKey", patch.openRouterApiKey);
 	assignInferenceString(next, "baseUrl", patch.baseUrl);
 	assignInferenceString(next, "model", patch.model);
+	if (patch.translation !== undefined) {
+		const translation = mergeTranslationSettings(next.translation, patch.translation);
+		if (translation) {
+			next.translation = translation;
+		} else {
+			delete next.translation;
+		}
+	}
 	assignInferenceNumber(next, "temperature", patch.temperature);
 	assignInferenceNumber(next, "topK", patch.topK);
 	assignInferenceNumber(next, "topP", patch.topP);
@@ -1424,6 +1436,7 @@ export function enforceInferenceModelAccess(
 		hasInferenceText(inherited?.baseUrl);
 	if (!canCustomizeModel) {
 		delete settings.model;
+		delete settings.translation;
 	}
 	return settings;
 }
@@ -1726,6 +1739,45 @@ function assignInferenceNumber(
 		return;
 	}
 	settings[key] = value;
+}
+
+function mergeTranslationSettings(
+	current: BotTranslationSettings | undefined,
+	patch: BotTranslationSettingsInput | BotTranslationSettings | null,
+): BotTranslationSettings | undefined {
+	if (patch === null) {
+		return undefined;
+	}
+	const next: BotTranslationSettings = { ...(current ?? {}) };
+	assignTranslationString(next, "model", patch.model);
+	assignTranslationString(next, "prompt", patch.prompt);
+	if (!hasInferenceText(next.model)) {
+		return undefined;
+	}
+	if (!hasInferenceText(next.prompt)) {
+		next.prompt = defaultTranslationPrompt;
+	}
+	return next;
+}
+
+function assignTranslationString(
+	settings: BotTranslationSettings,
+	key: "model" | "prompt",
+	value: string | null | undefined,
+): void {
+	if (value === undefined) {
+		return;
+	}
+	if (value === null) {
+		delete settings[key];
+		return;
+	}
+	const trimmed = value.trim();
+	if (trimmed) {
+		settings[key] = trimmed;
+	} else {
+		delete settings[key];
+	}
 }
 
 function hasInferenceText(value: string | undefined): boolean {
