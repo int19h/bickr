@@ -2575,6 +2575,24 @@ button:disabled {
 	margin-bottom: 6px;
 }
 
+.tool-pretty.tool-list {
+	align-items: flex-start;
+	flex-direction: column;
+	gap: 4px;
+}
+
+.tool-pretty-item {
+	align-items: baseline;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+}
+
+.tool-pretty-label {
+	color: var(--ink-2);
+	font-weight: 600;
+}
+
 .tool-pretty a {
 	color: var(--accent-ink);
 	font-weight: 600;

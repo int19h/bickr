@@ -57,6 +57,12 @@ import {
 	pruneStreamEventsForPersistentEvent,
 	pruneStreamEventsForPersistentEvents,
 } from "./runtime-streams";
+import {
+	activityEventSeqs,
+	runtimeActivities,
+	type RuntimeActivity,
+	type ToolDisplay,
+} from "./runtime-activity-formatting";
 import "./App.css";
 
 type ApiSuccess<T> = { ok: true; data: T };
@@ -181,34 +187,6 @@ type ProfileDraft = {
 	displayName: string;
 	avatarUrl: string;
 	inference: InferenceDraft;
-};
-
-type RuntimeActivityKind =
-	| "assistant"
-	| "compaction"
-	| "error"
-	| "input"
-	| "provider"
-	| "reasoning"
-	| "system"
-	| "tick"
-	| "tool";
-
-type RuntimeActivity = {
-	id: string;
-	seq: number;
-	seqLabel?: string;
-	createdAt: string;
-	kind: RuntimeActivityKind;
-	title: string;
-	body?: string;
-	meta?: string;
-	toolName?: string;
-	args?: unknown;
-	result?: unknown;
-	payload?: unknown;
-	raw?: unknown;
-	streaming?: boolean;
 };
 
 type RuntimeMonitorPayload = {
@@ -6886,7 +6864,7 @@ function BotRuntimePanel({
 	const shouldStickToBottomRef = useRef(true);
 	const latestPersistentEventSeqRef = useRef(0);
 	const reconnectAttemptRef = useRef(0);
-	const activities = useMemo(() => runtimeActivities([...events, ...streamEvents]), [events, streamEvents]);
+	const activities = useMemo(() => runtimeActivities([...events, ...streamEvents], bot.homeWorldHandle), [bot.homeWorldHandle, events, streamEvents]);
 	const runtimeEnabled = status?.enabled ?? bot.tickSettings.enabled;
 
 	useEffect(() => {
@@ -7300,7 +7278,6 @@ function BotRuntimePanel({
 					{activities.slice(-80).map((activity) => (
 						<RuntimeActivityRow
 							activity={activity}
-							bot={bot}
 							key={activity.id}
 							onDelete={() => setPendingDeleteActivity(activity)}
 						/>
@@ -7485,17 +7462,15 @@ function TokenUsageChart({ usage }: { usage: BotTokenUsageStats }) {
 
 function RuntimeActivityRow({
 	activity,
-	bot,
 	onDelete,
 }: {
 	activity: RuntimeActivity;
-	bot: BotSummary;
 	onDelete: () => void;
 }) {
 	const [rawOpen, setRawOpen] = useState(false);
 	const [copied, setCopied] = useState(false);
 	const rawJson = useMemo(() => formatFullPayload(activity.raw ?? activity), [activity]);
-	const toolSummary = activity.toolName ? toolSummaryNode(activity.toolName, activity.args, activity.result, bot.homeWorldHandle) : null;
+	const toolSummary = activity.toolDisplay ? toolDisplayNode(activity.toolDisplay) : null;
 	const seqLabel = activity.seqLabel ?? String(activity.seq);
 	const canDelete = activityEventSeqs(activity).length > 0;
 
@@ -7534,7 +7509,7 @@ function RuntimeActivityRow({
 			</div>
 			{activity.meta && <div className="event-meta">{activity.meta}</div>}
 			{toolSummary}
-			{activity.body && <div className="event-body">{activity.body}</div>}
+			{!toolSummary && activity.body && <div className="event-body">{activity.body}</div>}
 			{rawOpen && (
 				<div className="raw-popout">
 					<div className="raw-popout-head">
@@ -7551,6 +7526,21 @@ function RuntimeActivityRow({
 					<pre>{rawJson}</pre>
 				</div>
 			)}
+		</div>
+	);
+}
+
+function toolDisplayNode(display: ToolDisplay): ReactNode {
+	return (
+		<div className={`tool-pretty ${display.variant === "error" ? "error" : "tool-list"}`}>
+			{display.items.map((item) => (
+				<div className="tool-pretty-item" key={item.key}>
+					{item.href ?
+						<a data-fresh-thread-link="true" href={item.href}>{item.label}</a>
+					:	<span className="tool-pretty-label">{item.label}</span>}
+					{item.detail && <span>{item.detail}</span>}
+				</div>
+			))}
 		</div>
 	);
 }
@@ -8547,675 +8537,6 @@ function scrollLogToBottom(logRef: { current: HTMLDivElement | null }): number {
 	});
 }
 
-function activityEventSeqs(activity: RuntimeActivity): number[] {
-	const raw = asRuntimeRecord(activity.raw);
-	const seqs: number[] = [];
-	if (Array.isArray(raw.events)) {
-		for (const event of raw.events) {
-			const seq = asRuntimeRecord(event).seq;
-			if (typeof seq === "number" && Number.isInteger(seq)) {
-				seqs.push(seq);
-			}
-		}
-	}
-	const rawSeq = raw.seq;
-	if (typeof rawSeq === "number" && Number.isInteger(rawSeq)) {
-		seqs.push(rawSeq);
-	}
-	if (Number.isInteger(activity.seq) && activity.seqLabel !== "live") {
-		seqs.push(activity.seq);
-	}
-	return [...new Set(seqs)].sort((left, right) => left - right);
-}
-
-function runtimeActivities(events: BotRuntimeEvent[]): RuntimeActivity[] {
-	const activities: RuntimeActivity[] = [];
-	const turnByRun = new Map<string, number>();
-	const streams = new Map<string, RuntimeActivity>();
-
-	for (const event of [...events].sort((left, right) => left.seq - right.seq)) {
-		const payload = asRuntimeRecord(event.payload);
-		switch (event.type) {
-			case "tick_started":
-				activities.push({
-					id: `event-${event.seq}`,
-					seq: event.seq,
-					createdAt: event.createdAt,
-					kind: "tick",
-					title: "Tick started",
-					meta: stringValue(payload.trigger) ? `trigger: ${stringValue(payload.trigger)}` : undefined,
-					raw: event,
-				});
-				break;
-			case "input":
-				activities.push({
-					id: `event-${event.seq}`,
-					seq: event.seq,
-					createdAt: event.createdAt,
-					kind: "input",
-					title: "Loop input",
-					body: describeLoopInput(payload),
-					raw: event,
-				});
-				break;
-			case "provider_request": {
-				finishRunStreams(streams, event.runId);
-				const turn = (turnByRun.get(event.runId) ?? 0) + 1;
-				turnByRun.set(event.runId, turn);
-				activities.push({
-					id: `event-${event.seq}`,
-					seq: event.seq,
-					createdAt: event.createdAt,
-					kind: "provider",
-					title: "Inference request",
-					meta: providerRequestMeta(payload),
-					raw: event,
-				});
-				break;
-			}
-			case "provider_retry":
-				finishRunStreams(streams, event.runId);
-				activities.push({
-					id: `event-${event.seq}`,
-					seq: event.seq,
-					createdAt: event.createdAt,
-					kind: "provider",
-					title: "Inference retry",
-					body: stringValue(payload.reason),
-					meta: `attempt ${stringValue(payload.attempt) ?? "?"}/${stringValue(payload.maxAttempts) ?? "?"} after ${formatDelay(payload.delayMs)}`,
-					raw: event,
-				});
-				break;
-			case "provider_delta":
-				appendProviderDelta(activities, streams, turnByRun, event, payload);
-				break;
-			case "reasoning_message":
-				upsertReasoningMessage(activities, streams, turnByRun, event, payload);
-				break;
-			case "assistant_message":
-				upsertAssistantMessage(activities, streams, turnByRun, event, payload);
-				break;
-			case "tool_call":
-				finishRunStreams(streams, event.runId);
-				activities.push({
-					id: `event-${event.seq}`,
-					seq: event.seq,
-					createdAt: event.createdAt,
-					kind: "tool",
-					title: toolCallTitle(stringValue(payload.name) ?? "unknown_tool", payload.args),
-					toolName: stringValue(payload.name) ?? "unknown_tool",
-					args: payload.args,
-					raw: event,
-				});
-				break;
-			case "tool_result":
-				activities.push({
-					id: `event-${event.seq}`,
-					seq: event.seq,
-					createdAt: event.createdAt,
-					kind: "tool",
-					title: toolResultTitle(stringValue(payload.name) ?? "unknown_tool", payload.result),
-					meta: summarizeToolResult(payload.result),
-					toolName: stringValue(payload.name) ?? "unknown_tool",
-					args: payload.args,
-					result: payload.result,
-					raw: event,
-				});
-				break;
-			case "compaction":
-				finishRunStreams(streams, event.runId);
-				activities.push({
-					id: `event-${event.seq}`,
-					seq: event.seq,
-					createdAt: event.createdAt,
-					kind: "compaction",
-					title: "Context compacted",
-					payload: event.payload,
-					raw: event,
-				});
-				break;
-			case "thought_injected":
-				activities.push({
-					id: `event-${event.seq}`,
-					seq: event.seq,
-					createdAt: event.createdAt,
-					kind: "input",
-					title: "Thought injected",
-					body: stringValue(payload.text),
-					raw: event,
-				});
-				break;
-			case "tick_stop_requested":
-				finishRunStreams(streams, event.runId);
-				activities.push({
-					id: `event-${event.seq}`,
-					seq: event.seq,
-					createdAt: event.createdAt,
-					kind: "tick",
-					title: "Stop requested",
-					body: stringValue(payload.message),
-					raw: event,
-				});
-				break;
-			case "tick_stopped":
-				finishRunStreams(streams, event.runId);
-				activities.push({
-					id: `event-${event.seq}`,
-					seq: event.seq,
-					createdAt: event.createdAt,
-					kind: "tick",
-					title: "Tick stopped",
-					body: stringValue(payload.message),
-					raw: event,
-				});
-				break;
-			case "tick_completed":
-				finishRunStreams(streams, event.runId);
-				activities.push({
-					id: `event-${event.seq}`,
-					seq: event.seq,
-					createdAt: event.createdAt,
-					kind: "tick",
-					title: "Tick completed",
-					meta: stringValue(payload.nextDueAt) ? `next due: ${new Date(String(payload.nextDueAt)).toLocaleString()}` : undefined,
-					raw: event,
-				});
-				break;
-			case "tick_failed":
-				finishRunStreams(streams, event.runId);
-				activities.push({
-					id: `event-${event.seq}`,
-					seq: event.seq,
-					createdAt: event.createdAt,
-					kind: "error",
-					title: "Tick failed",
-					body: stringValue(payload.message) ?? formatPayload(event.payload),
-					raw: event,
-				});
-				break;
-		}
-	}
-
-	return activities;
-}
-
-function appendProviderDelta(
-	activities: RuntimeActivity[],
-	streams: Map<string, RuntimeActivity>,
-	turnByRun: Map<string, number>,
-	event: BotRuntimeEvent,
-	payload: Record<string, unknown>,
-): void {
-	const kind = stringValue(payload.kind);
-	const text = stringValue(payload.text);
-	if (!text || (kind !== "content" && kind !== "reasoning")) {
-		return;
-	}
-	const turn = turnByRun.get(event.runId) ?? 0;
-	const streamKey = `${event.runId}:${turn}:${kind}`;
-	let activity = streams.get(streamKey);
-	if (!activity) {
-		activity = {
-			id: `stream-${streamKey}`,
-			seq: event.seq,
-			seqLabel: payload.ephemeral === true ? "live" : undefined,
-			createdAt: event.createdAt,
-			kind: kind === "reasoning" ? "reasoning" : "assistant",
-			title: kind === "reasoning" ? "Thought" : "Reasoning",
-			body: "",
-			raw: {
-				streamKey,
-				events: [event],
-			},
-			streaming: true,
-		};
-		streams.set(streamKey, activity);
-		activities.push(activity);
-	} else {
-		appendRawStreamEvent(activity, event);
-	}
-	activity.body = `${activity.body ?? ""}${text}`;
-}
-
-function finishRunStreams(streams: Map<string, RuntimeActivity>, runId: string): void {
-	for (const [key, activity] of streams) {
-		if (key.startsWith(`${runId}:`)) {
-			activity.streaming = false;
-		}
-	}
-}
-
-function upsertReasoningMessage(
-	activities: RuntimeActivity[],
-	streams: Map<string, RuntimeActivity>,
-	turnByRun: Map<string, number>,
-	event: BotRuntimeEvent,
-	payload: Record<string, unknown>,
-): void {
-	const content = stringValue(payload.content) ?? "";
-	const turn = turnByRun.get(event.runId) ?? 0;
-	const stream = streams.get(`${event.runId}:${turn}:reasoning`);
-	if (stream) {
-		stream.body = content;
-		stream.streaming = false;
-		stream.meta = stringValue(payload.status) === "interrupted" ? "interrupted" : undefined;
-		appendRawStreamEvent(stream, event);
-		return;
-	}
-	activities.push({
-		id: `event-${event.seq}`,
-		seq: event.seq,
-		createdAt: event.createdAt,
-		kind: "reasoning",
-		title: "Thought",
-		body: content,
-		meta: stringValue(payload.status) === "interrupted" ? "interrupted" : undefined,
-		raw: event,
-	});
-}
-
-function upsertAssistantMessage(
-	activities: RuntimeActivity[],
-	streams: Map<string, RuntimeActivity>,
-	turnByRun: Map<string, number>,
-	event: BotRuntimeEvent,
-	payload: Record<string, unknown>,
-): void {
-	const content = stringValue(payload.content) ?? "";
-	const turn = turnByRun.get(event.runId) ?? 0;
-	const reasoningStream = streams.get(`${event.runId}:${turn}:reasoning`);
-	if (reasoningStream) {
-		reasoningStream.streaming = false;
-	}
-	const stream = streams.get(`${event.runId}:${turn}:content`);
-	if (stream) {
-		stream.body = content;
-		stream.streaming = false;
-		stream.meta = stringValue(payload.status) === "interrupted" ? "interrupted" : undefined;
-		appendRawStreamEvent(stream, event);
-		return;
-	}
-	activities.push({
-		id: `event-${event.seq}`,
-		seq: event.seq,
-		createdAt: event.createdAt,
-		kind: "assistant",
-		title: "Reasoning",
-		body: content,
-		meta: stringValue(payload.status) === "interrupted" ? "interrupted" : undefined,
-		raw: event,
-	});
-}
-
-function appendRawStreamEvent(activity: RuntimeActivity, event: BotRuntimeEvent): void {
-	const raw = asRuntimeRecord(activity.raw);
-	if (Array.isArray(raw.events)) {
-		raw.events.push(event);
-	}
-}
-
-function describeLoopInput(payload: Record<string, unknown>): string {
-	const notifications = Array.isArray(payload.notifications) ? payload.notifications : [];
-	const injections = Array.isArray(payload.injections) ? payload.injections : [];
-	const lines = [
-		`${notifications.length} notification${notifications.length === 1 ? "" : "s"}`,
-		`${injections.length} injection${injections.length === 1 ? "" : "s"}`,
-		payload.ping === true ? "ping" : "",
-	].filter(Boolean);
-	const displayNotifications = dedupeNotificationAuthorBios(
-		notifications.map((notification) => {
-			const record = asRuntimeRecord(notification);
-			return {
-				notification,
-				message: stringValue(record.message) ?? formatPayload(notification, 240),
-				type: stringValue(record.type) ?? "notification",
-			};
-		}),
-	);
-	const notificationLines = displayNotifications.slice(0, 6).map((notification) => {
-		return `- ${notification.type}: ${notification.message}`;
-	});
-	const injectionLines = injections.slice(0, 4).map((injection) => `- injection: ${String(injection)}`);
-	return [lines.join(" · "), ...notificationLines, ...injectionLines].filter(Boolean).join("\n");
-}
-
-function dedupeNotificationAuthorBios<T extends { message: string }>(notifications: T[]): T[] {
-	const seenHandles = new Set<string>();
-	return notifications.map((notification) => {
-		const handle = authorHandleWithBio(notification.message);
-		if (!handle) {
-			return notification;
-		}
-		if (!seenHandles.has(handle)) {
-			seenHandles.add(handle);
-			return notification;
-		}
-		return {
-			...notification,
-			message: stripNotificationAuthorBio(notification.message),
-		};
-	});
-}
-
-const notificationAuthorBioPattern = new RegExp(`\\(u\\/(${handlePatternSource})\\)\\nShort bio:`, "iu");
-
-function authorHandleWithBio(message: string): string | null {
-	const match = notificationAuthorBioPattern.exec(message);
-	return match?.[1] ? normalizeHandleText(match[1]) : null;
-}
-
-function stripNotificationAuthorBio(message: string): string {
-	return message.replace(/\nShort bio: [\s\S]*?(?= (?:replied in|mentioned you in) ")/, "");
-}
-
-function summarizeToolResult(result: unknown): string | undefined {
-	if (Array.isArray(result)) {
-		return `${result.length} result${result.length === 1 ? "" : "s"}`;
-	}
-	const record = asRuntimeRecord(result);
-	if (record.ok === false) {
-		return stringValue(record.guidance) ?? stringValue(record.message) ?? "tool failed";
-	}
-	if (Array.isArray(record.forums)) {
-		return `${record.forums.length} forum${record.forums.length === 1 ? "" : "s"}`;
-	}
-	if (Array.isArray(record.threads)) {
-		return `${record.threads.length} thread${record.threads.length === 1 ? "" : "s"}`;
-	}
-	if (record.thread && typeof record.thread === "object") {
-		return "thread created/read";
-	}
-	if (record.comment && typeof record.comment === "object") {
-		return "comment created";
-	}
-	return undefined;
-}
-
-function toolCallTitle(name: string, args: unknown): string {
-	const record = asRuntimeRecord(args);
-	switch (name) {
-		case "create_post":
-			return `Creating a post in f/${stringValue(record.forumHandle) ?? "..."}`;
-		case "reply_to_thread":
-			return stringValue(record.parentCommentId) ?
-					`Replying to comment ${shortId(stringValue(record.parentCommentId))}`
-				:	`Replying to thread ${shortId(stringValue(record.threadId))}`;
-		case "vote":
-			return `${Number(record.value) > 0 ? "Upvoting" : Number(record.value) < 0 ? "Downvoting" : "Clearing vote on"} ${stringValue(record.targetType) ?? "item"} ${shortId(stringValue(record.targetId))}`;
-		case "read_thread":
-		case "read_thread_by_id":
-			return `Reading thread ${shortId(stringValue(record.threadId))}`;
-		case "read_comment_by_id":
-			return `Reading comment ${shortId(stringValue(record.commentId))}`;
-		case "list_recent_threads":
-			return `Listing recent threads in f/${stringValue(record.forumHandle) ?? "..."}`;
-		case "list_hot_threads":
-			return "Listing hot threads";
-		case "search_posts":
-		case "search_posts_semantic":
-			return `Searching posts for "${stringValue(record.query) ?? ""}"`;
-		case "search_bots":
-		case "search_profiles":
-			return `Searching profiles for "${stringValue(record.query) ?? ""}"`;
-		case "view_bot_profile":
-		case "view_profile":
-			return `Viewing u/${stringValue(record.username) ?? "..."}'s profile`;
-		case "view_bot_activity":
-		case "view_activity":
-			return `Viewing u/${stringValue(record.username) ?? "..."}'s activity`;
-		case "follow_bot":
-		case "follow_profile":
-			return `Following ${stringValue(record.username) ? `u/${stringValue(record.username)}` : shortId(stringValue(record.profileId) ?? stringValue(record.botId))}`;
-		case "unfollow_bot":
-		case "unfollow_profile":
-			return `Unfollowing ${stringValue(record.username) ? `u/${stringValue(record.username)}` : shortId(stringValue(record.profileId) ?? stringValue(record.botId))}`;
-		default:
-			return "Using tool";
-	}
-}
-
-function toolResultTitle(name: string, result: unknown): string {
-	const record = asRuntimeRecord(result);
-	if (record.ok === false) {
-		return `Tool failed: ${toolCallTitle(name, record.args ?? {})}`;
-	}
-	const thread = threadRecord(result);
-	if (name === "create_post" && thread) {
-		return `Posted "${thread.title ?? "thread"}"`;
-	}
-	if (name === "reply_to_thread" && thread) {
-		return `Reply posted in "${thread.title ?? "thread"}"`;
-	}
-	if ((name === "read_thread" || name === "read_thread_by_id") && thread) {
-		return `Read "${thread.title ?? "thread"}"`;
-	}
-	if (name === "read_comment_by_id") {
-		const target = stringValue(record.targetCommentId);
-		return `Read comment ${shortId(target)}`;
-	}
-	if (name === "view_bot_profile" || name === "view_profile") {
-		return `Viewed ${botLabel(record)}`;
-	}
-	if (name === "view_bot_activity" || name === "view_activity") {
-		const bot = asRuntimeRecord(record.bot);
-		return `Viewed ${botLabel(bot)}'s activity`;
-	}
-	if (name === "search_bots" || name === "search_profiles") {
-		return "Profile search results";
-	}
-	if (name === "search_posts" || name === "search_posts_semantic") {
-		return "Post search results";
-	}
-	if (name === "vote") {
-		return "Vote recorded";
-	}
-	return "Tool result";
-}
-
-function toolSummaryNode(name: string, args: unknown, result: unknown, worldHandle: string): ReactNode {
-	const argsRecord = asRuntimeRecord(args);
-	const resultRecord = asRuntimeRecord(result);
-	if (resultRecord.ok === false) {
-		const existingUrlPath = stringValue(resultRecord.existingUrlPath);
-		return (
-			<div className="tool-pretty error">
-				<span>{stringValue(resultRecord.message) ?? "Tool call failed."}</span>
-				{stringValue(resultRecord.guidance) && <span>{stringValue(resultRecord.guidance)}</span>}
-				{existingUrlPath && <a data-fresh-thread-link="true" href={existingUrlPath}>Existing comment</a>}
-			</div>
-		);
-	}
-	const thread = threadRecord(result);
-	if (name === "read_comment_by_id") {
-		const thread = asRuntimeRecord(resultRecord.thread);
-		const targetCommentId = stringValue(resultRecord.targetCommentId);
-		const world = stringValue(thread.worldHandle) ?? worldHandle;
-		const forum = stringValue(thread.forumHandle);
-		const threadId = stringValue(thread.threadId) ?? stringValue(thread.id);
-		const url =
-			world && forum && threadId && targetCommentId ?
-				`/w/${encodeURIComponent(world)}/f/${encodeURIComponent(forum)}/t/${encodeURIComponent(threadId)}/c/${encodeURIComponent(targetCommentId)}`
-			:	null;
-		return url ?
-				<div className="tool-pretty">
-					<a data-fresh-thread-link="true" href={url}>{stringValue(thread.title) ?? `Comment ${shortId(targetCommentId)}`}</a>
-					<span>comment {shortId(targetCommentId)}</span>
-				</div>
-			:	null;
-	}
-	if (thread) {
-		const url = threadUrl(thread);
-		const title = stringValue(thread.title) ?? "Thread";
-		const commentCount = numberValue(thread.commentCount) ?? 0;
-		const voteScore = numberValue(thread.voteScore) ?? 0;
-		return (
-			<div className="tool-pretty">
-				{url ? <a data-fresh-thread-link="true" href={url}>{title}</a> : <span>{title}</span>}
-				<span>
-					{commentCount} comments / {voteScore} votes
-				</span>
-			</div>
-		);
-	}
-	if (name === "create_post" && stringValue(argsRecord.forumHandle)) {
-		return (
-			<div className="tool-pretty">
-				<span>Posting to </span>
-				<a href={`/w/${encodeURIComponent(worldHandle)}/f/${encodeURIComponent(String(argsRecord.forumHandle))}`}>
-					f/{String(argsRecord.forumHandle)}
-				</a>
-				{stringValue(argsRecord.title) && <span>"{String(argsRecord.title)}"</span>}
-			</div>
-		);
-	}
-	if (name === "view_bot_profile" || name === "view_profile") {
-		return <BotProfileToolSummary bot={resultRecord} fallbackWorldHandle={worldHandle} />;
-	}
-	if (name === "view_bot_activity" || name === "view_activity") {
-		const bot = asRuntimeRecord(resultRecord.bot);
-		return <BotProfileToolSummary bot={bot} fallbackWorldHandle={worldHandle} suffix="activity" />;
-	}
-	if ((name === "search_bots" || name === "search_profiles") && Array.isArray(result)) {
-		return <div className="tool-pretty">{result.slice(0, 5).map((item) => botLink(asRuntimeRecord(item), worldHandle))}</div>;
-	}
-	if ((name === "search_posts" || name === "search_posts_semantic") && Array.isArray(result)) {
-		return <div className="tool-pretty">{result.slice(0, 5).map((item) => postResultLink(asRuntimeRecord(item), worldHandle))}</div>;
-	}
-	return null;
-}
-
-function BotProfileToolSummary({
-	bot,
-	fallbackWorldHandle,
-	suffix,
-}: {
-	bot: Record<string, unknown>;
-	fallbackWorldHandle: string;
-	suffix?: string;
-}) {
-	const handle = stringValue(bot.handle);
-	const world = stringValue(bot.homeWorldHandle) ?? fallbackWorldHandle;
-	if (!handle) {
-		return null;
-	}
-	return (
-		<div className="tool-pretty">
-			<a href={`/w/${encodeURIComponent(world)}/u/${encodeURIComponent(handle)}`}>{botLabel(bot)}</a>
-			{suffix && <span>{suffix}</span>}
-			{stringValue(bot.shortBio) && <span>{String(bot.shortBio)}</span>}
-		</div>
-	);
-}
-
-function botLink(bot: Record<string, unknown>, fallbackWorldHandle: string): ReactNode {
-	const handle = stringValue(bot.handle);
-	const world = stringValue(bot.homeWorldHandle) ?? fallbackWorldHandle;
-	return handle ?
-			<a href={`/w/${encodeURIComponent(world)}/u/${encodeURIComponent(handle)}`} key={String(bot.id ?? handle)}>
-				{botLabel(bot)}
-			</a>
-		:	null;
-}
-
-function postResultLink(record: Record<string, unknown>, fallbackWorldHandle: string): ReactNode {
-	const threadId = stringValue(record.threadId);
-	const forumHandle = stringValue(record.forumHandle);
-	const commentId = stringValue(record.commentId);
-	if (!threadId || !forumHandle) {
-		return null;
-	}
-	const url = `/w/${encodeURIComponent(fallbackWorldHandle)}/f/${encodeURIComponent(forumHandle)}/t/${encodeURIComponent(threadId)}${commentId ? `/c/${encodeURIComponent(commentId)}` : ""}`;
-	return (
-		<a data-fresh-thread-link="true" href={url} key={`${threadId}:${commentId ?? "root"}`}>
-			{stringValue(record.title) ?? shortId(threadId)}
-		</a>
-	);
-}
-
-function threadRecord(value: unknown): Record<string, unknown> | null {
-	const record = asRuntimeRecord(value);
-	const thread = asRuntimeRecord(record.thread);
-	if (stringValue(thread.id) && stringValue(thread.rootPost ? asRuntimeRecord(thread.rootPost).title : thread.title)) {
-		const rootPost = asRuntimeRecord(thread.rootPost);
-		return {
-			...thread,
-			title: stringValue(rootPost.title) ?? stringValue(thread.title),
-			body: stringValue(rootPost.body) ?? stringValue(thread.body),
-		};
-	}
-	if (stringValue(record.id) && record.rootPost && typeof record.rootPost === "object") {
-		const rootPost = asRuntimeRecord(record.rootPost);
-		return {
-			...record,
-			title: stringValue(rootPost.title),
-			body: stringValue(rootPost.body),
-		};
-	}
-	return null;
-}
-
-function threadUrl(thread: Record<string, unknown>): string | null {
-	const world = stringValue(thread.worldHandle);
-	const forum = stringValue(thread.forumHandle);
-	const id = stringValue(thread.id);
-	return world && forum && id ?
-			`/w/${encodeURIComponent(world)}/f/${encodeURIComponent(forum)}/t/${encodeURIComponent(id)}`
-		:	null;
-}
-
-function botLabel(bot: Record<string, unknown>): string {
-	const name = stringValue(bot.displayName) ?? "Bot";
-	const handle = stringValue(bot.handle);
-	return handle ? `${name} (u/${handle})` : name;
-}
-
-function shortId(value: string | undefined): string {
-	return value ? value.slice(-8) : "...";
-}
-
-function asRuntimeRecord(value: unknown): Record<string, unknown> {
-	return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
-}
-
-function stringValue(value: unknown): string | undefined {
-	if (typeof value === "string") {
-		return value;
-	}
-	if (typeof value === "number" || typeof value === "boolean") {
-		return String(value);
-	}
-	return undefined;
-}
-
-function providerRequestMeta(payload: Record<string, unknown>): string {
-	const parts = [
-		`model: ${stringValue(payload.model) ?? "default"}`,
-		`messages: ${stringValue(payload.messageCount) ?? "?"}`,
-	];
-	const serverTools = asRuntimeRecord(payload.openRouterServerTools);
-	const emitted = stringArrayValue(serverTools.emitted);
-	const suppressed = stringArrayValue(serverTools.suppressed);
-	if (emitted.length > 0) {
-		parts.push(`OR tools: ${emitted.map(shortOpenRouterToolName).join(", ")}`);
-	}
-	if (suppressed.length > 0) {
-		parts.push(`OR tools suppressed: ${suppressed.map(shortOpenRouterToolName).join(", ")}`);
-	}
-	return parts.join(" · ");
-}
-
-function stringArrayValue(value: unknown): string[] {
-	return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && item.length > 0) : [];
-}
-
-function shortOpenRouterToolName(value: string): string {
-	return value.replace(/^openrouter:/, "");
-}
-
-function numberValue(value: unknown): number | undefined {
-	return typeof value === "number" && Number.isFinite(value) ? value : undefined;
-}
-
 function forumActivityLabel(activity: ForumActivityNotice): string {
 	const parts = [];
 	if (activity.newThreadCount > 0) {
@@ -9380,14 +8701,6 @@ function formatFullDate(value: string): string {
 	});
 }
 
-function formatDelay(value: unknown): string {
-	const ms = typeof value === "number" ? value : Number(value);
-	if (!Number.isFinite(ms)) {
-		return "a moment";
-	}
-	return `${Math.max(1, Math.round(ms / 1000))}s`;
-}
-
 function parsePositiveInteger(value: string): number {
 	const parsed = Number(value);
 	return Number.isFinite(parsed) ? Math.floor(parsed) : 0;
@@ -9494,19 +8807,6 @@ function notificationThreadId(notification: HumanNotification): string | null {
 	} catch {
 		return null;
 	}
-}
-
-function formatPayload(value: unknown, maxLength = 2_400): string {
-	const text =
-		typeof value === "string" ? value
-		: (() => {
-				try {
-					return JSON.stringify(value, null, 2);
-				} catch {
-					return String(value);
-				}
-			})();
-	return text.length > maxLength ? `${text.slice(0, maxLength)}...` : text;
 }
 
 function formatFullPayload(value: unknown): string {
