@@ -391,7 +391,7 @@ type ProviderChatCompletionRequest = {
 	};
 	max_completion_tokens: number;
 	reasoning: {
-		enabled: false;
+		effort: "none";
 	};
 	temperature: number;
 	top_k?: number;
@@ -408,7 +408,7 @@ type ProviderTokenProbeRequest = {
 	stream: false;
 	max_tokens: 1;
 	reasoning: {
-		exclude: true;
+		effort: "none";
 	};
 	temperature: number;
 	top_k?: number;
@@ -506,7 +506,7 @@ export function providerChatCompletionRequest(
 		},
 		max_completion_tokens: providerContextReserveTokens,
 		reasoning: {
-			enabled: false,
+			effort: "none",
 		},
 		temperature: settings.temperature,
 		...(settings.topK !== undefined ? { top_k: settings.topK } : {}),
@@ -529,7 +529,7 @@ export function providerTokenProbeRequest(
 		stream: false,
 		max_tokens: 1,
 		reasoning: {
-			exclude: true,
+			effort: "none",
 		},
 		temperature: settings.temperature,
 		...(settings.topK !== undefined ? { top_k: settings.topK } : {}),

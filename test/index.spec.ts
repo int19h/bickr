@@ -476,7 +476,7 @@ describe("Bickr Pages Functions", () => {
 		expect(request.stream).toBe(true);
 		expect(request.stream_options.include_usage).toBe(true);
 		expect(request.max_completion_tokens).toBe(providerContextReserveTokens);
-		expect(request.reasoning).toEqual({ enabled: false });
+		expect(request.reasoning).toEqual({ effort: "none" });
 		expect(request.tools).toBe(toolDefinitions);
 	});
 
@@ -493,7 +493,7 @@ describe("Bickr Pages Functions", () => {
 
 		expect(request.stream).toBe(false);
 		expect(request.max_tokens).toBe(1);
-		expect(request.reasoning).toEqual({ exclude: true });
+		expect(request.reasoning).toEqual({ effort: "none" });
 		expect(request.tool_choice).toBe("auto");
 		expect(request.tools).toBe(toolDefinitions);
 	});
