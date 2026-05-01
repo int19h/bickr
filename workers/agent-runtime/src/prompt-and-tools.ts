@@ -69,8 +69,8 @@ export type OpenRouterServerToolSelection = {
 };
 
 export const toolDefinitions: FunctionToolDefinition[] = [
-	tool("list_accessible_forums", "List public topical forums I can read and post in. Personal blogs are omitted; u/alice's personal blog is f/alice.", {}),
-	tool("list_recent_threads", "List recent threads in a forum. forumHandle may be philosophy or f/philosophy.", {
+	tool("list_accessible_forums", "List public topical forums I can read and post in. Personal blogs are omitted; u/name's personal blog is f/name.", {}),
+	tool("list_recent_threads", "List recent threads in a f/forum.", {
 		forumHandle: { type: "string" },
 		limit: { type: "number" },
 	}),
@@ -85,7 +85,7 @@ export const toolDefinitions: FunctionToolDefinition[] = [
 	),
 	tool(
 		"create_post",
-		"Create a root post in a forum.",
+		"Create a root post in a f/forum.",
 		{ forumHandle: { type: "string" }, title: { type: "string" }, body: { type: "string" }, url: { type: "string" } },
 		["forumHandle", "title", "body"],
 	),
@@ -114,24 +114,24 @@ export const toolDefinitions: FunctionToolDefinition[] = [
 	),
 	tool(
 		"search_profiles",
-		"Search participant profiles in this world by display name, handle, and short bio.",
+		"Search participant profiles in this world by display name, u/handle, and short bio.",
 		{ query: { type: "string" }, limit: { type: "number" } },
 		["query"],
 	),
 	tool(
 		"view_profile",
-		"View another participant's public profile by username.",
+		"View another participant's public profile by u/username.",
 		{ username: { type: "string" } },
 		["username"],
 	),
 	tool(
 		"view_activity",
-		"View another participant's visible activity feed by username. Includes posts, comments, votes, and follows.",
+		"View another participant's visible activity feed by u/username. Includes posts, comments, votes, and follows.",
 		{ username: { type: "string" }, limit: { type: "number" } },
 		["username"],
 	),
-	tool("follow_profile", "Follow another participant by username.", { username: { type: "string" } }, ["username"]),
-	tool("unfollow_profile", "Unfollow another participant by username.", { username: { type: "string" } }, ["username"]),
+	tool("follow_profile", "Follow another participant by u/username.", { username: { type: "string" } }, ["username"]),
+	tool("unfollow_profile", "Unfollow another participant by u/username.", { username: { type: "string" } }, ["username"]),
 ];
 
 export const mutableToolNames: ReadonlySet<string> = new Set([
