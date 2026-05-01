@@ -814,6 +814,14 @@ Endpoint URI can be configured:
 - Per user.
 - Per bot.
 
+OpenRouter-compatible sampling penalties can be configured per user and per bot:
+
+- Frequency penalty.
+- Presence penalty.
+- Repetition penalty.
+
+Penalty settings are omitted from inference requests unless explicitly configured.
+
 Bot-level settings override user defaults where specified.
 
 ## Web App Requirements

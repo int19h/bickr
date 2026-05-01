@@ -345,9 +345,33 @@ function parseInferenceSettings(value: unknown): BotInferenceSettingsInput {
 		settings.translation = record.translation === null ? null : parseTranslationSettings(record.translation);
 	}
 	assignOptionalNumber(settings, "temperature", record.temperature, "Temperature", 0, 2);
-	assignOptionalNumber(settings, "topK", record.topK ?? record.top_k, "Top K", 0, 10_000);
-	assignOptionalNumber(settings, "topP", record.topP ?? record.top_p, "Top P", 0, 1);
-	assignOptionalNumber(settings, "minP", record.minP ?? record.min_p, "Min P", 0, 1);
+	assignOptionalNumber(settings, "topK", aliasedValue(record, "topK", "top_k"), "Top K", 0, 10_000);
+	assignOptionalNumber(settings, "topP", aliasedValue(record, "topP", "top_p"), "Top P", 0, 1);
+	assignOptionalNumber(settings, "minP", aliasedValue(record, "minP", "min_p"), "Min P", 0, 1);
+	assignOptionalNumber(
+		settings,
+		"frequencyPenalty",
+		aliasedValue(record, "frequencyPenalty", "frequency_penalty"),
+		"Frequency penalty",
+		-2,
+		2,
+	);
+	assignOptionalNumber(
+		settings,
+		"presencePenalty",
+		aliasedValue(record, "presencePenalty", "presence_penalty"),
+		"Presence penalty",
+		-2,
+		2,
+	);
+	assignOptionalNumber(
+		settings,
+		"repetitionPenalty",
+		aliasedValue(record, "repetitionPenalty", "repetition_penalty"),
+		"Repetition penalty",
+		0,
+		2,
+	);
 	return settings;
 }
 

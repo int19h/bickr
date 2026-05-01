@@ -358,6 +358,9 @@ export type ProviderSettings = {
 	topK?: number;
 	topP?: number;
 	minP?: number;
+	frequencyPenalty?: number;
+	presencePenalty?: number;
+	repetitionPenalty?: number;
 };
 
 export type PromptContextBudgetCounts = Pick<
@@ -391,6 +394,9 @@ type ProviderChatCompletionRequest = {
 	top_k?: number;
 	top_p?: number;
 	min_p?: number;
+	frequency_penalty?: number;
+	presence_penalty?: number;
+	repetition_penalty?: number;
 };
 
 type ProviderTokenProbeRequest = {
@@ -408,6 +414,9 @@ type ProviderTokenProbeRequest = {
 	top_k?: number;
 	top_p?: number;
 	min_p?: number;
+	frequency_penalty?: number;
+	presence_penalty?: number;
+	repetition_penalty?: number;
 };
 
 type TranslationProviderSettings = {
@@ -541,6 +550,9 @@ export function providerChatCompletionRequest(
 		...(settings.topK !== undefined ? { top_k: settings.topK } : {}),
 		...(settings.topP !== undefined ? { top_p: settings.topP } : {}),
 		...(settings.minP !== undefined ? { min_p: settings.minP } : {}),
+		...(settings.frequencyPenalty !== undefined ? { frequency_penalty: settings.frequencyPenalty } : {}),
+		...(settings.presencePenalty !== undefined ? { presence_penalty: settings.presencePenalty } : {}),
+		...(settings.repetitionPenalty !== undefined ? { repetition_penalty: settings.repetitionPenalty } : {}),
 	};
 }
 
@@ -564,6 +576,9 @@ export function providerTokenProbeRequest(
 		...(settings.topK !== undefined ? { top_k: settings.topK } : {}),
 		...(settings.topP !== undefined ? { top_p: settings.topP } : {}),
 		...(settings.minP !== undefined ? { min_p: settings.minP } : {}),
+		...(settings.frequencyPenalty !== undefined ? { frequency_penalty: settings.frequencyPenalty } : {}),
+		...(settings.presencePenalty !== undefined ? { presence_penalty: settings.presencePenalty } : {}),
+		...(settings.repetitionPenalty !== undefined ? { repetition_penalty: settings.repetitionPenalty } : {}),
 	};
 }
 
@@ -674,6 +689,15 @@ export function effectiveProviderSettingsForBot(
 		: {}),
 		...(bot.inferenceSettings.minP !== undefined ? { minP: bot.inferenceSettings.minP }
 		: userSettings.minP !== undefined ? { minP: userSettings.minP }
+		: {}),
+		...(bot.inferenceSettings.frequencyPenalty !== undefined ? { frequencyPenalty: bot.inferenceSettings.frequencyPenalty }
+		: userSettings.frequencyPenalty !== undefined ? { frequencyPenalty: userSettings.frequencyPenalty }
+		: {}),
+		...(bot.inferenceSettings.presencePenalty !== undefined ? { presencePenalty: bot.inferenceSettings.presencePenalty }
+		: userSettings.presencePenalty !== undefined ? { presencePenalty: userSettings.presencePenalty }
+		: {}),
+		...(bot.inferenceSettings.repetitionPenalty !== undefined ? { repetitionPenalty: bot.inferenceSettings.repetitionPenalty }
+		: userSettings.repetitionPenalty !== undefined ? { repetitionPenalty: userSettings.repetitionPenalty }
 		: {}),
 	};
 }
@@ -1402,6 +1426,9 @@ export class BotRuntime {
 				...(settings.topK !== undefined ? { topK: settings.topK } : {}),
 				...(settings.topP !== undefined ? { topP: settings.topP } : {}),
 				...(settings.minP !== undefined ? { minP: settings.minP } : {}),
+				...(settings.frequencyPenalty !== undefined ? { frequencyPenalty: settings.frequencyPenalty } : {}),
+				...(settings.presencePenalty !== undefined ? { presencePenalty: settings.presencePenalty } : {}),
+				...(settings.repetitionPenalty !== undefined ? { repetitionPenalty: settings.repetitionPenalty } : {}),
 			});
 			const response = await this.callProvider(settings, currentMessages, providerTools, runId, runContext.signal);
 			if (response.usage) {

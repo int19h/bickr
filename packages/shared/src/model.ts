@@ -91,6 +91,9 @@ export type BotInferenceSettings = {
 	topK?: number;
 	topP?: number;
 	minP?: number;
+	frequencyPenalty?: number;
+	presencePenalty?: number;
+	repetitionPenalty?: number;
 };
 
 export type BotTranslationSettings = {
@@ -107,6 +110,9 @@ export type BotInferenceSettingsInput = {
 	topK?: number | null;
 	topP?: number | null;
 	minP?: number | null;
+	frequencyPenalty?: number | null;
+	presencePenalty?: number | null;
+	repetitionPenalty?: number | null;
 };
 
 export type BotTranslationSettingsInput = Partial<{

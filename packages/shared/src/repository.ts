@@ -1422,6 +1422,9 @@ export function mergeInferenceSettings(
 	assignInferenceNumber(next, "topK", patch.topK);
 	assignInferenceNumber(next, "topP", patch.topP);
 	assignInferenceNumber(next, "minP", patch.minP);
+	assignInferenceNumber(next, "frequencyPenalty", patch.frequencyPenalty);
+	assignInferenceNumber(next, "presencePenalty", patch.presencePenalty);
+	assignInferenceNumber(next, "repetitionPenalty", patch.repetitionPenalty);
 	return next;
 }
 
@@ -1726,9 +1729,18 @@ function assignInferenceString(
 	}
 }
 
+type InferenceNumberSettingKey =
+	| "temperature"
+	| "topK"
+	| "topP"
+	| "minP"
+	| "frequencyPenalty"
+	| "presencePenalty"
+	| "repetitionPenalty";
+
 function assignInferenceNumber(
 	settings: BotInferenceSettings,
-	key: "temperature" | "topK" | "topP" | "minP",
+	key: InferenceNumberSettingKey,
 	value: number | null | undefined,
 ): void {
 	if (value === undefined) {

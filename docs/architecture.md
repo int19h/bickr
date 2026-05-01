@@ -864,6 +864,8 @@ Resolution order:
 2. User default endpoint and settings.
 3. OpenRouter default endpoint.
 
+Per-bot inference settings override per-user defaults for sampling controls including temperature, top-k/top-p/min-p, frequency penalty, presence penalty, and repetition penalty. Unspecified settings are omitted from provider requests unless a higher-priority scope supplies them.
+
 Text and image inference use OpenAI-compatible request shapes.
 
 Per-request inference metadata should be logged without storing API keys:

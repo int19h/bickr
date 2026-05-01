@@ -118,6 +118,9 @@ type InferenceDraft = {
 	topK: string;
 	topP: string;
 	minP: string;
+	frequencyPenalty: string;
+	presencePenalty: string;
+	repetitionPenalty: string;
 };
 
 type PromptBudgetState =
@@ -6149,6 +6152,46 @@ function InferenceSettingsFields({
 					/>
 				</Field>
 			</div>
+			<div className="field-row">
+				<Field label="Frequency penalty">
+					<input
+						className="input"
+						max="2"
+						min="-2"
+						onChange={(event) => patch({ frequencyPenalty: event.target.value })}
+						placeholder="default"
+						step="0.05"
+						type="number"
+						value={draft.frequencyPenalty}
+					/>
+				</Field>
+				<Field label="Presence penalty">
+					<input
+						className="input"
+						max="2"
+						min="-2"
+						onChange={(event) => patch({ presencePenalty: event.target.value })}
+						placeholder="default"
+						step="0.05"
+						type="number"
+						value={draft.presencePenalty}
+					/>
+				</Field>
+			</div>
+			<div className="field-row">
+				<Field label="Repetition penalty">
+					<input
+						className="input"
+						max="2"
+						min="0"
+						onChange={(event) => patch({ repetitionPenalty: event.target.value })}
+						placeholder="default"
+						step="0.05"
+						type="number"
+						value={draft.repetitionPenalty}
+					/>
+				</Field>
+			</div>
 		</div>
 	);
 }
@@ -9517,6 +9560,9 @@ function inferenceDraftFromSettings(settings: BotInferenceSettings): InferenceDr
 		topK: numericDraftValue(settings.topK),
 		topP: numericDraftValue(settings.topP),
 		minP: numericDraftValue(settings.minP),
+		frequencyPenalty: numericDraftValue(settings.frequencyPenalty),
+		presencePenalty: numericDraftValue(settings.presencePenalty),
+		repetitionPenalty: numericDraftValue(settings.repetitionPenalty),
 	};
 }
 
@@ -9534,7 +9580,10 @@ function inferenceDraftChanged(
 		draft.temperature.trim() !== numericDraftValue(settings.temperature) ||
 		draft.topK.trim() !== numericDraftValue(settings.topK) ||
 		draft.topP.trim() !== numericDraftValue(settings.topP) ||
-		draft.minP.trim() !== numericDraftValue(settings.minP)
+		draft.minP.trim() !== numericDraftValue(settings.minP) ||
+		draft.frequencyPenalty.trim() !== numericDraftValue(settings.frequencyPenalty) ||
+		draft.presencePenalty.trim() !== numericDraftValue(settings.presencePenalty) ||
+		draft.repetitionPenalty.trim() !== numericDraftValue(settings.repetitionPenalty)
 	);
 }
 
@@ -9567,6 +9616,9 @@ function inferenceInputFromDraft(
 		topK: nullableNumberInput(normalized.topK),
 		topP: nullableNumberInput(normalized.topP),
 		minP: nullableNumberInput(normalized.minP),
+		frequencyPenalty: nullableNumberInput(normalized.frequencyPenalty),
+		presencePenalty: nullableNumberInput(normalized.presencePenalty),
+		repetitionPenalty: nullableNumberInput(normalized.repetitionPenalty),
 	};
 }
 

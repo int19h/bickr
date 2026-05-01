@@ -55,6 +55,7 @@ import {
 	handleAgentRuntimeRequest,
 	buildRuntimeLoopInput,
 	BotRuntime,
+	effectiveProviderSettingsForBot,
 	formatRuntimeEventForContext,
 	formatRuntimeInputForContext,
 	promptContextBudgetCacheFingerprint,
@@ -483,6 +484,27 @@ describe("Bickr Pages Functions", () => {
 		expect(request.max_completion_tokens).toBe(providerContextReserveTokens);
 		expect(request.reasoning).toEqual({ effort: "none" });
 		expect(request.tools).toBe(toolDefinitions);
+		expect("frequency_penalty" in request).toBe(false);
+		expect("presence_penalty" in request).toBe(false);
+		expect("repetition_penalty" in request).toBe(false);
+
+		const tunedRequest = providerChatCompletionRequest(
+			{
+				baseUrl: "https://openrouter.ai/api/v1",
+				model: "test-model",
+				temperature: 0.2,
+				frequencyPenalty: -0.25,
+				presencePenalty: 0.5,
+				repetitionPenalty: 1.15,
+			},
+			[{ role: "user", content: "hello" }],
+			toolDefinitions,
+		);
+		expect(tunedRequest).toMatchObject({
+			frequency_penalty: -0.25,
+			presence_penalty: 0.5,
+			repetition_penalty: 1.15,
+		});
 	});
 
 	it("builds translation requests with strict structured output and no tools", () => {
@@ -537,6 +559,38 @@ describe("Bickr Pages Functions", () => {
 		expect(request.reasoning).toEqual({ effort: "none" });
 		expect(request.tool_choice).toBe("auto");
 		expect(request.tools).toBe(toolDefinitions);
+
+		const tunedRequest = providerTokenProbeRequest(
+			{
+				baseUrl: "https://openrouter.ai/api/v1",
+				model: "test-model",
+				temperature: 0.2,
+				frequencyPenalty: -0.25,
+				presencePenalty: 0.5,
+				repetitionPenalty: 1.15,
+			},
+			[{ role: "system", content: "Count this." }],
+			toolDefinitions,
+		);
+		expect(tunedRequest).toMatchObject({
+			frequency_penalty: -0.25,
+			presence_penalty: 0.5,
+			repetition_penalty: 1.15,
+		});
+	});
+
+	it("resolves inference penalty settings from bot overrides before profile defaults", () => {
+		const settings = effectiveProviderSettingsForBot(
+			{ inferenceSettings: { frequencyPenalty: -0.25, repetitionPenalty: 1.2 } },
+			{ inferenceSettings: { frequencyPenalty: 0.75, presencePenalty: 0.5, repetitionPenalty: 1.5 } },
+			{},
+		);
+
+		expect(settings).toMatchObject({
+			frequencyPenalty: -0.25,
+			presencePenalty: 0.5,
+			repetitionPenalty: 1.2,
+		});
 	});
 
 	it("calculates prompt context budget segments and over-budget counts", () => {
@@ -1679,6 +1733,9 @@ describe("Bickr Pages Functions", () => {
 							model: "openrouter/auto",
 							temperature: 0.4,
 							topP: 0.8,
+							frequency_penalty: -0.2,
+							presencePenalty: 0.45,
+							repetition_penalty: 1.1,
 						},
 						toolSettings: {
 							openRouter: {
@@ -1722,6 +1779,9 @@ describe("Bickr Pages Functions", () => {
 			model: "openrouter/auto",
 			temperature: 0.4,
 			topP: 0.8,
+			frequencyPenalty: -0.2,
+			presencePenalty: 0.45,
+			repetitionPenalty: 1.1,
 		});
 		expect(created.data.bot.inferenceSettings.openRouterApiKey).toBeUndefined();
 		expect(created.data.bot.toolSettings).toMatchObject({
@@ -1935,6 +1995,11 @@ describe("Bickr Pages Functions", () => {
 					"PATCH",
 					{
 						displayName: "Release Oracle",
+						inferenceSettings: {
+							frequencyPenalty: null,
+							presencePenalty: null,
+							repetitionPenalty: null,
+						},
 						tickSettings: {
 							enabled: true,
 							intervalSeconds: 60,
@@ -1964,6 +2029,9 @@ describe("Bickr Pages Functions", () => {
 		});
 		expect(Date.parse(patchPayload.data.bot.nextDueAt ?? "")).toBeGreaterThanOrEqual(beforeUnpause - 1_000);
 		expect(Date.parse(patchPayload.data.bot.nextDueAt ?? "")).toBeLessThanOrEqual(Date.now() + 1_000);
+		expect(patchPayload.data.bot.inferenceSettings.frequencyPenalty).toBeUndefined();
+		expect(patchPayload.data.bot.inferenceSettings.presencePenalty).toBeUndefined();
+		expect(patchPayload.data.bot.inferenceSettings.repetitionPenalty).toBeUndefined();
 
 		const runtimeAfterPatch = await testEnv.BICKR_D1.prepare(
 			`SELECT enabled, tick_interval_seconds AS tickIntervalSeconds, next_due_at AS nextDueAt
@@ -2300,6 +2368,9 @@ describe("Bickr Pages Functions", () => {
 							topK: 40,
 							topP: 0.92,
 							minP: 0.04,
+							frequencyPenalty: -0.35,
+							presence_penalty: 0.65,
+							repetition_penalty: 1.05,
 						},
 					},
 					cookie,
@@ -2314,20 +2385,41 @@ describe("Bickr Pages Functions", () => {
 			handle: "octo-admin",
 			displayName: "Octo Admin",
 			profileComplete: true,
-				inferenceSettings: {
-					openRouterApiKeySet: true,
-					model: "anthropic/claude-3.5-haiku",
-					translation: {
-						model: "openai/gpt-4o-mini",
-						prompt: defaultTranslationPrompt,
-					},
-					temperature: 0.7,
-					topK: 40,
+			inferenceSettings: {
+				openRouterApiKeySet: true,
+				model: "anthropic/claude-3.5-haiku",
+				translation: {
+					model: "openai/gpt-4o-mini",
+					prompt: defaultTranslationPrompt,
+				},
+				temperature: 0.7,
+				topK: 40,
 				topP: 0.92,
 				minP: 0.04,
+				frequencyPenalty: -0.35,
+				presencePenalty: 0.65,
+				repetitionPenalty: 1.05,
 			},
 		});
 		expect(profilePayload.data.profile.inferenceSettings.openRouterApiKey).toBeUndefined();
+
+		for (const inferenceSettings of [
+			{ frequencyPenalty: -2.1 },
+			{ presence_penalty: 2.1 },
+			{ repetitionPenalty: 2.1 },
+		]) {
+			const invalidPenaltyResponse = await patchProfile(
+				contextFor<typeof patchProfile>(
+					jsonRequest(
+						"http://example.com/api/me/profile",
+						"PATCH",
+						{ inferenceSettings },
+						cookie,
+					),
+				),
+			);
+			expect(invalidPenaltyResponse.status).toBe(400);
+		}
 
 		const getProfileResponse = await getProfile(
 			contextFor<typeof getProfile>(new Request("http://example.com/api/me/profile", { headers: { cookie } })),
@@ -2341,6 +2433,30 @@ describe("Bickr Pages Functions", () => {
 				},
 			},
 		});
+
+		const clearedPenaltiesResponse = await patchProfile(
+			contextFor<typeof patchProfile>(
+				jsonRequest(
+					"http://example.com/api/me/profile",
+					"PATCH",
+					{
+						inferenceSettings: {
+							frequencyPenalty: null,
+							presencePenalty: null,
+							repetitionPenalty: null,
+						},
+					},
+					cookie,
+				),
+			),
+		);
+		expect(clearedPenaltiesResponse.status).toBe(200);
+		const clearedPenaltiesPayload = (await clearedPenaltiesResponse.json()) as {
+			data: { profile: { inferenceSettings: Record<string, unknown> } };
+		};
+		expect(clearedPenaltiesPayload.data.profile.inferenceSettings.frequencyPenalty).toBeUndefined();
+		expect(clearedPenaltiesPayload.data.profile.inferenceSettings.presencePenalty).toBeUndefined();
+		expect(clearedPenaltiesPayload.data.profile.inferenceSettings.repetitionPenalty).toBeUndefined();
 
 		const sessionResponse = await session(
 			contextFor<typeof session>(new Request("http://example.com/api/session", { headers: { cookie } })),
