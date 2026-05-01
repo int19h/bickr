@@ -57,6 +57,8 @@ const mentionPattern = new RegExp(
 	`(^|${handleBoundaryPatternSource})(?:@|u/)(${handlePatternSource})(?=$|${handleEndBoundaryPatternSource})`,
 	"giu",
 );
+// D1 currently allows 100 bound parameters per statement, so multi-row queries below are chunked.
+const d1MaxBoundParameters = 100;
 
 export async function forumByHandle(
 	kv: KVNamespaceLike,
@@ -838,14 +840,25 @@ async function subscribedUsersForScopes(
 ): Promise<Set<string>> {
 	const users = new Set<string>();
 	const unique = new Map(scopes.map((scope) => [`${scope.scopeType}:${scope.scopeId}`, scope]));
-	for (const scope of unique.values()) {
+	const selected = [...unique.values()];
+	if (selected.length === 0) {
+		return users;
+	}
+	const maxScopesPerQuery = Math.floor(d1MaxBoundParameters / 2);
+	for (let index = 0; index < selected.length; index += maxScopesPerQuery) {
+		const batch = selected.slice(index, index + maxScopesPerQuery);
+		const selectedRows = batch.map(() => "(?, ?)").join(", ");
 		const result = await db
 			.prepare(
-				`SELECT user_id AS userId
+				`WITH selected(scope_type, scope_id) AS (VALUES ${selectedRows})
+				 SELECT DISTINCT human_subscriptions.user_id AS userId
 				 FROM human_subscriptions
-				 WHERE scope_type = ? AND scope_id = ? AND active = 1`,
+				 JOIN selected
+				   ON selected.scope_type = human_subscriptions.scope_type
+				  AND selected.scope_id = human_subscriptions.scope_id
+				 WHERE human_subscriptions.active = 1`,
 			)
-			.bind(scope.scopeType, scope.scopeId)
+			.bind(...batch.flatMap((scope) => [scope.scopeType, scope.scopeId]))
 			.all<{ userId: string }>();
 		for (const row of result.results ?? []) {
 			users.add(row.userId);
@@ -1917,18 +1930,23 @@ export async function markBotSeenContent(
 	for (const item of items) {
 		unique.set(`${item.type}:${item.id}`, item);
 	}
-	for (const item of unique.values()) {
+	const selected = [...unique.values()];
+	const parametersPerItem = 7;
+	const maxItemsPerQuery = Math.floor(d1MaxBoundParameters / parametersPerItem);
+	for (let index = 0; index < selected.length; index += maxItemsPerQuery) {
+		const batch = selected.slice(index, index + maxItemsPerQuery);
+		const values = batch.map(() => "(?, ?, ?, ?, ?, ?, ?)").join(", ");
 		await db
 			.prepare(
 				`INSERT INTO bot_seen_content (
 					bot_id, object_type, object_id, seen_via, first_seen_at, last_seen_at, source_id
-				) VALUES (?, ?, ?, ?, ?, ?, ?)
+				) VALUES ${values}
 				ON CONFLICT(bot_id, object_type, object_id) DO UPDATE SET
 					seen_via = excluded.seen_via,
 					last_seen_at = excluded.last_seen_at,
 					source_id = excluded.source_id`,
 			)
-			.bind(botId, item.type, item.id, seenVia, now, now, sourceId ?? null)
+			.bind(...batch.flatMap((item) => [botId, item.type, item.id, seenVia, now, now, sourceId ?? null]))
 			.run();
 	}
 }
@@ -2158,26 +2176,31 @@ export async function markNotificationsDelivered(
 	notifications: NotificationDocument[],
 	now = new Date().toISOString(),
 ): Promise<void> {
+	const updatedNotifications = notifications.map((notification) => ({
+		...notification,
+		status: "delivered_to_loop" as const,
+		deliveredAt: now,
+		revision: notification.revision + 1,
+		updatedAt: now,
+	}));
 	await Promise.all(
-		notifications.map(async (notification) => {
-			const updated: NotificationDocument = {
-				...notification,
-				status: "delivered_to_loop",
-				deliveredAt: now,
-				revision: notification.revision + 1,
-				updatedAt: now,
-			};
-			await writeJson(kv, kvKeys.notification(updated.botId, updated.id), updated);
-			await db
-				.prepare(
-					`UPDATE notifications
-					 SET status = ?, delivered_at = ?
-					 WHERE notification_id = ?`,
-				)
-				.bind(updated.status, now, updated.id)
-				.run();
-		}),
+		updatedNotifications.map((notification) =>
+			writeJson(kv, kvKeys.notification(notification.botId, notification.id), notification),
+		),
 	);
+	const maxNotificationsPerQuery = d1MaxBoundParameters - 2;
+	for (let index = 0; index < updatedNotifications.length; index += maxNotificationsPerQuery) {
+		const batch = updatedNotifications.slice(index, index + maxNotificationsPerQuery);
+		const placeholders = batch.map(() => "?").join(", ");
+		await db
+			.prepare(
+				`UPDATE notifications
+				 SET status = ?, delivered_at = ?
+				 WHERE notification_id IN (${placeholders})`,
+			)
+			.bind("delivered_to_loop", now, ...batch.map((notification) => notification.id))
+			.run();
+	}
 }
 
 async function createNotification(
@@ -2580,17 +2603,26 @@ async function seenSetForBot(
 	items: SeenContentItem[],
 ): Promise<Set<string>> {
 	const seen = new Set<string>();
-	for (const item of items) {
-		const row = await db
+	const unique = new Map(items.map((item) => [`${item.type}:${item.id}`, item]));
+	const selected = [...unique.values()];
+	const maxItemsPerQuery = Math.floor((d1MaxBoundParameters - 1) / 2);
+	for (let index = 0; index < selected.length; index += maxItemsPerQuery) {
+		const batch = selected.slice(index, index + maxItemsPerQuery);
+		const selectedRows = batch.map(() => "(?, ?)").join(", ");
+		const result = await db
 			.prepare(
-				`SELECT object_id AS id
+				`WITH selected(object_type, object_id) AS (VALUES ${selectedRows})
+				 SELECT bot_seen_content.object_type AS type, bot_seen_content.object_id AS id
 				 FROM bot_seen_content
-				 WHERE bot_id = ? AND object_type = ? AND object_id = ?`,
+				 JOIN selected
+				   ON selected.object_type = bot_seen_content.object_type
+				  AND selected.object_id = bot_seen_content.object_id
+				 WHERE bot_seen_content.bot_id = ?`,
 			)
-			.bind(botId, item.type, item.id)
-			.first<{ id: string }>();
-		if (row) {
-			seen.add(`${item.type}:${item.id}`);
+			.bind(...batch.flatMap((item) => [item.type, item.id]), botId)
+			.all<{ type: SeenContentItem["type"]; id: string }>();
+		for (const row of result.results ?? []) {
+			seen.add(`${row.type}:${row.id}`);
 		}
 	}
 	return seen;

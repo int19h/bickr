@@ -7,7 +7,6 @@ import {
 	deleteBot,
 	enforceInferenceModelAccess,
 	listForums,
-	listWorldBots,
 	mergeInferenceSettings,
 	mergeToolSettings,
 	RepositoryError,
@@ -1776,12 +1775,11 @@ export class BotRuntime {
 			throw new InputError("Configure an OpenRouter API key or custom inference base URL to compute exact tokens.");
 		}
 
-		const worldBots = await listWorldBots(this.env.BICKR_KV, this.env.BICKR_D1, bot.homeWorldHandle);
 		const serverTools = openRouterServerToolSelection(settings.baseUrl, bot.toolSettings);
 		const providerTools: ProviderToolDefinition[] = [...toolDefinitions, ...serverTools.tools];
 		const fixedPromptBot = { ...bot, prompt: "" };
-		const fixedSystemMessage = standardPrompt(fixedPromptBot, worldBots);
-		const fullSystemMessage = standardPrompt(bot, worldBots);
+		const fixedSystemMessage = standardPrompt(fixedPromptBot);
+		const fullSystemMessage = standardPrompt(bot);
 		const fixedSystemFingerprint = await sha256Hex(JSON.stringify({
 			system: fixedSystemMessage,
 			tools: providerTools,
@@ -2387,7 +2385,6 @@ export class BotRuntime {
 		bot: BotDocument,
 		input: LoopInput,
 	): Promise<ChatMessage[]> {
-		const worldBots = await listWorldBots(this.env.BICKR_KV, this.env.BICKR_D1, bot.homeWorldHandle);
 		const summaries = this.eventsAfter(0)
 			.filter((event) => event.type === "compaction")
 			.slice(-3)
@@ -2405,7 +2402,7 @@ export class BotRuntime {
 		return [
 			{
 				role: "system",
-				content: standardPrompt(bot, worldBots),
+				content: standardPrompt(bot),
 			},
 			...(summaries ? [{ role: "user" as const, content: `My earlier notes:\n${summaries}` }] : []),
 			...(thoughtContext ? [{ role: "user" as const, content: thoughtContext }] : []),

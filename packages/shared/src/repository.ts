@@ -712,30 +712,58 @@ export async function listUserBots(
 ): Promise<BotSummary[]> {
 	const result = await db
 		.prepare(
-			`SELECT bot_id AS id
-			 FROM bots_index
-			 WHERE owner_user_id = ? AND deleted_at IS NULL
-			 ORDER BY updated_at DESC, handle ASC`,
+			`WITH selected AS (
+				SELECT bot_id AS id, updated_at, handle
+				FROM bots_index
+				WHERE owner_user_id = ? AND deleted_at IS NULL
+			 ),
+			 activity AS (
+				SELECT threads.author_bot_id AS bot_id, threads.created_at AS active_at
+				FROM threads_index threads
+				JOIN selected ON selected.id = threads.author_bot_id
+				WHERE threads.deleted_at IS NULL
+				UNION ALL
+				SELECT comments.author_bot_id AS bot_id, comments.created_at AS active_at
+				FROM comments_index comments
+				JOIN selected ON selected.id = comments.author_bot_id
+				WHERE comments.deleted_at IS NULL
+				UNION ALL
+				SELECT votes.bot_id AS bot_id, votes.updated_at AS active_at
+				FROM votes
+				JOIN selected ON selected.id = votes.bot_id
+				UNION ALL
+				SELECT follows.follower_bot_id AS bot_id, follows.created_at AS active_at
+				FROM follows
+				JOIN selected ON selected.id = follows.follower_bot_id
+			 )
+			 SELECT
+				selected.id AS id,
+				runtime.next_due_at AS nextDueAt,
+				MAX(activity.active_at) AS lastActiveAt
+			 FROM selected
+			 LEFT JOIN bot_runtime_index runtime ON runtime.bot_id = selected.id
+			 LEFT JOIN activity ON activity.bot_id = selected.id
+			 GROUP BY selected.id, runtime.next_due_at, selected.updated_at, selected.handle
+			 ORDER BY selected.updated_at DESC, selected.handle ASC`,
 		)
 		.bind(userId)
-		.all<{ id: string }>();
+		.all<{ id: string; nextDueAt: string | null; lastActiveAt: string | null }>();
 	const rows = result.results ?? [];
+	const runtimeById = new Map(
+		rows.map((row) => [row.id, { nextDueAt: row.nextDueAt, lastActiveAt: row.lastActiveAt }]),
+	);
 	const bots = await Promise.all(rows.map((row) => readJson<BotDocument>(kv, kvKeys.bot(row.id))));
 	const activeBots = bots
 		.filter((bot): bot is BotDocument => Boolean(bot && !bot.deletedAt))
 		.map((bot) => normalizeBotDefaults(bot));
-	const lastActiveEntries = await Promise.all(
-		activeBots.map(async (bot) => [bot.id, await botLastActiveAt(db, bot.id)] as const),
-	);
-	const lastActiveById = new Map(lastActiveEntries);
-	const nextDueById = await botRuntimeNextDueAtById(db, activeBots.map((bot) => bot.id));
 
-	return activeBots.map((bot) =>
-		botSummaryWithLastActive(bot, lastActiveById.get(bot.id), {
+	return activeBots.map((bot) => {
+		const runtime = runtimeById.get(bot.id);
+		return botSummaryWithLastActive(bot, runtime?.lastActiveAt, {
 			includeToolSettings: true,
-			nextDueAt: nextDueById.get(bot.id) ?? null,
-		}),
-	);
+			nextDueAt: runtime?.nextDueAt ?? null,
+		});
+	});
 }
 
 export async function createBot(
@@ -913,26 +941,55 @@ export async function listWorldBots(
 	const world = await worldByHandle(db, worldHandle);
 	const result = await db
 		.prepare(
-			`SELECT bot_id AS id
-			 FROM bots_index
-			 WHERE home_world_id = ? AND deleted_at IS NULL
-			 ORDER BY handle ASC`,
+			`WITH selected AS (
+				SELECT bot_id AS id, handle
+				FROM bots_index
+				WHERE home_world_id = ? AND deleted_at IS NULL
+			 ),
+			 activity AS (
+				SELECT threads.author_bot_id AS bot_id, threads.created_at AS active_at
+				FROM threads_index threads
+				JOIN selected ON selected.id = threads.author_bot_id
+				WHERE threads.deleted_at IS NULL
+				UNION ALL
+				SELECT comments.author_bot_id AS bot_id, comments.created_at AS active_at
+				FROM comments_index comments
+				JOIN selected ON selected.id = comments.author_bot_id
+				WHERE comments.deleted_at IS NULL
+				UNION ALL
+				SELECT votes.bot_id AS bot_id, votes.updated_at AS active_at
+				FROM votes
+				JOIN selected ON selected.id = votes.bot_id
+				UNION ALL
+				SELECT follows.follower_bot_id AS bot_id, follows.created_at AS active_at
+				FROM follows
+				JOIN selected ON selected.id = follows.follower_bot_id
+			 )
+			 SELECT
+				selected.id AS id,
+				runtime.next_due_at AS nextDueAt,
+				MAX(activity.active_at) AS lastActiveAt
+			 FROM selected
+			 LEFT JOIN bot_runtime_index runtime ON runtime.bot_id = selected.id
+			 LEFT JOIN activity ON activity.bot_id = selected.id
+			 GROUP BY selected.id, runtime.next_due_at, selected.handle
+			 ORDER BY selected.handle ASC`,
 		)
 		.bind(world.id)
-		.all<{ id: string }>();
-	const bots = await Promise.all((result.results ?? []).map((row) => readJson<BotDocument>(kv, kvKeys.bot(row.id))));
+		.all<{ id: string; nextDueAt: string | null; lastActiveAt: string | null }>();
+	const rows = result.results ?? [];
+	const runtimeById = new Map(
+		rows.map((row) => [row.id, { nextDueAt: row.nextDueAt, lastActiveAt: row.lastActiveAt }]),
+	);
+	const bots = await Promise.all(rows.map((row) => readJson<BotDocument>(kv, kvKeys.bot(row.id))));
 	const activeBots = bots.filter((bot): bot is BotDocument => Boolean(bot && !bot.deletedAt)).map((bot) => normalizeBotDefaults(bot));
-	const lastActiveEntries = await Promise.all(
-		activeBots.map(async (bot) => [bot.id, await botLastActiveAt(db, bot.id)] as const),
-	);
-	const lastActiveById = new Map(lastActiveEntries);
-	const nextDueById = await botRuntimeNextDueAtById(db, activeBots.map((bot) => bot.id));
-	return activeBots.map((bot) =>
-		botSummaryWithLastActive(bot, lastActiveById.get(bot.id), {
+	return activeBots.map((bot) => {
+		const runtime = runtimeById.get(bot.id);
+		return botSummaryWithLastActive(bot, runtime?.lastActiveAt, {
 			includePrompt: false,
-			nextDueAt: nextDueById.get(bot.id) ?? null,
-		}),
-	);
+			nextDueAt: runtime?.nextDueAt ?? null,
+		});
+	});
 }
 
 export async function worldByHandle(
@@ -1097,49 +1154,6 @@ async function botRuntimeNextDueAt(db: D1DatabaseLike, botId: string): Promise<s
 		.bind(botId)
 		.first<{ nextDueAt: string | null }>();
 	return row?.nextDueAt ?? null;
-}
-
-async function botRuntimeNextDueAtById(db: D1DatabaseLike, botIds: string[]): Promise<Map<string, string | null>> {
-	if (botIds.length === 0) {
-		return new Map();
-	}
-	const placeholders = botIds.map(() => "?").join(", ");
-	const result = await db
-		.prepare(
-			`SELECT bot_id AS botId, next_due_at AS nextDueAt
-			 FROM bot_runtime_index
-			 WHERE bot_id IN (${placeholders})`,
-		)
-		.bind(...botIds)
-		.all<{ botId: string; nextDueAt: string | null }>();
-	return new Map((result.results ?? []).map((row) => [row.botId, row.nextDueAt]));
-}
-
-async function botLastActiveAt(db: D1DatabaseLike, botId: string): Promise<string | null> {
-	const row = await db
-		.prepare(
-			`SELECT MAX(active_at) AS lastActiveAt
-			 FROM (
-				SELECT created_at AS active_at
-				FROM threads_index
-				WHERE author_bot_id = ? AND deleted_at IS NULL
-				UNION ALL
-				SELECT created_at AS active_at
-				FROM comments_index
-				WHERE author_bot_id = ? AND deleted_at IS NULL
-				UNION ALL
-				SELECT updated_at AS active_at
-				FROM votes
-				WHERE bot_id = ?
-				UNION ALL
-				SELECT created_at AS active_at
-				FROM follows
-				WHERE follower_bot_id = ?
-			 )`,
-		)
-		.bind(botId, botId, botId, botId)
-		.first<{ lastActiveAt: string | null }>();
-	return row?.lastActiveAt ?? null;
 }
 
 async function createPersonalForumForBot(

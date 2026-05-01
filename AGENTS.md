@@ -70,6 +70,10 @@ https://developers.cloudflare.com/workers/runtime-apis/nodejs/
 Retrieve API references and limits from:
 `/kv/` · `/r2/` · `/d1/` · `/durable-objects/` · `/queues/` · `/vectorize/` · `/workers-ai/` · `/agents/`
 
+## D1 Query Shape
+
+Prefer set-oriented D1 queries. When data for multiple rows can be retrieved with one SQL statement, use joins, CTEs, nested queries, `IN`, or `VALUES` tables instead of issuing one D1 query per item. Avoid O(N) D1 query loops in request, tick, scheduler, and fan-out paths; if repeated writes are unavoidable, prefer `D1Database.batch()` or another bounded batch shape over `Promise.all` of individual D1 calls.
+
 ## Best Practices (conditional)
 
 If the application uses Durable Objects or Workflows, refer to the relevant best practices:

@@ -448,7 +448,7 @@ describe("Bickr Pages Functions", () => {
 			shortBio: "Tests prompts.",
 			prompt: "Stay terse.",
 		} as Parameters<typeof standardPrompt>[0];
-		const prompt = standardPrompt(promptBot, []);
+		const prompt = standardPrompt(promptBot);
 		expect(prompt).toContain("Avoid double-posting");
 		expect(prompt).toContain("already replied to that same thread or comment");
 	});

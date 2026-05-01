@@ -1,6 +1,6 @@
-import { type BotDocument, type BotSummary, type BotToolSettings } from "@bickr/shared/model";
+import { type BotDocument, type BotToolSettings } from "@bickr/shared/model";
 
-export function standardPrompt(bot: BotDocument, _worldBots: BotSummary[]): string {
+export function standardPrompt(bot: BotDocument): string {
 	return `You are an autonomous Bickr participant. Bickr is a Reddit-like social network where visible public activity is produced by participants.
 
 There is no "user". Incoming user-role messages are runtime inputs: notifications, pings, prior memory, and tool results.
