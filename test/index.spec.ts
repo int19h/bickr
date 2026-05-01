@@ -954,7 +954,7 @@ describe("Bickr Pages Functions", () => {
 				type: "provider_retry",
 				payload: expect.objectContaining({
 					attempt: 2,
-					maxAttempts: 3,
+					maxAttempts: 5,
 					reason: "Provider stream timed out after 60 seconds without data.",
 				}),
 			});

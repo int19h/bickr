@@ -510,7 +510,7 @@ const pendingSpotlightTicksStateKey = "pending_spotlight_ticks";
 const contextBudgetCacheStateKey = (fingerprint: string): string => `context_budget:${fingerprint}`;
 const providerRequestTimeoutMs = 60_000;
 const providerStreamIdleTimeoutMs = 60_000;
-const providerMaxAttempts = 3;
+const providerMaxAttempts = 5;
 const providerRetryBaseDelayMs = 3_000;
 const providerToolChoice = "auto" as const;
 const providerParallelToolCalls = true;
