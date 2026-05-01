@@ -3175,6 +3175,11 @@ export default {
 			});
 		}
 
+		const translateMatch = /^\/users\/([^/]+)\/translate$/.exec(url.pathname);
+		if (translateMatch && request.method === "POST") {
+			return handleAgentRuntimeRequest(request, env);
+		}
+
 		const userBotsMatch = /^\/users\/([^/]+)\/(?:worlds\/[^/]+\/bots|bots\/[^/]+)$/.exec(
 			url.pathname,
 		);

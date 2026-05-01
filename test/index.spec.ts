@@ -51,6 +51,7 @@ import {
 	onRequestPatch as patchWorld,
 } from "../apps/web/functions/api/worlds/[worldHandle]";
 import {
+	default as agentRuntimeWorker,
 	handleAgentRuntimeRequest,
 	buildRuntimeLoopInput,
 	BotRuntime,
@@ -92,7 +93,7 @@ import {
 	searchBots,
 	searchPosts,
 } from "../packages/shared/src/social";
-import { defaultTranslationPrompt, type BotRuntimeEvent, type ThreadDocument } from "../packages/shared/src/model";
+import { defaultTranslationPrompt, type BotRuntimeEvent, type ThreadDocument, type UserProfile } from "../packages/shared/src/model";
 import { sessionCookieName, type AppEnv } from "../apps/web/functions/api/_auth";
 import { oauthCookieNames } from "../apps/web/functions/api/auth/_oauth";
 
@@ -2415,7 +2416,7 @@ describe("Bickr Pages Functions", () => {
 
 	it("translates text through the authenticated profile translation route", async () => {
 		const cookie = await authCookie();
-		await patchProfile(
+		const profileResponse = await patchProfile(
 			contextFor<typeof patchProfile>(
 				jsonRequest(
 					"http://example.com/api/me/profile",
@@ -2433,6 +2434,8 @@ describe("Bickr Pages Functions", () => {
 				),
 			),
 		);
+		expect(profileResponse.status).toBe(200);
+		const profilePayload = (await profileResponse.json()) as { data: { profile: UserProfile } };
 		const providerRequests: Request[] = [];
 		const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
 			const request = new Request(input, init);
@@ -2452,7 +2455,27 @@ describe("Bickr Pages Functions", () => {
 				ok: true,
 				data: { translation: "Bonjour." },
 			});
-			expect(providerRequests).toHaveLength(1);
+
+			const serviceRequest = jsonRequest(
+				`https://internal.bickr/users/${encodeURIComponent(profilePayload.data.profile.id)}/translate`,
+				"POST",
+				{ text: "Hello." },
+			);
+			serviceRequest.headers.set("x-bickr-user-id", profilePayload.data.profile.id);
+			const serviceResponse = await agentRuntimeWorker.fetch(
+				serviceRequest as unknown as Parameters<typeof agentRuntimeWorker.fetch>[0],
+				{
+					BICKR_D1: testEnv.BICKR_D1,
+					BICKR_KV: testEnv.BICKR_KV,
+				} as unknown as Parameters<typeof agentRuntimeWorker.fetch>[1],
+			);
+			expect(serviceResponse.status).toBe(200);
+			expect(await serviceResponse.json()).toMatchObject({
+				ok: true,
+				data: { translation: "Bonjour." },
+			});
+
+			expect(providerRequests).toHaveLength(2);
 			expect(providerRequests[0]?.headers.get("authorization")).toBe("Bearer sk-or-translation-secret");
 			const providerBody = await providerRequests[0]!.json() as Record<string, unknown>;
 			expect(providerBody).toMatchObject({
