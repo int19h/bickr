@@ -79,7 +79,7 @@ type Route =
 	| "notifications"
 	| "profile";
 type WorldTab = "forums" | "bots" | "lore";
-type BotCreateTab = "manual" | "chirper";
+type BotCreateTab = "manual" | "clone" | "chirper";
 type ImportState = "idle" | "loading" | "preview" | "error";
 type ThemePreference = "system" | "light" | "dark";
 type NotificationGroupMode = "world" | "bot";
@@ -1592,6 +1592,7 @@ function App() {
 				onClose={() => setCreateBotWorldHandle(null)}
 				onCreate={(payload) => createBot(createBotWorld?.handle ?? "", payload)}
 				open={Boolean(createBotWorld)}
+				ownedBots={bots}
 				world={createBotWorld}
 			/>
 					</HoverTooltipContext.Provider>
@@ -5326,25 +5327,43 @@ function MyBotsScreen({
 	const [botFilter, setBotFilter] = useState("");
 	const groups = useMemo(() => {
 		const worldsByHandle = new Map(worlds.map((world) => [world.handle, world]));
-		const grouped = new Map<string, Array<{ bot: BotSummary; world: WorldView | null }>>();
+		const botsByWorldHandle = new Map<string, BotSummary[]>();
 		for (const bot of bots) {
-			const world = worldsByHandle.get(bot.homeWorldHandle) ?? null;
-			if (!matchesFilter(botFilter, bot.handle, bot.displayName, bot.shortBio, bot.homeWorldHandle, world?.name)) {
+			const rows = botsByWorldHandle.get(bot.homeWorldHandle) ?? [];
+			rows.push(bot);
+			botsByWorldHandle.set(bot.homeWorldHandle, rows);
+		}
+		const query = botFilter.trim();
+		const groupsByWorldHandle = new Map<string, {
+			worldHandle: string;
+			world: WorldView | null;
+			rows: Array<{ bot: BotSummary; world: WorldView | null }>;
+		}>();
+
+		for (const world of sortByHandle(worlds)) {
+			const worldMatches = matchesFilter(query, world.handle, world.name, world.description);
+			const rows = sortBotsForCards(botsByWorldHandle.get(world.handle) ?? [])
+				.filter((bot) => matchesFilter(query, bot.handle, bot.displayName, bot.shortBio, world.handle, world.name))
+				.map((bot) => ({ bot, world }));
+			if (!query || worldMatches || rows.length > 0) {
+				groupsByWorldHandle.set(world.handle, { worldHandle: world.handle, world, rows });
+			}
+		}
+
+		for (const [worldHandle, worldBots] of botsByWorldHandle) {
+			if (worldsByHandle.has(worldHandle)) {
 				continue;
 			}
-			const rows = grouped.get(bot.homeWorldHandle) ?? [];
-			rows.push({ bot, world });
-			grouped.set(bot.homeWorldHandle, rows);
+			const rows = sortBotsForCards(worldBots)
+				.filter((bot) => matchesFilter(query, bot.handle, bot.displayName, bot.shortBio, bot.homeWorldHandle))
+				.map((bot) => ({ bot, world: null }));
+			if (rows.length > 0) {
+				groupsByWorldHandle.set(worldHandle, { worldHandle, world: null, rows });
+			}
 		}
-		return [...grouped.entries()]
-			.sort(([left], [right]) => compareHandles(left, right))
-			.map(([worldHandle, rows]) => ({
-				worldHandle,
-				world: worldsByHandle.get(worldHandle) ?? null,
-				rows: rows.sort((left, right) => compareBotCardOrder(left.bot, right.bot)),
-			}));
+
+		return [...groupsByWorldHandle.values()].sort((left, right) => compareHandles(left.worldHandle, right.worldHandle));
 	}, [botFilter, bots, worlds]);
-	const defaultWorld = worlds[0] ?? null;
 	const [confirmBot, setConfirmBot] = useState<BotSummary | null>(null);
 	const toast = useContext(ToastContext);
 
@@ -5355,20 +5374,10 @@ function MyBotsScreen({
 					<h1>My bots</h1>
 					<p className="sub">All bots you own across every world.</p>
 				</div>
-				<div className="actions">
-					<button className="btn primary" disabled={!defaultWorld} onClick={() => onCreateBot(defaultWorld)} type="button">
-						<Icon name="plus" size={14} />
-						New bot
-					</button>
-				</div>
 			</div>
-			{bots.length === 0 ?
-				<EmptyState
-					actionLabel={defaultWorld ? "New bot" : undefined}
-					onAction={defaultWorld ? () => onCreateBot(defaultWorld) : undefined}
-					title="You do not own any bots yet"
-				>
-					Create one in any world.
+			{worlds.length === 0 && bots.length === 0 ?
+				<EmptyState title="No worlds yet">
+					Create a world before adding bots.
 				</EmptyState>
 			:	<>
 					<FilterBox
@@ -5383,36 +5392,49 @@ function MyBotsScreen({
 							{groups.map((group) => (
 								<section className="bot-world-group" key={group.worldHandle}>
 									<div className="bot-world-head">
-										<SpaLink to={{ route: "world", worldHandle: group.worldHandle }}>
-											<Reference kind="world" link={false} name={group.worldHandle} />
-										</SpaLink>
+										{group.world ?
+											<SpaLink to={{ route: "world", worldHandle: group.worldHandle }}>
+												<Reference kind="world" link={false} name={group.worldHandle} />
+											</SpaLink>
+										:	<Reference kind="world" name={group.worldHandle} />}
 										<div className="bot-world-head-actions">
 											<span>{group.rows.length} bot{group.rows.length === 1 ? "" : "s"}</span>
-											<button
-												className="btn compact"
-												onClick={() => onRunWorldBotTicks(group.worldHandle, group.rows.map((row) => row.bot))}
-												type="button"
-											>
-												<Icon name="refresh" size={12} />
-												Run all ticks
-											</button>
+											{group.world && (
+												<button className="btn compact primary" onClick={() => onCreateBot(group.world!)} type="button">
+													<Icon name="plus" size={12} />
+													New bot
+												</button>
+											)}
+											{group.rows.length > 0 && (
+												<button
+													className="btn compact"
+													onClick={() => onRunWorldBotTicks(group.worldHandle, group.rows.map((row) => row.bot))}
+													type="button"
+												>
+													<Icon name="refresh" size={12} />
+													Run all ticks
+												</button>
+											)}
 										</div>
 									</div>
-									<div className="bot-grid">
-										{group.rows.map(({ bot, world }) => (
-											<BotCard
-												bot={bot}
-												hideWorld
-												key={bot.id}
-												onDelete={() => setConfirmBot(bot)}
-												onEdit={() => onOpen(bot)}
-												onRunTick={() => onRunBotTick(bot)}
-												onStart={() => onStartBot(bot)}
-												showActive
-												world={world}
-											/>
-										))}
-									</div>
+									{group.rows.length === 0 ?
+										<div className="empty compact-empty">No bots in this world.</div>
+									:	<div className="bot-grid">
+											{group.rows.map(({ bot, world }) => (
+												<BotCard
+													bot={bot}
+													hideWorld
+													key={bot.id}
+													onDelete={() => setConfirmBot(bot)}
+													onEdit={() => onOpen(bot)}
+													onRunTick={() => onRunBotTick(bot)}
+													onStart={() => onStartBot(bot)}
+													showActive
+													world={world}
+												/>
+											))}
+										</div>
+									}
 								</section>
 							))}
 						</div>
@@ -6328,22 +6350,37 @@ function CreateBotModal({
 	onClose,
 	onCreate,
 	open,
+	ownedBots,
 	world,
 }: {
 	busy: boolean;
 	onClose: () => void;
 	onCreate: (draft: BotDraft) => Promise<boolean>;
 	open: boolean;
+	ownedBots: BotSummary[];
 	world: WorldView | null;
 }) {
 	const [tab, setTab] = useState<BotCreateTab>("manual");
 	const [manualDraft, setManualDraft] = useState<BotDraft>(emptyBotDraft);
 	const [manualTouchedHandle, setManualTouchedHandle] = useState(false);
+	const [selectedCloneId, setSelectedCloneId] = useState<string | null>(null);
+	const [cloneDraft, setCloneDraft] = useState<BotDraft>(emptyBotDraft);
 	const [chirperSource, setChirperSource] = useState("");
 	const [importState, setImportState] = useState<ImportState>("idle");
 	const [importError, setImportError] = useState("");
 	const [importDraft, setImportDraft] = useState<BotDraft>(emptyBotDraft);
 	const toast = useContext(ToastContext);
+	const cloneSources = useMemo(
+		() =>
+			world ?
+				sortBotsForCards(
+					ownedBots.filter(
+						(bot) => bot.homeWorldId !== world.id && bot.homeWorldHandle !== world.handle,
+					),
+				)
+			:	[],
+		[ownedBots, world],
+	);
 
 	useEffect(() => {
 		if (!manualTouchedHandle) {
@@ -6356,6 +6393,8 @@ function CreateBotModal({
 			setTab("manual");
 			setManualDraft(emptyBotDraft);
 			setManualTouchedHandle(false);
+			setSelectedCloneId(null);
+			setCloneDraft(emptyBotDraft);
 			setChirperSource("");
 			setImportState("idle");
 			setImportError("");
@@ -6364,7 +6403,13 @@ function CreateBotModal({
 	}, [open]);
 
 	const manualValid = isValidBotDraft(manualDraft);
+	const cloneValid = selectedCloneId !== null && isValidBotDraft(cloneDraft);
 	const importValid = importState === "preview" && isValidBotDraft(importDraft);
+
+	function selectCloneSource(bot: BotSummary): void {
+		setSelectedCloneId(bot.id);
+		setCloneDraft(botDraftFromExistingBot(bot));
+	}
 
 	async function previewChirper(): Promise<void> {
 		if (!world) {
@@ -6410,47 +6455,40 @@ function CreateBotModal({
 	return (
 		<Modal
 			foot={
-				tab === "manual" ?
-					<>
-						<span className="help">
-							{world ? (
-								<>
-									Posting to <Reference kind="world" name={world.handle} />
-								</>
-							) : (
-								"Select a world first."
-							)}
-						</span>
-						<div className="right">
-							<button className="btn ghost" disabled={busy} onClick={onClose} type="button">
-								Cancel
-							</button>
-							<button
-								className="btn primary"
-								disabled={!manualValid || busy || !world}
-								onClick={() => void submitDraft(manualDraft)}
-								type="button"
-							>
-								Create bot
-							</button>
-						</div>
-					</>
-				:	<>
-						<span className="help">Posts, comments, and history are never imported.</span>
-						<div className="right">
-							<button className="btn ghost" disabled={busy} onClick={onClose} type="button">
-								Cancel
-							</button>
-							<button
-								className="btn primary"
-								disabled={!importValid || busy || !world}
-								onClick={() => void submitDraft(importDraft)}
-								type="button"
-							>
-								Create bot
-							</button>
-						</div>
-					</>
+				<>
+					<span className="help">
+						{tab === "chirper" ? (
+							"Posts, comments, and history are never imported."
+						) : tab === "clone" ? (
+							"Posts, comments, and history are not copied."
+						) : world ? (
+							<>
+								Posting to <Reference kind="world" name={world.handle} />
+							</>
+						) : (
+							"Select a world first."
+						)}
+					</span>
+					<div className="right">
+						<button className="btn ghost" disabled={busy} onClick={onClose} type="button">
+							Cancel
+						</button>
+						<button
+							className="btn primary"
+							disabled={
+								busy ||
+								!world ||
+								(tab === "manual" ? !manualValid : tab === "clone" ? !cloneValid : !importValid)
+							}
+							onClick={() =>
+								void submitDraft(tab === "manual" ? manualDraft : tab === "clone" ? cloneDraft : importDraft)
+							}
+							type="button"
+						>
+							Create bot
+						</button>
+					</div>
+				</>
 			}
 			onClose={onClose}
 			open={open}
@@ -6460,6 +6498,9 @@ function CreateBotModal({
 			<div className="tabs modal-tabs" role="tablist">
 				<button aria-selected={tab === "manual"} onClick={() => setTab("manual")} role="tab" type="button">
 					From scratch
+				</button>
+				<button aria-selected={tab === "clone"} onClick={() => setTab("clone")} role="tab" type="button">
+					Clone existing
 				</button>
 				<button aria-selected={tab === "chirper"} onClick={() => setTab("chirper")} role="tab" type="button">
 					<span className="tab-with-icon">
@@ -6517,6 +6558,82 @@ function CreateBotModal({
 							value={manualDraft.prompt}
 						/>
 					</Field>
+				</>
+			)}
+
+			{tab === "clone" && world && (
+				<>
+					{cloneSources.length === 0 ?
+						<div className="empty compact-empty">No owned bots in other worlds.</div>
+					:	<div className="clone-source-list">
+							{cloneSources.map((bot) => (
+								<button
+									aria-pressed={selectedCloneId === bot.id}
+									className="clone-source-option"
+									key={bot.id}
+									onClick={() => selectCloneSource(bot)}
+									type="button"
+								>
+									<Avatar actor="bot" colorSeed={bot.handle} name={bot.displayName} />
+									<span className="clone-source-body">
+										<span className="clone-source-title">
+											<span>{bot.displayName}</span>
+											<span className="clone-source-world">w/{bot.homeWorldHandle}</span>
+										</span>
+										<span className="clone-source-ref">
+											<Reference isBot kind="bot" link={false} name={bot.handle} />
+										</span>
+										<span className="clone-source-bio">{bot.shortBio}</span>
+									</span>
+								</button>
+							))}
+						</div>
+					}
+
+					{selectedCloneId && (
+						<>
+							<Field help={`bickr.local/w/${world.handle}/u/${cloneDraft.handle || "..."}`} hint="editable" label="Bickr handle">
+								<div className="input-prefix">
+									<span className="prefix">u/</span>
+									<input
+										className="input"
+										onChange={(event) =>
+											setCloneDraft((current) => ({ ...current, handle: slugify(event.target.value) }))
+										}
+										value={cloneDraft.handle}
+									/>
+								</div>
+							</Field>
+							<Field hint="editable" label="Display name">
+								<input
+									className="input"
+									maxLength={80}
+									onChange={(event) =>
+										setCloneDraft((current) => ({ ...current, displayName: event.target.value }))
+									}
+									value={cloneDraft.displayName}
+								/>
+							</Field>
+							<Field hint="editable" label="Short bio">
+								<textarea
+									className="textarea short-bio-editor"
+									maxLength={1200}
+									onChange={(event) => setCloneDraft((current) => ({ ...current, shortBio: event.target.value }))}
+									rows={4}
+									value={cloneDraft.shortBio}
+								/>
+							</Field>
+							<Field hint="editable" label="Prompt">
+								<textarea
+									className="textarea"
+									maxLength={maxBotPromptLength}
+									onChange={(event) => setCloneDraft((current) => ({ ...current, prompt: event.target.value }))}
+									rows={6}
+									value={cloneDraft.prompt}
+								/>
+							</Field>
+						</>
+					)}
 				</>
 			)}
 
@@ -9533,6 +9650,15 @@ function isValidBotDraft(draft: BotDraft): boolean {
 		draft.prompt.trim().length > 0 &&
 		draft.prompt.length <= maxBotPromptLength
 	);
+}
+
+function botDraftFromExistingBot(bot: BotSummary): BotDraft {
+	return {
+		handle: bot.handle,
+		displayName: bot.displayName,
+		shortBio: bot.shortBio,
+		prompt: bot.prompt ?? "",
+	};
 }
 
 function isValidHandle(value: string): boolean {

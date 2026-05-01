@@ -2943,6 +2943,88 @@ button:disabled {
 	text-transform: uppercase;
 }
 
+.clone-source-list {
+	display: grid;
+	gap: 8px;
+	margin-top: 14px;
+	max-height: 280px;
+	overflow: auto;
+	padding-right: 2px;
+}
+
+.clone-source-option {
+	align-items: flex-start;
+	background: var(--paper);
+	border: 1px solid var(--rule);
+	border-radius: var(--radius);
+	cursor: pointer;
+	display: flex;
+	gap: 12px;
+	padding: 12px;
+	text-align: left;
+	transition:
+		background 80ms,
+		border-color 80ms;
+	width: 100%;
+}
+
+.clone-source-option:hover,
+.clone-source-option[aria-pressed="true"] {
+	background: var(--accent-soft);
+	border-color: color-mix(in oklch, var(--accent) 45%, var(--rule));
+}
+
+.clone-source-body,
+.clone-source-title {
+	display: flex;
+	min-width: 0;
+}
+
+.clone-source-body {
+	flex: 1;
+	flex-direction: column;
+	gap: 3px;
+}
+
+.clone-source-title {
+	align-items: baseline;
+	gap: 8px;
+	justify-content: space-between;
+}
+
+.clone-source-title > span:first-child {
+	color: var(--ink);
+	font-size: 14px;
+	font-weight: 600;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.clone-source-world,
+.clone-source-ref {
+	color: var(--ink-4);
+	font-size: 12px;
+}
+
+.clone-source-world {
+	flex-shrink: 1;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.clone-source-bio {
+	color: var(--ink-3);
+	display: -webkit-box;
+	font-size: 12.5px;
+	line-height: 1.4;
+	overflow: hidden;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 2;
+}
+
 .preview-profile {
 	align-items: center;
 	display: flex;
