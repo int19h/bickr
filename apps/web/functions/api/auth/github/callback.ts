@@ -1,22 +1,21 @@
 import * as oauth from "oauth4webapi";
-import { createSession, upsertGithubUser } from "@bickr/shared/repository";
-import {
-	appendSetCookie,
-	clearCookieHeader,
-	cookieHeader,
-	cookieValue,
-	oauthReturnToCookieName,
-	oauthStateCookieName,
-	sessionCookieName,
-	type AppEnv,
-} from "../../_auth";
+import { RepositoryError, type ProviderUserProfile } from "@bickr/shared/repository";
+import { type AppEnv } from "../../_auth";
 import {
 	githubAuthorizationServer,
 	githubClient,
 	githubClientAuth,
 	githubRedirectUri,
-	oauthFetch,
 } from "./_github";
+import {
+	completeProviderSession,
+	expectedOAuthState,
+	oauthCodeVerifier,
+	oauthErrorRedirect,
+	oauthFetch,
+	oauthReturnTo,
+	oauthSuccessRedirect,
+} from "../_oauth";
 
 type GithubUserResponse = {
 	id?: number | string;
@@ -27,12 +26,17 @@ type GithubUserResponse = {
 };
 
 export const onRequestGet: PagesFunction<AppEnv> = async ({ env, request }) => {
+	const provider = "github";
+	const returnTo = oauthReturnTo(request, provider);
 	try {
-		const expectedState = cookieValue(request, oauthStateCookieName);
+		const expectedState = expectedOAuthState(request, provider);
 		if (!expectedState) {
-			return redirectWithError(request, "missing_state");
+			return oauthErrorRedirect(request, provider, "missing_state", returnTo);
 		}
-		const returnTo = sanitizeReturnTo(cookieValue(request, oauthReturnToCookieName));
+		const codeVerifier = oauthCodeVerifier(request, provider);
+		if (!codeVerifier) {
+			return oauthErrorRedirect(request, provider, "missing_verifier", returnTo);
+		}
 
 		const url = new URL(request.url);
 		const client = githubClient(env);
@@ -50,7 +54,7 @@ export const onRequestGet: PagesFunction<AppEnv> = async ({ env, request }) => {
 			githubClientAuth(env),
 			callbackParameters,
 			redirectUri,
-			oauth.nopkce,
+			codeVerifier,
 			{ [oauth.customFetch]: fetchImpl },
 		);
 		const token = await oauth.processAuthorizationCodeResponse(
@@ -59,7 +63,7 @@ export const onRequestGet: PagesFunction<AppEnv> = async ({ env, request }) => {
 			tokenResponse,
 		);
 		if (typeof token.access_token !== "string") {
-			return redirectWithError(request, "missing_token");
+			return oauthErrorRedirect(request, provider, "missing_token", returnTo);
 		}
 
 		const profileResponse = await oauth.protectedResourceRequest(
@@ -75,42 +79,25 @@ export const onRequestGet: PagesFunction<AppEnv> = async ({ env, request }) => {
 			{ [oauth.customFetch]: fetchImpl },
 		);
 		if (!profileResponse.ok) {
-			return redirectWithError(request, "profile_fetch_failed");
+			return oauthErrorRedirect(request, provider, "profile_fetch_failed", returnTo);
 		}
 
 		const profile = parseGithubProfile((await profileResponse.json()) as GithubUserResponse);
-		const user = await upsertGithubUser(env.BICKR_KV, env.BICKR_D1, profile);
-		const session = await createSession(env.BICKR_KV, user.id);
-		const response = new Response(null, {
-			status: 302,
-			headers: {
-				location: returnTo,
-				"cache-control": "no-store",
-			},
-		});
-
-		return appendSetCookie(
-			appendSetCookie(
-				appendSetCookie(
-					response,
-					cookieHeader(request, sessionCookieName, session.cookieValue, { maxAge: 60 * 60 * 24 * 30 }),
-				),
-				clearCookieHeader(request, oauthStateCookieName),
-			),
-			clearCookieHeader(request, oauthReturnToCookieName),
-		);
+		const result = await completeProviderSession(env, request, profile);
+		return oauthSuccessRedirect(request, provider, returnTo, result.sessionCookieValue);
 	} catch (error) {
 		console.error("github oauth callback failed", error);
-		return redirectWithError(request, "oauth_failed");
+		return oauthErrorRedirect(request, provider, oauthErrorCode(error), returnTo);
 	}
 };
 
-function parseGithubProfile(profile: GithubUserResponse) {
+function parseGithubProfile(profile: GithubUserResponse): ProviderUserProfile {
 	if (profile.id === undefined || profile.login === undefined) {
 		throw new Error("GitHub profile is missing required fields.");
 	}
 
 	return {
+		provider: "github",
 		subject: String(profile.id),
 		login: profile.login,
 		displayName: profile.name ?? undefined,
@@ -119,34 +106,6 @@ function parseGithubProfile(profile: GithubUserResponse) {
 	};
 }
 
-function redirectWithError(request: Request, code: string): Response {
-	const response = new Response(null, {
-		status: 302,
-		headers: {
-			location: `/?authError=${encodeURIComponent(code)}`,
-			"cache-control": "no-store",
-		},
-	});
-
-	return appendSetCookie(
-		appendSetCookie(response, clearCookieHeader(request, oauthStateCookieName)),
-		clearCookieHeader(request, oauthReturnToCookieName),
-	);
-}
-
-function sanitizeReturnTo(value: string | null): string {
-	const fallback = "/";
-	const raw = value?.trim();
-	if (!raw || raw.length > 2048 || !raw.startsWith("/") || raw.startsWith("//") || raw.includes("\\")) {
-		return fallback;
-	}
-	try {
-		const parsed = new URL(raw, "https://bickr.local");
-		if (parsed.origin !== "https://bickr.local" || parsed.pathname.startsWith("/api/")) {
-			return fallback;
-		}
-		return `${parsed.pathname}${parsed.search}${parsed.hash}` || fallback;
-	} catch {
-		return fallback;
-	}
+function oauthErrorCode(error: unknown): string {
+	return error instanceof RepositoryError && error.code === "conflict" ? "identity_conflict" : "oauth_failed";
 }

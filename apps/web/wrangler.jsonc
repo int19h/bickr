@@ -107,7 +107,8 @@
 				}
 			],
 			"vars": {
-				"GITHUB_REDIRECT_URI": "https://test.bickr.social/api/auth/github/callback"
+				"GITHUB_REDIRECT_URI": "https://test.bickr.social/api/auth/github/callback",
+				"GOOGLE_REDIRECT_URI": "https://test.bickr.social/api/auth/google/callback"
 			}
 		}
 	}

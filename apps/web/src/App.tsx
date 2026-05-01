@@ -2,6 +2,8 @@ import { createContext, useContext, useEffect, useId, useMemo, useRef, useState 
 import type { AriaRole, CSSProperties, MouseEvent as ReactMouseEvent, ReactNode } from "react";
 import {
 	defaultProviderModel,
+	authProviders,
+	type AuthProvider,
 	type BotActivityFeed,
 	type BotActivityItem,
 	type BotContextBudget,
@@ -26,6 +28,7 @@ import {
 	type HumanNotificationSummary,
 	type HumanSubscription,
 	type HumanSubscriptionScope,
+	type LinkedAuthIdentity,
 	type PublicUser,
 	type SearchPostResult,
 	type SpotlightDeliveryResult,
@@ -262,6 +265,7 @@ type IconName =
 	| "bell"
 	| "settings"
 	| "github"
+	| "google"
 	| "chirper"
 	| "info"
 	| "upload"
@@ -1291,6 +1295,22 @@ function App() {
 		return ok ? saved : null;
 	}
 
+	async function unlinkAuthIdentity(provider: AuthProvider): Promise<UserProfile | null> {
+		let saved: UserProfile | null = null;
+		const ok = await submit(async () => {
+			const result = await api<{ profile: UserProfile }>(`/api/me/auth/identities/${provider}`, {
+				method: "DELETE",
+			});
+			if (!result.ok) {
+				throw new Error(result.message);
+			}
+			saved = result.data.profile;
+			setUserProfile(result.data.profile);
+			return `Unlinked ${authProviderLabel(provider)}.`;
+		});
+		return ok ? saved : null;
+	}
+
 	async function deleteBot(bot: BotSummary): Promise<boolean> {
 		if (!profileReadyFor("deleting bots")) {
 			return false;
@@ -1558,6 +1578,7 @@ function App() {
 					{route === "profile" && (
 						<ProfileScreen
 							busy={busy}
+							onAuthIdentityUnlink={unlinkAuthIdentity}
 							onSave={updateProfile}
 							onSignOut={() => void logout()}
 							user={session.user}
@@ -1609,7 +1630,7 @@ function LoginScreen({ status }: { status: string }) {
 					forums, and bots.
 				</p>
 				<div className="oauth-list">
-					<a className="oauth-btn" href={githubLoginHref()}>
+					<a className="oauth-btn" href={authStartHref("github")}>
 						<span className="glyph">
 							<Icon name="github" size={18} />
 						</span>
@@ -1618,7 +1639,16 @@ function LoginScreen({ status }: { status: string }) {
 							<Icon name="chev" size={14} />
 						</span>
 					</a>
-					{["Google", "Apple", "Microsoft"].map((provider) => (
+					<a className="oauth-btn" href={authStartHref("google")}>
+						<span className="glyph">
+							<Icon name="google" size={18} />
+						</span>
+						<span>Continue with Google</span>
+						<span className="arrow">
+							<Icon name="chev" size={14} />
+						</span>
+					</a>
+					{["Apple", "Microsoft"].map((provider) => (
 						<button className="oauth-btn disabled" disabled key={provider} type="button">
 							<span className="glyph muted-dot" />
 							<span>{provider} coming later</span>
@@ -1634,9 +1664,13 @@ function LoginScreen({ status }: { status: string }) {
 	);
 }
 
-function githubLoginHref(): string {
-	const returnTo = `${window.location.pathname}${window.location.search}${window.location.hash}`;
-	return `/api/auth/github/start?returnTo=${encodeURIComponent(returnTo || "/")}`;
+function authStartHref(provider: AuthProvider, returnTo?: string): string {
+	const currentReturnTo = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+	return `/api/auth/${provider}/start?returnTo=${encodeURIComponent(returnTo ?? (currentReturnTo || "/"))}`;
+}
+
+function authProviderLabel(provider: AuthProvider): string {
+	return provider === "github" ? "GitHub" : "Google";
 }
 
 function Topbar({
@@ -5629,11 +5663,13 @@ function NotificationsScreen({
 
 function ProfileScreen({
 	busy,
+	onAuthIdentityUnlink,
 	onSave,
 	onSignOut,
 	user,
 }: {
 	busy: boolean;
+	onAuthIdentityUnlink: (provider: AuthProvider) => Promise<UserProfile | null>;
 	onSave: (draft: UpdateUserProfileInput) => Promise<UserProfile | null>;
 	onSignOut: () => void;
 	user: PublicUser;
@@ -5642,6 +5678,7 @@ function ProfileScreen({
 	const [draft, setDraft] = useState<ProfileDraft>(() => profileDraftFromUser(user));
 	const [loading, setLoading] = useState(true);
 	const [message, setMessage] = useState("");
+	const [pendingUnlinkProvider, setPendingUnlinkProvider] = useState<AuthProvider | null>(null);
 	const toast = useContext(ToastContext);
 
 	useEffect(() => {
@@ -5666,6 +5703,7 @@ function ProfileScreen({
 	}, [user.id]);
 
 	const profileIncomplete = !(profile?.profileComplete ?? user.profileComplete);
+	const authIdentities = profile?.authIdentities ?? [];
 	const dirty = profile ? profileDraftChanged(draft, profile) : true;
 	const valid = isValidHandle(draft.handle) && draft.displayName.trim().length > 0;
 	const canSave = (dirty || profileIncomplete) && valid && !busy && !loading;
@@ -5681,6 +5719,14 @@ function ProfileScreen({
 			setProfile(saved);
 			setDraft(profileDraftFromProfile(saved));
 			toast.push("Saved profile");
+		}
+	}
+
+	async function unlinkAuthIdentity(provider: AuthProvider): Promise<void> {
+		const saved = await onAuthIdentityUnlink(provider);
+		if (saved) {
+			setProfile(saved);
+			toast.push(`Unlinked ${authProviderLabel(provider)}`);
 		}
 	}
 
@@ -5714,9 +5760,9 @@ function ProfileScreen({
 					<div>
 						<b>Profile setup required</b>
 						<span>
-							Your account was created from GitHub, but it is not active yet. You can browse,
-							but creating worlds, forums, bots, subscriptions, and bot actions is locked until
-							you save this profile once.
+							Your account has a sign-in method, but it is not active yet. You can browse, but
+							creating worlds, forums, bots, subscriptions, and bot actions is locked until you
+							save this profile once.
 						</span>
 					</div>
 				</div>
@@ -5783,6 +5829,16 @@ function ProfileScreen({
 						<div className="card runtime-card">
 							<RuntimeRow label="User" value={`hu/${draft.handle || user.handle}`} />
 							<RuntimeRow label="Status" value={profileIncomplete ? "setup required" : "active"} />
+							{authProviders.map((provider) => (
+								<AuthIdentityRuntimeRow
+									busy={busy || loading}
+									identity={authIdentities.find((item) => item.provider === provider) ?? null}
+									key={provider}
+									onUnlink={(nextProvider) => setPendingUnlinkProvider(nextProvider)}
+									provider={provider}
+									unlinkable={authIdentities.length > 1}
+								/>
+							))}
 							<RuntimeRow label="API key" value={draft.inference.openRouterApiKeySet ? "saved" : "not set"} />
 							<RuntimeRow label="Created" value={profile ? timeAgo(profile.createdAt) : "..."} />
 							<RuntimeRow label="Updated" value={profile ? timeAgo(profile.updatedAt) : "..."} />
@@ -5790,7 +5846,63 @@ function ProfileScreen({
 					</section>
 				</aside>
 			</div>
+			<Confirm
+				body={
+					pendingUnlinkProvider ?
+						`Remove ${authProviderLabel(pendingUnlinkProvider)} as a sign-in method for this account?`
+					:	"Remove this sign-in method?"
+				}
+				confirmText="Unlink"
+				danger
+				onClose={() => setPendingUnlinkProvider(null)}
+				onConfirm={() => {
+					if (pendingUnlinkProvider) {
+						void unlinkAuthIdentity(pendingUnlinkProvider);
+					}
+				}}
+				open={Boolean(pendingUnlinkProvider)}
+				title="Unlink sign-in method?"
+			/>
 		</div>
+	);
+}
+
+function AuthIdentityRuntimeRow({
+	busy,
+	identity,
+	onUnlink,
+	provider,
+	unlinkable,
+}: {
+	busy: boolean;
+	identity: LinkedAuthIdentity | null;
+	onUnlink: (provider: AuthProvider) => void;
+	provider: AuthProvider;
+	unlinkable: boolean;
+}) {
+	return (
+		<RuntimeRow
+			label={authProviderLabel(provider)}
+			value={
+				<div className="auth-provider-value">
+					<span className="auth-provider-login">{identity ? identity.providerLogin : "not linked"}</span>
+					{identity ?
+						<button
+							className="btn ghost compact"
+							disabled={busy || !unlinkable}
+							onClick={() => onUnlink(provider)}
+							title={unlinkable ? `Unlink ${authProviderLabel(provider)}` : "Link another sign-in method first"}
+							type="button"
+						>
+							Unlink
+						</button>
+					:	<a className={`btn ghost compact ${busy ? "disabled" : ""}`} href={authStartHref(provider, "/me/profile")}>
+							Link
+						</a>
+					}
+				</div>
+			}
+		/>
 	);
 }
 
@@ -7327,6 +7439,14 @@ function Icon({ name, size = 16 }: { name: IconName; size?: number }) {
 		github: (
 			<svg fill="currentColor" height={size} viewBox="0 0 24 24" width={size}>
 				<path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.57.1.78-.25.78-.55v-2c-3.2.7-3.87-1.36-3.87-1.36-.52-1.32-1.27-1.67-1.27-1.67-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.02 1.76 2.69 1.25 3.34.96.1-.74.4-1.25.72-1.54-2.55-.29-5.23-1.27-5.23-5.66 0-1.25.45-2.27 1.18-3.07-.12-.29-.51-1.46.11-3.05 0 0 .96-.31 3.15 1.17a11 11 0 0 1 5.74 0c2.18-1.48 3.14-1.17 3.14-1.17.62 1.59.23 2.76.11 3.05.74.8 1.18 1.82 1.18 3.07 0 4.4-2.68 5.36-5.24 5.65.42.36.79 1.06.79 2.13v3.16c0 .31.21.66.79.55C20.21 21.39 23.5 17.08 23.5 12 23.5 5.65 18.35.5 12 .5z" />
+			</svg>
+		),
+		google: (
+			<svg fill="currentColor" height={size} viewBox="0 0 24 24" width={size}>
+				<path d="M21.6 12.2c0-.7-.1-1.4-.2-2H12v3.8h5.4a4.6 4.6 0 0 1-2 3v2.5h3.2c1.9-1.7 3-4.3 3-7.3z" />
+				<path d="M12 22c2.7 0 5-0.9 6.6-2.5L15.4 17c-.9.6-2 .9-3.4.9-2.6 0-4.8-1.8-5.6-4.1H3.1v2.6A10 10 0 0 0 12 22z" />
+				<path d="M6.4 13.8a6 6 0 0 1 0-3.6V7.6H3.1a10 10 0 0 0 0 8.8z" />
+				<path d="M12 6.1c1.5 0 2.8.5 3.8 1.5l2.8-2.8A9.6 9.6 0 0 0 12 2a10 10 0 0 0-8.9 5.6l3.3 2.6C7.2 7.9 9.4 6.1 12 6.1z" />
 			</svg>
 		),
 		chirper: (

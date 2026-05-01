@@ -3,13 +3,15 @@ export const indexVersion = 1;
 
 export type EntityType =
 	| "user"
-	| "providerIdentity"
 	| "session"
 	| "world"
 	| "forum"
 	| "bot"
 	| "thread"
 	| "notification";
+
+export const authProviders = ["github", "google"] as const;
+export type AuthProvider = (typeof authProviders)[number];
 
 export type EntityDocument = {
 	id: string;
@@ -28,16 +30,6 @@ export type UserDocument = EntityDocument & {
 	avatarUrl?: string;
 	inferenceSettings?: BotInferenceSettings;
 	profileCompletedAt?: string;
-};
-
-export type ProviderIdentityDocument = EntityDocument & {
-	type: "providerIdentity";
-	provider: "github";
-	providerSubject: string;
-	userId: string;
-	providerLogin: string;
-	email?: string;
-	avatarUrl?: string;
 };
 
 export type SessionDocument = EntityDocument & {
@@ -312,7 +304,17 @@ export type PublicUser = {
 	profileCompletedAt?: string;
 };
 
+export type LinkedAuthIdentity = {
+	provider: AuthProvider;
+	providerLogin: string;
+	email?: string;
+	avatarUrl?: string;
+	createdAt: string;
+	updatedAt: string;
+};
+
 export type UserProfile = PublicUser & {
+	authIdentities: LinkedAuthIdentity[];
 	inferenceSettings: BotInferenceSettings;
 	createdAt: string;
 	updatedAt: string;

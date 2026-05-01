@@ -1,5 +1,5 @@
 import { ok } from "@bickr/shared/api";
-import { updateUserProfile, userProfile } from "@bickr/shared/repository";
+import { listUserAuthIdentities, updateUserProfile, userProfile } from "@bickr/shared/repository";
 import { parseUpdateUserProfileInput } from "@bickr/shared/validation";
 import { type AppEnv, requireUser } from "../_auth";
 import { pageErrorResponse } from "../_errors";
@@ -7,7 +7,8 @@ import { pageErrorResponse } from "../_errors";
 export const onRequestGet: PagesFunction<AppEnv> = async ({ env, request }) => {
 	try {
 		const user = await requireUser(env, request);
-		return ok({ profile: userProfile(user) });
+		const authIdentities = await listUserAuthIdentities(env.BICKR_D1, user.id);
+		return ok({ profile: userProfile(user, authIdentities) });
 	} catch (error) {
 		return pageErrorResponse(error);
 	}

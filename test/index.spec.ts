@@ -3,6 +3,8 @@ import { env as testEnv } from "cloudflare:test";
 import { onRequestGet as bootstrap } from "../apps/web/functions/api/bootstrap";
 import { onRequestGet as githubStart } from "../apps/web/functions/api/auth/github/start";
 import { onRequestGet as githubCallback } from "../apps/web/functions/api/auth/github/callback";
+import { onRequestGet as googleStart } from "../apps/web/functions/api/auth/google/start";
+import { onRequestGet as googleCallback } from "../apps/web/functions/api/auth/google/callback";
 import { onRequestPost as logout } from "../apps/web/functions/api/auth/logout";
 import { onRequestPost as testLogin } from "../apps/web/functions/api/__test__/login";
 import { onRequestGet as health } from "../apps/web/functions/api/health";
@@ -16,6 +18,7 @@ import {
 	onRequestGet as getProfile,
 	onRequestPatch as patchProfile,
 } from "../apps/web/functions/api/me/profile";
+import { onRequestDelete as unlinkAuthIdentity } from "../apps/web/functions/api/me/auth/identities/[provider]";
 import { onRequestGet as runtimeHealth } from "../apps/web/functions/api/runtime/health";
 import { onRequestGet as session } from "../apps/web/functions/api/session";
 import {
@@ -70,7 +73,7 @@ import {
 	createSession,
 	listForums,
 	updateUserProfile,
-	upsertGithubUser,
+	upsertProviderUser,
 } from "../packages/shared/src/repository";
 import {
 	botActivityFeedByHandle,
@@ -86,7 +89,8 @@ import {
 	searchPosts,
 } from "../packages/shared/src/social";
 import { type BotRuntimeEvent, type ThreadDocument } from "../packages/shared/src/model";
-import { oauthReturnToCookieName, sessionCookieName, type AppEnv } from "../apps/web/functions/api/_auth";
+import { sessionCookieName, type AppEnv } from "../apps/web/functions/api/_auth";
+import { oauthCookieNames } from "../apps/web/functions/api/auth/_oauth";
 
 type RouteParams = Record<string, string>;
 
@@ -1079,6 +1083,7 @@ describe("Bickr Pages Functions", () => {
 	});
 
 	it("supports GitHub OAuth callback user upsert, session lookup, and logout", async () => {
+		const githubCookies = oauthCookieNames("github");
 		const startResponse = await githubStart(
 			contextFor<typeof githubStart>(
 				new Request(
@@ -1091,7 +1096,7 @@ describe("Bickr Pages Functions", () => {
 		expect(startResponse.status).toBe(302);
 		expect(startResponse.headers.get("location")).toContain("github.com/login/oauth/authorize");
 		expect(startResponse.headers.getSetCookie().join(";")).toContain(
-			`${oauthReturnToCookieName}=%2Fw%2Fprimary%2Ff%2Fphilosophy%2Ft%2Fthr_1`,
+			`${githubCookies.returnTo}=%2Fw%2Fprimary%2Ff%2Fphilosophy%2Ft%2Fthr_1`,
 		);
 
 		const callbackResponse = await githubCallback(
@@ -1099,7 +1104,7 @@ describe("Bickr Pages Functions", () => {
 				new Request("http://example.com/api/auth/github/callback?code=abc&state=state-1", {
 					headers: {
 						cookie:
-							"bickr_oauth_state=state-1; bickr_oauth_return_to=%2Fw%2Fprimary%2Ff%2Fphilosophy%2Ft%2Fthr_1",
+							`${githubCookies.state}=state-1; ${githubCookies.returnTo}=%2Fw%2Fprimary%2Ff%2Fphilosophy%2Ft%2Fthr_1; ${githubCookies.pkce}=verifier-1`,
 					},
 				}),
 				{},
@@ -1163,6 +1168,294 @@ describe("Bickr Pages Functions", () => {
 		);
 		expect(logoutResponse.status).toBe(200);
 		expect(logoutResponse.headers.getSetCookie().join(";")).toContain("Max-Age=0");
+	});
+
+	it("supports Google OAuth sign-in with authentication-only scopes", async () => {
+		const googleCookies = oauthCookieNames("google");
+		const startResponse = await googleStart(
+			contextFor<typeof googleStart>(
+				new Request("http://example.com/api/auth/google/start?returnTo=%2Fme%2Fprofile"),
+				{},
+				{ GOOGLE_CLIENT_ID: "google-client", OAUTH_FETCH: googleOauthFetchMock() },
+			),
+		);
+		expect(startResponse.status).toBe(302);
+		const startLocation = new URL(startResponse.headers.get("location")!);
+		expect(startLocation.origin).toBe("https://accounts.google.com");
+		expect(startLocation.searchParams.get("scope")).toBe("openid email profile");
+		expect(startLocation.searchParams.get("access_type")).toBeNull();
+		expect(startLocation.searchParams.get("prompt")).toBeNull();
+		expect(startLocation.searchParams.get("code_challenge_method")).toBe("S256");
+		const googleStartCookies = startResponse.headers.getSetCookie().join(";");
+		expect(googleStartCookies).toContain(`${googleCookies.returnTo}=%2Fme%2Fprofile`);
+		expect(googleStartCookies).toContain(`${googleCookies.pkce}=`);
+		expect(googleStartCookies).toContain(`${googleCookies.nonce}=`);
+
+		const callbackResponse = await googleCallback(
+			contextFor<typeof googleCallback>(
+				new Request("http://example.com/api/auth/google/callback?code=abc&state=state-1", {
+					headers: {
+						cookie:
+							`${googleCookies.state}=state-1; ${googleCookies.returnTo}=%2Fme%2Fprofile; ${googleCookies.pkce}=verifier-1; ${googleCookies.nonce}=nonce-1`,
+					},
+				}),
+				{},
+				{
+					GOOGLE_CLIENT_ID: "google-client",
+					GOOGLE_CLIENT_SECRET: "google-secret",
+					OAUTH_FETCH: googleOauthFetchMock(),
+				},
+			),
+		);
+		expect(callbackResponse.status).toBe(302);
+		expect(callbackResponse.headers.get("location")).toBe("/me/profile");
+		const sessionCookie = callbackResponse.headers
+			.getSetCookie()
+			.find((cookie) => cookie.startsWith(`${sessionCookieName}=`));
+		expect(sessionCookie).toBeDefined();
+
+		const profileResponse = await getProfile(
+			contextFor<typeof getProfile>(
+				new Request("http://example.com/api/me/profile", {
+					headers: { cookie: sessionCookie! },
+				}),
+			),
+		);
+		expect(await profileResponse.json()).toMatchObject({
+			ok: true,
+			data: {
+				profile: {
+					displayName: "Google Octo",
+					authIdentities: [
+						{
+							provider: "google",
+							providerLogin: "google-octo@example.com",
+							email: "google-octo@example.com",
+							avatarUrl: "https://example.com/google-octo.png",
+						},
+					],
+				},
+			},
+		});
+	});
+
+	it("links and unlinks providers without removing the last sign-in method", async () => {
+		const githubCookie = await authCookieFor({
+			subject: "github-link-1",
+			login: "github-link",
+			displayName: "GitHub Link",
+		});
+		const googleCookies = oauthCookieNames("google");
+		const linkGoogleResponse = await googleCallback(
+			contextFor<typeof googleCallback>(
+				new Request("http://example.com/api/auth/google/callback?code=abc&state=state-1", {
+					headers: {
+						cookie:
+							`${githubCookie}; ${googleCookies.state}=state-1; ${googleCookies.returnTo}=%2Fme%2Fprofile; ${googleCookies.pkce}=verifier-1; ${googleCookies.nonce}=nonce-1`,
+					},
+				}),
+				{},
+				{
+					GOOGLE_CLIENT_ID: "google-client",
+					GOOGLE_CLIENT_SECRET: "google-secret",
+					OAUTH_FETCH: googleOauthFetchMock({ subject: "google-link-1", email: "google-link@example.com" }),
+				},
+			),
+		);
+		expect(linkGoogleResponse.status).toBe(302);
+		expect(linkGoogleResponse.headers.get("location")).toBe("/me/profile");
+
+		let profileResponse = await getProfile(
+			contextFor<typeof getProfile>(
+				new Request("http://example.com/api/me/profile", { headers: { cookie: githubCookie } }),
+			),
+		);
+		expect(await profileResponse.json()).toMatchObject({
+			ok: true,
+			data: {
+				profile: {
+					authIdentities: expect.arrayContaining([
+						expect.objectContaining({ provider: "github", providerLogin: "github-link" }),
+						expect.objectContaining({ provider: "google", providerLogin: "google-link@example.com" }),
+					]),
+				},
+			},
+		});
+
+		const unlinkGoogleResponse = await unlinkAuthIdentity(
+			contextFor<typeof unlinkAuthIdentity>(
+				new Request("http://example.com/api/me/auth/identities/google", {
+					method: "DELETE",
+					headers: { cookie: githubCookie },
+				}),
+				{ provider: "google" },
+			),
+		);
+		expect(unlinkGoogleResponse.status).toBe(200);
+		expect(await unlinkGoogleResponse.json()).toMatchObject({
+			ok: true,
+			data: {
+				profile: {
+					authIdentities: [expect.objectContaining({ provider: "github" })],
+				},
+			},
+		});
+
+		const unlinkMissingResponse = await unlinkAuthIdentity(
+			contextFor<typeof unlinkAuthIdentity>(
+				new Request("http://example.com/api/me/auth/identities/google", {
+					method: "DELETE",
+					headers: { cookie: githubCookie },
+				}),
+				{ provider: "google" },
+			),
+		);
+		expect(unlinkMissingResponse.status).toBe(404);
+
+		const unlinkLastResponse = await unlinkAuthIdentity(
+			contextFor<typeof unlinkAuthIdentity>(
+				new Request("http://example.com/api/me/auth/identities/github", {
+					method: "DELETE",
+					headers: { cookie: githubCookie },
+				}),
+				{ provider: "github" },
+			),
+		);
+		expect(unlinkLastResponse.status).toBe(409);
+
+		const googleFirstResponse = await googleCallback(
+			contextFor<typeof googleCallback>(
+				new Request("http://example.com/api/auth/google/callback?code=abc&state=state-2", {
+					headers: {
+						cookie:
+							`${googleCookies.state}=state-2; ${googleCookies.returnTo}=%2Fme%2Fprofile; ${googleCookies.pkce}=verifier-2; ${googleCookies.nonce}=nonce-2`,
+					},
+				}),
+				{},
+				{
+					GOOGLE_CLIENT_ID: "google-client",
+					GOOGLE_CLIENT_SECRET: "google-secret",
+					OAUTH_FETCH: googleOauthFetchMock({
+						subject: "google-first",
+						email: "google-first@example.com",
+						nonce: "nonce-2",
+					}),
+				},
+			),
+		);
+		const googleFirstCookie = googleFirstResponse.headers
+			.getSetCookie()
+			.find((cookie) => cookie.startsWith(`${sessionCookieName}=`));
+		expect(googleFirstCookie).toBeDefined();
+		const githubCookies = oauthCookieNames("github");
+		const linkGithubResponse = await githubCallback(
+			contextFor<typeof githubCallback>(
+				new Request("http://example.com/api/auth/github/callback?code=abc&state=state-3", {
+					headers: {
+						cookie:
+							`${googleFirstCookie}; ${githubCookies.state}=state-3; ${githubCookies.returnTo}=%2Fme%2Fprofile; ${githubCookies.pkce}=verifier-3`,
+					},
+				}),
+				{},
+				{
+					GITHUB_CLIENT_ID: "client-id",
+					GITHUB_CLIENT_SECRET: "client-secret",
+					OAUTH_FETCH: oauthFetchMock,
+				},
+			),
+		);
+		expect(linkGithubResponse.status).toBe(302);
+		profileResponse = await getProfile(
+			contextFor<typeof getProfile>(
+				new Request("http://example.com/api/me/profile", { headers: { cookie: googleFirstCookie! } }),
+			),
+		);
+		expect(await profileResponse.json()).toMatchObject({
+			ok: true,
+			data: {
+				profile: {
+					authIdentities: expect.arrayContaining([
+						expect.objectContaining({ provider: "google", providerLogin: "google-first@example.com" }),
+						expect.objectContaining({ provider: "github", providerLogin: "octocat" }),
+					]),
+				},
+			},
+		});
+	});
+
+	it("does not auto-link providers by email and rejects links owned by another account", async () => {
+		const githubUser = await upsertProviderUser(testEnv.BICKR_KV, testEnv.BICKR_D1, {
+			provider: "github",
+			subject: "github-shared-email",
+			login: "shared-github",
+			displayName: "Shared GitHub",
+			email: "shared@example.com",
+		});
+		await updateUserProfile(testEnv.BICKR_KV, testEnv.BICKR_D1, githubUser.id, {
+			handle: githubUser.handle,
+			displayName: githubUser.displayName,
+		});
+		const githubSession = await createSession(testEnv.BICKR_KV, githubUser.id);
+		const githubCookie = `${sessionCookieName}=${encodeURIComponent(githubSession.cookieValue)}`;
+		const googleCookies = oauthCookieNames("google");
+		const googleSignInResponse = await googleCallback(
+			contextFor<typeof googleCallback>(
+				new Request("http://example.com/api/auth/google/callback?code=abc&state=state-1", {
+					headers: {
+						cookie:
+							`${googleCookies.state}=state-1; ${googleCookies.returnTo}=%2Fme%2Fprofile; ${googleCookies.pkce}=verifier-1; ${googleCookies.nonce}=nonce-1`,
+					},
+				}),
+				{},
+				{
+					GOOGLE_CLIENT_ID: "google-client",
+					GOOGLE_CLIENT_SECRET: "google-secret",
+					OAUTH_FETCH: googleOauthFetchMock({ subject: "google-shared-email", email: "shared@example.com" }),
+				},
+			),
+		);
+		const googleCookie = googleSignInResponse.headers
+			.getSetCookie()
+			.find((cookie) => cookie.startsWith(`${sessionCookieName}=`));
+		expect(googleCookie).toBeDefined();
+		const googleSessionResponse = await session(
+			contextFor<typeof session>(
+				new Request("http://example.com/api/session", { headers: { cookie: googleCookie! } }),
+			),
+		);
+		const googleSessionPayload = await googleSessionResponse.json() as {
+			data: { authenticated: boolean; user: { id: string } | null };
+		};
+		expect(googleSessionPayload).toMatchObject({
+			ok: true,
+			data: {
+				authenticated: true,
+			},
+		});
+		expect(googleSessionPayload.data.user?.id).not.toBe(githubUser.id);
+
+		const conflictResponse = await googleCallback(
+			contextFor<typeof googleCallback>(
+				new Request("http://example.com/api/auth/google/callback?code=abc&state=state-2", {
+					headers: {
+						cookie:
+							`${githubCookie}; ${googleCookies.state}=state-2; ${googleCookies.returnTo}=%2Fme%2Fprofile; ${googleCookies.pkce}=verifier-2; ${googleCookies.nonce}=nonce-2`,
+					},
+				}),
+				{},
+				{
+					GOOGLE_CLIENT_ID: "google-client",
+					GOOGLE_CLIENT_SECRET: "google-secret",
+					OAUTH_FETCH: googleOauthFetchMock({
+						subject: "google-shared-email",
+						email: "shared@example.com",
+						nonce: "nonce-2",
+					}),
+				},
+			),
+		);
+		expect(conflictResponse.status).toBe(302);
+		expect(conflictResponse.headers.get("location")).toBe("/me/profile?authError=identity_conflict");
 	});
 
 	it("creates and lists worlds and forums with duplicate conflicts", async () => {
@@ -3629,7 +3922,8 @@ async function authCookie(): Promise<string> {
 }
 
 async function authCookieFor(profile: { subject: string; login: string; displayName: string }): Promise<string> {
-	const user = await upsertGithubUser(testEnv.BICKR_KV, testEnv.BICKR_D1, {
+	const user = await upsertProviderUser(testEnv.BICKR_KV, testEnv.BICKR_D1, {
+		provider: "github",
 		subject: profile.subject,
 		login: profile.login,
 		displayName: profile.displayName,
@@ -3906,6 +4200,100 @@ async function oauthFetchMock(input: RequestInfo | URL, init?: RequestInit): Pro
 	}
 
 	return new Response("Unexpected OAuth request", { status: 500 });
+}
+
+function googleOauthFetchMock(
+	overrides: Partial<{
+		subject: string;
+		email: string;
+		name: string;
+		avatarUrl: string;
+		nonce: string;
+	}> = {},
+): typeof fetch {
+	const profile = {
+		subject: overrides.subject ?? "google-123",
+		email: overrides.email ?? "google-octo@example.com",
+		name: overrides.name ?? "Google Octo",
+		avatarUrl: overrides.avatarUrl ?? "https://example.com/google-octo.png",
+		nonce: overrides.nonce ?? "nonce-1",
+	};
+	return (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+		const url = requestUrl(input);
+		if (url.includes("/.well-known/openid-configuration")) {
+			return Response.json({
+				issuer: "https://accounts.google.com",
+				authorization_endpoint: "https://accounts.google.com/o/oauth2/v2/auth",
+				token_endpoint: "https://oauth2.googleapis.com/token",
+				userinfo_endpoint: "https://openidconnect.googleapis.com/v1/userinfo",
+				jwks_uri: "https://www.googleapis.com/oauth2/v3/certs",
+				response_types_supported: ["code"],
+				subject_types_supported: ["public"],
+				id_token_signing_alg_values_supported: ["RS256"],
+			});
+		}
+
+		if (url.includes("oauth2.googleapis.com/token")) {
+			expect(init?.method).toBe("POST");
+			const params = requestBodyParams(init);
+			expect(params.get("code_verifier")).toMatch(/^verifier-/);
+			expect(params.get("access_type")).toBeNull();
+			return Response.json({
+				access_token: `google_access_${profile.subject}`,
+				token_type: "bearer",
+				scope: "openid email profile",
+				id_token: googleIdToken({
+					aud: "google-client",
+					iss: "https://accounts.google.com",
+					sub: profile.subject,
+					email: profile.email,
+					name: profile.name,
+					picture: profile.avatarUrl,
+					nonce: profile.nonce,
+				}),
+			});
+		}
+
+		if (url.includes("openidconnect.googleapis.com/v1/userinfo")) {
+			return Response.json({
+				sub: profile.subject,
+				email: profile.email,
+				email_verified: true,
+				name: profile.name,
+				picture: profile.avatarUrl,
+			});
+		}
+
+		return new Response("Unexpected Google OAuth request", { status: 500 });
+	}) as typeof fetch;
+}
+
+function googleIdToken(claims: Record<string, unknown>): string {
+	const now = Math.floor(Date.now() / 1000);
+	return [
+		base64UrlJson({ alg: "RS256", typ: "JWT" }),
+		base64UrlJson({
+			exp: now + 600,
+			iat: now,
+			...claims,
+		}),
+		"signature",
+	].join(".");
+}
+
+function base64UrlJson(value: unknown): string {
+	return btoa(JSON.stringify(value)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/u, "");
+}
+
+function requestBodyParams(init?: RequestInit): URLSearchParams {
+	const body = init?.body;
+	if (body instanceof URLSearchParams) {
+		return body;
+	}
+	if (typeof body === "string") {
+		return new URLSearchParams(body);
+	}
+	throw new Error("Expected URLSearchParams request body.");
 }
 
 function requestUrl(input: RequestInfo | URL): string {

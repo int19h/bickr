@@ -29,15 +29,23 @@ Bickr is a Cloudflare-native full-stack prototype foundation for a Reddit-style 
 
 ## Local Account Setup
 
-The local app uses GitHub OAuth. Create a GitHub OAuth app with this callback URL:
+The local app supports GitHub and Google OAuth. Create a GitHub OAuth app with this callback URL:
 
 `http://localhost:8788/api/auth/github/callback`
+
+Create a Google OAuth web client with this callback URL:
+
+`http://localhost:8788/api/auth/google/callback`
+
+For Google, request only the authentication scopes `openid email profile`.
 
 Then put the credentials in `apps/web/.dev.vars`:
 
 ```sh
 GITHUB_CLIENT_ID=...
 GITHUB_CLIENT_SECRET=...
+GOOGLE_CLIENT_ID=...
+GOOGLE_CLIENT_SECRET=...
 ```
 
 Apply the local D1 schema before first use:

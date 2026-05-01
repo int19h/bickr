@@ -1,6 +1,8 @@
 import { makeId, randomToken, sha256Hex } from "./ids";
 import {
 	schemaVersion,
+	authProviders,
+	type AuthProvider,
 	type BotInferenceSettingsInput,
 	type BotInferenceSettings,
 	type BotDocument,
@@ -24,7 +26,7 @@ import {
 	type OpenRouterWebSearchUserLocationInput,
 	type ForumDocument,
 	type ForumSummary,
-	type ProviderIdentityDocument,
+	type LinkedAuthIdentity,
 	type PublicUser,
 	type SessionDocument,
 	type UpdateBotInput,
@@ -60,12 +62,24 @@ export class RepositoryError extends Error {
 	}
 }
 
-export type GithubUserProfile = {
+export type ProviderUserProfile = {
+	provider: AuthProvider;
 	subject: string;
 	login: string;
 	displayName?: string;
 	email?: string;
 	avatarUrl?: string;
+};
+
+type ProviderIdentityRow = {
+	provider: string;
+	providerSubject: string;
+	userId: string;
+	providerLogin: string;
+	email: string | null;
+	avatarUrl: string | null;
+	createdAt: string;
+	updatedAt: string;
 };
 
 export type SessionCreateResult = {
@@ -88,20 +102,14 @@ export const defaultTickSettings: BotTickSettings = {
 export const defaultInferenceSettings: BotInferenceSettings = {};
 export const defaultToolSettings: BotToolSettings = {};
 
-export async function upsertGithubUser(
+export async function upsertProviderUser(
 	kv: KVNamespaceLike,
 	db: D1DatabaseLike,
-	profile: GithubUserProfile,
+	input: ProviderUserProfile,
 	now = new Date().toISOString(),
 ): Promise<UserDocument> {
-	const existingIdentity = await db
-		.prepare(
-			`SELECT user_id AS userId
-			 FROM provider_identities
-			 WHERE provider = ? AND provider_subject = ?`,
-		)
-		.bind("github", profile.subject)
-		.first<{ userId: string }>();
+	const profile = normalizeProviderProfile(input);
+	const existingIdentity = await providerIdentityBySubject(db, profile.provider, profile.subject);
 
 	if (existingIdentity) {
 		const user = await readJson<UserDocument>(kv, kvKeys.user(existingIdentity.userId));
@@ -109,27 +117,12 @@ export async function upsertGithubUser(
 			throw new RepositoryError("server_error", "User document is missing.", 500);
 		}
 
-		await db
-			.prepare(
-				`UPDATE provider_identities
-				 SET provider_login = ?, email = ?, avatar_url = ?, updated_at = ?
-				 WHERE provider = ? AND provider_subject = ?`,
-			)
-			.bind(
-				profile.login,
-				profile.email ?? null,
-				profile.avatarUrl ?? null,
-				now,
-				"github",
-				profile.subject,
-			)
-			.run();
+		await updateProviderIdentity(db, profile, now);
 
-		return user;
+		return normalizeUserDefaults(user);
 	}
 
 	const userId = makeId("usr");
-	const providerIdentityId = makeId("pid");
 	const handle = await uniqueUserHandle(db, profile.login);
 	const displayName = profile.displayName?.trim() || profile.login;
 	const user: UserDocument = {
@@ -143,23 +136,8 @@ export async function upsertGithubUser(
 		createdAt: now,
 		updatedAt: now,
 	};
-	const identity: ProviderIdentityDocument = {
-		id: providerIdentityId,
-		type: "providerIdentity",
-		schemaVersion,
-		revision: 1,
-		provider: "github",
-		providerSubject: profile.subject,
-		userId,
-		providerLogin: profile.login,
-		...(profile.email ? { email: profile.email } : {}),
-		...(profile.avatarUrl ? { avatarUrl: profile.avatarUrl } : {}),
-		createdAt: now,
-		updatedAt: now,
-	};
 
 	await writeJson(kv, kvKeys.user(userId), user);
-	await writeJson(kv, kvKeys.providerIdentity("github", profile.subject), identity);
 	await db
 		.prepare(
 			`INSERT INTO users_index (
@@ -175,7 +153,7 @@ export async function upsertGithubUser(
 			) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		)
 		.bind(
-			"github",
+			profile.provider,
 			profile.subject,
 			user.id,
 			profile.login,
@@ -186,9 +164,234 @@ export async function upsertGithubUser(
 		)
 		.run();
 	await putObjectIndex(db, user, "user");
-	await putObjectIndex(db, identity, "providerIdentity");
 
 	return user;
+}
+
+export async function linkProviderIdentity(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	userId: string,
+	input: ProviderUserProfile,
+	now = new Date().toISOString(),
+): Promise<UserDocument> {
+	const profile = normalizeProviderProfile(input);
+	const user = await userById(kv, userId);
+	const existingIdentity = await providerIdentityBySubject(db, profile.provider, profile.subject);
+	if (existingIdentity) {
+		if (existingIdentity.userId !== user.id) {
+			throw new RepositoryError(
+				"conflict",
+				`That ${providerLabel(profile.provider)} account is already linked to another Bickr account.`,
+				409,
+			);
+		}
+		await updateProviderIdentity(db, profile, now);
+		return user;
+	}
+
+	const existingProviderForUser = await providerIdentityForUserProvider(db, user.id, profile.provider);
+	if (existingProviderForUser) {
+		throw new RepositoryError(
+			"conflict",
+			`This account already has a ${providerLabel(profile.provider)} sign-in method linked.`,
+			409,
+		);
+	}
+
+	await db
+		.prepare(
+			`INSERT INTO provider_identities (
+				provider, provider_subject, user_id, provider_login, email, avatar_url, created_at, updated_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		)
+		.bind(
+			profile.provider,
+			profile.subject,
+			user.id,
+			profile.login,
+			profile.email ?? null,
+			profile.avatarUrl ?? null,
+			now,
+			now,
+		)
+		.run();
+
+	return user;
+}
+
+export async function unlinkProviderIdentity(
+	db: D1DatabaseLike,
+	userId: string,
+	provider: AuthProvider,
+): Promise<LinkedAuthIdentity[]> {
+	const identities = await listUserAuthIdentities(db, userId);
+	if (!identities.some((identity) => identity.provider === provider)) {
+		throw new RepositoryError("not_found", "Sign-in method is not linked to this account.", 404);
+	}
+	if (identities.length <= 1) {
+		throw new RepositoryError("conflict", "At least one sign-in method must remain linked.", 409);
+	}
+
+	const result = await db
+		.prepare(
+			`DELETE FROM provider_identities
+			 WHERE provider = ? AND user_id = ?
+			 AND EXISTS (
+				SELECT 1
+				FROM provider_identities AS remaining
+				WHERE remaining.user_id = provider_identities.user_id
+					AND remaining.provider != provider_identities.provider
+			 )`,
+		)
+		.bind(provider, userId)
+		.run();
+	if ((result.meta?.changes ?? 0) < 1) {
+		throw new RepositoryError("conflict", "At least one sign-in method must remain linked.", 409);
+	}
+
+	return listUserAuthIdentities(db, userId);
+}
+
+export async function listUserAuthIdentities(
+	db: D1DatabaseLike,
+	userId: string,
+): Promise<LinkedAuthIdentity[]> {
+	const result = await db
+		.prepare(
+			`SELECT
+				provider,
+				provider_subject AS providerSubject,
+				user_id AS userId,
+				provider_login AS providerLogin,
+				email,
+				avatar_url AS avatarUrl,
+				created_at AS createdAt,
+				updated_at AS updatedAt
+			 FROM provider_identities
+			 WHERE user_id = ?
+			 ORDER BY provider ASC`,
+		)
+		.bind(userId)
+		.all<ProviderIdentityRow>();
+
+	return (result.results ?? []).flatMap((row) => {
+		const provider = authProviderFromString(row.provider);
+		if (!provider) {
+			return [];
+		}
+		return [
+			{
+				provider,
+				providerLogin: row.providerLogin,
+				...(row.email ? { email: row.email } : {}),
+				...(row.avatarUrl ? { avatarUrl: row.avatarUrl } : {}),
+				createdAt: row.createdAt,
+				updatedAt: row.updatedAt,
+			},
+		];
+	});
+}
+
+function normalizeProviderProfile(profile: ProviderUserProfile): ProviderUserProfile {
+	const provider = authProviderFromString(profile.provider);
+	if (!provider) {
+		throw new RepositoryError("bad_request", "Auth provider is not supported.", 400);
+	}
+
+	const subject = profile.subject.trim();
+	const login = profile.login.trim();
+	if (!subject || !login) {
+		throw new RepositoryError("bad_request", "Provider profile is missing required fields.", 400);
+	}
+
+	const displayName = profile.displayName?.trim();
+	const email = profile.email?.trim();
+	const avatarUrl = profile.avatarUrl?.trim();
+	return {
+		provider,
+		subject,
+		login,
+		...(displayName ? { displayName } : {}),
+		...(email ? { email } : {}),
+		...(avatarUrl ? { avatarUrl } : {}),
+	};
+}
+
+function authProviderFromString(value: string): AuthProvider | null {
+	return (authProviders as readonly string[]).includes(value) ? (value as AuthProvider) : null;
+}
+
+function providerLabel(provider: AuthProvider): string {
+	return provider === "github" ? "GitHub" : "Google";
+}
+
+async function providerIdentityBySubject(
+	db: D1DatabaseLike,
+	provider: AuthProvider,
+	subject: string,
+): Promise<ProviderIdentityRow | null> {
+	return db
+		.prepare(
+			`SELECT
+				provider,
+				provider_subject AS providerSubject,
+				user_id AS userId,
+				provider_login AS providerLogin,
+				email,
+				avatar_url AS avatarUrl,
+				created_at AS createdAt,
+				updated_at AS updatedAt
+			 FROM provider_identities
+			 WHERE provider = ? AND provider_subject = ?`,
+		)
+		.bind(provider, subject)
+		.first<ProviderIdentityRow>();
+}
+
+async function providerIdentityForUserProvider(
+	db: D1DatabaseLike,
+	userId: string,
+	provider: AuthProvider,
+): Promise<ProviderIdentityRow | null> {
+	return db
+		.prepare(
+			`SELECT
+				provider,
+				provider_subject AS providerSubject,
+				user_id AS userId,
+				provider_login AS providerLogin,
+				email,
+				avatar_url AS avatarUrl,
+				created_at AS createdAt,
+				updated_at AS updatedAt
+			 FROM provider_identities
+			 WHERE user_id = ? AND provider = ?`,
+		)
+		.bind(userId, provider)
+		.first<ProviderIdentityRow>();
+}
+
+async function updateProviderIdentity(
+	db: D1DatabaseLike,
+	profile: ProviderUserProfile,
+	now: string,
+): Promise<void> {
+	await db
+		.prepare(
+			`UPDATE provider_identities
+			 SET provider_login = ?, email = ?, avatar_url = ?, updated_at = ?
+			 WHERE provider = ? AND provider_subject = ?`,
+		)
+		.bind(
+			profile.login,
+			profile.email ?? null,
+			profile.avatarUrl ?? null,
+			now,
+			profile.provider,
+			profile.subject,
+		)
+		.run();
 }
 
 export async function createSession(
@@ -260,10 +463,11 @@ export function publicUser(user: UserDocument): PublicUser {
 	};
 }
 
-export function userProfile(user: UserDocument): UserProfile {
+export function userProfile(user: UserDocument, authIdentities: LinkedAuthIdentity[] = []): UserProfile {
 	const normalized = normalizeUserDefaults(user);
 	return {
 		...publicUser(normalized),
+		authIdentities,
 		inferenceSettings: publicInferenceSettings(normalized.inferenceSettings),
 		createdAt: normalized.createdAt,
 		updatedAt: normalized.updatedAt,
@@ -330,7 +534,7 @@ export async function updateUserProfile(
 		.run();
 	await putObjectIndex(db, updated, "user");
 
-	return userProfile(updated);
+	return userProfile(updated, await listUserAuthIdentities(db, updated.id));
 }
 
 export async function listWorlds(db: D1DatabaseLike): Promise<WorldSummary[]> {

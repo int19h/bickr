@@ -1,10 +1,11 @@
 import { fail, ok, readJsonBody } from "@bickr/shared/api";
 import {
 	createSession,
-	upsertGithubUser,
+	listUserAuthIdentities,
+	upsertProviderUser,
 	updateUserProfile,
 	userProfile,
-	type GithubUserProfile,
+	type ProviderUserProfile,
 } from "@bickr/shared/repository";
 import { asRecord, parseUpdateUserProfileInput, requiredText } from "@bickr/shared/validation";
 import {
@@ -28,10 +29,10 @@ export const onRequestPost: PagesFunction<AppEnv> = async ({ env, request }) => 
 		}
 
 		const input = asRecord(await readJsonBody(request));
-		const profile = testGithubProfile(input);
-		const user = await upsertGithubUser(env.BICKR_KV, env.BICKR_D1, profile);
+		const profile = testProviderProfile(input);
+		const user = await upsertProviderUser(env.BICKR_KV, env.BICKR_D1, profile);
 		const completedProfile =
-			input.profileComplete === false ? userProfile(user)
+			input.profileComplete === false ? userProfile(user, await listUserAuthIdentities(env.BICKR_D1, user.id))
 			: await updateUserProfile(
 					env.BICKR_KV,
 					env.BICKR_D1,
@@ -56,9 +57,10 @@ export const onRequestPost: PagesFunction<AppEnv> = async ({ env, request }) => 
 	}
 };
 
-function testGithubProfile(input: Record<string, unknown>): GithubUserProfile {
+function testProviderProfile(input: Record<string, unknown>): ProviderUserProfile {
 	const login = requiredText(input.login ?? input.handle, "Login", 80);
 	return {
+		provider: "github",
 		subject: requiredText(input.subject ?? `test:${login}`, "Subject", 160),
 		login,
 		displayName:

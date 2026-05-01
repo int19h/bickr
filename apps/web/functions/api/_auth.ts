@@ -2,8 +2,6 @@ import { publicUser, userForSessionToken, type RepositoryError } from "@bickr/sh
 import { type SessionPayload, type UserDocument } from "@bickr/shared/model";
 
 export const sessionCookieName = "bickr_session";
-export const oauthStateCookieName = "bickr_oauth_state";
-export const oauthReturnToCookieName = "bickr_oauth_return_to";
 
 export type AppEnv = Env & {
 	AGENT_RUNTIME: Fetcher;
@@ -14,6 +12,9 @@ export type AppEnv = Env & {
 	GITHUB_CLIENT_ID?: string;
 	GITHUB_CLIENT_SECRET?: string;
 	GITHUB_REDIRECT_URI?: string;
+	GOOGLE_CLIENT_ID?: string;
+	GOOGLE_CLIENT_SECRET?: string;
+	GOOGLE_REDIRECT_URI?: string;
 	OAUTH_FETCH?: typeof fetch;
 	CHIRPER_FETCH?: typeof fetch;
 	TEST_AUTH_SECRET?: string;

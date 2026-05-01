@@ -32,7 +32,3 @@ export function githubRedirectUri(env: AppEnv, request: Request): string {
 
 	return new URL("/api/auth/github/callback", new URL(request.url).origin).toString();
 }
-
-export function oauthFetch(env: AppEnv): typeof fetch {
-	return env.OAUTH_FETCH ?? fetch;
-}

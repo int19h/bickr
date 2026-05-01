@@ -2,8 +2,6 @@ import { type EntityDocument } from "./model";
 
 export const kvKeys = {
 	user: (userId: string) => `v1:user:${userId}`,
-	providerIdentity: (provider: string, subject: string) =>
-		`v1:provider-identity:${provider}:${subject}`,
 	session: (sessionHash: string) => `v1:session:${sessionHash}`,
 	world: (worldId: string) => `v1:world:${worldId}`,
 	forum: (forumId: string) => `v1:forum:${forumId}`,
@@ -22,7 +20,10 @@ export type KVNamespaceLike = {
 export type D1Result<T = unknown> = {
 	results?: T[];
 	success: boolean;
-	meta?: unknown;
+	meta?: {
+		changes?: number;
+		[key: string]: unknown;
+	};
 };
 
 export type D1PreparedStatementLike = {
