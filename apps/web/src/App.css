@@ -2695,6 +2695,11 @@ button:disabled {
 	max-width: 720px;
 }
 
+.modal.clone-modal {
+	height: min(860px, calc(100vh - 32px));
+	max-height: calc(100vh - 32px);
+}
+
 .modal-head {
 	align-items: center;
 	border-bottom: 1px solid var(--rule);
@@ -2943,12 +2948,28 @@ button:disabled {
 	text-transform: uppercase;
 }
 
+.clone-tab {
+	display: grid;
+	gap: 16px;
+	min-height: 0;
+}
+
+.clone-source-picker {
+	display: grid;
+	gap: 0;
+	min-height: 0;
+}
+
+.clone-search {
+	background: var(--paper);
+	margin-bottom: 10px;
+}
+
 .clone-source-list {
 	display: grid;
 	gap: 8px;
-	margin-top: 14px;
-	max-height: 280px;
-	overflow: auto;
+	max-height: clamp(220px, calc(100vh - 330px), 430px);
+	overflow-y: auto;
 	padding-right: 2px;
 }
 
@@ -3023,6 +3044,11 @@ button:disabled {
 	overflow: hidden;
 	-webkit-box-orient: vertical;
 	-webkit-line-clamp: 2;
+}
+
+.clone-draft-fields {
+	display: grid;
+	gap: 16px;
 }
 
 .preview-profile {

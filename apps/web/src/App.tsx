@@ -6342,6 +6342,7 @@ function CreateBotModal({
 	const [manualTouchedHandle, setManualTouchedHandle] = useState(false);
 	const [selectedCloneId, setSelectedCloneId] = useState<string | null>(null);
 	const [cloneDraft, setCloneDraft] = useState<BotDraft>(emptyBotDraft);
+	const [cloneSearch, setCloneSearch] = useState("");
 	const [chirperSource, setChirperSource] = useState("");
 	const [importState, setImportState] = useState<ImportState>("idle");
 	const [importError, setImportError] = useState("");
@@ -6358,6 +6359,10 @@ function CreateBotModal({
 			:	[],
 		[ownedBots, world],
 	);
+	const visibleCloneSources = useMemo(
+		() => cloneSources.filter((bot) => matchesFilter(cloneSearch, bot.displayName, bot.handle)),
+		[cloneSearch, cloneSources],
+	);
 
 	useEffect(() => {
 		if (!manualTouchedHandle) {
@@ -6372,6 +6377,7 @@ function CreateBotModal({
 			setManualTouchedHandle(false);
 			setSelectedCloneId(null);
 			setCloneDraft(emptyBotDraft);
+			setCloneSearch("");
 			setChirperSource("");
 			setImportState("idle");
 			setImportError("");
@@ -6468,6 +6474,7 @@ function CreateBotModal({
 				</>
 			}
 			onClose={onClose}
+			className={tab === "clone" ? "clone-modal" : undefined}
 			open={open}
 			title="New bot"
 			wide
@@ -6539,36 +6546,52 @@ function CreateBotModal({
 			)}
 
 			{tab === "clone" && world && (
-				<>
+				<div className="clone-tab">
 					{cloneSources.length === 0 ?
 						<div className="empty compact-empty">No owned bots in other worlds.</div>
-					:	<div className="clone-source-list">
-							{cloneSources.map((bot) => (
-								<button
-									aria-pressed={selectedCloneId === bot.id}
-									className="clone-source-option"
-									key={bot.id}
-									onClick={() => selectCloneSource(bot)}
-									type="button"
-								>
-									<Avatar actor="bot" colorSeed={bot.handle} name={bot.displayName} />
-									<span className="clone-source-body">
-										<span className="clone-source-title">
-											<span>{bot.displayName}</span>
-											<span className="clone-source-world">w/{bot.homeWorldHandle}</span>
-										</span>
-										<span className="clone-source-ref">
-											<Reference isBot kind="bot" link={false} name={bot.handle} />
-										</span>
-										<span className="clone-source-bio">{bot.shortBio}</span>
-									</span>
-								</button>
-							))}
+					:	<div className="clone-source-picker">
+							<div className="mini-label">Clone from</div>
+							<div className="spot-search clone-search">
+								<Icon name="search" size={13} />
+								<input
+									aria-label="Filter clone sources"
+									className="input"
+									onChange={(event) => setCloneSearch(event.target.value)}
+									placeholder="Filter by display name or username"
+									value={cloneSearch}
+								/>
+							</div>
+							{visibleCloneSources.length === 0 ?
+								<div className="empty compact-empty">No bots match this filter.</div>
+							:	<div className="clone-source-list">
+									{visibleCloneSources.map((bot) => (
+										<button
+											aria-pressed={selectedCloneId === bot.id}
+											className="clone-source-option"
+											key={bot.id}
+											onClick={() => selectCloneSource(bot)}
+											type="button"
+										>
+											<Avatar actor="bot" colorSeed={bot.handle} name={bot.displayName} />
+											<span className="clone-source-body">
+												<span className="clone-source-title">
+													<span>{bot.displayName}</span>
+													<span className="clone-source-world">w/{bot.homeWorldHandle}</span>
+												</span>
+												<span className="clone-source-ref">
+													<Reference isBot kind="bot" link={false} name={bot.handle} />
+												</span>
+												<span className="clone-source-bio">{bot.shortBio}</span>
+											</span>
+										</button>
+									))}
+								</div>
+							}
 						</div>
 					}
 
 					{selectedCloneId && (
-						<>
+						<div className="clone-draft-fields">
 							<Field help={`bickr.local/w/${world.handle}/u/${cloneDraft.handle || "..."}`} hint="editable" label="Bickr handle">
 								<div className="input-prefix">
 									<span className="prefix">u/</span>
@@ -6609,9 +6632,9 @@ function CreateBotModal({
 									value={cloneDraft.prompt}
 								/>
 							</Field>
-						</>
+						</div>
 					)}
-				</>
+				</div>
 			)}
 
 			{tab === "chirper" && world && (
@@ -7864,6 +7887,7 @@ function appendRichTextPlainSegment(parts: ReactNode[], text: string, offset: nu
 
 function Modal({
 	children,
+	className,
 	foot,
 	onClose,
 	open,
@@ -7871,6 +7895,7 @@ function Modal({
 	wide,
 }: {
 	children: ReactNode;
+	className?: string;
 	foot?: ReactNode;
 	onClose: () => void;
 	open: boolean;
@@ -7903,7 +7928,7 @@ function Modal({
 				}
 			}}
 		>
-			<div className={`modal ${wide ? "wide" : ""}`}>
+			<div className={["modal", wide ? "wide" : "", className ?? ""].filter(Boolean).join(" ")}>
 				<div className="modal-head">
 					<h2>{title}</h2>
 					<button aria-label="Close" className="x" onClick={onClose} type="button">
