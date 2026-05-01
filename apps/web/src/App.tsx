@@ -5327,42 +5327,24 @@ function MyBotsScreen({
 	const [botFilter, setBotFilter] = useState("");
 	const groups = useMemo(() => {
 		const worldsByHandle = new Map(worlds.map((world) => [world.handle, world]));
-		const botsByWorldHandle = new Map<string, BotSummary[]>();
+		const grouped = new Map<string, Array<{ bot: BotSummary; world: WorldView | null }>>();
 		for (const bot of bots) {
-			const rows = botsByWorldHandle.get(bot.homeWorldHandle) ?? [];
-			rows.push(bot);
-			botsByWorldHandle.set(bot.homeWorldHandle, rows);
-		}
-		const query = botFilter.trim();
-		const groupsByWorldHandle = new Map<string, {
-			worldHandle: string;
-			world: WorldView | null;
-			rows: Array<{ bot: BotSummary; world: WorldView | null }>;
-		}>();
-
-		for (const world of sortByHandle(worlds)) {
-			const worldMatches = matchesFilter(query, world.handle, world.name, world.description);
-			const rows = sortBotsForCards(botsByWorldHandle.get(world.handle) ?? [])
-				.filter((bot) => matchesFilter(query, bot.handle, bot.displayName, bot.shortBio, world.handle, world.name))
-				.map((bot) => ({ bot, world }));
-			if (!query || worldMatches || rows.length > 0) {
-				groupsByWorldHandle.set(world.handle, { worldHandle: world.handle, world, rows });
-			}
-		}
-
-		for (const [worldHandle, worldBots] of botsByWorldHandle) {
-			if (worldsByHandle.has(worldHandle)) {
+			const world = worldsByHandle.get(bot.homeWorldHandle) ?? null;
+			if (!matchesFilter(botFilter, bot.handle, bot.displayName, bot.shortBio, bot.homeWorldHandle, world?.name)) {
 				continue;
 			}
-			const rows = sortBotsForCards(worldBots)
-				.filter((bot) => matchesFilter(query, bot.handle, bot.displayName, bot.shortBio, bot.homeWorldHandle))
-				.map((bot) => ({ bot, world: null }));
-			if (rows.length > 0) {
-				groupsByWorldHandle.set(worldHandle, { worldHandle, world: null, rows });
-			}
+			const rows = grouped.get(bot.homeWorldHandle) ?? [];
+			rows.push({ bot, world });
+			grouped.set(bot.homeWorldHandle, rows);
 		}
 
-		return [...groupsByWorldHandle.values()].sort((left, right) => compareHandles(left.worldHandle, right.worldHandle));
+		return [...grouped.entries()]
+			.sort(([left], [right]) => compareHandles(left, right))
+			.map(([worldHandle, rows]) => ({
+				worldHandle,
+				world: worldsByHandle.get(worldHandle) ?? null,
+				rows: rows.sort((left, right) => compareBotCardOrder(left.bot, right.bot)),
+			}));
 	}, [botFilter, bots, worlds]);
 	const [confirmBot, setConfirmBot] = useState<BotSummary | null>(null);
 	const toast = useContext(ToastContext);
@@ -5375,9 +5357,9 @@ function MyBotsScreen({
 					<p className="sub">All bots you own across every world.</p>
 				</div>
 			</div>
-			{worlds.length === 0 && bots.length === 0 ?
-				<EmptyState title="No worlds yet">
-					Create a world before adding bots.
+			{bots.length === 0 ?
+				<EmptyState title="You do not own any bots yet">
+					Create one from a world's Bots tab.
 				</EmptyState>
 			:	<>
 					<FilterBox
@@ -5405,36 +5387,31 @@ function MyBotsScreen({
 													New bot
 												</button>
 											)}
-											{group.rows.length > 0 && (
-												<button
-													className="btn compact"
-													onClick={() => onRunWorldBotTicks(group.worldHandle, group.rows.map((row) => row.bot))}
-													type="button"
-												>
-													<Icon name="refresh" size={12} />
-													Run all ticks
-												</button>
-											)}
+											<button
+												className="btn compact"
+												onClick={() => onRunWorldBotTicks(group.worldHandle, group.rows.map((row) => row.bot))}
+												type="button"
+											>
+												<Icon name="refresh" size={12} />
+												Run all ticks
+											</button>
 										</div>
 									</div>
-									{group.rows.length === 0 ?
-										<div className="empty compact-empty">No bots in this world.</div>
-									:	<div className="bot-grid">
-											{group.rows.map(({ bot, world }) => (
-												<BotCard
-													bot={bot}
-													hideWorld
-													key={bot.id}
-													onDelete={() => setConfirmBot(bot)}
-													onEdit={() => onOpen(bot)}
-													onRunTick={() => onRunBotTick(bot)}
-													onStart={() => onStartBot(bot)}
-													showActive
-													world={world}
-												/>
-											))}
-										</div>
-									}
+									<div className="bot-grid">
+										{group.rows.map(({ bot, world }) => (
+											<BotCard
+												bot={bot}
+												hideWorld
+												key={bot.id}
+												onDelete={() => setConfirmBot(bot)}
+												onEdit={() => onOpen(bot)}
+												onRunTick={() => onRunBotTick(bot)}
+												onStart={() => onStartBot(bot)}
+												showActive
+												world={world}
+											/>
+										))}
+									</div>
 								</section>
 							))}
 						</div>
