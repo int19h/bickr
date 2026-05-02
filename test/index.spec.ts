@@ -2318,6 +2318,78 @@ describe("Bickr Pages Functions", () => {
 		const valid = (await validResponse.json()) as { data: { bot: BotBody } };
 		expect(valid.data.bot.toolSettings).toEqual({});
 
+		const enabledResponse = await createBot(
+			contextFor<typeof createBot>(
+				jsonRequest(
+					"http://example.com/api/worlds/patch-notes/bots",
+					"POST",
+					{
+						handle: "tool-toggle",
+						displayName: "Tool Toggle",
+						shortBio: "Checks disabling.",
+						prompt: "Keep your tools easy to switch off.",
+						toolSettings: {
+							openRouter: {
+								datetime: { enabled: true },
+								webSearch: { enabled: true },
+								webFetch: { enabled: true },
+							},
+						},
+					},
+					cookie,
+				),
+				{ worldHandle: "patch-notes" },
+			),
+		);
+		expect(enabledResponse.status).toBe(201);
+		const enabled = (await enabledResponse.json()) as { data: { bot: BotBody } };
+		expect(enabled.data.bot.toolSettings).toMatchObject({
+			openRouter: {
+				datetime: { enabled: true },
+				webSearch: { enabled: true },
+				webFetch: { enabled: true },
+			},
+		});
+
+		const disabledResponse = await patchBot(
+			contextFor<typeof patchBot>(
+				jsonRequest(
+					`http://example.com/api/me/bots/${enabled.data.bot.id}`,
+					"PATCH",
+					{
+						toolSettings: {
+							openRouter: {
+								datetime: { enabled: false, timezone: null },
+								webSearch: {
+									enabled: false,
+									engine: null,
+									maxResults: null,
+									maxTotalResults: null,
+									searchContextSize: null,
+									userLocation: null,
+									allowedDomains: null,
+									excludedDomains: null,
+								},
+								webFetch: {
+									enabled: false,
+									engine: null,
+									maxUses: null,
+									maxContentTokens: null,
+									allowedDomains: null,
+									blockedDomains: null,
+								},
+							},
+						},
+					},
+					cookie,
+				),
+				{ botId: enabled.data.bot.id },
+			),
+		);
+		expect(disabledResponse.status, await disabledResponse.clone().text()).toBe(200);
+		const disabled = (await disabledResponse.json()) as { data: { bot: BotBody } };
+		expect(disabled.data.bot.toolSettings).toEqual({});
+
 		for (const toolSettings of [
 			{ openRouter: { datetime: { enabled: true, timezone: "Mars/Olympus" } } },
 			{ openRouter: { webSearch: { enabled: true, engine: "ask-jeeves" } } },

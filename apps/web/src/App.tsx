@@ -18,10 +18,6 @@ import {
 	type BotInferenceSettingsInput,
 	type ChirperImportPreview,
 	type BotToolSettings,
-	type BotToolSettingsInput,
-	type OpenRouterSearchContextSize,
-	type OpenRouterWebFetchEngine,
-	type OpenRouterWebSearchEngine,
 	type CreateForumInput,
 	type CreateWorldInput,
 	type ForumSummary,
@@ -63,6 +59,13 @@ import {
 	type RuntimeActivity,
 	type ToolDisplay,
 } from "./runtime-activity-formatting";
+import {
+	toolInputFromDraft,
+	type BotToolDraft,
+	type OpenRouterDatetimeToolDraft,
+	type OpenRouterWebFetchToolDraft,
+	type OpenRouterWebSearchToolDraft,
+} from "./tool-settings-draft";
 import "./App.css";
 
 type ApiSuccess<T> = { ok: true; data: T };
@@ -134,48 +137,6 @@ type PromptBudgetState =
 	| { status: "loading"; requestKey: string }
 	| { status: "ready"; budget: BotContextBudget; requestKey: string }
 	| { status: "error"; message: string; requestKey: string };
-
-type OpenRouterDatetimeToolDraft = {
-	enabled: boolean;
-	timezone: string;
-};
-
-type OpenRouterWebSearchToolDraft = {
-	enabled: boolean;
-	engine: string;
-	maxResults: string;
-	maxTotalResults: string;
-	searchContextSize: string;
-	userLocationCity: string;
-	userLocationRegion: string;
-	userLocationCountry: string;
-	userLocationTimezone: string;
-	allowedDomains: string;
-	excludedDomains: string;
-};
-
-type OpenRouterWebFetchToolDraft = {
-	enabled: boolean;
-	engine: string;
-	maxUses: string;
-	maxContentTokens: string;
-	allowedDomains: string;
-	blockedDomains: string;
-};
-
-type BotToolDraft = {
-	openRouter: {
-		datetime: OpenRouterDatetimeToolDraft;
-		webSearch: OpenRouterWebSearchToolDraft;
-		webFetch: OpenRouterWebFetchToolDraft;
-	};
-};
-
-type OpenRouterToolInput = NonNullable<BotToolSettingsInput["openRouter"]>;
-type OpenRouterDatetimeToolInput = NonNullable<OpenRouterToolInput["datetime"]>;
-type OpenRouterWebSearchToolInput = NonNullable<OpenRouterToolInput["webSearch"]>;
-type OpenRouterWebSearchUserLocationInput = NonNullable<OpenRouterWebSearchToolInput["userLocation"]>;
-type OpenRouterWebFetchToolInput = NonNullable<OpenRouterToolInput["webFetch"]>;
 
 type InferenceModelUnlockContext = {
 	apiKeySet?: boolean;
@@ -8970,100 +8931,6 @@ function toolDraftChanged(draft: BotToolDraft, settings?: BotToolSettings): bool
 	return JSON.stringify(toolInputFromDraft(draft)) !== JSON.stringify(toolInputFromDraft(toolDraftFromSettings(settings)));
 }
 
-function toolInputFromDraft(draft: BotToolDraft): BotToolSettingsInput {
-	const openRouter: OpenRouterToolInput = {};
-	const datetime = openRouterDatetimeInputFromDraft(draft.openRouter.datetime);
-	const webSearch = openRouterWebSearchInputFromDraft(draft.openRouter.webSearch);
-	const webFetch = openRouterWebFetchInputFromDraft(draft.openRouter.webFetch);
-	if (datetime) {
-		openRouter.datetime = datetime;
-	}
-	if (webSearch) {
-		openRouter.webSearch = webSearch;
-	}
-	if (webFetch) {
-		openRouter.webFetch = webFetch;
-	}
-	return Object.keys(openRouter).length > 0 ? { openRouter } : {};
-}
-
-function openRouterDatetimeInputFromDraft(draft: OpenRouterDatetimeToolDraft): OpenRouterDatetimeToolInput | null {
-	const timezone = nullableTextInput(draft.timezone);
-	if (!draft.enabled && timezone === null) {
-		return null;
-	}
-	return {
-		enabled: draft.enabled,
-		timezone,
-	};
-}
-
-function openRouterWebSearchInputFromDraft(draft: OpenRouterWebSearchToolDraft): OpenRouterWebSearchToolInput | null {
-	const userLocation = userLocationInputFromDraft(draft);
-	const allowedDomains = domainListInput(draft.allowedDomains);
-	const excludedDomains = domainListInput(draft.excludedDomains);
-	const hasParameters = Boolean(
-		draft.engine.trim() ||
-			draft.maxResults.trim() ||
-			draft.maxTotalResults.trim() ||
-			draft.searchContextSize.trim() ||
-			userLocation ||
-			allowedDomains ||
-			excludedDomains,
-	);
-	if (!draft.enabled && !hasParameters) {
-		return null;
-	}
-	return {
-		enabled: draft.enabled,
-		engine: nullableTextInput(draft.engine) as OpenRouterWebSearchEngine | null,
-		maxResults: nullableIntegerInput(draft.maxResults),
-		maxTotalResults: nullableIntegerInput(draft.maxTotalResults),
-		searchContextSize: nullableTextInput(draft.searchContextSize) as OpenRouterSearchContextSize | null,
-		userLocation,
-		allowedDomains,
-		excludedDomains,
-	};
-}
-
-function userLocationInputFromDraft(draft: OpenRouterWebSearchToolDraft): OpenRouterWebSearchUserLocationInput | null {
-	const city = nullableTextInput(draft.userLocationCity);
-	const region = nullableTextInput(draft.userLocationRegion);
-	const country = nullableTextInput(draft.userLocationCountry);
-	const timezone = nullableTextInput(draft.userLocationTimezone);
-	return city || region || country || timezone ?
-			{
-				city,
-				region,
-				country,
-				timezone,
-			}
-		:	null;
-}
-
-function openRouterWebFetchInputFromDraft(draft: OpenRouterWebFetchToolDraft): OpenRouterWebFetchToolInput | null {
-	const allowedDomains = domainListInput(draft.allowedDomains);
-	const blockedDomains = domainListInput(draft.blockedDomains);
-	const hasParameters = Boolean(
-		draft.engine.trim() ||
-			draft.maxUses.trim() ||
-			draft.maxContentTokens.trim() ||
-			allowedDomains ||
-			blockedDomains,
-	);
-	if (!draft.enabled && !hasParameters) {
-		return null;
-	}
-	return {
-		enabled: draft.enabled,
-		engine: nullableTextInput(draft.engine) as OpenRouterWebFetchEngine | null,
-		maxUses: nullableIntegerInput(draft.maxUses),
-		maxContentTokens: nullableIntegerInput(draft.maxContentTokens),
-		allowedDomains,
-		blockedDomains,
-	};
-}
-
 function toolDraftValid(draft: BotToolDraft): boolean {
 	return (
 		validOptionalTimezone(draft.openRouter.datetime.timezone) &&
@@ -9214,21 +9081,8 @@ function nullableNumberInput(value: string): number | null {
 	return trimmed ? Number(trimmed) : null;
 }
 
-function nullableIntegerInput(value: string): number | null {
-	const trimmed = value.trim();
-	return trimmed ? Math.trunc(Number(trimmed)) : null;
-}
-
 function domainDraftValue(value: string[] | undefined): string {
 	return value?.join(", ") ?? "";
-}
-
-function domainListInput(value: string): string[] | null {
-	const domains = value
-		.split(/[,\n]/)
-		.map((item) => item.trim().toLowerCase())
-		.filter(Boolean);
-	return domains.length > 0 ? domains : null;
 }
 
 function validOptionalInteger(value: string, min: number, max = Number.MAX_SAFE_INTEGER): boolean {
