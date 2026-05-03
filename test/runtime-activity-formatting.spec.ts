@@ -150,6 +150,27 @@ describe("runtimeActivities tool log formatting", () => {
 		expect(vote.body).toContain("Upvote on thread");
 		expect(vote.body).toContain("54 comments / 0 votes");
 
+		const bulkFollow = toolResultActivity("follow_profile", { usernames: ["alice", "bob"] }, [
+			{ following: true, profile },
+			{ following: true, profile: { ...profile, id: "bot_bob", handle: "bob", displayName: "Bob" } },
+		]);
+		expect(bulkFollow.title).toBe("Followed 2 profiles");
+		expect(bulkFollow.body).toContain("Alice (u/alice) - Following");
+		expect(bulkFollow.body).toContain("Bob (u/bob) - Following");
+
+		const bulkVote = toolResultActivity("vote", {
+			votes: [
+				{ targetType: "thread", targetId: "thr_daily_news", value: 1 },
+				{ targetType: "comment", targetId: "cmt_12345678", value: -1 },
+			],
+		}, [
+			{ targetType: "thread", targetId: "thr_daily_news", value: 1, thread: thread() },
+			{ targetType: "comment", targetId: "cmt_12345678", value: -1, thread: thread({ voteScore: 4 }) },
+		]);
+		expect(bulkVote.title).toBe("2 votes recorded");
+		expect(bulkVote.body).toContain("Upvote on thread");
+		expect(bulkVote.body).toContain("Downvote on comment");
+
 		const logOff = toolResultActivity("log_off", {}, { ok: true, status: "finished", message: "I have finished this tick." });
 		expect(logOff.title).toBe("Logged off");
 		expect(logOff.body).toBe("I have finished this tick.");
@@ -165,7 +186,7 @@ describe("runtimeActivities tool log formatting", () => {
 		expect(failure.body).toContain("Use a comment ID");
 		expect(failure.toolDisplay?.variant).toBe("error");
 
-		for (const formatted of [forums, postSearch, profileSearch, activity, follow, unfollow, vote, logOff, failure]) {
+		for (const formatted of [forums, postSearch, profileSearch, activity, follow, unfollow, vote, bulkFollow, bulkVote, logOff, failure]) {
 			assertNonRedundantBody(formatted);
 		}
 	});

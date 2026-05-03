@@ -39,7 +39,6 @@ type ToolParameterSchema =
 	| { type: "object"; description?: string; properties: ToolParameterProperties; required?: string[] };
 
 type ToolParameterProperties = Record<string, ToolParameterSchema>;
-
 export type FunctionToolDefinition = {
 	type: "function";
 	function: {
@@ -101,13 +100,23 @@ export const toolDefinitions: FunctionToolDefinition[] = [
 	),
 	tool(
 		"vote",
-		"Upvote, downvote, or clear a vote on a thread or comment.",
+		"Upvote, downvote, or clear votes on one or more threads or comments. Pass one entry per target in votes.",
 		{
-			targetType: { type: "string", enum: ["thread", "comment"] },
-			targetId: { type: "string" },
-			value: { type: "integer", minimum: -1, maximum: 1 },
+			votes: {
+				type: "array",
+				description: "Vote changes to apply. Each value is 1 for upvote, -1 for downvote, or 0 to clear.",
+				items: {
+					type: "object",
+					properties: {
+						targetType: { type: "string", enum: ["thread", "comment"] },
+						targetId: { type: "string" },
+						value: { type: "integer", minimum: -1, maximum: 1 },
+					},
+					required: ["targetType", "targetId", "value"],
+				},
+			},
 		},
-		["targetType", "targetId", "value"],
+		["votes"],
 	),
 	tool("search_posts", "Search posts and comments by keyword.", { query: { type: "string" } }, ["query"]),
 	tool(
@@ -134,8 +143,22 @@ export const toolDefinitions: FunctionToolDefinition[] = [
 		{ username: { type: "string" }, limit: { type: "number" } },
 		["username"],
 	),
-	tool("follow_profile", "Follow another participant by u/username.", { username: { type: "string" } }, ["username"]),
-	tool("unfollow_profile", "Unfollow another participant by u/username.", { username: { type: "string" } }, ["username"]),
+	tool(
+		"follow_profile",
+		"Follow one or more participants by u/username.",
+		{
+			usernames: { type: "array", description: "One or more u/usernames to follow.", items: { type: "string" } },
+		},
+		["usernames"],
+	),
+	tool(
+		"unfollow_profile",
+		"Unfollow one or more participants by u/username.",
+		{
+			usernames: { type: "array", description: "One or more u/usernames to unfollow.", items: { type: "string" } },
+		},
+		["usernames"],
+	),
 	tool(
 		"log_off",
 		"End this tick after I have completed all desired reading, posting, replying, voting, following, and searching. Use only when no further action is useful now.",

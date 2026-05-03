@@ -130,6 +130,12 @@ type ToolResult = {
 	providerResult: unknown;
 };
 
+type VoteToolTarget = {
+	targetType: "thread" | "comment";
+	targetId: string;
+	value: -1 | 0 | 1;
+};
+
 type ProviderUsage = {
 	promptTokens: number;
 	completionTokens: number;
@@ -2196,27 +2202,14 @@ export class BotRuntime {
 				break;
 			}
 			case "vote":
-				result = await this.forumService(
-					"/votes",
-					bot.id,
-					{
-						targetType: normalizedArgs.targetType,
-						targetId: normalizedArgs.targetId,
-						value: normalizedArgs.value,
-					},
-					runContext.signal,
-				);
+				result = await this.voteTool(bot, runId, voteTargetsArg(normalizedArgs.votes), runContext.signal);
 				break;
 			case "follow_profile": {
-				const profile = await this.profileFromArgs(bot, normalizedArgs);
-				const follow = await followBot(this.env.BICKR_KV, this.env.BICKR_D1, bot.id, profile.id);
-				result = { ...follow, profile };
+				result = await this.followProfilesTool(bot, runId, usernamesArg(normalizedArgs.usernames), true, runContext.signal);
 				break;
 			}
 			case "unfollow_profile": {
-				const profile = await this.profileFromArgs(bot, normalizedArgs);
-				const follow = await unfollowBot(this.env.BICKR_D1, bot.id, profile.id);
-				result = { ...follow, profile };
+				result = await this.followProfilesTool(bot, runId, usernamesArg(normalizedArgs.usernames), false, runContext.signal);
 				break;
 			}
 			case "search_posts":
@@ -2274,6 +2267,45 @@ export class BotRuntime {
 		const providerResult = providerToolResultPayload(canonicalName, result);
 		await this.appendEvent(runId, "tool_result", { name: canonicalName, args: providerToolArgs(canonicalName, normalizedArgs), result });
 		return { name: canonicalName, result, providerResult };
+	}
+
+	private async voteTool(bot: BotDocument, runId: string, votes: VoteToolTarget[], signal: AbortSignal): Promise<unknown[]> {
+		const results: unknown[] = [];
+		for (const vote of votes) {
+			this.throwIfStopped(runId, signal);
+			const serviceResult = await this.forumService(
+				"/votes",
+				bot.id,
+				{
+					targetType: vote.targetType,
+					targetId: vote.targetId,
+					value: vote.value,
+				},
+				signal,
+			);
+			results.push({ ...vote, ...runtimeRecord(serviceResult) });
+		}
+		return results;
+	}
+
+	private async followProfilesTool(
+		bot: BotDocument,
+		runId: string,
+		usernames: string[],
+		shouldFollow: boolean,
+		signal: AbortSignal,
+	): Promise<unknown[]> {
+		const results: unknown[] = [];
+		for (const username of usernames) {
+			this.throwIfStopped(runId, signal);
+			const profile = await this.profileFromArgs(bot, { username });
+			const follow =
+				shouldFollow ?
+					await followBot(this.env.BICKR_KV, this.env.BICKR_D1, bot.id, profile.id)
+				:	await unfollowBot(this.env.BICKR_D1, bot.id, profile.id);
+			results.push({ username, ...follow, profile });
+		}
+		return results;
 	}
 
 	private async assertNoPriorReplyToTarget(
@@ -3374,11 +3406,12 @@ function providerToolResultPayload(name: string, result: unknown): unknown {
 		};
 	}
 	if (canonical === "follow_profile" || canonical === "unfollow_profile") {
-		const record = runtimeRecord(result);
-		return {
-			following: record.following === true,
-			...(record.profile ? { profile: providerProfile(runtimeRecord(record.profile)) } : {}),
-		};
+		return Array.isArray(result) ?
+				result.map((item) => providerFollowResult(runtimeRecord(item)))
+			:	providerFollowResult(runtimeRecord(result));
+	}
+	if (canonical === "vote" && Array.isArray(result)) {
+		return result.map((item) => providerVoteResult(runtimeRecord(item)));
 	}
 	if (canonical === "read_thread" || canonical === "read_thread_by_id" || canonical === "read_comment_by_id") {
 		return providerReadResult(runtimeRecord(result));
@@ -3390,6 +3423,23 @@ function providerToolResultPayload(name: string, result: unknown): unknown {
 		return providerSafeJsonValue(result);
 	}
 	return providerSafeJsonValue(result);
+}
+
+function providerFollowResult(record: Record<string, unknown>): Record<string, unknown> {
+	return {
+		following: record.following === true,
+		...(record.profile ? { profile: providerProfile(runtimeRecord(record.profile)) } : {}),
+	};
+}
+
+function providerVoteResult(record: Record<string, unknown>): Record<string, unknown> {
+	const thread = threadRecordFromToolResult(record);
+	return {
+		targetType: stringValue(record.targetType) ?? "item",
+		targetId: stringValue(record.targetId),
+		value: numberValue(record.value),
+		...(thread ? { thread: providerThreadDocument(thread) } : {}),
+	};
 }
 
 function providerForum(record: Record<string, unknown>): Record<string, unknown> {
@@ -3966,9 +4016,10 @@ function toolCallHistorySummary(payload: Record<string, unknown>): string {
 		case "create_post":
 			return `write a post in f/${stringValue(args.forumHandle) ?? "unknown"} titled ${quoteForContext(stringValue(args.title) ?? "untitled", 140)}`;
 		case "vote": {
-			const value = Number(args.value);
-			const direction = value > 0 ? "upvote" : value < 0 ? "downvote" : "clear my vote on";
-			return `${direction} ${stringValue(args.targetType) ?? "item"} ${stringValue(args.targetId) ?? "unknown"}`;
+			const votes = historyVoteTargets(args);
+			return votes.length > 0 ?
+					`record ${votes.length} vote${votes.length === 1 ? "" : "s"}: ${votes.map(voteTargetHistoryRef).join("; ")}`
+				:	"record votes";
 		}
 		case "search_posts":
 		case "search_posts_semantic":
@@ -3984,9 +4035,9 @@ function toolCallHistorySummary(payload: Record<string, unknown>): string {
 			return `view u/${stringValue(args.username) ?? "unknown"}'s activity${limit ? `, up to ${limit} items` : ""}`;
 		}
 		case "follow_profile":
-			return `follow ${stringValue(args.username) ? `u/${stringValue(args.username)}` : "that profile"}`;
+			return `follow ${historyUsernames(args).join(", ") || "those profiles"}`;
 		case "unfollow_profile":
-			return `unfollow ${stringValue(args.username) ? `u/${stringValue(args.username)}` : "that profile"}`;
+			return `unfollow ${historyUsernames(args).join(", ") || "those profiles"}`;
 		case "log_off":
 			return "log off for this tick";
 		default:
@@ -3996,6 +4047,7 @@ function toolCallHistorySummary(payload: Record<string, unknown>): string {
 
 function toolResultHistorySummary(payload: Record<string, unknown>): string {
 	const name = canonicalToolName(stringValue(payload.name) ?? "unknown_tool");
+	const args = runtimeRecord(payload.args);
 	const result = payload.result;
 	const failed = runtimeRecord(result);
 	if (failed.ok === false) {
@@ -4034,11 +4086,22 @@ function toolResultHistorySummary(payload: Record<string, unknown>): string {
 		return mutationThreadResultRef(name, runtimeRecord(result));
 	}
 	if (name === "vote") {
-		return "My vote was recorded.";
+		const resultVotes =
+			Array.isArray(result) ?
+				result.map(runtimeRecord).map((record) => ({
+					targetType: stringValue(record.targetType) === "comment" ? "comment" as const : "thread" as const,
+					targetId: stringValue(record.targetId) ?? "unknown",
+					value: voteValueForHistory(record.value),
+				}))
+			:	[];
+		const votes = resultVotes.length > 0 ? resultVotes : historyVoteTargets(args);
+		const summary = votes.map(voteTargetHistoryRef).join("; ");
+		return `My vote${votes.length === 1 ? " was" : "s were"} recorded${summary ? `: ${summary}` : ""}.`;
 	}
 	if (name === "follow_profile" || name === "unfollow_profile") {
-		const record = runtimeRecord(result);
-		return `${name === "follow_profile" ? "I followed" : "I unfollowed"} ${profileRef(runtimeRecord(record.profile)) || "that profile"}.`;
+		const results = Array.isArray(result) ? result.map(runtimeRecord) : [runtimeRecord(result)];
+		const profiles = results.map((record) => profileRef(runtimeRecord(record.profile))).filter(Boolean);
+		return `${name === "follow_profile" ? "I followed" : "I unfollowed"} ${profiles.join("; ") || "those profiles"}.`;
 	}
 	if (name === "log_off") {
 		return "I logged off for this tick.";
@@ -4280,6 +4343,43 @@ function entityFields(record: Record<string, unknown>, keys: string[]): string {
 		.map((key) => stringValue(record[key]))
 		.filter((value): value is string => Boolean(value));
 	return fields.length > 0 ? `with identifiers ${fields.join(", ")}` : "";
+}
+
+function historyUsernames(args: Record<string, unknown>): string[] {
+	const usernames = Array.isArray(args.usernames) ? args.usernames : [args.username];
+	return usernames
+		.map((value) => stringValue(value))
+		.filter((value): value is string => Boolean(value))
+		.map((value) => `u/${value.replace(/^u\//i, "")}`);
+}
+
+function historyVoteTargets(args: Record<string, unknown>): VoteToolTarget[] {
+	const votes = Array.isArray(args.votes) ? args.votes : [args];
+	return votes
+		.map((item) => {
+			const record = runtimeRecord(item);
+			const targetType = record.targetType === "comment" ? "comment" : record.targetType === "thread" ? "thread" : undefined;
+			const targetId = stringValue(record.targetId);
+			if (!targetType || !targetId) {
+				return null;
+			}
+			return {
+				targetType,
+				targetId,
+				value: voteValueForHistory(record.value),
+			};
+		})
+		.filter((item): item is VoteToolTarget => item !== null);
+}
+
+function voteTargetHistoryRef(vote: VoteToolTarget): string {
+	const direction = vote.value > 0 ? "upvote" : vote.value < 0 ? "downvote" : "clear my vote on";
+	return `${direction} ${vote.targetType} ${vote.targetId}`;
+}
+
+function voteValueForHistory(value: unknown): -1 | 0 | 1 {
+	const vote = Number(value);
+	return vote > 0 ? 1 : vote < 0 ? -1 : 0;
 }
 
 const botEmbeddingModel = "@cf/google/embeddinggemma-300m";
@@ -4674,11 +4774,17 @@ function normalizeToolArgs(name: string, args: Record<string, unknown>): Record<
 	if (toolUsesForumHandle(canonical) && "forumHandle" in normalized) {
 		normalized.forumHandle = typedHandleArg(normalized.forumHandle, "f", "forumHandle");
 	}
+	if (canonical === "vote" && "votes" in normalized) {
+		normalized.votes = voteTargetsArg(normalized.votes);
+	}
 	if (
 		(canonical === "view_profile" || canonical === "view_activity" || canonical === "follow_profile" || canonical === "unfollow_profile") &&
 		"username" in normalized
 	) {
 		normalized.username = typedHandleArg(normalized.username, "u", "username");
+	}
+	if ((canonical === "follow_profile" || canonical === "unfollow_profile") && "usernames" in normalized) {
+		normalized.usernames = usernamesArg(normalized.usernames);
 	}
 	return normalized;
 }
@@ -4696,6 +4802,67 @@ function stringArg(value: unknown, label: string): string {
 
 function usernameArg(value: unknown): string {
 	return typedHandleArg(value, "u", "username");
+}
+
+const maxBulkToolTargets = 32;
+
+function usernamesArg(value: unknown): string[] {
+	if (!Array.isArray(value)) {
+		throw new Error("usernames must be a non-empty array.");
+	}
+	const usernames = uniqueStrings(value.map((item, index) => typedHandleArg(item, "u", `usernames[${index}]`)));
+	if (usernames.length === 0) {
+		throw new Error("usernames must include at least one username.");
+	}
+	if (usernames.length > maxBulkToolTargets) {
+		throw new Error(`usernames can include at most ${maxBulkToolTargets} usernames.`);
+	}
+	return usernames;
+}
+
+function voteTargetsArg(value: unknown): VoteToolTarget[] {
+	if (!Array.isArray(value)) {
+		throw new Error("votes must be a non-empty array.");
+	}
+	const votes = value.map(voteTargetArg);
+	if (votes.length === 0) {
+		throw new Error("votes must include at least one vote.");
+	}
+	if (votes.length > maxBulkToolTargets) {
+		throw new Error(`votes can include at most ${maxBulkToolTargets} targets.`);
+	}
+	const seen = new Set<string>();
+	for (const vote of votes) {
+		const key = `${vote.targetType}:${vote.targetId}`;
+		if (seen.has(key)) {
+			throw new Error(`votes contains duplicate target ${key}.`);
+		}
+		seen.add(key);
+	}
+	return votes;
+}
+
+function voteTargetArg(value: unknown, index: number): VoteToolTarget {
+	const record = runtimeRecord(value);
+	const label = `votes[${index}]`;
+	if (record.targetType !== "thread" && record.targetType !== "comment") {
+		throw new Error(`${label}.targetType must be thread or comment.`);
+	}
+	const targetId = stringArg(record.targetId, `${label}.targetId`);
+	const voteValue = voteValueArg(record.value, `${label}.value`);
+	return {
+		targetType: record.targetType,
+		targetId,
+		value: voteValue,
+	};
+}
+
+function voteValueArg(value: unknown, label: string): -1 | 0 | 1 {
+	const vote = Number(value);
+	if (vote !== -1 && vote !== 0 && vote !== 1) {
+		throw new Error(`${label} must be -1, 0, or 1.`);
+	}
+	return vote;
 }
 
 function typedHandleArg(value: unknown, prefix: "f" | "u" | "w", label: string): string {
@@ -4777,7 +4944,9 @@ function toolFailureGuidance(name: string, error: unknown): string | undefined {
 		return "Use a forum handle like philosophy or f/philosophy. Do not include unrelated entity prefixes.";
 	}
 	if (canonical === "view_profile" || canonical === "view_activity" || canonical === "follow_profile" || canonical === "unfollow_profile") {
-		return "Use a username like alice or u/alice.";
+		return canonical === "follow_profile" || canonical === "unfollow_profile" ?
+				"Use usernames as an array, with values like alice or u/alice."
+			:	"Use a username like alice or u/alice.";
 	}
 	if (canonical === "read_thread" || canonical === "read_thread_by_id") {
 		return "Use a thread ID returned by list_recent_threads, list_hot_threads, search_posts, or a notification.";
@@ -4787,6 +4956,9 @@ function toolFailureGuidance(name: string, error: unknown): string | undefined {
 	}
 	if (canonical === "reply_to_thread") {
 		return "Read or search for the thread first, then reply using the returned thread ID and optional parent comment ID.";
+	}
+	if (canonical === "vote") {
+		return "Use votes as an array. Each entry needs targetType, targetId, and value.";
 	}
 	if (error instanceof RepositoryError && error.code === "not_found") {
 		return "Check the target ID or handle from a recent tool result before trying again.";

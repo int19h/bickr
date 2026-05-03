@@ -426,7 +426,7 @@ function toolCallTitle(name: string, args: unknown): string {
 					`Replying to comment ${shortId(stringValue(record.parentCommentId))}`
 				:	`Replying to thread ${shortId(stringValue(record.threadId))}`;
 		case "vote":
-			return `${Number(record.value) > 0 ? "Upvoting" : Number(record.value) < 0 ? "Downvoting" : "Clearing vote on"} ${stringValue(record.targetType) ?? "item"} ${shortId(stringValue(record.targetId))}`;
+			return bulkVoteTitle(record);
 		case "read_thread":
 		case "read_thread_by_id":
 			return `Reading thread ${shortId(stringValue(record.threadId))}`;
@@ -448,9 +448,9 @@ function toolCallTitle(name: string, args: unknown): string {
 		case "view_activity":
 			return `Viewing u/${stringValue(record.username) ?? "..."}'s activity`;
 		case "follow_profile":
-			return `Following ${stringValue(record.username) ? `u/${stringValue(record.username)}` : shortId(stringValue(record.profileId) ?? stringValue(record.botId))}`;
+			return bulkProfileTitle("Following", record);
 		case "unfollow_profile":
-			return `Unfollowing ${stringValue(record.username) ? `u/${stringValue(record.username)}` : shortId(stringValue(record.profileId) ?? stringValue(record.botId))}`;
+			return bulkProfileTitle("Unfollowing", record);
 		case "log_off":
 			return "Logging off";
 		default:
@@ -529,6 +529,17 @@ function toolResultSummary(name: string, args: unknown, result: unknown, fallbac
 		return resultWithDisplay(title, itemsBody(items, "No recent activity returned."), items);
 	}
 	if (canonical === "follow_profile" || canonical === "unfollow_profile") {
+		if (Array.isArray(result)) {
+			const rows = result.map(runtimeRecord);
+			const items = rows.map((row, index) => profileItem(runtimeRecord(row.profile), index, fallbackWorldHandle, "Open profile"));
+			const action = canonical === "follow_profile" ? "Followed" : "Unfollowed";
+			const status = canonical === "follow_profile" ? "Following" : "Not following";
+			return resultWithDisplay(
+				`${action} ${countLabel(rows.length, "profile")}`,
+				rows.map((row) => `${profileLabel(runtimeRecord(row.profile))} - ${status}`).join("\n"),
+				items,
+			);
+		}
 		const profile = runtimeRecord(record.profile);
 		const item = profileItem(profile, 0, fallbackWorldHandle, "Open profile");
 		const status = record.following === true ? "Following" : "Not following";
@@ -536,6 +547,11 @@ function toolResultSummary(name: string, args: unknown, result: unknown, fallbac
 		return resultWithDisplay(title, [status, itemBody(item)].filter(Boolean).join("\n"), [item]);
 	}
 	if (canonical === "vote") {
+		if (Array.isArray(result)) {
+			const rows = result.map(runtimeRecord);
+			const items = rows.map((row, index) => voteResultItem(row, index, fallbackWorldHandle));
+			return resultWithDisplay(`${countLabel(rows.length, "vote")} recorded`, itemsBody(items), items);
+		}
 		const argsRecord = runtimeRecord(args);
 		const direction =
 			Number(argsRecord.value) > 0 ? "Upvote"
@@ -613,6 +629,28 @@ function itemBody(item: ToolDisplayItem | null | undefined): string {
 		return "";
 	}
 	return [item.label, item.detail].filter(Boolean).join(" - ");
+}
+
+function bulkVoteTitle(record: Record<string, unknown>): string {
+	const votes = Array.isArray(record.votes) ? record.votes.map(runtimeRecord) : [record];
+	if (votes.length > 1) {
+		return `Recording ${countLabel(votes.length, "vote")}`;
+	}
+	const vote = votes[0] ?? record;
+	const direction =
+		Number(vote.value) > 0 ? "Upvoting"
+		: Number(vote.value) < 0 ? "Downvoting"
+		: "Clearing vote on";
+	return `${direction} ${stringValue(vote.targetType) ?? "item"} ${shortId(stringValue(vote.targetId))}`;
+}
+
+function bulkProfileTitle(action: string, record: Record<string, unknown>): string {
+	const usernames = Array.isArray(record.usernames) ? stringArrayValue(record.usernames) : [];
+	if (usernames.length > 1) {
+		return `${action} ${countLabel(usernames.length, "profile")}`;
+	}
+	const username = usernames[0] ?? stringValue(record.username);
+	return `${action} ${username ? `u/${username.replace(/^u\//i, "")}` : shortId(stringValue(record.profileId) ?? stringValue(record.botId))}`;
 }
 
 function forumItem(record: Record<string, unknown>, index: number, fallbackWorldHandle: string): ToolDisplayItem {
@@ -708,6 +746,26 @@ function activityItem(record: Record<string, unknown>, index: number, fallbackWo
 		key: stringValue(record.id) ?? `activity-${index}`,
 		label: type,
 		detail: entityFields(record, ["threadId", "commentId", "targetId"]),
+	};
+}
+
+function voteResultItem(record: Record<string, unknown>, index: number, fallbackWorldHandle: string): ToolDisplayItem {
+	const thread = threadRecord(record);
+	const targetType = stringValue(record.targetType) ?? "item";
+	const targetId = stringValue(record.targetId);
+	const direction =
+		Number(record.value) > 0 ? "Upvote"
+		: Number(record.value) < 0 ? "Downvote"
+		: "Vote cleared";
+	const threadHref = thread ? threadUrl(thread, fallbackWorldHandle) : null;
+	return {
+		key: `${targetType}-${targetId ?? index}`,
+		label: `${direction} on ${targetType} ${shortId(targetId)}`,
+		detail: thread ? threadFacts(thread) : undefined,
+		href:
+			threadHref && targetType === "comment" && targetId ? `${threadHref}/c/${encodeURIComponent(targetId)}`
+			: threadHref ? threadHref
+			: undefined,
 	};
 }
 

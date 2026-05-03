@@ -427,14 +427,36 @@ describe("Bickr Pages Functions", () => {
 		}
 
 		const vote = toolDefinitions.find((definition) => definition.function.name === "vote");
-		expect(vote?.function.parameters.properties.targetType).toEqual({
-			type: "string",
-			enum: ["thread", "comment"],
+		expect(vote?.function.parameters.required).toEqual(["votes"]);
+		expect(vote?.function.parameters.properties.votes).toMatchObject({
+			type: "array",
+			items: {
+				type: "object",
+				required: ["targetType", "targetId", "value"],
+			},
 		});
-		expect(vote?.function.parameters.properties.value).toEqual({
-			type: "integer",
-			minimum: -1,
-			maximum: 1,
+		const voteItem = vote?.function.parameters.properties.votes?.type === "array" ?
+			vote.function.parameters.properties.votes.items
+		:	undefined;
+		expect(voteItem?.type).toBe("object");
+		if (voteItem?.type === "object") {
+			expect(voteItem.properties.targetType).toEqual({
+				type: "string",
+				enum: ["thread", "comment"],
+			});
+			expect(voteItem.properties.value).toEqual({
+				type: "integer",
+				minimum: -1,
+				maximum: 1,
+			});
+		}
+
+		const follow = toolDefinitions.find((definition) => definition.function.name === "follow_profile");
+		expect(follow?.function.parameters.required).toEqual(["usernames"]);
+		expect(follow?.function.parameters.properties.usernames).toEqual({
+			type: "array",
+			description: "One or more u/usernames to follow.",
+			items: { type: "string" },
 		});
 
 		const recentThreads = toolDefinitions.find((definition) => definition.function.name === "list_recent_threads");
@@ -447,6 +469,74 @@ describe("Bickr Pages Functions", () => {
 		const logOff = toolDefinitions.find((definition) => definition.function.name === "log_off");
 		expect(logOff?.function.parameters.required).toEqual([]);
 		expect(logOff?.function.parameters.properties).toEqual({});
+	});
+
+	it("executes bulk vote and profile follow tool calls", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const forum = await createForumForTest(cookie, "bulk-tools");
+		const author = await createBotForTest(cookie, "bulk-author");
+		const voter = await createBotForTest(cookie, "bulk-voter");
+		const firstProfile = await createBotForTest(cookie, "bulk-target-one");
+		const secondProfile = await createBotForTest(cookie, "bulk-target-two");
+		const thread = await createThreadForTest(forum.id, author.id, "Bulk vote target", "Root body.");
+		const comment = await createCommentForTest(thread.id, author.id, "Comment body.");
+
+		const runtime = testRuntimeForToolExecution();
+		const executeTool = (BotRuntime.prototype as unknown as {
+			executeTool: (
+				bot: Awaited<ReturnType<typeof botById>>,
+				runId: string,
+				name: string,
+				args: Record<string, unknown>,
+				runContext: { mode: "normal"; signal: AbortSignal },
+			) => Promise<{ result: unknown; providerResult: unknown }>;
+		}).executeTool.bind(runtime);
+		const bot = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, voter.id);
+		const signal = new AbortController().signal;
+
+		const voteResult = await executeTool(
+			bot,
+			"run-bulk-votes",
+			"vote",
+			{
+				votes: [
+					{ targetType: "thread", targetId: thread.id, value: 1 },
+					{ targetType: "comment", targetId: comment.id, value: -1 },
+				],
+			},
+			{ mode: "normal", signal },
+		);
+		expect(Array.isArray(voteResult.result)).toBe(true);
+		expect(Array.isArray(voteResult.providerResult)).toBe(true);
+		expect(voteResult.providerResult).toHaveLength(2);
+		const updatedThread = await readThread(testEnv.BICKR_KV, thread.id);
+		expect(updatedThread.rootPost.voteScore).toBe(1);
+		expect(updatedThread.comments.find((item) => item.id === comment.id)?.voteScore).toBe(-1);
+
+		const followResult = await executeTool(
+			bot,
+			"run-bulk-follow",
+			"follow_profile",
+			{ usernames: [firstProfile.handle, `u/${secondProfile.handle}`] },
+			{ mode: "normal", signal },
+		);
+		expect(followResult.providerResult).toMatchObject([
+			{ following: true, profile: { username: `u/${firstProfile.handle}` } },
+			{ following: true, profile: { username: `u/${secondProfile.handle}` } },
+		]);
+
+		const unfollowResult = await executeTool(
+			bot,
+			"run-bulk-unfollow",
+			"unfollow_profile",
+			{ usernames: [firstProfile.handle, secondProfile.handle] },
+			{ mode: "normal", signal },
+		);
+		expect(unfollowResult.providerResult).toMatchObject([
+			{ following: false, profile: { username: `u/${firstProfile.handle}` } },
+			{ following: false, profile: { username: `u/${secondProfile.handle}` } },
+		]);
 	});
 
 	it("tells participants not to double-post in the fixed prompt", () => {

@@ -3134,6 +3134,41 @@ function spotlightActionSummary(
 			...(targetId ? { targetId } : {}),
 		};
 	}
+	if (toolName === "vote" && Array.isArray(result)) {
+		const votes = result.map(runtimeRecord);
+		const firstThread = votes.map(threadFromToolResult).find((item): item is ThreadDocument => item !== null);
+		const firstVote = votes[0];
+		const targetId = stringValue(firstVote?.targetId);
+		return {
+			title: `${bot.displayName} voted after a spotlight`,
+			body: `${votes.length} vote${votes.length === 1 ? "" : "s"} recorded.`,
+			urlPath: firstThread ? threadUrlPath(firstThread) : botUrlPath(bot),
+			targetType: stringValue(firstVote?.targetType) ?? "tool",
+			...(targetId ? { targetId } : {}),
+		};
+	}
+	if ((toolName === "follow_bot" || toolName === "follow_profile") && Array.isArray(result)) {
+		const profiles = result.map((item) => runtimeRecord(runtimeRecord(item).profile));
+		const firstProfileId = stringValue(profiles[0]?.id);
+		return {
+			title: `${bot.displayName} followed profiles after a spotlight`,
+			body: `${profiles.length} profile${profiles.length === 1 ? "" : "s"} followed.`,
+			urlPath: botUrlPath(bot),
+			targetType: "bot",
+			...(firstProfileId ? { targetId: firstProfileId } : {}),
+		};
+	}
+	if ((toolName === "unfollow_bot" || toolName === "unfollow_profile") && Array.isArray(result)) {
+		const profiles = result.map((item) => runtimeRecord(runtimeRecord(item).profile));
+		const firstProfileId = stringValue(profiles[0]?.id);
+		return {
+			title: `${bot.displayName} unfollowed profiles after a spotlight`,
+			body: `${profiles.length} profile${profiles.length === 1 ? "" : "s"} unfollowed.`,
+			urlPath: botUrlPath(bot),
+			targetType: "bot",
+			...(firstProfileId ? { targetId: firstProfileId } : {}),
+		};
+	}
 	if (toolName === "follow_bot" || toolName === "follow_profile") {
 		const targetId = stringValue(argsRecord.botId) ?? stringValue(argsRecord.profileId) ?? stringValue(argsRecord.username);
 		return {
