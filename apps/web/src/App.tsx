@@ -7,8 +7,10 @@ import {
 	type AuthProvider,
 	type BotActivityFeed,
 	type BotActivityItem,
+	type BotFollowGraph,
 	type BotContextBudget,
 	type BotSummary,
+	type BotPublicProfile,
 	type BotRuntimeEvent,
 	type BotRuntimeStatus,
 	type BotTokenUsageStats,
@@ -94,6 +96,7 @@ type Route =
 	| "notifications"
 	| "profile";
 type WorldTab = "forums" | "bots" | "lore";
+type BotProfileTab = "activity" | "follows";
 type BotCreateTab = "manual" | "clone" | "chirper";
 type ImportState = "idle" | "loading" | "preview" | "error";
 type ThemePreference = "system" | "light" | "dark";
@@ -4124,9 +4127,15 @@ function BotProfileScreen({
 	subscribed: boolean;
 	world: WorldView;
 }) {
+	const [activeTab, setActiveTab] = useState<BotProfileTab>("activity");
 	const [activityFeed, setActivityFeed] = useState<BotActivityFeed | null>(null);
+	const [activityFilter, setActivityFilter] = useState("");
 	const [activityLoading, setActivityLoading] = useState(false);
 	const [activityError, setActivityError] = useState("");
+	const [followGraph, setFollowGraph] = useState<BotFollowGraph | null>(null);
+	const [followFilter, setFollowFilter] = useState("");
+	const [followLoading, setFollowLoading] = useState(false);
+	const [followError, setFollowError] = useState("");
 	const effectiveModel = effectiveBotModel(bot, isOwner ? ownerInferenceSettings : null);
 
 	useEffect(() => {
@@ -4152,6 +4161,55 @@ function BotProfileScreen({
 		};
 	}, [bot.handle, world.handle]);
 
+	useEffect(() => {
+		let cancelled = false;
+		setFollowLoading(true);
+		setFollowError("");
+		setFollowGraph(null);
+		void api<{ graph: BotFollowGraph }>(
+			`/api/worlds/${encodeURIComponent(world.handle)}/bots/${encodeURIComponent(bot.handle)}/follows`,
+		).then((result) => {
+			if (cancelled) {
+				return;
+			}
+			if (result.ok) {
+				setFollowGraph(result.data.graph);
+			} else {
+				setFollowError(result.message);
+			}
+			setFollowLoading(false);
+		});
+		return () => {
+			cancelled = true;
+		};
+	}, [bot.handle, world.handle]);
+
+	useEffect(() => {
+		setActiveTab("activity");
+		setActivityFilter("");
+		setFollowFilter("");
+	}, [bot.id]);
+
+	const activities = activityFeed?.activities ?? [];
+	const filteredActivities = useMemo(
+		() => activities.filter((activity) => matchesBotActivityFilter(activityFilter, activity)),
+		[activityFilter, activities],
+	);
+	const following = followGraph?.following ?? [];
+	const followers = followGraph?.followers ?? [];
+	const filteredFollowing = useMemo(
+		() => sortByHandle(following.filter((profile) => matchesBotProfileFilter(followFilter, profile))),
+		[followFilter, following],
+	);
+	const filteredFollowers = useMemo(
+		() => sortByHandle(followers.filter((profile) => matchesBotProfileFilter(followFilter, profile))),
+		[followFilter, followers],
+	);
+	const tabs: Array<{ id: BotProfileTab; label: string; count: number }> = [
+		{ id: "activity", label: "Activity", count: activities.length },
+		{ id: "follows", label: "Follows", count: following.length + followers.length },
+	];
+
 	return (
 		<div className="main-inner">
 			<div className="thread-crumb">
@@ -4164,7 +4222,29 @@ function BotProfileScreen({
 				</span>
 			</div>
 
-			<div className="profile-head">
+			<div className="profile-head bot-profile-head">
+				<div className="profile-info-card kvtable">
+					<RuntimeRow label="Owner" value={isOwner ? "you" : bot.ownerUserId} />
+					<RuntimeRow label="World" value={<Reference kind="world" name={world.handle} />} />
+					<RuntimeRow
+						label="Blog"
+						value={
+							blogForum ?
+								<Reference
+									kind="forum"
+									name={blogForum.handle}
+									worldHandle={world.handle}
+								/>
+							:	"not found"
+						}
+					/>
+					<RuntimeRow label="Source" value={bot.importSource ? `chirper/${bot.importSource.originalHandle}` : "manual"} />
+					<RuntimeRow label="Model" value={effectiveModel} />
+					<RuntimeRow label="Loop" value={bot.tickSettings.enabled ? "active" : "paused"} />
+					<RuntimeRow label="Tick interval" value={formatTickIntervalMinutes(bot.tickSettings.intervalSeconds)} />
+					<RuntimeRow label="Created" value={timeAgo(bot.createdAt)} />
+					<RuntimeRow label="Updated" value={timeAgo(bot.updatedAt)} />
+				</div>
 				<Avatar actor="bot" colorSeed={bot.handle} name={bot.displayName} size="xl" />
 				<div className="meta">
 					<h1 className="name">
@@ -4229,44 +4309,55 @@ function BotProfileScreen({
 				)}
 			</div>
 
-			<div className="profile-grid">
-				<div>
-					<section className="section">
-						<div className="section-head">
-							<h2>Activity</h2>
-							<span className="meta">visible public activity</span>
-						</div>
+			<div className="profile-tabs">
+				<div className="tabs" role="tablist">
+					{tabs.map((tab) => (
+						<button
+							aria-selected={activeTab === tab.id}
+							key={tab.id}
+							onClick={() => setActiveTab(tab.id)}
+							role="tab"
+							type="button"
+						>
+							{tab.label} <span className="count">{tab.count}</span>
+						</button>
+					))}
+				</div>
+
+				{activeTab === "activity" && (
+					<section className="profile-tab-panel" role="tabpanel">
+						<FilterBox
+							label="Search activity"
+							onChange={setActivityFilter}
+							placeholder="Search activity"
+							value={activityFilter}
+						/>
 						<BotActivityList
-							activities={activityFeed?.activities ?? []}
+							activities={filteredActivities}
+							emptyMessage={activityFilter.trim() ? "No activity matches this search." : "No visible activity yet."}
 							error={activityError}
 							loading={activityLoading}
 						/>
 					</section>
-				</div>
-				<aside>
-					<div className="kvtable">
-						<RuntimeRow label="Owner" value={isOwner ? "you" : bot.ownerUserId} />
-						<RuntimeRow label="World" value={<Reference kind="world" name={world.handle} />} />
-						<RuntimeRow
-							label="Blog"
-							value={
-								blogForum ?
-									<Reference
-										kind="forum"
-										name={blogForum.handle}
-										worldHandle={world.handle}
-									/>
-								:	"not found"
-							}
-					/>
-					<RuntimeRow label="Source" value={bot.importSource ? `chirper/${bot.importSource.originalHandle}` : "manual"} />
-					<RuntimeRow label="Model" value={effectiveModel} />
-					<RuntimeRow label="Loop" value={bot.tickSettings.enabled ? "active" : "paused"} />
-					<RuntimeRow label="Tick interval" value={formatTickIntervalMinutes(bot.tickSettings.intervalSeconds)} />
-					<RuntimeRow label="Created" value={timeAgo(bot.createdAt)} />
-					<RuntimeRow label="Updated" value={timeAgo(bot.updatedAt)} />
-					</div>
-				</aside>
+				)}
+
+				{activeTab === "follows" && (
+					<section className="profile-tab-panel" role="tabpanel">
+						<FilterBox
+							label="Search follows"
+							onChange={setFollowFilter}
+							placeholder="Search by u/handle, display name, bio, or world"
+							value={followFilter}
+						/>
+						<BotFollowSections
+							error={followError}
+							filterActive={Boolean(followFilter.trim())}
+							followers={filteredFollowers}
+							following={filteredFollowing}
+							loading={followLoading}
+						/>
+					</section>
+				)}
 			</div>
 		</div>
 	);
@@ -4274,10 +4365,12 @@ function BotProfileScreen({
 
 function BotActivityList({
 	activities,
+	emptyMessage = "No visible activity yet.",
 	error,
 	loading,
 }: {
 	activities: BotActivityItem[];
+	emptyMessage?: string;
 	error: string;
 	loading: boolean;
 }) {
@@ -4288,7 +4381,7 @@ function BotActivityList({
 		return <div className="runtime-message">{error}</div>;
 	}
 	if (activities.length === 0) {
-		return <div className="empty-state compact">No visible activity yet.</div>;
+		return <div className="empty-state compact">{emptyMessage}</div>;
 	}
 	return (
 		<div className="bot-activity-list">
@@ -4296,6 +4389,103 @@ function BotActivityList({
 				<BotActivityCard activity={activity} key={activity.id} />
 			))}
 		</div>
+	);
+}
+
+function BotFollowSections({
+	error,
+	filterActive,
+	followers,
+	following,
+	loading,
+}: {
+	error: string;
+	filterActive: boolean;
+	followers: BotPublicProfile[];
+	following: BotPublicProfile[];
+	loading: boolean;
+}) {
+	if (loading) {
+		return <div className="empty-state compact">Loading follows...</div>;
+	}
+	if (error) {
+		return <div className="runtime-message">{error}</div>;
+	}
+	return (
+		<div className="bot-follow-sections">
+			<BotFollowSection
+				bots={following}
+				emptyMessage={filterActive ? "No followed bots match this search." : "This bot is not following anyone yet."}
+				title="This bot follows"
+			/>
+			<BotFollowSection
+				bots={followers}
+				emptyMessage={filterActive ? "No followers match this search." : "No bots follow this bot yet."}
+				title="Follows this bot"
+			/>
+		</div>
+	);
+}
+
+function BotFollowSection({
+	bots,
+	emptyMessage,
+	title,
+}: {
+	bots: BotPublicProfile[];
+	emptyMessage: string;
+	title: string;
+}) {
+	return (
+		<section className="bot-follow-section">
+			<div className="bot-world-head">
+				<span>{title}</span>
+				<span className="bot-world-head-actions">
+					{bots.length} bot{bots.length === 1 ? "" : "s"}
+				</span>
+			</div>
+			{bots.length === 0 ?
+				<div className="empty compact-empty">{emptyMessage}</div>
+			:	<div className="bot-grid">
+					{bots.map((bot) => (
+						<BotPublicProfileCard bot={bot} key={bot.id} />
+					))}
+				</div>
+			}
+		</section>
+	);
+}
+
+function BotPublicProfileCard({ bot }: { bot: BotPublicProfile }) {
+	return (
+		<article className="bot-card public-profile-card">
+			<div className="head">
+				<SpaLink
+					className="bot-avatar-link"
+					title={`Open ${bot.displayName}`}
+					to={{ route: "bot-profile", worldHandle: bot.homeWorldHandle, botHandle: bot.handle }}
+				>
+					<Avatar actor="bot" colorSeed={bot.handle} name={bot.displayName} />
+				</SpaLink>
+				<div className="bot-card-title">
+					<SpaLink
+						className="name bot-name-link"
+						to={{ route: "bot-profile", worldHandle: bot.homeWorldHandle, botHandle: bot.handle }}
+					>
+						{bot.displayName}
+					</SpaLink>
+					<div className="bot-ref-line">
+						<Reference isBot kind="bot" name={bot.handle} worldHandle={bot.homeWorldHandle} />
+					</div>
+				</div>
+			</div>
+			<TranslatableText as="div" className="tagline" text={bot.shortBio} />
+			<div className="foot">
+				<span className="bot-card-foot-left">
+					<Reference kind="world" name={bot.homeWorldHandle} />
+				</span>
+			</div>
+		</article>
 	);
 }
 
@@ -4375,6 +4565,63 @@ function botActivitySummary(activity: BotActivityItem): { title: string; body?: 
 				meta: `w/${activity.bot.homeWorldHandle}`,
 			};
 	}
+}
+
+function matchesBotActivityFilter(query: string, activity: BotActivityItem): boolean {
+	const summary = botActivitySummary(activity);
+	switch (activity.type) {
+		case "post":
+			return matchesFilter(
+				query,
+				activity.type,
+				summary.title,
+				summary.body,
+				summary.meta,
+				activity.title,
+				activity.bodyPreview,
+				activity.forumHandle,
+				activity.worldHandle,
+			);
+		case "comment":
+			return matchesFilter(
+				query,
+				activity.type,
+				summary.title,
+				summary.body,
+				summary.meta,
+				activity.threadTitle,
+				activity.bodyPreview,
+				activity.forumHandle,
+				activity.worldHandle,
+			);
+		case "vote":
+			return matchesFilter(
+				query,
+				activity.type,
+				summary.title,
+				summary.meta,
+				activity.targetType,
+				activity.title,
+				activity.forumHandle,
+				activity.worldHandle,
+			);
+		case "follow":
+			return matchesFilter(
+				query,
+				activity.type,
+				summary.title,
+				summary.body,
+				summary.meta,
+				activity.bot.handle,
+				activity.bot.displayName,
+				activity.bot.shortBio,
+				activity.bot.homeWorldHandle,
+			);
+	}
+}
+
+function matchesBotProfileFilter(query: string, profile: BotPublicProfile): boolean {
+	return matchesFilter(query, profile.handle, profile.displayName, profile.shortBio, profile.homeWorldHandle);
 }
 
 function BotLoopScreen({

@@ -546,6 +546,12 @@ export type BotActivityFeed = {
 	activities: BotActivityItem[];
 };
 
+export type BotFollowGraph = {
+	bot: BotPublicProfile;
+	following: BotPublicProfile[];
+	followers: BotPublicProfile[];
+};
+
 export type SpotlightTargetType = "threads" | "comments";
 
 export type SpotlightPreviewInput = {

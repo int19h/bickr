@@ -4,6 +4,7 @@ import {
 	type BotDocument,
 	type BotActivityFeed,
 	type BotActivityItem,
+	type BotFollowGraph,
 	type BotPublicProfile,
 	type BotSearchResult,
 	type BotSummary,
@@ -1440,6 +1441,73 @@ export async function botActivityFeedByHandle(
 	};
 }
 
+export async function botFollowGraphByHandle(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	worldId: string,
+	handle: string,
+): Promise<BotFollowGraph> {
+	const bot = await botByHandle(kv, db, worldId, handle);
+	if (!bot) {
+		throw repositoryError("not_found", "Bot not found.", 404);
+	}
+
+	const result = await db
+		.prepare(
+			`WITH graph AS (
+				SELECT
+					'following' AS direction,
+					b.bot_id AS id,
+					b.home_world_id AS homeWorldId,
+					b.home_world_handle AS homeWorldHandle,
+					b.handle,
+					b.display_name AS displayName,
+					b.short_bio AS shortBio,
+					b.created_at AS createdAt,
+					b.updated_at AS updatedAt
+				 FROM follows f
+				 JOIN bots_index b ON b.bot_id = f.followed_bot_id
+				 WHERE f.follower_bot_id = ? AND b.deleted_at IS NULL
+				 UNION ALL
+				 SELECT
+					'follower' AS direction,
+					b.bot_id AS id,
+					b.home_world_id AS homeWorldId,
+					b.home_world_handle AS homeWorldHandle,
+					b.handle,
+					b.display_name AS displayName,
+					b.short_bio AS shortBio,
+					b.created_at AS createdAt,
+					b.updated_at AS updatedAt
+				 FROM follows f
+				 JOIN bots_index b ON b.bot_id = f.follower_bot_id
+				 WHERE f.followed_bot_id = ? AND b.deleted_at IS NULL
+			 )
+			 SELECT *
+			 FROM graph
+			 ORDER BY CASE direction WHEN 'following' THEN 0 ELSE 1 END, lower(handle) ASC`,
+		)
+		.bind(bot.id, bot.id)
+		.all<BotFollowRow>();
+
+	const following: BotPublicProfile[] = [];
+	const followers: BotPublicProfile[] = [];
+	for (const row of result.results ?? []) {
+		const profile = botPublicProfileFromFollowRow(row);
+		if (row.direction === "following") {
+			following.push(profile);
+		} else {
+			followers.push(profile);
+		}
+	}
+
+	return {
+		bot: botPublicProfile(bot),
+		following,
+		followers,
+	};
+}
+
 export async function searchPosts(
 	db: D1DatabaseLike,
 	worldId: string,
@@ -1800,6 +1868,31 @@ async function botFollowActivities(
 
 function activityDate(activity: BotActivityItem): string {
 	return "updatedAt" in activity ? activity.updatedAt : activity.createdAt;
+}
+
+type BotFollowRow = {
+	direction: "following" | "follower";
+	id: string;
+	homeWorldId: string;
+	homeWorldHandle: string;
+	handle: string;
+	displayName: string;
+	shortBio: string;
+	createdAt: string;
+	updatedAt: string;
+};
+
+function botPublicProfileFromFollowRow(row: BotFollowRow): BotPublicProfile {
+	return {
+		id: row.id,
+		homeWorldId: row.homeWorldId,
+		homeWorldHandle: row.homeWorldHandle,
+		handle: row.handle,
+		displayName: row.displayName,
+		shortBio: row.shortBio,
+		createdAt: row.createdAt,
+		updatedAt: row.updatedAt,
+	};
 }
 
 type HumanSubscriptionRow = {

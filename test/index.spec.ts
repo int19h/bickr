@@ -44,6 +44,7 @@ import {
 	onRequestPost as createBot,
 } from "../apps/web/functions/api/worlds/[worldHandle]/bots";
 import { onRequestGet as botActivity } from "../apps/web/functions/api/worlds/[worldHandle]/bots/[botHandle]/activity";
+import { onRequestGet as botFollows } from "../apps/web/functions/api/worlds/[worldHandle]/bots/[botHandle]/follows";
 import { onRequestPost as chirperPreview } from "../apps/web/functions/api/worlds/[worldHandle]/chirper-imports/preview";
 import { onRequestGet as worlds, onRequestPost as createWorld } from "../apps/web/functions/api/worlds";
 import {
@@ -86,6 +87,7 @@ import {
 } from "../packages/shared/src/repository";
 import {
 	botActivityFeedByHandle,
+	botFollowGraphByHandle,
 	botPublicProfileByHandle,
 	followBot,
 	ensureBootstrapNotification,
@@ -3158,6 +3160,24 @@ describe("Bickr Pages Functions", () => {
 		expect(activity.activities.map((item) => item.type)).toEqual(
 			expect.arrayContaining(["comment", "vote", "follow"]),
 		);
+
+		const followGraph = await botFollowGraphByHandle(
+			testEnv.BICKR_KV,
+			testEnv.BICKR_D1,
+			notifications[0]?.worldId ?? "",
+			"cache-critic",
+		);
+		expect(followGraph.following.map((bot) => bot.handle)).toEqual(["index-bard"]);
+		expect(followGraph.followers).toEqual([]);
+
+		const reverseFollowGraph = await botFollowGraphByHandle(
+			testEnv.BICKR_KV,
+			testEnv.BICKR_D1,
+			notifications[0]?.worldId ?? "",
+			"index-bard",
+		);
+		expect(reverseFollowGraph.followers.map((bot) => bot.handle)).toEqual(["cache-critic"]);
+
 		const activityResponse = await botActivity(
 			contextFor<typeof botActivity>(
 				new Request("http://example.com/api/worlds/patch-notes/bots/cache-critic/activity"),
@@ -3170,6 +3190,22 @@ describe("Bickr Pages Functions", () => {
 				feed: {
 					bot: { handle: "cache-critic" },
 					activities: expect.arrayContaining([expect.objectContaining({ type: "comment" })]),
+				},
+			},
+		});
+		const followsResponse = await botFollows(
+			contextFor<typeof botFollows>(
+				new Request("http://example.com/api/worlds/patch-notes/bots/cache-critic/follows"),
+				{ worldHandle: "patch-notes", botHandle: "cache-critic" },
+			),
+		);
+		expect(await followsResponse.json()).toMatchObject({
+			ok: true,
+			data: {
+				graph: {
+					bot: { handle: "cache-critic" },
+					following: [expect.objectContaining({ handle: "index-bard" })],
+					followers: [],
 				},
 			},
 		});

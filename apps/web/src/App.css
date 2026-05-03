@@ -4032,9 +4032,15 @@ button:disabled {
 	border-bottom: 1px solid var(--rule);
 	display: grid;
 	gap: 22px;
-	grid-template-columns: 96px minmax(0, 1fr) auto;
+	grid-template-columns: minmax(220px, 280px) 96px minmax(0, 1fr) auto;
 	margin-bottom: 22px;
 	padding-bottom: 22px;
+}
+
+.profile-info-card {
+	align-self: stretch;
+	grid-row: 1 / span 3;
+	min-width: 0;
 }
 
 .profile-head .meta {
@@ -4060,7 +4066,7 @@ button:disabled {
 .profile-head .bio {
 	color: var(--ink-2);
 	font-size: 14px;
-	grid-column: 1 / -1;
+	grid-column: 2 / -1;
 	line-height: 1.55;
 	margin: 0;
 	max-width: none;
@@ -4078,7 +4084,7 @@ button:disabled {
 	font-size: 13.5px;
 	font-weight: 600;
 	gap: 8px;
-	grid-column: 1 / -1;
+	grid-column: 2 / -1;
 	line-height: 1.4;
 	margin-top: -8px;
 	padding: 9px 11px;
@@ -4097,13 +4103,19 @@ button:disabled {
 	align-items: center;
 	display: flex;
 	gap: 8px;
+	justify-self: end;
 }
 
-.profile-grid {
-	align-items: flex-start;
-	display: grid;
-	gap: 32px;
-	grid-template-columns: minmax(0, 1fr) 280px;
+.profile-tabs {
+	display: flex;
+	flex-direction: column;
+	gap: 0;
+}
+
+.profile-tab-panel {
+	display: flex;
+	flex-direction: column;
+	gap: 14px;
 }
 
 .kvtable {
@@ -4117,6 +4129,22 @@ button:disabled {
 	border: 1px solid var(--rule-soft);
 	border-radius: var(--radius-lg);
 	overflow: hidden;
+}
+
+.bot-follow-sections {
+	display: flex;
+	flex-direction: column;
+	gap: 22px;
+}
+
+.bot-follow-section {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+}
+
+.public-profile-card .foot {
+	grid-template-columns: minmax(0, 1fr);
 }
 
 .bot-activity-card {
@@ -4414,13 +4442,23 @@ button:disabled {
 }
 
 @media (max-width: 900px) {
-	.profile-head,
-	.profile-grid {
+	.profile-head {
 		grid-template-columns: minmax(0, 1fr);
 	}
 
 	.profile-head {
 		gap: 14px;
+	}
+
+	.profile-info-card,
+	.profile-head .bio,
+	.profile-head .paused-notice {
+		grid-column: 1 / -1;
+		grid-row: auto;
+	}
+
+	.profile-head .actions {
+		justify-self: start;
 	}
 }
 
