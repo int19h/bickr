@@ -387,9 +387,7 @@ type ProviderChatCompletionRequest = {
 		include_usage: true;
 	};
 	max_completion_tokens: number;
-	reasoning: {
-		effort: "none";
-	};
+	reasoning: typeof providerChatReasoning;
 	temperature: number;
 	top_k?: number;
 	top_p?: number;
@@ -517,6 +515,7 @@ const providerRetryBaseDelayMs = 3_000;
 const providerChatToolChoice = "required" as const;
 const providerTokenProbeToolChoice = "auto" as const;
 const providerParallelToolCalls = true;
+const providerChatReasoning = { enabled: true, exclude: false } as const;
 const providerTranslationMaxCompletionTokens = 8_192;
 const dayMs = 24 * 60 * 60 * 1000;
 const fallbackProviderModel = defaultProviderModel;
@@ -547,9 +546,7 @@ export function providerChatCompletionRequest(
 			include_usage: true,
 		},
 		max_completion_tokens: providerContextReserveTokens,
-		reasoning: {
-			effort: "none",
-		},
+		reasoning: providerChatReasoning,
 		temperature: settings.temperature,
 		...(settings.topK !== undefined ? { top_k: settings.topK } : {}),
 		...(settings.topP !== undefined ? { top_p: settings.topP } : {}),
@@ -1467,6 +1464,7 @@ export class BotRuntime {
 				parallelToolCalls: providerParallelToolCalls,
 				contextWindowTokens: bot.tickSettings.contextWindowTokens,
 				maxCompletionTokens: providerContextReserveTokens,
+				reasoning: providerChatReasoning,
 				temperature: settings.temperature,
 				openRouterServerTools: {
 					enabled: serverTools.enabled,

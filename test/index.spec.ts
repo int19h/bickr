@@ -491,7 +491,7 @@ describe("Bickr Pages Functions", () => {
 		expect(request.stream).toBe(true);
 		expect(request.stream_options.include_usage).toBe(true);
 		expect(request.max_completion_tokens).toBe(providerContextReserveTokens);
-		expect(request.reasoning).toEqual({ effort: "none" });
+		expect(request.reasoning).toEqual({ enabled: true, exclude: false });
 		expect(request.tools).toBe(toolDefinitions);
 		expect(request.messages).toEqual([
 			{ role: "user", content: "hello" },
@@ -1011,6 +1011,90 @@ describe("Bickr Pages Functions", () => {
 		} finally {
 			vi.useRealTimers();
 		}
+	});
+
+	it("streams provider reasoning through live deltas and persistent messages", async () => {
+		type TestProviderResponse = {
+			content: string;
+			reasoning: string;
+			reasoningDetails: Array<Record<string, unknown>>;
+			toolCalls: Array<Record<string, unknown>>;
+		};
+		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+		const deltas: Array<Record<string, unknown>> = [];
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			appendEvent: async (_runId: string, type: string, payload: Record<string, unknown>) => {
+				events.push({ type, payload });
+				return runtimeEvent(events.length, _runId, type as BotRuntimeEvent["type"], payload);
+			},
+			broadcastProviderDelta: (_runId: string, event: Record<string, unknown>) => {
+				deltas.push(event);
+			},
+			clearProviderStreamActive: () => {},
+			markProviderStreamActive: () => {},
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const consumeProviderResponse = (BotRuntime.prototype as unknown as {
+			consumeProviderResponse: (
+				runId: string,
+				stream: ReadableStream<Uint8Array>,
+				signal: AbortSignal,
+			) => Promise<TestProviderResponse>;
+		}).consumeProviderResponse.bind(runtime);
+		const appendProviderMessages = (BotRuntime.prototype as unknown as {
+			appendProviderMessages: (
+				runId: string,
+				response: TestProviderResponse,
+				status: "complete" | "interrupted",
+				reasoningPrefill?: string,
+			) => Promise<void>;
+		}).appendProviderMessages.bind(runtime);
+
+		const response = await consumeProviderResponse(
+			"run-reasoning",
+			sseStream([
+				{ choices: [{ delta: { reasoning: "I should inspect the thread. " } }] },
+				{ choices: [{ delta: { reasoning_content: "Then I can decide. " } }] },
+				{ choices: [{ delta: { reasoning_details: [{ type: "reasoning.text", text: "I will use a tool. " }] } }] },
+				{ choices: [{ delta: { content: "Checking now." } }] },
+				"[DONE]",
+			]),
+			new AbortController().signal,
+		);
+		await appendProviderMessages("run-reasoning", response, "complete", "I'm u/release-sage, and I ");
+
+		expect(response).toMatchObject({
+			content: "Checking now.",
+			reasoning: "I should inspect the thread. Then I can decide. I will use a tool. ",
+			reasoningDetails: [{ type: "reasoning.text", text: "I will use a tool. " }],
+			toolCalls: [],
+		});
+		expect(deltas).toEqual([
+			{ kind: "reasoning", text: "I should inspect the thread. " },
+			{ kind: "reasoning", text: "Then I can decide. " },
+			{ kind: "reasoning", text: "I will use a tool. " },
+			{ kind: "content", text: "Checking now." },
+		]);
+		expect(events).toEqual([
+			{
+				type: "reasoning_message",
+				payload: {
+					content: "I should inspect the thread. Then I can decide. I will use a tool. ",
+					status: "complete",
+				},
+			},
+			{
+				type: "assistant_message",
+				payload: {
+					content: "I'm u/release-sage, and I Checking now.",
+					status: "complete",
+				},
+			},
+		]);
 	});
 
 	it("returns the bootstrap payload", async () => {
