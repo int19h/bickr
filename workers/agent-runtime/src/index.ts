@@ -16,6 +16,7 @@ import {
 import {
 	followBot,
 	forumByHandle,
+	followedBotIdSet,
 	botActivityFeedByHandle,
 	botPublicProfileByHandle,
 	buildNotificationForumContext,
@@ -63,6 +64,8 @@ import {
 	type BotInferenceSubmissionSummary,
 	type BotInferenceSubmissionToolCall,
 	type BotDocument,
+	type BotPublicProfile,
+	type BotActivityFeed,
 	type CommentDocument,
 	type BotRuntimeEvent,
 	type BotRuntimeEventType,
@@ -75,7 +78,9 @@ import {
 	type BotTokenUsageStats,
 	type BotTokenUsageTotals,
 	type NotificationDocument,
+	type SearchPostResult,
 	type ThreadDocument,
+	type ThreadSummary,
 	type UserDocument,
 } from "@bickr/shared/model";
 import {
@@ -353,11 +358,20 @@ type ReadContentItem = {
 	authorBotId: string;
 	authorHandle: string;
 	authorDisplayName: string;
+	authorFollowing?: boolean;
 	title?: string;
 	body: string;
 	createdAt: string;
 	target?: boolean;
 	ancestorOnly?: boolean;
+};
+
+type FollowStatusProfile = BotPublicProfile & {
+	following: boolean;
+};
+
+type FollowStatusSearchResult = BotSearchResult & {
+	following: boolean;
 };
 
 export type ProviderSettings = {
@@ -2424,15 +2438,22 @@ export class BotRuntime {
 				break;
 			case "list_recent_threads": {
 				const forum = await this.forumFromArgs(bot, normalizedArgs);
-				result = await listThreads(this.env.BICKR_D1, forum.id, "recent", numberArg(normalizedArgs.limit, 20));
+				result = await this.annotateThreadSummariesFollowStatus(
+					bot.id,
+					await listThreads(this.env.BICKR_D1, forum.id, "recent", numberArg(normalizedArgs.limit, 20)),
+				);
 				break;
 			}
 			case "list_hot_threads":
-				result = await listHotThreads(this.env.BICKR_D1, bot.homeWorldId, numberArg(normalizedArgs.limit, 20));
+				result = await this.annotateThreadSummariesFollowStatus(
+					bot.id,
+					await listHotThreads(this.env.BICKR_D1, bot.homeWorldId, numberArg(normalizedArgs.limit, 20)),
+				);
 				break;
 			case "read_thread":
 			case "read_thread_by_id":
-				result = this.threadReadResult(
+				result = await this.threadReadResult(
+					bot.id,
 					await readThread(this.env.BICKR_KV, stringArg(normalizedArgs.threadId, "threadId")),
 					canonicalName,
 				);
@@ -2490,7 +2511,10 @@ export class BotRuntime {
 			}
 			case "search_posts":
 			case "search_posts_semantic":
-				result = await searchPosts(this.env.BICKR_D1, bot.homeWorldId, stringArg(normalizedArgs.query, "query"));
+				result = await this.annotateSearchPostsFollowStatus(
+					bot.id,
+					await searchPosts(this.env.BICKR_D1, bot.homeWorldId, stringArg(normalizedArgs.query, "query")),
+				);
 				break;
 			case "search_profiles":
 				result = await this.searchBotsTool(bot, stringArg(normalizedArgs.query, "query"), numberArg(normalizedArgs.limit, 10));
@@ -2503,7 +2527,7 @@ export class BotRuntime {
 					usernameArg(normalizedArgs.username),
 				);
 				await markBotSeenContent(this.env.BICKR_D1, bot.id, [{ type: "bot", id: profile.id }], "tool:view_profile", runId);
-				result = profile;
+				result = await this.annotateProfileFollowStatus(bot.id, profile);
 				break;
 			}
 			case "view_activity": {
@@ -2515,7 +2539,7 @@ export class BotRuntime {
 					numberArg(normalizedArgs.limit, 20),
 				);
 				await markBotSeenContent(this.env.BICKR_D1, bot.id, [{ type: "bot", id: feed.bot.id }], "tool:view_activity", runId);
-				result = feed;
+				result = await this.annotateActivityFeedFollowStatus(bot.id, feed);
 				break;
 			}
 			case "log_off":
@@ -2579,7 +2603,7 @@ export class BotRuntime {
 				shouldFollow ?
 					await followBot(this.env.BICKR_KV, this.env.BICKR_D1, bot.id, profile.id)
 				:	await unfollowBot(this.env.BICKR_D1, bot.id, profile.id);
-			results.push({ username, ...follow, profile });
+			results.push({ username, ...follow, profile: { ...profile, following: follow.following } });
 		}
 		return results;
 	}
@@ -2613,7 +2637,7 @@ export class BotRuntime {
 		});
 	}
 
-	private async searchBotsTool(bot: BotDocument, query: string, limit: number): Promise<BotSearchResult[]> {
+	private async searchBotsTool(bot: BotDocument, query: string, limit: number): Promise<FollowStatusSearchResult[]> {
 		const vectorResults = await vectorSearchBots(this.env, bot.homeWorldId, query, limit);
 		const textResults = await searchBots(this.env.BICKR_KV, this.env.BICKR_D1, bot.homeWorldId, query, limit);
 		const byId = new Map<string, BotSearchResult>();
@@ -2625,7 +2649,70 @@ export class BotRuntime {
 				byId.set(result.id, result);
 			}
 		}
-		return [...byId.values()].slice(0, limit);
+		return this.annotateProfilesFollowStatus(bot.id, [...byId.values()].slice(0, limit));
+	}
+
+	private async annotateProfileFollowStatus<T extends BotPublicProfile>(botId: string, profile: T): Promise<T | (T & FollowStatusProfile)> {
+		return (await this.annotateProfilesFollowStatus(botId, [profile]))[0] ?? profile;
+	}
+
+	private async annotateProfilesFollowStatus<T extends BotPublicProfile>(
+		botId: string,
+		profiles: T[],
+	): Promise<Array<T & { following: boolean }>> {
+		const followed = await followedBotIdSet(this.env.BICKR_D1, botId, profiles.map((profile) => profile.id));
+		return profiles.map((profile) => ({
+			...profile,
+			following: profile.id !== botId && followed.has(profile.id),
+		}));
+	}
+
+	private async annotateActivityFeedFollowStatus(botId: string, feed: BotActivityFeed): Promise<BotActivityFeed> {
+		const profileIds = [
+			feed.bot.id,
+			...feed.activities
+				.filter((item) => item.type === "follow")
+				.map((item) => item.bot.id),
+		];
+		const followed = await followedBotIdSet(this.env.BICKR_D1, botId, profileIds);
+		return {
+			...feed,
+			bot: withProfileFollowStatus(feed.bot, botId, followed),
+			activities: feed.activities.map((item) =>
+				item.type === "follow" ?
+					{
+						...item,
+						bot: withProfileFollowStatus(item.bot, botId, followed),
+					}
+				:	item
+			),
+		};
+	}
+
+	private async annotateThreadSummariesFollowStatus(
+		botId: string,
+		threads: ThreadSummary[],
+	): Promise<Array<ThreadSummary & { authorFollowing?: boolean }>> {
+		const followed = await followedBotIdSet(this.env.BICKR_D1, botId, threads.map((thread) => thread.authorBotId));
+		return threads.map((thread) => withAuthorFollowStatus(thread, botId, followed));
+	}
+
+	private async annotateThreadReadSummariesFollowStatus<T extends { authorBotId: string }>(
+		botId: string,
+		threads: T[],
+	): Promise<Array<T & { authorFollowing?: boolean }>> {
+		const followed = await followedBotIdSet(this.env.BICKR_D1, botId, threads.map((thread) => thread.authorBotId));
+		return threads.map((thread) => withAuthorFollowStatus(thread, botId, followed));
+	}
+
+	private async annotateSearchPostsFollowStatus<T extends SearchPostResult>(botId: string, posts: T[]): Promise<Array<T & { authorFollowing?: boolean }>> {
+		const followed = await followedBotIdSet(this.env.BICKR_D1, botId, posts.map((post) => post.authorBotId));
+		return posts.map((post) => withAuthorFollowStatus(post, botId, followed));
+	}
+
+	private async annotateReadContentFollowStatus(botId: string, content: ReadContentItem[]): Promise<ReadContentItem[]> {
+		const followed = await followedBotIdSet(this.env.BICKR_D1, botId, content.map((item) => item.authorBotId));
+		return content.map((item) => withAuthorFollowStatus(item, botId, followed));
 	}
 
 	private assertNoRecentDuplicateReply(botId: string, body: string): void {
@@ -2666,7 +2753,7 @@ export class BotRuntime {
 		);
 	}
 
-	private threadReadResult(thread: ThreadDocument, operation: string, targetCommentId?: string) {
+	private async threadReadResult(botId: string, thread: ThreadDocument, operation: string, targetCommentId?: string) {
 		const content: ReadContentItem[] = [threadRootReadItem(thread)];
 		if (targetCommentId) {
 			const byId = new Map(thread.comments.map((comment) => [comment.id, comment]));
@@ -2688,12 +2775,14 @@ export class BotRuntime {
 		} else {
 			content.push(...thread.comments.map((comment) => commentReadItem(thread, comment)));
 		}
+		const annotatedContent = await this.annotateReadContentFollowStatus(botId, content);
+		const threadSummary = (await this.annotateThreadReadSummariesFollowStatus(botId, [threadReadSummary(thread)]))[0] ?? threadReadSummary(thread);
 		return {
 			operation,
 			context: `Result of my ${operation} operation.`,
-			thread: threadReadSummary(thread),
+			thread: threadSummary,
 			...(targetCommentId ? { targetCommentId } : {}),
-			content,
+			content: annotatedContent,
 		};
 	}
 
@@ -2714,7 +2803,7 @@ export class BotRuntime {
 		if (!thread.comments.some((comment) => comment.id === commentId)) {
 			throw new RepositoryError("not_found", "Comment not found.", 404);
 		}
-		return this.threadReadResult(thread, operation, commentId);
+		return this.threadReadResult(bot.id, thread, operation, commentId);
 	}
 
 	private async forumFromArgs(bot: BotDocument, args: Record<string, unknown>) {
@@ -3806,12 +3895,14 @@ function providerSearchPost(record: Record<string, unknown>): Record<string, unk
 
 function providerProfile(record: Record<string, unknown>): Record<string, unknown> {
 	const handle = stringValue(record.handle);
+	const following = typeof record.following === "boolean" ? record.following : undefined;
 	return {
 		id: publicProfileId(stringValue(record.id)),
 		world: `w/${stringValue(record.homeWorldHandle) ?? stringValue(record.worldHandle) ?? "unknown"}`,
 		username: handle ? `u/${handle}` : undefined,
 		displayName: stringValue(record.displayName) ?? "unknown",
 		shortBio: stringValue(record.shortBio) ?? "",
+		...(typeof following === "boolean" ? { following } : {}),
 		createdAt: stringValue(record.createdAt),
 		updatedAt: stringValue(record.updatedAt),
 		...(record.score !== undefined ? { score: numberValue(record.score) } : {}),
@@ -3822,10 +3913,12 @@ function providerProfile(record: Record<string, unknown>): Record<string, unknow
 function providerAuthor(record: Record<string, unknown>): Record<string, unknown> {
 	const handle = stringValue(record.authorHandle) ?? stringValue(record.handle);
 	const shortBio = stringValue(record.authorShortBio);
+	const following = typeof record.authorFollowing === "boolean" ? record.authorFollowing : undefined;
 	return {
 		username: handle ? `u/${handle}` : undefined,
 		displayName: stringValue(record.authorDisplayName) ?? stringValue(record.displayName) ?? "unknown",
 		...(shortBio ? { shortBio } : {}),
+		...(typeof following === "boolean" ? { following } : {}),
 	};
 }
 
@@ -4096,6 +4189,30 @@ function threadReadSummary(thread: ThreadDocument) {
 		voteScore: thread.voteScore,
 		lastActivityAt: thread.lastActivityAt,
 	};
+}
+
+function withProfileFollowStatus<T extends BotPublicProfile>(
+	profile: T,
+	botId: string,
+	followed: ReadonlySet<string>,
+): T & { following: boolean } {
+	return {
+		...profile,
+		following: profile.id !== botId && followed.has(profile.id),
+	};
+}
+
+function withAuthorFollowStatus<T extends { authorBotId: string }>(
+	item: T,
+	botId: string,
+	followed: ReadonlySet<string>,
+): T & { authorFollowing?: boolean } {
+	return item.authorBotId === botId ?
+			item
+		:	{
+				...item,
+				authorFollowing: followed.has(item.authorBotId),
+			};
 }
 
 function threadRootReadItem(thread: ThreadDocument): ReadContentItem {
@@ -4587,20 +4704,39 @@ function authorHandleFromRecord(record: Record<string, unknown>): string {
 	return (stringValue(record.authorHandle) ?? stringValue(author.username) ?? "unknown").replace(/^u\//, "");
 }
 
+function authorFollowRelationFromRecord(record: Record<string, unknown>): string {
+	const author = runtimeRecord(record.author);
+	const following =
+		typeof record.authorFollowing === "boolean" ? record.authorFollowing
+		: typeof author.following === "boolean" ? author.following
+		: undefined;
+	return typeof following === "boolean" ? ` (${profileFollowRelationText(following)})` : "";
+}
+
+function profileFollowRelationFromRecord(record: Record<string, unknown>): string {
+	const following = typeof record.following === "boolean" ? record.following : undefined;
+	return typeof following === "boolean" ? `, ${profileFollowRelationText(following)}` : "";
+}
+
+function profileFollowRelationText(following: boolean): string {
+	return following ? "I follow this profile" : "I do not follow this profile";
+}
+
 function readContentItemRef(record: Record<string, unknown>): string {
 	const id = stringValue(record.commentId) ?? stringValue(record.id) ?? "unknown";
 	const threadId = stringValue(record.threadId) ?? "unknown";
 	const title = stringValue(record.title);
 	const body = stringValue(record.body);
+	const relationship = authorFollowRelationFromRecord(record);
 	const target =
 		record.target === true ? " This was the focused item."
 		: record.ancestorOnly === true ? " This was parent context."
 		: "";
 	if (stringValue(record.type) === "thread") {
-		return `root post for thread ${threadId} in f/${forumHandleFromRecord(record)}${title ? ` titled ${quoteForContext(title, 120)}` : ""} by u/${authorHandleFromRecord(record)}${body ? `: ${quoteForContext(body, 180)}` : ""}`;
+		return `root post for thread ${threadId} in f/${forumHandleFromRecord(record)}${title ? ` titled ${quoteForContext(title, 120)}` : ""} by u/${authorHandleFromRecord(record)}${relationship}${body ? `: ${quoteForContext(body, 180)}` : ""}`;
 	}
 	const parentCommentId = stringValue(record.parentCommentId);
-	return `comment ${id} in thread ${threadId}${parentCommentId ? ` under comment ${parentCommentId}` : ""} in f/${forumHandleFromRecord(record)} by u/${authorHandleFromRecord(record)}${body ? `: ${quoteForContext(body, 180)}` : ""}${target}`;
+	return `comment ${id} in thread ${threadId}${parentCommentId ? ` under comment ${parentCommentId}` : ""} in f/${forumHandleFromRecord(record)} by u/${authorHandleFromRecord(record)}${relationship}${body ? `: ${quoteForContext(body, 180)}` : ""}${target}`;
 }
 
 function forumRef(record: Record<string, unknown>): string {
@@ -4612,14 +4748,14 @@ function forumRef(record: Record<string, unknown>): string {
 
 function threadSummaryRef(record: Record<string, unknown>): string {
 	const id = stringValue(record.id) ?? stringValue(record.threadId) ?? "unknown";
-	return `thread ${id} in f/${forumHandleFromRecord(record)} titled ${quoteForContext(stringValue(record.title) ?? "untitled", 140)} by u/${authorHandleFromRecord(record)} with ${stringValue(record.commentCount) ?? "?"} comments`;
+	return `thread ${id} in f/${forumHandleFromRecord(record)} titled ${quoteForContext(stringValue(record.title) ?? "untitled", 140)} by u/${authorHandleFromRecord(record)}${authorFollowRelationFromRecord(record)} with ${stringValue(record.commentCount) ?? "?"} comments`;
 }
 
 function searchPostRef(record: Record<string, unknown>): string {
 	const threadId = stringValue(record.threadId) ?? "unknown";
 	const commentId = stringValue(record.commentId);
 	const target = commentId ? `comment ${commentId} in thread ${threadId}` : `thread ${threadId}`;
-	return `${target} in f/${forumHandleFromRecord(record)} titled ${quoteForContext(stringValue(record.title) ?? "untitled", 140)} by u/${authorHandleFromRecord(record)}: ${quoteForContext(stringValue(record.snippet) ?? "", 160)}`;
+	return `${target} in f/${forumHandleFromRecord(record)} titled ${quoteForContext(stringValue(record.title) ?? "untitled", 140)} by u/${authorHandleFromRecord(record)}${authorFollowRelationFromRecord(record)}: ${quoteForContext(stringValue(record.snippet) ?? "", 160)}`;
 }
 
 function profileRef(record: Record<string, unknown>): string {
@@ -4628,7 +4764,8 @@ function profileRef(record: Record<string, unknown>): string {
 	if (!handle && !id) {
 		return "";
 	}
-	return `${quoteForContext(stringValue(record.displayName) ?? "unknown", 100)}${handle ? `, u/${handle}` : ""}${id ? `, profile ${publicProfileId(id)}` : ""}`;
+	const relationship = profileFollowRelationFromRecord(record);
+	return `${quoteForContext(stringValue(record.displayName) ?? "unknown", 100)}${handle ? `, u/${handle}` : ""}${id ? `, profile ${publicProfileId(id)}` : ""}${relationship}`;
 }
 
 function activityRef(record: Record<string, unknown>): string {

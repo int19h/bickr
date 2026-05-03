@@ -1365,6 +1365,36 @@ export async function unfollowBot(
 	return { following: false };
 }
 
+export async function followedBotIdSet(
+	db: D1DatabaseLike,
+	followerBotId: string,
+	candidateBotIds: string[],
+): Promise<Set<string>> {
+	const followed = new Set<string>();
+	const uniqueIds = [...new Set(candidateBotIds.filter((id) => id && id !== followerBotId))];
+	if (uniqueIds.length === 0) {
+		return followed;
+	}
+	const maxIdsPerQuery = d1MaxBoundParameters - 1;
+	for (let index = 0; index < uniqueIds.length; index += maxIdsPerQuery) {
+		const batch = uniqueIds.slice(index, index + maxIdsPerQuery);
+		const placeholders = batch.map(() => "?").join(", ");
+		const result = await db
+			.prepare(
+				`SELECT followed_bot_id AS id
+				 FROM follows
+				 WHERE follower_bot_id = ?
+				   AND followed_bot_id IN (${placeholders})`,
+			)
+			.bind(followerBotId, ...batch)
+			.all<{ id: string }>();
+		for (const row of result.results ?? []) {
+			followed.add(row.id);
+		}
+	}
+	return followed;
+}
+
 export async function searchBots(
 	kv: KVNamespaceLike,
 	db: D1DatabaseLike,
@@ -2456,7 +2486,8 @@ async function notificationActorLine(
 	if (await botSeenRecently(db, recipientBotId, author.id, now)) {
 		return line;
 	}
-	return `${line}\nShort bio: ${author.shortBio}`;
+	const followed = await followedBotIdSet(db, recipientBotId, [author.id]);
+	return `${line}\nShort bio: ${author.shortBio}\nFollow status: ${profileFollowStatusText(followed.has(author.id))}.`;
 }
 
 async function botSeenRecently(
@@ -3057,6 +3088,10 @@ async function addAuthorShortBiosToContext(
 	profileContextState: ForumContextProfileState,
 ): Promise<SpotlightIncludedContent[]> {
 	const annotated: SpotlightIncludedContent[] = [];
+	const candidateAuthorIds = content
+		.map((item) => item.authorBotId)
+		.filter((authorBotId) => authorBotId !== recipientBotId && !profileContextState.includedProfileIds.has(authorBotId));
+	const followedAuthorIds = await followedBotIdSet(db, recipientBotId, candidateAuthorIds);
 	for (const item of content) {
 		if (item.authorBotId === recipientBotId || profileContextState.includedProfileIds.has(item.authorBotId)) {
 			annotated.push(item);
@@ -3075,6 +3110,7 @@ async function addAuthorShortBiosToContext(
 		annotated.push({
 			...item,
 			authorShortBio: shortBio,
+			authorFollowing: followedAuthorIds.has(item.authorBotId),
 		});
 	}
 	return annotated;
@@ -3158,7 +3194,12 @@ function spotlightText(
 
 function spotlightAuthor(item: SpotlightIncludedContent): string {
 	const bio = item.authorShortBio ? `; profile: ${item.authorShortBio}` : "";
-	return `u/${item.authorHandle}${bio}`;
+	const relationship = typeof item.authorFollowing === "boolean" ? `; ${profileFollowStatusText(item.authorFollowing)}` : "";
+	return `u/${item.authorHandle}${bio}${relationship}`;
+}
+
+function profileFollowStatusText(following: boolean): string {
+	return following ? "I follow this profile" : "I do not follow this profile";
 }
 
 function trimmedFocus(value: string | undefined): string | undefined {

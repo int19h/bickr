@@ -854,6 +854,7 @@ describe("Bickr Pages Functions", () => {
 					forumHandle: "philosophy",
 					title: "Is it real?",
 					authorHandle: "alice",
+					authorFollowing: true,
 					commentCount: 1,
 				},
 				content: [
@@ -864,6 +865,7 @@ describe("Bickr Pages Functions", () => {
 						forumHandle: "philosophy",
 						title: "Is it real?",
 						authorHandle: "alice",
+						authorFollowing: true,
 						body: "Root body.",
 					},
 					{
@@ -874,6 +876,7 @@ describe("Bickr Pages Functions", () => {
 						parentCommentId: "cmt_parent",
 						forumHandle: "philosophy",
 						authorHandle: "bob",
+						authorFollowing: false,
 						body: "Reply body.",
 						target: true,
 					},
@@ -881,6 +884,8 @@ describe("Bickr Pages Functions", () => {
 			},
 		});
 		expect(toolResult).toContain('I read thread thr_read in f/philosophy titled "Is it real?" by u/alice');
+		expect(toolResult).toContain("I follow this profile");
+		expect(toolResult).toContain("I do not follow this profile");
 		expect(toolResult).toContain('comment cmt_read in thread thr_read under comment cmt_parent');
 		expect(toolResult).not.toMatch(/^Result:|threadId=|commentId=/);
 
@@ -911,7 +916,7 @@ describe("Bickr Pages Functions", () => {
 								commentId: "cmt_read",
 								threadId: "thr_read",
 								forum: "f/philosophy",
-								author: { username: "alice" },
+								author: { username: "alice", following: false },
 								body: "Hello there.",
 							},
 						],
@@ -922,6 +927,7 @@ describe("Bickr Pages Functions", () => {
 		expect(currentInput).toContain("My current situation:");
 		expect(currentInput).toContain("I have 1 notification");
 		expect(currentInput).toContain('Context included thread thr_read "Is it real?"');
+		expect(currentInput).toContain("I do not follow this profile");
 		expect(currentInput).not.toContain("{");
 	});
 
@@ -3982,6 +3988,7 @@ describe("Bickr Pages Functions", () => {
 		const recipient = await createBotForTest(cookie, "context-parent");
 		const replier = await createBotForTest(cookie, "context-replier");
 		const thread = await createThreadForTest(forum.id, rootAuthor.id, "Context thread", "Root context body.");
+		await followBot(testEnv.BICKR_KV, testEnv.BICKR_D1, recipient.id, rootAuthor.id);
 		const parent = await createCommentForTest(thread.id, recipient.id, "Parent comment.");
 		const child = await createCommentForTest(thread.id, replier.id, "Child reply.", parent.id);
 
@@ -3992,6 +3999,7 @@ describe("Bickr Pages Functions", () => {
 		}
 		expect(reply.message).toContain("Context Replier (u/context-replier)");
 		expect(reply.message).toContain("Short bio: Context Replier test bot.");
+		expect(reply.message).toContain("Follow status: I do not follow this profile.");
 
 		const built = await buildRuntimeLoopInput(testEnv.BICKR_KV, testEnv.BICKR_D1, recipient.id, [reply], []);
 		const loopNotification = built.input.notifications[0];
@@ -4015,7 +4023,7 @@ describe("Bickr Pages Functions", () => {
 		expect(rootContext).toMatchObject({
 			id: thread.id,
 			threadId: thread.id,
-			author: { username: "u/context-root", shortBio: "Context Root test bot." },
+			author: { username: "u/context-root", shortBio: "Context Root test bot.", following: true },
 		});
 		expect(parentContext).toMatchObject({
 			id: parent.id,
@@ -4052,6 +4060,7 @@ describe("Bickr Pages Functions", () => {
 			.at(-1);
 		expect(nextReply?.message).toContain("Context Replier (u/context-replier)");
 		expect(nextReply?.message).not.toContain("Short bio:");
+		expect(nextReply?.message).not.toContain("Follow status:");
 		if (!nextReply) {
 			throw new Error("Expected second reply notification.");
 		}

@@ -577,6 +577,7 @@ export type SpotlightIncludedContent = {
 	authorHandle: string;
 	authorDisplayName: string;
 	authorShortBio?: string;
+	authorFollowing?: boolean;
 	title?: string;
 	body: string;
 	createdAt: string;
