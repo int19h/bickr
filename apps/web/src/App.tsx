@@ -61,6 +61,10 @@ import {
 	type ToolDisplay,
 } from "./runtime-activity-formatting";
 import {
+	interpolateTokenUsageChartValue,
+	type TokenUsageChartPoint,
+} from "./token-usage-chart";
+import {
 	toolInputFromDraft,
 	type BotToolDraft,
 	type OpenRouterDatetimeToolDraft,
@@ -7359,9 +7363,10 @@ function TokenUsageChart({ usage }: { usage: BotTokenUsageStats }) {
 	};
 	const yForTokens = (tokens: number): number => padding.top + plotHeight - (Math.max(0, tokens) / scaleMaxTokens) * plotHeight;
 	const bucketWidth = plotWidth / Math.max(1, usage.buckets.length);
-	const chartPoints = [
-		{ x: padding.left, totalTokens: 0, cachedTokens: 0 },
+	const chartPoints: TokenUsageChartPoint[] = [
+		{ timeMs: windowStart, x: padding.left, totalTokens: 0, cachedTokens: 0 },
 		...usage.buckets.map((bucket) => ({
+			timeMs: Date.parse(bucket.bucketEnd),
 			x: xForTime(bucket.bucketEnd),
 			totalTokens: bucket.totalTokens,
 			cachedTokens: Math.min(bucket.cachedTokens, bucket.totalTokens),
@@ -7418,10 +7423,10 @@ function TokenUsageChart({ usage }: { usage: BotTokenUsageStats }) {
 					0
 				</text>
 				{usage.changeMarkers.map((marker, index) => {
-					const markerBucket = usage.buckets.find(
-						(bucket) => marker.usedAt >= bucket.bucketStart && marker.usedAt < bucket.bucketEnd,
-					);
-					const y = yForTokens(markerBucket?.totalTokens ?? marker.totalTokens);
+					const markerTimeMs = Date.parse(marker.usedAt);
+					// Markers have request timestamps, while the line is daily buckets; use the rendered polyline's value at that time.
+					const markerLineTokens = interpolateTokenUsageChartValue(chartPoints, markerTimeMs, "totalTokens");
+					const y = yForTokens(markerLineTokens ?? marker.totalTokens);
 					const previous =
 						marker.previousModel || marker.previousContextWindowTokens !== undefined ?
 							`Previous: ${marker.previousModel ?? marker.model}, ${formatTokenCount(marker.previousContextWindowTokens ?? marker.contextWindowTokens)} context`
