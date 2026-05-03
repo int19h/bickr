@@ -573,7 +573,7 @@ describe("Bickr Pages Functions", () => {
 			},
 			[{ role: "user", content: "hello" }],
 			toolDefinitions,
-			"I'm u/release-sage, and I ",
+			"I need to think about how I feel and what I want to do next, in first person, in character as u/release-sage.",
 		);
 
 		expect(request.tool_choice).toBe("required");
@@ -585,7 +585,10 @@ describe("Bickr Pages Functions", () => {
 		expect(request.tools).toBe(toolDefinitions);
 		expect(request.messages).toEqual([
 			{ role: "user", content: "hello" },
-			{ role: "assistant", content: "I'm u/release-sage, and I " },
+			{
+				role: "assistant",
+				content: "I need to think about how I feel and what I want to do next, in first person, in character as u/release-sage.",
+			},
 		]);
 		expect("frequency_penalty" in request).toBe(false);
 		expect("presence_penalty" in request).toBe(false);
@@ -602,7 +605,7 @@ describe("Bickr Pages Functions", () => {
 			},
 			[{ role: "user", content: "hello" }],
 			toolDefinitions,
-			"I'm u/release-sage, and I ",
+			"I need to think about how I feel and what I want to do next, in first person, in character as u/release-sage.",
 		);
 		expect(tunedRequest).toMatchObject({
 			frequency_penalty: -0.25,
@@ -648,13 +651,15 @@ describe("Bickr Pages Functions", () => {
 	});
 
 	it("builds reasoning prefill defaults and preserves explicit trailing whitespace", () => {
-		expect(defaultReasoningPrefill("release-sage")).toBe("I'm u/release-sage, and I ");
+		expect(defaultReasoningPrefill("release-sage")).toBe(
+			"I need to think about how I feel and what I want to do next, in first person, in character as u/release-sage.",
+		);
 		expect(
 			effectiveReasoningPrefill({
 				handle: "release-sage",
 				inferenceSettings: {},
 			}),
-		).toBe("I'm u/release-sage, and I ");
+		).toBe("I need to think about how I feel and what I want to do next, in first person, in character as u/release-sage.");
 		expect(
 			effectiveReasoningPrefill({
 				handle: "release-sage",
@@ -664,11 +669,14 @@ describe("Bickr Pages Functions", () => {
 		expect(
 			providerMessagesWithReasoningPrefill(
 				[{ role: "user", content: "hello" }],
-				"I'm u/release-sage, and I ",
+				"I need to think about how I feel and what I want to do next, in first person, in character as u/release-sage.",
 			),
 		).toEqual([
 			{ role: "user", content: "hello" },
-			{ role: "assistant", content: "I'm u/release-sage, and I " },
+			{
+				role: "assistant",
+				content: "I need to think about how I feel and what I want to do next, in first person, in character as u/release-sage.",
+			},
 		]);
 	});
 
@@ -775,12 +783,20 @@ describe("Bickr Pages Functions", () => {
 		await expect(
 			promptContextBudgetCacheFingerprint({
 				...base,
-				fixedSystemFingerprint: JSON.stringify({ system: "system-a", reasoningPrefill: "I'm u/bot-a, and I " }),
+				fixedSystemFingerprint: JSON.stringify({
+					system: "system-a",
+					reasoningPrefill:
+						"I need to think about how I feel and what I want to do next, in first person, in character as u/bot-a.",
+				}),
 			}),
 		).resolves.not.toBe(
 			await promptContextBudgetCacheFingerprint({
 				...base,
-				fixedSystemFingerprint: JSON.stringify({ system: "system-a", reasoningPrefill: "I'm u/bot-b, and I " }),
+				fixedSystemFingerprint: JSON.stringify({
+					system: "system-a",
+					reasoningPrefill:
+						"I need to think about how I feel and what I want to do next, in first person, in character as u/bot-b.",
+				}),
 			}),
 		);
 	});
@@ -1150,15 +1166,20 @@ describe("Bickr Pages Functions", () => {
 				{ choices: [{ delta: { reasoning: "I should inspect the thread. " } }] },
 				{ choices: [{ delta: { reasoning_content: "Then I can decide. " } }] },
 				{ choices: [{ delta: { reasoning_details: [{ type: "reasoning.text", text: "I will use a tool. " }] } }] },
-				{ choices: [{ delta: { content: "Checking now." } }] },
+				{ choices: [{ delta: { content: " Checking now." } }] },
 				"[DONE]",
 			]),
 			new AbortController().signal,
 		);
-		await appendProviderMessages("run-reasoning", response, "complete", "I'm u/release-sage, and I ");
+		await appendProviderMessages(
+			"run-reasoning",
+			response,
+			"complete",
+			"I need to think about how I feel and what I want to do next, in first person, in character as u/release-sage.",
+		);
 
 		expect(response).toMatchObject({
-			content: "Checking now.",
+			content: " Checking now.",
 			reasoning: "I should inspect the thread. Then I can decide. I will use a tool. ",
 			reasoningDetails: [{ type: "reasoning.text", text: "I will use a tool. " }],
 			toolCalls: [],
@@ -1167,7 +1188,7 @@ describe("Bickr Pages Functions", () => {
 			{ kind: "reasoning", text: "I should inspect the thread. " },
 			{ kind: "reasoning", text: "Then I can decide. " },
 			{ kind: "reasoning", text: "I will use a tool. " },
-			{ kind: "content", text: "Checking now." },
+			{ kind: "content", text: " Checking now." },
 		]);
 		expect(events).toEqual([
 			{
@@ -1180,7 +1201,8 @@ describe("Bickr Pages Functions", () => {
 			{
 				type: "assistant_message",
 				payload: {
-					content: "I'm u/release-sage, and I Checking now.",
+					content:
+						"I need to think about how I feel and what I want to do next, in first person, in character as u/release-sage. Checking now.",
 					status: "complete",
 				},
 			},

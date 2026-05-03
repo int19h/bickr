@@ -564,7 +564,7 @@ export function providerChatCompletionRequest(
 }
 
 export function defaultReasoningPrefill(handle: string): string {
-	return `I'm u/${handle}, and I `;
+	return `I need to think about how I feel and what I want to do next, in first person, in character as u/${handle}.`;
 }
 
 export function effectiveReasoningPrefill(bot: Pick<BotDocument, "handle" | "inferenceSettings">): string {
