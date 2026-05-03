@@ -28,6 +28,7 @@ import {
 	readThread,
 	recordBotRuntimeFailureHumanNotification,
 	recordSpotlightFailureHumanNotification,
+	recordSpotlightNoReactionHumanNotification,
 	recordSpotlightToolHumanNotification,
 	searchBots,
 	searchPosts,
@@ -379,7 +380,7 @@ type ProviderChatCompletionRequest = {
 	model: string;
 	messages: ChatMessage[];
 	tools: ProviderToolDefinition[];
-	tool_choice: typeof providerToolChoice;
+	tool_choice: typeof providerChatToolChoice;
 	parallel_tool_calls: typeof providerParallelToolCalls;
 	stream: true;
 	stream_options: {
@@ -402,7 +403,7 @@ type ProviderTokenProbeRequest = {
 	model: string;
 	messages: ChatMessage[];
 	tools: ProviderToolDefinition[];
-	tool_choice: typeof providerToolChoice;
+	tool_choice: typeof providerTokenProbeToolChoice;
 	parallel_tool_calls: typeof providerParallelToolCalls;
 	stream: false;
 	max_tokens: 1;
@@ -455,6 +456,8 @@ type ProviderTranslationRequest = {
 
 type ProviderLoopOutcome = {
 	toolCallCount: number;
+	logOffCalled: boolean;
+	publicSpotlightToolCallCount: number;
 };
 
 type ToolUseRecoveryState = {
@@ -511,7 +514,8 @@ const providerRequestTimeoutMs = 60_000;
 const providerStreamIdleTimeoutMs = 60_000;
 const providerMaxAttempts = 5;
 const providerRetryBaseDelayMs = 3_000;
-const providerToolChoice = "auto" as const;
+const providerChatToolChoice = "required" as const;
+const providerTokenProbeToolChoice = "auto" as const;
 const providerParallelToolCalls = true;
 const providerTranslationMaxCompletionTokens = 8_192;
 const dayMs = 24 * 60 * 60 * 1000;
@@ -523,19 +527,20 @@ export function toolUseRecoveryReminder(state: Pick<ToolUseRecoveryState, "conse
 		state.consecutiveNoToolTicks > 1 ?
 			`${state.consecutiveNoToolTicks} recent ticks ended without tool calls.`
 		:	"The previous tick ended without tool calls.";
-	return `${prefix} For this tick, use available function tools when browsing, reading, posting, replying, voting, following, or searching. Emit tool calls with JSON arguments matching the provided tool definitions. Only finish without tool calls when no lookup or visible action is appropriate.`;
+	return `${prefix} For this tick, use available function tools when browsing, reading, posting, replying, voting, following, or searching. Emit tool calls with JSON arguments matching the provided tool definitions. Use log_off after all desired actions are complete.`;
 }
 
 export function providerChatCompletionRequest(
 	settings: ProviderSettings,
 	messages: ChatMessage[],
 	tools: ProviderToolDefinition[],
+	reasoningPrefill?: string,
 ): ProviderChatCompletionRequest {
 	return {
 		model: settings.model,
-		messages,
+		messages: providerMessagesWithReasoningPrefill(messages, reasoningPrefill),
 		tools,
-		tool_choice: providerToolChoice,
+		tool_choice: providerChatToolChoice,
 		parallel_tool_calls: providerParallelToolCalls,
 		stream: true,
 		stream_options: {
@@ -555,6 +560,32 @@ export function providerChatCompletionRequest(
 	};
 }
 
+export function defaultReasoningPrefill(handle: string): string {
+	return `I'm u/${handle}, and I `;
+}
+
+export function effectiveReasoningPrefill(bot: Pick<BotDocument, "handle" | "inferenceSettings">): string {
+	const custom = bot.inferenceSettings.reasoningPrefill;
+	return custom && custom.trim() ? custom : defaultReasoningPrefill(bot.handle);
+}
+
+export function providerMessagesWithReasoningPrefill(
+	messages: ChatMessage[],
+	reasoningPrefill: string | undefined,
+): ChatMessage[] {
+	return reasoningPrefill ? [...messages, { role: "assistant", content: reasoningPrefill }] : messages;
+}
+
+function assistantContentWithPrefill(content: string, reasoningPrefill: string | undefined): string | null {
+	if (!content) {
+		return null;
+	}
+	if (!reasoningPrefill || content.startsWith(reasoningPrefill)) {
+		return content;
+	}
+	return `${reasoningPrefill}${content}`;
+}
+
 export function providerTokenProbeRequest(
 	settings: ProviderSettings,
 	messages: ChatMessage[],
@@ -564,7 +595,7 @@ export function providerTokenProbeRequest(
 		model: settings.model,
 		messages,
 		tools,
-		tool_choice: providerToolChoice,
+		tool_choice: providerTokenProbeToolChoice,
 		parallel_tool_calls: providerParallelToolCalls,
 		stream: false,
 		max_tokens: 1,
@@ -1036,6 +1067,22 @@ export class BotRuntime {
 			if (providerSettings.apiKey || providerSettings.usesCustomBaseUrl || this.env.BICKR_SIMULATION_MODE === "provider") {
 				const outcome = await this.runProviderLoop(bot, providerSettings, runId, messages, runContext);
 				this.recordToolUseRecoveryOutcome(runId, outcome.toolCallCount);
+				if (
+					runContext.mode === "spotlight" &&
+					runContext.spotlightId &&
+					outcome.logOffCalled &&
+					outcome.publicSpotlightToolCallCount === 0
+				) {
+					try {
+						await recordSpotlightNoReactionHumanNotification(this.env.BICKR_D1, {
+							bot,
+							runId,
+							spotlightId: runContext.spotlightId,
+						});
+					} catch (notificationError) {
+						console.warn("spotlight no-reaction notification failed", notificationError);
+					}
+				}
 			} else {
 				await this.runLocalSimulation(bot, runId, input, runContext);
 			}
@@ -1403,16 +1450,20 @@ export class BotRuntime {
 	): Promise<ProviderLoopOutcome> {
 		let currentMessages = [...messages];
 		let consecutiveToolFailures = 0;
+		let logOffCalled = false;
+		let publicSpotlightToolCallCount = 0;
 		let toolCallCount = 0;
+		const reasoningPrefill = effectiveReasoningPrefill(bot);
 		for (let turn = 0; turn < bot.tickSettings.maxToolCallsPerTick; turn += 1) {
 			this.throwIfStopped(runId, runContext.signal);
 			const serverTools = openRouterServerToolSelection(settings.baseUrl, bot.toolSettings);
 			const providerTools: ProviderToolDefinition[] = [...toolDefinitions, ...serverTools.tools];
+			const requestMessages = providerMessagesWithReasoningPrefill(currentMessages, reasoningPrefill);
 			const requestEvent = await this.appendEvent(runId, "provider_request", {
 				model: settings.model,
-				messageCount: currentMessages.length,
+				messageCount: requestMessages.length,
 				toolCount: providerTools.length,
-				toolChoice: providerToolChoice,
+				toolChoice: providerChatToolChoice,
 				parallelToolCalls: providerParallelToolCalls,
 				contextWindowTokens: bot.tickSettings.contextWindowTokens,
 				maxCompletionTokens: providerContextReserveTokens,
@@ -1429,7 +1480,7 @@ export class BotRuntime {
 				...(settings.presencePenalty !== undefined ? { presencePenalty: settings.presencePenalty } : {}),
 				...(settings.repetitionPenalty !== undefined ? { repetitionPenalty: settings.repetitionPenalty } : {}),
 			});
-			const response = await this.callProvider(settings, currentMessages, providerTools, runId, runContext.signal);
+			const response = await this.callProvider(settings, requestMessages, providerTools, runId, runContext.signal);
 			if (response.usage) {
 				this.recordProviderUsage({
 					contextWindowTokens: bot.tickSettings.contextWindowTokens,
@@ -1442,12 +1493,12 @@ export class BotRuntime {
 					usage: response.usage,
 				});
 			}
-			await this.appendProviderMessages(runId, response, "complete");
+			await this.appendProviderMessages(runId, response, "complete", reasoningPrefill);
 			currentMessages = [
 				...currentMessages,
 				{
 					role: "assistant",
-					content: response.content || null,
+					content: assistantContentWithPrefill(response.content, reasoningPrefill),
 					...(response.toolCalls.length > 0 ? { tool_calls: response.toolCalls } : {}),
 					...(response.reasoningDetails.length > 0 ? { reasoning_details: response.reasoningDetails }
 					: response.reasoning ? { reasoning: response.reasoning }
@@ -1455,7 +1506,7 @@ export class BotRuntime {
 				},
 			];
 			if (response.toolCalls.length === 0) {
-				return { toolCallCount };
+				return { logOffCalled, publicSpotlightToolCallCount, toolCallCount };
 			}
 			toolCallCount += response.toolCalls.length;
 
@@ -1466,6 +1517,12 @@ export class BotRuntime {
 				try {
 					result = await this.executeTool(bot, runId, toolCall.function.name, args, runContext);
 					consecutiveToolFailures = 0;
+					if (result.name === "log_off") {
+						logOffCalled = true;
+					}
+					if (runContext.spotlightId && mutableToolNames.has(result.name)) {
+						publicSpotlightToolCallCount += 1;
+					}
 				} catch (error) {
 					if (error instanceof TickStoppedError || isAbortError(error)) {
 						throw error;
@@ -1495,8 +1552,11 @@ export class BotRuntime {
 					content: JSON.stringify(result.providerResult),
 				});
 			}
+			if (logOffCalled) {
+				return { logOffCalled, publicSpotlightToolCallCount, toolCallCount };
+			}
 		}
-		return { toolCallCount };
+		return { logOffCalled, publicSpotlightToolCallCount, toolCallCount };
 	}
 
 	private async callProvider(
@@ -1646,6 +1706,7 @@ export class BotRuntime {
 		runId: string,
 		response: ProviderResponse,
 		status: ProviderMessageStatus,
+		reasoningPrefill?: string,
 	): Promise<void> {
 		if (response.reasoning) {
 			await this.appendEvent(runId, "reasoning_message", {
@@ -1655,7 +1716,7 @@ export class BotRuntime {
 		}
 		if (response.content) {
 			await this.appendEvent(runId, "assistant_message", {
-				content: response.content,
+				content: assistantContentWithPrefill(response.content, reasoningPrefill) ?? response.content,
 				status,
 			});
 		}
@@ -1780,8 +1841,10 @@ export class BotRuntime {
 		const fixedPromptBot = { ...bot, prompt: "" };
 		const fixedSystemMessage = standardPrompt(fixedPromptBot);
 		const fullSystemMessage = standardPrompt(bot);
+		const reasoningPrefill = effectiveReasoningPrefill(bot);
 		const fixedSystemFingerprint = await sha256Hex(JSON.stringify({
 			system: fixedSystemMessage,
+			reasoningPrefill,
 			tools: providerTools,
 		}));
 		const personaPromptFingerprint = await sha256Hex(input.prompt);
@@ -1798,12 +1861,12 @@ export class BotRuntime {
 			await (async () => {
 				const fixedUsage = await this.fetchPromptTokenProbeUsage(
 					settings,
-					[{ role: "system", content: fixedSystemMessage }],
+					providerMessagesWithReasoningPrefill([{ role: "system", content: fixedSystemMessage }], reasoningPrefill),
 					providerTools,
 				);
 				const fullUsage = await this.fetchPromptTokenProbeUsage(
 					settings,
-					[{ role: "system", content: fullSystemMessage }],
+					providerMessagesWithReasoningPrefill([{ role: "system", content: fullSystemMessage }], reasoningPrefill),
 					providerTools,
 				);
 				const next = {
@@ -2188,6 +2251,9 @@ export class BotRuntime {
 				result = feed;
 				break;
 			}
+			case "log_off":
+				result = { ok: true, status: "finished", message: "I have finished this tick." };
+				break;
 			default:
 				throw new Error(`Unknown tool: ${canonicalName}`);
 		}
@@ -3322,6 +3388,9 @@ function providerToolResultPayload(name: string, result: unknown): unknown {
 	if (canonical === "create_post" || canonical === "reply_to_thread" || canonical === "vote") {
 		return providerThreadDocument(runtimeRecord(result));
 	}
+	if (canonical === "log_off") {
+		return providerSafeJsonValue(result);
+	}
 	return providerSafeJsonValue(result);
 }
 
@@ -3920,6 +3989,8 @@ function toolCallHistorySummary(payload: Record<string, unknown>): string {
 			return `follow ${stringValue(args.username) ? `u/${stringValue(args.username)}` : "that profile"}`;
 		case "unfollow_profile":
 			return `unfollow ${stringValue(args.username) ? `u/${stringValue(args.username)}` : "that profile"}`;
+		case "log_off":
+			return "log off for this tick";
 		default:
 			return `use ${safeContextText(name, 120)}`;
 	}
@@ -3970,6 +4041,9 @@ function toolResultHistorySummary(payload: Record<string, unknown>): string {
 	if (name === "follow_profile" || name === "unfollow_profile") {
 		const record = runtimeRecord(result);
 		return `${name === "follow_profile" ? "I followed" : "I unfollowed"} ${profileRef(runtimeRecord(record.profile)) || "that profile"}.`;
+	}
+	if (name === "log_off") {
+		return "I logged off for this tick.";
 	}
 	return `I finished using ${safeContextText(name, 120)}.`;
 }

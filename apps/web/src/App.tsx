@@ -46,6 +46,7 @@ import {
 	handlePatternSource,
 	isValidHandleText,
 	maxBotPromptLength,
+	maxBotReasoningPrefillLength,
 	normalizeHandleText,
 	sanitizeHandleInput,
 } from "@bickr/shared/validation";
@@ -121,6 +122,7 @@ type InferenceDraft = {
 	openRouterApiKeySet: boolean;
 	baseUrl: string;
 	model: string;
+	reasoningPrefill: string;
 	translationModel: string;
 	translationPrompt: string;
 	temperature: string;
@@ -4844,7 +4846,7 @@ function BotEdit({
 		apiKeySet: Boolean(ownerInferenceSettings?.openRouterApiKeySet),
 		...(ownerInferenceSettings?.baseUrl ? { baseUrl: ownerInferenceSettings.baseUrl } : {}),
 	};
-	const promptBudgetRequestKey = botPromptBudgetRequestKey(bot.id, draft, ownerInferenceSettings);
+	const promptBudgetRequestKey = botPromptBudgetRequestKey(bot.id, bot.handle, draft, ownerInferenceSettings);
 	const promptBudgetReady =
 		promptBudget.status === "ready" && promptBudget.requestKey === promptBudgetRequestKey ? promptBudget.budget : null;
 	const promptBudgetError =
@@ -4857,13 +4859,14 @@ function BotEdit({
 		tickIntervalMinutes !== secondsToMinutes(bot.tickSettings.intervalSeconds) ||
 		contextWindowTokens !== bot.tickSettings.contextWindowTokens ||
 		maxToolCallsPerTick !== bot.tickSettings.maxToolCallsPerTick ||
-		inferenceDraftChanged(draft.inference, bot.inferenceSettings) ||
+		inferenceDraftChanged(draft.inference, bot.inferenceSettings, { includeReasoningPrefill: true }) ||
 		toolDraftChanged(draft.tools, bot.toolSettings);
 	const valid =
 		draft.displayName.trim().length > 0 &&
 		draft.shortBio.trim().length > 0 &&
 		draft.prompt.trim().length > 0 &&
 		draft.prompt.length <= maxBotPromptLength &&
+		draft.inference.reasoningPrefill.length <= maxBotReasoningPrefillLength &&
 		tickIntervalMinutes >= 1 &&
 		tickIntervalMinutes <= 1440 &&
 		contextWindowTokens >= 2000 &&
@@ -4877,7 +4880,7 @@ function BotEdit({
 			displayName: draft.displayName,
 			shortBio: draft.shortBio,
 			prompt: draft.prompt,
-			inferenceSettings: inferenceInputFromDraft(draft.inference, inferenceInheritance),
+			inferenceSettings: inferenceInputFromDraft(draft.inference, inferenceInheritance, { includeReasoningPrefill: true }),
 			toolSettings: toolInputFromDraft(draft.tools),
 			tickSettings: {
 				intervalSeconds: tickIntervalMinutes * 60,
@@ -4908,7 +4911,7 @@ function BotEdit({
 					displayName: draft.displayName,
 					prompt: draft.prompt,
 					shortBio: draft.shortBio,
-					inferenceSettings: inferenceInputFromDraft(draft.inference, inferenceInheritance),
+					inferenceSettings: inferenceInputFromDraft(draft.inference, inferenceInheritance, { includeReasoningPrefill: true }),
 					toolSettings: toolInputFromDraft(draft.tools),
 					tickSettings: { contextWindowTokens },
 				},
@@ -5086,6 +5089,7 @@ function BotEdit({
 							<span className="meta">blank fields inherit profile defaults</span>
 						</div>
 						<InferenceSettingsFields
+							botHandle={bot.handle}
 							draft={draft.inference}
 							inheritedApiKeySet={Boolean(ownerInferenceSettings?.openRouterApiKeySet)}
 							inheritedBaseUrl={ownerInferenceSettings?.baseUrl}
@@ -5903,6 +5907,7 @@ function AuthIdentityRuntimeRow({
 }
 
 function InferenceSettingsFields({
+	botHandle,
 	draft,
 	inheritedApiKeySet = false,
 	inheritedBaseUrl,
@@ -5910,6 +5915,7 @@ function InferenceSettingsFields({
 	onChange,
 	scope,
 }: {
+	botHandle?: string;
 	draft: InferenceDraft;
 	inheritedApiKeySet?: boolean;
 	inheritedBaseUrl?: string;
@@ -5926,6 +5932,7 @@ function InferenceSettingsFields({
 		[inheritedApiKeySet, inheritedBaseUrl],
 	);
 	const modelLocked = !canCustomizeInferenceModel(draft, inheritedContext);
+	const reasoningPrefillHint = defaultReasoningPrefill(botHandle ?? "username");
 	function patch(update: Partial<InferenceDraft>): void {
 		onChange(normalizeInferenceDraftModel({ ...draft, ...update }, inheritedContext));
 	}
@@ -6008,6 +6015,21 @@ function InferenceSettingsFields({
 					/>
 				</Field>
 			</div>
+			{scope === "bot" && (
+				<Field
+					help="Blank uses the default first-person prefix for this participant."
+					hint={reasoningPrefillHint}
+					label="Reasoning prefill"
+				>
+					<input
+						className="input"
+						maxLength={maxBotReasoningPrefillLength}
+						onChange={(event) => patch({ reasoningPrefill: event.target.value })}
+						placeholder={reasoningPrefillHint}
+						value={draft.reasoningPrefill}
+					/>
+				</Field>
+			)}
 			{scope === "profile" && (
 				<div className="translation-settings">
 					<div className="field-row">
@@ -8815,6 +8837,7 @@ function inferenceDraftFromSettings(settings: BotInferenceSettings): InferenceDr
 		openRouterApiKeySet: Boolean(settings.openRouterApiKeySet),
 		baseUrl: settings.baseUrl ?? "",
 		model: settings.model ?? "",
+		reasoningPrefill: settings.reasoningPrefill ?? "",
 		translationModel: settings.translation?.model ?? "",
 		translationPrompt: settings.translation?.prompt ?? defaultTranslationPrompt,
 		temperature: numericDraftValue(settings.temperature),
@@ -8830,13 +8853,14 @@ function inferenceDraftFromSettings(settings: BotInferenceSettings): InferenceDr
 function inferenceDraftChanged(
 	draft: InferenceDraft,
 	settings: BotInferenceSettings,
-	options: { includeTranslation?: boolean } = {},
+	options: { includeReasoningPrefill?: boolean; includeTranslation?: boolean } = {},
 ): boolean {
 	return (
 		Boolean(draft.openRouterApiKey.trim()) ||
 		draft.clearOpenRouterApiKey ||
 		draft.baseUrl.trim() !== (settings.baseUrl ?? "") ||
 		draft.model.trim() !== (settings.model ?? "") ||
+		(Boolean(options.includeReasoningPrefill) && draft.reasoningPrefill !== (settings.reasoningPrefill ?? "")) ||
 		(Boolean(options.includeTranslation) && translationDraftChanged(draft, settings)) ||
 		draft.temperature.trim() !== numericDraftValue(settings.temperature) ||
 		draft.topK.trim() !== numericDraftValue(settings.topK) ||
@@ -8863,7 +8887,7 @@ function translationDraftChanged(draft: InferenceDraft, settings: BotInferenceSe
 function inferenceInputFromDraft(
 	draft: InferenceDraft,
 	inherited?: InferenceModelUnlockContext,
-	options: { includeTranslation?: boolean } = {},
+	options: { includeReasoningPrefill?: boolean; includeTranslation?: boolean } = {},
 ): BotInferenceSettingsInput {
 	const normalized = normalizeInferenceDraftModel(draft, inherited);
 	return {
@@ -8872,6 +8896,9 @@ function inferenceInputFromDraft(
 		: {}),
 		baseUrl: nullableTextInput(normalized.baseUrl),
 		model: nullableTextInput(normalized.model),
+		...(options.includeReasoningPrefill ?
+			{ reasoningPrefill: nullablePreservedTextInput(normalized.reasoningPrefill) }
+		:	{}),
 		...(options.includeTranslation ? { translation: translationInputFromDraft(normalized) } : {}),
 		temperature: nullableNumberInput(normalized.temperature),
 		topK: nullableNumberInput(normalized.topK),
@@ -8983,8 +9010,13 @@ function canCustomizeInferenceModel(
 	);
 }
 
+function defaultReasoningPrefill(handle: string): string {
+	return `I'm u/${handle}, and I `;
+}
+
 function botPromptBudgetRequestKey(
 	botId: string,
+	botHandle: string,
 	draft: { displayName: string; inference: InferenceDraft; prompt: string; shortBio: string; tools: BotToolDraft },
 	inherited?: BotInferenceSettings | null,
 ): string {
@@ -8995,6 +9027,9 @@ function botPromptBudgetRequestKey(
 		displayName: draft.displayName,
 		model: effectiveInferenceDraftModel(draft.inference, inherited),
 		prompt: draft.prompt,
+		reasoningPrefill: draft.inference.reasoningPrefill.trim() ?
+			draft.inference.reasoningPrefill
+		:	defaultReasoningPrefill(botHandle),
 		shortBio: draft.shortBio,
 		tools: toolInputFromDraft(draft.tools),
 	});
@@ -9074,6 +9109,10 @@ function numericDraftValue(value: number | undefined): string {
 function nullableTextInput(value: string): string | null {
 	const trimmed = value.trim();
 	return trimmed ? trimmed : null;
+}
+
+function nullablePreservedTextInput(value: string): string | null {
+	return value.trim() ? value : null;
 }
 
 function nullableNumberInput(value: string): number | null {

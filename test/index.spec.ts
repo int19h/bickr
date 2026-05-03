@@ -55,12 +55,15 @@ import {
 	handleAgentRuntimeRequest,
 	buildRuntimeLoopInput,
 	BotRuntime,
+	defaultReasoningPrefill,
+	effectiveReasoningPrefill,
 	effectiveProviderSettingsForBot,
 	formatRuntimeEventForContext,
 	formatRuntimeInputForContext,
 	promptContextBudgetCacheFingerprint,
 	promptContextBudgetFromCounts,
 	providerChatCompletionRequest,
+	providerMessagesWithReasoningPrefill,
 	providerTranslationRequest,
 	providerTokenProbeRequest,
 	toolUseRecoveryReminder,
@@ -90,6 +93,7 @@ import {
 	markBotSeenContent,
 	markBotSeenFromResult,
 	readThread,
+	recordSpotlightNoReactionHumanNotification,
 	recordSpotlightToolHumanNotification,
 	searchBots,
 	searchPosts,
@@ -439,6 +443,10 @@ describe("Bickr Pages Functions", () => {
 
 		const reply = toolDefinitions.find((definition) => definition.function.name === "reply_to_thread");
 		expect(reply?.function.parameters.properties.allowAdditionalReply).toBeUndefined();
+
+		const logOff = toolDefinitions.find((definition) => definition.function.name === "log_off");
+		expect(logOff?.function.parameters.required).toEqual([]);
+		expect(logOff?.function.parameters.properties).toEqual({});
 	});
 
 	it("tells participants not to double-post in the fixed prompt", () => {
@@ -475,15 +483,20 @@ describe("Bickr Pages Functions", () => {
 			},
 			[{ role: "user", content: "hello" }],
 			toolDefinitions,
+			"I'm u/release-sage, and I ",
 		);
 
-		expect(request.tool_choice).toBe("auto");
+		expect(request.tool_choice).toBe("required");
 		expect(request.parallel_tool_calls).toBe(true);
 		expect(request.stream).toBe(true);
 		expect(request.stream_options.include_usage).toBe(true);
 		expect(request.max_completion_tokens).toBe(providerContextReserveTokens);
 		expect(request.reasoning).toEqual({ effort: "none" });
 		expect(request.tools).toBe(toolDefinitions);
+		expect(request.messages).toEqual([
+			{ role: "user", content: "hello" },
+			{ role: "assistant", content: "I'm u/release-sage, and I " },
+		]);
 		expect("frequency_penalty" in request).toBe(false);
 		expect("presence_penalty" in request).toBe(false);
 		expect("repetition_penalty" in request).toBe(false);
@@ -499,6 +512,7 @@ describe("Bickr Pages Functions", () => {
 			},
 			[{ role: "user", content: "hello" }],
 			toolDefinitions,
+			"I'm u/release-sage, and I ",
 		);
 		expect(tunedRequest).toMatchObject({
 			frequency_penalty: -0.25,
@@ -541,6 +555,31 @@ describe("Bickr Pages Functions", () => {
 				},
 			},
 		});
+	});
+
+	it("builds reasoning prefill defaults and preserves explicit trailing whitespace", () => {
+		expect(defaultReasoningPrefill("release-sage")).toBe("I'm u/release-sage, and I ");
+		expect(
+			effectiveReasoningPrefill({
+				handle: "release-sage",
+				inferenceSettings: {},
+			}),
+		).toBe("I'm u/release-sage, and I ");
+		expect(
+			effectiveReasoningPrefill({
+				handle: "release-sage",
+				inferenceSettings: { reasoningPrefill: "I am Release Sage, and I  " },
+			}),
+		).toBe("I am Release Sage, and I  ");
+		expect(
+			providerMessagesWithReasoningPrefill(
+				[{ role: "user", content: "hello" }],
+				"I'm u/release-sage, and I ",
+			),
+		).toEqual([
+			{ role: "user", content: "hello" },
+			{ role: "assistant", content: "I'm u/release-sage, and I " },
+		]);
 	});
 
 	it("builds minimal provider probes for exact prompt-token counts", () => {
@@ -643,6 +682,17 @@ describe("Bickr Pages Functions", () => {
 		await expect(
 			promptContextBudgetCacheFingerprint({ ...base, fixedSystemFingerprint: "system-b" }),
 		).resolves.not.toBe(original);
+		await expect(
+			promptContextBudgetCacheFingerprint({
+				...base,
+				fixedSystemFingerprint: JSON.stringify({ system: "system-a", reasoningPrefill: "I'm u/bot-a, and I " }),
+			}),
+		).resolves.not.toBe(
+			await promptContextBudgetCacheFingerprint({
+				...base,
+				fixedSystemFingerprint: JSON.stringify({ system: "system-a", reasoningPrefill: "I'm u/bot-b, and I " }),
+			}),
+		);
 	});
 
 	it("formats runtime history as first-person notes instead of transcript commands", () => {
@@ -1731,6 +1781,7 @@ describe("Bickr Pages Functions", () => {
 						inferenceSettings: {
 							openRouterApiKey: "sk-or-bot-secret",
 							model: "openrouter/auto",
+							reasoningPrefill: "I'm Release Sage, and I  ",
 							temperature: 0.4,
 							topP: 0.8,
 							frequency_penalty: -0.2,
@@ -1777,6 +1828,7 @@ describe("Bickr Pages Functions", () => {
 		expect(created.data.bot.inferenceSettings).toMatchObject({
 			openRouterApiKeySet: true,
 			model: "openrouter/auto",
+			reasoningPrefill: "I'm Release Sage, and I  ",
 			temperature: 0.4,
 			topP: 0.8,
 			frequencyPenalty: -0.2,
@@ -1996,6 +2048,7 @@ describe("Bickr Pages Functions", () => {
 					{
 						displayName: "Release Oracle",
 						inferenceSettings: {
+							reasoningPrefill: null,
 							frequencyPenalty: null,
 							presencePenalty: null,
 							repetitionPenalty: null,
@@ -2032,6 +2085,7 @@ describe("Bickr Pages Functions", () => {
 		expect(patchPayload.data.bot.inferenceSettings.frequencyPenalty).toBeUndefined();
 		expect(patchPayload.data.bot.inferenceSettings.presencePenalty).toBeUndefined();
 		expect(patchPayload.data.bot.inferenceSettings.repetitionPenalty).toBeUndefined();
+		expect(patchPayload.data.bot.inferenceSettings.reasoningPrefill).toBeUndefined();
 
 		const runtimeAfterPatch = await testEnv.BICKR_D1.prepare(
 			`SELECT enabled, tick_interval_seconds AS tickIntervalSeconds, next_due_at AS nextDueAt
@@ -3991,6 +4045,70 @@ describe("Bickr Pages Functions", () => {
 			.bind(user.id, spotlightId)
 			.first<{ count: number }>();
 		expect(specialNotifications?.count).toBe(0);
+	});
+
+	it("records a spotlight no-reaction notification only for log-off-only spotlight ticks", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const forum = await createForumForTest(cookie, "spotlight-no-reaction");
+		const bot = await createBotForTest(cookie, "spotlight-observer");
+		const botDocument = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, bot.id);
+		const user = await testEnv.BICKR_D1.prepare(`SELECT user_id AS id FROM users_index LIMIT 1`).first<{ id: string }>();
+		if (!user) {
+			throw new Error("Test user was not created.");
+		}
+
+		const spotlightId = "spt_no_reaction";
+		await testEnv.BICKR_D1.prepare(
+			`INSERT INTO spotlight_deliveries (
+				spotlight_id, user_id, bot_id, world_id, forum_id, thread_id, target_type,
+				target_ids_json, focus_text, injected_text, status, error_message, created_at
+			) VALUES (?, ?, ?, ?, ?, NULL, 'threads', '[]', NULL, 'spotlight', 'sent', NULL, ?)`,
+		)
+			.bind(spotlightId, user.id, bot.id, forum.worldId, forum.id, new Date().toISOString())
+			.run();
+
+		await recordSpotlightNoReactionHumanNotification(testEnv.BICKR_D1, {
+			bot: botDocument,
+			spotlightId,
+			runId: "run-log-off",
+			now: new Date().toISOString(),
+		});
+
+		const noReaction = await testEnv.BICKR_D1.prepare(
+			`SELECT notification_type AS notificationType, title, body, spotlight_label AS spotlightLabel
+			 FROM human_notifications
+			 WHERE user_id = ? AND spotlight_id = ?
+			 ORDER BY created_at ASC`,
+		)
+			.bind(user.id, spotlightId)
+			.all<{ notificationType: string; title: string; body: string; spotlightLabel: string | null }>();
+		expect(noReaction.results).toHaveLength(1);
+		expect(noReaction.results?.[0]).toMatchObject({
+			notificationType: "spotlight_no_reaction",
+			title: "Spotlight Observer did not react to the spotlight",
+			body: "u/spotlight-observer reviewed the spotlight and chose not to post, reply, vote, follow, or unfollow.",
+			spotlightLabel: "no public reaction",
+		});
+
+		const thread = await createThreadForTest(forum.id, bot.id, "Spotlight visible action", "This is public.");
+		await recordSpotlightToolHumanNotification(testEnv.BICKR_D1, {
+			bot: botDocument,
+			spotlightId,
+			runId: "run-post",
+			toolName: "create_post",
+			args: {},
+			result: { thread: await readThread(testEnv.BICKR_KV, thread.id) },
+			now: new Date().toISOString(),
+		});
+		const noReactionCount = await testEnv.BICKR_D1.prepare(
+			`SELECT COUNT(*) AS count
+			 FROM human_notifications
+			 WHERE user_id = ? AND spotlight_id = ? AND notification_type = 'spotlight_no_reaction'`,
+		)
+			.bind(user.id, spotlightId)
+			.first<{ count: number }>();
+		expect(noReactionCount?.count).toBe(1);
 	});
 
 	it("previews Chirper imports and reports invalid profiles", async () => {

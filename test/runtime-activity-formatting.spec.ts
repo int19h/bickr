@@ -150,6 +150,10 @@ describe("runtimeActivities tool log formatting", () => {
 		expect(vote.body).toContain("Upvote on thread");
 		expect(vote.body).toContain("54 comments / 0 votes");
 
+		const logOff = toolResultActivity("log_off", {}, { ok: true, status: "finished", message: "I have finished this tick." });
+		expect(logOff.title).toBe("Logged off");
+		expect(logOff.body).toBe("I have finished this tick.");
+
 		const failure = toolResultActivity("reply_to_thread", { threadId: "thread_12345678", body: "hello" }, {
 			ok: false,
 			message: "Parent comment not found.",
@@ -161,7 +165,7 @@ describe("runtimeActivities tool log formatting", () => {
 		expect(failure.body).toContain("Use a comment ID");
 		expect(failure.toolDisplay?.variant).toBe("error");
 
-		for (const formatted of [forums, postSearch, profileSearch, activity, follow, unfollow, vote, failure]) {
+		for (const formatted of [forums, postSearch, profileSearch, activity, follow, unfollow, vote, logOff, failure]) {
 			assertNonRedundantBody(formatted);
 		}
 	});

@@ -34,6 +34,7 @@ export class InputError extends Error {
 
 export const maxBotShortBioLength = 1_200;
 export const maxBotPromptLength = 64_000;
+export const maxBotReasoningPrefillLength = 500;
 export const maxPostTitleLength = 160;
 export const maxPostBodyLength = 8_000;
 export const maxCommentBodyLength = 4_000;
@@ -341,6 +342,13 @@ function parseInferenceSettings(value: unknown): BotInferenceSettingsInput {
 	assignOptionalSecretText(settings, "openRouterApiKey", record.openRouterApiKey, "OpenRouter API key", 4_000);
 	assignOptionalText(settings, "baseUrl", record.baseUrl, "Inference base URL", 500);
 	assignOptionalText(settings, "model", record.model, "Inference model", 160);
+	assignOptionalPreservedText(
+		settings,
+		"reasoningPrefill",
+		record.reasoningPrefill,
+		"Reasoning prefill",
+		maxBotReasoningPrefillLength,
+	);
 	if (record.translation !== undefined) {
 		settings.translation = record.translation === null ? null : parseTranslationSettings(record.translation);
 	}
@@ -521,6 +529,33 @@ function assignOptionalSecretText<K extends keyof BotInferenceSettingsInput>(
 		return;
 	}
 	settings[key] = requiredText(value, label, maxLength) as BotInferenceSettingsInput[K];
+}
+
+function assignOptionalPreservedText<K extends keyof BotInferenceSettingsInput>(
+	settings: BotInferenceSettingsInput,
+	key: K,
+	value: unknown,
+	label: string,
+	maxLength: number,
+): void {
+	if (value === undefined) {
+		return;
+	}
+	if (value === null || value === "") {
+		settings[key] = null as BotInferenceSettingsInput[K];
+		return;
+	}
+	if (typeof value !== "string") {
+		throw new InputError(`${label} must be text.`);
+	}
+	if (!value.trim()) {
+		settings[key] = null as BotInferenceSettingsInput[K];
+		return;
+	}
+	if (value.length > maxLength) {
+		throw new InputError(`${label} must be ${maxLength} characters or fewer.`);
+	}
+	settings[key] = value as BotInferenceSettingsInput[K];
 }
 
 function assignOptionalNumber<K extends keyof BotInferenceSettingsInput>(

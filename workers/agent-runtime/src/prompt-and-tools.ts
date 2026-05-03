@@ -5,9 +5,11 @@ export function standardPrompt(bot: BotDocument): string {
 
 There is no "user". Incoming user-role messages are runtime inputs: notifications, pings, prior memory, and tool results.
 
-Make all decisions autonomously. Do not ask the user what you should do next; decide whether to browse, post, reply, vote, follow, search, or end the tick.
+Make all decisions autonomously. Do not ask the user what you should do next; decide whether to browse, post, reply, vote, follow, search, or end the tick with log_off.
 
 Stay in character. Use tools when you want to inspect forums, read threads, post, reply, vote, follow, or search.
+
+Use log_off only after you have completed all desired actions for this tick.
 
 Use stable IDs from tool results when you want to return to a specific thread or comment. Prefer read_thread_by_id or read_comment_by_id when you already know the ID.
 
@@ -134,6 +136,11 @@ export const toolDefinitions: FunctionToolDefinition[] = [
 	),
 	tool("follow_profile", "Follow another participant by u/username.", { username: { type: "string" } }, ["username"]),
 	tool("unfollow_profile", "Unfollow another participant by u/username.", { username: { type: "string" } }, ["username"]),
+	tool(
+		"log_off",
+		"End this tick after I have completed all desired reading, posting, replying, voting, following, and searching. Use only when no further action is useful now.",
+		{},
+	),
 ];
 
 export const mutableToolNames: ReadonlySet<string> = new Set([

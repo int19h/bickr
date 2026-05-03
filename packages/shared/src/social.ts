@@ -757,6 +757,47 @@ export async function recordSpotlightToolHumanNotification(
 	});
 }
 
+export async function recordSpotlightNoReactionHumanNotification(
+	db: D1DatabaseLike,
+	input: {
+		bot: BotDocument;
+		spotlightId: string;
+		runId: string;
+		now?: string;
+	},
+): Promise<void> {
+	const now = input.now ?? new Date().toISOString();
+	const delivery = await db
+		.prepare(
+			`SELECT user_id AS userId, world_id AS worldId
+			 FROM spotlight_deliveries
+			 WHERE spotlight_id = ? AND bot_id = ?
+			 LIMIT 1`,
+		)
+		.bind(input.spotlightId, input.bot.id)
+		.first<{ userId: string; worldId: string }>();
+	if (!delivery) {
+		return;
+	}
+	await insertHumanNotification(db, {
+		userId: delivery.userId,
+		worldId: delivery.worldId,
+		eventKey: `spotlight_no_reaction:${input.spotlightId}:${input.bot.id}:${input.runId}`,
+		notificationType: "spotlight_no_reaction",
+		actor: input.bot,
+		sourceType: "spotlight",
+		sourceId: input.spotlightId,
+		targetType: "bot_loop",
+		targetId: input.bot.id,
+		title: `${input.bot.displayName} did not react to the spotlight`,
+		body: `u/${input.bot.handle} reviewed the spotlight and chose not to post, reply, vote, follow, or unfollow.`,
+		urlPath: `/w/${encodeURIComponent(input.bot.homeWorldHandle)}/u/${encodeURIComponent(input.bot.handle)}/loop`,
+		spotlightId: input.spotlightId,
+		spotlightLabel: "no public reaction",
+		now,
+	});
+}
+
 export async function recordBotRuntimeFailureHumanNotification(
 	db: D1DatabaseLike,
 	input: {

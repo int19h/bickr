@@ -1424,6 +1424,7 @@ export function mergeInferenceSettings(
 	assignInferenceString(next, "openRouterApiKey", patch.openRouterApiKey);
 	assignInferenceString(next, "baseUrl", patch.baseUrl);
 	assignInferenceString(next, "model", patch.model);
+	assignInferencePreservedString(next, "reasoningPrefill", patch.reasoningPrefill);
 	if (patch.translation !== undefined) {
 		const translation = mergeTranslationSettings(next.translation, patch.translation);
 		if (translation) {
@@ -1741,6 +1742,21 @@ function assignInferenceString(
 	} else {
 		delete settings[key];
 	}
+}
+
+function assignInferencePreservedString(
+	settings: BotInferenceSettings,
+	key: "reasoningPrefill",
+	value: string | null | undefined,
+): void {
+	if (value === undefined) {
+		return;
+	}
+	if (value === null || !value.trim()) {
+		delete settings[key];
+		return;
+	}
+	settings[key] = value;
 }
 
 type InferenceNumberSettingKey =

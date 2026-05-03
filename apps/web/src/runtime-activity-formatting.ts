@@ -451,6 +451,8 @@ function toolCallTitle(name: string, args: unknown): string {
 			return `Following ${stringValue(record.username) ? `u/${stringValue(record.username)}` : shortId(stringValue(record.profileId) ?? stringValue(record.botId))}`;
 		case "unfollow_profile":
 			return `Unfollowing ${stringValue(record.username) ? `u/${stringValue(record.username)}` : shortId(stringValue(record.profileId) ?? stringValue(record.botId))}`;
+		case "log_off":
+			return "Logging off";
 		default:
 			return `Using ${canonical}`;
 	}
@@ -545,6 +547,9 @@ function toolResultSummary(name: string, args: unknown, result: unknown, fallbac
 		].filter(Boolean).join("\n");
 		const items = thread ? [openThreadItem(thread, fallbackWorldHandle)].filter(isDisplayItem) : [];
 		return resultWithDisplay("Vote recorded", details, items);
+	}
+	if (canonical === "log_off") {
+		return resultWithDisplay("Logged off", stringValue(record.message) ?? "Finished this tick.", []);
 	}
 
 	return {

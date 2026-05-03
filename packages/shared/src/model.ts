@@ -86,6 +86,7 @@ export type BotInferenceSettings = {
 	openRouterApiKeySet?: boolean;
 	baseUrl?: string;
 	model?: string;
+	reasoningPrefill?: string;
 	translation?: BotTranslationSettings;
 	temperature?: number;
 	topK?: number;
@@ -105,6 +106,7 @@ export type BotInferenceSettingsInput = {
 	openRouterApiKey?: string | null;
 	baseUrl?: string | null;
 	model?: string | null;
+	reasoningPrefill?: string | null;
 	translation?: BotTranslationSettingsInput | null;
 	temperature?: number | null;
 	topK?: number | null;
@@ -364,6 +366,7 @@ export type HumanNotificationType =
 	| "vote_cast"
 	| "bot_followed"
 	| "spotlight_action"
+	| "spotlight_no_reaction"
 	| "spotlight_failed"
 	| "bot_runtime_failed";
 
