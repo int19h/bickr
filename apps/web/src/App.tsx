@@ -9,6 +9,9 @@ import {
 	type BotActivityItem,
 	type BotFollowGraph,
 	type BotContextBudget,
+	type BotInferenceSubmission,
+	type BotInferenceSubmissionMessage,
+	type BotInferenceSubmissionSummary,
 	type BotSummary,
 	type BotPublicProfile,
 	type BotRuntimeEvent,
@@ -73,6 +76,11 @@ import {
 	type OpenRouterWebFetchToolDraft,
 	type OpenRouterWebSearchToolDraft,
 } from "./tool-settings-draft";
+import {
+	prettyJsonText,
+	submissionMatchesSearch,
+	submissionMessageMatchesSearch,
+} from "./inference-submission-formatting";
 import "./App.css";
 
 type ApiSuccess<T> = { ok: true; data: T };
@@ -237,6 +245,7 @@ type IconName =
 	| "sparkles"
 	| "translate"
 	| "original"
+	| "chat"
 	| "arrowUp"
 	| "arrowDown";
 
@@ -7087,6 +7096,10 @@ function BotRuntimePanel({
 	const [status, setStatus] = useState<BotRuntimeStatus | null>(null);
 	const [events, setEvents] = useState<BotRuntimeEvent[]>([]);
 	const [streamEvents, setStreamEvents] = useState<BotRuntimeEvent[]>([]);
+	const [submissions, setSubmissions] = useState<BotInferenceSubmissionSummary[]>([]);
+	const [openSubmission, setOpenSubmission] = useState<BotInferenceSubmission | null>(null);
+	const [submissionLoadingSeq, setSubmissionLoadingSeq] = useState<number | null>(null);
+	const [submissionError, setSubmissionError] = useState("");
 	const [tokenUsage, setTokenUsage] = useState<BotTokenUsageStats | null>(null);
 	const [connected, setConnected] = useState(false);
 	const [injection, setInjection] = useState("");
@@ -7099,6 +7112,7 @@ function BotRuntimePanel({
 	const latestPersistentEventSeqRef = useRef(0);
 	const reconnectAttemptRef = useRef(0);
 	const activities = useMemo(() => runtimeActivities([...events, ...streamEvents], bot.homeWorldHandle), [bot.homeWorldHandle, events, streamEvents]);
+	const submissionSeqs = useMemo(() => new Set(submissions.map((submission) => submission.seq)), [submissions]);
 	const runtimeEnabled = status?.enabled ?? bot.tickSettings.enabled;
 
 	useEffect(() => {
@@ -7113,6 +7127,10 @@ function BotRuntimePanel({
 		setStatus(null);
 		setEvents([]);
 		setStreamEvents([]);
+		setSubmissions([]);
+		setOpenSubmission(null);
+		setSubmissionLoadingSeq(null);
+		setSubmissionError("");
 		setTokenUsage(null);
 		setConnected(false);
 		void refresh();
@@ -7150,6 +7168,8 @@ function BotRuntimePanel({
 			if (payload.type === "history_cleared") {
 				setEvents([]);
 				setStreamEvents([]);
+				setSubmissions([]);
+				setOpenSubmission(null);
 				latestPersistentEventSeqRef.current = 0;
 				setMessage("Loop history erased.");
 				return;
@@ -7160,6 +7180,8 @@ function BotRuntimePanel({
 			if (payload.type === "event_deleted" && Number.isInteger(payload.seq)) {
 				setEvents((current) => current.filter((item) => item.seq !== payload.seq));
 				setStreamEvents((current) => current.filter((item) => item.seq !== payload.seq));
+				setSubmissions((current) => current.filter((item) => item.seq !== payload.seq));
+				setOpenSubmission((current) => current?.seq === payload.seq ? null : current);
 				return;
 			}
 			if (payload.type === "stream_delta" && payload.event) {
@@ -7298,9 +7320,10 @@ function BotRuntimePanel({
 	}
 
 	async function refresh(): Promise<void> {
-		const [statusResult, eventsResult, tokenUsageResult] = await Promise.all([
+		const [statusResult, eventsResult, submissionsResult, tokenUsageResult] = await Promise.all([
 			api<{ status: BotRuntimeStatus }>(`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/status`),
 			api<{ events: BotRuntimeEvent[] }>(`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/events`),
+			api<{ submissions: BotInferenceSubmissionSummary[] }>(`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/submissions`),
 			api<{ usage: BotTokenUsageStats }>(`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/token-usage`),
 		]);
 		if (statusResult.ok) {
@@ -7312,6 +7335,9 @@ function BotRuntimePanel({
 			}
 			setEvents((current) => mergeEvents(current, eventsResult.data.events));
 			setStreamEvents((current) => pruneStreamEventsForPersistentEvents(current, eventsResult.data.events));
+		}
+		if (submissionsResult.ok) {
+			setSubmissions(submissionsResult.data.submissions);
 		}
 		if (tokenUsageResult.ok) {
 			setTokenUsage(tokenUsageResult.data.usage);
@@ -7392,15 +7418,31 @@ function BotRuntimePanel({
 		setMessage(result.ok ? "Thought injected." : result.message);
 	}
 
+	async function viewSubmission(seq: number): Promise<void> {
+		setSubmissionLoadingSeq(seq);
+		setSubmissionError("");
+		const result = await api<{ submission: BotInferenceSubmission }>(
+			`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/submissions/${encodeURIComponent(String(seq))}`,
+		);
+		setSubmissionLoadingSeq(null);
+		if (result.ok) {
+			setOpenSubmission(result.data.submission);
+			return;
+		}
+		setSubmissionError(result.message);
+	}
+
 	async function clearHistory(): Promise<void> {
 		setMessage("Resetting loop history...");
-		const result = await api<{ cleared: { events: number; injections: number; runtimeState: number } }>(
+		const result = await api<{ cleared: { events: number; injections: number; runtimeState: number; submissions?: number } }>(
 			`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/events`,
 			{ method: "DELETE" },
 		);
 		if (result.ok) {
 			setEvents([]);
 			setStreamEvents([]);
+			setSubmissions([]);
+			setOpenSubmission(null);
 			setMessage(`Reset ${result.data.cleared.events} runtime events.`);
 		} else {
 			setMessage(result.message);
@@ -7428,6 +7470,8 @@ function BotRuntimePanel({
 		}
 		setEvents((current) => current.filter((event) => !seqs.includes(event.seq)));
 		setStreamEvents((current) => current.filter((event) => !seqs.includes(event.seq)));
+		setSubmissions((current) => current.filter((submission) => !seqs.includes(submission.seq)));
+		setOpenSubmission((current) => current && seqs.includes(current.seq) ? null : current);
 		setPendingDeleteActivity(null);
 		setMessage(seqs.length === 1 ? `Deleted event #${seqs[0]}.` : `Deleted ${seqs.length} events from this row.`);
 		await refresh();
@@ -7512,12 +7556,21 @@ function BotRuntimePanel({
 					{activities.slice(-80).map((activity) => (
 						<RuntimeActivityRow
 							activity={activity}
+							hasSubmission={activityEventSeqs(activity).some((seq) => submissionSeqs.has(seq))}
 							key={activity.id}
 							onDelete={() => setPendingDeleteActivity(activity)}
+							onViewSubmission={(seq) => void viewSubmission(seq)}
+							submissionLoadingSeq={submissionLoadingSeq}
 						/>
 					))}
 				</div>
 			</div>
+			{submissionError && <div className="runtime-message">{submissionError}</div>}
+			<InferenceSubmissionModal
+				onClose={() => setOpenSubmission(null)}
+				open={Boolean(openSubmission)}
+				submission={openSubmission}
+			/>
 			<Confirm
 				body="Erase this bot's agentic loop transcript, streamed assistant text, tool call log, compaction summaries, and pending injected thoughts. Forum posts and comments will not be deleted."
 				confirmText="Reset loop"
@@ -7695,12 +7748,122 @@ function TokenUsageChart({ usage }: { usage: BotTokenUsageStats }) {
 	);
 }
 
+function InferenceSubmissionModal({
+	onClose,
+	open,
+	submission,
+}: {
+	onClose: () => void;
+	open: boolean;
+	submission: BotInferenceSubmission | null;
+}) {
+	const [query, setQuery] = useState("");
+
+	useEffect(() => {
+		setQuery("");
+	}, [submission?.seq]);
+
+	if (!submission) {
+		return null;
+	}
+
+	const matchingMessages = query.trim() ?
+		submission.messages.filter((message) => submissionMessageMatchesSearch(message, query))
+	:	submission.messages;
+	const hasMatch = submissionMatchesSearch(submission, query);
+
+	return (
+		<Modal className="submission-modal" onClose={onClose} open={open} title="Inference Submission" wide>
+			<div className="submission-meta">
+				<RuntimeRow label="Event" value={`#${submission.seq}`} />
+				<RuntimeRow label="Purpose" value={submissionPurposeLabel(submission.purpose)} />
+				<RuntimeRow label="Model" value={submission.model} />
+				<RuntimeRow label="Messages" value={submission.messageCount} />
+			</div>
+			<div className="submission-search">
+				<Icon name="search" size={14} />
+				<input
+					className="input"
+					onChange={(event) => setQuery(event.target.value)}
+					placeholder="Search this submission"
+					value={query}
+				/>
+			</div>
+			{query.trim() && !hasMatch ?
+				<div className="empty compact-empty">No matching messages.</div>
+			:	<div className="submission-chat-log">
+					{matchingMessages.length === 0 ?
+						<div className="empty compact-empty">Metadata matched; no message text matched.</div>
+					:	matchingMessages.map((message, index) => (
+							<InferenceSubmissionMessageView
+								key={`${submission.submissionId}-${index}`}
+								message={message}
+								position={index + 1}
+							/>
+						))}
+				</div>}
+		</Modal>
+	);
+}
+
+function InferenceSubmissionMessageView({
+	message,
+	position,
+}: {
+	message: BotInferenceSubmissionMessage;
+	position: number;
+}) {
+	const toolCalls = message.tool_calls ?? [];
+	return (
+		<div className={`submission-message role-${message.role}`}>
+			<div className="submission-message-head">
+				<b>{message.role}</b>
+				<span>#{position}</span>
+				{message.tool_call_id && <span>{message.tool_call_id}</span>}
+			</div>
+			{message.content && (
+				message.role === "tool" ?
+					<SubmissionJsonBlock label="JSON result" value={message.content} />
+				:	<div className="submission-message-text">{message.content}</div>
+			)}
+			{toolCalls.map((toolCall, index) => (
+				<div className="submission-tool-call" key={`${toolCall.id}-${index}`}>
+					<div className="submission-tool-name">{toolCall.function.name || "unknown_tool"}</div>
+					<SubmissionJsonBlock label="JSON arguments" value={toolCall.function.arguments} />
+				</div>
+			))}
+			{message.reasoning && <SubmissionJsonBlock label="reasoning" value={message.reasoning} />}
+			{message.reasoning_content && <SubmissionJsonBlock label="reasoning_content" value={message.reasoning_content} />}
+			{message.reasoning_details && <SubmissionJsonBlock label="reasoning_details" value={message.reasoning_details} />}
+		</div>
+	);
+}
+
+function SubmissionJsonBlock({ label, value }: { label: string; value: unknown }) {
+	return (
+		<div className="submission-json-block">
+			<span>{label}</span>
+			<pre>{prettyJsonText(value)}</pre>
+		</div>
+	);
+}
+
+function submissionPurposeLabel(purpose: BotInferenceSubmissionSummary["purpose"]): string {
+	return purpose === "compaction" ? "compaction" : "loop";
+}
+
 function RuntimeActivityRow({
 	activity,
+	hasSubmission,
 	onDelete,
+	onViewSubmission,
+	submissionLoadingSeq,
 }: {
 	activity: RuntimeActivity;
+	hasSubmission: boolean;
 	onDelete: () => void;
+	onViewSubmission: (seq: number) => void;
+	submissionLoadingSeq: number | null;
 }) {
 	const [rawOpen, setRawOpen] = useState(false);
 	const [copied, setCopied] = useState(false);
@@ -7708,6 +7871,7 @@ function RuntimeActivityRow({
 	const toolSummary = activity.toolDisplay ? toolDisplayNode(activity.toolDisplay) : null;
 	const seqLabel = activity.seqLabel ?? String(activity.seq);
 	const canDelete = activityEventSeqs(activity).length > 0;
+	const submissionSeq = activityEventSeqs(activity).find((seq) => Number.isInteger(seq));
 
 	async function copyRaw(): Promise<void> {
 		await navigator.clipboard?.writeText(rawJson);
@@ -7725,10 +7889,22 @@ function RuntimeActivityRow({
 				title={canDelete ? "Delete event" : "Live stream rows can be deleted after they finish"}
 				type="button"
 			>
-				<Icon name="trash" size={13} />
-			</button>
+			<Icon name="trash" size={13} />
+		</button>
+		{hasSubmission && submissionSeq !== undefined && (
 			<button
-				aria-label={`Inspect raw JSON for event ${seqLabel}`}
+				aria-label={`Open inference submission for event ${seqLabel}`}
+				className="submission-button"
+				disabled={submissionLoadingSeq === submissionSeq}
+				onClick={() => onViewSubmission(submissionSeq)}
+				title="Open inference submission"
+				type="button"
+			>
+				<Icon name="chat" size={13} />
+			</button>
+		)}
+		<button
+			aria-label={`Inspect raw JSON for event ${seqLabel}`}
 				className="raw-json-button"
 				onClick={() => setRawOpen((current) => !current)}
 				title="Inspect raw JSON"
@@ -7977,13 +8153,19 @@ function Icon({ name, size = 16 }: { name: IconName; size?: number }) {
 				<path d="M5.8 8.8c1 1.4 2.3 2.5 3.8 3.3M13 21l4-10 4 10M14.4 17.5h5.2" />
 			</svg>
 		),
-		original: (
-			<svg height={size} viewBox="0 0 24 24" width={size} {...stroke}>
-				<path d="M7 4h7l4 4v12H7z" />
-				<path d="M14 4v4h4M10 13h5M10 17h4" />
-			</svg>
-		),
-		arrowUp: (
+			original: (
+				<svg height={size} viewBox="0 0 24 24" width={size} {...stroke}>
+					<path d="M7 4h7l4 4v12H7z" />
+					<path d="M14 4v4h4M10 13h5M10 17h4" />
+				</svg>
+			),
+			chat: (
+				<svg height={size} viewBox="0 0 24 24" width={size} {...stroke}>
+					<path d="M5 6.5A3.5 3.5 0 0 1 8.5 3h7A3.5 3.5 0 0 1 19 6.5v5A3.5 3.5 0 0 1 15.5 15H10l-5 4v-4.8A3.5 3.5 0 0 1 3 11V6.5z" />
+					<path d="M8 7h8M8 11h5" />
+				</svg>
+			),
+			arrowUp: (
 			<svg height={size} viewBox="0 0 24 24" width={size} {...stroke}>
 				<path d="M12 19V5M6 11l6-6 6 6" />
 			</svg>

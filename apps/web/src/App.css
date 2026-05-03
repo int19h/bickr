@@ -2381,7 +2381,7 @@ button:disabled {
 	background: var(--paper-2);
 	border: 1px solid var(--rule-soft);
 	border-radius: var(--radius);
-	padding: 8px 34px 8px 8px;
+	padding: 8px 92px 8px 8px;
 	position: relative;
 }
 
@@ -2437,7 +2437,8 @@ button:disabled {
 }
 
 .event-delete-button,
-.raw-json-button {
+.raw-json-button,
+.submission-button {
 	align-items: center;
 	background: transparent;
 	border: 1px solid transparent;
@@ -2458,13 +2459,30 @@ button:disabled {
 	right: 34px;
 }
 
+.submission-button {
+	opacity: 0;
+	right: 62px;
+	transition: opacity 120ms ease;
+}
+
+.event-row:hover .submission-button,
+.event-row:focus-within .submission-button {
+	opacity: 1;
+}
+
 .event-delete-button:disabled {
 	cursor: default;
 	opacity: 0.45;
 }
 
+.submission-button:disabled {
+	cursor: wait;
+}
+
 .raw-json-button:hover,
 .raw-json-button:focus-visible,
+.submission-button:hover:not(:disabled),
+.submission-button:focus-visible:not(:disabled),
 .event-delete-button:hover:not(:disabled),
 .event-delete-button:focus-visible:not(:disabled) {
 	background: var(--paper);
@@ -2791,6 +2809,10 @@ button:disabled {
 	max-width: 720px;
 }
 
+.modal.submission-modal {
+	max-width: min(980px, calc(100vw - 32px));
+}
+
 .modal.clone-modal {
 	height: min(860px, calc(100vh - 32px));
 	max-height: calc(100vh - 32px);
@@ -2846,6 +2868,126 @@ button:disabled {
 .modal-foot .right {
 	display: flex;
 	gap: 8px;
+}
+
+.submission-meta {
+	border: 1px solid var(--rule-soft);
+	border-radius: var(--radius);
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	overflow: hidden;
+}
+
+.submission-meta .kvrow {
+	border-bottom: 0;
+	border-right: 1px solid var(--rule-soft);
+	padding: 10px 12px;
+}
+
+.submission-meta .kvrow:nth-child(2n) {
+	border-right: 0;
+}
+
+.submission-search {
+	align-items: center;
+	display: flex;
+	gap: 8px;
+}
+
+.submission-search .input {
+	flex: 1;
+}
+
+.submission-chat-log {
+	display: grid;
+	gap: 12px;
+}
+
+.submission-message {
+	background: var(--paper-2);
+	border: 1px solid var(--rule-soft);
+	border-radius: var(--radius);
+	display: grid;
+	gap: 8px;
+	padding: 12px;
+}
+
+.submission-message.role-system {
+	background: color-mix(in oklch, oklch(0.72 0.04 270) 10%, var(--paper-2));
+}
+
+.submission-message.role-user {
+	background: color-mix(in oklch, oklch(0.74 0.06 200) 10%, var(--paper-2));
+}
+
+.submission-message.role-assistant {
+	background: color-mix(in oklch, oklch(0.78 0.08 90) 10%, var(--paper-2));
+}
+
+.submission-message.role-tool {
+	background: color-mix(in oklch, oklch(0.72 0.09 145) 10%, var(--paper-2));
+}
+
+.submission-message-head {
+	align-items: center;
+	color: var(--ink-4);
+	display: flex;
+	font-size: 11px;
+	gap: 8px;
+}
+
+.submission-message-head b {
+	color: var(--ink-2);
+	font-size: 12px;
+	text-transform: uppercase;
+}
+
+.submission-message-text {
+	color: var(--ink);
+	font-size: 13px;
+	line-height: 1.45;
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+.submission-tool-call {
+	background: var(--paper);
+	border: 1px solid var(--rule-soft);
+	border-radius: 6px;
+	display: grid;
+	gap: 6px;
+	padding: 8px;
+}
+
+.submission-tool-name {
+	color: var(--ink-2);
+	font-size: 12px;
+	font-weight: 700;
+}
+
+.submission-json-block {
+	display: grid;
+	gap: 4px;
+}
+
+.submission-json-block > span {
+	color: var(--ink-4);
+	font-size: 11px;
+	font-weight: 700;
+	text-transform: uppercase;
+}
+
+.submission-json-block pre {
+	background: var(--paper);
+	border: 1px solid var(--rule-soft);
+	border-radius: 4px;
+	font-size: 12px;
+	line-height: 1.35;
+	max-height: 360px;
+	overflow: auto;
+	padding: 8px;
+	white-space: pre-wrap;
+	word-break: break-word;
 }
 
 .confirm-body {

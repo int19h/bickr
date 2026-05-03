@@ -57,6 +57,11 @@ import {
 	type BotContextBudgetInput,
 	defaultTranslationPrompt,
 	defaultProviderModel,
+	type BotInferenceSubmission,
+	type BotInferenceSubmissionMessage,
+	type BotInferenceSubmissionPurpose,
+	type BotInferenceSubmissionSummary,
+	type BotInferenceSubmissionToolCall,
 	type BotDocument,
 	type CommentDocument,
 	type BotRuntimeEvent,
@@ -106,23 +111,23 @@ type RuntimeRow = {
 	compacted_by: number | null;
 };
 
-type ChatMessage = {
-	role: "system" | "user" | "assistant" | "tool";
-	content?: string | null;
-	tool_call_id?: string;
-	tool_calls?: ToolCall[];
-	reasoning?: string;
-	reasoning_content?: string;
-	reasoning_details?: ReasoningDetail[];
+type InferenceSubmissionRow = {
+	id: string;
+	event_seq: number;
+	run_id: string;
+	purpose: BotInferenceSubmissionPurpose;
+	model: string;
+	provider_base_url: string;
+	message_count: number;
+	messages_json: string;
+	created_at: string;
 };
+
+type ChatMessage = BotInferenceSubmissionMessage;
 
 type ReasoningDetail = Record<string, unknown>;
 
-type ToolCall = {
-	id: string;
-	type: "function";
-	function: { name: string; arguments: string };
-};
+type ToolCall = BotInferenceSubmissionToolCall;
 
 type ToolResult = {
 	name: string;
@@ -423,6 +428,17 @@ type ProviderTokenProbeRequest = {
 	repetition_penalty?: number;
 };
 
+type ProviderCompactionRequest = {
+	model: string;
+	messages: ChatMessage[];
+	stream: false;
+	max_completion_tokens: number;
+	reasoning: {
+		effort: "none";
+	};
+	temperature: number;
+};
+
 type TranslationProviderSettings = {
 	apiKey?: string;
 	baseUrl: string;
@@ -523,6 +539,9 @@ const providerTokenProbeToolChoice = "auto" as const;
 const providerParallelToolCalls = true;
 const providerChatReasoning = { enabled: true, exclude: false } as const;
 const providerTranslationMaxCompletionTokens = 8_192;
+const providerCompactionMaxCompletionTokens = 4_096;
+const providerCompactionTemperature = 0.2;
+const inferenceSubmissionRetentionCount = 50;
 const dayMs = 24 * 60 * 60 * 1000;
 const fallbackProviderModel = defaultProviderModel;
 const fallbackProviderBaseUrl = "https://openrouter.ai/api/v1";
@@ -560,6 +579,50 @@ export function providerChatCompletionRequest(
 		...(settings.frequencyPenalty !== undefined ? { frequency_penalty: settings.frequencyPenalty } : {}),
 		...(settings.presencePenalty !== undefined ? { presence_penalty: settings.presencePenalty } : {}),
 		...(settings.repetitionPenalty !== undefined ? { repetition_penalty: settings.repetitionPenalty } : {}),
+	};
+}
+
+export function providerCompactionMessages(previousSummary: string, recentActivity: string): ChatMessage[] {
+	return [
+		{
+			role: "system",
+			content: [
+				"You preserve continuity for an autonomous Bickr participant.",
+				"Write one concise first-person continuity summary for that same participant to use later.",
+				"Retain durable facts: what I did, decisions I made, intentions, unresolved plans, promises, preferences, relationships, lessons about participants, profiles, forums, threads, and social context that should guide future behavior.",
+				"Drop minute details: raw identifiers, event numbers, tool JSON, one-off counts, timestamps, thread/comment/post IDs, and transient errors unless needed for an active plan.",
+				"Do not mention this summarization task, the source material, runtime events, requests, providers, or these instructions.",
+				"Use natural first-person notes. Be specific about people, topics, commitments, and next steps.",
+			].join("\n"),
+		},
+		{
+			role: "user",
+			content: [
+				"Rewrite this continuity into one updated summary.",
+				"",
+				"Previous continuity:",
+				previousSummary.trim() || "(none)",
+				"",
+				"Recent activity to fold in:",
+				recentActivity.trim(),
+			].join("\n"),
+		},
+	];
+}
+
+export function providerCompactionRequest(
+	settings: Pick<ProviderSettings, "model">,
+	messages: ChatMessage[],
+): ProviderCompactionRequest {
+	return {
+		model: settings.model,
+		messages,
+		stream: false,
+		max_completion_tokens: providerCompactionMaxCompletionTokens,
+		reasoning: {
+			effort: "none",
+		},
+		temperature: providerCompactionTemperature,
 	};
 }
 
@@ -804,6 +867,19 @@ CREATE TABLE IF NOT EXISTS provider_usage (
 );
 CREATE INDEX IF NOT EXISTS provider_usage_created_at ON provider_usage (created_at);
 CREATE INDEX IF NOT EXISTS provider_usage_model_context ON provider_usage (model, context_window_tokens, created_at);
+CREATE TABLE IF NOT EXISTS inference_submissions (
+	id TEXT PRIMARY KEY,
+	event_seq INTEGER NOT NULL UNIQUE,
+	run_id TEXT NOT NULL,
+	purpose TEXT NOT NULL,
+	model TEXT NOT NULL,
+	provider_base_url TEXT NOT NULL,
+	message_count INTEGER NOT NULL,
+	messages_json TEXT NOT NULL,
+	created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS inference_submissions_created_at ON inference_submissions (created_at);
+CREATE INDEX IF NOT EXISTS inference_submissions_run ON inference_submissions (run_id, event_seq);
 `;
 
 export class BotRuntime {
@@ -860,6 +936,17 @@ export class BotRuntime {
 				await this.requireOwnerOrInternal(request, botId);
 				const after = Number(url.searchParams.get("after") ?? 0);
 				return ok({ events: this.eventsAfter(Number.isFinite(after) ? after : 0) });
+			}
+
+			if (request.method === "GET" && url.pathname.endsWith("/submissions")) {
+				await this.requireOwnerOrInternal(request, botId);
+				return ok({ submissions: this.inferenceSubmissionSummaries() });
+			}
+
+			const submissionSeq = submissionSeqFromPath(url.pathname);
+			if (request.method === "GET" && submissionSeq !== null) {
+				await this.requireOwnerOrInternal(request, botId);
+				return ok({ submission: this.inferenceSubmissionForSeq(submissionSeq) });
 			}
 
 			if (request.method === "GET" && url.pathname.endsWith("/token-usage")) {
@@ -1064,7 +1151,7 @@ export class BotRuntime {
 				await markNotificationsDelivered(this.env.BICKR_KV, this.env.BICKR_D1, notifications);
 			}
 
-			await this.compactIfNeeded(bot, runId);
+			await this.compactIfNeeded(bot, providerSettings, runId, abortController.signal);
 			const messages = await this.buildMessages(bot, input);
 			this.throwIfStopped(runId, abortController.signal);
 			if (providerSettings.apiKey || providerSettings.usesCustomBaseUrl || this.env.BICKR_SIMULATION_MODE === "provider") {
@@ -1090,7 +1177,7 @@ export class BotRuntime {
 				await this.runLocalSimulation(bot, runId, input, runContext);
 			}
 
-			await this.compactIfNeeded(bot, runId);
+			await this.compactIfNeeded(bot, providerSettings, runId, abortController.signal);
 			const nextDueAt = await this.setRuntimeIndex(bot, "idle", null, undefined, new Date().toISOString());
 			await this.appendEvent(runId, "tick_completed", { ...(nextDueAt ? { nextDueAt } : {}) });
 			startQueuedSpotlightAfterRun = true;
@@ -1484,6 +1571,14 @@ export class BotRuntime {
 				...(settings.presencePenalty !== undefined ? { presencePenalty: settings.presencePenalty } : {}),
 				...(settings.repetitionPenalty !== undefined ? { repetitionPenalty: settings.repetitionPenalty } : {}),
 			});
+			this.recordInferenceSubmission({
+				seq: requestEvent.seq,
+				runId,
+				purpose: "loop",
+				settings,
+				messages: requestMessages,
+				createdAt: requestEvent.createdAt,
+			});
 			const response = await this.callProvider(settings, requestMessages, providerTools, runId, runContext.signal);
 			if (response.usage) {
 				this.recordProviderUsage({
@@ -1590,6 +1685,46 @@ export class BotRuntime {
 			try {
 				const stream = await this.fetchProviderResponse(settings, endpoint, body, signal);
 				return await this.consumeProviderResponse(runId, stream, signal);
+			} catch (error) {
+				if (error instanceof TickStoppedError || isAbortError(error)) {
+					throw error;
+				}
+				const retryKey = providerRetryKey(error);
+				if (retryKey && attempt < providerMaxAttempts && (previousRetryKey === null || previousRetryKey === retryKey)) {
+					previousRetryKey = retryKey;
+					continue;
+				}
+				throw error;
+			}
+		}
+		throw new ProviderRequestTimeoutError(providerRequestTimeoutMs);
+	}
+
+	private async callProviderForCompaction(
+		settings: ProviderSettings,
+		messages: ChatMessage[],
+		runId: string,
+		signal: AbortSignal,
+	): Promise<Pick<ProviderResponse, "usage" | "responseId" | "responseModel"> & { content: string }> {
+		const endpoint = providerChatCompletionsUrl(settings.baseUrl);
+		const body = JSON.stringify(providerCompactionRequest(settings, messages));
+		let previousRetryKey: string | null = null;
+		for (let attempt = 1; attempt <= providerMaxAttempts; attempt += 1) {
+			this.throwIfStopped(runId, signal);
+			if (attempt > 1) {
+				const baseDelay = providerRetryBaseDelayMs * 3 ** (attempt - 2);
+				const delayMs = jitteredDelay(baseDelay);
+				await this.appendEvent(runId, "provider_retry", {
+					attempt,
+					maxAttempts: providerMaxAttempts,
+					delayMs,
+					reason: previousRetryKey,
+				});
+				await sleep(delayMs, signal);
+			}
+
+			try {
+				return await this.fetchProviderCompactionResponse(settings, endpoint, body, signal);
 			} catch (error) {
 				if (error instanceof TickStoppedError || isAbortError(error)) {
 					throw error;
@@ -1761,6 +1896,96 @@ export class BotRuntime {
 			JSON.stringify(input.usage.raw),
 			input.createdAt,
 		);
+	}
+
+	private recordInferenceSubmission(input: {
+		seq: number;
+		runId: string;
+		purpose: BotInferenceSubmissionPurpose;
+		settings: ProviderSettings;
+		messages: ChatMessage[];
+		createdAt: string;
+	}): void {
+		this.state.storage.sql.exec(
+			`INSERT INTO inference_submissions (
+				id, event_seq, run_id, purpose, model, provider_base_url, message_count, messages_json, created_at
+			)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT(event_seq) DO UPDATE SET
+				run_id = excluded.run_id,
+				purpose = excluded.purpose,
+				model = excluded.model,
+				provider_base_url = excluded.provider_base_url,
+				message_count = excluded.message_count,
+				messages_json = excluded.messages_json,
+				created_at = excluded.created_at`,
+			crypto.randomUUID(),
+			input.seq,
+			input.runId,
+			input.purpose,
+			input.settings.model,
+			input.settings.baseUrl,
+			input.messages.length,
+			JSON.stringify(input.messages),
+			input.createdAt,
+		);
+		this.pruneInferenceSubmissions();
+	}
+
+	private pruneInferenceSubmissions(): void {
+		this.state.storage.sql.exec(
+			`DELETE FROM inference_submissions
+			 WHERE id NOT IN (
+				SELECT id
+				FROM inference_submissions
+				ORDER BY event_seq DESC
+				LIMIT ?
+			 )`,
+			inferenceSubmissionRetentionCount,
+		);
+	}
+
+	private inferenceSubmissionSummaries(): BotInferenceSubmissionSummary[] {
+		return this.state.storage.sql
+			.exec<InferenceSubmissionRow>(
+				`SELECT id, event_seq, run_id, purpose, model, provider_base_url, message_count, messages_json, created_at
+				 FROM inference_submissions
+				 ORDER BY event_seq ASC`,
+			)
+			.toArray()
+			.map(inferenceSubmissionSummaryFromRow);
+	}
+
+	private inferenceSubmissionForSeq(seq: number): BotInferenceSubmission {
+		if (!Number.isInteger(seq) || seq <= 0) {
+			throw new RepositoryError("bad_request", "Inference submission sequence is invalid.", 400);
+		}
+		const row = this.state.storage.sql
+			.exec<InferenceSubmissionRow>(
+				`SELECT id, event_seq, run_id, purpose, model, provider_base_url, message_count, messages_json, created_at
+				 FROM inference_submissions
+				 WHERE event_seq = ?
+				 LIMIT 1`,
+				seq,
+			)
+			.toArray()[0];
+		if (!row) {
+			throw new RepositoryError("not_found", "Inference submission was not found.", 404);
+		}
+		return {
+			...inferenceSubmissionSummaryFromRow(row),
+			messages: inferenceSubmissionMessagesFromRow(row),
+		};
+	}
+
+	private deleteInferenceSubmissionsForSeq(seq: number): number {
+		this.state.storage.sql.exec(`DELETE FROM inference_submissions WHERE event_seq = ?`, seq);
+		return this.state.storage.sql.exec<{ count: number }>(`SELECT changes() AS count`).one().count;
+	}
+
+	private clearInferenceSubmissions(): number {
+		this.state.storage.sql.exec(`DELETE FROM inference_submissions`);
+		return this.state.storage.sql.exec<{ count: number }>(`SELECT changes() AS count`).one().count;
 	}
 
 	private tokenUsageStats(now = new Date()): BotTokenUsageStats {
@@ -2049,6 +2274,57 @@ export class BotRuntime {
 
 		const bodyText = await readLimitedText(response.body, 1_200);
 		throw new ProviderRequestError(response.status, settings.model, endpoint, bodyText);
+	}
+
+	private async fetchProviderCompactionResponse(
+		settings: ProviderSettings,
+		endpoint: string,
+		body: string,
+		signal: AbortSignal,
+	): Promise<Pick<ProviderResponse, "usage" | "responseId" | "responseModel"> & { content: string }> {
+		const headers: Record<string, string> = {
+			"content-type": "application/json",
+		};
+		if (settings.apiKey) {
+			headers.authorization = `Bearer ${settings.apiKey}`;
+		}
+		const response = await providerFetchWithHeaderTimeout(
+			endpoint,
+			{
+				method: "POST",
+				headers,
+				body,
+			},
+			signal,
+			providerRequestTimeoutMs,
+		);
+
+		if (!response.ok) {
+			const bodyText = await readLimitedText(response.body, 1_200);
+			throw new ProviderRequestError(response.status, settings.model, endpoint, bodyText);
+		}
+
+		const payload = (await response.json()) as {
+			id?: unknown;
+			model?: unknown;
+			usage?: unknown;
+			choices?: Array<{
+				message?: {
+					content?: unknown;
+				};
+			}>;
+		};
+		const content = stringValue(payload.choices?.[0]?.message?.content)?.trim();
+		if (!content) {
+			throw new ProviderRequestError(502, settings.model, endpoint, "Provider returned an empty compaction response.");
+		}
+		const usage = providerUsageFromValue(payload.usage);
+		return {
+			content,
+			...(usage ? { usage } : {}),
+			...(stringValue(payload.id) ? { responseId: stringValue(payload.id) } : {}),
+			...(stringValue(payload.model) ? { responseModel: stringValue(payload.model) } : {}),
+		};
 	}
 
 	private async fetchPromptTokenProbeUsage(
@@ -2481,12 +2757,7 @@ export class BotRuntime {
 		bot: BotDocument,
 		input: LoopInput,
 	): Promise<ChatMessage[]> {
-		const summaries = this.eventsAfter(0)
-			.filter((event) => event.type === "compaction")
-			.slice(-3)
-			.map((event) => compactedSummaryForContext(event.payload))
-			.filter(Boolean)
-			.join("\n");
+		const continuity = this.latestCompactionSummary();
 		const thoughtContext = formatThoughtContext(this.thoughtBlocksForContext());
 		const injectedThoughtMessages = this.injectedThoughtMessagesForContext();
 		const recent = this.runtimeContextRows()
@@ -2500,7 +2771,7 @@ export class BotRuntime {
 				role: "system",
 				content: standardPrompt(bot),
 			},
-			...(summaries ? [{ role: "user" as const, content: `My earlier notes:\n${summaries}` }] : []),
+			...(continuity ? [{ role: "user" as const, content: `What I remember from earlier:\n${continuity}` }] : []),
 			...(thoughtContext ? [{ role: "user" as const, content: thoughtContext }] : []),
 			...(recent ? [{ role: "user" as const, content: `My recent activity:\n${recent}` }] : []),
 			...injectedThoughtMessages,
@@ -2521,6 +2792,19 @@ export class BotRuntime {
 				 ORDER BY seq ASC`,
 			)
 			.toArray();
+	}
+
+	private latestCompactionSummary(): string {
+		const row = this.state.storage.sql
+			.exec<{ payload_json: string }>(
+				`SELECT payload_json
+				 FROM events
+				 WHERE type = 'compaction'
+				 ORDER BY seq DESC
+				 LIMIT 1`,
+			)
+			.toArray()[0];
+		return row ? compactedSummaryForContext(JSON.parse(row.payload_json) as unknown) : "";
 	}
 
 	private thoughtBlocksForContext(): ThoughtBlock[] {
@@ -2641,7 +2925,12 @@ export class BotRuntime {
 		});
 	}
 
-	private async compactIfNeeded(bot: BotDocument, runId: string): Promise<void> {
+	private async compactIfNeeded(
+		bot: BotDocument,
+		settings: ProviderSettings,
+		runId: string,
+		signal: AbortSignal,
+	): Promise<void> {
 		const total = this.currentCompactionContextTokenEstimate();
 		const threshold = Math.max(
 			1,
@@ -2665,9 +2954,19 @@ export class BotRuntime {
 			return;
 		}
 		const compacted = candidates.slice(0, Math.max(1, Math.floor(candidates.length * 0.6)));
-		const summary = compacted
+		const recentActivity = compacted
 			.map((event) => truncateForContext(runtimeContextLine(event), 300))
 			.join("\n");
+		const previousSummary = this.latestCompactionSummary();
+		const compactionMessages = providerCompactionMessages(previousSummary, recentActivity);
+		const providerActive = Boolean(settings.apiKey || settings.usesCustomBaseUrl || this.env.BICKR_SIMULATION_MODE === "provider");
+		const response: Pick<ProviderResponse, "usage" | "responseId" | "responseModel"> & { content: string } =
+			providerActive ?
+				await this.callProviderForCompaction(settings, compactionMessages, runId, signal)
+			:	{
+					content: deterministicCompactionSummary(previousSummary, recentActivity),
+				};
+		const summary = sanitizeStoredContextSummary(response.content || deterministicCompactionSummary(previousSummary, recentActivity));
 		const summaryEvent = await this.appendEvent(runId, "compaction", {
 			fromSeq: compacted[0]?.seq,
 			toSeq: compacted[compacted.length - 1]?.seq,
@@ -2675,6 +2974,28 @@ export class BotRuntime {
 			threshold,
 			summary,
 		});
+		if (providerActive) {
+			this.recordInferenceSubmission({
+				seq: summaryEvent.seq,
+				runId,
+				purpose: "compaction",
+				settings,
+				messages: compactionMessages,
+				createdAt: summaryEvent.createdAt,
+			});
+		}
+		if (response.usage) {
+			this.recordProviderUsage({
+				contextWindowTokens: bot.tickSettings.contextWindowTokens,
+				createdAt: summaryEvent.createdAt,
+				providerResponseId: response.responseId,
+				requestSeq: summaryEvent.seq,
+				responseModel: response.responseModel,
+				runId,
+				settings,
+				usage: response.usage,
+			});
+		}
 		this.state.storage.sql.exec(
 			`UPDATE events
 			 SET compacted_by = ?
@@ -2692,7 +3013,10 @@ export class BotRuntime {
 			.reduce((total, row) => total + estimateTextTokens(runtimeContextLine(row)), 0);
 		const injectedThoughtTokens = this.injectedThoughtRowsForContext()
 			.reduce((total, row) => total + estimateTextTokens(runtimeContextLine(row)), 0);
-		return rowTokens + injectedThoughtTokens + estimateTextTokens(formatThoughtContext(this.thoughtBlocksForContext()));
+		return rowTokens +
+			injectedThoughtTokens +
+			estimateTextTokens(this.latestCompactionSummary()) +
+			estimateTextTokens(formatThoughtContext(this.thoughtBlocksForContext()));
 	}
 
 	private async appendEvent(
@@ -2725,12 +3049,13 @@ export class BotRuntime {
 		return event;
 	}
 
-	private async clearHistory(botId: string): Promise<{ events: number; injections: number; runtimeState: number }> {
+	private async clearHistory(botId: string): Promise<{ events: number; injections: number; runtimeState: number; submissions: number }> {
 		const current = await this.status(botId);
 		if (current.status === "running" || this.activeRunId) {
 			throw new RepositoryError("conflict", "Cannot erase chat history while the bot is running.", 409);
 		}
 
+		const submissions = this.clearInferenceSubmissions();
 		this.state.storage.sql.exec(`DELETE FROM events`);
 		const events = this.state.storage.sql.exec<{ count: number }>(`SELECT changes() AS count`).one().count;
 		this.state.storage.sql.exec(`DELETE FROM injections`);
@@ -2738,7 +3063,7 @@ export class BotRuntime {
 		this.state.storage.sql.exec(`DELETE FROM runtime_state`);
 		const runtimeState = this.state.storage.sql.exec<{ count: number }>(`SELECT changes() AS count`).one().count;
 		this.broadcastControl({ type: "history_cleared", botId });
-		return { events, injections, runtimeState };
+		return { events, injections, runtimeState, submissions };
 	}
 
 	private async deleteEvent(botId: string, seq: number): Promise<{ seq: number; runId: string; type: BotRuntimeEventType }> {
@@ -2769,6 +3094,7 @@ export class BotRuntime {
 		if (deleted !== 1) {
 			throw new RepositoryError("not_found", "Runtime event was not found.", 404);
 		}
+		this.deleteInferenceSubmissionsForSeq(seq);
 		this.broadcastControl({ type: "event_deleted", seq });
 		return { seq, runId: row.run_id, type: row.type };
 	}
@@ -3835,6 +4161,10 @@ function compactedSummaryForContext(payload: unknown): string {
 		return "";
 	}
 	return sanitizeStoredContextSummary(summary);
+}
+
+function deterministicCompactionSummary(previousSummary: string, recentActivity: string): string {
+	return sanitizeStoredContextSummary([previousSummary.trim(), recentActivity.trim()].filter(Boolean).join("\n"));
 }
 
 function sanitizeStoredContextSummary(summary: string): string {
@@ -4997,6 +5327,24 @@ function runtimeRecord(value: unknown): Record<string, unknown> {
 	return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
 
+function inferenceSubmissionSummaryFromRow(row: InferenceSubmissionRow): BotInferenceSubmissionSummary {
+	return {
+		submissionId: row.id,
+		seq: row.event_seq,
+		runId: row.run_id,
+		purpose: row.purpose === "compaction" ? "compaction" : "loop",
+		model: row.model,
+		providerBaseUrl: row.provider_base_url,
+		messageCount: row.message_count,
+		createdAt: row.created_at,
+	};
+}
+
+function inferenceSubmissionMessagesFromRow(row: InferenceSubmissionRow): BotInferenceSubmissionMessage[] {
+	const parsed = JSON.parse(row.messages_json) as unknown;
+	return Array.isArray(parsed) ? (parsed as BotInferenceSubmissionMessage[]) : [];
+}
+
 function botIdFromPath(pathname: string): string {
 	const match = /^\/bots\/([^/]+)/.exec(pathname);
 	if (!match) {
@@ -5007,6 +5355,11 @@ function botIdFromPath(pathname: string): string {
 
 function eventSeqFromPath(pathname: string): number | null {
 	const match = /^\/bots\/[^/]+\/events\/(\d+)$/.exec(pathname);
+	return match ? Number(match[1]) : null;
+}
+
+function submissionSeqFromPath(pathname: string): number | null {
+	const match = /^\/bots\/[^/]+\/submissions\/(\d+)$/.exec(pathname);
 	return match ? Number(match[1]) : null;
 }
 

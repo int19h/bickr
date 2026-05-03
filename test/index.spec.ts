@@ -64,6 +64,8 @@ import {
 	promptContextBudgetCacheFingerprint,
 	promptContextBudgetFromCounts,
 	providerChatCompletionRequest,
+	providerCompactionMessages,
+	providerCompactionRequest,
 	providerMessagesWithReasoningPrefill,
 	providerTranslationRequest,
 	providerTokenProbeRequest,
@@ -566,10 +568,10 @@ describe("Bickr Pages Functions", () => {
 		expect(pruneStreamEventsForPersistentEvents([currentLiveDelta], [currentCompleted])).toEqual([]);
 	});
 
-	it("builds provider chat requests with explicit tool-call and output controls", () => {
-		const request = providerChatCompletionRequest(
-			{
-				baseUrl: "https://openrouter.ai/api/v1",
+		it("builds provider chat requests with explicit tool-call and output controls", () => {
+			const request = providerChatCompletionRequest(
+				{
+					baseUrl: "https://openrouter.ai/api/v1",
 				model: "test-model",
 				temperature: 0.2,
 			},
@@ -609,14 +611,44 @@ describe("Bickr Pages Functions", () => {
 			toolDefinitions,
 			"I need to think about how I feel and what I want to do next, in first person, in character as u/release-sage.",
 		);
-		expect(tunedRequest).toMatchObject({
-			frequency_penalty: -0.25,
-			presence_penalty: 0.5,
-			repetition_penalty: 1.15,
+			expect(tunedRequest).toMatchObject({
+				frequency_penalty: -0.25,
+				presence_penalty: 0.5,
+				repetition_penalty: 1.15,
+			});
 		});
-	});
 
-	it("builds translation requests with strict structured output and no tools", () => {
+		it("builds provider compaction requests without tools and with participant continuity instructions", () => {
+			const messages = providerCompactionMessages(
+				"I planned to write a follow-up about release notes.",
+				"I decided to read a thread about changelogs.\nI learned u/muller likes concise summaries.",
+			);
+			const request = providerCompactionRequest(
+				{
+					model: "test-model",
+				},
+				messages,
+			);
+
+			expect(request).toMatchObject({
+				model: "test-model",
+				stream: false,
+				temperature: 0.2,
+				reasoning: { effort: "none" },
+			});
+			expect("tools" in request).toBe(false);
+			expect("tool_choice" in request).toBe(false);
+			expect("parallel_tool_calls" in request).toBe(false);
+			expect(messages[0]?.content).toContain("Bickr participant");
+			expect(messages[0]?.content).toContain("what I did");
+			expect(messages[0]?.content).toContain("lessons about participants");
+			expect(messages[0]?.content).toContain("Drop minute details");
+			expect(messages[0]?.content).not.toMatch(/\bbot\b|\bAI\b|\bmodel\b|\bassistant\b|\bagent\b/i);
+			expect(messages[1]?.content).toContain("Previous continuity:");
+			expect(messages[1]?.content).toContain("Recent activity to fold in:");
+		});
+
+		it("builds translation requests with strict structured output and no tools", () => {
 		const request = providerTranslationRequest(
 			{
 				baseUrl: "https://openrouter.ai/api/v1",
@@ -893,17 +925,66 @@ describe("Bickr Pages Functions", () => {
 		expect(currentInput).not.toContain("{");
 	});
 
-	it("builds a recovery reminder after no-tool ticks", () => {
-		expect(toolUseRecoveryReminder({ consecutiveNoToolTicks: 1 })).toContain(
-			"The previous tick ended without tool calls.",
-		);
+		it("builds a recovery reminder after no-tool ticks", () => {
+			expect(toolUseRecoveryReminder({ consecutiveNoToolTicks: 1 })).toContain(
+				"The previous tick ended without tool calls.",
+			);
 		expect(toolUseRecoveryReminder({ consecutiveNoToolTicks: 3 })).toContain(
 			"3 recent ticks ended without tool calls.",
 		);
-		expect(toolUseRecoveryReminder({ consecutiveNoToolTicks: 1 })).toContain("Emit tool calls with JSON arguments");
-	});
+			expect(toolUseRecoveryReminder({ consecutiveNoToolTicks: 1 })).toContain("Emit tool calls with JSON arguments");
+		});
 
-	it("queues busy spotlight ticks only when the active tick misses the injection", async () => {
+		it("presents compacted continuity transparently in future provider chats", async () => {
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				state: {
+					storage: {
+						sql: memoryBuildMessagesSql({
+							compactionSummary: "I promised Müller I would follow up on release notes.\nprovider_request internal noise",
+							recentRows: [
+								{
+									seq: 8,
+									run_id: "run-recent",
+									type: "assistant_message",
+									payload_json: JSON.stringify({ content: "I should look for the changelog next." }),
+									token_estimate: 10,
+									created_at: "2026-05-01T00:00:00.000Z",
+									compacted_by: null,
+								},
+							],
+						}),
+					},
+				},
+			});
+			const buildMessages = (BotRuntime.prototype as unknown as {
+				buildMessages: (
+					bot: Parameters<typeof standardPrompt>[0] & Record<string, unknown>,
+					input: Record<string, unknown>,
+				) => Promise<Array<{ role: string; content?: string | null }>>;
+			}).buildMessages.bind(runtime);
+
+			const messages = await buildMessages(
+				{
+					handle: "release-sage",
+					displayName: "Release Sage",
+					shortBio: "Reads changelogs.",
+					prompt: "Stay precise.",
+				} as Parameters<typeof standardPrompt>[0],
+				{
+					notifications: [],
+					injections: [],
+					ping: true,
+				} as Record<string, unknown>,
+			);
+
+			const continuity = messages.find((message) => message.content?.startsWith("What I remember from earlier:"));
+			expect(continuity?.content).toContain("I promised Müller");
+			expect(continuity?.content).not.toContain("provider_request");
+			expect(continuity?.content).not.toContain("compaction");
+			expect(messages.some((message) => message.content?.includes("My recent activity:"))).toBe(true);
+		});
+
+		it("queues busy spotlight ticks only when the active tick misses the injection", async () => {
 		const unconsumedInjections = new Set(["inj-late"]);
 		const waitUntilPromises: Promise<unknown>[] = [];
 		const started: Array<{
@@ -1046,10 +1127,10 @@ describe("Bickr Pages Functions", () => {
 		expect([...toolDefinitions, ...disabled.tools].some((definition) => definition.type === "function")).toBe(true);
 	});
 
-	it("retries provider stream idle timeouts", async () => {
-		vi.useFakeTimers();
-		try {
-			const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+		it("retries provider stream idle timeouts", async () => {
+			vi.useFakeTimers();
+			try {
+				const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
 			const fetchProviderResponse = vi
 				.fn<() => Promise<ReadableStream<Uint8Array>>>()
 				.mockResolvedValueOnce(neverStream())
@@ -1117,11 +1198,64 @@ describe("Bickr Pages Functions", () => {
 				}),
 			});
 		} finally {
-			vi.useRealTimers();
-		}
-	});
+				vi.useRealTimers();
+			}
+		});
 
-	it("streams provider reasoning through live deltas and persistent messages", async () => {
+		it("retains, reads, deletes, and clears bounded inference submissions", () => {
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				state: {
+					storage: {
+						sql: memoryInferenceSubmissionSql(),
+					},
+				},
+			});
+			const recordInferenceSubmission = (BotRuntime.prototype as unknown as {
+				recordInferenceSubmission: (input: {
+					seq: number;
+					runId: string;
+					purpose: "loop" | "compaction";
+					settings: { baseUrl: string; model: string; temperature: number };
+					messages: Array<{ role: "user"; content: string }>;
+					createdAt: string;
+				}) => void;
+			}).recordInferenceSubmission.bind(runtime);
+			const inferenceSubmissionSummaries = (BotRuntime.prototype as unknown as {
+				inferenceSubmissionSummaries: () => Array<{ seq: number; purpose: string; messageCount: number }>;
+			}).inferenceSubmissionSummaries.bind(runtime);
+			const inferenceSubmissionForSeq = (BotRuntime.prototype as unknown as {
+				inferenceSubmissionForSeq: (seq: number) => { seq: number; messages: Array<{ content: string }> };
+			}).inferenceSubmissionForSeq.bind(runtime);
+			const deleteInferenceSubmissionsForSeq = (BotRuntime.prototype as unknown as {
+				deleteInferenceSubmissionsForSeq: (seq: number) => number;
+			}).deleteInferenceSubmissionsForSeq.bind(runtime);
+			const clearInferenceSubmissions = (BotRuntime.prototype as unknown as {
+				clearInferenceSubmissions: () => number;
+			}).clearInferenceSubmissions.bind(runtime);
+
+			for (let seq = 1; seq <= 55; seq += 1) {
+				recordInferenceSubmission({
+					seq,
+					runId: "run-submissions",
+					purpose: seq === 55 ? "compaction" : "loop",
+					settings: { baseUrl: "https://openrouter.ai/api/v1", model: "test/model", temperature: 0.7 },
+					messages: [{ role: "user", content: `Müller message ${seq}` }],
+					createdAt: `2026-05-01T00:00:${String(seq).padStart(2, "0")}.000Z`,
+				});
+			}
+
+			const summaries = inferenceSubmissionSummaries();
+			expect(summaries).toHaveLength(50);
+			expect(summaries[0]?.seq).toBe(6);
+			expect(summaries.at(-1)).toMatchObject({ seq: 55, purpose: "compaction", messageCount: 1 });
+			expect(inferenceSubmissionForSeq(55).messages[0]?.content).toBe("Müller message 55");
+			expect(deleteInferenceSubmissionsForSeq(55)).toBe(1);
+			expect(inferenceSubmissionSummaries().map((submission) => submission.seq)).not.toContain(55);
+			expect(clearInferenceSubmissions()).toBe(49);
+			expect(inferenceSubmissionSummaries()).toEqual([]);
+		});
+
+		it("streams provider reasoning through live deltas and persistent messages", async () => {
 		type TestProviderResponse = {
 			content: string;
 			reasoning: string;
@@ -4853,6 +4987,118 @@ function memoryRuntimeSql(options: { unconsumedInjections?: ReadonlySet<string> 
 			}
 			if (/DELETE FROM runtime_state WHERE key = \?/.test(sql)) {
 				values.delete(String(params[0]));
+			}
+			return {
+				one: () => ({} as T),
+				toArray: () => [],
+			};
+		},
+	};
+}
+
+function memoryInferenceSubmissionSql() {
+	type Row = {
+		id: string;
+		event_seq: number;
+		run_id: string;
+		purpose: string;
+		model: string;
+		provider_base_url: string;
+		message_count: number;
+		messages_json: string;
+		created_at: string;
+	};
+	let rows: Row[] = [];
+	let lastChanges = 0;
+	return {
+		exec<T>(sql: string, ...params: unknown[]) {
+			if (/INSERT INTO inference_submissions/.test(sql)) {
+				const row: Row = {
+					id: String(params[0]),
+					event_seq: Number(params[1]),
+					run_id: String(params[2]),
+					purpose: String(params[3]),
+					model: String(params[4]),
+					provider_base_url: String(params[5]),
+					message_count: Number(params[6]),
+					messages_json: String(params[7]),
+					created_at: String(params[8]),
+				};
+				rows = [...rows.filter((existing) => existing.event_seq !== row.event_seq), row];
+				lastChanges = 1;
+			} else if (/DELETE FROM inference_submissions\s+WHERE id NOT IN/.test(sql)) {
+				const keep = new Set(
+					[...rows]
+						.sort((left, right) => right.event_seq - left.event_seq)
+						.slice(0, Number(params[0]))
+						.map((row) => row.id),
+				);
+				const before = rows.length;
+				rows = rows.filter((row) => keep.has(row.id));
+				lastChanges = before - rows.length;
+			} else if (/SELECT id, event_seq, run_id, purpose, model, provider_base_url, message_count, messages_json, created_at\s+FROM inference_submissions\s+WHERE event_seq = \?/.test(sql)) {
+				const row = rows.find((item) => item.event_seq === Number(params[0]));
+				return {
+					toArray: () => (row ? [row as T] : []),
+				};
+			} else if (/SELECT id, event_seq, run_id, purpose, model, provider_base_url, message_count, messages_json, created_at\s+FROM inference_submissions\s+ORDER BY event_seq ASC/.test(sql)) {
+				return {
+					toArray: () => [...rows].sort((left, right) => left.event_seq - right.event_seq) as T[],
+				};
+			} else if (/DELETE FROM inference_submissions WHERE event_seq = \?/.test(sql)) {
+				const before = rows.length;
+				rows = rows.filter((row) => row.event_seq !== Number(params[0]));
+				lastChanges = before - rows.length;
+			} else if (/DELETE FROM inference_submissions/.test(sql)) {
+				lastChanges = rows.length;
+				rows = [];
+			} else if (/SELECT changes\(\) AS count/.test(sql)) {
+				return {
+					one: () => ({ count: lastChanges }) as T,
+					toArray: () => [{ count: lastChanges } as T],
+				};
+			}
+			return {
+				one: () => ({} as T),
+				toArray: () => [],
+			};
+		},
+	};
+}
+
+function memoryBuildMessagesSql(options: {
+	compactionSummary: string;
+	recentRows: Array<{
+		seq: number;
+		run_id: string;
+		type: BotRuntimeEvent["type"];
+		payload_json: string;
+		token_estimate: number;
+		created_at: string;
+		compacted_by: number | null;
+	}>;
+}) {
+	return {
+		exec<T>(sql: string) {
+			if (/SELECT payload_json\s+FROM events\s+WHERE type = 'compaction'/.test(sql)) {
+				return {
+					toArray: () => [{ payload_json: JSON.stringify({ summary: options.compactionSummary }) } as T],
+				};
+			}
+			if (/WHERE compacted_by IS NULL\s+AND type IN \('input', 'assistant_message', 'tool_call', 'tool_result'\)/.test(sql)) {
+				return {
+					toArray: () => options.recentRows as T[],
+				};
+			}
+			if (/WHERE compacted_by IS NULL\s+AND type = 'reasoning_message'/.test(sql)) {
+				return {
+					toArray: () => [],
+				};
+			}
+			if (/WHERE compacted_by IS NULL\s+AND type = 'thought_injected'/.test(sql)) {
+				return {
+					toArray: () => [],
+				};
 			}
 			return {
 				one: () => ({} as T),

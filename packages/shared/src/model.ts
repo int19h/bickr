@@ -642,6 +642,42 @@ export type BotRuntimeEvent = {
 	compactedBy?: number;
 };
 
+export type BotInferenceSubmissionPurpose = "loop" | "compaction";
+
+export type BotInferenceSubmissionToolCall = {
+	id: string;
+	type: "function";
+	function: {
+		name: string;
+		arguments: string;
+	};
+};
+
+export type BotInferenceSubmissionMessage = {
+	role: "system" | "user" | "assistant" | "tool";
+	content?: string | null;
+	tool_call_id?: string;
+	tool_calls?: BotInferenceSubmissionToolCall[];
+	reasoning?: string;
+	reasoning_content?: string;
+	reasoning_details?: unknown[];
+};
+
+export type BotInferenceSubmissionSummary = {
+	submissionId: string;
+	seq: number;
+	runId: string;
+	purpose: BotInferenceSubmissionPurpose;
+	model: string;
+	providerBaseUrl: string;
+	messageCount: number;
+	createdAt: string;
+};
+
+export type BotInferenceSubmission = BotInferenceSubmissionSummary & {
+	messages: BotInferenceSubmissionMessage[];
+};
+
 export type BotTokenUsageTotals = {
 	requestCount: number;
 	promptTokens: number;
