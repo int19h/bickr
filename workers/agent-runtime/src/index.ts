@@ -89,6 +89,7 @@ import {
 	openRouterServerToolSelection,
 	standardPrompt,
 	toolDefinitions,
+	toolDefinitionsForProviderRound,
 	type ProviderToolDefinition,
 } from "./prompt-and-tools";
 import { providerContextReserveTokens } from "./provider-requests";
@@ -1558,11 +1559,17 @@ export class BotRuntime {
 		let logOffCalled = false;
 		let publicSpotlightToolCallCount = 0;
 		let toolCallCount = 0;
+		let exposeAdditionalReplyAcknowledgementForRound = false;
 		const reasoningPrefill = effectiveReasoningPrefill(bot);
 		for (let turn = 0; turn < bot.tickSettings.maxToolCallsPerTick; turn += 1) {
 			this.throwIfStopped(runId, runContext.signal);
 			const serverTools = openRouterServerToolSelection(settings.baseUrl, bot.toolSettings);
-			const providerTools: ProviderToolDefinition[] = [...toolDefinitions, ...serverTools.tools];
+			const exposeAdditionalReplyAcknowledgement = exposeAdditionalReplyAcknowledgementForRound;
+			exposeAdditionalReplyAcknowledgementForRound = false;
+			const providerTools: ProviderToolDefinition[] = [
+				...toolDefinitionsForProviderRound({ exposeAdditionalReplyAcknowledgement }),
+				...serverTools.tools,
+			];
 			const requestMessages = providerMessagesWithReasoningPrefill(currentMessages, reasoningPrefill);
 			const requestEvent = await this.appendEvent(runId, "provider_request", {
 				model: settings.model,
@@ -1574,6 +1581,7 @@ export class BotRuntime {
 				maxCompletionTokens: providerContextReserveTokens,
 				reasoning: providerChatReasoning,
 				temperature: settings.temperature,
+				additionalReplyAcknowledgementToolArgument: exposeAdditionalReplyAcknowledgement ? "exposed" : "hidden",
 				openRouterServerTools: {
 					enabled: serverTools.enabled,
 					emitted: serverTools.emitted,
@@ -1643,6 +1651,9 @@ export class BotRuntime {
 					}
 					const failure = toolFailurePayload(toolCall.function.name, args, error);
 					consecutiveToolFailures += 1;
+					if (failure.overrideArgument === additionalReplyAcknowledgementArgument) {
+						exposeAdditionalReplyAcknowledgementForRound = true;
+					}
 					await this.appendEvent(runId, "tool_result", {
 						name: toolCall.function.name || "unknown_tool",
 						args,

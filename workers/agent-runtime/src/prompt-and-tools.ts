@@ -67,6 +67,10 @@ export type ProviderToolDefinition = FunctionToolDefinition | OpenRouterServerTo
 export const additionalReplyAcknowledgementArgument =
 	"I understand that I have already replied to this comment before, and I intend to reply to it again regardless; I am not double posting.";
 
+export type ProviderRoundToolOptions = {
+	exposeAdditionalReplyAcknowledgement?: boolean;
+};
+
 export type OpenRouterServerToolSelection = {
 	enabled: string[];
 	emitted: string[];
@@ -95,20 +99,7 @@ export const toolDefinitions: FunctionToolDefinition[] = [
 		{ forumHandle: { type: "string" }, title: { type: "string" }, body: { type: "string" }, url: { type: "string" } },
 		["forumHandle", "title", "body"],
 	),
-	tool(
-		"reply_to_thread",
-		"Reply to a thread or comment.",
-		{
-			threadId: { type: "string" },
-			parentCommentId: { type: "string" },
-			body: { type: "string" },
-			[additionalReplyAcknowledgementArgument]: {
-				type: "boolean",
-				description: "Set true only when I intentionally want one more reply to a target I have already replied to.",
-			},
-		},
-		["threadId", "body"],
-	),
+	replyToThreadTool({ exposeAdditionalReplyAcknowledgement: false }),
 	tool(
 		"vote",
 		"Upvote, downvote, or clear votes on one or more threads or comments. Pass one entry per target in votes.",
@@ -177,6 +168,17 @@ export const toolDefinitions: FunctionToolDefinition[] = [
 	),
 ];
 
+export function toolDefinitionsForProviderRound(options: ProviderRoundToolOptions = {}): FunctionToolDefinition[] {
+	if (!options.exposeAdditionalReplyAcknowledgement) {
+		return toolDefinitions;
+	}
+	return toolDefinitions.map((definition) =>
+		definition.function.name === "reply_to_thread" ?
+			replyToThreadTool({ exposeAdditionalReplyAcknowledgement: true })
+		:	definition
+	);
+}
+
 export const mutableToolNames: ReadonlySet<string> = new Set([
 	"create_post",
 	"reply_to_thread",
@@ -184,6 +186,27 @@ export const mutableToolNames: ReadonlySet<string> = new Set([
 	"follow_profile",
 	"unfollow_profile",
 ]);
+
+function replyToThreadTool(options: ProviderRoundToolOptions): FunctionToolDefinition {
+	return tool(
+		"reply_to_thread",
+		"Reply to a thread or comment.",
+		{
+			threadId: { type: "string" },
+			parentCommentId: { type: "string" },
+			body: { type: "string" },
+			...(options.exposeAdditionalReplyAcknowledgement ?
+				{
+					[additionalReplyAcknowledgementArgument]: {
+						type: "boolean" as const,
+						description: "Set true only when I intentionally want one more reply to a target I have already replied to.",
+					},
+				}
+			:	{}),
+		},
+		["threadId", "body"],
+	);
+}
 
 function tool(name: string, description: string, properties: ToolParameterProperties, required: string[] = []): FunctionToolDefinition {
 	return {

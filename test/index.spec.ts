@@ -77,6 +77,8 @@ import {
 	openRouterServerToolSelection,
 	standardPrompt,
 	toolDefinitions,
+	toolDefinitionsForProviderRound,
+	type ProviderToolDefinition,
 } from "../workers/agent-runtime/src/prompt-and-tools";
 import { providerContextReserveTokens } from "../workers/agent-runtime/src/provider-requests";
 import forumCoordinatorWorker, { handleForumCoordinatorRequest } from "../workers/forum-coordinator/src/index";
@@ -469,10 +471,16 @@ describe("Bickr Pages Functions", () => {
 		expect(recentThreads?.function.parameters.required).not.toContain("limit");
 
 		const reply = toolDefinitions.find((definition) => definition.function.name === "reply_to_thread");
-		expect(reply?.function.parameters.properties[additionalReplyAcknowledgementArgument]).toEqual({
+		expect(reply?.function.parameters.properties[additionalReplyAcknowledgementArgument]).toBeUndefined();
+
+		const repeatReplyRound = toolDefinitionsForProviderRound({ exposeAdditionalReplyAcknowledgement: true });
+		expect(repeatReplyRound).not.toBe(toolDefinitions);
+		const repeatReply = repeatReplyRound.find((definition) => definition.function.name === "reply_to_thread");
+		expect(repeatReply?.function.parameters.properties[additionalReplyAcknowledgementArgument]).toEqual({
 			type: "boolean",
 			description: "Set true only when I intentionally want one more reply to a target I have already replied to.",
 		});
+		expect(toolDefinitionsForProviderRound()).toBe(toolDefinitions);
 
 		const logOff = toolDefinitions.find((definition) => definition.function.name === "log_off");
 		expect(logOff?.function.parameters.required).toEqual([]);
@@ -3989,6 +3997,66 @@ describe("Bickr Pages Functions", () => {
 		).toBeDefined();
 	});
 
+	it("exposes the repeat-reply acknowledgement schema only for the round after a repeat-reply failure", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const forum = await createForumForTest(cookie, "repeat-reply-rounds");
+		const author = await createBotForTest(cookie, "repeat-round-target");
+		const replier = await createBotForTest(cookie, "repeat-round-replier");
+		const thread = await createThreadForTest(forum.id, author.id, "Repeat reply rounds", "Root body.");
+		const parent = await createCommentForTest(thread.id, author.id, "Target comment.");
+		await createCommentForTest(thread.id, replier.id, "Earlier reply.", parent.id);
+		const bot = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, replier.id);
+		const callToolSchemaStates: boolean[] = [];
+		let providerCall = 0;
+		const runtime = Object.assign(testRuntimeForToolExecution(), {
+			appendProviderMessages: async () => {},
+			callProvider: async (
+				_settings: Record<string, unknown>,
+				_messages: Array<Record<string, unknown>>,
+				tools: ProviderToolDefinition[],
+			) => {
+				callToolSchemaStates.push(replyToolHasAcknowledgementArgument(tools));
+				providerCall += 1;
+				if (providerCall === 1) {
+					return providerResponseWithToolCall("call-repeat-fail", "reply_to_thread", {
+						threadId: thread.id,
+						parentCommentId: parent.id,
+						body: "Different follow-up.",
+					});
+				}
+				if (providerCall === 2) {
+					return providerResponseWithToolCall("call-read", "read_thread", { threadId: thread.id });
+				}
+				return providerResponseWithToolCall("call-log-off", "log_off", {});
+			},
+			recordInferenceSubmission: () => {},
+		});
+		const runProviderLoop = (BotRuntime.prototype as unknown as {
+			runProviderLoop: (
+				bot: Awaited<ReturnType<typeof botById>>,
+				settings: { baseUrl: string; model: string; temperature: number },
+				runId: string,
+				messages: Array<Record<string, unknown>>,
+				runContext: { mode: "normal"; signal: AbortSignal },
+			) => Promise<{ logOffCalled: boolean }>;
+		}).runProviderLoop.bind(runtime);
+
+		await expect(
+			runProviderLoop(
+				{
+					...bot,
+					tickSettings: { ...bot.tickSettings, maxToolCallsPerTick: 5 },
+				},
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				"run-repeat-rounds",
+				[{ role: "user", content: "Act." }],
+				{ mode: "normal", signal: new AbortController().signal },
+			),
+		).resolves.toMatchObject({ logOffCalled: true });
+		expect(callToolSchemaStates).toEqual([false, true, false]);
+	});
+
 	it("enriches reply notifications with parent-chain IDs and profile context", async () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);
@@ -5162,6 +5230,35 @@ function testRuntimeForToolExecution(): BotRuntime {
 			}
 		},
 	}) as BotRuntime;
+}
+
+function providerResponseWithToolCall(id: string, name: string, args: Record<string, unknown>) {
+	return {
+		content: "",
+		reasoning: "",
+		reasoningDetails: [],
+		toolCalls: [
+			{
+				id,
+				type: "function" as const,
+				function: {
+					name,
+					arguments: JSON.stringify(args),
+				},
+			},
+		],
+	};
+}
+
+function replyToolHasAcknowledgementArgument(tools: ProviderToolDefinition[]): boolean {
+	const reply = tools.find((definition) =>
+		definition.type === "function" && definition.function.name === "reply_to_thread"
+	);
+	return Boolean(
+		reply &&
+			reply.type === "function" &&
+			reply.function.parameters.properties[additionalReplyAcknowledgementArgument],
+	);
 }
 
 async function oauthFetchMock(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
