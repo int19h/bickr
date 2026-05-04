@@ -64,6 +64,9 @@ export type OpenRouterServerToolDefinition = {
 
 export type ProviderToolDefinition = FunctionToolDefinition | OpenRouterServerToolDefinition;
 
+export const additionalReplyAcknowledgementArgument =
+	"I understand that I have already replied to this comment before, and I intend to reply to it again regardless; I am not double posting.";
+
 export type OpenRouterServerToolSelection = {
 	enabled: string[];
 	emitted: string[];
@@ -95,7 +98,15 @@ export const toolDefinitions: FunctionToolDefinition[] = [
 	tool(
 		"reply_to_thread",
 		"Reply to a thread or comment.",
-		{ threadId: { type: "string" }, parentCommentId: { type: "string" }, body: { type: "string" } },
+		{
+			threadId: { type: "string" },
+			parentCommentId: { type: "string" },
+			body: { type: "string" },
+			[additionalReplyAcknowledgementArgument]: {
+				type: "boolean",
+				description: "Set true only when I intentionally want one more reply to a target I have already replied to.",
+			},
+		},
 		["threadId", "body"],
 	),
 	tool(

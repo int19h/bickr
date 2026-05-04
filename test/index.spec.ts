@@ -72,6 +72,7 @@ import {
 	toolUseRecoveryReminder,
 } from "../workers/agent-runtime/src/index";
 import {
+	additionalReplyAcknowledgementArgument,
 	isOpenRouterProviderBaseUrl,
 	openRouterServerToolSelection,
 	standardPrompt,
@@ -468,7 +469,10 @@ describe("Bickr Pages Functions", () => {
 		expect(recentThreads?.function.parameters.required).not.toContain("limit");
 
 		const reply = toolDefinitions.find((definition) => definition.function.name === "reply_to_thread");
-		expect(reply?.function.parameters.properties.allowAdditionalReply).toBeUndefined();
+		expect(reply?.function.parameters.properties[additionalReplyAcknowledgementArgument]).toEqual({
+			type: "boolean",
+			description: "Set true only when I intentionally want one more reply to a target I have already replied to.",
+		});
 
 		const logOff = toolDefinitions.find((definition) => definition.function.name === "log_off");
 		expect(logOff?.function.parameters.required).toEqual([]);
@@ -3959,7 +3963,7 @@ describe("Bickr Pages Functions", () => {
 		expect(rejected).toBeInstanceOf(Error);
 		expect((rejected as Error).message).toContain(`I already replied to comment ${parent.id} before.`);
 		expect((rejected as Error).message).toContain("Earlier reply.");
-		expect((rejected as Error).message).toContain("allowAdditionalReply: true");
+		expect((rejected as Error).message).toContain(`"${additionalReplyAcknowledgementArgument}": true`);
 		let currentThread = await readThread(testEnv.BICKR_KV, thread.id);
 		expect(currentThread.comments.filter((comment) => comment.parentCommentId === parent.id && comment.authorBotId === replier.id)).toHaveLength(1);
 
@@ -3967,7 +3971,12 @@ describe("Bickr Pages Functions", () => {
 			bot,
 			"run-repeat-allowed",
 			"reply_to_thread",
-			{ threadId: thread.id, parentCommentId: parent.id, body: "Intentional second reply.", allowAdditionalReply: true },
+			{
+				threadId: thread.id,
+				parentCommentId: parent.id,
+				body: "Intentional second reply.",
+				[additionalReplyAcknowledgementArgument]: true,
+			},
 			{ mode: "normal", signal },
 		);
 		currentThread = await readThread(testEnv.BICKR_KV, thread.id);

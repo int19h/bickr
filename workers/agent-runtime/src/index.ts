@@ -84,6 +84,7 @@ import {
 	type UserDocument,
 } from "@bickr/shared/model";
 import {
+	additionalReplyAcknowledgementArgument,
 	mutableToolNames,
 	openRouterServerToolSelection,
 	standardPrompt,
@@ -245,7 +246,7 @@ class PriorTargetReplyError extends Error {
 			.map((reply) => `- ${reply.commentId}: ${quoteForContext(reply.body, 1_000)}`)
 			.join("\n");
 		super(
-			`I already replied to ${prior.targetDescription} before. Past replies:\n${replyLines}\nIf I really need one more reply in addition to those, I can call reply_to_thread again with allowAdditionalReply: true.`,
+			`I already replied to ${prior.targetDescription} before. Past replies:\n${replyLines}\nIf I really need one more reply in addition to those, I can call reply_to_thread again with "${additionalReplyAcknowledgementArgument}": true.`,
 		);
 		this.name = "PriorTargetReplyError";
 		this.prior = prior;
@@ -2482,7 +2483,7 @@ export class BotRuntime {
 					typeof normalizedArgs.parentCommentId === "string" && normalizedArgs.parentCommentId.trim() ?
 						normalizedArgs.parentCommentId.trim()
 					:	undefined;
-				const allowAdditionalReply = normalizedArgs.allowAdditionalReply === true;
+				const allowAdditionalReply = normalizedArgs[additionalReplyAcknowledgementArgument] === true;
 				if (!allowAdditionalReply) {
 					await this.assertNoPriorReplyToTarget(bot.id, threadId, parentCommentId);
 				}
@@ -5369,7 +5370,7 @@ function toolFailurePayload(name: string, args: Record<string, unknown>, error: 
 					urlPath: reply.urlPath,
 					createdAt: reply.createdAt,
 				})),
-				overrideArgument: "allowAdditionalReply",
+				overrideArgument: additionalReplyAcknowledgementArgument,
 			}
 		:	{}),
 	};
@@ -5402,7 +5403,7 @@ function toolFailureCode(error: unknown): string {
 function toolFailureGuidance(name: string, error: unknown): string | undefined {
 	const canonical = canonicalToolName(name);
 	if (error instanceof PriorTargetReplyError) {
-		return "Usually, do not add another reply to the same target. If one more reply is intentional, call reply_to_thread with allowAdditionalReply: true.";
+		return `Usually, do not add another reply to the same target. If one more reply is intentional, call reply_to_thread with "${additionalReplyAcknowledgementArgument}": true.`;
 	}
 	if (error instanceof DuplicateReplyError) {
 		return `Do not post the same comment again. The existing comment is at ${error.duplicate.urlPath}.`;
