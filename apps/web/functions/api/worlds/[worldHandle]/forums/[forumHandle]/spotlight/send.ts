@@ -1,7 +1,7 @@
 import { ok, readJsonBody } from "@bickr/shared/api";
 import { type SpotlightDeliveryResult, type SpotlightSendInput } from "@bickr/shared/model";
 import { forumByHandle, sendSpotlight } from "@bickr/shared/social";
-import { normalizeHandle } from "@bickr/shared/validation";
+import { normalizeHandleParam } from "@bickr/shared/validation";
 import { requireCompleteUser, type AppEnv } from "../../../../../_auth";
 import { pageErrorResponse } from "../../../../../_errors";
 import { serviceRequest } from "../../../../../_proxy";
@@ -13,8 +13,8 @@ export const onRequestPost: PagesFunction<AppEnv, "worldHandle" | "forumHandle">
 }) => {
 	try {
 		const user = await requireCompleteUser(env, request);
-		const worldHandle = normalizeHandle(params.worldHandle);
-		const forumHandle = normalizeHandle(params.forumHandle);
+		const worldHandle = normalizeHandleParam(params.worldHandle, "World handle");
+		const forumHandle = normalizeHandleParam(params.forumHandle, "Forum handle");
 		const forum = await forumByHandle(env.BICKR_KV, env.BICKR_D1, worldHandle, forumHandle);
 		const input = parseSpotlightInput(await readJsonBody(request));
 		const result = await sendSpotlight(

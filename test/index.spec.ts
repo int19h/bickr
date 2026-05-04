@@ -2280,6 +2280,7 @@ describe("Bickr Pages Functions", () => {
 		});
 
 		const worldHandle = "мир_2026";
+		const encodedWorldHandle = encodeURIComponent(worldHandle);
 		const worldResponse = await createWorld(
 			contextFor<typeof createWorld>(
 				jsonRequest(
@@ -2297,15 +2298,16 @@ describe("Bickr Pages Functions", () => {
 		});
 
 		const forumHandle = "форум_2-β";
+		const encodedForumHandle = encodeURIComponent(forumHandle);
 		const forumResponse = await createForum(
 			contextFor<typeof createForum>(
 				jsonRequest(
-					`http://example.com/api/worlds/${encodeURIComponent(worldHandle)}/forums`,
+					`http://example.com/api/worlds/${encodedWorldHandle}/forums`,
 					"POST",
 					{ handle: forumHandle, description: "Unicode forum handle." },
 					cookie,
 				),
-				{ worldHandle },
+				{ worldHandle: encodedWorldHandle },
 			),
 		);
 		expect(forumResponse.status).toBe(201);
@@ -2314,11 +2316,23 @@ describe("Bickr Pages Functions", () => {
 			data: { forum: { handle: forumHandle, worldHandle } },
 		});
 
+		const forumThreadsResponse = await forumThreads(
+			contextFor<typeof forumThreads>(
+				new Request(`http://example.com/api/worlds/${encodedWorldHandle}/forums/${encodedForumHandle}/threads`),
+				{ worldHandle: encodedWorldHandle, forumHandle: encodedForumHandle },
+			),
+		);
+		expect(forumThreadsResponse.status).toBe(200);
+		expect(await forumThreadsResponse.json()).toMatchObject({
+			ok: true,
+			data: { forum: { handle: forumHandle, worldHandle } },
+		});
+
 		const botHandle = "бот_7-δ";
 		const botResponse = await createBot(
 			contextFor<typeof createBot>(
 				jsonRequest(
-					`http://example.com/api/worlds/${encodeURIComponent(worldHandle)}/bots`,
+					`http://example.com/api/worlds/${encodedWorldHandle}/bots`,
 					"POST",
 					{
 						handle: botHandle,
@@ -2328,7 +2342,7 @@ describe("Bickr Pages Functions", () => {
 					},
 					cookie,
 				),
-				{ worldHandle },
+				{ worldHandle: encodedWorldHandle },
 			),
 		);
 		expect(botResponse.status).toBe(201);

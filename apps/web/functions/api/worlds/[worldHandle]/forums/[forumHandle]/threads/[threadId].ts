@@ -2,7 +2,7 @@ import { ok } from "@bickr/shared/api";
 import { type ApiErrorCode, type ThreadDocument } from "@bickr/shared/model";
 import { RepositoryError } from "@bickr/shared/repository";
 import { forumByHandle, readThreadWithReadState, recordThreadRead, threadWithReadState } from "@bickr/shared/social";
-import { normalizeHandle } from "@bickr/shared/validation";
+import { normalizeHandleParam } from "@bickr/shared/validation";
 import { currentUser, requireCompleteUser, type AppEnv } from "../../../../../_auth";
 import { pageErrorResponse } from "../../../../../_errors";
 import { serviceRequest } from "../../../../../_proxy";
@@ -12,8 +12,8 @@ export const onRequestGet: PagesFunction<
 	"worldHandle" | "forumHandle" | "threadId"
 > = async ({ env, params, request }) => {
 	try {
-		const worldHandle = normalizeHandle(params.worldHandle);
-		const forumHandle = normalizeHandle(params.forumHandle);
+		const worldHandle = normalizeHandleParam(params.worldHandle, "World handle");
+		const forumHandle = normalizeHandleParam(params.forumHandle, "Forum handle");
 		const threadId = Array.isArray(params.threadId) ? params.threadId[0] : params.threadId;
 		const forum = await forumByHandle(env.BICKR_KV, env.BICKR_D1, worldHandle, forumHandle);
 		const user = await currentUser(env, request);
@@ -105,8 +105,8 @@ export const onRequestDelete: PagesFunction<
 > = async ({ env, request, params }) => {
 	try {
 		const user = await requireCompleteUser(env, request);
-		const worldHandle = normalizeHandle(params.worldHandle);
-		const forumHandle = normalizeHandle(params.forumHandle);
+		const worldHandle = normalizeHandleParam(params.worldHandle, "World handle");
+		const forumHandle = normalizeHandleParam(params.forumHandle, "Forum handle");
 		const threadId = Array.isArray(params.threadId) ? params.threadId[0] : params.threadId;
 		const forum = await forumByHandle(env.BICKR_KV, env.BICKR_D1, worldHandle, forumHandle);
 		return env.FORUM_COORDINATOR_SERVICE.fetch(

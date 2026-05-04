@@ -46,6 +46,7 @@ export const handleHelpText =
 const handlePattern = new RegExp(`^${handlePatternSource}$`, "u");
 const disallowedHandleCharacterPattern = /[^\p{Letter}\p{Number}\p{Mark}_-]+/gu;
 const handleEdgeSeparatorPattern = /^[-_]+|[-_]+$/gu;
+type RouteParamValue = string | string[] | undefined;
 
 export function normalizeHandleText(value: string): string {
 	return value.trim().normalize("NFKC").toLowerCase();
@@ -83,6 +84,22 @@ export function normalizeHandle(value: unknown): string {
 	}
 
 	return normalized;
+}
+
+export function routeParam(value: RouteParamValue, label: string): string {
+	const raw = Array.isArray(value) ? value[0] : value;
+	if (typeof raw !== "string" || raw.length === 0) {
+		throw new InputError(`${label} is required.`);
+	}
+	try {
+		return decodeURIComponent(raw);
+	} catch {
+		throw new InputError(`${label} contains invalid URL encoding.`);
+	}
+}
+
+export function normalizeHandleParam(value: RouteParamValue, label = "Handle"): string {
+	return normalizeHandle(routeParam(value, label));
 }
 
 export function requiredText(value: unknown, label: string, maxLength: number): string {

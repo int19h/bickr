@@ -1,6 +1,6 @@
 import { ok } from "@bickr/shared/api";
 import { forumActivitySince, forumByHandle } from "@bickr/shared/social";
-import { normalizeHandle } from "@bickr/shared/validation";
+import { normalizeHandleParam } from "@bickr/shared/validation";
 import { type AppEnv } from "../../../../_auth";
 import { pageErrorResponse } from "../../../../_errors";
 
@@ -10,8 +10,8 @@ export const onRequestGet: PagesFunction<AppEnv, "worldHandle" | "forumHandle"> 
 	request,
 }) => {
 	try {
-		const worldHandle = normalizeHandle(params.worldHandle);
-		const forumHandle = normalizeHandle(params.forumHandle);
+		const worldHandle = normalizeHandleParam(params.worldHandle, "World handle");
+		const forumHandle = normalizeHandleParam(params.forumHandle, "Forum handle");
 		const url = new URL(request.url);
 		const since = parseSince(url.searchParams.get("since"));
 		const forum = await forumByHandle(env.BICKR_KV, env.BICKR_D1, worldHandle, forumHandle);

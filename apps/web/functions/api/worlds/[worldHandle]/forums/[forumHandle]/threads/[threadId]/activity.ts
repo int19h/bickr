@@ -1,6 +1,6 @@
 import { ok } from "@bickr/shared/api";
 import { forumByHandle, readThread, threadActivitySince } from "@bickr/shared/social";
-import { normalizeHandle } from "@bickr/shared/validation";
+import { normalizeHandleParam } from "@bickr/shared/validation";
 import { type AppEnv } from "../../../../../../_auth";
 import { pageErrorResponse } from "../../../../../../_errors";
 
@@ -9,8 +9,8 @@ export const onRequestGet: PagesFunction<
 	"worldHandle" | "forumHandle" | "threadId"
 > = async ({ env, params, request }) => {
 	try {
-		const worldHandle = normalizeHandle(params.worldHandle);
-		const forumHandle = normalizeHandle(params.forumHandle);
+		const worldHandle = normalizeHandleParam(params.worldHandle, "World handle");
+		const forumHandle = normalizeHandleParam(params.forumHandle, "Forum handle");
 		const threadId = Array.isArray(params.threadId) ? params.threadId[0] : params.threadId;
 		const url = new URL(request.url);
 		const since = parseSince(url.searchParams.get("since"));

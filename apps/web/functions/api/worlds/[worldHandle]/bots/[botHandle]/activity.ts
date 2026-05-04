@@ -1,14 +1,14 @@
 import { ok } from "@bickr/shared/api";
 import { worldByHandle } from "@bickr/shared/repository";
 import { botActivityFeedByHandle } from "@bickr/shared/social";
-import { normalizeHandle } from "@bickr/shared/validation";
+import { normalizeHandleParam } from "@bickr/shared/validation";
 import { type AppEnv } from "../../../../_auth";
 import { pageErrorResponse } from "../../../../_errors";
 
 export const onRequestGet: PagesFunction<AppEnv, "worldHandle" | "botHandle"> = async ({ env, params, request }) => {
 	try {
-		const worldHandle = normalizeHandle(params.worldHandle);
-		const botHandle = normalizeHandle(params.botHandle);
+		const worldHandle = normalizeHandleParam(params.worldHandle, "World handle");
+		const botHandle = normalizeHandleParam(params.botHandle, "Bot handle");
 		const world = await worldByHandle(env.BICKR_D1, worldHandle);
 		const url = new URL(request.url);
 		const limit = boundedLimit(url.searchParams.get("limit"));
