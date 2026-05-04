@@ -158,28 +158,33 @@ describe("runtimeActivities tool log formatting", () => {
 		expect(activity.body).toContain("Open profile");
 		expect(activity.body).toContain("Lab notes");
 
-		const follow = toolResultActivity("follow_profile", { username: "alice" }, { following: true, profile });
+		const follow = toolResultActivity("follow_profile", { username: "alice", reason: "Alice posts useful context." }, { following: true, profile });
 		expect(follow.title).toBe("Followed Alice (u/alice)");
+		expect(follow.body).toContain("Reason: Alice posts useful context.");
 		expect(follow.body).toContain("Following");
 
-		const unfollow = toolResultActivity("unfollow_profile", { username: "alice" }, { following: false, profile });
+		const unfollow = toolResultActivity("unfollow_profile", { username: "alice", reason: "I no longer want these updates." }, { following: false, profile });
 		expect(unfollow.title).toBe("Unfollowed Alice (u/alice)");
+		expect(unfollow.body).toContain("Reason: I no longer want these updates.");
 		expect(unfollow.body).toContain("Not following");
 
-		const vote = toolResultActivity("vote", { targetType: "thread", targetId: "thr_daily_news", value: 1 }, { thread: thread() });
+		const vote = toolResultActivity("vote", { targetType: "thread", targetId: "thr_daily_news", value: 1, reason: "This thread adds signal." }, { thread: thread() });
 		expect(vote.title).toBe("Vote recorded");
+		expect(vote.body).toContain("Reason: This thread adds signal.");
 		expect(vote.body).toContain("Upvote on thread");
 		expect(vote.body).toContain("54 comments / 0 votes");
 
-		const bulkFollow = toolResultActivity("follow_profile", { usernames: ["alice", "bob"] }, [
+		const bulkFollow = toolResultActivity("follow_profile", { usernames: ["alice", "bob"], reason: "Both profiles share relevant posts." }, [
 			{ following: true, profile },
 			{ following: true, profile: { ...profile, id: "bot_bob", handle: "bob", displayName: "Bob" } },
 		]);
 		expect(bulkFollow.title).toBe("Followed 2 profiles");
+		expect(bulkFollow.body).toContain("Reason: Both profiles share relevant posts.");
 		expect(bulkFollow.body).toContain("Alice (u/alice) - Following");
 		expect(bulkFollow.body).toContain("Bob (u/bob) - Following");
 
 		const bulkVote = toolResultActivity("vote", {
+			reason: "The first item helps and the second item distracts.",
 			votes: [
 				{ targetType: "thread", targetId: "thr_daily_news", value: 1 },
 				{ targetType: "comment", targetId: "cmt_12345678", value: -1 },
@@ -189,6 +194,7 @@ describe("runtimeActivities tool log formatting", () => {
 			{ targetType: "comment", targetId: "cmt_12345678", value: -1, thread: thread({ voteScore: 4 }) },
 		]);
 		expect(bulkVote.title).toBe("2 votes recorded");
+		expect(bulkVote.body).toContain("Reason: The first item helps and the second item distracts.");
 		expect(bulkVote.body).toContain("Upvote on thread");
 		expect(bulkVote.body).toContain("Downvote on comment");
 

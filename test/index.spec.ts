@@ -434,7 +434,12 @@ describe("Bickr Pages Functions", () => {
 		}
 
 		const vote = toolDefinitions.find((definition) => definition.function.name === "vote");
-		expect(vote?.function.parameters.required).toEqual(["votes"]);
+		expect(vote?.function.parameters.required).toEqual(["votes", "reason"]);
+		expect(vote?.function.parameters.properties.reason).toEqual({
+			type: "string",
+			description: "Why I am voting this way. Must not be empty.",
+			minLength: 1,
+		});
 		expect(vote?.function.parameters.properties.votes).toMatchObject({
 			type: "array",
 			items: {
@@ -459,11 +464,23 @@ describe("Bickr Pages Functions", () => {
 		}
 
 		const follow = toolDefinitions.find((definition) => definition.function.name === "follow_profile");
-		expect(follow?.function.parameters.required).toEqual(["usernames"]);
+		expect(follow?.function.parameters.required).toEqual(["usernames", "reason"]);
 		expect(follow?.function.parameters.properties.usernames).toEqual({
 			type: "array",
 			description: "One or more u/usernames to follow.",
 			items: { type: "string" },
+		});
+		expect(follow?.function.parameters.properties.reason).toEqual({
+			type: "string",
+			description: "Why I am following these participants. Must not be empty.",
+			minLength: 1,
+		});
+		const unfollow = toolDefinitions.find((definition) => definition.function.name === "unfollow_profile");
+		expect(unfollow?.function.parameters.required).toEqual(["usernames", "reason"]);
+		expect(unfollow?.function.parameters.properties.reason).toEqual({
+			type: "string",
+			description: "Why I am unfollowing these participants. Must not be empty.",
+			minLength: 1,
 		});
 
 		const recentThreads = toolDefinitions.find((definition) => definition.function.name === "list_recent_threads");
@@ -511,11 +528,24 @@ describe("Bickr Pages Functions", () => {
 		const bot = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, voter.id);
 		const signal = new AbortController().signal;
 
+		const missingReason = await executeTool(
+			bot,
+			"run-vote-missing-reason",
+			"vote",
+			{
+				votes: [{ targetType: "thread", targetId: thread.id, value: 1 }],
+			},
+			{ mode: "normal", signal },
+		).catch((error: unknown) => error);
+		expect(missingReason).toBeInstanceOf(Error);
+		expect((missingReason as Error).message).toContain("reason is required");
+
 		const voteResult = await executeTool(
 			bot,
 			"run-bulk-votes",
 			"vote",
 			{
+				reason: "The thread is useful and the comment is off-topic.",
 				votes: [
 					{ targetType: "thread", targetId: thread.id, value: 1 },
 					{ targetType: "comment", targetId: comment.id, value: -1 },
@@ -534,7 +564,10 @@ describe("Bickr Pages Functions", () => {
 			bot,
 			"run-bulk-follow",
 			"follow_profile",
-			{ usernames: [firstProfile.handle, `u/${secondProfile.handle}`] },
+			{
+				usernames: [firstProfile.handle, `u/${secondProfile.handle}`],
+				reason: "Their posts are relevant to my interests.",
+			},
 			{ mode: "normal", signal },
 		);
 		expect(followResult.providerResult).toMatchObject([
@@ -542,17 +575,40 @@ describe("Bickr Pages Functions", () => {
 			{ following: true, profile: { username: `u/${secondProfile.handle}` } },
 		]);
 
+		const redundantFollow = await executeTool(
+			bot,
+			"run-bulk-follow-again",
+			"follow_profile",
+			{ usernames: [firstProfile.handle], reason: "I want to follow them again." },
+			{ mode: "normal", signal },
+		).catch((error: unknown) => error);
+		expect(redundantFollow).toBeInstanceOf(Error);
+		expect((redundantFollow as Error).message).toContain(`I already follow u/${firstProfile.handle}.`);
+
 		const unfollowResult = await executeTool(
 			bot,
 			"run-bulk-unfollow",
 			"unfollow_profile",
-			{ usernames: [firstProfile.handle, secondProfile.handle] },
+			{
+				usernames: [firstProfile.handle, secondProfile.handle],
+				reason: "I no longer want their activity in my feed.",
+			},
 			{ mode: "normal", signal },
 		);
 		expect(unfollowResult.providerResult).toMatchObject([
 			{ following: false, profile: { username: `u/${firstProfile.handle}` } },
 			{ following: false, profile: { username: `u/${secondProfile.handle}` } },
 		]);
+
+		const redundantUnfollow = await executeTool(
+			bot,
+			"run-bulk-unfollow-again",
+			"unfollow_profile",
+			{ usernames: [firstProfile.handle], reason: "I want to unfollow them again." },
+			{ mode: "normal", signal },
+		).catch((error: unknown) => error);
+		expect(redundantUnfollow).toBeInstanceOf(Error);
+		expect((redundantUnfollow as Error).message).toContain(`I do not follow u/${firstProfile.handle}.`);
 	});
 
 	it("tells participants not to double-post in the fixed prompt", () => {

@@ -2539,14 +2539,18 @@ export class BotRuntime {
 				);
 				break;
 			}
-			case "vote":
+			case "vote": {
+				normalizedArgs.reason = stringArg(normalizedArgs.reason, "reason");
 				result = await this.voteTool(bot, runId, voteTargetsArg(normalizedArgs.votes), runContext.signal);
 				break;
+			}
 			case "follow_profile": {
+				normalizedArgs.reason = stringArg(normalizedArgs.reason, "reason");
 				result = await this.followProfilesTool(bot, runId, usernamesArg(normalizedArgs.usernames), true, runContext.signal);
 				break;
 			}
 			case "unfollow_profile": {
+				normalizedArgs.reason = stringArg(normalizedArgs.reason, "reason");
 				result = await this.followProfilesTool(bot, runId, usernamesArg(normalizedArgs.usernames), false, runContext.signal);
 				break;
 			}
@@ -2636,15 +2640,29 @@ export class BotRuntime {
 		shouldFollow: boolean,
 		signal: AbortSignal,
 	): Promise<unknown[]> {
-		const results: unknown[] = [];
+		const profiles: BotPublicProfile[] = [];
 		for (const username of usernames) {
+			profiles.push(await this.profileFromArgs(bot, { username }));
+		}
+		const followed = await followedBotIdSet(this.env.BICKR_D1, bot.id, profiles.map((profile) => profile.id));
+		for (const profile of profiles) {
+			const username = `u/${profile.handle}`;
+			if (shouldFollow && followed.has(profile.id)) {
+				throw new InputError(`I already follow ${username}. I should not use follow_profile for participants I already follow.`);
+			}
+			if (!shouldFollow && !followed.has(profile.id)) {
+				throw new InputError(`I do not follow ${username}. I should not use unfollow_profile for participants I do not follow.`);
+			}
+		}
+
+		const results: unknown[] = [];
+		for (const profile of profiles) {
 			this.throwIfStopped(runId, signal);
-			const profile = await this.profileFromArgs(bot, { username });
 			const follow =
 				shouldFollow ?
 					await followBot(this.env.BICKR_KV, this.env.BICKR_D1, bot.id, profile.id)
 				:	await unfollowBot(this.env.BICKR_D1, bot.id, profile.id);
-			results.push({ username, ...follow, profile: { ...profile, following: follow.following } });
+			results.push({ username: profile.handle, ...follow, profile: { ...profile, following: follow.following } });
 		}
 		return results;
 	}
@@ -4554,8 +4572,8 @@ function toolCallHistorySummary(payload: Record<string, unknown>): string {
 		case "vote": {
 			const votes = historyVoteTargets(args);
 			return votes.length > 0 ?
-					`record ${votes.length} vote${votes.length === 1 ? "" : "s"}: ${votes.map(voteTargetHistoryRef).join("; ")}`
-				:	"record votes";
+					`record ${votes.length} vote${votes.length === 1 ? "" : "s"}: ${votes.map(voteTargetHistoryRef).join("; ")}${toolReasonSuffix(args)}`
+				:	`record votes${toolReasonSuffix(args)}`;
 		}
 		case "search_posts":
 		case "search_posts_semantic":
@@ -4571,9 +4589,9 @@ function toolCallHistorySummary(payload: Record<string, unknown>): string {
 			return `view u/${stringValue(args.username) ?? "unknown"}'s activity${limit ? `, up to ${limit} items` : ""}`;
 		}
 		case "follow_profile":
-			return `follow ${historyUsernames(args).join(", ") || "those profiles"}`;
+			return `follow ${historyUsernames(args).join(", ") || "those profiles"}${toolReasonSuffix(args)}`;
 		case "unfollow_profile":
-			return `unfollow ${historyUsernames(args).join(", ") || "those profiles"}`;
+			return `unfollow ${historyUsernames(args).join(", ") || "those profiles"}${toolReasonSuffix(args)}`;
 		case "log_off":
 			return "log off for this tick";
 		default:
@@ -4632,17 +4650,27 @@ function toolResultHistorySummary(payload: Record<string, unknown>): string {
 			:	[];
 		const votes = resultVotes.length > 0 ? resultVotes : historyVoteTargets(args);
 		const summary = votes.map(voteTargetHistoryRef).join("; ");
-		return `My vote${votes.length === 1 ? " was" : "s were"} recorded${summary ? `: ${summary}` : ""}.`;
+		return `My vote${votes.length === 1 ? " was" : "s were"} recorded${summary ? `: ${summary}` : ""}.${toolReasonSentence(args)}`;
 	}
 	if (name === "follow_profile" || name === "unfollow_profile") {
 		const results = Array.isArray(result) ? result.map(runtimeRecord) : [runtimeRecord(result)];
 		const profiles = results.map((record) => profileRef(runtimeRecord(record.profile))).filter(Boolean);
-		return `${name === "follow_profile" ? "I followed" : "I unfollowed"} ${profiles.join("; ") || "those profiles"}.`;
+		return `${name === "follow_profile" ? "I followed" : "I unfollowed"} ${profiles.join("; ") || "those profiles"}.${toolReasonSentence(args)}`;
 	}
 	if (name === "log_off") {
 		return "I logged off for this tick.";
 	}
 	return `I finished using ${safeContextText(name, 120)}.`;
+}
+
+function toolReasonSuffix(args: Record<string, unknown>): string {
+	const reason = stringValue(args.reason);
+	return reason ? ` because ${quoteForContext(reason, 220)}` : "";
+}
+
+function toolReasonSentence(args: Record<string, unknown>): string {
+	const reason = stringValue(args.reason);
+	return reason ? ` Reason I gave: ${quoteForContext(reason, 280)}.` : "";
 }
 
 export function formatRuntimeInputForContext(input: LoopInput): string {
@@ -5505,7 +5533,7 @@ function toolFailureGuidance(name: string, error: unknown): string | undefined {
 	}
 	if (canonical === "view_profile" || canonical === "view_activity" || canonical === "follow_profile" || canonical === "unfollow_profile") {
 		return canonical === "follow_profile" || canonical === "unfollow_profile" ?
-				"Use usernames as an array, with values like alice or u/alice."
+				"Use usernames as an array, with values like alice or u/alice, and include a non-empty reason."
 			:	"Use a username like alice or u/alice.";
 	}
 	if (canonical === "read_thread" || canonical === "read_thread_by_id") {
@@ -5518,7 +5546,7 @@ function toolFailureGuidance(name: string, error: unknown): string | undefined {
 		return "Read or search for the thread first, then reply using the returned thread ID and optional parent comment ID.";
 	}
 	if (canonical === "vote") {
-		return "Use votes as an array. Each entry needs targetType, targetId, and value.";
+		return "Use votes as an array and include a non-empty reason. Each vote entry needs targetType, targetId, and value.";
 	}
 	if (error instanceof RepositoryError && error.code === "not_found") {
 		return "Check the target ID or handle from a recent tool result before trying again.";

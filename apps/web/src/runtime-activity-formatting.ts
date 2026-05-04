@@ -147,6 +147,7 @@ export function runtimeActivities(events: BotRuntimeEvent[], fallbackWorldHandle
 					createdAt: event.createdAt,
 					kind: "tool",
 					title: toolCallTitle(name, payload.args),
+					body: toolReasonBody(payload.args),
 					toolName: name,
 					args: payload.args,
 					raw: event,
@@ -545,7 +546,7 @@ function toolResultSummary(name: string, args: unknown, result: unknown, fallbac
 			const status = canonical === "follow_profile" ? "Following" : "Not following";
 			return resultWithDisplay(
 				`${action} ${countLabel(rows.length, "profile")}`,
-				rows.map((row) => `${profileLabel(runtimeRecord(row.profile))} - ${status}`).join("\n"),
+				[toolReasonBody(args), rows.map((row) => `${profileLabel(runtimeRecord(row.profile))} - ${status}`).join("\n")].filter(Boolean).join("\n"),
 				items,
 			);
 		}
@@ -553,13 +554,13 @@ function toolResultSummary(name: string, args: unknown, result: unknown, fallbac
 		const item = profileItem(profile, 0, fallbackWorldHandle, "Open profile");
 		const status = record.following === true ? "Following" : "Not following";
 		const title = `${canonical === "follow_profile" ? "Followed" : "Unfollowed"} ${profileLabel(profile)}`;
-		return resultWithDisplay(title, [status, itemBody(item)].filter(Boolean).join("\n"), [item]);
+		return resultWithDisplay(title, [toolReasonBody(args), status, itemBody(item)].filter(Boolean).join("\n"), [item]);
 	}
 	if (canonical === "vote") {
 		if (Array.isArray(result)) {
 			const rows = result.map(runtimeRecord);
 			const items = rows.map((row, index) => voteResultItem(row, index, fallbackWorldHandle));
-			return resultWithDisplay(`${countLabel(rows.length, "vote")} recorded`, itemsBody(items), items);
+			return resultWithDisplay(`${countLabel(rows.length, "vote")} recorded`, [toolReasonBody(args), itemsBody(items)].filter(Boolean).join("\n"), items);
 		}
 		const argsRecord = runtimeRecord(args);
 		const direction =
@@ -567,6 +568,7 @@ function toolResultSummary(name: string, args: unknown, result: unknown, fallbac
 			: Number(argsRecord.value) < 0 ? "Downvote"
 			: "Vote cleared";
 		const details = [
+			toolReasonBody(args),
 			`${direction} on ${stringValue(argsRecord.targetType) ?? "item"} ${shortId(stringValue(argsRecord.targetId))}`,
 			thread ? threadFacts(thread) : "",
 		].filter(Boolean).join("\n");
@@ -635,6 +637,11 @@ function resultWithDisplay(title: string, body: string | undefined, items: ToolD
 		...(cleanBody && cleanBody !== title ? { body: cleanBody } : {}),
 		...(items.length > 0 ? { display: { items } } : {}),
 	};
+}
+
+function toolReasonBody(args: unknown): string | undefined {
+	const reason = stringValue(runtimeRecord(args).reason)?.trim();
+	return reason ? `Reason: ${reason}` : undefined;
 }
 
 function itemsBody(items: ToolDisplayItem[], emptyText = "No results returned."): string {

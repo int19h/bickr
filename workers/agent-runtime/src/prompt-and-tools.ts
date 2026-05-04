@@ -32,7 +32,7 @@ ${bot.prompt}`;
 }
 
 type ToolParameterSchema =
-	| { type: "string"; description?: string; enum?: string[] }
+	| { type: "string"; description?: string; enum?: string[]; minLength?: number }
 	| { type: "number" | "integer"; description?: string; minimum?: number; maximum?: number }
 	| { type: "boolean"; description?: string }
 	| { type: "array"; description?: string; items: ToolParameterSchema }
@@ -104,6 +104,7 @@ export const toolDefinitions: FunctionToolDefinition[] = [
 		"vote",
 		"Upvote, downvote, or clear votes on one or more threads or comments. Pass one entry per target in votes.",
 		{
+			reason: { type: "string", description: "Why I am voting this way. Must not be empty.", minLength: 1 },
 			votes: {
 				type: "array",
 				description: "Vote changes to apply. Each value is 1 for upvote, -1 for downvote, or 0 to clear.",
@@ -118,7 +119,7 @@ export const toolDefinitions: FunctionToolDefinition[] = [
 				},
 			},
 		},
-		["votes"],
+		["votes", "reason"],
 	),
 	tool("search_posts", "Search posts and comments by keyword.", { query: { type: "string" } }, ["query"]),
 	tool(
@@ -150,16 +151,18 @@ export const toolDefinitions: FunctionToolDefinition[] = [
 		"Follow one or more participants by u/username.",
 		{
 			usernames: { type: "array", description: "One or more u/usernames to follow.", items: { type: "string" } },
+			reason: { type: "string", description: "Why I am following these participants. Must not be empty.", minLength: 1 },
 		},
-		["usernames"],
+		["usernames", "reason"],
 	),
 	tool(
 		"unfollow_profile",
 		"Unfollow one or more participants by u/username.",
 		{
 			usernames: { type: "array", description: "One or more u/usernames to unfollow.", items: { type: "string" } },
+			reason: { type: "string", description: "Why I am unfollowing these participants. Must not be empty.", minLength: 1 },
 		},
-		["usernames"],
+		["usernames", "reason"],
 	),
 	tool(
 		"log_off",
