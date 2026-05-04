@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { BotRuntimeEvent } from "../packages/shared/src/model";
-import { runtimeActivities, type RuntimeActivity } from "../apps/web/src/runtime-activity-formatting";
+import { activityEventSeqs, activityRuntimeSeqs, runtimeActivities, type RuntimeActivity } from "../apps/web/src/runtime-activity-formatting";
 
 const createdAt = "2026-05-01T12:00:00.000Z";
 
@@ -45,6 +45,18 @@ function assertNonRedundantBody(activity: RuntimeActivity): void {
 }
 
 describe("runtimeActivities tool log formatting", () => {
+	it("keeps live runtime seqs available without treating them as stored event seqs", () => {
+		const activities = runtimeActivities([
+			runtimeEvent("provider_request", {}, 10),
+			runtimeEvent("provider_delta", { kind: "content", text: "hello", ephemeral: true }, 10.5),
+		], "sandbox");
+		const liveActivity = activities[1];
+
+		expect(activities[0]?.title).toBe("Inference request");
+		expect(activityRuntimeSeqs(liveActivity!)).toEqual([10.5]);
+		expect(activityEventSeqs(liveActivity!)).toEqual([]);
+	});
+
 	it("formats read and reply results without redundant thread-created metadata", () => {
 		const read = toolResultActivity("read_thread", { threadId: "thr_daily_news" }, {
 			operation: "read_thread",

@@ -1,4 +1,4 @@
-import type { BotInferenceSubmission, BotInferenceSubmissionMessage } from "@bickr/shared/model";
+import type { BotInferenceSubmission, BotInferenceSubmissionMessage, BotRuntimeEvent } from "@bickr/shared/model";
 
 export function normalizeSubmissionSearchText(value: string): string {
 	return value
@@ -65,6 +65,82 @@ export function prettyJsonText(value: unknown): string {
 	return formatJson(value);
 }
 
+export function inferenceSubmissionSeqsByRuntimeEventSeq(
+	events: readonly BotRuntimeEvent[],
+	retainedSubmissionSeqs: ReadonlySet<number>,
+): Map<number, number> {
+	const sortedEvents = [...events]
+		.filter((event) => Number.isFinite(event.seq))
+		.sort((left, right) => left.seq - right.seq);
+	const mappedSeqs = new Map<number, number>();
+	const retainedLoopRequestSeqsByRun = new Map<string, number[]>();
+
+	for (const event of sortedEvents) {
+		if (!retainedSubmissionSeqs.has(event.seq)) {
+			continue;
+		}
+		mappedSeqs.set(event.seq, event.seq);
+		if (event.type === "provider_request") {
+			const runSeqs = retainedLoopRequestSeqsByRun.get(event.runId) ?? [];
+			runSeqs.push(event.seq);
+			retainedLoopRequestSeqsByRun.set(event.runId, runSeqs);
+		}
+	}
+
+	for (const event of sortedEvents) {
+		if (mappedSeqs.has(event.seq)) {
+			continue;
+		}
+		const requestSeqs = retainedLoopRequestSeqsByRun.get(event.runId);
+		if (!requestSeqs || requestSeqs.length === 0) {
+			continue;
+		}
+		if (isInferenceResponseEvent(event)) {
+			const requestSeq = previousSeq(requestSeqs, event.seq);
+			if (requestSeq !== null) {
+				mappedSeqs.set(event.seq, requestSeq);
+			}
+			continue;
+		}
+		if (event.type === "tool_result") {
+			const requestSeq = nextSeq(requestSeqs, event.seq);
+			if (requestSeq !== null) {
+				mappedSeqs.set(event.seq, requestSeq);
+			}
+		}
+	}
+
+	return mappedSeqs;
+}
+
 function formatJson(value: unknown): string {
 	return JSON.stringify(value, null, 2);
+}
+
+function isInferenceResponseEvent(event: BotRuntimeEvent): boolean {
+	return (
+		event.type === "provider_delta" ||
+		event.type === "reasoning_message" ||
+		event.type === "assistant_message" ||
+		event.type === "tool_call"
+	);
+}
+
+function previousSeq(seqs: readonly number[], before: number): number | null {
+	for (let index = seqs.length - 1; index >= 0; index -= 1) {
+		const seq = seqs[index]!;
+		if (seq < before) {
+			return seq;
+		}
+	}
+	return null;
+}
+
+function nextSeq(seqs: readonly number[], after: number): number | null {
+	for (const seq of seqs) {
+		if (seq > after) {
+			return seq;
+		}
+	}
+	return null;
 }

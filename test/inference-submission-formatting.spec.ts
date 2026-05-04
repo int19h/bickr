@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import type { BotInferenceSubmission } from "../packages/shared/src/model";
+import type { BotInferenceSubmission, BotRuntimeEvent, BotRuntimeEventType } from "../packages/shared/src/model";
 import {
+	inferenceSubmissionSeqsByRuntimeEventSeq,
 	prettyJsonText,
 	submissionMatchesSearch,
 	submissionMessageMatchesSearch,
@@ -45,4 +46,54 @@ describe("inference submission formatting", () => {
 		expect(prettyJsonText("{\"ok\":true,\"count\":2}")).toBe("{\n  \"ok\": true,\n  \"count\": 2\n}");
 		expect(prettyJsonText("not json")).toBe("not json");
 	});
+
+	it("associates response events with the request that produced them", () => {
+		const events = [
+			runtimeEvent(10, "run_1", "provider_request"),
+			runtimeEvent(10.5, "run_1", "provider_delta"),
+			runtimeEvent(11, "run_1", "reasoning_message"),
+			runtimeEvent(12, "run_1", "assistant_message"),
+			runtimeEvent(13, "run_1", "tool_call"),
+			runtimeEvent(14, "run_1", "tool_result"),
+			runtimeEvent(15, "run_1", "provider_request"),
+			runtimeEvent(16, "run_1", "assistant_message"),
+			runtimeEvent(20, "run_2", "provider_request"),
+			runtimeEvent(21, "run_2", "assistant_message"),
+		];
+
+		const seqs = inferenceSubmissionSeqsByRuntimeEventSeq(events, new Set([10, 15, 20]));
+
+		expect(seqs.get(10)).toBe(10);
+		expect(seqs.get(10.5)).toBe(10);
+		expect(seqs.get(11)).toBe(10);
+		expect(seqs.get(12)).toBe(10);
+		expect(seqs.get(13)).toBe(10);
+		expect(seqs.get(14)).toBe(15);
+		expect(seqs.get(15)).toBe(15);
+		expect(seqs.get(16)).toBe(15);
+		expect(seqs.get(21)).toBe(20);
+	});
+
+	it("does not associate tool results without a later retained request", () => {
+		const seqs = inferenceSubmissionSeqsByRuntimeEventSeq(
+			[
+				runtimeEvent(10, "run_1", "provider_request"),
+				runtimeEvent(11, "run_1", "tool_result"),
+			],
+			new Set([10]),
+		);
+
+		expect(seqs.get(11)).toBeUndefined();
+	});
 });
+
+function runtimeEvent(seq: number, runId: string, type: BotRuntimeEventType): BotRuntimeEvent {
+	return {
+		seq,
+		runId,
+		type,
+		payload: {},
+		tokenEstimate: 0,
+		createdAt: "2026-05-01T00:00:00.000Z",
+	};
+}

@@ -61,6 +61,7 @@ import {
 } from "./runtime-streams";
 import {
 	activityEventSeqs,
+	activityRuntimeSeqs,
 	runtimeActivities,
 	type RuntimeActivity,
 	type ToolDisplay,
@@ -77,6 +78,7 @@ import {
 	type OpenRouterWebSearchToolDraft,
 } from "./tool-settings-draft";
 import {
+	inferenceSubmissionSeqsByRuntimeEventSeq,
 	prettyJsonText,
 	submissionMatchesSearch,
 	submissionMessageMatchesSearch,
@@ -7111,8 +7113,13 @@ function BotRuntimePanel({
 	const shouldStickToBottomRef = useRef(true);
 	const latestPersistentEventSeqRef = useRef(0);
 	const reconnectAttemptRef = useRef(0);
-	const activities = useMemo(() => runtimeActivities([...events, ...streamEvents], bot.homeWorldHandle), [bot.homeWorldHandle, events, streamEvents]);
+	const runtimeEvents = useMemo(() => [...events, ...streamEvents], [events, streamEvents]);
+	const activities = useMemo(() => runtimeActivities(runtimeEvents, bot.homeWorldHandle), [bot.homeWorldHandle, runtimeEvents]);
 	const submissionSeqs = useMemo(() => new Set(submissions.map((submission) => submission.seq)), [submissions]);
+	const submissionSeqByRuntimeEventSeq = useMemo(
+		() => inferenceSubmissionSeqsByRuntimeEventSeq(runtimeEvents, submissionSeqs),
+		[runtimeEvents, submissionSeqs],
+	);
 	const runtimeEnabled = status?.enabled ?? bot.tickSettings.enabled;
 
 	useEffect(() => {
@@ -7553,16 +7560,21 @@ function BotRuntimePanel({
 				{message && <div className="runtime-message">{message}</div>}
 				<div className="event-log" onScroll={trackLogScroll} ref={logRef}>
 					{activities.length === 0 && <div className="empty compact-empty">No runtime events yet.</div>}
-					{activities.slice(-80).map((activity) => (
-						<RuntimeActivityRow
-							activity={activity}
-							hasSubmission={activityEventSeqs(activity).some((seq) => submissionSeqs.has(seq))}
-							key={activity.id}
-							onDelete={() => setPendingDeleteActivity(activity)}
-							onViewSubmission={(seq) => void viewSubmission(seq)}
-							submissionLoadingSeq={submissionLoadingSeq}
-						/>
-					))}
+					{activities.slice(-80).map((activity) => {
+						const submissionSeq = activityRuntimeSeqs(activity)
+							.map((seq) => submissionSeqByRuntimeEventSeq.get(seq))
+							.find((seq) => seq !== undefined);
+						return (
+							<RuntimeActivityRow
+								activity={activity}
+								key={activity.id}
+								onDelete={() => setPendingDeleteActivity(activity)}
+								onViewSubmission={(seq) => void viewSubmission(seq)}
+								submissionLoadingSeq={submissionLoadingSeq}
+								submissionSeq={submissionSeq ?? null}
+							/>
+						);
+					})}
 				</div>
 			</div>
 			{submissionError && <div className="runtime-message">{submissionError}</div>}
@@ -7854,16 +7866,16 @@ function submissionPurposeLabel(purpose: BotInferenceSubmissionSummary["purpose"
 
 function RuntimeActivityRow({
 	activity,
-	hasSubmission,
 	onDelete,
 	onViewSubmission,
 	submissionLoadingSeq,
+	submissionSeq,
 }: {
 	activity: RuntimeActivity;
-	hasSubmission: boolean;
 	onDelete: () => void;
 	onViewSubmission: (seq: number) => void;
 	submissionLoadingSeq: number | null;
+	submissionSeq: number | null;
 }) {
 	const [rawOpen, setRawOpen] = useState(false);
 	const [copied, setCopied] = useState(false);
@@ -7871,7 +7883,6 @@ function RuntimeActivityRow({
 	const toolSummary = activity.toolDisplay ? toolDisplayNode(activity.toolDisplay) : null;
 	const seqLabel = activity.seqLabel ?? String(activity.seq);
 	const canDelete = activityEventSeqs(activity).length > 0;
-	const submissionSeq = activityEventSeqs(activity).find((seq) => Number.isInteger(seq));
 
 	async function copyRaw(): Promise<void> {
 		await navigator.clipboard?.writeText(rawJson);
@@ -7891,7 +7902,7 @@ function RuntimeActivityRow({
 			>
 			<Icon name="trash" size={13} />
 		</button>
-		{hasSubmission && submissionSeq !== undefined && (
+		{submissionSeq !== null && (
 			<button
 				aria-label={`Open inference submission for event ${seqLabel}`}
 				className="submission-button"

@@ -42,22 +42,30 @@ export type RuntimeActivity = {
 	streaming?: boolean;
 };
 
+export function activityRuntimeSeqs(activity: RuntimeActivity): number[] {
+	return activitySeqs(activity, (seq) => Number.isFinite(seq));
+}
+
 export function activityEventSeqs(activity: RuntimeActivity): number[] {
+	return activitySeqs(activity, (seq) => Number.isInteger(seq));
+}
+
+function activitySeqs(activity: RuntimeActivity, includeSeq: (seq: number) => boolean): number[] {
 	const raw = runtimeRecord(activity.raw);
 	const seqs: number[] = [];
 	if (Array.isArray(raw.events)) {
 		for (const event of raw.events) {
 			const seq = runtimeRecord(event).seq;
-			if (typeof seq === "number" && Number.isInteger(seq)) {
+			if (typeof seq === "number" && includeSeq(seq)) {
 				seqs.push(seq);
 			}
 		}
 	}
 	const rawSeq = raw.seq;
-	if (typeof rawSeq === "number" && Number.isInteger(rawSeq)) {
+	if (typeof rawSeq === "number" && includeSeq(rawSeq)) {
 		seqs.push(rawSeq);
 	}
-	if (Number.isInteger(activity.seq) && activity.seqLabel !== "live") {
+	if (includeSeq(activity.seq) && (activity.seqLabel !== "live" || !Number.isInteger(activity.seq))) {
 		seqs.push(activity.seq);
 	}
 	return [...new Set(seqs)].sort((left, right) => left - right);
