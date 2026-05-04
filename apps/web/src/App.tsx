@@ -79,6 +79,7 @@ import {
 } from "./tool-settings-draft";
 import {
 	inferenceSubmissionSeqsByRuntimeEventSeq,
+	inferenceSubmissionChatMessages,
 	prettyJsonText,
 	submissionMatchesSearch,
 	submissionMessageMatchesSearch,
@@ -7779,9 +7780,10 @@ function InferenceSubmissionModal({
 		return null;
 	}
 
+	const chatMessages = inferenceSubmissionChatMessages(submission);
 	const matchingMessages = query.trim() ?
-		submission.messages.filter((message) => submissionMessageMatchesSearch(message, query))
-	:	submission.messages;
+		chatMessages.filter((message) => submissionMessageMatchesSearch(message, query))
+	:	chatMessages;
 	const hasMatch = submissionMatchesSearch(submission, query);
 
 	return (
@@ -7790,7 +7792,7 @@ function InferenceSubmissionModal({
 				<RuntimeRow label="Event" value={`#${submission.seq}`} />
 				<RuntimeRow label="Purpose" value={submissionPurposeLabel(submission.purpose)} />
 				<RuntimeRow label="Model" value={submission.model} />
-				<RuntimeRow label="Messages" value={submission.messageCount} />
+				<RuntimeRow label="Messages" value={chatMessages.length} />
 			</div>
 			<div className="submission-search">
 				<Icon name="search" size={14} />

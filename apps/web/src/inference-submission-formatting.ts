@@ -47,7 +47,11 @@ export function submissionMatchesSearch(submission: BotInferenceSubmission, quer
 	if (normalizeSubmissionSearchText(metadata).includes(normalizedQuery)) {
 		return true;
 	}
-	return submission.messages.some((message) => submissionMessageMatchesSearch(message, query));
+	return inferenceSubmissionChatMessages(submission).some((message) => submissionMessageMatchesSearch(message, query));
+}
+
+export function inferenceSubmissionChatMessages(submission: BotInferenceSubmission): BotInferenceSubmissionMessage[] {
+	return submission.displayMessages && submission.displayMessages.length > 0 ? submission.displayMessages : submission.messages;
 }
 
 export function prettyJsonText(value: unknown): string {

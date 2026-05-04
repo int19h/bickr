@@ -178,7 +178,8 @@ export function runtimeActivities(events: BotRuntimeEvent[], fallbackWorldHandle
 					seq: event.seq,
 					createdAt: event.createdAt,
 					kind: "compaction",
-					title: "Context compacted",
+					title: compactionTitle(payload),
+					body: stringValue(payload.error),
 					payload: event.payload,
 					raw: event,
 				});
@@ -580,6 +581,17 @@ function toolResultSummary(name: string, args: unknown, result: unknown, fallbac
 		title: `Tool result: ${canonical}`,
 		body: formatPayload(result, 1_200),
 	};
+}
+
+function compactionTitle(payload: Record<string, unknown>): string {
+	const status = stringValue(payload.status);
+	if (status === "failed") {
+		return "Context compaction failed";
+	}
+	if (status === "pending") {
+		return "Context compaction started";
+	}
+	return "Context compacted";
 }
 
 function failedToolResultSummary(name: string, args: unknown, result: Record<string, unknown>): ToolResultSummary {

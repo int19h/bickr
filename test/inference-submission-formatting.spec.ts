@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { BotInferenceSubmission, BotRuntimeEvent, BotRuntimeEventType } from "../packages/shared/src/model";
 import {
+	inferenceSubmissionChatMessages,
 	inferenceSubmissionSeqsByRuntimeEventSeq,
 	prettyJsonText,
 	submissionMatchesSearch,
@@ -45,6 +46,32 @@ describe("inference submission formatting", () => {
 	it("pretty prints JSON strings and leaves plain text intact", () => {
 		expect(prettyJsonText("{\"ok\":true,\"count\":2}")).toBe("{\n  \"ok\": true,\n  \"count\": 2\n}");
 		expect(prettyJsonText("not json")).toBe("not json");
+	});
+
+	it("uses display messages for compaction chat display and search when present", () => {
+		const submission: BotInferenceSubmission = {
+			submissionId: "sub_compaction",
+			seq: 88,
+			runId: "run_1",
+			purpose: "compaction",
+			model: "test/model",
+			providerBaseUrl: "https://openrouter.ai/api/v1",
+			messageCount: 2,
+			createdAt: "2026-05-01T00:00:00.000Z",
+			messages: [
+				{ role: "system", content: "Preserve continuity." },
+				{ role: "user", content: "Recent activity only." },
+			],
+			displayMessages: [
+				{ role: "system", content: "Preserve continuity." },
+				{ role: "user", content: "Recent activity only." },
+				{ role: "assistant", content: "I need to follow up with Müller about release notes." },
+			],
+		};
+
+		expect(inferenceSubmissionChatMessages(submission)).toHaveLength(3);
+		expect(submissionMatchesSearch(submission, "muller")).toBe(true);
+		expect(inferenceSubmissionChatMessages({ ...submission, displayMessages: [] })).toHaveLength(2);
 	});
 
 	it("associates response events with the request that produced them", () => {

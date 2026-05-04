@@ -57,6 +57,15 @@ describe("runtimeActivities tool log formatting", () => {
 		expect(activityEventSeqs(liveActivity!)).toEqual([]);
 	});
 
+	it("distinguishes failed compaction rows", () => {
+		const [activity] = runtimeActivities([
+			runtimeEvent("compaction", { status: "failed", error: "Provider returned an empty compaction response." }),
+		], "sandbox");
+
+		expect(activity?.title).toBe("Context compaction failed");
+		expect(activity?.body).toContain("empty compaction response");
+	});
+
 	it("formats read and reply results without redundant thread-created metadata", () => {
 		const read = toolResultActivity("read_thread", { threadId: "thr_daily_news" }, {
 			operation: "read_thread",

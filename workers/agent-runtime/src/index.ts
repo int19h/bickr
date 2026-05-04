@@ -127,6 +127,7 @@ type InferenceSubmissionRow = {
 	provider_base_url: string;
 	message_count: number;
 	messages_json: string;
+	display_messages_json: string | null;
 	created_at: string;
 };
 
@@ -892,6 +893,7 @@ CREATE TABLE IF NOT EXISTS inference_submissions (
 	provider_base_url TEXT NOT NULL,
 	message_count INTEGER NOT NULL,
 	messages_json TEXT NOT NULL,
+	display_messages_json TEXT,
 	created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS inference_submissions_created_at ON inference_submissions (created_at);
@@ -917,6 +919,7 @@ export class BotRuntime {
 				}
 			}
 			this.ensureInjectionColumns();
+			this.ensureInferenceSubmissionColumns();
 		});
 	}
 
@@ -935,6 +938,18 @@ export class BotRuntime {
 		}
 		if (!columns.has("spotlight_id")) {
 			this.state.storage.sql.exec(`ALTER TABLE injections ADD COLUMN spotlight_id TEXT`);
+		}
+	}
+
+	private ensureInferenceSubmissionColumns(): void {
+		const columns = new Set(
+			this.state.storage.sql
+				.exec<{ name: string }>(`PRAGMA table_info(inference_submissions)`)
+				.toArray()
+				.map((row) => row.name),
+		);
+		if (!columns.has("display_messages_json")) {
+			this.state.storage.sql.exec(`ALTER TABLE inference_submissions ADD COLUMN display_messages_json TEXT`);
 		}
 	}
 
@@ -1930,13 +1945,14 @@ export class BotRuntime {
 		purpose: BotInferenceSubmissionPurpose;
 		settings: ProviderSettings;
 		messages: ChatMessage[];
+		displayMessages?: ChatMessage[];
 		createdAt: string;
 	}): void {
 		this.state.storage.sql.exec(
 			`INSERT INTO inference_submissions (
-				id, event_seq, run_id, purpose, model, provider_base_url, message_count, messages_json, created_at
+				id, event_seq, run_id, purpose, model, provider_base_url, message_count, messages_json, display_messages_json, created_at
 			)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(event_seq) DO UPDATE SET
 				run_id = excluded.run_id,
 				purpose = excluded.purpose,
@@ -1944,6 +1960,7 @@ export class BotRuntime {
 				provider_base_url = excluded.provider_base_url,
 				message_count = excluded.message_count,
 				messages_json = excluded.messages_json,
+				display_messages_json = excluded.display_messages_json,
 				created_at = excluded.created_at`,
 			crypto.randomUUID(),
 			input.seq,
@@ -1953,9 +1970,20 @@ export class BotRuntime {
 			input.settings.baseUrl,
 			input.messages.length,
 			JSON.stringify(input.messages),
+			input.displayMessages ? JSON.stringify(input.displayMessages) : null,
 			input.createdAt,
 		);
 		this.pruneInferenceSubmissions();
+	}
+
+	private updateInferenceSubmissionDisplayMessages(seq: number, messages: ChatMessage[]): void {
+		this.state.storage.sql.exec(
+			`UPDATE inference_submissions
+			 SET display_messages_json = ?
+			 WHERE event_seq = ?`,
+			JSON.stringify(messages),
+			seq,
+		);
 	}
 
 	private pruneInferenceSubmissions(): void {
@@ -1974,7 +2002,7 @@ export class BotRuntime {
 	private inferenceSubmissionSummaries(): BotInferenceSubmissionSummary[] {
 		return this.state.storage.sql
 			.exec<InferenceSubmissionRow>(
-				`SELECT id, event_seq, run_id, purpose, model, provider_base_url, message_count, messages_json, created_at
+				`SELECT id, event_seq, run_id, purpose, model, provider_base_url, message_count, messages_json, display_messages_json, created_at
 				 FROM inference_submissions
 				 ORDER BY event_seq ASC`,
 			)
@@ -1988,7 +2016,7 @@ export class BotRuntime {
 		}
 		const row = this.state.storage.sql
 			.exec<InferenceSubmissionRow>(
-				`SELECT id, event_seq, run_id, purpose, model, provider_base_url, message_count, messages_json, created_at
+				`SELECT id, event_seq, run_id, purpose, model, provider_base_url, message_count, messages_json, display_messages_json, created_at
 				 FROM inference_submissions
 				 WHERE event_seq = ?
 				 LIMIT 1`,
@@ -2001,6 +2029,7 @@ export class BotRuntime {
 		return {
 			...inferenceSubmissionSummaryFromRow(row),
 			messages: inferenceSubmissionMessagesFromRow(row),
+			...inferenceSubmissionDisplayMessagesFromRow(row),
 		};
 	}
 
@@ -2896,16 +2925,21 @@ export class BotRuntime {
 	}
 
 	private latestCompactionSummary(): string {
-		const row = this.state.storage.sql
+		const rows = this.state.storage.sql
 			.exec<{ payload_json: string }>(
 				`SELECT payload_json
 				 FROM events
 				 WHERE type = 'compaction'
-				 ORDER BY seq DESC
-				 LIMIT 1`,
+				 ORDER BY seq DESC`,
 			)
-			.toArray()[0];
-		return row ? compactedSummaryForContext(JSON.parse(row.payload_json) as unknown) : "";
+			.toArray();
+		for (const row of rows) {
+			const summary = compactedSummaryForContext(JSON.parse(row.payload_json) as unknown);
+			if (summary) {
+				return summary;
+			}
+		}
+		return "";
 	}
 
 	private thoughtBlocksForContext(): ThoughtBlock[] {
@@ -3061,19 +3095,15 @@ export class BotRuntime {
 		const previousSummary = this.latestCompactionSummary();
 		const compactionMessages = providerCompactionMessages(previousSummary, recentActivity);
 		const providerActive = Boolean(settings.apiKey || settings.usesCustomBaseUrl || this.env.BICKR_SIMULATION_MODE === "provider");
-		const response: Pick<ProviderResponse, "usage" | "responseId" | "responseModel"> & { content: string } =
-			providerActive ?
-				await this.callProviderForCompaction(settings, compactionMessages, runId, signal)
-			:	{
-					content: deterministicCompactionSummary(previousSummary, recentActivity),
-				};
-		const summary = sanitizeStoredContextSummary(response.content || deterministicCompactionSummary(previousSummary, recentActivity));
-		const summaryEvent = await this.appendEvent(runId, "compaction", {
+		const compactionEventPayload = {
 			fromSeq: compacted[0]?.seq,
 			toSeq: compacted[compacted.length - 1]?.seq,
 			estimatedContextTokens: total,
 			threshold,
-			summary,
+		};
+		const summaryEvent = await this.appendEvent(runId, "compaction", {
+			...compactionEventPayload,
+			status: "pending",
 		});
 		if (providerActive) {
 			this.recordInferenceSubmission({
@@ -3084,6 +3114,33 @@ export class BotRuntime {
 				messages: compactionMessages,
 				createdAt: summaryEvent.createdAt,
 			});
+		}
+		let response: Pick<ProviderResponse, "usage" | "responseId" | "responseModel"> & { content: string };
+		try {
+			response = providerActive ?
+				await this.callProviderForCompaction(settings, compactionMessages, runId, signal)
+			:	{
+					content: deterministicCompactionSummary(previousSummary, recentActivity),
+				};
+		} catch (error) {
+			this.replaceEventPayload(summaryEvent, {
+				...compactionEventPayload,
+				status: "failed",
+				error: runtimeErrorText(error),
+			});
+			throw error;
+		}
+		const summary = sanitizeStoredContextSummary(response.content || deterministicCompactionSummary(previousSummary, recentActivity));
+		this.replaceEventPayload(summaryEvent, {
+			...compactionEventPayload,
+			status: "complete",
+			summary,
+		});
+		if (providerActive) {
+			this.updateInferenceSubmissionDisplayMessages(summaryEvent.seq, [
+				...compactionMessages,
+				{ role: "assistant", content: response.content },
+			]);
 		}
 		if (response.usage) {
 			this.recordProviderUsage({
@@ -3148,6 +3205,26 @@ export class BotRuntime {
 		};
 		this.broadcast(event);
 		return event;
+	}
+
+	private replaceEventPayload(event: BotRuntimeEvent, payload: unknown): BotRuntimeEvent {
+		const payloadJson = JSON.stringify(payload);
+		const tokenEstimate = estimateTextTokens(payloadJson);
+		this.state.storage.sql.exec(
+			`UPDATE events
+			 SET payload_json = ?, token_estimate = ?
+			 WHERE seq = ?`,
+			payloadJson,
+			tokenEstimate,
+			event.seq,
+		);
+		const updated = {
+			...event,
+			payload,
+			tokenEstimate,
+		};
+		this.broadcast(updated);
+		return updated;
 	}
 
 	private async clearHistory(botId: string): Promise<{ events: number; injections: number; runtimeState: number; submissions: number }> {
@@ -5186,6 +5263,10 @@ function providerRetryKey(error: unknown): string | null {
 	return null;
 }
 
+function runtimeErrorText(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
+}
+
 function jitteredDelay(baseMs: number): number {
 	const factor = 1 + (Math.random() * 2 - 1) / 3;
 	return Math.max(0, Math.round(baseMs * factor));
@@ -5492,6 +5573,14 @@ function inferenceSubmissionSummaryFromRow(row: InferenceSubmissionRow): BotInfe
 function inferenceSubmissionMessagesFromRow(row: InferenceSubmissionRow): BotInferenceSubmissionMessage[] {
 	const parsed = JSON.parse(row.messages_json) as unknown;
 	return Array.isArray(parsed) ? (parsed as BotInferenceSubmissionMessage[]) : [];
+}
+
+function inferenceSubmissionDisplayMessagesFromRow(row: InferenceSubmissionRow): Pick<BotInferenceSubmission, "displayMessages"> | {} {
+	if (!row.display_messages_json) {
+		return {};
+	}
+	const parsed = JSON.parse(row.display_messages_json) as unknown;
+	return Array.isArray(parsed) ? { displayMessages: parsed as BotInferenceSubmissionMessage[] } : {};
 }
 
 function botIdFromPath(pathname: string): string {

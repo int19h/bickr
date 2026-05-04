@@ -677,6 +677,7 @@ export type BotInferenceSubmissionSummary = {
 
 export type BotInferenceSubmission = BotInferenceSubmissionSummary & {
 	messages: BotInferenceSubmissionMessage[];
+	displayMessages?: BotInferenceSubmissionMessage[];
 };
 
 export type BotTokenUsageTotals = {

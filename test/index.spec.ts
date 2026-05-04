@@ -660,6 +660,110 @@ describe("Bickr Pages Functions", () => {
 			expect(messages[1]?.content).toContain("Recent activity to fold in:");
 		});
 
+		it("records compaction submissions before provider failures and marks the row failed", async () => {
+			const candidates = Array.from({ length: 12 }, (_, index) => ({
+				seq: index + 1,
+				run_id: "run-compaction-failure",
+				type: "assistant_message",
+				payload_json: JSON.stringify({ content: `Recent activity ${index + 1}` }),
+				token_estimate: 10,
+				created_at: "2026-05-01T00:00:00.000Z",
+				compacted_by: null,
+			}));
+			const appendEvent = vi.fn(async (runId: string, type: string, payload: unknown) => ({
+				seq: 101,
+				runId,
+				type,
+				payload,
+				tokenEstimate: 1,
+				createdAt: "2026-05-01T00:00:01.000Z",
+			}));
+			const recordInferenceSubmission = vi.fn();
+			const replaceEventPayload = vi.fn();
+			const providerError = new Error("Provider returned an empty compaction response.");
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				env: {},
+				state: {
+					storage: {
+						sql: {
+							exec: <T,>(sql: string) => {
+								if (/FROM events\s+WHERE compacted_by IS NULL/.test(sql)) {
+									return { toArray: () => candidates as T[] };
+								}
+								return { one: () => ({} as T), toArray: () => [] as T[] };
+							},
+						},
+					},
+				},
+				currentCompactionContextTokenEstimate: () => 10_000,
+				latestCompactionSummary: () => "Earlier continuity.",
+				appendEvent,
+				recordInferenceSubmission,
+				callProviderForCompaction: async () => {
+					throw providerError;
+				},
+				replaceEventPayload,
+			});
+			const compactIfNeeded = (BotRuntime.prototype as unknown as {
+				compactIfNeeded: (
+					bot: { tickSettings: { contextWindowTokens: number; compactionThreshold: number } },
+					settings: { apiKey: string; baseUrl: string; model: string; temperature: number },
+					runId: string,
+					signal: AbortSignal,
+				) => Promise<void>;
+			}).compactIfNeeded.bind(runtime);
+
+			await expect(
+				compactIfNeeded(
+					{ tickSettings: { contextWindowTokens: 100, compactionThreshold: 0.8 } },
+					{ apiKey: "test-key", baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+					"run-compaction-failure",
+					new AbortController().signal,
+				),
+			).rejects.toThrow("empty compaction response");
+
+			expect(appendEvent).toHaveBeenCalledWith("run-compaction-failure", "compaction", expect.objectContaining({ status: "pending" }));
+			expect(recordInferenceSubmission).toHaveBeenCalledWith(expect.objectContaining({
+				seq: 101,
+				purpose: "compaction",
+				messages: expect.arrayContaining([
+					expect.objectContaining({ role: "system" }),
+					expect.objectContaining({ role: "user" }),
+				]),
+			}));
+			expect(replaceEventPayload).toHaveBeenCalledWith(expect.objectContaining({ seq: 101 }), expect.objectContaining({
+				status: "failed",
+				error: "Provider returned an empty compaction response.",
+			}));
+		});
+
+		it("uses the latest successful compaction summary after a failed compaction row", () => {
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				state: {
+					storage: {
+						sql: {
+							exec: <T,>(sql: string) => {
+								if (/FROM events\s+WHERE type = 'compaction'/.test(sql)) {
+									return {
+										toArray: () => [
+											{ payload_json: JSON.stringify({ status: "failed", error: "No response." }) },
+											{ payload_json: JSON.stringify({ status: "complete", summary: "I owe Müller a follow-up." }) },
+										] as T[],
+									};
+								}
+								return { one: () => ({} as T), toArray: () => [] as T[] };
+							},
+						},
+					},
+				},
+			});
+			const latestCompactionSummary = (BotRuntime.prototype as unknown as {
+				latestCompactionSummary: () => string;
+			}).latestCompactionSummary.bind(runtime);
+
+			expect(latestCompactionSummary()).toBe("I owe Müller a follow-up.");
+		});
+
 		it("builds translation requests with strict structured output and no tools", () => {
 		const request = providerTranslationRequest(
 			{
@@ -1235,14 +1339,25 @@ describe("Bickr Pages Functions", () => {
 					purpose: "loop" | "compaction";
 					settings: { baseUrl: string; model: string; temperature: number };
 					messages: Array<{ role: "user"; content: string }>;
+					displayMessages?: Array<{ role: "user" | "assistant"; content: string }>;
 					createdAt: string;
 				}) => void;
 			}).recordInferenceSubmission.bind(runtime);
+			const updateInferenceSubmissionDisplayMessages = (BotRuntime.prototype as unknown as {
+				updateInferenceSubmissionDisplayMessages: (
+					seq: number,
+					messages: Array<{ role: "user" | "assistant"; content: string }>,
+				) => void;
+			}).updateInferenceSubmissionDisplayMessages.bind(runtime);
 			const inferenceSubmissionSummaries = (BotRuntime.prototype as unknown as {
 				inferenceSubmissionSummaries: () => Array<{ seq: number; purpose: string; messageCount: number }>;
 			}).inferenceSubmissionSummaries.bind(runtime);
 			const inferenceSubmissionForSeq = (BotRuntime.prototype as unknown as {
-				inferenceSubmissionForSeq: (seq: number) => { seq: number; messages: Array<{ content: string }> };
+				inferenceSubmissionForSeq: (seq: number) => {
+					seq: number;
+					messages: Array<{ content: string }>;
+					displayMessages?: Array<{ content: string }>;
+				};
 			}).inferenceSubmissionForSeq.bind(runtime);
 			const deleteInferenceSubmissionsForSeq = (BotRuntime.prototype as unknown as {
 				deleteInferenceSubmissionsForSeq: (seq: number) => number;
@@ -1267,6 +1382,15 @@ describe("Bickr Pages Functions", () => {
 			expect(summaries[0]?.seq).toBe(6);
 			expect(summaries.at(-1)).toMatchObject({ seq: 55, purpose: "compaction", messageCount: 1 });
 			expect(inferenceSubmissionForSeq(55).messages[0]?.content).toBe("Müller message 55");
+			expect(inferenceSubmissionForSeq(55).displayMessages).toBeUndefined();
+			updateInferenceSubmissionDisplayMessages(55, [
+				{ role: "user", content: "Submitted compaction chat." },
+				{ role: "assistant", content: "Compacted continuity summary." },
+			]);
+			expect(inferenceSubmissionForSeq(55).displayMessages?.map((message) => message.content)).toEqual([
+				"Submitted compaction chat.",
+				"Compacted continuity summary.",
+			]);
 			expect(deleteInferenceSubmissionsForSeq(55)).toBe(1);
 			expect(inferenceSubmissionSummaries().map((submission) => submission.seq)).not.toContain(55);
 			expect(clearInferenceSubmissions()).toBe(49);
@@ -5092,6 +5216,7 @@ function memoryInferenceSubmissionSql() {
 		provider_base_url: string;
 		message_count: number;
 		messages_json: string;
+		display_messages_json: string | null;
 		created_at: string;
 	};
 	let rows: Row[] = [];
@@ -5108,10 +5233,19 @@ function memoryInferenceSubmissionSql() {
 					provider_base_url: String(params[5]),
 					message_count: Number(params[6]),
 					messages_json: String(params[7]),
-					created_at: String(params[8]),
+					display_messages_json: params[8] === null ? null : String(params[8]),
+					created_at: String(params[9]),
 				};
 				rows = [...rows.filter((existing) => existing.event_seq !== row.event_seq), row];
 				lastChanges = 1;
+			} else if (/UPDATE inference_submissions\s+SET display_messages_json = \?/.test(sql)) {
+				const row = rows.find((item) => item.event_seq === Number(params[1]));
+				if (row) {
+					row.display_messages_json = String(params[0]);
+					lastChanges = 1;
+				} else {
+					lastChanges = 0;
+				}
 			} else if (/DELETE FROM inference_submissions\s+WHERE id NOT IN/.test(sql)) {
 				const keep = new Set(
 					[...rows]
@@ -5122,12 +5256,12 @@ function memoryInferenceSubmissionSql() {
 				const before = rows.length;
 				rows = rows.filter((row) => keep.has(row.id));
 				lastChanges = before - rows.length;
-			} else if (/SELECT id, event_seq, run_id, purpose, model, provider_base_url, message_count, messages_json, created_at\s+FROM inference_submissions\s+WHERE event_seq = \?/.test(sql)) {
+			} else if (/SELECT id, event_seq, run_id, purpose, model, provider_base_url, message_count, messages_json, display_messages_json, created_at\s+FROM inference_submissions\s+WHERE event_seq = \?/.test(sql)) {
 				const row = rows.find((item) => item.event_seq === Number(params[0]));
 				return {
 					toArray: () => (row ? [row as T] : []),
 				};
-			} else if (/SELECT id, event_seq, run_id, purpose, model, provider_base_url, message_count, messages_json, created_at\s+FROM inference_submissions\s+ORDER BY event_seq ASC/.test(sql)) {
+			} else if (/SELECT id, event_seq, run_id, purpose, model, provider_base_url, message_count, messages_json, display_messages_json, created_at\s+FROM inference_submissions\s+ORDER BY event_seq ASC/.test(sql)) {
 				return {
 					toArray: () => [...rows].sort((left, right) => left.event_seq - right.event_seq) as T[],
 				};
