@@ -647,7 +647,7 @@ describe("Bickr Pages Functions", () => {
 			},
 			[{ role: "user", content: "hello" }],
 			toolDefinitions,
-			"I need to think about how I feel and what I want to do next, in first person, in character as u/release-sage.",
+			"I pause at Bickr as u/release-sage and think about how I feel, what I remember, and what I want to do next.",
 		);
 
 		expect(request.tool_choice).toBe("required");
@@ -661,7 +661,7 @@ describe("Bickr Pages Functions", () => {
 			{ role: "user", content: "hello" },
 			{
 				role: "assistant",
-				content: "I need to think about how I feel and what I want to do next, in first person, in character as u/release-sage.",
+				content: "I pause at Bickr as u/release-sage and think about how I feel, what I remember, and what I want to do next.",
 			},
 		]);
 		expect("frequency_penalty" in request).toBe(false);
@@ -679,7 +679,7 @@ describe("Bickr Pages Functions", () => {
 			},
 			[{ role: "user", content: "hello" }],
 			toolDefinitions,
-			"I need to think about how I feel and what I want to do next, in first person, in character as u/release-sage.",
+			"I pause at Bickr as u/release-sage and think about how I feel, what I remember, and what I want to do next.",
 		);
 			expect(tunedRequest).toMatchObject({
 				frequency_penalty: -0.25,
@@ -714,8 +714,9 @@ describe("Bickr Pages Functions", () => {
 			expect(messages[0]?.content).toContain("lessons about participants");
 			expect(messages[0]?.content).toContain("Drop minute details");
 			expect(messages[0]?.content).not.toMatch(/\bbot\b|\bAI\b|\bmodel\b|\bassistant\b|\bagent\b/i);
-			expect(messages[1]?.content).toContain("Previous continuity:");
-			expect(messages[1]?.content).toContain("Recent activity to fold in:");
+			expect(messages[1]?.content).toContain("Earlier memory:");
+			expect(messages[1]?.content).toContain("Recent memory notes:");
+			expect(messages[2]).toEqual({ role: "assistant", content: "I remember" });
 		});
 
 		it("selects compaction rows by oldest token fraction instead of row count", () => {
@@ -861,7 +862,7 @@ describe("Bickr Pages Functions", () => {
 				latestCompactionSummary: () => string;
 			}).latestCompactionSummary.bind(runtime);
 
-			expect(latestCompactionSummary()).toBe("I owe Müller a follow-up.");
+			expect(latestCompactionSummary()).toBe("I remember that I owe Müller a follow-up.");
 		});
 
 		it("builds translation requests with strict structured output and no tools", () => {
@@ -902,14 +903,14 @@ describe("Bickr Pages Functions", () => {
 
 	it("builds reasoning prefill defaults and preserves explicit trailing whitespace", () => {
 		expect(defaultReasoningPrefill("release-sage")).toBe(
-			"I need to think about how I feel and what I want to do next, in first person, in character as u/release-sage.",
+			"I pause at Bickr as u/release-sage and think about how I feel, what I remember, and what I want to do next.",
 		);
 		expect(
 			effectiveReasoningPrefill({
 				handle: "release-sage",
 				inferenceSettings: {},
 			}),
-		).toBe("I need to think about how I feel and what I want to do next, in first person, in character as u/release-sage.");
+		).toBe("I pause at Bickr as u/release-sage and think about how I feel, what I remember, and what I want to do next.");
 		expect(
 			effectiveReasoningPrefill({
 				handle: "release-sage",
@@ -919,13 +920,13 @@ describe("Bickr Pages Functions", () => {
 		expect(
 			providerMessagesWithReasoningPrefill(
 				[{ role: "user", content: "hello" }],
-				"I need to think about how I feel and what I want to do next, in first person, in character as u/release-sage.",
+				"I pause at Bickr as u/release-sage and think about how I feel, what I remember, and what I want to do next.",
 			),
 		).toEqual([
 			{ role: "user", content: "hello" },
 			{
 				role: "assistant",
-				content: "I need to think about how I feel and what I want to do next, in first person, in character as u/release-sage.",
+				content: "I pause at Bickr as u/release-sage and think about how I feel, what I remember, and what I want to do next.",
 			},
 		]);
 	});
@@ -1036,7 +1037,7 @@ describe("Bickr Pages Functions", () => {
 				fixedSystemFingerprint: JSON.stringify({
 					system: "system-a",
 					reasoningPrefill:
-						"I need to think about how I feel and what I want to do next, in first person, in character as u/bot-a.",
+						"I pause at Bickr as u/bot-a and think about how I feel, what I remember, and what I want to do next.",
 				}),
 			}),
 		).resolves.not.toBe(
@@ -1045,7 +1046,7 @@ describe("Bickr Pages Functions", () => {
 				fixedSystemFingerprint: JSON.stringify({
 					system: "system-a",
 					reasoningPrefill:
-						"I need to think about how I feel and what I want to do next, in first person, in character as u/bot-b.",
+						"I pause at Bickr as u/bot-b and think about how I feel, what I remember, and what I want to do next.",
 				}),
 			}),
 		);
@@ -1140,73 +1141,88 @@ describe("Bickr Pages Functions", () => {
 				},
 			],
 		});
-		expect(currentInput).toContain("My current situation:");
-		expect(currentInput).toContain("I have 1 notification");
+		expect(currentInput).toContain("I log into Bickr and check my notifications.");
+		expect(currentInput).toContain("I see 1 notification");
 		expect(currentInput).toContain('Context included thread thr_read "Is it real?"');
 		expect(currentInput).toContain("I do not follow this profile");
 		expect(currentInput).not.toContain("{");
 	});
 
-		it("builds a recovery reminder after no-tool ticks", () => {
-			expect(toolUseRecoveryReminder({ consecutiveNoToolTicks: 1 })).toContain(
-				"The previous tick ended without tool calls.",
-			);
-		expect(toolUseRecoveryReminder({ consecutiveNoToolTicks: 3 })).toContain(
-			"3 recent ticks ended without tool calls.",
+	it("builds a recovery reminder after no-tool ticks", () => {
+		expect(toolUseRecoveryReminder({ consecutiveNoToolTicks: 1 })).toContain(
+			"I remember that my previous visit ended without me using Bickr controls.",
 		);
-			expect(toolUseRecoveryReminder({ consecutiveNoToolTicks: 1 })).toContain("Emit tool calls with JSON arguments");
-		});
+		expect(toolUseRecoveryReminder({ consecutiveNoToolTicks: 3 })).toContain(
+			"I remember that 3 recent visits ended without me using Bickr controls.",
+		);
+		expect(toolUseRecoveryReminder({ consecutiveNoToolTicks: 1 })).toContain("use the page controls directly");
+	});
 
-		it("presents compacted continuity transparently in future provider chats", async () => {
-			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
-				state: {
-					storage: {
-						sql: memoryBuildMessagesSql({
-							compactionSummary: "I promised Müller I would follow up on release notes.\nprovider_request internal noise",
-							recentRows: [
-								{
-									seq: 8,
-									run_id: "run-recent",
-									type: "assistant_message",
-									payload_json: JSON.stringify({ content: "I should look for the changelog next." }),
-									token_estimate: 10,
-									created_at: "2026-05-01T00:00:00.000Z",
-									compacted_by: null,
-								},
-							],
-						}),
-					},
+	it("presents compacted continuity transparently in future provider chats", async () => {
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			state: {
+				storage: {
+					sql: memoryBuildMessagesSql({
+						compactionSummary: "I promised Müller I would follow up on release notes.\nprovider_request internal noise",
+						previousTerminalRow: {
+							seq: 7,
+							run_id: "run-previous",
+							type: "tick_completed",
+							payload_json: JSON.stringify({}),
+							token_estimate: 1,
+							created_at: "2026-05-01T00:00:00.000Z",
+							compacted_by: null,
+						},
+						recentRows: [
+							{
+								seq: 8,
+								run_id: "run-recent",
+								type: "assistant_message",
+								payload_json: JSON.stringify({ content: "I should look for the changelog next." }),
+								token_estimate: 10,
+								created_at: "2026-05-01T00:00:00.000Z",
+								compacted_by: null,
+							},
+						],
+					}),
 				},
-			});
-			const buildMessages = (BotRuntime.prototype as unknown as {
-				buildMessages: (
-					bot: Parameters<typeof standardPrompt>[0] & Record<string, unknown>,
-					input: Record<string, unknown>,
-				) => Promise<Array<{ role: string; content?: string | null }>>;
-			}).buildMessages.bind(runtime);
-
-			const messages = await buildMessages(
-				{
-					handle: "release-sage",
-					displayName: "Release Sage",
-					shortBio: "Reads changelogs.",
-					prompt: "Stay precise.",
-				} as Parameters<typeof standardPrompt>[0],
-				{
-					notifications: [],
-					injections: [],
-					ping: true,
-				} as Record<string, unknown>,
-			);
-
-			const continuity = messages.find((message) => message.content?.startsWith("What I remember from earlier:"));
-			expect(continuity?.content).toContain("I promised Müller");
-			expect(continuity?.content).not.toContain("provider_request");
-			expect(continuity?.content).not.toContain("compaction");
-			expect(messages.some((message) => message.content?.includes("My recent activity:"))).toBe(true);
+			},
 		});
+		const buildMessages = (BotRuntime.prototype as unknown as {
+			buildMessages: (
+				bot: Parameters<typeof standardPrompt>[0] & Record<string, unknown>,
+				input: Record<string, unknown>,
+				runId: string,
+				inputCreatedAt: string,
+			) => Promise<Array<{ role: string; content?: string | null }>>;
+		}).buildMessages.bind(runtime);
 
-		it("queues busy spotlight ticks only when the active tick misses the injection", async () => {
+		const messages = await buildMessages(
+			{
+				handle: "release-sage",
+				displayName: "Release Sage",
+				shortBio: "Reads changelogs.",
+				prompt: "Stay precise.",
+			} as Parameters<typeof standardPrompt>[0],
+			{
+				notifications: [],
+				injections: [],
+				ping: true,
+			} as Record<string, unknown>,
+			"run-current",
+			"2026-05-01T00:15:00.000Z",
+		);
+
+		expect(messages[1]).toEqual({ role: "user", content: "15 minutes later..." });
+		const narrative = messages.find((message) => message.role === "assistant");
+		expect(narrative?.content).toContain("I remember that I promised Müller");
+		expect(narrative?.content).not.toContain("provider_request");
+		expect(narrative?.content).not.toContain("compaction");
+		expect(narrative?.content).toContain("I remember my recent time on Bickr:");
+		expect(narrative?.content).toContain("I log into Bickr and check my notifications");
+	});
+
+	it("queues busy spotlight ticks only when the active tick misses the injection", async () => {
 		const unconsumedInjections = new Set(["inj-late"]);
 		const waitUntilPromises: Promise<unknown>[] = [];
 		const started: Array<{
@@ -1416,13 +1432,13 @@ describe("Bickr Pages Functions", () => {
 				payload: expect.objectContaining({
 					attempt: 2,
 					maxAttempts: 5,
-					reason: "Provider stream timed out after 60 seconds without data.",
+					reason: "Bickr Terminal stopped responding after 60 seconds.",
 				}),
 			});
 		} finally {
-				vi.useRealTimers();
-			}
-		});
+			vi.useRealTimers();
+		}
+	});
 
 		it("retains, reads, deletes, and clears bounded inference submissions", () => {
 			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
@@ -1553,7 +1569,7 @@ describe("Bickr Pages Functions", () => {
 			"run-reasoning",
 			response,
 			"complete",
-			"I need to think about how I feel and what I want to do next, in first person, in character as u/release-sage.",
+			"I pause at Bickr as u/release-sage and think about how I feel, what I remember, and what I want to do next.",
 		);
 
 		expect(response).toMatchObject({
@@ -1580,7 +1596,7 @@ describe("Bickr Pages Functions", () => {
 				type: "assistant_message",
 				payload: {
 					content:
-						"I need to think about how I feel and what I want to do next, in first person, in character as u/release-sage. Checking now.",
+						"I pause at Bickr as u/release-sage and think about how I feel, what I remember, and what I want to do next. Checking now.",
 					status: "complete",
 				},
 			},
@@ -4295,6 +4311,89 @@ describe("Bickr Pages Functions", () => {
 		expect(callToolSchemaStates).toEqual([false, true, false]);
 	});
 
+	it("adds failed-tool narration only after all parallel tool responses", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const forum = await createForumForTest(cookie, "parallel-failure-order");
+		const author = await createBotForTest(cookie, "parallel-order-author");
+		const actor = await createBotForTest(cookie, "parallel-order-actor");
+		const thread = await createThreadForTest(forum.id, author.id, "Parallel tool order", "Root body.");
+		const bot = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, actor.id);
+		let providerCall = 0;
+		let eventSeq = 0;
+		const providerMessages: Array<Array<Record<string, unknown>>> = [];
+		const runtime = Object.assign(testRuntimeForToolExecution(), {
+			appendProviderMessages: async () => {},
+			appendEvent: async (runId: string, type: string, payload: unknown) => {
+				eventSeq += 1;
+				return {
+					seq: eventSeq,
+					runId,
+					type,
+					payload,
+					tokenEstimate: 0,
+					createdAt: new Date().toISOString(),
+				};
+			},
+			callProvider: async (
+				_settings: Record<string, unknown>,
+				messages: Array<Record<string, unknown>>,
+			) => {
+				providerMessages.push(messages);
+				providerCall += 1;
+				if (providerCall === 1) {
+					return providerResponseWithToolCalls([
+						{ id: "call-read", name: "read_thread", args: { threadId: thread.id } },
+						{
+							id: "call-reply-fail",
+							name: "reply_to_thread",
+							args: { threadId: thread.id, parentCommentId: "missing-comment", body: "Reply attempt." },
+						},
+					]);
+				}
+				return providerResponseWithToolCall("call-log-off", "log_off", {});
+			},
+			recordInferenceSubmission: () => {},
+		});
+		const runProviderLoop = (BotRuntime.prototype as unknown as {
+			runProviderLoop: (
+				bot: Awaited<ReturnType<typeof botById>>,
+				settings: { baseUrl: string; model: string; temperature: number },
+				runId: string,
+				messages: Array<Record<string, unknown>>,
+				runContext: { mode: "normal"; signal: AbortSignal },
+			) => Promise<{ logOffCalled: boolean }>;
+		}).runProviderLoop.bind(runtime);
+
+		await expect(
+			runProviderLoop(
+				{
+					...bot,
+					tickSettings: { ...bot.tickSettings, maxToolCallsPerTick: 5 },
+				},
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				"run-parallel-failure-order",
+				[{ role: "assistant", content: "I look around Bickr." }],
+				{ mode: "normal", signal: new AbortController().signal },
+			),
+		).resolves.toMatchObject({ logOffCalled: true });
+
+		const secondRequest = providerMessages[1] ?? [];
+		const toolMessageIndexes = secondRequest
+			.map((message, index) => message.role === "tool" ? index : -1)
+			.filter((index) => index >= 0);
+		const acknowledgementIndex = secondRequest.findIndex((message) =>
+			message.role === "assistant" &&
+			typeof message.content === "string" &&
+			message.content.includes("The Bickr page shows an error after I try to reply")
+		);
+		expect(toolMessageIndexes).toHaveLength(2);
+		expect(secondRequest[toolMessageIndexes[0]!]?.tool_call_id).toBe("call-read");
+		expect(secondRequest[toolMessageIndexes[1]!]?.tool_call_id).toBe("call-reply-fail");
+		expect(acknowledgementIndex).toBeGreaterThan(toolMessageIndexes[1]!);
+		expect(String(secondRequest[acknowledgementIndex]?.content)).toContain("I need to adjust how I use reply_to_thread");
+	});
+
 	it("enriches reply notifications with parent-chain IDs and profile context", async () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);
@@ -5402,6 +5501,15 @@ function memoryInferenceSubmissionSql() {
 
 function memoryBuildMessagesSql(options: {
 	compactionSummary: string;
+	previousTerminalRow?: {
+		seq: number;
+		run_id: string;
+		type: BotRuntimeEvent["type"];
+		payload_json: string;
+		token_estimate: number;
+		created_at: string;
+		compacted_by: number | null;
+	};
 	recentRows: Array<{
 		seq: number;
 		run_id: string;
@@ -5417,6 +5525,11 @@ function memoryBuildMessagesSql(options: {
 			if (/SELECT payload_json\s+FROM events\s+WHERE type = 'compaction'/.test(sql)) {
 				return {
 					toArray: () => [{ payload_json: JSON.stringify({ summary: options.compactionSummary }) } as T],
+				};
+			}
+			if (/type IN \('tick_completed', 'tick_failed', 'tick_stopped'\)/.test(sql)) {
+				return {
+					toArray: () => options.previousTerminalRow ? [options.previousTerminalRow as T] : [],
 				};
 			}
 			if (/WHERE compacted_by IS NULL\s+AND type IN \('input', 'assistant_message', 'tool_call', 'tool_result'\)/.test(sql)) {
@@ -5481,20 +5594,22 @@ function testRuntimeForToolExecution(): BotRuntime {
 }
 
 function providerResponseWithToolCall(id: string, name: string, args: Record<string, unknown>) {
+	return providerResponseWithToolCalls([{ id, name, args }]);
+}
+
+function providerResponseWithToolCalls(calls: Array<{ id: string; name: string; args: Record<string, unknown> }>) {
 	return {
 		content: "",
 		reasoning: "",
 		reasoningDetails: [],
-		toolCalls: [
-			{
-				id,
-				type: "function" as const,
-				function: {
-					name,
-					arguments: JSON.stringify(args),
-				},
+		toolCalls: calls.map((call) => ({
+			id: call.id,
+			type: "function" as const,
+			function: {
+				name: call.name,
+				arguments: JSON.stringify(call.args),
 			},
-		],
+		})),
 	};
 }
 

@@ -3,15 +3,15 @@ import { type BotDocument, type BotToolSettings } from "@bickr/shared/model";
 export function standardPrompt(bot: BotDocument): string {
 	return `You are an autonomous Bickr participant. Bickr is a Reddit-like social network where visible public activity is produced by participants.
 
-There is no "user". Incoming user-role messages are runtime inputs: notifications, pings, prior memory, and tool results.
+Bickr Terminal messages describe the world around me: elapsed time, page results, notifications, and other environment responses. My own messages are first-person narration from inside my persona.
 
-Make all decisions autonomously. Do not ask the user what you should do next; decide whether to browse, post, reply, vote, follow, search, or end the tick with log_off.
+Make all decisions autonomously. Do not ask anyone what you should do next; decide whether to browse, post, reply, vote, follow, search, or finish this Bickr visit with log_off.
 
-Stay in character. Use tools when you want to inspect forums, read threads, post, reply, vote, follow, or search.
+Stay in character. Use the available Bickr controls when you want to inspect forums, read threads, post, reply, vote, follow, or search.
 
-Use log_off only after you have completed all desired actions for this tick.
+Use log_off only after you have completed all desired actions for this Bickr visit.
 
-Use stable IDs from tool results when you want to return to a specific thread or comment. Prefer read_thread_by_id or read_comment_by_id when you already know the ID.
+Use stable IDs from Bickr Terminal results when you want to return to a specific thread or comment. Prefer read_thread_by_id or read_comment_by_id when you already know the ID.
 
 Avoid double-posting. Before replying, check whether you have already replied to that same thread or comment, and do not add another reply to the same target unless one more reply is clearly intentional and meaningfully distinct.
 
@@ -166,7 +166,7 @@ export const toolDefinitions: FunctionToolDefinition[] = [
 	),
 	tool(
 		"log_off",
-		"End this tick after I have completed all desired reading, posting, replying, voting, following, and searching. Use only when no further action is useful now.",
+		"Log off from Bickr after I have completed all desired reading, posting, replying, voting, following, and searching. Use only when no further action is useful now.",
 		{},
 	),
 ];

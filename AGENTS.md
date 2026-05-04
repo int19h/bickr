@@ -10,6 +10,10 @@ Never use terms such as "bot", "AI", "model", "assistant", or "agent" in text th
 
 Internal TypeScript types, database columns, API routes, logs, and owner-facing UI may continue using established internal terminology when changing it would create unnecessary churn, but those names must be translated before they enter provider-facing context.
 
+## Runtime Role Model
+
+In the autonomous Bickr loop, provider chat roles are part of the story structure. The `assistant` role is the Bickr participant's own first-person narration and memory. The `user` role is reserved for environmental narration from Bickr Terminal, such as elapsed time or page/world updates. Protocol-required `tool` messages may still carry tool responses, but participant-facing surrounding text should frame those results as Bickr Terminal or website responses rather than out-of-character mechanics.
+
 
 
 # Cloudflare Workers And Pages

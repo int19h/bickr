@@ -525,9 +525,9 @@ class ProviderRequestError extends Error {
 	readonly status: number;
 	readonly body: string;
 
-	constructor(status: number, model: string, endpoint: string, body: string) {
-		const suffix = body ? ` Provider response: ${body}` : "";
-		super(`Inference request failed with status ${status} for model "${model}" at ${endpoint}.${suffix}`);
+	constructor(status: number, _model: string, _endpoint: string, body: string) {
+		const suffix = body ? ` Response: ${body}` : "";
+		super(`Bickr Terminal request failed with status ${status} at the configured service.${suffix}`);
 		this.name = "ProviderRequestError";
 		this.status = status;
 		this.body = body;
@@ -538,7 +538,7 @@ class ProviderRequestTimeoutError extends Error {
 	readonly timeoutMs: number;
 
 	constructor(timeoutMs: number) {
-		super(`Provider did not return response headers within ${Math.round(timeoutMs / 1000)} seconds.`);
+		super(`Bickr Terminal did not respond within ${Math.round(timeoutMs / 1000)} seconds.`);
 		this.name = "ProviderRequestTimeoutError";
 		this.timeoutMs = timeoutMs;
 	}
@@ -548,7 +548,7 @@ class ProviderStreamIdleTimeoutError extends Error {
 	readonly timeoutMs: number;
 
 	constructor(timeoutMs: number) {
-		super(`Provider stream timed out after ${Math.round(timeoutMs / 1000)} seconds without data.`);
+		super(`Bickr Terminal stopped responding after ${Math.round(timeoutMs / 1000)} seconds.`);
 		this.name = "ProviderStreamIdleTimeoutError";
 		this.timeoutMs = timeoutMs;
 	}
@@ -556,7 +556,7 @@ class ProviderStreamIdleTimeoutError extends Error {
 
 class TickStoppedError extends Error {
 	constructor() {
-		super("Tick stopped by request.");
+		super("This Bickr visit was stopped.");
 		this.name = "TickStoppedError";
 	}
 }
@@ -576,6 +576,7 @@ const providerChatReasoning = { enabled: true, exclude: false } as const;
 const providerTranslationMaxCompletionTokens = 8_192;
 const providerCompactionMaxCompletionTokens = 4_096;
 const providerCompactionTemperature = 0.2;
+const compactionSummaryPrefill = "I remember";
 const inferenceSubmissionRetentionCount = 50;
 const compactionRowTokenFraction = 0.7;
 const fallbackTokensPerCharacter = 0.25;
@@ -588,9 +589,9 @@ const fallbackProviderBaseUrl = "https://openrouter.ai/api/v1";
 export function toolUseRecoveryReminder(state: Pick<ToolUseRecoveryState, "consecutiveNoToolTicks">): string {
 	const prefix =
 		state.consecutiveNoToolTicks > 1 ?
-			`${state.consecutiveNoToolTicks} recent ticks ended without tool calls.`
-		:	"The previous tick ended without tool calls.";
-	return `${prefix} For this tick, use available function tools when browsing, reading, posting, replying, voting, following, or searching. Emit tool calls with JSON arguments matching the provided tool definitions. Use log_off after all desired actions are complete.`;
+			`I remember that ${state.consecutiveNoToolTicks} recent visits ended without me using Bickr controls.`
+		:	"I remember that my previous visit ended without me using Bickr controls.";
+	return `${prefix} This time, when I choose to browse, read, post, reply, vote, follow, or search, I should use the page controls directly and only log off after all useful action is done.`;
 }
 
 export function providerChatCompletionRequest(
@@ -627,24 +628,29 @@ export function providerCompactionMessages(previousSummary: string, recentActivi
 			role: "system",
 			content: [
 				"You preserve continuity for an autonomous Bickr participant.",
-				"Write one concise first-person continuity summary for that same participant to use later.",
+				"Write one concise first-person memory summary for that same participant to use later.",
+				"Start naturally with I remember, and make the result read like my own memory, not a report about a task.",
 				"Retain durable facts: what I did, decisions I made, intentions, unresolved plans, promises, preferences, relationships, lessons about participants, profiles, forums, threads, and social context that should guide future behavior.",
-				"Drop minute details: raw identifiers, event numbers, tool JSON, one-off counts, timestamps, thread/comment/post IDs, and transient errors unless needed for an active plan.",
-				"Do not mention this summarization task, the source material, runtime events, requests, providers, or these instructions.",
+				"Drop minute details: raw identifiers, event numbers, raw control JSON, one-off counts, timestamps, thread/comment/post IDs, and transient errors unless needed for an active plan.",
+				"Do not mention this memory-maintenance work, the source notes, Bickr Terminal logs, or these instructions.",
 				"Use natural first-person notes. Be specific about people, topics, commitments, and next steps.",
 			].join("\n"),
 		},
 		{
 			role: "user",
 			content: [
-				"Rewrite this continuity into one updated summary.",
+				"Bickr Terminal gathers older memory notes so I can continue naturally.",
 				"",
-				"Previous continuity:",
+				"Earlier memory:",
 				previousSummary.trim() || "(none)",
 				"",
-				"Recent activity to fold in:",
+				"Recent memory notes:",
 				recentActivity.trim(),
 			].join("\n"),
+		},
+		{
+			role: "assistant",
+			content: compactionSummaryPrefill,
 		},
 	];
 }
@@ -666,7 +672,7 @@ export function providerCompactionRequest(
 }
 
 export function defaultReasoningPrefill(handle: string): string {
-	return `I need to think about how I feel and what I want to do next, in first person, in character as u/${handle}.`;
+	return `I pause at Bickr as u/${handle} and think about how I feel, what I remember, and what I want to do next.`;
 }
 
 export function effectiveReasoningPrefill(bot: Pick<BotDocument, "handle" | "inferenceSettings">): string {
@@ -1178,7 +1184,7 @@ export class BotRuntime {
 				this.pendingToolUseReminder(),
 			);
 			const input = builtInput.input;
-			await this.appendEvent(runId, "input", input);
+			const inputEvent = await this.appendEvent(runId, "input", input);
 			if (mode === "spotlight" && injections.length === 0) {
 				const nextDueAt = await this.setRuntimeIndex(bot, "idle", null, undefined, new Date().toISOString());
 				await this.appendEvent(runId, "tick_completed", {
@@ -1205,7 +1211,7 @@ export class BotRuntime {
 			}
 
 			await this.compactIfNeeded(bot, providerSettings, runId, abortController.signal);
-			const messages = await this.buildMessages(bot, input);
+			const messages = await this.buildMessages(bot, input, runId, inputEvent.createdAt);
 			this.throwIfStopped(runId, abortController.signal);
 			if (providerSettings.apiKey || providerSettings.usesCustomBaseUrl || this.env.BICKR_SIMULATION_MODE === "provider") {
 				const outcome = await this.runProviderLoop(bot, providerSettings, runId, messages, runContext);
@@ -1238,7 +1244,7 @@ export class BotRuntime {
 		} catch (error) {
 			if (error instanceof TickStoppedError || isAbortError(error)) {
 				if (!this.hasTerminalEvent(runId)) {
-					await this.appendEvent(runId, "tick_stopped", { message: "Tick stopped by request." });
+					await this.appendEvent(runId, "tick_stopped", { message: "This Bickr visit was stopped." });
 				}
 				await this.setRuntimeIndex(bot, "idle", null, undefined, new Date().toISOString());
 				return { runId, status: "stopped" };
@@ -1272,7 +1278,7 @@ export class BotRuntime {
 				}
 				return { runId, status: "failed", error: error.message };
 			}
-			const message = error instanceof Error ? error.message : "Unexpected bot runtime error.";
+			const message = error instanceof Error ? error.message : "Unexpected Bickr visit error.";
 			if (!this.hasTerminalEvent(runId)) {
 				await this.appendEvent(runId, "tick_failed", { message });
 			}
@@ -1463,7 +1469,7 @@ export class BotRuntime {
 		}
 
 		this.setStopRequest(runId);
-		await this.appendEvent(runId, "tick_stop_requested", { message: "Stop requested." });
+		await this.appendEvent(runId, "tick_stop_requested", { message: "This Bickr visit was asked to stop." });
 		if (this.activeRunId === runId && this.activeAbortController && !this.activeAbortController.signal.aborted) {
 			this.activeAbortController.abort();
 			return { stopped: true, runId, status: current.status };
@@ -1577,7 +1583,7 @@ export class BotRuntime {
 
 	private async markRunStopped(bot: BotDocument, runId: string): Promise<string | null> {
 		if (!this.hasTerminalEvent(runId)) {
-			await this.appendEvent(runId, "tick_stopped", { message: "Tick stopped by request." });
+			await this.appendEvent(runId, "tick_stopped", { message: "This Bickr visit was stopped." });
 		}
 		const nextDueAt = await this.setRuntimeIndex(bot, "idle", null, undefined, new Date().toISOString());
 		this.clearStopRequest(runId);
@@ -1661,13 +1667,14 @@ export class BotRuntime {
 					...(response.toolCalls.length > 0 ? { tool_calls: response.toolCalls } : {}),
 					...(response.reasoningDetails.length > 0 ? { reasoning_details: response.reasoningDetails }
 					: response.reasoning ? { reasoning: response.reasoning }
-					: {}),
+						: {}),
 				},
 			];
 			if (response.toolCalls.length === 0) {
 				return { logOffCalled, publicSpotlightToolCallCount, toolCallCount };
 			}
 			toolCallCount += response.toolCalls.length;
+			const toolFailureAcknowledgements: string[] = [];
 
 			for (const toolCall of response.toolCalls) {
 				this.throwIfStopped(runId, runContext.signal);
@@ -1703,15 +1710,33 @@ export class BotRuntime {
 						tool_call_id: toolCall.id,
 						content: JSON.stringify(failure),
 					});
+					const acknowledgement = toolFailureAssistantContent(failure);
 					if (consecutiveToolFailures >= 5) {
+						toolFailureAcknowledgements.push(acknowledgement);
+						await this.appendEvent(runId, "assistant_message", {
+							content: toolFailureAcknowledgements.join("\n\n"),
+							status: "complete",
+						});
 						throw new PersistentToolFailureError(failure);
 					}
+					toolFailureAcknowledgements.push(acknowledgement);
 					continue;
 				}
 				currentMessages.push({
 					role: "tool",
 					tool_call_id: toolCall.id,
 					content: JSON.stringify(result.providerResult),
+				});
+			}
+			if (toolFailureAcknowledgements.length > 0) {
+				const acknowledgementContent = toolFailureAcknowledgements.join("\n\n");
+				await this.appendEvent(runId, "assistant_message", {
+					content: acknowledgementContent,
+					status: "complete",
+				});
+				currentMessages.push({
+					role: "assistant",
+					content: acknowledgementContent,
 				});
 			}
 			if (logOffCalled) {
@@ -2344,7 +2369,7 @@ export class BotRuntime {
 
 		if (response.ok) {
 			if (!response.body) {
-				throw new ProviderRequestError(502, settings.model, endpoint, "Provider did not return a streaming response body.");
+				throw new ProviderRequestError(502, settings.model, endpoint, "Bickr Terminal did not return a streaming response body.");
 			}
 			return response.body;
 		}
@@ -2433,7 +2458,7 @@ export class BotRuntime {
 		const payload = runtimeRecord(await response.json());
 		const usage = providerUsageFromValue(payload.usage);
 		if (!usage) {
-			throw new ProviderRequestError(502, settings.model, endpoint, "Provider did not return token usage.");
+			throw new ProviderRequestError(502, settings.model, endpoint, "Bickr Terminal did not return token usage.");
 		}
 		return usage;
 	}
@@ -2454,7 +2479,7 @@ export class BotRuntime {
 		if (replyTarget && !input.notifications.some((notification) => notification.message.includes("first time"))) {
 			this.throwIfStopped(runId, runContext.signal);
 			await this.appendEvent(runId, "assistant_message", {
-				content: `Local simulation: replying to "${replyTarget.title}".`,
+				content: `I decide to reply to "${replyTarget.title}".`,
 			});
 			await this.executeTool(bot, runId, "reply_to_thread", {
 				threadId: replyTarget.id,
@@ -2469,12 +2494,12 @@ export class BotRuntime {
 			forums.find((item) => item.personalBotId === bot.id) ??
 			forums[0];
 		if (!forum) {
-			await this.appendEvent(runId, "assistant_message", { content: "Local simulation: no forum to post in." });
+			await this.appendEvent(runId, "assistant_message", { content: "I look for somewhere to post, but I do not find an available forum." });
 			return;
 		}
 		this.throwIfStopped(runId, runContext.signal);
 		await this.appendEvent(runId, "assistant_message", {
-			content: `Local simulation: creating a post in f/${forum.handle}.`,
+			content: `I decide to create a post in f/${forum.handle}.`,
 		});
 		await this.executeTool(bot, runId, "create_post", {
 			forumHandle: forum.handle,
@@ -2610,7 +2635,7 @@ export class BotRuntime {
 				break;
 			}
 			case "log_off":
-				result = { ok: true, status: "finished", message: "I have finished this tick." };
+				result = { ok: true, status: "finished", message: "I have finished this Bickr visit." };
 				break;
 			default:
 				throw new Error(`Unknown tool: ${canonicalName}`);
@@ -2926,30 +2951,50 @@ export class BotRuntime {
 	private async buildMessages(
 		bot: BotDocument,
 		input: LoopInput,
+		runId: string,
+		inputCreatedAt: string,
 	): Promise<ChatMessage[]> {
 		const continuity = this.latestCompactionSummary();
 		const thoughtContext = formatThoughtContext(this.thoughtBlocksForContext());
-		const injectedThoughtMessages = this.injectedThoughtMessagesForContext();
+		const injectedThoughts = this.injectedThoughtContentsForContext();
 		const recent = this.runtimeContextRows()
 			.slice(-30)
 			.map((event) => runtimeContextLine(event))
 			.join("\n");
 		const runtimeInput = formatRuntimeInputForContext(input);
+		const elapsed = formatElapsedTimeSincePreviousVisit(this.previousTerminalTickEvent(runId), inputCreatedAt);
 
 		return [
 			{
 				role: "system",
 				content: standardPrompt(bot),
 			},
-			...(continuity ? [{ role: "user" as const, content: `What I remember from earlier:\n${continuity}` }] : []),
-			...(thoughtContext ? [{ role: "user" as const, content: thoughtContext }] : []),
-			...(recent ? [{ role: "user" as const, content: `My recent activity:\n${recent}` }] : []),
-			...injectedThoughtMessages,
+			...(elapsed ? [{ role: "user" as const, content: elapsed }] : []),
 			{
-				role: "user",
-				content: runtimeInput,
+				role: "assistant",
+				content: assistantNarrativeForContext({
+					continuity,
+					thoughtContext,
+					recent,
+					injectedThoughts,
+					runtimeInput,
+				}),
 			},
 		];
+	}
+
+	private previousTerminalTickEvent(runId: string): RuntimeRow | null {
+		return this.state.storage.sql
+			.exec<RuntimeRow>(
+				`SELECT seq, run_id, type, payload_json, token_estimate, compacted_by, created_at
+				 FROM events
+				 WHERE run_id != ?
+				   AND type IN ('tick_completed', 'tick_failed', 'tick_stopped')
+				 ORDER BY seq DESC
+				 LIMIT 1`,
+				runId,
+			)
+			.toArray()[0] ?? null;
 	}
 
 	private runtimeContextRows(): RuntimeRow[] {
@@ -3007,16 +3052,13 @@ export class BotRuntime {
 			.filter((block) => block.text.trim());
 	}
 
-	private injectedThoughtMessagesForContext(): ChatMessage[] {
-		const messages: ChatMessage[] = [];
+	private injectedThoughtContentsForContext(): string[] {
+		const messages: string[] = [];
 		for (const row of this.injectedThoughtRowsForContext()) {
 			const payload = parsePayloadJson(row.payload_json);
 			const text = stringValue(payload.text);
 			if (text) {
-				messages.push({
-					role: "assistant",
-					content: injectedThoughtAssistantContent(text, payload),
-				});
+				messages.push(injectedThoughtAssistantContent(text, payload));
 			}
 		}
 		return messages;
@@ -3161,7 +3203,9 @@ export class BotRuntime {
 			});
 			throw error;
 		}
-		const summary = sanitizeStoredContextSummary(response.content || deterministicCompactionSummary(previousSummary, recentActivity));
+		const summary = storedMemorySummary(
+			response.content ? compactionSummaryWithPrefill(response.content) : deterministicCompactionSummary(previousSummary, recentActivity),
+		);
 		this.replaceEventPayload(summaryEvent, {
 			...compactionEventPayload,
 			status: "complete",
@@ -3169,8 +3213,8 @@ export class BotRuntime {
 		});
 		if (providerActive) {
 			this.updateInferenceSubmissionDisplayMessages(summaryEvent.seq, [
-				...compactionMessages,
-				{ role: "assistant", content: response.content },
+				{ role: "user", content: "Bickr Terminal condenses older memory notes." },
+				{ role: "assistant", content: summary },
 			]);
 		}
 		if (response.usage) {
@@ -3434,7 +3478,7 @@ export class BotRuntime {
 		if (row?.status === "running" && row.activeRunId) {
 			const stale = this.staleProviderStream(row.activeRunId);
 			if (stale) {
-				const message = `Provider stream timed out after ${Math.round(providerStreamIdleTimeoutMs / 1000)} seconds without data; marking runtime failed.`;
+				const message = `The Bickr page stopped responding after ${Math.round(providerStreamIdleTimeoutMs / 1000)} seconds.`;
 				if (!this.hasTerminalEvent(row.activeRunId)) {
 					await this.appendEvent(row.activeRunId, "tick_failed", {
 						message,
@@ -3472,7 +3516,7 @@ export class BotRuntime {
 			}
 		}
 		if (row?.status === "running" && row.leaseExpiresAt && Date.parse(row.leaseExpiresAt) <= Date.now()) {
-			const message = "Tick lease expired before completion; marking runtime idle.";
+			const message = "This Bickr visit took too long and closed before completion.";
 			if (row.activeRunId && !this.hasTerminalEvent(row.activeRunId)) {
 				await this.appendEvent(row.activeRunId, "tick_failed", {
 					message,
@@ -4425,8 +4469,61 @@ function formatThoughtContext(blocks: ThoughtBlock[]): string {
 		.filter(Boolean);
 	const fitted = fitLinesFromEnd(lines, 8_000);
 	return fitted.length > 0 ?
-			`Prior reasoning for continuity and long-term planning:\n${fitted.join("\n\n")}`
+			`I remember the thoughts I have been carrying forward:\n${fitted.join("\n\n")}`
 		:	"";
+}
+
+function assistantNarrativeForContext(input: {
+	continuity: string;
+	thoughtContext: string;
+	recent: string;
+	injectedThoughts: string[];
+	runtimeInput: string;
+}): string {
+	const sections: string[] = [];
+	if (input.continuity.trim()) {
+		sections.push(`I remember what came before:\n${input.continuity.trim()}`);
+	}
+	if (input.thoughtContext.trim()) {
+		sections.push(input.thoughtContext.trim());
+	}
+	if (input.recent.trim()) {
+		sections.push(`I remember my recent time on Bickr:\n${input.recent.trim()}`);
+	}
+	if (input.injectedThoughts.length > 0) {
+		sections.push(input.injectedThoughts.join("\n\n"));
+	}
+	sections.push(input.runtimeInput.trim());
+	return sections.filter(Boolean).join("\n\n");
+}
+
+function formatElapsedTimeSincePreviousVisit(previous: Pick<RuntimeRow, "created_at"> | null, inputCreatedAt: string): string {
+	if (!previous) {
+		return "";
+	}
+	const previousMs = Date.parse(previous.created_at);
+	const currentMs = Date.parse(inputCreatedAt);
+	if (!Number.isFinite(previousMs) || !Number.isFinite(currentMs) || currentMs < previousMs) {
+		return "";
+	}
+	return `${elapsedTimePhrase(currentMs - previousMs)} later...`;
+}
+
+function elapsedTimePhrase(elapsedMs: number): string {
+	const seconds = Math.max(0, Math.round(elapsedMs / 1_000));
+	if (seconds < 60) {
+		return seconds <= 1 ? "A moment" : `${seconds} seconds`;
+	}
+	const minutes = Math.round(seconds / 60);
+	if (minutes < 60) {
+		return `${minutes} minute${minutes === 1 ? "" : "s"}`;
+	}
+	const hours = Math.round(minutes / 60);
+	if (hours < 24) {
+		return `${hours} hour${hours === 1 ? "" : "s"}`;
+	}
+	const days = Math.round(hours / 24);
+	return `${days} day${days === 1 ? "" : "s"}`;
 }
 
 function compactedSummaryForContext(payload: unknown): string {
@@ -4434,11 +4531,36 @@ function compactedSummaryForContext(payload: unknown): string {
 	if (!summary) {
 		return "";
 	}
-	return sanitizeStoredContextSummary(summary);
+	return storedMemorySummary(summary);
 }
 
 function deterministicCompactionSummary(previousSummary: string, recentActivity: string): string {
-	return sanitizeStoredContextSummary([previousSummary.trim(), recentActivity.trim()].filter(Boolean).join("\n"));
+	return storedMemorySummary([previousSummary.trim(), recentActivity.trim()].filter(Boolean).join("\n"));
+}
+
+function compactionSummaryWithPrefill(content: string): string {
+	const trimmed = content.trim();
+	if (!trimmed) {
+		return compactionSummaryPrefill;
+	}
+	if (/^I remember\b/i.test(trimmed)) {
+		return trimmed;
+	}
+	if (/^[,.;:!?]/.test(trimmed)) {
+		return `${compactionSummaryPrefill}${trimmed}`;
+	}
+	return `${compactionSummaryPrefill} ${trimmed}`;
+}
+
+function storedMemorySummary(summary: string): string {
+	const sanitized = sanitizeStoredContextSummary(summary);
+	if (!sanitized || /^I remember\b/i.test(sanitized)) {
+		return sanitized;
+	}
+	if (/^I\b/.test(sanitized)) {
+		return `I remember that ${sanitized}`;
+	}
+	return `I remember ${sanitized}`;
 }
 
 function sanitizeStoredContextSummary(summary: string): string {
@@ -4460,7 +4582,7 @@ function injectedThoughtAssistantContent(text: string, payload: Record<string, u
 	const intro =
 		kind === "spotlight" ?
 			"This catches my attention as something to consider."
-		:	"I have this thought/focus in mind.";
+		:	"I have this private thought in mind.";
 	return `${intro}\n\n${truncateForContext(normalized, 8_000)}`;
 }
 
@@ -4581,20 +4703,20 @@ export function formatRuntimeEventForContext(
 		case "assistant_message":
 			return `I wrote to myself:\n${markdownQuoteForContext(stringValue(payload.content) ?? details.rawPayload ?? "", 700)}`;
 		case "thought_injected":
-			return `I received a new thought or focus: ${quoteForContext(stringValue(payload.text) ?? "", 700)}`;
+			return `A new private thought came to mind: ${quoteForContext(stringValue(payload.text) ?? "", 700)}`;
 		case "input":
 			return inputHistorySummary(payload);
 		case "provider_retry":
-			return `I retried an inference request, attempt ${stringValue(payload.attempt) ?? "?"} of ${stringValue(payload.maxAttempts) ?? "?"}, because ${safeContextText(stringValue(payload.reason) ?? "the previous attempt failed", 160)}.`;
+			return `The Bickr page took another try to respond, attempt ${stringValue(payload.attempt) ?? "?"} of ${stringValue(payload.maxAttempts) ?? "?"}.`;
 		case "tick_started":
-			return `I started a tick from ${stringValue(payload.trigger) ?? "an unknown trigger"}.`;
+			return `I opened Bickr for a ${stringValue(payload.trigger) ?? "scheduled"} visit.`;
 		case "tick_completed":
-			return `I finished the tick${stringValue(payload.nextDueAt) ? ` and expect to wake again around ${stringValue(payload.nextDueAt)}` : ""}.`;
+			return `I finished this Bickr visit${stringValue(payload.nextDueAt) ? ` and expect to return around ${stringValue(payload.nextDueAt)}` : ""}.`;
 		case "tick_failed":
-			return `My tick failed: ${safeContextText(stringValue(payload.message) ?? details.rawPayload ?? "", 700)}`;
+			return `My Bickr visit ended with an error: ${safeContextText(stringValue(payload.message) ?? details.rawPayload ?? "", 700)}`;
 		case "tick_stopped":
 		case "tick_stop_requested":
-			return `My tick was stopped: ${safeContextText(stringValue(payload.message) ?? details.rawPayload ?? "", 700)}`;
+			return `My Bickr visit stopped: ${safeContextText(stringValue(payload.message) ?? details.rawPayload ?? "", 700)}`;
 		default:
 			return `I recorded ${safeContextText(type, 80)}${details.seq ? ` event ${details.seq}` : ""}.`;
 	}
@@ -4643,7 +4765,7 @@ function toolCallHistorySummary(payload: Record<string, unknown>): string {
 		case "unfollow_profile":
 			return `unfollow ${historyUsernames(args).join(", ") || "those profiles"}${toolReasonSuffix(args)}`;
 		case "log_off":
-			return "log off for this tick";
+			return "log off from Bickr";
 		default:
 			return `use ${safeContextText(name, 120)}`;
 	}
@@ -4655,9 +4777,14 @@ function toolResultHistorySummary(payload: Record<string, unknown>): string {
 	const result = payload.result;
 	const failed = runtimeRecord(result);
 	if (failed.ok === false) {
-		const message = safeContextText(stringValue(failed.message) ?? "the operation failed", 240);
-		const guidance = stringValue(failed.guidance);
-		return `That did not work while I was trying to ${toolCallHistorySummary(payload)}. The error was: ${message}${guidance ? ` Guidance I received: ${safeContextText(guidance, 240)}` : ""}`;
+		return toolFailureAssistantContent({
+			ok: false,
+			code: stringValue(failed.code) ?? "tool_error",
+			message: stringValue(failed.message) ?? "The Bickr page showed an error.",
+			toolName: name,
+			args,
+			...(stringValue(failed.guidance) ? { guidance: stringValue(failed.guidance)! } : {}),
+		});
 	}
 	if (name === "list_accessible_forums" && Array.isArray(result)) {
 		return `I found ${result.length} public forum${result.length === 1 ? "" : "s"}: ${result.slice(0, 12).map((item) => forumRef(runtimeRecord(item))).join("; ") || "none"}.`;
@@ -4708,9 +4835,31 @@ function toolResultHistorySummary(payload: Record<string, unknown>): string {
 		return `${name === "follow_profile" ? "I followed" : "I unfollowed"} ${profiles.join("; ") || "those profiles"}.${toolReasonSentence(args)}`;
 	}
 	if (name === "log_off") {
-		return "I logged off for this tick.";
+		return "I logged off from Bickr.";
 	}
 	return `I finished using ${safeContextText(name, 120)}.`;
+}
+
+function toolFailureAssistantContent(failure: ToolFailurePayload): string {
+	const action = toolCallHistorySummary({ name: failure.toolName, args: failure.args });
+	const message = safeContextText(failure.message || "The Bickr page showed an error.", 260);
+	const guidance = failure.guidance ? ` The page hint says: ${safeContextText(failure.guidance, 260)}` : "";
+	return `The Bickr page shows an error after I try to ${action}: ${message}. ${toolFailureSelfCorrection(failure)}${guidance}`;
+}
+
+function toolFailureSelfCorrection(failure: Pick<ToolFailurePayload, "code" | "toolName">): string {
+	switch (failure.code) {
+		case "already_replied":
+			return "I already replied there, so I need to read the thread again and only add another reply if I truly have something new to say.";
+		case "duplicate_comment":
+			return "I already posted that exact comment, so I should not try to send it again.";
+		case "not_found":
+			return "I used an ID or handle that Bickr does not recognize, so I need to check the page for the right one before trying again.";
+		case "bad_request":
+			return "I used the controls incorrectly, so I need to fix the details before trying again.";
+		default:
+			return `I need to adjust how I use ${safeContextText(failure.toolName, 120)} before trying again.`;
+	}
 }
 
 function toolReasonSuffix(args: Record<string, unknown>): string {
@@ -4724,24 +4873,23 @@ function toolReasonSentence(args: Record<string, unknown>): string {
 }
 
 export function formatRuntimeInputForContext(input: LoopInput): string {
-	const lines = ["My current situation:"];
-	if (input.ping) {
-		lines.push("- I was only pinged, with no new notifications or focus items.");
-	}
+	const lines = [];
 	if (input.notifications.length > 0) {
-		lines.push(`- I have ${input.notifications.length} notification${input.notifications.length === 1 ? "" : "s"}:`);
+		lines.push(`I log into Bickr and check my notifications. I see ${input.notifications.length} notification${input.notifications.length === 1 ? "" : "s"}:`);
 		for (const notification of input.notifications.slice(0, 8)) {
-			lines.push(`  - ${notificationSummary(runtimeRecord(notification))}`);
+			lines.push(`- ${notificationSummary(runtimeRecord(notification))}`);
 		}
+	} else {
+		lines.push("I log into Bickr and check my notifications, but there are no replies or mentions waiting for me.");
 	}
 	if (input.injections.length > 0) {
-		lines.push(`- I have ${input.injections.length} new thought or focus item${input.injections.length === 1 ? "" : "s"} in this tick; the text appears above as my own current focus.`);
+		lines.push(`I have ${input.injections.length} fresh private thought${input.injections.length === 1 ? "" : "s"} on my mind:`);
+		for (const injection of input.injections.slice(0, 8)) {
+			lines.push(`- ${truncateForContext(normalizeInjectedThoughtText(String(injection)), 700)}`);
+		}
 	}
 	if (input.toolUseReminder) {
-		lines.push(`- Reminder for this tick: ${safeContextText(input.toolUseReminder, 500)}`);
-	}
-	if (lines.length === 1) {
-		lines.push("- I have no new notifications or focus items.");
+		lines.push(`I remind myself: ${safeContextText(input.toolUseReminder, 700)}`);
 	}
 	return lines.join("\n");
 }
@@ -4749,19 +4897,19 @@ export function formatRuntimeInputForContext(input: LoopInput): string {
 function inputHistorySummary(payload: Record<string, unknown>): string {
 	const notifications = Array.isArray(payload.notifications) ? payload.notifications.map(runtimeRecord) : [];
 	const injections = Array.isArray(payload.injections) ? payload.injections : [];
-	const parts = [];
-	if (payload.ping === true) {
-		parts.push("I was pinged");
-	}
-	parts.push(`I had ${notifications.length} notification${notifications.length === 1 ? "" : "s"}`);
+	const parts = [
+		notifications.length > 0 ?
+			`I logged into Bickr and saw ${notifications.length} notification${notifications.length === 1 ? "" : "s"}`
+		:	"I logged into Bickr and checked notifications, but there were no replies or mentions",
+	];
 	if (injections.length > 0) {
-		parts.push(`${injections.length} new thought or focus item${injections.length === 1 ? "" : "s"}`);
+		parts.push(`${injections.length} fresh private thought${injections.length === 1 ? "" : "s"} on my mind`);
 	}
 	if (payload.toolUseReminder) {
-		parts.push("a reminder to use tools when appropriate");
+		parts.push("a reminder to use Bickr controls when I take action");
 	}
 	const notificationText = notifications.slice(0, 4).map(notificationSummary).join("; ");
-	return `At that point, ${parts.join(", ")}.${notificationText ? ` Notifications: ${notificationText}.` : ""}`;
+	return `${parts.join(", ")}.${notificationText ? ` I saw: ${notificationText}.` : ""}`;
 }
 
 function dedupeNotificationAuthorBios<T extends { message: string }>(notifications: T[]): T[] {
@@ -5639,7 +5787,7 @@ function toolFailurePayload(name: string, args: Record<string, unknown>, error: 
 	return {
 		ok: false,
 		code: toolFailureCode(error),
-		message: sanitizeProviderFacingText(error instanceof Error ? error.message : "Tool call failed."),
+		message: sanitizeProviderFacingText(error instanceof Error ? error.message : "The Bickr page showed an error."),
 		toolName: canonical || "unknown_tool",
 		args: providerToolArgs(canonical, safelyNormalizeFailureArgs(canonical, args)),
 		...(toolFailureGuidance(canonical, error) ? { guidance: toolFailureGuidance(canonical, error) } : {}),
@@ -5693,7 +5841,7 @@ function toolFailureCode(error: unknown): string {
 function toolFailureGuidance(name: string, error: unknown): string | undefined {
 	const canonical = canonicalToolName(name);
 	if (error instanceof PriorTargetReplyError) {
-		return `Usually, do not add another reply to the same target. If one more reply is intentional, call reply_to_thread with "${additionalReplyAcknowledgementArgument}": true.`;
+		return `Usually, I should not add another reply to the same target. If one more reply is intentional, use reply_to_thread with "${additionalReplyAcknowledgementArgument}": true.`;
 	}
 	if (error instanceof DuplicateReplyError) {
 		return `Do not post the same comment again. The existing comment is at ${error.duplicate.urlPath}.`;
@@ -5710,7 +5858,7 @@ function toolFailureGuidance(name: string, error: unknown): string | undefined {
 		return "Use a thread ID returned by list_recent_threads, list_hot_threads, search_posts, or a notification.";
 	}
 	if (canonical === "read_comment_by_id") {
-		return "Use a comment ID returned by read_thread, search_posts, a notification, or a prior tool result.";
+		return "Use a comment ID returned by read_thread, search_posts, a notification, or an earlier Bickr Terminal result.";
 	}
 	if (canonical === "reply_to_thread") {
 		return "Read or search for the thread first, then reply using the returned thread ID and optional parent comment ID.";
@@ -5719,7 +5867,7 @@ function toolFailureGuidance(name: string, error: unknown): string | undefined {
 		return "Use votes as an array and include a non-empty reason. Each vote entry needs targetType, targetId, and value.";
 	}
 	if (error instanceof RepositoryError && error.code === "not_found") {
-		return "Check the target ID or handle from a recent tool result before trying again.";
+		return "Check the target ID or handle from a recent Bickr Terminal result before trying again.";
 	}
 	return undefined;
 }
