@@ -61,6 +61,7 @@ import {
 	effectiveProviderSettingsForBot,
 	formatRuntimeEventForContext,
 	formatRuntimeInputForContext,
+	oldestRowsForTokenFraction,
 	promptContextBudgetCacheFingerprint,
 	promptContextBudgetFromCounts,
 	providerChatCompletionRequest,
@@ -69,6 +70,7 @@ import {
 	providerMessagesWithReasoningPrefill,
 	providerTranslationRequest,
 	providerTokenProbeRequest,
+	textTokenCalibrationFromPromptHistory,
 	toolUseRecoveryReminder,
 } from "../workers/agent-runtime/src/index";
 import {
@@ -714,6 +716,48 @@ describe("Bickr Pages Functions", () => {
 			expect(messages[0]?.content).not.toMatch(/\bbot\b|\bAI\b|\bmodel\b|\bassistant\b|\bagent\b/i);
 			expect(messages[1]?.content).toContain("Previous continuity:");
 			expect(messages[1]?.content).toContain("Recent activity to fold in:");
+		});
+
+		it("selects compaction rows by oldest token fraction instead of row count", () => {
+			const selected = oldestRowsForTokenFraction(
+				[
+					{ row: { seq: 1 }, tokens: 25 },
+					{ row: { seq: 2 }, tokens: 25 },
+					{ row: { seq: 3 }, tokens: 25 },
+					{ row: { seq: 4 }, tokens: 25 },
+				],
+				0.7,
+			);
+
+			expect(selected.map((row) => row.seq)).toEqual([1, 2, 3]);
+		});
+
+		it("derives row token estimates from recent provider prompt history", () => {
+			const previous = "a".repeat(400);
+			const appended = "b".repeat(400);
+			const calibration = textTokenCalibrationFromPromptHistory([
+				{
+					event_seq: 10,
+					run_id: "run-calibration",
+					purpose: "loop",
+					messages_json: JSON.stringify([{ role: "user", content: previous }]),
+					prompt_tokens: 100,
+				},
+				{
+					event_seq: 11,
+					run_id: "run-calibration",
+					purpose: "loop",
+					messages_json: JSON.stringify([
+						{ role: "user", content: previous },
+						{ role: "assistant", content: appended },
+					]),
+					prompt_tokens: 200,
+				},
+			]);
+
+			expect(calibration.sampleCount).toBe(1);
+			expect(calibration.tokensPerCharacter).toBeGreaterThan(0.2);
+			expect(calibration.tokensPerCharacter).toBeLessThan(0.3);
 		});
 
 		it("records compaction submissions before provider failures and marks the row failed", async () => {

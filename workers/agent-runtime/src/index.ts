@@ -118,6 +118,16 @@ type RuntimeRow = {
 	compacted_by: number | null;
 };
 
+type CompactionCandidateEstimate = {
+	row: RuntimeRow;
+	tokens: number;
+};
+
+export type TextTokenCalibration = {
+	tokensPerCharacter: number;
+	sampleCount: number;
+};
+
 type InferenceSubmissionRow = {
 	id: string;
 	event_seq: number;
@@ -182,6 +192,14 @@ type ProviderUsageRow = {
 	cached_tokens: number;
 	reasoning_tokens: number;
 	cost: number | null;
+};
+
+type PromptTokenCalibrationRow = {
+	event_seq: number;
+	run_id: string;
+	purpose: BotInferenceSubmissionPurpose;
+	messages_json: string;
+	prompt_tokens: number;
 };
 
 type ToolFailurePayload = {
@@ -559,6 +577,10 @@ const providerTranslationMaxCompletionTokens = 8_192;
 const providerCompactionMaxCompletionTokens = 4_096;
 const providerCompactionTemperature = 0.2;
 const inferenceSubmissionRetentionCount = 50;
+const compactionRowTokenFraction = 0.7;
+const fallbackTokensPerCharacter = 0.25;
+const minCalibratedTokensPerCharacter = 1 / 12;
+const maxCalibratedTokensPerCharacter = 1;
 const dayMs = 24 * 60 * 60 * 1000;
 const fallbackProviderModel = defaultProviderModel;
 const fallbackProviderBaseUrl = "https://openrouter.ai/api/v1";
@@ -3084,7 +3106,8 @@ export class BotRuntime {
 		runId: string,
 		signal: AbortSignal,
 	): Promise<void> {
-		const total = this.currentCompactionContextTokenEstimate();
+		const contextEstimate = this.currentCompactionContextEstimate();
+		const total = contextEstimate.totalTokens;
 		const threshold = Math.max(
 			1,
 			bot.tickSettings.contextWindowTokens * bot.tickSettings.compactionThreshold - providerContextReserveTokens,
@@ -3093,20 +3116,10 @@ export class BotRuntime {
 			return;
 		}
 
-		const candidates = this.state.storage.sql
-			.exec<RuntimeRow>(
-				`SELECT seq, run_id, type, payload_json, token_estimate, compacted_by, created_at
-				 FROM events
-				 WHERE compacted_by IS NULL
-				   AND type IN ('input', 'reasoning_message', 'assistant_message', 'tool_call', 'tool_result', 'thought_injected')
-				 ORDER BY seq ASC
-				 LIMIT 80`,
-			)
-			.toArray();
-		if (candidates.length < 12) {
+		const compacted = oldestRowsForTokenFraction(contextEstimate.rows, compactionRowTokenFraction);
+		if (compacted.length === 0) {
 			return;
 		}
-		const compacted = candidates.slice(0, Math.max(1, Math.floor(candidates.length * 0.6)));
 		const recentActivity = compacted
 			.map((event) => truncateForContext(runtimeContextLine(event), 300))
 			.join("\n");
@@ -3184,15 +3197,52 @@ export class BotRuntime {
 		);
 	}
 
-	private currentCompactionContextTokenEstimate(): number {
-		const rowTokens = this.runtimeContextRows()
-			.reduce((total, row) => total + estimateTextTokens(runtimeContextLine(row)), 0);
-		const injectedThoughtTokens = this.injectedThoughtRowsForContext()
-			.reduce((total, row) => total + estimateTextTokens(runtimeContextLine(row)), 0);
-		return rowTokens +
-			injectedThoughtTokens +
-			estimateTextTokens(this.latestCompactionSummary()) +
-			estimateTextTokens(formatThoughtContext(this.thoughtBlocksForContext()));
+	private currentCompactionContextEstimate(): {
+		totalTokens: number;
+		rowTokens: number;
+		rows: CompactionCandidateEstimate[];
+		calibration: TextTokenCalibration;
+	} {
+		const calibration = this.textTokenCalibration();
+		const rows = this.compactionCandidateRows().map((row) => ({
+			row,
+			tokens: estimateTextTokensWithCalibration(runtimeContextLine(row), calibration),
+		}));
+		const rowTokens = rows.reduce((total, item) => total + item.tokens, 0);
+		return {
+			totalTokens: rowTokens + estimateTextTokensWithCalibration(this.latestCompactionSummary(), calibration),
+			rowTokens,
+			rows,
+			calibration,
+		};
+	}
+
+	private compactionCandidateRows(): RuntimeRow[] {
+		return this.state.storage.sql
+			.exec<RuntimeRow>(
+				`SELECT seq, run_id, type, payload_json, token_estimate, compacted_by, created_at
+				 FROM events
+				 WHERE compacted_by IS NULL
+				   AND type IN ('input', 'reasoning_message', 'assistant_message', 'tool_call', 'tool_result', 'thought_injected')
+				 ORDER BY seq ASC`,
+			)
+			.toArray();
+	}
+
+	private textTokenCalibration(): TextTokenCalibration {
+		const rows = this.state.storage.sql
+			.exec<PromptTokenCalibrationRow>(
+				`SELECT s.event_seq, s.run_id, s.purpose, s.messages_json, u.prompt_tokens
+				 FROM inference_submissions s
+				 JOIN provider_usage u
+				   ON u.request_seq = s.event_seq
+				  AND u.run_id = s.run_id
+				 WHERE u.prompt_tokens > 0
+				 ORDER BY s.event_seq DESC
+				 LIMIT 50`,
+			)
+			.toArray();
+		return textTokenCalibrationFromPromptHistory(rows);
 	}
 
 	private async appendEvent(
@@ -5099,6 +5149,83 @@ function estimateTextTokens(text: string): number {
 	return Math.max(1, Math.ceil(text.length / 4));
 }
 
+function estimateTextTokensWithCalibration(text: string, calibration: TextTokenCalibration): number {
+	return Math.max(1, Math.ceil(text.length * calibration.tokensPerCharacter));
+}
+
+export function oldestRowsForTokenFraction<T>(
+	rows: readonly { row: T; tokens: number }[],
+	fraction: number,
+): T[] {
+	const totalTokens = rows.reduce((total, item) => total + Math.max(0, item.tokens), 0);
+	if (totalTokens <= 0 || fraction <= 0) {
+		return [];
+	}
+	const targetTokens = Math.ceil(totalTokens * Math.min(1, fraction));
+	const selected: T[] = [];
+	let selectedTokens = 0;
+	for (const item of rows) {
+		selected.push(item.row);
+		selectedTokens += Math.max(0, item.tokens);
+		if (selectedTokens >= targetTokens) {
+			break;
+		}
+	}
+	return selected;
+}
+
+export function textTokenCalibrationFromPromptHistory(rows: readonly {
+	event_seq: number;
+	run_id: string;
+	purpose: BotInferenceSubmissionPurpose;
+	messages_json: string;
+	prompt_tokens: number;
+}[]): TextTokenCalibration {
+	const samples: number[] = [];
+	const previousLoopRequestByRun = new Map<string, { messageCharacters: number; promptTokens: number }>();
+	const sortedRows = [...rows].sort((left, right) => left.event_seq - right.event_seq);
+
+	for (const row of sortedRows) {
+		const messageCharacters = chatMessagesCharacterCountFromJson(row.messages_json);
+		const promptTokens = Math.max(0, Number(row.prompt_tokens));
+		if (messageCharacters <= 0 || promptTokens <= 0) {
+			continue;
+		}
+
+		if (row.purpose === "compaction") {
+			addTokenCalibrationSample(samples, promptTokens, messageCharacters);
+			continue;
+		}
+
+		const previous = previousLoopRequestByRun.get(row.run_id);
+		if (previous) {
+			addTokenCalibrationSample(
+				samples,
+				promptTokens - previous.promptTokens,
+				messageCharacters - previous.messageCharacters,
+			);
+		}
+		previousLoopRequestByRun.set(row.run_id, { messageCharacters, promptTokens });
+	}
+
+	if (samples.length === 0) {
+		return {
+			tokensPerCharacter: fallbackTokensPerCharacter,
+			sampleCount: 0,
+		};
+	}
+	const sortedSamples = [...samples].sort((left, right) => left - right);
+	const middle = Math.floor(sortedSamples.length / 2);
+	const median =
+		sortedSamples.length % 2 === 1 ?
+			sortedSamples[middle]!
+		:	(sortedSamples[middle - 1]! + sortedSamples[middle]!) / 2;
+	return {
+		tokensPerCharacter: clampNumber(median, minCalibratedTokensPerCharacter, maxCalibratedTokensPerCharacter),
+		sampleCount: sortedSamples.length,
+	};
+}
+
 async function sha256Hex(text: string): Promise<string> {
 	const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
 	return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
@@ -5110,6 +5237,49 @@ function parsePayloadJson(payloadJson: string): Record<string, unknown> {
 	} catch {
 		return {};
 	}
+}
+
+function addTokenCalibrationSample(samples: number[], tokens: number, characters: number): void {
+	if (tokens <= 0 || characters < 80) {
+		return;
+	}
+	samples.push(clampNumber(tokens / characters, minCalibratedTokensPerCharacter, maxCalibratedTokensPerCharacter));
+}
+
+function chatMessagesCharacterCountFromJson(messagesJson: string): number {
+	try {
+		const parsed = JSON.parse(messagesJson) as unknown;
+		return Array.isArray(parsed) ? chatMessagesCharacterCount(parsed as ChatMessage[]) : 0;
+	} catch {
+		return 0;
+	}
+}
+
+function chatMessagesCharacterCount(messages: readonly ChatMessage[]): number {
+	return messages.reduce((total, message) => {
+		const toolCallCharacters = (message.tool_calls ?? []).reduce((sum, toolCall) => {
+			return sum +
+				toolCall.id.length +
+				toolCall.function.name.length +
+				toolCall.function.arguments.length;
+		}, 0);
+		return total +
+			message.role.length +
+			textLength(message.content) +
+			textLength(message.tool_call_id) +
+			textLength(message.reasoning) +
+			textLength(message.reasoning_content) +
+			(message.reasoning_details ? JSON.stringify(message.reasoning_details).length : 0) +
+			toolCallCharacters;
+	}, 0);
+}
+
+function textLength(value: string | null | undefined): number {
+	return value?.length ?? 0;
+}
+
+function clampNumber(value: number, min: number, max: number): number {
+	return Math.min(max, Math.max(min, value));
 }
 
 function truncateForContext(text: string, maxLength: number): string {
