@@ -2424,6 +2424,9 @@ export function seenItemsFromResult(result: unknown): SeenContentItem[] {
 	if (Array.isArray(record.content)) {
 		items.push(...seenItemsFromResult(record.content));
 	}
+	if (Array.isArray(record.replies)) {
+		items.push(...seenItemsFromResult(record.replies));
+	}
 	if (Array.isArray(record.comments) && typeof record.id === "string" && typeof record.rootCommentId === "string") {
 		items.push({ type: "thread", id: record.id });
 		for (const comment of (record.comments as CommentDocument[])) {

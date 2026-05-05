@@ -658,6 +658,55 @@ describe("Bickr Pages Functions", () => {
 			},
 		]);
 
+		const readBranchResult = await executeTool(
+			bot,
+			"run-read-comment-branch",
+			"read_comment_by_id",
+			{ commentId: comment.id },
+			{ mode: "normal", signal },
+		);
+		expect((readBranchResult.providerResult as { content: Array<Record<string, unknown>> }).content).toMatchObject([
+			{
+				type: "comment",
+				commentId: thread.rootCommentId,
+				ancestorOnly: true,
+				replies: [{
+					commentId: comment.id,
+					"My focus is on this comment": true,
+					replies: [{ commentId: childComment.id, body: "Child comment body." }],
+				}],
+			},
+		]);
+
+		const largeThread = await createThreadForTest(forum.id, author.id, "Large branch", "Root body stays visible.");
+		const immediateReply = await createCommentForTest(largeThread.id, author.id, "Immediate reply stays visible.");
+		await createCommentForTest(largeThread.id, author.id, `Grandchild should be collapsed. ${"x".repeat(2_000)}`, immediateReply.id);
+		const smallContextBot: BotDocument = {
+			...bot,
+			tickSettings: { ...bot.tickSettings, contextWindowTokens: 600 },
+		};
+		const prunedReadResult = await executeTool(
+			smallContextBot,
+			"run-read-pruned-thread",
+			"read_thread_by_id",
+			{ threadId: largeThread.id },
+			{ mode: "normal", signal },
+		);
+		const prunedProviderResult = prunedReadResult.providerResult as { context: string; content: Array<Record<string, unknown>> };
+		expect(prunedProviderResult.context).toContain("numeric replies value");
+		expect(prunedProviderResult.content).toMatchObject([
+			{
+				commentId: largeThread.rootCommentId,
+				body: "Root body stays visible.",
+				replies: [{
+					commentId: immediateReply.id,
+					body: "Immediate reply stays visible.",
+					replies: 1,
+				}],
+			},
+		]);
+		expect(JSON.stringify(prunedProviderResult)).not.toContain("Grandchild should be collapsed.");
+
 		const profilesResult = await executeTool(
 			bot,
 			"run-view-profiles",
@@ -5473,6 +5522,89 @@ describe("Bickr Pages Functions", () => {
 		expect(recordInferenceSubmission).toHaveBeenCalledTimes(1);
 		expect(events.map((event) => event.type)).toEqual(["provider_token_probe", "provider_token_probe", "provider_request"]);
 		expect(events[0]?.payload).toMatchObject({ promptTokens: 20_000, allowedPromptTokens: 13_500, overBudgetTokens: 6_500 });
+	});
+
+	it("compacts current tick messages when a mid-tick exact token probe overflows", async () => {
+		let activeMessages: Array<Record<string, unknown>> = [
+			{ role: "assistant", content: "Current notification setup must remain." },
+			{ role: "tool", content: "Large current thread read result that overflowed the prompt." },
+		];
+		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+		const providerRequests: Array<Array<Record<string, unknown>>> = [];
+		const includeCurrentRunCalls: boolean[] = [];
+		const compactionMetrics: Array<Record<string, unknown>> = [];
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			activeLoopMessagesForProvider: () => activeMessages,
+			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+				events.push({ type, payload });
+				return { seq: events.length, runId, type, payload, tokenEstimate: 0, createdAt: new Date().toISOString() };
+			},
+			appendLoopMessage: () => ({ seq: 99, runId: "run-current-compact", role: "assistant", message: {}, origin: "provider_response", tokenEstimate: 0, createdAt: new Date().toISOString() }),
+			appendProviderMessages: async () => {},
+			callProvider: async (_settings: unknown, messages: Array<Record<string, unknown>>) => {
+				providerRequests.push(messages);
+				return providerResponseWithContent("The large thread read is now summarized.");
+			},
+			callProviderForTokenProbe: async (_settings: unknown, messages: Array<Record<string, unknown>>) =>
+				providerUsageForPromptTokens(messageListText(messages).includes("Large current thread read result") ? 20_000 : 10_000),
+			compactLoopMessageRows: async (
+				_bot: unknown,
+				_settings: unknown,
+				_runId: string,
+				_signal: AbortSignal,
+				_rows: unknown[],
+				_mode: string,
+				metrics: Record<string, unknown>,
+			) => {
+				compactionMetrics.push(metrics);
+				activeMessages = [
+					{ role: "assistant", content: "Current notification setup must remain." },
+					{ role: "assistant", content: "I remember the large current thread read as a concise summary." },
+				];
+			},
+			compactionRowsForExactBudget: (runId: string, includeCurrentRun: boolean) => {
+				includeCurrentRunCalls.push(includeCurrentRun);
+				return includeCurrentRun && activeMessages.some((message) => String(message.content).includes("Large current")) ?
+					[loopMessageRowForTest(7, runId, "Large current thread read result that overflowed the prompt.")]
+				:	[];
+			},
+			recordInferenceSubmission: () => {},
+			recordLoopMessageLog: () => {},
+			recordProviderUsage: () => {},
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const runProviderLoop = (BotRuntime.prototype as unknown as {
+			runProviderLoop: (
+				bot: BotDocument,
+				settings: { baseUrl: string; model: string; temperature: number },
+				runId: string,
+				messages: Array<Record<string, unknown>>,
+				runContext: { mode: "normal"; signal: AbortSignal },
+			) => Promise<{ logOffCalled: boolean }>;
+		}).runProviderLoop.bind(runtime);
+
+		await expect(
+			runProviderLoop(
+				fakeBotDocument({ contextWindowTokens: 16_000 }),
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				"run-current-compact",
+				[],
+				{ mode: "normal", signal: new AbortController().signal },
+			),
+		).resolves.toMatchObject({ logOffCalled: false });
+
+		expect(includeCurrentRunCalls).toEqual([false, true]);
+		expect(compactionMetrics).toEqual([
+			expect.objectContaining({ currentRunIncluded: true, overBudgetTokens: 6_500 }),
+		]);
+		expect(providerRequests).toHaveLength(1);
+		expect(messageListText(providerRequests[0] ?? [])).not.toContain("Large current thread read result");
+		expect(messageListText(providerRequests[0] ?? [])).toContain("large current thread read as a concise summary");
+		expect(events.map((event) => event.type)).toEqual(["provider_token_probe", "provider_token_probe", "provider_request"]);
 	});
 
 	it("fails before provider inference when current context alone exceeds the exact budget", async () => {

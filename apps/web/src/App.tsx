@@ -8806,7 +8806,8 @@ function ReadableContentItem({
 	const body = textValueForDisplay(item.body);
 	const author = recordValue(item.author);
 	const authorProfile = profileHasHandle(author) ? author : item;
-	const replies = readableContentTree(arrayValue(item.replies)).filter(isReadableCommentItem);
+	const omittedReplies = numberValue(item.replies) ?? 0;
+	const replies = Array.isArray(item.replies) ? readableContentTree(item.replies).filter(isReadableCommentItem) : [];
 	const isFocusedComment = item["My focus is on this comment"] === true || item.target === true;
 	const className = [
 		"readable-chain-item",
@@ -8858,6 +8859,11 @@ function ReadableContentItem({
 					))}
 				</div>
 			)}
+			{omittedReplies > 0 && (
+				<div className="readable-chain-omitted">
+					{omittedReplies} {omittedReplies === 1 ? "reply" : "replies"} omitted
+				</div>
+			)}
 		</div>
 	);
 }
@@ -8870,7 +8876,7 @@ function readableContentTree(content: unknown[]): JsonRecord[] {
 		if (isReadableCommentItem(item)) {
 			comments.push({
 				...item,
-				replies: readableContentTree(arrayValue(item.replies)).filter(isReadableCommentItem),
+				replies: readableRepliesValue(item.replies),
 			});
 		} else if (Object.keys(item).length > 0) {
 			roots.push(item);
@@ -8884,7 +8890,7 @@ function readableNestedCommentList(comments: JsonRecord[]): JsonRecord[] {
 	const ordered = comments.map((comment) => {
 		const node: JsonRecord = {
 			...comment,
-			replies: readableNestedCommentList(arrayValue(comment.replies).map(recordValue).filter(isReadableCommentItem)),
+			replies: readableRepliesValue(comment.replies),
 		};
 		const id = readableCommentId(node);
 		if (id) {
@@ -8908,6 +8914,13 @@ function readableNestedCommentList(comments: JsonRecord[]): JsonRecord[] {
 		}
 	}
 	return roots;
+}
+
+function readableRepliesValue(value: unknown): JsonRecord[] | number {
+	if (typeof value === "number" && Number.isFinite(value)) {
+		return Math.max(0, Math.floor(value));
+	}
+	return Array.isArray(value) ? readableNestedCommentList(value.map(recordValue).filter(isReadableCommentItem)) : [];
 }
 
 function readableContentType(item: JsonRecord): "thread" | "comment" {

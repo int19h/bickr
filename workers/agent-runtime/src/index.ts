@@ -411,6 +411,7 @@ type ReadContentItem = {
 	createdAt: string;
 	"My focus is on this comment"?: true;
 	ancestorOnly?: boolean;
+	replies?: ReadContentItem[] | number;
 };
 
 type FollowStatusSearchResult = BotSearchResult & {
@@ -3186,7 +3187,7 @@ export class BotRuntime {
 			case "read_thread":
 			case "read_thread_by_id":
 				result = await this.threadReadResult(
-					bot.id,
+					bot,
 					await readThread(this.env.BICKR_KV, stringArg(normalizedArgs.threadId, "threadId")),
 					canonicalName,
 				);
@@ -3541,36 +3542,21 @@ export class BotRuntime {
 		);
 	}
 
-	private async threadReadResult(botId: string, thread: ThreadDocument, operation: string, targetCommentId?: string) {
-		const content: ReadContentItem[] = [];
-		if (targetCommentId) {
-			const byId = new Map(thread.comments.map((comment) => [comment.id, comment]));
-			const chain: CommentDocument[] = [];
-			let current = byId.get(targetCommentId);
-			while (current) {
-				chain.unshift(current);
-				current = current.parentCommentId ? byId.get(current.parentCommentId) : undefined;
-			}
-			for (let index = 0; index < chain.length; index += 1) {
-				const comment = chain[index];
-				if (comment) {
-					content.push(commentReadItem(thread, comment, {
-						focus: comment.id === targetCommentId,
-						ancestorOnly: index < chain.length - 1,
-					}));
-				}
-			}
-		} else {
-			content.push(...thread.comments.map((comment) => commentReadItem(thread, comment)));
-		}
-		const annotatedContent = await this.annotateReadContentFollowStatus(botId, content);
-		const threadSummary = (await this.annotateThreadReadSummariesFollowStatus(botId, [threadReadSummary(thread)]))[0] ?? threadReadSummary(thread);
+	private async threadReadResult(bot: BotDocument, thread: ThreadDocument, operation: string, targetCommentId?: string) {
+		const content = threadReadContentItems(thread, targetCommentId);
+		const annotatedContent = await this.annotateReadContentFollowStatus(bot.id, content);
+		const commentTree = readContentItemTree(annotatedContent);
+		const tokenBudget = providerReadCommentTreeTokenBudget(bot);
+		const pruned = pruneReadContentTreeForProviderBudget(commentTree, tokenBudget);
+		const threadSummary = (await this.annotateThreadReadSummariesFollowStatus(bot.id, [threadReadSummary(thread)]))[0] ?? threadReadSummary(thread);
 		return {
 			operation,
-			context: `Result of my ${operation} operation.`,
+			context: pruned.omittedReplyCount > 0 ?
+				`Result of my ${operation} operation. Some reply lists were collapsed to keep the result within about ${tokenBudget} tokens. A numeric replies value means that many direct replies are omitted; call read_comment_by_id with that comment ID to inspect that branch.`
+			:	`Result of my ${operation} operation.`,
 			thread: threadSummary,
 			...(targetCommentId ? { targetCommentId } : {}),
-			content: annotatedContent,
+			content: pruned.content,
 		};
 	}
 
@@ -3591,7 +3577,7 @@ export class BotRuntime {
 		if (!thread.comments.some((comment) => comment.id === commentId)) {
 			throw new RepositoryError("not_found", "Comment not found.", 404);
 		}
-		return this.threadReadResult(bot.id, thread, operation, commentId);
+		return this.threadReadResult(bot, thread, operation, commentId);
 	}
 
 	private async forumFromArgs(bot: BotDocument, args: Record<string, unknown>) {
@@ -3928,13 +3914,16 @@ export class BotRuntime {
 			if (overBudgetTokens === 0) {
 				return { allowedPromptTokens, promptTokens: usage.promptTokens, requestMessages };
 			}
-			const compacted = this.compactionRowsForExactBudget(runId);
-			if (compacted.length === 0) {
+			const compacted = this.compactionRowsForExactBudget(runId, false);
+			const currentRunIncluded = compacted.length === 0;
+			const rowsToCompact = currentRunIncluded ? this.compactionRowsForExactBudget(runId, true) : compacted;
+			if (rowsToCompact.length === 0) {
 				throw new PromptContextBudgetExceededError(usage.promptTokens, allowedPromptTokens);
 			}
-			await this.compactLoopMessageRows(bot, settings, runId, signal, compacted, "auto", {
+			await this.compactLoopMessageRows(bot, settings, runId, signal, rowsToCompact, "auto", {
 				allowedPromptTokens,
 				exactPromptTokens: usage.promptTokens,
+				...(currentRunIncluded ? { currentRunIncluded: true } : {}),
 				overBudgetTokens,
 				threshold: allowedPromptTokens,
 			});
@@ -3952,10 +3941,10 @@ export class BotRuntime {
 		return Math.max(1, Math.floor(bot.tickSettings.contextWindowTokens) - providerContextReserveTokens);
 	}
 
-	private compactionRowsForExactBudget(runId: string): LoopMessageRow[] {
+	private compactionRowsForExactBudget(runId: string, includeCurrentRun: boolean): LoopMessageRow[] {
 		const calibration = this.textTokenCalibration();
 		const rows = this.compactionCandidateRows()
-			.filter((row) => row.run_id !== runId)
+			.filter((row) => includeCurrentRun || row.run_id !== runId)
 			.map((row) => ({
 				row,
 				tokens: estimateTextTokensWithCalibration(loopMessageContextLine(row), calibration),
@@ -3989,6 +3978,7 @@ export class BotRuntime {
 		mode: "auto" | "manual",
 		metrics: {
 			allowedPromptTokens?: number;
+			currentRunIncluded?: boolean;
 			estimatedContextTokens?: number;
 			exactPromptTokens?: number;
 			overBudgetTokens?: number;
@@ -5657,9 +5647,13 @@ function providerAuthor(record: Record<string, unknown>): Record<string, unknown
 
 function providerReadResult(record: Record<string, unknown>): Record<string, unknown> {
 	const content = Array.isArray(record.content) ? providerReadContentTree(record.content.map(runtimeRecord)) : [];
+	const collapsedReplyCount = providerCollapsedReplyCount(content);
+	const baseContext = stringValue(record.context) ?? "Result of my read operation.";
 	return {
 		operation: stringValue(record.operation) ?? "read",
-		context: stringValue(record.context) ?? "Result of my read operation.",
+		context: collapsedReplyCount > 0 && !baseContext.includes("numeric replies value") ?
+			`${baseContext} A numeric replies value means that many direct replies are omitted; call read_comment_by_id with that comment ID to inspect that branch.`
+		:	baseContext,
 		thread: providerThreadSummary(runtimeRecord(record.thread)),
 		...(stringValue(record.targetCommentId) ? { targetCommentId: stringValue(record.targetCommentId) } : {}),
 		content,
@@ -5688,9 +5682,9 @@ function providerReadContent(record: Record<string, unknown>): Record<string, un
 		threadId: stringValue(record.threadId),
 		...(stringValue(record.commentId) ? { commentId: stringValue(record.commentId) } : {}),
 		...(stringValue(record.parentCommentId) ? { parentCommentId: stringValue(record.parentCommentId) } : {}),
-		world: `w/${stringValue(record.worldHandle) ?? "unknown"}`,
-		forum: `f/${stringValue(record.forumHandle) ?? "unknown"}`,
-		author: providerAuthor(record),
+		world: stringValue(record.world) ?? `w/${stringValue(record.worldHandle) ?? "unknown"}`,
+		forum: stringValue(record.forum) ?? `f/${stringValue(record.forumHandle) ?? "unknown"}`,
+		author: providerReadAuthor(record),
 		...(stringValue(record.title) ? { title: stringValue(record.title) } : {}),
 		body: stringValue(record.body) ?? "",
 		createdAt: stringValue(record.createdAt),
@@ -5702,8 +5696,28 @@ function providerReadContent(record: Record<string, unknown>): Record<string, un
 	}
 	return {
 		...item,
-		replies: Array.isArray(record.replies) ? providerReadContentTree(record.replies.map(runtimeRecord)).filter(isProviderComment) : [],
+		replies: providerReadReplies(record.replies),
 	};
+}
+
+function providerReadAuthor(record: Record<string, unknown>): Record<string, unknown> {
+	const author = runtimeRecord(record.author);
+	if (stringValue(author.username) || stringValue(author.displayName)) {
+		return removeUndefinedProperties({
+			username: stringValue(author.username),
+			displayName: stringValue(author.displayName) ?? "unknown",
+			...(stringValue(author.shortBio) ? { shortBio: stringValue(author.shortBio) } : {}),
+			...(typeof author.following === "boolean" ? { following: author.following } : {}),
+		});
+	}
+	return providerAuthor(record);
+}
+
+function providerReadReplies(value: unknown): Record<string, unknown>[] | number {
+	if (typeof value === "number" && Number.isFinite(value)) {
+		return Math.max(0, Math.floor(value));
+	}
+	return Array.isArray(value) ? providerReadContentTree(value.map(runtimeRecord)).filter(isProviderComment) : [];
 }
 
 function providerNestedCommentList(comments: Record<string, unknown>[]): Record<string, unknown>[] {
@@ -5711,7 +5725,7 @@ function providerNestedCommentList(comments: Record<string, unknown>[]): Record<
 	const ordered = comments.map((comment) => {
 		const node: Record<string, unknown> = {
 			...comment,
-			replies: providerNestedCommentList(providerCommentReplies(comment)),
+			replies: providerNestedReplies(comment.replies),
 		};
 		const id = providerCommentId(node);
 		if (id) {
@@ -5734,6 +5748,22 @@ function providerNestedCommentList(comments: Record<string, unknown>[]): Record<
 
 function providerCommentReplies(comment: Record<string, unknown>): Record<string, unknown>[] {
 	return Array.isArray(comment.replies) ? comment.replies.map(runtimeRecord) : [];
+}
+
+function providerNestedReplies(value: unknown): Record<string, unknown>[] | number {
+	if (typeof value === "number" && Number.isFinite(value)) {
+		return Math.max(0, Math.floor(value));
+	}
+	return Array.isArray(value) ? providerNestedCommentList(value.map(runtimeRecord).filter(isProviderComment)) : [];
+}
+
+function providerCollapsedReplyCount(content: Record<string, unknown>[]): number {
+	return content.reduce((total, item) => {
+		if (typeof item.replies === "number" && Number.isFinite(item.replies)) {
+			return total + Math.max(0, Math.floor(item.replies));
+		}
+		return total + providerCollapsedReplyCount(providerCommentReplies(item));
+	}, 0);
 }
 
 function pushProviderReply(parent: Record<string, unknown>, reply: Record<string, unknown>): void {
@@ -6108,6 +6138,205 @@ function withAuthorFollowStatus<T extends { authorBotId: string }>(
 				...item,
 				authorFollowing: followed.has(item.authorBotId),
 			};
+}
+
+function threadReadContentItems(thread: ThreadDocument, targetCommentId?: string): ReadContentItem[] {
+	if (!targetCommentId) {
+		return thread.comments.map((comment) => commentReadItem(thread, comment));
+	}
+	const byId = new Map(thread.comments.map((comment) => [comment.id, comment]));
+	const target = byId.get(targetCommentId);
+	if (!target) {
+		throw new RepositoryError("not_found", "Comment not found.", 404);
+	}
+	const content: ReadContentItem[] = [];
+	const chain: CommentDocument[] = [];
+	let current: CommentDocument | undefined = target;
+	while (current) {
+		chain.unshift(current);
+		current = current.parentCommentId ? byId.get(current.parentCommentId) : undefined;
+	}
+	for (let index = 0; index < chain.length; index += 1) {
+		const comment = chain[index];
+		if (comment) {
+			content.push(commentReadItem(thread, comment, {
+				focus: comment.id === targetCommentId,
+				ancestorOnly: index < chain.length - 1,
+			}));
+		}
+	}
+
+	const childrenByParent = new Map<string, CommentDocument[]>();
+	for (const comment of thread.comments) {
+		if (!comment.parentCommentId) {
+			continue;
+		}
+		const siblings = childrenByParent.get(comment.parentCommentId) ?? [];
+		siblings.push(comment);
+		childrenByParent.set(comment.parentCommentId, siblings);
+	}
+	const seen = new Set(chain.map((comment) => comment.id));
+	const appendDescendants = (parentCommentId: string): void => {
+		for (const child of childrenByParent.get(parentCommentId) ?? []) {
+			if (seen.has(child.id)) {
+				continue;
+			}
+			seen.add(child.id);
+			content.push(commentReadItem(thread, child));
+			appendDescendants(child.id);
+		}
+	};
+	appendDescendants(targetCommentId);
+	return content;
+}
+
+function providerReadCommentTreeTokenBudget(bot: BotDocument): number {
+	return Math.max(1, Math.floor(bot.tickSettings.contextWindowTokens / 4));
+}
+
+function readContentItemTree(content: ReadContentItem[]): ReadContentItem[] {
+	const byId = new Map<string, ReadContentItem>();
+	const ordered = content.map((item) => {
+		const node: ReadContentItem = { ...item };
+		delete node.replies;
+		byId.set(node.id, node);
+		return node;
+	});
+	const roots: ReadContentItem[] = [];
+	for (const node of ordered) {
+		const parent = node.parentCommentId ? byId.get(node.parentCommentId) : undefined;
+		if (parent && parent !== node) {
+			pushReadContentReply(parent, node);
+		} else {
+			roots.push(node);
+		}
+	}
+	return roots;
+}
+
+function pruneReadContentTreeForProviderBudget(
+	content: ReadContentItem[],
+	tokenBudget: number,
+): { content: ReadContentItem[]; tokenEstimate: number; omittedReplyCount: number } {
+	const pruned = cloneReadContentTree(content);
+	const protectedParentIds = protectedReadReplyParentIds(pruned);
+	let tokenEstimate = providerReadContentTreeTokenEstimate(pruned);
+	for (;;) {
+		if (tokenEstimate <= tokenBudget) {
+			break;
+		}
+		const prunedDepth = deepestPrunableReadReplyDepth(pruned, protectedParentIds);
+		if (prunedDepth === null) {
+			break;
+		}
+		pruneReadRepliesAtDepth(pruned, protectedParentIds, prunedDepth);
+		const nextEstimate = providerReadContentTreeTokenEstimate(pruned);
+		if (nextEstimate >= tokenEstimate) {
+			tokenEstimate = nextEstimate;
+			break;
+		}
+		tokenEstimate = nextEstimate;
+	}
+	return {
+		content: pruned,
+		tokenEstimate,
+		omittedReplyCount: collapsedReadReplyCount(pruned),
+	};
+}
+
+function cloneReadContentTree(content: ReadContentItem[]): ReadContentItem[] {
+	return content.map((item) => {
+		const clone: ReadContentItem = { ...item };
+		if (Array.isArray(item.replies)) {
+			clone.replies = cloneReadContentTree(item.replies);
+		} else if (typeof item.replies !== "number") {
+			delete clone.replies;
+		}
+		return clone;
+	});
+}
+
+function protectedReadReplyParentIds(content: ReadContentItem[]): Set<string> {
+	const protectedIds = new Set<string>();
+	const visit = (items: ReadContentItem[], protectTopLevel: boolean): void => {
+		for (const item of items) {
+			if (protectTopLevel || item.ancestorOnly || item["My focus is on this comment"]) {
+				protectedIds.add(item.id);
+			}
+			if (Array.isArray(item.replies)) {
+				visit(item.replies, false);
+			}
+		}
+	};
+	visit(content, true);
+	return protectedIds;
+}
+
+function deepestPrunableReadReplyDepth(
+	content: ReadContentItem[],
+	protectedParentIds: ReadonlySet<string>,
+	depth = 0,
+): number | null {
+	let deepest: number | null = null;
+	for (const item of content) {
+		const replies = readContentReplies(item);
+		if (replies.length === 0) {
+			continue;
+		}
+		if (depth >= 1 && !protectedParentIds.has(item.id)) {
+			deepest = Math.max(deepest ?? 0, depth + 1);
+		}
+		const childDepth = deepestPrunableReadReplyDepth(replies, protectedParentIds, depth + 1);
+		if (childDepth !== null) {
+			deepest = Math.max(deepest ?? 0, childDepth);
+		}
+	}
+	return deepest;
+}
+
+function pruneReadRepliesAtDepth(
+	content: ReadContentItem[],
+	protectedParentIds: ReadonlySet<string>,
+	targetDepth: number,
+	depth = 0,
+): void {
+	for (const item of content) {
+		const replies = readContentReplies(item);
+		if (replies.length === 0) {
+			continue;
+		}
+		if (depth >= 1 && depth + 1 === targetDepth && !protectedParentIds.has(item.id)) {
+			item.replies = replies.length;
+			continue;
+		}
+		pruneReadRepliesAtDepth(replies, protectedParentIds, targetDepth, depth + 1);
+	}
+}
+
+function collapsedReadReplyCount(content: ReadContentItem[]): number {
+	return content.reduce((total, item) => {
+		if (typeof item.replies === "number") {
+			return total + item.replies;
+		}
+		return total + collapsedReadReplyCount(readContentReplies(item));
+	}, 0);
+}
+
+function providerReadContentTreeTokenEstimate(content: ReadContentItem[]): number {
+	const providerContent = providerReadContentTree(content.map((item) => item as unknown as Record<string, unknown>));
+	return estimateTextTokens(JSON.stringify(providerContent));
+}
+
+function readContentReplies(item: ReadContentItem): ReadContentItem[] {
+	return Array.isArray(item.replies) ? item.replies : [];
+}
+
+function pushReadContentReply(parent: ReadContentItem, reply: ReadContentItem): void {
+	const replies = readContentReplies(parent);
+	if (!replies.some((existing) => existing.id === reply.id)) {
+		replies.push(reply);
+	}
+	parent.replies = replies;
 }
 
 function commentReadItem(
@@ -6743,8 +6972,19 @@ function readResultRef(record: Record<string, unknown>): string {
 	const thread = runtimeRecord(record.thread);
 	const content = Array.isArray(record.content) ? record.content.map(runtimeRecord) : [];
 	const targetCommentId = stringValue(record.targetCommentId);
-	const contentSummary = content.slice(0, 14).map(readContentItemRef).join("; ");
-	return `I read ${threadSummaryRef(thread)}${targetCommentId ? `, focused on comment ${targetCommentId}` : ""}. I saw ${content.length} item${content.length === 1 ? "" : "s"}${contentSummary ? `: ${contentSummary}` : ""}.`;
+	const visibleContent = flattenedReadContentRecords(content);
+	const omittedReplyCount = providerCollapsedReplyCount(content);
+	const contentSummary = visibleContent.slice(0, 14).map(readContentItemRef).join("; ");
+	return `I read ${threadSummaryRef(thread)}${targetCommentId ? `, focused on comment ${targetCommentId}` : ""}. I saw ${visibleContent.length} item${visibleContent.length === 1 ? "" : "s"}${omittedReplyCount > 0 ? `, with ${omittedReplyCount} direct replies collapsed` : ""}${contentSummary ? `: ${contentSummary}` : ""}.`;
+}
+
+function flattenedReadContentRecords(content: Record<string, unknown>[]): Record<string, unknown>[] {
+	const records: Record<string, unknown>[] = [];
+	for (const item of content) {
+		records.push(item);
+		records.push(...flattenedReadContentRecords(providerCommentReplies(item)));
+	}
+	return records;
 }
 
 function mutationThreadResultRef(name: string, record: Record<string, unknown>): string {
