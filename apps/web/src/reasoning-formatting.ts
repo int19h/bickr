@@ -7,14 +7,15 @@ export function reasoningDetailTextForDisplay(detail: unknown): string {
 		return detail;
 	}
 	const record = recordValue(detail);
-	return firstString(record.text, record.content, record.reasoning) ?? "";
+	return textValueForDisplay(record.text) ?? textValueForDisplay(record.content) ?? textValueForDisplay(record.reasoning) ?? "";
 }
 
-function firstString(...values: unknown[]): string | undefined {
-	for (const value of values) {
-		if (typeof value === "string") {
-			return value;
-		}
+export function textValueForDisplay(value: unknown): string | undefined {
+	if (typeof value === "string") {
+		return value.length > 0 ? value : undefined;
+	}
+	if (typeof value === "number" || typeof value === "boolean") {
+		return String(value);
 	}
 	return undefined;
 }

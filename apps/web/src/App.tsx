@@ -67,7 +67,7 @@ import {
 	type OpenRouterWebSearchToolDraft,
 } from "./tool-settings-draft";
 import { prettyJsonText } from "./inference-submission-formatting";
-import { reasoningDetailsTextForDisplay } from "./reasoning-formatting";
+import { reasoningDetailsTextForDisplay, textValueForDisplay } from "./reasoning-formatting";
 import "./App.css";
 
 type ApiSuccess<T> = { ok: true; data: T };
@@ -8189,7 +8189,7 @@ function ReadableNotificationEvent({ event }: { event: JsonRecord }) {
 	const forumHandle = forumHandleFromRecord(event);
 	const thread = recordValue(event.thread);
 	const comment = recordValue(event.comment);
-	const text = stringValue(comment.text) ?? stringValue(thread.text) ?? stringValue(event.message);
+	const text = textValueForDisplay(comment.text) ?? textValueForDisplay(thread.text) ?? textValueForDisplay(event.message);
 	return (
 		<div className="readable-event-card">
 			<div className="readable-event-title">{notificationEventHeadline(event)}</div>
@@ -8264,7 +8264,7 @@ function notificationEventHeadline(event: JsonRecord): ReactNode {
 				</>
 			);
 		default:
-			return <>{stringValue(event.message) ?? "Bickr activity"}</>;
+			return <>{textValueForDisplay(event.message) ?? "Bickr activity"}</>;
 	}
 }
 
@@ -8279,6 +8279,7 @@ function ReadableProfiles({ value }: { value: unknown }) {
 			{profiles.map((profileValue, index) => {
 				const profile = recordValue(profileValue);
 				const username = stringValue(profile.username) ?? stringValue(profile.handle);
+				const shortBio = textValueForDisplay(profile.shortBio);
 				return (
 					<div className="readable-profile-card" key={`${username ?? "profile"}-${index}`}>
 						<div className="readable-profile-title">
@@ -8286,7 +8287,7 @@ function ReadableProfiles({ value }: { value: unknown }) {
 							{stringValue(profile.displayName) && <span>{stringValue(profile.displayName)}</span>}
 							{typeof profile.following === "boolean" && <span className="readable-badge">{profile.following ? "following" : "not following"}</span>}
 						</div>
-						{stringValue(profile.shortBio) && <div className="tool-text">{stringValue(profile.shortBio)}</div>}
+						{shortBio && <div className="tool-text">{shortBio}</div>}
 					</div>
 				);
 			})}
@@ -8298,9 +8299,10 @@ function ReadableReadResult({ value }: { value: unknown }) {
 	const record = recordValue(value);
 	const thread = recordValue(record.thread);
 	const content = arrayValue(record.content);
+	const context = textValueForDisplay(record.context);
 	return (
 		<div className="readable-result-stack">
-			{stringValue(record.context) && <div className="tool-text">{stringValue(record.context)}</div>}
+			{context && <div className="tool-text">{context}</div>}
 			{profileHasHandle(recordValue(thread.author)) || stringValue(thread.title) ?
 				<div className="readable-event-meta">
 					<ThreadReference
@@ -8322,6 +8324,7 @@ function ReadableThreadDocument({ value }: { value: unknown }) {
 	const thread = recordValue(value);
 	const rootPost = recordValue(thread.rootPost);
 	const title = stringValue(thread.title) ?? stringValue(rootPost.title);
+	const body = textValueForDisplay(rootPost.body);
 	const worldHandle = worldHandleFromRecord(thread);
 	const forumHandle = forumHandleFromRecord(thread);
 	return (
@@ -8338,7 +8341,7 @@ function ReadableThreadDocument({ value }: { value: unknown }) {
 			{profileHasHandle(recordValue(rootPost.author)) ?
 				<div className="readable-event-meta"><ProfileReference profile={recordValue(rootPost.author)} worldHandle={worldHandle} /></div>
 			:	null}
-			{stringValue(rootPost.body) && <ReadableQuote text={stringValue(rootPost.body)!} />}
+			{body && <ReadableQuote text={body} />}
 		</div>
 	);
 }
@@ -8396,10 +8399,11 @@ function ReadableForumList({ value, worldHandle }: { value: unknown; worldHandle
 		<div className="tool-pretty tool-list">
 			{items.slice(0, 12).map((item, index) => {
 				const forum = recordValue(item);
+				const description = textValueForDisplay(forum.description);
 				return (
 					<div className="tool-pretty-item" key={`${stringValue(forum.forum ?? forum.handle) ?? "forum"}-${index}`}>
 						<ForumReference forumHandle={forumHandleFromRecord(forum)} worldHandle={worldHandleFromRecord(forum) ?? worldHandle} />
-						{stringValue(forum.description) && <span>{stringValue(forum.description)}</span>}
+						{description && <span>{description}</span>}
 					</div>
 				);
 			})}
@@ -8466,7 +8470,7 @@ function ReadableGenericResult({ value }: { value: unknown }) {
 		return value.length === 0 ? <div className="tool-text">No results.</div> : <div className="tool-text">{value.length} result{value.length === 1 ? "" : "s"} returned.</div>;
 	}
 	const record = recordValue(value);
-	const message = stringValue(record.message ?? record.status ?? record.context);
+	const message = textValueForDisplay(record.message ?? record.status ?? record.context);
 	return message ? <div className="tool-text">{message}</div> : <ReadableGenericFields record={record} />;
 }
 
@@ -8497,13 +8501,14 @@ function SpotlightPreviewReadableView({ injectedText }: { injectedText: string }
 	}
 	const worldHandle = worldHandleFromRecord(record);
 	const forumHandle = forumHandleFromRecord(record);
+	const focus = textValueForDisplay(record.focus);
 	return (
 		<div className="injected readable-context">
 			<div className="readable-event-meta">
 				<span>Spotlight context</span>
 				<ForumReference forumHandle={forumHandle} worldHandle={worldHandle} />
 			</div>
-			{stringValue(record.focus) && <ReadableQuote label="Focus" text={stringValue(record.focus)!} />}
+			{focus && <ReadableQuote label="Focus" text={focus} />}
 			<ReadableContentChain
 				content={arrayValue(record.content)}
 				fallbackThread={{ world: worldHandle ? `w/${worldHandle}` : undefined, forum: forumHandle ? `f/${forumHandle}` : undefined }}
@@ -8535,15 +8540,15 @@ function ReadableContentChain({
 				const threadId = stringValue(item.threadId) ?? fallbackThreadId;
 				const commentId = stringValue(item.commentId ?? (type === "comment" ? item.id : undefined));
 				const title = stringValue(item.title);
-				const body = stringValue(item.body);
+				const body = textValueForDisplay(item.body);
 				const author = recordValue(item.author);
 				const authorProfile = profileHasHandle(author) ? author : item;
 				return (
 					<div className={`readable-chain-item ${type}`} key={`${stringValue(item.id) ?? type}-${index}`}>
-							<div className="readable-chain-head">
-								<span className="readable-badge">{type === "thread" ? "thread" : "reply"}</span>
-								{item.target === true && <span className="readable-badge strong">selected</span>}
-								{item.ancestorOnly === true && <span className="readable-badge">context</span>}
+						<div className="readable-chain-head">
+							<span className="readable-badge">{type === "thread" ? "thread" : "reply"}</span>
+							{item.target === true && <span className="readable-badge strong">selected</span>}
+							{item.ancestorOnly === true && <span className="readable-badge">context</span>}
 							{profileHasHandle(authorProfile) && <ProfileReference profile={authorProfile} worldHandle={worldHandle} />}
 							{type === "thread" && (
 								<ThreadReference

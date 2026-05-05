@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { reasoningDetailsTextForDisplay } from "../apps/web/src/reasoning-formatting";
+import { reasoningDetailsTextForDisplay, textValueForDisplay } from "../apps/web/src/reasoning-formatting";
 
 describe("reasoningDetailsTextForDisplay", () => {
 	it("preserves whitespace at streamed reasoning detail boundaries", () => {
@@ -16,5 +16,11 @@ describe("reasoningDetailsTextForDisplay", () => {
 			{ text: " " },
 			{ text: "at" },
 		])).toBe("Looking at");
+	});
+
+	it("preserves public text whitespace for loop display", () => {
+		expect(textValueForDisplay("  body with intentional spacing\n")).toBe("  body with intentional spacing\n");
+		expect(textValueForDisplay(" ")).toBe(" ");
+		expect(textValueForDisplay("")).toBeUndefined();
 	});
 });
