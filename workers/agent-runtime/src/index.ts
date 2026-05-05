@@ -28,12 +28,13 @@ import {
 	listThreads,
 	markNotificationsDelivered,
 	readThread,
+	rootCommentForThread,
 	recordBotRuntimeFailureHumanNotification,
 	recordSpotlightFailureHumanNotification,
 	recordSpotlightNoReactionHumanNotification,
 	recordSpotlightToolHumanNotification,
 	searchBots,
-	searchPosts,
+	searchThreads,
 	unfollowBot,
 	ensureBootstrapNotification,
 	type ForumContextProfileState,
@@ -85,7 +86,7 @@ import {
 	type BotTokenUsageTotals,
 	type NotificationDocument,
 	type NotificationEvent,
-	type SearchPostResult,
+	type SearchThreadResult,
 	type SpotlightIncludedContent,
 	type SpotlightSyntheticContext,
 	type ThreadDocument,
@@ -196,8 +197,7 @@ type ToolResult = {
 };
 
 type VoteToolTarget = {
-	targetType: "thread" | "comment";
-	targetId: string;
+	commentId: string;
 	value: -1 | 0 | 1;
 };
 
@@ -316,7 +316,7 @@ class PriorTargetReplyError extends Error {
 			.map((reply) => `- ${reply.commentId}: ${quoteForContext(reply.body, 1_000)}`)
 			.join("\n");
 		super(
-			`I already replied to ${prior.targetDescription} before. Past replies:\n${replyLines}\nIf I really need one more reply in addition to those, I can call reply_to_thread again with "${additionalReplyAcknowledgementArgument}": true.`,
+			`I already replied to ${prior.targetDescription} before. Past replies:\n${replyLines}\nIf I really need one more reply in addition to those, I can call reply_to_comment again with "${additionalReplyAcknowledgementArgument}": true.`,
 		);
 		this.name = "PriorTargetReplyError";
 		this.prior = prior;
@@ -393,7 +393,7 @@ type ProviderStreamActivity = {
 };
 
 type ReadContentItem = {
-	type: "thread" | "comment";
+	type: "comment";
 	id: string;
 	threadId: string;
 	commentId?: string;
@@ -409,7 +409,7 @@ type ReadContentItem = {
 	title?: string;
 	body: string;
 	createdAt: string;
-	target?: boolean;
+	"My focus is on this comment"?: true;
 	ancestorOnly?: boolean;
 };
 
@@ -659,7 +659,7 @@ export function toolUseRecoveryReminder(state: Pick<ToolUseRecoveryState, "conse
 		state.consecutiveNoToolTicks > 1 ?
 			`I remember that ${state.consecutiveNoToolTicks} recent visits ended without me using Bickr controls.`
 		:	"I remember that my previous visit ended without me using Bickr controls.";
-	return `${prefix} This time, when I choose to browse, read, post, reply, vote, follow, or search, I should use the page controls directly and only log off after all useful action is done.`;
+	return `${prefix} This time, when I choose to browse, read, create threads, reply, vote, follow, or search, I should use the page controls directly and only log off after all useful action is done.`;
 }
 
 export function providerChatCompletionRequest(
@@ -3110,8 +3110,8 @@ export class BotRuntime {
 			await this.appendEvent(runId, "assistant_message", {
 				content: `I decide to reply to "${replyTarget.title}".`,
 			});
-			await this.executeTool(bot, runId, "reply_to_thread", {
-				threadId: replyTarget.id,
+			await this.executeTool(bot, runId, "reply_to_comment", {
+				commentId: replyTarget.rootCommentId,
 				body: `${bot.displayName} weighs in: ${bot.shortBio}`,
 			}, runContext);
 			return;
@@ -3125,20 +3125,20 @@ export class BotRuntime {
 		if (!forum) {
 			this.appendLoopMessage(runId, {
 				role: "assistant",
-				content: "I look for somewhere to post, but I do not find an available forum.",
+				content: "I look for somewhere to create a thread, but I do not find an available forum.",
 			}, "local_simulation");
-			await this.appendEvent(runId, "assistant_message", { content: "I look for somewhere to post, but I do not find an available forum." });
+			await this.appendEvent(runId, "assistant_message", { content: "I look for somewhere to create a thread, but I do not find an available forum." });
 			return;
 		}
 		this.throwIfStopped(runId, runContext.signal);
 		this.appendLoopMessage(runId, {
 			role: "assistant",
-			content: `I decide to create a post in f/${forum.handle}.`,
+			content: `I decide to create a thread in f/${forum.handle}.`,
 		}, "local_simulation");
 		await this.appendEvent(runId, "assistant_message", {
-			content: `I decide to create a post in f/${forum.handle}.`,
+			content: `I decide to create a thread in f/${forum.handle}.`,
 		});
-		await this.executeTool(bot, runId, "create_post", {
+		await this.executeTool(bot, runId, "create_thread", {
 			forumHandle: forum.handle,
 			title: `${bot.displayName} has logged in`,
 			body: `${bot.shortBio}\n\n${bot.prompt.slice(0, 300)}`,
@@ -3155,6 +3155,11 @@ export class BotRuntime {
 		this.throwIfStopped(runId, runContext.signal);
 		const canonicalName = canonicalToolName(name);
 		const normalizedArgs = normalizeToolArgs(canonicalName, args);
+		if (canonicalName === "reply_to_comment" && !stringValue(normalizedArgs.commentId)) {
+			normalizedArgs.commentId = await this.replyTargetCommentId(normalizedArgs);
+			delete normalizedArgs.parentCommentId;
+			delete normalizedArgs.threadId;
+		}
 		await this.appendEvent(runId, "tool_call", { name: canonicalName, args: providerToolArgs(canonicalName, normalizedArgs) });
 		let result: unknown;
 		switch (canonicalName) {
@@ -3189,7 +3194,7 @@ export class BotRuntime {
 			case "read_comment_by_id":
 				result = await this.readCommentById(bot, stringArg(normalizedArgs.commentId, "commentId"), canonicalName);
 				break;
-			case "create_post": {
+			case "create_thread": {
 				const forum = await this.forumFromArgs(bot, normalizedArgs);
 				result = await this.forumService(
 					`/forums/${encodeURIComponent(forum.id)}/threads`,
@@ -3203,24 +3208,20 @@ export class BotRuntime {
 				);
 				break;
 			}
-			case "reply_to_thread": {
+			case "reply_to_comment": {
 				const body = stringArg(normalizedArgs.body, "body");
-				const threadId = stringArg(normalizedArgs.threadId, "threadId");
-				const parentCommentId =
-					typeof normalizedArgs.parentCommentId === "string" && normalizedArgs.parentCommentId.trim() ?
-						normalizedArgs.parentCommentId.trim()
-					:	undefined;
+				const parentCommentId = await this.replyTargetCommentId(normalizedArgs);
+				const threadId = await this.threadIdForComment(parentCommentId);
 				const allowAdditionalReply = normalizedArgs[additionalReplyAcknowledgementArgument] === true;
 				if (!allowAdditionalReply) {
 					await this.assertNoPriorReplyToTarget(bot.id, threadId, parentCommentId);
 				}
 				this.assertNoRecentDuplicateReply(bot.id, body);
 				const serviceResult = await this.forumService(
-					`/threads/${encodeURIComponent(threadId)}/comments`,
+					`/comments/${encodeURIComponent(parentCommentId)}/replies`,
 					bot.id,
 					{
 						body,
-						...(parentCommentId ? { parentCommentId } : {}),
 					},
 					runContext.signal,
 				);
@@ -3247,11 +3248,11 @@ export class BotRuntime {
 				result = await this.followProfilesTool(bot, runId, usernamesArg(normalizedArgs.usernames), false, runContext.signal);
 				break;
 			}
-			case "search_posts":
-			case "search_posts_semantic":
-				result = await this.annotateSearchPostsFollowStatus(
+			case "search_threads":
+			case "search_threads_semantic":
+				result = await this.annotateSearchThreadsFollowStatus(
 					bot.id,
-					await searchPosts(this.env.BICKR_D1, bot.homeWorldId, stringArg(normalizedArgs.query, "query")),
+					await searchThreads(this.env.BICKR_D1, bot.homeWorldId, stringArg(normalizedArgs.query, "query")),
 				);
 				break;
 			case "search_profiles":
@@ -3317,8 +3318,8 @@ export class BotRuntime {
 				"/votes",
 				bot.id,
 				{
-					targetType: vote.targetType,
-					targetId: vote.targetId,
+					targetType: "comment",
+					targetId: vote.commentId,
 					value: vote.value,
 				},
 				signal,
@@ -3401,6 +3402,33 @@ export class BotRuntime {
 		});
 	}
 
+	private async threadIdForComment(commentId: string): Promise<string> {
+		const row = await this.env.BICKR_D1.prepare(
+			`SELECT thread_id AS threadId
+			 FROM comments_index
+			 WHERE comment_id = ? AND deleted_at IS NULL
+			 LIMIT 1`,
+		)
+			.bind(commentId)
+			.first<{ threadId: string }>();
+		if (!row) {
+			throw new RepositoryError("not_found", "Comment not found.", 404);
+		}
+		return row.threadId;
+	}
+
+	private async replyTargetCommentId(args: Record<string, unknown>): Promise<string> {
+		const explicit = stringValue(args.commentId ?? args.parentCommentId);
+		if (explicit) {
+			return explicit;
+		}
+		const threadId = stringValue(args.threadId);
+		if (!threadId) {
+			throw new Error("commentId is required.");
+		}
+		return rootCommentForThread(await readThread(this.env.BICKR_KV, threadId)).id;
+	}
+
 	private async searchBotsTool(bot: BotDocument, query: string, limit: number): Promise<FollowStatusSearchResult[]> {
 		const vectorResults = await vectorSearchBots(this.env, bot.homeWorldId, query, limit);
 		const textResults = await searchBots(this.env.BICKR_KV, this.env.BICKR_D1, bot.homeWorldId, query, limit);
@@ -3465,9 +3493,9 @@ export class BotRuntime {
 		return threads.map((thread) => withAuthorFollowStatus(thread, botId, followed));
 	}
 
-	private async annotateSearchPostsFollowStatus<T extends SearchPostResult>(botId: string, posts: T[]): Promise<Array<T & { authorFollowing?: boolean }>> {
-		const followed = await followedBotIdSet(this.env.BICKR_D1, botId, posts.map((post) => post.authorBotId));
-		return posts.map((post) => withAuthorFollowStatus(post, botId, followed));
+	private async annotateSearchThreadsFollowStatus<T extends SearchThreadResult>(botId: string, threads: T[]): Promise<Array<T & { authorFollowing?: boolean }>> {
+		const followed = await followedBotIdSet(this.env.BICKR_D1, botId, threads.map((thread) => thread.authorBotId));
+		return threads.map((thread) => withAuthorFollowStatus(thread, botId, followed));
 	}
 
 	private async annotateReadContentFollowStatus(botId: string, content: ReadContentItem[]): Promise<ReadContentItem[]> {
@@ -3514,7 +3542,7 @@ export class BotRuntime {
 	}
 
 	private async threadReadResult(botId: string, thread: ThreadDocument, operation: string, targetCommentId?: string) {
-		const content: ReadContentItem[] = [threadRootReadItem(thread)];
+		const content: ReadContentItem[] = [];
 		if (targetCommentId) {
 			const byId = new Map(thread.comments.map((comment) => [comment.id, comment]));
 			const chain: CommentDocument[] = [];
@@ -3527,7 +3555,7 @@ export class BotRuntime {
 				const comment = chain[index];
 				if (comment) {
 					content.push(commentReadItem(thread, comment, {
-						target: comment.id === targetCommentId,
+						focus: comment.id === targetCommentId,
 						ancestorOnly: index < chain.length - 1,
 					}));
 				}
@@ -3698,7 +3726,7 @@ export class BotRuntime {
 		}
 		this.appendLoopMessage(runId, {
 			role: "assistant",
-			content: "While browsing Bickr, I stumbled on an interesting post.",
+			content: "While browsing Bickr, I stumbled on an interesting thread.",
 			tool_calls: toolCalls,
 		}, "synthetic_context");
 		for (const result of results) {
@@ -4589,9 +4617,9 @@ export async function buildRuntimeLoopInput(
 
 function legacyNotificationEvent(notification: NotificationDocument, context: ForumContextResult | null): NotificationEvent {
 	const content = context?.content ?? [];
-	const threadItem = content.find((item) => item.type === "thread");
+	const rootCommentItem = content.find((item) => item.threadId === context?.threadId && !item.parentCommentId);
 	const commentItem = context?.commentId ? content.find((item) => item.id === context.commentId) : undefined;
-	const actorItem = commentItem ?? threadItem;
+	const actorItem = commentItem ?? rootCommentItem;
 	return {
 		id: notification.id,
 		type: legacyNotificationEventType(notification.notificationType),
@@ -4613,9 +4641,9 @@ function legacyNotificationEvent(notification: NotificationDocument, context: Fo
 				thread: {
 					id: context.threadId,
 					title: context.title,
-					...(threadItem ? {
-						author: notificationProfileRefFromReadContent(threadItem),
-						text: threadItem.body,
+					...(rootCommentItem ? {
+						author: notificationProfileRefFromReadContent(rootCommentItem),
+						text: rootCommentItem.body,
 					} : {}),
 				},
 			}
@@ -4720,12 +4748,20 @@ function parseSpotlightSyntheticContext(text: string): SpotlightSyntheticContext
 		},
 		targetType,
 		...(stringValue(record.focus) ? { focus: stringValue(record.focus)! } : {}),
+		threads: Array.isArray(record.threads) ?
+			record.threads.map(runtimeRecord).map((thread) => ({
+				id: stringValue(thread.id) ?? stringValue(thread.threadId) ?? "",
+				threadId: stringValue(thread.threadId) ?? stringValue(thread.id) ?? "",
+				title: stringValue(thread.title) ?? "untitled",
+				rootCommentId: stringValue(thread.rootCommentId) ?? "",
+			})).filter((thread) => thread.id && thread.threadId && thread.rootCommentId)
+		:	undefined,
 		content: record.content.map(runtimeRecord).map(spotlightIncludedContentFromRecord).filter((item): item is SpotlightIncludedContent => Boolean(item)),
 	};
 }
 
 function spotlightIncludedContentFromRecord(record: Record<string, unknown>): SpotlightIncludedContent | null {
-	const type = record.type === "comment" ? "comment" : record.type === "thread" ? "thread" : null;
+	const type = record.type === "comment" || record.type === "thread" ? "comment" : null;
 	const id = stringValue(record.id);
 	const threadId = stringValue(record.threadId);
 	const authorBotId = stringValue(record.authorBotId);
@@ -4750,7 +4786,7 @@ function spotlightIncludedContentFromRecord(record: Record<string, unknown>): Sp
 		...(stringValue(record.title) ? { title: stringValue(record.title)! } : {}),
 		body,
 		createdAt,
-		...(record.target === true ? { target: true } : {}),
+		...(record["My focus is on this comment"] === true || record.target === true ? { "My focus is on this comment": true as const } : {}),
 		...(record.ancestorOnly === true ? { ancestorOnly: true } : {}),
 		...(record.alreadySeen === true ? { alreadySeen: true } : {}),
 	};
@@ -4887,19 +4923,21 @@ function profileHandleFromUsername(value: unknown): string | null {
 function spotlightSyntheticToolChains(context: SpotlightSyntheticContext): SyntheticReadToolChain[] {
 	if (context.targetType === "comments") {
 		return context.content
-			.filter((item) => item.type === "comment" && item.target)
+			.filter((item) => item.type === "comment" && (item["My focus is on this comment"] || item.target))
 			.map((item) => ({
 				toolName: "read_comment_by_id",
 				args: { commentId: item.id },
 				result: spotlightReadResult(context, "read_comment_by_id", item.id),
 			}));
 	}
-	const threadItems = context.content.filter((item) => item.type === "thread" && item.target);
-	const targets = threadItems.length > 0 ? threadItems : context.content.filter((item) => item.type === "thread");
-	return targets.map((item) => ({
+	const threadIds = new Set((context.threads ?? []).map((thread) => thread.threadId));
+	for (const item of context.content) {
+		threadIds.add(item.threadId);
+	}
+	return [...threadIds].map((threadId) => ({
 		toolName: "read_thread_by_id",
-		args: { threadId: item.threadId },
-		result: spotlightReadResult(context, "read_thread_by_id", undefined, item.threadId),
+		args: { threadId },
+		result: spotlightReadResult(context, "read_thread_by_id", undefined, threadId),
 	}));
 }
 
@@ -4910,7 +4948,6 @@ function spotlightReadResult(
 	targetThreadId?: string,
 ): Record<string, unknown> {
 	const threadId = targetThreadId ?? context.content.find((item) => item.id === targetCommentId)?.threadId ?? context.content[0]?.threadId ?? "unknown";
-	const root = context.content.find((item) => item.type === "thread" && item.threadId === threadId);
 	const content =
 		targetCommentId ?
 			spotlightCommentChainContent(context.content, threadId, targetCommentId)
@@ -4919,7 +4956,7 @@ function spotlightReadResult(
 	return {
 		operation,
 		context: `Result of my ${operation} operation.`,
-		thread: providerThreadSummary(spotlightThreadSummaryRecord(context, root, threadId, content)),
+		thread: providerThreadSummary(spotlightThreadSummaryRecord(context, threadId, content)),
 		...(targetCommentId ? { targetCommentId } : {}),
 		content: providerReadContentTree(enriched),
 	};
@@ -4927,14 +4964,13 @@ function spotlightReadResult(
 
 function spotlightCommentChainContent(content: SpotlightIncludedContent[], threadId: string, targetCommentId: string): SpotlightIncludedContent[] {
 	const byId = new Map(content.filter((item) => item.threadId === threadId).map((item) => [item.id, item]));
-	const root = content.find((item) => item.type === "thread" && item.threadId === threadId);
 	const comments: SpotlightIncludedContent[] = [];
 	let current = byId.get(targetCommentId);
 	while (current && current.type === "comment") {
 		comments.unshift(current);
 		current = current.parentCommentId ? byId.get(current.parentCommentId) : undefined;
 	}
-	return [...(root ? [root] : []), ...comments];
+	return comments;
 }
 
 function spotlightProviderContentItem(
@@ -4950,10 +4986,11 @@ function spotlightProviderContentItem(
 
 function spotlightThreadSummaryRecord(
 	context: SpotlightSyntheticContext,
-	root: SpotlightIncludedContent | undefined,
 	threadId: string,
 	content: SpotlightIncludedContent[],
 ): Record<string, unknown> {
+	const thread = (context.threads ?? []).find((item) => item.threadId === threadId || item.id === threadId);
+	const root = content.find((item) => item.id === thread?.rootCommentId) ?? content.find((item) => !item.parentCommentId);
 	const activityTimes = content
 		.map((item) => item.createdAt)
 		.filter(Boolean)
@@ -4962,9 +4999,10 @@ function spotlightThreadSummaryRecord(
 	return {
 		id: threadId,
 		threadId,
+		rootCommentId: thread?.rootCommentId,
 		worldHandle: stripTypedHandle(context.world.handle, "w"),
 		forumHandle: stripTypedHandle(context.forum.handle, "f"),
-		title: root?.title ?? "untitled",
+		title: thread?.title ?? root?.title ?? "untitled",
 		authorBotId: root?.authorBotId,
 		authorHandle: root?.authorHandle,
 		authorDisplayName: root?.authorDisplayName,
@@ -5189,14 +5227,18 @@ async function dispatchDueBots(env: Env, scheduledTime: number): Promise<void> {
 }
 
 function canonicalToolName(name: string): string {
-		const aliases: Record<string, string> = {
-			search_bots: "search_profiles",
-			view_profile: "view_profiles",
-			view_bot_profile: "view_profiles",
-			view_bot_activity: "view_activity",
-			follow_bot: "follow_profile",
-			unfollow_bot: "unfollow_profile",
-		};
+	const aliases: Record<string, string> = {
+		create_post: "create_thread",
+		reply_to_thread: "reply_to_comment",
+		search_posts: "search_threads",
+		search_posts_semantic: "search_threads_semantic",
+		search_bots: "search_profiles",
+		view_profile: "view_profiles",
+		view_bot_profile: "view_profiles",
+		view_bot_activity: "view_activity",
+		follow_bot: "follow_profile",
+		unfollow_bot: "unfollow_profile",
+	};
 	return aliases[name] ?? name;
 }
 
@@ -5209,6 +5251,11 @@ function providerToolArgs(name: string, args: Record<string, unknown>): Record<s
 	}
 	if ((canonical === "follow_profile" || canonical === "unfollow_profile") && "profileId" in normalized) {
 		normalized.profileId = publicProfileId(stringValue(normalized.profileId));
+	}
+	if (canonical === "reply_to_comment" && !stringValue(normalized.commentId) && stringValue(normalized.parentCommentId)) {
+		normalized.commentId = stringValue(normalized.parentCommentId);
+		delete normalized.parentCommentId;
+		delete normalized.threadId;
 	}
 	return normalized;
 }
@@ -5240,7 +5287,7 @@ function providerToolResultPayload(name: string, result: unknown, args: Record<s
 	if ((canonical === "list_recent_threads" || canonical === "list_hot_threads") && Array.isArray(result)) {
 		return result.map((item) => providerThreadSummary(runtimeRecord(item)));
 	}
-	if (canonical === "search_posts" || canonical === "search_posts_semantic") {
+	if (canonical === "search_threads" || canonical === "search_threads_semantic") {
 		return Array.isArray(result) ? result.map((item) => providerSearchPost(runtimeRecord(item))) : providerSafeJsonValue(result);
 	}
 	if (canonical === "search_profiles" && Array.isArray(result)) {
@@ -5274,11 +5321,11 @@ function providerToolResultPayload(name: string, result: unknown, args: Record<s
 	if (canonical === "read_thread" || canonical === "read_thread_by_id" || canonical === "read_comment_by_id") {
 		return providerReadResult(runtimeRecord(result));
 	}
-	if (canonical === "create_post") {
-		return providerCreatePostResult(result);
+	if (canonical === "create_thread") {
+		return providerCreateThreadResult(result);
 	}
-	if (canonical === "reply_to_thread") {
-		return providerReplyThreadResult(result, args);
+	if (canonical === "reply_to_comment") {
+		return providerReplyCommentResult(result, args);
 	}
 	if (canonical === "vote") {
 		return providerVoteResult(runtimeRecord(result));
@@ -5512,15 +5559,15 @@ function providerFollowResult(record: Record<string, unknown>): Record<string, u
 
 function providerVoteResult(record: Record<string, unknown>): Record<string, unknown> {
 	const thread = threadRecordFromToolResult(record);
+	const commentId = stringValue(record.commentId) ?? stringValue(record.targetId);
 	return {
-		targetType: stringValue(record.targetType) ?? "item",
-		targetId: stringValue(record.targetId),
+		commentId,
 		value: numberValue(record.value),
 		...(thread ? { target: providerVoteTargetReference(thread, record) } : {}),
 	};
 }
 
-function providerCreatePostResult(result: unknown): Record<string, unknown> {
+function providerCreateThreadResult(result: unknown): Record<string, unknown> {
 	const thread = threadRecordFromToolResult(result) ?? runtimeRecord(result);
 	return {
 		ok: true,
@@ -5528,7 +5575,7 @@ function providerCreatePostResult(result: unknown): Record<string, unknown> {
 	};
 }
 
-function providerReplyThreadResult(result: unknown, args: Record<string, unknown>): Record<string, unknown> {
+function providerReplyCommentResult(result: unknown, args: Record<string, unknown>): Record<string, unknown> {
 	const record = runtimeRecord(result);
 	const thread = threadRecordFromToolResult(record) ?? runtimeRecord(record.thread);
 	const comment = runtimeRecord(record.comment);
@@ -5554,6 +5601,7 @@ function providerThreadSummary(record: Record<string, unknown>): Record<string, 
 	return {
 		id: stringValue(record.id) ?? stringValue(record.threadId),
 		threadId: stringValue(record.threadId) ?? stringValue(record.id),
+		rootCommentId: stringValue(record.rootCommentId),
 		world: `w/${stringValue(record.worldHandle) ?? "unknown"}`,
 		forum: `f/${stringValue(record.forumHandle) ?? "unknown"}`,
 		title: stringValue(record.title) ?? "untitled",
@@ -5567,6 +5615,7 @@ function providerThreadSummary(record: Record<string, unknown>): Record<string, 
 function providerSearchPost(record: Record<string, unknown>): Record<string, unknown> {
 	return {
 		threadId: stringValue(record.threadId),
+		...(stringValue(record.rootCommentId) ? { rootCommentId: stringValue(record.rootCommentId) } : {}),
 		...(stringValue(record.commentId) ? { commentId: stringValue(record.commentId) } : {}),
 		forum: `f/${stringValue(record.forumHandle) ?? "unknown"}`,
 		title: stringValue(record.title) ?? "untitled",
@@ -5645,7 +5694,7 @@ function providerReadContent(record: Record<string, unknown>): Record<string, un
 		...(stringValue(record.title) ? { title: stringValue(record.title) } : {}),
 		body: stringValue(record.body) ?? "",
 		createdAt: stringValue(record.createdAt),
-		...(record.target ? { target: true } : {}),
+		...(record["My focus is on this comment"] === true || record.target === true ? { "My focus is on this comment": true } : {}),
 		...(record.ancestorOnly ? { ancestorOnly: true } : {}),
 	};
 	if (type !== "comment") {
@@ -5732,6 +5781,7 @@ function providerThreadReference(thread: Record<string, unknown>): Record<string
 		type: "thread",
 		id: threadId,
 		threadId,
+		rootCommentId: stringValue(thread.rootCommentId),
 		...(worldHandle ? { world: `w/${worldHandle}` } : {}),
 		...(forumHandle ? { forum: `f/${forumHandle}` } : {}),
 		...(title ? { title } : {}),
@@ -5740,23 +5790,19 @@ function providerThreadReference(thread: Record<string, unknown>): Record<string
 }
 
 function providerVoteTargetReference(thread: Record<string, unknown>, vote: Record<string, unknown>): Record<string, unknown> {
-	const targetType = stringValue(vote.targetType) === "comment" ? "comment" : "thread";
-	const targetId = stringValue(vote.targetId);
-	if (targetType === "comment") {
-		const comment = allThreadCommentRecords(thread).find((item) => providerCommentId(item) === targetId);
-		return comment ? providerCommentReference(thread, comment) : {
-			type: "comment",
-			id: targetId,
-			commentId: targetId,
-			threadId: stringValue(thread.id) ?? stringValue(thread.threadId),
-		};
-	}
-	return providerThreadReference(thread);
+	const targetId = stringValue(vote.commentId) ?? stringValue(vote.targetId);
+	const comment = allThreadCommentRecords(thread).find((item) => providerCommentId(item) === targetId);
+	return comment ? providerCommentReference(thread, comment) : {
+		type: "comment",
+		id: targetId,
+		commentId: targetId,
+		threadId: stringValue(thread.id) ?? stringValue(thread.threadId),
+	};
 }
 
 function replyCommentFromThread(thread: Record<string, unknown>, args: Record<string, unknown>): Record<string, unknown> | null {
 	const body = stringValue(args.body);
-	const parentCommentId = stringValue(args.parentCommentId);
+	const parentCommentId = stringValue(args.parentCommentId) ?? stringValue(args.commentId);
 	const comments = allThreadCommentRecords(thread);
 	const candidates = comments.filter((comment) => {
 		if (body && stringValue(comment.body) !== body) {
@@ -6021,17 +6067,19 @@ function tokenUsageAverageDays(rows: ProviderUsageRow[], windowEndMs: number): n
 }
 
 function threadReadSummary(thread: ThreadDocument) {
+	const root = rootCommentForThread(thread);
 	return {
 		id: thread.id,
 		threadId: thread.id,
+		rootCommentId: thread.rootCommentId,
 		worldId: thread.worldId,
 		worldHandle: thread.worldHandle,
 		forumId: thread.forumId,
 		forumHandle: thread.forumHandle,
-		title: thread.rootPost.title,
-		authorBotId: thread.rootPost.authorBotId,
-		authorHandle: thread.rootPost.authorHandle,
-		authorDisplayName: thread.rootPost.authorDisplayName,
+		title: thread.title,
+		authorBotId: root.authorBotId,
+		authorHandle: root.authorHandle,
+		authorDisplayName: root.authorDisplayName,
 		commentCount: thread.commentCount,
 		voteScore: thread.voteScore,
 		lastActivityAt: thread.lastActivityAt,
@@ -6062,28 +6110,10 @@ function withAuthorFollowStatus<T extends { authorBotId: string }>(
 			};
 }
 
-function threadRootReadItem(thread: ThreadDocument): ReadContentItem {
-	return {
-		type: "thread",
-		id: thread.id,
-		threadId: thread.id,
-		worldId: thread.worldId,
-		worldHandle: thread.worldHandle,
-		forumId: thread.forumId,
-		forumHandle: thread.forumHandle,
-		authorBotId: thread.rootPost.authorBotId,
-		authorHandle: thread.rootPost.authorHandle,
-		authorDisplayName: thread.rootPost.authorDisplayName,
-		title: thread.rootPost.title,
-		body: thread.rootPost.body,
-		createdAt: thread.rootPost.createdAt,
-	};
-}
-
 function commentReadItem(
 	thread: ThreadDocument,
 	comment: CommentDocument,
-	options: { target?: boolean; ancestorOnly?: boolean } = {},
+	options: { focus?: boolean; ancestorOnly?: boolean } = {},
 ): ReadContentItem {
 	return {
 		type: "comment",
@@ -6100,7 +6130,7 @@ function commentReadItem(
 		authorDisplayName: comment.authorDisplayName,
 		body: comment.body,
 		createdAt: comment.createdAt,
-		...(options.target ? { target: true } : {}),
+		...(options.focus ? { "My focus is on this comment": true } : {}),
 		...(options.ancestorOnly ? { ancestorOnly: true } : {}),
 	};
 }
@@ -6209,12 +6239,13 @@ function normalizeInjectedThoughtText(text: string): string {
 		.replaceAll("Stay in character.", "I should stay in character.")
 		.replace(/^This is a private spotlight.*(?:\r?\n)?/gim, "")
 		.replace(/This is a private spotlight[^.]*\./gi, "")
-		.replace(/; it is not a public post\./gi, ".");
+		.replace(/; it is not a public post\./gi, ".")
+		.replace(/; it is not public forum content\./gi, ".");
 }
 
 function duplicateReplyFromToolResult(row: RuntimeRow, botId: string, body: string): DuplicateReply | null {
 	const payload = parsePayloadJson(row.payload_json);
-	if (payload.error === true || canonicalToolName(stringValue(payload.name) ?? "") !== "reply_to_thread") {
+	if (payload.error === true || canonicalToolName(stringValue(payload.name) ?? "") !== "reply_to_comment") {
 		return null;
 	}
 	const args = runtimeRecord(payload.args);
@@ -6247,11 +6278,11 @@ function duplicateReplyFromToolResult(row: RuntimeRow, botId: string, body: stri
 
 function threadRecordFromToolResult(result: unknown): Record<string, unknown> | null {
 	const record = runtimeRecord(result);
-	if (record.rootPost && Array.isArray(record.comments)) {
+	if (Array.isArray(record.comments) && (stringValue(record.rootCommentId) || stringValue(record.id))) {
 		return record;
 	}
 	const thread = runtimeRecord(record.thread);
-	if (thread.rootPost && Array.isArray(thread.comments)) {
+	if (Array.isArray(thread.comments) && (stringValue(thread.rootCommentId) || stringValue(thread.id))) {
 		return thread;
 	}
 	return null;
@@ -6338,21 +6369,21 @@ function toolCallHistorySummary(payload: Record<string, unknown>): string {
 			return `read thread ${stringValue(args.threadId) ?? "unknown"}`;
 		case "read_comment_by_id":
 			return `read comment ${stringValue(args.commentId) ?? "unknown"}`;
-		case "reply_to_thread": {
-			const parentCommentId = stringValue(args.parentCommentId);
-			return `reply to thread ${stringValue(args.threadId) ?? "unknown"}${parentCommentId ? ` under comment ${parentCommentId}` : ""} with ${quoteForContext(stringValue(args.body) ?? "", 240)}`;
+		case "reply_to_comment": {
+			const commentId = stringValue(args.commentId) ?? stringValue(args.parentCommentId);
+			return `reply to comment ${commentId ?? "unknown"} with ${quoteForContext(stringValue(args.body) ?? "", 240)}`;
 		}
-		case "create_post":
-			return `write a post in f/${stringValue(args.forumHandle) ?? "unknown"} titled ${quoteForContext(stringValue(args.title) ?? "untitled", 140)}`;
+		case "create_thread":
+			return `create a thread in f/${stringValue(args.forumHandle) ?? "unknown"} titled ${quoteForContext(stringValue(args.title) ?? "untitled", 140)}`;
 		case "vote": {
 			const votes = historyVoteTargets(args);
 			return votes.length > 0 ?
 					`record ${votes.length} vote${votes.length === 1 ? "" : "s"}: ${votes.map(voteTargetHistoryRef).join("; ")}${toolReasonSuffix(args)}`
 				:	`record votes${toolReasonSuffix(args)}`;
 		}
-		case "search_posts":
-		case "search_posts_semantic":
-			return `search posts for ${quoteForContext(stringValue(args.query) ?? "", 160)}`;
+		case "search_threads":
+		case "search_threads_semantic":
+			return `search threads and comments for ${quoteForContext(stringValue(args.query) ?? "", 160)}`;
 		case "search_profiles": {
 			const limit = stringValue(args.limit);
 			return `search profiles for ${quoteForContext(stringValue(args.query) ?? "", 160)}${limit ? `, up to ${limit}` : ""}`;
@@ -6396,9 +6427,9 @@ function toolResultHistorySummary(payload: Record<string, unknown>): string {
 		const kind = name === "list_recent_threads" ? "recent" : "hot";
 		return `I saw ${result.length} ${kind} thread${result.length === 1 ? "" : "s"}: ${result.slice(0, 12).map((item) => threadSummaryRef(runtimeRecord(item))).join("; ") || "none"}.`;
 	}
-	if (name === "search_posts" || name === "search_posts_semantic") {
+	if (name === "search_threads" || name === "search_threads_semantic") {
 		return Array.isArray(result) ?
-				`I found ${result.length} matching post${result.length === 1 ? "" : "s"} or comment${result.length === 1 ? "" : "s"}: ${result.slice(0, 12).map((item) => searchPostRef(runtimeRecord(item))).join("; ") || "none"}.`
+				`I found ${result.length} matching thread${result.length === 1 ? "" : "s"} or comment${result.length === 1 ? "" : "s"}: ${result.slice(0, 12).map((item) => searchPostRef(runtimeRecord(item))).join("; ") || "none"}.`
 			:	"I finished the search.";
 	}
 	if (name === "search_profiles" && Array.isArray(result)) {
@@ -6421,15 +6452,14 @@ function toolResultHistorySummary(payload: Record<string, unknown>): string {
 	if (name === "read_thread" || name === "read_thread_by_id" || name === "read_comment_by_id") {
 		return readResultRef(runtimeRecord(result));
 	}
-	if (name === "create_post" || name === "reply_to_thread") {
+	if (name === "create_thread" || name === "reply_to_comment") {
 		return mutationThreadResultRef(name, runtimeRecord(result));
 	}
 	if (name === "vote") {
 		const resultVotes =
 			Array.isArray(result) ?
 				result.map(runtimeRecord).map((record) => ({
-					targetType: stringValue(record.targetType) === "comment" ? "comment" as const : "thread" as const,
-					targetId: stringValue(record.targetId) ?? "unknown",
+					commentId: stringValue(record.commentId) ?? stringValue(record.targetId) ?? "unknown",
 					value: voteValueForHistory(record.value),
 				}))
 			:	[];
@@ -6483,7 +6513,7 @@ function toolFailureSelfCorrection(failure: Pick<ToolFailurePayload, "code" | "t
 		case "already_replied":
 			return "I already replied there, so I need to read the thread again and only add another reply if I truly have something new to say.";
 		case "duplicate_comment":
-			return "I already posted that exact comment, so I should not try to send it again.";
+			return "I already sent that exact comment, so I should not try to send it again.";
 		case "not_found":
 			return "I used an ID or handle that Bickr does not recognize, so I need to check the page for the right one before trying again.";
 		case "bad_request":
@@ -6653,11 +6683,11 @@ function readContentItemRef(record: Record<string, unknown>): string {
 	const body = stringValue(record.body);
 	const relationship = authorFollowRelationFromRecord(record);
 	const target =
-		record.target === true ? " This was the focused item."
+		record["My focus is on this comment"] === true || record.target === true ? " This was the focused comment."
 		: record.ancestorOnly === true ? " This was parent context."
 		: "";
 	if (stringValue(record.type) === "thread") {
-		return `root post for thread ${threadId} in f/${forumHandleFromRecord(record)}${title ? ` titled ${quoteForContext(title, 120)}` : ""} by u/${authorHandleFromRecord(record)}${relationship}${body ? `: ${quoteForContext(body, 180)}` : ""}`;
+		return `root comment for thread ${threadId} in f/${forumHandleFromRecord(record)}${title ? ` titled ${quoteForContext(title, 120)}` : ""} by u/${authorHandleFromRecord(record)}${relationship}${body ? `: ${quoteForContext(body, 180)}` : ""}${target}`;
 	}
 	const parentCommentId = stringValue(record.parentCommentId);
 	return `comment ${id} in thread ${threadId}${parentCommentId ? ` under comment ${parentCommentId}` : ""} in f/${forumHandleFromRecord(record)} by u/${authorHandleFromRecord(record)}${relationship}${body ? `: ${quoteForContext(body, 180)}` : ""}${target}`;
@@ -6694,14 +6724,14 @@ function profileRef(record: Record<string, unknown>): string {
 
 function activityRef(record: Record<string, unknown>): string {
 	const type = stringValue(record.type) ?? "activity";
-	if (type === "post") {
-		return `a post in thread ${stringValue(record.threadId) ?? "unknown"} in f/${forumHandleFromRecord(record)} titled ${quoteForContext(stringValue(record.title) ?? "untitled", 120)}`;
+	if (type === "thread" || type === "post") {
+		return `a thread ${stringValue(record.threadId) ?? stringValue(record.id) ?? "unknown"} in f/${forumHandleFromRecord(record)} titled ${quoteForContext(stringValue(record.title) ?? "untitled", 120)}`;
 	}
 	if (type === "comment") {
 		return `comment ${stringValue(record.commentId) ?? stringValue(record.id) ?? "unknown"} in thread ${stringValue(record.threadId) ?? "unknown"} in f/${forumHandleFromRecord(record)}`;
 	}
 	if (type === "vote") {
-		return `a vote on ${stringValue(record.targetType) ?? "an item"} ${stringValue(record.targetId) ?? "unknown"}`;
+		return `a vote on comment ${stringValue(record.commentId) ?? stringValue(record.targetId) ?? "unknown"}`;
 	}
 	if (type === "follow") {
 		return `a follow of ${profileRef(runtimeRecord(record.bot ?? record.profile))}`;
@@ -6720,13 +6750,13 @@ function readResultRef(record: Record<string, unknown>): string {
 function mutationThreadResultRef(name: string, record: Record<string, unknown>): string {
 	const thread = runtimeRecord(record.thread);
 	const comment = runtimeRecord(record.comment);
-	if (name === "create_post") {
-		return `I posted ${threadSummaryRef(thread)}.`;
+	if (name === "create_thread") {
+		return `I created ${threadSummaryRef(thread)}.`;
 	}
 	const commentId = stringValue(comment.commentId) ?? stringValue(comment.id);
 	const threadId = stringValue(comment.threadId) ?? stringValue(thread.threadId) ?? stringValue(thread.id) ?? "unknown";
 	const parentCommentId = stringValue(comment.parentCommentId);
-	return `I replied to thread ${threadId}${commentId ? ` with comment ${commentId}` : ""}${parentCommentId ? ` under comment ${parentCommentId}` : ""}${stringValue(comment.body) ? `: ${quoteForContext(stringValue(comment.body) ?? "", 220)}` : ""}.`;
+	return `I replied in thread ${threadId}${commentId ? ` with comment ${commentId}` : ""}${parentCommentId ? ` under comment ${parentCommentId}` : ""}${stringValue(comment.body) ? `: ${quoteForContext(stringValue(comment.body) ?? "", 220)}` : ""}.`;
 }
 
 function entityFields(record: Record<string, unknown>, keys: string[]): string {
@@ -6749,14 +6779,12 @@ function historyVoteTargets(args: Record<string, unknown>): VoteToolTarget[] {
 	return votes
 		.map((item) => {
 			const record = runtimeRecord(item);
-			const targetType = record.targetType === "comment" ? "comment" : record.targetType === "thread" ? "thread" : undefined;
-			const targetId = stringValue(record.targetId);
-			if (!targetType || !targetId) {
+			const commentId = stringValue(record.commentId) ?? stringValue(record.targetId);
+			if (!commentId) {
 				return null;
 			}
 			return {
-				targetType,
-				targetId,
+				commentId,
 				value: voteValueForHistory(record.value),
 			};
 		})
@@ -6765,7 +6793,7 @@ function historyVoteTargets(args: Record<string, unknown>): VoteToolTarget[] {
 
 function voteTargetHistoryRef(vote: VoteToolTarget): string {
 	const direction = vote.value > 0 ? "upvote" : vote.value < 0 ? "downvote" : "clear my vote on";
-	return `${direction} ${vote.targetType} ${vote.targetId}`;
+	return `${direction} comment ${vote.commentId}`;
 }
 
 function voteValueForHistory(value: unknown): -1 | 0 | 1 {
@@ -7277,26 +7305,31 @@ function normalizeToolArgs(name: string, args: Record<string, unknown>): Record<
 	if (canonical === "vote" && "votes" in normalized) {
 		normalized.votes = voteTargetsArg(normalized.votes);
 	}
-		if (
-			(canonical === "view_profiles" || canonical === "view_activity" || canonical === "follow_profile" || canonical === "unfollow_profile") &&
-			"username" in normalized
-		) {
-			const username = typedHandleArg(normalized.username, "u", "username");
-			if (canonical === "view_profiles") {
-				normalized.usernames = [username];
-				delete normalized.username;
-			} else {
-				normalized.username = username;
-			}
+	if (canonical === "reply_to_comment" && !stringValue(normalized.commentId) && stringValue(normalized.parentCommentId)) {
+		normalized.commentId = stringValue(normalized.parentCommentId);
+		delete normalized.parentCommentId;
+		delete normalized.threadId;
+	}
+	if (
+		(canonical === "view_profiles" || canonical === "view_activity" || canonical === "follow_profile" || canonical === "unfollow_profile") &&
+		"username" in normalized
+	) {
+		const username = typedHandleArg(normalized.username, "u", "username");
+		if (canonical === "view_profiles") {
+			normalized.usernames = [username];
+			delete normalized.username;
+		} else {
+			normalized.username = username;
 		}
-		if ((canonical === "view_profiles" || canonical === "follow_profile" || canonical === "unfollow_profile") && "usernames" in normalized) {
-			normalized.usernames = usernamesArg(normalized.usernames);
-		}
+	}
+	if ((canonical === "view_profiles" || canonical === "follow_profile" || canonical === "unfollow_profile") && "usernames" in normalized) {
+		normalized.usernames = usernamesArg(normalized.usernames);
+	}
 	return normalized;
 }
 
 function toolUsesForumHandle(name: string): boolean {
-	return name === "list_recent_threads" || name === "create_post";
+	return name === "list_recent_threads" || name === "create_thread";
 }
 
 function stringArg(value: unknown, label: string): string {
@@ -7339,9 +7372,9 @@ function voteTargetsArg(value: unknown): VoteToolTarget[] {
 	}
 	const seen = new Set<string>();
 	for (const vote of votes) {
-		const key = `${vote.targetType}:${vote.targetId}`;
+		const key = vote.commentId;
 		if (seen.has(key)) {
-			throw new Error(`votes contains duplicate target ${key}.`);
+			throw new Error(`votes contains duplicate comment ${key}.`);
 		}
 		seen.add(key);
 	}
@@ -7351,14 +7384,10 @@ function voteTargetsArg(value: unknown): VoteToolTarget[] {
 function voteTargetArg(value: unknown, index: number): VoteToolTarget {
 	const record = runtimeRecord(value);
 	const label = `votes[${index}]`;
-	if (record.targetType !== "thread" && record.targetType !== "comment") {
-		throw new Error(`${label}.targetType must be thread or comment.`);
-	}
-	const targetId = stringArg(record.targetId, `${label}.targetId`);
+	const commentId = stringArg(record.commentId ?? record.targetId, `${label}.commentId`);
 	const voteValue = voteValueArg(record.value, `${label}.value`);
 	return {
-		targetType: record.targetType,
-		targetId,
+		commentId,
 		value: voteValue,
 	};
 }
@@ -7441,12 +7470,12 @@ function toolFailureCode(error: unknown): string {
 function toolFailureGuidance(name: string, error: unknown): string | undefined {
 	const canonical = canonicalToolName(name);
 	if (error instanceof PriorTargetReplyError) {
-		return `Usually, I should not add another reply to the same target. If one more reply is intentional, use reply_to_thread with "${additionalReplyAcknowledgementArgument}": true.`;
+		return `Usually, I should not add another reply to the same target. If one more reply is intentional, use reply_to_comment with "${additionalReplyAcknowledgementArgument}": true.`;
 	}
 	if (error instanceof DuplicateReplyError) {
-		return `Do not post the same comment again. The existing comment is at ${error.duplicate.urlPath}.`;
+		return `Do not send the same comment again. The existing comment is at ${error.duplicate.urlPath}.`;
 	}
-	if (canonical === "list_recent_threads" || canonical === "create_post") {
+	if (canonical === "list_recent_threads" || canonical === "create_thread") {
 		return "Use a forum handle like philosophy or f/philosophy. Do not include unrelated entity prefixes.";
 	}
 	if (canonical === "view_profiles" || canonical === "view_activity" || canonical === "follow_profile" || canonical === "unfollow_profile") {
@@ -7457,16 +7486,16 @@ function toolFailureGuidance(name: string, error: unknown): string | undefined {
 			:	"Use a username like alice or u/alice.";
 	}
 	if (canonical === "read_thread" || canonical === "read_thread_by_id") {
-		return "Use a thread ID returned by list_recent_threads, list_hot_threads, search_posts, or a notification.";
+		return "Use a thread ID returned by list_recent_threads, list_hot_threads, search_threads, or a notification.";
 	}
 	if (canonical === "read_comment_by_id") {
-		return "Use a comment ID returned by read_thread, search_posts, a notification, or an earlier Bickr Terminal result.";
+		return "Use a comment ID returned by read_thread, search_threads, a notification, or an earlier Bickr Terminal result.";
 	}
-	if (canonical === "reply_to_thread") {
-		return "Read or search for the thread first, then reply using the returned thread ID and optional parent comment ID.";
+	if (canonical === "reply_to_comment") {
+		return "Read or search first, then reply using the returned comment ID.";
 	}
 	if (canonical === "vote") {
-		return "Use votes as an array and include a non-empty reason. Each vote entry needs targetType, targetId, and value.";
+		return "Use votes as an array and include a non-empty reason. Each vote entry needs commentId and value.";
 	}
 	if (error instanceof RepositoryError && error.code === "not_found") {
 		return "Check the target ID or handle from a recent Bickr Terminal result before trying again.";

@@ -222,7 +222,7 @@ export type BotTickSettings = {
 export const defaultProviderModel = "google/gemma-4-26b-a4b-it:free";
 export const defaultTranslationPrompt = "Translate to English.";
 
-export type PostDocument = {
+export type LegacyRootPostDocument = {
 	id: string;
 	threadId: string;
 	worldId: string;
@@ -282,7 +282,9 @@ export type ThreadDocument = EntityDocument & {
 	worldHandle: string;
 	forumId: string;
 	forumHandle: string;
-	rootPost: PostDocument;
+	title: string;
+	rootCommentId: string;
+	url?: string;
 	comments: CommentDocument[];
 	commentCount: number;
 	voteScore: number;
@@ -290,6 +292,12 @@ export type ThreadDocument = EntityDocument & {
 	hotScore: number;
 	lastActivityAt: string;
 	readState?: ThreadReadState;
+};
+
+export type LegacyThreadDocument = Omit<ThreadDocument, "title" | "rootCommentId"> & {
+	rootPost: LegacyRootPostDocument;
+	title?: string;
+	rootCommentId?: string;
 };
 
 export type NotificationType =
@@ -350,8 +358,8 @@ export type NotificationCommentRef = {
 };
 
 export type NotificationVoteRef = {
-	targetType: "thread" | "comment";
-	targetId: string;
+	targetType: "comment";
+	commentId: string;
 	value: -1 | 0 | 1;
 };
 
@@ -544,6 +552,7 @@ export type BotSearchResult = BotPublicProfile & {
 
 export type ThreadSummary = {
 	id: string;
+	rootCommentId: string;
 	worldId: string;
 	worldHandle: string;
 	forumId: string;
@@ -561,9 +570,10 @@ export type ThreadSummary = {
 	readState?: ThreadReadState;
 };
 
-export type SearchPostResult = {
+export type SearchThreadResult = {
 	threadId: string;
 	commentId?: string;
+	rootCommentId?: string;
 	forumHandle: string;
 	title: string;
 	snippet: string;
@@ -576,9 +586,10 @@ export type SearchPostResult = {
 
 export type BotActivityItem =
 	| {
-			type: "post";
+			type: "thread";
 			id: string;
 			threadId: string;
+			rootCommentId: string;
 			worldHandle: string;
 			forumHandle: string;
 			title: string;
@@ -603,11 +614,11 @@ export type BotActivityItem =
 	| {
 			type: "vote";
 			id: string;
-			targetType: "thread" | "comment";
-			targetId: string;
+			targetType: "comment";
+			commentId: string;
+			targetId?: string;
 			value: number;
 			threadId?: string;
-			commentId?: string;
 			worldHandle?: string;
 			forumHandle?: string;
 			title?: string;
@@ -647,7 +658,7 @@ export type SpotlightSendInput = SpotlightPreviewInput & {
 };
 
 export type SpotlightIncludedContent = {
-	type: "thread" | "comment";
+	type: "comment";
 	id: string;
 	threadId: string;
 	commentId?: string;
@@ -660,6 +671,7 @@ export type SpotlightIncludedContent = {
 	title?: string;
 	body: string;
 	createdAt: string;
+	"My focus is on this comment"?: true;
 	target?: boolean;
 	ancestorOnly?: boolean;
 	alreadySeen?: boolean;
@@ -682,6 +694,12 @@ export type SpotlightSyntheticContext = {
 	forum: NotificationForumRef;
 	targetType: SpotlightTargetType;
 	focus?: string;
+	threads?: Array<{
+		id: string;
+		threadId: string;
+		title: string;
+		rootCommentId: string;
+	}>;
 	content: SpotlightIncludedContent[];
 };
 

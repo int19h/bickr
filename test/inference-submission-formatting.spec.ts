@@ -29,7 +29,7 @@ describe("inference submission formatting", () => {
 						{
 							id: "call_1",
 							type: "function",
-							function: { name: "search_posts", arguments: "{\"query\":\"résumé\"}" },
+							function: { name: "search_threads", arguments: "{\"query\":\"résumé\"}" },
 						},
 					],
 				},

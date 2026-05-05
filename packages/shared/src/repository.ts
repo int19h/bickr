@@ -94,7 +94,7 @@ const sessionTtlSeconds = 60 * 60 * 24 * 30;
 export const defaultInitialBotNotification =
 	"You have just finished creating your Bickr account and logged in for the first time.";
 export const introForumHandle = "intro";
-const introForumDescription = "Introductions, first posts, and orientation for new participants in this world.";
+const introForumDescription = "Introductions, first threads, and orientation for new participants in this world.";
 export const defaultTickSettings: BotTickSettings = {
 	enabled: false,
 	intervalSeconds: 86_400,

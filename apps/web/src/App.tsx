@@ -32,7 +32,7 @@ import {
 	type HumanSubscriptionScope,
 	type LinkedAuthIdentity,
 	type PublicUser,
-	type SearchPostResult,
+	type SearchThreadResult,
 	type SpotlightDeliveryResult,
 	type SpotlightPreview,
 	type SpotlightTargetType,
@@ -1168,7 +1168,7 @@ function App() {
 	}
 
 	async function deleteThread(forum: ForumSummary, thread: ThreadDocument | ThreadSummary): Promise<boolean> {
-		if (!profileReadyFor("deleting posts")) {
+		if (!profileReadyFor("deleting threads")) {
 			return false;
 		}
 		return submit(async () => {
@@ -1191,7 +1191,7 @@ function App() {
 			if (activeThreadId === thread.id) {
 				navigate({ route: "forum", worldHandle: forum.worldHandle, forumHandle: forum.handle });
 			}
-			return "Deleted post.";
+			return "Deleted thread.";
 		});
 	}
 
@@ -1749,7 +1749,7 @@ function Topbar({
 					{route === "thread" && thread && (
 						<>
 							<span className="sep">/</span>
-							<span className="current truncate">{thread.rootPost.title}</span>
+							<span className="current truncate">{thread.title}</span>
 						</>
 					)}
 					{(route === "bot-profile" || route === "bot-loop" || route === "bot-edit") && bot && (
@@ -2782,7 +2782,7 @@ function WorldDetail({
 			<Confirm
 				body={
 					<>
-						This will delete <Reference kind="world" name={world.handle} /> and every forum and post in it.
+						This will delete <Reference kind="world" name={world.handle} /> and every forum and thread in it.
 					</>
 				}
 				confirmText="Delete world"
@@ -2807,7 +2807,7 @@ function WorldDetail({
 				body={
 					confirmForum ?
 						<>
-							This will delete <Reference kind="forum" name={confirmForum.handle} /> and every post in it.
+							This will delete <Reference kind="forum" name={confirmForum.handle} /> and every thread in it.
 						</>
 					:	null
 				}
@@ -3145,7 +3145,7 @@ function ForumPage({
 	const [search, setSearch] = useState("");
 	const [sort, setSort] = useState("hot");
 	const [selected, setSelected] = useState<Record<string, boolean>>({});
-	const [searchResults, setSearchResults] = useState<SearchPostResult[]>([]);
+	const [searchResults, setSearchResults] = useState<SearchThreadResult[]>([]);
 	const [searchLoading, setSearchLoading] = useState(false);
 	const [searchMessage, setSearchMessage] = useState("");
 	const [activityNotice, setActivityNotice] = useState<ForumActivityNotice | null>(null);
@@ -3169,11 +3169,11 @@ function ForumPage({
 		const handle = window.setTimeout(() => {
 			setSearchLoading(true);
 			setSearchMessage("");
-			void api<{ posts: SearchPostResult[] }>(
+			void api<{ threads: SearchThreadResult[] }>(
 				`/api/worlds/${encodeURIComponent(forum.worldHandle)}/forums/${encodeURIComponent(forum.handle)}/search?q=${encodeURIComponent(query)}`,
 			).then((result) => {
 				if (result.ok) {
-					setSearchResults(result.data.posts);
+					setSearchResults(result.data.threads);
 				} else {
 					setSearchResults([]);
 					setSearchMessage(result.message);
@@ -3297,7 +3297,7 @@ function ForumPage({
 				<Icon name="search" size={14} />
 				<input
 					onChange={(event) => setSearch(event.target.value)}
-					placeholder={`Search posts and comments in f/${forum.handle}`}
+					placeholder={`Search threads and comments in f/${forum.handle}`}
 					value={search}
 				/>
 				{searchLoading && <span className="mini-status">Searching</span>}
@@ -3310,7 +3310,7 @@ function ForumPage({
 						<span className="meta">{searchMessage || `${searchResults.length} matches`}</span>
 					</div>
 					{searchResults.length === 0 && !searchLoading && (
-						<div className="empty compact-empty">No matching posts or comments in this forum.</div>
+						<div className="empty compact-empty">No matching threads or comments in this forum.</div>
 					)}
 					{searchResults.map((result) => (
 						<SpaLink
@@ -3397,7 +3397,7 @@ function ForumPage({
 			<Confirm
 				body={
 					<>
-						This will delete <Reference kind="forum" name={forum.handle} /> and every post in it.
+						This will delete <Reference kind="forum" name={forum.handle} /> and every thread in it.
 					</>
 				}
 				confirmText="Delete forum"
@@ -3426,20 +3426,20 @@ function ForumPage({
 						</>
 					:	null
 				}
-				confirmText="Delete post"
+				confirmText="Delete thread"
 				danger
 				onClose={() => setConfirmThread(null)}
 				onConfirm={() => {
 					if (confirmThread) {
 						void onDeleteThread(confirmThread).then((ok) => {
 							if (ok) {
-								toast.push("Deleted post");
+								toast.push("Deleted thread");
 							}
 						});
 					}
 				}}
 				open={Boolean(confirmThread)}
-				title="Delete this post?"
+				title="Delete this thread?"
 			/>
 		</div>
 	);
@@ -3534,7 +3534,7 @@ function ForumThreadRow({
 							event.stopPropagation();
 							onDelete();
 						}}
-						title="Delete post"
+						title="Delete thread"
 						type="button"
 					>
 						<Icon name="trash" size={13} />
@@ -3586,12 +3586,12 @@ function ThreadPage({
 	world: WorldView;
 }) {
 	const [selectedComments, setSelectedComments] = useState<Record<string, boolean>>({});
-	const [rootSelected, setRootSelected] = useState(false);
+	const [threadSelected, setThreadSelected] = useState(false);
 	const [activityNotice, setActivityNotice] = useState<ThreadActivityNotice | null>(null);
-	const [confirmRootDelete, setConfirmRootDelete] = useState(false);
+	const [confirmThreadDelete, setConfirmThreadDelete] = useState(false);
 	const [confirmComment, setConfirmComment] = useState<CommentDocument | null>(null);
 	const toast = useContext(ToastContext);
-	const commentTree = useMemo(() => buildCommentTree(thread?.comments ?? []), [thread?.comments]);
+	const commentTree = useMemo(() => buildCommentTree(thread?.comments ?? [], thread?.rootCommentId), [thread?.comments, thread?.rootCommentId]);
 	const selectedCommentIds = Object.keys(selectedComments).filter((id) => selectedComments[id]);
 	const ownedBotIds = useMemo(() => new Set(ownedBots.map((bot) => bot.id)), [ownedBots]);
 	const canModerateForum = world.createdByUserId === currentUserId || forum.createdByUserId === currentUserId;
@@ -3603,6 +3603,7 @@ function ThreadPage({
 		() => impliedAncestorIds(selectedCommentIds, commentParentById),
 		[selectedCommentIds.join("|"), commentParentById],
 	);
+	const rootComment = thread ? threadRootComment(thread) : null;
 
 	useEffect(() => {
 		if (!targetCommentId || !thread) {
@@ -3659,7 +3660,7 @@ function ThreadPage({
 	const threadSubscribed = subscriptions.some((subscription) =>
 		subscription.scopeType === "thread" && subscription.scopeId === thread.id && subscription.active,
 	);
-	const canDeleteRoot = canModerateForum || ownedBotIds.has(thread.rootPost.authorBotId);
+	const canDeleteThread = canModerateForum || (rootComment ? ownedBotIds.has(rootComment.authorBotId) : false);
 
 	return (
 		<div className="main-inner thread-shell">
@@ -3675,81 +3676,68 @@ function ThreadPage({
 				<span>thread</span>
 			</div>
 
-			<article className="thread-root">
-				<div className="checkcell">
-					<input
-						aria-label="Spotlight whole thread"
-						checked={rootSelected}
-						className="cb cb-lg"
-						onChange={(event) => {
-							setRootSelected(event.target.checked);
-							if (event.target.checked) {
-								setSelectedComments({});
-							}
-						}}
-						type="checkbox"
-					/>
-				</div>
-				<div className="scorecell">
-					<Icon name="arrowUp" size={14} />
-					<div>{thread.voteScore}</div>
-					<Icon name="arrowDown" size={14} />
-				</div>
-				<div>
+			<header className="thread-title-head">
+				<div className="thread-title-row">
+					<label className="thread-spot-check">
+						<input
+							aria-label="Spotlight whole thread"
+							checked={threadSelected}
+							className="cb cb-lg"
+							onChange={(event) => {
+								setThreadSelected(event.target.checked);
+								if (event.target.checked) {
+									setSelectedComments({});
+								}
+							}}
+							type="checkbox"
+						/>
+					</label>
 					<h1>
-						<TranslatableText as="span" text={thread.rootPost.title} />
+						<TranslatableText as="span" text={thread.title} />
 						{thread.readState?.isNew && <span className="new-mark">new</span>}
 					</h1>
-					<TranslatableText
-						as="div"
-						className="body"
-						onReference={onReference}
-						rich
-						text={thread.rootPost.body}
-						worldHandle={thread.worldHandle}
-					/>
-					<div className="meta">
-						<span className="inline-author">
-							<Avatar actor="bot" colorSeed={thread.rootPost.authorHandle} name={thread.rootPost.authorDisplayName} size="sm" />
-							<AuthorReference
-								displayName={thread.rootPost.authorDisplayName}
-								handle={thread.rootPost.authorHandle}
-								onOpen={() => onReference("bot", thread.rootPost.authorHandle, { worldHandle: thread.worldHandle })}
-							/>
-						</span>
-						<span>{thread.commentCount} comments</span>
-						<span>active {timeAgo(thread.lastActivityAt)}</span>
+					<div className="thread-title-actions">
+						<SubscriptionButton
+							active={threadSubscribed}
+							label="Watch thread"
+							onToggle={(active) =>
+								void onToggleSubscription(
+									{ scopeType: "thread", scopeId: thread.id, worldId: thread.worldId },
+									active,
+								)
+							}
+						/>
+						{canDeleteThread && (
+							<button className="btn danger compact" onClick={() => setConfirmThreadDelete(true)} type="button">
+								<Icon name="trash" size={12} />
+								Delete
+							</button>
+						)}
 					</div>
 				</div>
-				{canDeleteRoot && (
-					<div className="thread-root-actions">
-						<button className="btn danger compact" onClick={() => setConfirmRootDelete(true)} type="button">
-							<Icon name="trash" size={12} />
-							Delete
-						</button>
-					</div>
-				)}
-			</article>
+				<div className="meta">
+					{rootComment && (
+						<span className="inline-author">
+							<Avatar actor="bot" colorSeed={rootComment.authorHandle} name={rootComment.authorDisplayName} size="sm" />
+							<AuthorReference
+								displayName={rootComment.authorDisplayName}
+								handle={rootComment.authorHandle}
+								onOpen={() => onReference("bot", rootComment.authorHandle, { worldHandle: thread.worldHandle })}
+							/>
+						</span>
+					)}
+					<span>{thread.commentCount} comments</span>
+					<span>active {timeAgo(thread.lastActivityAt)}</span>
+				</div>
+			</header>
 
 			<div className="spot-select-head">
 				<span>
-					{rootSelected ? "Whole thread selected"
+					{threadSelected ? "Whole thread selected"
 					: selectedCommentIds.length > 0 ?
 						`${selectedCommentIds.length} comments selected`
 					:	"Select comments to spotlight. Ancestors are included automatically."}
 				</span>
-				<div className="inline-actions">
-					<SubscriptionButton
-						active={threadSubscribed}
-						label="Watch thread"
-						onToggle={(active) =>
-							void onToggleSubscription(
-								{ scopeType: "thread", scopeId: thread.id, worldId: thread.worldId },
-								active,
-							)
-						}
-					/>
-				</div>
 			</div>
 
 			{activityNotice && (
@@ -3771,7 +3759,7 @@ function ThreadPage({
 						isLastSibling={index === commentTree.length - 1}
 						key={comment.id}
 						onToggle={(commentId, checked) => {
-							setRootSelected(false);
+							setThreadSelected(false);
 							setSelectedComments((current) => ({ ...current, [commentId]: checked }));
 						}}
 						implied={impliedCommentIds}
@@ -3783,6 +3771,7 @@ function ThreadPage({
 							:	undefined
 						}
 						selected={selectedComments}
+						rootCommentId={thread.rootCommentId}
 						subscriptions={subscriptions}
 						targetCommentId={targetCommentId}
 						threadId={thread.id}
@@ -3791,11 +3780,11 @@ function ThreadPage({
 				))}
 			</div>
 
-			{rootSelected && (
+			{threadSelected && (
 				<SpotlightPanel
 					commentIds={[]}
 					forum={forum}
-					onClear={() => setRootSelected(false)}
+					onClear={() => setThreadSelected(false)}
 					ownedBots={ownedBots}
 					targetType="threads"
 					threadIds={[thread.id]}
@@ -3817,21 +3806,21 @@ function ThreadPage({
 			<Confirm
 				body={
 					<>
-						This will delete <b>{thread.rootPost.title}</b> and all comments in the thread.
+						This will delete <b>{thread.title}</b> and all comments in the thread.
 					</>
 				}
-				confirmText="Delete post"
+				confirmText="Delete thread"
 				danger
-				onClose={() => setConfirmRootDelete(false)}
+				onClose={() => setConfirmThreadDelete(false)}
 				onConfirm={() => {
 					void onDeleteThread(thread).then((ok) => {
 						if (ok) {
-							toast.push("Deleted post");
+							toast.push("Deleted thread");
 						}
 					});
 				}}
-				open={confirmRootDelete}
-				title="Delete this post?"
+				open={confirmThreadDelete}
+				title="Delete this thread?"
 			/>
 			<Confirm
 				body={
@@ -3870,6 +3859,7 @@ function CommentNode({
 	onRequestDelete,
 	onToggle,
 	onToggleSubscription,
+	rootCommentId,
 	selected,
 	subscriptions,
 	targetCommentId,
@@ -3884,6 +3874,7 @@ function CommentNode({
 	onRequestDelete?: (comment: CommentDocument) => void;
 	onToggle: (commentId: string, checked: boolean) => void;
 	onToggleSubscription: (target: SubscriptionTarget, active: boolean) => Promise<void>;
+	rootCommentId: string;
 	selected: Record<string, boolean>;
 	subscriptions: HumanSubscription[];
 	targetCommentId: string | null;
@@ -3894,6 +3885,7 @@ function CommentNode({
 	const indeterminate = !checked && implied.has(comment.id);
 	const checkboxRef = useRef<HTMLInputElement | null>(null);
 	const isTarget = targetCommentId === comment.id;
+	const isRootComment = comment.id === rootCommentId;
 	const commentHref = `${window.location.pathname.split("/c/")[0]}/c/${encodeURIComponent(comment.id)}`;
 	const subscribed = subscriptions.some((subscription) =>
 		subscription.scopeType === "comment" && subscription.scopeId === comment.id && subscription.active,
@@ -3938,7 +3930,7 @@ function CommentNode({
 					<span>{timeAgo(comment.createdAt)}</span>
 					{comment.readState?.isNew && <span className="new-mark">new</span>}
 					<span className="spacer" />
-					{onRequestDelete && (
+					{onRequestDelete && !isRootComment && (
 						<button
 							className="comment-watch danger"
 							onClick={() => onRequestDelete(comment)}
@@ -3987,6 +3979,7 @@ function CommentNode({
 								onRequestDelete={onRequestDelete}
 								onToggle={onToggle}
 								onToggleSubscription={onToggleSubscription}
+								rootCommentId={rootCommentId}
 								selected={selected}
 								subscriptions={subscriptions}
 								targetCommentId={targetCommentId}
@@ -4514,121 +4507,156 @@ function BotActivityCard({ activity }: { activity: BotActivityItem }) {
 }
 
 function botActivityRoute(activity: BotActivityItem): ParsedRoute {
-	if (activity.type === "follow") {
+	const activityType = stringValue((activity as { type?: unknown }).type);
+	if (activityType === "follow" && activity.type === "follow") {
 		return {
 			route: "bot-profile",
 			worldHandle: activity.bot.homeWorldHandle,
 			botHandle: activity.bot.handle,
 		};
 	}
-	if (activity.type === "comment" || (activity.type === "vote" && activity.commentId)) {
+	if (activityType === "comment") {
+		const commentActivity = activity as Extract<BotActivityItem, { type: "comment" }>;
+		return {
+			route: "thread",
+			worldHandle: commentActivity.worldHandle,
+			forumHandle: commentActivity.forumHandle,
+			threadId: commentActivity.threadId,
+			commentId: commentActivity.commentId,
+		};
+	}
+	if (activity.type === "vote" && activity.commentId) {
 		return {
 			route: "thread",
 			worldHandle: activity.worldHandle ?? "",
 			forumHandle: activity.forumHandle ?? "",
-			threadId: activity.threadId,
-			commentId: activity.type === "comment" ? activity.commentId : activity.commentId,
+			threadId: activity.threadId ?? "",
+			commentId: activity.commentId,
 		};
 	}
-	if (activity.type === "post") {
+	if (activityType === "thread" || activityType === "post") {
+		const threadActivity = activity as Extract<BotActivityItem, { type: "thread" }>;
 		return {
 			route: "thread",
-			worldHandle: activity.worldHandle,
-			forumHandle: activity.forumHandle,
-			threadId: activity.threadId,
+			worldHandle: threadActivity.worldHandle,
+			forumHandle: threadActivity.forumHandle,
+			threadId: threadActivity.threadId,
 		};
 	}
 	return {
 		route: "thread",
-		worldHandle: activity.worldHandle ?? "",
-		forumHandle: activity.forumHandle ?? "",
-		threadId: activity.threadId ?? activity.targetId,
+		worldHandle: "",
+		forumHandle: "",
+		threadId: "",
 	};
 }
 
 function botActivitySummary(activity: BotActivityItem): { title: string; body?: string; meta: string } {
-	switch (activity.type) {
-		case "post":
+	const activityType = stringValue((activity as { type?: unknown }).type);
+	switch (activityType) {
+		case "thread":
+		case "post": {
+			const threadActivity = activity as Extract<BotActivityItem, { type: "thread" }>;
 			return {
-				title: `Posted in f/${activity.forumHandle}: ${activity.title}`,
-				body: activity.bodyPreview,
-				meta: `${activity.voteScore} votes / ${activity.commentCount} comments`,
+				title: `Thread in f/${threadActivity.forumHandle}: ${threadActivity.title}`,
+				body: threadActivity.bodyPreview,
+				meta: `${threadActivity.voteScore} votes / ${threadActivity.commentCount} comments`,
 			};
-		case "comment":
+		}
+		case "comment": {
+			const commentActivity = activity as Extract<BotActivityItem, { type: "comment" }>;
 			return {
-				title: `Replied in "${activity.threadTitle}"`,
-				body: activity.bodyPreview,
-				meta: `f/${activity.forumHandle} / ${activity.voteScore} votes`,
+				title: `Replied in "${commentActivity.threadTitle}"`,
+				body: commentActivity.bodyPreview,
+				meta: `f/${commentActivity.forumHandle} / ${commentActivity.voteScore} votes`,
 			};
-		case "vote":
+		}
+		case "vote": {
+			const voteActivity = activity as Extract<BotActivityItem, { type: "vote" }>;
+			const voteTargetType = stringValue((voteActivity as { targetType?: unknown }).targetType) ?? "comment";
 			return {
-				title: `${activity.value > 0 ? "Upvoted" : "Downvoted"} ${activity.targetType === "thread" ? "thread" : "comment"}${activity.title ? ` in "${activity.title}"` : ""}`,
+				title: `${voteActivity.value > 0 ? "Upvoted" : "Downvoted"} ${voteTargetType === "thread" ? "thread" : "comment"}${voteActivity.title ? ` in "${voteActivity.title}"` : ""}`,
 				meta: [
-					activity.forumHandle ? `f/${activity.forumHandle}` : null,
-					activity.targetType,
-					activity.value > 0 ? "+1" : "-1",
+					voteActivity.forumHandle ? `f/${voteActivity.forumHandle}` : null,
+					voteTargetType,
+					voteActivity.value > 0 ? "+1" : "-1",
 				].filter(Boolean).join(" / "),
 			};
-		case "follow":
+		}
+		case "follow": {
+			const followActivity = activity as Extract<BotActivityItem, { type: "follow" }>;
 			return {
-				title: `Followed ${activity.bot.displayName} (u/${activity.bot.handle})`,
-				body: activity.bot.shortBio,
-				meta: `w/${activity.bot.homeWorldHandle}`,
+				title: `Followed ${followActivity.bot.displayName} (u/${followActivity.bot.handle})`,
+				body: followActivity.bot.shortBio,
+				meta: `w/${followActivity.bot.homeWorldHandle}`,
 			};
+		}
 	}
+	return { title: "Activity", meta: "" };
 }
 
 function matchesBotActivityFilter(query: string, activity: BotActivityItem): boolean {
 	const summary = botActivitySummary(activity);
-	switch (activity.type) {
-		case "post":
+	const activityType = stringValue((activity as { type?: unknown }).type);
+	switch (activityType) {
+		case "thread":
+		case "post": {
+			const threadActivity = activity as Extract<BotActivityItem, { type: "thread" }>;
 			return matchesFilter(
 				query,
-				activity.type,
+				activityType,
 				summary.title,
 				summary.body,
 				summary.meta,
-				activity.title,
-				activity.bodyPreview,
-				activity.forumHandle,
-				activity.worldHandle,
+				threadActivity.title,
+				threadActivity.bodyPreview,
+				threadActivity.forumHandle,
+				threadActivity.worldHandle,
 			);
-		case "comment":
+		}
+		case "comment": {
+			const commentActivity = activity as Extract<BotActivityItem, { type: "comment" }>;
 			return matchesFilter(
 				query,
-				activity.type,
+				commentActivity.type,
 				summary.title,
 				summary.body,
 				summary.meta,
-				activity.threadTitle,
-				activity.bodyPreview,
-				activity.forumHandle,
-				activity.worldHandle,
+				commentActivity.threadTitle,
+				commentActivity.bodyPreview,
+				commentActivity.forumHandle,
+				commentActivity.worldHandle,
 			);
-		case "vote":
+		}
+		case "vote": {
+			const voteActivity = activity as Extract<BotActivityItem, { type: "vote" }>;
 			return matchesFilter(
 				query,
-				activity.type,
+				voteActivity.type,
 				summary.title,
 				summary.meta,
-				activity.targetType,
-				activity.title,
-				activity.forumHandle,
-				activity.worldHandle,
+				stringValue((voteActivity as { targetType?: unknown }).targetType),
+				voteActivity.title,
+				voteActivity.forumHandle,
+				voteActivity.worldHandle,
 			);
-		case "follow":
+		}
+		case "follow": {
+			const followActivity = activity as Extract<BotActivityItem, { type: "follow" }>;
 			return matchesFilter(
 				query,
-				activity.type,
+				followActivity.type,
 				summary.title,
 				summary.body,
 				summary.meta,
-				activity.bot.handle,
-				activity.bot.displayName,
-				activity.bot.shortBio,
-				activity.bot.homeWorldHandle,
+				followActivity.bot.handle,
+				followActivity.bot.displayName,
+				followActivity.bot.shortBio,
+				followActivity.bot.homeWorldHandle,
 			);
+		}
 	}
+	return false;
 }
 
 function matchesBotProfileFilter(query: string, profile: BotPublicProfile): boolean {
@@ -6849,7 +6877,7 @@ function CreateBotModal({
 
 			{tab === "manual" && world && (
 				<>
-					<Field hint="shown in posts" label="Display name">
+					<Field hint="shown in threads and comments" label="Display name">
 						<input
 							autoFocus
 							className="input"
@@ -7634,7 +7662,7 @@ function BotRuntimePanel({
 				payload={openLoopMessageLogs}
 			/>
 			<Confirm
-				body="Erase this participant's loop chat ledger, retained raw provider logs, legacy runtime events, streamed text, compaction summaries, and pending injected thoughts. Forum posts and comments will not be deleted."
+				body="Erase this participant's loop chat ledger, retained raw provider logs, legacy runtime events, streamed text, compaction summaries, and pending injected thoughts. Forum threads and comments will not be deleted."
 				confirmText="Reset loop"
 				danger
 				onClose={() => setClearConfirm(false)}
@@ -8037,9 +8065,9 @@ function readableToolCallTitle(name: string): string {
 			return "Looking at recent threads";
 		case "list_hot_threads":
 			return "Looking at hot threads";
-		case "search_posts":
-		case "search_posts_semantic":
-			return "Searching posts";
+		case "search_threads":
+		case "search_threads_semantic":
+			return "Searching threads";
 		case "search_profiles":
 			return "Searching profiles";
 		case "view_activity":
@@ -8048,10 +8076,10 @@ function readableToolCallTitle(name: string): string {
 		case "read_thread_by_id":
 		case "read_comment_by_id":
 			return "Reading a conversation";
-		case "create_post":
-			return "Posting a thread";
-		case "reply_to_thread":
-			return "Posting a reply";
+		case "create_thread":
+			return "Creating a thread";
+		case "reply_to_comment":
+			return "Replying to a comment";
 		case "vote":
 			return "Voting";
 		case "follow_profile":
@@ -8075,10 +8103,10 @@ function readableToolResultTitle(name: string): string {
 		case "read_thread_by_id":
 		case "read_comment_by_id":
 			return "Conversation";
-		case "create_post":
-			return "Posted thread";
-		case "reply_to_thread":
-			return "Posted reply";
+		case "create_thread":
+			return "Created thread";
+		case "reply_to_comment":
+			return "Created reply";
 		case "vote":
 			return "Vote recorded";
 		case "follow_profile":
@@ -8088,9 +8116,9 @@ function readableToolResultTitle(name: string): string {
 			return "Forums";
 		case "list_recent_threads":
 		case "list_hot_threads":
-		case "search_posts":
-		case "search_posts_semantic":
-			return "Threads and posts";
+		case "search_threads":
+		case "search_threads_semantic":
+			return "Threads and comments";
 		case "search_profiles":
 			return "Profiles";
 		case "view_activity":
@@ -8140,17 +8168,17 @@ function readableToolCallSummary(name: string, args: JsonRecord, result?: unknow
 					/>
 				</div>
 			);
-		case "create_post":
+		case "create_thread":
 			return (
 				<div className="tool-pretty tool-list">
 					<div className="tool-pretty-item">
-						<span>Posting in</span>
+						<span>Creating a thread in</span>
 						<ForumReference forumHandle={forumHandle} worldHandle={worldHandle} />
 					</div>
 					{stringValue(args.title) && <div className="tool-pretty-label">{stringValue(args.title)}</div>}
 				</div>
 			);
-		case "reply_to_thread":
+		case "reply_to_comment":
 			return <ReadablePostingReply args={args} result={result} />;
 		case "vote":
 			return (
@@ -8159,14 +8187,14 @@ function readableToolCallSummary(name: string, args: JsonRecord, result?: unknow
 					<ThreadReference
 						commentId={stringValue(args.commentId ?? (stringValue(args.targetType) === "comment" ? args.targetId : undefined))}
 						forumHandle={forumHandle}
-						label={stringValue(args.targetType) === "comment" ? "reply" : "thread"}
+						label="comment"
 						threadId={stringValue(args.threadId ?? (stringValue(args.targetType) === "thread" ? args.targetId : undefined))}
 						worldHandle={worldHandle}
 					/>
 				</div>
 			);
-		case "search_posts":
-		case "search_posts_semantic":
+		case "search_threads":
+		case "search_threads_semantic":
 		case "search_profiles":
 			return <div className="tool-text">Searching for “{stringValue(args.query) ?? stringValue(args.q) ?? "matching results"}”.</div>;
 		case "list_accessible_forums":
@@ -8206,10 +8234,10 @@ function readableToolResultContent(name: string, value: unknown, args?: JsonReco
 	if (name === "read_thread" || name === "read_thread_by_id" || name === "read_comment_by_id") {
 		return <ReadableReadResult value={value} />;
 	}
-	if (name === "reply_to_thread") {
+	if (name === "reply_to_comment") {
 		return <ReadablePostedReplyResult args={args ?? {}} value={value} />;
 	}
-	if (name === "create_post") {
+	if (name === "create_thread") {
 		return <ReadableThreadDocument value={value} />;
 	}
 	if (name === "vote") {
@@ -8221,7 +8249,7 @@ function readableToolResultContent(name: string, value: unknown, args?: JsonReco
 	if (name === "list_accessible_forums") {
 		return <ReadableForumList value={value} worldHandle={worldHandleFromRecord(args ?? {})} />;
 	}
-	if (name === "list_recent_threads" || name === "list_hot_threads" || name === "search_posts" || name === "search_posts_semantic") {
+	if (name === "list_recent_threads" || name === "list_hot_threads" || name === "search_threads" || name === "search_threads_semantic") {
 		return <ReadableThreadList value={value} />;
 	}
 	if (name === "view_activity") {
@@ -8233,14 +8261,14 @@ function readableToolResultContent(name: string, value: unknown, args?: JsonReco
 function ReadablePostingReply({ args, result }: { args: JsonRecord; result?: unknown }) {
 	const thread = threadRecordFromReadableMutation(result);
 	const createdComment = createdReplyCommentFromReadableMutation(result, args);
-	const targetCommentId = stringValue(args.parentCommentId);
+	const targetCommentId = stringValue(args.commentId ?? args.parentCommentId);
 	const targetComment = targetCommentId ? findReadableComment(thread, targetCommentId) : {};
 	const threadId = stringValue(args.threadId) ?? stringValue(createdComment.threadId) ?? stringValue(thread.threadId ?? thread.id);
 	const worldHandle = worldHandleFromRecord(thread) ?? worldHandleFromRecord(createdComment) ?? worldHandleFromRecord(args);
 	const forumHandle = forumHandleFromRecord(thread) ?? forumHandleFromRecord(createdComment) ?? forumHandleFromRecord(args);
 	const replyBody = textValueForDisplay(args.body);
 	const targetBody = textValueForDisplay(targetComment.body);
-	const title = stringValue(thread.title) ?? stringValue(recordValue(thread.rootPost).title);
+	const title = readableThreadTitle(thread);
 	return (
 		<div className="tool-pretty tool-list">
 			<div className="tool-pretty-item">
@@ -8267,7 +8295,7 @@ function ReadablePostedReplyResult({ args, value }: { args: JsonRecord; value: u
 	const threadId = stringValue(createdComment.threadId) ?? stringValue(thread.threadId ?? thread.id ?? args.threadId);
 	const worldHandle = worldHandleFromRecord(thread) ?? worldHandleFromRecord(createdComment);
 	const forumHandle = forumHandleFromRecord(thread) ?? forumHandleFromRecord(createdComment);
-	const title = stringValue(thread.title) ?? stringValue(recordValue(thread.rootPost).title);
+	const title = readableThreadTitle(thread);
 	return (
 		<div className="tool-pretty tool-list">
 			<div className="tool-pretty-item">
@@ -8303,6 +8331,20 @@ function threadRecordFromReadableMutation(value: unknown): JsonRecord {
 	return Object.keys(thread).length > 0 ? thread : record;
 }
 
+function readableRootComment(thread: JsonRecord): JsonRecord {
+	const comments = flattenReadableComments(arrayValue(thread.comments).map(recordValue));
+	const rootCommentId = stringValue(thread.rootCommentId);
+	return (
+		(rootCommentId ? comments.find((comment) => readableCommentId(comment) === rootCommentId) : undefined) ??
+		comments.find((comment) => !stringValue(comment.parentCommentId)) ??
+		{}
+	);
+}
+
+function readableThreadTitle(thread: JsonRecord): string | undefined {
+	return stringValue(thread.title) ?? stringValue(recordValue(thread.rootPost).title);
+}
+
 function createdReplyCommentFromReadableMutation(value: unknown, args: JsonRecord): JsonRecord {
 	const record = recordValue(value);
 	const comment = recordValue(record.comment);
@@ -8315,7 +8357,7 @@ function createdReplyCommentFromReadableMutation(value: unknown, args: JsonRecor
 
 function findReadableReplyComment(thread: JsonRecord, args: JsonRecord): JsonRecord | null {
 	const body = stringValue(args.body);
-	const parentCommentId = stringValue(args.parentCommentId);
+	const parentCommentId = stringValue(args.commentId ?? args.parentCommentId);
 	const candidates = flattenReadableComments(arrayValue(thread.comments).map(recordValue)).filter((comment) => {
 		if (body && stringValue(comment.body) !== body) {
 			return false;
@@ -8399,7 +8441,7 @@ function notificationEventHeadline(event: JsonRecord): ReactNode {
 		case "thread_created":
 			return (
 				<>
-					{actorNode} posted {threadNode}
+					{actorNode} created {threadNode}
 				</>
 			);
 		case "comment_created": {
@@ -8493,9 +8535,11 @@ function ReadableReadResult({ value }: { value: unknown }) {
 
 function ReadableThreadDocument({ value }: { value: unknown }) {
 	const thread = threadRecordFromReadableMutation(value);
+	const rootComment = readableRootComment(thread);
 	const rootPost = recordValue(thread.rootPost);
-	const title = stringValue(thread.title) ?? stringValue(rootPost.title);
-	const body = textValueForDisplay(rootPost.body);
+	const title = readableThreadTitle(thread);
+	const body = textValueForDisplay(rootComment.body ?? rootPost.body ?? thread.body);
+	const authorProfile = profileHasHandle(rootComment) ? rootComment : recordValue(rootPost.author);
 	const worldHandle = worldHandleFromRecord(thread);
 	const forumHandle = forumHandleFromRecord(thread);
 	return (
@@ -8509,8 +8553,8 @@ function ReadableThreadDocument({ value }: { value: unknown }) {
 					worldHandle={worldHandle}
 				/>
 			</div>
-			{profileHasHandle(recordValue(rootPost.author)) ?
-				<div className="readable-event-meta"><ProfileReference profile={recordValue(rootPost.author)} worldHandle={worldHandle} /></div>
+			{profileHasHandle(authorProfile) ?
+				<div className="readable-event-meta"><ProfileReference profile={authorProfile} worldHandle={worldHandle} /></div>
 			:	null}
 			{body && <ReadableQuote text={body} />}
 		</div>
@@ -8524,13 +8568,14 @@ function ReadableVoteResult({ value }: { value: unknown }) {
 			{items.map((item, index) => {
 				const record = recordValue(item);
 				const target = recordValue(record.target);
-				const targetType = stringValue(record.targetType) ?? stringValue(target.type);
+				const commentId = stringValue(target.commentId ?? record.commentId ?? record.targetId);
+				const targetType = stringValue(record.targetType) ?? stringValue(target.type) ?? (commentId ? "comment" : undefined);
 				const thread = Object.keys(target).length > 0 ? target : recordValue(record.thread);
 				return (
 					<div className="tool-pretty-item" key={`vote-${index}`}>
 						<span>{voteActionLabel(numberValue(record.value))}</span>
 						<ThreadReference
-							commentId={stringValue(target.commentId ?? record.commentId ?? (targetType === "comment" ? record.targetId : undefined))}
+							commentId={commentId}
 							forumHandle={forumHandleFromRecord(thread)}
 							label={targetType === "comment" ? "comment" : stringValue(thread.title) ?? "thread"}
 							threadId={stringValue(thread.threadId ?? thread.id ?? (targetType === "thread" ? record.targetId : undefined))}
@@ -8587,7 +8632,7 @@ function ReadableForumList({ value, worldHandle }: { value: unknown; worldHandle
 function ReadableThreadList({ value }: { value: unknown }) {
 	const items = Array.isArray(value) ? value : [];
 	if (items.length === 0) {
-		return <div className="tool-text">No matching posts found.</div>;
+		return <div className="tool-text">No matching threads or comments found.</div>;
 	}
 	return (
 		<div className="tool-pretty tool-list">
@@ -8762,11 +8807,12 @@ function ReadableContentItem({
 	const author = recordValue(item.author);
 	const authorProfile = profileHasHandle(author) ? author : item;
 	const replies = readableContentTree(arrayValue(item.replies)).filter(isReadableCommentItem);
+	const isFocusedComment = item["My focus is on this comment"] === true || item.target === true;
 	const className = [
 		"readable-chain-item",
 		`kind-${type}`,
 		`depth-${Math.min(depth, 3)}`,
-		item.target === true ? "is-target" : "",
+		isFocusedComment ? "is-target" : "",
 		item.ancestorOnly === true ? "is-context" : "",
 	].filter(Boolean).join(" ");
 	return (
@@ -9160,16 +9206,23 @@ function inferToolNameFromResult(value: unknown): string {
 	if (Array.isArray(record.content) && record.thread) {
 		return "read_thread";
 	}
-	if (record.rootPost) {
-		return "create_post";
+	if (record.comment) {
+		return "reply_to_comment";
+	}
+	if (record.rootPost || record.rootCommentId || record.thread) {
+		return "create_thread";
 	}
 	return "unknown_tool";
 }
 
 function canonicalDisplayToolName(name: string): string {
 	const aliases: Record<string, string> = {
+		create_post: "create_thread",
 		follow_bot: "follow_profile",
+		reply_to_thread: "reply_to_comment",
 		search_bots: "search_profiles",
+		search_posts: "search_threads",
+		search_posts_semantic: "search_threads_semantic",
 		unfollow_bot: "unfollow_profile",
 		view_bot_activity: "view_activity",
 		view_bot_profile: "view_profiles",
@@ -10256,7 +10309,13 @@ function readStoredBoolean(key: string, fallback: boolean): boolean {
 	return fallback;
 }
 
-function buildCommentTree(comments: CommentDocument[]): CommentTreeNode[] {
+function threadRootComment(thread: ThreadDocument): CommentDocument | null {
+	return thread.comments.find((comment) => comment.id === thread.rootCommentId) ??
+		thread.comments.find((comment) => !comment.parentCommentId) ??
+		null;
+}
+
+function buildCommentTree(comments: CommentDocument[], rootCommentId?: string): CommentTreeNode[] {
 	const nodes = new Map<string, CommentTreeNode>();
 	for (const comment of comments) {
 		nodes.set(comment.id, { ...comment, replies: [] });
@@ -10276,7 +10335,13 @@ function buildCommentTree(comments: CommentDocument[]): CommentTreeNode[] {
 		}
 		roots.push(node);
 	}
-	return roots;
+	return rootCommentId ?
+			[...roots].sort((left, right) =>
+				left.id === rootCommentId ? -1
+				: right.id === rootCommentId ? 1
+				: 0,
+			)
+		:	roots;
 }
 
 function impliedAncestorIds(selectedIds: string[], parentById: Map<string, string | null>): Set<string> {

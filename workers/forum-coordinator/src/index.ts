@@ -187,6 +187,35 @@ export async function handleForumCoordinatorRequest(
 			return ok({ thread, coordinator: coordinator.objectId }, { status: 201 });
 		}
 
+		const commentReplyMatch = /^\/comments\/([^/]+)\/replies$/.exec(url.pathname);
+		if (request.method === "POST" && commentReplyMatch) {
+			const actor = requireBotActor(request);
+			const parentCommentId = decodeURIComponent(commentReplyMatch[1] ?? "");
+			const input = parseCreateCommentInput(await readJsonBody(request));
+			const row = await env.BICKR_D1.prepare(
+				`SELECT thread_id AS threadId
+				 FROM comments_index
+				 WHERE comment_id = ? AND deleted_at IS NULL
+				 LIMIT 1`,
+			)
+				.bind(parentCommentId)
+				.first<{ threadId: string }>();
+			if (!row) {
+				throw new RepositoryError("not_found", "Parent comment not found.", 404);
+			}
+			const latestThread = await readFreshThread(coordinator, row.threadId);
+			const thread = await createComment(env.BICKR_KV, env.BICKR_D1, {
+				...input,
+				threadId: row.threadId,
+				parentCommentId,
+				authorBotId: actor.botId,
+			}, undefined, {
+				...(latestThread ? { thread: latestThread } : {}),
+			});
+			await writeFreshThread(coordinator, thread);
+			return ok({ thread, coordinator: coordinator.objectId }, { status: 201 });
+		}
+
 		const commentDeleteMatch = /^\/forums\/([^/]+)\/threads\/([^/]+)\/comments\/([^/]+)$/.exec(url.pathname);
 		if (request.method === "DELETE" && commentDeleteMatch) {
 			const userId = requireUserHeader(request);
@@ -305,6 +334,21 @@ export default {
 			return env.FORUM_COORDINATOR.get(objectId).fetch(request);
 		}
 
+		if (url.pathname.startsWith("/comments/")) {
+			try {
+				const parentCommentId = url.pathname.split("/")[2] ?? "unknown";
+				const row = await env.BICKR_D1.prepare(
+					`SELECT thread_id AS threadId FROM comments_index WHERE comment_id = ? AND deleted_at IS NULL`,
+				)
+					.bind(parentCommentId)
+					.first<{ threadId: string }>();
+				const objectId = env.FORUM_COORDINATOR.idFromName(row?.threadId ?? parentCommentId);
+				return env.FORUM_COORDINATOR.get(objectId).fetch(request);
+			} catch (error) {
+				return errorResponse(error);
+			}
+		}
+
 		if (url.pathname === "/votes") {
 			try {
 				const body = await readJsonBody(request.clone());
@@ -396,7 +440,11 @@ async function voteCoordinatorName(
 	input: { targetType: "thread" | "comment"; targetId: string },
 ): Promise<string> {
 	if (input.targetType === "thread") {
-		return input.targetId;
+		const row = await db
+			.prepare(`SELECT thread_id AS threadId FROM threads_index WHERE thread_id = ? AND deleted_at IS NULL`)
+			.bind(input.targetId)
+			.first<{ threadId: string }>();
+		return row?.threadId ?? input.targetId;
 	}
 	const row = await db
 		.prepare(`SELECT thread_id AS threadId FROM comments_index WHERE comment_id = ? AND deleted_at IS NULL`)

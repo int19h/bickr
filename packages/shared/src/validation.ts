@@ -35,8 +35,8 @@ export class InputError extends Error {
 export const maxBotShortBioLength = 1_200;
 export const maxBotPromptLength = 64_000;
 export const maxBotReasoningPrefillLength = 500;
-export const maxPostTitleLength = 160;
-export const maxPostBodyLength = 8_000;
+export const maxThreadTitleLength = 160;
+export const maxThreadBodyLength = 8_000;
 export const maxCommentBodyLength = 4_000;
 
 export const handlePatternSource = String.raw`[\p{Letter}\p{Number}_-][\p{Letter}\p{Number}\p{Mark}_-]{0,31}`;
@@ -286,10 +286,10 @@ export function parseUpdateUserProfileInput(input: unknown): UpdateUserProfileIn
 
 export function parseCreateThreadInput(input: unknown): Omit<CreateThreadInput, "forumId" | "authorBotId"> {
 	const record = asRecord(input);
-	const url = optionalText(record.url, "Post URL", 1_000);
+	const url = optionalText(record.url, "Thread URL", 1_000);
 	return {
-		title: requiredText(record.title, "Post title", maxPostTitleLength),
-		body: requiredText(record.body, "Post body", maxPostBodyLength),
+		title: requiredText(record.title, "Thread title", maxThreadTitleLength),
+		body: requiredText(record.body, "Thread body", maxThreadBodyLength),
 		...(url ? { url } : {}),
 	};
 }
@@ -305,11 +305,17 @@ export function parseCreateCommentInput(input: unknown): Omit<CreateCommentInput
 
 export function parseVoteInput(input: unknown): Pick<VoteInput, "targetType" | "targetId" | "value"> {
 	const record = asRecord(input);
-	if (record.targetType !== "thread" && record.targetType !== "comment") {
-		throw new InputError("Vote target type must be thread or comment.");
-	}
-	if (typeof record.targetId !== "string" || record.targetId.trim().length === 0) {
-		throw new InputError("Vote target ID is required.");
+	const commentId =
+		typeof record.commentId === "string" && record.commentId.trim().length > 0 ?
+			record.commentId.trim()
+		:	undefined;
+	const legacyTargetType = record.targetType === "thread" || record.targetType === "comment" ? record.targetType : undefined;
+	const legacyTargetId =
+		typeof record.targetId === "string" && record.targetId.trim().length > 0 ?
+			record.targetId.trim()
+		:	undefined;
+	if (!commentId && (!legacyTargetType || !legacyTargetId)) {
+		throw new InputError("Vote comment ID is required.");
 	}
 	const value = Number(record.value);
 	if (value !== -1 && value !== 0 && value !== 1) {
@@ -317,8 +323,8 @@ export function parseVoteInput(input: unknown): Pick<VoteInput, "targetType" | "
 	}
 
 	return {
-		targetType: record.targetType,
-		targetId: record.targetId.trim(),
+		targetType: commentId ? "comment" : legacyTargetType!,
+		targetId: commentId ?? legacyTargetId!,
 		value,
 	};
 }

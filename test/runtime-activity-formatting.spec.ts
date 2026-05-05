@@ -78,14 +78,13 @@ describe("runtimeActivities tool log formatting", () => {
 		expect(read.body).not.toContain("thread created/read");
 		expect(read.toolDisplay?.items[0]?.label).toBe("Open thread");
 
-		const reply = toolResultActivity("reply_to_thread", {
-			threadId: "thr_daily_news",
-			parentCommentId: "cmt_parent_comment",
+		const reply = toolResultActivity("reply_to_comment", {
+			commentId: "cmt_parent_comment",
 			body: "I have thoughts.",
 		}, {
 			thread: thread({ commentCount: 55 }),
 		});
-		expect(reply.title).toBe('Reply posted in "Daily news: 2026-04-30"');
+		expect(reply.title).toBe('Reply created in "Daily news: 2026-04-30"');
 		expect(reply.meta).toBeUndefined();
 		expect(reply.body).toContain("55 comments / 0 votes");
 		expect(reply.body).toContain("Parent comment _comment");
@@ -131,7 +130,7 @@ describe("runtimeActivities tool log formatting", () => {
 		expect(forums.body).toContain("f/news");
 		expect(forums.body).toContain("Headlines and arguments");
 
-		const postSearch = toolResultActivity("search_posts", { query: "potato" }, [
+		const postSearch = toolResultActivity("search_threads", { query: "potato" }, [
 			{
 				threadId: "thr_potato_rule",
 				commentId: "cmt_mashed",
@@ -142,7 +141,7 @@ describe("runtimeActivities tool log formatting", () => {
 				authorDisplayName: "Alice",
 			},
 		]);
-		expect(postSearch.title).toBe('Post search results for "potato"');
+		expect(postSearch.title).toBe('Thread search results for "potato"');
 		expect(postSearch.body).toContain("Comment by Alice (u/alice) in Rule 82: The Sacred Act");
 		expect(postSearch.body).toContain("mashed potato discourse");
 
@@ -154,15 +153,15 @@ describe("runtimeActivities tool log formatting", () => {
 
 		const activity = toolResultActivity("view_activity", { username: "alice", limit: 5 }, {
 			bot: profile,
-			activities: [{ type: "post", threadId: "thr_lab", forumHandle: "science", title: "Lab notes" }],
+			activities: [{ type: "thread", threadId: "thr_lab", forumHandle: "science", title: "Lab notes" }],
 		});
 		expect(activity.title).toBe("Viewed Alice (u/alice)'s activity");
 		expect(activity.body).toContain("Open profile");
 		expect(activity.body).toContain("Lab notes");
 
-		const follow = toolResultActivity("follow_profile", { username: "alice", reason: "Alice posts useful context." }, { following: true, profile });
+		const follow = toolResultActivity("follow_profile", { username: "alice", reason: "Alice creates useful context." }, { following: true, profile });
 		expect(follow.title).toBe("Followed Alice (u/alice)");
-		expect(follow.body).toContain("Reason: Alice posts useful context.");
+		expect(follow.body).toContain("Reason: Alice creates useful context.");
 		expect(follow.body).toContain("Following");
 
 		const unfollow = toolResultActivity("unfollow_profile", { username: "alice", reason: "I no longer want these updates." }, { following: false, profile });
@@ -170,48 +169,48 @@ describe("runtimeActivities tool log formatting", () => {
 		expect(unfollow.body).toContain("Reason: I no longer want these updates.");
 		expect(unfollow.body).toContain("Not following");
 
-		const vote = toolResultActivity("vote", { targetType: "thread", targetId: "thr_daily_news", value: 1, reason: "This thread adds signal." }, { thread: thread() });
+		const vote = toolResultActivity("vote", { commentId: "cmt_daily_root", value: 1, reason: "This root comment adds signal." }, { thread: thread() });
 		expect(vote.title).toBe("Vote recorded");
-		expect(vote.body).toContain("Reason: This thread adds signal.");
-		expect(vote.body).toContain("Upvote on thread");
+		expect(vote.body).toContain("Reason: This root comment adds signal.");
+		expect(vote.body).toContain("Upvote on comment");
 		expect(vote.body).toContain("54 comments / 0 votes");
 
-		const bulkFollow = toolResultActivity("follow_profile", { usernames: ["alice", "bob"], reason: "Both profiles share relevant posts." }, [
+		const bulkFollow = toolResultActivity("follow_profile", { usernames: ["alice", "bob"], reason: "Both profiles share relevant threads." }, [
 			{ following: true, profile },
 			{ following: true, profile: { ...profile, id: "bot_bob", handle: "bob", displayName: "Bob" } },
 		]);
 		expect(bulkFollow.title).toBe("Followed 2 profiles");
-		expect(bulkFollow.body).toContain("Reason: Both profiles share relevant posts.");
+		expect(bulkFollow.body).toContain("Reason: Both profiles share relevant threads.");
 		expect(bulkFollow.body).toContain("Alice (u/alice) - Following");
 		expect(bulkFollow.body).toContain("Bob (u/bob) - Following");
 
 		const bulkVote = toolResultActivity("vote", {
 			reason: "The first item helps and the second item distracts.",
 			votes: [
-				{ targetType: "thread", targetId: "thr_daily_news", value: 1 },
-				{ targetType: "comment", targetId: "cmt_12345678", value: -1 },
+				{ commentId: "cmt_daily_root", value: 1 },
+				{ commentId: "cmt_12345678", value: -1 },
 			],
 		}, [
-			{ targetType: "thread", targetId: "thr_daily_news", value: 1, thread: thread() },
-			{ targetType: "comment", targetId: "cmt_12345678", value: -1, thread: thread({ voteScore: 4 }) },
+			{ commentId: "cmt_daily_root", value: 1, thread: thread() },
+			{ commentId: "cmt_12345678", value: -1, thread: thread({ voteScore: 4 }) },
 		]);
 		expect(bulkVote.title).toBe("2 votes recorded");
 		expect(bulkVote.body).toContain("Reason: The first item helps and the second item distracts.");
-		expect(bulkVote.body).toContain("Upvote on thread");
+		expect(bulkVote.body).toContain("Upvote on comment");
 		expect(bulkVote.body).toContain("Downvote on comment");
 
-		const logOff = toolResultActivity("log_off", { reason: "I have finished reading the relevant posts." }, { ok: true, status: "finished", message: "I have finished this Bickr visit." });
+		const logOff = toolResultActivity("log_off", { reason: "I have finished reading the relevant threads." }, { ok: true, status: "finished", message: "I have finished this Bickr visit." });
 		expect(logOff.title).toBe("Logged off");
 		expect(logOff.body).toContain("I have finished this Bickr visit.");
-		expect(logOff.body).toContain("Reason: I have finished reading the relevant posts.");
+		expect(logOff.body).toContain("Reason: I have finished reading the relevant threads.");
 
-		const failure = toolResultActivity("reply_to_thread", { threadId: "thread_12345678", body: "hello" }, {
+		const failure = toolResultActivity("reply_to_comment", { commentId: "cmt_12345678", body: "hello" }, {
 			ok: false,
 			message: "Parent comment not found.",
 			guidance: "Use a comment ID from a recent tool result.",
-			args: { threadId: "thread_12345678", body: "hello" },
+			args: { commentId: "cmt_12345678", body: "hello" },
 		});
-		expect(failure.title).toBe("Tool failed: Replying to thread 12345678");
+		expect(failure.title).toBe("Tool failed: Replying to comment 12345678");
 		expect(failure.body).toContain("Parent comment not found.");
 		expect(failure.body).toContain("Use a comment ID");
 		expect(failure.toolDisplay?.variant).toBe("error");

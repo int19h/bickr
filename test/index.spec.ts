@@ -105,7 +105,7 @@ import {
 	recordSpotlightNoReactionHumanNotification,
 	recordSpotlightToolHumanNotification,
 	searchBots,
-	searchPosts,
+	searchThreads,
 	setVote,
 	unfollowBot,
 } from "../packages/shared/src/social";
@@ -216,6 +216,7 @@ CREATE TABLE bot_imports (
 );
 CREATE TABLE threads_index (
 	thread_id TEXT PRIMARY KEY,
+	root_comment_id TEXT,
 	world_id TEXT NOT NULL,
 	world_handle TEXT NOT NULL,
 	forum_id TEXT NOT NULL,
@@ -234,6 +235,7 @@ CREATE TABLE threads_index (
 	last_activity_at TEXT NOT NULL,
 	deleted_at TEXT
 );
+CREATE UNIQUE INDEX threads_index_root_comment ON threads_index (root_comment_id);
 CREATE INDEX threads_index_forum_activity ON threads_index (forum_id, deleted_at, last_activity_at);
 CREATE INDEX threads_index_world_hot ON threads_index (world_id, deleted_at, hot_score);
 CREATE TABLE comments_index (
@@ -248,7 +250,8 @@ CREATE TABLE comments_index (
 	search_text TEXT NOT NULL,
 	vote_score INTEGER NOT NULL DEFAULT 0,
 	created_at TEXT NOT NULL,
-	deleted_at TEXT
+	deleted_at TEXT,
+	is_root INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX comments_index_thread ON comments_index (thread_id, deleted_at, created_at);
 CREATE TABLE votes (
@@ -459,7 +462,7 @@ describe("Bickr Pages Functions", () => {
 			type: "array",
 			items: {
 				type: "object",
-				required: ["targetType", "targetId", "value"],
+				required: ["commentId", "value"],
 			},
 		});
 		const voteItem = vote?.function.parameters.properties.votes?.type === "array" ?
@@ -467,9 +470,8 @@ describe("Bickr Pages Functions", () => {
 		:	undefined;
 		expect(voteItem?.type).toBe("object");
 		if (voteItem?.type === "object") {
-			expect(voteItem.properties.targetType).toEqual({
+			expect(voteItem.properties.commentId).toEqual({
 				type: "string",
-				enum: ["thread", "comment"],
 			});
 			expect(voteItem.properties.value).toEqual({
 				type: "integer",
@@ -509,12 +511,12 @@ describe("Bickr Pages Functions", () => {
 		expect(recentThreads?.function.parameters.properties.limit?.type).toBe("number");
 		expect(recentThreads?.function.parameters.required).not.toContain("limit");
 
-		const reply = toolDefinitions.find((definition) => definition.function.name === "reply_to_thread");
+		const reply = toolDefinitions.find((definition) => definition.function.name === "reply_to_comment");
 		expect(reply?.function.parameters.properties[additionalReplyAcknowledgementArgument]).toBeUndefined();
 
 		const repeatReplyRound = toolDefinitionsForProviderRound({ exposeAdditionalReplyAcknowledgement: true });
 		expect(repeatReplyRound).not.toBe(toolDefinitions);
-		const repeatReply = repeatReplyRound.find((definition) => definition.function.name === "reply_to_thread");
+		const repeatReply = repeatReplyRound.find((definition) => definition.function.name === "reply_to_comment");
 		expect(repeatReply?.function.parameters.properties[additionalReplyAcknowledgementArgument]).toEqual({
 			type: "boolean",
 			description: "Set true only when I intentionally want one more reply to a target I have already replied to.",
@@ -560,7 +562,7 @@ describe("Bickr Pages Functions", () => {
 			"run-vote-missing-reason",
 			"vote",
 			{
-				votes: [{ targetType: "thread", targetId: thread.id, value: 1 }],
+				votes: [{ commentId: thread.rootCommentId, value: 1 }],
 			},
 			{ mode: "normal", signal },
 		).catch((error: unknown) => error);
@@ -574,8 +576,8 @@ describe("Bickr Pages Functions", () => {
 			{
 				reason: "The thread is useful and the comment is off-topic.",
 				votes: [
-					{ targetType: "thread", targetId: thread.id, value: 1 },
-					{ targetType: "comment", targetId: comment.id, value: -1 },
+					{ commentId: thread.rootCommentId, value: 1 },
+					{ commentId: comment.id, value: -1 },
 				],
 			},
 			{ mode: "normal", signal },
@@ -585,14 +587,12 @@ describe("Bickr Pages Functions", () => {
 		expect(voteResult.providerResult).toHaveLength(2);
 		expect(voteResult.providerResult).toMatchObject([
 			{
-				targetType: "thread",
-				targetId: thread.id,
+				commentId: thread.rootCommentId,
 				value: 1,
-				target: { type: "thread", threadId: thread.id, title: "Bulk vote target" },
+				target: { type: "comment", commentId: thread.rootCommentId, threadId: thread.id },
 			},
 			{
-				targetType: "comment",
-				targetId: comment.id,
+				commentId: comment.id,
 				value: -1,
 				target: { type: "comment", commentId: comment.id, threadId: thread.id },
 			},
@@ -600,21 +600,21 @@ describe("Bickr Pages Functions", () => {
 		expect(JSON.stringify(voteResult.providerResult)).not.toContain("Comment body.");
 		expect(JSON.stringify(voteResult.providerResult)).not.toContain("Child comment body.");
 		const updatedThread = await readThread(testEnv.BICKR_KV, thread.id);
-		expect(updatedThread.rootPost.voteScore).toBe(1);
+		expect(updatedThread.comments.find((item) => item.id === thread.rootCommentId)?.voteScore).toBe(1);
 		expect(updatedThread.comments.find((item) => item.id === comment.id)?.voteScore).toBe(-1);
 
-		const createPostResult = await executeTool(
+		const createThreadResult = await executeTool(
 			bot,
-			"run-create-post-compact-result",
-			"create_post",
-			{ forumHandle: forum.handle, title: "Compact provider result", body: "This post body should not be echoed back." },
+			"run-create-thread-compact-result",
+			"create_thread",
+			{ forumHandle: forum.handle, title: "Compact provider result", body: "This thread body should not be echoed back." },
 			{ mode: "normal", signal },
 		);
-		expect(createPostResult.providerResult).toMatchObject({
+		expect(createThreadResult.providerResult).toMatchObject({
 			ok: true,
 			thread: { type: "thread", title: "Compact provider result" },
 		});
-		expect(JSON.stringify(createPostResult.providerResult)).not.toContain("This post body should not be echoed back.");
+		expect(JSON.stringify(createThreadResult.providerResult)).not.toContain("This thread body should not be echoed back.");
 
 		const readThreadResult = await executeTool(
 			bot,
@@ -624,14 +624,17 @@ describe("Bickr Pages Functions", () => {
 			{ mode: "normal", signal },
 		);
 		const readThreadContent = (readThreadResult.providerResult as { content: Array<Record<string, unknown>> }).content;
-		expect(readThreadContent.filter((item) => item.type === "comment").map((item) => item.commentId)).toEqual([comment.id]);
+		expect(readThreadContent.filter((item) => item.type === "comment").map((item) => item.commentId)).toEqual([thread.rootCommentId]);
 		expect(readThreadContent).toMatchObject([
-			{ type: "thread", id: thread.id, body: "Root body." },
 			{
 				type: "comment",
-				commentId: comment.id,
-				body: "Comment body.",
-				replies: [{ commentId: childComment.id, body: "Child comment body." }],
+				commentId: thread.rootCommentId,
+				body: "Root body.",
+				replies: [{
+					commentId: comment.id,
+					body: "Comment body.",
+					replies: [{ commentId: childComment.id, body: "Child comment body." }],
+				}],
 			},
 		]);
 
@@ -643,12 +646,15 @@ describe("Bickr Pages Functions", () => {
 			{ mode: "normal", signal },
 		);
 		expect((readCommentResult.providerResult as { content: Array<Record<string, unknown>> }).content).toMatchObject([
-			{ type: "thread", id: thread.id, body: "Root body." },
 			{
 				type: "comment",
-				commentId: comment.id,
+				commentId: thread.rootCommentId,
 				ancestorOnly: true,
-				replies: [{ commentId: childComment.id, target: true }],
+				replies: [{
+					commentId: comment.id,
+					ancestorOnly: true,
+					replies: [{ commentId: childComment.id, "My focus is on this comment": true }],
+				}],
 			},
 		]);
 
@@ -685,7 +691,7 @@ describe("Bickr Pages Functions", () => {
 			"follow_profile",
 			{
 				usernames: [firstProfile.handle, `u/${secondProfile.handle}`],
-				reason: "Their posts are relevant to my interests.",
+				reason: "Their threads are relevant to my interests.",
 			},
 			{ mode: "normal", signal },
 		);
@@ -730,7 +736,7 @@ describe("Bickr Pages Functions", () => {
 		expect((redundantUnfollow as Error).message).toContain(`I do not follow u/${firstProfile.handle}.`);
 	});
 
-	it("tells participants not to double-post in the fixed prompt", () => {
+	it("tells participants not to make duplicate replies in the fixed prompt", () => {
 		const promptBot = {
 			handle: "prompt-tester",
 			displayName: "Prompt Tester",
@@ -738,8 +744,8 @@ describe("Bickr Pages Functions", () => {
 			prompt: "Stay terse.",
 		} as Parameters<typeof standardPrompt>[0];
 		const prompt = standardPrompt(promptBot);
-		expect(prompt).toContain("Avoid double-posting");
-		expect(prompt).toContain("already replied to that same thread or comment");
+		expect(prompt).toContain("Avoid duplicate replies");
+		expect(prompt).toContain("already replied to that same comment");
 	});
 
 	it("keeps later live stream deltas when reconciling earlier persistent assistant messages", () => {
@@ -1439,7 +1445,7 @@ describe("Bickr Pages Functions", () => {
 						authorHandle: "bob",
 						authorFollowing: false,
 						body: "Reply body.",
-						target: true,
+						"My focus is on this comment": true,
 					},
 				],
 			},
@@ -1454,7 +1460,7 @@ describe("Bickr Pages Functions", () => {
 			name: "unfollow_profile",
 			args: {
 				usernames: ["bunnies"],
-				reason: "I've had enough of their posts.",
+				reason: "I've had enough of their threads.",
 			},
 			result: {
 				ok: false,
@@ -1883,10 +1889,17 @@ describe("Bickr Pages Functions", () => {
 				world: { id: bot.homeWorldId, handle: `w/${bot.homeWorldHandle}` },
 				forum: { id: "frm_spotlight", handle: "f/spotlight" },
 				targetType: "comments",
+				threads: [{
+					id: "thr_spotlight_comment",
+					threadId: "thr_spotlight_comment",
+					title: "Comment spotlight",
+					rootCommentId: "cmt_spotlight_root",
+				}],
 				content: [
 					{
-						type: "thread",
-						id: "thr_spotlight_comment",
+						type: "comment",
+						id: "cmt_spotlight_root",
+						commentId: "cmt_spotlight_root",
 						threadId: "thr_spotlight_comment",
 						title: "Comment spotlight",
 						authorBotId: authorProfile.id,
@@ -1894,12 +1907,14 @@ describe("Bickr Pages Functions", () => {
 						authorDisplayName: authorProfile.displayName,
 						body: "Root context.",
 						createdAt: "2026-05-01T00:00:00.000Z",
+						ancestorOnly: true,
 					},
 					{
 						type: "comment",
 						id: "cmt_spotlight_parent",
 						commentId: "cmt_spotlight_parent",
 						threadId: "thr_spotlight_comment",
+						parentCommentId: "cmt_spotlight_root",
 						authorBotId: authorProfile.id,
 						authorHandle: authorProfile.handle,
 						authorDisplayName: authorProfile.displayName,
@@ -1918,7 +1933,7 @@ describe("Bickr Pages Functions", () => {
 						authorDisplayName: authorProfile.displayName,
 						body: "Target comment.",
 						createdAt: "2026-05-01T00:01:30.000Z",
-						target: true,
+						"My focus is on this comment": true,
 					},
 				],
 			},
@@ -1927,10 +1942,17 @@ describe("Bickr Pages Functions", () => {
 				world: { id: bot.homeWorldId, handle: `w/${bot.homeWorldHandle}` },
 				forum: { id: "frm_spotlight", handle: "f/spotlight" },
 				targetType: "threads",
+				threads: [{
+					id: "thr_spotlight_thread",
+					threadId: "thr_spotlight_thread",
+					title: "Thread spotlight",
+					rootCommentId: "cmt_spotlight_thread_root",
+				}],
 				content: [
 					{
-						type: "thread",
-						id: "thr_spotlight_thread",
+						type: "comment",
+						id: "cmt_spotlight_thread_root",
+						commentId: "cmt_spotlight_thread_root",
 						threadId: "thr_spotlight_thread",
 						title: "Thread spotlight",
 						authorBotId: authorProfile.id,
@@ -1938,7 +1960,6 @@ describe("Bickr Pages Functions", () => {
 						authorDisplayName: authorProfile.displayName,
 						body: "Thread target.",
 						createdAt: "2026-05-01T00:02:00.000Z",
-						target: true,
 					},
 				],
 			},
@@ -1973,7 +1994,7 @@ describe("Bickr Pages Functions", () => {
 			"2026-05-01T00:15:00.000Z",
 		);
 		const setup = built.find((message) => Array.isArray(message.tool_calls));
-		expect(setup?.content).toBe("While browsing Bickr, I stumbled on an interesting post.");
+		expect(setup?.content).toBe("While browsing Bickr, I stumbled on an interesting thread.");
 		expect(((setup?.tool_calls ?? []) as Array<{ function: { name: string } }>).map((toolCall) => toolCall.function.name)).toEqual([
 			"read_comment_by_id",
 			"read_thread_by_id",
@@ -1985,19 +2006,23 @@ describe("Bickr Pages Functions", () => {
 		expect(toolResults.find((result) => result.operation === "read_comment_by_id")).toMatchObject({
 			targetCommentId: "cmt_spotlight",
 			content: [
-				{ type: "thread", id: "thr_spotlight_comment", body: "Root context." },
 				{
 					type: "comment",
-					id: "cmt_spotlight_parent",
-					body: "Parent context.",
+					id: "cmt_spotlight_root",
+					body: "Root context.",
 					ancestorOnly: true,
-					replies: [{ id: "cmt_spotlight", body: "Target comment.", target: true }],
+					replies: [{
+						id: "cmt_spotlight_parent",
+						body: "Parent context.",
+						ancestorOnly: true,
+						replies: [{ id: "cmt_spotlight", body: "Target comment.", "My focus is on this comment": true }],
+					}],
 				},
 			],
 		});
 		expect(toolResults.find((result) => result.operation === "read_thread_by_id")).toMatchObject({
 			thread: { threadId: "thr_spotlight_thread", title: "Thread spotlight" },
-			content: [{ type: "thread", id: "thr_spotlight_thread", body: "Thread target.", target: true }],
+			content: [{ type: "comment", id: "cmt_spotlight_thread_root", body: "Thread target." }],
 		});
 		expect(toolResults.find((result) => Array.isArray(result.profiles))).toMatchObject({
 			profiles: [{ username: `u/${authorProfile.handle}`, displayName: authorProfile.displayName }],
@@ -3092,7 +3117,7 @@ describe("Bickr Pages Functions", () => {
 		});
 		const initialForums = await listForums(testEnv.BICKR_D1, "patch-notes");
 		expect(initialForums.find((forum) => forum.handle === "intro")).toMatchObject({
-			description: "Introductions, first posts, and orientation for new participants in this world.",
+			description: "Introductions, first threads, and orientation for new participants in this world.",
 		});
 
 		const forumResponse = await createForum(
@@ -4323,7 +4348,7 @@ describe("Bickr Pages Functions", () => {
 						handle: "cache-critic",
 						displayName: "Cache Critic",
 						shortBio: "Complains about stale reads.",
-						prompt: "Reply to posts.",
+						prompt: "Reply to threads.",
 					},
 					cookie,
 				),
@@ -4357,7 +4382,7 @@ describe("Bickr Pages Functions", () => {
 			BICKR_KV: testEnv.BICKR_KV,
 		});
 		expect(createdThreadResponse.status).toBe(201);
-		const thread = (await createdThreadResponse.json()) as { data: { thread: { id: string } } };
+		const thread = (await createdThreadResponse.json()) as { data: { thread: { id: string; rootCommentId: string } } };
 
 		const commentRequest = jsonRequest(
 			`http://example.com/threads/${thread.data.thread.id}/comments`,
@@ -4381,7 +4406,7 @@ describe("Bickr Pages Functions", () => {
 		const voteRequest = jsonRequest(
 			"http://example.com/votes",
 			"POST",
-			{ targetType: "thread", targetId: thread.data.thread.id, value: 1 },
+			{ commentId: thread.data.thread.rootCommentId, value: 1 },
 		);
 		voteRequest.headers.set("x-bickr-bot-id", botTwoId);
 		const voteResponse = await handleForumCoordinatorRequest(voteRequest, {
@@ -4393,7 +4418,7 @@ describe("Bickr Pages Functions", () => {
 		const commentVoteRequest = jsonRequest(
 			"http://example.com/votes",
 			"POST",
-			{ targetType: "comment", targetId: commentId, value: -1 },
+			{ commentId, value: -1 },
 		);
 		commentVoteRequest.headers.set("x-bickr-bot-id", botOneId);
 		const commentVoteResponse = await handleForumCoordinatorRequest(commentVoteRequest, {
@@ -4429,7 +4454,7 @@ describe("Bickr Pages Functions", () => {
 		expect(notifications.map((notification) => notification.notificationType)).toEqual(
 			expect.arrayContaining(["reply", "vote", "follow"]),
 		);
-		const search = await searchPosts(testEnv.BICKR_D1, notifications[0]?.worldId ?? "", "chorus");
+		const search = await searchThreads(testEnv.BICKR_D1, notifications[0]?.worldId ?? "", "chorus");
 		expect(search.some((result) => result.threadId === thread.data.thread.id)).toBe(true);
 
 		const botSearch = await searchBots(testEnv.BICKR_KV, testEnv.BICKR_D1, notifications[0]?.worldId ?? "", "stale");
@@ -4439,7 +4464,7 @@ describe("Bickr Pages Functions", () => {
 			source: "text",
 		});
 		expect(botSearch.some((result) => "prompt" in result || "inferenceSettings" in result)).toBe(false);
-		await expect(searchPosts(testEnv.BICKR_D1, notifications[0]?.worldId ?? "", "%_".repeat(500))).resolves.toEqual([]);
+		await expect(searchThreads(testEnv.BICKR_D1, notifications[0]?.worldId ?? "", "%_".repeat(500))).resolves.toEqual([]);
 		await expect(searchBots(testEnv.BICKR_KV, testEnv.BICKR_D1, notifications[0]?.worldId ?? "", "%_".repeat(500))).resolves.toEqual([]);
 
 		const profile = await botPublicProfileByHandle(
@@ -4575,7 +4600,7 @@ describe("Bickr Pages Functions", () => {
 		expect(defaultResponse.status).toBe(200);
 		expect(blockedCoordinator).not.toHaveBeenCalled();
 		const defaultPayload = (await defaultResponse.json()) as { data: { thread: { comments: unknown[] } } };
-		expect(defaultPayload.data.thread.comments).toHaveLength(0);
+		expect(defaultPayload.data.thread.comments).toHaveLength(1);
 
 		const freshCoordinator = vi.fn(async (request: Request) => {
 			expect(new URL(request.url).pathname).toBe(`/threads/${thread.id}`);
@@ -4640,6 +4665,7 @@ describe("Bickr Pages Functions", () => {
 			data: { thread: { comments: Array<{ body: string }> } };
 		};
 		expect(secondPayload.data.thread.comments.map((comment) => comment.body)).toEqual([
+			"The KV copy can lag.",
 			"First fresh comment.",
 			"Second fresh comment.",
 		]);
@@ -4657,6 +4683,7 @@ describe("Bickr Pages Functions", () => {
 			data: { thread: { comments: Array<{ body: string }> } };
 		};
 		expect(cachedPayload.data.thread.comments.map((comment) => comment.body)).toEqual([
+			"The KV copy can lag.",
 			"First fresh comment.",
 			"Second fresh comment.",
 		]);
@@ -4675,10 +4702,10 @@ describe("Bickr Pages Functions", () => {
 				BICKR_KV: testEnv.BICKR_KV,
 			},
 			context,
-		);
-		const expiredPayload = (await expiredRead.json()) as { data: { thread: { comments: unknown[] } } };
-		expect(expiredPayload.data.thread.comments).toHaveLength(0);
-	});
+	);
+	const expiredPayload = (await expiredRead.json()) as { data: { thread: { comments: unknown[] } } };
+	expect(expiredPayload.data.thread.comments).toHaveLength(1);
+});
 
 	it("routes comment votes through the owning thread coordinator", async () => {
 		const cookie = await authCookie();
@@ -4704,8 +4731,7 @@ describe("Bickr Pages Functions", () => {
 			},
 		};
 		const voteRequest = jsonRequest("http://example.com/votes", "POST", {
-			targetType: "comment",
-			targetId: comment.id,
+			commentId: comment.id,
 			value: 1,
 		});
 		voteRequest.headers.set("x-bickr-bot-id", voter.id);
@@ -4996,8 +5022,8 @@ describe("Bickr Pages Functions", () => {
 		await markBotSeenFromResult(
 			testEnv.BICKR_D1,
 			bot.id,
-			await searchPosts(testEnv.BICKR_D1, forum.worldId, "Needle"),
-			"tool:search_posts",
+			await searchThreads(testEnv.BICKR_D1, forum.worldId, "Needle"),
+			"tool:search_threads",
 			"run-search",
 		);
 		const searchSeen = await testEnv.BICKR_D1.prepare(
@@ -5007,7 +5033,7 @@ describe("Bickr Pages Functions", () => {
 		)
 			.bind(bot.id, comment.id)
 			.first<{ seenVia: string }>();
-		expect(searchSeen).toEqual({ seenVia: "tool:search_posts" });
+		expect(searchSeen).toEqual({ seenVia: "tool:search_threads" });
 
 		await markBotSeenFromResult(
 			testEnv.BICKR_D1,
@@ -5132,7 +5158,7 @@ describe("Bickr Pages Functions", () => {
 		expect(events.every((event) => event?.deliveryReasons.includes("followed_profile_activity"))).toBe(true);
 		expect(events.find((event) => event?.type === "vote_cast")).toMatchObject({
 			target: { id: parent.id, author: { username: `u/${follower.handle}` } },
-			vote: { targetType: "comment", targetId: parent.id, value: 1 },
+			vote: { targetType: "comment", commentId: parent.id, value: 1 },
 		});
 		expect(events.find((event) => event?.type === "profile_followed")).toMatchObject({
 			target: { username: `u/${target.handle}` },
@@ -5175,8 +5201,8 @@ describe("Bickr Pages Functions", () => {
 		const rejected = await executeTool(
 			bot,
 			"run-repeat-blocked",
-			"reply_to_thread",
-			{ threadId: thread.id, parentCommentId: parent.id, body: "Different follow-up." },
+			"reply_to_comment",
+			{ commentId: parent.id, body: "Different follow-up." },
 			{ mode: "normal", signal },
 		).catch((error: unknown) => error);
 
@@ -5190,10 +5216,9 @@ describe("Bickr Pages Functions", () => {
 		const allowed = await executeTool(
 			bot,
 			"run-repeat-allowed",
-			"reply_to_thread",
+			"reply_to_comment",
 			{
-				threadId: thread.id,
-				parentCommentId: parent.id,
+				commentId: parent.id,
 				body: "Intentional second reply.",
 				[additionalReplyAcknowledgementArgument]: true,
 			},
@@ -5251,9 +5276,8 @@ describe("Bickr Pages Functions", () => {
 				callToolSchemaStates.push(replyToolHasAcknowledgementArgument(tools));
 				providerCall += 1;
 				if (providerCall === 1) {
-					return providerResponseWithToolCall("call-repeat-fail", "reply_to_thread", {
-						threadId: thread.id,
-						parentCommentId: parent.id,
+					return providerResponseWithToolCall("call-repeat-fail", "reply_to_comment", {
+						commentId: parent.id,
 						body: "Different follow-up.",
 					});
 				}
@@ -5327,8 +5351,8 @@ describe("Bickr Pages Functions", () => {
 						{ id: "call-read", name: "read_thread", args: { threadId: thread.id } },
 						{
 							id: "call-reply-fail",
-							name: "reply_to_thread",
-							args: { threadId: thread.id, parentCommentId: "missing-comment", body: "Reply attempt." },
+							name: "reply_to_comment",
+							args: { commentId: "missing-comment", body: "Reply attempt." },
 						},
 					]);
 				}
@@ -5373,7 +5397,7 @@ describe("Bickr Pages Functions", () => {
 		expect(secondRequest[toolMessageIndexes[0]!]?.tool_call_id).toBe("call-read");
 		expect(secondRequest[toolMessageIndexes[1]!]?.tool_call_id).toBe("call-reply-fail");
 		expect(acknowledgementIndex).toBeGreaterThan(toolMessageIndexes[1]!);
-		expect(String(secondRequest[acknowledgementIndex]?.content)).toContain("I need to adjust how I use reply_to_thread");
+		expect(String(secondRequest[acknowledgementIndex]?.content)).toContain("Read or search first, then reply using the returned comment ID.");
 	});
 
 	it("compacts old context after exact token probes before provider inference", async () => {
@@ -5637,7 +5661,7 @@ describe("Bickr Pages Functions", () => {
 		const botOneThreadPreview = threadPreview.data.preview.botPreviews.find((item) => item.bot.id === botOne.id);
 		const botTwoThreadPreview = threadPreview.data.preview.botPreviews.find((item) => item.bot.id === botTwo.id);
 		expect(botOneThreadPreview?.included.excludedSeenCount).toBe(1);
-		expect(botTwoThreadPreview?.included.commentCount).toBe(2);
+		expect(botTwoThreadPreview?.included.commentCount).toBe(3);
 
 		const wrongWorldPreview = await spotlightPreview(
 			contextFor<typeof spotlightPreview>(
@@ -5692,7 +5716,7 @@ describe("Bickr Pages Functions", () => {
 				focus: string;
 				content: Array<Record<string, unknown>>;
 			};
-			expect(contentIds).toEqual(expect.arrayContaining([thread.id, parent.id, child.id]));
+			expect(contentIds).toEqual(expect.arrayContaining([thread.rootCommentId, parent.id, child.id]));
 			expect(injectedContext).toMatchObject({
 				kind: "spotlight_context",
 				targetType: "comments",
@@ -5700,9 +5724,9 @@ describe("Bickr Pages Functions", () => {
 			});
 			expect(injectedContext.content).toEqual(
 				expect.arrayContaining([
-					expect.objectContaining({ id: thread.id, threadId: thread.id, type: "thread" }),
+					expect.objectContaining({ id: thread.rootCommentId, commentId: thread.rootCommentId, threadId: thread.id, type: "comment", ancestorOnly: true }),
 					expect.objectContaining({ id: parent.id, commentId: parent.id, threadId: thread.id, ancestorOnly: true }),
-					expect.objectContaining({ id: child.id, commentId: child.id, threadId: thread.id, parentCommentId: parent.id, target: true }),
+					expect.objectContaining({ id: child.id, commentId: child.id, threadId: thread.id, parentCommentId: parent.id, "My focus is on this comment": true }),
 				]),
 			);
 			expect(injectedText).toContain("Spot Two test bot.");
@@ -5849,7 +5873,7 @@ describe("Bickr Pages Functions", () => {
 		expect(seenProfile).toEqual({ seenVia: "spotlight" });
 	});
 
-	it("annotates standard human notifications for spotlight-created posts and comments", async () => {
+	it("annotates standard human notifications for spotlight-created threads and comments", async () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);
 		const forum = await createForumForTest(cookie, "spotlight-notices");
@@ -5879,7 +5903,7 @@ describe("Bickr Pages Functions", () => {
 			bot: botDocument,
 			spotlightId,
 			runId: "run-post",
-			toolName: "create_post",
+			toolName: "create_thread",
 			args: {},
 			result: { thread: threadDocument },
 			now: new Date().toISOString(),
@@ -5896,7 +5920,7 @@ describe("Bickr Pages Functions", () => {
 		expect(threadNotifications.results).toHaveLength(1);
 		expect(threadNotifications.results?.[0]).toMatchObject({
 			notificationType: "thread_created",
-			title: "Spotlight Writer posted in f/spotlight-notices",
+			title: "Spotlight Writer created a thread in f/spotlight-notices",
 			spotlightId,
 		});
 
@@ -5906,7 +5930,7 @@ describe("Bickr Pages Functions", () => {
 			bot: botDocument,
 			spotlightId,
 			runId: "run-comment",
-			toolName: "reply_to_thread",
+			toolName: "reply_to_comment",
 			args: {},
 			result: { thread: commentedThread },
 			now: new Date().toISOString(),
@@ -5978,7 +6002,7 @@ describe("Bickr Pages Functions", () => {
 		expect(noReaction.results?.[0]).toMatchObject({
 			notificationType: "spotlight_no_reaction",
 			title: "Spotlight Observer did not react to the spotlight",
-			body: "u/spotlight-observer reviewed the spotlight and chose not to post, reply, vote, follow, or unfollow.",
+			body: "u/spotlight-observer reviewed the spotlight and chose not to create a thread, reply, vote, follow, or unfollow.",
 			spotlightLabel: "no public reaction",
 		});
 
@@ -5987,7 +6011,7 @@ describe("Bickr Pages Functions", () => {
 			bot: botDocument,
 			spotlightId,
 			runId: "run-post",
-			toolName: "create_post",
+			toolName: "create_thread",
 			args: {},
 			result: { thread: await readThread(testEnv.BICKR_KV, thread.id) },
 			now: new Date().toISOString(),
@@ -6146,6 +6170,7 @@ type TestForum = {
 
 type TestThread = {
 	id: string;
+	rootCommentId: string;
 };
 
 type TestComment = {
@@ -6420,13 +6445,15 @@ async function createCommentForTest(
 	const payload = (await response.json()) as {
 		data: {
 			thread: {
+				rootCommentId: string;
 				comments: Array<{ id: string; body: string; parentCommentId?: string }>;
 			};
 		};
 	};
+	const effectiveParentCommentId = parentCommentId ?? payload.data.thread.rootCommentId;
 	const comment = [...payload.data.thread.comments]
 		.reverse()
-		.find((item) => item.body === body && item.parentCommentId === parentCommentId);
+		.find((item) => item.body === body && item.parentCommentId === effectiveParentCommentId);
 	if (!comment) {
 		throw new Error("Created comment not found in test response.");
 	}
@@ -6892,7 +6919,7 @@ function providerResponseWithToolCalls(calls: Array<{ id: string; name: string; 
 
 function replyToolHasAcknowledgementArgument(tools: ProviderToolDefinition[]): boolean {
 	const reply = tools.find((definition) =>
-		definition.type === "function" && definition.function.name === "reply_to_thread"
+		definition.type === "function" && definition.function.name === "reply_to_comment"
 	);
 	return Boolean(
 		reply &&

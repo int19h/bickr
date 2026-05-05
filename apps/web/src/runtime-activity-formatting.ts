@@ -441,12 +441,10 @@ function toolCallTitle(name: string, args: unknown): string {
 	const canonical = canonicalToolName(name);
 	const record = runtimeRecord(args);
 	switch (canonical) {
-		case "create_post":
-			return `Creating a post in f/${stringValue(record.forumHandle) ?? "..."}`;
-		case "reply_to_thread":
-			return stringValue(record.parentCommentId) ?
-					`Replying to comment ${shortId(stringValue(record.parentCommentId))}`
-				:	`Replying to thread ${shortId(stringValue(record.threadId))}`;
+		case "create_thread":
+			return `Creating a thread in f/${stringValue(record.forumHandle) ?? "..."}`;
+		case "reply_to_comment":
+			return `Replying to comment ${shortId(stringValue(record.commentId ?? record.parentCommentId))}`;
 		case "vote":
 			return bulkVoteTitle(record);
 		case "read_thread":
@@ -460,9 +458,9 @@ function toolCallTitle(name: string, args: unknown): string {
 			return `Listing recent threads in f/${stringValue(record.forumHandle) ?? "..."}`;
 		case "list_hot_threads":
 			return "Listing hot threads";
-		case "search_posts":
-		case "search_posts_semantic":
-			return `Searching posts for "${stringValue(record.query) ?? ""}"`;
+		case "search_threads":
+		case "search_threads_semantic":
+			return `Searching threads and comments for "${stringValue(record.query) ?? ""}"`;
 		case "search_profiles":
 			return `Searching profiles for "${stringValue(record.query) ?? ""}"`;
 		case "view_profiles":
@@ -488,15 +486,15 @@ function toolResultSummary(name: string, args: unknown, result: unknown, fallbac
 	}
 
 	const thread = threadRecord(result);
-	if (canonical === "create_post" && thread) {
+	if (canonical === "create_thread" && thread) {
 		const items = [openThreadItem(thread, fallbackWorldHandle)].filter(isDisplayItem);
-		return resultWithDisplay(`Posted "${thread.title ?? "thread"}"`, threadFacts(thread), items);
+		return resultWithDisplay(`Created "${thread.title ?? "thread"}"`, threadFacts(thread), items);
 	}
-	if (canonical === "reply_to_thread" && thread) {
-		const parentCommentId = stringValue(runtimeRecord(args).parentCommentId);
+	if (canonical === "reply_to_comment" && thread) {
+		const parentCommentId = stringValue(runtimeRecord(args).commentId ?? runtimeRecord(args).parentCommentId);
 		const details = [threadFacts(thread), parentCommentId ? `Parent comment ${shortId(parentCommentId)}` : ""].filter(Boolean);
 		const items = [openThreadItem(thread, fallbackWorldHandle)].filter(isDisplayItem);
-		return resultWithDisplay(`Reply posted in "${thread.title ?? "thread"}"`, details.join("\n"), items);
+		return resultWithDisplay(`Reply created in "${thread.title ?? "thread"}"`, details.join("\n"), items);
 	}
 	if ((canonical === "read_thread" || canonical === "read_thread_by_id") && thread) {
 		const items = [openThreadItem(thread, fallbackWorldHandle)].filter(isDisplayItem);
@@ -525,10 +523,10 @@ function toolResultSummary(name: string, args: unknown, result: unknown, fallbac
 		const items = result.map((item, index) => threadListItem(runtimeRecord(item), index, fallbackWorldHandle));
 		return resultWithDisplay("Listed hot threads", itemsBody(items, "No hot threads returned."), items);
 	}
-	if ((canonical === "search_posts" || canonical === "search_posts_semantic") && Array.isArray(result)) {
+	if ((canonical === "search_threads" || canonical === "search_threads_semantic") && Array.isArray(result)) {
 		const query = stringValue(runtimeRecord(args).query) ?? "";
-		const items = result.map((item, index) => postSearchItem(runtimeRecord(item), index, fallbackWorldHandle));
-		return resultWithDisplay(`Post search results for "${query}"`, itemsBody(items, "No matching posts or comments returned."), items);
+		const items = result.map((item, index) => threadSearchItem(runtimeRecord(item), index, fallbackWorldHandle));
+		return resultWithDisplay(`Thread search results for "${query}"`, itemsBody(items, "No matching threads or comments returned."), items);
 	}
 	if (canonical === "search_profiles" && Array.isArray(result)) {
 		const query = stringValue(runtimeRecord(args).query) ?? "";
@@ -580,9 +578,10 @@ function toolResultSummary(name: string, args: unknown, result: unknown, fallbac
 			Number(argsRecord.value) > 0 ? "Upvote"
 			: Number(argsRecord.value) < 0 ? "Downvote"
 			: "Vote cleared";
+		const commentId = stringValue(argsRecord.commentId ?? argsRecord.targetId);
 		const details = [
 			toolReasonBody(args),
-			`${direction} on ${stringValue(argsRecord.targetType) ?? "item"} ${shortId(stringValue(argsRecord.targetId))}`,
+			`${direction} on comment ${shortId(commentId)}`,
 			thread ? threadFacts(thread) : "",
 		].filter(Boolean).join("\n");
 		const items = thread ? [openThreadItem(thread, fallbackWorldHandle)].filter(isDisplayItem) : [];
@@ -681,7 +680,7 @@ function bulkVoteTitle(record: Record<string, unknown>): string {
 		Number(vote.value) > 0 ? "Upvoting"
 		: Number(vote.value) < 0 ? "Downvoting"
 		: "Clearing vote on";
-	return `${direction} ${stringValue(vote.targetType) ?? "item"} ${shortId(stringValue(vote.targetId))}`;
+	return `${direction} comment ${shortId(stringValue(vote.commentId ?? vote.targetId))}`;
 }
 
 function bulkProfileTitle(action: string, record: Record<string, unknown>): string {
@@ -714,7 +713,7 @@ function threadListItem(record: Record<string, unknown>, index: number, fallback
 	};
 }
 
-function postSearchItem(record: Record<string, unknown>, index: number, fallbackWorldHandle: string): ToolDisplayItem {
+function threadSearchItem(record: Record<string, unknown>, index: number, fallbackWorldHandle: string): ToolDisplayItem {
 	const threadId = stringValue(record.threadId);
 	const commentId = stringValue(record.commentId);
 	const forum = forumHandle(record);
@@ -766,12 +765,12 @@ function profileItem(
 
 function activityItem(record: Record<string, unknown>, index: number, fallbackWorldHandle: string): ToolDisplayItem {
 	const type = stringValue(record.type) ?? "activity";
-	if (type === "post") {
-		const title = stringValue(record.title) ?? "Untitled post";
+	if (type === "thread" || type === "post") {
+		const title = stringValue(record.title) ?? "Untitled thread";
 		return {
 			key: stringValue(record.id) ?? stringValue(record.threadId) ?? `activity-${index}`,
 			label: title,
-			detail: `posted in f/${forumHandle(record)}`,
+			detail: `created in f/${forumHandle(record)}`,
 			href: threadUrl(record, fallbackWorldHandle) ?? undefined,
 		};
 	}
@@ -788,9 +787,10 @@ function activityItem(record: Record<string, unknown>, index: number, fallbackWo
 		};
 	}
 	if (type === "vote") {
+		const commentId = stringValue(record.commentId ?? record.targetId);
 		return {
 			key: stringValue(record.id) ?? `activity-${index}`,
-			label: `Vote on ${stringValue(record.targetType) ?? "item"} ${shortId(stringValue(record.targetId))}`,
+			label: `Vote on comment ${shortId(commentId)}`,
 			detail: stringValue(record.value) ? `value ${stringValue(record.value)}` : undefined,
 		};
 	}
@@ -809,19 +809,18 @@ function activityItem(record: Record<string, unknown>, index: number, fallbackWo
 
 function voteResultItem(record: Record<string, unknown>, index: number, fallbackWorldHandle: string): ToolDisplayItem {
 	const thread = threadRecord(record);
-	const targetType = stringValue(record.targetType) ?? "item";
-	const targetId = stringValue(record.targetId);
+	const targetId = stringValue(record.commentId ?? record.targetId);
 	const direction =
 		Number(record.value) > 0 ? "Upvote"
 		: Number(record.value) < 0 ? "Downvote"
 		: "Vote cleared";
 	const threadHref = thread ? threadUrl(thread, fallbackWorldHandle) : null;
 	return {
-		key: `${targetType}-${targetId ?? index}`,
-		label: `${direction} on ${targetType} ${shortId(targetId)}`,
+		key: `comment-${targetId ?? index}`,
+		label: `${direction} on comment ${shortId(targetId)}`,
 		detail: thread ? threadFacts(thread) : undefined,
 		href:
-			threadHref && targetType === "comment" && targetId ? `${threadHref}/c/${encodeURIComponent(targetId)}`
+			threadHref && targetId ? `${threadHref}/c/${encodeURIComponent(targetId)}`
 			: threadHref ? threadHref
 			: undefined,
 	};
@@ -859,23 +858,32 @@ function openCommentItem(thread: Record<string, unknown> | null, commentId: stri
 function threadRecord(value: unknown): Record<string, unknown> | null {
 	const record = runtimeRecord(value);
 	const thread = runtimeRecord(record.thread);
-	if (stringValue(thread.id) && stringValue(thread.rootPost ? runtimeRecord(thread.rootPost).title : thread.title)) {
+	if (stringValue(thread.id) && (stringValue(thread.title) || stringValue(runtimeRecord(thread.rootPost).title))) {
 		const rootPost = runtimeRecord(thread.rootPost);
 		return {
 			...thread,
-			title: stringValue(rootPost.title) ?? stringValue(thread.title),
-			body: stringValue(rootPost.body) ?? stringValue(thread.body),
+			title: stringValue(thread.title) ?? stringValue(rootPost.title),
+			body: stringValue(rootCommentBody(thread)) ?? stringValue(rootPost.body) ?? stringValue(thread.body),
 		};
 	}
-	if (stringValue(record.id) && record.rootPost && typeof record.rootPost === "object") {
+	if (stringValue(record.id) && (stringValue(record.title) || record.rootPost && typeof record.rootPost === "object")) {
 		const rootPost = runtimeRecord(record.rootPost);
 		return {
 			...record,
-			title: stringValue(rootPost.title),
-			body: stringValue(rootPost.body),
+			title: stringValue(record.title) ?? stringValue(rootPost.title),
+			body: stringValue(rootCommentBody(record)) ?? stringValue(rootPost.body),
 		};
 	}
 	return null;
+}
+
+function rootCommentBody(thread: Record<string, unknown>): string | undefined {
+	const comments = Array.isArray(thread.comments) ? thread.comments.map(runtimeRecord) : [];
+	const rootCommentId = stringValue(thread.rootCommentId);
+	const root =
+		(rootCommentId ? comments.find((comment) => stringValue(comment.id ?? comment.commentId) === rootCommentId) : undefined) ??
+		comments.find((comment) => !stringValue(comment.parentCommentId));
+	return stringValue(root?.body);
 }
 
 function threadUrl(thread: Record<string, unknown>, fallbackWorldHandle: string): string | null {
@@ -954,7 +962,11 @@ function shortOpenRouterToolName(value: string): string {
 
 function canonicalToolName(name: string): string {
 	const aliases: Record<string, string> = {
+		create_post: "create_thread",
+		reply_to_thread: "reply_to_comment",
 		search_bots: "search_profiles",
+		search_posts: "search_threads",
+		search_posts_semantic: "search_threads_semantic",
 		view_profile: "view_profiles",
 		view_bot_profile: "view_profiles",
 		view_bot_activity: "view_activity",

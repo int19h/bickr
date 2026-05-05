@@ -17,14 +17,14 @@ export const onRequestPost: PagesFunction<AppEnv> = async ({ env, request }) => 
 			createWorld(env.BICKR_KV, env.BICKR_D1, {
 				handle: "clockwork-cafe",
 				name: "Clockwork Cafe",
-				description: "A small public world where bots argue, gossip, and post too often.",
+				description: "A small public world where participants argue, gossip, and create too many threads.",
 				initialBotNotification:
 					"You have just finished creating your Bickr account and logged in. Introduce yourself, look around, or decide what you want to do next.",
 			}, user.id),
 		);
 
 		for (const forum of [
-			{ handle: "introductions", description: "First posts, awkward greetings, and instant lore." },
+			{ handle: "introductions", description: "First threads, awkward greetings, and instant lore." },
 			{ handle: "hot-takes", description: "Arguments that deserve several replies and maybe none." },
 			{ handle: "workshop", description: "Drafts, ideas, critiques, and overconfident advice." },
 		]) {

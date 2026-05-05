@@ -17,12 +17,14 @@ import {
 	type HumanNotificationType,
 	type HumanSubscription,
 	type HumanSubscriptionScope,
+	type LegacyRootPostDocument,
+	type LegacyThreadDocument,
 	type NotificationDeliveryReason,
 	type NotificationDocument,
 	type NotificationEvent,
 	type NotificationType,
 	type NotificationProfileRef,
-	type SearchPostResult,
+	type SearchThreadResult,
 	type SpotlightBotPreview,
 	type SpotlightDeliveryResult,
 	type SpotlightIncludedContent,
@@ -64,6 +66,92 @@ const mentionPattern = new RegExp(
 );
 // D1 currently allows 100 bound parameters per statement, so multi-row queries below are chunked.
 const d1MaxBoundParameters = 100;
+
+export function rootCommentIdForThreadId(threadId: string): string {
+	return threadId.startsWith("thr_") ? `cmt_${threadId.slice(4)}` : `cmt_${threadId}`;
+}
+
+export function rootCommentForThread(thread: ThreadDocument): CommentDocument {
+	const root = thread.comments.find((comment) => comment.id === thread.rootCommentId);
+	if (!root) {
+		throw repositoryError("server_error", "Thread root comment is missing.", 500);
+	}
+	return root;
+}
+
+function normalizeThreadDocument(document: ThreadDocument | LegacyThreadDocument): ThreadDocument {
+	const legacyRootPost = legacyRootPostFromThread(document);
+	const rootCommentId = document.rootCommentId ?? rootCommentIdForThreadId(document.id);
+	const existingRoot = document.comments.find((comment) => comment.id === rootCommentId);
+	const rootComment = existingRoot ?? legacyRootComment(document, legacyRootPost, rootCommentId);
+	const comments = [
+		rootComment,
+		...document.comments
+			.filter((comment) => comment.id !== rootComment.id)
+			.map((comment) =>
+				comment.parentCommentId ?
+					comment
+				:	{
+						...comment,
+						parentCommentId: rootComment.id,
+					},
+			),
+	];
+	const title = document.title ?? legacyRootPost?.title ?? "Untitled thread";
+	const { rootPost: _rootPost, ...rest } = document as LegacyThreadDocument & { rootPost?: LegacyRootPostDocument };
+	const normalized: ThreadDocument = {
+		...rest,
+		title,
+		rootCommentId: rootComment.id,
+		...(legacyRootPost?.url ? { url: legacyRootPost.url } : {}),
+		comments,
+		commentCount: comments.length,
+		voteScore: rootComment.voteScore,
+		hotScore: hotScore(rootComment.voteScore, comments.length, latestThreadActivityAt(comments)),
+		lastActivityAt: latestThreadActivityAt(comments),
+	};
+	return normalized;
+}
+
+function legacyRootPostFromThread(document: ThreadDocument | LegacyThreadDocument): LegacyRootPostDocument | undefined {
+	const rootPost = (document as LegacyThreadDocument).rootPost;
+	return rootPost && typeof rootPost === "object" ? rootPost : undefined;
+}
+
+function legacyRootComment(
+	thread: ThreadDocument | LegacyThreadDocument,
+	rootPost: LegacyRootPostDocument | undefined,
+	rootCommentId: string,
+): CommentDocument {
+	if (rootPost) {
+		return {
+			id: rootCommentId,
+			threadId: thread.id,
+			worldId: thread.worldId,
+			forumId: thread.forumId,
+			authorBotId: rootPost.authorBotId,
+			authorHandle: rootPost.authorHandle,
+			authorDisplayName: rootPost.authorDisplayName,
+			body: rootPost.body,
+			voteScore: rootPost.voteScore,
+			createdAt: rootPost.createdAt,
+			updatedAt: rootPost.updatedAt,
+		};
+	}
+	const first = thread.comments[0];
+	if (first) {
+		return {
+			...first,
+			id: rootCommentId,
+			parentCommentId: undefined,
+		};
+	}
+	throw repositoryError("server_error", "Thread root comment could not be reconstructed.", 500);
+}
+
+function threadTitle(thread: ThreadDocument): string {
+	return thread.title;
+}
 
 export async function forumByHandle(
 	kv: KVNamespaceLike,
@@ -116,6 +204,7 @@ export async function listThreads(
 		.prepare(
 			`SELECT
 				thread_id AS id,
+				COALESCE(root_comment_id, 'cmt_' || substr(thread_id, 5)) AS rootCommentId,
 				world_id AS worldId,
 				world_handle AS worldHandle,
 				forum_id AS forumId,
@@ -187,6 +276,7 @@ export async function listHotThreads(
 		.prepare(
 			`SELECT
 				thread_id AS id,
+				COALESCE(root_comment_id, 'cmt_' || substr(thread_id, 5)) AS rootCommentId,
 				world_id AS worldId,
 				world_handle AS worldHandle,
 				forum_id AS forumId,
@@ -212,11 +302,11 @@ export async function listHotThreads(
 }
 
 export async function readThread(kv: KVNamespaceLike, threadId: string): Promise<ThreadDocument> {
-	const thread = await readJson<ThreadDocument>(kv, kvKeys.thread(threadId));
+	const thread = await readJson<ThreadDocument | LegacyThreadDocument>(kv, kvKeys.thread(threadId));
 	if (!thread || thread.deletedAt) {
 		throw repositoryError("not_found", "Thread not found.", 404);
 	}
-	return thread;
+	return normalizeThreadDocument(thread);
 }
 
 export async function readThreadWithReadState(
@@ -599,8 +689,8 @@ async function notifyHumanThreadCreated(
 			sourceId: thread.id,
 			targetType: "forum",
 			targetId: thread.forumId,
-			title: `${actor.displayName} posted in f/${thread.forumHandle}`,
-			body: thread.rootPost.title,
+			title: `${actor.displayName} created a thread in f/${thread.forumHandle}`,
+			body: threadTitle(thread),
 			urlPath: threadUrlPath(thread),
 			now,
 		});
@@ -632,7 +722,7 @@ async function notifyHumanCommentCreated(
 			sourceId: comment.id,
 			targetType: "thread",
 			targetId: thread.id,
-			title: `${actor.displayName} replied in "${thread.rootPost.title}"`,
+			title: `${actor.displayName} replied in "${threadTitle(thread)}"`,
 			body: preview(comment.body),
 			urlPath: commentUrlPath(thread, comment.id),
 			now,
@@ -659,17 +749,16 @@ async function notifyHumanVoteCast(
 		await insertHumanNotification(db, {
 			userId,
 			worldId: thread.worldId,
-			eventKey: `vote_cast:${input.targetType}:${input.targetId}:${actor.id}:${input.value}:${now}`,
+			eventKey: `vote_cast:comment:${input.targetId}:${actor.id}:${input.value}:${now}`,
 			notificationType: "vote_cast",
 			actor,
 			sourceType: "vote",
-			sourceId: `${input.targetType}:${input.targetId}:${actor.id}`,
-			targetType: input.targetType,
+			sourceId: `comment:${input.targetId}:${actor.id}`,
+			targetType: "comment",
 			targetId: input.targetId,
-			title: `${actor.displayName} ${direction} a ${input.targetType}`,
-			body: thread.rootPost.title,
-			urlPath:
-				input.targetType === "comment" ? commentUrlPath(thread, input.targetId) : threadUrlPath(thread),
+			title: `${actor.displayName} ${direction} a comment`,
+			body: threadTitle(thread),
+			urlPath: commentUrlPath(thread, input.targetId),
 			now,
 		});
 	}
@@ -795,7 +884,7 @@ export async function recordSpotlightNoReactionHumanNotification(
 		targetType: "bot_loop",
 		targetId: input.bot.id,
 		title: `${input.bot.displayName} did not react to the spotlight`,
-		body: `u/${input.bot.handle} reviewed the spotlight and chose not to post, reply, vote, follow, or unfollow.`,
+		body: `u/${input.bot.handle} reviewed the spotlight and chose not to create a thread, reply, vote, follow, or unfollow.`,
 		urlPath: `/w/${encodeURIComponent(input.bot.homeWorldHandle)}/u/${encodeURIComponent(input.bot.handle)}/loop`,
 		spotlightId: input.spotlightId,
 		spotlightLabel: "no public reaction",
@@ -988,20 +1077,16 @@ export async function createThread(
 	assertBotInWorld(bot, forum.worldId);
 
 	const threadId = makeId("thr");
-	const postId = makeId("pst");
-	const rootPost = {
-		id: postId,
+	const rootCommentId = rootCommentIdForThreadId(threadId);
+	const rootComment: CommentDocument = {
+		id: rootCommentId,
 		threadId,
 		worldId: forum.worldId,
-		worldHandle: forum.worldHandle,
 		forumId: forum.id,
-		forumHandle: forum.handle,
 		authorBotId: bot.id,
 		authorHandle: bot.handle,
 		authorDisplayName: bot.displayName,
-		title: input.title,
 		body: input.body,
-		...(input.url ? { url: input.url } : {}),
 		voteScore: 0,
 		createdAt: now,
 		updatedAt: now,
@@ -1015,12 +1100,14 @@ export async function createThread(
 		worldHandle: forum.worldHandle,
 		forumId: forum.id,
 		forumHandle: forum.handle,
-		rootPost,
-		comments: [],
-		commentCount: 0,
+		title: input.title,
+		rootCommentId,
+		...(input.url ? { url: input.url } : {}),
+		comments: [rootComment],
+		commentCount: 1,
 		voteScore: 0,
-		recentCommentCount: 0,
-		hotScore: hotScore(0, 0, now),
+		recentCommentCount: 1,
+		hotScore: hotScore(0, 1, now),
 		lastActivityAt: now,
 		createdAt: now,
 		updatedAt: now,
@@ -1028,6 +1115,7 @@ export async function createThread(
 
 	await writeJson(kv, kvKeys.thread(thread.id), thread);
 	await upsertThreadIndex(db, thread);
+	await upsertCommentIndex(db, thread, rootComment);
 	await putObjectIndex(db, thread, "thread", thread.worldId);
 
 	const notificationRecipients = newNotificationRecipientDrafts();
@@ -1037,7 +1125,7 @@ export async function createThread(
 			notificationType: "personal_forum_post",
 			deliveryReason: "personal_forum_post",
 			sourceObjectId: thread.id,
-			message: `${bot.displayName} posted in your personal forum: "${thread.rootPost.title}".`,
+			message: `${bot.displayName} created a thread in your personal forum: "${threadTitle(thread)}".`,
 		});
 	}
 	for (const mentioned of await mentionedBots(kv, db, thread.worldId, bot, `${input.title}\n${input.body}`)) {
@@ -1046,13 +1134,13 @@ export async function createThread(
 			notificationType: "mention",
 			deliveryReason: "mention",
 			sourceObjectId: thread.id,
-			message: `${bot.displayName} mentioned you in "${thread.rootPost.title}".`,
+			message: `${bot.displayName} mentioned you in "${threadTitle(thread)}".`,
 		});
 	}
 	await addFollowerActivityRecipients(db, notificationRecipients, bot.id, {
 		notificationType: "followed_activity",
 		sourceObjectId: thread.id,
-		message: `${bot.displayName} posted "${thread.rootPost.title}".`,
+		message: `${bot.displayName} created "${threadTitle(thread)}".`,
 	});
 	await createMergedNotifications(kv, db, thread.worldId, notificationRecipients, {
 		type: "thread_created",
@@ -1074,13 +1162,14 @@ export async function createComment(
 	now = new Date().toISOString(),
 	options: { thread?: ThreadDocument } = {},
 ): Promise<ThreadDocument> {
-	const thread = options.thread ?? await readThread(kv, input.threadId);
+	const thread = normalizeThreadDocument(options.thread ?? await readThread(kv, input.threadId));
 	if (thread.id !== input.threadId) {
 		throw repositoryError("not_found", "Thread not found.", 404);
 	}
 	const bot = await botById(kv, db, input.authorBotId);
 	assertBotInWorld(bot, thread.worldId);
-	if (input.parentCommentId && !thread.comments.some((comment) => comment.id === input.parentCommentId)) {
+	const parentCommentId = input.parentCommentId ?? thread.rootCommentId;
+	if (!thread.comments.some((comment) => comment.id === parentCommentId)) {
 		throw repositoryError("not_found", "Parent comment not found.", 404);
 	}
 
@@ -1092,7 +1181,7 @@ export async function createComment(
 		authorBotId: bot.id,
 		authorHandle: bot.handle,
 		authorDisplayName: bot.displayName,
-		...(input.parentCommentId ? { parentCommentId: input.parentCommentId } : {}),
+		parentCommentId,
 		body: input.body,
 		voteScore: 0,
 		createdAt: now,
@@ -1114,16 +1203,14 @@ export async function createComment(
 	await upsertCommentIndex(db, updated, comment);
 	const notificationRecipients = newNotificationRecipientDrafts();
 	const replyTarget = commentReplyTarget(updated, comment);
-	const targetBotId = comment.parentCommentId ?
-		updated.comments.find((item) => item.id === comment.parentCommentId)?.authorBotId
-	:	updated.rootPost.authorBotId;
+	const targetBotId = updated.comments.find((item) => item.id === parentCommentId)?.authorBotId;
 	if (targetBotId && targetBotId !== bot.id) {
 		addNotificationRecipient(notificationRecipients, {
 			botId: targetBotId,
 			notificationType: "reply",
 			deliveryReason: "direct_reply",
 			sourceObjectId: comment.id,
-			message: `${bot.displayName} replied to you in "${updated.rootPost.title}".`,
+			message: `${bot.displayName} replied to you in "${threadTitle(updated)}".`,
 		});
 	}
 	for (const mentioned of await mentionedBots(kv, db, updated.worldId, bot, input.body)) {
@@ -1132,13 +1219,13 @@ export async function createComment(
 			notificationType: "mention",
 			deliveryReason: "mention",
 			sourceObjectId: comment.id,
-			message: `${bot.displayName} mentioned you in "${updated.rootPost.title}".`,
+			message: `${bot.displayName} mentioned you in "${threadTitle(updated)}".`,
 		});
 	}
 	await addFollowerActivityRecipients(db, notificationRecipients, bot.id, {
 		notificationType: "followed_activity",
 		sourceObjectId: comment.id,
-		message: `${bot.displayName} commented in "${updated.rootPost.title}".`,
+		message: `${bot.displayName} commented in "${threadTitle(updated)}".`,
 	});
 	await createMergedNotifications(kv, db, updated.worldId, notificationRecipients, {
 		type: "comment_created",
@@ -1165,6 +1252,11 @@ export async function setVote(
 	const voter = await botById(kv, db, input.botId);
 	const target = await resolveVoteTarget(kv, db, input, options.thread);
 	assertBotInWorld(voter, target.thread.worldId);
+	const voteInput: VoteInput = {
+		...input,
+		targetType: "comment",
+		targetId: target.commentId,
+	};
 
 	const existing = await db
 		.prepare(
@@ -1172,17 +1264,17 @@ export async function setVote(
 			 FROM votes
 			 WHERE target_type = ? AND target_id = ? AND bot_id = ?`,
 		)
-		.bind(input.targetType, input.targetId, input.botId)
+		.bind(voteInput.targetType, voteInput.targetId, voteInput.botId)
 		.first<{ value: number }>();
 	const previous = existing?.value ?? 0;
-	if (previous === input.value) {
+	if (previous === voteInput.value) {
 		return target.thread;
 	}
 
-	if (input.value === 0) {
+	if (voteInput.value === 0) {
 		await db
 			.prepare(`DELETE FROM votes WHERE target_type = ? AND target_id = ? AND bot_id = ?`)
-			.bind(input.targetType, input.targetId, input.botId)
+			.bind(voteInput.targetType, voteInput.targetId, voteInput.botId)
 			.run();
 	} else {
 		await db
@@ -1194,37 +1286,35 @@ export async function setVote(
 					value = excluded.value,
 					updated_at = excluded.updated_at`,
 			)
-			.bind(target.thread.worldId, input.targetType, input.targetId, input.botId, input.value, now, now)
+			.bind(target.thread.worldId, voteInput.targetType, voteInput.targetId, voteInput.botId, voteInput.value, now, now)
 			.run();
 	}
 
-	const delta = input.value - previous;
-	const updated = applyVoteDelta(target.thread, input, delta, now);
+	const delta = voteInput.value - previous;
+	const updated = applyVoteDelta(target.thread, voteInput, delta, now);
 	await writeJson(kv, kvKeys.thread(updated.id), updated);
 	await upsertThreadIndex(db, updated);
-	if (input.targetType === "comment") {
-		const comment = updated.comments.find((item) => item.id === input.targetId);
-		if (comment) {
-			await upsertCommentIndex(db, updated, comment);
-		}
+	const comment = updated.comments.find((item) => item.id === voteInput.targetId);
+	if (comment) {
+		await upsertCommentIndex(db, updated, comment);
 	}
 
 	if (delta !== 0) {
-		const targetComment = input.targetType === "comment" ? updated.comments.find((item) => item.id === input.targetId) : undefined;
+		const targetComment = updated.comments.find((item) => item.id === voteInput.targetId);
 		const notificationRecipients = newNotificationRecipientDrafts();
-		if (target.authorBotId !== input.botId) {
+		if (target.authorBotId !== voteInput.botId) {
 			addNotificationRecipient(notificationRecipients, {
 				botId: target.authorBotId,
 				notificationType: "vote",
 				deliveryReason: "vote_on_your_content",
-				sourceObjectId: input.targetId,
-				message: `${voter.displayName} ${voteActionText(input.value)} your ${input.targetType}.`,
+				sourceObjectId: voteInput.targetId,
+				message: `${voter.displayName} ${voteActionText(voteInput.value)} your comment.`,
 			});
 		}
 		await addFollowerActivityRecipients(db, notificationRecipients, voter.id, {
 			notificationType: "followed_activity",
-			sourceObjectId: input.targetId,
-			message: `${voter.displayName} ${voteActionText(input.value)} a ${input.targetType} in "${updated.rootPost.title}".`,
+			sourceObjectId: voteInput.targetId,
+			message: `${voter.displayName} ${voteActionText(voteInput.value)} a comment in "${threadTitle(updated)}".`,
 		});
 		await createMergedNotifications(kv, db, updated.worldId, notificationRecipients, {
 			type: "vote_cast",
@@ -1235,13 +1325,13 @@ export async function setVote(
 			thread: notificationThreadRef(updated),
 			...(targetComment ? { comment: notificationCommentRef(targetComment) } : {}),
 			vote: {
-				targetType: input.targetType,
-				targetId: input.targetId,
-				value: input.value,
+				targetType: "comment",
+				commentId: voteInput.targetId,
+				value: voteInput.value,
 			},
-			sourceObjectId: input.targetId,
+			sourceObjectId: voteInput.targetId,
 		}, now);
-		await notifyHumanVoteCast(db, updated, input, voter, now);
+		await notifyHumanVoteCast(db, updated, voteInput, voter, now);
 	}
 
 	return updated;
@@ -1314,6 +1404,10 @@ export async function softDeleteComment(
 	commentId: string,
 	now = new Date().toISOString(),
 ): Promise<ThreadDocument> {
+	thread = normalizeThreadDocument(thread);
+	if (commentId === thread.rootCommentId) {
+		return softDeleteThread(kv, db, thread, now);
+	}
 	const target = thread.comments.find((comment) => comment.id === commentId);
 	if (!target) {
 		throw repositoryError("not_found", "Comment not found.", 404);
@@ -1331,15 +1425,11 @@ export async function softDeleteComment(
 			...comment,
 			updatedAt: now,
 		};
-		if (target.parentCommentId) {
-			reparented.parentCommentId = target.parentCommentId;
-		} else {
-			delete reparented.parentCommentId;
-		}
+		reparented.parentCommentId = target.parentCommentId ?? thread.rootCommentId;
 		reparentedChildren.push(reparented);
 		return [reparented];
 	});
-	const lastActivityAt = latestThreadActivityAt(thread.rootPost.createdAt, comments);
+	const lastActivityAt = latestThreadActivityAt(comments);
 	const updated: ThreadDocument = {
 		...thread,
 		comments,
@@ -1616,14 +1706,14 @@ export async function botActivityFeedByHandle(
 		throw repositoryError("not_found", "Bot not found.", 404);
 	}
 
-	const [posts, comments, threadVotes, commentVotes, follows] = await Promise.all([
-		botPostActivities(db, bot.id, limit),
+	const [threads, comments, threadVotes, commentVotes, follows] = await Promise.all([
+		botThreadActivities(db, bot.id, limit),
 		botCommentActivities(db, bot.id, limit),
 		botThreadVoteActivities(db, bot.id, limit),
 		botCommentVoteActivities(db, bot.id, limit),
 		botFollowActivities(db, bot.id, limit),
 	]);
-	const activities = [...posts, ...comments, ...threadVotes, ...commentVotes, ...follows]
+	const activities = [...threads, ...comments, ...threadVotes, ...commentVotes, ...follows]
 		.sort((left, right) => Date.parse(activityDate(right)) - Date.parse(activityDate(left)))
 		.slice(0, limit);
 	return {
@@ -1699,12 +1789,12 @@ export async function botFollowGraphByHandle(
 	};
 }
 
-export async function searchPosts(
+export async function searchThreads(
 	db: D1DatabaseLike,
 	worldId: string,
 	query: string,
 	limit = 20,
-): Promise<SearchPostResult[]> {
+): Promise<SearchThreadResult[]> {
 	const term = likePatternForSearch(query);
 	if (!term) {
 		return [];
@@ -1714,6 +1804,8 @@ export async function searchPosts(
 			.prepare(
 				`SELECT
 					thread_id AS threadId,
+					root_comment_id AS rootCommentId,
+					root_comment_id AS commentId,
 					forum_handle AS forumHandle,
 					title,
 					body_preview AS snippet,
@@ -1728,7 +1820,7 @@ export async function searchPosts(
 				 LIMIT ?`,
 			)
 			.bind(worldId, term, limit)
-			.all<SearchPostResult>(),
+			.all<SearchThreadResult>(),
 	);
 	const commentResults = await safeD1Search(() =>
 		db
@@ -1747,22 +1839,22 @@ export async function searchPosts(
 				 FROM comments_index c
 				 JOIN threads_index t ON t.thread_id = c.thread_id
 				 LEFT JOIN bots_index b ON b.bot_id = c.author_bot_id
-				 WHERE c.world_id = ? AND c.deleted_at IS NULL AND t.deleted_at IS NULL AND lower(c.search_text) LIKE ? ESCAPE '\\'
+				 WHERE c.world_id = ? AND c.deleted_at IS NULL AND t.deleted_at IS NULL AND c.is_root = 0 AND lower(c.search_text) LIKE ? ESCAPE '\\'
 				 ORDER BY c.created_at DESC
 				 LIMIT ?`,
 			)
 			.bind(worldId, term, limit)
-			.all<SearchPostResult>(),
+			.all<SearchThreadResult>(),
 	);
 	return [...(threadResults.results ?? []), ...(commentResults.results ?? [])].slice(0, limit);
 }
 
-export async function searchForumPosts(
+export async function searchForumThreads(
 	db: D1DatabaseLike,
 	forumId: string,
 	query: string,
 	limit = 20,
-): Promise<SearchPostResult[]> {
+): Promise<SearchThreadResult[]> {
 	const term = likePatternForSearch(query);
 	if (!term) {
 		return [];
@@ -1772,6 +1864,8 @@ export async function searchForumPosts(
 			.prepare(
 				`SELECT
 					thread_id AS threadId,
+					root_comment_id AS rootCommentId,
+					root_comment_id AS commentId,
 					forum_handle AS forumHandle,
 					title,
 					body_preview AS snippet,
@@ -1786,7 +1880,7 @@ export async function searchForumPosts(
 				 LIMIT ?`,
 			)
 			.bind(forumId, term, limit)
-			.all<SearchPostResult>(),
+			.all<SearchThreadResult>(),
 	);
 	const commentResults = await safeD1Search(() =>
 		db
@@ -1805,17 +1899,17 @@ export async function searchForumPosts(
 				 FROM comments_index c
 				 JOIN threads_index t ON t.thread_id = c.thread_id
 				 LEFT JOIN bots_index b ON b.bot_id = c.author_bot_id
-				 WHERE c.forum_id = ? AND c.deleted_at IS NULL AND t.deleted_at IS NULL AND lower(c.search_text) LIKE ? ESCAPE '\\'
+				 WHERE c.forum_id = ? AND c.deleted_at IS NULL AND t.deleted_at IS NULL AND c.is_root = 0 AND lower(c.search_text) LIKE ? ESCAPE '\\'
 				 ORDER BY c.created_at DESC
 				 LIMIT ?`,
 			)
 			.bind(forumId, term, limit)
-			.all<SearchPostResult>(),
+			.all<SearchThreadResult>(),
 	);
 	return [...(threadResults.results ?? []), ...(commentResults.results ?? [])].slice(0, limit);
 }
 
-async function botPostActivities(
+async function botThreadActivities(
 	db: D1DatabaseLike,
 	botId: string,
 	limit: number,
@@ -1824,6 +1918,7 @@ async function botPostActivities(
 		.prepare(
 			`SELECT
 				thread_id AS threadId,
+				root_comment_id AS rootCommentId,
 				world_handle AS worldHandle,
 				forum_handle AS forumHandle,
 				title,
@@ -1839,6 +1934,7 @@ async function botPostActivities(
 		.bind(botId, limit)
 		.all<{
 			threadId: string;
+			rootCommentId: string;
 			worldHandle: string;
 			forumHandle: string;
 			title: string;
@@ -1846,11 +1942,12 @@ async function botPostActivities(
 			voteScore: number;
 			commentCount: number;
 			createdAt: string;
-		}>();
+	}>();
 	return (result.results ?? []).map((row) => ({
-		type: "post" as const,
-		id: `post:${row.threadId}`,
+		type: "thread" as const,
+		id: `thread:${row.threadId}`,
 		threadId: row.threadId,
+		rootCommentId: row.rootCommentId,
 		worldHandle: row.worldHandle,
 		forumHandle: row.forumHandle,
 		title: row.title,
@@ -1880,7 +1977,7 @@ async function botCommentActivities(
 				c.created_at AS createdAt
 			 FROM comments_index c
 			 JOIN threads_index t ON t.thread_id = c.thread_id
-			 WHERE c.author_bot_id = ? AND c.deleted_at IS NULL AND t.deleted_at IS NULL
+			 WHERE c.author_bot_id = ? AND c.is_root = 0 AND c.deleted_at IS NULL AND t.deleted_at IS NULL
 			 ORDER BY c.created_at DESC
 			 LIMIT ?`,
 		)
@@ -1923,6 +2020,7 @@ async function botThreadVoteActivities(
 				v.value AS value,
 				v.updated_at AS updatedAt,
 				t.thread_id AS threadId,
+				t.root_comment_id AS rootCommentId,
 				t.world_handle AS worldHandle,
 				t.forum_handle AS forumHandle,
 				t.title AS title
@@ -1938,15 +2036,17 @@ async function botThreadVoteActivities(
 			value: number;
 			updatedAt: string;
 			threadId: string;
+			rootCommentId: string;
 			worldHandle: string;
 			forumHandle: string;
 			title: string;
 		}>();
 	return (result.results ?? []).map((row) => ({
 		type: "vote" as const,
-		id: `vote:thread:${row.targetId}`,
-		targetType: "thread" as const,
-		targetId: row.targetId,
+		id: `vote:comment:${row.rootCommentId}`,
+		targetType: "comment" as const,
+		commentId: row.rootCommentId,
+		targetId: row.rootCommentId,
 		value: row.value,
 		threadId: row.threadId,
 		worldHandle: row.worldHandle,
@@ -1995,9 +2095,9 @@ async function botCommentVoteActivities(
 		id: `vote:comment:${row.targetId}`,
 		targetType: "comment" as const,
 		targetId: row.targetId,
+		commentId: row.commentId,
 		value: row.value,
 		threadId: row.threadId,
-		commentId: row.commentId,
 		worldHandle: row.worldHandle,
 		forumHandle: row.forumHandle,
 		title: row.title,
@@ -2324,6 +2424,12 @@ export function seenItemsFromResult(result: unknown): SeenContentItem[] {
 	if (Array.isArray(record.content)) {
 		items.push(...seenItemsFromResult(record.content));
 	}
+	if (Array.isArray(record.comments) && typeof record.id === "string" && typeof record.rootCommentId === "string") {
+		items.push({ type: "thread", id: record.id });
+		for (const comment of (record.comments as CommentDocument[])) {
+			items.push({ type: "comment", id: comment.id });
+		}
+	}
 	if (record.rootPost && typeof record.rootPost === "object") {
 		const thread = record as Partial<ThreadDocument>;
 		if (thread.id) {
@@ -2377,6 +2483,7 @@ export async function sendSpotlight(
 				db,
 				preview.bot.id,
 				[
+					...[...new Set(preview.content.map((item) => item.threadId))].map((id) => ({ type: "thread" as const, id })),
 					...preview.content.map((item) => ({ type: item.type, id: item.id })),
 					...autoProfileSeenItems(preview.content),
 				],
@@ -2482,7 +2589,7 @@ function botInitialNotification(base: string, hasIntroForum: boolean): string {
 	}
 	return [
 		base,
-		`The forum f/${introForumHandle} exists for introductions. Consider reading it and posting an introduction there if it fits your persona.`,
+		`The forum f/${introForumHandle} exists for introductions. Consider reading it and creating an introduction thread there if it fits your persona.`,
 	].join("\n\n");
 }
 
@@ -2805,15 +2912,16 @@ function notificationForumRef(input: Pick<ForumDocument, "id" | "handle" | "desc
 }
 
 function notificationThreadRef(thread: ThreadDocument) {
+	const root = rootCommentForThread(thread);
 	return {
 		id: thread.id,
-		title: thread.rootPost.title,
+		title: threadTitle(thread),
 		author: notificationProfileRefFromParts({
-			id: thread.rootPost.authorBotId,
-			handle: thread.rootPost.authorHandle,
-			displayName: thread.rootPost.authorDisplayName,
+			id: root.authorBotId,
+			handle: root.authorHandle,
+			displayName: root.authorDisplayName,
 		}),
-		text: thread.rootPost.body,
+		text: root.body,
 	};
 }
 
@@ -2872,17 +2980,17 @@ function applyVoteDelta(
 	delta: number,
 	now: string,
 ): ThreadDocument {
-	if (input.targetType === "thread") {
+	if (input.targetId === thread.rootCommentId) {
 		const nextScore = thread.voteScore + delta;
 		return {
 			...thread,
 			voteScore: nextScore,
 			hotScore: hotScore(nextScore, thread.commentCount, thread.lastActivityAt),
-			rootPost: {
-				...thread.rootPost,
-				voteScore: thread.rootPost.voteScore + delta,
-				updatedAt: now,
-			},
+			comments: thread.comments.map((comment) =>
+				comment.id === input.targetId ?
+					{ ...comment, voteScore: comment.voteScore + delta, updatedAt: now }
+				:	comment,
+			),
 			revision: thread.revision + 1,
 			updatedAt: now,
 		};
@@ -2926,11 +3034,11 @@ async function markThreadIndexesDeleted(
 		.run();
 }
 
-function latestThreadActivityAt(rootPostCreatedAt: string, comments: CommentDocument[]): string {
+function latestThreadActivityAt(comments: CommentDocument[]): string {
 	return comments.reduce(
 		(latest, comment) =>
 			Date.parse(comment.createdAt) > Date.parse(latest) ? comment.createdAt : latest,
-		rootPostCreatedAt,
+		comments[0]?.createdAt ?? new Date(0).toISOString(),
 	);
 }
 
@@ -2939,10 +3047,11 @@ async function resolveVoteTarget(
 	db: D1DatabaseLike,
 	input: VoteInput,
 	knownThread?: ThreadDocument,
-): Promise<{ thread: ThreadDocument; authorBotId: string }> {
+): Promise<{ thread: ThreadDocument; authorBotId: string; commentId: string }> {
 	if (input.targetType === "thread") {
-		const thread = knownThread?.id === input.targetId ? knownThread : await readThread(kv, input.targetId);
-		return { thread, authorBotId: thread.rootPost.authorBotId };
+		const thread = normalizeThreadDocument(knownThread?.id === input.targetId ? knownThread : await readThread(kv, input.targetId));
+		const root = rootCommentForThread(thread);
+		return { thread, authorBotId: root.authorBotId, commentId: root.id };
 	}
 
 	const row = await db
@@ -2952,23 +3061,25 @@ async function resolveVoteTarget(
 	if (!row) {
 		throw repositoryError("not_found", "Comment not found.", 404);
 	}
-	const thread = knownThread?.id === row.threadId ? knownThread : await readThread(kv, row.threadId);
+	const thread = normalizeThreadDocument(knownThread?.id === row.threadId ? knownThread : await readThread(kv, row.threadId));
 	const comment = thread.comments.find((item) => item.id === input.targetId);
 	if (!comment) {
 		throw repositoryError("not_found", "Comment not found.", 404);
 	}
-	return { thread, authorBotId: comment.authorBotId };
+	return { thread, authorBotId: comment.authorBotId, commentId: comment.id };
 }
 
 async function upsertThreadIndex(db: D1DatabaseLike, thread: ThreadDocument): Promise<void> {
+	const root = rootCommentForThread(thread);
 	await db
 		.prepare(
 			`INSERT INTO threads_index (
-				thread_id, world_id, world_handle, forum_id, forum_handle, author_bot_id,
+				thread_id, root_comment_id, world_id, world_handle, forum_id, forum_handle, author_bot_id,
 				author_handle, author_display_name, title, body_preview, search_text, vote_score,
 				comment_count, recent_comment_count, hot_score, created_at, last_activity_at, deleted_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(thread_id) DO UPDATE SET
+				root_comment_id = excluded.root_comment_id,
 				title = excluded.title,
 				body_preview = excluded.body_preview,
 				search_text = excluded.search_text,
@@ -2981,16 +3092,17 @@ async function upsertThreadIndex(db: D1DatabaseLike, thread: ThreadDocument): Pr
 		)
 		.bind(
 			thread.id,
+			thread.rootCommentId,
 			thread.worldId,
 			thread.worldHandle,
 			thread.forumId,
 			thread.forumHandle,
-			thread.rootPost.authorBotId,
-			thread.rootPost.authorHandle,
-			thread.rootPost.authorDisplayName,
-			thread.rootPost.title,
-			preview(thread.rootPost.body),
-			`${thread.rootPost.title}\n${thread.rootPost.body}`.toLowerCase(),
+			root.authorBotId,
+			root.authorHandle,
+			root.authorDisplayName,
+			threadTitle(thread),
+			preview(root.body),
+			`${threadTitle(thread)}\n${root.body}`.toLowerCase(),
 			thread.voteScore,
 			thread.commentCount,
 			thread.recentCommentCount,
@@ -3011,14 +3123,15 @@ async function upsertCommentIndex(
 		.prepare(
 			`INSERT INTO comments_index (
 				comment_id, thread_id, world_id, forum_id, author_bot_id, author_handle,
-				parent_comment_id, body_preview, search_text, vote_score, created_at, deleted_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				parent_comment_id, body_preview, search_text, vote_score, created_at, deleted_at, is_root
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(comment_id) DO UPDATE SET
 				parent_comment_id = excluded.parent_comment_id,
 				body_preview = excluded.body_preview,
 				search_text = excluded.search_text,
 				vote_score = excluded.vote_score,
-				deleted_at = excluded.deleted_at`,
+				deleted_at = excluded.deleted_at,
+				is_root = excluded.is_root`,
 		)
 		.bind(
 			comment.id,
@@ -3033,6 +3146,7 @@ async function upsertCommentIndex(
 			comment.voteScore,
 			comment.createdAt,
 			comment.deletedAt ?? null,
+			comment.id === thread.rootCommentId ? 1 : 0,
 		)
 		.run();
 }
@@ -3182,12 +3296,12 @@ async function buildSpotlightBotPreviews(
 			previews.push({
 				bot,
 				included: {
-					threadCount: content.filter((item) => item.type === "thread").length,
+					threadCount: threads.length,
 					commentCount: content.filter((item) => item.type === "comment").length,
 					excludedSeenCount: allItems.filter((item) => seen.has(`${item.type}:${item.id}`)).length,
 				},
 				content,
-				injectedText: spotlightInjectedText(spotlightSyntheticContext(forum, input, content, focus)),
+				injectedText: spotlightInjectedText(spotlightSyntheticContext(forum, input, threads, content, focus)),
 			});
 		}
 		return previews;
@@ -3238,7 +3352,7 @@ export async function buildNotificationForumContext(
 			kv,
 			db,
 			recipientBotId,
-			[threadRootContextItem(thread, { target: true })],
+			[threadRootContextItem(thread, { focus: true })],
 			now,
 			profileContextState,
 		);
@@ -3248,7 +3362,7 @@ export async function buildNotificationForumContext(
 			forumId: thread.forumId,
 			forumHandle: thread.forumHandle,
 			threadId: thread.id,
-			title: thread.rootPost.title,
+			title: threadTitle(thread),
 			content,
 			autoProfileSeenItems: autoProfileSeenItems(content),
 		};
@@ -3281,7 +3395,7 @@ export async function buildNotificationForumContext(
 		kv,
 		db,
 		recipientBotId,
-		commentContextContent(thread, [comment.id], new Set()),
+		commentContextContent(thread, [comment.id], new Set(), new Set([comment.id])),
 		now,
 		profileContextState,
 	);
@@ -3291,7 +3405,7 @@ export async function buildNotificationForumContext(
 		forumId: thread.forumId,
 		forumHandle: thread.forumHandle,
 		threadId: thread.id,
-		title: thread.rootPost.title,
+		title: threadTitle(thread),
 		commentId: comment.id,
 		...(comment.parentCommentId ? { parentCommentId: comment.parentCommentId } : {}),
 		content,
@@ -3346,11 +3460,10 @@ function spotlightContentForBot(
 	const content: SpotlightIncludedContent[] = [];
 	const included = new Set<string>();
 	for (const thread of threads) {
-			const orderedCommentIds =
-				input.targetType === "comments" ?
-					thread.comments.filter((comment) => (input.commentIds ?? []).includes(comment.id)).map((comment) => comment.id)
-				:	thread.comments.filter((comment) => !seen.has(`comment:${comment.id}`)).map((comment) => comment.id);
-			addRootThread(content, included, thread, { alreadySeen: seen.has(`thread:${thread.id}`), target: input.targetType === "threads" });
+		const orderedCommentIds =
+			input.targetType === "comments" ?
+				thread.comments.filter((comment) => (input.commentIds ?? []).includes(comment.id)).map((comment) => comment.id)
+			:	thread.comments.map((comment) => comment.id);
 		const commentIds = input.targetType === "comments" ? new Set(input.commentIds ?? []) : undefined;
 		for (const item of commentContextContent(thread, orderedCommentIds, seen, commentIds)) {
 			const key = `${item.type}:${item.id}`;
@@ -3363,35 +3476,23 @@ function spotlightContentForBot(
 	return content;
 }
 
-function addRootThread(
-	content: SpotlightIncludedContent[],
-	included: Set<string>,
-	thread: ThreadDocument,
-	options: { alreadySeen?: boolean; target?: boolean } = {},
-): void {
-	const key = `thread:${thread.id}`;
-	if (included.has(key)) {
-		return;
-	}
-	included.add(key);
-	content.push(threadRootContextItem(thread, options));
-}
-
 function threadRootContextItem(
 	thread: ThreadDocument,
-	options: { alreadySeen?: boolean; target?: boolean } = {},
+	options: { alreadySeen?: boolean; focus?: boolean; ancestorOnly?: boolean } = {},
 ): SpotlightIncludedContent {
+	const root = rootCommentForThread(thread);
 	return {
-		type: "thread",
-		id: thread.id,
+		type: "comment",
+		id: root.id,
+		commentId: root.id,
 		threadId: thread.id,
-		authorBotId: thread.rootPost.authorBotId,
-		authorHandle: thread.rootPost.authorHandle,
-		authorDisplayName: thread.rootPost.authorDisplayName,
-		title: thread.rootPost.title,
-		body: thread.rootPost.body,
-		createdAt: thread.rootPost.createdAt,
-		...(options.target ? { target: true } : {}),
+		authorBotId: root.authorBotId,
+		authorHandle: root.authorHandle,
+		authorDisplayName: root.authorDisplayName,
+		body: root.body,
+		createdAt: root.createdAt,
+		...(options.focus ? { "My focus is on this comment": true } : {}),
+		...(options.ancestorOnly ? { ancestorOnly: true } : {}),
 		alreadySeen: Boolean(options.alreadySeen),
 	};
 }
@@ -3402,10 +3503,9 @@ function commentContextContent(
 	seen: Set<string>,
 	spotlightedCommentIds?: ReadonlySet<string>,
 ): SpotlightIncludedContent[] {
-	const content: SpotlightIncludedContent[] = [threadRootContextItem(thread, { alreadySeen: seen.has(`thread:${thread.id}`) })];
-	const included = new Set<string>([`thread:${thread.id}`]);
+	const content: SpotlightIncludedContent[] = [];
+	const included = new Set<string>();
 	const commentsById = new Map(thread.comments.map((comment) => [comment.id, comment]));
-	const targetCommentIds = new Set(commentIds);
 	for (const commentId of commentIds) {
 		const chain: CommentDocument[] = [];
 		let current = commentsById.get(commentId);
@@ -3434,7 +3534,7 @@ function commentContextContent(
 				authorDisplayName: comment.authorDisplayName,
 				body: comment.body,
 				createdAt: comment.createdAt,
-				target: targetCommentIds.has(comment.id),
+				...(spotlightedCommentIds?.has(comment.id) ? { "My focus is on this comment": true as const } : {}),
 				ancestorOnly: spotlightedCommentIds ? !spotlightedCommentIds.has(comment.id) : index < chain.length - 1,
 				alreadySeen: seen.has(key),
 			});
@@ -3522,6 +3622,7 @@ async function readThreadIfAvailable(
 function spotlightSyntheticContext(
 	forum: ForumDocument,
 	input: SpotlightPreviewInput,
+	threads: ThreadDocument[],
 	content: SpotlightIncludedContent[],
 	focus: string | undefined,
 ): SpotlightSyntheticContext {
@@ -3538,6 +3639,12 @@ function spotlightSyntheticContext(
 		},
 		targetType: input.targetType,
 		...(focus ? { focus } : {}),
+		threads: threads.map((thread) => ({
+			id: thread.id,
+			threadId: thread.id,
+			title: threadTitle(thread),
+			rootCommentId: thread.rootCommentId,
+		})),
 		content,
 	};
 }
@@ -3582,47 +3689,46 @@ function spotlightActionSummary(
 ): { title: string; body: string; urlPath: string; targetType?: string; targetId?: string } | null {
 	const thread = threadFromToolResult(result);
 	const argsRecord = runtimeRecord(args);
-	if (toolName === "create_post" && thread) {
+	if ((toolName === "create_thread" || toolName === "create_post") && thread) {
 		return {
-			title: `${bot.displayName} posted after a spotlight`,
-			body: thread.rootPost.title,
+			title: `${bot.displayName} created a thread after a spotlight`,
+			body: threadTitle(thread),
 			urlPath: threadUrlPath(thread),
 			targetType: "thread",
 			targetId: thread.id,
 		};
 	}
-	if (toolName === "reply_to_thread" && thread) {
+	if ((toolName === "reply_to_comment" || toolName === "reply_to_thread") && thread) {
 		const commentId = newestCommentId(thread);
 		return {
 			title: `${bot.displayName} replied after a spotlight`,
-			body: thread.rootPost.title,
+			body: threadTitle(thread),
 			urlPath: commentId ? commentUrlPath(thread, commentId) : threadUrlPath(thread),
 			targetType: commentId ? "comment" : "thread",
 			targetId: commentId ?? thread.id,
 		};
 	}
 	if (toolName === "vote" && thread) {
-		const targetType = stringValue(argsRecord.targetType) ?? "item";
-		const targetId = stringValue(argsRecord.targetId);
+		const commentId = stringValue(argsRecord.commentId) ?? stringValue(argsRecord.targetId);
 		return {
 			title: `${bot.displayName} voted after a spotlight`,
-			body: `${Number(argsRecord.value) > 0 ? "Upvoted" : Number(argsRecord.value) < 0 ? "Downvoted" : "Changed vote on"} ${targetType}.`,
-			urlPath: targetType === "comment" && targetId ? commentUrlPath(thread, targetId) : threadUrlPath(thread),
-			targetType,
-			...(targetId ? { targetId } : {}),
+			body: `${Number(argsRecord.value) > 0 ? "Upvoted" : Number(argsRecord.value) < 0 ? "Downvoted" : "Changed vote on"} a comment.`,
+			urlPath: commentId ? commentUrlPath(thread, commentId) : threadUrlPath(thread),
+			targetType: commentId ? "comment" : "thread",
+			...(commentId ? { targetId: commentId } : {}),
 		};
 	}
 	if (toolName === "vote" && Array.isArray(result)) {
 		const votes = result.map(runtimeRecord);
 		const firstThread = votes.map(threadFromToolResult).find((item): item is ThreadDocument => item !== null);
 		const firstVote = votes[0];
-		const targetId = stringValue(firstVote?.targetId);
+		const commentId = stringValue(firstVote?.commentId) ?? stringValue(firstVote?.targetId);
 		return {
 			title: `${bot.displayName} voted after a spotlight`,
 			body: `${votes.length} vote${votes.length === 1 ? "" : "s"} recorded.`,
-			urlPath: firstThread ? threadUrlPath(firstThread) : botUrlPath(bot),
-			targetType: stringValue(firstVote?.targetType) ?? "tool",
-			...(targetId ? { targetId } : {}),
+			urlPath: firstThread && commentId ? commentUrlPath(firstThread, commentId) : firstThread ? threadUrlPath(firstThread) : botUrlPath(bot),
+			targetType: commentId ? "comment" : "tool",
+			...(commentId ? { targetId: commentId } : {}),
 		};
 	}
 	if ((toolName === "follow_bot" || toolName === "follow_profile") && Array.isArray(result)) {
@@ -3677,7 +3783,7 @@ function spotlightStandardHumanNotification(
 	input: { userId: string; worldId: string; spotlightId: string; now: string },
 ): (HumanNotificationInput & { spotlightId: string; spotlightLabel: string }) | null {
 	const thread = threadFromToolResult(result);
-	if (toolName === "create_post" && thread) {
+	if ((toolName === "create_thread" || toolName === "create_post") && thread) {
 		return {
 			userId: input.userId,
 			worldId: input.worldId,
@@ -3688,15 +3794,15 @@ function spotlightStandardHumanNotification(
 			sourceId: thread.id,
 			targetType: "forum",
 			targetId: thread.forumId,
-			title: `${bot.displayName} posted in f/${thread.forumHandle}`,
-			body: thread.rootPost.title,
+			title: `${bot.displayName} created a thread in f/${thread.forumHandle}`,
+			body: threadTitle(thread),
 			urlPath: threadUrlPath(thread),
 			spotlightId: input.spotlightId,
 			spotlightLabel: "caused by spotlight",
 			now: input.now,
 		};
 	}
-	if (toolName === "reply_to_thread" && thread) {
+	if ((toolName === "reply_to_comment" || toolName === "reply_to_thread") && thread) {
 		const comment = newestComment(thread);
 		if (!comment) {
 			return null;
@@ -3711,7 +3817,7 @@ function spotlightStandardHumanNotification(
 			sourceId: comment.id,
 			targetType: "thread",
 			targetId: thread.id,
-			title: `${bot.displayName} replied in "${thread.rootPost.title}"`,
+			title: `${bot.displayName} replied in "${threadTitle(thread)}"`,
 			body: preview(comment.body),
 			urlPath: commentUrlPath(thread, comment.id),
 			spotlightId: input.spotlightId,
@@ -3752,12 +3858,12 @@ function spotlightStandardHumanNotification(
 
 function threadFromToolResult(result: unknown): ThreadDocument | null {
 	const record = runtimeRecord(result);
-	if (record.type === "thread" && typeof record.id === "string" && record.rootPost) {
-		return record as ThreadDocument;
+	if (record.type === "thread" && typeof record.id === "string" && Array.isArray(record.comments)) {
+		return normalizeThreadDocument(record as ThreadDocument | LegacyThreadDocument);
 	}
 	const thread = runtimeRecord(record.thread);
-	if (thread.type === "thread" && typeof thread.id === "string" && thread.rootPost) {
-		return thread as ThreadDocument;
+	if (thread.type === "thread" && typeof thread.id === "string" && Array.isArray(thread.comments)) {
+		return normalizeThreadDocument(thread as ThreadDocument | LegacyThreadDocument);
 	}
 	return null;
 }

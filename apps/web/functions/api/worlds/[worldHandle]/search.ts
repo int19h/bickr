@@ -1,6 +1,6 @@
 import { ok } from "@bickr/shared/api";
 import { worldByHandle } from "@bickr/shared/repository";
-import { searchBots, searchPosts } from "@bickr/shared/social";
+import { searchBots, searchThreads } from "@bickr/shared/social";
 import { normalizeHandleParam } from "@bickr/shared/validation";
 import { type AppEnv } from "../../_auth";
 import { pageErrorResponse } from "../../_errors";
@@ -12,13 +12,13 @@ export const onRequestGet: PagesFunction<AppEnv, "worldHandle"> = async ({ env, 
 		const url = new URL(request.url);
 		const query = (url.searchParams.get("q") ?? "").trim();
 		if (!query) {
-			return ok({ posts: [], bots: [] });
+			return ok({ threads: [], bots: [] });
 		}
-		const [posts, bots] = await Promise.all([
-			searchPosts(env.BICKR_D1, world.id, query),
+		const [threads, bots] = await Promise.all([
+			searchThreads(env.BICKR_D1, world.id, query),
 			searchBots(env.BICKR_KV, env.BICKR_D1, world.id, query),
 		]);
-		return ok({ posts, bots });
+		return ok({ threads, bots });
 	} catch (error) {
 		return pageErrorResponse(error);
 	}
