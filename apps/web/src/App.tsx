@@ -119,6 +119,7 @@ type LoopToolCallContext = {
 	id: string;
 	name: string;
 	args: Record<string, unknown>;
+	result?: unknown;
 };
 type JsonRecord = Record<string, unknown>;
 
@@ -7897,7 +7898,7 @@ function LoopMessageRow({
 			<div className="event-meta">
 				{loopMessageOriginLabel(message.origin)} / {message.runId} / {formatTokenCount(message.tokenEstimate)} tokens
 			</div>
-			<LoopMessageReadableView message={message.message} toolCall={toolCallContext} />
+			<LoopMessageReadableView message={message.message} toolCall={toolCallContext} toolCallsById={toolCallsById} />
 		</div>
 	);
 }
@@ -7948,9 +7949,11 @@ function SubmissionJsonBlock({ label, value }: { label: string; value: unknown }
 function LoopMessageReadableView({
 	message,
 	toolCall,
+	toolCallsById,
 }: {
 	message: BotInferenceSubmissionMessage;
 	toolCall?: LoopToolCallContext;
+	toolCallsById?: ReadonlyMap<string, LoopToolCallContext>;
 }) {
 	const toolCalls = message.tool_calls ?? [];
 	const content = typeof message.content === "string" ? message.content : "";
@@ -7965,7 +7968,7 @@ function LoopMessageReadableView({
 			{message.reasoning_content && <ReadableReasoningBlock label="Reasoning" text={message.reasoning_content} />}
 			{message.reasoning_details && <ReadableReasoningDetails details={message.reasoning_details} />}
 			{toolCalls.map((item, index) => (
-				<ReadableToolCall key={`${item.id}-${index}`} toolCall={item} />
+				<ReadableToolCall context={toolCallsById?.get(item.id)} key={`${item.id}-${index}`} toolCall={item} />
 			))}
 		</div>
 	);
@@ -7993,13 +7996,13 @@ function ReadableReasoningDetails({ details }: { details: unknown[] }) {
 	return <ReadableReasoningBlock label="Reasoning" text={text} />;
 }
 
-function ReadableToolCall({ toolCall }: { toolCall: LoopToolCall }) {
-	const name = canonicalDisplayToolName(toolCall.function.name || "unknown_tool");
-	const args = parseToolArguments(toolCall);
+function ReadableToolCall({ context, toolCall }: { context?: LoopToolCallContext; toolCall: LoopToolCall }) {
+	const name = context?.name ?? canonicalDisplayToolName(toolCall.function.name || "unknown_tool");
+	const args = context?.args ?? parseToolArguments(toolCall);
 	return (
 		<div className="tool-block readable">
 			<span>{readableToolCallTitle(name)}</span>
-			{readableToolCallSummary(name, args)}
+			{readableToolCallSummary(name, args, context?.result)}
 		</div>
 	);
 }
@@ -8099,7 +8102,7 @@ function readableToolResultTitle(name: string): string {
 	}
 }
 
-function readableToolCallSummary(name: string, args: JsonRecord): ReactNode {
+function readableToolCallSummary(name: string, args: JsonRecord, result?: unknown): ReactNode {
 	const worldHandle = worldHandleFromRecord(args);
 	const forumHandle = forumHandleFromRecord(args);
 	switch (name) {
@@ -8148,12 +8151,7 @@ function readableToolCallSummary(name: string, args: JsonRecord): ReactNode {
 				</div>
 			);
 		case "reply_to_thread":
-			return (
-				<div className="tool-pretty">
-					<span>Replying in</span>
-					<ThreadReference forumHandle={forumHandle} threadId={stringValue(args.threadId)} worldHandle={worldHandle} />
-				</div>
-			);
+			return <ReadablePostingReply args={args} result={result} />;
 		case "vote":
 			return (
 				<div className="tool-pretty">
@@ -8208,7 +8206,10 @@ function readableToolResultContent(name: string, value: unknown, args?: JsonReco
 	if (name === "read_thread" || name === "read_thread_by_id" || name === "read_comment_by_id") {
 		return <ReadableReadResult value={value} />;
 	}
-	if (name === "create_post" || name === "reply_to_thread") {
+	if (name === "reply_to_thread") {
+		return <ReadablePostedReplyResult args={args ?? {}} value={value} />;
+	}
+	if (name === "create_post") {
 		return <ReadableThreadDocument value={value} />;
 	}
 	if (name === "vote") {
@@ -8227,6 +8228,117 @@ function readableToolResultContent(name: string, value: unknown, args?: JsonReco
 		return <ReadableActivityResult value={value} />;
 	}
 	return <ReadableGenericResult value={value} />;
+}
+
+function ReadablePostingReply({ args, result }: { args: JsonRecord; result?: unknown }) {
+	const thread = threadRecordFromReadableMutation(result);
+	const targetCommentId = stringValue(args.parentCommentId);
+	const targetComment = targetCommentId ? findReadableComment(thread, targetCommentId) : {};
+	const threadId = stringValue(args.threadId) ?? stringValue(thread.threadId ?? thread.id);
+	const worldHandle = worldHandleFromRecord(thread) ?? worldHandleFromRecord(args);
+	const forumHandle = forumHandleFromRecord(thread) ?? forumHandleFromRecord(args);
+	const replyBody = textValueForDisplay(args.body);
+	const targetBody = textValueForDisplay(targetComment.body);
+	const title = stringValue(thread.title) ?? stringValue(recordValue(thread.rootPost).title);
+	return (
+		<div className="tool-pretty tool-list">
+			<div className="tool-pretty-item">
+				<span>Replying to</span>
+				<ThreadReference
+					commentId={targetCommentId}
+					forumHandle={forumHandle}
+					label={targetCommentId ? "comment" : title ?? "thread"}
+					threadId={threadId}
+					title={targetCommentId ? undefined : title}
+					worldHandle={worldHandle}
+				/>
+			</div>
+			{targetBody && <ReadableQuote label="Target comment" text={trimReadableSnippet(targetBody)} />}
+			{replyBody && <ReadableQuote label="Reply" text={replyBody} />}
+		</div>
+	);
+}
+
+function ReadablePostedReplyResult({ args, value }: { args: JsonRecord; value: unknown }) {
+	const thread = threadRecordFromReadableMutation(value);
+	const createdComment = createdReplyCommentFromReadableMutation(value, args);
+	const commentId = stringValue(createdComment.commentId ?? createdComment.id);
+	const threadId = stringValue(createdComment.threadId) ?? stringValue(thread.threadId ?? thread.id ?? args.threadId);
+	const worldHandle = worldHandleFromRecord(thread) ?? worldHandleFromRecord(createdComment);
+	const forumHandle = forumHandleFromRecord(thread) ?? forumHandleFromRecord(createdComment);
+	const title = stringValue(thread.title) ?? stringValue(recordValue(thread.rootPost).title);
+	return (
+		<div className="tool-pretty tool-list">
+			<div className="tool-pretty-item">
+				<span>Posted</span>
+				<ThreadReference
+					commentId={commentId}
+					forumHandle={forumHandle}
+					label={commentId ? "comment" : title ?? "thread"}
+					threadId={threadId}
+					title={commentId ? undefined : title}
+					worldHandle={worldHandle}
+				/>
+				{title || threadId ?
+					<>
+						<span>in</span>
+						<ThreadReference
+							forumHandle={forumHandle}
+							label={title ?? "thread"}
+							threadId={threadId}
+							title={title}
+							worldHandle={worldHandle}
+						/>
+					</>
+				:	null}
+			</div>
+		</div>
+	);
+}
+
+function threadRecordFromReadableMutation(value: unknown): JsonRecord {
+	const record = recordValue(value);
+	const thread = recordValue(record.thread);
+	return Object.keys(thread).length > 0 ? thread : record;
+}
+
+function createdReplyCommentFromReadableMutation(value: unknown, args: JsonRecord): JsonRecord {
+	const record = recordValue(value);
+	const comment = recordValue(record.comment);
+	if (stringValue(comment.commentId ?? comment.id)) {
+		return comment;
+	}
+	const thread = threadRecordFromReadableMutation(value);
+	return findReadableReplyComment(thread, args) ?? {};
+}
+
+function findReadableReplyComment(thread: JsonRecord, args: JsonRecord): JsonRecord | null {
+	const body = stringValue(args.body);
+	const parentCommentId = stringValue(args.parentCommentId);
+	const candidates = flattenReadableComments(arrayValue(thread.comments).map(recordValue)).filter((comment) => {
+		if (body && stringValue(comment.body) !== body) {
+			return false;
+		}
+		const commentParentId = stringValue(comment.parentCommentId);
+		return parentCommentId ? commentParentId === parentCommentId : !commentParentId;
+	});
+	return candidates.sort((left, right) =>
+		Date.parse(stringValue(right.createdAt) ?? "") - Date.parse(stringValue(left.createdAt) ?? "")
+	)[0] ?? null;
+}
+
+function findReadableComment(thread: JsonRecord, commentId: string): JsonRecord {
+	return flattenReadableComments(arrayValue(thread.comments).map(recordValue))
+		.find((comment) => stringValue(comment.commentId ?? comment.id) === commentId) ?? {};
+}
+
+function flattenReadableComments(comments: JsonRecord[]): JsonRecord[] {
+	const result: JsonRecord[] = [];
+	for (const comment of comments) {
+		result.push(comment);
+		result.push(...flattenReadableComments(arrayValue(comment.replies).map(recordValue)));
+	}
+	return result;
 }
 
 function ReadableNotificationEvents({ events }: { events: unknown[] }) {
@@ -8985,6 +9097,16 @@ function loopToolCallsById(messages: BotLoopMessage[]): Map<string, LoopToolCall
 				name: canonicalDisplayToolName(toolCall.function.name || "unknown_tool"),
 				args: parseToolArguments(toolCall),
 			});
+		}
+	}
+	for (const message of messages) {
+		const toolCallId = message.message.tool_call_id;
+		if (!toolCallId) {
+			continue;
+		}
+		const context = byId.get(toolCallId);
+		if (context) {
+			context.result = parseJsonValue(message.message.content);
 		}
 	}
 	return byId;

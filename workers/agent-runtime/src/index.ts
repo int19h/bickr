@@ -3195,7 +3195,7 @@ export class BotRuntime {
 					await this.assertNoPriorReplyToTarget(bot.id, threadId, parentCommentId);
 				}
 				this.assertNoRecentDuplicateReply(bot.id, body);
-				result = await this.forumService(
+				const serviceResult = await this.forumService(
 					`/threads/${encodeURIComponent(threadId)}/comments`,
 					bot.id,
 					{
@@ -3204,6 +3204,12 @@ export class BotRuntime {
 					},
 					runContext.signal,
 				);
+				const serviceRecord = runtimeRecord(serviceResult);
+				const createdComment = replyCommentFromThread(runtimeRecord(serviceRecord.thread), { body, parentCommentId });
+				result = {
+					...serviceRecord,
+					...(createdComment ? { comment: createdComment } : {}),
+				};
 				break;
 			}
 			case "vote": {
@@ -3278,7 +3284,7 @@ export class BotRuntime {
 				console.warn("spotlight notification failed", error);
 			}
 		}
-		const providerResult = providerToolResultPayload(canonicalName, result);
+		const providerResult = providerToolResultPayload(canonicalName, result, normalizedArgs);
 		await this.appendEvent(runId, "tool_result", { name: canonicalName, args: providerToolArgs(canonicalName, normalizedArgs), result });
 		return { name: canonicalName, result, providerResult };
 	}
@@ -5178,7 +5184,7 @@ function providerToolArgs(name: string, args: Record<string, unknown>): Record<s
 	return normalized;
 }
 
-function providerToolResultPayload(name: string, result: unknown): unknown {
+function providerToolResultPayload(name: string, result: unknown, args: Record<string, unknown> = {}): unknown {
 	const canonical = canonicalToolName(name);
 	if (canonical === "check_notifications") {
 		const record = runtimeRecord(result);
@@ -5226,7 +5232,13 @@ function providerToolResultPayload(name: string, result: unknown): unknown {
 	if (canonical === "read_thread" || canonical === "read_thread_by_id" || canonical === "read_comment_by_id") {
 		return providerReadResult(runtimeRecord(result));
 	}
-	if (canonical === "create_post" || canonical === "reply_to_thread" || canonical === "vote") {
+	if (canonical === "create_post") {
+		return providerThreadDocument(threadRecordFromToolResult(result) ?? runtimeRecord(result));
+	}
+	if (canonical === "reply_to_thread") {
+		return providerReplyThreadResult(result, args);
+	}
+	if (canonical === "vote") {
 		return providerThreadDocument(runtimeRecord(result));
 	}
 	if (canonical === "log_off") {
@@ -5249,6 +5261,19 @@ function providerVoteResult(record: Record<string, unknown>): Record<string, unk
 		targetId: stringValue(record.targetId),
 		value: numberValue(record.value),
 		...(thread ? { thread: providerThreadDocument(thread) } : {}),
+	};
+}
+
+function providerReplyThreadResult(result: unknown, args: Record<string, unknown>): Record<string, unknown> {
+	const record = runtimeRecord(result);
+	const thread = threadRecordFromToolResult(record) ?? runtimeRecord(record.thread);
+	const comment = runtimeRecord(record.comment);
+	const createdComment =
+		(stringValue(comment.id) || stringValue(comment.commentId)) ? comment
+		:	replyCommentFromThread(thread, args);
+	return {
+		thread: providerThreadDocument(thread),
+		...(createdComment ? { comment: providerThreadComment(thread, createdComment) } : {}),
 	};
 }
 
@@ -5459,6 +5484,37 @@ function isProviderComment(record: Record<string, unknown>): boolean {
 
 function providerCommentId(record: Record<string, unknown>): string | undefined {
 	return stringValue(record.commentId) ?? stringValue(record.id);
+}
+
+function replyCommentFromThread(thread: Record<string, unknown>, args: Record<string, unknown>): Record<string, unknown> | null {
+	const body = stringValue(args.body);
+	const parentCommentId = stringValue(args.parentCommentId);
+	const comments = allThreadCommentRecords(thread);
+	const candidates = comments.filter((comment) => {
+		if (body && stringValue(comment.body) !== body) {
+			return false;
+		}
+		const commentParentId = stringValue(comment.parentCommentId);
+		return parentCommentId ? commentParentId === parentCommentId : !commentParentId;
+	});
+	return candidates.sort((left, right) =>
+		Date.parse(stringValue(right.createdAt) ?? "") - Date.parse(stringValue(left.createdAt) ?? "")
+	)[0] ?? null;
+}
+
+function allThreadCommentRecords(thread: Record<string, unknown>): Record<string, unknown>[] {
+	const comments = Array.isArray(thread.comments) ? thread.comments.map(runtimeRecord) : [];
+	const result: Record<string, unknown>[] = [];
+	const visit = (comment: Record<string, unknown>) => {
+		result.push(comment);
+		for (const reply of providerCommentReplies(comment)) {
+			visit(reply);
+		}
+	};
+	for (const comment of comments) {
+		visit(comment);
+	}
+	return result;
 }
 
 function providerActivity(record: Record<string, unknown>): Record<string, unknown> {

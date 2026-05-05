@@ -4847,7 +4847,7 @@ describe("Bickr Pages Functions", () => {
 		let currentThread = await readThread(testEnv.BICKR_KV, thread.id);
 		expect(currentThread.comments.filter((comment) => comment.parentCommentId === parent.id && comment.authorBotId === replier.id)).toHaveLength(1);
 
-		await executeTool(
+		const allowed = await executeTool(
 			bot,
 			"run-repeat-allowed",
 			"reply_to_thread",
@@ -4859,6 +4859,21 @@ describe("Bickr Pages Functions", () => {
 			},
 			{ mode: "normal", signal },
 		);
+		const allowedProviderResult = allowed.providerResult as {
+			thread: { threadId: string; comments: Array<{ commentId: string; replies: Array<{ body: string }> }> };
+			comment: { body: string; parentCommentId: string };
+		};
+		expect(allowedProviderResult.thread.threadId).toBe(thread.id);
+		expect(allowedProviderResult.thread.comments).toEqual(expect.arrayContaining([
+			expect.objectContaining({
+				commentId: parent.id,
+				replies: expect.arrayContaining([expect.objectContaining({ body: "Intentional second reply." })]),
+			}),
+		]));
+		expect(allowedProviderResult.comment).toMatchObject({
+			body: "Intentional second reply.",
+			parentCommentId: parent.id,
+		});
 		currentThread = await readThread(testEnv.BICKR_KV, thread.id);
 		expect(
 			currentThread.comments.find((comment) =>
