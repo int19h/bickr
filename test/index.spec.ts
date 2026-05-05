@@ -106,8 +106,20 @@ import {
 	recordSpotlightToolHumanNotification,
 	searchBots,
 	searchPosts,
+	setVote,
+	unfollowBot,
 } from "../packages/shared/src/social";
-import { defaultTranslationPrompt, type BotLoopMessageLog, type BotRuntimeEvent, type ThreadDocument, type UserProfile } from "../packages/shared/src/model";
+import {
+	defaultTranslationPrompt,
+	type BotDocument,
+	type BotLoopMessageLog,
+	type BotRuntimeEvent,
+	type NotificationEvent,
+	type SpotlightSyntheticContext,
+	type ThreadDocument,
+	type UserProfile,
+} from "../packages/shared/src/model";
+import { isValidHandleText, sanitizeHandleInput } from "../packages/shared/src/validation";
 import { sessionCookieName, type AppEnv } from "../apps/web/functions/api/_auth";
 import { oauthCookieNames } from "../apps/web/functions/api/auth/_oauth";
 
@@ -469,20 +481,27 @@ describe("Bickr Pages Functions", () => {
 		expect(follow?.function.parameters.required).toEqual(["usernames", "reason"]);
 		expect(follow?.function.parameters.properties.usernames).toEqual({
 			type: "array",
-			description: "One or more u/usernames to follow.",
+			description: "One or more u/usernames that I don't already follow.",
 			items: { type: "string" },
 		});
 		expect(follow?.function.parameters.properties.reason).toEqual({
 			type: "string",
-			description: "Why I am following these participants. Must not be empty.",
+			description: "Why I want to follow these participants. Must not be empty.",
 			minLength: 1,
 		});
 		const unfollow = toolDefinitions.find((definition) => definition.function.name === "unfollow_profile");
 		expect(unfollow?.function.parameters.required).toEqual(["usernames", "reason"]);
 		expect(unfollow?.function.parameters.properties.reason).toEqual({
 			type: "string",
-			description: "Why I am unfollowing these participants. Must not be empty.",
+			description: "Why I want to unfollow these participants. Must not be empty.",
 			minLength: 1,
+		});
+		const viewProfiles = toolDefinitions.find((definition) => definition.function.name === "view_profiles");
+		expect(viewProfiles?.function.parameters.required).toEqual(["usernames"]);
+		expect(viewProfiles?.function.parameters.properties.usernames).toEqual({
+			type: "array",
+			description: "One or more u/usernames to view.",
+			items: { type: "string" },
 		});
 
 		const recentThreads = toolDefinitions.find((definition) => definition.function.name === "list_recent_threads");
@@ -561,6 +580,33 @@ describe("Bickr Pages Functions", () => {
 		const updatedThread = await readThread(testEnv.BICKR_KV, thread.id);
 		expect(updatedThread.rootPost.voteScore).toBe(1);
 		expect(updatedThread.comments.find((item) => item.id === comment.id)?.voteScore).toBe(-1);
+
+		const profilesResult = await executeTool(
+			bot,
+			"run-view-profiles",
+			"view_profiles",
+			{ usernames: [firstProfile.handle, `u/${secondProfile.handle}`] },
+			{ mode: "normal", signal },
+		);
+		expect(profilesResult.providerResult).toMatchObject({
+			profiles: [
+				{ username: `u/${firstProfile.handle}`, displayName: firstProfile.displayName, shortBio: expect.any(String) },
+				{ username: `u/${secondProfile.handle}`, displayName: secondProfile.displayName, shortBio: expect.any(String) },
+			],
+		});
+		const legacyProfileResult = await executeTool(
+			bot,
+			"run-view-profile-legacy",
+			"view_profile",
+			{ username: firstProfile.handle },
+			{ mode: "normal", signal },
+		);
+		expect(legacyProfileResult.providerResult).toMatchObject({
+			profiles: [{ username: `u/${firstProfile.handle}` }],
+		});
+		await expect(
+			executeTool(bot, "run-check-notifications", "check_notifications", {}, { mode: "normal", signal }),
+		).resolves.toMatchObject({ providerResult: { events: [] } });
 
 		const followResult = await executeTool(
 			bot,
@@ -1156,35 +1202,30 @@ describe("Bickr Pages Functions", () => {
 		const currentInput = formatRuntimeInputForContext({
 			ping: false,
 			injections: [],
+			spotlightContexts: [],
 			notifications: [
 				{
 					id: "ntf_read",
-					type: "reply",
+					type: "comment_created",
+					createdAt: "2026-01-01T00:00:00.000Z",
+					deliveryReasons: ["direct_reply"],
 					message: "Someone replied.",
-					threadId: "thr_read",
-					commentId: "cmt_read",
-					context: {
-						threadId: "thr_read",
+					thread: {
+						id: "thr_read",
 						title: "Is it real?",
-						content: [
-							{
-								type: "comment",
-								id: "cmt_read",
-								commentId: "cmt_read",
-								threadId: "thr_read",
-								forum: "f/philosophy",
-								author: { username: "alice", following: false },
-								body: "Hello there.",
-							},
-						],
+					},
+					comment: {
+						id: "cmt_read",
+						threadId: "thr_read",
+						author: { id: "bot_alice", username: "u/alice", displayName: "Alice" },
+						text: "Hello there.",
 					},
 				},
 			],
 		});
-		expect(currentInput).toContain("I log into Bickr and check my notifications.");
-		expect(currentInput).toContain("I see 1 notification");
-		expect(currentInput).toContain('Context included thread thr_read "Is it real?"');
-		expect(currentInput).toContain("I do not follow this profile");
+		expect(currentInput).toContain("Bickr Terminal prepared 1 structured notification event.");
+		expect(currentInput).toContain("comment_created notification ntf_read");
+		expect(currentInput).toContain("Someone replied.");
 		expect(currentInput).not.toContain("{");
 	});
 
@@ -1226,6 +1267,7 @@ describe("Bickr Pages Functions", () => {
 				};
 			},
 			activeLoopMessagesForProvider: () => ledgerMessages,
+			profileUsernamesInActiveContext: () => new Set<string>(),
 		});
 		const buildMessages = (BotRuntime.prototype as unknown as {
 			buildMessages: (
@@ -1242,10 +1284,12 @@ describe("Bickr Pages Functions", () => {
 				displayName: "Release Sage",
 				shortBio: "Reads changelogs.",
 				prompt: "Stay precise.",
+				inferenceSettings: {},
 			} as Parameters<typeof standardPrompt>[0],
 			{
 				notifications: [],
 				injections: [],
+				spotlightContexts: [],
 				ping: true,
 			} as Record<string, unknown>,
 			"run-current",
@@ -1254,9 +1298,227 @@ describe("Bickr Pages Functions", () => {
 
 		expect(messages[0]).toEqual({ role: "assistant", content: "I remember that I promised Müller I would follow up on release notes." });
 		expect(messages[1]).toEqual({ role: "assistant", content: "I should look for the changelog next." });
-		expect(messages[messages.length - 2]).toEqual({ role: "user", content: "15 minutes later..." });
-		expect(messages[messages.length - 1]?.role).toBe("user");
-		expect(messages[messages.length - 1]?.content).toContain("I log into Bickr and check my notifications");
+		expect(messages.some((message) => message.role === "user" && message.content === "15 minutes later...")).toBe(true);
+		expect(messages.some((message) => message.role === "assistant" && message.content === "I'm logging into Bickr and checking my notifications.")).toBe(true);
+		expect(messages.at(-1)).toEqual({
+			role: "assistant",
+			content: "I pause at Bickr as u/release-sage and think about how I feel, what I remember, and what I want to do next.",
+		});
+	});
+
+	it("enriches referenced profiles only when active uncompacted history lacks them", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const selfProfile = await createBotForTest(cookie, "notice-self");
+		const referencedProfile = await createBotForTest(cookie, "notice-alice");
+		const bot = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, selfProfile.id);
+		const notification: NotificationEvent = {
+			id: "ntf_profile_context",
+			type: "comment_created",
+			createdAt: "2026-05-01T00:00:00.000Z",
+			deliveryReasons: ["followed_profile_activity"],
+			actor: {
+				id: referencedProfile.id,
+				username: `u/${referencedProfile.handle}`,
+				displayName: referencedProfile.displayName,
+			},
+			message: "Notice Alice commented.",
+		};
+		const profileToolRow = {
+			seq: 1,
+			position: 1,
+			run_id: "run-previous",
+			role: "tool",
+			message_json: JSON.stringify({
+				role: "tool",
+				tool_call_id: "call_previous",
+				content: JSON.stringify({
+					profiles: [
+						{
+							username: `u/${referencedProfile.handle}`,
+							displayName: referencedProfile.displayName,
+							shortBio: "Already active.",
+						},
+					],
+				}),
+			}),
+			origin: "tool_result",
+			status: "complete",
+			token_estimate: 1,
+			compacted_by: null,
+			created_at: "2026-05-01T00:00:00.000Z",
+			has_logs: 0,
+		};
+		async function buildWithActiveRows(activeRows: unknown[]): Promise<Array<Record<string, unknown>>> {
+			const messages: Array<Record<string, unknown>> = [];
+			let seq = 0;
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				env: {
+					BICKR_D1: testEnv.BICKR_D1,
+					BICKR_KV: testEnv.BICKR_KV,
+				},
+				previousTerminalTickEvent: () => null,
+				appendLoopMessage: (_runId: string, message: Record<string, unknown>) => {
+					messages.push(message);
+					seq += 1;
+					return { seq, runId: "run-profile-context", role: message.role, message };
+				},
+				activeLoopMessagesForProvider: () => messages,
+				activeLoopMessageRows: () => activeRows,
+			});
+			const buildMessages = (BotRuntime.prototype as unknown as {
+				buildMessages: (
+					bot: BotDocument,
+					input: Record<string, unknown>,
+					runId: string,
+					inputCreatedAt: string,
+				) => Promise<Array<Record<string, unknown>>>;
+			}).buildMessages.bind(runtime);
+			return buildMessages(
+				bot,
+				{ notifications: [notification], injections: [], spotlightContexts: [], ping: false },
+				"run-profile-context",
+				"2026-05-01T00:15:00.000Z",
+			);
+		}
+
+		const alreadyActive = await buildWithActiveRows([profileToolRow]);
+		const alreadyActiveToolNames = ((alreadyActive.find((message) => Array.isArray(message.tool_calls))?.tool_calls ?? []) as Array<{ function: { name: string } }>)
+			.map((toolCall) => toolCall.function.name);
+		expect(alreadyActiveToolNames).toEqual(["check_notifications"]);
+
+		const afterCompaction = await buildWithActiveRows([]);
+		const afterCompactionToolNames = ((afterCompaction.find((message) => Array.isArray(message.tool_calls))?.tool_calls ?? []) as Array<{ function: { name: string } }>)
+			.map((toolCall) => toolCall.function.name);
+		expect(afterCompactionToolNames).toEqual(["check_notifications", "view_profiles"]);
+		const checkNotificationsResult = afterCompaction
+			.filter((message) => message.role === "tool")
+			.map((message) => JSON.parse(String(message.content)))
+			.find((result) => Array.isArray(result.events));
+		expect(checkNotificationsResult).toMatchObject({
+			events: [{ type: "comment_created", actor: { username: `u/${referencedProfile.handle}` } }],
+		});
+		const profileToolResult = afterCompaction
+			.filter((message) => message.role === "tool")
+			.map((message) => JSON.parse(String(message.content)))
+			.find((result) => Array.isArray(result.profiles));
+		expect(profileToolResult).toMatchObject({
+			profiles: [{ username: `u/${referencedProfile.handle}`, displayName: referencedProfile.displayName, shortBio: expect.any(String) }],
+		});
+	});
+
+	it("builds spotlight setup as parallel synthetic read calls with parent-chain JSON", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const selfProfile = await createBotForTest(cookie, "spotlight-self");
+		const authorProfile = await createBotForTest(cookie, "spotlight-author");
+		const bot = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, selfProfile.id);
+		const contexts: SpotlightSyntheticContext[] = [
+			{
+				kind: "spotlight_context",
+				world: { id: bot.homeWorldId, handle: `w/${bot.homeWorldHandle}` },
+				forum: { id: "frm_spotlight", handle: "f/spotlight" },
+				targetType: "comments",
+				content: [
+					{
+						type: "thread",
+						id: "thr_spotlight_comment",
+						threadId: "thr_spotlight_comment",
+						title: "Comment spotlight",
+						authorBotId: authorProfile.id,
+						authorHandle: authorProfile.handle,
+						authorDisplayName: authorProfile.displayName,
+						body: "Root context.",
+						createdAt: "2026-05-01T00:00:00.000Z",
+					},
+					{
+						type: "comment",
+						id: "cmt_spotlight",
+						commentId: "cmt_spotlight",
+						threadId: "thr_spotlight_comment",
+						authorBotId: authorProfile.id,
+						authorHandle: authorProfile.handle,
+						authorDisplayName: authorProfile.displayName,
+						body: "Target comment.",
+						createdAt: "2026-05-01T00:01:00.000Z",
+						target: true,
+					},
+				],
+			},
+			{
+				kind: "spotlight_context",
+				world: { id: bot.homeWorldId, handle: `w/${bot.homeWorldHandle}` },
+				forum: { id: "frm_spotlight", handle: "f/spotlight" },
+				targetType: "threads",
+				content: [
+					{
+						type: "thread",
+						id: "thr_spotlight_thread",
+						threadId: "thr_spotlight_thread",
+						title: "Thread spotlight",
+						authorBotId: authorProfile.id,
+						authorHandle: authorProfile.handle,
+						authorDisplayName: authorProfile.displayName,
+						body: "Thread target.",
+						createdAt: "2026-05-01T00:02:00.000Z",
+						target: true,
+					},
+				],
+			},
+		];
+		const messages: Array<Record<string, unknown>> = [];
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			env: {
+				BICKR_D1: testEnv.BICKR_D1,
+				BICKR_KV: testEnv.BICKR_KV,
+			},
+			previousTerminalTickEvent: () => null,
+			appendLoopMessage: (_runId: string, message: Record<string, unknown>) => {
+				messages.push(message);
+				return { seq: messages.length, runId: "run-spotlight-context", role: message.role, message };
+			},
+			activeLoopMessagesForProvider: () => messages,
+			activeLoopMessageRows: () => [],
+		});
+		const buildMessages = (BotRuntime.prototype as unknown as {
+			buildMessages: (
+				bot: BotDocument,
+				input: Record<string, unknown>,
+				runId: string,
+				inputCreatedAt: string,
+			) => Promise<Array<Record<string, unknown>>>;
+		}).buildMessages.bind(runtime);
+
+		const built = await buildMessages(
+			bot,
+			{ notifications: [], injections: [], spotlightContexts: contexts, ping: false },
+			"run-spotlight-context",
+			"2026-05-01T00:15:00.000Z",
+		);
+		const setup = built.find((message) => Array.isArray(message.tool_calls));
+		expect(setup?.content).toBe("While browsing Bickr, I stumbled on an interesting post.");
+		expect(((setup?.tool_calls ?? []) as Array<{ function: { name: string } }>).map((toolCall) => toolCall.function.name)).toEqual([
+			"read_comment_by_id",
+			"read_thread_by_id",
+			"view_profiles",
+		]);
+		const toolResults = built
+			.filter((message) => message.role === "tool")
+			.map((message) => JSON.parse(String(message.content)));
+		expect(toolResults.find((result) => result.operation === "read_comment_by_id")).toMatchObject({
+			targetCommentId: "cmt_spotlight",
+			content: [
+				{ type: "thread", id: "thr_spotlight_comment", body: "Root context." },
+				{ type: "comment", id: "cmt_spotlight", body: "Target comment.", target: true },
+			],
+		});
+		expect(toolResults.find((result) => result.operation === "read_thread_by_id")).toMatchObject({
+			thread: { threadId: "thr_spotlight_thread", title: "Thread spotlight" },
+			content: [{ type: "thread", id: "thr_spotlight_thread", body: "Thread target.", target: true }],
+		});
+		expect(toolResults.find((result) => Array.isArray(result.profiles))).toMatchObject({
+			profiles: [{ username: `u/${authorProfile.handle}`, displayName: authorProfile.displayName }],
+		});
 	});
 
 	it("queues busy spotlight ticks only when the active tick misses the injection", async () => {
@@ -1583,12 +1845,11 @@ describe("Bickr Pages Functions", () => {
 			) => Promise<TestProviderResponse>;
 		}).consumeProviderResponse.bind(runtime);
 		const appendProviderMessages = (BotRuntime.prototype as unknown as {
-			appendProviderMessages: (
-				runId: string,
-				response: TestProviderResponse,
-				status: "complete" | "interrupted",
-				reasoningPrefill?: string,
-			) => Promise<void>;
+				appendProviderMessages: (
+					runId: string,
+					response: TestProviderResponse,
+					status: "complete" | "interrupted",
+				) => Promise<void>;
 		}).appendProviderMessages.bind(runtime);
 
 		const response = await consumeProviderResponse(
@@ -1602,12 +1863,7 @@ describe("Bickr Pages Functions", () => {
 			]),
 			new AbortController().signal,
 		);
-		await appendProviderMessages(
-			"run-reasoning",
-			response,
-			"complete",
-			"I pause at Bickr as u/release-sage and think about how I feel, what I remember, and what I want to do next.",
-		);
+			await appendProviderMessages("run-reasoning", response, "complete");
 
 		expect(response).toMatchObject({
 			content: " Checking now.",
@@ -1630,13 +1886,12 @@ describe("Bickr Pages Functions", () => {
 				},
 			},
 			{
-				type: "assistant_message",
-				payload: {
-					content:
-						"I pause at Bickr as u/release-sage and think about how I feel, what I remember, and what I want to do next. Checking now.",
-					status: "complete",
+					type: "assistant_message",
+					payload: {
+						content: " Checking now.",
+						status: "complete",
+					},
 				},
-			},
 		]);
 	});
 
@@ -2315,6 +2570,11 @@ describe("Bickr Pages Functions", () => {
 			login: "Müller_42",
 			displayName: "Unicode User",
 		});
+		expect(isValidHandleText("x")).toBe(true);
+		expect(isValidHandleText("_")).toBe(true);
+		expect(isValidHandleText("-a")).toBe(true);
+		expect(isValidHandleText("a-")).toBe(true);
+		expect(sanitizeHandleInput("_a-")).toBe("_a-");
 
 		const profileResponse = await patchProfile(
 			contextFor<typeof patchProfile>(
@@ -2403,6 +2663,39 @@ describe("Bickr Pages Functions", () => {
 			ok: true,
 			data: { bot: { handle: botHandle, homeWorldHandle: worldHandle } },
 		});
+
+		const shortProfileResponse = await patchProfile(
+			contextFor<typeof patchProfile>(
+				jsonRequest("http://example.com/api/me/profile", "PATCH", { handle: "x", displayName: "Unicode User" }, cookie),
+			),
+		);
+		expect(shortProfileResponse.status).toBe(200);
+
+		const shortWorldResponse = await createWorld(
+			contextFor<typeof createWorld>(
+				jsonRequest("http://example.com/api/worlds", "POST", { handle: "_", name: "Underscore", description: "Short handle world." }, cookie),
+			),
+		);
+		expect(shortWorldResponse.status).toBe(201);
+		const shortForumResponse = await createForum(
+			contextFor<typeof createForum>(
+				jsonRequest("http://example.com/api/worlds/_/forums", "POST", { handle: "-", description: "One character forum." }, cookie),
+				{ worldHandle: "_" },
+			),
+		);
+		expect(shortForumResponse.status).toBe(201);
+		const shortBotResponse = await createBot(
+			contextFor<typeof createBot>(
+				jsonRequest("http://example.com/api/worlds/_/bots", "POST", {
+					handle: "_-",
+					displayName: "Short Bot",
+					shortBio: "Short handle bot.",
+					prompt: "Stay concise.",
+				}, cookie),
+				{ worldHandle: "_" },
+			),
+		);
+		expect(shortBotResponse.status).toBe(201);
 	});
 
 	it("creates, lists, edits, and soft-deletes current-user bots", async () => {
@@ -4173,7 +4466,7 @@ describe("Bickr Pages Functions", () => {
 		expect(readCommentSeen).toEqual({ seenVia: "tool:read_comment_by_id" });
 	});
 
-	it("creates u/ mention notifications with author name and conditional short bio", async () => {
+	it("creates structured u/ mention notifications", async () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);
 		const forum = await createForumForTest(cookie, "mentions");
@@ -4184,8 +4477,19 @@ describe("Bickr Pages Functions", () => {
 		await createCommentForTest(thread.id, author.id, "First ping for u/mention-target.");
 		const firstNotifications = await listPendingNotifications(testEnv.BICKR_KV, testEnv.BICKR_D1, recipient.id);
 		const firstMention = firstNotifications.find((notification) => notification.notificationType === "mention");
-		expect(firstMention?.message).toContain("Mention Author (u/mention-author)");
-		expect(firstMention?.message).toContain("Short bio: Mention Author test bot.");
+		expect(firstMention?.message).toContain('Mention Author mentioned you in "Mention thread".');
+		expect(firstMention?.event).toMatchObject({
+			type: "comment_created",
+			deliveryReasons: ["mention"],
+			actor: {
+				username: "u/mention-author",
+				displayName: "Mention Author",
+				shortBio: "Mention Author test bot.",
+			},
+			comment: {
+				text: "First ping for u/mention-target.",
+			},
+		});
 
 		if (!firstMention) {
 			throw new Error("Expected mention notification.");
@@ -4197,7 +4501,7 @@ describe("Bickr Pages Functions", () => {
 			[firstMention],
 			[],
 		);
-		expect(firstLoopInput.autoProfileSeenItems).toEqual([{ type: "bot", id: author.id }]);
+		expect(firstLoopInput.autoProfileSeenItems).toEqual([]);
 		await markBotSeenContent(
 			testEnv.BICKR_D1,
 			recipient.id,
@@ -4210,7 +4514,7 @@ describe("Bickr Pages Functions", () => {
 		const secondMention = allNotifications
 			.filter((notification) => notification.notificationType === "mention")
 			.at(-1);
-		expect(secondMention?.message).toContain("Mention Author (u/mention-author)");
+		expect(secondMention?.message).toContain("Mention Author mentioned you");
 		expect(secondMention?.message).not.toContain("Short bio:");
 	});
 
@@ -4225,7 +4529,56 @@ describe("Bickr Pages Functions", () => {
 		await createCommentForTest(thread.id, author.id, "First ping for u/цель_2.");
 		const notifications = await listPendingNotifications(testEnv.BICKR_KV, testEnv.BICKR_D1, recipient.id);
 		const mention = notifications.find((notification) => notification.notificationType === "mention");
-		expect(mention?.message).toContain("u/автор_1");
+		expect(mention?.event?.actor?.username).toBe("u/автор_1");
+	});
+
+	it("fans followed public activity into one structured notification per action", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const forum = await createForumForTest(cookie, "follow-events");
+		const actor = await createBotForTest(cookie, "follow-actor");
+		const follower = await createBotForTest(cookie, "follow-reader");
+		const target = await createBotForTest(cookie, "follow-target");
+		const oldThread = await createThreadForTest(forum.id, actor.id, "Before follow", "Old root body.");
+		await followBot(testEnv.BICKR_KV, testEnv.BICKR_D1, follower.id, actor.id);
+
+		const targetThread = await createThreadForTest(forum.id, target.id, "Target thread", "Root target body.");
+		await createThreadForTest(forum.id, actor.id, "Actor thread", "Actor root body.");
+		const parent = await createCommentForTest(targetThread.id, follower.id, "Reader parent.");
+		const reply = await createCommentForTest(targetThread.id, actor.id, "Actor reply.", parent.id);
+		await setVote(testEnv.BICKR_KV, testEnv.BICKR_D1, {
+			botId: actor.id,
+			targetType: "comment",
+			targetId: parent.id,
+			value: 1,
+		});
+		await followBot(testEnv.BICKR_KV, testEnv.BICKR_D1, actor.id, target.id);
+		await unfollowBot(testEnv.BICKR_KV, testEnv.BICKR_D1, actor.id, target.id);
+
+		const followerNotifications = await listPendingNotifications(testEnv.BICKR_KV, testEnv.BICKR_D1, follower.id);
+		expect(followerNotifications.some((notification) => notification.sourceObjectId === oldThread.id)).toBe(false);
+		const events = followerNotifications.map((notification) => notification.event).filter(Boolean);
+		expect(events.map((event) => event?.type)).toEqual(
+			expect.arrayContaining(["thread_created", "comment_created", "vote_cast", "profile_followed", "profile_unfollowed"]),
+		);
+		expect(events.every((event) => event?.deliveryReasons.includes("followed_profile_activity"))).toBe(true);
+		expect(events.find((event) => event?.type === "vote_cast")).toMatchObject({
+			target: { id: parent.id, author: { username: `u/${follower.handle}` } },
+			vote: { targetType: "comment", targetId: parent.id, value: 1 },
+		});
+		expect(events.find((event) => event?.type === "profile_followed")).toMatchObject({
+			target: { username: `u/${target.handle}` },
+			targetProfile: { username: `u/${target.handle}` },
+		});
+
+		const replyNotifications = followerNotifications.filter((notification) => notification.sourceObjectId === reply.id);
+		expect(replyNotifications).toHaveLength(1);
+		expect(replyNotifications[0]?.event).toMatchObject({
+			type: "comment_created",
+			deliveryReasons: ["direct_reply", "followed_profile_activity"],
+			comment: { id: reply.id, text: "Actor reply." },
+			replyTo: { id: parent.id, text: "Reader parent." },
+		});
 	});
 
 	it("rejects repeat replies to the same comment unless explicitly overridden", async () => {
@@ -4448,54 +4801,25 @@ describe("Bickr Pages Functions", () => {
 		if (!reply) {
 			throw new Error("Expected reply notification.");
 		}
-		expect(reply.message).toContain("Context Replier (u/context-replier)");
-		expect(reply.message).toContain("Short bio: Context Replier test bot.");
-		expect(reply.message).toContain("Follow status: I do not follow this profile.");
+			expect(reply.message).toContain('Context Replier replied to you in "Context thread".');
 
-		const built = await buildRuntimeLoopInput(testEnv.BICKR_KV, testEnv.BICKR_D1, recipient.id, [reply], []);
-		const loopNotification = built.input.notifications[0];
-		expect(loopNotification).toMatchObject({
-			sourceObjectId: child.id,
-			threadId: thread.id,
-			commentId: child.id,
-			parentCommentId: parent.id,
-		});
-		expect(built.autoProfileSeenItems).toEqual(
-			expect.arrayContaining([
-				{ type: "bot", id: replier.id },
-				{ type: "bot", id: rootAuthor.id },
-			]),
-		);
+			const built = await buildRuntimeLoopInput(testEnv.BICKR_KV, testEnv.BICKR_D1, recipient.id, [reply], []);
+			const loopNotification = built.input.notifications[0];
+			expect(loopNotification).toMatchObject({
+				sourceObjectId: child.id,
+				type: "comment_created",
+				thread: { id: thread.id, title: "Context thread" },
+				comment: { id: child.id, threadId: thread.id, parentCommentId: parent.id, text: "Child reply." },
+				replyTo: { id: parent.id, threadId: thread.id, text: "Parent comment." },
+			});
+			expect(built.autoProfileSeenItems).toEqual([]);
 
-		const contextItems = loopNotification?.context?.content ?? [];
-		const rootContext = contextItems.find((item) => item.type === "thread");
-		const parentContext = contextItems.find((item) => item.commentId === parent.id);
-		const targetContext = contextItems.find((item) => item.commentId === child.id);
-		expect(rootContext).toMatchObject({
-			id: thread.id,
-			threadId: thread.id,
-			author: { username: "u/context-root", shortBio: "Context Root test bot.", following: true },
-		});
-		expect(parentContext).toMatchObject({
-			id: parent.id,
-			commentId: parent.id,
-			threadId: thread.id,
-			ancestorOnly: true,
-		});
-		expect(targetContext).toMatchObject({
-			id: child.id,
-			commentId: child.id,
-			threadId: thread.id,
-			parentCommentId: parent.id,
-			target: true,
-		});
-
-		const followup = await createCommentForTest(
-			loopNotification?.threadId ?? "",
-			recipient.id,
-			"Replying with supplied IDs.",
-			loopNotification?.commentId,
-		);
+			const followup = await createCommentForTest(
+				loopNotification?.thread?.id ?? "",
+				recipient.id,
+				"Replying with supplied IDs.",
+				loopNotification?.comment?.id,
+			);
 		expect(followup.id).toBeTruthy();
 
 		await markBotSeenContent(
@@ -4506,19 +4830,19 @@ describe("Bickr Pages Functions", () => {
 			"test-loop-input",
 		);
 		await createCommentForTest(thread.id, replier.id, "Second child reply.", parent.id);
-		const nextReply = (await listPendingNotifications(testEnv.BICKR_KV, testEnv.BICKR_D1, recipient.id))
-			.filter((notification) => notification.notificationType === "reply")
-			.at(-1);
-		expect(nextReply?.message).toContain("Context Replier (u/context-replier)");
-		expect(nextReply?.message).not.toContain("Short bio:");
-		expect(nextReply?.message).not.toContain("Follow status:");
+			const nextReply = (await listPendingNotifications(testEnv.BICKR_KV, testEnv.BICKR_D1, recipient.id))
+				.filter((notification) => notification.notificationType === "reply")
+				.at(-1);
+			expect(nextReply?.message).toContain("Context Replier replied to you");
+			expect(nextReply?.message).not.toContain("Short bio:");
+			expect(nextReply?.message).not.toContain("Follow status:");
 		if (!nextReply) {
 			throw new Error("Expected second reply notification.");
-		}
-		const nextBuilt = await buildRuntimeLoopInput(testEnv.BICKR_KV, testEnv.BICKR_D1, recipient.id, [nextReply], []);
-		const nextContext = JSON.stringify(nextBuilt.input.notifications[0]?.context ?? {});
-		expect(nextContext).not.toContain("Context Root test bot.");
-		expect(nextBuilt.autoProfileSeenItems).toEqual([]);
+			}
+			const nextBuilt = await buildRuntimeLoopInput(testEnv.BICKR_KV, testEnv.BICKR_D1, recipient.id, [nextReply], []);
+			const nextContext = JSON.stringify(nextBuilt.input.notifications[0] ?? {});
+			expect(nextContext).not.toContain("Context Root test bot.");
+			expect(nextBuilt.autoProfileSeenItems).toEqual([]);
 	});
 
 	it("builds spotlight previews server-side and records successful injections", async () => {
@@ -4629,19 +4953,29 @@ describe("Bickr Pages Functions", () => {
 			),
 		);
 		const commentPreview = (await commentPreviewResponse.json()) as SpotlightPreviewPayload;
-		const contentIds = commentPreview.data.preview.botPreviews[0]?.content.map((item) => item.id) ?? [];
-		const injectedText = commentPreview.data.preview.botPreviews[0]?.injectedText ?? "";
-		expect(contentIds).toEqual(expect.arrayContaining([thread.id, parent.id, child.id]));
-		expect(injectedText).toContain("My focus: Look at the parent chain.");
-		expect(injectedText).toContain(`threadId=${thread.id}`);
-		expect(injectedText).toContain(`commentId=${parent.id} threadId=${thread.id}`);
-		expect(injectedText).toContain(`commentId=${child.id} threadId=${thread.id} parentCommentId=${parent.id}`);
-		expect(injectedText).toContain("context parent comments are not the target");
-		expect(injectedText).toContain("context parent comment by");
-		expect(injectedText).toContain("spotlighted comment by");
-		expect(injectedText).toContain("profile: Spot Two test bot.");
-		expect(injectedText).toContain("set parentCommentId to that commentId");
-		expect(injectedText).not.toMatch(/\bowner\b/i);
+			const contentIds = commentPreview.data.preview.botPreviews[0]?.content.map((item) => item.id) ?? [];
+			const injectedText = commentPreview.data.preview.botPreviews[0]?.injectedText ?? "";
+			const injectedContext = JSON.parse(injectedText) as {
+				kind: string;
+				targetType: string;
+				focus: string;
+				content: Array<Record<string, unknown>>;
+			};
+			expect(contentIds).toEqual(expect.arrayContaining([thread.id, parent.id, child.id]));
+			expect(injectedContext).toMatchObject({
+				kind: "spotlight_context",
+				targetType: "comments",
+				focus: "Look at the parent chain.",
+			});
+			expect(injectedContext.content).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({ id: thread.id, threadId: thread.id, type: "thread" }),
+					expect.objectContaining({ id: parent.id, commentId: parent.id, threadId: thread.id, ancestorOnly: true }),
+					expect.objectContaining({ id: child.id, commentId: child.id, threadId: thread.id, parentCommentId: parent.id, target: true }),
+				]),
+			);
+			expect(injectedText).toContain("Spot Two test bot.");
+			expect(injectedText).not.toMatch(/\bowner\b/i);
 
 		const runtimePaths: string[] = [];
 		const sendResponse = await spotlightSend(

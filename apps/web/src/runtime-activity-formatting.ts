@@ -453,8 +453,8 @@ function toolCallTitle(name: string, args: unknown): string {
 			return `Searching posts for "${stringValue(record.query) ?? ""}"`;
 		case "search_profiles":
 			return `Searching profiles for "${stringValue(record.query) ?? ""}"`;
-		case "view_profile":
-			return `Viewing u/${stringValue(record.username) ?? "..."}'s profile`;
+		case "view_profiles":
+			return `Viewing ${stringArrayValue(record.usernames).join(", ") || "profiles"}`;
 		case "view_activity":
 			return `Viewing u/${stringValue(record.username) ?? "..."}'s activity`;
 		case "follow_profile":
@@ -523,10 +523,11 @@ function toolResultSummary(name: string, args: unknown, result: unknown, fallbac
 		const items = result.map((item, index) => profileItem(runtimeRecord(item), index, fallbackWorldHandle));
 		return resultWithDisplay(`Profile search results for "${query}"`, itemsBody(items, "No matching profiles returned."), items);
 	}
-	if (canonical === "view_profile") {
-		const title = `Viewed ${profileLabel(record)}`;
-		const item = profileItem(record, 0, fallbackWorldHandle, "Open profile");
-		return resultWithDisplay(title, itemBody(item), [item]);
+	if (canonical === "view_profiles") {
+		const profiles = Array.isArray(record.profiles) ? record.profiles.map(runtimeRecord) : [record];
+		const items = profiles.map((profile, index) => profileItem(profile, index, fallbackWorldHandle, "Open profile")).filter(isDisplayItem);
+		const labels = profiles.map(profileLabel).filter(Boolean).join(", ");
+		return resultWithDisplay(`Viewed ${labels || "profiles"}`, itemsBody(items, "No profiles returned."), items);
 	}
 	if (canonical === "view_activity") {
 		const profile = runtimeRecord(record.bot ?? record.profile);
@@ -910,7 +911,8 @@ function shortOpenRouterToolName(value: string): string {
 function canonicalToolName(name: string): string {
 	const aliases: Record<string, string> = {
 		search_bots: "search_profiles",
-		view_bot_profile: "view_profile",
+		view_profile: "view_profiles",
+		view_bot_profile: "view_profiles",
 		view_bot_activity: "view_activity",
 		follow_bot: "follow_profile",
 		unfollow_bot: "unfollow_profile",

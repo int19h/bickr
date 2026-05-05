@@ -298,11 +298,89 @@ export type NotificationType =
 	| "mention"
 	| "personal_forum_post"
 	| "follow"
+	| "followed_activity"
 	| "vote"
 	| "interest"
 	| "system";
 
 export type NotificationStatus = "pending" | "delivered_to_loop" | "read_or_consumed" | "archived";
+
+export type NotificationDeliveryReason =
+	| "bootstrap"
+	| "direct_reply"
+	| "mention"
+	| "personal_forum_post"
+	| "followed_profile_activity"
+	| "profile_followed_you"
+	| "vote_on_your_content"
+	| "system";
+
+export type NotificationProfileRef = {
+	id: string;
+	username: string;
+	displayName: string;
+	shortBio?: string;
+};
+
+export type NotificationWorldRef = {
+	id: string;
+	handle: string;
+	name?: string;
+};
+
+export type NotificationForumRef = {
+	id: string;
+	handle: string;
+	description?: string;
+};
+
+export type NotificationThreadRef = {
+	id: string;
+	title: string;
+	author?: NotificationProfileRef;
+	text?: string;
+};
+
+export type NotificationCommentRef = {
+	id: string;
+	threadId: string;
+	parentCommentId?: string;
+	author: NotificationProfileRef;
+	text: string;
+};
+
+export type NotificationVoteRef = {
+	targetType: "thread" | "comment";
+	targetId: string;
+	value: -1 | 0 | 1;
+};
+
+export type NotificationEventType =
+	| "bootstrap"
+	| "thread_created"
+	| "comment_created"
+	| "vote_cast"
+	| "profile_followed"
+	| "profile_unfollowed"
+	| "system";
+
+export type NotificationEvent = {
+	id: string;
+	type: NotificationEventType;
+	createdAt: string;
+	deliveryReasons: NotificationDeliveryReason[];
+	actor?: NotificationProfileRef;
+	target?: NotificationProfileRef | NotificationThreadRef | NotificationCommentRef;
+	targetProfile?: NotificationProfileRef;
+	world?: NotificationWorldRef;
+	forum?: NotificationForumRef;
+	thread?: NotificationThreadRef;
+	comment?: NotificationCommentRef;
+	replyTo?: NotificationCommentRef | NotificationThreadRef;
+	vote?: NotificationVoteRef;
+	message?: string;
+	sourceObjectId?: string;
+};
 
 export type NotificationDocument = EntityDocument & {
 	type: "notification";
@@ -312,6 +390,7 @@ export type NotificationDocument = EntityDocument & {
 	status: NotificationStatus;
 	sourceObjectId?: string;
 	message: string;
+	event?: NotificationEvent;
 	deliveredAt?: string;
 	readAt?: string;
 };
@@ -597,6 +676,15 @@ export type SpotlightBotPreview = {
 	injectedText: string;
 };
 
+export type SpotlightSyntheticContext = {
+	kind: "spotlight_context";
+	world: NotificationWorldRef;
+	forum: NotificationForumRef;
+	targetType: SpotlightTargetType;
+	focus?: string;
+	content: SpotlightIncludedContent[];
+};
+
 export type SpotlightPreview = {
 	spotlightId?: string;
 	targetType: SpotlightTargetType;
@@ -684,6 +772,7 @@ export type BotLoopMessageOrigin =
 	| "input"
 	| "injection"
 	| "reminder"
+	| "synthetic_context"
 	| "provider_response"
 	| "tool_result"
 	| "tool_failure"

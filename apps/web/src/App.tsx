@@ -8899,6 +8899,9 @@ function loopMessageTitle(message: BotLoopMessage): string {
 	if (message.origin === "reminder") {
 		return "Loop reminder";
 	}
+	if (message.origin === "synthetic_context") {
+		return "Synthetic context";
+	}
 	if (message.origin === "local_simulation") {
 		return "Local simulation";
 	}
@@ -8913,6 +8916,8 @@ function loopMessageOriginLabel(origin: BotLoopMessage["origin"]): string {
 			return "injection";
 		case "reminder":
 			return "reminder";
+		case "synthetic_context":
+			return "synthetic context";
 		case "provider_response":
 			return "provider response";
 		case "tool_result":

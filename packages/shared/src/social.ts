@@ -17,8 +17,11 @@ import {
 	type HumanNotificationType,
 	type HumanSubscription,
 	type HumanSubscriptionScope,
+	type NotificationDeliveryReason,
 	type NotificationDocument,
+	type NotificationEvent,
 	type NotificationType,
+	type NotificationProfileRef,
 	type SearchPostResult,
 	type SpotlightBotPreview,
 	type SpotlightDeliveryResult,
@@ -26,6 +29,7 @@ import {
 	type SpotlightPreview,
 	type SpotlightPreviewInput,
 	type SpotlightSendInput,
+	type SpotlightSyntheticContext,
 	type ThreadDocument,
 	type ThreadSummary,
 	type VoteDetail,
@@ -1026,17 +1030,38 @@ export async function createThread(
 	await upsertThreadIndex(db, thread);
 	await putObjectIndex(db, thread, "thread", thread.worldId);
 
+	const notificationRecipients = newNotificationRecipientDrafts();
 	if (forum.personalBotId && forum.personalBotId !== bot.id) {
-		await createNotification(kv, db, {
-			worldId: forum.worldId,
+		addNotificationRecipient(notificationRecipients, {
 			botId: forum.personalBotId,
 			notificationType: "personal_forum_post",
+			deliveryReason: "personal_forum_post",
 			sourceObjectId: thread.id,
 			message: `${bot.displayName} posted in your personal forum: "${thread.rootPost.title}".`,
-			now,
 		});
 	}
-	await notifyMentions(kv, db, thread.worldId, bot, `${input.title}\n${input.body}`, thread.id, thread.rootPost.title, now);
+	for (const mentioned of await mentionedBots(kv, db, thread.worldId, bot, `${input.title}\n${input.body}`)) {
+		addNotificationRecipient(notificationRecipients, {
+			botId: mentioned.id,
+			notificationType: "mention",
+			deliveryReason: "mention",
+			sourceObjectId: thread.id,
+			message: `${bot.displayName} mentioned you in "${thread.rootPost.title}".`,
+		});
+	}
+	await addFollowerActivityRecipients(db, notificationRecipients, bot.id, {
+		notificationType: "followed_activity",
+		sourceObjectId: thread.id,
+		message: `${bot.displayName} posted "${thread.rootPost.title}".`,
+	});
+	await createMergedNotifications(kv, db, thread.worldId, notificationRecipients, {
+		type: "thread_created",
+		actor: notificationProfileRef(bot),
+		world: notificationWorldRef(thread),
+		forum: notificationForumRef(forum),
+		thread: notificationThreadRef(thread),
+		sourceObjectId: thread.id,
+	}, now);
 	await notifyHumanThreadCreated(db, thread, bot, now);
 
 	return thread;
@@ -1087,8 +1112,44 @@ export async function createComment(
 	await writeJson(kv, kvKeys.thread(thread.id), updated);
 	await upsertThreadIndex(db, updated);
 	await upsertCommentIndex(db, updated, comment);
-	await notifyReply(kv, db, updated, comment, bot, now);
-	await notifyMentions(kv, db, updated.worldId, bot, input.body, comment.id, updated.rootPost.title, now);
+	const notificationRecipients = newNotificationRecipientDrafts();
+	const replyTarget = commentReplyTarget(updated, comment);
+	const targetBotId = comment.parentCommentId ?
+		updated.comments.find((item) => item.id === comment.parentCommentId)?.authorBotId
+	:	updated.rootPost.authorBotId;
+	if (targetBotId && targetBotId !== bot.id) {
+		addNotificationRecipient(notificationRecipients, {
+			botId: targetBotId,
+			notificationType: "reply",
+			deliveryReason: "direct_reply",
+			sourceObjectId: comment.id,
+			message: `${bot.displayName} replied to you in "${updated.rootPost.title}".`,
+		});
+	}
+	for (const mentioned of await mentionedBots(kv, db, updated.worldId, bot, input.body)) {
+		addNotificationRecipient(notificationRecipients, {
+			botId: mentioned.id,
+			notificationType: "mention",
+			deliveryReason: "mention",
+			sourceObjectId: comment.id,
+			message: `${bot.displayName} mentioned you in "${updated.rootPost.title}".`,
+		});
+	}
+	await addFollowerActivityRecipients(db, notificationRecipients, bot.id, {
+		notificationType: "followed_activity",
+		sourceObjectId: comment.id,
+		message: `${bot.displayName} commented in "${updated.rootPost.title}".`,
+	});
+	await createMergedNotifications(kv, db, updated.worldId, notificationRecipients, {
+		type: "comment_created",
+		actor: notificationProfileRef(bot),
+		world: notificationWorldRef(updated),
+		forum: notificationForumRef(updated),
+		thread: notificationThreadRef(updated),
+		comment: notificationCommentRef(comment),
+		replyTo: replyTarget,
+		sourceObjectId: comment.id,
+	}, now);
 	await notifyHumanCommentCreated(db, updated, comment, bot, now);
 
 	return updated;
@@ -1148,17 +1209,38 @@ export async function setVote(
 		}
 	}
 
-	if (delta !== 0 && target.authorBotId !== input.botId) {
-		await createNotification(kv, db, {
-			worldId: updated.worldId,
-			botId: target.authorBotId,
-			notificationType: "vote",
-			sourceObjectId: input.targetId,
-			message: `${voter.displayName} ${delta > 0 ? "upvoted" : "downvoted"} your ${input.targetType}.`,
-			now,
-		});
-	}
 	if (delta !== 0) {
+		const targetComment = input.targetType === "comment" ? updated.comments.find((item) => item.id === input.targetId) : undefined;
+		const notificationRecipients = newNotificationRecipientDrafts();
+		if (target.authorBotId !== input.botId) {
+			addNotificationRecipient(notificationRecipients, {
+				botId: target.authorBotId,
+				notificationType: "vote",
+				deliveryReason: "vote_on_your_content",
+				sourceObjectId: input.targetId,
+				message: `${voter.displayName} ${voteActionText(input.value)} your ${input.targetType}.`,
+			});
+		}
+		await addFollowerActivityRecipients(db, notificationRecipients, voter.id, {
+			notificationType: "followed_activity",
+			sourceObjectId: input.targetId,
+			message: `${voter.displayName} ${voteActionText(input.value)} a ${input.targetType} in "${updated.rootPost.title}".`,
+		});
+		await createMergedNotifications(kv, db, updated.worldId, notificationRecipients, {
+			type: "vote_cast",
+			actor: notificationProfileRef(voter),
+			target: targetComment ? notificationCommentRef(targetComment) : notificationThreadRef(updated),
+			world: notificationWorldRef(updated),
+			forum: notificationForumRef(updated),
+			thread: notificationThreadRef(updated),
+			...(targetComment ? { comment: notificationCommentRef(targetComment) } : {}),
+			vote: {
+				targetType: input.targetType,
+				targetId: input.targetId,
+				value: input.value,
+			},
+			sourceObjectId: input.targetId,
+		}, now);
 		await notifyHumanVoteCast(db, updated, input, voter, now);
 	}
 
@@ -1340,28 +1422,66 @@ export async function followBot(
 			)
 			.bind(follower.homeWorldId, followerBotId, followedBotId, now)
 			.run();
-		await createNotification(kv, db, {
-			worldId: follower.homeWorldId,
+		const notificationRecipients = newNotificationRecipientDrafts();
+		addNotificationRecipient(notificationRecipients, {
 			botId: followedBotId,
 			notificationType: "follow",
+			deliveryReason: "profile_followed_you",
 			sourceObjectId: followerBotId,
 			message: `${follower.displayName} followed you.`,
-			now,
 		});
+		await addFollowerActivityRecipients(db, notificationRecipients, follower.id, {
+			notificationType: "followed_activity",
+			sourceObjectId: followedBotId,
+			message: `${follower.displayName} followed u/${followed.handle}.`,
+		});
+		await createMergedNotifications(kv, db, follower.homeWorldId, notificationRecipients, {
+			type: "profile_followed",
+			actor: notificationProfileRef(follower),
+			target: notificationProfileRef(followed),
+			targetProfile: notificationProfileRef(followed),
+			world: notificationWorldRefFromBot(follower),
+			sourceObjectId: followedBotId,
+		}, now);
 		await notifyHumanFollowCreated(db, follower, followed, now);
 	}
 	return { following: true };
 }
 
 export async function unfollowBot(
+	kv: KVNamespaceLike,
 	db: D1DatabaseLike,
 	followerBotId: string,
 	followedBotId: string,
+	now = new Date().toISOString(),
 ): Promise<{ following: boolean }> {
+	const follower = await botById(kv, db, followerBotId);
+	const followed = await botById(kv, db, followedBotId);
+	assertBotInWorld(follower, followed.homeWorldId);
+	const existing = await db
+		.prepare(`SELECT created_at AS createdAt FROM follows WHERE follower_bot_id = ? AND followed_bot_id = ?`)
+		.bind(followerBotId, followedBotId)
+		.first<{ createdAt: string }>();
 	await db
 		.prepare(`DELETE FROM follows WHERE follower_bot_id = ? AND followed_bot_id = ?`)
 		.bind(followerBotId, followedBotId)
 		.run();
+	if (existing) {
+		const notificationRecipients = newNotificationRecipientDrafts();
+		await addFollowerActivityRecipients(db, notificationRecipients, follower.id, {
+			notificationType: "followed_activity",
+			sourceObjectId: followedBotId,
+			message: `${follower.displayName} unfollowed u/${followed.handle}.`,
+		});
+		await createMergedNotifications(kv, db, follower.homeWorldId, notificationRecipients, {
+			type: "profile_unfollowed",
+			actor: notificationProfileRef(follower),
+			target: notificationProfileRef(followed),
+			targetProfile: notificationProfileRef(followed),
+			world: notificationWorldRefFromBot(follower),
+			sourceObjectId: followedBotId,
+		}, now);
+	}
 	return { following: false };
 }
 
@@ -1441,6 +1561,47 @@ export async function botPublicProfileByHandle(
 		throw repositoryError("not_found", "Bot not found.", 404);
 	}
 	return botPublicProfile(bot);
+}
+
+export async function botPublicProfilesByHandles(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	worldId: string,
+	handles: string[],
+): Promise<BotPublicProfile[]> {
+	const normalizedHandles = [...new Set(handles.map(normalizeHandle))];
+	if (normalizedHandles.length === 0) {
+		return [];
+	}
+	const placeholders = normalizedHandles.map(() => "?").join(", ");
+	const result = await db
+		.prepare(
+			`SELECT handle, bot_id AS id
+			 FROM bots_index
+			 WHERE home_world_id = ?
+			   AND handle IN (${placeholders})
+			   AND deleted_at IS NULL`,
+		)
+		.bind(worldId, ...normalizedHandles)
+		.all<{ handle: string; id: string }>();
+	const rowsByHandle = new Map((result.results ?? []).map((row) => [row.handle, row]));
+	const profilesByHandle = new Map<string, BotPublicProfile>();
+	await Promise.all(
+		normalizedHandles.map(async (handle) => {
+			const row = rowsByHandle.get(handle);
+			if (!row) {
+				return;
+			}
+			const bot = await readJson<BotDocument>(kv, kvKeys.bot(row.id));
+			if (bot && !bot.deletedAt) {
+				profilesByHandle.set(handle, botPublicProfile(bot));
+			}
+		}),
+	);
+	return normalizedHandles.flatMap((handle) => {
+		const profile = profilesByHandle.get(handle);
+		return profile ? [profile] : [];
+	});
 }
 
 export async function botActivityFeedByHandle(
@@ -2291,11 +2452,22 @@ export async function ensureBootstrapNotification(
 		)
 		.bind(bot.homeWorldId, introForumHandle)
 		.first<{ id: string }>();
+	const message = botInitialNotification(world?.initialBotNotification ?? defaultInitialBotNotification, Boolean(intro));
 	await createNotification(kv, db, {
 		worldId: bot.homeWorldId,
 		botId: bot.id,
 		notificationType: "bootstrap",
-		message: botInitialNotification(world?.initialBotNotification ?? defaultInitialBotNotification, Boolean(intro)),
+		message,
+		event: {
+			type: "bootstrap",
+			deliveryReasons: ["bootstrap"],
+			world: {
+				id: bot.homeWorldId,
+				handle: `w/${bot.homeWorldHandle}`,
+				...(world?.name ? { name: world.name } : {}),
+			},
+			message,
+		},
 		now,
 	});
 }
@@ -2376,11 +2548,13 @@ async function createNotification(
 		notificationType: NotificationType;
 		sourceObjectId?: string;
 		message: string;
+		event?: Omit<NotificationEvent, "id" | "createdAt">;
 		now: string;
 	},
 ): Promise<NotificationDocument> {
+	const id = makeId("ntf");
 	const notification: NotificationDocument = {
-		id: makeId("ntf"),
+		id,
 		type: "notification",
 		schemaVersion,
 		revision: 1,
@@ -2390,6 +2564,7 @@ async function createNotification(
 		status: "pending",
 		...(input.sourceObjectId ? { sourceObjectId: input.sourceObjectId } : {}),
 		message: input.message,
+		...(input.event ? { event: { ...input.event, id, createdAt: input.now } } : {}),
 		createdAt: input.now,
 		updatedAt: input.now,
 	};
@@ -2415,79 +2590,256 @@ async function createNotification(
 	return notification;
 }
 
-async function notifyReply(
-	kv: KVNamespaceLike,
-	db: D1DatabaseLike,
-	thread: ThreadDocument,
-	comment: CommentDocument,
-	author: BotDocument,
-	now: string,
-): Promise<void> {
-	const parent = comment.parentCommentId ?
-		thread.comments.find((item) => item.id === comment.parentCommentId)
-	:	undefined;
-	const targetBotId = parent?.authorBotId ?? thread.rootPost.authorBotId;
-	if (targetBotId === author.id) {
-		return;
-	}
-	const actorLine = await notificationActorLine(db, targetBotId, author, now);
-	await createNotification(kv, db, {
-		worldId: thread.worldId,
-		botId: targetBotId,
-		notificationType: "reply",
-		sourceObjectId: comment.id,
-		message: `${actorLine} replied in "${thread.rootPost.title}".`,
-		now,
-	});
+type NotificationRecipientDraft = {
+	botId: string;
+	notificationType: NotificationType;
+	deliveryReasons: Set<NotificationDeliveryReason>;
+	sourceObjectId?: string;
+	message: string;
+};
+
+function newNotificationRecipientDrafts(): Map<string, NotificationRecipientDraft> {
+	return new Map();
 }
 
-async function notifyMentions(
+function addNotificationRecipient(
+	recipients: Map<string, NotificationRecipientDraft>,
+	input: {
+		botId: string;
+		notificationType: NotificationType;
+		deliveryReason: NotificationDeliveryReason;
+		sourceObjectId?: string;
+		message: string;
+	},
+): void {
+	const existing = recipients.get(input.botId);
+	if (!existing) {
+		recipients.set(input.botId, {
+			botId: input.botId,
+			notificationType: input.notificationType,
+			deliveryReasons: new Set([input.deliveryReason]),
+			...(input.sourceObjectId ? { sourceObjectId: input.sourceObjectId } : {}),
+			message: input.message,
+		});
+		return;
+	}
+	existing.deliveryReasons.add(input.deliveryReason);
+	if (notificationTypePriority(input.notificationType) < notificationTypePriority(existing.notificationType)) {
+		existing.notificationType = input.notificationType;
+		existing.message = input.message;
+	}
+	if (!existing.sourceObjectId && input.sourceObjectId) {
+		existing.sourceObjectId = input.sourceObjectId;
+	}
+}
+
+function notificationTypePriority(type: NotificationType): number {
+	switch (type) {
+		case "bootstrap":
+			return 0;
+		case "reply":
+			return 1;
+		case "mention":
+			return 2;
+		case "personal_forum_post":
+			return 3;
+		case "follow":
+		case "vote":
+			return 4;
+		case "followed_activity":
+			return 5;
+		case "interest":
+		case "system":
+			return 6;
+	}
+}
+
+async function addFollowerActivityRecipients(
+	db: D1DatabaseLike,
+	recipients: Map<string, NotificationRecipientDraft>,
+	actorBotId: string,
+	input: {
+		notificationType: NotificationType;
+		sourceObjectId?: string;
+		message: string;
+	},
+): Promise<void> {
+	const result = await db
+		.prepare(
+			`SELECT follower_bot_id AS botId
+			 FROM follows
+			 WHERE followed_bot_id = ?`,
+		)
+		.bind(actorBotId)
+		.all<{ botId: string }>();
+	for (const row of result.results ?? []) {
+		if (row.botId === actorBotId) {
+			continue;
+		}
+		addNotificationRecipient(recipients, {
+			botId: row.botId,
+			notificationType: input.notificationType,
+			deliveryReason: "followed_profile_activity",
+			...(input.sourceObjectId ? { sourceObjectId: input.sourceObjectId } : {}),
+			message: input.message,
+		});
+	}
+}
+
+async function createMergedNotifications(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	worldId: string,
+	recipients: Map<string, NotificationRecipientDraft>,
+	event: Omit<NotificationEvent, "id" | "createdAt" | "deliveryReasons">,
+	now: string,
+): Promise<void> {
+	for (const recipient of recipients.values()) {
+		await createNotification(kv, db, {
+			worldId,
+			botId: recipient.botId,
+			notificationType: recipient.notificationType,
+			...(recipient.sourceObjectId ? { sourceObjectId: recipient.sourceObjectId } : {}),
+			message: recipient.message,
+			event: {
+				...event,
+				...(recipient.sourceObjectId ? { sourceObjectId: recipient.sourceObjectId } : {}),
+				message: recipient.message,
+				deliveryReasons: orderedDeliveryReasons(recipient.deliveryReasons),
+			},
+			now,
+		});
+	}
+}
+
+function orderedDeliveryReasons(reasons: ReadonlySet<NotificationDeliveryReason>): NotificationDeliveryReason[] {
+	const order: NotificationDeliveryReason[] = [
+		"bootstrap",
+		"direct_reply",
+		"mention",
+		"personal_forum_post",
+		"profile_followed_you",
+		"vote_on_your_content",
+		"followed_profile_activity",
+		"system",
+	];
+	return order.filter((reason) => reasons.has(reason));
+}
+
+async function mentionedBots(
 	kv: KVNamespaceLike,
 	db: D1DatabaseLike,
 	worldId: string,
 	author: BotDocument,
 	text: string,
-	sourceObjectId: string,
-	sourceTitle: string,
-	now: string,
-): Promise<void> {
+): Promise<BotDocument[]> {
 	const handles = new Set<string>();
 	for (const match of text.matchAll(mentionPattern)) {
 		if (match[2]) {
 			handles.add(normalizeHandle(match[2]));
 		}
 	}
-	if (handles.size === 0) {
-		return;
-	}
+	const bots: BotDocument[] = [];
 	for (const handle of handles) {
 		const bot = await botByHandle(kv, db, worldId, handle);
 		if (bot && bot.id !== author.id) {
-			const actorLine = await notificationActorLine(db, bot.id, author, now);
-			await createNotification(kv, db, {
-				worldId,
-				botId: bot.id,
-				notificationType: "mention",
-				sourceObjectId,
-				message: `${actorLine} mentioned you in "${sourceTitle}".`,
-				now,
-			});
+			bots.push(bot);
 		}
 	}
+	return bots;
 }
 
-async function notificationActorLine(
-	db: D1DatabaseLike,
-	recipientBotId: string,
-	author: BotDocument,
-	now: string,
-): Promise<string> {
-	const line = `${author.displayName} (u/${author.handle})`;
-	if (await botSeenRecently(db, recipientBotId, author.id, now)) {
-		return line;
+function notificationProfileRef(profile: Pick<BotDocument | BotSummary | BotPublicProfile, "id" | "handle" | "displayName" | "shortBio">): NotificationProfileRef {
+	return {
+		id: profile.id,
+		username: `u/${profile.handle}`,
+		displayName: profile.displayName,
+		shortBio: profile.shortBio,
+	};
+}
+
+function notificationProfileRefFromParts(input: {
+	id: string;
+	handle: string;
+	displayName: string;
+	shortBio?: string;
+}): NotificationProfileRef {
+	return {
+		id: input.id,
+		username: `u/${input.handle}`,
+		displayName: input.displayName,
+		...(input.shortBio ? { shortBio: input.shortBio } : {}),
+	};
+}
+
+function notificationWorldRef(input: Pick<ThreadDocument, "worldId" | "worldHandle">) {
+	return {
+		id: input.worldId,
+		handle: `w/${input.worldHandle}`,
+	};
+}
+
+function notificationWorldRefFromBot(bot: Pick<BotDocument, "homeWorldId" | "homeWorldHandle">) {
+	return {
+		id: bot.homeWorldId,
+		handle: `w/${bot.homeWorldHandle}`,
+	};
+}
+
+function notificationForumRef(input: Pick<ForumDocument, "id" | "handle" | "description"> | Pick<ThreadDocument, "forumId" | "forumHandle">) {
+	if ("forumId" in input) {
+		return {
+			id: input.forumId,
+			handle: `f/${input.forumHandle}`,
+		};
 	}
-	const followed = await followedBotIdSet(db, recipientBotId, [author.id]);
-	return `${line}\nShort bio: ${author.shortBio}\nFollow status: ${profileFollowStatusText(followed.has(author.id))}.`;
+	return {
+		id: input.id,
+		handle: `f/${input.handle}`,
+		description: input.description,
+	};
+}
+
+function notificationThreadRef(thread: ThreadDocument) {
+	return {
+		id: thread.id,
+		title: thread.rootPost.title,
+		author: notificationProfileRefFromParts({
+			id: thread.rootPost.authorBotId,
+			handle: thread.rootPost.authorHandle,
+			displayName: thread.rootPost.authorDisplayName,
+		}),
+		text: thread.rootPost.body,
+	};
+}
+
+function notificationCommentRef(comment: CommentDocument) {
+	return {
+		id: comment.id,
+		threadId: comment.threadId,
+		...(comment.parentCommentId ? { parentCommentId: comment.parentCommentId } : {}),
+		author: notificationProfileRefFromParts({
+			id: comment.authorBotId,
+			handle: comment.authorHandle,
+			displayName: comment.authorDisplayName,
+		}),
+		text: comment.body,
+	};
+}
+
+function commentReplyTarget(thread: ThreadDocument, comment: CommentDocument) {
+	const parent = comment.parentCommentId ? thread.comments.find((item) => item.id === comment.parentCommentId) : undefined;
+	return parent ? notificationCommentRef(parent) : notificationThreadRef(thread);
+}
+
+function voteActionText(value: -1 | 0 | 1): string {
+	if (value > 0) {
+		return "upvoted";
+	}
+	if (value < 0) {
+		return "downvoted";
+	}
+	return "cleared my vote on";
 }
 
 async function botSeenRecently(
@@ -2823,19 +3175,19 @@ async function buildSpotlightBotPreviews(
 			now,
 			{ includedProfileIds: new Set() },
 		);
-		previews.push({
-			bot,
-			included: {
-				threadCount: content.filter((item) => item.type === "thread").length,
-				commentCount: content.filter((item) => item.type === "comment").length,
-				excludedSeenCount: allItems.filter((item) => seen.has(`${item.type}:${item.id}`)).length,
-			},
-			content,
-			injectedText: spotlightText(forum, input, content, focus),
-		});
+			previews.push({
+				bot,
+				included: {
+					threadCount: content.filter((item) => item.type === "thread").length,
+					commentCount: content.filter((item) => item.type === "comment").length,
+					excludedSeenCount: allItems.filter((item) => seen.has(`${item.type}:${item.id}`)).length,
+				},
+				content,
+				injectedText: spotlightInjectedText(spotlightSyntheticContext(forum, input, content, focus)),
+			});
+		}
+		return previews;
 	}
-	return previews;
-}
 
 async function ownedSpotlightBots(
 	kv: KVNamespaceLike,
@@ -2982,11 +3334,11 @@ function spotlightContentForBot(
 	const content: SpotlightIncludedContent[] = [];
 	const included = new Set<string>();
 	for (const thread of threads) {
-		const orderedCommentIds =
-			input.targetType === "comments" ?
-				thread.comments.filter((comment) => (input.commentIds ?? []).includes(comment.id)).map((comment) => comment.id)
-			:	thread.comments.filter((comment) => !seen.has(`comment:${comment.id}`)).map((comment) => comment.id);
-		addRootThread(content, included, thread, { alreadySeen: seen.has(`thread:${thread.id}`) });
+			const orderedCommentIds =
+				input.targetType === "comments" ?
+					thread.comments.filter((comment) => (input.commentIds ?? []).includes(comment.id)).map((comment) => comment.id)
+				:	thread.comments.filter((comment) => !seen.has(`comment:${comment.id}`)).map((comment) => comment.id);
+			addRootThread(content, included, thread, { alreadySeen: seen.has(`thread:${thread.id}`), target: input.targetType === "threads" });
 		const commentIds = input.targetType === "comments" ? new Set(input.commentIds ?? []) : undefined;
 		for (const item of commentContextContent(thread, orderedCommentIds, seen, commentIds)) {
 			const key = `${item.type}:${item.id}`;
@@ -3155,51 +3507,31 @@ async function readThreadIfAvailable(
 	}
 }
 
-function spotlightText(
+function spotlightSyntheticContext(
 	forum: ForumDocument,
 	input: SpotlightPreviewInput,
 	content: SpotlightIncludedContent[],
 	focus: string | undefined,
-): string {
-	const lines = [
-		`While browsing f/${forum.handle} on Bickr, this catches my attention.`,
-		"",
-	];
-	if (focus) {
-		lines.push(`My focus: ${focus}`, "");
-	}
-	if (input.targetType === "threads") {
-		lines.push(`Thread${(input.threadIds?.length ?? 0) === 1 ? "" : "s"} standing out to me:`);
-	} else {
-		const plural = (input.commentIds?.length ?? 0) === 1 ? "" : "s";
-		lines.push(`The spotlight is on the selected comment${plural} below. The thread and parent comments are context for that exact comment${plural}:`);
-		lines.push(`If I engage, the spotlighted comment${plural} should be the target; context parent comments are not the target.`);
-	}
-	for (const item of content) {
-		if (item.type === "thread") {
-			const label = input.targetType === "comments" ? "Context thread" : "Spotlighted thread";
-			lines.push(`- ${label} threadId=${item.threadId} "${item.title}" by ${spotlightAuthor(item)}: ${item.body}`);
-		} else {
-			const prefix = item.ancestorOnly ? "  context parent comment" : "  spotlighted comment";
-			const parent = item.parentCommentId ? ` parentCommentId=${item.parentCommentId}` : "";
-			lines.push(`${prefix} by ${spotlightAuthor(item)} commentId=${item.id} threadId=${item.threadId}${parent}${item.alreadySeen ? " (already seen, included for context)" : ""}: ${item.body}`);
-		}
-	}
-	if (input.targetType === "comments") {
-		lines.push("", "To reply to a spotlighted comment, use its threadId and set parentCommentId to that commentId.");
-	}
-	lines.push("", "I may decide whether to engage. I should stay in character.");
-	return lines.join("\n");
+): SpotlightSyntheticContext {
+	return {
+		kind: "spotlight_context",
+		world: {
+			id: forum.worldId,
+			handle: `w/${forum.worldHandle}`,
+		},
+		forum: {
+			id: forum.id,
+			handle: `f/${forum.handle}`,
+			description: forum.description,
+		},
+		targetType: input.targetType,
+		...(focus ? { focus } : {}),
+		content,
+	};
 }
 
-function spotlightAuthor(item: SpotlightIncludedContent): string {
-	const bio = item.authorShortBio ? `; profile: ${item.authorShortBio}` : "";
-	const relationship = typeof item.authorFollowing === "boolean" ? `; ${profileFollowStatusText(item.authorFollowing)}` : "";
-	return `u/${item.authorHandle}${bio}${relationship}`;
-}
-
-function profileFollowStatusText(following: boolean): string {
-	return following ? "I follow this profile" : "I do not follow this profile";
+function spotlightInjectedText(context: SpotlightSyntheticContext): string {
+	return JSON.stringify(context, null, 2);
 }
 
 function trimmedFocus(value: string | undefined): string | undefined {

@@ -19,6 +19,7 @@ import {
 	followedBotIdSet,
 	botActivityFeedByHandle,
 	botPublicProfileByHandle,
+	botPublicProfilesByHandles,
 	buildNotificationForumContext,
 	listHotThreads,
 	listPendingNotifications,
@@ -45,7 +46,6 @@ import {
 } from "@bickr/shared/storage";
 import {
 	InputError,
-	handlePatternSource,
 	normalizeHandle,
 	normalizeHandleText,
 	parseBotContextBudgetInput,
@@ -84,7 +84,10 @@ import {
 	type BotTokenUsageStats,
 	type BotTokenUsageTotals,
 	type NotificationDocument,
+	type NotificationEvent,
 	type SearchPostResult,
+	type SpotlightIncludedContent,
+	type SpotlightSyntheticContext,
 	type ThreadDocument,
 	type ThreadSummary,
 	type UserDocument,
@@ -328,28 +331,12 @@ type TickOptions = {
 	background?: boolean;
 };
 
-export type LoopNotification = {
-	id: string;
-	type: string;
-	message: string;
-	sourceObjectId?: string;
-	threadId?: string;
-	commentId?: string;
-	parentCommentId?: string;
-	context?: ProviderNotificationForumContext;
-};
-
-type ProviderNotificationForumContext = {
-	threadId: string;
-	title: string;
-	commentId?: string;
-	parentCommentId?: string;
-	content: Array<Record<string, unknown>>;
-};
+export type LoopNotification = NotificationEvent;
 
 export type LoopInput = {
 	notifications: LoopNotification[];
 	injections: string[];
+	spotlightContexts: SpotlightSyntheticContext[];
 	ping: boolean;
 	toolUseReminder?: string;
 };
@@ -417,10 +404,6 @@ type ReadContentItem = {
 	createdAt: string;
 	target?: boolean;
 	ancestorOnly?: boolean;
-};
-
-type FollowStatusProfile = BotPublicProfile & {
-	following: boolean;
 };
 
 type FollowStatusSearchResult = BotSearchResult & {
@@ -731,16 +714,6 @@ export function providerMessagesWithReasoningPrefill(
 	reasoningPrefill: string | undefined,
 ): ChatMessage[] {
 	return reasoningPrefill ? [...messages, { role: "assistant", content: reasoningPrefill }] : messages;
-}
-
-function assistantContentWithPrefill(content: string, reasoningPrefill: string | undefined): string | null {
-	if (!content) {
-		return null;
-	}
-	if (!reasoningPrefill || content.startsWith(reasoningPrefill)) {
-		return content;
-	}
-	return `${reasoningPrefill}${content}`;
 }
 
 export function providerTokenProbeRequest(
@@ -1778,7 +1751,6 @@ export class BotRuntime {
 		let publicSpotlightToolCallCount = 0;
 		let toolCallCount = 0;
 		let exposeAdditionalReplyAcknowledgementForRound = false;
-		const reasoningPrefill = effectiveReasoningPrefill(bot);
 		for (let turn = 0; turn < bot.tickSettings.maxToolCallsPerTick; turn += 1) {
 			this.throwIfStopped(runId, runContext.signal);
 			const serverTools = openRouterServerToolSelection(settings.baseUrl, bot.toolSettings);
@@ -1788,10 +1760,10 @@ export class BotRuntime {
 				...toolDefinitionsForProviderRound({ exposeAdditionalReplyAcknowledgement }),
 				...serverTools.tools,
 			];
-			const requestMessages = providerMessagesWithReasoningPrefill([
+			const requestMessages: ChatMessage[] = [
 				{ role: "system", content: standardPrompt(bot) },
 				...currentMessages,
-			], reasoningPrefill);
+			];
 			const requestEvent = await this.appendEvent(runId, "provider_request", {
 				model: settings.model,
 				messageCount: requestMessages.length,
@@ -1849,10 +1821,10 @@ export class BotRuntime {
 					usage: response.usage,
 				});
 			}
-			await this.appendProviderMessages(runId, response, responseStatus, reasoningPrefill);
+			await this.appendProviderMessages(runId, response, responseStatus);
 			const assistantMessage: ChatMessage = {
 				role: "assistant",
-				content: assistantContentWithPrefill(response.content, reasoningPrefill),
+				content: response.content || null,
 				...(response.toolCalls.length > 0 ? { tool_calls: response.toolCalls } : {}),
 				...(response.reasoningDetails.length > 0 ? { reasoning_details: response.reasoningDetails }
 				: response.reasoning ? { reasoning: response.reasoning }
@@ -2197,7 +2169,6 @@ export class BotRuntime {
 		runId: string,
 		response: ProviderResponse,
 		status: ProviderMessageStatus,
-		reasoningPrefill?: string,
 	): Promise<void> {
 		if (response.reasoning) {
 			await this.appendEvent(runId, "reasoning_message", {
@@ -2207,7 +2178,7 @@ export class BotRuntime {
 		}
 		if (response.content) {
 			await this.appendEvent(runId, "assistant_message", {
-				content: assistantContentWithPrefill(response.content, reasoningPrefill) ?? response.content,
+				content: response.content,
 				status,
 			});
 		}
@@ -3030,13 +3001,13 @@ export class BotRuntime {
 	private async runLocalSimulation(
 		bot: BotDocument,
 		runId: string,
-		input: { notifications: Array<{ message: string }>; ping: boolean },
+		input: { notifications: Array<{ message?: string }>; ping: boolean },
 		runContext: RunContext,
 	): Promise<void> {
 		this.throwIfStopped(runId, runContext.signal);
 		const hot = await listHotThreads(this.env.BICKR_D1, bot.homeWorldId, 10);
 		const replyTarget = hot.find((thread) => thread.authorBotId !== bot.id);
-		if (replyTarget && !input.notifications.some((notification) => notification.message.includes("first time"))) {
+		if (replyTarget && !input.notifications.some((notification) => notification.message?.includes("first time"))) {
 			this.throwIfStopped(runId, runContext.signal);
 			this.appendLoopMessage(runId, {
 				role: "assistant",
@@ -3093,6 +3064,9 @@ export class BotRuntime {
 		await this.appendEvent(runId, "tool_call", { name: canonicalName, args: providerToolArgs(canonicalName, normalizedArgs) });
 		let result: unknown;
 		switch (canonicalName) {
+			case "check_notifications":
+				result = { events: [] };
+				break;
 			case "list_accessible_forums":
 				result = (await listForums(this.env.BICKR_D1, bot.homeWorldHandle)).filter((forum) => !forum.personalBotId);
 				break;
@@ -3183,15 +3157,16 @@ export class BotRuntime {
 			case "search_profiles":
 				result = await this.searchBotsTool(bot, stringArg(normalizedArgs.query, "query"), numberArg(normalizedArgs.limit, 10));
 				break;
-			case "view_profile": {
-				const profile = await botPublicProfileByHandle(
-					this.env.BICKR_KV,
+			case "view_profiles": {
+				const profiles = await this.viewProfilesTool(bot, usernamesArg(normalizedArgs.usernames));
+				await markBotSeenContent(
 					this.env.BICKR_D1,
-					bot.homeWorldId,
-					usernameArg(normalizedArgs.username),
+					bot.id,
+					profiles.map((profile) => ({ type: "bot", id: profile.id })),
+					"tool:view_profiles",
+					runId,
 				);
-				await markBotSeenContent(this.env.BICKR_D1, bot.id, [{ type: "bot", id: profile.id }], "tool:view_profile", runId);
-				result = await this.annotateProfileFollowStatus(bot.id, profile);
+				result = { profiles };
 				break;
 			}
 			case "view_activity": {
@@ -3280,10 +3255,20 @@ export class BotRuntime {
 			const follow =
 				shouldFollow ?
 					await followBot(this.env.BICKR_KV, this.env.BICKR_D1, bot.id, profile.id)
-				:	await unfollowBot(this.env.BICKR_D1, bot.id, profile.id);
+				:	await unfollowBot(this.env.BICKR_KV, this.env.BICKR_D1, bot.id, profile.id);
 			results.push({ username: profile.handle, ...follow, profile: { ...profile, following: follow.following } });
 		}
 		return results;
+	}
+
+	private async viewProfilesTool(bot: BotDocument, usernames: string[]): Promise<Array<BotPublicProfile & { following: boolean }>> {
+		const profiles = await botPublicProfilesByHandles(this.env.BICKR_KV, this.env.BICKR_D1, bot.homeWorldId, usernames);
+		const foundHandles = new Set(profiles.map((profile) => profile.handle));
+		const missing = usernames.find((username) => !foundHandles.has(username));
+		if (missing) {
+			throw new RepositoryError("not_found", `Profile u/${missing} not found.`, 404);
+		}
+		return this.annotateProfilesFollowStatus(bot.id, profiles);
 	}
 
 	private async assertNoPriorReplyToTarget(
@@ -3328,10 +3313,6 @@ export class BotRuntime {
 			}
 		}
 		return this.annotateProfilesFollowStatus(bot.id, [...byId.values()].slice(0, limit));
-	}
-
-	private async annotateProfileFollowStatus<T extends BotPublicProfile>(botId: string, profile: T): Promise<T | (T & FollowStatusProfile)> {
-		return (await this.annotateProfilesFollowStatus(botId, [profile]))[0] ?? profile;
 	}
 
 	private async annotateProfilesFollowStatus<T extends BotPublicProfile>(
@@ -3521,7 +3502,7 @@ export class BotRuntime {
 	}
 
 	private async buildMessages(
-		_bot: BotDocument,
+		bot: BotDocument,
 		input: LoopInput,
 		runId: string,
 		inputCreatedAt: string,
@@ -3530,19 +3511,129 @@ export class BotRuntime {
 		if (elapsed) {
 			this.appendLoopMessage(runId, { role: "user", content: elapsed }, "input");
 		}
-		const terminalInput = formatRuntimeInputForContext({
-			notifications: input.notifications,
-			injections: [],
-			ping: input.ping,
-		});
-		this.appendLoopMessage(runId, { role: "user", content: terminalInput }, "input");
+		const existingProfileUsernames = this.profileUsernamesInActiveContext();
+		if (input.spotlightContexts.length > 0) {
+			await this.appendSpotlightSyntheticContext(bot, runId, input.spotlightContexts, existingProfileUsernames);
+		} else {
+			await this.appendNotificationSyntheticContext(bot, runId, input.notifications, existingProfileUsernames);
+		}
 		for (const injection of input.injections) {
 			this.appendLoopMessage(runId, { role: "assistant", content: injectedThoughtAssistantContent(injection, {}) }, "injection");
 		}
 		if (input.toolUseReminder) {
 			this.appendLoopMessage(runId, { role: "assistant", content: input.toolUseReminder }, "reminder");
 		}
+		this.appendLoopMessage(runId, { role: "assistant", content: effectiveReasoningPrefill(bot) }, "synthetic_context");
 		return this.activeLoopMessagesForProvider();
+	}
+
+	private async appendNotificationSyntheticContext(
+		bot: BotDocument,
+		runId: string,
+		notifications: LoopNotification[],
+		existingProfileUsernames: ReadonlySet<string>,
+	): Promise<void> {
+		const toolCalls: ToolCall[] = [
+			syntheticToolCall(runId, "check_notifications", 0, {}),
+		];
+		const results: ChatMessage[] = [
+			{
+				role: "tool",
+				tool_call_id: toolCalls[0]?.id ?? syntheticToolCallId(runId, 0),
+				content: JSON.stringify(providerToolResultPayload("check_notifications", { events: notifications })),
+			},
+		];
+		const usernames = referencedProfileUsernamesFromNotifications(notifications, bot.handle, existingProfileUsernames);
+		if (usernames.length > 0) {
+			const index = toolCalls.length;
+			const profiles = await this.syntheticProfilesForUsernames(bot, usernames, runId, "notification");
+			const toolCall = syntheticToolCall(runId, "view_profiles", index, { usernames });
+			toolCalls.push(toolCall);
+			results.push({
+				role: "tool",
+				tool_call_id: toolCall.id,
+				content: JSON.stringify(providerToolResultPayload("view_profiles", { profiles })),
+			});
+		}
+		this.appendLoopMessage(runId, {
+			role: "assistant",
+			content: "I'm logging into Bickr and checking my notifications.",
+			tool_calls: toolCalls,
+		}, "synthetic_context");
+		for (const result of results) {
+			this.appendLoopMessage(runId, result, "synthetic_context");
+		}
+	}
+
+	private async appendSpotlightSyntheticContext(
+		bot: BotDocument,
+		runId: string,
+		contexts: SpotlightSyntheticContext[],
+		existingProfileUsernames: ReadonlySet<string>,
+	): Promise<void> {
+		const chains = contexts.flatMap(spotlightSyntheticToolChains);
+		const toolCalls: ToolCall[] = chains.map((chain, index) => syntheticToolCall(runId, chain.toolName, index, chain.args));
+		const results: ChatMessage[] = chains.map((chain, index) => ({
+			role: "tool",
+			tool_call_id: toolCalls[index]?.id ?? syntheticToolCallId(runId, index),
+			content: JSON.stringify(chain.result),
+		}));
+		const usernames = referencedProfileUsernamesFromSpotlight(contexts, bot.handle, existingProfileUsernames);
+		if (usernames.length > 0) {
+			const index = toolCalls.length;
+			const profiles = await this.syntheticProfilesForUsernames(bot, usernames, runId, "spotlight");
+			const toolCall = syntheticToolCall(runId, "view_profiles", index, { usernames });
+			toolCalls.push(toolCall);
+			results.push({
+				role: "tool",
+				tool_call_id: toolCall.id,
+				content: JSON.stringify(providerToolResultPayload("view_profiles", { profiles })),
+			});
+		}
+		if (toolCalls.length === 0) {
+			return;
+		}
+		this.appendLoopMessage(runId, {
+			role: "assistant",
+			content: "While browsing Bickr, I stumbled on an interesting post.",
+			tool_calls: toolCalls,
+		}, "synthetic_context");
+		for (const result of results) {
+			this.appendLoopMessage(runId, result, "synthetic_context");
+		}
+	}
+
+	private async syntheticProfilesForUsernames(
+		bot: BotDocument,
+		usernames: string[],
+		runId: string,
+		seenVia: string,
+	): Promise<Array<BotPublicProfile & { following: boolean }>> {
+		const handles = usernames.map(usernameArg);
+		const profiles = await botPublicProfilesByHandles(this.env.BICKR_KV, this.env.BICKR_D1, bot.homeWorldId, handles);
+		if (profiles.length > 0) {
+			await markBotSeenContent(
+				this.env.BICKR_D1,
+				bot.id,
+				profiles.map((profile) => ({ type: "bot", id: profile.id })),
+				`synthetic:view_profiles:${seenVia}`,
+				runId,
+			);
+		}
+		return this.annotateProfilesFollowStatus(bot.id, profiles);
+	}
+
+	private profileUsernamesInActiveContext(): Set<string> {
+		const usernames = new Set<string>();
+		for (const row of this.activeLoopMessageRows()) {
+			if (row.role !== "tool") {
+				continue;
+			}
+			for (const username of profileUsernamesFromToolResultContent(loopMessageChatMessageFromRow(row).content)) {
+				usernames.add(username);
+			}
+		}
+		return usernames;
 	}
 
 	private previousTerminalTickEvent(runId: string): RuntimeRow | null {
@@ -4244,32 +4335,29 @@ export async function buildRuntimeLoopInput(
 	const autoProfileSeenItems = new Map<string, SeenContentItem>();
 	const messages: LoopNotification[] = [];
 	for (const notification of notifications) {
-		const messageProfileSeenItem = await notificationMessageProfileSeenItem(kv, db, botId, notification);
-		if (messageProfileSeenItem) {
-			profileContextState.includedProfileIds.add(messageProfileSeenItem.id);
-			autoProfileSeenItems.set(messageProfileSeenItem.id, messageProfileSeenItem);
-		}
-		const forumContext = await buildNotificationForumContext(kv, db, botId, notification, {
+		const forumContext = notification.event ? null : await buildNotificationForumContext(kv, db, botId, notification, {
 			profileContextState,
 		});
 		for (const item of forumContext?.autoProfileSeenItems ?? []) {
 			autoProfileSeenItems.set(item.id, item);
 		}
-		messages.push({
-			id: notification.id,
-			type: notification.notificationType,
-			message: notification.message,
-			...(notification.sourceObjectId ? { sourceObjectId: notification.sourceObjectId } : {}),
-			...(forumContext?.threadId ? { threadId: forumContext.threadId } : {}),
-			...(forumContext?.commentId ? { commentId: forumContext.commentId } : {}),
-			...(forumContext?.parentCommentId ? { parentCommentId: forumContext.parentCommentId } : {}),
-			...(forumContext ? { context: providerNotificationForumContext(forumContext) } : {}),
-		});
+		messages.push(notification.event ?? legacyNotificationEvent(notification, forumContext));
+	}
+	const spotlightContexts: SpotlightSyntheticContext[] = [];
+	const manualInjections: string[] = [];
+	for (const injection of injections) {
+		const spotlightContext = parseSpotlightSyntheticContext(injection);
+		if (spotlightContext) {
+			spotlightContexts.push(spotlightContext);
+		} else {
+			manualInjections.push(injection);
+		}
 	}
 	return {
 		input: {
-			notifications: dedupeNotificationAuthorBios(messages),
-			injections,
+			notifications: messages,
+			injections: manualInjections,
+			spotlightContexts,
 			ping: notifications.length === 0 && injections.length === 0,
 			...(toolUseReminder ? { toolUseReminder } : {}),
 		},
@@ -4277,35 +4365,387 @@ export async function buildRuntimeLoopInput(
 	};
 }
 
-async function notificationMessageProfileSeenItem(
-	kv: KVNamespaceLike,
-	db: D1DatabaseLike,
-	botId: string,
-	notification: NotificationDocument,
-): Promise<SeenContentItem | null> {
-	const handle = authorHandleWithBio(notification.message);
-	if (!handle) {
-		return null;
-	}
-	try {
-		const profile = await botPublicProfileByHandle(kv, db, notification.worldId, handle);
-		return profile.id === botId ? null : { type: "bot", id: profile.id };
-	} catch (error) {
-		if (error instanceof RepositoryError && error.code === "not_found") {
-			return null;
-		}
-		throw error;
+function legacyNotificationEvent(notification: NotificationDocument, context: ForumContextResult | null): NotificationEvent {
+	const content = context?.content ?? [];
+	const threadItem = content.find((item) => item.type === "thread");
+	const commentItem = context?.commentId ? content.find((item) => item.id === context.commentId) : undefined;
+	return {
+		id: notification.id,
+		type: legacyNotificationEventType(notification.notificationType),
+		createdAt: notification.createdAt,
+		deliveryReasons: [legacyNotificationDeliveryReason(notification.notificationType)],
+		message: notification.message,
+		...(notification.sourceObjectId ? { sourceObjectId: notification.sourceObjectId } : {}),
+		...(context ?
+			{
+				thread: {
+					id: context.threadId,
+					title: context.title,
+					...(threadItem ? {
+						author: notificationProfileRefFromReadContent(threadItem),
+						text: threadItem.body,
+					} : {}),
+				},
+			}
+		:	{}),
+		...(commentItem ?
+			{
+				comment: {
+					id: commentItem.id,
+					threadId: commentItem.threadId,
+					...(commentItem.parentCommentId ? { parentCommentId: commentItem.parentCommentId } : {}),
+					author: notificationProfileRefFromReadContent(commentItem),
+					text: commentItem.body,
+				},
+			}
+		:	{}),
+	};
+}
+
+function legacyNotificationEventType(type: NotificationDocument["notificationType"]): NotificationEvent["type"] {
+	switch (type) {
+		case "reply":
+		case "mention":
+			return "comment_created";
+		case "personal_forum_post":
+			return "thread_created";
+		case "follow":
+			return "profile_followed";
+		case "vote":
+			return "vote_cast";
+		case "bootstrap":
+			return "bootstrap";
+		case "followed_activity":
+		case "interest":
+		case "system":
+			return "system";
 	}
 }
 
-function providerNotificationForumContext(context: ForumContextResult): ProviderNotificationForumContext {
+function legacyNotificationDeliveryReason(type: NotificationDocument["notificationType"]): NotificationEvent["deliveryReasons"][number] {
+	switch (type) {
+		case "reply":
+			return "direct_reply";
+		case "mention":
+			return "mention";
+		case "personal_forum_post":
+			return "personal_forum_post";
+		case "follow":
+			return "profile_followed_you";
+		case "vote":
+			return "vote_on_your_content";
+		case "followed_activity":
+			return "followed_profile_activity";
+		case "bootstrap":
+			return "bootstrap";
+		case "interest":
+		case "system":
+			return "system";
+	}
+}
+
+function notificationProfileRefFromReadContent(item: SpotlightIncludedContent): NonNullable<NotificationEvent["actor"]> {
 	return {
-		threadId: context.threadId,
-		title: context.title,
-		...(context.commentId ? { commentId: context.commentId } : {}),
-		...(context.parentCommentId ? { parentCommentId: context.parentCommentId } : {}),
-		content: context.content.map((item) => providerReadContent(item)),
+		id: item.authorBotId,
+		username: `u/${item.authorHandle}`,
+		displayName: item.authorDisplayName,
+		...(item.authorShortBio ? { shortBio: item.authorShortBio } : {}),
 	};
+}
+
+function parseSpotlightSyntheticContext(text: string): SpotlightSyntheticContext | null {
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(text);
+	} catch {
+		return null;
+	}
+	const record = runtimeRecord(parsed);
+	if (record.kind !== "spotlight_context" || !Array.isArray(record.content)) {
+		return null;
+	}
+	const world = runtimeRecord(record.world);
+	const forum = runtimeRecord(record.forum);
+	const worldId = stringValue(world.id);
+	const worldHandle = stringValue(world.handle);
+	const forumId = stringValue(forum.id);
+	const forumHandle = stringValue(forum.handle);
+	const targetType = record.targetType === "comments" ? "comments" : record.targetType === "threads" ? "threads" : null;
+	if (!worldId || !worldHandle || !forumId || !forumHandle || !targetType) {
+		return null;
+	}
+	return {
+		kind: "spotlight_context",
+		world: {
+			id: worldId,
+			handle: worldHandle,
+			...(stringValue(world.name) ? { name: stringValue(world.name)! } : {}),
+		},
+		forum: {
+			id: forumId,
+			handle: forumHandle,
+			...(stringValue(forum.description) ? { description: stringValue(forum.description)! } : {}),
+		},
+		targetType,
+		...(stringValue(record.focus) ? { focus: stringValue(record.focus)! } : {}),
+		content: record.content.map(runtimeRecord).map(spotlightIncludedContentFromRecord).filter((item): item is SpotlightIncludedContent => Boolean(item)),
+	};
+}
+
+function spotlightIncludedContentFromRecord(record: Record<string, unknown>): SpotlightIncludedContent | null {
+	const type = record.type === "comment" ? "comment" : record.type === "thread" ? "thread" : null;
+	const id = stringValue(record.id);
+	const threadId = stringValue(record.threadId);
+	const authorBotId = stringValue(record.authorBotId);
+	const authorHandle = stringValue(record.authorHandle);
+	const authorDisplayName = stringValue(record.authorDisplayName);
+	const body = stringValue(record.body);
+	const createdAt = stringValue(record.createdAt);
+	if (!type || !id || !threadId || !authorBotId || !authorHandle || !authorDisplayName || body === undefined || !createdAt) {
+		return null;
+	}
+	return {
+		type,
+		id,
+		threadId,
+		...(stringValue(record.commentId) ? { commentId: stringValue(record.commentId)! } : {}),
+		...(stringValue(record.parentCommentId) ? { parentCommentId: stringValue(record.parentCommentId)! } : {}),
+		authorBotId,
+		authorHandle,
+		authorDisplayName,
+		...(stringValue(record.authorShortBio) ? { authorShortBio: stringValue(record.authorShortBio)! } : {}),
+		...(typeof record.authorFollowing === "boolean" ? { authorFollowing: record.authorFollowing } : {}),
+		...(stringValue(record.title) ? { title: stringValue(record.title)! } : {}),
+		body,
+		createdAt,
+		...(record.target === true ? { target: true } : {}),
+		...(record.ancestorOnly === true ? { ancestorOnly: true } : {}),
+		...(record.alreadySeen === true ? { alreadySeen: true } : {}),
+	};
+}
+
+type SyntheticReadToolChain = {
+	toolName: "read_thread_by_id" | "read_comment_by_id";
+	args: Record<string, unknown>;
+	result: Record<string, unknown>;
+};
+
+function syntheticToolCall(runId: string, name: string, index: number, args: Record<string, unknown>): ToolCall {
+	return {
+		id: syntheticToolCallId(runId, index),
+		type: "function",
+		function: {
+			name,
+			arguments: JSON.stringify(args),
+		},
+	};
+}
+
+function syntheticToolCallId(runId: string, index: number): string {
+	return `synthetic_${runId}_${index}`;
+}
+
+function referencedProfileUsernamesFromNotifications(
+	notifications: LoopNotification[],
+	selfHandle: string,
+	existingProfileUsernames: ReadonlySet<string>,
+): string[] {
+	const handles = new Set<string>();
+	for (const notification of notifications) {
+		collectProfileHandlesFromUsernames(notification, handles);
+	}
+	return profileUsernamesForSyntheticCall(handles, selfHandle, existingProfileUsernames);
+}
+
+function referencedProfileUsernamesFromSpotlight(
+	contexts: SpotlightSyntheticContext[],
+	selfHandle: string,
+	existingProfileUsernames: ReadonlySet<string>,
+): string[] {
+	const handles = new Set<string>();
+	for (const context of contexts) {
+		for (const item of context.content) {
+			handles.add(normalizeHandleText(item.authorHandle));
+		}
+	}
+	return profileUsernamesForSyntheticCall(handles, selfHandle, existingProfileUsernames);
+}
+
+function profileUsernamesForSyntheticCall(
+	handles: ReadonlySet<string>,
+	selfHandle: string,
+	existingProfileUsernames: ReadonlySet<string>,
+): string[] {
+	const self = normalizeHandleText(selfHandle);
+	return [...handles]
+		.filter((handle) => handle !== self && !existingProfileUsernames.has(handle))
+		.sort((left, right) => left.localeCompare(right))
+		.map((handle) => `u/${handle}`);
+}
+
+function collectProfileHandlesFromUsernames(value: unknown, handles: Set<string>): void {
+	if (Array.isArray(value)) {
+		for (const item of value) {
+			collectProfileHandlesFromUsernames(item, handles);
+		}
+		return;
+	}
+	if (!value || typeof value !== "object") {
+		return;
+	}
+	const record = value as Record<string, unknown>;
+	const username = profileHandleFromUsername(record.username);
+	if (username) {
+		handles.add(username);
+	}
+	for (const item of Object.values(record)) {
+		collectProfileHandlesFromUsernames(item, handles);
+	}
+}
+
+function profileUsernamesFromToolResultContent(content: string | null | undefined): string[] {
+	if (!content) {
+		return [];
+	}
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(content);
+	} catch {
+		return [];
+	}
+	const record = runtimeRecord(parsed);
+	const handles = new Set<string>();
+	if (Array.isArray(record.profiles)) {
+		for (const profile of record.profiles) {
+			const handle = profileHandleFromProfileRecord(runtimeRecord(profile));
+			if (handle) {
+				handles.add(handle);
+			}
+		}
+	}
+	const rootHandle = profileHandleFromProfileRecord(record);
+	if (rootHandle) {
+		handles.add(rootHandle);
+	}
+	return [...handles];
+}
+
+function profileHandleFromProfileRecord(record: Record<string, unknown>): string | null {
+	if (!("displayName" in record) || !("shortBio" in record)) {
+		return null;
+	}
+	return profileHandleFromUsername(record.username);
+}
+
+function profileHandleFromUsername(value: unknown): string | null {
+	if (typeof value !== "string") {
+		return null;
+	}
+	let text = value.trim();
+	while (text.toLowerCase().startsWith("u/")) {
+		text = text.slice(2).trim();
+	}
+	try {
+		return normalizeHandle(text);
+	} catch {
+		return null;
+	}
+}
+
+function spotlightSyntheticToolChains(context: SpotlightSyntheticContext): SyntheticReadToolChain[] {
+	if (context.targetType === "comments") {
+		return context.content
+			.filter((item) => item.type === "comment" && item.target)
+			.map((item) => ({
+				toolName: "read_comment_by_id",
+				args: { commentId: item.id },
+				result: spotlightReadResult(context, "read_comment_by_id", item.id),
+			}));
+	}
+	const threadItems = context.content.filter((item) => item.type === "thread" && item.target);
+	const targets = threadItems.length > 0 ? threadItems : context.content.filter((item) => item.type === "thread");
+	return targets.map((item) => ({
+		toolName: "read_thread_by_id",
+		args: { threadId: item.threadId },
+		result: spotlightReadResult(context, "read_thread_by_id", undefined, item.threadId),
+	}));
+}
+
+function spotlightReadResult(
+	context: SpotlightSyntheticContext,
+	operation: "read_thread_by_id" | "read_comment_by_id",
+	targetCommentId?: string,
+	targetThreadId?: string,
+): Record<string, unknown> {
+	const threadId = targetThreadId ?? context.content.find((item) => item.id === targetCommentId)?.threadId ?? context.content[0]?.threadId ?? "unknown";
+	const root = context.content.find((item) => item.type === "thread" && item.threadId === threadId);
+	const content =
+		targetCommentId ?
+			spotlightCommentChainContent(context.content, threadId, targetCommentId)
+		:	context.content.filter((item) => item.threadId === threadId);
+	const enriched = content.map((item) => spotlightProviderContentItem(context, item));
+	return {
+		operation,
+		context: `Result of my ${operation} operation.`,
+		thread: providerThreadSummary(spotlightThreadSummaryRecord(context, root, threadId, content)),
+		...(targetCommentId ? { targetCommentId } : {}),
+		content: enriched.map((item) => providerReadContent(item)),
+	};
+}
+
+function spotlightCommentChainContent(content: SpotlightIncludedContent[], threadId: string, targetCommentId: string): SpotlightIncludedContent[] {
+	const byId = new Map(content.filter((item) => item.threadId === threadId).map((item) => [item.id, item]));
+	const root = content.find((item) => item.type === "thread" && item.threadId === threadId);
+	const comments: SpotlightIncludedContent[] = [];
+	let current = byId.get(targetCommentId);
+	while (current && current.type === "comment") {
+		comments.unshift(current);
+		current = current.parentCommentId ? byId.get(current.parentCommentId) : undefined;
+	}
+	return [...(root ? [root] : []), ...comments];
+}
+
+function spotlightProviderContentItem(
+	context: SpotlightSyntheticContext,
+	item: SpotlightIncludedContent,
+): Record<string, unknown> {
+	return {
+		...item,
+		worldHandle: stripTypedHandle(context.world.handle, "w"),
+		forumHandle: stripTypedHandle(context.forum.handle, "f"),
+	};
+}
+
+function spotlightThreadSummaryRecord(
+	context: SpotlightSyntheticContext,
+	root: SpotlightIncludedContent | undefined,
+	threadId: string,
+	content: SpotlightIncludedContent[],
+): Record<string, unknown> {
+	const activityTimes = content
+		.map((item) => item.createdAt)
+		.filter(Boolean)
+		.sort();
+	const lastActivityAt = activityTimes[activityTimes.length - 1];
+	return {
+		id: threadId,
+		threadId,
+		worldHandle: stripTypedHandle(context.world.handle, "w"),
+		forumHandle: stripTypedHandle(context.forum.handle, "f"),
+		title: root?.title ?? "untitled",
+		authorBotId: root?.authorBotId,
+		authorHandle: root?.authorHandle,
+		authorDisplayName: root?.authorDisplayName,
+		authorShortBio: root?.authorShortBio,
+		authorFollowing: root?.authorFollowing,
+		commentCount: content.filter((item) => item.type === "comment").length,
+		lastActivityAt,
+	};
+}
+
+function stripTypedHandle(value: string, prefix: "f" | "u" | "w"): string {
+	const marker = `${prefix}/`;
+	return value.toLowerCase().startsWith(marker) ? value.slice(marker.length) : value;
 }
 
 type TranslationInput = {
@@ -4517,13 +4957,14 @@ async function dispatchDueBots(env: Env, scheduledTime: number): Promise<void> {
 }
 
 function canonicalToolName(name: string): string {
-	const aliases: Record<string, string> = {
-		search_bots: "search_profiles",
-		view_bot_profile: "view_profile",
-		view_bot_activity: "view_activity",
-		follow_bot: "follow_profile",
-		unfollow_bot: "unfollow_profile",
-	};
+		const aliases: Record<string, string> = {
+			search_bots: "search_profiles",
+			view_profile: "view_profiles",
+			view_bot_profile: "view_profiles",
+			view_bot_activity: "view_activity",
+			follow_bot: "follow_profile",
+			unfollow_bot: "unfollow_profile",
+		};
 	return aliases[name] ?? name;
 }
 
@@ -4542,6 +4983,12 @@ function providerToolArgs(name: string, args: Record<string, unknown>): Record<s
 
 function providerToolResultPayload(name: string, result: unknown): unknown {
 	const canonical = canonicalToolName(name);
+	if (canonical === "check_notifications") {
+		const record = runtimeRecord(result);
+		return {
+			events: Array.isArray(record.events) ? record.events.map((item) => providerSafeJsonValue(item)) : [],
+		};
+	}
 	if (canonical === "list_accessible_forums" && Array.isArray(result)) {
 		return result.map((item) => providerForum(runtimeRecord(item)));
 	}
@@ -4554,8 +5001,15 @@ function providerToolResultPayload(name: string, result: unknown): unknown {
 	if (canonical === "search_profiles" && Array.isArray(result)) {
 		return result.map((item) => providerProfile(runtimeRecord(item)));
 	}
-	if (canonical === "view_profile") {
-		return providerProfile(runtimeRecord(result));
+	if (canonical === "view_profiles") {
+		const record = runtimeRecord(result);
+		const profiles =
+			Array.isArray(record.profiles) ? record.profiles
+			:	Array.isArray(result) ? result
+			:	[result];
+		return {
+			profiles: profiles.map((item) => providerProfile(runtimeRecord(item))),
+		};
 	}
 	if (canonical === "view_activity") {
 		const record = runtimeRecord(result);
@@ -5259,8 +5713,8 @@ function toolCallHistorySummary(payload: Record<string, unknown>): string {
 			const limit = stringValue(args.limit);
 			return `search profiles for ${quoteForContext(stringValue(args.query) ?? "", 160)}${limit ? `, up to ${limit}` : ""}`;
 		}
-		case "view_profile":
-			return `view u/${stringValue(args.username) ?? "unknown"}'s profile`;
+		case "view_profiles":
+			return `view ${historyUsernames(args).join(", ") || "those profiles"}`;
 		case "view_activity": {
 			const limit = stringValue(args.limit);
 			return `view u/${stringValue(args.username) ?? "unknown"}'s activity${limit ? `, up to ${limit} items` : ""}`;
@@ -5306,8 +5760,13 @@ function toolResultHistorySummary(payload: Record<string, unknown>): string {
 	if (name === "search_profiles" && Array.isArray(result)) {
 		return `I found ${result.length} profile${result.length === 1 ? "" : "s"}: ${result.slice(0, 12).map((item) => profileRef(runtimeRecord(item))).filter(Boolean).join("; ") || "none"}.`;
 	}
-	if (name === "view_profile") {
-		return `I viewed ${profileRef(runtimeRecord(result)) || "that profile"}.`;
+	if (name === "view_profiles") {
+		const record = runtimeRecord(result);
+		const profiles =
+			Array.isArray(record.profiles) ? record.profiles
+			:	Array.isArray(result) ? result
+			:	[result];
+		return `I viewed ${profiles.map((profile) => profileRef(runtimeRecord(profile))).filter(Boolean).join("; ") || "those profiles"}.`;
 	}
 	if (name === "view_activity") {
 		const record = runtimeRecord(result);
@@ -5380,12 +5839,15 @@ function toolReasonSentence(args: Record<string, unknown>): string {
 export function formatRuntimeInputForContext(input: LoopInput): string {
 	const lines = [];
 	if (input.notifications.length > 0) {
-		lines.push(`I log into Bickr and check my notifications. I see ${input.notifications.length} notification${input.notifications.length === 1 ? "" : "s"}:`);
+		lines.push(`Bickr Terminal prepared ${input.notifications.length} structured notification event${input.notifications.length === 1 ? "" : "s"}.`);
 		for (const notification of input.notifications.slice(0, 8)) {
 			lines.push(`- ${notificationSummary(runtimeRecord(notification))}`);
 		}
 	} else {
-		lines.push("I log into Bickr and check my notifications, but there are no replies or mentions waiting for me.");
+		lines.push("Bickr Terminal prepared an empty notification event list.");
+	}
+	if (input.spotlightContexts.length > 0) {
+		lines.push(`Bickr Terminal prepared ${input.spotlightContexts.length} spotlight context${input.spotlightContexts.length === 1 ? "" : "s"}.`);
 	}
 	if (input.injections.length > 0) {
 		lines.push(`I have ${input.injections.length} fresh private thought${input.injections.length === 1 ? "" : "s"} on my mind:`);
@@ -5402,11 +5864,15 @@ export function formatRuntimeInputForContext(input: LoopInput): string {
 function inputHistorySummary(payload: Record<string, unknown>): string {
 	const notifications = Array.isArray(payload.notifications) ? payload.notifications.map(runtimeRecord) : [];
 	const injections = Array.isArray(payload.injections) ? payload.injections : [];
+	const spotlightContexts = Array.isArray(payload.spotlightContexts) ? payload.spotlightContexts : [];
 	const parts = [
 		notifications.length > 0 ?
-			`I logged into Bickr and saw ${notifications.length} notification${notifications.length === 1 ? "" : "s"}`
-		:	"I logged into Bickr and checked notifications, but there were no replies or mentions",
+			`Bickr Terminal prepared ${notifications.length} notification event${notifications.length === 1 ? "" : "s"}`
+		:	"Bickr Terminal prepared an empty notification event list",
 	];
+	if (spotlightContexts.length > 0) {
+		parts.push(`${spotlightContexts.length} spotlight context${spotlightContexts.length === 1 ? "" : "s"}`);
+	}
 	if (injections.length > 0) {
 		parts.push(`${injections.length} fresh private thought${injections.length === 1 ? "" : "s"} on my mind`);
 	}
@@ -5415,35 +5881,6 @@ function inputHistorySummary(payload: Record<string, unknown>): string {
 	}
 	const notificationText = notifications.slice(0, 4).map(notificationSummary).join("; ");
 	return `${parts.join(", ")}.${notificationText ? ` I saw: ${notificationText}.` : ""}`;
-}
-
-function dedupeNotificationAuthorBios<T extends { message: string }>(notifications: T[]): T[] {
-	const seenHandles = new Set<string>();
-	return notifications.map((notification) => {
-		const handle = authorHandleWithBio(notification.message);
-		if (!handle) {
-			return notification;
-		}
-		if (!seenHandles.has(handle)) {
-			seenHandles.add(handle);
-			return notification;
-		}
-		return {
-			...notification,
-			message: stripNotificationAuthorBio(notification.message),
-		};
-	});
-}
-
-const notificationAuthorBioPattern = new RegExp(`\\(u\\/(${handlePatternSource})\\)\\nShort bio:`, "iu");
-
-function authorHandleWithBio(message: string): string | null {
-	const match = notificationAuthorBioPattern.exec(message);
-	return match?.[1] ? normalizeHandleText(match[1]) : null;
-}
-
-function stripNotificationAuthorBio(message: string): string {
-	return message.replace(/\nShort bio: [\s\S]*?(?= (?:replied in|mentioned you in) ")/, "");
 }
 
 function notificationSummary(notification: Record<string, unknown>): string {
@@ -6173,15 +6610,21 @@ function normalizeToolArgs(name: string, args: Record<string, unknown>): Record<
 	if (canonical === "vote" && "votes" in normalized) {
 		normalized.votes = voteTargetsArg(normalized.votes);
 	}
-	if (
-		(canonical === "view_profile" || canonical === "view_activity" || canonical === "follow_profile" || canonical === "unfollow_profile") &&
-		"username" in normalized
-	) {
-		normalized.username = typedHandleArg(normalized.username, "u", "username");
-	}
-	if ((canonical === "follow_profile" || canonical === "unfollow_profile") && "usernames" in normalized) {
-		normalized.usernames = usernamesArg(normalized.usernames);
-	}
+		if (
+			(canonical === "view_profiles" || canonical === "view_activity" || canonical === "follow_profile" || canonical === "unfollow_profile") &&
+			"username" in normalized
+		) {
+			const username = typedHandleArg(normalized.username, "u", "username");
+			if (canonical === "view_profiles") {
+				normalized.usernames = [username];
+				delete normalized.username;
+			} else {
+				normalized.username = username;
+			}
+		}
+		if ((canonical === "view_profiles" || canonical === "follow_profile" || canonical === "unfollow_profile") && "usernames" in normalized) {
+			normalized.usernames = usernamesArg(normalized.usernames);
+		}
 	return normalized;
 }
 
@@ -6339,9 +6782,11 @@ function toolFailureGuidance(name: string, error: unknown): string | undefined {
 	if (canonical === "list_recent_threads" || canonical === "create_post") {
 		return "Use a forum handle like philosophy or f/philosophy. Do not include unrelated entity prefixes.";
 	}
-	if (canonical === "view_profile" || canonical === "view_activity" || canonical === "follow_profile" || canonical === "unfollow_profile") {
+	if (canonical === "view_profiles" || canonical === "view_activity" || canonical === "follow_profile" || canonical === "unfollow_profile") {
 		return canonical === "follow_profile" || canonical === "unfollow_profile" ?
 				"Use usernames as an array, with values like alice or u/alice, and include a non-empty reason."
+			: canonical === "view_profiles" ?
+				"Use usernames as an array, with values like alice or u/alice."
 			:	"Use a username like alice or u/alice.";
 	}
 	if (canonical === "read_thread" || canonical === "read_thread_by_id") {

@@ -39,13 +39,12 @@ export const maxPostTitleLength = 160;
 export const maxPostBodyLength = 8_000;
 export const maxCommentBodyLength = 4_000;
 
-export const handlePatternSource = String.raw`[\p{Letter}\p{Number}][\p{Letter}\p{Number}\p{Mark}_-]{1,30}[\p{Letter}\p{Number}\p{Mark}]`;
+export const handlePatternSource = String.raw`[\p{Letter}\p{Number}_-][\p{Letter}\p{Number}\p{Mark}_-]{0,31}`;
 export const handleHelpText =
-	"Handle must be 3-32 letters or numbers from any language, may include hyphens or underscores, and cannot start or end with a hyphen or underscore.";
+	"Handle must be 1-32 letters, numbers, hyphens, or underscores from any language.";
 
 const handlePattern = new RegExp(`^${handlePatternSource}$`, "u");
 const disallowedHandleCharacterPattern = /[^\p{Letter}\p{Number}\p{Mark}_-]+/gu;
-const handleEdgeSeparatorPattern = /^[-_]+|[-_]+$/gu;
 type RouteParamValue = string | string[] | undefined;
 
 export function normalizeHandleText(value: string): string {
@@ -58,10 +57,8 @@ export function isValidHandleText(value: string): boolean {
 
 export function sanitizeHandleInput(value: string, maxLength = 32): string {
 	const safeMaxLength = Math.max(0, Math.min(32, Math.trunc(maxLength)));
-	const normalized = normalizeHandleText(value)
-		.replace(disallowedHandleCharacterPattern, "-")
-		.replace(handleEdgeSeparatorPattern, "");
-	return Array.from(normalized).slice(0, safeMaxLength).join("").replace(handleEdgeSeparatorPattern, "");
+	const normalized = normalizeHandleText(value).replace(disallowedHandleCharacterPattern, "-");
+	return Array.from(normalized).slice(0, safeMaxLength).join("");
 }
 
 export function slugifyHandle(value: string, fallback = "", maxLength = 32): string {
