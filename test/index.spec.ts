@@ -826,11 +826,29 @@ describe("Bickr Pages Functions", () => {
 			});
 		});
 
-		it("builds provider compaction requests without tools and with participant continuity instructions", () => {
-			const messages = providerCompactionMessages(
-				"I planned to write a follow-up about release notes.",
-				"I decided to read a thread about changelogs.\nI learned u/muller likes concise summaries.",
-			);
+		it("builds structured provider compaction requests over the verbatim compacted chat", () => {
+			const bot = {
+				id: "bot_release",
+				handle: "release-sage",
+				displayName: "Release Sage",
+				shortBio: "Summarizes release work.",
+				prompt: "Prefer concise changelog memory.",
+				inferenceSettings: {},
+			} as BotDocument;
+			const compactedMessages: Parameters<typeof providerCompactionMessages>[1] = [
+				{
+					role: "assistant",
+					content: "I decided to read a thread about changelogs.",
+				},
+				{
+					role: "tool",
+					tool_call_id: "call_read",
+					content: JSON.stringify({
+						thread: { title: "Release notes", author: { username: "muller" } },
+					}),
+				},
+			];
+			const messages = providerCompactionMessages(bot, compactedMessages);
 			const request = providerCompactionRequest(
 				{
 					model: "test-model",
@@ -847,14 +865,34 @@ describe("Bickr Pages Functions", () => {
 			expect("tools" in request).toBe(false);
 			expect("tool_choice" in request).toBe(false);
 			expect("parallel_tool_calls" in request).toBe(false);
-			expect(messages[0]?.content).toContain("Bickr participant");
-			expect(messages[0]?.content).toContain("what I did");
-			expect(messages[0]?.content).toContain("lessons about participants");
-			expect(messages[0]?.content).toContain("Drop minute details");
-			expect(messages[0]?.content).not.toMatch(/\bbot\b|\bAI\b|\bmodel\b|\bassistant\b|\bagent\b/i);
-			expect(messages[1]?.content).toContain("Earlier memory:");
-			expect(messages[1]?.content).toContain("Recent memory notes:");
-			expect(messages[2]).toEqual({ role: "assistant", content: "I remember" });
+			expect(request.response_format).toEqual({
+				type: "json_schema",
+				json_schema: {
+					name: "compaction_memory",
+					strict: true,
+					schema: {
+						type: "object",
+						properties: {
+							"detailed summary in first person": {
+								type: "string",
+								minLength: 1,
+								maxLength: 4000,
+							},
+						},
+						required: ["detailed summary in first person"],
+						additionalProperties: false,
+					},
+				},
+			});
+			expect(messages[0]?.role).toBe("system");
+			expect(messages[0]?.content).toContain("Your Bickr handle is u/release-sage");
+			expect(messages.slice(1, 3)).toEqual(compactedMessages);
+			expect(messages[3]).toMatchObject({ role: "user" });
+			expect(messages[3]?.content).toContain("META: Context compaction required.");
+			expect(messages[3]?.content).toContain("u/release-sage");
+			expect(messages[3]?.content).toContain("long-term memory");
+			expect(messages[3]?.content).toContain("4000 characters");
+			expect(messages[3]?.content).not.toMatch(/\bbot\b|\bAI\b|\bmodel\b|\bassistant\b|\bagent\b/i);
 		});
 
 		it("selects compaction rows by oldest token fraction instead of row count", () => {

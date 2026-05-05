@@ -489,6 +489,25 @@ type ProviderCompactionRequest = {
 	model: string;
 	messages: ChatMessage[];
 	stream: false;
+	response_format: {
+		type: "json_schema";
+		json_schema: {
+			name: "compaction_memory";
+			strict: true;
+			schema: {
+				type: "object";
+				properties: {
+					"detailed summary in first person": {
+						type: "string";
+						minLength: 1;
+						maxLength: typeof providerCompactionSummaryMaxCharacters;
+					};
+				};
+				required: [typeof providerCompactionSummaryProperty];
+				additionalProperties: false;
+			};
+		};
+	};
 	max_completion_tokens: number;
 	reasoning: {
 		effort: "none";
@@ -623,6 +642,8 @@ const providerTranslationMaxCompletionTokens = 8_192;
 const providerCompactionMaxCompletionTokens = 4_096;
 const providerCompactionTemperature = 0.2;
 const compactionSummaryPrefill = "I remember";
+const providerCompactionSummaryProperty = "detailed summary in first person";
+const providerCompactionSummaryMaxCharacters = 4_000;
 const inferenceSubmissionRetentionCount = 50;
 const loopMessageLogRetentionCount = 50;
 const loopMessageLogChunkLength = 250_000;
@@ -670,35 +691,16 @@ export function providerChatCompletionRequest(
 	};
 }
 
-export function providerCompactionMessages(previousSummary: string, recentActivity: string): ChatMessage[] {
+export function providerCompactionMessages(bot: BotDocument, compactedMessages: ChatMessage[]): ChatMessage[] {
 	return [
 		{
 			role: "system",
-			content: [
-				"You preserve continuity for an autonomous Bickr participant.",
-				"Write one concise first-person memory summary for that same participant to use later.",
-				"Start naturally with I remember, and make the result read like my own memory, not a report about a task.",
-				"Retain durable facts: what I did, decisions I made, intentions, unresolved plans, promises, preferences, relationships, lessons about participants, profiles, forums, threads, and social context that should guide future behavior.",
-				"Drop minute details: raw identifiers, event numbers, raw control JSON, one-off counts, timestamps, thread/comment/post IDs, and transient errors unless needed for an active plan.",
-				"Do not mention this memory-maintenance work, the source notes, Bickr Terminal logs, or these instructions.",
-				"Use natural first-person notes. Be specific about people, topics, commitments, and next steps.",
-			].join("\n"),
+			content: standardPrompt(bot),
 		},
+		...compactedMessages,
 		{
 			role: "user",
-			content: [
-				"Bickr Terminal gathers older memory notes so I can continue naturally.",
-				"",
-				"Earlier memory:",
-				previousSummary.trim() || "(none)",
-				"",
-				"Recent memory notes:",
-				recentActivity.trim(),
-			].join("\n"),
-		},
-		{
-			role: "assistant",
-			content: compactionSummaryPrefill,
+			content: `META: Context compaction required. Reply with a detailed summary of everything important, from the first-person perspective of u/${bot.handle}, in the above chat log; your response will become the long-term memory of these events, replacing them in context henceforth. Squeeze the summary into at most ${providerCompactionSummaryMaxCharacters} characters.`,
 		},
 	];
 }
@@ -711,6 +713,25 @@ export function providerCompactionRequest(
 		model: settings.model,
 		messages,
 		stream: false,
+		response_format: {
+			type: "json_schema",
+			json_schema: {
+				name: "compaction_memory",
+				strict: true,
+				schema: {
+					type: "object",
+					properties: {
+						[providerCompactionSummaryProperty]: {
+							type: "string",
+							minLength: 1,
+							maxLength: providerCompactionSummaryMaxCharacters,
+						},
+					},
+					required: [providerCompactionSummaryProperty],
+					additionalProperties: false,
+				},
+			},
+		},
 		max_completion_tokens: providerCompactionMaxCompletionTokens,
 		reasoning: {
 			effort: "none",
@@ -2066,10 +2087,10 @@ export class BotRuntime {
 				await sleep(delayMs, signal);
 			}
 
-				try {
-					const response = await this.fetchProviderCompactionResponse(settings, endpoint, body, signal);
-					return { ...response, requestBody: body };
-				} catch (error) {
+			try {
+				const response = await this.fetchProviderCompactionResponse(settings, endpoint, body, signal);
+				return { ...response, requestBody: body };
+			} catch (error) {
 				if (error instanceof TickStoppedError || isAbortError(error)) {
 					throw error;
 				}
@@ -3019,7 +3040,7 @@ export class BotRuntime {
 				};
 			}>;
 		};
-		const content = stringValue(payload.choices?.[0]?.message?.content)?.trim();
+		const content = providerCompactionSummaryFromResponseContent(payload.choices?.[0]?.message?.content);
 		if (!content) {
 			throw new ProviderRequestError(502, settings.model, endpoint, "Provider returned an empty compaction response.");
 		}
@@ -3950,7 +3971,8 @@ export class BotRuntime {
 		const recentActivity = compacted
 			.map((message) => truncateForContext(loopMessageContextLine(message), 1_200))
 			.join("\n");
-		const compactionMessages = providerCompactionMessages("", recentActivity);
+		const compactedMessages = compacted.map((row) => loopMessageChatMessageFromRow(row));
+		const compactionMessages = providerCompactionMessages(bot, compactedMessages);
 		const providerActive = Boolean(settings.apiKey || settings.usesCustomBaseUrl || this.env.BICKR_SIMULATION_MODE === "provider");
 		const compactionEventPayload = {
 			fromSeq: compacted[0]?.seq,
@@ -5192,6 +5214,21 @@ function providerToolArgs(name: string, args: Record<string, unknown>): Record<s
 		normalized.profileId = publicProfileId(stringValue(normalized.profileId));
 	}
 	return normalized;
+}
+
+function providerCompactionSummaryFromResponseContent(content: unknown): string | null {
+	const text = stringValue(content);
+	if (!text) {
+		return null;
+	}
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(text);
+	} catch {
+		return null;
+	}
+	const summary = stringValue(runtimeRecord(parsed)[providerCompactionSummaryProperty]);
+	return summary ? summary.slice(0, providerCompactionSummaryMaxCharacters) : null;
 }
 
 function providerToolResultPayload(name: string, result: unknown, args: Record<string, unknown> = {}): unknown {
