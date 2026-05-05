@@ -540,6 +540,7 @@ describe("Bickr Pages Functions", () => {
 		const secondProfile = await createBotForTest(cookie, "bulk-target-two");
 		const thread = await createThreadForTest(forum.id, author.id, "Bulk vote target", "Root body.");
 		const comment = await createCommentForTest(thread.id, author.id, "Comment body.");
+		const childComment = await createCommentForTest(thread.id, author.id, "Child comment body.", comment.id);
 
 		const runtime = testRuntimeForToolExecution();
 		const executeTool = (BotRuntime.prototype as unknown as {
@@ -582,9 +583,53 @@ describe("Bickr Pages Functions", () => {
 		expect(Array.isArray(voteResult.result)).toBe(true);
 		expect(Array.isArray(voteResult.providerResult)).toBe(true);
 		expect(voteResult.providerResult).toHaveLength(2);
+		const votedThread = (voteResult.providerResult as Array<{ thread?: { comments?: Array<Record<string, unknown>> } }>)[0]?.thread;
+		expect(votedThread?.comments).toMatchObject([
+			{
+				commentId: comment.id,
+				body: "Comment body.",
+				replies: [{ commentId: childComment.id, body: "Child comment body." }],
+			},
+		]);
 		const updatedThread = await readThread(testEnv.BICKR_KV, thread.id);
 		expect(updatedThread.rootPost.voteScore).toBe(1);
 		expect(updatedThread.comments.find((item) => item.id === comment.id)?.voteScore).toBe(-1);
+
+		const readThreadResult = await executeTool(
+			bot,
+			"run-read-thread-tree",
+			"read_thread_by_id",
+			{ threadId: thread.id },
+			{ mode: "normal", signal },
+		);
+		const readThreadContent = (readThreadResult.providerResult as { content: Array<Record<string, unknown>> }).content;
+		expect(readThreadContent.filter((item) => item.type === "comment").map((item) => item.commentId)).toEqual([comment.id]);
+		expect(readThreadContent).toMatchObject([
+			{ type: "thread", id: thread.id, body: "Root body." },
+			{
+				type: "comment",
+				commentId: comment.id,
+				body: "Comment body.",
+				replies: [{ commentId: childComment.id, body: "Child comment body." }],
+			},
+		]);
+
+		const readCommentResult = await executeTool(
+			bot,
+			"run-read-comment-tree",
+			"read_comment_by_id",
+			{ commentId: childComment.id },
+			{ mode: "normal", signal },
+		);
+		expect((readCommentResult.providerResult as { content: Array<Record<string, unknown>> }).content).toMatchObject([
+			{ type: "thread", id: thread.id, body: "Root body." },
+			{
+				type: "comment",
+				commentId: comment.id,
+				ancestorOnly: true,
+				replies: [{ commentId: childComment.id, target: true }],
+			},
+		]);
 
 		const profilesResult = await executeTool(
 			bot,
@@ -1512,14 +1557,27 @@ describe("Bickr Pages Functions", () => {
 					},
 					{
 						type: "comment",
-						id: "cmt_spotlight",
-						commentId: "cmt_spotlight",
+						id: "cmt_spotlight_parent",
+						commentId: "cmt_spotlight_parent",
 						threadId: "thr_spotlight_comment",
 						authorBotId: authorProfile.id,
 						authorHandle: authorProfile.handle,
 						authorDisplayName: authorProfile.displayName,
-						body: "Target comment.",
+						body: "Parent context.",
 						createdAt: "2026-05-01T00:01:00.000Z",
+						ancestorOnly: true,
+					},
+					{
+						type: "comment",
+						id: "cmt_spotlight",
+						commentId: "cmt_spotlight",
+						threadId: "thr_spotlight_comment",
+						parentCommentId: "cmt_spotlight_parent",
+						authorBotId: authorProfile.id,
+						authorHandle: authorProfile.handle,
+						authorDisplayName: authorProfile.displayName,
+						body: "Target comment.",
+						createdAt: "2026-05-01T00:01:30.000Z",
 						target: true,
 					},
 				],
@@ -1588,7 +1646,13 @@ describe("Bickr Pages Functions", () => {
 			targetCommentId: "cmt_spotlight",
 			content: [
 				{ type: "thread", id: "thr_spotlight_comment", body: "Root context." },
-				{ type: "comment", id: "cmt_spotlight", body: "Target comment.", target: true },
+				{
+					type: "comment",
+					id: "cmt_spotlight_parent",
+					body: "Parent context.",
+					ancestorOnly: true,
+					replies: [{ id: "cmt_spotlight", body: "Target comment.", target: true }],
+				},
 			],
 		});
 		expect(toolResults.find((result) => result.operation === "read_thread_by_id")).toMatchObject({

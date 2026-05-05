@@ -8607,53 +8607,158 @@ function ReadableContentChain({
 	const fallbackWorld = fallbackThread ? worldHandleFromRecord(fallbackThread) : undefined;
 	const fallbackForum = fallbackThread ? forumHandleFromRecord(fallbackThread) : undefined;
 	const fallbackThreadId = fallbackThread ? stringValue(fallbackThread.threadId ?? fallbackThread.id) : undefined;
+	const items = readableContentTree(content);
 	return (
 		<div className="readable-chain">
-			{content.map((itemValue, index) => {
-				const item = recordValue(itemValue);
-				const type = stringValue(item.type) === "comment" || stringValue(item.commentId) ? "comment" : "thread";
-				const worldHandle = worldHandleFromRecord(item) ?? fallbackWorld;
-				const forumHandle = forumHandleFromRecord(item) ?? fallbackForum;
-				const threadId = stringValue(item.threadId) ?? fallbackThreadId;
-				const commentId = stringValue(item.commentId ?? (type === "comment" ? item.id : undefined));
-				const title = stringValue(item.title);
-				const body = textValueForDisplay(item.body);
-				const author = recordValue(item.author);
-				const authorProfile = profileHasHandle(author) ? author : item;
-				return (
-					<div className={`readable-chain-item kind-${type}`} key={`${stringValue(item.id) ?? type}-${index}`}>
-						<div className="readable-chain-head">
-							<span className="readable-badge">{type === "thread" ? "thread" : "reply"}</span>
-							{item.target === true && <span className="readable-badge strong">selected</span>}
-							{item.ancestorOnly === true && <span className="readable-badge">context</span>}
-							{profileHasHandle(authorProfile) && <ProfileReference profile={authorProfile} worldHandle={worldHandle} />}
-							{type === "thread" && (
-								<ThreadReference
-									forumHandle={forumHandle}
-									label={title ?? "thread"}
-									threadId={threadId}
-									title={title}
-									worldHandle={worldHandle}
-								/>
-							)}
-						</div>
-						{type === "comment" && (
-							<div className="readable-event-meta">
-								<ThreadReference
-									commentId={commentId}
-									forumHandle={forumHandle}
-									label="reply"
-									threadId={threadId}
-									worldHandle={worldHandle}
-								/>
-							</div>
-						)}
-						{body && <ReadableQuote text={body} />}
-					</div>
-				);
-			})}
+			{items.map((itemValue, index) => (
+				<ReadableContentItem
+					depth={0}
+					fallbackForum={fallbackForum}
+					fallbackThreadId={fallbackThreadId}
+					fallbackWorld={fallbackWorld}
+					item={itemValue}
+					key={`${stringValue(itemValue.id) ?? stringValue(itemValue.commentId) ?? "item"}-${index}`}
+				/>
+			))}
 		</div>
 	);
+}
+
+function ReadableContentItem({
+	depth,
+	fallbackForum,
+	fallbackThreadId,
+	fallbackWorld,
+	item,
+}: {
+	depth: number;
+	fallbackForum?: string;
+	fallbackThreadId?: string;
+	fallbackWorld?: string;
+	item: JsonRecord;
+}) {
+	const type = readableContentType(item);
+	const worldHandle = worldHandleFromRecord(item) ?? fallbackWorld;
+	const forumHandle = forumHandleFromRecord(item) ?? fallbackForum;
+	const threadId = stringValue(item.threadId) ?? fallbackThreadId;
+	const commentId = stringValue(item.commentId ?? (type === "comment" ? item.id : undefined));
+	const title = stringValue(item.title);
+	const body = textValueForDisplay(item.body);
+	const author = recordValue(item.author);
+	const authorProfile = profileHasHandle(author) ? author : item;
+	const replies = readableContentTree(arrayValue(item.replies)).filter(isReadableCommentItem);
+	const className = [
+		"readable-chain-item",
+		`kind-${type}`,
+		`depth-${Math.min(depth, 3)}`,
+		item.target === true ? "is-target" : "",
+		item.ancestorOnly === true ? "is-context" : "",
+	].filter(Boolean).join(" ");
+	return (
+		<div className="readable-chain-branch">
+			<div className={className}>
+				<div className="readable-chain-head">
+					{type === "thread" ?
+						<span className="readable-badge">thread</span>
+					:	<ThreadReference
+							commentId={commentId}
+							forumHandle={forumHandle}
+							label="Comment"
+							threadId={threadId}
+							worldHandle={worldHandle}
+						/>
+					}
+					{item.ancestorOnly === true && <span className="readable-badge">context</span>}
+					{type === "comment" && <span className="readable-muted">by</span>}
+					{profileHasHandle(authorProfile) && <ProfileReference profile={authorProfile} worldHandle={worldHandle} />}
+					{type === "thread" && (
+						<ThreadReference
+							forumHandle={forumHandle}
+							label={title ?? "thread"}
+							threadId={threadId}
+							title={title}
+							worldHandle={worldHandle}
+						/>
+					)}
+				</div>
+				{body && <ReadableQuote text={body} />}
+			</div>
+			{replies.length > 0 && (
+				<div className="readable-chain-replies">
+					{replies.map((reply, index) => (
+						<ReadableContentItem
+							depth={depth + 1}
+							fallbackForum={forumHandle}
+							fallbackThreadId={threadId}
+							fallbackWorld={worldHandle}
+							item={reply}
+							key={`${stringValue(reply.id) ?? stringValue(reply.commentId) ?? "reply"}-${index}`}
+						/>
+					))}
+				</div>
+			)}
+		</div>
+	);
+}
+
+function readableContentTree(content: unknown[]): JsonRecord[] {
+	const roots: JsonRecord[] = [];
+	const comments: JsonRecord[] = [];
+	for (const itemValue of content) {
+		const item = recordValue(itemValue);
+		if (isReadableCommentItem(item)) {
+			comments.push({
+				...item,
+				replies: readableContentTree(arrayValue(item.replies)).filter(isReadableCommentItem),
+			});
+		} else if (Object.keys(item).length > 0) {
+			roots.push(item);
+		}
+	}
+	return [...roots, ...readableNestedCommentList(comments)];
+}
+
+function readableNestedCommentList(comments: JsonRecord[]): JsonRecord[] {
+	const byId = new Map<string, JsonRecord>();
+	const ordered = comments.map((comment) => {
+		const node: JsonRecord = {
+			...comment,
+			replies: readableNestedCommentList(arrayValue(comment.replies).map(recordValue).filter(isReadableCommentItem)),
+		};
+		const id = readableCommentId(node);
+		if (id) {
+			byId.set(id, node);
+		}
+		return node;
+	});
+	const roots: JsonRecord[] = [];
+	for (const node of ordered) {
+		const parentId = stringValue(node.parentCommentId);
+		const parent = parentId ? byId.get(parentId) : undefined;
+		if (parent && parent !== node) {
+			const replies = arrayValue(parent.replies).map(recordValue);
+			const nodeId = readableCommentId(node);
+			if (!nodeId || !replies.some((reply) => readableCommentId(reply) === nodeId)) {
+				replies.push(node);
+			}
+			parent.replies = replies;
+		} else {
+			roots.push(node);
+		}
+	}
+	return roots;
+}
+
+function readableContentType(item: JsonRecord): "thread" | "comment" {
+	return isReadableCommentItem(item) ? "comment" : "thread";
+}
+
+function isReadableCommentItem(item: JsonRecord): boolean {
+	return stringValue(item.type) === "comment" || Boolean(stringValue(item.commentId));
+}
+
+function readableCommentId(item: JsonRecord): string | undefined {
+	return stringValue(item.commentId) ?? stringValue(item.id);
 }
 
 function ReadableQuote({ label, text }: { label?: string; text: string }) {

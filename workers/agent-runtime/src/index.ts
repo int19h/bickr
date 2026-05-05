@@ -4886,7 +4886,7 @@ function spotlightReadResult(
 		context: `Result of my ${operation} operation.`,
 		thread: providerThreadSummary(spotlightThreadSummaryRecord(context, root, threadId, content)),
 		...(targetCommentId ? { targetCommentId } : {}),
-		content: enriched.map((item) => providerReadContent(item)),
+		content: providerReadContentTree(enriched),
 	};
 }
 
@@ -5318,7 +5318,7 @@ function providerAuthor(record: Record<string, unknown>): Record<string, unknown
 }
 
 function providerReadResult(record: Record<string, unknown>): Record<string, unknown> {
-	const content = Array.isArray(record.content) ? record.content.map((item) => providerReadContent(runtimeRecord(item))) : [];
+	const content = Array.isArray(record.content) ? providerReadContentTree(record.content.map(runtimeRecord)) : [];
 	return {
 		operation: stringValue(record.operation) ?? "read",
 		context: stringValue(record.context) ?? "Result of my read operation.",
@@ -5328,9 +5328,24 @@ function providerReadResult(record: Record<string, unknown>): Record<string, unk
 	};
 }
 
+function providerReadContentTree(records: Record<string, unknown>[]): Record<string, unknown>[] {
+	const roots: Record<string, unknown>[] = [];
+	const comments: Record<string, unknown>[] = [];
+	for (const record of records) {
+		const item = providerReadContent(record);
+		if (isProviderComment(item)) {
+			comments.push(item);
+		} else {
+			roots.push(item);
+		}
+	}
+	return [...roots, ...providerNestedCommentList(comments)];
+}
+
 function providerReadContent(record: Record<string, unknown>): Record<string, unknown> {
-	return {
-		type: stringValue(record.type) ?? "item",
+	const type = stringValue(record.type) ?? (stringValue(record.commentId) ? "comment" : "item");
+	const item = {
+		type,
 		id: stringValue(record.id),
 		threadId: stringValue(record.threadId),
 		...(stringValue(record.commentId) ? { commentId: stringValue(record.commentId) } : {}),
@@ -5344,6 +5359,13 @@ function providerReadContent(record: Record<string, unknown>): Record<string, un
 		...(record.target ? { target: true } : {}),
 		...(record.ancestorOnly ? { ancestorOnly: true } : {}),
 	};
+	if (type !== "comment") {
+		return item;
+	}
+	return {
+		...item,
+		replies: Array.isArray(record.replies) ? providerReadContentTree(record.replies.map(runtimeRecord)).filter(isProviderComment) : [],
+	};
 }
 
 function providerThreadDocument(record: Record<string, unknown>): Record<string, unknown> {
@@ -5351,7 +5373,7 @@ function providerThreadDocument(record: Record<string, unknown>): Record<string,
 		return providerSafeJsonValue(record) as Record<string, unknown>;
 	}
 	const rootPost = runtimeRecord(record.rootPost);
-	const comments = Array.isArray(record.comments) ? record.comments.map((item) => providerThreadComment(record, runtimeRecord(item))) : [];
+	const comments = Array.isArray(record.comments) ? providerThreadCommentTree(record, record.comments.map(runtimeRecord)) : [];
 	return {
 		id: stringValue(record.id),
 		threadId: stringValue(record.id),
@@ -5373,6 +5395,10 @@ function providerThreadDocument(record: Record<string, unknown>): Record<string,
 	};
 }
 
+function providerThreadCommentTree(thread: Record<string, unknown>, comments: Record<string, unknown>[]): Record<string, unknown>[] {
+	return providerNestedCommentList(comments.map((comment) => providerThreadComment(thread, comment)));
+}
+
 function providerThreadComment(thread: Record<string, unknown>, comment: Record<string, unknown>): Record<string, unknown> {
 	return {
 		type: "comment",
@@ -5384,7 +5410,55 @@ function providerThreadComment(thread: Record<string, unknown>, comment: Record<
 		body: stringValue(comment.body) ?? "",
 		voteScore: numberValue(comment.voteScore),
 		createdAt: stringValue(comment.createdAt),
+		replies: Array.isArray(comment.replies) ? providerThreadCommentTree(thread, comment.replies.map(runtimeRecord)) : [],
 	};
+}
+
+function providerNestedCommentList(comments: Record<string, unknown>[]): Record<string, unknown>[] {
+	const byId = new Map<string, Record<string, unknown>>();
+	const ordered = comments.map((comment) => {
+		const node: Record<string, unknown> = {
+			...comment,
+			replies: providerNestedCommentList(providerCommentReplies(comment)),
+		};
+		const id = providerCommentId(node);
+		if (id) {
+			byId.set(id, node);
+		}
+		return node;
+	});
+	const roots: Record<string, unknown>[] = [];
+	for (const node of ordered) {
+		const parentId = stringValue(node.parentCommentId);
+		const parent = parentId ? byId.get(parentId) : undefined;
+		if (parent && parent !== node) {
+			pushProviderReply(parent, node);
+		} else {
+			roots.push(node);
+		}
+	}
+	return roots;
+}
+
+function providerCommentReplies(comment: Record<string, unknown>): Record<string, unknown>[] {
+	return Array.isArray(comment.replies) ? comment.replies.map(runtimeRecord) : [];
+}
+
+function pushProviderReply(parent: Record<string, unknown>, reply: Record<string, unknown>): void {
+	const replies = providerCommentReplies(parent);
+	const replyId = providerCommentId(reply);
+	if (!replyId || !replies.some((existing) => providerCommentId(existing) === replyId)) {
+		replies.push(reply);
+	}
+	parent.replies = replies;
+}
+
+function isProviderComment(record: Record<string, unknown>): boolean {
+	return stringValue(record.type) === "comment" || Boolean(stringValue(record.commentId));
+}
+
+function providerCommentId(record: Record<string, unknown>): string | undefined {
+	return stringValue(record.commentId) ?? stringValue(record.id);
 }
 
 function providerActivity(record: Record<string, unknown>): Record<string, unknown> {
