@@ -8621,7 +8621,7 @@ function ReadableContentChain({
 				const author = recordValue(item.author);
 				const authorProfile = profileHasHandle(author) ? author : item;
 				return (
-					<div className={`readable-chain-item ${type}`} key={`${stringValue(item.id) ?? type}-${index}`}>
+					<div className={`readable-chain-item kind-${type}`} key={`${stringValue(item.id) ?? type}-${index}`}>
 						<div className="readable-chain-head">
 							<span className="readable-badge">{type === "thread" ? "thread" : "reply"}</span>
 							{item.target === true && <span className="readable-badge strong">selected</span>}
