@@ -3593,10 +3593,11 @@ export class BotRuntime {
 			this.appendLoopMessage(runId, { role: "user", content: elapsed }, "input");
 		}
 		const existingProfileUsernames = this.profileUsernamesInActiveContext();
+		const existingNotificationContent = this.notificationContentInActiveContext();
 		if (input.spotlightContexts.length > 0) {
 			await this.appendSpotlightSyntheticContext(bot, runId, input.spotlightContexts, existingProfileUsernames);
 		} else {
-			await this.appendNotificationSyntheticContext(bot, runId, input.notifications, existingProfileUsernames);
+			await this.appendNotificationSyntheticContext(bot, runId, input.notifications, existingProfileUsernames, existingNotificationContent);
 		}
 		for (const injection of input.injections) {
 			this.appendLoopMessage(runId, { role: "assistant", content: injectedThoughtAssistantContent(injection, {}) }, "injection");
@@ -3613,6 +3614,7 @@ export class BotRuntime {
 		runId: string,
 		notifications: LoopNotification[],
 		existingProfileUsernames: ReadonlySet<string>,
+		existingNotificationContent: ProviderNotificationContentScope,
 	): Promise<void> {
 		const toolCalls: ToolCall[] = [
 			syntheticToolCall(runId, "check_notifications", 0, {}),
@@ -3621,7 +3623,7 @@ export class BotRuntime {
 			{
 				role: "tool",
 				tool_call_id: toolCalls[0]?.id ?? syntheticToolCallId(runId, 0),
-				content: JSON.stringify(providerToolResultPayload("check_notifications", { events: notifications })),
+				content: JSON.stringify(providerCheckNotificationsResult(notifications, existingNotificationContent)),
 			},
 		];
 		const usernames = referencedProfileUsernamesFromNotifications(notifications, bot.handle, existingProfileUsernames);
@@ -3715,6 +3717,14 @@ export class BotRuntime {
 			}
 		}
 		return usernames;
+	}
+
+	private notificationContentInActiveContext(): ProviderNotificationContentScope {
+		const scope = emptyProviderNotificationContentScope();
+		for (const row of this.activeLoopMessageRows()) {
+			collectProviderNotificationContentFromValue(loopMessageChatMessageFromRow(row).content, scope);
+		}
+		return scope;
 	}
 
 	private previousTerminalTickEvent(runId: string): RuntimeRow | null {
@@ -5188,9 +5198,7 @@ function providerToolResultPayload(name: string, result: unknown, args: Record<s
 	const canonical = canonicalToolName(name);
 	if (canonical === "check_notifications") {
 		const record = runtimeRecord(result);
-		return {
-			events: Array.isArray(record.events) ? record.events.map((item) => providerSafeJsonValue(item)) : [],
-		};
+		return providerCheckNotificationsResult(Array.isArray(record.events) ? record.events : []);
 	}
 	if (canonical === "list_accessible_forums" && Array.isArray(result)) {
 		return result.map((item) => providerForum(runtimeRecord(item)));
@@ -5245,6 +5253,220 @@ function providerToolResultPayload(name: string, result: unknown, args: Record<s
 		return providerSafeJsonValue(result);
 	}
 	return providerSafeJsonValue(result);
+}
+
+type ProviderNotificationContentScope = {
+	comments: Set<string>;
+	threads: Set<string>;
+};
+
+function emptyProviderNotificationContentScope(): ProviderNotificationContentScope {
+	return {
+		comments: new Set(),
+		threads: new Set(),
+	};
+}
+
+function cloneProviderNotificationContentScope(scope: ProviderNotificationContentScope): ProviderNotificationContentScope {
+	return {
+		comments: new Set(scope.comments),
+		threads: new Set(scope.threads),
+	};
+}
+
+function providerCheckNotificationsResult(
+	events: unknown[],
+	initialScope: ProviderNotificationContentScope = emptyProviderNotificationContentScope(),
+): Record<string, unknown> {
+	const scope = cloneProviderNotificationContentScope(initialScope);
+	return {
+		events: mergedProviderNotificationEvents(events.map(runtimeRecord))
+			.map((event) => providerNotificationEvent(event, scope))
+			.map((event) => providerSafeJsonValue(event)),
+	};
+}
+
+function mergedProviderNotificationEvents(events: Record<string, unknown>[]): Record<string, unknown>[] {
+	const bySource = new Map<string, Record<string, unknown>>();
+	const order: string[] = [];
+	for (const event of events) {
+		const sourceObjectId = stringValue(event.sourceObjectId);
+		const key = sourceObjectId ? `${stringValue(event.type) ?? "event"}:${sourceObjectId}` : "";
+		if (!key) {
+			const uniqueKey = `event:${stringValue(event.id) ?? crypto.randomUUID()}`;
+			bySource.set(uniqueKey, event);
+			order.push(uniqueKey);
+			continue;
+		}
+		const existing = bySource.get(key);
+		if (!existing) {
+			bySource.set(key, event);
+			order.push(key);
+			continue;
+		}
+		existing.deliveryReasons = orderedProviderDeliveryReasons([
+			...stringArrayValue(existing.deliveryReasons),
+			...stringArrayValue(event.deliveryReasons),
+		]);
+	}
+	return order.map((key) => bySource.get(key)).filter((event): event is Record<string, unknown> => Boolean(event));
+}
+
+function providerNotificationEvent(
+	event: Record<string, unknown>,
+	scope: ProviderNotificationContentScope,
+): Record<string, unknown> {
+	return removeUndefinedProperties({
+		id: stringValue(event.id),
+		type: stringValue(event.type),
+		createdAt: stringValue(event.createdAt),
+		deliveryReasons: orderedProviderDeliveryReasons(stringArrayValue(event.deliveryReasons)),
+		actor: providerNotificationProfileRef(runtimeRecord(event.actor)),
+		target: providerNotificationTargetRef(event.target, scope),
+		targetProfile: providerNotificationProfileRef(runtimeRecord(event.targetProfile)),
+		world: providerSafeJsonValue(event.world),
+		forum: providerSafeJsonValue(event.forum),
+		thread: providerNotificationThreadRef(runtimeRecord(event.thread), scope),
+		comment: providerNotificationCommentRef(runtimeRecord(event.comment), scope),
+		replyTo: providerNotificationTargetRef(event.replyTo, scope),
+		vote: providerSafeJsonValue(event.vote),
+		message: stringValue(event.message),
+		sourceObjectId: stringValue(event.sourceObjectId),
+	});
+}
+
+function providerNotificationTargetRef(value: unknown, scope: ProviderNotificationContentScope): Record<string, unknown> | undefined {
+	const record = runtimeRecord(value);
+	if (Object.keys(record).length === 0) {
+		return undefined;
+	}
+	if (stringValue(record.threadId) || stringValue(record.parentCommentId)) {
+		return providerNotificationCommentRef(record, scope);
+	}
+	if (stringValue(record.title)) {
+		return providerNotificationThreadRef(record, scope);
+	}
+	return providerNotificationProfileRef(record);
+}
+
+function providerNotificationProfileRef(record: Record<string, unknown>): Record<string, unknown> | undefined {
+	const username = stringValue(record.username);
+	const displayName = stringValue(record.displayName);
+	const id = stringValue(record.id);
+	if (!username && !displayName && !id) {
+		return undefined;
+	}
+	return removeUndefinedProperties({
+		id,
+		username,
+		displayName,
+	});
+}
+
+function providerNotificationThreadRef(
+	record: Record<string, unknown>,
+	scope: ProviderNotificationContentScope,
+): Record<string, unknown> | undefined {
+	const id = stringValue(record.id) ?? stringValue(record.threadId);
+	const text = stringValue(record.text) ?? stringValue(record.body) ?? stringValue(runtimeRecord(record.rootPost).body);
+	if (!id && !stringValue(record.title)) {
+		return undefined;
+	}
+	const includeText = Boolean(id && text && !scope.threads.has(id));
+	if (id && text) {
+		scope.threads.add(id);
+	}
+	return removeUndefinedProperties({
+		id,
+		title: stringValue(record.title),
+		author: providerNotificationProfileRef(runtimeRecord(record.author)),
+		...(includeText ? { text } : {}),
+	});
+}
+
+function providerNotificationCommentRef(
+	record: Record<string, unknown>,
+	scope: ProviderNotificationContentScope,
+): Record<string, unknown> | undefined {
+	const id = stringValue(record.id) ?? stringValue(record.commentId);
+	const text = stringValue(record.text) ?? stringValue(record.body);
+	if (!id && !stringValue(record.threadId)) {
+		return undefined;
+	}
+	const includeText = Boolean(id && text && !scope.comments.has(id));
+	if (id && text) {
+		scope.comments.add(id);
+	}
+	return removeUndefinedProperties({
+		id,
+		threadId: stringValue(record.threadId),
+		parentCommentId: stringValue(record.parentCommentId),
+		author: providerNotificationProfileRef(runtimeRecord(record.author)),
+		...(includeText ? { text } : {}),
+	});
+}
+
+function orderedProviderDeliveryReasons(reasons: string[]): string[] {
+	const order = [
+		"bootstrap",
+		"direct_reply",
+		"mention",
+		"personal_forum_post",
+		"profile_followed_you",
+		"vote_on_your_content",
+		"followed_profile_activity",
+		"system",
+	];
+	const unique = new Set(reasons.filter(Boolean));
+	const ordered = order.filter((reason) => unique.delete(reason));
+	return [...ordered, ...[...unique].sort((left, right) => left.localeCompare(right))];
+}
+
+function collectProviderNotificationContentFromValue(value: unknown, scope: ProviderNotificationContentScope): void {
+	if (typeof value === "string") {
+		let parsed: unknown;
+		try {
+			parsed = JSON.parse(value);
+		} catch {
+			return;
+		}
+		collectProviderNotificationContentFromValue(parsed, scope);
+		return;
+	}
+	if (Array.isArray(value)) {
+		for (const item of value) {
+			collectProviderNotificationContentFromValue(item, scope);
+		}
+		return;
+	}
+	const record = runtimeRecord(value);
+	if (Object.keys(record).length === 0) {
+		return;
+	}
+	const text = stringValue(record.text) ?? stringValue(record.body) ?? stringValue(runtimeRecord(record.rootPost).body);
+	if (text) {
+		const isComment = stringValue(record.type) === "comment" || Boolean(stringValue(record.commentId) || stringValue(record.parentCommentId));
+		const commentId = isComment ? stringValue(record.commentId) ?? stringValue(record.id) : undefined;
+		const threadId = stringValue(record.threadId) ?? stringValue(record.id);
+		if (commentId) {
+			scope.comments.add(commentId);
+		} else if (threadId) {
+			scope.threads.add(threadId);
+		}
+	}
+	for (const item of Object.values(record)) {
+		collectProviderNotificationContentFromValue(item, scope);
+	}
+}
+
+function removeUndefinedProperties(record: Record<string, unknown>): Record<string, unknown> {
+	const output: Record<string, unknown> = {};
+	for (const [key, value] of Object.entries(record)) {
+		if (value !== undefined) {
+			output[key] = value;
+		}
+	}
+	return output;
 }
 
 function providerFollowResult(record: Record<string, unknown>): Record<string, unknown> {
@@ -7253,6 +7475,10 @@ function stringValue(value: unknown): string | undefined {
 		return String(value);
 	}
 	return undefined;
+}
+
+function stringArrayValue(value: unknown): string[] {
+	return Array.isArray(value) ? value.map(stringValue).filter((item): item is string => Boolean(item)) : [];
 }
 
 function runtimeRecord(value: unknown): Record<string, unknown> {

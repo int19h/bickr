@@ -1410,6 +1410,7 @@ describe("Bickr Pages Functions", () => {
 				};
 			},
 			activeLoopMessagesForProvider: () => ledgerMessages,
+			activeLoopMessageRows: () => [],
 			profileUsernamesInActiveContext: () => new Set<string>(),
 		});
 		const buildMessages = (BotRuntime.prototype as unknown as {
@@ -1466,6 +1467,7 @@ describe("Bickr Pages Functions", () => {
 				id: referencedProfile.id,
 				username: `u/${referencedProfile.handle}`,
 				displayName: referencedProfile.displayName,
+				shortBio: "Repeated inside the raw notification.",
 			},
 			message: "Notice Alice commented.",
 		};
@@ -1543,6 +1545,7 @@ describe("Bickr Pages Functions", () => {
 		expect(checkNotificationsResult).toMatchObject({
 			events: [{ type: "comment_created", actor: { username: `u/${referencedProfile.handle}` } }],
 		});
+		expect(checkNotificationsResult.events[0].actor.shortBio).toBeUndefined();
 		const profileToolResult = afterCompaction
 			.filter((message) => message.role === "tool")
 			.map((message) => JSON.parse(String(message.content)))
@@ -1550,6 +1553,190 @@ describe("Bickr Pages Functions", () => {
 		expect(profileToolResult).toMatchObject({
 			profiles: [{ username: `u/${referencedProfile.handle}`, displayName: referencedProfile.displayName, shortBio: expect.any(String) }],
 		});
+	});
+
+	it("deduplicates inline notification content against active context and same-tick repeats", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const selfProfile = await createBotForTest(cookie, "notice-dedupe-self");
+		const referencedProfile = await createBotForTest(cookie, "notice-dedupe-source");
+		const bot = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, selfProfile.id);
+		const baseEvent = {
+			type: "comment_created" as const,
+			createdAt: "2026-05-01T00:00:00.000Z",
+			actor: {
+				id: referencedProfile.id,
+				username: `u/${referencedProfile.handle}`,
+				displayName: referencedProfile.displayName,
+				shortBio: "Raw notification bio should not be shown here.",
+			},
+			world: { id: bot.homeWorldId, handle: `w/${bot.homeWorldHandle}` },
+			forum: { id: "frm_notice_dedupe", handle: "f/notice-dedupe" },
+		};
+		const notifications: NotificationEvent[] = [
+			{
+				...baseEvent,
+				id: "ntf_direct",
+				deliveryReasons: ["direct_reply"],
+				sourceObjectId: "cmt_seen",
+				message: "First delivery.",
+				thread: {
+					id: "thr_seen",
+					title: "Already scoped thread",
+					author: { id: referencedProfile.id, username: `u/${referencedProfile.handle}`, displayName: referencedProfile.displayName },
+					text: "Thread text was already shown.",
+				},
+				comment: {
+					id: "cmt_seen",
+					threadId: "thr_seen",
+					author: { id: referencedProfile.id, username: `u/${referencedProfile.handle}`, displayName: referencedProfile.displayName },
+					text: "Comment text was already shown.",
+				},
+				replyTo: {
+					id: "thr_seen",
+					title: "Already scoped thread",
+					text: "Thread text was already shown.",
+				},
+			},
+			{
+				...baseEvent,
+				id: "ntf_mention",
+				deliveryReasons: ["mention"],
+				sourceObjectId: "cmt_seen",
+				message: "Duplicate delivery reason.",
+				thread: {
+					id: "thr_seen",
+					title: "Already scoped thread",
+					text: "Thread text was already shown.",
+				},
+				comment: {
+					id: "cmt_seen",
+					threadId: "thr_seen",
+					author: { id: referencedProfile.id, username: `u/${referencedProfile.handle}`, displayName: referencedProfile.displayName },
+					text: "Comment text was already shown.",
+				},
+			},
+			{
+				...baseEvent,
+				id: "ntf_new",
+				deliveryReasons: ["followed_profile_activity"],
+				sourceObjectId: "cmt_new",
+				message: "New comment in already scoped thread.",
+				thread: {
+					id: "thr_seen",
+					title: "Already scoped thread",
+					text: "Thread text was already shown.",
+				},
+				comment: {
+					id: "cmt_new",
+					threadId: "thr_seen",
+					parentCommentId: "cmt_seen",
+					author: { id: referencedProfile.id, username: `u/${referencedProfile.handle}`, displayName: referencedProfile.displayName },
+					text: "This new comment should be shown once.",
+				},
+				replyTo: {
+					id: "cmt_seen",
+					threadId: "thr_seen",
+					author: { id: referencedProfile.id, username: `u/${referencedProfile.handle}`, displayName: referencedProfile.displayName },
+					text: "Comment text was already shown.",
+				},
+			},
+		];
+		const activeRows = [
+			{
+				seq: 1,
+				position: 1,
+				run_id: "run-previous",
+				role: "tool",
+				message_json: JSON.stringify({
+					role: "tool",
+					tool_call_id: "call_profiles",
+					content: JSON.stringify({
+						profiles: [{ username: `u/${referencedProfile.handle}`, displayName: referencedProfile.displayName, shortBio: "Already active." }],
+					}),
+				}),
+				origin: "tool_result",
+				status: "complete",
+				token_estimate: 1,
+				compacted_by: null,
+				deleted_at: null,
+				created_at: "2026-05-01T00:00:00.000Z",
+				has_logs: 0,
+			},
+			{
+				seq: 2,
+				position: 2,
+				run_id: "run-previous",
+				role: "tool",
+				message_json: JSON.stringify({
+					role: "tool",
+					tool_call_id: "call_read",
+					content: JSON.stringify({
+						content: [
+							{ type: "thread", id: "thr_seen", threadId: "thr_seen", body: "Thread text was already shown." },
+							{ type: "comment", id: "cmt_seen", commentId: "cmt_seen", threadId: "thr_seen", body: "Comment text was already shown." },
+						],
+					}),
+				}),
+				origin: "tool_result",
+				status: "complete",
+				token_estimate: 1,
+				compacted_by: null,
+				deleted_at: null,
+				created_at: "2026-05-01T00:00:00.000Z",
+				has_logs: 0,
+			},
+		];
+		const messages: Array<Record<string, unknown>> = [];
+		let seq = 0;
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			env: {
+				BICKR_D1: testEnv.BICKR_D1,
+				BICKR_KV: testEnv.BICKR_KV,
+			},
+			previousTerminalTickEvent: () => null,
+			appendLoopMessage: (_runId: string, message: Record<string, unknown>) => {
+				messages.push(message);
+				seq += 1;
+				return { seq, runId: "run-notification-dedupe", role: message.role, message };
+			},
+			activeLoopMessagesForProvider: () => messages,
+			activeLoopMessageRows: () => activeRows,
+		});
+		const buildMessages = (BotRuntime.prototype as unknown as {
+			buildMessages: (
+				bot: BotDocument,
+				input: Record<string, unknown>,
+				runId: string,
+				inputCreatedAt: string,
+			) => Promise<Array<Record<string, unknown>>>;
+		}).buildMessages.bind(runtime);
+		const built = await buildMessages(
+			bot,
+			{ notifications, injections: [], spotlightContexts: [], ping: false },
+			"run-notification-dedupe",
+			"2026-05-01T00:15:00.000Z",
+		);
+		const checkNotificationsResult = built
+			.filter((message) => message.role === "tool")
+			.map((message) => JSON.parse(String(message.content)))
+			.find((result) => Array.isArray(result.events));
+		expect(checkNotificationsResult.events).toHaveLength(2);
+		expect(checkNotificationsResult.events[0]).toMatchObject({
+			id: "ntf_direct",
+			deliveryReasons: ["direct_reply", "mention"],
+			thread: { id: "thr_seen", title: "Already scoped thread" },
+			comment: { id: "cmt_seen", threadId: "thr_seen" },
+			replyTo: { id: "thr_seen", title: "Already scoped thread" },
+			actor: { username: `u/${referencedProfile.handle}`, displayName: referencedProfile.displayName },
+		});
+		expect(checkNotificationsResult.events[0].actor.shortBio).toBeUndefined();
+		expect(checkNotificationsResult.events[0].thread.text).toBeUndefined();
+		expect(checkNotificationsResult.events[0].comment.text).toBeUndefined();
+		expect(checkNotificationsResult.events[0].replyTo.text).toBeUndefined();
+		expect(checkNotificationsResult.events[1].thread.text).toBeUndefined();
+		expect(checkNotificationsResult.events[1].comment.text).toBe("This new comment should be shown once.");
+		expect(checkNotificationsResult.events[1].replyTo.text).toBeUndefined();
 	});
 
 	it("builds spotlight setup as parallel synthetic read calls with parent-chain JSON", async () => {
