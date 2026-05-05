@@ -708,6 +708,7 @@ export type BotRuntimeEventType =
 	| "tick_started"
 	| "input"
 	| "provider_request"
+	| "provider_token_probe"
 	| "provider_retry"
 	| "provider_delta"
 	| "reasoning_message"

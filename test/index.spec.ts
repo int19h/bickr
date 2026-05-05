@@ -4817,7 +4817,9 @@ describe("Bickr Pages Functions", () => {
 		const bot = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, replier.id);
 		const callToolSchemaStates: boolean[] = [];
 		let providerCall = 0;
+		const loopMemory = testLoopMessageMemory([{ role: "user", content: "Act." }]);
 		const runtime = Object.assign(testRuntimeForToolExecution(), {
+			...loopMemory,
 			appendProviderMessages: async () => {},
 			callProvider: async (
 				_settings: Record<string, unknown>,
@@ -4838,6 +4840,7 @@ describe("Bickr Pages Functions", () => {
 				}
 				return providerResponseWithToolCall("call-log-off", "log_off", { reason: "I have handled the repeat-reply situation." });
 			},
+			callProviderForTokenProbe: async () => providerUsageForPromptTokens(1_000),
 			recordInferenceSubmission: () => {},
 		});
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
@@ -4876,7 +4879,9 @@ describe("Bickr Pages Functions", () => {
 		let providerCall = 0;
 		let eventSeq = 0;
 		const providerMessages: Array<Array<Record<string, unknown>>> = [];
+		const loopMemory = testLoopMessageMemory([{ role: "assistant", content: "I look around Bickr." }]);
 		const runtime = Object.assign(testRuntimeForToolExecution(), {
+			...loopMemory,
 			appendProviderMessages: async () => {},
 			appendEvent: async (runId: string, type: string, payload: unknown) => {
 				eventSeq += 1;
@@ -4907,6 +4912,7 @@ describe("Bickr Pages Functions", () => {
 				}
 				return providerResponseWithToolCall("call-log-off", "log_off", { reason: "I have handled the tool failure." });
 			},
+			callProviderForTokenProbe: async () => providerUsageForPromptTokens(1_000),
 			recordInferenceSubmission: () => {},
 		});
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
@@ -4946,6 +4952,128 @@ describe("Bickr Pages Functions", () => {
 		expect(secondRequest[toolMessageIndexes[1]!]?.tool_call_id).toBe("call-reply-fail");
 		expect(acknowledgementIndex).toBeGreaterThan(toolMessageIndexes[1]!);
 		expect(String(secondRequest[acknowledgementIndex]?.content)).toContain("I need to adjust how I use reply_to_thread");
+	});
+
+	it("compacts old context after exact token probes before provider inference", async () => {
+		let activeMessages: Array<Record<string, unknown>> = [
+			{ role: "assistant", content: "Old history that can be compacted." },
+			{ role: "assistant", content: "Current notification setup must remain." },
+		];
+		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+		const providerRequests: Array<Array<Record<string, unknown>>> = [];
+		const probeRequests: Array<Array<Record<string, unknown>>> = [];
+		const recordInferenceSubmission = vi.fn();
+		const compactedRows: unknown[][] = [];
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			activeLoopMessagesForProvider: () => activeMessages,
+			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+				events.push({ type, payload });
+				return { seq: events.length, runId, type, payload, tokenEstimate: 0, createdAt: new Date().toISOString() };
+			},
+			appendLoopMessage: () => ({ seq: 99, runId: "run-budget", role: "assistant", message: {}, origin: "provider_response", tokenEstimate: 0, createdAt: new Date().toISOString() }),
+			appendProviderMessages: async () => {},
+			callProvider: async (_settings: unknown, messages: Array<Record<string, unknown>>) => {
+				providerRequests.push(messages);
+				return providerResponseWithContent("I have enough context now.");
+			},
+			callProviderForTokenProbe: async (_settings: unknown, messages: Array<Record<string, unknown>>) => {
+				probeRequests.push(messages);
+				return providerUsageForPromptTokens(messages.some((message) => String(message.content).includes("Old history")) ? 20_000 : 10_000);
+			},
+			compactLoopMessageRows: async (_bot: unknown, _settings: unknown, _runId: string, _signal: AbortSignal, rows: unknown[]) => {
+				compactedRows.push(rows);
+				activeMessages = [
+					{ role: "assistant", content: "I remember the old history as a concise summary." },
+					{ role: "assistant", content: "Current notification setup must remain." },
+				];
+			},
+			compactionRowsForExactBudget: () =>
+				activeMessages.some((message) => String(message.content).includes("Old history")) ? [loopMessageRowForTest(1, "run-old", "Old history that can be compacted.")] : [],
+			recordInferenceSubmission,
+			recordLoopMessageLog: () => {},
+			recordProviderUsage: () => {},
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const runProviderLoop = (BotRuntime.prototype as unknown as {
+			runProviderLoop: (
+				bot: BotDocument,
+				settings: { baseUrl: string; model: string; temperature: number },
+				runId: string,
+				messages: Array<Record<string, unknown>>,
+				runContext: { mode: "normal"; signal: AbortSignal },
+			) => Promise<{ logOffCalled: boolean }>;
+		}).runProviderLoop.bind(runtime);
+
+		await expect(
+			runProviderLoop(
+				fakeBotDocument({ contextWindowTokens: 16_000 }),
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				"run-budget",
+				[],
+				{ mode: "normal", signal: new AbortController().signal },
+			),
+		).resolves.toMatchObject({ logOffCalled: false });
+
+		expect(probeRequests).toHaveLength(2);
+		expect(messageListText(probeRequests[0] ?? [])).toContain("Current notification setup must remain.");
+		expect(compactedRows).toHaveLength(1);
+		expect(providerRequests).toHaveLength(1);
+		expect(messageListText(providerRequests[0] ?? [])).not.toContain("Old history that can be compacted.");
+		expect(messageListText(providerRequests[0] ?? [])).toContain("I remember the old history");
+		expect(recordInferenceSubmission).toHaveBeenCalledTimes(1);
+		expect(events.map((event) => event.type)).toEqual(["provider_token_probe", "provider_token_probe", "provider_request"]);
+		expect(events[0]?.payload).toMatchObject({ promptTokens: 20_000, allowedPromptTokens: 13_500, overBudgetTokens: 6_500 });
+	});
+
+	it("fails before provider inference when current context alone exceeds the exact budget", async () => {
+		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+		const callProvider = vi.fn();
+		const recordInferenceSubmission = vi.fn();
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			activeLoopMessagesForProvider: () => [{ role: "assistant", content: "Current setup is already too large." }],
+			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+				events.push({ type, payload });
+				return { seq: events.length, runId, type, payload, tokenEstimate: 0, createdAt: new Date().toISOString() };
+			},
+			callProvider,
+			callProviderForTokenProbe: async () => providerUsageForPromptTokens(20_000),
+			compactionRowsForExactBudget: () => [],
+			recordInferenceSubmission,
+			recordProviderUsage: () => {},
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const runProviderLoop = (BotRuntime.prototype as unknown as {
+			runProviderLoop: (
+				bot: BotDocument,
+				settings: { baseUrl: string; model: string; temperature: number },
+				runId: string,
+				messages: Array<Record<string, unknown>>,
+				runContext: { mode: "normal"; signal: AbortSignal },
+			) => Promise<{ logOffCalled: boolean }>;
+		}).runProviderLoop.bind(runtime);
+
+		await expect(
+			runProviderLoop(
+				fakeBotDocument({ contextWindowTokens: 16_000 }),
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				"run-current-too-large",
+				[],
+				{ mode: "normal", signal: new AbortController().signal },
+			),
+		).rejects.toThrow("Prompt context is too large");
+
+		expect(callProvider).not.toHaveBeenCalled();
+		expect(recordInferenceSubmission).not.toHaveBeenCalled();
+		expect(events.map((event) => event.type)).toEqual(["provider_token_probe"]);
+		expect(events[0]?.payload).toMatchObject({ promptTokens: 20_000, allowedPromptTokens: 13_500 });
 	});
 
 	it("enriches reply notifications with parent-chain IDs and profile context", async () => {
@@ -6277,6 +6405,49 @@ function testRuntimeForToolExecution(): BotRuntime {
 	}) as BotRuntime;
 }
 
+function testLoopMessageMemory(initial: Array<Record<string, unknown>> = []) {
+	let seq = 0;
+	const messages = [...initial];
+	return {
+		activeLoopMessagesForProvider: () => [...messages],
+		appendLoopMessage: (runId: string, message: Record<string, unknown>, origin: string, status = "complete") => {
+			seq += 1;
+			messages.push(message);
+			return {
+				seq,
+				runId,
+				role: message.role,
+				message,
+				origin,
+				status,
+				tokenEstimate: 0,
+				createdAt: new Date().toISOString(),
+			};
+		},
+	};
+}
+
+function providerUsageForPromptTokens(promptTokens: number) {
+	return {
+		promptTokens,
+		completionTokens: 1,
+		totalTokens: promptTokens + 1,
+		cachedTokens: 0,
+		reasoningTokens: 0,
+		cost: null,
+		raw: { prompt_tokens: promptTokens, completion_tokens: 1, total_tokens: promptTokens + 1 },
+	};
+}
+
+function providerResponseWithContent(content: string) {
+	return {
+		content,
+		reasoning: "",
+		reasoningDetails: [],
+		toolCalls: [],
+	};
+}
+
 function providerResponseWithToolCall(id: string, name: string, args: Record<string, unknown>) {
 	return providerResponseWithToolCalls([{ id, name, args }]);
 }
@@ -6306,6 +6477,55 @@ function replyToolHasAcknowledgementArgument(tools: ProviderToolDefinition[]): b
 			reply.type === "function" &&
 			reply.function.parameters.properties[additionalReplyAcknowledgementArgument],
 	);
+}
+
+function fakeBotDocument(options: { contextWindowTokens?: number } = {}): BotDocument {
+	const now = "2026-05-05T00:00:00.000Z";
+	return {
+		id: "bot_test_budget",
+		type: "bot",
+		schemaVersion: 1,
+		revision: 1,
+		createdAt: now,
+		updatedAt: now,
+		homeWorldId: "wld_test",
+		homeWorldHandle: "test-world",
+		ownerUserId: "usr_test",
+		handle: "budget-bot",
+		displayName: "Budget Bot",
+		shortBio: "Tests context budgets.",
+		prompt: "Stay concise.",
+		inferenceSettings: {},
+		toolSettings: {},
+		tickSettings: {
+			enabled: true,
+			intervalSeconds: 300,
+			contextWindowTokens: options.contextWindowTokens ?? 16_000,
+			compactionThreshold: 0.75,
+			maxToolCallsPerTick: 3,
+		},
+	};
+}
+
+function loopMessageRowForTest(seq: number, runId: string, content: string) {
+	return {
+		seq,
+		position: seq,
+		run_id: runId,
+		role: "assistant",
+		message_json: JSON.stringify({ role: "assistant", content }),
+		origin: "provider_response",
+		status: "complete",
+		token_estimate: 1,
+		compacted_by: null,
+		deleted_at: null,
+		created_at: "2026-05-05T00:00:00.000Z",
+		has_logs: 0,
+	};
+}
+
+function messageListText(messages: Array<Record<string, unknown>>): string {
+	return messages.map((message) => String(message.content ?? "")).join("\n");
 }
 
 async function oauthFetchMock(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {

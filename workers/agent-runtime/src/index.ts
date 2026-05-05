@@ -223,6 +223,12 @@ type ProviderResponse = {
 	responseModel?: string;
 };
 
+type ProviderPromptBudgetCheck = {
+	allowedPromptTokens: number;
+	promptTokens: number;
+	requestMessages: ChatMessage[];
+};
+
 type ProviderUsageRow = {
 	created_at: string;
 	run_id: string;
@@ -567,6 +573,18 @@ class ProviderStreamIdleTimeoutError extends Error {
 		super(`Bickr Terminal stopped responding after ${Math.round(timeoutMs / 1000)} seconds.`);
 		this.name = "ProviderStreamIdleTimeoutError";
 		this.timeoutMs = timeoutMs;
+	}
+}
+
+class PromptContextBudgetExceededError extends Error {
+	readonly allowedPromptTokens: number;
+	readonly promptTokens: number;
+
+	constructor(promptTokens: number, allowedPromptTokens: number) {
+		super(`Prompt context is too large for this participant's configured context budget: ${promptTokens} prompt tokens exceeds the ${allowedPromptTokens} token prompt limit.`);
+		this.name = "PromptContextBudgetExceededError";
+		this.promptTokens = promptTokens;
+		this.allowedPromptTokens = allowedPromptTokens;
 	}
 }
 
@@ -1380,7 +1398,6 @@ export class BotRuntime {
 				await markNotificationsDelivered(this.env.BICKR_KV, this.env.BICKR_D1, notifications);
 			}
 
-			await this.compactIfNeeded(bot, providerSettings, runId, abortController.signal);
 			const messages = await this.buildMessages(bot, input, runId, inputEvent.createdAt);
 			this.throwIfStopped(runId, abortController.signal);
 			if (providerSettings.apiKey || providerSettings.usesCustomBaseUrl || this.env.BICKR_SIMULATION_MODE === "provider") {
@@ -1764,10 +1781,9 @@ export class BotRuntime {
 		bot: BotDocument,
 		settings: ProviderSettings,
 		runId: string,
-		messages: ChatMessage[],
+		_messages: ChatMessage[],
 		runContext: RunContext,
 	): Promise<ProviderLoopOutcome> {
-		let currentMessages = [...messages];
 		let consecutiveToolFailures = 0;
 		let logOffCalled = false;
 		let publicSpotlightToolCallCount = 0;
@@ -1782,10 +1798,8 @@ export class BotRuntime {
 				...toolDefinitionsForProviderRound({ exposeAdditionalReplyAcknowledgement }),
 				...serverTools.tools,
 			];
-			const requestMessages: ChatMessage[] = [
-				{ role: "system", content: standardPrompt(bot) },
-				...currentMessages,
-			];
+			const budgetCheck = await this.ensureProviderPromptWithinBudget(bot, settings, runId, runContext.signal, providerTools);
+			const requestMessages = budgetCheck.requestMessages;
 			const requestEvent = await this.appendEvent(runId, "provider_request", {
 				model: settings.model,
 				messageCount: requestMessages.length,
@@ -1793,6 +1807,8 @@ export class BotRuntime {
 				toolChoice: providerChatToolChoice,
 				parallelToolCalls: providerParallelToolCalls,
 				contextWindowTokens: bot.tickSettings.contextWindowTokens,
+				promptTokens: budgetCheck.promptTokens,
+				allowedPromptTokens: budgetCheck.allowedPromptTokens,
 				maxCompletionTokens: providerContextReserveTokens,
 				reasoning: providerChatReasoning,
 				temperature: settings.temperature,
@@ -1857,14 +1873,12 @@ export class BotRuntime {
 				this.recordLoopMessageLog(assistantLoopMessage.seq, "provider_request", response.requestBody);
 			}
 			this.recordLoopMessageLog(assistantLoopMessage.seq, "provider_response", JSON.stringify(providerResponseLogPayload(response, responseStatus)));
-			currentMessages = [...currentMessages, assistantMessage];
 			if (responseStatus === "interrupted") {
 				if (response.toolCalls.length > 0) {
 					this.appendInterruptedToolMessages(
 						runId,
 						response.toolCalls,
 						new Set(response.toolCalls.map((toolCall) => toolCall.id)),
-						currentMessages,
 					);
 				}
 				throw interruptedError?.originalError instanceof Error ? interruptedError.originalError : new TickStoppedError();
@@ -1892,7 +1906,7 @@ export class BotRuntime {
 					}
 				} catch (error) {
 					if (error instanceof TickStoppedError || isAbortError(error)) {
-						this.appendInterruptedToolMessages(runId, response.toolCalls, pendingToolCallIds, currentMessages);
+						this.appendInterruptedToolMessages(runId, response.toolCalls, pendingToolCallIds);
 						throw error;
 					}
 					const failure = toolFailurePayload(toolCall.function.name, args, error);
@@ -1913,7 +1927,6 @@ export class BotRuntime {
 						tool_call_id: toolCall.id,
 						content: JSON.stringify(failure),
 					};
-					currentMessages.push(toolMessage);
 					const loopMessage = this.appendLoopMessage(runId, toolMessage, "tool_failure");
 					this.recordLoopMessageLog(loopMessage.seq, "tool_call", JSON.stringify(toolCall));
 					this.recordLoopMessageLog(loopMessage.seq, "tool_result", toolMessage.content ?? "");
@@ -1935,7 +1948,6 @@ export class BotRuntime {
 					tool_call_id: toolCall.id,
 					content: JSON.stringify(result.providerResult),
 				};
-				currentMessages.push(toolMessage);
 				const loopMessage = this.appendLoopMessage(runId, toolMessage, "tool_result");
 				this.recordLoopMessageLog(loopMessage.seq, "tool_call", JSON.stringify(toolCall));
 				this.recordLoopMessageLog(loopMessage.seq, "tool_result", toolMessage.content ?? "");
@@ -1950,7 +1962,6 @@ export class BotRuntime {
 					role: "assistant",
 					content: acknowledgementContent,
 				};
-				currentMessages.push(acknowledgementMessage);
 				this.appendLoopMessage(runId, acknowledgementMessage, "provider_response");
 			}
 			if (logOffCalled) {
@@ -1964,7 +1975,6 @@ export class BotRuntime {
 		runId: string,
 		toolCalls: ToolCall[],
 		pendingToolCallIds: Set<string>,
-		currentMessages: ChatMessage[],
 	): void {
 		for (const toolCall of toolCalls) {
 			if (!pendingToolCallIds.has(toolCall.id)) {
@@ -1981,7 +1991,6 @@ export class BotRuntime {
 				tool_call_id: toolCall.id,
 				content,
 			};
-			currentMessages.push(toolMessage);
 			const loopMessage = this.appendLoopMessage(runId, toolMessage, "tool_failure", "interrupted");
 			this.recordLoopMessageLog(loopMessage.seq, "tool_call", JSON.stringify(toolCall));
 			this.recordLoopMessageLog(loopMessage.seq, "tool_result", content);
@@ -2061,6 +2070,44 @@ export class BotRuntime {
 					const response = await this.fetchProviderCompactionResponse(settings, endpoint, body, signal);
 					return { ...response, requestBody: body };
 				} catch (error) {
+				if (error instanceof TickStoppedError || isAbortError(error)) {
+					throw error;
+				}
+				const retryKey = providerRetryKey(error);
+				if (retryKey && attempt < providerMaxAttempts && (previousRetryKey === null || previousRetryKey === retryKey)) {
+					previousRetryKey = retryKey;
+					continue;
+				}
+				throw error;
+			}
+		}
+		throw new ProviderRequestTimeoutError(providerRequestTimeoutMs);
+	}
+
+	private async callProviderForTokenProbe(
+		settings: ProviderSettings,
+		messages: ChatMessage[],
+		tools: ProviderToolDefinition[],
+		runId: string,
+		signal: AbortSignal,
+	): Promise<ProviderUsage> {
+		let previousRetryKey: string | null = null;
+		for (let attempt = 1; attempt <= providerMaxAttempts; attempt += 1) {
+			this.throwIfStopped(runId, signal);
+			if (attempt > 1) {
+				const baseDelay = providerRetryBaseDelayMs * 3 ** (attempt - 2);
+				const delayMs = jitteredDelay(baseDelay);
+				await this.appendEvent(runId, "provider_retry", {
+					attempt,
+					maxAttempts: providerMaxAttempts,
+					delayMs,
+					reason: previousRetryKey,
+				});
+				await sleep(delayMs, signal);
+			}
+			try {
+				return await this.fetchPromptTokenProbeUsage(settings, messages, tools, signal);
+			} catch (error) {
 				if (error instanceof TickStoppedError || isAbortError(error)) {
 					throw error;
 				}
@@ -2990,6 +3037,7 @@ export class BotRuntime {
 		settings: ProviderSettings,
 		messages: ChatMessage[],
 		tools: ProviderToolDefinition[],
+		signal: AbortSignal = new AbortController().signal,
 	): Promise<ProviderUsage> {
 		const endpoint = providerChatCompletionsUrl(settings.baseUrl);
 		const headers: Record<string, string> = {
@@ -3005,7 +3053,7 @@ export class BotRuntime {
 				headers,
 				body: JSON.stringify(providerTokenProbeRequest(settings, messages, tools)),
 			},
-			new AbortController().signal,
+			signal,
 			providerRequestTimeoutMs,
 		);
 		if (!response.ok) {
@@ -3782,6 +3830,75 @@ export class BotRuntime {
 		await this.compactLoopMessageRows(bot, settings, runId, signal, compacted, "auto", { estimatedContextTokens: total, threshold });
 	}
 
+	private async ensureProviderPromptWithinBudget(
+		bot: BotDocument,
+		settings: ProviderSettings,
+		runId: string,
+		signal: AbortSignal,
+		providerTools: ProviderToolDefinition[],
+	): Promise<ProviderPromptBudgetCheck> {
+		const allowedPromptTokens = this.allowedProviderPromptTokens(bot);
+		for (;;) {
+			this.throwIfStopped(runId, signal);
+			const requestMessages = this.activeProviderRequestMessages(bot);
+			const usage = await this.callProviderForTokenProbe(settings, requestMessages, providerTools, runId, signal);
+			const overBudgetTokens = Math.max(0, usage.promptTokens - allowedPromptTokens);
+			const probeEvent = await this.appendEvent(runId, "provider_token_probe", {
+				model: settings.model,
+				messageCount: requestMessages.length,
+				toolCount: providerTools.length,
+				contextWindowTokens: bot.tickSettings.contextWindowTokens,
+				maxCompletionTokens: providerContextReserveTokens,
+				promptTokens: usage.promptTokens,
+				allowedPromptTokens,
+				overBudgetTokens,
+			});
+			this.recordProviderUsage({
+				contextWindowTokens: bot.tickSettings.contextWindowTokens,
+				createdAt: probeEvent.createdAt,
+				requestSeq: probeEvent.seq,
+				runId,
+				settings,
+				usage,
+			});
+			if (overBudgetTokens === 0) {
+				return { allowedPromptTokens, promptTokens: usage.promptTokens, requestMessages };
+			}
+			const compacted = this.compactionRowsForExactBudget(runId);
+			if (compacted.length === 0) {
+				throw new PromptContextBudgetExceededError(usage.promptTokens, allowedPromptTokens);
+			}
+			await this.compactLoopMessageRows(bot, settings, runId, signal, compacted, "auto", {
+				allowedPromptTokens,
+				exactPromptTokens: usage.promptTokens,
+				overBudgetTokens,
+				threshold: allowedPromptTokens,
+			});
+		}
+	}
+
+	private activeProviderRequestMessages(bot: BotDocument): ChatMessage[] {
+		return [
+			{ role: "system", content: standardPrompt(bot) },
+			...this.activeLoopMessagesForProvider(),
+		];
+	}
+
+	private allowedProviderPromptTokens(bot: BotDocument): number {
+		return Math.max(1, Math.floor(bot.tickSettings.contextWindowTokens) - providerContextReserveTokens);
+	}
+
+	private compactionRowsForExactBudget(runId: string): LoopMessageRow[] {
+		const calibration = this.textTokenCalibration();
+		const rows = this.compactionCandidateRows()
+			.filter((row) => row.run_id !== runId)
+			.map((row) => ({
+				row,
+				tokens: estimateTextTokensWithCalibration(loopMessageContextLine(row), calibration),
+			}));
+		return oldestLoopMessageGroupsForTokenFraction(rows, compactionRowTokenFraction);
+	}
+
 	private async manualCompactLoopMessages(botId: string): Promise<{ fromSeq?: number; toSeq?: number; messageCount: number }> {
 		const current = await this.status(botId);
 		if (current.status === "running" || this.activeRunId) {
@@ -3806,7 +3923,13 @@ export class BotRuntime {
 		signal: AbortSignal,
 		compacted: LoopMessageRow[],
 		mode: "auto" | "manual",
-		metrics: { estimatedContextTokens?: number; threshold?: number },
+		metrics: {
+			allowedPromptTokens?: number;
+			estimatedContextTokens?: number;
+			exactPromptTokens?: number;
+			overBudgetTokens?: number;
+			threshold?: number;
+		},
 	): Promise<void> {
 		const recentActivity = compacted
 			.map((message) => truncateForContext(loopMessageContextLine(message), 1_200))
@@ -5660,7 +5783,7 @@ function sanitizeStoredContextSummary(summary: string): string {
 }
 
 function isRuntimeMetaContextLine(line: string): boolean {
-	return /^(provider_request|provider_retry|tick_started|tick_completed|tick_failed|tick_stopped|tick_stop_requested)\b/.test(line);
+	return /^(provider_request|provider_token_probe|provider_retry|tick_started|tick_completed|tick_failed|tick_stopped|tick_stop_requested)\b/.test(line);
 }
 
 function injectedThoughtAssistantContent(text: string, payload: Record<string, unknown>): string {
@@ -5792,6 +5915,12 @@ export function formatRuntimeEventForContext(
 			return `A new private thought came to mind: ${quoteForContext(stringValue(payload.text) ?? "", 700)}`;
 		case "input":
 			return inputHistorySummary(payload);
+		case "provider_token_probe": {
+			const promptTokens = integerValue(payload.promptTokens);
+			const allowedPromptTokens = integerValue(payload.allowedPromptTokens);
+			const overBudgetTokens = integerValue(payload.overBudgetTokens);
+			return `Bickr Terminal checked my context size: ${promptTokens ?? "?"} prompt tokens, limit ${allowedPromptTokens ?? "?"}${overBudgetTokens ? `, over by ${overBudgetTokens}` : ""}.`;
+		}
 		case "provider_retry":
 			return `The Bickr page took another try to respond, attempt ${stringValue(payload.attempt) ?? "?"} of ${stringValue(payload.maxAttempts) ?? "?"}.`;
 		case "tick_started":

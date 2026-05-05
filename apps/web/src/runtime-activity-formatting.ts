@@ -116,6 +116,18 @@ export function runtimeActivities(events: BotRuntimeEvent[], fallbackWorldHandle
 				});
 				break;
 			}
+			case "provider_token_probe":
+				finishRunStreams(streams, event.runId);
+				activities.push({
+					id: `event-${event.seq}`,
+					seq: event.seq,
+					createdAt: event.createdAt,
+					kind: "provider",
+					title: "Token budget check",
+					meta: providerTokenProbeMeta(payload),
+					raw: event,
+				});
+				break;
 			case "provider_retry":
 				finishRunStreams(streams, event.runId);
 				activities.push({
@@ -900,6 +912,20 @@ function providerRequestMeta(payload: Record<string, unknown>): string {
 	return parts.join(" · ");
 }
 
+function providerTokenProbeMeta(payload: Record<string, unknown>): string {
+	const promptTokens = numberValue(payload.promptTokens);
+	const allowedPromptTokens = numberValue(payload.allowedPromptTokens);
+	const overBudgetTokens = numberValue(payload.overBudgetTokens);
+	const parts = [
+		`prompt: ${promptTokens === undefined ? "?" : formatTokenCount(promptTokens)}`,
+		`limit: ${allowedPromptTokens === undefined ? "?" : formatTokenCount(allowedPromptTokens)}`,
+	];
+	if (overBudgetTokens !== undefined && overBudgetTokens > 0) {
+		parts.push(`over by ${formatTokenCount(overBudgetTokens)}`);
+	}
+	return parts.join(" · ");
+}
+
 function stringArrayValue(value: unknown): string[] {
 	return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && item.length > 0) : [];
 }
@@ -959,6 +985,10 @@ function formatDelay(value: unknown): string {
 		return "a moment";
 	}
 	return `${Math.max(1, Math.round(ms / 1000))}s`;
+}
+
+function formatTokenCount(value: number): string {
+	return value >= 1_000 ? `${Math.round(value / 100) / 10}k` : String(Math.round(value));
 }
 
 function formatPayload(value: unknown, maxLength = 2_400): string {
