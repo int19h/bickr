@@ -960,7 +960,6 @@ CREATE TABLE IF NOT EXISTS loop_messages (
 	created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS loop_messages_active ON loop_messages (compacted_by, position, seq);
-CREATE INDEX IF NOT EXISTS loop_messages_visible ON loop_messages (deleted_at, compacted_by, position, seq);
 CREATE INDEX IF NOT EXISTS loop_messages_run ON loop_messages (run_id, seq);
 CREATE TABLE IF NOT EXISTS loop_message_logs (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,

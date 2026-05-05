@@ -689,6 +689,27 @@ describe("Bickr Pages Functions", () => {
 		expect(pruneStreamEventsForPersistentEvents([currentLiveDelta], [currentCompleted])).toEqual([]);
 	});
 
+	it("initializes existing loop message tables before creating indexes on new columns", async () => {
+		const sql = memoryExistingLoopMessageSchemaSql();
+		const pending: Promise<void>[] = [];
+		const state = {
+			blockConcurrencyWhile: (callback: () => Promise<void>) => {
+				pending.push(callback());
+			},
+			storage: { sql },
+		};
+
+		new BotRuntime(state as unknown as DurableObjectState, {} as never);
+		await Promise.all(pending);
+
+		expect(sql.columns("loop_messages")).toContain("deleted_at");
+		expect(sql.statements()).toEqual(expect.arrayContaining([
+			expect.stringMatching(/^ALTER TABLE loop_messages ADD COLUMN deleted_at TEXT$/),
+			expect.stringMatching(/^CREATE INDEX IF NOT EXISTS loop_messages_visible/),
+		]));
+		expect(sql.indexCreatedBeforeDeletedAt()).toBe(false);
+	});
+
 		it("builds provider chat requests with explicit tool-call and output controls", () => {
 			const request = providerChatCompletionRequest(
 				{
@@ -6122,6 +6143,93 @@ function memoryLoopMessageLogSql() {
 				chunks = chunks.filter((chunk) => chunk.log_id !== Number(params[0]));
 			} else if (/DELETE FROM loop_message_logs WHERE id = \?/.test(sql)) {
 				logs = logs.filter((row) => row.id !== Number(params[0]));
+			}
+			return {
+				one: () => ({} as T),
+				toArray: () => [],
+			};
+		},
+	};
+}
+
+function memoryExistingLoopMessageSchemaSql() {
+	const columnsByTable = new Map<string, string[]>([
+		[
+			"loop_messages",
+			[
+				"seq",
+				"position",
+				"run_id",
+				"role",
+				"message_json",
+				"origin",
+				"status",
+				"token_estimate",
+				"compacted_by",
+				"created_at",
+			],
+		],
+		["injections", ["id", "text", "kind", "source_id", "spotlight_id", "created_at", "consumed_at"]],
+		[
+			"inference_submissions",
+			[
+				"id",
+				"event_seq",
+				"run_id",
+				"purpose",
+				"model",
+				"provider_base_url",
+				"message_count",
+				"messages_json",
+				"display_messages_json",
+				"created_at",
+			],
+		],
+		["runtime_state", ["key", "value_json"]],
+	]);
+	const executedStatements: string[] = [];
+	let loopMessagesVisibleIndexBeforeDeletedAt = false;
+	return {
+		columns: (table: string) => columnsByTable.get(table) ?? [],
+		indexCreatedBeforeDeletedAt: () => loopMessagesVisibleIndexBeforeDeletedAt,
+		statements: () => executedStatements,
+		exec<T>(sql: string) {
+			const normalized = sql.trim().replace(/\s+/g, " ");
+			executedStatements.push(normalized);
+			const tableInfo = /^PRAGMA table_info\(([^)]+)\)$/.exec(normalized);
+			if (tableInfo) {
+				const columns = columnsByTable.get(tableInfo[1] ?? "") ?? [];
+				return {
+					one: () => ({} as T),
+					toArray: () => columns.map((name, cid) => ({ cid, name }) as T),
+				};
+			}
+			const alterColumn = /^ALTER TABLE ([a-z_]+) ADD COLUMN ([a-z_]+)(?: |$)/.exec(normalized);
+			if (alterColumn) {
+				const table = alterColumn[1] ?? "";
+				const column = alterColumn[2] ?? "";
+				const columns = columnsByTable.get(table) ?? [];
+				if (!columns.includes(column)) {
+					columnsByTable.set(table, [...columns, column]);
+				}
+			}
+			if (/^CREATE INDEX IF NOT EXISTS loop_messages_visible /.test(normalized)) {
+				if (!columnsByTable.get("loop_messages")?.includes("deleted_at")) {
+					loopMessagesVisibleIndexBeforeDeletedAt = true;
+					throw new Error("loop_messages_visible index created before deleted_at exists");
+				}
+			}
+			if (/SELECT COUNT\(\*\) AS count FROM loop_messages/.test(normalized)) {
+				return {
+					one: () => ({ count: 1 }) as T,
+					toArray: () => [{ count: 1 } as T],
+				};
+			}
+			if (/SELECT value_json FROM runtime_state WHERE key = \?/.test(normalized)) {
+				return {
+					one: () => ({} as T),
+					toArray: () => [],
+				};
 			}
 			return {
 				one: () => ({} as T),
