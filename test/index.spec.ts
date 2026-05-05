@@ -583,17 +583,38 @@ describe("Bickr Pages Functions", () => {
 		expect(Array.isArray(voteResult.result)).toBe(true);
 		expect(Array.isArray(voteResult.providerResult)).toBe(true);
 		expect(voteResult.providerResult).toHaveLength(2);
-		const votedThread = (voteResult.providerResult as Array<{ thread?: { comments?: Array<Record<string, unknown>> } }>)[0]?.thread;
-		expect(votedThread?.comments).toMatchObject([
+		expect(voteResult.providerResult).toMatchObject([
 			{
-				commentId: comment.id,
-				body: "Comment body.",
-				replies: [{ commentId: childComment.id, body: "Child comment body." }],
+				targetType: "thread",
+				targetId: thread.id,
+				value: 1,
+				target: { type: "thread", threadId: thread.id, title: "Bulk vote target" },
+			},
+			{
+				targetType: "comment",
+				targetId: comment.id,
+				value: -1,
+				target: { type: "comment", commentId: comment.id, threadId: thread.id },
 			},
 		]);
+		expect(JSON.stringify(voteResult.providerResult)).not.toContain("Comment body.");
+		expect(JSON.stringify(voteResult.providerResult)).not.toContain("Child comment body.");
 		const updatedThread = await readThread(testEnv.BICKR_KV, thread.id);
 		expect(updatedThread.rootPost.voteScore).toBe(1);
 		expect(updatedThread.comments.find((item) => item.id === comment.id)?.voteScore).toBe(-1);
+
+		const createPostResult = await executeTool(
+			bot,
+			"run-create-post-compact-result",
+			"create_post",
+			{ forumHandle: forum.handle, title: "Compact provider result", body: "This post body should not be echoed back." },
+			{ mode: "normal", signal },
+		);
+		expect(createPostResult.providerResult).toMatchObject({
+			ok: true,
+			thread: { type: "thread", title: "Compact provider result" },
+		});
+		expect(JSON.stringify(createPostResult.providerResult)).not.toContain("This post body should not be echoed back.");
 
 		const readThreadResult = await executeTool(
 			bot,
@@ -4860,18 +4881,21 @@ describe("Bickr Pages Functions", () => {
 			{ mode: "normal", signal },
 		);
 		const allowedProviderResult = allowed.providerResult as {
-			thread: { threadId: string; comments: Array<{ commentId: string; replies: Array<{ body: string }> }> };
-			comment: { body: string; parentCommentId: string };
+			ok: boolean;
+			comment: { type: string; commentId: string; threadId: string; parentCommentId: string };
 		};
-		expect(allowedProviderResult.thread.threadId).toBe(thread.id);
-		expect(allowedProviderResult.thread.comments).toEqual(expect.arrayContaining([
-			expect.objectContaining({
-				commentId: parent.id,
-				replies: expect.arrayContaining([expect.objectContaining({ body: "Intentional second reply." })]),
-			}),
-		]));
+		expect(allowedProviderResult).toMatchObject({
+			ok: true,
+			comment: {
+				type: "comment",
+				commentId: expect.any(String),
+				threadId: thread.id,
+				parentCommentId: parent.id,
+			},
+		});
+		expect(JSON.stringify(allowedProviderResult)).not.toContain("Intentional second reply.");
+		expect(JSON.stringify(allowedProviderResult)).not.toContain("Earlier reply.");
 		expect(allowedProviderResult.comment).toMatchObject({
-			body: "Intentional second reply.",
 			parentCommentId: parent.id,
 		});
 		currentThread = await readThread(testEnv.BICKR_KV, thread.id);

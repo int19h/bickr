@@ -5233,13 +5233,13 @@ function providerToolResultPayload(name: string, result: unknown, args: Record<s
 		return providerReadResult(runtimeRecord(result));
 	}
 	if (canonical === "create_post") {
-		return providerThreadDocument(threadRecordFromToolResult(result) ?? runtimeRecord(result));
+		return providerCreatePostResult(result);
 	}
 	if (canonical === "reply_to_thread") {
 		return providerReplyThreadResult(result, args);
 	}
 	if (canonical === "vote") {
-		return providerThreadDocument(runtimeRecord(result));
+		return providerVoteResult(runtimeRecord(result));
 	}
 	if (canonical === "log_off") {
 		return providerSafeJsonValue(result);
@@ -5260,7 +5260,15 @@ function providerVoteResult(record: Record<string, unknown>): Record<string, unk
 		targetType: stringValue(record.targetType) ?? "item",
 		targetId: stringValue(record.targetId),
 		value: numberValue(record.value),
-		...(thread ? { thread: providerThreadDocument(thread) } : {}),
+		...(thread ? { target: providerVoteTargetReference(thread, record) } : {}),
+	};
+}
+
+function providerCreatePostResult(result: unknown): Record<string, unknown> {
+	const thread = threadRecordFromToolResult(result) ?? runtimeRecord(result);
+	return {
+		ok: true,
+		thread: providerThreadReference(thread),
 	};
 }
 
@@ -5272,8 +5280,8 @@ function providerReplyThreadResult(result: unknown, args: Record<string, unknown
 		(stringValue(comment.id) || stringValue(comment.commentId)) ? comment
 		:	replyCommentFromThread(thread, args);
 	return {
-		thread: providerThreadDocument(thread),
-		...(createdComment ? { comment: providerThreadComment(thread, createdComment) } : {}),
+		ok: true,
+		...(createdComment ? { comment: providerCommentReference(thread, createdComment) } : {}),
 	};
 }
 
@@ -5393,52 +5401,6 @@ function providerReadContent(record: Record<string, unknown>): Record<string, un
 	};
 }
 
-function providerThreadDocument(record: Record<string, unknown>): Record<string, unknown> {
-	if (!record.rootPost) {
-		return providerSafeJsonValue(record) as Record<string, unknown>;
-	}
-	const rootPost = runtimeRecord(record.rootPost);
-	const comments = Array.isArray(record.comments) ? providerThreadCommentTree(record, record.comments.map(runtimeRecord)) : [];
-	return {
-		id: stringValue(record.id),
-		threadId: stringValue(record.id),
-		world: `w/${stringValue(record.worldHandle) ?? "unknown"}`,
-		forum: `f/${stringValue(record.forumHandle) ?? "unknown"}`,
-		title: stringValue(rootPost.title) ?? "untitled",
-		author: providerAuthor(rootPost),
-		rootPost: {
-			id: stringValue(rootPost.id),
-			title: stringValue(rootPost.title) ?? "untitled",
-			body: stringValue(rootPost.body) ?? "",
-			author: providerAuthor(rootPost),
-			createdAt: stringValue(rootPost.createdAt),
-		},
-		comments,
-		commentCount: numberValue(record.commentCount),
-		voteScore: numberValue(record.voteScore),
-		lastActivityAt: stringValue(record.lastActivityAt),
-	};
-}
-
-function providerThreadCommentTree(thread: Record<string, unknown>, comments: Record<string, unknown>[]): Record<string, unknown>[] {
-	return providerNestedCommentList(comments.map((comment) => providerThreadComment(thread, comment)));
-}
-
-function providerThreadComment(thread: Record<string, unknown>, comment: Record<string, unknown>): Record<string, unknown> {
-	return {
-		type: "comment",
-		id: stringValue(comment.id),
-		commentId: stringValue(comment.id),
-		threadId: stringValue(comment.threadId) ?? stringValue(thread.id),
-		...(stringValue(comment.parentCommentId) ? { parentCommentId: stringValue(comment.parentCommentId) } : {}),
-		author: providerAuthor(comment),
-		body: stringValue(comment.body) ?? "",
-		voteScore: numberValue(comment.voteScore),
-		createdAt: stringValue(comment.createdAt),
-		replies: Array.isArray(comment.replies) ? providerThreadCommentTree(thread, comment.replies.map(runtimeRecord)) : [],
-	};
-}
-
 function providerNestedCommentList(comments: Record<string, unknown>[]): Record<string, unknown>[] {
 	const byId = new Map<string, Record<string, unknown>>();
 	const ordered = comments.map((comment) => {
@@ -5484,6 +5446,56 @@ function isProviderComment(record: Record<string, unknown>): boolean {
 
 function providerCommentId(record: Record<string, unknown>): string | undefined {
 	return stringValue(record.commentId) ?? stringValue(record.id);
+}
+
+function providerCommentReference(thread: Record<string, unknown>, comment: Record<string, unknown>): Record<string, unknown> {
+	const commentId = providerCommentId(comment);
+	const threadId = stringValue(comment.threadId) ?? stringValue(thread.id) ?? stringValue(thread.threadId);
+	const worldHandle = stringValue(thread.worldHandle);
+	const forumHandle = stringValue(thread.forumHandle);
+	return {
+		type: "comment",
+		id: commentId,
+		commentId,
+		threadId,
+		...(stringValue(comment.parentCommentId) ? { parentCommentId: stringValue(comment.parentCommentId) } : {}),
+		...(worldHandle ? { world: `w/${worldHandle}` } : {}),
+		...(forumHandle ? { forum: `f/${forumHandle}` } : {}),
+		...(worldHandle && forumHandle && threadId && commentId ? { urlPath: commentUrlPathFromParts(worldHandle, forumHandle, threadId, commentId) } : {}),
+		createdAt: stringValue(comment.createdAt),
+	};
+}
+
+function providerThreadReference(thread: Record<string, unknown>): Record<string, unknown> {
+	const threadId = stringValue(thread.id) ?? stringValue(thread.threadId);
+	const worldHandle = stringValue(thread.worldHandle);
+	const forumHandle = stringValue(thread.forumHandle);
+	const rootPost = runtimeRecord(thread.rootPost);
+	const title = stringValue(thread.title) ?? stringValue(rootPost.title);
+	return {
+		type: "thread",
+		id: threadId,
+		threadId,
+		...(worldHandle ? { world: `w/${worldHandle}` } : {}),
+		...(forumHandle ? { forum: `f/${forumHandle}` } : {}),
+		...(title ? { title } : {}),
+		...(worldHandle && forumHandle && threadId ? { urlPath: `/w/${encodeURIComponent(worldHandle)}/f/${encodeURIComponent(forumHandle)}/t/${encodeURIComponent(threadId)}` } : {}),
+	};
+}
+
+function providerVoteTargetReference(thread: Record<string, unknown>, vote: Record<string, unknown>): Record<string, unknown> {
+	const targetType = stringValue(vote.targetType) === "comment" ? "comment" : "thread";
+	const targetId = stringValue(vote.targetId);
+	if (targetType === "comment") {
+		const comment = allThreadCommentRecords(thread).find((item) => providerCommentId(item) === targetId);
+		return comment ? providerCommentReference(thread, comment) : {
+			type: "comment",
+			id: targetId,
+			commentId: targetId,
+			threadId: stringValue(thread.id) ?? stringValue(thread.threadId),
+		};
+	}
+	return providerThreadReference(thread);
 }
 
 function replyCommentFromThread(thread: Record<string, unknown>, args: Record<string, unknown>): Record<string, unknown> | null {

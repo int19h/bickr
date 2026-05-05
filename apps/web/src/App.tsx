@@ -8232,11 +8232,12 @@ function readableToolResultContent(name: string, value: unknown, args?: JsonReco
 
 function ReadablePostingReply({ args, result }: { args: JsonRecord; result?: unknown }) {
 	const thread = threadRecordFromReadableMutation(result);
+	const createdComment = createdReplyCommentFromReadableMutation(result, args);
 	const targetCommentId = stringValue(args.parentCommentId);
 	const targetComment = targetCommentId ? findReadableComment(thread, targetCommentId) : {};
-	const threadId = stringValue(args.threadId) ?? stringValue(thread.threadId ?? thread.id);
-	const worldHandle = worldHandleFromRecord(thread) ?? worldHandleFromRecord(args);
-	const forumHandle = forumHandleFromRecord(thread) ?? forumHandleFromRecord(args);
+	const threadId = stringValue(args.threadId) ?? stringValue(createdComment.threadId) ?? stringValue(thread.threadId ?? thread.id);
+	const worldHandle = worldHandleFromRecord(thread) ?? worldHandleFromRecord(createdComment) ?? worldHandleFromRecord(args);
+	const forumHandle = forumHandleFromRecord(thread) ?? forumHandleFromRecord(createdComment) ?? forumHandleFromRecord(args);
 	const replyBody = textValueForDisplay(args.body);
 	const targetBody = textValueForDisplay(targetComment.body);
 	const title = stringValue(thread.title) ?? stringValue(recordValue(thread.rootPost).title);
@@ -8279,7 +8280,7 @@ function ReadablePostedReplyResult({ args, value }: { args: JsonRecord; value: u
 					title={commentId ? undefined : title}
 					worldHandle={worldHandle}
 				/>
-				{title || threadId ?
+				{title ?
 					<>
 						<span>in</span>
 						<ThreadReference
@@ -8491,7 +8492,7 @@ function ReadableReadResult({ value }: { value: unknown }) {
 }
 
 function ReadableThreadDocument({ value }: { value: unknown }) {
-	const thread = recordValue(value);
+	const thread = threadRecordFromReadableMutation(value);
 	const rootPost = recordValue(thread.rootPost);
 	const title = stringValue(thread.title) ?? stringValue(rootPost.title);
 	const body = textValueForDisplay(rootPost.body);
@@ -8522,15 +8523,17 @@ function ReadableVoteResult({ value }: { value: unknown }) {
 		<div className="tool-pretty tool-list">
 			{items.map((item, index) => {
 				const record = recordValue(item);
-				const thread = recordValue(record.thread);
+				const target = recordValue(record.target);
+				const targetType = stringValue(record.targetType) ?? stringValue(target.type);
+				const thread = Object.keys(target).length > 0 ? target : recordValue(record.thread);
 				return (
 					<div className="tool-pretty-item" key={`vote-${index}`}>
 						<span>{voteActionLabel(numberValue(record.value))}</span>
 						<ThreadReference
-							commentId={stringValue(record.commentId ?? (stringValue(record.targetType) === "comment" ? record.targetId : undefined))}
+							commentId={stringValue(target.commentId ?? record.commentId ?? (targetType === "comment" ? record.targetId : undefined))}
 							forumHandle={forumHandleFromRecord(thread)}
-							label={stringValue(record.targetType) === "comment" ? "reply" : stringValue(thread.title) ?? "thread"}
-							threadId={stringValue(thread.threadId ?? thread.id ?? (stringValue(record.targetType) === "thread" ? record.targetId : undefined))}
+							label={targetType === "comment" ? "comment" : stringValue(thread.title) ?? "thread"}
+							threadId={stringValue(thread.threadId ?? thread.id ?? (targetType === "thread" ? record.targetId : undefined))}
 							title={stringValue(thread.title)}
 							worldHandle={worldHandleFromRecord(thread)}
 						/>
