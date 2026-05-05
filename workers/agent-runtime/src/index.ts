@@ -230,6 +230,15 @@ type ProviderPromptBudgetCheck = {
 	requestMessages: ChatMessage[];
 };
 
+type ProviderPromptTokenEstimate = {
+	promptTokens: number;
+	source: "baseline_plus_delta" | "full_estimate";
+	baselinePromptTokens?: number;
+	baselineMessageCount?: number;
+	estimatedDeltaTokens?: number;
+	calibrationSampleCount: number;
+};
+
 type ProviderUsageRow = {
 	created_at: string;
 	run_id: string;
@@ -251,6 +260,11 @@ type PromptTokenCalibrationRow = {
 	purpose: BotInferenceSubmissionPurpose;
 	messages_json: string;
 	prompt_tokens: number;
+};
+
+type PromptTokenBaselineRow = PromptTokenCalibrationRow & {
+	model: string;
+	provider_base_url: string;
 };
 
 type ToolFailurePayload = {
@@ -649,6 +663,8 @@ const inferenceSubmissionRetentionCount = 50;
 const loopMessageLogRetentionCount = 50;
 const loopMessageLogChunkLength = 250_000;
 const compactionRowTokenFraction = 0.7;
+const providerPromptEstimateSafetyTokens = 512;
+const providerCompactionMaxPromptEstimateTokens = 120_000;
 const fallbackTokensPerCharacter = 0.25;
 const minCalibratedTokensPerCharacter = 1 / 12;
 const maxCalibratedTokensPerCharacter = 1;
@@ -2153,44 +2169,6 @@ export class BotRuntime {
 			try {
 				const response = await this.fetchProviderCompactionResponse(settings, endpoint, body, signal);
 				return { ...response, requestBody: body };
-			} catch (error) {
-				if (error instanceof TickStoppedError || isAbortError(error)) {
-					throw error;
-				}
-				const retryKey = providerRetryKey(error);
-				if (retryKey && attempt < providerMaxAttempts && (previousRetryKey === null || previousRetryKey === retryKey)) {
-					previousRetryKey = retryKey;
-					continue;
-				}
-				throw error;
-			}
-		}
-		throw new ProviderRequestTimeoutError(providerRequestTimeoutMs);
-	}
-
-	private async callProviderForTokenProbe(
-		settings: ProviderSettings,
-		messages: ChatMessage[],
-		tools: ProviderToolDefinition[],
-		runId: string,
-		signal: AbortSignal,
-	): Promise<ProviderUsage> {
-		let previousRetryKey: string | null = null;
-		for (let attempt = 1; attempt <= providerMaxAttempts; attempt += 1) {
-			this.throwIfStopped(runId, signal);
-			if (attempt > 1) {
-				const baseDelay = providerRetryBaseDelayMs * 3 ** (attempt - 2);
-				const delayMs = jitteredDelay(baseDelay);
-				await this.appendEvent(runId, "provider_retry", {
-					attempt,
-					maxAttempts: providerMaxAttempts,
-					delayMs,
-					reason: previousRetryKey,
-				});
-				await sleep(delayMs, signal);
-			}
-			try {
-				return await this.fetchPromptTokenProbeUsage(settings, messages, tools, signal);
 			} catch (error) {
 				if (error instanceof TickStoppedError || isAbortError(error)) {
 					throw error;
@@ -3957,11 +3935,14 @@ export class BotRuntime {
 			return;
 		}
 
-		const compacted = oldestLoopMessageGroupsForTokenFraction(contextEstimate.rows, compactionRowTokenFraction);
+		const compacted = this.compactionRowsForEstimatedBudget(bot, runId, true);
 		if (compacted.length === 0) {
 			return;
 		}
-		await this.compactLoopMessageRows(bot, settings, runId, signal, compacted, "auto", { estimatedContextTokens: total, threshold });
+		await this.compactLoopMessageRows(bot, settings, runId, signal, compacted, "auto", {
+			estimatedContextTokens: total,
+			threshold,
+		});
 	}
 
 	private async ensureProviderPromptWithinBudget(
@@ -3975,38 +3956,35 @@ export class BotRuntime {
 		for (;;) {
 			this.throwIfStopped(runId, signal);
 			const requestMessages = this.activeProviderRequestMessages(bot);
-			const usage = await this.callProviderForTokenProbe(settings, requestMessages, providerTools, runId, signal);
-			const overBudgetTokens = Math.max(0, usage.promptTokens - allowedPromptTokens);
-			const probeEvent = await this.appendEvent(runId, "provider_token_probe", {
+			const estimate = this.estimateProviderPromptTokens(settings, requestMessages, providerTools);
+			const overBudgetTokens = Math.max(0, estimate.promptTokens - allowedPromptTokens);
+			await this.appendEvent(runId, "provider_token_estimate", {
 				model: settings.model,
 				messageCount: requestMessages.length,
 				toolCount: providerTools.length,
 				contextWindowTokens: bot.tickSettings.contextWindowTokens,
 				maxCompletionTokens: providerContextReserveTokens,
-				promptTokens: usage.promptTokens,
+				promptTokens: estimate.promptTokens,
 				allowedPromptTokens,
 				overBudgetTokens,
-			});
-			this.recordProviderUsage({
-				contextWindowTokens: bot.tickSettings.contextWindowTokens,
-				createdAt: probeEvent.createdAt,
-				requestSeq: probeEvent.seq,
-				runId,
-				settings,
-				usage,
+				source: estimate.source,
+				calibrationSampleCount: estimate.calibrationSampleCount,
+				...(estimate.baselinePromptTokens !== undefined ? { baselinePromptTokens: estimate.baselinePromptTokens } : {}),
+				...(estimate.baselineMessageCount !== undefined ? { baselineMessageCount: estimate.baselineMessageCount } : {}),
+				...(estimate.estimatedDeltaTokens !== undefined ? { estimatedDeltaTokens: estimate.estimatedDeltaTokens } : {}),
 			});
 			if (overBudgetTokens === 0) {
-				return { allowedPromptTokens, promptTokens: usage.promptTokens, requestMessages };
+				return { allowedPromptTokens, promptTokens: estimate.promptTokens, requestMessages };
 			}
-			const compacted = this.compactionRowsForExactBudget(runId, false);
+			const compacted = this.compactionRowsForEstimatedBudget(bot, runId, false);
 			const currentRunIncluded = compacted.length === 0;
-			const rowsToCompact = currentRunIncluded ? this.compactionRowsForExactBudget(runId, true) : compacted;
+			const rowsToCompact = currentRunIncluded ? this.compactionRowsForEstimatedBudget(bot, runId, true) : compacted;
 			if (rowsToCompact.length === 0) {
-				throw new PromptContextBudgetExceededError(usage.promptTokens, allowedPromptTokens);
+				throw new PromptContextBudgetExceededError(estimate.promptTokens, allowedPromptTokens);
 			}
 			await this.compactLoopMessageRows(bot, settings, runId, signal, rowsToCompact, "auto", {
 				allowedPromptTokens,
-				exactPromptTokens: usage.promptTokens,
+				estimatedPromptTokens: estimate.promptTokens,
 				...(currentRunIncluded ? { currentRunIncluded: true } : {}),
 				overBudgetTokens,
 				threshold: allowedPromptTokens,
@@ -4025,15 +4003,70 @@ export class BotRuntime {
 		return Math.max(1, Math.floor(bot.tickSettings.contextWindowTokens) - providerContextReserveTokens);
 	}
 
-	private compactionRowsForExactBudget(runId: string, includeCurrentRun: boolean): LoopMessageRow[] {
+	private estimateProviderPromptTokens(
+		settings: ProviderSettings,
+		requestMessages: ChatMessage[],
+		providerTools: ProviderToolDefinition[],
+	): ProviderPromptTokenEstimate {
 		const calibration = this.textTokenCalibration();
-		const rows = this.compactionCandidateRows()
-			.filter((row) => includeCurrentRun || row.run_id !== runId)
-			.map((row) => ({
-				row,
-				tokens: estimateTextTokensWithCalibration(loopMessageContextLine(row), calibration),
-			}));
-		return oldestLoopMessageGroupsForTokenFraction(rows, compactionRowTokenFraction);
+		const baseline = this.latestCompatiblePromptTokenBaseline(settings, requestMessages);
+		if (baseline) {
+			const deltaMessages = requestMessages.slice(baseline.messages.length);
+			const estimatedDeltaTokens = estimateChatMessagesTokens(deltaMessages, calibration);
+			return {
+				promptTokens: baseline.promptTokens + estimatedDeltaTokens + providerPromptEstimateSafetyTokens,
+				source: "baseline_plus_delta",
+				baselinePromptTokens: baseline.promptTokens,
+				baselineMessageCount: baseline.messages.length,
+				estimatedDeltaTokens,
+				calibrationSampleCount: calibration.sampleCount,
+			};
+		}
+		return {
+			promptTokens:
+				estimateChatMessagesTokens(requestMessages, calibration) +
+				estimateTextTokensWithCalibration(JSON.stringify(providerTools), calibration) +
+				providerPromptEstimateSafetyTokens,
+			source: "full_estimate",
+			calibrationSampleCount: calibration.sampleCount,
+		};
+	}
+
+	private latestCompatiblePromptTokenBaseline(
+		settings: ProviderSettings,
+		requestMessages: ChatMessage[],
+	): { messages: ChatMessage[]; promptTokens: number } | null {
+		const rows = this.state.storage.sql
+			.exec<PromptTokenBaselineRow>(
+				`SELECT s.event_seq, s.run_id, s.purpose, s.messages_json, s.model, s.provider_base_url, u.prompt_tokens
+				 FROM inference_submissions s
+				 JOIN provider_usage u
+				   ON u.request_seq = s.event_seq
+				  AND u.run_id = s.run_id
+				 WHERE s.purpose = 'loop'
+				   AND s.model = ?
+				   AND s.provider_base_url = ?
+				   AND u.prompt_tokens > 0
+				 ORDER BY s.event_seq DESC
+				 LIMIT 20`,
+				settings.model,
+				settings.baseUrl,
+			)
+			.toArray();
+		for (const row of rows) {
+			const messages = parseChatMessagesJson(row.messages_json);
+			if (messages && chatMessagesArePrefix(messages, requestMessages)) {
+				return { messages, promptTokens: Math.max(0, Math.floor(row.prompt_tokens)) };
+			}
+		}
+		return null;
+	}
+
+	private compactionRowsForEstimatedBudget(bot: BotDocument, runId: string, includeCurrentRun: boolean): LoopMessageRow[] {
+		const calibration = this.textTokenCalibration();
+		const rows = this.compactionCandidateEstimates(calibration)
+			.filter((item) => includeCurrentRun || item.row.run_id !== runId);
+		return oldestLoopMessageGroupsForPromptLimit(rows, this.compactionPromptTokenLimit(bot));
 	}
 
 	private async manualCompactLoopMessages(botId: string): Promise<{ fromSeq?: number; toSeq?: number; messageCount: number }> {
@@ -4049,8 +4082,45 @@ export class BotRuntime {
 			return { messageCount: 0 };
 		}
 		const runId = crypto.randomUUID();
-		await this.compactLoopMessageRows(bot, settings, runId, new AbortController().signal, rows, "manual", {});
+		await this.compactLoopMessageRowsInBatches(bot, settings, runId, new AbortController().signal, rows, "manual", {});
 		return { fromSeq: rows[0]?.seq, toSeq: rows[rows.length - 1]?.seq, messageCount: rows.length };
+	}
+
+	private async compactLoopMessageRowsInBatches(
+		bot: BotDocument,
+		settings: ProviderSettings,
+		runId: string,
+		signal: AbortSignal,
+		rows: LoopMessageRow[],
+		mode: "auto" | "manual",
+		metrics: {
+			allowedPromptTokens?: number;
+			currentRunIncluded?: boolean;
+			estimatedContextTokens?: number;
+			estimatedPromptTokens?: number;
+			exactPromptTokens?: number;
+			overBudgetTokens?: number;
+			threshold?: number;
+		},
+	): Promise<void> {
+		let remaining = rows;
+		let batchIndex = 0;
+		while (remaining.length > 0) {
+			const calibration = this.textTokenCalibration();
+			const estimates = remaining.map((row) => ({
+				row,
+				tokens: estimateChatMessageTokens(loopMessageChatMessageFromRow(row), calibration),
+			}));
+			const batch = oldestLoopMessageGroupsForPromptLimit(estimates, this.compactionPromptTokenLimit(bot));
+			const selected = batch.length > 0 ? batch : [remaining[0]!];
+			await this.compactLoopMessageRows(bot, settings, runId, signal, selected, mode, {
+				...metrics,
+				...(rows.length !== selected.length ? { batchIndex } : {}),
+			});
+			const selectedSeqs = new Set(selected.map((row) => row.seq));
+			remaining = remaining.filter((row) => !selectedSeqs.has(row.seq));
+			batchIndex += 1;
+		}
 	}
 
 	private async compactLoopMessageRows(
@@ -4064,6 +4134,7 @@ export class BotRuntime {
 			allowedPromptTokens?: number;
 			currentRunIncluded?: boolean;
 			estimatedContextTokens?: number;
+			estimatedPromptTokens?: number;
 			exactPromptTokens?: number;
 			overBudgetTokens?: number;
 			threshold?: number;
@@ -4171,10 +4242,7 @@ export class BotRuntime {
 		calibration: TextTokenCalibration;
 	} {
 		const calibration = this.textTokenCalibration();
-		const rows = this.compactionCandidateRows().map((row) => ({
-			row,
-			tokens: estimateTextTokensWithCalibration(loopMessageContextLine(row), calibration),
-		}));
+		const rows = this.compactionCandidateEstimates(calibration);
 		const rowTokens = rows.reduce((total, item) => total + item.tokens, 0);
 		return {
 			totalTokens: rowTokens,
@@ -4186,6 +4254,21 @@ export class BotRuntime {
 
 	private compactionCandidateRows(): LoopMessageRow[] {
 		return this.activeLoopMessageRows();
+	}
+
+	private compactionCandidateEstimates(calibration = this.textTokenCalibration()): CompactionCandidateEstimate[] {
+		return this.compactionCandidateRows().map((row) => ({
+			row,
+			tokens: estimateChatMessageTokens(loopMessageChatMessageFromRow(row), calibration),
+		}));
+	}
+
+	private compactionPromptTokenLimit(bot: BotDocument): number {
+		const scaledLimit = Math.max(
+			this.allowedProviderPromptTokens(bot),
+			Math.floor(bot.tickSettings.contextWindowTokens * 8) - providerCompactionMaxCompletionTokens,
+		);
+		return Math.max(1, Math.min(providerCompactionMaxPromptEstimateTokens, scaledLimit));
 	}
 
 	private textTokenCalibration(): TextTokenCalibration {
@@ -6514,7 +6597,7 @@ function sanitizeStoredContextSummary(summary: string): string {
 }
 
 function isRuntimeMetaContextLine(line: string): boolean {
-	return /^(provider_request|provider_token_probe|provider_retry|tick_started|tick_completed|tick_failed|tick_stopped|tick_stop_requested)\b/.test(line);
+	return /^(provider_request|provider_token_probe|provider_token_estimate|provider_retry|tick_started|tick_completed|tick_failed|tick_stopped|tick_stop_requested)\b/.test(line);
 }
 
 function injectedThoughtAssistantContent(text: string, payload: Record<string, unknown>): string {
@@ -6652,6 +6735,12 @@ export function formatRuntimeEventForContext(
 			const allowedPromptTokens = integerValue(payload.allowedPromptTokens);
 			const overBudgetTokens = integerValue(payload.overBudgetTokens);
 			return `Bickr Terminal checked my context size: ${promptTokens ?? "?"} prompt tokens, limit ${allowedPromptTokens ?? "?"}${overBudgetTokens ? `, over by ${overBudgetTokens}` : ""}.`;
+		}
+		case "provider_token_estimate": {
+			const promptTokens = integerValue(payload.promptTokens);
+			const allowedPromptTokens = integerValue(payload.allowedPromptTokens);
+			const overBudgetTokens = integerValue(payload.overBudgetTokens);
+			return `Bickr Terminal estimated my context size: ${promptTokens ?? "?"} prompt tokens, limit ${allowedPromptTokens ?? "?"}${overBudgetTokens ? `, over by ${overBudgetTokens}` : ""}.`;
 		}
 		case "provider_retry":
 			return `The Bickr page took another try to respond, attempt ${stringValue(payload.attempt) ?? "?"} of ${stringValue(payload.maxAttempts) ?? "?"}.`;
@@ -7262,6 +7351,18 @@ function estimateTextTokensWithCalibration(text: string, calibration: TextTokenC
 	return Math.max(1, Math.ceil(text.length * calibration.tokensPerCharacter));
 }
 
+function estimateChatMessageTokens(message: ChatMessage, calibration: TextTokenCalibration): number {
+	return estimateChatMessagesTokens([message], calibration);
+}
+
+function estimateChatMessagesTokens(messages: readonly ChatMessage[], calibration: TextTokenCalibration): number {
+	const characters = chatMessagesCharacterCount(messages);
+	if (characters <= 0) {
+		return 0;
+	}
+	return Math.max(1, Math.ceil(characters * calibration.tokensPerCharacter));
+}
+
 export function oldestRowsForTokenFraction<T>(
 	rows: readonly { row: T; tokens: number }[],
 	fraction: number,
@@ -7277,6 +7378,29 @@ export function oldestRowsForTokenFraction<T>(
 		selected.push(item.row);
 		selectedTokens += Math.max(0, item.tokens);
 		if (selectedTokens >= targetTokens) {
+			break;
+		}
+	}
+	return selected;
+}
+
+function oldestLoopMessageGroupsForPromptLimit(
+	rows: readonly CompactionCandidateEstimate[],
+	limitTokens: number,
+): LoopMessageRow[] {
+	const groups = loopMessageCompactionGroups(rows);
+	const selected: LoopMessageRow[] = [];
+	let selectedTokens = 0;
+	for (const group of groups) {
+		if (!group.complete) {
+			continue;
+		}
+		if (selected.length > 0 && selectedTokens + group.tokens > limitTokens) {
+			break;
+		}
+		selected.push(...group.rows);
+		selectedTokens += group.tokens;
+		if (selectedTokens >= limitTokens * compactionRowTokenFraction) {
 			break;
 		}
 	}
@@ -7356,12 +7480,29 @@ function addTokenCalibrationSample(samples: number[], tokens: number, characters
 }
 
 function chatMessagesCharacterCountFromJson(messagesJson: string): number {
+	const messages = parseChatMessagesJson(messagesJson);
+	return messages ? chatMessagesCharacterCount(messages) : 0;
+}
+
+function parseChatMessagesJson(messagesJson: string): ChatMessage[] | null {
 	try {
 		const parsed = JSON.parse(messagesJson) as unknown;
-		return Array.isArray(parsed) ? chatMessagesCharacterCount(parsed as ChatMessage[]) : 0;
+		return Array.isArray(parsed) ? parsed as ChatMessage[] : null;
 	} catch {
-		return 0;
+		return null;
 	}
+}
+
+function chatMessagesArePrefix(prefix: readonly ChatMessage[], messages: readonly ChatMessage[]): boolean {
+	if (prefix.length > messages.length) {
+		return false;
+	}
+	for (let index = 0; index < prefix.length; index += 1) {
+		if (JSON.stringify(prefix[index]) !== JSON.stringify(messages[index])) {
+			return false;
+		}
+	}
+	return true;
 }
 
 function chatMessagesCharacterCount(messages: readonly ChatMessage[]): number {
@@ -7939,31 +8080,6 @@ function chunkText(text: string, chunkLength: number): string[] {
 		chunks.push(text.slice(index, index + chunkLength));
 	}
 	return chunks;
-}
-
-function oldestLoopMessageGroupsForTokenFraction(
-	rows: readonly CompactionCandidateEstimate[],
-	fraction: number,
-): LoopMessageRow[] {
-	const groups = loopMessageCompactionGroups(rows);
-	const totalTokens = groups.reduce((total, group) => total + (group.complete ? group.tokens : 0), 0);
-	if (totalTokens <= 0 || fraction <= 0) {
-		return [];
-	}
-	const targetTokens = Math.ceil(totalTokens * Math.min(1, fraction));
-	const selected: LoopMessageRow[] = [];
-	let selectedTokens = 0;
-	for (const group of groups) {
-		if (!group.complete) {
-			continue;
-		}
-		selected.push(...group.rows);
-		selectedTokens += group.tokens;
-		if (selectedTokens >= targetTokens) {
-			break;
-		}
-	}
-	return selected;
 }
 
 function loopMessageCompactionGroups(

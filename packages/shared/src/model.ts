@@ -727,6 +727,7 @@ export type BotRuntimeEventType =
 	| "input"
 	| "provider_request"
 	| "provider_token_probe"
+	| "provider_token_estimate"
 	| "provider_retry"
 	| "provider_delta"
 	| "reasoning_message"

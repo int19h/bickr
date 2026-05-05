@@ -128,6 +128,18 @@ export function runtimeActivities(events: BotRuntimeEvent[], fallbackWorldHandle
 					raw: event,
 				});
 				break;
+			case "provider_token_estimate":
+				finishRunStreams(streams, event.runId);
+				activities.push({
+					id: `event-${event.seq}`,
+					seq: event.seq,
+					createdAt: event.createdAt,
+					kind: "provider",
+					title: "Token budget estimate",
+					meta: providerTokenProbeMeta(payload),
+					raw: event,
+				});
+				break;
 			case "provider_retry":
 				finishRunStreams(streams, event.runId);
 				activities.push({

@@ -5590,7 +5590,7 @@ describe("Bickr Pages Functions", () => {
 				}
 				return providerResponseWithToolCall("call-log-off", "log_off", { reason: "I have handled the repeat-reply situation." });
 			},
-			callProviderForTokenProbe: async () => providerUsageForPromptTokens(1_000),
+			estimateProviderPromptTokens: () => providerPromptEstimateForTokens(1_000),
 			recordInferenceSubmission: () => {},
 		});
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
@@ -5662,7 +5662,7 @@ describe("Bickr Pages Functions", () => {
 				}
 				return providerResponseWithToolCall("call-log-off", "log_off", { reason: "I have handled the tool failure." });
 			},
-			callProviderForTokenProbe: async () => providerUsageForPromptTokens(1_000),
+			estimateProviderPromptTokens: () => providerPromptEstimateForTokens(1_000),
 			recordInferenceSubmission: () => {},
 		});
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
@@ -5748,7 +5748,7 @@ describe("Bickr Pages Functions", () => {
 				}
 				return providerResponseWithToolCall("call-log-off", "log_off", { reason: "I saw every parallel tool result." });
 			},
-			callProviderForTokenProbe: async () => providerUsageForPromptTokens(1_000),
+			estimateProviderPromptTokens: () => providerPromptEstimateForTokens(1_000),
 			recordInferenceSubmission: () => {},
 		});
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
@@ -5790,14 +5790,14 @@ describe("Bickr Pages Functions", () => {
 		expect(acknowledgementIndex).toBeGreaterThan(toolMessageIndexes[5]!);
 	});
 
-	it("compacts old context after exact token probes before provider inference", async () => {
+	it("compacts old context from local token estimates before provider inference", async () => {
 		let activeMessages: Array<Record<string, unknown>> = [
 			{ role: "assistant", content: "Old history that can be compacted." },
 			{ role: "assistant", content: "Current notification setup must remain." },
 		];
 		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
 		const providerRequests: Array<Array<Record<string, unknown>>> = [];
-		const probeRequests: Array<Array<Record<string, unknown>>> = [];
+		const callProviderForTokenProbe = vi.fn();
 		const recordInferenceSubmission = vi.fn();
 		const compactedRows: unknown[][] = [];
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
@@ -5812,10 +5812,9 @@ describe("Bickr Pages Functions", () => {
 				providerRequests.push(messages);
 				return providerResponseWithContent("I have enough context now.");
 			},
-			callProviderForTokenProbe: async (_settings: unknown, messages: Array<Record<string, unknown>>) => {
-				probeRequests.push(messages);
-				return providerUsageForPromptTokens(messages.some((message) => String(message.content).includes("Old history")) ? 20_000 : 10_000);
-			},
+			callProviderForTokenProbe,
+			estimateProviderPromptTokens: (_settings: unknown, messages: Array<Record<string, unknown>>) =>
+				providerPromptEstimateForTokens(messages.some((message) => String(message.content).includes("Old history")) ? 20_000 : 10_000),
 			compactLoopMessageRows: async (_bot: unknown, _settings: unknown, _runId: string, _signal: AbortSignal, rows: unknown[]) => {
 				compactedRows.push(rows);
 				activeMessages = [
@@ -5823,7 +5822,7 @@ describe("Bickr Pages Functions", () => {
 					{ role: "assistant", content: "Current notification setup must remain." },
 				];
 			},
-			compactionRowsForExactBudget: () =>
+			compactionRowsForEstimatedBudget: () =>
 				activeMessages.some((message) => String(message.content).includes("Old history")) ? [loopMessageRowForTest(1, "run-old", "Old history that can be compacted.")] : [],
 			recordInferenceSubmission,
 			recordLoopMessageLog: () => {},
@@ -5854,18 +5853,17 @@ describe("Bickr Pages Functions", () => {
 			),
 		).resolves.toMatchObject({ logOffCalled: false });
 
-		expect(probeRequests).toHaveLength(2);
-		expect(messageListText(probeRequests[0] ?? [])).toContain("Current notification setup must remain.");
+		expect(callProviderForTokenProbe).not.toHaveBeenCalled();
 		expect(compactedRows).toHaveLength(1);
 		expect(providerRequests).toHaveLength(1);
 		expect(messageListText(providerRequests[0] ?? [])).not.toContain("Old history that can be compacted.");
 		expect(messageListText(providerRequests[0] ?? [])).toContain("I remember the old history");
 		expect(recordInferenceSubmission).toHaveBeenCalledTimes(1);
-		expect(events.map((event) => event.type)).toEqual(["provider_token_probe", "provider_token_probe", "provider_request"]);
+		expect(events.map((event) => event.type)).toEqual(["provider_token_estimate", "provider_token_estimate", "provider_request"]);
 		expect(events[0]?.payload).toMatchObject({ promptTokens: 20_000, allowedPromptTokens: 13_500, overBudgetTokens: 6_500 });
 	});
 
-	it("compacts current tick messages when a mid-tick exact token probe overflows", async () => {
+	it("compacts current tick messages when local prompt estimates overflow", async () => {
 		let activeMessages: Array<Record<string, unknown>> = [
 			{ role: "assistant", content: "Current notification setup must remain." },
 			{ role: "tool", content: "Large current thread read result that overflowed the prompt." },
@@ -5886,8 +5884,9 @@ describe("Bickr Pages Functions", () => {
 				providerRequests.push(messages);
 				return providerResponseWithContent("The large thread read is now summarized.");
 			},
-			callProviderForTokenProbe: async (_settings: unknown, messages: Array<Record<string, unknown>>) =>
-				providerUsageForPromptTokens(messageListText(messages).includes("Large current thread read result") ? 20_000 : 10_000),
+			callProviderForTokenProbe: vi.fn(),
+			estimateProviderPromptTokens: (_settings: unknown, messages: Array<Record<string, unknown>>) =>
+				providerPromptEstimateForTokens(messageListText(messages).includes("Large current thread read result") ? 20_000 : 10_000),
 			compactLoopMessageRows: async (
 				_bot: unknown,
 				_settings: unknown,
@@ -5903,7 +5902,7 @@ describe("Bickr Pages Functions", () => {
 					{ role: "assistant", content: "I remember the large current thread read as a concise summary." },
 				];
 			},
-			compactionRowsForExactBudget: (runId: string, includeCurrentRun: boolean) => {
+			compactionRowsForEstimatedBudget: (_bot: unknown, runId: string, includeCurrentRun: boolean) => {
 				includeCurrentRunCalls.push(includeCurrentRun);
 				return includeCurrentRun && activeMessages.some((message) => String(message.content).includes("Large current")) ?
 					[loopMessageRowForTest(7, runId, "Large current thread read result that overflowed the prompt.")]
@@ -5940,15 +5939,15 @@ describe("Bickr Pages Functions", () => {
 
 		expect(includeCurrentRunCalls).toEqual([false, true]);
 		expect(compactionMetrics).toEqual([
-			expect.objectContaining({ currentRunIncluded: true, overBudgetTokens: 6_500 }),
+			expect.objectContaining({ currentRunIncluded: true, estimatedPromptTokens: 20_000, overBudgetTokens: 6_500 }),
 		]);
 		expect(providerRequests).toHaveLength(1);
 		expect(messageListText(providerRequests[0] ?? [])).not.toContain("Large current thread read result");
 		expect(messageListText(providerRequests[0] ?? [])).toContain("large current thread read as a concise summary");
-		expect(events.map((event) => event.type)).toEqual(["provider_token_probe", "provider_token_probe", "provider_request"]);
+		expect(events.map((event) => event.type)).toEqual(["provider_token_estimate", "provider_token_estimate", "provider_request"]);
 	});
 
-	it("fails before provider inference when current context alone exceeds the exact budget", async () => {
+	it("fails before provider inference when current context alone exceeds the estimated budget", async () => {
 		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
 		const callProvider = vi.fn();
 		const recordInferenceSubmission = vi.fn();
@@ -5959,8 +5958,9 @@ describe("Bickr Pages Functions", () => {
 				return { seq: events.length, runId, type, payload, tokenEstimate: 0, createdAt: new Date().toISOString() };
 			},
 			callProvider,
-			callProviderForTokenProbe: async () => providerUsageForPromptTokens(20_000),
-			compactionRowsForExactBudget: () => [],
+			callProviderForTokenProbe: vi.fn(),
+			estimateProviderPromptTokens: () => providerPromptEstimateForTokens(20_000),
+			compactionRowsForEstimatedBudget: () => [],
 			recordInferenceSubmission,
 			recordProviderUsage: () => {},
 			throwIfStopped: (_runId: string, signal: AbortSignal) => {
@@ -5991,7 +5991,7 @@ describe("Bickr Pages Functions", () => {
 
 		expect(callProvider).not.toHaveBeenCalled();
 		expect(recordInferenceSubmission).not.toHaveBeenCalled();
-		expect(events.map((event) => event.type)).toEqual(["provider_token_probe"]);
+		expect(events.map((event) => event.type)).toEqual(["provider_token_estimate"]);
 		expect(events[0]?.payload).toMatchObject({ promptTokens: 20_000, allowedPromptTokens: 13_500 });
 	});
 
@@ -7350,15 +7350,11 @@ function testLoopMessageMemory(initial: Array<Record<string, unknown>> = []) {
 	};
 }
 
-function providerUsageForPromptTokens(promptTokens: number) {
+function providerPromptEstimateForTokens(promptTokens: number) {
 	return {
 		promptTokens,
-		completionTokens: 1,
-		totalTokens: promptTokens + 1,
-		cachedTokens: 0,
-		reasoningTokens: 0,
-		cost: null,
-		raw: { prompt_tokens: promptTokens, completion_tokens: 1, total_tokens: promptTokens + 1 },
+		source: "full_estimate",
+		calibrationSampleCount: 0,
 	};
 }
 
