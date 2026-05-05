@@ -2235,6 +2235,10 @@ export type ForumContextProfileState = {
 };
 
 export type ForumContextResult = {
+	worldId: string;
+	worldHandle: string;
+	forumId: string;
+	forumHandle: string;
 	threadId: string;
 	title: string;
 	commentId?: string;
@@ -3239,6 +3243,10 @@ export async function buildNotificationForumContext(
 			profileContextState,
 		);
 		return {
+			worldId: thread.worldId,
+			worldHandle: thread.worldHandle,
+			forumId: thread.forumId,
+			forumHandle: thread.forumHandle,
 			threadId: thread.id,
 			title: thread.rootPost.title,
 			content,
@@ -3278,6 +3286,10 @@ export async function buildNotificationForumContext(
 		profileContextState,
 	);
 	return {
+		worldId: thread.worldId,
+		worldHandle: thread.worldHandle,
+		forumId: thread.forumId,
+		forumHandle: thread.forumHandle,
 		threadId: thread.id,
 		title: thread.rootPost.title,
 		commentId: comment.id,

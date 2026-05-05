@@ -67,6 +67,7 @@ import {
 	type OpenRouterWebSearchToolDraft,
 } from "./tool-settings-draft";
 import { prettyJsonText } from "./inference-submission-formatting";
+import { reasoningDetailsTextForDisplay } from "./reasoning-formatting";
 import "./App.css";
 
 type ApiSuccess<T> = { ok: true; data: T };
@@ -7922,7 +7923,7 @@ function ReadableReasoningBlock({ label, text }: { label: string; text: string }
 }
 
 function ReadableReasoningDetails({ details }: { details: unknown[] }) {
-	const text = details.map(reasoningDetailText).filter(Boolean).join("");
+	const text = reasoningDetailsTextForDisplay(details);
 	if (!text) {
 		return (
 			<div className="tool-block readable reasoning-readable">
@@ -7932,14 +7933,6 @@ function ReadableReasoningDetails({ details }: { details: unknown[] }) {
 		);
 	}
 	return <ReadableReasoningBlock label="Reasoning" text={text} />;
-}
-
-function reasoningDetailText(detail: unknown): string {
-	if (typeof detail === "string") {
-		return detail;
-	}
-	const record = recordValue(detail);
-	return stringValue(record.text) ?? stringValue(record.content) ?? stringValue(record.reasoning) ?? "";
 }
 
 function ReadableToolCall({ toolCall }: { toolCall: LoopToolCall }) {
@@ -8200,10 +8193,10 @@ function ReadableNotificationEvent({ event }: { event: JsonRecord }) {
 	return (
 		<div className="readable-event-card">
 			<div className="readable-event-title">{notificationEventHeadline(event)}</div>
-				<div className="readable-event-meta">
-					{forumHandle && <ForumReference forumHandle={forumHandle} worldHandle={worldHandle} />}
-					{stringValue(event.createdAt) && <span>{formatShortDate(String(event.createdAt))}</span>}
-				</div>
+			<div className="readable-event-meta">
+				{forumHandle && <ForumReference forumHandle={forumHandle} worldHandle={worldHandle} />}
+				{stringValue(event.createdAt) && <span>{formatShortDate(String(event.createdAt))}</span>}
+			</div>
 			{text && <ReadableQuote text={text} />}
 		</div>
 	);
@@ -8211,7 +8204,6 @@ function ReadableNotificationEvent({ event }: { event: JsonRecord }) {
 
 function notificationEventHeadline(event: JsonRecord): ReactNode {
 	const type = stringValue(event.type) ?? "system";
-	const actor = recordValue(event.actor);
 	const thread = recordValue(event.thread);
 	const comment = recordValue(event.comment);
 	const replyTo = recordValue(event.replyTo);
@@ -8220,15 +8212,16 @@ function notificationEventHeadline(event: JsonRecord): ReactNode {
 	const vote = recordValue(event.vote);
 	const worldHandle = worldHandleFromRecord(event);
 	const forumHandle = forumHandleFromRecord(event);
+	const actor = firstProfileRecord(event.actor, comment.author, thread.author);
 	const actorNode = <ProfileReference profile={actor} worldHandle={worldHandle} />;
 	const threadNode = (
 		<ThreadReference
 			commentId={stringValue(comment.id)}
-			forumHandle={forumHandle}
+			forumHandle={forumHandleFromRecord(thread) ?? forumHandle}
 			label={stringValue(thread.title) ?? "thread"}
 			threadId={stringValue(comment.threadId) ?? stringValue(thread.id)}
 			title={stringValue(thread.title)}
-			worldHandle={worldHandle}
+			worldHandle={worldHandleFromRecord(thread) ?? worldHandle}
 		/>
 	);
 	switch (type) {
@@ -8927,6 +8920,23 @@ function usernamesFromValue(value: unknown): string[] {
 
 function usernameHandle(value: string | undefined): string | undefined {
 	return value ? stripHandlePrefix(value, "u") ?? value : undefined;
+}
+
+function profileRecordFromValue(value: unknown): JsonRecord {
+	if (typeof value === "string") {
+		return { username: value };
+	}
+	return recordValue(value);
+}
+
+function firstProfileRecord(...values: unknown[]): JsonRecord {
+	for (const value of values) {
+		const profile = profileRecordFromValue(value);
+		if (profileHasHandle(profile)) {
+			return profile;
+		}
+	}
+	return {};
 }
 
 function profileHasHandle(profile: JsonRecord): boolean {

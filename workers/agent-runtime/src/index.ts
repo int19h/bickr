@@ -4370,15 +4370,25 @@ function legacyNotificationEvent(notification: NotificationDocument, context: Fo
 	const content = context?.content ?? [];
 	const threadItem = content.find((item) => item.type === "thread");
 	const commentItem = context?.commentId ? content.find((item) => item.id === context.commentId) : undefined;
+	const actorItem = commentItem ?? threadItem;
 	return {
 		id: notification.id,
 		type: legacyNotificationEventType(notification.notificationType),
 		createdAt: notification.createdAt,
 		deliveryReasons: [legacyNotificationDeliveryReason(notification.notificationType)],
 		message: notification.message,
+		...(actorItem ? { actor: notificationProfileRefFromReadContent(actorItem) } : {}),
 		...(notification.sourceObjectId ? { sourceObjectId: notification.sourceObjectId } : {}),
 		...(context ?
 			{
+				world: {
+					id: context.worldId,
+					handle: `w/${context.worldHandle}`,
+				},
+				forum: {
+					id: context.forumId,
+					handle: `f/${context.forumHandle}`,
+				},
 				thread: {
 					id: context.threadId,
 					title: context.title,

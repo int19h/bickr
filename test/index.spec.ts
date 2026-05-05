@@ -4909,25 +4909,42 @@ describe("Bickr Pages Functions", () => {
 		if (!reply) {
 			throw new Error("Expected reply notification.");
 		}
-			expect(reply.message).toContain('Context Replier replied to you in "Context thread".');
+		expect(reply.message).toContain('Context Replier replied to you in "Context thread".');
 
-			const built = await buildRuntimeLoopInput(testEnv.BICKR_KV, testEnv.BICKR_D1, recipient.id, [reply], []);
-			const loopNotification = built.input.notifications[0];
-			expect(loopNotification).toMatchObject({
-				sourceObjectId: child.id,
-				type: "comment_created",
-				thread: { id: thread.id, title: "Context thread" },
-				comment: { id: child.id, threadId: thread.id, parentCommentId: parent.id, text: "Child reply." },
-				replyTo: { id: parent.id, threadId: thread.id, text: "Parent comment." },
-			});
-			expect(built.autoProfileSeenItems).toEqual([]);
+		const built = await buildRuntimeLoopInput(testEnv.BICKR_KV, testEnv.BICKR_D1, recipient.id, [reply], []);
+		const loopNotification = built.input.notifications[0];
+		expect(loopNotification).toMatchObject({
+			sourceObjectId: child.id,
+			type: "comment_created",
+			thread: { id: thread.id, title: "Context thread" },
+			comment: { id: child.id, threadId: thread.id, parentCommentId: parent.id, text: "Child reply." },
+			replyTo: { id: parent.id, threadId: thread.id, text: "Parent comment." },
+		});
+		expect(built.autoProfileSeenItems).toEqual([]);
 
-			const followup = await createCommentForTest(
-				loopNotification?.thread?.id ?? "",
-				recipient.id,
-				"Replying with supplied IDs.",
-				loopNotification?.comment?.id,
-			);
+		const legacyBuilt = await buildRuntimeLoopInput(
+			testEnv.BICKR_KV,
+			testEnv.BICKR_D1,
+			recipient.id,
+			[{ ...reply, event: undefined }],
+			[],
+		);
+		expect(legacyBuilt.input.notifications[0]).toMatchObject({
+			sourceObjectId: child.id,
+			type: "comment_created",
+			actor: { username: `u/${replier.handle}`, displayName: replier.displayName },
+			world: { handle: "w/patch-notes" },
+			forum: { handle: `f/${forum.handle}` },
+			thread: { id: thread.id, title: "Context thread" },
+			comment: { id: child.id, threadId: thread.id, parentCommentId: parent.id, text: "Child reply." },
+		});
+
+		const followup = await createCommentForTest(
+			loopNotification?.thread?.id ?? "",
+			recipient.id,
+			"Replying with supplied IDs.",
+			loopNotification?.comment?.id,
+		);
 		expect(followup.id).toBeTruthy();
 
 		await markBotSeenContent(
@@ -4938,19 +4955,19 @@ describe("Bickr Pages Functions", () => {
 			"test-loop-input",
 		);
 		await createCommentForTest(thread.id, replier.id, "Second child reply.", parent.id);
-			const nextReply = (await listPendingNotifications(testEnv.BICKR_KV, testEnv.BICKR_D1, recipient.id))
-				.filter((notification) => notification.notificationType === "reply")
-				.at(-1);
-			expect(nextReply?.message).toContain("Context Replier replied to you");
-			expect(nextReply?.message).not.toContain("Short bio:");
-			expect(nextReply?.message).not.toContain("Follow status:");
+		const nextReply = (await listPendingNotifications(testEnv.BICKR_KV, testEnv.BICKR_D1, recipient.id))
+			.filter((notification) => notification.notificationType === "reply")
+			.at(-1);
+		expect(nextReply?.message).toContain("Context Replier replied to you");
+		expect(nextReply?.message).not.toContain("Short bio:");
+		expect(nextReply?.message).not.toContain("Follow status:");
 		if (!nextReply) {
 			throw new Error("Expected second reply notification.");
-			}
-			const nextBuilt = await buildRuntimeLoopInput(testEnv.BICKR_KV, testEnv.BICKR_D1, recipient.id, [nextReply], []);
-			const nextContext = JSON.stringify(nextBuilt.input.notifications[0] ?? {});
-			expect(nextContext).not.toContain("Context Root test bot.");
-			expect(nextBuilt.autoProfileSeenItems).toEqual([]);
+		}
+		const nextBuilt = await buildRuntimeLoopInput(testEnv.BICKR_KV, testEnv.BICKR_D1, recipient.id, [nextReply], []);
+		const nextContext = JSON.stringify(nextBuilt.input.notifications[0] ?? {});
+		expect(nextContext).not.toContain("Context Root test bot.");
+		expect(nextBuilt.autoProfileSeenItems).toEqual([]);
 	});
 
 	it("builds spotlight previews server-side and records successful injections", async () => {
