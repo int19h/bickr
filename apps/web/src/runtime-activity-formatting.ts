@@ -718,15 +718,33 @@ function postSearchItem(record: Record<string, unknown>, index: number, fallback
 	const threadId = stringValue(record.threadId);
 	const commentId = stringValue(record.commentId);
 	const forum = forumHandle(record);
-	const target = commentId ? `comment ${shortId(commentId)}` : "thread";
+	const href = threadId ?
+			`/w/${encodeURIComponent(fallbackWorldHandle)}/f/${encodeURIComponent(forum)}/t/${encodeURIComponent(threadId)}${commentId ? `/c/${encodeURIComponent(commentId)}` : ""}`
+		:	undefined;
+	if (commentId) {
+		const author = profileLabel(runtimeRecord(record.author && typeof record.author === "object" ? record.author : record));
+		const title = stringValue(record.title) ?? shortId(threadId) ?? "thread";
+		return {
+			key: `${threadId ?? index}:${commentId}`,
+			label: `Comment by ${author} in ${title}`,
+			detail: trimSearchSnippet(stringValue(record.snippet)),
+			href,
+		};
+	}
 	return {
 		key: `${threadId ?? index}:${commentId ?? "root"}`,
 		label: stringValue(record.title) ?? shortId(threadId),
-		detail: [`f/${forum} · ${target}`, stringValue(record.snippet)].filter(Boolean).join(" · "),
-		href: threadId ?
-				`/w/${encodeURIComponent(fallbackWorldHandle)}/f/${encodeURIComponent(forum)}/t/${encodeURIComponent(threadId)}${commentId ? `/c/${encodeURIComponent(commentId)}` : ""}`
-			:	undefined,
+		detail: [`f/${forum}`, trimSearchSnippet(stringValue(record.snippet))].filter(Boolean).join(" · "),
+		href,
 	};
+}
+
+function trimSearchSnippet(text: string | undefined): string | undefined {
+	const collapsed = text?.trim().replace(/\s+/g, " ");
+	if (!collapsed) {
+		return undefined;
+	}
+	return collapsed.length > 240 ? `${collapsed.slice(0, 237).trimEnd()}...` : collapsed;
 }
 
 function profileItem(
@@ -878,13 +896,13 @@ function countLabel(count: number, singular: string): string {
 }
 
 function profileLabel(profile: Record<string, unknown>): string {
-	const name = stringValue(profile.displayName) ?? "Profile";
+	const name = stringValue(profile.displayName) ?? stringValue(profile.authorDisplayName) ?? "Profile";
 	const handle = profileHandle(profile);
 	return handle ? `${name} (u/${handle})` : name;
 }
 
 function profileHandle(record: Record<string, unknown>): string | undefined {
-	return (stringValue(record.handle) ?? stringValue(record.username))?.replace(/^u\//i, "");
+	return (stringValue(record.handle) ?? stringValue(record.username) ?? stringValue(record.authorHandle))?.replace(/^u\//i, "");
 }
 
 function forumHandle(record: Record<string, unknown>): string {

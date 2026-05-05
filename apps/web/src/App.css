@@ -2607,7 +2607,7 @@ button:disabled {
 }
 
 .tool-pretty.tool-list {
-	align-items: flex-start;
+	align-items: stretch;
 	flex-direction: column;
 	gap: 4px;
 }
@@ -2618,6 +2618,7 @@ button:disabled {
 	flex-wrap: wrap;
 	gap: 6px;
 	min-width: 0;
+	max-width: 100%;
 }
 
 .tool-pretty-label {
@@ -2713,7 +2714,8 @@ button:disabled {
 
 .readable-event-card,
 .readable-profile-card,
-.readable-chain-item {
+.readable-chain-item,
+.readable-search-result {
 	background: color-mix(in oklch, var(--paper-2) 52%, var(--paper));
 	border: 1px solid var(--rule-soft);
 	border-radius: 5px;
@@ -2752,7 +2754,9 @@ button:disabled {
 
 .readable-quote {
 	border-left: 3px solid color-mix(in oklch, var(--accent) 42%, var(--rule));
+	box-sizing: border-box;
 	color: var(--ink-2);
+	display: block;
 	font-size: 12px;
 	line-height: 1.45;
 	margin: 0;
@@ -2760,6 +2764,7 @@ button:disabled {
 	overflow-wrap: break-word;
 	padding: 2px 0 2px 8px;
 	white-space: pre-wrap;
+	width: 100%;
 	word-break: normal;
 }
 

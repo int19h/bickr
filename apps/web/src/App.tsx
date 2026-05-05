@@ -72,7 +72,7 @@ import {
 	removeLiveProviderLoopMessagesForRun,
 	upsertLiveProviderLoopMessage,
 } from "./loop-message-streams";
-import { reasoningDetailsTextForDisplay, textValueForDisplay } from "./reasoning-formatting";
+import { normalizeReadableText, reasoningDetailsTextForDisplay, textValueForDisplay } from "./reasoning-formatting";
 import "./App.css";
 
 type ApiSuccess<T> = { ok: true; data: T };
@@ -7959,7 +7959,7 @@ function LoopMessageReadableView({
 			{message.role === "tool" ?
 				<ReadableToolResult content={content} toolCall={toolCall} />
 			: content ?
-				<div className="loop-readable-text">{content}</div>
+				<div className="loop-readable-text">{normalizeReadableText(content)}</div>
 			:	null}
 			{message.reasoning && <ReadableReasoningBlock label="Reasoning" text={message.reasoning} />}
 			{message.reasoning_content && <ReadableReasoningBlock label="Reasoning" text={message.reasoning_content} />}
@@ -7975,7 +7975,7 @@ function ReadableReasoningBlock({ label, text }: { label: string; text: string }
 	return (
 		<div className="tool-block readable reasoning-readable">
 			<span>{label}</span>
-			<div className="tool-text">{text}</div>
+			<div className="tool-text">{normalizeReadableText(text)}</div>
 		</div>
 	);
 }
@@ -8477,18 +8477,37 @@ function ReadableThreadList({ value }: { value: unknown }) {
 	return (
 		<div className="tool-pretty tool-list">
 			{items.slice(0, 12).map((item, index) => {
-				const thread = recordValue(item);
+				const result = recordValue(item);
+				const isComment = Boolean(stringValue(result.commentId));
+				const author = recordValue(result.author);
+				const authorProfile = profileHasHandle(author) ? author : result;
+				const title = stringValue(result.title) ?? "thread";
+				const snippet = textValueForDisplay(result.snippet);
 				return (
-					<div className="tool-pretty-item" key={`${stringValue(thread.threadId ?? thread.id) ?? "thread"}-${index}`}>
-						<ThreadReference
-							commentId={stringValue(thread.commentId)}
-							forumHandle={forumHandleFromRecord(thread)}
-							label={stringValue(thread.title) ?? "thread"}
-							threadId={stringValue(thread.threadId ?? thread.id)}
-							title={stringValue(thread.title)}
-							worldHandle={worldHandleFromRecord(thread)}
-						/>
-						{profileHasHandle(recordValue(thread.author)) && <ProfileReference profile={recordValue(thread.author)} worldHandle={worldHandleFromRecord(thread)} />}
+					<div className="readable-search-result" key={`${stringValue(result.threadId ?? result.id) ?? "thread"}:${stringValue(result.commentId) ?? "root"}-${index}`}>
+						<div className="readable-event-title">
+							{isComment ?
+								<>
+									<span>Comment by</span>
+									<ProfileReference profile={authorProfile} worldHandle={worldHandleFromRecord(result)} />
+									<span>in</span>
+								</>
+							:	null}
+							<ThreadReference
+								commentId={stringValue(result.commentId)}
+								forumHandle={forumHandleFromRecord(result)}
+								label={title}
+								threadId={stringValue(result.threadId ?? result.id)}
+								title={title}
+								worldHandle={worldHandleFromRecord(result)}
+							/>
+							{!isComment && profileHasHandle(authorProfile) && <ProfileReference profile={authorProfile} worldHandle={worldHandleFromRecord(result)} />}
+						</div>
+						<div className="readable-event-meta">
+							<ForumReference forumHandle={forumHandleFromRecord(result)} worldHandle={worldHandleFromRecord(result)} />
+							{stringValue(result.createdAt) && <span>{formatShortDate(String(result.createdAt))}</span>}
+						</div>
+						{snippet && <ReadableQuote text={trimReadableSnippet(snippet)} />}
 					</div>
 				);
 			})}
@@ -8641,9 +8660,14 @@ function ReadableQuote({ label, text }: { label?: string; text: string }) {
 	return (
 		<blockquote className="readable-quote">
 			{label && <span>{label}</span>}
-			{text}
+			{normalizeReadableText(text)}
 		</blockquote>
 	);
+}
+
+function trimReadableSnippet(text: string): string {
+	const collapsed = normalizeReadableText(text).trim().replace(/\s+/g, " ");
+	return collapsed.length > 240 ? `${collapsed.slice(0, 237).trimEnd()}...` : collapsed;
 }
 
 function ProfileReference({
@@ -8678,12 +8702,14 @@ function ThreadReference({
 	title?: string;
 	worldHandle?: string;
 }) {
-	if (worldHandle && forumHandle && threadId) {
+	const referenceData = useContext(ReferenceDataContext);
+	const effectiveWorldHandle = worldHandle ?? referenceData.activeWorldHandle ?? undefined;
+	if (effectiveWorldHandle && forumHandle && threadId) {
 		return (
 			<SpaLink
 				className="readable-link"
 				title={commentId ? `Open ${title ?? "reply"}` : `Open ${title ?? "thread"}`}
-				to={{ route: "thread", worldHandle, forumHandle, threadId, ...(commentId ? { commentId } : {}) }}
+				to={{ route: "thread", worldHandle: effectiveWorldHandle, forumHandle, threadId, ...(commentId ? { commentId } : {}) }}
 			>
 				{title ?? label}
 			</SpaLink>

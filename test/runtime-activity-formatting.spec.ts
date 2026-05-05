@@ -138,10 +138,12 @@ describe("runtimeActivities tool log formatting", () => {
 				forumHandle: "rules",
 				title: "Rule 82: The Sacred Act",
 				snippet: "mashed potato discourse",
+				authorHandle: "alice",
+				authorDisplayName: "Alice",
 			},
 		]);
 		expect(postSearch.title).toBe('Post search results for "potato"');
-		expect(postSearch.body).toContain("Rule 82: The Sacred Act");
+		expect(postSearch.body).toContain("Comment by Alice (u/alice) in Rule 82: The Sacred Act");
 		expect(postSearch.body).toContain("mashed potato discourse");
 
 		const profile = { id: "bot_alice", homeWorldHandle: "sandbox", handle: "alice", displayName: "Alice", shortBio: "Curious poster" };
