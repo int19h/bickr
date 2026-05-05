@@ -107,7 +107,7 @@ import {
 	searchBots,
 	searchPosts,
 } from "../packages/shared/src/social";
-import { defaultTranslationPrompt, type BotRuntimeEvent, type ThreadDocument, type UserProfile } from "../packages/shared/src/model";
+import { defaultTranslationPrompt, type BotLoopMessageLog, type BotRuntimeEvent, type ThreadDocument, type UserProfile } from "../packages/shared/src/model";
 import { sessionCookieName, type AppEnv } from "../apps/web/functions/api/_auth";
 import { oauthCookieNames } from "../apps/web/functions/api/auth/_oauth";
 
@@ -764,12 +764,16 @@ describe("Bickr Pages Functions", () => {
 		it("records compaction submissions before provider failures and marks the row failed", async () => {
 			const candidates = Array.from({ length: 12 }, (_, index) => ({
 				seq: index + 1,
+				position: index + 1,
 				run_id: "run-compaction-failure",
-				type: "assistant_message",
-				payload_json: JSON.stringify({ content: `Recent activity ${index + 1}` }),
+				role: "assistant",
+				message_json: JSON.stringify({ role: "assistant", content: `Recent activity ${index + 1}` }),
+				origin: "provider_response",
+				status: "complete",
 				token_estimate: 10,
-				created_at: "2026-05-01T00:00:00.000Z",
 				compacted_by: null,
+				created_at: "2026-05-01T00:00:00.000Z",
+				has_logs: 0,
 			}));
 			const appendEvent = vi.fn(async (runId: string, type: string, payload: unknown) => ({
 				seq: 101,
@@ -796,8 +800,6 @@ describe("Bickr Pages Functions", () => {
 						},
 					},
 				},
-				currentCompactionContextTokenEstimate: () => 10_000,
-				latestCompactionSummary: () => "Earlier continuity.",
 				appendEvent,
 				recordInferenceSubmission,
 				callProviderForCompaction: async () => {
@@ -805,21 +807,27 @@ describe("Bickr Pages Functions", () => {
 				},
 				replaceEventPayload,
 			});
-			const compactIfNeeded = (BotRuntime.prototype as unknown as {
-				compactIfNeeded: (
-					bot: { tickSettings: { contextWindowTokens: number; compactionThreshold: number } },
+			const compactLoopMessageRows = (BotRuntime.prototype as unknown as {
+				compactLoopMessageRows: (
+					bot: { tickSettings: { contextWindowTokens: number } },
 					settings: { apiKey: string; baseUrl: string; model: string; temperature: number },
 					runId: string,
 					signal: AbortSignal,
+					rows: unknown[],
+					mode: "auto" | "manual",
+					metrics: { estimatedContextTokens?: number; threshold?: number },
 				) => Promise<void>;
-			}).compactIfNeeded.bind(runtime);
+			}).compactLoopMessageRows.bind(runtime);
 
 			await expect(
-				compactIfNeeded(
-					{ tickSettings: { contextWindowTokens: 100, compactionThreshold: 0.8 } },
+				compactLoopMessageRows(
+					{ tickSettings: { contextWindowTokens: 100 } },
 					{ apiKey: "test-key", baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
 					"run-compaction-failure",
 					new AbortController().signal,
+					candidates,
+					"auto",
+					{ estimatedContextTokens: 10_000, threshold: 80 },
 				),
 			).rejects.toThrow("empty compaction response");
 
@@ -836,6 +844,38 @@ describe("Bickr Pages Functions", () => {
 				status: "failed",
 				error: "Provider returned an empty compaction response.",
 			}));
+		});
+
+		it("reconstructs retained loop message logs from full, append, and tail-replacement entries", () => {
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				state: {
+					storage: {
+						sql: memoryLoopMessageLogSql(),
+					},
+				},
+			});
+			const recordLoopMessageLog = (BotRuntime.prototype as unknown as {
+				recordLoopMessageLog: (messageSeq: number, kind: string, text: string) => void;
+			}).recordLoopMessageLog.bind(runtime);
+			const loopMessageLogsForSeq = (BotRuntime.prototype as unknown as {
+				loopMessageLogsForSeq: (seq: number) => { logs: BotLoopMessageLog[] };
+			}).loopMessageLogsForSeq.bind(runtime);
+
+			const requestBase = "short request";
+			const requestAppend = `${requestBase} with appended body`;
+			const responseBase = `${"A".repeat(320)}old response tail`;
+			const responseReplacement = `${"A".repeat(320)}new response tail`;
+			recordLoopMessageLog(1, "provider_request", requestBase);
+			recordLoopMessageLog(1, "provider_request", requestAppend);
+			recordLoopMessageLog(1, "provider_response", responseBase);
+			recordLoopMessageLog(1, "provider_response", responseReplacement);
+
+			const logs = loopMessageLogsForSeq(1).logs;
+			expect(logs.map((log) => log.encoding)).toEqual(["full", "append", "full", "replace_tail"]);
+			expect(logs.map((log) => log.text)).toEqual([requestBase, requestAppend, responseBase, responseReplacement]);
+			expect(logs[1]?.baseLogId).toBe(logs[0]?.id);
+			expect(logs[3]?.baseLogId).toBe(logs[2]?.id);
+			expect(logs[3]?.prefixLength).toBe(320);
 		});
 
 		it("uses the latest successful compaction summary after a failed compaction row", () => {
@@ -1158,35 +1198,34 @@ describe("Bickr Pages Functions", () => {
 		expect(toolUseRecoveryReminder({ consecutiveNoToolTicks: 1 })).toContain("use the page controls directly");
 	});
 
-	it("presents compacted continuity transparently in future provider chats", async () => {
+	it("replays compacted ledger continuity transparently in future provider chats", async () => {
+		const ledgerMessages: Array<{ role: string; content?: string | null }> = [
+			{ role: "assistant", content: "I remember that I promised Müller I would follow up on release notes." },
+			{ role: "assistant", content: "I should look for the changelog next." },
+		];
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
-			state: {
-				storage: {
-					sql: memoryBuildMessagesSql({
-						compactionSummary: "I promised Müller I would follow up on release notes.\nprovider_request internal noise",
-						previousTerminalRow: {
-							seq: 7,
-							run_id: "run-previous",
-							type: "tick_completed",
-							payload_json: JSON.stringify({}),
-							token_estimate: 1,
-							created_at: "2026-05-01T00:00:00.000Z",
-							compacted_by: null,
-						},
-						recentRows: [
-							{
-								seq: 8,
-								run_id: "run-recent",
-								type: "assistant_message",
-								payload_json: JSON.stringify({ content: "I should look for the changelog next." }),
-								token_estimate: 10,
-								created_at: "2026-05-01T00:00:00.000Z",
-								compacted_by: null,
-							},
-						],
-					}),
-				},
+			previousTerminalTickEvent: () => ({
+				seq: 7,
+				run_id: "run-previous",
+				type: "tick_completed",
+				payload_json: JSON.stringify({}),
+				token_estimate: 1,
+				created_at: "2026-05-01T00:00:00.000Z",
+				compacted_by: null,
+			}),
+			appendLoopMessage: (_runId: string, message: { role: string; content?: string | null }) => {
+				ledgerMessages.push(message);
+				return {
+					seq: ledgerMessages.length,
+					runId: "run-current",
+					role: message.role,
+					message,
+					origin: message.role === "assistant" ? "provider_response" : "input",
+					tokenEstimate: 1,
+					createdAt: "2026-05-01T00:15:00.000Z",
+				};
 			},
+			activeLoopMessagesForProvider: () => ledgerMessages,
 		});
 		const buildMessages = (BotRuntime.prototype as unknown as {
 			buildMessages: (
@@ -1213,13 +1252,11 @@ describe("Bickr Pages Functions", () => {
 			"2026-05-01T00:15:00.000Z",
 		);
 
-		expect(messages[1]).toEqual({ role: "user", content: "15 minutes later..." });
-		const narrative = messages.find((message) => message.role === "assistant");
-		expect(narrative?.content).toContain("I remember that I promised Müller");
-		expect(narrative?.content).not.toContain("provider_request");
-		expect(narrative?.content).not.toContain("compaction");
-		expect(narrative?.content).toContain("I remember my recent time on Bickr:");
-		expect(narrative?.content).toContain("I log into Bickr and check my notifications");
+		expect(messages[0]).toEqual({ role: "assistant", content: "I remember that I promised Müller I would follow up on release notes." });
+		expect(messages[1]).toEqual({ role: "assistant", content: "I should look for the changelog next." });
+		expect(messages[messages.length - 2]).toEqual({ role: "user", content: "15 minutes later..." });
+		expect(messages[messages.length - 1]?.role).toBe("user");
+		expect(messages[messages.length - 1]?.content).toContain("I log into Bickr and check my notifications");
 	});
 
 	it("queues busy spotlight ticks only when the active tick misses the injection", async () => {
@@ -5499,53 +5536,93 @@ function memoryInferenceSubmissionSql() {
 	};
 }
 
-function memoryBuildMessagesSql(options: {
-	compactionSummary: string;
-	previousTerminalRow?: {
-		seq: number;
-		run_id: string;
-		type: BotRuntimeEvent["type"];
-		payload_json: string;
-		token_estimate: number;
+function memoryLoopMessageLogSql() {
+	type LogRow = {
+		id: number;
+		message_seq: number;
+		kind: string;
+		encoding: string;
+		base_log_id: number | null;
+		prefix_length: number | null;
+		text_length: number;
+		chunk_count: number;
 		created_at: string;
-		compacted_by: number | null;
 	};
-	recentRows: Array<{
-		seq: number;
-		run_id: string;
-		type: BotRuntimeEvent["type"];
-		payload_json: string;
-		token_estimate: number;
-		created_at: string;
-		compacted_by: number | null;
-	}>;
-}) {
+	type ChunkRow = {
+		log_id: number;
+		chunk_index: number;
+		text: string;
+	};
+	const messageRow = {
+		seq: 1,
+		position: 1,
+		run_id: "run-log",
+		role: "assistant",
+		message_json: JSON.stringify({ role: "assistant", content: "Stored message." }),
+		origin: "provider_response",
+		status: "complete",
+		token_estimate: 1,
+		compacted_by: null,
+		created_at: "2026-05-01T00:00:00.000Z",
+		has_logs: 1,
+	};
+	let logs: LogRow[] = [];
+	let chunks: ChunkRow[] = [];
+	let lastInsertId = 0;
 	return {
-		exec<T>(sql: string) {
-			if (/SELECT payload_json\s+FROM events\s+WHERE type = 'compaction'/.test(sql)) {
-				return {
-					toArray: () => [{ payload_json: JSON.stringify({ summary: options.compactionSummary }) } as T],
-				};
+		exec<T>(sql: string, ...params: unknown[]) {
+			if (/SELECT id\s+FROM loop_message_logs\s+WHERE kind = \?/.test(sql)) {
+				const row = [...logs].reverse().find((item) => item.kind === String(params[0]));
+				return { toArray: () => (row ? [{ id: row.id } as T] : []) };
 			}
-			if (/type IN \('tick_completed', 'tick_failed', 'tick_stopped'\)/.test(sql)) {
+			if (/INSERT INTO loop_message_logs/.test(sql)) {
+				lastInsertId += 1;
+				logs.push({
+					id: lastInsertId,
+					message_seq: Number(params[0]),
+					kind: String(params[1]),
+					encoding: String(params[2]),
+					base_log_id: params[3] === null ? null : Number(params[3]),
+					prefix_length: params[4] === null ? null : Number(params[4]),
+					text_length: Number(params[5]),
+					chunk_count: Number(params[6]),
+					created_at: String(params[7]),
+				});
+			} else if (/SELECT last_insert_rowid\(\) AS id/.test(sql)) {
 				return {
-					toArray: () => options.previousTerminalRow ? [options.previousTerminalRow as T] : [],
+					one: () => ({ id: lastInsertId }) as T,
+					toArray: () => [{ id: lastInsertId } as T],
 				};
-			}
-			if (/WHERE compacted_by IS NULL\s+AND type IN \('input', 'assistant_message', 'tool_call', 'tool_result'\)/.test(sql)) {
+			} else if (/INSERT INTO loop_message_log_chunks/.test(sql)) {
+				chunks.push({
+					log_id: Number(params[0]),
+					chunk_index: Number(params[1]),
+					text: String(params[2]),
+				});
+			} else if (/FROM loop_messages\s+WHERE compacted_by IS NULL/.test(sql)) {
+				return { toArray: () => [{ seq: messageRow.seq } as T] };
+			} else if (/FROM loop_message_logs\s+ORDER BY id ASC/.test(sql)) {
+				return { toArray: () => logs as T[] };
+			} else if (/FROM loop_message_logs\s+WHERE id = \?/.test(sql)) {
+				const row = logs.find((item) => item.id === Number(params[0]));
+				return { toArray: () => (row ? [row as T] : []) };
+			} else if (/FROM loop_message_log_chunks\s+WHERE log_id = \?/.test(sql)) {
 				return {
-					toArray: () => options.recentRows as T[],
+					toArray: () =>
+						chunks
+							.filter((chunk) => chunk.log_id === Number(params[0]))
+							.sort((left, right) => left.chunk_index - right.chunk_index) as T[],
 				};
-			}
-			if (/WHERE compacted_by IS NULL\s+AND type = 'reasoning_message'/.test(sql)) {
+			} else if (/FROM loop_messages m\s+WHERE m\.seq = \?/.test(sql)) {
+				return { toArray: () => (Number(params[0]) === messageRow.seq ? [messageRow as T] : []) };
+			} else if (/FROM loop_message_logs\s+WHERE message_seq = \?/.test(sql)) {
 				return {
-					toArray: () => [],
+					toArray: () => logs.filter((row) => row.message_seq === Number(params[0])).sort((left, right) => left.id - right.id) as T[],
 				};
-			}
-			if (/WHERE compacted_by IS NULL\s+AND type = 'thought_injected'/.test(sql)) {
-				return {
-					toArray: () => [],
-				};
+			} else if (/DELETE FROM loop_message_log_chunks WHERE log_id = \?/.test(sql)) {
+				chunks = chunks.filter((chunk) => chunk.log_id !== Number(params[0]));
+			} else if (/DELETE FROM loop_message_logs WHERE id = \?/.test(sql)) {
+				logs = logs.filter((row) => row.id !== Number(params[0]));
 			}
 			return {
 				one: () => ({} as T),

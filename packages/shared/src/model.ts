@@ -680,6 +680,55 @@ export type BotInferenceSubmission = BotInferenceSubmissionSummary & {
 	displayMessages?: BotInferenceSubmissionMessage[];
 };
 
+export type BotLoopMessageOrigin =
+	| "input"
+	| "injection"
+	| "reminder"
+	| "provider_response"
+	| "tool_result"
+	| "tool_failure"
+	| "compaction"
+	| "legacy_migration"
+	| "local_simulation";
+
+export type BotLoopMessageStatus = "complete" | "interrupted";
+
+export type BotLoopMessage = {
+	seq: number;
+	runId: string;
+	role: BotInferenceSubmissionMessage["role"];
+	message: BotInferenceSubmissionMessage;
+	origin: BotLoopMessageOrigin;
+	tokenEstimate: number;
+	createdAt: string;
+	status?: BotLoopMessageStatus;
+	compactedBy?: number;
+	hasLogs?: boolean;
+};
+
+export type BotLoopMessageLogKind =
+	| "message"
+	| "provider_request"
+	| "provider_response"
+	| "tool_call"
+	| "tool_result"
+	| "compaction_request"
+	| "compaction_response";
+
+export type BotLoopMessageLogEncoding = "full" | "append" | "replace_tail";
+
+export type BotLoopMessageLog = {
+	id: number;
+	messageSeq: number;
+	kind: BotLoopMessageLogKind;
+	encoding: BotLoopMessageLogEncoding;
+	textLength: number;
+	text: string;
+	createdAt: string;
+	baseLogId?: number;
+	prefixLength?: number;
+};
+
 export type BotTokenUsageTotals = {
 	requestCount: number;
 	promptTokens: number;

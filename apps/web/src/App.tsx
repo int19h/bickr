@@ -9,9 +9,9 @@ import {
 	type BotActivityItem,
 	type BotFollowGraph,
 	type BotContextBudget,
-	type BotInferenceSubmission,
 	type BotInferenceSubmissionMessage,
-	type BotInferenceSubmissionSummary,
+	type BotLoopMessage,
+	type BotLoopMessageLog,
 	type BotSummary,
 	type BotPublicProfile,
 	type BotRuntimeEvent,
@@ -56,17 +56,6 @@ import {
 	sanitizeHandleInput,
 } from "@bickr/shared/validation";
 import {
-	pruneStreamEventsForPersistentEvent,
-	pruneStreamEventsForPersistentEvents,
-} from "./runtime-streams";
-import {
-	activityEventSeqs,
-	activityRuntimeSeqs,
-	runtimeActivities,
-	type RuntimeActivity,
-	type ToolDisplay,
-} from "./runtime-activity-formatting";
-import {
 	interpolateTokenUsageChartValue,
 	type TokenUsageChartPoint,
 } from "./token-usage-chart";
@@ -77,13 +66,7 @@ import {
 	type OpenRouterWebFetchToolDraft,
 	type OpenRouterWebSearchToolDraft,
 } from "./tool-settings-draft";
-import {
-	inferenceSubmissionSeqsByRuntimeEventSeq,
-	inferenceSubmissionChatMessages,
-	prettyJsonText,
-	submissionMatchesSearch,
-	submissionMessageMatchesSearch,
-} from "./inference-submission-formatting";
+import { prettyJsonText } from "./inference-submission-formatting";
 import "./App.css";
 
 type ApiSuccess<T> = { ok: true; data: T };
@@ -174,6 +157,7 @@ type RuntimeMonitorPayload = {
 	type?: string;
 	event?: BotRuntimeEvent;
 	message?: string;
+	loopMessage?: BotLoopMessage;
 	seq?: number;
 };
 
@@ -7098,29 +7082,22 @@ function BotRuntimePanel({
 }) {
 	const [status, setStatus] = useState<BotRuntimeStatus | null>(null);
 	const [events, setEvents] = useState<BotRuntimeEvent[]>([]);
-	const [streamEvents, setStreamEvents] = useState<BotRuntimeEvent[]>([]);
-	const [submissions, setSubmissions] = useState<BotInferenceSubmissionSummary[]>([]);
-	const [openSubmission, setOpenSubmission] = useState<BotInferenceSubmission | null>(null);
-	const [submissionLoadingSeq, setSubmissionLoadingSeq] = useState<number | null>(null);
-	const [submissionError, setSubmissionError] = useState("");
+	const [loopMessages, setLoopMessages] = useState<BotLoopMessage[]>([]);
+	const [openLoopMessageLogs, setOpenLoopMessageLogs] = useState<{ message: BotLoopMessage; logs: BotLoopMessageLog[] } | null>(null);
+	const [loopMessageLogLoadingSeq, setLoopMessageLogLoadingSeq] = useState<number | null>(null);
+	const [loopMessageLogError, setLoopMessageLogError] = useState("");
 	const [tokenUsage, setTokenUsage] = useState<BotTokenUsageStats | null>(null);
 	const [connected, setConnected] = useState(false);
 	const [injection, setInjection] = useState("");
 	const [message, setMessage] = useState("");
 	const [togglingEnabled, setTogglingEnabled] = useState(false);
 	const [clearConfirm, setClearConfirm] = useState(false);
-	const [pendingDeleteActivity, setPendingDeleteActivity] = useState<RuntimeActivity | null>(null);
+	const [compactConfirm, setCompactConfirm] = useState(false);
 	const logRef = useRef<HTMLDivElement | null>(null);
 	const shouldStickToBottomRef = useRef(true);
 	const latestPersistentEventSeqRef = useRef(0);
+	const latestLoopMessageSeqRef = useRef(0);
 	const reconnectAttemptRef = useRef(0);
-	const runtimeEvents = useMemo(() => [...events, ...streamEvents], [events, streamEvents]);
-	const activities = useMemo(() => runtimeActivities(runtimeEvents, bot.homeWorldHandle), [bot.homeWorldHandle, runtimeEvents]);
-	const submissionSeqs = useMemo(() => new Set(submissions.map((submission) => submission.seq)), [submissions]);
-	const submissionSeqByRuntimeEventSeq = useMemo(
-		() => inferenceSubmissionSeqsByRuntimeEventSeq(runtimeEvents, submissionSeqs),
-		[runtimeEvents, submissionSeqs],
-	);
 	const runtimeEnabled = status?.enabled ?? bot.tickSettings.enabled;
 
 	useEffect(() => {
@@ -7131,14 +7108,14 @@ function BotRuntimePanel({
 		let lastMonitorMessageAt = Date.now();
 		shouldStickToBottomRef.current = true;
 		latestPersistentEventSeqRef.current = 0;
+		latestLoopMessageSeqRef.current = 0;
 		reconnectAttemptRef.current = 0;
 		setStatus(null);
 		setEvents([]);
-		setStreamEvents([]);
-		setSubmissions([]);
-		setOpenSubmission(null);
-		setSubmissionLoadingSeq(null);
-		setSubmissionError("");
+		setLoopMessages([]);
+		setOpenLoopMessageLogs(null);
+		setLoopMessageLogLoadingSeq(null);
+		setLoopMessageLogError("");
 		setTokenUsage(null);
 		setConnected(false);
 		void refresh();
@@ -7175,11 +7152,18 @@ function BotRuntimePanel({
 		function handleMonitorPayload(payload: RuntimeMonitorPayload): void {
 			if (payload.type === "history_cleared") {
 				setEvents([]);
-				setStreamEvents([]);
-				setSubmissions([]);
-				setOpenSubmission(null);
+				setLoopMessages([]);
+				setOpenLoopMessageLogs(null);
 				latestPersistentEventSeqRef.current = 0;
+				latestLoopMessageSeqRef.current = 0;
 				setMessage("Loop history erased.");
+				return;
+			}
+			if (payload.type === "loop_messages_reset") {
+				setLoopMessages([]);
+				setOpenLoopMessageLogs(null);
+				latestLoopMessageSeqRef.current = 0;
+				void refresh();
 				return;
 			}
 			if (payload.type === "pong") {
@@ -7187,19 +7171,19 @@ function BotRuntimePanel({
 			}
 			if (payload.type === "event_deleted" && Number.isInteger(payload.seq)) {
 				setEvents((current) => current.filter((item) => item.seq !== payload.seq));
-				setStreamEvents((current) => current.filter((item) => item.seq !== payload.seq));
-				setSubmissions((current) => current.filter((item) => item.seq !== payload.seq));
-				setOpenSubmission((current) => current?.seq === payload.seq ? null : current);
+				return;
+			}
+			if (payload.type === "loop_message" && payload.loopMessage) {
+				rememberLoopMessageSeq(payload.loopMessage);
+				setLoopMessages((current) => upsertLoopMessage(current, payload.loopMessage!));
 				return;
 			}
 			if (payload.type === "stream_delta" && payload.event) {
-				setStreamEvents((current) => [...current, payload.event!]);
 				return;
 			}
 			if (payload.event) {
 				rememberPersistentEventSeq(payload.event);
 				setEvents((current) => upsertEvent(current, payload.event!));
-				setStreamEvents((current) => pruneStreamEventsForPersistentEvent(current, payload.event!));
 				if (["tick_completed", "tick_failed", "tick_stopped"].includes(payload.event.type)) {
 					void refresh();
 				}
@@ -7220,8 +7204,15 @@ function BotRuntimePanel({
 				socket = null;
 				previousSocket.close();
 			}
-			const after = latestPersistentEventSeqRef.current;
-			const currentSocket = new WebSocket(after > 0 ? `${monitorUrl}?after=${encodeURIComponent(String(after))}` : monitorUrl);
+			const params = new URLSearchParams();
+			if (latestPersistentEventSeqRef.current > 0) {
+				params.set("afterEvent", String(latestPersistentEventSeqRef.current));
+			}
+			if (latestLoopMessageSeqRef.current > 0) {
+				params.set("afterMessage", String(latestLoopMessageSeqRef.current));
+			}
+			const query = params.toString();
+			const currentSocket = new WebSocket(query ? `${monitorUrl}?${query}` : monitorUrl);
 			socket = currentSocket;
 			currentSocket.onopen = () => {
 				if (closed || socket !== currentSocket) {
@@ -7297,7 +7288,7 @@ function BotRuntimePanel({
 		}
 		const frame = scrollLogToBottom(logRef);
 		return () => window.cancelAnimationFrame(frame);
-	}, [activities]);
+	}, [loopMessages]);
 
 	useEffect(() => {
 		const log = logRef.current;
@@ -7312,11 +7303,15 @@ function BotRuntimePanel({
 		observer.observe(log);
 		Array.from(log.children).forEach((child) => observer.observe(child));
 		return () => observer.disconnect();
-	}, [activities]);
+	}, [loopMessages]);
 
 	useEffect(() => {
 		latestPersistentEventSeqRef.current = latestPersistentEventSeq(events);
 	}, [events]);
+
+	useEffect(() => {
+		latestLoopMessageSeqRef.current = latestLoopMessageSeq(loopMessages);
+	}, [loopMessages]);
 
 	function trackLogScroll(): void {
 		const log = logRef.current;
@@ -7328,10 +7323,10 @@ function BotRuntimePanel({
 	}
 
 	async function refresh(): Promise<void> {
-		const [statusResult, eventsResult, submissionsResult, tokenUsageResult] = await Promise.all([
+		const [statusResult, eventsResult, messagesResult, tokenUsageResult] = await Promise.all([
 			api<{ status: BotRuntimeStatus }>(`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/status`),
 			api<{ events: BotRuntimeEvent[] }>(`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/events`),
-			api<{ submissions: BotInferenceSubmissionSummary[] }>(`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/submissions`),
+			api<{ messages: BotLoopMessage[] }>(`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/messages`),
 			api<{ usage: BotTokenUsageStats }>(`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/token-usage`),
 		]);
 		if (statusResult.ok) {
@@ -7342,10 +7337,12 @@ function BotRuntimePanel({
 				rememberPersistentEventSeq(event);
 			}
 			setEvents((current) => mergeEvents(current, eventsResult.data.events));
-			setStreamEvents((current) => pruneStreamEventsForPersistentEvents(current, eventsResult.data.events));
 		}
-		if (submissionsResult.ok) {
-			setSubmissions(submissionsResult.data.submissions);
+		if (messagesResult.ok) {
+			for (const loopMessage of messagesResult.data.messages) {
+				rememberLoopMessageSeq(loopMessage);
+			}
+			setLoopMessages((current) => mergeLoopMessages(current, messagesResult.data.messages));
 		}
 		if (tokenUsageResult.ok) {
 			setTokenUsage(tokenUsageResult.data.usage);
@@ -7377,6 +7374,12 @@ function BotRuntimePanel({
 	function rememberPersistentEventSeq(event: BotRuntimeEvent): void {
 		if (Number.isInteger(event.seq)) {
 			latestPersistentEventSeqRef.current = Math.max(latestPersistentEventSeqRef.current, event.seq);
+		}
+	}
+
+	function rememberLoopMessageSeq(loopMessage: BotLoopMessage): void {
+		if (Number.isInteger(loopMessage.seq)) {
+			latestLoopMessageSeqRef.current = Math.max(latestLoopMessageSeqRef.current, loopMessage.seq);
 		}
 	}
 
@@ -7426,63 +7429,54 @@ function BotRuntimePanel({
 		setMessage(result.ok ? "Thought injected." : result.message);
 	}
 
-	async function viewSubmission(seq: number): Promise<void> {
-		setSubmissionLoadingSeq(seq);
-		setSubmissionError("");
-		const result = await api<{ submission: BotInferenceSubmission }>(
-			`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/submissions/${encodeURIComponent(String(seq))}`,
+	async function viewLoopMessageLogs(loopMessage: BotLoopMessage): Promise<void> {
+		setLoopMessageLogLoadingSeq(loopMessage.seq);
+		setLoopMessageLogError("");
+		const result = await api<{ message: BotLoopMessage; logs: BotLoopMessageLog[] }>(
+			`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/messages/${encodeURIComponent(String(loopMessage.seq))}/logs`,
 		);
-		setSubmissionLoadingSeq(null);
+		setLoopMessageLogLoadingSeq(null);
 		if (result.ok) {
-			setOpenSubmission(result.data.submission);
+			setOpenLoopMessageLogs({ message: result.data.message, logs: result.data.logs });
 			return;
 		}
-		setSubmissionError(result.message);
+		setLoopMessageLogError(result.message);
+	}
+
+	async function compactLoopHistory(): Promise<void> {
+		setMessage("Compacting loop chat...");
+		const result = await api<{ compacted: { messageCount: number; fromSeq?: number; toSeq?: number } }>(
+			`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/compact`,
+			{ method: "POST" },
+		);
+		setCompactConfirm(false);
+		if (result.ok) {
+			const count = result.data.compacted.messageCount;
+			setMessage(count > 0 ? `Compacted ${count} loop chat message${count === 1 ? "" : "s"}.` : "There were no loop chat messages to compact.");
+			setLoopMessages([]);
+			latestLoopMessageSeqRef.current = 0;
+			await refresh();
+			return;
+		}
+		setMessage(result.message);
 	}
 
 	async function clearHistory(): Promise<void> {
 		setMessage("Resetting loop history...");
-		const result = await api<{ cleared: { events: number; injections: number; runtimeState: number; submissions?: number } }>(
+		const result = await api<{ cleared: { events: number; injections: number; runtimeState: number; submissions?: number; messages?: number; logs?: number } }>(
 			`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/events`,
 			{ method: "DELETE" },
 		);
 		if (result.ok) {
 			setEvents([]);
-			setStreamEvents([]);
-			setSubmissions([]);
-			setOpenSubmission(null);
-			setMessage(`Reset ${result.data.cleared.events} runtime events.`);
+			setLoopMessages([]);
+			setOpenLoopMessageLogs(null);
+			latestPersistentEventSeqRef.current = 0;
+			latestLoopMessageSeqRef.current = 0;
+			setMessage(`Reset ${result.data.cleared.messages ?? 0} loop chat messages and ${result.data.cleared.events} legacy events.`);
 		} else {
 			setMessage(result.message);
 		}
-	}
-
-	async function deleteActivity(activity: RuntimeActivity): Promise<void> {
-		const seqs = activityEventSeqs(activity);
-		if (seqs.length === 0) {
-			setPendingDeleteActivity(null);
-			setMessage("This live stream row is not stored yet.");
-			return;
-		}
-		for (const seq of seqs) {
-			const result = await api<{ deleted: { seq: number; runId: string; type: string } }>(
-				`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/events/${encodeURIComponent(String(seq))}`,
-				{ method: "DELETE" },
-			);
-			if (!result.ok) {
-				setPendingDeleteActivity(null);
-				setMessage(result.message);
-				await refresh();
-				return;
-			}
-		}
-		setEvents((current) => current.filter((event) => !seqs.includes(event.seq)));
-		setStreamEvents((current) => current.filter((event) => !seqs.includes(event.seq)));
-		setSubmissions((current) => current.filter((submission) => !seqs.includes(submission.seq)));
-		setOpenSubmission((current) => current && seqs.includes(current.seq) ? null : current);
-		setPendingDeleteActivity(null);
-		setMessage(seqs.length === 1 ? `Deleted event #${seqs[0]}.` : `Deleted ${seqs.length} events from this row.`);
-		await refresh();
 	}
 
 	return (
@@ -7539,6 +7533,14 @@ function BotRuntimePanel({
 					>
 						Reset loop
 					</button>
+					<button
+						className="btn danger"
+						disabled={status?.status === "running" || loopMessages.length === 0}
+						onClick={() => setCompactConfirm(true)}
+						type="button"
+					>
+						Compact chat
+					</button>
 					<span className={`live-dot ${connected ? "on" : ""}`}>{connected ? "live" : "polling"}</span>
 				</div>
 				<form
@@ -7559,33 +7561,26 @@ function BotRuntimePanel({
 					</button>
 				</form>
 				{message && <div className="runtime-message">{message}</div>}
+				{loopMessageLogError && <div className="runtime-message">{loopMessageLogError}</div>}
 				<div className="event-log" onScroll={trackLogScroll} ref={logRef}>
-					{activities.length === 0 && <div className="empty compact-empty">No runtime events yet.</div>}
-					{activities.slice(-80).map((activity) => {
-						const submissionSeq = activityRuntimeSeqs(activity)
-							.map((seq) => submissionSeqByRuntimeEventSeq.get(seq))
-							.find((seq) => seq !== undefined);
-						return (
-							<RuntimeActivityRow
-								activity={activity}
-								key={activity.id}
-								onDelete={() => setPendingDeleteActivity(activity)}
-								onViewSubmission={(seq) => void viewSubmission(seq)}
-								submissionLoadingSeq={submissionLoadingSeq}
-								submissionSeq={submissionSeq ?? null}
-							/>
-						);
-					})}
+					{loopMessages.length === 0 && <div className="empty compact-empty">No loop chat messages yet.</div>}
+					{loopMessages.slice(-120).map((loopMessage) => (
+						<LoopMessageRow
+							key={loopMessage.seq}
+							loadingLogs={loopMessageLogLoadingSeq === loopMessage.seq}
+							message={loopMessage}
+							onViewLogs={() => void viewLoopMessageLogs(loopMessage)}
+						/>
+					))}
 				</div>
 			</div>
-			{submissionError && <div className="runtime-message">{submissionError}</div>}
-			<InferenceSubmissionModal
-				onClose={() => setOpenSubmission(null)}
-				open={Boolean(openSubmission)}
-				submission={openSubmission}
+			<LoopMessageLogsModal
+				onClose={() => setOpenLoopMessageLogs(null)}
+				open={Boolean(openLoopMessageLogs)}
+				payload={openLoopMessageLogs}
 			/>
 			<Confirm
-				body="Erase this bot's agentic loop transcript, streamed assistant text, tool call log, compaction summaries, and pending injected thoughts. Forum posts and comments will not be deleted."
+				body="Erase this participant's loop chat ledger, retained raw provider logs, legacy runtime events, streamed text, compaction summaries, and pending injected thoughts. Forum posts and comments will not be deleted."
 				confirmText="Reset loop"
 				danger
 				onClose={() => setClearConfirm(false)}
@@ -7594,17 +7589,13 @@ function BotRuntimePanel({
 				title="Reset Loop History"
 			/>
 			<Confirm
-				body={
-					pendingDeleteActivity ?
-						`Delete ${activityEventSeqs(pendingDeleteActivity).length === 1 ? `event #${activityEventSeqs(pendingDeleteActivity)[0]}` : "this log row"} from this bot's loop history? Public posts and comments will not be deleted.`
-					:	"Delete this event from the loop history?"
-				}
-				confirmText="Delete event"
+				body="Replace the whole active loop chat with one summary message. This keeps the conversation usable after major changes, but the exact message-by-message history for the compacted span will no longer be replayed to the provider."
+				confirmText="Compact chat"
 				danger
-				onClose={() => setPendingDeleteActivity(null)}
-				onConfirm={() => pendingDeleteActivity ? void deleteActivity(pendingDeleteActivity) : undefined}
-				open={Boolean(pendingDeleteActivity)}
-				title="Delete Runtime Event"
+				onClose={() => setCompactConfirm(false)}
+				onConfirm={() => void compactLoopHistory()}
+				open={compactConfirm}
+				title="Compact Loop Chat"
 			/>
 		</>
 	);
@@ -7761,62 +7752,82 @@ function TokenUsageChart({ usage }: { usage: BotTokenUsageStats }) {
 	);
 }
 
-function InferenceSubmissionModal({
+function LoopMessageLogsModal({
 	onClose,
 	open,
-	submission,
+	payload,
 }: {
 	onClose: () => void;
 	open: boolean;
-	submission: BotInferenceSubmission | null;
+	payload: { message: BotLoopMessage; logs: BotLoopMessageLog[] } | null;
 }) {
-	const [query, setQuery] = useState("");
-
-	useEffect(() => {
-		setQuery("");
-	}, [submission?.seq]);
-
-	if (!submission) {
+	if (!payload) {
 		return null;
 	}
 
-	const chatMessages = inferenceSubmissionChatMessages(submission);
-	const matchingMessages = query.trim() ?
-		chatMessages.filter((message) => submissionMessageMatchesSearch(message, query))
-	:	chatMessages;
-	const hasMatch = submissionMatchesSearch(submission, query);
+	const { message, logs } = payload;
 
 	return (
-		<Modal className="submission-modal" onClose={onClose} open={open} title="Inference Submission" wide>
+		<Modal className="submission-modal" onClose={onClose} open={open} title="Loop Message Logs" wide>
 			<div className="submission-meta">
-				<RuntimeRow label="Event" value={`#${submission.seq}`} />
-				<RuntimeRow label="Purpose" value={submissionPurposeLabel(submission.purpose)} />
-				<RuntimeRow label="Model" value={submission.model} />
-				<RuntimeRow label="Messages" value={chatMessages.length} />
+				<RuntimeRow label="Message" value={`#${message.seq}`} />
+				<RuntimeRow label="Role" value={message.role} />
+				<RuntimeRow label="Origin" value={loopMessageOriginLabel(message.origin)} />
+				<RuntimeRow label="Run" value={message.runId} />
 			</div>
-			<div className="submission-search">
-				<Icon name="search" size={14} />
-				<input
-					className="input"
-					onChange={(event) => setQuery(event.target.value)}
-					placeholder="Search this submission"
-					value={query}
-				/>
+			<div className="submission-chat-log">
+				<InferenceSubmissionMessageView message={message.message} position={message.seq} />
+				{logs.length === 0 ?
+					<div className="empty compact-empty">No retained raw logs for this message.</div>
+				:	logs.map((log) => (
+						<div className="submission-message role-system" key={log.id}>
+							<div className="submission-message-head">
+								<b>{loopMessageLogKindLabel(log.kind)}</b>
+								<span>#{log.id}</span>
+								<span>{log.encoding}</span>
+								<span>{formatByteCount(log.textLength)}</span>
+							</div>
+							<pre className="submission-message-text">{log.text}</pre>
+						</div>
+					))}
 			</div>
-			{query.trim() && !hasMatch ?
-				<div className="empty compact-empty">No matching messages.</div>
-			:	<div className="submission-chat-log">
-					{matchingMessages.length === 0 ?
-						<div className="empty compact-empty">Metadata matched; no message text matched.</div>
-					:	matchingMessages.map((message, index) => (
-							<InferenceSubmissionMessageView
-								key={`${submission.submissionId}-${index}`}
-								message={message}
-								position={index + 1}
-							/>
-						))}
-				</div>}
 		</Modal>
+	);
+}
+
+function LoopMessageRow({
+	loadingLogs,
+	message,
+	onViewLogs,
+}: {
+	loadingLogs: boolean;
+	message: BotLoopMessage;
+	onViewLogs: () => void;
+}) {
+	const status = message.status === "interrupted" ? "interrupted" : null;
+	return (
+		<div className={`event-row activity-${loopMessageActivityKind(message)}`}>
+			<button
+				aria-label={`Open raw logs for loop message ${message.seq}`}
+				className="raw-json-button"
+				disabled={loadingLogs || !message.hasLogs}
+				onClick={onViewLogs}
+				title={message.hasLogs ? "Open exact provider and tool logs" : "No retained logs"}
+				type="button"
+			>
+				{loadingLogs ? <span className="spinner" /> : <Icon name="info" size={13} />}
+			</button>
+			<div className="event-head">
+				<span>#{message.seq}</span>
+				<b>{loopMessageTitle(message)}</b>
+				<span>{timeAgo(message.createdAt)}</span>
+				{status && <span className="streaming-pill">{status}</span>}
+			</div>
+			<div className="event-meta">
+				{loopMessageOriginLabel(message.origin)} / {message.runId} / {formatTokenCount(message.tokenEstimate)} tokens
+			</div>
+			<InferenceSubmissionMessageView message={message.message} position={message.seq} />
+		</div>
 	);
 }
 
@@ -7858,113 +7869,6 @@ function SubmissionJsonBlock({ label, value }: { label: string; value: unknown }
 		<div className="submission-json-block">
 			<span>{label}</span>
 			<pre>{prettyJsonText(value)}</pre>
-		</div>
-	);
-}
-
-function submissionPurposeLabel(purpose: BotInferenceSubmissionSummary["purpose"]): string {
-	return purpose === "compaction" ? "compaction" : "loop";
-}
-
-function RuntimeActivityRow({
-	activity,
-	onDelete,
-	onViewSubmission,
-	submissionLoadingSeq,
-	submissionSeq,
-}: {
-	activity: RuntimeActivity;
-	onDelete: () => void;
-	onViewSubmission: (seq: number) => void;
-	submissionLoadingSeq: number | null;
-	submissionSeq: number | null;
-}) {
-	const [rawOpen, setRawOpen] = useState(false);
-	const [copied, setCopied] = useState(false);
-	const rawJson = useMemo(() => formatFullPayload(activity.raw ?? activity), [activity]);
-	const toolSummary = activity.toolDisplay ? toolDisplayNode(activity.toolDisplay) : null;
-	const seqLabel = activity.seqLabel ?? String(activity.seq);
-	const canDelete = activityEventSeqs(activity).length > 0;
-
-	async function copyRaw(): Promise<void> {
-		await navigator.clipboard?.writeText(rawJson);
-		setCopied(true);
-		window.setTimeout(() => setCopied(false), 1200);
-	}
-
-	return (
-		<div className={`event-row activity-${activity.kind}`}>
-			<button
-				aria-label={`Delete event ${seqLabel}`}
-				className="event-delete-button"
-				disabled={!canDelete}
-				onClick={onDelete}
-				title={canDelete ? "Delete event" : "Live stream rows can be deleted after they finish"}
-				type="button"
-			>
-			<Icon name="trash" size={13} />
-		</button>
-		{submissionSeq !== null && (
-			<button
-				aria-label={`Open inference submission for event ${seqLabel}`}
-				className="submission-button"
-				disabled={submissionLoadingSeq === submissionSeq}
-				onClick={() => onViewSubmission(submissionSeq)}
-				title="Open inference submission"
-				type="button"
-			>
-				<Icon name="chat" size={13} />
-			</button>
-		)}
-		<button
-			aria-label={`Inspect raw JSON for event ${seqLabel}`}
-				className="raw-json-button"
-				onClick={() => setRawOpen((current) => !current)}
-				title="Inspect raw JSON"
-				type="button"
-			>
-				<Icon name="info" size={13} />
-			</button>
-			<div className="event-head">
-				<span>#{seqLabel}</span>
-				<b>{activity.title}</b>
-				<span>{timeAgo(activity.createdAt)}</span>
-				{activity.streaming && <span className="streaming-pill">streaming</span>}
-			</div>
-			{activity.meta && <div className="event-meta">{activity.meta}</div>}
-			{toolSummary}
-			{!toolSummary && activity.body && <div className="event-body">{activity.body}</div>}
-			{rawOpen && (
-				<div className="raw-popout">
-					<div className="raw-popout-head">
-						<b>Raw JSON</b>
-						<div>
-							<button className="clear-link" onClick={() => void copyRaw()} type="button">
-								{copied ? "Copied" : "Copy JSON"}
-							</button>
-							<button className="icon-btn" onClick={() => setRawOpen(false)} type="button" aria-label="Close raw JSON">
-								<Icon name="x" size={13} />
-							</button>
-						</div>
-					</div>
-					<pre>{rawJson}</pre>
-				</div>
-			)}
-		</div>
-	);
-}
-
-function toolDisplayNode(display: ToolDisplay): ReactNode {
-	return (
-		<div className={`tool-pretty ${display.variant === "error" ? "error" : "tool-list"}`}>
-			{display.items.map((item) => (
-				<div className="tool-pretty-item" key={item.key}>
-					{item.href ?
-						<a data-fresh-thread-link="true" href={item.href}>{item.label}</a>
-					:	<span className="tool-pretty-label">{item.label}</span>}
-					{item.detail && <span>{item.detail}</span>}
-				</div>
-			))}
 		</div>
 	);
 }
@@ -8948,6 +8852,101 @@ function latestPersistentEventSeq(events: BotRuntimeEvent[]): number {
 	return events.reduce((latest, event) => Number.isInteger(event.seq) ? Math.max(latest, event.seq) : latest, 0);
 }
 
+function upsertLoopMessage(messages: BotLoopMessage[], message: BotLoopMessage): BotLoopMessage[] {
+	const without = messages.filter((item) => item.seq !== message.seq);
+	return [...without, message].sort(loopMessageSort);
+}
+
+function mergeLoopMessages(current: BotLoopMessage[], fetched: BotLoopMessage[]): BotLoopMessage[] {
+	const bySeq = new Map(current.map((message) => [message.seq, message]));
+	for (const message of fetched) {
+		bySeq.set(message.seq, message);
+	}
+	return [...bySeq.values()].sort(loopMessageSort);
+}
+
+function latestLoopMessageSeq(messages: BotLoopMessage[]): number {
+	return messages.reduce((latest, message) => Number.isInteger(message.seq) ? Math.max(latest, message.seq) : latest, 0);
+}
+
+function loopMessageSort(left: BotLoopMessage, right: BotLoopMessage): number {
+	return left.seq - right.seq;
+}
+
+function loopMessageActivityKind(message: BotLoopMessage): "input" | "assistant" | "tool" | "error" {
+	if (message.origin === "tool_failure") {
+		return "error";
+	}
+	if (message.role === "tool") {
+		return "tool";
+	}
+	return message.role === "assistant" ? "assistant" : "input";
+}
+
+function loopMessageTitle(message: BotLoopMessage): string {
+	if (message.origin === "compaction") {
+		return "Compaction summary";
+	}
+	if (message.origin === "legacy_migration") {
+		return "Legacy history summary";
+	}
+	if (message.role === "tool") {
+		return message.origin === "tool_failure" ? "Tool failure" : "Tool result";
+	}
+	if (message.origin === "injection") {
+		return "Injected thought";
+	}
+	if (message.origin === "reminder") {
+		return "Loop reminder";
+	}
+	if (message.origin === "local_simulation") {
+		return "Local simulation";
+	}
+	return message.role === "assistant" ? "Provider response" : "Runtime input";
+}
+
+function loopMessageOriginLabel(origin: BotLoopMessage["origin"]): string {
+	switch (origin) {
+		case "input":
+			return "input";
+		case "injection":
+			return "injection";
+		case "reminder":
+			return "reminder";
+		case "provider_response":
+			return "provider response";
+		case "tool_result":
+			return "tool result";
+		case "tool_failure":
+			return "tool failure";
+		case "compaction":
+			return "compaction";
+		case "legacy_migration":
+			return "legacy migration";
+		case "local_simulation":
+			return "local simulation";
+	}
+}
+
+function loopMessageLogKindLabel(kind: BotLoopMessageLog["kind"]): string {
+	switch (kind) {
+		case "message":
+			return "Message";
+		case "provider_request":
+			return "Provider request";
+		case "provider_response":
+			return "Provider response";
+		case "tool_call":
+			return "Tool call";
+		case "tool_result":
+			return "Tool result";
+		case "compaction_request":
+			return "Compaction request";
+		case "compaction_response":
+			return "Compaction response";
+	}
+}
+
 function reconnectDelayMs(attempt: number): number {
 	return Math.min(30_000, 1_000 * 2 ** Math.min(attempt, 5));
 }
@@ -9041,6 +9040,20 @@ function formatTokenCount(value: number): string {
 		return `${Math.round(rounded / 1_000)}k`;
 	}
 	return rounded.toLocaleString();
+}
+
+function formatByteCount(value: number): string {
+	if (!Number.isFinite(value)) {
+		return "0 B";
+	}
+	const bytes = Math.max(0, Math.round(value));
+	if (bytes >= 1_000_000) {
+		return `${(bytes / 1_000_000).toFixed(bytes >= 10_000_000 ? 0 : 1)} MB`;
+	}
+	if (bytes >= 1_000) {
+		return `${(bytes / 1_000).toFixed(bytes >= 10_000 ? 0 : 1)} KB`;
+	}
+	return `${bytes} B`;
 }
 
 function formatExactTokenCount(value: number): string {
@@ -9236,17 +9249,6 @@ function notificationThreadId(notification: HumanNotification): string | null {
 		return route.route === "thread" ? route.threadId ?? null : null;
 	} catch {
 		return null;
-	}
-}
-
-function formatFullPayload(value: unknown): string {
-	if (typeof value === "string") {
-		return value;
-	}
-	try {
-		return JSON.stringify(value, null, 2);
-	} catch {
-		return String(value);
 	}
 }
 
