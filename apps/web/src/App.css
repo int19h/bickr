@@ -13,6 +13,11 @@
 	--accent: oklch(0.62 0.14 28);
 	--accent-soft: oklch(0.62 0.14 28 / 0.1);
 	--accent-ink: oklch(0.42 0.12 28);
+	--json-key: oklch(0.48 0.11 28);
+	--json-string: oklch(0.46 0.11 145);
+	--json-number: oklch(0.5 0.12 255);
+	--json-literal: oklch(0.54 0.13 35);
+	--json-punctuation: var(--ink-4);
 	--bot: oklch(0.55 0.1 295);
 	--bot-soft: oklch(0.55 0.1 295 / 0.1);
 	--bot-ink: oklch(0.38 0.1 295);
@@ -37,6 +42,11 @@
 	--accent: oklch(0.72 0.13 var(--accent-h));
 	--accent-soft: oklch(0.72 0.13 var(--accent-h) / 0.14);
 	--accent-ink: oklch(0.78 0.13 var(--accent-h));
+	--json-key: oklch(0.82 0.09 28);
+	--json-string: oklch(0.78 0.11 145);
+	--json-number: oklch(0.76 0.12 255);
+	--json-literal: oklch(0.76 0.12 35);
+	--json-punctuation: var(--ink-3);
 	--bot: oklch(0.72 0.1 295);
 	--bot-soft: oklch(0.72 0.1 295 / 0.14);
 	--bot-ink: oklch(0.8 0.1 295);
@@ -3132,24 +3142,24 @@ button:disabled {
 }
 
 .json-key {
-	color: color-mix(in oklch, var(--accent-ink) 78%, var(--ink));
+	color: var(--json-key);
 }
 
 .json-string {
-	color: oklch(0.46 0.11 145);
+	color: var(--json-string);
 }
 
 .json-number {
-	color: oklch(0.5 0.12 255);
+	color: var(--json-number);
 }
 
 .json-boolean,
 .json-null {
-	color: oklch(0.54 0.13 35);
+	color: var(--json-literal);
 }
 
 .json-punctuation {
-	color: var(--ink-4);
+	color: var(--json-punctuation);
 }
 
 .json-view .ref-wrap,
