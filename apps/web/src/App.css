@@ -2654,6 +2654,141 @@ button:disabled {
 	padding-left: 18px;
 }
 
+.loop-readable {
+	display: grid;
+	gap: 7px;
+}
+
+.loop-readable-text {
+	color: var(--ink);
+	font-size: 13px;
+	line-height: 1.45;
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+.reasoning-readable {
+	background: color-mix(in oklch, oklch(0.78 0.08 90) 12%, var(--paper));
+}
+
+.readable-link,
+.json-link {
+	color: var(--accent-ink);
+	font-weight: 600;
+	text-decoration: none;
+}
+
+.readable-link:hover,
+.json-link:hover {
+	text-decoration: underline;
+	text-underline-offset: 2px;
+}
+
+.readable-event-list,
+.readable-profile-list,
+.readable-result-stack,
+.readable-chain {
+	display: grid;
+	gap: 7px;
+}
+
+.readable-event-card,
+.readable-profile-card,
+.readable-chain-item {
+	background: color-mix(in oklch, var(--paper-2) 52%, var(--paper));
+	border: 1px solid var(--rule-soft);
+	border-radius: 5px;
+	display: grid;
+	gap: 5px;
+	padding: 7px 8px;
+}
+
+.readable-chain-item.comment {
+	margin-left: 12px;
+}
+
+.readable-event-title,
+.readable-profile-title,
+.readable-chain-head {
+	align-items: center;
+	color: var(--ink);
+	display: flex;
+	flex-wrap: wrap;
+	font-size: 12.5px;
+	gap: 5px;
+	line-height: 1.4;
+}
+
+.readable-event-meta {
+	align-items: center;
+	color: var(--ink-4);
+	display: flex;
+	flex-wrap: wrap;
+	font-size: 11.5px;
+	gap: 6px;
+}
+
+.readable-quote {
+	border-left: 3px solid color-mix(in oklch, var(--accent) 42%, var(--rule));
+	color: var(--ink-2);
+	font-size: 12px;
+	line-height: 1.45;
+	margin: 0;
+	padding: 2px 0 2px 8px;
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+.readable-quote > span {
+	color: var(--ink-4);
+	display: block;
+	font-size: 10px;
+	font-weight: 700;
+	margin-bottom: 2px;
+	text-transform: uppercase;
+}
+
+.readable-badge {
+	background: var(--paper-2);
+	border: 1px solid var(--rule-soft);
+	border-radius: 999px;
+	color: var(--ink-4);
+	font-size: 10.5px;
+	font-weight: 700;
+	line-height: 1;
+	padding: 3px 6px;
+	text-transform: uppercase;
+}
+
+.readable-badge.strong {
+	background: color-mix(in oklch, var(--accent) 12%, var(--paper));
+	border-color: color-mix(in oklch, var(--accent) 28%, var(--rule));
+	color: var(--accent-ink);
+}
+
+.readable-field-list {
+	display: grid;
+	gap: 3px;
+}
+
+.readable-field-list > div {
+	align-items: baseline;
+	display: flex;
+	flex-wrap: wrap;
+	font-size: 12px;
+	gap: 6px;
+}
+
+.readable-field-list span {
+	color: var(--ink-4);
+	font-weight: 600;
+}
+
+.readable-field-list b {
+	color: var(--ink-2);
+	font-weight: 500;
+}
+
 .event-row pre {
 	color: var(--ink-2);
 	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -2988,6 +3123,40 @@ button:disabled {
 	padding: 8px;
 	white-space: pre-wrap;
 	word-break: break-word;
+}
+
+.submission-json-block .json-view {
+	color: var(--ink-2);
+	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	tab-size: 2;
+}
+
+.json-key {
+	color: color-mix(in oklch, var(--accent-ink) 78%, var(--ink));
+}
+
+.json-string {
+	color: oklch(0.46 0.11 145);
+}
+
+.json-number {
+	color: oklch(0.5 0.12 255);
+}
+
+.json-boolean,
+.json-null {
+	color: oklch(0.54 0.13 35);
+}
+
+.json-punctuation {
+	color: var(--ink-4);
+}
+
+.json-view .ref-wrap,
+.json-view .ref,
+.json-view .ref-button,
+.json-view .json-link {
+	font-family: inherit;
 }
 
 .confirm-body {
@@ -4545,6 +4714,12 @@ button:disabled {
 	overflow: auto;
 	padding: 8px 10px;
 	white-space: pre-wrap;
+}
+
+.spot-panel .preview .injected.readable-context {
+	display: grid;
+	gap: 8px;
+	white-space: normal;
 }
 
 .spot-panel .preview .injected.muted {

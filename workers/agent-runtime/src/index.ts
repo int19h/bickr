@@ -1834,9 +1834,7 @@ export class BotRuntime {
 			if (response.requestBody) {
 				this.recordLoopMessageLog(assistantLoopMessage.seq, "provider_request", response.requestBody);
 			}
-			if (response.rawResponse) {
-				this.recordLoopMessageLog(assistantLoopMessage.seq, "provider_response", response.rawResponse);
-			}
+			this.recordLoopMessageLog(assistantLoopMessage.seq, "provider_response", JSON.stringify(providerResponseLogPayload(response, responseStatus)));
 			currentMessages = [...currentMessages, assistantMessage];
 			if (responseStatus === "interrupted") {
 				if (response.toolCalls.length > 0) {
@@ -2064,7 +2062,6 @@ export class BotRuntime {
 		let reasoning = "";
 		const reasoningDetails: ReasoningDetail[] = [];
 		const toolCalls = new Map<number, ToolCall>();
-		const rawEvents: string[] = [];
 		let usage: ProviderUsage | undefined;
 		let responseId: string | undefined;
 		let responseModel: string | undefined;
@@ -2073,7 +2070,6 @@ export class BotRuntime {
 			for await (const event of readSse(stream, signal)) {
 				this.throwIfStopped(runId, signal);
 				this.markProviderStreamActive(runId);
-				rawEvents.push(event.raw);
 				if (event.data === "[DONE]") {
 					break;
 				}
@@ -2145,7 +2141,7 @@ export class BotRuntime {
 			}
 				if (error instanceof TickStoppedError || isAbortError(error)) {
 					throw new ProviderResponseInterruptedError(
-						{ content, reasoning, reasoningDetails, toolCalls: [...toolCalls.values()].filter((tool) => tool.function.name), rawResponse: rawEvents.join("") },
+						{ content, reasoning, reasoningDetails, toolCalls: [...toolCalls.values()].filter((tool) => tool.function.name) },
 						error,
 					);
 				}
@@ -2157,7 +2153,6 @@ export class BotRuntime {
 			content,
 			reasoning,
 			reasoningDetails,
-			rawResponse: rawEvents.join(""),
 			toolCalls: [...toolCalls.values()].filter((tool) => tool.function.name),
 			...(usage ? { usage } : {}),
 			...(responseId ? { responseId } : {}),
@@ -3182,6 +3177,7 @@ export class BotRuntime {
 				break;
 			}
 			case "log_off":
+				normalizedArgs.reason = stringArg(normalizedArgs.reason, "reason");
 				result = { ok: true, status: "finished", message: "I have finished this Bickr visit." };
 				break;
 			default:
@@ -5313,6 +5309,34 @@ function providerUsageFromValue(value: unknown): ProviderUsage | undefined {
 	};
 }
 
+function providerResponseLogPayload(response: ProviderResponse, status: BotLoopMessageStatus): Record<string, unknown> {
+	return {
+		status,
+		...(response.responseId ? { responseId: response.responseId } : {}),
+		...(response.responseModel ? { responseModel: response.responseModel } : {}),
+		message: {
+			role: "assistant",
+			content: response.content || null,
+			...(response.reasoning ? { reasoning: response.reasoning } : {}),
+			...(response.reasoningDetails.length > 0 ? { reasoning_details: response.reasoningDetails } : {}),
+			...(response.toolCalls.length > 0 ? { tool_calls: response.toolCalls } : {}),
+		},
+		...(response.usage ?
+			{
+				usage: {
+					promptTokens: response.usage.promptTokens,
+					completionTokens: response.usage.completionTokens,
+					totalTokens: response.usage.totalTokens,
+					cachedTokens: response.usage.cachedTokens,
+					reasoningTokens: response.usage.reasoningTokens,
+					cost: response.usage.cost,
+					raw: response.usage.raw,
+				},
+			}
+		:	{}),
+	};
+}
+
 function emptyUsageTotals(): BotTokenUsageTotals {
 	return {
 		requestCount: 0,
@@ -5538,11 +5562,10 @@ function isRuntimeMetaContextLine(line: string): boolean {
 function injectedThoughtAssistantContent(text: string, payload: Record<string, unknown>): string {
 	const kind = stringValue(payload.kind) ?? "manual";
 	const normalized = normalizeInjectedThoughtText(text);
-	const intro =
-		kind === "spotlight" ?
-			"This catches my attention as something to consider."
-		:	"I have this private thought in mind.";
-	return `${intro}\n\n${truncateForContext(normalized, 8_000)}`;
+	if (kind === "spotlight") {
+		return `This catches my attention as something to consider.\n\n${truncateForContext(normalized, 8_000)}`;
+	}
+	return truncateForContext(normalized, 8_000);
 }
 
 function normalizeInjectedThoughtText(text: string): string {
@@ -5724,7 +5747,7 @@ function toolCallHistorySummary(payload: Record<string, unknown>): string {
 		case "unfollow_profile":
 			return `unfollow ${historyUsernames(args).join(", ") || "those profiles"}${toolReasonSuffix(args)}`;
 		case "log_off":
-			return "log off from Bickr";
+			return `log off from Bickr${toolReasonSuffix(args)}`;
 		default:
 			return `use ${safeContextText(name, 120)}`;
 	}
@@ -5799,16 +5822,39 @@ function toolResultHistorySummary(payload: Record<string, unknown>): string {
 		return `${name === "follow_profile" ? "I followed" : "I unfollowed"} ${profiles.join("; ") || "those profiles"}.${toolReasonSentence(args)}`;
 	}
 	if (name === "log_off") {
-		return "I logged off from Bickr.";
+		return `I logged off from Bickr.${toolReasonSentence(args)}`;
 	}
 	return `I finished using ${safeContextText(name, 120)}.`;
 }
 
 function toolFailureAssistantContent(failure: ToolFailurePayload): string {
+	const redundantFollow = redundantFollowFailureAssistantContent(failure);
+	if (redundantFollow) {
+		return redundantFollow;
+	}
 	const action = toolCallHistorySummary({ name: failure.toolName, args: failure.args });
 	const message = safeContextText(failure.message || "The Bickr page showed an error.", 260);
 	const guidance = failure.guidance ? ` The page hint says: ${safeContextText(failure.guidance, 260)}` : "";
 	return `The Bickr page shows an error after I try to ${action}: ${message}. ${toolFailureSelfCorrection(failure)}${guidance}`;
+}
+
+function redundantFollowFailureAssistantContent(failure: ToolFailurePayload): string | undefined {
+	if (failure.toolName !== "follow_profile" && failure.toolName !== "unfollow_profile") {
+		return undefined;
+	}
+	const username = usernameFromFollowFailure(failure);
+	if (failure.toolName === "follow_profile" && /\balready follow\b/i.test(failure.message)) {
+		return `I tried to follow ${username} but that didn't work because I was already following them. There's no need for me to follow them again, I should do something different next.`;
+	}
+	if (failure.toolName === "unfollow_profile" && /\bdo not follow\b/i.test(failure.message)) {
+		return `I tried to unfollow ${username} but that didn't work because I wasn't following them in the first place. There's no need for me to unfollow them, I should do something different next.`;
+	}
+	return undefined;
+}
+
+function usernameFromFollowFailure(failure: ToolFailurePayload): string {
+	const fromMessage = failure.message.match(/\bu\/[A-Za-z0-9_-]+\b/)?.[0];
+	return fromMessage ?? historyUsernames(failure.args)[0] ?? "that profile";
 }
 
 function toolFailureSelfCorrection(failure: Pick<ToolFailurePayload, "code" | "toolName">): string {

@@ -108,6 +108,13 @@ type ParsedRoute = {
 
 type ReferenceKind = "world" | "forum" | "bot" | "human";
 type OpenReference = (kind: ReferenceKind, name: string, context?: { worldHandle?: string }) => void;
+type LoopToolCall = NonNullable<BotInferenceSubmissionMessage["tool_calls"]>[number];
+type LoopToolCallContext = {
+	id: string;
+	name: string;
+	args: Record<string, unknown>;
+};
+type JsonRecord = Record<string, unknown>;
 
 type BotDraft = {
 	handle: string;
@@ -4895,7 +4902,7 @@ function SpotlightPanel({
 										` / ${botPreview.included.excludedSeenCount} already seen excluded`
 									:	""}
 								</summary>
-								<pre className="injected">{botPreview.injectedText}</pre>
+								<SpotlightPreviewReadableView injectedText={botPreview.injectedText} />
 							</details>
 						))
 					:	<div className="injected muted">
@@ -7099,6 +7106,7 @@ function BotRuntimePanel({
 	const latestLoopMessageSeqRef = useRef(0);
 	const reconnectAttemptRef = useRef(0);
 	const runtimeEnabled = status?.enabled ?? bot.tickSettings.enabled;
+	const toolCallsById = useMemo(() => loopToolCallsById(loopMessages), [loopMessages]);
 
 	useEffect(() => {
 		let closed = false;
@@ -7570,6 +7578,7 @@ function BotRuntimePanel({
 							loadingLogs={loopMessageLogLoadingSeq === loopMessage.seq}
 							message={loopMessage}
 							onViewLogs={() => void viewLoopMessageLogs(loopMessage)}
+							toolCallsById={toolCallsById}
 						/>
 					))}
 				</div>
@@ -7776,7 +7785,7 @@ function LoopMessageLogsModal({
 				<RuntimeRow label="Run" value={message.runId} />
 			</div>
 			<div className="submission-chat-log">
-				<InferenceSubmissionMessageView message={message.message} position={message.seq} />
+				<RawInferenceSubmissionMessageView message={message.message} position={message.seq} />
 				{logs.length === 0 ?
 					<div className="empty compact-empty">No retained raw logs for this message.</div>
 				:	logs.map((log) => (
@@ -7787,7 +7796,7 @@ function LoopMessageLogsModal({
 								<span>{log.encoding}</span>
 								<span>{formatByteCount(log.textLength)}</span>
 							</div>
-							<pre className="submission-message-text">{log.text}</pre>
+							<SubmissionJsonBlock label="log" value={log.text} />
 						</div>
 					))}
 			</div>
@@ -7799,12 +7808,15 @@ function LoopMessageRow({
 	loadingLogs,
 	message,
 	onViewLogs,
+	toolCallsById,
 }: {
 	loadingLogs: boolean;
 	message: BotLoopMessage;
 	onViewLogs: () => void;
+	toolCallsById: ReadonlyMap<string, LoopToolCallContext>;
 }) {
 	const status = message.status === "interrupted" ? "interrupted" : null;
+	const toolCallContext = message.message.tool_call_id ? toolCallsById.get(message.message.tool_call_id) : undefined;
 	return (
 		<div className={`event-row activity-${loopMessageActivityKind(message)}`}>
 			<button
@@ -7826,12 +7838,12 @@ function LoopMessageRow({
 			<div className="event-meta">
 				{loopMessageOriginLabel(message.origin)} / {message.runId} / {formatTokenCount(message.tokenEstimate)} tokens
 			</div>
-			<InferenceSubmissionMessageView message={message.message} position={message.seq} />
+			<LoopMessageReadableView message={message.message} toolCall={toolCallContext} />
 		</div>
 	);
 }
 
-function InferenceSubmissionMessageView({
+function RawInferenceSubmissionMessageView({
 	message,
 	position,
 }: {
@@ -7847,30 +7859,1170 @@ function InferenceSubmissionMessageView({
 				{message.tool_call_id && <span>{message.tool_call_id}</span>}
 			</div>
 			{message.content && (
-				message.role === "tool" ?
-					<SubmissionJsonBlock label="JSON result" value={message.content} />
-				:	<div className="submission-message-text">{message.content}</div>
+				<SubmissionJsonBlock label={message.role === "tool" ? "JSON result" : "content"} value={message.content} />
 			)}
+			{message.reasoning && <SubmissionJsonBlock label="reasoning" value={message.reasoning} />}
+			{message.reasoning_content && <SubmissionJsonBlock label="reasoning_content" value={message.reasoning_content} />}
+			{message.reasoning_details && <SubmissionJsonBlock label="reasoning_details" value={message.reasoning_details} />}
 			{toolCalls.map((toolCall, index) => (
 				<div className="submission-tool-call" key={`${toolCall.id}-${index}`}>
 					<div className="submission-tool-name">{toolCall.function.name || "unknown_tool"}</div>
 					<SubmissionJsonBlock label="JSON arguments" value={toolCall.function.arguments} />
 				</div>
 			))}
-			{message.reasoning && <SubmissionJsonBlock label="reasoning" value={message.reasoning} />}
-			{message.reasoning_content && <SubmissionJsonBlock label="reasoning_content" value={message.reasoning_content} />}
-			{message.reasoning_details && <SubmissionJsonBlock label="reasoning_details" value={message.reasoning_details} />}
 		</div>
 	);
 }
 
 function SubmissionJsonBlock({ label, value }: { label: string; value: unknown }) {
+	const parsed = parseJsonForDisplay(value);
 	return (
 		<div className="submission-json-block">
 			<span>{label}</span>
-			<pre>{prettyJsonText(value)}</pre>
+			{parsed.ok ?
+				<JsonSyntaxBlock value={parsed.value} />
+			:	<pre>{prettyJsonText(value)}</pre>}
 		</div>
 	);
+}
+
+function LoopMessageReadableView({
+	message,
+	toolCall,
+}: {
+	message: BotInferenceSubmissionMessage;
+	toolCall?: LoopToolCallContext;
+}) {
+	const toolCalls = message.tool_calls ?? [];
+	const content = typeof message.content === "string" ? message.content : "";
+	return (
+		<div className={`loop-readable role-${message.role}`}>
+			{message.role === "tool" ?
+				<ReadableToolResult content={content} toolCall={toolCall} />
+			: content ?
+				<div className="loop-readable-text">{content}</div>
+			:	null}
+			{message.reasoning && <ReadableReasoningBlock label="Reasoning" text={message.reasoning} />}
+			{message.reasoning_content && <ReadableReasoningBlock label="Reasoning" text={message.reasoning_content} />}
+			{message.reasoning_details && <ReadableReasoningDetails details={message.reasoning_details} />}
+			{toolCalls.map((item, index) => (
+				<ReadableToolCall key={`${item.id}-${index}`} toolCall={item} />
+			))}
+		</div>
+	);
+}
+
+function ReadableReasoningBlock({ label, text }: { label: string; text: string }) {
+	return (
+		<div className="tool-block readable reasoning-readable">
+			<span>{label}</span>
+			<div className="tool-text">{text}</div>
+		</div>
+	);
+}
+
+function ReadableReasoningDetails({ details }: { details: unknown[] }) {
+	const text = details.map(reasoningDetailText).filter(Boolean).join("\n\n");
+	if (!text) {
+		return (
+			<div className="tool-block readable reasoning-readable">
+				<span>Reasoning</span>
+				<div className="tool-text">Reasoning details were recorded.</div>
+			</div>
+		);
+	}
+	return <ReadableReasoningBlock label="Reasoning" text={text} />;
+}
+
+function reasoningDetailText(detail: unknown): string {
+	if (typeof detail === "string") {
+		return detail;
+	}
+	const record = recordValue(detail);
+	return stringValue(record.text) ?? stringValue(record.content) ?? stringValue(record.reasoning) ?? "";
+}
+
+function ReadableToolCall({ toolCall }: { toolCall: LoopToolCall }) {
+	const name = canonicalDisplayToolName(toolCall.function.name || "unknown_tool");
+	const args = parseToolArguments(toolCall);
+	return (
+		<div className="tool-block readable">
+			<span>{readableToolCallTitle(name)}</span>
+			{readableToolCallSummary(name, args)}
+		</div>
+	);
+}
+
+function ReadableToolResult({
+	content,
+	toolCall,
+}: {
+	content: string;
+	toolCall?: LoopToolCallContext;
+}) {
+	const parsed = parseJsonValue(content);
+	const inferredName = toolCall?.name ?? inferToolNameFromResult(parsed);
+	const name = canonicalDisplayToolName(inferredName);
+	return (
+		<div className="tool-block readable">
+			<span>{readableToolResultTitle(name)}</span>
+			{readableToolResultContent(name, parsed, toolCall?.args)}
+		</div>
+	);
+}
+
+function readableToolCallTitle(name: string): string {
+	switch (name) {
+		case "check_notifications":
+			return "Checking notifications";
+		case "view_profiles":
+			return "Opening profiles";
+		case "list_accessible_forums":
+			return "Looking at forums";
+		case "list_recent_threads":
+			return "Looking at recent threads";
+		case "list_hot_threads":
+			return "Looking at hot threads";
+		case "search_posts":
+		case "search_posts_semantic":
+			return "Searching posts";
+		case "search_profiles":
+			return "Searching profiles";
+		case "view_activity":
+			return "Opening profile activity";
+		case "read_thread":
+		case "read_thread_by_id":
+		case "read_comment_by_id":
+			return "Reading a conversation";
+		case "create_post":
+			return "Posting a thread";
+		case "reply_to_thread":
+			return "Posting a reply";
+		case "vote":
+			return "Voting";
+		case "follow_profile":
+			return "Following profiles";
+		case "unfollow_profile":
+			return "Unfollowing profiles";
+		case "log_off":
+			return "Logging off";
+		default:
+			return "Using Bickr";
+	}
+}
+
+function readableToolResultTitle(name: string): string {
+	switch (name) {
+		case "check_notifications":
+			return "Notifications";
+		case "view_profiles":
+			return "Profiles";
+		case "read_thread":
+		case "read_thread_by_id":
+		case "read_comment_by_id":
+			return "Conversation";
+		case "create_post":
+			return "Posted thread";
+		case "reply_to_thread":
+			return "Posted reply";
+		case "vote":
+			return "Vote recorded";
+		case "follow_profile":
+		case "unfollow_profile":
+			return "Follow list updated";
+		case "list_accessible_forums":
+			return "Forums";
+		case "list_recent_threads":
+		case "list_hot_threads":
+		case "search_posts":
+		case "search_posts_semantic":
+			return "Threads and posts";
+		case "search_profiles":
+			return "Profiles";
+		case "view_activity":
+			return "Profile activity";
+		case "log_off":
+			return "Logged off";
+		default:
+			return "Bickr response";
+	}
+}
+
+function readableToolCallSummary(name: string, args: JsonRecord): ReactNode {
+	const worldHandle = worldHandleFromRecord(args);
+	const forumHandle = forumHandleFromRecord(args);
+	switch (name) {
+		case "check_notifications":
+			return <div className="tool-text">Looking for new Bickr activity.</div>;
+		case "view_profiles":
+		case "follow_profile":
+		case "unfollow_profile": {
+			const usernames = usernamesFromValue(args.usernames ?? args.username ?? args.profile ?? args.profiles);
+			return (
+				<div className="tool-pretty">
+					{usernames.length > 0 ?
+						<>
+							<span>{name === "view_profiles" ? "Opening" : name === "follow_profile" ? "Following" : "Unfollowing"}</span>
+							{joinReadable(usernames.map((username) => (
+								<ProfileReference key={username} username={username} worldHandle={worldHandle} />
+							)))}
+						</>
+					:	<span>{name === "view_profiles" ? "Opening profile details." : "Updating followed profiles."}</span>}
+				</div>
+			);
+		}
+		case "read_thread":
+		case "read_thread_by_id":
+		case "read_comment_by_id":
+			return (
+				<div className="tool-pretty">
+					<span>Reading</span>
+					<ThreadReference
+						commentId={stringValue(args.commentId ?? args.targetCommentId)}
+						forumHandle={forumHandle}
+						label={name === "read_comment_by_id" ? "reply" : "thread"}
+						threadId={stringValue(args.threadId)}
+						worldHandle={worldHandle}
+					/>
+				</div>
+			);
+		case "create_post":
+			return (
+				<div className="tool-pretty tool-list">
+					<div className="tool-pretty-item">
+						<span>Posting in</span>
+						<ForumReference forumHandle={forumHandle} worldHandle={worldHandle} />
+					</div>
+					{stringValue(args.title) && <div className="tool-pretty-label">{stringValue(args.title)}</div>}
+				</div>
+			);
+		case "reply_to_thread":
+			return (
+				<div className="tool-pretty">
+					<span>Replying in</span>
+					<ThreadReference forumHandle={forumHandle} threadId={stringValue(args.threadId)} worldHandle={worldHandle} />
+				</div>
+			);
+		case "vote":
+			return (
+				<div className="tool-pretty">
+					<span>{voteActionLabel(numberValue(args.value))}</span>
+					<ThreadReference
+						commentId={stringValue(args.commentId ?? (stringValue(args.targetType) === "comment" ? args.targetId : undefined))}
+						forumHandle={forumHandle}
+						label={stringValue(args.targetType) === "comment" ? "reply" : "thread"}
+						threadId={stringValue(args.threadId ?? (stringValue(args.targetType) === "thread" ? args.targetId : undefined))}
+						worldHandle={worldHandle}
+					/>
+				</div>
+			);
+		case "search_posts":
+		case "search_posts_semantic":
+		case "search_profiles":
+			return <div className="tool-text">Searching for “{stringValue(args.query) ?? stringValue(args.q) ?? "matching results"}”.</div>;
+		case "list_accessible_forums":
+			return <div className="tool-text">Looking at forums this profile can read.</div>;
+		case "list_recent_threads":
+		case "list_hot_threads":
+			return (
+				<div className="tool-pretty">
+					<span>Scanning</span>
+					<ForumReference forumHandle={forumHandle} worldHandle={worldHandle} />
+				</div>
+			);
+		case "log_off":
+			return (
+				<div className="tool-pretty tool-list">
+					<div className="tool-pretty-item">Ending this loop run.</div>
+					{stringValue(args.reason) && (
+						<div className="tool-pretty-item">
+							<span className="tool-pretty-label">Reason</span>
+							<span>{stringValue(args.reason)}</span>
+						</div>
+					)}
+				</div>
+			);
+		default:
+			return <ReadableGenericFields record={args} />;
+	}
+}
+
+function readableToolResultContent(name: string, value: unknown, args?: JsonRecord): ReactNode {
+	if (name === "check_notifications") {
+		return <ReadableNotificationEvents events={arrayValue(recordValue(value).events)} />;
+	}
+	if (name === "view_profiles" || name === "search_profiles") {
+		return <ReadableProfiles value={value} />;
+	}
+	if (name === "read_thread" || name === "read_thread_by_id" || name === "read_comment_by_id") {
+		return <ReadableReadResult value={value} />;
+	}
+	if (name === "create_post" || name === "reply_to_thread") {
+		return <ReadableThreadDocument value={value} />;
+	}
+	if (name === "vote") {
+		return <ReadableVoteResult value={value} />;
+	}
+	if (name === "follow_profile" || name === "unfollow_profile") {
+		return <ReadableFollowResult value={value} fallbackFollowing={name === "follow_profile"} />;
+	}
+	if (name === "list_accessible_forums") {
+		return <ReadableForumList value={value} worldHandle={worldHandleFromRecord(args ?? {})} />;
+	}
+	if (name === "list_recent_threads" || name === "list_hot_threads" || name === "search_posts" || name === "search_posts_semantic") {
+		return <ReadableThreadList value={value} />;
+	}
+	if (name === "view_activity") {
+		return <ReadableActivityResult value={value} />;
+	}
+	return <ReadableGenericResult value={value} />;
+}
+
+function ReadableNotificationEvents({ events }: { events: unknown[] }) {
+	if (events.length === 0) {
+		return <div className="tool-text">No new notifications.</div>;
+	}
+	return (
+		<div className="readable-event-list">
+			{events.map((event, index) => (
+				<ReadableNotificationEvent event={recordValue(event)} key={`${stringValue(recordValue(event).id) ?? "event"}-${index}`} />
+			))}
+		</div>
+	);
+}
+
+function ReadableNotificationEvent({ event }: { event: JsonRecord }) {
+	const worldHandle = worldHandleFromRecord(event);
+	const forumHandle = forumHandleFromRecord(event);
+	const thread = recordValue(event.thread);
+	const comment = recordValue(event.comment);
+	const text = stringValue(comment.text) ?? stringValue(thread.text) ?? stringValue(event.message);
+	return (
+		<div className="readable-event-card">
+			<div className="readable-event-title">{notificationEventHeadline(event)}</div>
+				<div className="readable-event-meta">
+					{forumHandle && <ForumReference forumHandle={forumHandle} worldHandle={worldHandle} />}
+					{stringValue(event.createdAt) && <span>{formatShortDate(String(event.createdAt))}</span>}
+				</div>
+			{text && <ReadableQuote text={text} />}
+		</div>
+	);
+}
+
+function notificationEventHeadline(event: JsonRecord): ReactNode {
+	const type = stringValue(event.type) ?? "system";
+	const actor = recordValue(event.actor);
+	const thread = recordValue(event.thread);
+	const comment = recordValue(event.comment);
+	const replyTo = recordValue(event.replyTo);
+	const targetProfile = recordValue(event.targetProfile);
+	const target = recordValue(event.target);
+	const vote = recordValue(event.vote);
+	const worldHandle = worldHandleFromRecord(event);
+	const forumHandle = forumHandleFromRecord(event);
+	const actorNode = <ProfileReference profile={actor} worldHandle={worldHandle} />;
+	const threadNode = (
+		<ThreadReference
+			commentId={stringValue(comment.id)}
+			forumHandle={forumHandle}
+			label={stringValue(thread.title) ?? "thread"}
+			threadId={stringValue(comment.threadId) ?? stringValue(thread.id)}
+			title={stringValue(thread.title)}
+			worldHandle={worldHandle}
+		/>
+	);
+	switch (type) {
+		case "thread_created":
+			return (
+				<>
+					{actorNode} posted {threadNode}
+				</>
+			);
+		case "comment_created": {
+			const replyAuthor = recordValue(replyTo.author);
+			return (
+				<>
+					{actorNode} replied {profileHasHandle(replyAuthor) ? <>to <ProfileReference profile={replyAuthor} worldHandle={worldHandle} /> </> : null}
+					on {threadNode}
+				</>
+			);
+		}
+		case "vote_cast": {
+			const targetAuthor = recordValue(target.author);
+			const targetType = stringValue(vote.targetType) ?? (stringValue(target.threadId) ? "comment" : "thread");
+			return (
+				<>
+					{actorNode} {voteActionLabel(numberValue(vote.value))}{" "}
+					{profileHasHandle(targetAuthor) ? <><ProfileReference profile={targetAuthor} worldHandle={worldHandle} />’s </> : null}
+					{targetType === "comment" ? "reply" : "thread"}
+				</>
+			);
+		}
+		case "profile_followed":
+			return (
+				<>
+					{actorNode} followed <ProfileReference profile={profileHasHandle(targetProfile) ? targetProfile : target} worldHandle={worldHandle} />
+				</>
+			);
+		case "profile_unfollowed":
+			return (
+				<>
+					{actorNode} unfollowed <ProfileReference profile={profileHasHandle(targetProfile) ? targetProfile : target} worldHandle={worldHandle} />
+				</>
+			);
+		default:
+			return <>{stringValue(event.message) ?? "Bickr activity"}</>;
+	}
+}
+
+function ReadableProfiles({ value }: { value: unknown }) {
+	const record = recordValue(value);
+	const profiles = Array.isArray(record.profiles) ? record.profiles : Array.isArray(value) ? value : profileHasHandle(record) ? [record] : [];
+	if (profiles.length === 0) {
+		return <div className="tool-text">No profiles found.</div>;
+	}
+	return (
+		<div className="readable-profile-list">
+			{profiles.map((profileValue, index) => {
+				const profile = recordValue(profileValue);
+				const username = stringValue(profile.username) ?? stringValue(profile.handle);
+				return (
+					<div className="readable-profile-card" key={`${username ?? "profile"}-${index}`}>
+						<div className="readable-profile-title">
+							<ProfileReference profile={profile} />
+							{stringValue(profile.displayName) && <span>{stringValue(profile.displayName)}</span>}
+							{typeof profile.following === "boolean" && <span className="readable-badge">{profile.following ? "following" : "not following"}</span>}
+						</div>
+						{stringValue(profile.shortBio) && <div className="tool-text">{stringValue(profile.shortBio)}</div>}
+					</div>
+				);
+			})}
+		</div>
+	);
+}
+
+function ReadableReadResult({ value }: { value: unknown }) {
+	const record = recordValue(value);
+	const thread = recordValue(record.thread);
+	const content = arrayValue(record.content);
+	return (
+		<div className="readable-result-stack">
+			{stringValue(record.context) && <div className="tool-text">{stringValue(record.context)}</div>}
+			{profileHasHandle(recordValue(thread.author)) || stringValue(thread.title) ?
+				<div className="readable-event-meta">
+					<ThreadReference
+						forumHandle={forumHandleFromRecord(thread)}
+						label={stringValue(thread.title) ?? "thread"}
+						threadId={stringValue(thread.threadId ?? thread.id)}
+						title={stringValue(thread.title)}
+						worldHandle={worldHandleFromRecord(thread)}
+					/>
+					{profileHasHandle(recordValue(thread.author)) && <ProfileReference profile={recordValue(thread.author)} worldHandle={worldHandleFromRecord(thread)} />}
+				</div>
+			:	null}
+			<ReadableContentChain content={content} fallbackThread={thread} />
+		</div>
+	);
+}
+
+function ReadableThreadDocument({ value }: { value: unknown }) {
+	const thread = recordValue(value);
+	const rootPost = recordValue(thread.rootPost);
+	const title = stringValue(thread.title) ?? stringValue(rootPost.title);
+	const worldHandle = worldHandleFromRecord(thread);
+	const forumHandle = forumHandleFromRecord(thread);
+	return (
+		<div className="readable-result-stack">
+			<div className="readable-event-title">
+				<ThreadReference
+					forumHandle={forumHandle}
+					label={title ?? "thread"}
+					threadId={stringValue(thread.threadId ?? thread.id)}
+					title={title}
+					worldHandle={worldHandle}
+				/>
+			</div>
+			{profileHasHandle(recordValue(rootPost.author)) ?
+				<div className="readable-event-meta"><ProfileReference profile={recordValue(rootPost.author)} worldHandle={worldHandle} /></div>
+			:	null}
+			{stringValue(rootPost.body) && <ReadableQuote text={stringValue(rootPost.body)!} />}
+		</div>
+	);
+}
+
+function ReadableVoteResult({ value }: { value: unknown }) {
+	const items = Array.isArray(value) ? value : [value];
+	return (
+		<div className="tool-pretty tool-list">
+			{items.map((item, index) => {
+				const record = recordValue(item);
+				const thread = recordValue(record.thread);
+				return (
+					<div className="tool-pretty-item" key={`vote-${index}`}>
+						<span>{voteActionLabel(numberValue(record.value))}</span>
+						<ThreadReference
+							commentId={stringValue(record.commentId ?? (stringValue(record.targetType) === "comment" ? record.targetId : undefined))}
+							forumHandle={forumHandleFromRecord(thread)}
+							label={stringValue(record.targetType) === "comment" ? "reply" : stringValue(thread.title) ?? "thread"}
+							threadId={stringValue(thread.threadId ?? thread.id ?? (stringValue(record.targetType) === "thread" ? record.targetId : undefined))}
+							title={stringValue(thread.title)}
+							worldHandle={worldHandleFromRecord(thread)}
+						/>
+					</div>
+				);
+			})}
+		</div>
+	);
+}
+
+function ReadableFollowResult({ fallbackFollowing, value }: { fallbackFollowing: boolean; value: unknown }) {
+	const items = Array.isArray(value) ? value : [value];
+	return (
+		<div className="tool-pretty tool-list">
+			{items.map((item, index) => {
+				const record = recordValue(item);
+				const profile = recordValue(record.profile);
+				const following = typeof record.following === "boolean" ? record.following : fallbackFollowing;
+				return (
+					<div className="tool-pretty-item" key={`follow-${index}`}>
+						<span>{following ? "Following" : "Not following"}</span>
+						<ProfileReference profile={profileHasHandle(profile) ? profile : record} />
+					</div>
+				);
+			})}
+		</div>
+	);
+}
+
+function ReadableForumList({ value, worldHandle }: { value: unknown; worldHandle?: string }) {
+	const items = Array.isArray(value) ? value : [];
+	if (items.length === 0) {
+		return <div className="tool-text">No forums found.</div>;
+	}
+	return (
+		<div className="tool-pretty tool-list">
+			{items.slice(0, 12).map((item, index) => {
+				const forum = recordValue(item);
+				return (
+					<div className="tool-pretty-item" key={`${stringValue(forum.forum ?? forum.handle) ?? "forum"}-${index}`}>
+						<ForumReference forumHandle={forumHandleFromRecord(forum)} worldHandle={worldHandleFromRecord(forum) ?? worldHandle} />
+						{stringValue(forum.description) && <span>{stringValue(forum.description)}</span>}
+					</div>
+				);
+			})}
+		</div>
+	);
+}
+
+function ReadableThreadList({ value }: { value: unknown }) {
+	const items = Array.isArray(value) ? value : [];
+	if (items.length === 0) {
+		return <div className="tool-text">No matching posts found.</div>;
+	}
+	return (
+		<div className="tool-pretty tool-list">
+			{items.slice(0, 12).map((item, index) => {
+				const thread = recordValue(item);
+				return (
+					<div className="tool-pretty-item" key={`${stringValue(thread.threadId ?? thread.id) ?? "thread"}-${index}`}>
+						<ThreadReference
+							commentId={stringValue(thread.commentId)}
+							forumHandle={forumHandleFromRecord(thread)}
+							label={stringValue(thread.title) ?? "thread"}
+							threadId={stringValue(thread.threadId ?? thread.id)}
+							title={stringValue(thread.title)}
+							worldHandle={worldHandleFromRecord(thread)}
+						/>
+						{profileHasHandle(recordValue(thread.author)) && <ProfileReference profile={recordValue(thread.author)} worldHandle={worldHandleFromRecord(thread)} />}
+					</div>
+				);
+			})}
+		</div>
+	);
+}
+
+function ReadableActivityResult({ value }: { value: unknown }) {
+	const record = recordValue(value);
+	const profile = recordValue(record.profile);
+	const activities = arrayValue(record.activities);
+	return (
+		<div className="readable-result-stack">
+			<div className="readable-event-title"><ProfileReference profile={profile} /></div>
+			{activities.length === 0 ?
+				<div className="tool-text">No recent public activity.</div>
+			:	<div className="tool-pretty tool-list">
+					{activities.slice(0, 8).map((activity, index) => {
+						const item = recordValue(activity);
+						return (
+							<div className="tool-pretty-item" key={`${stringValue(item.id) ?? "activity"}-${index}`}>
+								<span>{humanizeKey(stringValue(item.type) ?? "activity")}</span>
+								{profileHasHandle(recordValue(item.profile)) && <ProfileReference profile={recordValue(item.profile)} />}
+							</div>
+						);
+					})}
+				</div>}
+		</div>
+	);
+}
+
+function ReadableGenericResult({ value }: { value: unknown }) {
+	if (typeof value === "string") {
+		return <div className="tool-text">{value}</div>;
+	}
+	if (Array.isArray(value)) {
+		return value.length === 0 ? <div className="tool-text">No results.</div> : <div className="tool-text">{value.length} result{value.length === 1 ? "" : "s"} returned.</div>;
+	}
+	const record = recordValue(value);
+	const message = stringValue(record.message ?? record.status ?? record.context);
+	return message ? <div className="tool-text">{message}</div> : <ReadableGenericFields record={record} />;
+}
+
+function ReadableGenericFields({ record }: { record: JsonRecord }) {
+	const entries = Object.entries(record)
+		.filter(([key, value]) => !lowLevelDisplayKey(key) && isDisplayPrimitive(value))
+		.slice(0, 6);
+	if (entries.length === 0) {
+		return <div className="tool-text">The action completed.</div>;
+	}
+	return (
+		<div className="readable-field-list">
+			{entries.map(([key, value]) => (
+				<div key={key}>
+					<span>{humanizeKey(key)}</span>
+					<b>{String(value)}</b>
+				</div>
+			))}
+		</div>
+	);
+}
+
+function SpotlightPreviewReadableView({ injectedText }: { injectedText: string }) {
+	const parsed = parseJsonValue(injectedText);
+	const record = recordValue(parsed);
+	if (stringValue(record.kind) !== "spotlight_context") {
+		return <div className="injected readable-context"><div className="tool-text">{injectedText}</div></div>;
+	}
+	const worldHandle = worldHandleFromRecord(record);
+	const forumHandle = forumHandleFromRecord(record);
+	return (
+		<div className="injected readable-context">
+			<div className="readable-event-meta">
+				<span>Spotlight context</span>
+				<ForumReference forumHandle={forumHandle} worldHandle={worldHandle} />
+			</div>
+			{stringValue(record.focus) && <ReadableQuote label="Focus" text={stringValue(record.focus)!} />}
+			<ReadableContentChain
+				content={arrayValue(record.content)}
+				fallbackThread={{ world: worldHandle ? `w/${worldHandle}` : undefined, forum: forumHandle ? `f/${forumHandle}` : undefined }}
+			/>
+		</div>
+	);
+}
+
+function ReadableContentChain({
+	content,
+	fallbackThread,
+}: {
+	content: unknown[];
+	fallbackThread?: JsonRecord;
+}) {
+	if (content.length === 0) {
+		return <div className="tool-text">No readable content was included.</div>;
+	}
+	const fallbackWorld = fallbackThread ? worldHandleFromRecord(fallbackThread) : undefined;
+	const fallbackForum = fallbackThread ? forumHandleFromRecord(fallbackThread) : undefined;
+	const fallbackThreadId = fallbackThread ? stringValue(fallbackThread.threadId ?? fallbackThread.id) : undefined;
+	return (
+		<div className="readable-chain">
+			{content.map((itemValue, index) => {
+				const item = recordValue(itemValue);
+				const type = stringValue(item.type) === "comment" || stringValue(item.commentId) ? "comment" : "thread";
+				const worldHandle = worldHandleFromRecord(item) ?? fallbackWorld;
+				const forumHandle = forumHandleFromRecord(item) ?? fallbackForum;
+				const threadId = stringValue(item.threadId) ?? fallbackThreadId;
+				const commentId = stringValue(item.commentId ?? (type === "comment" ? item.id : undefined));
+				const title = stringValue(item.title);
+				const body = stringValue(item.body);
+				const author = recordValue(item.author);
+				const authorProfile = profileHasHandle(author) ? author : item;
+				return (
+					<div className={`readable-chain-item ${type}`} key={`${stringValue(item.id) ?? type}-${index}`}>
+							<div className="readable-chain-head">
+								<span className="readable-badge">{type === "thread" ? "thread" : "reply"}</span>
+								{item.target === true && <span className="readable-badge strong">selected</span>}
+								{item.ancestorOnly === true && <span className="readable-badge">context</span>}
+							{profileHasHandle(authorProfile) && <ProfileReference profile={authorProfile} worldHandle={worldHandle} />}
+							{type === "thread" && (
+								<ThreadReference
+									forumHandle={forumHandle}
+									label={title ?? "thread"}
+									threadId={threadId}
+									title={title}
+									worldHandle={worldHandle}
+								/>
+							)}
+						</div>
+						{type === "comment" && (
+							<div className="readable-event-meta">
+								<ThreadReference
+									commentId={commentId}
+									forumHandle={forumHandle}
+									label="reply"
+									threadId={threadId}
+									worldHandle={worldHandle}
+								/>
+							</div>
+						)}
+						{body && <ReadableQuote text={body} />}
+					</div>
+				);
+			})}
+		</div>
+	);
+}
+
+function ReadableQuote({ label, text }: { label?: string; text: string }) {
+	return (
+		<blockquote className="readable-quote">
+			{label && <span>{label}</span>}
+			{text}
+		</blockquote>
+	);
+}
+
+function ProfileReference({
+	profile,
+	username,
+	worldHandle,
+}: {
+	profile?: JsonRecord;
+	username?: string;
+	worldHandle?: string;
+}) {
+	const handle = usernameHandle(username) ?? usernameHandle(stringValue(profile?.username)) ?? stringValue(profile?.handle) ?? stringValue(profile?.authorHandle);
+	return handle ? <Reference kind="bot" name={handle} worldHandle={worldHandle} /> : <span>someone</span>;
+}
+
+function ForumReference({ forumHandle, worldHandle }: { forumHandle?: string; worldHandle?: string }) {
+	return forumHandle ? <Reference kind="forum" name={forumHandle} worldHandle={worldHandle} /> : <span>a forum</span>;
+}
+
+function ThreadReference({
+	commentId,
+	forumHandle,
+	label = "thread",
+	threadId,
+	title,
+	worldHandle,
+}: {
+	commentId?: string;
+	forumHandle?: string;
+	label?: string;
+	threadId?: string;
+	title?: string;
+	worldHandle?: string;
+}) {
+	if (worldHandle && forumHandle && threadId) {
+		return (
+			<SpaLink
+				className="readable-link"
+				title={commentId ? `Open ${title ?? "reply"}` : `Open ${title ?? "thread"}`}
+				to={{ route: "thread", worldHandle, forumHandle, threadId, ...(commentId ? { commentId } : {}) }}
+			>
+				{title ?? label}
+			</SpaLink>
+		);
+	}
+	return <span>{title ?? label}</span>;
+}
+
+function JsonSyntaxBlock({ value }: { value: unknown }) {
+	return (
+		<pre className="json-view">
+			<code>{renderJsonValue(value, 0, { ancestors: [] })}</code>
+		</pre>
+	);
+}
+
+function renderJsonValue(
+	value: unknown,
+	indent: number,
+	context: { propertyKey?: string; parent?: JsonRecord; ancestors: JsonRecord[] },
+): ReactNode {
+	if (Array.isArray(value)) {
+		if (value.length === 0) {
+			return <span className="json-punctuation">[]</span>;
+		}
+		return (
+			<>
+				<span className="json-punctuation">[</span>
+				{"\n"}
+				{value.map((item, index) => (
+					<span key={index}>
+						{jsonIndent(indent + 1)}
+						{renderJsonValue(item, indent + 1, context)}
+						{index < value.length - 1 ? <span className="json-punctuation">,</span> : null}
+						{"\n"}
+					</span>
+				))}
+				{jsonIndent(indent)}
+				<span className="json-punctuation">]</span>
+			</>
+		);
+	}
+	if (value && typeof value === "object") {
+		const record = value as JsonRecord;
+		const entries = Object.entries(record);
+		if (entries.length === 0) {
+			return <span className="json-punctuation">{"{}"}</span>;
+		}
+		const ancestors = [record, ...context.ancestors];
+		return (
+			<>
+				<span className="json-punctuation">{"{"}</span>
+				{"\n"}
+				{entries.map(([key, item], index) => (
+					<span key={key}>
+						{jsonIndent(indent + 1)}
+						<span className="json-key">"{key}"</span>
+						<span className="json-punctuation">: </span>
+						{renderJsonValue(item, indent + 1, { propertyKey: key, parent: record, ancestors })}
+						{index < entries.length - 1 ? <span className="json-punctuation">,</span> : null}
+						{"\n"}
+					</span>
+				))}
+				{jsonIndent(indent)}
+				<span className="json-punctuation">{"}"}</span>
+			</>
+		);
+	}
+	if (typeof value === "string") {
+		return <JsonStringValue context={context} value={value} />;
+	}
+	if (typeof value === "number") {
+		return <span className="json-number">{Number.isFinite(value) ? String(value) : "null"}</span>;
+	}
+	if (typeof value === "boolean") {
+		return <span className="json-boolean">{String(value)}</span>;
+	}
+	return <span className="json-null">null</span>;
+}
+
+function JsonStringValue({
+	context,
+	value,
+}: {
+	context: { propertyKey?: string; parent?: JsonRecord; ancestors: JsonRecord[] };
+	value: string;
+}) {
+	const linked = linkedJsonString(value, context);
+	if (linked) {
+		return (
+			<>
+				<span className="json-string">"</span>
+				{linked}
+				<span className="json-string">"</span>
+			</>
+		);
+	}
+	return <span className="json-string">{JSON.stringify(value)}</span>;
+}
+
+function linkedJsonString(
+	value: string,
+	context: { propertyKey?: string; parent?: JsonRecord; ancestors: JsonRecord[] },
+): ReactNode | null {
+	const key = context.propertyKey ?? "";
+	const username = key === "username" || value.startsWith("u/") ? usernameHandle(value) : undefined;
+	if (username) {
+		return <Reference kind="bot" name={username} worldHandle={worldHandleFromJsonContext(context)} />;
+	}
+	const worldHandle = key === "world" || key === "worldHandle" || value.startsWith("w/") ? stripHandlePrefix(value, "w") : undefined;
+	if (worldHandle) {
+		return <Reference kind="world" name={worldHandle} />;
+	}
+	const forumHandle = key === "forum" || key === "forumHandle" || value.startsWith("f/") ? stripHandlePrefix(value, "f") : undefined;
+	if (forumHandle) {
+		return <Reference kind="forum" name={forumHandle} worldHandle={worldHandleFromJsonContext(context)} />;
+	}
+	const route = jsonStringRoute(value, context);
+	if (route) {
+		return (
+			<SpaLink className="json-link" title="Open referenced Bickr item" to={route}>
+				{value}
+			</SpaLink>
+		);
+	}
+	return null;
+}
+
+function jsonStringRoute(
+	value: string,
+	context: { propertyKey?: string; parent?: JsonRecord; ancestors: JsonRecord[] },
+): ParsedRoute | null {
+	const key = context.propertyKey ?? "";
+	const parent = context.parent ?? {};
+	const worldHandle = worldHandleFromJsonContext(context);
+	const forumHandle = forumHandleFromJsonContext(context);
+	if (!worldHandle || !forumHandle) {
+		return null;
+	}
+	const parentType = stringValue(parent.type);
+	const targetType = stringValue(parent.targetType);
+	const threadId =
+		key === "threadId" ? value
+		: key === "targetId" && targetType === "thread" ? value
+		: key === "id" && (parentType === "thread" || stringValue(parent.title)) ? value
+		: undefined;
+	if (threadId) {
+		return { route: "thread", worldHandle, forumHandle, threadId };
+	}
+	const commentId =
+		key === "commentId" || key === "parentCommentId" || key === "targetCommentId" ? value
+		: key === "targetId" && targetType === "comment" ? value
+		: key === "id" && (parentType === "comment" || stringValue(parent.threadId)) ? value
+		: undefined;
+	const containingThreadId = stringValue(parent.threadId) ?? findStringInJsonAncestors(context.ancestors, "threadId", "id");
+	if (commentId && containingThreadId) {
+		return { route: "thread", worldHandle, forumHandle, threadId: containingThreadId, commentId };
+	}
+	return null;
+}
+
+function loopToolCallsById(messages: BotLoopMessage[]): Map<string, LoopToolCallContext> {
+	const byId = new Map<string, LoopToolCallContext>();
+	for (const message of messages) {
+		for (const toolCall of message.message.tool_calls ?? []) {
+			byId.set(toolCall.id, {
+				id: toolCall.id,
+				name: canonicalDisplayToolName(toolCall.function.name || "unknown_tool"),
+				args: parseToolArguments(toolCall),
+			});
+		}
+	}
+	return byId;
+}
+
+function parseToolArguments(toolCall: LoopToolCall): JsonRecord {
+	return recordValue(parseJsonValue(toolCall.function.arguments));
+}
+
+function parseJsonForDisplay(value: unknown): { ok: true; value: unknown } | { ok: false } {
+	if (typeof value !== "string") {
+		return { ok: true, value };
+	}
+	const trimmed = value.trim();
+	if (!trimmed || (!trimmed.startsWith("{") && !trimmed.startsWith("["))) {
+		return { ok: false };
+	}
+	try {
+		return { ok: true, value: JSON.parse(trimmed) };
+	} catch {
+		return { ok: false };
+	}
+}
+
+function parseJsonValue(value: unknown): unknown {
+	if (typeof value !== "string") {
+		return value;
+	}
+	const trimmed = value.trim();
+	if (!trimmed || (!trimmed.startsWith("{") && !trimmed.startsWith("["))) {
+		return value;
+	}
+	try {
+		return JSON.parse(trimmed);
+	} catch {
+		return value;
+	}
+}
+
+function inferToolNameFromResult(value: unknown): string {
+	const record = recordValue(value);
+	if (Array.isArray(record.events)) {
+		return "check_notifications";
+	}
+	if (Array.isArray(record.profiles)) {
+		return "view_profiles";
+	}
+	if (Array.isArray(record.content) && record.thread) {
+		return "read_thread";
+	}
+	if (record.rootPost) {
+		return "create_post";
+	}
+	return "unknown_tool";
+}
+
+function canonicalDisplayToolName(name: string): string {
+	const aliases: Record<string, string> = {
+		follow_bot: "follow_profile",
+		search_bots: "search_profiles",
+		unfollow_bot: "unfollow_profile",
+		view_bot_activity: "view_activity",
+		view_bot_profile: "view_profiles",
+		view_profile: "view_profiles",
+	};
+	return aliases[name] ?? name;
+}
+
+function stringValue(value: unknown): string | undefined {
+	if (typeof value === "string" && value.trim()) {
+		return value.trim();
+	}
+	if (typeof value === "number" || typeof value === "boolean") {
+		return String(value);
+	}
+	return undefined;
+}
+
+function numberValue(value: unknown): number | undefined {
+	if (typeof value === "number" && Number.isFinite(value)) {
+		return value;
+	}
+	if (typeof value === "string" && value.trim()) {
+		const parsed = Number(value);
+		return Number.isFinite(parsed) ? parsed : undefined;
+	}
+	return undefined;
+}
+
+function recordValue(value: unknown): JsonRecord {
+	return value && typeof value === "object" && !Array.isArray(value) ? value as JsonRecord : {};
+}
+
+function arrayValue(value: unknown): unknown[] {
+	return Array.isArray(value) ? value : [];
+}
+
+function isDisplayPrimitive(value: unknown): boolean {
+	return typeof value === "string" || typeof value === "number" || typeof value === "boolean";
+}
+
+function lowLevelDisplayKey(key: string): boolean {
+	return /(^id$|Id$|_id$|objectId$|tool_call|token|raw|json)/i.test(key);
+}
+
+function humanizeKey(key: string): string {
+	return key
+		.replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+		.replace(/[_-]+/g, " ")
+		.replace(/\s+/g, " ")
+		.trim()
+		.toLowerCase();
+}
+
+function usernamesFromValue(value: unknown): string[] {
+	const values = Array.isArray(value) ? value : value ? [value] : [];
+	return values
+		.map((item) => {
+			if (typeof item === "string") {
+				return item;
+			}
+			const record = recordValue(item);
+			return stringValue(record.username) ?? stringValue(record.handle);
+		})
+		.filter((item): item is string => Boolean(item));
+}
+
+function usernameHandle(value: string | undefined): string | undefined {
+	return value ? stripHandlePrefix(value, "u") ?? value : undefined;
+}
+
+function profileHasHandle(profile: JsonRecord): boolean {
+	return Boolean(usernameHandle(stringValue(profile.username)) ?? stringValue(profile.handle) ?? stringValue(profile.authorHandle));
+}
+
+function worldHandleFromRecord(record: JsonRecord): string | undefined {
+	return (
+		stripHandlePrefix(stringValue(record.world), "w") ??
+		stripHandlePrefix(stringValue(record.worldHandle), "w") ??
+		stripExplicitHandlePrefix(stringValue(record.handle), "w") ??
+		stripHandlePrefix(stringValue(recordValue(record.world).handle), "w")
+	);
+}
+
+function forumHandleFromRecord(record: JsonRecord): string | undefined {
+	return (
+		stripHandlePrefix(stringValue(record.forum), "f") ??
+		stripHandlePrefix(stringValue(record.forumHandle), "f") ??
+		stripExplicitHandlePrefix(stringValue(record.handle), "f") ??
+		stripHandlePrefix(stringValue(recordValue(record.forum).handle), "f")
+	);
+}
+
+function stripHandlePrefix(value: string | undefined, prefix: "u" | "w" | "f"): string | undefined {
+	if (!value) {
+		return undefined;
+	}
+	const expected = `${prefix}/`;
+	return value.startsWith(expected) ? value.slice(expected.length) : value;
+}
+
+function stripExplicitHandlePrefix(value: string | undefined, prefix: "u" | "w" | "f"): string | undefined {
+	if (!value) {
+		return undefined;
+	}
+	const expected = `${prefix}/`;
+	return value.startsWith(expected) ? value.slice(expected.length) : undefined;
+}
+
+function worldHandleFromJsonContext(context: { parent?: JsonRecord; ancestors: JsonRecord[] }): string | undefined {
+	return findHandleInJsonContext("world", context);
+}
+
+function forumHandleFromJsonContext(context: { parent?: JsonRecord; ancestors: JsonRecord[] }): string | undefined {
+	return findHandleInJsonContext("forum", context);
+}
+
+function findHandleInJsonContext(kind: "world" | "forum", context: { parent?: JsonRecord; ancestors: JsonRecord[] }): string | undefined {
+	const records = [context.parent, ...context.ancestors].filter((item): item is JsonRecord => Boolean(item));
+	for (const record of records) {
+		const handle = kind === "world" ? worldHandleFromRecord(record) : forumHandleFromRecord(record);
+		if (handle) {
+			return handle;
+		}
+	}
+	return undefined;
+}
+
+function findStringInJsonAncestors(ancestors: JsonRecord[], ...keys: string[]): string | undefined {
+	for (const record of ancestors) {
+		for (const key of keys) {
+			const direct = stringValue(record[key]);
+			if (direct) {
+				return direct;
+			}
+			const nested = stringValue(recordValue(record.thread)[key]);
+			if (nested) {
+				return nested;
+			}
+		}
+	}
+	return undefined;
+}
+
+function voteActionLabel(value: number | undefined): string {
+	if ((value ?? 0) > 0) {
+		return "upvoted";
+	}
+	if ((value ?? 0) < 0) {
+		return "downvoted";
+	}
+	return "cleared vote on";
+}
+
+function joinReadable(items: ReactNode[]): ReactNode {
+	return items.map((item, index) => (
+		<span className="readable-join-item" key={index}>
+			{index > 0 ? index === items.length - 1 ? " and " : ", " : ""}
+			{item}
+		</span>
+	));
+}
+
+function jsonIndent(level: number): string {
+	return "\t".repeat(level);
 }
 
 function RuntimeRow({

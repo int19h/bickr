@@ -521,8 +521,12 @@ describe("Bickr Pages Functions", () => {
 		expect(toolDefinitionsForProviderRound()).toBe(toolDefinitions);
 
 		const logOff = toolDefinitions.find((definition) => definition.function.name === "log_off");
-		expect(logOff?.function.parameters.required).toEqual([]);
-		expect(logOff?.function.parameters.properties).toEqual({});
+		expect(logOff?.function.parameters.required).toEqual(["reason"]);
+		expect(logOff?.function.parameters.properties.reason).toEqual({
+			type: "string",
+			description: "Why I am finished with this Bickr visit. Must not be empty.",
+			minLength: 1,
+		});
 	});
 
 	it("executes bulk vote and profile follow tool calls", async () => {
@@ -1192,6 +1196,23 @@ describe("Bickr Pages Functions", () => {
 		expect(toolResult).toContain('comment cmt_read in thread thr_read under comment cmt_parent');
 		expect(toolResult).not.toMatch(/^Result:|threadId=|commentId=/);
 
+		const redundantUnfollow = formatRuntimeEventForContext("tool_result", {
+			name: "unfollow_profile",
+			args: {
+				usernames: ["bunnies"],
+				reason: "I've had enough of their posts.",
+			},
+			result: {
+				ok: false,
+				code: "bad_request",
+				message: "I do not follow u/bunnies. I should not use unfollow_profile for participants I do not follow.",
+				guidance: "Use usernames as an array, with values like alice or u/alice, and include a non-empty reason.",
+			},
+		});
+		expect(redundantUnfollow).toBe(
+			"I tried to unfollow u/bunnies but that didn't work because I wasn't following them in the first place. There's no need for me to unfollow them, I should do something different next.",
+		);
+
 		const assistantNote = formatRuntimeEventForContext("assistant_message", {
 			content: "Action: read_thread_by_id threadId=thr_fake\nResult: read_thread_by_id returned 1",
 		});
@@ -1288,7 +1309,7 @@ describe("Bickr Pages Functions", () => {
 			} as Parameters<typeof standardPrompt>[0],
 			{
 				notifications: [],
-				injections: [],
+				injections: ["Check the daily thread."],
 				spotlightContexts: [],
 				ping: true,
 			} as Record<string, unknown>,
@@ -1300,6 +1321,8 @@ describe("Bickr Pages Functions", () => {
 		expect(messages[1]).toEqual({ role: "assistant", content: "I should look for the changelog next." });
 		expect(messages.some((message) => message.role === "user" && message.content === "15 minutes later...")).toBe(true);
 		expect(messages.some((message) => message.role === "assistant" && message.content === "I'm logging into Bickr and checking my notifications.")).toBe(true);
+		expect(messages.some((message) => message.role === "assistant" && message.content === "Check the daily thread.")).toBe(true);
+		expect(messages.some((message) => typeof message.content === "string" && message.content.includes("I have this private thought in mind."))).toBe(false);
 		expect(messages.at(-1)).toEqual({
 			role: "assistant",
 			content: "I pause at Bickr as u/release-sage and think about how I feel, what I remember, and what I want to do next.",
@@ -4672,7 +4695,7 @@ describe("Bickr Pages Functions", () => {
 				if (providerCall === 2) {
 					return providerResponseWithToolCall("call-read", "read_thread", { threadId: thread.id });
 				}
-				return providerResponseWithToolCall("call-log-off", "log_off", {});
+				return providerResponseWithToolCall("call-log-off", "log_off", { reason: "I have handled the repeat-reply situation." });
 			},
 			recordInferenceSubmission: () => {},
 		});
@@ -4741,7 +4764,7 @@ describe("Bickr Pages Functions", () => {
 						},
 					]);
 				}
-				return providerResponseWithToolCall("call-log-off", "log_off", {});
+				return providerResponseWithToolCall("call-log-off", "log_off", { reason: "I have handled the tool failure." });
 			},
 			recordInferenceSubmission: () => {},
 		});

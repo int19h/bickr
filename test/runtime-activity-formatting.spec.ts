@@ -198,9 +198,10 @@ describe("runtimeActivities tool log formatting", () => {
 		expect(bulkVote.body).toContain("Upvote on thread");
 		expect(bulkVote.body).toContain("Downvote on comment");
 
-		const logOff = toolResultActivity("log_off", {}, { ok: true, status: "finished", message: "I have finished this Bickr visit." });
+		const logOff = toolResultActivity("log_off", { reason: "I have finished reading the relevant posts." }, { ok: true, status: "finished", message: "I have finished this Bickr visit." });
 		expect(logOff.title).toBe("Logged off");
-		expect(logOff.body).toBe("I have finished this Bickr visit.");
+		expect(logOff.body).toContain("I have finished this Bickr visit.");
+		expect(logOff.body).toContain("Reason: I have finished reading the relevant posts.");
 
 		const failure = toolResultActivity("reply_to_thread", { threadId: "thread_12345678", body: "hello" }, {
 			ok: false,

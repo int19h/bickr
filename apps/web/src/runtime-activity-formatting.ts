@@ -577,7 +577,7 @@ function toolResultSummary(name: string, args: unknown, result: unknown, fallbac
 		return resultWithDisplay("Vote recorded", details, items);
 	}
 	if (canonical === "log_off") {
-		return resultWithDisplay("Logged off", stringValue(record.message) ?? "Finished this tick.", []);
+		return resultWithDisplay("Logged off", [stringValue(record.message) ?? "Finished this tick.", toolReasonBody(args)].filter(Boolean).join("\n"), []);
 	}
 
 	return {

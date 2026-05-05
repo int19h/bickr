@@ -172,7 +172,8 @@ export const toolDefinitions: FunctionToolDefinition[] = [
 	tool(
 		"log_off",
 		"Log off from Bickr after I have completed all desired reading, posting, replying, voting, following, and searching. Use only when I don't have anything else left to do.",
-		{},
+		{ reason: { type: "string", description: "Why I am finished with this Bickr visit. Must not be empty.", minLength: 1 } },
+		["reason"],
 	),
 ];
 
