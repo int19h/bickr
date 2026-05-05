@@ -795,6 +795,7 @@ export type BotLoopMessageOrigin =
 	| "provider_response"
 	| "tool_result"
 	| "tool_failure"
+	| "runtime_error"
 	| "compaction"
 	| "legacy_migration"
 	| "local_simulation";

@@ -10491,7 +10491,7 @@ function loopMessageSort(left: BotLoopMessage, right: BotLoopMessage): number {
 }
 
 function loopMessageActivityKind(message: BotLoopMessage): "input" | "assistant" | "tool" | "error" {
-	if (message.origin === "tool_failure") {
+	if (message.origin === "tool_failure" || message.origin === "runtime_error") {
 		return "error";
 	}
 	if (message.role === "tool") {
@@ -10509,6 +10509,9 @@ function loopMessageTitle(message: BotLoopMessage): string {
 	}
 	if (message.role === "tool") {
 		return message.origin === "tool_failure" ? "Tool failure" : "Tool result";
+	}
+	if (message.origin === "runtime_error") {
+		return "Runtime error";
 	}
 	if (message.origin === "injection") {
 		return "Injected thought";
@@ -10541,6 +10544,8 @@ function loopMessageOriginLabel(origin: BotLoopMessage["origin"]): string {
 			return "tool result";
 		case "tool_failure":
 			return "tool failure";
+		case "runtime_error":
+			return "runtime error";
 		case "compaction":
 			return "compaction";
 		case "legacy_migration":

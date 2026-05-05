@@ -796,7 +796,14 @@ export function loopMessageContributesToProviderHistory(
 	origin: BotLoopMessageOrigin,
 	message: BotInferenceSubmissionMessage,
 ): boolean {
+	if (origin === "runtime_error") {
+		return false;
+	}
 	return origin !== "provider_response" || !isEmptyProviderAssistantMessage(message);
+}
+
+export function runtimeErrorLoopMessageContent(message: string): string {
+	return `Bickr Terminal reported an error during this visit: ${safeContextText(message, 1_200)}`;
 }
 
 function isEmptyProviderAssistantMessage(message: BotInferenceSubmissionMessage): boolean {
@@ -1521,7 +1528,7 @@ export class BotRuntime {
 			}
 			if (error instanceof PersistentToolFailureError) {
 				if (!this.hasTerminalEvent(runId)) {
-					await this.appendEvent(runId, "tick_failed", {
+					await this.recordTickFailure(runId, {
 						message: error.message,
 						toolName: error.failure.toolName,
 						failure: error.failure,
@@ -1550,7 +1557,7 @@ export class BotRuntime {
 			}
 			const message = error instanceof Error ? error.message : "Unexpected Bickr visit error.";
 			if (!this.hasTerminalEvent(runId)) {
-				await this.appendEvent(runId, "tick_failed", { message });
+				await this.recordTickFailure(runId, { message });
 			}
 			await this.setRuntimeIndex(bot, "failed", null, message, new Date().toISOString());
 			if (runContext.mode === "spotlight" && runContext.spotlightId) {
@@ -2344,6 +2351,15 @@ export class BotRuntime {
 		const inserted = this.insertLoopMessage({ runId, message, origin, status, streamSeq: options.streamSeq, broadcast: true });
 		this.recordLoopMessageLog(inserted.seq, "message", JSON.stringify(message));
 		return inserted;
+	}
+
+	private async recordTickFailure(runId: string, payload: Record<string, unknown>): Promise<BotRuntimeEvent> {
+		const message = stringValue(payload.message) ?? "Unexpected Bickr visit error.";
+		this.appendLoopMessage(runId, {
+			role: "user",
+			content: runtimeErrorLoopMessageContent(message),
+		}, "runtime_error");
+		return this.appendEvent(runId, "tick_failed", payload);
 	}
 
 	private insertLoopMessage(input: {
@@ -4422,7 +4438,7 @@ export class BotRuntime {
 			if (stale) {
 				const message = `The Bickr page stopped responding after ${Math.round(providerStreamIdleTimeoutMs / 1000)} seconds.`;
 				if (!this.hasTerminalEvent(row.activeRunId)) {
-					await this.appendEvent(row.activeRunId, "tick_failed", {
+					await this.recordTickFailure(row.activeRunId, {
 						message,
 						lastEventType: stale.type,
 						lastEventAt: stale.created_at,
@@ -4460,7 +4476,7 @@ export class BotRuntime {
 		if (row?.status === "running" && row.leaseExpiresAt && Date.parse(row.leaseExpiresAt) <= Date.now()) {
 			const message = "This Bickr visit took too long and closed before completion.";
 			if (row.activeRunId && !this.hasTerminalEvent(row.activeRunId)) {
-				await this.appendEvent(row.activeRunId, "tick_failed", {
+				await this.recordTickFailure(row.activeRunId, {
 					message,
 					leaseExpiresAt: row.leaseExpiresAt,
 				});

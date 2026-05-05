@@ -72,6 +72,7 @@ import {
 	providerResponseMessageForHistory,
 	providerTranslationRequest,
 	providerTokenProbeRequest,
+	runtimeErrorLoopMessageContent,
 	textTokenCalibrationFromPromptHistory,
 	toolUseRecoveryReminder,
 } from "../workers/agent-runtime/src/index";
@@ -2670,6 +2671,7 @@ describe("Bickr Pages Functions", () => {
 		});
 		expect(loopMessageContributesToProviderHistory("provider_response", { role: "assistant", content: null })).toBe(false);
 		expect(loopMessageContributesToProviderHistory("provider_response", { role: "assistant", content: "" })).toBe(false);
+		expect(loopMessageContributesToProviderHistory("runtime_error", { role: "user", content: "Bickr Terminal reported an error." })).toBe(false);
 		expect(loopMessageContributesToProviderHistory("synthetic_context", { role: "assistant", content: null })).toBe(true);
 	});
 
@@ -2734,6 +2736,60 @@ describe("Bickr Pages Functions", () => {
 			),
 		).resolves.toMatchObject({ logOffCalled: false });
 		expect(appendedLoopMessages).toEqual([]);
+	});
+
+	it("records tick failures in the loop ledger", async () => {
+		const appendedLoopMessages: Array<{ runId: string; message: Record<string, unknown>; origin: string }> = [];
+		const events: Array<{ runId: string; type: string; payload: Record<string, unknown> }> = [];
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			appendLoopMessage: (
+				runId: string,
+				message: Record<string, unknown>,
+				origin: string,
+			) => {
+				appendedLoopMessages.push({ runId, message, origin });
+				return {
+					seq: appendedLoopMessages.length,
+					runId,
+					role: message.role,
+					message,
+					origin,
+					tokenEstimate: 0,
+					createdAt: new Date().toISOString(),
+				};
+			},
+			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+				events.push({ runId, type, payload });
+				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
+			},
+		});
+		const recordTickFailure = (BotRuntime.prototype as unknown as {
+			recordTickFailure: (runId: string, payload: Record<string, unknown>) => Promise<BotRuntimeEvent>;
+		}).recordTickFailure.bind(runtime);
+
+		const providerMessage = "Bickr Terminal request failed with status 400 at the configured service. Response: TextEncodeInput must be Union[TextInputSequence].";
+		await expect(
+			recordTickFailure("run-provider-failed", { message: providerMessage }),
+		).resolves.toMatchObject({ type: "tick_failed" });
+
+		expect(events).toEqual([
+			{
+				runId: "run-provider-failed",
+				type: "tick_failed",
+				payload: { message: providerMessage },
+			},
+		]);
+		expect(appendedLoopMessages).toEqual([
+			{
+				runId: "run-provider-failed",
+				origin: "runtime_error",
+				message: {
+					role: "user",
+					content: runtimeErrorLoopMessageContent(providerMessage),
+				},
+			},
+		]);
+		expect(String(appendedLoopMessages[0]?.message.content)).toContain("TextEncodeInput");
 	});
 
 	it("returns the bootstrap payload", async () => {
