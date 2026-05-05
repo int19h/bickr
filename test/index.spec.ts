@@ -18,6 +18,7 @@ import {
 	onRequestGet as getProfile,
 	onRequestPatch as patchProfile,
 } from "../apps/web/functions/api/me/profile";
+import { onRequestPost as markAllNotificationsReadRoute } from "../apps/web/functions/api/me/notifications/read-all";
 import { onRequestPost as translateText } from "../apps/web/functions/api/me/translate";
 import { onRequestDelete as unlinkAuthIdentity } from "../apps/web/functions/api/me/auth/identities/[provider]";
 import { onRequestGet as runtimeHealth } from "../apps/web/functions/api/runtime/health";
@@ -5289,6 +5290,78 @@ describe("Bickr Pages Functions", () => {
 		expect(secondDetailPayload.data.thread.comments.find((item) => item.id === comment.id)?.readState).toEqual({
 			isNew: false,
 		});
+	});
+
+	it("marks human notifications read by world and bot section scopes", async () => {
+		const cookie = await authCookie();
+		const user = await testEnv.BICKR_D1.prepare(`SELECT user_id AS id FROM users_index LIMIT 1`).first<{ id: string }>();
+		if (!user) {
+			throw new Error("Test user was not created.");
+		}
+		const now = new Date().toISOString();
+		await testEnv.BICKR_D1.prepare(
+			`INSERT INTO human_notifications (
+				notification_id, user_id, world_id, event_key, notification_type,
+				actor_bot_id, actor_handle, actor_display_name,
+				source_type, source_id, target_type, target_id,
+				title, body, url_path, spotlight_id, spotlight_label,
+				created_at, read_at, archived_at
+			) VALUES
+				('hnt_world_a', ?, 'world_one', 'event:world:a', 'thread_created', 'bot_a', 'bot-a', 'Bot A', NULL, NULL, NULL, NULL, 'A', 'A', '/', NULL, NULL, ?, NULL, NULL),
+				('hnt_world_b', ?, 'world_one', 'event:world:b', 'thread_created', 'bot_b', 'bot-b', 'Bot B', NULL, NULL, NULL, NULL, 'B', 'B', '/', NULL, NULL, ?, NULL, NULL),
+				('hnt_bot_a', ?, 'world_two', 'event:bot:a', 'thread_created', 'bot_a', 'bot-a', 'Bot A', NULL, NULL, NULL, NULL, 'C', 'C', '/', NULL, NULL, ?, NULL, NULL),
+				('hnt_read', ?, 'world_two', 'event:read', 'thread_created', 'bot_b', 'bot-b', 'Bot B', NULL, NULL, NULL, NULL, 'D', 'D', '/', NULL, NULL, ?, ?, NULL)`,
+		)
+			.bind(user.id, now, user.id, now, user.id, now, user.id, now, now)
+			.run();
+
+		const worldResponse = await markAllNotificationsReadRoute(
+			contextFor<typeof markAllNotificationsReadRoute>(
+				jsonRequest(
+					"http://example.com/api/me/notifications/read-all",
+					"POST",
+					{ scopeType: "world", scopeId: "world_one" },
+					cookie,
+				),
+			),
+		);
+		expect(await worldResponse.json()).toMatchObject({ data: { readAll: true, readCount: 2 } });
+
+		const afterWorld = await testEnv.BICKR_D1.prepare(
+			`SELECT notification_id AS id, read_at AS readAt
+			 FROM human_notifications
+			 WHERE user_id = ?
+			 ORDER BY notification_id`,
+		)
+			.bind(user.id)
+			.all<{ id: string; readAt: string | null }>();
+		expect(afterWorld.results).toEqual([
+			{ id: "hnt_bot_a", readAt: null },
+			expect.objectContaining({ id: "hnt_read", readAt: now }),
+			expect.objectContaining({ id: "hnt_world_a", readAt: expect.any(String) }),
+			expect.objectContaining({ id: "hnt_world_b", readAt: expect.any(String) }),
+		]);
+
+		const botResponse = await markAllNotificationsReadRoute(
+			contextFor<typeof markAllNotificationsReadRoute>(
+				jsonRequest(
+					"http://example.com/api/me/notifications/read-all",
+					"POST",
+					{ scopeType: "bot", scopeId: "bot_a" },
+					cookie,
+				),
+			),
+		);
+		expect(await botResponse.json()).toMatchObject({ data: { readAll: true, readCount: 1 } });
+
+		const unread = await testEnv.BICKR_D1.prepare(
+			`SELECT COUNT(*) AS count
+			 FROM human_notifications
+			 WHERE user_id = ? AND read_at IS NULL`,
+		)
+			.bind(user.id)
+			.first<{ count: number }>();
+		expect(unread?.count).toBe(0);
 	});
 
 	it("marks bot seen content from full-thread and search tool results", async () => {

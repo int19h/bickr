@@ -13,6 +13,7 @@ import {
 	type CreateThreadInput,
 	type ForumDocument,
 	type HumanNotification,
+	type HumanNotificationReadScope,
 	type HumanNotificationSummary,
 	type HumanNotificationType,
 	type HumanSubscription,
@@ -655,16 +656,64 @@ export async function archiveHumanNotification(
 export async function markAllHumanNotificationsRead(
 	db: D1DatabaseLike,
 	userId: string,
+	scope: HumanNotificationReadScope = { scopeType: "all" },
 	now = new Date().toISOString(),
-): Promise<void> {
-	await db
+): Promise<number> {
+	if (scope.scopeType === "notifications") {
+		return markHumanNotificationsReadByIds(db, userId, scope.notificationIds, now);
+	}
+	const scopedWhere = humanNotificationReadScopeWhere(scope);
+	const result = await db
 		.prepare(
 			`UPDATE human_notifications
 			 SET read_at = ?
-			 WHERE user_id = ? AND archived_at IS NULL AND read_at IS NULL`,
+			 WHERE user_id = ? AND archived_at IS NULL AND read_at IS NULL${scopedWhere.sql}`,
 		)
-		.bind(now, userId)
+		.bind(now, userId, ...scopedWhere.bindings)
 		.run();
+	return result.meta?.changes ?? 0;
+}
+
+async function markHumanNotificationsReadByIds(
+	db: D1DatabaseLike,
+	userId: string,
+	notificationIds: string[],
+	now: string,
+): Promise<number> {
+	const uniqueIds = [...new Set(notificationIds.map((id) => id.trim()).filter(Boolean))];
+	if (uniqueIds.length === 0) {
+		return 0;
+	}
+	const maxIdsPerQuery = d1MaxBoundParameters - 2;
+	let readCount = 0;
+	for (let index = 0; index < uniqueIds.length; index += maxIdsPerQuery) {
+		const batch = uniqueIds.slice(index, index + maxIdsPerQuery);
+		const placeholders = batch.map(() => "?").join(", ");
+		const result = await db
+			.prepare(
+				`UPDATE human_notifications
+				 SET read_at = ?
+				 WHERE user_id = ? AND archived_at IS NULL AND read_at IS NULL
+				   AND notification_id IN (${placeholders})`,
+			)
+			.bind(now, userId, ...batch)
+			.run();
+		readCount += result.meta?.changes ?? 0;
+	}
+	return readCount;
+}
+
+function humanNotificationReadScopeWhere(
+	scope: Exclude<HumanNotificationReadScope, { scopeType: "notifications" }>,
+): { sql: string; bindings: string[] } {
+	switch (scope.scopeType) {
+		case "all":
+			return { sql: "", bindings: [] };
+		case "world":
+			return { sql: " AND world_id = ?", bindings: [scope.scopeId] };
+		case "bot":
+			return { sql: " AND actor_bot_id = ?", bindings: [scope.scopeId] };
+	}
 }
 
 async function notifyHumanThreadCreated(

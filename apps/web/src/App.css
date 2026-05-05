@@ -449,6 +449,12 @@ a {
 	font-size: 12px;
 }
 
+.notification-group-actions {
+	align-items: center;
+	display: flex;
+	gap: 8px;
+}
+
 .notification-page-list {
 	display: grid;
 	gap: 8px;

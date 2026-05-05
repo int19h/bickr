@@ -492,6 +492,12 @@ export type HumanNotificationSummary = {
 	notifications: HumanNotification[];
 };
 
+export type HumanNotificationReadScope =
+	| { scopeType: "all" }
+	| { scopeType: "world"; scopeId: string }
+	| { scopeType: "bot"; scopeId: string }
+	| { scopeType: "notifications"; notificationIds: string[] };
+
 export type WorldSummary = {
 	id: string;
 	handle: string;

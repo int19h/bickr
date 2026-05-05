@@ -27,6 +27,7 @@ import {
 	type CreateWorldInput,
 	type ForumSummary,
 	type HumanNotification,
+	type HumanNotificationReadScope,
 	type HumanNotificationSummary,
 	type HumanSubscription,
 	type HumanSubscriptionScope,
@@ -854,24 +855,23 @@ function App() {
 		await loadHumanNotifications("unread");
 	}
 
-	async function markAllNotificationsRead(): Promise<boolean> {
+	async function markAllNotificationsRead(scope: HumanNotificationReadScope = { scopeType: "all" }): Promise<number | null> {
 		if (!profileReadyFor("managing notifications")) {
-			return false;
+			return null;
 		}
-		const result = await api("/api/me/notifications/read-all", { method: "POST", body: {} });
+		const result = await api<{ readAll: true; readCount: number }>("/api/me/notifications/read-all", {
+			method: "POST",
+			body: scope,
+		});
 		if (result.ok) {
 			const readAt = new Date().toISOString();
-			setHumanNotifications((current) => ({
-				unreadCount: 0,
-				notifications: current.notifications.map((notification) => ({
-					...notification,
-					readAt: notification.readAt ?? readAt,
-				})),
-			}));
-			return true;
+			setHumanNotifications((current) =>
+				humanNotificationSummaryWithReadScope(current, scope, readAt, result.data.readCount),
+			);
+			return result.data.readCount;
 		} else {
 			setStatus(result.message);
-			return false;
+			return null;
 		}
 	}
 
@@ -5750,7 +5750,7 @@ function NotificationsScreen({
 	onOpenNotification,
 }: {
 	onLoadNotifications: (status: "unread" | "all", limit?: number, offset?: number) => Promise<HumanNotificationSummary | null>;
-	onMarkAllRead: () => Promise<boolean>;
+	onMarkAllRead: (scope?: HumanNotificationReadScope) => Promise<number | null>;
 	onMarkRead: (notification: HumanNotification) => Promise<string | null>;
 	onOpenNotification: (notification: HumanNotification) => void;
 }) {
@@ -5811,19 +5811,28 @@ function NotificationsScreen({
 	}
 
 	async function markAllRead(): Promise<void> {
-		const ok = await onMarkAllRead();
-		if (!ok) {
+		const readCount = await onMarkAllRead({ scopeType: "all" });
+		if (readCount === null) {
 			return;
 		}
 		const readAt = new Date().toISOString();
-		setSummary((current) => ({
-			...current,
-			unreadCount: 0,
-			notifications: current.notifications.map((notification) => ({
-				...notification,
-				readAt: notification.readAt ?? readAt,
-			})),
-		}));
+		setSummary((current) =>
+			humanNotificationSummaryWithReadScope(current, { scopeType: "all" }, readAt, readCount),
+		);
+	}
+
+	async function markGroupRead(group: NotificationGroup): Promise<void> {
+		if (group.unreadCount === 0) {
+			return;
+		}
+		const readCount = await onMarkAllRead(group.readScope);
+		if (readCount === null) {
+			return;
+		}
+		const readAt = new Date().toISOString();
+		setSummary((current) =>
+			humanNotificationSummaryWithReadScope(current, group.readScope, readAt, readCount),
+		);
 	}
 
 	const filtered = useMemo(
@@ -5900,7 +5909,17 @@ function NotificationsScreen({
 									<h2>{group.title}</h2>
 									{group.meta && <span>{group.meta}</span>}
 								</div>
-								<span>{group.notifications.length}</span>
+								<div className="notification-group-actions">
+									<span>{group.notifications.length}</span>
+									<button
+										className="btn compact"
+										disabled={group.unreadCount === 0}
+										onClick={() => void markGroupRead(group)}
+										type="button"
+									>
+										Mark all read
+									</button>
+								</div>
 							</div>
 							<div className="notification-page-list">
 								{group.notifications.map((notification) => (
@@ -10825,17 +10844,30 @@ function appendUniqueNotifications(
 	return [...current, ...appended];
 }
 
+type NotificationGroup = {
+	key: string;
+	title: string;
+	meta: string;
+	readScope: HumanNotificationReadScope;
+	unreadCount: number;
+	notifications: HumanNotification[];
+};
+
 function notificationGroups(
 	notifications: HumanNotification[],
 	mode: NotificationGroupMode,
-): Array<{ key: string; title: string; meta: string; notifications: HumanNotification[] }> {
-	const groups = new Map<string, { key: string; title: string; meta: string; notifications: HumanNotification[] }>();
+): NotificationGroup[] {
+	const groups = new Map<string, NotificationGroup>();
 	for (const notification of notifications) {
 		const key =
 			mode === "world" ? `world:${notification.worldId}`
 			: notification.actorBotId ? `bot:${notification.actorBotId}`
 			: notification.actorHandle ? `bot-handle:${notification.actorHandle}`
 			: "bot:none";
+		const readScope: HumanNotificationReadScope =
+			mode === "world" ? { scopeType: "world", scopeId: notification.worldId }
+			: notification.actorBotId ? { scopeType: "bot", scopeId: notification.actorBotId }
+			: { scopeType: "notifications", notificationIds: [notification.id] };
 		const fallbackTitle = mode === "world" ? "Unknown world" : "No participant";
 		const title =
 			mode === "world" ? (notification.worldHandle ? `w/${notification.worldHandle}` : fallbackTitle)
@@ -10844,11 +10876,60 @@ function notificationGroups(
 		const meta =
 			mode === "world" ? notification.worldName ?? ""
 			: notification.actorDisplayName ?? "";
-		const group = groups.get(key) ?? { key, title, meta, notifications: [] };
+		const group = groups.get(key) ?? { key, title, meta, readScope, unreadCount: 0, notifications: [] };
+		if (group.readScope.scopeType === "notifications" && !group.readScope.notificationIds.includes(notification.id)) {
+			group.readScope.notificationIds.push(notification.id);
+		}
+		if (!notification.readAt) {
+			group.unreadCount += 1;
+		}
 		group.notifications.push(notification);
 		groups.set(key, group);
 	}
 	return [...groups.values()].sort((left, right) => compareHandles(left.title, right.title));
+}
+
+function humanNotificationSummaryWithReadScope(
+	summary: HumanNotificationSummary,
+	scope: HumanNotificationReadScope,
+	readAt: string,
+	readCount: number,
+): HumanNotificationSummary {
+	let localUnreadCount = 0;
+	const notifications = summary.notifications.map((notification) => {
+		if (!humanNotificationMatchesReadScope(notification, scope)) {
+			return notification;
+		}
+		if (!notification.readAt) {
+			localUnreadCount += 1;
+		}
+		return { ...notification, readAt: notification.readAt ?? readAt };
+	});
+	const unreadCount =
+		scope.scopeType === "all" ?
+			0
+		:	Math.max(0, summary.unreadCount - Math.max(localUnreadCount, readCount));
+	return {
+		...summary,
+		unreadCount,
+		notifications,
+	};
+}
+
+function humanNotificationMatchesReadScope(
+	notification: HumanNotification,
+	scope: HumanNotificationReadScope,
+): boolean {
+	switch (scope.scopeType) {
+		case "all":
+			return true;
+		case "world":
+			return notification.worldId === scope.scopeId;
+		case "bot":
+			return notification.actorBotId === scope.scopeId;
+		case "notifications":
+			return scope.notificationIds.includes(notification.id);
+	}
 }
 
 function notificationMeta(notification: HumanNotification): string {
