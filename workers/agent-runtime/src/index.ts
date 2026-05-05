@@ -160,6 +160,7 @@ type LoopMessageRow = {
 	origin: BotLoopMessageOrigin;
 	status: BotLoopMessageStatus | null;
 	token_estimate: number;
+	stream_seq: number | null;
 	compacted_by: number | null;
 	deleted_at: string | null;
 	created_at: string;
@@ -756,6 +757,63 @@ export function providerMessagesWithReasoningPrefill(
 	return reasoningPrefill ? [...messages, { role: "assistant", content: reasoningPrefill }] : messages;
 }
 
+export function providerResponseMessageForHistory(response: {
+	content?: string;
+	reasoning?: string;
+	reasoningDetails?: Record<string, unknown>[];
+	toolCalls?: BotInferenceSubmissionToolCall[];
+}): BotInferenceSubmissionMessage | null {
+	const content = response.content ?? "";
+	const reasoning = response.reasoning ?? "";
+	const reasoningDetails = response.reasoningDetails ?? [];
+	const toolCalls = response.toolCalls ?? [];
+	if (
+		!hasProviderHistoryText(content) &&
+		!hasProviderHistoryText(reasoning) &&
+		reasoningDetails.length === 0 &&
+		toolCalls.length === 0
+	) {
+		return null;
+	}
+	const message: BotInferenceSubmissionMessage = { role: "assistant" };
+	if (hasProviderHistoryText(content)) {
+		message.content = content;
+	} else if (toolCalls.length > 0) {
+		message.content = null;
+	}
+	if (toolCalls.length > 0) {
+		message.tool_calls = toolCalls;
+	}
+	if (reasoningDetails.length > 0) {
+		message.reasoning_details = reasoningDetails;
+	} else if (hasProviderHistoryText(reasoning)) {
+		message.reasoning = reasoning;
+	}
+	return message;
+}
+
+export function loopMessageContributesToProviderHistory(
+	origin: BotLoopMessageOrigin,
+	message: BotInferenceSubmissionMessage,
+): boolean {
+	return origin !== "provider_response" || !isEmptyProviderAssistantMessage(message);
+}
+
+function isEmptyProviderAssistantMessage(message: BotInferenceSubmissionMessage): boolean {
+	return (
+		message.role === "assistant" &&
+		!hasProviderHistoryText(message.content) &&
+		!hasProviderHistoryText(message.reasoning) &&
+		!hasProviderHistoryText(message.reasoning_content) &&
+		(!Array.isArray(message.reasoning_details) || message.reasoning_details.length === 0) &&
+		(!Array.isArray(message.tool_calls) || message.tool_calls.length === 0)
+	);
+}
+
+function hasProviderHistoryText(value: unknown): value is string {
+	return typeof value === "string" && value.trim().length > 0;
+}
+
 export function providerTokenProbeRequest(
 	settings: ProviderSettings,
 	messages: ChatMessage[],
@@ -994,6 +1052,7 @@ CREATE TABLE IF NOT EXISTS loop_messages (
 	origin TEXT NOT NULL,
 	status TEXT,
 	token_estimate INTEGER NOT NULL,
+	stream_seq INTEGER,
 	compacted_by INTEGER,
 	deleted_at TEXT,
 	created_at TEXT NOT NULL
@@ -1085,6 +1144,9 @@ export class BotRuntime {
 		);
 		if (!columns.has("deleted_at")) {
 			this.state.storage.sql.exec(`ALTER TABLE loop_messages ADD COLUMN deleted_at TEXT`);
+		}
+		if (!columns.has("stream_seq")) {
+			this.state.storage.sql.exec(`ALTER TABLE loop_messages ADD COLUMN stream_seq INTEGER`);
 		}
 		this.state.storage.sql.exec(`CREATE INDEX IF NOT EXISTS loop_messages_visible ON loop_messages (deleted_at, compacted_by, position, seq)`);
 	}
@@ -1858,7 +1920,7 @@ export class BotRuntime {
 			let responseStatus: ProviderMessageStatus = "complete";
 			let interruptedError: ProviderResponseInterruptedError | null = null;
 			try {
-				response = await this.callProvider(settings, requestMessages, providerTools, runId, runContext.signal);
+				response = await this.callProvider(settings, requestMessages, providerTools, runId, requestEvent.seq, runContext.signal);
 			} catch (error) {
 				if (error instanceof ProviderResponseInterruptedError) {
 					response = error.response;
@@ -1880,20 +1942,15 @@ export class BotRuntime {
 					usage: response.usage,
 				});
 			}
-			await this.appendProviderMessages(runId, response, responseStatus);
-			const assistantMessage: ChatMessage = {
-				role: "assistant",
-				content: response.content || null,
-				...(response.toolCalls.length > 0 ? { tool_calls: response.toolCalls } : {}),
-				...(response.reasoningDetails.length > 0 ? { reasoning_details: response.reasoningDetails }
-				: response.reasoning ? { reasoning: response.reasoning }
-					: {}),
-			};
-			const assistantLoopMessage = this.appendLoopMessage(runId, assistantMessage, "provider_response", responseStatus);
-			if (response.requestBody) {
-				this.recordLoopMessageLog(assistantLoopMessage.seq, "provider_request", response.requestBody);
+			await this.appendProviderMessages(runId, response, responseStatus, requestEvent.seq);
+			const assistantMessage = providerResponseMessageForHistory(response);
+			if (assistantMessage) {
+				const assistantLoopMessage = this.appendLoopMessage(runId, assistantMessage, "provider_response", responseStatus, { streamSeq: requestEvent.seq });
+				if (response.requestBody) {
+					this.recordLoopMessageLog(assistantLoopMessage.seq, "provider_request", response.requestBody);
+				}
+				this.recordLoopMessageLog(assistantLoopMessage.seq, "provider_response", JSON.stringify(providerResponseLogPayload(response, responseStatus)));
 			}
-			this.recordLoopMessageLog(assistantLoopMessage.seq, "provider_response", JSON.stringify(providerResponseLogPayload(response, responseStatus)));
 			if (responseStatus === "interrupted") {
 				if (response.toolCalls.length > 0) {
 					this.appendInterruptedToolMessages(
@@ -1910,6 +1967,7 @@ export class BotRuntime {
 			toolCallCount += response.toolCalls.length;
 			const toolFailureAcknowledgements: string[] = [];
 			const pendingToolCallIds = new Set(response.toolCalls.map((toolCall) => toolCall.id));
+			let persistentFailure: ToolFailurePayload | null = null;
 
 			for (const toolCall of response.toolCalls) {
 				this.throwIfStopped(runId, runContext.signal);
@@ -1953,13 +2011,7 @@ export class BotRuntime {
 					this.recordLoopMessageLog(loopMessage.seq, "tool_result", toolMessage.content ?? "");
 					const acknowledgement = toolFailureAssistantContent(failure);
 					if (consecutiveToolFailures >= 5) {
-						toolFailureAcknowledgements.push(acknowledgement);
-						await this.appendEvent(runId, "assistant_message", {
-							content: toolFailureAcknowledgements.join("\n\n"),
-							status: "complete",
-						});
-						this.appendLoopMessage(runId, { role: "assistant", content: toolFailureAcknowledgements.join("\n\n") }, "provider_response");
-						throw new PersistentToolFailureError(failure);
+						persistentFailure = failure;
 					}
 					toolFailureAcknowledgements.push(acknowledgement);
 					continue;
@@ -1984,6 +2036,9 @@ export class BotRuntime {
 					content: acknowledgementContent,
 				};
 				this.appendLoopMessage(runId, acknowledgementMessage, "provider_response");
+			}
+			if (persistentFailure && consecutiveToolFailures >= 5) {
+				throw new PersistentToolFailureError(persistentFailure);
 			}
 			if (logOffCalled) {
 				return { logOffCalled, publicSpotlightToolCallCount, toolCallCount };
@@ -2023,6 +2078,7 @@ export class BotRuntime {
 		messages: ChatMessage[],
 		tools: ProviderToolDefinition[],
 		runId: string,
+		streamSeq: number,
 		signal: AbortSignal,
 	): Promise<ProviderResponse> {
 		const endpoint = providerChatCompletionsUrl(settings.baseUrl);
@@ -2044,7 +2100,7 @@ export class BotRuntime {
 
 			try {
 				const stream = await this.fetchProviderResponse(settings, endpoint, body, signal);
-				const response = await this.consumeProviderResponse(runId, stream, signal);
+				const response = await this.consumeProviderResponse(runId, streamSeq, stream, signal);
 				return { ...response, requestBody: body };
 			} catch (error) {
 				if (error instanceof ProviderResponseInterruptedError) {
@@ -2145,6 +2201,7 @@ export class BotRuntime {
 
 	private async consumeProviderResponse(
 		runId: string,
+		streamSeq: number,
 		stream: ReadableStream<Uint8Array>,
 		signal: AbortSignal,
 	): Promise<ProviderResponse> {
@@ -2196,7 +2253,7 @@ export class BotRuntime {
 				}
 				if (delta.content) {
 					content += delta.content;
-					this.broadcastProviderDelta(runId, { kind: "content", text: delta.content });
+					this.broadcastProviderDelta(runId, streamSeq, { kind: "content", text: delta.content });
 				}
 				const plainReasoning = delta.reasoning ?? delta.reasoning_content;
 				let detailsReasoning = "";
@@ -2207,7 +2264,7 @@ export class BotRuntime {
 				const deltaReasoning = plainReasoning || detailsReasoning;
 				if (deltaReasoning) {
 					reasoning += deltaReasoning;
-					this.broadcastProviderDelta(runId, { kind: "reasoning", text: deltaReasoning });
+					this.broadcastProviderDelta(runId, streamSeq, { kind: "reasoning", text: deltaReasoning });
 				}
 				for (const part of delta.tool_calls ?? []) {
 					const current =
@@ -2227,7 +2284,7 @@ export class BotRuntime {
 						current.function.arguments += part.function.arguments;
 					}
 					toolCalls.set(part.index, current);
-					this.broadcastProviderDelta(runId, { kind: "tool_call", part });
+					this.broadcastProviderDelta(runId, streamSeq, { kind: "tool_call", part });
 				}
 			}
 		} catch (error) {
@@ -2259,17 +2316,20 @@ export class BotRuntime {
 		runId: string,
 		response: ProviderResponse,
 		status: ProviderMessageStatus,
+		streamSeq: number,
 	): Promise<void> {
 		if (response.reasoning) {
 			await this.appendEvent(runId, "reasoning_message", {
 				content: response.reasoning,
 				status,
+				streamSeq,
 			});
 		}
 		if (response.content) {
 			await this.appendEvent(runId, "assistant_message", {
 				content: response.content,
 				status,
+				streamSeq,
 			});
 		}
 	}
@@ -2279,8 +2339,9 @@ export class BotRuntime {
 		message: ChatMessage,
 		origin: BotLoopMessageOrigin,
 		status: BotLoopMessageStatus = "complete",
+		options: { streamSeq?: number } = {},
 	): BotLoopMessage {
-		const inserted = this.insertLoopMessage({ runId, message, origin, status, broadcast: true });
+		const inserted = this.insertLoopMessage({ runId, message, origin, status, streamSeq: options.streamSeq, broadcast: true });
 		this.recordLoopMessageLog(inserted.seq, "message", JSON.stringify(message));
 		return inserted;
 	}
@@ -2290,6 +2351,7 @@ export class BotRuntime {
 		message: ChatMessage;
 		origin: BotLoopMessageOrigin;
 		status?: BotLoopMessageStatus;
+		streamSeq?: number;
 		position?: number;
 		createdAt?: string;
 		broadcast: boolean;
@@ -2299,8 +2361,8 @@ export class BotRuntime {
 		const tokenEstimate = estimateTextTokens(messageJson);
 		const position = input.position ?? this.nextLoopMessagePosition();
 		this.state.storage.sql.exec(
-			`INSERT INTO loop_messages (position, run_id, role, message_json, origin, status, token_estimate, compacted_by, created_at)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
+			`INSERT INTO loop_messages (position, run_id, role, message_json, origin, status, token_estimate, stream_seq, compacted_by, created_at)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
 			position,
 			input.runId,
 			input.message.role,
@@ -2308,6 +2370,7 @@ export class BotRuntime {
 			input.origin,
 			input.status ?? null,
 			tokenEstimate,
+			input.streamSeq ?? null,
 			now,
 		);
 		const seq = this.state.storage.sql.exec<{ seq: number }>(`SELECT last_insert_rowid() AS seq`).one().seq;
@@ -2320,6 +2383,7 @@ export class BotRuntime {
 			origin: input.origin,
 			status: input.status ?? null,
 			token_estimate: tokenEstimate,
+			stream_seq: input.streamSeq ?? null,
 			compacted_by: null,
 			deleted_at: null,
 			created_at: now,
@@ -2346,7 +2410,7 @@ export class BotRuntime {
 		return this.state.storage.sql
 			.exec<LoopMessageRow>(
 				`SELECT m.seq, m.position, m.run_id, m.role, m.message_json, m.origin, m.status,
-				        m.token_estimate, m.compacted_by, m.deleted_at, m.created_at,
+				        m.token_estimate, m.stream_seq, m.compacted_by, m.deleted_at, m.created_at,
 				        CASE WHEN EXISTS (SELECT 1 FROM loop_message_logs l WHERE l.message_seq = m.seq) THEN 1 ELSE 0 END AS has_logs
 				 FROM loop_messages m
 				 WHERE m.compacted_by IS NULL
@@ -2357,7 +2421,10 @@ export class BotRuntime {
 	}
 
 	private activeLoopMessagesForProvider(): ChatMessage[] {
-		return this.activeLoopMessageRows().map((row) => loopMessageChatMessageFromRow(row));
+		return this.activeLoopMessageRows().flatMap((row) => {
+			const message = loopMessageChatMessageFromRow(row);
+			return loopMessageContributesToProviderHistory(row.origin, message) ? [message] : [];
+		});
 	}
 
 	private loopMessagesAfter(afterSeq: number): BotLoopMessage[] {
@@ -2366,7 +2433,7 @@ export class BotRuntime {
 				this.state.storage.sql
 					.exec<LoopMessageRow>(
 						`SELECT m.seq, m.position, m.run_id, m.role, m.message_json, m.origin, m.status,
-						        m.token_estimate, m.compacted_by, m.deleted_at, m.created_at,
+						        m.token_estimate, m.stream_seq, m.compacted_by, m.deleted_at, m.created_at,
 						        CASE WHEN EXISTS (SELECT 1 FROM loop_message_logs l WHERE l.message_seq = m.seq) THEN 1 ELSE 0 END AS has_logs
 						 FROM loop_messages m
 						 WHERE m.compacted_by IS NULL
@@ -2379,10 +2446,10 @@ export class BotRuntime {
 					.toArray()
 			:	this.state.storage.sql
 					.exec<LoopMessageRow>(
-						`SELECT seq, position, run_id, role, message_json, origin, status, token_estimate, compacted_by, deleted_at, created_at, has_logs
+						`SELECT seq, position, run_id, role, message_json, origin, status, token_estimate, stream_seq, compacted_by, deleted_at, created_at, has_logs
 						 FROM (
 							SELECT m.seq, m.position, m.run_id, m.role, m.message_json, m.origin, m.status,
-							       m.token_estimate, m.compacted_by, m.deleted_at, m.created_at,
+							       m.token_estimate, m.stream_seq, m.compacted_by, m.deleted_at, m.created_at,
 							       CASE WHEN EXISTS (SELECT 1 FROM loop_message_logs l WHERE l.message_seq = m.seq) THEN 1 ELSE 0 END AS has_logs
 							FROM loop_messages m
 							WHERE m.compacted_by IS NULL
@@ -2403,7 +2470,7 @@ export class BotRuntime {
 		const row = this.state.storage.sql
 			.exec<LoopMessageRow>(
 				`SELECT m.seq, m.position, m.run_id, m.role, m.message_json, m.origin, m.status,
-				        m.token_estimate, m.compacted_by, m.deleted_at, m.created_at,
+				        m.token_estimate, m.stream_seq, m.compacted_by, m.deleted_at, m.created_at,
 				        CASE WHEN EXISTS (SELECT 1 FROM loop_message_logs l WHERE l.message_seq = m.seq) THEN 1 ELSE 0 END AS has_logs
 				 FROM loop_messages m
 				 WHERE m.seq = ?
@@ -2936,7 +3003,7 @@ export class BotRuntime {
 		return markers;
 	}
 
-	private broadcastProviderDelta(runId: string, payload: Record<string, unknown>): void {
+	private broadcastProviderDelta(runId: string, streamSeq: number, payload: Record<string, unknown>): void {
 		const latestSeq = this.latestEventSeq();
 		this.ephemeralStreamSeq = (this.ephemeralStreamSeq % 100_000) + 1;
 		const event: BotRuntimeEvent = {
@@ -2945,6 +3012,7 @@ export class BotRuntime {
 			type: "provider_delta",
 			payload: {
 				...payload,
+				streamSeq,
 				ephemeral: true,
 			},
 			tokenEstimate: 0,
@@ -4199,7 +4267,7 @@ export class BotRuntime {
 		const row = this.state.storage.sql
 			.exec<LoopMessageRow>(
 				`SELECT m.seq, m.position, m.run_id, m.role, m.message_json, m.origin, m.status,
-				        m.token_estimate, m.compacted_by, m.deleted_at, m.created_at,
+				        m.token_estimate, m.stream_seq, m.compacted_by, m.deleted_at, m.created_at,
 				        CASE WHEN EXISTS (SELECT 1 FROM loop_message_logs l WHERE l.message_seq = m.seq) THEN 1 ELSE 0 END AS has_logs
 				 FROM loop_messages m
 				 WHERE m.seq = ?
@@ -7788,6 +7856,7 @@ function loopMessageFromRow(row: LoopMessageRow): BotLoopMessage {
 		tokenEstimate: row.token_estimate,
 		createdAt: row.created_at,
 		...(row.status ? { status: row.status } : {}),
+		...(row.stream_seq !== null ? { streamSeq: row.stream_seq } : {}),
 		...(row.compacted_by ? { compactedBy: row.compacted_by } : {}),
 		...(row.deleted_at ? { deletedAt: row.deleted_at } : {}),
 		...(row.has_logs ? { hasLogs: true } : {}),

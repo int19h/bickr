@@ -810,6 +810,7 @@ export type BotLoopMessage = {
 	tokenEstimate: number;
 	createdAt: string;
 	status?: BotLoopMessageStatus;
+	streamSeq?: number;
 	compactedBy?: number;
 	deletedAt?: string;
 	hasLogs?: boolean;

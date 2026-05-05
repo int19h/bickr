@@ -69,6 +69,8 @@ import {
 import { prettyJsonText } from "./inference-submission-formatting";
 import {
 	isLiveProviderLoopMessage,
+	removeLiveProviderLoopMessagesForFinalizedMessage,
+	removeLiveProviderLoopMessagesForFinalizedMessages,
 	removeLiveProviderLoopMessagesForRun,
 	upsertLiveProviderLoopMessage,
 } from "./loop-message-streams";
@@ -7229,7 +7231,7 @@ function BotRuntimePanel({
 			}
 			if (payload.type === "loop_message" && payload.loopMessage) {
 				rememberLoopMessageSeq(payload.loopMessage);
-				setLoopMessages((current) => upsertLoopMessage(removeLiveProviderLoopMessagesForRun(current, payload.loopMessage!.runId), payload.loopMessage!));
+				setLoopMessages((current) => upsertLoopMessage(removeLiveProviderLoopMessagesForFinalizedMessage(current, payload.loopMessage!), payload.loopMessage!));
 				return;
 			}
 			if (payload.type === "stream_delta" && payload.event) {
@@ -8045,12 +8047,55 @@ function ReadableToolResult({
 	const parsed = parseJsonValue(content);
 	const inferredName = toolCall?.name ?? inferToolNameFromResult(parsed);
 	const name = canonicalDisplayToolName(inferredName);
+	const failure = readableToolFailureRecord(parsed);
+	if (failure) {
+		return (
+			<div className="tool-block readable">
+				<span>{readableToolFailureTitle(name)}</span>
+				<ReadableToolFailure failure={failure} />
+			</div>
+		);
+	}
 	return (
 		<div className="tool-block readable">
 			<span>{readableToolResultTitle(name)}</span>
 			{readableToolResultContent(name, parsed, toolCall?.args)}
 		</div>
 	);
+}
+
+function ReadableToolFailure({ failure }: { failure: JsonRecord }) {
+	const message = textValueForDisplay(failure.message);
+	const guidance = textValueForDisplay(failure.guidance);
+	return (
+		<div className="tool-pretty tool-list">
+			{message && <div className="tool-pretty-item">{message}</div>}
+			{guidance && <div className="tool-pretty-item">{guidance}</div>}
+			{!message && !guidance && <div className="tool-pretty-item">Bickr returned an error for this action.</div>}
+		</div>
+	);
+}
+
+function readableToolFailureTitle(name: string): string {
+	switch (name) {
+		case "read_thread":
+		case "read_thread_by_id":
+		case "read_comment_by_id":
+			return "Could not read conversation";
+		case "create_thread":
+			return "Thread not created";
+		case "reply_to_comment":
+			return "Reply not posted";
+		case "vote":
+			return "Vote not recorded";
+		case "follow_profile":
+		case "unfollow_profile":
+			return "Follow list not changed";
+		case "log_off":
+			return "Could not log off";
+		default:
+			return "Bickr action failed";
+	}
 }
 
 function readableToolCallTitle(name: string): string {
@@ -9176,6 +9221,11 @@ function loopToolCallsById(messages: BotLoopMessage[]): Map<string, LoopToolCall
 
 function parseToolArguments(toolCall: LoopToolCall): JsonRecord {
 	return recordValue(parseJsonValue(toolCall.function.arguments));
+}
+
+function readableToolFailureRecord(value: unknown): JsonRecord | null {
+	const record = recordValue(value);
+	return record.ok === false ? record : null;
 }
 
 function parseJsonForDisplay(value: unknown): { ok: true; value: unknown } | { ok: false } {
@@ -10417,8 +10467,10 @@ function upsertLoopMessage(messages: BotLoopMessage[], message: BotLoopMessage):
 }
 
 function mergeLoopMessages(current: BotLoopMessage[], fetched: BotLoopMessage[]): BotLoopMessage[] {
-	const finalizedRuns = new Set(fetched.filter((message) => message.origin === "provider_response").map((message) => message.runId));
-	const retainedCurrent = current.filter((message) => isLiveProviderLoopMessage(message) && !finalizedRuns.has(message.runId));
+	const retainedCurrent = removeLiveProviderLoopMessagesForFinalizedMessages(
+		current.filter(isLiveProviderLoopMessage),
+		fetched.filter((message) => message.origin === "provider_response"),
+	);
 	const bySeq = new Map(retainedCurrent.map((message) => [loopMessageKey(message), message]));
 	for (const message of fetched) {
 		bySeq.set(loopMessageKey(message), message);

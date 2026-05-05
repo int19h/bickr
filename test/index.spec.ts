@@ -61,6 +61,7 @@ import {
 	effectiveProviderSettingsForBot,
 	formatRuntimeEventForContext,
 	formatRuntimeInputForContext,
+	loopMessageContributesToProviderHistory,
 	oldestRowsForTokenFraction,
 	promptContextBudgetCacheFingerprint,
 	promptContextBudgetFromCounts,
@@ -68,6 +69,7 @@ import {
 	providerCompactionMessages,
 	providerCompactionRequest,
 	providerMessagesWithReasoningPrefill,
+	providerResponseMessageForHistory,
 	providerTranslationRequest,
 	providerTokenProbeRequest,
 	textTokenCalibrationFromPromptHistory,
@@ -824,8 +826,10 @@ describe("Bickr Pages Functions", () => {
 		await Promise.all(pending);
 
 		expect(sql.columns("loop_messages")).toContain("deleted_at");
+		expect(sql.columns("loop_messages")).toContain("stream_seq");
 		expect(sql.statements()).toEqual(expect.arrayContaining([
 			expect.stringMatching(/^ALTER TABLE loop_messages ADD COLUMN deleted_at TEXT$/),
+			expect.stringMatching(/^ALTER TABLE loop_messages ADD COLUMN stream_seq INTEGER$/),
 			expect.stringMatching(/^CREATE INDEX IF NOT EXISTS loop_messages_visible/),
 		]));
 		expect(sql.indexCreatedBeforeDeletedAt()).toBe(false);
@@ -1845,6 +1849,7 @@ describe("Bickr Pages Functions", () => {
 				origin: "tool_result",
 				status: "complete",
 				token_estimate: 1,
+				stream_seq: null,
 				compacted_by: null,
 				deleted_at: null,
 				created_at: "2026-05-01T00:00:00.000Z",
@@ -1868,6 +1873,7 @@ describe("Bickr Pages Functions", () => {
 				origin: "tool_result",
 				status: "complete",
 				token_estimate: 1,
+				stream_seq: null,
 				compacted_by: null,
 				deleted_at: null,
 				created_at: "2026-05-01T00:00:00.000Z",
@@ -2264,6 +2270,7 @@ describe("Bickr Pages Functions", () => {
 					messages: Array<Record<string, unknown>>,
 					tools: Array<Record<string, unknown>>,
 					runId: string,
+					streamSeq: number,
 					signal: AbortSignal,
 				) => Promise<{ content: string; toolCalls: unknown[] }>;
 			}).callProvider.bind(runtime);
@@ -2277,6 +2284,7 @@ describe("Bickr Pages Functions", () => {
 				[{ role: "user", content: "Act." }],
 				[],
 				"run-stream-retry",
+				77,
 				new AbortController().signal,
 			);
 			await vi.advanceTimersByTimeAsync(90_000);
@@ -2353,6 +2361,7 @@ describe("Bickr Pages Functions", () => {
 					messages: Array<Record<string, unknown>>,
 					tools: Array<Record<string, unknown>>,
 					runId: string,
+					streamSeq: number,
 					signal: AbortSignal,
 				) => Promise<{ content: string; toolCalls: unknown[] }>;
 			}).callProvider.bind(runtime);
@@ -2366,6 +2375,7 @@ describe("Bickr Pages Functions", () => {
 				[{ role: "user", content: "Act." }],
 				[],
 				"run-stream-provider-error-retry",
+				77,
 				new AbortController().signal,
 			);
 			await vi.advanceTimersByTimeAsync(90_000);
@@ -2468,8 +2478,8 @@ describe("Bickr Pages Functions", () => {
 				events.push({ type, payload });
 				return runtimeEvent(events.length, _runId, type as BotRuntimeEvent["type"], payload);
 			},
-			broadcastProviderDelta: (_runId: string, event: Record<string, unknown>) => {
-				deltas.push(event);
+			broadcastProviderDelta: (_runId: string, streamSeq: number, event: Record<string, unknown>) => {
+				deltas.push({ ...event, streamSeq });
 			},
 			clearProviderStreamActive: () => {},
 			markProviderStreamActive: () => {},
@@ -2482,6 +2492,7 @@ describe("Bickr Pages Functions", () => {
 		const consumeProviderResponse = (BotRuntime.prototype as unknown as {
 			consumeProviderResponse: (
 				runId: string,
+				streamSeq: number,
 				stream: ReadableStream<Uint8Array>,
 				signal: AbortSignal,
 			) => Promise<TestProviderResponse>;
@@ -2491,11 +2502,13 @@ describe("Bickr Pages Functions", () => {
 					runId: string,
 					response: TestProviderResponse,
 					status: "complete" | "interrupted",
+					streamSeq: number,
 				) => Promise<void>;
 		}).appendProviderMessages.bind(runtime);
 
 		const response = await consumeProviderResponse(
 			"run-reasoning",
+			42,
 			sseStream([
 				{ choices: [{ delta: { reasoning: "I should inspect the thread. " } }] },
 				{ choices: [{ delta: { reasoning_content: "Then I can decide. " } }] },
@@ -2505,7 +2518,7 @@ describe("Bickr Pages Functions", () => {
 			]),
 			new AbortController().signal,
 		);
-			await appendProviderMessages("run-reasoning", response, "complete");
+			await appendProviderMessages("run-reasoning", response, "complete", 42);
 
 		expect(response).toMatchObject({
 			content: " Checking now.",
@@ -2514,10 +2527,10 @@ describe("Bickr Pages Functions", () => {
 			toolCalls: [],
 		});
 		expect(deltas).toEqual([
-			{ kind: "reasoning", text: "I should inspect the thread. " },
-			{ kind: "reasoning", text: "Then I can decide. " },
-			{ kind: "reasoning", text: "I will use a tool. " },
-			{ kind: "content", text: " Checking now." },
+			{ kind: "reasoning", streamSeq: 42, text: "I should inspect the thread. " },
+			{ kind: "reasoning", streamSeq: 42, text: "Then I can decide. " },
+			{ kind: "reasoning", streamSeq: 42, text: "I will use a tool. " },
+			{ kind: "content", streamSeq: 42, text: " Checking now." },
 		]);
 		expect(events).toEqual([
 			{
@@ -2525,6 +2538,7 @@ describe("Bickr Pages Functions", () => {
 				payload: {
 					content: "I should inspect the thread. Then I can decide. I will use a tool. ",
 					status: "complete",
+					streamSeq: 42,
 				},
 			},
 			{
@@ -2532,9 +2546,194 @@ describe("Bickr Pages Functions", () => {
 					payload: {
 						content: " Checking now.",
 						status: "complete",
+						streamSeq: 42,
 					},
 				},
 		]);
+	});
+
+	it("uses the provider request sequence as the live stream identity for final loop messages", async () => {
+		const events: Array<{ seq: number; type: string; payload: Record<string, unknown> }> = [];
+		let providerStreamSeq: number | undefined;
+		const appendedLoopMessages: Array<{
+			message: Record<string, unknown>;
+			origin: string;
+			status: string | undefined;
+			streamSeq: number | undefined;
+		}> = [];
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+				const seq = type === "provider_request" ? 123 : 123 + events.length + 1;
+				events.push({ seq, type, payload });
+				return runtimeEvent(seq, runId, type as BotRuntimeEvent["type"], payload);
+			},
+			appendLoopMessage: (
+				runId: string,
+				message: Record<string, unknown>,
+				origin: string,
+				status?: string,
+				options?: { streamSeq?: number },
+			) => {
+				appendedLoopMessages.push({ message, origin, status, streamSeq: options?.streamSeq });
+				return {
+					seq: 200,
+					runId,
+					role: "assistant",
+					message,
+					origin,
+					status,
+					tokenEstimate: 0,
+					createdAt: new Date().toISOString(),
+					...(options?.streamSeq !== undefined ? { streamSeq: options.streamSeq } : {}),
+				};
+			},
+			callProvider: async (_settings: unknown, _messages: unknown, _tools: unknown, _runId: string, streamSeq: number) => {
+				providerStreamSeq = streamSeq;
+				return providerResponseWithContent("I have finished this round.");
+			},
+			ensureProviderPromptWithinBudget: async () => ({
+				allowedPromptTokens: 13_500,
+				promptTokens: 100,
+				requestMessages: [{ role: "assistant", content: "I am ready." }],
+			}),
+			recordInferenceSubmission: () => {},
+			recordLoopMessageLog: () => {},
+			recordProviderUsage: () => {},
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const runProviderLoop = (BotRuntime.prototype as unknown as {
+			runProviderLoop: (
+				bot: BotDocument,
+				settings: { baseUrl: string; model: string; temperature: number },
+				runId: string,
+				messages: Array<Record<string, unknown>>,
+				runContext: { mode: "normal"; signal: AbortSignal },
+			) => Promise<{ logOffCalled: boolean }>;
+		}).runProviderLoop.bind(runtime);
+
+		await expect(
+			runProviderLoop(
+				{
+					id: "bot_stream",
+					handle: "stream-sage",
+					displayName: "Stream Sage",
+					shortBio: "Watches loop streams.",
+					prompt: "Keep stream state coherent.",
+					inferenceSettings: {},
+					toolSettings: {},
+					tickSettings: { maxToolCallsPerTick: 1, contextWindowTokens: 16_000 },
+				} as BotDocument,
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				"run-loop-stream",
+				[],
+				{ mode: "normal", signal: new AbortController().signal },
+			),
+		).resolves.toMatchObject({ logOffCalled: false });
+
+		expect(providerStreamSeq).toBe(123);
+		expect(events).toContainEqual(expect.objectContaining({
+			type: "assistant_message",
+			payload: expect.objectContaining({ streamSeq: 123 }),
+		}));
+		expect(appendedLoopMessages).toContainEqual(expect.objectContaining({
+			origin: "provider_response",
+			streamSeq: 123,
+		}));
+	});
+
+	it("does not retain empty provider responses in provider history", async () => {
+		expect(providerResponseMessageForHistory({
+			content: "",
+			reasoning: "",
+			reasoningDetails: [],
+			toolCalls: [],
+		})).toBeNull();
+		expect(providerResponseMessageForHistory({
+			content: "",
+			reasoning: "I am deciding what to do next.",
+			reasoningDetails: [],
+			toolCalls: [],
+		})).toEqual({ role: "assistant", reasoning: "I am deciding what to do next." });
+		expect(providerResponseMessageForHistory(providerResponseWithToolCall("call-read", "read_thread", { threadId: "thr_test" }))).toMatchObject({
+			role: "assistant",
+			content: null,
+			tool_calls: [
+				expect.objectContaining({
+					id: "call-read",
+					function: expect.objectContaining({ name: "read_thread" }),
+				}),
+			],
+		});
+		expect(loopMessageContributesToProviderHistory("provider_response", { role: "assistant", content: null })).toBe(false);
+		expect(loopMessageContributesToProviderHistory("provider_response", { role: "assistant", content: "" })).toBe(false);
+		expect(loopMessageContributesToProviderHistory("synthetic_context", { role: "assistant", content: null })).toBe(true);
+	});
+
+	it("does not append empty provider responses to the loop ledger", async () => {
+		const appendedLoopMessages: Array<{ message: Record<string, unknown>; origin: string }> = [];
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) =>
+				runtimeEvent(type === "provider_request" ? 123 : 124, runId, type as BotRuntimeEvent["type"], payload),
+			appendLoopMessage: (
+				_runId: string,
+				message: Record<string, unknown>,
+				origin: string,
+			) => {
+				appendedLoopMessages.push({ message, origin });
+				return {
+					seq: appendedLoopMessages.length,
+					runId: "run-empty-provider-response",
+					role: "assistant",
+					message,
+					origin,
+					tokenEstimate: 0,
+					createdAt: new Date().toISOString(),
+				};
+			},
+			callProvider: async () => ({
+				content: "",
+				reasoning: "",
+				reasoningDetails: [],
+				toolCalls: [],
+			}),
+			ensureProviderPromptWithinBudget: async () => ({
+				allowedPromptTokens: 13_500,
+				promptTokens: 100,
+				requestMessages: [{ role: "assistant", content: "I am ready." }],
+			}),
+			recordInferenceSubmission: () => {},
+			recordLoopMessageLog: () => {},
+			recordProviderUsage: () => {},
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const runProviderLoop = (BotRuntime.prototype as unknown as {
+			runProviderLoop: (
+				bot: BotDocument,
+				settings: { baseUrl: string; model: string; temperature: number },
+				runId: string,
+				messages: Array<Record<string, unknown>>,
+				runContext: { mode: "normal"; signal: AbortSignal },
+			) => Promise<{ logOffCalled: boolean }>;
+		}).runProviderLoop.bind(runtime);
+
+		await expect(
+			runProviderLoop(
+				fakeBotDocument(),
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				"run-empty-provider-response",
+				[],
+				{ mode: "normal", signal: new AbortController().signal },
+			),
+		).resolves.toMatchObject({ logOffCalled: false });
+		expect(appendedLoopMessages).toEqual([]);
 	});
 
 	it("returns the bootstrap payload", async () => {
@@ -5449,6 +5648,92 @@ describe("Bickr Pages Functions", () => {
 		expect(String(secondRequest[acknowledgementIndex]?.content)).toContain("Read or search first, then reply using the returned comment ID.");
 	});
 
+	it("finishes a parallel tool batch before applying persistent failure handling", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const forum = await createForumForTest(cookie, "parallel-persistent-failure");
+		const author = await createBotForTest(cookie, "parallel-persistent-author");
+		const actor = await createBotForTest(cookie, "parallel-persistent-actor");
+		const thread = await createThreadForTest(forum.id, author.id, "Parallel persistent tool order", "Root body.");
+		const bot = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, actor.id);
+		let providerCall = 0;
+		let eventSeq = 0;
+		const providerMessages: Array<Array<Record<string, unknown>>> = [];
+		const loopMemory = testLoopMessageMemory([{ role: "assistant", content: "I look around Bickr." }]);
+		const runtime = Object.assign(testRuntimeForToolExecution(), {
+			...loopMemory,
+			appendProviderMessages: async () => {},
+			appendEvent: async (runId: string, type: string, payload: unknown) => {
+				eventSeq += 1;
+				return {
+					seq: eventSeq,
+					runId,
+					type,
+					payload,
+					tokenEstimate: 0,
+					createdAt: new Date().toISOString(),
+				};
+			},
+			callProvider: async (
+				_settings: Record<string, unknown>,
+				messages: Array<Record<string, unknown>>,
+			) => {
+				providerMessages.push(messages);
+				providerCall += 1;
+				if (providerCall === 1) {
+					return providerResponseWithToolCalls([
+						...Array.from({ length: 5 }, (_, index) => ({
+							id: `call-reply-fail-${index + 1}`,
+							name: "reply_to_comment",
+							args: { commentId: `missing-comment-${index + 1}`, body: `Reply attempt ${index + 1}.` },
+						})),
+						{ id: "call-read-after-failures", name: "read_thread", args: { threadId: thread.id } },
+					]);
+				}
+				return providerResponseWithToolCall("call-log-off", "log_off", { reason: "I saw every parallel tool result." });
+			},
+			callProviderForTokenProbe: async () => providerUsageForPromptTokens(1_000),
+			recordInferenceSubmission: () => {},
+		});
+		const runProviderLoop = (BotRuntime.prototype as unknown as {
+			runProviderLoop: (
+				bot: Awaited<ReturnType<typeof botById>>,
+				settings: { baseUrl: string; model: string; temperature: number },
+				runId: string,
+				messages: Array<Record<string, unknown>>,
+				runContext: { mode: "normal"; signal: AbortSignal },
+			) => Promise<{ logOffCalled: boolean }>;
+		}).runProviderLoop.bind(runtime);
+
+		await expect(
+			runProviderLoop(
+				{
+					...bot,
+					tickSettings: { ...bot.tickSettings, maxToolCallsPerTick: 10 },
+				},
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				"run-parallel-persistent-failure-order",
+				[{ role: "assistant", content: "I look around Bickr." }],
+				{ mode: "normal", signal: new AbortController().signal },
+			),
+		).resolves.toMatchObject({ logOffCalled: true });
+
+		const secondRequest = providerMessages[1] ?? [];
+		const toolMessageIndexes = secondRequest
+			.map((message, index) => message.role === "tool" ? index : -1)
+			.filter((index) => index >= 0);
+		const acknowledgementIndex = secondRequest.findIndex((message) =>
+			message.role === "assistant" &&
+			typeof message.content === "string" &&
+			message.content.includes("The Bickr page shows an error after I try to reply")
+		);
+		expect(toolMessageIndexes).toHaveLength(6);
+		expect(secondRequest[toolMessageIndexes[0]!]?.tool_call_id).toBe("call-reply-fail-1");
+		expect(secondRequest[toolMessageIndexes[4]!]?.tool_call_id).toBe("call-reply-fail-5");
+		expect(secondRequest[toolMessageIndexes[5]!]?.tool_call_id).toBe("call-read-after-failures");
+		expect(acknowledgementIndex).toBeGreaterThan(toolMessageIndexes[5]!);
+	});
+
 	it("compacts old context after exact token probes before provider inference", async () => {
 		let activeMessages: Array<Record<string, unknown>> = [
 			{ role: "assistant", content: "Old history that can be compacted." },
@@ -6786,6 +7071,7 @@ function memoryLoopMessageLogSql() {
 		origin: "provider_response",
 		status: "complete",
 		token_estimate: 1,
+		stream_seq: null as number | null,
 		compacted_by: null,
 		deleted_at: null as string | null,
 		created_at: "2026-05-01T00:00:00.000Z",
@@ -7098,6 +7384,7 @@ function loopMessageRowForTest(seq: number, runId: string, content: string) {
 		origin: "provider_response",
 		status: "complete",
 		token_estimate: 1,
+		stream_seq: null,
 		compacted_by: null,
 		deleted_at: null,
 		created_at: "2026-05-05T00:00:00.000Z",
