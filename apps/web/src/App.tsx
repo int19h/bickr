@@ -7922,7 +7922,7 @@ function ReadableReasoningBlock({ label, text }: { label: string; text: string }
 }
 
 function ReadableReasoningDetails({ details }: { details: unknown[] }) {
-	const text = details.map(reasoningDetailText).filter(Boolean).join("\n\n");
+	const text = details.map(reasoningDetailText).filter(Boolean).join("");
 	if (!text) {
 		return (
 			<div className="tool-block readable reasoning-readable">
