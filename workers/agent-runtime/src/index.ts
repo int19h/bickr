@@ -641,7 +641,6 @@ const providerChatReasoning = { enabled: true, exclude: false } as const;
 const providerTranslationMaxCompletionTokens = 8_192;
 const providerCompactionMaxCompletionTokens = 4_096;
 const providerCompactionTemperature = 0.2;
-const compactionSummaryPrefill = "I remember";
 const providerCompactionSummaryProperty = "detailed summary in first person";
 const providerCompactionSummaryMaxCharacters = 4_000;
 const inferenceSubmissionRetentionCount = 50;
@@ -4010,9 +4009,7 @@ export class BotRuntime {
 			});
 			throw error;
 		}
-		const summary = storedMemorySummary(
-			response.content ? compactionSummaryWithPrefill(response.content) : deterministicCompactionSummary("", recentActivity),
-		);
+		const summary = response.content ? storedCompactionSummary(response.content) : deterministicCompactionSummary("", recentActivity);
 		const summaryMessage = this.insertLoopMessage({
 			runId,
 			message: { role: "assistant", content: summary },
@@ -6142,25 +6139,15 @@ function compactedSummaryForContext(payload: unknown): string {
 	if (!summary) {
 		return "";
 	}
-	return storedMemorySummary(summary);
+	return storedCompactionSummary(summary);
 }
 
 function deterministicCompactionSummary(previousSummary: string, recentActivity: string): string {
-	return storedMemorySummary([previousSummary.trim(), recentActivity.trim()].filter(Boolean).join("\n"));
+	return storedCompactionSummary([previousSummary.trim(), recentActivity.trim()].filter(Boolean).join("\n"));
 }
 
-function compactionSummaryWithPrefill(content: string): string {
-	const trimmed = content.trim();
-	if (!trimmed) {
-		return compactionSummaryPrefill;
-	}
-	if (/^I remember\b/i.test(trimmed)) {
-		return trimmed;
-	}
-	if (/^[,.;:!?]/.test(trimmed)) {
-		return `${compactionSummaryPrefill}${trimmed}`;
-	}
-	return `${compactionSummaryPrefill} ${trimmed}`;
+function storedCompactionSummary(summary: string): string {
+	return sanitizeStoredContextSummary(summary);
 }
 
 function storedMemorySummary(summary: string): string {

@@ -1112,7 +1112,101 @@ describe("Bickr Pages Functions", () => {
 				latestCompactionSummary: () => string;
 			}).latestCompactionSummary.bind(runtime);
 
-			expect(latestCompactionSummary()).toBe("I remember that I owe Müller a follow-up.");
+			expect(latestCompactionSummary()).toBe("I owe Müller a follow-up.");
+		});
+
+		it("stores provider compaction summaries without adding a memory prefix", async () => {
+			const candidates = [
+				{
+					seq: 1,
+					position: 1,
+					run_id: "run-compaction-success",
+					role: "assistant",
+					message_json: JSON.stringify({ role: "assistant", content: "I read the changelog thread." }),
+					origin: "provider_response",
+					status: "complete",
+					token_estimate: 10,
+					compacted_by: null,
+					created_at: "2026-05-01T00:00:00.000Z",
+					has_logs: 0,
+				},
+			];
+			const appendEvent = vi.fn(async (runId: string, type: string, payload: unknown) => ({
+				seq: 101,
+				runId,
+				type,
+				payload,
+				tokenEstimate: 1,
+				createdAt: "2026-05-01T00:00:01.000Z",
+			}));
+			const insertLoopMessage = vi.fn((input: { runId: string; message: unknown; position: number }) => ({
+				seq: 102,
+				runId: input.runId,
+				message: input.message,
+				position: input.position,
+				createdAt: "2026-05-01T00:00:02.000Z",
+			}));
+			const replaceEventPayload = vi.fn();
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				env: {},
+				state: {
+					storage: {
+						sql: {
+							exec: vi.fn(() => ({ one: () => ({}), toArray: () => [] })),
+						},
+					},
+				},
+				appendEvent,
+				recordInferenceSubmission: vi.fn(),
+				callProviderForCompaction: async () => ({
+					content: "I chose to follow up with Müller about concise release notes.",
+					requestBody: "{}",
+					rawResponse: "{}",
+				}),
+				replaceEventPayload,
+				insertLoopMessage,
+				recordLoopMessageLog: vi.fn(),
+				nextLoopMessagePosition: () => 50,
+			});
+			const compactLoopMessageRows = (BotRuntime.prototype as unknown as {
+				compactLoopMessageRows: (
+					bot: BotDocument,
+					settings: { apiKey: string; baseUrl: string; model: string; temperature: number },
+					runId: string,
+					signal: AbortSignal,
+					rows: unknown[],
+					mode: "auto" | "manual",
+					metrics: { estimatedContextTokens?: number; threshold?: number },
+				) => Promise<void>;
+			}).compactLoopMessageRows.bind(runtime);
+
+			await compactLoopMessageRows(
+				{
+					id: "bot_release",
+					handle: "release-sage",
+					displayName: "Release Sage",
+					shortBio: "Summarizes release work.",
+					prompt: "Prefer concise changelog memory.",
+					inferenceSettings: {},
+				} as BotDocument,
+				{ apiKey: "test-key", baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				"run-compaction-success",
+				new AbortController().signal,
+				candidates,
+				"auto",
+				{ estimatedContextTokens: 10_000, threshold: 80 },
+			);
+
+			expect(insertLoopMessage).toHaveBeenCalledWith(expect.objectContaining({
+				message: {
+					role: "assistant",
+					content: "I chose to follow up with Müller about concise release notes.",
+				},
+			}));
+			expect(replaceEventPayload).toHaveBeenLastCalledWith(expect.objectContaining({ seq: 101 }), expect.objectContaining({
+				status: "complete",
+				summary: "I chose to follow up with Müller about concise release notes.",
+			}));
 		});
 
 		it("builds translation requests with strict structured output and no tools", () => {
