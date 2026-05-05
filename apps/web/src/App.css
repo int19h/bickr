@@ -2583,6 +2583,7 @@ button:disabled {
 .tool-block {
 	display: grid;
 	gap: 4px;
+	grid-template-columns: minmax(0, 1fr);
 	margin-top: 7px;
 	min-width: 0;
 }
@@ -2674,6 +2675,7 @@ button:disabled {
 .loop-readable {
 	display: grid;
 	gap: 7px;
+	grid-template-columns: minmax(0, 1fr);
 	min-width: 0;
 }
 
@@ -2709,6 +2711,7 @@ button:disabled {
 .readable-chain {
 	display: grid;
 	gap: 7px;
+	grid-template-columns: minmax(0, 1fr);
 	min-width: 0;
 }
 
@@ -2721,6 +2724,7 @@ button:disabled {
 	border-radius: 5px;
 	display: grid;
 	gap: 5px;
+	grid-template-columns: minmax(0, 1fr);
 	min-width: 0;
 	padding: 7px 8px;
 }
