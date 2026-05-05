@@ -112,6 +112,7 @@ import {
 import {
 	defaultTranslationPrompt,
 	type BotDocument,
+	type BotLoopMessage,
 	type BotLoopMessageLog,
 	type BotRuntimeEvent,
 	type NotificationEvent,
@@ -926,6 +927,40 @@ describe("Bickr Pages Functions", () => {
 			expect(logs[1]?.baseLogId).toBe(logs[0]?.id);
 			expect(logs[3]?.baseLogId).toBe(logs[2]?.id);
 			expect(logs[3]?.prefixLength).toBe(320);
+		});
+
+		it("soft-deletes loop messages without removing retained raw logs", async () => {
+			const sql = memoryLoopMessageLogSql();
+			const broadcastControl = vi.fn();
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				state: { storage: { sql } },
+				status: async () => ({ status: "idle" }),
+				broadcastControl,
+			});
+			const recordLoopMessageLog = (BotRuntime.prototype as unknown as {
+				recordLoopMessageLog: (messageSeq: number, kind: string, text: string) => void;
+			}).recordLoopMessageLog.bind(runtime);
+			const loopMessageLogsForSeq = (BotRuntime.prototype as unknown as {
+				loopMessageLogsForSeq: (seq: number) => { message: BotLoopMessage; logs: BotLoopMessageLog[] };
+			}).loopMessageLogsForSeq.bind(runtime);
+			const deleteLoopMessage = (BotRuntime.prototype as unknown as {
+				deleteLoopMessage: (botId: string, seq: number) => Promise<{ seq: number; deletedAt: string }>;
+			}).deleteLoopMessage.bind(runtime);
+
+			recordLoopMessageLog(1, "provider_request", "request body");
+			recordLoopMessageLog(1, "provider_response", "response body");
+			const deleted = await deleteLoopMessage("bot_log", 1);
+			const retained = loopMessageLogsForSeq(1);
+
+			expect(deleted.seq).toBe(1);
+			expect(deleted.deletedAt).toMatch(/^20/);
+			expect(retained.message.deletedAt).toBe(deleted.deletedAt);
+			expect(retained.logs.map((log) => log.text)).toEqual(["request body", "response body"]);
+			expect(broadcastControl).toHaveBeenCalledWith({
+				type: "loop_message_deleted",
+				seq: 1,
+				deletedAt: deleted.deletedAt,
+			});
 		});
 
 		it("uses the latest successful compaction summary after a failed compaction row", () => {
@@ -6022,6 +6057,7 @@ function memoryLoopMessageLogSql() {
 		status: "complete",
 		token_estimate: 1,
 		compacted_by: null,
+		deleted_at: null as string | null,
 		created_at: "2026-05-01T00:00:00.000Z",
 		has_logs: 1,
 	};
@@ -6074,6 +6110,10 @@ function memoryLoopMessageLogSql() {
 				};
 			} else if (/FROM loop_messages m\s+WHERE m\.seq = \?/.test(sql)) {
 				return { toArray: () => (Number(params[0]) === messageRow.seq ? [messageRow as T] : []) };
+			} else if (/UPDATE loop_messages\s+SET deleted_at = \?/.test(sql)) {
+				if (Number(params[1]) === messageRow.seq && !messageRow.deleted_at) {
+					messageRow.deleted_at = String(params[0]);
+				}
 			} else if (/FROM loop_message_logs\s+WHERE message_seq = \?/.test(sql)) {
 				return {
 					toArray: () => logs.filter((row) => row.message_seq === Number(params[0])).sort((left, right) => left.id - right.id) as T[],

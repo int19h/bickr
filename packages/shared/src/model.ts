@@ -792,6 +792,7 @@ export type BotLoopMessage = {
 	createdAt: string;
 	status?: BotLoopMessageStatus;
 	compactedBy?: number;
+	deletedAt?: string;
 	hasLogs?: boolean;
 };
 

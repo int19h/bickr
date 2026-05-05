@@ -67,6 +67,11 @@ import {
 	type OpenRouterWebSearchToolDraft,
 } from "./tool-settings-draft";
 import { prettyJsonText } from "./inference-submission-formatting";
+import {
+	isLiveProviderLoopMessage,
+	removeLiveProviderLoopMessagesForRun,
+	upsertLiveProviderLoopMessage,
+} from "./loop-message-streams";
 import { reasoningDetailsTextForDisplay, textValueForDisplay } from "./reasoning-formatting";
 import "./App.css";
 
@@ -167,6 +172,7 @@ type RuntimeMonitorPayload = {
 	message?: string;
 	loopMessage?: BotLoopMessage;
 	seq?: number;
+	deletedAt?: string;
 };
 
 type WorldView = WorldSummary & {
@@ -7094,6 +7100,7 @@ function BotRuntimePanel({
 	const [openLoopMessageLogs, setOpenLoopMessageLogs] = useState<{ message: BotLoopMessage; logs: BotLoopMessageLog[] } | null>(null);
 	const [loopMessageLogLoadingSeq, setLoopMessageLogLoadingSeq] = useState<number | null>(null);
 	const [loopMessageLogError, setLoopMessageLogError] = useState("");
+	const [deletingLoopMessageSeq, setDeletingLoopMessageSeq] = useState<number | null>(null);
 	const [tokenUsage, setTokenUsage] = useState<BotTokenUsageStats | null>(null);
 	const [connected, setConnected] = useState(false);
 	const [injection, setInjection] = useState("");
@@ -7125,6 +7132,7 @@ function BotRuntimePanel({
 		setOpenLoopMessageLogs(null);
 		setLoopMessageLogLoadingSeq(null);
 		setLoopMessageLogError("");
+		setDeletingLoopMessageSeq(null);
 		setTokenUsage(null);
 		setConnected(false);
 		void refresh();
@@ -7163,6 +7171,7 @@ function BotRuntimePanel({
 				setEvents([]);
 				setLoopMessages([]);
 				setOpenLoopMessageLogs(null);
+				setDeletingLoopMessageSeq(null);
 				latestPersistentEventSeqRef.current = 0;
 				latestLoopMessageSeqRef.current = 0;
 				setMessage("Loop history erased.");
@@ -7171,6 +7180,7 @@ function BotRuntimePanel({
 			if (payload.type === "loop_messages_reset") {
 				setLoopMessages([]);
 				setOpenLoopMessageLogs(null);
+				setDeletingLoopMessageSeq(null);
 				latestLoopMessageSeqRef.current = 0;
 				void refresh();
 				return;
@@ -7182,18 +7192,26 @@ function BotRuntimePanel({
 				setEvents((current) => current.filter((item) => item.seq !== payload.seq));
 				return;
 			}
+			if (payload.type === "loop_message_deleted" && Number.isInteger(payload.seq)) {
+				setLoopMessages((current) => current.filter((item) => item.seq !== payload.seq));
+				setOpenLoopMessageLogs((current) => current && current.message.seq === payload.seq ? null : current);
+				setDeletingLoopMessageSeq((current) => current === payload.seq ? null : current);
+				return;
+			}
 			if (payload.type === "loop_message" && payload.loopMessage) {
 				rememberLoopMessageSeq(payload.loopMessage);
-				setLoopMessages((current) => upsertLoopMessage(current, payload.loopMessage!));
+				setLoopMessages((current) => upsertLoopMessage(removeLiveProviderLoopMessagesForRun(current, payload.loopMessage!.runId), payload.loopMessage!));
 				return;
 			}
 			if (payload.type === "stream_delta" && payload.event) {
+				setLoopMessages((current) => upsertLiveProviderLoopMessage(current, payload.event!));
 				return;
 			}
 			if (payload.event) {
 				rememberPersistentEventSeq(payload.event);
 				setEvents((current) => upsertEvent(current, payload.event!));
 				if (["tick_completed", "tick_failed", "tick_stopped"].includes(payload.event.type)) {
+					setLoopMessages((current) => removeLiveProviderLoopMessagesForRun(current, payload.event!.runId));
 					void refresh();
 				}
 			}
@@ -7387,7 +7405,7 @@ function BotRuntimePanel({
 	}
 
 	function rememberLoopMessageSeq(loopMessage: BotLoopMessage): void {
-		if (Number.isInteger(loopMessage.seq)) {
+		if (Number.isInteger(loopMessage.seq) && !isLiveProviderLoopMessage(loopMessage)) {
 			latestLoopMessageSeqRef.current = Math.max(latestLoopMessageSeqRef.current, loopMessage.seq);
 		}
 	}
@@ -7439,6 +7457,9 @@ function BotRuntimePanel({
 	}
 
 	async function viewLoopMessageLogs(loopMessage: BotLoopMessage): Promise<void> {
+		if (isLiveProviderLoopMessage(loopMessage)) {
+			return;
+		}
 		setLoopMessageLogLoadingSeq(loopMessage.seq);
 		setLoopMessageLogError("");
 		const result = await api<{ message: BotLoopMessage; logs: BotLoopMessageLog[] }>(
@@ -7450,6 +7471,25 @@ function BotRuntimePanel({
 			return;
 		}
 		setLoopMessageLogError(result.message);
+	}
+
+	async function deleteLoopMessage(loopMessage: BotLoopMessage): Promise<void> {
+		if (isLiveProviderLoopMessage(loopMessage)) {
+			return;
+		}
+		setDeletingLoopMessageSeq(loopMessage.seq);
+		const result = await api<{ deleted: { seq: number; runId: string; origin: BotLoopMessage["origin"]; deletedAt: string } }>(
+			`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/messages/${encodeURIComponent(String(loopMessage.seq))}`,
+			{ method: "DELETE" },
+		);
+		setDeletingLoopMessageSeq(null);
+		if (result.ok) {
+			setLoopMessages((current) => current.filter((item) => item.seq !== loopMessage.seq));
+			setOpenLoopMessageLogs((current) => current && current.message.seq === loopMessage.seq ? null : current);
+			setMessage("Loop message deleted.");
+			return;
+		}
+		setMessage(result.message);
 	}
 
 	async function compactLoopHistory(): Promise<void> {
@@ -7480,6 +7520,7 @@ function BotRuntimePanel({
 			setEvents([]);
 			setLoopMessages([]);
 			setOpenLoopMessageLogs(null);
+			setDeletingLoopMessageSeq(null);
 			latestPersistentEventSeqRef.current = 0;
 			latestLoopMessageSeqRef.current = 0;
 			setMessage(`Reset ${result.data.cleared.messages ?? 0} loop chat messages and ${result.data.cleared.events} legacy events.`);
@@ -7544,7 +7585,7 @@ function BotRuntimePanel({
 					</button>
 					<button
 						className="btn danger"
-						disabled={status?.status === "running" || loopMessages.length === 0}
+						disabled={status?.status === "running" || !loopMessages.some((item) => !isLiveProviderLoopMessage(item))}
 						onClick={() => setCompactConfirm(true)}
 						type="button"
 					>
@@ -7575,9 +7616,11 @@ function BotRuntimePanel({
 					{loopMessages.length === 0 && <div className="empty compact-empty">No loop chat messages yet.</div>}
 					{loopMessages.slice(-120).map((loopMessage) => (
 						<LoopMessageRow
-							key={loopMessage.seq}
+							key={`${loopMessage.runId}-${loopMessage.seq}`}
+							deleting={deletingLoopMessageSeq === loopMessage.seq}
 							loadingLogs={loopMessageLogLoadingSeq === loopMessage.seq}
 							message={loopMessage}
+							onDelete={() => void deleteLoopMessage(loopMessage)}
 							onViewLogs={() => void viewLoopMessageLogs(loopMessage)}
 							toolCallsById={toolCallsById}
 						/>
@@ -7806,32 +7849,47 @@ function LoopMessageLogsModal({
 }
 
 function LoopMessageRow({
+	deleting,
 	loadingLogs,
 	message,
+	onDelete,
 	onViewLogs,
 	toolCallsById,
 }: {
+	deleting: boolean;
 	loadingLogs: boolean;
 	message: BotLoopMessage;
+	onDelete: () => void;
 	onViewLogs: () => void;
 	toolCallsById: ReadonlyMap<string, LoopToolCallContext>;
 }) {
 	const status = message.status === "interrupted" ? "interrupted" : null;
 	const toolCallContext = message.message.tool_call_id ? toolCallsById.get(message.message.tool_call_id) : undefined;
+	const isLive = isLiveProviderLoopMessage(message);
 	return (
 		<div className={`event-row activity-${loopMessageActivityKind(message)}`}>
 			<button
 				aria-label={`Open raw logs for loop message ${message.seq}`}
 				className="raw-json-button"
-				disabled={loadingLogs || !message.hasLogs}
+				disabled={loadingLogs || !message.hasLogs || isLive}
 				onClick={onViewLogs}
 				title={message.hasLogs ? "Open exact provider and tool logs" : "No retained logs"}
 				type="button"
 			>
 				{loadingLogs ? <span className="spinner" /> : <Icon name="info" size={13} />}
 			</button>
+			<button
+				aria-label={`Delete loop message ${message.seq}`}
+				className="event-delete-button"
+				disabled={deleting || isLive}
+				onClick={onDelete}
+				title={isLive ? "Streaming messages cannot be deleted yet" : "Delete this message from the Loop log"}
+				type="button"
+			>
+				{deleting ? <span className="spinner" /> : <Icon name="trash" size={13} />}
+			</button>
 			<div className="event-head">
-				<span>#{message.seq}</span>
+				<span>{isLive ? "live" : `#${message.seq}`}</span>
 				<b>{loopMessageTitle(message)}</b>
 				<span>{timeAgo(message.createdAt)}</span>
 				{status && <span className="streaming-pill">{status}</span>}
@@ -10020,20 +10078,26 @@ function latestPersistentEventSeq(events: BotRuntimeEvent[]): number {
 }
 
 function upsertLoopMessage(messages: BotLoopMessage[], message: BotLoopMessage): BotLoopMessage[] {
-	const without = messages.filter((item) => item.seq !== message.seq);
+	const without = messages.filter((item) => item.seq !== message.seq || item.runId !== message.runId);
 	return [...without, message].sort(loopMessageSort);
 }
 
 function mergeLoopMessages(current: BotLoopMessage[], fetched: BotLoopMessage[]): BotLoopMessage[] {
-	const bySeq = new Map(current.map((message) => [message.seq, message]));
+	const finalizedRuns = new Set(fetched.filter((message) => message.origin === "provider_response").map((message) => message.runId));
+	const retainedCurrent = current.filter((message) => isLiveProviderLoopMessage(message) && !finalizedRuns.has(message.runId));
+	const bySeq = new Map(retainedCurrent.map((message) => [loopMessageKey(message), message]));
 	for (const message of fetched) {
-		bySeq.set(message.seq, message);
+		bySeq.set(loopMessageKey(message), message);
 	}
 	return [...bySeq.values()].sort(loopMessageSort);
 }
 
 function latestLoopMessageSeq(messages: BotLoopMessage[]): number {
-	return messages.reduce((latest, message) => Number.isInteger(message.seq) ? Math.max(latest, message.seq) : latest, 0);
+	return messages.reduce((latest, message) => Number.isInteger(message.seq) && !isLiveProviderLoopMessage(message) ? Math.max(latest, message.seq) : latest, 0);
+}
+
+function loopMessageKey(message: BotLoopMessage): string {
+	return `${message.runId}:${message.seq}`;
 }
 
 function loopMessageSort(left: BotLoopMessage, right: BotLoopMessage): number {

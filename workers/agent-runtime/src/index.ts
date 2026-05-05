@@ -160,6 +160,7 @@ type LoopMessageRow = {
 	status: BotLoopMessageStatus | null;
 	token_estimate: number;
 	compacted_by: number | null;
+	deleted_at: string | null;
 	created_at: string;
 	has_logs?: number;
 };
@@ -955,9 +956,11 @@ CREATE TABLE IF NOT EXISTS loop_messages (
 	status TEXT,
 	token_estimate INTEGER NOT NULL,
 	compacted_by INTEGER,
+	deleted_at TEXT,
 	created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS loop_messages_active ON loop_messages (compacted_by, position, seq);
+CREATE INDEX IF NOT EXISTS loop_messages_visible ON loop_messages (deleted_at, compacted_by, position, seq);
 CREATE INDEX IF NOT EXISTS loop_messages_run ON loop_messages (run_id, seq);
 CREATE TABLE IF NOT EXISTS loop_message_logs (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1000,6 +1003,7 @@ export class BotRuntime {
 			}
 			this.ensureInjectionColumns();
 			this.ensureInferenceSubmissionColumns();
+			this.ensureLoopMessageColumns();
 			this.migrateLegacyLoopMessages();
 		});
 	}
@@ -1032,6 +1036,19 @@ export class BotRuntime {
 		if (!columns.has("display_messages_json")) {
 			this.state.storage.sql.exec(`ALTER TABLE inference_submissions ADD COLUMN display_messages_json TEXT`);
 		}
+	}
+
+	private ensureLoopMessageColumns(): void {
+		const columns = new Set(
+			this.state.storage.sql
+				.exec<{ name: string }>(`PRAGMA table_info(loop_messages)`)
+				.toArray()
+				.map((row) => row.name),
+		);
+		if (!columns.has("deleted_at")) {
+			this.state.storage.sql.exec(`ALTER TABLE loop_messages ADD COLUMN deleted_at TEXT`);
+		}
+		this.state.storage.sql.exec(`CREATE INDEX IF NOT EXISTS loop_messages_visible ON loop_messages (deleted_at, compacted_by, position, seq)`);
 	}
 
 	private migrateLegacyLoopMessages(): void {
@@ -1132,6 +1149,12 @@ export class BotRuntime {
 			if (request.method === "GET" && messageLogSeq !== null) {
 				await this.requireOwnerOrInternal(request, botId);
 				return ok(this.loopMessageLogsForSeq(messageLogSeq));
+			}
+
+			const messageSeq = messageSeqFromPath(url.pathname);
+			if (request.method === "DELETE" && messageSeq !== null) {
+				await this.requireOwnerOrInternal(request, botId);
+				return ok({ deleted: await this.deleteLoopMessage(botId, messageSeq) });
 			}
 
 			if (request.method === "GET" && url.pathname.endsWith("/submissions")) {
@@ -2231,6 +2254,7 @@ export class BotRuntime {
 			status: input.status ?? null,
 			token_estimate: tokenEstimate,
 			compacted_by: null,
+			deleted_at: null,
 			created_at: now,
 			has_logs: 0,
 		});
@@ -2255,10 +2279,11 @@ export class BotRuntime {
 		return this.state.storage.sql
 			.exec<LoopMessageRow>(
 				`SELECT m.seq, m.position, m.run_id, m.role, m.message_json, m.origin, m.status,
-				        m.token_estimate, m.compacted_by, m.created_at,
+				        m.token_estimate, m.compacted_by, m.deleted_at, m.created_at,
 				        CASE WHEN EXISTS (SELECT 1 FROM loop_message_logs l WHERE l.message_seq = m.seq) THEN 1 ELSE 0 END AS has_logs
 				 FROM loop_messages m
 				 WHERE m.compacted_by IS NULL
+				   AND m.deleted_at IS NULL
 				 ORDER BY m.position ASC, m.seq ASC`,
 			)
 			.toArray();
@@ -2274,10 +2299,11 @@ export class BotRuntime {
 				this.state.storage.sql
 					.exec<LoopMessageRow>(
 						`SELECT m.seq, m.position, m.run_id, m.role, m.message_json, m.origin, m.status,
-						        m.token_estimate, m.compacted_by, m.created_at,
+						        m.token_estimate, m.compacted_by, m.deleted_at, m.created_at,
 						        CASE WHEN EXISTS (SELECT 1 FROM loop_message_logs l WHERE l.message_seq = m.seq) THEN 1 ELSE 0 END AS has_logs
 						 FROM loop_messages m
 						 WHERE m.compacted_by IS NULL
+						   AND m.deleted_at IS NULL
 						   AND m.seq > ?
 						 ORDER BY m.position ASC, m.seq ASC
 						 LIMIT 2000`,
@@ -2286,13 +2312,14 @@ export class BotRuntime {
 					.toArray()
 			:	this.state.storage.sql
 					.exec<LoopMessageRow>(
-						`SELECT seq, position, run_id, role, message_json, origin, status, token_estimate, compacted_by, created_at, has_logs
+						`SELECT seq, position, run_id, role, message_json, origin, status, token_estimate, compacted_by, deleted_at, created_at, has_logs
 						 FROM (
 							SELECT m.seq, m.position, m.run_id, m.role, m.message_json, m.origin, m.status,
-							       m.token_estimate, m.compacted_by, m.created_at,
+							       m.token_estimate, m.compacted_by, m.deleted_at, m.created_at,
 							       CASE WHEN EXISTS (SELECT 1 FROM loop_message_logs l WHERE l.message_seq = m.seq) THEN 1 ELSE 0 END AS has_logs
 							FROM loop_messages m
 							WHERE m.compacted_by IS NULL
+							  AND m.deleted_at IS NULL
 							ORDER BY m.position DESC, m.seq DESC
 							LIMIT 240
 						 )
@@ -2309,7 +2336,7 @@ export class BotRuntime {
 		const row = this.state.storage.sql
 			.exec<LoopMessageRow>(
 				`SELECT m.seq, m.position, m.run_id, m.role, m.message_json, m.origin, m.status,
-				        m.token_estimate, m.compacted_by, m.created_at,
+				        m.token_estimate, m.compacted_by, m.deleted_at, m.created_at,
 				        CASE WHEN EXISTS (SELECT 1 FROM loop_message_logs l WHERE l.message_seq = m.seq) THEN 1 ELSE 0 END AS has_logs
 				 FROM loop_messages m
 				 WHERE m.seq = ?
@@ -3988,6 +4015,43 @@ export class BotRuntime {
 		const runtimeState = this.state.storage.sql.exec<{ count: number }>(`SELECT changes() AS count`).one().count;
 		this.broadcastControl({ type: "history_cleared", botId });
 		return { events, injections, runtimeState, submissions, messages, logs };
+	}
+
+	private async deleteLoopMessage(botId: string, seq: number): Promise<{ seq: number; runId: string; origin: BotLoopMessageOrigin; deletedAt: string }> {
+		if (!Number.isInteger(seq) || seq <= 0) {
+			throw new RepositoryError("bad_request", "Loop message sequence is invalid.", 400);
+		}
+		const row = this.state.storage.sql
+			.exec<LoopMessageRow>(
+				`SELECT m.seq, m.position, m.run_id, m.role, m.message_json, m.origin, m.status,
+				        m.token_estimate, m.compacted_by, m.deleted_at, m.created_at,
+				        CASE WHEN EXISTS (SELECT 1 FROM loop_message_logs l WHERE l.message_seq = m.seq) THEN 1 ELSE 0 END AS has_logs
+				 FROM loop_messages m
+				 WHERE m.seq = ?
+				 LIMIT 1`,
+				seq,
+			)
+			.toArray()[0];
+		if (!row) {
+			throw new RepositoryError("not_found", "Loop message was not found.", 404);
+		}
+		const current = await this.status(botId);
+		if (current.status === "running" && current.activeRunId === row.run_id) {
+			throw new RepositoryError("conflict", "Cannot delete a message from the currently running tick.", 409);
+		}
+		const deletedAt = row.deleted_at ?? new Date().toISOString();
+		if (!row.deleted_at) {
+			this.state.storage.sql.exec(
+				`UPDATE loop_messages
+				 SET deleted_at = ?
+				 WHERE seq = ?
+				   AND deleted_at IS NULL`,
+				deletedAt,
+				seq,
+			);
+		}
+		this.broadcastControl({ type: "loop_message_deleted", seq, deletedAt });
+		return { seq, runId: row.run_id, origin: row.origin, deletedAt };
 	}
 
 	private async deleteEvent(botId: string, seq: number): Promise<{ seq: number; runId: string; type: BotRuntimeEventType }> {
@@ -6936,6 +7000,7 @@ function loopMessageFromRow(row: LoopMessageRow): BotLoopMessage {
 		createdAt: row.created_at,
 		...(row.status ? { status: row.status } : {}),
 		...(row.compacted_by ? { compactedBy: row.compacted_by } : {}),
+		...(row.deleted_at ? { deletedAt: row.deleted_at } : {}),
 		...(row.has_logs ? { hasLogs: true } : {}),
 	};
 }
@@ -7121,6 +7186,11 @@ function botIdFromPath(pathname: string): string {
 
 function eventSeqFromPath(pathname: string): number | null {
 	const match = /^\/bots\/[^/]+\/events\/(\d+)$/.exec(pathname);
+	return match ? Number(match[1]) : null;
+}
+
+function messageSeqFromPath(pathname: string): number | null {
+	const match = /^\/bots\/[^/]+\/messages\/(\d+)$/.exec(pathname);
 	return match ? Number(match[1]) : null;
 }
 
