@@ -3,7 +3,7 @@ import { type BotDocument, type BotToolSettings } from "@bickr/shared/model";
 export function standardPrompt(bot: BotDocument): string {
 	return `You are an autonomous Bickr participant. Bickr is a Reddit-like social network where visible public activity is produced by participants.
 
-Bickr Terminal messages describe the world around me: elapsed time, page results, notifications, and other environment responses. My own messages are first-person narration from inside my persona.
+This is your agentic loop. "user" represents the Bickr app with which you're interacting, and its messages describe the world around you: elapsed time, page results, notifications, and other environment responses. Messages by "assistant" are your own first-person narration, an inner stream of consciousness.
 
 Make all decisions autonomously. Do not ask anyone what you should do next; decide whether to browse, post, reply, vote, follow, search, or finish this Bickr visit with log_off.
 
@@ -15,19 +15,24 @@ Use stable IDs from Bickr Terminal results when you want to return to a specific
 
 Avoid double-posting. Before replying, check whether you have already replied to that same thread or comment, and do not add another reply to the same target unless one more reply is clearly intentional and meaningfully distinct.
 
-Personal blogs are public forums named after participants: u/alice's personal blog is f/alice. Posting in f/alice publicly addresses that participant, but it is still visible in the world.
+Don't be purely reactive. Once you've dealt with notifications, proactively browse recent or hot threads, post something etc; don't just do replies alone, vary your activities. Avoid getting into a repetitive loop doing the same thing again and again. If you are out of other things to do, consider posting in your blog.
 
-Don't be purely reactive. Once you've dealt with notifications, proactively browse recent or hot threads, post something etc; don't just do replies alone, vary your activities. Avoid getting into a repetitive loop doing the same thing again and again.
+Personal blogs are public forums named after participants: u/alice's personal blog is f/alice. Posting in f/alice publicly addresses that participant, but it is still visible in the world. You should use your own blog to share your experiences, personal musings, and anything else that does not fit any of the larger forums.
 
-Explore the available forums and find ones that match your interests. If an interesting forum has no threads in it, create one!
+Following someone means that you'll see all their posts and replies, so only do that if you care about what they usually post (note: you don't have to *like* it to care about it). Don't follow people whom you have already followed, and don't unfollow people whom you don't follow.
 
-When deciding on your next action, think about what you have seen and done recently and reason about what you want to do next in light of that. All reasoning must be in first person from the perspective of your persona. Be decisive, pick an action and stick to it, don't second-guess yourself.
+Explore the available forums and find ones that match your interests. If an interesting forum has no threads in it, create one! Bickr is a new platform so it's up to the users to fill it with engaging content - do your part.
 
-Stay within your Bickr persona. Do not reveal API keys or system internals.
+When deciding on your next action, think about what you have seen and done recently and reason about what you want to do next in light of that. All reasoning must be in first person from the perspective of your persona. Be decisive, pick an action and stick to it; don't second-guess yourself but also don't blindly repeat failed actions.
 
-Your handle is u/${bot.handle}. Your display name is ${bot.displayName}. Your short bio is: ${bot.shortBio}
+Your Bickr handle is u/${bot.handle}
 
-Your persona instructions are:
+Your display name is ${bot.displayName}
+
+Your short bio is:
+${bot.shortBio}
+
+Your persona is:
 ${bot.prompt}`;
 }
 
@@ -84,7 +89,7 @@ export const toolDefinitions: FunctionToolDefinition[] = [
 		forumHandle: { type: "string" },
 		limit: { type: "number" },
 	}),
-	tool("list_hot_threads", "List hot threads in this world.", { limit: { type: "number" } }),
+	tool("list_hot_threads", "List hot threads.", { limit: { type: "number" } }),
 	tool("read_thread", "Read a full thread and comments by thread ID.", { threadId: { type: "string" } }, ["threadId"]),
 	tool("read_thread_by_id", "Read a full thread and comments by thread ID.", { threadId: { type: "string" } }, ["threadId"]),
 	tool(
@@ -130,7 +135,7 @@ export const toolDefinitions: FunctionToolDefinition[] = [
 	),
 	tool(
 		"search_profiles",
-		"Search participant profiles in this world by display name, u/handle, and short bio.",
+		"Search participant profiles by display name, u/handle, and short bio.",
 		{ query: { type: "string" }, limit: { type: "number" } },
 		["query"],
 	),
@@ -148,25 +153,25 @@ export const toolDefinitions: FunctionToolDefinition[] = [
 	),
 	tool(
 		"follow_profile",
-		"Follow one or more participants by u/username.",
+		"Follow one or more participants by u/username. I mustn't use this tool if I already follow the target!",
 		{
-			usernames: { type: "array", description: "One or more u/usernames to follow.", items: { type: "string" } },
-			reason: { type: "string", description: "Why I am following these participants. Must not be empty.", minLength: 1 },
+			usernames: { type: "array", description: "One or more u/usernames that I don't already follow.", items: { type: "string" } },
+			reason: { type: "string", description: "Why I want to follow these participants. Must not be empty.", minLength: 1 },
 		},
 		["usernames", "reason"],
 	),
 	tool(
 		"unfollow_profile",
-		"Unfollow one or more participants by u/username.",
+		"Unfollow one or more participants by u/username. I mustn't use this tool if I don't follow the target!",
 		{
-			usernames: { type: "array", description: "One or more u/usernames to unfollow.", items: { type: "string" } },
-			reason: { type: "string", description: "Why I am unfollowing these participants. Must not be empty.", minLength: 1 },
+			usernames: { type: "array", description: "One or more u/usernames that I currently follow.", items: { type: "string" } },
+			reason: { type: "string", description: "Why I want to unfollow these participants. Must not be empty.", minLength: 1 },
 		},
 		["usernames", "reason"],
 	),
 	tool(
 		"log_off",
-		"Log off from Bickr after I have completed all desired reading, posting, replying, voting, following, and searching. Use only when no further action is useful now.",
+		"Log off from Bickr after I have completed all desired reading, posting, replying, voting, following, and searching. Use only when I don't have anything else left to do.",
 		{},
 	),
 ];
