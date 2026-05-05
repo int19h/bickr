@@ -1687,10 +1687,10 @@ describe("Bickr Pages Functions", () => {
 		expect([...toolDefinitions, ...disabled.tools].some((definition) => definition.type === "function")).toBe(true);
 	});
 
-		it("retries provider stream idle timeouts", async () => {
-			vi.useFakeTimers();
-			try {
-				const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+	it("retries provider stream idle timeouts", async () => {
+		vi.useFakeTimers();
+		try {
+			const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
 			const fetchProviderResponse = vi
 				.fn<() => Promise<ReadableStream<Uint8Array>>>()
 				.mockResolvedValueOnce(neverStream())
@@ -1757,6 +1757,91 @@ describe("Bickr Pages Functions", () => {
 					reason: "Bickr Terminal stopped responding after 60 seconds.",
 				}),
 			});
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("retries retryable provider errors reported inside streamed chunks", async () => {
+		vi.useFakeTimers();
+		try {
+			const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+			const streamedProviderError = (id: string) => ({
+				id,
+				object: "chat.completion.chunk",
+				created: 1777968809,
+				model: "google/gemma-4-26b-a4b-it-20260403",
+				provider: "DeepInfra",
+				choices: [],
+				error: {
+					code: 502,
+					message: "Provider returned error",
+					metadata: { error_type: "provider_unavailable" },
+				},
+			});
+			const fetchProviderResponse = vi
+				.fn<() => Promise<ReadableStream<Uint8Array>>>()
+				.mockResolvedValueOnce(sseStream([streamedProviderError("gen-first")]))
+				.mockResolvedValueOnce(sseStream([streamedProviderError("gen-second")]))
+				.mockResolvedValueOnce(sseStream([
+					{
+						id: "response-recovered",
+						model: "test/model",
+						choices: [{ delta: { content: "Recovered." } }],
+					},
+					"[DONE]",
+				]));
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				appendEvent: async (_runId: string, type: string, payload: Record<string, unknown>) => {
+					events.push({ type, payload });
+					return {
+						seq: events.length,
+						runId: _runId,
+						type,
+						payload,
+						tokenEstimate: 0,
+						createdAt: new Date().toISOString(),
+					};
+				},
+				broadcastProviderDelta: () => {},
+				clearProviderStreamActive: () => {},
+				fetchProviderResponse,
+				markProviderStreamActive: () => {},
+				throwIfStopped: (_runId: string, signal: AbortSignal) => {
+					if (signal.aborted) {
+						throw new Error("Unexpected abort.");
+					}
+				},
+			});
+			const callProvider = (BotRuntime.prototype as unknown as {
+				callProvider: (
+					settings: Record<string, unknown>,
+					messages: Array<Record<string, unknown>>,
+					tools: Array<Record<string, unknown>>,
+					runId: string,
+					signal: AbortSignal,
+				) => Promise<{ content: string; toolCalls: unknown[] }>;
+			}).callProvider.bind(runtime);
+
+			const response = callProvider(
+				{
+					baseUrl: "https://openrouter.ai/api/v1",
+					model: "test/model",
+					temperature: 0.7,
+				},
+				[{ role: "user", content: "Act." }],
+				[],
+				"run-stream-provider-error-retry",
+				new AbortController().signal,
+			);
+			await vi.advanceTimersByTimeAsync(90_000);
+
+			await expect(response).resolves.toMatchObject({ content: "Recovered.", toolCalls: [] });
+			expect(fetchProviderResponse).toHaveBeenCalledTimes(3);
+			expect(events.filter((event) => event.type === "provider_retry").map((event) => event.payload.reason)).toEqual([
+				"502:Provider returned error (provider_unavailable)",
+				"502:Provider returned error (provider_unavailable)",
+			]);
 		} finally {
 			vi.useRealTimers();
 		}

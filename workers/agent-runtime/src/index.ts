@@ -2077,6 +2077,7 @@ export class BotRuntime {
 					id?: unknown;
 					model?: unknown;
 					usage?: unknown;
+					error?: unknown;
 					choices?: Array<{
 						delta?: {
 							content?: string;
@@ -2094,6 +2095,10 @@ export class BotRuntime {
 				};
 				responseId = stringValue(chunk.id) ?? responseId;
 				responseModel = stringValue(chunk.model) ?? responseModel;
+				const providerError = providerStreamErrorFromChunk(chunk);
+				if (providerError) {
+					throw providerError;
+				}
 				usage = providerUsageFromValue(chunk.usage) ?? usage;
 				const delta = chunk.choices?.[0]?.delta;
 				if (!delta) {
@@ -5307,6 +5312,32 @@ function providerUsageFromValue(value: unknown): ProviderUsage | undefined {
 		cost: numberValue(record.cost) ?? null,
 		raw: record,
 	};
+}
+
+function providerStreamErrorFromChunk(chunk: { model?: unknown; error?: unknown }): ProviderRequestError | null {
+	const error = runtimeRecord(chunk.error);
+	if (Object.keys(error).length === 0) {
+		return null;
+	}
+	const status = providerErrorStatus(error.code);
+	const message = stringValue(error.message) ?? "Provider returned error";
+	const metadata = runtimeRecord(error.metadata);
+	const errorType = stringValue(metadata.error_type);
+	const body = errorType ? `${message} (${errorType})` : message;
+	return new ProviderRequestError(status, stringValue(chunk.model) ?? "unknown", "stream", body);
+}
+
+function providerErrorStatus(value: unknown): number {
+	if (typeof value === "number" && Number.isFinite(value)) {
+		return Math.max(400, Math.floor(value));
+	}
+	if (typeof value === "string" && value.trim()) {
+		const parsed = Number(value);
+		if (Number.isFinite(parsed)) {
+			return Math.max(400, Math.floor(parsed));
+		}
+	}
+	return 502;
 }
 
 function providerResponseLogPayload(response: ProviderResponse, status: BotLoopMessageStatus): Record<string, unknown> {
