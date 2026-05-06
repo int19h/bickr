@@ -239,7 +239,9 @@ export async function handleForumCoordinatorRequest(
 
 		if (request.method === "POST" && url.pathname === "/votes") {
 			const actor = requireBotActor(request);
-			const input = parseVoteInput(await readJsonBody(request));
+			const body = await readJsonBody(request);
+			const input = parseVoteInput(body);
+			const spotlightId = spotlightIdFromRequestBody(body);
 			const threadId = request.headers.get("x-bickr-thread-id");
 			const latestThread = threadId ? await readFreshThread(coordinator, threadId) : null;
 			const thread = await setVote(env.BICKR_KV, env.BICKR_D1, {
@@ -247,6 +249,7 @@ export async function handleForumCoordinatorRequest(
 				botId: actor.botId,
 			}, undefined, {
 				...(latestThread ? { thread: latestThread } : {}),
+				...(spotlightId ? { spotlightId } : {}),
 			});
 			await writeFreshThread(coordinator, thread);
 			return ok({ thread, coordinator: coordinator.objectId });
@@ -256,6 +259,14 @@ export async function handleForumCoordinatorRequest(
 	} catch (error) {
 		return errorResponse(error);
 	}
+}
+
+function spotlightIdFromRequestBody(body: unknown): string | undefined {
+	if (!body || typeof body !== "object" || Array.isArray(body)) {
+		return undefined;
+	}
+	const value = (body as Record<string, unknown>).spotlightId;
+	return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
 export default {

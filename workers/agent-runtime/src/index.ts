@@ -3889,11 +3889,11 @@ export class BotRuntime {
 			case "vote": {
 				const reason = stringArg(normalizedArgs.reason, "reason");
 				normalizedArgs.reason = reason;
-				result = await this.voteTool(bot, runId, voteTargetsArg(normalizedArgs.votes), reason, runContext.signal);
+				result = await this.voteTool(bot, runId, voteTargetsArg(normalizedArgs.votes), reason, runContext.signal, runContext.spotlightId);
 				break;
 			}
 			case "follow_profile": {
-				const followResult = await this.followProfilesTool(bot, runId, followToolTargetsArg(normalizedArgs.targets), true, runContext.signal);
+				const followResult = await this.followProfilesTool(bot, runId, followToolTargetsArg(normalizedArgs.targets), true, runContext.signal, runContext.spotlightId);
 				normalizedArgs.targets = followResult.effectiveTargets;
 				result = followResult.results;
 				if (followResult.selfCorrectionMessages.length > 0) {
@@ -3903,7 +3903,7 @@ export class BotRuntime {
 				break;
 			}
 			case "unfollow_profile": {
-				const followResult = await this.followProfilesTool(bot, runId, followToolTargetsArg(normalizedArgs.targets), false, runContext.signal);
+				const followResult = await this.followProfilesTool(bot, runId, followToolTargetsArg(normalizedArgs.targets), false, runContext.signal, runContext.spotlightId);
 				normalizedArgs.targets = followResult.effectiveTargets;
 				result = followResult.results;
 				if (followResult.selfCorrectionMessages.length > 0) {
@@ -3958,7 +3958,7 @@ export class BotRuntime {
 			this.replaceEventPayload(toolCallEvent, { name: canonicalName, args: providerToolArgs(canonicalName, effectiveArgs) });
 		}
 		await markBotSeenFromResult(this.env.BICKR_D1, bot.id, result, `tool:${canonicalName}`, runId);
-		if (runContext.spotlightId && mutableToolNames.has(canonicalName)) {
+		if (runContext.spotlightId && needsPostHocSpotlightHumanNotification(canonicalName)) {
 			try {
 				await recordSpotlightToolHumanNotification(this.env.BICKR_D1, {
 					bot,
@@ -3983,7 +3983,7 @@ export class BotRuntime {
 		};
 	}
 
-	private async voteTool(bot: BotDocument, runId: string, votes: VoteToolTarget[], reason: string, signal: AbortSignal): Promise<unknown[]> {
+	private async voteTool(bot: BotDocument, runId: string, votes: VoteToolTarget[], reason: string, signal: AbortSignal, spotlightId?: string): Promise<unknown[]> {
 		const results: unknown[] = [];
 		for (const vote of votes) {
 			this.throwIfStopped(runId, signal);
@@ -3995,6 +3995,7 @@ export class BotRuntime {
 					targetId: vote.commentId,
 					value: vote.value,
 					reason,
+					...(spotlightId ? { spotlightId } : {}),
 				},
 				signal,
 			);
@@ -4009,6 +4010,7 @@ export class BotRuntime {
 		targets: FollowToolTarget[],
 		shouldFollow: boolean,
 		signal: AbortSignal,
+		spotlightId?: string,
 	): Promise<FollowProfilesToolResult> {
 		const targetsByUsername = new Map(targets.map((target) => [target.username, target]));
 		const usernames = targets.map((target) => target.username);
@@ -4031,8 +4033,8 @@ export class BotRuntime {
 			this.throwIfStopped(runId, signal);
 			const follow =
 				shouldFollow ?
-					await followBot(this.env.BICKR_KV, this.env.BICKR_D1, bot.id, profile.id, undefined, { reason: target.reason })
-				:	await unfollowBot(this.env.BICKR_KV, this.env.BICKR_D1, bot.id, profile.id, undefined, { reason: target.reason });
+					await followBot(this.env.BICKR_KV, this.env.BICKR_D1, bot.id, profile.id, undefined, { reason: target.reason, ...(spotlightId ? { spotlightId } : {}) })
+				:	await unfollowBot(this.env.BICKR_KV, this.env.BICKR_D1, bot.id, profile.id, undefined, { reason: target.reason, ...(spotlightId ? { spotlightId } : {}) });
 			results.push({ username: profile.handle, reason: target.reason, ...follow, profile: { ...profile, following: follow.following } });
 		}
 		return {
@@ -8004,6 +8006,10 @@ export function planFollowToolTargets(
 		validProfiles.push(profile);
 	}
 	return { validProfiles, skipped };
+}
+
+function needsPostHocSpotlightHumanNotification(toolName: string): boolean {
+	return toolName === "create_thread" || toolName === "reply_to_comment";
 }
 
 function skippedUsernames(skipped: readonly FollowToolTargetSkip[], reason: FollowToolSkipReason): string[] {

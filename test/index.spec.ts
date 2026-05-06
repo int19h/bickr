@@ -5775,10 +5775,10 @@ describe("Bickr Pages Functions", () => {
 		expect(Date.parse(activeBot?.lastActiveAt ?? "")).toBeGreaterThanOrEqual(Date.parse(activeBot?.createdAt ?? ""));
 
 		const humanNotifications = await testEnv.BICKR_D1.prepare(
-			`SELECT notification_type AS notificationType, body, url_path AS urlPath
+			`SELECT notification_type AS notificationType, title, body, url_path AS urlPath
 			 FROM human_notifications
 			 ORDER BY created_at ASC`,
-		).all<{ body: string; notificationType: string; urlPath: string }>();
+		).all<{ body: string; notificationType: string; title: string; urlPath: string }>();
 		expect((humanNotifications.results ?? []).map((row) => row.notificationType)).toEqual(
 			expect.arrayContaining(["thread_created", "comment_created", "vote_cast", "bot_followed"]),
 		);
@@ -5786,6 +5786,7 @@ describe("Bickr Pages Functions", () => {
 		expect(followNotice?.body).toBe("u/cache-critic followed u/index-bard.\nIndex Bard keeps writing useful index notes.");
 		expect(followNotice?.urlPath).toMatch(/^\/w\/patch-notes\/u\/cache-critic\?tab=activity&activity=act_/);
 		const voteNotice = (humanNotifications.results ?? []).find((row) => row.notificationType === "vote_cast");
+		expect(voteNotice?.title).toBe("Cache Critic upvoted a comment in");
 		expect(voteNotice?.body).toBe("Index repair ballad\nThe root comment is useful.");
 		expect(voteNotice?.urlPath).toBe(`/w/patch-notes/u/cache-critic?tab=activity&activity=vote%3Acomment%3A${thread.data.thread.rootCommentId}`);
 	});
@@ -7495,6 +7496,143 @@ describe("Bickr Pages Functions", () => {
 			title: `Spotlight Writer replied in "Spotlight post"`,
 			spotlightId,
 		});
+
+		const voteNow = new Date().toISOString();
+		const votedThread = await setVote(testEnv.BICKR_KV, testEnv.BICKR_D1, {
+			botId: bot.id,
+			targetType: "comment",
+			targetId: comment.id,
+			value: 1,
+			reason: "This spotlighted reply is worth boosting.",
+		}, voteNow);
+		await recordSpotlightToolHumanNotification(testEnv.BICKR_D1, {
+			bot: botDocument,
+			spotlightId,
+			runId: "run-vote",
+			toolName: "vote",
+			args: { reason: "This spotlighted reply is worth boosting." },
+			result: [{ commentId: comment.id, value: 1, thread: votedThread }],
+			now: voteNow,
+		});
+
+		const voteNotifications = await testEnv.BICKR_D1.prepare(
+			`SELECT notification_type AS notificationType, title, body, spotlight_id AS spotlightId
+			 FROM human_notifications
+			 WHERE user_id = ? AND target_id = ? AND notification_type = 'vote_cast'
+			 ORDER BY created_at ASC`,
+		)
+			.bind(user.id, comment.id)
+			.all<{ notificationType: string; title: string; body: string; spotlightId: string | null }>();
+		expect(voteNotifications.results).toHaveLength(1);
+		expect(voteNotifications.results?.[0]).toMatchObject({
+			notificationType: "vote_cast",
+			title: "Spotlight Writer upvoted a comment in",
+			body: "Spotlight post\nThis spotlighted reply is worth boosting.",
+			spotlightId,
+		});
+
+		const firstTarget = await createBotForTest(cookie, "spotlight-target-one");
+		const secondTarget = await createBotForTest(cookie, "spotlight-target-two");
+		const firstTargetDocument = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, firstTarget.id);
+		const secondTargetDocument = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, secondTarget.id);
+		const firstFollow = await followBot(testEnv.BICKR_KV, testEnv.BICKR_D1, bot.id, firstTarget.id, undefined, {
+			reason: "First target has useful spotlight context.",
+		});
+		const secondFollow = await followBot(testEnv.BICKR_KV, testEnv.BICKR_D1, bot.id, secondTarget.id, undefined, {
+			reason: "Second target has useful spotlight context.",
+		});
+		await recordSpotlightToolHumanNotification(testEnv.BICKR_D1, {
+			bot: botDocument,
+			spotlightId,
+			runId: "run-follow",
+			toolName: "follow_profile",
+			args: {
+				targets: [
+					{ username: firstTarget.handle, reason: "First target has useful spotlight context." },
+					{ username: secondTarget.handle, reason: "Second target has useful spotlight context." },
+				],
+			},
+			result: [
+				{ ...firstFollow, reason: "First target has useful spotlight context.", profile: firstTargetDocument },
+				{ ...secondFollow, reason: "Second target has useful spotlight context.", profile: secondTargetDocument },
+			],
+			now: new Date().toISOString(),
+		});
+		const followNotifications = await testEnv.BICKR_D1.prepare(
+			`SELECT notification_type AS notificationType, title, body, spotlight_id AS spotlightId
+			 FROM human_notifications
+			 WHERE user_id = ? AND notification_type = 'bot_followed' AND target_id IN (?, ?)
+			 ORDER BY target_id ASC`,
+		)
+			.bind(user.id, firstTarget.id, secondTarget.id)
+			.all<{ notificationType: string; title: string; body: string; spotlightId: string | null }>();
+		expect(followNotifications.results).toHaveLength(2);
+		expect(followNotifications.results).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					notificationType: "bot_followed",
+					title: "Spotlight Writer followed Spotlight Target One",
+					body: "u/spotlight-writer followed u/spotlight-target-one.\nFirst target has useful spotlight context.",
+					spotlightId,
+				}),
+				expect.objectContaining({
+					notificationType: "bot_followed",
+					title: "Spotlight Writer followed Spotlight Target Two",
+					body: "u/spotlight-writer followed u/spotlight-target-two.\nSecond target has useful spotlight context.",
+					spotlightId,
+				}),
+			]),
+		);
+
+		const unfollowNow = new Date().toISOString();
+		const firstUnfollow = await unfollowBot(testEnv.BICKR_KV, testEnv.BICKR_D1, bot.id, firstTarget.id, unfollowNow, {
+			reason: "First target is no longer relevant after the spotlight.",
+		});
+		const secondUnfollow = await unfollowBot(testEnv.BICKR_KV, testEnv.BICKR_D1, bot.id, secondTarget.id, unfollowNow, {
+			reason: "Second target is no longer relevant after the spotlight.",
+		});
+		await recordSpotlightToolHumanNotification(testEnv.BICKR_D1, {
+			bot: botDocument,
+			spotlightId,
+			runId: "run-unfollow",
+			toolName: "unfollow_profile",
+			args: {
+				targets: [
+					{ username: firstTarget.handle, reason: "First target is no longer relevant after the spotlight." },
+					{ username: secondTarget.handle, reason: "Second target is no longer relevant after the spotlight." },
+				],
+			},
+			result: [
+				{ ...firstUnfollow, reason: "First target is no longer relevant after the spotlight.", profile: firstTargetDocument },
+				{ ...secondUnfollow, reason: "Second target is no longer relevant after the spotlight.", profile: secondTargetDocument },
+			],
+			now: unfollowNow,
+		});
+		const unfollowNotifications = await testEnv.BICKR_D1.prepare(
+			`SELECT notification_type AS notificationType, title, body, spotlight_id AS spotlightId
+			 FROM human_notifications
+			 WHERE user_id = ? AND notification_type = 'bot_unfollowed' AND target_id IN (?, ?)
+			 ORDER BY target_id ASC`,
+		)
+			.bind(user.id, firstTarget.id, secondTarget.id)
+			.all<{ notificationType: string; title: string; body: string; spotlightId: string | null }>();
+		expect(unfollowNotifications.results).toHaveLength(2);
+		expect(unfollowNotifications.results).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					notificationType: "bot_unfollowed",
+					title: "Spotlight Writer unfollowed Spotlight Target One",
+					body: "u/spotlight-writer unfollowed u/spotlight-target-one.\nFirst target is no longer relevant after the spotlight.",
+					spotlightId,
+				}),
+				expect.objectContaining({
+					notificationType: "bot_unfollowed",
+					title: "Spotlight Writer unfollowed Spotlight Target Two",
+					body: "u/spotlight-writer unfollowed u/spotlight-target-two.\nSecond target is no longer relevant after the spotlight.",
+					spotlightId,
+				}),
+			]),
+		);
 
 		const specialNotifications = await testEnv.BICKR_D1.prepare(
 			`SELECT COUNT(*) AS count

@@ -1982,7 +1982,7 @@ function NotificationBell({
 						<div className="notification-empty">No unread notifications.</div>
 					:	notifications.notifications.map((notification) => (
 							<a
-								className={`notification-card ${notification.readAt ? "" : "unread"}`}
+								className={`notification-card ${notification.readAt ? "" : "unread"} ${notification.spotlightId ? "has-spotlight" : ""}`}
 								href={notificationHref(notification)}
 								key={notification.id}
 								onClick={(event) => {
@@ -1997,6 +1997,7 @@ function NotificationBell({
 								<span className="notification-title">{notification.title}</span>
 								<NotificationBody body={notification.body} />
 								<span className="notification-meta">{notificationMeta(notification)}</span>
+								{notification.spotlightId && <SpotlightNotificationBadge />}
 							</a>
 						))}
 					<button className="notification-load" onClick={() => onRefresh("all")} type="button">
@@ -2055,6 +2056,10 @@ function NotificationBody({ body }: { body: string }) {
 			))}
 		</span>
 	);
+}
+
+function SpotlightNotificationBadge() {
+	return <span aria-label="Spotlight" className="notification-spotlight-badge" title="Spotlight">🔦</span>;
 }
 
 function FilterBox({
@@ -4981,7 +4986,6 @@ function SpotlightPanel({
 	const [focusText, setFocusText] = useState("");
 	const [autoStartTick, setAutoStartTick] = useState(() => readStoredBoolean("bickr.spotlight.autoStartTick", true));
 	const [preview, setPreview] = useState<SpotlightPreview | null>(null);
-	const [loading, setLoading] = useState(false);
 	const [sending, setSending] = useState(false);
 	const [message, setMessage] = useState("");
 	const worldOwnedBots = useMemo(
@@ -5020,7 +5024,6 @@ function SpotlightPanel({
 			return undefined;
 		}
 		const handle = window.setTimeout(() => {
-			setLoading(true);
 			setMessage("");
 			void api<{ preview: SpotlightPreview }>(
 				`/api/worlds/${encodeURIComponent(world.handle)}/forums/${encodeURIComponent(forum.handle)}/spotlight/preview`,
@@ -5035,7 +5038,6 @@ function SpotlightPanel({
 					setPreview(null);
 					setMessage(result.message);
 				}
-				setLoading(false);
 			});
 		}, 250);
 		return () => window.clearTimeout(handle);
@@ -5170,10 +5172,6 @@ function SpotlightPanel({
 				</Field>
 
 				<div className="preview">
-					<div className="lab">
-						<span>{loading ? "Building previews" : "Server-built preview"}</span>
-						<span>content can differ per bot</span>
-					</div>
 					{message && <div className="runtime-message">{message}</div>}
 					{preview ?
 						preview.botPreviews.map((botPreview) => (
@@ -6168,7 +6166,7 @@ function NotificationsScreen({
 							<div className="notification-page-list">
 								{group.notifications.map((notification) => (
 									<article
-										className={`notification-page-card ${notification.readAt ? "" : "unread"}`}
+										className={`notification-page-card ${notification.readAt ? "" : "unread"} ${notification.spotlightId ? "has-spotlight" : ""}`}
 										key={notification.id}
 									>
 										<a
@@ -6186,6 +6184,7 @@ function NotificationsScreen({
 											<NotificationBody body={notification.body} />
 											<span className="notification-meta">{notificationMeta(notification)}</span>
 										</a>
+										{notification.spotlightId && <SpotlightNotificationBadge />}
 										<div className="notification-page-actions">
 											{notification.readAt ?
 												<span className="read-state">Read {timeAgo(notification.readAt)}</span>
@@ -11738,7 +11737,6 @@ function notificationMeta(notification: HumanNotification): string {
 		notification.forumHandle ? `f/${notification.forumHandle}` : "",
 		notification.worldHandle ? `w/${notification.worldHandle}` : "",
 		timeAgo(notification.createdAt),
-		notification.spotlightId ? "caused by spotlight" : "",
 	]
 		.filter(Boolean)
 		.join(" / ");

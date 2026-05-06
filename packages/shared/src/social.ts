@@ -809,9 +809,11 @@ async function notifyHumanVoteCast(
 			sourceId: `comment:${input.targetId}:${actor.id}`,
 			targetType: "comment",
 			targetId: input.targetId,
-			title: `${actor.displayName} ${direction} a comment`,
+			title: `${actor.displayName} ${direction} a comment in`,
 			body: humanNotificationBodyWithReason(threadTitle(thread), input.reason),
 			urlPath: botActivityUrlPath(actor, options.activityId ?? voteActivityId(input.targetId)),
+			...(options.spotlightId ? { spotlightId: options.spotlightId } : {}),
+			...(options.spotlightLabel ? { spotlightLabel: options.spotlightLabel } : {}),
 			now,
 		});
 	}
@@ -842,6 +844,8 @@ async function notifyHumanFollowCreated(
 			title: `${follower.displayName} followed ${followed.displayName}`,
 			body: humanNotificationBodyWithReason(`u/${follower.handle} followed u/${followed.handle}.`, options.reason),
 			urlPath: botActivityUrlPath(follower, options.activityId),
+			...(options.spotlightId ? { spotlightId: options.spotlightId } : {}),
+			...(options.spotlightLabel ? { spotlightLabel: options.spotlightLabel } : {}),
 			now,
 		});
 	}
@@ -872,6 +876,8 @@ async function notifyHumanFollowRemoved(
 			title: `${follower.displayName} unfollowed ${followed.displayName}`,
 			body: humanNotificationBodyWithReason(`u/${follower.handle} unfollowed u/${followed.handle}.`, options.reason),
 			urlPath: botActivityUrlPath(follower, options.activityId),
+			...(options.spotlightId ? { spotlightId: options.spotlightId } : {}),
+			...(options.spotlightLabel ? { spotlightLabel: options.spotlightLabel } : {}),
 			now,
 		});
 	}
@@ -902,37 +908,18 @@ export async function recordSpotlightToolHumanNotification(
 	if (!delivery) {
 		return;
 	}
-	const action = spotlightActionSummary(input.toolName, input.args, input.result, input.bot);
-	const standardNotification = spotlightStandardHumanNotification(input.toolName, input.args, input.result, input.bot, {
+	const standardNotifications = spotlightStandardHumanNotifications(input.toolName, input.args, input.result, input.bot, {
 		userId: delivery.userId,
 		worldId: delivery.worldId,
 		spotlightId: input.spotlightId,
 		now,
 	});
-	if (standardNotification) {
-		await insertOrAnnotateSpotlightHumanNotification(db, standardNotification);
+	if (standardNotifications.length > 0) {
+		for (const notification of standardNotifications) {
+			await insertOrAnnotateSpotlightHumanNotification(db, notification);
+		}
 		return;
 	}
-	if (!action) {
-		return;
-	}
-	await insertHumanNotification(db, {
-		userId: delivery.userId,
-		worldId: delivery.worldId,
-		eventKey: `spotlight_action:${input.spotlightId}:${input.runId}:${input.toolName}:${action.targetType ?? "tool"}:${action.targetId ?? now}`,
-		notificationType: "spotlight_action",
-		actor: input.bot,
-		sourceType: "spotlight",
-		sourceId: input.spotlightId,
-		targetType: action.targetType,
-		targetId: action.targetId,
-		title: action.title,
-		body: action.body,
-		urlPath: action.urlPath,
-		spotlightId: input.spotlightId,
-		spotlightLabel: "caused by spotlight",
-		now,
-	});
 }
 
 export async function recordSpotlightNoReactionHumanNotification(
@@ -1169,11 +1156,14 @@ async function insertOrAnnotateSpotlightHumanNotification(
 	await db
 		.prepare(
 			`UPDATE human_notifications
-			 SET spotlight_id = COALESCE(spotlight_id, ?),
-			     spotlight_label = COALESCE(spotlight_label, ?)
+			 SET spotlight_id = ?,
+			     spotlight_label = ?,
+			     title = ?,
+			     body = ?,
+			     url_path = ?
 			 WHERE user_id = ? AND event_key = ?`,
 		)
-		.bind(input.spotlightId, input.spotlightLabel, input.userId, input.eventKey)
+		.bind(input.spotlightId, input.spotlightLabel, input.title, input.body, input.urlPath, input.userId, input.eventKey)
 		.run();
 }
 
@@ -1396,7 +1386,7 @@ export async function setVote(
 	db: D1DatabaseLike,
 	input: VoteInput,
 	now = new Date().toISOString(),
-	options: { thread?: ThreadDocument } = {},
+	options: { thread?: ThreadDocument; spotlightId?: string; spotlightLabel?: string } = {},
 ): Promise<ThreadDocument> {
 	const voter = await botById(kv, db, input.botId);
 	const target = await resolveVoteTarget(kv, db, input, options.thread);
@@ -1497,7 +1487,11 @@ export async function setVote(
 			},
 			sourceObjectId: voteInput.targetId,
 		}, now);
-		await notifyHumanVoteCast(db, updated, voteInput, voter, now, { activityId });
+		await notifyHumanVoteCast(db, updated, voteInput, voter, now, {
+			activityId,
+			...(options.spotlightId ? { spotlightId: options.spotlightId } : {}),
+			...(options.spotlightLabel ? { spotlightLabel: options.spotlightLabel } : {}),
+		});
 	}
 
 	return updated;
@@ -1658,7 +1652,7 @@ export async function followBot(
 	followerBotId: string,
 	followedBotId: string,
 	now = new Date().toISOString(),
-	options: { reason?: string } = {},
+	options: { reason?: string; spotlightId?: string; spotlightLabel?: string } = {},
 ): Promise<{ activityId?: string; following: boolean }> {
 	if (followerBotId === followedBotId) {
 		throw repositoryError("bad_request", "A bot cannot follow itself.", 400);
@@ -1710,7 +1704,12 @@ export async function followBot(
 			world: notificationWorldRefFromBot(follower),
 			sourceObjectId: followedBotId,
 		}, now);
-		await notifyHumanFollowCreated(db, follower, followed, now, { activityId, reason: options.reason });
+		await notifyHumanFollowCreated(db, follower, followed, now, {
+			activityId,
+			reason: options.reason,
+			...(options.spotlightId ? { spotlightId: options.spotlightId } : {}),
+			...(options.spotlightLabel ? { spotlightLabel: options.spotlightLabel } : {}),
+		});
 	}
 	return {
 		following: true,
@@ -1724,7 +1723,7 @@ export async function unfollowBot(
 	followerBotId: string,
 	followedBotId: string,
 	now = new Date().toISOString(),
-	options: { reason?: string } = {},
+	options: { reason?: string; spotlightId?: string; spotlightLabel?: string } = {},
 ): Promise<{ activityId?: string; following: boolean }> {
 	const follower = await botById(kv, db, followerBotId);
 	const followed = await botById(kv, db, followedBotId);
@@ -1762,7 +1761,12 @@ export async function unfollowBot(
 			world: notificationWorldRefFromBot(follower),
 			sourceObjectId: followedBotId,
 		}, now);
-		await notifyHumanFollowRemoved(db, follower, followed, now, { activityId, reason: options.reason });
+		await notifyHumanFollowRemoved(db, follower, followed, now, {
+			activityId,
+			reason: options.reason,
+			...(options.spotlightId ? { spotlightId: options.spotlightId } : {}),
+			...(options.spotlightLabel ? { spotlightLabel: options.spotlightLabel } : {}),
+		});
 	}
 	return {
 		following: false,
@@ -2593,6 +2597,8 @@ type HumanNotificationInput = {
 type BotActivityNotificationOptions = {
 	activityId?: string;
 	reason?: string;
+	spotlightId?: string;
+	spotlightLabel?: string;
 };
 
 type BotActivityEventInput = {
@@ -4218,172 +4224,16 @@ function humanNotificationBodyWithReason(body: string, reason: string | undefine
 	return trimmed ? `${body}\n${trimmed}` : body;
 }
 
-function toolReasonForNotification(args: Record<string, unknown>, result: unknown): string | undefined {
-	const argsRecord = runtimeRecord(args);
-	const reason = stringValue(argsRecord.reason);
-	if (reason) {
-		return reason;
-	}
-	const targetReasons = profileActionTargetReasons(argsRecord);
-	if (targetReasons.length > 0) {
-		return targetReasons.join("\n");
-	}
-	if (Array.isArray(result)) {
-		const resultReasons = result
-			.map((item) => profileActionResultReason(runtimeRecord(item)))
-			.filter((item): item is string => Boolean(item));
-		if (resultReasons.length > 0) {
-			return resultReasons.join("\n");
-		}
-	}
-	return stringValue(runtimeRecord(result).reason);
-}
-
-function profileActionTargetReasons(argsRecord: Record<string, unknown>): string[] {
-	const targets = Array.isArray(argsRecord.targets) ? argsRecord.targets : [];
-	return targets
-		.map((item) => {
-			const record = runtimeRecord(item);
-			const reason = stringValue(record.reason);
-			if (!reason) {
-				return null;
-			}
-			const username = stringValue(record.username) ?? stringValue(record.handle);
-			return profileActionReasonLine(username, reason);
-		})
-		.filter((item): item is string => Boolean(item));
-}
-
-function profileActionResultReason(record: Record<string, unknown>): string | null {
-	const reason = stringValue(record.reason);
-	if (!reason) {
-		return null;
-	}
-	const profile = runtimeRecord(record.profile);
-	const username = stringValue(profile.handle) ?? stringValue(profile.username) ?? stringValue(record.username);
-	return profileActionReasonLine(username, reason);
-}
-
-function profileActionReasonLine(username: string | undefined, reason: string): string {
-	return username ? `${username.startsWith("u/") ? username : `u/${username}`}: ${reason}` : reason;
-}
-
-function profileActionBody(bot: BotDocument, profiles: Record<string, unknown>[], action: "followed" | "unfollowed"): string {
-	if (profiles.length === 1) {
-		const handle = stringValue(profiles[0]?.handle) ?? stringValue(profiles[0]?.username);
-		return handle ? `u/${bot.handle} ${action} ${handle.startsWith("u/") ? handle : `u/${handle}`}.` : `u/${bot.handle} ${action} a profile.`;
-	}
-	return `${profiles.length} profile${profiles.length === 1 ? "" : "s"} ${action}.`;
-}
-
-function spotlightActionSummary(
-	toolName: string,
-	args: Record<string, unknown>,
-	result: unknown,
-	bot: BotDocument,
-): { title: string; body: string; urlPath: string; targetType?: string; targetId?: string } | null {
-	const thread = threadFromToolResult(result);
-	const argsRecord = runtimeRecord(args);
-	const reason = toolReasonForNotification(args, result);
-	if ((toolName === "create_thread" || toolName === "create_post") && thread) {
-		return {
-			title: `${bot.displayName} created a thread after a spotlight`,
-			body: threadTitle(thread),
-			urlPath: threadUrlPath(thread),
-			targetType: "thread",
-			targetId: thread.id,
-		};
-	}
-	if ((toolName === "reply_to_comment" || toolName === "reply_to_thread") && thread) {
-		const commentId = newestCommentId(thread);
-		return {
-			title: `${bot.displayName} replied after a spotlight`,
-			body: threadTitle(thread),
-			urlPath: commentId ? commentUrlPath(thread, commentId) : threadUrlPath(thread),
-			targetType: commentId ? "comment" : "thread",
-			targetId: commentId ?? thread.id,
-		};
-	}
-	if (toolName === "vote" && thread) {
-		const commentId = stringValue(argsRecord.commentId) ?? stringValue(argsRecord.targetId);
-		return {
-			title: `${bot.displayName} voted after a spotlight`,
-			body: humanNotificationBodyWithReason(`${Number(argsRecord.value) > 0 ? "Upvoted" : Number(argsRecord.value) < 0 ? "Downvoted" : "Changed vote on"} a comment.`, reason),
-			urlPath: botActivityUrlPath(bot, commentId ? voteActivityId(commentId) : undefined),
-			targetType: commentId ? "comment" : "thread",
-			...(commentId ? { targetId: commentId } : {}),
-		};
-	}
-	if (toolName === "vote" && Array.isArray(result)) {
-		const votes = result.map(runtimeRecord);
-		const firstVote = votes[0];
-		const commentId = stringValue(firstVote?.commentId) ?? stringValue(firstVote?.targetId);
-		return {
-			title: `${bot.displayName} voted after a spotlight`,
-			body: humanNotificationBodyWithReason(`${votes.length} vote${votes.length === 1 ? "" : "s"} recorded.`, reason),
-			urlPath: botActivityUrlPath(bot, commentId ? voteActivityId(commentId) : undefined),
-			targetType: commentId ? "comment" : "tool",
-			...(commentId ? { targetId: commentId } : {}),
-		};
-	}
-	if ((toolName === "follow_bot" || toolName === "follow_profile") && Array.isArray(result)) {
-		const profiles = result.map((item) => runtimeRecord(runtimeRecord(item).profile));
-		const firstProfileId = stringValue(profiles[0]?.id);
-		const firstActivityId = stringValue(runtimeRecord(result[0]).activityId);
-		return {
-			title: `${bot.displayName} followed profiles after a spotlight`,
-			body: humanNotificationBodyWithReason(profileActionBody(bot, profiles, "followed"), reason),
-			urlPath: botActivityUrlPath(bot, firstActivityId),
-			targetType: "bot",
-			...(firstProfileId ? { targetId: firstProfileId } : {}),
-		};
-	}
-	if ((toolName === "unfollow_bot" || toolName === "unfollow_profile") && Array.isArray(result)) {
-		const profiles = result.map((item) => runtimeRecord(runtimeRecord(item).profile));
-		const firstProfileId = stringValue(profiles[0]?.id);
-		const firstActivityId = stringValue(runtimeRecord(result[0]).activityId);
-		return {
-			title: `${bot.displayName} unfollowed profiles after a spotlight`,
-			body: humanNotificationBodyWithReason(profileActionBody(bot, profiles, "unfollowed"), reason),
-			urlPath: botActivityUrlPath(bot, firstActivityId),
-			targetType: "bot",
-			...(firstProfileId ? { targetId: firstProfileId } : {}),
-		};
-	}
-	if (toolName === "follow_bot" || toolName === "follow_profile") {
-		const targetId = stringValue(argsRecord.botId) ?? stringValue(argsRecord.profileId) ?? stringValue(argsRecord.username);
-		return {
-			title: `${bot.displayName} followed a profile after a spotlight`,
-			body: humanNotificationBodyWithReason(targetId ? `Followed ${targetId}.` : "Followed a profile.", reason),
-			urlPath: botActivityUrlPath(bot, undefined),
-			targetType: "bot",
-			...(targetId ? { targetId } : {}),
-		};
-	}
-	if (toolName === "unfollow_bot" || toolName === "unfollow_profile") {
-		const targetId = stringValue(argsRecord.botId) ?? stringValue(argsRecord.profileId) ?? stringValue(argsRecord.username);
-		return {
-			title: `${bot.displayName} unfollowed a profile after a spotlight`,
-			body: humanNotificationBodyWithReason(targetId ? `Unfollowed ${targetId}.` : "Unfollowed a profile.", reason),
-			urlPath: botActivityUrlPath(bot, undefined),
-			targetType: "bot",
-			...(targetId ? { targetId } : {}),
-		};
-	}
-	return null;
-}
-
-function spotlightStandardHumanNotification(
+function spotlightStandardHumanNotifications(
 	toolName: string,
 	args: Record<string, unknown>,
 	result: unknown,
 	bot: BotDocument,
 	input: { userId: string; worldId: string; spotlightId: string; now: string },
-): (HumanNotificationInput & { spotlightId: string; spotlightLabel: string }) | null {
+): Array<HumanNotificationInput & { spotlightId: string; spotlightLabel: string }> {
 	const thread = threadFromToolResult(result);
-	const reason = toolReasonForNotification(args, result);
 	if ((toolName === "create_thread" || toolName === "create_post") && thread) {
-		return {
+		return [{
 			userId: input.userId,
 			worldId: input.worldId,
 			eventKey: `thread_created:${thread.id}`,
@@ -4397,16 +4247,16 @@ function spotlightStandardHumanNotification(
 			body: threadTitle(thread),
 			urlPath: threadUrlPath(thread),
 			spotlightId: input.spotlightId,
-			spotlightLabel: "caused by spotlight",
+			spotlightLabel: "spotlight",
 			now: input.now,
-		};
+		}];
 	}
 	if ((toolName === "reply_to_comment" || toolName === "reply_to_thread") && thread) {
 		const comment = newestComment(thread);
 		if (!comment) {
-			return null;
+			return [];
 		}
-		return {
+		return [{
 			userId: input.userId,
 			worldId: input.worldId,
 			eventKey: `comment_created:${comment.id}`,
@@ -4420,36 +4270,107 @@ function spotlightStandardHumanNotification(
 			body: preview(comment.body),
 			urlPath: commentUrlPath(thread, comment.id),
 			spotlightId: input.spotlightId,
-			spotlightLabel: "caused by spotlight",
+			spotlightLabel: "spotlight",
 			now: input.now,
-		};
+		}];
 	}
-	if (toolName === "follow_bot" || toolName === "follow_profile") {
-		const record = runtimeRecord(result);
+	if (toolName === "vote") {
+		return spotlightVoteHumanNotifications(args, result, bot, input);
+	}
+	if (toolName === "follow_bot" || toolName === "follow_profile" || toolName === "unfollow_bot" || toolName === "unfollow_profile") {
+		return spotlightProfileActionHumanNotifications(toolName, args, result, bot, input);
+	}
+	return [];
+}
+
+function spotlightVoteHumanNotifications(
+	args: Record<string, unknown>,
+	result: unknown,
+	bot: BotDocument,
+	input: { userId: string; worldId: string; spotlightId: string; now: string },
+): Array<HumanNotificationInput & { spotlightId: string; spotlightLabel: string }> {
+	const argsRecord = runtimeRecord(args);
+	const commonReason = stringValue(argsRecord.reason);
+	const rows = Array.isArray(result) ? result.map(runtimeRecord) : [runtimeRecord(result)];
+	return rows.flatMap((record) => {
+		const thread = threadFromToolResult(record) ?? threadFromToolResult(result);
+		const commentId = stringValue(record.commentId) ?? stringValue(record.targetId) ?? stringValue(argsRecord.commentId) ?? stringValue(argsRecord.targetId);
+		const value = Number(record.value ?? argsRecord.value);
+		if (!thread || !commentId || (value !== 1 && value !== -1)) {
+			return [];
+		}
+		const direction = value > 0 ? "upvoted" : "downvoted";
+		const reason = stringValue(record.reason) ?? commonReason;
+		return [{
+			userId: input.userId,
+			worldId: input.worldId,
+			eventKey: `vote_cast:comment:${commentId}:${bot.id}:${value}:${input.now}`,
+			notificationType: "vote_cast",
+			actor: bot,
+			sourceType: "vote",
+			sourceId: `comment:${commentId}:${bot.id}`,
+			targetType: "comment",
+			targetId: commentId,
+			title: `${bot.displayName} ${direction} a comment in`,
+			body: humanNotificationBodyWithReason(threadTitle(thread), reason),
+			urlPath: botActivityUrlPath(bot, voteActivityId(commentId)),
+			spotlightId: input.spotlightId,
+			spotlightLabel: "spotlight",
+			now: input.now,
+		}];
+	});
+}
+
+function spotlightProfileActionHumanNotifications(
+	toolName: string,
+	args: Record<string, unknown>,
+	result: unknown,
+	bot: BotDocument,
+	input: { userId: string; worldId: string; spotlightId: string; now: string },
+): Array<HumanNotificationInput & { spotlightId: string; spotlightLabel: string }> {
+	const shouldFollow = toolName === "follow_bot" || toolName === "follow_profile";
+	const fallbackReason = stringValue(runtimeRecord(args).reason);
+	const rows = Array.isArray(result) ? result.map(runtimeRecord) : [runtimeRecord(result)];
+	return rows.flatMap((record) => {
 		const profile = runtimeRecord(record.profile);
 		const followedId = stringValue(profile.id);
 		if (!followedId) {
-			return null;
+			return [];
 		}
-		return {
+		const handle = stringValue(profile.handle) ?? stringValue(profile.username) ?? followedId;
+		const displayName = stringValue(profile.displayName) ?? "a profile";
+		const reason = stringValue(record.reason) ?? profileActionReasonForTarget(args, handle) ?? fallbackReason;
+		return [{
 			userId: input.userId,
 			worldId: input.worldId,
-			eventKey: `bot_followed:${bot.id}:${followedId}`,
-			notificationType: "bot_followed",
+			eventKey: shouldFollow ? `bot_followed:${bot.id}:${followedId}` : `bot_unfollowed:${bot.id}:${followedId}:${input.now}`,
+			notificationType: shouldFollow ? "bot_followed" : "bot_unfollowed",
 			actor: bot,
 			sourceType: "follow",
 			sourceId: `${bot.id}:${followedId}`,
 			targetType: "bot",
 			targetId: followedId,
-			title: `${bot.displayName} followed ${stringValue(profile.displayName) ?? "a profile"}`,
-			body: humanNotificationBodyWithReason(`u/${bot.handle} followed u/${stringValue(profile.handle) ?? followedId}.`, reason),
-			urlPath: botActivityUrlPath(bot, stringValue(record.activityId) ?? `follow:${followedId}`),
+			title: `${bot.displayName} ${shouldFollow ? "followed" : "unfollowed"} ${displayName}`,
+			body: humanNotificationBodyWithReason(`u/${bot.handle} ${shouldFollow ? "followed" : "unfollowed"} ${handle.startsWith("u/") ? handle : `u/${handle}`}.`, reason),
+			urlPath: botActivityUrlPath(bot, stringValue(record.activityId) ?? (shouldFollow ? `follow:${followedId}` : undefined)),
 			spotlightId: input.spotlightId,
-			spotlightLabel: "caused by spotlight",
+			spotlightLabel: "spotlight",
 			now: input.now,
-		};
+		}];
+	});
+}
+
+function profileActionReasonForTarget(args: Record<string, unknown>, handle: string): string | undefined {
+	const normalizedHandle = handle.replace(/^u\//i, "");
+	const targets = Array.isArray(args.targets) ? args.targets : [];
+	for (const item of targets) {
+		const record = runtimeRecord(item);
+		const username = stringValue(record.username) ?? stringValue(record.handle);
+		if (username?.replace(/^u\//i, "") === normalizedHandle) {
+			return stringValue(record.reason);
+		}
 	}
-	return null;
+	return undefined;
 }
 
 function threadFromToolResult(result: unknown): ThreadDocument | null {
@@ -4466,10 +4387,6 @@ function threadFromToolResult(result: unknown): ThreadDocument | null {
 
 function newestComment(thread: ThreadDocument): CommentDocument | undefined {
 	return [...thread.comments].sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt))[0];
-}
-
-function newestCommentId(thread: ThreadDocument): string | undefined {
-	return newestComment(thread)?.id;
 }
 
 function stringValue(value: unknown): string | undefined {

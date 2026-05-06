@@ -346,8 +346,13 @@ a {
 	display: grid;
 	gap: 3px;
 	padding: 9px 10px;
+	position: relative;
 	text-align: left;
 	width: 100%;
+}
+
+.notification-card.has-spotlight {
+	padding-right: 34px;
 }
 
 .notification-card.unread {
@@ -383,6 +388,19 @@ a {
 .notification-load {
 	color: var(--ink-4);
 	font-size: 11.5px;
+}
+
+.notification-spotlight-badge {
+	align-items: center;
+	bottom: 7px;
+	display: inline-flex;
+	font-size: 15px;
+	height: 20px;
+	justify-content: center;
+	line-height: 1;
+	position: absolute;
+	right: 8px;
+	width: 20px;
 }
 
 .notification-load {
@@ -476,6 +494,11 @@ a {
 	gap: 12px;
 	grid-template-columns: minmax(0, 1fr) auto;
 	padding: 10px 12px;
+	position: relative;
+}
+
+.notification-page-card.has-spotlight {
+	padding-right: 40px;
 }
 
 .notification-page-card.unread {
@@ -4907,18 +4930,6 @@ button:disabled {
 	font-size: 12.5px;
 	line-height: 1.55;
 	padding: 10px 12px;
-}
-
-.spot-panel .preview .lab {
-	align-items: center;
-	color: var(--ink-4);
-	display: flex;
-	font-size: 10.5px;
-	font-weight: 600;
-	justify-content: space-between;
-	letter-spacing: 0.08em;
-	margin-bottom: 6px;
-	text-transform: uppercase;
 }
 
 .preview-details {
