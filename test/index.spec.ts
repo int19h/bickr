@@ -550,6 +550,14 @@ describe("Bickr Pages Functions", () => {
 		expect(recentThreads?.function.parameters.properties.limit?.type).toBe("number");
 		expect(recentThreads?.function.parameters.required).not.toContain("limit");
 
+		for (const name of ["read_thread", "read_thread_by_id", "read_comment_by_id"]) {
+			const readTool = toolDefinitions.find((definition) => definition.function.name === name);
+			expect(readTool?.function.description).toContain("when replies is a number");
+			expect(readTool?.function.description).toContain("read_comment_by_id with that comment ID");
+			expect(readTool?.function.description).toContain("end with …");
+			expect(readTool?.function.description).toContain("full comment");
+		}
+
 		const reply = toolDefinitions.find((definition) => definition.function.name === "reply_to_comment");
 		expect(reply?.function.parameters.properties[additionalReplyAcknowledgementArgument]).toBeUndefined();
 
@@ -595,6 +603,19 @@ describe("Bickr Pages Functions", () => {
 		}).executeTool.bind(runtime);
 		const bot = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, voter.id);
 		const signal = new AbortController().signal;
+
+		const cachedBudgetRuntime = Object.assign(testRuntimeForToolExecution(), {
+			contextBudgetCachedCounts: () => ({ fixedSystemTokens: 2_000, personaPromptTokens: 1_500 }),
+		});
+		const readCommentTreeTokenBudget = (BotRuntime.prototype as unknown as {
+			readCommentTreeTokenBudget: (bot: BotDocument) => Promise<number>;
+		}).readCommentTreeTokenBudget.bind(cachedBudgetRuntime);
+		await expect(
+			readCommentTreeTokenBudget({
+				...bot,
+				tickSettings: { ...bot.tickSettings, contextWindowTokens: 10_000 },
+			}),
+		).resolves.toBe(1_000);
 
 		const missingReason = await executeTool(
 			bot,
@@ -717,15 +738,25 @@ describe("Bickr Pages Functions", () => {
 			},
 		]);
 
+		const pruningRuntime = Object.assign(testRuntimeForToolExecution(), {
+			readCommentTreeTokenBudget: async () => 1,
+		});
+		const executeToolWithTinyReadBudget = (BotRuntime.prototype as unknown as {
+			executeTool: (
+				bot: Awaited<ReturnType<typeof botById>>,
+				runId: string,
+				name: string,
+				args: Record<string, unknown>,
+				runContext: { mode: "normal"; signal: AbortSignal },
+			) => Promise<{ result: unknown; providerResult: unknown }>;
+		}).executeTool.bind(pruningRuntime);
+
 		const largeThread = await createThreadForTest(forum.id, author.id, "Large branch", "Root body stays visible.");
-		const immediateReply = await createCommentForTest(largeThread.id, author.id, "Immediate reply stays visible.");
+		const immediateReplyBody = `Immediate reply should be shortened. ${"x".repeat(2_000)}`;
+		const immediateReply = await createCommentForTest(largeThread.id, author.id, immediateReplyBody);
 		await createCommentForTest(largeThread.id, author.id, `Grandchild should be collapsed. ${"x".repeat(2_000)}`, immediateReply.id);
-		const smallContextBot: BotDocument = {
-			...bot,
-			tickSettings: { ...bot.tickSettings, contextWindowTokens: 600 },
-		};
-		const prunedReadResult = await executeTool(
-			smallContextBot,
+		const prunedReadResult = await executeToolWithTinyReadBudget(
+			bot,
 			"run-read-pruned-thread",
 			"read_thread_by_id",
 			{ threadId: largeThread.id },
@@ -733,18 +764,49 @@ describe("Bickr Pages Functions", () => {
 		);
 		const prunedProviderResult = prunedReadResult.providerResult as { context: string; content: Array<Record<string, unknown>> };
 		expect(prunedProviderResult.context).toContain("numeric replies value");
+		expect(prunedProviderResult.context).toContain("body ending in …");
 		expect(prunedProviderResult.content).toMatchObject([
 			{
 				commentId: largeThread.rootCommentId,
 				body: "Root body stays visible.",
 				replies: [{
 					commentId: immediateReply.id,
-					body: "Immediate reply stays visible.",
+					body: "…",
 					replies: 1,
 				}],
 			},
 		]);
+		expect(JSON.stringify(prunedProviderResult)).not.toContain(immediateReplyBody);
 		expect(JSON.stringify(prunedProviderResult)).not.toContain("Grandchild should be collapsed.");
+
+		const focusedThread = await createThreadForTest(forum.id, author.id, "Focused branch", "Focused root stays visible.");
+		const targetReply = await createCommentForTest(focusedThread.id, author.id, "Focused target body stays visible.");
+		const descendantBody = `Focused descendant should be shortened. ${"y".repeat(2_000)}`;
+		const descendantReply = await createCommentForTest(focusedThread.id, author.id, descendantBody, targetReply.id);
+		const prunedBranchResult = await executeToolWithTinyReadBudget(
+			bot,
+			"run-read-pruned-comment-branch",
+			"read_comment_by_id",
+			{ commentId: targetReply.id },
+			{ mode: "normal", signal },
+		);
+		const prunedBranchContent = (prunedBranchResult.providerResult as { context: string; content: Array<Record<string, unknown>> }).content;
+		expect(prunedBranchContent).toMatchObject([
+			{
+				commentId: focusedThread.rootCommentId,
+				body: "Focused root stays visible.",
+				replies: [{
+					commentId: targetReply.id,
+					body: "Focused target body stays visible.",
+					"My focus is on this comment": true,
+					replies: [{
+						commentId: descendantReply.id,
+						body: "…",
+					}],
+				}],
+			},
+		]);
+		expect(JSON.stringify(prunedBranchContent)).not.toContain(descendantBody);
 
 		const profilesResult = await executeTool(
 			bot,
@@ -2125,6 +2187,7 @@ describe("Bickr Pages Functions", () => {
 		const selfProfile = await createBotForTest(cookie, "spotlight-self");
 		const authorProfile = await createBotForTest(cookie, "spotlight-author");
 		const bot = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, selfProfile.id);
+		const spotlightThreadReplyBody = `Spotlight thread reply should be shortened. ${"z".repeat(2_000)}`;
 		const contexts: SpotlightSyntheticContext[] = [
 			{
 				kind: "spotlight_context",
@@ -2203,6 +2266,18 @@ describe("Bickr Pages Functions", () => {
 						body: "Thread target.",
 						createdAt: "2026-05-01T00:02:00.000Z",
 					},
+					{
+						type: "comment",
+						id: "cmt_spotlight_thread_reply",
+						commentId: "cmt_spotlight_thread_reply",
+						threadId: "thr_spotlight_thread",
+						parentCommentId: "cmt_spotlight_thread_root",
+						authorBotId: authorProfile.id,
+						authorHandle: authorProfile.handle,
+						authorDisplayName: authorProfile.displayName,
+						body: spotlightThreadReplyBody,
+						createdAt: "2026-05-01T00:02:30.000Z",
+					},
 				],
 			},
 		];
@@ -2242,6 +2317,7 @@ describe("Bickr Pages Functions", () => {
 				messages.push(message);
 				return { seq: messages.length, runId: "run-spotlight-context", role: message.role, message };
 			},
+			readCommentTreeTokenBudget: async () => 1,
 			activeLoopMessagesForProvider: () => messages,
 			activeLoopMessageRows: () => activeRows,
 		});
@@ -2280,7 +2356,7 @@ describe("Bickr Pages Functions", () => {
 					ancestorOnly: true,
 					replies: [{
 						id: "cmt_spotlight_parent",
-						body: "Parent context.",
+						body: "…",
 						ancestorOnly: true,
 						replies: [{ id: "cmt_spotlight", body: "Target comment.", "My focus is on this comment": true }],
 					}],
@@ -2289,8 +2365,15 @@ describe("Bickr Pages Functions", () => {
 		});
 		expect(toolResults.find((result) => result.operation === "read_thread_by_id")).toMatchObject({
 			thread: { threadId: "thr_spotlight_thread", title: "Thread spotlight" },
-			content: [{ type: "comment", id: "cmt_spotlight_thread_root", body: "Thread target." }],
+			content: [{
+				type: "comment",
+				id: "cmt_spotlight_thread_root",
+				body: "Thread target.",
+				replies: [{ id: "cmt_spotlight_thread_reply", body: "…" }],
+			}],
 		});
+		expect(toolResults.find((result) => result.operation === "read_thread_by_id")?.context).toContain("body ending in …");
+		expect(JSON.stringify(toolResults.find((result) => result.operation === "read_thread_by_id"))).not.toContain(spotlightThreadReplyBody);
 		expect(toolResults.find((result) => Array.isArray(result.profiles))).toMatchObject({
 			profiles: [{ username: `u/${authorProfile.handle}`, displayName: authorProfile.displayName }],
 		});

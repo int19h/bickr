@@ -478,6 +478,7 @@ type ReadContentItem = {
 	authorBotId: string;
 	authorHandle: string;
 	authorDisplayName: string;
+	authorShortBio?: string;
 	authorFollowing?: boolean;
 	title?: string;
 	body: string;
@@ -485,6 +486,20 @@ type ReadContentItem = {
 	"My focus is on this comment"?: true;
 	ancestorOnly?: boolean;
 	replies?: ReadContentItem[] | number;
+};
+
+type ReadPruneResult = {
+	content: ReadContentItem[];
+	tokenEstimate: number;
+	omittedReplyCount: number;
+	trimmedBodyCount: number;
+};
+
+type ContextBudgetPromptParts = {
+	fixedSystemMessage: string;
+	fullSystemMessage: string;
+	reasoningPrefill: string;
+	providerTools: ProviderToolDefinition[];
 };
 
 type FollowStatusSearchResult = BotSearchResult & {
@@ -860,6 +875,32 @@ export function providerMessagesWithReasoningPrefill(
 	reasoningPrefill: string | undefined,
 ): ChatMessage[] {
 	return reasoningPrefill ? [...messages, { role: "assistant", content: reasoningPrefill }] : messages;
+}
+
+function contextBudgetPromptParts(bot: BotDocument, settings: ProviderSettings): ContextBudgetPromptParts {
+	const serverTools = openRouterServerToolSelection(settings.baseUrl, bot.toolSettings);
+	return {
+		fixedSystemMessage: standardPrompt({ ...bot, prompt: "" }),
+		fullSystemMessage: standardPrompt(bot),
+		reasoningPrefill: effectiveReasoningPrefill(bot),
+		providerTools: [...toolDefinitions, ...serverTools.tools],
+	};
+}
+
+function estimatedPromptContextTokens(
+	systemMessage: string,
+	reasoningPrefill: string,
+	providerTools: ProviderToolDefinition[],
+	calibration: TextTokenCalibration,
+): number {
+	return (
+		estimateChatMessagesTokens(
+			providerMessagesWithReasoningPrefill([{ role: "system", content: systemMessage }], reasoningPrefill),
+			calibration,
+		) +
+		estimateTextTokensWithCalibration(JSON.stringify(providerTools), calibration) +
+		providerPromptEstimateSafetyTokens
+	);
 }
 
 export function providerResponseMessageForHistory(response: {
@@ -3679,12 +3720,12 @@ export class BotRuntime {
 			throw new InputError("Configure an OpenRouter API key or custom inference base URL to compute exact tokens.");
 		}
 
-		const serverTools = openRouterServerToolSelection(settings.baseUrl, bot.toolSettings);
-		const providerTools: ProviderToolDefinition[] = [...toolDefinitions, ...serverTools.tools];
-		const fixedPromptBot = { ...bot, prompt: "" };
-		const fixedSystemMessage = standardPrompt(fixedPromptBot);
-		const fullSystemMessage = standardPrompt(bot);
-		const reasoningPrefill = effectiveReasoningPrefill(bot);
+		const {
+			fixedSystemMessage,
+			fullSystemMessage,
+			reasoningPrefill,
+			providerTools,
+		} = contextBudgetPromptParts(bot, settings);
 		const fixedSystemFingerprint = await sha256Hex(JSON.stringify({
 			system: fixedSystemMessage,
 			reasoningPrefill,
@@ -3732,6 +3773,43 @@ export class BotRuntime {
 			fingerprint,
 			providerBaseUrl: settings.baseUrl,
 			...budget,
+		};
+	}
+
+	private async readCommentTreeTokenBudget(bot: BotDocument): Promise<number> {
+		const owner = await userById(this.env.BICKR_KV, bot.ownerUserId);
+		const settings = this.effectiveProviderSettings(bot, owner);
+		const parts = contextBudgetPromptParts(bot, settings);
+		const fixedSystemFingerprint = await sha256Hex(JSON.stringify({
+			system: parts.fixedSystemMessage,
+			reasoningPrefill: parts.reasoningPrefill,
+			tools: parts.providerTools,
+		}));
+		const personaPromptFingerprint = await sha256Hex(bot.prompt);
+		const cachedCounts = this.contextBudgetCachedCounts(await promptContextBudgetCacheFingerprint({
+			botId: bot.id,
+			effectiveModel: settings.model,
+			fixedSystemFingerprint,
+			personaPromptFingerprint,
+			providerBaseUrl: settings.baseUrl,
+		}));
+		const counts = cachedCounts ?? this.estimatedContextBudgetCounts(parts, this.textTokenCalibration());
+		return providerReadCommentTreeTokenBudget(promptContextBudgetFromCounts({
+			...counts,
+			contextWindowTokens: bot.tickSettings.contextWindowTokens,
+			responseReserveTokens: providerContextReserveTokens,
+		}).remainingLoopTokens);
+	}
+
+	private estimatedContextBudgetCounts(
+		parts: ContextBudgetPromptParts,
+		calibration: TextTokenCalibration,
+	): Pick<PromptContextBudgetCounts, "fixedSystemTokens" | "personaPromptTokens"> {
+		const fixedSystemTokens = estimatedPromptContextTokens(parts.fixedSystemMessage, parts.reasoningPrefill, parts.providerTools, calibration);
+		const fullSystemTokens = estimatedPromptContextTokens(parts.fullSystemMessage, parts.reasoningPrefill, parts.providerTools, calibration);
+		return {
+			fixedSystemTokens,
+			personaPromptTokens: Math.max(0, fullSystemTokens - fixedSystemTokens),
 		};
 	}
 
@@ -4459,14 +4537,12 @@ export class BotRuntime {
 		const content = threadReadContentItems(thread, targetCommentId);
 		const annotatedContent = await this.annotateReadContentFollowStatus(bot.id, content);
 		const commentTree = readContentItemTree(annotatedContent);
-		const tokenBudget = providerReadCommentTreeTokenBudget(bot);
+		const tokenBudget = await this.readCommentTreeTokenBudget(bot);
 		const pruned = pruneReadContentTreeForProviderBudget(commentTree, tokenBudget);
 		const threadSummary = (await this.annotateThreadReadSummariesFollowStatus(bot.id, [threadReadSummary(thread)]))[0] ?? threadReadSummary(thread);
 		return {
 			operation,
-			context: pruned.omittedReplyCount > 0 ?
-				`Result of my ${operation} operation. Some reply lists were collapsed to keep the result within about ${tokenBudget} tokens. A numeric replies value means that many direct replies are omitted; call read_comment_by_id with that comment ID to inspect that branch.`
-			:	`Result of my ${operation} operation.`,
+			context: readResultContext(operation, pruned, tokenBudget),
 			thread: threadSummary,
 			...(targetCommentId ? { targetCommentId } : {}),
 			content: pruned.content,
@@ -4615,10 +4691,11 @@ export class BotRuntime {
 		const chains = contexts.flatMap(spotlightSyntheticToolChains);
 		const toolCalls: ToolCall[] = chains.map((chain, index) => syntheticToolCall(runId, chain.toolName, index, chain.args));
 		const providerContentScope = cloneProviderContextContentScope(existingProviderContent);
+		const tokenBudget = await this.readCommentTreeTokenBudget(bot);
 		const results: ChatMessage[] = chains.map((chain, index) => ({
 			role: "tool",
 			tool_call_id: toolCalls[index]?.id ?? syntheticToolCallId(runId, index),
-			content: JSON.stringify(spotlightReadResult(chain.context, chain.toolName, providerContentScope, chain.targetCommentId, chain.targetThreadId)),
+			content: JSON.stringify(spotlightReadResult(chain.context, chain.toolName, providerContentScope, tokenBudget, chain.targetCommentId, chain.targetThreadId)),
 		}));
 		const usernames = referencedProfileUsernamesFromSpotlight(contexts, bot.handle, existingProfileUsernames);
 		if (usernames.length > 0) {
@@ -6081,6 +6158,7 @@ function spotlightReadResult(
 	context: SpotlightSyntheticContext,
 	operation: "read_thread_by_id" | "read_comment_by_id",
 	scope: ProviderContextContentScope,
+	tokenBudget: number,
 	targetCommentId?: string,
 	targetThreadId?: string,
 ): Record<string, unknown> {
@@ -6089,13 +6167,14 @@ function spotlightReadResult(
 		targetCommentId ?
 			spotlightCommentChainContent(context.content, threadId, targetCommentId)
 		:	context.content.filter((item) => item.threadId === threadId);
-	const enriched = content.map((item) => spotlightProviderContentItem(context, item));
+	const commentTree = readContentItemTree(content.map((item) => spotlightReadContentItem(context, item)));
+	const pruned = pruneReadContentTreeForProviderBudget(commentTree, tokenBudget);
 	return providerReadResult({
 		operation,
-		context: `Result of my ${operation} operation.`,
+		context: readResultContext(operation, pruned, tokenBudget),
 		thread: spotlightThreadSummaryRecord(context, threadId, content),
 		...(targetCommentId ? { targetCommentId } : {}),
-		content: enriched,
+		content: pruned.content,
 	}, scope);
 }
 
@@ -6110,14 +6189,30 @@ function spotlightCommentChainContent(content: SpotlightIncludedContent[], threa
 	return comments;
 }
 
-function spotlightProviderContentItem(
+function spotlightReadContentItem(
 	context: SpotlightSyntheticContext,
 	item: SpotlightIncludedContent,
-): Record<string, unknown> {
+): ReadContentItem {
 	return {
-		...item,
+		type: "comment",
+		id: item.id,
+		threadId: item.threadId,
+		...(item.commentId ? { commentId: item.commentId } : {}),
+		...(item.parentCommentId ? { parentCommentId: item.parentCommentId } : {}),
+		worldId: context.world.id,
 		worldHandle: stripTypedHandle(context.world.handle, "w"),
+		forumId: context.forum.id,
 		forumHandle: stripTypedHandle(context.forum.handle, "f"),
+		authorBotId: item.authorBotId,
+		authorHandle: item.authorHandle,
+		authorDisplayName: item.authorDisplayName,
+		...(item.authorShortBio ? { authorShortBio: item.authorShortBio } : {}),
+		...(typeof item.authorFollowing === "boolean" ? { authorFollowing: item.authorFollowing } : {}),
+		...(item.title ? { title: item.title } : {}),
+		body: item.body,
+		createdAt: item.createdAt,
+		...(item["My focus is on this comment"] === true || item.target === true ? { "My focus is on this comment": true as const } : {}),
+		...(item.ancestorOnly ? { ancestorOnly: true } : {}),
 	};
 }
 
@@ -7013,12 +7108,11 @@ function providerReadResult(
 ): Record<string, unknown> {
 	const content = Array.isArray(record.content) ? providerReadContentTree(record.content.map(runtimeRecord), scope) : [];
 	const collapsedReplyCount = providerCollapsedReplyCount(content);
+	const trimmedBodyCount = providerTrimmedCommentBodyCount(content);
 	const baseContext = stringValue(record.context) ?? "Result of my read operation.";
 	return {
 		operation: stringValue(record.operation) ?? "read",
-		context: collapsedReplyCount > 0 && !baseContext.includes("numeric replies value") ?
-			`${baseContext} A numeric replies value means that many direct replies are omitted; call read_comment_by_id with that comment ID to inspect that branch.`
-		:	baseContext,
+		context: providerReadContextWithGuidance(baseContext, collapsedReplyCount, trimmedBodyCount),
 		thread: providerThreadSummary(runtimeRecord(record.thread)),
 		...(stringValue(record.targetCommentId) ? { targetCommentId: stringValue(record.targetCommentId) } : {}),
 		content,
@@ -7142,6 +7236,38 @@ function providerCollapsedReplyCount(content: Record<string, unknown>[]): number
 		}
 		return total + providerCollapsedReplyCount(providerCommentReplies(item));
 	}, 0);
+}
+
+function providerTrimmedCommentBodyCount(content: Record<string, unknown>[]): number {
+	return content.reduce((total, item) => {
+		const body = stringValue(item.body);
+		const current = body?.endsWith(readBodyTrimEllipsis) ? 1 : 0;
+		return total + current + providerTrimmedCommentBodyCount(providerCommentReplies(item));
+	}, 0);
+}
+
+function readResultContext(operation: string, pruned: ReadPruneResult, tokenBudget: number): string {
+	const changed = pruned.omittedReplyCount > 0 || pruned.trimmedBodyCount > 0;
+	const detail =
+		pruned.omittedReplyCount > 0 && pruned.trimmedBodyCount > 0 ? "Some reply lists were collapsed and some comment bodies were shortened"
+		: pruned.omittedReplyCount > 0 ? "Some reply lists were collapsed"
+		: pruned.trimmedBodyCount > 0 ? "Some comment bodies were shortened"
+		: "";
+	const baseContext = changed ?
+			`Result of my ${operation} operation. ${detail} to keep the result within about ${tokenBudget} tokens.`
+		:	`Result of my ${operation} operation.`;
+	return providerReadContextWithGuidance(baseContext, pruned.omittedReplyCount, pruned.trimmedBodyCount);
+}
+
+function providerReadContextWithGuidance(baseContext: string, collapsedReplyCount: number, trimmedBodyCount: number): string {
+	let context = baseContext;
+	if (collapsedReplyCount > 0 && !context.includes("numeric replies value")) {
+		context = `${context} A numeric replies value means that many direct replies are omitted; call read_comment_by_id with that comment ID to inspect that branch.`;
+	}
+	if (trimmedBodyCount > 0 && !context.includes("body ending")) {
+		context = `${context} A body ending in ${readBodyTrimEllipsis} has been shortened; call read_comment_by_id with that comment ID to read the full comment.`;
+	}
+	return context;
 }
 
 function pushProviderReply(parent: Record<string, unknown>, reply: Record<string, unknown>): void {
@@ -7567,8 +7693,8 @@ function threadReadContentItems(thread: ThreadDocument, targetCommentId?: string
 	return content;
 }
 
-function providerReadCommentTreeTokenBudget(bot: BotDocument): number {
-	return Math.max(1, Math.floor(bot.tickSettings.contextWindowTokens / 4));
+function providerReadCommentTreeTokenBudget(remainingLoopTokens: number): number {
+	return Math.max(1, Math.floor(Math.max(0, remainingLoopTokens) / 4));
 }
 
 function readContentItemTree(content: ReadContentItem[]): ReadContentItem[] {
@@ -7594,9 +7720,10 @@ function readContentItemTree(content: ReadContentItem[]): ReadContentItem[] {
 function pruneReadContentTreeForProviderBudget(
 	content: ReadContentItem[],
 	tokenBudget: number,
-): { content: ReadContentItem[]; tokenEstimate: number; omittedReplyCount: number } {
+): ReadPruneResult {
 	const pruned = cloneReadContentTree(content);
 	const protectedParentIds = protectedReadReplyParentIds(pruned);
+	const protectedBodyIds = protectedReadBodyIds(pruned);
 	let tokenEstimate = providerReadContentTreeTokenEstimate(pruned);
 	for (;;) {
 		if (tokenEstimate <= tokenBudget) {
@@ -7614,10 +7741,17 @@ function pruneReadContentTreeForProviderBudget(
 		}
 		tokenEstimate = nextEstimate;
 	}
+	let trimmedBodyCount = 0;
+	if (tokenEstimate > tokenBudget) {
+		const trimmed = trimReadContentBodiesForProviderBudget(pruned, protectedBodyIds, tokenBudget);
+		tokenEstimate = trimmed.tokenEstimate;
+		trimmedBodyCount = trimmed.trimmedBodyCount;
+	}
 	return {
 		content: pruned,
 		tokenEstimate,
 		omittedReplyCount: collapsedReadReplyCount(pruned),
+		trimmedBodyCount,
 	};
 }
 
@@ -7647,6 +7781,92 @@ function protectedReadReplyParentIds(content: ReadContentItem[]): Set<string> {
 	};
 	visit(content, true);
 	return protectedIds;
+}
+
+function protectedReadBodyIds(content: ReadContentItem[]): Set<string> {
+	const protectedIds = new Set<string>();
+	const visit = (items: ReadContentItem[], protectTopLevel: boolean): void => {
+		for (const item of items) {
+			if (protectTopLevel || item["My focus is on this comment"]) {
+				protectedIds.add(item.id);
+			}
+			if (Array.isArray(item.replies)) {
+				visit(item.replies, false);
+			}
+		}
+	};
+	visit(content, true);
+	return protectedIds;
+}
+
+const readBodyTrimEllipsis = "…";
+
+function trimReadContentBodiesForProviderBudget(
+	content: ReadContentItem[],
+	protectedBodyIds: ReadonlySet<string>,
+	tokenBudget: number,
+): { tokenEstimate: number; trimmedBodyCount: number } {
+	const candidates = readBodyTrimCandidates(content, protectedBodyIds);
+	if (candidates.length === 0) {
+		return { tokenEstimate: providerReadContentTreeTokenEstimate(content), trimmedBodyCount: 0 };
+	}
+	const maxLength = Math.max(...candidates.map((candidate) => candidate.codePoints.length));
+	let low = 0;
+	let high = Math.max(0, maxLength - 2);
+	let bestCutoff: number | null = null;
+	while (low <= high) {
+		const cutoff = Math.floor((low + high) / 2);
+		applyReadBodyCutoff(candidates, cutoff);
+		const tokenEstimate = providerReadContentTreeTokenEstimate(content);
+		if (tokenEstimate <= tokenBudget) {
+			bestCutoff = cutoff;
+			low = cutoff + 1;
+		} else {
+			high = cutoff - 1;
+		}
+	}
+	const cutoff = bestCutoff ?? 0;
+	const trimmedBodyCount = applyReadBodyCutoff(candidates, cutoff);
+	return { tokenEstimate: providerReadContentTreeTokenEstimate(content), trimmedBodyCount };
+}
+
+function readBodyTrimCandidates(
+	content: ReadContentItem[],
+	protectedBodyIds: ReadonlySet<string>,
+): Array<{ item: ReadContentItem; body: string; codePoints: string[] }> {
+	const candidates: Array<{ item: ReadContentItem; body: string; codePoints: string[] }> = [];
+	const visit = (items: ReadContentItem[]): void => {
+		for (const item of items) {
+			const codePoints = Array.from(item.body);
+			if (!protectedBodyIds.has(item.id) && codePoints.length > 1) {
+				candidates.push({ item, body: item.body, codePoints });
+			}
+			if (Array.isArray(item.replies)) {
+				visit(item.replies);
+			}
+		}
+	};
+	visit(content);
+	return candidates;
+}
+
+function applyReadBodyCutoff(
+	candidates: Array<{ item: ReadContentItem; body: string; codePoints: string[] }>,
+	cutoff: number,
+): number {
+	let trimmedBodyCount = 0;
+	for (const candidate of candidates) {
+		if (candidate.codePoints.length > cutoff) {
+			const prefix = candidate.codePoints.slice(0, cutoff).join("").trimEnd();
+			candidate.item.body = `${prefix}${readBodyTrimEllipsis}`;
+			if (candidate.item.body !== candidate.body) {
+				trimmedBodyCount += 1;
+			}
+		} else {
+			candidate.item.body = candidate.body;
+		}
+	}
+	return trimmedBodyCount;
 }
 
 function deepestPrunableReadReplyDepth(

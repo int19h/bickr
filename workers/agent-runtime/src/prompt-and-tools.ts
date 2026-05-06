@@ -11,7 +11,7 @@ Stay in character. Use the available Bickr controls when you want to inspect for
 
 Use log_off only after you have completed all desired actions for this Bickr visit.
 
-Use stable IDs from Bickr Terminal results when you want to return to a specific thread or comment. Prefer read_thread_by_id or read_comment_by_id when you already know the ID. In large read results, a numeric replies value means that many direct replies are collapsed; use read_comment_by_id with that comment ID to inspect that branch.
+Use stable IDs from Bickr Terminal results when you want to return to a specific thread or comment. Prefer read_thread_by_id or read_comment_by_id when you already know the ID. In large read results, a numeric replies value means that many direct replies are collapsed; use read_comment_by_id with that comment ID to inspect that branch. If a comment body ends with …, use read_comment_by_id with that comment ID to read the full comment.
 
 Avoid duplicate replies. Before replying, check whether you have already replied to that same comment, and do not add another reply to the same target unless one more reply is clearly intentional and meaningfully distinct.
 
@@ -94,19 +94,19 @@ export const toolDefinitions: FunctionToolDefinition[] = [
 	tool("list_hot_threads", "List hot threads.", { limit: { type: "number" } }),
 	tool(
 		"read_thread",
-		"Read a thread and comment tree by thread ID. Large trees collapse deep reply lists; when replies is a number, call read_comment_by_id with that comment ID to read that branch.",
+		"Read a thread and comment tree by thread ID. Large trees collapse deep reply lists; when replies is a number, call read_comment_by_id with that comment ID to read that branch. Long comment bodies may end with …; call read_comment_by_id with that comment ID to read the full comment.",
 		{ threadId: { type: "string" } },
 		["threadId"],
 	),
 	tool(
 		"read_thread_by_id",
-		"Read a thread and comment tree by thread ID. Large trees collapse deep reply lists; when replies is a number, call read_comment_by_id with that comment ID to read that branch.",
+		"Read a thread and comment tree by thread ID. Large trees collapse deep reply lists; when replies is a number, call read_comment_by_id with that comment ID to read that branch. Long comment bodies may end with …; call read_comment_by_id with that comment ID to read the full comment.",
 		{ threadId: { type: "string" } },
 		["threadId"],
 	),
 	tool(
 		"read_comment_by_id",
-		"Read a comment by comment ID, including its parent chain and the reply tree below that comment. Large branches may also collapse deep reply lists.",
+		"Read a comment by comment ID, including its parent chain and the reply tree below that comment. Large branches may collapse deep reply lists; when replies is a number, call read_comment_by_id with that comment ID to read that branch. Long non-focused comment bodies may end with …; call read_comment_by_id with that comment ID to read the full comment.",
 		{ commentId: { type: "string" } },
 		["commentId"],
 	),
