@@ -219,6 +219,16 @@ type VoteToolTarget = {
 	value: -1 | 0 | 1;
 };
 
+type FollowToolTarget = {
+	username: string;
+	reason: string;
+};
+
+type FollowToolHistoryTarget = {
+	username: string;
+	reason?: string;
+};
+
 export type FollowToolSkipReason = "already_following" | "not_following" | "self_follow";
 
 export type FollowToolTargetSkip = {
@@ -233,7 +243,7 @@ export type FollowToolTargetPlan = {
 
 type FollowProfilesToolResult = {
 	results: unknown[];
-	effectiveUsernames: string[];
+	effectiveTargets: FollowToolTarget[];
 	selfCorrectionMessages: string[];
 };
 
@@ -3883,10 +3893,8 @@ export class BotRuntime {
 				break;
 			}
 			case "follow_profile": {
-				const reason = stringArg(normalizedArgs.reason, "reason");
-				normalizedArgs.reason = reason;
-				const followResult = await this.followProfilesTool(bot, runId, usernamesArg(normalizedArgs.usernames), true, reason, runContext.signal);
-				normalizedArgs.usernames = followResult.effectiveUsernames;
+				const followResult = await this.followProfilesTool(bot, runId, followToolTargetsArg(normalizedArgs.targets), true, runContext.signal);
+				normalizedArgs.targets = followResult.effectiveTargets;
 				result = followResult.results;
 				if (followResult.selfCorrectionMessages.length > 0) {
 					effectiveArgs = { ...normalizedArgs };
@@ -3895,10 +3903,8 @@ export class BotRuntime {
 				break;
 			}
 			case "unfollow_profile": {
-				const reason = stringArg(normalizedArgs.reason, "reason");
-				normalizedArgs.reason = reason;
-				const followResult = await this.followProfilesTool(bot, runId, usernamesArg(normalizedArgs.usernames), false, reason, runContext.signal);
-				normalizedArgs.usernames = followResult.effectiveUsernames;
+				const followResult = await this.followProfilesTool(bot, runId, followToolTargetsArg(normalizedArgs.targets), false, runContext.signal);
+				normalizedArgs.targets = followResult.effectiveTargets;
 				result = followResult.results;
 				if (followResult.selfCorrectionMessages.length > 0) {
 					effectiveArgs = { ...normalizedArgs };
@@ -4000,11 +4006,12 @@ export class BotRuntime {
 	private async followProfilesTool(
 		bot: BotDocument,
 		runId: string,
-		usernames: string[],
+		targets: FollowToolTarget[],
 		shouldFollow: boolean,
-		reason: string,
 		signal: AbortSignal,
 	): Promise<FollowProfilesToolResult> {
+		const targetsByUsername = new Map(targets.map((target) => [target.username, target]));
+		const usernames = targets.map((target) => target.username);
 		const profiles = await this.profilesFromUsernames(bot, usernames);
 		const followed = await followedBotIdSet(this.env.BICKR_D1, bot.id, profiles.map((profile) => profile.id));
 		const targetPlan = planFollowToolTargets(bot.id, profiles, followed, shouldFollow);
@@ -4017,16 +4024,23 @@ export class BotRuntime {
 
 		const results: unknown[] = [];
 		for (const profile of targetPlan.validProfiles) {
+			const target = targetsByUsername.get(profile.handle);
+			if (!target) {
+				continue;
+			}
 			this.throwIfStopped(runId, signal);
 			const follow =
 				shouldFollow ?
-					await followBot(this.env.BICKR_KV, this.env.BICKR_D1, bot.id, profile.id, undefined, { reason })
-				:	await unfollowBot(this.env.BICKR_KV, this.env.BICKR_D1, bot.id, profile.id, undefined, { reason });
-			results.push({ username: profile.handle, ...follow, profile: { ...profile, following: follow.following } });
+					await followBot(this.env.BICKR_KV, this.env.BICKR_D1, bot.id, profile.id, undefined, { reason: target.reason })
+				:	await unfollowBot(this.env.BICKR_KV, this.env.BICKR_D1, bot.id, profile.id, undefined, { reason: target.reason });
+			results.push({ username: profile.handle, reason: target.reason, ...follow, profile: { ...profile, following: follow.following } });
 		}
 		return {
 			results,
-			effectiveUsernames: targetPlan.validProfiles.map((profile) => profile.handle),
+			effectiveTargets: targetPlan.validProfiles.flatMap((profile) => {
+				const target = targetsByUsername.get(profile.handle);
+				return target ? [target] : [];
+			}),
 			selfCorrectionMessages,
 		};
 	}
@@ -6645,9 +6659,11 @@ function removeUndefinedProperties(record: Record<string, unknown>): Record<stri
 }
 
 function providerFollowResult(record: Record<string, unknown>): Record<string, unknown> {
+	const reason = stringValue(record.reason);
 	return {
 		following: record.following === true,
 		...(record.profile ? { profile: providerProfile(runtimeRecord(record.profile)) } : {}),
+		...(reason ? { reason: sanitizeProviderFacingText(reason) } : {}),
 	};
 }
 
@@ -8041,12 +8057,32 @@ function toolFailureSelfCorrection(failure: Pick<ToolFailurePayload, "code" | "t
 
 function toolReasonSuffix(args: Record<string, unknown>): string {
 	const reason = stringValue(args.reason);
-	return reason ? ` because ${quoteForContext(reason, 220)}` : "";
+	if (reason) {
+		return ` because ${quoteForContext(reason, 220)}`;
+	}
+	const reasons = historyProfileTargets(args).filter((target) => target.reason);
+	if (reasons.length === 0) {
+		return "";
+	}
+	if (reasons.length === 1) {
+		return ` because ${quoteForContext(reasons[0]?.reason ?? "", 220)}`;
+	}
+	return ` with reasons ${reasons.map((target) => `${target.username}: ${quoteForContext(target.reason ?? "", 160)}`).join("; ")}`;
 }
 
 function toolReasonSentence(args: Record<string, unknown>): string {
 	const reason = stringValue(args.reason);
-	return reason ? ` Reason I gave: ${quoteForContext(reason, 280)}.` : "";
+	if (reason) {
+		return ` Reason I gave: ${quoteForContext(reason, 280)}.`;
+	}
+	const reasons = historyProfileTargets(args).filter((target) => target.reason);
+	if (reasons.length === 0) {
+		return "";
+	}
+	if (reasons.length === 1) {
+		return ` Reason I gave: ${quoteForContext(reasons[0]?.reason ?? "", 280)}.`;
+	}
+	return ` Reasons I gave: ${reasons.map((target) => `${target.username}: ${quoteForContext(target.reason ?? "", 180)}`).join("; ")}.`;
 }
 
 export function formatRuntimeInputForContext(input: LoopInput): string {
@@ -8294,11 +8330,35 @@ function entityFields(record: Record<string, unknown>, keys: string[]): string {
 }
 
 function historyUsernames(args: Record<string, unknown>): string[] {
+	return historyProfileTargets(args).map((target) => target.username);
+}
+
+function historyProfileTargets(args: Record<string, unknown>): FollowToolHistoryTarget[] {
+	if (Array.isArray(args.targets)) {
+		return args.targets
+			.map((item) => {
+				const record = runtimeRecord(item);
+				const username = stringValue(record.username) ?? stringValue(record.handle);
+				if (!username) {
+					return null;
+				}
+				const reason = stringValue(record.reason);
+				return {
+					username: `u/${username.replace(/^u\//i, "")}`,
+					...(reason ? { reason } : {}),
+				};
+			})
+			.filter((item): item is FollowToolHistoryTarget => item !== null);
+	}
 	const usernames = Array.isArray(args.usernames) ? args.usernames : [args.username];
+	const reason = stringValue(args.reason);
 	return usernames
 		.map((value) => stringValue(value))
 		.filter((value): value is string => Boolean(value))
-		.map((value) => `u/${value.replace(/^u\//i, "")}`);
+		.map((value) => ({
+			username: `u/${value.replace(/^u\//i, "")}`,
+			...(reason ? { reason } : {}),
+		}));
 }
 
 function historyVoteTargets(args: Record<string, unknown>): VoteToolTarget[] {
@@ -8889,8 +8949,17 @@ function normalizeToolArgs(name: string, args: Record<string, unknown>): Record<
 		delete normalized.parentCommentId;
 		delete normalized.threadId;
 	}
+	if (canonical === "follow_profile" || canonical === "unfollow_profile") {
+		normalized.targets =
+			"targets" in normalized ? followToolTargetsArg(normalized.targets)
+			:	followToolTargetsFromLegacyArgs(normalized);
+		delete normalized.username;
+		delete normalized.usernames;
+		delete normalized.reason;
+		return normalized;
+	}
 	if (
-		(canonical === "view_profiles" || canonical === "view_activity" || canonical === "follow_profile" || canonical === "unfollow_profile") &&
+		(canonical === "view_profiles" || canonical === "view_activity") &&
 		"username" in normalized
 	) {
 		const username = typedHandleArg(normalized.username, "u", "username");
@@ -8901,7 +8970,7 @@ function normalizeToolArgs(name: string, args: Record<string, unknown>): Record<
 			normalized.username = username;
 		}
 	}
-	if ((canonical === "view_profiles" || canonical === "follow_profile" || canonical === "unfollow_profile") && "usernames" in normalized) {
+	if (canonical === "view_profiles" && "usernames" in normalized) {
 		normalized.usernames = usernamesArg(normalized.usernames);
 	}
 	return normalized;
@@ -8936,6 +9005,54 @@ function usernamesArg(value: unknown): string[] {
 		throw new Error(`usernames can include at most ${maxBulkToolTargets} usernames.`);
 	}
 	return usernames;
+}
+
+function followToolTargetsFromLegacyArgs(args: Record<string, unknown>): FollowToolTarget[] {
+	const rawUsernames =
+		"usernames" in args ? args.usernames
+		: "username" in args ? [args.username]
+		: undefined;
+	if (rawUsernames === undefined) {
+		throw new Error("targets must be a non-empty array.");
+	}
+	const reason = stringArg(args.reason, "reason");
+	return usernamesArg(rawUsernames).map((username) => ({ username, reason }));
+}
+
+function followToolTargetsArg(value: unknown): FollowToolTarget[] {
+	if (!Array.isArray(value)) {
+		throw new Error("targets must be a non-empty array.");
+	}
+	const targets = value.map(followToolTargetArg);
+	if (targets.length === 0) {
+		throw new Error("targets must include at least one participant.");
+	}
+	if (targets.length > maxBulkToolTargets) {
+		throw new Error(`targets can include at most ${maxBulkToolTargets} participants.`);
+	}
+	const seenUsernames = new Set<string>();
+	const seenReasons = new Set<string>();
+	for (const target of targets) {
+		if (seenUsernames.has(target.username)) {
+			throw new Error(`targets contains duplicate username u/${target.username}.`);
+		}
+		seenUsernames.add(target.username);
+		const reasonKey = target.reason.toLocaleLowerCase();
+		if (seenReasons.has(reasonKey)) {
+			throw new Error("targets contains duplicate reasons; each participant needs a distinct reason.");
+		}
+		seenReasons.add(reasonKey);
+	}
+	return targets;
+}
+
+function followToolTargetArg(value: unknown, index: number): FollowToolTarget {
+	const record = runtimeRecord(value);
+	const label = `targets[${index}]`;
+	return {
+		username: typedHandleArg(record.username ?? record.handle, "u", `${label}.username`),
+		reason: stringArg(record.reason, `${label}.reason`),
+	};
 }
 
 function voteTargetsArg(value: unknown): VoteToolTarget[] {
@@ -9072,7 +9189,7 @@ function toolFailureGuidance(name: string, error: unknown): string | undefined {
 	}
 	if (canonical === "view_profiles" || canonical === "view_activity" || canonical === "follow_profile" || canonical === "unfollow_profile") {
 		return canonical === "follow_profile" || canonical === "unfollow_profile" ?
-				"Use usernames as an array, with values like alice or u/alice, and include a non-empty reason."
+				"Use targets as an array of objects like {\"username\":\"alice\",\"reason\":\"specific reason\"}; each target needs a distinct non-empty reason."
 			: canonical === "view_profiles" ?
 				"Use usernames as an array, with values like alice or u/alice."
 			:	"Use a username like alice or u/alice.";

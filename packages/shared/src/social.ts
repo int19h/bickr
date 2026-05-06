@@ -4218,6 +4218,56 @@ function humanNotificationBodyWithReason(body: string, reason: string | undefine
 	return trimmed ? `${body}\n${trimmed}` : body;
 }
 
+function toolReasonForNotification(args: Record<string, unknown>, result: unknown): string | undefined {
+	const argsRecord = runtimeRecord(args);
+	const reason = stringValue(argsRecord.reason);
+	if (reason) {
+		return reason;
+	}
+	const targetReasons = profileActionTargetReasons(argsRecord);
+	if (targetReasons.length > 0) {
+		return targetReasons.join("\n");
+	}
+	if (Array.isArray(result)) {
+		const resultReasons = result
+			.map((item) => profileActionResultReason(runtimeRecord(item)))
+			.filter((item): item is string => Boolean(item));
+		if (resultReasons.length > 0) {
+			return resultReasons.join("\n");
+		}
+	}
+	return stringValue(runtimeRecord(result).reason);
+}
+
+function profileActionTargetReasons(argsRecord: Record<string, unknown>): string[] {
+	const targets = Array.isArray(argsRecord.targets) ? argsRecord.targets : [];
+	return targets
+		.map((item) => {
+			const record = runtimeRecord(item);
+			const reason = stringValue(record.reason);
+			if (!reason) {
+				return null;
+			}
+			const username = stringValue(record.username) ?? stringValue(record.handle);
+			return profileActionReasonLine(username, reason);
+		})
+		.filter((item): item is string => Boolean(item));
+}
+
+function profileActionResultReason(record: Record<string, unknown>): string | null {
+	const reason = stringValue(record.reason);
+	if (!reason) {
+		return null;
+	}
+	const profile = runtimeRecord(record.profile);
+	const username = stringValue(profile.handle) ?? stringValue(profile.username) ?? stringValue(record.username);
+	return profileActionReasonLine(username, reason);
+}
+
+function profileActionReasonLine(username: string | undefined, reason: string): string {
+	return username ? `${username.startsWith("u/") ? username : `u/${username}`}: ${reason}` : reason;
+}
+
 function profileActionBody(bot: BotDocument, profiles: Record<string, unknown>[], action: "followed" | "unfollowed"): string {
 	if (profiles.length === 1) {
 		const handle = stringValue(profiles[0]?.handle) ?? stringValue(profiles[0]?.username);
@@ -4234,7 +4284,7 @@ function spotlightActionSummary(
 ): { title: string; body: string; urlPath: string; targetType?: string; targetId?: string } | null {
 	const thread = threadFromToolResult(result);
 	const argsRecord = runtimeRecord(args);
-	const reason = stringValue(argsRecord.reason);
+	const reason = toolReasonForNotification(args, result);
 	if ((toolName === "create_thread" || toolName === "create_post") && thread) {
 		return {
 			title: `${bot.displayName} created a thread after a spotlight`,
@@ -4331,7 +4381,7 @@ function spotlightStandardHumanNotification(
 	input: { userId: string; worldId: string; spotlightId: string; now: string },
 ): (HumanNotificationInput & { spotlightId: string; spotlightLabel: string }) | null {
 	const thread = threadFromToolResult(result);
-	const reason = stringValue(runtimeRecord(args).reason);
+	const reason = toolReasonForNotification(args, result);
 	if ((toolName === "create_thread" || toolName === "create_post") && thread) {
 		return {
 			userId: input.userId,

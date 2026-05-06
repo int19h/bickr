@@ -8942,7 +8942,7 @@ function readableToolCallSummary(name: string, args: JsonRecord, result?: unknow
 		case "view_profiles":
 		case "follow_profile":
 		case "unfollow_profile": {
-			const usernames = usernamesFromValue(args.usernames ?? args.username ?? args.profile ?? args.profiles);
+			const usernames = usernamesFromValue(args.targets ?? args.usernames ?? args.username ?? args.profile ?? args.profiles);
 			return (
 				<div className="tool-pretty">
 					{usernames.length > 0 ?

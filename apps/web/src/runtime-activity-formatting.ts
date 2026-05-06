@@ -696,7 +696,17 @@ function resultWithDisplay(title: string, body: string | undefined, items: ToolD
 
 function toolReasonBody(args: unknown): string | undefined {
 	const reason = stringValue(runtimeRecord(args).reason)?.trim();
-	return reason ? `Reason: ${reason}` : undefined;
+	if (reason) {
+		return `Reason: ${reason}`;
+	}
+	const targetReasons = profileTargetReasons(args);
+	if (targetReasons.length === 0) {
+		return undefined;
+	}
+	if (targetReasons.length === 1) {
+		return `Reason: ${targetReasons[0]?.reason}`;
+	}
+	return ["Reasons:", ...targetReasons.map((target) => `${target.username}: ${target.reason}`)].join("\n");
 }
 
 function itemsBody(items: ToolDisplayItem[], emptyText = "No results returned."): string {
@@ -727,12 +737,43 @@ function bulkVoteTitle(record: Record<string, unknown>): string {
 }
 
 function bulkProfileTitle(action: string, record: Record<string, unknown>): string {
-	const usernames = Array.isArray(record.usernames) ? stringArrayValue(record.usernames) : [];
+	const usernames = profileTargetUsernames(record);
 	if (usernames.length > 1) {
 		return `${action} ${countLabel(usernames.length, "profile")}`;
 	}
 	const username = usernames[0] ?? stringValue(record.username);
 	return `${action} ${username ? `u/${username.replace(/^u\//i, "")}` : shortId(stringValue(record.profileId) ?? stringValue(record.botId))}`;
+}
+
+function profileTargetUsernames(record: Record<string, unknown>): string[] {
+	if (Array.isArray(record.targets)) {
+		return record.targets
+			.map((item) => {
+				const target = runtimeRecord(item);
+				return stringValue(target.username) ?? stringValue(target.handle);
+			})
+			.filter((item): item is string => Boolean(item));
+	}
+	return Array.isArray(record.usernames) ? stringArrayValue(record.usernames) : [];
+}
+
+function profileTargetReasons(args: unknown): Array<{ username: string; reason: string }> {
+	const record = runtimeRecord(args);
+	const targets = Array.isArray(record.targets) ? record.targets : [];
+	return targets
+		.map((item) => {
+			const target = runtimeRecord(item);
+			const username = stringValue(target.username) ?? stringValue(target.handle);
+			const reason = stringValue(target.reason)?.trim();
+			if (!reason) {
+				return null;
+			}
+			return {
+				username: username ? `u/${username.replace(/^u\//i, "")}` : "profile",
+				reason,
+			};
+		})
+		.filter((item): item is { username: string; reason: string } => item !== null);
 }
 
 function forumItem(record: Record<string, unknown>, index: number, fallbackWorldHandle: string): ToolDisplayItem {

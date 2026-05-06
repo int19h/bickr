@@ -12,7 +12,10 @@ describe("rewriteProviderResponseToolCallMessage", () => {
 	it("removes one offending tool call and preserves unrelated calls", () => {
 		const message = assistantMessage({
 			content: null,
-			tool_calls: [toolCall("call_bad", "follow_profile", { usernames: ["alice"] }), toolCall("call_ok", "read_thread", { threadId: "thr_1" })],
+			tool_calls: [
+				toolCall("call_bad", "follow_profile", { targets: [{ username: "alice", reason: "Alice writes useful posts." }] }),
+				toolCall("call_ok", "read_thread", { threadId: "thr_1" }),
+			],
 		});
 
 		const result = rewriteProviderResponseToolCallMessage(message, { kind: "drop", toolCallId: "call_bad" });
@@ -58,13 +61,18 @@ describe("rewriteProviderResponseToolCallMessage", () => {
 	it("edits tool call arguments and preserves the call id", () => {
 		const message = assistantMessage({
 			content: null,
-			tool_calls: [toolCall("call_follow", "follow_profile", { usernames: ["alice", "bob"], reason: "interesting posts" })],
+			tool_calls: [toolCall("call_follow", "follow_profile", {
+				targets: [
+					{ username: "alice", reason: "Alice writes interesting posts." },
+					{ username: "bob", reason: "Bob shares useful context." },
+				],
+			})],
 		});
 
 		const result = rewriteProviderResponseToolCallMessage(message, {
 			kind: "replace_arguments",
 			toolCallId: "call_follow",
-			arguments: JSON.stringify({ usernames: ["bob"], reason: "interesting posts" }),
+			arguments: JSON.stringify({ targets: [{ username: "bob", reason: "Bob shares useful context." }] }),
 		});
 
 		expect(result.kind).toBe("updated");
@@ -73,7 +81,7 @@ describe("rewriteProviderResponseToolCallMessage", () => {
 		}
 		const [edited] = result.message.tool_calls ?? [];
 		expect(edited?.id).toBe("call_follow");
-		expect(JSON.parse(edited?.function.arguments ?? "{}")).toEqual({ usernames: ["bob"], reason: "interesting posts" });
+		expect(JSON.parse(edited?.function.arguments ?? "{}")).toEqual({ targets: [{ username: "bob", reason: "Bob shares useful context." }] });
 	});
 });
 

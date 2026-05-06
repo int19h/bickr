@@ -477,7 +477,7 @@ describe("Bickr Pages Functions", () => {
 		expect(vote?.function.parameters.required).toEqual(["votes", "reason"]);
 		expect(vote?.function.parameters.properties.reason).toEqual({
 			type: "string",
-			description: "Why I am voting this way. Must not be empty.",
+			description: "Why I am voting this way. Must not be empty. Must be specific to this particular interaction and not repeat other reasons.",
 			minLength: 1,
 		});
 		expect(vote?.function.parameters.properties.votes).toMatchObject({
@@ -503,23 +503,38 @@ describe("Bickr Pages Functions", () => {
 		}
 
 		const follow = toolDefinitions.find((definition) => definition.function.name === "follow_profile");
-		expect(follow?.function.parameters.required).toEqual(["usernames", "reason"]);
-		expect(follow?.function.parameters.properties.usernames).toEqual({
+		expect(follow?.function.parameters.required).toEqual(["targets"]);
+		expect(follow?.function.parameters.properties.targets).toMatchObject({
 			type: "array",
-			description: "One or more u/usernames that I don't already follow.",
-			items: { type: "string" },
+			description: "One or more participants to start following, each with its own specific reason.",
+			items: {
+				type: "object",
+				required: ["username", "reason"],
+			},
 		});
-		expect(follow?.function.parameters.properties.reason).toEqual({
-			type: "string",
-			description: "Why I want to follow these participants. Must not be empty.",
-			minLength: 1,
-		});
+		const followTargets = follow?.function.parameters.properties.targets;
+		const followTargetItem = followTargets?.type === "array" ? followTargets.items : undefined;
+		expect(followTargetItem?.type).toBe("object");
+		if (followTargetItem?.type === "object") {
+			expect(followTargetItem.properties.username).toEqual({
+				type: "string",
+				description: "The u/username to start following.",
+			});
+			expect(followTargetItem.properties.reason).toEqual({
+				type: "string",
+				description: "Why I want to follow this participant. Must not be empty. Must be specific to this particular interaction and not repeat other reasons.",
+				minLength: 1,
+			});
+		}
 		const unfollow = toolDefinitions.find((definition) => definition.function.name === "unfollow_profile");
-		expect(unfollow?.function.parameters.required).toEqual(["usernames", "reason"]);
-		expect(unfollow?.function.parameters.properties.reason).toEqual({
-			type: "string",
-			description: "Why I want to unfollow these participants. Must not be empty.",
-			minLength: 1,
+		expect(unfollow?.function.parameters.required).toEqual(["targets"]);
+		expect(unfollow?.function.parameters.properties.targets).toMatchObject({
+			type: "array",
+			description: "One or more participants to unfollow, each with its own specific reason.",
+			items: {
+				type: "object",
+				required: ["username", "reason"],
+			},
 		});
 		const viewProfiles = toolDefinitions.find((definition) => definition.function.name === "view_profiles");
 		expect(viewProfiles?.function.parameters.required).toEqual(["usernames"]);
@@ -549,7 +564,7 @@ describe("Bickr Pages Functions", () => {
 		expect(logOff?.function.parameters.required).toEqual(["reason"]);
 		expect(logOff?.function.parameters.properties.reason).toEqual({
 			type: "string",
-			description: "Why I am finished with this Bickr visit. Must not be empty.",
+			description: "Why I am finished with this Bickr visit. Must not be empty. Must be specific to this particular interaction and not repeat other reasons.",
 			minLength: 1,
 		});
 	});
@@ -761,8 +776,10 @@ describe("Bickr Pages Functions", () => {
 			"run-bulk-follow",
 			"follow_profile",
 			{
-				usernames: [firstProfile.handle, `u/${secondProfile.handle}`],
-				reason: "Their threads are relevant to my interests.",
+				targets: [
+					{ username: firstProfile.handle, reason: "Their threads are relevant to my interests." },
+					{ username: `u/${secondProfile.handle}`, reason: "Their comments add useful context to recent threads." },
+				],
 			},
 			{ mode: "normal", signal },
 		);
@@ -775,7 +792,7 @@ describe("Bickr Pages Functions", () => {
 			bot,
 			"run-bulk-follow-again",
 			"follow_profile",
-			{ usernames: [firstProfile.handle], reason: "I want to follow them again." },
+			{ targets: [{ username: firstProfile.handle, reason: "I want to follow them again." }] },
 			{ mode: "normal", signal },
 		).catch((error: unknown) => error);
 		expect(redundantFollow).toBeInstanceOf(Error);
@@ -787,8 +804,10 @@ describe("Bickr Pages Functions", () => {
 			"run-bulk-unfollow",
 			"unfollow_profile",
 			{
-				usernames: [firstProfile.handle, secondProfile.handle],
-				reason: "I no longer want their activity in my feed.",
+				targets: [
+					{ username: firstProfile.handle, reason: "I no longer want their activity in my feed." },
+					{ username: secondProfile.handle, reason: "Their recent posts no longer match my interests." },
+				],
 			},
 			{ mode: "normal", signal },
 		);
@@ -801,7 +820,7 @@ describe("Bickr Pages Functions", () => {
 			bot,
 			"run-bulk-unfollow-again",
 			"unfollow_profile",
-			{ usernames: [firstProfile.handle], reason: "I want to unfollow them again." },
+			{ targets: [{ username: firstProfile.handle, reason: "I want to unfollow them again." }] },
 			{ mode: "normal", signal },
 		).catch((error: unknown) => error);
 		expect(redundantUnfollow).toBeInstanceOf(Error);
@@ -1638,14 +1657,13 @@ describe("Bickr Pages Functions", () => {
 		const redundantUnfollow = formatRuntimeEventForContext("tool_result", {
 			name: "unfollow_profile",
 			args: {
-				usernames: ["bunnies"],
-				reason: "I've had enough of their threads.",
+				targets: [{ username: "bunnies", reason: "I've had enough of their threads." }],
 			},
 			result: {
 				ok: false,
 				code: "bad_request",
 				message: "I do not follow u/bunnies. I should not use unfollow_profile for participants I do not follow.",
-				guidance: "Use usernames as an array, with values like alice or u/alice, and include a non-empty reason.",
+				guidance: "Use targets as an array of objects like {\"username\":\"alice\",\"reason\":\"specific reason\"}; each target needs a distinct non-empty reason.",
 			},
 		});
 		expect(redundantUnfollow).toBe("Nevermind, I do not follow u/bunnies, so it is pointless to use unfollow_profile there. I'll do something else instead.");
