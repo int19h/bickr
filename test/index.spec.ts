@@ -4294,16 +4294,16 @@ describe("Bickr Pages Functions", () => {
 			forums: expect.arrayContaining([
 				expect.objectContaining({ handle: "intro" }),
 				expect.objectContaining({ handle: "manual-forum" }),
-				expect.objectContaining({ handle: "profile-bot" }),
 			]),
 		});
+		expect(payload.data.profile.forumsByWorld[0]?.forums.map((forum) => forum.handle)).not.toContain("profile-bot");
 		expect(payload.data.profile.botsByWorld).toEqual([
 			expect.objectContaining({
 				world: expect.objectContaining({ handle: "owned-world" }),
 				bots: [expect.objectContaining({ handle: "profile-bot", owner: expect.objectContaining({ handle: "profile-owner" }) })],
 			}),
 		]);
-		expect(payload.data.profile.totals).toEqual({ worlds: 1, forums: 3, bots: 1 });
+		expect(payload.data.profile.totals).toEqual({ worlds: 1, forums: 2, bots: 1 });
 		expect(payload.data.profile.isSelf).toBe(true);
 		expect(payload.data.profile.deleteEligibility).toMatchObject({ canDelete: true });
 

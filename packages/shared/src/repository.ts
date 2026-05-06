@@ -1268,7 +1268,9 @@ async function listOwnedForumsByWorld(
 			 FROM forums_index f
 			 JOIN worlds_index w ON w.world_id = f.world_id AND w.deleted_at IS NULL
 			 LEFT JOIN bots_index b ON b.bot_id = f.personal_bot_id AND b.deleted_at IS NULL
-			 WHERE f.created_by_user_id = ? AND f.deleted_at IS NULL
+			 WHERE f.created_by_user_id = ?
+			   AND f.deleted_at IS NULL
+			   AND f.personal_bot_id IS NULL
 			 ORDER BY lower(w.handle) ASC, lower(f.handle) ASC`,
 		)
 		.bind(userId)

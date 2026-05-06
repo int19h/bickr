@@ -4521,8 +4521,23 @@ button:disabled {
 	gap: 10px;
 }
 
-.human-profile-header {
-	align-items: center;
+.human-profile-head {
+	grid-template-columns: 96px minmax(0, 1fr) auto;
+	margin-bottom: 22px;
+}
+
+.human-profile-head .avatar {
+	grid-row: 1;
+}
+
+.human-profile-head .meta {
+	align-self: center;
+	grid-row: 1;
+}
+
+.human-profile-head .human-profile-stats {
+	align-self: center;
+	grid-row: 1;
 }
 
 .human-profile-stats {
@@ -4954,6 +4969,16 @@ button:disabled {
 
 	.profile-head .actions {
 		justify-self: start;
+	}
+
+	.human-profile-head .avatar,
+	.human-profile-head .meta,
+	.human-profile-head .human-profile-stats {
+		grid-row: auto;
+	}
+
+	.human-profile-head .human-profile-stats {
+		justify-content: flex-start;
 	}
 }
 

@@ -6146,20 +6146,13 @@ function HumanProfileScreen({
 
 	return (
 		<div className="main-inner">
-			<div className="thread-crumb">
-				<span>
-					<Reference kind="human" link={false} name={profile.user.handle} />
-				</span>
-			</div>
-			<div className="page-header human-profile-header">
-				<div className="page-title-block">
-					<h1>
-						<Avatar actor="user" colorSeed={profile.user.handle} name={profile.user.displayName} size="lg" />
-						<span>{profile.user.displayName}</span>
-					</h1>
-					<p className="sub">
+			<div className="profile-head human-profile-head">
+				<Avatar actor="user" colorSeed={profile.user.handle} name={profile.user.displayName} size="xl" />
+				<div className="meta">
+					<h1 className="name">{profile.user.displayName}</h1>
+					<div className="handle">
 						<Reference kind="human" link={false} name={profile.user.handle} />
-					</p>
+					</div>
 				</div>
 				<div className="human-profile-stats">
 					<span><b>{profile.totals.worlds}</b> worlds</span>
