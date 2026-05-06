@@ -1930,16 +1930,19 @@ function SubscriptionButton({
 	active,
 	label = "Watch",
 	onToggle,
+	title,
 }: {
 	active: boolean;
 	label?: string;
 	onToggle: (active: boolean) => void;
+	title?: string;
 }) {
 	return (
 		<button
 			aria-pressed={active}
 			className={`btn watch-btn ${active ? "active" : ""}`}
 			onClick={() => onToggle(!active)}
+			title={title}
 			type="button"
 		>
 			<Icon name="bell" size={13} />
@@ -3663,6 +3666,7 @@ function ThreadPage({
 		subscription.scopeType === "thread" && subscription.scopeId === thread.id && subscription.active,
 	);
 	const canDeleteThread = canModerateForum || (rootComment ? ownedBotIds.has(rootComment.authorBotId) : false);
+	const displayedImpliedCommentIds = threadSelected ? new Set(thread.comments.map((comment) => comment.id)) : impliedCommentIds;
 
 	return (
 		<div className="main-inner thread-shell">
@@ -3682,15 +3686,16 @@ function ThreadPage({
 				<div className="thread-title-row">
 					<label className="thread-spot-check">
 						<input
-							aria-label="Spotlight whole thread"
+							aria-label="Spotlight this entire thread"
 							checked={threadSelected}
-							className="cb cb-lg"
+							className="cb"
 							onChange={(event) => {
 								setThreadSelected(event.target.checked);
 								if (event.target.checked) {
 									setSelectedComments({});
 								}
 							}}
+							title="Spotlight this entire thread"
 							type="checkbox"
 						/>
 					</label>
@@ -3701,13 +3706,14 @@ function ThreadPage({
 					<div className="thread-title-actions">
 						<SubscriptionButton
 							active={threadSubscribed}
-							label="Watch thread"
+							label="Watch"
 							onToggle={(active) =>
 								void onToggleSubscription(
 									{ scopeType: "thread", scopeId: thread.id, worldId: thread.worldId },
 									active,
 								)
 							}
+							title="Watch this thread to get notifications when new comments are posted."
 						/>
 						{canDeleteThread && (
 							<button className="btn danger compact" onClick={() => setConfirmThreadDelete(true)} type="button">
@@ -3718,29 +3724,9 @@ function ThreadPage({
 					</div>
 				</div>
 				<div className="meta">
-					{rootComment && (
-						<span className="inline-author">
-							<Avatar actor="bot" colorSeed={rootComment.authorHandle} name={rootComment.authorDisplayName} size="sm" />
-							<AuthorReference
-								displayName={rootComment.authorDisplayName}
-								handle={rootComment.authorHandle}
-								onOpen={() => onReference("bot", rootComment.authorHandle, { worldHandle: thread.worldHandle })}
-							/>
-						</span>
-					)}
 					<span>{thread.commentCount} comments</span>
-					<span>active {timeAgo(thread.lastActivityAt)}</span>
 				</div>
 			</header>
-
-			<div className="spot-select-head">
-				<span>
-					{threadSelected ? "Whole thread selected"
-					: selectedCommentIds.length > 0 ?
-						`${selectedCommentIds.length} comments selected`
-					:	"Select comments to spotlight. Ancestors are included automatically."}
-				</span>
-			</div>
 
 			{activityNotice && (
 				<ActivityBanner
@@ -3764,7 +3750,7 @@ function ThreadPage({
 							setThreadSelected(false);
 							setSelectedComments((current) => ({ ...current, [commentId]: checked }));
 						}}
-						implied={impliedCommentIds}
+						implied={displayedImpliedCommentIds}
 						onReference={onReference}
 						onToggleSubscription={onToggleSubscription}
 						onRequestDelete={
@@ -3905,11 +3891,12 @@ function CommentNode({
 		>
 			<div className="checkcell">
 				<input
-					aria-label={`Spotlight comment by ${comment.authorHandle}`}
+					aria-label="Spotlight this reply chain"
 					checked={checked}
 					className="cb"
 					ref={checkboxRef}
 					onChange={(event) => onToggle(comment.id, event.target.checked)}
+					title="Spotlight this reply chain"
 					type="checkbox"
 				/>
 			</div>
