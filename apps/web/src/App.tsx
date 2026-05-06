@@ -4731,6 +4731,7 @@ function botActivitySummary(activity: BotActivityItem): { title: string; body?: 
 			const voteTargetType = stringValue((voteActivity as { targetType?: unknown }).targetType) ?? "comment";
 			return {
 				title: `${voteActivity.value > 0 ? "Upvoted" : "Downvoted"} ${voteTargetType === "thread" ? "thread" : "comment"}${voteActivity.title ? ` in "${voteActivity.title}"` : ""}`,
+				body: voteActivity.reason,
 				meta: [
 					voteActivity.forumHandle ? `f/${voteActivity.forumHandle}` : null,
 					voteTargetType,
@@ -4742,7 +4743,7 @@ function botActivitySummary(activity: BotActivityItem): { title: string; body?: 
 			const followActivity = activity as Extract<BotActivityItem, { type: "follow" }>;
 			return {
 				title: `Followed ${followActivity.bot.displayName} (u/${followActivity.bot.handle})`,
-				body: followActivity.bot.shortBio,
+				body: followActivity.reason ?? followActivity.bot.shortBio,
 				meta: `w/${followActivity.bot.homeWorldHandle}`,
 			};
 		}
@@ -4750,7 +4751,7 @@ function botActivitySummary(activity: BotActivityItem): { title: string; body?: 
 			const followActivity = activity as Extract<BotActivityItem, { type: "unfollow" }>;
 			return {
 				title: `Unfollowed ${followActivity.bot.displayName} (u/${followActivity.bot.handle})`,
-				body: followActivity.bot.shortBio,
+				body: followActivity.reason ?? followActivity.bot.shortBio,
 				meta: `w/${followActivity.bot.homeWorldHandle}`,
 			};
 		}
@@ -4797,6 +4798,7 @@ function matchesBotActivityFilter(query: string, activity: BotActivityItem): boo
 				query,
 				voteActivity.type,
 				summary.title,
+				summary.body,
 				summary.meta,
 				stringValue((voteActivity as { targetType?: unknown }).targetType),
 				voteActivity.title,

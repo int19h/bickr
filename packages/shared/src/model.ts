@@ -671,18 +671,21 @@ export type BotActivityItem =
 			worldHandle?: string;
 			forumHandle?: string;
 			title?: string;
+			reason?: string;
 			updatedAt: string;
 	  }
 	| {
 			type: "follow";
 			id: string;
 			bot: BotPublicProfile;
+			reason?: string;
 			createdAt: string;
 	  }
 	| {
 			type: "unfollow";
 			id: string;
 			bot: BotPublicProfile;
+			reason?: string;
 			createdAt: string;
 	  };
 

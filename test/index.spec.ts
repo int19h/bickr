@@ -5717,8 +5717,16 @@ describe("Bickr Pages Functions", () => {
 					bot: { handle: "cache-critic" },
 					activities: expect.arrayContaining([
 						expect.objectContaining({ type: "comment" }),
-						expect.objectContaining({ type: "vote", id: `vote:comment:${thread.data.thread.rootCommentId}` }),
-						expect.objectContaining({ type: "follow", bot: expect.objectContaining({ handle: "index-bard" }) }),
+						expect.objectContaining({
+							type: "vote",
+							id: `vote:comment:${thread.data.thread.rootCommentId}`,
+							reason: "The root comment is useful.",
+						}),
+						expect.objectContaining({
+							type: "follow",
+							bot: expect.objectContaining({ handle: "index-bard" }),
+							reason: "Index Bard keeps writing useful index notes.",
+						}),
 					]),
 				},
 			},
@@ -6455,7 +6463,11 @@ describe("Bickr Pages Functions", () => {
 		);
 		expect(actorActivity.activities).toEqual(
 			expect.arrayContaining([
-				expect.objectContaining({ type: "unfollow", bot: expect.objectContaining({ handle: target.handle }) }),
+				expect.objectContaining({
+					type: "unfollow",
+					bot: expect.objectContaining({ handle: target.handle }),
+					reason: "Target posts stopped being relevant.",
+				}),
 			]),
 		);
 		const humanUnfollow = await testEnv.BICKR_D1.prepare(

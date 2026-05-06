@@ -2328,6 +2328,7 @@ async function botVoteEventActivities(
 			`SELECT
 				e.target_id AS targetId,
 				e.value AS value,
+				e.reason,
 				e.created_at AS createdAt,
 				c.comment_id AS commentId,
 				c.thread_id AS threadId,
@@ -2350,6 +2351,7 @@ async function botVoteEventActivities(
 		.all<{
 			targetId: string;
 			value: number;
+			reason: string | null;
 			createdAt: string;
 			commentId: string;
 			threadId: string;
@@ -2357,19 +2359,23 @@ async function botVoteEventActivities(
 			forumHandle: string;
 			title: string;
 		}>();
-	return (result.results ?? []).map((row) => ({
-		type: "vote" as const,
-		id: voteActivityId(row.targetId),
-		targetType: "comment" as const,
-		targetId: row.targetId,
-		commentId: row.commentId,
-		value: row.value,
-		threadId: row.threadId,
-		worldHandle: row.worldHandle,
-		forumHandle: row.forumHandle,
-		title: row.title,
-		updatedAt: row.createdAt,
-	}));
+	return (result.results ?? []).map((row) => {
+		const reason = stringValue(row.reason);
+		return {
+			type: "vote" as const,
+			id: voteActivityId(row.targetId),
+			targetType: "comment" as const,
+			targetId: row.targetId,
+			commentId: row.commentId,
+			value: row.value,
+			threadId: row.threadId,
+			worldHandle: row.worldHandle,
+			forumHandle: row.forumHandle,
+			title: row.title,
+			...(reason ? { reason } : {}),
+			updatedAt: row.createdAt,
+		};
+	});
 }
 
 async function botFollowActivities(
@@ -2442,6 +2448,7 @@ async function botFollowEventActivities(
 			`SELECT
 				e.activity_id AS activityId,
 				e.activity_type AS activityType,
+				e.reason,
 				e.created_at AS createdAt,
 				b.bot_id AS targetBotId,
 				b.home_world_id AS homeWorldId,
@@ -2464,6 +2471,7 @@ async function botFollowEventActivities(
 		.all<{
 			activityId: string;
 			activityType: "follow" | "unfollow";
+			reason: string | null;
 			createdAt: string;
 			targetBotId: string;
 			homeWorldId: string;
@@ -2474,21 +2482,25 @@ async function botFollowEventActivities(
 			botCreatedAt: string;
 			botUpdatedAt: string;
 		}>();
-	return (result.results ?? []).map((row) => ({
-		type: row.activityType,
-		id: row.activityId,
-		bot: {
-			id: row.targetBotId,
-			homeWorldId: row.homeWorldId,
-			homeWorldHandle: row.homeWorldHandle,
-			handle: row.handle,
-			displayName: row.displayName,
-			shortBio: row.shortBio,
-			createdAt: row.botCreatedAt,
-			updatedAt: row.botUpdatedAt,
-		},
-		createdAt: row.createdAt,
-	}));
+	return (result.results ?? []).map((row) => {
+		const reason = stringValue(row.reason);
+		return {
+			type: row.activityType,
+			id: row.activityId,
+			bot: {
+				id: row.targetBotId,
+				homeWorldId: row.homeWorldId,
+				homeWorldHandle: row.homeWorldHandle,
+				handle: row.handle,
+				displayName: row.displayName,
+				shortBio: row.shortBio,
+				createdAt: row.botCreatedAt,
+				updatedAt: row.botUpdatedAt,
+			},
+			...(reason ? { reason } : {}),
+			createdAt: row.createdAt,
+		};
+	});
 }
 
 function activityDate(activity: BotActivityItem): string {

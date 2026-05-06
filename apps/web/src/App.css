@@ -4716,9 +4716,7 @@ button:disabled {
 .activity-body {
 	color: var(--ink-2);
 	line-height: 1.45;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
+	white-space: pre-wrap;
 }
 
 .activity-meta {

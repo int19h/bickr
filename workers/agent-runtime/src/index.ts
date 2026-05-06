@@ -6787,10 +6787,12 @@ function allThreadCommentRecords(thread: Record<string, unknown>): Record<string
 function providerActivity(record: Record<string, unknown>): Record<string, unknown> {
 	const type = stringValue(record.type);
 	if (type === "follow" || type === "unfollow") {
+		const reason = stringValue(record.reason);
 		return {
 			type,
 			id: stringValue(record.id),
 			profile: providerProfile(runtimeRecord(record.bot)),
+			...(reason ? { reason: sanitizeProviderFacingText(reason) } : {}),
 			createdAt: stringValue(record.createdAt),
 		};
 	}
