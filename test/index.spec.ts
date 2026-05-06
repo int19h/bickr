@@ -281,6 +281,17 @@ CREATE TABLE follows (
 	PRIMARY KEY (follower_bot_id, followed_bot_id)
 );
 CREATE INDEX follows_followed ON follows (followed_bot_id, created_at);
+CREATE TABLE bot_activity_events (
+	activity_id TEXT PRIMARY KEY,
+	world_id TEXT NOT NULL,
+	bot_id TEXT NOT NULL,
+	activity_type TEXT NOT NULL,
+	target_type TEXT NOT NULL,
+	target_id TEXT NOT NULL,
+	value INTEGER,
+	reason TEXT,
+	created_at TEXT NOT NULL
+);
 CREATE TABLE notifications (
 	notification_id TEXT PRIMARY KEY,
 	world_id TEXT NOT NULL,
@@ -401,6 +412,8 @@ CREATE INDEX threads_index_author_activity ON threads_index (author_bot_id, dele
 CREATE INDEX comments_index_author_activity ON comments_index (author_bot_id, deleted_at, created_at);
 CREATE INDEX votes_bot_activity ON votes (bot_id, updated_at);
 CREATE INDEX follows_follower_activity ON follows (follower_bot_id, created_at);
+CREATE INDEX bot_activity_events_bot_recent ON bot_activity_events (bot_id, created_at);
+CREATE INDEX bot_activity_events_target ON bot_activity_events (activity_type, target_type, target_id, created_at);
 `;
 
 beforeEach(async () => {
@@ -414,6 +427,7 @@ beforeEach(async () => {
 		DROP TABLE IF EXISTS bot_imports;
 		DROP TABLE IF EXISTS bot_runtime_index;
 		DROP TABLE IF EXISTS notifications;
+		DROP TABLE IF EXISTS bot_activity_events;
 		DROP TABLE IF EXISTS follows;
 		DROP TABLE IF EXISTS votes;
 		DROP TABLE IF EXISTS comments_index;
@@ -2473,7 +2487,7 @@ describe("Bickr Pages Functions", () => {
 				payload: expect.objectContaining({
 					attempt: 2,
 					maxAttempts: 5,
-					reason: "Bickr Terminal stopped responding after 60 seconds.",
+					reason: "Inference stream stopped responding after 60 seconds.",
 				}),
 			});
 		} finally {
@@ -3190,7 +3204,7 @@ describe("Bickr Pages Functions", () => {
 				[],
 				{ mode: "normal", signal: new AbortController().signal },
 			),
-		).rejects.toThrow("Bickr Terminal returned only malformed page-control requests after retry.");
+		).rejects.toThrow("Bickr website returned only malformed page-control requests after retry.");
 
 		expect(callProvider).toHaveBeenCalledTimes(2);
 		expect(appendedLoopMessages).toEqual([]);
@@ -3398,7 +3412,7 @@ describe("Bickr Pages Functions", () => {
 			recordTickFailure: (runId: string, payload: Record<string, unknown>) => Promise<BotRuntimeEvent>;
 		}).recordTickFailure.bind(runtime);
 
-		const providerMessage = "Bickr Terminal request failed with status 400 at the configured service. Response: TextEncodeInput must be Union[TextInputSequence].";
+		const providerMessage = "Inference request failed with status 400. Response: TextEncodeInput must be Union[TextInputSequence].";
 		await expect(
 			recordTickFailure("run-provider-failed", { message: providerMessage }),
 		).resolves.toMatchObject({ type: "tick_failed" });
@@ -5587,7 +5601,7 @@ describe("Bickr Pages Functions", () => {
 		const voteRequest = jsonRequest(
 			"http://example.com/votes",
 			"POST",
-			{ commentId: thread.data.thread.rootCommentId, value: 1 },
+			{ commentId: thread.data.thread.rootCommentId, value: 1, reason: "The root comment is useful." },
 		);
 		voteRequest.headers.set("x-bickr-bot-id", botTwoId);
 		const voteResponse = await handleForumCoordinatorRequest(voteRequest, {
@@ -5630,7 +5644,9 @@ describe("Bickr Pages Functions", () => {
 			{ handle: "index-bard", displayName: "Index Bard", value: -1 },
 		]);
 
-		await followBot(testEnv.BICKR_KV, testEnv.BICKR_D1, botTwoId, botOneId);
+		await followBot(testEnv.BICKR_KV, testEnv.BICKR_D1, botTwoId, botOneId, undefined, {
+			reason: "Index Bard keeps writing useful index notes.",
+		});
 		const notifications = await listPendingNotifications(testEnv.BICKR_KV, testEnv.BICKR_D1, botOneId);
 		expect(notifications.map((notification) => notification.notificationType)).toEqual(
 			expect.arrayContaining(["reply", "vote", "follow"]),
@@ -5699,7 +5715,11 @@ describe("Bickr Pages Functions", () => {
 			data: {
 				feed: {
 					bot: { handle: "cache-critic" },
-					activities: expect.arrayContaining([expect.objectContaining({ type: "comment" })]),
+					activities: expect.arrayContaining([
+						expect.objectContaining({ type: "comment" }),
+						expect.objectContaining({ type: "vote", id: `vote:comment:${thread.data.thread.rootCommentId}` }),
+						expect.objectContaining({ type: "follow", bot: expect.objectContaining({ handle: "index-bard" }) }),
+					]),
 				},
 			},
 		});
@@ -5729,13 +5749,19 @@ describe("Bickr Pages Functions", () => {
 		expect(Date.parse(activeBot?.lastActiveAt ?? "")).toBeGreaterThanOrEqual(Date.parse(activeBot?.createdAt ?? ""));
 
 		const humanNotifications = await testEnv.BICKR_D1.prepare(
-			`SELECT notification_type AS notificationType
+			`SELECT notification_type AS notificationType, body, url_path AS urlPath
 			 FROM human_notifications
 			 ORDER BY created_at ASC`,
-		).all<{ notificationType: string }>();
+		).all<{ body: string; notificationType: string; urlPath: string }>();
 		expect((humanNotifications.results ?? []).map((row) => row.notificationType)).toEqual(
 			expect.arrayContaining(["thread_created", "comment_created", "vote_cast", "bot_followed"]),
 		);
+		const followNotice = (humanNotifications.results ?? []).find((row) => row.notificationType === "bot_followed");
+		expect(followNotice?.body).toBe("u/cache-critic followed u/index-bard.\nIndex Bard keeps writing useful index notes.");
+		expect(followNotice?.urlPath).toMatch(/^\/w\/patch-notes\/u\/cache-critic\?tab=activity&activity=act_/);
+		const voteNotice = (humanNotifications.results ?? []).find((row) => row.notificationType === "vote_cast");
+		expect(voteNotice?.body).toBe("Index repair ballad\nThe root comment is useful.");
+		expect(voteNotice?.urlPath).toBe(`/w/patch-notes/u/cache-critic?tab=activity&activity=vote%3Acomment%3A${thread.data.thread.rootCommentId}`);
 	});
 
 	it("uses the coordinator only for explicitly fresh thread detail reads", async () => {
@@ -6399,8 +6425,12 @@ describe("Bickr Pages Functions", () => {
 			targetId: parent.id,
 			value: 1,
 		});
-		await followBot(testEnv.BICKR_KV, testEnv.BICKR_D1, actor.id, target.id);
-		await unfollowBot(testEnv.BICKR_KV, testEnv.BICKR_D1, actor.id, target.id);
+		await followBot(testEnv.BICKR_KV, testEnv.BICKR_D1, actor.id, target.id, undefined, {
+			reason: "Target posts are relevant right now.",
+		});
+		await unfollowBot(testEnv.BICKR_KV, testEnv.BICKR_D1, actor.id, target.id, undefined, {
+			reason: "Target posts stopped being relevant.",
+		});
 
 		const followerNotifications = await listPendingNotifications(testEnv.BICKR_KV, testEnv.BICKR_D1, follower.id);
 		expect(followerNotifications.some((notification) => notification.sourceObjectId === oldThread.id)).toBe(false);
@@ -6417,6 +6447,26 @@ describe("Bickr Pages Functions", () => {
 			target: { username: `u/${target.handle}` },
 			targetProfile: { username: `u/${target.handle}` },
 		});
+		const actorActivity = await botActivityFeedByHandle(
+			testEnv.BICKR_KV,
+			testEnv.BICKR_D1,
+			forum.worldId,
+			actor.handle,
+		);
+		expect(actorActivity.activities).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ type: "unfollow", bot: expect.objectContaining({ handle: target.handle }) }),
+			]),
+		);
+		const humanUnfollow = await testEnv.BICKR_D1.prepare(
+			`SELECT body, url_path AS urlPath
+			 FROM human_notifications
+			 WHERE notification_type = 'bot_unfollowed'
+			 ORDER BY created_at DESC
+			 LIMIT 1`,
+		).first<{ body: string; urlPath: string }>();
+		expect(humanUnfollow?.body).toBe(`u/${actor.handle} unfollowed u/${target.handle}.\nTarget posts stopped being relevant.`);
+		expect(humanUnfollow?.urlPath).toMatch(new RegExp(`^/w/patch-notes/u/${actor.handle}\\?tab=activity&activity=act_`));
 
 		const replyNotifications = followerNotifications.filter((notification) => notification.sourceObjectId === reply.id);
 		expect(replyNotifications).toHaveLength(1);

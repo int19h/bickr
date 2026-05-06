@@ -788,6 +788,7 @@ async function notifyHumanVoteCast(
 	input: VoteInput,
 	actor: BotDocument,
 	now: string,
+	options: BotActivityNotificationOptions = {},
 ): Promise<void> {
 	if (input.value === 0) {
 		return;
@@ -809,8 +810,8 @@ async function notifyHumanVoteCast(
 			targetType: "comment",
 			targetId: input.targetId,
 			title: `${actor.displayName} ${direction} a comment`,
-			body: threadTitle(thread),
-			urlPath: commentUrlPath(thread, input.targetId),
+			body: humanNotificationBodyWithReason(threadTitle(thread), input.reason),
+			urlPath: botActivityUrlPath(actor, options.activityId ?? voteActivityId(input.targetId)),
 			now,
 		});
 	}
@@ -821,6 +822,7 @@ async function notifyHumanFollowCreated(
 	follower: BotDocument,
 	followed: BotDocument,
 	now: string,
+	options: BotActivityNotificationOptions = {},
 ): Promise<void> {
 	const users = await subscribedUsersForScopes(db, [
 		{ scopeType: "world", scopeId: follower.homeWorldId },
@@ -838,8 +840,38 @@ async function notifyHumanFollowCreated(
 			targetType: "bot",
 			targetId: followed.id,
 			title: `${follower.displayName} followed ${followed.displayName}`,
-			body: `u/${follower.handle} followed u/${followed.handle}.`,
-			urlPath: botUrlPath(followed),
+			body: humanNotificationBodyWithReason(`u/${follower.handle} followed u/${followed.handle}.`, options.reason),
+			urlPath: botActivityUrlPath(follower, options.activityId),
+			now,
+		});
+	}
+}
+
+async function notifyHumanFollowRemoved(
+	db: D1DatabaseLike,
+	follower: BotDocument,
+	followed: BotDocument,
+	now: string,
+	options: BotActivityNotificationOptions = {},
+): Promise<void> {
+	const users = await subscribedUsersForScopes(db, [
+		{ scopeType: "world", scopeId: follower.homeWorldId },
+		{ scopeType: "bot", scopeId: follower.id },
+	]);
+	for (const userId of users) {
+		await insertHumanNotification(db, {
+			userId,
+			worldId: follower.homeWorldId,
+			eventKey: `bot_unfollowed:${follower.id}:${followed.id}:${now}`,
+			notificationType: "bot_unfollowed",
+			actor: follower,
+			sourceType: "follow",
+			sourceId: `${follower.id}:${followed.id}`,
+			targetType: "bot",
+			targetId: followed.id,
+			title: `${follower.displayName} unfollowed ${followed.displayName}`,
+			body: humanNotificationBodyWithReason(`u/${follower.handle} unfollowed u/${followed.handle}.`, options.reason),
+			urlPath: botActivityUrlPath(follower, options.activityId),
 			now,
 		});
 	}
@@ -871,7 +903,7 @@ export async function recordSpotlightToolHumanNotification(
 		return;
 	}
 	const action = spotlightActionSummary(input.toolName, input.args, input.result, input.bot);
-	const standardNotification = spotlightStandardHumanNotification(input.toolName, input.result, input.bot, {
+	const standardNotification = spotlightStandardHumanNotification(input.toolName, input.args, input.result, input.bot, {
 		userId: delivery.userId,
 		worldId: delivery.worldId,
 		spotlightId: input.spotlightId,
@@ -1089,6 +1121,33 @@ async function insertHumanNotification(
 			input.now,
 		)
 		.run();
+}
+
+async function insertBotActivityEvent(
+	db: D1DatabaseLike,
+	input: BotActivityEventInput,
+): Promise<string> {
+	const activityId = input.activityId ?? makeId("act");
+	await db
+		.prepare(
+			`${input.replace ? "INSERT OR REPLACE" : "INSERT"} INTO bot_activity_events (
+				activity_id, world_id, bot_id, activity_type, target_type, target_id,
+				value, reason, created_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		)
+		.bind(
+			activityId,
+			input.worldId,
+			input.botId,
+			input.activityType,
+			input.targetType,
+			input.targetId,
+			input.value ?? null,
+			input.reason ?? null,
+			input.now,
+		)
+		.run();
+	return activityId;
 }
 
 async function insertOrAnnotateSpotlightHumanNotification(
@@ -1389,6 +1448,23 @@ export async function setVote(
 		await upsertCommentIndex(db, updated, comment);
 	}
 
+	let activityId: string | undefined;
+	if (delta !== 0 && voteInput.value !== 0) {
+		await insertBotActivityEvent(db, {
+			activityId: voteActivityStorageId(voteInput.botId, voteInput.targetId),
+			worldId: updated.worldId,
+			botId: voter.id,
+			activityType: "vote",
+			targetType: "comment",
+			targetId: voteInput.targetId,
+			value: voteInput.value,
+			reason: voteInput.reason,
+			now,
+			replace: true,
+		});
+		activityId = voteActivityId(voteInput.targetId);
+	}
+
 	if (delta !== 0) {
 		const targetComment = updated.comments.find((item) => item.id === voteInput.targetId);
 		const notificationRecipients = newNotificationRecipientDrafts();
@@ -1421,7 +1497,7 @@ export async function setVote(
 			},
 			sourceObjectId: voteInput.targetId,
 		}, now);
-		await notifyHumanVoteCast(db, updated, voteInput, voter, now);
+		await notifyHumanVoteCast(db, updated, voteInput, voter, now, { activityId });
 	}
 
 	return updated;
@@ -1582,7 +1658,8 @@ export async function followBot(
 	followerBotId: string,
 	followedBotId: string,
 	now = new Date().toISOString(),
-): Promise<{ following: boolean }> {
+	options: { reason?: string } = {},
+): Promise<{ activityId?: string; following: boolean }> {
 	if (followerBotId === followedBotId) {
 		throw repositoryError("bad_request", "A bot cannot follow itself.", 400);
 	}
@@ -1594,6 +1671,7 @@ export async function followBot(
 		.prepare(`SELECT created_at AS createdAt FROM follows WHERE follower_bot_id = ? AND followed_bot_id = ?`)
 		.bind(followerBotId, followedBotId)
 		.first<{ createdAt: string }>();
+	let activityId: string | undefined;
 	if (!existing) {
 		await db
 			.prepare(
@@ -1602,6 +1680,15 @@ export async function followBot(
 			)
 			.bind(follower.homeWorldId, followerBotId, followedBotId, now)
 			.run();
+		activityId = await insertBotActivityEvent(db, {
+			worldId: follower.homeWorldId,
+			botId: follower.id,
+			activityType: "follow",
+			targetType: "bot",
+			targetId: followed.id,
+			reason: options.reason,
+			now,
+		});
 		const notificationRecipients = newNotificationRecipientDrafts();
 		addNotificationRecipient(notificationRecipients, {
 			botId: followedBotId,
@@ -1623,9 +1710,12 @@ export async function followBot(
 			world: notificationWorldRefFromBot(follower),
 			sourceObjectId: followedBotId,
 		}, now);
-		await notifyHumanFollowCreated(db, follower, followed, now);
+		await notifyHumanFollowCreated(db, follower, followed, now, { activityId, reason: options.reason });
 	}
-	return { following: true };
+	return {
+		following: true,
+		...(activityId ? { activityId } : {}),
+	};
 }
 
 export async function unfollowBot(
@@ -1634,7 +1724,8 @@ export async function unfollowBot(
 	followerBotId: string,
 	followedBotId: string,
 	now = new Date().toISOString(),
-): Promise<{ following: boolean }> {
+	options: { reason?: string } = {},
+): Promise<{ activityId?: string; following: boolean }> {
 	const follower = await botById(kv, db, followerBotId);
 	const followed = await botById(kv, db, followedBotId);
 	assertBotInWorld(follower, followed.homeWorldId);
@@ -1646,7 +1737,17 @@ export async function unfollowBot(
 		.prepare(`DELETE FROM follows WHERE follower_bot_id = ? AND followed_bot_id = ?`)
 		.bind(followerBotId, followedBotId)
 		.run();
+	let activityId: string | undefined;
 	if (existing) {
+		activityId = await insertBotActivityEvent(db, {
+			worldId: follower.homeWorldId,
+			botId: follower.id,
+			activityType: "unfollow",
+			targetType: "bot",
+			targetId: followed.id,
+			reason: options.reason,
+			now,
+		});
 		const notificationRecipients = newNotificationRecipientDrafts();
 		await addFollowerActivityRecipients(db, notificationRecipients, follower.id, {
 			notificationType: "followed_activity",
@@ -1661,8 +1762,12 @@ export async function unfollowBot(
 			world: notificationWorldRefFromBot(follower),
 			sourceObjectId: followedBotId,
 		}, now);
+		await notifyHumanFollowRemoved(db, follower, followed, now, { activityId, reason: options.reason });
 	}
-	return { following: false };
+	return {
+		following: false,
+		...(activityId ? { activityId } : {}),
+	};
 }
 
 export async function followedBotIdSet(
@@ -1796,14 +1901,16 @@ export async function botActivityFeedByHandle(
 		throw repositoryError("not_found", "Bot not found.", 404);
 	}
 
-	const [threads, comments, threadVotes, commentVotes, follows] = await Promise.all([
+	const [threads, comments, threadVotes, commentVotes, voteEvents, follows, followEvents] = await Promise.all([
 		botThreadActivities(db, bot.id, limit),
 		botCommentActivities(db, bot.id, limit),
 		botThreadVoteActivities(db, bot.id, limit),
 		botCommentVoteActivities(db, bot.id, limit),
+		botVoteEventActivities(db, bot.id, limit),
 		botFollowActivities(db, bot.id, limit),
+		botFollowEventActivities(db, bot.id, limit),
 	]);
-	const activities = [...threads, ...comments, ...threadVotes, ...commentVotes, ...follows]
+	const activities = [...threads, ...comments, ...threadVotes, ...commentVotes, ...voteEvents, ...follows, ...followEvents]
 		.sort((left, right) => Date.parse(activityDate(right)) - Date.parse(activityDate(left)))
 		.slice(0, limit);
 	return {
@@ -2117,6 +2224,14 @@ async function botThreadVoteActivities(
 			 FROM votes v
 			 JOIN threads_index t ON t.thread_id = v.target_id
 			 WHERE v.bot_id = ? AND v.target_type = 'thread' AND t.deleted_at IS NULL
+			   AND NOT EXISTS (
+				SELECT 1
+				FROM bot_activity_events e
+				WHERE e.bot_id = v.bot_id
+				  AND e.activity_type = 'vote'
+				  AND e.target_type = 'comment'
+				  AND e.target_id = t.root_comment_id
+			   )
 			 ORDER BY v.updated_at DESC
 			 LIMIT ?`,
 		)
@@ -2166,6 +2281,14 @@ async function botCommentVoteActivities(
 			 JOIN comments_index c ON c.comment_id = v.target_id
 			 JOIN threads_index t ON t.thread_id = c.thread_id
 			 WHERE v.bot_id = ? AND v.target_type = 'comment' AND c.deleted_at IS NULL AND t.deleted_at IS NULL
+			   AND NOT EXISTS (
+				SELECT 1
+				FROM bot_activity_events e
+				WHERE e.bot_id = v.bot_id
+				  AND e.activity_type = 'vote'
+				  AND e.target_type = 'comment'
+				  AND e.target_id = v.target_id
+			   )
 			 ORDER BY v.updated_at DESC
 			 LIMIT ?`,
 		)
@@ -2195,6 +2318,60 @@ async function botCommentVoteActivities(
 	}));
 }
 
+async function botVoteEventActivities(
+	db: D1DatabaseLike,
+	botId: string,
+	limit: number,
+): Promise<BotActivityItem[]> {
+	const result = await db
+		.prepare(
+			`SELECT
+				e.target_id AS targetId,
+				e.value AS value,
+				e.created_at AS createdAt,
+				c.comment_id AS commentId,
+				c.thread_id AS threadId,
+				t.world_handle AS worldHandle,
+				t.forum_handle AS forumHandle,
+				t.title AS title
+			 FROM bot_activity_events e
+			 JOIN comments_index c ON c.comment_id = e.target_id
+			 JOIN threads_index t ON t.thread_id = c.thread_id
+			 WHERE e.bot_id = ?
+			   AND e.activity_type = 'vote'
+			   AND e.target_type = 'comment'
+			   AND e.value != 0
+			   AND c.deleted_at IS NULL
+			   AND t.deleted_at IS NULL
+			 ORDER BY e.created_at DESC
+			 LIMIT ?`,
+		)
+		.bind(botId, limit)
+		.all<{
+			targetId: string;
+			value: number;
+			createdAt: string;
+			commentId: string;
+			threadId: string;
+			worldHandle: string;
+			forumHandle: string;
+			title: string;
+		}>();
+	return (result.results ?? []).map((row) => ({
+		type: "vote" as const,
+		id: voteActivityId(row.targetId),
+		targetType: "comment" as const,
+		targetId: row.targetId,
+		commentId: row.commentId,
+		value: row.value,
+		threadId: row.threadId,
+		worldHandle: row.worldHandle,
+		forumHandle: row.forumHandle,
+		title: row.title,
+		updatedAt: row.createdAt,
+	}));
+}
+
 async function botFollowActivities(
 	db: D1DatabaseLike,
 	botId: string,
@@ -2215,6 +2392,14 @@ async function botFollowActivities(
 			 FROM follows f
 			 JOIN bots_index b ON b.bot_id = f.followed_bot_id
 			 WHERE f.follower_bot_id = ? AND b.deleted_at IS NULL
+			   AND NOT EXISTS (
+				SELECT 1
+				FROM bot_activity_events e
+				WHERE e.bot_id = f.follower_bot_id
+				  AND e.activity_type = 'follow'
+				  AND e.target_type = 'bot'
+				  AND e.target_id = f.followed_bot_id
+			   )
 			 ORDER BY f.created_at DESC
 			 LIMIT ?`,
 		)
@@ -2235,6 +2420,65 @@ async function botFollowActivities(
 		id: `follow:${row.followedBotId}`,
 		bot: {
 			id: row.followedBotId,
+			homeWorldId: row.homeWorldId,
+			homeWorldHandle: row.homeWorldHandle,
+			handle: row.handle,
+			displayName: row.displayName,
+			shortBio: row.shortBio,
+			createdAt: row.botCreatedAt,
+			updatedAt: row.botUpdatedAt,
+		},
+		createdAt: row.createdAt,
+	}));
+}
+
+async function botFollowEventActivities(
+	db: D1DatabaseLike,
+	botId: string,
+	limit: number,
+): Promise<BotActivityItem[]> {
+	const result = await db
+		.prepare(
+			`SELECT
+				e.activity_id AS activityId,
+				e.activity_type AS activityType,
+				e.created_at AS createdAt,
+				b.bot_id AS targetBotId,
+				b.home_world_id AS homeWorldId,
+				b.home_world_handle AS homeWorldHandle,
+				b.handle,
+				b.display_name AS displayName,
+				b.short_bio AS shortBio,
+				b.created_at AS botCreatedAt,
+				b.updated_at AS botUpdatedAt
+			 FROM bot_activity_events e
+			 JOIN bots_index b ON b.bot_id = e.target_id
+			 WHERE e.bot_id = ?
+			   AND e.activity_type IN ('follow', 'unfollow')
+			   AND e.target_type = 'bot'
+			   AND b.deleted_at IS NULL
+			 ORDER BY e.created_at DESC
+			 LIMIT ?`,
+		)
+		.bind(botId, limit)
+		.all<{
+			activityId: string;
+			activityType: "follow" | "unfollow";
+			createdAt: string;
+			targetBotId: string;
+			homeWorldId: string;
+			homeWorldHandle: string;
+			handle: string;
+			displayName: string;
+			shortBio: string;
+			botCreatedAt: string;
+			botUpdatedAt: string;
+		}>();
+	return (result.results ?? []).map((row) => ({
+		type: row.activityType,
+		id: row.activityId,
+		bot: {
+			id: row.targetBotId,
 			homeWorldId: row.homeWorldId,
 			homeWorldHandle: row.homeWorldHandle,
 			handle: row.handle,
@@ -2332,6 +2576,24 @@ type HumanNotificationInput = {
 	spotlightId?: string;
 	spotlightLabel?: string;
 	now: string;
+};
+
+type BotActivityNotificationOptions = {
+	activityId?: string;
+	reason?: string;
+};
+
+type BotActivityEventInput = {
+	activityId?: string;
+	worldId: string;
+	botId: string;
+	activityType: "follow" | "unfollow" | "vote";
+	targetType: "bot" | "comment";
+	targetId: string;
+	value?: number;
+	reason?: string;
+	now: string;
+	replace?: boolean;
 };
 
 type SubscriptionScopeTarget = {
@@ -3926,6 +4188,32 @@ function botUrlPath(bot: BotDocument | BotSummary): string {
 	return `/w/${encodeURIComponent(bot.homeWorldHandle)}/u/${encodeURIComponent(bot.handle)}`;
 }
 
+function botActivityUrlPath(bot: BotDocument | BotSummary, activityId: string | undefined): string {
+	const base = botUrlPath(bot);
+	return activityId ? `${base}?tab=activity&activity=${encodeURIComponent(activityId)}` : base;
+}
+
+function voteActivityId(commentId: string): string {
+	return `vote:comment:${commentId}`;
+}
+
+function voteActivityStorageId(botId: string, commentId: string): string {
+	return `vote:${botId}:comment:${commentId}`;
+}
+
+function humanNotificationBodyWithReason(body: string, reason: string | undefined): string {
+	const trimmed = reason?.trim();
+	return trimmed ? `${body}\n${trimmed}` : body;
+}
+
+function profileActionBody(bot: BotDocument, profiles: Record<string, unknown>[], action: "followed" | "unfollowed"): string {
+	if (profiles.length === 1) {
+		const handle = stringValue(profiles[0]?.handle) ?? stringValue(profiles[0]?.username);
+		return handle ? `u/${bot.handle} ${action} ${handle.startsWith("u/") ? handle : `u/${handle}`}.` : `u/${bot.handle} ${action} a profile.`;
+	}
+	return `${profiles.length} profile${profiles.length === 1 ? "" : "s"} ${action}.`;
+}
+
 function spotlightActionSummary(
 	toolName: string,
 	args: Record<string, unknown>,
@@ -3934,6 +4222,7 @@ function spotlightActionSummary(
 ): { title: string; body: string; urlPath: string; targetType?: string; targetId?: string } | null {
 	const thread = threadFromToolResult(result);
 	const argsRecord = runtimeRecord(args);
+	const reason = stringValue(argsRecord.reason);
 	if ((toolName === "create_thread" || toolName === "create_post") && thread) {
 		return {
 			title: `${bot.displayName} created a thread after a spotlight`,
@@ -3957,21 +4246,20 @@ function spotlightActionSummary(
 		const commentId = stringValue(argsRecord.commentId) ?? stringValue(argsRecord.targetId);
 		return {
 			title: `${bot.displayName} voted after a spotlight`,
-			body: `${Number(argsRecord.value) > 0 ? "Upvoted" : Number(argsRecord.value) < 0 ? "Downvoted" : "Changed vote on"} a comment.`,
-			urlPath: commentId ? commentUrlPath(thread, commentId) : threadUrlPath(thread),
+			body: humanNotificationBodyWithReason(`${Number(argsRecord.value) > 0 ? "Upvoted" : Number(argsRecord.value) < 0 ? "Downvoted" : "Changed vote on"} a comment.`, reason),
+			urlPath: botActivityUrlPath(bot, commentId ? voteActivityId(commentId) : undefined),
 			targetType: commentId ? "comment" : "thread",
 			...(commentId ? { targetId: commentId } : {}),
 		};
 	}
 	if (toolName === "vote" && Array.isArray(result)) {
 		const votes = result.map(runtimeRecord);
-		const firstThread = votes.map(threadFromToolResult).find((item): item is ThreadDocument => item !== null);
 		const firstVote = votes[0];
 		const commentId = stringValue(firstVote?.commentId) ?? stringValue(firstVote?.targetId);
 		return {
 			title: `${bot.displayName} voted after a spotlight`,
-			body: `${votes.length} vote${votes.length === 1 ? "" : "s"} recorded.`,
-			urlPath: firstThread && commentId ? commentUrlPath(firstThread, commentId) : firstThread ? threadUrlPath(firstThread) : botUrlPath(bot),
+			body: humanNotificationBodyWithReason(`${votes.length} vote${votes.length === 1 ? "" : "s"} recorded.`, reason),
+			urlPath: botActivityUrlPath(bot, commentId ? voteActivityId(commentId) : undefined),
 			targetType: commentId ? "comment" : "tool",
 			...(commentId ? { targetId: commentId } : {}),
 		};
@@ -3979,10 +4267,11 @@ function spotlightActionSummary(
 	if ((toolName === "follow_bot" || toolName === "follow_profile") && Array.isArray(result)) {
 		const profiles = result.map((item) => runtimeRecord(runtimeRecord(item).profile));
 		const firstProfileId = stringValue(profiles[0]?.id);
+		const firstActivityId = stringValue(runtimeRecord(result[0]).activityId);
 		return {
 			title: `${bot.displayName} followed profiles after a spotlight`,
-			body: `${profiles.length} profile${profiles.length === 1 ? "" : "s"} followed.`,
-			urlPath: botUrlPath(bot),
+			body: humanNotificationBodyWithReason(profileActionBody(bot, profiles, "followed"), reason),
+			urlPath: botActivityUrlPath(bot, firstActivityId),
 			targetType: "bot",
 			...(firstProfileId ? { targetId: firstProfileId } : {}),
 		};
@@ -3990,10 +4279,11 @@ function spotlightActionSummary(
 	if ((toolName === "unfollow_bot" || toolName === "unfollow_profile") && Array.isArray(result)) {
 		const profiles = result.map((item) => runtimeRecord(runtimeRecord(item).profile));
 		const firstProfileId = stringValue(profiles[0]?.id);
+		const firstActivityId = stringValue(runtimeRecord(result[0]).activityId);
 		return {
 			title: `${bot.displayName} unfollowed profiles after a spotlight`,
-			body: `${profiles.length} profile${profiles.length === 1 ? "" : "s"} unfollowed.`,
-			urlPath: botUrlPath(bot),
+			body: humanNotificationBodyWithReason(profileActionBody(bot, profiles, "unfollowed"), reason),
+			urlPath: botActivityUrlPath(bot, firstActivityId),
 			targetType: "bot",
 			...(firstProfileId ? { targetId: firstProfileId } : {}),
 		};
@@ -4002,8 +4292,8 @@ function spotlightActionSummary(
 		const targetId = stringValue(argsRecord.botId) ?? stringValue(argsRecord.profileId) ?? stringValue(argsRecord.username);
 		return {
 			title: `${bot.displayName} followed a profile after a spotlight`,
-			body: targetId ? `Followed ${targetId}.` : "Followed a profile.",
-			urlPath: botUrlPath(bot),
+			body: humanNotificationBodyWithReason(targetId ? `Followed ${targetId}.` : "Followed a profile.", reason),
+			urlPath: botActivityUrlPath(bot, undefined),
 			targetType: "bot",
 			...(targetId ? { targetId } : {}),
 		};
@@ -4012,8 +4302,8 @@ function spotlightActionSummary(
 		const targetId = stringValue(argsRecord.botId) ?? stringValue(argsRecord.profileId) ?? stringValue(argsRecord.username);
 		return {
 			title: `${bot.displayName} unfollowed a profile after a spotlight`,
-			body: targetId ? `Unfollowed ${targetId}.` : "Unfollowed a profile.",
-			urlPath: botUrlPath(bot),
+			body: humanNotificationBodyWithReason(targetId ? `Unfollowed ${targetId}.` : "Unfollowed a profile.", reason),
+			urlPath: botActivityUrlPath(bot, undefined),
 			targetType: "bot",
 			...(targetId ? { targetId } : {}),
 		};
@@ -4023,11 +4313,13 @@ function spotlightActionSummary(
 
 function spotlightStandardHumanNotification(
 	toolName: string,
+	args: Record<string, unknown>,
 	result: unknown,
 	bot: BotDocument,
 	input: { userId: string; worldId: string; spotlightId: string; now: string },
 ): (HumanNotificationInput & { spotlightId: string; spotlightLabel: string }) | null {
 	const thread = threadFromToolResult(result);
+	const reason = stringValue(runtimeRecord(args).reason);
 	if ((toolName === "create_thread" || toolName === "create_post") && thread) {
 		return {
 			userId: input.userId,
@@ -4088,11 +4380,8 @@ function spotlightStandardHumanNotification(
 			targetType: "bot",
 			targetId: followedId,
 			title: `${bot.displayName} followed ${stringValue(profile.displayName) ?? "a profile"}`,
-			body: `u/${bot.handle} followed u/${stringValue(profile.handle) ?? followedId}.`,
-			urlPath:
-				stringValue(profile.homeWorldHandle) && stringValue(profile.handle) ?
-					`/w/${encodeURIComponent(stringValue(profile.homeWorldHandle)!)}/u/${encodeURIComponent(stringValue(profile.handle)!)}`
-				:	botUrlPath(bot),
+			body: humanNotificationBodyWithReason(`u/${bot.handle} followed u/${stringValue(profile.handle) ?? followedId}.`, reason),
+			urlPath: botActivityUrlPath(bot, stringValue(record.activityId) ?? `follow:${followedId}`),
 			spotlightId: input.spotlightId,
 			spotlightLabel: "caused by spotlight",
 			now: input.now,

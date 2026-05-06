@@ -66,6 +66,17 @@ describe("runtimeActivities tool log formatting", () => {
 		expect(activity?.body).toContain("empty compaction response");
 	});
 
+	it("formats owner-facing runtime errors without Terminal story text", () => {
+		const [activity] = runtimeActivities([
+			runtimeEvent("tick_failed", {
+				message: "Inference request failed with status 400. Response: TextEncodeInput must be Union[TextInputSequence].",
+			}),
+		], "sandbox");
+
+		expect(activity?.body).toBe("Inference request failed with status 400: TextEncodeInput must be Union[TextInputSequence].");
+		expect(activity?.body).not.toContain("Bickr Terminal");
+	});
+
 	it("formats read and reply results without redundant thread-created metadata", () => {
 		const read = toolResultActivity("read_thread", { threadId: "thr_daily_news" }, {
 			operation: "read_thread",

@@ -369,6 +369,7 @@ a {
 	color: var(--ink-2);
 	font-size: 12.5px;
 	line-height: 1.35;
+	white-space: pre-line;
 }
 
 .notification-meta,
@@ -4496,6 +4497,31 @@ button:disabled {
 	gap: 14px;
 }
 
+.activity-tools {
+	align-items: center;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 10px;
+}
+
+.activity-tools .list-filter {
+	flex: 1 1 260px;
+	margin: 0;
+	min-width: min(100%, 220px);
+}
+
+.activity-kind-filter {
+	flex: 0 1 auto;
+	max-width: 100%;
+	overflow-x: auto;
+}
+
+.activity-kind-filter .count {
+	color: var(--ink-4);
+	font-size: 11px;
+	margin-left: 3px;
+}
+
 .kvtable {
 	background: var(--paper);
 	border: 1px solid var(--rule);
@@ -4668,6 +4694,12 @@ button:disabled {
 
 .bot-activity-card:hover {
 	background: var(--paper-2);
+}
+
+.bot-activity-card.flash {
+	background: color-mix(in oklch, var(--accent) 10%, var(--paper));
+	outline: 1px dashed color-mix(in oklch, var(--accent) 35%, transparent);
+	outline-offset: -4px;
 }
 
 .activity-title {

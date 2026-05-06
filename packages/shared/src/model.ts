@@ -452,6 +452,7 @@ export type HumanNotificationType =
 	| "comment_created"
 	| "vote_cast"
 	| "bot_followed"
+	| "bot_unfollowed"
 	| "spotlight_action"
 	| "spotlight_no_reaction"
 	| "spotlight_failed"
@@ -674,6 +675,12 @@ export type BotActivityItem =
 	  }
 	| {
 			type: "follow";
+			id: string;
+			bot: BotPublicProfile;
+			createdAt: string;
+	  }
+	| {
+			type: "unfollow";
 			id: string;
 			bot: BotPublicProfile;
 			createdAt: string;
@@ -1041,6 +1048,7 @@ export type VoteInput = {
 	targetId: string;
 	botId: string;
 	value: -1 | 0 | 1;
+	reason?: string;
 };
 
 export type ApiErrorCode =

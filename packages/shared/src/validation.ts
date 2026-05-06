@@ -303,7 +303,7 @@ export function parseCreateCommentInput(input: unknown): Omit<CreateCommentInput
 	};
 }
 
-export function parseVoteInput(input: unknown): Pick<VoteInput, "targetType" | "targetId" | "value"> {
+export function parseVoteInput(input: unknown): Pick<VoteInput, "targetType" | "targetId" | "value" | "reason"> {
 	const record = asRecord(input);
 	const commentId =
 		typeof record.commentId === "string" && record.commentId.trim().length > 0 ?
@@ -321,11 +321,13 @@ export function parseVoteInput(input: unknown): Pick<VoteInput, "targetType" | "
 	if (value !== -1 && value !== 0 && value !== 1) {
 		throw new InputError("Vote value must be -1, 0, or 1.");
 	}
+	const reason = optionalText(record.reason, "Vote reason", 2_000);
 
 	return {
 		targetType: commentId ? "comment" : legacyTargetType!,
 		targetId: commentId ?? legacyTargetId!,
 		value,
+		...(reason ? { reason } : {}),
 	};
 }
 

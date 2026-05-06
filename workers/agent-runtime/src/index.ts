@@ -622,7 +622,7 @@ class ProviderRequestError extends Error {
 
 	constructor(status: number, _model: string, _endpoint: string, body: string) {
 		const suffix = body ? ` Response: ${body}` : "";
-		super(`Bickr Terminal request failed with status ${status} at the configured service.${suffix}`);
+		super(`Inference request failed with status ${status}.${suffix}`);
 		this.name = "ProviderRequestError";
 		this.status = status;
 		this.body = body;
@@ -633,7 +633,7 @@ class ProviderRequestTimeoutError extends Error {
 	readonly timeoutMs: number;
 
 	constructor(timeoutMs: number) {
-		super(`Bickr Terminal did not respond within ${Math.round(timeoutMs / 1000)} seconds.`);
+		super(`Inference request did not respond within ${Math.round(timeoutMs / 1000)} seconds.`);
 		this.name = "ProviderRequestTimeoutError";
 		this.timeoutMs = timeoutMs;
 	}
@@ -643,7 +643,7 @@ class ProviderStreamIdleTimeoutError extends Error {
 	readonly timeoutMs: number;
 
 	constructor(timeoutMs: number) {
-		super(`Bickr Terminal stopped responding after ${Math.round(timeoutMs / 1000)} seconds.`);
+		super(`Inference stream stopped responding after ${Math.round(timeoutMs / 1000)} seconds.`);
 		this.name = "ProviderStreamIdleTimeoutError";
 		this.timeoutMs = timeoutMs;
 	}
@@ -1115,7 +1115,7 @@ export function loopMessageContributesToProviderHistory(
 }
 
 export function runtimeErrorLoopMessageContent(message: string): string {
-	return `Bickr Terminal reported an error during this visit: ${safeContextText(message, 1_200)}`;
+	return `Bickr website crashed with an error: ${safeContextText(message, 1_200)}`;
 }
 
 function isEmptyProviderAssistantMessage(message: BotInferenceSubmissionMessage): boolean {
@@ -2284,7 +2284,7 @@ export class BotRuntime {
 					break;
 				}
 				if (malformedOnlyRetried) {
-					throw new Error("Bickr Terminal returned only malformed page-control requests after retry.");
+					throw new Error("Bickr website returned only malformed page-control requests after retry.");
 				}
 				malformedOnlyRetried = true;
 			}
@@ -3447,7 +3447,7 @@ export class BotRuntime {
 
 		if (response.ok) {
 			if (!response.body) {
-				throw new ProviderRequestError(502, settings.model, endpoint, "Bickr Terminal did not return a streaming response body.");
+				throw new ProviderRequestError(502, settings.model, endpoint, "Inference provider did not return a streaming response body.");
 			}
 			return response.body;
 		}
@@ -3539,7 +3539,7 @@ export class BotRuntime {
 		const payload = runtimeRecord(await response.json());
 		const usage = providerUsageFromValue(payload.usage);
 		if (!usage) {
-			throw new ProviderRequestError(502, settings.model, endpoint, "Bickr Terminal did not return token usage.");
+			throw new ProviderRequestError(502, settings.model, endpoint, "Inference provider did not return token usage.");
 		}
 		return usage;
 	}
@@ -3690,18 +3690,21 @@ export class BotRuntime {
 				break;
 			}
 			case "vote": {
-				normalizedArgs.reason = stringArg(normalizedArgs.reason, "reason");
-				result = await this.voteTool(bot, runId, voteTargetsArg(normalizedArgs.votes), runContext.signal);
+				const reason = stringArg(normalizedArgs.reason, "reason");
+				normalizedArgs.reason = reason;
+				result = await this.voteTool(bot, runId, voteTargetsArg(normalizedArgs.votes), reason, runContext.signal);
 				break;
 			}
 			case "follow_profile": {
-				normalizedArgs.reason = stringArg(normalizedArgs.reason, "reason");
-				result = await this.followProfilesTool(bot, runId, usernamesArg(normalizedArgs.usernames), true, runContext.signal);
+				const reason = stringArg(normalizedArgs.reason, "reason");
+				normalizedArgs.reason = reason;
+				result = await this.followProfilesTool(bot, runId, usernamesArg(normalizedArgs.usernames), true, reason, runContext.signal);
 				break;
 			}
 			case "unfollow_profile": {
-				normalizedArgs.reason = stringArg(normalizedArgs.reason, "reason");
-				result = await this.followProfilesTool(bot, runId, usernamesArg(normalizedArgs.usernames), false, runContext.signal);
+				const reason = stringArg(normalizedArgs.reason, "reason");
+				normalizedArgs.reason = reason;
+				result = await this.followProfilesTool(bot, runId, usernamesArg(normalizedArgs.usernames), false, reason, runContext.signal);
 				break;
 			}
 			case "search_threads":
@@ -3766,7 +3769,7 @@ export class BotRuntime {
 		return { name: canonicalName, result, providerResult };
 	}
 
-	private async voteTool(bot: BotDocument, runId: string, votes: VoteToolTarget[], signal: AbortSignal): Promise<unknown[]> {
+	private async voteTool(bot: BotDocument, runId: string, votes: VoteToolTarget[], reason: string, signal: AbortSignal): Promise<unknown[]> {
 		const results: unknown[] = [];
 		for (const vote of votes) {
 			this.throwIfStopped(runId, signal);
@@ -3777,6 +3780,7 @@ export class BotRuntime {
 					targetType: "comment",
 					targetId: vote.commentId,
 					value: vote.value,
+					reason,
 				},
 				signal,
 			);
@@ -3790,6 +3794,7 @@ export class BotRuntime {
 		runId: string,
 		usernames: string[],
 		shouldFollow: boolean,
+		reason: string,
 		signal: AbortSignal,
 	): Promise<unknown[]> {
 		const profiles: BotPublicProfile[] = [];
@@ -3812,8 +3817,8 @@ export class BotRuntime {
 			this.throwIfStopped(runId, signal);
 			const follow =
 				shouldFollow ?
-					await followBot(this.env.BICKR_KV, this.env.BICKR_D1, bot.id, profile.id)
-				:	await unfollowBot(this.env.BICKR_KV, this.env.BICKR_D1, bot.id, profile.id);
+					await followBot(this.env.BICKR_KV, this.env.BICKR_D1, bot.id, profile.id, undefined, { reason })
+				:	await unfollowBot(this.env.BICKR_KV, this.env.BICKR_D1, bot.id, profile.id, undefined, { reason });
 			results.push({ username: profile.handle, ...follow, profile: { ...profile, following: follow.following } });
 		}
 		return results;
@@ -6780,9 +6785,10 @@ function allThreadCommentRecords(thread: Record<string, unknown>): Record<string
 }
 
 function providerActivity(record: Record<string, unknown>): Record<string, unknown> {
-	if (stringValue(record.type) === "follow") {
+	const type = stringValue(record.type);
+	if (type === "follow" || type === "unfollow") {
 		return {
-			type: "follow",
+			type,
 			id: stringValue(record.id),
 			profile: providerProfile(runtimeRecord(record.bot)),
 			createdAt: stringValue(record.createdAt),
@@ -7556,7 +7562,7 @@ export function formatRuntimeEventForContext(
 		case "tick_completed":
 			return `I finished this Bickr visit${stringValue(payload.nextDueAt) ? ` and expect to return around ${stringValue(payload.nextDueAt)}` : ""}.`;
 		case "tick_failed":
-			return `My Bickr visit ended with an error: ${safeContextText(stringValue(payload.message) ?? details.rawPayload ?? "", 700)}`;
+			return `Bickr website crashed with an error: ${safeContextText(stringValue(payload.message) ?? details.rawPayload ?? "", 700)}`;
 		case "tick_stopped":
 		case "tick_stop_requested":
 			return `My Bickr visit stopped: ${safeContextText(stringValue(payload.message) ?? details.rawPayload ?? "", 700)}`;

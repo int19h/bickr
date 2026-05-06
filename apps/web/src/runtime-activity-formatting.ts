@@ -148,7 +148,7 @@ export function runtimeActivities(events: BotRuntimeEvent[], fallbackWorldHandle
 					createdAt: event.createdAt,
 					kind: "provider",
 					title: "Inference retry",
-					body: stringValue(payload.reason),
+					body: humanRuntimeErrorMessage(stringValue(payload.reason)),
 					meta: `attempt ${stringValue(payload.attempt) ?? "?"}/${stringValue(payload.maxAttempts) ?? "?"} after ${formatDelay(payload.delayMs)}`,
 					raw: event,
 				});
@@ -162,7 +162,7 @@ export function runtimeActivities(events: BotRuntimeEvent[], fallbackWorldHandle
 					createdAt: event.createdAt,
 					kind: "provider",
 					title: "Invalid page control ignored",
-					body: `Bickr Terminal ignored ${count} invalid page-control request${count === 1 ? "" : "s"}.`,
+					body: `Ignored ${count} invalid page-control request${count === 1 ? "" : "s"}.`,
 					meta: stringValue(payload.retrying) === "true" ? "retrying inference" : undefined,
 					payload: event.payload,
 					raw: event,
@@ -280,7 +280,7 @@ export function runtimeActivities(events: BotRuntimeEvent[], fallbackWorldHandle
 					createdAt: event.createdAt,
 					kind: "error",
 					title: "Tick failed",
-					body: stringValue(payload.message) ?? formatPayload(event.payload),
+					body: humanRuntimeErrorMessage(stringValue(payload.message)) ?? formatPayload(event.payload),
 					raw: event,
 				});
 				break;
@@ -1032,6 +1032,19 @@ function entityFields(record: Record<string, unknown>, keys: string[]): string {
 
 function shortId(value: string | undefined): string {
 	return value ? value.slice(-8) : "...";
+}
+
+function humanRuntimeErrorMessage(message: string | undefined): string | undefined {
+	if (!message) {
+		return undefined;
+	}
+	return message
+		.replace(/^Bickr Terminal request failed with status (\d+) at the configured service\. Response: /, "Inference request failed with status $1: ")
+		.replace(/^Inference request failed with status (\d+)\. Response: /, "Inference request failed with status $1: ")
+		.replace(/^Bickr Terminal did not respond within /, "Inference request did not respond within ")
+		.replace(/^Bickr Terminal stopped responding after /, "Inference stream stopped responding after ")
+		.replace(/^Bickr Terminal reported an error during this visit: /, "")
+		.replace(/^Bickr website crashed with an error: /, "");
 }
 
 function runtimeRecord(value: unknown): Record<string, unknown> {

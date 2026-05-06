@@ -106,6 +106,7 @@ type Route =
 	| "profile";
 type WorldTab = "forums" | "bots" | "lore";
 type BotProfileTab = "activity" | "follows";
+type BotActivityKindFilter = "all" | "posts" | "replies" | "votes" | "follows";
 type HumanProfileTab = "worlds" | "forums" | "bots";
 type BotCreateTab = "manual" | "clone" | "chirper";
 type ImportState = "idle" | "loading" | "preview" | "error";
@@ -119,6 +120,8 @@ type ParsedRoute = {
 	threadId?: string;
 	commentId?: string;
 	botHandle?: string;
+	botProfileTab?: BotProfileTab;
+	botActivityId?: string;
 	humanHandle?: string;
 	worldTab?: WorldTab;
 };
@@ -323,6 +326,8 @@ function App() {
 	const [activeThreadId, setActiveThreadId] = useState<string | null>(initialRoute.threadId ?? null);
 	const [activeCommentId, setActiveCommentId] = useState<string | null>(initialRoute.commentId ?? null);
 	const [activeBotHandle, setActiveBotHandle] = useState<string | null>(initialRoute.botHandle ?? null);
+	const [activeBotProfileTab, setActiveBotProfileTab] = useState<BotProfileTab>(initialRoute.botProfileTab ?? "activity");
+	const [activeBotActivityId, setActiveBotActivityId] = useState<string | null>(initialRoute.botActivityId ?? null);
 	const [activeHumanHandle, setActiveHumanHandle] = useState<string | null>(initialRoute.humanHandle ?? null);
 	const [activeWorldTab, setActiveWorldTab] = useState<WorldTab>(initialRoute.worldTab ?? "forums");
 	const [createBotWorldHandle, setCreateBotWorldHandle] = useState<string | null>(null);
@@ -535,6 +540,8 @@ function App() {
 		setActiveThreadId(parsed.threadId ?? null);
 		setActiveCommentId(parsed.commentId ?? null);
 		setActiveBotHandle(parsed.botHandle ?? null);
+		setActiveBotProfileTab(parsed.route === "bot-profile" ? parsed.botProfileTab ?? "activity" : "activity");
+		setActiveBotActivityId(parsed.route === "bot-profile" ? parsed.botActivityId ?? null : null);
 		setActiveHumanHandle(parsed.humanHandle ?? null);
 		setActiveWorldTab(parsed.route === "world" ? parsed.worldTab ?? "forums" : "forums");
 	}
@@ -879,8 +886,7 @@ function App() {
 		if (!readAt) {
 			return;
 		}
-		const notificationUrl = new URL(notification.urlPath, window.location.origin);
-		const parsed = parsePathname(notificationUrl.pathname, notificationUrl.search);
+		const parsed = notificationRoute(notification);
 		if (parsed.route === "thread" && parsed.threadId) {
 			requestFreshThread(parsed.threadId);
 		}
@@ -1569,6 +1575,8 @@ function App() {
 							onToggleSubscription={toggleSubscription}
 							ownerInferenceSettings={userProfile?.inferenceSettings ?? null}
 							subscribed={isSubscribed("bot", activeBot.id)}
+							targetActivityId={activeBotActivityId}
+							targetTab={activeBotProfileTab}
 							world={activeWorld}
 						/>
 					)}
@@ -1975,7 +1983,7 @@ function NotificationBell({
 					:	notifications.notifications.map((notification) => (
 							<a
 								className={`notification-card ${notification.readAt ? "" : "unread"}`}
-								href={notification.urlPath}
+								href={notificationHref(notification)}
 								key={notification.id}
 								onClick={(event) => {
 									if (!shouldHandleSpaClick(event)) {
@@ -2067,6 +2075,7 @@ function SpaLink({
 	"aria-selected": ariaSelected,
 	children,
 	className,
+	id,
 	onNavigate,
 	role,
 	style,
@@ -2076,6 +2085,7 @@ function SpaLink({
 	"aria-selected"?: boolean;
 	children: ReactNode;
 	className?: string;
+	id?: string;
 	onNavigate?: () => void;
 	role?: AriaRole;
 	style?: CSSProperties;
@@ -2087,6 +2097,7 @@ function SpaLink({
 		<a
 			className={className}
 			href={routePath(to)}
+			id={id}
 			onClick={(event) => {
 				if (!shouldHandleSpaClick(event)) {
 					return;
@@ -4183,6 +4194,8 @@ function BotProfileScreen({
 	onToggleSubscription,
 	ownerInferenceSettings,
 	subscribed,
+	targetActivityId,
+	targetTab,
 	world,
 }: {
 	bot: BotSummary;
@@ -4192,11 +4205,14 @@ function BotProfileScreen({
 	onToggleSubscription: (target: SubscriptionTarget, active: boolean) => Promise<void>;
 	ownerInferenceSettings: BotInferenceSettings | null;
 	subscribed: boolean;
+	targetActivityId: string | null;
+	targetTab: BotProfileTab;
 	world: WorldView;
 }) {
-	const [activeTab, setActiveTab] = useState<BotProfileTab>("activity");
+	const [activeTab, setActiveTab] = useState<BotProfileTab>(targetTab);
 	const [activityFeed, setActivityFeed] = useState<BotActivityFeed | null>(null);
 	const [activityFilter, setActivityFilter] = useState("");
+	const [activityKindFilter, setActivityKindFilter] = useState<BotActivityKindFilter>("all");
 	const [activityLoading, setActivityLoading] = useState(false);
 	const [activityError, setActivityError] = useState("");
 	const [followGraph, setFollowGraph] = useState<BotFollowGraph | null>(null);
@@ -4212,7 +4228,7 @@ function BotProfileScreen({
 		setActivityError("");
 		setActivityFeed(null);
 		void api<{ feed: BotActivityFeed }>(
-			`/api/worlds/${encodeURIComponent(world.handle)}/bots/${encodeURIComponent(bot.handle)}/activity?limit=30`,
+			`/api/worlds/${encodeURIComponent(world.handle)}/bots/${encodeURIComponent(bot.handle)}/activity?limit=100`,
 		).then((result) => {
 			if (cancelled) {
 				return;
@@ -4227,7 +4243,7 @@ function BotProfileScreen({
 		return () => {
 			cancelled = true;
 		};
-	}, [bot.handle, world.handle]);
+	}, [bot.handle, targetActivityId, world.handle]);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -4253,10 +4269,20 @@ function BotProfileScreen({
 	}, [bot.handle, world.handle]);
 
 	useEffect(() => {
-		setActiveTab("activity");
+		setActiveTab(targetActivityId ? "activity" : targetTab);
 		setActivityFilter("");
+		setActivityKindFilter("all");
 		setFollowFilter("");
-	}, [bot.id]);
+	}, [bot.id, targetActivityId, targetTab]);
+
+	useEffect(() => {
+		if (!targetActivityId || activeTab !== "activity" || activityLoading || !activityFeed) {
+			return;
+		}
+		window.setTimeout(() => {
+			document.getElementById(botActivityDomId(targetActivityId))?.scrollIntoView({ block: "center" });
+		}, 50);
+	}, [activeTab, activityFeed, activityLoading, targetActivityId]);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -4277,10 +4303,14 @@ function BotProfileScreen({
 	}, [bot.owner?.handle]);
 
 	const activities = activityFeed?.activities ?? [];
+	const activityKindCounts = useMemo(() => botActivityKindCounts(activities), [activities]);
 	const filteredActivities = useMemo(
-		() => activities.filter((activity) => matchesBotActivityFilter(activityFilter, activity)),
-		[activityFilter, activities],
+		() => activities
+			.filter((activity) => matchesBotActivityKind(activityKindFilter, activity))
+			.filter((activity) => matchesBotActivityFilter(activityFilter, activity)),
+		[activityFilter, activityKindFilter, activities],
 	);
+	const activityEmptyMessage = botActivityEmptyMessage(activityFilter, activityKindFilter);
 	const following = followGraph?.following ?? [];
 	const followers = followGraph?.followers ?? [];
 	const filteredFollowing = useMemo(
@@ -4415,17 +4445,33 @@ function BotProfileScreen({
 
 				{activeTab === "activity" && (
 					<section className="profile-tab-panel" role="tabpanel">
-						<FilterBox
-							label="Search activity"
-							onChange={setActivityFilter}
-							placeholder="Search activity"
-							value={activityFilter}
-						/>
+						<div className="activity-tools">
+							<div className="seg activity-kind-filter" role="tablist">
+								{botActivityKindOptions.map((option) => (
+									<button
+										aria-pressed={activityKindFilter === option.id}
+										disabled={option.id !== "all" && botActivityKindCount(activityKindCounts, option.id, activities) === 0}
+										key={option.id}
+										onClick={() => setActivityKindFilter(option.id)}
+										type="button"
+									>
+										{option.label} <span className="count">{botActivityKindCount(activityKindCounts, option.id, activities)}</span>
+									</button>
+								))}
+							</div>
+							<FilterBox
+								label="Search activity"
+								onChange={setActivityFilter}
+								placeholder="Search activity"
+								value={activityFilter}
+							/>
+						</div>
 						<BotActivityList
 							activities={filteredActivities}
-							emptyMessage={activityFilter.trim() ? "No activity matches this search." : "No visible activity yet."}
+							emptyMessage={activityEmptyMessage}
 							error={activityError}
 							loading={activityLoading}
+							targetActivityId={targetActivityId}
 						/>
 					</section>
 				)}
@@ -4457,11 +4503,13 @@ function BotActivityList({
 	emptyMessage = "No visible activity yet.",
 	error,
 	loading,
+	targetActivityId,
 }: {
 	activities: BotActivityItem[];
 	emptyMessage?: string;
 	error: string;
 	loading: boolean;
+	targetActivityId: string | null;
 }) {
 	if (loading) {
 		return <div className="empty-state compact">Loading activity...</div>;
@@ -4475,7 +4523,7 @@ function BotActivityList({
 	return (
 		<div className="bot-activity-list">
 			{activities.map((activity) => (
-				<BotActivityCard activity={activity} key={activity.id} />
+				<BotActivityCard activity={activity} highlighted={activity.id === targetActivityId} key={activity.id} />
 			))}
 		</div>
 	);
@@ -4578,12 +4626,12 @@ function BotPublicProfileCard({ bot }: { bot: BotPublicProfile }) {
 	);
 }
 
-function BotActivityCard({ activity }: { activity: BotActivityItem }) {
+function BotActivityCard({ activity, highlighted }: { activity: BotActivityItem; highlighted: boolean }) {
 	const route = botActivityRoute(activity);
 	const summary = botActivitySummary(activity);
 	const createdAt = "updatedAt" in activity ? activity.updatedAt : activity.createdAt;
 	return (
-		<SpaLink className="bot-activity-card" to={route}>
+		<SpaLink className={`bot-activity-card ${highlighted ? "flash" : ""}`} id={botActivityDomId(activity.id)} to={route}>
 			<span className="activity-title">{summary.title}</span>
 			{summary.body && <span className="activity-body">{summary.body}</span>}
 			<span className="activity-meta">{summary.meta} / {timeAgo(createdAt)}</span>
@@ -4594,6 +4642,13 @@ function BotActivityCard({ activity }: { activity: BotActivityItem }) {
 function botActivityRoute(activity: BotActivityItem): ParsedRoute {
 	const activityType = stringValue((activity as { type?: unknown }).type);
 	if (activityType === "follow" && activity.type === "follow") {
+		return {
+			route: "bot-profile",
+			worldHandle: activity.bot.homeWorldHandle,
+			botHandle: activity.bot.handle,
+		};
+	}
+	if (activityType === "unfollow" && activity.type === "unfollow") {
 		return {
 			route: "bot-profile",
 			worldHandle: activity.bot.homeWorldHandle,
@@ -4676,6 +4731,14 @@ function botActivitySummary(activity: BotActivityItem): { title: string; body?: 
 				meta: `w/${followActivity.bot.homeWorldHandle}`,
 			};
 		}
+		case "unfollow": {
+			const followActivity = activity as Extract<BotActivityItem, { type: "unfollow" }>;
+			return {
+				title: `Unfollowed ${followActivity.bot.displayName} (u/${followActivity.bot.handle})`,
+				body: followActivity.bot.shortBio,
+				meta: `w/${followActivity.bot.homeWorldHandle}`,
+			};
+		}
 	}
 	return { title: "Activity", meta: "" };
 }
@@ -4740,8 +4803,90 @@ function matchesBotActivityFilter(query: string, activity: BotActivityItem): boo
 				followActivity.bot.homeWorldHandle,
 			);
 		}
+		case "unfollow": {
+			const followActivity = activity as Extract<BotActivityItem, { type: "unfollow" }>;
+			return matchesFilter(
+				query,
+				followActivity.type,
+				summary.title,
+				summary.body,
+				summary.meta,
+				followActivity.bot.handle,
+				followActivity.bot.displayName,
+				followActivity.bot.shortBio,
+				followActivity.bot.homeWorldHandle,
+			);
+		}
 	}
 	return false;
+}
+
+const botActivityKindOptions: Array<{ id: BotActivityKindFilter; label: string }> = [
+	{ id: "all", label: "All" },
+	{ id: "posts", label: "Threads" },
+	{ id: "replies", label: "Replies" },
+	{ id: "votes", label: "Votes" },
+	{ id: "follows", label: "Follows" },
+];
+
+type BotActivitySpecificKind = Exclude<BotActivityKindFilter, "all">;
+type BotActivityKindCounts = Record<BotActivitySpecificKind, number>;
+
+function botActivityKindCounts(activities: BotActivityItem[]): BotActivityKindCounts {
+	const counts: BotActivityKindCounts = {
+		posts: 0,
+		replies: 0,
+		votes: 0,
+		follows: 0,
+	};
+	for (const activity of activities) {
+		counts[botActivityKind(activity)] += 1;
+	}
+	return counts;
+}
+
+function botActivityKindCount(
+	counts: BotActivityKindCounts,
+	filter: BotActivityKindFilter,
+	activities: BotActivityItem[],
+): number {
+	return filter === "all" ? activities.length : counts[filter];
+}
+
+function matchesBotActivityKind(filter: BotActivityKindFilter, activity: BotActivityItem): boolean {
+	return filter === "all" || botActivityKind(activity) === filter;
+}
+
+function botActivityKind(activity: BotActivityItem): BotActivitySpecificKind {
+	const activityType = stringValue((activity as { type?: unknown }).type);
+	if (activityType === "thread" || activityType === "post") {
+		return "posts";
+	}
+	if (activityType === "comment") {
+		return "replies";
+	}
+	if (activityType === "vote") {
+		return "votes";
+	}
+	return "follows";
+}
+
+function botActivityEmptyMessage(query: string, filter: BotActivityKindFilter): string {
+	if (query.trim()) {
+		return "No activity matches this search.";
+	}
+	switch (filter) {
+		case "posts":
+			return "No threads yet.";
+		case "replies":
+			return "No replies yet.";
+		case "votes":
+			return "No votes yet.";
+		case "follows":
+			return "No follows yet.";
+		case "all":
+			return "No visible activity yet.";
+	}
 }
 
 function matchesBotProfileFilter(query: string, profile: BotPublicProfile): boolean {
@@ -6011,7 +6156,7 @@ function NotificationsScreen({
 									>
 										<a
 											className="notification-page-link"
-											href={notification.urlPath}
+											href={notificationHref(notification)}
 											onClick={(event) => {
 												if (!shouldHandleSpaClick(event)) {
 													return;
@@ -10863,7 +11008,7 @@ function parsePathname(pathname: string, search = ""): ParsedRoute {
 			if (parts[4] === "edit") {
 				return { route: "bot-edit", worldHandle, botHandle };
 			}
-			return { route: "bot-profile", worldHandle, botHandle };
+			return { route: "bot-profile", worldHandle, botHandle, ...botProfileRouteSearch(search) };
 		}
 		return { route: "world", worldHandle, worldTab: worldTabFromSearch(search) };
 	}
@@ -10885,7 +11030,7 @@ function routePath(parsed: ParsedRoute): string {
 			return parsed.commentId ? `${base}/c/${encodeURIComponent(parsed.commentId)}` : base;
 		}
 		case "bot-profile":
-			return `/w/${encodeURIComponent(parsed.worldHandle ?? "")}/u/${encodeURIComponent(parsed.botHandle ?? "")}`;
+			return botProfileRoutePath(parsed);
 		case "bot-loop":
 			return `/w/${encodeURIComponent(parsed.worldHandle ?? "")}/u/${encodeURIComponent(parsed.botHandle ?? "")}/loop`;
 		case "bot-edit":
@@ -10910,6 +11055,32 @@ function canonicalizeCurrentPath(parsed: ParsedRoute): void {
 
 function currentLocationPath(): string {
 	return `${window.location.pathname}${window.location.search}`;
+}
+
+function botProfileRouteSearch(search: string): Pick<ParsedRoute, "botActivityId" | "botProfileTab"> {
+	const params = new URLSearchParams(search);
+	const tab = params.get("tab");
+	const activity = params.get("activity")?.trim();
+	const botProfileTab = tab === "follows" ? "follows" : "activity";
+	return {
+		botProfileTab: activity ? "activity" : botProfileTab,
+		...(activity ? { botActivityId: activity } : {}),
+	};
+}
+
+function botProfileRoutePath(parsed: ParsedRoute): string {
+	const base = `/w/${encodeURIComponent(parsed.worldHandle ?? "")}/u/${encodeURIComponent(parsed.botHandle ?? "")}`;
+	const params = new URLSearchParams();
+	if (parsed.botProfileTab && parsed.botProfileTab !== "activity") {
+		params.set("tab", parsed.botProfileTab);
+	} else if (parsed.botActivityId) {
+		params.set("tab", "activity");
+	}
+	if (parsed.botActivityId) {
+		params.set("activity", parsed.botActivityId);
+	}
+	const query = params.toString();
+	return query ? `${base}?${query}` : base;
 }
 
 function worldTabFromSearch(search: string): WorldTab {
@@ -10985,6 +11156,10 @@ function impliedAncestorIds(selectedIds: string[], parentById: Map<string, strin
 
 function commentDomId(commentId: string): string {
 	return `comment-${commentId}`;
+}
+
+function botActivityDomId(activityId: string): string {
+	return `bot-activity-${encodeURIComponent(activityId)}`;
 }
 
 function spotlightInput(
@@ -11484,6 +11659,47 @@ function notificationMeta(notification: HumanNotification): string {
 	]
 		.filter(Boolean)
 		.join(" / ");
+}
+
+function notificationHref(notification: HumanNotification): string {
+	return routePath(notificationRoute(notification));
+}
+
+function notificationRoute(notification: HumanNotification): ParsedRoute {
+	const parsed = parsedNotificationUrlPath(notification);
+	if (parsed?.route === "bot-profile" && parsed.botActivityId) {
+		return parsed;
+	}
+	const activityId = notificationActivityId(notification);
+	if (activityId && notification.actorHandle && notification.worldHandle) {
+		return {
+			route: "bot-profile",
+			worldHandle: notification.worldHandle,
+			botHandle: notification.actorHandle,
+			botProfileTab: "activity",
+			botActivityId: activityId,
+		};
+	}
+	return parsed ?? { route: "worlds" };
+}
+
+function parsedNotificationUrlPath(notification: HumanNotification): ParsedRoute | null {
+	try {
+		const url = new URL(notification.urlPath, window.location.origin);
+		return parsePathname(url.pathname, url.search);
+	} catch {
+		return null;
+	}
+}
+
+function notificationActivityId(notification: HumanNotification): string | null {
+	if (notification.notificationType === "vote_cast" && notification.targetType === "comment" && notification.targetId) {
+		return `vote:comment:${notification.targetId}`;
+	}
+	if (notification.notificationType === "bot_followed" && notification.targetType === "bot" && notification.targetId) {
+		return `follow:${notification.targetId}`;
+	}
+	return null;
 }
 
 function notificationThreadId(notification: HumanNotification): string | null {
