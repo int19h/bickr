@@ -367,9 +367,15 @@ a {
 
 .notification-body {
 	color: var(--ink-2);
+	display: grid;
 	font-size: 12.5px;
+	gap: 2px;
 	line-height: 1.35;
-	white-space: pre-line;
+	white-space: pre-wrap;
+}
+
+.notification-body-detail {
+	color: var(--ink);
 }
 
 .notification-meta,

@@ -1995,7 +1995,7 @@ function NotificationBell({
 								}}
 							>
 								<span className="notification-title">{notification.title}</span>
-								<span className="notification-body">{notification.body}</span>
+								<NotificationBody body={notification.body} />
 								<span className="notification-meta">{notificationMeta(notification)}</span>
 							</a>
 						))}
@@ -2039,6 +2039,21 @@ function ActivityBanner({ label, onClick }: { label: string; onClick: () => void
 			<Icon name="refresh" size={14} />
 			<span>{label}</span>
 		</button>
+	);
+}
+
+function NotificationBody({ body }: { body: string }) {
+	const lines = body.split(/\r?\n/);
+	const [firstLine = "", ...detailLines] = lines;
+	return (
+		<span className="notification-body">
+			<span>{firstLine}</span>
+			{detailLines.map((line, index) => (
+				<span className="notification-body-detail" key={`${index}:${line}`}>
+					{line || "\u00a0"}
+				</span>
+			))}
+		</span>
 	);
 }
 
@@ -6166,7 +6181,7 @@ function NotificationsScreen({
 											}}
 										>
 											<span className="notification-title">{notification.title}</span>
-											<span className="notification-body">{notification.body}</span>
+											<NotificationBody body={notification.body} />
 											<span className="notification-meta">{notificationMeta(notification)}</span>
 										</a>
 										<div className="notification-page-actions">
