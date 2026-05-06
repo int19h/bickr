@@ -1,4 +1,5 @@
 import { fail, ok, readJsonBody } from "@bickr/shared/api";
+import { deleteForum, deleteWorld } from "@bickr/shared/governance";
 import { json } from "@bickr/shared/http";
 import {
 	botById,
@@ -6,10 +7,15 @@ import {
 	createBot,
 	deleteBot,
 	enforceInferenceModelAccess,
+	humanProfileDeleteEligibility,
+	listOwnedForumsOutsideOwnedWorlds,
+	listOwnedWorlds,
 	listForums,
+	listUserBots,
 	mergeInferenceSettings,
 	mergeToolSettings,
 	RepositoryError,
+	softDeleteUserProfile,
 	updateBot,
 	userById,
 } from "@bickr/shared/repository";
@@ -5820,6 +5826,50 @@ export async function handleAgentRuntimeRequest(
 			return ok({ bot, coordinator: objectId });
 		}
 
+		const profileDeleteMatch = /^\/users\/([^/]+)\/profile$/.exec(url.pathname);
+		if (profileDeleteMatch && request.method === "DELETE") {
+			const userId = requireUserMatch(request, decodeURIComponent(profileDeleteMatch[1] ?? ""));
+			const input = await readJsonBody(request);
+			if (!input || typeof input !== "object" || Array.isArray(input) || (input as { confirmCascade?: unknown }).confirmCascade !== true) {
+				throw new InputError("Profile deletion requires confirmCascade: true.");
+			}
+			const eligibility = await humanProfileDeleteEligibility(env.BICKR_D1, userId);
+			if (!eligibility.canDelete) {
+				throw new RepositoryError(
+					"conflict",
+					"Profile deletion is blocked because an owned world contains bots owned by other profiles.",
+					409,
+					{ profileDeleteBlockers: eligibility.blockers },
+				);
+			}
+			const now = new Date().toISOString();
+			const [ownedBots, ownedForumsOutsideOwnedWorlds, ownedWorlds] = await Promise.all([
+				listUserBots(env.BICKR_KV, env.BICKR_D1, userId),
+				listOwnedForumsOutsideOwnedWorlds(env.BICKR_D1, userId),
+				listOwnedWorlds(env.BICKR_D1, userId),
+			]);
+			for (const bot of ownedBots) {
+				const deleted = await deleteBot(env.BICKR_KV, env.BICKR_D1, bot.id, userId, now);
+				await deleteBotVector(env, deleted.id);
+			}
+			for (const forum of ownedForumsOutsideOwnedWorlds) {
+				await deleteForum(env.BICKR_KV, env.BICKR_D1, forum.worldHandle, forum.handle, userId, now);
+			}
+			for (const world of ownedWorlds) {
+				await deleteWorld(env.BICKR_KV, env.BICKR_D1, world.handle, userId, now);
+			}
+			const deletedProfile = await softDeleteUserProfile(env.BICKR_KV, env.BICKR_D1, userId, now);
+			return ok({
+				profile: deletedProfile,
+				deleted: {
+					worlds: ownedWorlds.length,
+					forums: ownedForumsOutsideOwnedWorlds.length,
+					bots: ownedBots.length,
+				},
+				coordinator: objectId,
+			});
+		}
+
 		return fail("not_found", "Agent runtime route not found.", 404);
 	} catch (error) {
 		return errorResponse(error);
@@ -5842,7 +5892,7 @@ export default {
 			return handleAgentRuntimeRequest(request, env);
 		}
 
-		const userBotsMatch = /^\/users\/([^/]+)\/(?:worlds\/[^/]+\/bots|bots\/[^/]+)$/.exec(
+		const userBotsMatch = /^\/users\/([^/]+)\/(?:worlds\/[^/]+\/bots|bots\/[^/]+|profile)$/.exec(
 			url.pathname,
 		);
 		if (userBotsMatch && ["POST", "PATCH", "DELETE"].includes(request.method)) {

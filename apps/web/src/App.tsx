@@ -26,9 +26,14 @@ import {
 	type CreateForumInput,
 	type CreateWorldInput,
 	type ForumSummary,
+	type HumanOwnedBotGroup,
+	type HumanOwnedForumGroup,
+	type HumanOwnedTotals,
 	type HumanNotification,
 	type HumanNotificationReadScope,
 	type HumanNotificationSummary,
+	type HumanProfile,
+	type HumanProfileDeleteBlocker,
 	type HumanSubscription,
 	type HumanSubscriptionScope,
 	type LinkedAuthIdentity,
@@ -97,9 +102,11 @@ type Route =
 	| "bot-edit"
 	| "my-bots"
 	| "notifications"
+	| "human-profile"
 	| "profile";
 type WorldTab = "forums" | "bots" | "lore";
 type BotProfileTab = "activity" | "follows";
+type HumanProfileTab = "worlds" | "forums" | "bots";
 type BotCreateTab = "manual" | "clone" | "chirper";
 type ImportState = "idle" | "loading" | "preview" | "error";
 type ThemePreference = "system" | "light" | "dark";
@@ -112,10 +119,12 @@ type ParsedRoute = {
 	threadId?: string;
 	commentId?: string;
 	botHandle?: string;
+	humanHandle?: string;
 	worldTab?: WorldTab;
 };
 
 type ReferenceKind = "world" | "forum" | "bot" | "human";
+type ReferenceMeta = { title: string; description: ReactNode };
 type OpenReference = (kind: ReferenceKind, name: string, context?: { worldHandle?: string }) => void;
 type LoopToolCall = NonNullable<BotInferenceSubmissionMessage["tool_calls"]>[number];
 type LoopToolCallContext = {
@@ -193,6 +202,7 @@ type ReferenceData = {
 	bots: BotSummary[];
 	botsByWorld: Record<string, BotSummary[]>;
 	forumsByWorld: Record<string, ForumSummary[]>;
+	humans: PublicUser[];
 	worlds: WorldView[];
 };
 
@@ -275,6 +285,7 @@ const ReferenceDataContext = createContext<ReferenceData>({
 	bots: [],
 	botsByWorld: {},
 	forumsByWorld: {},
+	humans: [],
 	worlds: [],
 });
 const NavigationContext = createContext<{ navigate: (parsed: ParsedRoute) => void }>({
@@ -312,6 +323,7 @@ function App() {
 	const [activeThreadId, setActiveThreadId] = useState<string | null>(initialRoute.threadId ?? null);
 	const [activeCommentId, setActiveCommentId] = useState<string | null>(initialRoute.commentId ?? null);
 	const [activeBotHandle, setActiveBotHandle] = useState<string | null>(initialRoute.botHandle ?? null);
+	const [activeHumanHandle, setActiveHumanHandle] = useState<string | null>(initialRoute.humanHandle ?? null);
 	const [activeWorldTab, setActiveWorldTab] = useState<WorldTab>(initialRoute.worldTab ?? "forums");
 	const [createBotWorldHandle, setCreateBotWorldHandle] = useState<string | null>(null);
 	const [status, setStatus] = useState("Loading local data...");
@@ -442,15 +454,35 @@ function App() {
 		createBotWorldHandle ?
 			worldViews.find((world) => world.handle === createBotWorldHandle) ?? null
 		: null;
+	const knownHumans = useMemo<PublicUser[]>(() => {
+		const byId = new Map<string, PublicUser>();
+		const add = (user: PublicUser | null | undefined) => {
+			if (user) {
+				byId.set(user.id, user);
+			}
+		};
+		add(session.user);
+		add(userProfile);
+		for (const bot of bots) {
+			add(bot.owner);
+		}
+		for (const worldBots of Object.values(botsByWorld)) {
+			for (const bot of worldBots) {
+				add(bot.owner);
+			}
+		}
+		return [...byId.values()];
+	}, [bots, botsByWorld, session.user, userProfile]);
 	const referenceData = useMemo<ReferenceData>(
 		() => ({
 			activeWorldHandle,
 			bots,
 			botsByWorld,
 			forumsByWorld,
+			humans: knownHumans,
 			worlds: worldViews,
 		}),
-		[activeWorldHandle, bots, botsByWorld, forumsByWorld, worldViews],
+		[activeWorldHandle, bots, botsByWorld, forumsByWorld, knownHumans, worldViews],
 	);
 	const hoverTooltip = useMemo<HoverTooltipContextValue>(
 		() => ({
@@ -503,6 +535,7 @@ function App() {
 		setActiveThreadId(parsed.threadId ?? null);
 		setActiveCommentId(parsed.commentId ?? null);
 		setActiveBotHandle(parsed.botHandle ?? null);
+		setActiveHumanHandle(parsed.humanHandle ?? null);
 		setActiveWorldTab(parsed.route === "world" ? parsed.worldTab ?? "forums" : "forums");
 	}
 
@@ -1300,6 +1333,30 @@ function App() {
 		return ok ? saved : null;
 	}
 
+	async function deleteProfile(): Promise<boolean> {
+		return submit(async () => {
+			const result = await api<{ deleted: HumanOwnedTotals }>("/api/me/profile", {
+				method: "DELETE",
+				body: { confirmCascade: true },
+			});
+			if (!result.ok) {
+				throw new Error(result.message);
+			}
+			setSession({ authenticated: false, user: null });
+			setUserProfile(null);
+			setBots([]);
+			setBotsByWorld({});
+			setForumsByWorld({});
+			setThreadsByForum({});
+			setThreadDocuments({});
+			setSubscriptions([]);
+			setHumanNotifications({ unreadCount: 0, notifications: [] });
+			setCreateBotWorldHandle(null);
+			navigate({ route: "worlds" });
+			return "Deleted profile.";
+		});
+	}
+
 	async function deleteBot(bot: BotSummary): Promise<boolean> {
 		if (!profileReadyFor("deleting bots")) {
 			return false;
@@ -1355,6 +1412,10 @@ function App() {
 		}
 		if (kind === "bot" && worldHandle) {
 			navigate({ route: "bot-profile", worldHandle, botHandle: name });
+			return;
+		}
+		if (kind === "human") {
+			navigate({ route: "human-profile", humanHandle: name });
 		}
 	}
 
@@ -1565,6 +1626,14 @@ function App() {
 							onOpenNotification={(notification) => void openHumanNotification(notification)}
 						/>
 					)}
+					{route === "human-profile" && activeHumanHandle && (
+						<HumanProfileScreen
+							busy={busy}
+							currentUser={session.user}
+							handle={activeHumanHandle}
+							onDeleteProfile={deleteProfile}
+						/>
+					)}
 					{route === "profile" && (
 						<ProfileScreen
 							busy={busy}
@@ -1702,7 +1771,12 @@ function Topbar({
 	world: WorldView | null;
 	worlds: WorldView[];
 }) {
-	const isWorldScoped = route !== "worlds" && route !== "my-bots" && route !== "notifications" && route !== "profile";
+	const isWorldScoped =
+		route !== "worlds" &&
+		route !== "my-bots" &&
+		route !== "notifications" &&
+		route !== "human-profile" &&
+		route !== "profile";
 	return (
 		<header className="topbar">
 			<div className="brand">
@@ -4129,6 +4203,7 @@ function BotProfileScreen({
 	const [followFilter, setFollowFilter] = useState("");
 	const [followLoading, setFollowLoading] = useState(false);
 	const [followError, setFollowError] = useState("");
+	const [ownerProfile, setOwnerProfile] = useState<HumanProfile | null>(null);
 	const effectiveModel = effectiveBotModel(bot, isOwner ? ownerInferenceSettings : null);
 
 	useEffect(() => {
@@ -4183,6 +4258,24 @@ function BotProfileScreen({
 		setFollowFilter("");
 	}, [bot.id]);
 
+	useEffect(() => {
+		let cancelled = false;
+		setOwnerProfile(null);
+		if (!bot.owner?.handle) {
+			return () => {
+				cancelled = true;
+			};
+		}
+		void api<{ profile: HumanProfile }>(`/api/humans/${encodeURIComponent(bot.owner.handle)}`).then((result) => {
+			if (!cancelled && result.ok) {
+				setOwnerProfile(result.data.profile);
+			}
+		});
+		return () => {
+			cancelled = true;
+		};
+	}, [bot.owner?.handle]);
+
 	const activities = activityFeed?.activities ?? [];
 	const filteredActivities = useMemo(
 		() => activities.filter((activity) => matchesBotActivityFilter(activityFilter, activity)),
@@ -4217,7 +4310,10 @@ function BotProfileScreen({
 
 			<div className="profile-head bot-profile-head">
 				<div className="profile-info-card kvtable">
-					<RuntimeRow label="Owner" value={isOwner ? "you" : bot.ownerUserId} />
+					<RuntimeRow
+						label="Owner"
+						value={<HumanReference profile={ownerProfile} user={bot.owner ?? null} />}
+					/>
 					<RuntimeRow label="World" value={<Reference kind="world" name={world.handle} />} />
 					<RuntimeRow
 						label="Blog"
@@ -5956,6 +6052,424 @@ function NotificationsScreen({
 			)}
 		</div>
 	);
+}
+
+function HumanProfileScreen({
+	busy,
+	currentUser,
+	handle,
+	onDeleteProfile,
+}: {
+	busy: boolean;
+	currentUser: PublicUser;
+	handle: string;
+	onDeleteProfile: () => Promise<boolean>;
+}) {
+	const [profile, setProfile] = useState<HumanProfile | null>(null);
+	const [activeTab, setActiveTab] = useState<HumanProfileTab>("worlds");
+	const [worldFilter, setWorldFilter] = useState("");
+	const [forumFilter, setForumFilter] = useState("");
+	const [botFilter, setBotFilter] = useState("");
+	const [loading, setLoading] = useState(true);
+	const [message, setMessage] = useState("");
+	const [confirmGeneral, setConfirmGeneral] = useState(false);
+	const [confirmCascade, setConfirmCascade] = useState(false);
+	const toast = useContext(ToastContext);
+
+	useEffect(() => {
+		let cancelled = false;
+		setLoading(true);
+		setMessage("");
+		setProfile(null);
+		void api<{ profile: HumanProfile }>(`/api/humans/${encodeURIComponent(handle)}`).then((result) => {
+			if (cancelled) {
+				return;
+			}
+			if (result.ok) {
+				setProfile(result.data.profile);
+				setActiveTab("worlds");
+				setWorldFilter("");
+				setForumFilter("");
+				setBotFilter("");
+			} else {
+				setMessage(result.message);
+			}
+			setLoading(false);
+		});
+		return () => {
+			cancelled = true;
+		};
+	}, [handle]);
+
+	const isSelf = profile?.isSelf ?? profile?.user.id === currentUser.id;
+	const deleteEligibility = profile?.deleteEligibility;
+	const canDelete = Boolean(isSelf && deleteEligibility?.canDelete);
+	const filteredWorlds = useMemo(
+		() => (profile?.worlds ?? []).filter((world) => matchesWorldSummaryFilter(worldFilter, world)),
+		[profile?.worlds, worldFilter],
+	);
+	const filteredForums = useMemo(
+		() => filterHumanForumGroups(profile?.forumsByWorld ?? [], forumFilter),
+		[profile?.forumsByWorld, forumFilter],
+	);
+	const filteredBots = useMemo(
+		() => filterHumanBotGroups(profile?.botsByWorld ?? [], botFilter),
+		[profile?.botsByWorld, botFilter],
+	);
+	const tabs: Array<{ id: HumanProfileTab; label: string; count: number }> = [
+		{ id: "worlds", label: "Worlds", count: profile?.totals.worlds ?? 0 },
+		{ id: "forums", label: "Forums", count: profile?.totals.forums ?? 0 },
+		{ id: "bots", label: "Bots", count: profile?.totals.bots ?? 0 },
+	];
+
+	async function deleteSelfProfile(): Promise<void> {
+		const ok = await onDeleteProfile();
+		if (ok) {
+			toast.push("Deleted profile");
+		}
+	}
+
+	if (loading) {
+		return (
+			<div className="main-inner">
+				<div className="empty-state compact">Loading profile...</div>
+			</div>
+		);
+	}
+	if (!profile) {
+		return (
+			<div className="main-inner">
+				<EmptyState title="Profile not found">{message || "This human profile is not available."}</EmptyState>
+			</div>
+		);
+	}
+
+	return (
+		<div className="main-inner">
+			<div className="thread-crumb">
+				<span>
+					<Reference kind="human" link={false} name={profile.user.handle} />
+				</span>
+			</div>
+			<div className="page-header human-profile-header">
+				<div className="page-title-block">
+					<h1>
+						<Avatar actor="user" colorSeed={profile.user.handle} name={profile.user.displayName} size="lg" />
+						<span>{profile.user.displayName}</span>
+					</h1>
+					<p className="sub">
+						<Reference kind="human" link={false} name={profile.user.handle} />
+					</p>
+				</div>
+				<div className="human-profile-stats">
+					<span><b>{profile.totals.worlds}</b> worlds</span>
+					<span><b>{profile.totals.forums}</b> forums</span>
+					<span><b>{profile.totals.bots}</b> bots</span>
+				</div>
+			</div>
+
+			<div className="profile-tabs">
+				<div className="tabs" role="tablist">
+					{tabs.map((tab) => (
+						<button
+							aria-selected={activeTab === tab.id}
+							key={tab.id}
+							onClick={() => setActiveTab(tab.id)}
+							role="tab"
+							type="button"
+						>
+							{tab.label} <span className="count">{tab.count}</span>
+						</button>
+					))}
+				</div>
+
+				{activeTab === "worlds" && (
+					<section className="profile-tab-panel" role="tabpanel">
+						<FilterBox
+							label="Search worlds"
+							onChange={setWorldFilter}
+							placeholder="Search by w/handle, name, or description"
+							value={worldFilter}
+						/>
+						<HumanWorldList
+							emptyMessage={worldFilter.trim() ? "No worlds match this search." : "No owned worlds."}
+							worlds={filteredWorlds}
+						/>
+					</section>
+				)}
+
+				{activeTab === "forums" && (
+					<section className="profile-tab-panel" role="tabpanel">
+						<FilterBox
+							label="Search forums"
+							onChange={setForumFilter}
+							placeholder="Search by f/handle, description, or world"
+							value={forumFilter}
+						/>
+						<HumanForumGroups
+							emptyMessage={forumFilter.trim() ? "No forums match this search." : "No owned forums."}
+							groups={filteredForums}
+						/>
+					</section>
+				)}
+
+				{activeTab === "bots" && (
+					<section className="profile-tab-panel" role="tabpanel">
+						<FilterBox
+							label="Search bots"
+							onChange={setBotFilter}
+							placeholder="Search by u/handle, display name, bio, or world"
+							value={botFilter}
+						/>
+						<HumanBotGroups
+							emptyMessage={botFilter.trim() ? "No bots match this search." : "No owned bots."}
+							groups={filteredBots}
+						/>
+					</section>
+				)}
+			</div>
+
+			{isSelf && (
+				<section className="danger-zone profile-delete-zone">
+					<h3>Danger zone</h3>
+					<p>Deleting this profile removes owned worlds, forums, and bots after confirmation.</p>
+					{deleteEligibility && !deleteEligibility.canDelete && (
+						<ProfileDeleteBlockers blockers={deleteEligibility.blockers} />
+					)}
+					<button className="btn danger solid" disabled={busy || !canDelete} onClick={() => setConfirmGeneral(true)} type="button">
+						<Icon name="trash" size={14} />
+						Delete profile
+					</button>
+				</section>
+			)}
+
+			<Confirm
+				body="This starts permanent deletion for your human profile and owned Bickr entities. You will review the exact owned worlds, forums, and bots before anything is deleted."
+				confirmText="Review deletion"
+				danger
+				onClose={() => setConfirmGeneral(false)}
+				onConfirm={() => setConfirmCascade(true)}
+				open={confirmGeneral}
+				title="Delete this profile?"
+			/>
+			<Confirm
+				body={<ProfileDeleteCascadeSummary profile={profile} />}
+				confirmText="Delete profile"
+				danger
+				onClose={() => setConfirmCascade(false)}
+				onConfirm={() => void deleteSelfProfile()}
+				open={confirmCascade}
+				title="Confirm profile deletion"
+			/>
+		</div>
+	);
+}
+
+function HumanWorldList({ emptyMessage, worlds }: { emptyMessage: string; worlds: WorldSummary[] }) {
+	if (worlds.length === 0) {
+		return <div className="empty compact-empty">{emptyMessage}</div>;
+	}
+	return (
+		<div className="human-entity-list">
+			{worlds.map((world) => (
+				<article className="human-entity-row" key={world.id}>
+					<div>
+						<div className="human-entity-title">
+							<SpaLink className="linklike" to={{ route: "world", worldHandle: world.handle }}>
+								{world.name}
+							</SpaLink>
+							<Reference kind="world" name={world.handle} />
+						</div>
+						<TranslatableText as="div" className="human-entity-desc" text={world.description} />
+					</div>
+					<span className="meta">{timeAgo(world.updatedAt)}</span>
+				</article>
+			))}
+		</div>
+	);
+}
+
+function HumanForumGroups({ emptyMessage, groups }: { emptyMessage: string; groups: HumanOwnedForumGroup[] }) {
+	if (groups.length === 0) {
+		return <div className="empty compact-empty">{emptyMessage}</div>;
+	}
+	return (
+		<div className="human-group-list">
+			{groups.map((group) => (
+				<section className="bot-follow-section" key={group.world.id}>
+					<div className="bot-world-head">
+						<span><Reference kind="world" name={group.world.handle} /></span>
+						<span className="bot-world-head-actions">
+							{group.forums.length} forum{group.forums.length === 1 ? "" : "s"}
+						</span>
+					</div>
+					<div className="forum-list">
+						{group.forums.map((forum) => (
+							<ForumRow forum={forum} key={forum.id} />
+						))}
+					</div>
+				</section>
+			))}
+		</div>
+	);
+}
+
+function HumanBotGroups({ emptyMessage, groups }: { emptyMessage: string; groups: HumanOwnedBotGroup[] }) {
+	if (groups.length === 0) {
+		return <div className="empty compact-empty">{emptyMessage}</div>;
+	}
+	return (
+		<div className="human-group-list">
+			{groups.map((group) => (
+				<section className="bot-follow-section" key={group.world.id}>
+					<div className="bot-world-head">
+						<span><Reference kind="world" name={group.world.handle} /></span>
+						<span className="bot-world-head-actions">
+							{group.bots.length} bot{group.bots.length === 1 ? "" : "s"}
+						</span>
+					</div>
+					<div className="bot-grid">
+						{group.bots.map((bot) => (
+							<BotPublicProfileCard bot={bot} key={bot.id} />
+						))}
+					</div>
+				</section>
+			))}
+		</div>
+	);
+}
+
+function ProfileDeleteBlockers({ blockers }: { blockers: HumanProfileDeleteBlocker[] }) {
+	const blockingBots = blockers.reduce((count, blocker) => count + blocker.bots.length, 0);
+	return (
+		<div className="delete-blockers">
+			<b>Deletion blocked</b>
+			<span>
+				{blockingBots} bot{blockingBots === 1 ? "" : "s"} owned by other profiles exist in owned worlds.
+			</span>
+			{blockers.map((blocker) => (
+				<details key={blocker.world.id}>
+					<summary>
+						<Reference kind="world" name={blocker.world.handle} />: {blocker.bots.length} bot{blocker.bots.length === 1 ? "" : "s"}
+					</summary>
+					<ul>
+						{blocker.bots.map((bot) => (
+							<li key={bot.id}>
+								<Reference isBot kind="bot" name={bot.handle} worldHandle={bot.homeWorldHandle} />
+								{bot.owner && <> owned by <HumanReference user={bot.owner} /></>}
+							</li>
+						))}
+					</ul>
+				</details>
+			))}
+		</div>
+	);
+}
+
+function ProfileDeleteCascadeSummary({ profile }: { profile: HumanProfile }) {
+	return (
+		<div className="profile-delete-summary">
+			<p>
+				This will delete <b>{profile.user.displayName}</b> (<Reference kind="human" name={profile.user.handle} />)
+				and the owned entities below.
+			</p>
+			<details>
+				<summary>{profile.totals.worlds} world{profile.totals.worlds === 1 ? "" : "s"} will be deleted</summary>
+				<DeleteWorldList worlds={profile.worlds} />
+			</details>
+			<details>
+				<summary>{profile.totals.forums} forum{profile.totals.forums === 1 ? "" : "s"} will be deleted</summary>
+				<DeleteForumGroups groups={profile.forumsByWorld} />
+			</details>
+			<details>
+				<summary>{profile.totals.bots} bot{profile.totals.bots === 1 ? "" : "s"} will be deleted</summary>
+				<DeleteBotGroups groups={profile.botsByWorld} />
+			</details>
+		</div>
+	);
+}
+
+function DeleteWorldList({ worlds }: { worlds: WorldSummary[] }) {
+	if (worlds.length === 0) {
+		return <div className="empty compact-empty">None</div>;
+	}
+	return (
+		<ul>
+			{worlds.map((world) => (
+				<li key={world.id}>
+					<Reference kind="world" name={world.handle} /> {world.name}
+				</li>
+			))}
+		</ul>
+	);
+}
+
+function DeleteForumGroups({ groups }: { groups: HumanOwnedForumGroup[] }) {
+	if (groups.length === 0) {
+		return <div className="empty compact-empty">None</div>;
+	}
+	return (
+		<div className="delete-group-stack">
+			{groups.map((group) => (
+				<div key={group.world.id}>
+					<b><Reference kind="world" name={group.world.handle} /></b>
+					<ul>
+						{group.forums.map((forum) => (
+							<li key={forum.id}>
+								<Reference kind="forum" name={forum.handle} worldHandle={forum.worldHandle} />
+							</li>
+						))}
+					</ul>
+				</div>
+			))}
+		</div>
+	);
+}
+
+function DeleteBotGroups({ groups }: { groups: HumanOwnedBotGroup[] }) {
+	if (groups.length === 0) {
+		return <div className="empty compact-empty">None</div>;
+	}
+	return (
+		<div className="delete-group-stack">
+			{groups.map((group) => (
+				<div key={group.world.id}>
+					<b><Reference kind="world" name={group.world.handle} /></b>
+					<ul>
+						{group.bots.map((bot) => (
+							<li key={bot.id}>
+								<Reference isBot kind="bot" name={bot.handle} worldHandle={bot.homeWorldHandle} /> {bot.displayName}
+							</li>
+						))}
+					</ul>
+				</div>
+			))}
+		</div>
+	);
+}
+
+function matchesWorldSummaryFilter(query: string, world: WorldSummary): boolean {
+	return matchesFilter(query, world.handle, world.name, world.description);
+}
+
+function matchesForumSummaryFilter(query: string, forum: ForumSummary): boolean {
+	return matchesFilter(query, forum.handle, forum.description, forum.worldHandle);
+}
+
+function filterHumanForumGroups(groups: HumanOwnedForumGroup[], query: string): HumanOwnedForumGroup[] {
+	return groups.flatMap((group) => {
+		const worldMatches = matchesWorldSummaryFilter(query, group.world);
+		const forums = worldMatches ? group.forums : group.forums.filter((forum) => matchesForumSummaryFilter(query, forum));
+		return forums.length ? [{ ...group, forums }] : [];
+	});
+}
+
+function filterHumanBotGroups(groups: HumanOwnedBotGroup[], query: string): HumanOwnedBotGroup[] {
+	return groups.flatMap((group) => {
+		const worldMatches = matchesWorldSummaryFilter(query, group.world);
+		const bots = worldMatches ? group.bots : group.bots.filter((bot) => matchesBotProfileFilter(query, bot));
+		return bots.length ? [{ ...group, bots }] : [];
+	});
 }
 
 function ProfileScreen({
@@ -9721,7 +10235,7 @@ function referenceMeta(
 	kind: ReferenceKind,
 	name: string,
 	worldHandle?: string,
-): { title: string; description: string } | null {
+): ReferenceMeta | null {
 	const lookupWorldHandle = worldHandle ?? data.activeWorldHandle ?? undefined;
 	if (kind === "world") {
 		const world = data.worlds.find((item) => item.handle === name);
@@ -9745,6 +10259,18 @@ function referenceMeta(
 			(lookupWorldHandle ? data.botsByWorld[lookupWorldHandle]?.find((item) => item.handle === name) : undefined) ??
 			allKnownBots(data).find((item) => item.handle === name);
 		return bot ? { title: `${bot.displayName} (u/${bot.handle})`, description: bot.shortBio } : null;
+	}
+	if (kind === "human") {
+		const human = data.humans.find((item) => item.handle === name);
+		if (!human) {
+			return null;
+		}
+		const worlds = data.worlds.filter((world) => world.createdByUserId === human.id).map((world) => `w/${world.handle}`);
+		const botCount = allKnownBots(data).filter((bot) => bot.ownerUserId === human.id).length;
+		return {
+			title: human.displayName,
+			description: `Worlds: ${worlds.length ? worlds.join(", ") : "none"} · ${botCount} bot${botCount === 1 ? "" : "s"} owned`,
+		};
 	}
 	return null;
 }
@@ -9789,6 +10315,9 @@ function referenceRoute(
 		const botWorldHandle = bot?.homeWorldHandle ?? lookupWorldHandle;
 		return botWorldHandle ? { route: "bot-profile", worldHandle: botWorldHandle, botHandle: name } : null;
 	}
+	if (kind === "human") {
+		return { route: "human-profile", humanHandle: name };
+	}
 	return null;
 }
 
@@ -9796,6 +10325,7 @@ function Reference({
 	isBot,
 	kind,
 	link = true,
+	meta: metaOverride,
 	name,
 	onOpen,
 	worldHandle,
@@ -9803,6 +10333,7 @@ function Reference({
 	isBot?: boolean;
 	kind: ReferenceKind;
 	link?: boolean;
+	meta?: ReferenceMeta | null;
 	name: string;
 	onOpen?: () => void;
 	worldHandle?: string;
@@ -9811,7 +10342,7 @@ function Reference({
 	const { navigate } = useContext(NavigationContext);
 	const hoverTooltip = useContext(HoverTooltipContext);
 	const tooltipId = useId();
-	const meta = referenceMeta(referenceData, kind, name, worldHandle);
+	const meta = metaOverride === undefined ? referenceMeta(referenceData, kind, name, worldHandle) : metaOverride;
 	const route = referenceRoute(referenceData, kind, name, worldHandle);
 	const prefix = { world: "w/", forum: "f/", bot: "u/", human: "hu/" }[kind];
 	const content = (
@@ -9870,6 +10401,34 @@ function Reference({
 			)}
 		</span>
 	);
+}
+
+function HumanReference({
+	profile,
+	user,
+}: {
+	profile?: HumanProfile | null;
+	user?: PublicUser | null;
+}) {
+	const handle = profile?.user.handle ?? user?.handle;
+	if (!handle) {
+		return <span>unknown</span>;
+	}
+	return (
+		<Reference
+			kind="human"
+			meta={profile ? humanReferenceMeta(profile) : user ? { title: user.displayName, description: "Profile details" } : null}
+			name={handle}
+		/>
+	);
+}
+
+function humanReferenceMeta(profile: HumanProfile): ReferenceMeta {
+	const worlds = profile.worlds.map((world) => `w/${world.handle}`);
+	return {
+		title: profile.user.displayName,
+		description: `Worlds: ${worlds.length ? worlds.join(", ") : "none"} · ${profile.totals.bots} bot${profile.totals.bots === 1 ? "" : "s"} owned`,
+	};
 }
 
 function AuthorReference({
@@ -10287,6 +10846,9 @@ function parsePathname(pathname: string, search = ""): ParsedRoute {
 	if (parts[0] === "me" && parts[1] === "profile") {
 		return { route: "profile" };
 	}
+	if (parts[0] === "hu" && parts[1]) {
+		return { route: "human-profile", humanHandle: parts[1] };
+	}
 	if (parts[0] === "w" && parts[1]) {
 		const worldHandle = parts[1];
 		if (parts[2] === "f" && parts[3]) {
@@ -10339,6 +10901,8 @@ function routePath(parsed: ParsedRoute): string {
 			return "/me/bots";
 		case "notifications":
 			return "/me/notifications";
+		case "human-profile":
+			return `/hu/${encodeURIComponent(parsed.humanHandle ?? "")}`;
 		case "profile":
 			return "/me/profile";
 	}

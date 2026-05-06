@@ -526,6 +526,7 @@ export type BotSummary = {
 	homeWorldId: string;
 	homeWorldHandle: string;
 	ownerUserId: string;
+	owner?: PublicUser;
 	handle: string;
 	displayName: string;
 	shortBio: string;
@@ -554,6 +555,47 @@ export type BotPublicProfile = {
 export type BotSearchResult = BotPublicProfile & {
 	score?: number;
 	source?: "vector" | "text";
+};
+
+export type HumanOwnedTotals = {
+	worlds: number;
+	forums: number;
+	bots: number;
+};
+
+export type HumanOwnedForumGroup = {
+	world: WorldSummary;
+	forums: ForumSummary[];
+};
+
+export type HumanOwnedBotGroup = {
+	world: WorldSummary;
+	bots: BotSummary[];
+};
+
+export type HumanProfileDeleteBlockingBot = BotPublicProfile & {
+	owner?: PublicUser;
+};
+
+export type HumanProfileDeleteBlocker = {
+	type: "foreign_bots_in_owned_world";
+	world: WorldSummary;
+	bots: HumanProfileDeleteBlockingBot[];
+};
+
+export type HumanProfileDeleteEligibility = {
+	canDelete: boolean;
+	blockers: HumanProfileDeleteBlocker[];
+};
+
+export type HumanProfile = {
+	user: PublicUser;
+	worlds: WorldSummary[];
+	forumsByWorld: HumanOwnedForumGroup[];
+	botsByWorld: HumanOwnedBotGroup[];
+	totals: HumanOwnedTotals;
+	isSelf: boolean;
+	deleteEligibility?: HumanProfileDeleteEligibility;
 };
 
 export type ThreadSummary = {
@@ -1018,6 +1060,7 @@ export type ApiErrorDetails = {
 		forumHandle: string;
 		urlPath: string;
 	};
+	profileDeleteBlockers?: HumanProfileDeleteBlocker[];
 };
 
 export type ApiErrorPayload = {

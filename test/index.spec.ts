@@ -15,9 +15,11 @@ import {
 } from "../apps/web/functions/api/me/bots/[botId]";
 import { onRequestPost as contextBudgetRoute } from "../apps/web/functions/api/me/bots/[botId]/runtime/context-budget";
 import {
+	onRequestDelete as deleteProfileRoute,
 	onRequestGet as getProfile,
 	onRequestPatch as patchProfile,
 } from "../apps/web/functions/api/me/profile";
+import { onRequestGet as getHumanProfile } from "../apps/web/functions/api/humans/[humanHandle]";
 import { onRequestPost as markAllNotificationsReadRoute } from "../apps/web/functions/api/me/notifications/read-all";
 import { onRequestPost as translateText } from "../apps/web/functions/api/me/translate";
 import { onRequestDelete as unlinkAuthIdentity } from "../apps/web/functions/api/me/auth/identities/[provider]";
@@ -4224,6 +4226,247 @@ describe("Bickr Pages Functions", () => {
 		expect(shortBotResponse.status).toBe(201);
 	});
 
+	it("returns public human profile ownership grouped by world", async () => {
+		const cookie = await authCookieFor({
+			subject: "human-profile-owner",
+			login: "profile-owner",
+			displayName: "Profile Owner",
+		});
+		await createWorld(
+			contextFor<typeof createWorld>(
+				jsonRequest("http://example.com/api/worlds", "POST", {
+					handle: "owned-world",
+					name: "Owned World",
+					description: "A world owned by the profile.",
+				}, cookie),
+			),
+		);
+		await createForum(
+			contextFor<typeof createForum>(
+				jsonRequest("http://example.com/api/worlds/owned-world/forums", "POST", {
+					handle: "manual-forum",
+					description: "A manually owned forum.",
+				}, cookie),
+				{ worldHandle: "owned-world" },
+			),
+		);
+		await createBot(
+			contextFor<typeof createBot>(
+				jsonRequest("http://example.com/api/worlds/owned-world/bots", "POST", {
+					handle: "profile-bot",
+					displayName: "Profile Bot",
+					shortBio: "Owned by the human profile.",
+					prompt: "Stay concise.",
+				}, cookie),
+				{ worldHandle: "owned-world" },
+			),
+		);
+
+		const response = await getHumanProfile(
+			contextFor<typeof getHumanProfile>(
+				new Request("http://example.com/api/humans/profile-owner", { headers: { cookie } }),
+				{ humanHandle: "profile-owner" },
+			),
+		);
+		expect(response.status).toBe(200);
+		const payload = await response.json() as {
+			data: {
+				profile: {
+					user: Record<string, unknown>;
+					worlds: Array<{ handle: string }>;
+					forumsByWorld: Array<{ world: { handle: string }; forums: Array<{ handle: string }> }>;
+					botsByWorld: Array<{ world: { handle: string }; bots: Array<BotBody> }>;
+					totals: { worlds: number; forums: number; bots: number };
+					isSelf: boolean;
+					deleteEligibility?: { canDelete: boolean };
+				};
+			};
+		};
+		expect(payload.data.profile.user).toMatchObject({
+			handle: "profile-owner",
+			displayName: "Profile Owner",
+		});
+		expect(payload.data.profile.user).not.toHaveProperty("authIdentities");
+		expect(payload.data.profile.user).not.toHaveProperty("inferenceSettings");
+		expect(payload.data.profile.worlds.map((world) => world.handle)).toEqual(["owned-world"]);
+		expect(payload.data.profile.forumsByWorld[0]).toMatchObject({
+			world: { handle: "owned-world" },
+			forums: expect.arrayContaining([
+				expect.objectContaining({ handle: "intro" }),
+				expect.objectContaining({ handle: "manual-forum" }),
+				expect.objectContaining({ handle: "profile-bot" }),
+			]),
+		});
+		expect(payload.data.profile.botsByWorld).toEqual([
+			expect.objectContaining({
+				world: expect.objectContaining({ handle: "owned-world" }),
+				bots: [expect.objectContaining({ handle: "profile-bot", owner: expect.objectContaining({ handle: "profile-owner" }) })],
+			}),
+		]);
+		expect(payload.data.profile.totals).toEqual({ worlds: 1, forums: 3, bots: 1 });
+		expect(payload.data.profile.isSelf).toBe(true);
+		expect(payload.data.profile.deleteEligibility).toMatchObject({ canDelete: true });
+
+		const missingResponse = await getHumanProfile(
+			contextFor<typeof getHumanProfile>(
+				new Request("http://example.com/api/humans/missing-profile", { headers: { cookie } }),
+				{ humanHandle: "missing-profile" },
+			),
+		);
+		expect(missingResponse.status).toBe(404);
+	});
+
+	it("cascades self profile deletion and frees the sign-in identity", async () => {
+		const cookie = await authCookieFor({
+			subject: "delete-profile-subject",
+			login: "delete-profile",
+			displayName: "Delete Profile",
+		});
+		const viewerCookie = await authCookieFor({
+			subject: "delete-profile-viewer",
+			login: "delete-profile-viewer",
+			displayName: "Delete Profile Viewer",
+		});
+		await createWorld(
+			contextFor<typeof createWorld>(
+				jsonRequest("http://example.com/api/worlds", "POST", {
+					handle: "delete-world",
+					name: "Delete World",
+					description: "Owned by the deleted profile.",
+				}, cookie),
+			),
+		);
+		const botResponse = await createBot(
+			contextFor<typeof createBot>(
+				jsonRequest("http://example.com/api/worlds/delete-world/bots", "POST", {
+					handle: "delete-bot",
+					displayName: "Delete Bot",
+					shortBio: "Deleted with the profile.",
+					prompt: "Stay concise.",
+				}, cookie),
+				{ worldHandle: "delete-world" },
+			),
+		);
+		const botPayload = await botResponse.json() as { data: { bot: BotBody } };
+
+		const missingConfirm = await deleteProfileRoute(
+			contextFor<typeof deleteProfileRoute>(
+				jsonRequest("http://example.com/api/me/profile", "DELETE", {}, cookie),
+			),
+		);
+		expect(missingConfirm.status).toBe(400);
+
+		const deleteResponse = await deleteProfileRoute(
+			contextFor<typeof deleteProfileRoute>(
+				jsonRequest("http://example.com/api/me/profile", "DELETE", { confirmCascade: true }, cookie),
+			),
+		);
+		expect(deleteResponse.status, await deleteResponse.clone().text()).toBe(200);
+		expect(deleteResponse.headers.getSetCookie().join(";")).toContain("Max-Age=0");
+
+		const sessionResponse = await session(
+			contextFor<typeof session>(new Request("http://example.com/api/session", { headers: { cookie } })),
+		);
+		expect(await sessionResponse.json()).toMatchObject({
+			ok: true,
+			data: { authenticated: false, user: null },
+		});
+		const rows = await testEnv.BICKR_D1.prepare(
+			`SELECT
+				(SELECT deleted_at FROM users_index WHERE handle LIKE 'deleted-%') AS userDeletedAt,
+				(SELECT deleted_at FROM worlds_index WHERE handle = 'delete-world') AS worldDeletedAt,
+				(SELECT deleted_at FROM bots_index WHERE bot_id = ?) AS botDeletedAt,
+				(SELECT COUNT(*) FROM provider_identities WHERE provider_subject = 'delete-profile-subject') AS identityCount`,
+		)
+			.bind(botPayload.data.bot.id)
+			.first<{ userDeletedAt: string | null; worldDeletedAt: string | null; botDeletedAt: string | null; identityCount: number }>();
+		expect(rows?.userDeletedAt).toEqual(expect.any(String));
+		expect(rows?.worldDeletedAt).toEqual(expect.any(String));
+		expect(rows?.botDeletedAt).toEqual(expect.any(String));
+		expect(rows?.identityCount).toBe(0);
+
+		const deletedProfileResponse = await getHumanProfile(
+			contextFor<typeof getHumanProfile>(
+				new Request("http://example.com/api/humans/delete-profile", { headers: { cookie: viewerCookie } }),
+				{ humanHandle: "delete-profile" },
+			),
+		);
+		expect(deletedProfileResponse.status).toBe(404);
+
+		const replacementCookie = await authCookieFor({
+			subject: "delete-profile-subject",
+			login: "delete-profile",
+			displayName: "Delete Profile Again",
+		});
+		const replacementSession = await session(
+			contextFor<typeof session>(new Request("http://example.com/api/session", { headers: { cookie: replacementCookie } })),
+		);
+		expect(await replacementSession.json()).toMatchObject({
+			ok: true,
+			data: {
+				authenticated: true,
+				user: { handle: "delete-profile", displayName: "Delete Profile Again" },
+			},
+		});
+	});
+
+	it("blocks profile deletion when owned worlds contain bots owned by other profiles", async () => {
+		const ownerCookie = await authCookieFor({
+			subject: "delete-block-owner",
+			login: "delete-block-owner",
+			displayName: "Delete Block Owner",
+		});
+		const guestCookie = await authCookieFor({
+			subject: "delete-block-guest",
+			login: "delete-block-guest",
+			displayName: "Delete Block Guest",
+		});
+		await createWorld(
+			contextFor<typeof createWorld>(
+				jsonRequest("http://example.com/api/worlds", "POST", {
+					handle: "blocked-world",
+					name: "Blocked World",
+					description: "Contains another profile's bot.",
+				}, ownerCookie),
+			),
+		);
+		await createBot(
+			contextFor<typeof createBot>(
+				jsonRequest("http://example.com/api/worlds/blocked-world/bots", "POST", {
+					handle: "guest-bot",
+					displayName: "Guest Bot",
+					shortBio: "Blocks profile deletion.",
+					prompt: "Stay concise.",
+				}, guestCookie),
+				{ worldHandle: "blocked-world" },
+			),
+		);
+
+		const deleteResponse = await deleteProfileRoute(
+			contextFor<typeof deleteProfileRoute>(
+				jsonRequest("http://example.com/api/me/profile", "DELETE", { confirmCascade: true }, ownerCookie),
+			),
+		);
+		expect(deleteResponse.status).toBe(409);
+		const payload = await deleteResponse.json() as {
+			details?: { profileDeleteBlockers?: Array<{ world: { handle: string }; bots: Array<{ handle: string }> }> };
+		};
+		expect(payload.details?.profileDeleteBlockers).toEqual([
+			expect.objectContaining({
+				world: expect.objectContaining({ handle: "blocked-world" }),
+				bots: [expect.objectContaining({ handle: "guest-bot" })],
+			}),
+		]);
+		const world = await testEnv.BICKR_D1.prepare(
+			`SELECT deleted_at AS deletedAt FROM worlds_index WHERE handle = 'blocked-world'`,
+		).first<{ deletedAt: string | null }>();
+		const owner = await testEnv.BICKR_D1.prepare(
+			`SELECT deleted_at AS deletedAt FROM users_index WHERE handle = 'delete-block-owner'`,
+		).first<{ deletedAt: string | null }>();
+		expect(world?.deletedAt).toBeNull();
+		expect(owner?.deletedAt).toBeNull();
+	});
+
 	it("creates, lists, edits, and soft-deletes current-user bots", async () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);
@@ -4285,6 +4528,7 @@ describe("Bickr Pages Functions", () => {
 		expect(createResponse.status).toBe(201);
 		const created = (await createResponse.json()) as { data: { bot: BotBody } };
 		expect(created.data.bot.handle).toBe("release-sage");
+		expect(created.data.bot.owner).toMatchObject({ handle: "octocat", displayName: "Octo Cat" });
 		expect(created.data.bot.inferenceSettings).toMatchObject({
 			openRouterApiKeySet: true,
 			model: "openrouter/auto",
@@ -4385,6 +4629,10 @@ describe("Bickr Pages Functions", () => {
 		);
 		const worldBotsPayload = (await worldBotsResponse.json()) as { data: { bots: BotBody[] } };
 		expect(worldBotsPayload.data.bots.find((bot) => bot.handle === "release-sage")?.prompt).toBeUndefined();
+		expect(worldBotsPayload.data.bots.find((bot) => bot.handle === "release-sage")?.owner).toMatchObject({
+			handle: "octocat",
+			displayName: "Octo Cat",
+		});
 
 		const clearedToolSettingsResponse = await patchBot(
 			contextFor<typeof patchBot>(
@@ -7365,6 +7613,11 @@ type BotBody = {
 	id: string;
 	handle: string;
 	displayName: string;
+	owner?: {
+		id: string;
+		handle: string;
+		displayName: string;
+	};
 	createdAt: string;
 	inferenceSettings: Record<string, unknown>;
 	prompt?: string;
