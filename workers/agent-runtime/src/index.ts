@@ -813,7 +813,7 @@ export function providerResponseMessageForHistory(response: {
 }): BotInferenceSubmissionMessage | null {
 	const content = response.content ?? "";
 	const reasoning = response.reasoning ?? "";
-	const reasoningDetails = response.reasoningDetails ?? [];
+	const reasoningDetails = normalizeReasoningDetailsForProviderHistory(response.reasoningDetails ?? []);
 	const toolCalls = response.toolCalls ?? [];
 	if (
 		!hasProviderHistoryText(content) &&
@@ -838,6 +838,40 @@ export function providerResponseMessageForHistory(response: {
 		message.reasoning = reasoning;
 	}
 	return message;
+}
+
+function normalizeReasoningDetailsForProviderHistory(details: readonly unknown[]): ReasoningDetail[] {
+	const normalized: ReasoningDetail[] = [];
+	for (const detail of details) {
+		const record = { ...runtimeRecord(detail) };
+		const last = normalized[normalized.length - 1];
+		if (
+			last &&
+			record.type === "reasoning.text" &&
+			last.type === "reasoning.text" &&
+			typeof record.text === "string" &&
+			typeof last.text === "string" &&
+			record.index === last.index &&
+			record.format === last.format
+		) {
+			last.text += record.text;
+			continue;
+		}
+		normalized.push(record);
+	}
+	return normalized;
+}
+
+function reasoningDetailsEqual(left: readonly unknown[] | undefined, right: readonly unknown[]): boolean {
+	if (!left || left.length !== right.length) {
+		return !left && right.length === 0;
+	}
+	for (let index = 0; index < left.length; index += 1) {
+		if (JSON.stringify(left[index]) !== JSON.stringify(right[index])) {
+			return false;
+		}
+	}
+	return true;
 }
 
 export function sanitizeProviderToolCalls(toolCalls: readonly BotInferenceSubmissionToolCall[]): ProviderToolCallSanitization {
@@ -977,7 +1011,26 @@ function repairProviderToolCallHistoryRows(rows: readonly LoopMessageRow[]): Pro
 			}
 			continue;
 		}
-		if (current.message.role !== "assistant" || !Array.isArray(current.message.tool_calls) || current.message.tool_calls.length === 0) {
+		if (current.message.role !== "assistant") {
+			continue;
+		}
+
+		let repairedMessage: ChatMessage | null = null;
+		const originalReasoningDetails = Array.isArray(current.message.reasoning_details) ? current.message.reasoning_details : undefined;
+		if (originalReasoningDetails) {
+			const normalizedReasoningDetails = normalizeReasoningDetailsForProviderHistory(originalReasoningDetails);
+			if (!reasoningDetailsEqual(originalReasoningDetails, normalizedReasoningDetails)) {
+				repairedMessage = { ...current.message, reasoning_details: normalizedReasoningDetails };
+			}
+		}
+		if (!Array.isArray(current.message.tool_calls) || current.message.tool_calls.length === 0) {
+			if (repairedMessage) {
+				if (isEmptyProviderAssistantMessage(repairedMessage)) {
+					deleteRow(current.row.seq);
+				} else {
+					updateRow(current.row.seq, repairedMessage);
+				}
+			}
 			continue;
 		}
 
@@ -1019,10 +1072,17 @@ function repairProviderToolCallHistoryRows(rows: readonly LoopMessageRow[]): Pro
 			}
 		}
 		if (toolCallsEqual(originalToolCalls, repairedToolCalls)) {
+			if (repairedMessage) {
+				if (isEmptyProviderAssistantMessage(repairedMessage)) {
+					deleteRow(current.row.seq);
+				} else {
+					updateRow(current.row.seq, repairedMessage);
+				}
+			}
 			continue;
 		}
 
-		const repairedMessage: ChatMessage = { ...current.message };
+		repairedMessage = repairedMessage ?? { ...current.message };
 		if (repairedToolCalls.length > 0) {
 			repairedMessage.tool_calls = repairedToolCalls;
 		} else {
@@ -2500,7 +2560,12 @@ export class BotRuntime {
 				const plainReasoning = delta.reasoning ?? delta.reasoning_content;
 				let detailsReasoning = "";
 				if (Array.isArray(delta.reasoning_details) && delta.reasoning_details.length > 0) {
-					reasoningDetails.push(...delta.reasoning_details);
+					const mergedReasoningDetails = normalizeReasoningDetailsForProviderHistory([
+						...reasoningDetails,
+						...delta.reasoning_details,
+					]);
+					reasoningDetails.length = 0;
+					reasoningDetails.push(...mergedReasoningDetails);
 					detailsReasoning = reasoningTextFromDetails(delta.reasoning_details);
 				}
 				const deltaReasoning = plainReasoning || detailsReasoning;

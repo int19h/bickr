@@ -2687,7 +2687,8 @@ describe("Bickr Pages Functions", () => {
 			sseStream([
 				{ choices: [{ delta: { reasoning: "I should inspect the thread. " } }] },
 				{ choices: [{ delta: { reasoning_content: "Then I can decide. " } }] },
-				{ choices: [{ delta: { reasoning_details: [{ type: "reasoning.text", text: "I will use a tool. " }] } }] },
+				{ choices: [{ delta: { reasoning_details: [{ type: "reasoning.text", text: "I will use ", format: "unknown", index: 0 }] } }] },
+				{ choices: [{ delta: { reasoning_details: [{ type: "reasoning.text", text: "a tool. ", format: "unknown", index: 0 }] } }] },
 				{ choices: [{ delta: { content: " Checking now." } }] },
 				"[DONE]",
 			]),
@@ -2698,13 +2699,14 @@ describe("Bickr Pages Functions", () => {
 		expect(response).toMatchObject({
 			content: " Checking now.",
 			reasoning: "I should inspect the thread. Then I can decide. I will use a tool. ",
-			reasoningDetails: [{ type: "reasoning.text", text: "I will use a tool. " }],
+			reasoningDetails: [{ type: "reasoning.text", text: "I will use a tool. ", format: "unknown", index: 0 }],
 			toolCalls: [],
 		});
 		expect(deltas).toEqual([
 			{ kind: "reasoning", streamSeq: 42, text: "I should inspect the thread. " },
 			{ kind: "reasoning", streamSeq: 42, text: "Then I can decide. " },
-			{ kind: "reasoning", streamSeq: 42, text: "I will use a tool. " },
+			{ kind: "reasoning", streamSeq: 42, text: "I will use " },
+			{ kind: "reasoning", streamSeq: 42, text: "a tool. " },
 			{ kind: "content", streamSeq: 42, text: " Checking now." },
 		]);
 		expect(events).toEqual([
@@ -3291,6 +3293,77 @@ describe("Bickr Pages Functions", () => {
 		expect(events[0]).toMatchObject({
 			type: "provider_tool_call_dropped",
 			payload: expect.objectContaining({ phase: "history_repair", callIds: ["call-poisoned"] }),
+		});
+	});
+
+	it("repairs fragmented reasoning details in active provider history", async () => {
+		const rows = [
+			loopMessageRowForMessage(1, {
+				role: "assistant",
+				content: null,
+				reasoning_details: [
+					{ type: "reasoning.text", text: "I will ", format: "unknown", index: 0 },
+					{ type: "reasoning.text", text: "use a tool.", format: "unknown", index: 0 },
+				],
+				tool_calls: [
+					{
+						id: "call-valid",
+						type: "function",
+						function: { name: "read_thread", arguments: "{\"threadId\":\"thr_test\"}" },
+					},
+				],
+			}),
+			loopMessageRowForMessage(2, {
+				role: "tool",
+				tool_call_id: "call-valid",
+				content: "{\"ok\":true}",
+			}, "tool_result"),
+		];
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			state: {
+				storage: {
+					sql: {
+						exec: vi.fn(<T,>(query: string, ...params: unknown[]) => {
+							const normalized = query.trim().replace(/\s+/g, " ");
+							if (/UPDATE loop_messages SET message_json = \?, token_estimate = \?/.test(normalized)) {
+								const row = rows.find((item) => item.seq === Number(params[2]));
+								if (row && !row.deleted_at) {
+									row.message_json = String(params[0]);
+									row.token_estimate = Number(params[1]);
+								}
+							}
+							if (/UPDATE loop_messages SET deleted_at = \?/.test(normalized)) {
+								const row = rows.find((item) => item.seq === Number(params[1]));
+								if (row && !row.deleted_at) {
+									row.deleted_at = String(params[0]);
+								}
+							}
+							return {
+								one: () => ({} as T),
+								toArray: () => [] as T[],
+							};
+						}),
+					},
+				},
+			},
+			activeLoopMessageRows: () => rows.filter((row) => row.deleted_at === null),
+			broadcastControl: () => {},
+		});
+		const repairActiveProviderToolCallHistory = (BotRuntime.prototype as unknown as {
+			repairActiveProviderToolCallHistory: (runId: string) => Promise<unknown[]>;
+		}).repairActiveProviderToolCallHistory.bind(runtime);
+
+		await expect(repairActiveProviderToolCallHistory("run-reasoning-repair")).resolves.toEqual([]);
+
+		expect(rows[0]?.deleted_at).toBeNull();
+		expect(rows[1]?.deleted_at).toBeNull();
+		expect(JSON.parse(rows[0]?.message_json ?? "{}")).toMatchObject({
+			reasoning_details: [
+				{ type: "reasoning.text", text: "I will use a tool.", format: "unknown", index: 0 },
+			],
+			tool_calls: [
+				expect.objectContaining({ id: "call-valid" }),
+			],
 		});
 	});
 
