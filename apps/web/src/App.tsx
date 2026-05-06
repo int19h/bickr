@@ -4919,19 +4919,18 @@ function SpotlightPanel({
 					{message && <div className="runtime-message">{message}</div>}
 					{preview ?
 						preview.botPreviews.map((botPreview) => (
-							<details className="preview-details" key={botPreview.bot.id} open={preview.botPreviews.length === 1}>
-								<summary>
+							<div className="preview-details" key={botPreview.bot.id}>
+								<div className="preview-summary">
 									u/{botPreview.bot.handle}: {botPreview.included.threadCount} thread,{" "}
 									{botPreview.included.commentCount} comments
 									{botPreview.included.excludedSeenCount > 0 ?
 										` / ${botPreview.included.excludedSeenCount} already seen excluded`
 									:	""}
-								</summary>
-								<SpotlightPreviewReadableView injectedText={botPreview.injectedText} />
-							</details>
+								</div>
+							</div>
 						))
 					:	<div className="injected muted">
-							{botIds.length === 0 ? "Select one or more unpaused owned bots to preview the injected thought." : "No preview yet."}
+							{botIds.length === 0 ? "Select one or more unpaused owned bots to preview the content summary." : "No preview yet."}
 						</div>
 					}
 				</div>
@@ -8777,30 +8776,6 @@ function ReadableGenericFields({ record }: { record: JsonRecord }) {
 					<b>{String(value)}</b>
 				</div>
 			))}
-		</div>
-	);
-}
-
-function SpotlightPreviewReadableView({ injectedText }: { injectedText: string }) {
-	const parsed = parseJsonValue(injectedText);
-	const record = recordValue(parsed);
-	if (stringValue(record.kind) !== "spotlight_context") {
-		return <div className="injected readable-context"><div className="tool-text">{injectedText}</div></div>;
-	}
-	const worldHandle = worldHandleFromRecord(record);
-	const forumHandle = forumHandleFromRecord(record);
-	const focus = textValueForDisplay(record.focus);
-	return (
-		<div className="injected readable-context">
-			<div className="readable-event-meta">
-				<span>Spotlight context</span>
-				<ForumReference forumHandle={forumHandle} worldHandle={worldHandle} />
-			</div>
-			{focus && <ReadableQuote label="Focus" text={focus} />}
-			<ReadableContentChain
-				content={arrayValue(record.content)}
-				fallbackThread={{ world: worldHandle ? `w/${worldHandle}` : undefined, forum: forumHandle ? `f/${forumHandle}` : undefined }}
-			/>
 		</div>
 	);
 }

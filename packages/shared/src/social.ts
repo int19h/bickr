@@ -2522,32 +2522,32 @@ export async function sendSpotlight(
 	now = new Date().toISOString(),
 ): Promise<{ preview: SpotlightPreview; deliveries: SpotlightDeliveryResult[] }> {
 	const spotlightId = makeId("spt");
-	const botPreviews = await buildSpotlightBotPreviews(kv, db, userId, forum, input, now);
+	const botDrafts = await buildSpotlightBotDrafts(kv, db, userId, forum, input, now);
 	const deliveries: SpotlightDeliveryResult[] = [];
-	for (const preview of botPreviews) {
+	for (const draft of botDrafts) {
 		let status = "sent";
 		let errorMessage: string | undefined;
 		let injectionId: string | undefined;
 		try {
-			const injected = await inject(preview.bot.id, preview.injectedText, spotlightId);
+			const injected = await inject(draft.bot.id, draft.injectedText, spotlightId);
 			injectionId = injected.injectionId;
 			await markBotSeenContent(
 				db,
-				preview.bot.id,
+				draft.bot.id,
 				[
-					...[...new Set(preview.content.map((item) => item.threadId))].map((id) => ({ type: "thread" as const, id })),
-					...preview.content.map((item) => ({ type: item.type, id: item.id })),
-					...autoProfileSeenItems(preview.content),
+					...[...new Set(draft.content.map((item) => item.threadId))].map((id) => ({ type: "thread" as const, id })),
+					...draft.content.map((item) => ({ type: item.type, id: item.id })),
+					...autoProfileSeenItems(draft.content),
 				],
 				"spotlight",
 				spotlightId,
 				now,
 			);
-			deliveries.push({ spotlightId, botId: preview.bot.id, ok: true, ...(injectionId ? { injectionId } : {}) });
+			deliveries.push({ spotlightId, botId: draft.bot.id, ok: true, ...(injectionId ? { injectionId } : {}) });
 		} catch (error) {
 			status = "failed";
 			errorMessage = error instanceof Error ? error.message : "Spotlight injection failed.";
-			deliveries.push({ spotlightId, botId: preview.bot.id, ok: false, error: errorMessage });
+			deliveries.push({ spotlightId, botId: draft.bot.id, ok: false, error: errorMessage });
 		}
 		await db
 			.prepare(
@@ -2559,14 +2559,14 @@ export async function sendSpotlight(
 			.bind(
 				spotlightId,
 				userId,
-				preview.bot.id,
+				draft.bot.id,
 				forum.worldId,
 				forum.id,
-				input.threadId ?? preview.content[0]?.threadId ?? null,
+				input.threadId ?? draft.content[0]?.threadId ?? null,
 				input.targetType,
 				JSON.stringify(input.targetType === "threads" ? input.threadIds ?? [] : input.commentIds ?? []),
 				trimmedFocus(input.focusText) ?? null,
-				preview.injectedText,
+				draft.injectedText,
 				status,
 				errorMessage ?? null,
 				now,
@@ -2580,7 +2580,7 @@ export async function sendSpotlight(
 			worldHandle: forum.worldHandle,
 			forumHandle: forum.handle,
 			...(input.threadId ? { threadId: input.threadId } : {}),
-			botPreviews,
+			botPreviews: botDrafts.map(spotlightPreviewFromDraft),
 		},
 		deliveries,
 	};
@@ -3006,24 +3006,39 @@ function voteActionText(value: -1 | 0 | 1): string {
 	return "cleared my vote on";
 }
 
-async function botSeenRecently(
+async function botSeenRecentlySet(
 	db: D1DatabaseLike,
 	botId: string,
-	seenBotId: string,
+	seenBotIds: string[],
 	now: string,
 	days = 30,
-): Promise<boolean> {
+): Promise<Set<string>> {
+	const uniqueIds = [...new Set(seenBotIds.filter((id) => id && id !== botId))];
+	const seen = new Set<string>();
+	if (uniqueIds.length === 0) {
+		return seen;
+	}
 	const threshold = new Date(Date.parse(now) - days * 24 * 60 * 60 * 1000).toISOString();
-	const row = await db
-		.prepare(
-			`SELECT object_id AS id
-			 FROM bot_seen_content
-			 WHERE bot_id = ? AND object_type = 'bot' AND object_id = ? AND last_seen_at >= ?
-			 LIMIT 1`,
-		)
-		.bind(botId, seenBotId, threshold)
-		.first<{ id: string }>();
-	return Boolean(row);
+	const maxIdsPerQuery = d1MaxBoundParameters - 2;
+	for (let index = 0; index < uniqueIds.length; index += maxIdsPerQuery) {
+		const batch = uniqueIds.slice(index, index + maxIdsPerQuery);
+		const placeholders = batch.map(() => "?").join(", ");
+		const result = await db
+			.prepare(
+				`SELECT object_id AS id
+				 FROM bot_seen_content
+				 WHERE bot_id = ?
+				   AND object_type = 'bot'
+				   AND object_id IN (${placeholders})
+				   AND last_seen_at >= ?`,
+			)
+			.bind(botId, ...batch, threshold)
+			.all<{ id: string }>();
+		for (const row of result.results ?? []) {
+			seen.add(row.id);
+		}
+	}
+	return seen;
 }
 
 function applyVoteDelta(
@@ -3284,35 +3299,63 @@ async function countNewComments(
 	return row?.count ?? 0;
 }
 
-async function seenSetForBot(
+type SpotlightBotDraft = SpotlightBotPreview & {
+	content: SpotlightIncludedContent[];
+	injectedText: string;
+};
+
+type SpotlightContentDraft = {
+	content: SpotlightIncludedContent[];
+	excludedSeenCount: number;
+};
+
+type SpotlightContentPlan = {
+	threads: ThreadDocument[];
+	commentIdsByThreadId: Map<string, string[]>;
+	spotlightedCommentIds: ReadonlySet<string> | undefined;
+	seenItems: SeenContentItem[];
+};
+
+async function seenSetsForBots(
 	db: D1DatabaseLike,
-	botId: string,
+	botIds: string[],
 	items: SeenContentItem[],
-): Promise<Set<string>> {
-	const seen = new Set<string>();
-	const unique = new Map(items.map((item) => [`${item.type}:${item.id}`, item]));
-	const selected = [...unique.values()];
-	const maxItemsPerQuery = Math.floor((d1MaxBoundParameters - 1) / 2);
-	for (let index = 0; index < selected.length; index += maxItemsPerQuery) {
-		const batch = selected.slice(index, index + maxItemsPerQuery);
-		const selectedRows = batch.map(() => "(?, ?)").join(", ");
-		const result = await db
-			.prepare(
-				`WITH selected(object_type, object_id) AS (VALUES ${selectedRows})
-				 SELECT bot_seen_content.object_type AS type, bot_seen_content.object_id AS id
-				 FROM bot_seen_content
-				 JOIN selected
-				   ON selected.object_type = bot_seen_content.object_type
-				  AND selected.object_id = bot_seen_content.object_id
-				 WHERE bot_seen_content.bot_id = ?`,
-			)
-			.bind(...batch.flatMap((item) => [item.type, item.id]), botId)
-			.all<{ type: SeenContentItem["type"]; id: string }>();
-		for (const row of result.results ?? []) {
-			seen.add(`${row.type}:${row.id}`);
+): Promise<Map<string, Set<string>>> {
+	const seenByBotId = new Map(botIds.map((botId) => [botId, new Set<string>()]));
+	const selected = [...new Map(items.map((item) => [`${item.type}:${item.id}`, item])).values()];
+	if (botIds.length === 0 || selected.length === 0) {
+		return seenByBotId;
+	}
+	const maxBotsPerQuery = 20;
+	for (let botIndex = 0; botIndex < botIds.length; botIndex += maxBotsPerQuery) {
+		const botBatch = botIds.slice(botIndex, botIndex + maxBotsPerQuery);
+		const maxItemsPerQuery = Math.max(1, Math.floor((d1MaxBoundParameters - botBatch.length) / 2));
+		for (let itemIndex = 0; itemIndex < selected.length; itemIndex += maxItemsPerQuery) {
+			const itemBatch = selected.slice(itemIndex, itemIndex + maxItemsPerQuery);
+			const botRows = botBatch.map(() => "(?)").join(", ");
+			const itemRows = itemBatch.map(() => "(?, ?)").join(", ");
+			const result = await db
+				.prepare(
+					`WITH selected_bots(bot_id) AS (VALUES ${botRows}),
+					      selected_items(object_type, object_id) AS (VALUES ${itemRows})
+					 SELECT bot_seen_content.bot_id AS botId,
+					        bot_seen_content.object_type AS type,
+					        bot_seen_content.object_id AS id
+					 FROM bot_seen_content
+					 JOIN selected_bots
+					   ON selected_bots.bot_id = bot_seen_content.bot_id
+					 JOIN selected_items
+					   ON selected_items.object_type = bot_seen_content.object_type
+					  AND selected_items.object_id = bot_seen_content.object_id`,
+				)
+				.bind(...botBatch, ...itemBatch.flatMap((item) => [item.type, item.id]))
+				.all<{ botId: string; type: SeenContentItem["type"]; id: string }>();
+			for (const row of result.results ?? []) {
+				seenByBotId.get(row.botId)?.add(`${row.type}:${row.id}`);
+			}
 		}
 	}
-	return seen;
+	return seenByBotId;
 }
 
 async function buildSpotlightBotPreviews(
@@ -3323,41 +3366,58 @@ async function buildSpotlightBotPreviews(
 	input: SpotlightPreviewInput,
 	now: string,
 ): Promise<SpotlightBotPreview[]> {
+	return (await buildSpotlightBotDrafts(kv, db, userId, forum, input, now)).map(spotlightPreviewFromDraft);
+}
+
+async function buildSpotlightBotDrafts(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	userId: string,
+	forum: ForumDocument,
+	input: SpotlightPreviewInput,
+	now: string,
+): Promise<SpotlightBotDraft[]> {
 	const selectedBots = await ownedSpotlightBots(kv, db, userId, forum, input.botIds);
 	if (selectedBots.length === 0) {
 		throw repositoryError("bad_request", "Select at least one owned bot.", 400);
 	}
 	const threads = await spotlightThreads(kv, forum, input);
-	const allItems = threads.flatMap((thread) => [
-		{ type: "thread" as const, id: thread.id },
-		...thread.comments.map((comment) => ({ type: "comment" as const, id: comment.id })),
-	]);
+	const plan = spotlightContentPlan(threads, input);
+	const seenByBotId = await seenSetsForBots(db, selectedBots.map((bot) => bot.id), plan.seenItems);
 	const focus = trimmedFocus(input.focusText);
 
-	const previews: SpotlightBotPreview[] = [];
+	const drafts: SpotlightBotDraft[] = [];
 	for (const bot of selectedBots) {
-		const seen = await seenSetForBot(db, bot.id, allItems);
+		const seen = seenByBotId.get(bot.id) ?? new Set<string>();
+		const draft = spotlightContentForBot(plan, seen);
 		const content = await addAuthorShortBiosToContext(
 			kv,
 			db,
 			bot.id,
-			spotlightContentForBot(threads, input, seen),
+			draft.content,
 			now,
 			{ includedProfileIds: new Set() },
 		);
-			previews.push({
-				bot,
-				included: {
-					threadCount: threads.length,
-					commentCount: content.filter((item) => item.type === "comment").length,
-					excludedSeenCount: allItems.filter((item) => seen.has(`${item.type}:${item.id}`)).length,
-				},
-				content,
-				injectedText: spotlightInjectedText(spotlightSyntheticContext(forum, input, threads, content, focus)),
-			});
-		}
-		return previews;
+		drafts.push({
+			bot,
+			included: {
+				threadCount: threads.length,
+				commentCount: content.filter((item) => item.type === "comment").length,
+				excludedSeenCount: draft.excludedSeenCount,
+			},
+			content,
+			injectedText: spotlightInjectedText(spotlightSyntheticContext(forum, input, threads, content, focus)),
+		});
 	}
+	return drafts;
+}
+
+function spotlightPreviewFromDraft(draft: SpotlightBotDraft): SpotlightBotPreview {
+	return {
+		bot: draft.bot,
+		included: draft.included,
+	};
+}
 
 async function ownedSpotlightBots(
 	kv: KVNamespaceLike,
@@ -3504,28 +3564,92 @@ function assertThreadInForum(thread: ThreadDocument, forum: ForumDocument): void
 	}
 }
 
-function spotlightContentForBot(
+function spotlightContentPlan(
 	threads: ThreadDocument[],
 	input: SpotlightPreviewInput,
+): SpotlightContentPlan {
+	const commentIdsByThreadId = new Map<string, string[]>();
+	const seenItems: SeenContentItem[] = [];
+	if (input.targetType === "threads") {
+		for (const thread of threads) {
+			const commentIds = thread.comments.map((comment) => comment.id);
+			commentIdsByThreadId.set(thread.id, commentIds);
+			seenItems.push(...commentIds.map((id) => ({ type: "comment" as const, id })));
+		}
+		return {
+			threads,
+			commentIdsByThreadId,
+			spotlightedCommentIds: undefined,
+			seenItems,
+		};
+	}
+
+	const spotlightedCommentIds = new Set(input.commentIds ?? []);
+	for (const thread of threads) {
+		const selectedInThread = thread.comments
+			.filter((comment) => spotlightedCommentIds.has(comment.id))
+			.map((comment) => comment.id);
+		const chainIds = commentChainIds(thread, selectedInThread);
+		commentIdsByThreadId.set(thread.id, chainIds);
+		seenItems.push(...chainIds.map((id) => ({ type: "comment" as const, id })));
+	}
+	return {
+		threads,
+		commentIdsByThreadId,
+		spotlightedCommentIds,
+		seenItems,
+	};
+}
+
+function spotlightContentForBot(
+	plan: SpotlightContentPlan,
 	seen: Set<string>,
-): SpotlightIncludedContent[] {
+): SpotlightContentDraft {
 	const content: SpotlightIncludedContent[] = [];
 	const included = new Set<string>();
-	for (const thread of threads) {
-		const orderedCommentIds =
-			input.targetType === "comments" ?
-				thread.comments.filter((comment) => (input.commentIds ?? []).includes(comment.id)).map((comment) => comment.id)
-			:	thread.comments.map((comment) => comment.id);
-		const commentIds = input.targetType === "comments" ? new Set(input.commentIds ?? []) : undefined;
-		for (const item of commentContextContent(thread, orderedCommentIds, seen, commentIds)) {
-			const key = `${item.type}:${item.id}`;
-			if (!included.has(key)) {
-				included.add(key);
+	let excludedSeenCount = 0;
+	for (const thread of plan.threads) {
+		const commentsById = new Map(thread.comments.map((comment) => [comment.id, comment]));
+		for (const commentId of plan.commentIdsByThreadId.get(thread.id) ?? []) {
+			const comment = commentsById.get(commentId);
+			if (!comment) {
+				continue;
+			}
+			const key = `comment:${comment.id}`;
+			if (!plan.spotlightedCommentIds && seen.has(key)) {
+				excludedSeenCount += 1;
+				continue;
+			}
+			const item = commentContextItem(thread, comment, seen, plan.spotlightedCommentIds);
+			const itemKey = `${item.type}:${item.id}`;
+			if (!included.has(itemKey)) {
+				included.add(itemKey);
 				content.push(item);
 			}
 		}
 	}
-	return content;
+	return { content, excludedSeenCount };
+}
+
+function commentChainIds(thread: ThreadDocument, commentIds: string[]): string[] {
+	const commentsById = new Map(thread.comments.map((comment) => [comment.id, comment]));
+	const included = new Set<string>();
+	const ids: string[] = [];
+	for (const commentId of commentIds) {
+		const chain: CommentDocument[] = [];
+		let current = commentsById.get(commentId);
+		while (current) {
+			chain.unshift(current);
+			current = current.parentCommentId ? commentsById.get(current.parentCommentId) : undefined;
+		}
+		for (const comment of chain) {
+			if (!included.has(comment.id)) {
+				included.add(comment.id);
+				ids.push(comment.id);
+			}
+		}
+	}
+	return ids;
 }
 
 function threadRootContextItem(
@@ -3546,6 +3670,29 @@ function threadRootContextItem(
 		...(options.focus ? { "My focus is on this comment": true } : {}),
 		...(options.ancestorOnly ? { ancestorOnly: true } : {}),
 		alreadySeen: Boolean(options.alreadySeen),
+	};
+}
+
+function commentContextItem(
+	thread: ThreadDocument,
+	comment: CommentDocument,
+	seen: ReadonlySet<string>,
+	spotlightedCommentIds?: ReadonlySet<string>,
+): SpotlightIncludedContent {
+	return {
+		type: "comment",
+		id: comment.id,
+		commentId: comment.id,
+		threadId: thread.id,
+		...(comment.parentCommentId ? { parentCommentId: comment.parentCommentId } : {}),
+		authorBotId: comment.authorBotId,
+		authorHandle: comment.authorHandle,
+		authorDisplayName: comment.authorDisplayName,
+		body: comment.body,
+		createdAt: comment.createdAt,
+		...(spotlightedCommentIds?.has(comment.id) ? { "My focus is on this comment": true as const } : {}),
+		...(spotlightedCommentIds ? { ancestorOnly: !spotlightedCommentIds.has(comment.id) } : {}),
+		alreadySeen: seen.has(`comment:${comment.id}`),
 	};
 }
 
@@ -3608,12 +3755,13 @@ async function addAuthorShortBiosToContext(
 		.map((item) => item.authorBotId)
 		.filter((authorBotId) => authorBotId !== recipientBotId && !profileContextState.includedProfileIds.has(authorBotId));
 	const followedAuthorIds = await followedBotIdSet(db, recipientBotId, candidateAuthorIds);
+	const recentlySeenAuthorIds = await botSeenRecentlySet(db, recipientBotId, candidateAuthorIds, now);
 	for (const item of content) {
 		if (item.authorBotId === recipientBotId || profileContextState.includedProfileIds.has(item.authorBotId)) {
 			annotated.push(item);
 			continue;
 		}
-		if (await botSeenRecently(db, recipientBotId, item.authorBotId, now)) {
+		if (recentlySeenAuthorIds.has(item.authorBotId)) {
 			annotated.push(item);
 			continue;
 		}

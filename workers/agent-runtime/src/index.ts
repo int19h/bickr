@@ -3368,7 +3368,7 @@ export class BotRuntime {
 				console.warn("spotlight notification failed", error);
 			}
 		}
-		const providerResult = providerToolResultPayload(canonicalName, result, normalizedArgs);
+		const providerResult = providerToolResultPayload(canonicalName, result, normalizedArgs, this.providerContentInActiveContext());
 		await this.appendEvent(runId, "tool_result", { name: canonicalName, args: providerToolArgs(canonicalName, normalizedArgs), result });
 		return { name: canonicalName, result, providerResult };
 	}
@@ -3689,11 +3689,11 @@ export class BotRuntime {
 			this.appendLoopMessage(runId, { role: "user", content: elapsed }, "input");
 		}
 		const existingProfileUsernames = this.profileUsernamesInActiveContext();
-		const existingNotificationContent = this.notificationContentInActiveContext();
+		const existingProviderContent = this.providerContentInActiveContext();
 		if (input.spotlightContexts.length > 0) {
-			await this.appendSpotlightSyntheticContext(bot, runId, input.spotlightContexts, existingProfileUsernames);
+			await this.appendSpotlightSyntheticContext(bot, runId, input.spotlightContexts, existingProfileUsernames, existingProviderContent);
 		} else {
-			await this.appendNotificationSyntheticContext(bot, runId, input.notifications, existingProfileUsernames, existingNotificationContent);
+			await this.appendNotificationSyntheticContext(bot, runId, input.notifications, existingProfileUsernames, existingProviderContent);
 		}
 		for (const injection of input.injections) {
 			this.appendLoopMessage(runId, { role: "assistant", content: injectedThoughtAssistantContent(injection, {}) }, "injection");
@@ -3710,16 +3710,17 @@ export class BotRuntime {
 		runId: string,
 		notifications: LoopNotification[],
 		existingProfileUsernames: ReadonlySet<string>,
-		existingNotificationContent: ProviderNotificationContentScope,
+		existingProviderContent: ProviderContextContentScope,
 	): Promise<void> {
 		const toolCalls: ToolCall[] = [
 			syntheticToolCall(runId, "check_notifications", 0, {}),
 		];
+		const providerContentScope = cloneProviderContextContentScope(existingProviderContent);
 		const results: ChatMessage[] = [
 			{
 				role: "tool",
 				tool_call_id: toolCalls[0]?.id ?? syntheticToolCallId(runId, 0),
-				content: JSON.stringify(providerCheckNotificationsResult(notifications, existingNotificationContent)),
+				content: JSON.stringify(providerCheckNotificationsResult(notifications, providerContentScope)),
 			},
 		];
 		const usernames = referencedProfileUsernamesFromNotifications(notifications, bot.handle, existingProfileUsernames);
@@ -3749,13 +3750,15 @@ export class BotRuntime {
 		runId: string,
 		contexts: SpotlightSyntheticContext[],
 		existingProfileUsernames: ReadonlySet<string>,
+		existingProviderContent: ProviderContextContentScope,
 	): Promise<void> {
 		const chains = contexts.flatMap(spotlightSyntheticToolChains);
 		const toolCalls: ToolCall[] = chains.map((chain, index) => syntheticToolCall(runId, chain.toolName, index, chain.args));
+		const providerContentScope = cloneProviderContextContentScope(existingProviderContent);
 		const results: ChatMessage[] = chains.map((chain, index) => ({
 			role: "tool",
 			tool_call_id: toolCalls[index]?.id ?? syntheticToolCallId(runId, index),
-			content: JSON.stringify(chain.result),
+			content: JSON.stringify(spotlightReadResult(chain.context, chain.toolName, providerContentScope, chain.targetCommentId, chain.targetThreadId)),
 		}));
 		const usernames = referencedProfileUsernamesFromSpotlight(contexts, bot.handle, existingProfileUsernames);
 		if (usernames.length > 0) {
@@ -3815,10 +3818,13 @@ export class BotRuntime {
 		return usernames;
 	}
 
-	private notificationContentInActiveContext(): ProviderNotificationContentScope {
-		const scope = emptyProviderNotificationContentScope();
+	private providerContentInActiveContext(): ProviderContextContentScope {
+		const scope = emptyProviderContextContentScope();
 		for (const row of this.activeLoopMessageRows()) {
-			collectProviderNotificationContentFromValue(loopMessageChatMessageFromRow(row).content, scope);
+			const message = loopMessageChatMessageFromRow(row);
+			if (loopMessageContributesToProviderHistory(row.origin, message)) {
+				collectProviderContextContentFromValue(message.content, scope);
+			}
 		}
 		return scope;
 	}
@@ -4144,6 +4150,7 @@ export class BotRuntime {
 			.map((message) => truncateForContext(loopMessageContextLine(message), 1_200))
 			.join("\n");
 		const compactedMessages = compacted.map((row) => loopMessageChatMessageFromRow(row));
+		const compactedCommentBodies = commentTextRecordsFromChatMessages(compactedMessages);
 		const compactionMessages = providerCompactionMessages(bot, compactedMessages);
 		const providerActive = Boolean(settings.apiKey || settings.usesCustomBaseUrl || this.env.BICKR_SIMULATION_MODE === "provider");
 		const compactionEventPayload = {
@@ -4183,12 +4190,13 @@ export class BotRuntime {
 			throw error;
 		}
 		const summary = response.content ? storedCompactionSummary(response.content) : deterministicCompactionSummary("", recentActivity);
+		const summaryPosition = compacted[0]?.position ?? this.nextLoopMessagePosition();
 		const summaryMessage = this.insertLoopMessage({
 			runId,
 			message: { role: "assistant", content: summary },
 			origin: "compaction",
 			status: "complete",
-			position: compacted[0]?.position ?? this.nextLoopMessagePosition(),
+			position: summaryPosition,
 			broadcast: true,
 		});
 		for (const row of compacted) {
@@ -4232,7 +4240,114 @@ export class BotRuntime {
 				usage: response.usage,
 			});
 		}
+		this.repairDanglingCommentReferencesAfterCompaction(summaryMessage.seq, summaryPosition, summaryMessage.message, compactedCommentBodies);
 		this.broadcastControl({ type: "loop_messages_reset" });
+	}
+
+	private repairDanglingCommentReferencesAfterCompaction(
+		summarySeq: number,
+		summaryPosition: number,
+		summaryMessage: ChatMessage,
+		compactedCommentBodies: ReadonlyMap<string, string>,
+	): void {
+		if (compactedCommentBodies.size === 0) {
+			return;
+		}
+		const rows = this.state.storage.sql
+			.exec<LoopMessageRow>(
+				`SELECT m.seq, m.position, m.run_id, m.role, m.message_json, m.origin, m.status,
+				        m.token_estimate, m.stream_seq, m.compacted_by, m.deleted_at, m.created_at,
+				        CASE WHEN EXISTS (SELECT 1 FROM loop_message_logs l WHERE l.message_seq = m.seq) THEN 1 ELSE 0 END AS has_logs
+				 FROM loop_messages m
+				 WHERE m.compacted_by IS NULL
+				   AND m.deleted_at IS NULL
+				   AND m.role = 'tool'
+				   AND (m.position > ? OR (m.position = ? AND m.seq > ?))
+				 ORDER BY m.position ASC, m.seq ASC`,
+				summaryPosition,
+				summaryPosition,
+				summarySeq,
+			)
+			.toArray();
+		if (rows.length === 0) {
+			return;
+		}
+		const activeScope = emptyProviderContextContentScope();
+		collectProviderContextContentFromValue(summaryMessage.content, activeScope);
+		for (const row of rows) {
+			collectProviderContextContentFromValue(loopMessageChatMessageFromRow(row).content, activeScope);
+		}
+
+		const pendingCommentIds = new Set<string>();
+		for (const row of rows) {
+			const refs = commentReferencesWithoutTextFromValue(loopMessageChatMessageFromRow(row).content);
+			for (const commentId of refs) {
+				if (!activeScope.commentsWithText.has(commentId) && compactedCommentBodies.has(commentId)) {
+					pendingCommentIds.add(commentId);
+				}
+			}
+		}
+		if (pendingCommentIds.size === 0) {
+			return;
+		}
+
+		const idsByRowSeq = new Map<number, Set<string>>();
+		for (const row of [...rows].reverse()) {
+			if (pendingCommentIds.size === 0) {
+				break;
+			}
+			const refs = commentReferencesWithoutTextFromValue(loopMessageChatMessageFromRow(row).content);
+			for (const commentId of refs) {
+				if (!pendingCommentIds.has(commentId)) {
+					continue;
+				}
+				let ids = idsByRowSeq.get(row.seq);
+				if (!ids) {
+					ids = new Set();
+					idsByRowSeq.set(row.seq, ids);
+				}
+				ids.add(commentId);
+				pendingCommentIds.delete(commentId);
+			}
+		}
+		if (idsByRowSeq.size === 0) {
+			return;
+		}
+
+		for (const row of rows) {
+			const ids = idsByRowSeq.get(row.seq);
+			if (!ids) {
+				continue;
+			}
+			const message = loopMessageChatMessageFromRow(row);
+			if (typeof message.content !== "string") {
+				continue;
+			}
+			let content: unknown;
+			try {
+				content = JSON.parse(message.content);
+			} catch {
+				continue;
+			}
+			const hydrated = hydrateNewestCommentReferences(content, ids, compactedCommentBodies);
+			if (hydrated.size === 0) {
+				continue;
+			}
+			const updatedContent = JSON.stringify(content);
+			const updatedMessage = { ...message, content: updatedContent };
+			const messageJson = JSON.stringify(updatedMessage);
+			const tokenEstimate = estimateTextTokens(messageJson);
+			this.state.storage.sql.exec(
+				`UPDATE loop_messages
+				 SET message_json = ?, token_estimate = ?
+				 WHERE seq = ?`,
+				messageJson,
+				tokenEstimate,
+				row.seq,
+			);
+			this.recordLoopMessageLog(row.seq, "message", messageJson);
+			this.recordLoopMessageLog(row.seq, "tool_result", updatedContent);
+		}
 	}
 
 	private currentCompactionContextEstimate(): {
@@ -4952,7 +5067,9 @@ function spotlightIncludedContentFromRecord(record: Record<string, unknown>): Sp
 type SyntheticReadToolChain = {
 	toolName: "read_thread_by_id" | "read_comment_by_id";
 	args: Record<string, unknown>;
-	result: Record<string, unknown>;
+	context: SpotlightSyntheticContext;
+	targetCommentId?: string;
+	targetThreadId?: string;
 };
 
 function syntheticToolCall(runId: string, name: string, index: number, args: Record<string, unknown>): ToolCall {
@@ -5081,11 +5198,12 @@ function spotlightSyntheticToolChains(context: SpotlightSyntheticContext): Synth
 	if (context.targetType === "comments") {
 		return context.content
 			.filter((item) => item.type === "comment" && (item["My focus is on this comment"] || item.target))
-			.map((item) => ({
-				toolName: "read_comment_by_id",
-				args: { commentId: item.id },
-				result: spotlightReadResult(context, "read_comment_by_id", item.id),
-			}));
+				.map((item) => ({
+					toolName: "read_comment_by_id",
+					args: { commentId: item.id },
+					context,
+					targetCommentId: item.id,
+				}));
 	}
 	const threadIds = new Set((context.threads ?? []).map((thread) => thread.threadId));
 	for (const item of context.content) {
@@ -5094,13 +5212,15 @@ function spotlightSyntheticToolChains(context: SpotlightSyntheticContext): Synth
 	return [...threadIds].map((threadId) => ({
 		toolName: "read_thread_by_id",
 		args: { threadId },
-		result: spotlightReadResult(context, "read_thread_by_id", undefined, threadId),
+		context,
+		targetThreadId: threadId,
 	}));
 }
 
 function spotlightReadResult(
 	context: SpotlightSyntheticContext,
 	operation: "read_thread_by_id" | "read_comment_by_id",
+	scope: ProviderContextContentScope,
 	targetCommentId?: string,
 	targetThreadId?: string,
 ): Record<string, unknown> {
@@ -5110,13 +5230,13 @@ function spotlightReadResult(
 			spotlightCommentChainContent(context.content, threadId, targetCommentId)
 		:	context.content.filter((item) => item.threadId === threadId);
 	const enriched = content.map((item) => spotlightProviderContentItem(context, item));
-	return {
+	return providerReadResult({
 		operation,
 		context: `Result of my ${operation} operation.`,
-		thread: providerThreadSummary(spotlightThreadSummaryRecord(context, threadId, content)),
+		thread: spotlightThreadSummaryRecord(context, threadId, content),
 		...(targetCommentId ? { targetCommentId } : {}),
-		content: providerReadContentTree(enriched),
-	};
+		content: enriched,
+	}, scope);
 }
 
 function spotlightCommentChainContent(content: SpotlightIncludedContent[], threadId: string, targetCommentId: string): SpotlightIncludedContent[] {
@@ -5432,11 +5552,16 @@ function providerCompactionSummaryFromResponseContent(content: unknown): string 
 	return summary ? summary.slice(0, providerCompactionSummaryMaxCharacters) : null;
 }
 
-function providerToolResultPayload(name: string, result: unknown, args: Record<string, unknown> = {}): unknown {
+export function providerToolResultPayload(
+	name: string,
+	result: unknown,
+	args: Record<string, unknown> = {},
+	scope: ProviderContextContentScope = emptyProviderContextContentScope(),
+): unknown {
 	const canonical = canonicalToolName(name);
 	if (canonical === "check_notifications") {
 		const record = runtimeRecord(result);
-		return providerCheckNotificationsResult(Array.isArray(record.events) ? record.events : []);
+		return providerCheckNotificationsResult(Array.isArray(record.events) ? record.events : [], scope);
 	}
 	if (canonical === "list_accessible_forums" && Array.isArray(result)) {
 		return result.map((item) => providerForum(runtimeRecord(item)));
@@ -5476,7 +5601,7 @@ function providerToolResultPayload(name: string, result: unknown, args: Record<s
 		return result.map((item) => providerVoteResult(runtimeRecord(item)));
 	}
 	if (canonical === "read_thread" || canonical === "read_thread_by_id" || canonical === "read_comment_by_id") {
-		return providerReadResult(runtimeRecord(result));
+		return providerReadResult(runtimeRecord(result), scope);
 	}
 	if (canonical === "create_thread") {
 		return providerCreateThreadResult(result);
@@ -5493,30 +5618,30 @@ function providerToolResultPayload(name: string, result: unknown, args: Record<s
 	return providerSafeJsonValue(result);
 }
 
-type ProviderNotificationContentScope = {
-	comments: Set<string>;
-	threads: Set<string>;
+type ProviderContextContentScope = {
+	commentsWithText: Set<string>;
+	threadsWithText: Set<string>;
 };
 
-function emptyProviderNotificationContentScope(): ProviderNotificationContentScope {
+function emptyProviderContextContentScope(): ProviderContextContentScope {
 	return {
-		comments: new Set(),
-		threads: new Set(),
+		commentsWithText: new Set(),
+		threadsWithText: new Set(),
 	};
 }
 
-function cloneProviderNotificationContentScope(scope: ProviderNotificationContentScope): ProviderNotificationContentScope {
+function cloneProviderContextContentScope(scope: ProviderContextContentScope): ProviderContextContentScope {
 	return {
-		comments: new Set(scope.comments),
-		threads: new Set(scope.threads),
+		commentsWithText: new Set(scope.commentsWithText),
+		threadsWithText: new Set(scope.threadsWithText),
 	};
 }
 
 function providerCheckNotificationsResult(
 	events: unknown[],
-	initialScope: ProviderNotificationContentScope = emptyProviderNotificationContentScope(),
+	initialScope: ProviderContextContentScope = emptyProviderContextContentScope(),
 ): Record<string, unknown> {
-	const scope = cloneProviderNotificationContentScope(initialScope);
+	const scope = cloneProviderContextContentScope(initialScope);
 	return {
 		events: mergedProviderNotificationEvents(events.map(runtimeRecord))
 			.map((event) => providerNotificationEvent(event, scope))
@@ -5552,7 +5677,7 @@ function mergedProviderNotificationEvents(events: Record<string, unknown>[]): Re
 
 function providerNotificationEvent(
 	event: Record<string, unknown>,
-	scope: ProviderNotificationContentScope,
+	scope: ProviderContextContentScope,
 ): Record<string, unknown> {
 	return removeUndefinedProperties({
 		id: stringValue(event.id),
@@ -5573,7 +5698,7 @@ function providerNotificationEvent(
 	});
 }
 
-function providerNotificationTargetRef(value: unknown, scope: ProviderNotificationContentScope): Record<string, unknown> | undefined {
+function providerNotificationTargetRef(value: unknown, scope: ProviderContextContentScope): Record<string, unknown> | undefined {
 	const record = runtimeRecord(value);
 	if (Object.keys(record).length === 0) {
 		return undefined;
@@ -5603,16 +5728,16 @@ function providerNotificationProfileRef(record: Record<string, unknown>): Record
 
 function providerNotificationThreadRef(
 	record: Record<string, unknown>,
-	scope: ProviderNotificationContentScope,
+	scope: ProviderContextContentScope,
 ): Record<string, unknown> | undefined {
 	const id = stringValue(record.id) ?? stringValue(record.threadId);
 	const text = stringValue(record.text) ?? stringValue(record.body) ?? stringValue(runtimeRecord(record.rootPost).body);
 	if (!id && !stringValue(record.title)) {
 		return undefined;
 	}
-	const includeText = Boolean(id && text && !scope.threads.has(id));
+	const includeText = Boolean(id && text && !scope.threadsWithText.has(id));
 	if (id && text) {
-		scope.threads.add(id);
+		scope.threadsWithText.add(id);
 	}
 	return removeUndefinedProperties({
 		id,
@@ -5624,19 +5749,20 @@ function providerNotificationThreadRef(
 
 function providerNotificationCommentRef(
 	record: Record<string, unknown>,
-	scope: ProviderNotificationContentScope,
+	scope: ProviderContextContentScope,
 ): Record<string, unknown> | undefined {
 	const id = stringValue(record.id) ?? stringValue(record.commentId);
 	const text = stringValue(record.text) ?? stringValue(record.body);
 	if (!id && !stringValue(record.threadId)) {
 		return undefined;
 	}
-	const includeText = Boolean(id && text && !scope.comments.has(id));
+	const includeText = Boolean(id && text && !scope.commentsWithText.has(id));
 	if (id && text) {
-		scope.comments.add(id);
+		scope.commentsWithText.add(id);
 	}
 	return removeUndefinedProperties({
 		id,
+		commentId: id,
 		threadId: stringValue(record.threadId),
 		parentCommentId: stringValue(record.parentCommentId),
 		author: providerNotificationProfileRef(runtimeRecord(record.author)),
@@ -5660,7 +5786,7 @@ function orderedProviderDeliveryReasons(reasons: string[]): string[] {
 	return [...ordered, ...[...unique].sort((left, right) => left.localeCompare(right))];
 }
 
-function collectProviderNotificationContentFromValue(value: unknown, scope: ProviderNotificationContentScope): void {
+function collectProviderContextContentFromValue(value: unknown, scope: ProviderContextContentScope): void {
 	if (typeof value === "string") {
 		let parsed: unknown;
 		try {
@@ -5668,12 +5794,12 @@ function collectProviderNotificationContentFromValue(value: unknown, scope: Prov
 		} catch {
 			return;
 		}
-		collectProviderNotificationContentFromValue(parsed, scope);
+		collectProviderContextContentFromValue(parsed, scope);
 		return;
 	}
 	if (Array.isArray(value)) {
 		for (const item of value) {
-			collectProviderNotificationContentFromValue(item, scope);
+			collectProviderContextContentFromValue(item, scope);
 		}
 		return;
 	}
@@ -5683,18 +5809,181 @@ function collectProviderNotificationContentFromValue(value: unknown, scope: Prov
 	}
 	const text = stringValue(record.text) ?? stringValue(record.body) ?? stringValue(runtimeRecord(record.rootPost).body);
 	if (text) {
-		const isComment = stringValue(record.type) === "comment" || Boolean(stringValue(record.commentId) || stringValue(record.parentCommentId));
-		const commentId = isComment ? stringValue(record.commentId) ?? stringValue(record.id) : undefined;
+		const commentId = commentIdFromProviderContentRecord(record);
 		const threadId = stringValue(record.threadId) ?? stringValue(record.id);
 		if (commentId) {
-			scope.comments.add(commentId);
+			scope.commentsWithText.add(commentId);
 		} else if (threadId) {
-			scope.threads.add(threadId);
+			scope.threadsWithText.add(threadId);
 		}
 	}
 	for (const item of Object.values(record)) {
-		collectProviderNotificationContentFromValue(item, scope);
+		collectProviderContextContentFromValue(item, scope);
 	}
+}
+
+function commentTextRecordsFromChatMessages(messages: ChatMessage[]): Map<string, string> {
+	const records = new Map<string, string>();
+	for (const message of messages) {
+		collectCommentTextRecordsFromValue(message.content, records);
+	}
+	return records;
+}
+
+function collectCommentTextRecordsFromValue(value: unknown, output: Map<string, string>): void {
+	if (typeof value === "string") {
+		let parsed: unknown;
+		try {
+			parsed = JSON.parse(value);
+		} catch {
+			return;
+		}
+		collectCommentTextRecordsFromValue(parsed, output);
+		return;
+	}
+	if (Array.isArray(value)) {
+		for (const item of value) {
+			collectCommentTextRecordsFromValue(item, output);
+		}
+		return;
+	}
+	const record = runtimeRecord(value);
+	if (Object.keys(record).length === 0) {
+		return;
+	}
+	const commentId = commentIdFromProviderContentRecord(record);
+	const text = commentTextFromProviderContentRecord(record);
+	if (commentId && text && !output.has(commentId)) {
+		output.set(commentId, text);
+	}
+	for (const item of Object.values(record)) {
+		collectCommentTextRecordsFromValue(item, output);
+	}
+}
+
+function commentReferencesWithoutTextFromValue(value: unknown): Set<string> {
+	const refs = new Set<string>();
+	collectCommentReferencesWithoutTextFromValue(value, refs);
+	return refs;
+}
+
+function collectCommentReferencesWithoutTextFromValue(value: unknown, refs: Set<string>): void {
+	if (typeof value === "string") {
+		let parsed: unknown;
+		try {
+			parsed = JSON.parse(value);
+		} catch {
+			return;
+		}
+		collectCommentReferencesWithoutTextFromValue(parsed, refs);
+		return;
+	}
+	if (Array.isArray(value)) {
+		for (const item of value) {
+			collectCommentReferencesWithoutTextFromValue(item, refs);
+		}
+		return;
+	}
+	const record = runtimeRecord(value);
+	if (Object.keys(record).length === 0) {
+		return;
+	}
+	const commentId = commentIdFromProviderContentRecord(record);
+	if (commentId && !commentTextFromProviderContentRecord(record)) {
+		refs.add(commentId);
+	}
+	for (const item of Object.values(record)) {
+		collectCommentReferencesWithoutTextFromValue(item, refs);
+	}
+}
+
+function hydrateNewestCommentReferences(
+	value: unknown,
+	commentIds: ReadonlySet<string>,
+	commentBodies: ReadonlyMap<string, string>,
+): Set<string> {
+	const pending = new Set([...commentIds].filter((commentId) => commentBodies.has(commentId)));
+	const hydrated = new Set<string>();
+	hydrateNewestCommentReferencesInValue(value, pending, hydrated, commentBodies);
+	return hydrated;
+}
+
+function hydrateNewestCommentReferencesInValue(
+	value: unknown,
+	pending: Set<string>,
+	hydrated: Set<string>,
+	commentBodies: ReadonlyMap<string, string>,
+): void {
+	if (pending.size === 0) {
+		return;
+	}
+	if (Array.isArray(value)) {
+		for (let index = value.length - 1; index >= 0 && pending.size > 0; index -= 1) {
+			hydrateNewestCommentReferencesInValue(value[index], pending, hydrated, commentBodies);
+		}
+		return;
+	}
+	const record = runtimeRecord(value);
+	if (Object.keys(record).length === 0) {
+		return;
+	}
+	const keys = Object.keys(record);
+	for (let index = keys.length - 1; index >= 0 && pending.size > 0; index -= 1) {
+		const key = keys[index];
+		if (key !== undefined) {
+			hydrateNewestCommentReferencesInValue(record[key], pending, hydrated, commentBodies);
+		}
+	}
+	const commentId = commentIdFromProviderContentRecord(record);
+	if (!commentId || !pending.has(commentId) || commentTextFromProviderContentRecord(record)) {
+		return;
+	}
+	const body = commentBodies.get(commentId);
+	if (!body) {
+		return;
+	}
+	record[commentHydrationTextField(record)] = body;
+	pending.delete(commentId);
+	hydrated.add(commentId);
+}
+
+function commentIdFromProviderContentRecord(record: Record<string, unknown>): string | undefined {
+	const explicitCommentId = stringValue(record.commentId);
+	if (explicitCommentId) {
+		return explicitCommentId;
+	}
+	const type = stringValue(record.type);
+	if (type === "comment") {
+		return stringValue(record.id);
+	}
+	if (stringValue(record.parentCommentId)) {
+		return stringValue(record.id);
+	}
+	const id = stringValue(record.id);
+	if (
+		id &&
+		stringValue(record.threadId) &&
+		!stringValue(record.title) &&
+		(record.author !== undefined || stringValue(record.authorHandle) || stringValue(record.authorDisplayName))
+	) {
+		return id;
+	}
+	return undefined;
+}
+
+function commentTextFromProviderContentRecord(record: Record<string, unknown>): string | undefined {
+	return rawNonEmptyString(record.body) ?? rawNonEmptyString(record.text);
+}
+
+function commentHydrationTextField(record: Record<string, unknown>): "body" | "text" {
+	if (stringValue(record.type) === "comment" || "body" in record) {
+		return "body";
+	}
+	return "text";
+}
+
+function rawNonEmptyString(value: unknown): string | undefined {
+	return typeof value === "string" && value.trim() ? value : undefined;
 }
 
 function removeUndefinedProperties(record: Record<string, unknown>): Record<string, unknown> {
@@ -5812,8 +6101,11 @@ function providerAuthor(record: Record<string, unknown>): Record<string, unknown
 	};
 }
 
-function providerReadResult(record: Record<string, unknown>): Record<string, unknown> {
-	const content = Array.isArray(record.content) ? providerReadContentTree(record.content.map(runtimeRecord)) : [];
+function providerReadResult(
+	record: Record<string, unknown>,
+	scope: ProviderContextContentScope = emptyProviderContextContentScope(),
+): Record<string, unknown> {
+	const content = Array.isArray(record.content) ? providerReadContentTree(record.content.map(runtimeRecord), scope) : [];
 	const collapsedReplyCount = providerCollapsedReplyCount(content);
 	const baseContext = stringValue(record.context) ?? "Result of my read operation.";
 	return {
@@ -5827,11 +6119,14 @@ function providerReadResult(record: Record<string, unknown>): Record<string, unk
 	};
 }
 
-function providerReadContentTree(records: Record<string, unknown>[]): Record<string, unknown>[] {
+function providerReadContentTree(
+	records: Record<string, unknown>[],
+	scope: ProviderContextContentScope = emptyProviderContextContentScope(),
+): Record<string, unknown>[] {
 	const roots: Record<string, unknown>[] = [];
 	const comments: Record<string, unknown>[] = [];
 	for (const record of records) {
-		const item = providerReadContent(record);
+		const item = providerReadContent(record, scope);
 		if (isProviderComment(item)) {
 			comments.push(item);
 		} else {
@@ -5841,19 +6136,29 @@ function providerReadContentTree(records: Record<string, unknown>[]): Record<str
 	return [...roots, ...providerNestedCommentList(comments)];
 }
 
-function providerReadContent(record: Record<string, unknown>): Record<string, unknown> {
+function providerReadContent(record: Record<string, unknown>, scope: ProviderContextContentScope): Record<string, unknown> {
 	const type = stringValue(record.type) ?? (stringValue(record.commentId) ? "comment" : "item");
+	const id = stringValue(record.id) ?? stringValue(record.commentId);
+	const commentId = type === "comment" ? stringValue(record.commentId) ?? id : stringValue(record.commentId);
+	const body = stringValue(record.body) ?? stringValue(record.text);
+	const includeBody =
+		type === "comment" ?
+			Boolean(commentId && body && !scope.commentsWithText.has(commentId))
+		:	body !== undefined;
+	if (type === "comment" && commentId && body) {
+		scope.commentsWithText.add(commentId);
+	}
 	const item = {
 		type,
-		id: stringValue(record.id),
+		id,
 		threadId: stringValue(record.threadId),
-		...(stringValue(record.commentId) ? { commentId: stringValue(record.commentId) } : {}),
+		...(commentId ? { commentId } : {}),
 		...(stringValue(record.parentCommentId) ? { parentCommentId: stringValue(record.parentCommentId) } : {}),
 		world: stringValue(record.world) ?? `w/${stringValue(record.worldHandle) ?? "unknown"}`,
 		forum: stringValue(record.forum) ?? `f/${stringValue(record.forumHandle) ?? "unknown"}`,
 		author: providerReadAuthor(record),
 		...(stringValue(record.title) ? { title: stringValue(record.title) } : {}),
-		body: stringValue(record.body) ?? "",
+		...(includeBody ? { body: body ?? "" } : {}),
 		createdAt: stringValue(record.createdAt),
 		...(record["My focus is on this comment"] === true || record.target === true ? { "My focus is on this comment": true } : {}),
 		...(record.ancestorOnly ? { ancestorOnly: true } : {}),
@@ -5863,7 +6168,7 @@ function providerReadContent(record: Record<string, unknown>): Record<string, un
 	}
 	return {
 		...item,
-		replies: providerReadReplies(record.replies),
+		replies: providerReadReplies(record.replies, scope),
 	};
 }
 
@@ -5880,11 +6185,11 @@ function providerReadAuthor(record: Record<string, unknown>): Record<string, unk
 	return providerAuthor(record);
 }
 
-function providerReadReplies(value: unknown): Record<string, unknown>[] | number {
+function providerReadReplies(value: unknown, scope: ProviderContextContentScope): Record<string, unknown>[] | number {
 	if (typeof value === "number" && Number.isFinite(value)) {
 		return Math.max(0, Math.floor(value));
 	}
-	return Array.isArray(value) ? providerReadContentTree(value.map(runtimeRecord)).filter(isProviderComment) : [];
+	return Array.isArray(value) ? providerReadContentTree(value.map(runtimeRecord), scope).filter(isProviderComment) : [];
 }
 
 function providerNestedCommentList(comments: Record<string, unknown>[]): Record<string, unknown>[] {

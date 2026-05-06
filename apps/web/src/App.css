@@ -4762,9 +4762,8 @@ button:disabled {
 	margin-top: 8px;
 }
 
-.preview-details summary {
+.preview-summary {
 	color: var(--ink-2);
-	cursor: pointer;
 	font-size: 12px;
 	font-weight: 600;
 }

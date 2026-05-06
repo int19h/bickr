@@ -690,8 +690,6 @@ export type SpotlightBotPreview = {
 		commentCount: number;
 		excludedSeenCount: number;
 	};
-	content: SpotlightIncludedContent[];
-	injectedText: string;
 };
 
 export type SpotlightSyntheticContext = {

@@ -72,6 +72,7 @@ import {
 	providerMessagesWithReasoningPrefill,
 	providerResponseMessageForHistory,
 	providerTranslationRequest,
+	providerToolResultPayload,
 	providerTokenProbeRequest,
 	runtimeErrorLoopMessageContent,
 	textTokenCalibrationFromPromptHistory,
@@ -1270,41 +1271,145 @@ describe("Bickr Pages Functions", () => {
 			}));
 		});
 
-		it("builds translation requests with strict structured output and no tools", () => {
-		const request = providerTranslationRequest(
-			{
-				baseUrl: "https://openrouter.ai/api/v1",
-				model: "openai/gpt-4o-mini",
-				prompt: "Translate to Pirate.",
-			},
-			"Hello world.",
-		);
+		it("hydrates only the newest dangling comment reference after compaction", () => {
+			const toolRow = (seq: number, position: number, content: unknown) => ({
+				seq,
+				position,
+				run_id: "run-repair",
+				role: "tool",
+				message_json: JSON.stringify({
+					role: "tool",
+					tool_call_id: `call_${seq}`,
+					content: JSON.stringify(content),
+				}),
+				origin: "tool_result",
+				status: "complete",
+				token_estimate: 1,
+				stream_seq: null,
+				compacted_by: null,
+				deleted_at: null,
+				created_at: "2026-05-01T00:00:00.000Z",
+				has_logs: 0,
+			});
+			const rows = [
+				toolRow(20, 20, { content: [{ type: "comment", id: "cmt_a", commentId: "cmt_a", threadId: "thr_repair" }] }),
+				toolRow(21, 21, {
+					content: [
+						{ type: "comment", id: "cmt_b", commentId: "cmt_b", threadId: "thr_repair" },
+						{ type: "comment", id: "cmt_c", commentId: "cmt_c", threadId: "thr_repair", body: "Still anchored." },
+					],
+				}),
+				toolRow(22, 22, {
+					content: [
+						{ type: "comment", id: "cmt_a", commentId: "cmt_a", threadId: "thr_repair" },
+						{ type: "comment", id: "cmt_b", commentId: "cmt_b", threadId: "thr_repair" },
+					],
+				}),
+			];
+			const sql = {
+				exec: vi.fn(<T,>(query: string, ...params: unknown[]) => {
+					const normalized = query.trim().replace(/\s+/g, " ");
+					if (/FROM loop_messages m WHERE m\.compacted_by IS NULL/.test(normalized)) {
+						const minPosition = Number(params[0]);
+						const samePosition = Number(params[1]);
+						const minSeq = Number(params[2]);
+						return {
+							toArray: () =>
+								rows
+									.filter((row) => row.compacted_by === null && row.deleted_at === null && row.role === "tool")
+									.filter((row) => row.position > minPosition || (row.position === samePosition && row.seq > minSeq))
+									.sort((left, right) => left.position - right.position || left.seq - right.seq) as T[],
+						};
+					}
+					if (/UPDATE loop_messages SET message_json = \?, token_estimate = \? WHERE seq = \?/.test(normalized)) {
+						const row = rows.find((item) => item.seq === Number(params[2]));
+						if (row) {
+							row.message_json = String(params[0]);
+							row.token_estimate = Number(params[1]);
+						}
+					}
+					return {
+						one: () => ({} as T),
+						toArray: () => [] as T[],
+					};
+				}),
+			};
+			const recordLoopMessageLog = vi.fn();
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				state: { storage: { sql } },
+				recordLoopMessageLog,
+			});
+			const repair = (BotRuntime.prototype as unknown as {
+				repairDanglingCommentReferencesAfterCompaction: (
+					summarySeq: number,
+					summaryPosition: number,
+					summaryMessage: { role: "assistant"; content: string },
+					compactedCommentBodies: ReadonlyMap<string, string>,
+				) => void;
+			}).repairDanglingCommentReferencesAfterCompaction.bind(runtime);
 
-		expect(request.model).toBe("openai/gpt-4o-mini");
-		expect(request.messages).toEqual([
-			{ role: "system", content: "Translate to Pirate." },
-			{ role: "user", content: "Hello world." },
-		]);
-		expect("tools" in request).toBe(false);
-		expect(request.stream).toBe(false);
-		expect(request.temperature).toBe(0);
-		expect(request.reasoning).toEqual({ effort: "none" });
-		expect(request.response_format).toEqual({
-			type: "json_schema",
-			json_schema: {
-				name: "translation",
-				strict: true,
-				schema: {
-					type: "object",
-					properties: {
-						translation: { type: "string" },
-					},
-					required: ["translation"],
-					additionalProperties: false,
-				},
-			},
+			repair(
+				10,
+				10,
+				{ role: "assistant", content: "Compacted summary without structured comment JSON." },
+				new Map([
+					["cmt_a", "Hydrated A."],
+					["cmt_b", "Hydrated B."],
+					["cmt_c", "Hydrated C."],
+				]),
+			);
+
+			const contentForRow = (seq: number) =>
+				JSON.parse(JSON.parse(rows.find((row) => row.seq === seq)?.message_json ?? "{}").content) as { content: Array<Record<string, unknown>> };
+			expect(contentForRow(20).content[0]?.body).toBeUndefined();
+			expect(contentForRow(21).content[0]?.body).toBeUndefined();
+			expect(contentForRow(21).content[1]?.body).toBe("Still anchored.");
+			expect(contentForRow(22).content).toEqual([
+				expect.objectContaining({ id: "cmt_a", commentId: "cmt_a", body: "Hydrated A." }),
+				expect.objectContaining({ id: "cmt_b", commentId: "cmt_b", body: "Hydrated B." }),
+			]);
+			expect(rows.find((row) => row.seq === 22)?.token_estimate).toBeGreaterThan(1);
+			expect(recordLoopMessageLog.mock.calls.map((call) => call.slice(0, 2))).toEqual([
+				[22, "message"],
+				[22, "tool_result"],
+			]);
 		});
-	});
+
+		it("builds translation requests with strict structured output and no tools", () => {
+			const request = providerTranslationRequest(
+				{
+					baseUrl: "https://openrouter.ai/api/v1",
+					model: "openai/gpt-4o-mini",
+					prompt: "Translate to Pirate.",
+				},
+				"Hello world.",
+			);
+
+			expect(request.model).toBe("openai/gpt-4o-mini");
+			expect(request.messages).toEqual([
+				{ role: "system", content: "Translate to Pirate." },
+				{ role: "user", content: "Hello world." },
+			]);
+			expect("tools" in request).toBe(false);
+			expect(request.stream).toBe(false);
+			expect(request.temperature).toBe(0);
+			expect(request.reasoning).toEqual({ effort: "none" });
+			expect(request.response_format).toEqual({
+				type: "json_schema",
+				json_schema: {
+					name: "translation",
+					strict: true,
+					schema: {
+						type: "object",
+						properties: {
+							translation: { type: "string" },
+						},
+						required: ["translation"],
+						additionalProperties: false,
+					},
+				},
+			});
+		});
 
 	it("builds reasoning prefill defaults and preserves explicit trailing whitespace", () => {
 		expect(defaultReasoningPrefill("release-sage")).toBe(
@@ -1934,6 +2039,48 @@ describe("Bickr Pages Functions", () => {
 		expect(checkNotificationsResult.events[1].replyTo.text).toBeUndefined();
 	});
 
+	it("deduplicates explicit read result comment bodies while keeping comment IDs", () => {
+		const activeScope = {
+			commentsWithText: new Set(["cmt_seen"]),
+			threadsWithText: new Set<string>(),
+		};
+		const threadResult = providerToolResultPayload(
+			"read_thread_by_id",
+			{
+				operation: "read_thread_by_id",
+				thread: { id: "thr_read", threadId: "thr_read", title: "Read thread" },
+				content: [
+					{ type: "comment", id: "cmt_seen", commentId: "cmt_seen", threadId: "thr_read", body: "Already present." },
+					{ type: "comment", id: "cmt_new", commentId: "cmt_new", threadId: "thr_read", body: "Newly emitted." },
+				],
+			},
+			{},
+			activeScope,
+		) as { content: Array<Record<string, unknown>> };
+		expect(threadResult.content[0]).toMatchObject({ type: "comment", id: "cmt_seen", commentId: "cmt_seen", threadId: "thr_read" });
+		expect(threadResult.content[0]?.body).toBeUndefined();
+		expect(threadResult.content[1]).toMatchObject({ type: "comment", id: "cmt_new", commentId: "cmt_new", body: "Newly emitted." });
+
+		const commentResult = providerToolResultPayload(
+			"read_comment_by_id",
+			{
+				operation: "read_comment_by_id",
+				targetCommentId: "cmt_seen",
+				thread: { id: "thr_read", threadId: "thr_read", title: "Read thread" },
+				content: [
+					{ type: "comment", id: "cmt_seen", commentId: "cmt_seen", threadId: "thr_read", body: "Already present." },
+				],
+			},
+			{},
+			{
+				commentsWithText: new Set(["cmt_seen"]),
+				threadsWithText: new Set<string>(),
+			},
+		) as { content: Array<Record<string, unknown>> };
+		expect(commentResult.content[0]).toMatchObject({ type: "comment", id: "cmt_seen", commentId: "cmt_seen", threadId: "thr_read" });
+		expect(commentResult.content[0]?.body).toBeUndefined();
+	});
+
 	it("builds spotlight setup as parallel synthetic read calls with parent-chain JSON", async () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);
@@ -2022,6 +2169,31 @@ describe("Bickr Pages Functions", () => {
 			},
 		];
 		const messages: Array<Record<string, unknown>> = [];
+		const activeRows = [
+			{
+				seq: 1,
+				position: 1,
+				run_id: "run-previous",
+				role: "tool",
+				message_json: JSON.stringify({
+					role: "tool",
+					tool_call_id: "call_read_previous",
+					content: JSON.stringify({
+						content: [
+							{ type: "comment", id: "cmt_spotlight_root", commentId: "cmt_spotlight_root", threadId: "thr_spotlight_comment", body: "Root context." },
+						],
+					}),
+				}),
+				origin: "tool_result",
+				status: "complete",
+				token_estimate: 1,
+				stream_seq: null,
+				compacted_by: null,
+				deleted_at: null,
+				created_at: "2026-05-01T00:00:00.000Z",
+				has_logs: 0,
+			},
+		];
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 			env: {
 				BICKR_D1: testEnv.BICKR_D1,
@@ -2033,7 +2205,7 @@ describe("Bickr Pages Functions", () => {
 				return { seq: messages.length, runId: "run-spotlight-context", role: message.role, message };
 			},
 			activeLoopMessagesForProvider: () => messages,
-			activeLoopMessageRows: () => [],
+			activeLoopMessageRows: () => activeRows,
 		});
 		const buildMessages = (BotRuntime.prototype as unknown as {
 			buildMessages: (
@@ -2066,7 +2238,7 @@ describe("Bickr Pages Functions", () => {
 				{
 					type: "comment",
 					id: "cmt_spotlight_root",
-					body: "Root context.",
+					commentId: "cmt_spotlight_root",
 					ancestorOnly: true,
 					replies: [{
 						id: "cmt_spotlight_parent",
@@ -6182,15 +6354,18 @@ describe("Bickr Pages Functions", () => {
 		const thread = await createThreadForTest(forum.id, botOne.id, "Worth attention", "Root context.");
 		const parent = await createCommentForTest(thread.id, botTwo.id, "Parent context.");
 		const child = await createCommentForTest(thread.id, botOne.id, "Deep child comment.", parent.id);
+		const unrelated = await createCommentForTest(thread.id, botTwo.id, "Unrelated seen branch.");
 		const now = new Date().toISOString();
 
-		await testEnv.BICKR_D1.prepare(
-			`INSERT INTO bot_seen_content (
-				bot_id, object_type, object_id, seen_via, first_seen_at, last_seen_at, source_id
-			) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		)
-			.bind(botOne.id, "comment", child.id, "test", now, now, "seed")
-			.run();
+		for (const comment of [child, unrelated]) {
+			await testEnv.BICKR_D1.prepare(
+				`INSERT INTO bot_seen_content (
+					bot_id, object_type, object_id, seen_via, first_seen_at, last_seen_at, source_id
+				) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			)
+				.bind(botOne.id, "comment", comment.id, "test", now, now, "seed")
+				.run();
+		}
 
 		const threadPreviewResponse = await spotlightPreview(
 			contextFor<typeof spotlightPreview>(
@@ -6206,8 +6381,10 @@ describe("Bickr Pages Functions", () => {
 		const threadPreview = (await threadPreviewResponse.json()) as SpotlightPreviewPayload;
 		const botOneThreadPreview = threadPreview.data.preview.botPreviews.find((item) => item.bot.id === botOne.id);
 		const botTwoThreadPreview = threadPreview.data.preview.botPreviews.find((item) => item.bot.id === botTwo.id);
-		expect(botOneThreadPreview?.included.excludedSeenCount).toBe(1);
-		expect(botTwoThreadPreview?.included.commentCount).toBe(3);
+		expect(botOneThreadPreview?.included).toMatchObject({ commentCount: 2, excludedSeenCount: 2 });
+		expect(botTwoThreadPreview?.included.commentCount).toBe(4);
+		expect(botOneThreadPreview).not.toHaveProperty("content");
+		expect(botOneThreadPreview).not.toHaveProperty("injectedText");
 
 		const wrongWorldPreview = await spotlightPreview(
 			contextFor<typeof spotlightPreview>(
@@ -6254,31 +6431,46 @@ describe("Bickr Pages Functions", () => {
 			),
 		);
 		const commentPreview = (await commentPreviewResponse.json()) as SpotlightPreviewPayload;
-			const contentIds = commentPreview.data.preview.botPreviews[0]?.content.map((item) => item.id) ?? [];
-			const injectedText = commentPreview.data.preview.botPreviews[0]?.injectedText ?? "";
-			const injectedContext = JSON.parse(injectedText) as {
-				kind: string;
-				targetType: string;
-				focus: string;
-				content: Array<Record<string, unknown>>;
-			};
-			expect(contentIds).toEqual(expect.arrayContaining([thread.rootCommentId, parent.id, child.id]));
-			expect(injectedContext).toMatchObject({
-				kind: "spotlight_context",
-				targetType: "comments",
-				focus: "Look at the parent chain.",
-			});
-			expect(injectedContext.content).toEqual(
-				expect.arrayContaining([
-					expect.objectContaining({ id: thread.rootCommentId, commentId: thread.rootCommentId, threadId: thread.id, type: "comment", ancestorOnly: true }),
-					expect.objectContaining({ id: parent.id, commentId: parent.id, threadId: thread.id, ancestorOnly: true }),
-					expect.objectContaining({ id: child.id, commentId: child.id, threadId: thread.id, parentCommentId: parent.id, "My focus is on this comment": true }),
-				]),
-			);
-			expect(injectedText).toContain("Spot Two test bot.");
-			expect(injectedText).not.toMatch(/\bowner\b/i);
+		const botOneCommentPreview = commentPreview.data.preview.botPreviews[0];
+		expect(botOneCommentPreview?.included).toMatchObject({ commentCount: 3, excludedSeenCount: 0 });
+		expect(botOneCommentPreview).not.toHaveProperty("content");
+		expect(botOneCommentPreview).not.toHaveProperty("injectedText");
+
+		const threadInjectedTexts: string[] = [];
+		const threadSendResponse = await spotlightSend(
+			contextFor<typeof spotlightSend>(
+				jsonRequest(
+					"http://example.com/api/worlds/patch-notes/forums/spotlights/spotlight/send",
+					"POST",
+					{
+						targetType: "threads",
+						threadIds: [thread.id],
+						botIds: [botOne.id],
+						autoStartTick: false,
+					},
+					cookie,
+				),
+				{ worldHandle: "patch-notes", forumHandle: "spotlights" },
+				{
+					AGENT_RUNTIME: {
+						fetch: async (request: Request) => {
+							const body = await request.json() as { text?: string };
+							threadInjectedTexts.push(body.text ?? "");
+							return Response.json({ ok: true, data: { injectionId: "inj-thread" } });
+						},
+					} as unknown as Fetcher,
+				},
+			),
+		);
+		const threadSendPayload = (await threadSendResponse.json()) as SpotlightSendPayload;
+		expect(threadSendPayload.data.preview.botPreviews[0]?.included).toMatchObject({ commentCount: 2, excludedSeenCount: 2 });
+		const threadInjectedContext = JSON.parse(threadInjectedTexts[0] ?? "") as { content: Array<Record<string, unknown>> };
+		expect(threadInjectedContext.content.map((item) => item.id)).toEqual([thread.rootCommentId, parent.id]);
+		expect(threadInjectedTexts[0]).toContain("Spot Two test bot.");
+		expect(threadInjectedTexts[0]).not.toMatch(/\bowner\b/i);
 
 		const runtimePaths: string[] = [];
+		const commentInjectedTexts: string[] = [];
 		const sendResponse = await spotlightSend(
 			contextFor<typeof spotlightSend>(
 				jsonRequest(
@@ -6299,6 +6491,8 @@ describe("Bickr Pages Functions", () => {
 						fetch: async (request: Request) => {
 							runtimePaths.push(new URL(request.url).pathname);
 							if (new URL(request.url).pathname.endsWith("/inject")) {
+								const body = await request.json() as { text?: string };
+								commentInjectedTexts.push(body.text ?? "");
 								return Response.json({ ok: true, data: { injectionId: "inj-test" } });
 							}
 							return Response.json({ ok: true, data: { run: { runId: "run-test", status: "started" } } });
@@ -6315,6 +6509,24 @@ describe("Bickr Pages Functions", () => {
 			expect.arrayContaining([
 				`/bots/${botOne.id}/inject`,
 				`/bots/${botOne.id}/tick`,
+			]),
+		);
+		const commentInjectedContext = JSON.parse(commentInjectedTexts[0] ?? "") as {
+			kind: string;
+			targetType: string;
+			focus: string;
+			content: Array<Record<string, unknown>>;
+		};
+		expect(commentInjectedContext).toMatchObject({
+			kind: "spotlight_context",
+			targetType: "comments",
+			focus: "Please consider replying.",
+		});
+		expect(commentInjectedContext.content).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ id: thread.rootCommentId, commentId: thread.rootCommentId, threadId: thread.id, type: "comment", ancestorOnly: true }),
+				expect.objectContaining({ id: parent.id, commentId: parent.id, threadId: thread.id, ancestorOnly: true }),
+				expect.objectContaining({ id: child.id, commentId: child.id, threadId: thread.id, parentCommentId: parent.id, "My focus is on this comment": true }),
 			]),
 		);
 
@@ -6390,7 +6602,7 @@ describe("Bickr Pages Functions", () => {
 		const delivery = await testEnv.BICKR_D1.prepare(
 			`SELECT status, target_type AS targetType, focus_text AS focusText
 			 FROM spotlight_deliveries
-			 WHERE bot_id = ?`,
+			 WHERE bot_id = ? AND target_type = 'comments'`,
 		)
 			.bind(botOne.id)
 			.first<{ status: string; targetType: string; focusText: string }>();
@@ -6759,11 +6971,10 @@ type SpotlightPreviewPayload = {
 			botPreviews: Array<{
 				bot: { id: string };
 				included: {
+					threadCount: number;
 					commentCount: number;
 					excludedSeenCount: number;
 				};
-				content: Array<{ id: string }>;
-				injectedText: string;
 			}>;
 		};
 	};
@@ -6771,6 +6982,7 @@ type SpotlightPreviewPayload = {
 
 type SpotlightSendPayload = {
 	data: {
+		preview: SpotlightPreviewPayload["data"]["preview"];
 		deliveries: Array<{
 			botId: string;
 			ok: boolean;
