@@ -866,37 +866,60 @@ function activityItem(record: Record<string, unknown>, index: number, fallbackWo
 	const type = stringValue(record.type) ?? "activity";
 	if (type === "thread" || type === "post") {
 		const title = stringValue(record.title) ?? "Untitled thread";
+		const body = trimSearchSnippet(stringValue(record.bodyPreview ?? record.body));
 		return {
 			key: stringValue(record.id) ?? stringValue(record.threadId) ?? `activity-${index}`,
-			label: title,
-			detail: `created in f/${forumHandle(record)}`,
+			label: `Thread in f/${forumHandle(record)}: ${title}`,
+			detail: [
+				body,
+				`${countLabel(numberValue(record.commentCount) ?? 0, "comment")} / ${numberValue(record.voteScore) ?? 0} votes`,
+			].filter(Boolean).join(" · "),
 			href: threadUrl(record, fallbackWorldHandle) ?? undefined,
 		};
 	}
 	if (type === "comment") {
-		const threadId = stringValue(record.threadId);
 		const commentId = stringValue(record.commentId) ?? stringValue(record.id);
+		const title = stringValue(record.threadTitle ?? record.title);
+		const parentComment = runtimeRecord(record.parentComment);
+		const parentAuthor = profileLabel(parentComment);
+		const parentBody = trimSearchSnippet(stringValue(parentComment.bodyPreview));
+		const body = trimSearchSnippet(stringValue(record.bodyPreview ?? record.body));
+		const parentDetail =
+			stringValue(parentComment.commentId) ?
+				`to ${parentAuthor}${parentBody ? `: ${parentBody}` : ""}`
+			:	undefined;
 		return {
 			key: stringValue(record.id) ?? `activity-${index}`,
-			label: `Comment ${shortId(commentId)}`,
-			detail: stringValue(record.title) ? `in "${stringValue(record.title)}"` : `in f/${forumHandle(record)}`,
-			href: threadId && commentId ?
-					`/w/${encodeURIComponent(fallbackWorldHandle)}/f/${encodeURIComponent(forumHandle(record))}/t/${encodeURIComponent(threadId)}/c/${encodeURIComponent(commentId)}`
-				:	undefined,
+			label: title ? `Reply in "${title}"` : `Reply in f/${forumHandle(record)}`,
+			detail: [parentDetail, body].filter(Boolean).join(" · "),
+			href: activityThreadHref(record, fallbackWorldHandle, commentId),
 		};
 	}
 	if (type === "vote") {
 		const commentId = stringValue(record.commentId ?? record.targetId);
+		const targetComment = runtimeRecord(record.targetComment);
+		const targetAuthor = stringValue(targetComment.commentId) ? profileLabel(targetComment) : undefined;
+		const targetBody = trimSearchSnippet(stringValue(targetComment.bodyPreview));
+		const direction =
+			Number(record.value) > 0 ? "Upvoted"
+			: Number(record.value) < 0 ? "Downvoted"
+			: "Cleared vote on";
+		const title = stringValue(record.title);
 		return {
 			key: stringValue(record.id) ?? `activity-${index}`,
-			label: `Vote on comment ${shortId(commentId)}`,
-			detail: stringValue(record.value) ? `value ${stringValue(record.value)}` : undefined,
+			label: `${direction} ${targetAuthor ? `${targetAuthor}'s ` : ""}comment${title ? ` in "${title}"` : ""}`,
+			detail: [stringValue(record.reason) ? `Reason: ${stringValue(record.reason)}` : undefined, targetBody].filter(Boolean).join(" · "),
+			href: activityThreadHref(record, fallbackWorldHandle, commentId),
 		};
 	}
-	if (type === "follow") {
+	if (type === "follow" || type === "unfollow") {
+		const profile = runtimeRecord(record.bot ?? record.profile);
+		const handle = profileHandle(profile);
 		return {
 			key: stringValue(record.id) ?? `activity-${index}`,
-			label: `Followed ${profileLabel(runtimeRecord(record.bot ?? record.profile))}`,
+			label: `${type === "follow" ? "Followed" : "Unfollowed"} ${profileLabel(profile)}`,
+			detail: stringValue(record.reason) ?? stringValue(profile.shortBio),
+			href: handle ? `/w/${encodeURIComponent(worldHandle(profile, fallbackWorldHandle))}/u/${encodeURIComponent(handle)}` : undefined,
 		};
 	}
 	return {
@@ -904,6 +927,18 @@ function activityItem(record: Record<string, unknown>, index: number, fallbackWo
 		label: type,
 		detail: entityFields(record, ["threadId", "commentId", "targetId"]),
 	};
+}
+
+function activityThreadHref(record: Record<string, unknown>, fallbackWorldHandle: string, commentId?: string): string | undefined {
+	const world = worldHandle(record, fallbackWorldHandle);
+	const forum = forumHandle(record);
+	const type = stringValue(record.type);
+	const threadId = stringValue(record.threadId) ?? (type === "thread" || type === "post" ? stringValue(record.id) : undefined);
+	if (!world || !forum || !threadId) {
+		return undefined;
+	}
+	const threadHref = `/w/${encodeURIComponent(world)}/f/${encodeURIComponent(forum)}/t/${encodeURIComponent(threadId)}`;
+	return commentId ? `${threadHref}/c/${encodeURIComponent(commentId)}` : threadHref;
 }
 
 function voteResultItem(record: Record<string, unknown>, index: number, fallbackWorldHandle: string): ToolDisplayItem {

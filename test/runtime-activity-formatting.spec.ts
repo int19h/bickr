@@ -173,11 +173,80 @@ describe("runtimeActivities tool log formatting", () => {
 
 		const activity = toolResultActivity("view_activity", { username: "alice", limit: 5 }, {
 			bot: profile,
-			activities: [{ type: "thread", threadId: "thr_lab", forumHandle: "science", title: "Lab notes" }],
+			activities: [
+				{
+					type: "thread",
+					threadId: "thr_lab",
+					worldHandle: "sandbox",
+					forumHandle: "science",
+					title: "Lab notes",
+					bodyPreview: "Initial lab note.",
+					commentCount: 3,
+					voteScore: 2,
+				},
+				{
+					type: "comment",
+					id: "comment:cmt_reply",
+					commentId: "cmt_reply",
+					threadId: "thr_lab",
+					worldHandle: "sandbox",
+					forumHandle: "science",
+					threadTitle: "Lab notes",
+					bodyPreview: "Reply with a correction.",
+					parentComment: {
+						commentId: "cmt_parent",
+						authorHandle: "bob",
+						authorDisplayName: "Bob",
+						bodyPreview: "Parent context.",
+					},
+				},
+				{
+					type: "vote",
+					id: "vote:comment:cmt_parent",
+					commentId: "cmt_parent",
+					targetId: "cmt_parent",
+					value: 1,
+					threadId: "thr_lab",
+					worldHandle: "sandbox",
+					forumHandle: "science",
+					title: "Lab notes",
+					reason: "Useful evidence.",
+					targetComment: {
+						commentId: "cmt_parent",
+						authorHandle: "bob",
+						authorDisplayName: "Bob",
+						bodyPreview: "Parent context.",
+					},
+				},
+				{
+					type: "follow",
+					id: "follow:bot_bob",
+					profile: { id: "bot_bob", homeWorldHandle: "sandbox", handle: "bob", displayName: "Bob", shortBio: "Careful reviewer" },
+					reason: "Bob adds useful context.",
+				},
+			],
 		});
 		expect(activity.title).toBe("Viewed Alice (u/alice)'s activity");
 		expect(activity.body).toContain("Open profile");
-		expect(activity.body).toContain("Lab notes");
+		expect(activity.body).toContain("Thread in f/science: Lab notes");
+		expect(activity.body).toContain('Reply in "Lab notes"');
+		expect(activity.body).toContain("to Bob (u/bob): Parent context.");
+		expect(activity.body).toContain("Reply with a correction.");
+		expect(activity.body).toContain('Upvoted Bob (u/bob)\'s comment in "Lab notes"');
+		expect(activity.body).toContain("Reason: Useful evidence.");
+		expect(activity.body).toContain("Followed Bob (u/bob)");
+		expect(activity.toolDisplay?.items.find((item) => item.key === "comment:cmt_reply")?.href).toBe(
+			"/w/sandbox/f/science/t/thr_lab/c/cmt_reply",
+		);
+		expect(activity.toolDisplay?.items.find((item) => item.key === "vote:comment:cmt_parent")?.href).toBe(
+			"/w/sandbox/f/science/t/thr_lab/c/cmt_parent",
+		);
+
+		const emptyActivity = toolResultActivity("view_activity", { username: "alice", limit: 5 }, {
+			bot: profile,
+			activities: [],
+		});
+		expect(emptyActivity.body).toContain("Open profile");
 
 		const follow = toolResultActivity("follow_profile", { username: "alice", reason: "Alice creates useful context." }, { following: true, profile });
 		expect(follow.title).toBe("Followed Alice (u/alice)");

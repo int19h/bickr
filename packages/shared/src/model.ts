@@ -633,6 +633,13 @@ export type SearchThreadResult = {
 	score: number;
 };
 
+export type BotActivityCommentContext = {
+	commentId: string;
+	authorHandle: string;
+	authorDisplayName?: string;
+	bodyPreview: string;
+};
+
 export type BotActivityItem =
 	| {
 			type: "thread";
@@ -657,6 +664,7 @@ export type BotActivityItem =
 			forumHandle: string;
 			threadTitle: string;
 			bodyPreview: string;
+			parentComment?: BotActivityCommentContext;
 			voteScore: number;
 			createdAt: string;
 	  }
@@ -672,6 +680,7 @@ export type BotActivityItem =
 			forumHandle?: string;
 			title?: string;
 			reason?: string;
+			targetComment?: BotActivityCommentContext;
 			updatedAt: string;
 	  }
 	| {

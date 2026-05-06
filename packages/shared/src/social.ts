@@ -3,6 +3,7 @@ import {
 	schemaVersion,
 	type BotDocument,
 	type BotActivityFeed,
+	type BotActivityCommentContext,
 	type BotActivityItem,
 	type BotFollowGraph,
 	type BotPublicProfile,
@@ -2170,6 +2171,10 @@ async function botCommentActivities(
 				c.comment_id AS commentId,
 				c.thread_id AS threadId,
 				c.parent_comment_id AS parentCommentId,
+				p.comment_id AS parentResolvedCommentId,
+				p.author_handle AS parentAuthorHandle,
+				COALESCE(pb.display_name, p.author_handle) AS parentAuthorDisplayName,
+				p.body_preview AS parentBodyPreview,
 				t.world_handle AS worldHandle,
 				t.forum_handle AS forumHandle,
 				t.title AS threadTitle,
@@ -2178,6 +2183,8 @@ async function botCommentActivities(
 				c.created_at AS createdAt
 			 FROM comments_index c
 			 JOIN threads_index t ON t.thread_id = c.thread_id
+			 LEFT JOIN comments_index p ON p.comment_id = c.parent_comment_id AND p.deleted_at IS NULL
+			 LEFT JOIN bots_index pb ON pb.bot_id = p.author_bot_id
 			 WHERE c.author_bot_id = ? AND c.is_root = 0 AND c.deleted_at IS NULL AND t.deleted_at IS NULL
 			 ORDER BY c.created_at DESC
 			 LIMIT ?`,
@@ -2187,6 +2194,10 @@ async function botCommentActivities(
 			commentId: string;
 			threadId: string;
 			parentCommentId: string | null;
+			parentResolvedCommentId: string | null;
+			parentAuthorHandle: string | null;
+			parentAuthorDisplayName: string | null;
+			parentBodyPreview: string | null;
 			worldHandle: string;
 			forumHandle: string;
 			threadTitle: string;
@@ -2194,19 +2205,28 @@ async function botCommentActivities(
 			voteScore: number;
 			createdAt: string;
 		}>();
-	return (result.results ?? []).map((row) => ({
-		type: "comment" as const,
-		id: `comment:${row.commentId}`,
-		threadId: row.threadId,
-		commentId: row.commentId,
-		...(row.parentCommentId ? { parentCommentId: row.parentCommentId } : {}),
-		worldHandle: row.worldHandle,
-		forumHandle: row.forumHandle,
-		threadTitle: row.threadTitle,
-		bodyPreview: row.bodyPreview,
-		voteScore: row.voteScore,
-		createdAt: row.createdAt,
-	}));
+	return (result.results ?? []).map((row) => {
+		const parentComment = activityCommentContext(
+			row.parentResolvedCommentId ?? row.parentCommentId,
+			row.parentAuthorHandle,
+			row.parentAuthorDisplayName,
+			row.parentBodyPreview,
+		);
+		return {
+			type: "comment" as const,
+			id: `comment:${row.commentId}`,
+			threadId: row.threadId,
+			commentId: row.commentId,
+			...(row.parentCommentId ? { parentCommentId: row.parentCommentId } : {}),
+			...(parentComment ? { parentComment } : {}),
+			worldHandle: row.worldHandle,
+			forumHandle: row.forumHandle,
+			threadTitle: row.threadTitle,
+			bodyPreview: row.bodyPreview,
+			voteScore: row.voteScore,
+			createdAt: row.createdAt,
+		};
+	});
 }
 
 async function botThreadVoteActivities(
@@ -2224,9 +2244,15 @@ async function botThreadVoteActivities(
 				t.root_comment_id AS rootCommentId,
 				t.world_handle AS worldHandle,
 				t.forum_handle AS forumHandle,
-				t.title AS title
+				t.title AS title,
+				rc.comment_id AS targetCommentId,
+				rc.author_handle AS targetAuthorHandle,
+				COALESCE(rb.display_name, rc.author_handle) AS targetAuthorDisplayName,
+				rc.body_preview AS targetBodyPreview
 			 FROM votes v
 			 JOIN threads_index t ON t.thread_id = v.target_id
+			 LEFT JOIN comments_index rc ON rc.comment_id = t.root_comment_id AND rc.deleted_at IS NULL
+			 LEFT JOIN bots_index rb ON rb.bot_id = rc.author_bot_id
 			 WHERE v.bot_id = ? AND v.target_type = 'thread' AND t.deleted_at IS NULL
 			   AND NOT EXISTS (
 				SELECT 1
@@ -2249,20 +2275,33 @@ async function botThreadVoteActivities(
 			worldHandle: string;
 			forumHandle: string;
 			title: string;
+			targetCommentId: string | null;
+			targetAuthorHandle: string | null;
+			targetAuthorDisplayName: string | null;
+			targetBodyPreview: string | null;
 		}>();
-	return (result.results ?? []).map((row) => ({
-		type: "vote" as const,
-		id: `vote:comment:${row.rootCommentId}`,
-		targetType: "comment" as const,
-		commentId: row.rootCommentId,
-		targetId: row.rootCommentId,
-		value: row.value,
-		threadId: row.threadId,
-		worldHandle: row.worldHandle,
-		forumHandle: row.forumHandle,
-		title: row.title,
-		updatedAt: row.updatedAt,
-	}));
+	return (result.results ?? []).map((row) => {
+		const targetComment = activityCommentContext(
+			row.targetCommentId ?? row.rootCommentId,
+			row.targetAuthorHandle,
+			row.targetAuthorDisplayName,
+			row.targetBodyPreview,
+		);
+		return {
+			type: "vote" as const,
+			id: `vote:comment:${row.rootCommentId}`,
+			targetType: "comment" as const,
+			commentId: row.rootCommentId,
+			targetId: row.rootCommentId,
+			value: row.value,
+			threadId: row.threadId,
+			worldHandle: row.worldHandle,
+			forumHandle: row.forumHandle,
+			title: row.title,
+			...(targetComment ? { targetComment } : {}),
+			updatedAt: row.updatedAt,
+		};
+	});
 }
 
 async function botCommentVoteActivities(
@@ -2278,12 +2317,16 @@ async function botCommentVoteActivities(
 				v.updated_at AS updatedAt,
 				c.comment_id AS commentId,
 				c.thread_id AS threadId,
+				c.author_handle AS targetAuthorHandle,
+				COALESCE(tb.display_name, c.author_handle) AS targetAuthorDisplayName,
+				c.body_preview AS targetBodyPreview,
 				t.world_handle AS worldHandle,
 				t.forum_handle AS forumHandle,
 				t.title AS title
 			 FROM votes v
 			 JOIN comments_index c ON c.comment_id = v.target_id
 			 JOIN threads_index t ON t.thread_id = c.thread_id
+			 LEFT JOIN bots_index tb ON tb.bot_id = c.author_bot_id
 			 WHERE v.bot_id = ? AND v.target_type = 'comment' AND c.deleted_at IS NULL AND t.deleted_at IS NULL
 			   AND NOT EXISTS (
 				SELECT 1
@@ -2303,23 +2346,35 @@ async function botCommentVoteActivities(
 			updatedAt: string;
 			commentId: string;
 			threadId: string;
+			targetAuthorHandle: string | null;
+			targetAuthorDisplayName: string | null;
+			targetBodyPreview: string | null;
 			worldHandle: string;
 			forumHandle: string;
 			title: string;
 		}>();
-	return (result.results ?? []).map((row) => ({
-		type: "vote" as const,
-		id: `vote:comment:${row.targetId}`,
-		targetType: "comment" as const,
-		targetId: row.targetId,
-		commentId: row.commentId,
-		value: row.value,
-		threadId: row.threadId,
-		worldHandle: row.worldHandle,
-		forumHandle: row.forumHandle,
-		title: row.title,
-		updatedAt: row.updatedAt,
-	}));
+	return (result.results ?? []).map((row) => {
+		const targetComment = activityCommentContext(
+			row.commentId,
+			row.targetAuthorHandle,
+			row.targetAuthorDisplayName,
+			row.targetBodyPreview,
+		);
+		return {
+			type: "vote" as const,
+			id: `vote:comment:${row.targetId}`,
+			targetType: "comment" as const,
+			targetId: row.targetId,
+			commentId: row.commentId,
+			value: row.value,
+			threadId: row.threadId,
+			worldHandle: row.worldHandle,
+			forumHandle: row.forumHandle,
+			title: row.title,
+			...(targetComment ? { targetComment } : {}),
+			updatedAt: row.updatedAt,
+		};
+	});
 }
 
 async function botVoteEventActivities(
@@ -2336,12 +2391,16 @@ async function botVoteEventActivities(
 				e.created_at AS createdAt,
 				c.comment_id AS commentId,
 				c.thread_id AS threadId,
+				c.author_handle AS targetAuthorHandle,
+				COALESCE(tb.display_name, c.author_handle) AS targetAuthorDisplayName,
+				c.body_preview AS targetBodyPreview,
 				t.world_handle AS worldHandle,
 				t.forum_handle AS forumHandle,
 				t.title AS title
 			 FROM bot_activity_events e
 			 JOIN comments_index c ON c.comment_id = e.target_id
 			 JOIN threads_index t ON t.thread_id = c.thread_id
+			 LEFT JOIN bots_index tb ON tb.bot_id = c.author_bot_id
 			 WHERE e.bot_id = ?
 			   AND e.activity_type = 'vote'
 			   AND e.target_type = 'comment'
@@ -2359,12 +2418,21 @@ async function botVoteEventActivities(
 			createdAt: string;
 			commentId: string;
 			threadId: string;
+			targetAuthorHandle: string | null;
+			targetAuthorDisplayName: string | null;
+			targetBodyPreview: string | null;
 			worldHandle: string;
 			forumHandle: string;
 			title: string;
 		}>();
 	return (result.results ?? []).map((row) => {
 		const reason = stringValue(row.reason);
+		const targetComment = activityCommentContext(
+			row.commentId,
+			row.targetAuthorHandle,
+			row.targetAuthorDisplayName,
+			row.targetBodyPreview,
+		);
 		return {
 			type: "vote" as const,
 			id: voteActivityId(row.targetId),
@@ -2377,6 +2445,7 @@ async function botVoteEventActivities(
 			forumHandle: row.forumHandle,
 			title: row.title,
 			...(reason ? { reason } : {}),
+			...(targetComment ? { targetComment } : {}),
 			updatedAt: row.createdAt,
 		};
 	});
@@ -2509,6 +2578,24 @@ async function botFollowEventActivities(
 
 function activityDate(activity: BotActivityItem): string {
 	return "updatedAt" in activity ? activity.updatedAt : activity.createdAt;
+}
+
+function activityCommentContext(
+	commentId: string | null | undefined,
+	authorHandle: string | null | undefined,
+	authorDisplayName: string | null | undefined,
+	bodyPreview: string | null | undefined,
+): BotActivityCommentContext | undefined {
+	if (!commentId || !authorHandle || !bodyPreview) {
+		return undefined;
+	}
+	const displayName = stringValue(authorDisplayName);
+	return {
+		commentId,
+		authorHandle,
+		...(displayName ? { authorDisplayName: displayName } : {}),
+		bodyPreview,
+	};
 }
 
 type BotFollowRow = {

@@ -4725,18 +4725,26 @@ function botActivitySummary(activity: BotActivityItem): { title: string; body?: 
 		}
 		case "comment": {
 			const commentActivity = activity as Extract<BotActivityItem, { type: "comment" }>;
+			const parent = commentActivity.parentComment;
 			return {
 				title: `Replied in "${commentActivity.threadTitle}"`,
-				body: commentActivity.bodyPreview,
+				body: joinedBotActivityBody(
+					parent ? `To ${authorLabel(parent.authorDisplayName, parent.authorHandle)}: ${parent.bodyPreview}` : undefined,
+					commentActivity.bodyPreview,
+				),
 				meta: `f/${commentActivity.forumHandle} / ${commentActivity.voteScore} votes`,
 			};
 		}
 		case "vote": {
 			const voteActivity = activity as Extract<BotActivityItem, { type: "vote" }>;
 			const voteTargetType = stringValue((voteActivity as { targetType?: unknown }).targetType) ?? "comment";
+			const target = voteActivity.targetComment;
 			return {
 				title: `${voteActivity.value > 0 ? "Upvoted" : "Downvoted"} ${voteTargetType === "thread" ? "thread" : "comment"}${voteActivity.title ? ` in "${voteActivity.title}"` : ""}`,
-				body: voteActivity.reason,
+				body: joinedBotActivityBody(
+					voteActivity.reason ? `Reason: ${voteActivity.reason}` : undefined,
+					target ? `${authorLabel(target.authorDisplayName, target.authorHandle)}: ${target.bodyPreview}` : undefined,
+				),
 				meta: [
 					voteActivity.forumHandle ? `f/${voteActivity.forumHandle}` : null,
 					voteTargetType,
@@ -4762,6 +4770,11 @@ function botActivitySummary(activity: BotActivityItem): { title: string; body?: 
 		}
 	}
 	return { title: "Activity", meta: "" };
+}
+
+function joinedBotActivityBody(...parts: Array<string | undefined>): string | undefined {
+	const body = parts.filter((part): part is string => Boolean(part)).join("\n");
+	return body || undefined;
 }
 
 function matchesBotActivityFilter(query: string, activity: BotActivityItem): boolean {
@@ -9479,26 +9492,200 @@ function ReadableThreadList({ value }: { value: unknown }) {
 
 function ReadableActivityResult({ value }: { value: unknown }) {
 	const record = recordValue(value);
-	const profile = recordValue(record.profile);
+	const profile = firstProfileRecord(record.profile, record.bot);
 	const activities = arrayValue(record.activities);
+	const worldHandle = worldHandleFromRecord(profile) ?? worldHandleFromRecord(record);
 	return (
 		<div className="readable-result-stack">
-			<div className="readable-event-title"><ProfileReference profile={profile} /></div>
+			<div className="readable-event-title"><ProfileReference profile={profile} worldHandle={worldHandle} /></div>
 			{activities.length === 0 ?
 				<div className="tool-text">No recent public activity.</div>
-			:	<div className="tool-pretty tool-list">
-					{activities.slice(0, 8).map((activity, index) => {
-						const item = recordValue(activity);
-						return (
-							<div className="tool-pretty-item" key={`${stringValue(item.id) ?? "activity"}-${index}`}>
-								<span>{humanizeKey(stringValue(item.type) ?? "activity")}</span>
-								{profileHasHandle(recordValue(item.profile)) && <ProfileReference profile={recordValue(item.profile)} />}
-							</div>
-						);
-					})}
-				</div>}
+				:	<div className="readable-result-stack">
+						{activities.slice(0, 12).map((activity, index) => {
+							const item = recordValue(activity);
+							return (
+								<ReadableActivityItem
+									activity={item}
+									fallbackWorldHandle={worldHandle}
+									key={`${stringValue(item.id) ?? "activity"}-${index}`}
+								/>
+							);
+						})}
+					</div>}
 		</div>
 	);
+}
+
+function ReadableActivityItem({
+	activity,
+	fallbackWorldHandle,
+}: {
+	activity: JsonRecord;
+	fallbackWorldHandle?: string;
+}) {
+	const type = stringValue(activity.type) ?? "activity";
+	if (type === "thread" || type === "post") {
+		return <ReadableThreadActivity activity={activity} fallbackWorldHandle={fallbackWorldHandle} />;
+	}
+	if (type === "comment") {
+		return <ReadableCommentActivity activity={activity} fallbackWorldHandle={fallbackWorldHandle} />;
+	}
+	if (type === "vote") {
+		return <ReadableVoteActivity activity={activity} fallbackWorldHandle={fallbackWorldHandle} />;
+	}
+	if (type === "follow" || type === "unfollow") {
+		return <ReadableFollowActivity activity={activity} fallbackWorldHandle={fallbackWorldHandle} type={type} />;
+	}
+	return (
+		<div className="readable-search-result readable-activity-result">
+			<div className="readable-event-title">{humanizeKey(type)}</div>
+			<ReadableGenericFields record={activity} />
+		</div>
+	);
+}
+
+function ReadableThreadActivity({
+	activity,
+	fallbackWorldHandle,
+}: {
+	activity: JsonRecord;
+	fallbackWorldHandle?: string;
+}) {
+	const worldHandle = worldHandleFromRecord(activity) ?? fallbackWorldHandle;
+	const forumHandle = forumHandleFromRecord(activity);
+	const threadId = stringValue(activity.threadId ?? activity.id);
+	const title = stringValue(activity.title) ?? "thread";
+	const body = readableActivityPreview(activity);
+	return (
+		<div className="readable-search-result readable-activity-result">
+			<div className="readable-event-title">
+				<span>Created</span>
+				<ThreadReference forumHandle={forumHandle} label={title} threadId={threadId} title={title} worldHandle={worldHandle} />
+			</div>
+			<div className="readable-event-meta">
+				<ForumReference forumHandle={forumHandle} worldHandle={worldHandle} />
+				<span>{readableActivityCounts(activity)}</span>
+				{stringValue(activity.createdAt) && <span>{formatShortDate(String(activity.createdAt))}</span>}
+			</div>
+			{body && <ReadableQuote text={body} />}
+		</div>
+	);
+}
+
+function ReadableCommentActivity({
+	activity,
+	fallbackWorldHandle,
+}: {
+	activity: JsonRecord;
+	fallbackWorldHandle?: string;
+}) {
+	const worldHandle = worldHandleFromRecord(activity) ?? fallbackWorldHandle;
+	const forumHandle = forumHandleFromRecord(activity);
+	const threadId = stringValue(activity.threadId);
+	const commentId = stringValue(activity.commentId ?? activity.id);
+	const title = stringValue(activity.threadTitle ?? activity.title) ?? "thread";
+	const parentComment = recordValue(activity.parentComment);
+	const parentCommentId = stringValue(parentComment.commentId ?? activity.parentCommentId);
+	const parentBody = readableActivityPreview(parentComment);
+	const body = readableActivityPreview(activity);
+	return (
+		<div className="readable-search-result readable-activity-result">
+			<div className="readable-event-title">
+				<span>Replied in</span>
+				<ThreadReference forumHandle={forumHandle} label={title} threadId={threadId} title={title} worldHandle={worldHandle} />
+			</div>
+			<div className="readable-event-meta">
+				<ForumReference forumHandle={forumHandle} worldHandle={worldHandle} />
+				<ThreadReference commentId={commentId} forumHandle={forumHandle} label="comment" threadId={threadId} worldHandle={worldHandle} />
+				<span>{`${numberValue(activity.voteScore) ?? 0} votes`}</span>
+				{stringValue(activity.createdAt) && <span>{formatShortDate(String(activity.createdAt))}</span>}
+			</div>
+			{parentCommentId && (
+				<div className="readable-event-meta">
+					<span>to</span>
+					{profileHasHandle(parentComment) && <ProfileReference profile={parentComment} worldHandle={worldHandle} />}
+					<ThreadReference commentId={parentCommentId} forumHandle={forumHandle} label="parent comment" threadId={threadId} worldHandle={worldHandle} />
+				</div>
+			)}
+			{parentBody && <ReadableQuote label="Parent comment" text={parentBody} />}
+			{body && <ReadableQuote label="Reply" text={body} />}
+		</div>
+	);
+}
+
+function ReadableVoteActivity({
+	activity,
+	fallbackWorldHandle,
+}: {
+	activity: JsonRecord;
+	fallbackWorldHandle?: string;
+}) {
+	const worldHandle = worldHandleFromRecord(activity) ?? fallbackWorldHandle;
+	const forumHandle = forumHandleFromRecord(activity);
+	const threadId = stringValue(activity.threadId);
+	const commentId = stringValue(activity.commentId ?? activity.targetId);
+	const title = stringValue(activity.title);
+	const targetComment = recordValue(activity.targetComment);
+	const targetBody = readableActivityPreview(targetComment);
+	const reason = textValueForDisplay(activity.reason);
+	const value = numberValue(activity.value);
+	return (
+		<div className="readable-search-result readable-activity-result">
+			<div className="readable-event-title">
+				<span>{voteActionLabel(value)}</span>
+				{profileHasHandle(targetComment) ? <><ProfileReference profile={targetComment} worldHandle={worldHandle} /><span>’s</span></> : null}
+				<ThreadReference commentId={commentId} forumHandle={forumHandle} label="comment" threadId={threadId} worldHandle={worldHandle} />
+				{title ? <><span>in</span><ThreadReference forumHandle={forumHandle} label={title} threadId={threadId} title={title} worldHandle={worldHandle} /></> : null}
+			</div>
+			<div className="readable-event-meta">
+				<ForumReference forumHandle={forumHandle} worldHandle={worldHandle} />
+				<span>{(value ?? 0) > 0 ? "+1" : (value ?? 0) < 0 ? "-1" : "cleared"}</span>
+				{stringValue(activity.updatedAt ?? activity.createdAt) && <span>{formatShortDate(String(activity.updatedAt ?? activity.createdAt))}</span>}
+			</div>
+			{targetBody && <ReadableQuote label="Voted comment" text={targetBody} />}
+			{reason && <ReadableQuote label="Reason" text={trimReadableSnippet(reason)} />}
+		</div>
+	);
+}
+
+function ReadableFollowActivity({
+	activity,
+	fallbackWorldHandle,
+	type,
+}: {
+	activity: JsonRecord;
+	fallbackWorldHandle?: string;
+	type: "follow" | "unfollow";
+}) {
+	const profile = firstProfileRecord(activity.profile, activity.bot);
+	const worldHandle = worldHandleFromRecord(profile) ?? fallbackWorldHandle;
+	const reason = textValueForDisplay(activity.reason) ?? textValueForDisplay(profile.shortBio);
+	return (
+		<div className="readable-search-result readable-activity-result">
+			<div className="readable-event-title">
+				<span>{type === "follow" ? "Followed" : "Unfollowed"}</span>
+				<ProfileReference profile={profile} worldHandle={worldHandle} />
+			</div>
+			<div className="readable-event-meta">
+				{worldHandle && <span>w/{worldHandle}</span>}
+				{stringValue(activity.createdAt) && <span>{formatShortDate(String(activity.createdAt))}</span>}
+			</div>
+			{reason && <ReadableQuote text={trimReadableSnippet(reason)} />}
+		</div>
+	);
+}
+
+function readableActivityPreview(record: JsonRecord): string | undefined {
+	const text = textValueForDisplay(record.bodyPreview ?? record.body ?? record.snippet);
+	return text ? trimReadableSnippet(text) : undefined;
+}
+
+function readableActivityCounts(activity: JsonRecord): string {
+	return `${numberValue(activity.voteScore) ?? 0} votes / ${countLabel(numberValue(activity.commentCount) ?? 0, "comment")}`;
+}
+
+function countLabel(count: number, singular: string): string {
+	return `${count} ${singular}${count === 1 ? "" : "s"}`;
 }
 
 function ReadableGenericResult({ value }: { value: unknown }) {
@@ -10115,6 +10302,7 @@ function worldHandleFromRecord(record: JsonRecord): string | undefined {
 	return (
 		stripHandlePrefix(stringValue(record.world), "w") ??
 		stripHandlePrefix(stringValue(record.worldHandle), "w") ??
+		stripHandlePrefix(stringValue(record.homeWorldHandle), "w") ??
 		stripExplicitHandlePrefix(stringValue(record.handle), "w") ??
 		stripHandlePrefix(stringValue(recordValue(record.world).handle), "w")
 	);

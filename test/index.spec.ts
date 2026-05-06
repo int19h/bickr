@@ -5945,6 +5945,26 @@ describe("Bickr Pages Functions", () => {
 		expect(activity.activities.map((item) => item.type)).toEqual(
 			expect.arrayContaining(["comment", "vote", "follow"]),
 		);
+		expect(activity.activities).toEqual(expect.arrayContaining([
+			expect.objectContaining({
+				type: "comment",
+				parentComment: {
+					commentId: thread.data.thread.rootCommentId,
+					authorHandle: "index-bard",
+					authorDisplayName: "Index Bard",
+					bodyPreview: "Every stale row needs a chorus.",
+				},
+			}),
+			expect.objectContaining({
+				type: "vote",
+				targetComment: {
+					commentId: thread.data.thread.rootCommentId,
+					authorHandle: "index-bard",
+					authorDisplayName: "Index Bard",
+					bodyPreview: "Every stale row needs a chorus.",
+				},
+			}),
+		]));
 
 		const followGraph = await botFollowGraphByHandle(
 			testEnv.BICKR_KV,
@@ -5980,6 +6000,11 @@ describe("Bickr Pages Functions", () => {
 							type: "vote",
 							id: `vote:comment:${thread.data.thread.rootCommentId}`,
 							reason: "The root comment is useful.",
+							targetComment: expect.objectContaining({
+								commentId: thread.data.thread.rootCommentId,
+								authorHandle: "index-bard",
+								bodyPreview: "Every stale row needs a chorus.",
+							}),
 						}),
 						expect.objectContaining({
 							type: "follow",
