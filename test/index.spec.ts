@@ -74,11 +74,13 @@ import {
 	providerMessagesWithReasoningPrefill,
 	providerResponseMessageForHistory,
 	providerTranslationRequest,
+	repairInvalidUnicodeText,
 	sanitizeProviderToolCalls,
 	providerToolResultPayload,
 	providerTokenProbeRequest,
 	runtimeErrorLoopMessageContent,
 	textTokenCalibrationFromPromptHistory,
+	truncateForContext,
 	toolUseRecoveryReminder,
 } from "../workers/agent-runtime/src/index";
 import {
@@ -1674,6 +1676,7 @@ describe("Bickr Pages Functions", () => {
 		expect(assistantNote).toContain("I wrote a transcript-like action line as text");
 		expect(assistantNote).toContain("I wrote a transcript-like result line as text");
 		expect(assistantNote).not.toContain("\n> Action:");
+		expect(formatRuntimeEventForContext("provider_history_repaired", { count: 1 })).toBe("");
 
 		const currentInput = formatRuntimeInputForContext({
 			ping: false,
@@ -2930,6 +2933,41 @@ describe("Bickr Pages Functions", () => {
 		]);
 	});
 
+	it("repairs invalid Unicode and truncates without splitting surrogate pairs", () => {
+		const high = "\uD83C";
+		const low = "\uDF0C";
+		const galaxy = "🌌";
+
+		expect(repairInvalidUnicodeText(`a${high}b${low}c${galaxy}`)).toBe(`a\uFFFDb\uFFFDc${galaxy}`);
+		expect(repairInvalidUnicodeText(galaxy)).toBe(galaxy);
+
+		const truncated = truncateForContext(galaxy.repeat(2_100), 4_000);
+		expect(truncated.endsWith("…")).toBe(true);
+		expect(hasLoneSurrogate(truncated)).toBe(false);
+
+		const request = providerChatCompletionRequest(
+			{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+			[
+				{ role: "assistant", content: `bad saved text ${high}` },
+				{
+					role: "assistant",
+					content: null,
+					tool_calls: [
+						{
+							id: "call_unicode",
+							type: "function",
+							function: { name: "read_thread", arguments: JSON.stringify({ threadId: "thr_test", note: `bad ${high}` }) },
+						},
+					],
+				},
+			],
+			[],
+		);
+		expect(hasLoneSurrogate(request.messages)).toBe(false);
+		expect(JSON.stringify(request)).not.toContain("\\ud83c");
+		expect(JSON.parse(request.messages[1]?.tool_calls?.[0]?.function.arguments ?? "{}")).toMatchObject({ note: "bad \uFFFD" });
+	});
+
 	it("does not append empty provider responses to the loop ledger", async () => {
 		const appendedLoopMessages: Array<{ message: Record<string, unknown>; origin: string }> = [];
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
@@ -3328,6 +3366,126 @@ describe("Bickr Pages Functions", () => {
 			type: "provider_tool_call_dropped",
 			payload: expect.objectContaining({ phase: "history_repair", callIds: ["call-poisoned"] }),
 		});
+	});
+
+	it("repairs invalid Unicode in active history before provider submission", async () => {
+		const high = "\uD83C";
+		const rows = [
+			loopMessageRowForMessage(1, {
+				role: "assistant",
+				content: `Compacted memory ends badly ${high}`,
+			}, "compaction"),
+			loopMessageRowForMessage(2, {
+				role: "assistant",
+				content: null,
+				tool_calls: [
+					{
+						id: "call-valid",
+						type: "function",
+						function: { name: "read_thread", arguments: JSON.stringify({ threadId: "thr_test", note: `bad ${high}` }) },
+					},
+				],
+			}),
+			loopMessageRowForMessage(3, {
+				role: "tool",
+				tool_call_id: "call-valid",
+				content: JSON.stringify({ ok: true, text: `bad ${high}` }),
+			}, "tool_result"),
+		];
+		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+		const submissions: Array<Array<Record<string, unknown>>> = [];
+		const providerMessages: Array<Array<Record<string, unknown>>> = [];
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			state: {
+				storage: {
+					sql: {
+						exec: vi.fn(<T,>(query: string, ...params: unknown[]) => {
+							const normalized = query.trim().replace(/\s+/g, " ");
+							if (/UPDATE loop_messages SET message_json = \?, token_estimate = \?/.test(normalized)) {
+								const row = rows.find((item) => item.seq === Number(params[2]));
+								if (row && !row.deleted_at) {
+									row.message_json = String(params[0]);
+									row.token_estimate = Number(params[1]);
+								}
+							}
+							if (/UPDATE loop_messages SET deleted_at = \?/.test(normalized)) {
+								const row = rows.find((item) => item.seq === Number(params[1]));
+								if (row && !row.deleted_at) {
+									row.deleted_at = String(params[0]);
+								}
+							}
+							return {
+								one: () => ({} as T),
+								toArray: () => [] as T[],
+							};
+						}),
+					},
+				},
+			},
+			activeLoopMessageRows: () => rows.filter((row) => row.deleted_at === null),
+			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+				events.push({ type, payload });
+				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
+			},
+			appendLoopMessage: () => ({ seq: 99, runId: "run-unicode-history-repair", role: "assistant", message: {}, origin: "provider_response", tokenEstimate: 0, createdAt: new Date().toISOString() }),
+			appendProviderMessages: async () => {},
+			broadcastControl: () => {},
+			callProvider: async (_settings: unknown, messages: Array<Record<string, unknown>>) => {
+				providerMessages.push(messages);
+				return providerResponseWithContent("Clean history is ready.");
+			},
+			ensureProviderPromptWithinBudget: async () => ({
+				allowedPromptTokens: 13_500,
+				promptTokens: 100,
+				requestMessages: (BotRuntime.prototype as unknown as { activeLoopMessagesForProvider: () => Array<Record<string, unknown>> }).activeLoopMessagesForProvider.bind(runtime)(),
+			}),
+			recordInferenceSubmission: (input: { messages: Array<Record<string, unknown>> }) => {
+				submissions.push(input.messages);
+			},
+			recordLoopMessageLog: () => {},
+			recordProviderUsage: () => {},
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const runProviderLoop = (BotRuntime.prototype as unknown as {
+			runProviderLoop: (
+				bot: BotDocument,
+				settings: { baseUrl: string; model: string; temperature: number },
+				runId: string,
+				messages: Array<Record<string, unknown>>,
+				runContext: { mode: "normal"; signal: AbortSignal },
+			) => Promise<{ logOffCalled: boolean }>;
+		}).runProviderLoop.bind(runtime);
+
+		await expect(
+			runProviderLoop(
+				fakeBotDocument(),
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				"run-unicode-history-repair",
+				[],
+				{ mode: "normal", signal: new AbortController().signal },
+			),
+		).resolves.toMatchObject({ logOffCalled: false });
+
+		expect(hasLoneSurrogate(submissions[0])).toBe(false);
+		expect(hasLoneSurrogate(providerMessages[0])).toBe(false);
+		expect(JSON.stringify(submissions[0])).not.toContain("\\ud83c");
+		const repairedToolCallMessage = submissions[0]?.find((message) => Array.isArray(message.tool_calls));
+		const repairedToolCalls = repairedToolCallMessage?.tool_calls as Array<{ function: { arguments: string } }> | undefined;
+		expect(JSON.parse(repairedToolCalls?.[0]?.function.arguments ?? "{}")).toMatchObject({ note: "bad \uFFFD" });
+		const repairedToolResult = submissions[0]?.find((message) => message.role === "tool");
+		expect(repairedToolResult?.content).toContain("\uFFFD");
+		expect(events).toContainEqual(expect.objectContaining({
+			type: "provider_history_repaired",
+			payload: expect.objectContaining({
+				count: 3,
+				messageSeqs: [1, 2, 3],
+				reason: "invalid_unicode_text",
+			}),
+		}));
 	});
 
 	it("repairs fragmented reasoning details in active provider history", async () => {
@@ -8691,6 +8849,33 @@ function loopMessageRowForMessage(seq: number, message: Record<string, unknown>,
 		created_at: "2026-05-05T00:00:00.000Z",
 		has_logs: 0,
 	};
+}
+
+function hasLoneSurrogate(value: unknown): boolean {
+	if (typeof value === "string") {
+		for (let index = 0; index < value.length; index += 1) {
+			const code = value.charCodeAt(index);
+			if (code >= 0xD800 && code <= 0xDBFF) {
+				const next = index + 1 < value.length ? value.charCodeAt(index + 1) : 0;
+				if (next >= 0xDC00 && next <= 0xDFFF) {
+					index += 1;
+					continue;
+				}
+				return true;
+			}
+			if (code >= 0xDC00 && code <= 0xDFFF) {
+				return true;
+			}
+		}
+		return false;
+	}
+	if (Array.isArray(value)) {
+		return value.some(hasLoneSurrogate);
+	}
+	if (value && typeof value === "object") {
+		return Object.values(value).some(hasLoneSurrogate);
+	}
+	return false;
 }
 
 function messageListText(messages: Array<Record<string, unknown>>): string {

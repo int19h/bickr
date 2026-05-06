@@ -169,6 +169,21 @@ export function runtimeActivities(events: BotRuntimeEvent[], fallbackWorldHandle
 				});
 				break;
 			}
+			case "provider_history_repaired": {
+				finishRunStreams(streams, event.runId);
+				const count = Math.max(1, Math.floor(numberValue(payload.count) ?? 1));
+				activities.push({
+					id: `event-${event.seq}`,
+					seq: event.seq,
+					createdAt: event.createdAt,
+					kind: "provider",
+					title: "Saved context repaired",
+					body: `Bickr Terminal repaired invalid saved text in ${count} field${count === 1 ? "" : "s"} before inference.`,
+					payload: event.payload,
+					raw: event,
+				});
+				break;
+			}
 			case "provider_delta":
 				appendProviderDelta(activities, streams, turnByRun, event, payload);
 				break;

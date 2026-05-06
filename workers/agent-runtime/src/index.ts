@@ -647,6 +647,7 @@ export type DroppedProviderToolCall = {
 export type ProviderToolCallSanitization = {
 	toolCalls: BotInferenceSubmissionToolCall[];
 	dropped: DroppedProviderToolCall[];
+	repairedTextCount: number;
 };
 
 type ProviderToolCallHistoryRepairAction =
@@ -656,6 +657,8 @@ type ProviderToolCallHistoryRepairAction =
 type ProviderToolCallHistoryRepair = {
 	actions: ProviderToolCallHistoryRepairAction[];
 	dropped: DroppedProviderToolCall[];
+	repairedTextCount: number;
+	repairedMessageSeqs: number[];
 };
 
 type ToolUseRecoveryState = {
@@ -774,7 +777,7 @@ export function providerChatCompletionRequest(
 ): ProviderChatCompletionRequest {
 	return {
 		model: settings.model,
-		messages: providerMessagesWithReasoningPrefill(messages, reasoningPrefill),
+		messages: sanitizeProviderMessagesForRequest(providerMessagesWithReasoningPrefill(messages, reasoningPrefill)),
 		tools,
 		tool_choice: providerChatToolChoice,
 		parallel_tool_calls: providerParallelToolCalls,
@@ -814,7 +817,7 @@ export function providerCompactionRequest(
 ): ProviderCompactionRequest {
 	return {
 		model: settings.model,
-		messages,
+		messages: sanitizeProviderMessagesForRequest(messages),
 		stream: false,
 		response_format: {
 			type: "json_schema",
@@ -865,8 +868,8 @@ export function providerResponseMessageForHistory(response: {
 	reasoningDetails?: Record<string, unknown>[];
 	toolCalls?: BotInferenceSubmissionToolCall[];
 }): BotInferenceSubmissionMessage | null {
-	const content = response.content ?? "";
-	const reasoning = response.reasoning ?? "";
+	const content = repairInvalidUnicodeText(response.content ?? "");
+	const reasoning = repairInvalidUnicodeText(response.reasoning ?? "");
 	const reasoningDetails = normalizeReasoningDetailsForProviderHistory(response.reasoningDetails ?? []);
 	const toolCalls = response.toolCalls ?? [];
 	if (
@@ -897,7 +900,7 @@ export function providerResponseMessageForHistory(response: {
 function normalizeReasoningDetailsForProviderHistory(details: readonly unknown[]): ReasoningDetail[] {
 	const normalized: ReasoningDetail[] = [];
 	for (const detail of details) {
-		const record = { ...runtimeRecord(detail) };
+		const record = repairInvalidUnicodeValue({ ...runtimeRecord(detail) }).value;
 		const last = normalized[normalized.length - 1];
 		if (
 			last &&
@@ -928,13 +931,208 @@ function reasoningDetailsEqual(left: readonly unknown[] | undefined, right: read
 	return true;
 }
 
+type InvalidUnicodeRepair<T> = {
+	value: T;
+	repairCount: number;
+};
+
+export function repairInvalidUnicodeText(text: string): string {
+	let repaired = "";
+	let lastCopiedIndex = 0;
+	for (let index = 0; index < text.length; index += 1) {
+		const code = text.charCodeAt(index);
+		if (isHighSurrogate(code)) {
+			const nextCode = index + 1 < text.length ? text.charCodeAt(index + 1) : 0;
+			if (isLowSurrogate(nextCode)) {
+				index += 1;
+				continue;
+			}
+			repaired += `${text.slice(lastCopiedIndex, index)}\uFFFD`;
+			lastCopiedIndex = index + 1;
+			continue;
+		}
+		if (isLowSurrogate(code)) {
+			repaired += `${text.slice(lastCopiedIndex, index)}\uFFFD`;
+			lastCopiedIndex = index + 1;
+		}
+	}
+	return lastCopiedIndex === 0 ? text : repaired + text.slice(lastCopiedIndex);
+}
+
+function repairInvalidUnicodeValue<T>(value: T): InvalidUnicodeRepair<T> {
+	if (typeof value === "string") {
+		const repaired = repairInvalidUnicodeText(value);
+		return {
+			value: repaired as T,
+			repairCount: repaired === value ? 0 : 1,
+		};
+	}
+	if (Array.isArray(value)) {
+		let repairCount = 0;
+		let changed = false;
+		const repaired = value.map((item) => {
+			const itemRepair = repairInvalidUnicodeValue(item);
+			repairCount += itemRepair.repairCount;
+			if (itemRepair.repairCount > 0) {
+				changed = true;
+			}
+			return itemRepair.value;
+		});
+		return {
+			value: (changed ? repaired : value) as T,
+			repairCount,
+		};
+	}
+	if (value && typeof value === "object") {
+		let repairCount = 0;
+		let changed = false;
+		const repaired: Record<string, unknown> = {};
+		for (const [key, item] of Object.entries(value)) {
+			const itemRepair = repairInvalidUnicodeValue(item);
+			repaired[key] = itemRepair.value;
+			repairCount += itemRepair.repairCount;
+			if (itemRepair.repairCount > 0) {
+				changed = true;
+			}
+		}
+		return {
+			value: (changed ? repaired : value) as T,
+			repairCount,
+		};
+	}
+	return { value, repairCount: 0 };
+}
+
+function isHighSurrogate(code: number): boolean {
+	return code >= 0xD800 && code <= 0xDBFF;
+}
+
+function isLowSurrogate(code: number): boolean {
+	return code >= 0xDC00 && code <= 0xDFFF;
+}
+
+function unicodeSafeSlice(text: string, end: number): string {
+	const repaired = repairInvalidUnicodeText(text);
+	if (repaired.length <= end) {
+		return repaired;
+	}
+	const safeEnd = Math.max(0, end);
+	const adjustedEnd = safeEnd > 0 && isHighSurrogate(repaired.charCodeAt(safeEnd - 1)) ? safeEnd - 1 : safeEnd;
+	return repaired.slice(0, adjustedEnd);
+}
+
+function truncateWithoutSplittingUnicode(text: string, maxLength: number): string {
+	const repaired = repairInvalidUnicodeText(text);
+	return repaired.length <= maxLength ? repaired : unicodeSafeSlice(repaired, maxLength);
+}
+
+function sanitizeProviderMessagesForRequest(messages: readonly ChatMessage[]): ChatMessage[] {
+	const sanitized = messages.map(sanitizeProviderMessageForRequest);
+	assertNoInvalidUnicodeValue(sanitized, "provider request messages");
+	return sanitized;
+}
+
+function sanitizeProviderMessageForRequest(message: ChatMessage): ChatMessage {
+	return repairProviderMessageUnicode(message).value;
+}
+
+function repairProviderMessageUnicode(message: ChatMessage): InvalidUnicodeRepair<ChatMessage> {
+	const messageRepair = repairInvalidUnicodeValue(message);
+	let repairedMessage = messageRepair.value;
+	let repairCount = messageRepair.repairCount;
+	if (repairedMessage.role === "tool" && typeof repairedMessage.content === "string") {
+		const contentRepair = repairJsonStringUnicode(repairedMessage.content);
+		if (contentRepair.repairCount > 0) {
+			repairedMessage = { ...repairedMessage, content: contentRepair.value };
+			repairCount += contentRepair.repairCount;
+		}
+	}
+	if (Array.isArray(repairedMessage.tool_calls) && repairedMessage.tool_calls.length > 0) {
+		const repairedToolCalls = repairToolCallArgumentUnicode(repairedMessage.tool_calls);
+		if (repairedToolCalls.repairCount > 0) {
+			repairedMessage = { ...repairedMessage, tool_calls: repairedToolCalls.toolCalls };
+			repairCount += repairedToolCalls.repairCount;
+		}
+	}
+	return { value: repairedMessage, repairCount };
+}
+
+function repairJsonStringUnicode(text: string): InvalidUnicodeRepair<string> {
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(text) as unknown;
+	} catch {
+		return { value: text, repairCount: 0 };
+	}
+	const repair = repairInvalidUnicodeValue(parsed);
+	if (repair.repairCount === 0) {
+		return { value: text, repairCount: 0 };
+	}
+	return { value: JSON.stringify(repair.value), repairCount: repair.repairCount };
+}
+
+function repairToolCallArgumentUnicode(toolCalls: readonly ToolCall[]): { toolCalls: ToolCall[]; repairCount: number } {
+	let repairCount = 0;
+	let changed = false;
+	const repairedToolCalls = toolCalls.map((toolCall) => {
+		const rawArguments = toolCall.function.arguments;
+		let parsed: unknown;
+		try {
+			parsed = JSON.parse(rawArguments) as unknown;
+		} catch {
+			return toolCall;
+		}
+		const argumentRepair = repairInvalidUnicodeValue(parsed);
+		if (argumentRepair.repairCount === 0) {
+			return toolCall;
+		}
+		repairCount += argumentRepair.repairCount;
+		changed = true;
+		return toolCallWithArguments(toolCall, JSON.stringify(argumentRepair.value));
+	});
+	return { toolCalls: changed ? repairedToolCalls : [...toolCalls], repairCount };
+}
+
+function assertNoInvalidUnicodeValue(value: unknown, label: string): void {
+	if (invalidUnicodePath(value)) {
+		throw new Error(`${label} still contains invalid Unicode.`);
+	}
+}
+
+function stringifyProviderRequest(value: unknown): string {
+	assertNoInvalidUnicodeValue(value, "provider request");
+	return JSON.stringify(value);
+}
+
+function invalidUnicodePath(value: unknown): boolean {
+	if (typeof value === "string") {
+		return repairInvalidUnicodeText(value) !== value;
+	}
+	if (Array.isArray(value)) {
+		return value.some(invalidUnicodePath);
+	}
+	if (value && typeof value === "object") {
+		return Object.values(value).some(invalidUnicodePath);
+	}
+	return false;
+}
+
 export function sanitizeProviderToolCalls(toolCalls: readonly BotInferenceSubmissionToolCall[]): ProviderToolCallSanitization {
 	const sanitized: ToolCall[] = [];
 	const dropped: DroppedProviderToolCall[] = [];
+	let repairedTextCount = 0;
 	for (const toolCall of toolCalls) {
 		const functionRecord = runtimeRecord(toolCall.function);
-		const id = typeof toolCall.id === "string" && toolCall.id.length > 0 ? toolCall.id : "";
-		const name = stringValue(functionRecord.name) ?? "";
+		const rawId = typeof toolCall.id === "string" && toolCall.id.length > 0 ? toolCall.id : "";
+		const id = repairInvalidUnicodeText(rawId);
+		if (id !== rawId) {
+			repairedTextCount += 1;
+		}
+		const rawName = stringValue(functionRecord.name) ?? "";
+		const name = repairInvalidUnicodeText(rawName);
+		if (name !== rawName) {
+			repairedTextCount += 1;
+		}
 		const rawArguments = functionRecord.arguments;
 		if (!id) {
 			dropped.push(droppedProviderToolCall(id, name, "missing_tool_call_id", rawArguments));
@@ -959,16 +1157,18 @@ export function sanitizeProviderToolCalls(toolCalls: readonly BotInferenceSubmis
 			dropped.push(droppedProviderToolCall(id, name, "arguments_not_json_object", rawArguments));
 			continue;
 		}
+		const argumentRepair = repairInvalidUnicodeValue(parsed);
+		repairedTextCount += argumentRepair.repairCount;
 		sanitized.push({
 			id,
 			type: "function",
 			function: {
 				name,
-				arguments: JSON.stringify(parsed),
+				arguments: JSON.stringify(argumentRepair.value),
 			},
 		});
 	}
-	return { toolCalls: sanitized, dropped };
+	return { toolCalls: sanitized, dropped, repairedTextCount };
 }
 
 function sanitizeProviderResponseToolCalls(response: ProviderResponse): {
@@ -1039,6 +1239,8 @@ function repairProviderToolCallHistoryRows(rows: readonly LoopMessageRow[]): Pro
 	const actionSeqs = new Set<number>();
 	const consumedToolRowSeqs = new Set<number>();
 	const dropped: DroppedProviderToolCall[] = [];
+	let repairedTextCount = 0;
+	const repairedMessageSeqs = new Set<number>();
 	const deleteRow = (seq: number): void => {
 		if (actionSeqs.has(seq)) {
 			return;
@@ -1059,25 +1261,41 @@ function repairProviderToolCallHistoryRows(rows: readonly LoopMessageRow[]): Pro
 		if (!current) {
 			continue;
 		}
-		if (current.message.role === "tool") {
+		let message = current.message;
+		let repairedMessage: ChatMessage | null = null;
+		const unicodeRepair = repairProviderMessageUnicode(message);
+		if (unicodeRepair.repairCount > 0) {
+			message = unicodeRepair.value;
+			current.message = message;
+			repairedMessage = message;
+			repairedTextCount += unicodeRepair.repairCount;
+			repairedMessageSeqs.add(current.row.seq);
+		}
+		if (message.role === "tool") {
 			if (!consumedToolRowSeqs.has(current.row.seq)) {
 				deleteRow(current.row.seq);
+			} else if (repairedMessage) {
+				updateRow(current.row.seq, repairedMessage);
 			}
 			continue;
 		}
-		if (current.message.role !== "assistant") {
+		if (message.role !== "assistant") {
+			if (repairedMessage) {
+				updateRow(current.row.seq, repairedMessage);
+			}
 			continue;
 		}
 
-		let repairedMessage: ChatMessage | null = null;
-		const originalReasoningDetails = Array.isArray(current.message.reasoning_details) ? current.message.reasoning_details : undefined;
+		const originalReasoningDetails = Array.isArray(message.reasoning_details) ? message.reasoning_details : undefined;
 		if (originalReasoningDetails) {
 			const normalizedReasoningDetails = normalizeReasoningDetailsForProviderHistory(originalReasoningDetails);
 			if (!reasoningDetailsEqual(originalReasoningDetails, normalizedReasoningDetails)) {
-				repairedMessage = { ...current.message, reasoning_details: normalizedReasoningDetails };
+				repairedMessage = { ...(repairedMessage ?? message), reasoning_details: normalizedReasoningDetails };
+				message = repairedMessage;
+				current.message = message;
 			}
 		}
-		if (!Array.isArray(current.message.tool_calls) || current.message.tool_calls.length === 0) {
+		if (!Array.isArray(message.tool_calls) || message.tool_calls.length === 0) {
 			if (repairedMessage) {
 				if (isEmptyProviderAssistantMessage(repairedMessage)) {
 					deleteRow(current.row.seq);
@@ -1088,8 +1306,12 @@ function repairProviderToolCallHistoryRows(rows: readonly LoopMessageRow[]): Pro
 			continue;
 		}
 
-		const originalToolCalls = current.message.tool_calls;
+		const originalToolCalls = message.tool_calls;
 		const sanitized = sanitizeProviderToolCalls(originalToolCalls);
+		if (sanitized.repairedTextCount > 0) {
+			repairedTextCount += sanitized.repairedTextCount;
+			repairedMessageSeqs.add(current.row.seq);
+		}
 		dropped.push(...sanitized.dropped);
 		const availableCallCounts = new Map<string, number>();
 		for (const toolCall of sanitized.toolCalls) {
@@ -1136,7 +1358,7 @@ function repairProviderToolCallHistoryRows(rows: readonly LoopMessageRow[]): Pro
 			continue;
 		}
 
-		repairedMessage = repairedMessage ?? { ...current.message };
+		repairedMessage = repairedMessage ?? { ...message };
 		if (repairedToolCalls.length > 0) {
 			repairedMessage.tool_calls = repairedToolCalls;
 		} else {
@@ -1149,7 +1371,7 @@ function repairProviderToolCallHistoryRows(rows: readonly LoopMessageRow[]): Pro
 		}
 	}
 
-	return { actions, dropped };
+	return { actions, dropped, repairedTextCount, repairedMessageSeqs: [...repairedMessageSeqs] };
 }
 
 export function loopMessageContributesToProviderHistory(
@@ -1239,7 +1461,7 @@ export function providerTokenProbeRequest(
 ): ProviderTokenProbeRequest {
 	return {
 		model: settings.model,
-		messages,
+		messages: sanitizeProviderMessagesForRequest(messages),
 		tools,
 		tool_choice: providerTokenProbeToolChoice,
 		parallel_tool_calls: providerParallelToolCalls,
@@ -2577,7 +2799,7 @@ export class BotRuntime {
 		signal: AbortSignal,
 	): Promise<ProviderResponse> {
 		const endpoint = providerChatCompletionsUrl(settings.baseUrl);
-		const body = JSON.stringify(providerChatCompletionRequest(settings, messages, tools));
+		const body = stringifyProviderRequest(providerChatCompletionRequest(settings, messages, tools));
 		let previousRetryKey: string | null = null;
 		for (let attempt = 1; attempt <= providerMaxAttempts; attempt += 1) {
 			this.throwIfStopped(runId, signal);
@@ -2622,7 +2844,7 @@ export class BotRuntime {
 		signal: AbortSignal,
 	): Promise<Pick<ProviderResponse, "usage" | "responseId" | "responseModel" | "requestBody" | "rawResponse"> & { content: string }> {
 		const endpoint = providerChatCompletionsUrl(settings.baseUrl);
-		const body = JSON.stringify(providerCompactionRequest(settings, messages));
+		const body = stringifyProviderRequest(providerCompactionRequest(settings, messages));
 		let previousRetryKey: string | null = null;
 		for (let attempt = 1; attempt <= providerMaxAttempts; attempt += 1) {
 			this.throwIfStopped(runId, signal);
@@ -2764,9 +2986,9 @@ export class BotRuntime {
 			this.clearProviderStreamActive(runId);
 		}
 		return {
-			content,
-			reasoning,
-			reasoningDetails,
+			content: repairInvalidUnicodeText(content),
+			reasoning: repairInvalidUnicodeText(reasoning),
+			reasoningDetails: repairInvalidUnicodeValue(reasoningDetails).value,
 			toolCalls: [...toolCalls.values()].filter((tool) => tool.function.name),
 			...(usage ? { usage } : {}),
 			...(responseId ? { responseId } : {}),
@@ -2976,6 +3198,9 @@ export class BotRuntime {
 	private async repairActiveProviderToolCallHistory(runId: string): Promise<DroppedProviderToolCall[]> {
 		const repair = repairProviderToolCallHistoryRows(this.activeLoopMessageRows());
 		if (repair.actions.length === 0) {
+			if (repair.repairedTextCount > 0) {
+				await this.recordProviderHistoryRepair(runId, repair.repairedTextCount, repair.repairedMessageSeqs);
+			}
 			return repair.dropped;
 		}
 		const deletedAt = new Date().toISOString();
@@ -3003,10 +3228,22 @@ export class BotRuntime {
 			}
 		}
 		this.broadcastControl({ type: "loop_messages_reset" });
+		if (repair.repairedTextCount > 0) {
+			await this.recordProviderHistoryRepair(runId, repair.repairedTextCount, repair.repairedMessageSeqs);
+		}
 		if (repair.dropped.length > 0) {
 			await this.recordDroppedProviderToolCalls(runId, null, repair.dropped, "history_repair", false);
 		}
 		return repair.dropped;
+	}
+
+	private async recordProviderHistoryRepair(runId: string, count: number, messageSeqs: readonly number[]): Promise<void> {
+		await this.appendEvent(runId, "provider_history_repaired", {
+			runId,
+			count,
+			messageSeqs: [...messageSeqs],
+			reason: "invalid_unicode_text",
+		});
 	}
 
 	private loopMessagesAfter(afterSeq: number): BotLoopMessage[] {
@@ -3267,6 +3504,8 @@ export class BotRuntime {
 		displayMessages?: ChatMessage[];
 		createdAt: string;
 	}): void {
+		const messages = sanitizeProviderMessagesForRequest(input.messages);
+		const displayMessages = input.displayMessages ? sanitizeProviderMessagesForRequest(input.displayMessages) : undefined;
 		this.state.storage.sql.exec(
 			`INSERT INTO inference_submissions (
 				id, event_seq, run_id, purpose, model, provider_base_url, message_count, messages_json, display_messages_json, created_at
@@ -3287,20 +3526,21 @@ export class BotRuntime {
 			input.purpose,
 			input.settings.model,
 			input.settings.baseUrl,
-			input.messages.length,
-			JSON.stringify(input.messages),
-			input.displayMessages ? JSON.stringify(input.displayMessages) : null,
+			messages.length,
+			JSON.stringify(messages),
+			displayMessages ? JSON.stringify(displayMessages) : null,
 			input.createdAt,
 		);
 		this.pruneInferenceSubmissions();
 	}
 
 	private updateInferenceSubmissionDisplayMessages(seq: number, messages: ChatMessage[]): void {
+		const sanitizedMessages = sanitizeProviderMessagesForRequest(messages);
 		this.state.storage.sql.exec(
 			`UPDATE inference_submissions
 			 SET display_messages_json = ?
 			 WHERE event_seq = ?`,
-			JSON.stringify(messages),
+			JSON.stringify(sanitizedMessages),
 			seq,
 		);
 	}
@@ -3722,7 +3962,7 @@ export class BotRuntime {
 			{
 				method: "POST",
 				headers,
-				body: JSON.stringify(providerTokenProbeRequest(settings, messages, tools)),
+				body: stringifyProviderRequest(providerTokenProbeRequest(settings, messages, tools)),
 			},
 			signal,
 			providerRequestTimeoutMs,
@@ -6213,7 +6453,7 @@ function providerCompactionSummaryFromResponseContent(content: unknown): string 
 		return null;
 	}
 	const summary = stringValue(runtimeRecord(parsed)[providerCompactionSummaryProperty]);
-	return summary ? summary.slice(0, providerCompactionSummaryMaxCharacters) : null;
+	return summary ? truncateWithoutSplittingUnicode(summary, providerCompactionSummaryMaxCharacters) : null;
 }
 
 export function providerToolResultPayload(
@@ -7567,7 +7807,7 @@ function sanitizeStoredContextSummary(summary: string): string {
 }
 
 function isRuntimeMetaContextLine(line: string): boolean {
-	return /^(provider_request|provider_token_probe|provider_token_estimate|provider_retry|provider_tool_call_dropped|tick_started|tick_completed|tick_failed|tick_stopped|tick_stop_requested)\b/.test(line);
+	return /^(provider_request|provider_token_probe|provider_token_estimate|provider_retry|provider_tool_call_dropped|provider_history_repaired|tick_started|tick_completed|tick_failed|tick_stopped|tick_stop_requested)\b/.test(line);
 }
 
 function injectedThoughtAssistantContent(text: string, payload: Record<string, unknown>): string {
@@ -7770,6 +8010,8 @@ export function formatRuntimeEventForContext(
 			const count = integerValue(payload.count) ?? 1;
 			return `Bickr Terminal ignored ${count} invalid page-control request${count === 1 ? "" : "s"}.`;
 		}
+		case "provider_history_repaired":
+			return "";
 		case "tick_started":
 			return `I opened Bickr for a ${stringValue(payload.trigger) ?? "scheduled"} visit.`;
 		case "tick_completed":
@@ -8712,11 +8954,12 @@ function clampNumber(value: number, min: number, max: number): number {
 	return Math.min(max, Math.max(min, value));
 }
 
-function truncateForContext(text: string, maxLength: number): string {
-	if (text.length <= maxLength) {
-		return text;
+export function truncateForContext(text: string, maxLength: number): string {
+	const repaired = repairInvalidUnicodeText(text);
+	if (repaired.length <= maxLength) {
+		return repaired;
 	}
-	return `${text.slice(0, Math.max(0, maxLength - 1))}…`;
+	return `${unicodeSafeSlice(repaired, Math.max(0, maxLength - 1))}…`;
 }
 
 async function readLimitedText(stream: ReadableStream<Uint8Array> | null, maxBytes: number): Promise<string> {

@@ -77,6 +77,15 @@ describe("runtimeActivities tool log formatting", () => {
 		expect(activity?.body).not.toContain("Bickr Terminal");
 	});
 
+	it("formats invalid saved context repair as owner-visible runtime activity", () => {
+		const [activity] = runtimeActivities([
+			runtimeEvent("provider_history_repaired", { count: 2, reason: "invalid_unicode_text", messageSeqs: [1, 2] }),
+		], "sandbox");
+
+		expect(activity?.title).toBe("Saved context repaired");
+		expect(activity?.body).toBe("Bickr Terminal repaired invalid saved text in 2 fields before inference.");
+	});
+
 	it("formats read and reply results without redundant thread-created metadata", () => {
 		const read = toolResultActivity("read_thread", { threadId: "thr_daily_news" }, {
 			operation: "read_thread",
