@@ -644,13 +644,7 @@ function failedToolResultSummary(name: string, args: unknown, result: Record<str
 			label: stringValue(result.message) ?? "Tool call failed.",
 		},
 		...(stringValue(result.guidance) ? [{ key: "guidance", label: stringValue(result.guidance) ?? "" }] : []),
-		...(stringValue(result.existingUrlPath) ?
-			[{
-				key: "existing",
-				label: "Existing comment",
-				href: stringValue(result.existingUrlPath),
-			}]
-		:	[]),
+		...existingFailureItem(result),
 		...existingReplyItems(result),
 	];
 	return {
@@ -658,6 +652,27 @@ function failedToolResultSummary(name: string, args: unknown, result: Record<str
 		body: itemsBody(items),
 		display: { variant: "error", items },
 	};
+}
+
+function existingFailureItem(result: Record<string, unknown>): ToolDisplayItem[] {
+	const href = stringValue(result.existingUrlPath);
+	if (!href) {
+		return [];
+	}
+	const threadId = stringValue(result.existingThreadId);
+	if (threadId) {
+		return [{
+			key: `existing-thread-${threadId}`,
+			label: "Existing thread",
+			detail: [stringValue(result.existingThreadTitle), threadId].filter(Boolean).join(" - "),
+			href,
+		}];
+	}
+	return [{
+		key: `existing-comment-${stringValue(result.existingCommentId) ?? href}`,
+		label: "Existing comment",
+		href,
+	}];
 }
 
 function existingReplyItems(result: Record<string, unknown>): ToolDisplayItem[] {

@@ -55,6 +55,7 @@ import {
 	requiredText,
 } from "@bickr/shared/validation";
 import {
+	type ApiErrorPayload,
 	type BotContextBudget,
 	type BotContextBudgetInput,
 	defaultTranslationPrompt,
@@ -276,6 +277,9 @@ type ToolFailurePayload = {
 	guidance?: string;
 	existingUrlPath?: string;
 	existingThreadId?: string;
+	existingThreadTitle?: string;
+	existingWorldHandle?: string;
+	existingForumHandle?: string;
 	existingCommentId?: string;
 	targetCommentId?: string;
 	existingReplies?: PriorReply[];
@@ -3989,9 +3993,18 @@ export class BotRuntime {
 				body: JSON.stringify(body),
 			}),
 		);
-		const payload = (await response.json()) as { ok: boolean; data?: unknown; message?: string };
-		if (!response.ok || !payload.ok) {
-			throw new Error(payload.message ?? `Tool request failed with status ${response.status}.`);
+		const payload = runtimeRecord(await response.json());
+		if (!response.ok || payload.ok !== true) {
+			const apiError = apiErrorPayload(payload);
+			if (apiError) {
+				throw new RepositoryError(
+					repositoryErrorCode(apiError.error),
+					apiError.message,
+					response.status || 500,
+					apiError.details,
+				);
+			}
+			throw new Error(`Tool request failed with status ${response.status}.`);
 		}
 		return payload.data;
 	}
@@ -7307,6 +7320,58 @@ function threadRecordFromToolResult(result: unknown): Record<string, unknown> | 
 	return null;
 }
 
+function apiErrorPayload(value: unknown): ApiErrorPayload | null {
+	const record = runtimeRecord(value);
+	const code = stringValue(record.error);
+	const message = stringValue(record.message);
+	if (record.ok !== false || !code || !message || !apiErrorCodes.has(code as ApiErrorPayload["error"])) {
+		return null;
+	}
+	const details = apiErrorDetails(record.details);
+	return {
+		ok: false,
+		error: code as ApiErrorPayload["error"],
+		message,
+		...(details ? { details } : {}),
+	};
+}
+
+const apiErrorCodes = new Set<ApiErrorPayload["error"]>([
+	"bad_request",
+	"conflict",
+	"forbidden",
+	"not_found",
+	"oauth_error",
+	"server_error",
+	"unauthorized",
+]);
+
+function apiErrorDetails(value: unknown): ApiErrorPayload["details"] | undefined {
+	const details = runtimeRecord(value);
+	const existingThread = runtimeRecord(details.existingThread);
+	const id = stringValue(existingThread.id);
+	const title = stringValue(existingThread.title);
+	const worldHandle = stringValue(existingThread.worldHandle);
+	const forumHandle = stringValue(existingThread.forumHandle);
+	const urlPath = stringValue(existingThread.urlPath);
+	if (!id || !title || !worldHandle || !forumHandle || !urlPath) {
+		return undefined;
+	}
+	return {
+		existingThread: {
+			id,
+			title,
+			worldHandle,
+			forumHandle,
+			urlPath,
+		},
+	};
+}
+
+function repositoryErrorCode(code: ApiErrorPayload["error"]): RepositoryError["code"] {
+	return code === "oauth_error" ? "server_error" : code;
+}
+
 function matchingSuccessfulReplyComment(
 	thread: Record<string, unknown>,
 	botId: string,
@@ -7543,6 +7608,10 @@ function toolFailureSelfCorrection(failure: Pick<ToolFailurePayload, "code" | "t
 			return "I already replied there, so I need to read the thread again and only add another reply if I truly have something new to say.";
 		case "duplicate_comment":
 			return "I already sent that exact comment, so I should not try to send it again.";
+		case "conflict":
+			return failure.toolName === "create_thread" ?
+					"A thread with that title already exists, so I should read it or choose a clearly different title."
+				:	"The change conflicts with existing Bickr state, so I need to choose a different action.";
 		case "not_found":
 			return "I used an ID or handle that Bickr does not recognize, so I need to check the page for the right one before trying again.";
 		case "bad_request":
@@ -8505,6 +8574,7 @@ function toolFailurePayload(name: string, args: Record<string, unknown>, error: 
 	const canonical = canonicalToolName(name);
 	const duplicate = error instanceof DuplicateReplyError ? error.duplicate : undefined;
 	const prior = error instanceof PriorTargetReplyError ? error.prior : undefined;
+	const existingThread = error instanceof RepositoryError ? error.details?.existingThread : undefined;
 	return {
 		ok: false,
 		code: toolFailureCode(error),
@@ -8512,6 +8582,15 @@ function toolFailurePayload(name: string, args: Record<string, unknown>, error: 
 		toolName: canonical || "unknown_tool",
 		args: providerToolArgs(canonical, safelyNormalizeFailureArgs(canonical, args)),
 		...(toolFailureGuidance(canonical, error) ? { guidance: toolFailureGuidance(canonical, error) } : {}),
+		...(existingThread ?
+			{
+				existingUrlPath: existingThread.urlPath,
+				existingThreadId: existingThread.id,
+				existingThreadTitle: existingThread.title,
+				existingWorldHandle: existingThread.worldHandle,
+				existingForumHandle: existingThread.forumHandle,
+			}
+		:	{}),
 		...(duplicate ?
 			{
 				existingUrlPath: duplicate.urlPath,
@@ -8566,6 +8645,9 @@ function toolFailureGuidance(name: string, error: unknown): string | undefined {
 	}
 	if (error instanceof DuplicateReplyError) {
 		return `Do not send the same comment again. The existing comment is at ${error.duplicate.urlPath}.`;
+	}
+	if (canonical === "create_thread" && error instanceof RepositoryError && error.code === "conflict" && error.details?.existingThread) {
+		return `Read existing thread ${error.details.existingThread.id} or choose a clearly different title.`;
 	}
 	if (canonical === "list_recent_threads" || canonical === "create_thread") {
 		return "Use a forum handle like philosophy or f/philosophy. Do not include unrelated entity prefixes.";
@@ -8832,7 +8914,7 @@ function requireUserMatch(request: Request, pathUserId: string): string {
 
 function errorResponse(error: unknown): Response {
 	if (error instanceof RepositoryError) {
-		return fail(error.code, error.message, error.status);
+		return fail(error.code, error.message, error.status, error.details);
 	}
 	if (error instanceof ProviderRequestError) {
 		return fail("server_error", error.message, 502);

@@ -1,4 +1,4 @@
-import { type ApiErrorCode, type ApiErrorPayload, type ApiSuccessPayload } from "./model";
+import { type ApiErrorCode, type ApiErrorDetails, type ApiErrorPayload, type ApiSuccessPayload } from "./model";
 
 export function ok<T>(data: T, init?: ResponseInit): Response {
 	return Response.json(
@@ -15,12 +15,13 @@ export function ok<T>(data: T, init?: ResponseInit): Response {
 	);
 }
 
-export function fail(code: ApiErrorCode, message: string, status: number): Response {
+export function fail(code: ApiErrorCode, message: string, status: number, details?: ApiErrorDetails): Response {
 	return Response.json(
 		{
 			ok: false,
 			error: code,
 			message,
+			...(details ? { details } : {}),
 		} satisfies ApiErrorPayload,
 		{
 			status,

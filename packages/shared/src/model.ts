@@ -1010,10 +1010,21 @@ export type ApiErrorCode =
 	| "server_error"
 	| "unauthorized";
 
+export type ApiErrorDetails = {
+	existingThread?: {
+		id: string;
+		title: string;
+		worldHandle: string;
+		forumHandle: string;
+		urlPath: string;
+	};
+};
+
 export type ApiErrorPayload = {
 	ok: false;
 	error: ApiErrorCode;
 	message: string;
+	details?: ApiErrorDetails;
 };
 
 export type ApiSuccessPayload<T> = {

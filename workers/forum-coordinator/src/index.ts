@@ -483,7 +483,7 @@ function jsonRequest(url: URL, original: Request, body: unknown): Request {
 
 function errorResponse(error: unknown): Response {
 	if (error instanceof RepositoryError) {
-		return fail(error.code, error.message, error.status);
+		return fail(error.code, error.message, error.status, error.details);
 	}
 	if (error instanceof InputError) {
 		return fail("bad_request", error.message, 400);

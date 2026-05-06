@@ -8072,11 +8072,34 @@ function ReadableToolResult({
 function ReadableToolFailure({ failure }: { failure: JsonRecord }) {
 	const message = textValueForDisplay(failure.message);
 	const guidance = textValueForDisplay(failure.guidance);
+	const hasExistingThread = Boolean(stringValue(failure.existingThreadId));
 	return (
 		<div className="tool-pretty tool-list">
 			{message && <div className="tool-pretty-item">{message}</div>}
+			{hasExistingThread && <ReadableFailureExistingThread failure={failure} />}
 			{guidance && <div className="tool-pretty-item">{guidance}</div>}
-			{!message && !guidance && <div className="tool-pretty-item">Bickr returned an error for this action.</div>}
+			{!message && !guidance && !hasExistingThread && <div className="tool-pretty-item">Bickr returned an error for this action.</div>}
+		</div>
+	);
+}
+
+function ReadableFailureExistingThread({ failure }: { failure: JsonRecord }) {
+	const threadId = stringValue(failure.existingThreadId);
+	if (!threadId) {
+		return null;
+	}
+	const title = stringValue(failure.existingThreadTitle);
+	const label = title ? `${title} (${threadId})` : threadId;
+	return (
+		<div className="tool-pretty-item">
+			<span>Existing thread</span>
+			<ThreadReference
+				forumHandle={stringValue(failure.existingForumHandle)}
+				label={label}
+				threadId={threadId}
+				title={label}
+				worldHandle={stringValue(failure.existingWorldHandle)}
+			/>
 		</div>
 	);
 }

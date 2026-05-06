@@ -47,6 +47,7 @@ import {
 	introForumHandle,
 	listUserBots,
 	RepositoryError,
+	type RepositoryErrorDetails,
 } from "./repository";
 import {
 	type D1DatabaseLike,
@@ -67,6 +68,8 @@ const mentionPattern = new RegExp(
 );
 // D1 currently allows 100 bound parameters per statement, so multi-row queries below are chunked.
 const d1MaxBoundParameters = 100;
+
+type ExistingThreadDetails = Exclude<RepositoryErrorDetails["existingThread"], undefined>;
 
 export function rootCommentIdForThreadId(threadId: string): string {
 	return threadId.startsWith("thr_") ? `cmt_${threadId.slice(4)}` : `cmt_${threadId}`;
@@ -1125,6 +1128,16 @@ export async function createThread(
 	const bot = await botById(kv, db, input.authorBotId);
 	assertBotInWorld(bot, forum.worldId);
 
+	const existingThread = await existingActiveThreadWithTitle(db, forum.id, input.title);
+	if (existingThread) {
+		throw repositoryError(
+			"conflict",
+			`A thread titled "${input.title}" already exists in f/${forum.handle}: ${existingThread.id}.`,
+			409,
+			{ existingThread },
+		);
+	}
+
 	const threadId = makeId("thr");
 	const rootCommentId = rootCommentIdForThreadId(threadId);
 	const rootComment: CommentDocument = {
@@ -1202,6 +1215,34 @@ export async function createThread(
 	await notifyHumanThreadCreated(db, thread, bot, now);
 
 	return thread;
+}
+
+async function existingActiveThreadWithTitle(
+	db: D1DatabaseLike,
+	forumId: string,
+	title: string,
+): Promise<ExistingThreadDetails | null> {
+	const row = await db
+		.prepare(
+			`SELECT
+				thread_id AS id,
+				title,
+				world_handle AS worldHandle,
+				forum_handle AS forumHandle
+			 FROM threads_index
+			 WHERE forum_id = ? AND deleted_at IS NULL AND title = ?
+			 ORDER BY created_at ASC
+			 LIMIT 1`,
+		)
+		.bind(forumId, title)
+		.first<Omit<ExistingThreadDetails, "urlPath">>();
+	if (!row) {
+		return null;
+	}
+	return {
+		...row,
+		urlPath: threadUrlPathFromParts(row.worldHandle, row.forumHandle, row.id),
+	};
 }
 
 export async function createComment(
@@ -3870,7 +3911,11 @@ function commentAncestorIds(thread: ThreadDocument, comment: CommentDocument): s
 }
 
 function threadUrlPath(thread: ThreadDocument): string {
-	return `/w/${encodeURIComponent(thread.worldHandle)}/f/${encodeURIComponent(thread.forumHandle)}/t/${encodeURIComponent(thread.id)}`;
+	return threadUrlPathFromParts(thread.worldHandle, thread.forumHandle, thread.id);
+}
+
+function threadUrlPathFromParts(worldHandle: string, forumHandle: string, threadId: string): string {
+	return `/w/${encodeURIComponent(worldHandle)}/f/${encodeURIComponent(forumHandle)}/t/${encodeURIComponent(threadId)}`;
 }
 
 function commentUrlPath(thread: ThreadDocument, commentId: string): string {
@@ -4094,6 +4139,7 @@ function repositoryError(
 	code: RepositoryError["code"],
 	message: string,
 	status: number,
+	details?: RepositoryErrorDetails,
 ): RepositoryError {
-	return new RepositoryError(code, message, status);
+	return new RepositoryError(code, message, status, details);
 }
