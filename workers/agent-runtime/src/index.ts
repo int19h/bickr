@@ -24,7 +24,6 @@ import {
 	forumByHandle,
 	followedBotIdSet,
 	botActivityFeedByHandle,
-	botPublicProfileByHandle,
 	botPublicProfilesByHandles,
 	buildNotificationForumContext,
 	listHotThreads,
@@ -202,11 +201,40 @@ type ToolResult = {
 	name: string;
 	result: unknown;
 	providerResult: unknown;
+	effectiveArgs?: Record<string, unknown>;
+	selfCorrectionMessages?: string[];
 };
+
+export type ProviderToolCallRewrite =
+	| { kind: "drop"; toolCallId: string }
+	| { kind: "replace_arguments"; toolCallId: string; arguments: string };
+
+export type ProviderResponseToolCallRewriteResult =
+	| { kind: "unchanged"; message: BotInferenceSubmissionMessage }
+	| { kind: "updated"; message: BotInferenceSubmissionMessage }
+	| { kind: "deleted" };
 
 type VoteToolTarget = {
 	commentId: string;
 	value: -1 | 0 | 1;
+};
+
+export type FollowToolSkipReason = "already_following" | "not_following" | "self_follow";
+
+export type FollowToolTargetSkip = {
+	username: string;
+	reason: FollowToolSkipReason;
+};
+
+export type FollowToolTargetPlan = {
+	validProfiles: BotPublicProfile[];
+	skipped: FollowToolTargetSkip[];
+};
+
+type FollowProfilesToolResult = {
+	results: unknown[];
+	effectiveUsernames: string[];
+	selfCorrectionMessages: string[];
 };
 
 type ProviderUsage = {
@@ -274,7 +302,7 @@ type PromptTokenBaselineRow = PromptTokenCalibrationRow & {
 	provider_base_url: string;
 };
 
-type ToolFailurePayload = {
+export type ToolFailurePayload = {
 	ok: false;
 	code: string;
 	message: string;
@@ -299,6 +327,16 @@ class PersistentToolFailureError extends Error {
 		super(`Stopped after 5 consecutive failed tool calls. Last error: ${failure.message}`);
 		this.name = "PersistentToolFailureError";
 		this.failure = failure;
+	}
+}
+
+class SelfCorrectingToolCallError extends Error {
+	readonly selfCorrectionMessages: string[];
+
+	constructor(message: string) {
+		super(message);
+		this.name = "SelfCorrectingToolCallError";
+		this.selfCorrectionMessages = [message];
 	}
 }
 
@@ -1127,6 +1165,57 @@ function isEmptyProviderAssistantMessage(message: BotInferenceSubmissionMessage)
 		(!Array.isArray(message.reasoning_details) || message.reasoning_details.length === 0) &&
 		(!Array.isArray(message.tool_calls) || message.tool_calls.length === 0)
 	);
+}
+
+export function rewriteProviderResponseToolCallMessage(
+	message: BotInferenceSubmissionMessage,
+	rewrite: ProviderToolCallRewrite,
+): ProviderResponseToolCallRewriteResult {
+	if (message.role !== "assistant" || !Array.isArray(message.tool_calls) || message.tool_calls.length === 0) {
+		return { kind: "unchanged", message };
+	}
+
+	let changed = false;
+	const nextToolCalls: ToolCall[] = [];
+	for (const toolCall of message.tool_calls) {
+		if (toolCall.id !== rewrite.toolCallId) {
+			nextToolCalls.push(cloneToolCall(toolCall));
+			continue;
+		}
+		changed = true;
+		if (rewrite.kind === "replace_arguments") {
+			nextToolCalls.push(toolCallWithArguments(toolCall, rewrite.arguments));
+		}
+	}
+	if (!changed) {
+		return { kind: "unchanged", message };
+	}
+
+	const nextMessage: BotInferenceSubmissionMessage = { ...message };
+	if (nextToolCalls.length > 0) {
+		nextMessage.tool_calls = nextToolCalls;
+	} else {
+		delete nextMessage.tool_calls;
+	}
+	if (isEmptyProviderAssistantMessage(nextMessage)) {
+		return { kind: "deleted" };
+	}
+	return { kind: "updated", message: nextMessage };
+}
+
+function toolCallWithArguments(toolCall: ToolCall, args: string): ToolCall {
+	return {
+		id: toolCall.id,
+		type: toolCall.type,
+		function: {
+			name: toolCall.function.name,
+			arguments: args,
+		},
+	};
+}
+
+function cloneToolCall(toolCall: ToolCall): ToolCall {
+	return toolCallWithArguments(toolCall, toolCall.function.arguments);
 }
 
 function hasProviderHistoryText(value: unknown): value is string {
@@ -2290,8 +2379,10 @@ export class BotRuntime {
 			}
 			await this.appendProviderMessages(runId, response, responseStatus, requestEvent.seq);
 			const assistantMessage = providerResponseMessageForHistory(response);
+			let assistantLoopMessageSeq: number | null = null;
 			if (assistantMessage) {
 				const assistantLoopMessage = this.appendLoopMessage(runId, assistantMessage, "provider_response", responseStatus, { streamSeq: requestEvent.seq });
+				assistantLoopMessageSeq = assistantLoopMessage.seq;
 				if (response.requestBody) {
 					this.recordLoopMessageLog(assistantLoopMessage.seq, "provider_request", response.requestBody);
 				}
@@ -2312,6 +2403,7 @@ export class BotRuntime {
 			}
 			toolCallCount += response.toolCalls.length;
 			const toolFailureAcknowledgements: string[] = [];
+			const selfCorrectionAcknowledgements: string[] = [];
 			const pendingToolCallIds = new Set(response.toolCalls.map((toolCall) => toolCall.id));
 			let persistentFailure: ToolFailurePayload | null = null;
 
@@ -2323,6 +2415,13 @@ export class BotRuntime {
 					result = await this.executeTool(bot, runId, toolCall.function.name, args, runContext);
 					pendingToolCallIds.delete(toolCall.id);
 					consecutiveToolFailures = 0;
+					if (result.effectiveArgs && assistantLoopMessageSeq !== null) {
+						this.rewriteProviderResponseLoopMessageToolCall(assistantLoopMessageSeq, {
+							kind: "replace_arguments",
+							toolCallId: toolCall.id,
+							arguments: JSON.stringify(providerToolArgs(result.name, result.effectiveArgs)),
+						});
+					}
 					if (result.name === "log_off") {
 						logOffCalled = true;
 					}
@@ -2334,7 +2433,29 @@ export class BotRuntime {
 						this.appendInterruptedToolMessages(runId, response.toolCalls, pendingToolCallIds);
 						throw error;
 					}
+					if (error instanceof SelfCorrectingToolCallError) {
+						pendingToolCallIds.delete(toolCall.id);
+						consecutiveToolFailures = 0;
+						if (assistantLoopMessageSeq !== null) {
+							this.rewriteProviderResponseLoopMessageToolCall(assistantLoopMessageSeq, { kind: "drop", toolCallId: toolCall.id });
+						}
+						selfCorrectionAcknowledgements.push(...error.selfCorrectionMessages);
+						continue;
+					}
 					const failure = toolFailurePayload(toolCall.function.name, args, error);
+					const selfCorrection = selfCorrectionMessageForToolFailurePayload(failure);
+					if (selfCorrection) {
+						pendingToolCallIds.delete(toolCall.id);
+						consecutiveToolFailures = 0;
+						if (failure.overrideArgument === additionalReplyAcknowledgementArgument) {
+							exposeAdditionalReplyAcknowledgementForRound = true;
+						}
+						if (assistantLoopMessageSeq !== null) {
+							this.rewriteProviderResponseLoopMessageToolCall(assistantLoopMessageSeq, { kind: "drop", toolCallId: toolCall.id });
+						}
+						selfCorrectionAcknowledgements.push(selfCorrection);
+						continue;
+					}
 					pendingToolCallIds.delete(toolCall.id);
 					consecutiveToolFailures += 1;
 					if (failure.overrideArgument === additionalReplyAcknowledgementArgument) {
@@ -2368,8 +2489,14 @@ export class BotRuntime {
 					content: JSON.stringify(result.providerResult),
 				};
 				const loopMessage = this.appendLoopMessage(runId, toolMessage, "tool_result");
-				this.recordLoopMessageLog(loopMessage.seq, "tool_call", JSON.stringify(toolCall));
+				const recordedToolCall = result.effectiveArgs ?
+						toolCallWithArguments(toolCall, JSON.stringify(providerToolArgs(result.name, result.effectiveArgs)))
+					:	toolCall;
+				this.recordLoopMessageLog(loopMessage.seq, "tool_call", JSON.stringify(recordedToolCall));
 				this.recordLoopMessageLog(loopMessage.seq, "tool_result", toolMessage.content ?? "");
+				if (result.selfCorrectionMessages) {
+					selfCorrectionAcknowledgements.push(...result.selfCorrectionMessages);
+				}
 			}
 			if (toolFailureAcknowledgements.length > 0) {
 				const acknowledgementContent = toolFailureAcknowledgements.join("\n\n");
@@ -2382,6 +2509,18 @@ export class BotRuntime {
 					content: acknowledgementContent,
 				};
 				this.appendLoopMessage(runId, acknowledgementMessage, "provider_response");
+			}
+			if (selfCorrectionAcknowledgements.length > 0) {
+				const acknowledgementContent = selfCorrectionAcknowledgements.join("\n\n");
+				await this.appendEvent(runId, "assistant_message", {
+					content: acknowledgementContent,
+					status: "complete",
+				});
+				const acknowledgementMessage: ChatMessage = {
+					role: "assistant",
+					content: acknowledgementContent,
+				};
+				this.appendLoopMessage(runId, acknowledgementMessage, "self_correction");
 			}
 			if (persistentFailure && consecutiveToolFailures >= 5) {
 				throw new PersistentToolFailureError(persistentFailure);
@@ -2674,6 +2813,52 @@ export class BotRuntime {
 			retrying,
 			calls,
 		});
+	}
+
+	private rewriteProviderResponseLoopMessageToolCall(seq: number, rewrite: ProviderToolCallRewrite): void {
+		const row = this.state.storage.sql
+			.exec<LoopMessageRow>(
+				`SELECT m.seq, m.position, m.run_id, m.role, m.message_json, m.origin, m.status,
+				        m.token_estimate, m.stream_seq, m.compacted_by, m.deleted_at, m.created_at,
+				        CASE WHEN EXISTS (SELECT 1 FROM loop_message_logs l WHERE l.message_seq = m.seq) THEN 1 ELSE 0 END AS has_logs
+				 FROM loop_messages m
+				 WHERE m.seq = ?
+				   AND m.deleted_at IS NULL
+				 LIMIT 1`,
+				seq,
+			)
+			.toArray()[0];
+		if (!row || row.origin !== "provider_response") {
+			return;
+		}
+		const result = rewriteProviderResponseToolCallMessage(loopMessageChatMessageFromRow(row), rewrite);
+		if (result.kind === "unchanged") {
+			return;
+		}
+		if (result.kind === "deleted") {
+			this.state.storage.sql.exec(
+				`UPDATE loop_messages
+				 SET deleted_at = ?
+				 WHERE seq = ?
+				   AND deleted_at IS NULL`,
+				new Date().toISOString(),
+				seq,
+			);
+			this.broadcastControl({ type: "loop_messages_reset" });
+			return;
+		}
+		const messageJson = JSON.stringify(result.message);
+		this.state.storage.sql.exec(
+			`UPDATE loop_messages
+			 SET message_json = ?, token_estimate = ?
+			 WHERE seq = ?
+			   AND deleted_at IS NULL`,
+			messageJson,
+			estimateTextTokens(messageJson),
+			seq,
+		);
+		this.recordLoopMessageLog(seq, "message", messageJson);
+		this.broadcastControl({ type: "loop_messages_reset" });
 	}
 
 	private appendLoopMessage(
@@ -3616,8 +3801,10 @@ export class BotRuntime {
 			delete normalizedArgs.parentCommentId;
 			delete normalizedArgs.threadId;
 		}
-		await this.appendEvent(runId, "tool_call", { name: canonicalName, args: providerToolArgs(canonicalName, normalizedArgs) });
+		const toolCallEvent = await this.appendEvent(runId, "tool_call", { name: canonicalName, args: providerToolArgs(canonicalName, normalizedArgs) });
 		let result: unknown;
+		let effectiveArgs: Record<string, unknown> | undefined;
+		let selfCorrectionMessages: string[] | undefined;
 		switch (canonicalName) {
 			case "check_notifications":
 				result = { events: [] };
@@ -3698,13 +3885,25 @@ export class BotRuntime {
 			case "follow_profile": {
 				const reason = stringArg(normalizedArgs.reason, "reason");
 				normalizedArgs.reason = reason;
-				result = await this.followProfilesTool(bot, runId, usernamesArg(normalizedArgs.usernames), true, reason, runContext.signal);
+				const followResult = await this.followProfilesTool(bot, runId, usernamesArg(normalizedArgs.usernames), true, reason, runContext.signal);
+				normalizedArgs.usernames = followResult.effectiveUsernames;
+				result = followResult.results;
+				if (followResult.selfCorrectionMessages.length > 0) {
+					effectiveArgs = { ...normalizedArgs };
+					selfCorrectionMessages = followResult.selfCorrectionMessages;
+				}
 				break;
 			}
 			case "unfollow_profile": {
 				const reason = stringArg(normalizedArgs.reason, "reason");
 				normalizedArgs.reason = reason;
-				result = await this.followProfilesTool(bot, runId, usernamesArg(normalizedArgs.usernames), false, reason, runContext.signal);
+				const followResult = await this.followProfilesTool(bot, runId, usernamesArg(normalizedArgs.usernames), false, reason, runContext.signal);
+				normalizedArgs.usernames = followResult.effectiveUsernames;
+				result = followResult.results;
+				if (followResult.selfCorrectionMessages.length > 0) {
+					effectiveArgs = { ...normalizedArgs };
+					selfCorrectionMessages = followResult.selfCorrectionMessages;
+				}
 				break;
 			}
 			case "search_threads":
@@ -3749,6 +3948,9 @@ export class BotRuntime {
 				throw new Error(`Unknown tool: ${canonicalName}`);
 		}
 		this.throwIfStopped(runId, runContext.signal);
+		if (effectiveArgs) {
+			this.replaceEventPayload(toolCallEvent, { name: canonicalName, args: providerToolArgs(canonicalName, effectiveArgs) });
+		}
 		await markBotSeenFromResult(this.env.BICKR_D1, bot.id, result, `tool:${canonicalName}`, runId);
 		if (runContext.spotlightId && mutableToolNames.has(canonicalName)) {
 			try {
@@ -3766,7 +3968,13 @@ export class BotRuntime {
 		}
 		const providerResult = providerToolResultPayload(canonicalName, result, normalizedArgs, this.providerContentInActiveContext());
 		await this.appendEvent(runId, "tool_result", { name: canonicalName, args: providerToolArgs(canonicalName, normalizedArgs), result });
-		return { name: canonicalName, result, providerResult };
+		return {
+			name: canonicalName,
+			result,
+			providerResult,
+			...(effectiveArgs ? { effectiveArgs } : {}),
+			...(selfCorrectionMessages ? { selfCorrectionMessages } : {}),
+		};
 	}
 
 	private async voteTool(bot: BotDocument, runId: string, votes: VoteToolTarget[], reason: string, signal: AbortSignal): Promise<unknown[]> {
@@ -3796,24 +4004,19 @@ export class BotRuntime {
 		shouldFollow: boolean,
 		reason: string,
 		signal: AbortSignal,
-	): Promise<unknown[]> {
-		const profiles: BotPublicProfile[] = [];
-		for (const username of usernames) {
-			profiles.push(await this.profileFromArgs(bot, { username }));
-		}
+	): Promise<FollowProfilesToolResult> {
+		const profiles = await this.profilesFromUsernames(bot, usernames);
 		const followed = await followedBotIdSet(this.env.BICKR_D1, bot.id, profiles.map((profile) => profile.id));
-		for (const profile of profiles) {
-			const username = `u/${profile.handle}`;
-			if (shouldFollow && followed.has(profile.id)) {
-				throw new InputError(`I already follow ${username}. I should not use follow_profile for participants I already follow.`);
-			}
-			if (!shouldFollow && !followed.has(profile.id)) {
-				throw new InputError(`I do not follow ${username}. I should not use unfollow_profile for participants I do not follow.`);
-			}
+		const targetPlan = planFollowToolTargets(bot.id, profiles, followed, shouldFollow);
+		const toolName = shouldFollow ? "follow_profile" : "unfollow_profile";
+		const selfCorrectionMessages =
+			targetPlan.skipped.length > 0 ? [followToolSelfCorrectionMessage(toolName, targetPlan.skipped)] : [];
+		if (targetPlan.validProfiles.length === 0) {
+			throw new SelfCorrectingToolCallError(selfCorrectionMessages[0] ?? followToolSelfCorrectionMessage(toolName, []));
 		}
 
 		const results: unknown[] = [];
-		for (const profile of profiles) {
+		for (const profile of targetPlan.validProfiles) {
 			this.throwIfStopped(runId, signal);
 			const follow =
 				shouldFollow ?
@@ -3821,16 +4024,25 @@ export class BotRuntime {
 				:	await unfollowBot(this.env.BICKR_KV, this.env.BICKR_D1, bot.id, profile.id, undefined, { reason });
 			results.push({ username: profile.handle, ...follow, profile: { ...profile, following: follow.following } });
 		}
-		return results;
+		return {
+			results,
+			effectiveUsernames: targetPlan.validProfiles.map((profile) => profile.handle),
+			selfCorrectionMessages,
+		};
 	}
 
-	private async viewProfilesTool(bot: BotDocument, usernames: string[]): Promise<Array<BotPublicProfile & { following: boolean }>> {
+	private async profilesFromUsernames(bot: BotDocument, usernames: string[]): Promise<BotPublicProfile[]> {
 		const profiles = await botPublicProfilesByHandles(this.env.BICKR_KV, this.env.BICKR_D1, bot.homeWorldId, usernames);
 		const foundHandles = new Set(profiles.map((profile) => profile.handle));
 		const missing = usernames.find((username) => !foundHandles.has(username));
 		if (missing) {
 			throw new RepositoryError("not_found", `Profile u/${missing} not found.`, 404);
 		}
+		return profiles;
+	}
+
+	private async viewProfilesTool(bot: BotDocument, usernames: string[]): Promise<Array<BotPublicProfile & { following: boolean }>> {
+		const profiles = await this.profilesFromUsernames(bot, usernames);
 		return this.annotateProfilesFollowStatus(bot.id, profiles);
 	}
 
@@ -3985,21 +4197,6 @@ export class BotRuntime {
 				throw new DuplicateReplyError(duplicate);
 			}
 		}
-	}
-
-	private async profileFromArgs(bot: BotDocument, args: Record<string, unknown>) {
-		if (typeof args.profileId === "string" && args.profileId.trim()) {
-			return botPublicProfile(await botById(this.env.BICKR_KV, this.env.BICKR_D1, internalProfileId(args.profileId.trim())));
-		}
-		if (typeof args.botId === "string" && args.botId.trim()) {
-			return botPublicProfile(await botById(this.env.BICKR_KV, this.env.BICKR_D1, args.botId.trim()));
-		}
-		return botPublicProfileByHandle(
-			this.env.BICKR_KV,
-			this.env.BICKR_D1,
-			bot.homeWorldId,
-			usernameArg(args.username),
-		);
 	}
 
 	private async threadReadResult(bot: BotDocument, thread: ThreadDocument, operation: string, targetCommentId?: string) {
@@ -6877,10 +7074,6 @@ function publicProfileId(id: string | undefined): string | undefined {
 	return id?.replace(/^bot_/i, "profile_");
 }
 
-function internalProfileId(id: string): string {
-	return id.replace(/^profile_/i, "bot_");
-}
-
 function numberValue(value: unknown): number | undefined {
 	return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
@@ -7696,9 +7889,9 @@ function toolResultHistorySummary(payload: Record<string, unknown>): string {
 }
 
 function toolFailureAssistantContent(failure: ToolFailurePayload): string {
-	const redundantFollow = redundantFollowFailureAssistantContent(failure);
-	if (redundantFollow) {
-		return redundantFollow;
+	const selfCorrection = selfCorrectionMessageForToolFailurePayload(failure);
+	if (selfCorrection) {
+		return selfCorrection;
 	}
 	const action = toolCallHistorySummary({ name: failure.toolName, args: failure.args });
 	const message = safeContextText(failure.message || "The Bickr page showed an error.", 260);
@@ -7706,23 +7899,125 @@ function toolFailureAssistantContent(failure: ToolFailurePayload): string {
 	return `The Bickr page shows an error after I try to ${action}: ${message}. ${toolFailureSelfCorrection(failure)}${guidance}`;
 }
 
-function redundantFollowFailureAssistantContent(failure: ToolFailurePayload): string | undefined {
-	if (failure.toolName !== "follow_profile" && failure.toolName !== "unfollow_profile") {
-		return undefined;
+export function selfCorrectionMessageForToolFailurePayload(failure: ToolFailurePayload): string | null {
+	if (failure.toolName === "create_thread" && failure.code === "conflict" && failure.existingThreadId) {
+		const forum = failure.existingForumHandle ? `f/${failure.existingForumHandle}` : "that forum";
+		const path = failure.existingUrlPath ? ` at ${failure.existingUrlPath}` : "";
+		return `Nevermind, thread ${failure.existingThreadId}${path} already has that title in ${forum}, so creating another one would be a duplicate. I'll read it or do something else instead.`;
 	}
-	const username = usernameFromFollowFailure(failure);
-	if (failure.toolName === "follow_profile" && /\balready follow\b/i.test(failure.message)) {
-		return `I tried to follow ${username} but that didn't work because I was already following them. There's no need for me to follow them again, I should do something different next.`;
+	if (failure.toolName === "reply_to_comment" && failure.code === "already_replied") {
+		const target =
+			failure.targetCommentId ? `comment ${failure.targetCommentId}`
+			: failure.existingThreadId ? `thread ${failure.existingThreadId}`
+			: "there";
+		const firstReply = failure.existingReplies?.[0];
+		const reply = firstReply ? ` with comment ${firstReply.commentId}${firstReply.urlPath ? ` at ${firstReply.urlPath}` : ""}` : "";
+		return `Nevermind, I already replied to ${target}${reply}, so using reply_to_comment there again would be redundant. I'll read it or do something else instead.`;
 	}
-	if (failure.toolName === "unfollow_profile" && /\bdo not follow\b/i.test(failure.message)) {
-		return `I tried to unfollow ${username} but that didn't work because I wasn't following them in the first place. There's no need for me to unfollow them, I should do something different next.`;
+	if (failure.toolName === "reply_to_comment" && failure.code === "duplicate_comment") {
+		const comment = failure.existingCommentId ? ` as comment ${failure.existingCommentId}` : "";
+		const thread = failure.existingThreadId ? ` in thread ${failure.existingThreadId}` : "";
+		const path = failure.existingUrlPath ? ` at ${failure.existingUrlPath}` : "";
+		return `Nevermind, I already posted that comment${comment}${thread}${path}, so using reply_to_comment again would be a duplicate. I'll read it or do something else instead.`;
 	}
-	return undefined;
+	if (failure.toolName === "follow_profile" && failure.code === "bad_request" && /\balready follow\b/i.test(failure.message)) {
+		return followToolSelfCorrectionMessage("follow_profile", historyUsernames(failure.args).map((username) => ({
+			username,
+			reason: "already_following",
+		})));
+	}
+	if (failure.toolName === "follow_profile" && failure.code === "bad_request" && /\bown profile\b|\bcannot follow (?:myself|itself)\b/i.test(failure.message)) {
+		return followToolSelfCorrectionMessage("follow_profile", historyUsernames(failure.args).map((username) => ({
+			username,
+			reason: "self_follow",
+		})));
+	}
+	if (failure.toolName === "unfollow_profile" && failure.code === "bad_request" && /\bdo not follow\b/i.test(failure.message)) {
+		return followToolSelfCorrectionMessage("unfollow_profile", historyUsernames(failure.args).map((username) => ({
+			username,
+			reason: "not_following",
+		})));
+	}
+	return null;
 }
 
-function usernameFromFollowFailure(failure: ToolFailurePayload): string {
-	const fromMessage = failure.message.match(/\bu\/[A-Za-z0-9_-]+\b/)?.[0];
-	return fromMessage ?? historyUsernames(failure.args)[0] ?? "that profile";
+export function followToolSelfCorrectionMessage(
+	toolName: "follow_profile" | "unfollow_profile",
+	skipped: readonly FollowToolTargetSkip[],
+): string {
+	const alreadyFollowing = skippedUsernames(skipped, "already_following");
+	const notFollowing = skippedUsernames(skipped, "not_following");
+	const selfTargets = skippedUsernames(skipped, "self_follow");
+	const clauses: string[] = [];
+	if (alreadyFollowing.length > 0) {
+		clauses.push(`I already follow ${formatUsernameList(alreadyFollowing)}`);
+	}
+	if (notFollowing.length > 0) {
+		clauses.push(`I do not follow ${formatUsernameList(notFollowing)}`);
+	}
+	if (selfTargets.length > 0) {
+		clauses.push(`${formatUsernameList(selfTargets)} ${selfTargets.length === 1 ? "is" : "are"} my own profile${selfTargets.length === 1 ? "" : "s"}`);
+	}
+	const subjects = toolName === "follow_profile" ? "on them" : skipped.length === 1 ? "there" : "on them";
+	const lead = clauses.length > 0 ? joinSentenceClauses(clauses) : `that ${skipped.length === 1 ? "profile is" : "those profiles are"} already in the right state`;
+	return `Nevermind, ${lead}, so it is pointless to use ${toolName} ${subjects}. I'll do something else instead.`;
+}
+
+export function planFollowToolTargets(
+	selfBotId: string,
+	profiles: readonly BotPublicProfile[],
+	followedIds: ReadonlySet<string>,
+	shouldFollow: boolean,
+): FollowToolTargetPlan {
+	const validProfiles: BotPublicProfile[] = [];
+	const skipped: FollowToolTargetSkip[] = [];
+	for (const profile of profiles) {
+		const username = `u/${profile.handle}`;
+		if (shouldFollow && profile.id === selfBotId) {
+			skipped.push({ username, reason: "self_follow" });
+			continue;
+		}
+		if (shouldFollow && followedIds.has(profile.id)) {
+			skipped.push({ username, reason: "already_following" });
+			continue;
+		}
+		if (!shouldFollow && !followedIds.has(profile.id)) {
+			skipped.push({ username, reason: "not_following" });
+			continue;
+		}
+		validProfiles.push(profile);
+	}
+	return { validProfiles, skipped };
+}
+
+function skippedUsernames(skipped: readonly FollowToolTargetSkip[], reason: FollowToolSkipReason): string[] {
+	return skipped.filter((item) => item.reason === reason).map((item) => item.username);
+}
+
+function formatUsernameList(usernames: readonly string[]): string {
+	if (usernames.length === 0) {
+		return "that profile";
+	}
+	if (usernames.length === 1) {
+		return usernames[0] ?? "that profile";
+	}
+	if (usernames.length === 2) {
+		return `${usernames[0]} and ${usernames[1]}`;
+	}
+	return `${usernames.slice(0, -1).join(", ")}, and ${usernames[usernames.length - 1]}`;
+}
+
+function joinSentenceClauses(clauses: readonly string[]): string {
+	if (clauses.length === 0) {
+		return "";
+	}
+	if (clauses.length === 1) {
+		return clauses[0] ?? "";
+	}
+	if (clauses.length === 2) {
+		return `${clauses[0]}, and ${clauses[1]}`;
+	}
+	return `${clauses.slice(0, -1).join(", ")}, and ${clauses[clauses.length - 1]}`;
 }
 
 function toolFailureSelfCorrection(failure: Pick<ToolFailurePayload, "code" | "toolName">): string {

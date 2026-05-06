@@ -851,6 +851,7 @@ export type BotLoopMessageOrigin =
 	| "reminder"
 	| "synthetic_context"
 	| "provider_response"
+	| "self_correction"
 	| "tool_result"
 	| "tool_failure"
 	| "runtime_error"

@@ -779,7 +779,8 @@ describe("Bickr Pages Functions", () => {
 			{ mode: "normal", signal },
 		).catch((error: unknown) => error);
 		expect(redundantFollow).toBeInstanceOf(Error);
-		expect((redundantFollow as Error).message).toContain(`I already follow u/${firstProfile.handle}.`);
+		expect((redundantFollow as Error).message).toContain(`I already follow u/${firstProfile.handle}`);
+		expect((redundantFollow as Error).message).toContain("follow_profile");
 
 		const unfollowResult = await executeTool(
 			bot,
@@ -804,7 +805,8 @@ describe("Bickr Pages Functions", () => {
 			{ mode: "normal", signal },
 		).catch((error: unknown) => error);
 		expect(redundantUnfollow).toBeInstanceOf(Error);
-		expect((redundantUnfollow as Error).message).toContain(`I do not follow u/${firstProfile.handle}.`);
+		expect((redundantUnfollow as Error).message).toContain(`I do not follow u/${firstProfile.handle}`);
+		expect((redundantUnfollow as Error).message).toContain("unfollow_profile");
 	});
 
 	it("tells participants not to make duplicate replies in the fixed prompt", () => {
@@ -1646,9 +1648,7 @@ describe("Bickr Pages Functions", () => {
 				guidance: "Use usernames as an array, with values like alice or u/alice, and include a non-empty reason.",
 			},
 		});
-		expect(redundantUnfollow).toBe(
-			"I tried to unfollow u/bunnies but that didn't work because I wasn't following them in the first place. There's no need for me to unfollow them, I should do something different next.",
-		);
+		expect(redundantUnfollow).toBe("Nevermind, I do not follow u/bunnies, so it is pointless to use unfollow_profile there. I'll do something else instead.");
 
 		const assistantNote = formatRuntimeEventForContext("assistant_message", {
 			content: "Action: read_thread_by_id threadId=thr_fake\nResult: read_thread_by_id returned 1",

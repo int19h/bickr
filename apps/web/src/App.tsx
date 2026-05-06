@@ -8602,7 +8602,7 @@ function LoopMessageRow({
 			<div className="event-meta">
 				{loopMessageOriginLabel(message.origin)} / {message.runId} / {formatTokenCount(message.tokenEstimate)} tokens
 			</div>
-			<LoopMessageReadableView message={message.message} toolCall={toolCallContext} toolCallsById={toolCallsById} />
+			<LoopMessageReadableView message={message.message} origin={message.origin} toolCall={toolCallContext} toolCallsById={toolCallsById} />
 		</div>
 	);
 }
@@ -8652,10 +8652,12 @@ function SubmissionJsonBlock({ label, value }: { label: string; value: unknown }
 
 function LoopMessageReadableView({
 	message,
+	origin,
 	toolCall,
 	toolCallsById,
 }: {
 	message: BotInferenceSubmissionMessage;
+	origin?: BotLoopMessage["origin"];
 	toolCall?: LoopToolCallContext;
 	toolCallsById?: ReadonlyMap<string, LoopToolCallContext>;
 }) {
@@ -8666,7 +8668,10 @@ function LoopMessageReadableView({
 			{message.role === "tool" ?
 				<ReadableToolResult content={content} toolCall={toolCall} />
 			: content ?
-				<div className="loop-readable-text">{normalizeReadableText(content)}</div>
+				<div className="loop-readable-text">
+					{normalizeReadableText(content)}
+					{origin === "self_correction" && <SelfCorrectionReferences text={content} />}
+				</div>
 			:	null}
 			{message.reasoning && <ReadableReasoningBlock label="Reasoning" text={message.reasoning} />}
 			{message.reasoning_content && <ReadableReasoningBlock label="Reasoning" text={message.reasoning_content} />}
@@ -8698,6 +8703,62 @@ function ReadableReasoningDetails({ details }: { details: unknown[] }) {
 		);
 	}
 	return <ReadableReasoningBlock label="Reasoning" text={text} />;
+}
+
+function SelfCorrectionReferences({ text }: { text: string }) {
+	const references = selfCorrectionThreadReferences(text);
+	if (references.length === 0) {
+		return null;
+	}
+	return (
+		<div className="tool-pretty tool-list">
+			{references.map((reference) => (
+				<div className="tool-pretty-item" key={reference.key}>
+					<span>{reference.commentId ? "Existing comment" : "Existing thread"}</span>
+					<ThreadReference
+						commentId={reference.commentId}
+						forumHandle={reference.forumHandle}
+						label={reference.threadId}
+						threadId={reference.threadId}
+						title={reference.commentId ? `${reference.threadId} / ${reference.commentId}` : reference.threadId}
+						worldHandle={reference.worldHandle}
+					/>
+				</div>
+			))}
+		</div>
+	);
+}
+
+type SelfCorrectionThreadReference = {
+	key: string;
+	worldHandle: string;
+	forumHandle: string;
+	threadId: string;
+	commentId?: string;
+};
+
+function selfCorrectionThreadReferences(text: string): SelfCorrectionThreadReference[] {
+	const references = new Map<string, SelfCorrectionThreadReference>();
+	const matcher = /\/w\/([A-Za-z0-9_-]+)\/f\/([A-Za-z0-9_-]+)\/t\/([A-Za-z0-9_-]+)(?:\/c\/([A-Za-z0-9_-]+))?/g;
+	for (;;) {
+		const match = matcher.exec(text);
+		if (!match) {
+			break;
+		}
+		const [, worldHandle, forumHandle, threadId, commentId] = match;
+		if (!worldHandle || !forumHandle || !threadId) {
+			continue;
+		}
+		const key = `${worldHandle}:${forumHandle}:${threadId}:${commentId ?? ""}`;
+		references.set(key, {
+			key,
+			worldHandle,
+			forumHandle,
+			threadId,
+			...(commentId ? { commentId } : {}),
+		});
+	}
+	return [...references.values()];
 }
 
 function ReadableToolCall({ context, toolCall }: { context?: LoopToolCallContext; toolCall: LoopToolCall }) {
@@ -11278,6 +11339,9 @@ function loopMessageTitle(message: BotLoopMessage): string {
 	if (message.origin === "local_simulation") {
 		return "Local simulation";
 	}
+	if (message.origin === "self_correction") {
+		return "Self-correction";
+	}
 	return message.role === "assistant" ? "Provider response" : "Runtime input";
 }
 
@@ -11293,6 +11357,8 @@ function loopMessageOriginLabel(origin: BotLoopMessage["origin"]): string {
 			return "synthetic context";
 		case "provider_response":
 			return "provider response";
+		case "self_correction":
+			return "self-correction";
 		case "tool_result":
 			return "tool result";
 		case "tool_failure":
