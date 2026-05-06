@@ -72,6 +72,7 @@ import {
 	providerMessagesWithReasoningPrefill,
 	providerResponseMessageForHistory,
 	providerTranslationRequest,
+	sanitizeProviderToolCalls,
 	providerToolResultPayload,
 	providerTokenProbeRequest,
 	runtimeErrorLoopMessageContent,
@@ -2770,6 +2771,7 @@ describe("Bickr Pages Functions", () => {
 				promptTokens: 100,
 				requestMessages: [{ role: "assistant", content: "I am ready." }],
 			}),
+			repairActiveProviderToolCallHistory: async () => [],
 			recordInferenceSubmission: () => {},
 			recordLoopMessageLog: () => {},
 			recordProviderUsage: () => {},
@@ -2848,6 +2850,50 @@ describe("Bickr Pages Functions", () => {
 		expect(loopMessageContributesToProviderHistory("synthetic_context", { role: "assistant", content: null })).toBe(true);
 	});
 
+	it("validates provider tool-call arguments before history or execution", () => {
+		const sanitized = sanitizeProviderToolCalls([
+			{
+				id: "call-malformed",
+				type: "function",
+				function: { name: "read_thread", arguments: "{\"threadId\":" },
+			},
+			{
+				id: "call-array",
+				type: "function",
+				function: { name: "read_thread", arguments: "[]" },
+			},
+			{
+				id: "call-null",
+				type: "function",
+				function: { name: "read_thread", arguments: "null" },
+			},
+			{
+				id: "call-string",
+				type: "function",
+				function: { name: "read_thread", arguments: "\"x\"" },
+			},
+			{
+				id: "call-valid",
+				type: "function",
+				function: { name: "read_thread", arguments: "{ \"threadId\": \"thr_test\" }" },
+			},
+		]);
+
+		expect(sanitized.dropped.map((call) => [call.id, call.reason])).toEqual([
+			["call-malformed", "invalid_arguments_json"],
+			["call-array", "arguments_not_json_object"],
+			["call-null", "arguments_not_json_object"],
+			["call-string", "arguments_not_json_object"],
+		]);
+		expect(sanitized.toolCalls).toEqual([
+			{
+				id: "call-valid",
+				type: "function",
+				function: { name: "read_thread", arguments: "{\"threadId\":\"thr_test\"}" },
+			},
+		]);
+	});
+
 	it("does not append empty provider responses to the loop ledger", async () => {
 		const appendedLoopMessages: Array<{ message: Record<string, unknown>; origin: string }> = [];
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
@@ -2880,6 +2926,7 @@ describe("Bickr Pages Functions", () => {
 				promptTokens: 100,
 				requestMessages: [{ role: "assistant", content: "I am ready." }],
 			}),
+			repairActiveProviderToolCallHistory: async () => [],
 			recordInferenceSubmission: () => {},
 			recordLoopMessageLog: () => {},
 			recordProviderUsage: () => {},
@@ -2909,6 +2956,342 @@ describe("Bickr Pages Functions", () => {
 			),
 		).resolves.toMatchObject({ logOffCalled: false });
 		expect(appendedLoopMessages).toEqual([]);
+	});
+
+	it("drops malformed generated tool calls while executing valid calls from the same response", async () => {
+		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+		const appendedLoopMessages: Array<{ message: Record<string, unknown>; origin: string }> = [];
+		const executedTools: Array<{ name: string; args: Record<string, unknown> }> = [];
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+				events.push({ type, payload });
+				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
+			},
+			appendLoopMessage: (
+				_runId: string,
+				message: Record<string, unknown>,
+				origin: string,
+			) => {
+				appendedLoopMessages.push({ message, origin });
+				return {
+					seq: appendedLoopMessages.length,
+					runId: "run-mixed-tool-calls",
+					role: message.role,
+					message,
+					origin,
+					tokenEstimate: 0,
+					createdAt: new Date().toISOString(),
+				};
+			},
+			appendProviderMessages: async () => {},
+			callProvider: async () => providerResponseWithRawToolCalls([
+				{ id: "call-log-off", name: "log_off", arguments: "{\"reason\":\"done\"}" },
+				{ id: "call-bad", name: "read_thread", arguments: "{\"threadId\":" },
+			]),
+			ensureProviderPromptWithinBudget: async () => ({
+				allowedPromptTokens: 13_500,
+				promptTokens: 100,
+				requestMessages: [{ role: "assistant", content: "I am ready." }],
+			}),
+			executeTool: async (_bot: unknown, _runId: string, name: string, args: Record<string, unknown>) => {
+				executedTools.push({ name, args });
+				return { name, result: { ok: true }, providerResult: { ok: true } };
+			},
+			repairActiveProviderToolCallHistory: async () => [],
+			recordInferenceSubmission: () => {},
+			recordLoopMessageLog: () => {},
+			recordProviderUsage: () => {},
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const runProviderLoop = (BotRuntime.prototype as unknown as {
+			runProviderLoop: (
+				bot: BotDocument,
+				settings: { baseUrl: string; model: string; temperature: number },
+				runId: string,
+				messages: Array<Record<string, unknown>>,
+				runContext: { mode: "normal"; signal: AbortSignal },
+			) => Promise<{ logOffCalled: boolean }>;
+		}).runProviderLoop.bind(runtime);
+
+		await expect(
+			runProviderLoop(
+				fakeBotDocument(),
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				"run-mixed-tool-calls",
+				[],
+				{ mode: "normal", signal: new AbortController().signal },
+			),
+		).resolves.toMatchObject({ logOffCalled: true });
+
+		expect(executedTools).toEqual([{ name: "log_off", args: { reason: "done" } }]);
+		const providerResponse = appendedLoopMessages.find((message) => message.origin === "provider_response")?.message;
+		expect(providerResponse?.tool_calls).toEqual([
+			expect.objectContaining({ id: "call-log-off", function: expect.objectContaining({ arguments: "{\"reason\":\"done\"}" }) }),
+		]);
+		expect(appendedLoopMessages.filter((message) => message.origin === "tool_result").map((message) => message.message.tool_call_id)).toEqual(["call-log-off"]);
+		expect(JSON.stringify(appendedLoopMessages)).not.toContain("call-bad");
+		expect(events).toContainEqual(expect.objectContaining({
+			type: "provider_tool_call_dropped",
+			payload: expect.objectContaining({
+				count: 1,
+				callIds: ["call-bad"],
+				retrying: false,
+			}),
+		}));
+	});
+
+	it("retries once when a generated response contains only malformed tool calls", async () => {
+		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+		const appendedLoopMessages: Array<{ message: Record<string, unknown>; origin: string }> = [];
+		const submissions: Array<Array<Record<string, unknown>>> = [];
+		const callProvider = vi.fn()
+			.mockResolvedValueOnce(providerResponseWithRawToolCalls([
+				{ id: "call-bad", name: "read_thread", arguments: "{\"threadId\":" },
+			]))
+			.mockResolvedValueOnce(providerResponseWithToolCall("call-log-off", "log_off", { reason: "clean retry" }));
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+				events.push({ type, payload });
+				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
+			},
+			appendLoopMessage: (
+				_runId: string,
+				message: Record<string, unknown>,
+				origin: string,
+			) => {
+				appendedLoopMessages.push({ message, origin });
+				return {
+					seq: appendedLoopMessages.length,
+					runId: "run-malformed-retry",
+					role: message.role,
+					message,
+					origin,
+					tokenEstimate: 0,
+					createdAt: new Date().toISOString(),
+				};
+			},
+			appendProviderMessages: async () => {},
+			callProvider,
+			ensureProviderPromptWithinBudget: async () => ({
+				allowedPromptTokens: 13_500,
+				promptTokens: 100,
+				requestMessages: [{ role: "assistant", content: "I am ready." }],
+			}),
+			executeTool: async (_bot: unknown, _runId: string, name: string, _args: Record<string, unknown>) => ({
+				name,
+				result: { ok: true },
+				providerResult: { ok: true },
+			}),
+			repairActiveProviderToolCallHistory: async () => [],
+			recordInferenceSubmission: (input: { messages: Array<Record<string, unknown>> }) => {
+				submissions.push(input.messages);
+			},
+			recordLoopMessageLog: () => {},
+			recordProviderUsage: () => {},
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const runProviderLoop = (BotRuntime.prototype as unknown as {
+			runProviderLoop: (
+				bot: BotDocument,
+				settings: { baseUrl: string; model: string; temperature: number },
+				runId: string,
+				messages: Array<Record<string, unknown>>,
+				runContext: { mode: "normal"; signal: AbortSignal },
+			) => Promise<{ logOffCalled: boolean }>;
+		}).runProviderLoop.bind(runtime);
+
+		await expect(
+			runProviderLoop(
+				fakeBotDocument(),
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				"run-malformed-retry",
+				[],
+				{ mode: "normal", signal: new AbortController().signal },
+			),
+		).resolves.toMatchObject({ logOffCalled: true });
+
+		expect(callProvider).toHaveBeenCalledTimes(2);
+		expect(submissions).toHaveLength(2);
+		expect(appendedLoopMessages.filter((message) => message.origin === "provider_response")).toHaveLength(1);
+		expect(JSON.stringify(appendedLoopMessages)).not.toContain("call-bad");
+		expect(events.filter((event) => event.type === "provider_tool_call_dropped")).toEqual([
+			expect.objectContaining({ payload: expect.objectContaining({ count: 1, retrying: true }) }),
+		]);
+	});
+
+	it("fails clearly when the malformed-only retry also returns only malformed tool calls", async () => {
+		const appendedLoopMessages: Array<{ message: Record<string, unknown>; origin: string }> = [];
+		const callProvider = vi.fn()
+			.mockResolvedValueOnce(providerResponseWithRawToolCalls([
+				{ id: "call-bad-1", name: "read_thread", arguments: "{\"threadId\":" },
+			]))
+			.mockResolvedValueOnce(providerResponseWithRawToolCalls([
+				{ id: "call-bad-2", name: "read_thread", arguments: "[]" },
+			]));
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) =>
+				runtimeEvent(type === "provider_request" ? callProvider.mock.calls.length + 1 : callProvider.mock.calls.length + 100, runId, type as BotRuntimeEvent["type"], payload),
+			appendLoopMessage: (_runId: string, message: Record<string, unknown>, origin: string) => {
+				appendedLoopMessages.push({ message, origin });
+				return {
+					seq: appendedLoopMessages.length,
+					runId: "run-malformed-fails",
+					role: message.role,
+					message,
+					origin,
+					tokenEstimate: 0,
+					createdAt: new Date().toISOString(),
+				};
+			},
+			appendProviderMessages: async () => {},
+			callProvider,
+			ensureProviderPromptWithinBudget: async () => ({
+				allowedPromptTokens: 13_500,
+				promptTokens: 100,
+				requestMessages: [{ role: "assistant", content: "I am ready." }],
+			}),
+			repairActiveProviderToolCallHistory: async () => [],
+			recordInferenceSubmission: () => {},
+			recordLoopMessageLog: () => {},
+			recordProviderUsage: () => {},
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const runProviderLoop = (BotRuntime.prototype as unknown as {
+			runProviderLoop: (
+				bot: BotDocument,
+				settings: { baseUrl: string; model: string; temperature: number },
+				runId: string,
+				messages: Array<Record<string, unknown>>,
+				runContext: { mode: "normal"; signal: AbortSignal },
+			) => Promise<{ logOffCalled: boolean }>;
+		}).runProviderLoop.bind(runtime);
+
+		await expect(
+			runProviderLoop(
+				fakeBotDocument(),
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				"run-malformed-fails",
+				[],
+				{ mode: "normal", signal: new AbortController().signal },
+			),
+		).rejects.toThrow("Bickr Terminal returned only malformed page-control requests after retry.");
+
+		expect(callProvider).toHaveBeenCalledTimes(2);
+		expect(appendedLoopMessages).toEqual([]);
+	});
+
+	it("repairs poisoned active history before recording the next inference submission", async () => {
+		const rows = [
+			loopMessageRowForMessage(1, {
+				role: "assistant",
+				content: null,
+				tool_calls: [
+					{
+						id: "call-poisoned",
+						type: "function",
+						function: { name: "read_thread", arguments: "{\"threadId\":" },
+					},
+				],
+			}),
+			loopMessageRowForMessage(2, {
+				role: "tool",
+				tool_call_id: "call-poisoned",
+				content: "{\"ok\":true}",
+			}, "tool_result"),
+		];
+		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+		const submissions: Array<Array<Record<string, unknown>>> = [];
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			state: {
+				storage: {
+					sql: {
+						exec: vi.fn(<T,>(query: string, ...params: unknown[]) => {
+							const normalized = query.trim().replace(/\s+/g, " ");
+							if (/UPDATE loop_messages SET deleted_at = \?/.test(normalized)) {
+								const row = rows.find((item) => item.seq === Number(params[1]));
+								if (row && !row.deleted_at) {
+									row.deleted_at = String(params[0]);
+								}
+							}
+							if (/UPDATE loop_messages SET message_json = \?, token_estimate = \?/.test(normalized)) {
+								const row = rows.find((item) => item.seq === Number(params[2]));
+								if (row && !row.deleted_at) {
+									row.message_json = String(params[0]);
+									row.token_estimate = Number(params[1]);
+								}
+							}
+							return {
+								one: () => ({} as T),
+								toArray: () => [] as T[],
+							};
+						}),
+					},
+				},
+			},
+			activeLoopMessageRows: () => rows.filter((row) => row.deleted_at === null),
+			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+				events.push({ type, payload });
+				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
+			},
+			appendLoopMessage: () => ({ seq: 99, runId: "run-history-repair", role: "assistant", message: {}, origin: "provider_response", tokenEstimate: 0, createdAt: new Date().toISOString() }),
+			appendProviderMessages: async () => {},
+			broadcastControl: () => {},
+			callProvider: async () => providerResponseWithContent("Clean history is ready."),
+			ensureProviderPromptWithinBudget: async () => ({
+				allowedPromptTokens: 13_500,
+				promptTokens: 100,
+				requestMessages: (BotRuntime.prototype as unknown as { activeLoopMessagesForProvider: () => Array<Record<string, unknown>> }).activeLoopMessagesForProvider.bind(runtime)(),
+			}),
+			recordInferenceSubmission: (input: { messages: Array<Record<string, unknown>> }) => {
+				submissions.push(input.messages);
+			},
+			recordLoopMessageLog: () => {},
+			recordProviderUsage: () => {},
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const runProviderLoop = (BotRuntime.prototype as unknown as {
+			runProviderLoop: (
+				bot: BotDocument,
+				settings: { baseUrl: string; model: string; temperature: number },
+				runId: string,
+				messages: Array<Record<string, unknown>>,
+				runContext: { mode: "normal"; signal: AbortSignal },
+			) => Promise<{ logOffCalled: boolean }>;
+		}).runProviderLoop.bind(runtime);
+
+		await expect(
+			runProviderLoop(
+				fakeBotDocument(),
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				"run-history-repair",
+				[],
+				{ mode: "normal", signal: new AbortController().signal },
+			),
+		).resolves.toMatchObject({ logOffCalled: false });
+
+		expect(rows.every((row) => row.deleted_at !== null)).toBe(true);
+		expect(JSON.stringify(submissions[0] ?? [])).not.toContain("{\"threadId\":");
+		expect((submissions[0] ?? []).some((message) => message.role === "tool")).toBe(false);
+		expect(events[0]).toMatchObject({
+			type: "provider_tool_call_dropped",
+			payload: expect.objectContaining({ phase: "history_repair", callIds: ["call-poisoned"] }),
+		});
 	});
 
 	it("records tick failures in the loop ledger", async () => {
@@ -6069,6 +6452,7 @@ describe("Bickr Pages Functions", () => {
 			},
 			compactionRowsForEstimatedBudget: () =>
 				activeMessages.some((message) => String(message.content).includes("Old history")) ? [loopMessageRowForTest(1, "run-old", "Old history that can be compacted.")] : [],
+			repairActiveProviderToolCallHistory: async () => [],
 			recordInferenceSubmission,
 			recordLoopMessageLog: () => {},
 			recordProviderUsage: () => {},
@@ -6153,6 +6537,7 @@ describe("Bickr Pages Functions", () => {
 					[loopMessageRowForTest(7, runId, "Large current thread read result that overflowed the prompt.")]
 				:	[];
 			},
+			repairActiveProviderToolCallHistory: async () => [],
 			recordInferenceSubmission: () => {},
 			recordLoopMessageLog: () => {},
 			recordProviderUsage: () => {},
@@ -6206,6 +6591,7 @@ describe("Bickr Pages Functions", () => {
 			callProviderForTokenProbe: vi.fn(),
 			estimateProviderPromptTokens: () => providerPromptEstimateForTokens(20_000),
 			compactionRowsForEstimatedBudget: () => [],
+			repairActiveProviderToolCallHistory: async () => [],
 			recordInferenceSubmission,
 			recordProviderUsage: () => {},
 			throwIfStopped: (_runId: string, signal: AbortSignal) => {
@@ -7672,6 +8058,22 @@ function providerResponseWithToolCalls(calls: Array<{ id: string; name: string; 
 	};
 }
 
+function providerResponseWithRawToolCalls(calls: Array<{ id: string; name: string; arguments: string }>) {
+	return {
+		content: "",
+		reasoning: "",
+		reasoningDetails: [],
+		toolCalls: calls.map((call) => ({
+			id: call.id,
+			type: "function" as const,
+			function: {
+				name: call.name,
+				arguments: call.arguments,
+			},
+		})),
+	};
+}
+
 function replyToolHasAcknowledgementArgument(tools: ProviderToolDefinition[]): boolean {
 	const reply = tools.find((definition) =>
 		definition.type === "function" && definition.function.name === "reply_to_comment"
@@ -7724,6 +8126,24 @@ function loopMessageRowForTest(seq: number, runId: string, content: string) {
 		stream_seq: null,
 		compacted_by: null,
 		deleted_at: null,
+		created_at: "2026-05-05T00:00:00.000Z",
+		has_logs: 0,
+	};
+}
+
+function loopMessageRowForMessage(seq: number, message: Record<string, unknown>, origin = "provider_response") {
+	return {
+		seq,
+		position: seq,
+		run_id: "run-history-repair",
+		role: message.role as "system" | "user" | "assistant" | "tool",
+		message_json: JSON.stringify(message),
+		origin,
+		status: "complete",
+		token_estimate: 1,
+		stream_seq: null,
+		compacted_by: null,
+		deleted_at: null as string | null,
 		created_at: "2026-05-05T00:00:00.000Z",
 		has_logs: 0,
 	};

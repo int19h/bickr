@@ -572,6 +572,34 @@ type ProviderLoopOutcome = {
 	publicSpotlightToolCallCount: number;
 };
 
+type ProviderToolCallDropReason =
+	| "missing_tool_call_id"
+	| "missing_function_name"
+	| "invalid_arguments_json"
+	| "arguments_not_json_object"
+	| "unanswered_tool_call";
+
+export type DroppedProviderToolCall = {
+	id: string;
+	name: string;
+	reason: ProviderToolCallDropReason;
+	argumentsPreview: string;
+};
+
+export type ProviderToolCallSanitization = {
+	toolCalls: BotInferenceSubmissionToolCall[];
+	dropped: DroppedProviderToolCall[];
+};
+
+type ProviderToolCallHistoryRepairAction =
+	| { kind: "delete"; seq: number }
+	| { kind: "update"; seq: number; message: ChatMessage };
+
+type ProviderToolCallHistoryRepair = {
+	actions: ProviderToolCallHistoryRepairAction[];
+	dropped: DroppedProviderToolCall[];
+};
+
 type ToolUseRecoveryState = {
 	consecutiveNoToolTicks: number;
 	lastRunId: string;
@@ -806,6 +834,204 @@ export function providerResponseMessageForHistory(response: {
 		message.reasoning = reasoning;
 	}
 	return message;
+}
+
+export function sanitizeProviderToolCalls(toolCalls: readonly BotInferenceSubmissionToolCall[]): ProviderToolCallSanitization {
+	const sanitized: ToolCall[] = [];
+	const dropped: DroppedProviderToolCall[] = [];
+	for (const toolCall of toolCalls) {
+		const functionRecord = runtimeRecord(toolCall.function);
+		const id = typeof toolCall.id === "string" && toolCall.id.length > 0 ? toolCall.id : "";
+		const name = stringValue(functionRecord.name) ?? "";
+		const rawArguments = functionRecord.arguments;
+		if (!id) {
+			dropped.push(droppedProviderToolCall(id, name, "missing_tool_call_id", rawArguments));
+			continue;
+		}
+		if (!name) {
+			dropped.push(droppedProviderToolCall(id, name, "missing_function_name", rawArguments));
+			continue;
+		}
+		if (typeof rawArguments !== "string") {
+			dropped.push(droppedProviderToolCall(id, name, "invalid_arguments_json", rawArguments));
+			continue;
+		}
+		let parsed: unknown;
+		try {
+			parsed = JSON.parse(rawArguments) as unknown;
+		} catch {
+			dropped.push(droppedProviderToolCall(id, name, "invalid_arguments_json", rawArguments));
+			continue;
+		}
+		if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+			dropped.push(droppedProviderToolCall(id, name, "arguments_not_json_object", rawArguments));
+			continue;
+		}
+		sanitized.push({
+			id,
+			type: "function",
+			function: {
+				name,
+				arguments: JSON.stringify(parsed),
+			},
+		});
+	}
+	return { toolCalls: sanitized, dropped };
+}
+
+function sanitizeProviderResponseToolCalls(response: ProviderResponse): {
+	response: ProviderResponse;
+	dropped: DroppedProviderToolCall[];
+	originalToolCallCount: number;
+} {
+	const originalToolCallCount = response.toolCalls.length;
+	const sanitized = sanitizeProviderToolCalls(response.toolCalls);
+	if (toolCallsEqual(response.toolCalls, sanitized.toolCalls)) {
+		return { response, dropped: sanitized.dropped, originalToolCallCount };
+	}
+	return {
+		response: { ...response, toolCalls: sanitized.toolCalls },
+		dropped: sanitized.dropped,
+		originalToolCallCount,
+	};
+}
+
+function droppedProviderToolCall(
+	id: string | undefined,
+	name: string | undefined,
+	reason: ProviderToolCallDropReason,
+	rawArguments: unknown,
+): DroppedProviderToolCall {
+	return {
+		id: id ?? "",
+		name: name ?? "",
+		reason,
+		argumentsPreview: providerToolCallArgumentsPreview(rawArguments),
+	};
+}
+
+function providerToolCallArgumentsPreview(rawArguments: unknown): string {
+	const text =
+		typeof rawArguments === "string" ? rawArguments
+		: rawArguments === undefined ? ""
+		: JSON.stringify(rawArguments);
+	return safeContextText(text ?? "", 500);
+}
+
+function toolCallsEqual(left: readonly ToolCall[], right: readonly ToolCall[]): boolean {
+	if (left.length !== right.length) {
+		return false;
+	}
+	for (let index = 0; index < left.length; index += 1) {
+		const leftCall = left[index];
+		const rightCall = right[index];
+		if (
+			!leftCall ||
+			!rightCall ||
+			leftCall.id !== rightCall.id ||
+			leftCall.type !== rightCall.type ||
+			leftCall.function.name !== rightCall.function.name ||
+			leftCall.function.arguments !== rightCall.function.arguments
+		) {
+			return false;
+		}
+	}
+	return true;
+}
+
+function repairProviderToolCallHistoryRows(rows: readonly LoopMessageRow[]): ProviderToolCallHistoryRepair {
+	const providerRows = rows
+		.map((row) => ({ row, message: loopMessageChatMessageFromRow(row) }))
+		.filter(({ row, message }) => loopMessageContributesToProviderHistory(row.origin, message));
+	const actions: ProviderToolCallHistoryRepairAction[] = [];
+	const actionSeqs = new Set<number>();
+	const consumedToolRowSeqs = new Set<number>();
+	const dropped: DroppedProviderToolCall[] = [];
+	const deleteRow = (seq: number): void => {
+		if (actionSeqs.has(seq)) {
+			return;
+		}
+		actionSeqs.add(seq);
+		actions.push({ kind: "delete", seq });
+	};
+	const updateRow = (seq: number, message: ChatMessage): void => {
+		if (actionSeqs.has(seq)) {
+			return;
+		}
+		actionSeqs.add(seq);
+		actions.push({ kind: "update", seq, message });
+	};
+
+	for (let index = 0; index < providerRows.length; index += 1) {
+		const current = providerRows[index];
+		if (!current) {
+			continue;
+		}
+		if (current.message.role === "tool") {
+			if (!consumedToolRowSeqs.has(current.row.seq)) {
+				deleteRow(current.row.seq);
+			}
+			continue;
+		}
+		if (current.message.role !== "assistant" || !Array.isArray(current.message.tool_calls) || current.message.tool_calls.length === 0) {
+			continue;
+		}
+
+		const originalToolCalls = current.message.tool_calls;
+		const sanitized = sanitizeProviderToolCalls(originalToolCalls);
+		dropped.push(...sanitized.dropped);
+		const availableCallCounts = new Map<string, number>();
+		for (const toolCall of sanitized.toolCalls) {
+			availableCallCounts.set(toolCall.id, (availableCallCounts.get(toolCall.id) ?? 0) + 1);
+		}
+		const answeredCallCounts = new Map<string, number>();
+		let lookahead = index + 1;
+		while (lookahead < providerRows.length) {
+			const candidate = providerRows[lookahead];
+			if (!candidate || candidate.message.role !== "tool") {
+				break;
+			}
+			const toolCallId = typeof candidate.message.tool_call_id === "string" ? candidate.message.tool_call_id : "";
+			const answeredCount = answeredCallCounts.get(toolCallId) ?? 0;
+			const availableCount = availableCallCounts.get(toolCallId) ?? 0;
+			if (toolCallId && answeredCount < availableCount) {
+				answeredCallCounts.set(toolCallId, answeredCount + 1);
+				consumedToolRowSeqs.add(candidate.row.seq);
+			} else {
+				deleteRow(candidate.row.seq);
+			}
+			lookahead += 1;
+		}
+
+		const remainingAnsweredCallCounts = new Map(answeredCallCounts);
+		const repairedToolCalls: ToolCall[] = [];
+		for (const toolCall of sanitized.toolCalls) {
+			const remainingCount = remainingAnsweredCallCounts.get(toolCall.id) ?? 0;
+			if (remainingCount > 0) {
+				remainingAnsweredCallCounts.set(toolCall.id, remainingCount - 1);
+				repairedToolCalls.push(toolCall);
+			} else {
+				dropped.push(droppedProviderToolCall(toolCall.id, toolCall.function.name, "unanswered_tool_call", toolCall.function.arguments));
+			}
+		}
+		if (toolCallsEqual(originalToolCalls, repairedToolCalls)) {
+			continue;
+		}
+
+		const repairedMessage: ChatMessage = { ...current.message };
+		if (repairedToolCalls.length > 0) {
+			repairedMessage.tool_calls = repairedToolCalls;
+		} else {
+			delete repairedMessage.tool_calls;
+		}
+		if (isEmptyProviderAssistantMessage(repairedMessage)) {
+			deleteRow(current.row.seq);
+		} else {
+			updateRow(current.row.seq, repairedMessage);
+		}
+	}
+
+	return { actions, dropped };
 }
 
 export function loopMessageContributesToProviderHistory(
@@ -1904,66 +2130,93 @@ export class BotRuntime {
 				...toolDefinitionsForProviderRound({ exposeAdditionalReplyAcknowledgement }),
 				...serverTools.tools,
 			];
-			const budgetCheck = await this.ensureProviderPromptWithinBudget(bot, settings, runId, runContext.signal, providerTools);
-			const requestMessages = budgetCheck.requestMessages;
-			const requestEvent = await this.appendEvent(runId, "provider_request", {
-				model: settings.model,
-				messageCount: requestMessages.length,
-				toolCount: providerTools.length,
-				toolChoice: providerChatToolChoice,
-				parallelToolCalls: providerParallelToolCalls,
-				contextWindowTokens: bot.tickSettings.contextWindowTokens,
-				promptTokens: budgetCheck.promptTokens,
-				allowedPromptTokens: budgetCheck.allowedPromptTokens,
-				maxCompletionTokens: providerContextReserveTokens,
-				reasoning: providerChatReasoning,
-				temperature: settings.temperature,
-				additionalReplyAcknowledgementToolArgument: exposeAdditionalReplyAcknowledgement ? "exposed" : "hidden",
-				openRouterServerTools: {
-					enabled: serverTools.enabled,
-					emitted: serverTools.emitted,
-					suppressed: serverTools.suppressed,
-				},
-				...(settings.topK !== undefined ? { topK: settings.topK } : {}),
-				...(settings.topP !== undefined ? { topP: settings.topP } : {}),
-				...(settings.minP !== undefined ? { minP: settings.minP } : {}),
-				...(settings.frequencyPenalty !== undefined ? { frequencyPenalty: settings.frequencyPenalty } : {}),
-				...(settings.presencePenalty !== undefined ? { presencePenalty: settings.presencePenalty } : {}),
-				...(settings.repetitionPenalty !== undefined ? { repetitionPenalty: settings.repetitionPenalty } : {}),
-			});
-			this.recordInferenceSubmission({
-				seq: requestEvent.seq,
-				runId,
-				purpose: "loop",
-				settings,
-				messages: requestMessages,
-				createdAt: requestEvent.createdAt,
-			});
 			let response: ProviderResponse;
 			let responseStatus: ProviderMessageStatus = "complete";
 			let interruptedError: ProviderResponseInterruptedError | null = null;
-			try {
-				response = await this.callProvider(settings, requestMessages, providerTools, runId, requestEvent.seq, runContext.signal);
-			} catch (error) {
-				if (error instanceof ProviderResponseInterruptedError) {
-					response = error.response;
-					responseStatus = "interrupted";
-					interruptedError = error;
-				} else {
-					throw error;
-				}
-			}
-			if (response.usage) {
-				this.recordProviderUsage({
+			let requestEvent: BotRuntimeEvent;
+			let malformedOnlyRetried = false;
+			for (;;) {
+				await this.repairActiveProviderToolCallHistory(runId);
+				const budgetCheck = await this.ensureProviderPromptWithinBudget(bot, settings, runId, runContext.signal, providerTools);
+				const requestMessages = budgetCheck.requestMessages;
+				requestEvent = await this.appendEvent(runId, "provider_request", {
+					model: settings.model,
+					messageCount: requestMessages.length,
+					toolCount: providerTools.length,
+					toolChoice: providerChatToolChoice,
+					parallelToolCalls: providerParallelToolCalls,
 					contextWindowTokens: bot.tickSettings.contextWindowTokens,
-					createdAt: requestEvent.createdAt,
-					providerResponseId: response.responseId,
-					requestSeq: requestEvent.seq,
-					responseModel: response.responseModel,
-					runId,
-					settings,
-					usage: response.usage,
+					promptTokens: budgetCheck.promptTokens,
+					allowedPromptTokens: budgetCheck.allowedPromptTokens,
+					maxCompletionTokens: providerContextReserveTokens,
+					reasoning: providerChatReasoning,
+					temperature: settings.temperature,
+					additionalReplyAcknowledgementToolArgument: exposeAdditionalReplyAcknowledgement ? "exposed" : "hidden",
+					openRouterServerTools: {
+						enabled: serverTools.enabled,
+						emitted: serverTools.emitted,
+						suppressed: serverTools.suppressed,
+					},
+					...(settings.topK !== undefined ? { topK: settings.topK } : {}),
+					...(settings.topP !== undefined ? { topP: settings.topP } : {}),
+					...(settings.minP !== undefined ? { minP: settings.minP } : {}),
+					...(settings.frequencyPenalty !== undefined ? { frequencyPenalty: settings.frequencyPenalty } : {}),
+					...(settings.presencePenalty !== undefined ? { presencePenalty: settings.presencePenalty } : {}),
+					...(settings.repetitionPenalty !== undefined ? { repetitionPenalty: settings.repetitionPenalty } : {}),
 				});
+				this.recordInferenceSubmission({
+					seq: requestEvent.seq,
+					runId,
+					purpose: "loop",
+					settings,
+					messages: requestMessages,
+					createdAt: requestEvent.createdAt,
+				});
+				responseStatus = "complete";
+				interruptedError = null;
+				try {
+					response = await this.callProvider(settings, requestMessages, providerTools, runId, requestEvent.seq, runContext.signal);
+				} catch (error) {
+					if (error instanceof ProviderResponseInterruptedError) {
+						response = error.response;
+						responseStatus = "interrupted";
+						interruptedError = error;
+					} else {
+						throw error;
+					}
+				}
+				const sanitized = sanitizeProviderResponseToolCalls(response);
+				response = sanitized.response;
+				const malformedOnlyResponse =
+					responseStatus === "complete" &&
+					sanitized.originalToolCallCount > 0 &&
+					response.toolCalls.length === 0;
+				await this.recordDroppedProviderToolCalls(
+					runId,
+					requestEvent.seq,
+					sanitized.dropped,
+					"generated_response",
+					malformedOnlyResponse && !malformedOnlyRetried,
+				);
+				if (response.usage) {
+					this.recordProviderUsage({
+						contextWindowTokens: bot.tickSettings.contextWindowTokens,
+						createdAt: requestEvent.createdAt,
+						providerResponseId: response.responseId,
+						requestSeq: requestEvent.seq,
+						responseModel: response.responseModel,
+						runId,
+						settings,
+						usage: response.usage,
+					});
+				}
+				if (!malformedOnlyResponse) {
+					break;
+				}
+				if (malformedOnlyRetried) {
+					throw new Error("Bickr Terminal returned only malformed page-control requests after retry.");
+				}
+				malformedOnlyRetried = true;
 			}
 			await this.appendProviderMessages(runId, response, responseStatus, requestEvent.seq);
 			const assistantMessage = providerResponseMessageForHistory(response);
@@ -2319,6 +2572,35 @@ export class BotRuntime {
 		}
 	}
 
+	private async recordDroppedProviderToolCalls(
+		runId: string,
+		streamSeq: number | null,
+		dropped: readonly DroppedProviderToolCall[],
+		phase: "generated_response" | "history_repair",
+		retrying: boolean,
+	): Promise<void> {
+		if (dropped.length === 0) {
+			return;
+		}
+		const calls = dropped.map((call) => ({
+			id: call.id,
+			name: call.name,
+			reason: call.reason,
+			argumentsPreview: call.argumentsPreview,
+		}));
+		await this.appendEvent(runId, "provider_tool_call_dropped", {
+			runId,
+			streamSeq,
+			count: calls.length,
+			callIds: [...new Set(calls.map((call) => call.id).filter(Boolean))],
+			functionNames: [...new Set(calls.map((call) => call.name).filter(Boolean))],
+			reason: [...new Set(calls.map((call) => call.reason))].join(","),
+			phase,
+			retrying,
+			calls,
+		});
+	}
+
 	private appendLoopMessage(
 		runId: string,
 		message: ChatMessage,
@@ -2419,6 +2701,42 @@ export class BotRuntime {
 			const message = loopMessageChatMessageFromRow(row);
 			return loopMessageContributesToProviderHistory(row.origin, message) ? [message] : [];
 		});
+	}
+
+	private async repairActiveProviderToolCallHistory(runId: string): Promise<DroppedProviderToolCall[]> {
+		const repair = repairProviderToolCallHistoryRows(this.activeLoopMessageRows());
+		if (repair.actions.length === 0) {
+			return repair.dropped;
+		}
+		const deletedAt = new Date().toISOString();
+		for (const action of repair.actions) {
+			if (action.kind === "delete") {
+				this.state.storage.sql.exec(
+					`UPDATE loop_messages
+					 SET deleted_at = ?
+					 WHERE seq = ?
+					   AND deleted_at IS NULL`,
+					deletedAt,
+					action.seq,
+				);
+			} else {
+				const messageJson = JSON.stringify(action.message);
+				this.state.storage.sql.exec(
+					`UPDATE loop_messages
+					 SET message_json = ?, token_estimate = ?
+					 WHERE seq = ?
+					   AND deleted_at IS NULL`,
+					messageJson,
+					estimateTextTokens(messageJson),
+					action.seq,
+				);
+			}
+		}
+		this.broadcastControl({ type: "loop_messages_reset" });
+		if (repair.dropped.length > 0) {
+			await this.recordDroppedProviderToolCalls(runId, null, repair.dropped, "history_repair", false);
+		}
+		return repair.dropped;
 	}
 
 	private loopMessagesAfter(afterSeq: number): BotLoopMessage[] {
@@ -6902,7 +7220,7 @@ function sanitizeStoredContextSummary(summary: string): string {
 }
 
 function isRuntimeMetaContextLine(line: string): boolean {
-	return /^(provider_request|provider_token_probe|provider_token_estimate|provider_retry|tick_started|tick_completed|tick_failed|tick_stopped|tick_stop_requested)\b/.test(line);
+	return /^(provider_request|provider_token_probe|provider_token_estimate|provider_retry|provider_tool_call_dropped|tick_started|tick_completed|tick_failed|tick_stopped|tick_stop_requested)\b/.test(line);
 }
 
 function injectedThoughtAssistantContent(text: string, payload: Record<string, unknown>): string {
@@ -7049,6 +7367,10 @@ export function formatRuntimeEventForContext(
 		}
 		case "provider_retry":
 			return `The Bickr page took another try to respond, attempt ${stringValue(payload.attempt) ?? "?"} of ${stringValue(payload.maxAttempts) ?? "?"}.`;
+		case "provider_tool_call_dropped": {
+			const count = integerValue(payload.count) ?? 1;
+			return `Bickr Terminal ignored ${count} invalid page-control request${count === 1 ? "" : "s"}.`;
+		}
 		case "tick_started":
 			return `I opened Bickr for a ${stringValue(payload.trigger) ?? "scheduled"} visit.`;
 		case "tick_completed":

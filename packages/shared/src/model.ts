@@ -733,6 +733,7 @@ export type BotRuntimeEventType =
 	| "provider_token_probe"
 	| "provider_token_estimate"
 	| "provider_retry"
+	| "provider_tool_call_dropped"
 	| "provider_delta"
 	| "reasoning_message"
 	| "assistant_message"

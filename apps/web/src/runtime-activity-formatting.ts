@@ -153,6 +153,22 @@ export function runtimeActivities(events: BotRuntimeEvent[], fallbackWorldHandle
 					raw: event,
 				});
 				break;
+			case "provider_tool_call_dropped": {
+				finishRunStreams(streams, event.runId);
+				const count = Math.max(1, Math.floor(numberValue(payload.count) ?? 1));
+				activities.push({
+					id: `event-${event.seq}`,
+					seq: event.seq,
+					createdAt: event.createdAt,
+					kind: "provider",
+					title: "Invalid page control ignored",
+					body: `Bickr Terminal ignored ${count} invalid page-control request${count === 1 ? "" : "s"}.`,
+					meta: stringValue(payload.retrying) === "true" ? "retrying inference" : undefined,
+					payload: event.payload,
+					raw: event,
+				});
+				break;
+			}
 			case "provider_delta":
 				appendProviderDelta(activities, streams, turnByRun, event, payload);
 				break;
