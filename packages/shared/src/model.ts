@@ -886,6 +886,30 @@ export type BotLoopMessage = {
 	hasLogs?: boolean;
 };
 
+export type BotLoopMessagePageSummary = {
+	page: number;
+	messageCount: number;
+	fromSeq?: number;
+	toSeq?: number;
+	sourceCompactionSeq?: number;
+	newerPage?: number;
+	olderPage?: number;
+};
+
+export type BotLoopMessagePage = {
+	currentPage: number;
+	pageCount: number;
+	pages: BotLoopMessagePageSummary[];
+	compactionPageBySeq: Record<string, number>;
+	newerPage?: number;
+	olderPage?: number;
+};
+
+export type BotLoopMessagesResponse = {
+	messages: BotLoopMessage[];
+	page: BotLoopMessagePage;
+};
+
 export type BotLoopMessageLogKind =
 	| "message"
 	| "provider_request"

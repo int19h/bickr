@@ -7,11 +7,11 @@ export const onRequestGet: PagesFunction<AppEnv, "botId"> = async ({ env, reques
 		const user = await requireCompleteUser(env, request);
 		const botId = Array.isArray(params.botId) ? params.botId[0] : params.botId;
 		const url = new URL(request.url);
-		const after = url.searchParams.get("after");
+		const query = url.searchParams.toString();
 		return env.AGENT_RUNTIME.fetch(
 			serviceRequest(
 				request,
-				`/bots/${encodeURIComponent(botId)}/messages${after ? `?after=${encodeURIComponent(after)}` : ""}`,
+				`/bots/${encodeURIComponent(botId)}/messages${query ? `?${query}` : ""}`,
 				user.id,
 			),
 		);

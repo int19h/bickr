@@ -11,6 +11,8 @@ import {
 	type BotContextBudget,
 	type BotInferenceSubmissionMessage,
 	type BotLoopMessage,
+	type BotLoopMessagePage,
+	type BotLoopMessagesResponse,
 	type BotLoopMessageLog,
 	type BotSummary,
 	type BotPublicProfile,
@@ -7814,6 +7816,7 @@ function BotRuntimePanel({
 	const [status, setStatus] = useState<BotRuntimeStatus | null>(null);
 	const [events, setEvents] = useState<BotRuntimeEvent[]>([]);
 	const [loopMessages, setLoopMessages] = useState<BotLoopMessage[]>([]);
+	const [loopMessagePage, setLoopMessagePage] = useState<BotLoopMessagePage | null>(null);
 	const [openLoopMessageLogs, setOpenLoopMessageLogs] = useState<{ message: BotLoopMessage; logs: BotLoopMessageLog[] } | null>(null);
 	const [loopMessageLogLoadingSeq, setLoopMessageLogLoadingSeq] = useState<number | null>(null);
 	const [loopMessageLogError, setLoopMessageLogError] = useState("");
@@ -7829,9 +7832,11 @@ function BotRuntimePanel({
 	const shouldStickToBottomRef = useRef(true);
 	const latestPersistentEventSeqRef = useRef(0);
 	const latestLoopMessageSeqRef = useRef(0);
+	const currentLoopPageRef = useRef(1);
 	const reconnectAttemptRef = useRef(0);
 	const runtimeEnabled = status?.enabled ?? bot.tickSettings.enabled;
 	const toolCallsById = useMemo(() => loopToolCallsById(loopMessages), [loopMessages]);
+	const currentLoopPage = loopMessagePage?.currentPage ?? 1;
 
 	useEffect(() => {
 		let closed = false;
@@ -7842,10 +7847,12 @@ function BotRuntimePanel({
 		shouldStickToBottomRef.current = true;
 		latestPersistentEventSeqRef.current = 0;
 		latestLoopMessageSeqRef.current = 0;
+		currentLoopPageRef.current = 1;
 		reconnectAttemptRef.current = 0;
 		setStatus(null);
 		setEvents([]);
 		setLoopMessages([]);
+		setLoopMessagePage(null);
 		setOpenLoopMessageLogs(null);
 		setLoopMessageLogLoadingSeq(null);
 		setLoopMessageLogError("");
@@ -7887,19 +7894,23 @@ function BotRuntimePanel({
 			if (payload.type === "history_cleared") {
 				setEvents([]);
 				setLoopMessages([]);
+				setLoopMessagePage(null);
 				setOpenLoopMessageLogs(null);
 				setDeletingLoopMessageSeq(null);
 				latestPersistentEventSeqRef.current = 0;
 				latestLoopMessageSeqRef.current = 0;
+				currentLoopPageRef.current = 1;
 				setMessage("Loop history erased.");
 				return;
 			}
 			if (payload.type === "loop_messages_reset") {
 				setLoopMessages([]);
+				setLoopMessagePage(null);
 				setOpenLoopMessageLogs(null);
 				setDeletingLoopMessageSeq(null);
 				latestLoopMessageSeqRef.current = 0;
-				void refresh();
+				currentLoopPageRef.current = 1;
+				void refresh({ page: 1, mode: "replace" });
 				return;
 			}
 			if (payload.type === "pong") {
@@ -7916,11 +7927,17 @@ function BotRuntimePanel({
 				return;
 			}
 			if (payload.type === "loop_message" && payload.loopMessage) {
+				if (currentLoopPageRef.current !== 1) {
+					return;
+				}
 				rememberLoopMessageSeq(payload.loopMessage);
 				setLoopMessages((current) => upsertLoopMessage(removeLiveProviderLoopMessagesForFinalizedMessage(current, payload.loopMessage!), payload.loopMessage!));
 				return;
 			}
 			if (payload.type === "stream_delta" && payload.event) {
+				if (currentLoopPageRef.current !== 1) {
+					return;
+				}
 				setLoopMessages((current) => upsertLiveProviderLoopMessage(current, payload.event!));
 				return;
 			}
@@ -7928,8 +7945,10 @@ function BotRuntimePanel({
 				rememberPersistentEventSeq(payload.event);
 				setEvents((current) => upsertEvent(current, payload.event!));
 				if (["tick_completed", "tick_failed", "tick_stopped"].includes(payload.event.type)) {
-					setLoopMessages((current) => removeLiveProviderLoopMessagesForRun(current, payload.event!.runId));
-					void refresh();
+					if (currentLoopPageRef.current === 1) {
+						setLoopMessages((current) => removeLiveProviderLoopMessagesForRun(current, payload.event!.runId));
+						void refresh();
+					}
 				}
 			}
 			if (payload.message) {
@@ -8019,7 +8038,7 @@ function BotRuntimePanel({
 			return undefined;
 		}
 		const interval = window.setInterval(() => {
-			if (document.visibilityState === "visible") {
+			if (document.visibilityState === "visible" && currentLoopPageRef.current === 1) {
 				void refresh();
 			}
 		}, status?.status === "running" ? 5_000 : 15_000);
@@ -8054,8 +8073,10 @@ function BotRuntimePanel({
 	}, [events]);
 
 	useEffect(() => {
-		latestLoopMessageSeqRef.current = latestLoopMessageSeq(loopMessages);
-	}, [loopMessages]);
+		if ((loopMessagePage?.currentPage ?? 1) === 1) {
+			latestLoopMessageSeqRef.current = latestLoopMessageSeq(loopMessages);
+		}
+	}, [loopMessagePage?.currentPage, loopMessages]);
 
 	function trackLogScroll(): void {
 		const log = logRef.current;
@@ -8066,11 +8087,17 @@ function BotRuntimePanel({
 		shouldStickToBottomRef.current = log.scrollHeight - log.scrollTop - log.clientHeight < 24;
 	}
 
-	async function refresh(): Promise<void> {
+	async function refresh(options: { page?: number; mode?: "merge" | "replace" } = {}): Promise<void> {
+		const requestedPage = Math.max(1, Math.floor(options.page ?? currentLoopPageRef.current));
+		const messageQuery = new URLSearchParams();
+		if (requestedPage > 1) {
+			messageQuery.set("page", String(requestedPage));
+		}
+		const messagePath = `/api/me/bots/${encodeURIComponent(bot.id)}/runtime/messages${messageQuery.toString() ? `?${messageQuery.toString()}` : ""}`;
 		const [statusResult, eventsResult, messagesResult, tokenUsageResult] = await Promise.all([
 			api<{ status: BotRuntimeStatus }>(`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/status`),
 			api<{ events: BotRuntimeEvent[] }>(`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/events`),
-			api<{ messages: BotLoopMessage[] }>(`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/messages`),
+			api<BotLoopMessagesResponse>(messagePath),
 			api<{ usage: BotTokenUsageStats }>(`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/token-usage`),
 		]);
 		if (statusResult.ok) {
@@ -8083,14 +8110,38 @@ function BotRuntimePanel({
 			setEvents((current) => mergeEvents(current, eventsResult.data.events));
 		}
 		if (messagesResult.ok) {
-			for (const loopMessage of messagesResult.data.messages) {
-				rememberLoopMessageSeq(loopMessage);
+			const page = messagesResult.data.page;
+			currentLoopPageRef.current = page.currentPage;
+			setLoopMessagePage(page);
+			if (page.currentPage === 1) {
+				for (const loopMessage of messagesResult.data.messages) {
+					rememberLoopMessageSeq(loopMessage);
+				}
+				setLoopMessages((current) =>
+					options.mode === "replace" ? messagesResult.data.messages : mergeLoopMessages(current, messagesResult.data.messages),
+				);
+			} else {
+				setLoopMessages(messagesResult.data.messages);
 			}
-			setLoopMessages((current) => mergeLoopMessages(current, messagesResult.data.messages));
 		}
 		if (tokenUsageResult.ok) {
 			setTokenUsage(tokenUsageResult.data.usage);
 		}
+	}
+
+	async function switchLoopPage(page: number): Promise<void> {
+		const targetPage = Math.max(1, Math.floor(page));
+		if (targetPage === currentLoopPageRef.current) {
+			return;
+		}
+		currentLoopPageRef.current = targetPage;
+		shouldStickToBottomRef.current = targetPage === 1;
+		setLoopMessages([]);
+		setOpenLoopMessageLogs(null);
+		setLoopMessageLogError("");
+		setMessage(`Loading loop page ${targetPage}...`);
+		await refresh({ page: targetPage, mode: "replace" });
+		setMessage("");
 	}
 
 	async function runTick(): Promise<void> {
@@ -8099,6 +8150,9 @@ function BotRuntimePanel({
 			return;
 		}
 		shouldStickToBottomRef.current = true;
+		currentLoopPageRef.current = 1;
+		setLoopMessagePage(null);
+		setLoopMessages([]);
 		setMessage("Starting tick...");
 		const result = await api<{ run: { runId: string; status: string; error?: string } }>(
 			`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/tick`,
@@ -8111,8 +8165,8 @@ function BotRuntimePanel({
 				:	`Tick ${result.data.run.status}.`
 			:	result.message,
 		);
-		await refresh();
-		window.setTimeout(() => void refresh(), 750);
+		await refresh({ page: 1, mode: "replace" });
+		window.setTimeout(() => void refresh({ page: 1 }), 750);
 	}
 
 	function rememberPersistentEventSeq(event: BotRuntimeEvent): void {
@@ -8220,8 +8274,10 @@ function BotRuntimePanel({
 			const count = result.data.compacted.messageCount;
 			setMessage(count > 0 ? `Compacted ${count} loop chat message${count === 1 ? "" : "s"}.` : "There were no loop chat messages to compact.");
 			setLoopMessages([]);
+			setLoopMessagePage(null);
 			latestLoopMessageSeqRef.current = 0;
-			await refresh();
+			currentLoopPageRef.current = 1;
+			await refresh({ page: 1, mode: "replace" });
 			return;
 		}
 		setMessage(result.message);
@@ -8236,10 +8292,12 @@ function BotRuntimePanel({
 		if (result.ok) {
 			setEvents([]);
 			setLoopMessages([]);
+			setLoopMessagePage(null);
 			setOpenLoopMessageLogs(null);
 			setDeletingLoopMessageSeq(null);
 			latestPersistentEventSeqRef.current = 0;
 			latestLoopMessageSeqRef.current = 0;
+			currentLoopPageRef.current = 1;
 			setMessage(`Reset ${result.data.cleared.messages ?? 0} loop chat messages and ${result.data.cleared.events} legacy events.`);
 		} else {
 			setMessage(result.message);
@@ -8302,8 +8360,9 @@ function BotRuntimePanel({
 					</button>
 					<button
 						className="btn danger"
-						disabled={status?.status === "running" || !loopMessages.some((item) => !isLiveProviderLoopMessage(item))}
+						disabled={currentLoopPage !== 1 || status?.status === "running" || !loopMessages.some((item) => !isLiveProviderLoopMessage(item))}
 						onClick={() => setCompactConfirm(true)}
+						title={currentLoopPage === 1 ? "Compact chat" : "Switch to page 1 before compacting active chat"}
 						type="button"
 					>
 						Compact chat
@@ -8331,18 +8390,31 @@ function BotRuntimePanel({
 				{loopMessageLogError && <div className="runtime-message">{loopMessageLogError}</div>}
 				<div className="event-log" onScroll={trackLogScroll} ref={logRef}>
 					{loopMessages.length === 0 && <div className="empty compact-empty">No loop chat messages yet.</div>}
-					{loopMessages.slice(-120).map((loopMessage) => (
+					{loopMessages.map((loopMessage) => (
 						<LoopMessageRow
+							continuedFromPage={loopMessagePage?.compactionPageBySeq[String(loopMessage.seq)]}
 							key={`${loopMessage.runId}-${loopMessage.seq}`}
 							deleting={deletingLoopMessageSeq === loopMessage.seq}
 							loadingLogs={loopMessageLogLoadingSeq === loopMessage.seq}
 							message={loopMessage}
 							onDelete={() => void deleteLoopMessage(loopMessage)}
+							onPageSelect={(page) => void switchLoopPage(page)}
 							onViewLogs={() => void viewLoopMessageLogs(loopMessage)}
 							toolCallsById={toolCallsById}
 						/>
 					))}
+					{loopMessagePage?.newerPage && (
+						<LoopContinuationRow
+							label="continued on"
+							onPageSelect={(page) => void switchLoopPage(page)}
+							page={loopMessagePage.newerPage}
+						/>
+					)}
 				</div>
+				<LoopMessagePager
+					onPageSelect={(page) => void switchLoopPage(page)}
+					page={loopMessagePage}
+				/>
 			</div>
 			<LoopMessageLogsModal
 				onClose={() => setOpenLoopMessageLogs(null)}
@@ -8566,17 +8638,21 @@ function LoopMessageLogsModal({
 }
 
 function LoopMessageRow({
+	continuedFromPage,
 	deleting,
 	loadingLogs,
 	message,
 	onDelete,
+	onPageSelect,
 	onViewLogs,
 	toolCallsById,
 }: {
+	continuedFromPage?: number;
 	deleting: boolean;
 	loadingLogs: boolean;
 	message: BotLoopMessage;
 	onDelete: () => void;
+	onPageSelect: (page: number) => void;
 	onViewLogs: () => void;
 	toolCallsById: ReadonlyMap<string, LoopToolCallContext>;
 }) {
@@ -8611,10 +8687,92 @@ function LoopMessageRow({
 				<span>{timeAgo(message.createdAt)}</span>
 				{status && <span className="streaming-pill">{status}</span>}
 			</div>
-			<div className="event-meta">
-				{loopMessageOriginLabel(message.origin)} / {message.runId} / {formatTokenCount(message.tokenEstimate)} tokens
+				<div className="event-meta">
+					{loopMessageOriginLabel(message.origin)} / {message.runId} / {formatTokenCount(message.tokenEstimate)} tokens
+				</div>
+				{continuedFromPage && (
+					<LoopContinuationLink
+						label="continued from"
+						onPageSelect={onPageSelect}
+						page={continuedFromPage}
+					/>
+				)}
+				<LoopMessageReadableView message={message.message} origin={message.origin} toolCall={toolCallContext} toolCallsById={toolCallsById} />
 			</div>
-			<LoopMessageReadableView message={message.message} origin={message.origin} toolCall={toolCallContext} toolCallsById={toolCallsById} />
+		);
+	}
+
+function LoopContinuationRow({
+	label,
+	onPageSelect,
+	page,
+}: {
+	label: string;
+	onPageSelect: (page: number) => void;
+	page: number;
+}) {
+	return (
+		<div className="event-row loop-continuation-row">
+			<LoopContinuationLink label={label} onPageSelect={onPageSelect} page={page} />
+		</div>
+	);
+}
+
+function LoopContinuationLink({
+	label,
+	onPageSelect,
+	page,
+}: {
+	label: string;
+	onPageSelect: (page: number) => void;
+	page: number;
+}) {
+	return (
+		<div className="loop-continuation-note">
+			<span>{label}</span>
+			<button onClick={() => onPageSelect(page)} title={`Open loop page ${page}`} type="button">
+				page {page}
+			</button>
+		</div>
+	);
+}
+
+function LoopMessagePager({
+	onPageSelect,
+	page,
+}: {
+	onPageSelect: (page: number) => void;
+	page: BotLoopMessagePage | null;
+}) {
+	if (!page || page.pageCount <= 1) {
+		return null;
+	}
+	const newerPage = page.newerPage;
+	const olderPage = page.olderPage;
+	return (
+		<div aria-label="Loop history pages" className="loop-page-pager">
+			{newerPage && (
+				<button onClick={() => onPageSelect(newerPage)} title={`Open newer page ${newerPage}`} type="button">
+					Newer
+				</button>
+			)}
+			{page.pages.map((summary) => (
+				<button
+					aria-current={summary.page === page.currentPage ? "page" : undefined}
+					className={summary.page === page.currentPage ? "active" : ""}
+					key={summary.page}
+					onClick={() => onPageSelect(summary.page)}
+					title={`Open loop page ${summary.page}${summary.messageCount ? ` (${summary.messageCount} messages)` : ""}`}
+					type="button"
+				>
+					{summary.page}
+				</button>
+			))}
+			{olderPage && (
+				<button onClick={() => onPageSelect(olderPage)} title={`Open older page ${olderPage}`} type="button">
+					Older
+				</button>
+			)}
 		</div>
 	);
 }

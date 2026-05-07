@@ -71,6 +71,8 @@ import {
 	type BotInferenceSubmissionSummary,
 	type BotInferenceSubmissionToolCall,
 	type BotLoopMessage,
+	type BotLoopMessagePageSummary,
+	type BotLoopMessagesResponse,
 	type BotLoopMessageLog,
 	type BotLoopMessageLogEncoding,
 	type BotLoopMessageLogKind,
@@ -171,6 +173,17 @@ type LoopMessageRow = {
 	deleted_at: string | null;
 	created_at: string;
 	has_logs?: number;
+};
+
+type LoopMessagePageDescriptor = {
+	page: number;
+	sourceCompactionSeq: number | null;
+	newerPage?: number;
+};
+
+type LoopMessagePageIndex = {
+	descriptors: LoopMessagePageDescriptor[];
+	compactionPageBySeq: Map<number, number>;
 };
 
 type LoopMessageLogRow = {
@@ -793,6 +806,7 @@ const providerCompactionSummaryMaxCharacters = 4_000;
 const inferenceSubmissionRetentionCount = 50;
 const loopMessageLogRetentionCount = 50;
 const loopMessageLogChunkLength = 250_000;
+const loopMessagePageIndexLimit = 100;
 const compactionRowTokenFraction = 0.7;
 const providerPromptEstimateSafetyTokens = 512;
 const providerCompactionMaxPromptEstimateTokens = 120_000;
@@ -1950,7 +1964,11 @@ export class BotRuntime {
 			if (request.method === "GET" && url.pathname.endsWith("/messages")) {
 				await this.requireOwnerOrInternal(request, botId);
 				const after = Number(url.searchParams.get("after") ?? 0);
-				return ok({ messages: this.loopMessagesAfter(Number.isFinite(after) ? after : 0) });
+				const page = Number(url.searchParams.get("page") ?? 1);
+				return ok(this.loopMessagesPage({
+					after: Number.isFinite(after) ? after : 0,
+					page: Number.isFinite(page) ? page : 1,
+				}));
 			}
 
 			const messageLogSeq = messageLogsSeqFromPath(url.pathname);
@@ -3315,39 +3333,169 @@ export class BotRuntime {
 	}
 
 	private loopMessagesAfter(afterSeq: number): BotLoopMessage[] {
+		return this.loopMessageRowsForPage(null, Math.max(0, Math.floor(afterSeq))).map(loopMessageFromRow);
+	}
+
+	private loopMessagesPage(input: { page: number; after?: number }): BotLoopMessagesResponse {
+		const pageIndex = this.loopMessagePageIndex();
+		const requestedPage = Math.max(1, Math.floor(input.page));
+		const currentDescriptor =
+			pageIndex.descriptors.find((descriptor) => descriptor.page === requestedPage) ??
+			pageIndex.descriptors[pageIndex.descriptors.length - 1] ??
+			{ page: 1, sourceCompactionSeq: null };
+		const after = currentDescriptor.page === 1 ? Math.max(0, Math.floor(input.after ?? 0)) : 0;
+		const rows = this.loopMessageRowsForPage(currentDescriptor.sourceCompactionSeq, after);
+		const summaries = this.loopMessagePageSummaries(pageIndex);
+		const currentSummary = summaries.find((summary) => summary.page === currentDescriptor.page);
+		return {
+			messages: rows.map(loopMessageFromRow),
+			page: {
+				currentPage: currentDescriptor.page,
+				pageCount: pageIndex.descriptors.length,
+				pages: summaries,
+				compactionPageBySeq: Object.fromEntries(
+					[...pageIndex.compactionPageBySeq.entries()].map(([seq, page]) => [String(seq), page]),
+				),
+				...(currentDescriptor.newerPage ? { newerPage: currentDescriptor.newerPage } : {}),
+				...(currentSummary?.olderPage ? { olderPage: currentSummary.olderPage } : {}),
+			},
+		};
+	}
+
+	private loopMessagePageIndex(): LoopMessagePageIndex {
+		const descriptors: LoopMessagePageDescriptor[] = [];
+		const compactionPageBySeq = new Map<number, number>();
+		const visitedSources = new Set<string>();
+		const appendPage = (sourceCompactionSeq: number | null, newerPage?: number): void => {
+			if (descriptors.length >= loopMessagePageIndexLimit) {
+				return;
+			}
+			const sourceKey = sourceCompactionSeq === null ? "active" : String(sourceCompactionSeq);
+			if (visitedSources.has(sourceKey)) {
+				return;
+			}
+			visitedSources.add(sourceKey);
+			const descriptor: LoopMessagePageDescriptor = {
+				page: descriptors.length + 1,
+				sourceCompactionSeq,
+				...(newerPage ? { newerPage } : {}),
+			};
+			descriptors.push(descriptor);
+			for (const seq of this.loopMessageCompactionSeqsWithChildren(sourceCompactionSeq)) {
+				if (descriptors.length >= loopMessagePageIndexLimit) {
+					break;
+				}
+				if (compactionPageBySeq.has(seq)) {
+					continue;
+				}
+				compactionPageBySeq.set(seq, descriptors.length + 1);
+				appendPage(seq, descriptor.page);
+			}
+		};
+		appendPage(null);
+		return { descriptors, compactionPageBySeq };
+	}
+
+	private loopMessagePageSummaries(pageIndex: LoopMessagePageIndex): BotLoopMessagePageSummary[] {
+		return pageIndex.descriptors.map((descriptor) => {
+			const summary = this.loopMessagePageCount(descriptor.sourceCompactionSeq);
+			const olderPage = pageIndex.descriptors.find((item) => item.newerPage === descriptor.page)?.page;
+			return {
+				page: descriptor.page,
+				messageCount: summary.messageCount,
+				...(summary.fromSeq !== null ? { fromSeq: summary.fromSeq } : {}),
+				...(summary.toSeq !== null ? { toSeq: summary.toSeq } : {}),
+				...(descriptor.sourceCompactionSeq !== null ? { sourceCompactionSeq: descriptor.sourceCompactionSeq } : {}),
+				...(descriptor.newerPage ? { newerPage: descriptor.newerPage } : {}),
+				...(olderPage ? { olderPage } : {}),
+			};
+		});
+	}
+
+	private loopMessageRowsForPage(sourceCompactionSeq: number | null, afterSeq: number): LoopMessageRow[] {
+		if (sourceCompactionSeq === null && afterSeq > 0) {
+			return this.state.storage.sql
+				.exec<LoopMessageRow>(
+					`SELECT m.seq, m.position, m.run_id, m.role, m.message_json, m.origin, m.status,
+					        m.token_estimate, m.stream_seq, m.compacted_by, m.deleted_at, m.created_at,
+					        CASE WHEN EXISTS (SELECT 1 FROM loop_message_logs l WHERE l.message_seq = m.seq) THEN 1 ELSE 0 END AS has_logs
+					 FROM loop_messages m
+					 WHERE m.compacted_by IS NULL
+					   AND m.deleted_at IS NULL
+					   AND m.seq > ?
+					 ORDER BY m.position ASC, m.seq ASC
+					 LIMIT 2000`,
+					afterSeq,
+				)
+				.toArray();
+		}
+		if (sourceCompactionSeq === null) {
+			return this.state.storage.sql
+				.exec<LoopMessageRow>(
+					`SELECT m.seq, m.position, m.run_id, m.role, m.message_json, m.origin, m.status,
+					        m.token_estimate, m.stream_seq, m.compacted_by, m.deleted_at, m.created_at,
+					        CASE WHEN EXISTS (SELECT 1 FROM loop_message_logs l WHERE l.message_seq = m.seq) THEN 1 ELSE 0 END AS has_logs
+					 FROM loop_messages m
+					 WHERE m.compacted_by IS NULL
+					   AND m.deleted_at IS NULL
+					 ORDER BY m.position ASC, m.seq ASC`,
+				)
+				.toArray();
+		}
+		return this.state.storage.sql
+			.exec<LoopMessageRow>(
+				`SELECT m.seq, m.position, m.run_id, m.role, m.message_json, m.origin, m.status,
+				        m.token_estimate, m.stream_seq, m.compacted_by, m.deleted_at, m.created_at,
+				        CASE WHEN EXISTS (SELECT 1 FROM loop_message_logs l WHERE l.message_seq = m.seq) THEN 1 ELSE 0 END AS has_logs
+				 FROM loop_messages m
+				 WHERE m.compacted_by = ?
+				   AND m.deleted_at IS NULL
+				 ORDER BY m.position ASC, m.seq ASC`,
+				sourceCompactionSeq,
+			)
+			.toArray();
+	}
+
+	private loopMessageCompactionSeqsWithChildren(sourceCompactionSeq: number | null): number[] {
+		const query = (where: string): string =>
+			`SELECT m.seq
+			 FROM loop_messages m
+			 WHERE ${where}
+			   AND m.deleted_at IS NULL
+			   AND m.origin = 'compaction'
+			   AND EXISTS (
+				SELECT 1
+				FROM loop_messages child
+				WHERE child.compacted_by = m.seq
+				  AND child.deleted_at IS NULL
+			   )
+			 ORDER BY m.seq DESC`;
 		const rows =
-			afterSeq > 0 ?
+			sourceCompactionSeq === null ?
+				this.state.storage.sql.exec<{ seq: number }>(query("m.compacted_by IS NULL")).toArray()
+			:	this.state.storage.sql.exec<{ seq: number }>(query("m.compacted_by = ?"), sourceCompactionSeq).toArray();
+		return rows.map((row) => row.seq);
+	}
+
+	private loopMessagePageCount(sourceCompactionSeq: number | null): { messageCount: number; fromSeq: number | null; toSeq: number | null } {
+		const select = (where: string): string =>
+			`SELECT COUNT(*) AS messageCount, MIN(seq) AS fromSeq, MAX(seq) AS toSeq
+			 FROM loop_messages
+			 WHERE ${where}
+			   AND deleted_at IS NULL`;
+		const row =
+			sourceCompactionSeq === null ?
 				this.state.storage.sql
-					.exec<LoopMessageRow>(
-						`SELECT m.seq, m.position, m.run_id, m.role, m.message_json, m.origin, m.status,
-						        m.token_estimate, m.stream_seq, m.compacted_by, m.deleted_at, m.created_at,
-						        CASE WHEN EXISTS (SELECT 1 FROM loop_message_logs l WHERE l.message_seq = m.seq) THEN 1 ELSE 0 END AS has_logs
-						 FROM loop_messages m
-						 WHERE m.compacted_by IS NULL
-						   AND m.deleted_at IS NULL
-						   AND m.seq > ?
-						 ORDER BY m.position ASC, m.seq ASC
-						 LIMIT 2000`,
-						afterSeq,
-					)
-					.toArray()
+					.exec<{ messageCount: number; fromSeq: number | null; toSeq: number | null }>(select("compacted_by IS NULL"))
+					.one()
 			:	this.state.storage.sql
-					.exec<LoopMessageRow>(
-						`SELECT seq, position, run_id, role, message_json, origin, status, token_estimate, stream_seq, compacted_by, deleted_at, created_at, has_logs
-						 FROM (
-							SELECT m.seq, m.position, m.run_id, m.role, m.message_json, m.origin, m.status,
-							       m.token_estimate, m.stream_seq, m.compacted_by, m.deleted_at, m.created_at,
-							       CASE WHEN EXISTS (SELECT 1 FROM loop_message_logs l WHERE l.message_seq = m.seq) THEN 1 ELSE 0 END AS has_logs
-							FROM loop_messages m
-							WHERE m.compacted_by IS NULL
-							  AND m.deleted_at IS NULL
-							ORDER BY m.position DESC, m.seq DESC
-							LIMIT 240
-						 )
-						 ORDER BY position ASC, seq ASC`,
-					)
-					.toArray();
-		return rows.map(loopMessageFromRow);
+					.exec<{ messageCount: number; fromSeq: number | null; toSeq: number | null }>(select("compacted_by = ?"), sourceCompactionSeq)
+					.one();
+		return {
+			messageCount: row.messageCount,
+			fromSeq: row.fromSeq,
+			toSeq: row.toSeq,
+		};
 	}
 
 	private loopMessageLogsForSeq(seq: number): { message: BotLoopMessage; logs: BotLoopMessageLog[] } {

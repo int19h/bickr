@@ -14,6 +14,8 @@ import {
 	onRequestPatch as patchBot,
 } from "../apps/web/functions/api/me/bots/[botId]";
 import { onRequestPost as contextBudgetRoute } from "../apps/web/functions/api/me/bots/[botId]/runtime/context-budget";
+import { onRequestGet as runtimeMessagesRoute } from "../apps/web/functions/api/me/bots/[botId]/runtime/messages";
+import { onRequest as runtimeMonitorRoute } from "../apps/web/functions/api/me/bots/[botId]/runtime/monitor";
 import {
 	onRequestDelete as deleteProfileRoute,
 	onRequestGet as getProfile,
@@ -1250,6 +1252,56 @@ describe("Bickr Pages Functions", () => {
 				seq: 1,
 				deletedAt: deleted.deletedAt,
 			});
+		});
+
+		it("pages retained loop messages by compaction boundaries", () => {
+			const rows = [
+				{ ...loopMessageRowForTest(1, "run-old", "Old event"), compacted_by: 10 },
+				{ ...loopMessageRowForTest(10, "run-compact-1", "Previous summary"), origin: "compaction" as BotLoopMessage["origin"], compacted_by: 20 },
+				{ ...loopMessageRowForTest(11, "run-middle", "Middle event"), compacted_by: 20 },
+				{ ...loopMessageRowForTest(12, "run-deleted", "Deleted middle event"), compacted_by: 20, deleted_at: "2026-05-05T01:00:00.000Z" },
+				{ ...loopMessageRowForTest(20, "run-compact-2", "Current summary"), origin: "compaction" as BotLoopMessage["origin"] },
+				loopMessageRowForTest(21, "run-current", "Current event"),
+			];
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				state: { storage: { sql: memoryLoopMessagePageSql(rows) } },
+			});
+			const loopMessagesPage = (BotRuntime.prototype as unknown as {
+				loopMessagesPage: (input: { page: number; after?: number }) => { messages: BotLoopMessage[]; page: { currentPage: number; pageCount: number; newerPage?: number; olderPage?: number; compactionPageBySeq: Record<string, number> } };
+			}).loopMessagesPage.bind(runtime);
+
+			const page1 = loopMessagesPage({ page: 1 });
+			const page2 = loopMessagesPage({ page: 2 });
+			const page3 = loopMessagesPage({ page: 3 });
+
+			expect(page1.messages.map((message) => message.seq)).toEqual([20, 21]);
+			expect(page1.page).toMatchObject({
+				currentPage: 1,
+				pageCount: 3,
+				olderPage: 2,
+				compactionPageBySeq: { "20": 2, "10": 3 },
+			});
+			expect(page2.messages.map((message) => message.seq)).toEqual([10, 11]);
+			expect(page2.page).toMatchObject({ currentPage: 2, newerPage: 1, olderPage: 3 });
+			expect(page3.messages.map((message) => message.seq)).toEqual([1]);
+			expect(page3.page).toMatchObject({ currentPage: 3, newerPage: 2 });
+		});
+
+		it("keeps incremental loop message fetches on the active page only", () => {
+			const rows = [
+				{ ...loopMessageRowForTest(1, "run-old", "Old event"), compacted_by: 10 },
+				{ ...loopMessageRowForTest(10, "run-compact", "Current summary"), origin: "compaction" as BotLoopMessage["origin"] },
+				loopMessageRowForTest(11, "run-current", "Current event"),
+			];
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				state: { storage: { sql: memoryLoopMessagePageSql(rows) } },
+			});
+			const loopMessagesPage = (BotRuntime.prototype as unknown as {
+				loopMessagesPage: (input: { page: number; after?: number }) => { messages: BotLoopMessage[]; page: { currentPage: number } };
+			}).loopMessagesPage.bind(runtime);
+
+			expect(loopMessagesPage({ page: 1, after: 10 }).messages.map((message) => message.seq)).toEqual([11]);
+			expect(loopMessagesPage({ page: 2, after: 99 }).messages.map((message) => message.seq)).toEqual([1]);
 		});
 
 		it("uses the latest successful compaction summary after a failed compaction row", () => {
@@ -5122,9 +5174,9 @@ describe("Bickr Pages Functions", () => {
 		});
 	});
 
-	it("proxies prompt context budget requests to the agent runtime service", async () => {
-		const cookie = await authCookie();
-		await seedWorld(cookie);
+		it("proxies prompt context budget requests to the agent runtime service", async () => {
+			const cookie = await authCookie();
+			await seedWorld(cookie);
 		const createResponse = await createBot(
 			contextFor<typeof createBot>(
 				jsonRequest(
@@ -5192,12 +5244,57 @@ describe("Bickr Pages Functions", () => {
 		expect(proxied.body).toMatchObject({
 			prompt: "Stay inside the larger window.",
 			tickSettings: { contextWindowTokens: 64_000 },
+			});
 		});
-	});
 
-	it("computes and caches prompt context budgets from mocked provider usage", async () => {
-		const cookie = await authCookie();
-		await seedWorld(cookie);
+		it("preserves loop message and monitor query parameters when proxying runtime requests", async () => {
+			const cookie = await authCookie();
+			const proxiedUrls: URL[] = [];
+			const envOverride = {
+				AGENT_RUNTIME: {
+					fetch: async (request: Request) => {
+						proxiedUrls.push(new URL(request.url));
+						return Response.json({
+							ok: true,
+							data: {
+								messages: [],
+								page: { currentPage: 1, pageCount: 1, pages: [], compactionPageBySeq: {} },
+							},
+						});
+					},
+				} as unknown as Fetcher,
+			};
+
+			await runtimeMessagesRoute(
+				contextFor<typeof runtimeMessagesRoute>(
+					new Request("http://example.com/api/me/bots/bot-query/runtime/messages?page=3&after=42", {
+						headers: { cookie },
+					}),
+					{ botId: "bot-query" },
+					envOverride,
+				),
+			);
+			await runtimeMonitorRoute(
+				contextFor<typeof runtimeMonitorRoute>(
+					new Request("http://example.com/api/me/bots/bot-query/runtime/monitor?afterEvent=12&afterMessage=34", {
+						headers: { cookie },
+					}),
+					{ botId: "bot-query" },
+					envOverride,
+				),
+			);
+
+			expect(proxiedUrls[0]?.pathname).toBe("/bots/bot-query/messages");
+			expect(proxiedUrls[0]?.searchParams.get("page")).toBe("3");
+			expect(proxiedUrls[0]?.searchParams.get("after")).toBe("42");
+			expect(proxiedUrls[1]?.pathname).toBe("/bots/bot-query/monitor");
+			expect(proxiedUrls[1]?.searchParams.get("afterEvent")).toBe("12");
+			expect(proxiedUrls[1]?.searchParams.get("afterMessage")).toBe("34");
+		});
+
+		it("computes and caches prompt context budgets from mocked provider usage", async () => {
+			const cookie = await authCookie();
+			await seedWorld(cookie);
 		const createResponse = await createBot(
 			contextFor<typeof createBot>(
 				jsonRequest(
@@ -8684,6 +8781,58 @@ function memoryLoopMessageLogSql() {
 	};
 }
 
+function memoryLoopMessagePageSql(rows: ReturnType<typeof loopMessageRowForTest>[]) {
+	const visibleRows = (sourceCompactionSeq: number | null, afterSeq = 0) =>
+		rows
+			.filter((row) => row.deleted_at === null)
+			.filter((row) => sourceCompactionSeq === null ? row.compacted_by === null : row.compacted_by === sourceCompactionSeq)
+			.filter((row) => afterSeq <= 0 || row.seq > afterSeq)
+			.sort((left, right) => left.position - right.position || left.seq - right.seq);
+	const sourceFromQuery = (sql: string, params: unknown[]): number | null => {
+		if (/compacted_by IS NULL/.test(sql) || /m\.compacted_by IS NULL/.test(sql)) {
+			return null;
+		}
+		return Number(params[0]);
+	};
+	return {
+		exec<T>(sql: string, ...params: unknown[]) {
+			if (/SELECT m\.seq\s+FROM loop_messages m/.test(sql)) {
+				const source = sourceFromQuery(sql, params);
+				const compacted = visibleRows(source)
+					.filter((row) => row.origin === "compaction")
+					.filter((row) => rows.some((child) => child.deleted_at === null && child.compacted_by === row.seq))
+					.sort((left, right) => right.seq - left.seq)
+					.map((row) => ({ seq: row.seq }) as T);
+				return { toArray: () => compacted };
+			}
+			if (/SELECT COUNT\(\*\) AS messageCount/.test(sql)) {
+				const pageRows = visibleRows(sourceFromQuery(sql, params));
+				const seqs = pageRows.map((row) => row.seq);
+				return {
+					one: () =>
+						({
+							messageCount: pageRows.length,
+							fromSeq: seqs.length > 0 ? Math.min(...seqs) : null,
+							toSeq: seqs.length > 0 ? Math.max(...seqs) : null,
+						}) as T,
+					toArray: () => [],
+				};
+			}
+			if (/SELECT m\.seq, m\.position, m\.run_id/.test(sql)) {
+				if (/m\.compacted_by IS NULL/.test(sql)) {
+					const after = /m\.seq > \?/.test(sql) ? Number(params[0]) : 0;
+					return { toArray: () => visibleRows(null, after) as T[] };
+				}
+				return { toArray: () => visibleRows(Number(params[0])) as T[] };
+			}
+			return {
+				one: () => ({} as T),
+				toArray: () => [],
+			};
+		},
+	};
+}
+
 function memoryExistingLoopMessageSchemaSql() {
 	const columnsByTable = new Map<string, string[]>([
 		[
@@ -8930,12 +9079,12 @@ function loopMessageRowForTest(seq: number, runId: string, content: string) {
 		run_id: runId,
 		role: "assistant",
 		message_json: JSON.stringify({ role: "assistant", content }),
-		origin: "provider_response",
+		origin: "provider_response" as BotLoopMessage["origin"],
 		status: "complete",
 		token_estimate: 1,
 		stream_seq: null,
-		compacted_by: null,
-		deleted_at: null,
+		compacted_by: null as number | null,
+		deleted_at: null as string | null,
 		created_at: "2026-05-05T00:00:00.000Z",
 		has_logs: 0,
 	};

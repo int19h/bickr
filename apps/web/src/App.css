@@ -2453,6 +2453,63 @@ button:disabled {
 	color: color-mix(in oklch, oklch(0.42 0.12 68) 82%, var(--ink-1));
 }
 
+.loop-continuation-row {
+	background: transparent;
+	border-style: dashed;
+	padding-right: 8px;
+}
+
+.loop-continuation-note {
+	align-items: center;
+	color: var(--ink-4);
+	display: flex;
+	font-size: 12px;
+	gap: 6px;
+	margin-bottom: 6px;
+}
+
+.loop-continuation-row .loop-continuation-note {
+	font-size: 13px;
+	justify-content: center;
+	margin-bottom: 0;
+}
+
+.loop-continuation-note button,
+.loop-page-pager button {
+	background: var(--paper);
+	border: 1px solid var(--rule);
+	border-radius: 5px;
+	color: var(--ink-2);
+	cursor: pointer;
+	font: inherit;
+	padding: 4px 8px;
+}
+
+.loop-continuation-note button:hover,
+.loop-continuation-note button:focus-visible,
+.loop-page-pager button:hover,
+.loop-page-pager button:focus-visible {
+	border-color: var(--accent);
+	color: var(--ink-1);
+}
+
+.loop-page-pager {
+	align-items: center;
+	border-top: 1px solid var(--rule-soft);
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	justify-content: center;
+	padding-top: 10px;
+}
+
+.loop-page-pager button.active {
+	background: var(--accent-soft);
+	border-color: var(--accent);
+	color: var(--ink-1);
+	font-weight: 700;
+}
+
 .activity-error {
 	background: color-mix(in oklch, oklch(0.62 0.16 25) 10%, var(--paper-2));
 	border-color: color-mix(in oklch, oklch(0.62 0.16 25) 35%, var(--rule));
