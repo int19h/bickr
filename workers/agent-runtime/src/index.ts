@@ -1482,7 +1482,17 @@ export function loopMessageContributesToProviderHistory(
 }
 
 export function runtimeErrorLoopMessageContent(message: string): string {
-	return `Bickr website crashed with an error: ${safeContextText(message, 1_200)}`;
+	return `${runtimeDiagnosticPrefix(message)}: ${safeContextText(message, 1_200)}`;
+}
+
+function runtimeDiagnosticPrefix(message: string): string {
+	if (/^Inference (provider|request|response|stream)\b/.test(message) || /^Provider\b/.test(message)) {
+		return "Inference provider returned an error";
+	}
+	if (/^Prompt context\b/.test(message)) {
+		return "Inference request failed";
+	}
+	return "Runtime failed";
 }
 
 function isEmptyProviderAssistantMessage(message: BotInferenceSubmissionMessage): boolean {
@@ -2722,7 +2732,7 @@ export class BotRuntime {
 					break;
 				}
 				if (malformedOnlyRetried) {
-					throw new Error("Bickr website returned only malformed page-control requests after retry.");
+					throw new Error("Inference provider returned only malformed page-control requests after retry.");
 				}
 				malformedOnlyRetried = true;
 			}
@@ -3306,10 +3316,13 @@ export class BotRuntime {
 	}
 
 	private activeLoopMessagesForProvider(): ChatMessage[] {
-		return this.activeLoopMessageRows().flatMap((row) => {
-			const message = loopMessageChatMessageFromRow(row);
-			return loopMessageContributesToProviderHistory(row.origin, message) ? [message] : [];
-		});
+		return this.activeProviderHistoryLoopMessageRows().map(loopMessageChatMessageFromRow);
+	}
+
+	private activeProviderHistoryLoopMessageRows(): LoopMessageRow[] {
+		return this.activeLoopMessageRows().filter((row) =>
+			loopMessageContributesToProviderHistory(row.origin, loopMessageChatMessageFromRow(row))
+		);
 	}
 
 	private async repairActiveProviderToolCallHistory(runId: string): Promise<DroppedProviderToolCall[]> {
@@ -5339,7 +5352,7 @@ export class BotRuntime {
 		const bot = await botById(this.env.BICKR_KV, this.env.BICKR_D1, botId);
 		const owner = await userById(this.env.BICKR_KV, bot.ownerUserId);
 		const settings = this.effectiveProviderSettings(bot, owner);
-		const rows = this.activeLoopMessageRows();
+		const rows = this.compactionCandidateRows();
 		if (rows.length === 0) {
 			return { messageCount: 0 };
 		}
@@ -5402,6 +5415,14 @@ export class BotRuntime {
 			threshold?: number;
 		},
 	): Promise<void> {
+		// Compaction rewrites provider history, so owner-only diagnostics must be excluded
+		// by the same rule used for normal inference requests.
+		compacted = compacted.filter((row) =>
+			loopMessageContributesToProviderHistory(row.origin, loopMessageChatMessageFromRow(row))
+		);
+		if (compacted.length === 0) {
+			return;
+		}
 		const recentActivity = compacted
 			.map((message) => truncateForContext(loopMessageContextLine(message), 1_200))
 			.join("\n");
@@ -5624,7 +5645,7 @@ export class BotRuntime {
 	}
 
 	private compactionCandidateRows(): LoopMessageRow[] {
-		return this.activeLoopMessageRows();
+		return this.activeProviderHistoryLoopMessageRows();
 	}
 
 	private compactionCandidateEstimates(calibration = this.textTokenCalibration()): CompactionCandidateEstimate[] {
@@ -8581,7 +8602,7 @@ export function formatRuntimeEventForContext(
 		case "tick_completed":
 			return `I finished this Bickr visit${stringValue(payload.nextDueAt) ? ` and expect to return around ${stringValue(payload.nextDueAt)}` : ""}.`;
 		case "tick_failed":
-			return `Bickr website crashed with an error: ${safeContextText(stringValue(payload.message) ?? details.rawPayload ?? "", 700)}`;
+			return `${runtimeDiagnosticPrefix(stringValue(payload.message) ?? details.rawPayload ?? "")}: ${safeContextText(stringValue(payload.message) ?? details.rawPayload ?? "", 700)}`;
 		case "tick_stopped":
 		case "tick_stop_requested":
 			return `My Bickr visit stopped: ${safeContextText(stringValue(payload.message) ?? details.rawPayload ?? "", 700)}`;

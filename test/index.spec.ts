@@ -1143,6 +1143,34 @@ describe("Bickr Pages Functions", () => {
 			expect(selected.map((row) => row.seq)).toEqual([1, 2, 3]);
 		});
 
+		it("uses the provider-history filter for compaction candidates", () => {
+			const rows = [
+				loopMessageRowForMessage(1, { role: "assistant", content: "Provider-visible old context." }),
+				loopMessageRowForMessage(
+					2,
+					{ role: "user", content: runtimeErrorLoopMessageContent("Inference request failed with status 400. Response: provider rejected the request.") },
+					"runtime_error",
+				),
+				loopMessageRowForMessage(3, { role: "assistant", content: "Provider-visible newer context." }),
+			];
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				activeLoopMessageRows: () => rows,
+				textTokenCalibration: () => ({ tokensPerCharacter: 0.25, sampleCount: 0 }),
+			});
+			const activeLoopMessagesForProvider = (BotRuntime.prototype as unknown as {
+				activeLoopMessagesForProvider: () => Array<{ content?: unknown }>;
+			}).activeLoopMessagesForProvider.bind(runtime);
+			const compactionRowsForEstimatedBudget = (BotRuntime.prototype as unknown as {
+				compactionRowsForEstimatedBudget: (bot: BotDocument, runId: string, includeCurrentRun: boolean) => Array<{ seq: number }>;
+			}).compactionRowsForEstimatedBudget.bind(runtime);
+
+			expect(activeLoopMessagesForProvider().map((message) => message.content)).toEqual([
+				"Provider-visible old context.",
+				"Provider-visible newer context.",
+			]);
+			expect(compactionRowsForEstimatedBudget(fakeBotDocument({ contextWindowTokens: 1_000 }), "run-current", true).map((row) => row.seq)).toEqual([1, 3]);
+		});
+
 		it("derives row token estimates from recent provider prompt history", () => {
 			const previous = "a".repeat(400);
 			const appended = "b".repeat(400);
@@ -3660,7 +3688,7 @@ describe("Bickr Pages Functions", () => {
 				[],
 				{ mode: "normal", signal: new AbortController().signal },
 			),
-		).rejects.toThrow("Bickr website returned only malformed page-control requests after retry.");
+		).rejects.toThrow("Inference provider returned only malformed page-control requests after retry.");
 
 		expect(callProvider).toHaveBeenCalledTimes(2);
 		expect(appendedLoopMessages).toEqual([]);
@@ -4011,6 +4039,8 @@ describe("Bickr Pages Functions", () => {
 			},
 		]);
 		expect(String(appendedLoopMessages[0]?.message.content)).toContain("TextEncodeInput");
+		expect(String(appendedLoopMessages[0]?.message.content)).toMatch(/^Inference provider returned an error: /);
+		expect(String(appendedLoopMessages[0]?.message.content)).not.toContain("Bickr website crashed");
 	});
 
 	it("returns the bootstrap payload", async () => {
