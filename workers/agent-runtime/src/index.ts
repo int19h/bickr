@@ -204,6 +204,24 @@ type LoopMessageLogRow = {
 	created_at: string;
 };
 
+type RuntimeFailureLogKind = Extract<BotLoopMessageLogKind, "compaction_request" | "compaction_response">;
+
+type RuntimeFailureLog = {
+	kind: RuntimeFailureLogKind;
+	text: string;
+};
+
+type ProviderCompactionResponsePayload = {
+	id?: unknown;
+	model?: unknown;
+	usage?: unknown;
+	choices?: Array<{
+		message?: {
+			content?: unknown;
+		};
+	}>;
+};
+
 type LoopMessageLogChunkRow = {
 	log_id: number;
 	chunk_index: number;
@@ -725,13 +743,29 @@ type ToolUseRecoveryState = {
 class ProviderRequestError extends Error {
 	readonly status: number;
 	readonly body: string;
+	readonly rawResponse?: string;
 
-	constructor(status: number, _model: string, _endpoint: string, body: string) {
+	constructor(status: number, _model: string, _endpoint: string, body: string, options: { rawResponse?: string } = {}) {
 		const suffix = body ? ` Response: ${body}` : "";
 		super(`Inference request failed with status ${status}.${suffix}`);
 		this.name = "ProviderRequestError";
 		this.status = status;
 		this.body = body;
+		this.rawResponse = options.rawResponse;
+	}
+}
+
+class ProviderCompactionRequestError extends Error {
+	readonly originalError: unknown;
+	readonly requestBody: string;
+	readonly responseBody?: string;
+
+	constructor(originalError: unknown, requestBody: string, responseBody?: string) {
+		super(runtimeErrorText(originalError));
+		this.name = "ProviderCompactionRequestError";
+		this.originalError = originalError;
+		this.requestBody = requestBody;
+		this.responseBody = responseBody;
 	}
 }
 
@@ -2324,7 +2358,7 @@ export class BotRuntime {
 			}
 			const message = error instanceof Error ? error.message : "Unexpected Bickr visit error.";
 			if (!this.hasTerminalEvent(runId)) {
-				await this.recordTickFailure(runId, { message });
+				await this.recordTickFailure(runId, { message }, runtimeFailureLogs(error));
 			}
 			await this.setRuntimeIndex(bot, "failed", null, message, new Date().toISOString());
 			if (runContext.mode === "spotlight" && runContext.spotlightId) {
@@ -3006,10 +3040,10 @@ export class BotRuntime {
 					previousRetryKey = retryKey;
 					continue;
 				}
-				throw error;
+				throw new ProviderCompactionRequestError(error, body, providerCompactionFailureResponseText(error));
 			}
 		}
-		throw new ProviderRequestTimeoutError(providerRequestTimeoutMs);
+		throw new ProviderCompactionRequestError(new ProviderRequestTimeoutError(providerRequestTimeoutMs), body);
 	}
 
 	private async consumeProviderResponse(
@@ -3239,12 +3273,15 @@ export class BotRuntime {
 		return inserted;
 	}
 
-	private async recordTickFailure(runId: string, payload: Record<string, unknown>): Promise<BotRuntimeEvent> {
+	private async recordTickFailure(runId: string, payload: Record<string, unknown>, logs: RuntimeFailureLog[] = []): Promise<BotRuntimeEvent> {
 		const message = stringValue(payload.message) ?? "Unexpected Bickr visit error.";
-		this.appendLoopMessage(runId, {
+		const loopMessage = this.appendLoopMessage(runId, {
 			role: "user",
 			content: runtimeErrorLoopMessageContent(message),
 		}, "runtime_error");
+		for (const log of logs) {
+			this.recordLoopMessageLog(loopMessage.seq, log.kind, log.text);
+		}
 		return this.appendEvent(runId, "tick_failed", payload);
 	}
 
@@ -4317,19 +4354,15 @@ export class BotRuntime {
 			providerBodyReadTimeoutMs,
 			() => new ProviderResponseBodyTimeoutError(providerBodyReadTimeoutMs),
 		);
-		const payload = JSON.parse(rawResponse) as {
-			id?: unknown;
-			model?: unknown;
-			usage?: unknown;
-			choices?: Array<{
-				message?: {
-					content?: unknown;
-				};
-			}>;
-		};
+		let payload: ProviderCompactionResponsePayload;
+		try {
+			payload = JSON.parse(rawResponse) as ProviderCompactionResponsePayload;
+		} catch {
+			throw new ProviderRequestError(502, settings.model, endpoint, "Provider compaction response was not valid JSON.", { rawResponse });
+		}
 		const content = providerCompactionSummaryFromResponseContent(payload.choices?.[0]?.message?.content);
 		if (!content) {
-			throw new ProviderRequestError(502, settings.model, endpoint, "Provider returned an empty compaction response.");
+			throw new ProviderRequestError(502, settings.model, endpoint, "Provider returned an empty compaction response.", { rawResponse });
 		}
 		const usage = providerUsageFromValue(payload.usage);
 		return {
@@ -9929,6 +9962,23 @@ function providerRetryKey(error: unknown): string | null {
 		return `${error.status}:${error.body}`;
 	}
 	return null;
+}
+
+function providerCompactionFailureResponseText(error: unknown): string | undefined {
+	if (error instanceof ProviderRequestError) {
+		return error.rawResponse ?? (error.body ? error.body : undefined);
+	}
+	return undefined;
+}
+
+function runtimeFailureLogs(error: unknown): RuntimeFailureLog[] {
+	if (!(error instanceof ProviderCompactionRequestError)) {
+		return [];
+	}
+	return [
+		{ kind: "compaction_request", text: error.requestBody },
+		...(error.responseBody ? [{ kind: "compaction_response" as const, text: error.responseBody }] : []),
+	];
 }
 
 function runtimeErrorText(error: unknown): string {

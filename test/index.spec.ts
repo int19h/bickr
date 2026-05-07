@@ -1112,6 +1112,50 @@ describe("Bickr Pages Functions", () => {
 			expect(messages[3]?.content).not.toMatch(/\bbot\b|\bAI\b|\bmodel\b|\bassistant\b|\bagent\b/i);
 		});
 
+		it("wraps failed compaction provider calls with request and response diagnostics", async () => {
+			const originalFetch = globalThis.fetch;
+			const responseBody = "{\"error\":\"schema rejected\"}";
+			const fetchMock = vi.fn(async () => new Response(responseBody, { status: 400 }));
+			vi.stubGlobal("fetch", fetchMock);
+			try {
+				const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+					appendEvent: vi.fn(),
+					throwIfStopped: vi.fn(),
+				});
+				const callProviderForCompaction = (BotRuntime.prototype as unknown as {
+					callProviderForCompaction: (
+						settings: { baseUrl: string; model: string; temperature: number },
+						messages: Parameters<typeof providerCompactionRequest>[1],
+						runId: string,
+						signal: AbortSignal,
+					) => Promise<unknown>;
+				}).callProviderForCompaction.bind(runtime);
+
+				let thrown: unknown;
+				try {
+					await callProviderForCompaction(
+						{ baseUrl: "https://provider.example/api/v1", model: "test-model", temperature: 0.2 },
+						[{ role: "user", content: "Compact the retained activity." }],
+						"run-compaction-provider-failed",
+						new AbortController().signal,
+					);
+				} catch (error) {
+					thrown = error;
+				}
+
+				expect(fetchMock).toHaveBeenCalledTimes(1);
+				expect(thrown).toMatchObject({
+					name: "ProviderCompactionRequestError",
+					message: `Inference request failed with status 400. Response: ${responseBody}`,
+					responseBody,
+				});
+				expect((thrown as { requestBody?: string }).requestBody).toContain("\"response_format\"");
+				expect((thrown as { requestBody?: string }).requestBody).toContain("\"json_schema\"");
+			} finally {
+				vi.stubGlobal("fetch", originalFetch);
+			}
+		});
+
 		it("selects compaction rows by oldest token fraction instead of row count", () => {
 			const selected = oldestRowsForTokenFraction(
 				[
@@ -4036,6 +4080,7 @@ describe("Bickr Pages Functions", () => {
 	it("records tick failures in the loop ledger", async () => {
 		const appendedLoopMessages: Array<{ runId: string; message: Record<string, unknown>; origin: string }> = [];
 		const events: Array<{ runId: string; type: string; payload: Record<string, unknown> }> = [];
+		const recordLoopMessageLog = vi.fn();
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 			appendLoopMessage: (
 				runId: string,
@@ -4057,14 +4102,22 @@ describe("Bickr Pages Functions", () => {
 				events.push({ runId, type, payload });
 				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
 			},
+			recordLoopMessageLog,
 		});
 		const recordTickFailure = (BotRuntime.prototype as unknown as {
-			recordTickFailure: (runId: string, payload: Record<string, unknown>) => Promise<BotRuntimeEvent>;
+			recordTickFailure: (
+				runId: string,
+				payload: Record<string, unknown>,
+				logs?: Array<{ kind: BotLoopMessageLog["kind"]; text: string }>,
+			) => Promise<BotRuntimeEvent>;
 		}).recordTickFailure.bind(runtime);
 
 		const providerMessage = "Inference request failed with status 400. Response: TextEncodeInput must be Union[TextInputSequence].";
 		await expect(
-			recordTickFailure("run-provider-failed", { message: providerMessage }),
+			recordTickFailure("run-provider-failed", { message: providerMessage }, [
+				{ kind: "compaction_request", text: "{\"messages\":[]}" },
+				{ kind: "compaction_response", text: "{\"error\":\"bad schema\"}" },
+			]),
 		).resolves.toMatchObject({ type: "tick_failed" });
 
 		expect(events).toEqual([
@@ -4087,6 +4140,8 @@ describe("Bickr Pages Functions", () => {
 		expect(String(appendedLoopMessages[0]?.message.content)).toContain("TextEncodeInput");
 		expect(String(appendedLoopMessages[0]?.message.content)).toMatch(/^Inference provider returned an error: /);
 		expect(String(appendedLoopMessages[0]?.message.content)).not.toContain("Bickr website crashed");
+		expect(recordLoopMessageLog).toHaveBeenCalledWith(1, "compaction_request", "{\"messages\":[]}");
+		expect(recordLoopMessageLog).toHaveBeenCalledWith(1, "compaction_response", "{\"error\":\"bad schema\"}");
 	});
 
 	it("returns the bootstrap payload", async () => {
