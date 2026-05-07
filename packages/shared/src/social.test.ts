@@ -125,6 +125,7 @@ function fixture(options: FixtureOptions): { db: FakeD1; kv: FakeKV } {
 			contextWindowTokens: 16_000,
 			compactionThreshold: 0.75,
 			maxToolCallsPerTick: 8,
+			maxSuccessfulToolCallsPerIteration: 8,
 		},
 		createdAt: now,
 		updatedAt: now,

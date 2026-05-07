@@ -5387,6 +5387,7 @@ function BotEdit({
 		tickIntervalMinutes: String(secondsToMinutes(bot.tickSettings.intervalSeconds)),
 		contextWindowTokens: String(bot.tickSettings.contextWindowTokens),
 		maxToolCallsPerTick: String(bot.tickSettings.maxToolCallsPerTick),
+		maxSuccessfulToolCallsPerIteration: String(bot.tickSettings.maxSuccessfulToolCallsPerIteration),
 	});
 	const [confirm, setConfirm] = useState(false);
 	const [promptBudget, setPromptBudget] = useState<PromptBudgetState>({ status: "idle" });
@@ -5402,6 +5403,7 @@ function BotEdit({
 			tickIntervalMinutes: String(secondsToMinutes(bot.tickSettings.intervalSeconds)),
 			contextWindowTokens: String(bot.tickSettings.contextWindowTokens),
 			maxToolCallsPerTick: String(bot.tickSettings.maxToolCallsPerTick),
+			maxSuccessfulToolCallsPerIteration: String(bot.tickSettings.maxSuccessfulToolCallsPerIteration),
 		});
 	}, [
 		bot.displayName,
@@ -5413,12 +5415,14 @@ function BotEdit({
 		bot.tickSettings.contextWindowTokens,
 		bot.tickSettings.intervalSeconds,
 		bot.tickSettings.maxToolCallsPerTick,
+		bot.tickSettings.maxSuccessfulToolCallsPerIteration,
 		bot.updatedAt,
 	]);
 
 	const tickIntervalMinutes = parsePositiveInteger(draft.tickIntervalMinutes);
 	const contextWindowTokens = parsePositiveInteger(draft.contextWindowTokens);
 	const maxToolCallsPerTick = parsePositiveInteger(draft.maxToolCallsPerTick);
+	const maxSuccessfulToolCallsPerIteration = parsePositiveInteger(draft.maxSuccessfulToolCallsPerIteration);
 	const providerRoutingError = providerRoutingDraftError(draft.inference.providerRouting);
 	const translationProviderRoutingError = providerRoutingDraftError(draft.inference.translationProviderRouting);
 	const inferenceInheritance: InferenceModelUnlockContext = {
@@ -5438,6 +5442,7 @@ function BotEdit({
 		tickIntervalMinutes !== secondsToMinutes(bot.tickSettings.intervalSeconds) ||
 		contextWindowTokens !== bot.tickSettings.contextWindowTokens ||
 		maxToolCallsPerTick !== bot.tickSettings.maxToolCallsPerTick ||
+		maxSuccessfulToolCallsPerIteration !== bot.tickSettings.maxSuccessfulToolCallsPerIteration ||
 		inferenceDraftChanged(draft.inference, bot.inferenceSettings, { includeReasoningPrefill: true }) ||
 		toolDraftChanged(draft.tools, bot.toolSettings);
 	const valid =
@@ -5454,6 +5459,8 @@ function BotEdit({
 		contextWindowTokens <= 1_000_000 &&
 		maxToolCallsPerTick >= 1 &&
 		maxToolCallsPerTick <= 32 &&
+		maxSuccessfulToolCallsPerIteration >= 1 &&
+		maxSuccessfulToolCallsPerIteration <= 32 &&
 		toolDraftValid(draft.tools);
 
 	async function save(): Promise<void> {
@@ -5467,6 +5474,7 @@ function BotEdit({
 				intervalSeconds: tickIntervalMinutes * 60,
 				contextWindowTokens,
 				maxToolCallsPerTick,
+				maxSuccessfulToolCallsPerIteration,
 			},
 		});
 		if (ok) {
@@ -5651,7 +5659,7 @@ function BotEdit({
 										<span className="suffix">tokens</span>
 									</div>
 								</Field>
-								<Field help="Maximum provider/tool rounds allowed before the tick is cut off." label="Max tool calls">
+								<Field help="Maximum provider turns that may request Bickr controls before this tick is cut off." label="Max tool call attempts per tick">
 									<input
 										className="input"
 										min={1}
@@ -5662,6 +5670,19 @@ function BotEdit({
 										step={1}
 										type="number"
 										value={draft.maxToolCallsPerTick}
+									/>
+								</Field>
+								<Field help="When this visit has one fewer successful control result than this value, only logoff remains available." label="Max successful tool calls per iteration">
+									<input
+										className="input"
+										min={1}
+										max={32}
+										onChange={(event) =>
+											setDraft((current) => ({ ...current, maxSuccessfulToolCallsPerIteration: event.target.value }))
+										}
+										step={1}
+										type="number"
+										value={draft.maxSuccessfulToolCallsPerIteration}
 									/>
 								</Field>
 							</div>
@@ -5683,7 +5704,6 @@ function BotEdit({
 									value={draft.inference.recurringPrompt}
 								/>
 							</Field>
-							<RuntimeRow label="Loop monitor" value="Open from the bot profile Loop action." />
 						</div>
 					</section>
 

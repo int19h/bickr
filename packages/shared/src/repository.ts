@@ -123,7 +123,8 @@ export const defaultTickSettings: BotTickSettings = {
 	intervalSeconds: 86_400,
 	contextWindowTokens: 16_000,
 	compactionThreshold: 0.75,
-	maxToolCallsPerTick: 8,
+	maxToolCallsPerTick: 10,
+	maxSuccessfulToolCallsPerIteration: 8,
 };
 export const defaultInferenceSettings: BotInferenceSettings = {};
 export const defaultToolSettings: BotToolSettings = {};
@@ -1808,9 +1809,10 @@ async function upsertBotRuntimeIndex(
 		.prepare(
 			`INSERT INTO bot_runtime_index (
 				bot_id, owner_user_id, world_id, enabled, tick_interval_seconds, context_window_tokens,
-				compaction_threshold, max_tool_calls_per_tick, next_due_at, status, active_run_id,
+				compaction_threshold, max_tool_calls_per_tick, max_successful_tool_calls_per_iteration,
+				next_due_at, status, active_run_id,
 				lease_expires_at, last_error, created_at, updated_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'idle', NULL, NULL, NULL, ?, ?)
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'idle', NULL, NULL, NULL, ?, ?)
 			ON CONFLICT(bot_id) DO UPDATE SET
 				owner_user_id = excluded.owner_user_id,
 				world_id = excluded.world_id,
@@ -1819,6 +1821,7 @@ async function upsertBotRuntimeIndex(
 				context_window_tokens = excluded.context_window_tokens,
 				compaction_threshold = excluded.compaction_threshold,
 				max_tool_calls_per_tick = excluded.max_tool_calls_per_tick,
+				max_successful_tool_calls_per_iteration = excluded.max_successful_tool_calls_per_iteration,
 				next_due_at = CASE
 					WHEN excluded.enabled = 0 THEN NULL
 					WHEN ? THEN COALESCE(bot_runtime_index.next_due_at, excluded.next_due_at)
@@ -1837,6 +1840,7 @@ async function upsertBotRuntimeIndex(
 			bot.tickSettings.contextWindowTokens,
 			bot.tickSettings.compactionThreshold,
 			bot.tickSettings.maxToolCallsPerTick,
+			bot.tickSettings.maxSuccessfulToolCallsPerIteration,
 			nextDue,
 			now,
 			now,

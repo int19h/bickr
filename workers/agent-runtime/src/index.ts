@@ -456,6 +456,7 @@ type TickRunResult = {
 };
 
 type TickMode = "normal" | "spotlight";
+type LoopSetupMode = "new_iteration" | "continuation" | "spotlight";
 
 type TickOptions = {
 	mode?: TickMode;
@@ -507,6 +508,7 @@ type PendingSpotlightTick = {
 
 type RunContext = {
 	mode: TickMode;
+	setupMode: LoopSetupMode;
 	spotlightId?: string;
 	signal: AbortSignal;
 };
@@ -893,6 +895,31 @@ export function toolUseRecoveryReminder(state: Pick<ToolUseRecoveryState, "conse
 			`I remember that ${state.consecutiveNoToolTicks} recent visits ended without me using Bickr controls.`
 		:	"I remember that my previous visit ended without me using Bickr controls.";
 	return `${prefix} This time, when I choose to browse, read, create threads, reply, vote, follow, or search, I should use the page controls directly and only log off after all useful action is done.`;
+}
+
+function maxSuccessfulToolCallsPerIterationSetting(bot: Pick<BotDocument, "tickSettings">): number {
+	const value = Number(bot.tickSettings.maxSuccessfulToolCallsPerIteration);
+	return Number.isInteger(value) ? Math.max(1, Math.min(32, value)) : 8;
+}
+
+function iterationRequiresLogOffOnly(successfulToolCalls: number, maxSuccessfulToolCalls: number): boolean {
+	return successfulToolCalls >= Math.max(0, maxSuccessfulToolCalls - 1);
+}
+
+function iterationToolLimitFailure(
+	name: string,
+	args: Record<string, unknown>,
+	maxSuccessfulToolCalls: number,
+): ToolFailurePayload {
+	const canonical = canonicalToolName(name);
+	return {
+		ok: false,
+		code: "iteration_tool_limit",
+		message: `This Bickr visit has reached its limit of ${maxSuccessfulToolCalls} successful control result${maxSuccessfulToolCalls === 1 ? "" : "s"}. Only log_off is available now.`,
+		toolName: canonical || "unknown_tool",
+		args: providerToolArgs(canonical, safelyNormalizeFailureArgs(canonical, args)),
+		guidance: "Use log_off now.",
+	};
 }
 
 function providerReasoningForSettings(settings: Pick<ProviderSettings, "reasoningEffort">): ProviderReasoningConfig {
@@ -2301,8 +2328,13 @@ export class BotRuntime {
 		await this.setRuntimeIndex(bot, "running", runId, undefined, now);
 		await this.appendEvent(runId, "tick_started", { trigger, botId, handle: bot.handle });
 		const mode: TickMode = options.mode === "spotlight" ? "spotlight" : "normal";
+		const setupMode: LoopSetupMode =
+			mode === "spotlight" ? "spotlight"
+			: this.currentIterationStartedSinceLastLogOff() ? "continuation"
+			: "new_iteration";
 		const runContext: RunContext = {
 			mode,
+			setupMode,
 			...(options.spotlightId ? { spotlightId: options.spotlightId } : {}),
 			signal: abortController.signal,
 		};
@@ -2311,13 +2343,22 @@ export class BotRuntime {
 		try {
 			this.throwIfStopped(runId, abortController.signal);
 			const notifications =
-				mode === "spotlight" ? []
+				setupMode !== "new_iteration" ? []
 				: await (async () => {
 						await ensureBootstrapNotification(this.env.BICKR_KV, this.env.BICKR_D1, bot);
 						return listPendingNotifications(this.env.BICKR_KV, this.env.BICKR_D1, bot.id);
 					})();
 			this.throwIfStopped(runId, abortController.signal);
 			const injections = this.consumeInjections(mode === "spotlight" ? options.injectionIds ?? [] : undefined);
+			if (mode === "spotlight" && injections.length === 0) {
+				const nextDueAt = await this.setRuntimeIndex(bot, "idle", null, undefined, new Date().toISOString());
+				await this.appendEvent(runId, "tick_completed", {
+					...(nextDueAt ? { nextDueAt } : {}),
+					note: "No pending spotlight injection was available.",
+				});
+				startQueuedSpotlightAfterRun = true;
+				return { runId, status: "completed" };
+			}
 			const builtInput = await buildRuntimeLoopInput(
 				this.env.BICKR_KV,
 				this.env.BICKR_D1,
@@ -2328,16 +2369,7 @@ export class BotRuntime {
 			);
 			const input = builtInput.input;
 			const inputEvent = await this.appendEvent(runId, "input", input);
-			if (mode === "spotlight" && injections.length === 0) {
-				const nextDueAt = await this.setRuntimeIndex(bot, "idle", null, undefined, new Date().toISOString());
-				await this.appendEvent(runId, "tick_completed", {
-					...(nextDueAt ? { nextDueAt } : {}),
-					note: "No pending spotlight injection was available.",
-				});
-				startQueuedSpotlightAfterRun = true;
-				return { runId, status: "completed" };
-			}
-			if (mode !== "spotlight") {
+			if (setupMode === "new_iteration") {
 				await markBotSeenContent(
 					this.env.BICKR_D1,
 					bot.id,
@@ -2353,7 +2385,7 @@ export class BotRuntime {
 				await markNotificationsDelivered(this.env.BICKR_KV, this.env.BICKR_D1, notifications);
 			}
 
-			const messages = await this.buildMessages(bot, input, runId, inputEvent.createdAt);
+			const messages = await this.buildMessages(bot, input, runId, inputEvent.createdAt, { setupMode });
 			this.throwIfStopped(runId, abortController.signal);
 			if (providerSettings.apiKey || providerSettings.usesCustomBaseUrl || this.env.BICKR_SIMULATION_MODE === "provider") {
 				const outcome = await this.runProviderLoop(bot, providerSettings, runId, messages, runContext);
@@ -2753,14 +2785,19 @@ export class BotRuntime {
 		let publicSpotlightToolCallCount = 0;
 		let toolCallCount = 0;
 		let exposeAdditionalReplyAcknowledgementForRound = false;
+		let successfulToolCallsThisIteration = this.providerLoopInitialSuccessfulToolCallCount();
+		const maxSuccessfulToolCallsPerIteration = maxSuccessfulToolCallsPerIterationSetting(bot);
 		for (let turn = 0; turn < bot.tickSettings.maxToolCallsPerTick; turn += 1) {
 			this.throwIfStopped(runId, runContext.signal);
 			const serverTools = openRouterServerToolSelection(settings.baseUrl, bot.toolSettings);
 			const exposeAdditionalReplyAcknowledgement = exposeAdditionalReplyAcknowledgementForRound;
 			exposeAdditionalReplyAcknowledgementForRound = false;
+			const logOffOnly = iterationRequiresLogOffOnly(successfulToolCallsThisIteration, maxSuccessfulToolCallsPerIteration);
+			const functionTools = toolDefinitionsForProviderRound({ exposeAdditionalReplyAcknowledgement })
+				.filter((definition) => !logOffOnly || definition.function.name === "log_off");
 			const providerTools: ProviderToolDefinition[] = [
-				...toolDefinitionsForProviderRound({ exposeAdditionalReplyAcknowledgement }),
-				...serverTools.tools,
+				...functionTools,
+				...(logOffOnly ? [] : serverTools.tools),
 			];
 			let response: ProviderResponse;
 			let responseStatus: ProviderMessageStatus = "complete";
@@ -2786,8 +2823,13 @@ export class BotRuntime {
 					additionalReplyAcknowledgementToolArgument: exposeAdditionalReplyAcknowledgement ? "exposed" : "hidden",
 					openRouterServerTools: {
 						enabled: serverTools.enabled,
-						emitted: serverTools.emitted,
-						suppressed: serverTools.suppressed,
+						emitted: logOffOnly ? [] : serverTools.emitted,
+						suppressed: logOffOnly ? [...serverTools.suppressed, ...serverTools.emitted] : serverTools.suppressed,
+					},
+					iterationToolLimit: {
+						successfulToolCalls: successfulToolCallsThisIteration,
+						maxSuccessfulToolCalls: maxSuccessfulToolCallsPerIteration,
+						logOffOnly,
 					},
 					...(settings.topK !== undefined ? { topK: settings.topK } : {}),
 					...(settings.topP !== undefined ? { topP: settings.topP } : {}),
@@ -2883,6 +2925,30 @@ export class BotRuntime {
 			for (const toolCall of response.toolCalls) {
 				this.throwIfStopped(runId, runContext.signal);
 				const args = parseToolArgs(toolCall);
+				const canonicalName = canonicalToolName(toolCall.function.name);
+				if (
+					(canonicalName !== "log_off" && iterationRequiresLogOffOnly(successfulToolCallsThisIteration, maxSuccessfulToolCallsPerIteration)) ||
+					(logOffCalled && canonicalName !== "log_off")
+				) {
+					pendingToolCallIds.delete(toolCall.id);
+					const failure = iterationToolLimitFailure(canonicalName, args, maxSuccessfulToolCallsPerIteration);
+					await this.appendEvent(runId, "tool_result", {
+						name: canonicalName || "unknown_tool",
+						args: providerToolArgs(canonicalName, args),
+						result: failure,
+						error: true,
+					});
+					const toolMessage: ChatMessage = {
+						role: "tool",
+						tool_call_id: toolCall.id,
+						content: JSON.stringify(failure),
+					};
+					const loopMessage = this.appendLoopMessage(runId, toolMessage, "tool_failure");
+					this.recordLoopMessageLog(loopMessage.seq, "tool_call", JSON.stringify(toolCall));
+					this.recordLoopMessageLog(loopMessage.seq, "tool_result", toolMessage.content ?? "");
+					toolFailureAcknowledgements.push(toolFailureAssistantContent(failure));
+					continue;
+				}
 				let result: ToolResult;
 				try {
 					result = await this.executeTool(bot, runId, toolCall.function.name, args, runContext);
@@ -2898,6 +2964,7 @@ export class BotRuntime {
 					if (result.name === "log_off") {
 						logOffCalled = true;
 					}
+					successfulToolCallsThisIteration += 1;
 					if (runContext.spotlightId && mutableToolNames.has(result.name)) {
 						publicSpotlightToolCallCount += 1;
 					}
@@ -5081,8 +5148,10 @@ export class BotRuntime {
 		input: LoopInput,
 		runId: string,
 		inputCreatedAt: string,
+		options: { setupMode?: LoopSetupMode } = {},
 	): Promise<ChatMessage[]> {
-		const elapsed = formatElapsedTimeSincePreviousVisit(this.previousTerminalTickEvent(runId), inputCreatedAt);
+		const setupMode = options.setupMode ?? "new_iteration";
+		const elapsed = setupMode === "new_iteration" ? formatElapsedTimeSincePreviousVisit(this.previousTerminalTickEvent(runId), inputCreatedAt) : "";
 		if (elapsed) {
 			this.appendLoopMessage(runId, { role: "user", content: elapsed }, "input");
 		}
@@ -5090,16 +5159,20 @@ export class BotRuntime {
 		const existingProviderContent = this.providerContentInActiveContext();
 		if (input.spotlightContexts.length > 0) {
 			await this.appendSpotlightSyntheticContext(bot, runId, input.spotlightContexts, existingProfileUsernames, existingProviderContent);
-		} else {
+		} else if (setupMode === "new_iteration") {
 			await this.appendNotificationSyntheticContext(bot, runId, input.notifications, existingProfileUsernames, existingProviderContent);
 		}
-		for (const injection of input.injections) {
-			this.appendLoopMessage(runId, { role: "assistant", content: injectedThoughtAssistantContent(injection, {}) }, "injection");
+		if (setupMode !== "spotlight") {
+			for (const injection of input.injections) {
+				this.appendLoopMessage(runId, { role: "assistant", content: injectedThoughtAssistantContent(injection, {}) }, "injection");
+			}
+			if (input.toolUseReminder) {
+				this.appendLoopMessage(runId, { role: "assistant", content: input.toolUseReminder }, "reminder");
+			}
 		}
-		if (input.toolUseReminder) {
-			this.appendLoopMessage(runId, { role: "assistant", content: input.toolUseReminder }, "reminder");
+		if (setupMode === "new_iteration") {
+			this.appendLoopMessage(runId, { role: "assistant", content: effectiveReasoningPrefill(bot) }, "synthetic_context");
 		}
-		this.appendLoopMessage(runId, { role: "assistant", content: effectiveReasoningPrefill(bot) }, "synthetic_context");
 		return this.activeLoopMessagesForProvider();
 	}
 
@@ -5242,6 +5315,67 @@ export class BotRuntime {
 			.toArray()[0] ?? null;
 	}
 
+	private currentIterationStartedSinceLastLogOff(): boolean {
+		const lastLogOffSeq = this.latestSuccessfulLogOffToolResultSeq();
+		const row = this.state.storage.sql
+			.exec<{ found: number }>(
+				`SELECT 1 AS found
+				 FROM events
+				 WHERE seq > ?
+				   AND type = 'input'
+				 LIMIT 1`,
+				lastLogOffSeq,
+			)
+			.toArray()[0];
+		return Boolean(row);
+	}
+
+	private providerLoopInitialSuccessfulToolCallCount(): number {
+		if (!this.hasRuntimeStorage()) {
+			return 0;
+		}
+		return this.successfulToolCallCountSinceLastLogOff();
+	}
+
+	private hasRuntimeStorage(): boolean {
+		const runtime = this as unknown as { state?: { storage?: { sql?: unknown } } };
+		return Boolean(runtime.state?.storage?.sql);
+	}
+
+	private successfulToolCallCountSinceLastLogOff(): number {
+		const lastLogOffSeq = this.latestSuccessfulLogOffToolResultSeq();
+		const rows = this.state.storage.sql
+			.exec<RuntimeRow>(
+				`SELECT seq, run_id, type, payload_json, token_estimate, compacted_by, created_at
+				 FROM events
+				 WHERE seq > ?
+				   AND type = 'tool_result'
+				 ORDER BY seq ASC`,
+				lastLogOffSeq,
+			)
+			.toArray();
+		return rows.filter((row) => successfulToolResultPayload(runtimeRecord(JSON.parse(row.payload_json)))).length;
+	}
+
+	private latestSuccessfulLogOffToolResultSeq(): number {
+		const rows = this.state.storage.sql
+			.exec<RuntimeRow>(
+				`SELECT seq, run_id, type, payload_json, token_estimate, compacted_by, created_at
+				 FROM events
+				 WHERE type = 'tool_result'
+				   AND payload_json LIKE '%"name":"log_off"%'
+				 ORDER BY seq DESC`,
+			)
+			.toArray();
+		for (const row of rows) {
+			const payload = runtimeRecord(JSON.parse(row.payload_json));
+			if (canonicalToolName(stringValue(payload.name) ?? "") === "log_off" && successfulToolResultPayload(payload)) {
+				return row.seq;
+			}
+		}
+		return 0;
+	}
+
 	private latestCompactionSummary(): string {
 		const rows = this.state.storage.sql
 			.exec<{ payload_json: string }>(
@@ -5289,6 +5423,7 @@ export class BotRuntime {
 							spotlight_id AS spotlightId
 						 FROM injections
 						 WHERE consumed_at IS NULL
+						   AND kind != 'spotlight'
 						 ORDER BY created_at ASC
 						 LIMIT 10`,
 					)
@@ -10508,6 +10643,14 @@ function safelyNormalizeFailureArgs(name: string, args: Record<string, unknown>)
 	} catch {
 		return { ...args };
 	}
+}
+
+function successfulToolResultPayload(payload: Record<string, unknown>): boolean {
+	if (payload.error === true) {
+		return false;
+	}
+	const result = runtimeRecord(payload.result);
+	return result.ok !== false;
 }
 
 function toolFailureCode(error: unknown): string {

@@ -838,7 +838,15 @@ function parseTickSettings(value: unknown): Partial<BotTickSettings> {
 	if (record.maxToolCallsPerTick !== undefined) {
 		settings.maxToolCallsPerTick = boundedInteger(
 			record.maxToolCallsPerTick,
-			"Maximum tool calls per tick",
+			"Max tool call attempts per tick",
+			1,
+			32,
+		);
+	}
+	if (record.maxSuccessfulToolCallsPerIteration !== undefined) {
+		settings.maxSuccessfulToolCallsPerIteration = boundedInteger(
+			record.maxSuccessfulToolCallsPerIteration,
+			"Max successful tool calls per iteration",
 			1,
 			32,
 		);
