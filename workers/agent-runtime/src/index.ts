@@ -205,7 +205,7 @@ type LoopMessageLogRow = {
 	created_at: string;
 };
 
-type RuntimeFailureLogKind = Extract<BotLoopMessageLogKind, "compaction_request" | "compaction_response">;
+type RuntimeFailureLogKind = Extract<BotLoopMessageLogKind, "provider_request" | "provider_response" | "compaction_request" | "compaction_response">;
 
 type RuntimeFailureLog = {
 	kind: RuntimeFailureLogKind;
@@ -751,6 +751,22 @@ class ProviderCompactionRequestError extends Error {
 		this.originalError = originalError;
 		this.requestBody = requestBody;
 		this.responseBody = responseBody;
+	}
+}
+
+class ProviderLoopRequestError extends Error {
+	readonly originalError: unknown;
+	readonly requestBody: string;
+	readonly responseBody?: string;
+	readonly attempts: number;
+
+	constructor(originalError: unknown, requestBody: string, attempts: number, responseBody?: string) {
+		super(providerLoopFailureMessage(originalError, attempts));
+		this.name = "ProviderLoopRequestError";
+		this.originalError = originalError;
+		this.requestBody = requestBody;
+		this.responseBody = responseBody;
+		this.attempts = attempts;
 	}
 }
 
@@ -1533,6 +1549,9 @@ export function loopMessageContributesToProviderHistory(
 
 export function runtimeErrorLoopMessageContent(message: unknown): string {
 	const text = runtimeErrorText(message);
+	if (/^Inference failed after \d+ provider attempts\b/.test(text) || /^Inference failed before retrying\b/.test(text)) {
+		return safeContextText(text, 1_200);
+	}
 	return `${runtimeDiagnosticPrefix(text)}: ${safeContextText(text, 1_200)}`;
 }
 
@@ -3053,10 +3072,10 @@ export class BotRuntime {
 					previousRetryKey = retryKey;
 					continue;
 				}
-				throw error;
+				throw new ProviderLoopRequestError(error, body, attempt, providerFailureResponseText(error));
 			}
 		}
-		throw new ProviderRequestTimeoutError(providerRequestTimeoutMs);
+		throw new ProviderLoopRequestError(new ProviderRequestTimeoutError(providerRequestTimeoutMs), body, providerMaxAttempts);
 	}
 
 	private async callProviderForCompaction(
@@ -8103,7 +8122,7 @@ function providerStreamErrorFromChunk(chunk: { model?: unknown; error?: unknown 
 	const metadata = runtimeRecord(error.metadata);
 	const errorType = stringValue(metadata.error_type);
 	const body = errorType ? `${message} (${errorType})` : message;
-	return new ProviderRequestError(status, stringValue(chunk.model) ?? "unknown", "stream", body);
+	return new ProviderRequestError(status, stringValue(chunk.model) ?? "unknown", "stream", body, { rawResponse: JSON.stringify(chunk) });
 }
 
 function providerErrorStatus(value: unknown): number {
@@ -10165,7 +10184,7 @@ function providerRetryKey(error: unknown): string | null {
 	return null;
 }
 
-function providerCompactionFailureResponseText(error: unknown): string | undefined {
+function providerFailureResponseText(error: unknown): string | undefined {
 	if (error instanceof ProviderStructuredOutputValidationError) {
 		return error.rawResponse;
 	}
@@ -10175,14 +10194,33 @@ function providerCompactionFailureResponseText(error: unknown): string | undefin
 	return undefined;
 }
 
-function runtimeFailureLogs(error: unknown): RuntimeFailureLog[] {
-	if (!(error instanceof ProviderCompactionRequestError)) {
-		return [];
+function providerLoopFailureMessage(error: unknown, attempts: number): string {
+	const lastError = runtimeErrorText(error);
+	if (attempts > 1) {
+		const retries = attempts - 1;
+		return `Inference failed after ${attempts} provider attempts (${retries} ${retries === 1 ? "retry" : "retries"}); last error from provider:\n${lastError}`;
 	}
-	return [
-		{ kind: "compaction_request", text: error.requestBody },
-		...(error.responseBody ? [{ kind: "compaction_response" as const, text: error.responseBody }] : []),
-	];
+	return `Inference failed before retrying; error from provider:\n${lastError}`;
+}
+
+function providerCompactionFailureResponseText(error: unknown): string | undefined {
+	return providerFailureResponseText(error);
+}
+
+function runtimeFailureLogs(error: unknown): RuntimeFailureLog[] {
+	if (error instanceof ProviderLoopRequestError) {
+		return [
+			{ kind: "provider_request", text: error.requestBody },
+			...(error.responseBody ? [{ kind: "provider_response" as const, text: error.responseBody }] : []),
+		];
+	}
+	if (error instanceof ProviderCompactionRequestError) {
+		return [
+			{ kind: "compaction_request", text: error.requestBody },
+			...(error.responseBody ? [{ kind: "compaction_response" as const, text: error.responseBody }] : []),
+		];
+	}
+	return [];
 }
 
 function runtimeErrorText(error: unknown): string {

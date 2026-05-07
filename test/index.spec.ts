@@ -3250,6 +3250,89 @@ describe("Bickr Pages Functions", () => {
 		}
 	});
 
+	it("wraps exhausted loop provider retries with request and response diagnostics", async () => {
+		vi.useFakeTimers();
+		try {
+			const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+			const streamedProviderError = {
+				id: "response-failed",
+				model: "test/model",
+				choices: [],
+				error: {
+					code: 500,
+					message: "Internal Server Error",
+				},
+			};
+			const fetchProviderResponse = vi.fn(async () => sseStream([streamedProviderError]));
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				appendEvent: async (_runId: string, type: string, payload: Record<string, unknown>) => {
+					events.push({ type, payload });
+					return {
+						seq: events.length,
+						runId: _runId,
+						type,
+						payload,
+						tokenEstimate: 0,
+						createdAt: new Date().toISOString(),
+					};
+				},
+				broadcastProviderDelta: () => {},
+				clearProviderStreamActive: () => {},
+				fetchProviderResponse,
+				markProviderStreamActive: () => {},
+				throwIfStopped: (_runId: string, signal: AbortSignal) => {
+					if (signal.aborted) {
+						throw new Error("Unexpected abort.");
+					}
+				},
+			});
+			const callProvider = (BotRuntime.prototype as unknown as {
+				callProvider: (
+					settings: Record<string, unknown>,
+					messages: Array<Record<string, unknown>>,
+					tools: Array<Record<string, unknown>>,
+					runId: string,
+					streamSeq: number,
+					signal: AbortSignal,
+				) => Promise<{ content: string; toolCalls: unknown[] }>;
+			}).callProvider.bind(runtime);
+
+			let thrown: unknown;
+			const response = callProvider(
+				{
+					baseUrl: "https://openrouter.ai/api/v1",
+					model: "test/model",
+					temperature: 0.7,
+				},
+				[{ role: "user", content: "Act." }],
+				[],
+				"run-stream-provider-error-exhausted",
+				77,
+				new AbortController().signal,
+			).catch((error: unknown) => {
+				thrown = error;
+			});
+			await vi.advanceTimersByTimeAsync(300_000);
+			await response;
+
+			const rawResponse = JSON.stringify(streamedProviderError);
+			expect(fetchProviderResponse).toHaveBeenCalledTimes(5);
+			expect(events.filter((event) => event.type === "provider_retry").map((event) => event.payload.attempt)).toEqual([2, 3, 4, 5]);
+			expect(thrown).toMatchObject({
+				name: "ProviderLoopRequestError",
+				attempts: 5,
+				responseBody: rawResponse,
+			});
+			expect((thrown as Error).message).toContain("Inference failed after 5 provider attempts (4 retries); last error from provider:");
+			expect((thrown as Error).message).toContain("Inference request failed with status 500. Response: Internal Server Error");
+			expect((thrown as { requestBody?: string }).requestBody).toContain("\"stream\":true");
+			expect((thrown as { requestBody?: string }).requestBody).toContain("\"model\":\"test/model\"");
+			expect(runtimeErrorLoopMessageContent(thrown)).toMatch(/^Inference failed after 5 provider attempts \(4 retries\); last error from provider:/);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 		it("retains, reads, deletes, and clears bounded inference submissions", () => {
 			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 				state: {
@@ -4244,6 +4327,8 @@ describe("Bickr Pages Functions", () => {
 		const providerMessage = "Inference request failed with status 400. Response: TextEncodeInput must be Union[TextInputSequence].";
 		await expect(
 			recordTickFailure("run-provider-failed", { message: providerMessage }, [
+				{ kind: "provider_request", text: "{\"stream\":true}" },
+				{ kind: "provider_response", text: "{\"error\":\"provider 500\"}" },
 				{ kind: "compaction_request", text: "{\"messages\":[]}" },
 				{ kind: "compaction_response", text: "{\"error\":\"bad schema\"}" },
 			]),
@@ -4269,6 +4354,8 @@ describe("Bickr Pages Functions", () => {
 		expect(String(appendedLoopMessages[0]?.message.content)).toContain("TextEncodeInput");
 		expect(String(appendedLoopMessages[0]?.message.content)).toMatch(/^Inference provider returned an error: /);
 		expect(String(appendedLoopMessages[0]?.message.content)).not.toContain("Bickr website crashed");
+		expect(recordLoopMessageLog).toHaveBeenCalledWith(1, "provider_request", "{\"stream\":true}");
+		expect(recordLoopMessageLog).toHaveBeenCalledWith(1, "provider_response", "{\"error\":\"provider 500\"}");
 		expect(recordLoopMessageLog).toHaveBeenCalledWith(1, "compaction_request", "{\"messages\":[]}");
 		expect(recordLoopMessageLog).toHaveBeenCalledWith(1, "compaction_response", "{\"error\":\"bad schema\"}");
 	});
