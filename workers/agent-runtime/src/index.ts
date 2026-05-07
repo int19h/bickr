@@ -1130,7 +1130,7 @@ function sanitizeProviderMessagesForRequest(messages: readonly ChatMessage[]): C
 }
 
 function sanitizeProviderMessageForRequest(message: ChatMessage): ChatMessage {
-	return repairProviderMessageUnicode(message).value;
+	return ensureAssistantContentForProviderRequest(repairProviderMessageUnicode(message).value);
 }
 
 function repairProviderMessageUnicode(message: ChatMessage): InvalidUnicodeRepair<ChatMessage> {
@@ -1152,6 +1152,13 @@ function repairProviderMessageUnicode(message: ChatMessage): InvalidUnicodeRepai
 		}
 	}
 	return { value: repairedMessage, repairCount };
+}
+
+function ensureAssistantContentForProviderRequest(message: ChatMessage): ChatMessage {
+	if (message.role !== "assistant" || typeof message.content === "string") {
+		return message;
+	}
+	return { ...message, content: "" };
 }
 
 function repairJsonStringUnicode(text: string): InvalidUnicodeRepair<string> {

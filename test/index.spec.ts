@@ -124,6 +124,7 @@ import {
 import {
 	defaultTranslationPrompt,
 	type BotDocument,
+	type BotInferenceSubmissionMessage,
 	type BotLoopMessage,
 	type BotLoopMessageLog,
 	type BotRuntimeEvent,
@@ -993,6 +994,51 @@ describe("Bickr Pages Functions", () => {
 				presence_penalty: 0.5,
 				repetition_penalty: 1.15,
 			});
+		});
+
+		it("adds blank assistant content only in provider requests", () => {
+			const reasoningOnlyMessage: BotInferenceSubmissionMessage = {
+				role: "assistant",
+				reasoning_details: [
+					{ type: "reasoning.text", text: "I will choose a Bickr control.", format: "unknown", index: 0 },
+				],
+			};
+			const toolCallMessage: BotInferenceSubmissionMessage = {
+				role: "assistant",
+				content: null,
+				tool_calls: [
+					{
+						id: "call_read",
+						type: "function",
+						function: { name: "read_thread", arguments: "{\"threadId\":\"thr_test\"}" },
+					},
+				],
+			};
+
+			const chatRequest = providerChatCompletionRequest(
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				[reasoningOnlyMessage, toolCallMessage],
+				toolDefinitions,
+			);
+			const compactionRequest = providerCompactionRequest(
+				{ model: "test-model" },
+				[reasoningOnlyMessage],
+			);
+
+			expect(chatRequest.messages[0]).toEqual({
+				...reasoningOnlyMessage,
+				content: "",
+			});
+			expect(chatRequest.messages[1]).toEqual({
+				...toolCallMessage,
+				content: "",
+			});
+			expect(compactionRequest.messages[0]).toEqual({
+				...reasoningOnlyMessage,
+				content: "",
+			});
+			expect("content" in reasoningOnlyMessage).toBe(false);
+			expect(toolCallMessage.content).toBeNull();
 		});
 
 		it("builds structured provider compaction requests over the verbatim compacted chat", () => {
