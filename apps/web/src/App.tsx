@@ -7316,19 +7316,18 @@ function TranslationInferenceFields({
 					/>
 					<span>Inline translations</span>
 				</label>
-				{draft.translationEnabled && (
-					<Field help="Sent with the source text for each translation request." label="Translation prompt">
-						<input
-							className="input"
-							onChange={(event) => patch({ translationPrompt: event.target.value })}
-							placeholder={defaultTranslationPrompt}
-							value={draft.translationPrompt}
-						/>
-					</Field>
-				)}
 			</div>
 			{draft.translationEnabled && (
 				<>
+					<Field help="Sent with the source text for each translation request." label="Translation prompt">
+						<textarea
+							className="textarea"
+							onChange={(event) => patch({ translationPrompt: event.target.value })}
+							placeholder={defaultTranslationPrompt}
+							rows={4}
+							value={draft.translationPrompt}
+						/>
+					</Field>
 					<div className="inference-row model-reasoning-row">
 						<Field hint={translationModelSet ? undefined : effectiveLoopModel} label="Model">
 							<input

@@ -1064,8 +1064,7 @@ button:disabled {
 }
 
 .translation-enable-row {
-	align-items: end;
-	grid-template-columns: max-content minmax(0, 1fr);
+	align-items: center;
 }
 
 .reasoning-select {
@@ -3914,7 +3913,6 @@ fieldset {
 	.model-reasoning-row,
 	.inference-row.four,
 	.inference-row.three,
-	.translation-enable-row,
 	.forum-row {
 		grid-template-columns: minmax(0, 1fr);
 	}
