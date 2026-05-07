@@ -350,6 +350,16 @@ class SelfCorrectingToolCallError extends Error {
 	}
 }
 
+class RuntimeOperationTimeoutError extends Error {
+	readonly timeoutMs: number;
+
+	constructor(operation: string, timeoutMs: number) {
+		super(`${operation} did not finish within ${Math.round(timeoutMs / 1000)} seconds.`);
+		this.name = "RuntimeOperationTimeoutError";
+		this.timeoutMs = timeoutMs;
+	}
+}
+
 type DuplicateReply = {
 	threadId: string;
 	commentId: string;
@@ -705,6 +715,16 @@ class ProviderRequestTimeoutError extends Error {
 	}
 }
 
+class ProviderResponseBodyTimeoutError extends Error {
+	readonly timeoutMs: number;
+
+	constructor(timeoutMs: number) {
+		super(`Inference response body did not finish within ${Math.round(timeoutMs / 1000)} seconds.`);
+		this.name = "ProviderResponseBodyTimeoutError";
+		this.timeoutMs = timeoutMs;
+	}
+}
+
 class ProviderStreamIdleTimeoutError extends Error {
 	readonly timeoutMs: number;
 
@@ -750,8 +770,15 @@ const stopRequestStateKey = "stop_requested_run_id";
 const toolUseRecoveryStateKey = "tool_use_recovery";
 const pendingSpotlightTicksStateKey = "pending_spotlight_ticks";
 const contextBudgetCacheStateKey = (fingerprint: string): string => `context_budget:${fingerprint}`;
+const runtimeRunLeaseTimeoutMs = 15 * 60_000;
 const providerRequestTimeoutMs = 60_000;
+const providerBodyReadTimeoutMs = 60_000;
 const providerStreamIdleTimeoutMs = 60_000;
+const providerResponseBodyMaxBytes = 2_000_000;
+const serviceBindingTimeoutMs = 30_000;
+const serviceBindingResponseBodyMaxBytes = 1_000_000;
+const scheduledDispatchTimeoutMs = 10_000;
+const vectorBindingTimeoutMs = 10_000;
 const providerMaxAttempts = 5;
 const providerRetryBaseDelayMs = 3_000;
 const providerChatToolChoice = "required" as const;
@@ -3965,7 +3992,7 @@ export class BotRuntime {
 			return response.body;
 		}
 
-		const bodyText = await readLimitedText(response.body, 1_200);
+		const bodyText = await readProviderErrorBody(response, signal);
 		throw new ProviderRequestError(response.status, settings.model, endpoint, bodyText);
 	}
 
@@ -3993,11 +4020,17 @@ export class BotRuntime {
 		);
 
 		if (!response.ok) {
-			const bodyText = await readLimitedText(response.body, 1_200);
+			const bodyText = await readProviderErrorBody(response, signal);
 			throw new ProviderRequestError(response.status, settings.model, endpoint, bodyText);
 		}
 
-		const rawResponse = await response.text();
+		const rawResponse = await readJsonResponseText(
+			response,
+			providerResponseBodyMaxBytes,
+			signal,
+			providerBodyReadTimeoutMs,
+			() => new ProviderResponseBodyTimeoutError(providerBodyReadTimeoutMs),
+		);
 		const payload = JSON.parse(rawResponse) as {
 			id?: unknown;
 			model?: unknown;
@@ -4046,10 +4079,18 @@ export class BotRuntime {
 			providerRequestTimeoutMs,
 		);
 		if (!response.ok) {
-			const bodyText = await readLimitedText(response.body, 1_200);
+			const bodyText = await readProviderErrorBody(response, signal);
 			throw new ProviderRequestError(response.status, settings.model, endpoint, bodyText);
 		}
-		const payload = runtimeRecord(await response.json());
+		const payload = runtimeRecord(
+			await readJsonResponse(
+				response,
+				providerResponseBodyMaxBytes,
+				signal,
+				providerBodyReadTimeoutMs,
+				() => new ProviderResponseBodyTimeoutError(providerBodyReadTimeoutMs),
+			),
+		);
 		const usage = providerUsageFromValue(payload.usage);
 		if (!usage) {
 			throw new ProviderRequestError(502, settings.model, endpoint, "Inference provider did not return token usage.");
@@ -4587,31 +4628,46 @@ export class BotRuntime {
 	}
 
 	private async forumService(path: string, botId: string, body: unknown, signal: AbortSignal): Promise<unknown> {
-		const response = await this.env.FORUM_COORDINATOR_SERVICE.fetch(
-			new Request(`https://internal.bickr${path}`, {
-				method: "POST",
-				signal,
-				headers: {
-					"content-type": "application/json",
-					"x-bickr-bot-id": botId,
-				},
-				body: JSON.stringify(body),
-			}),
-		);
-		const payload = runtimeRecord(await response.json());
-		if (!response.ok || payload.ok !== true) {
-			const apiError = apiErrorPayload(payload);
-			if (apiError) {
-				throw new RepositoryError(
-					repositoryErrorCode(apiError.error),
-					apiError.message,
-					response.status || 500,
-					apiError.details,
+		return withAbortableTimeout(
+			signal,
+			serviceBindingTimeoutMs,
+			() => new RuntimeOperationTimeoutError("The Bickr page request", serviceBindingTimeoutMs),
+			async (timeoutSignal) => {
+				const response = await this.env.FORUM_COORDINATOR_SERVICE.fetch(
+					new Request(`https://internal.bickr${path}`, {
+						method: "POST",
+						signal: timeoutSignal,
+						headers: {
+							"content-type": "application/json",
+							"x-bickr-bot-id": botId,
+						},
+						body: JSON.stringify(body),
+					}),
 				);
-			}
-			throw new Error(`Tool request failed with status ${response.status}.`);
-		}
-		return payload.data;
+				const payload = runtimeRecord(
+					await readJsonResponse(
+						response,
+						serviceBindingResponseBodyMaxBytes,
+						timeoutSignal,
+						serviceBindingTimeoutMs,
+						() => new RuntimeOperationTimeoutError("The Bickr page response", serviceBindingTimeoutMs),
+					),
+				);
+				if (!response.ok || payload.ok !== true) {
+					const apiError = apiErrorPayload(payload);
+					if (apiError) {
+						throw new RepositoryError(
+							repositoryErrorCode(apiError.error),
+							apiError.message,
+							response.status || 500,
+							apiError.details,
+						);
+					}
+					throw new Error(`Bickr page request failed with status ${response.status}.`);
+				}
+				return payload.data;
+			},
+		);
 	}
 
 	private async buildMessages(
@@ -5721,12 +5777,12 @@ export class BotRuntime {
 		now: string,
 	): Promise<string | null> {
 		const enabled = await this.runtimeIndexEnabled(bot.id, bot.tickSettings.enabled);
-		const leaseExpiresAt = status === "running" ? new Date(Date.parse(now) + 15 * 60_000).toISOString() : null;
+		const leaseExpiresAt = status === "running" ? new Date(Date.parse(now) + runtimeRunLeaseTimeoutMs).toISOString() : null;
 		const nextDueAt =
 			status === "running" ? (enabled ? leaseExpiresAt : null)
 			: !enabled ? null
 			: status === "idle" ? this.nextDue(bot, now)
-			: new Date(Date.parse(now) + 15 * 60_000).toISOString();
+			: new Date(Date.parse(now) + runtimeRunLeaseTimeoutMs).toISOString();
 		await this.env.BICKR_D1.prepare(
 			`UPDATE bot_runtime_index
 			 SET status = ?, active_run_id = ?, lease_expires_at = ?, last_error = ?, next_due_at = ?, updated_at = ?
@@ -6276,6 +6332,7 @@ async function translateForUser(
 
 async function fetchProviderTranslation(settings: TranslationProviderSettings, text: string): Promise<string> {
 	const endpoint = providerChatCompletionsUrl(settings.baseUrl);
+	const signal = new AbortController().signal;
 	const headers: Record<string, string> = {
 		"content-type": "application/json",
 	};
@@ -6289,14 +6346,22 @@ async function fetchProviderTranslation(settings: TranslationProviderSettings, t
 			headers,
 			body: JSON.stringify(providerTranslationRequest(settings, text)),
 		},
-		new AbortController().signal,
+		signal,
 		providerRequestTimeoutMs,
 	);
 	if (!response.ok) {
-		const bodyText = await readLimitedText(response.body, 1_200);
+		const bodyText = await readProviderErrorBody(response, signal);
 		throw new ProviderRequestError(response.status, settings.model, endpoint, bodyText);
 	}
-	const payload = runtimeRecord(await response.json());
+	const payload = runtimeRecord(
+		await readJsonResponse(
+			response,
+			providerResponseBodyMaxBytes,
+			signal,
+			providerBodyReadTimeoutMs,
+			() => new ProviderResponseBodyTimeoutError(providerBodyReadTimeoutMs),
+		),
+	);
 	const choices = Array.isArray(payload.choices) ? payload.choices : [];
 	const firstChoice = runtimeRecord(choices[0]);
 	const message = runtimeRecord(firstChoice.message);
@@ -6492,12 +6557,28 @@ async function dispatchDueBots(env: Env, scheduledTime: number): Promise<void> {
 	await Promise.all(
 		(result.results ?? []).map(async (row) => {
 			const id = env.BOT_RUNTIME.idFromName(row.botId);
-			await env.BOT_RUNTIME.get(id).fetch(
-				new Request(`https://internal.bickr/bots/${encodeURIComponent(row.botId)}/tick`, {
-					method: "POST",
-					headers: { "x-bickr-scheduler": "1" },
-				}),
-			);
+			const parentSignal = new AbortController().signal;
+			try {
+				await withAbortableTimeout(
+					parentSignal,
+					scheduledDispatchTimeoutMs,
+					() => new RuntimeOperationTimeoutError("Scheduled Bickr visit dispatch", scheduledDispatchTimeoutMs),
+					(signal) =>
+						env.BOT_RUNTIME.get(id).fetch(
+							new Request(`https://internal.bickr/bots/${encodeURIComponent(row.botId)}/tick`, {
+								method: "POST",
+								signal,
+								headers: {
+									"content-type": "application/json",
+									"x-bickr-scheduler": "1",
+								},
+								body: JSON.stringify({ background: true }),
+							}),
+						),
+				);
+			} catch (error) {
+				console.warn("scheduled bot tick dispatch failed", row.botId, error);
+			}
 		}),
 	);
 }
@@ -8518,6 +8599,8 @@ function toolFailureSelfCorrection(failure: Pick<ToolFailurePayload, "code" | "t
 			return "I used an ID or handle that Bickr does not recognize, so I need to check the page for the right one before trying again.";
 		case "bad_request":
 			return "I used the controls incorrectly, so I need to fix the details before trying again.";
+		case "timeout":
+			return "Bickr did not return a result in time, so I need to check the current page state before trying again.";
 		default:
 			return `I need to adjust how I use ${safeContextText(failure.toolName, 120)} before trying again.`;
 	}
@@ -8869,23 +8952,29 @@ async function upsertBotVector(env: BotVectorEnv, bot: BotSummary): Promise<void
 	if (!env.AI || !env.BICKR_BOT_VECTORIZE) {
 		return;
 	}
+	const vectorIndex = env.BICKR_BOT_VECTORIZE;
 	try {
 		const vector = await embedText(env, botVectorText(bot));
 		if (!vector) {
 			return;
 		}
-		await env.BICKR_BOT_VECTORIZE.upsert([
-			{
-				id: bot.id,
-				values: vector,
-				metadata: {
-					type: "bot",
-					worldId: bot.homeWorldId,
-					worldHandle: bot.homeWorldHandle,
-					handle: bot.handle,
-				},
-			},
-		]);
+		await withStandaloneTimeout(
+			"Profile vector upsert",
+			vectorBindingTimeoutMs,
+			() =>
+				vectorIndex.upsert([
+					{
+						id: bot.id,
+						values: vector,
+						metadata: {
+							type: "bot",
+							worldId: bot.homeWorldId,
+							worldHandle: bot.homeWorldHandle,
+							handle: bot.handle,
+						},
+					},
+				]),
+		);
 	} catch (error) {
 		console.warn("bot vector upsert failed", error);
 	}
@@ -8895,8 +8984,13 @@ async function deleteBotVector(env: BotVectorEnv, botId: string): Promise<void> 
 	if (!env.BICKR_BOT_VECTORIZE) {
 		return;
 	}
+	const vectorIndex = env.BICKR_BOT_VECTORIZE;
 	try {
-		await env.BICKR_BOT_VECTORIZE.deleteByIds([botId]);
+		await withStandaloneTimeout(
+			"Profile vector delete",
+			vectorBindingTimeoutMs,
+			() => vectorIndex.deleteByIds([botId]),
+		);
 	} catch (error) {
 		console.warn("bot vector delete failed", error);
 	}
@@ -8911,16 +9005,19 @@ async function vectorSearchBots(
 	if (!env.AI || !env.BICKR_BOT_VECTORIZE || !query.trim()) {
 		return [];
 	}
+	const vectorIndex = env.BICKR_BOT_VECTORIZE;
 	try {
 		const vector = await embedText(env, query);
 		if (!vector) {
 			return [];
 		}
-		const matches = await env.BICKR_BOT_VECTORIZE.query(vector, {
-			topK: Math.max(1, Math.min(50, limit)),
-			returnMetadata: true,
-			filter: { worldId },
-		});
+		const matches = await withStandaloneTimeout("Profile vector query", vectorBindingTimeoutMs, () =>
+			vectorIndex.query(vector, {
+				topK: Math.max(1, Math.min(50, limit)),
+				returnMetadata: true,
+				filter: { worldId },
+			}),
+		);
 		const results: BotSearchResult[] = [];
 		for (const match of matches.matches) {
 			const bot = await botById(env.BICKR_KV, env.BICKR_D1, match.id);
@@ -8943,7 +9040,12 @@ async function embedText(env: Pick<Env, "AI">, text: string): Promise<number[] |
 	if (!env.AI) {
 		return null;
 	}
-	const response = (await env.AI.run(botEmbeddingModel, { text: [text] })) as EmbeddingResponse;
+	const ai = env.AI;
+	const response = await withStandaloneTimeout(
+		"Profile embedding",
+		vectorBindingTimeoutMs,
+		() => ai.run(botEmbeddingModel, { text: [text] }) as Promise<EmbeddingResponse>,
+	);
 	return response.data?.[0] ?? null;
 }
 
@@ -9182,34 +9284,164 @@ export function truncateForContext(text: string, maxLength: number): string {
 	return `${unicodeSafeSlice(repaired, Math.max(0, maxLength - 1))}…`;
 }
 
-async function readLimitedText(stream: ReadableStream<Uint8Array> | null, maxBytes: number): Promise<string> {
+type ReadTextOptions = {
+	signal?: AbortSignal;
+	timeoutMs?: number;
+	timeoutError?: () => Error;
+};
+
+type ReadTextResult = {
+	text: string;
+	truncated: boolean;
+};
+
+async function readProviderErrorBody(response: Response, signal: AbortSignal): Promise<string> {
+	try {
+		return await readLimitedText(response.body, 1_200, {
+			signal,
+			timeoutMs: providerBodyReadTimeoutMs,
+			timeoutError: () => new ProviderResponseBodyTimeoutError(providerBodyReadTimeoutMs),
+		});
+	} catch (error) {
+		if (error instanceof TickStoppedError || isAbortError(error)) {
+			throw error;
+		}
+		if (error instanceof ProviderResponseBodyTimeoutError) {
+			return "Timed out while reading provider error response.";
+		}
+		return "Could not read provider error response.";
+	}
+}
+
+async function readJsonResponse(
+	response: Response,
+	maxBytes: number,
+	signal: AbortSignal,
+	timeoutMs: number,
+	timeoutError: () => Error,
+): Promise<unknown> {
+	return JSON.parse(await readJsonResponseText(response, maxBytes, signal, timeoutMs, timeoutError));
+}
+
+async function readJsonResponseText(
+	response: Response,
+	maxBytes: number,
+	signal: AbortSignal,
+	timeoutMs: number,
+	timeoutError: () => Error,
+): Promise<string> {
+	const result = await readTextFromStream(response.body, maxBytes, {
+		signal,
+		timeoutMs,
+		timeoutError,
+	});
+	if (result.truncated) {
+		throw new Error(`Response body exceeded ${maxBytes} bytes.`);
+	}
+	return result.text;
+}
+
+async function readLimitedText(
+	stream: ReadableStream<Uint8Array> | null,
+	maxBytes: number,
+	options: ReadTextOptions = {},
+): Promise<string> {
+	const result = await readTextFromStream(stream, maxBytes, options);
+	const trimmed = result.text.trim();
+	return result.truncated ? `${trimmed}...` : trimmed;
+}
+
+async function readTextFromStream(
+	stream: ReadableStream<Uint8Array> | null,
+	maxBytes: number,
+	options: ReadTextOptions = {},
+): Promise<ReadTextResult> {
 	if (!stream) {
-		return "";
+		return { text: "", truncated: false };
 	}
 	const reader = stream.getReader();
 	const decoder = new TextDecoder();
 	let text = "";
 	let bytesRead = 0;
+	let timeout: ReturnType<typeof setTimeout> | undefined;
+	let abortListener: (() => void) | undefined;
+	const cancelReader = (reason: string) => {
+		void reader.cancel(reason).catch(() => {
+			// The stream may already have completed or been canceled by the peer.
+		});
+	};
+	const timeoutMs = options.timeoutMs;
+	const timeoutPromise =
+		timeoutMs === undefined ?
+			undefined
+		:	new Promise<never>((_, reject) => {
+				timeout = setTimeout(() => {
+					const error = options.timeoutError ? options.timeoutError() : new RuntimeOperationTimeoutError("Response body read", timeoutMs);
+					cancelReader(error.message);
+					reject(error);
+				}, timeoutMs);
+			});
+	let abortPromise: Promise<never> | undefined;
+	if (options.signal) {
+		if (options.signal.aborted) {
+			cancelReader("This Bickr visit was stopped.");
+			throw new TickStoppedError();
+		}
+		abortPromise = new Promise<never>((_, reject) => {
+			abortListener = () => {
+				cancelReader("This Bickr visit was stopped.");
+				reject(new TickStoppedError());
+			};
+			options.signal?.addEventListener("abort", abortListener, { once: true });
+		});
+	}
+	const read = () =>
+		Promise.race(
+			[
+				reader.read(),
+				...(timeoutPromise ? [timeoutPromise] : []),
+				...(abortPromise ? [abortPromise] : []),
+			],
+		);
 	try {
-		while (bytesRead < maxBytes) {
-			const { done, value } = await reader.read();
+		while (true) {
+			if (bytesRead >= maxBytes) {
+				const { done } = await read();
+				if (done) {
+					text += decoder.decode();
+					return { text, truncated: false };
+				}
+				cancelReader("Response body byte limit reached.");
+				return { text, truncated: true };
+			}
+			const { done, value } = await read();
 			if (done) {
-				break;
+				text += decoder.decode();
+				return { text, truncated: false };
 			}
 			const remaining = maxBytes - bytesRead;
 			const chunk = value.byteLength > remaining ? value.slice(0, remaining) : value;
 			bytesRead += chunk.byteLength;
-			text += decoder.decode(chunk, { stream: bytesRead < maxBytes });
+			const truncated = value.byteLength > remaining;
+			text += decoder.decode(chunk, { stream: !truncated });
 			if (value.byteLength > remaining) {
-				await reader.cancel();
-				break;
+				cancelReader("Response body byte limit reached.");
+				return { text, truncated: true };
 			}
 		}
 	} finally {
-		reader.releaseLock();
+		if (timeout !== undefined) {
+			clearTimeout(timeout);
+		}
+		if (options.signal && abortListener) {
+			options.signal.removeEventListener("abort", abortListener);
+		}
+		try {
+			reader.releaseLock();
+		} catch {
+			// A canceled read can still be settling after the caller has moved on.
+		}
 	}
-	const trimmed = text.trim();
-	return bytesRead >= maxBytes ? `${trimmed}...` : trimmed;
 }
 
 function isAbortError(error: unknown): boolean {
@@ -9234,7 +9466,12 @@ async function* readSse(
 			if (signal?.aborted) {
 				throw new TickStoppedError();
 			}
-			const { done, value } = await readStreamChunk(reader, idleTimeoutMs);
+			const { done, value } = await readStreamChunk(
+				reader,
+				idleTimeoutMs,
+				() => new ProviderStreamIdleTimeoutError(idleTimeoutMs),
+				signal,
+			);
 			if (signal?.aborted) {
 				throw new TickStoppedError();
 			}
@@ -9269,25 +9506,50 @@ async function* readSse(
 async function readStreamChunk(
 	reader: ReadableStreamDefaultReader<Uint8Array>,
 	idleTimeoutMs: number,
+	timeoutError: () => Error = () => new ProviderStreamIdleTimeoutError(idleTimeoutMs),
+	signal?: AbortSignal,
 ): Promise<ReadableStreamReadResult<Uint8Array>> {
+	if (signal?.aborted) {
+		void reader.cancel("This Bickr visit was stopped.").catch(() => {
+			// The stream may already be closed or aborted by the provider.
+		});
+		throw new TickStoppedError();
+	}
 	let timeout: ReturnType<typeof setTimeout> | undefined;
+	let abortListener: (() => void) | undefined;
+	const cancelReader = (reason: string) => {
+		void reader.cancel(reason).catch(() => {
+			// The stream may already be closed or aborted by the provider.
+		});
+	};
+	const abortPromise =
+		signal ?
+			new Promise<never>((_, reject) => {
+				abortListener = () => {
+					cancelReader("This Bickr visit was stopped.");
+					reject(new TickStoppedError());
+				};
+				signal.addEventListener("abort", abortListener, { once: true });
+			})
+		:	undefined;
 	try {
 		return await Promise.race([
 			reader.read(),
+			...(abortPromise ? [abortPromise] : []),
 			new Promise<never>((_, reject) => {
-				timeout = setTimeout(() => reject(new ProviderStreamIdleTimeoutError(idleTimeoutMs)), idleTimeoutMs);
+				timeout = setTimeout(() => {
+					const error = timeoutError();
+					cancelReader(error.message);
+					reject(error);
+				}, idleTimeoutMs);
 			}),
 		]);
-	} catch (error) {
-		if (error instanceof ProviderStreamIdleTimeoutError) {
-			void reader.cancel(error.message).catch(() => {
-				// The stream may already be closed or aborted by the provider.
-			});
-		}
-		throw error;
 	} finally {
 		if (timeout !== undefined) {
 			clearTimeout(timeout);
+		}
+		if (signal && abortListener) {
+			signal.removeEventListener("abort", abortListener);
 		}
 	}
 }
@@ -9298,30 +9560,68 @@ async function providerFetchWithHeaderTimeout(
 	signal: AbortSignal,
 	timeoutMs: number,
 ): Promise<Response> {
+	return withAbortableTimeout(
+		signal,
+		timeoutMs,
+		() => new ProviderRequestTimeoutError(timeoutMs),
+		(timeoutSignal) => fetch(endpoint, { ...init, signal: timeoutSignal }),
+	);
+}
+
+async function withStandaloneTimeout<T>(operation: string, timeoutMs: number, run: () => Promise<T>): Promise<T> {
+	const parent = new AbortController();
+	return withAbortableTimeout(
+		parent.signal,
+		timeoutMs,
+		() => new RuntimeOperationTimeoutError(operation, timeoutMs),
+		() => run(),
+	);
+}
+
+async function withAbortableTimeout<T>(
+	signal: AbortSignal,
+	timeoutMs: number,
+	timeoutError: () => Error,
+	run: (signal: AbortSignal) => Promise<T>,
+): Promise<T> {
 	if (signal.aborted) {
 		throw new TickStoppedError();
 	}
 	const controller = new AbortController();
 	let timedOut = false;
-	const abortFromParent = () => controller.abort();
-	const timeout = setTimeout(() => {
-		timedOut = true;
-		controller.abort();
-	}, timeoutMs);
-	signal.addEventListener("abort", abortFromParent, { once: true });
+	let timeout: ReturnType<typeof setTimeout> | undefined;
+	let abortFromParent: (() => void) | undefined;
+	const abortPromise = new Promise<never>((_, reject) => {
+		abortFromParent = () => {
+			controller.abort();
+			reject(new TickStoppedError());
+		};
+		signal.addEventListener("abort", abortFromParent, { once: true });
+	});
+	const timeoutPromise = new Promise<never>((_, reject) => {
+		timeout = setTimeout(() => {
+			timedOut = true;
+			controller.abort();
+			reject(timeoutError());
+		}, timeoutMs);
+	});
 	try {
-		return await fetch(endpoint, { ...init, signal: controller.signal });
+		return await Promise.race([run(controller.signal), abortPromise, timeoutPromise]);
 	} catch (error) {
 		if (timedOut) {
-			throw new ProviderRequestTimeoutError(timeoutMs);
+			throw timeoutError();
 		}
 		if (signal.aborted) {
 			throw new TickStoppedError();
 		}
 		throw error;
 	} finally {
-		clearTimeout(timeout);
-		signal.removeEventListener("abort", abortFromParent);
+		if (timeout !== undefined) {
+			clearTimeout(timeout);
+		}
+		if (abortFromParent) {
+			signal.removeEventListener("abort", abortFromParent);
+		}
 	}
 }
 
@@ -9330,7 +9630,11 @@ function isRetryableProviderStatus(status: number): boolean {
 }
 
 function providerRetryKey(error: unknown): string | null {
-	if (error instanceof ProviderRequestTimeoutError || error instanceof ProviderStreamIdleTimeoutError) {
+	if (
+		error instanceof ProviderRequestTimeoutError ||
+		error instanceof ProviderResponseBodyTimeoutError ||
+		error instanceof ProviderStreamIdleTimeoutError
+	) {
 		return error.message;
 	}
 	if (error instanceof ProviderRequestError && isRetryableProviderStatus(error.status)) {
@@ -9639,6 +9943,9 @@ function toolFailureCode(error: unknown): string {
 	if (error instanceof InputError) {
 		return "bad_request";
 	}
+	if (error instanceof RuntimeOperationTimeoutError) {
+		return "timeout";
+	}
 	return "tool_error";
 }
 
@@ -9652,6 +9959,9 @@ function toolFailureGuidance(name: string, error: unknown): string | undefined {
 	}
 	if (canonical === "create_thread" && error instanceof RepositoryError && error.code === "conflict" && error.details?.existingThread) {
 		return `Read existing thread ${error.details.existingThread.id} or choose a clearly different title.`;
+	}
+	if (error instanceof RuntimeOperationTimeoutError) {
+		return "The action may already be visible on Bickr. Read the relevant page state before repeating it.";
 	}
 	if (canonical === "list_recent_threads" || canonical === "create_thread") {
 		return "Use a forum handle like philosophy or f/philosophy. Do not include unrelated entity prefixes.";

@@ -4,7 +4,7 @@ import { forumByHandle, sendSpotlight } from "@bickr/shared/social";
 import { normalizeHandleParam } from "@bickr/shared/validation";
 import { requireCompleteUser, type AppEnv } from "../../../../../_auth";
 import { pageErrorResponse } from "../../../../../_errors";
-import { serviceRequest } from "../../../../../_proxy";
+import { fetchServiceJson, serviceRequest } from "../../../../../_proxy";
 
 export const onRequestPost: PagesFunction<AppEnv, "worldHandle" | "forumHandle"> = async ({
 	env,
@@ -24,7 +24,8 @@ export const onRequestPost: PagesFunction<AppEnv, "worldHandle" | "forumHandle">
 			forum,
 			input,
 			async (botId, text, spotlightId) => {
-				const response = await env.AGENT_RUNTIME.fetch(
+				const { response, payload } = await fetchServiceJson(
+					env.AGENT_RUNTIME,
 					serviceRequest(
 						request,
 						`/bots/${encodeURIComponent(botId)}/inject`,
@@ -32,15 +33,15 @@ export const onRequestPost: PagesFunction<AppEnv, "worldHandle" | "forumHandle">
 						JSON.stringify({ text, kind: "spotlight", sourceId: spotlightId, spotlightId }),
 					),
 				);
-				const payload = (await response.json()) as {
+				const body = payload as {
 					ok?: boolean;
 					data?: { injectionId?: string };
 					message?: string;
 				};
-				if (!response.ok || payload.ok === false) {
-					throw new Error(payload.message ?? `Injection failed with status ${response.status}.`);
+				if (!response.ok || body.ok === false) {
+					throw new Error(body.message ?? `Injection failed with status ${response.status}.`);
 				}
-				return { injectionId: payload.data?.injectionId };
+				return { injectionId: body.data?.injectionId };
 			},
 		);
 		if (input.autoStartTick ?? true) {
@@ -74,7 +75,8 @@ async function startSpotlightTick(
 	injectionId: string,
 	spotlightId: string,
 ): Promise<{ status: NonNullable<SpotlightDeliveryResult["tickStatus"]>; error?: string }> {
-	const response = await env.AGENT_RUNTIME.fetch(
+	const { response, payload } = await fetchServiceJson(
+		env.AGENT_RUNTIME,
 		serviceRequest(
 			request,
 			`/bots/${encodeURIComponent(botId)}/tick`,
@@ -82,15 +84,15 @@ async function startSpotlightTick(
 			JSON.stringify({ mode: "spotlight", injectionIds: [injectionId], spotlightId, background: true }),
 		),
 	);
-	const payload = (await response.json()) as {
+	const body = payload as {
 		ok?: boolean;
 		data?: { run?: { status?: string; error?: string } };
 		message?: string;
 	};
-	if (!response.ok || payload.ok === false) {
-		return { status: "failed", error: payload.message ?? `Tick start failed with status ${response.status}.` };
+	if (!response.ok || body.ok === false) {
+		return { status: "failed", error: body.message ?? `Tick start failed with status ${response.status}.` };
 	}
-	const run = payload.data?.run;
+	const run = body.data?.run;
 	return {
 		status: spotlightTickStatus(run?.status),
 		...(run?.error ? { error: run.error } : {}),
