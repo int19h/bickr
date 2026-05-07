@@ -38,6 +38,7 @@ import {
 	type HumanProfileDeleteBlocker,
 	type HumanSubscription,
 	type HumanSubscriptionScope,
+	type JsonObject,
 	type LinkedAuthIdentity,
 	type PublicUser,
 	type SearchThreadResult,
@@ -60,6 +61,7 @@ import {
 	isValidHandleText,
 	maxBotPromptLength,
 	maxBotReasoningPrefillLength,
+	maxProviderRoutingJsonLength,
 	normalizeHandleText,
 	sanitizeHandleInput,
 } from "@bickr/shared/validation";
@@ -157,6 +159,7 @@ type InferenceDraft = {
 	baseUrl: string;
 	model: string;
 	reasoningPrefill: string;
+	providerRouting: string;
 	translationModel: string;
 	translationPrompt: string;
 	temperature: string;
@@ -5401,6 +5404,7 @@ function BotEdit({
 	const tickIntervalMinutes = parsePositiveInteger(draft.tickIntervalMinutes);
 	const contextWindowTokens = parsePositiveInteger(draft.contextWindowTokens);
 	const maxToolCallsPerTick = parsePositiveInteger(draft.maxToolCallsPerTick);
+	const providerRoutingError = providerRoutingDraftError(draft.inference.providerRouting);
 	const inferenceInheritance: InferenceModelUnlockContext = {
 		apiKeySet: Boolean(ownerInferenceSettings?.openRouterApiKeySet),
 		...(ownerInferenceSettings?.baseUrl ? { baseUrl: ownerInferenceSettings.baseUrl } : {}),
@@ -5426,6 +5430,7 @@ function BotEdit({
 		draft.prompt.trim().length > 0 &&
 		draft.prompt.length <= maxBotPromptLength &&
 		draft.inference.reasoningPrefill.length <= maxBotReasoningPrefillLength &&
+		!providerRoutingError &&
 		tickIntervalMinutes >= 1 &&
 		tickIntervalMinutes <= 1440 &&
 		contextWindowTokens >= 2000 &&
@@ -5457,7 +5462,12 @@ function BotEdit({
 	}
 
 	async function computePromptBudget(): Promise<void> {
-		if (!draft.prompt.trim() || contextWindowTokens < 2_000 || contextWindowTokens > 1_000_000) {
+		if (
+			!draft.prompt.trim() ||
+			contextWindowTokens < 2_000 ||
+			contextWindowTokens > 1_000_000 ||
+			providerRoutingDraftError(draft.inference.providerRouting)
+		) {
 			return;
 		}
 		const requestKey = promptBudgetRequestKey;
@@ -6695,7 +6705,10 @@ function ProfileScreen({
 	const profileIncomplete = !(profile?.profileComplete ?? user.profileComplete);
 	const authIdentities = profile?.authIdentities ?? [];
 	const dirty = profile ? profileDraftChanged(draft, profile) : true;
-	const valid = isValidHandle(draft.handle) && draft.displayName.trim().length > 0;
+	const valid =
+		isValidHandle(draft.handle) &&
+		draft.displayName.trim().length > 0 &&
+		!providerRoutingDraftError(draft.inference.providerRouting);
 	const canSave = (dirty || profileIncomplete) && valid && !busy && !loading;
 
 	async function save(): Promise<void> {
@@ -6969,6 +6982,10 @@ function InferenceSettingsFields({
 				</div>
 				{draft.clearOpenRouterApiKey && <div className="help">The saved key will be removed on save.</div>}
 			</Field>
+			<ProviderRoutingField
+				onChange={(providerRouting) => patch({ providerRouting })}
+				value={draft.providerRouting}
+			/>
 			<div className="field-row">
 				<Field
 					help={
@@ -7144,6 +7161,49 @@ function InferenceSettingsFields({
 				</Field>
 			</div>
 		</div>
+	);
+}
+
+const openRouterProviderRoutingDocsUrl = "https://openrouter.ai/docs/guides/routing/provider-selection";
+const providerRoutingPlaceholder = `{
+  "max_price": {
+    "prompt": 0.25,
+    "completion": 0.75
+  }
+}`;
+
+function ProviderRoutingField({
+	onChange,
+	value,
+}: {
+	onChange: (value: string) => void;
+	value: string;
+}) {
+	const error = providerRoutingDraftError(value);
+	return (
+		<details className="provider-routing-details">
+			<summary>Provider routing ...</summary>
+			<Field>
+				<textarea
+					className={`textarea provider-routing-editor ${error ? "invalid" : ""}`}
+					onChange={(event) => onChange(event.target.value)}
+					placeholder={providerRoutingPlaceholder}
+					rows={7}
+					spellCheck={false}
+					value={value}
+				/>
+				{error ?
+					<div className="runtime-message error">{error}</div>
+				:	<div className="help">
+						Sent as OpenRouter's <code>provider</code> request-body object. See{" "}
+						<a href={openRouterProviderRoutingDocsUrl} rel="noreferrer" target="_blank">
+							OpenRouter provider routing docs
+						</a>
+						.
+					</div>
+				}
+			</Field>
+		</details>
 	);
 }
 
@@ -12245,6 +12305,7 @@ function inferenceDraftFromSettings(settings: BotInferenceSettings): InferenceDr
 		baseUrl: settings.baseUrl ?? "",
 		model: settings.model ?? "",
 		reasoningPrefill: settings.reasoningPrefill ?? "",
+		providerRouting: providerRoutingDraftValue(settings.providerRouting),
 		translationModel: settings.translation?.model ?? "",
 		translationPrompt: settings.translation?.prompt ?? defaultTranslationPrompt,
 		temperature: numericDraftValue(settings.temperature),
@@ -12268,6 +12329,7 @@ function inferenceDraftChanged(
 		draft.baseUrl.trim() !== (settings.baseUrl ?? "") ||
 		draft.model.trim() !== (settings.model ?? "") ||
 		(Boolean(options.includeReasoningPrefill) && draft.reasoningPrefill !== (settings.reasoningPrefill ?? "")) ||
+		providerRoutingDraftChanged(draft.providerRouting, settings.providerRouting) ||
 		(Boolean(options.includeTranslation) && translationDraftChanged(draft, settings)) ||
 		draft.temperature.trim() !== numericDraftValue(settings.temperature) ||
 		draft.topK.trim() !== numericDraftValue(settings.topK) ||
@@ -12306,6 +12368,7 @@ function inferenceInputFromDraft(
 		...(options.includeReasoningPrefill ?
 			{ reasoningPrefill: nullablePreservedTextInput(normalized.reasoningPrefill) }
 		:	{}),
+		providerRouting: providerRoutingInputFromDraft(normalized.providerRouting),
 		...(options.includeTranslation ? { translation: translationInputFromDraft(normalized) } : {}),
 		temperature: nullableNumberInput(normalized.temperature),
 		topK: nullableNumberInput(normalized.topK),
@@ -12434,6 +12497,7 @@ function botPromptBudgetRequestKey(
 		displayName: draft.displayName,
 		model: effectiveInferenceDraftModel(draft.inference, inherited),
 		prompt: draft.prompt,
+		providerRouting: providerRoutingDraftFingerprintValue(draft.inference.providerRouting),
 		reasoningPrefill: draft.inference.reasoningPrefill.trim() ?
 			draft.inference.reasoningPrefill
 		:	defaultReasoningPrefill(botHandle),
@@ -12507,6 +12571,88 @@ function effectiveBotModel(bot: BotSummary, inherited?: BotInferenceSettings | n
 		return inherited.model;
 	}
 	return defaultProviderModel;
+}
+
+function providerRoutingDraftValue(value: JsonObject | undefined): string {
+	return value === undefined ? "" : JSON.stringify(value, null, 2);
+}
+
+function providerRoutingDraftError(value: string): string {
+	const trimmed = value.trim();
+	if (!trimmed) {
+		return "";
+	}
+	if (trimmed.length > maxProviderRoutingJsonLength) {
+		return `Provider routing must be ${maxProviderRoutingJsonLength} characters or fewer.`;
+	}
+	try {
+		const parsed = JSON.parse(trimmed) as unknown;
+		if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+			return "Provider routing must be a JSON object.";
+		}
+		const encoded = JSON.stringify(parsed);
+		if (encoded.length > maxProviderRoutingJsonLength) {
+			return `Provider routing must be ${maxProviderRoutingJsonLength} characters or fewer.`;
+		}
+		return "";
+	} catch {
+		return "Provider routing must be valid JSON.";
+	}
+}
+
+function providerRoutingInputFromDraft(value: string): JsonObject | null {
+	const trimmed = value.trim();
+	if (!trimmed) {
+		return null;
+	}
+	if (trimmed.length > maxProviderRoutingJsonLength) {
+		throw new Error(`Provider routing must be ${maxProviderRoutingJsonLength} characters or fewer.`);
+	}
+	const parsed = JSON.parse(trimmed) as unknown;
+	if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+		throw new Error("Provider routing must be a JSON object.");
+	}
+	const encoded = JSON.stringify(parsed);
+	if (encoded.length > maxProviderRoutingJsonLength) {
+		throw new Error(`Provider routing must be ${maxProviderRoutingJsonLength} characters or fewer.`);
+	}
+	return parsed as JsonObject;
+}
+
+function providerRoutingDraftChanged(draftValue: string, settingsValue: JsonObject | undefined): boolean {
+	try {
+		const draftRouting = providerRoutingInputFromDraft(draftValue);
+		if (draftRouting === null) {
+			return settingsValue !== undefined;
+		}
+		return settingsValue === undefined || canonicalJsonString(draftRouting) !== canonicalJsonString(settingsValue);
+	} catch {
+		return draftValue.trim() !== providerRoutingDraftValue(settingsValue).trim();
+	}
+}
+
+function providerRoutingDraftFingerprintValue(value: string): string | null {
+	try {
+		const routing = providerRoutingInputFromDraft(value);
+		return routing === null ? null : canonicalJsonString(routing);
+	} catch {
+		return value.trim();
+	}
+}
+
+function canonicalJsonString(value: JsonObject): string {
+	return JSON.stringify(canonicalJsonValue(value));
+}
+
+function canonicalJsonValue(value: unknown): unknown {
+	if (Array.isArray(value)) {
+		return value.map(canonicalJsonValue);
+	}
+	if (value && typeof value === "object") {
+		const object = value as Record<string, unknown>;
+		return Object.fromEntries(Object.keys(object).sort().map((key) => [key, canonicalJsonValue(object[key])]));
+	}
+	return value;
 }
 
 function numericDraftValue(value: number | undefined): string {

@@ -1026,10 +1026,32 @@ button:disabled {
 	color: var(--ink-4);
 }
 
+.textarea.invalid {
+	border-color: var(--danger);
+}
+
 .textarea {
 	line-height: 1.5;
 	min-height: 96px;
 	resize: vertical;
+}
+
+.provider-routing-details {
+	display: grid;
+	gap: 10px;
+}
+
+.provider-routing-details > summary {
+	color: var(--ink-2);
+	cursor: pointer;
+	font-size: 13px;
+	font-weight: 600;
+	width: fit-content;
+}
+
+.provider-routing-editor {
+	font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+	min-height: 150px;
 }
 
 .prompt-editor {

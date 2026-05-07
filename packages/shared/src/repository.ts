@@ -35,6 +35,7 @@ import {
 	type HumanProfile,
 	type HumanProfileDeleteBlocker,
 	type HumanProfileDeleteEligibility,
+	type JsonObject,
 	type LinkedAuthIdentity,
 	type PublicUser,
 	type SessionDocument,
@@ -1899,6 +1900,7 @@ export function mergeInferenceSettings(
 		...defaultInferenceSettings,
 		...(current ?? {}),
 		...(current?.translation ? { translation: { ...current.translation } } : {}),
+		...(current?.providerRouting ? { providerRouting: cloneJsonObject(current.providerRouting) } : {}),
 	};
 	delete next.openRouterApiKeySet;
 	if (!patch) {
@@ -1909,6 +1911,7 @@ export function mergeInferenceSettings(
 	assignInferenceString(next, "baseUrl", patch.baseUrl);
 	assignInferenceString(next, "model", patch.model);
 	assignInferencePreservedString(next, "reasoningPrefill", patch.reasoningPrefill);
+	assignInferenceJsonObject(next, "providerRouting", patch.providerRouting);
 	if (patch.translation !== undefined) {
 		const translation = mergeTranslationSettings(next.translation, patch.translation);
 		if (translation) {
@@ -2243,6 +2246,21 @@ function assignInferencePreservedString(
 	settings[key] = value;
 }
 
+function assignInferenceJsonObject(
+	settings: BotInferenceSettings,
+	key: "providerRouting",
+	value: JsonObject | null | undefined,
+): void {
+	if (value === undefined) {
+		return;
+	}
+	if (value === null) {
+		delete settings[key];
+		return;
+	}
+	settings[key] = cloneJsonObject(value);
+}
+
 type InferenceNumberSettingKey =
 	| "temperature"
 	| "topK"
@@ -2265,6 +2283,10 @@ function assignInferenceNumber(
 		return;
 	}
 	settings[key] = value;
+}
+
+function cloneJsonObject(value: JsonObject): JsonObject {
+	return JSON.parse(JSON.stringify(value)) as JsonObject;
 }
 
 function mergeTranslationSettings(

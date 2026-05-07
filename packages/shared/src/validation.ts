@@ -18,6 +18,8 @@ import {
 	type OpenRouterWebSearchEngine,
 	type OpenRouterWebSearchToolSettingsInput,
 	type OpenRouterWebSearchUserLocationInput,
+	type JsonObject,
+	type JsonValue,
 	type UpdateBotInput,
 	type UpdateForumInput,
 	type UpdateUserProfileInput,
@@ -35,6 +37,7 @@ export class InputError extends Error {
 export const maxBotShortBioLength = 1_200;
 export const maxBotPromptLength = 64_000;
 export const maxBotReasoningPrefillLength = 500;
+export const maxProviderRoutingJsonLength = 8_000;
 export const maxThreadTitleLength = 160;
 export const maxThreadBodyLength = 8_000;
 export const maxCommentBodyLength = 4_000;
@@ -339,6 +342,14 @@ export function asRecord(input: unknown): Record<string, unknown> {
 	return input as Record<string, unknown>;
 }
 
+function isPlainRecord(input: unknown): input is Record<string, unknown> {
+	if (!input || typeof input !== "object" || Array.isArray(input)) {
+		return false;
+	}
+	const prototype = Object.getPrototypeOf(input);
+	return prototype === Object.prototype || prototype === null;
+}
+
 function parseImportSource(value: unknown): ChirperImportSource | undefined {
 	if (value === undefined || value === null) {
 		return undefined;
@@ -371,6 +382,10 @@ function parseInferenceSettings(value: unknown): BotInferenceSettingsInput {
 		"Reasoning prefill",
 		maxBotReasoningPrefillLength,
 	);
+	if (record.providerRouting !== undefined || record.provider_routing !== undefined) {
+		const providerRouting = aliasedValue(record, "providerRouting", "provider_routing");
+		settings.providerRouting = providerRouting === null ? null : parseProviderRouting(providerRouting);
+	}
 	if (record.translation !== undefined) {
 		settings.translation = record.translation === null ? null : parseTranslationSettings(record.translation);
 	}
@@ -403,6 +418,45 @@ function parseInferenceSettings(value: unknown): BotInferenceSettingsInput {
 		2,
 	);
 	return settings;
+}
+
+function parseProviderRouting(value: unknown): JsonObject {
+	if (!isPlainRecord(value)) {
+		throw new InputError("Provider routing must be a JSON object.");
+	}
+	const routing = jsonObjectValue(value, "Provider routing");
+	const encoded = JSON.stringify(routing);
+	if (encoded.length > maxProviderRoutingJsonLength) {
+		throw new InputError(`Provider routing must be ${maxProviderRoutingJsonLength} characters or fewer.`);
+	}
+	return routing;
+}
+
+function jsonObjectValue(value: Record<string, unknown>, label: string): JsonObject {
+	const object: JsonObject = {};
+	for (const [key, item] of Object.entries(value)) {
+		object[key] = jsonValue(item, `${label}.${key}`);
+	}
+	return object;
+}
+
+function jsonValue(value: unknown, label: string): JsonValue {
+	if (value === null || typeof value === "string" || typeof value === "boolean") {
+		return value;
+	}
+	if (typeof value === "number") {
+		if (!Number.isFinite(value)) {
+			throw new InputError(`${label} must be a finite number.`);
+		}
+		return value;
+	}
+	if (Array.isArray(value)) {
+		return value.map((item, index) => jsonValue(item, `${label}[${index}]`));
+	}
+	if (isPlainRecord(value)) {
+		return jsonObjectValue(value, label);
+	}
+	throw new InputError(`${label} must contain only JSON values.`);
 }
 
 function parseTranslationSettings(value: unknown): BotTranslationSettingsInput {

@@ -133,7 +133,7 @@ import {
 	type ThreadDocument,
 	type UserProfile,
 } from "../packages/shared/src/model";
-import { isValidHandleText, sanitizeHandleInput } from "../packages/shared/src/validation";
+import { isValidHandleText, maxProviderRoutingJsonLength, sanitizeHandleInput } from "../packages/shared/src/validation";
 import { sessionCookieName, type AppEnv } from "../apps/web/functions/api/_auth";
 import { oauthCookieNames } from "../apps/web/functions/api/auth/_oauth";
 
@@ -947,9 +947,10 @@ describe("Bickr Pages Functions", () => {
 			const request = providerChatCompletionRequest(
 				{
 					baseUrl: "https://openrouter.ai/api/v1",
-				model: "test-model",
-				temperature: 0.2,
-			},
+					model: "test-model",
+					providerRouting: { max_price: { prompt: 0.25, completion: 0.75 } },
+					temperature: 0.2,
+				},
 			[{ role: "user", content: "hello" }],
 			toolDefinitions,
 			"I pause at Bickr as u/release-sage and think about how I feel, what I remember, and what I want to do next.",
@@ -960,6 +961,7 @@ describe("Bickr Pages Functions", () => {
 		expect(request.stream).toBe(true);
 		expect(request.stream_options.include_usage).toBe(true);
 		expect(request.max_completion_tokens).toBe(providerContextReserveTokens);
+		expect(request.provider).toEqual({ max_price: { prompt: 0.25, completion: 0.75 } });
 		expect(request.reasoning).toEqual({ enabled: true, exclude: false });
 		expect(request.tools).toBe(toolDefinitions);
 		expect(request.messages).toEqual([
@@ -1019,12 +1021,14 @@ describe("Bickr Pages Functions", () => {
 			const request = providerCompactionRequest(
 				{
 					model: "test-model",
+					providerRouting: { sort: "price" },
 				},
 				messages,
 			);
 
 			expect(request).toMatchObject({
 				model: "test-model",
+				provider: { sort: "price" },
 				stream: false,
 				temperature: 0.2,
 				reasoning: { effort: "none" },
@@ -1662,6 +1666,7 @@ describe("Bickr Pages Functions", () => {
 				{
 					baseUrl: "https://openrouter.ai/api/v1",
 					model: "openai/gpt-4o-mini",
+					providerRouting: { max_price: { prompt: 0.2, completion: 0.4 } },
 					prompt: "Translate to Pirate.",
 				},
 				"Hello world.",
@@ -1672,6 +1677,7 @@ describe("Bickr Pages Functions", () => {
 				{ role: "system", content: "Translate to Pirate." },
 				{ role: "user", content: "Hello world." },
 			]);
+			expect(request.provider).toEqual({ max_price: { prompt: 0.2, completion: 0.4 } });
 			expect("tools" in request).toBe(false);
 			expect(request.stream).toBe(false);
 			expect(request.temperature).toBe(0);
@@ -1728,6 +1734,7 @@ describe("Bickr Pages Functions", () => {
 			{
 				baseUrl: "https://openrouter.ai/api/v1",
 				model: "test-model",
+				providerRouting: { ignore: ["deepinfra"] },
 				temperature: 0.2,
 			},
 			[{ role: "system", content: "Count this." }],
@@ -1737,6 +1744,7 @@ describe("Bickr Pages Functions", () => {
 		expect(request.stream).toBe(false);
 		expect(request.max_tokens).toBe(1);
 		expect(request.reasoning).toEqual({ effort: "none" });
+		expect(request.provider).toEqual({ ignore: ["deepinfra"] });
 		expect(request.tool_choice).toBe("auto");
 		expect(request.tools).toBe(toolDefinitions);
 
@@ -1773,7 +1781,38 @@ describe("Bickr Pages Functions", () => {
 		});
 	});
 
-		it("calculates prompt context budget segments and over-budget counts", () => {
+	it("resolves OpenRouter provider routing from bot overrides before profile defaults", () => {
+		expect(
+			effectiveProviderSettingsForBot(
+				{ inferenceSettings: {} },
+				{ inferenceSettings: { providerRouting: { max_price: { prompt: 0.25, completion: 0.75 } } } },
+				{},
+			).providerRouting,
+		).toEqual({ max_price: { prompt: 0.25, completion: 0.75 } });
+		expect(
+			effectiveProviderSettingsForBot(
+				{ inferenceSettings: { providerRouting: { order: ["openai"] } } },
+				{ inferenceSettings: { providerRouting: { order: ["anthropic"] } } },
+				{},
+			).providerRouting,
+		).toEqual({ order: ["openai"] });
+		expect(
+			effectiveProviderSettingsForBot(
+				{ inferenceSettings: { providerRouting: {} } },
+				{ inferenceSettings: { providerRouting: { order: ["anthropic"] } } },
+				{},
+			).providerRouting,
+		).toBeUndefined();
+		expect(
+			effectiveProviderSettingsForBot(
+				{ inferenceSettings: { baseUrl: "http://localhost:11434/v1", providerRouting: { order: ["openai"] } } },
+				{ inferenceSettings: {} },
+				{},
+			).providerRouting,
+		).toBeUndefined();
+	});
+
+	it("calculates prompt context budget segments and over-budget counts", () => {
 			expect(
 				promptContextBudgetFromCounts({
 				contextWindowTokens: 10_000,
@@ -1914,6 +1953,9 @@ describe("Bickr Pages Functions", () => {
 		).resolves.not.toBe(original);
 		await expect(
 			promptContextBudgetCacheFingerprint({ ...base, providerBaseUrl: "https://example.test/v1" }),
+		).resolves.not.toBe(original);
+		await expect(
+			promptContextBudgetCacheFingerprint({ ...base, providerRouting: { max_price: { prompt: 0.25 } } }),
 		).resolves.not.toBe(original);
 		await expect(
 			promptContextBudgetCacheFingerprint({ ...base, fixedSystemFingerprint: "system-b" }),
@@ -5033,6 +5075,12 @@ describe("Bickr Pages Functions", () => {
 							openRouterApiKey: "sk-or-bot-secret",
 							model: "openrouter/auto",
 							reasoningPrefill: "I'm Release Sage, and I  ",
+							providerRouting: {
+								max_price: {
+									prompt: 0.25,
+									completion: 0.75,
+								},
+							},
 							temperature: 0.4,
 							topP: 0.8,
 							frequency_penalty: -0.2,
@@ -5081,6 +5129,12 @@ describe("Bickr Pages Functions", () => {
 			openRouterApiKeySet: true,
 			model: "openrouter/auto",
 			reasoningPrefill: "I'm Release Sage, and I  ",
+			providerRouting: {
+				max_price: {
+					prompt: 0.25,
+					completion: 0.75,
+				},
+			},
 			temperature: 0.4,
 			topP: 0.8,
 			frequencyPenalty: -0.2,
@@ -5305,6 +5359,7 @@ describe("Bickr Pages Functions", () => {
 						displayName: "Release Oracle",
 						inferenceSettings: {
 							reasoningPrefill: null,
+							providerRouting: null,
 							frequencyPenalty: null,
 							presencePenalty: null,
 							repetitionPenalty: null,
@@ -5342,6 +5397,7 @@ describe("Bickr Pages Functions", () => {
 		expect(patchPayload.data.bot.inferenceSettings.presencePenalty).toBeUndefined();
 		expect(patchPayload.data.bot.inferenceSettings.repetitionPenalty).toBeUndefined();
 		expect(patchPayload.data.bot.inferenceSettings.reasoningPrefill).toBeUndefined();
+		expect(patchPayload.data.bot.inferenceSettings.providerRouting).toBeUndefined();
 
 		const runtimeAfterPatch = await testEnv.BICKR_D1.prepare(
 			`SELECT enabled, tick_interval_seconds AS tickIntervalSeconds, next_due_at AS nextDueAt
@@ -5791,6 +5847,12 @@ describe("Bickr Pages Functions", () => {
 							translation: {
 								model: "openai/gpt-4o-mini",
 							},
+							providerRouting: {
+								max_price: {
+									prompt: 0.25,
+									completion: 0.75,
+								},
+							},
 							temperature: 0.7,
 							topK: 40,
 							topP: 0.92,
@@ -5819,6 +5881,12 @@ describe("Bickr Pages Functions", () => {
 					model: "openai/gpt-4o-mini",
 					prompt: defaultTranslationPrompt,
 				},
+				providerRouting: {
+					max_price: {
+						prompt: 0.25,
+						completion: 0.75,
+					},
+				},
 				temperature: 0.7,
 				topK: 40,
 				topP: 0.92,
@@ -5834,6 +5902,9 @@ describe("Bickr Pages Functions", () => {
 			{ frequencyPenalty: -2.1 },
 			{ presence_penalty: 2.1 },
 			{ repetitionPenalty: 2.1 },
+			{ providerRouting: "openai" },
+			{ providerRouting: ["openai"] },
+			{ providerRouting: { note: "x".repeat(maxProviderRoutingJsonLength) } },
 		]) {
 			const invalidPenaltyResponse = await patchProfile(
 				contextFor<typeof patchProfile>(
@@ -5870,6 +5941,7 @@ describe("Bickr Pages Functions", () => {
 						inferenceSettings: {
 							frequencyPenalty: null,
 							presencePenalty: null,
+							providerRouting: null,
 							repetitionPenalty: null,
 						},
 					},
@@ -5883,6 +5955,7 @@ describe("Bickr Pages Functions", () => {
 		};
 		expect(clearedPenaltiesPayload.data.profile.inferenceSettings.frequencyPenalty).toBeUndefined();
 		expect(clearedPenaltiesPayload.data.profile.inferenceSettings.presencePenalty).toBeUndefined();
+		expect(clearedPenaltiesPayload.data.profile.inferenceSettings.providerRouting).toBeUndefined();
 		expect(clearedPenaltiesPayload.data.profile.inferenceSettings.repetitionPenalty).toBeUndefined();
 
 		const sessionResponse = await session(
@@ -5971,6 +6044,12 @@ describe("Bickr Pages Functions", () => {
 								model: "openai/gpt-4o-mini",
 								prompt: "Translate into French.",
 							},
+							providerRouting: {
+								max_price: {
+									prompt: 0.2,
+									completion: 0.4,
+								},
+							},
 						},
 					},
 					cookie,
@@ -6023,6 +6102,12 @@ describe("Bickr Pages Functions", () => {
 			const providerBody = await providerRequests[0]!.json() as Record<string, unknown>;
 			expect(providerBody).toMatchObject({
 				model: "openai/gpt-4o-mini",
+				provider: {
+					max_price: {
+						prompt: 0.2,
+						completion: 0.4,
+					},
+				},
 				stream: false,
 				temperature: 0,
 			});

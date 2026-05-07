@@ -93,6 +93,7 @@ import {
 	type BotTokenUsageModelBreakdown,
 	type BotTokenUsageStats,
 	type BotTokenUsageTotals,
+	type JsonObject,
 	type NotificationDocument,
 	type NotificationEvent,
 	type SearchThreadResult,
@@ -104,6 +105,7 @@ import {
 } from "@bickr/shared/model";
 import {
 	additionalReplyAcknowledgementArgument,
+	isOpenRouterProviderBaseUrl,
 	mutableToolNames,
 	openRouterServerToolSelection,
 	standardPrompt,
@@ -538,6 +540,7 @@ export type ProviderSettings = {
 	apiKey?: string;
 	baseUrl: string;
 	model: string;
+	providerRouting?: JsonObject;
 	temperature: number;
 	usesCustomBaseUrl?: boolean;
 	topK?: number;
@@ -559,11 +562,13 @@ export type PromptContextBudgetFingerprintParts = {
 	fixedSystemFingerprint: string;
 	personaPromptFingerprint: string;
 	providerBaseUrl: string;
+	providerRouting?: JsonObject;
 };
 
 type ProviderChatCompletionRequest = {
 	model: string;
 	messages: ChatMessage[];
+	provider?: JsonObject;
 	tools: ProviderToolDefinition[];
 	tool_choice: typeof providerChatToolChoice;
 	parallel_tool_calls: typeof providerParallelToolCalls;
@@ -585,6 +590,7 @@ type ProviderChatCompletionRequest = {
 type ProviderTokenProbeRequest = {
 	model: string;
 	messages: ChatMessage[];
+	provider?: JsonObject;
 	tools: ProviderToolDefinition[];
 	tool_choice: typeof providerTokenProbeToolChoice;
 	parallel_tool_calls: typeof providerParallelToolCalls;
@@ -605,6 +611,7 @@ type ProviderTokenProbeRequest = {
 type ProviderCompactionRequest = {
 	model: string;
 	messages: ChatMessage[];
+	provider?: JsonObject;
 	stream: false;
 	response_format: {
 		type: "json_schema";
@@ -636,12 +643,14 @@ type TranslationProviderSettings = {
 	apiKey?: string;
 	baseUrl: string;
 	model: string;
+	providerRouting?: JsonObject;
 	prompt: string;
 };
 
 type ProviderTranslationRequest = {
 	model: string;
 	messages: ChatMessage[];
+	provider?: JsonObject;
 	stream: false;
 	response_format: {
 		type: "json_schema";
@@ -839,6 +848,7 @@ export function providerChatCompletionRequest(
 	return {
 		model: settings.model,
 		messages: sanitizeProviderMessagesForRequest(providerMessagesWithReasoningPrefill(messages, reasoningPrefill)),
+		...(settings.providerRouting ? { provider: settings.providerRouting } : {}),
 		tools,
 		tool_choice: providerChatToolChoice,
 		parallel_tool_calls: providerParallelToolCalls,
@@ -873,12 +883,13 @@ export function providerCompactionMessages(bot: BotDocument, compactedMessages: 
 }
 
 export function providerCompactionRequest(
-	settings: Pick<ProviderSettings, "model">,
+	settings: Pick<ProviderSettings, "model" | "providerRouting">,
 	messages: ChatMessage[],
 ): ProviderCompactionRequest {
 	return {
 		model: settings.model,
 		messages: sanitizeProviderMessagesForRequest(messages),
+		...(settings.providerRouting ? { provider: settings.providerRouting } : {}),
 		stream: false,
 		response_format: {
 			type: "json_schema",
@@ -1549,6 +1560,7 @@ export function providerTokenProbeRequest(
 	return {
 		model: settings.model,
 		messages: sanitizeProviderMessagesForRequest(messages),
+		...(settings.providerRouting ? { provider: settings.providerRouting } : {}),
 		tools,
 		tool_choice: providerTokenProbeToolChoice,
 		parallel_tool_calls: providerParallelToolCalls,
@@ -1577,6 +1589,7 @@ export function providerTranslationRequest(
 			{ role: "system", content: settings.prompt },
 			{ role: "user", content: text },
 		],
+		...(settings.providerRouting ? { provider: settings.providerRouting } : {}),
 		stream: false,
 		response_format: {
 			type: "json_schema",
@@ -1659,11 +1672,15 @@ export function effectiveProviderSettingsForBot(
 		: userSettings.temperature !== undefined ? userSettings.temperature
 		: bot.inferenceSettings.temperature !== undefined ? bot.inferenceSettings.temperature
 		: 0.9;
+	const providerRouting =
+		bot.inferenceSettings.providerRouting !== undefined ? bot.inferenceSettings.providerRouting : userSettings.providerRouting;
+	const effectiveProviderRouting = openRouterProviderRouting(baseUrl, providerRouting);
 
 	return {
 		apiKey: botApiKey ?? userApiKey ?? (hasCustomBaseUrl ? undefined : envApiKey),
 		baseUrl,
 		model,
+		...(effectiveProviderRouting ? { providerRouting: effectiveProviderRouting } : {}),
 		temperature,
 		...(hasCustomBaseUrl ? { usesCustomBaseUrl: true } : {}),
 		...(bot.inferenceSettings.topK !== undefined ? { topK: bot.inferenceSettings.topK }
@@ -1702,12 +1719,22 @@ export function effectiveProviderSettingsForTranslation(
 	const userApiKey = trimmed(userSettings.openRouterApiKey);
 	const envApiKey = trimmed(env.OPENROUTER_API_KEY);
 	const hasCustomBaseUrl = Boolean(userBaseUrl);
+	const baseUrl = userBaseUrl ?? envBaseUrl ?? fallbackProviderBaseUrl;
+	const providerRouting = openRouterProviderRouting(baseUrl, userSettings.providerRouting);
 	return {
 		apiKey: userApiKey ?? (hasCustomBaseUrl ? undefined : envApiKey),
-		baseUrl: userBaseUrl ?? envBaseUrl ?? fallbackProviderBaseUrl,
+		baseUrl,
 		model,
+		...(providerRouting ? { providerRouting } : {}),
 		prompt: trimmed(translation?.prompt) ?? defaultTranslationPrompt,
 	};
+}
+
+function openRouterProviderRouting(baseUrl: string, providerRouting: JsonObject | undefined): JsonObject | undefined {
+	if (!providerRouting || Object.keys(providerRouting).length === 0 || !isOpenRouterProviderBaseUrl(baseUrl)) {
+		return undefined;
+	}
+	return providerRouting;
 }
 
 const runtimeSchema = `
@@ -3963,6 +3990,7 @@ export class BotRuntime {
 			fixedSystemFingerprint,
 			personaPromptFingerprint,
 			providerBaseUrl: settings.baseUrl,
+			...(settings.providerRouting ? { providerRouting: settings.providerRouting } : {}),
 		});
 		const cachedCounts = this.contextBudgetCachedCounts(fingerprint);
 		const counts =
@@ -4017,6 +4045,7 @@ export class BotRuntime {
 			fixedSystemFingerprint,
 			personaPromptFingerprint,
 			providerBaseUrl: settings.baseUrl,
+			...(settings.providerRouting ? { providerRouting: settings.providerRouting } : {}),
 		}));
 		const counts = cachedCounts ?? this.estimatedContextBudgetCounts(parts, this.textTokenCalibration());
 		return providerReadCommentTreeTokenBudget(promptContextBudgetFromCounts({

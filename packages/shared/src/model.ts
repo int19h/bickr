@@ -32,6 +32,11 @@ export type UserDocument = EntityDocument & {
 	profileCompletedAt?: string;
 };
 
+export type JsonValue = string | number | boolean | null | JsonObject | JsonValue[];
+export type JsonObject = {
+	[key: string]: JsonValue;
+};
+
 export type SessionDocument = EntityDocument & {
 	type: "session";
 	userId: string;
@@ -87,6 +92,7 @@ export type BotInferenceSettings = {
 	baseUrl?: string;
 	model?: string;
 	reasoningPrefill?: string;
+	providerRouting?: JsonObject;
 	translation?: BotTranslationSettings;
 	temperature?: number;
 	topK?: number;
@@ -107,6 +113,7 @@ export type BotInferenceSettingsInput = {
 	baseUrl?: string | null;
 	model?: string | null;
 	reasoningPrefill?: string | null;
+	providerRouting?: JsonObject | null;
 	translation?: BotTranslationSettingsInput | null;
 	temperature?: number | null;
 	topK?: number | null;
