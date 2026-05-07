@@ -2322,13 +2322,12 @@ fieldset {
 }
 
 .token-metrics span,
-.token-model-breakdown span {
+.token-model-breakdown th {
 	color: var(--ink-4);
 	font-size: 11px;
 }
 
-.token-metrics b,
-.token-model-breakdown b {
+.token-metrics b {
 	color: var(--ink-2);
 	font-size: 15px;
 	font-weight: 650;
@@ -2537,40 +2536,46 @@ fieldset {
 }
 
 .token-model-breakdown {
-	display: grid;
-	gap: 0;
+	border-collapse: collapse;
+	justify-self: center;
+	margin: 0 auto;
+	max-width: 100%;
+	table-layout: auto;
+	width: max-content;
 }
 
-.token-model-breakdown-head,
-.token-model-breakdown-row {
-	align-items: baseline;
+.token-model-breakdown th,
+.token-model-breakdown td {
 	border-top: 1px solid var(--rule-soft);
-	column-gap: 14px;
-	display: grid;
-	grid-template-columns: minmax(0, 1fr) max-content max-content max-content;
-	min-width: 0;
-	padding-top: 7px;
+	padding: 7px 0 0;
 }
 
-.token-model-breakdown-head {
+.token-model-breakdown th {
+	font-weight: 500;
 	padding-bottom: 1px;
 }
 
-.token-model-breakdown-head span:not(:first-child),
-.token-model-breakdown-row b {
+.token-model-breakdown th:not(:first-child),
+.token-model-breakdown td:not(:first-child) {
+	color: var(--ink-2);
 	font-variant-numeric: tabular-nums;
+	font-weight: 650;
+	padding-left: 18px;
 	text-align: right;
 	white-space: nowrap;
 }
 
 .token-model-name {
+	color: var(--ink-4);
+	font-weight: 400;
+	max-width: min(56vw, 560px);
 	min-width: 0;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
 
-.token-model-breakdown b {
+.token-model-breakdown td {
 	font-size: 12px;
 }
 

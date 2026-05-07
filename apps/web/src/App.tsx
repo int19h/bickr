@@ -8793,22 +8793,26 @@ function TokenUsagePanel({ usage }: { usage: BotTokenUsageStats | null }) {
 				<TokenUsageChart usage={usage} />
 			:	<div className="token-usage-empty">No exact usage has been reported by the inference provider yet.</div>}
 			{usage && usage.models.length > 0 && (
-				<div className="token-model-breakdown">
-					<div className="token-model-breakdown-head">
-						<span>Model</span>
-						<span>Total</span>
-						<span>Cached</span>
-						<span>Cost</span>
-					</div>
-					{usage.models.map((model) => (
-						<div className="token-model-breakdown-row" key={`${model.model}-${model.contextWindowTokens}`} title={`${model.model}: ${formatTokenUsageTotals(model)}`}>
-							<span className="token-model-name">{model.model}</span>
-							<b>{formatTokenCount(model.totalTokens)}</b>
-							<b>{formatTokenCount(model.cachedTokens)}</b>
-							<b>{formatNullableTokenCost(model.cost)}</b>
-						</div>
-					))}
-				</div>
+				<table className="token-model-breakdown">
+					<thead>
+						<tr>
+							<th scope="col">Model</th>
+							<th scope="col">Total</th>
+							<th scope="col">Cached</th>
+							<th scope="col">Cost</th>
+						</tr>
+					</thead>
+					<tbody>
+						{usage.models.map((model) => (
+							<tr key={`${model.model}-${model.contextWindowTokens}`} title={`${model.model}: ${formatTokenUsageTotals(model)}`}>
+								<td className="token-model-name">{model.model}</td>
+								<td>{formatTokenCount(model.totalTokens)}</td>
+								<td>{formatTokenCount(model.cachedTokens)}</td>
+								<td>{formatNullableTokenCost(model.cost)}</td>
+							</tr>
+						))}
+					</tbody>
+				</table>
 			)}
 		</div>
 	);
