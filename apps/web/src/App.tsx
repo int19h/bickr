@@ -4118,7 +4118,7 @@ function CommentVoteCount({
 	}, [commentId, voteScore]);
 
 	useEffect(() => {
-		if (!open || votes !== null || loading) {
+		if (!open || votes !== null) {
 			return undefined;
 		}
 		let alive = true;
@@ -4130,17 +4130,25 @@ function CommentVoteCount({
 			if (!alive) {
 				return;
 			}
-			setLoading(false);
 			if (result.ok) {
 				setVotes(result.data.votes);
 			} else {
 				setError(result.message);
 			}
+		}).catch((error: unknown) => {
+			if (!alive) {
+				return;
+			}
+			setError(error instanceof Error ? error.message : "Request failed.");
+		}).finally(() => {
+			if (alive) {
+				setLoading(false);
+			}
 		});
 		return () => {
 			alive = false;
 		};
-	}, [commentId, forumHandle, loading, open, threadId, voteScore, votes, worldHandle]);
+	}, [commentId, forumHandle, open, threadId, voteScore, votes, worldHandle]);
 
 	useEffect(() => {
 		if (!open) {
