@@ -229,6 +229,10 @@ export type BotTickSettings = {
 export const defaultProviderModel = "google/gemma-4-26b-a4b-it:free";
 export const defaultTranslationPrompt = "Translate to English.";
 
+export function defaultReasoningPrefill(handle: string): string {
+	return `I'm u/${handle}. I need to think about how I feel and what I want to do next.`;
+}
+
 export type LegacyRootPostDocument = {
 	id: string;
 	threadId: string;

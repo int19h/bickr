@@ -953,7 +953,7 @@ describe("Bickr Pages Functions", () => {
 				},
 			[{ role: "user", content: "hello" }],
 			toolDefinitions,
-			"I pause at Bickr as u/release-sage and think about how I feel, what I remember, and what I want to do next.",
+			"I'm u/release-sage. I need to think about how I feel and what I want to do next.",
 		);
 
 		expect(request.tool_choice).toBe("required");
@@ -968,7 +968,7 @@ describe("Bickr Pages Functions", () => {
 			{ role: "user", content: "hello" },
 			{
 				role: "assistant",
-				content: "I pause at Bickr as u/release-sage and think about how I feel, what I remember, and what I want to do next.",
+				content: "I'm u/release-sage. I need to think about how I feel and what I want to do next.",
 			},
 		]);
 		expect("frequency_penalty" in request).toBe(false);
@@ -986,7 +986,7 @@ describe("Bickr Pages Functions", () => {
 			},
 			[{ role: "user", content: "hello" }],
 			toolDefinitions,
-			"I pause at Bickr as u/release-sage and think about how I feel, what I remember, and what I want to do next.",
+			"I'm u/release-sage. I need to think about how I feel and what I want to do next.",
 		);
 			expect(tunedRequest).toMatchObject({
 				frequency_penalty: -0.25,
@@ -1701,14 +1701,14 @@ describe("Bickr Pages Functions", () => {
 
 	it("builds reasoning prefill defaults and preserves explicit trailing whitespace", () => {
 		expect(defaultReasoningPrefill("release-sage")).toBe(
-			"I pause at Bickr as u/release-sage and think about how I feel, what I remember, and what I want to do next.",
+			"I'm u/release-sage. I need to think about how I feel and what I want to do next.",
 		);
 		expect(
 			effectiveReasoningPrefill({
 				handle: "release-sage",
 				inferenceSettings: {},
 			}),
-		).toBe("I pause at Bickr as u/release-sage and think about how I feel, what I remember, and what I want to do next.");
+		).toBe("I'm u/release-sage. I need to think about how I feel and what I want to do next.");
 		expect(
 			effectiveReasoningPrefill({
 				handle: "release-sage",
@@ -1718,13 +1718,13 @@ describe("Bickr Pages Functions", () => {
 		expect(
 			providerMessagesWithReasoningPrefill(
 				[{ role: "user", content: "hello" }],
-				"I pause at Bickr as u/release-sage and think about how I feel, what I remember, and what I want to do next.",
+				"I'm u/release-sage. I need to think about how I feel and what I want to do next.",
 			),
 		).toEqual([
 			{ role: "user", content: "hello" },
 			{
 				role: "assistant",
-				content: "I pause at Bickr as u/release-sage and think about how I feel, what I remember, and what I want to do next.",
+				content: "I'm u/release-sage. I need to think about how I feel and what I want to do next.",
 			},
 		]);
 	});
@@ -1966,7 +1966,7 @@ describe("Bickr Pages Functions", () => {
 				fixedSystemFingerprint: JSON.stringify({
 					system: "system-a",
 					reasoningPrefill:
-						"I pause at Bickr as u/bot-a and think about how I feel, what I remember, and what I want to do next.",
+						"I'm u/bot-a. I need to think about how I feel and what I want to do next.",
 				}),
 			}),
 		).resolves.not.toBe(
@@ -1975,7 +1975,7 @@ describe("Bickr Pages Functions", () => {
 				fixedSystemFingerprint: JSON.stringify({
 					system: "system-a",
 					reasoningPrefill:
-						"I pause at Bickr as u/bot-b and think about how I feel, what I remember, and what I want to do next.",
+						"I'm u/bot-b. I need to think about how I feel and what I want to do next.",
 				}),
 			}),
 		);
@@ -2163,7 +2163,7 @@ describe("Bickr Pages Functions", () => {
 		expect(messages.some((message) => typeof message.content === "string" && message.content.includes("I have this private thought in mind."))).toBe(false);
 		expect(messages.at(-1)).toEqual({
 			role: "assistant",
-			content: "I pause at Bickr as u/release-sage and think about how I feel, what I remember, and what I want to do next.",
+			content: "I'm u/release-sage. I need to think about how I feel and what I want to do next.",
 		});
 	});
 

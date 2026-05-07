@@ -64,6 +64,7 @@ import {
 	type BotContextBudget,
 	type BotContextBudgetInput,
 	type BotContextWindowBreakdown,
+	defaultReasoningPrefill,
 	defaultTranslationPrompt,
 	defaultProviderModel,
 	type BotInferenceSubmission,
@@ -114,6 +115,8 @@ import {
 	type ProviderToolDefinition,
 } from "./prompt-and-tools";
 import { providerContextReserveTokens } from "./provider-requests";
+
+export { defaultReasoningPrefill };
 
 export interface Env {
 	BICKR_D1: D1Database;
@@ -916,10 +919,6 @@ export function providerCompactionRequest(
 		},
 		temperature: providerCompactionTemperature,
 	};
-}
-
-export function defaultReasoningPrefill(handle: string): string {
-	return `I pause at Bickr as u/${handle} and think about how I feel, what I remember, and what I want to do next.`;
 }
 
 export function effectiveReasoningPrefill(bot: Pick<BotDocument, "handle" | "inferenceSettings">): string {

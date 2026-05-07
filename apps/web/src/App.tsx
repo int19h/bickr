@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useId, useMemo, useRef, useState 
 import type { AriaRole, CSSProperties, MouseEvent as ReactMouseEvent, ReactNode } from "react";
 import {
 	defaultProviderModel,
+	defaultReasoningPrefill,
 	defaultTranslationPrompt,
 	authProviders,
 	type AuthProvider,
@@ -12478,10 +12479,6 @@ function canCustomizeInferenceModel(
 		Boolean(inherited?.apiKeySet) ||
 		Boolean(inherited?.baseUrl?.trim())
 	);
-}
-
-function defaultReasoningPrefill(handle: string): string {
-	return `I need to think about how I feel and what I want to do next, in first person, in character as u/${handle}.`;
 }
 
 function botPromptBudgetRequestKey(
