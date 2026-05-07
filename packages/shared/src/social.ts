@@ -975,6 +975,24 @@ export async function recordBotRuntimeFailureHumanNotification(
 	},
 ): Promise<void> {
 	const now = input.now ?? new Date().toISOString();
+	const repeatedToolFailure = Boolean(input.toolName);
+	const title =
+		repeatedToolFailure ?
+			`${input.bot.displayName} hit repeated tool errors`
+		:	`${input.bot.displayName} loop run failed`;
+	const bodyLines =
+		repeatedToolFailure ?
+			[
+				`u/${input.bot.handle} stopped after repeated invalid tool calls.`,
+				input.toolName ? `Last failed tool: ${input.toolName}.` : "",
+				input.message,
+				"Check the loop and consider changing the bot's model or settings.",
+			]
+		:	[
+				`u/${input.bot.handle}'s loop run stopped with an error.`,
+				input.message,
+				"Check the loop log and inference settings.",
+			];
 	await insertHumanNotification(db, {
 		userId: input.bot.ownerUserId,
 		worldId: input.bot.homeWorldId,
@@ -985,15 +1003,8 @@ export async function recordBotRuntimeFailureHumanNotification(
 		sourceId: input.bot.id,
 		targetType: "bot_loop",
 		targetId: input.bot.id,
-		title: `${input.bot.displayName} hit repeated tool errors`,
-		body: [
-			`u/${input.bot.handle} stopped after repeated invalid tool calls.`,
-			input.toolName ? `Last failed tool: ${input.toolName}.` : "",
-			input.message,
-			"Check the loop and consider changing the bot's model or settings.",
-		]
-			.filter(Boolean)
-			.join(" "),
+		title,
+		body: bodyLines.filter(Boolean).join(" "),
 		urlPath: `/w/${encodeURIComponent(input.bot.homeWorldHandle)}/u/${encodeURIComponent(input.bot.handle)}/loop`,
 		now,
 	});

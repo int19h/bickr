@@ -114,6 +114,7 @@ import {
 	markBotSeenContent,
 	markBotSeenFromResult,
 	readThread,
+	recordBotRuntimeFailureHumanNotification,
 	recordSpotlightNoReactionHumanNotification,
 	recordSpotlightToolHumanNotification,
 	searchBots,
@@ -1041,7 +1042,7 @@ describe("Bickr Pages Functions", () => {
 			expect(toolCallMessage.content).toBeNull();
 		});
 
-		it("builds structured provider compaction requests over the verbatim compacted chat", () => {
+		it("builds required-tool provider compaction requests over the verbatim compacted chat", () => {
 			const bot = {
 				id: "bot_release",
 				handle: "release-sage",
@@ -1077,30 +1078,32 @@ describe("Bickr Pages Functions", () => {
 				provider: { sort: "price" },
 				stream: false,
 				temperature: 0.2,
-				reasoning: { effort: "none" },
+				reasoning: { enabled: true, exclude: false },
+				tool_choice: "required",
+				parallel_tool_calls: false,
 			});
-			expect("tools" in request).toBe(false);
-			expect("tool_choice" in request).toBe(false);
-			expect("parallel_tool_calls" in request).toBe(false);
-			expect(request.response_format).toEqual({
-				type: "json_schema",
-				json_schema: {
-					name: "compaction_memory",
-					strict: true,
-					schema: {
-						type: "object",
-						properties: {
-							"detailed summary in first person": {
-								type: "string",
-								minLength: 1,
-								maxLength: 4000,
+			expect(request.tools).toEqual([
+				{
+					type: "function",
+					function: {
+						name: "save_compaction_memory",
+						description: "Save the compacted first-person memory summary.",
+						parameters: {
+							type: "object",
+							properties: {
+								"detailed summary in first person": {
+									type: "string",
+									minLength: 1,
+									maxLength: 4000,
+								},
 							},
+							required: ["detailed summary in first person"],
+							additionalProperties: false,
 						},
-						required: ["detailed summary in first person"],
-						additionalProperties: false,
 					},
 				},
-			});
+			]);
+			expect("response_format" in request).toBe(false);
 			expect(messages[0]?.role).toBe("system");
 			expect(messages[0]?.content).toContain("Your Bickr handle is u/release-sage");
 			expect(messages.slice(1, 3)).toEqual(compactedMessages);
@@ -1149,8 +1152,133 @@ describe("Bickr Pages Functions", () => {
 					message: `Inference request failed with status 400. Response: ${responseBody}`,
 					responseBody,
 				});
-				expect((thrown as { requestBody?: string }).requestBody).toContain("\"response_format\"");
-				expect((thrown as { requestBody?: string }).requestBody).toContain("\"json_schema\"");
+				expect((thrown as { requestBody?: string }).requestBody).toContain("\"tools\"");
+				expect((thrown as { requestBody?: string }).requestBody).toContain("\"save_compaction_memory\"");
+			} finally {
+				vi.stubGlobal("fetch", originalFetch);
+			}
+		});
+
+		it("retries schema-invalid compaction tool calls with a repair tool result", async () => {
+			const originalFetch = globalThis.fetch;
+			const invalidResponse = {
+				choices: [{
+					message: {
+						tool_calls: [{
+							id: "call_bad_compaction",
+							type: "function",
+							function: { name: "save_compaction_memory", arguments: JSON.stringify({ summary: "Wrong key." }) },
+						}],
+					},
+				}],
+			};
+			const validResponse = {
+				choices: [{
+					message: {
+						tool_calls: [{
+							id: "call_good_compaction",
+							type: "function",
+							function: {
+								name: "save_compaction_memory",
+								arguments: JSON.stringify({ "detailed summary in first person": "I remember the important parts." }),
+							},
+						}],
+					},
+				}],
+				usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 },
+			};
+			const fetchMock = vi.fn()
+				.mockResolvedValueOnce(Response.json(invalidResponse))
+				.mockResolvedValueOnce(Response.json(validResponse));
+			vi.stubGlobal("fetch", fetchMock);
+			try {
+				const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+					appendEvent: vi.fn(),
+					throwIfStopped: vi.fn(),
+				});
+				const callProviderForCompaction = (BotRuntime.prototype as unknown as {
+					callProviderForCompaction: (
+						settings: { baseUrl: string; model: string; temperature: number },
+						messages: Parameters<typeof providerCompactionRequest>[1],
+						runId: string,
+						signal: AbortSignal,
+					) => Promise<{ content: string; requestBody?: string }>;
+				}).callProviderForCompaction.bind(runtime);
+
+				const response = await callProviderForCompaction(
+					{ baseUrl: "https://provider.example/api/v1", model: "test-model", temperature: 0.2 },
+					[{ role: "user", content: "Compact the retained activity." }],
+					"run-compaction-repair",
+					new AbortController().signal,
+				);
+
+				expect(response.content).toBe("I remember the important parts.");
+				expect(fetchMock).toHaveBeenCalledTimes(2);
+				const repairedBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)) as { messages: BotInferenceSubmissionMessage[] };
+				expect(repairedBody.messages).toEqual(expect.arrayContaining([
+					expect.objectContaining({
+						role: "assistant",
+						tool_calls: invalidResponse.choices[0]!.message.tool_calls,
+					}),
+					expect.objectContaining({
+						role: "tool",
+						tool_call_id: "call_bad_compaction",
+						content: expect.stringContaining("schema_invalid"),
+					}),
+				]));
+			} finally {
+				vi.stubGlobal("fetch", originalFetch);
+			}
+		});
+
+		it("surfaces final schema-invalid compaction failures as owner-visible inference diagnostics", async () => {
+			const originalFetch = globalThis.fetch;
+			const invalidResponse = {
+				choices: [{
+					message: {
+						tool_calls: [{
+							id: "call_bad_compaction",
+							type: "function",
+							function: { name: "save_compaction_memory", arguments: JSON.stringify({ summary: "Wrong key." }) },
+						}],
+					},
+				}],
+			};
+			const fetchMock = vi.fn(async () => Response.json(invalidResponse));
+			vi.stubGlobal("fetch", fetchMock);
+			try {
+				const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+					appendEvent: vi.fn(),
+					throwIfStopped: vi.fn(),
+				});
+				const callProviderForCompaction = (BotRuntime.prototype as unknown as {
+					callProviderForCompaction: (
+						settings: { baseUrl: string; model: string; temperature: number },
+						messages: Parameters<typeof providerCompactionRequest>[1],
+						runId: string,
+						signal: AbortSignal,
+					) => Promise<unknown>;
+				}).callProviderForCompaction.bind(runtime);
+
+				let thrown: unknown;
+				try {
+					await callProviderForCompaction(
+						{ baseUrl: "https://provider.example/api/v1", model: "test-model", temperature: 0.2 },
+						[{ role: "user", content: "Compact the retained activity." }],
+						"run-compaction-repair-failed",
+						new AbortController().signal,
+					);
+				} catch (error) {
+					thrown = error;
+				}
+
+				expect(fetchMock).toHaveBeenCalledTimes(3);
+				expect(thrown).toMatchObject({
+					name: "ProviderCompactionRequestError",
+					message: expect.stringContaining("schema-invalid compaction tool arguments"),
+				});
+				expect(runtimeErrorLoopMessageContent(thrown)).toMatch(/^Inference provider returned an error: /);
+				expect(runtimeErrorLoopMessageContent(thrown)).toContain("schema-invalid compaction tool arguments");
 			} finally {
 				vi.stubGlobal("fetch", originalFetch);
 			}
@@ -1779,13 +1907,15 @@ describe("Bickr Pages Functions", () => {
 			]);
 		});
 
-		it("builds translation requests with strict structured output and no tools", () => {
+		it("builds translation requests with required tool output", () => {
 			const request = providerTranslationRequest(
 				{
 					baseUrl: "https://openrouter.ai/api/v1",
 					model: "openai/gpt-4o-mini",
 					providerRouting: { max_price: { prompt: 0.2, completion: 0.4 } },
 					prompt: "Translate to Pirate.",
+					reasoningEffort: "low",
+					temperature: 0,
 				},
 				"Hello world.",
 			);
@@ -1796,25 +1926,22 @@ describe("Bickr Pages Functions", () => {
 				{ role: "user", content: "Hello world." },
 			]);
 			expect(request.provider).toEqual({ max_price: { prompt: 0.2, completion: 0.4 } });
-			expect("tools" in request).toBe(false);
+			const translationTool = request.tools[0] as Extract<ProviderToolDefinition, { type: "function" }>;
+			expect(translationTool.function.name).toBe("save_translation");
+			expect(request.tool_choice).toBe("required");
+			expect(request.parallel_tool_calls).toBe(false);
 			expect(request.stream).toBe(false);
 			expect(request.temperature).toBe(0);
-			expect(request.reasoning).toEqual({ effort: "none" });
-			expect(request.response_format).toEqual({
-				type: "json_schema",
-				json_schema: {
-					name: "translation",
-					strict: true,
-					schema: {
-						type: "object",
-						properties: {
-							translation: { type: "string" },
-						},
-						required: ["translation"],
-						additionalProperties: false,
-					},
+			expect(request.reasoning).toEqual({ effort: "low", exclude: false });
+			expect(translationTool.function.parameters).toEqual({
+				type: "object",
+				properties: {
+					translation: { type: "string" },
 				},
+				required: ["translation"],
+				additionalProperties: false,
 			});
+			expect("response_format" in request).toBe(false);
 		});
 
 	it("builds reasoning prefill defaults and preserves explicit trailing whitespace", () => {
@@ -1859,9 +1986,9 @@ describe("Bickr Pages Functions", () => {
 			toolDefinitions,
 		);
 
-		expect(request.stream).toBe(false);
-		expect(request.max_tokens).toBe(1);
-		expect(request.reasoning).toEqual({ effort: "none" });
+			expect(request.stream).toBe(false);
+			expect(request.max_tokens).toBe(1);
+			expect(request.reasoning).toEqual({ enabled: true, exclude: false });
 		expect(request.provider).toEqual({ ignore: ["deepinfra"] });
 		expect(request.tool_choice).toBe("auto");
 		expect(request.tools).toBe(toolDefinitions);
@@ -1869,17 +1996,19 @@ describe("Bickr Pages Functions", () => {
 		const tunedRequest = providerTokenProbeRequest(
 			{
 				baseUrl: "https://openrouter.ai/api/v1",
-				model: "test-model",
-				temperature: 0.2,
-				frequencyPenalty: -0.25,
+					model: "test-model",
+					temperature: 0.2,
+					reasoningEffort: "none",
+					frequencyPenalty: -0.25,
 				presencePenalty: 0.5,
 				repetitionPenalty: 1.15,
 			},
 			[{ role: "system", content: "Count this." }],
 			toolDefinitions,
 		);
-		expect(tunedRequest).toMatchObject({
-			frequency_penalty: -0.25,
+			expect(tunedRequest).toMatchObject({
+				reasoning: { effort: "none", exclude: false },
+				frequency_penalty: -0.25,
 			presence_penalty: 0.5,
 			repetition_penalty: 1.15,
 		});
@@ -4144,6 +4273,41 @@ describe("Bickr Pages Functions", () => {
 		expect(recordLoopMessageLog).toHaveBeenCalledWith(1, "compaction_response", "{\"error\":\"bad schema\"}");
 	});
 
+	it("records schema-invalid provider failures as owner notifications", async () => {
+		const bot = {
+			id: "bot_schema_invalid_notice",
+			ownerUserId: "user_schema_invalid_owner",
+			homeWorldId: "world_schema_invalid",
+			homeWorldHandle: "patch-notes",
+			handle: "release-sage",
+			displayName: "Release Sage",
+		} as BotDocument;
+		const message =
+			"Inference provider returned schema-invalid compaction tool arguments: Unexpected argument summary; only detailed summary in first person is allowed.";
+
+		await recordBotRuntimeFailureHumanNotification(testEnv.BICKR_D1, {
+			bot,
+			runId: "run-schema-invalid-notice",
+			message,
+			now: "2026-05-07T12:00:00.000Z",
+		});
+
+		const row = await testEnv.BICKR_D1.prepare(
+			`SELECT notification_type AS notificationType, title, body, url_path AS urlPath
+			 FROM human_notifications
+			 WHERE event_key = ?`,
+		)
+			.bind("bot_runtime_failed:bot_schema_invalid_notice:run-schema-invalid-notice")
+			.first<{ body: string; notificationType: string; title: string; urlPath: string }>();
+		expect(row).toMatchObject({
+			notificationType: "bot_runtime_failed",
+			title: "Release Sage loop run failed",
+			urlPath: "/w/patch-notes/u/release-sage/loop",
+		});
+		expect(row?.body).toContain("schema-invalid compaction tool arguments");
+		expect(row?.body).toContain("Check the loop log and inference settings.");
+	});
+
 	it("returns the bootstrap payload", async () => {
 		const response = await bootstrap(
 			contextFor<typeof bootstrap>(new Request("http://example.com/api/bootstrap")),
@@ -5259,7 +5423,7 @@ describe("Bickr Pages Functions", () => {
 		expect(created.data.bot.inferenceSettings).toMatchObject({
 			openRouterApiKeySet: true,
 			model: "openrouter/auto",
-			reasoningPrefill: "I'm Release Sage, and I  ",
+			recurringPrompt: "I'm Release Sage, and I  ",
 			providerRouting: {
 				max_price: {
 					prompt: 0.25,
@@ -5488,8 +5652,8 @@ describe("Bickr Pages Functions", () => {
 					"PATCH",
 					{
 						displayName: "Release Oracle",
-						inferenceSettings: {
-							reasoningPrefill: null,
+							inferenceSettings: {
+								recurringPrompt: null,
 							providerRouting: null,
 							frequencyPenalty: null,
 							presencePenalty: null,
@@ -5527,7 +5691,7 @@ describe("Bickr Pages Functions", () => {
 		expect(patchPayload.data.bot.inferenceSettings.frequencyPenalty).toBeUndefined();
 		expect(patchPayload.data.bot.inferenceSettings.presencePenalty).toBeUndefined();
 		expect(patchPayload.data.bot.inferenceSettings.repetitionPenalty).toBeUndefined();
-		expect(patchPayload.data.bot.inferenceSettings.reasoningPrefill).toBeUndefined();
+			expect(patchPayload.data.bot.inferenceSettings.recurringPrompt).toBeUndefined();
 		expect(patchPayload.data.bot.inferenceSettings.providerRouting).toBeUndefined();
 
 		const runtimeAfterPatch = await testEnv.BICKR_D1.prepare(
@@ -5976,6 +6140,7 @@ describe("Bickr Pages Functions", () => {
 							openRouterApiKey: "sk-or-user-secret",
 							model: "anthropic/claude-3.5-haiku",
 							translation: {
+								enabled: true,
 								model: "openai/gpt-4o-mini",
 							},
 							providerRouting: {
@@ -6005,13 +6170,14 @@ describe("Bickr Pages Functions", () => {
 			handle: "octo-admin",
 			displayName: "Octo Admin",
 			profileComplete: true,
-			inferenceSettings: {
-				openRouterApiKeySet: true,
-				model: "anthropic/claude-3.5-haiku",
-				translation: {
-					model: "openai/gpt-4o-mini",
-					prompt: defaultTranslationPrompt,
-				},
+				inferenceSettings: {
+					openRouterApiKeySet: true,
+					model: "anthropic/claude-3.5-haiku",
+					translation: {
+						enabled: true,
+						model: "openai/gpt-4o-mini",
+						prompt: defaultTranslationPrompt,
+					},
 				providerRouting: {
 					max_price: {
 						prompt: 0.25,
@@ -6119,9 +6285,13 @@ describe("Bickr Pages Functions", () => {
 		expect(noKeyModelResponse.status).toBe(200);
 		const noKeyModelPayload = (await noKeyModelResponse.json()) as {
 			data: { profile: { inferenceSettings: Record<string, unknown> } };
-		};
-		expect(noKeyModelPayload.data.profile.inferenceSettings.model).toBeUndefined();
-		expect(noKeyModelPayload.data.profile.inferenceSettings.translation).toBeUndefined();
+			};
+			expect(noKeyModelPayload.data.profile.inferenceSettings.model).toBeUndefined();
+			expect(noKeyModelPayload.data.profile.inferenceSettings.translation).toMatchObject({
+				enabled: true,
+				prompt: defaultTranslationPrompt,
+			});
+			expect((noKeyModelPayload.data.profile.inferenceSettings.translation as Record<string, unknown>).model).toBeUndefined();
 		expect(noKeyModelPayload.data.profile.inferenceSettings.openRouterApiKeySet).toBeUndefined();
 
 		const customBaseModelResponse = await patchProfile(
@@ -6134,6 +6304,7 @@ describe("Bickr Pages Functions", () => {
 							baseUrl: "http://localhost:11434/v1",
 							model: "local/model",
 							translation: {
+								enabled: true,
 								model: "local/translator",
 								prompt: "Translate into Scots.",
 							},
@@ -6151,10 +6322,11 @@ describe("Bickr Pages Functions", () => {
 					inferenceSettings: {
 						baseUrl: "http://localhost:11434/v1",
 						model: "local/model",
-						translation: {
-							model: "local/translator",
-							prompt: "Translate into Scots.",
-						},
+							translation: {
+								enabled: true,
+								model: "local/translator",
+								prompt: "Translate into Scots.",
+							},
 					},
 				},
 			},
@@ -6172,13 +6344,14 @@ describe("Bickr Pages Functions", () => {
 						inferenceSettings: {
 							openRouterApiKey: "sk-or-translation-secret",
 							translation: {
+								enabled: true,
 								model: "openai/gpt-4o-mini",
 								prompt: "Translate into French.",
-							},
-							providerRouting: {
-								max_price: {
-									prompt: 0.2,
-									completion: 0.4,
+								providerRouting: {
+									max_price: {
+										prompt: 0.2,
+										completion: 0.4,
+									},
 								},
 							},
 						},
@@ -6187,16 +6360,24 @@ describe("Bickr Pages Functions", () => {
 				),
 			),
 		);
-		expect(profileResponse.status).toBe(200);
-		const profilePayload = (await profileResponse.json()) as { data: { profile: UserProfile } };
-		const providerRequests: Request[] = [];
-		const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
-			const request = new Request(input, init);
-			providerRequests.push(request);
-			return Response.json({
-				choices: [{ message: { content: JSON.stringify({ translation: "Bonjour." }) } }],
+			expect(profileResponse.status).toBe(200);
+			const profilePayload = (await profileResponse.json()) as { data: { profile: UserProfile } };
+			const providerRequests: Request[] = [];
+			const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+				const request = new Request(input, init);
+				providerRequests.push(request);
+				return Response.json({
+					choices: [{
+						message: {
+							tool_calls: [{
+								id: "call_translation",
+								type: "function",
+								function: { name: "save_translation", arguments: JSON.stringify({ translation: "Bonjour." }) },
+							}],
+						},
+					}],
+				});
 			});
-		});
 		try {
 			const response = await translateText(
 				contextFor<typeof translateText>(
@@ -6238,14 +6419,16 @@ describe("Bickr Pages Functions", () => {
 						prompt: 0.2,
 						completion: 0.4,
 					},
-				},
-				stream: false,
-				temperature: 0,
-			});
-		} finally {
-			fetchSpy.mockRestore();
-		}
-	});
+					},
+					stream: false,
+					temperature: 0,
+					tool_choice: "required",
+				});
+				expect((providerBody.tools as Array<{ function?: { name?: string } }>)[0]?.function?.name).toBe("save_translation");
+			} finally {
+				fetchSpy.mockRestore();
+			}
+		});
 
 	it("rejects translation without auth, configured model, or parseable provider JSON", async () => {
 		const unauthorized = await translateText(

@@ -159,10 +159,21 @@ type InferenceDraft = {
 	openRouterApiKeySet: boolean;
 	baseUrl: string;
 	model: string;
-	reasoningPrefill: string;
+	recurringPrompt: string;
+	reasoningEffort: string;
 	providerRouting: string;
+	translationEnabled: boolean;
 	translationModel: string;
 	translationPrompt: string;
+	translationReasoningEffort: string;
+	translationProviderRouting: string;
+	translationTemperature: string;
+	translationTopK: string;
+	translationTopP: string;
+	translationMinP: string;
+	translationFrequencyPenalty: string;
+	translationPresencePenalty: string;
+	translationRepetitionPenalty: string;
 	temperature: string;
 	topK: string;
 	topP: string;
@@ -508,13 +519,16 @@ function App() {
 	);
 	const translationContext = useMemo<TranslationContextValue>(() => {
 		const translation = userProfile?.inferenceSettings.translation;
-		const model = translation?.model?.trim() ?? "";
+		const model =
+			translation?.model?.trim() ||
+			userProfile?.inferenceSettings.model?.trim() ||
+			defaultProviderModel;
 		return {
-			enabled: model.length > 0,
+			enabled: Boolean(translation?.enabled),
 			model,
 			prompt: translation?.prompt?.trim() || defaultTranslationPrompt,
 		};
-	}, [userProfile?.inferenceSettings.translation]);
+	}, [userProfile?.inferenceSettings.model, userProfile?.inferenceSettings.translation]);
 	const activeBotBlogForum =
 		activeBot ? activeForums.find((forum) => forum.personalBotId === activeBot.id) ?? null : null;
 	const ownedBotModels = useMemo(() => {
@@ -5406,6 +5420,7 @@ function BotEdit({
 	const contextWindowTokens = parsePositiveInteger(draft.contextWindowTokens);
 	const maxToolCallsPerTick = parsePositiveInteger(draft.maxToolCallsPerTick);
 	const providerRoutingError = providerRoutingDraftError(draft.inference.providerRouting);
+	const translationProviderRoutingError = providerRoutingDraftError(draft.inference.translationProviderRouting);
 	const inferenceInheritance: InferenceModelUnlockContext = {
 		apiKeySet: Boolean(ownerInferenceSettings?.openRouterApiKeySet),
 		...(ownerInferenceSettings?.baseUrl ? { baseUrl: ownerInferenceSettings.baseUrl } : {}),
@@ -5430,8 +5445,9 @@ function BotEdit({
 		draft.shortBio.trim().length > 0 &&
 		draft.prompt.trim().length > 0 &&
 		draft.prompt.length <= maxBotPromptLength &&
-		draft.inference.reasoningPrefill.length <= maxBotReasoningPrefillLength &&
+		draft.inference.recurringPrompt.length <= maxBotReasoningPrefillLength &&
 		!providerRoutingError &&
+		!translationProviderRoutingError &&
 		tickIntervalMinutes >= 1 &&
 		tickIntervalMinutes <= 1440 &&
 		contextWindowTokens >= 2000 &&
@@ -5599,7 +5615,7 @@ function BotEdit({
 
 					<section className="section">
 						<div className="section-head">
-							<h2>Runtime</h2>
+							<h2>Agentic Loop</h2>
 							<span className="meta">owner tools</span>
 						</div>
 						<div className="card runtime-card">
@@ -5649,17 +5665,47 @@ function BotEdit({
 									/>
 								</Field>
 							</div>
+							<Field
+								help="Blank uses the default recurring first-person prompt for this participant."
+								hint={defaultReasoningPrefill(bot.handle)}
+								label="Recurring prompt"
+							>
+								<input
+									className="input"
+									maxLength={maxBotReasoningPrefillLength}
+									onChange={(event) =>
+										setDraft((current) => ({
+											...current,
+											inference: { ...current.inference, recurringPrompt: event.target.value },
+										}))
+									}
+									placeholder={defaultReasoningPrefill(bot.handle)}
+									value={draft.inference.recurringPrompt}
+								/>
+							</Field>
 							<RuntimeRow label="Loop monitor" value="Open from the bot profile Loop action." />
 						</div>
 					</section>
 
 					<section className="section">
 						<div className="section-head">
-							<h2>Inference Overrides</h2>
+							<h2>Inference Provider</h2>
 							<span className="meta">blank fields inherit profile defaults</span>
 						</div>
-						<InferenceSettingsFields
-							botHandle={bot.handle}
+						<InferenceProviderFields
+							draft={draft.inference}
+							inheritedApiKeySet={Boolean(ownerInferenceSettings?.openRouterApiKeySet)}
+							inheritedBaseUrl={ownerInferenceSettings?.baseUrl}
+							onChange={(inference) => setDraft((current) => ({ ...current, inference }))}
+							scope="bot"
+						/>
+					</section>
+					<section className="section">
+						<div className="section-head">
+							<h2>Inference: Agentic Loop</h2>
+							<span className="meta">blank fields inherit profile defaults</span>
+						</div>
+						<AgenticLoopInferenceFields
 							draft={draft.inference}
 							inheritedApiKeySet={Boolean(ownerInferenceSettings?.openRouterApiKeySet)}
 							inheritedBaseUrl={ownerInferenceSettings?.baseUrl}
@@ -6709,7 +6755,8 @@ function ProfileScreen({
 	const valid =
 		isValidHandle(draft.handle) &&
 		draft.displayName.trim().length > 0 &&
-		!providerRoutingDraftError(draft.inference.providerRouting);
+		!providerRoutingDraftError(draft.inference.providerRouting) &&
+		!providerRoutingDraftError(draft.inference.translationProviderRouting);
 	const canSave = (dirty || profileIncomplete) && valid && !busy && !loading;
 
 	async function save(): Promise<void> {
@@ -6814,13 +6861,34 @@ function ProfileScreen({
 
 					<section className="section">
 						<div className="section-head">
-							<h2>OpenRouter Defaults</h2>
-							<span className="meta">used by bots without overrides</span>
+							<h2>Inference Provider</h2>
+							<span className="meta">credentials and endpoint</span>
 						</div>
-						<InferenceSettingsFields
+						<InferenceProviderFields
 							draft={draft.inference}
 							onChange={(inference) => setDraft((current) => ({ ...current, inference }))}
 							scope="profile"
+						/>
+					</section>
+					<section className="section">
+						<div className="section-head">
+							<h2>Inference: Agentic Loop</h2>
+							<span className="meta">used by participants without overrides</span>
+						</div>
+						<AgenticLoopInferenceFields
+							draft={draft.inference}
+							onChange={(inference) => setDraft((current) => ({ ...current, inference }))}
+							scope="profile"
+						/>
+					</section>
+					<section className="section">
+						<div className="section-head">
+							<h2>Inference: Translation</h2>
+							<span className="meta">inline content translation</span>
+						</div>
+						<TranslationInferenceFields
+							draft={draft.inference}
+							onChange={(inference) => setDraft((current) => ({ ...current, inference }))}
 						/>
 					</section>
 				</div>
@@ -6910,24 +6978,19 @@ function AuthIdentityRuntimeRow({
 	);
 }
 
-function InferenceSettingsFields({
-	botHandle,
+function InferenceProviderFields({
 	draft,
 	inheritedApiKeySet = false,
 	inheritedBaseUrl,
-	modelSuggestions = [],
 	onChange,
 	scope,
 }: {
-	botHandle?: string;
 	draft: InferenceDraft;
 	inheritedApiKeySet?: boolean;
 	inheritedBaseUrl?: string;
-	modelSuggestions?: string[];
 	onChange: (draft: InferenceDraft) => void;
 	scope: "bot" | "profile";
 }) {
-	const modelListId = useId();
 	const inheritedContext = useMemo<InferenceModelUnlockContext>(
 		() => ({
 			apiKeySet: inheritedApiKeySet,
@@ -6935,8 +6998,6 @@ function InferenceSettingsFields({
 		}),
 		[inheritedApiKeySet, inheritedBaseUrl],
 	);
-	const modelLocked = !canCustomizeInferenceModel(draft, inheritedContext);
-	const reasoningPrefillHint = defaultReasoningPrefill(botHandle ?? "username");
 	function patch(update: Partial<InferenceDraft>): void {
 		onChange(normalizeInferenceDraftModel({ ...draft, ...update }, inheritedContext));
 	}
@@ -6983,15 +7044,53 @@ function InferenceSettingsFields({
 				</div>
 				{draft.clearOpenRouterApiKey && <div className="help">The saved key will be removed on save.</div>}
 			</Field>
-			<ProviderRoutingField
-				onChange={(providerRouting) => patch({ providerRouting })}
-				value={draft.providerRouting}
-			/>
-			<div className="field-row">
-				<Field
-					help={
-						modelLocked ?
-							"Using the default model. Add an API key or custom base URL to choose another model."
+			<Field help={scope === "bot" ? "Blank inherits the profile or OpenRouter default URL." : "Blank uses OpenRouter's default URL."} label="Base URL">
+				<input
+					className="input"
+					onChange={(event) => patch({ baseUrl: event.target.value })}
+					placeholder="https://openrouter.ai/api/v1"
+					value={draft.baseUrl}
+				/>
+			</Field>
+		</div>
+	);
+}
+
+function AgenticLoopInferenceFields({
+	draft,
+	inheritedApiKeySet = false,
+	inheritedBaseUrl,
+	modelSuggestions = [],
+	onChange,
+	scope,
+}: {
+	draft: InferenceDraft;
+	inheritedApiKeySet?: boolean;
+	inheritedBaseUrl?: string;
+	modelSuggestions?: string[];
+	onChange: (draft: InferenceDraft) => void;
+		scope: "bot" | "profile";
+	}) {
+		const modelListId = useId();
+	const inheritedContext = useMemo<InferenceModelUnlockContext>(
+		() => ({
+			apiKeySet: inheritedApiKeySet,
+			baseUrl: inheritedBaseUrl,
+		}),
+		[inheritedApiKeySet, inheritedBaseUrl],
+	);
+		const modelLocked = !canCustomizeInferenceModel(draft, inheritedContext);
+		function patch(update: Partial<InferenceDraft>): void {
+			onChange(normalizeInferenceDraftModel({ ...draft, ...update }, inheritedContext));
+		}
+
+		return (
+			<div className="field-stack">
+				<div className="inference-row model-reasoning-row">
+					<Field
+						help={
+							modelLocked ?
+								"Using the default model. Add an API key or custom base URL to choose another model."
 						: scope === "bot" ?
 							"Blank inherits the profile or environment model."
 						:	"Blank uses the environment model."
@@ -7006,111 +7105,67 @@ function InferenceSettingsFields({
 						placeholder="google/gemma-4-26b-a4b-it:free"
 						value={modelLocked ? "" : draft.model}
 					/>
-					{modelSuggestions.length > 0 && (
-						<datalist id={modelListId}>
-							{modelSuggestions.map((model) => (
-								<option key={model} value={model} />
-							))}
-						</datalist>
-					)}
-				</Field>
-				<Field help={scope === "bot" ? "Blank inherits the profile or OpenRouter default URL." : "Blank uses OpenRouter's default URL."} label="Base URL">
-					<input
-						className="input"
-						onChange={(event) => patch({ baseUrl: event.target.value })}
-						placeholder="https://openrouter.ai/api/v1"
-						value={draft.baseUrl}
-					/>
-				</Field>
-			</div>
-			{scope === "bot" && (
-				<Field
-					help="Blank uses the default first-person prefix for this participant."
-					hint={reasoningPrefillHint}
-					label="Reasoning prefill"
-				>
-					<input
-						className="input"
-						maxLength={maxBotReasoningPrefillLength}
-						onChange={(event) => patch({ reasoningPrefill: event.target.value })}
-						placeholder={reasoningPrefillHint}
-						value={draft.reasoningPrefill}
-					/>
-				</Field>
-			)}
-			{scope === "profile" && (
-				<div className="translation-settings">
-					<div className="field-row">
-						<Field
-							help={
-								modelLocked ?
-									"Add an API key or custom base URL before enabling translation."
-								:	"Blank disables translation controls on content text."
-							}
-							label="Translation model"
+							{modelSuggestions.length > 0 && (
+								<datalist id={modelListId}>
+									{modelSuggestions.map((model) => (
+										<option key={model} value={model} />
+									))}
+								</datalist>
+							)}
+					</Field>
+					<Field label="Reasoning">
+						<select
+							className="input reasoning-select"
+							onChange={(event) => patch({ reasoningEffort: event.target.value })}
+							value={draft.reasoningEffort}
 						>
-							<input
-								className="input"
-								disabled={modelLocked}
-								list={modelSuggestions.length > 0 ? modelListId : undefined}
-								onChange={(event) => patch({ translationModel: event.target.value })}
-								placeholder="openai/gpt-4o-mini"
-								value={modelLocked ? "" : draft.translationModel}
-							/>
-						</Field>
-						<Field help="Sent with the source text for each translation request." label="Translation prompt">
-							<input
-								className="input"
-								disabled={modelLocked || !draft.translationModel.trim()}
-								onChange={(event) => patch({ translationPrompt: event.target.value })}
-								placeholder={defaultTranslationPrompt}
-								value={draft.translationPrompt}
-							/>
-						</Field>
-					</div>
+							{reasoningEffortOptions.map((option) => (
+								<option key={option.value} value={option.value}>
+									{option.label}
+								</option>
+							))}
+						</select>
+					</Field>
 				</div>
-			)}
-			<div className="field-row">
-				<Field label="Temperature">
-					<input
-						className="input"
+				<div className="inference-row four">
+					<Field label="Temperature">
+						<input
+							className="input"
 						max="2"
 						min="0"
 						onChange={(event) => patch({ temperature: event.target.value })}
 						placeholder="0.9"
 						step="0.05"
 						type="number"
-						value={draft.temperature}
-					/>
-				</Field>
-				<Field label="Top P">
-					<input
-						className="input"
+							value={draft.temperature}
+						/>
+					</Field>
+					<Field label="Top K">
+						<input
+							className="input"
+							min="0"
+							onChange={(event) => patch({ topK: event.target.value })}
+							placeholder="default"
+							step="1"
+							type="number"
+							value={draft.topK}
+						/>
+					</Field>
+					<Field label="Top P">
+						<input
+							className="input"
 						max="1"
 						min="0"
 						onChange={(event) => patch({ topP: event.target.value })}
 						placeholder="1"
 						step="0.01"
 						type="number"
-						value={draft.topP}
-					/>
-				</Field>
-			</div>
-			<div className="field-row">
-				<Field label="Top K">
-					<input
-						className="input"
-						min="0"
-						onChange={(event) => patch({ topK: event.target.value })}
-						placeholder="default"
-						step="1"
-						type="number"
-						value={draft.topK}
-					/>
-				</Field>
-				<Field label="Min P">
-					<input
-						className="input"
+							value={draft.topP}
+						/>
+					</Field>
+					<Field label="Min P">
+						<input
+							className="input"
 						max="1"
 						min="0"
 						onChange={(event) => patch({ minP: event.target.value })}
@@ -7118,13 +7173,13 @@ function InferenceSettingsFields({
 						step="0.01"
 						type="number"
 						value={draft.minP}
-					/>
-				</Field>
-			</div>
-			<div className="field-row">
-				<Field label="Frequency penalty">
-					<input
-						className="input"
+						/>
+					</Field>
+				</div>
+				<div className="inference-row three">
+					<Field label="Frequency penalty">
+						<input
+							className="input"
 						max="2"
 						min="-2"
 						onChange={(event) => patch({ frequencyPenalty: event.target.value })}
@@ -7143,14 +7198,12 @@ function InferenceSettingsFields({
 						placeholder="default"
 						step="0.05"
 						type="number"
-						value={draft.presencePenalty}
-					/>
-				</Field>
-			</div>
-			<div className="field-row">
-				<Field label="Repetition penalty">
-					<input
-						className="input"
+							value={draft.presencePenalty}
+						/>
+					</Field>
+					<Field label="Repetition penalty">
+						<input
+							className="input"
 						max="2"
 						min="0"
 						onChange={(event) => patch({ repetitionPenalty: event.target.value })}
@@ -7158,20 +7211,28 @@ function InferenceSettingsFields({
 						step="0.05"
 						type="number"
 						value={draft.repetitionPenalty}
-					/>
-				</Field>
+						/>
+					</Field>
+				</div>
+				<ProviderRoutingField
+					onChange={(providerRouting) => patch({ providerRouting })}
+					value={draft.providerRouting}
+				/>
 			</div>
-		</div>
-	);
-}
+		);
+	}
 
 const openRouterProviderRoutingDocsUrl = "https://openrouter.ai/docs/guides/routing/provider-selection";
-const providerRoutingPlaceholder = `{
-  "max_price": {
-    "prompt": 0.25,
-    "completion": 0.75
-  }
-}`;
+const providerRoutingPlaceholder = "{\n\n}";
+const reasoningEffortOptions = [
+	{ value: "default", label: "Default" },
+	{ value: "none", label: "None" },
+	{ value: "minimal", label: "Minimal" },
+	{ value: "low", label: "Low" },
+	{ value: "medium", label: "Medium" },
+	{ value: "high", label: "High" },
+	{ value: "xhigh", label: "XHigh" },
+] as const;
 
 function ProviderRoutingField({
 	onChange,
@@ -7182,9 +7243,8 @@ function ProviderRoutingField({
 }) {
 	const error = providerRoutingDraftError(value);
 	return (
-		<details className="provider-routing-details">
-			<summary>Provider routing ...</summary>
-			<Field>
+		<div className="provider-routing-field">
+			<Field label="Provider routing">
 				<textarea
 					className={`textarea provider-routing-editor ${error ? "invalid" : ""}`}
 					onChange={(event) => onChange(event.target.value)}
@@ -7202,9 +7262,188 @@ function ProviderRoutingField({
 						</a>
 						.
 					</div>
-				}
-			</Field>
-		</details>
+					}
+				</Field>
+		</div>
+	);
+}
+
+function TranslationInferenceFields({
+	draft,
+	modelSuggestions = [],
+	onChange,
+}: {
+	draft: InferenceDraft;
+	modelSuggestions?: string[];
+	onChange: (draft: InferenceDraft) => void;
+}) {
+	const modelListId = useId();
+	const effectiveLoopModel = effectiveInferenceDraftModel(draft);
+	const translationModelSet = draft.translationModel.trim().length > 0;
+	const controlsDisabled = !translationModelSet;
+	function patch(update: Partial<InferenceDraft>): void {
+		onChange({ ...draft, ...update });
+	}
+
+	return (
+		<div className="field-stack">
+			<div className="inference-row translation-enable-row">
+				<label className="checkbox-line">
+					<input
+						checked={draft.translationEnabled}
+						onChange={(event) => patch({ translationEnabled: event.target.checked })}
+						type="checkbox"
+					/>
+					<span>Inline translations</span>
+				</label>
+				{draft.translationEnabled && (
+					<Field help="Sent with the source text for each translation request." label="Translation prompt">
+						<input
+							className="input"
+							onChange={(event) => patch({ translationPrompt: event.target.value })}
+							placeholder={defaultTranslationPrompt}
+							value={draft.translationPrompt}
+						/>
+					</Field>
+				)}
+			</div>
+			{draft.translationEnabled && (
+				<>
+					<div className="inference-row model-reasoning-row">
+						<Field hint={translationModelSet ? undefined : effectiveLoopModel} label="Model">
+							<input
+								className="input"
+								list={modelSuggestions.length > 0 ? modelListId : undefined}
+								onChange={(event) => patch({ translationModel: event.target.value })}
+								placeholder={effectiveLoopModel}
+								value={draft.translationModel}
+							/>
+							{modelSuggestions.length > 0 && (
+								<datalist id={modelListId}>
+									{modelSuggestions.map((model) => (
+										<option key={model} value={model} />
+									))}
+								</datalist>
+							)}
+						</Field>
+						<Field label="Reasoning">
+							<select
+								className="input reasoning-select"
+								disabled={controlsDisabled}
+								onChange={(event) => patch({ translationReasoningEffort: event.target.value })}
+								value={draft.translationReasoningEffort}
+							>
+								{reasoningEffortOptions.map((option) => (
+									<option key={option.value} value={option.value}>
+										{option.label}
+									</option>
+								))}
+							</select>
+						</Field>
+					</div>
+					<div className="inference-row four">
+						<Field label="Temperature">
+							<input
+								className="input"
+								disabled={controlsDisabled}
+								max="2"
+								min="0"
+								onChange={(event) => patch({ translationTemperature: event.target.value })}
+								placeholder="0"
+								step="0.05"
+								type="number"
+								value={draft.translationTemperature}
+							/>
+						</Field>
+						<Field label="Top K">
+							<input
+								className="input"
+								disabled={controlsDisabled}
+								min="0"
+								onChange={(event) => patch({ translationTopK: event.target.value })}
+								placeholder="default"
+								step="1"
+								type="number"
+								value={draft.translationTopK}
+							/>
+						</Field>
+						<Field label="Top P">
+							<input
+								className="input"
+								disabled={controlsDisabled}
+								max="1"
+								min="0"
+								onChange={(event) => patch({ translationTopP: event.target.value })}
+								placeholder="default"
+								step="0.01"
+								type="number"
+								value={draft.translationTopP}
+							/>
+						</Field>
+						<Field label="Min P">
+							<input
+								className="input"
+								disabled={controlsDisabled}
+								max="1"
+								min="0"
+								onChange={(event) => patch({ translationMinP: event.target.value })}
+								placeholder="default"
+								step="0.01"
+								type="number"
+								value={draft.translationMinP}
+							/>
+						</Field>
+					</div>
+					<div className="inference-row three">
+						<Field label="Frequency penalty">
+							<input
+								className="input"
+								disabled={controlsDisabled}
+								max="2"
+								min="-2"
+								onChange={(event) => patch({ translationFrequencyPenalty: event.target.value })}
+								placeholder="default"
+								step="0.05"
+								type="number"
+								value={draft.translationFrequencyPenalty}
+							/>
+						</Field>
+						<Field label="Presence penalty">
+							<input
+								className="input"
+								disabled={controlsDisabled}
+								max="2"
+								min="-2"
+								onChange={(event) => patch({ translationPresencePenalty: event.target.value })}
+								placeholder="default"
+								step="0.05"
+								type="number"
+								value={draft.translationPresencePenalty}
+							/>
+						</Field>
+						<Field label="Repetition penalty">
+							<input
+								className="input"
+								disabled={controlsDisabled}
+								max="2"
+								min="0"
+								onChange={(event) => patch({ translationRepetitionPenalty: event.target.value })}
+								placeholder="default"
+								step="0.05"
+								type="number"
+								value={draft.translationRepetitionPenalty}
+							/>
+						</Field>
+					</div>
+					<fieldset disabled={controlsDisabled}>
+						<ProviderRoutingField
+							onChange={(translationProviderRouting) => patch({ translationProviderRouting })}
+							value={draft.translationProviderRouting}
+						/>
+					</fieldset>
+				</>
+			)}
+		</div>
 	);
 }
 
@@ -12305,10 +12544,21 @@ function inferenceDraftFromSettings(settings: BotInferenceSettings): InferenceDr
 		openRouterApiKeySet: Boolean(settings.openRouterApiKeySet),
 		baseUrl: settings.baseUrl ?? "",
 		model: settings.model ?? "",
-		reasoningPrefill: settings.reasoningPrefill ?? "",
+		recurringPrompt: settings.recurringPrompt ?? settings.reasoningPrefill ?? "",
+		reasoningEffort: settings.reasoningEffort ?? "default",
 		providerRouting: providerRoutingDraftValue(settings.providerRouting),
+		translationEnabled: Boolean(settings.translation?.enabled),
 		translationModel: settings.translation?.model ?? "",
 		translationPrompt: settings.translation?.prompt ?? defaultTranslationPrompt,
+		translationReasoningEffort: settings.translation?.reasoningEffort ?? "default",
+		translationProviderRouting: providerRoutingDraftValue(settings.translation?.providerRouting),
+		translationTemperature: numericDraftValue(settings.translation?.temperature),
+		translationTopK: numericDraftValue(settings.translation?.topK),
+		translationTopP: numericDraftValue(settings.translation?.topP),
+		translationMinP: numericDraftValue(settings.translation?.minP),
+		translationFrequencyPenalty: numericDraftValue(settings.translation?.frequencyPenalty),
+		translationPresencePenalty: numericDraftValue(settings.translation?.presencePenalty),
+		translationRepetitionPenalty: numericDraftValue(settings.translation?.repetitionPenalty),
 		temperature: numericDraftValue(settings.temperature),
 		topK: numericDraftValue(settings.topK),
 		topP: numericDraftValue(settings.topP),
@@ -12329,7 +12579,8 @@ function inferenceDraftChanged(
 		draft.clearOpenRouterApiKey ||
 		draft.baseUrl.trim() !== (settings.baseUrl ?? "") ||
 		draft.model.trim() !== (settings.model ?? "") ||
-		(Boolean(options.includeReasoningPrefill) && draft.reasoningPrefill !== (settings.reasoningPrefill ?? "")) ||
+		(Boolean(options.includeReasoningPrefill) && draft.recurringPrompt !== (settings.recurringPrompt ?? settings.reasoningPrefill ?? "")) ||
+		nullableReasoningEffortInput(draft.reasoningEffort) !== (settings.reasoningEffort ?? null) ||
 		providerRoutingDraftChanged(draft.providerRouting, settings.providerRouting) ||
 		(Boolean(options.includeTranslation) && translationDraftChanged(draft, settings)) ||
 		draft.temperature.trim() !== numericDraftValue(settings.temperature) ||
@@ -12345,13 +12596,20 @@ function inferenceDraftChanged(
 function translationDraftChanged(draft: InferenceDraft, settings: BotInferenceSettings): boolean {
 	const draftModel = draft.translationModel.trim();
 	const settingsModel = settings.translation?.model ?? "";
-	if (draftModel !== settingsModel) {
-		return true;
-	}
-	if (!draftModel) {
-		return false;
-	}
-	return draft.translationPrompt.trim() !== (settings.translation?.prompt ?? defaultTranslationPrompt);
+	return (
+		draft.translationEnabled !== Boolean(settings.translation?.enabled) ||
+		draftModel !== settingsModel ||
+		draft.translationPrompt.trim() !== (settings.translation?.prompt ?? defaultTranslationPrompt) ||
+		nullableReasoningEffortInput(draft.translationReasoningEffort) !== (settings.translation?.reasoningEffort ?? null) ||
+		providerRoutingDraftChanged(draft.translationProviderRouting, settings.translation?.providerRouting) ||
+		draft.translationTemperature.trim() !== numericDraftValue(settings.translation?.temperature) ||
+		draft.translationTopK.trim() !== numericDraftValue(settings.translation?.topK) ||
+		draft.translationTopP.trim() !== numericDraftValue(settings.translation?.topP) ||
+		draft.translationMinP.trim() !== numericDraftValue(settings.translation?.minP) ||
+		draft.translationFrequencyPenalty.trim() !== numericDraftValue(settings.translation?.frequencyPenalty) ||
+		draft.translationPresencePenalty.trim() !== numericDraftValue(settings.translation?.presencePenalty) ||
+		draft.translationRepetitionPenalty.trim() !== numericDraftValue(settings.translation?.repetitionPenalty)
+	);
 }
 
 function inferenceInputFromDraft(
@@ -12367,8 +12625,9 @@ function inferenceInputFromDraft(
 		baseUrl: nullableTextInput(normalized.baseUrl),
 		model: nullableTextInput(normalized.model),
 		...(options.includeReasoningPrefill ?
-			{ reasoningPrefill: nullablePreservedTextInput(normalized.reasoningPrefill) }
+			{ recurringPrompt: nullablePreservedTextInput(normalized.recurringPrompt) }
 		:	{}),
+		reasoningEffort: nullableReasoningEffortInput(normalized.reasoningEffort),
 		providerRouting: providerRoutingInputFromDraft(normalized.providerRouting),
 		...(options.includeTranslation ? { translation: translationInputFromDraft(normalized) } : {}),
 		temperature: nullableNumberInput(normalized.temperature),
@@ -12383,12 +12642,19 @@ function inferenceInputFromDraft(
 
 function translationInputFromDraft(draft: InferenceDraft): BotInferenceSettingsInput["translation"] {
 	const model = nullableTextInput(draft.translationModel);
-	if (!model) {
-		return null;
-	}
 	return {
+		enabled: draft.translationEnabled,
 		model,
 		prompt: nullableTextInput(draft.translationPrompt) ?? defaultTranslationPrompt,
+		reasoningEffort: nullableReasoningEffortInput(draft.translationReasoningEffort),
+		providerRouting: providerRoutingInputFromDraft(draft.translationProviderRouting),
+		temperature: nullableNumberInput(draft.translationTemperature),
+		topK: nullableNumberInput(draft.translationTopK),
+		topP: nullableNumberInput(draft.translationTopP),
+		minP: nullableNumberInput(draft.translationMinP),
+		frequencyPenalty: nullableNumberInput(draft.translationFrequencyPenalty),
+		presencePenalty: nullableNumberInput(draft.translationPresencePenalty),
+		repetitionPenalty: nullableNumberInput(draft.translationRepetitionPenalty),
 	};
 }
 
@@ -12495,9 +12761,10 @@ function botPromptBudgetRequestKey(
 		model: effectiveInferenceDraftModel(draft.inference, inherited),
 		prompt: draft.prompt,
 		providerRouting: providerRoutingDraftFingerprintValue(draft.inference.providerRouting),
-		reasoningPrefill: draft.inference.reasoningPrefill.trim() ?
-			draft.inference.reasoningPrefill
-		:	defaultReasoningPrefill(botHandle),
+			recurringPrompt: draft.inference.recurringPrompt.trim() ?
+				draft.inference.recurringPrompt
+			:	defaultReasoningPrefill(botHandle),
+			reasoningEffort: draft.inference.reasoningEffort,
 		shortBio: draft.shortBio,
 		tools: toolInputFromDraft(draft.tools),
 	});
@@ -12668,6 +12935,10 @@ function nullablePreservedTextInput(value: string): string | null {
 function nullableNumberInput(value: string): number | null {
 	const trimmed = value.trim();
 	return trimmed ? Number(trimmed) : null;
+}
+
+function nullableReasoningEffortInput(value: string): BotInferenceSettings["reasoningEffort"] | null {
+	return value && value !== "default" ? value as BotInferenceSettings["reasoningEffort"] : null;
 }
 
 function domainDraftValue(value: string[] | undefined): string {

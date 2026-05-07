@@ -6,6 +6,7 @@ import {
 	type AuthProvider,
 	type BotInferenceSettingsInput,
 	type BotInferenceSettings,
+	type BotInferenceReasoningEffort,
 	type BotDocument,
 	type BotPublicProfile,
 	type BotSummary,
@@ -1899,10 +1900,14 @@ export function mergeInferenceSettings(
 	const next: BotInferenceSettings = {
 		...defaultInferenceSettings,
 		...(current ?? {}),
-		...(current?.translation ? { translation: { ...current.translation } } : {}),
+		...(current?.translation ? { translation: cloneTranslationSettings(current.translation) } : {}),
 		...(current?.providerRouting ? { providerRouting: cloneJsonObject(current.providerRouting) } : {}),
 	};
 	delete next.openRouterApiKeySet;
+	if (!next.recurringPrompt && next.reasoningPrefill) {
+		next.recurringPrompt = next.reasoningPrefill;
+	}
+	delete next.reasoningPrefill;
 	if (!patch) {
 		return next;
 	}
@@ -1910,7 +1915,11 @@ export function mergeInferenceSettings(
 	assignInferenceString(next, "openRouterApiKey", patch.openRouterApiKey);
 	assignInferenceString(next, "baseUrl", patch.baseUrl);
 	assignInferenceString(next, "model", patch.model);
-	assignInferencePreservedString(next, "reasoningPrefill", patch.reasoningPrefill);
+	const recurringPromptPatch = Object.prototype.hasOwnProperty.call(patch, "recurringPrompt")
+		? patch.recurringPrompt
+		: patch.reasoningPrefill;
+	assignInferencePreservedString(next, "recurringPrompt", recurringPromptPatch);
+	assignInferenceReasoningEffort(next, "reasoningEffort", patch.reasoningEffort);
 	assignInferenceJsonObject(next, "providerRouting", patch.providerRouting);
 	if (patch.translation !== undefined) {
 		const translation = mergeTranslationSettings(next.translation, patch.translation);
@@ -1941,7 +1950,9 @@ export function enforceInferenceModelAccess(
 		hasInferenceText(inherited?.baseUrl);
 	if (!canCustomizeModel) {
 		delete settings.model;
-		delete settings.translation;
+		if (settings.translation) {
+			delete settings.translation.model;
+		}
 	}
 	return settings;
 }
@@ -2233,13 +2244,28 @@ function assignInferenceString(
 
 function assignInferencePreservedString(
 	settings: BotInferenceSettings,
-	key: "reasoningPrefill",
+	key: "recurringPrompt",
 	value: string | null | undefined,
 ): void {
 	if (value === undefined) {
 		return;
 	}
 	if (value === null || !value.trim()) {
+		delete settings[key];
+		return;
+	}
+	settings[key] = value;
+}
+
+function assignInferenceReasoningEffort<T extends { reasoningEffort?: BotInferenceReasoningEffort }>(
+	settings: T,
+	key: "reasoningEffort",
+	value: BotInferenceReasoningEffort | null | undefined,
+): void {
+	if (value === undefined) {
+		return;
+	}
+	if (value === null || value === "default") {
 		delete settings[key];
 		return;
 	}
@@ -2289,6 +2315,13 @@ function cloneJsonObject(value: JsonObject): JsonObject {
 	return JSON.parse(JSON.stringify(value)) as JsonObject;
 }
 
+function cloneTranslationSettings(settings: BotTranslationSettings): BotTranslationSettings {
+	return {
+		...settings,
+		...(settings.providerRouting ? { providerRouting: cloneJsonObject(settings.providerRouting) } : {}),
+	};
+}
+
 function mergeTranslationSettings(
 	current: BotTranslationSettings | undefined,
 	patch: BotTranslationSettingsInput | BotTranslationSettings | null,
@@ -2296,16 +2329,28 @@ function mergeTranslationSettings(
 	if (patch === null) {
 		return undefined;
 	}
-	const next: BotTranslationSettings = { ...(current ?? {}) };
+	const next: BotTranslationSettings = current ? cloneTranslationSettings(current) : {};
+	if (patch.enabled !== undefined) {
+		next.enabled = Boolean(patch.enabled);
+	}
 	assignTranslationString(next, "model", patch.model);
 	assignTranslationString(next, "prompt", patch.prompt);
-	if (!hasInferenceText(next.model)) {
-		return undefined;
+	if (next.enabled === undefined && hasInferenceText(next.model)) {
+		next.enabled = true;
 	}
-	if (!hasInferenceText(next.prompt)) {
+	assignInferenceReasoningEffort(next, "reasoningEffort", patch.reasoningEffort);
+	assignTranslationJsonObject(next, "providerRouting", patch.providerRouting);
+	assignTranslationNumber(next, "temperature", patch.temperature);
+	assignTranslationNumber(next, "topK", patch.topK);
+	assignTranslationNumber(next, "topP", patch.topP);
+	assignTranslationNumber(next, "minP", patch.minP);
+	assignTranslationNumber(next, "frequencyPenalty", patch.frequencyPenalty);
+	assignTranslationNumber(next, "presencePenalty", patch.presencePenalty);
+	assignTranslationNumber(next, "repetitionPenalty", patch.repetitionPenalty);
+	if ((next.enabled || hasInferenceText(next.model)) && !hasInferenceText(next.prompt)) {
 		next.prompt = defaultTranslationPrompt;
 	}
-	return next;
+	return translationSettingsHasValues(next) ? next : undefined;
 }
 
 function assignTranslationString(
@@ -2326,6 +2371,55 @@ function assignTranslationString(
 	} else {
 		delete settings[key];
 	}
+}
+
+function assignTranslationJsonObject(
+	settings: BotTranslationSettings,
+	key: "providerRouting",
+	value: JsonObject | null | undefined,
+): void {
+	if (value === undefined) {
+		return;
+	}
+	if (value === null) {
+		delete settings[key];
+		return;
+	}
+	settings[key] = cloneJsonObject(value);
+}
+
+type TranslationNumberSettingKey = Exclude<InferenceNumberSettingKey, never>;
+
+function assignTranslationNumber(
+	settings: BotTranslationSettings,
+	key: TranslationNumberSettingKey,
+	value: number | null | undefined,
+): void {
+	if (value === undefined) {
+		return;
+	}
+	if (value === null) {
+		delete settings[key];
+		return;
+	}
+	settings[key] = value;
+}
+
+function translationSettingsHasValues(settings: BotTranslationSettings): boolean {
+	return (
+		settings.enabled !== undefined ||
+		hasInferenceText(settings.model) ||
+		hasInferenceText(settings.prompt) ||
+		settings.reasoningEffort !== undefined ||
+		settings.providerRouting !== undefined ||
+		settings.temperature !== undefined ||
+		settings.topK !== undefined ||
+		settings.topP !== undefined ||
+		settings.minP !== undefined ||
+		settings.frequencyPenalty !== undefined ||
+		settings.presencePenalty !== undefined ||
+		settings.repetitionPenalty !== undefined
+	);
 }
 
 function hasInferenceText(value: string | undefined): boolean {

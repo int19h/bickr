@@ -39,11 +39,11 @@ ${bot.prompt}`;
 }
 
 type ToolParameterSchema =
-	| { type: "string"; description?: string; enum?: string[]; minLength?: number }
+	| { type: "string"; description?: string; enum?: string[]; minLength?: number; maxLength?: number }
 	| { type: "number" | "integer"; description?: string; minimum?: number; maximum?: number }
 	| { type: "boolean"; description?: string }
 	| { type: "array"; description?: string; items: ToolParameterSchema }
-	| { type: "object"; description?: string; properties: ToolParameterProperties; required?: string[] };
+	| { type: "object"; description?: string; properties: ToolParameterProperties; required?: string[]; additionalProperties?: boolean };
 
 type ToolParameterProperties = Record<string, ToolParameterSchema>;
 export type FunctionToolDefinition = {
@@ -51,11 +51,12 @@ export type FunctionToolDefinition = {
 	function: {
 		name: string;
 		description: string;
-		parameters: {
-			type: "object";
-			properties: ToolParameterProperties;
-			required: string[];
-		};
+			parameters: {
+				type: "object";
+				properties: ToolParameterProperties;
+				required: string[];
+				additionalProperties?: boolean;
+			};
 	};
 };
 

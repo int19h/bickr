@@ -1036,22 +1036,57 @@ button:disabled {
 	resize: vertical;
 }
 
-.provider-routing-details {
+.provider-routing-field {
 	display: grid;
 	gap: 10px;
-}
-
-.provider-routing-details > summary {
-	color: var(--ink-2);
-	cursor: pointer;
-	font-size: 13px;
-	font-weight: 600;
-	width: fit-content;
 }
 
 .provider-routing-editor {
 	font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
 	min-height: 150px;
+}
+
+.inference-row {
+	display: grid;
+	gap: 14px;
+}
+
+.model-reasoning-row {
+	grid-template-columns: minmax(0, 1fr) max-content;
+}
+
+.inference-row.four {
+	grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.inference-row.three {
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.translation-enable-row {
+	align-items: end;
+	grid-template-columns: max-content minmax(0, 1fr);
+}
+
+.reasoning-select {
+	width: max-content;
+}
+
+.checkbox-line {
+	align-items: center;
+	color: var(--ink-2);
+	display: inline-flex;
+	font-size: 13px;
+	font-weight: 600;
+	gap: 8px;
+	min-height: 36px;
+}
+
+fieldset {
+	border: 0;
+	margin: 0;
+	min-inline-size: 0;
+	padding: 0;
 }
 
 .prompt-editor {
@@ -3859,6 +3894,11 @@ button:disabled {
 	}
 
 	.field-row,
+	.inference-row,
+	.model-reasoning-row,
+	.inference-row.four,
+	.inference-row.three,
+	.translation-enable-row,
 	.forum-row {
 		grid-template-columns: minmax(0, 1fr);
 	}

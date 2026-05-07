@@ -91,7 +91,9 @@ export type BotInferenceSettings = {
 	openRouterApiKeySet?: boolean;
 	baseUrl?: string;
 	model?: string;
+	recurringPrompt?: string;
 	reasoningPrefill?: string;
+	reasoningEffort?: BotInferenceReasoningEffort;
 	providerRouting?: JsonObject;
 	translation?: BotTranslationSettings;
 	temperature?: number;
@@ -103,16 +105,30 @@ export type BotInferenceSettings = {
 	repetitionPenalty?: number;
 };
 
+export type BotInferenceReasoningEffort = "default" | "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
+
 export type BotTranslationSettings = {
+	enabled?: boolean;
 	model?: string;
 	prompt?: string;
+	reasoningEffort?: BotInferenceReasoningEffort;
+	providerRouting?: JsonObject;
+	temperature?: number;
+	topK?: number;
+	topP?: number;
+	minP?: number;
+	frequencyPenalty?: number;
+	presencePenalty?: number;
+	repetitionPenalty?: number;
 };
 
 export type BotInferenceSettingsInput = {
 	openRouterApiKey?: string | null;
 	baseUrl?: string | null;
 	model?: string | null;
+	recurringPrompt?: string | null;
 	reasoningPrefill?: string | null;
+	reasoningEffort?: BotInferenceReasoningEffort | null;
 	providerRouting?: JsonObject | null;
 	translation?: BotTranslationSettingsInput | null;
 	temperature?: number | null;
@@ -125,8 +141,18 @@ export type BotInferenceSettingsInput = {
 };
 
 export type BotTranslationSettingsInput = Partial<{
+	enabled: boolean;
 	model: string | null;
 	prompt: string | null;
+	reasoningEffort: BotInferenceReasoningEffort | null;
+	providerRouting: JsonObject | null;
+	temperature: number | null;
+	topK: number | null;
+	topP: number | null;
+	minP: number | null;
+	frequencyPenalty: number | null;
+	presencePenalty: number | null;
+	repetitionPenalty: number | null;
 }>;
 
 export type OpenRouterWebSearchEngine = "auto" | "native" | "exa" | "firecrawl" | "parallel";

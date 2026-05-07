@@ -81,6 +81,7 @@ import {
 	type BotLoopMessageOrigin,
 	type BotLoopMessageStatus,
 	type BotDocument,
+	type BotInferenceReasoningEffort,
 	type BotPublicProfile,
 	type BotActivityFeed,
 	type CommentDocument,
@@ -218,6 +219,7 @@ type ProviderCompactionResponsePayload = {
 	choices?: Array<{
 		message?: {
 			content?: unknown;
+			tool_calls?: BotInferenceSubmissionToolCall[];
 		};
 	}>;
 };
@@ -562,6 +564,7 @@ export type ProviderSettings = {
 	baseUrl: string;
 	model: string;
 	providerRouting?: JsonObject;
+	reasoningEffort?: Exclude<BotInferenceReasoningEffort, "default">;
 	temperature: number;
 	usesCustomBaseUrl?: boolean;
 	topK?: number;
@@ -571,6 +574,10 @@ export type ProviderSettings = {
 	presencePenalty?: number;
 	repetitionPenalty?: number;
 };
+
+type ProviderReasoningConfig =
+	| { enabled: true; exclude: false }
+	| { effort: Exclude<BotInferenceReasoningEffort, "default">; exclude: false };
 
 export type PromptContextBudgetCounts = Pick<
 	BotContextBudget,
@@ -598,7 +605,7 @@ type ProviderChatCompletionRequest = {
 		include_usage: true;
 	};
 	max_completion_tokens: number;
-	reasoning: typeof providerChatReasoning;
+	reasoning: ProviderReasoningConfig;
 	temperature: number;
 	top_k?: number;
 	top_p?: number;
@@ -617,9 +624,7 @@ type ProviderTokenProbeRequest = {
 	parallel_tool_calls: typeof providerParallelToolCalls;
 	stream: false;
 	max_tokens: 1;
-	reasoning: {
-		effort: "none";
-	};
+	reasoning: ProviderReasoningConfig;
 	temperature: number;
 	top_k?: number;
 	top_p?: number;
@@ -634,29 +639,11 @@ type ProviderCompactionRequest = {
 	messages: ChatMessage[];
 	provider?: JsonObject;
 	stream: false;
-	response_format: {
-		type: "json_schema";
-		json_schema: {
-			name: "compaction_memory";
-			strict: true;
-			schema: {
-				type: "object";
-				properties: {
-					"detailed summary in first person": {
-						type: "string";
-						minLength: 1;
-						maxLength: typeof providerCompactionSummaryMaxCharacters;
-					};
-				};
-				required: [typeof providerCompactionSummaryProperty];
-				additionalProperties: false;
-			};
-		};
-	};
+	tools: [ProviderToolDefinition];
+	tool_choice: typeof providerStructuredOutputToolChoice;
+	parallel_tool_calls: false;
 	max_completion_tokens: number;
-	reasoning: {
-		effort: "none";
-	};
+	reasoning: ProviderReasoningConfig;
 	temperature: number;
 };
 
@@ -665,7 +652,15 @@ type TranslationProviderSettings = {
 	baseUrl: string;
 	model: string;
 	providerRouting?: JsonObject;
+	reasoningEffort?: Exclude<BotInferenceReasoningEffort, "default">;
 	prompt: string;
+	temperature: number;
+	topK?: number;
+	topP?: number;
+	minP?: number;
+	frequencyPenalty?: number;
+	presencePenalty?: number;
+	repetitionPenalty?: number;
 };
 
 type ProviderTranslationRequest = {
@@ -673,28 +668,18 @@ type ProviderTranslationRequest = {
 	messages: ChatMessage[];
 	provider?: JsonObject;
 	stream: false;
-	response_format: {
-		type: "json_schema";
-		json_schema: {
-			name: "translation";
-			strict: true;
-			schema: {
-				type: "object";
-				properties: {
-					translation: {
-						type: "string";
-					};
-				};
-				required: ["translation"];
-				additionalProperties: false;
-			};
-		};
-	};
+	tools: [ProviderToolDefinition];
+	tool_choice: typeof providerStructuredOutputToolChoice;
+	parallel_tool_calls: false;
 	max_completion_tokens: number;
-	reasoning: {
-		effort: "none";
-	};
-	temperature: 0;
+	reasoning: ProviderReasoningConfig;
+	temperature: number;
+	top_k?: number;
+	top_p?: number;
+	min_p?: number;
+	frequency_penalty?: number;
+	presence_penalty?: number;
+	repetition_penalty?: number;
 };
 
 type ProviderLoopOutcome = {
@@ -766,6 +751,20 @@ class ProviderCompactionRequestError extends Error {
 		this.originalError = originalError;
 		this.requestBody = requestBody;
 		this.responseBody = responseBody;
+	}
+}
+
+class ProviderStructuredOutputValidationError extends Error {
+	readonly rawResponse?: string;
+	readonly toolCalls: BotInferenceSubmissionToolCall[];
+	readonly repairMessage: string;
+
+	constructor(kind: "compaction" | "translation", repairMessage: string, options: { rawResponse?: string; toolCalls?: BotInferenceSubmissionToolCall[] } = {}) {
+		super(`Inference provider returned schema-invalid ${kind} tool arguments: ${repairMessage}`);
+		this.name = "ProviderStructuredOutputValidationError";
+		this.repairMessage = repairMessage;
+		this.rawResponse = options.rawResponse;
+		this.toolCalls = options.toolCalls ?? [];
 	}
 }
 
@@ -846,14 +845,18 @@ const vectorBindingTimeoutMs = 10_000;
 const providerMaxAttempts = 5;
 const providerRetryBaseDelayMs = 3_000;
 const providerChatToolChoice = "required" as const;
+const providerStructuredOutputToolChoice = "required" as const;
 const providerTokenProbeToolChoice = "auto" as const;
 const providerParallelToolCalls = true;
-const providerChatReasoning = { enabled: true, exclude: false } as const;
+const providerDefaultReasoning = { enabled: true, exclude: false } as const;
 const providerTranslationMaxCompletionTokens = 8_192;
 const providerCompactionMaxCompletionTokens = 4_096;
 const providerCompactionTemperature = 0.2;
 const providerCompactionSummaryProperty = "detailed summary in first person";
+const providerCompactionToolName = "save_compaction_memory";
+const providerTranslationToolName = "save_translation";
 const providerCompactionSummaryMaxCharacters = 4_000;
+const providerStructuredOutputRepairAttempts = 2;
 const inferenceSubmissionRetentionCount = 50;
 const loopMessageLogRetentionCount = 50;
 const loopMessageLogChunkLength = 250_000;
@@ -876,6 +879,10 @@ export function toolUseRecoveryReminder(state: Pick<ToolUseRecoveryState, "conse
 	return `${prefix} This time, when I choose to browse, read, create threads, reply, vote, follow, or search, I should use the page controls directly and only log off after all useful action is done.`;
 }
 
+function providerReasoningForSettings(settings: Pick<ProviderSettings, "reasoningEffort">): ProviderReasoningConfig {
+	return settings.reasoningEffort ? { effort: settings.reasoningEffort, exclude: false } : providerDefaultReasoning;
+}
+
 export function providerChatCompletionRequest(
 	settings: ProviderSettings,
 	messages: ChatMessage[],
@@ -894,7 +901,7 @@ export function providerChatCompletionRequest(
 			include_usage: true,
 		},
 		max_completion_tokens: providerContextReserveTokens,
-		reasoning: providerChatReasoning,
+		reasoning: providerReasoningForSettings(settings),
 		temperature: settings.temperature,
 		...(settings.topK !== undefined ? { top_k: settings.topK } : {}),
 		...(settings.topP !== undefined ? { top_p: settings.topP } : {}),
@@ -920,7 +927,7 @@ export function providerCompactionMessages(bot: BotDocument, compactedMessages: 
 }
 
 export function providerCompactionRequest(
-	settings: Pick<ProviderSettings, "model" | "providerRouting">,
+	settings: Pick<ProviderSettings, "model" | "providerRouting" | "reasoningEffort">,
 	messages: ChatMessage[],
 ): ProviderCompactionRequest {
 	return {
@@ -928,35 +935,37 @@ export function providerCompactionRequest(
 		messages: sanitizeProviderMessagesForRequest(messages),
 		...(settings.providerRouting ? { provider: settings.providerRouting } : {}),
 		stream: false,
-		response_format: {
-			type: "json_schema",
-			json_schema: {
-				name: "compaction_memory",
-				strict: true,
-				schema: {
-					type: "object",
-					properties: {
-						[providerCompactionSummaryProperty]: {
-							type: "string",
-							minLength: 1,
-							maxLength: providerCompactionSummaryMaxCharacters,
+		tools: [
+			{
+				type: "function",
+				function: {
+					name: providerCompactionToolName,
+					description: "Save the compacted first-person memory summary.",
+					parameters: {
+						type: "object",
+						properties: {
+							[providerCompactionSummaryProperty]: {
+								type: "string",
+								minLength: 1,
+								maxLength: providerCompactionSummaryMaxCharacters,
+							},
 						},
+						required: [providerCompactionSummaryProperty],
+						additionalProperties: false,
 					},
-					required: [providerCompactionSummaryProperty],
-					additionalProperties: false,
 				},
 			},
-		},
+		],
+		tool_choice: providerStructuredOutputToolChoice,
+		parallel_tool_calls: false,
 		max_completion_tokens: providerCompactionMaxCompletionTokens,
-		reasoning: {
-			effort: "none",
-		},
+		reasoning: providerReasoningForSettings(settings),
 		temperature: providerCompactionTemperature,
 	};
 }
 
 export function effectiveReasoningPrefill(bot: Pick<BotDocument, "handle" | "inferenceSettings">): string {
-	const custom = bot.inferenceSettings.reasoningPrefill;
+	const custom = bot.inferenceSettings.recurringPrompt ?? bot.inferenceSettings.reasoningPrefill;
 	return custom && custom.trim() ? custom : defaultReasoningPrefill(bot.handle);
 }
 
@@ -1522,8 +1531,9 @@ export function loopMessageContributesToProviderHistory(
 	return origin !== "provider_response" || !isEmptyProviderAssistantMessage(message);
 }
 
-export function runtimeErrorLoopMessageContent(message: string): string {
-	return `${runtimeDiagnosticPrefix(message)}: ${safeContextText(message, 1_200)}`;
+export function runtimeErrorLoopMessageContent(message: unknown): string {
+	const text = runtimeErrorText(message);
+	return `${runtimeDiagnosticPrefix(text)}: ${safeContextText(text, 1_200)}`;
 }
 
 function runtimeDiagnosticPrefix(message: string): string {
@@ -1616,9 +1626,7 @@ export function providerTokenProbeRequest(
 		parallel_tool_calls: providerParallelToolCalls,
 		stream: false,
 		max_tokens: 1,
-		reasoning: {
-			effort: "none",
-		},
+		reasoning: providerReasoningForSettings(settings),
 		temperature: settings.temperature,
 		...(settings.topK !== undefined ? { top_k: settings.topK } : {}),
 		...(settings.topP !== undefined ? { top_p: settings.topP } : {}),
@@ -1641,26 +1649,34 @@ export function providerTranslationRequest(
 		],
 		...(settings.providerRouting ? { provider: settings.providerRouting } : {}),
 		stream: false,
-		response_format: {
-			type: "json_schema",
-			json_schema: {
-				name: "translation",
-				strict: true,
-				schema: {
-					type: "object",
-					properties: {
-						translation: { type: "string" },
+		tools: [
+			{
+				type: "function",
+				function: {
+					name: providerTranslationToolName,
+					description: "Save the translated text.",
+					parameters: {
+						type: "object",
+						properties: {
+							translation: { type: "string" },
+						},
+						required: ["translation"],
+						additionalProperties: false,
 					},
-					required: ["translation"],
-					additionalProperties: false,
 				},
 			},
-		},
+		],
+		tool_choice: providerStructuredOutputToolChoice,
+		parallel_tool_calls: false,
 		max_completion_tokens: providerTranslationMaxCompletionTokens,
-		reasoning: {
-			effort: "none",
-		},
-		temperature: 0,
+		reasoning: providerReasoningForSettings(settings),
+		temperature: settings.temperature,
+		...(settings.topK !== undefined ? { top_k: settings.topK } : {}),
+		...(settings.topP !== undefined ? { top_p: settings.topP } : {}),
+		...(settings.minP !== undefined ? { min_p: settings.minP } : {}),
+		...(settings.frequencyPenalty !== undefined ? { frequency_penalty: settings.frequencyPenalty } : {}),
+		...(settings.presencePenalty !== undefined ? { presence_penalty: settings.presencePenalty } : {}),
+		...(settings.repetitionPenalty !== undefined ? { repetition_penalty: settings.repetitionPenalty } : {}),
 	};
 }
 
@@ -1722,16 +1738,18 @@ export function effectiveProviderSettingsForBot(
 		: userSettings.temperature !== undefined ? userSettings.temperature
 		: bot.inferenceSettings.temperature !== undefined ? bot.inferenceSettings.temperature
 		: 0.9;
-	const providerRouting =
-		bot.inferenceSettings.providerRouting !== undefined ? bot.inferenceSettings.providerRouting : userSettings.providerRouting;
-	const effectiveProviderRouting = openRouterProviderRouting(baseUrl, providerRouting);
+		const providerRouting =
+			bot.inferenceSettings.providerRouting !== undefined ? bot.inferenceSettings.providerRouting : userSettings.providerRouting;
+		const effectiveProviderRouting = openRouterProviderRouting(baseUrl, providerRouting);
+		const reasoningEffort = bot.inferenceSettings.reasoningEffort ?? userSettings.reasoningEffort;
 
-	return {
-		apiKey: botApiKey ?? userApiKey ?? (hasCustomBaseUrl ? undefined : envApiKey),
-		baseUrl,
-		model,
-		...(effectiveProviderRouting ? { providerRouting: effectiveProviderRouting } : {}),
-		temperature,
+		return {
+			apiKey: botApiKey ?? userApiKey ?? (hasCustomBaseUrl ? undefined : envApiKey),
+			baseUrl,
+			model,
+			...(effectiveProviderRouting ? { providerRouting: effectiveProviderRouting } : {}),
+			...(reasoningEffort && reasoningEffort !== "default" ? { reasoningEffort } : {}),
+			temperature,
 		...(hasCustomBaseUrl ? { usesCustomBaseUrl: true } : {}),
 		...(bot.inferenceSettings.topK !== undefined ? { topK: bot.inferenceSettings.topK }
 		: userSettings.topK !== undefined ? { topK: userSettings.topK }
@@ -1756,27 +1774,54 @@ export function effectiveProviderSettingsForBot(
 
 export function effectiveProviderSettingsForTranslation(
 	user: Pick<UserDocument, "inferenceSettings">,
-	env: Pick<Env, "OPENROUTER_API_KEY" | "OPENROUTER_BASE_URL">,
+	env: Pick<Env, "OPENROUTER_API_KEY" | "OPENROUTER_BASE_URL" | "OPENROUTER_MODEL">,
 ): TranslationProviderSettings | null {
 	const userSettings = user.inferenceSettings ?? {};
 	const translation = userSettings.translation;
-	const model = trimmed(translation?.model);
-	if (!model) {
+	if (!translation?.enabled) {
 		return null;
 	}
+	const translationModel = trimmed(translation.model);
+	const userModel = trimmed(userSettings.model);
+	const envModel = trimmed(env.OPENROUTER_MODEL);
 	const userBaseUrl = trimmed(userSettings.baseUrl);
 	const envBaseUrl = trimmed(env.OPENROUTER_BASE_URL);
 	const userApiKey = trimmed(userSettings.openRouterApiKey);
 	const envApiKey = trimmed(env.OPENROUTER_API_KEY);
 	const hasCustomBaseUrl = Boolean(userBaseUrl);
 	const baseUrl = userBaseUrl ?? envBaseUrl ?? fallbackProviderBaseUrl;
-	const providerRouting = openRouterProviderRouting(baseUrl, userSettings.providerRouting);
+	const model = translationModel ?? userModel ?? envModel ?? fallbackProviderModel;
+	const usingLoopSettings = !translationModel;
+	const providerRouting = openRouterProviderRouting(
+		baseUrl,
+		usingLoopSettings ? userSettings.providerRouting : translation.providerRouting,
+	);
+	const reasoningEffort = usingLoopSettings ? userSettings.reasoningEffort : translation.reasoningEffort;
 	return {
 		apiKey: userApiKey ?? (hasCustomBaseUrl ? undefined : envApiKey),
 		baseUrl,
 		model,
 		...(providerRouting ? { providerRouting } : {}),
+		...(reasoningEffort && reasoningEffort !== "default" ? { reasoningEffort } : {}),
 		prompt: trimmed(translation?.prompt) ?? defaultTranslationPrompt,
+		temperature: usingLoopSettings ? userSettings.temperature ?? 0.9 : translation.temperature ?? 0,
+		...(usingLoopSettings ?
+			{
+				...(userSettings.topK !== undefined ? { topK: userSettings.topK } : {}),
+				...(userSettings.topP !== undefined ? { topP: userSettings.topP } : {}),
+				...(userSettings.minP !== undefined ? { minP: userSettings.minP } : {}),
+				...(userSettings.frequencyPenalty !== undefined ? { frequencyPenalty: userSettings.frequencyPenalty } : {}),
+				...(userSettings.presencePenalty !== undefined ? { presencePenalty: userSettings.presencePenalty } : {}),
+				...(userSettings.repetitionPenalty !== undefined ? { repetitionPenalty: userSettings.repetitionPenalty } : {}),
+			}
+		:	{
+				...(translation.topK !== undefined ? { topK: translation.topK } : {}),
+				...(translation.topP !== undefined ? { topP: translation.topP } : {}),
+				...(translation.minP !== undefined ? { minP: translation.minP } : {}),
+				...(translation.frequencyPenalty !== undefined ? { frequencyPenalty: translation.frequencyPenalty } : {}),
+				...(translation.presencePenalty !== undefined ? { presencePenalty: translation.presencePenalty } : {}),
+				...(translation.repetitionPenalty !== undefined ? { repetitionPenalty: translation.repetitionPenalty } : {}),
+			}),
 	};
 }
 
@@ -2361,6 +2406,15 @@ export class BotRuntime {
 				await this.recordTickFailure(runId, { message }, runtimeFailureLogs(error));
 			}
 			await this.setRuntimeIndex(bot, "failed", null, message, new Date().toISOString());
+			try {
+				await recordBotRuntimeFailureHumanNotification(this.env.BICKR_D1, {
+					bot,
+					runId,
+					message,
+				});
+			} catch (notificationError) {
+				console.warn("bot runtime failure notification failed", notificationError);
+			}
 			if (runContext.mode === "spotlight" && runContext.spotlightId) {
 				try {
 					await recordSpotlightFailureHumanNotification(this.env.BICKR_D1, {
@@ -2708,7 +2762,7 @@ export class BotRuntime {
 					promptTokens: budgetCheck.promptTokens,
 					allowedPromptTokens: budgetCheck.allowedPromptTokens,
 					maxCompletionTokens: providerContextReserveTokens,
-					reasoning: providerChatReasoning,
+						reasoning: providerReasoningForSettings(settings),
 					temperature: settings.temperature,
 					additionalReplyAcknowledgementToolArgument: exposeAdditionalReplyAcknowledgement ? "exposed" : "hidden",
 					openRouterServerTools: {
@@ -3012,38 +3066,55 @@ export class BotRuntime {
 		signal: AbortSignal,
 	): Promise<Pick<ProviderResponse, "usage" | "responseId" | "responseModel" | "requestBody" | "rawResponse"> & { content: string }> {
 		const endpoint = providerChatCompletionsUrl(settings.baseUrl);
-		const body = stringifyProviderRequest(providerCompactionRequest(settings, messages));
-		let previousRetryKey: string | null = null;
-		for (let attempt = 1; attempt <= providerMaxAttempts; attempt += 1) {
-			this.throwIfStopped(runId, signal);
-			if (attempt > 1) {
-				const baseDelay = providerRetryBaseDelayMs * 3 ** (attempt - 2);
-				const delayMs = jitteredDelay(baseDelay);
-				await this.appendEvent(runId, "provider_retry", {
-					attempt,
-					maxAttempts: providerMaxAttempts,
-					delayMs,
-					reason: previousRetryKey,
-				});
-				await sleep(delayMs, signal);
-			}
+		let requestMessages = messages;
+		let lastBody = stringifyProviderRequest(providerCompactionRequest(settings, requestMessages));
+		let lastValidationError: ProviderStructuredOutputValidationError | null = null;
+		for (let schemaAttempt = 0; schemaAttempt <= providerStructuredOutputRepairAttempts; schemaAttempt += 1) {
+			const body = stringifyProviderRequest(providerCompactionRequest(settings, requestMessages));
+			lastBody = body;
+			let previousRetryKey: string | null = null;
+			for (let attempt = 1; attempt <= providerMaxAttempts; attempt += 1) {
+				this.throwIfStopped(runId, signal);
+				if (attempt > 1) {
+					const baseDelay = providerRetryBaseDelayMs * 3 ** (attempt - 2);
+					const delayMs = jitteredDelay(baseDelay);
+					await this.appendEvent(runId, "provider_retry", {
+						attempt,
+						maxAttempts: providerMaxAttempts,
+						delayMs,
+						reason: previousRetryKey,
+					});
+					await sleep(delayMs, signal);
+				}
 
-			try {
-				const response = await this.fetchProviderCompactionResponse(settings, endpoint, body, signal);
-				return { ...response, requestBody: body };
-			} catch (error) {
-				if (error instanceof TickStoppedError || isAbortError(error)) {
-					throw error;
+				try {
+					const response = await this.fetchProviderCompactionResponse(settings, endpoint, body, signal);
+					return { ...response, requestBody: body };
+				} catch (error) {
+					if (error instanceof TickStoppedError || isAbortError(error)) {
+						throw error;
+					}
+					if (error instanceof ProviderStructuredOutputValidationError) {
+						lastValidationError = error;
+						break;
+					}
+					const retryKey = providerRetryKey(error);
+					if (retryKey && attempt < providerMaxAttempts && (previousRetryKey === null || previousRetryKey === retryKey)) {
+						previousRetryKey = retryKey;
+						continue;
+					}
+					throw new ProviderCompactionRequestError(error, body, providerCompactionFailureResponseText(error));
 				}
-				const retryKey = providerRetryKey(error);
-				if (retryKey && attempt < providerMaxAttempts && (previousRetryKey === null || previousRetryKey === retryKey)) {
-					previousRetryKey = retryKey;
-					continue;
-				}
-				throw new ProviderCompactionRequestError(error, body, providerCompactionFailureResponseText(error));
+			}
+			if (lastValidationError && schemaAttempt < providerStructuredOutputRepairAttempts) {
+				requestMessages = [...requestMessages, ...structuredOutputRepairMessages(lastValidationError)];
+				continue;
+			}
+			if (lastValidationError) {
+				throw new ProviderCompactionRequestError(lastValidationError, body, providerCompactionFailureResponseText(lastValidationError));
 			}
 		}
-		throw new ProviderCompactionRequestError(new ProviderRequestTimeoutError(providerRequestTimeoutMs), body);
+		throw new ProviderCompactionRequestError(new ProviderRequestTimeoutError(providerRequestTimeoutMs), lastBody);
 	}
 
 	private async consumeProviderResponse(
@@ -4360,10 +4431,7 @@ export class BotRuntime {
 		} catch {
 			throw new ProviderRequestError(502, settings.model, endpoint, "Provider compaction response was not valid JSON.", { rawResponse });
 		}
-		const content = providerCompactionSummaryFromResponseContent(payload.choices?.[0]?.message?.content);
-		if (!content) {
-			throw new ProviderRequestError(502, settings.model, endpoint, "Provider returned an empty compaction response.", { rawResponse });
-		}
+		const content = providerCompactionSummaryFromToolMessage(payload.choices?.[0]?.message, rawResponse);
 		const usage = providerUsageFromValue(payload.usage);
 		return {
 			content,
@@ -6642,14 +6710,14 @@ function parseTranslationInput(input: unknown): TranslationInput {
 }
 
 async function translateForUser(
-	env: Pick<Env, "BICKR_KV" | "OPENROUTER_API_KEY" | "OPENROUTER_BASE_URL">,
+	env: Pick<Env, "BICKR_KV" | "OPENROUTER_API_KEY" | "OPENROUTER_BASE_URL" | "OPENROUTER_MODEL">,
 	userId: string,
 	text: string,
 ): Promise<string> {
 	const user = await userById(env.BICKR_KV, userId);
 	const settings = effectiveProviderSettingsForTranslation(user, env);
 	if (!settings) {
-		throw new InputError("Configure a translation model in profile inference settings before translating text.");
+		throw new InputError("Enable inline translations in profile inference settings before translating text.");
 	}
 	return fetchProviderTranslation(settings, text);
 }
@@ -6663,44 +6731,54 @@ async function fetchProviderTranslation(settings: TranslationProviderSettings, t
 	if (settings.apiKey) {
 		headers.authorization = `Bearer ${settings.apiKey}`;
 	}
-	const response = await providerFetchWithHeaderTimeout(
-		endpoint,
-		{
-			method: "POST",
-			headers,
-			body: JSON.stringify(providerTranslationRequest(settings, text)),
-		},
-		signal,
-		providerRequestTimeoutMs,
-	);
-	if (!response.ok) {
-		const bodyText = await readProviderErrorBody(response, signal);
-		throw new ProviderRequestError(response.status, settings.model, endpoint, bodyText);
-	}
-	const payload = runtimeRecord(
-		await readJsonResponse(
+	let requestMessages = providerTranslationRequest(settings, text).messages;
+	let lastValidationError: ProviderStructuredOutputValidationError | null = null;
+	for (let schemaAttempt = 0; schemaAttempt <= providerStructuredOutputRepairAttempts; schemaAttempt += 1) {
+		const requestBody = {
+			...providerTranslationRequest(settings, text),
+			messages: sanitizeProviderMessagesForRequest(requestMessages),
+		};
+		const response = await providerFetchWithHeaderTimeout(
+			endpoint,
+			{
+				method: "POST",
+				headers,
+				body: JSON.stringify(requestBody),
+			},
+			signal,
+			providerRequestTimeoutMs,
+		);
+		if (!response.ok) {
+			const bodyText = await readProviderErrorBody(response, signal);
+			throw new ProviderRequestError(response.status, settings.model, endpoint, bodyText);
+		}
+		const rawResponse = await readJsonResponseText(
 			response,
 			providerResponseBodyMaxBytes,
 			signal,
 			providerBodyReadTimeoutMs,
 			() => new ProviderResponseBodyTimeoutError(providerBodyReadTimeoutMs),
-		),
-	);
-	const choices = Array.isArray(payload.choices) ? payload.choices : [];
-	const firstChoice = runtimeRecord(choices[0]);
-	const message = runtimeRecord(firstChoice.message);
-	const content = typeof message.content === "string" ? message.content : "";
-	let parsed: unknown;
-	try {
-		parsed = JSON.parse(content);
-	} catch {
-		throw new ProviderRequestError(502, settings.model, endpoint, "Provider translation response was not valid JSON.");
+		);
+		let payload: ProviderCompactionResponsePayload;
+		try {
+			payload = JSON.parse(rawResponse) as ProviderCompactionResponsePayload;
+		} catch {
+			throw new ProviderRequestError(502, settings.model, endpoint, "Provider translation response was not valid JSON.", { rawResponse });
+		}
+		try {
+			return providerTranslationFromToolMessage(payload.choices?.[0]?.message, rawResponse);
+		} catch (error) {
+			if (!(error instanceof ProviderStructuredOutputValidationError)) {
+				throw error;
+			}
+			lastValidationError = error;
+			if (schemaAttempt >= providerStructuredOutputRepairAttempts) {
+				throw new ProviderRequestError(502, settings.model, endpoint, error.message, { rawResponse: error.rawResponse });
+			}
+			requestMessages = [...requestMessages, ...structuredOutputRepairMessages(error)];
+		}
 	}
-	const translation = runtimeRecord(parsed).translation;
-	if (typeof translation !== "string" || translation.trim().length === 0) {
-		throw new ProviderRequestError(502, settings.model, endpoint, "Provider translation response did not include translation.");
-	}
-	return translation.trim();
+	throw new ProviderRequestError(502, settings.model, endpoint, lastValidationError?.message ?? "Provider translation response did not include translation.");
 }
 
 export class UserBotsCoordinator {
@@ -6941,19 +7019,142 @@ function providerToolArgs(name: string, args: Record<string, unknown>): Record<s
 	return normalized;
 }
 
-function providerCompactionSummaryFromResponseContent(content: unknown): string | null {
-	const text = stringValue(content);
-	if (!text) {
-		return null;
+function providerCompactionSummaryFromToolMessage(message: unknown, rawResponse: string): string {
+	return providerStructuredOutputFromToolMessage(
+		message,
+		{
+			kind: "compaction",
+			toolName: providerCompactionToolName,
+			property: providerCompactionSummaryProperty,
+			label: "detailed summary in first person",
+			maxCharacters: providerCompactionSummaryMaxCharacters,
+		},
+		rawResponse,
+	);
+}
+
+function providerTranslationFromToolMessage(message: unknown, rawResponse: string): string {
+	return providerStructuredOutputFromToolMessage(
+		message,
+		{
+			kind: "translation",
+			toolName: providerTranslationToolName,
+			property: "translation",
+			label: "translation",
+			maxCharacters: providerTranslationMaxCompletionTokens * 8,
+		},
+		rawResponse,
+	).trim();
+}
+
+function providerStructuredOutputFromToolMessage(
+	messageValue: unknown,
+	spec: {
+		kind: "compaction" | "translation";
+		toolName: string;
+		property: string;
+		label: string;
+		maxCharacters: number;
+	},
+	rawResponse: string,
+): string {
+	const message = runtimeRecord(messageValue);
+	const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls.map(providerToolCallFromValue).filter((toolCall): toolCall is BotInferenceSubmissionToolCall => Boolean(toolCall)) : [];
+	if (toolCalls.length === 0) {
+		throw new ProviderStructuredOutputValidationError(spec.kind, `No ${spec.toolName} tool call was returned.`, { rawResponse });
+	}
+	if (toolCalls.length !== 1) {
+		throw new ProviderStructuredOutputValidationError(spec.kind, `Expected exactly one ${spec.toolName} tool call, but received ${toolCalls.length}.`, {
+			rawResponse,
+			toolCalls,
+		});
+	}
+	const [toolCall] = toolCalls;
+	if (toolCall.function.name !== spec.toolName) {
+		throw new ProviderStructuredOutputValidationError(spec.kind, `Expected tool ${spec.toolName}, but received ${toolCall.function.name || "unknown"}.`, {
+			rawResponse,
+			toolCalls,
+		});
 	}
 	let parsed: unknown;
 	try {
-		parsed = JSON.parse(text);
+		parsed = JSON.parse(toolCall.function.arguments);
 	} catch {
+		throw new ProviderStructuredOutputValidationError(spec.kind, `The ${spec.toolName} arguments were not valid JSON.`, {
+			rawResponse,
+			toolCalls,
+		});
+	}
+	if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+		throw new ProviderStructuredOutputValidationError(spec.kind, `The ${spec.toolName} arguments must be a JSON object.`, {
+			rawResponse,
+			toolCalls,
+		});
+	}
+	const record = runtimeRecord(parsed);
+	const keys = Object.keys(record);
+	const extraKeys = keys.filter((key) => key !== spec.property);
+	if (extraKeys.length > 0) {
+		throw new ProviderStructuredOutputValidationError(spec.kind, `Unexpected argument ${extraKeys.join(", ")}; only ${spec.property} is allowed.`, {
+			rawResponse,
+			toolCalls,
+		});
+	}
+	const value = record[spec.property];
+	if (typeof value !== "string" || value.trim().length === 0) {
+		throw new ProviderStructuredOutputValidationError(spec.kind, `The ${spec.label} argument must be a non-empty string.`, {
+			rawResponse,
+			toolCalls,
+		});
+	}
+	return truncateWithoutSplittingUnicode(value, spec.maxCharacters);
+}
+
+function providerToolCallFromValue(value: unknown): BotInferenceSubmissionToolCall | null {
+	const record = runtimeRecord(value);
+	const fn = runtimeRecord(record.function);
+	const id = stringValue(record.id);
+	const name = stringValue(fn.name);
+	const args = stringValue(fn.arguments);
+	if (!id || !name || args === undefined) {
 		return null;
 	}
-	const summary = stringValue(runtimeRecord(parsed)[providerCompactionSummaryProperty]);
-	return summary ? truncateWithoutSplittingUnicode(summary, providerCompactionSummaryMaxCharacters) : null;
+	return {
+		id,
+		type: "function",
+		function: {
+			name,
+			arguments: args,
+		},
+	};
+}
+
+function structuredOutputRepairMessages(error: ProviderStructuredOutputValidationError): ChatMessage[] {
+	const content = JSON.stringify({
+		ok: false,
+		code: "schema_invalid",
+		message: error.repairMessage,
+	});
+	if (error.toolCalls.length === 0) {
+		return [
+			{
+				role: "user",
+				content: `Bickr Terminal could not read the required tool call: ${error.repairMessage} Please call the required tool with arguments that exactly match its schema.`,
+			},
+		];
+	}
+	return [
+		{
+			role: "assistant",
+			content: "",
+			tool_calls: error.toolCalls,
+		},
+		...error.toolCalls.map((toolCall): ChatMessage => ({
+			role: "tool",
+			tool_call_id: toolCall.id,
+			content,
+		})),
+	];
 }
 
 export function providerToolResultPayload(
@@ -9965,6 +10166,9 @@ function providerRetryKey(error: unknown): string | null {
 }
 
 function providerCompactionFailureResponseText(error: unknown): string | undefined {
+	if (error instanceof ProviderStructuredOutputValidationError) {
+		return error.rawResponse;
+	}
 	if (error instanceof ProviderRequestError) {
 		return error.rawResponse ?? (error.body ? error.body : undefined);
 	}

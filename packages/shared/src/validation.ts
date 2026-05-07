@@ -41,6 +41,7 @@ export const maxProviderRoutingJsonLength = 8_000;
 export const maxThreadTitleLength = 160;
 export const maxThreadBodyLength = 8_000;
 export const maxCommentBodyLength = 4_000;
+const inferenceReasoningEfforts = ["default", "none", "minimal", "low", "medium", "high", "xhigh"] as const;
 
 export const handlePatternSource = String.raw`[\p{Letter}\p{Number}_-][\p{Letter}\p{Number}\p{Mark}_-]{0,31}`;
 export const handleHelpText =
@@ -377,11 +378,12 @@ function parseInferenceSettings(value: unknown): BotInferenceSettingsInput {
 	assignOptionalText(settings, "model", record.model, "Inference model", 160);
 	assignOptionalPreservedText(
 		settings,
-		"reasoningPrefill",
-		record.reasoningPrefill,
-		"Reasoning prefill",
+		"recurringPrompt",
+		aliasedValue(record, "recurringPrompt", "reasoningPrefill"),
+		"Recurring prompt",
 		maxBotReasoningPrefillLength,
 	);
+	assignOptionalEnum(settings, "reasoningEffort", aliasedValue(record, "reasoningEffort", "reasoning_effort"), "Reasoning effort", inferenceReasoningEfforts);
 	if (record.providerRouting !== undefined || record.provider_routing !== undefined) {
 		const providerRouting = aliasedValue(record, "providerRouting", "provider_routing");
 		settings.providerRouting = providerRouting === null ? null : parseProviderRouting(providerRouting);
@@ -462,8 +464,42 @@ function jsonValue(value: unknown, label: string): JsonValue {
 function parseTranslationSettings(value: unknown): BotTranslationSettingsInput {
 	const record = asRecord(value);
 	const settings: BotTranslationSettingsInput = {};
+	assignOptionalBoolean(settings, "enabled", record.enabled);
 	assignOptionalPlainText(settings, "model", record.model, "Translation model", 160);
 	assignOptionalPlainText(settings, "prompt", record.prompt, "Translation prompt", 2_000);
+	assignOptionalEnum(settings, "reasoningEffort", aliasedValue(record, "reasoningEffort", "reasoning_effort"), "Translation reasoning effort", inferenceReasoningEfforts);
+	if (record.providerRouting !== undefined || record.provider_routing !== undefined) {
+		const providerRouting = aliasedValue(record, "providerRouting", "provider_routing");
+		settings.providerRouting = providerRouting === null ? null : parseProviderRouting(providerRouting);
+	}
+	assignOptionalNumber(settings, "temperature", record.temperature, "Translation temperature", 0, 2);
+	assignOptionalNumber(settings, "topK", aliasedValue(record, "topK", "top_k"), "Translation top K", 0, 10_000);
+	assignOptionalNumber(settings, "topP", aliasedValue(record, "topP", "top_p"), "Translation top P", 0, 1);
+	assignOptionalNumber(settings, "minP", aliasedValue(record, "minP", "min_p"), "Translation min P", 0, 1);
+	assignOptionalNumber(
+		settings,
+		"frequencyPenalty",
+		aliasedValue(record, "frequencyPenalty", "frequency_penalty"),
+		"Translation frequency penalty",
+		-2,
+		2,
+	);
+	assignOptionalNumber(
+		settings,
+		"presencePenalty",
+		aliasedValue(record, "presencePenalty", "presence_penalty"),
+		"Translation presence penalty",
+		-2,
+		2,
+	);
+	assignOptionalNumber(
+		settings,
+		"repetitionPenalty",
+		aliasedValue(record, "repetitionPenalty", "repetition_penalty"),
+		"Translation repetition penalty",
+		0,
+		2,
+	);
 	return settings;
 }
 
@@ -634,8 +670,8 @@ function assignOptionalPreservedText<K extends keyof BotInferenceSettingsInput>(
 	settings[key] = value as BotInferenceSettingsInput[K];
 }
 
-function assignOptionalNumber<K extends keyof BotInferenceSettingsInput>(
-	settings: BotInferenceSettingsInput,
+function assignOptionalNumber<T extends object, K extends keyof T>(
+	settings: T,
 	key: K,
 	value: unknown,
 	label: string,
@@ -646,14 +682,14 @@ function assignOptionalNumber<K extends keyof BotInferenceSettingsInput>(
 		return;
 	}
 	if (value === null || value === "") {
-		settings[key] = null as BotInferenceSettingsInput[K];
+		settings[key] = null as T[K];
 		return;
 	}
 	const number = Number(value);
 	if (!Number.isFinite(number) || number < min || number > max) {
 		throw new InputError(`${label} must be between ${min} and ${max}.`);
 	}
-	settings[key] = number as BotInferenceSettingsInput[K];
+	settings[key] = number as T[K];
 }
 
 function assignOptionalPlainText<T extends object, K extends keyof T>(
