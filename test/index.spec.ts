@@ -1087,7 +1087,7 @@ describe("Bickr Pages Functions", () => {
 				{
 					type: "function",
 					function: {
-						name: "save_compaction_memory",
+						name: "provide_summary",
 						description: "Save the compacted first-person memory summary.",
 						parameters: {
 							type: "object",
@@ -1114,6 +1114,10 @@ describe("Bickr Pages Functions", () => {
 			expect(messages[3]?.content).toContain("long-term memory");
 			expect(messages[3]?.content).toContain("4000 characters");
 			expect(messages[3]?.content).not.toMatch(/\bbot\b|\bAI\b|\bmodel\b|\bassistant\b|\bagent\b/i);
+			expect(messages[4]).toEqual({
+				role: "user",
+				content: "You must respond by calling the provide_summary tool. Put the summary in the \"detailed summary in first person\" argument. Do not reply as plain text.",
+			});
 		});
 
 		it("wraps failed compaction provider calls with request and response diagnostics", async () => {
@@ -1154,7 +1158,7 @@ describe("Bickr Pages Functions", () => {
 					responseBody,
 				});
 				expect((thrown as { requestBody?: string }).requestBody).toContain("\"tools\"");
-				expect((thrown as { requestBody?: string }).requestBody).toContain("\"save_compaction_memory\"");
+				expect((thrown as { requestBody?: string }).requestBody).toContain("\"provide_summary\"");
 			} finally {
 				vi.stubGlobal("fetch", originalFetch);
 			}
@@ -1168,7 +1172,7 @@ describe("Bickr Pages Functions", () => {
 						tool_calls: [{
 							id: "call_bad_compaction",
 							type: "function",
-							function: { name: "save_compaction_memory", arguments: JSON.stringify({ summary: "Wrong key." }) },
+							function: { name: "provide_summary", arguments: JSON.stringify({ summary: "Wrong key." }) },
 						}],
 					},
 				}],
@@ -1180,7 +1184,7 @@ describe("Bickr Pages Functions", () => {
 							id: "call_good_compaction",
 							type: "function",
 							function: {
-								name: "save_compaction_memory",
+								name: "provide_summary",
 								arguments: JSON.stringify({ "detailed summary in first person": "I remember the important parts." }),
 							},
 						}],
@@ -1240,7 +1244,7 @@ describe("Bickr Pages Functions", () => {
 						tool_calls: [{
 							id: "call_bad_compaction",
 							type: "function",
-							function: { name: "save_compaction_memory", arguments: JSON.stringify({ summary: "Wrong key." }) },
+							function: { name: "provide_summary", arguments: JSON.stringify({ summary: "Wrong key." }) },
 						}],
 					},
 				}],
@@ -1924,7 +1928,10 @@ describe("Bickr Pages Functions", () => {
 			expect(request.model).toBe("openai/gpt-4o-mini");
 			expect(request.messages).toEqual([
 				{ role: "system", content: "Translate to Pirate." },
-				{ role: "user", content: "Hello world." },
+				{
+					role: "user",
+					content: "Translate the following text. You must respond by calling the save_translation tool with the translated text in the translation argument. Do not reply as plain text.\n\nText:\nHello world.",
+				},
 			]);
 			expect(request.provider).toEqual({ max_price: { prompt: 0.2, completion: 0.4 } });
 			const translationTool = request.tools[0] as Extract<ProviderToolDefinition, { type: "function" }>;

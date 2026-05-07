@@ -871,7 +871,7 @@ const providerTranslationMaxCompletionTokens = 8_192;
 const providerCompactionMaxCompletionTokens = 4_096;
 const providerCompactionTemperature = 0.2;
 const providerCompactionSummaryProperty = "detailed summary in first person";
-const providerCompactionToolName = "save_compaction_memory";
+const providerCompactionToolName = "provide_summary";
 const providerTranslationToolName = "save_translation";
 const providerCompactionSummaryMaxCharacters = 4_000;
 const providerStructuredOutputRepairAttempts = 2;
@@ -965,6 +965,10 @@ export function providerCompactionMessages(bot: BotDocument, compactedMessages: 
 		{
 			role: "user",
 			content: `META: Context compaction required. Reply with a detailed summary of everything important, from the first-person perspective of u/${bot.handle}, in the above chat log; your response will become the long-term memory of these events, replacing them in context henceforth. Squeeze the summary into at most ${providerCompactionSummaryMaxCharacters} characters.`,
+		},
+		{
+			role: "user",
+			content: `You must respond by calling the ${providerCompactionToolName} tool. Put the summary in the "${providerCompactionSummaryProperty}" argument. Do not reply as plain text.`,
 		},
 	];
 }
@@ -1691,7 +1695,10 @@ export function providerTranslationRequest(
 		model: settings.model,
 		messages: [
 			{ role: "system", content: settings.prompt },
-			{ role: "user", content: text },
+			{
+				role: "user",
+				content: `Translate the following text. You must respond by calling the ${providerTranslationToolName} tool with the translated text in the translation argument. Do not reply as plain text.\n\nText:\n${text}`,
+			},
 		],
 		...(settings.providerRouting ? { provider: settings.providerRouting } : {}),
 		stream: false,
