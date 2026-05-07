@@ -3413,88 +3413,110 @@ export class BotRuntime {
 	}
 
 	private loopMessageRowsForPage(sourceCompactionSeq: number | null, afterSeq: number): LoopMessageRow[] {
-		if (sourceCompactionSeq === null && afterSeq > 0) {
-			return this.state.storage.sql
-				.exec<LoopMessageRow>(
-					`SELECT m.seq, m.position, m.run_id, m.role, m.message_json, m.origin, m.status,
-					        m.token_estimate, m.stream_seq, m.compacted_by, m.deleted_at, m.created_at,
-					        CASE WHEN EXISTS (SELECT 1 FROM loop_message_logs l WHERE l.message_seq = m.seq) THEN 1 ELSE 0 END AS has_logs
-					 FROM loop_messages m
-					 WHERE m.compacted_by IS NULL
-					   AND m.deleted_at IS NULL
-					   AND m.seq > ?
-					 ORDER BY m.position ASC, m.seq ASC
-					 LIMIT 2000`,
-					afterSeq,
-				)
-				.toArray();
-		}
 		if (sourceCompactionSeq === null) {
+			const boundarySeq = this.latestActiveLoopCompactionSeq();
+			const filters = [
+				"m.compacted_by IS NULL",
+				"m.deleted_at IS NULL",
+				...(boundarySeq !== null ? ["m.seq >= ?"] : []),
+				...(afterSeq > 0 ? ["m.seq > ?"] : []),
+			];
+			const params = [
+				...(boundarySeq !== null ? [boundarySeq] : []),
+				...(afterSeq > 0 ? [afterSeq] : []),
+			];
 			return this.state.storage.sql
 				.exec<LoopMessageRow>(
 					`SELECT m.seq, m.position, m.run_id, m.role, m.message_json, m.origin, m.status,
 					        m.token_estimate, m.stream_seq, m.compacted_by, m.deleted_at, m.created_at,
 					        CASE WHEN EXISTS (SELECT 1 FROM loop_message_logs l WHERE l.message_seq = m.seq) THEN 1 ELSE 0 END AS has_logs
 					 FROM loop_messages m
-					 WHERE m.compacted_by IS NULL
-					   AND m.deleted_at IS NULL
-					 ORDER BY m.position ASC, m.seq ASC`,
+					 WHERE ${filters.join("\n\t\t\t\t\t   AND ")}
+					 ORDER BY m.position ASC, m.seq ASC
+					 ${afterSeq > 0 ? "LIMIT 2000" : ""}`,
+					...params,
 				)
 				.toArray();
 		}
+		const previousBoundarySeq = this.previousLoopCompactionSeq(sourceCompactionSeq);
+		const lowerBound = previousBoundarySeq !== null ? "AND m.seq >= ?" : "";
 		return this.state.storage.sql
 			.exec<LoopMessageRow>(
 				`SELECT m.seq, m.position, m.run_id, m.role, m.message_json, m.origin, m.status,
 				        m.token_estimate, m.stream_seq, m.compacted_by, m.deleted_at, m.created_at,
 				        CASE WHEN EXISTS (SELECT 1 FROM loop_message_logs l WHERE l.message_seq = m.seq) THEN 1 ELSE 0 END AS has_logs
 				 FROM loop_messages m
-				 WHERE m.compacted_by = ?
+				 WHERE (
+					m.compacted_by = ?
+					OR (m.compacted_by IS NULL AND m.seq < ?)
+				 )
 				   AND m.deleted_at IS NULL
+				   ${lowerBound}
 				 ORDER BY m.position ASC, m.seq ASC`,
 				sourceCompactionSeq,
+				sourceCompactionSeq,
+				...(previousBoundarySeq !== null ? [previousBoundarySeq] : []),
 			)
 			.toArray();
 	}
 
 	private loopMessageCompactionSeqsWithChildren(sourceCompactionSeq: number | null): number[] {
-		const query = (where: string): string =>
-			`SELECT m.seq
-			 FROM loop_messages m
-			 WHERE ${where}
-			   AND m.deleted_at IS NULL
-			   AND m.origin = 'compaction'
-			   AND EXISTS (
-				SELECT 1
-				FROM loop_messages child
-				WHERE child.compacted_by = m.seq
-				  AND child.deleted_at IS NULL
-			   )
-			 ORDER BY m.seq DESC`;
-		const rows =
-			sourceCompactionSeq === null ?
-				this.state.storage.sql.exec<{ seq: number }>(query("m.compacted_by IS NULL")).toArray()
-			:	this.state.storage.sql.exec<{ seq: number }>(query("m.compacted_by = ?"), sourceCompactionSeq).toArray();
-		return rows.map((row) => row.seq);
+		const seq = sourceCompactionSeq === null ? this.latestActiveLoopCompactionSeq() : this.previousLoopCompactionSeq(sourceCompactionSeq);
+		return seq === null ? [] : [seq];
+	}
+
+	private latestActiveLoopCompactionSeq(): number | null {
+		const row = this.state.storage.sql
+			.exec<{ seq: number }>(
+				`SELECT m.seq
+				 FROM loop_messages m
+				 WHERE m.compacted_by IS NULL
+				   AND m.deleted_at IS NULL
+				   AND m.origin = 'compaction'
+				   AND EXISTS (
+					SELECT 1
+					FROM loop_messages child
+					WHERE child.compacted_by = m.seq
+					  AND child.deleted_at IS NULL
+				   )
+				 ORDER BY m.seq DESC
+				 LIMIT 1`,
+			)
+			.toArray()[0];
+		return row && typeof row.seq === "number" ? row.seq : null;
+	}
+
+	private previousLoopCompactionSeq(sourceCompactionSeq: number): number | null {
+		const row = this.state.storage.sql
+			.exec<{ seq: number }>(
+				`SELECT m.seq
+				 FROM loop_messages m
+				 WHERE m.seq < ?
+				   AND (m.compacted_by = ? OR m.compacted_by IS NULL)
+				   AND m.deleted_at IS NULL
+				   AND m.origin = 'compaction'
+				   AND EXISTS (
+					SELECT 1
+					FROM loop_messages child
+					WHERE child.compacted_by = m.seq
+					  AND child.deleted_at IS NULL
+				   )
+				 ORDER BY m.seq DESC
+				 LIMIT 1`,
+				sourceCompactionSeq,
+				sourceCompactionSeq,
+			)
+			.toArray()[0];
+		return row && typeof row.seq === "number" ? row.seq : null;
 	}
 
 	private loopMessagePageCount(sourceCompactionSeq: number | null): { messageCount: number; fromSeq: number | null; toSeq: number | null } {
-		const select = (where: string): string =>
-			`SELECT COUNT(*) AS messageCount, MIN(seq) AS fromSeq, MAX(seq) AS toSeq
-			 FROM loop_messages
-			 WHERE ${where}
-			   AND deleted_at IS NULL`;
-		const row =
-			sourceCompactionSeq === null ?
-				this.state.storage.sql
-					.exec<{ messageCount: number; fromSeq: number | null; toSeq: number | null }>(select("compacted_by IS NULL"))
-					.one()
-			:	this.state.storage.sql
-					.exec<{ messageCount: number; fromSeq: number | null; toSeq: number | null }>(select("compacted_by = ?"), sourceCompactionSeq)
-					.one();
+		const rows = this.loopMessageRowsForPage(sourceCompactionSeq, 0);
+		const seqs = rows.map((row) => row.seq);
 		return {
-			messageCount: row.messageCount,
-			fromSeq: row.fromSeq,
-			toSeq: row.toSeq,
+			messageCount: rows.length,
+			fromSeq: seqs.length > 0 ? Math.min(...seqs) : null,
+			toSeq: seqs.length > 0 ? Math.max(...seqs) : null,
 		};
 	}
 

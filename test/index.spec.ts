@@ -1287,6 +1287,38 @@ describe("Bickr Pages Functions", () => {
 			expect(page3.page).toMatchObject({ currentPage: 3, newerPage: 2 });
 		});
 
+		it("starts the active loop message page at the newest active compaction boundary", () => {
+			const rows = [
+				{ ...loopMessageRowForTest(1, "run-old", "Old event"), compacted_by: 10 },
+				{ ...loopMessageRowForTest(10, "run-compact-1", "Previous active summary"), origin: "compaction" as BotLoopMessage["origin"] },
+				{ ...loopMessageRowForTest(11, "run-middle", "Middle event"), compacted_by: 20 },
+				{ ...loopMessageRowForTest(20, "run-compact-2", "Current summary"), origin: "compaction" as BotLoopMessage["origin"] },
+				loopMessageRowForTest(21, "run-current", "Current event"),
+			];
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				state: { storage: { sql: memoryLoopMessagePageSql(rows) } },
+			});
+			const loopMessagesPage = (BotRuntime.prototype as unknown as {
+				loopMessagesPage: (input: { page: number; after?: number }) => { messages: BotLoopMessage[]; page: { currentPage: number; pageCount: number; newerPage?: number; olderPage?: number; compactionPageBySeq: Record<string, number> } };
+			}).loopMessagesPage.bind(runtime);
+
+			const page1 = loopMessagesPage({ page: 1 });
+			const page2 = loopMessagesPage({ page: 2 });
+			const page3 = loopMessagesPage({ page: 3 });
+
+			expect(page1.messages.map((message) => message.seq)).toEqual([20, 21]);
+			expect(page1.page).toMatchObject({
+				currentPage: 1,
+				pageCount: 3,
+				olderPage: 2,
+				compactionPageBySeq: { "20": 2, "10": 3 },
+			});
+			expect(page2.messages.map((message) => message.seq)).toEqual([10, 11]);
+			expect(page2.page).toMatchObject({ currentPage: 2, newerPage: 1, olderPage: 3 });
+			expect(page3.messages.map((message) => message.seq)).toEqual([1]);
+			expect(page3.page).toMatchObject({ currentPage: 3, newerPage: 2 });
+		});
+
 		it("keeps incremental loop message fetches on the active page only", () => {
 			const rows = [
 				{ ...loopMessageRowForTest(1, "run-old", "Old event"), compacted_by: 10 },
@@ -8782,50 +8814,75 @@ function memoryLoopMessageLogSql() {
 }
 
 function memoryLoopMessagePageSql(rows: ReturnType<typeof loopMessageRowForTest>[]) {
-	const visibleRows = (sourceCompactionSeq: number | null, afterSeq = 0) =>
+	const sortedRows = (pageRows: ReturnType<typeof loopMessageRowForTest>[]) =>
+		[...pageRows].sort((left, right) => left.position - right.position || left.seq - right.seq);
+	const hasVisibleChildren = (seq: number): boolean => rows.some((child) => child.deleted_at === null && child.compacted_by === seq);
+	const compactionBoundaries = () =>
 		rows
 			.filter((row) => row.deleted_at === null)
-			.filter((row) => sourceCompactionSeq === null ? row.compacted_by === null : row.compacted_by === sourceCompactionSeq)
-			.filter((row) => afterSeq <= 0 || row.seq > afterSeq)
-			.sort((left, right) => left.position - right.position || left.seq - right.seq);
-	const sourceFromQuery = (sql: string, params: unknown[]): number | null => {
-		if (/compacted_by IS NULL/.test(sql) || /m\.compacted_by IS NULL/.test(sql)) {
-			return null;
-		}
-		return Number(params[0]);
+			.filter((row) => row.origin === "compaction")
+			.filter((row) => hasVisibleChildren(row.seq));
+	const latestActiveBoundary = (): number | null =>
+		compactionBoundaries()
+			.filter((row) => row.compacted_by === null)
+			.sort((left, right) => right.seq - left.seq)[0]?.seq ?? null;
+	const previousBoundary = (sourceCompactionSeq: number): number | null =>
+		compactionBoundaries()
+			.filter((row) => row.seq < sourceCompactionSeq)
+			.filter((row) => row.compacted_by === sourceCompactionSeq || row.compacted_by === null)
+			.sort((left, right) => right.seq - left.seq)[0]?.seq ?? null;
+	const activeRows = (afterSeq = 0, lowerBoundSeq: number | null = latestActiveBoundary()) =>
+		sortedRows(
+			rows
+				.filter((row) => row.deleted_at === null)
+				.filter((row) => row.compacted_by === null)
+				.filter((row) => lowerBoundSeq === null || row.seq >= lowerBoundSeq)
+				.filter((row) => afterSeq <= 0 || row.seq > afterSeq),
+		);
+	const rowsForSource = (sourceCompactionSeq: number) => {
+		const lowerBoundSeq = previousBoundary(sourceCompactionSeq);
+		return sortedRows(
+			rows
+				.filter((row) => row.deleted_at === null)
+				.filter((row) => lowerBoundSeq === null || row.seq >= lowerBoundSeq)
+				.filter((row) => row.compacted_by === sourceCompactionSeq || (row.compacted_by === null && row.seq < sourceCompactionSeq)),
+		);
 	};
 	return {
 		exec<T>(sql: string, ...params: unknown[]) {
 			if (/SELECT m\.seq\s+FROM loop_messages m/.test(sql)) {
-				const source = sourceFromQuery(sql, params);
-				const compacted = visibleRows(source)
-					.filter((row) => row.origin === "compaction")
-					.filter((row) => rows.some((child) => child.deleted_at === null && child.compacted_by === row.seq))
-					.sort((left, right) => right.seq - left.seq)
-					.map((row) => ({ seq: row.seq }) as T);
-				return { toArray: () => compacted };
-			}
-			if (/SELECT COUNT\(\*\) AS messageCount/.test(sql)) {
-				const pageRows = visibleRows(sourceFromQuery(sql, params));
-				const seqs = pageRows.map((row) => row.seq);
-				return {
-					one: () =>
-						({
-							messageCount: pageRows.length,
-							fromSeq: seqs.length > 0 ? Math.min(...seqs) : null,
-							toSeq: seqs.length > 0 ? Math.max(...seqs) : null,
-						}) as T,
-					toArray: () => [],
-				};
-			}
-			if (/SELECT m\.seq, m\.position, m\.run_id/.test(sql)) {
-				if (/m\.compacted_by IS NULL/.test(sql)) {
-					const after = /m\.seq > \?/.test(sql) ? Number(params[0]) : 0;
-					return { toArray: () => visibleRows(null, after) as T[] };
+				const seq =
+					/m\.seq < \?/.test(sql) ?
+						previousBoundary(Number(params[0]))
+					:	latestActiveBoundary();
+				return { toArray: () => (seq === null ? [] : [({ seq } as T)]) };
 				}
-				return { toArray: () => visibleRows(Number(params[0])) as T[] };
-			}
-			return {
+				if (/SELECT COUNT\(\*\) AS messageCount/.test(sql)) {
+					const pageRows =
+						/compacted_by IS NULL/.test(sql) || /m\.compacted_by IS NULL/.test(sql) ?
+							activeRows()
+						:	rowsForSource(Number(params[0]));
+					const seqs = pageRows.map((row) => row.seq);
+					return {
+						one: () =>
+							({
+								messageCount: pageRows.length,
+								fromSeq: seqs.length > 0 ? Math.min(...seqs) : null,
+								toSeq: seqs.length > 0 ? Math.max(...seqs) : null,
+							}) as T,
+						toArray: () => [],
+					};
+				}
+				if (/SELECT m\.seq, m\.position, m\.run_id/.test(sql)) {
+					if (/WHERE\s+m\.compacted_by IS NULL/.test(sql)) {
+						let paramIndex = 0;
+						const lowerBoundSeq = /m\.seq >= \?/.test(sql) ? Number(params[paramIndex++]) : null;
+						const after = /m\.seq > \?/.test(sql) ? Number(params[paramIndex++]) : 0;
+						return { toArray: () => activeRows(after, lowerBoundSeq) as T[] };
+					}
+					return { toArray: () => rowsForSource(Number(params[0])) as T[] };
+				}
+				return {
 				one: () => ({} as T),
 				toArray: () => [],
 			};
