@@ -7,6 +7,55 @@ export type TokenUsageChartPoint = Readonly<{
 	cachedTokens: number;
 }>;
 
+export type ContextWindowBarInput = Readonly<{
+	contextWindowTokens: number;
+	promptTokens: number;
+	initialTokens: number;
+	ongoingTokens: number;
+	compactionCutoffTokens: number;
+}>;
+
+export type ContextWindowBarSegments = Readonly<{
+	initialPercent: number;
+	ongoingPercent: number;
+	freePercent: number;
+	cutoffPercent: number;
+	usedTokens: number;
+	visibleInitialTokens: number;
+	visibleOngoingTokens: number;
+	visibleFreeTokens: number;
+	overCutoffTokens: number;
+	overWindowTokens: number;
+}>;
+
+export function contextWindowBarSegments(input: ContextWindowBarInput): ContextWindowBarSegments {
+	const contextWindowTokens = Math.max(1, Math.floor(input.contextWindowTokens));
+	const promptTokens = Math.max(0, Math.floor(input.promptTokens));
+	const visibleUsedTokens = Math.min(promptTokens, contextWindowTokens);
+	const visibleInitialTokens = Math.min(
+		Math.max(0, Math.floor(input.initialTokens)),
+		visibleUsedTokens,
+	);
+	const visibleOngoingTokens = Math.min(
+		Math.max(0, Math.floor(input.ongoingTokens)),
+		Math.max(0, visibleUsedTokens - visibleInitialTokens),
+	);
+	const visibleFreeTokens = Math.max(0, contextWindowTokens - visibleInitialTokens - visibleOngoingTokens);
+	const percent = (tokens: number): number => (tokens / contextWindowTokens) * 100;
+	return {
+		initialPercent: percent(visibleInitialTokens),
+		ongoingPercent: percent(visibleOngoingTokens),
+		freePercent: percent(visibleFreeTokens),
+		cutoffPercent: Math.max(0, Math.min(100, percent(Math.max(0, Math.floor(input.compactionCutoffTokens))))),
+		usedTokens: visibleUsedTokens,
+		visibleInitialTokens,
+		visibleOngoingTokens,
+		visibleFreeTokens,
+		overCutoffTokens: Math.max(0, promptTokens - Math.max(0, Math.floor(input.compactionCutoffTokens))),
+		overWindowTokens: Math.max(0, promptTokens - contextWindowTokens),
+	};
+}
+
 export function interpolateTokenUsageChartValue(
 	points: readonly TokenUsageChartPoint[],
 	timeMs: number,

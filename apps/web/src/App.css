@@ -2289,6 +2289,135 @@ button:disabled {
 	width: 100%;
 }
 
+.context-window-panel,
+.context-window-empty {
+	background: var(--paper-2);
+	border: 1px solid var(--rule-soft);
+	border-radius: var(--radius);
+	display: grid;
+	gap: 8px;
+	padding: 9px 10px;
+}
+
+.context-window-empty {
+	color: var(--ink-4);
+	font-size: 12px;
+}
+
+.context-window-head {
+	align-items: start;
+	display: flex;
+	gap: 10px;
+	justify-content: space-between;
+}
+
+.context-window-head div {
+	display: grid;
+	gap: 2px;
+}
+
+.context-window-head span,
+.context-window-foot,
+.context-window-legend {
+	color: var(--ink-4);
+	font-size: 11px;
+}
+
+.context-window-head b {
+	color: var(--ink-2);
+	font-size: 14px;
+	font-weight: 650;
+}
+
+.context-window-bar {
+	background: var(--paper);
+	border: 1px solid var(--rule);
+	border-radius: 999px;
+	display: flex;
+	height: 16px;
+	overflow: visible;
+	position: relative;
+}
+
+.context-window-segment {
+	flex: 0 0 auto;
+	min-width: 0;
+}
+
+.context-window-initial {
+	background: color-mix(in oklch, oklch(0.64 0.12 150) 72%, var(--paper));
+	border-bottom-left-radius: 999px;
+	border-top-left-radius: 999px;
+}
+
+.context-window-ongoing {
+	background: color-mix(in oklch, var(--accent) 66%, var(--paper));
+}
+
+.context-window-free {
+	background: color-mix(in oklch, var(--ink-5) 18%, var(--paper));
+	border-bottom-right-radius: 999px;
+	border-top-right-radius: 999px;
+}
+
+.context-window-cutoff {
+	background: var(--ink-2);
+	border-radius: 999px;
+	bottom: -3px;
+	position: absolute;
+	top: -3px;
+	transform: translateX(-50%);
+	width: 2px;
+}
+
+.context-window-cutoff span {
+	background: var(--paper);
+	border: 1px solid var(--rule);
+	border-radius: 999px;
+	color: var(--ink-3);
+	font-size: 10px;
+	left: 50%;
+	line-height: 1;
+	padding: 2px 5px;
+	position: absolute;
+	top: 20px;
+	transform: translateX(-50%);
+	white-space: nowrap;
+}
+
+.context-window-legend {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 7px 12px;
+	margin-top: 14px;
+}
+
+.context-window-legend span {
+	align-items: center;
+	display: inline-flex;
+	gap: 5px;
+}
+
+.context-window-key {
+	border-radius: 999px;
+	display: inline-block;
+	height: 8px;
+	width: 8px;
+}
+
+.context-window-key.initial {
+	background: color-mix(in oklch, oklch(0.64 0.12 150) 72%, var(--paper));
+}
+
+.context-window-key.ongoing {
+	background: color-mix(in oklch, var(--accent) 66%, var(--paper));
+}
+
+.context-window-key.free {
+	background: color-mix(in oklch, var(--ink-5) 18%, var(--paper));
+	border: 1px solid var(--rule);
+}
+
 .token-axis {
 	stroke: var(--rule);
 	stroke-width: 1;

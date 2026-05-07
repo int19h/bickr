@@ -64,6 +64,7 @@ import {
 	sanitizeHandleInput,
 } from "@bickr/shared/validation";
 import {
+	contextWindowBarSegments,
 	interpolateTokenUsageChartValue,
 	type TokenUsageChartPoint,
 } from "./token-usage-chart";
@@ -82,6 +83,7 @@ import {
 	removeLiveProviderLoopMessagesForRun,
 	upsertLiveProviderLoopMessage,
 } from "./loop-message-streams";
+import { loopContinuationRowsForPage } from "./loop-page-continuations";
 import { normalizeReadableText, reasoningDetailsTextForDisplay, textValueForDisplay } from "./reasoning-formatting";
 import "./App.css";
 
@@ -8312,6 +8314,8 @@ function BotRuntimePanel({
 		}
 	}
 
+	const continuationRows = loopContinuationRowsForPage(loopMessagePage);
+
 	return (
 		<>
 			<div className="card runtime-card live-runtime">
@@ -8397,27 +8401,34 @@ function BotRuntimePanel({
 				{message && <div className="runtime-message">{message}</div>}
 				{loopMessageLogError && <div className="runtime-message">{loopMessageLogError}</div>}
 				<div className="event-log" onScroll={trackLogScroll} ref={logRef}>
+					{continuationRows.filter((row) => row.position === "start").map((row) => (
+						<LoopContinuationRow
+							key={`${row.position}-${row.page}`}
+							label={row.label}
+							onPageSelect={(page) => void switchLoopPage(page)}
+							page={row.page}
+						/>
+					))}
 					{loopMessages.length === 0 && <div className="empty compact-empty">No loop chat messages yet.</div>}
 					{loopMessages.map((loopMessage) => (
 						<LoopMessageRow
-							continuedFromPage={loopMessagePage?.compactionPageBySeq[String(loopMessage.seq)]}
 							key={`${loopMessage.runId}-${loopMessage.seq}`}
 							deleting={deletingLoopMessageSeq === loopMessage.seq}
 							loadingLogs={loopMessageLogLoadingSeq === loopMessage.seq}
 							message={loopMessage}
 							onDelete={() => void deleteLoopMessage(loopMessage)}
-							onPageSelect={(page) => void switchLoopPage(page)}
 							onViewLogs={() => void viewLoopMessageLogs(loopMessage)}
 							toolCallsById={toolCallsById}
 						/>
 					))}
-					{loopMessagePage?.newerPage && (
+					{continuationRows.filter((row) => row.position === "end").map((row) => (
 						<LoopContinuationRow
-							label="continued on"
+							key={`${row.position}-${row.page}`}
+							label={row.label}
 							onPageSelect={(page) => void switchLoopPage(page)}
-							page={loopMessagePage.newerPage}
+							page={row.page}
 						/>
-					)}
+					))}
 				</div>
 				<LoopMessagePager
 					onPageSelect={(page) => void switchLoopPage(page)}
@@ -8477,6 +8488,7 @@ function TokenUsagePanel({ usage }: { usage: BotTokenUsageStats | null }) {
 					<b>{formatTokenUsageTotals(usage ? averageTokenUsageTotals(usage) : undefined)}</b>
 				</div>
 			</div>
+			{usage && hasUsage && <ContextWindowBar breakdown={usage.contextWindow} />}
 			{usage && hasUsage ?
 				<TokenUsageChart usage={usage} />
 			:	<div className="token-usage-empty">No exact usage has been reported by the inference provider yet.</div>}
@@ -8490,6 +8502,62 @@ function TokenUsagePanel({ usage }: { usage: BotTokenUsageStats | null }) {
 					))}
 				</div>
 			)}
+		</div>
+	);
+}
+
+function ContextWindowBar({ breakdown }: { breakdown: BotTokenUsageStats["contextWindow"] }) {
+	if (!breakdown) {
+		return (
+			<div className="context-window-empty">
+				No post-compaction inference response has been recorded for the current Loop page yet.
+			</div>
+		);
+	}
+	const segments = contextWindowBarSegments(breakdown);
+	const segmentStyle = (percent: number): CSSProperties => ({ width: `${Math.max(0, Math.min(100, percent))}%` });
+	const cutoffStyle: CSSProperties = { left: `${segments.cutoffPercent}%` };
+	const statusText =
+		segments.overWindowTokens > 0 ?
+			`${formatTokenCount(segments.overWindowTokens)} over context window`
+		: segments.overCutoffTokens > 0 ?
+			`${formatTokenCount(segments.overCutoffTokens)} past compaction cutoff`
+		:	`${formatTokenCount(Math.max(0, breakdown.compactionCutoffTokens - breakdown.promptTokens))} before next compaction cutoff`;
+	const title = [
+		`Latest inference: ${formatFullDate(breakdown.usedAt)}`,
+		`Model: ${breakdown.model}`,
+		`Prompt: ${formatTokenCount(breakdown.promptTokens)} / ${formatTokenCount(breakdown.contextWindowTokens)}`,
+		`Initial: ${formatTokenCount(breakdown.initialTokens)}`,
+		`Since then: ${formatTokenCount(breakdown.ongoingTokens)}`,
+		`Free: ${formatTokenCount(breakdown.freeTokens)}`,
+		`Compaction cutoff: ${formatTokenCount(breakdown.compactionCutoffTokens)}`,
+		`Response reserve: ${formatTokenCount(breakdown.responseReserveTokens)}`,
+	].join("\n");
+	return (
+		<div className="context-window-panel" title={title}>
+			<div className="context-window-head">
+				<div>
+					<span>Current context</span>
+					<b>{formatTokenCount(breakdown.promptTokens)} / {formatTokenCount(breakdown.contextWindowTokens)}</b>
+				</div>
+				<span>{statusText}</span>
+			</div>
+			<div className="context-window-bar" role="img" aria-label={`Current context window: ${formatTokenCount(breakdown.promptTokens)} prompt tokens out of ${formatTokenCount(breakdown.contextWindowTokens)}.`}>
+				<div className="context-window-segment context-window-initial" style={segmentStyle(segments.initialPercent)} />
+				<div className="context-window-segment context-window-ongoing" style={segmentStyle(segments.ongoingPercent)} />
+				<div className="context-window-segment context-window-free" style={segmentStyle(segments.freePercent)} />
+				<div className="context-window-cutoff" style={cutoffStyle}>
+					<span>cutoff</span>
+				</div>
+			</div>
+			<div className="context-window-legend">
+				<span><i className="context-window-key initial" /> initial {formatTokenCount(breakdown.initialTokens)}</span>
+				<span><i className="context-window-key ongoing" /> since then {formatTokenCount(breakdown.ongoingTokens)}</span>
+				<span><i className="context-window-key free" /> free {formatTokenCount(breakdown.freeTokens)}</span>
+			</div>
+			<div className="context-window-foot">
+				Last inference {timeAgo(breakdown.usedAt)}; baseline {timeAgo(breakdown.baselineUsedAt)}
+			</div>
 		</div>
 	);
 }
@@ -8646,21 +8714,17 @@ function LoopMessageLogsModal({
 }
 
 function LoopMessageRow({
-	continuedFromPage,
 	deleting,
 	loadingLogs,
 	message,
 	onDelete,
-	onPageSelect,
 	onViewLogs,
 	toolCallsById,
 }: {
-	continuedFromPage?: number;
 	deleting: boolean;
 	loadingLogs: boolean;
 	message: BotLoopMessage;
 	onDelete: () => void;
-	onPageSelect: (page: number) => void;
 	onViewLogs: () => void;
 	toolCallsById: ReadonlyMap<string, LoopToolCallContext>;
 }) {
@@ -8698,13 +8762,6 @@ function LoopMessageRow({
 				<div className="event-meta">
 					{loopMessageOriginLabel(message.origin)} / {message.runId} / {formatTokenCount(message.tokenEstimate)} tokens
 				</div>
-				{continuedFromPage && (
-					<LoopContinuationLink
-						label="continued from"
-						onPageSelect={onPageSelect}
-						page={continuedFromPage}
-					/>
-				)}
 				<LoopMessageReadableView message={message.message} origin={message.origin} toolCall={toolCallContext} toolCallsById={toolCallsById} />
 			</div>
 		);

@@ -127,6 +127,7 @@ import {
 	type BotLoopMessage,
 	type BotLoopMessageLog,
 	type BotRuntimeEvent,
+	type BotTokenUsageStats,
 	type NotificationEvent,
 	type SpotlightSyntheticContext,
 	type ThreadDocument,
@@ -1677,9 +1678,9 @@ describe("Bickr Pages Functions", () => {
 		});
 	});
 
-	it("calculates prompt context budget segments and over-budget counts", () => {
-		expect(
-			promptContextBudgetFromCounts({
+		it("calculates prompt context budget segments and over-budget counts", () => {
+			expect(
+				promptContextBudgetFromCounts({
 				contextWindowTokens: 10_000,
 				fixedSystemTokens: 2_000,
 				personaPromptTokens: 1_500,
@@ -1701,11 +1702,106 @@ describe("Bickr Pages Functions", () => {
 		).toMatchObject({
 			remainingLoopTokens: 0,
 			overBudgetTokens: 3_000,
-			totalReservedTokens: 6_000,
+				totalReservedTokens: 6_000,
+			});
 		});
-	});
 
-	it("includes prompt, model, provider, and system fingerprints in context budget cache keys", async () => {
+		it("reports context window breakdown from latest normal loop inference", () => {
+			const baseline = providerLoopUsageRowForTest(10, "2026-05-01T00:00:00.000Z", 4_000);
+			const latest = providerLoopUsageRowForTest(12, "2026-05-01T00:10:00.000Z", 6_500);
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				providerUsageRows: () => [],
+				tokenUsageChangeMarkers: () => [],
+				latestActiveLoopCompactionBoundary: () => ({ seq: 20, created_at: "2026-05-01T00:00:00.000Z" }),
+				latestLoopProviderUsage: () => latest,
+				firstLoopProviderUsageAfter: vi.fn(() => baseline),
+			});
+			const tokenUsageStats = (BotRuntime.prototype as unknown as {
+				tokenUsageStats: (bot: Pick<BotDocument, "tickSettings">, now?: Date) => BotTokenUsageStats;
+			}).tokenUsageStats.bind(runtime);
+
+			const usage = tokenUsageStats({ tickSettings: { compactionThreshold: 0.75 } } as Pick<BotDocument, "tickSettings">);
+
+			expect(usage.contextWindow).toMatchObject({
+				usedAt: latest.created_at,
+				runId: latest.run_id,
+				requestSeq: 12,
+				promptTokens: 6_500,
+				baselinePromptTokens: 4_000,
+				initialTokens: 4_000,
+				ongoingTokens: 2_500,
+				freeTokens: 9_500,
+				contextWindowTokens: 16_000,
+				compactionCutoffTokens: 9_500,
+				responseReserveTokens: providerContextReserveTokens,
+			});
+		});
+
+		it("omits context window breakdown when the latest normal inference predates active compaction", () => {
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				providerUsageRows: () => [],
+				tokenUsageChangeMarkers: () => [],
+				latestActiveLoopCompactionBoundary: () => ({ seq: 20, created_at: "2026-05-01T00:05:00.000Z" }),
+				latestLoopProviderUsage: () => providerLoopUsageRowForTest(12, "2026-05-01T00:04:59.000Z", 6_500),
+				firstLoopProviderUsageAfter: vi.fn(),
+			});
+			const tokenUsageStats = (BotRuntime.prototype as unknown as {
+				tokenUsageStats: (bot: Pick<BotDocument, "tickSettings">, now?: Date) => BotTokenUsageStats;
+			}).tokenUsageStats.bind(runtime);
+
+			const usage = tokenUsageStats({ tickSettings: { compactionThreshold: 0.75 } } as Pick<BotDocument, "tickSettings">);
+
+			expect(usage.contextWindow).toBeUndefined();
+			expect(runtime.firstLoopProviderUsageAfter).not.toHaveBeenCalled();
+		});
+
+		it("uses the first normal inference after active compaction as the context baseline", () => {
+			const firstLoopProviderUsageAfter = vi.fn(() => providerLoopUsageRowForTest(21, "2026-05-01T00:06:00.000Z", 5_500));
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				providerUsageRows: () => [],
+				tokenUsageChangeMarkers: () => [],
+				latestActiveLoopCompactionBoundary: () => ({ seq: 20, created_at: "2026-05-01T00:05:00.000Z" }),
+				latestLoopProviderUsage: () => providerLoopUsageRowForTest(24, "2026-05-01T00:20:00.000Z", 8_000),
+				firstLoopProviderUsageAfter,
+			});
+			const tokenUsageStats = (BotRuntime.prototype as unknown as {
+				tokenUsageStats: (bot: Pick<BotDocument, "tickSettings">, now?: Date) => BotTokenUsageStats;
+			}).tokenUsageStats.bind(runtime);
+
+			const usage = tokenUsageStats({ tickSettings: { compactionThreshold: 0.75 } } as Pick<BotDocument, "tickSettings">);
+
+			expect(firstLoopProviderUsageAfter).toHaveBeenCalledWith("2026-05-01T00:05:00.000Z");
+			expect(usage.contextWindow).toMatchObject({
+				baselineRequestSeq: 21,
+				baselinePromptTokens: 5_500,
+				initialTokens: 5_500,
+				ongoingTokens: 2_500,
+			});
+		});
+
+		it("queries context window usage from normal loop submissions only", () => {
+			const queries: string[] = [];
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				state: {
+					storage: {
+						sql: {
+							exec: <T,>(sql: string) => {
+								queries.push(sql);
+								return { toArray: () => [providerLoopUsageRowForTest(31, "2026-05-01T00:30:00.000Z", 7_000) as T] };
+							},
+						},
+					},
+				},
+			});
+			const latestLoopProviderUsage = (BotRuntime.prototype as unknown as {
+				latestLoopProviderUsage: () => unknown;
+			}).latestLoopProviderUsage.bind(runtime);
+
+			expect(latestLoopProviderUsage()).toMatchObject({ request_seq: 31, prompt_tokens: 7_000 });
+			expect(queries[0]).toContain("s.purpose = 'loop'");
+		});
+
+		it("includes prompt, model, provider, and system fingerprints in context budget cache keys", async () => {
 		const base = {
 			botId: "bot_one",
 			effectiveModel: "openrouter/auto",
@@ -8850,39 +8946,40 @@ function memoryLoopMessagePageSql(rows: ReturnType<typeof loopMessageRowForTest>
 	};
 	return {
 		exec<T>(sql: string, ...params: unknown[]) {
-			if (/SELECT m\.seq\s+FROM loop_messages m/.test(sql)) {
+			if (/SELECT m\.seq(?:,\s*m\.created_at)?\s+FROM loop_messages m/.test(sql)) {
 				const seq =
 					/m\.seq < \?/.test(sql) ?
 						previousBoundary(Number(params[0]))
 					:	latestActiveBoundary();
-				return { toArray: () => (seq === null ? [] : [({ seq } as T)]) };
-				}
-				if (/SELECT COUNT\(\*\) AS messageCount/.test(sql)) {
-					const pageRows =
-						/compacted_by IS NULL/.test(sql) || /m\.compacted_by IS NULL/.test(sql) ?
-							activeRows()
-						:	rowsForSource(Number(params[0]));
-					const seqs = pageRows.map((row) => row.seq);
-					return {
-						one: () =>
-							({
-								messageCount: pageRows.length,
-								fromSeq: seqs.length > 0 ? Math.min(...seqs) : null,
-								toSeq: seqs.length > 0 ? Math.max(...seqs) : null,
-							}) as T,
-						toArray: () => [],
-					};
-				}
-				if (/SELECT m\.seq, m\.position, m\.run_id/.test(sql)) {
-					if (/WHERE\s+m\.compacted_by IS NULL/.test(sql)) {
-						let paramIndex = 0;
-						const lowerBoundSeq = /m\.seq >= \?/.test(sql) ? Number(params[paramIndex++]) : null;
-						const after = /m\.seq > \?/.test(sql) ? Number(params[paramIndex++]) : 0;
-						return { toArray: () => activeRows(after, lowerBoundSeq) as T[] };
-					}
-					return { toArray: () => rowsForSource(Number(params[0])) as T[] };
-				}
+				const row = seq === null ? undefined : rows.find((item) => item.seq === seq);
+				return { toArray: () => (row ? [({ seq, created_at: row.created_at } as T)] : []) };
+			}
+			if (/SELECT COUNT\(\*\) AS messageCount/.test(sql)) {
+				const pageRows =
+					/compacted_by IS NULL/.test(sql) || /m\.compacted_by IS NULL/.test(sql) ?
+						activeRows()
+					:	rowsForSource(Number(params[0]));
+				const seqs = pageRows.map((row) => row.seq);
 				return {
+					one: () =>
+						({
+							messageCount: pageRows.length,
+							fromSeq: seqs.length > 0 ? Math.min(...seqs) : null,
+							toSeq: seqs.length > 0 ? Math.max(...seqs) : null,
+						}) as T,
+					toArray: () => [],
+				};
+			}
+			if (/SELECT m\.seq, m\.position, m\.run_id/.test(sql)) {
+				if (/WHERE\s+m\.compacted_by IS NULL/.test(sql)) {
+					let paramIndex = 0;
+					const lowerBoundSeq = /m\.seq >= \?/.test(sql) ? Number(params[paramIndex++]) : null;
+					const after = /m\.seq > \?/.test(sql) ? Number(params[paramIndex++]) : 0;
+					return { toArray: () => activeRows(after, lowerBoundSeq) as T[] };
+				}
+				return { toArray: () => rowsForSource(Number(params[0])) as T[] };
+			}
+			return {
 				one: () => ({} as T),
 				toArray: () => [],
 			};
@@ -9042,6 +9139,24 @@ function providerPromptEstimateForTokens(promptTokens: number) {
 		promptTokens,
 		source: "full_estimate",
 		calibrationSampleCount: 0,
+	};
+}
+
+function providerLoopUsageRowForTest(requestSeq: number, createdAt: string, promptTokens: number) {
+	return {
+		created_at: createdAt,
+		run_id: "run-context-window",
+		request_seq: requestSeq,
+		model: "test-model",
+		requested_model: "test-model",
+		response_model: null,
+		context_window_tokens: 16_000,
+		prompt_tokens: promptTokens,
+		completion_tokens: 100,
+		total_tokens: promptTokens + 100,
+		cached_tokens: 0,
+		reasoning_tokens: 0,
+		cost: null,
 	};
 }
 

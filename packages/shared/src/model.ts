@@ -969,6 +969,25 @@ export type BotTokenUsageChangeMarker = {
 	cost: number | null;
 };
 
+export type BotContextWindowBreakdown = {
+	usedAt: string;
+	runId: string;
+	requestSeq: number;
+	model: string;
+	requestedModel: string;
+	responseModel?: string;
+	contextWindowTokens: number;
+	promptTokens: number;
+	baselineUsedAt: string;
+	baselineRequestSeq: number;
+	baselinePromptTokens: number;
+	initialTokens: number;
+	ongoingTokens: number;
+	freeTokens: number;
+	compactionCutoffTokens: number;
+	responseReserveTokens: number;
+};
+
 export type BotTokenUsageStats = {
 	generatedAt: string;
 	windowStart: string;
@@ -980,6 +999,7 @@ export type BotTokenUsageStats = {
 	buckets: BotTokenUsageBucket[];
 	models: BotTokenUsageModelBreakdown[];
 	changeMarkers: BotTokenUsageChangeMarker[];
+	contextWindow?: BotContextWindowBreakdown;
 };
 
 export type BotContextBudgetInput = {

@@ -63,6 +63,7 @@ import {
 	type ApiErrorPayload,
 	type BotContextBudget,
 	type BotContextBudgetInput,
+	type BotContextWindowBreakdown,
 	defaultTranslationPrompt,
 	defaultProviderModel,
 	type BotInferenceSubmission,
@@ -310,6 +311,10 @@ type ProviderUsageRow = {
 	cached_tokens: number;
 	reasoning_tokens: number;
 	cost: number | null;
+};
+
+type ProviderLoopUsageRow = ProviderUsageRow & {
+	request_seq: number;
 };
 
 type PromptTokenCalibrationRow = {
@@ -1996,7 +2001,7 @@ export class BotRuntime {
 
 			if (request.method === "GET" && url.pathname.endsWith("/token-usage")) {
 				await this.requireOwnerOrInternal(request, botId);
-				return ok({ usage: this.tokenUsageStats() });
+				return ok({ usage: this.tokenUsageStats(await botById(this.env.BICKR_KV, this.env.BICKR_D1, botId)) });
 			}
 
 			if (request.method === "POST" && url.pathname.endsWith("/context-budget")) {
@@ -3466,9 +3471,13 @@ export class BotRuntime {
 	}
 
 	private latestActiveLoopCompactionSeq(): number | null {
+		return this.latestActiveLoopCompactionBoundary()?.seq ?? null;
+	}
+
+	private latestActiveLoopCompactionBoundary(): { seq: number; created_at: string } | null {
 		const row = this.state.storage.sql
-			.exec<{ seq: number }>(
-				`SELECT m.seq
+			.exec<{ seq: number; created_at: string }>(
+				`SELECT m.seq, m.created_at
 				 FROM loop_messages m
 				 WHERE m.compacted_by IS NULL
 				   AND m.deleted_at IS NULL
@@ -3483,7 +3492,7 @@ export class BotRuntime {
 				 LIMIT 1`,
 			)
 			.toArray()[0];
-		return row && typeof row.seq === "number" ? row.seq : null;
+		return row && typeof row.seq === "number" && typeof row.created_at === "string" ? row : null;
 	}
 
 	private previousLoopCompactionSeq(sourceCompactionSeq: number): number | null {
@@ -3840,7 +3849,7 @@ export class BotRuntime {
 		return this.state.storage.sql.exec<{ count: number }>(`SELECT changes() AS count`).one().count;
 	}
 
-	private tokenUsageStats(now = new Date()): BotTokenUsageStats {
+	private tokenUsageStats(bot: Pick<BotDocument, "tickSettings">, now = new Date()): BotTokenUsageStats {
 		const windowEndMs = now.getTime();
 		const windowStartMs = windowEndMs - 7 * dayMs;
 		const last24StartMs = windowEndMs - dayMs;
@@ -3877,6 +3886,7 @@ export class BotRuntime {
 			}
 		}
 		const dailyAverageDays = tokenUsageAverageDays(rows, windowEndMs);
+		const contextWindow = this.contextWindowBreakdown(bot.tickSettings.compactionThreshold);
 
 		return {
 			generatedAt: windowEnd,
@@ -3889,6 +3899,50 @@ export class BotRuntime {
 			buckets,
 			models: [...models.values()].sort((left, right) => right.totalTokens - left.totalTokens),
 			changeMarkers: this.tokenUsageChangeMarkers(windowStart, windowEnd),
+			...(contextWindow ? { contextWindow } : {}),
+		};
+	}
+
+	private contextWindowBreakdown(compactionThreshold: number): BotContextWindowBreakdown | undefined {
+		const boundary = this.latestActiveLoopCompactionBoundary();
+		const latest = this.latestLoopProviderUsage();
+		if (!latest) {
+			return undefined;
+		}
+		if (boundary && latest.created_at < boundary.created_at) {
+			return undefined;
+		}
+		const baseline = this.firstLoopProviderUsageAfter(boundary?.created_at);
+		if (!baseline) {
+			return undefined;
+		}
+		const contextWindowTokens = Math.max(0, Math.floor(latest.context_window_tokens));
+		const promptTokens = Math.max(0, Math.floor(latest.prompt_tokens));
+		const baselinePromptTokens = Math.max(0, Math.floor(baseline.prompt_tokens));
+		const initialTokens = Math.min(baselinePromptTokens, promptTokens);
+		const ongoingTokens = Math.max(0, promptTokens - baselinePromptTokens);
+		const freeTokens = Math.max(0, contextWindowTokens - promptTokens);
+		const compactionCutoffTokens = Math.max(
+			1,
+			Math.floor(contextWindowTokens * compactionThreshold - providerContextReserveTokens),
+		);
+		return {
+			usedAt: latest.created_at,
+			runId: latest.run_id,
+			requestSeq: latest.request_seq,
+			model: latest.model,
+			requestedModel: latest.requested_model,
+			...(latest.response_model ? { responseModel: latest.response_model } : {}),
+			contextWindowTokens,
+			promptTokens,
+			baselineUsedAt: baseline.created_at,
+			baselineRequestSeq: baseline.request_seq,
+			baselinePromptTokens,
+			initialTokens,
+			ongoingTokens,
+			freeTokens,
+			compactionCutoffTokens,
+			responseReserveTokens: providerContextReserveTokens,
 		};
 	}
 
@@ -4061,6 +4115,46 @@ export class BotRuntime {
 				until,
 			)
 			.toArray();
+	}
+
+	private latestLoopProviderUsage(): ProviderLoopUsageRow | null {
+		return this.state.storage.sql
+			.exec<ProviderLoopUsageRow>(
+				`SELECT u.created_at, u.run_id, u.request_seq, u.model, u.requested_model, u.response_model,
+				        u.context_window_tokens, u.prompt_tokens, u.completion_tokens, u.total_tokens,
+				        u.cached_tokens, u.reasoning_tokens, u.cost
+				 FROM provider_usage u
+				 JOIN inference_submissions s
+				   ON s.event_seq = u.request_seq
+				  AND s.run_id = u.run_id
+				 WHERE s.purpose = 'loop'
+				   AND u.prompt_tokens > 0
+				 ORDER BY u.created_at DESC, u.id DESC
+				 LIMIT 1`,
+			)
+			.toArray()[0] ?? null;
+	}
+
+	private firstLoopProviderUsageAfter(since?: string): ProviderLoopUsageRow | null {
+		const sinceFilter = since ? "AND u.created_at >= ?" : "";
+		const params = since ? [since] : [];
+		return this.state.storage.sql
+			.exec<ProviderLoopUsageRow>(
+				`SELECT u.created_at, u.run_id, u.request_seq, u.model, u.requested_model, u.response_model,
+				        u.context_window_tokens, u.prompt_tokens, u.completion_tokens, u.total_tokens,
+				        u.cached_tokens, u.reasoning_tokens, u.cost
+				 FROM provider_usage u
+				 JOIN inference_submissions s
+				   ON s.event_seq = u.request_seq
+				  AND s.run_id = u.run_id
+				 WHERE s.purpose = 'loop'
+				   AND u.prompt_tokens > 0
+				   ${sinceFilter}
+				 ORDER BY u.created_at ASC, u.id ASC
+				 LIMIT 1`,
+				...params,
+			)
+			.toArray()[0] ?? null;
 	}
 
 	private tokenUsageChangeMarkers(since: string, until: string): BotTokenUsageChangeMarker[] {
