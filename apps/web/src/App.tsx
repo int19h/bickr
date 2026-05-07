@@ -8794,10 +8794,18 @@ function TokenUsagePanel({ usage }: { usage: BotTokenUsageStats | null }) {
 			:	<div className="token-usage-empty">No exact usage has been reported by the inference provider yet.</div>}
 			{usage && usage.models.length > 0 && (
 				<div className="token-model-breakdown">
-					{usage.models.slice(0, 4).map((model) => (
-						<div key={`${model.model}-${model.contextWindowTokens}`}>
-							<span>{model.model}</span>
-							<b>{formatTokenUsageTotals(model)}</b>
+					<div className="token-model-breakdown-head">
+						<span>Model</span>
+						<span>Total</span>
+						<span>Cached</span>
+						<span>Cost</span>
+					</div>
+					{usage.models.map((model) => (
+						<div className="token-model-breakdown-row" key={`${model.model}-${model.contextWindowTokens}`} title={`${model.model}: ${formatTokenUsageTotals(model)}`}>
+							<span className="token-model-name">{model.model}</span>
+							<b>{formatTokenCount(model.totalTokens)}</b>
+							<b>{formatTokenCount(model.cachedTokens)}</b>
+							<b>{formatNullableTokenCost(model.cost)}</b>
 						</div>
 					))}
 				</div>
@@ -12230,6 +12238,10 @@ function formatTokenCost(value: number): string {
 		minimumFractionDigits: fractionDigits,
 		style: "currency",
 	}).format(value);
+}
+
+function formatNullableTokenCost(value: number | null): string {
+	return value === null ? "-" : formatTokenCost(value);
 }
 
 function areaToBaselinePath<T extends { x: number }>(

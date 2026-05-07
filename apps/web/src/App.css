@@ -2538,21 +2538,32 @@ fieldset {
 
 .token-model-breakdown {
 	display: grid;
-	gap: 6px;
-	grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+	gap: 0;
 }
 
-.token-model-breakdown > div {
-	align-items: center;
+.token-model-breakdown-head,
+.token-model-breakdown-row {
+	align-items: baseline;
 	border-top: 1px solid var(--rule-soft);
-	display: flex;
-	gap: 8px;
-	justify-content: space-between;
+	column-gap: 14px;
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) max-content max-content max-content;
 	min-width: 0;
 	padding-top: 7px;
 }
 
-.token-model-breakdown span {
+.token-model-breakdown-head {
+	padding-bottom: 1px;
+}
+
+.token-model-breakdown-head span:not(:first-child),
+.token-model-breakdown-row b {
+	font-variant-numeric: tabular-nums;
+	text-align: right;
+	white-space: nowrap;
+}
+
+.token-model-name {
 	min-width: 0;
 	overflow: hidden;
 	text-overflow: ellipsis;
