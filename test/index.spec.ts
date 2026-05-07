@@ -1076,6 +1076,69 @@ describe("Bickr Pages Functions", () => {
 			expect(selected.map((row) => row.seq)).toEqual([1, 2, 3]);
 		});
 
+		it("selects a contiguous oldest prefix of atomic tool-call groups for compaction", () => {
+			const large = (char: string) => char.repeat(4_000);
+			const rows = [
+				loopMessageRowForMessage(1, { role: "assistant", content: large("a") }),
+				loopMessageRowForMessage(2, {
+					role: "assistant",
+					content: large("b"),
+					tool_calls: [
+						{
+							id: "call-read",
+							type: "function",
+							function: { name: "read_thread", arguments: "{}" },
+						},
+					],
+				}),
+				loopMessageRowForMessage(3, { role: "tool", tool_call_id: "call-read", content: large("c") }, "tool_result"),
+				loopMessageRowForMessage(4, { role: "assistant", content: large("d") }),
+				loopMessageRowForMessage(5, { role: "assistant", content: large("e") }),
+			];
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				activeLoopMessageRows: () => rows,
+				textTokenCalibration: () => ({ tokensPerCharacter: 0.25, sampleCount: 0 }),
+			});
+			const compactionRowsForEstimatedBudget = (BotRuntime.prototype as unknown as {
+				compactionRowsForEstimatedBudget: (bot: BotDocument, runId: string, includeCurrentRun: boolean) => Array<{ seq: number }>;
+			}).compactionRowsForEstimatedBudget.bind(runtime);
+
+			const selected = compactionRowsForEstimatedBudget(fakeBotDocument({ contextWindowTokens: 1_000 }), "run-current", true);
+
+			expect(selected.map((row) => row.seq)).toEqual([1, 2, 3]);
+		});
+
+		it("compacts malformed visible tool history without blocking on missing matches", () => {
+			const large = (char: string) => char.repeat(4_000);
+			const rows = [
+				loopMessageRowForMessage(1, {
+					role: "assistant",
+					content: large("a"),
+					tool_calls: [
+						{
+							id: "call-missing-result",
+							type: "function",
+							function: { name: "read_thread", arguments: "{}" },
+						},
+					],
+				}),
+				loopMessageRowForMessage(2, { role: "tool", tool_call_id: "call-orphan", content: large("b") }, "tool_result"),
+				loopMessageRowForMessage(3, { role: "assistant", content: large("c") }),
+				loopMessageRowForMessage(4, { role: "assistant", content: large("d") }),
+			];
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				activeLoopMessageRows: () => rows,
+				textTokenCalibration: () => ({ tokensPerCharacter: 0.25, sampleCount: 0 }),
+			});
+			const compactionRowsForEstimatedBudget = (BotRuntime.prototype as unknown as {
+				compactionRowsForEstimatedBudget: (bot: BotDocument, runId: string, includeCurrentRun: boolean) => Array<{ seq: number }>;
+			}).compactionRowsForEstimatedBudget.bind(runtime);
+
+			const selected = compactionRowsForEstimatedBudget(fakeBotDocument({ contextWindowTokens: 1_000 }), "run-current", true);
+
+			expect(selected.map((row) => row.seq)).toEqual([1, 2, 3]);
+		});
+
 		it("derives row token estimates from recent provider prompt history", () => {
 			const previous = "a".repeat(400);
 			const appended = "b".repeat(400);
@@ -1288,7 +1351,7 @@ describe("Bickr Pages Functions", () => {
 			expect(page3.page).toMatchObject({ currentPage: 3, newerPage: 2 });
 		});
 
-		it("starts the active loop message page at the newest active compaction boundary", () => {
+		it("shows every active row on page one in context order", () => {
 			const rows = [
 				{ ...loopMessageRowForTest(1, "run-old", "Old event"), compacted_by: 10 },
 				{ ...loopMessageRowForTest(10, "run-compact-1", "Previous active summary"), origin: "compaction" as BotLoopMessage["origin"] },
@@ -1307,17 +1370,17 @@ describe("Bickr Pages Functions", () => {
 			const page2 = loopMessagesPage({ page: 2 });
 			const page3 = loopMessagesPage({ page: 3 });
 
-			expect(page1.messages.map((message) => message.seq)).toEqual([20, 21]);
+			expect(page1.messages.map((message) => message.seq)).toEqual([10, 20, 21]);
 			expect(page1.page).toMatchObject({
 				currentPage: 1,
 				pageCount: 3,
 				olderPage: 2,
 				compactionPageBySeq: { "20": 2, "10": 3 },
 			});
-			expect(page2.messages.map((message) => message.seq)).toEqual([10, 11]);
-			expect(page2.page).toMatchObject({ currentPage: 2, newerPage: 1, olderPage: 3 });
+			expect(page2.messages.map((message) => message.seq)).toEqual([11]);
+			expect(page2.page).toMatchObject({ currentPage: 2, newerPage: 1 });
 			expect(page3.messages.map((message) => message.seq)).toEqual([1]);
-			expect(page3.page).toMatchObject({ currentPage: 3, newerPage: 2 });
+			expect(page3.page).toMatchObject({ currentPage: 3, newerPage: 1 });
 		});
 
 		it("keeps incremental loop message fetches on the active page only", () => {
@@ -1367,17 +1430,14 @@ describe("Bickr Pages Functions", () => {
 		it("stores provider compaction summaries without adding a memory prefix", async () => {
 			const candidates = [
 				{
-					seq: 1,
-					position: 1,
-					run_id: "run-compaction-success",
-					role: "assistant",
-					message_json: JSON.stringify({ role: "assistant", content: "I read the changelog thread." }),
-					origin: "provider_response",
-					status: "complete",
+					...loopMessageRowForTest(1, "run-compaction-success", "I read the changelog thread."),
+					position: 3,
 					token_estimate: 10,
-					compacted_by: null,
-					created_at: "2026-05-01T00:00:00.000Z",
-					has_logs: 0,
+				},
+				{
+					...loopMessageRowForTest(2, "run-compaction-success", "I checked the replies."),
+					position: 7,
+					token_estimate: 10,
 				},
 			];
 			const appendEvent = vi.fn(async (runId: string, type: string, payload: unknown) => ({
@@ -1451,11 +1511,46 @@ describe("Bickr Pages Functions", () => {
 					role: "assistant",
 					content: "I chose to follow up with Müller about concise release notes.",
 				},
+				position: 7,
 			}));
 			expect(replaceEventPayload).toHaveBeenLastCalledWith(expect.objectContaining({ seq: 101 }), expect.objectContaining({
 				status: "complete",
 				summary: "I chose to follow up with Müller about concise release notes.",
 			}));
+		});
+
+		it("uses the compaction threshold before the response reserve for soft compaction", async () => {
+			const row = loopMessageRowForTest(1, "run-threshold", "Old context.");
+			const compactLoopMessageRows = vi.fn();
+			let totalTokens = 12_000;
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				currentCompactionContextEstimate: () => ({ totalTokens, rowTokens: totalTokens, rows: [], calibration: { tokensPerCharacter: 0.25, sampleCount: 0 } }),
+				compactionRowsForEstimatedBudget: () => [row],
+				compactLoopMessageRows,
+			});
+			const compactIfNeeded = (BotRuntime.prototype as unknown as {
+				compactIfNeeded: (
+					bot: BotDocument,
+					settings: Record<string, unknown>,
+					runId: string,
+					signal: AbortSignal,
+				) => Promise<void>;
+			}).compactIfNeeded.bind(runtime);
+
+			await compactIfNeeded(fakeBotDocument({ contextWindowTokens: 16_000 }), {}, "run-threshold", new AbortController().signal);
+			expect(compactLoopMessageRows).not.toHaveBeenCalled();
+
+			totalTokens = 12_001;
+			await compactIfNeeded(fakeBotDocument({ contextWindowTokens: 16_000 }), {}, "run-threshold", new AbortController().signal);
+			expect(compactLoopMessageRows).toHaveBeenCalledWith(
+				expect.anything(),
+				expect.anything(),
+				"run-threshold",
+				expect.any(AbortSignal),
+				[row],
+				"auto",
+				expect.objectContaining({ estimatedContextTokens: 12_001, threshold: 12_000 }),
+			);
 		});
 
 		it("hydrates only the newest dangling comment reference after compaction", () => {
@@ -1732,7 +1827,7 @@ describe("Bickr Pages Functions", () => {
 				ongoingTokens: 2_500,
 				freeTokens: 9_500,
 				contextWindowTokens: 16_000,
-				compactionCutoffTokens: 9_500,
+				compactionCutoffTokens: 12_000,
 				responseReserveTokens: providerContextReserveTokens,
 			});
 		});
@@ -8922,37 +9017,35 @@ function memoryLoopMessagePageSql(rows: ReturnType<typeof loopMessageRowForTest>
 		compactionBoundaries()
 			.filter((row) => row.compacted_by === null)
 			.sort((left, right) => right.seq - left.seq)[0]?.seq ?? null;
-	const previousBoundary = (sourceCompactionSeq: number): number | null =>
+	const boundaryChildren = (sourceCompactionSeq: number | null): number[] =>
 		compactionBoundaries()
-			.filter((row) => row.seq < sourceCompactionSeq)
-			.filter((row) => row.compacted_by === sourceCompactionSeq || row.compacted_by === null)
-			.sort((left, right) => right.seq - left.seq)[0]?.seq ?? null;
-	const activeRows = (afterSeq = 0, lowerBoundSeq: number | null = latestActiveBoundary()) =>
+			.filter((row) => row.compacted_by === sourceCompactionSeq)
+			.sort((left, right) => right.position - left.position || right.seq - left.seq)
+			.map((row) => row.seq);
+	const activeRows = (afterSeq = 0) =>
 		sortedRows(
 			rows
 				.filter((row) => row.deleted_at === null)
 				.filter((row) => row.compacted_by === null)
-				.filter((row) => lowerBoundSeq === null || row.seq >= lowerBoundSeq)
 				.filter((row) => afterSeq <= 0 || row.seq > afterSeq),
 		);
 	const rowsForSource = (sourceCompactionSeq: number) => {
-		const lowerBoundSeq = previousBoundary(sourceCompactionSeq);
 		return sortedRows(
 			rows
 				.filter((row) => row.deleted_at === null)
-				.filter((row) => lowerBoundSeq === null || row.seq >= lowerBoundSeq)
-				.filter((row) => row.compacted_by === sourceCompactionSeq || (row.compacted_by === null && row.seq < sourceCompactionSeq)),
+				.filter((row) => row.compacted_by === sourceCompactionSeq),
 		);
 	};
 	return {
 		exec<T>(sql: string, ...params: unknown[]) {
-			if (/SELECT m\.seq(?:,\s*m\.created_at)?\s+FROM loop_messages m/.test(sql)) {
-				const seq =
-					/m\.seq < \?/.test(sql) ?
-						previousBoundary(Number(params[0]))
-					:	latestActiveBoundary();
+			if (/SELECT m\.seq,\s*m\.created_at\s+FROM loop_messages m/.test(sql)) {
+				const seq = latestActiveBoundary();
 				const row = seq === null ? undefined : rows.find((item) => item.seq === seq);
 				return { toArray: () => (row ? [({ seq, created_at: row.created_at } as T)] : []) };
+			}
+			if (/SELECT m\.seq\s+FROM loop_messages m/.test(sql)) {
+				const sourceCompactionSeq = /m\.compacted_by = \?/.test(sql) ? Number(params[0]) : null;
+				return { toArray: () => boundaryChildren(sourceCompactionSeq).map((seq) => ({ seq }) as T) };
 			}
 			if (/SELECT COUNT\(\*\) AS messageCount/.test(sql)) {
 				const pageRows =
@@ -8972,10 +9065,8 @@ function memoryLoopMessagePageSql(rows: ReturnType<typeof loopMessageRowForTest>
 			}
 			if (/SELECT m\.seq, m\.position, m\.run_id/.test(sql)) {
 				if (/WHERE\s+m\.compacted_by IS NULL/.test(sql)) {
-					let paramIndex = 0;
-					const lowerBoundSeq = /m\.seq >= \?/.test(sql) ? Number(params[paramIndex++]) : null;
-					const after = /m\.seq > \?/.test(sql) ? Number(params[paramIndex++]) : 0;
-					return { toArray: () => activeRows(after, lowerBoundSeq) as T[] };
+					const after = /m\.seq > \?/.test(sql) ? Number(params[0]) : 0;
+					return { toArray: () => activeRows(after) as T[] };
 				}
 				return { toArray: () => rowsForSource(Number(params[0])) as T[] };
 			}

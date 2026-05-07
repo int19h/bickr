@@ -3419,15 +3419,12 @@ export class BotRuntime {
 
 	private loopMessageRowsForPage(sourceCompactionSeq: number | null, afterSeq: number): LoopMessageRow[] {
 		if (sourceCompactionSeq === null) {
-			const boundarySeq = this.latestActiveLoopCompactionSeq();
 			const filters = [
 				"m.compacted_by IS NULL",
 				"m.deleted_at IS NULL",
-				...(boundarySeq !== null ? ["m.seq >= ?"] : []),
 				...(afterSeq > 0 ? ["m.seq > ?"] : []),
 			];
 			const params = [
-				...(boundarySeq !== null ? [boundarySeq] : []),
 				...(afterSeq > 0 ? [afterSeq] : []),
 			];
 			return this.state.storage.sql
@@ -3443,35 +3440,39 @@ export class BotRuntime {
 				)
 				.toArray();
 		}
-		const previousBoundarySeq = this.previousLoopCompactionSeq(sourceCompactionSeq);
-		const lowerBound = previousBoundarySeq !== null ? "AND m.seq >= ?" : "";
 		return this.state.storage.sql
 			.exec<LoopMessageRow>(
 				`SELECT m.seq, m.position, m.run_id, m.role, m.message_json, m.origin, m.status,
 				        m.token_estimate, m.stream_seq, m.compacted_by, m.deleted_at, m.created_at,
 				        CASE WHEN EXISTS (SELECT 1 FROM loop_message_logs l WHERE l.message_seq = m.seq) THEN 1 ELSE 0 END AS has_logs
 				 FROM loop_messages m
-				 WHERE (
-					m.compacted_by = ?
-					OR (m.compacted_by IS NULL AND m.seq < ?)
-				 )
+				 WHERE m.compacted_by = ?
 				   AND m.deleted_at IS NULL
-				   ${lowerBound}
 				 ORDER BY m.position ASC, m.seq ASC`,
 				sourceCompactionSeq,
-				sourceCompactionSeq,
-				...(previousBoundarySeq !== null ? [previousBoundarySeq] : []),
 			)
 			.toArray();
 	}
 
 	private loopMessageCompactionSeqsWithChildren(sourceCompactionSeq: number | null): number[] {
-		const seq = sourceCompactionSeq === null ? this.latestActiveLoopCompactionSeq() : this.previousLoopCompactionSeq(sourceCompactionSeq);
-		return seq === null ? [] : [seq];
-	}
-
-	private latestActiveLoopCompactionSeq(): number | null {
-		return this.latestActiveLoopCompactionBoundary()?.seq ?? null;
+		const rows = this.state.storage.sql
+			.exec<{ seq: number }>(
+				`SELECT m.seq
+				 FROM loop_messages m
+				 WHERE m.compacted_by ${sourceCompactionSeq === null ? "IS NULL" : "= ?"}
+				   AND m.deleted_at IS NULL
+				   AND m.origin = 'compaction'
+				   AND EXISTS (
+					SELECT 1
+					FROM loop_messages child
+					WHERE child.compacted_by = m.seq
+					  AND child.deleted_at IS NULL
+				   )
+				 ORDER BY m.position DESC, m.seq DESC`,
+				...(sourceCompactionSeq === null ? [] : [sourceCompactionSeq]),
+			)
+			.toArray();
+		return rows.map((row) => row.seq).filter((seq) => Number.isInteger(seq));
 	}
 
 	private latestActiveLoopCompactionBoundary(): { seq: number; created_at: string } | null {
@@ -3493,30 +3494,6 @@ export class BotRuntime {
 			)
 			.toArray()[0];
 		return row && typeof row.seq === "number" && typeof row.created_at === "string" ? row : null;
-	}
-
-	private previousLoopCompactionSeq(sourceCompactionSeq: number): number | null {
-		const row = this.state.storage.sql
-			.exec<{ seq: number }>(
-				`SELECT m.seq
-				 FROM loop_messages m
-				 WHERE m.seq < ?
-				   AND (m.compacted_by = ? OR m.compacted_by IS NULL)
-				   AND m.deleted_at IS NULL
-				   AND m.origin = 'compaction'
-				   AND EXISTS (
-					SELECT 1
-					FROM loop_messages child
-					WHERE child.compacted_by = m.seq
-					  AND child.deleted_at IS NULL
-				   )
-				 ORDER BY m.seq DESC
-				 LIMIT 1`,
-				sourceCompactionSeq,
-				sourceCompactionSeq,
-			)
-			.toArray()[0];
-		return row && typeof row.seq === "number" ? row.seq : null;
 	}
 
 	private loopMessagePageCount(sourceCompactionSeq: number | null): { messageCount: number; fromSeq: number | null; toSeq: number | null } {
@@ -3922,10 +3899,7 @@ export class BotRuntime {
 		const initialTokens = Math.min(baselinePromptTokens, promptTokens);
 		const ongoingTokens = Math.max(0, promptTokens - baselinePromptTokens);
 		const freeTokens = Math.max(0, contextWindowTokens - promptTokens);
-		const compactionCutoffTokens = Math.max(
-			1,
-			Math.floor(contextWindowTokens * compactionThreshold - providerContextReserveTokens),
-		);
+		const compactionCutoffTokens = Math.max(1, Math.floor(contextWindowTokens * compactionThreshold));
 		return {
 			usedAt: latest.created_at,
 			runId: latest.run_id,
@@ -5190,10 +5164,7 @@ export class BotRuntime {
 	): Promise<void> {
 		const contextEstimate = this.currentCompactionContextEstimate();
 		const total = contextEstimate.totalTokens;
-		const threshold = Math.max(
-			1,
-			bot.tickSettings.contextWindowTokens * bot.tickSettings.compactionThreshold - providerContextReserveTokens,
-		);
+		const threshold = Math.max(1, Math.floor(bot.tickSettings.contextWindowTokens * bot.tickSettings.compactionThreshold));
 		if (total <= threshold) {
 			return;
 		}
@@ -5447,7 +5418,7 @@ export class BotRuntime {
 			throw error;
 		}
 		const summary = response.content ? storedCompactionSummary(response.content) : deterministicCompactionSummary("", recentActivity);
-		const summaryPosition = compacted[0]?.position ?? this.nextLoopMessagePosition();
+		const summaryPosition = compacted[compacted.length - 1]?.position ?? this.nextLoopMessagePosition();
 		const summaryMessage = this.insertLoopMessage({
 			runId,
 			message: { role: "assistant", content: summary },
@@ -9400,9 +9371,6 @@ function oldestLoopMessageGroupsForPromptLimit(
 	const selected: LoopMessageRow[] = [];
 	let selectedTokens = 0;
 	for (const group of groups) {
-		if (!group.complete) {
-			continue;
-		}
 		if (selected.length > 0 && selectedTokens + group.tokens > limitTokens) {
 			break;
 		}
@@ -10371,13 +10339,13 @@ function chunkText(text: string, chunkLength: number): string[] {
 
 function loopMessageCompactionGroups(
 	rows: readonly CompactionCandidateEstimate[],
-): Array<{ rows: LoopMessageRow[]; tokens: number; complete: boolean }> {
-	const groups: Array<{ rows: LoopMessageRow[]; tokens: number; complete: boolean }> = [];
+): Array<{ rows: LoopMessageRow[]; tokens: number }> {
+	const groups: Array<{ rows: LoopMessageRow[]; tokens: number }> = [];
 	for (let index = 0; index < rows.length; index += 1) {
 		const current = rows[index]!;
 		const message = loopMessageChatMessageFromRow(current.row);
 		if (message.role !== "assistant" || !message.tool_calls?.length) {
-			groups.push({ rows: [current.row], tokens: current.tokens, complete: true });
+			groups.push({ rows: [current.row], tokens: current.tokens });
 			continue;
 		}
 		const expectedToolCallIds = new Set(message.tool_calls.map((toolCall) => toolCall.id));
@@ -10398,7 +10366,7 @@ function loopMessageCompactionGroups(
 				break;
 			}
 		}
-		groups.push({ rows: groupRows, tokens, complete: expectedToolCallIds.size === 0 });
+		groups.push({ rows: groupRows, tokens });
 		index = scan - 1;
 	}
 	return groups;
