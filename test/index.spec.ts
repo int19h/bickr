@@ -13,7 +13,10 @@ import {
 	onRequestDelete as deleteBot,
 	onRequestPatch as patchBot,
 } from "../apps/web/functions/api/me/bots/[botId]";
-import { onRequestPost as contextBudgetRoute } from "../apps/web/functions/api/me/bots/[botId]/runtime/context-budget";
+import {
+	onRequestGet as contextBudgetGetRoute,
+	onRequestPost as contextBudgetRoute,
+} from "../apps/web/functions/api/me/bots/[botId]/runtime/context-budget";
 import { onRequestGet as runtimeMessagesRoute } from "../apps/web/functions/api/me/bots/[botId]/runtime/messages";
 import { onRequest as runtimeMonitorRoute } from "../apps/web/functions/api/me/bots/[botId]/runtime/monitor";
 import {
@@ -2168,15 +2171,23 @@ describe("Bickr Pages Functions", () => {
 				{
 					...loopMessageRowForMessage(
 						2,
+						{ role: "assistant", content: defaultReasoningPrefill("budget-bot") },
+						"synthetic_context",
+					),
+					origin: "synthetic_context" as BotLoopMessage["origin"],
+				},
+				{
+					...loopMessageRowForMessage(
+						3,
 						{ role: "user", content: runtimeErrorLoopMessageContent("Inference request failed with status 400.") },
 						"runtime_error",
 					),
 					origin: "runtime_error" as BotLoopMessage["origin"],
 				},
-				loopMessageRowForTest(3, "run-ledger-compact", "Provider-visible newer context."),
+				loopMessageRowForTest(4, "run-ledger-compact", "Provider-visible newer context."),
 				{
 					...loopMessageRowForMessage(
-						4,
+						5,
 						{ role: "user", content: runtimeErrorLoopMessageContent("Inference request failed with status 404.") },
 						"runtime_error",
 					),
@@ -2254,7 +2265,7 @@ describe("Bickr Pages Functions", () => {
 				{ apiKey: "test-key", baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
 				"run-ledger-compact",
 				new AbortController().signal,
-				[rows[0], rows[2]],
+				[rows[0], rows[3]],
 				"auto",
 				{ estimatedContextTokens: 10_000, threshold: 80 },
 			);
@@ -2263,8 +2274,9 @@ describe("Bickr Pages Functions", () => {
 			const providerText = JSON.stringify(providerMessages);
 			expect(providerText).toContain("Provider-visible old context.");
 			expect(providerText).toContain("Provider-visible newer context.");
+			expect(providerText).not.toContain(defaultReasoningPrefill("budget-bot"));
 			expect(providerText).not.toContain("Inference request failed with status 400");
-			expect(rows.map((row) => row.compacted_by)).toEqual([102, 102, 102, null]);
+			expect(rows.map((row) => row.compacted_by)).toEqual([102, 102, 102, 102, null]);
 			expect(recordInferenceSubmission).toHaveBeenCalledWith(expect.objectContaining({
 				messages: providerMessages,
 			}));
@@ -8495,6 +8507,54 @@ describe("Bickr Pages Functions", () => {
 			});
 		});
 
+		it("proxies cached prompt context budget reads to the agent runtime service", async () => {
+			const cookie = await authCookie();
+			await seedWorld(cookie);
+			const createResponse = await createBot(
+				contextFor<typeof createBot>(
+					jsonRequest(
+						"http://example.com/api/worlds/patch-notes/bots",
+						"POST",
+						{
+							handle: "cached-budget-sage",
+							displayName: "Cached Budget Sage",
+							shortBio: "Remembers context counts.",
+							prompt: "Stay inside the window.",
+						},
+						cookie,
+					),
+					{ worldHandle: "patch-notes" },
+				),
+			);
+			const created = (await createResponse.json()) as { data: { bot: BotBody } };
+			const proxied: { path?: string; method?: string; userId?: string | null } = {};
+			const response = await contextBudgetGetRoute(
+				contextFor<typeof contextBudgetGetRoute>(
+					new Request(`http://example.com/api/me/bots/${created.data.bot.id}/runtime/context-budget`, {
+						headers: { cookie },
+					}),
+					{ botId: created.data.bot.id },
+					{
+						AGENT_RUNTIME: {
+							fetch: async (request: Request) => {
+								proxied.path = new URL(request.url).pathname;
+								proxied.method = request.method;
+								proxied.userId = request.headers.get("x-bickr-user-id");
+								return Response.json({ ok: true, data: { budget: null } });
+							},
+						} as unknown as Fetcher,
+					},
+				),
+			);
+
+			expect(response.status).toBe(200);
+			expect(proxied).toMatchObject({
+				method: "GET",
+				path: `/bots/${created.data.bot.id}/context-budget`,
+			});
+			expect(proxied.userId).toBeTruthy();
+		});
+
 		it("preserves loop message and monitor query parameters when proxying runtime requests", async () => {
 			const cookie = await authCookie();
 			const proxiedUrls: URL[] = [];
@@ -8564,7 +8624,7 @@ describe("Bickr Pages Functions", () => {
 			),
 		);
 		const created = (await createResponse.json()) as { data: { bot: BotBody } };
-		const promptTokens = [200, 260];
+		const promptTokens = [200, 260, 210, 285];
 		const calls: Array<{ content: string }> = [];
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 			env: {
@@ -8602,9 +8662,17 @@ describe("Bickr Pages Functions", () => {
 				remainingLoopTokens: number;
 			}>;
 		}).promptContextBudget.bind(runtime);
+		const cachedPromptContextBudget = (BotRuntime.prototype as unknown as {
+			cachedPromptContextBudget: (botId: string) => Promise<{
+				cached: boolean;
+				fixedSystemTokens: number;
+				personaPromptTokens: number;
+				remainingLoopTokens: number;
+			} | null>;
+		}).cachedPromptContextBudget.bind(runtime);
 
 		const first = await promptContextBudget(created.data.bot.id, {
-			prompt: "Stay brief with exact counts.",
+			prompt: "Stay brief.",
 			tickSettings: { contextWindowTokens: 10_000 },
 		});
 		expect(first).toMatchObject({
@@ -8617,16 +8685,31 @@ describe("Bickr Pages Functions", () => {
 			remainingLoopTokens: 7_240,
 		});
 		expect(calls).toHaveLength(2);
-		expect(calls[0]?.content).not.toContain("Stay brief with exact counts.");
-		expect(calls[1]?.content).toContain("Stay brief with exact counts.");
+		expect(calls[0]?.content).not.toContain("Stay brief.");
+		expect(calls[1]?.content).toContain("Stay brief.");
 
 		const second = await promptContextBudget(created.data.bot.id, {
-			prompt: "Stay brief with exact counts.",
+			prompt: "Stay brief.",
 			tickSettings: { contextWindowTokens: 10_000 },
 		});
 		expect(second.cached).toBe(true);
 		expect(second.personaPromptTokens).toBe(60);
 		expect(calls).toHaveLength(2);
+
+		const cachedCurrent = await cachedPromptContextBudget(created.data.bot.id);
+		expect(cachedCurrent).toMatchObject({
+			cached: true,
+			fixedSystemTokens: 200,
+			personaPromptTokens: 60,
+		});
+		expect(calls).toHaveLength(2);
+
+		const changed = await promptContextBudget(created.data.bot.id, {
+			prompt: "Stay brief with exact counts.",
+			tickSettings: { contextWindowTokens: 10_000 },
+		});
+		expect(changed.cached).toBe(false);
+		expect(calls).toHaveLength(4);
 	});
 
 	it("allows bot prompts up to 64000 characters and rejects longer prompts", async () => {

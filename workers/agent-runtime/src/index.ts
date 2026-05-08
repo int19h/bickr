@@ -1896,6 +1896,24 @@ export function loopMessageContributesToProviderHistory(
 	return origin !== "provider_response" || !isEmptyProviderAssistantMessage(message);
 }
 
+function loopMessageContributesToCompactionProviderInput(row: LoopMessageRow): boolean {
+	const message = loopMessageChatMessageFromRow(row);
+	return loopMessageContributesToProviderHistory(row.origin, message) && !isRecurringPromptSyntheticContext(row.origin, message);
+}
+
+function isRecurringPromptSyntheticContext(
+	origin: BotLoopMessageOrigin,
+	message: BotInferenceSubmissionMessage,
+): boolean {
+	return (
+		origin === "synthetic_context" &&
+		message.role === "assistant" &&
+		!message.tool_calls?.length &&
+		typeof message.content === "string" &&
+		Boolean(message.content.trim())
+	);
+}
+
 export function runtimeErrorLoopMessageContent(message: unknown): string {
 	const text = runtimeErrorText(message);
 	if (/^Inference failed after \d+ provider attempts\b/.test(text) || /^Inference failed before retrying\b/.test(text)) {
@@ -2503,6 +2521,11 @@ export class BotRuntime {
 			if (request.method === "GET" && url.pathname.endsWith("/token-usage")) {
 				await this.requireOwnerOrInternal(request, botId);
 				return ok({ usage: this.tokenUsageStats(await botById(this.env.BICKR_KV, this.env.BICKR_D1, botId)) });
+			}
+
+			if (request.method === "GET" && url.pathname.endsWith("/context-budget")) {
+				await this.requireOwnerOrInternal(request, botId);
+				return ok({ budget: await this.cachedPromptContextBudget(botId) });
 			}
 
 			if (request.method === "POST" && url.pathname.endsWith("/context-budget")) {
@@ -4772,26 +4795,42 @@ export class BotRuntime {
 		};
 	}
 
+	private async cachedPromptContextBudget(botId: string): Promise<BotContextBudget | null> {
+		return this.promptContextBudgetForInput(botId, undefined, false);
+	}
+
 	private async promptContextBudget(botId: string, input: BotContextBudgetInput): Promise<BotContextBudget> {
+		const budget = await this.promptContextBudgetForInput(botId, input, true);
+		if (!budget) {
+			throw new Error("Prompt context budget was not available after computation.");
+		}
+		return budget;
+	}
+
+	private async promptContextBudgetForInput(
+		botId: string,
+		input: BotContextBudgetInput | undefined,
+		computeIfMissing: boolean,
+	): Promise<BotContextBudget | null> {
 		const currentBot = await botById(this.env.BICKR_KV, this.env.BICKR_D1, botId);
 		const owner = await userById(this.env.BICKR_KV, currentBot.ownerUserId);
 		const inferenceSettings = enforceInferenceModelAccess(
-			mergeInferenceSettings(currentBot.inferenceSettings, input.inferenceSettings),
+			mergeInferenceSettings(currentBot.inferenceSettings, input?.inferenceSettings),
 			owner.inferenceSettings,
 		);
-		const toolSettings = mergeToolSettings(currentBot.toolSettings, input.toolSettings);
+		const toolSettings = mergeToolSettings(currentBot.toolSettings, input?.toolSettings);
 		const bot: BotDocument = {
 			...currentBot,
-			displayName: input.displayName ?? currentBot.displayName,
-			prompt: input.prompt,
-			shortBio: input.shortBio ?? currentBot.shortBio,
+			displayName: input?.displayName ?? currentBot.displayName,
+			prompt: input?.prompt ?? currentBot.prompt,
+			shortBio: input?.shortBio ?? currentBot.shortBio,
 			inferenceSettings,
 			toolSettings,
-			tickSettings: mergeTickSettings(currentBot.tickSettings, input.tickSettings),
+			tickSettings: mergeTickSettings(currentBot.tickSettings, input?.tickSettings),
 		};
 		const tickSettings = effectiveTickSettings(bot.tickSettings);
 		const settings = this.effectiveProviderSettings(bot, owner);
-		if (!settings.apiKey && !settings.usesCustomBaseUrl && this.env.BICKR_SIMULATION_MODE !== "provider") {
+		if (computeIfMissing && !settings.apiKey && !settings.usesCustomBaseUrl && this.env.BICKR_SIMULATION_MODE !== "provider") {
 			throw new InputError("Configure an OpenRouter API key or custom inference base URL to compute exact tokens.");
 		}
 
@@ -4806,7 +4845,7 @@ export class BotRuntime {
 			reasoningPrefill,
 			tools: providerTools,
 		}));
-		const personaPromptFingerprint = await sha256Hex(input.prompt);
+		const personaPromptFingerprint = await sha256Hex(bot.prompt);
 		const fingerprint = await promptContextBudgetCacheFingerprint({
 			botId,
 			effectiveModel: settings.model,
@@ -4816,6 +4855,9 @@ export class BotRuntime {
 			...(settings.providerRouting ? { providerRouting: settings.providerRouting } : {}),
 		});
 		const cachedCounts = this.contextBudgetCachedCounts(fingerprint);
+		if (!cachedCounts && !computeIfMissing) {
+			return null;
+		}
 		const counts =
 			cachedCounts ??
 			await (async () => {
@@ -6410,9 +6452,7 @@ export class BotRuntime {
 		mode: "auto" | "manual",
 		metrics: CompactionMetrics,
 	): Promise<LoopMessageRow[]> {
-		let providerRows = compacted.filter((row) =>
-			loopMessageContributesToProviderHistory(row.origin, loopMessageChatMessageFromRow(row))
-		);
+		let providerRows = compacted.filter((row) => loopMessageContributesToCompactionProviderInput(row));
 		if (providerRows.length === 0) {
 			return [];
 		}
@@ -6578,10 +6618,12 @@ export class BotRuntime {
 		const lastProviderPosition = Math.max(...providerRows.map((row) => row.position));
 		const rowsBySeq = new Map<number, LoopMessageRow>();
 		for (const row of this.activeLoopMessageRows()) {
+			const message = loopMessageChatMessageFromRow(row);
 			if (
 				providerSeqs.has(row.seq) ||
 				(row.position <= lastProviderPosition &&
-					!loopMessageContributesToProviderHistory(row.origin, loopMessageChatMessageFromRow(row)))
+					(!loopMessageContributesToProviderHistory(row.origin, message) ||
+						isRecurringPromptSyntheticContext(row.origin, message)))
 			) {
 				rowsBySeq.set(row.seq, row);
 			}

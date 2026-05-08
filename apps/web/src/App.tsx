@@ -5494,6 +5494,32 @@ function BotEdit({
 			(maxGeneratedTokensPerIteration >= 1 && maxGeneratedTokensPerIteration <= 1_000_000)) &&
 		toolDraftValid(draft.tools);
 
+	useEffect(() => {
+		if (dirty) {
+			return;
+		}
+		let cancelled = false;
+		const requestKey = promptBudgetRequestKey;
+		void (async () => {
+			const result = await api<{ budget: BotContextBudget | null }>(
+				`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/context-budget`,
+			);
+			if (cancelled) {
+				return;
+			}
+			if (result.ok && result.data.budget) {
+				setPromptBudget({ status: "ready", budget: result.data.budget, requestKey });
+			} else if (result.ok) {
+				setPromptBudget((current) =>
+					current.status === "ready" && current.requestKey === requestKey ? current : { status: "idle" },
+				);
+			}
+		})();
+		return () => {
+			cancelled = true;
+		};
+	}, [bot.id, dirty, promptBudgetRequestKey]);
+
 	async function save(): Promise<void> {
 		const ok = await onSave(bot.id, {
 			displayName: draft.displayName,
