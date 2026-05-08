@@ -255,6 +255,8 @@ export type BotTickSettings = {
 	intervalSeconds: number;
 	contextWindowTokens?: number;
 	compactionThreshold: number;
+	compactionSummaryPercent?: number;
+	compactionMaxCharacters?: number;
 	maxToolCallsPerTick?: number;
 	maxSuccessfulToolCallsPerIteration?: number;
 	maxGeneratedTokensPerTick?: number;
@@ -268,6 +270,8 @@ export type BotTickSettingsInput = Partial<{
 	intervalSeconds: number;
 	contextWindowTokens: number | null;
 	compactionThreshold: number;
+	compactionSummaryPercent: number | null;
+	compactionMaxCharacters: number | null;
 	maxToolCallsPerTick: number | null;
 	maxSuccessfulToolCallsPerIteration: number | null;
 	maxGeneratedTokensPerTick: number | null;

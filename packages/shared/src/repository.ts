@@ -127,6 +127,8 @@ export const defaultTickSettings: BotEffectiveTickSettings = {
 	intervalSeconds: 86_400,
 	contextWindowTokens: 20_000,
 	compactionThreshold: 0.75,
+	compactionSummaryPercent: 10,
+	compactionMaxCharacters: 4_000,
 	maxToolCallsPerTick: 10,
 	maxSuccessfulToolCallsPerIteration: 8,
 	maxGeneratedTokensPerTick: 15_000,
@@ -1811,11 +1813,12 @@ async function upsertBotRuntimeIndex(
 		.prepare(
 			`INSERT INTO bot_runtime_index (
 				bot_id, owner_user_id, world_id, enabled, tick_interval_seconds, context_window_tokens,
-				compaction_threshold, max_tool_calls_per_tick, max_successful_tool_calls_per_iteration,
+				compaction_threshold, compaction_summary_percent, compaction_max_characters,
+				max_tool_calls_per_tick, max_successful_tool_calls_per_iteration,
 				max_generated_tokens_per_tick, max_generated_tokens_per_iteration,
 				next_due_at, status, active_run_id,
 				lease_expires_at, last_error, created_at, updated_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'idle', NULL, NULL, NULL, ?, ?)
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'idle', NULL, NULL, NULL, ?, ?)
 			ON CONFLICT(bot_id) DO UPDATE SET
 				owner_user_id = excluded.owner_user_id,
 				world_id = excluded.world_id,
@@ -1823,6 +1826,8 @@ async function upsertBotRuntimeIndex(
 				tick_interval_seconds = excluded.tick_interval_seconds,
 				context_window_tokens = excluded.context_window_tokens,
 				compaction_threshold = excluded.compaction_threshold,
+				compaction_summary_percent = excluded.compaction_summary_percent,
+				compaction_max_characters = excluded.compaction_max_characters,
 				max_tool_calls_per_tick = excluded.max_tool_calls_per_tick,
 				max_successful_tool_calls_per_iteration = excluded.max_successful_tool_calls_per_iteration,
 				max_generated_tokens_per_tick = excluded.max_generated_tokens_per_tick,
@@ -1844,6 +1849,8 @@ async function upsertBotRuntimeIndex(
 			settings.intervalSeconds,
 			settings.contextWindowTokens,
 			settings.compactionThreshold,
+			settings.compactionSummaryPercent,
+			settings.compactionMaxCharacters,
 			settings.maxToolCallsPerTick,
 			settings.maxSuccessfulToolCallsPerIteration,
 			settings.maxGeneratedTokensPerTick,
@@ -1910,6 +1917,8 @@ export function mergeTickSettings(
 		intervalSeconds: current?.intervalSeconds ?? defaultTickSettings.intervalSeconds,
 		...(current?.contextWindowTokens !== undefined ? { contextWindowTokens: current.contextWindowTokens } : {}),
 		compactionThreshold: current?.compactionThreshold ?? defaultTickSettings.compactionThreshold,
+		...(current?.compactionSummaryPercent !== undefined ? { compactionSummaryPercent: current.compactionSummaryPercent } : {}),
+		...(current?.compactionMaxCharacters !== undefined ? { compactionMaxCharacters: current.compactionMaxCharacters } : {}),
 		...(current?.maxToolCallsPerTick !== undefined ? { maxToolCallsPerTick: current.maxToolCallsPerTick } : {}),
 		...(current?.maxSuccessfulToolCallsPerIteration !== undefined ?
 			{ maxSuccessfulToolCallsPerIteration: current.maxSuccessfulToolCallsPerIteration }
@@ -1933,6 +1942,8 @@ export function mergeTickSettings(
 	if (patch.compactionThreshold !== undefined) {
 		next.compactionThreshold = patch.compactionThreshold;
 	}
+	assignOptionalTickNumber(next, "compactionSummaryPercent", patch.compactionSummaryPercent);
+	assignOptionalTickNumber(next, "compactionMaxCharacters", patch.compactionMaxCharacters);
 	assignOptionalTickNumber(next, "maxToolCallsPerTick", patch.maxToolCallsPerTick);
 	assignOptionalTickNumber(next, "maxSuccessfulToolCallsPerIteration", patch.maxSuccessfulToolCallsPerIteration);
 	assignOptionalTickNumber(next, "maxGeneratedTokensPerTick", patch.maxGeneratedTokensPerTick);
@@ -1947,6 +1958,8 @@ export function effectiveTickSettings(settings: BotTickSettings | undefined): Bo
 		intervalSeconds: normalized.intervalSeconds,
 		contextWindowTokens: normalized.contextWindowTokens ?? defaultTickSettings.contextWindowTokens,
 		compactionThreshold: normalized.compactionThreshold,
+		compactionSummaryPercent: normalized.compactionSummaryPercent ?? defaultTickSettings.compactionSummaryPercent,
+		compactionMaxCharacters: normalized.compactionMaxCharacters ?? defaultTickSettings.compactionMaxCharacters,
 		maxToolCallsPerTick: normalized.maxToolCallsPerTick ?? defaultTickSettings.maxToolCallsPerTick,
 		maxSuccessfulToolCallsPerIteration:
 			normalized.maxSuccessfulToolCallsPerIteration ?? defaultTickSettings.maxSuccessfulToolCallsPerIteration,
@@ -1960,6 +1973,8 @@ function assignOptionalTickNumber(
 	settings: BotTickSettings,
 	key:
 		| "contextWindowTokens"
+		| "compactionSummaryPercent"
+		| "compactionMaxCharacters"
 		| "maxToolCallsPerTick"
 		| "maxSuccessfulToolCallsPerIteration"
 		| "maxGeneratedTokensPerTick"

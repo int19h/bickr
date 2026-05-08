@@ -154,9 +154,33 @@ type CompactionCandidateEstimate = {
 	tokens: number;
 };
 
+type CompactionMetrics = {
+	allowedPromptTokens?: number;
+	compactionMaxCharacters?: number;
+	compactionMaxCompletionTokens?: number;
+	currentRunIncluded?: boolean;
+	estimatedContextTokens?: number;
+	estimatedPromptTokens?: number;
+	exactPromptTokens?: number;
+	overBudgetTokens?: number;
+	threshold?: number;
+};
+
 export type TextTokenCalibration = {
 	tokensPerCharacter: number;
 	sampleCount: number;
+};
+
+export type ProviderCompactionSummaryLimits = {
+	minLength: number;
+	maxLength: number;
+	maxCompletionTokens: number;
+	nextCompactionTokens: number;
+	scaffoldSafetyTokens: number;
+	tokensPerCharacter: number;
+	compactedCharacterCount: number;
+	configuredMaxCharacters: number;
+	compactionSummaryPercent: number;
 };
 
 type InferenceSubmissionRow = {
@@ -894,12 +918,12 @@ const providerParallelToolCalls = true;
 const providerRailroadNoToolMaxAttempts = 5;
 const providerDefaultReasoning = { enabled: true, exclude: false } as const;
 const providerTranslationMaxCompletionTokens = 8_192;
-const providerCompactionMaxCompletionTokens = 4_096;
 const providerCompactionTemperature = 0.2;
 const providerCompactionSummaryProperty = "detailed summary in first person";
 const providerCompactionToolName = "provide_summary";
 const providerTranslationToolName = "save_translation";
-const providerCompactionSummaryMaxCharacters = 4_000;
+const providerCompactionDefaultSummaryPercent = 10;
+const providerCompactionDefaultMaxCharacters = 4_000;
 const providerStructuredOutputRepairAttempts = 4;
 const inferenceSubmissionRetentionCount = 50;
 const loopMessageLogRetentionCount = 50;
@@ -990,7 +1014,19 @@ export function providerChatCompletionRequest(
 	};
 }
 
-function providerCompactionTools(): [ProviderToolDefinition] {
+const defaultProviderCompactionSummaryLimits: ProviderCompactionSummaryLimits = {
+	minLength: 1,
+	maxLength: providerCompactionDefaultMaxCharacters,
+	maxCompletionTokens: providerContextReserveTokens,
+	nextCompactionTokens: 1,
+	scaffoldSafetyTokens: providerPromptEstimateSafetyTokens,
+	tokensPerCharacter: fallbackTokensPerCharacter,
+	compactedCharacterCount: 0,
+	configuredMaxCharacters: providerCompactionDefaultMaxCharacters,
+	compactionSummaryPercent: providerCompactionDefaultSummaryPercent,
+};
+
+function providerCompactionTools(limits: Pick<ProviderCompactionSummaryLimits, "minLength" | "maxLength"> = defaultProviderCompactionSummaryLimits): [ProviderToolDefinition] {
 	return [
 		{
 			type: "function",
@@ -1002,8 +1038,8 @@ function providerCompactionTools(): [ProviderToolDefinition] {
 					properties: {
 						[providerCompactionSummaryProperty]: {
 							type: "string",
-							minLength: 1,
-							maxLength: providerCompactionSummaryMaxCharacters,
+							minLength: limits.minLength,
+							maxLength: limits.maxLength,
 						},
 					},
 					required: [providerCompactionSummaryProperty],
@@ -1014,8 +1050,24 @@ function providerCompactionTools(): [ProviderToolDefinition] {
 	];
 }
 
-export function providerCompactionMessages(bot: BotDocument, compactedMessages: ChatMessage[]): ChatMessage[] {
-	const tools = providerCompactionTools();
+function providerCompactionSummaryInstruction(bot: Pick<BotDocument, "handle">, limits: Pick<ProviderCompactionSummaryLimits, "minLength" | "maxLength">): string {
+	const lengthInstruction =
+		limits.minLength >= limits.maxLength ?
+			`Use exactly ${limits.maxLength} characters if possible.`
+		:	`Use between ${limits.minLength} and ${limits.maxLength} characters.`;
+	return `META: Context compaction required. Reply with a detailed summary of everything important, from the first-person perspective of u/${bot.handle}, in the above chat log; your response will become the long-term memory of these events, replacing them in context henceforth. ${lengthInstruction}`;
+}
+
+function providerCompactionToolInstruction(): string {
+	return `You must respond by calling the ${providerCompactionToolName} tool. Put the summary in the "${providerCompactionSummaryProperty}" argument. Do not reply as plain text.`;
+}
+
+export function providerCompactionMessages(
+	bot: BotDocument,
+	compactedMessages: ChatMessage[],
+	limits: Pick<ProviderCompactionSummaryLimits, "minLength" | "maxLength"> = defaultProviderCompactionSummaryLimits,
+): ChatMessage[] {
+	const tools = providerCompactionTools(limits);
 	return [
 		{
 			role: "system",
@@ -1024,18 +1076,76 @@ export function providerCompactionMessages(bot: BotDocument, compactedMessages: 
 		...compactedMessages,
 		{
 			role: "user",
-			content: `META: Context compaction required. Reply with a detailed summary of everything important, from the first-person perspective of u/${bot.handle}, in the above chat log; your response will become the long-term memory of these events, replacing them in context henceforth. Squeeze the summary into at most ${providerCompactionSummaryMaxCharacters} characters.`,
+			content: providerCompactionSummaryInstruction(bot, limits),
 		},
 		{
 			role: "user",
-			content: `You must respond by calling the ${providerCompactionToolName} tool. Put the summary in the "${providerCompactionSummaryProperty}" argument. Do not reply as plain text.`,
+			content: providerCompactionToolInstruction(),
 		},
 	];
+}
+
+export function providerCompactionSummaryLimitsForChat(
+	bot: BotDocument,
+	compactedMessages: readonly ChatMessage[],
+	calibration: TextTokenCalibration,
+): ProviderCompactionSummaryLimits {
+	const tickSettings = effectiveTickSettings(bot.tickSettings);
+	const contextWindowTokens = Math.max(1, Math.floor(tickSettings.contextWindowTokens));
+	const tokensPerCharacter = Math.max(minCalibratedTokensPerCharacter, calibration.tokensPerCharacter || fallbackTokensPerCharacter);
+	const configuredMaxCharacters = Math.max(1, Math.floor(tickSettings.compactionMaxCharacters));
+	const compactedCharacterCount = chatMessagesCharacterCount(compactedMessages);
+	const compactionSummaryPercent = Math.max(1, Math.min(50, Math.floor(tickSettings.compactionSummaryPercent)));
+	let maxLength = configuredMaxCharacters;
+	let minLength = Math.min(maxLength, Math.max(1, Math.ceil(compactedCharacterCount * compactionSummaryPercent / 100)));
+	let maxCompletionTokens = Math.max(1, Math.ceil(maxLength * tokensPerCharacter));
+	let scaffoldSafetyTokens = providerPromptEstimateSafetyTokens;
+	let nextCompactionTokens = Math.max(1, contextWindowTokens - maxCompletionTokens - scaffoldSafetyTokens);
+
+	for (let iteration = 0; iteration < 3; iteration += 1) {
+		scaffoldSafetyTokens = providerCompactionScaffoldSafetyTokens(bot, { minLength, maxLength }, calibration);
+		const availableSummaryTokens = Math.max(1, contextWindowTokens - scaffoldSafetyTokens);
+		maxCompletionTokens = Math.max(1, Math.min(Math.ceil(configuredMaxCharacters * tokensPerCharacter), availableSummaryTokens));
+		maxLength = Math.max(1, Math.min(configuredMaxCharacters, Math.floor(maxCompletionTokens / tokensPerCharacter)));
+		minLength = Math.min(maxLength, Math.max(1, Math.ceil(compactedCharacterCount * compactionSummaryPercent / 100)));
+		nextCompactionTokens = Math.max(1, contextWindowTokens - maxCompletionTokens - scaffoldSafetyTokens);
+	}
+
+	return {
+		minLength,
+		maxLength,
+		maxCompletionTokens,
+		nextCompactionTokens,
+		scaffoldSafetyTokens,
+		tokensPerCharacter,
+		compactedCharacterCount,
+		configuredMaxCharacters,
+		compactionSummaryPercent,
+	};
+}
+
+function providerCompactionScaffoldSafetyTokens(
+	bot: BotDocument,
+	limits: Pick<ProviderCompactionSummaryLimits, "minLength" | "maxLength">,
+	calibration: TextTokenCalibration,
+): number {
+	const tools = providerCompactionTools(limits);
+	const scaffoldMessages: ChatMessage[] = [
+		{ role: "system", content: appendToolRequirementInstruction(standardPrompt(bot), tools) },
+		{ role: "user", content: providerCompactionSummaryInstruction(bot, limits) },
+		{ role: "user", content: providerCompactionToolInstruction() },
+	];
+	return (
+		estimateChatMessagesTokens(scaffoldMessages, calibration) +
+		estimateTextTokensWithCalibration(JSON.stringify(tools), calibration) +
+		providerPromptEstimateSafetyTokens
+	);
 }
 
 export function providerCompactionRequest(
 	settings: Pick<ProviderSettings, "model" | "providerRouting" | "reasoningEffort" | "toolCalls">,
 	messages: ChatMessage[],
+	limits: Pick<ProviderCompactionSummaryLimits, "minLength" | "maxLength" | "maxCompletionTokens"> = defaultProviderCompactionSummaryLimits,
 ): ProviderCompactionRequest {
 	const toolCalls = structuredToolCallsMode(settings.toolCalls ?? "require");
 	return {
@@ -1043,10 +1153,10 @@ export function providerCompactionRequest(
 		messages: sanitizeProviderMessagesForRequest(messages),
 		...(settings.providerRouting ? { provider: settings.providerRouting } : {}),
 		stream: false,
-		tools: providerCompactionTools(),
+		tools: providerCompactionTools(limits),
 		...(providerToolChoiceForMode(toolCalls) ? { tool_choice: providerToolChoiceForMode(toolCalls) } : {}),
 		parallel_tool_calls: false,
-		max_completion_tokens: providerCompactionMaxCompletionTokens,
+		max_completion_tokens: limits.maxCompletionTokens,
 		reasoning: providerReasoningForSettings(settings),
 		temperature: providerCompactionTemperature,
 	};
@@ -3337,13 +3447,14 @@ export class BotRuntime {
 		messages: ChatMessage[],
 		runId: string,
 		signal: AbortSignal,
+		limits: Pick<ProviderCompactionSummaryLimits, "minLength" | "maxLength" | "maxCompletionTokens"> = defaultProviderCompactionSummaryLimits,
 	): Promise<Pick<ProviderResponse, "usage" | "responseId" | "responseModel" | "requestBody" | "rawResponse"> & { content: string }> {
 		const endpoint = providerChatCompletionsUrl(settings.baseUrl);
 		let requestMessages = messages;
-		let lastBody = stringifyProviderRequest(providerCompactionRequest(settings, requestMessages));
+		let lastBody = stringifyProviderRequest(providerCompactionRequest(settings, requestMessages, limits));
 		let lastValidationError: ProviderStructuredOutputValidationError | null = null;
 		for (let schemaAttempt = 0; schemaAttempt <= providerStructuredOutputRepairAttempts; schemaAttempt += 1) {
-			const body = stringifyProviderRequest(providerCompactionRequest(settings, requestMessages));
+			const body = stringifyProviderRequest(providerCompactionRequest(settings, requestMessages, limits));
 			lastBody = body;
 			let previousRetryKey: string | null = null;
 			for (let attempt = 1; attempt <= providerMaxAttempts; attempt += 1) {
@@ -3361,7 +3472,7 @@ export class BotRuntime {
 				}
 
 				try {
-					const response = await this.fetchProviderCompactionResponse(settings, endpoint, body, signal);
+					const response = await this.fetchProviderCompactionResponse(settings, endpoint, body, signal, limits);
 					return { ...response, requestBody: body };
 				} catch (error) {
 					if (error instanceof TickStoppedError || isAbortError(error)) {
@@ -4421,7 +4532,7 @@ export class BotRuntime {
 		return this.state.storage.sql.exec<{ count: number }>(`SELECT changes() AS count`).one().count;
 	}
 
-	private tokenUsageStats(bot: Pick<BotDocument, "tickSettings">, now = new Date()): BotTokenUsageStats {
+	private tokenUsageStats(bot: BotDocument, now = new Date()): BotTokenUsageStats {
 		const windowEndMs = now.getTime();
 		const windowStartMs = windowEndMs - 7 * dayMs;
 		const last24StartMs = windowEndMs - dayMs;
@@ -4458,7 +4569,7 @@ export class BotRuntime {
 			}
 		}
 		const dailyAverageDays = tokenUsageAverageDays(rows, windowEndMs);
-		const contextWindow = this.contextWindowBreakdown(bot.tickSettings.compactionThreshold);
+		const contextWindow = this.contextWindowBreakdown(bot);
 
 		return {
 			generatedAt: windowEnd,
@@ -4475,16 +4586,16 @@ export class BotRuntime {
 		};
 	}
 
-	private contextWindowBreakdown(compactionThreshold: number): BotContextWindowBreakdown | undefined {
+	private contextWindowBreakdown(bot: BotDocument): BotContextWindowBreakdown | undefined {
 		const boundary = this.latestActiveLoopCompactionBoundary();
 		const latest = this.latestLoopProviderUsage();
 		if (!latest) {
 			return undefined;
 		}
-		if (boundary && latest.created_at < boundary.created_at) {
+		if (boundary && latest.request_seq <= boundary.seq) {
 			return undefined;
 		}
-		const baseline = this.firstLoopProviderUsageAfter(boundary?.created_at);
+		const baseline = this.firstLoopProviderUsageAfterSeq(boundary?.seq);
 		if (!baseline) {
 			return undefined;
 		}
@@ -4494,7 +4605,7 @@ export class BotRuntime {
 		const initialTokens = Math.min(baselinePromptTokens, promptTokens);
 		const ongoingTokens = Math.max(0, promptTokens - baselinePromptTokens);
 		const freeTokens = Math.max(0, contextWindowTokens - promptTokens);
-		const compactionCutoffTokens = Math.max(1, Math.floor(contextWindowTokens * compactionThreshold));
+		const compactionCutoffTokens = this.nextCompactionTokens(bot, contextWindowTokens);
 		return {
 			usedAt: latest.created_at,
 			runId: latest.run_id,
@@ -4699,15 +4810,15 @@ export class BotRuntime {
 				  AND s.run_id = u.run_id
 				 WHERE s.purpose = 'loop'
 				   AND u.prompt_tokens > 0
-				 ORDER BY u.created_at DESC, u.id DESC
+				 ORDER BY u.request_seq DESC, u.id DESC
 				 LIMIT 1`,
 			)
 			.toArray()[0] ?? null;
 	}
 
-	private firstLoopProviderUsageAfter(since?: string): ProviderLoopUsageRow | null {
-		const sinceFilter = since ? "AND u.created_at >= ?" : "";
-		const params = since ? [since] : [];
+	private firstLoopProviderUsageAfterSeq(afterSeq?: number): ProviderLoopUsageRow | null {
+		const seqFilter = afterSeq !== undefined ? "AND u.request_seq > ?" : "";
+		const params = afterSeq !== undefined ? [afterSeq] : [];
 		return this.state.storage.sql
 			.exec<ProviderLoopUsageRow>(
 				`SELECT u.created_at, u.run_id, u.request_seq, u.model, u.requested_model, u.response_model,
@@ -4719,8 +4830,8 @@ export class BotRuntime {
 				  AND s.run_id = u.run_id
 				 WHERE s.purpose = 'loop'
 				   AND u.prompt_tokens > 0
-				   ${sinceFilter}
-				 ORDER BY u.created_at ASC, u.id ASC
+				   ${seqFilter}
+				 ORDER BY u.request_seq ASC, u.id ASC
 				 LIMIT 1`,
 				...params,
 			)
@@ -4835,6 +4946,7 @@ export class BotRuntime {
 		endpoint: string,
 		body: string,
 		signal: AbortSignal,
+		limits: Pick<ProviderCompactionSummaryLimits, "minLength" | "maxLength"> = defaultProviderCompactionSummaryLimits,
 	): Promise<Pick<ProviderResponse, "usage" | "responseId" | "responseModel" | "rawResponse"> & { content: string }> {
 		const headers: Record<string, string> = {
 			"content-type": "application/json",
@@ -4871,7 +4983,7 @@ export class BotRuntime {
 		} catch {
 			throw new ProviderRequestError(502, settings.model, endpoint, "Provider compaction response was not valid JSON.", { rawResponse });
 		}
-		const content = providerCompactionSummaryFromToolMessage(payload.choices?.[0]?.message, rawResponse);
+		const content = providerCompactionSummaryFromToolMessage(payload.choices?.[0]?.message, rawResponse, limits);
 		const usage = providerUsageFromValue(payload.usage);
 		return {
 			content,
@@ -5897,8 +6009,8 @@ export class BotRuntime {
 	): Promise<void> {
 		const contextEstimate = this.currentCompactionContextEstimate();
 		const total = contextEstimate.totalTokens;
-		const tickSettings = effectiveTickSettings(bot.tickSettings);
-		const threshold = Math.max(1, Math.floor(tickSettings.contextWindowTokens * tickSettings.compactionThreshold));
+		const limits = this.compactionSummaryLimitsForRows(bot, contextEstimate.rows.map((item) => item.row), contextEstimate.calibration);
+		const threshold = limits.nextCompactionTokens;
 		if (total <= threshold) {
 			return;
 		}
@@ -5909,6 +6021,8 @@ export class BotRuntime {
 		}
 		await this.compactLoopMessageRows(bot, settings, runId, signal, compacted, "auto", {
 			estimatedContextTokens: total,
+			compactionMaxCharacters: limits.maxLength,
+			compactionMaxCompletionTokens: limits.maxCompletionTokens,
 			threshold,
 		});
 	}
@@ -5920,10 +6034,11 @@ export class BotRuntime {
 		signal: AbortSignal,
 		providerTools: ProviderToolDefinition[],
 	): Promise<ProviderPromptBudgetCheck> {
-		const allowedPromptTokens = this.allowedProviderPromptTokens(bot);
 		const tickSettings = effectiveTickSettings(bot.tickSettings);
 		for (;;) {
 			this.throwIfStopped(runId, signal);
+			const promptBudgetLimits = providerCompactionSummaryLimitsForChat(bot, [], this.textTokenCalibration());
+			const allowedPromptTokens = promptBudgetLimits.nextCompactionTokens;
 			const requestMessages = this.activeProviderRequestMessages(bot, providerTools, settings.toolCalls ?? "require");
 			const estimate = this.estimateProviderPromptTokens(settings, requestMessages, providerTools);
 			const overBudgetTokens = Math.max(0, estimate.promptTokens - allowedPromptTokens);
@@ -5933,6 +6048,8 @@ export class BotRuntime {
 				toolCount: providerTools.length,
 				contextWindowTokens: tickSettings.contextWindowTokens,
 				maxCompletionTokens: providerContextReserveTokens,
+				compactionMaxCompletionTokens: promptBudgetLimits.maxCompletionTokens,
+				nextCompactionTokens: allowedPromptTokens,
 				promptTokens: estimate.promptTokens,
 				allowedPromptTokens,
 				overBudgetTokens,
@@ -5953,6 +6070,8 @@ export class BotRuntime {
 			}
 			await this.compactLoopMessageRows(bot, settings, runId, signal, rowsToCompact, "auto", {
 				allowedPromptTokens,
+				compactionMaxCharacters: promptBudgetLimits.maxLength,
+				compactionMaxCompletionTokens: promptBudgetLimits.maxCompletionTokens,
 				estimatedPromptTokens: estimate.promptTokens,
 				...(currentRunIncluded ? { currentRunIncluded: true } : {}),
 				overBudgetTokens,
@@ -5972,10 +6091,6 @@ export class BotRuntime {
 			{ role: "system", content: systemContent },
 			...this.activeLoopMessagesForProvider(),
 		];
-	}
-
-	private allowedProviderPromptTokens(bot: BotDocument): number {
-		return Math.max(1, Math.floor(effectiveTickSettings(bot.tickSettings).contextWindowTokens) - providerContextReserveTokens);
 	}
 
 	private estimateProviderPromptTokens(
@@ -6068,15 +6183,7 @@ export class BotRuntime {
 		signal: AbortSignal,
 		rows: LoopMessageRow[],
 		mode: "auto" | "manual",
-		metrics: {
-			allowedPromptTokens?: number;
-			currentRunIncluded?: boolean;
-			estimatedContextTokens?: number;
-			estimatedPromptTokens?: number;
-			exactPromptTokens?: number;
-			overBudgetTokens?: number;
-			threshold?: number;
-		},
+		metrics: CompactionMetrics,
 	): Promise<void> {
 		let remaining = rows;
 		let batchIndex = 0;
@@ -6086,7 +6193,7 @@ export class BotRuntime {
 				row,
 				tokens: estimateChatMessageTokens(loopMessageChatMessageFromRow(row), calibration),
 			}));
-			const batch = oldestLoopMessageGroupsForPromptLimit(estimates, this.compactionPromptTokenLimit(bot));
+			const batch = oldestLoopMessageGroupsForPromptLimit(estimates, this.compactionPromptTokenLimit(bot, calibration));
 			const selected = batch.length > 0 ? batch : [remaining[0]!];
 			await this.compactLoopMessageRows(bot, settings, runId, signal, selected, mode, {
 				...metrics,
@@ -6105,15 +6212,7 @@ export class BotRuntime {
 		signal: AbortSignal,
 		compacted: LoopMessageRow[],
 		mode: "auto" | "manual",
-		metrics: {
-			allowedPromptTokens?: number;
-			currentRunIncluded?: boolean;
-			estimatedContextTokens?: number;
-			estimatedPromptTokens?: number;
-			exactPromptTokens?: number;
-			overBudgetTokens?: number;
-			threshold?: number;
-		},
+		metrics: CompactionMetrics,
 	): Promise<void> {
 		const providerRows = compacted.filter((row) =>
 			loopMessageContributesToProviderHistory(row.origin, loopMessageChatMessageFromRow(row))
@@ -6127,7 +6226,8 @@ export class BotRuntime {
 			.join("\n");
 		const compactedMessages = providerRows.map((row) => loopMessageChatMessageFromRow(row));
 		const compactedCommentBodies = commentTextRecordsFromChatMessages(compactedMessages);
-		const compactionMessages = providerCompactionMessages(bot, compactedMessages);
+		const compactionLimits = providerCompactionSummaryLimitsForChat(bot, compactedMessages, this.textTokenCalibration());
+		const compactionMessages = providerCompactionMessages(bot, compactedMessages, compactionLimits);
 		const providerActive = Boolean(settings.apiKey || settings.usesCustomBaseUrl || this.env.BICKR_SIMULATION_MODE === "provider");
 		const compactionEventPayload = {
 			fromSeq: providerRows[0]?.seq,
@@ -6135,6 +6235,10 @@ export class BotRuntime {
 			messageCount: providerRows.length,
 			mode,
 			...metrics,
+			compactionMinCharacters: compactionLimits.minLength,
+			compactionMaxCharacters: compactionLimits.maxLength,
+			compactionMaxCompletionTokens: compactionLimits.maxCompletionTokens,
+			nextCompactionTokens: compactionLimits.nextCompactionTokens,
 		};
 		const summaryEvent = await this.appendEvent(runId, "compaction", {
 			...compactionEventPayload,
@@ -6153,7 +6257,7 @@ export class BotRuntime {
 		let response: Pick<ProviderResponse, "usage" | "responseId" | "responseModel" | "requestBody" | "rawResponse"> & { content: string };
 		try {
 			response = providerActive ?
-				await this.callProviderForCompaction(settings, compactionMessages, runId, signal)
+				await this.callProviderForCompaction(settings, compactionMessages, runId, signal, compactionLimits)
 			:	{
 					content: deterministicCompactionSummary("", recentActivity),
 				};
@@ -6378,11 +6482,32 @@ export class BotRuntime {
 		}));
 	}
 
-	private compactionPromptTokenLimit(bot: BotDocument): number {
+	private compactionSummaryLimitsForRows(
+		bot: BotDocument,
+		rows: readonly LoopMessageRow[],
+		calibration = this.textTokenCalibration(),
+	): ProviderCompactionSummaryLimits {
+		return providerCompactionSummaryLimitsForChat(
+			bot,
+			rows.map((row) => loopMessageChatMessageFromRow(row)),
+			calibration,
+		);
+	}
+
+	private nextCompactionTokens(bot: BotDocument, contextWindowTokens?: number): number {
+		const tickSettings =
+			contextWindowTokens === undefined ?
+				bot.tickSettings
+			:	{ ...bot.tickSettings, contextWindowTokens: Math.max(1, Math.floor(contextWindowTokens)) };
+		return providerCompactionSummaryLimitsForChat({ ...bot, tickSettings }, [], this.textTokenCalibration()).nextCompactionTokens;
+	}
+
+	private compactionPromptTokenLimit(bot: BotDocument, calibration = this.textTokenCalibration()): number {
 		const tickSettings = effectiveTickSettings(bot.tickSettings);
+		const limits = providerCompactionSummaryLimitsForChat(bot, [], calibration);
 		const scaledLimit = Math.max(
-			this.allowedProviderPromptTokens(bot),
-			Math.floor(tickSettings.contextWindowTokens * 8) - providerCompactionMaxCompletionTokens,
+			limits.nextCompactionTokens,
+			Math.floor(tickSettings.contextWindowTokens * 8) - limits.maxCompletionTokens,
 		);
 		return Math.max(1, Math.min(providerCompactionMaxPromptEstimateTokens, scaledLimit));
 	}
@@ -7639,7 +7764,11 @@ function providerToolArgs(name: string, args: Record<string, unknown>): Record<s
 	return normalized;
 }
 
-function providerCompactionSummaryFromToolMessage(message: unknown, rawResponse: string): string {
+function providerCompactionSummaryFromToolMessage(
+	message: unknown,
+	rawResponse: string,
+	limits: Pick<ProviderCompactionSummaryLimits, "minLength" | "maxLength"> = defaultProviderCompactionSummaryLimits,
+): string {
 	return providerStructuredOutputFromToolMessage(
 		message,
 		{
@@ -7647,7 +7776,8 @@ function providerCompactionSummaryFromToolMessage(message: unknown, rawResponse:
 			toolName: providerCompactionToolName,
 			property: providerCompactionSummaryProperty,
 			label: "detailed summary in first person",
-			maxCharacters: providerCompactionSummaryMaxCharacters,
+			minCharacters: limits.minLength,
+			maxCharacters: limits.maxLength,
 		},
 		rawResponse,
 	);
@@ -7674,6 +7804,7 @@ function providerStructuredOutputFromToolMessage(
 		toolName: string;
 		property: string;
 		label: string;
+		minCharacters?: number;
 		maxCharacters: number;
 	},
 	rawResponse: string,
@@ -7729,6 +7860,14 @@ function providerStructuredOutputFromToolMessage(
 	const value = record[spec.property];
 	if (typeof value !== "string" || value.trim().length === 0) {
 		throw new ProviderStructuredOutputValidationError(spec.kind, `The ${spec.label} argument must be a non-empty string.`, {
+			rawResponse,
+			requiredToolName: spec.toolName,
+			toolCalls,
+		});
+	}
+	const minCharacters = Math.max(0, Math.floor(spec.minCharacters ?? 0));
+	if (value.length < minCharacters) {
+		throw new ProviderStructuredOutputValidationError(spec.kind, `The ${spec.label} argument must be at least ${minCharacters} characters.`, {
 			rawResponse,
 			requiredToolName: spec.toolName,
 			toolCalls,

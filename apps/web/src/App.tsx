@@ -5392,6 +5392,8 @@ function BotEdit({
 		tools: toolDraftFromSettings(bot.toolSettings),
 		tickIntervalMinutes: String(secondsToMinutes(bot.tickSettings.intervalSeconds)),
 		contextWindowTokens: optionalNumberDraftValue(bot.tickSettings.contextWindowTokens),
+		compactionSummaryPercent: optionalNumberDraftValue(bot.tickSettings.compactionSummaryPercent),
+		compactionMaxCharacters: optionalNumberDraftValue(bot.tickSettings.compactionMaxCharacters),
 		maxToolCallsPerTick: optionalNumberDraftValue(bot.tickSettings.maxToolCallsPerTick),
 		maxSuccessfulToolCallsPerIteration: optionalNumberDraftValue(bot.tickSettings.maxSuccessfulToolCallsPerIteration),
 		maxGeneratedTokensPerTick: optionalNumberDraftValue(bot.tickSettings.maxGeneratedTokensPerTick),
@@ -5410,6 +5412,8 @@ function BotEdit({
 			tools: toolDraftFromSettings(bot.toolSettings),
 			tickIntervalMinutes: String(secondsToMinutes(bot.tickSettings.intervalSeconds)),
 			contextWindowTokens: optionalNumberDraftValue(bot.tickSettings.contextWindowTokens),
+			compactionSummaryPercent: optionalNumberDraftValue(bot.tickSettings.compactionSummaryPercent),
+			compactionMaxCharacters: optionalNumberDraftValue(bot.tickSettings.compactionMaxCharacters),
 			maxToolCallsPerTick: optionalNumberDraftValue(bot.tickSettings.maxToolCallsPerTick),
 			maxSuccessfulToolCallsPerIteration: optionalNumberDraftValue(bot.tickSettings.maxSuccessfulToolCallsPerIteration),
 			maxGeneratedTokensPerTick: optionalNumberDraftValue(bot.tickSettings.maxGeneratedTokensPerTick),
@@ -5423,6 +5427,8 @@ function BotEdit({
 		bot.shortBio,
 		bot.toolSettings,
 		bot.tickSettings.contextWindowTokens,
+		bot.tickSettings.compactionSummaryPercent,
+		bot.tickSettings.compactionMaxCharacters,
 		bot.tickSettings.intervalSeconds,
 		bot.tickSettings.maxToolCallsPerTick,
 		bot.tickSettings.maxSuccessfulToolCallsPerIteration,
@@ -5433,6 +5439,8 @@ function BotEdit({
 
 	const tickIntervalMinutes = parsePositiveInteger(draft.tickIntervalMinutes);
 	const contextWindowTokens = parseOptionalPositiveInteger(draft.contextWindowTokens);
+	const compactionSummaryPercent = parseOptionalPositiveInteger(draft.compactionSummaryPercent);
+	const compactionMaxCharacters = parseOptionalPositiveInteger(draft.compactionMaxCharacters);
 	const maxToolCallsPerTick = parseOptionalPositiveInteger(draft.maxToolCallsPerTick);
 	const maxSuccessfulToolCallsPerIteration = parseOptionalPositiveInteger(draft.maxSuccessfulToolCallsPerIteration);
 	const maxGeneratedTokensPerTick = parseOptionalPositiveInteger(draft.maxGeneratedTokensPerTick);
@@ -5456,6 +5464,8 @@ function BotEdit({
 		draft.prompt !== (bot.prompt ?? "") ||
 		tickIntervalMinutes !== secondsToMinutes(bot.tickSettings.intervalSeconds) ||
 		contextWindowTokens !== (bot.tickSettings.contextWindowTokens ?? null) ||
+		compactionSummaryPercent !== (bot.tickSettings.compactionSummaryPercent ?? null) ||
+		compactionMaxCharacters !== (bot.tickSettings.compactionMaxCharacters ?? null) ||
 		maxToolCallsPerTick !== (bot.tickSettings.maxToolCallsPerTick ?? null) ||
 		maxSuccessfulToolCallsPerIteration !== (bot.tickSettings.maxSuccessfulToolCallsPerIteration ?? null) ||
 		maxGeneratedTokensPerTick !== (bot.tickSettings.maxGeneratedTokensPerTick ?? null) ||
@@ -5473,6 +5483,8 @@ function BotEdit({
 		tickIntervalMinutes >= 1 &&
 		tickIntervalMinutes <= 1440 &&
 		(contextWindowTokens === null || (contextWindowTokens >= 2000 && contextWindowTokens <= 1_000_000)) &&
+		(compactionSummaryPercent === null || (compactionSummaryPercent >= 1 && compactionSummaryPercent <= 50)) &&
+		(compactionMaxCharacters === null || (compactionMaxCharacters >= 1 && compactionMaxCharacters <= 1_000_000)) &&
 		(maxToolCallsPerTick === null || (maxToolCallsPerTick >= 1 && maxToolCallsPerTick <= 32)) &&
 		(maxSuccessfulToolCallsPerIteration === null ||
 			(maxSuccessfulToolCallsPerIteration >= 1 && maxSuccessfulToolCallsPerIteration <= 32)) &&
@@ -5491,6 +5503,8 @@ function BotEdit({
 			tickSettings: {
 				intervalSeconds: tickIntervalMinutes * 60,
 				contextWindowTokens,
+				compactionSummaryPercent,
+				compactionMaxCharacters,
 				maxToolCallsPerTick,
 				maxSuccessfulToolCallsPerIteration,
 				maxGeneratedTokensPerTick,
@@ -5645,7 +5659,7 @@ function BotEdit({
 							<h2>Agentic Loop</h2>
 							<span className="meta">owner tools</span>
 						</div>
-						<div className="card runtime-card">
+						<div className="card runtime-card agentic-loop-card">
 							<div className="field-row">
 								<Field
 									help="Approximate context window used when preparing a tick. Higher values preserve more history. Blank uses the default."
@@ -5766,13 +5780,57 @@ function BotEdit({
 									</div>
 								</Field>
 							</div>
+							<div className="field-row">
+								<Field
+									help="Minimum compacted memory size as a percentage of the chat characters being compacted. Blank uses the default."
+									hint={`effective ${bot.effectiveTickSettings.compactionSummaryPercent}%`}
+									label="Compaction percentage"
+								>
+									<div className="input-suffix">
+										<input
+											className="input"
+											min={1}
+											max={50}
+											onChange={(event) =>
+												setDraft((current) => ({ ...current, compactionSummaryPercent: event.target.value }))
+											}
+											placeholder={String(bot.effectiveTickSettings.compactionSummaryPercent)}
+											step={1}
+											type="number"
+											value={draft.compactionSummaryPercent}
+										/>
+										<span className="suffix">%</span>
+									</div>
+								</Field>
+								<Field
+									help="Maximum characters retained after a compaction. Blank uses the default."
+									hint={`effective ${bot.effectiveTickSettings.compactionMaxCharacters.toLocaleString()} chars`}
+									label="Max number of characters after compaction"
+								>
+									<div className="input-suffix">
+										<input
+											className="input"
+											min={1}
+											max={1_000_000}
+											onChange={(event) =>
+												setDraft((current) => ({ ...current, compactionMaxCharacters: event.target.value }))
+											}
+											placeholder={String(bot.effectiveTickSettings.compactionMaxCharacters)}
+											step={100}
+											type="number"
+											value={draft.compactionMaxCharacters}
+										/>
+										<span className="suffix">chars</span>
+									</div>
+								</Field>
+							</div>
 							<Field
 								help="Blank uses the default recurring first-person prompt for this participant."
 								hint={defaultReasoningPrefill(bot.handle)}
 								label="Recurring prompt"
 							>
-								<input
-									className="input"
+								<textarea
+									className="textarea recurring-prompt-editor"
 									maxLength={maxBotReasoningPrefillLength}
 									onChange={(event) =>
 										setDraft((current) => ({
@@ -5781,6 +5839,7 @@ function BotEdit({
 										}))
 									}
 									placeholder={defaultReasoningPrefill(bot.handle)}
+									rows={3}
 									value={draft.inference.recurringPrompt}
 								/>
 							</Field>
@@ -8386,11 +8445,18 @@ function BotRuntimePanel({
 			if (payload.event) {
 				rememberPersistentEventSeq(payload.event);
 				setEvents((current) => upsertEvent(current, payload.event!));
+				const compactionMessage = runtimeCompactionMessage(payload.event);
+				if (compactionMessage) {
+					setMessage(compactionMessage);
+				}
 				if (["tick_completed", "tick_failed", "tick_stopped"].includes(payload.event.type)) {
 					if (currentLoopPageRef.current === 1) {
 						setLoopMessages((current) => removeLiveProviderLoopMessagesForRun(current, payload.event!.runId));
 						void refresh();
 					}
+				}
+				if (payload.event.type === "compaction" && compactionMessage && currentLoopPageRef.current === 1) {
+					void refresh({ page: 1 });
 				}
 			}
 			if (payload.message) {
@@ -8773,6 +8839,7 @@ function BotRuntimePanel({
 				<RuntimeRow label="Status" value={status?.status ?? "unknown"} />
 				<RuntimeRow label="Next tick" value={formatNextDueAt(status?.nextDueAt, runtimeEnabled, Boolean(status))} />
 				<TokenUsagePanel usage={tokenUsage} />
+				<ContextWindowBar breakdown={tokenUsage?.contextWindow} loading={!tokenUsage} />
 				<div className="runtime-actions">
 					<button
 						className="btn primary"
@@ -8920,7 +8987,6 @@ function TokenUsagePanel({ usage }: { usage: BotTokenUsageStats | null }) {
 					<b>{formatTokenUsageTotals(usage ? averageTokenUsageTotals(usage) : undefined)}</b>
 				</div>
 			</div>
-			{usage && hasUsage && <ContextWindowBar breakdown={usage.contextWindow} />}
 			{usage && hasUsage ?
 				<TokenUsageChart usage={usage} />
 			:	<div className="token-usage-empty">No exact usage has been reported by the inference provider yet.</div>}
@@ -8950,11 +9016,11 @@ function TokenUsagePanel({ usage }: { usage: BotTokenUsageStats | null }) {
 	);
 }
 
-function ContextWindowBar({ breakdown }: { breakdown: BotTokenUsageStats["contextWindow"] }) {
+function ContextWindowBar({ breakdown, loading = false }: { breakdown: BotTokenUsageStats["contextWindow"]; loading?: boolean }) {
 	if (!breakdown) {
 		return (
 			<div className="context-window-empty">
-				No post-compaction inference response has been recorded for the current Loop page yet.
+				{loading ? "Loading current context..." : "No loop inference response has been recorded since the latest compaction."}
 			</div>
 		);
 	}
@@ -8965,8 +9031,8 @@ function ContextWindowBar({ breakdown }: { breakdown: BotTokenUsageStats["contex
 		segments.overWindowTokens > 0 ?
 			`${formatTokenCount(segments.overWindowTokens)} over context window`
 		: segments.overCutoffTokens > 0 ?
-			`${formatTokenCount(segments.overCutoffTokens)} past compaction cutoff`
-		:	`${formatTokenCount(Math.max(0, breakdown.compactionCutoffTokens - breakdown.promptTokens))} before next compaction cutoff`;
+			`${formatTokenCount(segments.overCutoffTokens)} past next compaction`
+		:	`${formatTokenCount(Math.max(0, breakdown.compactionCutoffTokens - breakdown.promptTokens))} before next compaction`;
 	const title = [
 		`Latest inference: ${formatFullDate(breakdown.usedAt)}`,
 		`Model: ${breakdown.model}`,
@@ -8974,7 +9040,7 @@ function ContextWindowBar({ breakdown }: { breakdown: BotTokenUsageStats["contex
 		`Initial: ${formatTokenCount(breakdown.initialTokens)}`,
 		`Since then: ${formatTokenCount(breakdown.ongoingTokens)}`,
 		`Free: ${formatTokenCount(breakdown.freeTokens)}`,
-		`Compaction cutoff: ${formatTokenCount(breakdown.compactionCutoffTokens)}`,
+		`Next compaction: ${formatTokenCount(breakdown.compactionCutoffTokens)}`,
 		`Response reserve: ${formatTokenCount(breakdown.responseReserveTokens)}`,
 	].join("\n");
 	return (
@@ -8991,7 +9057,7 @@ function ContextWindowBar({ breakdown }: { breakdown: BotTokenUsageStats["contex
 				<div className="context-window-segment context-window-ongoing" style={segmentStyle(segments.ongoingPercent)} />
 				<div className="context-window-segment context-window-free" style={segmentStyle(segments.freePercent)} />
 				<div className="context-window-cutoff" style={cutoffStyle}>
-					<span>cutoff</span>
+					<span>next compaction</span>
 				</div>
 			</div>
 			<div className="context-window-legend">
@@ -12170,6 +12236,27 @@ function mergeEvents(current: BotRuntimeEvent[], fetched: BotRuntimeEvent[]): Bo
 		bySeq.set(event.seq, event);
 	}
 	return [...bySeq.values()].sort((left, right) => left.seq - right.seq);
+}
+
+function runtimeCompactionMessage(event: BotRuntimeEvent): string | null {
+	if (event.type !== "compaction") {
+		return null;
+	}
+	const payload = event.payload;
+	if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+		return null;
+	}
+	const status = (payload as { status?: unknown }).status;
+	if (status === "pending") {
+		return "Compacting loop context...";
+	}
+	if (status === "complete") {
+		return "Loop context compacted.";
+	}
+	if (status === "failed") {
+		return "Loop context compaction failed.";
+	}
+	return null;
 }
 
 function latestPersistentEventSeq(events: BotRuntimeEvent[]): number {

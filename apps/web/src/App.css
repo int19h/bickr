@@ -2121,6 +2121,17 @@ fieldset {
 	padding: 4px 14px;
 }
 
+.agentic-loop-card {
+	display: grid;
+	gap: 20px;
+	padding: 14px;
+}
+
+.recurring-prompt-editor {
+	min-height: 92px;
+	resize: vertical;
+}
+
 .switch-row {
 	align-items: center;
 	border-bottom: 1px solid var(--rule-soft);

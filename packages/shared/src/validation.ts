@@ -842,6 +842,28 @@ function parseTickSettings(value: unknown): BotTickSettingsInput {
 		}
 		settings.compactionThreshold = threshold;
 	}
+	if (record.compactionSummaryPercent !== undefined) {
+		settings.compactionSummaryPercent =
+			record.compactionSummaryPercent === null ?
+				null
+			:	boundedInteger(
+					record.compactionSummaryPercent,
+					"Compaction percentage",
+					1,
+					50,
+				);
+	}
+	if (record.compactionMaxCharacters !== undefined) {
+		settings.compactionMaxCharacters =
+			record.compactionMaxCharacters === null ?
+				null
+			:	boundedInteger(
+					record.compactionMaxCharacters,
+					"Max number of characters after compaction",
+					1,
+					1_000_000,
+				);
+	}
 	if (record.maxToolCallsPerTick !== undefined) {
 		settings.maxToolCallsPerTick =
 			record.maxToolCallsPerTick === null ?

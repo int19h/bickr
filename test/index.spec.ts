@@ -74,6 +74,7 @@ import {
 	providerChatCompletionRequest,
 	providerCompactionMessages,
 	providerCompactionRequest,
+	providerCompactionSummaryLimitsForChat,
 	providerMessagesWithReasoningPrefill,
 	providerResponseMessageForHistory,
 	providerTranslationRequest,
@@ -320,6 +321,8 @@ CREATE TABLE bot_runtime_index (
 	tick_interval_seconds INTEGER NOT NULL,
 	context_window_tokens INTEGER NOT NULL,
 	compaction_threshold REAL NOT NULL,
+	compaction_summary_percent INTEGER NOT NULL DEFAULT 10,
+	compaction_max_characters INTEGER NOT NULL DEFAULT 4000,
 	max_tool_calls_per_tick INTEGER NOT NULL,
 	max_successful_tool_calls_per_iteration INTEGER NOT NULL DEFAULT 8,
 	max_generated_tokens_per_tick INTEGER NOT NULL DEFAULT 15000,
@@ -1182,6 +1185,39 @@ describe("Bickr Pages Functions", () => {
 			expect(messages[0]?.content).toContain("You MUST use one of the following tools: provide_summary.");
 		});
 
+		it("derives provider compaction schema lengths from settings and compacted characters", () => {
+			const bot = fakeBotDocument({
+				contextWindowTokens: 50_000,
+				compactionSummaryPercent: 10,
+				compactionMaxCharacters: 20_000,
+			});
+			const compactedMessages = [{ role: "assistant" as const, content: "x".repeat(30_000) }];
+			const limits = providerCompactionSummaryLimitsForChat(
+				bot,
+				compactedMessages,
+				{ tokensPerCharacter: 0.25, sampleCount: 3 },
+			);
+			const messages = providerCompactionMessages(bot, compactedMessages, limits);
+			const request = providerCompactionRequest({ model: "test-model" }, messages, limits);
+
+			expect(limits).toMatchObject({
+				minLength: 3001,
+				maxLength: 20_000,
+				maxCompletionTokens: 5_000,
+				configuredMaxCharacters: 20_000,
+				compactionSummaryPercent: 10,
+			});
+			expect(limits.nextCompactionTokens).toBeLessThan(45_000);
+			expect(request.max_completion_tokens).toBe(5_000);
+			const [tool] = request.tools;
+			expect(tool?.type).toBe("function");
+			expect(tool?.type === "function" ? tool.function.parameters.properties["detailed summary in first person"] : undefined).toMatchObject({
+				minLength: 3001,
+				maxLength: 20_000,
+			});
+			expect(messages[2]?.content).toContain("between 3001 and 20000 characters");
+		});
+
 		it("wraps failed compaction provider calls with request and response diagnostics", async () => {
 			const originalFetch = globalThis.fetch;
 			const responseBody = "{\"error\":\"schema rejected\"}";
@@ -1392,7 +1428,7 @@ describe("Bickr Pages Functions", () => {
 				compactionRowsForEstimatedBudget: (bot: BotDocument, runId: string, includeCurrentRun: boolean) => Array<{ seq: number }>;
 			}).compactionRowsForEstimatedBudget.bind(runtime);
 
-			const selected = compactionRowsForEstimatedBudget(fakeBotDocument({ contextWindowTokens: 1_000 }), "run-current", true);
+			const selected = compactionRowsForEstimatedBudget(fakeBotDocument({ contextWindowTokens: 500 }), "run-current", true);
 
 			expect(selected.map((row) => row.seq)).toEqual([1, 2, 3]);
 		});
@@ -1423,7 +1459,7 @@ describe("Bickr Pages Functions", () => {
 				compactionRowsForEstimatedBudget: (bot: BotDocument, runId: string, includeCurrentRun: boolean) => Array<{ seq: number }>;
 			}).compactionRowsForEstimatedBudget.bind(runtime);
 
-			const selected = compactionRowsForEstimatedBudget(fakeBotDocument({ contextWindowTokens: 1_000 }), "run-current", true);
+			const selected = compactionRowsForEstimatedBudget(fakeBotDocument({ contextWindowTokens: 500 }), "run-current", true);
 
 			expect(selected.map((row) => row.seq)).toEqual([1, 2, 3]);
 		});
@@ -2044,12 +2080,19 @@ describe("Bickr Pages Functions", () => {
 			}));
 		});
 
-		it("uses the compaction threshold before the response reserve for soft compaction", async () => {
+		it("uses the computed next compaction point for soft compaction", async () => {
 			const row = loopMessageRowForTest(1, "run-threshold", "Old context.");
 			const compactLoopMessageRows = vi.fn();
-			let totalTokens = 12_000;
+			const bot = fakeBotDocument({ contextWindowTokens: 16_000 });
+			const calibration = { tokensPerCharacter: 0.25, sampleCount: 0 };
+			const expectedLimits = providerCompactionSummaryLimitsForChat(
+				bot,
+				[{ role: "assistant", content: "Old context." }],
+				calibration,
+			);
+			let totalTokens = expectedLimits.nextCompactionTokens;
 			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
-				currentCompactionContextEstimate: () => ({ totalTokens, rowTokens: totalTokens, rows: [], calibration: { tokensPerCharacter: 0.25, sampleCount: 0 } }),
+				currentCompactionContextEstimate: () => ({ totalTokens, rowTokens: totalTokens, rows: [{ row, tokens: 4 }], calibration }),
 				compactionRowsForEstimatedBudget: () => [row],
 				compactLoopMessageRows,
 			});
@@ -2062,11 +2105,11 @@ describe("Bickr Pages Functions", () => {
 				) => Promise<void>;
 			}).compactIfNeeded.bind(runtime);
 
-			await compactIfNeeded(fakeBotDocument({ contextWindowTokens: 16_000 }), {}, "run-threshold", new AbortController().signal);
+			await compactIfNeeded(bot, {}, "run-threshold", new AbortController().signal);
 			expect(compactLoopMessageRows).not.toHaveBeenCalled();
 
-			totalTokens = 12_001;
-			await compactIfNeeded(fakeBotDocument({ contextWindowTokens: 16_000 }), {}, "run-threshold", new AbortController().signal);
+			totalTokens = expectedLimits.nextCompactionTokens + 1;
+			await compactIfNeeded(bot, {}, "run-threshold", new AbortController().signal);
 			expect(compactLoopMessageRows).toHaveBeenCalledWith(
 				expect.anything(),
 				expect.anything(),
@@ -2074,7 +2117,10 @@ describe("Bickr Pages Functions", () => {
 				expect.any(AbortSignal),
 				[row],
 				"auto",
-				expect.objectContaining({ estimatedContextTokens: 12_001, threshold: 12_000 }),
+				expect.objectContaining({
+					estimatedContextTokens: expectedLimits.nextCompactionTokens + 1,
+					threshold: expectedLimits.nextCompactionTokens,
+				}),
 			);
 		});
 
@@ -2418,18 +2464,22 @@ describe("Bickr Pages Functions", () => {
 		it("reports context window breakdown from latest normal loop inference", () => {
 			const baseline = providerLoopUsageRowForTest(10, "2026-05-01T00:00:00.000Z", 4_000);
 			const latest = providerLoopUsageRowForTest(12, "2026-05-01T00:10:00.000Z", 6_500);
+			const bot = fakeBotDocument({ contextWindowTokens: 16_000 });
+			const calibration = { tokensPerCharacter: 0.25, sampleCount: 0 };
+			const expectedLimits = providerCompactionSummaryLimitsForChat(bot, [], calibration);
 			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 				providerUsageRows: () => [],
 				tokenUsageChangeMarkers: () => [],
-				latestActiveLoopCompactionBoundary: () => ({ seq: 20, created_at: "2026-05-01T00:00:00.000Z" }),
+				textTokenCalibration: () => calibration,
+				latestActiveLoopCompactionBoundary: () => null,
 				latestLoopProviderUsage: () => latest,
-				firstLoopProviderUsageAfter: vi.fn(() => baseline),
+				firstLoopProviderUsageAfterSeq: vi.fn(() => baseline),
 			});
 			const tokenUsageStats = (BotRuntime.prototype as unknown as {
-				tokenUsageStats: (bot: Pick<BotDocument, "tickSettings">, now?: Date) => BotTokenUsageStats;
+				tokenUsageStats: (bot: BotDocument, now?: Date) => BotTokenUsageStats;
 			}).tokenUsageStats.bind(runtime);
 
-			const usage = tokenUsageStats({ tickSettings: { compactionThreshold: 0.75 } } as Pick<BotDocument, "tickSettings">);
+			const usage = tokenUsageStats(bot);
 
 			expect(usage.contextWindow).toMatchObject({
 				usedAt: latest.created_at,
@@ -2441,7 +2491,7 @@ describe("Bickr Pages Functions", () => {
 				ongoingTokens: 2_500,
 				freeTokens: 9_500,
 				contextWindowTokens: 16_000,
-				compactionCutoffTokens: 12_000,
+				compactionCutoffTokens: expectedLimits.nextCompactionTokens,
 				responseReserveTokens: providerContextReserveTokens,
 			});
 		});
@@ -2450,36 +2500,38 @@ describe("Bickr Pages Functions", () => {
 			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 				providerUsageRows: () => [],
 				tokenUsageChangeMarkers: () => [],
+				textTokenCalibration: () => ({ tokensPerCharacter: 0.25, sampleCount: 0 }),
 				latestActiveLoopCompactionBoundary: () => ({ seq: 20, created_at: "2026-05-01T00:05:00.000Z" }),
-				latestLoopProviderUsage: () => providerLoopUsageRowForTest(12, "2026-05-01T00:04:59.000Z", 6_500),
-				firstLoopProviderUsageAfter: vi.fn(),
+				latestLoopProviderUsage: () => providerLoopUsageRowForTest(12, "2026-05-01T00:20:00.000Z", 6_500),
+				firstLoopProviderUsageAfterSeq: vi.fn(),
 			});
 			const tokenUsageStats = (BotRuntime.prototype as unknown as {
-				tokenUsageStats: (bot: Pick<BotDocument, "tickSettings">, now?: Date) => BotTokenUsageStats;
+				tokenUsageStats: (bot: BotDocument, now?: Date) => BotTokenUsageStats;
 			}).tokenUsageStats.bind(runtime);
 
-			const usage = tokenUsageStats({ tickSettings: { compactionThreshold: 0.75 } } as Pick<BotDocument, "tickSettings">);
+			const usage = tokenUsageStats(fakeBotDocument({ contextWindowTokens: 16_000 }));
 
 			expect(usage.contextWindow).toBeUndefined();
-			expect(runtime.firstLoopProviderUsageAfter).not.toHaveBeenCalled();
+			expect(runtime.firstLoopProviderUsageAfterSeq).not.toHaveBeenCalled();
 		});
 
 		it("uses the first normal inference after active compaction as the context baseline", () => {
-			const firstLoopProviderUsageAfter = vi.fn(() => providerLoopUsageRowForTest(21, "2026-05-01T00:06:00.000Z", 5_500));
+			const firstLoopProviderUsageAfterSeq = vi.fn(() => providerLoopUsageRowForTest(21, "2026-05-01T00:06:00.000Z", 5_500));
 			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 				providerUsageRows: () => [],
 				tokenUsageChangeMarkers: () => [],
+				textTokenCalibration: () => ({ tokensPerCharacter: 0.25, sampleCount: 0 }),
 				latestActiveLoopCompactionBoundary: () => ({ seq: 20, created_at: "2026-05-01T00:05:00.000Z" }),
 				latestLoopProviderUsage: () => providerLoopUsageRowForTest(24, "2026-05-01T00:20:00.000Z", 8_000),
-				firstLoopProviderUsageAfter,
+				firstLoopProviderUsageAfterSeq,
 			});
 			const tokenUsageStats = (BotRuntime.prototype as unknown as {
-				tokenUsageStats: (bot: Pick<BotDocument, "tickSettings">, now?: Date) => BotTokenUsageStats;
+				tokenUsageStats: (bot: BotDocument, now?: Date) => BotTokenUsageStats;
 			}).tokenUsageStats.bind(runtime);
 
-			const usage = tokenUsageStats({ tickSettings: { compactionThreshold: 0.75 } } as Pick<BotDocument, "tickSettings">);
+			const usage = tokenUsageStats(fakeBotDocument({ contextWindowTokens: 16_000 }));
 
-			expect(firstLoopProviderUsageAfter).toHaveBeenCalledWith("2026-05-01T00:05:00.000Z");
+			expect(firstLoopProviderUsageAfterSeq).toHaveBeenCalledWith(20);
 			expect(usage.contextWindow).toMatchObject({
 				baselineRequestSeq: 21,
 				baselinePromptTokens: 5_500,
@@ -7543,8 +7595,10 @@ describe("Bickr Pages Functions", () => {
 			`SELECT
 				enabled,
 				status,
-				tick_interval_seconds AS tickIntervalSeconds,
+					tick_interval_seconds AS tickIntervalSeconds,
 					context_window_tokens AS contextWindowTokens,
+					compaction_summary_percent AS compactionSummaryPercent,
+					compaction_max_characters AS compactionMaxCharacters,
 					max_tool_calls_per_tick AS maxToolCallsPerTick,
 					max_successful_tool_calls_per_iteration AS maxSuccessfulToolCallsPerIteration,
 					max_generated_tokens_per_tick AS maxGeneratedTokensPerTick,
@@ -7559,6 +7613,8 @@ describe("Bickr Pages Functions", () => {
 					status: string;
 					tickIntervalSeconds: number;
 					contextWindowTokens: number;
+					compactionSummaryPercent: number;
+					compactionMaxCharacters: number;
 					maxToolCallsPerTick: number;
 					maxSuccessfulToolCallsPerIteration: number;
 					maxGeneratedTokensPerTick: number;
@@ -7570,12 +7626,16 @@ describe("Bickr Pages Functions", () => {
 			intervalSeconds: 86_400,
 		});
 			expect(created.data.bot.tickSettings).not.toHaveProperty("contextWindowTokens");
+			expect(created.data.bot.tickSettings).not.toHaveProperty("compactionSummaryPercent");
+			expect(created.data.bot.tickSettings).not.toHaveProperty("compactionMaxCharacters");
 			expect(created.data.bot.tickSettings).not.toHaveProperty("maxToolCallsPerTick");
 			expect(created.data.bot.tickSettings).not.toHaveProperty("maxSuccessfulToolCallsPerIteration");
 			expect(created.data.bot.tickSettings).not.toHaveProperty("maxGeneratedTokensPerTick");
 			expect(created.data.bot.tickSettings).not.toHaveProperty("maxGeneratedTokensPerIteration");
 			expect(created.data.bot.effectiveTickSettings).toMatchObject({
 				contextWindowTokens: 20_000,
+				compactionSummaryPercent: 10,
+				compactionMaxCharacters: 4_000,
 				maxToolCallsPerTick: 10,
 				maxSuccessfulToolCallsPerIteration: 8,
 				maxGeneratedTokensPerTick: 15_000,
@@ -7583,6 +7643,8 @@ describe("Bickr Pages Functions", () => {
 			});
 			const storedCreatedBot = await testEnv.BICKR_KV.get(`v1:bot:${created.data.bot.id}`, { type: "json" }) as BotDocument;
 			expect(storedCreatedBot.tickSettings).not.toHaveProperty("contextWindowTokens");
+			expect(storedCreatedBot.tickSettings).not.toHaveProperty("compactionSummaryPercent");
+			expect(storedCreatedBot.tickSettings).not.toHaveProperty("compactionMaxCharacters");
 			expect(storedCreatedBot.tickSettings).not.toHaveProperty("maxToolCallsPerTick");
 			expect(storedCreatedBot.tickSettings).not.toHaveProperty("maxSuccessfulToolCallsPerIteration");
 			expect(storedCreatedBot.tickSettings).not.toHaveProperty("maxGeneratedTokensPerTick");
@@ -7593,6 +7655,8 @@ describe("Bickr Pages Functions", () => {
 			status: "idle",
 			tickIntervalSeconds: 86_400,
 				contextWindowTokens: 20_000,
+				compactionSummaryPercent: 10,
+				compactionMaxCharacters: 4_000,
 				maxToolCallsPerTick: 10,
 				maxSuccessfulToolCallsPerIteration: 8,
 				maxGeneratedTokensPerTick: 15_000,
@@ -7686,10 +7750,12 @@ describe("Bickr Pages Functions", () => {
 							repetitionPenalty: null,
 						},
 							tickSettings: {
-								enabled: true,
-								intervalSeconds: 60,
-								contextWindowTokens: 32_000,
-								maxToolCallsPerTick: 12,
+									enabled: true,
+									intervalSeconds: 60,
+									contextWindowTokens: 32_000,
+									compactionSummaryPercent: 25,
+									compactionMaxCharacters: 8_000,
+									maxToolCallsPerTick: 12,
 								maxSuccessfulToolCallsPerIteration: 9,
 								maxGeneratedTokensPerTick: 22_000,
 								maxGeneratedTokensPerIteration: 44_000,
@@ -7709,8 +7775,10 @@ describe("Bickr Pages Functions", () => {
 					tickSettings: {
 						enabled: true,
 						intervalSeconds: 60,
-							contextWindowTokens: 32_000,
-							maxToolCallsPerTick: 12,
+								contextWindowTokens: 32_000,
+								compactionSummaryPercent: 25,
+								compactionMaxCharacters: 8_000,
+								maxToolCallsPerTick: 12,
 							maxSuccessfulToolCallsPerIteration: 9,
 							maxGeneratedTokensPerTick: 22_000,
 							maxGeneratedTokensPerIteration: 44_000,
@@ -7728,9 +7796,11 @@ describe("Bickr Pages Functions", () => {
 
 		const runtimeAfterPatch = await testEnv.BICKR_D1.prepare(
 			`SELECT
-					enabled,
-					tick_interval_seconds AS tickIntervalSeconds,
-					max_successful_tool_calls_per_iteration AS maxSuccessfulToolCallsPerIteration,
+						enabled,
+						tick_interval_seconds AS tickIntervalSeconds,
+						compaction_summary_percent AS compactionSummaryPercent,
+						compaction_max_characters AS compactionMaxCharacters,
+						max_successful_tool_calls_per_iteration AS maxSuccessfulToolCallsPerIteration,
 					max_generated_tokens_per_tick AS maxGeneratedTokensPerTick,
 					max_generated_tokens_per_iteration AS maxGeneratedTokensPerIteration,
 					next_due_at AS nextDueAt
@@ -7739,17 +7809,21 @@ describe("Bickr Pages Functions", () => {
 			)
 				.bind(created.data.bot.id)
 				.first<{
-					enabled: number;
-					tickIntervalSeconds: number;
-					maxSuccessfulToolCallsPerIteration: number;
+						enabled: number;
+						tickIntervalSeconds: number;
+						compactionSummaryPercent: number;
+						compactionMaxCharacters: number;
+						maxSuccessfulToolCallsPerIteration: number;
 					maxGeneratedTokensPerTick: number;
 					maxGeneratedTokensPerIteration: number;
 					nextDueAt: string | null;
 				}>();
 			expect(runtimeAfterPatch).toMatchObject({
-				enabled: 1,
-				tickIntervalSeconds: 60,
-				maxSuccessfulToolCallsPerIteration: 9,
+					enabled: 1,
+					tickIntervalSeconds: 60,
+					compactionSummaryPercent: 25,
+					compactionMaxCharacters: 8_000,
+					maxSuccessfulToolCallsPerIteration: 9,
 				maxGeneratedTokensPerTick: 22_000,
 				maxGeneratedTokensPerIteration: 44_000,
 			});
@@ -7762,9 +7836,11 @@ describe("Bickr Pages Functions", () => {
 					`http://example.com/api/me/bots/${created.data.bot.id}`,
 					"PATCH",
 					{
-							tickSettings: {
-								contextWindowTokens: null,
-								maxToolCallsPerTick: null,
+									tickSettings: {
+										contextWindowTokens: null,
+										compactionSummaryPercent: null,
+										compactionMaxCharacters: null,
+										maxToolCallsPerTick: null,
 								maxSuccessfulToolCallsPerIteration: null,
 								maxGeneratedTokensPerTick: null,
 								maxGeneratedTokensPerIteration: null,
@@ -7777,22 +7853,28 @@ describe("Bickr Pages Functions", () => {
 		);
 		expect(clearTickDefaultsResponse.status, await clearTickDefaultsResponse.clone().text()).toBe(200);
 		const clearedTickDefaults = (await clearTickDefaultsResponse.json()) as { ok: true; data: { bot: BotBody } };
-			expect(clearedTickDefaults.data.bot.tickSettings).not.toHaveProperty("contextWindowTokens");
-			expect(clearedTickDefaults.data.bot.tickSettings).not.toHaveProperty("maxToolCallsPerTick");
+				expect(clearedTickDefaults.data.bot.tickSettings).not.toHaveProperty("contextWindowTokens");
+				expect(clearedTickDefaults.data.bot.tickSettings).not.toHaveProperty("compactionSummaryPercent");
+				expect(clearedTickDefaults.data.bot.tickSettings).not.toHaveProperty("compactionMaxCharacters");
+				expect(clearedTickDefaults.data.bot.tickSettings).not.toHaveProperty("maxToolCallsPerTick");
 			expect(clearedTickDefaults.data.bot.tickSettings).not.toHaveProperty("maxSuccessfulToolCallsPerIteration");
 			expect(clearedTickDefaults.data.bot.tickSettings).not.toHaveProperty("maxGeneratedTokensPerTick");
 			expect(clearedTickDefaults.data.bot.tickSettings).not.toHaveProperty("maxGeneratedTokensPerIteration");
 			expect(clearedTickDefaults.data.bot.effectiveTickSettings).toMatchObject({
-				contextWindowTokens: 20_000,
-				maxToolCallsPerTick: 10,
+					contextWindowTokens: 20_000,
+					compactionSummaryPercent: 10,
+					compactionMaxCharacters: 4_000,
+					maxToolCallsPerTick: 10,
 				maxSuccessfulToolCallsPerIteration: 8,
 				maxGeneratedTokensPerTick: 15_000,
 				maxGeneratedTokensPerIteration: 30_000,
 			});
 			const runtimeAfterClearingDefaults = await testEnv.BICKR_D1.prepare(
 				`SELECT
-					context_window_tokens AS contextWindowTokens,
-					max_tool_calls_per_tick AS maxToolCallsPerTick,
+						context_window_tokens AS contextWindowTokens,
+						compaction_summary_percent AS compactionSummaryPercent,
+						compaction_max_characters AS compactionMaxCharacters,
+						max_tool_calls_per_tick AS maxToolCallsPerTick,
 					max_successful_tool_calls_per_iteration AS maxSuccessfulToolCallsPerIteration,
 					max_generated_tokens_per_tick AS maxGeneratedTokensPerTick,
 					max_generated_tokens_per_iteration AS maxGeneratedTokensPerIteration
@@ -7801,19 +7883,36 @@ describe("Bickr Pages Functions", () => {
 			)
 				.bind(created.data.bot.id)
 				.first<{
-					contextWindowTokens: number;
-					maxToolCallsPerTick: number;
+						contextWindowTokens: number;
+						compactionSummaryPercent: number;
+						compactionMaxCharacters: number;
+						maxToolCallsPerTick: number;
 					maxSuccessfulToolCallsPerIteration: number;
 					maxGeneratedTokensPerTick: number;
 					maxGeneratedTokensPerIteration: number;
 				}>();
-			expect(runtimeAfterClearingDefaults).toEqual({
-				contextWindowTokens: 20_000,
-				maxToolCallsPerTick: 10,
-				maxSuccessfulToolCallsPerIteration: 8,
-				maxGeneratedTokensPerTick: 15_000,
-				maxGeneratedTokensPerIteration: 30_000,
-			});
+				expect(runtimeAfterClearingDefaults).toEqual({
+					contextWindowTokens: 20_000,
+					compactionSummaryPercent: 10,
+					compactionMaxCharacters: 4_000,
+					maxToolCallsPerTick: 10,
+					maxSuccessfulToolCallsPerIteration: 8,
+					maxGeneratedTokensPerTick: 15_000,
+					maxGeneratedTokensPerIteration: 30_000,
+				});
+
+			const invalidCompactionSettings = await patchBot(
+				contextFor<typeof patchBot>(
+					jsonRequest(
+						`http://example.com/api/me/bots/${created.data.bot.id}`,
+						"PATCH",
+						{ tickSettings: { compactionSummaryPercent: 51, compactionMaxCharacters: 0 } },
+						cookie,
+					),
+					{ botId: created.data.bot.id },
+				),
+			);
+			expect(invalidCompactionSettings.status).toBe(400);
 
 		const pauseResponse = await patchBot(
 			contextFor<typeof patchBot>(
@@ -9922,8 +10021,11 @@ describe("Bickr Pages Functions", () => {
 		expect(acknowledgementIndex).toBeGreaterThan(toolMessageIndexes[5]!);
 	});
 
-	it("compacts old context from local token estimates before provider inference", async () => {
-		let activeMessages: Array<Record<string, unknown>> = [
+		it("compacts old context from local token estimates before provider inference", async () => {
+			const bot = fakeBotDocument({ contextWindowTokens: 16_000 });
+			const calibration = { tokensPerCharacter: 0.25, sampleCount: 0 };
+			const allowedPromptTokens = providerCompactionSummaryLimitsForChat(bot, [], calibration).nextCompactionTokens;
+			let activeMessages: Array<Record<string, unknown>> = [
 			{ role: "assistant", content: "Old history that can be compacted." },
 			{ role: "assistant", content: "Current notification setup must remain." },
 		];
@@ -9945,9 +10047,10 @@ describe("Bickr Pages Functions", () => {
 				return providerResponseWithContent("I have enough context now.");
 			},
 			callProviderForTokenProbe,
-			estimateProviderPromptTokens: (_settings: unknown, messages: Array<Record<string, unknown>>) =>
-				providerPromptEstimateForTokens(messages.some((message) => String(message.content).includes("Old history")) ? 20_000 : 10_000),
-			compactLoopMessageRows: async (_bot: unknown, _settings: unknown, _runId: string, _signal: AbortSignal, rows: unknown[]) => {
+				estimateProviderPromptTokens: (_settings: unknown, messages: Array<Record<string, unknown>>) =>
+					providerPromptEstimateForTokens(messages.some((message) => String(message.content).includes("Old history")) ? 20_000 : 10_000),
+				textTokenCalibration: () => calibration,
+				compactLoopMessageRows: async (_bot: unknown, _settings: unknown, _runId: string, _signal: AbortSignal, rows: unknown[]) => {
 				compactedRows.push(rows);
 				activeMessages = [
 					{ role: "assistant", content: "I remember the old history as a concise summary." },
@@ -9977,8 +10080,8 @@ describe("Bickr Pages Functions", () => {
 		}).runProviderLoop.bind(runtime);
 
 		await expect(
-			runProviderLoop(
-				fakeBotDocument({ contextWindowTokens: 16_000 }),
+				runProviderLoop(
+					bot,
 				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
 				"run-budget",
 				[],
@@ -9993,11 +10096,18 @@ describe("Bickr Pages Functions", () => {
 		expect(messageListText(providerRequests[0] ?? [])).toContain("I remember the old history");
 		expect(recordInferenceSubmission).toHaveBeenCalledTimes(1);
 		expect(events.map((event) => event.type)).toEqual(["provider_token_estimate", "provider_token_estimate", "provider_request"]);
-		expect(events[0]?.payload).toMatchObject({ promptTokens: 20_000, allowedPromptTokens: 13_500, overBudgetTokens: 6_500 });
-	});
+			expect(events[0]?.payload).toMatchObject({
+				promptTokens: 20_000,
+				allowedPromptTokens,
+				overBudgetTokens: 20_000 - allowedPromptTokens,
+			});
+		});
 
-	it("compacts current tick messages when local prompt estimates overflow", async () => {
-		let activeMessages: Array<Record<string, unknown>> = [
+		it("compacts current tick messages when local prompt estimates overflow", async () => {
+			const bot = fakeBotDocument({ contextWindowTokens: 16_000 });
+			const calibration = { tokensPerCharacter: 0.25, sampleCount: 0 };
+			const allowedPromptTokens = providerCompactionSummaryLimitsForChat(bot, [], calibration).nextCompactionTokens;
+			let activeMessages: Array<Record<string, unknown>> = [
 			{ role: "assistant", content: "Current notification setup must remain." },
 			{ role: "tool", content: "Large current thread read result that overflowed the prompt." },
 		];
@@ -10018,9 +10128,10 @@ describe("Bickr Pages Functions", () => {
 				return providerResponseWithContent("The large thread read is now summarized.");
 			},
 			callProviderForTokenProbe: vi.fn(),
-			estimateProviderPromptTokens: (_settings: unknown, messages: Array<Record<string, unknown>>) =>
-				providerPromptEstimateForTokens(messageListText(messages).includes("Large current thread read result") ? 20_000 : 10_000),
-			compactLoopMessageRows: async (
+				estimateProviderPromptTokens: (_settings: unknown, messages: Array<Record<string, unknown>>) =>
+					providerPromptEstimateForTokens(messageListText(messages).includes("Large current thread read result") ? 20_000 : 10_000),
+				textTokenCalibration: () => calibration,
+				compactLoopMessageRows: async (
 				_bot: unknown,
 				_settings: unknown,
 				_runId: string,
@@ -10062,8 +10173,8 @@ describe("Bickr Pages Functions", () => {
 		}).runProviderLoop.bind(runtime);
 
 		await expect(
-			runProviderLoop(
-				fakeBotDocument({ contextWindowTokens: 16_000 }),
+				runProviderLoop(
+					bot,
 				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
 				"run-current-compact",
 				[],
@@ -10072,17 +10183,20 @@ describe("Bickr Pages Functions", () => {
 		).resolves.toMatchObject({ logOffCalled: false });
 
 		expect(includeCurrentRunCalls).toEqual([false, true]);
-		expect(compactionMetrics).toEqual([
-			expect.objectContaining({ currentRunIncluded: true, estimatedPromptTokens: 20_000, overBudgetTokens: 6_500 }),
-		]);
+			expect(compactionMetrics).toEqual([
+				expect.objectContaining({ currentRunIncluded: true, estimatedPromptTokens: 20_000, overBudgetTokens: 20_000 - allowedPromptTokens }),
+			]);
 		expect(providerRequests).toHaveLength(1);
 		expect(messageListText(providerRequests[0] ?? [])).not.toContain("Large current thread read result");
 		expect(messageListText(providerRequests[0] ?? [])).toContain("large current thread read as a concise summary");
 		expect(events.map((event) => event.type)).toEqual(["provider_token_estimate", "provider_token_estimate", "provider_request"]);
 	});
 
-	it("fails before provider inference when current context alone exceeds the estimated budget", async () => {
-		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+		it("fails before provider inference when current context alone exceeds the estimated budget", async () => {
+			const bot = fakeBotDocument({ contextWindowTokens: 16_000 });
+			const calibration = { tokensPerCharacter: 0.25, sampleCount: 0 };
+			const allowedPromptTokens = providerCompactionSummaryLimitsForChat(bot, [], calibration).nextCompactionTokens;
+			const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
 		const callProvider = vi.fn();
 		const recordInferenceSubmission = vi.fn();
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
@@ -10092,9 +10206,10 @@ describe("Bickr Pages Functions", () => {
 				return { seq: events.length, runId, type, payload, tokenEstimate: 0, createdAt: new Date().toISOString() };
 			},
 			callProvider,
-			callProviderForTokenProbe: vi.fn(),
-			estimateProviderPromptTokens: () => providerPromptEstimateForTokens(20_000),
-			compactionRowsForEstimatedBudget: () => [],
+				callProviderForTokenProbe: vi.fn(),
+				estimateProviderPromptTokens: () => providerPromptEstimateForTokens(20_000),
+				textTokenCalibration: () => calibration,
+				compactionRowsForEstimatedBudget: () => [],
 			repairActiveProviderToolCallHistory: async () => [],
 			recordInferenceSubmission,
 			recordProviderUsage: () => {},
@@ -10115,8 +10230,8 @@ describe("Bickr Pages Functions", () => {
 		}).runProviderLoop.bind(runtime);
 
 		await expect(
-			runProviderLoop(
-				fakeBotDocument({ contextWindowTokens: 16_000 }),
+				runProviderLoop(
+					bot,
 				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
 				"run-current-too-large",
 				[],
@@ -10125,10 +10240,10 @@ describe("Bickr Pages Functions", () => {
 		).rejects.toThrow("Prompt context is too large");
 
 		expect(callProvider).not.toHaveBeenCalled();
-		expect(recordInferenceSubmission).not.toHaveBeenCalled();
-		expect(events.map((event) => event.type)).toEqual(["provider_token_estimate"]);
-		expect(events[0]?.payload).toMatchObject({ promptTokens: 20_000, allowedPromptTokens: 13_500 });
-	});
+			expect(recordInferenceSubmission).not.toHaveBeenCalled();
+			expect(events.map((event) => event.type)).toEqual(["provider_token_estimate"]);
+			expect(events[0]?.payload).toMatchObject({ promptTokens: 20_000, allowedPromptTokens });
+		});
 
 	it("enriches reply notifications with parent-chain IDs and profile context", async () => {
 		const cookie = await authCookie();
@@ -10945,8 +11060,10 @@ type BotBody = {
 	tickSettings: {
 		enabled: boolean;
 		intervalSeconds: number;
-			contextWindowTokens?: number;
-			maxToolCallsPerTick?: number;
+				contextWindowTokens?: number;
+				compactionSummaryPercent?: number;
+				compactionMaxCharacters?: number;
+				maxToolCallsPerTick?: number;
 			maxSuccessfulToolCallsPerIteration?: number;
 			maxGeneratedTokensPerTick?: number;
 			maxGeneratedTokensPerIteration?: number;
@@ -10954,9 +11071,11 @@ type BotBody = {
 		effectiveTickSettings: {
 			enabled: boolean;
 			intervalSeconds: number;
-			contextWindowTokens: number;
-			compactionThreshold: number;
-			maxToolCallsPerTick: number;
+				contextWindowTokens: number;
+				compactionThreshold: number;
+				compactionSummaryPercent: number;
+				compactionMaxCharacters: number;
+				maxToolCallsPerTick: number;
 			maxSuccessfulToolCallsPerIteration: number;
 			maxGeneratedTokensPerTick: number;
 			maxGeneratedTokensPerIteration: number;
@@ -11887,7 +12006,7 @@ function additionalReplyToolPresent(tools: ProviderToolDefinition[]): boolean {
 	);
 }
 
-function fakeBotDocument(options: { contextWindowTokens?: number } = {}): BotDocument {
+function fakeBotDocument(options: { contextWindowTokens?: number; compactionSummaryPercent?: number; compactionMaxCharacters?: number } = {}): BotDocument {
 	const now = "2026-05-05T00:00:00.000Z";
 	return {
 		id: "bot_test_budget",
@@ -11910,6 +12029,8 @@ function fakeBotDocument(options: { contextWindowTokens?: number } = {}): BotDoc
 			intervalSeconds: 300,
 			contextWindowTokens: options.contextWindowTokens ?? 16_000,
 			compactionThreshold: 0.75,
+			compactionSummaryPercent: options.compactionSummaryPercent ?? 10,
+			compactionMaxCharacters: options.compactionMaxCharacters ?? 4_000,
 			maxToolCallsPerTick: 3,
 			maxSuccessfulToolCallsPerIteration: 8,
 			maxGeneratedTokensPerTick: 15_000,
