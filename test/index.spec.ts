@@ -119,6 +119,7 @@ import {
 	listPendingNotifications,
 	markBotSeenContent,
 	markBotSeenFromResult,
+	markNotificationsDelivered,
 	readThread,
 	recordBotRuntimeFailureHumanNotification,
 	recordSpotlightNoReactionHumanNotification,
@@ -851,6 +852,12 @@ describe("Bickr Pages Functions", () => {
 				{ username: `u/${secondProfile.handle}`, displayName: secondProfile.displayName, shortBio: expect.any(String) },
 			],
 		});
+		for (const profile of (profilesResult.providerResult as { profiles: Array<Record<string, unknown>> }).profiles) {
+			expect(profile).not.toHaveProperty("id");
+			expect(profile).not.toHaveProperty("world");
+			expect(profile).not.toHaveProperty("createdAt");
+			expect(profile).not.toHaveProperty("updatedAt");
+		}
 		const legacyProfileResult = await executeTool(
 			bot,
 			"run-view-profile-legacy",
@@ -3471,6 +3478,7 @@ describe("Bickr Pages Functions", () => {
 					seq += 1;
 					return { seq, runId: "run-profile-context", role: message.role, message };
 				},
+				readCommentTreeTokenBudget: async () => 10_000,
 				activeLoopMessagesForProvider: () => messages,
 				activeLoopMessageRows: () => activeRows,
 			});
@@ -3504,9 +3512,9 @@ describe("Bickr Pages Functions", () => {
 			.map((message) => JSON.parse(String(message.content)))
 			.find((result) => Array.isArray(result.events));
 		expect(checkNotificationsResult).toMatchObject({
-			events: [{ type: "comment_created", actor: { username: `u/${referencedProfile.handle}` } }],
+			events: [{ type: "comment_created", actor: `u/${referencedProfile.handle}` }],
 		});
-		expect(checkNotificationsResult.events[0].actor.shortBio).toBeUndefined();
+		expect(JSON.stringify(checkNotificationsResult.events[0])).not.toContain("Repeated inside the raw notification.");
 		const profileToolResult = afterCompaction
 			.filter((message) => message.role === "tool")
 			.map((message) => JSON.parse(String(message.content)))
@@ -3663,6 +3671,7 @@ describe("Bickr Pages Functions", () => {
 				seq += 1;
 				return { seq, runId: "run-notification-dedupe", role: message.role, message };
 			},
+			readCommentTreeTokenBudget: async () => 10_000,
 			activeLoopMessagesForProvider: () => messages,
 			activeLoopMessageRows: () => activeRows,
 		});
@@ -3687,20 +3696,150 @@ describe("Bickr Pages Functions", () => {
 			.find((result) => Array.isArray(result.events));
 		expect(checkNotificationsResult.events).toHaveLength(2);
 		expect(checkNotificationsResult.events[0]).toMatchObject({
-			id: "ntf_direct",
 			deliveryReasons: ["direct_reply", "mention"],
-			thread: { id: "thr_seen", title: "Already scoped thread" },
-			comment: { id: "cmt_seen", threadId: "thr_seen" },
-			replyTo: { id: "thr_seen", title: "Already scoped thread" },
-			actor: { username: `u/${referencedProfile.handle}`, displayName: referencedProfile.displayName },
+			thread: { threadId: "thr_seen", title: "Already scoped thread" },
+			comment: { commentId: "cmt_seen", threadId: "thr_seen" },
+			replyTo: { threadId: "thr_seen", title: "Already scoped thread" },
+			actor: `u/${referencedProfile.handle}`,
 		});
-		expect(checkNotificationsResult.events[0].actor.shortBio).toBeUndefined();
+		expect(checkNotificationsResult.events[0]).not.toHaveProperty("id");
+		expect(checkNotificationsResult.events[0]).not.toHaveProperty("message");
+		expect(checkNotificationsResult.events[0]).not.toHaveProperty("sourceObjectId");
+		expect(checkNotificationsResult.events[0]).not.toHaveProperty("world");
+		expect(checkNotificationsResult.events[0]).not.toHaveProperty("forum");
 		expect(checkNotificationsResult.events[0].thread.text).toBeUndefined();
 		expect(checkNotificationsResult.events[0].comment.text).toBeUndefined();
 		expect(checkNotificationsResult.events[0].replyTo.text).toBeUndefined();
 		expect(checkNotificationsResult.events[1].thread.text).toBeUndefined();
 		expect(checkNotificationsResult.events[1].comment.text).toBe("This new comment should be shown once.");
 		expect(checkNotificationsResult.events[1].replyTo.text).toBeUndefined();
+	});
+
+	it("trims notification thread and comment text to keep synthetic notification results within budget", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const selfProfile = await createBotForTest(cookie, "notice-budget-self");
+		const bot = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, selfProfile.id);
+		const tokenBudget = 260;
+		const author = { id: selfProfile.id, username: `u/${selfProfile.handle}`, displayName: selfProfile.displayName };
+		const messages: Array<Record<string, unknown>> = [];
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			env: {
+				BICKR_D1: testEnv.BICKR_D1,
+				BICKR_KV: testEnv.BICKR_KV,
+			},
+			previousTerminalTickEvent: () => null,
+			appendLoopMessage: (_runId: string, message: Record<string, unknown>) => {
+				messages.push(message);
+				return { seq: messages.length, runId: "run-notification-budget", role: message.role, message };
+			},
+			readCommentTreeTokenBudget: async () => tokenBudget,
+			activeLoopMessagesForProvider: () => messages,
+			activeLoopMessageRows: () => [],
+		});
+		const buildMessages = (BotRuntime.prototype as unknown as {
+			buildMessages: (
+				bot: BotDocument,
+				input: Record<string, unknown>,
+				runId: string,
+				inputCreatedAt: string,
+			) => Promise<Array<Record<string, unknown>>>;
+		}).buildMessages.bind(runtime);
+		const longThreadText = "T".repeat(1_600);
+		const longCommentText = "C".repeat(1_600);
+		await buildMessages(
+			bot,
+			{
+				notifications: [{
+					id: "ntf_budget",
+					type: "comment_created",
+					createdAt: "2026-05-01T00:00:00.000Z",
+					deliveryReasons: ["followed_profile_activity"],
+					sourceObjectId: "cmt_budget",
+					message: "Long notification.",
+					world: { id: bot.homeWorldId, handle: `w/${bot.homeWorldHandle}` },
+					forum: { id: "frm_budget", handle: "f/budget" },
+					thread: { id: "thr_budget", title: "Budget thread", author, text: longThreadText },
+					comment: { id: "cmt_budget", threadId: "thr_budget", author, text: longCommentText },
+				} satisfies NotificationEvent],
+				injections: [],
+				spotlightContexts: [],
+				ping: false,
+			},
+			"run-notification-budget",
+			"2026-05-01T00:15:00.000Z",
+		);
+		const checkNotificationsResult = messages
+			.filter((message) => message.role === "tool")
+			.map((message) => JSON.parse(String(message.content)))
+			.find((result) => Array.isArray(result.events));
+		expect(Math.ceil(JSON.stringify(checkNotificationsResult).length / 4)).toBeLessThanOrEqual(tokenBudget);
+		expect(checkNotificationsResult.context).toContain("text ending in …");
+		expect(checkNotificationsResult.events).toHaveLength(1);
+		const threadText = String(checkNotificationsResult.events[0].thread.text);
+		const commentText = String(checkNotificationsResult.events[0].comment.text);
+		expect(threadText.endsWith("…")).toBe(true);
+		expect(commentText.endsWith("…")).toBe(true);
+		expect(Array.from(threadText.replace(/…$/, "")).length).toBeGreaterThanOrEqual(100);
+		expect(Array.from(commentText.replace(/…$/, "")).length).toBeGreaterThanOrEqual(100);
+	});
+
+	it("drops older notification events after minimum text trimming cannot fit the budget", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const selfProfile = await createBotForTest(cookie, "notice-drop-self");
+		const bot = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, selfProfile.id);
+		const tokenBudget = 300;
+		const author = { id: selfProfile.id, username: `u/${selfProfile.handle}`, displayName: selfProfile.displayName };
+		const messages: Array<Record<string, unknown>> = [];
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			env: {
+				BICKR_D1: testEnv.BICKR_D1,
+				BICKR_KV: testEnv.BICKR_KV,
+			},
+			previousTerminalTickEvent: () => null,
+			appendLoopMessage: (_runId: string, message: Record<string, unknown>) => {
+				messages.push(message);
+				return { seq: messages.length, runId: "run-notification-drop", role: message.role, message };
+			},
+			readCommentTreeTokenBudget: async () => tokenBudget,
+			activeLoopMessagesForProvider: () => messages,
+			activeLoopMessageRows: () => [],
+		});
+		const buildMessages = (BotRuntime.prototype as unknown as {
+			buildMessages: (
+				bot: BotDocument,
+				input: Record<string, unknown>,
+				runId: string,
+				inputCreatedAt: string,
+			) => Promise<Array<Record<string, unknown>>>;
+		}).buildMessages.bind(runtime);
+		const notifications: NotificationEvent[] = Array.from({ length: 8 }, (_, index) => ({
+			id: `ntf_drop_${index}`,
+			type: "comment_created",
+			createdAt: `2026-05-01T00:00:0${index}.000Z`,
+			deliveryReasons: ["followed_profile_activity"],
+			sourceObjectId: `cmt_drop_${index}`,
+			message: `Long notification ${index}.`,
+			thread: { id: `thr_drop_${index}`, title: `Budget thread ${index}`, author, text: `${index}${"T".repeat(1_400)}` },
+			comment: { id: `cmt_drop_${index}`, threadId: `thr_drop_${index}`, author, text: `${index}${"C".repeat(1_400)}` },
+		}));
+		await buildMessages(
+			bot,
+			{ notifications, injections: [], spotlightContexts: [], ping: false },
+			"run-notification-drop",
+			"2026-05-01T00:15:00.000Z",
+		);
+		const checkNotificationsResult = messages
+			.filter((message) => message.role === "tool")
+			.map((message) => JSON.parse(String(message.content)))
+			.find((result) => Array.isArray(result.events));
+		expect(Math.ceil(JSON.stringify(checkNotificationsResult).length / 4)).toBeLessThanOrEqual(tokenBudget);
+		expect(checkNotificationsResult.context).toContain("older notification");
+		expect(checkNotificationsResult.events.length).toBeGreaterThan(0);
+		expect(checkNotificationsResult.events.length).toBeLessThan(notifications.length);
+		expect(checkNotificationsResult.events[0].comment.commentId).not.toBe("cmt_drop_0");
+		expect(checkNotificationsResult.events.at(-1).comment.commentId).toBe("cmt_drop_7");
 	});
 
 	it("deduplicates explicit read result comment bodies while keeping comment IDs", () => {
@@ -10374,6 +10513,28 @@ describe("Bickr Pages Functions", () => {
 			target: { username: `u/${target.handle}` },
 			targetProfile: { username: `u/${target.handle}` },
 		});
+		const followerLoopInput = await buildRuntimeLoopInput(
+			testEnv.BICKR_KV,
+			testEnv.BICKR_D1,
+			follower.id,
+			followerNotifications,
+			[],
+		);
+		expect(followerLoopInput.input.notifications.map((event) => event.type)).not.toEqual(
+			expect.arrayContaining(["profile_followed", "profile_unfollowed"]),
+		);
+		await markNotificationsDelivered(testEnv.BICKR_KV, testEnv.BICKR_D1, followerNotifications);
+		expect(await listPendingNotifications(testEnv.BICKR_KV, testEnv.BICKR_D1, follower.id)).toHaveLength(0);
+
+		const targetNotifications = await listPendingNotifications(testEnv.BICKR_KV, testEnv.BICKR_D1, target.id);
+		const targetLoopInput = await buildRuntimeLoopInput(
+			testEnv.BICKR_KV,
+			testEnv.BICKR_D1,
+			target.id,
+			targetNotifications,
+			[],
+		);
+		expect(targetLoopInput.input.notifications.map((event) => event.type)).toContain("profile_followed");
 		const actorActivity = await botActivityFeedByHandle(
 			testEnv.BICKR_KV,
 			testEnv.BICKR_D1,
