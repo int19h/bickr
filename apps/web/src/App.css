@@ -1052,7 +1052,7 @@ button:disabled {
 }
 
 .model-reasoning-row {
-	grid-template-columns: minmax(0, 1fr) max-content;
+	grid-template-columns: minmax(0, 1fr) max-content max-content;
 }
 
 .inference-row.four {
@@ -3427,6 +3427,16 @@ fieldset {
 	gap: 12px;
 }
 
+.request-usage-line {
+	background: var(--paper-2);
+	border: 1px solid var(--rule-soft);
+	border-radius: var(--radius);
+	color: var(--ink-2);
+	font-size: 13px;
+	line-height: 1.45;
+	padding: 10px 12px;
+}
+
 .submission-message {
 	background: var(--paper-2);
 	border: 1px solid var(--rule-soft);
@@ -3458,6 +3468,15 @@ fieldset {
 	display: flex;
 	font-size: 11px;
 	gap: 8px;
+}
+
+.cache-status {
+	background: color-mix(in oklch, oklch(0.72 0.09 145) 18%, transparent);
+	border: 1px solid color-mix(in oklch, oklch(0.72 0.09 145) 32%, var(--rule-soft));
+	border-radius: 999px;
+	color: var(--ink-2);
+	margin-left: auto;
+	padding: 2px 7px;
 }
 
 .submission-message-head b {

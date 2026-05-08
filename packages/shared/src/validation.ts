@@ -42,6 +42,8 @@ export const maxThreadTitleLength = 160;
 export const maxThreadBodyLength = 8_000;
 export const maxCommentBodyLength = 4_000;
 const inferenceReasoningEfforts = ["default", "none", "minimal", "low", "medium", "high", "xhigh"] as const;
+const inferenceToolCallModes = ["require", "railroad", "at_will"] as const;
+const structuredToolCallModes = ["require", "railroad"] as const;
 
 export const handlePatternSource = String.raw`[\p{Letter}\p{Number}_-][\p{Letter}\p{Number}\p{Mark}_-]{0,31}`;
 export const handleHelpText =
@@ -384,6 +386,7 @@ function parseInferenceSettings(value: unknown): BotInferenceSettingsInput {
 		maxBotReasoningPrefillLength,
 	);
 	assignOptionalEnum(settings, "reasoningEffort", aliasedValue(record, "reasoningEffort", "reasoning_effort"), "Reasoning effort", inferenceReasoningEfforts);
+	assignOptionalEnum(settings, "toolCalls", aliasedValue(record, "toolCalls", "tool_calls"), "Tool calls", inferenceToolCallModes);
 	if (record.providerRouting !== undefined || record.provider_routing !== undefined) {
 		const providerRouting = aliasedValue(record, "providerRouting", "provider_routing");
 		settings.providerRouting = providerRouting === null ? null : parseProviderRouting(providerRouting);
@@ -468,6 +471,7 @@ function parseTranslationSettings(value: unknown): BotTranslationSettingsInput {
 	assignOptionalPlainText(settings, "model", record.model, "Translation model", 160);
 	assignOptionalPlainText(settings, "prompt", record.prompt, "Translation prompt", 2_000);
 	assignOptionalEnum(settings, "reasoningEffort", aliasedValue(record, "reasoningEffort", "reasoning_effort"), "Translation reasoning effort", inferenceReasoningEfforts);
+	assignOptionalEnum(settings, "toolCalls", aliasedValue(record, "toolCalls", "tool_calls"), "Translation tool calls", structuredToolCallModes);
 	if (record.providerRouting !== undefined || record.provider_routing !== undefined) {
 		const providerRouting = aliasedValue(record, "providerRouting", "provider_routing");
 		settings.providerRouting = providerRouting === null ? null : parseProviderRouting(providerRouting);

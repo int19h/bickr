@@ -6,17 +6,19 @@ import {
 	type AuthProvider,
 	type BotInferenceSettingsInput,
 	type BotInferenceSettings,
+	type BotInferenceToolCalls,
 	type BotInferenceReasoningEffort,
-	type BotEffectiveTickSettings,
 	type BotDocument,
+	type BotEffectiveTickSettings,
 	type BotPublicProfile,
 	type BotSummary,
+	type BotStructuredToolCalls,
 	type BotTranslationSettings,
 	type BotTranslationSettingsInput,
 	type BotToolSettings,
 	type BotToolSettingsInput,
-	type BotTickSettingsInput,
 	type BotTickSettings,
+	type BotTickSettingsInput,
 	type CreateBotInput,
 	type CreateForumInput,
 	type CreateWorldInput,
@@ -1980,6 +1982,7 @@ export function mergeInferenceSettings(
 		: patch.reasoningPrefill;
 	assignInferencePreservedString(next, "recurringPrompt", recurringPromptPatch);
 	assignInferenceReasoningEffort(next, "reasoningEffort", patch.reasoningEffort);
+	assignInferenceToolCalls(next, "toolCalls", patch.toolCalls);
 	assignInferenceJsonObject(next, "providerRouting", patch.providerRouting);
 	if (patch.translation !== undefined) {
 		const translation = mergeTranslationSettings(next.translation, patch.translation);
@@ -2332,6 +2335,36 @@ function assignInferenceReasoningEffort<T extends { reasoningEffort?: BotInferen
 	settings[key] = value;
 }
 
+function assignInferenceToolCalls<T extends { toolCalls?: BotInferenceToolCalls }>(
+	settings: T,
+	key: "toolCalls",
+	value: BotInferenceToolCalls | null | undefined,
+): void {
+	if (value === undefined) {
+		return;
+	}
+	if (value === null) {
+		delete settings[key];
+		return;
+	}
+	settings[key] = value;
+}
+
+function assignStructuredToolCalls<T extends { toolCalls?: BotStructuredToolCalls }>(
+	settings: T,
+	key: "toolCalls",
+	value: BotStructuredToolCalls | null | undefined,
+): void {
+	if (value === undefined) {
+		return;
+	}
+	if (value === null) {
+		delete settings[key];
+		return;
+	}
+	settings[key] = value;
+}
+
 function assignInferenceJsonObject(
 	settings: BotInferenceSettings,
 	key: "providerRouting",
@@ -2399,6 +2432,7 @@ function mergeTranslationSettings(
 		next.enabled = true;
 	}
 	assignInferenceReasoningEffort(next, "reasoningEffort", patch.reasoningEffort);
+	assignStructuredToolCalls(next, "toolCalls", patch.toolCalls);
 	assignTranslationJsonObject(next, "providerRouting", patch.providerRouting);
 	assignTranslationNumber(next, "temperature", patch.temperature);
 	assignTranslationNumber(next, "topK", patch.topK);
@@ -2471,6 +2505,7 @@ function translationSettingsHasValues(settings: BotTranslationSettings): boolean
 		hasInferenceText(settings.model) ||
 		hasInferenceText(settings.prompt) ||
 		settings.reasoningEffort !== undefined ||
+		settings.toolCalls !== undefined ||
 		settings.providerRouting !== undefined ||
 		settings.temperature !== undefined ||
 		settings.topK !== undefined ||

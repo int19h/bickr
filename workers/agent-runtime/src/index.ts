@@ -80,10 +80,14 @@ import {
 	type BotLoopMessageLog,
 	type BotLoopMessageLogEncoding,
 	type BotLoopMessageLogKind,
+	type BotLoopMessageLogsResponse,
+	type BotLoopMessageRequestLogMessage,
+	type BotLoopMessageRequestUsage,
 	type BotLoopMessageOrigin,
 	type BotLoopMessageStatus,
 	type BotDocument,
 	type BotInferenceReasoningEffort,
+	type BotInferenceToolCalls,
 	type BotPublicProfile,
 	type BotActivityFeed,
 	type CommentDocument,
@@ -92,6 +96,7 @@ import {
 	type BotRuntimeStatus,
 	type BotSearchResult,
 	type BotSummary,
+	type BotStructuredToolCalls,
 	type BotTokenUsageBucket,
 	type BotTokenUsageChangeMarker,
 	type BotTokenUsageModelBreakdown,
@@ -340,6 +345,10 @@ type ProviderUsageRow = {
 	cost: number | null;
 };
 
+type ProviderUsageLogRow = ProviderUsageRow & {
+	usage_json: string;
+};
+
 type ProviderLoopUsageRow = ProviderUsageRow & {
 	request_seq: number;
 };
@@ -382,6 +391,16 @@ class PersistentToolFailureError extends Error {
 		super(`Stopped after 5 consecutive failed tool calls. Last error: ${failure.message}`);
 		this.name = "PersistentToolFailureError";
 		this.failure = failure;
+	}
+}
+
+class PersistentMissingToolCallError extends Error {
+	readonly toolNames: string[];
+
+	constructor(toolNames: string[]) {
+		super(`Stopped after ${providerRailroadNoToolMaxAttempts} inference responses without a required tool call.`);
+		this.name = "PersistentMissingToolCallError";
+		this.toolNames = toolNames;
 	}
 }
 
@@ -569,6 +588,7 @@ export type ProviderSettings = {
 	model: string;
 	providerRouting?: JsonObject;
 	reasoningEffort?: Exclude<BotInferenceReasoningEffort, "default">;
+	toolCalls?: BotInferenceToolCalls;
 	temperature: number;
 	usesCustomBaseUrl?: boolean;
 	topK?: number;
@@ -602,7 +622,7 @@ type ProviderChatCompletionRequest = {
 	messages: ChatMessage[];
 	provider?: JsonObject;
 	tools: ProviderToolDefinition[];
-	tool_choice: typeof providerChatToolChoice;
+	tool_choice?: typeof providerRequiredToolChoice;
 	parallel_tool_calls: typeof providerParallelToolCalls;
 	stream: true;
 	stream_options: {
@@ -644,7 +664,7 @@ type ProviderCompactionRequest = {
 	provider?: JsonObject;
 	stream: false;
 	tools: [ProviderToolDefinition];
-	tool_choice: typeof providerStructuredOutputToolChoice;
+	tool_choice?: typeof providerRequiredToolChoice;
 	parallel_tool_calls: false;
 	max_completion_tokens: number;
 	reasoning: ProviderReasoningConfig;
@@ -657,6 +677,7 @@ type TranslationProviderSettings = {
 	model: string;
 	providerRouting?: JsonObject;
 	reasoningEffort?: Exclude<BotInferenceReasoningEffort, "default">;
+	toolCalls?: BotStructuredToolCalls;
 	prompt: string;
 	temperature: number;
 	topK?: number;
@@ -673,7 +694,7 @@ type ProviderTranslationRequest = {
 	provider?: JsonObject;
 	stream: false;
 	tools: [ProviderToolDefinition];
-	tool_choice: typeof providerStructuredOutputToolChoice;
+	tool_choice?: typeof providerRequiredToolChoice;
 	parallel_tool_calls: false;
 	max_completion_tokens: number;
 	reasoning: ProviderReasoningConfig;
@@ -779,11 +800,13 @@ class ProviderStructuredOutputValidationError extends Error {
 	readonly rawResponse?: string;
 	readonly toolCalls: BotInferenceSubmissionToolCall[];
 	readonly repairMessage: string;
+	readonly requiredToolName: string;
 
-	constructor(kind: "compaction" | "translation", repairMessage: string, options: { rawResponse?: string; toolCalls?: BotInferenceSubmissionToolCall[] } = {}) {
+	constructor(kind: "compaction" | "translation", repairMessage: string, options: { rawResponse?: string; requiredToolName?: string; toolCalls?: BotInferenceSubmissionToolCall[] } = {}) {
 		super(`Inference provider returned schema-invalid ${kind} tool arguments: ${repairMessage}`);
 		this.name = "ProviderStructuredOutputValidationError";
 		this.repairMessage = repairMessage;
+		this.requiredToolName = options.requiredToolName ?? "";
 		this.rawResponse = options.rawResponse;
 		this.toolCalls = options.toolCalls ?? [];
 	}
@@ -865,10 +888,10 @@ const scheduledDispatchTimeoutMs = 10_000;
 const vectorBindingTimeoutMs = 10_000;
 const providerMaxAttempts = 5;
 const providerRetryBaseDelayMs = 3_000;
-const providerChatToolChoice = "required" as const;
-const providerStructuredOutputToolChoice = "required" as const;
+const providerRequiredToolChoice = "required" as const;
 const providerTokenProbeToolChoice = "auto" as const;
 const providerParallelToolCalls = true;
+const providerRailroadNoToolMaxAttempts = 5;
 const providerDefaultReasoning = { enabled: true, exclude: false } as const;
 const providerTranslationMaxCompletionTokens = 8_192;
 const providerCompactionMaxCompletionTokens = 4_096;
@@ -877,7 +900,7 @@ const providerCompactionSummaryProperty = "detailed summary in first person";
 const providerCompactionToolName = "provide_summary";
 const providerTranslationToolName = "save_translation";
 const providerCompactionSummaryMaxCharacters = 4_000;
-const providerStructuredOutputRepairAttempts = 2;
+const providerStructuredOutputRepairAttempts = 4;
 const inferenceSubmissionRetentionCount = 50;
 const loopMessageLogRetentionCount = 50;
 const loopMessageLogChunkLength = 250_000;
@@ -929,18 +952,43 @@ function providerReasoningForSettings(settings: Pick<ProviderSettings, "reasonin
 	return settings.reasoningEffort ? { effort: settings.reasoningEffort, exclude: false } : providerDefaultReasoning;
 }
 
+function providerToolChoiceForMode(mode: BotInferenceToolCalls | BotStructuredToolCalls): typeof providerRequiredToolChoice | undefined {
+	return mode === "require" ? providerRequiredToolChoice : undefined;
+}
+
+function structuredToolCallsMode(mode: BotInferenceToolCalls): BotStructuredToolCalls {
+	return mode === "require" ? "require" : "railroad";
+}
+
+function providerToolNames(tools: readonly ProviderToolDefinition[]): string[] {
+	return tools.map((definition) => definition.type === "function" ? definition.function.name : definition.type);
+}
+
+function toolRequirementInstruction(tools: readonly ProviderToolDefinition[]): string {
+	return `You MUST use one of the following tools: ${providerToolNames(tools).join(", ")}.`;
+}
+
+function toolRequirementSelfCorrection(tools: readonly ProviderToolDefinition[]): string {
+	return `Actually, I must use one of the following tools: ${providerToolNames(tools).join(", ")}.`;
+}
+
+function appendToolRequirementInstruction(content: string, tools: readonly ProviderToolDefinition[]): string {
+	return `${content}\n\n${toolRequirementInstruction(tools)}`;
+}
+
 export function providerChatCompletionRequest(
 	settings: ProviderSettings,
 	messages: ChatMessage[],
 	tools: ProviderToolDefinition[],
 	reasoningPrefill?: string,
+	toolCalls: BotInferenceToolCalls = settings.toolCalls ?? "require",
 ): ProviderChatCompletionRequest {
 	return {
 		model: settings.model,
 		messages: sanitizeProviderMessagesForRequest(providerMessagesWithReasoningPrefill(messages, reasoningPrefill)),
 		...(settings.providerRouting ? { provider: settings.providerRouting } : {}),
 		tools,
-		tool_choice: providerChatToolChoice,
+		...(providerToolChoiceForMode(toolCalls) ? { tool_choice: providerToolChoiceForMode(toolCalls) } : {}),
 		parallel_tool_calls: providerParallelToolCalls,
 		stream: true,
 		stream_options: {
@@ -958,11 +1006,36 @@ export function providerChatCompletionRequest(
 	};
 }
 
+function providerCompactionTools(): [ProviderToolDefinition] {
+	return [
+		{
+			type: "function",
+			function: {
+				name: providerCompactionToolName,
+				description: "Save the compacted first-person memory summary.",
+				parameters: {
+					type: "object",
+					properties: {
+						[providerCompactionSummaryProperty]: {
+							type: "string",
+							minLength: 1,
+							maxLength: providerCompactionSummaryMaxCharacters,
+						},
+					},
+					required: [providerCompactionSummaryProperty],
+					additionalProperties: false,
+				},
+			},
+		},
+	];
+}
+
 export function providerCompactionMessages(bot: BotDocument, compactedMessages: ChatMessage[]): ChatMessage[] {
+	const tools = providerCompactionTools();
 	return [
 		{
 			role: "system",
-			content: standardPrompt(bot),
+			content: appendToolRequirementInstruction(standardPrompt(bot), tools),
 		},
 		...compactedMessages,
 		{
@@ -977,36 +1050,17 @@ export function providerCompactionMessages(bot: BotDocument, compactedMessages: 
 }
 
 export function providerCompactionRequest(
-	settings: Pick<ProviderSettings, "model" | "providerRouting" | "reasoningEffort">,
+	settings: Pick<ProviderSettings, "model" | "providerRouting" | "reasoningEffort" | "toolCalls">,
 	messages: ChatMessage[],
 ): ProviderCompactionRequest {
+	const toolCalls = structuredToolCallsMode(settings.toolCalls ?? "require");
 	return {
 		model: settings.model,
 		messages: sanitizeProviderMessagesForRequest(messages),
 		...(settings.providerRouting ? { provider: settings.providerRouting } : {}),
 		stream: false,
-		tools: [
-			{
-				type: "function",
-				function: {
-					name: providerCompactionToolName,
-					description: "Save the compacted first-person memory summary.",
-					parameters: {
-						type: "object",
-						properties: {
-							[providerCompactionSummaryProperty]: {
-								type: "string",
-								minLength: 1,
-								maxLength: providerCompactionSummaryMaxCharacters,
-							},
-						},
-						required: [providerCompactionSummaryProperty],
-						additionalProperties: false,
-					},
-				},
-			},
-		],
-		tool_choice: providerStructuredOutputToolChoice,
+		tools: providerCompactionTools(),
+		...(providerToolChoiceForMode(toolCalls) ? { tool_choice: providerToolChoiceForMode(toolCalls) } : {}),
 		parallel_tool_calls: false,
 		max_completion_tokens: providerCompactionMaxCompletionTokens,
 		reasoning: providerReasoningForSettings(settings),
@@ -1028,11 +1082,20 @@ export function providerMessagesWithReasoningPrefill(
 
 function contextBudgetPromptParts(bot: BotDocument, settings: ProviderSettings): ContextBudgetPromptParts {
 	const serverTools = openRouterServerToolSelection(settings.baseUrl, bot.toolSettings);
+	const providerTools: ProviderToolDefinition[] = [
+		...toolDefinitions.filter((definition) => definition.function.name !== "log_off"),
+		...serverTools.tools,
+	];
+	const fixedSystemToolInstructionTools = providerTools;
+	const fixedSystemMessage =
+		settings.toolCalls === "at_will" ? standardPrompt({ ...bot, prompt: "" }) : appendToolRequirementInstruction(standardPrompt({ ...bot, prompt: "" }), fixedSystemToolInstructionTools);
+	const fullSystemMessage =
+		settings.toolCalls === "at_will" ? standardPrompt(bot) : appendToolRequirementInstruction(standardPrompt(bot), fixedSystemToolInstructionTools);
 	return {
-		fixedSystemMessage: standardPrompt({ ...bot, prompt: "" }),
-		fullSystemMessage: standardPrompt(bot),
+		fixedSystemMessage,
+		fullSystemMessage,
 		reasoningPrefill: effectiveReasoningPrefill(bot),
-		providerTools: [...toolDefinitions, ...serverTools.tools],
+		providerTools,
 	};
 }
 
@@ -1736,6 +1799,26 @@ export function providerTokenProbeRequest(
 	};
 }
 
+function providerTranslationTools(): [ProviderToolDefinition] {
+	return [
+		{
+			type: "function",
+			function: {
+				name: providerTranslationToolName,
+				description: "Save the translated text.",
+				parameters: {
+					type: "object",
+					properties: {
+						translation: { type: "string" },
+					},
+					required: ["translation"],
+					additionalProperties: false,
+				},
+			},
+		},
+	];
+}
+
 export function providerTranslationRequest(
 	settings: TranslationProviderSettings,
 	text: string,
@@ -1743,7 +1826,7 @@ export function providerTranslationRequest(
 	return {
 		model: settings.model,
 		messages: [
-			{ role: "system", content: settings.prompt },
+			{ role: "system", content: appendToolRequirementInstruction(settings.prompt, providerTranslationTools()) },
 			{
 				role: "user",
 				content: `Translate the following text. You must respond by calling the ${providerTranslationToolName} tool with the translated text in the translation argument. Do not reply as plain text.\n\nText:\n${text}`,
@@ -1751,24 +1834,8 @@ export function providerTranslationRequest(
 		],
 		...(settings.providerRouting ? { provider: settings.providerRouting } : {}),
 		stream: false,
-		tools: [
-			{
-				type: "function",
-				function: {
-					name: providerTranslationToolName,
-					description: "Save the translated text.",
-					parameters: {
-						type: "object",
-						properties: {
-							translation: { type: "string" },
-						},
-						required: ["translation"],
-						additionalProperties: false,
-					},
-				},
-			},
-		],
-		tool_choice: providerStructuredOutputToolChoice,
+		tools: providerTranslationTools(),
+		...(providerToolChoiceForMode(settings.toolCalls ?? "require") ? { tool_choice: providerToolChoiceForMode(settings.toolCalls ?? "require") } : {}),
 		parallel_tool_calls: false,
 		max_completion_tokens: providerTranslationMaxCompletionTokens,
 		reasoning: providerReasoningForSettings(settings),
@@ -1844,6 +1911,7 @@ export function effectiveProviderSettingsForBot(
 			bot.inferenceSettings.providerRouting !== undefined ? bot.inferenceSettings.providerRouting : userSettings.providerRouting;
 		const effectiveProviderRouting = openRouterProviderRouting(baseUrl, providerRouting);
 		const reasoningEffort = bot.inferenceSettings.reasoningEffort ?? userSettings.reasoningEffort;
+		const toolCalls = bot.inferenceSettings.toolCalls ?? userSettings.toolCalls ?? "require";
 
 		return {
 			apiKey: botApiKey ?? userApiKey ?? (hasCustomBaseUrl ? undefined : envApiKey),
@@ -1851,6 +1919,7 @@ export function effectiveProviderSettingsForBot(
 			model,
 			...(effectiveProviderRouting ? { providerRouting: effectiveProviderRouting } : {}),
 			...(reasoningEffort && reasoningEffort !== "default" ? { reasoningEffort } : {}),
+			toolCalls,
 			temperature,
 		...(hasCustomBaseUrl ? { usesCustomBaseUrl: true } : {}),
 		...(bot.inferenceSettings.topK !== undefined ? { topK: bot.inferenceSettings.topK }
@@ -1899,12 +1968,14 @@ export function effectiveProviderSettingsForTranslation(
 		usingLoopSettings ? userSettings.providerRouting : translation.providerRouting,
 	);
 	const reasoningEffort = usingLoopSettings ? userSettings.reasoningEffort : translation.reasoningEffort;
+	const toolCalls = structuredToolCallsMode(usingLoopSettings ? userSettings.toolCalls ?? "require" : translation.toolCalls ?? "require");
 	return {
 		apiKey: userApiKey ?? (hasCustomBaseUrl ? undefined : envApiKey),
 		baseUrl,
 		model,
 		...(providerRouting ? { providerRouting } : {}),
 		...(reasoningEffort && reasoningEffort !== "default" ? { reasoningEffort } : {}),
+		toolCalls,
 		prompt: trimmed(translation?.prompt) ?? defaultTranslationPrompt,
 		temperature: usingLoopSettings ? userSettings.temperature ?? 0.9 : translation.temperature ?? 0,
 		...(usingLoopSettings ?
@@ -2421,7 +2492,7 @@ export class BotRuntime {
 				bot.id,
 				notifications,
 				injections,
-				this.pendingToolUseReminder(),
+				(providerSettings.toolCalls ?? "require") === "at_will" ? undefined : this.pendingToolUseReminder(),
 			);
 			const input = builtInput.input;
 			const inputEvent = await this.appendEvent(runId, "input", input);
@@ -2445,7 +2516,9 @@ export class BotRuntime {
 			this.throwIfStopped(runId, abortController.signal);
 			if (providerSettings.apiKey || providerSettings.usesCustomBaseUrl || this.env.BICKR_SIMULATION_MODE === "provider") {
 				const outcome = await this.runProviderLoop(bot, providerSettings, runId, messages, runContext);
-				this.recordToolUseRecoveryOutcome(runId, outcome.toolCallCount);
+				if ((providerSettings.toolCalls ?? "require") !== "at_will") {
+					this.recordToolUseRecoveryOutcome(runId, outcome.toolCallCount);
+				}
 				if (
 					runContext.mode === "spotlight" &&
 					runContext.spotlightId &&
@@ -2494,6 +2567,33 @@ export class BotRuntime {
 						runId,
 						message: error.failure.message,
 						toolName: error.failure.toolName,
+					});
+					if (runContext.mode === "spotlight" && runContext.spotlightId) {
+						await recordSpotlightFailureHumanNotification(this.env.BICKR_D1, {
+							bot,
+							runId,
+							spotlightId: runContext.spotlightId,
+							message: error.message,
+						});
+					}
+				} catch (notificationError) {
+					console.warn("bot runtime failure notification failed", notificationError);
+				}
+				return { runId, status: "failed", error: error.message };
+			}
+			if (error instanceof PersistentMissingToolCallError) {
+				if (!this.hasTerminalEvent(runId)) {
+					await this.recordTickFailure(runId, {
+						message: error.message,
+						toolNames: error.toolNames,
+					});
+				}
+				await this.setRuntimeIndex(bot, "failed", null, error.message, new Date().toISOString());
+				try {
+					await recordBotRuntimeFailureHumanNotification(this.env.BICKR_D1, {
+						bot,
+						runId,
+						message: error.message,
 					});
 					if (runContext.mode === "spotlight" && runContext.spotlightId) {
 						await recordSpotlightFailureHumanNotification(this.env.BICKR_D1, {
@@ -2842,20 +2942,29 @@ export class BotRuntime {
 		let toolCallCount = 0;
 		let exposeAdditionalReplyAcknowledgementForRound = false;
 		let successfulToolCallsThisIteration = this.providerLoopInitialSuccessfulToolCallCount();
+		let mutatingToolUsedThisIteration = this.successfulMutatingToolCallSinceLastCompaction();
+		let railroadNoToolAttempts = 0;
+		let toolRequestTurns = 0;
+		const toolCallsMode = settings.toolCalls ?? "require";
 		const tickSettings = effectiveTickSettings(bot.tickSettings);
 		const maxSuccessfulToolCallsPerIteration = maxSuccessfulToolCallsPerIterationSetting(bot);
-		for (let turn = 0; turn < tickSettings.maxToolCallsPerTick; turn += 1) {
+		while (toolRequestTurns < tickSettings.maxToolCallsPerTick) {
 			this.throwIfStopped(runId, runContext.signal);
 			const serverTools = openRouterServerToolSelection(settings.baseUrl, bot.toolSettings);
 			const exposeAdditionalReplyAcknowledgement = exposeAdditionalReplyAcknowledgementForRound;
 			exposeAdditionalReplyAcknowledgementForRound = false;
-			const logOffOnly = iterationRequiresLogOffOnly(successfulToolCallsThisIteration, maxSuccessfulToolCallsPerIteration);
+			const logOffAvailable = mutatingToolUsedThisIteration;
+			const logOffOnly = logOffAvailable && iterationRequiresLogOffOnly(successfulToolCallsThisIteration, maxSuccessfulToolCallsPerIteration);
 			const functionTools = toolDefinitionsForProviderRound({ exposeAdditionalReplyAcknowledgement })
+				.filter((definition) => logOffAvailable || definition.function.name !== "log_off")
 				.filter((definition) => !logOffOnly || definition.function.name === "log_off");
 			const providerTools: ProviderToolDefinition[] = [
 				...functionTools,
 				...(logOffOnly ? [] : serverTools.tools),
 			];
+			if (providerTools.length === 0) {
+				return { logOffCalled, publicSpotlightToolCallCount, toolCallCount };
+			}
 			let response: ProviderResponse;
 			let responseStatus: ProviderMessageStatus = "complete";
 			let interruptedError: ProviderResponseInterruptedError | null = null;
@@ -2869,13 +2978,14 @@ export class BotRuntime {
 					model: settings.model,
 					messageCount: requestMessages.length,
 					toolCount: providerTools.length,
-					toolChoice: providerChatToolChoice,
+					toolCalls: toolCallsMode,
+					...(providerToolChoiceForMode(toolCallsMode) ? { toolChoice: providerToolChoiceForMode(toolCallsMode) } : {}),
 					parallelToolCalls: providerParallelToolCalls,
 					contextWindowTokens: tickSettings.contextWindowTokens,
 					promptTokens: budgetCheck.promptTokens,
 					allowedPromptTokens: budgetCheck.allowedPromptTokens,
 					maxCompletionTokens: providerContextReserveTokens,
-						reasoning: providerReasoningForSettings(settings),
+					reasoning: providerReasoningForSettings(settings),
 					temperature: settings.temperature,
 					additionalReplyAcknowledgementToolArgument: exposeAdditionalReplyAcknowledgement ? "exposed" : "hidden",
 					openRouterServerTools: {
@@ -2886,6 +2996,7 @@ export class BotRuntime {
 					iterationToolLimit: {
 						successfulToolCalls: successfulToolCallsThisIteration,
 						maxSuccessfulToolCalls: maxSuccessfulToolCallsPerIteration,
+						logOffAvailable,
 						logOffOnly,
 					},
 					...(settings.topK !== undefined ? { topK: settings.topK } : {}),
@@ -2906,7 +3017,7 @@ export class BotRuntime {
 				responseStatus = "complete";
 				interruptedError = null;
 				try {
-					response = await this.callProvider(settings, requestMessages, providerTools, runId, requestEvent.seq, runContext.signal);
+					response = await this.callProvider(settings, requestMessages, providerTools, runId, requestEvent.seq, runContext.signal, toolCallsMode);
 				} catch (error) {
 					if (error instanceof ProviderResponseInterruptedError) {
 						response = error.response;
@@ -2971,8 +3082,23 @@ export class BotRuntime {
 				throw interruptedError?.originalError instanceof Error ? interruptedError.originalError : new TickStoppedError();
 			}
 			if (response.toolCalls.length === 0) {
+				if (toolCallsMode === "railroad") {
+					railroadNoToolAttempts += 1;
+					if (railroadNoToolAttempts >= providerRailroadNoToolMaxAttempts) {
+						throw new PersistentMissingToolCallError(providerToolNames(providerTools));
+					}
+					const acknowledgementContent = toolRequirementSelfCorrection(providerTools);
+					await this.appendEvent(runId, "assistant_message", {
+						content: acknowledgementContent,
+						status: "complete",
+					});
+					this.appendLoopMessage(runId, { role: "assistant", content: acknowledgementContent }, "self_correction");
+					continue;
+				}
 				return { logOffCalled, publicSpotlightToolCallCount, toolCallCount };
 			}
+			railroadNoToolAttempts = 0;
+			toolRequestTurns += 1;
 			toolCallCount += response.toolCalls.length;
 			const toolFailureAcknowledgements: string[] = [];
 			const selfCorrectionAcknowledgements: string[] = [];
@@ -2983,8 +3109,35 @@ export class BotRuntime {
 				this.throwIfStopped(runId, runContext.signal);
 				const args = parseToolArgs(toolCall);
 				const canonicalName = canonicalToolName(toolCall.function.name);
+				if (canonicalName === "log_off" && !logOffAvailable) {
+					pendingToolCallIds.delete(toolCall.id);
+					const failure: ToolFailurePayload = {
+						ok: false,
+						code: "tool_unavailable",
+						message: "log_off is not available until I have used a mutating Bickr control in this iteration.",
+						toolName: "log_off",
+						args: providerToolArgs("log_off", args),
+						guidance: "Use another available tool.",
+					};
+					await this.appendEvent(runId, "tool_result", {
+						name: "log_off",
+						args: providerToolArgs("log_off", args),
+						result: failure,
+						error: true,
+					});
+					const toolMessage: ChatMessage = {
+						role: "tool",
+						tool_call_id: toolCall.id,
+						content: JSON.stringify(failure),
+					};
+					const loopMessage = this.appendLoopMessage(runId, toolMessage, "tool_failure");
+					this.recordLoopMessageLog(loopMessage.seq, "tool_call", JSON.stringify(toolCall));
+					this.recordLoopMessageLog(loopMessage.seq, "tool_result", toolMessage.content ?? "");
+					toolFailureAcknowledgements.push(toolFailureAssistantContent(failure));
+					continue;
+				}
 				if (
-					(canonicalName !== "log_off" && iterationRequiresLogOffOnly(successfulToolCallsThisIteration, maxSuccessfulToolCallsPerIteration)) ||
+					(canonicalName !== "log_off" && logOffAvailable && iterationRequiresLogOffOnly(successfulToolCallsThisIteration, maxSuccessfulToolCallsPerIteration)) ||
 					(logOffCalled && canonicalName !== "log_off")
 				) {
 					pendingToolCallIds.delete(toolCall.id);
@@ -3022,6 +3175,9 @@ export class BotRuntime {
 						logOffCalled = true;
 					}
 					successfulToolCallsThisIteration += 1;
+					if (mutableToolNames.has(result.name)) {
+						mutatingToolUsedThisIteration = true;
+					}
 					if (runContext.spotlightId && mutableToolNames.has(result.name)) {
 						publicSpotlightToolCallCount += 1;
 					}
@@ -3162,9 +3318,10 @@ export class BotRuntime {
 		runId: string,
 		streamSeq: number,
 		signal: AbortSignal,
+		toolCalls: BotInferenceToolCalls = settings.toolCalls ?? "require",
 	): Promise<ProviderResponse> {
 		const endpoint = providerChatCompletionsUrl(settings.baseUrl);
-		const body = stringifyProviderRequest(providerChatCompletionRequest(settings, messages, tools));
+		const body = stringifyProviderRequest(providerChatCompletionRequest(settings, messages, tools, undefined, toolCalls));
 		let previousRetryKey: string | null = null;
 		for (let attempt = 1; attempt <= providerMaxAttempts; attempt += 1) {
 			this.throwIfStopped(runId, signal);
@@ -3803,7 +3960,7 @@ export class BotRuntime {
 		};
 	}
 
-	private loopMessageLogsForSeq(seq: number): { message: BotLoopMessage; logs: BotLoopMessageLog[] } {
+	private loopMessageLogsForSeq(seq: number): BotLoopMessageLogsResponse {
 		if (!Number.isInteger(seq) || seq <= 0) {
 			throw new RepositoryError("bad_request", "Loop message sequence is invalid.", 400);
 		}
@@ -3831,7 +3988,109 @@ export class BotRuntime {
 			)
 			.toArray()
 			.map((log) => loopMessageLogFromRow(log, this.reconstructLoopMessageLogText(log.id)));
-		return { message: loopMessageFromRow(row), logs };
+		const requestUsage = row.stream_seq ? this.loopMessageRequestUsage(row.run_id, row.stream_seq) : undefined;
+		const requestMessages = this.loopMessageRequestMessages(logs, requestUsage);
+		return {
+			message: loopMessageFromRow(row),
+			logs,
+			...(requestMessages.length > 0 ? { requestMessages } : {}),
+			...(requestUsage ? { requestUsage } : {}),
+		};
+	}
+
+	private loopMessageRequestUsage(runId: string, requestSeq: number): BotLoopMessageRequestUsage | undefined {
+		const row = this.state.storage.sql
+			.exec<ProviderUsageLogRow>(
+				`SELECT created_at, run_id, model, requested_model, response_model, context_window_tokens,
+				        prompt_tokens, completion_tokens, total_tokens, cached_tokens, reasoning_tokens, cost, usage_json
+				 FROM provider_usage
+				 WHERE run_id = ?
+				   AND request_seq = ?
+				 ORDER BY id DESC
+				 LIMIT 1`,
+				runId,
+				requestSeq,
+			)
+			.toArray()[0];
+		if (!row) {
+			return undefined;
+		}
+		let raw: Record<string, unknown> = {};
+		try {
+			raw = runtimeRecord(JSON.parse(row.usage_json));
+		} catch {
+			raw = {};
+		}
+		const costDetails = runtimeRecord(raw.cost_details);
+		const totalCost = row.cost ?? numberValue(raw.cost) ?? null;
+		let promptCost = numberValue(costDetails.upstream_inference_prompt_cost) ?? null;
+		let outputCost = numberValue(costDetails.upstream_inference_completions_cost) ?? null;
+		if (promptCost === null && totalCost !== null && outputCost !== null) {
+			promptCost = Math.max(0, totalCost - outputCost);
+		}
+		if (outputCost === null && totalCost !== null && promptCost !== null) {
+			outputCost = Math.max(0, totalCost - promptCost);
+		}
+		const cachedInputTokens = Math.min(row.prompt_tokens, Math.max(0, row.cached_tokens));
+		const uncachedInputTokens = Math.max(0, row.prompt_tokens - cachedInputTokens);
+		const cachedInputCost =
+			promptCost === null ? null
+			: row.prompt_tokens > 0 ? promptCost * (cachedInputTokens / row.prompt_tokens)
+			: 0;
+		const uncachedInputCost =
+			promptCost === null ? null
+			: row.prompt_tokens > 0 ? promptCost * (uncachedInputTokens / row.prompt_tokens)
+			: 0;
+		return {
+			promptTokens: row.prompt_tokens,
+			cachedInputTokens,
+			uncachedInputTokens,
+			outputTokens: row.completion_tokens,
+			totalTokens: row.total_tokens,
+			cachedInputCost,
+			uncachedInputCost,
+			outputCost,
+			totalCost,
+			estimatedCostSplit: promptCost !== null && cachedInputTokens > 0 && uncachedInputTokens > 0,
+		};
+	}
+
+	private loopMessageRequestMessages(
+		logs: readonly BotLoopMessageLog[],
+		usage: BotLoopMessageRequestUsage | undefined,
+	): BotLoopMessageRequestLogMessage[] {
+		const requestLog = logs.find((log) => log.kind === "provider_request" || log.kind === "compaction_request");
+		if (!requestLog) {
+			return [];
+		}
+		let messages: BotInferenceSubmissionMessage[];
+		try {
+			const record = runtimeRecord(JSON.parse(requestLog.text));
+			messages = Array.isArray(record.messages) ? record.messages as BotInferenceSubmissionMessage[] : [];
+		} catch {
+			return [];
+		}
+		if (messages.length === 0) {
+			return [];
+		}
+		const calibration = this.textTokenCalibration();
+		let consumed = 0;
+		const cachedTokens = usage?.cachedInputTokens ?? 0;
+		return messages.map((message, index) => {
+			const tokens = estimateChatMessageTokens(message, calibration);
+			const start = consumed;
+			const end = consumed + tokens;
+			consumed = end;
+			const cacheStatus =
+				cachedTokens <= start ? undefined
+				: cachedTokens >= end ? "cached"
+				: "partially_cached";
+			return {
+				message,
+				position: index + 1,
+				...(cacheStatus ? { cacheStatus } : {}),
+			};
+		});
 	}
 
 	private recordLoopMessageLog(messageSeq: number, kind: BotLoopMessageLogKind, text: string): void {
@@ -4234,6 +4493,7 @@ export class BotRuntime {
 			toolSettings,
 			tickSettings: mergeTickSettings(currentBot.tickSettings, input.tickSettings),
 		};
+		const tickSettings = effectiveTickSettings(bot.tickSettings);
 		const settings = this.effectiveProviderSettings(bot, owner);
 		if (!settings.apiKey && !settings.usesCustomBaseUrl && this.env.BICKR_SIMULATION_MODE !== "provider") {
 			throw new InputError("Configure an OpenRouter API key or custom inference base URL to compute exact tokens.");
@@ -4280,7 +4540,6 @@ export class BotRuntime {
 				this.setContextBudgetCachedCounts(fingerprint, next);
 				return next;
 			})();
-		const tickSettings = effectiveTickSettings(bot.tickSettings);
 		const budget = promptContextBudgetFromCounts({
 			...counts,
 			contextWindowTokens: tickSettings.contextWindowTokens,
@@ -5399,7 +5658,7 @@ export class BotRuntime {
 		if (!this.hasRuntimeStorage()) {
 			return 0;
 		}
-		return this.successfulToolCallCountSinceLastLogOff();
+		return this.successfulToolCallCountSinceLastCompaction();
 	}
 
 	private hasRuntimeStorage(): boolean {
@@ -5407,8 +5666,11 @@ export class BotRuntime {
 		return Boolean(runtime.state?.storage?.sql);
 	}
 
-	private successfulToolCallCountSinceLastLogOff(): number {
-		const lastLogOffSeq = this.latestSuccessfulLogOffToolResultSeq();
+	private successfulToolCallCountSinceLastCompaction(): number {
+		if (!this.hasRuntimeStorage()) {
+			return 0;
+		}
+		const lastCompactionSeq = this.latestCompletedCompactionSeq();
 		const rows = this.state.storage.sql
 			.exec<RuntimeRow>(
 				`SELECT seq, run_id, type, payload_json, token_estimate, compacted_by, created_at
@@ -5416,10 +5678,49 @@ export class BotRuntime {
 				 WHERE seq > ?
 				   AND type = 'tool_result'
 				 ORDER BY seq ASC`,
-				lastLogOffSeq,
+				lastCompactionSeq,
 			)
 			.toArray();
 		return rows.filter((row) => successfulToolResultPayload(runtimeRecord(JSON.parse(row.payload_json)))).length;
+	}
+
+	private successfulMutatingToolCallSinceLastCompaction(): boolean {
+		if (!this.hasRuntimeStorage()) {
+			return false;
+		}
+		const lastCompactionSeq = this.latestCompletedCompactionSeq();
+		const rows = this.state.storage.sql
+			.exec<RuntimeRow>(
+				`SELECT seq, run_id, type, payload_json, token_estimate, compacted_by, created_at
+				 FROM events
+				 WHERE seq > ?
+				   AND type = 'tool_result'
+				 ORDER BY seq ASC`,
+				lastCompactionSeq,
+			)
+			.toArray();
+		return rows.some((row) => {
+			const payload = runtimeRecord(JSON.parse(row.payload_json));
+			return successfulToolResultPayload(payload) && mutableToolNames.has(canonicalToolName(stringValue(payload.name) ?? ""));
+		});
+	}
+
+	private latestCompletedCompactionSeq(): number {
+		const rows = this.state.storage.sql
+			.exec<RuntimeRow>(
+				`SELECT seq, run_id, type, payload_json, token_estimate, compacted_by, created_at
+				 FROM events
+				 WHERE type = 'compaction'
+				 ORDER BY seq DESC`,
+			)
+			.toArray();
+		for (const row of rows) {
+			const payload = runtimeRecord(JSON.parse(row.payload_json));
+			if (payload.status === "complete") {
+				return row.seq;
+			}
+		}
+		return 0;
 	}
 
 	private latestSuccessfulLogOffToolResultSeq(): number {
@@ -5559,7 +5860,7 @@ export class BotRuntime {
 		const tickSettings = effectiveTickSettings(bot.tickSettings);
 		for (;;) {
 			this.throwIfStopped(runId, signal);
-			const requestMessages = this.activeProviderRequestMessages(bot);
+			const requestMessages = this.activeProviderRequestMessages(bot, providerTools, settings.toolCalls ?? "require");
 			const estimate = this.estimateProviderPromptTokens(settings, requestMessages, providerTools);
 			const overBudgetTokens = Math.max(0, estimate.promptTokens - allowedPromptTokens);
 			await this.appendEvent(runId, "provider_token_estimate", {
@@ -5596,9 +5897,15 @@ export class BotRuntime {
 		}
 	}
 
-	private activeProviderRequestMessages(bot: BotDocument): ChatMessage[] {
+	private activeProviderRequestMessages(
+		bot: BotDocument,
+		providerTools: readonly ProviderToolDefinition[] = toolDefinitions,
+		toolCalls: BotInferenceToolCalls = "require",
+	): ChatMessage[] {
+		const systemContent =
+			toolCalls === "at_will" ? standardPrompt(bot) : appendToolRequirementInstruction(standardPrompt(bot), providerTools);
 		return [
-			{ role: "system", content: standardPrompt(bot) },
+			{ role: "system", content: systemContent },
 			...this.activeLoopMessagesForProvider(),
 		];
 	}
@@ -5802,6 +6109,7 @@ export class BotRuntime {
 			origin: "compaction",
 			status: "complete",
 			position: summaryPosition,
+			streamSeq: summaryEvent.seq,
 			broadcast: true,
 		});
 		for (const row of ledgerRows) {
@@ -5834,8 +6142,9 @@ export class BotRuntime {
 			]);
 		}
 		if (response.usage) {
+			const tickSettings = effectiveTickSettings(bot.tickSettings);
 			this.recordProviderUsage({
-				contextWindowTokens: effectiveTickSettings(bot.tickSettings).contextWindowTokens,
+				contextWindowTokens: tickSettings.contextWindowTokens,
 				createdAt: summaryEvent.createdAt,
 				providerResponseId: response.responseId,
 				requestSeq: summaryEvent.seq,
@@ -7303,12 +7612,14 @@ function providerStructuredOutputFromToolMessage(
 ): string {
 	const message = runtimeRecord(messageValue);
 	const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls.map(providerToolCallFromValue).filter((toolCall): toolCall is BotInferenceSubmissionToolCall => Boolean(toolCall)) : [];
+	const errorOptions = { rawResponse, requiredToolName: spec.toolName, toolCalls };
 	if (toolCalls.length === 0) {
-		throw new ProviderStructuredOutputValidationError(spec.kind, `No ${spec.toolName} tool call was returned.`, { rawResponse });
+		throw new ProviderStructuredOutputValidationError(spec.kind, `No ${spec.toolName} tool call was returned.`, errorOptions);
 	}
 	if (toolCalls.length !== 1) {
 		throw new ProviderStructuredOutputValidationError(spec.kind, `Expected exactly one ${spec.toolName} tool call, but received ${toolCalls.length}.`, {
 			rawResponse,
+			requiredToolName: spec.toolName,
 			toolCalls,
 		});
 	}
@@ -7316,6 +7627,7 @@ function providerStructuredOutputFromToolMessage(
 	if (toolCall.function.name !== spec.toolName) {
 		throw new ProviderStructuredOutputValidationError(spec.kind, `Expected tool ${spec.toolName}, but received ${toolCall.function.name || "unknown"}.`, {
 			rawResponse,
+			requiredToolName: spec.toolName,
 			toolCalls,
 		});
 	}
@@ -7325,12 +7637,14 @@ function providerStructuredOutputFromToolMessage(
 	} catch {
 		throw new ProviderStructuredOutputValidationError(spec.kind, `The ${spec.toolName} arguments were not valid JSON.`, {
 			rawResponse,
+			requiredToolName: spec.toolName,
 			toolCalls,
 		});
 	}
 	if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
 		throw new ProviderStructuredOutputValidationError(spec.kind, `The ${spec.toolName} arguments must be a JSON object.`, {
 			rawResponse,
+			requiredToolName: spec.toolName,
 			toolCalls,
 		});
 	}
@@ -7340,6 +7654,7 @@ function providerStructuredOutputFromToolMessage(
 	if (extraKeys.length > 0) {
 		throw new ProviderStructuredOutputValidationError(spec.kind, `Unexpected argument ${extraKeys.join(", ")}; only ${spec.property} is allowed.`, {
 			rawResponse,
+			requiredToolName: spec.toolName,
 			toolCalls,
 		});
 	}
@@ -7347,6 +7662,7 @@ function providerStructuredOutputFromToolMessage(
 	if (typeof value !== "string" || value.trim().length === 0) {
 		throw new ProviderStructuredOutputValidationError(spec.kind, `The ${spec.label} argument must be a non-empty string.`, {
 			rawResponse,
+			requiredToolName: spec.toolName,
 			toolCalls,
 		});
 	}
@@ -7381,8 +7697,8 @@ function structuredOutputRepairMessages(error: ProviderStructuredOutputValidatio
 	if (error.toolCalls.length === 0) {
 		return [
 			{
-				role: "user",
-				content: `Bickr Terminal could not read the required tool call: ${error.repairMessage} Please call the required tool with arguments that exactly match its schema.`,
+				role: "assistant",
+				content: `Actually, I must use the ${error.requiredToolName || "required"} tool.`,
 			},
 		];
 	}

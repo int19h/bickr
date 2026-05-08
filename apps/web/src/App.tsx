@@ -15,6 +15,9 @@ import {
 	type BotLoopMessagePage,
 	type BotLoopMessagesResponse,
 	type BotLoopMessageLog,
+	type BotLoopMessageLogsResponse,
+	type BotLoopMessageRequestLogMessage,
+	type BotLoopMessageRequestUsage,
 	type BotSummary,
 	type BotPublicProfile,
 	type BotRuntimeEvent,
@@ -162,11 +165,13 @@ type InferenceDraft = {
 	model: string;
 	recurringPrompt: string;
 	reasoningEffort: string;
+	toolCalls: string;
 	providerRouting: string;
 	translationEnabled: boolean;
 	translationModel: string;
 	translationPrompt: string;
 	translationReasoningEffort: string;
+	translationToolCalls: string;
 	translationProviderRouting: string;
 	translationTemperature: string;
 	translationTopK: string;
@@ -7160,6 +7165,19 @@ function AgenticLoopInferenceFields({
 							))}
 						</select>
 					</Field>
+					<Field label="Tool calls">
+						<select
+							className="input reasoning-select"
+							onChange={(event) => patch({ toolCalls: event.target.value })}
+							value={draft.toolCalls}
+						>
+							{toolCallOptions.map((option) => (
+								<option key={option.value} value={option.value}>
+									{option.label}
+								</option>
+							))}
+						</select>
+					</Field>
 				</div>
 				<div className="inference-row four">
 					<Field label="Temperature">
@@ -7267,6 +7285,12 @@ const reasoningEffortOptions = [
 	{ value: "high", label: "High" },
 	{ value: "xhigh", label: "XHigh" },
 ] as const;
+const toolCallOptions = [
+	{ value: "require", label: "Require" },
+	{ value: "railroad", label: "Railroad" },
+	{ value: "at_will", label: "At will" },
+] as const;
+const structuredToolCallOptions = toolCallOptions.filter((option) => option.value !== "at_will");
 
 function ProviderRoutingField({
 	onChange,
@@ -7367,6 +7391,20 @@ function TranslationInferenceFields({
 								value={draft.translationReasoningEffort}
 							>
 								{reasoningEffortOptions.map((option) => (
+									<option key={option.value} value={option.value}>
+										{option.label}
+									</option>
+								))}
+							</select>
+						</Field>
+						<Field label="Tool calls">
+							<select
+								className="input reasoning-select"
+								disabled={controlsDisabled}
+								onChange={(event) => patch({ translationToolCalls: event.target.value })}
+								value={draft.translationToolCalls}
+							>
+								{structuredToolCallOptions.map((option) => (
 									<option key={option.value} value={option.value}>
 										{option.label}
 									</option>
@@ -8160,7 +8198,7 @@ function BotRuntimePanel({
 	const [events, setEvents] = useState<BotRuntimeEvent[]>([]);
 	const [loopMessages, setLoopMessages] = useState<BotLoopMessage[]>([]);
 	const [loopMessagePage, setLoopMessagePage] = useState<BotLoopMessagePage | null>(null);
-	const [openLoopMessageLogs, setOpenLoopMessageLogs] = useState<{ message: BotLoopMessage; logs: BotLoopMessageLog[] } | null>(null);
+	const [openLoopMessageLogs, setOpenLoopMessageLogs] = useState<BotLoopMessageLogsResponse | null>(null);
 	const [loopMessageLogLoadingSeq, setLoopMessageLogLoadingSeq] = useState<number | null>(null);
 	const [loopMessageLogError, setLoopMessageLogError] = useState("");
 	const [deletingLoopMessageSeq, setDeletingLoopMessageSeq] = useState<number | null>(null);
@@ -8576,12 +8614,12 @@ function BotRuntimePanel({
 		}
 		setLoopMessageLogLoadingSeq(loopMessage.seq);
 		setLoopMessageLogError("");
-		const result = await api<{ message: BotLoopMessage; logs: BotLoopMessageLog[] }>(
+		const result = await api<BotLoopMessageLogsResponse>(
 			`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/messages/${encodeURIComponent(String(loopMessage.seq))}/logs`,
 		);
 		setLoopMessageLogLoadingSeq(null);
 		if (result.ok) {
-			setOpenLoopMessageLogs({ message: result.data.message, logs: result.data.logs });
+			setOpenLoopMessageLogs(result.data);
 			return;
 		}
 		setLoopMessageLogError(result.message);
@@ -9022,13 +9060,13 @@ function LoopMessageLogsModal({
 }: {
 	onClose: () => void;
 	open: boolean;
-	payload: { message: BotLoopMessage; logs: BotLoopMessageLog[] } | null;
+	payload: BotLoopMessageLogsResponse | null;
 }) {
 	if (!payload) {
 		return null;
 	}
 
-	const { message, logs } = payload;
+	const { message, logs, requestMessages, requestUsage } = payload;
 
 	return (
 		<Modal className="submission-modal" onClose={onClose} open={open} title="Loop Message Logs" wide>
@@ -9039,7 +9077,10 @@ function LoopMessageLogsModal({
 				<RuntimeRow label="Run" value={message.runId} />
 			</div>
 			<div className="submission-chat-log">
-				<RawInferenceSubmissionMessageView message={message.message} position={message.seq} />
+				{requestUsage && <LoopMessageRequestUsageLine usage={requestUsage} />}
+				{requestMessages && requestMessages.length > 0 ?
+					requestMessages.map((item) => <RequestLogMessageView item={item} key={item.position} />)
+				:	<RawInferenceSubmissionMessageView message={message.message} position={message.seq} />}
 				{logs.length === 0 ?
 					<div className="empty compact-empty">No retained raw logs for this message.</div>
 				:	logs.map((log) => (
@@ -9147,6 +9188,31 @@ function LoopContinuationLink({
 	);
 }
 
+function LoopMessageRequestUsageLine({ usage }: { usage: BotLoopMessageRequestUsage }) {
+	const estimatedSplit = usage.estimatedCostSplit ? " approx." : "";
+	return (
+		<div className="request-usage-line">
+			{formatTokenCount(usage.cachedInputTokens)} cached input tokens ({formatNullableUsageCost(usage.cachedInputCost)}{estimatedSplit})
+			{" + "}
+			{formatTokenCount(usage.uncachedInputTokens)} uncached input tokens ({formatNullableUsageCost(usage.uncachedInputCost)}{estimatedSplit})
+			{" + "}
+			{formatTokenCount(usage.outputTokens)} output tokens ({formatNullableUsageCost(usage.outputCost)})
+			{" = "}
+			{formatNullableUsageCost(usage.totalCost)}
+		</div>
+	);
+}
+
+function RequestLogMessageView({ item }: { item: BotLoopMessageRequestLogMessage }) {
+	return (
+		<RawInferenceSubmissionMessageView
+			cacheStatus={item.cacheStatus}
+			message={item.message}
+			position={item.position}
+		/>
+	);
+}
+
 function LoopMessagePager({
 	onPageSelect,
 	page,
@@ -9198,9 +9264,11 @@ function LoopMessagePager({
 }
 
 function RawInferenceSubmissionMessageView({
+	cacheStatus,
 	message,
 	position,
 }: {
+	cacheStatus?: BotLoopMessageRequestLogMessage["cacheStatus"];
 	message: BotInferenceSubmissionMessage;
 	position: number;
 }) {
@@ -9211,6 +9279,7 @@ function RawInferenceSubmissionMessageView({
 				<b>{message.role}</b>
 				<span>#{position}</span>
 				{message.tool_call_id && <span>{message.tool_call_id}</span>}
+				{cacheStatus && <span className="cache-status">{cacheStatus === "cached" ? "cached" : "partially cached"}</span>}
 			</div>
 			{message.content && (
 				<SubmissionJsonBlock label={message.role === "tool" ? "JSON result" : "content"} value={message.content} />
@@ -12291,6 +12360,10 @@ function formatNullableTokenCost(value: number | null): string {
 	return value === null ? "-" : formatTokenCost(value);
 }
 
+function formatNullableUsageCost(value: number | null): string {
+	return value === null ? "$?" : formatTokenCost(value);
+}
+
 function areaToBaselinePath<T extends { x: number }>(
 	points: T[],
 	yForPoint: (point: T) => number,
@@ -12614,11 +12687,13 @@ function inferenceDraftFromSettings(settings: BotInferenceSettings): InferenceDr
 		model: settings.model ?? "",
 		recurringPrompt: settings.recurringPrompt ?? settings.reasoningPrefill ?? "",
 		reasoningEffort: settings.reasoningEffort ?? "default",
+		toolCalls: settings.toolCalls ?? "require",
 		providerRouting: providerRoutingDraftValue(settings.providerRouting),
 		translationEnabled: Boolean(settings.translation?.enabled),
 		translationModel: settings.translation?.model ?? "",
 		translationPrompt: settings.translation?.prompt ?? defaultTranslationPrompt,
 		translationReasoningEffort: settings.translation?.reasoningEffort ?? "default",
+		translationToolCalls: settings.translation?.toolCalls ?? "require",
 		translationProviderRouting: providerRoutingDraftValue(settings.translation?.providerRouting),
 		translationTemperature: numericDraftValue(settings.translation?.temperature),
 		translationTopK: numericDraftValue(settings.translation?.topK),
@@ -12649,6 +12724,7 @@ function inferenceDraftChanged(
 		draft.model.trim() !== (settings.model ?? "") ||
 		(Boolean(options.includeReasoningPrefill) && draft.recurringPrompt !== (settings.recurringPrompt ?? settings.reasoningPrefill ?? "")) ||
 		nullableReasoningEffortInput(draft.reasoningEffort) !== (settings.reasoningEffort ?? null) ||
+		nullableToolCallsInput(draft.toolCalls) !== (settings.toolCalls ?? "require") ||
 		providerRoutingDraftChanged(draft.providerRouting, settings.providerRouting) ||
 		(Boolean(options.includeTranslation) && translationDraftChanged(draft, settings)) ||
 		draft.temperature.trim() !== numericDraftValue(settings.temperature) ||
@@ -12669,6 +12745,7 @@ function translationDraftChanged(draft: InferenceDraft, settings: BotInferenceSe
 		draftModel !== settingsModel ||
 		draft.translationPrompt.trim() !== (settings.translation?.prompt ?? defaultTranslationPrompt) ||
 		nullableReasoningEffortInput(draft.translationReasoningEffort) !== (settings.translation?.reasoningEffort ?? null) ||
+		nullableStructuredToolCallsInput(draft.translationToolCalls) !== (settings.translation?.toolCalls ?? "require") ||
 		providerRoutingDraftChanged(draft.translationProviderRouting, settings.translation?.providerRouting) ||
 		draft.translationTemperature.trim() !== numericDraftValue(settings.translation?.temperature) ||
 		draft.translationTopK.trim() !== numericDraftValue(settings.translation?.topK) ||
@@ -12696,6 +12773,7 @@ function inferenceInputFromDraft(
 			{ recurringPrompt: nullablePreservedTextInput(normalized.recurringPrompt) }
 		:	{}),
 		reasoningEffort: nullableReasoningEffortInput(normalized.reasoningEffort),
+		toolCalls: nullableToolCallsInput(normalized.toolCalls),
 		providerRouting: providerRoutingInputFromDraft(normalized.providerRouting),
 		...(options.includeTranslation ? { translation: translationInputFromDraft(normalized) } : {}),
 		temperature: nullableNumberInput(normalized.temperature),
@@ -12715,6 +12793,7 @@ function translationInputFromDraft(draft: InferenceDraft): BotInferenceSettingsI
 		model,
 		prompt: nullableTextInput(draft.translationPrompt) ?? defaultTranslationPrompt,
 		reasoningEffort: nullableReasoningEffortInput(draft.translationReasoningEffort),
+		toolCalls: nullableStructuredToolCallsInput(draft.translationToolCalls),
 		providerRouting: providerRoutingInputFromDraft(draft.translationProviderRouting),
 		temperature: nullableNumberInput(draft.translationTemperature),
 		topK: nullableNumberInput(draft.translationTopK),
@@ -12818,22 +12897,30 @@ function canCustomizeInferenceModel(
 function botPromptBudgetRequestKey(
 	botId: string,
 	botHandle: string,
-	draft: { contextWindowTokens: string; displayName: string; inference: InferenceDraft; prompt: string; shortBio: string; tools: BotToolDraft },
+	draft: {
+		contextWindowTokens: string;
+		displayName: string;
+		inference: InferenceDraft;
+		prompt: string;
+		shortBio: string;
+		tools: BotToolDraft;
+	},
 	inherited?: BotInferenceSettings | null,
 ): string {
 	return JSON.stringify({
 		botId,
 		baseUrl: effectiveInferenceDraftBaseUrl(draft.inference, inherited),
-		contextWindowTokens: draft.contextWindowTokens.trim(),
 		credential: inferenceDraftCredentialState(draft.inference, inherited),
 		displayName: draft.displayName,
 		model: effectiveInferenceDraftModel(draft.inference, inherited),
 		prompt: draft.prompt,
+		contextWindowTokens: draft.contextWindowTokens.trim(),
 		providerRouting: providerRoutingDraftFingerprintValue(draft.inference.providerRouting),
 			recurringPrompt: draft.inference.recurringPrompt.trim() ?
 				draft.inference.recurringPrompt
 			:	defaultReasoningPrefill(botHandle),
 			reasoningEffort: draft.inference.reasoningEffort,
+			toolCalls: draft.inference.toolCalls,
 		shortBio: draft.shortBio,
 		tools: toolInputFromDraft(draft.tools),
 	});
@@ -13012,6 +13099,14 @@ function nullableNumberInput(value: string): number | null {
 
 function nullableReasoningEffortInput(value: string): BotInferenceSettings["reasoningEffort"] | null {
 	return value && value !== "default" ? value as BotInferenceSettings["reasoningEffort"] : null;
+}
+
+function nullableToolCallsInput(value: string): BotInferenceSettings["toolCalls"] | null {
+	return value ? value as BotInferenceSettings["toolCalls"] : null;
+}
+
+function nullableStructuredToolCallsInput(value: string): NonNullable<BotInferenceSettings["translation"]>["toolCalls"] | null {
+	return value === "require" || value === "railroad" ? value : null;
 }
 
 function domainDraftValue(value: string[] | undefined): string {

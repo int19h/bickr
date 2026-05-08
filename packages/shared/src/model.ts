@@ -94,6 +94,7 @@ export type BotInferenceSettings = {
 	recurringPrompt?: string;
 	reasoningPrefill?: string;
 	reasoningEffort?: BotInferenceReasoningEffort;
+	toolCalls?: BotInferenceToolCalls;
 	providerRouting?: JsonObject;
 	translation?: BotTranslationSettings;
 	temperature?: number;
@@ -106,12 +107,15 @@ export type BotInferenceSettings = {
 };
 
 export type BotInferenceReasoningEffort = "default" | "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
+export type BotInferenceToolCalls = "require" | "railroad" | "at_will";
+export type BotStructuredToolCalls = Exclude<BotInferenceToolCalls, "at_will">;
 
 export type BotTranslationSettings = {
 	enabled?: boolean;
 	model?: string;
 	prompt?: string;
 	reasoningEffort?: BotInferenceReasoningEffort;
+	toolCalls?: BotStructuredToolCalls;
 	providerRouting?: JsonObject;
 	temperature?: number;
 	topK?: number;
@@ -129,6 +133,7 @@ export type BotInferenceSettingsInput = {
 	recurringPrompt?: string | null;
 	reasoningPrefill?: string | null;
 	reasoningEffort?: BotInferenceReasoningEffort | null;
+	toolCalls?: BotInferenceToolCalls | null;
 	providerRouting?: JsonObject | null;
 	translation?: BotTranslationSettingsInput | null;
 	temperature?: number | null;
@@ -145,6 +150,7 @@ export type BotTranslationSettingsInput = Partial<{
 	model: string | null;
 	prompt: string | null;
 	reasoningEffort: BotInferenceReasoningEffort | null;
+	toolCalls: BotStructuredToolCalls | null;
 	providerRouting: JsonObject | null;
 	temperature: number | null;
 	topK: number | null;
@@ -981,6 +987,34 @@ export type BotLoopMessageLog = {
 	createdAt: string;
 	baseLogId?: number;
 	prefixLength?: number;
+};
+
+export type BotLoopMessageCachedStatus = "cached" | "partially_cached";
+
+export type BotLoopMessageRequestLogMessage = {
+	message: BotInferenceSubmissionMessage;
+	position: number;
+	cacheStatus?: BotLoopMessageCachedStatus;
+};
+
+export type BotLoopMessageRequestUsage = {
+	promptTokens: number;
+	cachedInputTokens: number;
+	uncachedInputTokens: number;
+	outputTokens: number;
+	totalTokens: number;
+	cachedInputCost: number | null;
+	uncachedInputCost: number | null;
+	outputCost: number | null;
+	totalCost: number | null;
+	estimatedCostSplit: boolean;
+};
+
+export type BotLoopMessageLogsResponse = {
+	message: BotLoopMessage;
+	logs: BotLoopMessageLog[];
+	requestMessages?: BotLoopMessageRequestLogMessage[];
+	requestUsage?: BotLoopMessageRequestUsage;
 };
 
 export type BotTokenUsageTotals = {
