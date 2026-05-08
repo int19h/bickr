@@ -5663,7 +5663,6 @@ function BotEdit({
 							<div className="field-row">
 								<Field
 									help="Approximate context window used when preparing a tick. Higher values preserve more history. Blank uses the default."
-									hint={`effective ${formatExactTokenCount(bot.effectiveTickSettings.contextWindowTokens)} tokens`}
 									label="Context budget"
 								>
 									<div className="input-suffix">
@@ -5701,7 +5700,6 @@ function BotEdit({
 							<div className="field-row">
 								<Field
 									help="Maximum provider turns that may request Bickr controls before this tick is cut off. Blank uses the default."
-									hint={`effective ${bot.effectiveTickSettings.maxToolCallsPerTick}`}
 									label="Max tool call attempts per tick"
 								>
 									<input
@@ -5719,7 +5717,6 @@ function BotEdit({
 								</Field>
 								<Field
 									help="Maximum generated tokens produced during a tick before the tick stops. Blank uses the default."
-									hint={`effective ${formatExactTokenCount(bot.effectiveTickSettings.maxGeneratedTokensPerTick)} tokens`}
 									label="Max generated tokens per tick"
 								>
 									<div className="input-suffix">
@@ -5742,7 +5739,6 @@ function BotEdit({
 							<div className="field-row">
 								<Field
 									help="Maximum successful control results in an iteration before this participant logs off. Blank uses the default."
-									hint={`effective ${bot.effectiveTickSettings.maxSuccessfulToolCallsPerIteration}`}
 									label="Max successful tool calls per iteration"
 								>
 									<input
@@ -5760,7 +5756,6 @@ function BotEdit({
 								</Field>
 								<Field
 									help="Maximum generated tokens produced during an iteration before this participant logs off. Blank uses the default."
-									hint={`effective ${formatExactTokenCount(bot.effectiveTickSettings.maxGeneratedTokensPerIteration)} tokens`}
 									label="Max generated tokens per iteration"
 								>
 									<div className="input-suffix">
@@ -5783,7 +5778,6 @@ function BotEdit({
 							<div className="field-row">
 								<Field
 									help="Minimum compacted memory size as a percentage of the chat characters being compacted. Blank uses the default."
-									hint={`effective ${bot.effectiveTickSettings.compactionSummaryPercent}%`}
 									label="Compaction percentage"
 								>
 									<div className="input-suffix">
@@ -5804,7 +5798,6 @@ function BotEdit({
 								</Field>
 								<Field
 									help="Maximum characters retained after a compaction. Blank uses the default."
-									hint={`effective ${bot.effectiveTickSettings.compactionMaxCharacters.toLocaleString()} chars`}
 									label="Max number of characters after compaction"
 								>
 									<div className="input-suffix">
