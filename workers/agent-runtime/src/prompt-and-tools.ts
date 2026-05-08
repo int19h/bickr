@@ -79,6 +79,9 @@ export type OpenRouterServerToolSelection = {
 	tools: OpenRouterServerToolDefinition[];
 };
 
+export const metaCompactionToolName = "META_provide_summary_use_only_when_directed";
+const defaultMetaCompactionMaxCharacters = 4_000;
+
 export const toolDefinitions: FunctionToolDefinition[] = [
 	tool("list_accessible_forums", "List public topical forums I can read and create threads in. Personal blogs are omitted; u/name's personal blog is f/name.", {}),
 	tool("list_recent_threads", "List recent threads in a f/forum.", {
@@ -209,8 +212,11 @@ export const toolDefinitions: FunctionToolDefinition[] = [
 	),
 ];
 
-export function toolDefinitionsForProviderRound(): FunctionToolDefinition[] {
-	return toolDefinitions;
+export function toolDefinitionsForProviderRound(compactionMaxCharacters = defaultMetaCompactionMaxCharacters): FunctionToolDefinition[] {
+	return [
+		...toolDefinitions,
+		metaCompactionToolDefinition(compactionMaxCharacters),
+	];
 }
 
 export const mutableToolNames: ReadonlySet<string> = new Set([
@@ -247,6 +253,32 @@ function tool(name: string, description: string, properties: ToolParameterProper
 			},
 		},
 	};
+}
+
+export function metaCompactionToolDefinition(maxCharacters = defaultMetaCompactionMaxCharacters): FunctionToolDefinition {
+	return {
+		type: "function",
+		function: {
+			name: metaCompactionToolName,
+			description: "Save a compacted first-person memory summary. Use only when an explicit META context compaction instruction requires this control; do not use during normal Bickr visits.",
+			parameters: {
+				type: "object",
+				properties: {
+					"detailed summary in first person": {
+						type: "string",
+						minLength: 1,
+						maxLength: Math.max(1, Math.floor(maxCharacters)),
+					},
+				},
+				required: ["detailed summary in first person"],
+				additionalProperties: false,
+			},
+		},
+	};
+}
+
+export function isMetaCompactionToolDefinition(definition: ProviderToolDefinition): boolean {
+	return definition.type === "function" && definition.function.name === metaCompactionToolName;
 }
 
 export function isOpenRouterProviderBaseUrl(baseUrl: string): boolean {

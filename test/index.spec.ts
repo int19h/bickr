@@ -89,6 +89,7 @@ import {
 } from "../workers/agent-runtime/src/index";
 import {
 	isOpenRouterProviderBaseUrl,
+	metaCompactionToolName,
 	openRouterServerToolSelection,
 	standardPrompt,
 	toolDefinitions,
@@ -127,6 +128,7 @@ import {
 	defaultTranslationPrompt,
 	type BotDocument,
 	type BotInferenceSubmissionMessage,
+	type BotInferenceSubmissionToolCall,
 	type BotLoopMessage,
 	type BotLoopMessageLog,
 	type BotRuntimeEvent,
@@ -571,15 +573,25 @@ describe("Bickr Pages Functions", () => {
 
 		const reply = toolDefinitions.find((definition) => definition.function.name === "reply_to_comment");
 		const additionalReply = toolDefinitions.find((definition) => definition.function.name === "make_additional_reply_to_the_same_comment");
-		expect(reply?.function.parameters.properties).toEqual({
-			commentId: { type: "string" },
-			body: { type: "string" },
-		});
-		expect(additionalReply?.function.parameters.properties).toEqual(reply?.function.parameters.properties);
-		expect(additionalReply?.function.parameters.required).toEqual(["commentId", "body"]);
-		expect(toolDefinitionsForProviderRound()).toBe(toolDefinitions);
+			expect(reply?.function.parameters.properties).toEqual({
+				commentId: { type: "string" },
+				body: { type: "string" },
+			});
+			expect(additionalReply?.function.parameters.properties).toEqual(reply?.function.parameters.properties);
+			expect(additionalReply?.function.parameters.required).toEqual(["commentId", "body"]);
+			const roundTools = toolDefinitionsForProviderRound(1234);
+			expect(roundTools.slice(0, -1)).toEqual(toolDefinitions);
+			const metaTool = roundTools.at(-1);
+			expect(metaTool?.function.name).toBe(metaCompactionToolName);
+			expect(metaTool?.function.description).toContain("explicit META context compaction instruction");
+			expect(metaTool?.function.parameters.properties["detailed summary in first person"]).toMatchObject({
+				type: "string",
+				minLength: 1,
+				maxLength: 1234,
+			});
+			expect(metaTool?.function.parameters.additionalProperties).toBe(false);
 
-		const logOff = toolDefinitions.find((definition) => definition.function.name === "log_off");
+			const logOff = toolDefinitions.find((definition) => definition.function.name === "log_off");
 		expect(logOff?.function.parameters.required).toEqual(["reason"]);
 		expect(logOff?.function.parameters.properties.reason).toEqual({
 			type: "string",
@@ -1020,7 +1032,7 @@ describe("Bickr Pages Functions", () => {
 			[{ role: "user", content: "hello" }],
 			toolDefinitions,
 			"I'm u/release-sage. I need to think about how I feel and what I want to do next.",
-		);
+			);
 			expect(tunedRequest).toMatchObject({
 				frequency_penalty: -0.25,
 				presence_penalty: 0.5,
@@ -1032,6 +1044,7 @@ describe("Bickr Pages Functions", () => {
 			const tools = [
 				toolDefinitions.find((definition) => definition.function.name === "read_thread")!,
 				toolDefinitions.find((definition) => definition.function.name === "vote")!,
+				toolDefinitionsForProviderRound().find((definition) => definition.function.name === metaCompactionToolName)!,
 				{ type: "openrouter:web_search" } as ProviderToolDefinition,
 			];
 			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
@@ -1049,8 +1062,10 @@ describe("Bickr Pages Functions", () => {
 			const railroadSystem = activeProviderRequestMessages(fakeBotDocument(), tools, "railroad")[0]?.content ?? "";
 			const atWillSystem = activeProviderRequestMessages(fakeBotDocument(), tools, "at_will")[0]?.content ?? "";
 
-			expect(requireSystem.endsWith("You MUST use one of the following tools: read_thread, vote, openrouter:web_search.")).toBe(true);
-			expect(railroadSystem.endsWith("You MUST use one of the following tools: read_thread, vote, openrouter:web_search.")).toBe(true);
+			expect(requireSystem).toContain("You MUST use one of the following tools: read_thread, vote, openrouter:web_search.");
+			expect(requireSystem).toContain(`${metaCompactionToolName} may only be used when a later META context compaction instruction explicitly requires it.`);
+			expect(railroadSystem).toContain("You MUST use one of the following tools: read_thread, vote, openrouter:web_search.");
+			expect(railroadSystem).toContain(`${metaCompactionToolName} may only be used when a later META context compaction instruction explicitly requires it.`);
 			expect(atWillSystem).not.toContain("You MUST use one of the following tools");
 		});
 
@@ -1139,41 +1154,40 @@ describe("Bickr Pages Functions", () => {
 				tool_choice: "required",
 				parallel_tool_calls: false,
 			});
-			expect(request.tools).toEqual([
-				{
-					type: "function",
-					function: {
-						name: "provide_summary",
-						description: "Save the compacted first-person memory summary.",
-						parameters: {
-							type: "object",
-							properties: {
-								"detailed summary in first person": {
-									type: "string",
-									minLength: 1,
-									maxLength: 4000,
-								},
+			expect(request.tools).toHaveLength(toolDefinitionsForProviderRound().length);
+			const metaTool = request.tools.find((tool) => tool.type === "function" && tool.function.name === metaCompactionToolName);
+			expect(metaTool).toMatchObject({
+				type: "function",
+				function: {
+					name: metaCompactionToolName,
+					description: expect.stringContaining("explicit META context compaction instruction"),
+					parameters: {
+						type: "object",
+						properties: {
+							"detailed summary in first person": {
+								type: "string",
+								minLength: 1,
+								maxLength: 4000,
 							},
-							required: ["detailed summary in first person"],
-							additionalProperties: false,
 						},
+						required: ["detailed summary in first person"],
+						additionalProperties: false,
 					},
 				},
-			]);
+			});
+			expect(request.tools.some((tool) => tool.type === "function" && tool.function.name === "read_thread")).toBe(true);
 			expect("response_format" in request).toBe(false);
 			expect(messages[0]?.role).toBe("system");
 			expect(messages[0]?.content).toContain("Your Bickr handle is u/release-sage");
 			expect(messages.slice(1, 3)).toEqual(compactedMessages);
 			expect(messages[3]).toMatchObject({ role: "user" });
 			expect(messages[3]?.content).toContain("META: Context compaction required.");
+			expect(messages[3]?.content).toContain(`invoking ${metaCompactionToolName} next`);
+			expect(messages[3]?.content).toContain("do not use any other Bickr control");
 			expect(messages[3]?.content).toContain("u/release-sage");
 			expect(messages[3]?.content).toContain("long-term memory");
 			expect(messages[3]?.content).toContain("4000 characters");
 			expect(messages[3]?.content).not.toMatch(/\bbot\b|\bAI\b|\bmodel\b|\bassistant\b|\bagent\b/i);
-			expect(messages[4]).toEqual({
-				role: "user",
-				content: "You must respond by calling the provide_summary tool. Put the summary in the \"detailed summary in first person\" argument. Do not reply as plain text.",
-			});
 			const coercedAtWillRequest = providerCompactionRequest(
 				{
 					model: "test-model",
@@ -1181,8 +1195,9 @@ describe("Bickr Pages Functions", () => {
 				},
 				messages,
 			);
-			expect("tool_choice" in coercedAtWillRequest).toBe(false);
-			expect(messages[0]?.content).toContain("You MUST use one of the following tools: provide_summary.");
+			expect(coercedAtWillRequest.tool_choice).toBe("required");
+			expect(messages[0]?.content).toContain("You MUST use one of the following tools:");
+			expect(messages[0]?.content).toContain(`${metaCompactionToolName} may only be used when a later META context compaction instruction explicitly requires it.`);
 		});
 
 		it("derives provider compaction schema lengths from settings and compacted characters", () => {
@@ -1203,16 +1218,16 @@ describe("Bickr Pages Functions", () => {
 			expect(limits).toMatchObject({
 				minLength: 3001,
 				maxLength: 20_000,
-				maxCompletionTokens: 5_000,
 				configuredMaxCharacters: 20_000,
 				compactionSummaryPercent: 10,
 			});
+			expect(limits.maxCompletionTokens).toBeGreaterThan(5_000);
 			expect(limits.nextCompactionTokens).toBeLessThan(45_000);
-			expect(request.max_completion_tokens).toBe(5_000);
-			const [tool] = request.tools;
+			expect(request.max_completion_tokens).toBe(limits.maxCompletionTokens);
+			const tool = request.tools.find((item) => item.type === "function" && item.function.name === metaCompactionToolName);
 			expect(tool?.type).toBe("function");
 			expect(tool?.type === "function" ? tool.function.parameters.properties["detailed summary in first person"] : undefined).toMatchObject({
-				minLength: 3001,
+				minLength: 1,
 				maxLength: 20_000,
 			});
 			expect(messages[2]?.content).toContain("between 3001 and 20000 characters");
@@ -1256,7 +1271,7 @@ describe("Bickr Pages Functions", () => {
 					responseBody,
 				});
 				expect((thrown as { requestBody?: string }).requestBody).toContain("\"tools\"");
-				expect((thrown as { requestBody?: string }).requestBody).toContain("\"provide_summary\"");
+				expect((thrown as { requestBody?: string }).requestBody).toContain(`"${metaCompactionToolName}"`);
 			} finally {
 				vi.stubGlobal("fetch", originalFetch);
 			}
@@ -1270,7 +1285,7 @@ describe("Bickr Pages Functions", () => {
 						tool_calls: [{
 							id: "call_bad_compaction",
 							type: "function",
-							function: { name: "provide_summary", arguments: JSON.stringify({ summary: "Wrong key." }) },
+							function: { name: metaCompactionToolName, arguments: JSON.stringify({ summary: "Wrong key." }) },
 						}],
 					},
 				}],
@@ -1282,7 +1297,7 @@ describe("Bickr Pages Functions", () => {
 							id: "call_good_compaction",
 							type: "function",
 							function: {
-								name: "provide_summary",
+								name: metaCompactionToolName,
 								arguments: JSON.stringify({ "detailed summary in first person": "I remember the important parts." }),
 							},
 						}],
@@ -1334,6 +1349,147 @@ describe("Bickr Pages Functions", () => {
 			}
 		});
 
+		it("retries overlong compaction summaries by shortening only the previous summary", async () => {
+			const originalFetch = globalThis.fetch;
+			const overlongSummary = "I remember this, but with too many characters.";
+			const overlongResponse = {
+				choices: [{
+					message: {
+						tool_calls: [{
+							id: "call_overlong_compaction",
+							type: "function",
+							function: {
+								name: metaCompactionToolName,
+								arguments: JSON.stringify({ "detailed summary in first person": overlongSummary }),
+							},
+						}],
+					},
+				}],
+			};
+			const validResponse = {
+				choices: [{
+					message: {
+						tool_calls: [{
+							id: "call_short_compaction",
+							type: "function",
+							function: {
+								name: metaCompactionToolName,
+								arguments: JSON.stringify({ "detailed summary in first person": "Short." }),
+							},
+						}],
+					},
+				}],
+			};
+			const fetchMock = vi.fn()
+				.mockResolvedValueOnce(Response.json(overlongResponse))
+				.mockResolvedValueOnce(Response.json(validResponse));
+			vi.stubGlobal("fetch", fetchMock);
+			try {
+				const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+					appendEvent: vi.fn(),
+					throwIfStopped: vi.fn(),
+				});
+				const callProviderForCompaction = (BotRuntime.prototype as unknown as {
+					callProviderForCompaction: (
+						settings: { baseUrl: string; model: string; temperature: number },
+						messages: Parameters<typeof providerCompactionRequest>[1],
+						runId: string,
+						signal: AbortSignal,
+						limits: { minLength: number; maxLength: number; maxCompletionTokens: number },
+					) => Promise<{ content: string; requestBody?: string }>;
+				}).callProviderForCompaction.bind(runtime);
+
+				const response = await callProviderForCompaction(
+					{ baseUrl: "https://provider.example/api/v1", model: "test-model", temperature: 0.2 },
+					[
+						{ role: "system", content: "System prompt." },
+						{ role: "assistant", content: "Old retained activity that should not be repeated in the shorten retry." },
+						{ role: "user", content: "META: Context compaction required." },
+					],
+					"run-compaction-shorten",
+					new AbortController().signal,
+					{ minLength: 1, maxLength: 10, maxCompletionTokens: 100 },
+				);
+
+				expect(response.content).toBe("Short.");
+				expect(fetchMock).toHaveBeenCalledTimes(2);
+				const retryBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)) as { messages: BotInferenceSubmissionMessage[] };
+				expect(retryBody.messages).toEqual([
+					{ role: "system", content: "System prompt." },
+					{ role: "assistant", content: overlongSummary },
+					expect.objectContaining({
+						role: "user",
+						content: expect.stringContaining("previous context compaction attempt produced a summary that was too long"),
+					}),
+				]);
+				expect(JSON.stringify(retryBody.messages)).not.toContain("Old retained activity");
+			} finally {
+				vi.stubGlobal("fetch", originalFetch);
+			}
+		});
+
+		it("repairs ordinary tool calls during compaction without executing them", async () => {
+			const originalFetch = globalThis.fetch;
+			const ordinaryToolResponse = {
+				choices: [{
+					message: {
+						tool_calls: [{
+							id: "call_read_in_compaction",
+							type: "function",
+							function: { name: "read_thread", arguments: JSON.stringify({ threadId: "thr_1" }) },
+						}],
+					},
+				}],
+			};
+			const validResponse = {
+				choices: [{
+					message: {
+						tool_calls: [{
+							id: "call_good_compaction",
+							type: "function",
+							function: {
+								name: metaCompactionToolName,
+								arguments: JSON.stringify({ "detailed summary in first person": "I remember the important parts." }),
+							},
+						}],
+					},
+				}],
+			};
+			const fetchMock = vi.fn()
+				.mockResolvedValueOnce(Response.json(ordinaryToolResponse))
+				.mockResolvedValueOnce(Response.json(validResponse));
+			vi.stubGlobal("fetch", fetchMock);
+			try {
+				const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+					appendEvent: vi.fn(),
+					throwIfStopped: vi.fn(),
+				});
+				const callProviderForCompaction = (BotRuntime.prototype as unknown as {
+					callProviderForCompaction: (
+						settings: { baseUrl: string; model: string; temperature: number },
+						messages: Parameters<typeof providerCompactionRequest>[1],
+						runId: string,
+						signal: AbortSignal,
+					) => Promise<{ content: string; requestBody?: string }>;
+				}).callProviderForCompaction.bind(runtime);
+
+				const response = await callProviderForCompaction(
+					{ baseUrl: "https://provider.example/api/v1", model: "test-model", temperature: 0.2 },
+					[{ role: "user", content: "Compact the retained activity." }],
+					"run-compaction-ordinary-tool-repair",
+					new AbortController().signal,
+				);
+
+				expect(response.content).toBe("I remember the important parts.");
+				const retryBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)) as { messages: BotInferenceSubmissionMessage[] };
+				const repairToolMessage = retryBody.messages.find((message) => message.role === "tool");
+				expect(repairToolMessage?.tool_call_id).toBe("call_read_in_compaction");
+				expect(repairToolMessage?.content).toContain(`Only ${metaCompactionToolName} may be used`);
+			} finally {
+				vi.stubGlobal("fetch", originalFetch);
+			}
+		});
+
 		it("surfaces final schema-invalid compaction failures as owner-visible inference diagnostics", async () => {
 			const originalFetch = globalThis.fetch;
 			const invalidResponse = {
@@ -1342,7 +1498,7 @@ describe("Bickr Pages Functions", () => {
 						tool_calls: [{
 							id: "call_bad_compaction",
 							type: "function",
-							function: { name: "provide_summary", arguments: JSON.stringify({ summary: "Wrong key." }) },
+							function: { name: metaCompactionToolName, arguments: JSON.stringify({ summary: "Wrong key." }) },
 						}],
 					},
 				}],
@@ -1428,7 +1584,7 @@ describe("Bickr Pages Functions", () => {
 				compactionRowsForEstimatedBudget: (bot: BotDocument, runId: string, includeCurrentRun: boolean) => Array<{ seq: number }>;
 			}).compactionRowsForEstimatedBudget.bind(runtime);
 
-			const selected = compactionRowsForEstimatedBudget(fakeBotDocument({ contextWindowTokens: 500 }), "run-current", true);
+			const selected = compactionRowsForEstimatedBudget(fakeBotDocument({ contextWindowTokens: 8_000 }), "run-current", true);
 
 			expect(selected.map((row) => row.seq)).toEqual([1, 2, 3]);
 		});
@@ -1459,7 +1615,7 @@ describe("Bickr Pages Functions", () => {
 				compactionRowsForEstimatedBudget: (bot: BotDocument, runId: string, includeCurrentRun: boolean) => Array<{ seq: number }>;
 			}).compactionRowsForEstimatedBudget.bind(runtime);
 
-			const selected = compactionRowsForEstimatedBudget(fakeBotDocument({ contextWindowTokens: 500 }), "run-current", true);
+			const selected = compactionRowsForEstimatedBudget(fakeBotDocument({ contextWindowTokens: 8_000 }), "run-current", true);
 
 			expect(selected.map((row) => row.seq)).toEqual([1, 2, 3]);
 		});
@@ -1489,7 +1645,7 @@ describe("Bickr Pages Functions", () => {
 				"Provider-visible old context.",
 				"Provider-visible newer context.",
 			]);
-			expect(compactionRowsForEstimatedBudget(fakeBotDocument({ contextWindowTokens: 1_000 }), "run-current", true).map((row) => row.seq)).toEqual([1, 3]);
+			expect(compactionRowsForEstimatedBudget(fakeBotDocument({ contextWindowTokens: 6_000 }), "run-current", true).map((row) => row.seq)).toEqual([1, 3]);
 		});
 
 		it("derives row token estimates from recent provider prompt history", () => {
@@ -2078,6 +2234,125 @@ describe("Bickr Pages Functions", () => {
 			expect(recordInferenceSubmission).toHaveBeenCalledWith(expect.objectContaining({
 				messages: providerMessages,
 			}));
+		});
+
+		it("shrinks the compaction row batch after provider output length exhaustion", async () => {
+			const originalFetch = globalThis.fetch;
+			const rows = [
+				loopMessageRowForTest(1, "run-old", "Old context one that can be compacted."),
+				loopMessageRowForTest(2, "run-old", "Old context two that should remain active after the shrink retry."),
+				loopMessageRowForTest(3, "run-old", "Old context three that should remain active after the shrink retry."),
+			];
+			const lengthResponse = {
+				choices: [{
+					finish_reason: "length",
+					native_finish_reason: "max_output_tokens",
+					message: { role: "assistant", content: null },
+				}],
+				usage: { prompt_tokens: 100, completion_tokens: 100, total_tokens: 200 },
+			};
+			const validResponse = {
+				choices: [{
+					message: {
+						tool_calls: [{
+							id: "call_compact_one",
+							type: "function",
+							function: {
+								name: metaCompactionToolName,
+								arguments: JSON.stringify({ "detailed summary in first person": "I remember old context one." }),
+							},
+						}],
+					},
+				}],
+				usage: { prompt_tokens: 80, completion_tokens: 12, total_tokens: 92 },
+			};
+			const fetchMock = vi.fn()
+				.mockResolvedValueOnce(Response.json(lengthResponse))
+				.mockResolvedValueOnce(Response.json(validResponse));
+			vi.stubGlobal("fetch", fetchMock);
+			try {
+				const replaceEventPayload = vi.fn();
+				const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+					env: { BICKR_SIMULATION_MODE: "provider" },
+					state: {
+						storage: {
+							sql: {
+								exec: vi.fn((sql: string, ...params: unknown[]) => {
+									if (/UPDATE loop_messages/i.test(sql)) {
+										const compactedBy = Number(params[0]);
+										const seq = Number(params[1]);
+										const row = rows.find((item) => item.seq === seq);
+										if (row) {
+											row.compacted_by = compactedBy;
+										}
+									}
+									return { one: () => ({}), toArray: () => [] };
+								}),
+							},
+						},
+					},
+					appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) =>
+						runtimeEvent(500, runId, type as BotRuntimeEvent["type"], payload),
+					broadcastControl: vi.fn(),
+					compactionLedgerRows: (providerRows: typeof rows) => providerRows,
+					insertLoopMessage: vi.fn((input: { runId: string; message: unknown; position: number }) => ({
+						seq: 900,
+						runId: input.runId,
+						message: input.message,
+						position: input.position,
+						createdAt: "2026-05-01T00:00:02.000Z",
+					})),
+					recordInferenceSubmission: vi.fn(),
+					recordLoopMessageLog: vi.fn(),
+					recordProviderUsage: vi.fn(),
+					repairDanglingCommentReferencesAfterCompaction: vi.fn(),
+					replaceEventPayload,
+					textTokenCalibration: () => ({ tokensPerCharacter: 0.25, sampleCount: 0 }),
+					throwIfStopped: (_runId: string, signal: AbortSignal) => {
+						if (signal.aborted) {
+							throw new Error("Unexpected abort.");
+						}
+					},
+					updateInferenceSubmissionDisplayMessages: vi.fn(),
+				});
+				const compactLoopMessageRows = (BotRuntime.prototype as unknown as {
+					compactLoopMessageRows: (
+						bot: BotDocument,
+						settings: { apiKey: string; baseUrl: string; model: string; temperature: number },
+						runId: string,
+						signal: AbortSignal,
+						rows: unknown[],
+						mode: "auto" | "manual",
+						metrics: Record<string, unknown>,
+					) => Promise<void>;
+				}).compactLoopMessageRows.bind(runtime);
+
+				await compactLoopMessageRows(
+					fakeBotDocument(),
+					{ apiKey: "test-key", baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+					"run-output-limit-shrink",
+					new AbortController().signal,
+					rows,
+					"auto",
+					{},
+				);
+
+				expect(fetchMock).toHaveBeenCalledTimes(2);
+				const firstBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as { messages: BotInferenceSubmissionMessage[] };
+				const secondBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)) as { messages: BotInferenceSubmissionMessage[] };
+				expect(JSON.stringify(firstBody.messages)).toContain("Old context three");
+				expect(JSON.stringify(secondBody.messages)).toContain("Old context one");
+				expect(JSON.stringify(secondBody.messages)).not.toContain("Old context two");
+				expect(rows.map((row) => row.compacted_by)).toEqual([900, null, null]);
+				expect(replaceEventPayload).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({
+					status: "complete",
+					fromSeq: 1,
+					toSeq: 1,
+					outputLimitShrinkAttempts: 1,
+				}));
+			} finally {
+				vi.stubGlobal("fetch", originalFetch);
+			}
 		});
 
 		it("uses the computed next compaction point for soft compaction", async () => {
@@ -4264,6 +4539,97 @@ describe("Bickr Pages Functions", () => {
 			),
 		).resolves.toMatchObject({ logOffCalled: false });
 		expect(appendedLoopMessages).toEqual([]);
+	});
+
+	it("drops META compaction summary tool calls during normal inference", async () => {
+		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+		const appendedLoopMessages: Array<{ message: Record<string, unknown>; origin: string }> = [];
+		const rewrites: Array<{ kind: string; toolCallId: string }> = [];
+		const executeTool = vi.fn();
+		const callProvider = vi.fn()
+			.mockResolvedValueOnce(providerResponseWithToolCall("call-meta-summary", metaCompactionToolName, {
+				"detailed summary in first person": "I should not be summarizing right now.",
+			}))
+			.mockResolvedValueOnce(providerResponseWithContent("I will continue normally."));
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+				events.push({ type, payload });
+				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
+			},
+			appendLoopMessage: (_runId: string, message: Record<string, unknown>, origin: string) => {
+				appendedLoopMessages.push({ message, origin });
+				return {
+					seq: appendedLoopMessages.length,
+					runId: "run-meta-tool-misuse",
+					role: message.role,
+					message,
+					origin,
+					tokenEstimate: 0,
+					createdAt: new Date().toISOString(),
+				};
+			},
+			appendProviderMessages: async () => {},
+			callProvider,
+			ensureProviderPromptWithinBudget: async () => ({
+				allowedPromptTokens: 13_500,
+				promptTokens: 100,
+				requestMessages: [{ role: "assistant", content: "I am ready." }],
+			}),
+			executeTool,
+			hasRuntimeStorage: () => true,
+			loopGeneratedTokenCountSinceLastLogOff: () => 0,
+			prematureLogOffCorrectedSinceLastLogOff: () => false,
+			providerLoopInitialSuccessfulToolCallCount: () => 0,
+			repairActiveProviderToolCallHistory: async () => [],
+			recordInferenceSubmission: () => {},
+			recordLoopMessageLog: () => {},
+			recordProviderUsage: () => {},
+			rewriteProviderResponseLoopMessageToolCall: (_seq: number, rewrite: { kind: string; toolCallId: string }) => {
+				rewrites.push(rewrite);
+				const providerResponse = appendedLoopMessages.find((message) => message.origin === "provider_response" && Array.isArray(message.message.tool_calls));
+				if (providerResponse?.message.tool_calls && rewrite.kind === "drop") {
+					providerResponse.message.tool_calls = (providerResponse.message.tool_calls as BotInferenceSubmissionToolCall[])
+						.filter((toolCall) => toolCall.id !== rewrite.toolCallId);
+				}
+			},
+			successfulMutatingToolCallSinceLastLogOff: () => true,
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const runProviderLoop = (BotRuntime.prototype as unknown as {
+			runProviderLoop: (
+				bot: BotDocument,
+				settings: { baseUrl: string; model: string; temperature: number },
+				runId: string,
+				messages: Array<Record<string, unknown>>,
+				runContext: { mode: "normal"; signal: AbortSignal },
+			) => Promise<{ logOffCalled: boolean }>;
+		}).runProviderLoop.bind(runtime);
+
+		await expect(
+			runProviderLoop(
+				fakeBotDocument(),
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				"run-meta-tool-misuse",
+				[],
+				{ mode: "normal", signal: new AbortController().signal },
+			),
+		).resolves.toMatchObject({ logOffCalled: false });
+
+		expect(executeTool).not.toHaveBeenCalled();
+		expect(rewrites).toEqual([{ kind: "drop", toolCallId: "call-meta-summary" }]);
+		expect(appendedLoopMessages.find((message) => message.origin === "self_correction")?.message.content).toContain(`${metaCompactionToolName} cannot be used at this time`);
+		expect(JSON.stringify(appendedLoopMessages.filter((message) => message.origin !== "self_correction"))).not.toContain(metaCompactionToolName);
+		expect(events).toContainEqual(expect.objectContaining({
+			type: "provider_tool_call_dropped",
+			payload: expect.objectContaining({
+				callIds: ["call-meta-summary"],
+				reason: "disallowed_meta_compaction_tool",
+			}),
+		}));
 	});
 
 	it("drops malformed generated tool calls while executing valid calls from the same response", async () => {
