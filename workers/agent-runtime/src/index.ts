@@ -344,6 +344,7 @@ type ProviderResponse = {
 
 type ProviderPromptBudgetCheck = {
 	allowedPromptTokens: number;
+	contextWindowTokens?: number;
 	promptTokens: number;
 	requestMessages: ChatMessage[];
 };
@@ -900,6 +901,22 @@ class PromptContextBudgetExceededError extends Error {
 	}
 }
 
+class PromptContextCompactionLimitError extends Error {
+	readonly allowedPromptTokens: number;
+	readonly attempts: number;
+	readonly promptTokens: number;
+
+	constructor(promptTokens: number, allowedPromptTokens: number, attempts: number) {
+		super(
+			`Context compaction did not reduce the provider prompt below the next compaction threshold after ${attempts} attempts: ${promptTokens} prompt tokens still exceeds the ${allowedPromptTokens} token prompt limit. Increase the context budget or reduce the participant prompt, enabled controls, or maximum compacted summary size.`,
+		);
+		this.name = "PromptContextCompactionLimitError";
+		this.promptTokens = promptTokens;
+		this.allowedPromptTokens = allowedPromptTokens;
+		this.attempts = attempts;
+	}
+}
+
 class TickStoppedError extends Error {
 	constructor() {
 		super("This Bickr visit was stopped.");
@@ -938,6 +955,7 @@ const providerRequiredToolChoice = "required" as const;
 const providerTokenProbeToolChoice = "auto" as const;
 const providerParallelToolCalls = true;
 const providerRailroadNoToolMaxAttempts = 5;
+const providerPromptCompactionMaxAttempts = 3;
 const providerDefaultReasoning = { enabled: true, exclude: false } as const;
 const providerTranslationMaxCompletionTokens = 8_192;
 const providerCompactionTemperature = 0.2;
@@ -1261,6 +1279,26 @@ function estimatedPromptContextTokens(
 			calibration,
 		) +
 		estimateTextTokensWithCalibration(JSON.stringify(providerTools), calibration) +
+		providerPromptEstimateSafetyTokens
+	);
+}
+
+function estimatedMinimumCompactedPromptTokens(
+	parts: ContextBudgetPromptParts,
+	calibration: TextTokenCalibration,
+): number {
+	return (
+		estimateChatMessagesTokens(
+			providerMessagesWithReasoningPrefill(
+				[
+					{ role: "system", content: parts.fullSystemMessage },
+					{ role: "assistant", content: "x" },
+				],
+				parts.reasoningPrefill,
+			),
+			calibration,
+		) +
+		estimateTextTokensWithCalibration(JSON.stringify(parts.providerTools), calibration) +
 		providerPromptEstimateSafetyTokens
 	);
 }
@@ -3065,6 +3103,27 @@ export class BotRuntime {
 		this.state.storage.sql.exec(`DELETE FROM runtime_state WHERE key = ?`, toolUseRecoveryStateKey);
 	}
 
+	private async botWithCurrentRuntimeBudget(bot: BotDocument): Promise<BotDocument> {
+		if (!this.env?.BICKR_KV || !this.env?.BICKR_D1) {
+			return bot;
+		}
+		let current: BotDocument;
+		try {
+			current = await botById(this.env.BICKR_KV, this.env.BICKR_D1, bot.id);
+		} catch {
+			return bot;
+		}
+		return {
+			...bot,
+			tickSettings: {
+				...bot.tickSettings,
+				...(current.tickSettings.contextWindowTokens === undefined ?
+					{ contextWindowTokens: undefined }
+				:	{ contextWindowTokens: current.tickSettings.contextWindowTokens }),
+			},
+		};
+	}
+
 	private async markRunStopped(bot: BotDocument, runId: string): Promise<string | null> {
 		if (!this.hasTerminalEvent(runId)) {
 			await this.appendEvent(runId, "tick_stopped", { message: "This Bickr visit was stopped." });
@@ -3110,6 +3169,7 @@ export class BotRuntime {
 				await this.repairActiveProviderToolCallHistory(runId);
 				const budgetCheck = await this.ensureProviderPromptWithinBudget(bot, settings, runId, runContext.signal, providerTools);
 				const requestMessages = budgetCheck.requestMessages;
+				const requestContextWindowTokens = budgetCheck.contextWindowTokens ?? tickSettings.contextWindowTokens;
 				requestEvent = await this.appendEvent(runId, "provider_request", {
 					model: settings.model,
 					messageCount: requestMessages.length,
@@ -3117,7 +3177,7 @@ export class BotRuntime {
 					toolCalls: toolCallsMode,
 					...(providerToolChoiceForMode(toolCallsMode) ? { toolChoice: providerToolChoiceForMode(toolCallsMode) } : {}),
 					parallelToolCalls: providerParallelToolCalls,
-					contextWindowTokens: tickSettings.contextWindowTokens,
+					contextWindowTokens: requestContextWindowTokens,
 					promptTokens: budgetCheck.promptTokens,
 					allowedPromptTokens: budgetCheck.allowedPromptTokens,
 					maxCompletionTokens: providerContextReserveTokens,
@@ -3183,7 +3243,7 @@ export class BotRuntime {
 				);
 				if (response.usage) {
 					this.recordProviderUsage({
-						contextWindowTokens: tickSettings.contextWindowTokens,
+						contextWindowTokens: requestContextWindowTokens,
 						createdAt: requestEvent.createdAt,
 						providerResponseId: response.responseId,
 						requestSeq: requestEvent.seq,
@@ -4138,10 +4198,10 @@ export class BotRuntime {
 		return rows.map((row) => row.seq).filter((seq) => Number.isInteger(seq));
 	}
 
-	private latestActiveLoopCompactionBoundary(): { seq: number; created_at: string } | null {
+	private latestActiveLoopCompactionBoundary(): { messageSeq: number; requestSeq: number; created_at: string } | null {
 		const row = this.state.storage.sql
-			.exec<{ seq: number; created_at: string }>(
-				`SELECT m.seq, m.created_at
+			.exec<{ message_seq: number; request_seq: number | null; created_at: string }>(
+				`SELECT m.seq AS message_seq, m.stream_seq AS request_seq, m.created_at
 				 FROM loop_messages m
 				 WHERE m.compacted_by IS NULL
 				   AND m.deleted_at IS NULL
@@ -4156,7 +4216,11 @@ export class BotRuntime {
 				 LIMIT 1`,
 			)
 			.toArray()[0];
-		return row && typeof row.seq === "number" && typeof row.created_at === "string" ? row : null;
+		if (!row || typeof row.message_seq !== "number" || typeof row.created_at !== "string") {
+			return null;
+		}
+		const requestSeq = typeof row.request_seq === "number" ? row.request_seq : row.message_seq;
+		return { messageSeq: row.message_seq, requestSeq, created_at: row.created_at };
 	}
 
 	private loopMessagePageCount(sourceCompactionSeq: number | null): { messageCount: number; fromSeq: number | null; toSeq: number | null } {
@@ -4651,14 +4715,14 @@ export class BotRuntime {
 		if (!latest) {
 			return undefined;
 		}
-		if (boundary && latest.request_seq <= boundary.seq) {
+		if (boundary && latest.request_seq <= boundary.requestSeq) {
 			return undefined;
 		}
-		const baseline = this.firstLoopProviderUsageAfterSeq(boundary?.seq);
+		const baseline = this.firstLoopProviderUsageAfterSeq(boundary?.requestSeq);
 		if (!baseline) {
 			return undefined;
 		}
-		const contextWindowTokens = Math.max(0, Math.floor(latest.context_window_tokens));
+		const contextWindowTokens = effectiveTickSettings(bot.tickSettings).contextWindowTokens;
 		const promptTokens = Math.max(0, Math.floor(latest.prompt_tokens));
 		const baselinePromptTokens = Math.max(0, Math.floor(baseline.prompt_tokens));
 		const initialTokens = Math.min(baselinePromptTokens, promptTokens);
@@ -4754,12 +4818,21 @@ export class BotRuntime {
 			contextWindowTokens: tickSettings.contextWindowTokens,
 			responseReserveTokens: providerContextReserveTokens,
 		});
+		const calibration = this.textTokenCalibration();
+		const compactionLimits = providerCompactionSummaryLimitsForChat(bot, [], calibration, providerTools);
+		const minimumCompactedPromptTokens = estimatedMinimumCompactedPromptTokens(
+			{ fixedSystemMessage, fullSystemMessage, reasoningPrefill, providerTools },
+			calibration,
+		);
 		return {
 			botId,
 			cached: Boolean(cachedCounts),
 			contextWindowTokens: tickSettings.contextWindowTokens,
 			effectiveModel: settings.model,
 			fingerprint,
+			minimumCompactedPromptOverageTokens: Math.max(0, minimumCompactedPromptTokens - compactionLimits.nextCompactionTokens),
+			minimumCompactedPromptTokens,
+			nextCompactionTokens: compactionLimits.nextCompactionTokens,
 			providerBaseUrl: settings.baseUrl,
 			...budget,
 		};
@@ -6072,6 +6145,7 @@ export class BotRuntime {
 		runId: string,
 		signal: AbortSignal,
 	): Promise<void> {
+		bot = await this.botWithCurrentRuntimeBudget(bot);
 		const contextEstimate = this.currentCompactionContextEstimate();
 		const total = contextEstimate.totalTokens;
 		const providerTools = providerToolsForBotRound(bot, settings).tools;
@@ -6100,12 +6174,15 @@ export class BotRuntime {
 		signal: AbortSignal,
 		providerTools: ProviderToolDefinition[],
 	): Promise<ProviderPromptBudgetCheck> {
-		const tickSettings = effectiveTickSettings(bot.tickSettings);
+		let compactionAttempts = 0;
 		for (;;) {
 			this.throwIfStopped(runId, signal);
-				const promptBudgetLimits = providerCompactionSummaryLimitsForChat(bot, [], this.textTokenCalibration(), providerTools);
+			const budgetBot = await this.botWithCurrentRuntimeBudget(bot);
+			const tickSettings = effectiveTickSettings(budgetBot.tickSettings);
+			providerTools = providerToolsForBotRound(budgetBot, settings).tools;
+			const promptBudgetLimits = providerCompactionSummaryLimitsForChat(budgetBot, [], this.textTokenCalibration(), providerTools);
 			const allowedPromptTokens = promptBudgetLimits.nextCompactionTokens;
-			const requestMessages = this.activeProviderRequestMessages(bot, providerTools, settings.toolCalls ?? "require");
+			const requestMessages = this.activeProviderRequestMessages(budgetBot, providerTools, settings.toolCalls ?? "require");
 			const estimate = this.estimateProviderPromptTokens(settings, requestMessages, providerTools);
 			const overBudgetTokens = Math.max(0, estimate.promptTokens - allowedPromptTokens);
 			await this.appendEvent(runId, "provider_token_estimate", {
@@ -6126,15 +6203,24 @@ export class BotRuntime {
 				...(estimate.estimatedDeltaTokens !== undefined ? { estimatedDeltaTokens: estimate.estimatedDeltaTokens } : {}),
 			});
 			if (overBudgetTokens === 0) {
-				return { allowedPromptTokens, promptTokens: estimate.promptTokens, requestMessages };
+				return {
+					allowedPromptTokens,
+					contextWindowTokens: tickSettings.contextWindowTokens,
+					promptTokens: estimate.promptTokens,
+					requestMessages,
+				};
 			}
-				const compacted = this.compactionRowsForEstimatedBudget(bot, runId, false, providerTools);
-				const currentRunIncluded = compacted.length === 0;
-				const rowsToCompact = currentRunIncluded ? this.compactionRowsForEstimatedBudget(bot, runId, true, providerTools) : compacted;
+			if (compactionAttempts >= providerPromptCompactionMaxAttempts) {
+				throw new PromptContextCompactionLimitError(estimate.promptTokens, allowedPromptTokens, providerPromptCompactionMaxAttempts);
+			}
+			const compacted = this.compactionRowsForEstimatedBudget(budgetBot, runId, false, providerTools);
+			const currentRunIncluded = compacted.length === 0;
+			const rowsToCompact = currentRunIncluded ? this.compactionRowsForEstimatedBudget(budgetBot, runId, true, providerTools) : compacted;
 			if (rowsToCompact.length === 0) {
 				throw new PromptContextBudgetExceededError(estimate.promptTokens, allowedPromptTokens);
 			}
-			await this.compactLoopMessageRows(bot, settings, runId, signal, rowsToCompact, "auto", {
+			compactionAttempts += 1;
+			await this.compactLoopMessageRows(budgetBot, settings, runId, signal, rowsToCompact, "auto", {
 				allowedPromptTokens,
 				compactionMaxCharacters: promptBudgetLimits.maxLength,
 				compactionMaxCompletionTokens: promptBudgetLimits.maxCompletionTokens,
@@ -6618,7 +6704,13 @@ export class BotRuntime {
 			contextWindowTokens === undefined ?
 				bot.tickSettings
 			:	{ ...bot.tickSettings, contextWindowTokens: Math.max(1, Math.floor(contextWindowTokens)) };
-		return providerCompactionSummaryLimitsForChat({ ...bot, tickSettings }, [], this.textTokenCalibration()).nextCompactionTokens;
+		const budgetBot = { ...bot, tickSettings };
+		return providerCompactionSummaryLimitsForChat(
+			budgetBot,
+			[],
+			this.textTokenCalibration(),
+			providerFunctionToolsForBot(budgetBot),
+		).nextCompactionTokens;
 	}
 
 	private compactionPromptTokenLimit(bot: BotDocument, calibration = this.textTokenCalibration(), providerTools?: ProviderToolDefinition[]): number {

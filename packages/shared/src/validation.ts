@@ -911,8 +911,20 @@ function parseTickSettings(value: unknown): BotTickSettingsInput {
 	return settings;
 }
 
-function pickContextWindowTickSettings(settings: BotTickSettingsInput): Pick<BotTickSettingsInput, "contextWindowTokens"> | undefined {
-	return settings.contextWindowTokens === undefined ? undefined : { contextWindowTokens: settings.contextWindowTokens };
+function pickContextWindowTickSettings(
+	settings: BotTickSettingsInput,
+): Pick<BotTickSettingsInput, "contextWindowTokens" | "compactionMaxCharacters" | "compactionSummaryPercent"> | undefined {
+	const picked: Pick<BotTickSettingsInput, "contextWindowTokens" | "compactionMaxCharacters" | "compactionSummaryPercent"> = {};
+	if (settings.contextWindowTokens !== undefined) {
+		picked.contextWindowTokens = settings.contextWindowTokens;
+	}
+	if (settings.compactionMaxCharacters !== undefined) {
+		picked.compactionMaxCharacters = settings.compactionMaxCharacters;
+	}
+	if (settings.compactionSummaryPercent !== undefined) {
+		picked.compactionSummaryPercent = settings.compactionSummaryPercent;
+	}
+	return Object.keys(picked).length === 0 ? undefined : picked;
 }
 
 function boundedInteger(value: unknown, label: string, min: number, max: number): number {

@@ -2749,9 +2749,9 @@ describe("Bickr Pages Functions", () => {
 		it("reports context window breakdown from latest normal loop inference", () => {
 			const baseline = providerLoopUsageRowForTest(10, "2026-05-01T00:00:00.000Z", 4_000);
 			const latest = providerLoopUsageRowForTest(12, "2026-05-01T00:10:00.000Z", 6_500);
-			const bot = fakeBotDocument({ contextWindowTokens: 16_000 });
+			const bot = fakeBotDocument({ contextWindowTokens: 20_000 });
 			const calibration = { tokensPerCharacter: 0.25, sampleCount: 0 };
-			const expectedLimits = providerCompactionSummaryLimitsForChat(bot, [], calibration);
+			const expectedLimits = providerCompactionSummaryLimitsForChat(bot, [], calibration, toolDefinitionsForProviderRound());
 			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 				providerUsageRows: () => [],
 				tokenUsageChangeMarkers: () => [],
@@ -2774,8 +2774,8 @@ describe("Bickr Pages Functions", () => {
 				baselinePromptTokens: 4_000,
 				initialTokens: 4_000,
 				ongoingTokens: 2_500,
-				freeTokens: 9_500,
-				contextWindowTokens: 16_000,
+				freeTokens: 13_500,
+				contextWindowTokens: 20_000,
 				compactionCutoffTokens: expectedLimits.nextCompactionTokens,
 				responseReserveTokens: providerContextReserveTokens,
 			});
@@ -2786,7 +2786,7 @@ describe("Bickr Pages Functions", () => {
 				providerUsageRows: () => [],
 				tokenUsageChangeMarkers: () => [],
 				textTokenCalibration: () => ({ tokensPerCharacter: 0.25, sampleCount: 0 }),
-				latestActiveLoopCompactionBoundary: () => ({ seq: 20, created_at: "2026-05-01T00:05:00.000Z" }),
+				latestActiveLoopCompactionBoundary: () => ({ messageSeq: 20, requestSeq: 120, created_at: "2026-05-01T00:05:00.000Z" }),
 				latestLoopProviderUsage: () => providerLoopUsageRowForTest(12, "2026-05-01T00:20:00.000Z", 6_500),
 				firstLoopProviderUsageAfterSeq: vi.fn(),
 			});
@@ -2801,13 +2801,13 @@ describe("Bickr Pages Functions", () => {
 		});
 
 		it("uses the first normal inference after active compaction as the context baseline", () => {
-			const firstLoopProviderUsageAfterSeq = vi.fn(() => providerLoopUsageRowForTest(21, "2026-05-01T00:06:00.000Z", 5_500));
+			const firstLoopProviderUsageAfterSeq = vi.fn(() => providerLoopUsageRowForTest(121, "2026-05-01T00:06:00.000Z", 5_500));
 			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 				providerUsageRows: () => [],
 				tokenUsageChangeMarkers: () => [],
 				textTokenCalibration: () => ({ tokensPerCharacter: 0.25, sampleCount: 0 }),
-				latestActiveLoopCompactionBoundary: () => ({ seq: 20, created_at: "2026-05-01T00:05:00.000Z" }),
-				latestLoopProviderUsage: () => providerLoopUsageRowForTest(24, "2026-05-01T00:20:00.000Z", 8_000),
+				latestActiveLoopCompactionBoundary: () => ({ messageSeq: 20, requestSeq: 120, created_at: "2026-05-01T00:05:00.000Z" }),
+				latestLoopProviderUsage: () => providerLoopUsageRowForTest(124, "2026-05-01T00:20:00.000Z", 8_000),
 				firstLoopProviderUsageAfterSeq,
 			});
 			const tokenUsageStats = (BotRuntime.prototype as unknown as {
@@ -2816,9 +2816,9 @@ describe("Bickr Pages Functions", () => {
 
 			const usage = tokenUsageStats(fakeBotDocument({ contextWindowTokens: 16_000 }));
 
-			expect(firstLoopProviderUsageAfterSeq).toHaveBeenCalledWith(20);
+			expect(firstLoopProviderUsageAfterSeq).toHaveBeenCalledWith(120);
 			expect(usage.contextWindow).toMatchObject({
-				baselineRequestSeq: 21,
+				baselineRequestSeq: 121,
 				baselinePromptTokens: 5_500,
 				initialTokens: 5_500,
 				ongoingTokens: 2_500,
@@ -8382,6 +8382,9 @@ describe("Bickr Pages Functions", () => {
 										effectiveModel: "openrouter/auto",
 										fingerprint: "budget-test",
 										fixedSystemTokens: 1_000,
+										minimumCompactedPromptOverageTokens: 0,
+										minimumCompactedPromptTokens: 2_000,
+										nextCompactionTokens: 58_000,
 										overBudgetTokens: 0,
 										personaPromptTokens: 100,
 										providerBaseUrl: "https://openrouter.ai/api/v1",
@@ -8500,11 +8503,15 @@ describe("Bickr Pages Functions", () => {
 					sql: memoryRuntimeSql(),
 				},
 			},
+			textTokenCalibration: () => ({ tokensPerCharacter: 0.25, sampleCount: 0 }),
 		});
 		const promptContextBudget = (BotRuntime.prototype as unknown as {
 			promptContextBudget: (botId: string, input: unknown) => Promise<{
 				cached: boolean;
 				fixedSystemTokens: number;
+				minimumCompactedPromptOverageTokens: number;
+				minimumCompactedPromptTokens: number;
+				nextCompactionTokens: number;
 				personaPromptTokens: number;
 				remainingLoopTokens: number;
 			}>;
@@ -8517,6 +8524,9 @@ describe("Bickr Pages Functions", () => {
 		expect(first).toMatchObject({
 			cached: false,
 			fixedSystemTokens: 200,
+			minimumCompactedPromptOverageTokens: expect.any(Number),
+			minimumCompactedPromptTokens: expect.any(Number),
+			nextCompactionTokens: expect.any(Number),
 			personaPromptTokens: 60,
 			remainingLoopTokens: 7_240,
 		});
@@ -10566,6 +10576,106 @@ describe("Bickr Pages Functions", () => {
 		expect(messageListText(providerRequests[0] ?? [])).not.toContain("Large current thread read result");
 		expect(messageListText(providerRequests[0] ?? [])).toContain("large current thread read as a concise summary");
 		expect(events.map((event) => event.type)).toEqual(["provider_token_estimate", "provider_token_estimate", "provider_request"]);
+	});
+
+	it("applies the current context budget during prompt budget checks", async () => {
+		const staleBot = fakeBotDocument({ contextWindowTokens: 16_000 });
+		const currentBot = fakeBotDocument({ contextWindowTokens: 64_000 });
+		const calibration = { tokensPerCharacter: 0.25, sampleCount: 0 };
+		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			activeLoopMessagesForProvider: () => [],
+			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+				events.push({ type, payload });
+				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
+			},
+			botWithCurrentRuntimeBudget: async () => currentBot,
+			estimateProviderPromptTokens: () => providerPromptEstimateForTokens(15_000),
+			textTokenCalibration: () => calibration,
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const ensureProviderPromptWithinBudget = (BotRuntime.prototype as unknown as {
+			ensureProviderPromptWithinBudget: (
+				bot: BotDocument,
+				settings: { baseUrl: string; model: string; temperature: number },
+				runId: string,
+				signal: AbortSignal,
+				providerTools: ProviderToolDefinition[],
+			) => Promise<{ contextWindowTokens?: number; promptTokens: number }>;
+		}).ensureProviderPromptWithinBudget.bind(runtime);
+
+		const result = await ensureProviderPromptWithinBudget(
+			staleBot,
+			{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+			"run-fresh-budget",
+			new AbortController().signal,
+			toolDefinitionsForProviderRound(),
+		);
+
+		expect(result).toMatchObject({ contextWindowTokens: 64_000, promptTokens: 15_000 });
+		expect(events[0]?.payload).toMatchObject({
+			contextWindowTokens: 64_000,
+			overBudgetTokens: 0,
+		});
+	});
+
+	it("stops prompt-budget compaction after three unsuccessful attempts", async () => {
+		const bot = fakeBotDocument({ contextWindowTokens: 16_000 });
+		const calibration = { tokensPerCharacter: 0.25, sampleCount: 0 };
+		const row = loopMessageRowForTest(1, "run-stuck-compaction", "Old summary that still cannot fit.");
+		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+		let compactCalls = 0;
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			activeLoopMessagesForProvider: () => [{ role: "assistant", content: "Still too large after compaction." }],
+			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+				events.push({ type, payload });
+				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
+			},
+			botWithCurrentRuntimeBudget: async (current: BotDocument) => current,
+			compactLoopMessageRows: async () => {
+				compactCalls += 1;
+				return [row];
+			},
+			compactionRowsForEstimatedBudget: () => [row],
+			estimateProviderPromptTokens: () => providerPromptEstimateForTokens(20_000),
+			textTokenCalibration: () => calibration,
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const ensureProviderPromptWithinBudget = (BotRuntime.prototype as unknown as {
+			ensureProviderPromptWithinBudget: (
+				bot: BotDocument,
+				settings: { baseUrl: string; model: string; temperature: number },
+				runId: string,
+				signal: AbortSignal,
+				providerTools: ProviderToolDefinition[],
+			) => Promise<unknown>;
+		}).ensureProviderPromptWithinBudget.bind(runtime);
+
+		await expect(
+			ensureProviderPromptWithinBudget(
+				bot,
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				"run-stuck-compaction",
+				new AbortController().signal,
+				toolDefinitionsForProviderRound(),
+			),
+		).rejects.toThrow("after 3 attempts");
+
+		expect(compactCalls).toBe(3);
+		expect(events.map((event) => event.type)).toEqual([
+			"provider_token_estimate",
+			"provider_token_estimate",
+			"provider_token_estimate",
+			"provider_token_estimate",
+		]);
 	});
 
 		it("fails before provider inference when current context alone exceeds the estimated budget", async () => {

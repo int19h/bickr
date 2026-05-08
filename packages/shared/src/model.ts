@@ -1100,7 +1100,7 @@ export type BotContextBudgetInput = {
 	shortBio?: string;
 	inferenceSettings?: BotInferenceSettingsInput;
 	toolSettings?: BotToolSettingsInput;
-	tickSettings?: Partial<Pick<BotTickSettingsInput, "contextWindowTokens">>;
+	tickSettings?: Partial<Pick<BotTickSettingsInput, "contextWindowTokens" | "compactionMaxCharacters" | "compactionSummaryPercent">>;
 };
 
 export type BotContextBudget = {
@@ -1110,6 +1110,9 @@ export type BotContextBudget = {
 	effectiveModel: string;
 	fingerprint: string;
 	fixedSystemTokens: number;
+	minimumCompactedPromptOverageTokens: number;
+	minimumCompactedPromptTokens: number;
+	nextCompactionTokens: number;
 	overBudgetTokens: number;
 	personaPromptTokens: number;
 	providerBaseUrl: string;

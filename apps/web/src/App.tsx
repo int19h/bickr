@@ -5540,7 +5540,7 @@ function BotEdit({
 					shortBio: draft.shortBio,
 					inferenceSettings: inferenceInputFromDraft(draft.inference, inferenceInheritance, { includeReasoningPrefill: true }),
 					toolSettings: toolInputFromDraft(draft.tools),
-					tickSettings: { contextWindowTokens },
+					tickSettings: { contextWindowTokens, compactionMaxCharacters, compactionSummaryPercent },
 				},
 			},
 		);
@@ -6024,6 +6024,12 @@ function PromptContextBudgetChart({
 			{overBudgetTokens > 0 && (
 				<div className="runtime-message error">
 					Over budget by {formatExactTokenCount(overBudgetTokens)} tokens before loop inputs.
+				</div>
+			)}
+			{budget && budget.minimumCompactedPromptOverageTokens > 0 && (
+				<div className="runtime-message error">
+					Compaction cannot converge at this budget: the smallest estimated compacted prompt is{" "}
+					{formatExactTokenCount(budget.minimumCompactedPromptOverageTokens)} tokens past next compaction.
 				</div>
 			)}
 			{error && <div className="runtime-message error">{error}</div>}
@@ -13045,6 +13051,8 @@ function botPromptBudgetRequestKey(
 	botId: string,
 	botHandle: string,
 	draft: {
+		compactionMaxCharacters: string;
+		compactionSummaryPercent: string;
 		contextWindowTokens: string;
 		displayName: string;
 		inference: InferenceDraft;
@@ -13061,6 +13069,8 @@ function botPromptBudgetRequestKey(
 		displayName: draft.displayName,
 		model: effectiveInferenceDraftModel(draft.inference, inherited),
 		prompt: draft.prompt,
+		compactionMaxCharacters: draft.compactionMaxCharacters.trim(),
+		compactionSummaryPercent: draft.compactionSummaryPercent.trim(),
 		contextWindowTokens: draft.contextWindowTokens.trim(),
 		providerRouting: providerRoutingDraftFingerprintValue(draft.inference.providerRouting),
 			recurringPrompt: draft.inference.recurringPrompt.trim() ?
