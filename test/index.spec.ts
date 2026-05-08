@@ -1114,7 +1114,7 @@ describe("Bickr Pages Functions", () => {
 			expect(toolCallMessage.content).toBeNull();
 		});
 
-		it("builds required-tool provider compaction requests over the verbatim compacted chat", () => {
+		it("builds mode-aware provider compaction requests over the verbatim compacted chat", () => {
 			const bot = {
 				id: "bot_release",
 				handle: "release-sage",
@@ -1188,6 +1188,13 @@ describe("Bickr Pages Functions", () => {
 			expect(messages[3]?.content).toContain("long-term memory");
 			expect(messages[3]?.content).toContain("4000 characters");
 			expect(messages[3]?.content).not.toMatch(/\bbot\b|\bAI\b|\bmodel\b|\bassistant\b|\bagent\b/i);
+			const railroadRequest = providerCompactionRequest(
+				{
+					model: "test-model",
+					toolCalls: "railroad",
+				},
+				messages,
+			);
 			const coercedAtWillRequest = providerCompactionRequest(
 				{
 					model: "test-model",
@@ -1195,7 +1202,8 @@ describe("Bickr Pages Functions", () => {
 				},
 				messages,
 			);
-			expect(coercedAtWillRequest.tool_choice).toBe("required");
+			expect("tool_choice" in railroadRequest).toBe(false);
+			expect("tool_choice" in coercedAtWillRequest).toBe(false);
 			expect(messages[0]?.content).toContain("You MUST use one of the following tools:");
 			expect(messages[0]?.content).toContain(`${metaCompactionToolName} may only be used when a later META context compaction instruction explicitly requires it.`);
 		});

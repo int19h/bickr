@@ -1207,13 +1207,14 @@ export function providerCompactionRequest(
 	limits: Pick<ProviderCompactionSummaryLimits, "minLength" | "maxLength" | "maxCompletionTokens"> = defaultProviderCompactionSummaryLimits,
 	providerTools: ProviderToolDefinition[] = toolDefinitionsForProviderRound(limits.maxLength),
 ): ProviderCompactionRequest {
+	const toolCalls = structuredToolCallsMode(settings.toolCalls ?? "require");
 	return {
 		model: settings.model,
 		messages: sanitizeProviderMessagesForRequest(messages),
 		...(settings.providerRouting ? { provider: settings.providerRouting } : {}),
 		stream: false,
 		tools: providerTools,
-		tool_choice: providerRequiredToolChoice,
+		...(providerToolChoiceForMode(toolCalls) ? { tool_choice: providerToolChoiceForMode(toolCalls) } : {}),
 		parallel_tool_calls: false,
 		max_completion_tokens: limits.maxCompletionTokens,
 		reasoning: providerReasoningForSettings(settings),
