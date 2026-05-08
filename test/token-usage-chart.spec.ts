@@ -5,6 +5,7 @@ import {
 	type TokenUsageChartPoint,
 } from "../apps/web/src/token-usage-chart";
 import { loopContinuationRowsForPage } from "../apps/web/src/loop-page-continuations";
+import { loopPagePagerItems } from "../apps/web/src/loop-page-pager";
 
 function point(timeMs: number, totalTokens: number, cachedTokens = 0): TokenUsageChartPoint {
 	return { timeMs, x: timeMs, totalTokens, cachedTokens };
@@ -85,3 +86,81 @@ describe("loopContinuationRowsForPage", () => {
 		]);
 	});
 });
+
+describe("loopPagePagerItems", () => {
+	it("shows every page when there are fewer than 25 pages", () => {
+		expect(loopPagePagerItems(loopPage(7, 4)).map(itemLabel)).toEqual(["1", "2", "3", "4*", "5", "6", "7"]);
+	});
+
+	it("centers 25 pages around the current page", () => {
+		const items = loopPagePagerItems(loopPage(50, 25));
+
+		expect(items.map(itemLabel)).toEqual([
+			"...<1",
+			"13",
+			"14",
+			"15",
+			"16",
+			"17",
+			"18",
+			"19",
+			"20",
+			"21",
+			"22",
+			"23",
+			"24",
+			"25*",
+			"26",
+			"27",
+			"28",
+			"29",
+			"30",
+			"31",
+			"32",
+			"33",
+			"34",
+			"35",
+			"36",
+			"37",
+			"...>50",
+		]);
+	});
+
+	it("fills from the other side near the start and end", () => {
+		expect(loopPagePagerItems(loopPage(50, 3)).filter((item) => item.kind === "page").map((item) => item.page)).toEqual(
+			Array.from({ length: 25 }, (_, index) => index + 1),
+		);
+		expect(loopPagePagerItems(loopPage(50, 49)).filter((item) => item.kind === "page").map((item) => item.page)).toEqual(
+			Array.from({ length: 25 }, (_, index) => index + 26),
+		);
+	});
+
+	it("uses ellipses that jump 25 pages and clamp to valid pages", () => {
+		expect(loopPagePagerItems(loopPage(100, 50)).filter((item) => item.kind === "ellipsis")).toEqual([
+			{ kind: "ellipsis", page: 25, direction: "backward" },
+			{ kind: "ellipsis", page: 75, direction: "forward" },
+		]);
+		expect(loopPagePagerItems(loopPage(30, 18)).filter((item) => item.kind === "ellipsis")).toEqual([
+			{ kind: "ellipsis", page: 1, direction: "backward" },
+		]);
+	});
+});
+
+function loopPage(pageCount: number, currentPage: number) {
+	return {
+		currentPage,
+		pageCount,
+		pages: Array.from({ length: pageCount }, (_, index) => ({
+			page: index + 1,
+			messageCount: index + 1,
+		})),
+		compactionPageBySeq: {},
+	};
+}
+
+function itemLabel(item: ReturnType<typeof loopPagePagerItems>[number]): string {
+	if (item.kind === "ellipsis") {
+		return item.direction === "backward" ? `...<${item.page}` : `...>${item.page}`;
+	}
+	return `${item.page}${item.current ? "*" : ""}`;
+}

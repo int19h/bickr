@@ -5740,25 +5740,24 @@ export class BotRuntime {
 			threshold?: number;
 		},
 	): Promise<void> {
-		// Compaction rewrites provider history, so owner-only diagnostics must be excluded
-		// by the same rule used for normal inference requests.
-		compacted = compacted.filter((row) =>
+		const providerRows = compacted.filter((row) =>
 			loopMessageContributesToProviderHistory(row.origin, loopMessageChatMessageFromRow(row))
 		);
-		if (compacted.length === 0) {
+		if (providerRows.length === 0) {
 			return;
 		}
-		const recentActivity = compacted
+		const ledgerRows = this.compactionLedgerRows(providerRows);
+		const recentActivity = providerRows
 			.map((message) => truncateForContext(loopMessageContextLine(message), 1_200))
 			.join("\n");
-		const compactedMessages = compacted.map((row) => loopMessageChatMessageFromRow(row));
+		const compactedMessages = providerRows.map((row) => loopMessageChatMessageFromRow(row));
 		const compactedCommentBodies = commentTextRecordsFromChatMessages(compactedMessages);
 		const compactionMessages = providerCompactionMessages(bot, compactedMessages);
 		const providerActive = Boolean(settings.apiKey || settings.usesCustomBaseUrl || this.env.BICKR_SIMULATION_MODE === "provider");
 		const compactionEventPayload = {
-			fromSeq: compacted[0]?.seq,
-			toSeq: compacted[compacted.length - 1]?.seq,
-			messageCount: compacted.length,
+			fromSeq: providerRows[0]?.seq,
+			toSeq: providerRows[providerRows.length - 1]?.seq,
+			messageCount: providerRows.length,
 			mode,
 			...metrics,
 		};
@@ -5792,7 +5791,7 @@ export class BotRuntime {
 			throw error;
 		}
 		const summary = response.content ? storedCompactionSummary(response.content) : deterministicCompactionSummary("", recentActivity);
-		const summaryPosition = compacted[compacted.length - 1]?.position ?? this.nextLoopMessagePosition();
+		const summaryPosition = providerRows[providerRows.length - 1]?.position ?? this.nextLoopMessagePosition();
 		const summaryMessage = this.insertLoopMessage({
 			runId,
 			message: { role: "assistant", content: summary },
@@ -5801,7 +5800,7 @@ export class BotRuntime {
 			position: summaryPosition,
 			broadcast: true,
 		});
-		for (const row of compacted) {
+		for (const row of ledgerRows) {
 			this.state.storage.sql.exec(
 				`UPDATE loop_messages
 				 SET compacted_by = ?
@@ -5844,6 +5843,28 @@ export class BotRuntime {
 		}
 		this.repairDanglingCommentReferencesAfterCompaction(summaryMessage.seq, summaryPosition, summaryMessage.message, compactedCommentBodies);
 		this.broadcastControl({ type: "loop_messages_reset" });
+	}
+
+	private compactionLedgerRows(providerRows: readonly LoopMessageRow[]): LoopMessageRow[] {
+		if (providerRows.length === 0) {
+			return [];
+		}
+		const providerSeqs = new Set(providerRows.map((row) => row.seq));
+		const lastProviderPosition = Math.max(...providerRows.map((row) => row.position));
+		const rowsBySeq = new Map<number, LoopMessageRow>();
+		for (const row of this.activeLoopMessageRows()) {
+			if (
+				providerSeqs.has(row.seq) ||
+				(row.position <= lastProviderPosition &&
+					!loopMessageContributesToProviderHistory(row.origin, loopMessageChatMessageFromRow(row)))
+			) {
+				rowsBySeq.set(row.seq, row);
+			}
+		}
+		for (const row of providerRows) {
+			rowsBySeq.set(row.seq, row);
+		}
+		return [...rowsBySeq.values()].sort((left, right) => left.position - right.position || left.seq - right.seq);
 	}
 
 	private repairDanglingCommentReferencesAfterCompaction(

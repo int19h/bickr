@@ -87,6 +87,7 @@ import {
 	upsertLiveProviderLoopMessage,
 } from "./loop-message-streams";
 import { loopContinuationRowsForPage } from "./loop-page-continuations";
+import { loopPagePagerItems } from "./loop-page-pager";
 import { normalizeReadableText, reasoningDetailsTextForDisplay, textValueForDisplay } from "./reasoning-formatting";
 import "./App.css";
 
@@ -9143,32 +9144,42 @@ function LoopMessagePager({
 	if (!page || page.pageCount <= 1) {
 		return null;
 	}
-	const newerPage = page.newerPage;
-	const olderPage = page.olderPage;
+	const items = loopPagePagerItems(page);
+	if (items.length === 0) {
+		return null;
+	}
 	return (
 		<div aria-label="Loop history pages" className="loop-page-pager">
-			{newerPage && (
-				<button onClick={() => onPageSelect(newerPage)} title={`Open newer page ${newerPage}`} type="button">
-					Newer
-				</button>
-			)}
-			{page.pages.map((summary) => (
-				<button
-					aria-current={summary.page === page.currentPage ? "page" : undefined}
-					className={summary.page === page.currentPage ? "active" : ""}
-					key={summary.page}
-					onClick={() => onPageSelect(summary.page)}
-					title={`Open loop page ${summary.page}${summary.messageCount ? ` (${summary.messageCount} messages)` : ""}`}
-					type="button"
-				>
-					{summary.page}
-				</button>
+			<span className="loop-page-pager-label">Page:</span>
+			{items.map((item) => (
+				item.kind === "ellipsis" ?
+					<a
+						aria-label={`Jump ${item.direction === "backward" ? "back" : "forward"} 25 loop pages`}
+						className="loop-page-link ellipsis"
+						href={`#loop-page-${item.page}`}
+						key={`${item.direction}-${item.page}`}
+						onClick={(event) => {
+							event.preventDefault();
+							onPageSelect(item.page);
+						}}
+						title={`Open loop page ${item.page}`}
+					>
+						…
+					</a>
+				:	<a
+						aria-current={item.current ? "page" : undefined}
+						className={`loop-page-link ${item.current ? "active" : ""}`}
+						href={`#loop-page-${item.page}`}
+						key={item.page}
+						onClick={(event) => {
+							event.preventDefault();
+							onPageSelect(item.page);
+						}}
+						title={`Open loop page ${item.page}${item.messageCount ? ` (${item.messageCount} messages)` : ""}`}
+					>
+						{item.page}
+					</a>
 			))}
-			{olderPage && (
-				<button onClick={() => onPageSelect(olderPage)} title={`Open older page ${olderPage}`} type="button">
-					Older
-				</button>
-			)}
 		</div>
 	);
 }

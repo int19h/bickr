@@ -2616,12 +2616,17 @@ fieldset {
 }
 
 .event-log {
+	align-content: start;
 	border-top: 1px solid var(--rule-soft);
 	display: grid;
 	gap: 8px;
-	max-height: 420px;
-	overflow: auto;
+	height: 672px;
+	overflow-anchor: none;
+	overflow-x: hidden;
+	overflow-y: auto;
+	overscroll-behavior: contain;
 	padding-top: 10px;
+	scrollbar-gutter: stable;
 }
 
 .event-row {
@@ -2675,8 +2680,7 @@ fieldset {
 	margin-bottom: 0;
 }
 
-.loop-continuation-note button,
-.loop-page-pager button {
+.loop-continuation-note button {
 	background: var(--paper);
 	border: 1px solid var(--rule);
 	border-radius: 5px;
@@ -2687,9 +2691,7 @@ fieldset {
 }
 
 .loop-continuation-note button:hover,
-.loop-continuation-note button:focus-visible,
-.loop-page-pager button:hover,
-.loop-page-pager button:focus-visible {
+.loop-continuation-note button:focus-visible {
 	border-color: var(--accent);
 	color: var(--ink-1);
 }
@@ -2698,17 +2700,41 @@ fieldset {
 	align-items: center;
 	border-top: 1px solid var(--rule-soft);
 	display: flex;
+	font-size: 11px;
 	flex-wrap: wrap;
-	gap: 6px;
+	gap: 4px;
 	justify-content: center;
+	line-height: 1.35;
 	padding-top: 10px;
 }
 
-.loop-page-pager button.active {
-	background: var(--accent-soft);
-	border-color: var(--accent);
+.loop-page-pager-label {
+	color: var(--ink-4);
+	font-weight: 650;
+	margin-right: 2px;
+}
+
+.loop-page-link {
+	border-radius: 3px;
+	color: var(--ink-3);
+	padding: 1px 2px;
+	text-decoration: none;
+}
+
+.loop-page-link:hover,
+.loop-page-link:focus-visible {
+	color: var(--ink-1);
+	text-decoration: underline;
+}
+
+.loop-page-link.active {
 	color: var(--ink-1);
 	font-weight: 700;
+}
+
+.loop-page-link.ellipsis {
+	color: var(--ink-4);
+	padding-inline: 4px;
 }
 
 .activity-error {

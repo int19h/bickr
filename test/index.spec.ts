@@ -1657,6 +1657,36 @@ describe("Bickr Pages Functions", () => {
 			expect(loopMessagesPage({ page: 2, after: 99 }).messages.map((message) => message.seq)).toEqual([1]);
 		});
 
+		it("keeps compacted runtime diagnostics behind the active compaction summary", () => {
+			const rows: LoopMessageRowForTest[] = [
+				{ ...loopMessageRowForTest(1, "run-old", "Old provider event"), compacted_by: 10 },
+				{
+					...loopMessageRowForMessage(
+						2,
+						{ role: "user", content: runtimeErrorLoopMessageContent("Inference request failed with status 400.") },
+						"runtime_error",
+					),
+					compacted_by: 10,
+					origin: "runtime_error" as BotLoopMessage["origin"],
+				},
+				{ ...loopMessageRowForTest(10, "run-compact", "Current summary"), origin: "compaction" as BotLoopMessage["origin"] },
+				loopMessageRowForTest(11, "run-current", "Current event"),
+			];
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				state: { storage: { sql: memoryLoopMessagePageSql(rows) } },
+			});
+			const loopMessagesPage = (BotRuntime.prototype as unknown as {
+				loopMessagesPage: (input: { page: number; after?: number }) => { messages: BotLoopMessage[]; page: { currentPage: number; olderPage?: number } };
+			}).loopMessagesPage.bind(runtime);
+
+			const page1 = loopMessagesPage({ page: 1 });
+			const page2 = loopMessagesPage({ page: 2 });
+
+			expect(page1.messages.map((message) => message.seq)).toEqual([10, 11]);
+			expect(page1.page).toMatchObject({ currentPage: 1, olderPage: 2 });
+			expect(page2.messages.map((message) => message.seq)).toEqual([1, 2]);
+		});
+
 		it("uses the latest successful compaction summary after a failed compaction row", () => {
 			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 				state: {
@@ -1773,6 +1803,114 @@ describe("Bickr Pages Functions", () => {
 			expect(replaceEventPayload).toHaveBeenLastCalledWith(expect.objectContaining({ seq: 101 }), expect.objectContaining({
 				status: "complete",
 				summary: "I chose to follow up with Müller about concise release notes.",
+			}));
+		});
+
+		it("marks owner-only diagnostics in the compacted ledger span without sending them to the provider", async () => {
+			const rows: LoopMessageRowForTest[] = [
+				loopMessageRowForTest(1, "run-ledger-compact", "Provider-visible old context."),
+				{
+					...loopMessageRowForMessage(
+						2,
+						{ role: "user", content: runtimeErrorLoopMessageContent("Inference request failed with status 400.") },
+						"runtime_error",
+					),
+					origin: "runtime_error" as BotLoopMessage["origin"],
+				},
+				loopMessageRowForTest(3, "run-ledger-compact", "Provider-visible newer context."),
+				{
+					...loopMessageRowForMessage(
+						4,
+						{ role: "user", content: runtimeErrorLoopMessageContent("Inference request failed with status 404.") },
+						"runtime_error",
+					),
+					origin: "runtime_error" as BotLoopMessage["origin"],
+				},
+			];
+			const appendEvent = vi.fn(async (runId: string, type: string, payload: unknown) => ({
+				seq: 101,
+				runId,
+				type,
+				payload,
+				tokenEstimate: 1,
+				createdAt: "2026-05-01T00:00:01.000Z",
+			}));
+			const recordInferenceSubmission = vi.fn();
+			const callProviderForCompaction = vi.fn(async (_settings: unknown, _messages: unknown[]) => ({
+				content: "I kept the provider-visible context.",
+				requestBody: "{}",
+				rawResponse: "{}",
+			}));
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				env: {},
+				state: {
+					storage: {
+						sql: {
+							exec: vi.fn(<T,>(sql: string, ...params: unknown[]) => {
+								if (/FROM loop_messages m\s+WHERE m\.compacted_by IS NULL/.test(sql)) {
+									return {
+										toArray: () =>
+											rows
+												.filter((row) => row.compacted_by === null && row.deleted_at === null)
+												.sort((left, right) => left.position - right.position || left.seq - right.seq) as T[],
+									};
+								}
+								if (/UPDATE loop_messages\s+SET compacted_by = \?/.test(sql)) {
+									const row = rows.find((item) => item.seq === Number(params[1]));
+									if (row && row.compacted_by === null) {
+										row.compacted_by = Number(params[0]);
+									}
+								}
+								return { one: () => ({} as T), toArray: () => [] as T[] };
+							}),
+						},
+					},
+				},
+				appendEvent,
+				recordInferenceSubmission,
+				callProviderForCompaction,
+				replaceEventPayload: vi.fn(),
+				insertLoopMessage: vi.fn((input: { runId: string; message: unknown; position: number }) => ({
+					seq: 102,
+					runId: input.runId,
+					message: input.message,
+					position: input.position,
+					createdAt: "2026-05-01T00:00:02.000Z",
+				})),
+				recordLoopMessageLog: vi.fn(),
+				updateInferenceSubmissionDisplayMessages: vi.fn(),
+				broadcastControl: vi.fn(),
+			});
+			const compactLoopMessageRows = (BotRuntime.prototype as unknown as {
+				compactLoopMessageRows: (
+					bot: BotDocument,
+					settings: { apiKey: string; baseUrl: string; model: string; temperature: number },
+					runId: string,
+					signal: AbortSignal,
+					rows: unknown[],
+					mode: "auto" | "manual",
+					metrics: { estimatedContextTokens?: number; threshold?: number },
+				) => Promise<void>;
+			}).compactLoopMessageRows.bind(runtime);
+
+			await compactLoopMessageRows(
+				fakeBotDocument(),
+				{ apiKey: "test-key", baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				"run-ledger-compact",
+				new AbortController().signal,
+				[rows[0], rows[2]],
+				"auto",
+				{ estimatedContextTokens: 10_000, threshold: 80 },
+			);
+
+			const providerMessages = callProviderForCompaction.mock.calls[0]?.[1] as Array<{ content?: unknown }> | undefined;
+			const providerText = JSON.stringify(providerMessages);
+			expect(providerText).toContain("Provider-visible old context.");
+			expect(providerText).toContain("Provider-visible newer context.");
+			expect(providerText).not.toContain("Inference request failed with status 400");
+			expect(rows.map((row) => row.compacted_by)).toEqual([102, 102, 102, null]);
+			expect(recordInferenceSubmission).toHaveBeenCalledWith(expect.objectContaining({
+				messages: providerMessages,
 			}));
 		});
 
@@ -10240,8 +10378,13 @@ function memoryLoopMessageLogSql() {
 	};
 }
 
-function memoryLoopMessagePageSql(rows: ReturnType<typeof loopMessageRowForTest>[]) {
-	const sortedRows = (pageRows: ReturnType<typeof loopMessageRowForTest>[]) =>
+type LoopMessageRowForTest = Omit<ReturnType<typeof loopMessageRowForTest>, "origin" | "role"> & {
+	origin: BotLoopMessage["origin"];
+	role: BotLoopMessage["role"];
+};
+
+function memoryLoopMessagePageSql(rows: LoopMessageRowForTest[]) {
+	const sortedRows = (pageRows: LoopMessageRowForTest[]) =>
 		[...pageRows].sort((left, right) => left.position - right.position || left.seq - right.seq);
 	const hasVisibleChildren = (seq: number): boolean => rows.some((child) => child.deleted_at === null && child.compacted_by === seq);
 	const compactionBoundaries = () =>
@@ -10577,7 +10720,7 @@ function loopMessageRowForTest(seq: number, runId: string, content: string) {
 		seq,
 		position: seq,
 		run_id: runId,
-		role: "assistant",
+		role: "assistant" as BotLoopMessage["role"],
 		message_json: JSON.stringify({ role: "assistant", content }),
 		origin: "provider_response" as BotLoopMessage["origin"],
 		status: "complete",
@@ -10595,7 +10738,7 @@ function loopMessageRowForMessage(seq: number, message: Record<string, unknown>,
 		seq,
 		position: seq,
 		run_id: "run-history-repair",
-		role: message.role as "system" | "user" | "assistant" | "tool",
+		role: message.role as BotLoopMessage["role"],
 		message_json: JSON.stringify(message),
 		origin,
 		status: "complete",
