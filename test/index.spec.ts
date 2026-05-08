@@ -3995,7 +3995,7 @@ describe("Bickr Pages Functions", () => {
 			recordInferenceSubmission: () => {},
 			recordLoopMessageLog: () => {},
 			recordProviderUsage: () => {},
-			successfulMutatingToolCallSinceLastCompaction: () => true,
+			successfulMutatingToolCallSinceLastLogOff: () => true,
 			throwIfStopped: (_runId: string, signal: AbortSignal) => {
 				if (signal.aborted) {
 					throw new Error("Unexpected abort.");
@@ -4186,7 +4186,7 @@ describe("Bickr Pages Functions", () => {
 			recordInferenceSubmission: () => {},
 			recordLoopMessageLog: () => {},
 			recordProviderUsage: () => {},
-			successfulMutatingToolCallSinceLastCompaction: () => true,
+			successfulMutatingToolCallSinceLastLogOff: () => true,
 			throwIfStopped: (_runId: string, signal: AbortSignal) => {
 				if (signal.aborted) {
 					throw new Error("Unexpected abort.");
@@ -4258,7 +4258,7 @@ describe("Bickr Pages Functions", () => {
 			recordInferenceSubmission: () => {},
 			recordLoopMessageLog: () => {},
 			recordProviderUsage: () => {},
-			successfulMutatingToolCallSinceLastCompaction: () => true,
+			successfulMutatingToolCallSinceLastLogOff: () => true,
 			throwIfStopped: (_runId: string, signal: AbortSignal) => {
 				if (signal.aborted) {
 					throw new Error("Unexpected abort.");
@@ -4613,7 +4613,7 @@ describe("Bickr Pages Functions", () => {
 			recordProviderUsage: () => {},
 			repairActiveProviderToolCallHistory: async () => [],
 			providerLoopInitialSuccessfulToolCallCount: () => 7,
-			successfulMutatingToolCallSinceLastCompaction: () => true,
+			successfulMutatingToolCallSinceLastLogOff: () => true,
 			throwIfStopped: (_runId: string, signal: AbortSignal) => {
 				if (signal.aborted) {
 					throw new Error("Unexpected abort.");
@@ -4692,7 +4692,7 @@ describe("Bickr Pages Functions", () => {
 			recordProviderUsage: () => {},
 			repairActiveProviderToolCallHistory: async () => [],
 			providerLoopInitialSuccessfulToolCallCount: () => 7,
-			successfulMutatingToolCallSinceLastCompaction: () => true,
+			successfulMutatingToolCallSinceLastLogOff: () => true,
 			throwIfStopped: (_runId: string, signal: AbortSignal) => {
 				if (signal.aborted) {
 					throw new Error("Unexpected abort.");
@@ -4778,7 +4778,7 @@ describe("Bickr Pages Functions", () => {
 			recordProviderUsage: () => {},
 			repairActiveProviderToolCallHistory: async () => [],
 			providerLoopInitialSuccessfulToolCallCount: () => 6,
-			successfulMutatingToolCallSinceLastCompaction: () => true,
+			successfulMutatingToolCallSinceLastLogOff: () => true,
 			throwIfStopped: (_runId: string, signal: AbortSignal) => {
 				if (signal.aborted) {
 					throw new Error("Unexpected abort.");
@@ -4946,7 +4946,7 @@ describe("Bickr Pages Functions", () => {
 			},
 			recordLoopMessageLog: () => {},
 			recordProviderUsage: () => {},
-			successfulMutatingToolCallSinceLastCompaction: () => true,
+			successfulMutatingToolCallSinceLastLogOff: () => true,
 			throwIfStopped: (_runId: string, signal: AbortSignal) => {
 				if (signal.aborted) {
 					throw new Error("Unexpected abort.");
@@ -5091,7 +5091,7 @@ describe("Bickr Pages Functions", () => {
 			recordInferenceSubmission: () => {},
 			recordLoopMessageLog: () => {},
 			recordProviderUsage: () => {},
-			successfulMutatingToolCallSinceLastCompaction: () => true,
+			successfulMutatingToolCallSinceLastLogOff: () => true,
 			throwIfStopped: (_runId: string, signal: AbortSignal) => {
 				if (signal.aborted) {
 					throw new Error("Unexpected abort.");
@@ -5344,7 +5344,7 @@ describe("Bickr Pages Functions", () => {
 		expect(secondRequirement).toContain("log_off");
 	});
 
-	it("hides log_off again after a completed compaction boundary", async () => {
+	it("keeps log_off available across compaction in the current iteration", async () => {
 		const providerToolsByCall: string[][] = [];
 		const sql = {
 			exec<T>(query: string, ...params: unknown[]) {
@@ -5383,7 +5383,7 @@ describe("Bickr Pages Functions", () => {
 				runtimeEvent(providerToolsByCall.length + 1, runId, type as BotRuntimeEvent["type"], payload),
 			appendLoopMessage: (_runId: string, message: Record<string, unknown>, origin: string) => ({
 				seq: 1,
-				runId: "run-logoff-after-compaction",
+				runId: "run-logoff-through-compaction",
 				role: message.role,
 				message,
 				origin,
@@ -5425,13 +5425,115 @@ describe("Bickr Pages Functions", () => {
 			runProviderLoop(
 				fakeBotDocument(),
 				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
-				"run-logoff-after-compaction",
+				"run-logoff-through-compaction",
 				[],
 				{ mode: "normal", signal: new AbortController().signal },
 			),
 		).resolves.toMatchObject({ logOffCalled: false });
 
 		expect(providerToolsByCall).toHaveLength(1);
+		expect(providerToolsByCall[0]).toContain("log_off");
+	});
+
+	it("resets iteration tool quota and log_off availability after successful logoff", async () => {
+		const providerToolsByCall: string[][] = [];
+		const sql = {
+			exec<T>(query: string, ...params: unknown[]) {
+				if (/payload_json LIKE '%"name":"log_off"%'/s.test(query)) {
+					return {
+						toArray: () => [{
+							seq: 8,
+							run_id: "run-before",
+							type: "tool_result",
+							payload_json: JSON.stringify({ name: "log_off", result: { ok: true } }),
+							token_estimate: 0,
+							compacted_by: null,
+							created_at: "2026-05-01T00:00:00.000Z",
+						} as T],
+					};
+				}
+				if (/WHERE seq > \?\s+AND type = 'tool_result'/.test(query)) {
+					const sinceSeq = Number(params[0]);
+					const rows = [
+						{ seq: 1, name: "vote" },
+						{ seq: 2, name: "read_thread" },
+						{ seq: 3, name: "read_thread" },
+						{ seq: 4, name: "read_thread" },
+						{ seq: 5, name: "read_thread" },
+						{ seq: 6, name: "read_thread" },
+						{ seq: 7, name: "read_thread" },
+					]
+						.filter((row) => row.seq > sinceSeq)
+						.map((row) => ({
+							seq: row.seq,
+							run_id: "run-before",
+							type: "tool_result",
+							payload_json: JSON.stringify({ name: row.name, result: { ok: true } }),
+							token_estimate: 0,
+							compacted_by: null,
+							created_at: "2026-05-01T00:00:00.000Z",
+						} as T));
+					return { toArray: () => rows };
+				}
+				return { one: () => ({} as T), toArray: () => [] as T[] };
+			},
+		};
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			activeLoopMessagesForProvider: () => [],
+			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) =>
+				runtimeEvent(providerToolsByCall.length + 1, runId, type as BotRuntimeEvent["type"], payload),
+			appendLoopMessage: (_runId: string, message: Record<string, unknown>, origin: string) => ({
+				seq: 1,
+				runId: "run-after-logoff",
+				role: message.role,
+				message,
+				origin,
+				tokenEstimate: 0,
+				createdAt: new Date().toISOString(),
+			}),
+			appendProviderMessages: async () => {},
+			callProvider: async (_settings: unknown, _messages: unknown, tools: ProviderToolDefinition[]) => {
+				providerToolsByCall.push(tools.map((tool) => "function" in tool ? tool.function.name : tool.type));
+				return providerResponseWithContent("New visit can act normally.");
+			},
+			ensureProviderPromptWithinBudget: async () => ({
+				allowedPromptTokens: 13_500,
+				promptTokens: 100,
+				requestMessages: [{ role: "system", content: "Prompt." }],
+			}),
+			repairActiveProviderToolCallHistory: async () => [],
+			recordInferenceSubmission: () => {},
+			recordLoopMessageLog: () => {},
+			recordProviderUsage: () => {},
+			state: { storage: { sql } },
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const runProviderLoop = (BotRuntime.prototype as unknown as {
+			runProviderLoop: (
+				bot: BotDocument,
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				runId: string,
+				messages: Array<Record<string, unknown>>,
+				runContext: { mode: "normal"; signal: AbortSignal },
+			) => Promise<{ logOffCalled: boolean }>;
+		}).runProviderLoop.bind(runtime);
+
+		await expect(
+			runProviderLoop(
+				fakeBotDocument(),
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
+				"run-after-logoff",
+				[],
+				{ mode: "normal", signal: new AbortController().signal },
+			),
+		).resolves.toMatchObject({ logOffCalled: false });
+
+		expect(providerToolsByCall).toHaveLength(1);
+		expect(providerToolsByCall[0]).not.toEqual(["log_off"]);
 		expect(providerToolsByCall[0]).not.toContain("log_off");
 	});
 
@@ -9219,7 +9321,7 @@ describe("Bickr Pages Functions", () => {
 			},
 			estimateProviderPromptTokens: () => providerPromptEstimateForTokens(1_000),
 			recordInferenceSubmission: () => {},
-			successfulMutatingToolCallSinceLastCompaction: () => true,
+			successfulMutatingToolCallSinceLastLogOff: () => true,
 		});
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
@@ -9292,7 +9394,7 @@ describe("Bickr Pages Functions", () => {
 			},
 			estimateProviderPromptTokens: () => providerPromptEstimateForTokens(1_000),
 			recordInferenceSubmission: () => {},
-			successfulMutatingToolCallSinceLastCompaction: () => true,
+			successfulMutatingToolCallSinceLastLogOff: () => true,
 		});
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
@@ -9379,7 +9481,7 @@ describe("Bickr Pages Functions", () => {
 			},
 			estimateProviderPromptTokens: () => providerPromptEstimateForTokens(1_000),
 			recordInferenceSubmission: () => {},
-			successfulMutatingToolCallSinceLastCompaction: () => true,
+			successfulMutatingToolCallSinceLastLogOff: () => true,
 		});
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (

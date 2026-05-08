@@ -2942,7 +2942,7 @@ export class BotRuntime {
 		let toolCallCount = 0;
 		let exposeAdditionalReplyAcknowledgementForRound = false;
 		let successfulToolCallsThisIteration = this.providerLoopInitialSuccessfulToolCallCount();
-		let mutatingToolUsedThisIteration = this.successfulMutatingToolCallSinceLastCompaction();
+		let mutatingToolUsedThisIteration = this.successfulMutatingToolCallSinceLastLogOff();
 		let railroadNoToolAttempts = 0;
 		let toolRequestTurns = 0;
 		const toolCallsMode = settings.toolCalls ?? "require";
@@ -5658,7 +5658,7 @@ export class BotRuntime {
 		if (!this.hasRuntimeStorage()) {
 			return 0;
 		}
-		return this.successfulToolCallCountSinceLastCompaction();
+		return this.successfulToolCallCountSinceLastLogOff();
 	}
 
 	private hasRuntimeStorage(): boolean {
@@ -5666,11 +5666,11 @@ export class BotRuntime {
 		return Boolean(runtime.state?.storage?.sql);
 	}
 
-	private successfulToolCallCountSinceLastCompaction(): number {
+	private successfulToolCallCountSinceLastLogOff(): number {
 		if (!this.hasRuntimeStorage()) {
 			return 0;
 		}
-		const lastCompactionSeq = this.latestCompletedCompactionSeq();
+		const lastLogOffSeq = this.latestSuccessfulLogOffToolResultSeq();
 		const rows = this.state.storage.sql
 			.exec<RuntimeRow>(
 				`SELECT seq, run_id, type, payload_json, token_estimate, compacted_by, created_at
@@ -5678,17 +5678,17 @@ export class BotRuntime {
 				 WHERE seq > ?
 				   AND type = 'tool_result'
 				 ORDER BY seq ASC`,
-				lastCompactionSeq,
+				lastLogOffSeq,
 			)
 			.toArray();
 		return rows.filter((row) => successfulToolResultPayload(runtimeRecord(JSON.parse(row.payload_json)))).length;
 	}
 
-	private successfulMutatingToolCallSinceLastCompaction(): boolean {
+	private successfulMutatingToolCallSinceLastLogOff(): boolean {
 		if (!this.hasRuntimeStorage()) {
 			return false;
 		}
-		const lastCompactionSeq = this.latestCompletedCompactionSeq();
+		const lastLogOffSeq = this.latestSuccessfulLogOffToolResultSeq();
 		const rows = this.state.storage.sql
 			.exec<RuntimeRow>(
 				`SELECT seq, run_id, type, payload_json, token_estimate, compacted_by, created_at
@@ -5696,31 +5696,13 @@ export class BotRuntime {
 				 WHERE seq > ?
 				   AND type = 'tool_result'
 				 ORDER BY seq ASC`,
-				lastCompactionSeq,
+				lastLogOffSeq,
 			)
 			.toArray();
 		return rows.some((row) => {
 			const payload = runtimeRecord(JSON.parse(row.payload_json));
 			return successfulToolResultPayload(payload) && mutableToolNames.has(canonicalToolName(stringValue(payload.name) ?? ""));
 		});
-	}
-
-	private latestCompletedCompactionSeq(): number {
-		const rows = this.state.storage.sql
-			.exec<RuntimeRow>(
-				`SELECT seq, run_id, type, payload_json, token_estimate, compacted_by, created_at
-				 FROM events
-				 WHERE type = 'compaction'
-				 ORDER BY seq DESC`,
-			)
-			.toArray();
-		for (const row of rows) {
-			const payload = runtimeRecord(JSON.parse(row.payload_json));
-			if (payload.status === "complete") {
-				return row.seq;
-			}
-		}
-		return 0;
 	}
 
 	private latestSuccessfulLogOffToolResultSeq(): number {
