@@ -864,6 +864,28 @@ function parseTickSettings(value: unknown): BotTickSettingsInput {
 					32,
 				);
 	}
+	if (record.maxGeneratedTokensPerTick !== undefined) {
+		settings.maxGeneratedTokensPerTick =
+			record.maxGeneratedTokensPerTick === null ?
+				null
+			:	boundedInteger(
+					record.maxGeneratedTokensPerTick,
+					"Max generated tokens per tick",
+					1,
+					1_000_000,
+				);
+	}
+	if (record.maxGeneratedTokensPerIteration !== undefined) {
+		settings.maxGeneratedTokensPerIteration =
+			record.maxGeneratedTokensPerIteration === null ?
+				null
+			:	boundedInteger(
+					record.maxGeneratedTokensPerIteration,
+					"Max generated tokens per iteration",
+					1,
+					1_000_000,
+				);
+	}
 	return settings;
 }
 

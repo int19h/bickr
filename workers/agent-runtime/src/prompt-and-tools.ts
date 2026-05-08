@@ -72,13 +72,6 @@ export type OpenRouterServerToolDefinition = {
 
 export type ProviderToolDefinition = FunctionToolDefinition | OpenRouterServerToolDefinition;
 
-export const additionalReplyAcknowledgementArgument =
-	"I understand that I have already replied to this comment before, and I intend to reply to it again regardless; this is not a duplicate reply.";
-
-export type ProviderRoundToolOptions = {
-	exposeAdditionalReplyAcknowledgement?: boolean;
-};
-
 export type OpenRouterServerToolSelection = {
 	enabled: string[];
 	emitted: string[];
@@ -117,7 +110,14 @@ export const toolDefinitions: FunctionToolDefinition[] = [
 		{ forumHandle: { type: "string" }, title: { type: "string" }, body: { type: "string" }, url: { type: "string" } },
 		["forumHandle", "title", "body"],
 	),
-	replyToCommentTool({ exposeAdditionalReplyAcknowledgement: false }),
+	replyToCommentTool(
+		"reply_to_comment",
+		"Reply to a comment. Use the root comment ID to reply directly to a thread's root content.",
+	),
+	replyToCommentTool(
+		"make_additional_reply_to_the_same_comment",
+		"Make one additional reply to a comment that I have already replied to. Use only when one more reply is clearly intentional and meaningfully distinct.",
+	),
 	tool(
 		"vote",
 		"Upvote, downvote, or clear votes on one or more comments.",
@@ -209,40 +209,26 @@ export const toolDefinitions: FunctionToolDefinition[] = [
 	),
 ];
 
-export function toolDefinitionsForProviderRound(options: ProviderRoundToolOptions = {}): FunctionToolDefinition[] {
-	if (!options.exposeAdditionalReplyAcknowledgement) {
-		return toolDefinitions;
-	}
-	return toolDefinitions.map((definition) =>
-		definition.function.name === "reply_to_comment" ?
-			replyToCommentTool({ exposeAdditionalReplyAcknowledgement: true })
-		:	definition
-	);
+export function toolDefinitionsForProviderRound(): FunctionToolDefinition[] {
+	return toolDefinitions;
 }
 
 export const mutableToolNames: ReadonlySet<string> = new Set([
 	"create_thread",
 	"reply_to_comment",
+	"make_additional_reply_to_the_same_comment",
 	"vote",
 	"follow_profile",
 	"unfollow_profile",
 ]);
 
-function replyToCommentTool(options: ProviderRoundToolOptions): FunctionToolDefinition {
+function replyToCommentTool(name: string, description: string): FunctionToolDefinition {
 	return tool(
-		"reply_to_comment",
-		"Reply to a comment. Use the root comment ID to reply directly to a thread's root content.",
+		name,
+		description,
 		{
 			commentId: { type: "string" },
 			body: { type: "string" },
-			...(options.exposeAdditionalReplyAcknowledgement ?
-				{
-					[additionalReplyAcknowledgementArgument]: {
-						type: "boolean" as const,
-						description: "Set true only when I intentionally want one more reply to a target I have already replied to.",
-					},
-				}
-			:	{}),
 		},
 		["commentId", "body"],
 	);

@@ -113,7 +113,6 @@ import {
 	type UserDocument,
 } from "@bickr/shared/model";
 import {
-	additionalReplyAcknowledgementArgument,
 	isOpenRouterProviderBaseUrl,
 	mutableToolNames,
 	openRouterServerToolSelection,
@@ -381,7 +380,6 @@ export type ToolFailurePayload = {
 	existingCommentId?: string;
 	targetCommentId?: string;
 	existingReplies?: PriorReply[];
-	overrideArgument?: string;
 };
 
 class PersistentToolFailureError extends Error {
@@ -463,7 +461,7 @@ class PriorTargetReplyError extends Error {
 			.map((reply) => `- ${reply.commentId}: ${quoteForContext(reply.body, 1_000)}`)
 			.join("\n");
 		super(
-			`I already replied to ${prior.targetDescription} before. Past replies:\n${replyLines}\nIf I really need one more reply in addition to those, I can call reply_to_comment again with "${additionalReplyAcknowledgementArgument}": true.`,
+			`I already replied to ${prior.targetDescription} before. Past replies:\n${replyLines}\nIf I really need one more reply in addition to those, I should use make_additional_reply_to_the_same_comment.`,
 		);
 		this.name = "PriorTargetReplyError";
 		this.prior = prior;
@@ -719,6 +717,8 @@ type ProviderToolCallDropReason =
 	| "invalid_arguments_json"
 	| "arguments_not_json_object"
 	| "duplicate_tool_call"
+	| "premature_log_off"
+	| "iteration_limit"
 	| "unanswered_tool_call";
 
 export type DroppedProviderToolCall = {
@@ -928,25 +928,9 @@ function maxSuccessfulToolCallsPerIterationSetting(bot: Pick<BotDocument, "tickS
 	return Number.isInteger(value) ? Math.max(1, Math.min(32, value)) : 8;
 }
 
-function iterationRequiresLogOffOnly(successfulToolCalls: number, maxSuccessfulToolCalls: number): boolean {
-	return successfulToolCalls >= Math.max(0, maxSuccessfulToolCalls - 1);
-}
-
-function iterationToolLimitFailure(
-	name: string,
-	args: Record<string, unknown>,
-	maxSuccessfulToolCalls: number,
-): ToolFailurePayload {
-	const canonical = canonicalToolName(name);
-	return {
-		ok: false,
-		code: "iteration_tool_limit",
-		message: `This Bickr visit has reached its limit of ${maxSuccessfulToolCalls} successful control result${maxSuccessfulToolCalls === 1 ? "" : "s"}. Only log_off is available now.`,
-		toolName: canonical || "unknown_tool",
-		args: providerToolArgs(canonical, safelyNormalizeFailureArgs(canonical, args)),
-		guidance: "Use log_off now.",
-	};
-}
+const prematureLogOffSelfCorrectionContent = "Actually I don't want to log off yet, let me think about what I should do instead.";
+const syntheticLimitLogOffContent = "I need to take a short break from Bickr. I'll log off for now.";
+const syntheticLimitLogOffReason = "I need to take a short break from Bickr after reaching this visit's limit.";
 
 function providerReasoningForSettings(settings: Pick<ProviderSettings, "reasoningEffort">): ProviderReasoningConfig {
 	return settings.reasoningEffort ? { effort: settings.reasoningEffort, exclude: false } : providerDefaultReasoning;
@@ -1083,7 +1067,7 @@ export function providerMessagesWithReasoningPrefill(
 function contextBudgetPromptParts(bot: BotDocument, settings: ProviderSettings): ContextBudgetPromptParts {
 	const serverTools = openRouterServerToolSelection(settings.baseUrl, bot.toolSettings);
 	const providerTools: ProviderToolDefinition[] = [
-		...toolDefinitions.filter((definition) => definition.function.name !== "log_off"),
+		...toolDefinitions,
 		...serverTools.tools,
 	];
 	const fixedSystemToolInstructionTools = providerTools;
@@ -2940,9 +2924,11 @@ export class BotRuntime {
 		let logOffCalled = false;
 		let publicSpotlightToolCallCount = 0;
 		let toolCallCount = 0;
-		let exposeAdditionalReplyAcknowledgementForRound = false;
 		let successfulToolCallsThisIteration = this.providerLoopInitialSuccessfulToolCallCount();
 		let mutatingToolUsedThisIteration = this.successfulMutatingToolCallSinceLastLogOff();
+		let prematureLogOffCorrectedThisIteration = this.prematureLogOffCorrectedSinceLastLogOff();
+		let generatedTokensThisTick = 0;
+		let generatedTokensThisIteration = this.loopGeneratedTokenCountSinceLastLogOff();
 		let railroadNoToolAttempts = 0;
 		let toolRequestTurns = 0;
 		const toolCallsMode = settings.toolCalls ?? "require";
@@ -2951,16 +2937,10 @@ export class BotRuntime {
 		while (toolRequestTurns < tickSettings.maxToolCallsPerTick) {
 			this.throwIfStopped(runId, runContext.signal);
 			const serverTools = openRouterServerToolSelection(settings.baseUrl, bot.toolSettings);
-			const exposeAdditionalReplyAcknowledgement = exposeAdditionalReplyAcknowledgementForRound;
-			exposeAdditionalReplyAcknowledgementForRound = false;
-			const logOffAvailable = mutatingToolUsedThisIteration;
-			const logOffOnly = logOffAvailable && iterationRequiresLogOffOnly(successfulToolCallsThisIteration, maxSuccessfulToolCallsPerIteration);
-			const functionTools = toolDefinitionsForProviderRound({ exposeAdditionalReplyAcknowledgement })
-				.filter((definition) => logOffAvailable || definition.function.name !== "log_off")
-				.filter((definition) => !logOffOnly || definition.function.name === "log_off");
+			const functionTools = toolDefinitionsForProviderRound();
 			const providerTools: ProviderToolDefinition[] = [
 				...functionTools,
-				...(logOffOnly ? [] : serverTools.tools),
+				...serverTools.tools,
 			];
 			if (providerTools.length === 0) {
 				return { logOffCalled, publicSpotlightToolCallCount, toolCallCount };
@@ -2987,17 +2967,22 @@ export class BotRuntime {
 					maxCompletionTokens: providerContextReserveTokens,
 					reasoning: providerReasoningForSettings(settings),
 					temperature: settings.temperature,
-					additionalReplyAcknowledgementToolArgument: exposeAdditionalReplyAcknowledgement ? "exposed" : "hidden",
 					openRouterServerTools: {
 						enabled: serverTools.enabled,
-						emitted: logOffOnly ? [] : serverTools.emitted,
-						suppressed: logOffOnly ? [...serverTools.suppressed, ...serverTools.emitted] : serverTools.suppressed,
+						emitted: serverTools.emitted,
+						suppressed: serverTools.suppressed,
 					},
 					iterationToolLimit: {
 						successfulToolCalls: successfulToolCallsThisIteration,
 						maxSuccessfulToolCalls: maxSuccessfulToolCallsPerIteration,
-						logOffAvailable,
-						logOffOnly,
+						mutatingToolUsed: mutatingToolUsedThisIteration,
+						prematureLogOffCorrected: prematureLogOffCorrectedThisIteration,
+					},
+					generatedTokenLimit: {
+						tickGeneratedTokens: generatedTokensThisTick,
+						maxGeneratedTokensPerTick: tickSettings.maxGeneratedTokensPerTick,
+						iterationGeneratedTokens: generatedTokensThisIteration,
+						maxGeneratedTokensPerIteration: tickSettings.maxGeneratedTokensPerIteration,
 					},
 					...(settings.topK !== undefined ? { topK: settings.topK } : {}),
 					...(settings.topP !== undefined ? { topP: settings.topP } : {}),
@@ -3061,6 +3046,12 @@ export class BotRuntime {
 				malformedOnlyRetried = true;
 			}
 			await this.appendProviderMessages(runId, response, responseStatus, requestEvent.seq);
+			const responseGeneratedTokens = Math.max(0, Math.floor(response.usage?.completionTokens ?? 0));
+			generatedTokensThisTick += responseGeneratedTokens;
+			generatedTokensThisIteration += responseGeneratedTokens;
+			const tickGeneratedLimitReached = generatedTokensThisTick >= tickSettings.maxGeneratedTokensPerTick;
+			let forceSyntheticLogOff =
+				generatedTokensThisIteration >= tickSettings.maxGeneratedTokensPerIteration;
 			const assistantMessage = providerResponseMessageForHistory(response);
 			let assistantLoopMessageSeq: number | null = null;
 			if (assistantMessage) {
@@ -3082,6 +3073,13 @@ export class BotRuntime {
 				throw interruptedError?.originalError instanceof Error ? interruptedError.originalError : new TickStoppedError();
 			}
 			if (response.toolCalls.length === 0) {
+				if (forceSyntheticLogOff) {
+					await this.appendSyntheticLimitLogOff(bot, runId, runContext);
+					return { logOffCalled: true, publicSpotlightToolCallCount, toolCallCount };
+				}
+				if (tickGeneratedLimitReached) {
+					return { logOffCalled, publicSpotlightToolCallCount, toolCallCount };
+				}
 				if (toolCallsMode === "railroad") {
 					railroadNoToolAttempts += 1;
 					if (railroadNoToolAttempts >= providerRailroadNoToolMaxAttempts) {
@@ -3109,54 +3107,16 @@ export class BotRuntime {
 				this.throwIfStopped(runId, runContext.signal);
 				const args = parseToolArgs(toolCall);
 				const canonicalName = canonicalToolName(toolCall.function.name);
-				if (canonicalName === "log_off" && !logOffAvailable) {
+				if (canonicalName === "log_off" && !mutatingToolUsedThisIteration && !prematureLogOffCorrectedThisIteration) {
 					pendingToolCallIds.delete(toolCall.id);
-					const failure: ToolFailurePayload = {
-						ok: false,
-						code: "tool_unavailable",
-						message: "log_off is not available until I have used a mutating Bickr control in this iteration.",
-						toolName: "log_off",
-						args: providerToolArgs("log_off", args),
-						guidance: "Use another available tool.",
-					};
-					await this.appendEvent(runId, "tool_result", {
-						name: "log_off",
-						args: providerToolArgs("log_off", args),
-						result: failure,
-						error: true,
-					});
-					const toolMessage: ChatMessage = {
-						role: "tool",
-						tool_call_id: toolCall.id,
-						content: JSON.stringify(failure),
-					};
-					const loopMessage = this.appendLoopMessage(runId, toolMessage, "tool_failure");
-					this.recordLoopMessageLog(loopMessage.seq, "tool_call", JSON.stringify(toolCall));
-					this.recordLoopMessageLog(loopMessage.seq, "tool_result", toolMessage.content ?? "");
-					toolFailureAcknowledgements.push(toolFailureAssistantContent(failure));
+					await this.dropGeneratedProviderToolCall(runId, requestEvent.seq, assistantLoopMessageSeq, toolCall, "premature_log_off");
+					prematureLogOffCorrectedThisIteration = true;
+					selfCorrectionAcknowledgements.push(prematureLogOffSelfCorrectionContent);
 					continue;
 				}
-				if (
-					(canonicalName !== "log_off" && logOffAvailable && iterationRequiresLogOffOnly(successfulToolCallsThisIteration, maxSuccessfulToolCallsPerIteration)) ||
-					(logOffCalled && canonicalName !== "log_off")
-				) {
+				if (logOffCalled && canonicalName !== "log_off") {
 					pendingToolCallIds.delete(toolCall.id);
-					const failure = iterationToolLimitFailure(canonicalName, args, maxSuccessfulToolCallsPerIteration);
-					await this.appendEvent(runId, "tool_result", {
-						name: canonicalName || "unknown_tool",
-						args: providerToolArgs(canonicalName, args),
-						result: failure,
-						error: true,
-					});
-					const toolMessage: ChatMessage = {
-						role: "tool",
-						tool_call_id: toolCall.id,
-						content: JSON.stringify(failure),
-					};
-					const loopMessage = this.appendLoopMessage(runId, toolMessage, "tool_failure");
-					this.recordLoopMessageLog(loopMessage.seq, "tool_call", JSON.stringify(toolCall));
-					this.recordLoopMessageLog(loopMessage.seq, "tool_result", toolMessage.content ?? "");
-					toolFailureAcknowledgements.push(toolFailureAssistantContent(failure));
+					await this.dropGeneratedProviderToolCall(runId, requestEvent.seq, assistantLoopMessageSeq, toolCall, "iteration_limit");
 					continue;
 				}
 				let result: ToolResult;
@@ -3200,9 +3160,6 @@ export class BotRuntime {
 					if (selfCorrection) {
 						pendingToolCallIds.delete(toolCall.id);
 						consecutiveToolFailures = 0;
-						if (failure.overrideArgument === additionalReplyAcknowledgementArgument) {
-							exposeAdditionalReplyAcknowledgementForRound = true;
-						}
 						if (assistantLoopMessageSeq !== null) {
 							this.rewriteProviderResponseLoopMessageToolCall(assistantLoopMessageSeq, { kind: "drop", toolCallId: toolCall.id });
 						}
@@ -3211,9 +3168,6 @@ export class BotRuntime {
 					}
 					pendingToolCallIds.delete(toolCall.id);
 					consecutiveToolFailures += 1;
-					if (failure.overrideArgument === additionalReplyAcknowledgementArgument) {
-						exposeAdditionalReplyAcknowledgementForRound = true;
-					}
 					await this.appendEvent(runId, "tool_result", {
 						name: toolCall.function.name || "unknown_tool",
 						args,
@@ -3250,6 +3204,18 @@ export class BotRuntime {
 				if (result.selfCorrectionMessages) {
 					selfCorrectionAcknowledgements.push(...result.selfCorrectionMessages);
 				}
+				if (result.name !== "log_off" && successfulToolCallsThisIteration >= maxSuccessfulToolCallsPerIteration) {
+					forceSyntheticLogOff = true;
+					await this.dropPendingGeneratedProviderToolCalls(
+						runId,
+						requestEvent.seq,
+						assistantLoopMessageSeq,
+						response.toolCalls,
+						pendingToolCallIds,
+						"iteration_limit",
+					);
+					break;
+				}
 			}
 			if (toolFailureAcknowledgements.length > 0) {
 				const acknowledgementContent = toolFailureAcknowledgements.join("\n\n");
@@ -3279,6 +3245,13 @@ export class BotRuntime {
 				throw new PersistentToolFailureError(persistentFailure);
 			}
 			if (logOffCalled) {
+				return { logOffCalled, publicSpotlightToolCallCount, toolCallCount };
+			}
+			if (forceSyntheticLogOff) {
+				await this.appendSyntheticLimitLogOff(bot, runId, runContext);
+				return { logOffCalled: true, publicSpotlightToolCallCount, toolCallCount };
+			}
+			if (tickGeneratedLimitReached) {
 				return { logOffCalled, publicSpotlightToolCallCount, toolCallCount };
 			}
 		}
@@ -3584,6 +3557,72 @@ export class BotRuntime {
 			retrying,
 			calls,
 		});
+	}
+
+	private async dropGeneratedProviderToolCall(
+		runId: string,
+		streamSeq: number,
+		assistantLoopMessageSeq: number | null,
+		toolCall: ToolCall,
+		reason: ProviderToolCallDropReason,
+	): Promise<void> {
+		if (assistantLoopMessageSeq !== null && this.hasRuntimeStorage()) {
+			this.rewriteProviderResponseLoopMessageToolCall(assistantLoopMessageSeq, { kind: "drop", toolCallId: toolCall.id });
+		}
+		await this.recordDroppedProviderToolCalls(
+			runId,
+			streamSeq,
+			[droppedProviderToolCall(toolCall.id, toolCall.function.name, reason, toolCall.function.arguments)],
+			"generated_response",
+			false,
+		);
+	}
+
+	private async dropPendingGeneratedProviderToolCalls(
+		runId: string,
+		streamSeq: number,
+		assistantLoopMessageSeq: number | null,
+		toolCalls: readonly ToolCall[],
+		pendingToolCallIds: Set<string>,
+		reason: ProviderToolCallDropReason,
+	): Promise<void> {
+		const dropped: DroppedProviderToolCall[] = [];
+		for (const toolCall of toolCalls) {
+			if (!pendingToolCallIds.has(toolCall.id)) {
+				continue;
+			}
+			pendingToolCallIds.delete(toolCall.id);
+			dropped.push(droppedProviderToolCall(toolCall.id, toolCall.function.name, reason, toolCall.function.arguments));
+			if (assistantLoopMessageSeq !== null && this.hasRuntimeStorage()) {
+				this.rewriteProviderResponseLoopMessageToolCall(assistantLoopMessageSeq, { kind: "drop", toolCallId: toolCall.id });
+			}
+		}
+		if (dropped.length > 0) {
+			await this.recordDroppedProviderToolCalls(runId, streamSeq, dropped, "generated_response", false);
+		}
+	}
+
+	private async appendSyntheticLimitLogOff(bot: BotDocument, runId: string, runContext: RunContext): Promise<void> {
+		const args = { reason: syntheticLimitLogOffReason };
+		const toolCall = syntheticToolCall(runId, "log_off", this.hasRuntimeStorage() ? this.latestEventSeq() + 1 : 0, args);
+		await this.appendEvent(runId, "assistant_message", {
+			content: syntheticLimitLogOffContent,
+			status: "complete",
+		});
+		this.appendLoopMessage(runId, {
+			role: "assistant",
+			content: syntheticLimitLogOffContent,
+			tool_calls: [toolCall],
+		}, "self_correction", "complete");
+		const result = await this.executeTool(bot, runId, "log_off", args, runContext);
+		const toolMessage: ChatMessage = {
+			role: "tool",
+			tool_call_id: toolCall.id,
+			content: JSON.stringify(result.providerResult),
+		};
+		const loopMessage = this.appendLoopMessage(runId, toolMessage, "tool_result");
+		this.recordLoopMessageLog(loopMessage.seq, "tool_call", JSON.stringify(toolCall));
+		this.recordLoopMessageLog(loopMessage.seq, "tool_result", toolMessage.content ?? "");
 	}
 
 	private rewriteProviderResponseLoopMessageToolCall(seq: number, rewrite: ProviderToolCallRewrite): void {
@@ -4953,7 +4992,10 @@ export class BotRuntime {
 		this.throwIfStopped(runId, runContext.signal);
 		const canonicalName = canonicalToolName(name);
 		const normalizedArgs = normalizeToolArgs(canonicalName, args);
-		if (canonicalName === "reply_to_comment" && !stringValue(normalizedArgs.commentId)) {
+		if (
+			(canonicalName === "reply_to_comment" || canonicalName === "make_additional_reply_to_the_same_comment") &&
+			!stringValue(normalizedArgs.commentId)
+		) {
 			normalizedArgs.commentId = await this.replyTargetCommentId(normalizedArgs);
 			delete normalizedArgs.parentCommentId;
 			delete normalizedArgs.threadId;
@@ -5008,12 +5050,12 @@ export class BotRuntime {
 				);
 				break;
 			}
-			case "reply_to_comment": {
+			case "reply_to_comment":
+			case "make_additional_reply_to_the_same_comment": {
 				const body = stringArg(normalizedArgs.body, "body");
 				const parentCommentId = await this.replyTargetCommentId(normalizedArgs);
 				const threadId = await this.threadIdForComment(parentCommentId);
-				const allowAdditionalReply = normalizedArgs[additionalReplyAcknowledgementArgument] === true;
-				if (!allowAdditionalReply) {
+				if (canonicalName === "reply_to_comment") {
 					await this.assertNoPriorReplyToTarget(bot.id, threadId, parentCommentId);
 				}
 				this.assertNoRecentDuplicateReply(bot.id, body);
@@ -5703,6 +5745,46 @@ export class BotRuntime {
 			const payload = runtimeRecord(JSON.parse(row.payload_json));
 			return successfulToolResultPayload(payload) && mutableToolNames.has(canonicalToolName(stringValue(payload.name) ?? ""));
 		});
+	}
+
+	private prematureLogOffCorrectedSinceLastLogOff(): boolean {
+		if (!this.hasRuntimeStorage()) {
+			return false;
+		}
+		const lastLogOffSeq = this.latestSuccessfulLogOffToolResultSeq();
+		const row = this.state.storage.sql
+			.exec<{ seq: number }>(
+				`SELECT seq
+				 FROM events
+				 WHERE seq > ?
+				   AND type = 'provider_tool_call_dropped'
+				   AND payload_json LIKE '%"premature_log_off"%'
+				 ORDER BY seq DESC
+				 LIMIT 1`,
+				lastLogOffSeq,
+			)
+			.toArray()[0];
+		return Boolean(row);
+	}
+
+	private loopGeneratedTokenCountSinceLastLogOff(): number {
+		if (!this.hasRuntimeStorage()) {
+			return 0;
+		}
+		const lastLogOffSeq = this.latestSuccessfulLogOffToolResultSeq();
+		const row = this.state.storage.sql
+			.exec<{ tokens: number }>(
+				`SELECT COALESCE(SUM(u.completion_tokens), 0) AS tokens
+				 FROM provider_usage u
+				 JOIN inference_submissions s
+				   ON s.event_seq = u.request_seq
+				  AND s.run_id = u.run_id
+				 WHERE s.purpose = 'loop'
+				   AND u.request_seq > ?`,
+				lastLogOffSeq,
+			)
+			.toArray()[0];
+		return Math.max(0, Math.floor(row?.tokens ?? 0));
 	}
 
 	private latestSuccessfulLogOffToolResultSeq(): number {
@@ -7545,7 +7627,11 @@ function providerToolArgs(name: string, args: Record<string, unknown>): Record<s
 	if ((canonical === "follow_profile" || canonical === "unfollow_profile") && "profileId" in normalized) {
 		normalized.profileId = publicProfileId(stringValue(normalized.profileId));
 	}
-	if (canonical === "reply_to_comment" && !stringValue(normalized.commentId) && stringValue(normalized.parentCommentId)) {
+	if (
+		(canonical === "reply_to_comment" || canonical === "make_additional_reply_to_the_same_comment") &&
+		!stringValue(normalized.commentId) &&
+		stringValue(normalized.parentCommentId)
+	) {
 		normalized.commentId = stringValue(normalized.parentCommentId);
 		delete normalized.parentCommentId;
 		delete normalized.threadId;
@@ -7752,7 +7838,7 @@ export function providerToolResultPayload(
 	if (canonical === "create_thread") {
 		return providerCreateThreadResult(result);
 	}
-	if (canonical === "reply_to_comment") {
+	if (canonical === "reply_to_comment" || canonical === "make_additional_reply_to_the_same_comment") {
 		return providerReplyCommentResult(result, args);
 	}
 	if (canonical === "vote") {
@@ -9218,7 +9304,8 @@ function normalizeInjectedThoughtText(text: string): string {
 
 function duplicateReplyFromToolResult(row: RuntimeRow, botId: string, body: string): DuplicateReply | null {
 	const payload = parsePayloadJson(row.payload_json);
-	if (payload.error === true || canonicalToolName(stringValue(payload.name) ?? "") !== "reply_to_comment") {
+	const toolName = canonicalToolName(stringValue(payload.name) ?? "");
+	if (payload.error === true || (toolName !== "reply_to_comment" && toolName !== "make_additional_reply_to_the_same_comment")) {
 		return null;
 	}
 	const args = runtimeRecord(payload.args);
@@ -9406,9 +9493,11 @@ function toolCallHistorySummary(payload: Record<string, unknown>): string {
 			return `read thread ${stringValue(args.threadId) ?? "unknown"}`;
 		case "read_comment_by_id":
 			return `read comment ${stringValue(args.commentId) ?? "unknown"}`;
-		case "reply_to_comment": {
+		case "reply_to_comment":
+		case "make_additional_reply_to_the_same_comment": {
 			const commentId = stringValue(args.commentId) ?? stringValue(args.parentCommentId);
-			return `reply to comment ${commentId ?? "unknown"} with ${quoteForContext(stringValue(args.body) ?? "", 240)}`;
+			const action = name === "make_additional_reply_to_the_same_comment" ? "make an additional reply" : "reply";
+			return `${action} to comment ${commentId ?? "unknown"} with ${quoteForContext(stringValue(args.body) ?? "", 240)}`;
 		}
 		case "create_thread":
 			return `create a thread in f/${stringValue(args.forumHandle) ?? "unknown"} titled ${quoteForContext(stringValue(args.title) ?? "untitled", 140)}`;
@@ -9489,7 +9578,7 @@ function toolResultHistorySummary(payload: Record<string, unknown>): string {
 	if (name === "read_thread" || name === "read_thread_by_id" || name === "read_comment_by_id") {
 		return readResultRef(runtimeRecord(result));
 	}
-	if (name === "create_thread" || name === "reply_to_comment") {
+	if (name === "create_thread" || name === "reply_to_comment" || name === "make_additional_reply_to_the_same_comment") {
 		return mutationThreadResultRef(name, runtimeRecord(result));
 	}
 	if (name === "vote") {
@@ -9539,7 +9628,7 @@ export function selfCorrectionMessageForToolFailurePayload(failure: ToolFailureP
 			: "there";
 		const firstReply = failure.existingReplies?.[0];
 		const reply = firstReply ? ` with comment ${firstReply.commentId}${firstReply.urlPath ? ` at ${firstReply.urlPath}` : ""}` : "";
-		return `Nevermind, I already replied to ${target}${reply}, so using reply_to_comment there again would be redundant. I'll read it or do something else instead.`;
+		return `Nevermind, I already replied to ${target}${reply}, so using reply_to_comment there again would be redundant. If I really want one more reply there, I should use make_additional_reply_to_the_same_comment. Otherwise, I'll read it or do something else instead.`;
 	}
 	if (failure.toolName === "reply_to_comment" && failure.code === "duplicate_comment") {
 		const comment = failure.existingCommentId ? ` as comment ${failure.existingCommentId}` : "";
@@ -9628,7 +9717,7 @@ export function planFollowToolTargets(
 }
 
 function needsPostHocSpotlightHumanNotification(toolName: string): boolean {
-	return toolName === "create_thread" || toolName === "reply_to_comment";
+	return toolName === "create_thread" || toolName === "reply_to_comment" || toolName === "make_additional_reply_to_the_same_comment";
 }
 
 function skippedUsernames(skipped: readonly FollowToolTargetSkip[], reason: FollowToolSkipReason): string[] {
@@ -10829,7 +10918,11 @@ function normalizeToolArgs(name: string, args: Record<string, unknown>): Record<
 	if (canonical === "vote" && "votes" in normalized) {
 		normalized.votes = voteTargetsArg(normalized.votes);
 	}
-	if (canonical === "reply_to_comment" && !stringValue(normalized.commentId) && stringValue(normalized.parentCommentId)) {
+	if (
+		(canonical === "reply_to_comment" || canonical === "make_additional_reply_to_the_same_comment") &&
+		!stringValue(normalized.commentId) &&
+		stringValue(normalized.parentCommentId)
+	) {
 		normalized.commentId = stringValue(normalized.parentCommentId);
 		delete normalized.parentCommentId;
 		delete normalized.threadId;
@@ -11071,7 +11164,6 @@ function toolFailurePayload(name: string, args: Record<string, unknown>, error: 
 					urlPath: reply.urlPath,
 					createdAt: reply.createdAt,
 				})),
-				overrideArgument: additionalReplyAcknowledgementArgument,
 			}
 		:	{}),
 	};
@@ -11115,7 +11207,7 @@ function toolFailureCode(error: unknown): string {
 function toolFailureGuidance(name: string, error: unknown): string | undefined {
 	const canonical = canonicalToolName(name);
 	if (error instanceof PriorTargetReplyError) {
-		return `Usually, I should not add another reply to the same target. If one more reply is intentional, use reply_to_comment with "${additionalReplyAcknowledgementArgument}": true.`;
+		return "Usually, I should not add another reply to the same target. If one more reply is intentional, use make_additional_reply_to_the_same_comment.";
 	}
 	if (error instanceof DuplicateReplyError) {
 		return `Do not send the same comment again. The existing comment is at ${error.duplicate.urlPath}.`;
@@ -11142,7 +11234,7 @@ function toolFailureGuidance(name: string, error: unknown): string | undefined {
 	if (canonical === "read_comment_by_id") {
 		return "Use a comment ID returned by read_thread, search_threads, a notification, or an earlier Bickr Terminal result.";
 	}
-	if (canonical === "reply_to_comment") {
+	if (canonical === "reply_to_comment" || canonical === "make_additional_reply_to_the_same_comment") {
 		return "Read or search first, then reply using the returned comment ID.";
 	}
 	if (canonical === "vote") {

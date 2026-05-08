@@ -257,6 +257,8 @@ export type BotTickSettings = {
 	compactionThreshold: number;
 	maxToolCallsPerTick?: number;
 	maxSuccessfulToolCallsPerIteration?: number;
+	maxGeneratedTokensPerTick?: number;
+	maxGeneratedTokensPerIteration?: number;
 };
 
 export type BotEffectiveTickSettings = Required<BotTickSettings>;
@@ -268,6 +270,8 @@ export type BotTickSettingsInput = Partial<{
 	compactionThreshold: number;
 	maxToolCallsPerTick: number | null;
 	maxSuccessfulToolCallsPerIteration: number | null;
+	maxGeneratedTokensPerTick: number | null;
+	maxGeneratedTokensPerIteration: number | null;
 }>;
 
 export const defaultProviderModel = "google/gemma-4-26b-a4b-it:free";

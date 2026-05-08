@@ -87,7 +87,6 @@ import {
 	toolUseRecoveryReminder,
 } from "../workers/agent-runtime/src/index";
 import {
-	additionalReplyAcknowledgementArgument,
 	isOpenRouterProviderBaseUrl,
 	openRouterServerToolSelection,
 	standardPrompt,
@@ -323,6 +322,8 @@ CREATE TABLE bot_runtime_index (
 	compaction_threshold REAL NOT NULL,
 	max_tool_calls_per_tick INTEGER NOT NULL,
 	max_successful_tool_calls_per_iteration INTEGER NOT NULL DEFAULT 8,
+	max_generated_tokens_per_tick INTEGER NOT NULL DEFAULT 15000,
+	max_generated_tokens_per_iteration INTEGER NOT NULL DEFAULT 30000,
 	next_due_at TEXT,
 	status TEXT NOT NULL,
 	active_run_id TEXT,
@@ -566,15 +567,13 @@ describe("Bickr Pages Functions", () => {
 		}
 
 		const reply = toolDefinitions.find((definition) => definition.function.name === "reply_to_comment");
-		expect(reply?.function.parameters.properties[additionalReplyAcknowledgementArgument]).toBeUndefined();
-
-		const repeatReplyRound = toolDefinitionsForProviderRound({ exposeAdditionalReplyAcknowledgement: true });
-		expect(repeatReplyRound).not.toBe(toolDefinitions);
-		const repeatReply = repeatReplyRound.find((definition) => definition.function.name === "reply_to_comment");
-		expect(repeatReply?.function.parameters.properties[additionalReplyAcknowledgementArgument]).toEqual({
-			type: "boolean",
-			description: "Set true only when I intentionally want one more reply to a target I have already replied to.",
+		const additionalReply = toolDefinitions.find((definition) => definition.function.name === "make_additional_reply_to_the_same_comment");
+		expect(reply?.function.parameters.properties).toEqual({
+			commentId: { type: "string" },
+			body: { type: "string" },
 		});
+		expect(additionalReply?.function.parameters.properties).toEqual(reply?.function.parameters.properties);
+		expect(additionalReply?.function.parameters.required).toEqual(["commentId", "body"]);
 		expect(toolDefinitionsForProviderRound()).toBe(toolDefinitions);
 
 		const logOff = toolDefinitions.find((definition) => definition.function.name === "log_off");
@@ -4575,7 +4574,7 @@ describe("Bickr Pages Functions", () => {
 		}));
 	});
 
-	it("offers only logoff when the iteration is at its successful control limit", async () => {
+		it("keeps the full tool schema when the iteration is near its successful control limit", async () => {
 		let providerTools: ProviderToolDefinition[] = [];
 		const executedTools: string[] = [];
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
@@ -4649,11 +4648,14 @@ describe("Bickr Pages Functions", () => {
 			),
 		).resolves.toMatchObject({ logOffCalled: true });
 
-		expect(providerTools.map((tool) => "function" in tool ? tool.function.name : tool.type)).toEqual(["log_off"]);
+		const providerToolNames = providerTools.map((tool) => "function" in tool ? tool.function.name : tool.type);
+		expect(providerToolNames).toContain("log_off");
+		expect(providerToolNames).toContain("read_thread");
+		expect(providerToolNames).toContain("openrouter:web_search");
 		expect(executedTools).toEqual(["log_off"]);
 	});
 
-	it("rejects non-logoff calls once the iteration limit is reached", async () => {
+	it("injects synthetic logoff after a tool call reaches the iteration limit", async () => {
 		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
 		const appendedLoopMessages: Array<{ message: Record<string, unknown>; origin: string }> = [];
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
@@ -4684,8 +4686,8 @@ describe("Bickr Pages Functions", () => {
 				promptTokens: 100,
 				requestMessages: [{ role: "assistant", content: "I am ready." }],
 			}),
-			executeTool: async () => {
-				throw new Error("Non-logoff controls must be rejected before execution.");
+			executeTool: async (_bot: unknown, _runId: string, name: string) => {
+				return { name, result: { ok: true }, providerResult: { ok: true } };
 			},
 			recordInferenceSubmission: () => {},
 			recordLoopMessageLog: () => {},
@@ -4720,24 +4722,30 @@ describe("Bickr Pages Functions", () => {
 				[],
 				{ mode: "normal", signal: new AbortController().signal },
 			),
-		).resolves.toMatchObject({ logOffCalled: false });
+		).resolves.toMatchObject({ logOffCalled: true });
 
+			expect(appendedLoopMessages).toContainEqual(expect.objectContaining({
+				origin: "tool_result",
+				message: expect.objectContaining({
+					tool_call_id: "call-read",
+					content: JSON.stringify({ ok: true }),
+				}),
+			}));
 		expect(events).toContainEqual(expect.objectContaining({
-			type: "tool_result",
+			type: "assistant_message",
 			payload: expect.objectContaining({
-				error: true,
-				result: expect.objectContaining({ code: "iteration_tool_limit" }),
+				content: "I need to take a short break from Bickr. I'll log off for now.",
 			}),
 		}));
 		expect(appendedLoopMessages).toContainEqual(expect.objectContaining({
-			origin: "tool_failure",
+			origin: "tool_result",
 			message: expect.objectContaining({
-				tool_call_id: "call-read",
+				tool_call_id: expect.stringContaining("synthetic_run-limit-reject"),
 			}),
 		}));
 	});
 
-	it("rejects only the parallel calls that would exceed the iteration limit", async () => {
+	it("drops remaining parallel calls after one fills the iteration limit", async () => {
 		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
 		const executedTools: string[] = [];
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
@@ -4808,20 +4816,19 @@ describe("Bickr Pages Functions", () => {
 			),
 		).resolves.toMatchObject({ logOffCalled: true });
 
-		expect(executedTools).toEqual(["read_thread", "log_off"]);
+		expect(executedTools).toEqual(["read_thread", "vote", "log_off"]);
 		expect(events).toContainEqual(expect.objectContaining({
-			type: "tool_result",
+			type: "provider_tool_call_dropped",
 			payload: expect.objectContaining({
-				name: "vote",
-				error: true,
-				result: expect.objectContaining({ code: "iteration_tool_limit" }),
+				reason: "iteration_limit",
+				callIds: expect.arrayContaining(["call-log-off"]),
 			}),
 		}));
 	});
 
-	it("does not count failed parallel calls toward the iteration limit", async () => {
-		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
-		const executedTools: string[] = [];
+		it("does not count failed parallel calls toward the iteration limit", async () => {
+			const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+			const executedTools: string[] = [];
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
 				events.push({ type, payload });
@@ -4895,10 +4902,349 @@ describe("Bickr Pages Functions", () => {
 		expect(events.some((event) => {
 			const result = event.payload.result;
 			return Boolean(result && typeof result === "object" && "code" in result && result.code === "iteration_tool_limit");
-		})).toBe(false);
-	});
+			})).toBe(false);
+		});
 
-	it("retries once when a generated response contains only malformed tool calls", async () => {
+		it("drops one premature logoff attempt and allows a repeated one", async () => {
+			const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+			const appendedLoopMessages: Array<{ message: Record<string, unknown>; origin: string }> = [];
+			const executedTools: Array<{ name: string; args: Record<string, unknown> }> = [];
+			const rewrites: Array<{ kind: string; toolCallId: string }> = [];
+			const callProvider = vi.fn()
+				.mockResolvedValueOnce(providerResponseWithToolCall("call-log-off-first", "log_off", { reason: "done too early" }))
+				.mockResolvedValueOnce(providerResponseWithToolCall("call-log-off-second", "log_off", { reason: "still done" }));
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+					events.push({ type, payload });
+					return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
+				},
+				appendLoopMessage: (
+					_runId: string,
+					message: Record<string, unknown>,
+					origin: string,
+				) => {
+					appendedLoopMessages.push({ message, origin });
+					return {
+						seq: appendedLoopMessages.length,
+						runId: "run-premature-logoff",
+						role: message.role,
+						message,
+						origin,
+						tokenEstimate: 0,
+						createdAt: new Date().toISOString(),
+					};
+				},
+				appendProviderMessages: async () => {},
+				callProvider,
+				ensureProviderPromptWithinBudget: async () => ({
+					allowedPromptTokens: 13_500,
+					promptTokens: 100,
+					requestMessages: [{ role: "assistant", content: "I am ready." }],
+				}),
+				executeTool: async (_bot: unknown, _runId: string, name: string, args: Record<string, unknown>) => {
+					executedTools.push({ name, args });
+					return { name, result: { ok: true }, providerResult: { ok: true } };
+				},
+				hasRuntimeStorage: () => true,
+				loopGeneratedTokenCountSinceLastLogOff: () => 0,
+				prematureLogOffCorrectedSinceLastLogOff: () => false,
+				providerLoopInitialSuccessfulToolCallCount: () => 0,
+				recordInferenceSubmission: () => {},
+				recordLoopMessageLog: () => {},
+				recordProviderUsage: () => {},
+				repairActiveProviderToolCallHistory: async () => [],
+				rewriteProviderResponseLoopMessageToolCall: (_seq: number, rewrite: { kind: string; toolCallId: string }) => {
+					rewrites.push(rewrite);
+				},
+				successfulMutatingToolCallSinceLastLogOff: () => false,
+				throwIfStopped: (_runId: string, signal: AbortSignal) => {
+					if (signal.aborted) {
+						throw new Error("Unexpected abort.");
+					}
+				},
+			});
+			const runProviderLoop = (BotRuntime.prototype as unknown as {
+				runProviderLoop: (
+					bot: BotDocument,
+					settings: { baseUrl: string; model: string; temperature: number },
+					runId: string,
+					messages: Array<Record<string, unknown>>,
+					runContext: { mode: "normal"; signal: AbortSignal },
+				) => Promise<{ logOffCalled: boolean }>;
+			}).runProviderLoop.bind(runtime);
+
+			await expect(
+				runProviderLoop(
+					{ ...fakeBotDocument(), tickSettings: { ...fakeBotDocument().tickSettings, maxToolCallsPerTick: 2 } },
+					{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+					"run-premature-logoff",
+					[],
+					{ mode: "normal", signal: new AbortController().signal },
+				),
+			).resolves.toMatchObject({ logOffCalled: true });
+
+			expect(callProvider).toHaveBeenCalledTimes(2);
+			expect(rewrites).toEqual([{ kind: "drop", toolCallId: "call-log-off-first" }]);
+			expect(executedTools).toEqual([{ name: "log_off", args: { reason: "still done" } }]);
+			expect(appendedLoopMessages).toContainEqual(expect.objectContaining({
+				origin: "self_correction",
+				message: expect.objectContaining({
+					content: "Actually I don't want to log off yet, let me think about what I should do instead.",
+				}),
+			}));
+			expect(events).toContainEqual(expect.objectContaining({
+				type: "provider_tool_call_dropped",
+				payload: expect.objectContaining({
+					callIds: ["call-log-off-first"],
+					reason: "premature_log_off",
+				}),
+			}));
+			expect(appendedLoopMessages.filter((message) => message.origin === "tool_failure")).toEqual([]);
+		});
+
+		it("stops a tick after executing the response that reaches the generated token limit", async () => {
+			const executedTools: string[] = [];
+			const callProvider = vi.fn(async () => ({
+				...providerResponseWithToolCall("call-read", "read_thread", { threadId: "thr_test" }),
+				usage: providerUsageForTest(25, 5),
+			}));
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) =>
+					runtimeEvent(callProvider.mock.calls.length + executedTools.length + 1, runId, type as BotRuntimeEvent["type"], payload),
+				appendLoopMessage: (
+					_runId: string,
+					message: Record<string, unknown>,
+					origin: string,
+				) => ({
+					seq: executedTools.length + 1,
+					runId: "run-tick-token-limit",
+					role: message.role,
+					message,
+					origin,
+					tokenEstimate: 0,
+					createdAt: new Date().toISOString(),
+				}),
+				appendProviderMessages: async () => {},
+				callProvider,
+				ensureProviderPromptWithinBudget: async () => ({
+					allowedPromptTokens: 13_500,
+					promptTokens: 100,
+					requestMessages: [{ role: "assistant", content: "I am ready." }],
+				}),
+				executeTool: async (_bot: unknown, _runId: string, name: string) => {
+					executedTools.push(name);
+					return { name, result: { ok: true }, providerResult: { ok: true } };
+				},
+				recordInferenceSubmission: () => {},
+				recordLoopMessageLog: () => {},
+				recordProviderUsage: () => {},
+				repairActiveProviderToolCallHistory: async () => [],
+				successfulMutatingToolCallSinceLastLogOff: () => true,
+				throwIfStopped: (_runId: string, signal: AbortSignal) => {
+					if (signal.aborted) {
+						throw new Error("Unexpected abort.");
+					}
+				},
+			});
+			const runProviderLoop = (BotRuntime.prototype as unknown as {
+				runProviderLoop: (
+					bot: BotDocument,
+					settings: { baseUrl: string; model: string; temperature: number },
+					runId: string,
+					messages: Array<Record<string, unknown>>,
+					runContext: { mode: "normal"; signal: AbortSignal },
+				) => Promise<{ logOffCalled: boolean }>;
+			}).runProviderLoop.bind(runtime);
+
+			await expect(
+				runProviderLoop(
+					{
+						...fakeBotDocument(),
+						tickSettings: {
+							...fakeBotDocument().tickSettings,
+							maxToolCallsPerTick: 5,
+							maxGeneratedTokensPerTick: 25,
+							maxGeneratedTokensPerIteration: 1_000,
+						},
+					},
+					{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+					"run-tick-token-limit",
+					[],
+					{ mode: "normal", signal: new AbortController().signal },
+				),
+			).resolves.toMatchObject({ logOffCalled: false });
+
+			expect(callProvider).toHaveBeenCalledTimes(1);
+			expect(executedTools).toEqual(["read_thread"]);
+		});
+
+		it("injects synthetic logoff after executing the response that reaches the iteration generated token limit", async () => {
+			const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+			const executedTools: string[] = [];
+			const callProvider = vi.fn(async () => ({
+				...providerResponseWithToolCall("call-read", "read_thread", { threadId: "thr_test" }),
+				usage: providerUsageForTest(10),
+			}));
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+					events.push({ type, payload });
+					return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
+				},
+				appendLoopMessage: (
+					_runId: string,
+					message: Record<string, unknown>,
+					origin: string,
+				) => ({
+					seq: events.length + executedTools.length,
+					runId: "run-iteration-token-limit",
+					role: message.role,
+					message,
+					origin,
+					tokenEstimate: 0,
+					createdAt: new Date().toISOString(),
+				}),
+				appendProviderMessages: async () => {},
+				callProvider,
+				ensureProviderPromptWithinBudget: async () => ({
+					allowedPromptTokens: 13_500,
+					promptTokens: 100,
+					requestMessages: [{ role: "assistant", content: "I am ready." }],
+				}),
+				executeTool: async (_bot: unknown, _runId: string, name: string) => {
+					executedTools.push(name);
+					return { name, result: { ok: true }, providerResult: { ok: true } };
+				},
+				loopGeneratedTokenCountSinceLastLogOff: () => 40,
+				recordInferenceSubmission: () => {},
+				recordLoopMessageLog: () => {},
+				recordProviderUsage: () => {},
+				repairActiveProviderToolCallHistory: async () => [],
+				successfulMutatingToolCallSinceLastLogOff: () => true,
+				throwIfStopped: (_runId: string, signal: AbortSignal) => {
+					if (signal.aborted) {
+						throw new Error("Unexpected abort.");
+					}
+				},
+			});
+			const runProviderLoop = (BotRuntime.prototype as unknown as {
+				runProviderLoop: (
+					bot: BotDocument,
+					settings: { baseUrl: string; model: string; temperature: number },
+					runId: string,
+					messages: Array<Record<string, unknown>>,
+					runContext: { mode: "normal"; signal: AbortSignal },
+				) => Promise<{ logOffCalled: boolean }>;
+			}).runProviderLoop.bind(runtime);
+
+			await expect(
+				runProviderLoop(
+					{
+						...fakeBotDocument(),
+						tickSettings: {
+							...fakeBotDocument().tickSettings,
+							maxGeneratedTokensPerTick: 1_000,
+							maxGeneratedTokensPerIteration: 50,
+						},
+					},
+					{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+					"run-iteration-token-limit",
+					[],
+					{ mode: "normal", signal: new AbortController().signal },
+				),
+			).resolves.toMatchObject({ logOffCalled: true });
+
+			expect(callProvider).toHaveBeenCalledTimes(1);
+			expect(executedTools).toEqual(["read_thread", "log_off"]);
+			expect(events).toContainEqual(expect.objectContaining({
+				type: "assistant_message",
+				payload: expect.objectContaining({
+					content: "I need to take a short break from Bickr. I'll log off for now.",
+				}),
+			}));
+		});
+
+		it("does not inject a second synthetic logoff when token exhaustion response already logs off", async () => {
+			const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+			const executedTools: string[] = [];
+			const callProvider = vi.fn(async () => ({
+				...providerResponseWithToolCall("call-log-off", "log_off", { reason: "done" }),
+				usage: providerUsageForTest(50),
+			}));
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+					events.push({ type, payload });
+					return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
+				},
+				appendLoopMessage: (
+					_runId: string,
+					message: Record<string, unknown>,
+					origin: string,
+				) => ({
+					seq: events.length + executedTools.length,
+					runId: "run-token-limit-real-logoff",
+					role: message.role,
+					message,
+					origin,
+					tokenEstimate: 0,
+					createdAt: new Date().toISOString(),
+				}),
+				appendProviderMessages: async () => {},
+				callProvider,
+				ensureProviderPromptWithinBudget: async () => ({
+					allowedPromptTokens: 13_500,
+					promptTokens: 100,
+					requestMessages: [{ role: "assistant", content: "I am ready." }],
+				}),
+				executeTool: async (_bot: unknown, _runId: string, name: string) => {
+					executedTools.push(name);
+					return { name, result: { ok: true }, providerResult: { ok: true } };
+				},
+				recordInferenceSubmission: () => {},
+				recordLoopMessageLog: () => {},
+				recordProviderUsage: () => {},
+				repairActiveProviderToolCallHistory: async () => [],
+				successfulMutatingToolCallSinceLastLogOff: () => true,
+				throwIfStopped: (_runId: string, signal: AbortSignal) => {
+					if (signal.aborted) {
+						throw new Error("Unexpected abort.");
+					}
+				},
+			});
+			const runProviderLoop = (BotRuntime.prototype as unknown as {
+				runProviderLoop: (
+					bot: BotDocument,
+					settings: { baseUrl: string; model: string; temperature: number },
+					runId: string,
+					messages: Array<Record<string, unknown>>,
+					runContext: { mode: "normal"; signal: AbortSignal },
+				) => Promise<{ logOffCalled: boolean }>;
+			}).runProviderLoop.bind(runtime);
+
+			await expect(
+				runProviderLoop(
+					{
+						...fakeBotDocument(),
+						tickSettings: {
+							...fakeBotDocument().tickSettings,
+							maxGeneratedTokensPerTick: 1_000,
+							maxGeneratedTokensPerIteration: 50,
+						},
+					},
+					{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+					"run-token-limit-real-logoff",
+					[],
+					{ mode: "normal", signal: new AbortController().signal },
+				),
+			).resolves.toMatchObject({ logOffCalled: true });
+
+			expect(executedTools).toEqual(["log_off"]);
+			expect(events.some((event) =>
+				event.type === "assistant_message" &&
+				String(event.payload.content ?? "") === "I need to take a short break from Bickr. I'll log off for now.",
+			)).toBe(false);
+		});
+
+		it("retries once when a generated response contains only malformed tool calls", async () => {
 		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
 		const appendedLoopMessages: Array<{ message: Record<string, unknown>; origin: string }> = [];
 		const submissions: Array<Array<Record<string, unknown>>> = [];
@@ -5254,11 +5600,11 @@ describe("Bickr Pages Functions", () => {
 		).resolves.toMatchObject({ logOffCalled: false });
 
 		expect(providerToolsByCall).toHaveLength(1);
-		expect(providerToolsByCall[0]).not.toContain("log_off");
+		expect(providerToolsByCall[0]).toContain("log_off");
 		expect(appendedLoopMessages.map((message) => message.origin)).toEqual(["provider_response"]);
 	});
 
-	it("hides log_off until a mutating tool succeeds in the current iteration", async () => {
+	it("keeps log_off in the schema before and after a mutating tool succeeds", async () => {
 		const providerToolsByCall: string[][] = [];
 		const systemPromptsByCall: string[] = [];
 		let providerCall = 0;
@@ -5338,8 +5684,8 @@ describe("Bickr Pages Functions", () => {
 
 		const firstRequirement = systemPromptsByCall[0]?.match(/You MUST use one of the following tools: [^\n]+/)?.[0] ?? "";
 		const secondRequirement = systemPromptsByCall[1]?.match(/You MUST use one of the following tools: [^\n]+/)?.[0] ?? "";
-		expect(providerToolsByCall[0]).not.toContain("log_off");
-		expect(firstRequirement).not.toContain("log_off");
+		expect(providerToolsByCall[0]).toContain("log_off");
+		expect(firstRequirement).toContain("log_off");
 		expect(providerToolsByCall[1]).toContain("log_off");
 		expect(secondRequirement).toContain("log_off");
 	});
@@ -5534,7 +5880,7 @@ describe("Bickr Pages Functions", () => {
 
 		expect(providerToolsByCall).toHaveLength(1);
 		expect(providerToolsByCall[0]).not.toEqual(["log_off"]);
-		expect(providerToolsByCall[0]).not.toContain("log_off");
+		expect(providerToolsByCall[0]).toContain("log_off");
 	});
 
 	it("repairs poisoned active history before recording the next inference submission", async () => {
@@ -7198,41 +7544,61 @@ describe("Bickr Pages Functions", () => {
 				enabled,
 				status,
 				tick_interval_seconds AS tickIntervalSeconds,
-				context_window_tokens AS contextWindowTokens,
-				max_tool_calls_per_tick AS maxToolCallsPerTick,
-				max_successful_tool_calls_per_iteration AS maxSuccessfulToolCallsPerIteration,
-				next_due_at AS nextDueAt
-			 FROM bot_runtime_index
-			 WHERE bot_id = ?`,
-		)
-			.bind(created.data.bot.id)
-			.first<{ enabled: number; status: string; tickIntervalSeconds: number; contextWindowTokens: number; maxToolCallsPerTick: number; maxSuccessfulToolCallsPerIteration: number; nextDueAt: string | null }>();
+					context_window_tokens AS contextWindowTokens,
+					max_tool_calls_per_tick AS maxToolCallsPerTick,
+					max_successful_tool_calls_per_iteration AS maxSuccessfulToolCallsPerIteration,
+					max_generated_tokens_per_tick AS maxGeneratedTokensPerTick,
+					max_generated_tokens_per_iteration AS maxGeneratedTokensPerIteration,
+					next_due_at AS nextDueAt
+				 FROM bot_runtime_index
+				 WHERE bot_id = ?`,
+			)
+				.bind(created.data.bot.id)
+				.first<{
+					enabled: number;
+					status: string;
+					tickIntervalSeconds: number;
+					contextWindowTokens: number;
+					maxToolCallsPerTick: number;
+					maxSuccessfulToolCallsPerIteration: number;
+					maxGeneratedTokensPerTick: number;
+					maxGeneratedTokensPerIteration: number;
+					nextDueAt: string | null;
+				}>();
 		expect(created.data.bot.tickSettings).toMatchObject({
 			enabled: false,
 			intervalSeconds: 86_400,
 		});
-		expect(created.data.bot.tickSettings).not.toHaveProperty("contextWindowTokens");
-		expect(created.data.bot.tickSettings).not.toHaveProperty("maxToolCallsPerTick");
-		expect(created.data.bot.tickSettings).not.toHaveProperty("maxSuccessfulToolCallsPerIteration");
-		expect(created.data.bot.effectiveTickSettings).toMatchObject({
-			contextWindowTokens: 20_000,
-			maxToolCallsPerTick: 10,
-			maxSuccessfulToolCallsPerIteration: 8,
-		});
-		const storedCreatedBot = await testEnv.BICKR_KV.get(`v1:bot:${created.data.bot.id}`, { type: "json" }) as BotDocument;
-		expect(storedCreatedBot.tickSettings).not.toHaveProperty("contextWindowTokens");
-		expect(storedCreatedBot.tickSettings).not.toHaveProperty("maxToolCallsPerTick");
-		expect(storedCreatedBot.tickSettings).not.toHaveProperty("maxSuccessfulToolCallsPerIteration");
+			expect(created.data.bot.tickSettings).not.toHaveProperty("contextWindowTokens");
+			expect(created.data.bot.tickSettings).not.toHaveProperty("maxToolCallsPerTick");
+			expect(created.data.bot.tickSettings).not.toHaveProperty("maxSuccessfulToolCallsPerIteration");
+			expect(created.data.bot.tickSettings).not.toHaveProperty("maxGeneratedTokensPerTick");
+			expect(created.data.bot.tickSettings).not.toHaveProperty("maxGeneratedTokensPerIteration");
+			expect(created.data.bot.effectiveTickSettings).toMatchObject({
+				contextWindowTokens: 20_000,
+				maxToolCallsPerTick: 10,
+				maxSuccessfulToolCallsPerIteration: 8,
+				maxGeneratedTokensPerTick: 15_000,
+				maxGeneratedTokensPerIteration: 30_000,
+			});
+			const storedCreatedBot = await testEnv.BICKR_KV.get(`v1:bot:${created.data.bot.id}`, { type: "json" }) as BotDocument;
+			expect(storedCreatedBot.tickSettings).not.toHaveProperty("contextWindowTokens");
+			expect(storedCreatedBot.tickSettings).not.toHaveProperty("maxToolCallsPerTick");
+			expect(storedCreatedBot.tickSettings).not.toHaveProperty("maxSuccessfulToolCallsPerIteration");
+			expect(storedCreatedBot.tickSettings).not.toHaveProperty("maxGeneratedTokensPerTick");
+			expect(storedCreatedBot.tickSettings).not.toHaveProperty("maxGeneratedTokensPerIteration");
 		expect(created.data.bot.nextDueAt).toBeNull();
 		expect(runtimeRow).toMatchObject({
 			enabled: 0,
 			status: "idle",
 			tickIntervalSeconds: 86_400,
-			contextWindowTokens: 20_000,
-			maxToolCallsPerTick: 10,
-			maxSuccessfulToolCallsPerIteration: 8,
-			nextDueAt: null,
-		});
+				contextWindowTokens: 20_000,
+				maxToolCallsPerTick: 10,
+				maxSuccessfulToolCallsPerIteration: 8,
+				maxGeneratedTokensPerTick: 15_000,
+				maxGeneratedTokensPerIteration: 30_000,
+				nextDueAt: null,
+			});
 		const personalForums = await listForums(testEnv.BICKR_D1, "patch-notes");
 		const personalForum = personalForums.find((forum) => forum.personalBotId === created.data.bot.id);
 		expect(personalForum).toMatchObject({
@@ -7319,15 +7685,17 @@ describe("Bickr Pages Functions", () => {
 							presencePenalty: null,
 							repetitionPenalty: null,
 						},
-						tickSettings: {
-							enabled: true,
-							intervalSeconds: 60,
-							contextWindowTokens: 32_000,
-							maxToolCallsPerTick: 12,
-							maxSuccessfulToolCallsPerIteration: 9,
+							tickSettings: {
+								enabled: true,
+								intervalSeconds: 60,
+								contextWindowTokens: 32_000,
+								maxToolCallsPerTick: 12,
+								maxSuccessfulToolCallsPerIteration: 9,
+								maxGeneratedTokensPerTick: 22_000,
+								maxGeneratedTokensPerIteration: 44_000,
+							},
 						},
-					},
-					cookie,
+						cookie,
 				),
 				{ botId: created.data.bot.id },
 			),
@@ -7341,12 +7709,14 @@ describe("Bickr Pages Functions", () => {
 					tickSettings: {
 						enabled: true,
 						intervalSeconds: 60,
-						contextWindowTokens: 32_000,
-						maxToolCallsPerTick: 12,
-						maxSuccessfulToolCallsPerIteration: 9,
+							contextWindowTokens: 32_000,
+							maxToolCallsPerTick: 12,
+							maxSuccessfulToolCallsPerIteration: 9,
+							maxGeneratedTokensPerTick: 22_000,
+							maxGeneratedTokensPerIteration: 44_000,
+						},
 					},
 				},
-			},
 		});
 		expect(Date.parse(patchPayload.data.bot.nextDueAt ?? "")).toBeGreaterThanOrEqual(beforeUnpause - 1_000);
 		expect(Date.parse(patchPayload.data.bot.nextDueAt ?? "")).toBeLessThanOrEqual(Date.now() + 1_000);
@@ -7358,16 +7728,31 @@ describe("Bickr Pages Functions", () => {
 
 		const runtimeAfterPatch = await testEnv.BICKR_D1.prepare(
 			`SELECT
-				enabled,
-				tick_interval_seconds AS tickIntervalSeconds,
-				max_successful_tool_calls_per_iteration AS maxSuccessfulToolCallsPerIteration,
-				next_due_at AS nextDueAt
-			 FROM bot_runtime_index
-			 WHERE bot_id = ?`,
-		)
-			.bind(created.data.bot.id)
-			.first<{ enabled: number; tickIntervalSeconds: number; maxSuccessfulToolCallsPerIteration: number; nextDueAt: string | null }>();
-		expect(runtimeAfterPatch).toMatchObject({ enabled: 1, tickIntervalSeconds: 60, maxSuccessfulToolCallsPerIteration: 9 });
+					enabled,
+					tick_interval_seconds AS tickIntervalSeconds,
+					max_successful_tool_calls_per_iteration AS maxSuccessfulToolCallsPerIteration,
+					max_generated_tokens_per_tick AS maxGeneratedTokensPerTick,
+					max_generated_tokens_per_iteration AS maxGeneratedTokensPerIteration,
+					next_due_at AS nextDueAt
+				 FROM bot_runtime_index
+				 WHERE bot_id = ?`,
+			)
+				.bind(created.data.bot.id)
+				.first<{
+					enabled: number;
+					tickIntervalSeconds: number;
+					maxSuccessfulToolCallsPerIteration: number;
+					maxGeneratedTokensPerTick: number;
+					maxGeneratedTokensPerIteration: number;
+					nextDueAt: string | null;
+				}>();
+			expect(runtimeAfterPatch).toMatchObject({
+				enabled: 1,
+				tickIntervalSeconds: 60,
+				maxSuccessfulToolCallsPerIteration: 9,
+				maxGeneratedTokensPerTick: 22_000,
+				maxGeneratedTokensPerIteration: 44_000,
+			});
 		expect(Date.parse(runtimeAfterPatch?.nextDueAt ?? "")).toBeGreaterThanOrEqual(beforeUnpause - 1_000);
 		expect(Date.parse(runtimeAfterPatch?.nextDueAt ?? "")).toBeLessThanOrEqual(Date.now() + 1_000);
 
@@ -7377,42 +7762,58 @@ describe("Bickr Pages Functions", () => {
 					`http://example.com/api/me/bots/${created.data.bot.id}`,
 					"PATCH",
 					{
-						tickSettings: {
-							contextWindowTokens: null,
-							maxToolCallsPerTick: null,
-							maxSuccessfulToolCallsPerIteration: null,
+							tickSettings: {
+								contextWindowTokens: null,
+								maxToolCallsPerTick: null,
+								maxSuccessfulToolCallsPerIteration: null,
+								maxGeneratedTokensPerTick: null,
+								maxGeneratedTokensPerIteration: null,
+							},
 						},
-					},
-					cookie,
+						cookie,
 				),
 				{ botId: created.data.bot.id },
 			),
 		);
 		expect(clearTickDefaultsResponse.status, await clearTickDefaultsResponse.clone().text()).toBe(200);
 		const clearedTickDefaults = (await clearTickDefaultsResponse.json()) as { ok: true; data: { bot: BotBody } };
-		expect(clearedTickDefaults.data.bot.tickSettings).not.toHaveProperty("contextWindowTokens");
-		expect(clearedTickDefaults.data.bot.tickSettings).not.toHaveProperty("maxToolCallsPerTick");
-		expect(clearedTickDefaults.data.bot.tickSettings).not.toHaveProperty("maxSuccessfulToolCallsPerIteration");
-		expect(clearedTickDefaults.data.bot.effectiveTickSettings).toMatchObject({
-			contextWindowTokens: 20_000,
-			maxToolCallsPerTick: 10,
-			maxSuccessfulToolCallsPerIteration: 8,
-		});
-		const runtimeAfterClearingDefaults = await testEnv.BICKR_D1.prepare(
-			`SELECT
-				context_window_tokens AS contextWindowTokens,
-				max_tool_calls_per_tick AS maxToolCallsPerTick,
-				max_successful_tool_calls_per_iteration AS maxSuccessfulToolCallsPerIteration
-			 FROM bot_runtime_index
-			 WHERE bot_id = ?`,
-		)
-			.bind(created.data.bot.id)
-			.first<{ contextWindowTokens: number; maxToolCallsPerTick: number; maxSuccessfulToolCallsPerIteration: number }>();
-		expect(runtimeAfterClearingDefaults).toEqual({
-			contextWindowTokens: 20_000,
-			maxToolCallsPerTick: 10,
-			maxSuccessfulToolCallsPerIteration: 8,
-		});
+			expect(clearedTickDefaults.data.bot.tickSettings).not.toHaveProperty("contextWindowTokens");
+			expect(clearedTickDefaults.data.bot.tickSettings).not.toHaveProperty("maxToolCallsPerTick");
+			expect(clearedTickDefaults.data.bot.tickSettings).not.toHaveProperty("maxSuccessfulToolCallsPerIteration");
+			expect(clearedTickDefaults.data.bot.tickSettings).not.toHaveProperty("maxGeneratedTokensPerTick");
+			expect(clearedTickDefaults.data.bot.tickSettings).not.toHaveProperty("maxGeneratedTokensPerIteration");
+			expect(clearedTickDefaults.data.bot.effectiveTickSettings).toMatchObject({
+				contextWindowTokens: 20_000,
+				maxToolCallsPerTick: 10,
+				maxSuccessfulToolCallsPerIteration: 8,
+				maxGeneratedTokensPerTick: 15_000,
+				maxGeneratedTokensPerIteration: 30_000,
+			});
+			const runtimeAfterClearingDefaults = await testEnv.BICKR_D1.prepare(
+				`SELECT
+					context_window_tokens AS contextWindowTokens,
+					max_tool_calls_per_tick AS maxToolCallsPerTick,
+					max_successful_tool_calls_per_iteration AS maxSuccessfulToolCallsPerIteration,
+					max_generated_tokens_per_tick AS maxGeneratedTokensPerTick,
+					max_generated_tokens_per_iteration AS maxGeneratedTokensPerIteration
+				 FROM bot_runtime_index
+				 WHERE bot_id = ?`,
+			)
+				.bind(created.data.bot.id)
+				.first<{
+					contextWindowTokens: number;
+					maxToolCallsPerTick: number;
+					maxSuccessfulToolCallsPerIteration: number;
+					maxGeneratedTokensPerTick: number;
+					maxGeneratedTokensPerIteration: number;
+				}>();
+			expect(runtimeAfterClearingDefaults).toEqual({
+				contextWindowTokens: 20_000,
+				maxToolCallsPerTick: 10,
+				maxSuccessfulToolCallsPerIteration: 8,
+				maxGeneratedTokensPerTick: 15_000,
+				maxGeneratedTokensPerIteration: 30_000,
+			});
 
 		const pauseResponse = await patchBot(
 			contextFor<typeof patchBot>(
@@ -9242,18 +9643,17 @@ describe("Bickr Pages Functions", () => {
 		expect(rejected).toBeInstanceOf(Error);
 		expect((rejected as Error).message).toContain(`I already replied to comment ${parent.id} before.`);
 		expect((rejected as Error).message).toContain("Earlier reply.");
-		expect((rejected as Error).message).toContain(`"${additionalReplyAcknowledgementArgument}": true`);
+		expect((rejected as Error).message).toContain("make_additional_reply_to_the_same_comment");
 		let currentThread = await readThread(testEnv.BICKR_KV, thread.id);
 		expect(currentThread.comments.filter((comment) => comment.parentCommentId === parent.id && comment.authorBotId === replier.id)).toHaveLength(1);
 
 		const allowed = await executeTool(
 			bot,
 			"run-repeat-allowed",
-			"reply_to_comment",
+			"make_additional_reply_to_the_same_comment",
 			{
 				commentId: parent.id,
 				body: "Intentional second reply.",
-				[additionalReplyAcknowledgementArgument]: true,
 			},
 			{ mode: "normal", signal },
 		);
@@ -9285,7 +9685,7 @@ describe("Bickr Pages Functions", () => {
 		).toBeDefined();
 	});
 
-	it("exposes the repeat-reply acknowledgement schema only for the round after a repeat-reply failure", async () => {
+	it("keeps the repeat-reply tool schema stable after a repeat-reply failure", async () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);
 		const forum = await createForumForTest(cookie, "repeat-reply-rounds");
@@ -9306,7 +9706,7 @@ describe("Bickr Pages Functions", () => {
 				_messages: Array<Record<string, unknown>>,
 				tools: ProviderToolDefinition[],
 			) => {
-				callToolSchemaStates.push(replyToolHasAcknowledgementArgument(tools));
+				callToolSchemaStates.push(additionalReplyToolPresent(tools));
 				providerCall += 1;
 				if (providerCall === 1) {
 					return providerResponseWithToolCall("call-repeat-fail", "reply_to_comment", {
@@ -9345,7 +9745,7 @@ describe("Bickr Pages Functions", () => {
 				{ mode: "normal", signal: new AbortController().signal },
 			),
 		).resolves.toMatchObject({ logOffCalled: true });
-		expect(callToolSchemaStates).toEqual([false, true, false]);
+		expect(callToolSchemaStates).toEqual([true, true, true]);
 	});
 
 	it("adds failed-tool narration only after all parallel tool responses", async () => {
@@ -10545,18 +10945,22 @@ type BotBody = {
 	tickSettings: {
 		enabled: boolean;
 		intervalSeconds: number;
-		contextWindowTokens?: number;
-		maxToolCallsPerTick?: number;
-		maxSuccessfulToolCallsPerIteration?: number;
-	};
-	effectiveTickSettings: {
-		enabled: boolean;
-		intervalSeconds: number;
-		contextWindowTokens: number;
-		compactionThreshold: number;
-		maxToolCallsPerTick: number;
-		maxSuccessfulToolCallsPerIteration: number;
-	};
+			contextWindowTokens?: number;
+			maxToolCallsPerTick?: number;
+			maxSuccessfulToolCallsPerIteration?: number;
+			maxGeneratedTokensPerTick?: number;
+			maxGeneratedTokensPerIteration?: number;
+		};
+		effectiveTickSettings: {
+			enabled: boolean;
+			intervalSeconds: number;
+			contextWindowTokens: number;
+			compactionThreshold: number;
+			maxToolCallsPerTick: number;
+			maxSuccessfulToolCallsPerIteration: number;
+			maxGeneratedTokensPerTick: number;
+			maxGeneratedTokensPerIteration: number;
+		};
 	lastActiveAt?: string;
 	nextDueAt?: string | null;
 };
@@ -11460,14 +11864,26 @@ function providerResponseWithRawToolCalls(calls: Array<{ id: string; name: strin
 	};
 }
 
-function replyToolHasAcknowledgementArgument(tools: ProviderToolDefinition[]): boolean {
-	const reply = tools.find((definition) =>
-		definition.type === "function" && definition.function.name === "reply_to_comment"
-	);
-	return Boolean(
-		reply &&
-			reply.type === "function" &&
-			reply.function.parameters.properties[additionalReplyAcknowledgementArgument],
+function providerUsageForTest(completionTokens: number, reasoningTokens = 0) {
+	return {
+		promptTokens: 10,
+		completionTokens,
+		totalTokens: 10 + completionTokens,
+		cachedTokens: 0,
+		reasoningTokens,
+		cost: null,
+		raw: {
+			prompt_tokens: 10,
+			completion_tokens: completionTokens,
+			total_tokens: 10 + completionTokens,
+			completion_tokens_details: { reasoning_tokens: reasoningTokens },
+		},
+	};
+}
+
+function additionalReplyToolPresent(tools: ProviderToolDefinition[]): boolean {
+	return tools.some((definition) =>
+		definition.type === "function" && definition.function.name === "make_additional_reply_to_the_same_comment"
 	);
 }
 
@@ -11496,6 +11912,8 @@ function fakeBotDocument(options: { contextWindowTokens?: number } = {}): BotDoc
 			compactionThreshold: 0.75,
 			maxToolCallsPerTick: 3,
 			maxSuccessfulToolCallsPerIteration: 8,
+			maxGeneratedTokensPerTick: 15_000,
+			maxGeneratedTokensPerIteration: 30_000,
 		},
 	};
 }

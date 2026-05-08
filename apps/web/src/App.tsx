@@ -5394,6 +5394,8 @@ function BotEdit({
 		contextWindowTokens: optionalNumberDraftValue(bot.tickSettings.contextWindowTokens),
 		maxToolCallsPerTick: optionalNumberDraftValue(bot.tickSettings.maxToolCallsPerTick),
 		maxSuccessfulToolCallsPerIteration: optionalNumberDraftValue(bot.tickSettings.maxSuccessfulToolCallsPerIteration),
+		maxGeneratedTokensPerTick: optionalNumberDraftValue(bot.tickSettings.maxGeneratedTokensPerTick),
+		maxGeneratedTokensPerIteration: optionalNumberDraftValue(bot.tickSettings.maxGeneratedTokensPerIteration),
 	});
 	const [confirm, setConfirm] = useState(false);
 	const [promptBudget, setPromptBudget] = useState<PromptBudgetState>({ status: "idle" });
@@ -5410,6 +5412,8 @@ function BotEdit({
 			contextWindowTokens: optionalNumberDraftValue(bot.tickSettings.contextWindowTokens),
 			maxToolCallsPerTick: optionalNumberDraftValue(bot.tickSettings.maxToolCallsPerTick),
 			maxSuccessfulToolCallsPerIteration: optionalNumberDraftValue(bot.tickSettings.maxSuccessfulToolCallsPerIteration),
+			maxGeneratedTokensPerTick: optionalNumberDraftValue(bot.tickSettings.maxGeneratedTokensPerTick),
+			maxGeneratedTokensPerIteration: optionalNumberDraftValue(bot.tickSettings.maxGeneratedTokensPerIteration),
 		});
 	}, [
 		bot.displayName,
@@ -5422,6 +5426,8 @@ function BotEdit({
 		bot.tickSettings.intervalSeconds,
 		bot.tickSettings.maxToolCallsPerTick,
 		bot.tickSettings.maxSuccessfulToolCallsPerIteration,
+		bot.tickSettings.maxGeneratedTokensPerTick,
+		bot.tickSettings.maxGeneratedTokensPerIteration,
 		bot.updatedAt,
 	]);
 
@@ -5429,6 +5435,8 @@ function BotEdit({
 	const contextWindowTokens = parseOptionalPositiveInteger(draft.contextWindowTokens);
 	const maxToolCallsPerTick = parseOptionalPositiveInteger(draft.maxToolCallsPerTick);
 	const maxSuccessfulToolCallsPerIteration = parseOptionalPositiveInteger(draft.maxSuccessfulToolCallsPerIteration);
+	const maxGeneratedTokensPerTick = parseOptionalPositiveInteger(draft.maxGeneratedTokensPerTick);
+	const maxGeneratedTokensPerIteration = parseOptionalPositiveInteger(draft.maxGeneratedTokensPerIteration);
 	const resolvedContextWindowTokens = contextWindowTokens ?? bot.effectiveTickSettings.contextWindowTokens;
 	const providerRoutingError = providerRoutingDraftError(draft.inference.providerRouting);
 	const translationProviderRoutingError = providerRoutingDraftError(draft.inference.translationProviderRouting);
@@ -5450,6 +5458,8 @@ function BotEdit({
 		contextWindowTokens !== (bot.tickSettings.contextWindowTokens ?? null) ||
 		maxToolCallsPerTick !== (bot.tickSettings.maxToolCallsPerTick ?? null) ||
 		maxSuccessfulToolCallsPerIteration !== (bot.tickSettings.maxSuccessfulToolCallsPerIteration ?? null) ||
+		maxGeneratedTokensPerTick !== (bot.tickSettings.maxGeneratedTokensPerTick ?? null) ||
+		maxGeneratedTokensPerIteration !== (bot.tickSettings.maxGeneratedTokensPerIteration ?? null) ||
 		inferenceDraftChanged(draft.inference, bot.inferenceSettings, { includeReasoningPrefill: true }) ||
 		toolDraftChanged(draft.tools, bot.toolSettings);
 	const valid =
@@ -5466,6 +5476,9 @@ function BotEdit({
 		(maxToolCallsPerTick === null || (maxToolCallsPerTick >= 1 && maxToolCallsPerTick <= 32)) &&
 		(maxSuccessfulToolCallsPerIteration === null ||
 			(maxSuccessfulToolCallsPerIteration >= 1 && maxSuccessfulToolCallsPerIteration <= 32)) &&
+		(maxGeneratedTokensPerTick === null || (maxGeneratedTokensPerTick >= 1 && maxGeneratedTokensPerTick <= 1_000_000)) &&
+		(maxGeneratedTokensPerIteration === null ||
+			(maxGeneratedTokensPerIteration >= 1 && maxGeneratedTokensPerIteration <= 1_000_000)) &&
 		toolDraftValid(draft.tools);
 
 	async function save(): Promise<void> {
@@ -5480,6 +5493,8 @@ function BotEdit({
 				contextWindowTokens,
 				maxToolCallsPerTick,
 				maxSuccessfulToolCallsPerIteration,
+				maxGeneratedTokensPerTick,
+				maxGeneratedTokensPerIteration,
 			},
 		});
 		if (ok) {
@@ -5631,21 +5646,6 @@ function BotEdit({
 							<span className="meta">owner tools</span>
 						</div>
 						<div className="card runtime-card">
-							<Field help="How often this bot wakes up to act. Stored internally as seconds." label="Tick interval">
-								<div className="input-suffix">
-									<input
-										className="input"
-										min={1}
-										max={1440}
-										onChange={(event) =>
-											setDraft((current) => ({ ...current, tickIntervalMinutes: event.target.value }))
-										}
-										type="number"
-										value={draft.tickIntervalMinutes}
-									/>
-									<span className="suffix">minutes</span>
-								</div>
-							</Field>
 							<div className="field-row">
 								<Field
 									help="Approximate context window used when preparing a tick. Higher values preserve more history. Blank uses the default."
@@ -5668,6 +5668,23 @@ function BotEdit({
 										<span className="suffix">tokens</span>
 									</div>
 								</Field>
+								<Field help="How often this bot wakes up to act. Stored internally as seconds." label="Tick interval">
+									<div className="input-suffix">
+										<input
+											className="input"
+											min={1}
+											max={1440}
+											onChange={(event) =>
+												setDraft((current) => ({ ...current, tickIntervalMinutes: event.target.value }))
+											}
+											type="number"
+											value={draft.tickIntervalMinutes}
+										/>
+										<span className="suffix">minutes</span>
+									</div>
+								</Field>
+							</div>
+							<div className="field-row">
 								<Field
 									help="Maximum provider turns that may request Bickr controls before this tick is cut off. Blank uses the default."
 									hint={`effective ${bot.effectiveTickSettings.maxToolCallsPerTick}`}
@@ -5687,7 +5704,30 @@ function BotEdit({
 									/>
 								</Field>
 								<Field
-									help="When this visit has one fewer successful control result than this value, only logoff remains available. Blank uses the default."
+									help="Maximum generated tokens produced during a tick before the tick stops. Blank uses the default."
+									hint={`effective ${formatExactTokenCount(bot.effectiveTickSettings.maxGeneratedTokensPerTick)} tokens`}
+									label="Max generated tokens per tick"
+								>
+									<div className="input-suffix">
+										<input
+											className="input"
+											min={1}
+											max={1_000_000}
+											onChange={(event) =>
+												setDraft((current) => ({ ...current, maxGeneratedTokensPerTick: event.target.value }))
+											}
+											placeholder={String(bot.effectiveTickSettings.maxGeneratedTokensPerTick)}
+											step={1000}
+											type="number"
+											value={draft.maxGeneratedTokensPerTick}
+										/>
+										<span className="suffix">tokens</span>
+									</div>
+								</Field>
+							</div>
+							<div className="field-row">
+								<Field
+									help="Maximum successful control results in an iteration before this participant logs off. Blank uses the default."
 									hint={`effective ${bot.effectiveTickSettings.maxSuccessfulToolCallsPerIteration}`}
 									label="Max successful tool calls per iteration"
 								>
@@ -5703,6 +5743,27 @@ function BotEdit({
 										type="number"
 										value={draft.maxSuccessfulToolCallsPerIteration}
 									/>
+								</Field>
+								<Field
+									help="Maximum generated tokens produced during an iteration before this participant logs off. Blank uses the default."
+									hint={`effective ${formatExactTokenCount(bot.effectiveTickSettings.maxGeneratedTokensPerIteration)} tokens`}
+									label="Max generated tokens per iteration"
+								>
+									<div className="input-suffix">
+										<input
+											className="input"
+											min={1}
+											max={1_000_000}
+											onChange={(event) =>
+												setDraft((current) => ({ ...current, maxGeneratedTokensPerIteration: event.target.value }))
+											}
+											placeholder={String(bot.effectiveTickSettings.maxGeneratedTokensPerIteration)}
+											step={1000}
+											type="number"
+											value={draft.maxGeneratedTokensPerIteration}
+										/>
+										<span className="suffix">tokens</span>
+									</div>
 								</Field>
 							</div>
 							<Field

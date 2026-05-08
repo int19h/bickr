@@ -129,6 +129,8 @@ export const defaultTickSettings: BotEffectiveTickSettings = {
 	compactionThreshold: 0.75,
 	maxToolCallsPerTick: 10,
 	maxSuccessfulToolCallsPerIteration: 8,
+	maxGeneratedTokensPerTick: 15_000,
+	maxGeneratedTokensPerIteration: 30_000,
 };
 export const defaultInferenceSettings: BotInferenceSettings = {};
 export const defaultToolSettings: BotToolSettings = {};
@@ -1810,9 +1812,10 @@ async function upsertBotRuntimeIndex(
 			`INSERT INTO bot_runtime_index (
 				bot_id, owner_user_id, world_id, enabled, tick_interval_seconds, context_window_tokens,
 				compaction_threshold, max_tool_calls_per_tick, max_successful_tool_calls_per_iteration,
+				max_generated_tokens_per_tick, max_generated_tokens_per_iteration,
 				next_due_at, status, active_run_id,
 				lease_expires_at, last_error, created_at, updated_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'idle', NULL, NULL, NULL, ?, ?)
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'idle', NULL, NULL, NULL, ?, ?)
 			ON CONFLICT(bot_id) DO UPDATE SET
 				owner_user_id = excluded.owner_user_id,
 				world_id = excluded.world_id,
@@ -1822,6 +1825,8 @@ async function upsertBotRuntimeIndex(
 				compaction_threshold = excluded.compaction_threshold,
 				max_tool_calls_per_tick = excluded.max_tool_calls_per_tick,
 				max_successful_tool_calls_per_iteration = excluded.max_successful_tool_calls_per_iteration,
+				max_generated_tokens_per_tick = excluded.max_generated_tokens_per_tick,
+				max_generated_tokens_per_iteration = excluded.max_generated_tokens_per_iteration,
 				next_due_at = CASE
 					WHEN excluded.enabled = 0 THEN NULL
 					WHEN ? THEN COALESCE(bot_runtime_index.next_due_at, excluded.next_due_at)
@@ -1841,6 +1846,8 @@ async function upsertBotRuntimeIndex(
 			settings.compactionThreshold,
 			settings.maxToolCallsPerTick,
 			settings.maxSuccessfulToolCallsPerIteration,
+			settings.maxGeneratedTokensPerTick,
+			settings.maxGeneratedTokensPerIteration,
 			nextDue,
 			now,
 			now,
@@ -1907,6 +1914,10 @@ export function mergeTickSettings(
 		...(current?.maxSuccessfulToolCallsPerIteration !== undefined ?
 			{ maxSuccessfulToolCallsPerIteration: current.maxSuccessfulToolCallsPerIteration }
 		:	{}),
+		...(current?.maxGeneratedTokensPerTick !== undefined ? { maxGeneratedTokensPerTick: current.maxGeneratedTokensPerTick } : {}),
+		...(current?.maxGeneratedTokensPerIteration !== undefined ?
+			{ maxGeneratedTokensPerIteration: current.maxGeneratedTokensPerIteration }
+		:	{}),
 	};
 	if (!patch) {
 		return next;
@@ -1924,6 +1935,8 @@ export function mergeTickSettings(
 	}
 	assignOptionalTickNumber(next, "maxToolCallsPerTick", patch.maxToolCallsPerTick);
 	assignOptionalTickNumber(next, "maxSuccessfulToolCallsPerIteration", patch.maxSuccessfulToolCallsPerIteration);
+	assignOptionalTickNumber(next, "maxGeneratedTokensPerTick", patch.maxGeneratedTokensPerTick);
+	assignOptionalTickNumber(next, "maxGeneratedTokensPerIteration", patch.maxGeneratedTokensPerIteration);
 	return next;
 }
 
@@ -1937,12 +1950,20 @@ export function effectiveTickSettings(settings: BotTickSettings | undefined): Bo
 		maxToolCallsPerTick: normalized.maxToolCallsPerTick ?? defaultTickSettings.maxToolCallsPerTick,
 		maxSuccessfulToolCallsPerIteration:
 			normalized.maxSuccessfulToolCallsPerIteration ?? defaultTickSettings.maxSuccessfulToolCallsPerIteration,
+		maxGeneratedTokensPerTick: normalized.maxGeneratedTokensPerTick ?? defaultTickSettings.maxGeneratedTokensPerTick,
+		maxGeneratedTokensPerIteration:
+			normalized.maxGeneratedTokensPerIteration ?? defaultTickSettings.maxGeneratedTokensPerIteration,
 	};
 }
 
 function assignOptionalTickNumber(
 	settings: BotTickSettings,
-	key: "contextWindowTokens" | "maxToolCallsPerTick" | "maxSuccessfulToolCallsPerIteration",
+	key:
+		| "contextWindowTokens"
+		| "maxToolCallsPerTick"
+		| "maxSuccessfulToolCallsPerIteration"
+		| "maxGeneratedTokensPerTick"
+		| "maxGeneratedTokensPerIteration",
 	value: number | null | undefined,
 ): void {
 	if (value === undefined) {
