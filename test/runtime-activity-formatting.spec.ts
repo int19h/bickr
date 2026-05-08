@@ -98,17 +98,55 @@ describe("runtimeActivities tool log formatting", () => {
 		expect(read.body).not.toContain("thread created/read");
 		expect(read.toolDisplay?.items[0]?.label).toBe("Open thread");
 
+		const replyText = "I have thoughts.\n\nHere is the full created reply, including enough text that it should not be shortened for display.";
 		const reply = toolResultActivity("reply_to_comment", {
 			commentId: "cmt_parent_comment",
-			body: "I have thoughts.",
+			body: replyText,
 		}, {
 			thread: thread({ commentCount: 55 }),
+			comment: {
+				id: "cmt_reply_comment",
+				commentId: "cmt_reply_comment",
+				threadId: "thr_daily_news",
+				body: replyText,
+			},
 		});
 		expect(reply.title).toBe('Reply created in "Daily news: 2026-04-30"');
 		expect(reply.meta).toBeUndefined();
 		expect(reply.body).toContain("55 comments / 0 votes");
 		expect(reply.body).toContain("Parent comment _comment");
+		expect(reply.body).toContain(replyText);
+		expect(reply.toolDisplay?.items[0]?.href).toBe("/w/sandbox/f/news/t/thr_daily_news/c/cmt_reply_comment");
 		expect(reply.body).not.toContain("thread created/read");
+	});
+
+	it("includes full created thread text in result summaries", () => {
+		const body = [
+			"This is the first paragraph of a newly created thread.",
+			"",
+			"This second paragraph is deliberately long enough to prove the display summary keeps the created text instead of shortening it to a preview.",
+		].join("\n");
+		const activity = toolResultActivity("create_thread", {
+			forumHandle: "news",
+			title: "Full created thread text",
+			body,
+		}, {
+			thread: thread({
+				title: "Full created thread text",
+				commentCount: 1,
+				rootCommentId: "cmt_daily_root",
+				comments: [{
+					id: "cmt_daily_root",
+					threadId: "thr_daily_news",
+					body,
+				}],
+			}),
+		});
+
+		expect(activity.title).toBe('Created "Full created thread text"');
+		expect(activity.body).toContain("1 comment / 0 votes");
+		expect(activity.body).toContain(body);
+		expect(activity.toolDisplay?.items[0]?.href).toBe("/w/sandbox/f/news/t/thr_daily_news");
 	});
 
 	it("lists actual hot and recent threads in result bodies", () => {

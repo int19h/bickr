@@ -9761,7 +9761,7 @@ function readableToolResultContent(name: string, value: unknown, args?: JsonReco
 		return <ReadablePostedReplyResult args={args ?? {}} value={value} />;
 	}
 	if (name === "create_thread") {
-		return <ReadableThreadDocument value={value} />;
+		return <ReadableThreadDocument args={args ?? {}} value={value} />;
 	}
 	if (name === "vote") {
 		return <ReadableVoteResult value={value} />;
@@ -9819,6 +9819,7 @@ function ReadablePostedReplyResult({ args, value }: { args: JsonRecord; value: u
 	const worldHandle = worldHandleFromRecord(thread) ?? worldHandleFromRecord(createdComment);
 	const forumHandle = forumHandleFromRecord(thread) ?? forumHandleFromRecord(createdComment);
 	const title = readableThreadTitle(thread);
+	const body = textValueForDisplay(createdComment.body) ?? textValueForDisplay(args.body);
 	return (
 		<div className="tool-pretty tool-list">
 			<div className="tool-pretty-item">
@@ -9842,8 +9843,9 @@ function ReadablePostedReplyResult({ args, value }: { args: JsonRecord; value: u
 							worldHandle={worldHandle}
 						/>
 					</>
-				:	null}
+					:	null}
 			</div>
+			{body && <ReadableQuote label="Comment" text={body} />}
 		</div>
 	);
 }
@@ -10056,12 +10058,16 @@ function ReadableReadResult({ value }: { value: unknown }) {
 	);
 }
 
-function ReadableThreadDocument({ value }: { value: unknown }) {
+function ReadableThreadDocument({ args, value }: { args?: JsonRecord; value: unknown }) {
 	const thread = threadRecordFromReadableMutation(value);
 	const rootComment = readableRootComment(thread);
 	const rootPost = recordValue(thread.rootPost);
 	const title = readableThreadTitle(thread);
-	const body = textValueForDisplay(rootComment.body ?? rootPost.body ?? thread.body);
+	const body =
+		textValueForDisplay(rootComment.body) ??
+		textValueForDisplay(rootPost.body) ??
+		textValueForDisplay(thread.body) ??
+		textValueForDisplay(args?.body);
 	const authorProfile = profileHasHandle(rootComment) ? rootComment : recordValue(rootPost.author);
 	const worldHandle = worldHandleFromRecord(thread);
 	const forumHandle = forumHandleFromRecord(thread);

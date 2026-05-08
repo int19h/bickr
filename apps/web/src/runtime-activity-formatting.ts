@@ -530,13 +530,19 @@ function toolResultSummary(name: string, args: unknown, result: unknown, fallbac
 
 	const thread = threadRecord(result);
 	if (canonical === "create_thread" && thread) {
+		const details = [threadFacts(thread), createdThreadBody(thread, args)].filter(Boolean).join("\n");
 		const items = [openThreadItem(thread, fallbackWorldHandle)].filter(isDisplayItem);
-		return resultWithDisplay(`Created "${thread.title ?? "thread"}"`, threadFacts(thread), items);
+		return resultWithDisplay(`Created "${thread.title ?? "thread"}"`, details, items);
 	}
 	if (canonical === "reply_to_comment" && thread) {
 		const parentCommentId = stringValue(runtimeRecord(args).commentId ?? runtimeRecord(args).parentCommentId);
-		const details = [threadFacts(thread), parentCommentId ? `Parent comment ${shortId(parentCommentId)}` : ""].filter(Boolean);
-		const items = [openThreadItem(thread, fallbackWorldHandle)].filter(isDisplayItem);
+		const details = [
+			threadFacts(thread),
+			parentCommentId ? `Parent comment ${shortId(parentCommentId)}` : "",
+			createdReplyBody(result, args),
+		].filter(Boolean);
+		const commentId = createdReplyCommentId(result);
+		const items = [openCommentItem(thread, commentId, fallbackWorldHandle) ?? openThreadItem(thread, fallbackWorldHandle)].filter(isDisplayItem);
 		return resultWithDisplay(`Reply created in "${thread.title ?? "thread"}"`, details.join("\n"), items);
 	}
 	if ((canonical === "read_thread" || canonical === "read_thread_by_id") && thread) {
@@ -1018,6 +1024,20 @@ function rootCommentBody(thread: Record<string, unknown>): string | undefined {
 		(rootCommentId ? comments.find((comment) => stringValue(comment.id ?? comment.commentId) === rootCommentId) : undefined) ??
 		comments.find((comment) => !stringValue(comment.parentCommentId));
 	return stringValue(root?.body);
+}
+
+function createdThreadBody(thread: Record<string, unknown>, args: unknown): string | undefined {
+	return stringValue(thread.body) ?? stringValue(runtimeRecord(args).body);
+}
+
+function createdReplyBody(result: unknown, args: unknown): string | undefined {
+	const comment = runtimeRecord(runtimeRecord(result).comment);
+	return stringValue(comment.body) ?? stringValue(runtimeRecord(args).body);
+}
+
+function createdReplyCommentId(result: unknown): string | undefined {
+	const comment = runtimeRecord(runtimeRecord(result).comment);
+	return stringValue(comment.commentId ?? comment.id);
 }
 
 function threadUrl(thread: Record<string, unknown>, fallbackWorldHandle: string): string | null {
