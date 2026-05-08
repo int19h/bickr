@@ -177,8 +177,11 @@ export type ProviderCompactionSummaryLimits = {
 	minLength: number;
 	maxLength: number;
 	maxCompletionTokens: number;
+	compactionInputTokens: number;
 	nextCompactionTokens: number;
-	scaffoldSafetyTokens: number;
+	compactionRequestOverheadTokens: number;
+	anticipatedSummaryTokens: number;
+	maxSummaryTokens: number;
 	tokensPerCharacter: number;
 	compactedCharacterCount: number;
 	configuredMaxCharacters: number;
@@ -1088,8 +1091,11 @@ const defaultProviderCompactionSummaryLimits: ProviderCompactionSummaryLimits = 
 	minLength: 1,
 	maxLength: providerCompactionDefaultMaxCharacters,
 	maxCompletionTokens: providerContextReserveTokens,
+	compactionInputTokens: 1,
 	nextCompactionTokens: 1,
-	scaffoldSafetyTokens: providerPromptEstimateSafetyTokens,
+	compactionRequestOverheadTokens: providerPromptEstimateSafetyTokens,
+	anticipatedSummaryTokens: 1,
+	maxSummaryTokens: Math.ceil(providerCompactionDefaultMaxCharacters * fallbackTokensPerCharacter),
 	tokensPerCharacter: fallbackTokensPerCharacter,
 	compactedCharacterCount: 0,
 	configuredMaxCharacters: providerCompactionDefaultMaxCharacters,
@@ -1158,28 +1164,35 @@ export function providerCompactionSummaryLimitsForChat(
 	const compactionSummaryPercent = Math.max(1, Math.min(50, Math.floor(tickSettings.compactionSummaryPercent)));
 	let maxLength = configuredMaxCharacters;
 	let minLength = Math.min(maxLength, Math.max(1, Math.ceil(compactedCharacterCount * compactionSummaryPercent / 100)));
-	let maxSummaryTokens = Math.max(1, Math.ceil(maxLength * tokensPerCharacter));
-	let scaffoldSafetyTokens = providerPromptEstimateSafetyTokens;
-	let maxCompletionTokens = Math.max(1, contextWindowTokens - scaffoldSafetyTokens);
-	let nextCompactionTokens = Math.max(1, contextWindowTokens - maxSummaryTokens - scaffoldSafetyTokens);
+	let anticipatedSummaryTokens = Math.max(1, Math.ceil(minLength * tokensPerCharacter));
+	let maxSummaryTokens = Math.max(1, Math.ceil(configuredMaxCharacters * tokensPerCharacter));
+	let compactionRequestOverheadTokens = providerPromptEstimateSafetyTokens;
+	let maxCompletionTokens = Math.max(1, contextWindowTokens - compactionRequestOverheadTokens);
+	let compactionInputTokens = Math.max(1, contextWindowTokens - anticipatedSummaryTokens - compactionRequestOverheadTokens);
+	let nextCompactionTokens = providerPromptCompactionCutoffTokens(contextWindowTokens, anticipatedSummaryTokens);
 
 	for (let iteration = 0; iteration < 3; iteration += 1) {
 		const effectiveProviderTools = providerTools ?? toolDefinitionsForProviderRound(maxLength);
-		scaffoldSafetyTokens = providerCompactionScaffoldSafetyTokens(bot, { minLength, maxLength }, calibration, effectiveProviderTools);
-		maxSummaryTokens = Math.max(1, Math.ceil(configuredMaxCharacters * tokensPerCharacter));
 		maxLength = configuredMaxCharacters;
 		minLength = Math.min(maxLength, Math.max(1, Math.ceil(compactedCharacterCount * compactionSummaryPercent / 100)));
+		anticipatedSummaryTokens = Math.max(1, Math.ceil(minLength * tokensPerCharacter));
+		maxSummaryTokens = Math.max(1, Math.ceil(maxLength * tokensPerCharacter));
+		compactionRequestOverheadTokens = providerCompactionRequestOverheadTokens(bot, { minLength, maxLength }, calibration, effectiveProviderTools);
 		const messages = providerCompactionMessages(bot, [...compactedMessages], { minLength, maxLength }, effectiveProviderTools);
 		maxCompletionTokens = providerCompactionMaxCompletionTokensForRequest(contextWindowTokens, messages, effectiveProviderTools, calibration);
-		nextCompactionTokens = Math.max(1, contextWindowTokens - maxSummaryTokens - scaffoldSafetyTokens);
+		compactionInputTokens = Math.max(1, contextWindowTokens - anticipatedSummaryTokens - compactionRequestOverheadTokens);
+		nextCompactionTokens = providerPromptCompactionCutoffTokens(contextWindowTokens, anticipatedSummaryTokens);
 	}
 
 	return {
 		minLength,
 		maxLength,
 		maxCompletionTokens,
+		compactionInputTokens,
 		nextCompactionTokens,
-		scaffoldSafetyTokens,
+		compactionRequestOverheadTokens,
+		anticipatedSummaryTokens,
+		maxSummaryTokens,
 		tokensPerCharacter,
 		compactedCharacterCount,
 		configuredMaxCharacters,
@@ -1187,18 +1200,25 @@ export function providerCompactionSummaryLimitsForChat(
 	};
 }
 
-function providerCompactionScaffoldSafetyTokens(
+function providerPromptCompactionCutoffTokens(contextWindowTokens: number, anticipatedSummaryTokens: number): number {
+	return Math.max(
+		1,
+		Math.floor(contextWindowTokens) - Math.max(providerContextReserveTokens, Math.max(1, Math.ceil(anticipatedSummaryTokens))),
+	);
+}
+
+function providerCompactionRequestOverheadTokens(
 	bot: BotDocument,
 	limits: Pick<ProviderCompactionSummaryLimits, "minLength" | "maxLength">,
 	calibration: TextTokenCalibration,
 	providerTools: ProviderToolDefinition[] = toolDefinitionsForProviderRound(limits.maxLength),
 ): number {
-	const scaffoldMessages: ChatMessage[] = [
+	const overheadMessages: ChatMessage[] = [
 		{ role: "system", content: appendToolRequirementInstruction(standardPrompt(bot), providerTools) },
 		{ role: "user", content: providerCompactionSummaryInstruction(bot, limits) },
 	];
 	return (
-		estimateChatMessagesTokens(scaffoldMessages, calibration) +
+		estimateChatMessagesTokens(overheadMessages, calibration) +
 		estimateTextTokensWithCalibration(JSON.stringify(providerTools), calibration) +
 		providerPromptEstimateSafetyTokens
 	);
@@ -6151,11 +6171,12 @@ export class BotRuntime {
 	): Promise<void> {
 		bot = await this.botWithCurrentRuntimeBudget(bot);
 		const contextEstimate = this.currentCompactionContextEstimate();
-		const total = contextEstimate.totalTokens;
 		const providerTools = providerToolsForBotRound(bot, settings).tools;
 		const limits = this.compactionSummaryLimitsForRows(bot, contextEstimate.rows.map((item) => item.row), contextEstimate.calibration, providerTools);
 		const threshold = limits.nextCompactionTokens;
-		if (total <= threshold) {
+		const requestMessages = this.activeProviderRequestMessages(bot, providerTools, settings.toolCalls ?? "require");
+		const estimate = this.estimateProviderPromptTokens(settings, requestMessages, providerTools);
+		if (estimate.promptTokens <= threshold) {
 			return;
 		}
 
@@ -6164,7 +6185,8 @@ export class BotRuntime {
 			return;
 		}
 		await this.compactLoopMessageRows(bot, settings, runId, signal, compacted, "auto", {
-			estimatedContextTokens: total,
+			estimatedContextTokens: contextEstimate.totalTokens,
+			estimatedPromptTokens: estimate.promptTokens,
 			compactionMaxCharacters: limits.maxLength,
 			compactionMaxCompletionTokens: limits.maxCompletionTokens,
 			threshold,
@@ -6184,9 +6206,15 @@ export class BotRuntime {
 			const budgetBot = await this.botWithCurrentRuntimeBudget(bot);
 			const tickSettings = effectiveTickSettings(budgetBot.tickSettings);
 			providerTools = providerToolsForBotRound(budgetBot, settings).tools;
-			const promptBudgetLimits = providerCompactionSummaryLimitsForChat(budgetBot, [], this.textTokenCalibration(), providerTools);
-			const allowedPromptTokens = promptBudgetLimits.nextCompactionTokens;
+			const calibration = this.textTokenCalibration();
 			const requestMessages = this.activeProviderRequestMessages(budgetBot, providerTools, settings.toolCalls ?? "require");
+			const promptBudgetLimits = providerCompactionSummaryLimitsForChat(
+				budgetBot,
+				requestMessages.slice(1),
+				calibration,
+				providerTools,
+			);
+			const allowedPromptTokens = promptBudgetLimits.nextCompactionTokens;
 			const estimate = this.estimateProviderPromptTokens(settings, requestMessages, providerTools);
 			const overBudgetTokens = Math.max(0, estimate.promptTokens - allowedPromptTokens);
 			await this.appendEvent(runId, "provider_token_estimate", {
@@ -6317,7 +6345,10 @@ export class BotRuntime {
 		const calibration = this.textTokenCalibration();
 		const rows = this.compactionCandidateEstimates(calibration)
 			.filter((item) => includeCurrentRun || item.row.run_id !== runId);
-		return oldestLoopMessageGroupsForPromptLimit(rows, this.compactionPromptTokenLimit(bot, calibration, providerTools));
+		return oldestLoopMessageGroupsForPromptLimit(
+			rows,
+			this.compactionPromptTokenLimit(bot, rows.map((item) => item.row), calibration, providerTools),
+		);
 	}
 
 	private async manualCompactLoopMessages(botId: string): Promise<{ fromSeq?: number; toSeq?: number; messageCount: number }> {
@@ -6355,7 +6386,10 @@ export class BotRuntime {
 				row,
 				tokens: estimateChatMessageTokens(loopMessageChatMessageFromRow(row), calibration),
 			}));
-			const batch = oldestLoopMessageGroupsForPromptLimit(estimates, this.compactionPromptTokenLimit(bot, calibration, providerTools));
+			const batch = oldestLoopMessageGroupsForPromptLimit(
+				estimates,
+				this.compactionPromptTokenLimit(bot, remaining, calibration, providerTools),
+			);
 			const selected = batch.length > 0 ? batch : [remaining[0]!];
 			const compactedRows = await this.compactLoopMessageRows(bot, settings, runId, signal, selected, mode, {
 				...metrics,
@@ -6423,6 +6457,9 @@ export class BotRuntime {
 				compactionMinCharacters: compactionLimits.minLength,
 				compactionMaxCharacters: compactionLimits.maxLength,
 				compactionMaxCompletionTokens: compactionLimits.maxCompletionTokens,
+				compactionInputTokens: compactionLimits.compactionInputTokens,
+				compactionRequestOverheadTokens: compactionLimits.compactionRequestOverheadTokens,
+				anticipatedSummaryTokens: compactionLimits.anticipatedSummaryTokens,
 				nextCompactionTokens: compactionLimits.nextCompactionTokens,
 				...(outputLimitShrinkAttempts > 0 ? { outputLimitShrinkAttempts } : {}),
 			};
@@ -6711,15 +6748,20 @@ export class BotRuntime {
 		const budgetBot = { ...bot, tickSettings };
 		return providerCompactionSummaryLimitsForChat(
 			budgetBot,
-			[],
+			this.hasRuntimeStorage() ? this.activeLoopMessagesForProvider() : [],
 			this.textTokenCalibration(),
 			providerFunctionToolsForBot(budgetBot),
 		).nextCompactionTokens;
 	}
 
-	private compactionPromptTokenLimit(bot: BotDocument, calibration = this.textTokenCalibration(), providerTools?: ProviderToolDefinition[]): number {
-		const limits = providerCompactionSummaryLimitsForChat(bot, [], calibration, providerTools);
-		return Math.max(1, Math.min(providerCompactionMaxPromptEstimateTokens, limits.nextCompactionTokens));
+	private compactionPromptTokenLimit(
+		bot: BotDocument,
+		rows: readonly LoopMessageRow[],
+		calibration = this.textTokenCalibration(),
+		providerTools?: ProviderToolDefinition[],
+	): number {
+		const limits = this.compactionSummaryLimitsForRows(bot, rows, calibration, providerTools);
+		return Math.max(1, Math.min(providerCompactionMaxPromptEstimateTokens, limits.compactionInputTokens));
 	}
 
 	private textTokenCalibration(): TextTokenCalibration {

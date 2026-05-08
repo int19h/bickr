@@ -1231,8 +1231,11 @@ describe("Bickr Pages Functions", () => {
 				configuredMaxCharacters: 20_000,
 				compactionSummaryPercent: 10,
 			});
+			expect(limits.anticipatedSummaryTokens).toBe(Math.ceil(limits.minLength * limits.tokensPerCharacter));
+			expect(limits.maxSummaryTokens).toBe(Math.ceil(limits.maxLength * limits.tokensPerCharacter));
 			expect(limits.maxCompletionTokens).toBeGreaterThan(5_000);
-			expect(limits.nextCompactionTokens).toBeLessThan(45_000);
+			expect(limits.nextCompactionTokens).toBe(50_000 - providerContextReserveTokens);
+			expect(limits.compactionInputTokens).toBeLessThan(limits.nextCompactionTokens);
 			expect(request.max_completion_tokens).toBe(limits.maxCompletionTokens);
 			const tool = request.tools.find((item) => item.type === "function" && item.function.name === metaCompactionToolName);
 			expect(tool?.type).toBe("function");
@@ -1241,6 +1244,27 @@ describe("Bickr Pages Functions", () => {
 				maxLength: 20_000,
 			});
 			expect(messages[2]?.content).toContain("between 3001 and 20000 characters");
+		});
+
+		it("keeps fixed prompt overhead out of the normal compaction cutoff", () => {
+			const compactedMessages = [{ role: "assistant" as const, content: "x".repeat(30_000) }];
+			const calibration = { tokensPerCharacter: 0.25, sampleCount: 3 };
+			const shortPromptLimits = providerCompactionSummaryLimitsForChat(
+				fakeBotDocument({ contextWindowTokens: 20_000 }),
+				compactedMessages,
+				calibration,
+				toolDefinitionsForProviderRound(),
+			);
+			const longPromptLimits = providerCompactionSummaryLimitsForChat(
+				fakeBotDocument({ contextWindowTokens: 20_000, prompt: "x".repeat(25_000) }),
+				compactedMessages,
+				calibration,
+				toolDefinitionsForProviderRound(),
+			);
+
+			expect(longPromptLimits.nextCompactionTokens).toBe(shortPromptLimits.nextCompactionTokens);
+			expect(longPromptLimits.compactionInputTokens).toBeLessThan(shortPromptLimits.compactionInputTokens);
+			expect(longPromptLimits.nextCompactionTokens).toBe(20_000 - providerContextReserveTokens);
 		});
 
 		it("wraps failed compaction provider calls with request and response diagnostics", async () => {
@@ -2375,11 +2399,13 @@ describe("Bickr Pages Functions", () => {
 				[{ role: "assistant", content: "Old context." }],
 				calibration,
 			);
-			let totalTokens = expectedLimits.nextCompactionTokens;
+			let promptTokens = expectedLimits.nextCompactionTokens;
 			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
-				currentCompactionContextEstimate: () => ({ totalTokens, rowTokens: totalTokens, rows: [{ row, tokens: 4 }], calibration }),
+				activeProviderRequestMessages: () => [{ role: "system", content: "System." }, { role: "assistant", content: "Old context." }],
+				currentCompactionContextEstimate: () => ({ totalTokens: 4, rowTokens: 4, rows: [{ row, tokens: 4 }], calibration }),
 				compactionRowsForEstimatedBudget: () => [row],
 				compactLoopMessageRows,
+				estimateProviderPromptTokens: () => providerPromptEstimateForTokens(promptTokens),
 			});
 			const compactIfNeeded = (BotRuntime.prototype as unknown as {
 				compactIfNeeded: (
@@ -2393,7 +2419,7 @@ describe("Bickr Pages Functions", () => {
 			await compactIfNeeded(bot, {}, "run-threshold", new AbortController().signal);
 			expect(compactLoopMessageRows).not.toHaveBeenCalled();
 
-			totalTokens = expectedLimits.nextCompactionTokens + 1;
+			promptTokens = expectedLimits.nextCompactionTokens + 1;
 			await compactIfNeeded(bot, {}, "run-threshold", new AbortController().signal);
 			expect(compactLoopMessageRows).toHaveBeenCalledWith(
 				expect.anything(),
@@ -2403,7 +2429,8 @@ describe("Bickr Pages Functions", () => {
 				[row],
 				"auto",
 				expect.objectContaining({
-					estimatedContextTokens: expectedLimits.nextCompactionTokens + 1,
+					estimatedContextTokens: 4,
+					estimatedPromptTokens: expectedLimits.nextCompactionTokens + 1,
 					threshold: expectedLimits.nextCompactionTokens,
 				}),
 			);
@@ -12551,7 +12578,7 @@ function additionalReplyToolPresent(tools: ProviderToolDefinition[]): boolean {
 	);
 }
 
-function fakeBotDocument(options: { contextWindowTokens?: number; compactionSummaryPercent?: number; compactionMaxCharacters?: number } = {}): BotDocument {
+function fakeBotDocument(options: { contextWindowTokens?: number; compactionSummaryPercent?: number; compactionMaxCharacters?: number; prompt?: string } = {}): BotDocument {
 	const now = "2026-05-05T00:00:00.000Z";
 	return {
 		id: "bot_test_budget",
@@ -12566,7 +12593,7 @@ function fakeBotDocument(options: { contextWindowTokens?: number; compactionSumm
 		handle: "budget-bot",
 		displayName: "Budget Bot",
 		shortBio: "Tests context budgets.",
-		prompt: "Stay concise.",
+		prompt: options.prompt ?? "Stay concise.",
 		inferenceSettings: {},
 		toolSettings: {},
 		tickSettings: {
