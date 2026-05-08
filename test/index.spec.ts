@@ -91,6 +91,7 @@ import {
 	isOpenRouterProviderBaseUrl,
 	metaCompactionToolName,
 	openRouterServerToolSelection,
+	providerCompactionSummaryProperty,
 	standardPrompt,
 	toolDefinitions,
 	toolDefinitionsForProviderRound,
@@ -584,7 +585,7 @@ describe("Bickr Pages Functions", () => {
 			const metaTool = roundTools.at(-1);
 			expect(metaTool?.function.name).toBe(metaCompactionToolName);
 			expect(metaTool?.function.description).toContain("explicit META context compaction instruction");
-			expect(metaTool?.function.parameters.properties["detailed summary in first person"]).toMatchObject({
+			expect(metaTool?.function.parameters.properties[providerCompactionSummaryProperty]).toMatchObject({
 				type: "string",
 				minLength: 1,
 				maxLength: 1234,
@@ -1164,13 +1165,13 @@ describe("Bickr Pages Functions", () => {
 					parameters: {
 						type: "object",
 						properties: {
-							"detailed summary in first person": {
+							[providerCompactionSummaryProperty]: {
 								type: "string",
 								minLength: 1,
 								maxLength: 4000,
 							},
 						},
-						required: ["detailed summary in first person"],
+						required: [providerCompactionSummaryProperty],
 						additionalProperties: false,
 					},
 				},
@@ -1185,6 +1186,7 @@ describe("Bickr Pages Functions", () => {
 			expect(messages[3]?.content).toContain(`invoking ${metaCompactionToolName} next`);
 			expect(messages[3]?.content).toContain("do not use any other Bickr control");
 			expect(messages[3]?.content).toContain("u/release-sage");
+			expect(messages[3]?.content).toContain(`"${providerCompactionSummaryProperty}" argument`);
 			expect(messages[3]?.content).toContain("long-term memory");
 			expect(messages[3]?.content).toContain("4000 characters");
 			expect(messages[3]?.content).not.toMatch(/\bbot\b|\bAI\b|\bmodel\b|\bassistant\b|\bagent\b/i);
@@ -1234,7 +1236,7 @@ describe("Bickr Pages Functions", () => {
 			expect(request.max_completion_tokens).toBe(limits.maxCompletionTokens);
 			const tool = request.tools.find((item) => item.type === "function" && item.function.name === metaCompactionToolName);
 			expect(tool?.type).toBe("function");
-			expect(tool?.type === "function" ? tool.function.parameters.properties["detailed summary in first person"] : undefined).toMatchObject({
+			expect(tool?.type === "function" ? tool.function.parameters.properties[providerCompactionSummaryProperty] : undefined).toMatchObject({
 				minLength: 1,
 				maxLength: 20_000,
 			});
@@ -1306,7 +1308,7 @@ describe("Bickr Pages Functions", () => {
 							type: "function",
 							function: {
 								name: metaCompactionToolName,
-								arguments: JSON.stringify({ "detailed summary in first person": "I remember the important parts." }),
+								arguments: JSON.stringify({ [providerCompactionSummaryProperty]: "I remember the important parts." }),
 							},
 						}],
 					},
@@ -1368,7 +1370,7 @@ describe("Bickr Pages Functions", () => {
 							type: "function",
 							function: {
 								name: metaCompactionToolName,
-								arguments: JSON.stringify({ "detailed summary in first person": overlongSummary }),
+								arguments: JSON.stringify({ [providerCompactionSummaryProperty]: overlongSummary }),
 							},
 						}],
 					},
@@ -1382,7 +1384,7 @@ describe("Bickr Pages Functions", () => {
 							type: "function",
 							function: {
 								name: metaCompactionToolName,
-								arguments: JSON.stringify({ "detailed summary in first person": "Short." }),
+								arguments: JSON.stringify({ [providerCompactionSummaryProperty]: "Short." }),
 							},
 						}],
 					},
@@ -1457,7 +1459,7 @@ describe("Bickr Pages Functions", () => {
 							type: "function",
 							function: {
 								name: metaCompactionToolName,
-								arguments: JSON.stringify({ "detailed summary in first person": "I remember the important parts." }),
+								arguments: JSON.stringify({ [providerCompactionSummaryProperty]: "I remember the important parts." }),
 							},
 						}],
 					},
@@ -2267,7 +2269,7 @@ describe("Bickr Pages Functions", () => {
 							type: "function",
 							function: {
 								name: metaCompactionToolName,
-								arguments: JSON.stringify({ "detailed summary in first person": "I remember old context one." }),
+								arguments: JSON.stringify({ [providerCompactionSummaryProperty]: "I remember old context one." }),
 							},
 						}],
 					},
@@ -4556,7 +4558,7 @@ describe("Bickr Pages Functions", () => {
 		const executeTool = vi.fn();
 		const callProvider = vi.fn()
 			.mockResolvedValueOnce(providerResponseWithToolCall("call-meta-summary", metaCompactionToolName, {
-				"detailed summary in first person": "I should not be summarizing right now.",
+				[providerCompactionSummaryProperty]: "I should not be summarizing right now.",
 			}))
 			.mockResolvedValueOnce(providerResponseWithContent("I will continue normally."));
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
@@ -6683,7 +6685,7 @@ describe("Bickr Pages Functions", () => {
 			displayName: "Release Sage",
 		} as BotDocument;
 		const message =
-			"Inference provider returned schema-invalid compaction tool arguments: Unexpected argument summary; only detailed summary in first person is allowed.";
+			`Inference provider returned schema-invalid compaction tool arguments: Unexpected argument summary; only ${providerCompactionSummaryProperty} is allowed.`;
 
 		await recordBotRuntimeFailureHumanNotification(testEnv.BICKR_D1, {
 			bot,

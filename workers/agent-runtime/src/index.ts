@@ -118,6 +118,7 @@ import {
 	metaCompactionToolName,
 	mutableToolNames,
 	openRouterServerToolSelection,
+	providerCompactionSummaryProperty,
 	standardPrompt,
 	toolDefinitionsForProviderRound,
 	type ProviderToolDefinition,
@@ -940,7 +941,6 @@ const providerRailroadNoToolMaxAttempts = 5;
 const providerDefaultReasoning = { enabled: true, exclude: false } as const;
 const providerTranslationMaxCompletionTokens = 8_192;
 const providerCompactionTemperature = 0.2;
-const providerCompactionSummaryProperty = "detailed summary in first person";
 const providerCompactionToolName = metaCompactionToolName;
 const metaCompactionToolMisuseSelfCorrection = `${providerCompactionToolName} cannot be used at this time, so I need to use another Bickr control or continue normally.`;
 const providerTranslationToolName = "save_translation";
@@ -7889,7 +7889,7 @@ function providerCompactionSummaryFromToolMessage(
 			kind: "compaction",
 			toolName: providerCompactionToolName,
 			property: providerCompactionSummaryProperty,
-			label: "detailed summary in first person",
+			label: providerCompactionSummaryProperty,
 			minCharacters: limits.minLength,
 			maxCharacters: limits.maxLength,
 		},

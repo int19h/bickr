@@ -80,6 +80,7 @@ export type OpenRouterServerToolSelection = {
 };
 
 export const metaCompactionToolName = "META_provide_summary_use_only_when_directed";
+export const providerCompactionSummaryProperty = "detailedFirstPersonSummary";
 const defaultMetaCompactionMaxCharacters = 4_000;
 
 export const toolDefinitions: FunctionToolDefinition[] = [
@@ -264,13 +265,13 @@ export function metaCompactionToolDefinition(maxCharacters = defaultMetaCompacti
 			parameters: {
 				type: "object",
 				properties: {
-					"detailed summary in first person": {
+					[providerCompactionSummaryProperty]: {
 						type: "string",
 						minLength: 1,
 						maxLength: Math.max(1, Math.floor(maxCharacters)),
 					},
 				},
-				required: ["detailed summary in first person"],
+				required: [providerCompactionSummaryProperty],
 				additionalProperties: false,
 			},
 		},
