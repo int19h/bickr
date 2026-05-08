@@ -268,7 +268,7 @@ type FollowToolHistoryTarget = {
 	reason?: string;
 };
 
-export type FollowToolSkipReason = "already_following" | "not_following" | "self_follow";
+export type FollowToolSkipReason = "already_following" | "not_following" | "self_follow" | "profile_not_found";
 
 export type FollowToolTargetSkip = {
 	username: string;
@@ -695,6 +695,7 @@ type ProviderToolCallDropReason =
 	| "missing_function_name"
 	| "invalid_arguments_json"
 	| "arguments_not_json_object"
+	| "duplicate_tool_call"
 	| "unanswered_tool_call";
 
 export type DroppedProviderToolCall = {
@@ -1372,14 +1373,60 @@ function sanitizeProviderResponseToolCalls(response: ProviderResponse): {
 } {
 	const originalToolCallCount = response.toolCalls.length;
 	const sanitized = sanitizeProviderToolCalls(response.toolCalls);
-	if (toolCallsEqual(response.toolCalls, sanitized.toolCalls)) {
-		return { response, dropped: sanitized.dropped, originalToolCallCount };
+	const deduped = dedupeGeneratedFollowToolCalls(sanitized.toolCalls);
+	const dropped = [...sanitized.dropped, ...deduped.dropped];
+	if (toolCallsEqual(response.toolCalls, deduped.toolCalls)) {
+		return { response, dropped, originalToolCallCount };
 	}
 	return {
-		response: { ...response, toolCalls: sanitized.toolCalls },
-		dropped: sanitized.dropped,
+		response: { ...response, toolCalls: deduped.toolCalls },
+		dropped,
 		originalToolCallCount,
 	};
+}
+
+function dedupeGeneratedFollowToolCalls(toolCalls: readonly ToolCall[]): { toolCalls: ToolCall[]; dropped: DroppedProviderToolCall[] } {
+	const deduped: ToolCall[] = [];
+	const dropped: DroppedProviderToolCall[] = [];
+	const seen = new Set<string>();
+	for (const toolCall of toolCalls) {
+		const canonical = canonicalToolName(toolCall.function.name);
+		if (canonical !== "follow_profile" && canonical !== "unfollow_profile") {
+			deduped.push(toolCall);
+			continue;
+		}
+		const args = parseToolArgs(toolCall);
+		let parsed: { targets: FollowToolTarget[]; removedLocalDuplicate: boolean };
+		try {
+			parsed = followToolTargetsForProviderDedupe(args);
+		} catch {
+			deduped.push(toolCall);
+			continue;
+		}
+
+		const effectiveTargets: FollowToolTarget[] = [];
+		for (const target of parsed.targets) {
+			const key = `${canonical}:${target.username}`;
+			if (seen.has(key)) {
+				continue;
+			}
+			seen.add(key);
+			effectiveTargets.push(target);
+		}
+		if (effectiveTargets.length === 0) {
+			dropped.push(droppedProviderToolCall(toolCall.id, toolCall.function.name, "duplicate_tool_call", toolCall.function.arguments));
+			continue;
+		}
+		if (parsed.removedLocalDuplicate || effectiveTargets.length !== parsed.targets.length) {
+			deduped.push(toolCallWithArguments(
+				toolCall,
+				JSON.stringify(providerToolArgs(canonical, followToolArgsWithTargets(args, effectiveTargets))),
+			));
+			continue;
+		}
+		deduped.push(toolCall);
+	}
+	return { toolCalls: deduped, dropped };
 }
 
 function droppedProviderToolCall(
@@ -4853,12 +4900,21 @@ export class BotRuntime {
 	): Promise<FollowProfilesToolResult> {
 		const targetsByUsername = new Map(targets.map((target) => [target.username, target]));
 		const usernames = targets.map((target) => target.username);
-		const profiles = await this.profilesFromUsernames(bot, usernames);
+		const profiles = await botPublicProfilesByHandles(this.env.BICKR_KV, this.env.BICKR_D1, bot.homeWorldId, usernames);
+		const foundHandles = new Set(profiles.map((profile) => profile.handle));
+		const missingSkips = usernames
+			.filter((username) => !foundHandles.has(username))
+			.map((username): FollowToolTargetSkip => ({ username: `u/${username}`, reason: "profile_not_found" }));
 		const followed = await followedBotIdSet(this.env.BICKR_D1, bot.id, profiles.map((profile) => profile.id));
 		const targetPlan = planFollowToolTargets(bot.id, profiles, followed, shouldFollow);
 		const toolName = shouldFollow ? "follow_profile" : "unfollow_profile";
+		const skipsByUsername = new Map([...targetPlan.skipped, ...missingSkips].map((skip) => [skip.username, skip]));
+		const skipped = usernames.flatMap((username) => {
+			const skip = skipsByUsername.get(`u/${username}`);
+			return skip ? [skip] : [];
+		});
 		const selfCorrectionMessages =
-			targetPlan.skipped.length > 0 ? [followToolSelfCorrectionMessage(toolName, targetPlan.skipped)] : [];
+			skipped.length > 0 ? [followToolSelfCorrectionMessage(toolName, skipped)] : [];
 		if (targetPlan.validProfiles.length === 0) {
 			throw new SelfCorrectingToolCallError(selfCorrectionMessages[0] ?? followToolSelfCorrectionMessage(toolName, []));
 		}
@@ -9185,6 +9241,12 @@ export function selfCorrectionMessageForToolFailurePayload(failure: ToolFailureP
 			reason: "not_following",
 		})));
 	}
+	if ((failure.toolName === "follow_profile" || failure.toolName === "unfollow_profile") && failure.code === "not_found") {
+		return followToolSelfCorrectionMessage(failure.toolName, historyUsernames(failure.args).map((username) => ({
+			username,
+			reason: "profile_not_found",
+		})));
+	}
 	return null;
 }
 
@@ -9195,6 +9257,7 @@ export function followToolSelfCorrectionMessage(
 	const alreadyFollowing = skippedUsernames(skipped, "already_following");
 	const notFollowing = skippedUsernames(skipped, "not_following");
 	const selfTargets = skippedUsernames(skipped, "self_follow");
+	const missingProfiles = skippedUsernames(skipped, "profile_not_found");
 	const clauses: string[] = [];
 	if (alreadyFollowing.length > 0) {
 		clauses.push(`I already follow ${formatUsernameList(alreadyFollowing)}`);
@@ -9204,6 +9267,9 @@ export function followToolSelfCorrectionMessage(
 	}
 	if (selfTargets.length > 0) {
 		clauses.push(`${formatUsernameList(selfTargets)} ${selfTargets.length === 1 ? "is" : "are"} my own profile${selfTargets.length === 1 ? "" : "s"}`);
+	}
+	if (missingProfiles.length > 0) {
+		clauses.push(`${formatUsernameList(missingProfiles)} ${missingProfiles.length === 1 ? "is not an existing Bickr participant" : "are not existing Bickr participants"}`);
 	}
 	const subjects = toolName === "follow_profile" ? "on them" : skipped.length === 1 ? "there" : "on them";
 	const lead = clauses.length > 0 ? joinSentenceClauses(clauses) : `that ${skipped.length === 1 ? "profile is" : "those profiles are"} already in the right state`;
@@ -10445,9 +10511,7 @@ function normalizeToolArgs(name: string, args: Record<string, unknown>): Record<
 		delete normalized.threadId;
 	}
 	if (canonical === "follow_profile" || canonical === "unfollow_profile") {
-		normalized.targets =
-			"targets" in normalized ? followToolTargetsArg(normalized.targets)
-			:	followToolTargetsFromLegacyArgs(normalized);
+		normalized.targets = followToolTargetsFromArgs(normalized);
 		delete normalized.username;
 		delete normalized.usernames;
 		delete normalized.reason;
@@ -10514,7 +10578,30 @@ function followToolTargetsFromLegacyArgs(args: Record<string, unknown>): FollowT
 	return usernamesArg(rawUsernames).map((username) => ({ username, reason }));
 }
 
+function followToolTargetsFromArgs(args: Record<string, unknown>): FollowToolTarget[] {
+	return "targets" in args ? followToolTargetsArg(args.targets) : followToolTargetsFromLegacyArgs(args);
+}
+
 function followToolTargetsArg(value: unknown): FollowToolTarget[] {
+	const targets = dedupeFollowToolTargets(followToolTargetArrayArg(value));
+	validateFollowToolTargets(targets);
+	return targets;
+}
+
+function followToolTargetsForProviderDedupe(args: Record<string, unknown>): { targets: FollowToolTarget[]; removedLocalDuplicate: boolean } {
+	if (!("targets" in args)) {
+		return { targets: followToolTargetsFromLegacyArgs(args), removedLocalDuplicate: false };
+	}
+	const rawTargets = followToolTargetArrayArg(args.targets);
+	const targets = dedupeFollowToolTargets(rawTargets);
+	validateFollowToolTargets(targets);
+	return {
+		targets,
+		removedLocalDuplicate: targets.length !== rawTargets.length,
+	};
+}
+
+function followToolTargetArrayArg(value: unknown): FollowToolTarget[] {
 	if (!Array.isArray(value)) {
 		throw new Error("targets must be a non-empty array.");
 	}
@@ -10522,23 +10609,45 @@ function followToolTargetsArg(value: unknown): FollowToolTarget[] {
 	if (targets.length === 0) {
 		throw new Error("targets must include at least one participant.");
 	}
+	return targets;
+}
+
+function dedupeFollowToolTargets(targets: readonly FollowToolTarget[]): FollowToolTarget[] {
+	const deduped: FollowToolTarget[] = [];
+	const seenUsernames = new Set<string>();
+	for (const target of targets) {
+		if (seenUsernames.has(target.username)) {
+			continue;
+		}
+		seenUsernames.add(target.username);
+		deduped.push(target);
+	}
+	return deduped;
+}
+
+function validateFollowToolTargets(targets: readonly FollowToolTarget[]): void {
+	if (targets.length === 0) {
+		throw new Error("targets must include at least one participant.");
+	}
 	if (targets.length > maxBulkToolTargets) {
 		throw new Error(`targets can include at most ${maxBulkToolTargets} participants.`);
 	}
-	const seenUsernames = new Set<string>();
 	const seenReasons = new Set<string>();
 	for (const target of targets) {
-		if (seenUsernames.has(target.username)) {
-			throw new Error(`targets contains duplicate username u/${target.username}.`);
-		}
-		seenUsernames.add(target.username);
 		const reasonKey = target.reason.toLocaleLowerCase();
 		if (seenReasons.has(reasonKey)) {
 			throw new Error("targets contains duplicate reasons; each participant needs a distinct reason.");
 		}
 		seenReasons.add(reasonKey);
 	}
-	return targets;
+}
+
+function followToolArgsWithTargets(args: Record<string, unknown>, targets: FollowToolTarget[]): Record<string, unknown> {
+	const normalized: Record<string, unknown> = { ...args, targets };
+	delete normalized.username;
+	delete normalized.usernames;
+	delete normalized.reason;
+	return normalized;
 }
 
 function followToolTargetArg(value: unknown, index: number): FollowToolTarget {

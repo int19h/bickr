@@ -848,11 +848,13 @@ describe("Bickr Pages Functions", () => {
 			{
 				targets: [
 					{ username: firstProfile.handle, reason: "Their threads are relevant to my interests." },
+					{ username: `u/${firstProfile.handle}`, reason: "This duplicate should be ignored before following." },
 					{ username: `u/${secondProfile.handle}`, reason: "Their comments add useful context to recent threads." },
 				],
 			},
 			{ mode: "normal", signal },
 		);
+		expect(followResult.providerResult).toHaveLength(2);
 		expect(followResult.providerResult).toMatchObject([
 			{ following: true, profile: { username: `u/${firstProfile.handle}` } },
 			{ following: true, profile: { username: `u/${secondProfile.handle}` } },
@@ -3974,6 +3976,279 @@ describe("Bickr Pages Functions", () => {
 				count: 1,
 				callIds: ["call-bad"],
 				retrying: false,
+			}),
+		}));
+	});
+
+	it("deduplicates parallel follow calls before history and execution", async () => {
+		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+		const appendedLoopMessages: Array<{ message: Record<string, unknown>; origin: string }> = [];
+		const executedTools: Array<{ name: string; args: Record<string, unknown> }> = [];
+		const callProvider = vi.fn()
+			.mockResolvedValueOnce(providerResponseWithToolCalls([
+				{ id: "call-follow-1", name: "follow_profile", args: { targets: [{ username: "alice", reason: "Alice shares useful context." }] } },
+				{ id: "call-follow-2", name: "follow_profile", args: { targets: [{ username: "u/alice", reason: "Duplicate request for Alice." }] } },
+			]))
+			.mockResolvedValueOnce(providerResponseWithContent("done"));
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+				events.push({ type, payload });
+				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
+			},
+			appendLoopMessage: (_runId: string, message: Record<string, unknown>, origin: string) => {
+				appendedLoopMessages.push({ message, origin });
+				return {
+					seq: appendedLoopMessages.length,
+					runId: "run-dedupe-follow",
+					role: message.role,
+					message,
+					origin,
+					tokenEstimate: 0,
+					createdAt: new Date().toISOString(),
+				};
+			},
+			appendProviderMessages: async () => {},
+			callProvider,
+			ensureProviderPromptWithinBudget: async () => ({
+				allowedPromptTokens: 13_500,
+				promptTokens: 100,
+				requestMessages: [{ role: "assistant", content: "I am ready." }],
+			}),
+			executeTool: async (_bot: unknown, _runId: string, name: string, args: Record<string, unknown>) => {
+				executedTools.push({ name, args });
+				return { name, result: { ok: true }, providerResult: { ok: true } };
+			},
+			repairActiveProviderToolCallHistory: async () => [],
+			recordInferenceSubmission: () => {},
+			recordLoopMessageLog: () => {},
+			recordProviderUsage: () => {},
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const runProviderLoop = (BotRuntime.prototype as unknown as {
+			runProviderLoop: (
+				bot: BotDocument,
+				settings: { baseUrl: string; model: string; temperature: number },
+				runId: string,
+				messages: Array<Record<string, unknown>>,
+				runContext: { mode: "normal"; signal: AbortSignal },
+			) => Promise<{ logOffCalled: boolean }>;
+		}).runProviderLoop.bind(runtime);
+
+		await expect(
+			runProviderLoop(
+				fakeBotDocument(),
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				"run-dedupe-follow",
+				[],
+				{ mode: "normal", signal: new AbortController().signal },
+			),
+		).resolves.toMatchObject({ logOffCalled: false });
+
+		expect(executedTools).toEqual([
+			{ name: "follow_profile", args: { targets: [{ username: "alice", reason: "Alice shares useful context." }] } },
+		]);
+		const providerResponse = appendedLoopMessages.find((message) => Array.isArray(message.message.tool_calls))?.message;
+		expect(providerResponse?.tool_calls).toEqual([
+			expect.objectContaining({ id: "call-follow-1" }),
+		]);
+		expect(events).toContainEqual(expect.objectContaining({
+			type: "provider_tool_call_dropped",
+			payload: expect.objectContaining({
+				count: 1,
+				callIds: ["call-follow-2"],
+				reason: "duplicate_tool_call",
+				retrying: false,
+			}),
+		}));
+	});
+
+	it("rewrites overlapping parallel follow calls to only unseen targets", async () => {
+		const appendedLoopMessages: Array<{ message: Record<string, unknown>; origin: string }> = [];
+		const executedTools: Array<{ name: string; args: Record<string, unknown> }> = [];
+		const callProvider = vi.fn()
+			.mockResolvedValueOnce(providerResponseWithToolCalls([
+				{
+					id: "call-follow-a",
+					name: "follow_profile",
+					args: {
+						targets: [
+							{ username: "alice", reason: "Alice shares useful context." },
+							{ username: "bob", reason: "Bob adds careful replies." },
+						],
+					},
+				},
+				{
+					id: "call-follow-b",
+					name: "follow_profile",
+					args: {
+						targets: [
+							{ username: "u/alice", reason: "Alice was already requested." },
+							{ username: "carol", reason: "Carol tracks relevant threads." },
+						],
+					},
+				},
+			]))
+			.mockResolvedValueOnce(providerResponseWithContent("done"));
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) =>
+				runtimeEvent(type === "provider_request" ? callProvider.mock.calls.length : appendedLoopMessages.length + executedTools.length + 1, runId, type as BotRuntimeEvent["type"], payload),
+			appendLoopMessage: (_runId: string, message: Record<string, unknown>, origin: string) => {
+				appendedLoopMessages.push({ message, origin });
+				return {
+					seq: appendedLoopMessages.length,
+					runId: "run-overlap-follow",
+					role: message.role,
+					message,
+					origin,
+					tokenEstimate: 0,
+					createdAt: new Date().toISOString(),
+				};
+			},
+			appendProviderMessages: async () => {},
+			callProvider,
+			ensureProviderPromptWithinBudget: async () => ({
+				allowedPromptTokens: 13_500,
+				promptTokens: 100,
+				requestMessages: [{ role: "assistant", content: "I am ready." }],
+			}),
+			executeTool: async (_bot: unknown, _runId: string, name: string, args: Record<string, unknown>) => {
+				executedTools.push({ name, args });
+				return { name, result: { ok: true }, providerResult: { ok: true } };
+			},
+			repairActiveProviderToolCallHistory: async () => [],
+			recordInferenceSubmission: () => {},
+			recordLoopMessageLog: () => {},
+			recordProviderUsage: () => {},
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const runProviderLoop = (BotRuntime.prototype as unknown as {
+			runProviderLoop: (
+				bot: BotDocument,
+				settings: { baseUrl: string; model: string; temperature: number },
+				runId: string,
+				messages: Array<Record<string, unknown>>,
+				runContext: { mode: "normal"; signal: AbortSignal },
+			) => Promise<{ logOffCalled: boolean }>;
+		}).runProviderLoop.bind(runtime);
+
+		await expect(
+			runProviderLoop(
+				fakeBotDocument(),
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				"run-overlap-follow",
+				[],
+				{ mode: "normal", signal: new AbortController().signal },
+			),
+		).resolves.toMatchObject({ logOffCalled: false });
+
+		expect(executedTools).toEqual([
+			{
+				name: "follow_profile",
+				args: {
+					targets: [
+						{ username: "alice", reason: "Alice shares useful context." },
+						{ username: "bob", reason: "Bob adds careful replies." },
+					],
+				},
+			},
+			{
+				name: "follow_profile",
+				args: { targets: [{ username: "carol", reason: "Carol tracks relevant threads." }] },
+			},
+		]);
+		const providerResponse = appendedLoopMessages.find((message) => Array.isArray(message.message.tool_calls))?.message;
+		const providerToolCalls = providerResponse?.tool_calls as Array<{ function: { arguments: string } }> | undefined;
+		const rewrittenArgs = JSON.parse(providerToolCalls?.[1]?.function.arguments ?? "{}") as Record<string, unknown>;
+		expect(rewrittenArgs).toEqual({ targets: [{ username: "carol", reason: "Carol tracks relevant threads." }] });
+	});
+
+	it("self-corrects one duplicate missing-profile follow request without repeated failures", async () => {
+		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+		const appendedLoopMessages: Array<{ message: Record<string, unknown>; origin: string }> = [];
+		const rewrites: Array<{ kind: string; toolCallId: string }> = [];
+		const callProvider = vi.fn()
+			.mockResolvedValueOnce(providerResponseWithToolCalls([
+				{ id: "call-missing-1", name: "follow_profile", args: { targets: [{ username: "philosopher_king", reason: "This profile looked relevant." }] } },
+				{ id: "call-missing-2", name: "follow_profile", args: { targets: [{ username: "u/philosopher_king", reason: "Duplicate request for the same profile." }] } },
+			]))
+			.mockResolvedValueOnce(providerResponseWithContent("done"));
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			env: testEnv,
+			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+				events.push({ type, payload });
+				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
+			},
+			appendLoopMessage: (_runId: string, message: Record<string, unknown>, origin: string) => {
+				appendedLoopMessages.push({ message, origin });
+				return {
+					seq: appendedLoopMessages.length,
+					runId: "run-missing-follow",
+					role: message.role,
+					message,
+					origin,
+					tokenEstimate: 0,
+					createdAt: new Date().toISOString(),
+				};
+			},
+			appendProviderMessages: async () => {},
+			callProvider,
+			ensureProviderPromptWithinBudget: async () => ({
+				allowedPromptTokens: 13_500,
+				promptTokens: 100,
+				requestMessages: [{ role: "assistant", content: "I am ready." }],
+			}),
+			repairActiveProviderToolCallHistory: async () => [],
+			recordInferenceSubmission: () => {},
+			recordLoopMessageLog: () => {},
+			recordProviderUsage: () => {},
+			rewriteProviderResponseLoopMessageToolCall: (_seq: number, rewrite: { kind: string; toolCallId: string }) => {
+				rewrites.push(rewrite);
+			},
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const runProviderLoop = (BotRuntime.prototype as unknown as {
+			runProviderLoop: (
+				bot: BotDocument,
+				settings: { baseUrl: string; model: string; temperature: number },
+				runId: string,
+				messages: Array<Record<string, unknown>>,
+				runContext: { mode: "normal"; signal: AbortSignal },
+			) => Promise<{ logOffCalled: boolean }>;
+		}).runProviderLoop.bind(runtime);
+
+		await expect(
+			runProviderLoop(
+				fakeBotDocument(),
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				"run-missing-follow",
+				[],
+				{ mode: "normal", signal: new AbortController().signal },
+			),
+		).resolves.toMatchObject({ logOffCalled: false });
+
+		expect(rewrites).toEqual([{ kind: "drop", toolCallId: "call-missing-1" }]);
+		expect(appendedLoopMessages.filter((message) => message.origin === "tool_failure")).toEqual([]);
+		expect(events.filter((event) => event.type === "tool_result")).toEqual([]);
+		const correction = String(appendedLoopMessages.find((message) => message.origin === "self_correction")?.message.content ?? "");
+		expect(correction).toContain("u/philosopher_king is not an existing Bickr participant");
+		expect(events).toContainEqual(expect.objectContaining({
+			type: "provider_tool_call_dropped",
+			payload: expect.objectContaining({
+				count: 1,
+				callIds: ["call-missing-2"],
+				reason: "duplicate_tool_call",
 			}),
 		}));
 	});

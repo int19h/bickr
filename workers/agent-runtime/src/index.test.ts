@@ -122,6 +122,27 @@ describe("follow profile self-corrections", () => {
 		expect(message).toContain("I do not follow u/alice");
 		expect(message).toContain("unfollow_profile");
 	});
+
+	it("names missing profiles as non-existing Bickr participants", () => {
+		const message = followToolSelfCorrectionMessage("follow_profile", [
+			{ username: "u/philosopher_king", reason: "profile_not_found" },
+		]);
+
+		expect(message).toContain("u/philosopher_king is not an existing Bickr participant");
+		expect(message).toContain("follow_profile");
+	});
+
+	it("converts missing follow targets into self-correction text", () => {
+		const message = selfCorrectionMessageForToolFailurePayload(toolFailure({
+			code: "not_found",
+			toolName: "unfollow_profile",
+			message: "Profile u/philosopher_king not found.",
+			args: { targets: [{ username: "philosopher_king", reason: "That profile no longer exists." }] },
+		}));
+
+		expect(message).toContain("u/philosopher_king is not an existing Bickr participant");
+		expect(message).toContain("unfollow_profile");
+	});
 });
 
 describe("redundant post and reply self-corrections", () => {
