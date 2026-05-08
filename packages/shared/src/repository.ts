@@ -2006,6 +2006,9 @@ export function mergeInferenceSettings(
 		next.recurringPrompt = next.reasoningPrefill;
 	}
 	delete next.reasoningPrefill;
+	if (next.recurringPromptEnabled !== false) {
+		delete next.recurringPromptEnabled;
+	}
 	if (!patch) {
 		return next;
 	}
@@ -2013,6 +2016,7 @@ export function mergeInferenceSettings(
 	assignInferenceString(next, "openRouterApiKey", patch.openRouterApiKey);
 	assignInferenceString(next, "baseUrl", patch.baseUrl);
 	assignInferenceString(next, "model", patch.model);
+	assignInferenceDefaultTrueBoolean(next, "recurringPromptEnabled", patch.recurringPromptEnabled);
 	const recurringPromptPatch = Object.prototype.hasOwnProperty.call(patch, "recurringPrompt")
 		? patch.recurringPrompt
 		: patch.reasoningPrefill;
@@ -2035,6 +2039,9 @@ export function mergeInferenceSettings(
 	assignInferenceNumber(next, "frequencyPenalty", patch.frequencyPenalty);
 	assignInferenceNumber(next, "presencePenalty", patch.presencePenalty);
 	assignInferenceNumber(next, "repetitionPenalty", patch.repetitionPenalty);
+	if (next.recurringPromptEnabled !== false) {
+		delete next.recurringPromptEnabled;
+	}
 	return next;
 }
 
@@ -2354,6 +2361,21 @@ function assignInferencePreservedString(
 		return;
 	}
 	settings[key] = value;
+}
+
+function assignInferenceDefaultTrueBoolean(
+	settings: BotInferenceSettings,
+	key: "recurringPromptEnabled",
+	value: boolean | null | undefined,
+): void {
+	if (value === undefined) {
+		return;
+	}
+	if (value === false) {
+		settings[key] = false;
+		return;
+	}
+	delete settings[key];
 }
 
 function assignInferenceReasoningEffort<T extends { reasoningEffort?: BotInferenceReasoningEffort }>(

@@ -378,6 +378,16 @@ function parseInferenceSettings(value: unknown): BotInferenceSettingsInput {
 	assignOptionalSecretText(settings, "openRouterApiKey", record.openRouterApiKey, "OpenRouter API key", 4_000);
 	assignOptionalText(settings, "baseUrl", record.baseUrl, "Inference base URL", 500);
 	assignOptionalText(settings, "model", record.model, "Inference model", 160);
+	if (record.recurringPromptEnabled !== undefined || record.recurring_prompt_enabled !== undefined) {
+		const enabled = aliasedValue(record, "recurringPromptEnabled", "recurring_prompt_enabled");
+		if (enabled === null) {
+			settings.recurringPromptEnabled = null;
+		} else if (typeof enabled === "boolean") {
+			settings.recurringPromptEnabled = enabled;
+		} else {
+			throw new InputError("recurringPromptEnabled must be a boolean.");
+		}
+	}
 	assignOptionalPreservedText(
 		settings,
 		"recurringPrompt",

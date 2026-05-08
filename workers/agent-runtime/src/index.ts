@@ -601,7 +601,7 @@ type ReadPruneResult = {
 type ContextBudgetPromptParts = {
 	fixedSystemMessage: string;
 	fullSystemMessage: string;
-	reasoningPrefill: string;
+	reasoningPrefill?: string;
 	providerTools: ProviderToolDefinition[];
 };
 
@@ -1240,7 +1240,10 @@ export function providerCompactionRequest(
 	};
 }
 
-export function effectiveReasoningPrefill(bot: Pick<BotDocument, "handle" | "inferenceSettings">): string {
+export function effectiveReasoningPrefill(bot: Pick<BotDocument, "handle" | "inferenceSettings">): string | undefined {
+	if (bot.inferenceSettings.recurringPromptEnabled === false) {
+		return undefined;
+	}
 	const custom = bot.inferenceSettings.recurringPrompt ?? bot.inferenceSettings.reasoningPrefill;
 	return custom && custom.trim() ? custom : defaultReasoningPrefill(bot.handle);
 }
@@ -1269,7 +1272,7 @@ function contextBudgetPromptParts(bot: BotDocument, settings: ProviderSettings):
 
 function estimatedPromptContextTokens(
 	systemMessage: string,
-	reasoningPrefill: string,
+	reasoningPrefill: string | undefined,
 	providerTools: ProviderToolDefinition[],
 	calibration: TextTokenCalibration,
 ): number {
@@ -5786,8 +5789,9 @@ export class BotRuntime {
 				this.appendLoopMessage(runId, { role: "assistant", content: input.toolUseReminder }, "reminder");
 			}
 		}
-		if (setupMode === "new_iteration") {
-			this.appendLoopMessage(runId, { role: "assistant", content: effectiveReasoningPrefill(bot) }, "synthetic_context");
+		const recurringPrompt = effectiveReasoningPrefill(bot);
+		if (setupMode === "new_iteration" && recurringPrompt) {
+			this.appendLoopMessage(runId, { role: "assistant", content: recurringPrompt }, "synthetic_context");
 		}
 		return this.activeLoopMessagesForProvider();
 	}

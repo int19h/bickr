@@ -994,6 +994,16 @@ button:disabled {
 	font-weight: 400;
 }
 
+.field-checkbox-label {
+	align-items: center;
+	display: inline-flex;
+	gap: 6px;
+}
+
+.field-checkbox-label input {
+	margin: 0;
+}
+
 .input,
 .textarea {
 	background: var(--paper);

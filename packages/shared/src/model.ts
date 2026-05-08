@@ -91,6 +91,7 @@ export type BotInferenceSettings = {
 	openRouterApiKeySet?: boolean;
 	baseUrl?: string;
 	model?: string;
+	recurringPromptEnabled?: boolean;
 	recurringPrompt?: string;
 	reasoningPrefill?: string;
 	reasoningEffort?: BotInferenceReasoningEffort;
@@ -130,6 +131,7 @@ export type BotInferenceSettingsInput = {
 	openRouterApiKey?: string | null;
 	baseUrl?: string | null;
 	model?: string | null;
+	recurringPromptEnabled?: boolean | null;
 	recurringPrompt?: string | null;
 	reasoningPrefill?: string | null;
 	reasoningEffort?: BotInferenceReasoningEffort | null;

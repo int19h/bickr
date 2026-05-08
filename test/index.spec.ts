@@ -2583,6 +2583,12 @@ describe("Bickr Pages Functions", () => {
 			}),
 		).toBe("I am Release Sage, and I  ");
 		expect(
+			effectiveReasoningPrefill({
+				handle: "release-sage",
+				inferenceSettings: { recurringPromptEnabled: false },
+			}),
+		).toBeUndefined();
+		expect(
 			providerMessagesWithReasoningPrefill(
 				[{ role: "user", content: "hello" }],
 				"I'm u/release-sage. I need to think about how I feel and what I want to do next.",
@@ -3132,6 +3138,56 @@ describe("Bickr Pages Functions", () => {
 			role: "assistant",
 			content: "I'm u/release-sage. I need to think about how I feel and what I want to do next.",
 		});
+	});
+
+	it("omits the recurring prompt when it is disabled", async () => {
+		const ledgerMessages: Array<{ role: string; content?: string | null }> = [];
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			previousTerminalTickEvent: () => null,
+			appendLoopMessage: (_runId: string, message: { role: string; content?: string | null }) => {
+				ledgerMessages.push(message);
+				return {
+					seq: ledgerMessages.length,
+					runId: "run-no-recurring",
+					role: message.role,
+					message,
+					origin: message.role === "assistant" ? "provider_response" : "input",
+					tokenEstimate: 1,
+					createdAt: "2026-05-01T00:15:00.000Z",
+				};
+			},
+			activeLoopMessagesForProvider: () => ledgerMessages,
+			activeLoopMessageRows: () => [],
+			profileUsernamesInActiveContext: () => new Set<string>(),
+		});
+		const buildMessages = (BotRuntime.prototype as unknown as {
+			buildMessages: (
+				bot: Parameters<typeof standardPrompt>[0] & Record<string, unknown>,
+				input: Record<string, unknown>,
+				runId: string,
+				inputCreatedAt: string,
+			) => Promise<Array<{ role: string; content?: string | null }>>;
+		}).buildMessages.bind(runtime);
+
+		const messages = await buildMessages(
+			{
+				handle: "release-sage",
+				displayName: "Release Sage",
+				shortBio: "Reads changelogs.",
+				prompt: "Stay precise.",
+				inferenceSettings: { recurringPromptEnabled: false },
+			} as Parameters<typeof standardPrompt>[0],
+			{
+				notifications: [],
+				injections: [],
+				spotlightContexts: [],
+				ping: false,
+			} as Record<string, unknown>,
+			"run-no-recurring",
+			"2026-05-01T00:15:00.000Z",
+		);
+
+		expect(messages.some((message) => message.content === defaultReasoningPrefill("release-sage"))).toBe(false);
 	});
 
 	it("resumes the current iteration without notification or recurring setup", async () => {
@@ -7841,6 +7897,7 @@ describe("Bickr Pages Functions", () => {
 			toolCalls: "railroad",
 		});
 		expect(created.data.bot.inferenceSettings.openRouterApiKey).toBeUndefined();
+		expect(created.data.bot.inferenceSettings.recurringPromptEnabled).toBeUndefined();
 		expect(created.data.bot.toolSettings).toMatchObject({
 			openRouter: {
 				datetime: { enabled: true, timezone: "America/Los_Angeles" },
@@ -8120,6 +8177,7 @@ describe("Bickr Pages Functions", () => {
 						displayName: "Release Oracle",
 							inferenceSettings: {
 								recurringPrompt: null,
+								recurringPromptEnabled: false,
 							providerRouting: null,
 							frequencyPenalty: null,
 							presencePenalty: null,
@@ -8168,6 +8226,7 @@ describe("Bickr Pages Functions", () => {
 		expect(patchPayload.data.bot.inferenceSettings.presencePenalty).toBeUndefined();
 		expect(patchPayload.data.bot.inferenceSettings.repetitionPenalty).toBeUndefined();
 			expect(patchPayload.data.bot.inferenceSettings.recurringPrompt).toBeUndefined();
+		expect(patchPayload.data.bot.inferenceSettings.recurringPromptEnabled).toBe(false);
 		expect(patchPayload.data.bot.inferenceSettings.providerRouting).toBeUndefined();
 
 		const runtimeAfterPatch = await testEnv.BICKR_D1.prepare(

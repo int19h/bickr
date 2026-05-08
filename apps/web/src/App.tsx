@@ -163,6 +163,7 @@ type InferenceDraft = {
 	openRouterApiKeySet: boolean;
 	baseUrl: string;
 	model: string;
+	recurringPromptEnabled: boolean;
 	recurringPrompt: string;
 	reasoningEffort: string;
 	toolCalls: string;
@@ -5818,12 +5819,26 @@ function BotEdit({
 								</Field>
 							</div>
 							<Field
-								help="Blank uses the default recurring first-person prompt for this participant."
-								hint={defaultReasoningPrefill(bot.handle)}
-								label="Recurring prompt"
+								help="When enabled, this first-person prompt is injected into the chat at the start of each new loop iteration, after Bickr Terminal adds elapsed time, notifications, and any pending owner thoughts. Blank uses the default recurring prompt for this participant."
+								label={
+									<span className="field-checkbox-label">
+										<input
+											checked={draft.inference.recurringPromptEnabled}
+											onChange={(event) =>
+												setDraft((current) => ({
+													...current,
+													inference: { ...current.inference, recurringPromptEnabled: event.target.checked },
+												}))
+											}
+											type="checkbox"
+										/>
+										<span>Recurring prompt</span>
+									</span>
+								}
 							>
 								<textarea
 									className="textarea recurring-prompt-editor"
+									disabled={!draft.inference.recurringPromptEnabled}
 									maxLength={maxBotReasoningPrefillLength}
 									onChange={(event) =>
 										setDraft((current) => ({
@@ -11890,7 +11905,7 @@ function Field({
 	children: ReactNode;
 	help?: ReactNode;
 	hint?: string;
-	label?: string;
+	label?: ReactNode;
 }) {
 	return (
 		<div className="field">
@@ -12838,6 +12853,7 @@ function inferenceDraftFromSettings(settings: BotInferenceSettings): InferenceDr
 		openRouterApiKeySet: Boolean(settings.openRouterApiKeySet),
 		baseUrl: settings.baseUrl ?? "",
 		model: settings.model ?? "",
+		recurringPromptEnabled: settings.recurringPromptEnabled !== false,
 		recurringPrompt: settings.recurringPrompt ?? settings.reasoningPrefill ?? "",
 		reasoningEffort: settings.reasoningEffort ?? "default",
 		toolCalls: settings.toolCalls ?? "require",
@@ -12875,6 +12891,7 @@ function inferenceDraftChanged(
 		draft.clearOpenRouterApiKey ||
 		draft.baseUrl.trim() !== (settings.baseUrl ?? "") ||
 		draft.model.trim() !== (settings.model ?? "") ||
+		(Boolean(options.includeReasoningPrefill) && draft.recurringPromptEnabled !== (settings.recurringPromptEnabled !== false)) ||
 		(Boolean(options.includeReasoningPrefill) && draft.recurringPrompt !== (settings.recurringPrompt ?? settings.reasoningPrefill ?? "")) ||
 		nullableReasoningEffortInput(draft.reasoningEffort) !== (settings.reasoningEffort ?? null) ||
 		nullableToolCallsInput(draft.toolCalls) !== (settings.toolCalls ?? "require") ||
@@ -12923,7 +12940,10 @@ function inferenceInputFromDraft(
 		baseUrl: nullableTextInput(normalized.baseUrl),
 		model: nullableTextInput(normalized.model),
 		...(options.includeReasoningPrefill ?
-			{ recurringPrompt: nullablePreservedTextInput(normalized.recurringPrompt) }
+			{
+				recurringPrompt: nullablePreservedTextInput(normalized.recurringPrompt),
+				recurringPromptEnabled: normalized.recurringPromptEnabled ? null : false,
+			}
 		:	{}),
 		reasoningEffort: nullableReasoningEffortInput(normalized.reasoningEffort),
 		toolCalls: nullableToolCallsInput(normalized.toolCalls),
@@ -13073,11 +13093,13 @@ function botPromptBudgetRequestKey(
 		compactionSummaryPercent: draft.compactionSummaryPercent.trim(),
 		contextWindowTokens: draft.contextWindowTokens.trim(),
 		providerRouting: providerRoutingDraftFingerprintValue(draft.inference.providerRouting),
-			recurringPrompt: draft.inference.recurringPrompt.trim() ?
-				draft.inference.recurringPrompt
-			:	defaultReasoningPrefill(botHandle),
-			reasoningEffort: draft.inference.reasoningEffort,
-			toolCalls: draft.inference.toolCalls,
+		recurringPrompt:
+			draft.inference.recurringPromptEnabled ?
+				draft.inference.recurringPrompt.trim() ? draft.inference.recurringPrompt : defaultReasoningPrefill(botHandle)
+			:	null,
+		recurringPromptEnabled: draft.inference.recurringPromptEnabled,
+		reasoningEffort: draft.inference.reasoningEffort,
+		toolCalls: draft.inference.toolCalls,
 		shortBio: draft.shortBio,
 		tools: toolInputFromDraft(draft.tools),
 	});
