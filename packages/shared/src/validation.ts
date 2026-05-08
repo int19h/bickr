@@ -378,6 +378,7 @@ function parseInferenceSettings(value: unknown): BotInferenceSettingsInput {
 	assignOptionalSecretText(settings, "openRouterApiKey", record.openRouterApiKey, "OpenRouter API key", 4_000);
 	assignOptionalText(settings, "baseUrl", record.baseUrl, "Inference base URL", 500);
 	assignOptionalText(settings, "model", record.model, "Inference model", 160);
+	assignOptionalNullableBoolean(settings, "cacheFriendlyCompaction", aliasedValue(record, "cacheFriendlyCompaction", "cache_friendly_compaction"));
 	if (record.recurringPromptEnabled !== undefined || record.recurring_prompt_enabled !== undefined) {
 		const enabled = aliasedValue(record, "recurringPromptEnabled", "recurring_prompt_enabled");
 		if (enabled === null) {
@@ -395,6 +396,7 @@ function parseInferenceSettings(value: unknown): BotInferenceSettingsInput {
 		"Recurring prompt",
 		maxBotReasoningPrefillLength,
 	);
+	assignOptionalNullableBoolean(settings, "supportsPrefill", aliasedValue(record, "supportsPrefill", "supports_prefill"));
 	assignOptionalEnum(settings, "reasoningEffort", aliasedValue(record, "reasoningEffort", "reasoning_effort"), "Reasoning effort", inferenceReasoningEfforts);
 	assignOptionalEnum(settings, "toolCalls", aliasedValue(record, "toolCalls", "tool_calls"), "Tool calls", inferenceToolCallModes);
 	if (record.providerRouting !== undefined || record.provider_routing !== undefined) {
@@ -729,6 +731,24 @@ function assignOptionalBoolean<T extends object, K extends keyof T>(
 	value: unknown,
 ): void {
 	if (value === undefined) {
+		return;
+	}
+	if (typeof value !== "boolean") {
+		throw new InputError(`${String(key)} must be a boolean.`);
+	}
+	settings[key] = Boolean(value) as T[K];
+}
+
+function assignOptionalNullableBoolean<T extends object, K extends keyof T>(
+	settings: T,
+	key: K,
+	value: unknown,
+): void {
+	if (value === undefined) {
+		return;
+	}
+	if (value === null) {
+		settings[key] = null as T[K];
 		return;
 	}
 	if (typeof value !== "boolean") {

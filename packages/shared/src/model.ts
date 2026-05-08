@@ -91,9 +91,11 @@ export type BotInferenceSettings = {
 	openRouterApiKeySet?: boolean;
 	baseUrl?: string;
 	model?: string;
+	cacheFriendlyCompaction?: boolean;
 	recurringPromptEnabled?: boolean;
 	recurringPrompt?: string;
 	reasoningPrefill?: string;
+	supportsPrefill?: boolean;
 	reasoningEffort?: BotInferenceReasoningEffort;
 	toolCalls?: BotInferenceToolCalls;
 	providerRouting?: JsonObject;
@@ -131,9 +133,11 @@ export type BotInferenceSettingsInput = {
 	openRouterApiKey?: string | null;
 	baseUrl?: string | null;
 	model?: string | null;
+	cacheFriendlyCompaction?: boolean | null;
 	recurringPromptEnabled?: boolean | null;
 	recurringPrompt?: string | null;
 	reasoningPrefill?: string | null;
+	supportsPrefill?: boolean | null;
 	reasoningEffort?: BotInferenceReasoningEffort | null;
 	toolCalls?: BotInferenceToolCalls | null;
 	providerRouting?: JsonObject | null;

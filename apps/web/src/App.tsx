@@ -163,8 +163,10 @@ type InferenceDraft = {
 	openRouterApiKeySet: boolean;
 	baseUrl: string;
 	model: string;
+	cacheFriendlyCompaction: boolean;
 	recurringPromptEnabled: boolean;
 	recurringPrompt: string;
+	supportsPrefill: boolean;
 	reasoningEffort: string;
 	toolCalls: string;
 	providerRouting: string;
@@ -199,6 +201,8 @@ type PromptBudgetState =
 type InferenceModelUnlockContext = {
 	apiKeySet?: boolean;
 	baseUrl?: string;
+	cacheFriendlyCompaction?: boolean;
+	supportsPrefill?: boolean;
 };
 
 type ProfileDraft = {
@@ -5389,7 +5393,7 @@ function BotEdit({
 		displayName: bot.displayName,
 		shortBio: bot.shortBio,
 		prompt: bot.prompt ?? "",
-		inference: inferenceDraftFromSettings(bot.inferenceSettings),
+		inference: inferenceDraftFromSettings(bot.inferenceSettings, ownerInferenceSettings ?? undefined),
 		tools: toolDraftFromSettings(bot.toolSettings),
 		tickIntervalMinutes: String(secondsToMinutes(bot.tickSettings.intervalSeconds)),
 		contextWindowTokens: optionalNumberDraftValue(bot.tickSettings.contextWindowTokens),
@@ -5409,7 +5413,7 @@ function BotEdit({
 			displayName: bot.displayName,
 			shortBio: bot.shortBio,
 			prompt: bot.prompt ?? "",
-			inference: inferenceDraftFromSettings(bot.inferenceSettings),
+			inference: inferenceDraftFromSettings(bot.inferenceSettings, ownerInferenceSettings ?? undefined),
 			tools: toolDraftFromSettings(bot.toolSettings),
 			tickIntervalMinutes: String(secondsToMinutes(bot.tickSettings.intervalSeconds)),
 			contextWindowTokens: optionalNumberDraftValue(bot.tickSettings.contextWindowTokens),
@@ -5424,6 +5428,7 @@ function BotEdit({
 		bot.displayName,
 		bot.id,
 		bot.inferenceSettings,
+		ownerInferenceSettings,
 		bot.prompt,
 		bot.shortBio,
 		bot.toolSettings,
@@ -5452,6 +5457,8 @@ function BotEdit({
 	const inferenceInheritance: InferenceModelUnlockContext = {
 		apiKeySet: Boolean(ownerInferenceSettings?.openRouterApiKeySet),
 		...(ownerInferenceSettings?.baseUrl ? { baseUrl: ownerInferenceSettings.baseUrl } : {}),
+		cacheFriendlyCompaction: ownerInferenceSettings?.cacheFriendlyCompaction ?? false,
+		supportsPrefill: ownerInferenceSettings?.supportsPrefill ?? true,
 	};
 	const promptBudgetRequestKey = botPromptBudgetRequestKey(bot.id, bot.handle, draft, ownerInferenceSettings);
 	const promptBudgetReady =
@@ -5471,7 +5478,10 @@ function BotEdit({
 		maxSuccessfulToolCallsPerIteration !== (bot.tickSettings.maxSuccessfulToolCallsPerIteration ?? null) ||
 		maxGeneratedTokensPerTick !== (bot.tickSettings.maxGeneratedTokensPerTick ?? null) ||
 		maxGeneratedTokensPerIteration !== (bot.tickSettings.maxGeneratedTokensPerIteration ?? null) ||
-		inferenceDraftChanged(draft.inference, bot.inferenceSettings, { includeReasoningPrefill: true }) ||
+		inferenceDraftChanged(draft.inference, bot.inferenceSettings, {
+			includeReasoningPrefill: true,
+			inherited: inferenceInheritance,
+		}) ||
 		toolDraftChanged(draft.tools, bot.toolSettings);
 	const valid =
 		draft.displayName.trim().length > 0 &&
@@ -7337,6 +7347,28 @@ function AgenticLoopInferenceFields({
 								</option>
 							))}
 						</select>
+					</Field>
+				</div>
+				<div className="inference-row two">
+					<Field help="Reuse the normal tool schema during compaction to improve provider prompt caching. Leave off for providers that need a dedicated compaction request.">
+						<label className="checkbox-line">
+							<input
+								checked={draft.cacheFriendlyCompaction}
+								onChange={(event) => patch({ cacheFriendlyCompaction: event.target.checked })}
+								type="checkbox"
+							/>
+							<span>Cache-friendly compaction</span>
+						</label>
+					</Field>
+					<Field help="Turn off for providers that reject tool-enabled requests ending with participant narration.">
+						<label className="checkbox-line">
+							<input
+								checked={draft.supportsPrefill}
+								onChange={(event) => patch({ supportsPrefill: event.target.checked })}
+								type="checkbox"
+							/>
+							<span>Supports prefill</span>
+						</label>
 					</Field>
 				</div>
 				<div className="inference-row four">
@@ -12872,15 +12904,20 @@ function profileDraftChanged(draft: ProfileDraft, profile: UserProfile): boolean
 	);
 }
 
-function inferenceDraftFromSettings(settings: BotInferenceSettings): InferenceDraft {
+function inferenceDraftFromSettings(
+	settings: BotInferenceSettings,
+	inherited?: Pick<BotInferenceSettings, "cacheFriendlyCompaction" | "supportsPrefill">,
+): InferenceDraft {
 	return {
 		openRouterApiKey: "",
 		clearOpenRouterApiKey: false,
 		openRouterApiKeySet: Boolean(settings.openRouterApiKeySet),
 		baseUrl: settings.baseUrl ?? "",
 		model: settings.model ?? "",
+		cacheFriendlyCompaction: settings.cacheFriendlyCompaction ?? inherited?.cacheFriendlyCompaction ?? false,
 		recurringPromptEnabled: settings.recurringPromptEnabled !== false,
 		recurringPrompt: settings.recurringPrompt ?? settings.reasoningPrefill ?? "",
+		supportsPrefill: settings.supportsPrefill ?? inherited?.supportsPrefill ?? true,
 		reasoningEffort: settings.reasoningEffort ?? "default",
 		toolCalls: settings.toolCalls ?? "require",
 		providerRouting: providerRoutingDraftValue(settings.providerRouting),
@@ -12910,15 +12947,23 @@ function inferenceDraftFromSettings(settings: BotInferenceSettings): InferenceDr
 function inferenceDraftChanged(
 	draft: InferenceDraft,
 	settings: BotInferenceSettings,
-	options: { includeReasoningPrefill?: boolean; includeTranslation?: boolean } = {},
+	options: {
+		includeReasoningPrefill?: boolean;
+		includeTranslation?: boolean;
+		inherited?: Pick<BotInferenceSettings, "cacheFriendlyCompaction" | "supportsPrefill">;
+	} = {},
 ): boolean {
+	const cacheFriendlyCompaction = settings.cacheFriendlyCompaction ?? options.inherited?.cacheFriendlyCompaction ?? false;
+	const supportsPrefill = settings.supportsPrefill ?? options.inherited?.supportsPrefill ?? true;
 	return (
 		Boolean(draft.openRouterApiKey.trim()) ||
 		draft.clearOpenRouterApiKey ||
 		draft.baseUrl.trim() !== (settings.baseUrl ?? "") ||
 		draft.model.trim() !== (settings.model ?? "") ||
+		draft.cacheFriendlyCompaction !== cacheFriendlyCompaction ||
 		(Boolean(options.includeReasoningPrefill) && draft.recurringPromptEnabled !== (settings.recurringPromptEnabled !== false)) ||
 		(Boolean(options.includeReasoningPrefill) && draft.recurringPrompt !== (settings.recurringPrompt ?? settings.reasoningPrefill ?? "")) ||
+		draft.supportsPrefill !== supportsPrefill ||
 		nullableReasoningEffortInput(draft.reasoningEffort) !== (settings.reasoningEffort ?? null) ||
 		nullableToolCallsInput(draft.toolCalls) !== (settings.toolCalls ?? "require") ||
 		providerRoutingDraftChanged(draft.providerRouting, settings.providerRouting) ||
@@ -12959,18 +13004,23 @@ function inferenceInputFromDraft(
 	options: { includeReasoningPrefill?: boolean; includeTranslation?: boolean } = {},
 ): BotInferenceSettingsInput {
 	const normalized = normalizeInferenceDraftModel(draft, inherited);
+	const inheritedCacheFriendlyCompaction = inherited?.cacheFriendlyCompaction ?? false;
+	const inheritedSupportsPrefill = inherited?.supportsPrefill ?? true;
 	return {
 		...(normalized.openRouterApiKey.trim() ? { openRouterApiKey: normalized.openRouterApiKey.trim() }
 		: normalized.clearOpenRouterApiKey ? { openRouterApiKey: null }
 		: {}),
 		baseUrl: nullableTextInput(normalized.baseUrl),
 		model: nullableTextInput(normalized.model),
+		cacheFriendlyCompaction:
+			normalized.cacheFriendlyCompaction === inheritedCacheFriendlyCompaction ? null : normalized.cacheFriendlyCompaction,
 		...(options.includeReasoningPrefill ?
 			{
 				recurringPrompt: nullablePreservedTextInput(normalized.recurringPrompt),
 				recurringPromptEnabled: normalized.recurringPromptEnabled ? null : false,
 			}
 		:	{}),
+		supportsPrefill: normalized.supportsPrefill === inheritedSupportsPrefill ? null : normalized.supportsPrefill,
 		reasoningEffort: nullableReasoningEffortInput(normalized.reasoningEffort),
 		toolCalls: nullableToolCallsInput(normalized.toolCalls),
 		providerRouting: providerRoutingInputFromDraft(normalized.providerRouting),
@@ -13111,6 +13161,7 @@ function botPromptBudgetRequestKey(
 	return JSON.stringify({
 		botId,
 		baseUrl: effectiveInferenceDraftBaseUrl(draft.inference, inherited),
+		cacheFriendlyCompaction: draft.inference.cacheFriendlyCompaction,
 		credential: inferenceDraftCredentialState(draft.inference, inherited),
 		displayName: draft.displayName,
 		model: effectiveInferenceDraftModel(draft.inference, inherited),
@@ -13125,6 +13176,7 @@ function botPromptBudgetRequestKey(
 			:	null,
 		recurringPromptEnabled: draft.inference.recurringPromptEnabled,
 		reasoningEffort: draft.inference.reasoningEffort,
+		supportsPrefill: draft.inference.supportsPrefill,
 		toolCalls: draft.inference.toolCalls,
 		shortBio: draft.shortBio,
 		tools: toolInputFromDraft(draft.tools),

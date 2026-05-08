@@ -594,6 +594,11 @@ describe("Bickr Pages Functions", () => {
 				maxLength: 1234,
 			});
 			expect(metaTool?.function.parameters.additionalProperties).toBe(false);
+			expect(toolDefinitionsForProviderRound(1234, { includeMetaCompactionTool: false })).toEqual(toolDefinitions);
+			expect(toolDefinitionsForProviderRound(1234, { compactionMinCharacters: 321 }).at(-1)?.function.parameters.properties[providerCompactionSummaryProperty]).toMatchObject({
+				minLength: 321,
+				maxLength: 1234,
+			});
 
 			const logOff = toolDefinitions.find((definition) => definition.function.name === "log_off");
 		expect(logOff?.function.parameters.required).toEqual(["reason"]);
@@ -995,6 +1000,26 @@ describe("Bickr Pages Functions", () => {
 				content: "I'm u/release-sage. I need to think about how I feel and what I want to do next.",
 			},
 		]);
+		expect(
+			providerChatCompletionRequest(
+				{
+					baseUrl: "https://openrouter.ai/api/v1",
+					model: "test-model",
+					supportsPrefill: false,
+					temperature: 0.2,
+				},
+				[{ role: "user", content: "hello" }],
+				toolDefinitions,
+				"I'm u/release-sage. I need to think about how I feel and what I want to do next.",
+			).messages,
+		).toEqual([
+			{ role: "user", content: "hello" },
+			{
+				role: "assistant",
+				content: "I'm u/release-sage. I need to think about how I feel and what I want to do next.",
+			},
+			{ role: "user", content: "" },
+		]);
 		expect("frequency_penalty" in request).toBe(false);
 		expect("presence_penalty" in request).toBe(false);
 		expect("repetition_penalty" in request).toBe(false);
@@ -1057,15 +1082,17 @@ describe("Bickr Pages Functions", () => {
 			const activeProviderRequestMessages = (BotRuntime.prototype as unknown as {
 				activeProviderRequestMessages: (
 					bot: BotDocument,
-					tools: ProviderToolDefinition[],
-					toolCalls: "require" | "railroad" | "at_will",
+					tools?: ProviderToolDefinition[],
+					toolCalls?: "require" | "railroad" | "at_will",
 				) => Array<{ role: string; content?: string }>;
 			}).activeProviderRequestMessages.bind(runtime);
 
+			const defaultSystem = activeProviderRequestMessages(fakeBotDocument())[0]?.content ?? "";
 			const requireSystem = activeProviderRequestMessages(fakeBotDocument(), tools, "require")[0]?.content ?? "";
 			const railroadSystem = activeProviderRequestMessages(fakeBotDocument(), tools, "railroad")[0]?.content ?? "";
 			const atWillSystem = activeProviderRequestMessages(fakeBotDocument(), tools, "at_will")[0]?.content ?? "";
 
+			expect(defaultSystem).not.toContain(metaCompactionToolName);
 			expect(requireSystem).toContain("You MUST use one of the following tools: read_thread, vote, openrouter:web_search.");
 			expect(requireSystem).toContain(`${metaCompactionToolName} may only be used when a later META context compaction instruction explicitly requires it.`);
 			expect(railroadSystem).toContain("You MUST use one of the following tools: read_thread, vote, openrouter:web_search.");
@@ -1118,7 +1145,7 @@ describe("Bickr Pages Functions", () => {
 			expect(toolCallMessage.content).toBeNull();
 		});
 
-		it("builds mode-aware provider compaction requests over the verbatim compacted chat", () => {
+		it("builds isolated provider compaction requests by default over the verbatim compacted chat", () => {
 			const bot = {
 				id: "bot_release",
 				handle: "release-sage",
@@ -1158,7 +1185,7 @@ describe("Bickr Pages Functions", () => {
 				tool_choice: "required",
 				parallel_tool_calls: false,
 			});
-			expect(request.tools).toHaveLength(toolDefinitionsForProviderRound().length);
+			expect(request.tools).toHaveLength(1);
 			const metaTool = request.tools.find((tool) => tool.type === "function" && tool.function.name === metaCompactionToolName);
 			expect(metaTool).toMatchObject({
 				type: "function",
@@ -1179,7 +1206,7 @@ describe("Bickr Pages Functions", () => {
 					},
 				},
 			});
-			expect(request.tools.some((tool) => tool.type === "function" && tool.function.name === "read_thread")).toBe(true);
+			expect(request.tools.some((tool) => tool.type === "function" && tool.function.name === "read_thread")).toBe(false);
 			expect("response_format" in request).toBe(false);
 			expect(messages[0]?.role).toBe("system");
 			expect(messages[0]?.content).toContain("Your Bickr handle is u/release-sage");
@@ -1193,6 +1220,10 @@ describe("Bickr Pages Functions", () => {
 			expect(messages[3]?.content).toContain("long-term memory");
 			expect(messages[3]?.content).toContain("4000 characters");
 			expect(messages[3]?.content).not.toMatch(/\bbot\b|\bAI\b|\bmodel\b|\bassistant\b|\bagent\b/i);
+			expect(messages[4]).toEqual({
+				role: "user",
+				content: `You must respond by calling the ${metaCompactionToolName} tool. Put the summary in the "${providerCompactionSummaryProperty}" argument. Do not reply as plain text.`,
+			});
 			const railroadRequest = providerCompactionRequest(
 				{
 					model: "test-model",
@@ -1209,7 +1240,33 @@ describe("Bickr Pages Functions", () => {
 			);
 			expect("tool_choice" in railroadRequest).toBe(false);
 			expect("tool_choice" in coercedAtWillRequest).toBe(false);
-			expect(messages[0]?.content).toContain("You MUST use one of the following tools:");
+			expect(messages[0]?.content).toContain(`You MUST use ${metaCompactionToolName}.`);
+			expect(messages[0]?.content).not.toContain("read_thread");
+		});
+
+		it("builds cache-friendly provider compaction requests with the shared tool schema", () => {
+			const bot = fakeBotDocument({ prompt: "Prefer concise changelog memory." });
+			const compactedMessages: Parameters<typeof providerCompactionMessages>[1] = [
+				{ role: "assistant", content: "I decided to read a thread about changelogs." },
+			];
+			const limits = { minLength: 250, maxLength: 4000 };
+			const tools = toolDefinitionsForProviderRound(limits.maxLength, { includeMetaCompactionTool: true });
+			const messages = providerCompactionMessages(bot, compactedMessages, limits, tools, "cache_friendly");
+			const request = providerCompactionRequest(
+				{ model: "test-model" },
+				messages,
+				{ ...limits, maxCompletionTokens: 1000 },
+				tools,
+			);
+
+			expect(request.tools).toHaveLength(toolDefinitionsForProviderRound().length);
+			expect(request.tools.some((tool) => tool.type === "function" && tool.function.name === "read_thread")).toBe(true);
+			const metaTool = request.tools.find((tool) => tool.type === "function" && tool.function.name === metaCompactionToolName);
+			expect(metaTool?.type === "function" ? metaTool.function.parameters.properties[providerCompactionSummaryProperty] : undefined).toMatchObject({
+				minLength: 1,
+				maxLength: 4000,
+			});
+			expect(messages).toHaveLength(3);
 			expect(messages[0]?.content).toContain(`${metaCompactionToolName} may only be used when a later META context compaction instruction explicitly requires it.`);
 		});
 
@@ -1238,12 +1295,12 @@ describe("Bickr Pages Functions", () => {
 			expect(limits.maxSummaryTokens).toBe(Math.ceil(limits.maxLength * limits.tokensPerCharacter));
 			expect(limits.maxCompletionTokens).toBeGreaterThan(5_000);
 			expect(limits.nextCompactionTokens).toBe(50_000 - providerContextReserveTokens);
-			expect(limits.compactionInputTokens).toBeLessThan(limits.nextCompactionTokens);
+			expect(limits.compactionInputTokens).toBeGreaterThan(limits.nextCompactionTokens);
 			expect(request.max_completion_tokens).toBe(limits.maxCompletionTokens);
 			const tool = request.tools.find((item) => item.type === "function" && item.function.name === metaCompactionToolName);
 			expect(tool?.type).toBe("function");
 			expect(tool?.type === "function" ? tool.function.parameters.properties[providerCompactionSummaryProperty] : undefined).toMatchObject({
-				minLength: 1,
+				minLength: 3001,
 				maxLength: 20_000,
 			});
 			expect(messages[2]?.content).toContain("between 3001 and 20000 characters");
@@ -1618,10 +1675,22 @@ describe("Bickr Pages Functions", () => {
 				textTokenCalibration: () => ({ tokensPerCharacter: 0.25, sampleCount: 0 }),
 			});
 			const compactionRowsForEstimatedBudget = (BotRuntime.prototype as unknown as {
-				compactionRowsForEstimatedBudget: (bot: BotDocument, runId: string, includeCurrentRun: boolean) => Array<{ seq: number }>;
+				compactionRowsForEstimatedBudget: (
+					bot: BotDocument,
+					runId: string,
+					includeCurrentRun: boolean,
+					providerTools?: ProviderToolDefinition[],
+					mode?: "isolated" | "cache_friendly",
+				) => Array<{ seq: number }>;
 			}).compactionRowsForEstimatedBudget.bind(runtime);
 
-			const selected = compactionRowsForEstimatedBudget(fakeBotDocument({ contextWindowTokens: 8_000 }), "run-current", true);
+			const selected = compactionRowsForEstimatedBudget(
+				fakeBotDocument({ contextWindowTokens: 8_000 }),
+				"run-current",
+				true,
+				toolDefinitionsForProviderRound(),
+				"cache_friendly",
+			);
 
 			expect(selected.map((row) => row.seq)).toEqual([1, 2, 3]);
 		});
@@ -1649,10 +1718,22 @@ describe("Bickr Pages Functions", () => {
 				textTokenCalibration: () => ({ tokensPerCharacter: 0.25, sampleCount: 0 }),
 			});
 			const compactionRowsForEstimatedBudget = (BotRuntime.prototype as unknown as {
-				compactionRowsForEstimatedBudget: (bot: BotDocument, runId: string, includeCurrentRun: boolean) => Array<{ seq: number }>;
+				compactionRowsForEstimatedBudget: (
+					bot: BotDocument,
+					runId: string,
+					includeCurrentRun: boolean,
+					providerTools?: ProviderToolDefinition[],
+					mode?: "isolated" | "cache_friendly",
+				) => Array<{ seq: number }>;
 			}).compactionRowsForEstimatedBudget.bind(runtime);
 
-			const selected = compactionRowsForEstimatedBudget(fakeBotDocument({ contextWindowTokens: 8_000 }), "run-current", true);
+			const selected = compactionRowsForEstimatedBudget(
+				fakeBotDocument({ contextWindowTokens: 8_000 }),
+				"run-current",
+				true,
+				toolDefinitionsForProviderRound(),
+				"cache_friendly",
+			);
 
 			expect(selected.map((row) => row.seq)).toEqual([1, 2, 3]);
 		});
@@ -2732,6 +2813,39 @@ describe("Bickr Pages Functions", () => {
 		).toBe("railroad");
 	});
 
+	it("resolves compaction cache and prefill support settings from bot overrides before profile defaults", () => {
+		expect(
+			effectiveProviderSettingsForBot(
+				{ inferenceSettings: {} },
+				{ inferenceSettings: {} },
+				{},
+			),
+		).toMatchObject({
+			cacheFriendlyCompaction: false,
+			supportsPrefill: true,
+		});
+		expect(
+			effectiveProviderSettingsForBot(
+				{ inferenceSettings: {} },
+				{ inferenceSettings: { cacheFriendlyCompaction: true, supportsPrefill: false } },
+				{},
+			),
+		).toMatchObject({
+			cacheFriendlyCompaction: true,
+			supportsPrefill: false,
+		});
+		expect(
+			effectiveProviderSettingsForBot(
+				{ inferenceSettings: { cacheFriendlyCompaction: false, supportsPrefill: true } },
+				{ inferenceSettings: { cacheFriendlyCompaction: true, supportsPrefill: false } },
+				{},
+			),
+		).toMatchObject({
+			cacheFriendlyCompaction: false,
+			supportsPrefill: true,
+		});
+	});
+
 	it("resolves OpenRouter provider routing from bot overrides before profile defaults", () => {
 		expect(
 			effectiveProviderSettingsForBot(
@@ -2895,10 +3009,12 @@ describe("Bickr Pages Functions", () => {
 		it("includes prompt, model, provider, and system fingerprints in context budget cache keys", async () => {
 		const base = {
 			botId: "bot_one",
+			cacheFriendlyCompaction: false,
 			effectiveModel: "openrouter/auto",
 			fixedSystemFingerprint: "system-a",
 			personaPromptFingerprint: "prompt-a",
 			providerBaseUrl: "https://openrouter.ai/api/v1",
+			supportsPrefill: true,
 		};
 
 		const original = await promptContextBudgetCacheFingerprint(base);
@@ -2916,6 +3032,12 @@ describe("Bickr Pages Functions", () => {
 		).resolves.not.toBe(original);
 		await expect(
 			promptContextBudgetCacheFingerprint({ ...base, fixedSystemFingerprint: "system-b" }),
+		).resolves.not.toBe(original);
+		await expect(
+			promptContextBudgetCacheFingerprint({ ...base, cacheFriendlyCompaction: true }),
+		).resolves.not.toBe(original);
+		await expect(
+			promptContextBudgetCacheFingerprint({ ...base, supportsPrefill: false }),
 		).resolves.not.toBe(original);
 		await expect(
 			promptContextBudgetCacheFingerprint({
@@ -4228,8 +4350,8 @@ describe("Bickr Pages Functions", () => {
 					seq: number;
 					runId: string;
 					purpose: "loop" | "compaction";
-					settings: { baseUrl: string; model: string; temperature: number };
-					messages: Array<{ role: "user"; content: string }>;
+					settings: { baseUrl: string; model: string; supportsPrefill?: boolean; temperature: number };
+					messages: Array<{ role: "assistant" | "user"; content: string }>;
 					displayMessages?: Array<{ role: "user" | "assistant"; content: string }>;
 					createdAt: string;
 				}) => void;
@@ -4262,8 +4384,15 @@ describe("Bickr Pages Functions", () => {
 					seq,
 					runId: "run-submissions",
 					purpose: seq === 55 ? "compaction" : "loop",
-					settings: { baseUrl: "https://openrouter.ai/api/v1", model: "test/model", temperature: 0.7 },
-					messages: [{ role: "user", content: `Müller message ${seq}` }],
+					settings: {
+						baseUrl: "https://openrouter.ai/api/v1",
+						model: "test/model",
+						...(seq === 55 ? { supportsPrefill: false } : {}),
+						temperature: 0.7,
+					},
+					messages: seq === 55 ?
+						[{ role: "assistant", content: "Trailing participant narration." }]
+					:	[{ role: "user", content: `Müller message ${seq}` }],
 					createdAt: `2026-05-01T00:00:${String(seq).padStart(2, "0")}.000Z`,
 				});
 			}
@@ -4271,8 +4400,11 @@ describe("Bickr Pages Functions", () => {
 			const summaries = inferenceSubmissionSummaries();
 			expect(summaries).toHaveLength(50);
 			expect(summaries[0]?.seq).toBe(6);
-			expect(summaries.at(-1)).toMatchObject({ seq: 55, purpose: "compaction", messageCount: 1 });
-			expect(inferenceSubmissionForSeq(55).messages[0]?.content).toBe("Müller message 55");
+			expect(summaries.at(-1)).toMatchObject({ seq: 55, purpose: "compaction", messageCount: 2 });
+			expect(inferenceSubmissionForSeq(55).messages.map((message) => message.content)).toEqual([
+				"Trailing participant narration.",
+				"",
+			]);
 			expect(inferenceSubmissionForSeq(55).displayMessages).toBeUndefined();
 			updateInferenceSubmissionDisplayMessages(55, [
 				{ role: "user", content: "Submitted compaction chat." },
@@ -7866,7 +7998,9 @@ describe("Bickr Pages Functions", () => {
 						inferenceSettings: {
 							openRouterApiKey: "sk-or-bot-secret",
 							model: "openrouter/auto",
+							cacheFriendlyCompaction: true,
 							reasoningPrefill: "I'm Release Sage, and I  ",
+							supportsPrefill: false,
 							providerRouting: {
 								max_price: {
 									prompt: 0.25,
@@ -7921,7 +8055,9 @@ describe("Bickr Pages Functions", () => {
 		expect(created.data.bot.inferenceSettings).toMatchObject({
 			openRouterApiKeySet: true,
 			model: "openrouter/auto",
+			cacheFriendlyCompaction: true,
 			recurringPrompt: "I'm Release Sage, and I  ",
+			supportsPrefill: false,
 			providerRouting: {
 				max_price: {
 					prompt: 0.25,
@@ -8215,8 +8351,10 @@ describe("Bickr Pages Functions", () => {
 					{
 						displayName: "Release Oracle",
 							inferenceSettings: {
+								cacheFriendlyCompaction: null,
 								recurringPrompt: null,
 								recurringPromptEnabled: false,
+								supportsPrefill: null,
 							providerRouting: null,
 							frequencyPenalty: null,
 							presencePenalty: null,
@@ -8261,11 +8399,13 @@ describe("Bickr Pages Functions", () => {
 		});
 		expect(Date.parse(patchPayload.data.bot.nextDueAt ?? "")).toBeGreaterThanOrEqual(beforeUnpause - 1_000);
 		expect(Date.parse(patchPayload.data.bot.nextDueAt ?? "")).toBeLessThanOrEqual(Date.now() + 1_000);
-		expect(patchPayload.data.bot.inferenceSettings.frequencyPenalty).toBeUndefined();
-		expect(patchPayload.data.bot.inferenceSettings.presencePenalty).toBeUndefined();
-		expect(patchPayload.data.bot.inferenceSettings.repetitionPenalty).toBeUndefined();
+			expect(patchPayload.data.bot.inferenceSettings.frequencyPenalty).toBeUndefined();
+			expect(patchPayload.data.bot.inferenceSettings.presencePenalty).toBeUndefined();
+			expect(patchPayload.data.bot.inferenceSettings.repetitionPenalty).toBeUndefined();
+		expect(patchPayload.data.bot.inferenceSettings.cacheFriendlyCompaction).toBeUndefined();
 			expect(patchPayload.data.bot.inferenceSettings.recurringPrompt).toBeUndefined();
 		expect(patchPayload.data.bot.inferenceSettings.recurringPromptEnabled).toBe(false);
+		expect(patchPayload.data.bot.inferenceSettings.supportsPrefill).toBeUndefined();
 		expect(patchPayload.data.bot.inferenceSettings.providerRouting).toBeUndefined();
 
 		const runtimeAfterPatch = await testEnv.BICKR_D1.prepare(
@@ -8903,11 +9043,13 @@ describe("Bickr Pages Functions", () => {
 						inferenceSettings: {
 							openRouterApiKey: "sk-or-user-secret",
 							model: "anthropic/claude-3.5-haiku",
+							cacheFriendlyCompaction: true,
 							translation: {
 								enabled: true,
 								model: "openai/gpt-4o-mini",
 								toolCalls: "railroad",
 							},
+							supportsPrefill: false,
 							toolCalls: "at_will",
 							providerRouting: {
 								max_price: {
@@ -8939,12 +9081,14 @@ describe("Bickr Pages Functions", () => {
 				inferenceSettings: {
 					openRouterApiKeySet: true,
 					model: "anthropic/claude-3.5-haiku",
+					cacheFriendlyCompaction: true,
 					translation: {
 						enabled: true,
 						model: "openai/gpt-4o-mini",
 						prompt: defaultTranslationPrompt,
 						toolCalls: "railroad",
 					},
+					supportsPrefill: false,
 					toolCalls: "at_will",
 				providerRouting: {
 					max_price: {
@@ -8968,6 +9112,8 @@ describe("Bickr Pages Functions", () => {
 			{ presence_penalty: 2.1 },
 			{ repetitionPenalty: 2.1 },
 			{ translation: { toolCalls: "at_will" } },
+			{ cacheFriendlyCompaction: "yes" },
+			{ supportsPrefill: "yes" },
 			{ providerRouting: "openai" },
 			{ providerRouting: ["openai"] },
 			{ providerRouting: { note: "x".repeat(maxProviderRoutingJsonLength) } },

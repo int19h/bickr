@@ -213,10 +213,21 @@ export const toolDefinitions: FunctionToolDefinition[] = [
 	),
 ];
 
-export function toolDefinitionsForProviderRound(compactionMaxCharacters = defaultMetaCompactionMaxCharacters): FunctionToolDefinition[] {
+type ProviderRoundToolOptions = {
+	includeMetaCompactionTool?: boolean;
+	compactionMinCharacters?: number;
+};
+
+export function toolDefinitionsForProviderRound(
+	compactionMaxCharacters = defaultMetaCompactionMaxCharacters,
+	options: ProviderRoundToolOptions = {},
+): FunctionToolDefinition[] {
+	if (options.includeMetaCompactionTool === false) {
+		return toolDefinitions;
+	}
 	return [
 		...toolDefinitions,
-		metaCompactionToolDefinition(compactionMaxCharacters),
+		metaCompactionToolDefinition(compactionMaxCharacters, options.compactionMinCharacters),
 	];
 }
 
@@ -256,7 +267,12 @@ function tool(name: string, description: string, properties: ToolParameterProper
 	};
 }
 
-export function metaCompactionToolDefinition(maxCharacters = defaultMetaCompactionMaxCharacters): FunctionToolDefinition {
+export function metaCompactionToolDefinition(
+	maxCharacters = defaultMetaCompactionMaxCharacters,
+	minCharacters = 1,
+): FunctionToolDefinition {
+	const maxLength = Math.max(1, Math.floor(maxCharacters));
+	const minLength = Math.max(1, Math.min(maxLength, Math.floor(minCharacters)));
 	return {
 		type: "function",
 		function: {
@@ -267,8 +283,8 @@ export function metaCompactionToolDefinition(maxCharacters = defaultMetaCompacti
 				properties: {
 					[providerCompactionSummaryProperty]: {
 						type: "string",
-						minLength: 1,
-						maxLength: Math.max(1, Math.floor(maxCharacters)),
+						minLength,
+						maxLength,
 					},
 				},
 				required: [providerCompactionSummaryProperty],

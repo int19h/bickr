@@ -2016,11 +2016,13 @@ export function mergeInferenceSettings(
 	assignInferenceString(next, "openRouterApiKey", patch.openRouterApiKey);
 	assignInferenceString(next, "baseUrl", patch.baseUrl);
 	assignInferenceString(next, "model", patch.model);
+	assignInferenceBoolean(next, "cacheFriendlyCompaction", patch.cacheFriendlyCompaction);
 	assignInferenceDefaultTrueBoolean(next, "recurringPromptEnabled", patch.recurringPromptEnabled);
 	const recurringPromptPatch = Object.prototype.hasOwnProperty.call(patch, "recurringPrompt")
 		? patch.recurringPrompt
 		: patch.reasoningPrefill;
 	assignInferencePreservedString(next, "recurringPrompt", recurringPromptPatch);
+	assignInferenceBoolean(next, "supportsPrefill", patch.supportsPrefill);
 	assignInferenceReasoningEffort(next, "reasoningEffort", patch.reasoningEffort);
 	assignInferenceToolCalls(next, "toolCalls", patch.toolCalls);
 	assignInferenceJsonObject(next, "providerRouting", patch.providerRouting);
@@ -2376,6 +2378,21 @@ function assignInferenceDefaultTrueBoolean(
 		return;
 	}
 	delete settings[key];
+}
+
+function assignInferenceBoolean(
+	settings: BotInferenceSettings,
+	key: "cacheFriendlyCompaction" | "supportsPrefill",
+	value: boolean | null | undefined,
+): void {
+	if (value === undefined) {
+		return;
+	}
+	if (value === null) {
+		delete settings[key];
+		return;
+	}
+	settings[key] = value;
 }
 
 function assignInferenceReasoningEffort<T extends { reasoningEffort?: BotInferenceReasoningEffort }>(
