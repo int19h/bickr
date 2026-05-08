@@ -3,7 +3,7 @@ import {
 	type BotContextBudgetInput,
 	type BotTranslationSettingsInput,
 	type BotToolSettingsInput,
-	type BotTickSettings,
+	type BotTickSettingsInput,
 	type ChirperImportSource,
 	type CreateBotInput,
 	type CreateCommentInput,
@@ -811,9 +811,9 @@ function aliasedValue(record: Record<string, unknown>, preferredKey: string, fal
 	return Object.prototype.hasOwnProperty.call(record, preferredKey) ? record[preferredKey] : record[fallbackKey];
 }
 
-function parseTickSettings(value: unknown): Partial<BotTickSettings> {
+function parseTickSettings(value: unknown): BotTickSettingsInput {
 	const record = asRecord(value);
-	const settings: Partial<BotTickSettings> = {};
+	const settings: BotTickSettingsInput = {};
 	if (record.enabled !== undefined) {
 		settings.enabled = Boolean(record.enabled);
 	}
@@ -821,12 +821,15 @@ function parseTickSettings(value: unknown): Partial<BotTickSettings> {
 		settings.intervalSeconds = boundedInteger(record.intervalSeconds, "Tick interval", 30, 86_400);
 	}
 	if (record.contextWindowTokens !== undefined) {
-		settings.contextWindowTokens = boundedInteger(
-			record.contextWindowTokens,
-			"Context window",
-			2_000,
-			1_000_000,
-		);
+		settings.contextWindowTokens =
+			record.contextWindowTokens === null ?
+				null
+			:	boundedInteger(
+					record.contextWindowTokens,
+					"Context window",
+					2_000,
+					1_000_000,
+				);
 	}
 	if (record.compactionThreshold !== undefined) {
 		const threshold = Number(record.compactionThreshold);
@@ -836,25 +839,31 @@ function parseTickSettings(value: unknown): Partial<BotTickSettings> {
 		settings.compactionThreshold = threshold;
 	}
 	if (record.maxToolCallsPerTick !== undefined) {
-		settings.maxToolCallsPerTick = boundedInteger(
-			record.maxToolCallsPerTick,
-			"Max tool call attempts per tick",
-			1,
-			32,
-		);
+		settings.maxToolCallsPerTick =
+			record.maxToolCallsPerTick === null ?
+				null
+			:	boundedInteger(
+					record.maxToolCallsPerTick,
+					"Max tool call attempts per tick",
+					1,
+					32,
+				);
 	}
 	if (record.maxSuccessfulToolCallsPerIteration !== undefined) {
-		settings.maxSuccessfulToolCallsPerIteration = boundedInteger(
-			record.maxSuccessfulToolCallsPerIteration,
-			"Max successful tool calls per iteration",
-			1,
-			32,
-		);
+		settings.maxSuccessfulToolCallsPerIteration =
+			record.maxSuccessfulToolCallsPerIteration === null ?
+				null
+			:	boundedInteger(
+					record.maxSuccessfulToolCallsPerIteration,
+					"Max successful tool calls per iteration",
+					1,
+					32,
+				);
 	}
 	return settings;
 }
 
-function pickContextWindowTickSettings(settings: Partial<BotTickSettings>): Pick<BotTickSettings, "contextWindowTokens"> | undefined {
+function pickContextWindowTickSettings(settings: BotTickSettingsInput): Pick<BotTickSettingsInput, "contextWindowTokens"> | undefined {
 	return settings.contextWindowTokens === undefined ? undefined : { contextWindowTokens: settings.contextWindowTokens };
 }
 

@@ -5386,9 +5386,9 @@ function BotEdit({
 		inference: inferenceDraftFromSettings(bot.inferenceSettings),
 		tools: toolDraftFromSettings(bot.toolSettings),
 		tickIntervalMinutes: String(secondsToMinutes(bot.tickSettings.intervalSeconds)),
-		contextWindowTokens: String(bot.tickSettings.contextWindowTokens),
-		maxToolCallsPerTick: String(bot.tickSettings.maxToolCallsPerTick),
-		maxSuccessfulToolCallsPerIteration: String(bot.tickSettings.maxSuccessfulToolCallsPerIteration),
+		contextWindowTokens: optionalNumberDraftValue(bot.tickSettings.contextWindowTokens),
+		maxToolCallsPerTick: optionalNumberDraftValue(bot.tickSettings.maxToolCallsPerTick),
+		maxSuccessfulToolCallsPerIteration: optionalNumberDraftValue(bot.tickSettings.maxSuccessfulToolCallsPerIteration),
 	});
 	const [confirm, setConfirm] = useState(false);
 	const [promptBudget, setPromptBudget] = useState<PromptBudgetState>({ status: "idle" });
@@ -5402,9 +5402,9 @@ function BotEdit({
 			inference: inferenceDraftFromSettings(bot.inferenceSettings),
 			tools: toolDraftFromSettings(bot.toolSettings),
 			tickIntervalMinutes: String(secondsToMinutes(bot.tickSettings.intervalSeconds)),
-			contextWindowTokens: String(bot.tickSettings.contextWindowTokens),
-			maxToolCallsPerTick: String(bot.tickSettings.maxToolCallsPerTick),
-			maxSuccessfulToolCallsPerIteration: String(bot.tickSettings.maxSuccessfulToolCallsPerIteration),
+			contextWindowTokens: optionalNumberDraftValue(bot.tickSettings.contextWindowTokens),
+			maxToolCallsPerTick: optionalNumberDraftValue(bot.tickSettings.maxToolCallsPerTick),
+			maxSuccessfulToolCallsPerIteration: optionalNumberDraftValue(bot.tickSettings.maxSuccessfulToolCallsPerIteration),
 		});
 	}, [
 		bot.displayName,
@@ -5421,9 +5421,10 @@ function BotEdit({
 	]);
 
 	const tickIntervalMinutes = parsePositiveInteger(draft.tickIntervalMinutes);
-	const contextWindowTokens = parsePositiveInteger(draft.contextWindowTokens);
-	const maxToolCallsPerTick = parsePositiveInteger(draft.maxToolCallsPerTick);
-	const maxSuccessfulToolCallsPerIteration = parsePositiveInteger(draft.maxSuccessfulToolCallsPerIteration);
+	const contextWindowTokens = parseOptionalPositiveInteger(draft.contextWindowTokens);
+	const maxToolCallsPerTick = parseOptionalPositiveInteger(draft.maxToolCallsPerTick);
+	const maxSuccessfulToolCallsPerIteration = parseOptionalPositiveInteger(draft.maxSuccessfulToolCallsPerIteration);
+	const resolvedContextWindowTokens = contextWindowTokens ?? bot.effectiveTickSettings.contextWindowTokens;
 	const providerRoutingError = providerRoutingDraftError(draft.inference.providerRouting);
 	const translationProviderRoutingError = providerRoutingDraftError(draft.inference.translationProviderRouting);
 	const inferenceInheritance: InferenceModelUnlockContext = {
@@ -5441,9 +5442,9 @@ function BotEdit({
 		draft.shortBio !== bot.shortBio ||
 		draft.prompt !== (bot.prompt ?? "") ||
 		tickIntervalMinutes !== secondsToMinutes(bot.tickSettings.intervalSeconds) ||
-		contextWindowTokens !== bot.tickSettings.contextWindowTokens ||
-		maxToolCallsPerTick !== bot.tickSettings.maxToolCallsPerTick ||
-		maxSuccessfulToolCallsPerIteration !== bot.tickSettings.maxSuccessfulToolCallsPerIteration ||
+		contextWindowTokens !== (bot.tickSettings.contextWindowTokens ?? null) ||
+		maxToolCallsPerTick !== (bot.tickSettings.maxToolCallsPerTick ?? null) ||
+		maxSuccessfulToolCallsPerIteration !== (bot.tickSettings.maxSuccessfulToolCallsPerIteration ?? null) ||
 		inferenceDraftChanged(draft.inference, bot.inferenceSettings, { includeReasoningPrefill: true }) ||
 		toolDraftChanged(draft.tools, bot.toolSettings);
 	const valid =
@@ -5456,12 +5457,10 @@ function BotEdit({
 		!translationProviderRoutingError &&
 		tickIntervalMinutes >= 1 &&
 		tickIntervalMinutes <= 1440 &&
-		contextWindowTokens >= 2000 &&
-		contextWindowTokens <= 1_000_000 &&
-		maxToolCallsPerTick >= 1 &&
-		maxToolCallsPerTick <= 32 &&
-		maxSuccessfulToolCallsPerIteration >= 1 &&
-		maxSuccessfulToolCallsPerIteration <= 32 &&
+		(contextWindowTokens === null || (contextWindowTokens >= 2000 && contextWindowTokens <= 1_000_000)) &&
+		(maxToolCallsPerTick === null || (maxToolCallsPerTick >= 1 && maxToolCallsPerTick <= 32)) &&
+		(maxSuccessfulToolCallsPerIteration === null ||
+			(maxSuccessfulToolCallsPerIteration >= 1 && maxSuccessfulToolCallsPerIteration <= 32)) &&
 		toolDraftValid(draft.tools);
 
 	async function save(): Promise<void> {
@@ -5490,8 +5489,7 @@ function BotEdit({
 	async function computePromptBudget(): Promise<void> {
 		if (
 			!draft.prompt.trim() ||
-			contextWindowTokens < 2_000 ||
-			contextWindowTokens > 1_000_000 ||
+			(contextWindowTokens !== null && (contextWindowTokens < 2_000 || contextWindowTokens > 1_000_000)) ||
 			providerRoutingDraftError(draft.inference.providerRouting)
 		) {
 			return;
@@ -5615,7 +5613,7 @@ function BotEdit({
 						</Field>
 						<PromptContextBudgetChart
 							budget={promptBudgetReady}
-							contextWindowTokens={contextWindowTokens}
+							contextWindowTokens={resolvedContextWindowTokens}
 							error={promptBudgetError}
 							loading={promptBudgetLoading}
 							onCompute={() => void computePromptBudget()}
@@ -5644,7 +5642,11 @@ function BotEdit({
 								</div>
 							</Field>
 							<div className="field-row">
-								<Field help="Approximate context window used when preparing a tick. Higher values preserve more history." label="Context budget">
+								<Field
+									help="Approximate context window used when preparing a tick. Higher values preserve more history. Blank uses the default."
+									hint={`effective ${formatExactTokenCount(bot.effectiveTickSettings.contextWindowTokens)} tokens`}
+									label="Context budget"
+								>
 									<div className="input-suffix">
 										<input
 											className="input"
@@ -5653,6 +5655,7 @@ function BotEdit({
 											onChange={(event) =>
 												setDraft((current) => ({ ...current, contextWindowTokens: event.target.value }))
 											}
+											placeholder={String(bot.effectiveTickSettings.contextWindowTokens)}
 											step={1000}
 											type="number"
 											value={draft.contextWindowTokens}
@@ -5660,7 +5663,11 @@ function BotEdit({
 										<span className="suffix">tokens</span>
 									</div>
 								</Field>
-								<Field help="Maximum provider turns that may request Bickr controls before this tick is cut off." label="Max tool call attempts per tick">
+								<Field
+									help="Maximum provider turns that may request Bickr controls before this tick is cut off. Blank uses the default."
+									hint={`effective ${bot.effectiveTickSettings.maxToolCallsPerTick}`}
+									label="Max tool call attempts per tick"
+								>
 									<input
 										className="input"
 										min={1}
@@ -5668,12 +5675,17 @@ function BotEdit({
 										onChange={(event) =>
 											setDraft((current) => ({ ...current, maxToolCallsPerTick: event.target.value }))
 										}
+										placeholder={String(bot.effectiveTickSettings.maxToolCallsPerTick)}
 										step={1}
 										type="number"
 										value={draft.maxToolCallsPerTick}
 									/>
 								</Field>
-								<Field help="When this visit has one fewer successful control result than this value, only logoff remains available." label="Max successful tool calls per iteration">
+								<Field
+									help="When this visit has one fewer successful control result than this value, only logoff remains available. Blank uses the default."
+									hint={`effective ${bot.effectiveTickSettings.maxSuccessfulToolCallsPerIteration}`}
+									label="Max successful tool calls per iteration"
+								>
 									<input
 										className="input"
 										min={1}
@@ -5681,6 +5693,7 @@ function BotEdit({
 										onChange={(event) =>
 											setDraft((current) => ({ ...current, maxSuccessfulToolCallsPerIteration: event.target.value }))
 										}
+										placeholder={String(bot.effectiveTickSettings.maxSuccessfulToolCallsPerIteration)}
 										step={1}
 										type="number"
 										value={draft.maxSuccessfulToolCallsPerIteration}
@@ -8657,7 +8670,7 @@ function BotRuntimePanel({
 					</span>
 				</label>
 				<RuntimeRow description="How often this bot wakes up to act." label="Tick interval" value={formatTickIntervalMinutes(bot.tickSettings.intervalSeconds)} />
-				<RuntimeRow label="Context budget" value={`${bot.tickSettings.contextWindowTokens} tokens`} />
+				<RuntimeRow label="Context budget" value={`${bot.effectiveTickSettings.contextWindowTokens} tokens`} />
 				<RuntimeRow label="Status" value={status?.status ?? "unknown"} />
 				<RuntimeRow label="Next tick" value={formatNextDueAt(status?.nextDueAt, runtimeEnabled, Boolean(status))} />
 				<TokenUsagePanel usage={tokenUsage} />
@@ -12351,6 +12364,15 @@ function parsePositiveInteger(value: string): number {
 	return Number.isFinite(parsed) ? Math.floor(parsed) : 0;
 }
 
+function parseOptionalPositiveInteger(value: string): number | null {
+	const trimmed = value.trim();
+	if (!trimmed) {
+		return null;
+	}
+	const parsed = Number(trimmed);
+	return Number.isFinite(parsed) ? Math.floor(parsed) : 0;
+}
+
 function visibleForums(forums: ForumSummary[]): ForumSummary[] {
 	return forums.filter((forum) => !forum.personalBotId);
 }
@@ -12796,12 +12818,13 @@ function canCustomizeInferenceModel(
 function botPromptBudgetRequestKey(
 	botId: string,
 	botHandle: string,
-	draft: { displayName: string; inference: InferenceDraft; prompt: string; shortBio: string; tools: BotToolDraft },
+	draft: { contextWindowTokens: string; displayName: string; inference: InferenceDraft; prompt: string; shortBio: string; tools: BotToolDraft },
 	inherited?: BotInferenceSettings | null,
 ): string {
 	return JSON.stringify({
 		botId,
 		baseUrl: effectiveInferenceDraftBaseUrl(draft.inference, inherited),
+		contextWindowTokens: draft.contextWindowTokens.trim(),
 		credential: inferenceDraftCredentialState(draft.inference, inherited),
 		displayName: draft.displayName,
 		model: effectiveInferenceDraftModel(draft.inference, inherited),
@@ -12966,6 +12989,10 @@ function canonicalJsonValue(value: unknown): unknown {
 }
 
 function numericDraftValue(value: number | undefined): string {
+	return value === undefined ? "" : String(value);
+}
+
+function optionalNumberDraftValue(value: number | undefined): string {
 	return value === undefined ? "" : String(value);
 }
 

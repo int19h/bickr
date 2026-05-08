@@ -6,6 +6,7 @@ import {
 	botPublicProfile,
 	createBot,
 	deleteBot,
+	effectiveTickSettings,
 	enforceInferenceModelAccess,
 	humanProfileDeleteEligibility,
 	listOwnedForumsOutsideOwnedWorlds,
@@ -13,6 +14,7 @@ import {
 	listForums,
 	listUserBots,
 	mergeInferenceSettings,
+	mergeTickSettings,
 	mergeToolSettings,
 	RepositoryError,
 	softDeleteUserProfile,
@@ -899,7 +901,7 @@ export function toolUseRecoveryReminder(state: Pick<ToolUseRecoveryState, "conse
 }
 
 function maxSuccessfulToolCallsPerIterationSetting(bot: Pick<BotDocument, "tickSettings">): number {
-	const value = Number(bot.tickSettings.maxSuccessfulToolCallsPerIteration);
+	const value = Number(effectiveTickSettings(bot.tickSettings).maxSuccessfulToolCallsPerIteration);
 	return Number.isInteger(value) ? Math.max(1, Math.min(32, value)) : 8;
 }
 
@@ -2840,8 +2842,9 @@ export class BotRuntime {
 		let toolCallCount = 0;
 		let exposeAdditionalReplyAcknowledgementForRound = false;
 		let successfulToolCallsThisIteration = this.providerLoopInitialSuccessfulToolCallCount();
+		const tickSettings = effectiveTickSettings(bot.tickSettings);
 		const maxSuccessfulToolCallsPerIteration = maxSuccessfulToolCallsPerIterationSetting(bot);
-		for (let turn = 0; turn < bot.tickSettings.maxToolCallsPerTick; turn += 1) {
+		for (let turn = 0; turn < tickSettings.maxToolCallsPerTick; turn += 1) {
 			this.throwIfStopped(runId, runContext.signal);
 			const serverTools = openRouterServerToolSelection(settings.baseUrl, bot.toolSettings);
 			const exposeAdditionalReplyAcknowledgement = exposeAdditionalReplyAcknowledgementForRound;
@@ -2868,7 +2871,7 @@ export class BotRuntime {
 					toolCount: providerTools.length,
 					toolChoice: providerChatToolChoice,
 					parallelToolCalls: providerParallelToolCalls,
-					contextWindowTokens: bot.tickSettings.contextWindowTokens,
+					contextWindowTokens: tickSettings.contextWindowTokens,
 					promptTokens: budgetCheck.promptTokens,
 					allowedPromptTokens: budgetCheck.allowedPromptTokens,
 					maxCompletionTokens: providerContextReserveTokens,
@@ -2928,7 +2931,7 @@ export class BotRuntime {
 				);
 				if (response.usage) {
 					this.recordProviderUsage({
-						contextWindowTokens: bot.tickSettings.contextWindowTokens,
+						contextWindowTokens: tickSettings.contextWindowTokens,
 						createdAt: requestEvent.createdAt,
 						providerResponseId: response.responseId,
 						requestSeq: requestEvent.seq,
@@ -4229,10 +4232,7 @@ export class BotRuntime {
 			shortBio: input.shortBio ?? currentBot.shortBio,
 			inferenceSettings,
 			toolSettings,
-			tickSettings: {
-				...currentBot.tickSettings,
-				...(input.tickSettings ?? {}),
-			},
+			tickSettings: mergeTickSettings(currentBot.tickSettings, input.tickSettings),
 		};
 		const settings = this.effectiveProviderSettings(bot, owner);
 		if (!settings.apiKey && !settings.usesCustomBaseUrl && this.env.BICKR_SIMULATION_MODE !== "provider") {
@@ -4280,15 +4280,16 @@ export class BotRuntime {
 				this.setContextBudgetCachedCounts(fingerprint, next);
 				return next;
 			})();
+		const tickSettings = effectiveTickSettings(bot.tickSettings);
 		const budget = promptContextBudgetFromCounts({
 			...counts,
-			contextWindowTokens: bot.tickSettings.contextWindowTokens,
+			contextWindowTokens: tickSettings.contextWindowTokens,
 			responseReserveTokens: providerContextReserveTokens,
 		});
 		return {
 			botId,
 			cached: Boolean(cachedCounts),
-			contextWindowTokens: bot.tickSettings.contextWindowTokens,
+			contextWindowTokens: tickSettings.contextWindowTokens,
 			effectiveModel: settings.model,
 			fingerprint,
 			providerBaseUrl: settings.baseUrl,
@@ -4315,9 +4316,10 @@ export class BotRuntime {
 			...(settings.providerRouting ? { providerRouting: settings.providerRouting } : {}),
 		}));
 		const counts = cachedCounts ?? this.estimatedContextBudgetCounts(parts, this.textTokenCalibration());
+		const tickSettings = effectiveTickSettings(bot.tickSettings);
 		return providerReadCommentTreeTokenBudget(promptContextBudgetFromCounts({
 			...counts,
-			contextWindowTokens: bot.tickSettings.contextWindowTokens,
+			contextWindowTokens: tickSettings.contextWindowTokens,
 			responseReserveTokens: providerContextReserveTokens,
 		}).remainingLoopTokens);
 	}
@@ -5530,7 +5532,8 @@ export class BotRuntime {
 	): Promise<void> {
 		const contextEstimate = this.currentCompactionContextEstimate();
 		const total = contextEstimate.totalTokens;
-		const threshold = Math.max(1, Math.floor(bot.tickSettings.contextWindowTokens * bot.tickSettings.compactionThreshold));
+		const tickSettings = effectiveTickSettings(bot.tickSettings);
+		const threshold = Math.max(1, Math.floor(tickSettings.contextWindowTokens * tickSettings.compactionThreshold));
 		if (total <= threshold) {
 			return;
 		}
@@ -5553,6 +5556,7 @@ export class BotRuntime {
 		providerTools: ProviderToolDefinition[],
 	): Promise<ProviderPromptBudgetCheck> {
 		const allowedPromptTokens = this.allowedProviderPromptTokens(bot);
+		const tickSettings = effectiveTickSettings(bot.tickSettings);
 		for (;;) {
 			this.throwIfStopped(runId, signal);
 			const requestMessages = this.activeProviderRequestMessages(bot);
@@ -5562,7 +5566,7 @@ export class BotRuntime {
 				model: settings.model,
 				messageCount: requestMessages.length,
 				toolCount: providerTools.length,
-				contextWindowTokens: bot.tickSettings.contextWindowTokens,
+				contextWindowTokens: tickSettings.contextWindowTokens,
 				maxCompletionTokens: providerContextReserveTokens,
 				promptTokens: estimate.promptTokens,
 				allowedPromptTokens,
@@ -5600,7 +5604,7 @@ export class BotRuntime {
 	}
 
 	private allowedProviderPromptTokens(bot: BotDocument): number {
-		return Math.max(1, Math.floor(bot.tickSettings.contextWindowTokens) - providerContextReserveTokens);
+		return Math.max(1, Math.floor(effectiveTickSettings(bot.tickSettings).contextWindowTokens) - providerContextReserveTokens);
 	}
 
 	private estimateProviderPromptTokens(
@@ -5831,7 +5835,7 @@ export class BotRuntime {
 		}
 		if (response.usage) {
 			this.recordProviderUsage({
-				contextWindowTokens: bot.tickSettings.contextWindowTokens,
+				contextWindowTokens: effectiveTickSettings(bot.tickSettings).contextWindowTokens,
 				createdAt: summaryEvent.createdAt,
 				providerResponseId: response.responseId,
 				requestSeq: summaryEvent.seq,
@@ -6002,9 +6006,10 @@ export class BotRuntime {
 	}
 
 	private compactionPromptTokenLimit(bot: BotDocument): number {
+		const tickSettings = effectiveTickSettings(bot.tickSettings);
 		const scaledLimit = Math.max(
 			this.allowedProviderPromptTokens(bot),
-			Math.floor(bot.tickSettings.contextWindowTokens * 8) - providerCompactionMaxCompletionTokens,
+			Math.floor(tickSettings.contextWindowTokens * 8) - providerCompactionMaxCompletionTokens,
 		);
 		return Math.max(1, Math.min(providerCompactionMaxPromptEstimateTokens, scaledLimit));
 	}

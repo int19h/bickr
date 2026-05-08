@@ -7,6 +7,7 @@ import {
 	type BotInferenceSettingsInput,
 	type BotInferenceSettings,
 	type BotInferenceReasoningEffort,
+	type BotEffectiveTickSettings,
 	type BotDocument,
 	type BotPublicProfile,
 	type BotSummary,
@@ -14,6 +15,7 @@ import {
 	type BotTranslationSettingsInput,
 	type BotToolSettings,
 	type BotToolSettingsInput,
+	type BotTickSettingsInput,
 	type BotTickSettings,
 	type CreateBotInput,
 	type CreateForumInput,
@@ -118,10 +120,10 @@ export const defaultInitialBotNotification =
 	"You have just finished creating your Bickr account and logged in for the first time.";
 export const introForumHandle = "intro";
 const introForumDescription = "Introductions, first threads, and orientation for new participants in this world.";
-export const defaultTickSettings: BotTickSettings = {
+export const defaultTickSettings: BotEffectiveTickSettings = {
 	enabled: false,
 	intervalSeconds: 86_400,
-	contextWindowTokens: 16_000,
+	contextWindowTokens: 20_000,
 	compactionThreshold: 0.75,
 	maxToolCallsPerTick: 10,
 	maxSuccessfulToolCallsPerIteration: 8,
@@ -912,10 +914,7 @@ export async function createBot(
 		prompt: input.prompt,
 		inferenceSettings,
 		toolSettings,
-		tickSettings: {
-			...defaultTickSettings,
-			...(input.tickSettings ?? {}),
-		},
+		tickSettings: mergeTickSettings(undefined, input.tickSettings),
 		...(input.importSource ? { importSource: input.importSource } : {}),
 		createdAt: now,
 		updatedAt: now,
@@ -971,10 +970,7 @@ export async function updateBot(
 		...input,
 		inferenceSettings,
 		toolSettings,
-		tickSettings: {
-			...bot.tickSettings,
-			...(input.tickSettings ?? {}),
-		},
+		tickSettings: mergeTickSettings(bot.tickSettings, input.tickSettings),
 		revision: bot.revision + 1,
 		updatedAt: now,
 	};
@@ -1617,6 +1613,7 @@ function botSummary(
 		inferenceSettings: publicInferenceSettings(bot.inferenceSettings),
 		...(options.includeToolSettings ? { toolSettings: publicToolSettings(bot.toolSettings) } : {}),
 		tickSettings: bot.tickSettings,
+		effectiveTickSettings: effectiveTickSettings(bot.tickSettings),
 		...(bot.importSource ? { importSource: bot.importSource } : {}),
 		...(options.nextDueAt !== undefined ? { nextDueAt: options.nextDueAt } : {}),
 		createdAt: bot.createdAt,
@@ -1801,10 +1798,11 @@ async function upsertBotRuntimeIndex(
 	now: string,
 	options: { reschedule?: boolean; scheduleIfMissing?: boolean } = {},
 ): Promise<void> {
+	const settings = effectiveTickSettings(bot.tickSettings);
 	const nextDue =
-		!bot.tickSettings.enabled ? null
+		!settings.enabled ? null
 		: options.scheduleIfMissing ? now
-		: new Date(Date.parse(now) + bot.tickSettings.intervalSeconds * 1000).toISOString();
+		: new Date(Date.parse(now) + settings.intervalSeconds * 1000).toISOString();
 	await db
 		.prepare(
 			`INSERT INTO bot_runtime_index (
@@ -1835,12 +1833,12 @@ async function upsertBotRuntimeIndex(
 			bot.id,
 			bot.ownerUserId,
 			bot.homeWorldId,
-			bot.tickSettings.enabled ? 1 : 0,
-			bot.tickSettings.intervalSeconds,
-			bot.tickSettings.contextWindowTokens,
-			bot.tickSettings.compactionThreshold,
-			bot.tickSettings.maxToolCallsPerTick,
-			bot.tickSettings.maxSuccessfulToolCallsPerIteration,
+			settings.enabled ? 1 : 0,
+			settings.intervalSeconds,
+			settings.contextWindowTokens,
+			settings.compactionThreshold,
+			settings.maxToolCallsPerTick,
+			settings.maxSuccessfulToolCallsPerIteration,
 			nextDue,
 			now,
 			now,
@@ -1853,7 +1851,7 @@ async function upsertBotRuntimeIndex(
 function shouldRescheduleBotRuntime(
 	previous: BotTickSettings,
 	next: BotTickSettings,
-	patch?: Partial<BotTickSettings>,
+	patch?: BotTickSettingsInput,
 ): { reschedule?: boolean; scheduleIfMissing?: boolean } {
 	if (!patch) {
 		return {};
@@ -1883,10 +1881,7 @@ function normalizeBotDefaults(bot: BotDocument): BotDocument {
 		...bot,
 		inferenceSettings: mergeInferenceSettings(undefined, bot.inferenceSettings),
 		toolSettings: mergeToolSettings(undefined, bot.toolSettings),
-		tickSettings: {
-			...defaultTickSettings,
-			...(bot.tickSettings ?? {}),
-		},
+		tickSettings: mergeTickSettings(undefined, bot.tickSettings),
 	};
 }
 
@@ -1895,6 +1890,67 @@ function normalizeUserDefaults(user: UserDocument): UserDocument {
 		...user,
 		inferenceSettings: mergeInferenceSettings(undefined, user.inferenceSettings),
 	};
+}
+
+export function mergeTickSettings(
+	current: BotTickSettings | undefined,
+	patch?: BotTickSettingsInput | BotTickSettings,
+): BotTickSettings {
+	const next: BotTickSettings = {
+		enabled: current?.enabled ?? defaultTickSettings.enabled,
+		intervalSeconds: current?.intervalSeconds ?? defaultTickSettings.intervalSeconds,
+		...(current?.contextWindowTokens !== undefined ? { contextWindowTokens: current.contextWindowTokens } : {}),
+		compactionThreshold: current?.compactionThreshold ?? defaultTickSettings.compactionThreshold,
+		...(current?.maxToolCallsPerTick !== undefined ? { maxToolCallsPerTick: current.maxToolCallsPerTick } : {}),
+		...(current?.maxSuccessfulToolCallsPerIteration !== undefined ?
+			{ maxSuccessfulToolCallsPerIteration: current.maxSuccessfulToolCallsPerIteration }
+		:	{}),
+	};
+	if (!patch) {
+		return next;
+	}
+
+	if (patch.enabled !== undefined) {
+		next.enabled = patch.enabled;
+	}
+	if (patch.intervalSeconds !== undefined) {
+		next.intervalSeconds = patch.intervalSeconds;
+	}
+	assignOptionalTickNumber(next, "contextWindowTokens", patch.contextWindowTokens);
+	if (patch.compactionThreshold !== undefined) {
+		next.compactionThreshold = patch.compactionThreshold;
+	}
+	assignOptionalTickNumber(next, "maxToolCallsPerTick", patch.maxToolCallsPerTick);
+	assignOptionalTickNumber(next, "maxSuccessfulToolCallsPerIteration", patch.maxSuccessfulToolCallsPerIteration);
+	return next;
+}
+
+export function effectiveTickSettings(settings: BotTickSettings | undefined): BotEffectiveTickSettings {
+	const normalized = mergeTickSettings(undefined, settings);
+	return {
+		enabled: normalized.enabled,
+		intervalSeconds: normalized.intervalSeconds,
+		contextWindowTokens: normalized.contextWindowTokens ?? defaultTickSettings.contextWindowTokens,
+		compactionThreshold: normalized.compactionThreshold,
+		maxToolCallsPerTick: normalized.maxToolCallsPerTick ?? defaultTickSettings.maxToolCallsPerTick,
+		maxSuccessfulToolCallsPerIteration:
+			normalized.maxSuccessfulToolCallsPerIteration ?? defaultTickSettings.maxSuccessfulToolCallsPerIteration,
+	};
+}
+
+function assignOptionalTickNumber(
+	settings: BotTickSettings,
+	key: "contextWindowTokens" | "maxToolCallsPerTick" | "maxSuccessfulToolCallsPerIteration",
+	value: number | null | undefined,
+): void {
+	if (value === undefined) {
+		return;
+	}
+	if (value === null) {
+		delete settings[key];
+		return;
+	}
+	settings[key] = value;
 }
 
 export function mergeInferenceSettings(

@@ -6518,6 +6518,7 @@ describe("Bickr Pages Functions", () => {
 				enabled,
 				status,
 				tick_interval_seconds AS tickIntervalSeconds,
+				context_window_tokens AS contextWindowTokens,
 				max_tool_calls_per_tick AS maxToolCallsPerTick,
 				max_successful_tool_calls_per_iteration AS maxSuccessfulToolCallsPerIteration,
 				next_due_at AS nextDueAt
@@ -6525,18 +6526,29 @@ describe("Bickr Pages Functions", () => {
 			 WHERE bot_id = ?`,
 		)
 			.bind(created.data.bot.id)
-			.first<{ enabled: number; status: string; tickIntervalSeconds: number; maxToolCallsPerTick: number; maxSuccessfulToolCallsPerIteration: number; nextDueAt: string | null }>();
+			.first<{ enabled: number; status: string; tickIntervalSeconds: number; contextWindowTokens: number; maxToolCallsPerTick: number; maxSuccessfulToolCallsPerIteration: number; nextDueAt: string | null }>();
 		expect(created.data.bot.tickSettings).toMatchObject({
 			enabled: false,
 			intervalSeconds: 86_400,
+		});
+		expect(created.data.bot.tickSettings).not.toHaveProperty("contextWindowTokens");
+		expect(created.data.bot.tickSettings).not.toHaveProperty("maxToolCallsPerTick");
+		expect(created.data.bot.tickSettings).not.toHaveProperty("maxSuccessfulToolCallsPerIteration");
+		expect(created.data.bot.effectiveTickSettings).toMatchObject({
+			contextWindowTokens: 20_000,
 			maxToolCallsPerTick: 10,
 			maxSuccessfulToolCallsPerIteration: 8,
 		});
+		const storedCreatedBot = await testEnv.BICKR_KV.get(`v1:bot:${created.data.bot.id}`, { type: "json" }) as BotDocument;
+		expect(storedCreatedBot.tickSettings).not.toHaveProperty("contextWindowTokens");
+		expect(storedCreatedBot.tickSettings).not.toHaveProperty("maxToolCallsPerTick");
+		expect(storedCreatedBot.tickSettings).not.toHaveProperty("maxSuccessfulToolCallsPerIteration");
 		expect(created.data.bot.nextDueAt).toBeNull();
 		expect(runtimeRow).toMatchObject({
 			enabled: 0,
 			status: "idle",
 			tickIntervalSeconds: 86_400,
+			contextWindowTokens: 20_000,
 			maxToolCallsPerTick: 10,
 			maxSuccessfulToolCallsPerIteration: 8,
 			nextDueAt: null,
@@ -6668,16 +6680,67 @@ describe("Bickr Pages Functions", () => {
 			`SELECT
 				enabled,
 				tick_interval_seconds AS tickIntervalSeconds,
+				context_window_tokens AS contextWindowTokens,
+				max_tool_calls_per_tick AS maxToolCallsPerTick,
 				max_successful_tool_calls_per_iteration AS maxSuccessfulToolCallsPerIteration,
 				next_due_at AS nextDueAt
 			 FROM bot_runtime_index
 			 WHERE bot_id = ?`,
 		)
 			.bind(created.data.bot.id)
-			.first<{ enabled: number; tickIntervalSeconds: number; maxSuccessfulToolCallsPerIteration: number; nextDueAt: string | null }>();
-		expect(runtimeAfterPatch).toMatchObject({ enabled: 1, tickIntervalSeconds: 60, maxSuccessfulToolCallsPerIteration: 9 });
+			.first<{ enabled: number; tickIntervalSeconds: number; contextWindowTokens: number; maxToolCallsPerTick: number; maxSuccessfulToolCallsPerIteration: number; nextDueAt: string | null }>();
+		expect(runtimeAfterPatch).toMatchObject({
+			enabled: 1,
+			tickIntervalSeconds: 60,
+			contextWindowTokens: 32_000,
+			maxToolCallsPerTick: 12,
+			maxSuccessfulToolCallsPerIteration: 9,
+		});
 		expect(Date.parse(runtimeAfterPatch?.nextDueAt ?? "")).toBeGreaterThanOrEqual(beforeUnpause - 1_000);
 		expect(Date.parse(runtimeAfterPatch?.nextDueAt ?? "")).toBeLessThanOrEqual(Date.now() + 1_000);
+
+		const clearTickDefaultsResponse = await patchBot(
+			contextFor<typeof patchBot>(
+				jsonRequest(
+					`http://example.com/api/me/bots/${created.data.bot.id}`,
+					"PATCH",
+					{
+						tickSettings: {
+							contextWindowTokens: null,
+							maxToolCallsPerTick: null,
+							maxSuccessfulToolCallsPerIteration: null,
+						},
+					},
+					cookie,
+				),
+				{ botId: created.data.bot.id },
+			),
+		);
+		expect(clearTickDefaultsResponse.status, await clearTickDefaultsResponse.clone().text()).toBe(200);
+		const clearedTickDefaults = (await clearTickDefaultsResponse.json()) as { ok: true; data: { bot: BotBody } };
+		expect(clearedTickDefaults.data.bot.tickSettings).not.toHaveProperty("contextWindowTokens");
+		expect(clearedTickDefaults.data.bot.tickSettings).not.toHaveProperty("maxToolCallsPerTick");
+		expect(clearedTickDefaults.data.bot.tickSettings).not.toHaveProperty("maxSuccessfulToolCallsPerIteration");
+		expect(clearedTickDefaults.data.bot.effectiveTickSettings).toMatchObject({
+			contextWindowTokens: 20_000,
+			maxToolCallsPerTick: 10,
+			maxSuccessfulToolCallsPerIteration: 8,
+		});
+		const runtimeAfterClearingDefaults = await testEnv.BICKR_D1.prepare(
+			`SELECT
+				context_window_tokens AS contextWindowTokens,
+				max_tool_calls_per_tick AS maxToolCallsPerTick,
+				max_successful_tool_calls_per_iteration AS maxSuccessfulToolCallsPerIteration
+			 FROM bot_runtime_index
+			 WHERE bot_id = ?`,
+		)
+			.bind(created.data.bot.id)
+			.first<{ contextWindowTokens: number; maxToolCallsPerTick: number; maxSuccessfulToolCallsPerIteration: number }>();
+		expect(runtimeAfterClearingDefaults).toEqual({
+			contextWindowTokens: 20_000,
+			maxToolCallsPerTick: 10,
+			maxSuccessfulToolCallsPerIteration: 8,
+		});
 
 		const pauseResponse = await patchBot(
 			contextFor<typeof patchBot>(
@@ -9802,6 +9865,11 @@ type BotBody = {
 	tickSettings: {
 		enabled: boolean;
 		intervalSeconds: number;
+		contextWindowTokens?: number;
+		maxToolCallsPerTick?: number;
+		maxSuccessfulToolCallsPerIteration?: number;
+	};
+	effectiveTickSettings: {
 		contextWindowTokens: number;
 		maxToolCallsPerTick: number;
 		maxSuccessfulToolCallsPerIteration: number;

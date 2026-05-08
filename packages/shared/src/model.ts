@@ -247,11 +247,22 @@ export type BotToolSettingsInput = Partial<{
 export type BotTickSettings = {
 	enabled: boolean;
 	intervalSeconds: number;
-	contextWindowTokens: number;
+	contextWindowTokens?: number;
 	compactionThreshold: number;
-	maxToolCallsPerTick: number;
-	maxSuccessfulToolCallsPerIteration: number;
+	maxToolCallsPerTick?: number;
+	maxSuccessfulToolCallsPerIteration?: number;
 };
+
+export type BotEffectiveTickSettings = Required<BotTickSettings>;
+
+export type BotTickSettingsInput = Partial<{
+	enabled: boolean;
+	intervalSeconds: number;
+	contextWindowTokens: number | null;
+	compactionThreshold: number;
+	maxToolCallsPerTick: number | null;
+	maxSuccessfulToolCallsPerIteration: number | null;
+}>;
 
 export const defaultProviderModel = "google/gemma-4-26b-a4b-it:free";
 export const defaultTranslationPrompt = "Translate to English.";
@@ -573,6 +584,7 @@ export type BotSummary = {
 	inferenceSettings: BotInferenceSettings;
 	toolSettings?: BotToolSettings;
 	tickSettings: BotTickSettings;
+	effectiveTickSettings: BotEffectiveTickSettings;
 	importSource?: ChirperImportSource;
 	lastActiveAt?: string;
 	nextDueAt?: string | null;
@@ -1046,7 +1058,7 @@ export type BotContextBudgetInput = {
 	shortBio?: string;
 	inferenceSettings?: BotInferenceSettingsInput;
 	toolSettings?: BotToolSettingsInput;
-	tickSettings?: Partial<Pick<BotTickSettings, "contextWindowTokens">>;
+	tickSettings?: Partial<Pick<BotTickSettingsInput, "contextWindowTokens">>;
 };
 
 export type BotContextBudget = {
@@ -1111,7 +1123,7 @@ export type CreateBotInput = {
 	prompt: string;
 	inferenceSettings?: BotInferenceSettingsInput;
 	toolSettings?: BotToolSettingsInput;
-	tickSettings?: Partial<BotTickSettings>;
+	tickSettings?: BotTickSettingsInput;
 	importSource?: ChirperImportSource;
 };
 
