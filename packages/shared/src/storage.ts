@@ -1,4 +1,5 @@
 import { type EntityDocument } from "./model";
+import { isCloudflareRateLimitError, retryCloudflareOperation } from "./cloudflare";
 
 export const kvKeys = {
 	user: (userId: string) => `v1:user:${userId}`,
@@ -48,7 +49,23 @@ export async function writeJson(
 	value: unknown,
 	options?: { expirationTtl?: number },
 ): Promise<void> {
-	await kv.put(key, JSON.stringify(value), options);
+	const serialized = JSON.stringify(value);
+	await retryKvMutation(`KV put ${key}`, () => kv.put(key, serialized, options));
+}
+
+export async function deleteKey(kv: KVNamespaceLike, key: string): Promise<void> {
+	await retryKvMutation(`KV delete ${key}`, () => kv.delete(key));
+}
+
+function retryKvMutation(operation: string, run: () => Promise<void>): Promise<void> {
+	return retryCloudflareOperation({
+		operation,
+		run,
+		maxAttempts: 5,
+		initialDelayMs: 1_100,
+		maxDelayMs: 8_000,
+		shouldRetry: isCloudflareRateLimitError,
+	});
 }
 
 export async function putObjectIndex(

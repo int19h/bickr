@@ -55,6 +55,7 @@ import {
 import {
 	type D1DatabaseLike,
 	type KVNamespaceLike,
+	deleteKey,
 	kvKeys,
 	putObjectIndex,
 	readJson,
@@ -487,7 +488,7 @@ export async function deleteSession(kv: KVNamespaceLike, token: string | null | 
 		return;
 	}
 
-	await kv.delete(kvKeys.session(await sha256Hex(token)));
+	await deleteKey(kv, kvKeys.session(await sha256Hex(token)));
 }
 
 export function publicUser(user: UserDocument): PublicUser {

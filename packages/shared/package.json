@@ -6,6 +6,7 @@
 	"exports": {
 		"./api": "./src/api.ts",
 		"./bootstrap": "./src/bootstrap.ts",
+		"./cloudflare": "./src/cloudflare.ts",
 		"./governance": "./src/governance.ts",
 		"./ids": "./src/ids.ts",
 		"./model": "./src/model.ts",

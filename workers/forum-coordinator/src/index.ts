@@ -33,6 +33,7 @@ export interface Env {
 type CoordinatorContext = {
 	cache?: ThreadFreshCacheRef;
 	objectId: string;
+	queue?: ExclusiveOperationQueue;
 	storage?: DurableObjectStorage;
 };
 
@@ -49,9 +50,28 @@ type ThreadFreshCacheRef = {
 const threadFreshCacheStorageKey = "thread-fresh-cache";
 const threadFreshCacheTtlMs = 5 * 60 * 1000;
 
+export class ExclusiveOperationQueue {
+	private pending: Promise<void> = Promise.resolve();
+
+	async run<T>(operation: () => Promise<T>): Promise<T> {
+		const ready = this.pending;
+		let release: () => void = () => {};
+		this.pending = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		await ready;
+		try {
+			return await operation();
+		} finally {
+			release();
+		}
+	}
+}
+
 export class WorldCoordinator {
 	private readonly state: DurableObjectState;
 	private readonly env: Env;
+	private readonly queue = new ExclusiveOperationQueue();
 
 	constructor(state: DurableObjectState, env: Env) {
 		this.state = state;
@@ -61,6 +81,7 @@ export class WorldCoordinator {
 	async fetch(request: Request): Promise<Response> {
 		return handleForumCoordinatorRequest(request, this.env, {
 			objectId: this.state.id.toString(),
+			queue: this.queue,
 			storage: this.state.storage,
 		});
 	}
@@ -69,6 +90,7 @@ export class WorldCoordinator {
 export class ForumCoordinator {
 	private readonly state: DurableObjectState;
 	private readonly env: Env;
+	private readonly queue = new ExclusiveOperationQueue();
 	private readonly threadFreshCache: ThreadFreshCacheRef = { entry: null };
 
 	constructor(state: DurableObjectState, env: Env) {
@@ -80,6 +102,7 @@ export class ForumCoordinator {
 		return handleForumCoordinatorRequest(request, this.env, {
 			cache: this.threadFreshCache,
 			objectId: this.state.id.toString(),
+			queue: this.queue,
 			storage: this.state.storage,
 		});
 	}
@@ -90,7 +113,16 @@ export async function handleForumCoordinatorRequest(
 	env: Pick<Env, "BICKR_D1" | "BICKR_KV">,
 	context: CoordinatorContext | string = "direct",
 ): Promise<Response> {
-	const coordinator = typeof context === "string" ? { objectId: context } : context;
+	const coordinator: CoordinatorContext = typeof context === "string" ? { objectId: context } : context;
+	const operation = () => handleForumCoordinatorRequestExclusive(request, env, coordinator);
+	return coordinator.queue ? coordinator.queue.run(operation) : operation();
+}
+
+async function handleForumCoordinatorRequestExclusive(
+	request: Request,
+	env: Pick<Env, "BICKR_D1" | "BICKR_KV">,
+	coordinator: CoordinatorContext,
+): Promise<Response> {
 	try {
 		const url = new URL(request.url);
 

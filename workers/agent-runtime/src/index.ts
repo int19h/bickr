@@ -1,4 +1,5 @@
 import { fail, ok, readJsonBody } from "@bickr/shared/api";
+import { isCloudflareRateLimitError, retryCloudflareOperation } from "@bickr/shared/cloudflare";
 import { deleteForum, deleteWorld } from "@bickr/shared/governance";
 import { json } from "@bickr/shared/http";
 import {
@@ -1045,6 +1046,9 @@ const serviceBindingTimeoutMs = 30_000;
 const serviceBindingResponseBodyMaxBytes = 1_000_000;
 const scheduledDispatchTimeoutMs = 10_000;
 const vectorBindingTimeoutMs = 10_000;
+const cloudflareBindingRetryMaxAttempts = 3;
+const cloudflareBindingRetryInitialDelayMs = 1_000;
+const cloudflareBindingRetryMaxDelayMs = 4_000;
 const providerMaxAttempts = 5;
 const providerRetryBaseDelayMs = 3_000;
 const providerRequiredToolChoice = "required" as const;
@@ -11481,7 +11485,7 @@ async function upsertBotVector(env: BotVectorEnv, bot: BotSummary): Promise<void
 		if (!vector) {
 			return;
 		}
-		await withStandaloneTimeout(
+		await retryIdempotentCloudflareBinding("Profile vector upsert", () => withStandaloneTimeout(
 			"Profile vector upsert",
 			vectorBindingTimeoutMs,
 			() =>
@@ -11497,7 +11501,7 @@ async function upsertBotVector(env: BotVectorEnv, bot: BotSummary): Promise<void
 						},
 					},
 				]),
-		);
+		));
 	} catch (error) {
 		console.warn("bot vector upsert failed", error);
 	}
@@ -11509,11 +11513,11 @@ async function deleteBotVector(env: BotVectorEnv, botId: string): Promise<void> 
 	}
 	const vectorIndex = env.BICKR_BOT_VECTORIZE;
 	try {
-		await withStandaloneTimeout(
+		await retryIdempotentCloudflareBinding("Profile vector delete", () => withStandaloneTimeout(
 			"Profile vector delete",
 			vectorBindingTimeoutMs,
 			() => vectorIndex.deleteByIds([botId]),
-		);
+		));
 	} catch (error) {
 		console.warn("bot vector delete failed", error);
 	}
@@ -11534,12 +11538,14 @@ async function vectorSearchBots(
 		if (!vector) {
 			return [];
 		}
-		const matches = await withStandaloneTimeout("Profile vector query", vectorBindingTimeoutMs, () =>
-			vectorIndex.query(vector, {
-				topK: Math.max(1, Math.min(50, limit)),
-				returnMetadata: true,
-				filter: { worldId },
-			}),
+		const matches = await retryIdempotentCloudflareBinding("Profile vector query", () =>
+			withStandaloneTimeout("Profile vector query", vectorBindingTimeoutMs, () =>
+				vectorIndex.query(vector, {
+					topK: Math.max(1, Math.min(50, limit)),
+					returnMetadata: true,
+					filter: { worldId },
+				}),
+			),
 		);
 		const results: BotSearchResult[] = [];
 		for (const match of matches.matches) {
@@ -11564,16 +11570,29 @@ async function embedText(env: Pick<Env, "AI">, text: string): Promise<number[] |
 		return null;
 	}
 	const ai = env.AI;
-	const response = await withStandaloneTimeout(
-		"Profile embedding",
-		vectorBindingTimeoutMs,
-		() => ai.run(botEmbeddingModel, { text: [text] }) as Promise<EmbeddingResponse>,
+	const response = await retryIdempotentCloudflareBinding("Profile embedding", () =>
+		withStandaloneTimeout(
+			"Profile embedding",
+			vectorBindingTimeoutMs,
+			() => ai.run(botEmbeddingModel, { text: [text] }) as Promise<EmbeddingResponse>,
+		),
 	);
 	return response.data?.[0] ?? null;
 }
 
 function botVectorText(bot: BotSummary): string {
 	return [bot.displayName, `u/${bot.handle}`, bot.shortBio].filter(Boolean).join("\n");
+}
+
+function retryIdempotentCloudflareBinding<T>(operation: string, run: () => Promise<T>): Promise<T> {
+	return retryCloudflareOperation({
+		operation,
+		run,
+		maxAttempts: cloudflareBindingRetryMaxAttempts,
+		initialDelayMs: cloudflareBindingRetryInitialDelayMs,
+		maxDelayMs: cloudflareBindingRetryMaxDelayMs,
+		shouldRetry: isCloudflareRateLimitError,
+	});
 }
 
 function reasoningTextFromDetails(details: ReasoningDetail[]): string {

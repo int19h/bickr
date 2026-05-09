@@ -104,7 +104,7 @@ import {
 	type ProviderToolDefinition,
 } from "../workers/agent-runtime/src/prompt-and-tools";
 import { providerContextReserveTokens } from "../workers/agent-runtime/src/provider-requests";
-import forumCoordinatorWorker, { handleForumCoordinatorRequest } from "../workers/forum-coordinator/src/index";
+import forumCoordinatorWorker, { ExclusiveOperationQueue, handleForumCoordinatorRequest } from "../workers/forum-coordinator/src/index";
 import { pruneStreamEventsForPersistentEvents } from "../apps/web/src/runtime-streams";
 import {
 	botById,
@@ -11492,6 +11492,111 @@ describe("Bickr Pages Functions", () => {
 	expect(expiredPayload.data.thread.comments).toHaveLength(1);
 });
 
+	it("serializes concurrent replies to the same comment through the coordinator queue", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const forum = await createForumForTest(cookie, "reply-serialization");
+		const author = await createBotForTest(cookie, "serialization-author");
+		const firstReplier = await createBotForTest(cookie, "serialization-one");
+		const secondReplier = await createBotForTest(cookie, "serialization-two");
+		const thread = await createThreadForTest(forum.id, author.id, "Concurrent replies", "Root body.");
+		const parent = await createCommentForTest(thread.id, author.id, "Parent for concurrent replies.");
+		const storage = memoryDurableStorage();
+		const firstThreadPutStarted = deferred<void>();
+		const releaseFirstThreadPut = deferred<void>();
+		const context = {
+			cache: { entry: null as ThreadFreshCacheEntryForTest | null },
+			objectId: "reply-serialization-test",
+			queue: new ExclusiveOperationQueue(),
+			storage: storage.storage,
+		};
+		const kv = kvWithDelayedFirstPut(
+			testEnv.BICKR_KV,
+			`v1:thread:${thread.id}`,
+			firstThreadPutStarted,
+			releaseFirstThreadPut,
+		);
+
+		const firstRequest = jsonRequest(
+			`http://example.com/comments/${parent.id}/replies`,
+			"POST",
+			{ body: "First concurrent reply." },
+		);
+		firstRequest.headers.set("x-bickr-bot-id", firstReplier.id);
+		const secondRequest = jsonRequest(
+			`http://example.com/comments/${parent.id}/replies`,
+			"POST",
+			{ body: "Second concurrent reply." },
+		);
+		secondRequest.headers.set("x-bickr-bot-id", secondReplier.id);
+
+		const firstResponse = handleForumCoordinatorRequest(firstRequest, {
+			BICKR_D1: testEnv.BICKR_D1,
+			BICKR_KV: kv,
+		}, context);
+		await firstThreadPutStarted.promise;
+		const secondResponse = handleForumCoordinatorRequest(secondRequest, {
+			BICKR_D1: testEnv.BICKR_D1,
+			BICKR_KV: kv,
+		}, context);
+		releaseFirstThreadPut.resolve();
+
+		const responses = await Promise.all([firstResponse, secondResponse]);
+		expect(responses.map((response) => response.status)).toEqual([201, 201]);
+		const updated = await readThread(testEnv.BICKR_KV, thread.id);
+		const replyBodies = updated.comments
+			.filter((comment) => comment.parentCommentId === parent.id)
+			.map((comment) => comment.body);
+		expect(replyBodies).toEqual([
+			"First concurrent reply.",
+			"Second concurrent reply.",
+		]);
+	});
+
+	it("releases the coordinator queue after a failed same-thread mutation", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const forum = await createForumForTest(cookie, "reply-error-queue");
+		const author = await createBotForTest(cookie, "error-queue-author");
+		const replier = await createBotForTest(cookie, "error-queue-replier");
+		const thread = await createThreadForTest(forum.id, author.id, "Failed reply queue", "Root body.");
+		const context = {
+			cache: { entry: null as ThreadFreshCacheEntryForTest | null },
+			objectId: "reply-error-queue-test",
+			queue: new ExclusiveOperationQueue(),
+			storage: memoryDurableStorage().storage,
+		};
+
+		const failedRequest = jsonRequest(
+			`http://example.com/threads/${thread.id}/comments`,
+			"POST",
+			{ body: "This reply should fail.", parentCommentId: "missing-comment" },
+		);
+		failedRequest.headers.set("x-bickr-bot-id", replier.id);
+		const validRequest = jsonRequest(
+			`http://example.com/threads/${thread.id}/comments`,
+			"POST",
+			{ body: "Reply after failed mutation." },
+		);
+		validRequest.headers.set("x-bickr-bot-id", replier.id);
+
+		const [failedResponse, validResponse] = await Promise.all([
+			handleForumCoordinatorRequest(failedRequest, {
+				BICKR_D1: testEnv.BICKR_D1,
+				BICKR_KV: testEnv.BICKR_KV,
+			}, context),
+			handleForumCoordinatorRequest(validRequest, {
+				BICKR_D1: testEnv.BICKR_D1,
+				BICKR_KV: testEnv.BICKR_KV,
+			}, context),
+		]);
+
+		expect(failedResponse.status).toBe(404);
+		expect(validResponse.status).toBe(201);
+		const updated = await readThread(testEnv.BICKR_KV, thread.id);
+		expect(updated.comments.map((comment) => comment.body)).toContain("Reply after failed mutation.");
+	});
+
 	it("routes comment votes through the owning thread coordinator", async () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);
@@ -13796,6 +13901,43 @@ function memoryDurableStorage(): {
 		} as unknown as DurableObjectStorage,
 		values,
 	};
+}
+
+type Deferred<T> = {
+	promise: Promise<T>;
+	resolve: (value: T | PromiseLike<T>) => void;
+	reject: (reason?: unknown) => void;
+};
+
+function deferred<T>(): Deferred<T> {
+	let resolve: Deferred<T>["resolve"] = () => {};
+	let reject: Deferred<T>["reject"] = () => {};
+	const promise = new Promise<T>((promiseResolve, promiseReject) => {
+		resolve = promiseResolve;
+		reject = promiseReject;
+	});
+	return { promise, resolve, reject };
+}
+
+function kvWithDelayedFirstPut(
+	delegate: KVNamespace,
+	delayedKey: string,
+	started: Deferred<void>,
+	release: Deferred<void>,
+): KVNamespace {
+	let delayed = false;
+	return {
+		get: delegate.get.bind(delegate),
+		put: async (key: string, value: string, options?: { expirationTtl?: number }) => {
+			if (key === delayedKey && !delayed) {
+				delayed = true;
+				started.resolve();
+				await release.promise;
+			}
+			await delegate.put(key, value, options);
+		},
+		delete: delegate.delete.bind(delegate),
+	} as unknown as KVNamespace;
 }
 
 async function authCookie(): Promise<string> {
