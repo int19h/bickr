@@ -1685,6 +1685,7 @@ function App() {
 								bot={editingBot}
 								busy={busy}
 								onSave={updateBot}
+								ownerInferenceSettings={userProfile?.inferenceSettings ?? null}
 								world={activeWorld}
 							/>
 						:	<PermissionState title="Loop is owner-only">
@@ -5186,11 +5187,13 @@ function BotLoopScreen({
 	bot,
 	busy,
 	onSave,
+	ownerInferenceSettings,
 	world,
 }: {
 	bot: BotSummary;
 	busy: boolean;
 	onSave: (botId: string, draft: UpdateBotInput) => Promise<boolean>;
+	ownerInferenceSettings: BotInferenceSettings | null;
 	world: WorldView;
 }) {
 	return (
@@ -5223,7 +5226,7 @@ function BotLoopScreen({
 					</SpaLink>
 				</div>
 			</div>
-			<BotRuntimePanel bot={bot} busy={busy} onSave={onSave} />
+			<BotRuntimePanel bot={bot} busy={busy} onSave={onSave} ownerInferenceSettings={ownerInferenceSettings} />
 		</div>
 	);
 }
@@ -9064,10 +9067,12 @@ function BotRuntimePanel({
 	bot,
 	busy,
 	onSave,
+	ownerInferenceSettings,
 }: {
 	bot: BotSummary;
 	busy: boolean;
 	onSave: (botId: string, draft: UpdateBotInput) => Promise<boolean>;
+	ownerInferenceSettings: BotInferenceSettings | null;
 }) {
 	const [status, setStatus] = useState<BotRuntimeStatus | null>(null);
 	const [events, setEvents] = useState<BotRuntimeEvent[]>([]);
@@ -9093,6 +9098,7 @@ function BotRuntimePanel({
 	const runtimeEnabled = status?.enabled ?? bot.tickSettings.enabled;
 	const toolCallsById = useMemo(() => loopToolCallsById(loopMessages), [loopMessages]);
 	const currentLoopPage = loopMessagePage?.currentPage ?? 1;
+	const currentModel = effectiveBotModel(bot, ownerInferenceSettings);
 
 	useEffect(() => {
 		let closed = false;
@@ -9188,6 +9194,7 @@ function BotRuntimePanel({
 				}
 				rememberLoopMessageSeq(payload.loopMessage);
 				setLoopMessages((current) => upsertLoopMessage(removeLiveProviderLoopMessagesForFinalizedMessage(current, payload.loopMessage!), payload.loopMessage!));
+				void refreshTokenUsage();
 				return;
 			}
 			if (payload.type === "stream_delta" && payload.event) {
@@ -9392,6 +9399,13 @@ function BotRuntimePanel({
 		}
 	}
 
+	async function refreshTokenUsage(): Promise<void> {
+		const result = await api<{ usage: BotTokenUsageStats }>(`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/token-usage`);
+		if (result.ok) {
+			setTokenUsage(result.data.usage);
+		}
+	}
+
 	async function switchLoopPage(page: number): Promise<void> {
 		const targetPage = Math.max(1, Math.floor(page));
 		if (targetPage === currentLoopPageRef.current) {
@@ -9414,8 +9428,6 @@ function BotRuntimePanel({
 		}
 		shouldStickToBottomRef.current = true;
 		currentLoopPageRef.current = 1;
-		setLoopMessagePage(null);
-		setLoopMessages([]);
 		setMessage("Starting tick...");
 		const result = await api<{ run: { runId: string; status: string; error?: string } }>(
 			`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/tick`,
@@ -9593,7 +9605,7 @@ function BotRuntimePanel({
 				<RuntimeRow label="Context budget" value={`${bot.effectiveTickSettings.contextWindowTokens} tokens`} />
 				<RuntimeRow label="Status" value={status?.status ?? "unknown"} />
 				<RuntimeRow label="Next tick" value={formatNextDueAt(status?.nextDueAt, runtimeEnabled, Boolean(status))} />
-				<TokenUsagePanel usage={tokenUsage} />
+				<TokenUsagePanel currentModel={currentModel} usage={tokenUsage} />
 				<ContextWindowBar breakdown={tokenUsage?.contextWindow} loading={!tokenUsage} />
 				<div className="runtime-actions">
 					<button
@@ -9716,9 +9728,9 @@ function BotRuntimePanel({
 	);
 }
 
-function TokenUsagePanel({ usage }: { usage: BotTokenUsageStats | null }) {
+function TokenUsagePanel({ currentModel, usage }: { currentModel: string; usage: BotTokenUsageStats | null }) {
 	const hasUsage = Boolean(usage && usage.last7Days.requestCount > 0);
-	const primaryModel = usage?.models[0];
+	const normalizedCurrentModel = currentModel.trim();
 	return (
 		<div className="token-usage-panel">
 			<div className="token-usage-head">
@@ -9726,7 +9738,6 @@ function TokenUsagePanel({ usage }: { usage: BotTokenUsageStats | null }) {
 					<h3>Token Usage</h3>
 					{usage && <span>{usage.last7Days.requestCount} tracked request{usage.last7Days.requestCount === 1 ? "" : "s"}</span>}
 				</div>
-				{primaryModel && <span className="token-model-pill">{primaryModel.model}</span>}
 			</div>
 			<div className="token-metrics">
 				<div>
@@ -9756,14 +9767,21 @@ function TokenUsagePanel({ usage }: { usage: BotTokenUsageStats | null }) {
 						</tr>
 					</thead>
 					<tbody>
-						{usage.models.map((model) => (
-							<tr key={`${model.model}-${model.contextWindowTokens}`} title={`${model.model}: ${formatTokenUsageTotals(model)}`}>
-								<td className="token-model-name">{model.model}</td>
-								<td>{formatTokenCount(model.totalTokens)}</td>
-								<td>{formatTokenCount(model.cachedTokens)}</td>
-								<td>{formatNullableTokenCost(model.cost)}</td>
-							</tr>
-						))}
+						{usage.models.map((model) => {
+							const current = model.model === normalizedCurrentModel;
+							return (
+								<tr
+									className={current ? "current-model" : undefined}
+									key={`${model.model}-${model.contextWindowTokens}`}
+									title={`${model.model}: ${formatTokenUsageTotals(model)}${current ? "\nCurrent model" : ""}`}
+								>
+									<td className="token-model-name">{model.model}</td>
+									<td>{formatTokenCount(model.totalTokens)}</td>
+									<td>{formatTokenCount(model.cachedTokens)}</td>
+									<td>{formatNullableTokenCost(model.cost)}</td>
+								</tr>
+							);
+						})}
 					</tbody>
 				</table>
 			)}

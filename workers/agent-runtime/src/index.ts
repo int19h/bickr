@@ -5311,7 +5311,7 @@ export class BotRuntime {
 			if (Number.isFinite(usedAt) && usedAt >= last24StartMs) {
 				addUsageRow(last24Hours, row);
 			}
-			const modelKey = `${row.model}\u0000${row.context_window_tokens}`;
+			const modelKey = `${row.requested_model}\u0000${row.context_window_tokens}`;
 			const current = models.get(modelKey);
 			if (current) {
 				addUsageRow(current, row);
@@ -5322,7 +5322,7 @@ export class BotRuntime {
 				addUsageRow(totals, row);
 				models.set(modelKey, {
 					...totals,
-					model: row.model,
+					model: row.requested_model,
 					contextWindowTokens: row.context_window_tokens,
 					firstUsedAt: row.created_at,
 					lastUsedAt: row.created_at,
@@ -5655,15 +5655,15 @@ export class BotRuntime {
 				since,
 			)
 			.toArray()[0];
-		let previousModel = previous?.model;
+		let previousModel = previous?.requested_model;
 		let previousContextWindowTokens = previous?.context_window_tokens;
 		const markers: BotTokenUsageChangeMarker[] = [];
 		for (const row of this.providerUsageRows(since, until)) {
-			if (row.model !== previousModel || row.context_window_tokens !== previousContextWindowTokens) {
+			if (row.requested_model !== previousModel || row.context_window_tokens !== previousContextWindowTokens) {
 				markers.push({
 					usedAt: row.created_at,
 					runId: row.run_id,
-					model: row.model,
+					model: row.requested_model,
 					requestedModel: row.requested_model,
 					...(row.response_model ? { responseModel: row.response_model } : {}),
 					contextWindowTokens: row.context_window_tokens,
@@ -5674,7 +5674,7 @@ export class BotRuntime {
 					cost: row.cost,
 				});
 			}
-			previousModel = row.model;
+			previousModel = row.requested_model;
 			previousContextWindowTokens = row.context_window_tokens;
 		}
 		return markers;

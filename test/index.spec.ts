@@ -3501,6 +3501,48 @@ describe("Bickr Pages Functions", () => {
 		});
 	});
 
+	it("groups token usage by requested model instead of routed response model", () => {
+		const rows = [
+			{
+				...providerLoopUsageRowForTest(1, "2026-05-01T00:00:00.000Z", 100),
+				model: "provider/concrete-a",
+				requested_model: "requested/model-a",
+				response_model: "provider/concrete-a",
+				total_tokens: 150,
+			},
+			{
+				...providerLoopUsageRowForTest(2, "2026-05-01T00:05:00.000Z", 200),
+				model: "provider/concrete-b",
+				requested_model: "requested/model-a",
+				response_model: "provider/concrete-b",
+				total_tokens: 275,
+			},
+			{
+				...providerLoopUsageRowForTest(3, "2026-05-01T00:10:00.000Z", 50),
+				model: "provider/concrete-c",
+				requested_model: "requested/model-b",
+				response_model: "provider/concrete-c",
+				total_tokens: 75,
+			},
+		];
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			providerUsageRows: () => rows,
+			tokenUsageChangeMarkers: () => [],
+			latestActiveLoopCompactionBoundary: () => null,
+			latestLoopProviderUsage: () => null,
+		});
+		const tokenUsageStats = (BotRuntime.prototype as unknown as {
+			tokenUsageStats: (bot: BotDocument, now?: Date) => BotTokenUsageStats;
+		}).tokenUsageStats.bind(runtime);
+
+		const usage = tokenUsageStats(fakeBotDocument({ contextWindowTokens: 16_000 }), new Date("2026-05-01T01:00:00.000Z"));
+
+		expect(usage.models.map((model) => [model.model, model.totalTokens])).toEqual([
+			["requested/model-a", 425],
+			["requested/model-b", 75],
+		]);
+	});
+
 	it("calculates prompt context budget segments and over-budget counts", () => {
 			expect(
 				promptContextBudgetFromCounts({
