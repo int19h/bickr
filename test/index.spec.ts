@@ -1147,6 +1147,12 @@ describe("Bickr Pages Functions", () => {
 			expect(chatRequest.messages[1]).toEqual({
 				...toolCallMessage,
 				content: "",
+				tool_calls: [
+					{
+						...toolCallMessage.tool_calls![0]!,
+						id: "call_1",
+					},
+				],
 			});
 			expect(compactionRequest.messages[0]).toEqual({
 				...reasoningOnlyMessage,
@@ -1759,11 +1765,16 @@ describe("Bickr Pages Functions", () => {
 				expect(repairedBody.messages).toEqual(expect.arrayContaining([
 					expect.objectContaining({
 						role: "assistant",
-						tool_calls: invalidResponse.choices[0]!.message.tool_calls,
+						tool_calls: [
+							expect.objectContaining({
+								id: "call_1",
+								function: invalidResponse.choices[0]!.message.tool_calls[0]!.function,
+							}),
+						],
 					}),
 					expect.objectContaining({
 						role: "tool",
-						tool_call_id: "call_bad_compaction",
+						tool_call_id: "call_1",
 						content: expect.stringContaining("schema_invalid"),
 					}),
 				]));
@@ -1917,7 +1928,7 @@ describe("Bickr Pages Functions", () => {
 				expect(response.content).toBe("I remember the important parts.");
 				const retryBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)) as { messages: BotInferenceSubmissionMessage[] };
 				const repairToolMessage = retryBody.messages.find((message) => message.role === "tool");
-				expect(repairToolMessage?.tool_call_id).toBe("call_read_in_compaction");
+				expect(repairToolMessage?.tool_call_id).toBe("call_1");
 				expect(repairToolMessage?.content).toContain(`Only ${metaCompactionToolName} may be used`);
 			} finally {
 				vi.stubGlobal("fetch", originalFetch);
@@ -5611,7 +5622,7 @@ describe("Bickr Pages Functions", () => {
 		expect(JSON.stringify(request.messages)).not.toContain("dropped");
 	});
 
-	it("rewrites repeated tool call ids across provider request history", () => {
+	it("rewrites provider request tool call ids to compact request-local ids", () => {
 		const request = providerChatCompletionRequest(
 			{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
 			[
@@ -5650,9 +5661,86 @@ describe("Bickr Pages Functions", () => {
 			.filter((message) => message.role === "tool")
 			.map((message) => message.tool_call_id);
 
-		expect(assistantIds).toEqual(["call-repeat", "call-repeat_bickr_2_0"]);
-		expect(toolIds).toEqual(["call-repeat", "call-repeat_bickr_2_0"]);
+		expect(assistantIds).toEqual(["call_1", "call_2"]);
+		expect(toolIds).toEqual(["call_1", "call_2"]);
 		expect(new Set(assistantIds).size).toBe(assistantIds.length);
+	});
+
+	it("shortens long synthetic provider request ids that differ only near the end", () => {
+		const request = providerChatCompletionRequest(
+			{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+			[
+				{
+					role: "assistant",
+					content: "I check two things.",
+					tool_calls: [
+						{
+							id: "synthetic_a444be5d-a813-48cf-be41-10c161645fc7_0",
+							type: "function",
+							function: { name: "read_thread", arguments: "{\"threadId\":\"thr_first\"}" },
+						},
+						{
+							id: "synthetic_a444be5d-a813-48cf-be41-10c161645fc7_1",
+							type: "function",
+							function: { name: "read_thread", arguments: "{\"threadId\":\"thr_second\"}" },
+						},
+					],
+				},
+				{ role: "tool", tool_call_id: "synthetic_a444be5d-a813-48cf-be41-10c161645fc7_0", content: "{\"ok\":true,\"first\":true}" },
+				{ role: "tool", tool_call_id: "synthetic_a444be5d-a813-48cf-be41-10c161645fc7_1", content: "{\"ok\":true,\"second\":true}" },
+			],
+			[],
+		);
+
+		const assistant = request.messages.find((message) => Array.isArray(message.tool_calls));
+		expect(assistant?.tool_calls?.map((toolCall) => toolCall.id)).toEqual(["call_1", "call_2"]);
+		expect(request.messages.filter((message) => message.role === "tool").map((message) => message.tool_call_id)).toEqual(["call_1", "call_2"]);
+		expect(JSON.stringify(request.messages)).not.toContain("synthetic_a444be5d");
+	});
+
+	it("keeps rewritten provider request ids stable when new messages append", () => {
+		const initialMessages: BotInferenceSubmissionMessage[] = [
+			{
+				role: "assistant",
+				content: null,
+				tool_calls: [
+					{
+						id: "synthetic_first_long_id_that_may_be_provider_normalized_0",
+						type: "function",
+						function: { name: "read_thread", arguments: "{\"threadId\":\"thr_first\"}" },
+					},
+				],
+			},
+			{ role: "tool", tool_call_id: "synthetic_first_long_id_that_may_be_provider_normalized_0", content: "{\"ok\":true,\"first\":true}" },
+		];
+		const initialRequest = providerChatCompletionRequest(
+			{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+			initialMessages,
+			[],
+		);
+		const extendedRequest = providerChatCompletionRequest(
+			{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+			[
+				...initialMessages,
+				{
+					role: "assistant",
+					content: null,
+					tool_calls: [
+						{
+							id: "synthetic_second_long_id_that_may_be_provider_normalized_0",
+							type: "function",
+							function: { name: "read_thread", arguments: "{\"threadId\":\"thr_second\"}" },
+						},
+					],
+				},
+				{ role: "tool", tool_call_id: "synthetic_second_long_id_that_may_be_provider_normalized_0", content: "{\"ok\":true,\"second\":true}" },
+			],
+			[],
+		);
+
+		expect(extendedRequest.messages.slice(0, initialRequest.messages.length)).toEqual(initialRequest.messages);
+		expect(extendedRequest.messages.flatMap((message) => message.tool_calls?.map((toolCall) => toolCall.id) ?? [])).toEqual(["call_1", "call_2"]);
+		expect(extendedRequest.messages.filter((message) => message.role === "tool").map((message) => message.tool_call_id)).toEqual(["call_1", "call_2"]);
 	});
 
 	it("repairs invalid Unicode and truncates without splitting surrogate pairs", () => {

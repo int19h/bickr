@@ -1717,7 +1717,7 @@ function sanitizeProviderMessageForRequest(message: ChatMessage): ChatMessage {
 
 function sanitizeProviderMessageSequenceForRequest(messages: readonly ChatMessage[]): ChatMessage[] {
 	const sanitized: ChatMessage[] = [];
-	const usedToolCallIds = new Set<string>();
+	let nextToolCallId = 1;
 	for (let index = 0; index < messages.length; index += 1) {
 		const message = messages[index]!;
 		if (message.role === "tool") {
@@ -1729,9 +1729,11 @@ function sanitizeProviderMessageSequenceForRequest(messages: readonly ChatMessag
 		}
 
 		const toolCallSanitization = sanitizeProviderToolCalls(message.tool_calls);
-		const retainedToolCalls = toolCallSanitization.toolCalls.map((toolCall, toolIndex) => {
-			const id = uniqueProviderRequestToolCallId(toolCall.id, index, toolIndex, usedToolCallIds);
-			usedToolCallIds.add(id);
+		const retainedToolCalls = toolCallSanitization.toolCalls.map((toolCall) => {
+			// Some providers reject long IDs that only differ late in the string. Compact
+			// request-local IDs keep the cacheable prefix stable as new messages append.
+			const id = providerRequestToolCallId(nextToolCallId);
+			nextToolCallId += 1;
 			return id === toolCall.id ? toolCall : { ...toolCall, id };
 		});
 		const rewrittenIdsByOriginal = new Map<string, string>();
@@ -1772,18 +1774,8 @@ function sanitizeProviderMessageSequenceForRequest(messages: readonly ChatMessag
 	return sanitized;
 }
 
-function uniqueProviderRequestToolCallId(id: string, messageIndex: number, toolIndex: number, usedIds: ReadonlySet<string>): string {
-	if (!usedIds.has(id)) {
-		return id;
-	}
-	const base = `${id}_bickr_${messageIndex}_${toolIndex}`;
-	let candidate = base;
-	let suffix = 2;
-	while (usedIds.has(candidate)) {
-		candidate = `${base}_${suffix}`;
-		suffix += 1;
-	}
-	return candidate;
+function providerRequestToolCallId(index: number): string {
+	return `call_${index}`;
 }
 
 function repairProviderMessageUnicode(message: ChatMessage): InvalidUnicodeRepair<ChatMessage> {
