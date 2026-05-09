@@ -6,17 +6,24 @@ import {
 	type AuthProvider,
 	type BotInferenceSettingsInput,
 	type BotInferenceSettings,
+	type BotCompactionMode,
+	type BotInferenceToolCalls,
+	type BotInferenceReasoningEffort,
 	type BotDocument,
+	type BotEffectiveTickSettings,
 	type BotPublicProfile,
 	type BotSummary,
+	type BotStructuredToolCalls,
 	type BotTranslationSettings,
 	type BotTranslationSettingsInput,
 	type BotToolSettings,
 	type BotToolSettingsInput,
 	type BotTickSettings,
+	type BotTickSettingsInput,
 	type CreateBotInput,
 	type CreateForumInput,
 	type CreateWorldInput,
+	type ApiErrorDetails,
 	type OpenRouterDatetimeToolSettings,
 	type OpenRouterDatetimeToolSettingsInput,
 	type OpenRouterServerToolSettings,
@@ -29,6 +36,12 @@ import {
 	type OpenRouterWebSearchUserLocationInput,
 	type ForumDocument,
 	type ForumSummary,
+	type HumanOwnedBotGroup,
+	type HumanOwnedForumGroup,
+	type HumanProfile,
+	type HumanProfileDeleteBlocker,
+	type HumanProfileDeleteEligibility,
+	type JsonObject,
 	type LinkedAuthIdentity,
 	type PublicUser,
 	type SessionDocument,
@@ -52,18 +65,23 @@ import { slugifyHandle } from "./validation";
 export class RepositoryError extends Error {
 	readonly code: "bad_request" | "conflict" | "forbidden" | "not_found" | "server_error" | "unauthorized";
 	readonly status: number;
+	readonly details?: RepositoryErrorDetails;
 
 	constructor(
 		code: "bad_request" | "conflict" | "forbidden" | "not_found" | "server_error" | "unauthorized",
 		message: string,
 		status: number,
+		details?: RepositoryErrorDetails,
 	) {
 		super(message);
 		this.name = "RepositoryError";
 		this.code = code;
 		this.status = status;
+		this.details = details;
 	}
 }
+
+export type RepositoryErrorDetails = ApiErrorDetails;
 
 export type ProviderUserProfile = {
 	provider: AuthProvider;
@@ -85,6 +103,16 @@ type ProviderIdentityRow = {
 	updatedAt: string;
 };
 
+type PublicUserIndexRow = {
+	id: string;
+	handle: string;
+	displayName: string;
+	avatarUrl: string | null;
+	profileCompletedAt: string | null;
+	createdAt: string;
+	updatedAt: string;
+};
+
 export type SessionCreateResult = {
 	cookieValue: string;
 	session: SessionDocument;
@@ -94,13 +122,19 @@ const sessionTtlSeconds = 60 * 60 * 24 * 30;
 export const defaultInitialBotNotification =
 	"You have just finished creating your Bickr account and logged in for the first time.";
 export const introForumHandle = "intro";
-const introForumDescription = "Introductions, first posts, and orientation for new participants in this world.";
-export const defaultTickSettings: BotTickSettings = {
+const introForumDescription = "Introductions, first threads, and orientation for new participants in this world.";
+export const defaultTickSettings: BotEffectiveTickSettings = {
 	enabled: false,
 	intervalSeconds: 86_400,
-	contextWindowTokens: 16_000,
+	allowEarlyLogOff: false,
+	contextWindowTokens: 20_000,
 	compactionThreshold: 0.75,
-	maxToolCallsPerTick: 8,
+	compactionSummaryPercent: 10,
+	compactionMaxCharacters: 4_000,
+	maxToolCallsPerTick: 10,
+	maxSuccessfulToolCallsPerIteration: 8,
+	maxGeneratedTokensPerTick: 15_000,
+	maxGeneratedTokensPerIteration: 30_000,
 };
 export const defaultInferenceSettings: BotInferenceSettings = {};
 export const defaultToolSettings: BotToolSettings = {};
@@ -436,7 +470,8 @@ export async function userForSessionToken(
 		return null;
 	}
 
-	return readJson<UserDocument>(kv, kvKeys.user(session.userId));
+	const user = await readJson<UserDocument>(kv, kvKeys.user(session.userId));
+	return user && !user.deletedAt ? user : null;
 }
 
 export async function userById(kv: KVNamespaceLike, userId: string): Promise<UserDocument> {
@@ -466,6 +501,17 @@ export function publicUser(user: UserDocument): PublicUser {
 	};
 }
 
+function publicUserFromIndexRow(row: PublicUserIndexRow): PublicUser {
+	return {
+		id: row.id,
+		handle: row.handle,
+		displayName: row.displayName,
+		...(row.avatarUrl ? { avatarUrl: row.avatarUrl } : {}),
+		profileComplete: Boolean(row.profileCompletedAt),
+		...(row.profileCompletedAt ? { profileCompletedAt: row.profileCompletedAt } : {}),
+	};
+}
+
 export function userProfile(user: UserDocument, authIdentities: LinkedAuthIdentity[] = []): UserProfile {
 	const normalized = normalizeUserDefaults(user);
 	return {
@@ -475,6 +521,68 @@ export function userProfile(user: UserDocument, authIdentities: LinkedAuthIdenti
 		createdAt: normalized.createdAt,
 		updatedAt: normalized.updatedAt,
 	};
+}
+
+export async function publicUserByHandle(db: D1DatabaseLike, handle: string): Promise<PublicUser> {
+	const row = await db
+		.prepare(
+			`SELECT
+				user_id AS id,
+				handle,
+				display_name AS displayName,
+				avatar_url AS avatarUrl,
+				profile_completed_at AS profileCompletedAt,
+				created_at AS createdAt,
+				updated_at AS updatedAt
+			 FROM users_index
+			 WHERE handle = ? AND deleted_at IS NULL`,
+		)
+		.bind(handle)
+		.first<PublicUserIndexRow>();
+	if (!row) {
+		throw new RepositoryError("not_found", "Profile not found.", 404);
+	}
+	return publicUserFromIndexRow(row);
+}
+
+export async function publicUserById(db: D1DatabaseLike, userId: string): Promise<PublicUser> {
+	const users = await publicUsersByIds(db, [userId]);
+	const user = users.get(userId);
+	if (!user) {
+		throw new RepositoryError("not_found", "Profile not found.", 404);
+	}
+	return user;
+}
+
+async function publicUsersByIds(db: D1DatabaseLike, userIds: string[]): Promise<Map<string, PublicUser>> {
+	const ids = [...new Set(userIds.filter(Boolean))];
+	const users = new Map<string, PublicUser>();
+	for (let index = 0; index < ids.length; index += 90) {
+		const batch = ids.slice(index, index + 90);
+		if (batch.length === 0) {
+			continue;
+		}
+		const placeholders = batch.map(() => "?").join(", ");
+		const result = await db
+			.prepare(
+				`SELECT
+					user_id AS id,
+					handle,
+					display_name AS displayName,
+					avatar_url AS avatarUrl,
+					profile_completed_at AS profileCompletedAt,
+					created_at AS createdAt,
+					updated_at AS updatedAt
+				 FROM users_index
+				 WHERE user_id IN (${placeholders}) AND deleted_at IS NULL`,
+			)
+			.bind(...batch)
+			.all<PublicUserIndexRow>();
+		for (const row of result.results ?? []) {
+			users.set(row.id, publicUserFromIndexRow(row));
+		}
+	}
+	return users;
 }
 
 export function botPublicProfile(bot: BotDocument | BotSummary): BotPublicProfile {
@@ -705,6 +813,14 @@ export async function createForum(
 	return forumSummary(forum);
 }
 
+async function attachBotOwners(db: D1DatabaseLike, bots: BotSummary[]): Promise<BotSummary[]> {
+	const owners = await publicUsersByIds(db, bots.map((bot) => bot.ownerUserId));
+	return bots.map((bot) => {
+		const owner = owners.get(bot.ownerUserId);
+		return owner ? { ...bot, owner } : bot;
+	});
+}
+
 export async function listUserBots(
 	kv: KVNamespaceLike,
 	db: D1DatabaseLike,
@@ -757,13 +873,13 @@ export async function listUserBots(
 		.filter((bot): bot is BotDocument => Boolean(bot && !bot.deletedAt))
 		.map((bot) => normalizeBotDefaults(bot));
 
-	return activeBots.map((bot) => {
+	return attachBotOwners(db, activeBots.map((bot) => {
 		const runtime = runtimeById.get(bot.id);
 		return botSummaryWithLastActive(bot, runtime?.lastActiveAt, {
 			includeToolSettings: true,
 			nextDueAt: runtime?.nextDueAt ?? null,
 		});
-	});
+	}));
 }
 
 export async function createBot(
@@ -806,10 +922,7 @@ export async function createBot(
 		prompt: input.prompt,
 		inferenceSettings,
 		toolSettings,
-		tickSettings: {
-			...defaultTickSettings,
-			...(input.tickSettings ?? {}),
-		},
+		tickSettings: mergeTickSettings(undefined, input.tickSettings),
 		...(input.importSource ? { importSource: input.importSource } : {}),
 		createdAt: now,
 		updatedAt: now,
@@ -840,7 +953,11 @@ export async function createBot(
 	}
 	await putObjectIndex(db, bot, "bot", bot.homeWorldId);
 
-	return botSummary(bot, { includeToolSettings: true, nextDueAt: await botRuntimeNextDueAt(db, bot.id) });
+	return botSummary(bot, {
+		includeToolSettings: true,
+		nextDueAt: await botRuntimeNextDueAt(db, bot.id),
+		owner: publicUser(owner),
+	});
 }
 
 export async function updateBot(
@@ -861,10 +978,7 @@ export async function updateBot(
 		...input,
 		inferenceSettings,
 		toolSettings,
-		tickSettings: {
-			...bot.tickSettings,
-			...(input.tickSettings ?? {}),
-		},
+		tickSettings: mergeTickSettings(bot.tickSettings, input.tickSettings),
 		revision: bot.revision + 1,
 		updatedAt: now,
 	};
@@ -874,7 +988,11 @@ export async function updateBot(
 	await upsertBotRuntimeIndex(db, updated, now, shouldRescheduleBotRuntime(bot.tickSettings, updated.tickSettings, input.tickSettings));
 	await putObjectIndex(db, updated, "bot", updated.homeWorldId);
 
-	return botSummary(updated, { includeToolSettings: true, nextDueAt: await botRuntimeNextDueAt(db, updated.id) });
+	return botSummary(updated, {
+		includeToolSettings: true,
+		nextDueAt: await botRuntimeNextDueAt(db, updated.id),
+		owner: publicUser(owner),
+	});
 }
 
 export async function deleteBot(
@@ -885,6 +1003,7 @@ export async function deleteBot(
 	now = new Date().toISOString(),
 ): Promise<BotSummary> {
 	const bot = await botForOwner(kv, db, botId, userId);
+	const owner = await publicUserById(db, userId);
 	const deleted: BotDocument = {
 		...bot,
 		revision: bot.revision + 1,
@@ -897,7 +1016,7 @@ export async function deleteBot(
 	await disableBotRuntime(db, deleted.id, now);
 	await putObjectIndex(db, deleted, "bot", deleted.homeWorldId);
 
-	return botSummary(deleted, { includeToolSettings: true, nextDueAt: null });
+	return botSummary(deleted, { includeToolSettings: true, nextDueAt: null, owner });
 }
 
 export async function botById(kv: KVNamespaceLike, db: D1DatabaseLike, botId: string): Promise<BotDocument> {
@@ -983,13 +1102,384 @@ export async function listWorldBots(
 	);
 	const bots = await Promise.all(rows.map((row) => readJson<BotDocument>(kv, kvKeys.bot(row.id))));
 	const activeBots = bots.filter((bot): bot is BotDocument => Boolean(bot && !bot.deletedAt)).map((bot) => normalizeBotDefaults(bot));
-	return activeBots.map((bot) => {
+	return attachBotOwners(db, activeBots.map((bot) => {
 		const runtime = runtimeById.get(bot.id);
 		return botSummaryWithLastActive(bot, runtime?.lastActiveAt, {
 			includePrompt: false,
 			nextDueAt: runtime?.nextDueAt ?? null,
 		});
-	});
+	}));
+}
+
+export async function humanProfileByHandle(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	handle: string,
+	viewerUserId?: string | null,
+): Promise<HumanProfile> {
+	const user = await publicUserByHandle(db, handle);
+	const [worlds, forumsByWorld, bots, deleteEligibility] = await Promise.all([
+		listOwnedWorlds(db, user.id),
+		listOwnedForumsByWorld(db, user.id),
+		listUserBots(kv, db, user.id),
+		viewerUserId === user.id ? humanProfileDeleteEligibility(db, user.id) : Promise.resolve(undefined),
+	]);
+	const botsByWorld = await groupBotsByWorld(db, bots);
+	return {
+		user,
+		worlds,
+		forumsByWorld,
+		botsByWorld,
+		totals: {
+			worlds: worlds.length,
+			forums: forumsByWorld.reduce((count, group) => count + group.forums.length, 0),
+			bots: bots.length,
+		},
+		isSelf: viewerUserId === user.id,
+		...(deleteEligibility ? { deleteEligibility } : {}),
+	};
+}
+
+export async function listOwnedWorlds(db: D1DatabaseLike, userId: string): Promise<WorldSummary[]> {
+	const result = await db
+		.prepare(
+			`SELECT
+				world_id AS id,
+				handle,
+				name,
+				description,
+				initial_bot_notification AS initialBotNotification,
+				created_by_user_id AS createdByUserId,
+				created_at AS createdAt,
+				updated_at AS updatedAt
+			 FROM worlds_index
+			 WHERE created_by_user_id = ? AND deleted_at IS NULL
+			 ORDER BY lower(handle) ASC`,
+		)
+		.bind(userId)
+		.all<WorldSummary>();
+	return result.results ?? [];
+}
+
+export async function listOwnedForumsOutsideOwnedWorlds(
+	db: D1DatabaseLike,
+	userId: string,
+): Promise<ForumSummary[]> {
+	const result = await db
+		.prepare(
+			`SELECT
+				f.forum_id AS id,
+				f.world_id AS worldId,
+				f.world_handle AS worldHandle,
+				f.handle,
+				CASE
+					WHEN f.personal_bot_id IS NOT NULL AND b.bot_id IS NOT NULL
+						THEN 'Blog of ' || b.display_name || ' (u/' || b.handle || ')'
+					ELSE f.description
+				END AS description,
+				f.created_by_user_id AS createdByUserId,
+				f.personal_bot_id AS personalBotId,
+				f.created_at AS createdAt,
+				f.updated_at AS updatedAt
+			 FROM forums_index f
+			 JOIN worlds_index w ON w.world_id = f.world_id AND w.deleted_at IS NULL
+			 LEFT JOIN bots_index b ON b.bot_id = f.personal_bot_id AND b.deleted_at IS NULL
+			 WHERE f.created_by_user_id = ?
+			   AND f.deleted_at IS NULL
+			   AND w.created_by_user_id != ?
+			 ORDER BY lower(f.world_handle) ASC, lower(f.handle) ASC`,
+		)
+		.bind(userId, userId)
+		.all<ForumSummary>();
+	return result.results ?? [];
+}
+
+export async function humanProfileDeleteEligibility(
+	db: D1DatabaseLike,
+	userId: string,
+): Promise<HumanProfileDeleteEligibility> {
+	const blockers = await foreignBotBlockersForOwnedWorlds(db, userId);
+	return {
+		canDelete: blockers.length === 0,
+		blockers,
+	};
+}
+
+export async function softDeleteUserProfile(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	userId: string,
+	now = new Date().toISOString(),
+): Promise<PublicUser> {
+	const current = await userById(kv, userId);
+	const tombstoneHandle = deletedUserHandle(current.id);
+	const deleted: UserDocument = {
+		...current,
+		handle: tombstoneHandle,
+		revision: current.revision + 1,
+		updatedAt: now,
+		deletedAt: now,
+	};
+	await writeJson(kv, kvKeys.user(deleted.id), deleted);
+	await db
+		.prepare(
+			`UPDATE users_index
+			 SET handle = ?, updated_at = ?, deleted_at = ?
+			 WHERE user_id = ? AND deleted_at IS NULL`,
+		)
+		.bind(tombstoneHandle, now, now, deleted.id)
+		.run();
+	await db.prepare(`DELETE FROM provider_identities WHERE user_id = ?`).bind(deleted.id).run();
+	await putObjectIndex(db, deleted, "user");
+	return publicUser(deleted);
+}
+
+async function listOwnedForumsByWorld(
+	db: D1DatabaseLike,
+	userId: string,
+): Promise<HumanOwnedForumGroup[]> {
+	type ForumWithWorldRow = ForumSummary & {
+		groupWorldId: string;
+		groupWorldHandle: string;
+		groupWorldName: string;
+		groupWorldDescription: string;
+		groupWorldInitialBotNotification: string;
+		groupWorldCreatedByUserId: string;
+		groupWorldCreatedAt: string;
+		groupWorldUpdatedAt: string;
+	};
+	const result = await db
+		.prepare(
+			`SELECT
+				f.forum_id AS id,
+				f.world_id AS worldId,
+				f.world_handle AS worldHandle,
+				f.handle,
+				CASE
+					WHEN f.personal_bot_id IS NOT NULL AND b.bot_id IS NOT NULL
+						THEN 'Blog of ' || b.display_name || ' (u/' || b.handle || ')'
+					ELSE f.description
+				END AS description,
+				f.created_by_user_id AS createdByUserId,
+				f.personal_bot_id AS personalBotId,
+				f.created_at AS createdAt,
+				f.updated_at AS updatedAt,
+				w.world_id AS groupWorldId,
+				w.handle AS groupWorldHandle,
+				w.name AS groupWorldName,
+				w.description AS groupWorldDescription,
+				w.initial_bot_notification AS groupWorldInitialBotNotification,
+				w.created_by_user_id AS groupWorldCreatedByUserId,
+				w.created_at AS groupWorldCreatedAt,
+				w.updated_at AS groupWorldUpdatedAt
+			 FROM forums_index f
+			 JOIN worlds_index w ON w.world_id = f.world_id AND w.deleted_at IS NULL
+			 LEFT JOIN bots_index b ON b.bot_id = f.personal_bot_id AND b.deleted_at IS NULL
+			 WHERE f.created_by_user_id = ?
+			   AND f.deleted_at IS NULL
+			   AND f.personal_bot_id IS NULL
+			 ORDER BY lower(w.handle) ASC, lower(f.handle) ASC`,
+		)
+		.bind(userId)
+		.all<ForumWithWorldRow>();
+	const groups = new Map<string, HumanOwnedForumGroup>();
+	for (const row of result.results ?? []) {
+		let group = groups.get(row.groupWorldId);
+		if (!group) {
+			group = {
+				world: {
+					id: row.groupWorldId,
+					handle: row.groupWorldHandle,
+					name: row.groupWorldName,
+					description: row.groupWorldDescription,
+					initialBotNotification: row.groupWorldInitialBotNotification,
+					createdByUserId: row.groupWorldCreatedByUserId,
+					createdAt: row.groupWorldCreatedAt,
+					updatedAt: row.groupWorldUpdatedAt,
+				},
+				forums: [],
+			};
+			groups.set(row.groupWorldId, group);
+		}
+		group.forums.push({
+			id: row.id,
+			worldId: row.worldId,
+			worldHandle: row.worldHandle,
+			handle: row.handle,
+			description: row.description,
+			createdByUserId: row.createdByUserId,
+			...(row.personalBotId ? { personalBotId: row.personalBotId } : {}),
+			createdAt: row.createdAt,
+			updatedAt: row.updatedAt,
+		});
+	}
+	return [...groups.values()];
+}
+
+async function groupBotsByWorld(db: D1DatabaseLike, bots: BotSummary[]): Promise<HumanOwnedBotGroup[]> {
+	const worldsById = await worldSummariesByIds(db, bots.map((bot) => bot.homeWorldId));
+	const groups = new Map<string, HumanOwnedBotGroup>();
+	for (const bot of [...bots].sort((left, right) =>
+		left.homeWorldHandle.localeCompare(right.homeWorldHandle) || left.handle.localeCompare(right.handle),
+	)) {
+		const world = worldsById.get(bot.homeWorldId);
+		if (!world) {
+			continue;
+		}
+		let group = groups.get(world.id);
+		if (!group) {
+			group = { world, bots: [] };
+			groups.set(world.id, group);
+		}
+		group.bots.push(bot);
+	}
+	return [...groups.values()];
+}
+
+async function worldSummariesByIds(
+	db: D1DatabaseLike,
+	worldIds: string[],
+): Promise<Map<string, WorldSummary>> {
+	const ids = [...new Set(worldIds.filter(Boolean))];
+	const worlds = new Map<string, WorldSummary>();
+	for (let index = 0; index < ids.length; index += 90) {
+		const batch = ids.slice(index, index + 90);
+		if (batch.length === 0) {
+			continue;
+		}
+		const placeholders = batch.map(() => "?").join(", ");
+		const result = await db
+			.prepare(
+				`SELECT
+					world_id AS id,
+					handle,
+					name,
+					description,
+					initial_bot_notification AS initialBotNotification,
+					created_by_user_id AS createdByUserId,
+					created_at AS createdAt,
+					updated_at AS updatedAt
+				 FROM worlds_index
+				 WHERE world_id IN (${placeholders}) AND deleted_at IS NULL`,
+			)
+			.bind(...batch)
+			.all<WorldSummary>();
+		for (const world of result.results ?? []) {
+			worlds.set(world.id, world);
+		}
+	}
+	return worlds;
+}
+
+async function foreignBotBlockersForOwnedWorlds(
+	db: D1DatabaseLike,
+	userId: string,
+): Promise<HumanProfileDeleteBlocker[]> {
+	type BlockingBotRow = {
+		worldId: string;
+		worldHandle: string;
+		worldName: string;
+		worldDescription: string;
+		worldInitialBotNotification: string;
+		worldCreatedByUserId: string;
+		worldCreatedAt: string;
+		worldUpdatedAt: string;
+		botId: string;
+		homeWorldId: string;
+		homeWorldHandle: string;
+		handle: string;
+		displayName: string;
+		shortBio: string;
+		createdAt: string;
+		updatedAt: string;
+		ownerUserId: string;
+		ownerHandle: string | null;
+		ownerDisplayName: string | null;
+		ownerAvatarUrl: string | null;
+		ownerProfileCompletedAt: string | null;
+	};
+	const result = await db
+		.prepare(
+			`SELECT
+				w.world_id AS worldId,
+				w.handle AS worldHandle,
+				w.name AS worldName,
+				w.description AS worldDescription,
+				w.initial_bot_notification AS worldInitialBotNotification,
+				w.created_by_user_id AS worldCreatedByUserId,
+				w.created_at AS worldCreatedAt,
+				w.updated_at AS worldUpdatedAt,
+				b.bot_id AS botId,
+				b.home_world_id AS homeWorldId,
+				b.home_world_handle AS homeWorldHandle,
+				b.handle,
+				b.display_name AS displayName,
+				b.short_bio AS shortBio,
+				b.created_at AS createdAt,
+				b.updated_at AS updatedAt,
+				b.owner_user_id AS ownerUserId,
+				u.handle AS ownerHandle,
+				u.display_name AS ownerDisplayName,
+				u.avatar_url AS ownerAvatarUrl,
+				u.profile_completed_at AS ownerProfileCompletedAt
+			 FROM worlds_index w
+			 JOIN bots_index b ON b.home_world_id = w.world_id AND b.deleted_at IS NULL
+			 LEFT JOIN users_index u ON u.user_id = b.owner_user_id AND u.deleted_at IS NULL
+			 WHERE w.created_by_user_id = ?
+			   AND w.deleted_at IS NULL
+			   AND b.owner_user_id != ?
+			 ORDER BY lower(w.handle) ASC, lower(b.handle) ASC`,
+		)
+		.bind(userId, userId)
+		.all<BlockingBotRow>();
+	const groups = new Map<string, HumanProfileDeleteBlocker>();
+	for (const row of result.results ?? []) {
+		let group = groups.get(row.worldId);
+		if (!group) {
+			group = {
+				type: "foreign_bots_in_owned_world",
+				world: {
+					id: row.worldId,
+					handle: row.worldHandle,
+					name: row.worldName,
+					description: row.worldDescription,
+					initialBotNotification: row.worldInitialBotNotification,
+					createdByUserId: row.worldCreatedByUserId,
+					createdAt: row.worldCreatedAt,
+					updatedAt: row.worldUpdatedAt,
+				},
+				bots: [],
+			};
+			groups.set(row.worldId, group);
+		}
+		group.bots.push({
+			id: row.botId,
+			homeWorldId: row.homeWorldId,
+			homeWorldHandle: row.homeWorldHandle,
+			handle: row.handle,
+			displayName: row.displayName,
+			shortBio: row.shortBio,
+			createdAt: row.createdAt,
+			updatedAt: row.updatedAt,
+			...(row.ownerHandle && row.ownerDisplayName ?
+				{
+					owner: {
+						id: row.ownerUserId,
+						handle: row.ownerHandle,
+						displayName: row.ownerDisplayName,
+						...(row.ownerAvatarUrl ? { avatarUrl: row.ownerAvatarUrl } : {}),
+						profileComplete: Boolean(row.ownerProfileCompletedAt),
+						...(row.ownerProfileCompletedAt ? { profileCompletedAt: row.ownerProfileCompletedAt } : {}),
+					},
+				}
+			:	{}),
+		});
+	}
+	return [...groups.values()];
+}
+
+function deletedUserHandle(userId: string): string {
+	return `deleted-${userId.replace(/[^a-z0-9_-]/gi, "-").slice(0, 24)}`.slice(0, 32);
 }
 
 export async function worldByHandle(
@@ -1116,13 +1606,14 @@ function forumSummary(forum: ForumDocument): ForumSummary {
 
 function botSummary(
 	bot: BotDocument,
-	options: { includePrompt?: boolean; includeToolSettings?: boolean; nextDueAt?: string | null } = {},
+	options: { includePrompt?: boolean; includeToolSettings?: boolean; nextDueAt?: string | null; owner?: PublicUser } = {},
 ): BotSummary {
 	return {
 		id: bot.id,
 		homeWorldId: bot.homeWorldId,
 		homeWorldHandle: bot.homeWorldHandle,
 		ownerUserId: bot.ownerUserId,
+		...(options.owner ? { owner: options.owner } : {}),
 		handle: bot.handle,
 		displayName: bot.displayName,
 		shortBio: bot.shortBio,
@@ -1130,6 +1621,7 @@ function botSummary(
 		inferenceSettings: publicInferenceSettings(bot.inferenceSettings),
 		...(options.includeToolSettings ? { toolSettings: publicToolSettings(bot.toolSettings) } : {}),
 		tickSettings: bot.tickSettings,
+		effectiveTickSettings: effectiveTickSettings(bot.tickSettings),
 		...(bot.importSource ? { importSource: bot.importSource } : {}),
 		...(options.nextDueAt !== undefined ? { nextDueAt: options.nextDueAt } : {}),
 		createdAt: bot.createdAt,
@@ -1140,7 +1632,7 @@ function botSummary(
 function botSummaryWithLastActive(
 	bot: BotDocument,
 	lastActiveAt?: string | null,
-	options: { includePrompt?: boolean; includeToolSettings?: boolean; nextDueAt?: string | null } = {},
+	options: { includePrompt?: boolean; includeToolSettings?: boolean; nextDueAt?: string | null; owner?: PublicUser } = {},
 ): BotSummary {
 	return {
 		...botSummary(bot, options),
@@ -1314,17 +1806,21 @@ async function upsertBotRuntimeIndex(
 	now: string,
 	options: { reschedule?: boolean; scheduleIfMissing?: boolean } = {},
 ): Promise<void> {
+	const settings = effectiveTickSettings(bot.tickSettings);
 	const nextDue =
-		!bot.tickSettings.enabled ? null
+		!settings.enabled ? null
 		: options.scheduleIfMissing ? now
-		: new Date(Date.parse(now) + bot.tickSettings.intervalSeconds * 1000).toISOString();
+		: new Date(Date.parse(now) + settings.intervalSeconds * 1000).toISOString();
 	await db
 		.prepare(
 			`INSERT INTO bot_runtime_index (
 				bot_id, owner_user_id, world_id, enabled, tick_interval_seconds, context_window_tokens,
-				compaction_threshold, max_tool_calls_per_tick, next_due_at, status, active_run_id,
+				compaction_threshold, compaction_summary_percent, compaction_max_characters,
+				max_tool_calls_per_tick, max_successful_tool_calls_per_iteration,
+				max_generated_tokens_per_tick, max_generated_tokens_per_iteration,
+				next_due_at, status, active_run_id,
 				lease_expires_at, last_error, created_at, updated_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'idle', NULL, NULL, NULL, ?, ?)
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'idle', NULL, NULL, NULL, ?, ?)
 			ON CONFLICT(bot_id) DO UPDATE SET
 				owner_user_id = excluded.owner_user_id,
 				world_id = excluded.world_id,
@@ -1332,7 +1828,12 @@ async function upsertBotRuntimeIndex(
 				tick_interval_seconds = excluded.tick_interval_seconds,
 				context_window_tokens = excluded.context_window_tokens,
 				compaction_threshold = excluded.compaction_threshold,
+				compaction_summary_percent = excluded.compaction_summary_percent,
+				compaction_max_characters = excluded.compaction_max_characters,
 				max_tool_calls_per_tick = excluded.max_tool_calls_per_tick,
+				max_successful_tool_calls_per_iteration = excluded.max_successful_tool_calls_per_iteration,
+				max_generated_tokens_per_tick = excluded.max_generated_tokens_per_tick,
+				max_generated_tokens_per_iteration = excluded.max_generated_tokens_per_iteration,
 				next_due_at = CASE
 					WHEN excluded.enabled = 0 THEN NULL
 					WHEN ? THEN COALESCE(bot_runtime_index.next_due_at, excluded.next_due_at)
@@ -1346,11 +1847,16 @@ async function upsertBotRuntimeIndex(
 			bot.id,
 			bot.ownerUserId,
 			bot.homeWorldId,
-			bot.tickSettings.enabled ? 1 : 0,
-			bot.tickSettings.intervalSeconds,
-			bot.tickSettings.contextWindowTokens,
-			bot.tickSettings.compactionThreshold,
-			bot.tickSettings.maxToolCallsPerTick,
+			settings.enabled ? 1 : 0,
+			settings.intervalSeconds,
+			settings.contextWindowTokens,
+			settings.compactionThreshold,
+			settings.compactionSummaryPercent,
+			settings.compactionMaxCharacters,
+			settings.maxToolCallsPerTick,
+			settings.maxSuccessfulToolCallsPerIteration,
+			settings.maxGeneratedTokensPerTick,
+			settings.maxGeneratedTokensPerIteration,
 			nextDue,
 			now,
 			now,
@@ -1363,7 +1869,7 @@ async function upsertBotRuntimeIndex(
 function shouldRescheduleBotRuntime(
 	previous: BotTickSettings,
 	next: BotTickSettings,
-	patch?: Partial<BotTickSettings>,
+	patch?: BotTickSettingsInput,
 ): { reschedule?: boolean; scheduleIfMissing?: boolean } {
 	if (!patch) {
 		return {};
@@ -1393,10 +1899,7 @@ function normalizeBotDefaults(bot: BotDocument): BotDocument {
 		...bot,
 		inferenceSettings: mergeInferenceSettings(undefined, bot.inferenceSettings),
 		toolSettings: mergeToolSettings(undefined, bot.toolSettings),
-		tickSettings: {
-			...defaultTickSettings,
-			...(bot.tickSettings ?? {}),
-		},
+		tickSettings: mergeTickSettings(undefined, bot.tickSettings),
 	};
 }
 
@@ -1407,6 +1910,107 @@ function normalizeUserDefaults(user: UserDocument): UserDocument {
 	};
 }
 
+export function mergeTickSettings(
+	current: BotTickSettings | undefined,
+	patch?: BotTickSettingsInput | BotTickSettings,
+): BotTickSettings {
+	const next: BotTickSettings = {
+		enabled: current?.enabled ?? defaultTickSettings.enabled,
+		intervalSeconds: current?.intervalSeconds ?? defaultTickSettings.intervalSeconds,
+		...(current?.allowEarlyLogOff !== undefined ? { allowEarlyLogOff: current.allowEarlyLogOff } : {}),
+		...(current?.contextWindowTokens !== undefined ? { contextWindowTokens: current.contextWindowTokens } : {}),
+		compactionThreshold: current?.compactionThreshold ?? defaultTickSettings.compactionThreshold,
+		...(current?.compactionSummaryPercent !== undefined ? { compactionSummaryPercent: current.compactionSummaryPercent } : {}),
+		...(current?.compactionMaxCharacters !== undefined ? { compactionMaxCharacters: current.compactionMaxCharacters } : {}),
+		...(current?.maxToolCallsPerTick !== undefined ? { maxToolCallsPerTick: current.maxToolCallsPerTick } : {}),
+		...(current?.maxSuccessfulToolCallsPerIteration !== undefined ?
+			{ maxSuccessfulToolCallsPerIteration: current.maxSuccessfulToolCallsPerIteration }
+		:	{}),
+		...(current?.maxGeneratedTokensPerTick !== undefined ? { maxGeneratedTokensPerTick: current.maxGeneratedTokensPerTick } : {}),
+		...(current?.maxGeneratedTokensPerIteration !== undefined ?
+			{ maxGeneratedTokensPerIteration: current.maxGeneratedTokensPerIteration }
+		:	{}),
+	};
+	if (!patch) {
+		return next;
+	}
+
+	if (patch.enabled !== undefined) {
+		next.enabled = patch.enabled;
+	}
+	if (patch.intervalSeconds !== undefined) {
+		next.intervalSeconds = patch.intervalSeconds;
+	}
+	assignOptionalTickBoolean(next, "allowEarlyLogOff", patch.allowEarlyLogOff);
+	assignOptionalTickNumber(next, "contextWindowTokens", patch.contextWindowTokens);
+	if (patch.compactionThreshold !== undefined) {
+		next.compactionThreshold = patch.compactionThreshold;
+	}
+	assignOptionalTickNumber(next, "compactionSummaryPercent", patch.compactionSummaryPercent);
+	assignOptionalTickNumber(next, "compactionMaxCharacters", patch.compactionMaxCharacters);
+	assignOptionalTickNumber(next, "maxToolCallsPerTick", patch.maxToolCallsPerTick);
+	assignOptionalTickNumber(next, "maxSuccessfulToolCallsPerIteration", patch.maxSuccessfulToolCallsPerIteration);
+	assignOptionalTickNumber(next, "maxGeneratedTokensPerTick", patch.maxGeneratedTokensPerTick);
+	assignOptionalTickNumber(next, "maxGeneratedTokensPerIteration", patch.maxGeneratedTokensPerIteration);
+	return next;
+}
+
+export function effectiveTickSettings(settings: BotTickSettings | undefined): BotEffectiveTickSettings {
+	const normalized = mergeTickSettings(undefined, settings);
+	return {
+		enabled: normalized.enabled,
+		intervalSeconds: normalized.intervalSeconds,
+		allowEarlyLogOff: normalized.allowEarlyLogOff ?? defaultTickSettings.allowEarlyLogOff,
+		contextWindowTokens: normalized.contextWindowTokens ?? defaultTickSettings.contextWindowTokens,
+		compactionThreshold: normalized.compactionThreshold,
+		compactionSummaryPercent: normalized.compactionSummaryPercent ?? defaultTickSettings.compactionSummaryPercent,
+		compactionMaxCharacters: normalized.compactionMaxCharacters ?? defaultTickSettings.compactionMaxCharacters,
+		maxToolCallsPerTick: normalized.maxToolCallsPerTick ?? defaultTickSettings.maxToolCallsPerTick,
+		maxSuccessfulToolCallsPerIteration:
+			normalized.maxSuccessfulToolCallsPerIteration ?? defaultTickSettings.maxSuccessfulToolCallsPerIteration,
+		maxGeneratedTokensPerTick: normalized.maxGeneratedTokensPerTick ?? defaultTickSettings.maxGeneratedTokensPerTick,
+		maxGeneratedTokensPerIteration:
+			normalized.maxGeneratedTokensPerIteration ?? defaultTickSettings.maxGeneratedTokensPerIteration,
+	};
+}
+
+function assignOptionalTickBoolean(
+	settings: BotTickSettings,
+	key: "allowEarlyLogOff",
+	value: boolean | null | undefined,
+): void {
+	if (value === undefined) {
+		return;
+	}
+	if (value === null) {
+		delete settings[key];
+		return;
+	}
+	settings[key] = value;
+}
+
+function assignOptionalTickNumber(
+	settings: BotTickSettings,
+	key:
+		| "contextWindowTokens"
+		| "compactionSummaryPercent"
+		| "compactionMaxCharacters"
+		| "maxToolCallsPerTick"
+		| "maxSuccessfulToolCallsPerIteration"
+		| "maxGeneratedTokensPerTick"
+		| "maxGeneratedTokensPerIteration",
+	value: number | null | undefined,
+): void {
+	if (value === undefined) {
+		return;
+	}
+	if (value === null) {
+		delete settings[key];
+		return;
+	}
+	settings[key] = value;
+}
+
 export function mergeInferenceSettings(
 	current: BotInferenceSettings | undefined,
 	patch?: BotInferenceSettingsInput | BotInferenceSettings,
@@ -1414,9 +2018,17 @@ export function mergeInferenceSettings(
 	const next: BotInferenceSettings = {
 		...defaultInferenceSettings,
 		...(current ?? {}),
-		...(current?.translation ? { translation: { ...current.translation } } : {}),
+		...(current?.translation ? { translation: cloneTranslationSettings(current.translation) } : {}),
+		...(current?.providerRouting ? { providerRouting: cloneJsonObject(current.providerRouting) } : {}),
 	};
 	delete next.openRouterApiKeySet;
+	if (!next.recurringPrompt && next.reasoningPrefill) {
+		next.recurringPrompt = next.reasoningPrefill;
+	}
+	delete next.reasoningPrefill;
+	if (next.recurringPromptEnabled !== false) {
+		delete next.recurringPromptEnabled;
+	}
 	if (!patch) {
 		return next;
 	}
@@ -1424,7 +2036,17 @@ export function mergeInferenceSettings(
 	assignInferenceString(next, "openRouterApiKey", patch.openRouterApiKey);
 	assignInferenceString(next, "baseUrl", patch.baseUrl);
 	assignInferenceString(next, "model", patch.model);
-	assignInferencePreservedString(next, "reasoningPrefill", patch.reasoningPrefill);
+	assignInferenceCompactionMode(next, "compactionMode", patch.compactionMode);
+	assignInferenceBoolean(next, "cacheFriendlyCompaction", patch.cacheFriendlyCompaction);
+	assignInferenceDefaultTrueBoolean(next, "recurringPromptEnabled", patch.recurringPromptEnabled);
+	const recurringPromptPatch = Object.prototype.hasOwnProperty.call(patch, "recurringPrompt")
+		? patch.recurringPrompt
+		: patch.reasoningPrefill;
+	assignInferencePreservedString(next, "recurringPrompt", recurringPromptPatch);
+	assignInferenceBoolean(next, "supportsPrefill", patch.supportsPrefill);
+	assignInferenceReasoningEffort(next, "reasoningEffort", patch.reasoningEffort);
+	assignInferenceToolCalls(next, "toolCalls", patch.toolCalls);
+	assignInferenceJsonObject(next, "providerRouting", patch.providerRouting);
 	if (patch.translation !== undefined) {
 		const translation = mergeTranslationSettings(next.translation, patch.translation);
 		if (translation) {
@@ -1440,6 +2062,9 @@ export function mergeInferenceSettings(
 	assignInferenceNumber(next, "frequencyPenalty", patch.frequencyPenalty);
 	assignInferenceNumber(next, "presencePenalty", patch.presencePenalty);
 	assignInferenceNumber(next, "repetitionPenalty", patch.repetitionPenalty);
+	if (next.recurringPromptEnabled !== false) {
+		delete next.recurringPromptEnabled;
+	}
 	return next;
 }
 
@@ -1454,7 +2079,9 @@ export function enforceInferenceModelAccess(
 		hasInferenceText(inherited?.baseUrl);
 	if (!canCustomizeModel) {
 		delete settings.model;
-		delete settings.translation;
+		if (settings.translation) {
+			delete settings.translation.model;
+		}
 	}
 	return settings;
 }
@@ -1746,7 +2373,7 @@ function assignInferenceString(
 
 function assignInferencePreservedString(
 	settings: BotInferenceSettings,
-	key: "reasoningPrefill",
+	key: "recurringPrompt",
 	value: string | null | undefined,
 ): void {
 	if (value === undefined) {
@@ -1757,6 +2384,111 @@ function assignInferencePreservedString(
 		return;
 	}
 	settings[key] = value;
+}
+
+function assignInferenceDefaultTrueBoolean(
+	settings: BotInferenceSettings,
+	key: "recurringPromptEnabled",
+	value: boolean | null | undefined,
+): void {
+	if (value === undefined) {
+		return;
+	}
+	if (value === false) {
+		settings[key] = false;
+		return;
+	}
+	delete settings[key];
+}
+
+function assignInferenceBoolean(
+	settings: BotInferenceSettings,
+	key: "cacheFriendlyCompaction" | "supportsPrefill",
+	value: boolean | null | undefined,
+): void {
+	if (value === undefined) {
+		return;
+	}
+	if (value === null) {
+		delete settings[key];
+		return;
+	}
+	settings[key] = value;
+}
+
+function assignInferenceReasoningEffort<T extends { reasoningEffort?: BotInferenceReasoningEffort }>(
+	settings: T,
+	key: "reasoningEffort",
+	value: BotInferenceReasoningEffort | null | undefined,
+): void {
+	if (value === undefined) {
+		return;
+	}
+	if (value === null || value === "default") {
+		delete settings[key];
+		return;
+	}
+	settings[key] = value;
+}
+
+function assignInferenceToolCalls<T extends { toolCalls?: BotInferenceToolCalls }>(
+	settings: T,
+	key: "toolCalls",
+	value: BotInferenceToolCalls | null | undefined,
+): void {
+	if (value === undefined) {
+		return;
+	}
+	if (value === null) {
+		delete settings[key];
+		return;
+	}
+	settings[key] = value;
+}
+
+function assignInferenceCompactionMode<T extends { compactionMode?: BotCompactionMode }>(
+	settings: T,
+	key: "compactionMode",
+	value: BotCompactionMode | null | undefined,
+): void {
+	if (value === undefined) {
+		return;
+	}
+	if (value === null) {
+		delete settings[key];
+		return;
+	}
+	settings[key] = value;
+}
+
+function assignStructuredToolCalls<T extends { toolCalls?: BotStructuredToolCalls }>(
+	settings: T,
+	key: "toolCalls",
+	value: BotStructuredToolCalls | null | undefined,
+): void {
+	if (value === undefined) {
+		return;
+	}
+	if (value === null) {
+		delete settings[key];
+		return;
+	}
+	settings[key] = value;
+}
+
+function assignInferenceJsonObject(
+	settings: BotInferenceSettings,
+	key: "providerRouting",
+	value: JsonObject | null | undefined,
+): void {
+	if (value === undefined) {
+		return;
+	}
+	if (value === null) {
+		delete settings[key];
+		return;
+	}
+	settings[key] = cloneJsonObject(value);
 }
 
 type InferenceNumberSettingKey =
@@ -1783,6 +2515,17 @@ function assignInferenceNumber(
 	settings[key] = value;
 }
 
+function cloneJsonObject(value: JsonObject): JsonObject {
+	return JSON.parse(JSON.stringify(value)) as JsonObject;
+}
+
+function cloneTranslationSettings(settings: BotTranslationSettings): BotTranslationSettings {
+	return {
+		...settings,
+		...(settings.providerRouting ? { providerRouting: cloneJsonObject(settings.providerRouting) } : {}),
+	};
+}
+
 function mergeTranslationSettings(
 	current: BotTranslationSettings | undefined,
 	patch: BotTranslationSettingsInput | BotTranslationSettings | null,
@@ -1790,16 +2533,29 @@ function mergeTranslationSettings(
 	if (patch === null) {
 		return undefined;
 	}
-	const next: BotTranslationSettings = { ...(current ?? {}) };
+	const next: BotTranslationSettings = current ? cloneTranslationSettings(current) : {};
+	if (patch.enabled !== undefined) {
+		next.enabled = Boolean(patch.enabled);
+	}
 	assignTranslationString(next, "model", patch.model);
 	assignTranslationString(next, "prompt", patch.prompt);
-	if (!hasInferenceText(next.model)) {
-		return undefined;
+	if (next.enabled === undefined && hasInferenceText(next.model)) {
+		next.enabled = true;
 	}
-	if (!hasInferenceText(next.prompt)) {
+	assignInferenceReasoningEffort(next, "reasoningEffort", patch.reasoningEffort);
+	assignStructuredToolCalls(next, "toolCalls", patch.toolCalls);
+	assignTranslationJsonObject(next, "providerRouting", patch.providerRouting);
+	assignTranslationNumber(next, "temperature", patch.temperature);
+	assignTranslationNumber(next, "topK", patch.topK);
+	assignTranslationNumber(next, "topP", patch.topP);
+	assignTranslationNumber(next, "minP", patch.minP);
+	assignTranslationNumber(next, "frequencyPenalty", patch.frequencyPenalty);
+	assignTranslationNumber(next, "presencePenalty", patch.presencePenalty);
+	assignTranslationNumber(next, "repetitionPenalty", patch.repetitionPenalty);
+	if ((next.enabled || hasInferenceText(next.model)) && !hasInferenceText(next.prompt)) {
 		next.prompt = defaultTranslationPrompt;
 	}
-	return next;
+	return translationSettingsHasValues(next) ? next : undefined;
 }
 
 function assignTranslationString(
@@ -1820,6 +2576,56 @@ function assignTranslationString(
 	} else {
 		delete settings[key];
 	}
+}
+
+function assignTranslationJsonObject(
+	settings: BotTranslationSettings,
+	key: "providerRouting",
+	value: JsonObject | null | undefined,
+): void {
+	if (value === undefined) {
+		return;
+	}
+	if (value === null) {
+		delete settings[key];
+		return;
+	}
+	settings[key] = cloneJsonObject(value);
+}
+
+type TranslationNumberSettingKey = Exclude<InferenceNumberSettingKey, never>;
+
+function assignTranslationNumber(
+	settings: BotTranslationSettings,
+	key: TranslationNumberSettingKey,
+	value: number | null | undefined,
+): void {
+	if (value === undefined) {
+		return;
+	}
+	if (value === null) {
+		delete settings[key];
+		return;
+	}
+	settings[key] = value;
+}
+
+function translationSettingsHasValues(settings: BotTranslationSettings): boolean {
+	return (
+		settings.enabled !== undefined ||
+		hasInferenceText(settings.model) ||
+		hasInferenceText(settings.prompt) ||
+		settings.reasoningEffort !== undefined ||
+		settings.toolCalls !== undefined ||
+		settings.providerRouting !== undefined ||
+		settings.temperature !== undefined ||
+		settings.topK !== undefined ||
+		settings.topP !== undefined ||
+		settings.minP !== undefined ||
+		settings.frequencyPenalty !== undefined ||
+		settings.presencePenalty !== undefined ||
+		settings.repetitionPenalty !== undefined
+	);
 }
 
 function hasInferenceText(value: string | undefined): boolean {

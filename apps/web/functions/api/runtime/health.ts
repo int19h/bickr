@@ -1,12 +1,13 @@
 import { json } from "@bickr/shared/http";
+import { fetchServiceJson } from "../_proxy";
 
 async function serviceHealth(service: Fetcher, path: string): Promise<unknown> {
-	const response = await service.fetch(new Request(`https://internal.bickr${path}`));
+	const { response, payload } = await fetchServiceJson(service, new Request(`https://internal.bickr${path}`));
 
 	return {
 		ok: response.ok,
 		status: response.status,
-		body: await response.json(),
+		body: payload,
 	};
 }
 

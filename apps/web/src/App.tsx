@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useId, useMemo, useRef, useState 
 import type { AriaRole, CSSProperties, MouseEvent as ReactMouseEvent, ReactNode } from "react";
 import {
 	defaultProviderModel,
+	defaultReasoningPrefill,
 	defaultTranslationPrompt,
 	authProviders,
 	type AuthProvider,
@@ -11,7 +12,12 @@ import {
 	type BotContextBudget,
 	type BotInferenceSubmissionMessage,
 	type BotLoopMessage,
+	type BotLoopMessagePage,
+	type BotLoopMessagesResponse,
 	type BotLoopMessageLog,
+	type BotLoopMessageLogsResponse,
+	type BotLoopMessageRequestLogMessage,
+	type BotLoopMessageRequestUsage,
 	type BotSummary,
 	type BotPublicProfile,
 	type BotRuntimeEvent,
@@ -21,18 +27,27 @@ import {
 	type CommentDocument,
 	type BotInferenceSettings,
 	type BotInferenceSettingsInput,
+	type BotCompactionMode,
 	type ChirperImportPreview,
 	type BotToolSettings,
 	type CreateForumInput,
 	type CreateWorldInput,
 	type ForumSummary,
+	type HumanOwnedBotGroup,
+	type HumanOwnedForumGroup,
+	type HumanOwnedTotals,
 	type HumanNotification,
+	type HumanNotificationListScope,
+	type HumanNotificationReadScope,
 	type HumanNotificationSummary,
+	type HumanProfile,
+	type HumanProfileDeleteBlocker,
 	type HumanSubscription,
 	type HumanSubscriptionScope,
+	type JsonObject,
 	type LinkedAuthIdentity,
 	type PublicUser,
-	type SearchPostResult,
+	type SearchThreadResult,
 	type SpotlightDeliveryResult,
 	type SpotlightPreview,
 	type SpotlightTargetType,
@@ -44,9 +59,9 @@ import {
 	type UpdateWorldInput,
 	type UserProfile,
 	type VoteDetail,
-	type WorldSummary,
 	type WorldActivityFeed,
 	type WorldActivityItem,
+	type WorldSummary,
 } from "@bickr/shared/model";
 import {
 	handleHelpText,
@@ -54,10 +69,12 @@ import {
 	isValidHandleText,
 	maxBotPromptLength,
 	maxBotReasoningPrefillLength,
+	maxProviderRoutingJsonLength,
 	normalizeHandleText,
 	sanitizeHandleInput,
 } from "@bickr/shared/validation";
 import {
+	contextWindowBarSegments,
 	interpolateTokenUsageChartValue,
 	type TokenUsageChartPoint,
 } from "./token-usage-chart";
@@ -69,6 +86,17 @@ import {
 	type OpenRouterWebSearchToolDraft,
 } from "./tool-settings-draft";
 import { prettyJsonText } from "./inference-submission-formatting";
+import {
+	isLiveProviderLoopMessage,
+	removeLiveProviderLoopMessagesForFinalizedMessage,
+	removeLiveProviderLoopMessagesForFinalizedMessages,
+	removeLiveProviderLoopMessagesForRun,
+	upsertLiveProviderLoopMessage,
+} from "./loop-message-streams";
+import { loopMessageSort } from "./loop-message-order";
+import { loopContinuationRowsForPage } from "./loop-page-continuations";
+import { loopPagePagerItems } from "./loop-page-pager";
+import { normalizeReadableText, reasoningDetailsTextForDisplay, textValueForDisplay } from "./reasoning-formatting";
 import "./App.css";
 
 type ApiSuccess<T> = { ok: true; data: T };
@@ -90,14 +118,22 @@ type Route =
 	| "bot-edit"
 	| "my-bots"
 	| "notifications"
+	| "human-profile"
 	| "profile";
-type WorldTab = "forums" | "bots" | "activity" | "lore";
-type BotProfileTab = "activity" | "follows";
+type WorldTab = "forums" | "bots" | "activity" | "notifications" | "lore";
+type BotProfileTab = "activity" | "follows" | "notifications";
 type BotActivityKindFilter = "all" | "posts" | "replies" | "votes" | "follows";
+type HumanProfileTab = "worlds" | "forums" | "bots";
 type BotCreateTab = "manual" | "clone" | "chirper";
 type ImportState = "idle" | "loading" | "preview" | "error";
 type ThemePreference = "system" | "light" | "dark";
 type NotificationGroupMode = "world" | "bot";
+type LoadHumanNotifications = (
+	status: "unread" | "all",
+	limit?: number,
+	offset?: number,
+	scope?: HumanNotificationListScope,
+) => Promise<HumanNotificationSummary | null>;
 
 type ParsedRoute = {
 	route: Route;
@@ -106,11 +142,23 @@ type ParsedRoute = {
 	threadId?: string;
 	commentId?: string;
 	botHandle?: string;
+	botProfileTab?: BotProfileTab;
+	botActivityId?: string;
+	humanHandle?: string;
 	worldTab?: WorldTab;
 };
 
 type ReferenceKind = "world" | "forum" | "bot" | "human";
+type ReferenceMeta = { title: string; description: ReactNode };
 type OpenReference = (kind: ReferenceKind, name: string, context?: { worldHandle?: string }) => void;
+type LoopToolCall = NonNullable<BotInferenceSubmissionMessage["tool_calls"]>[number];
+type LoopToolCallContext = {
+	id: string;
+	name: string;
+	args: Record<string, unknown>;
+	result?: unknown;
+};
+type JsonRecord = Record<string, unknown>;
 
 type BotDraft = {
 	handle: string;
@@ -126,9 +174,26 @@ type InferenceDraft = {
 	openRouterApiKeySet: boolean;
 	baseUrl: string;
 	model: string;
-	reasoningPrefill: string;
+	compactionMode: BotCompactionMode;
+	recurringPromptEnabled: boolean;
+	recurringPrompt: string;
+	supportsPrefill: boolean;
+	reasoningEffort: string;
+	toolCalls: string;
+	providerRouting: string;
+	translationEnabled: boolean;
 	translationModel: string;
 	translationPrompt: string;
+	translationReasoningEffort: string;
+	translationToolCalls: string;
+	translationProviderRouting: string;
+	translationTemperature: string;
+	translationTopK: string;
+	translationTopP: string;
+	translationMinP: string;
+	translationFrequencyPenalty: string;
+	translationPresencePenalty: string;
+	translationRepetitionPenalty: string;
 	temperature: string;
 	topK: string;
 	topP: string;
@@ -146,7 +211,22 @@ type PromptBudgetState =
 
 type InferenceModelUnlockContext = {
 	apiKeySet?: boolean;
+	openRouterApiKey?: string;
+	openRouterApiKeySet?: boolean;
 	baseUrl?: string;
+	model?: string;
+	compactionMode?: BotCompactionMode;
+	providerRouting?: JsonObject;
+	reasoningEffort?: BotInferenceSettings["reasoningEffort"];
+	supportsPrefill?: boolean;
+	toolCalls?: BotInferenceSettings["toolCalls"];
+	temperature?: number;
+	topK?: number;
+	topP?: number;
+	minP?: number;
+	frequencyPenalty?: number;
+	presencePenalty?: number;
+	repetitionPenalty?: number;
 };
 
 type ProfileDraft = {
@@ -162,6 +242,7 @@ type RuntimeMonitorPayload = {
 	message?: string;
 	loopMessage?: BotLoopMessage;
 	seq?: number;
+	deletedAt?: string;
 };
 
 type WorldView = WorldSummary & {
@@ -178,6 +259,7 @@ type ReferenceData = {
 	bots: BotSummary[];
 	botsByWorld: Record<string, BotSummary[]>;
 	forumsByWorld: Record<string, ForumSummary[]>;
+	humans: PublicUser[];
 	worlds: WorldView[];
 };
 
@@ -260,6 +342,7 @@ const ReferenceDataContext = createContext<ReferenceData>({
 	bots: [],
 	botsByWorld: {},
 	forumsByWorld: {},
+	humans: [],
 	worlds: [],
 });
 const NavigationContext = createContext<{ navigate: (parsed: ParsedRoute) => void }>({
@@ -297,6 +380,9 @@ function App() {
 	const [activeThreadId, setActiveThreadId] = useState<string | null>(initialRoute.threadId ?? null);
 	const [activeCommentId, setActiveCommentId] = useState<string | null>(initialRoute.commentId ?? null);
 	const [activeBotHandle, setActiveBotHandle] = useState<string | null>(initialRoute.botHandle ?? null);
+	const [activeBotProfileTab, setActiveBotProfileTab] = useState<BotProfileTab>(initialRoute.botProfileTab ?? "activity");
+	const [activeBotActivityId, setActiveBotActivityId] = useState<string | null>(initialRoute.botActivityId ?? null);
+	const [activeHumanHandle, setActiveHumanHandle] = useState<string | null>(initialRoute.humanHandle ?? null);
 	const [activeWorldTab, setActiveWorldTab] = useState<WorldTab>(initialRoute.worldTab ?? "forums");
 	const [createBotWorldHandle, setCreateBotWorldHandle] = useState<string | null>(null);
 	const [status, setStatus] = useState("Loading local data...");
@@ -427,15 +513,35 @@ function App() {
 		createBotWorldHandle ?
 			worldViews.find((world) => world.handle === createBotWorldHandle) ?? null
 		: null;
+	const knownHumans = useMemo<PublicUser[]>(() => {
+		const byId = new Map<string, PublicUser>();
+		const add = (user: PublicUser | null | undefined) => {
+			if (user) {
+				byId.set(user.id, user);
+			}
+		};
+		add(session.user);
+		add(userProfile);
+		for (const bot of bots) {
+			add(bot.owner);
+		}
+		for (const worldBots of Object.values(botsByWorld)) {
+			for (const bot of worldBots) {
+				add(bot.owner);
+			}
+		}
+		return [...byId.values()];
+	}, [bots, botsByWorld, session.user, userProfile]);
 	const referenceData = useMemo<ReferenceData>(
 		() => ({
 			activeWorldHandle,
 			bots,
 			botsByWorld,
 			forumsByWorld,
+			humans: knownHumans,
 			worlds: worldViews,
 		}),
-		[activeWorldHandle, bots, botsByWorld, forumsByWorld, worldViews],
+		[activeWorldHandle, bots, botsByWorld, forumsByWorld, knownHumans, worldViews],
 	);
 	const hoverTooltip = useMemo<HoverTooltipContextValue>(
 		() => ({
@@ -448,13 +554,16 @@ function App() {
 	);
 	const translationContext = useMemo<TranslationContextValue>(() => {
 		const translation = userProfile?.inferenceSettings.translation;
-		const model = translation?.model?.trim() ?? "";
+		const model =
+			translation?.model?.trim() ||
+			userProfile?.inferenceSettings.model?.trim() ||
+			defaultProviderModel;
 		return {
-			enabled: model.length > 0,
+			enabled: Boolean(translation?.enabled),
 			model,
 			prompt: translation?.prompt?.trim() || defaultTranslationPrompt,
 		};
-	}, [userProfile?.inferenceSettings.translation]);
+	}, [userProfile?.inferenceSettings.model, userProfile?.inferenceSettings.translation]);
 	const activeBotBlogForum =
 		activeBot ? activeForums.find((forum) => forum.personalBotId === activeBot.id) ?? null : null;
 	const ownedBotModels = useMemo(() => {
@@ -488,6 +597,9 @@ function App() {
 		setActiveThreadId(parsed.threadId ?? null);
 		setActiveCommentId(parsed.commentId ?? null);
 		setActiveBotHandle(parsed.botHandle ?? null);
+		setActiveBotProfileTab(parsed.route === "bot-profile" ? parsed.botProfileTab ?? "activity" : "activity");
+		setActiveBotActivityId(parsed.route === "bot-profile" ? parsed.botActivityId ?? null : null);
+		setActiveHumanHandle(parsed.humanHandle ?? null);
 		setActiveWorldTab(parsed.route === "world" ? parsed.worldTab ?? "forums" : "forums");
 	}
 
@@ -711,6 +823,7 @@ function App() {
 		status: "unread" | "all" = "unread",
 		limit = status === "all" ? 50 : 30,
 		offset = 0,
+		scope: HumanNotificationListScope = { scopeType: "all" },
 	): Promise<HumanNotificationSummary | null> {
 		const params = new URLSearchParams({
 			status,
@@ -718,6 +831,10 @@ function App() {
 		});
 		if (offset > 0) {
 			params.set("offset", String(offset));
+		}
+		if (scope.scopeType !== "all") {
+			params.set("scopeType", scope.scopeType);
+			params.set("scopeId", scope.scopeId);
 		}
 		const result = await api<HumanNotificationSummary>(`/api/me/notifications?${params}`);
 		if (result.ok) {
@@ -831,8 +948,7 @@ function App() {
 		if (!readAt) {
 			return;
 		}
-		const notificationUrl = new URL(notification.urlPath, window.location.origin);
-		const parsed = parsePathname(notificationUrl.pathname, notificationUrl.search);
+		const parsed = notificationRoute(notification);
 		if (parsed.route === "thread" && parsed.threadId) {
 			requestFreshThread(parsed.threadId);
 		}
@@ -840,24 +956,23 @@ function App() {
 		await loadHumanNotifications("unread");
 	}
 
-	async function markAllNotificationsRead(): Promise<boolean> {
+	async function markAllNotificationsRead(scope: HumanNotificationReadScope = { scopeType: "all" }): Promise<number | null> {
 		if (!profileReadyFor("managing notifications")) {
-			return false;
+			return null;
 		}
-		const result = await api("/api/me/notifications/read-all", { method: "POST", body: {} });
+		const result = await api<{ readAll: true; readCount: number }>("/api/me/notifications/read-all", {
+			method: "POST",
+			body: scope,
+		});
 		if (result.ok) {
 			const readAt = new Date().toISOString();
-			setHumanNotifications((current) => ({
-				unreadCount: 0,
-				notifications: current.notifications.map((notification) => ({
-					...notification,
-					readAt: notification.readAt ?? readAt,
-				})),
-			}));
-			return true;
+			setHumanNotifications((current) =>
+				humanNotificationSummaryWithReadScope(current, scope, readAt, result.data.readCount),
+			);
+			return result.data.readCount;
 		} else {
 			setStatus(result.message);
-			return false;
+			return null;
 		}
 	}
 
@@ -1021,24 +1136,6 @@ function App() {
 		});
 	}
 
-	async function seedSimulation(): Promise<boolean> {
-		if (!profileReadyFor("seeding the demo world")) {
-			return false;
-		}
-		return submit(async () => {
-			const result = await api<{ worldHandle: string; forums: ForumSummary[]; bots: BotSummary[] }>(
-				"/api/seed/simulation",
-				{ method: "POST", body: {} },
-			);
-			if (!result.ok) {
-				throw new Error(result.message);
-			}
-			await refreshAll();
-			navigate({ route: "world", worldHandle: result.data.worldHandle });
-			return `Seeded ${result.data.bots.length} bots and ${result.data.forums.length} forums.`;
-		});
-	}
-
 	async function createForum(worldHandle: string, input: CreateForumInput): Promise<boolean> {
 		if (!profileReadyFor("creating forums")) {
 			return false;
@@ -1156,7 +1253,7 @@ function App() {
 	}
 
 	async function deleteThread(forum: ForumSummary, thread: ThreadDocument | ThreadSummary): Promise<boolean> {
-		if (!profileReadyFor("deleting posts")) {
+		if (!profileReadyFor("deleting threads")) {
 			return false;
 		}
 		return submit(async () => {
@@ -1179,7 +1276,7 @@ function App() {
 			if (activeThreadId === thread.id) {
 				navigate({ route: "forum", worldHandle: forum.worldHandle, forumHandle: forum.handle });
 			}
-			return "Deleted post.";
+			return "Deleted thread.";
 		});
 	}
 
@@ -1286,6 +1383,30 @@ function App() {
 		return ok ? saved : null;
 	}
 
+	async function deleteProfile(): Promise<boolean> {
+		return submit(async () => {
+			const result = await api<{ deleted: HumanOwnedTotals }>("/api/me/profile", {
+				method: "DELETE",
+				body: { confirmCascade: true },
+			});
+			if (!result.ok) {
+				throw new Error(result.message);
+			}
+			setSession({ authenticated: false, user: null });
+			setUserProfile(null);
+			setBots([]);
+			setBotsByWorld({});
+			setForumsByWorld({});
+			setThreadsByForum({});
+			setThreadDocuments({});
+			setSubscriptions([]);
+			setHumanNotifications({ unreadCount: 0, notifications: [] });
+			setCreateBotWorldHandle(null);
+			navigate({ route: "worlds" });
+			return "Deleted profile.";
+		});
+	}
+
 	async function deleteBot(bot: BotSummary): Promise<boolean> {
 		if (!profileReadyFor("deleting bots")) {
 			return false;
@@ -1341,6 +1462,10 @@ function App() {
 		}
 		if (kind === "bot" && worldHandle) {
 			navigate({ route: "bot-profile", worldHandle, botHandle: name });
+			return;
+		}
+		if (kind === "human") {
+			navigate({ route: "human-profile", humanHandle: name });
 		}
 	}
 
@@ -1421,7 +1546,6 @@ function App() {
 						<WorldsScreen
 							busy={busy}
 							onCreate={createWorld}
-							onSeed={seedSimulation}
 							worlds={worldViews}
 						/>
 					)}
@@ -1436,7 +1560,11 @@ function App() {
 							onDeleteBot={deleteBot}
 							onDeleteForum={deleteForum}
 							onDeleteWorld={deleteWorld}
+							onLoadNotifications={fetchHumanNotifications}
+							onMarkAllNotificationsRead={markAllNotificationsRead}
+							onMarkNotificationRead={markHumanNotificationReadState}
 							onOpenBotEdit={openBotEdit}
+							onOpenNotification={(notification) => void openHumanNotification(notification)}
 							onRunBotTick={(bot) => void runBotTick(bot)}
 							onStartBot={(bot) => void startBot(bot)}
 							onToggleSubscription={toggleSubscription}
@@ -1490,10 +1618,16 @@ function App() {
 							bot={activeBot}
 							blogForum={activeBotBlogForum}
 							isOwner={activeBot.ownerUserId === session.user.id}
+							onLoadNotifications={fetchHumanNotifications}
+							onMarkAllNotificationsRead={markAllNotificationsRead}
+							onMarkNotificationRead={markHumanNotificationReadState}
+							onOpenNotification={(notification) => void openHumanNotification(notification)}
 							onReference={openReference}
 							onToggleSubscription={toggleSubscription}
 							ownerInferenceSettings={userProfile?.inferenceSettings ?? null}
 							subscribed={isSubscribed("bot", activeBot.id)}
+							targetActivityId={activeBotActivityId}
+							targetTab={activeBotProfileTab}
 							world={activeWorld}
 						/>
 					)}
@@ -1549,6 +1683,14 @@ function App() {
 							onMarkAllRead={markAllNotificationsRead}
 							onMarkRead={markHumanNotificationReadState}
 							onOpenNotification={(notification) => void openHumanNotification(notification)}
+						/>
+					)}
+					{route === "human-profile" && activeHumanHandle && (
+						<HumanProfileScreen
+							busy={busy}
+							currentUser={session.user}
+							handle={activeHumanHandle}
+							onDeleteProfile={deleteProfile}
 						/>
 					)}
 					{route === "profile" && (
@@ -1688,7 +1830,12 @@ function Topbar({
 	world: WorldView | null;
 	worlds: WorldView[];
 }) {
-	const isWorldScoped = route !== "worlds" && route !== "my-bots" && route !== "notifications" && route !== "profile";
+	const isWorldScoped =
+		route !== "worlds" &&
+		route !== "my-bots" &&
+		route !== "notifications" &&
+		route !== "human-profile" &&
+		route !== "profile";
 	return (
 		<header className="topbar">
 			<div className="brand">
@@ -1737,7 +1884,7 @@ function Topbar({
 					{route === "thread" && thread && (
 						<>
 							<span className="sep">/</span>
-							<span className="current truncate">{thread.rootPost.title}</span>
+							<span className="current truncate">{thread.title}</span>
 						</>
 					)}
 					{(route === "bot-profile" || route === "bot-loop" || route === "bot-edit") && bot && (
@@ -1886,8 +2033,8 @@ function NotificationBell({
 						<div className="notification-empty">No unread notifications.</div>
 					:	notifications.notifications.map((notification) => (
 							<a
-								className={`notification-card ${notification.readAt ? "" : "unread"}`}
-								href={notification.urlPath}
+								className={`notification-card ${notification.readAt ? "" : "unread"} ${notification.spotlightId ? "has-spotlight" : ""}`}
+								href={notificationHref(notification)}
 								key={notification.id}
 								onClick={(event) => {
 									if (!shouldHandleSpaClick(event)) {
@@ -1899,8 +2046,9 @@ function NotificationBell({
 								}}
 							>
 								<span className="notification-title">{notification.title}</span>
-								<span className="notification-body">{notification.body}</span>
+								<NotificationBody body={notification.body} />
 								<span className="notification-meta">{notificationMeta(notification)}</span>
+								{notification.spotlightId && <SpotlightNotificationBadge />}
 							</a>
 						))}
 					<button className="notification-load" onClick={() => onRefresh("all")} type="button">
@@ -1916,16 +2064,19 @@ function SubscriptionButton({
 	active,
 	label = "Watch",
 	onToggle,
+	title,
 }: {
 	active: boolean;
 	label?: string;
 	onToggle: (active: boolean) => void;
+	title?: string;
 }) {
 	return (
 		<button
 			aria-pressed={active}
 			className={`btn watch-btn ${active ? "active" : ""}`}
 			onClick={() => onToggle(!active)}
+			title={title}
 			type="button"
 		>
 			<Icon name="bell" size={13} />
@@ -1941,6 +2092,25 @@ function ActivityBanner({ label, onClick }: { label: string; onClick: () => void
 			<span>{label}</span>
 		</button>
 	);
+}
+
+function NotificationBody({ body }: { body: string }) {
+	const lines = body.split(/\r?\n/);
+	const [firstLine = "", ...detailLines] = lines;
+	return (
+		<span className="notification-body">
+			<span>{firstLine}</span>
+			{detailLines.map((line, index) => (
+				<span className="notification-body-detail" key={`${index}:${line}`}>
+					{line || "\u00a0"}
+				</span>
+			))}
+		</span>
+	);
+}
+
+function SpotlightNotificationBadge() {
+	return <span aria-label="Spotlight" className="notification-spotlight-badge" title="Spotlight">🔦</span>;
 }
 
 function FilterBox({
@@ -1976,6 +2146,7 @@ function SpaLink({
 	"aria-selected": ariaSelected,
 	children,
 	className,
+	id,
 	onNavigate,
 	role,
 	style,
@@ -1985,6 +2156,7 @@ function SpaLink({
 	"aria-selected"?: boolean;
 	children: ReactNode;
 	className?: string;
+	id?: string;
 	onNavigate?: () => void;
 	role?: AriaRole;
 	style?: CSSProperties;
@@ -1996,6 +2168,7 @@ function SpaLink({
 		<a
 			className={className}
 			href={routePath(to)}
+			id={id}
 			onClick={(event) => {
 				if (!shouldHandleSpaClick(event)) {
 					return;
@@ -2218,12 +2391,10 @@ function SidebarNavigation({
 function WorldsScreen({
 	busy,
 	onCreate,
-	onSeed,
 	worlds,
 }: {
 	busy: boolean;
 	onCreate: (input: CreateWorldInput) => Promise<boolean>;
-	onSeed: () => Promise<boolean>;
 	worlds: WorldView[];
 }) {
 	const [createOpen, setCreateOpen] = useState(false);
@@ -2246,10 +2417,6 @@ function WorldsScreen({
 							Mine
 						</button>
 					</div>
-					<button className="btn" disabled={busy} onClick={() => void onSeed()} type="button">
-						<Icon name="refresh" size={14} />
-						Seed simulation
-					</button>
 					<button className="btn primary" disabled={busy} onClick={() => setCreateOpen(true)} type="button">
 						<Icon name="plus" size={14} />
 						New world
@@ -2264,9 +2431,9 @@ function WorldsScreen({
 			:	<div className="world-grid">
 					{filtered.map((world) => (
 						<WorldCard key={world.id} world={world} />
-									))}
-								</div>
-							}
+					))}
+				</div>
+			}
 
 			<CreateWorldModal busy={busy} onClose={() => setCreateOpen(false)} onCreate={onCreate} open={createOpen} />
 		</div>
@@ -2518,7 +2685,11 @@ function WorldDetail({
 	onDeleteBot,
 	onDeleteForum,
 	onDeleteWorld,
+	onLoadNotifications,
+	onMarkAllNotificationsRead,
+	onMarkNotificationRead,
 	onOpenBotEdit,
+	onOpenNotification,
 	onRunBotTick,
 	onStartBot,
 	onToggleSubscription,
@@ -2537,7 +2708,11 @@ function WorldDetail({
 	onDeleteBot: (bot: BotSummary) => Promise<boolean>;
 	onDeleteForum: (forum: ForumSummary) => Promise<boolean>;
 	onDeleteWorld: (world: WorldView) => Promise<boolean>;
+	onLoadNotifications: LoadHumanNotifications;
+	onMarkAllNotificationsRead: (scope?: HumanNotificationReadScope) => Promise<number | null>;
+	onMarkNotificationRead: (notification: HumanNotification) => Promise<string | null>;
 	onOpenBotEdit: (bot: BotSummary) => void;
+	onOpenNotification: (notification: HumanNotification) => void;
 	onRunBotTick: (bot: BotSummary) => void;
 	onStartBot: (bot: BotSummary) => void;
 	onToggleSubscription: (target: SubscriptionTarget, active: boolean) => Promise<void>;
@@ -2612,6 +2787,7 @@ function WorldDetail({
 			.filter((activity) => matchesBotActivityFilter(activityFilter, activity)),
 		[activityFilter, activityKindFilter, activities],
 	);
+	const activityEmptyMessage = botActivityEmptyMessage(activityFilter, activityKindFilter);
 	const ownedBotCount = bots.filter((bot) => bot.ownerUserId === currentUserId).length;
 	const ownedForumCount = publicForums.filter((forum) => forum.createdByUserId === currentUserId).length;
 	const canManageWorld = world.createdByUserId === currentUserId;
@@ -2707,6 +2883,13 @@ function WorldDetail({
 				>
 					Activity <span className="count">{activities.length}</span>
 				</SpaLink>
+				<SpaLink
+					to={{ route: "world", worldHandle: world.handle, worldTab: "notifications" }}
+					aria-selected={tab === "notifications"}
+					role="tab"
+				>
+					Notifications
+				</SpaLink>
 				<button aria-selected={tab === "lore"} disabled role="tab" title="Coming later" type="button">
 					Lore <span className="count">-</span>
 				</button>
@@ -2747,10 +2930,10 @@ function WorldDetail({
 						}
 					</>)}
 
-			{tab === "bots" &&
-				(bots.length === 0 ?
-					<EmptyState actionLabel="New bot" onAction={() => onCreateBot(world)} title="No bots in this world">
-						Create one from scratch or import a Chirper profile.
+				{tab === "bots" &&
+					(bots.length === 0 ?
+						<EmptyState actionLabel="New bot" onAction={() => onCreateBot(world)} title="No bots in this world">
+							Create one from scratch or import a Chirper profile.
 					</EmptyState>
 				:	<>
 						<FilterBox
@@ -2788,26 +2971,53 @@ function WorldDetail({
 									</section>
 								))}
 							</div>
-						}
-					</>)}
+							}
+						</>)}
 
-			{tab === "activity" && (
-				<section className="profile-tab-panel" role="tabpanel">
-					<ActivityFilterControls
-						activities={activities}
-						counts={activityKindCounts}
-						filter={activityKindFilter}
-						onFilterChange={setActivityKindFilter}
-						onSearchChange={setActivityFilter}
-						search={activityFilter}
-					/>
-					<BotActivityList
-						activities={filteredActivities}
-						emptyMessage={botActivityEmptyMessage(activityFilter, activityKindFilter)}
-						error={activityError}
-						loading={activityLoading}
-					/>
-				</section>
+				{tab === "activity" && (
+					<section className="profile-tab-panel" role="tabpanel">
+						<div className="activity-tools">
+							<div className="seg activity-kind-filter" role="tablist">
+								{botActivityKindOptions.map((option) => (
+									<button
+										aria-pressed={activityKindFilter === option.id}
+										disabled={option.id !== "all" && botActivityKindCount(activityKindCounts, option.id, activities) === 0}
+										key={option.id}
+										onClick={() => setActivityKindFilter(option.id)}
+										type="button"
+									>
+										{option.label} <span className="count">{botActivityKindCount(activityKindCounts, option.id, activities)}</span>
+									</button>
+								))}
+							</div>
+							<FilterBox
+								label="Search activity"
+								onChange={setActivityFilter}
+								placeholder="Search activity"
+								value={activityFilter}
+							/>
+						</div>
+						<BotActivityList
+							activities={filteredActivities}
+							emptyMessage={activityEmptyMessage}
+							error={activityError}
+							loading={activityLoading}
+						/>
+					</section>
+				)}
+
+				{tab === "notifications" && (
+					<NotificationsScreen
+						embedded
+					grouped={false}
+					listScope={{ scopeType: "world", scopeId: world.id }}
+					onLoadNotifications={onLoadNotifications}
+					onMarkAllRead={onMarkAllNotificationsRead}
+					onMarkRead={onMarkNotificationRead}
+					onOpenNotification={onOpenNotification}
+					subtitle="Recent activity from watched sources in this world."
+					title="Notifications"
+				/>
 			)}
 
 			<CreateForumModal
@@ -2836,7 +3046,7 @@ function WorldDetail({
 			<Confirm
 				body={
 					<>
-						This will delete <Reference kind="world" name={world.handle} /> and every forum and post in it.
+						This will delete <Reference kind="world" name={world.handle} /> and every forum and thread in it.
 					</>
 				}
 				confirmText="Delete world"
@@ -2861,7 +3071,7 @@ function WorldDetail({
 				body={
 					confirmForum ?
 						<>
-							This will delete <Reference kind="forum" name={confirmForum.handle} /> and every post in it.
+							This will delete <Reference kind="forum" name={confirmForum.handle} /> and every thread in it.
 						</>
 					:	null
 				}
@@ -3199,7 +3409,7 @@ function ForumPage({
 	const [search, setSearch] = useState("");
 	const [sort, setSort] = useState("hot");
 	const [selected, setSelected] = useState<Record<string, boolean>>({});
-	const [searchResults, setSearchResults] = useState<SearchPostResult[]>([]);
+	const [searchResults, setSearchResults] = useState<SearchThreadResult[]>([]);
 	const [searchLoading, setSearchLoading] = useState(false);
 	const [searchMessage, setSearchMessage] = useState("");
 	const [activityNotice, setActivityNotice] = useState<ForumActivityNotice | null>(null);
@@ -3223,11 +3433,11 @@ function ForumPage({
 		const handle = window.setTimeout(() => {
 			setSearchLoading(true);
 			setSearchMessage("");
-			void api<{ posts: SearchPostResult[] }>(
+			void api<{ threads: SearchThreadResult[] }>(
 				`/api/worlds/${encodeURIComponent(forum.worldHandle)}/forums/${encodeURIComponent(forum.handle)}/search?q=${encodeURIComponent(query)}`,
 			).then((result) => {
 				if (result.ok) {
-					setSearchResults(result.data.posts);
+					setSearchResults(result.data.threads);
 				} else {
 					setSearchResults([]);
 					setSearchMessage(result.message);
@@ -3351,7 +3561,7 @@ function ForumPage({
 				<Icon name="search" size={14} />
 				<input
 					onChange={(event) => setSearch(event.target.value)}
-					placeholder={`Search posts and comments in f/${forum.handle}`}
+					placeholder={`Search threads and comments in f/${forum.handle}`}
 					value={search}
 				/>
 				{searchLoading && <span className="mini-status">Searching</span>}
@@ -3364,7 +3574,7 @@ function ForumPage({
 						<span className="meta">{searchMessage || `${searchResults.length} matches`}</span>
 					</div>
 					{searchResults.length === 0 && !searchLoading && (
-						<div className="empty compact-empty">No matching posts or comments in this forum.</div>
+						<div className="empty compact-empty">No matching threads or comments in this forum.</div>
 					)}
 					{searchResults.map((result) => (
 						<SpaLink
@@ -3451,7 +3661,7 @@ function ForumPage({
 			<Confirm
 				body={
 					<>
-						This will delete <Reference kind="forum" name={forum.handle} /> and every post in it.
+						This will delete <Reference kind="forum" name={forum.handle} /> and every thread in it.
 					</>
 				}
 				confirmText="Delete forum"
@@ -3480,20 +3690,20 @@ function ForumPage({
 						</>
 					:	null
 				}
-				confirmText="Delete post"
+				confirmText="Delete thread"
 				danger
 				onClose={() => setConfirmThread(null)}
 				onConfirm={() => {
 					if (confirmThread) {
 						void onDeleteThread(confirmThread).then((ok) => {
 							if (ok) {
-								toast.push("Deleted post");
+								toast.push("Deleted thread");
 							}
 						});
 					}
 				}}
 				open={Boolean(confirmThread)}
-				title="Delete this post?"
+				title="Delete this thread?"
 			/>
 		</div>
 	);
@@ -3588,7 +3798,7 @@ function ForumThreadRow({
 							event.stopPropagation();
 							onDelete();
 						}}
-						title="Delete post"
+						title="Delete thread"
 						type="button"
 					>
 						<Icon name="trash" size={13} />
@@ -3640,12 +3850,12 @@ function ThreadPage({
 	world: WorldView;
 }) {
 	const [selectedComments, setSelectedComments] = useState<Record<string, boolean>>({});
-	const [rootSelected, setRootSelected] = useState(false);
+	const [threadSelected, setThreadSelected] = useState(false);
 	const [activityNotice, setActivityNotice] = useState<ThreadActivityNotice | null>(null);
-	const [confirmRootDelete, setConfirmRootDelete] = useState(false);
+	const [confirmThreadDelete, setConfirmThreadDelete] = useState(false);
 	const [confirmComment, setConfirmComment] = useState<CommentDocument | null>(null);
 	const toast = useContext(ToastContext);
-	const commentTree = useMemo(() => buildCommentTree(thread?.comments ?? []), [thread?.comments]);
+	const commentTree = useMemo(() => buildCommentTree(thread?.comments ?? [], thread?.rootCommentId), [thread?.comments, thread?.rootCommentId]);
 	const selectedCommentIds = Object.keys(selectedComments).filter((id) => selectedComments[id]);
 	const ownedBotIds = useMemo(() => new Set(ownedBots.map((bot) => bot.id)), [ownedBots]);
 	const canModerateForum = world.createdByUserId === currentUserId || forum.createdByUserId === currentUserId;
@@ -3657,6 +3867,7 @@ function ThreadPage({
 		() => impliedAncestorIds(selectedCommentIds, commentParentById),
 		[selectedCommentIds.join("|"), commentParentById],
 	);
+	const rootComment = thread ? threadRootComment(thread) : null;
 
 	useEffect(() => {
 		if (!targetCommentId || !thread) {
@@ -3713,7 +3924,8 @@ function ThreadPage({
 	const threadSubscribed = subscriptions.some((subscription) =>
 		subscription.scopeType === "thread" && subscription.scopeId === thread.id && subscription.active,
 	);
-	const canDeleteRoot = canModerateForum || ownedBotIds.has(thread.rootPost.authorBotId);
+	const canDeleteThread = canModerateForum || (rootComment ? ownedBotIds.has(rootComment.authorBotId) : false);
+	const displayedImpliedCommentIds = threadSelected ? new Set(thread.comments.map((comment) => comment.id)) : impliedCommentIds;
 
 	return (
 		<div className="main-inner thread-shell">
@@ -3729,82 +3941,51 @@ function ThreadPage({
 				<span>thread</span>
 			</div>
 
-			<article className="thread-root">
-				<div className="checkcell">
-					<input
-						aria-label="Spotlight whole thread"
-						checked={rootSelected}
-						className="cb cb-lg"
-						onChange={(event) => {
-							setRootSelected(event.target.checked);
-							if (event.target.checked) {
-								setSelectedComments({});
-							}
-						}}
-						type="checkbox"
-					/>
-				</div>
-				<div className="scorecell">
-					<Icon name="arrowUp" size={14} />
-					<div>{thread.voteScore}</div>
-					<Icon name="arrowDown" size={14} />
-				</div>
-				<div>
+			<header className="thread-title-head">
+				<div className="thread-title-row">
+					<label className="thread-spot-check">
+						<input
+							aria-label="Spotlight this entire thread"
+							checked={threadSelected}
+							className="cb"
+							onChange={(event) => {
+								setThreadSelected(event.target.checked);
+								if (event.target.checked) {
+									setSelectedComments({});
+								}
+							}}
+							title="Spotlight this entire thread"
+							type="checkbox"
+						/>
+					</label>
 					<h1>
-						<TranslatableText as="span" text={thread.rootPost.title} />
+						<TranslatableText as="span" text={thread.title} />
 						{thread.readState?.isNew && <span className="new-mark">new</span>}
 					</h1>
-					<TranslatableText
-						as="div"
-						className="body"
-						onReference={onReference}
-						rich
-						text={thread.rootPost.body}
-						worldHandle={thread.worldHandle}
-					/>
-					<div className="meta">
-						<span className="inline-author">
-							<Avatar actor="bot" colorSeed={thread.rootPost.authorHandle} name={thread.rootPost.authorDisplayName} size="sm" />
-							<AuthorReference
-								displayName={thread.rootPost.authorDisplayName}
-								handle={thread.rootPost.authorHandle}
-								onOpen={() => onReference("bot", thread.rootPost.authorHandle, { worldHandle: thread.worldHandle })}
-							/>
-						</span>
-						<span>{thread.commentCount} comments</span>
-						<span>active {timeAgo(thread.lastActivityAt)}</span>
+					<div className="thread-title-actions">
+						<SubscriptionButton
+							active={threadSubscribed}
+							label="Watch"
+							onToggle={(active) =>
+								void onToggleSubscription(
+									{ scopeType: "thread", scopeId: thread.id, worldId: thread.worldId },
+									active,
+								)
+							}
+							title="Watch this thread to get notifications when new comments are posted."
+						/>
+						{canDeleteThread && (
+							<button className="btn danger compact" onClick={() => setConfirmThreadDelete(true)} type="button">
+								<Icon name="trash" size={12} />
+								Delete
+							</button>
+						)}
 					</div>
 				</div>
-				{canDeleteRoot && (
-					<div className="thread-root-actions">
-						<button className="btn danger compact" onClick={() => setConfirmRootDelete(true)} type="button">
-							<Icon name="trash" size={12} />
-							Delete
-						</button>
-					</div>
-				)}
-			</article>
-
-			<div className="spot-select-head">
-				<span>
-					{rootSelected ? "Whole thread selected"
-					: selectedCommentIds.length > 0 ?
-						`${selectedCommentIds.length} comments selected`
-					:	"Select comments to spotlight. Ancestors are included automatically."}
-				</span>
-				<div className="inline-actions">
-					<SubscriptionButton
-						active={threadSubscribed}
-						label="Watch thread"
-						onToggle={(active) =>
-							void onToggleSubscription(
-								{ scopeType: "thread", scopeId: thread.id, worldId: thread.worldId },
-								active,
-							)
-						}
-					/>
+				<div className="meta">
+					<span>{thread.commentCount} comments</span>
 				</div>
-			</div>
+			</header>
 
 			{activityNotice && (
 				<ActivityBanner
@@ -3825,10 +4006,10 @@ function ThreadPage({
 						isLastSibling={index === commentTree.length - 1}
 						key={comment.id}
 						onToggle={(commentId, checked) => {
-							setRootSelected(false);
+							setThreadSelected(false);
 							setSelectedComments((current) => ({ ...current, [commentId]: checked }));
 						}}
-						implied={impliedCommentIds}
+						implied={displayedImpliedCommentIds}
 						onReference={onReference}
 						onToggleSubscription={onToggleSubscription}
 						onRequestDelete={
@@ -3837,6 +4018,7 @@ function ThreadPage({
 							:	undefined
 						}
 						selected={selectedComments}
+						rootCommentId={thread.rootCommentId}
 						subscriptions={subscriptions}
 						targetCommentId={targetCommentId}
 						threadId={thread.id}
@@ -3845,11 +4027,11 @@ function ThreadPage({
 				))}
 			</div>
 
-			{rootSelected && (
+			{threadSelected && (
 				<SpotlightPanel
 					commentIds={[]}
 					forum={forum}
-					onClear={() => setRootSelected(false)}
+					onClear={() => setThreadSelected(false)}
 					ownedBots={ownedBots}
 					targetType="threads"
 					threadIds={[thread.id]}
@@ -3871,21 +4053,21 @@ function ThreadPage({
 			<Confirm
 				body={
 					<>
-						This will delete <b>{thread.rootPost.title}</b> and all comments in the thread.
+						This will delete <b>{thread.title}</b> and all comments in the thread.
 					</>
 				}
-				confirmText="Delete post"
+				confirmText="Delete thread"
 				danger
-				onClose={() => setConfirmRootDelete(false)}
+				onClose={() => setConfirmThreadDelete(false)}
 				onConfirm={() => {
 					void onDeleteThread(thread).then((ok) => {
 						if (ok) {
-							toast.push("Deleted post");
+							toast.push("Deleted thread");
 						}
 					});
 				}}
-				open={confirmRootDelete}
-				title="Delete this post?"
+				open={confirmThreadDelete}
+				title="Delete this thread?"
 			/>
 			<Confirm
 				body={
@@ -3924,6 +4106,7 @@ function CommentNode({
 	onRequestDelete,
 	onToggle,
 	onToggleSubscription,
+	rootCommentId,
 	selected,
 	subscriptions,
 	targetCommentId,
@@ -3938,6 +4121,7 @@ function CommentNode({
 	onRequestDelete?: (comment: CommentDocument) => void;
 	onToggle: (commentId: string, checked: boolean) => void;
 	onToggleSubscription: (target: SubscriptionTarget, active: boolean) => Promise<void>;
+	rootCommentId: string;
 	selected: Record<string, boolean>;
 	subscriptions: HumanSubscription[];
 	targetCommentId: string | null;
@@ -3948,6 +4132,7 @@ function CommentNode({
 	const indeterminate = !checked && implied.has(comment.id);
 	const checkboxRef = useRef<HTMLInputElement | null>(null);
 	const isTarget = targetCommentId === comment.id;
+	const isRootComment = comment.id === rootCommentId;
 	const commentHref = `${window.location.pathname.split("/c/")[0]}/c/${encodeURIComponent(comment.id)}`;
 	const subscribed = subscriptions.some((subscription) =>
 		subscription.scopeType === "comment" && subscription.scopeId === comment.id && subscription.active,
@@ -3965,11 +4150,12 @@ function CommentNode({
 		>
 			<div className="checkcell">
 				<input
-					aria-label={`Spotlight comment by ${comment.authorHandle}`}
+					aria-label="Spotlight this reply chain"
 					checked={checked}
 					className="cb"
 					ref={checkboxRef}
 					onChange={(event) => onToggle(comment.id, event.target.checked)}
+					title="Spotlight this reply chain"
 					type="checkbox"
 				/>
 			</div>
@@ -3992,7 +4178,7 @@ function CommentNode({
 					<span>{timeAgo(comment.createdAt)}</span>
 					{comment.readState?.isNew && <span className="new-mark">new</span>}
 					<span className="spacer" />
-					{onRequestDelete && (
+					{onRequestDelete && !isRootComment && (
 						<button
 							className="comment-watch danger"
 							onClick={() => onRequestDelete(comment)}
@@ -4041,6 +4227,7 @@ function CommentNode({
 								onRequestDelete={onRequestDelete}
 								onToggle={onToggle}
 								onToggleSubscription={onToggleSubscription}
+								rootCommentId={rootCommentId}
 								selected={selected}
 								subscriptions={subscriptions}
 								targetCommentId={targetCommentId}
@@ -4083,7 +4270,7 @@ function CommentVoteCount({
 	}, [commentId, voteScore]);
 
 	useEffect(() => {
-		if (!open || votes !== null || loading) {
+		if (!open || votes !== null) {
 			return undefined;
 		}
 		let alive = true;
@@ -4095,17 +4282,25 @@ function CommentVoteCount({
 			if (!alive) {
 				return;
 			}
-			setLoading(false);
 			if (result.ok) {
 				setVotes(result.data.votes);
 			} else {
 				setError(result.message);
 			}
+		}).catch((error: unknown) => {
+			if (!alive) {
+				return;
+			}
+			setError(error instanceof Error ? error.message : "Request failed.");
+		}).finally(() => {
+			if (alive) {
+				setLoading(false);
+			}
 		});
 		return () => {
 			alive = false;
 		};
-	}, [commentId, forumHandle, loading, open, threadId, voteScore, votes, worldHandle]);
+	}, [commentId, forumHandle, open, threadId, voteScore, votes, worldHandle]);
 
 	useEffect(() => {
 		if (!open) {
@@ -4177,22 +4372,34 @@ function BotProfileScreen({
 	bot,
 	blogForum,
 	isOwner,
+	onLoadNotifications,
+	onMarkAllNotificationsRead,
+	onMarkNotificationRead,
+	onOpenNotification,
 	onReference,
 	onToggleSubscription,
 	ownerInferenceSettings,
 	subscribed,
+	targetActivityId,
+	targetTab,
 	world,
 }: {
 	bot: BotSummary;
 	blogForum: ForumSummary | null;
 	isOwner: boolean;
+	onLoadNotifications: LoadHumanNotifications;
+	onMarkAllNotificationsRead: (scope?: HumanNotificationReadScope) => Promise<number | null>;
+	onMarkNotificationRead: (notification: HumanNotification) => Promise<string | null>;
+	onOpenNotification: (notification: HumanNotification) => void;
 	onReference: OpenReference;
 	onToggleSubscription: (target: SubscriptionTarget, active: boolean) => Promise<void>;
 	ownerInferenceSettings: BotInferenceSettings | null;
 	subscribed: boolean;
+	targetActivityId: string | null;
+	targetTab: BotProfileTab;
 	world: WorldView;
 }) {
-	const [activeTab, setActiveTab] = useState<BotProfileTab>("activity");
+	const [activeTab, setActiveTab] = useState<BotProfileTab>(targetTab);
 	const [activityFeed, setActivityFeed] = useState<BotActivityFeed | null>(null);
 	const [activityFilter, setActivityFilter] = useState("");
 	const [activityKindFilter, setActivityKindFilter] = useState<BotActivityKindFilter>("all");
@@ -4202,6 +4409,7 @@ function BotProfileScreen({
 	const [followFilter, setFollowFilter] = useState("");
 	const [followLoading, setFollowLoading] = useState(false);
 	const [followError, setFollowError] = useState("");
+	const [ownerProfile, setOwnerProfile] = useState<HumanProfile | null>(null);
 	const effectiveModel = effectiveBotModel(bot, isOwner ? ownerInferenceSettings : null);
 
 	useEffect(() => {
@@ -4225,7 +4433,7 @@ function BotProfileScreen({
 		return () => {
 			cancelled = true;
 		};
-	}, [bot.handle, world.handle]);
+	}, [bot.handle, targetActivityId, world.handle]);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -4251,11 +4459,38 @@ function BotProfileScreen({
 	}, [bot.handle, world.handle]);
 
 	useEffect(() => {
-		setActiveTab("activity");
+		setActiveTab(targetActivityId ? "activity" : targetTab);
 		setActivityFilter("");
 		setActivityKindFilter("all");
 		setFollowFilter("");
-	}, [bot.id]);
+	}, [bot.id, targetActivityId, targetTab]);
+
+	useEffect(() => {
+		if (!targetActivityId || activeTab !== "activity" || activityLoading || !activityFeed) {
+			return;
+		}
+		window.setTimeout(() => {
+			document.getElementById(botActivityDomId(targetActivityId))?.scrollIntoView({ block: "center" });
+		}, 50);
+	}, [activeTab, activityFeed, activityLoading, targetActivityId]);
+
+	useEffect(() => {
+		let cancelled = false;
+		setOwnerProfile(null);
+		if (!bot.owner?.handle) {
+			return () => {
+				cancelled = true;
+			};
+		}
+		void api<{ profile: HumanProfile }>(`/api/humans/${encodeURIComponent(bot.owner.handle)}`).then((result) => {
+			if (!cancelled && result.ok) {
+				setOwnerProfile(result.data.profile);
+			}
+		});
+		return () => {
+			cancelled = true;
+		};
+	}, [bot.owner?.handle]);
 
 	const activities = activityFeed?.activities ?? [];
 	const activityKindCounts = useMemo(() => botActivityKindCounts(activities), [activities]);
@@ -4265,6 +4500,7 @@ function BotProfileScreen({
 			.filter((activity) => matchesBotActivityFilter(activityFilter, activity)),
 		[activityFilter, activityKindFilter, activities],
 	);
+	const activityEmptyMessage = botActivityEmptyMessage(activityFilter, activityKindFilter);
 	const following = followGraph?.following ?? [];
 	const followers = followGraph?.followers ?? [];
 	const filteredFollowing = useMemo(
@@ -4275,9 +4511,10 @@ function BotProfileScreen({
 		() => sortByHandle(followers.filter((profile) => matchesBotProfileFilter(followFilter, profile))),
 		[followFilter, followers],
 	);
-	const tabs: Array<{ id: BotProfileTab; label: string; count: number }> = [
+	const tabs: Array<{ id: BotProfileTab; label: string; count?: number }> = [
 		{ id: "activity", label: "Activity", count: activities.length },
 		{ id: "follows", label: "Follows", count: following.length + followers.length },
+		{ id: "notifications", label: "Notifications" },
 	];
 
 	return (
@@ -4294,7 +4531,10 @@ function BotProfileScreen({
 
 			<div className="profile-head bot-profile-head">
 				<div className="profile-info-card kvtable">
-					<RuntimeRow label="Owner" value={isOwner ? "you" : bot.ownerUserId} />
+					<RuntimeRow
+						label="Owner"
+						value={<HumanReference profile={ownerProfile} user={bot.owner ?? null} />}
+					/>
 					<RuntimeRow label="World" value={<Reference kind="world" name={world.handle} />} />
 					<RuntimeRow
 						label="Blog"
@@ -4382,33 +4622,53 @@ function BotProfileScreen({
 			<div className="profile-tabs">
 				<div className="tabs" role="tablist">
 					{tabs.map((tab) => (
-						<button
+						<SpaLink
 							aria-selected={activeTab === tab.id}
 							key={tab.id}
-							onClick={() => setActiveTab(tab.id)}
+							onNavigate={() => setActiveTab(tab.id)}
 							role="tab"
-							type="button"
+							to={{
+								route: "bot-profile",
+								worldHandle: world.handle,
+								botHandle: bot.handle,
+								botProfileTab: tab.id,
+							}}
 						>
-							{tab.label} <span className="count">{tab.count}</span>
-						</button>
+							{tab.label}
+							{typeof tab.count === "number" && <span className="count">{tab.count}</span>}
+						</SpaLink>
 					))}
 				</div>
 
 				{activeTab === "activity" && (
 					<section className="profile-tab-panel" role="tabpanel">
-						<ActivityFilterControls
-							activities={activities}
-							counts={activityKindCounts}
-							filter={activityKindFilter}
-							onFilterChange={setActivityKindFilter}
-							onSearchChange={setActivityFilter}
-							search={activityFilter}
-						/>
+						<div className="activity-tools">
+							<div className="seg activity-kind-filter" role="tablist">
+								{botActivityKindOptions.map((option) => (
+									<button
+										aria-pressed={activityKindFilter === option.id}
+										disabled={option.id !== "all" && botActivityKindCount(activityKindCounts, option.id, activities) === 0}
+										key={option.id}
+										onClick={() => setActivityKindFilter(option.id)}
+										type="button"
+									>
+										{option.label} <span className="count">{botActivityKindCount(activityKindCounts, option.id, activities)}</span>
+									</button>
+								))}
+							</div>
+							<FilterBox
+								label="Search activity"
+								onChange={setActivityFilter}
+								placeholder="Search activity"
+								value={activityFilter}
+							/>
+						</div>
 						<BotActivityList
 							activities={filteredActivities}
-							emptyMessage={botActivityEmptyMessage(activityFilter, activityKindFilter)}
+							emptyMessage={activityEmptyMessage}
 							error={activityError}
 							loading={activityLoading}
+							targetActivityId={targetActivityId}
 						/>
 					</section>
 				)}
@@ -4430,6 +4690,22 @@ function BotProfileScreen({
 						/>
 					</section>
 				)}
+
+				{activeTab === "notifications" && (
+					<section className="profile-tab-panel" role="tabpanel">
+						<NotificationsScreen
+							embedded
+							grouped={false}
+							listScope={{ scopeType: "bot", scopeId: bot.id }}
+							onLoadNotifications={onLoadNotifications}
+							onMarkAllRead={onMarkAllNotificationsRead}
+							onMarkRead={onMarkNotificationRead}
+							onOpenNotification={onOpenNotification}
+							subtitle={`Recent activity from watched sources involving u/${bot.handle}.`}
+							title="Notifications"
+						/>
+					</section>
+				)}
 			</div>
 		</div>
 	);
@@ -4437,56 +4713,18 @@ function BotProfileScreen({
 
 type ActivityListItem = BotActivityItem | WorldActivityItem;
 
-function ActivityFilterControls({
-	activities,
-	counts,
-	filter,
-	onFilterChange,
-	onSearchChange,
-	search,
-}: {
-	activities: ActivityListItem[];
-	counts: BotActivityKindCounts;
-	filter: BotActivityKindFilter;
-	onFilterChange: (filter: BotActivityKindFilter) => void;
-	onSearchChange: (query: string) => void;
-	search: string;
-}) {
-	return (
-		<div className="activity-tools">
-			<div className="seg activity-kind-filter" role="tablist">
-				{botActivityKindOptions.map((option) => (
-					<button
-						aria-pressed={filter === option.id}
-						disabled={option.id !== "all" && botActivityKindCount(counts, option.id, activities) === 0}
-						key={option.id}
-						onClick={() => onFilterChange(option.id)}
-						type="button"
-					>
-						{option.label} <span className="count">{botActivityKindCount(counts, option.id, activities)}</span>
-					</button>
-				))}
-			</div>
-			<FilterBox
-				label="Search activity"
-				onChange={onSearchChange}
-				placeholder="Search activity"
-				value={search}
-			/>
-		</div>
-	);
-}
-
 function BotActivityList({
 	activities,
 	emptyMessage = "No visible activity yet.",
 	error,
 	loading,
+	targetActivityId = null,
 }: {
 	activities: ActivityListItem[];
 	emptyMessage?: string;
 	error: string;
 	loading: boolean;
+	targetActivityId?: string | null;
 }) {
 	if (loading) {
 		return <div className="empty-state compact">Loading activity...</div>;
@@ -4500,7 +4738,7 @@ function BotActivityList({
 	return (
 		<div className="bot-activity-list">
 			{activities.map((activity) => (
-				<BotActivityCard activity={activity} key={activity.id} />
+				<BotActivityCard activity={activity} highlighted={activity.id === targetActivityId} key={activity.id} />
 			))}
 		</div>
 	);
@@ -4603,13 +4841,13 @@ function BotPublicProfileCard({ bot }: { bot: BotPublicProfile }) {
 	);
 }
 
-function BotActivityCard({ activity }: { activity: ActivityListItem }) {
+function BotActivityCard({ activity, highlighted }: { activity: ActivityListItem; highlighted: boolean }) {
 	const route = botActivityRoute(activity);
 	const summary = botActivitySummary(activity);
 	const createdAt = "updatedAt" in activity ? activity.updatedAt : activity.createdAt;
 	const actor = activityActor(activity);
 	return (
-		<SpaLink className="bot-activity-card" to={route}>
+		<SpaLink className={`bot-activity-card ${highlighted ? "flash" : ""}`} id={botActivityDomId(activity.id)} to={route}>
 			<span className="activity-title">
 				{actor ? `${actor.displayName} (u/${actor.handle}) / ${summary.title}` : summary.title}
 			</span>
@@ -4620,136 +4858,207 @@ function BotActivityCard({ activity }: { activity: ActivityListItem }) {
 }
 
 function botActivityRoute(activity: ActivityListItem): ParsedRoute {
-	if (activity.type === "follow" || activity.type === "unfollow") {
+	const activityType = stringValue((activity as { type?: unknown }).type);
+	if (activityType === "follow" && activity.type === "follow") {
 		return {
 			route: "bot-profile",
 			worldHandle: activity.bot.homeWorldHandle,
 			botHandle: activity.bot.handle,
 		};
 	}
-	if (activity.type === "comment" || (activity.type === "vote" && activity.commentId)) {
+	if (activityType === "unfollow" && activity.type === "unfollow") {
+		return {
+			route: "bot-profile",
+			worldHandle: activity.bot.homeWorldHandle,
+			botHandle: activity.bot.handle,
+		};
+	}
+	if (activityType === "comment") {
+		const commentActivity = activity as Extract<BotActivityItem, { type: "comment" }>;
+		return {
+			route: "thread",
+			worldHandle: commentActivity.worldHandle,
+			forumHandle: commentActivity.forumHandle,
+			threadId: commentActivity.threadId,
+			commentId: commentActivity.commentId,
+		};
+	}
+	if (activity.type === "vote" && activity.commentId) {
 		return {
 			route: "thread",
 			worldHandle: activity.worldHandle ?? "",
 			forumHandle: activity.forumHandle ?? "",
-			threadId: activity.threadId,
-			commentId: activity.type === "comment" ? activity.commentId : activity.commentId,
+			threadId: activity.threadId ?? "",
+			commentId: activity.commentId,
 		};
 	}
-	if (activity.type === "post") {
+	if (activityType === "thread" || activityType === "post") {
+		const threadActivity = activity as Extract<BotActivityItem, { type: "thread" }>;
 		return {
 			route: "thread",
-			worldHandle: activity.worldHandle,
-			forumHandle: activity.forumHandle,
-			threadId: activity.threadId,
+			worldHandle: threadActivity.worldHandle,
+			forumHandle: threadActivity.forumHandle,
+			threadId: threadActivity.threadId,
 		};
 	}
 	return {
 		route: "thread",
-		worldHandle: activity.worldHandle ?? "",
-		forumHandle: activity.forumHandle ?? "",
-		threadId: activity.threadId ?? activity.targetId,
+		worldHandle: "",
+		forumHandle: "",
+		threadId: "",
 	};
 }
 
 function botActivitySummary(activity: ActivityListItem): { title: string; body?: string; meta: string } {
-	switch (activity.type) {
-		case "post":
+	const activityType = stringValue((activity as { type?: unknown }).type);
+	switch (activityType) {
+		case "thread":
+		case "post": {
+			const threadActivity = activity as Extract<BotActivityItem, { type: "thread" }>;
 			return {
-				title: `Posted in f/${activity.forumHandle}: ${activity.title}`,
-				body: activity.bodyPreview,
-				meta: `${activity.voteScore} votes / ${activity.commentCount} comments`,
+				title: `Thread in f/${threadActivity.forumHandle}: ${threadActivity.title}`,
+				body: threadActivity.bodyPreview,
+				meta: `${threadActivity.voteScore} votes / ${threadActivity.commentCount} comments`,
 			};
-		case "comment":
+		}
+		case "comment": {
+			const commentActivity = activity as Extract<BotActivityItem, { type: "comment" }>;
+			const parent = commentActivity.parentComment;
 			return {
-				title: `Replied in "${activity.threadTitle}"`,
-				body: activity.bodyPreview,
-				meta: `f/${activity.forumHandle} / ${activity.voteScore} votes`,
+				title: `Replied in "${commentActivity.threadTitle}"`,
+				body: joinedBotActivityBody(
+					parent ? `To ${authorLabel(parent.authorDisplayName, parent.authorHandle)}: ${parent.bodyPreview}` : undefined,
+					commentActivity.bodyPreview,
+				),
+				meta: `f/${commentActivity.forumHandle} / ${commentActivity.voteScore} votes`,
 			};
-		case "vote":
+		}
+		case "vote": {
+			const voteActivity = activity as Extract<BotActivityItem, { type: "vote" }>;
+			const voteTargetType = stringValue((voteActivity as { targetType?: unknown }).targetType) ?? "comment";
+			const target = voteActivity.targetComment;
 			return {
-				title: `${activity.value > 0 ? "Upvoted" : "Downvoted"} ${activity.targetType === "thread" ? "thread" : "comment"}${activity.title ? ` in "${activity.title}"` : ""}`,
-				body: activity.reason ? `Reason: ${activity.reason}` : undefined,
+				title: `${voteActivity.value > 0 ? "Upvoted" : "Downvoted"} ${voteTargetType === "thread" ? "thread" : "comment"}${voteActivity.title ? ` in "${voteActivity.title}"` : ""}`,
+				body: joinedBotActivityBody(
+					voteActivity.reason ? `Reason: ${voteActivity.reason}` : undefined,
+					target ? `${authorLabel(target.authorDisplayName, target.authorHandle)}: ${target.bodyPreview}` : undefined,
+				),
 				meta: [
-					activity.forumHandle ? `f/${activity.forumHandle}` : null,
-					activity.targetType,
-					activity.value > 0 ? "+1" : "-1",
+					voteActivity.forumHandle ? `f/${voteActivity.forumHandle}` : null,
+					voteTargetType,
+					voteActivity.value > 0 ? "+1" : "-1",
 				].filter(Boolean).join(" / "),
 			};
-		case "follow":
+		}
+		case "follow": {
+			const followActivity = activity as Extract<BotActivityItem, { type: "follow" }>;
 			return {
-				title: `Followed ${activity.bot.displayName} (u/${activity.bot.handle})`,
-				body: activity.reason ?? activity.bot.shortBio,
-				meta: `w/${activity.bot.homeWorldHandle}`,
+				title: `Followed ${followActivity.bot.displayName} (u/${followActivity.bot.handle})`,
+				body: followActivity.reason ?? followActivity.bot.shortBio,
+				meta: `w/${followActivity.bot.homeWorldHandle}`,
 			};
-		case "unfollow":
+		}
+		case "unfollow": {
+			const followActivity = activity as Extract<BotActivityItem, { type: "unfollow" }>;
 			return {
-				title: `Unfollowed ${activity.bot.displayName} (u/${activity.bot.handle})`,
-				body: activity.reason ?? activity.bot.shortBio,
-				meta: `w/${activity.bot.homeWorldHandle}`,
+				title: `Unfollowed ${followActivity.bot.displayName} (u/${followActivity.bot.handle})`,
+				body: followActivity.reason ?? followActivity.bot.shortBio,
+				meta: `w/${followActivity.bot.homeWorldHandle}`,
 			};
+		}
 	}
+	return { title: "Activity", meta: "" };
+}
+
+function joinedBotActivityBody(...parts: Array<string | undefined>): string | undefined {
+	const body = parts.filter((part): part is string => Boolean(part)).join("\n");
+	return body || undefined;
 }
 
 function matchesBotActivityFilter(query: string, activity: ActivityListItem): boolean {
 	const summary = botActivitySummary(activity);
+	const activityType = stringValue((activity as { type?: unknown }).type);
 	const actor = activityActor(activity);
 	const actorFields = actor ? [actor.handle, actor.displayName, actor.shortBio, actor.homeWorldHandle] : [];
-	switch (activity.type) {
-		case "post":
+	switch (activityType) {
+		case "thread":
+		case "post": {
+			const threadActivity = activity as Extract<BotActivityItem, { type: "thread" }>;
 			return matchesFilter(
 				query,
 				...actorFields,
-				activity.type,
+				activityType,
 				summary.title,
 				summary.body,
 				summary.meta,
-				activity.title,
-				activity.bodyPreview,
-				activity.forumHandle,
-				activity.worldHandle,
+				threadActivity.title,
+				threadActivity.bodyPreview,
+				threadActivity.forumHandle,
+				threadActivity.worldHandle,
 			);
-		case "comment":
+		}
+		case "comment": {
+			const commentActivity = activity as Extract<BotActivityItem, { type: "comment" }>;
 			return matchesFilter(
 				query,
 				...actorFields,
-				activity.type,
+				commentActivity.type,
 				summary.title,
 				summary.body,
 				summary.meta,
-				activity.threadTitle,
-				activity.bodyPreview,
-				activity.forumHandle,
-				activity.worldHandle,
+				commentActivity.threadTitle,
+				commentActivity.bodyPreview,
+				commentActivity.forumHandle,
+				commentActivity.worldHandle,
 			);
-		case "vote":
+		}
+		case "vote": {
+			const voteActivity = activity as Extract<BotActivityItem, { type: "vote" }>;
 			return matchesFilter(
 				query,
 				...actorFields,
-				activity.type,
+				voteActivity.type,
 				summary.title,
 				summary.body,
 				summary.meta,
-				activity.targetType,
-				activity.title,
-				activity.forumHandle,
-				activity.worldHandle,
+				stringValue((voteActivity as { targetType?: unknown }).targetType),
+				voteActivity.title,
+				voteActivity.forumHandle,
+				voteActivity.worldHandle,
 			);
-		case "follow":
-		case "unfollow":
+		}
+		case "follow": {
+			const followActivity = activity as Extract<BotActivityItem, { type: "follow" }>;
 			return matchesFilter(
 				query,
 				...actorFields,
-				activity.type,
+				followActivity.type,
 				summary.title,
 				summary.body,
 				summary.meta,
-				activity.bot.handle,
-				activity.bot.displayName,
-				activity.bot.shortBio,
-				activity.bot.homeWorldHandle,
+				followActivity.bot.handle,
+				followActivity.bot.displayName,
+				followActivity.bot.shortBio,
+				followActivity.bot.homeWorldHandle,
 			);
+		}
+		case "unfollow": {
+			const followActivity = activity as Extract<BotActivityItem, { type: "unfollow" }>;
+			return matchesFilter(
+				query,
+				...actorFields,
+				followActivity.type,
+				summary.title,
+				summary.body,
+				summary.meta,
+				followActivity.bot.handle,
+				followActivity.bot.displayName,
+				followActivity.bot.shortBio,
+				followActivity.bot.homeWorldHandle,
+			);
+		}
 	}
+	return false;
 }
 
 function activityActor(activity: ActivityListItem): BotPublicProfile | null {
@@ -4758,7 +5067,7 @@ function activityActor(activity: ActivityListItem): BotPublicProfile | null {
 
 const botActivityKindOptions: Array<{ id: BotActivityKindFilter; label: string }> = [
 	{ id: "all", label: "All" },
-	{ id: "posts", label: "Posts" },
+	{ id: "posts", label: "Threads" },
 	{ id: "replies", label: "Replies" },
 	{ id: "votes", label: "Votes" },
 	{ id: "follows", label: "Follows" },
@@ -4793,13 +5102,14 @@ function matchesBotActivityKind(filter: BotActivityKindFilter, activity: Activit
 }
 
 function botActivityKind(activity: ActivityListItem): BotActivitySpecificKind {
-	if (activity.type === "post") {
+	const activityType = stringValue((activity as { type?: unknown }).type);
+	if (activityType === "thread" || activityType === "post") {
 		return "posts";
 	}
-	if (activity.type === "comment") {
+	if (activityType === "comment") {
 		return "replies";
 	}
-	if (activity.type === "vote") {
+	if (activityType === "vote") {
 		return "votes";
 	}
 	return "follows";
@@ -4811,7 +5121,7 @@ function botActivityEmptyMessage(query: string, filter: BotActivityKindFilter): 
 	}
 	switch (filter) {
 		case "posts":
-			return "No posts yet.";
+			return "No threads yet.";
 		case "replies":
 			return "No replies yet.";
 		case "votes":
@@ -4898,7 +5208,6 @@ function SpotlightPanel({
 	const [focusText, setFocusText] = useState("");
 	const [autoStartTick, setAutoStartTick] = useState(() => readStoredBoolean("bickr.spotlight.autoStartTick", true));
 	const [preview, setPreview] = useState<SpotlightPreview | null>(null);
-	const [loading, setLoading] = useState(false);
 	const [sending, setSending] = useState(false);
 	const [message, setMessage] = useState("");
 	const worldOwnedBots = useMemo(
@@ -4937,7 +5246,6 @@ function SpotlightPanel({
 			return undefined;
 		}
 		const handle = window.setTimeout(() => {
-			setLoading(true);
 			setMessage("");
 			void api<{ preview: SpotlightPreview }>(
 				`/api/worlds/${encodeURIComponent(world.handle)}/forums/${encodeURIComponent(forum.handle)}/spotlight/preview`,
@@ -4952,7 +5260,6 @@ function SpotlightPanel({
 					setPreview(null);
 					setMessage(result.message);
 				}
-				setLoading(false);
 			});
 		}, 250);
 		return () => window.clearTimeout(handle);
@@ -5087,26 +5394,21 @@ function SpotlightPanel({
 				</Field>
 
 				<div className="preview">
-					<div className="lab">
-						<span>{loading ? "Building previews" : "Server-built preview"}</span>
-						<span>content can differ per bot</span>
-					</div>
 					{message && <div className="runtime-message">{message}</div>}
 					{preview ?
 						preview.botPreviews.map((botPreview) => (
-							<details className="preview-details" key={botPreview.bot.id} open={preview.botPreviews.length === 1}>
-								<summary>
+							<div className="preview-details" key={botPreview.bot.id}>
+								<div className="preview-summary">
 									u/{botPreview.bot.handle}: {botPreview.included.threadCount} thread,{" "}
 									{botPreview.included.commentCount} comments
 									{botPreview.included.excludedSeenCount > 0 ?
 										` / ${botPreview.included.excludedSeenCount} already seen excluded`
 									:	""}
-								</summary>
-								<pre className="injected">{botPreview.injectedText}</pre>
-							</details>
+								</div>
+							</div>
 						))
 					:	<div className="injected muted">
-							{botIds.length === 0 ? "Select one or more unpaused owned bots to preview the injected thought." : "No preview yet."}
+							{botIds.length === 0 ? "Select one or more unpaused owned bots to preview the content summary." : "No preview yet."}
 						</div>
 					}
 				</div>
@@ -5259,11 +5561,20 @@ function BotEdit({
 		displayName: bot.displayName,
 		shortBio: bot.shortBio,
 		prompt: bot.prompt ?? "",
-		inference: inferenceDraftFromSettings(bot.inferenceSettings),
+		inference: inferenceDraftFromSettings(
+			bot.inferenceSettings,
+			inferenceFallbackContextForSettings(bot.inferenceSettings, ownerInferenceSettings),
+		),
 		tools: toolDraftFromSettings(bot.toolSettings),
 		tickIntervalMinutes: String(secondsToMinutes(bot.tickSettings.intervalSeconds)),
-		contextWindowTokens: String(bot.tickSettings.contextWindowTokens),
-		maxToolCallsPerTick: String(bot.tickSettings.maxToolCallsPerTick),
+		allowEarlyLogOff: bot.effectiveTickSettings.allowEarlyLogOff,
+		contextWindowTokens: optionalNumberDraftValue(bot.tickSettings.contextWindowTokens),
+		compactionSummaryPercent: optionalNumberDraftValue(bot.tickSettings.compactionSummaryPercent),
+		compactionMaxCharacters: optionalNumberDraftValue(bot.tickSettings.compactionMaxCharacters),
+		maxToolCallsPerTick: optionalNumberDraftValue(bot.tickSettings.maxToolCallsPerTick),
+		maxSuccessfulToolCallsPerIteration: optionalNumberDraftValue(bot.tickSettings.maxSuccessfulToolCallsPerIteration),
+		maxGeneratedTokensPerTick: optionalNumberDraftValue(bot.tickSettings.maxGeneratedTokensPerTick),
+		maxGeneratedTokensPerIteration: optionalNumberDraftValue(bot.tickSettings.maxGeneratedTokensPerIteration),
 	});
 	const [confirm, setConfirm] = useState(false);
 	const [promptBudget, setPromptBudget] = useState<PromptBudgetState>({ status: "idle" });
@@ -5274,33 +5585,54 @@ function BotEdit({
 			displayName: bot.displayName,
 			shortBio: bot.shortBio,
 			prompt: bot.prompt ?? "",
-			inference: inferenceDraftFromSettings(bot.inferenceSettings),
+			inference: inferenceDraftFromSettings(
+				bot.inferenceSettings,
+				inferenceFallbackContextForSettings(bot.inferenceSettings, ownerInferenceSettings),
+			),
 			tools: toolDraftFromSettings(bot.toolSettings),
 			tickIntervalMinutes: String(secondsToMinutes(bot.tickSettings.intervalSeconds)),
-			contextWindowTokens: String(bot.tickSettings.contextWindowTokens),
-			maxToolCallsPerTick: String(bot.tickSettings.maxToolCallsPerTick),
+			allowEarlyLogOff: bot.effectiveTickSettings.allowEarlyLogOff,
+			contextWindowTokens: optionalNumberDraftValue(bot.tickSettings.contextWindowTokens),
+			compactionSummaryPercent: optionalNumberDraftValue(bot.tickSettings.compactionSummaryPercent),
+			compactionMaxCharacters: optionalNumberDraftValue(bot.tickSettings.compactionMaxCharacters),
+			maxToolCallsPerTick: optionalNumberDraftValue(bot.tickSettings.maxToolCallsPerTick),
+			maxSuccessfulToolCallsPerIteration: optionalNumberDraftValue(bot.tickSettings.maxSuccessfulToolCallsPerIteration),
+			maxGeneratedTokensPerTick: optionalNumberDraftValue(bot.tickSettings.maxGeneratedTokensPerTick),
+			maxGeneratedTokensPerIteration: optionalNumberDraftValue(bot.tickSettings.maxGeneratedTokensPerIteration),
 		});
 	}, [
 		bot.displayName,
 		bot.id,
 		bot.inferenceSettings,
+		ownerInferenceSettings,
 		bot.prompt,
 		bot.shortBio,
 		bot.toolSettings,
+		bot.effectiveTickSettings.allowEarlyLogOff,
 		bot.tickSettings.contextWindowTokens,
+		bot.tickSettings.compactionSummaryPercent,
+		bot.tickSettings.compactionMaxCharacters,
 		bot.tickSettings.intervalSeconds,
 		bot.tickSettings.maxToolCallsPerTick,
+		bot.tickSettings.maxSuccessfulToolCallsPerIteration,
+		bot.tickSettings.maxGeneratedTokensPerTick,
+		bot.tickSettings.maxGeneratedTokensPerIteration,
 		bot.updatedAt,
 	]);
 
 	const tickIntervalMinutes = parsePositiveInteger(draft.tickIntervalMinutes);
-	const contextWindowTokens = parsePositiveInteger(draft.contextWindowTokens);
-	const maxToolCallsPerTick = parsePositiveInteger(draft.maxToolCallsPerTick);
-	const inferenceInheritance: InferenceModelUnlockContext = {
-		apiKeySet: Boolean(ownerInferenceSettings?.openRouterApiKeySet),
-		...(ownerInferenceSettings?.baseUrl ? { baseUrl: ownerInferenceSettings.baseUrl } : {}),
-	};
-	const promptBudgetRequestKey = botPromptBudgetRequestKey(bot.id, bot.handle, draft, ownerInferenceSettings);
+	const contextWindowTokens = parseOptionalPositiveInteger(draft.contextWindowTokens);
+	const compactionSummaryPercent = parseOptionalPositiveInteger(draft.compactionSummaryPercent);
+	const compactionMaxCharacters = parseOptionalPositiveInteger(draft.compactionMaxCharacters);
+	const maxToolCallsPerTick = parseOptionalPositiveInteger(draft.maxToolCallsPerTick);
+	const maxSuccessfulToolCallsPerIteration = parseOptionalPositiveInteger(draft.maxSuccessfulToolCallsPerIteration);
+	const maxGeneratedTokensPerTick = parseOptionalPositiveInteger(draft.maxGeneratedTokensPerTick);
+	const maxGeneratedTokensPerIteration = parseOptionalPositiveInteger(draft.maxGeneratedTokensPerIteration);
+	const resolvedContextWindowTokens = contextWindowTokens ?? bot.effectiveTickSettings.contextWindowTokens;
+	const providerRoutingError = providerRoutingDraftError(draft.inference.providerRouting);
+	const translationProviderRoutingError = providerRoutingDraftError(draft.inference.translationProviderRouting);
+	const inferenceInheritance = inferenceFallbackContextForDraft(draft.inference, ownerInferenceSettings);
+	const promptBudgetRequestKey = botPromptBudgetRequestKey(bot.id, bot.handle, draft, inferenceInheritance);
 	const promptBudgetReady =
 		promptBudget.status === "ready" && promptBudget.requestKey === promptBudgetRequestKey ? promptBudget.budget : null;
 	const promptBudgetError =
@@ -5311,23 +5643,65 @@ function BotEdit({
 		draft.shortBio !== bot.shortBio ||
 		draft.prompt !== (bot.prompt ?? "") ||
 		tickIntervalMinutes !== secondsToMinutes(bot.tickSettings.intervalSeconds) ||
-		contextWindowTokens !== bot.tickSettings.contextWindowTokens ||
-		maxToolCallsPerTick !== bot.tickSettings.maxToolCallsPerTick ||
-		inferenceDraftChanged(draft.inference, bot.inferenceSettings, { includeReasoningPrefill: true }) ||
+		draft.allowEarlyLogOff !== bot.effectiveTickSettings.allowEarlyLogOff ||
+		contextWindowTokens !== (bot.tickSettings.contextWindowTokens ?? null) ||
+		compactionSummaryPercent !== (bot.tickSettings.compactionSummaryPercent ?? null) ||
+		compactionMaxCharacters !== (bot.tickSettings.compactionMaxCharacters ?? null) ||
+		maxToolCallsPerTick !== (bot.tickSettings.maxToolCallsPerTick ?? null) ||
+		maxSuccessfulToolCallsPerIteration !== (bot.tickSettings.maxSuccessfulToolCallsPerIteration ?? null) ||
+		maxGeneratedTokensPerTick !== (bot.tickSettings.maxGeneratedTokensPerTick ?? null) ||
+		maxGeneratedTokensPerIteration !== (bot.tickSettings.maxGeneratedTokensPerIteration ?? null) ||
+		inferenceDraftChanged(draft.inference, bot.inferenceSettings, {
+			includeReasoningPrefill: true,
+			inherited: inferenceInheritance,
+		}) ||
 		toolDraftChanged(draft.tools, bot.toolSettings);
 	const valid =
 		draft.displayName.trim().length > 0 &&
 		draft.shortBio.trim().length > 0 &&
 		draft.prompt.trim().length > 0 &&
 		draft.prompt.length <= maxBotPromptLength &&
-		draft.inference.reasoningPrefill.length <= maxBotReasoningPrefillLength &&
+		draft.inference.recurringPrompt.length <= maxBotReasoningPrefillLength &&
+		!providerRoutingError &&
+		!translationProviderRoutingError &&
 		tickIntervalMinutes >= 1 &&
 		tickIntervalMinutes <= 1440 &&
-		contextWindowTokens >= 2000 &&
-		contextWindowTokens <= 1_000_000 &&
-		maxToolCallsPerTick >= 1 &&
-		maxToolCallsPerTick <= 32 &&
+		(contextWindowTokens === null || (contextWindowTokens >= 2000 && contextWindowTokens <= 1_000_000)) &&
+		(compactionSummaryPercent === null || (compactionSummaryPercent >= 1 && compactionSummaryPercent <= 50)) &&
+		(compactionMaxCharacters === null || (compactionMaxCharacters >= 1 && compactionMaxCharacters <= 1_000_000)) &&
+		(maxToolCallsPerTick === null || (maxToolCallsPerTick >= 1 && maxToolCallsPerTick <= 32)) &&
+		(maxSuccessfulToolCallsPerIteration === null ||
+			(maxSuccessfulToolCallsPerIteration >= 1 && maxSuccessfulToolCallsPerIteration <= 32)) &&
+		(maxGeneratedTokensPerTick === null || (maxGeneratedTokensPerTick >= 1 && maxGeneratedTokensPerTick <= 1_000_000)) &&
+		(maxGeneratedTokensPerIteration === null ||
+			(maxGeneratedTokensPerIteration >= 1 && maxGeneratedTokensPerIteration <= 1_000_000)) &&
 		toolDraftValid(draft.tools);
+
+	useEffect(() => {
+		if (dirty) {
+			return;
+		}
+		let cancelled = false;
+		const requestKey = promptBudgetRequestKey;
+		void (async () => {
+			const result = await api<{ budget: BotContextBudget | null }>(
+				`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/context-budget`,
+			);
+			if (cancelled) {
+				return;
+			}
+			if (result.ok && result.data.budget) {
+				setPromptBudget({ status: "ready", budget: result.data.budget, requestKey });
+			} else if (result.ok) {
+				setPromptBudget((current) =>
+					current.status === "ready" && current.requestKey === requestKey ? current : { status: "idle" },
+				);
+			}
+		})();
+		return () => {
+			cancelled = true;
+		};
+	}, [bot.id, dirty, promptBudgetRequestKey]);
 
 	async function save(): Promise<void> {
 		const ok = await onSave(bot.id, {
@@ -5338,8 +5712,14 @@ function BotEdit({
 			toolSettings: toolInputFromDraft(draft.tools),
 			tickSettings: {
 				intervalSeconds: tickIntervalMinutes * 60,
+				allowEarlyLogOff: draft.allowEarlyLogOff,
 				contextWindowTokens,
+				compactionSummaryPercent,
+				compactionMaxCharacters,
 				maxToolCallsPerTick,
+				maxSuccessfulToolCallsPerIteration,
+				maxGeneratedTokensPerTick,
+				maxGeneratedTokensPerIteration,
 			},
 		});
 		if (ok) {
@@ -5352,7 +5732,11 @@ function BotEdit({
 	}
 
 	async function computePromptBudget(): Promise<void> {
-		if (!draft.prompt.trim() || contextWindowTokens < 2_000 || contextWindowTokens > 1_000_000) {
+		if (
+			!draft.prompt.trim() ||
+			(contextWindowTokens !== null && (contextWindowTokens < 2_000 || contextWindowTokens > 1_000_000)) ||
+			providerRoutingDraftError(draft.inference.providerRouting)
+		) {
 			return;
 		}
 		const requestKey = promptBudgetRequestKey;
@@ -5367,7 +5751,12 @@ function BotEdit({
 					shortBio: draft.shortBio,
 					inferenceSettings: inferenceInputFromDraft(draft.inference, inferenceInheritance, { includeReasoningPrefill: true }),
 					toolSettings: toolInputFromDraft(draft.tools),
-					tickSettings: { contextWindowTokens },
+					tickSettings: {
+						allowEarlyLogOff: draft.allowEarlyLogOff,
+						contextWindowTokens,
+						compactionMaxCharacters,
+						compactionSummaryPercent,
+					},
 				},
 			},
 		);
@@ -5474,7 +5863,7 @@ function BotEdit({
 						</Field>
 						<PromptContextBudgetChart
 							budget={promptBudgetReady}
-							contextWindowTokens={contextWindowTokens}
+							contextWindowTokens={resolvedContextWindowTokens}
 							error={promptBudgetError}
 							loading={promptBudgetLoading}
 							onCompute={() => void computePromptBudget()}
@@ -5483,27 +5872,15 @@ function BotEdit({
 
 					<section className="section">
 						<div className="section-head">
-							<h2>Runtime</h2>
+							<h2>Agentic Loop</h2>
 							<span className="meta">owner tools</span>
 						</div>
-						<div className="card runtime-card">
-							<Field help="How often this bot wakes up to act. Stored internally as seconds." label="Tick interval">
-								<div className="input-suffix">
-									<input
-										className="input"
-										min={1}
-										max={1440}
-										onChange={(event) =>
-											setDraft((current) => ({ ...current, tickIntervalMinutes: event.target.value }))
-										}
-										type="number"
-										value={draft.tickIntervalMinutes}
-									/>
-									<span className="suffix">minutes</span>
-								</div>
-							</Field>
+						<div className="card runtime-card agentic-loop-card">
 							<div className="field-row">
-								<Field help="Approximate context window used when preparing a tick. Higher values preserve more history." label="Context budget">
+								<Field
+									help="Approximate context window used when preparing a tick. Higher values preserve more history. Blank uses the default."
+									label="Context budget"
+								>
 									<div className="input-suffix">
 										<input
 											className="input"
@@ -5512,6 +5889,7 @@ function BotEdit({
 											onChange={(event) =>
 												setDraft((current) => ({ ...current, contextWindowTokens: event.target.value }))
 											}
+											placeholder={String(bot.effectiveTickSettings.contextWindowTokens)}
 											step={1000}
 											type="number"
 											value={draft.contextWindowTokens}
@@ -5519,7 +5897,27 @@ function BotEdit({
 										<span className="suffix">tokens</span>
 									</div>
 								</Field>
-								<Field help="Maximum provider/tool rounds allowed before the tick is cut off." label="Max tool calls">
+								<Field help="How often this bot wakes up to act. Stored internally as seconds." label="Tick interval">
+									<div className="input-suffix">
+										<input
+											className="input"
+											min={1}
+											max={1440}
+											onChange={(event) =>
+												setDraft((current) => ({ ...current, tickIntervalMinutes: event.target.value }))
+											}
+											type="number"
+											value={draft.tickIntervalMinutes}
+										/>
+										<span className="suffix">minutes</span>
+									</div>
+								</Field>
+							</div>
+							<div className="field-row">
+								<Field
+									help="Maximum provider turns that may request Bickr controls before this tick is cut off. Blank uses the default."
+									label="Max tool call attempts per tick"
+								>
 									<input
 										className="input"
 										min={1}
@@ -5527,26 +5925,186 @@ function BotEdit({
 										onChange={(event) =>
 											setDraft((current) => ({ ...current, maxToolCallsPerTick: event.target.value }))
 										}
+										placeholder={String(bot.effectiveTickSettings.maxToolCallsPerTick)}
 										step={1}
 										type="number"
 										value={draft.maxToolCallsPerTick}
 									/>
 								</Field>
+								<Field
+									help="Maximum generated tokens produced during a tick before the tick stops. Blank uses the default."
+									label="Max generated tokens per tick"
+								>
+									<div className="input-suffix">
+										<input
+											className="input"
+											min={1}
+											max={1_000_000}
+											onChange={(event) =>
+												setDraft((current) => ({ ...current, maxGeneratedTokensPerTick: event.target.value }))
+											}
+											placeholder={String(bot.effectiveTickSettings.maxGeneratedTokensPerTick)}
+											step={1000}
+											type="number"
+											value={draft.maxGeneratedTokensPerTick}
+										/>
+										<span className="suffix">tokens</span>
+									</div>
+								</Field>
 							</div>
-							<RuntimeRow label="Loop monitor" value="Open from the bot profile Loop action." />
+							<div className="field-row">
+								<Field
+									help="Maximum successful control results in an iteration before this participant logs off. Blank uses the default."
+									label="Max successful tool calls per iteration"
+								>
+									<input
+										className="input"
+										min={1}
+										max={32}
+										onChange={(event) =>
+											setDraft((current) => ({ ...current, maxSuccessfulToolCallsPerIteration: event.target.value }))
+										}
+										placeholder={String(bot.effectiveTickSettings.maxSuccessfulToolCallsPerIteration)}
+										step={1}
+										type="number"
+										value={draft.maxSuccessfulToolCallsPerIteration}
+									/>
+								</Field>
+								<Field
+									help="Maximum generated tokens produced during an iteration before this participant logs off. Blank uses the default."
+									label="Max generated tokens per iteration"
+								>
+									<div className="input-suffix">
+										<input
+											className="input"
+											min={1}
+											max={1_000_000}
+											onChange={(event) =>
+												setDraft((current) => ({ ...current, maxGeneratedTokensPerIteration: event.target.value }))
+											}
+											placeholder={String(bot.effectiveTickSettings.maxGeneratedTokensPerIteration)}
+											step={1000}
+											type="number"
+											value={draft.maxGeneratedTokensPerIteration}
+										/>
+										<span className="suffix">tokens</span>
+									</div>
+								</Field>
+							</div>
+							<div className="field-row">
+								<Field
+									help="Minimum compacted memory size as a percentage of the chat characters being compacted. Blank uses the default."
+									label="Compaction percentage"
+								>
+									<div className="input-suffix">
+										<input
+											className="input"
+											min={1}
+											max={50}
+											onChange={(event) =>
+												setDraft((current) => ({ ...current, compactionSummaryPercent: event.target.value }))
+											}
+											placeholder={String(bot.effectiveTickSettings.compactionSummaryPercent)}
+											step={1}
+											type="number"
+											value={draft.compactionSummaryPercent}
+										/>
+										<span className="suffix">%</span>
+									</div>
+								</Field>
+								<Field
+									help="Maximum characters retained after a compaction. Blank uses the default."
+									label="Max number of characters after compaction"
+								>
+									<div className="input-suffix">
+										<input
+											className="input"
+											min={1}
+											max={1_000_000}
+											onChange={(event) =>
+												setDraft((current) => ({ ...current, compactionMaxCharacters: event.target.value }))
+											}
+											placeholder={String(bot.effectiveTickSettings.compactionMaxCharacters)}
+											step={100}
+											type="number"
+											value={draft.compactionMaxCharacters}
+										/>
+										<span className="suffix">chars</span>
+									</div>
+								</Field>
+							</div>
+							<Field help="When enabled, this participant can use log_off to end a loop iteration before reaching the configured control limits.">
+								<label className="checkbox-line">
+									<input
+										checked={draft.allowEarlyLogOff}
+										onChange={(event) =>
+											setDraft((current) => ({ ...current, allowEarlyLogOff: event.target.checked }))
+										}
+										type="checkbox"
+									/>
+									<span>Allow to log off early</span>
+								</label>
+							</Field>
+							<Field
+								help="When enabled, this first-person prompt is injected into the chat at the start of each new loop iteration, after Bickr Terminal adds elapsed time, notifications, and any pending owner thoughts. Blank uses the default recurring prompt for this participant."
+								label={
+									<span className="field-checkbox-label">
+										<input
+											checked={draft.inference.recurringPromptEnabled}
+											onChange={(event) =>
+												setDraft((current) => ({
+													...current,
+													inference: { ...current.inference, recurringPromptEnabled: event.target.checked },
+												}))
+											}
+											type="checkbox"
+										/>
+										<span>Recurring prompt</span>
+									</span>
+								}
+							>
+								<textarea
+									className="textarea recurring-prompt-editor"
+									disabled={!draft.inference.recurringPromptEnabled}
+									maxLength={maxBotReasoningPrefillLength}
+									onChange={(event) =>
+										setDraft((current) => ({
+											...current,
+											inference: { ...current.inference, recurringPrompt: event.target.value },
+										}))
+									}
+									placeholder={defaultReasoningPrefill(bot.handle)}
+									rows={3}
+									value={draft.inference.recurringPrompt}
+								/>
+							</Field>
 						</div>
 					</section>
 
 					<section className="section">
 						<div className="section-head">
-							<h2>Inference Overrides</h2>
+							<h2>Inference Provider</h2>
 							<span className="meta">blank fields inherit profile defaults</span>
 						</div>
-						<InferenceSettingsFields
-							botHandle={bot.handle}
+						<InferenceProviderFields
 							draft={draft.inference}
 							inheritedApiKeySet={Boolean(ownerInferenceSettings?.openRouterApiKeySet)}
 							inheritedBaseUrl={ownerInferenceSettings?.baseUrl}
+							inheritedSettings={ownerInferenceSettings}
+							onChange={(inference) => setDraft((current) => ({ ...current, inference }))}
+							scope="bot"
+						/>
+					</section>
+					<section className="section">
+						<div className="section-head">
+							<h2>Inference: Agentic Loop</h2>
+							<span className="meta">blank fields inherit profile defaults</span>
+						</div>
+						<AgenticLoopInferenceFields
+							draft={draft.inference}
+							inheritedApiKeySet={Boolean(ownerInferenceSettings?.openRouterApiKeySet)}
+							inheritedBaseUrl={ownerInferenceSettings?.baseUrl}
+							inheritedSettings={ownerInferenceSettings}
 							modelSuggestions={modelSuggestions}
 							onChange={(inference) => setDraft((current) => ({ ...current, inference }))}
 							scope="bot"
@@ -5710,6 +6268,12 @@ function PromptContextBudgetChart({
 			{overBudgetTokens > 0 && (
 				<div className="runtime-message error">
 					Over budget by {formatExactTokenCount(overBudgetTokens)} tokens before loop inputs.
+				</div>
+			)}
+			{budget && budget.minimumCompactedPromptOverageTokens > 0 && (
+				<div className="runtime-message error">
+					Compaction cannot converge at this budget: the smallest estimated compacted prompt is{" "}
+					{formatExactTokenCount(budget.minimumCompactedPromptOverageTokens)} tokens past next compaction.
 				</div>
 			)}
 			{error && <div className="runtime-message error">{error}</div>}
@@ -5906,15 +6470,25 @@ function MyBotsScreen({
 }
 
 function NotificationsScreen({
+	embedded = false,
+	grouped = true,
+	listScope = { scopeType: "all" },
 	onLoadNotifications,
 	onMarkAllRead,
 	onMarkRead,
 	onOpenNotification,
+	subtitle = "Recent activity from watched worlds, forums, threads, and participants.",
+	title = "Notifications",
 }: {
-	onLoadNotifications: (status: "unread" | "all", limit?: number, offset?: number) => Promise<HumanNotificationSummary | null>;
-	onMarkAllRead: () => Promise<boolean>;
+	embedded?: boolean;
+	grouped?: boolean;
+	listScope?: HumanNotificationListScope;
+	onLoadNotifications: LoadHumanNotifications;
+	onMarkAllRead: (scope?: HumanNotificationReadScope) => Promise<number | null>;
 	onMarkRead: (notification: HumanNotification) => Promise<string | null>;
 	onOpenNotification: (notification: HumanNotification) => void;
+	subtitle?: string;
+	title?: string;
 }) {
 	const pageSize = 50;
 	const [summary, setSummary] = useState<HumanNotificationSummary>({ unreadCount: 0, notifications: [] });
@@ -5923,10 +6497,17 @@ function NotificationsScreen({
 	const [loading, setLoading] = useState(true);
 	const [loadingMore, setLoadingMore] = useState(false);
 	const [message, setMessage] = useState("");
+	const loadVersion = useRef(0);
+	const scopeKey = notificationListScopeKey(listScope);
 
 	async function refresh(): Promise<void> {
+		const version = loadVersion.current + 1;
+		loadVersion.current = version;
 		setLoading(true);
-		const next = await onLoadNotifications("all", pageSize, 0);
+		const next = await onLoadNotifications("all", pageSize, 0, listScope);
+		if (loadVersion.current !== version) {
+			return;
+		}
 		if (next) {
 			setSummary(next);
 			setMessage("");
@@ -5937,8 +6518,13 @@ function NotificationsScreen({
 	}
 
 	async function loadMore(): Promise<void> {
+		const version = loadVersion.current;
 		setLoadingMore(true);
-		const next = await onLoadNotifications("all", pageSize, summary.nextOffset ?? summary.notifications.length);
+		const next = await onLoadNotifications("all", pageSize, summary.nextOffset ?? summary.notifications.length, listScope);
+		if (loadVersion.current !== version) {
+			setLoadingMore(false);
+			return;
+		}
 		if (next) {
 			setSummary((current) => ({
 				...next,
@@ -5952,8 +6538,11 @@ function NotificationsScreen({
 	}
 
 	useEffect(() => {
+		setSummary({ unreadCount: 0, notifications: [] });
+		setFilter("");
+		setMessage("");
 		void refresh();
-	}, []);
+	}, [scopeKey]);
 
 	async function markRead(notification: HumanNotification): Promise<void> {
 		if (notification.readAt) {
@@ -5973,19 +6562,29 @@ function NotificationsScreen({
 	}
 
 	async function markAllRead(): Promise<void> {
-		const ok = await onMarkAllRead();
-		if (!ok) {
+		const readScope = notificationReadScopeForListScope(listScope);
+		const readCount = await onMarkAllRead(readScope);
+		if (readCount === null) {
 			return;
 		}
 		const readAt = new Date().toISOString();
-		setSummary((current) => ({
-			...current,
-			unreadCount: 0,
-			notifications: current.notifications.map((notification) => ({
-				...notification,
-				readAt: notification.readAt ?? readAt,
-			})),
-		}));
+		setSummary((current) =>
+			humanNotificationSummaryWithReadScope(current, readScope, readAt, readCount),
+		);
+	}
+
+	async function markGroupRead(group: NotificationGroup): Promise<void> {
+		if (group.unreadCount === 0) {
+			return;
+		}
+		const readCount = await onMarkAllRead(group.readScope);
+		if (readCount === null) {
+			return;
+		}
+		const readAt = new Date().toISOString();
+		setSummary((current) =>
+			humanNotificationSummaryWithReadScope(current, group.readScope, readAt, readCount),
+		);
 	}
 
 	const filtered = useMemo(
@@ -6002,27 +6601,29 @@ function NotificationsScreen({
 		[filter, summary.notifications],
 	);
 	const groups = useMemo(
-		() => notificationGroups(filtered, groupMode),
-		[filtered, groupMode],
+		() => grouped ? notificationGroups(filtered, groupMode) : [],
+		[filtered, grouped, groupMode],
 	);
 	const canLoadMore = Boolean(summary.hasMore);
 
 	return (
-		<div className="main-inner notifications-page">
+		<div className={embedded ? "notifications-page notifications-panel" : "main-inner notifications-page"}>
 			<div className="page-header">
 				<div>
-					<h1>Notifications</h1>
-					<p className="sub">Recent activity from watched worlds, forums, threads, and participants.</p>
+					<h1>{title}</h1>
+					<p className="sub">{subtitle}</p>
 				</div>
 				<div className="actions">
-					<div className="seg" role="tablist">
-						<button aria-pressed={groupMode === "world"} onClick={() => setGroupMode("world")} type="button">
-							By world
-						</button>
-						<button aria-pressed={groupMode === "bot"} onClick={() => setGroupMode("bot")} type="button">
-							By bot
-						</button>
-					</div>
+					{grouped && (
+						<div className="seg" role="tablist">
+							<button aria-pressed={groupMode === "world"} onClick={() => setGroupMode("world")} type="button">
+								By world
+							</button>
+							<button aria-pressed={groupMode === "bot"} onClick={() => setGroupMode("bot")} type="button">
+								By bot
+							</button>
+						</div>
+					)}
 					<button className="btn" disabled={loading} onClick={() => void refresh()} type="button">
 						<Icon name="refresh" size={14} />
 						Refresh
@@ -6052,9 +6653,10 @@ function NotificationsScreen({
 				<EmptyState title="No notifications yet">
 					Notifications appear here when watched activity happens.
 				</EmptyState>
-			: groups.length === 0 ?
+			: filtered.length === 0 ?
 				<div className="empty compact-empty">No notifications match this filter.</div>
-			:	<div className="notification-groups">
+			: grouped ?
+				<div className="notification-groups">
 					{groups.map((group) => (
 						<section className="notification-group" key={group.key}>
 							<div className="notification-group-head">
@@ -6062,43 +6664,31 @@ function NotificationsScreen({
 									<h2>{group.title}</h2>
 									{group.meta && <span>{group.meta}</span>}
 								</div>
-								<span>{group.notifications.length}</span>
-							</div>
-							<div className="notification-page-list">
-								{group.notifications.map((notification) => (
-									<article
-										className={`notification-page-card ${notification.readAt ? "" : "unread"}`}
-										key={notification.id}
+								<div className="notification-group-actions">
+									<span>{group.notifications.length}</span>
+									<button
+										className="btn compact"
+										disabled={group.unreadCount === 0}
+										onClick={() => void markGroupRead(group)}
+										type="button"
 									>
-										<a
-											className="notification-page-link"
-											href={notification.urlPath}
-											onClick={(event) => {
-												if (!shouldHandleSpaClick(event)) {
-													return;
-												}
-												event.preventDefault();
-												onOpenNotification(notification);
-											}}
-										>
-											<span className="notification-title">{notification.title}</span>
-											<span className="notification-body">{notification.body}</span>
-											<span className="notification-meta">{notificationMeta(notification)}</span>
-										</a>
-										<div className="notification-page-actions">
-											{notification.readAt ?
-												<span className="read-state">Read {timeAgo(notification.readAt)}</span>
-											:	<button className="btn compact" onClick={() => void markRead(notification)} type="button">
-													Mark read
-												</button>
-											}
-										</div>
-									</article>
-								))}
+										Mark all read
+									</button>
+								</div>
 							</div>
+							<NotificationPageList
+								notifications={group.notifications}
+								onMarkRead={(notification) => void markRead(notification)}
+								onOpenNotification={onOpenNotification}
+							/>
 						</section>
 					))}
 				</div>
+			:	<NotificationPageList
+					notifications={filtered}
+					onMarkRead={(notification) => void markRead(notification)}
+					onOpenNotification={onOpenNotification}
+				/>
 			}
 			{summary.notifications.length > 0 && (
 				<div className="notification-page-footer">
@@ -6113,6 +6703,481 @@ function NotificationsScreen({
 			)}
 		</div>
 	);
+}
+
+function NotificationPageList({
+	notifications,
+	onMarkRead,
+	onOpenNotification,
+}: {
+	notifications: HumanNotification[];
+	onMarkRead: (notification: HumanNotification) => void;
+	onOpenNotification: (notification: HumanNotification) => void;
+}) {
+	return (
+		<div className="notification-page-list">
+			{notifications.map((notification) => (
+				<NotificationPageCard
+					key={notification.id}
+					notification={notification}
+					onMarkRead={onMarkRead}
+					onOpenNotification={onOpenNotification}
+				/>
+			))}
+		</div>
+	);
+}
+
+function NotificationPageCard({
+	notification,
+	onMarkRead,
+	onOpenNotification,
+}: {
+	notification: HumanNotification;
+	onMarkRead: (notification: HumanNotification) => void;
+	onOpenNotification: (notification: HumanNotification) => void;
+}) {
+	return (
+		<article
+			className={`notification-page-card ${notification.readAt ? "" : "unread"} ${notification.spotlightId ? "has-spotlight" : ""}`}
+		>
+			<a
+				className="notification-page-link"
+				href={notificationHref(notification)}
+				onClick={(event) => {
+					if (!shouldHandleSpaClick(event)) {
+						return;
+					}
+					event.preventDefault();
+					onOpenNotification(notification);
+				}}
+			>
+				<span className="notification-title">{notification.title}</span>
+				<NotificationBody body={notification.body} />
+				<span className="notification-meta">{notificationMeta(notification)}</span>
+			</a>
+			{notification.spotlightId && <SpotlightNotificationBadge />}
+			<div className="notification-page-actions">
+				{notification.readAt ?
+					<span className="read-state">Read {timeAgo(notification.readAt)}</span>
+				:	<button className="btn compact" onClick={() => onMarkRead(notification)} type="button">
+						Mark read
+					</button>
+				}
+			</div>
+		</article>
+	);
+}
+
+function HumanProfileScreen({
+	busy,
+	currentUser,
+	handle,
+	onDeleteProfile,
+}: {
+	busy: boolean;
+	currentUser: PublicUser;
+	handle: string;
+	onDeleteProfile: () => Promise<boolean>;
+}) {
+	const [profile, setProfile] = useState<HumanProfile | null>(null);
+	const [activeTab, setActiveTab] = useState<HumanProfileTab>("worlds");
+	const [worldFilter, setWorldFilter] = useState("");
+	const [forumFilter, setForumFilter] = useState("");
+	const [botFilter, setBotFilter] = useState("");
+	const [loading, setLoading] = useState(true);
+	const [message, setMessage] = useState("");
+	const [confirmGeneral, setConfirmGeneral] = useState(false);
+	const [confirmCascade, setConfirmCascade] = useState(false);
+	const toast = useContext(ToastContext);
+
+	useEffect(() => {
+		let cancelled = false;
+		setLoading(true);
+		setMessage("");
+		setProfile(null);
+		void api<{ profile: HumanProfile }>(`/api/humans/${encodeURIComponent(handle)}`).then((result) => {
+			if (cancelled) {
+				return;
+			}
+			if (result.ok) {
+				setProfile(result.data.profile);
+				setActiveTab("worlds");
+				setWorldFilter("");
+				setForumFilter("");
+				setBotFilter("");
+			} else {
+				setMessage(result.message);
+			}
+			setLoading(false);
+		});
+		return () => {
+			cancelled = true;
+		};
+	}, [handle]);
+
+	const isSelf = profile?.isSelf ?? profile?.user.id === currentUser.id;
+	const deleteEligibility = profile?.deleteEligibility;
+	const canDelete = Boolean(isSelf && deleteEligibility?.canDelete);
+	const filteredWorlds = useMemo(
+		() => (profile?.worlds ?? []).filter((world) => matchesWorldSummaryFilter(worldFilter, world)),
+		[profile?.worlds, worldFilter],
+	);
+	const filteredForums = useMemo(
+		() => filterHumanForumGroups(profile?.forumsByWorld ?? [], forumFilter),
+		[profile?.forumsByWorld, forumFilter],
+	);
+	const filteredBots = useMemo(
+		() => filterHumanBotGroups(profile?.botsByWorld ?? [], botFilter),
+		[profile?.botsByWorld, botFilter],
+	);
+	const tabs: Array<{ id: HumanProfileTab; label: string; count: number }> = [
+		{ id: "worlds", label: "Worlds", count: profile?.totals.worlds ?? 0 },
+		{ id: "forums", label: "Forums", count: profile?.totals.forums ?? 0 },
+		{ id: "bots", label: "Bots", count: profile?.totals.bots ?? 0 },
+	];
+
+	async function deleteSelfProfile(): Promise<void> {
+		const ok = await onDeleteProfile();
+		if (ok) {
+			toast.push("Deleted profile");
+		}
+	}
+
+	if (loading) {
+		return (
+			<div className="main-inner">
+				<div className="empty-state compact">Loading profile...</div>
+			</div>
+		);
+	}
+	if (!profile) {
+		return (
+			<div className="main-inner">
+				<EmptyState title="Profile not found">{message || "This human profile is not available."}</EmptyState>
+			</div>
+		);
+	}
+
+	return (
+		<div className="main-inner">
+			<div className="profile-head human-profile-head">
+				<Avatar actor="user" colorSeed={profile.user.handle} name={profile.user.displayName} size="xl" />
+				<div className="meta">
+					<h1 className="name">{profile.user.displayName}</h1>
+					<div className="handle">
+						<Reference kind="human" link={false} name={profile.user.handle} />
+					</div>
+				</div>
+				<div className="human-profile-stats">
+					<span><b>{profile.totals.worlds}</b> worlds</span>
+					<span><b>{profile.totals.forums}</b> forums</span>
+					<span><b>{profile.totals.bots}</b> bots</span>
+				</div>
+			</div>
+
+			<div className="profile-tabs">
+				<div className="tabs" role="tablist">
+					{tabs.map((tab) => (
+						<button
+							aria-selected={activeTab === tab.id}
+							key={tab.id}
+							onClick={() => setActiveTab(tab.id)}
+							role="tab"
+							type="button"
+						>
+							{tab.label} <span className="count">{tab.count}</span>
+						</button>
+					))}
+				</div>
+
+				{activeTab === "worlds" && (
+					<section className="profile-tab-panel" role="tabpanel">
+						<FilterBox
+							label="Search worlds"
+							onChange={setWorldFilter}
+							placeholder="Search by w/handle, name, or description"
+							value={worldFilter}
+						/>
+						<HumanWorldList
+							emptyMessage={worldFilter.trim() ? "No worlds match this search." : "No owned worlds."}
+							worlds={filteredWorlds}
+						/>
+					</section>
+				)}
+
+				{activeTab === "forums" && (
+					<section className="profile-tab-panel" role="tabpanel">
+						<FilterBox
+							label="Search forums"
+							onChange={setForumFilter}
+							placeholder="Search by f/handle, description, or world"
+							value={forumFilter}
+						/>
+						<HumanForumGroups
+							emptyMessage={forumFilter.trim() ? "No forums match this search." : "No owned forums."}
+							groups={filteredForums}
+						/>
+					</section>
+				)}
+
+				{activeTab === "bots" && (
+					<section className="profile-tab-panel" role="tabpanel">
+						<FilterBox
+							label="Search bots"
+							onChange={setBotFilter}
+							placeholder="Search by u/handle, display name, bio, or world"
+							value={botFilter}
+						/>
+						<HumanBotGroups
+							emptyMessage={botFilter.trim() ? "No bots match this search." : "No owned bots."}
+							groups={filteredBots}
+						/>
+					</section>
+				)}
+			</div>
+
+			{isSelf && (
+				<section className="danger-zone profile-delete-zone">
+					<h3>Danger zone</h3>
+					<p>Deleting this profile removes owned worlds, forums, and bots after confirmation.</p>
+					{deleteEligibility && !deleteEligibility.canDelete && (
+						<ProfileDeleteBlockers blockers={deleteEligibility.blockers} />
+					)}
+					<button className="btn danger solid" disabled={busy || !canDelete} onClick={() => setConfirmGeneral(true)} type="button">
+						<Icon name="trash" size={14} />
+						Delete profile
+					</button>
+				</section>
+			)}
+
+			<Confirm
+				body="This starts permanent deletion for your human profile and owned Bickr entities. You will review the exact owned worlds, forums, and bots before anything is deleted."
+				confirmText="Review deletion"
+				danger
+				onClose={() => setConfirmGeneral(false)}
+				onConfirm={() => setConfirmCascade(true)}
+				open={confirmGeneral}
+				title="Delete this profile?"
+			/>
+			<Confirm
+				body={<ProfileDeleteCascadeSummary profile={profile} />}
+				confirmText="Delete profile"
+				danger
+				onClose={() => setConfirmCascade(false)}
+				onConfirm={() => void deleteSelfProfile()}
+				open={confirmCascade}
+				title="Confirm profile deletion"
+			/>
+		</div>
+	);
+}
+
+function HumanWorldList({ emptyMessage, worlds }: { emptyMessage: string; worlds: WorldSummary[] }) {
+	if (worlds.length === 0) {
+		return <div className="empty compact-empty">{emptyMessage}</div>;
+	}
+	return (
+		<div className="human-entity-list">
+			{worlds.map((world) => (
+				<article className="human-entity-row" key={world.id}>
+					<div>
+						<div className="human-entity-title">
+							<SpaLink className="linklike" to={{ route: "world", worldHandle: world.handle }}>
+								{world.name}
+							</SpaLink>
+							<Reference kind="world" name={world.handle} />
+						</div>
+						<TranslatableText as="div" className="human-entity-desc" text={world.description} />
+					</div>
+					<span className="meta">{timeAgo(world.updatedAt)}</span>
+				</article>
+			))}
+		</div>
+	);
+}
+
+function HumanForumGroups({ emptyMessage, groups }: { emptyMessage: string; groups: HumanOwnedForumGroup[] }) {
+	if (groups.length === 0) {
+		return <div className="empty compact-empty">{emptyMessage}</div>;
+	}
+	return (
+		<div className="human-group-list">
+			{groups.map((group) => (
+				<section className="bot-follow-section" key={group.world.id}>
+					<div className="bot-world-head">
+						<span><Reference kind="world" name={group.world.handle} /></span>
+						<span className="bot-world-head-actions">
+							{group.forums.length} forum{group.forums.length === 1 ? "" : "s"}
+						</span>
+					</div>
+					<div className="forum-list">
+						{group.forums.map((forum) => (
+							<ForumRow forum={forum} key={forum.id} />
+						))}
+					</div>
+				</section>
+			))}
+		</div>
+	);
+}
+
+function HumanBotGroups({ emptyMessage, groups }: { emptyMessage: string; groups: HumanOwnedBotGroup[] }) {
+	if (groups.length === 0) {
+		return <div className="empty compact-empty">{emptyMessage}</div>;
+	}
+	return (
+		<div className="human-group-list">
+			{groups.map((group) => (
+				<section className="bot-follow-section" key={group.world.id}>
+					<div className="bot-world-head">
+						<span><Reference kind="world" name={group.world.handle} /></span>
+						<span className="bot-world-head-actions">
+							{group.bots.length} bot{group.bots.length === 1 ? "" : "s"}
+						</span>
+					</div>
+					<div className="bot-grid">
+						{group.bots.map((bot) => (
+							<BotPublicProfileCard bot={bot} key={bot.id} />
+						))}
+					</div>
+				</section>
+			))}
+		</div>
+	);
+}
+
+function ProfileDeleteBlockers({ blockers }: { blockers: HumanProfileDeleteBlocker[] }) {
+	const blockingBots = blockers.reduce((count, blocker) => count + blocker.bots.length, 0);
+	return (
+		<div className="delete-blockers">
+			<b>Deletion blocked</b>
+			<span>
+				{blockingBots} bot{blockingBots === 1 ? "" : "s"} owned by other profiles exist in owned worlds.
+			</span>
+			{blockers.map((blocker) => (
+				<details key={blocker.world.id}>
+					<summary>
+						<Reference kind="world" name={blocker.world.handle} />: {blocker.bots.length} bot{blocker.bots.length === 1 ? "" : "s"}
+					</summary>
+					<ul>
+						{blocker.bots.map((bot) => (
+							<li key={bot.id}>
+								<Reference isBot kind="bot" name={bot.handle} worldHandle={bot.homeWorldHandle} />
+								{bot.owner && <> owned by <HumanReference user={bot.owner} /></>}
+							</li>
+						))}
+					</ul>
+				</details>
+			))}
+		</div>
+	);
+}
+
+function ProfileDeleteCascadeSummary({ profile }: { profile: HumanProfile }) {
+	return (
+		<div className="profile-delete-summary">
+			<p>
+				This will delete <b>{profile.user.displayName}</b> (<Reference kind="human" name={profile.user.handle} />)
+				and the owned entities below.
+			</p>
+			<details>
+				<summary>{profile.totals.worlds} world{profile.totals.worlds === 1 ? "" : "s"} will be deleted</summary>
+				<DeleteWorldList worlds={profile.worlds} />
+			</details>
+			<details>
+				<summary>{profile.totals.forums} forum{profile.totals.forums === 1 ? "" : "s"} will be deleted</summary>
+				<DeleteForumGroups groups={profile.forumsByWorld} />
+			</details>
+			<details>
+				<summary>{profile.totals.bots} bot{profile.totals.bots === 1 ? "" : "s"} will be deleted</summary>
+				<DeleteBotGroups groups={profile.botsByWorld} />
+			</details>
+		</div>
+	);
+}
+
+function DeleteWorldList({ worlds }: { worlds: WorldSummary[] }) {
+	if (worlds.length === 0) {
+		return <div className="empty compact-empty">None</div>;
+	}
+	return (
+		<ul>
+			{worlds.map((world) => (
+				<li key={world.id}>
+					<Reference kind="world" name={world.handle} /> {world.name}
+				</li>
+			))}
+		</ul>
+	);
+}
+
+function DeleteForumGroups({ groups }: { groups: HumanOwnedForumGroup[] }) {
+	if (groups.length === 0) {
+		return <div className="empty compact-empty">None</div>;
+	}
+	return (
+		<div className="delete-group-stack">
+			{groups.map((group) => (
+				<div key={group.world.id}>
+					<b><Reference kind="world" name={group.world.handle} /></b>
+					<ul>
+						{group.forums.map((forum) => (
+							<li key={forum.id}>
+								<Reference kind="forum" name={forum.handle} worldHandle={forum.worldHandle} />
+							</li>
+						))}
+					</ul>
+				</div>
+			))}
+		</div>
+	);
+}
+
+function DeleteBotGroups({ groups }: { groups: HumanOwnedBotGroup[] }) {
+	if (groups.length === 0) {
+		return <div className="empty compact-empty">None</div>;
+	}
+	return (
+		<div className="delete-group-stack">
+			{groups.map((group) => (
+				<div key={group.world.id}>
+					<b><Reference kind="world" name={group.world.handle} /></b>
+					<ul>
+						{group.bots.map((bot) => (
+							<li key={bot.id}>
+								<Reference isBot kind="bot" name={bot.handle} worldHandle={bot.homeWorldHandle} /> {bot.displayName}
+							</li>
+						))}
+					</ul>
+				</div>
+			))}
+		</div>
+	);
+}
+
+function matchesWorldSummaryFilter(query: string, world: WorldSummary): boolean {
+	return matchesFilter(query, world.handle, world.name, world.description);
+}
+
+function matchesForumSummaryFilter(query: string, forum: ForumSummary): boolean {
+	return matchesFilter(query, forum.handle, forum.description, forum.worldHandle);
+}
+
+function filterHumanForumGroups(groups: HumanOwnedForumGroup[], query: string): HumanOwnedForumGroup[] {
+	return groups.flatMap((group) => {
+		const worldMatches = matchesWorldSummaryFilter(query, group.world);
+		const forums = worldMatches ? group.forums : group.forums.filter((forum) => matchesForumSummaryFilter(query, forum));
+		return forums.length ? [{ ...group, forums }] : [];
+	});
+}
+
+function filterHumanBotGroups(groups: HumanOwnedBotGroup[], query: string): HumanOwnedBotGroup[] {
+	return groups.flatMap((group) => {
+		const worldMatches = matchesWorldSummaryFilter(query, group.world);
+		const bots = worldMatches ? group.bots : group.bots.filter((bot) => matchesBotProfileFilter(query, bot));
+		return bots.length ? [{ ...group, bots }] : [];
+	});
 }
 
 function ProfileScreen({
@@ -6159,7 +7224,11 @@ function ProfileScreen({
 	const profileIncomplete = !(profile?.profileComplete ?? user.profileComplete);
 	const authIdentities = profile?.authIdentities ?? [];
 	const dirty = profile ? profileDraftChanged(draft, profile) : true;
-	const valid = isValidHandle(draft.handle) && draft.displayName.trim().length > 0;
+	const valid =
+		isValidHandle(draft.handle) &&
+		draft.displayName.trim().length > 0 &&
+		!providerRoutingDraftError(draft.inference.providerRouting) &&
+		!providerRoutingDraftError(draft.inference.translationProviderRouting);
 	const canSave = (dirty || profileIncomplete) && valid && !busy && !loading;
 
 	async function save(): Promise<void> {
@@ -6264,13 +7333,34 @@ function ProfileScreen({
 
 					<section className="section">
 						<div className="section-head">
-							<h2>OpenRouter Defaults</h2>
-							<span className="meta">used by bots without overrides</span>
+							<h2>Inference Provider</h2>
+							<span className="meta">credentials and endpoint</span>
 						</div>
-						<InferenceSettingsFields
+						<InferenceProviderFields
 							draft={draft.inference}
 							onChange={(inference) => setDraft((current) => ({ ...current, inference }))}
 							scope="profile"
+						/>
+					</section>
+					<section className="section">
+						<div className="section-head">
+							<h2>Inference: Agentic Loop</h2>
+							<span className="meta">used by participants without overrides</span>
+						</div>
+						<AgenticLoopInferenceFields
+							draft={draft.inference}
+							onChange={(inference) => setDraft((current) => ({ ...current, inference }))}
+							scope="profile"
+						/>
+					</section>
+					<section className="section">
+						<div className="section-head">
+							<h2>Inference: Translation</h2>
+							<span className="meta">inline content translation</span>
+						</div>
+						<TranslationInferenceFields
+							draft={draft.inference}
+							onChange={(inference) => setDraft((current) => ({ ...current, inference }))}
 						/>
 					</section>
 				</div>
@@ -6360,24 +7450,21 @@ function AuthIdentityRuntimeRow({
 	);
 }
 
-function InferenceSettingsFields({
-	botHandle,
+function InferenceProviderFields({
 	draft,
 	inheritedApiKeySet = false,
 	inheritedBaseUrl,
-	modelSuggestions = [],
+	inheritedSettings,
 	onChange,
 	scope,
 }: {
-	botHandle?: string;
 	draft: InferenceDraft;
 	inheritedApiKeySet?: boolean;
 	inheritedBaseUrl?: string;
-	modelSuggestions?: string[];
+	inheritedSettings?: BotInferenceSettings | null;
 	onChange: (draft: InferenceDraft) => void;
 	scope: "bot" | "profile";
 }) {
-	const modelListId = useId();
 	const inheritedContext = useMemo<InferenceModelUnlockContext>(
 		() => ({
 			apiKeySet: inheritedApiKeySet,
@@ -6385,11 +7472,10 @@ function InferenceSettingsFields({
 		}),
 		[inheritedApiKeySet, inheritedBaseUrl],
 	);
-	const modelLocked = !canCustomizeInferenceModel(draft, inheritedContext);
-	const reasoningPrefillHint = defaultReasoningPrefill(botHandle ?? "username");
 	function patch(update: Partial<InferenceDraft>): void {
 		onChange(normalizeInferenceDraftModel({ ...draft, ...update }, inheritedContext));
 	}
+	const baseUrlPlaceholder = effectiveInferenceDraftBaseUrl(draft, inheritedSettings);
 
 	return (
 		<div className="field-stack">
@@ -6433,11 +7519,65 @@ function InferenceSettingsFields({
 				</div>
 				{draft.clearOpenRouterApiKey && <div className="help">The saved key will be removed on save.</div>}
 			</Field>
-			<div className="field-row">
-				<Field
-					help={
-						modelLocked ?
-							"Using the default model. Add an API key or custom base URL to choose another model."
+			<Field help={scope === "bot" ? "Blank inherits the profile or OpenRouter default URL." : "Blank uses OpenRouter's default URL."} label="Base URL">
+				<input
+					className="input"
+					onChange={(event) => patch({ baseUrl: event.target.value })}
+					placeholder={baseUrlPlaceholder}
+					value={draft.baseUrl}
+				/>
+			</Field>
+		</div>
+	);
+}
+
+function AgenticLoopInferenceFields({
+	draft,
+	inheritedApiKeySet = false,
+	inheritedBaseUrl,
+	inheritedSettings,
+	modelSuggestions = [],
+	onChange,
+	scope,
+}: {
+	draft: InferenceDraft;
+	inheritedApiKeySet?: boolean;
+	inheritedBaseUrl?: string;
+	inheritedSettings?: BotInferenceSettings | null;
+	modelSuggestions?: string[];
+	onChange: (draft: InferenceDraft) => void;
+		scope: "bot" | "profile";
+	}) {
+		const modelListId = useId();
+	const inheritedContext = useMemo<InferenceModelUnlockContext>(
+		() => ({
+			apiKeySet: inheritedApiKeySet,
+			baseUrl: inheritedBaseUrl,
+		}),
+		[inheritedApiKeySet, inheritedBaseUrl],
+	);
+		const modelLocked = !canCustomizeInferenceModel(draft, inheritedContext);
+		const fallbackContext = inferenceFallbackContextForDraft(draft, inheritedSettings);
+		const modelPlaceholder = effectiveInferenceDraftModel(draft, fallbackContext);
+		const temperaturePlaceholder = effectiveNumberPlaceholder(fallbackContext?.temperature, 0.9);
+		const topKPlaceholder = effectiveOptionalNumberPlaceholder(fallbackContext?.topK);
+		const topPPlaceholder = effectiveNumberPlaceholder(fallbackContext?.topP, 1);
+		const minPPlaceholder = effectiveOptionalNumberPlaceholder(fallbackContext?.minP);
+		const frequencyPenaltyPlaceholder = effectiveOptionalNumberPlaceholder(fallbackContext?.frequencyPenalty);
+		const presencePenaltyPlaceholder = effectiveOptionalNumberPlaceholder(fallbackContext?.presencePenalty);
+		const repetitionPenaltyPlaceholder = effectiveOptionalNumberPlaceholder(fallbackContext?.repetitionPenalty);
+		function patch(update: Partial<InferenceDraft>): void {
+			const updated = normalizeInferenceDraftModel({ ...draft, ...update }, inheritedContext);
+			onChange(rebaseInferenceDraftForFallbackChange(updated, fallbackContext, inferenceFallbackContextForDraft(updated, inheritedSettings)));
+		}
+
+		return (
+			<div className="field-stack">
+				<div className="inference-row model-reasoning-row">
+					<Field
+						help={
+							modelLocked ?
+								"Using the default model. Add an API key or custom base URL to choose another model."
 						: scope === "bot" ?
 							"Blank inherits the profile or environment model."
 						:	"Blank uses the environment model."
@@ -6449,132 +7589,129 @@ function InferenceSettingsFields({
 						disabled={modelLocked}
 						list={modelSuggestions.length > 0 ? modelListId : undefined}
 						onChange={(event) => patch({ model: event.target.value })}
-						placeholder="google/gemma-4-26b-a4b-it:free"
+						placeholder={modelPlaceholder}
 						value={modelLocked ? "" : draft.model}
 					/>
-					{modelSuggestions.length > 0 && (
-						<datalist id={modelListId}>
-							{modelSuggestions.map((model) => (
-								<option key={model} value={model} />
-							))}
-						</datalist>
-					)}
-				</Field>
-				<Field help={scope === "bot" ? "Blank inherits the profile or OpenRouter default URL." : "Blank uses OpenRouter's default URL."} label="Base URL">
-					<input
-						className="input"
-						onChange={(event) => patch({ baseUrl: event.target.value })}
-						placeholder="https://openrouter.ai/api/v1"
-						value={draft.baseUrl}
-					/>
-				</Field>
-			</div>
-			{scope === "bot" && (
-				<Field
-					help="Blank uses the default first-person prefix for this participant."
-					hint={reasoningPrefillHint}
-					label="Reasoning prefill"
-				>
-					<input
-						className="input"
-						maxLength={maxBotReasoningPrefillLength}
-						onChange={(event) => patch({ reasoningPrefill: event.target.value })}
-						placeholder={reasoningPrefillHint}
-						value={draft.reasoningPrefill}
-					/>
-				</Field>
-			)}
-			{scope === "profile" && (
-				<div className="translation-settings">
-					<div className="field-row">
-						<Field
-							help={
-								modelLocked ?
-									"Add an API key or custom base URL before enabling translation."
-								:	"Blank disables translation controls on content text."
-							}
-							label="Translation model"
+							{modelSuggestions.length > 0 && (
+								<datalist id={modelListId}>
+									{modelSuggestions.map((model) => (
+										<option key={model} value={model} />
+									))}
+								</datalist>
+							)}
+					</Field>
+					<Field label="Reasoning">
+						<select
+							className="input reasoning-select"
+							onChange={(event) => patch({ reasoningEffort: event.target.value })}
+							value={draft.reasoningEffort}
 						>
-							<input
-								className="input"
-								disabled={modelLocked}
-								list={modelSuggestions.length > 0 ? modelListId : undefined}
-								onChange={(event) => patch({ translationModel: event.target.value })}
-								placeholder="openai/gpt-4o-mini"
-								value={modelLocked ? "" : draft.translationModel}
-							/>
-						</Field>
-						<Field help="Sent with the source text for each translation request." label="Translation prompt">
-							<input
-								className="input"
-								disabled={modelLocked || !draft.translationModel.trim()}
-								onChange={(event) => patch({ translationPrompt: event.target.value })}
-								placeholder={defaultTranslationPrompt}
-								value={draft.translationPrompt}
-							/>
-						</Field>
-					</div>
+							{reasoningEffortOptions.map((option) => (
+								<option key={option.value} value={option.value}>
+									{option.label}
+								</option>
+							))}
+						</select>
+					</Field>
+					<Field label="Tool calls">
+						<select
+							className="input reasoning-select"
+							onChange={(event) => patch({ toolCalls: event.target.value })}
+							value={draft.toolCalls}
+						>
+							{toolCallOptions.map((option) => (
+								<option key={option.value} value={option.value}>
+									{option.label}
+								</option>
+							))}
+						</select>
+					</Field>
 				</div>
-			)}
-			<div className="field-row">
-				<Field label="Temperature">
-					<input
-						className="input"
+				<div className="inference-row two">
+					<Field className="checkbox-help-field" help="Turn off for providers that reject tool-enabled requests ending with participant narration.">
+						<label className="checkbox-line">
+							<input
+								checked={draft.supportsPrefill}
+								onChange={(event) => patch({ supportsPrefill: event.target.checked })}
+								type="checkbox"
+							/>
+							<span>Supports prefill</span>
+						</label>
+					</Field>
+					<Field
+						help="How context compaction asks for the memory summary."
+						label="Compaction mode"
+					>
+						<select
+							className="input reasoning-select"
+							onChange={(event) => patch({ compactionMode: event.target.value as BotCompactionMode })}
+							value={draft.compactionMode}
+						>
+							{compactionModeOptions.map((option) => (
+								<option key={option.value} value={option.value}>
+									{option.label}
+								</option>
+							))}
+						</select>
+					</Field>
+				</div>
+				<div className="inference-row four">
+					<Field label="Temperature">
+						<input
+							className="input"
 						max="2"
 						min="0"
 						onChange={(event) => patch({ temperature: event.target.value })}
-						placeholder="0.9"
+						placeholder={temperaturePlaceholder}
 						step="0.05"
 						type="number"
-						value={draft.temperature}
-					/>
-				</Field>
-				<Field label="Top P">
-					<input
-						className="input"
+							value={draft.temperature}
+						/>
+					</Field>
+					<Field label="Top K">
+						<input
+							className="input"
+							min="0"
+							onChange={(event) => patch({ topK: event.target.value })}
+							placeholder={topKPlaceholder}
+							step="1"
+							type="number"
+							value={draft.topK}
+						/>
+					</Field>
+					<Field label="Top P">
+						<input
+							className="input"
 						max="1"
 						min="0"
 						onChange={(event) => patch({ topP: event.target.value })}
-						placeholder="1"
+						placeholder={topPPlaceholder}
 						step="0.01"
 						type="number"
-						value={draft.topP}
-					/>
-				</Field>
-			</div>
-			<div className="field-row">
-				<Field label="Top K">
-					<input
-						className="input"
-						min="0"
-						onChange={(event) => patch({ topK: event.target.value })}
-						placeholder="default"
-						step="1"
-						type="number"
-						value={draft.topK}
-					/>
-				</Field>
-				<Field label="Min P">
-					<input
-						className="input"
+							value={draft.topP}
+						/>
+					</Field>
+					<Field label="Min P">
+						<input
+							className="input"
 						max="1"
 						min="0"
 						onChange={(event) => patch({ minP: event.target.value })}
-						placeholder="default"
+						placeholder={minPPlaceholder}
 						step="0.01"
 						type="number"
 						value={draft.minP}
-					/>
-				</Field>
-			</div>
-			<div className="field-row">
-				<Field label="Frequency penalty">
-					<input
-						className="input"
+						/>
+					</Field>
+				</div>
+				<div className="inference-row three">
+					<Field label="Frequency penalty">
+						<input
+							className="input"
 						max="2"
 						min="-2"
 						onChange={(event) => patch({ frequencyPenalty: event.target.value })}
-						placeholder="default"
+						placeholder={frequencyPenaltyPlaceholder}
 						step="0.05"
 						type="number"
 						value={draft.frequencyPenalty}
@@ -6586,27 +7723,281 @@ function InferenceSettingsFields({
 						max="2"
 						min="-2"
 						onChange={(event) => patch({ presencePenalty: event.target.value })}
-						placeholder="default"
+						placeholder={presencePenaltyPlaceholder}
 						step="0.05"
 						type="number"
-						value={draft.presencePenalty}
-					/>
-				</Field>
-			</div>
-			<div className="field-row">
-				<Field label="Repetition penalty">
-					<input
-						className="input"
+							value={draft.presencePenalty}
+						/>
+					</Field>
+					<Field label="Repetition penalty">
+						<input
+							className="input"
 						max="2"
 						min="0"
 						onChange={(event) => patch({ repetitionPenalty: event.target.value })}
-						placeholder="default"
+						placeholder={repetitionPenaltyPlaceholder}
 						step="0.05"
 						type="number"
 						value={draft.repetitionPenalty}
-					/>
-				</Field>
+						/>
+					</Field>
+				</div>
+				<ProviderRoutingField
+					onChange={(providerRouting) => patch({ providerRouting })}
+					placeholder={providerRoutingPlaceholderForInheritance(fallbackContext)}
+					value={draft.providerRouting}
+				/>
 			</div>
+		);
+	}
+
+const openRouterProviderRoutingDocsUrl = "https://openrouter.ai/docs/guides/routing/provider-selection";
+const providerRoutingPlaceholder = "{\n\n}";
+const reasoningEffortOptions = [
+	{ value: "default", label: "Default" },
+	{ value: "none", label: "None" },
+	{ value: "minimal", label: "Minimal" },
+	{ value: "low", label: "Low" },
+	{ value: "medium", label: "Medium" },
+	{ value: "high", label: "High" },
+	{ value: "xhigh", label: "XHigh" },
+] as const;
+const toolCallOptions = [
+	{ value: "require", label: "Require" },
+	{ value: "railroad", label: "Railroad" },
+	{ value: "at_will", label: "At will" },
+] as const;
+const compactionModeOptions = [
+	{ value: "structured_output", label: "Structured output" },
+	{ value: "tool_call", label: "Tool call" },
+	{ value: "tool_call_cache_friendly", label: "Tool call (cache-friendly)" },
+] as const satisfies readonly { value: BotCompactionMode; label: string }[];
+const structuredToolCallOptions = toolCallOptions.filter((option) => option.value !== "at_will");
+
+function ProviderRoutingField({
+	onChange,
+	placeholder = providerRoutingPlaceholder,
+	value,
+}: {
+	onChange: (value: string) => void;
+	placeholder?: string;
+	value: string;
+}) {
+	const error = providerRoutingDraftError(value);
+	return (
+		<div className="provider-routing-field">
+			<Field label="Provider routing">
+				<textarea
+					className={`textarea provider-routing-editor ${error ? "invalid" : ""}`}
+					onChange={(event) => onChange(event.target.value)}
+					placeholder={placeholder}
+					rows={7}
+					spellCheck={false}
+					value={value}
+				/>
+				{error ?
+					<div className="runtime-message error">{error}</div>
+				:	<div className="help">
+						Sent as OpenRouter's <code>provider</code> request-body object. See{" "}
+						<a href={openRouterProviderRoutingDocsUrl} rel="noreferrer" target="_blank">
+							OpenRouter provider routing docs
+						</a>
+						.
+					</div>
+					}
+				</Field>
+		</div>
+	);
+}
+
+function TranslationInferenceFields({
+	draft,
+	modelSuggestions = [],
+	onChange,
+}: {
+	draft: InferenceDraft;
+	modelSuggestions?: string[];
+	onChange: (draft: InferenceDraft) => void;
+}) {
+	const modelListId = useId();
+	const effectiveLoopModel = effectiveInferenceDraftModel(draft);
+	const translationModelSet = draft.translationModel.trim().length > 0;
+	const controlsDisabled = !translationModelSet;
+	function patch(update: Partial<InferenceDraft>): void {
+		onChange({ ...draft, ...update });
+	}
+
+	return (
+		<div className="field-stack">
+			<div className="inference-row translation-enable-row">
+				<label className="checkbox-line">
+					<input
+						checked={draft.translationEnabled}
+						onChange={(event) => patch({ translationEnabled: event.target.checked })}
+						type="checkbox"
+					/>
+					<span>Inline translations</span>
+				</label>
+			</div>
+			{draft.translationEnabled && (
+				<>
+					<Field help="Sent with the source text for each translation request." label="Translation prompt">
+						<textarea
+							className="textarea"
+							onChange={(event) => patch({ translationPrompt: event.target.value })}
+							placeholder={defaultTranslationPrompt}
+							rows={4}
+							value={draft.translationPrompt}
+						/>
+					</Field>
+					<div className="inference-row model-reasoning-row">
+						<Field hint={translationModelSet ? undefined : effectiveLoopModel} label="Model">
+							<input
+								className="input"
+								list={modelSuggestions.length > 0 ? modelListId : undefined}
+								onChange={(event) => patch({ translationModel: event.target.value })}
+								placeholder={effectiveLoopModel}
+								value={draft.translationModel}
+							/>
+							{modelSuggestions.length > 0 && (
+								<datalist id={modelListId}>
+									{modelSuggestions.map((model) => (
+										<option key={model} value={model} />
+									))}
+								</datalist>
+							)}
+						</Field>
+						<Field label="Reasoning">
+							<select
+								className="input reasoning-select"
+								disabled={controlsDisabled}
+								onChange={(event) => patch({ translationReasoningEffort: event.target.value })}
+								value={draft.translationReasoningEffort}
+							>
+								{reasoningEffortOptions.map((option) => (
+									<option key={option.value} value={option.value}>
+										{option.label}
+									</option>
+								))}
+							</select>
+						</Field>
+						<Field label="Tool calls">
+							<select
+								className="input reasoning-select"
+								disabled={controlsDisabled}
+								onChange={(event) => patch({ translationToolCalls: event.target.value })}
+								value={draft.translationToolCalls}
+							>
+								{structuredToolCallOptions.map((option) => (
+									<option key={option.value} value={option.value}>
+										{option.label}
+									</option>
+								))}
+							</select>
+						</Field>
+					</div>
+					<div className="inference-row four">
+						<Field label="Temperature">
+							<input
+								className="input"
+								disabled={controlsDisabled}
+								max="2"
+								min="0"
+								onChange={(event) => patch({ translationTemperature: event.target.value })}
+								placeholder="0"
+								step="0.05"
+								type="number"
+								value={draft.translationTemperature}
+							/>
+						</Field>
+						<Field label="Top K">
+							<input
+								className="input"
+								disabled={controlsDisabled}
+								min="0"
+								onChange={(event) => patch({ translationTopK: event.target.value })}
+								placeholder="default"
+								step="1"
+								type="number"
+								value={draft.translationTopK}
+							/>
+						</Field>
+						<Field label="Top P">
+							<input
+								className="input"
+								disabled={controlsDisabled}
+								max="1"
+								min="0"
+								onChange={(event) => patch({ translationTopP: event.target.value })}
+								placeholder="default"
+								step="0.01"
+								type="number"
+								value={draft.translationTopP}
+							/>
+						</Field>
+						<Field label="Min P">
+							<input
+								className="input"
+								disabled={controlsDisabled}
+								max="1"
+								min="0"
+								onChange={(event) => patch({ translationMinP: event.target.value })}
+								placeholder="default"
+								step="0.01"
+								type="number"
+								value={draft.translationMinP}
+							/>
+						</Field>
+					</div>
+					<div className="inference-row three">
+						<Field label="Frequency penalty">
+							<input
+								className="input"
+								disabled={controlsDisabled}
+								max="2"
+								min="-2"
+								onChange={(event) => patch({ translationFrequencyPenalty: event.target.value })}
+								placeholder="default"
+								step="0.05"
+								type="number"
+								value={draft.translationFrequencyPenalty}
+							/>
+						</Field>
+						<Field label="Presence penalty">
+							<input
+								className="input"
+								disabled={controlsDisabled}
+								max="2"
+								min="-2"
+								onChange={(event) => patch({ translationPresencePenalty: event.target.value })}
+								placeholder="default"
+								step="0.05"
+								type="number"
+								value={draft.translationPresencePenalty}
+							/>
+						</Field>
+						<Field label="Repetition penalty">
+							<input
+								className="input"
+								disabled={controlsDisabled}
+								max="2"
+								min="0"
+								onChange={(event) => patch({ translationRepetitionPenalty: event.target.value })}
+								placeholder="default"
+								step="0.05"
+								type="number"
+								value={draft.translationRepetitionPenalty}
+							/>
+						</Field>
+					</div>
+					<fieldset disabled={controlsDisabled}>
+						<ProviderRoutingField
+							onChange={(translationProviderRouting) => patch({ translationProviderRouting })}
+							value={draft.translationProviderRouting}
+						/>
+					</fieldset>
+				</>
+			)}
 		</div>
 	);
 }
@@ -7041,7 +8432,7 @@ function CreateBotModal({
 
 			{tab === "manual" && world && (
 				<>
-					<Field hint="shown in posts" label="Display name">
+					<Field hint="shown in threads and comments" label="Display name">
 						<input
 							autoFocus
 							className="input"
@@ -7290,9 +8681,11 @@ function BotRuntimePanel({
 	const [status, setStatus] = useState<BotRuntimeStatus | null>(null);
 	const [events, setEvents] = useState<BotRuntimeEvent[]>([]);
 	const [loopMessages, setLoopMessages] = useState<BotLoopMessage[]>([]);
-	const [openLoopMessageLogs, setOpenLoopMessageLogs] = useState<{ message: BotLoopMessage; logs: BotLoopMessageLog[] } | null>(null);
+	const [loopMessagePage, setLoopMessagePage] = useState<BotLoopMessagePage | null>(null);
+	const [openLoopMessageLogs, setOpenLoopMessageLogs] = useState<BotLoopMessageLogsResponse | null>(null);
 	const [loopMessageLogLoadingSeq, setLoopMessageLogLoadingSeq] = useState<number | null>(null);
 	const [loopMessageLogError, setLoopMessageLogError] = useState("");
+	const [deletingLoopMessageSeq, setDeletingLoopMessageSeq] = useState<number | null>(null);
 	const [tokenUsage, setTokenUsage] = useState<BotTokenUsageStats | null>(null);
 	const [connected, setConnected] = useState(false);
 	const [injection, setInjection] = useState("");
@@ -7304,8 +8697,11 @@ function BotRuntimePanel({
 	const shouldStickToBottomRef = useRef(true);
 	const latestPersistentEventSeqRef = useRef(0);
 	const latestLoopMessageSeqRef = useRef(0);
+	const currentLoopPageRef = useRef(1);
 	const reconnectAttemptRef = useRef(0);
 	const runtimeEnabled = status?.enabled ?? bot.tickSettings.enabled;
+	const toolCallsById = useMemo(() => loopToolCallsById(loopMessages), [loopMessages]);
+	const currentLoopPage = loopMessagePage?.currentPage ?? 1;
 
 	useEffect(() => {
 		let closed = false;
@@ -7316,13 +8712,16 @@ function BotRuntimePanel({
 		shouldStickToBottomRef.current = true;
 		latestPersistentEventSeqRef.current = 0;
 		latestLoopMessageSeqRef.current = 0;
+		currentLoopPageRef.current = 1;
 		reconnectAttemptRef.current = 0;
 		setStatus(null);
 		setEvents([]);
 		setLoopMessages([]);
+		setLoopMessagePage(null);
 		setOpenLoopMessageLogs(null);
 		setLoopMessageLogLoadingSeq(null);
 		setLoopMessageLogError("");
+		setDeletingLoopMessageSeq(null);
 		setTokenUsage(null);
 		setConnected(false);
 		void refresh();
@@ -7360,17 +8759,23 @@ function BotRuntimePanel({
 			if (payload.type === "history_cleared") {
 				setEvents([]);
 				setLoopMessages([]);
+				setLoopMessagePage(null);
 				setOpenLoopMessageLogs(null);
+				setDeletingLoopMessageSeq(null);
 				latestPersistentEventSeqRef.current = 0;
 				latestLoopMessageSeqRef.current = 0;
+				currentLoopPageRef.current = 1;
 				setMessage("Loop history erased.");
 				return;
 			}
 			if (payload.type === "loop_messages_reset") {
 				setLoopMessages([]);
+				setLoopMessagePage(null);
 				setOpenLoopMessageLogs(null);
+				setDeletingLoopMessageSeq(null);
 				latestLoopMessageSeqRef.current = 0;
-				void refresh();
+				currentLoopPageRef.current = 1;
+				void refresh({ page: 1, mode: "replace" });
 				return;
 			}
 			if (payload.type === "pong") {
@@ -7380,19 +8785,42 @@ function BotRuntimePanel({
 				setEvents((current) => current.filter((item) => item.seq !== payload.seq));
 				return;
 			}
+			if (payload.type === "loop_message_deleted" && Number.isInteger(payload.seq)) {
+				setLoopMessages((current) => current.filter((item) => item.seq !== payload.seq));
+				setOpenLoopMessageLogs((current) => current && current.message.seq === payload.seq ? null : current);
+				setDeletingLoopMessageSeq((current) => current === payload.seq ? null : current);
+				return;
+			}
 			if (payload.type === "loop_message" && payload.loopMessage) {
+				if (currentLoopPageRef.current !== 1) {
+					return;
+				}
 				rememberLoopMessageSeq(payload.loopMessage);
-				setLoopMessages((current) => upsertLoopMessage(current, payload.loopMessage!));
+				setLoopMessages((current) => upsertLoopMessage(removeLiveProviderLoopMessagesForFinalizedMessage(current, payload.loopMessage!), payload.loopMessage!));
 				return;
 			}
 			if (payload.type === "stream_delta" && payload.event) {
+				if (currentLoopPageRef.current !== 1) {
+					return;
+				}
+				setLoopMessages((current) => upsertLiveProviderLoopMessage(current, payload.event!));
 				return;
 			}
 			if (payload.event) {
 				rememberPersistentEventSeq(payload.event);
 				setEvents((current) => upsertEvent(current, payload.event!));
+				const compactionMessage = runtimeCompactionMessage(payload.event);
+				if (compactionMessage) {
+					setMessage(compactionMessage);
+				}
 				if (["tick_completed", "tick_failed", "tick_stopped"].includes(payload.event.type)) {
-					void refresh();
+					if (currentLoopPageRef.current === 1) {
+						setLoopMessages((current) => removeLiveProviderLoopMessagesForRun(current, payload.event!.runId));
+						void refresh();
+					}
+				}
+				if (payload.event.type === "compaction" && compactionMessage && currentLoopPageRef.current === 1) {
+					void refresh({ page: 1 });
 				}
 			}
 			if (payload.message) {
@@ -7482,7 +8910,7 @@ function BotRuntimePanel({
 			return undefined;
 		}
 		const interval = window.setInterval(() => {
-			if (document.visibilityState === "visible") {
+			if (document.visibilityState === "visible" && currentLoopPageRef.current === 1) {
 				void refresh();
 			}
 		}, status?.status === "running" ? 5_000 : 15_000);
@@ -7517,8 +8945,10 @@ function BotRuntimePanel({
 	}, [events]);
 
 	useEffect(() => {
-		latestLoopMessageSeqRef.current = latestLoopMessageSeq(loopMessages);
-	}, [loopMessages]);
+		if ((loopMessagePage?.currentPage ?? 1) === 1) {
+			latestLoopMessageSeqRef.current = latestLoopMessageSeq(loopMessages);
+		}
+	}, [loopMessagePage?.currentPage, loopMessages]);
 
 	function trackLogScroll(): void {
 		const log = logRef.current;
@@ -7529,11 +8959,17 @@ function BotRuntimePanel({
 		shouldStickToBottomRef.current = log.scrollHeight - log.scrollTop - log.clientHeight < 24;
 	}
 
-	async function refresh(): Promise<void> {
+	async function refresh(options: { page?: number; mode?: "merge" | "replace" } = {}): Promise<void> {
+		const requestedPage = Math.max(1, Math.floor(options.page ?? currentLoopPageRef.current));
+		const messageQuery = new URLSearchParams();
+		if (requestedPage > 1) {
+			messageQuery.set("page", String(requestedPage));
+		}
+		const messagePath = `/api/me/bots/${encodeURIComponent(bot.id)}/runtime/messages${messageQuery.toString() ? `?${messageQuery.toString()}` : ""}`;
 		const [statusResult, eventsResult, messagesResult, tokenUsageResult] = await Promise.all([
 			api<{ status: BotRuntimeStatus }>(`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/status`),
 			api<{ events: BotRuntimeEvent[] }>(`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/events`),
-			api<{ messages: BotLoopMessage[] }>(`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/messages`),
+			api<BotLoopMessagesResponse>(messagePath),
 			api<{ usage: BotTokenUsageStats }>(`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/token-usage`),
 		]);
 		if (statusResult.ok) {
@@ -7546,14 +8982,38 @@ function BotRuntimePanel({
 			setEvents((current) => mergeEvents(current, eventsResult.data.events));
 		}
 		if (messagesResult.ok) {
-			for (const loopMessage of messagesResult.data.messages) {
-				rememberLoopMessageSeq(loopMessage);
+			const page = messagesResult.data.page;
+			currentLoopPageRef.current = page.currentPage;
+			setLoopMessagePage(page);
+			if (page.currentPage === 1) {
+				for (const loopMessage of messagesResult.data.messages) {
+					rememberLoopMessageSeq(loopMessage);
+				}
+				setLoopMessages((current) =>
+					options.mode === "replace" ? messagesResult.data.messages : mergeLoopMessages(current, messagesResult.data.messages),
+				);
+			} else {
+				setLoopMessages(messagesResult.data.messages);
 			}
-			setLoopMessages((current) => mergeLoopMessages(current, messagesResult.data.messages));
 		}
 		if (tokenUsageResult.ok) {
 			setTokenUsage(tokenUsageResult.data.usage);
 		}
+	}
+
+	async function switchLoopPage(page: number): Promise<void> {
+		const targetPage = Math.max(1, Math.floor(page));
+		if (targetPage === currentLoopPageRef.current) {
+			return;
+		}
+		currentLoopPageRef.current = targetPage;
+		shouldStickToBottomRef.current = targetPage === 1;
+		setLoopMessages([]);
+		setOpenLoopMessageLogs(null);
+		setLoopMessageLogError("");
+		setMessage(`Loading loop page ${targetPage}...`);
+		await refresh({ page: targetPage, mode: "replace" });
+		setMessage("");
 	}
 
 	async function runTick(): Promise<void> {
@@ -7562,6 +9022,9 @@ function BotRuntimePanel({
 			return;
 		}
 		shouldStickToBottomRef.current = true;
+		currentLoopPageRef.current = 1;
+		setLoopMessagePage(null);
+		setLoopMessages([]);
 		setMessage("Starting tick...");
 		const result = await api<{ run: { runId: string; status: string; error?: string } }>(
 			`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/tick`,
@@ -7574,8 +9037,8 @@ function BotRuntimePanel({
 				:	`Tick ${result.data.run.status}.`
 			:	result.message,
 		);
-		await refresh();
-		window.setTimeout(() => void refresh(), 750);
+		await refresh({ page: 1, mode: "replace" });
+		window.setTimeout(() => void refresh({ page: 1 }), 750);
 	}
 
 	function rememberPersistentEventSeq(event: BotRuntimeEvent): void {
@@ -7585,7 +9048,7 @@ function BotRuntimePanel({
 	}
 
 	function rememberLoopMessageSeq(loopMessage: BotLoopMessage): void {
-		if (Number.isInteger(loopMessage.seq)) {
+		if (Number.isInteger(loopMessage.seq) && !isLiveProviderLoopMessage(loopMessage)) {
 			latestLoopMessageSeqRef.current = Math.max(latestLoopMessageSeqRef.current, loopMessage.seq);
 		}
 	}
@@ -7637,17 +9100,39 @@ function BotRuntimePanel({
 	}
 
 	async function viewLoopMessageLogs(loopMessage: BotLoopMessage): Promise<void> {
+		if (isLiveProviderLoopMessage(loopMessage)) {
+			return;
+		}
 		setLoopMessageLogLoadingSeq(loopMessage.seq);
 		setLoopMessageLogError("");
-		const result = await api<{ message: BotLoopMessage; logs: BotLoopMessageLog[] }>(
+		const result = await api<BotLoopMessageLogsResponse>(
 			`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/messages/${encodeURIComponent(String(loopMessage.seq))}/logs`,
 		);
 		setLoopMessageLogLoadingSeq(null);
 		if (result.ok) {
-			setOpenLoopMessageLogs({ message: result.data.message, logs: result.data.logs });
+			setOpenLoopMessageLogs(result.data);
 			return;
 		}
 		setLoopMessageLogError(result.message);
+	}
+
+	async function deleteLoopMessage(loopMessage: BotLoopMessage): Promise<void> {
+		if (isLiveProviderLoopMessage(loopMessage)) {
+			return;
+		}
+		setDeletingLoopMessageSeq(loopMessage.seq);
+		const result = await api<{ deleted: { seq: number; runId: string; origin: BotLoopMessage["origin"]; deletedAt: string } }>(
+			`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/messages/${encodeURIComponent(String(loopMessage.seq))}`,
+			{ method: "DELETE" },
+		);
+		setDeletingLoopMessageSeq(null);
+		if (result.ok) {
+			setLoopMessages((current) => current.filter((item) => item.seq !== loopMessage.seq));
+			setOpenLoopMessageLogs((current) => current && current.message.seq === loopMessage.seq ? null : current);
+			setMessage("Loop message deleted.");
+			return;
+		}
+		setMessage(result.message);
 	}
 
 	async function compactLoopHistory(): Promise<void> {
@@ -7661,8 +9146,10 @@ function BotRuntimePanel({
 			const count = result.data.compacted.messageCount;
 			setMessage(count > 0 ? `Compacted ${count} loop chat message${count === 1 ? "" : "s"}.` : "There were no loop chat messages to compact.");
 			setLoopMessages([]);
+			setLoopMessagePage(null);
 			latestLoopMessageSeqRef.current = 0;
-			await refresh();
+			currentLoopPageRef.current = 1;
+			await refresh({ page: 1, mode: "replace" });
 			return;
 		}
 		setMessage(result.message);
@@ -7677,14 +9164,19 @@ function BotRuntimePanel({
 		if (result.ok) {
 			setEvents([]);
 			setLoopMessages([]);
+			setLoopMessagePage(null);
 			setOpenLoopMessageLogs(null);
+			setDeletingLoopMessageSeq(null);
 			latestPersistentEventSeqRef.current = 0;
 			latestLoopMessageSeqRef.current = 0;
+			currentLoopPageRef.current = 1;
 			setMessage(`Reset ${result.data.cleared.messages ?? 0} loop chat messages and ${result.data.cleared.events} legacy events.`);
 		} else {
 			setMessage(result.message);
 		}
 	}
+
+	const continuationRows = loopContinuationRowsForPage(loopMessagePage);
 
 	return (
 		<>
@@ -7707,10 +9199,11 @@ function BotRuntimePanel({
 					</span>
 				</label>
 				<RuntimeRow description="How often this bot wakes up to act." label="Tick interval" value={formatTickIntervalMinutes(bot.tickSettings.intervalSeconds)} />
-				<RuntimeRow label="Context budget" value={`${bot.tickSettings.contextWindowTokens} tokens`} />
+				<RuntimeRow label="Context budget" value={`${bot.effectiveTickSettings.contextWindowTokens} tokens`} />
 				<RuntimeRow label="Status" value={status?.status ?? "unknown"} />
 				<RuntimeRow label="Next tick" value={formatNextDueAt(status?.nextDueAt, runtimeEnabled, Boolean(status))} />
 				<TokenUsagePanel usage={tokenUsage} />
+				<ContextWindowBar breakdown={tokenUsage?.contextWindow} loading={!tokenUsage} />
 				<div className="runtime-actions">
 					<button
 						className="btn primary"
@@ -7742,8 +9235,9 @@ function BotRuntimePanel({
 					</button>
 					<button
 						className="btn danger"
-						disabled={status?.status === "running" || loopMessages.length === 0}
+						disabled={currentLoopPage !== 1 || status?.status === "running" || !loopMessages.some((item) => !isLiveProviderLoopMessage(item))}
 						onClick={() => setCompactConfirm(true)}
+						title={currentLoopPage === 1 ? "Compact chat" : "Switch to page 1 before compacting active chat"}
 						type="button"
 					>
 						Compact chat
@@ -7770,16 +9264,39 @@ function BotRuntimePanel({
 				{message && <div className="runtime-message">{message}</div>}
 				{loopMessageLogError && <div className="runtime-message">{loopMessageLogError}</div>}
 				<div className="event-log" onScroll={trackLogScroll} ref={logRef}>
+					{continuationRows.filter((row) => row.position === "start").map((row) => (
+						<LoopContinuationRow
+							key={`${row.position}-${row.page}`}
+							label={row.label}
+							onPageSelect={(page) => void switchLoopPage(page)}
+							page={row.page}
+						/>
+					))}
 					{loopMessages.length === 0 && <div className="empty compact-empty">No loop chat messages yet.</div>}
-					{loopMessages.slice(-120).map((loopMessage) => (
+					{loopMessages.map((loopMessage) => (
 						<LoopMessageRow
-							key={loopMessage.seq}
+							key={`${loopMessage.runId}-${loopMessage.seq}`}
+							deleting={deletingLoopMessageSeq === loopMessage.seq}
 							loadingLogs={loopMessageLogLoadingSeq === loopMessage.seq}
 							message={loopMessage}
+							onDelete={() => void deleteLoopMessage(loopMessage)}
 							onViewLogs={() => void viewLoopMessageLogs(loopMessage)}
+							toolCallsById={toolCallsById}
+						/>
+					))}
+					{continuationRows.filter((row) => row.position === "end").map((row) => (
+						<LoopContinuationRow
+							key={`${row.position}-${row.page}`}
+							label={row.label}
+							onPageSelect={(page) => void switchLoopPage(page)}
+							page={row.page}
 						/>
 					))}
 				</div>
+				<LoopMessagePager
+					onPageSelect={(page) => void switchLoopPage(page)}
+					page={loopMessagePage}
+				/>
 			</div>
 			<LoopMessageLogsModal
 				onClose={() => setOpenLoopMessageLogs(null)}
@@ -7787,7 +9304,7 @@ function BotRuntimePanel({
 				payload={openLoopMessageLogs}
 			/>
 			<Confirm
-				body="Erase this participant's loop chat ledger, retained raw provider logs, legacy runtime events, streamed text, compaction summaries, and pending injected thoughts. Forum posts and comments will not be deleted."
+				body="Erase this participant's loop chat ledger, retained raw provider logs, legacy runtime events, streamed text, compaction summaries, and pending injected thoughts. Forum threads and comments will not be deleted."
 				confirmText="Reset loop"
 				danger
 				onClose={() => setClearConfirm(false)}
@@ -7838,15 +9355,83 @@ function TokenUsagePanel({ usage }: { usage: BotTokenUsageStats | null }) {
 				<TokenUsageChart usage={usage} />
 			:	<div className="token-usage-empty">No exact usage has been reported by the inference provider yet.</div>}
 			{usage && usage.models.length > 0 && (
-				<div className="token-model-breakdown">
-					{usage.models.slice(0, 4).map((model) => (
-						<div key={`${model.model}-${model.contextWindowTokens}`}>
-							<span>{model.model}</span>
-							<b>{formatTokenUsageTotals(model)}</b>
-						</div>
-					))}
-				</div>
+				<table className="token-model-breakdown">
+					<thead>
+						<tr>
+							<th scope="col">Model</th>
+							<th scope="col">Total</th>
+							<th scope="col">Cached</th>
+							<th scope="col">Cost</th>
+						</tr>
+					</thead>
+					<tbody>
+						{usage.models.map((model) => (
+							<tr key={`${model.model}-${model.contextWindowTokens}`} title={`${model.model}: ${formatTokenUsageTotals(model)}`}>
+								<td className="token-model-name">{model.model}</td>
+								<td>{formatTokenCount(model.totalTokens)}</td>
+								<td>{formatTokenCount(model.cachedTokens)}</td>
+								<td>{formatNullableTokenCost(model.cost)}</td>
+							</tr>
+						))}
+					</tbody>
+				</table>
 			)}
+		</div>
+	);
+}
+
+function ContextWindowBar({ breakdown, loading = false }: { breakdown: BotTokenUsageStats["contextWindow"]; loading?: boolean }) {
+	if (!breakdown) {
+		return (
+			<div className="context-window-empty">
+				{loading ? "Loading current context..." : "No loop inference response has been recorded since the latest compaction."}
+			</div>
+		);
+	}
+	const segments = contextWindowBarSegments(breakdown);
+	const segmentStyle = (percent: number): CSSProperties => ({ width: `${Math.max(0, Math.min(100, percent))}%` });
+	const cutoffStyle: CSSProperties = { left: `${segments.cutoffPercent}%` };
+	const statusText =
+		segments.overWindowTokens > 0 ?
+			`${formatTokenCount(segments.overWindowTokens)} over context window`
+		: segments.overCutoffTokens > 0 ?
+			`${formatTokenCount(segments.overCutoffTokens)} past next compaction`
+		:	`${formatTokenCount(Math.max(0, breakdown.compactionCutoffTokens - breakdown.promptTokens))} before next compaction`;
+	const title = [
+		`Latest inference: ${formatFullDate(breakdown.usedAt)}`,
+		`Model: ${breakdown.model}`,
+		`Prompt: ${formatTokenCount(breakdown.promptTokens)} / ${formatTokenCount(breakdown.contextWindowTokens)}`,
+		`Initial: ${formatTokenCount(breakdown.initialTokens)}`,
+		`Since then: ${formatTokenCount(breakdown.ongoingTokens)}`,
+		`Free: ${formatTokenCount(breakdown.freeTokens)}`,
+		`Next compaction: ${formatTokenCount(breakdown.compactionCutoffTokens)}`,
+		`Response reserve: ${formatTokenCount(breakdown.responseReserveTokens)}`,
+	].join("\n");
+	return (
+		<div className="context-window-panel" title={title}>
+			<div className="context-window-head">
+				<div>
+					<span>Current context</span>
+					<b>{formatTokenCount(breakdown.promptTokens)} / {formatTokenCount(breakdown.contextWindowTokens)}</b>
+				</div>
+				<span>{statusText}</span>
+			</div>
+			<div className="context-window-bar" role="img" aria-label={`Current context window: ${formatTokenCount(breakdown.promptTokens)} prompt tokens out of ${formatTokenCount(breakdown.contextWindowTokens)}.`}>
+				<div className="context-window-segment context-window-initial" style={segmentStyle(segments.initialPercent)} />
+				<div className="context-window-segment context-window-ongoing" style={segmentStyle(segments.ongoingPercent)} />
+				<div className="context-window-segment context-window-free" style={segmentStyle(segments.freePercent)} />
+				<div className="context-window-cutoff" style={cutoffStyle}>
+					<span>next compaction</span>
+				</div>
+			</div>
+			<div className="context-window-legend">
+				<span><i className="context-window-key initial" /> initial {formatTokenCount(breakdown.initialTokens)}</span>
+				<span><i className="context-window-key ongoing" /> since then {formatTokenCount(breakdown.ongoingTokens)}</span>
+				<span><i className="context-window-key free" /> free {formatTokenCount(breakdown.freeTokens)}</span>
+			</div>
+			<div className="context-window-foot">
+				Last inference {timeAgo(breakdown.usedAt)}; baseline {timeAgo(breakdown.baselineUsedAt)}
+			</div>
 		</div>
 	);
 }
@@ -7966,13 +9551,13 @@ function LoopMessageLogsModal({
 }: {
 	onClose: () => void;
 	open: boolean;
-	payload: { message: BotLoopMessage; logs: BotLoopMessageLog[] } | null;
+	payload: BotLoopMessageLogsResponse | null;
 }) {
 	if (!payload) {
 		return null;
 	}
 
-	const { message, logs } = payload;
+	const { message, logs, requestMessages, requestUsage } = payload;
 
 	return (
 		<Modal className="submission-modal" onClose={onClose} open={open} title="Loop Message Logs" wide>
@@ -7983,7 +9568,10 @@ function LoopMessageLogsModal({
 				<RuntimeRow label="Run" value={message.runId} />
 			</div>
 			<div className="submission-chat-log">
-				<InferenceSubmissionMessageView message={message.message} position={message.seq} />
+				{requestUsage && <LoopMessageRequestUsageLine usage={requestUsage} />}
+				{requestMessages && requestMessages.length > 0 ?
+					requestMessages.map((item) => <RequestLogMessageView item={item} key={item.position} />)
+				:	<RawInferenceSubmissionMessageView message={message.message} position={message.seq} />}
 				{logs.length === 0 ?
 					<div className="empty compact-empty">No retained raw logs for this message.</div>
 				:	logs.map((log) => (
@@ -7994,7 +9582,7 @@ function LoopMessageLogsModal({
 								<span>{log.encoding}</span>
 								<span>{formatByteCount(log.textLength)}</span>
 							</div>
-							<pre className="submission-message-text">{log.text}</pre>
+							<SubmissionJsonBlock label="log" value={log.text} />
 						</div>
 					))}
 			</div>
@@ -8003,45 +9591,175 @@ function LoopMessageLogsModal({
 }
 
 function LoopMessageRow({
+	deleting,
 	loadingLogs,
 	message,
+	onDelete,
 	onViewLogs,
+	toolCallsById,
 }: {
+	deleting: boolean;
 	loadingLogs: boolean;
 	message: BotLoopMessage;
+	onDelete: () => void;
 	onViewLogs: () => void;
+	toolCallsById: ReadonlyMap<string, LoopToolCallContext>;
 }) {
 	const status = message.status === "interrupted" ? "interrupted" : null;
+	const toolCallContext = message.message.tool_call_id ? toolCallsById.get(message.message.tool_call_id) : undefined;
+	const isLive = isLiveProviderLoopMessage(message);
 	return (
 		<div className={`event-row activity-${loopMessageActivityKind(message)}`}>
 			<button
 				aria-label={`Open raw logs for loop message ${message.seq}`}
 				className="raw-json-button"
-				disabled={loadingLogs || !message.hasLogs}
+				disabled={loadingLogs || !message.hasLogs || isLive}
 				onClick={onViewLogs}
 				title={message.hasLogs ? "Open exact provider and tool logs" : "No retained logs"}
 				type="button"
 			>
 				{loadingLogs ? <span className="spinner" /> : <Icon name="info" size={13} />}
 			</button>
+			<button
+				aria-label={`Delete loop message ${message.seq}`}
+				className="event-delete-button"
+				disabled={deleting || isLive}
+				onClick={onDelete}
+				title={isLive ? "Streaming messages cannot be deleted yet" : "Delete this message from the Loop log"}
+				type="button"
+			>
+				{deleting ? <span className="spinner" /> : <Icon name="trash" size={13} />}
+			</button>
 			<div className="event-head">
-				<span>#{message.seq}</span>
+				<span>{isLive ? "live" : `#${message.seq}`}</span>
 				<b>{loopMessageTitle(message)}</b>
 				<span>{timeAgo(message.createdAt)}</span>
 				{status && <span className="streaming-pill">{status}</span>}
 			</div>
-			<div className="event-meta">
-				{loopMessageOriginLabel(message.origin)} / {message.runId} / {formatTokenCount(message.tokenEstimate)} tokens
+				<div className="event-meta">
+					{loopMessageOriginLabel(message.origin)} / {message.runId} / {formatTokenCount(message.tokenEstimate)} tokens
+				</div>
+				<LoopMessageReadableView message={message.message} origin={message.origin} toolCall={toolCallContext} toolCallsById={toolCallsById} />
 			</div>
-			<InferenceSubmissionMessageView message={message.message} position={message.seq} />
+		);
+	}
+
+function LoopContinuationRow({
+	label,
+	onPageSelect,
+	page,
+}: {
+	label: string;
+	onPageSelect: (page: number) => void;
+	page: number;
+}) {
+	return (
+		<div className="event-row loop-continuation-row">
+			<LoopContinuationLink label={label} onPageSelect={onPageSelect} page={page} />
 		</div>
 	);
 }
 
-function InferenceSubmissionMessageView({
+function LoopContinuationLink({
+	label,
+	onPageSelect,
+	page,
+}: {
+	label: string;
+	onPageSelect: (page: number) => void;
+	page: number;
+}) {
+	return (
+		<div className="loop-continuation-note">
+			<span>{label}</span>
+			<button onClick={() => onPageSelect(page)} title={`Open loop page ${page}`} type="button">
+				page {page}
+			</button>
+		</div>
+	);
+}
+
+function LoopMessageRequestUsageLine({ usage }: { usage: BotLoopMessageRequestUsage }) {
+	const estimatedSplit = usage.estimatedCostSplit ? " approx." : "";
+	return (
+		<div className="request-usage-line">
+			{formatTokenCount(usage.cachedInputTokens)} cached input tokens ({formatNullableUsageCost(usage.cachedInputCost)}{estimatedSplit})
+			{" + "}
+			{formatTokenCount(usage.uncachedInputTokens)} uncached input tokens ({formatNullableUsageCost(usage.uncachedInputCost)}{estimatedSplit})
+			{" + "}
+			{formatTokenCount(usage.outputTokens)} output tokens ({formatNullableUsageCost(usage.outputCost)})
+			{" = "}
+			{formatNullableUsageCost(usage.totalCost)}
+		</div>
+	);
+}
+
+function RequestLogMessageView({ item }: { item: BotLoopMessageRequestLogMessage }) {
+	return (
+		<RawInferenceSubmissionMessageView
+			cacheStatus={item.cacheStatus}
+			message={item.message}
+			position={item.position}
+		/>
+	);
+}
+
+function LoopMessagePager({
+	onPageSelect,
+	page,
+}: {
+	onPageSelect: (page: number) => void;
+	page: BotLoopMessagePage | null;
+}) {
+	if (!page || page.pageCount <= 1) {
+		return null;
+	}
+	const items = loopPagePagerItems(page);
+	if (items.length === 0) {
+		return null;
+	}
+	return (
+		<div aria-label="Loop history pages" className="loop-page-pager">
+			<span className="loop-page-pager-label">Page:</span>
+			{items.map((item) => (
+				item.kind === "ellipsis" ?
+					<a
+						aria-label={`Jump ${item.direction === "backward" ? "back" : "forward"} 25 loop pages`}
+						className="loop-page-link ellipsis"
+						href={`#loop-page-${item.page}`}
+						key={`${item.direction}-${item.page}`}
+						onClick={(event) => {
+							event.preventDefault();
+							onPageSelect(item.page);
+						}}
+						title={`Open loop page ${item.page}`}
+					>
+						…
+					</a>
+				:	<a
+						aria-current={item.current ? "page" : undefined}
+						className={`loop-page-link ${item.current ? "active" : ""}`}
+						href={`#loop-page-${item.page}`}
+						key={item.page}
+						onClick={(event) => {
+							event.preventDefault();
+							onPageSelect(item.page);
+						}}
+						title={`Open loop page ${item.page}${item.messageCount ? ` (${item.messageCount} messages)` : ""}`}
+					>
+						{item.page}
+					</a>
+			))}
+		</div>
+	);
+}
+
+function RawInferenceSubmissionMessageView({
+	cacheStatus,
 	message,
 	position,
 }: {
+	cacheStatus?: BotLoopMessageRequestLogMessage["cacheStatus"];
 	message: BotInferenceSubmissionMessage;
 	position: number;
 }) {
@@ -8052,32 +9770,1769 @@ function InferenceSubmissionMessageView({
 				<b>{message.role}</b>
 				<span>#{position}</span>
 				{message.tool_call_id && <span>{message.tool_call_id}</span>}
+				{cacheStatus && <span className="cache-status">{cacheStatus === "cached" ? "cached" : "partially cached"}</span>}
 			</div>
 			{message.content && (
-				message.role === "tool" ?
-					<SubmissionJsonBlock label="JSON result" value={message.content} />
-				:	<div className="submission-message-text">{message.content}</div>
+				<SubmissionJsonBlock label={message.role === "tool" ? "JSON result" : "content"} value={message.content} />
 			)}
+			{message.reasoning && <SubmissionJsonBlock label="reasoning" value={message.reasoning} />}
+			{message.reasoning_content && <SubmissionJsonBlock label="reasoning_content" value={message.reasoning_content} />}
+			{message.reasoning_details && <SubmissionJsonBlock label="reasoning_details" value={message.reasoning_details} />}
 			{toolCalls.map((toolCall, index) => (
 				<div className="submission-tool-call" key={`${toolCall.id}-${index}`}>
 					<div className="submission-tool-name">{toolCall.function.name || "unknown_tool"}</div>
 					<SubmissionJsonBlock label="JSON arguments" value={toolCall.function.arguments} />
 				</div>
 			))}
-			{message.reasoning && <SubmissionJsonBlock label="reasoning" value={message.reasoning} />}
-			{message.reasoning_content && <SubmissionJsonBlock label="reasoning_content" value={message.reasoning_content} />}
-			{message.reasoning_details && <SubmissionJsonBlock label="reasoning_details" value={message.reasoning_details} />}
 		</div>
 	);
 }
 
 function SubmissionJsonBlock({ label, value }: { label: string; value: unknown }) {
+	const parsed = parseJsonForDisplay(value);
 	return (
 		<div className="submission-json-block">
 			<span>{label}</span>
-			<pre>{prettyJsonText(value)}</pre>
+			{parsed.ok ?
+				<JsonSyntaxBlock value={parsed.value} />
+			:	<pre>{prettyJsonText(value)}</pre>}
 		</div>
 	);
+}
+
+function LoopMessageReadableView({
+	message,
+	origin,
+	toolCall,
+	toolCallsById,
+}: {
+	message: BotInferenceSubmissionMessage;
+	origin?: BotLoopMessage["origin"];
+	toolCall?: LoopToolCallContext;
+	toolCallsById?: ReadonlyMap<string, LoopToolCallContext>;
+}) {
+	const toolCalls = message.tool_calls ?? [];
+	const content = typeof message.content === "string" ? message.content : "";
+	return (
+		<div className={`loop-readable role-${message.role}`}>
+			{message.role === "tool" ?
+				<ReadableToolResult content={content} toolCall={toolCall} />
+			: content ?
+				<div className="loop-readable-text">
+					{normalizeReadableText(content)}
+					{origin === "self_correction" && <SelfCorrectionReferences text={content} />}
+				</div>
+			:	null}
+			{message.reasoning && <ReadableReasoningBlock label="Reasoning" text={message.reasoning} />}
+			{message.reasoning_content && <ReadableReasoningBlock label="Reasoning" text={message.reasoning_content} />}
+			{message.reasoning_details && <ReadableReasoningDetails details={message.reasoning_details} />}
+			{toolCalls.map((item, index) => (
+				<ReadableToolCall context={toolCallsById?.get(item.id)} key={`${item.id}-${index}`} toolCall={item} />
+			))}
+		</div>
+	);
+}
+
+function ReadableReasoningBlock({ label, text }: { label: string; text: string }) {
+	return (
+		<div className="tool-block readable reasoning-readable">
+			<span>{label}</span>
+			<div className="tool-text">{normalizeReadableText(text)}</div>
+		</div>
+	);
+}
+
+function ReadableReasoningDetails({ details }: { details: unknown[] }) {
+	const text = reasoningDetailsTextForDisplay(details);
+	if (!text) {
+		return (
+			<div className="tool-block readable reasoning-readable">
+				<span>Reasoning</span>
+				<div className="tool-text">Reasoning details were recorded.</div>
+			</div>
+		);
+	}
+	return <ReadableReasoningBlock label="Reasoning" text={text} />;
+}
+
+function SelfCorrectionReferences({ text }: { text: string }) {
+	const references = selfCorrectionThreadReferences(text);
+	if (references.length === 0) {
+		return null;
+	}
+	return (
+		<div className="tool-pretty tool-list">
+			{references.map((reference) => (
+				<div className="tool-pretty-item" key={reference.key}>
+					<span>{reference.commentId ? "Existing comment" : "Existing thread"}</span>
+					<ThreadReference
+						commentId={reference.commentId}
+						forumHandle={reference.forumHandle}
+						label={reference.threadId}
+						threadId={reference.threadId}
+						title={reference.commentId ? `${reference.threadId} / ${reference.commentId}` : reference.threadId}
+						worldHandle={reference.worldHandle}
+					/>
+				</div>
+			))}
+		</div>
+	);
+}
+
+type SelfCorrectionThreadReference = {
+	key: string;
+	worldHandle: string;
+	forumHandle: string;
+	threadId: string;
+	commentId?: string;
+};
+
+function selfCorrectionThreadReferences(text: string): SelfCorrectionThreadReference[] {
+	const references = new Map<string, SelfCorrectionThreadReference>();
+	const matcher = /\/w\/([A-Za-z0-9_-]+)\/f\/([A-Za-z0-9_-]+)\/t\/([A-Za-z0-9_-]+)(?:\/c\/([A-Za-z0-9_-]+))?/g;
+	for (;;) {
+		const match = matcher.exec(text);
+		if (!match) {
+			break;
+		}
+		const [, worldHandle, forumHandle, threadId, commentId] = match;
+		if (!worldHandle || !forumHandle || !threadId) {
+			continue;
+		}
+		const key = `${worldHandle}:${forumHandle}:${threadId}:${commentId ?? ""}`;
+		references.set(key, {
+			key,
+			worldHandle,
+			forumHandle,
+			threadId,
+			...(commentId ? { commentId } : {}),
+		});
+	}
+	return [...references.values()];
+}
+
+function ReadableToolCall({ context, toolCall }: { context?: LoopToolCallContext; toolCall: LoopToolCall }) {
+	const name = context?.name ?? canonicalDisplayToolName(toolCall.function.name || "unknown_tool");
+	const args = context?.args ?? parseToolArguments(toolCall);
+	return (
+		<div className="tool-block readable">
+			<span>{readableToolCallTitle(name)}</span>
+			{readableToolCallSummary(name, args, context?.result)}
+		</div>
+	);
+}
+
+function ReadableToolResult({
+	content,
+	toolCall,
+}: {
+	content: string;
+	toolCall?: LoopToolCallContext;
+}) {
+	const parsed = parseJsonValue(content);
+	const inferredName = toolCall?.name ?? inferToolNameFromResult(parsed);
+	const name = canonicalDisplayToolName(inferredName);
+	const failure = readableToolFailureRecord(parsed);
+	if (failure) {
+		return (
+			<div className="tool-block readable">
+				<span>{readableToolFailureTitle(name)}</span>
+				<ReadableToolFailure failure={failure} />
+			</div>
+		);
+	}
+	return (
+		<div className="tool-block readable">
+			<span>{readableToolResultTitle(name)}</span>
+			{readableToolResultContent(name, parsed, toolCall?.args)}
+		</div>
+	);
+}
+
+function ReadableToolFailure({ failure }: { failure: JsonRecord }) {
+	const message = textValueForDisplay(failure.message);
+	const guidance = textValueForDisplay(failure.guidance);
+	const hasExistingThread = Boolean(stringValue(failure.existingThreadId));
+	return (
+		<div className="tool-pretty tool-list">
+			{message && <div className="tool-pretty-item">{message}</div>}
+			{hasExistingThread && <ReadableFailureExistingThread failure={failure} />}
+			{guidance && <div className="tool-pretty-item">{guidance}</div>}
+			{!message && !guidance && !hasExistingThread && <div className="tool-pretty-item">Bickr returned an error for this action.</div>}
+		</div>
+	);
+}
+
+function ReadableFailureExistingThread({ failure }: { failure: JsonRecord }) {
+	const threadId = stringValue(failure.existingThreadId);
+	if (!threadId) {
+		return null;
+	}
+	const title = stringValue(failure.existingThreadTitle);
+	const label = title ? `${title} (${threadId})` : threadId;
+	return (
+		<div className="tool-pretty-item">
+			<span>Existing thread</span>
+			<ThreadReference
+				forumHandle={stringValue(failure.existingForumHandle)}
+				label={label}
+				threadId={threadId}
+				title={label}
+				worldHandle={stringValue(failure.existingWorldHandle)}
+			/>
+		</div>
+	);
+}
+
+function readableToolFailureTitle(name: string): string {
+	switch (name) {
+		case "read_thread":
+		case "read_thread_by_id":
+		case "read_comment_by_id":
+			return "Could not read conversation";
+		case "create_thread":
+			return "Thread not created";
+		case "reply_to_comment":
+			return "Reply not posted";
+		case "vote":
+			return "Vote not recorded";
+		case "follow_profile":
+		case "unfollow_profile":
+			return "Follow list not changed";
+		case "log_off":
+			return "Could not log off";
+		default:
+			return "Bickr action failed";
+	}
+}
+
+function readableToolCallTitle(name: string): string {
+	switch (name) {
+		case "check_notifications":
+			return "Checking notifications";
+		case "view_profiles":
+			return "Opening profiles";
+		case "list_accessible_forums":
+			return "Looking at forums";
+		case "list_recent_threads":
+			return "Looking at recent threads";
+		case "list_hot_threads":
+			return "Looking at hot threads";
+		case "search_threads":
+		case "search_threads_semantic":
+			return "Searching threads";
+		case "search_profiles":
+			return "Searching profiles";
+		case "view_activity":
+			return "Opening profile activity";
+		case "read_thread":
+		case "read_thread_by_id":
+		case "read_comment_by_id":
+			return "Reading a conversation";
+		case "create_thread":
+			return "Creating a thread";
+		case "reply_to_comment":
+			return "Replying to a comment";
+		case "vote":
+			return "Voting";
+		case "follow_profile":
+			return "Following profiles";
+		case "unfollow_profile":
+			return "Unfollowing profiles";
+		case "log_off":
+			return "Logging off";
+		default:
+			return "Using Bickr";
+	}
+}
+
+function readableToolResultTitle(name: string): string {
+	switch (name) {
+		case "check_notifications":
+			return "Notifications";
+		case "view_profiles":
+			return "Profiles";
+		case "read_thread":
+		case "read_thread_by_id":
+		case "read_comment_by_id":
+			return "Conversation";
+		case "create_thread":
+			return "Created thread";
+		case "reply_to_comment":
+			return "Created reply";
+		case "vote":
+			return "Vote recorded";
+		case "follow_profile":
+		case "unfollow_profile":
+			return "Follow list updated";
+		case "list_accessible_forums":
+			return "Forums";
+		case "list_recent_threads":
+		case "list_hot_threads":
+		case "search_threads":
+		case "search_threads_semantic":
+			return "Threads and comments";
+		case "search_profiles":
+			return "Profiles";
+		case "view_activity":
+			return "Profile activity";
+		case "log_off":
+			return "Logged off";
+		default:
+			return "Bickr response";
+	}
+}
+
+function readableToolCallSummary(name: string, args: JsonRecord, result?: unknown): ReactNode {
+	const worldHandle = worldHandleFromRecord(args);
+	const forumHandle = forumHandleFromRecord(args);
+	switch (name) {
+		case "check_notifications":
+			return <div className="tool-text">Looking for new Bickr activity.</div>;
+		case "view_profiles":
+		case "follow_profile":
+		case "unfollow_profile": {
+			const usernames = usernamesFromValue(args.targets ?? args.usernames ?? args.username ?? args.profile ?? args.profiles);
+			return (
+				<div className="tool-pretty">
+					{usernames.length > 0 ?
+						<>
+							<span>{name === "view_profiles" ? "Opening" : name === "follow_profile" ? "Following" : "Unfollowing"}</span>
+							{joinReadable(usernames.map((username) => (
+								<ProfileReference key={username} username={username} worldHandle={worldHandle} />
+							)))}
+						</>
+					:	<span>{name === "view_profiles" ? "Opening profile details." : "Updating followed profiles."}</span>}
+				</div>
+			);
+		}
+		case "read_thread":
+		case "read_thread_by_id":
+		case "read_comment_by_id":
+			return (
+				<div className="tool-pretty">
+					<span>Reading</span>
+					<ThreadReference
+						commentId={stringValue(args.commentId ?? args.targetCommentId)}
+						forumHandle={forumHandle}
+						label={name === "read_comment_by_id" ? "reply" : "thread"}
+						threadId={stringValue(args.threadId)}
+						worldHandle={worldHandle}
+					/>
+				</div>
+			);
+		case "create_thread":
+			return (
+				<div className="tool-pretty tool-list">
+					<div className="tool-pretty-item">
+						<span>Creating a thread in</span>
+						<ForumReference forumHandle={forumHandle} worldHandle={worldHandle} />
+					</div>
+					{stringValue(args.title) && <div className="tool-pretty-label">{stringValue(args.title)}</div>}
+				</div>
+			);
+		case "reply_to_comment":
+			return <ReadablePostingReply args={args} result={result} />;
+		case "vote":
+			return (
+				<div className="tool-pretty">
+					<span>{voteActionLabel(numberValue(args.value))}</span>
+					<ThreadReference
+						commentId={stringValue(args.commentId ?? (stringValue(args.targetType) === "comment" ? args.targetId : undefined))}
+						forumHandle={forumHandle}
+						label="comment"
+						threadId={stringValue(args.threadId ?? (stringValue(args.targetType) === "thread" ? args.targetId : undefined))}
+						worldHandle={worldHandle}
+					/>
+				</div>
+			);
+		case "search_threads":
+		case "search_threads_semantic":
+		case "search_profiles":
+			return <div className="tool-text">Searching for “{stringValue(args.query) ?? stringValue(args.q) ?? "matching results"}”.</div>;
+		case "list_accessible_forums":
+			return <div className="tool-text">Looking at forums this profile can read.</div>;
+		case "list_recent_threads":
+		case "list_hot_threads":
+			return (
+				<div className="tool-pretty">
+					<span>Scanning</span>
+					<ForumReference forumHandle={forumHandle} worldHandle={worldHandle} />
+				</div>
+			);
+		case "log_off":
+			return (
+				<div className="tool-pretty tool-list">
+					<div className="tool-pretty-item">Ending this loop run.</div>
+					{stringValue(args.reason) && (
+						<div className="tool-pretty-item">
+							<span className="tool-pretty-label">Reason</span>
+							<span>{stringValue(args.reason)}</span>
+						</div>
+					)}
+				</div>
+			);
+		default:
+			return <ReadableGenericFields record={args} />;
+	}
+}
+
+function readableToolResultContent(name: string, value: unknown, args?: JsonRecord): ReactNode {
+	if (name === "check_notifications") {
+		return <ReadableNotificationEvents events={arrayValue(recordValue(value).events)} />;
+	}
+	if (name === "view_profiles" || name === "search_profiles") {
+		return <ReadableProfiles value={value} />;
+	}
+	if (name === "read_thread" || name === "read_thread_by_id" || name === "read_comment_by_id") {
+		return <ReadableReadResult value={value} />;
+	}
+	if (name === "reply_to_comment") {
+		return <ReadablePostedReplyResult args={args ?? {}} value={value} />;
+	}
+	if (name === "create_thread") {
+		return <ReadableThreadDocument args={args ?? {}} value={value} />;
+	}
+	if (name === "vote") {
+		return <ReadableVoteResult value={value} />;
+	}
+	if (name === "follow_profile" || name === "unfollow_profile") {
+		return <ReadableFollowResult value={value} fallbackFollowing={name === "follow_profile"} />;
+	}
+	if (name === "list_accessible_forums") {
+		return <ReadableForumList value={value} worldHandle={worldHandleFromRecord(args ?? {})} />;
+	}
+	if (name === "list_recent_threads" || name === "list_hot_threads" || name === "search_threads" || name === "search_threads_semantic") {
+		return <ReadableThreadList value={value} />;
+	}
+	if (name === "view_activity") {
+		return <ReadableActivityResult value={value} />;
+	}
+	return <ReadableGenericResult value={value} />;
+}
+
+function ReadablePostingReply({ args, result }: { args: JsonRecord; result?: unknown }) {
+	const thread = threadRecordFromReadableMutation(result);
+	const createdComment = createdReplyCommentFromReadableMutation(result, args);
+	const targetCommentId = stringValue(args.commentId ?? args.parentCommentId);
+	const targetComment = targetCommentId ? findReadableComment(thread, targetCommentId) : {};
+	const threadId = stringValue(args.threadId) ?? stringValue(createdComment.threadId) ?? stringValue(thread.threadId ?? thread.id);
+	const worldHandle = worldHandleFromRecord(thread) ?? worldHandleFromRecord(createdComment) ?? worldHandleFromRecord(args);
+	const forumHandle = forumHandleFromRecord(thread) ?? forumHandleFromRecord(createdComment) ?? forumHandleFromRecord(args);
+	const replyBody = textValueForDisplay(args.body);
+	const targetBody = textValueForDisplay(targetComment.body);
+	const title = readableThreadTitle(thread);
+	return (
+		<div className="tool-pretty tool-list">
+			<div className="tool-pretty-item">
+				<span>Replying to</span>
+				<ThreadReference
+					commentId={targetCommentId}
+					forumHandle={forumHandle}
+					label={targetCommentId ? "comment" : title ?? "thread"}
+					threadId={threadId}
+					title={targetCommentId ? undefined : title}
+					worldHandle={worldHandle}
+				/>
+			</div>
+			{targetBody && <ReadableQuote label="Target comment" text={trimReadableSnippet(targetBody)} />}
+			{replyBody && <ReadableQuote label="Reply" text={replyBody} />}
+		</div>
+	);
+}
+
+function ReadablePostedReplyResult({ args, value }: { args: JsonRecord; value: unknown }) {
+	const thread = threadRecordFromReadableMutation(value);
+	const createdComment = createdReplyCommentFromReadableMutation(value, args);
+	const commentId = stringValue(createdComment.commentId ?? createdComment.id);
+	const threadId = stringValue(createdComment.threadId) ?? stringValue(thread.threadId ?? thread.id ?? args.threadId);
+	const worldHandle = worldHandleFromRecord(thread) ?? worldHandleFromRecord(createdComment);
+	const forumHandle = forumHandleFromRecord(thread) ?? forumHandleFromRecord(createdComment);
+	const title = readableThreadTitle(thread);
+	const body = textValueForDisplay(createdComment.body) ?? textValueForDisplay(args.body);
+	return (
+		<div className="tool-pretty tool-list">
+			<div className="tool-pretty-item">
+				<span>Posted</span>
+				<ThreadReference
+					commentId={commentId}
+					forumHandle={forumHandle}
+					label={commentId ? "comment" : title ?? "thread"}
+					threadId={threadId}
+					title={commentId ? undefined : title}
+					worldHandle={worldHandle}
+				/>
+				{title ?
+					<>
+						<span>in</span>
+						<ThreadReference
+							forumHandle={forumHandle}
+							label={title ?? "thread"}
+							threadId={threadId}
+							title={title}
+							worldHandle={worldHandle}
+						/>
+					</>
+					:	null}
+			</div>
+			{body && <ReadableQuote label="Comment" text={body} />}
+		</div>
+	);
+}
+
+function threadRecordFromReadableMutation(value: unknown): JsonRecord {
+	const record = recordValue(value);
+	const thread = recordValue(record.thread);
+	return Object.keys(thread).length > 0 ? thread : record;
+}
+
+function readableRootComment(thread: JsonRecord): JsonRecord {
+	const comments = flattenReadableComments(arrayValue(thread.comments).map(recordValue));
+	const rootCommentId = stringValue(thread.rootCommentId);
+	return (
+		(rootCommentId ? comments.find((comment) => readableCommentId(comment) === rootCommentId) : undefined) ??
+		comments.find((comment) => !stringValue(comment.parentCommentId)) ??
+		{}
+	);
+}
+
+function readableThreadTitle(thread: JsonRecord): string | undefined {
+	return stringValue(thread.title) ?? stringValue(recordValue(thread.rootPost).title);
+}
+
+function createdReplyCommentFromReadableMutation(value: unknown, args: JsonRecord): JsonRecord {
+	const record = recordValue(value);
+	const comment = recordValue(record.comment);
+	if (stringValue(comment.commentId ?? comment.id)) {
+		return comment;
+	}
+	const thread = threadRecordFromReadableMutation(value);
+	return findReadableReplyComment(thread, args) ?? {};
+}
+
+function findReadableReplyComment(thread: JsonRecord, args: JsonRecord): JsonRecord | null {
+	const body = stringValue(args.body);
+	const parentCommentId = stringValue(args.commentId ?? args.parentCommentId);
+	const candidates = flattenReadableComments(arrayValue(thread.comments).map(recordValue)).filter((comment) => {
+		if (body && stringValue(comment.body) !== body) {
+			return false;
+		}
+		const commentParentId = stringValue(comment.parentCommentId);
+		return parentCommentId ? commentParentId === parentCommentId : !commentParentId;
+	});
+	return candidates.sort((left, right) =>
+		Date.parse(stringValue(right.createdAt) ?? "") - Date.parse(stringValue(left.createdAt) ?? "")
+	)[0] ?? null;
+}
+
+function findReadableComment(thread: JsonRecord, commentId: string): JsonRecord {
+	return flattenReadableComments(arrayValue(thread.comments).map(recordValue))
+		.find((comment) => stringValue(comment.commentId ?? comment.id) === commentId) ?? {};
+}
+
+function flattenReadableComments(comments: JsonRecord[]): JsonRecord[] {
+	const result: JsonRecord[] = [];
+	for (const comment of comments) {
+		result.push(comment);
+		result.push(...flattenReadableComments(arrayValue(comment.replies).map(recordValue)));
+	}
+	return result;
+}
+
+function ReadableNotificationEvents({ events }: { events: unknown[] }) {
+	if (events.length === 0) {
+		return <div className="tool-text">No new notifications.</div>;
+	}
+	return (
+		<div className="readable-event-list">
+			{events.map((event, index) => (
+				<ReadableNotificationEvent event={recordValue(event)} key={`${stringValue(recordValue(event).id) ?? "event"}-${index}`} />
+			))}
+		</div>
+	);
+}
+
+function ReadableNotificationEvent({ event }: { event: JsonRecord }) {
+	const worldHandle = worldHandleFromRecord(event);
+	const forumHandle = forumHandleFromRecord(event);
+	const thread = recordValue(event.thread);
+	const comment = recordValue(event.comment);
+	const text = textValueForDisplay(comment.text) ?? textValueForDisplay(thread.text) ?? textValueForDisplay(event.message);
+	return (
+		<div className="readable-event-card">
+			<div className="readable-event-title">{notificationEventHeadline(event)}</div>
+			<div className="readable-event-meta">
+				{forumHandle && <ForumReference forumHandle={forumHandle} worldHandle={worldHandle} />}
+				{stringValue(event.createdAt) && <span>{formatShortDate(String(event.createdAt))}</span>}
+			</div>
+			{text && <ReadableQuote text={text} />}
+		</div>
+	);
+}
+
+function notificationEventHeadline(event: JsonRecord): ReactNode {
+	const type = stringValue(event.type) ?? "system";
+	const thread = recordValue(event.thread);
+	const comment = recordValue(event.comment);
+	const replyTo = recordValue(event.replyTo);
+	const targetProfile = recordValue(event.targetProfile);
+	const target = recordValue(event.target);
+	const vote = recordValue(event.vote);
+	const worldHandle = worldHandleFromRecord(event);
+	const forumHandle = forumHandleFromRecord(event);
+	const actor = firstProfileRecord(event.actor, comment.author, thread.author);
+	const actorNode = <ProfileReference profile={actor} worldHandle={worldHandle} />;
+	const threadNode = (
+		<ThreadReference
+			commentId={stringValue(comment.id)}
+			forumHandle={forumHandleFromRecord(thread) ?? forumHandle}
+			label={stringValue(thread.title) ?? "thread"}
+			threadId={stringValue(comment.threadId) ?? stringValue(thread.id)}
+			title={stringValue(thread.title)}
+			worldHandle={worldHandleFromRecord(thread) ?? worldHandle}
+		/>
+	);
+	switch (type) {
+		case "thread_created":
+			return (
+				<>
+					{actorNode} created {threadNode}
+				</>
+			);
+		case "comment_created": {
+			const replyAuthor = recordValue(replyTo.author);
+			return (
+				<>
+					{actorNode} replied {profileHasHandle(replyAuthor) ? <>to <ProfileReference profile={replyAuthor} worldHandle={worldHandle} /> </> : null}
+					on {threadNode}
+				</>
+			);
+		}
+		case "vote_cast": {
+			const targetAuthor = recordValue(target.author);
+			const targetType = stringValue(vote.targetType) ?? (stringValue(target.threadId) ? "comment" : "thread");
+			return (
+				<>
+					{actorNode} {voteActionLabel(numberValue(vote.value))}{" "}
+					{profileHasHandle(targetAuthor) ? <><ProfileReference profile={targetAuthor} worldHandle={worldHandle} />’s </> : null}
+					{targetType === "comment" ? "reply" : "thread"}
+				</>
+			);
+		}
+		case "profile_followed":
+			return (
+				<>
+					{actorNode} followed <ProfileReference profile={profileHasHandle(targetProfile) ? targetProfile : target} worldHandle={worldHandle} />
+				</>
+			);
+		case "profile_unfollowed":
+			return (
+				<>
+					{actorNode} unfollowed <ProfileReference profile={profileHasHandle(targetProfile) ? targetProfile : target} worldHandle={worldHandle} />
+				</>
+			);
+		default:
+			return <>{textValueForDisplay(event.message) ?? "Bickr activity"}</>;
+	}
+}
+
+function ReadableProfiles({ value }: { value: unknown }) {
+	const record = recordValue(value);
+	const profiles = Array.isArray(record.profiles) ? record.profiles : Array.isArray(value) ? value : profileHasHandle(record) ? [record] : [];
+	if (profiles.length === 0) {
+		return <div className="tool-text">No profiles found.</div>;
+	}
+	return (
+		<div className="readable-profile-list">
+			{profiles.map((profileValue, index) => {
+				const profile = recordValue(profileValue);
+				const username = stringValue(profile.username) ?? stringValue(profile.handle);
+				const shortBio = textValueForDisplay(profile.shortBio);
+				return (
+					<div className="readable-profile-card" key={`${username ?? "profile"}-${index}`}>
+						<div className="readable-profile-title">
+							<ProfileReference profile={profile} />
+							{stringValue(profile.displayName) && <span>{stringValue(profile.displayName)}</span>}
+							{typeof profile.following === "boolean" && <span className="readable-badge">{profile.following ? "following" : "not following"}</span>}
+						</div>
+						{shortBio && <div className="tool-text">{shortBio}</div>}
+					</div>
+				);
+			})}
+		</div>
+	);
+}
+
+function ReadableReadResult({ value }: { value: unknown }) {
+	const record = recordValue(value);
+	const thread = recordValue(record.thread);
+	const content = arrayValue(record.content);
+	const context = textValueForDisplay(record.context);
+	return (
+		<div className="readable-result-stack">
+			{context && <div className="tool-text">{context}</div>}
+			{profileHasHandle(recordValue(thread.author)) || stringValue(thread.title) ?
+				<div className="readable-event-meta">
+					<ThreadReference
+						forumHandle={forumHandleFromRecord(thread)}
+						label={stringValue(thread.title) ?? "thread"}
+						threadId={stringValue(thread.threadId ?? thread.id)}
+						title={stringValue(thread.title)}
+						worldHandle={worldHandleFromRecord(thread)}
+					/>
+					{profileHasHandle(recordValue(thread.author)) && <ProfileReference profile={recordValue(thread.author)} worldHandle={worldHandleFromRecord(thread)} />}
+				</div>
+			:	null}
+			<ReadableContentChain content={content} fallbackThread={thread} />
+		</div>
+	);
+}
+
+function ReadableThreadDocument({ args, value }: { args?: JsonRecord; value: unknown }) {
+	const thread = threadRecordFromReadableMutation(value);
+	const rootComment = readableRootComment(thread);
+	const rootPost = recordValue(thread.rootPost);
+	const title = readableThreadTitle(thread);
+	const body =
+		textValueForDisplay(rootComment.body) ??
+		textValueForDisplay(rootPost.body) ??
+		textValueForDisplay(thread.body) ??
+		textValueForDisplay(args?.body);
+	const authorProfile = profileHasHandle(rootComment) ? rootComment : recordValue(rootPost.author);
+	const worldHandle = worldHandleFromRecord(thread);
+	const forumHandle = forumHandleFromRecord(thread);
+	return (
+		<div className="readable-result-stack">
+			<div className="readable-event-title">
+				<ThreadReference
+					forumHandle={forumHandle}
+					label={title ?? "thread"}
+					threadId={stringValue(thread.threadId ?? thread.id)}
+					title={title}
+					worldHandle={worldHandle}
+				/>
+			</div>
+			{profileHasHandle(authorProfile) ?
+				<div className="readable-event-meta"><ProfileReference profile={authorProfile} worldHandle={worldHandle} /></div>
+			:	null}
+			{body && <ReadableQuote text={body} />}
+		</div>
+	);
+}
+
+function ReadableVoteResult({ value }: { value: unknown }) {
+	const items = Array.isArray(value) ? value : [value];
+	return (
+		<div className="tool-pretty tool-list">
+			{items.map((item, index) => {
+				const record = recordValue(item);
+				const target = recordValue(record.target);
+				const commentId = stringValue(target.commentId ?? record.commentId ?? record.targetId);
+				const targetType = stringValue(record.targetType) ?? stringValue(target.type) ?? (commentId ? "comment" : undefined);
+				const thread = Object.keys(target).length > 0 ? target : recordValue(record.thread);
+				return (
+					<div className="tool-pretty-item" key={`vote-${index}`}>
+						<span>{voteActionLabel(numberValue(record.value))}</span>
+						<ThreadReference
+							commentId={commentId}
+							forumHandle={forumHandleFromRecord(thread)}
+							label={targetType === "comment" ? "comment" : stringValue(thread.title) ?? "thread"}
+							threadId={stringValue(thread.threadId ?? thread.id ?? (targetType === "thread" ? record.targetId : undefined))}
+							title={stringValue(thread.title)}
+							worldHandle={worldHandleFromRecord(thread)}
+						/>
+					</div>
+				);
+			})}
+		</div>
+	);
+}
+
+function ReadableFollowResult({ fallbackFollowing, value }: { fallbackFollowing: boolean; value: unknown }) {
+	const items = Array.isArray(value) ? value : [value];
+	return (
+		<div className="tool-pretty tool-list">
+			{items.map((item, index) => {
+				const record = recordValue(item);
+				const profile = recordValue(record.profile);
+				const following = typeof record.following === "boolean" ? record.following : fallbackFollowing;
+				return (
+					<div className="tool-pretty-item" key={`follow-${index}`}>
+						<span>{following ? "Following" : "Not following"}</span>
+						<ProfileReference profile={profileHasHandle(profile) ? profile : record} />
+					</div>
+				);
+			})}
+		</div>
+	);
+}
+
+function ReadableForumList({ value, worldHandle }: { value: unknown; worldHandle?: string }) {
+	const items = Array.isArray(value) ? value : [];
+	if (items.length === 0) {
+		return <div className="tool-text">No forums found.</div>;
+	}
+	return (
+		<div className="tool-pretty tool-list">
+			{items.slice(0, 12).map((item, index) => {
+				const forum = recordValue(item);
+				const description = textValueForDisplay(forum.description);
+				return (
+					<div className="tool-pretty-item" key={`${stringValue(forum.forum ?? forum.handle) ?? "forum"}-${index}`}>
+						<ForumReference forumHandle={forumHandleFromRecord(forum)} worldHandle={worldHandleFromRecord(forum) ?? worldHandle} />
+						{description && <span>{description}</span>}
+					</div>
+				);
+			})}
+		</div>
+	);
+}
+
+function ReadableThreadList({ value }: { value: unknown }) {
+	const items = Array.isArray(value) ? value : [];
+	if (items.length === 0) {
+		return <div className="tool-text">No matching threads or comments found.</div>;
+	}
+	return (
+		<div className="tool-pretty tool-list">
+			{items.slice(0, 12).map((item, index) => {
+				const result = recordValue(item);
+				const isComment = Boolean(stringValue(result.commentId));
+				const author = recordValue(result.author);
+				const authorProfile = profileHasHandle(author) ? author : result;
+				const title = stringValue(result.title) ?? "thread";
+				const snippet = textValueForDisplay(result.snippet);
+				return (
+					<div className="readable-search-result" key={`${stringValue(result.threadId ?? result.id) ?? "thread"}:${stringValue(result.commentId) ?? "root"}-${index}`}>
+						<div className="readable-event-title">
+							{isComment ?
+								<>
+									<span>Comment by</span>
+									<ProfileReference profile={authorProfile} worldHandle={worldHandleFromRecord(result)} />
+									<span>in</span>
+								</>
+							:	null}
+							<ThreadReference
+								commentId={stringValue(result.commentId)}
+								forumHandle={forumHandleFromRecord(result)}
+								label={title}
+								threadId={stringValue(result.threadId ?? result.id)}
+								title={title}
+								worldHandle={worldHandleFromRecord(result)}
+							/>
+							{!isComment && profileHasHandle(authorProfile) && <ProfileReference profile={authorProfile} worldHandle={worldHandleFromRecord(result)} />}
+						</div>
+						<div className="readable-event-meta">
+							<ForumReference forumHandle={forumHandleFromRecord(result)} worldHandle={worldHandleFromRecord(result)} />
+							{stringValue(result.createdAt) && <span>{formatShortDate(String(result.createdAt))}</span>}
+						</div>
+						{snippet && <ReadableQuote text={trimReadableSnippet(snippet)} />}
+					</div>
+				);
+			})}
+		</div>
+	);
+}
+
+function ReadableActivityResult({ value }: { value: unknown }) {
+	const record = recordValue(value);
+	const profile = firstProfileRecord(record.profile, record.bot);
+	const activities = arrayValue(record.activities);
+	const worldHandle = worldHandleFromRecord(profile) ?? worldHandleFromRecord(record);
+	return (
+		<div className="readable-result-stack">
+			<div className="readable-event-title"><ProfileReference profile={profile} worldHandle={worldHandle} /></div>
+			{activities.length === 0 ?
+				<div className="tool-text">No recent public activity.</div>
+				:	<div className="readable-result-stack">
+						{activities.slice(0, 12).map((activity, index) => {
+							const item = recordValue(activity);
+							return (
+								<ReadableActivityItem
+									activity={item}
+									fallbackWorldHandle={worldHandle}
+									key={`${stringValue(item.id) ?? "activity"}-${index}`}
+								/>
+							);
+						})}
+					</div>}
+		</div>
+	);
+}
+
+function ReadableActivityItem({
+	activity,
+	fallbackWorldHandle,
+}: {
+	activity: JsonRecord;
+	fallbackWorldHandle?: string;
+}) {
+	const type = stringValue(activity.type) ?? "activity";
+	if (type === "thread" || type === "post") {
+		return <ReadableThreadActivity activity={activity} fallbackWorldHandle={fallbackWorldHandle} />;
+	}
+	if (type === "comment") {
+		return <ReadableCommentActivity activity={activity} fallbackWorldHandle={fallbackWorldHandle} />;
+	}
+	if (type === "vote") {
+		return <ReadableVoteActivity activity={activity} fallbackWorldHandle={fallbackWorldHandle} />;
+	}
+	if (type === "follow" || type === "unfollow") {
+		return <ReadableFollowActivity activity={activity} fallbackWorldHandle={fallbackWorldHandle} type={type} />;
+	}
+	return (
+		<div className="readable-search-result readable-activity-result">
+			<div className="readable-event-title">{humanizeKey(type)}</div>
+			<ReadableGenericFields record={activity} />
+		</div>
+	);
+}
+
+function ReadableThreadActivity({
+	activity,
+	fallbackWorldHandle,
+}: {
+	activity: JsonRecord;
+	fallbackWorldHandle?: string;
+}) {
+	const worldHandle = worldHandleFromRecord(activity) ?? fallbackWorldHandle;
+	const forumHandle = forumHandleFromRecord(activity);
+	const threadId = stringValue(activity.threadId ?? activity.id);
+	const title = stringValue(activity.title) ?? "thread";
+	const body = readableActivityPreview(activity);
+	return (
+		<div className="readable-search-result readable-activity-result">
+			<div className="readable-event-title">
+				<span>Created</span>
+				<ThreadReference forumHandle={forumHandle} label={title} threadId={threadId} title={title} worldHandle={worldHandle} />
+			</div>
+			<div className="readable-event-meta">
+				<ForumReference forumHandle={forumHandle} worldHandle={worldHandle} />
+				<span>{readableActivityCounts(activity)}</span>
+				{stringValue(activity.createdAt) && <span>{formatShortDate(String(activity.createdAt))}</span>}
+			</div>
+			{body && <ReadableQuote text={body} />}
+		</div>
+	);
+}
+
+function ReadableCommentActivity({
+	activity,
+	fallbackWorldHandle,
+}: {
+	activity: JsonRecord;
+	fallbackWorldHandle?: string;
+}) {
+	const worldHandle = worldHandleFromRecord(activity) ?? fallbackWorldHandle;
+	const forumHandle = forumHandleFromRecord(activity);
+	const threadId = stringValue(activity.threadId);
+	const commentId = stringValue(activity.commentId ?? activity.id);
+	const title = stringValue(activity.threadTitle ?? activity.title) ?? "thread";
+	const parentComment = recordValue(activity.parentComment);
+	const parentCommentId = stringValue(parentComment.commentId ?? activity.parentCommentId);
+	const parentBody = readableActivityPreview(parentComment);
+	const body = readableActivityPreview(activity);
+	return (
+		<div className="readable-search-result readable-activity-result">
+			<div className="readable-event-title">
+				<span>Replied in</span>
+				<ThreadReference forumHandle={forumHandle} label={title} threadId={threadId} title={title} worldHandle={worldHandle} />
+			</div>
+			<div className="readable-event-meta">
+				<ForumReference forumHandle={forumHandle} worldHandle={worldHandle} />
+				<ThreadReference commentId={commentId} forumHandle={forumHandle} label="comment" threadId={threadId} worldHandle={worldHandle} />
+				<span>{`${numberValue(activity.voteScore) ?? 0} votes`}</span>
+				{stringValue(activity.createdAt) && <span>{formatShortDate(String(activity.createdAt))}</span>}
+			</div>
+			{parentCommentId && (
+				<div className="readable-event-meta">
+					<span>to</span>
+					{profileHasHandle(parentComment) && <ProfileReference profile={parentComment} worldHandle={worldHandle} />}
+					<ThreadReference commentId={parentCommentId} forumHandle={forumHandle} label="parent comment" threadId={threadId} worldHandle={worldHandle} />
+				</div>
+			)}
+			{parentBody && <ReadableQuote label="Parent comment" text={parentBody} />}
+			{body && <ReadableQuote label="Reply" text={body} />}
+		</div>
+	);
+}
+
+function ReadableVoteActivity({
+	activity,
+	fallbackWorldHandle,
+}: {
+	activity: JsonRecord;
+	fallbackWorldHandle?: string;
+}) {
+	const worldHandle = worldHandleFromRecord(activity) ?? fallbackWorldHandle;
+	const forumHandle = forumHandleFromRecord(activity);
+	const threadId = stringValue(activity.threadId);
+	const commentId = stringValue(activity.commentId ?? activity.targetId);
+	const title = stringValue(activity.title);
+	const targetComment = recordValue(activity.targetComment);
+	const targetBody = readableActivityPreview(targetComment);
+	const reason = textValueForDisplay(activity.reason);
+	const value = numberValue(activity.value);
+	return (
+		<div className="readable-search-result readable-activity-result">
+			<div className="readable-event-title">
+				<span>{voteActionLabel(value)}</span>
+				{profileHasHandle(targetComment) ? <><ProfileReference profile={targetComment} worldHandle={worldHandle} /><span>’s</span></> : null}
+				<ThreadReference commentId={commentId} forumHandle={forumHandle} label="comment" threadId={threadId} worldHandle={worldHandle} />
+				{title ? <><span>in</span><ThreadReference forumHandle={forumHandle} label={title} threadId={threadId} title={title} worldHandle={worldHandle} /></> : null}
+			</div>
+			<div className="readable-event-meta">
+				<ForumReference forumHandle={forumHandle} worldHandle={worldHandle} />
+				<span>{(value ?? 0) > 0 ? "+1" : (value ?? 0) < 0 ? "-1" : "cleared"}</span>
+				{stringValue(activity.updatedAt ?? activity.createdAt) && <span>{formatShortDate(String(activity.updatedAt ?? activity.createdAt))}</span>}
+			</div>
+			{targetBody && <ReadableQuote label="Voted comment" text={targetBody} />}
+			{reason && <ReadableQuote label="Reason" text={trimReadableSnippet(reason)} />}
+		</div>
+	);
+}
+
+function ReadableFollowActivity({
+	activity,
+	fallbackWorldHandle,
+	type,
+}: {
+	activity: JsonRecord;
+	fallbackWorldHandle?: string;
+	type: "follow" | "unfollow";
+}) {
+	const profile = firstProfileRecord(activity.profile, activity.bot);
+	const worldHandle = worldHandleFromRecord(profile) ?? fallbackWorldHandle;
+	const reason = textValueForDisplay(activity.reason) ?? textValueForDisplay(profile.shortBio);
+	return (
+		<div className="readable-search-result readable-activity-result">
+			<div className="readable-event-title">
+				<span>{type === "follow" ? "Followed" : "Unfollowed"}</span>
+				<ProfileReference profile={profile} worldHandle={worldHandle} />
+			</div>
+			<div className="readable-event-meta">
+				{worldHandle && <span>w/{worldHandle}</span>}
+				{stringValue(activity.createdAt) && <span>{formatShortDate(String(activity.createdAt))}</span>}
+			</div>
+			{reason && <ReadableQuote text={trimReadableSnippet(reason)} />}
+		</div>
+	);
+}
+
+function readableActivityPreview(record: JsonRecord): string | undefined {
+	const text = textValueForDisplay(record.bodyPreview ?? record.body ?? record.snippet);
+	return text ? trimReadableSnippet(text) : undefined;
+}
+
+function readableActivityCounts(activity: JsonRecord): string {
+	return `${numberValue(activity.voteScore) ?? 0} votes / ${countLabel(numberValue(activity.commentCount) ?? 0, "comment")}`;
+}
+
+function countLabel(count: number, singular: string): string {
+	return `${count} ${singular}${count === 1 ? "" : "s"}`;
+}
+
+function ReadableGenericResult({ value }: { value: unknown }) {
+	if (typeof value === "string") {
+		return <div className="tool-text">{value}</div>;
+	}
+	if (Array.isArray(value)) {
+		return value.length === 0 ? <div className="tool-text">No results.</div> : <div className="tool-text">{value.length} result{value.length === 1 ? "" : "s"} returned.</div>;
+	}
+	const record = recordValue(value);
+	const message = textValueForDisplay(record.message ?? record.status ?? record.context);
+	return message ? <div className="tool-text">{message}</div> : <ReadableGenericFields record={record} />;
+}
+
+function ReadableGenericFields({ record }: { record: JsonRecord }) {
+	const entries = Object.entries(record)
+		.filter(([key, value]) => !lowLevelDisplayKey(key) && isDisplayPrimitive(value))
+		.slice(0, 6);
+	if (entries.length === 0) {
+		return <div className="tool-text">The action completed.</div>;
+	}
+	return (
+		<div className="readable-field-list">
+			{entries.map(([key, value]) => (
+				<div key={key}>
+					<span>{humanizeKey(key)}</span>
+					<b>{String(value)}</b>
+				</div>
+			))}
+		</div>
+	);
+}
+
+function ReadableContentChain({
+	content,
+	fallbackThread,
+}: {
+	content: unknown[];
+	fallbackThread?: JsonRecord;
+}) {
+	if (content.length === 0) {
+		return <div className="tool-text">No readable content was included.</div>;
+	}
+	const fallbackWorld = fallbackThread ? worldHandleFromRecord(fallbackThread) : undefined;
+	const fallbackForum = fallbackThread ? forumHandleFromRecord(fallbackThread) : undefined;
+	const fallbackThreadId = fallbackThread ? stringValue(fallbackThread.threadId ?? fallbackThread.id) : undefined;
+	const items = readableContentTree(content);
+	return (
+		<div className="readable-chain">
+			{items.map((itemValue, index) => (
+				<ReadableContentItem
+					depth={0}
+					fallbackForum={fallbackForum}
+					fallbackThreadId={fallbackThreadId}
+					fallbackWorld={fallbackWorld}
+					item={itemValue}
+					key={`${stringValue(itemValue.id) ?? stringValue(itemValue.commentId) ?? "item"}-${index}`}
+				/>
+			))}
+		</div>
+	);
+}
+
+function ReadableContentItem({
+	depth,
+	fallbackForum,
+	fallbackThreadId,
+	fallbackWorld,
+	item,
+}: {
+	depth: number;
+	fallbackForum?: string;
+	fallbackThreadId?: string;
+	fallbackWorld?: string;
+	item: JsonRecord;
+}) {
+	const type = readableContentType(item);
+	const worldHandle = worldHandleFromRecord(item) ?? fallbackWorld;
+	const forumHandle = forumHandleFromRecord(item) ?? fallbackForum;
+	const threadId = stringValue(item.threadId) ?? fallbackThreadId;
+	const commentId = stringValue(item.commentId ?? (type === "comment" ? item.id : undefined));
+	const title = stringValue(item.title);
+	const body = textValueForDisplay(item.body);
+	const author = recordValue(item.author);
+	const authorProfile = profileHasHandle(author) ? author : item;
+	const omittedReplies = numberValue(item.replies) ?? 0;
+	const replies = Array.isArray(item.replies) ? readableContentTree(item.replies).filter(isReadableCommentItem) : [];
+	const isFocusedComment = item["My focus is on this comment"] === true || item.target === true;
+	const className = [
+		"readable-chain-item",
+		`kind-${type}`,
+		`depth-${Math.min(depth, 3)}`,
+		isFocusedComment ? "is-target" : "",
+		item.ancestorOnly === true ? "is-context" : "",
+	].filter(Boolean).join(" ");
+	return (
+		<div className="readable-chain-branch">
+			<div className={className}>
+				<div className="readable-chain-head">
+					{type === "thread" ?
+						<span className="readable-badge">thread</span>
+					:	<ThreadReference
+							commentId={commentId}
+							forumHandle={forumHandle}
+							label="Comment"
+							threadId={threadId}
+							worldHandle={worldHandle}
+						/>
+					}
+					{item.ancestorOnly === true && <span className="readable-badge">context</span>}
+					{type === "comment" && <span className="readable-muted">by</span>}
+					{profileHasHandle(authorProfile) && <ProfileReference profile={authorProfile} worldHandle={worldHandle} />}
+					{type === "thread" && (
+						<ThreadReference
+							forumHandle={forumHandle}
+							label={title ?? "thread"}
+							threadId={threadId}
+							title={title}
+							worldHandle={worldHandle}
+						/>
+					)}
+				</div>
+				{body && <ReadableQuote text={body} />}
+			</div>
+			{replies.length > 0 && (
+				<div className="readable-chain-replies">
+					{replies.map((reply, index) => (
+						<ReadableContentItem
+							depth={depth + 1}
+							fallbackForum={forumHandle}
+							fallbackThreadId={threadId}
+							fallbackWorld={worldHandle}
+							item={reply}
+							key={`${stringValue(reply.id) ?? stringValue(reply.commentId) ?? "reply"}-${index}`}
+						/>
+					))}
+				</div>
+			)}
+			{omittedReplies > 0 && (
+				<div className="readable-chain-omitted">
+					{omittedReplies} {omittedReplies === 1 ? "reply" : "replies"} omitted
+				</div>
+			)}
+		</div>
+	);
+}
+
+function readableContentTree(content: unknown[]): JsonRecord[] {
+	const roots: JsonRecord[] = [];
+	const comments: JsonRecord[] = [];
+	for (const itemValue of content) {
+		const item = recordValue(itemValue);
+		if (isReadableCommentItem(item)) {
+			comments.push({
+				...item,
+				replies: readableRepliesValue(item.replies),
+			});
+		} else if (Object.keys(item).length > 0) {
+			roots.push(item);
+		}
+	}
+	return [...roots, ...readableNestedCommentList(comments)];
+}
+
+function readableNestedCommentList(comments: JsonRecord[]): JsonRecord[] {
+	const byId = new Map<string, JsonRecord>();
+	const ordered = comments.map((comment) => {
+		const node: JsonRecord = {
+			...comment,
+			replies: readableRepliesValue(comment.replies),
+		};
+		const id = readableCommentId(node);
+		if (id) {
+			byId.set(id, node);
+		}
+		return node;
+	});
+	const roots: JsonRecord[] = [];
+	for (const node of ordered) {
+		const parentId = stringValue(node.parentCommentId);
+		const parent = parentId ? byId.get(parentId) : undefined;
+		if (parent && parent !== node) {
+			const replies = arrayValue(parent.replies).map(recordValue);
+			const nodeId = readableCommentId(node);
+			if (!nodeId || !replies.some((reply) => readableCommentId(reply) === nodeId)) {
+				replies.push(node);
+			}
+			parent.replies = replies;
+		} else {
+			roots.push(node);
+		}
+	}
+	return roots;
+}
+
+function readableRepliesValue(value: unknown): JsonRecord[] | number {
+	if (typeof value === "number" && Number.isFinite(value)) {
+		return Math.max(0, Math.floor(value));
+	}
+	return Array.isArray(value) ? readableNestedCommentList(value.map(recordValue).filter(isReadableCommentItem)) : [];
+}
+
+function readableContentType(item: JsonRecord): "thread" | "comment" {
+	return isReadableCommentItem(item) ? "comment" : "thread";
+}
+
+function isReadableCommentItem(item: JsonRecord): boolean {
+	return stringValue(item.type) === "comment" || Boolean(stringValue(item.commentId));
+}
+
+function readableCommentId(item: JsonRecord): string | undefined {
+	return stringValue(item.commentId) ?? stringValue(item.id);
+}
+
+function ReadableQuote({ label, text }: { label?: string; text: string }) {
+	return (
+		<blockquote className="readable-quote">
+			{label && <span>{label}</span>}
+			{normalizeReadableText(text)}
+		</blockquote>
+	);
+}
+
+function trimReadableSnippet(text: string): string {
+	const collapsed = normalizeReadableText(text).trim().replace(/\s+/g, " ");
+	return collapsed.length > 240 ? `${collapsed.slice(0, 237).trimEnd()}...` : collapsed;
+}
+
+function ProfileReference({
+	profile,
+	username,
+	worldHandle,
+}: {
+	profile?: JsonRecord;
+	username?: string;
+	worldHandle?: string;
+}) {
+	const handle = usernameHandle(username) ?? usernameHandle(stringValue(profile?.username)) ?? stringValue(profile?.handle) ?? stringValue(profile?.authorHandle);
+	return handle ? <Reference kind="bot" name={handle} worldHandle={worldHandle} /> : <span>someone</span>;
+}
+
+function ForumReference({ forumHandle, worldHandle }: { forumHandle?: string; worldHandle?: string }) {
+	return forumHandle ? <Reference kind="forum" name={forumHandle} worldHandle={worldHandle} /> : <span>a forum</span>;
+}
+
+function ThreadReference({
+	commentId,
+	forumHandle,
+	label = "thread",
+	threadId,
+	title,
+	worldHandle,
+}: {
+	commentId?: string;
+	forumHandle?: string;
+	label?: string;
+	threadId?: string;
+	title?: string;
+	worldHandle?: string;
+}) {
+	const referenceData = useContext(ReferenceDataContext);
+	const effectiveWorldHandle = worldHandle ?? referenceData.activeWorldHandle ?? undefined;
+	if (effectiveWorldHandle && forumHandle && threadId) {
+		return (
+			<SpaLink
+				className="readable-link"
+				title={commentId ? `Open ${title ?? "reply"}` : `Open ${title ?? "thread"}`}
+				to={{ route: "thread", worldHandle: effectiveWorldHandle, forumHandle, threadId, ...(commentId ? { commentId } : {}) }}
+			>
+				{title ?? label}
+			</SpaLink>
+		);
+	}
+	return <span>{title ?? label}</span>;
+}
+
+function JsonSyntaxBlock({ value }: { value: unknown }) {
+	return (
+		<pre className="json-view">
+			<code>{renderJsonValue(value, 0, { ancestors: [] })}</code>
+		</pre>
+	);
+}
+
+function renderJsonValue(
+	value: unknown,
+	indent: number,
+	context: { propertyKey?: string; parent?: JsonRecord; ancestors: JsonRecord[] },
+): ReactNode {
+	if (Array.isArray(value)) {
+		if (value.length === 0) {
+			return <span className="json-punctuation">[]</span>;
+		}
+		return (
+			<>
+				<span className="json-punctuation">[</span>
+				{"\n"}
+				{value.map((item, index) => (
+					<span key={index}>
+						{jsonIndent(indent + 1)}
+						{renderJsonValue(item, indent + 1, context)}
+						{index < value.length - 1 ? <span className="json-punctuation">,</span> : null}
+						{"\n"}
+					</span>
+				))}
+				{jsonIndent(indent)}
+				<span className="json-punctuation">]</span>
+			</>
+		);
+	}
+	if (value && typeof value === "object") {
+		const record = value as JsonRecord;
+		const entries = Object.entries(record);
+		if (entries.length === 0) {
+			return <span className="json-punctuation">{"{}"}</span>;
+		}
+		const ancestors = [record, ...context.ancestors];
+		return (
+			<>
+				<span className="json-punctuation">{"{"}</span>
+				{"\n"}
+				{entries.map(([key, item], index) => (
+					<span key={key}>
+						{jsonIndent(indent + 1)}
+						<span className="json-key">"{key}"</span>
+						<span className="json-punctuation">: </span>
+						{renderJsonValue(item, indent + 1, { propertyKey: key, parent: record, ancestors })}
+						{index < entries.length - 1 ? <span className="json-punctuation">,</span> : null}
+						{"\n"}
+					</span>
+				))}
+				{jsonIndent(indent)}
+				<span className="json-punctuation">{"}"}</span>
+			</>
+		);
+	}
+	if (typeof value === "string") {
+		return <JsonStringValue context={context} value={value} />;
+	}
+	if (typeof value === "number") {
+		return <span className="json-number">{Number.isFinite(value) ? String(value) : "null"}</span>;
+	}
+	if (typeof value === "boolean") {
+		return <span className="json-boolean">{String(value)}</span>;
+	}
+	return <span className="json-null">null</span>;
+}
+
+function JsonStringValue({
+	context,
+	value,
+}: {
+	context: { propertyKey?: string; parent?: JsonRecord; ancestors: JsonRecord[] };
+	value: string;
+}) {
+	const linked = linkedJsonString(value, context);
+	if (linked) {
+		return (
+			<>
+				<span className="json-string">"</span>
+				{linked}
+				<span className="json-string">"</span>
+			</>
+		);
+	}
+	return <span className="json-string">{JSON.stringify(value)}</span>;
+}
+
+function linkedJsonString(
+	value: string,
+	context: { propertyKey?: string; parent?: JsonRecord; ancestors: JsonRecord[] },
+): ReactNode | null {
+	const key = context.propertyKey ?? "";
+	const username = key === "username" || value.startsWith("u/") ? usernameHandle(value) : undefined;
+	if (username) {
+		return <Reference kind="bot" name={username} worldHandle={worldHandleFromJsonContext(context)} />;
+	}
+	const worldHandle = key === "world" || key === "worldHandle" || value.startsWith("w/") ? stripHandlePrefix(value, "w") : undefined;
+	if (worldHandle) {
+		return <Reference kind="world" name={worldHandle} />;
+	}
+	const forumHandle = key === "forum" || key === "forumHandle" || value.startsWith("f/") ? stripHandlePrefix(value, "f") : undefined;
+	if (forumHandle) {
+		return <Reference kind="forum" name={forumHandle} worldHandle={worldHandleFromJsonContext(context)} />;
+	}
+	const route = jsonStringRoute(value, context);
+	if (route) {
+		return (
+			<SpaLink className="json-link" title="Open referenced Bickr item" to={route}>
+				{value}
+			</SpaLink>
+		);
+	}
+	return null;
+}
+
+function jsonStringRoute(
+	value: string,
+	context: { propertyKey?: string; parent?: JsonRecord; ancestors: JsonRecord[] },
+): ParsedRoute | null {
+	const key = context.propertyKey ?? "";
+	const parent = context.parent ?? {};
+	const worldHandle = worldHandleFromJsonContext(context);
+	const forumHandle = forumHandleFromJsonContext(context);
+	if (!worldHandle || !forumHandle) {
+		return null;
+	}
+	const parentType = stringValue(parent.type);
+	const targetType = stringValue(parent.targetType);
+	const threadId =
+		key === "threadId" ? value
+		: key === "targetId" && targetType === "thread" ? value
+		: key === "id" && (parentType === "thread" || stringValue(parent.title)) ? value
+		: undefined;
+	if (threadId) {
+		return { route: "thread", worldHandle, forumHandle, threadId };
+	}
+	const commentId =
+		key === "commentId" || key === "parentCommentId" || key === "targetCommentId" ? value
+		: key === "targetId" && targetType === "comment" ? value
+		: key === "id" && (parentType === "comment" || stringValue(parent.threadId)) ? value
+		: undefined;
+	const containingThreadId = stringValue(parent.threadId) ?? findStringInJsonAncestors(context.ancestors, "threadId", "id");
+	if (commentId && containingThreadId) {
+		return { route: "thread", worldHandle, forumHandle, threadId: containingThreadId, commentId };
+	}
+	return null;
+}
+
+function loopToolCallsById(messages: BotLoopMessage[]): Map<string, LoopToolCallContext> {
+	const byId = new Map<string, LoopToolCallContext>();
+	for (const message of messages) {
+		for (const toolCall of message.message.tool_calls ?? []) {
+			byId.set(toolCall.id, {
+				id: toolCall.id,
+				name: canonicalDisplayToolName(toolCall.function.name || "unknown_tool"),
+				args: parseToolArguments(toolCall),
+			});
+		}
+	}
+	for (const message of messages) {
+		const toolCallId = message.message.tool_call_id;
+		if (!toolCallId) {
+			continue;
+		}
+		const context = byId.get(toolCallId);
+		if (context) {
+			context.result = parseJsonValue(message.message.content);
+		}
+	}
+	return byId;
+}
+
+function parseToolArguments(toolCall: LoopToolCall): JsonRecord {
+	return recordValue(parseJsonValue(toolCall.function.arguments));
+}
+
+function readableToolFailureRecord(value: unknown): JsonRecord | null {
+	const record = recordValue(value);
+	return record.ok === false ? record : null;
+}
+
+function parseJsonForDisplay(value: unknown): { ok: true; value: unknown } | { ok: false } {
+	if (typeof value !== "string") {
+		return { ok: true, value };
+	}
+	const trimmed = value.trim();
+	if (!trimmed || (!trimmed.startsWith("{") && !trimmed.startsWith("["))) {
+		return { ok: false };
+	}
+	try {
+		return { ok: true, value: JSON.parse(trimmed) };
+	} catch {
+		return { ok: false };
+	}
+}
+
+function parseJsonValue(value: unknown): unknown {
+	if (typeof value !== "string") {
+		return value;
+	}
+	const trimmed = value.trim();
+	if (!trimmed || (!trimmed.startsWith("{") && !trimmed.startsWith("["))) {
+		return value;
+	}
+	try {
+		return JSON.parse(trimmed);
+	} catch {
+		return value;
+	}
+}
+
+function inferToolNameFromResult(value: unknown): string {
+	const record = recordValue(value);
+	if (Array.isArray(record.events)) {
+		return "check_notifications";
+	}
+	if (Array.isArray(record.profiles)) {
+		return "view_profiles";
+	}
+	if (Array.isArray(record.content) && record.thread) {
+		return "read_thread";
+	}
+	if (record.comment) {
+		return "reply_to_comment";
+	}
+	if (record.rootPost || record.rootCommentId || record.thread) {
+		return "create_thread";
+	}
+	return "unknown_tool";
+}
+
+function canonicalDisplayToolName(name: string): string {
+	const aliases: Record<string, string> = {
+		create_post: "create_thread",
+		follow_bot: "follow_profile",
+		reply_to_thread: "reply_to_comment",
+		search_bots: "search_profiles",
+		search_posts: "search_threads",
+		search_posts_semantic: "search_threads_semantic",
+		unfollow_bot: "unfollow_profile",
+		view_bot_activity: "view_activity",
+		view_bot_profile: "view_profiles",
+		view_profile: "view_profiles",
+	};
+	return aliases[name] ?? name;
+}
+
+function stringValue(value: unknown): string | undefined {
+	if (typeof value === "string" && value.trim()) {
+		return value.trim();
+	}
+	if (typeof value === "number" || typeof value === "boolean") {
+		return String(value);
+	}
+	return undefined;
+}
+
+function numberValue(value: unknown): number | undefined {
+	if (typeof value === "number" && Number.isFinite(value)) {
+		return value;
+	}
+	if (typeof value === "string" && value.trim()) {
+		const parsed = Number(value);
+		return Number.isFinite(parsed) ? parsed : undefined;
+	}
+	return undefined;
+}
+
+function recordValue(value: unknown): JsonRecord {
+	return value && typeof value === "object" && !Array.isArray(value) ? value as JsonRecord : {};
+}
+
+function arrayValue(value: unknown): unknown[] {
+	return Array.isArray(value) ? value : [];
+}
+
+function isDisplayPrimitive(value: unknown): boolean {
+	return typeof value === "string" || typeof value === "number" || typeof value === "boolean";
+}
+
+function lowLevelDisplayKey(key: string): boolean {
+	return /(^id$|Id$|_id$|objectId$|tool_call|token|raw|json)/i.test(key);
+}
+
+function humanizeKey(key: string): string {
+	return key
+		.replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+		.replace(/[_-]+/g, " ")
+		.replace(/\s+/g, " ")
+		.trim()
+		.toLowerCase();
+}
+
+function usernamesFromValue(value: unknown): string[] {
+	const values = Array.isArray(value) ? value : value ? [value] : [];
+	return values
+		.map((item) => {
+			if (typeof item === "string") {
+				return item;
+			}
+			const record = recordValue(item);
+			return stringValue(record.username) ?? stringValue(record.handle);
+		})
+		.filter((item): item is string => Boolean(item));
+}
+
+function usernameHandle(value: string | undefined): string | undefined {
+	return value ? stripHandlePrefix(value, "u") ?? value : undefined;
+}
+
+function profileRecordFromValue(value: unknown): JsonRecord {
+	if (typeof value === "string") {
+		return { username: value };
+	}
+	return recordValue(value);
+}
+
+function firstProfileRecord(...values: unknown[]): JsonRecord {
+	for (const value of values) {
+		const profile = profileRecordFromValue(value);
+		if (profileHasHandle(profile)) {
+			return profile;
+		}
+	}
+	return {};
+}
+
+function profileHasHandle(profile: JsonRecord): boolean {
+	return Boolean(usernameHandle(stringValue(profile.username)) ?? stringValue(profile.handle) ?? stringValue(profile.authorHandle));
+}
+
+function worldHandleFromRecord(record: JsonRecord): string | undefined {
+	return (
+		stripHandlePrefix(stringValue(record.world), "w") ??
+		stripHandlePrefix(stringValue(record.worldHandle), "w") ??
+		stripHandlePrefix(stringValue(record.homeWorldHandle), "w") ??
+		stripExplicitHandlePrefix(stringValue(record.handle), "w") ??
+		stripHandlePrefix(stringValue(recordValue(record.world).handle), "w")
+	);
+}
+
+function forumHandleFromRecord(record: JsonRecord): string | undefined {
+	return (
+		stripHandlePrefix(stringValue(record.forum), "f") ??
+		stripHandlePrefix(stringValue(record.forumHandle), "f") ??
+		stripExplicitHandlePrefix(stringValue(record.handle), "f") ??
+		stripHandlePrefix(stringValue(recordValue(record.forum).handle), "f")
+	);
+}
+
+function stripHandlePrefix(value: string | undefined, prefix: "u" | "w" | "f"): string | undefined {
+	if (!value) {
+		return undefined;
+	}
+	const expected = `${prefix}/`;
+	return value.startsWith(expected) ? value.slice(expected.length) : value;
+}
+
+function stripExplicitHandlePrefix(value: string | undefined, prefix: "u" | "w" | "f"): string | undefined {
+	if (!value) {
+		return undefined;
+	}
+	const expected = `${prefix}/`;
+	return value.startsWith(expected) ? value.slice(expected.length) : undefined;
+}
+
+function worldHandleFromJsonContext(context: { parent?: JsonRecord; ancestors: JsonRecord[] }): string | undefined {
+	return findHandleInJsonContext("world", context);
+}
+
+function forumHandleFromJsonContext(context: { parent?: JsonRecord; ancestors: JsonRecord[] }): string | undefined {
+	return findHandleInJsonContext("forum", context);
+}
+
+function findHandleInJsonContext(kind: "world" | "forum", context: { parent?: JsonRecord; ancestors: JsonRecord[] }): string | undefined {
+	const records = [context.parent, ...context.ancestors].filter((item): item is JsonRecord => Boolean(item));
+	for (const record of records) {
+		const handle = kind === "world" ? worldHandleFromRecord(record) : forumHandleFromRecord(record);
+		if (handle) {
+			return handle;
+		}
+	}
+	return undefined;
+}
+
+function findStringInJsonAncestors(ancestors: JsonRecord[], ...keys: string[]): string | undefined {
+	for (const record of ancestors) {
+		for (const key of keys) {
+			const direct = stringValue(record[key]);
+			if (direct) {
+				return direct;
+			}
+			const nested = stringValue(recordValue(record.thread)[key]);
+			if (nested) {
+				return nested;
+			}
+		}
+	}
+	return undefined;
+}
+
+function voteActionLabel(value: number | undefined): string {
+	if ((value ?? 0) > 0) {
+		return "upvoted";
+	}
+	if ((value ?? 0) < 0) {
+		return "downvoted";
+	}
+	return "cleared vote on";
+}
+
+function joinReadable(items: ReactNode[]): ReactNode {
+	return items.map((item, index) => (
+		<span className="readable-join-item" key={index}>
+			{index > 0 ? index === items.length - 1 ? " and " : ", " : ""}
+			{item}
+		</span>
+	));
+}
+
+function jsonIndent(level: number): string {
+	return "\t".repeat(level);
 }
 
 function RuntimeRow({
@@ -8327,7 +11782,7 @@ function referenceMeta(
 	kind: ReferenceKind,
 	name: string,
 	worldHandle?: string,
-): { title: string; description: string } | null {
+): ReferenceMeta | null {
 	const lookupWorldHandle = worldHandle ?? data.activeWorldHandle ?? undefined;
 	if (kind === "world") {
 		const world = data.worlds.find((item) => item.handle === name);
@@ -8351,6 +11806,18 @@ function referenceMeta(
 			(lookupWorldHandle ? data.botsByWorld[lookupWorldHandle]?.find((item) => item.handle === name) : undefined) ??
 			allKnownBots(data).find((item) => item.handle === name);
 		return bot ? { title: `${bot.displayName} (u/${bot.handle})`, description: bot.shortBio } : null;
+	}
+	if (kind === "human") {
+		const human = data.humans.find((item) => item.handle === name);
+		if (!human) {
+			return null;
+		}
+		const worlds = data.worlds.filter((world) => world.createdByUserId === human.id).map((world) => `w/${world.handle}`);
+		const botCount = allKnownBots(data).filter((bot) => bot.ownerUserId === human.id).length;
+		return {
+			title: human.displayName,
+			description: `Worlds: ${worlds.length ? worlds.join(", ") : "none"} · ${botCount} bot${botCount === 1 ? "" : "s"} owned`,
+		};
 	}
 	return null;
 }
@@ -8395,6 +11862,9 @@ function referenceRoute(
 		const botWorldHandle = bot?.homeWorldHandle ?? lookupWorldHandle;
 		return botWorldHandle ? { route: "bot-profile", worldHandle: botWorldHandle, botHandle: name } : null;
 	}
+	if (kind === "human") {
+		return { route: "human-profile", humanHandle: name };
+	}
 	return null;
 }
 
@@ -8402,6 +11872,7 @@ function Reference({
 	isBot,
 	kind,
 	link = true,
+	meta: metaOverride,
 	name,
 	onOpen,
 	worldHandle,
@@ -8409,6 +11880,7 @@ function Reference({
 	isBot?: boolean;
 	kind: ReferenceKind;
 	link?: boolean;
+	meta?: ReferenceMeta | null;
 	name: string;
 	onOpen?: () => void;
 	worldHandle?: string;
@@ -8417,7 +11889,7 @@ function Reference({
 	const { navigate } = useContext(NavigationContext);
 	const hoverTooltip = useContext(HoverTooltipContext);
 	const tooltipId = useId();
-	const meta = referenceMeta(referenceData, kind, name, worldHandle);
+	const meta = metaOverride === undefined ? referenceMeta(referenceData, kind, name, worldHandle) : metaOverride;
 	const route = referenceRoute(referenceData, kind, name, worldHandle);
 	const prefix = { world: "w/", forum: "f/", bot: "u/", human: "hu/" }[kind];
 	const content = (
@@ -8476,6 +11948,34 @@ function Reference({
 			)}
 		</span>
 	);
+}
+
+function HumanReference({
+	profile,
+	user,
+}: {
+	profile?: HumanProfile | null;
+	user?: PublicUser | null;
+}) {
+	const handle = profile?.user.handle ?? user?.handle;
+	if (!handle) {
+		return <span>unknown</span>;
+	}
+	return (
+		<Reference
+			kind="human"
+			meta={profile ? humanReferenceMeta(profile) : user ? { title: user.displayName, description: "Profile details" } : null}
+			name={handle}
+		/>
+	);
+}
+
+function humanReferenceMeta(profile: HumanProfile): ReferenceMeta {
+	const worlds = profile.worlds.map((world) => `w/${world.handle}`);
+	return {
+		title: profile.user.displayName,
+		description: `Worlds: ${worlds.length ? worlds.join(", ") : "none"} · ${profile.totals.bots} bot${profile.totals.bots === 1 ? "" : "s"} owned`,
+	};
 }
 
 function AuthorReference({
@@ -8748,17 +12248,19 @@ function Modal({
 
 function Field({
 	children,
+	className,
 	help,
 	hint,
 	label,
 }: {
 	children: ReactNode;
+	className?: string;
 	help?: ReactNode;
 	hint?: string;
-	label?: string;
+	label?: ReactNode;
 }) {
 	return (
-		<div className="field">
+		<div className={className ? `field ${className}` : "field"}>
 			{label && (
 				<label>
 					{label}
@@ -8893,6 +12395,9 @@ function parsePathname(pathname: string, search = ""): ParsedRoute {
 	if (parts[0] === "me" && parts[1] === "profile") {
 		return { route: "profile" };
 	}
+	if (parts[0] === "hu" && parts[1]) {
+		return { route: "human-profile", humanHandle: parts[1] };
+	}
 	if (parts[0] === "w" && parts[1]) {
 		const worldHandle = parts[1];
 		if (parts[2] === "f" && parts[3]) {
@@ -8914,7 +12419,7 @@ function parsePathname(pathname: string, search = ""): ParsedRoute {
 			if (parts[4] === "edit") {
 				return { route: "bot-edit", worldHandle, botHandle };
 			}
-			return { route: "bot-profile", worldHandle, botHandle };
+			return { route: "bot-profile", worldHandle, botHandle, ...botProfileRouteSearch(search) };
 		}
 		return { route: "world", worldHandle, worldTab: worldTabFromSearch(search) };
 	}
@@ -8936,7 +12441,7 @@ function routePath(parsed: ParsedRoute): string {
 			return parsed.commentId ? `${base}/c/${encodeURIComponent(parsed.commentId)}` : base;
 		}
 		case "bot-profile":
-			return `/w/${encodeURIComponent(parsed.worldHandle ?? "")}/u/${encodeURIComponent(parsed.botHandle ?? "")}`;
+			return botProfileRoutePath(parsed);
 		case "bot-loop":
 			return `/w/${encodeURIComponent(parsed.worldHandle ?? "")}/u/${encodeURIComponent(parsed.botHandle ?? "")}/loop`;
 		case "bot-edit":
@@ -8945,6 +12450,8 @@ function routePath(parsed: ParsedRoute): string {
 			return "/me/bots";
 		case "notifications":
 			return "/me/notifications";
+		case "human-profile":
+			return `/hu/${encodeURIComponent(parsed.humanHandle ?? "")}`;
 		case "profile":
 			return "/me/profile";
 	}
@@ -8961,9 +12468,36 @@ function currentLocationPath(): string {
 	return `${window.location.pathname}${window.location.search}`;
 }
 
+function botProfileRouteSearch(search: string): Pick<ParsedRoute, "botActivityId" | "botProfileTab"> {
+	const params = new URLSearchParams(search);
+	const tab = params.get("tab");
+	const activity = params.get("activity")?.trim();
+	const botProfileTab =
+		tab === "follows" || tab === "notifications" ? tab : "activity";
+	return {
+		botProfileTab: activity ? "activity" : botProfileTab,
+		...(activity ? { botActivityId: activity } : {}),
+	};
+}
+
+function botProfileRoutePath(parsed: ParsedRoute): string {
+	const base = `/w/${encodeURIComponent(parsed.worldHandle ?? "")}/u/${encodeURIComponent(parsed.botHandle ?? "")}`;
+	const params = new URLSearchParams();
+	if (parsed.botProfileTab && parsed.botProfileTab !== "activity") {
+		params.set("tab", parsed.botProfileTab);
+	} else if (parsed.botActivityId) {
+		params.set("tab", "activity");
+	}
+	if (parsed.botActivityId) {
+		params.set("activity", parsed.botActivityId);
+	}
+	const query = params.toString();
+	return query ? `${base}?${query}` : base;
+}
+
 function worldTabFromSearch(search: string): WorldTab {
 	const tab = new URLSearchParams(search).get("tab");
-	return tab === "bots" || tab === "activity" || tab === "lore" ? tab : "forums";
+	return tab === "bots" || tab === "activity" || tab === "notifications" || tab === "lore" ? tab : "forums";
 }
 
 function readThemePreference(): ThemePreference {
@@ -8982,7 +12516,13 @@ function readStoredBoolean(key: string, fallback: boolean): boolean {
 	return fallback;
 }
 
-function buildCommentTree(comments: CommentDocument[]): CommentTreeNode[] {
+function threadRootComment(thread: ThreadDocument): CommentDocument | null {
+	return thread.comments.find((comment) => comment.id === thread.rootCommentId) ??
+		thread.comments.find((comment) => !comment.parentCommentId) ??
+		null;
+}
+
+function buildCommentTree(comments: CommentDocument[], rootCommentId?: string): CommentTreeNode[] {
 	const nodes = new Map<string, CommentTreeNode>();
 	for (const comment of comments) {
 		nodes.set(comment.id, { ...comment, replies: [] });
@@ -9002,7 +12542,13 @@ function buildCommentTree(comments: CommentDocument[]): CommentTreeNode[] {
 		}
 		roots.push(node);
 	}
-	return roots;
+	return rootCommentId ?
+			[...roots].sort((left, right) =>
+				left.id === rootCommentId ? -1
+				: right.id === rootCommentId ? 1
+				: 0,
+			)
+		:	roots;
 }
 
 function impliedAncestorIds(selectedIds: string[], parentById: Map<string, string | null>): Set<string> {
@@ -9022,6 +12568,10 @@ function impliedAncestorIds(selectedIds: string[], parentById: Map<string, strin
 
 function commentDomId(commentId: string): string {
 	return `comment-${commentId}`;
+}
+
+function botActivityDomId(activityId: string): string {
+	return `bot-activity-${encodeURIComponent(activityId)}`;
 }
 
 function spotlightInput(
@@ -9055,33 +12605,58 @@ function mergeEvents(current: BotRuntimeEvent[], fetched: BotRuntimeEvent[]): Bo
 	return [...bySeq.values()].sort((left, right) => left.seq - right.seq);
 }
 
+function runtimeCompactionMessage(event: BotRuntimeEvent): string | null {
+	if (event.type !== "compaction") {
+		return null;
+	}
+	const payload = event.payload;
+	if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+		return null;
+	}
+	const status = (payload as { status?: unknown }).status;
+	if (status === "pending") {
+		return "Compacting loop context...";
+	}
+	if (status === "complete") {
+		return "Loop context compacted.";
+	}
+	if (status === "failed") {
+		return "Loop context compaction failed.";
+	}
+	return null;
+}
+
 function latestPersistentEventSeq(events: BotRuntimeEvent[]): number {
 	return events.reduce((latest, event) => Number.isInteger(event.seq) ? Math.max(latest, event.seq) : latest, 0);
 }
 
 function upsertLoopMessage(messages: BotLoopMessage[], message: BotLoopMessage): BotLoopMessage[] {
-	const without = messages.filter((item) => item.seq !== message.seq);
+	const without = messages.filter((item) => item.seq !== message.seq || item.runId !== message.runId);
 	return [...without, message].sort(loopMessageSort);
 }
 
 function mergeLoopMessages(current: BotLoopMessage[], fetched: BotLoopMessage[]): BotLoopMessage[] {
-	const bySeq = new Map(current.map((message) => [message.seq, message]));
+	const retainedCurrent = removeLiveProviderLoopMessagesForFinalizedMessages(
+		current.filter(isLiveProviderLoopMessage),
+		fetched.filter((message) => message.origin === "provider_response"),
+	);
+	const bySeq = new Map(retainedCurrent.map((message) => [loopMessageKey(message), message]));
 	for (const message of fetched) {
-		bySeq.set(message.seq, message);
+		bySeq.set(loopMessageKey(message), message);
 	}
 	return [...bySeq.values()].sort(loopMessageSort);
 }
 
 function latestLoopMessageSeq(messages: BotLoopMessage[]): number {
-	return messages.reduce((latest, message) => Number.isInteger(message.seq) ? Math.max(latest, message.seq) : latest, 0);
+	return messages.reduce((latest, message) => Number.isInteger(message.seq) && !isLiveProviderLoopMessage(message) ? Math.max(latest, message.seq) : latest, 0);
 }
 
-function loopMessageSort(left: BotLoopMessage, right: BotLoopMessage): number {
-	return left.seq - right.seq;
+function loopMessageKey(message: BotLoopMessage): string {
+	return `${message.runId}:${message.seq}`;
 }
 
 function loopMessageActivityKind(message: BotLoopMessage): "input" | "assistant" | "tool" | "error" {
-	if (message.origin === "tool_failure") {
+	if (message.origin === "tool_failure" || message.origin === "runtime_error") {
 		return "error";
 	}
 	if (message.role === "tool") {
@@ -9100,14 +12675,23 @@ function loopMessageTitle(message: BotLoopMessage): string {
 	if (message.role === "tool") {
 		return message.origin === "tool_failure" ? "Tool failure" : "Tool result";
 	}
+	if (message.origin === "runtime_error") {
+		return "Runtime error";
+	}
 	if (message.origin === "injection") {
 		return "Injected thought";
 	}
 	if (message.origin === "reminder") {
 		return "Loop reminder";
 	}
+	if (message.origin === "synthetic_context") {
+		return "Synthetic context";
+	}
 	if (message.origin === "local_simulation") {
 		return "Local simulation";
+	}
+	if (message.origin === "self_correction") {
+		return "Self-correction";
 	}
 	return message.role === "assistant" ? "Provider response" : "Runtime input";
 }
@@ -9120,12 +12704,18 @@ function loopMessageOriginLabel(origin: BotLoopMessage["origin"]): string {
 			return "injection";
 		case "reminder":
 			return "reminder";
+		case "synthetic_context":
+			return "synthetic context";
 		case "provider_response":
 			return "provider response";
+		case "self_correction":
+			return "self-correction";
 		case "tool_result":
 			return "tool result";
 		case "tool_failure":
 			return "tool failure";
+		case "runtime_error":
+			return "runtime error";
 		case "compaction":
 			return "compaction";
 		case "legacy_migration":
@@ -9283,6 +12873,14 @@ function formatTokenCost(value: number): string {
 	}).format(value);
 }
 
+function formatNullableTokenCost(value: number | null): string {
+	return value === null ? "-" : formatTokenCost(value);
+}
+
+function formatNullableUsageCost(value: number | null): string {
+	return value === null ? "$?" : formatTokenCost(value);
+}
+
 function areaToBaselinePath<T extends { x: number }>(
 	points: T[],
 	yForPoint: (point: T) => number,
@@ -9356,6 +12954,15 @@ function parsePositiveInteger(value: string): number {
 	return Number.isFinite(parsed) ? Math.floor(parsed) : 0;
 }
 
+function parseOptionalPositiveInteger(value: string): number | null {
+	const trimmed = value.trim();
+	if (!trimmed) {
+		return null;
+	}
+	const parsed = Number(trimmed);
+	return Number.isFinite(parsed) ? Math.floor(parsed) : 0;
+}
+
 function visibleForums(forums: ForumSummary[]): ForumSummary[] {
 	return forums.filter((forum) => !forum.personalBotId);
 }
@@ -9405,17 +13012,38 @@ function appendUniqueNotifications(
 	return [...current, ...appended];
 }
 
+function notificationListScopeKey(scope: HumanNotificationListScope): string {
+	return scope.scopeType === "all" ? "all" : `${scope.scopeType}:${scope.scopeId}`;
+}
+
+function notificationReadScopeForListScope(scope: HumanNotificationListScope): HumanNotificationReadScope {
+	return scope.scopeType === "all" ? { scopeType: "all" } : scope;
+}
+
+type NotificationGroup = {
+	key: string;
+	title: string;
+	meta: string;
+	readScope: HumanNotificationReadScope;
+	unreadCount: number;
+	notifications: HumanNotification[];
+};
+
 function notificationGroups(
 	notifications: HumanNotification[],
 	mode: NotificationGroupMode,
-): Array<{ key: string; title: string; meta: string; notifications: HumanNotification[] }> {
-	const groups = new Map<string, { key: string; title: string; meta: string; notifications: HumanNotification[] }>();
+): NotificationGroup[] {
+	const groups = new Map<string, NotificationGroup>();
 	for (const notification of notifications) {
 		const key =
 			mode === "world" ? `world:${notification.worldId}`
 			: notification.actorBotId ? `bot:${notification.actorBotId}`
 			: notification.actorHandle ? `bot-handle:${notification.actorHandle}`
 			: "bot:none";
+		const readScope: HumanNotificationReadScope =
+			mode === "world" ? { scopeType: "world", scopeId: notification.worldId }
+			: notification.actorBotId ? { scopeType: "bot", scopeId: notification.actorBotId }
+			: { scopeType: "notifications", notificationIds: [notification.id] };
 		const fallbackTitle = mode === "world" ? "Unknown world" : "No participant";
 		const title =
 			mode === "world" ? (notification.worldHandle ? `w/${notification.worldHandle}` : fallbackTitle)
@@ -9424,11 +13052,60 @@ function notificationGroups(
 		const meta =
 			mode === "world" ? notification.worldName ?? ""
 			: notification.actorDisplayName ?? "";
-		const group = groups.get(key) ?? { key, title, meta, notifications: [] };
+		const group = groups.get(key) ?? { key, title, meta, readScope, unreadCount: 0, notifications: [] };
+		if (group.readScope.scopeType === "notifications" && !group.readScope.notificationIds.includes(notification.id)) {
+			group.readScope.notificationIds.push(notification.id);
+		}
+		if (!notification.readAt) {
+			group.unreadCount += 1;
+		}
 		group.notifications.push(notification);
 		groups.set(key, group);
 	}
 	return [...groups.values()].sort((left, right) => compareHandles(left.title, right.title));
+}
+
+function humanNotificationSummaryWithReadScope(
+	summary: HumanNotificationSummary,
+	scope: HumanNotificationReadScope,
+	readAt: string,
+	readCount: number,
+): HumanNotificationSummary {
+	let localUnreadCount = 0;
+	const notifications = summary.notifications.map((notification) => {
+		if (!humanNotificationMatchesReadScope(notification, scope)) {
+			return notification;
+		}
+		if (!notification.readAt) {
+			localUnreadCount += 1;
+		}
+		return { ...notification, readAt: notification.readAt ?? readAt };
+	});
+	const unreadCount =
+		scope.scopeType === "all" ?
+			0
+		:	Math.max(0, summary.unreadCount - Math.max(localUnreadCount, readCount));
+	return {
+		...summary,
+		unreadCount,
+		notifications,
+	};
+}
+
+function humanNotificationMatchesReadScope(
+	notification: HumanNotification,
+	scope: HumanNotificationReadScope,
+): boolean {
+	switch (scope.scopeType) {
+		case "all":
+			return true;
+		case "world":
+			return notification.worldId === scope.scopeId;
+		case "bot":
+			return notification.actorBotId === scope.scopeId;
+		case "notifications":
+			return scope.notificationIds.includes(notification.id);
+	}
 }
 
 function notificationMeta(notification: HumanNotification): string {
@@ -9437,10 +13114,50 @@ function notificationMeta(notification: HumanNotification): string {
 		notification.forumHandle ? `f/${notification.forumHandle}` : "",
 		notification.worldHandle ? `w/${notification.worldHandle}` : "",
 		timeAgo(notification.createdAt),
-		notification.spotlightId ? "caused by spotlight" : "",
 	]
 		.filter(Boolean)
 		.join(" / ");
+}
+
+function notificationHref(notification: HumanNotification): string {
+	return routePath(notificationRoute(notification));
+}
+
+function notificationRoute(notification: HumanNotification): ParsedRoute {
+	const parsed = parsedNotificationUrlPath(notification);
+	if (parsed?.route === "bot-profile" && parsed.botActivityId) {
+		return parsed;
+	}
+	const activityId = notificationActivityId(notification);
+	if (activityId && notification.actorHandle && notification.worldHandle) {
+		return {
+			route: "bot-profile",
+			worldHandle: notification.worldHandle,
+			botHandle: notification.actorHandle,
+			botProfileTab: "activity",
+			botActivityId: activityId,
+		};
+	}
+	return parsed ?? { route: "worlds" };
+}
+
+function parsedNotificationUrlPath(notification: HumanNotification): ParsedRoute | null {
+	try {
+		const url = new URL(notification.urlPath, window.location.origin);
+		return parsePathname(url.pathname, url.search);
+	} catch {
+		return null;
+	}
+}
+
+function notificationActivityId(notification: HumanNotification): string | null {
+	if (notification.notificationType === "vote_cast" && notification.targetType === "comment" && notification.targetId) {
+		return `vote:comment:${notification.targetId}`;
+	}
+	if (notification.notificationType === "bot_followed" && notification.targetType === "bot" && notification.targetId) {
+		return `follow:${notification.targetId}`;
+	}
+	return null;
 }
 
 function notificationThreadId(notification: HumanNotification): string | null {
@@ -9486,16 +13203,36 @@ function profileDraftChanged(draft: ProfileDraft, profile: UserProfile): boolean
 	);
 }
 
-function inferenceDraftFromSettings(settings: BotInferenceSettings): InferenceDraft {
+function inferenceDraftFromSettings(
+	settings: BotInferenceSettings,
+	inherited?: InferenceModelUnlockContext,
+): InferenceDraft {
 	return {
 		openRouterApiKey: "",
 		clearOpenRouterApiKey: false,
 		openRouterApiKeySet: Boolean(settings.openRouterApiKeySet),
 		baseUrl: settings.baseUrl ?? "",
 		model: settings.model ?? "",
-		reasoningPrefill: settings.reasoningPrefill ?? "",
+		compactionMode: settings.compactionMode ?? inherited?.compactionMode ?? "structured_output",
+		recurringPromptEnabled: settings.recurringPromptEnabled !== false,
+		recurringPrompt: settings.recurringPrompt ?? settings.reasoningPrefill ?? "",
+		supportsPrefill: settings.supportsPrefill ?? inherited?.supportsPrefill ?? true,
+		reasoningEffort: settings.reasoningEffort ?? inherited?.reasoningEffort ?? "default",
+		toolCalls: settings.toolCalls ?? inherited?.toolCalls ?? "require",
+		providerRouting: providerRoutingDraftValue(settings.providerRouting),
+		translationEnabled: Boolean(settings.translation?.enabled),
 		translationModel: settings.translation?.model ?? "",
 		translationPrompt: settings.translation?.prompt ?? defaultTranslationPrompt,
+		translationReasoningEffort: settings.translation?.reasoningEffort ?? "default",
+		translationToolCalls: settings.translation?.toolCalls ?? "require",
+		translationProviderRouting: providerRoutingDraftValue(settings.translation?.providerRouting),
+		translationTemperature: numericDraftValue(settings.translation?.temperature),
+		translationTopK: numericDraftValue(settings.translation?.topK),
+		translationTopP: numericDraftValue(settings.translation?.topP),
+		translationMinP: numericDraftValue(settings.translation?.minP),
+		translationFrequencyPenalty: numericDraftValue(settings.translation?.frequencyPenalty),
+		translationPresencePenalty: numericDraftValue(settings.translation?.presencePenalty),
+		translationRepetitionPenalty: numericDraftValue(settings.translation?.repetitionPenalty),
 		temperature: numericDraftValue(settings.temperature),
 		topK: numericDraftValue(settings.topK),
 		topP: numericDraftValue(settings.topP),
@@ -9509,14 +13246,28 @@ function inferenceDraftFromSettings(settings: BotInferenceSettings): InferenceDr
 function inferenceDraftChanged(
 	draft: InferenceDraft,
 	settings: BotInferenceSettings,
-	options: { includeReasoningPrefill?: boolean; includeTranslation?: boolean } = {},
+	options: {
+		includeReasoningPrefill?: boolean;
+		includeTranslation?: boolean;
+		inherited?: InferenceModelUnlockContext;
+	} = {},
 ): boolean {
+	const compactionMode = settings.compactionMode ?? options.inherited?.compactionMode ?? "structured_output";
+	const supportsPrefill = settings.supportsPrefill ?? options.inherited?.supportsPrefill ?? true;
+	const reasoningEffort = settings.reasoningEffort ?? options.inherited?.reasoningEffort ?? "default";
+	const toolCalls = settings.toolCalls ?? options.inherited?.toolCalls ?? "require";
 	return (
 		Boolean(draft.openRouterApiKey.trim()) ||
 		draft.clearOpenRouterApiKey ||
 		draft.baseUrl.trim() !== (settings.baseUrl ?? "") ||
 		draft.model.trim() !== (settings.model ?? "") ||
-		(Boolean(options.includeReasoningPrefill) && draft.reasoningPrefill !== (settings.reasoningPrefill ?? "")) ||
+		draft.compactionMode !== compactionMode ||
+		(Boolean(options.includeReasoningPrefill) && draft.recurringPromptEnabled !== (settings.recurringPromptEnabled !== false)) ||
+		(Boolean(options.includeReasoningPrefill) && draft.recurringPrompt !== (settings.recurringPrompt ?? settings.reasoningPrefill ?? "")) ||
+		draft.supportsPrefill !== supportsPrefill ||
+		draft.reasoningEffort !== reasoningEffort ||
+		draft.toolCalls !== toolCalls ||
+		providerRoutingDraftChanged(draft.providerRouting, settings.providerRouting) ||
 		(Boolean(options.includeTranslation) && translationDraftChanged(draft, settings)) ||
 		draft.temperature.trim() !== numericDraftValue(settings.temperature) ||
 		draft.topK.trim() !== numericDraftValue(settings.topK) ||
@@ -9531,13 +13282,21 @@ function inferenceDraftChanged(
 function translationDraftChanged(draft: InferenceDraft, settings: BotInferenceSettings): boolean {
 	const draftModel = draft.translationModel.trim();
 	const settingsModel = settings.translation?.model ?? "";
-	if (draftModel !== settingsModel) {
-		return true;
-	}
-	if (!draftModel) {
-		return false;
-	}
-	return draft.translationPrompt.trim() !== (settings.translation?.prompt ?? defaultTranslationPrompt);
+	return (
+		draft.translationEnabled !== Boolean(settings.translation?.enabled) ||
+		draftModel !== settingsModel ||
+		draft.translationPrompt.trim() !== (settings.translation?.prompt ?? defaultTranslationPrompt) ||
+		nullableReasoningEffortInput(draft.translationReasoningEffort) !== (settings.translation?.reasoningEffort ?? null) ||
+		nullableStructuredToolCallsInput(draft.translationToolCalls) !== (settings.translation?.toolCalls ?? "require") ||
+		providerRoutingDraftChanged(draft.translationProviderRouting, settings.translation?.providerRouting) ||
+		draft.translationTemperature.trim() !== numericDraftValue(settings.translation?.temperature) ||
+		draft.translationTopK.trim() !== numericDraftValue(settings.translation?.topK) ||
+		draft.translationTopP.trim() !== numericDraftValue(settings.translation?.topP) ||
+		draft.translationMinP.trim() !== numericDraftValue(settings.translation?.minP) ||
+		draft.translationFrequencyPenalty.trim() !== numericDraftValue(settings.translation?.frequencyPenalty) ||
+		draft.translationPresencePenalty.trim() !== numericDraftValue(settings.translation?.presencePenalty) ||
+		draft.translationRepetitionPenalty.trim() !== numericDraftValue(settings.translation?.repetitionPenalty)
+	);
 }
 
 function inferenceInputFromDraft(
@@ -9546,34 +13305,56 @@ function inferenceInputFromDraft(
 	options: { includeReasoningPrefill?: boolean; includeTranslation?: boolean } = {},
 ): BotInferenceSettingsInput {
 	const normalized = normalizeInferenceDraftModel(draft, inherited);
+	const inheritedCompactionMode = inherited?.compactionMode ?? "structured_output";
+	const inheritedSupportsPrefill = inherited?.supportsPrefill ?? true;
+	const inheritedReasoningEffort = inherited?.reasoningEffort ?? "default";
+	const inheritedToolCalls = inherited?.toolCalls ?? "require";
 	return {
 		...(normalized.openRouterApiKey.trim() ? { openRouterApiKey: normalized.openRouterApiKey.trim() }
 		: normalized.clearOpenRouterApiKey ? { openRouterApiKey: null }
 		: {}),
-		baseUrl: nullableTextInput(normalized.baseUrl),
-		model: nullableTextInput(normalized.model),
+		baseUrl: nullableTextInputMatchingInherited(normalized.baseUrl, inherited?.baseUrl),
+		model: nullableTextInputMatchingInherited(normalized.model, inherited?.model),
+		compactionMode:
+			normalized.compactionMode === inheritedCompactionMode ? null : normalized.compactionMode,
 		...(options.includeReasoningPrefill ?
-			{ reasoningPrefill: nullablePreservedTextInput(normalized.reasoningPrefill) }
+			{
+				recurringPrompt: nullablePreservedTextInput(normalized.recurringPrompt),
+				recurringPromptEnabled: normalized.recurringPromptEnabled ? null : false,
+			}
 		:	{}),
+		supportsPrefill: normalized.supportsPrefill === inheritedSupportsPrefill ? null : normalized.supportsPrefill,
+		reasoningEffort:
+			normalized.reasoningEffort === inheritedReasoningEffort ? null : nullableReasoningEffortInput(normalized.reasoningEffort),
+		toolCalls: normalized.toolCalls === inheritedToolCalls ? null : nullableToolCallsInput(normalized.toolCalls),
+		providerRouting: providerRoutingInputFromDraft(normalized.providerRouting),
 		...(options.includeTranslation ? { translation: translationInputFromDraft(normalized) } : {}),
-		temperature: nullableNumberInput(normalized.temperature),
-		topK: nullableNumberInput(normalized.topK),
-		topP: nullableNumberInput(normalized.topP),
-		minP: nullableNumberInput(normalized.minP),
-		frequencyPenalty: nullableNumberInput(normalized.frequencyPenalty),
-		presencePenalty: nullableNumberInput(normalized.presencePenalty),
-		repetitionPenalty: nullableNumberInput(normalized.repetitionPenalty),
+		temperature: nullableNumberInputMatchingInherited(normalized.temperature, inherited?.temperature),
+		topK: nullableNumberInputMatchingInherited(normalized.topK, inherited?.topK),
+		topP: nullableNumberInputMatchingInherited(normalized.topP, inherited?.topP),
+		minP: nullableNumberInputMatchingInherited(normalized.minP, inherited?.minP),
+		frequencyPenalty: nullableNumberInputMatchingInherited(normalized.frequencyPenalty, inherited?.frequencyPenalty),
+		presencePenalty: nullableNumberInputMatchingInherited(normalized.presencePenalty, inherited?.presencePenalty),
+		repetitionPenalty: nullableNumberInputMatchingInherited(normalized.repetitionPenalty, inherited?.repetitionPenalty),
 	};
 }
 
 function translationInputFromDraft(draft: InferenceDraft): BotInferenceSettingsInput["translation"] {
 	const model = nullableTextInput(draft.translationModel);
-	if (!model) {
-		return null;
-	}
 	return {
+		enabled: draft.translationEnabled,
 		model,
 		prompt: nullableTextInput(draft.translationPrompt) ?? defaultTranslationPrompt,
+		reasoningEffort: nullableReasoningEffortInput(draft.translationReasoningEffort),
+		toolCalls: nullableStructuredToolCallsInput(draft.translationToolCalls),
+		providerRouting: providerRoutingInputFromDraft(draft.translationProviderRouting),
+		temperature: nullableNumberInput(draft.translationTemperature),
+		topK: nullableNumberInput(draft.translationTopK),
+		topP: nullableNumberInput(draft.translationTopP),
+		minP: nullableNumberInput(draft.translationMinP),
+		frequencyPenalty: nullableNumberInput(draft.translationFrequencyPenalty),
+		presencePenalty: nullableNumberInput(draft.translationPresencePenalty),
+		repetitionPenalty: nullableNumberInput(draft.translationRepetitionPenalty),
 	};
 }
 
@@ -9661,46 +13442,60 @@ function canCustomizeInferenceModel(
 		Boolean(draft.openRouterApiKey.trim()) ||
 		(draft.openRouterApiKeySet && !draft.clearOpenRouterApiKey) ||
 		Boolean(draft.baseUrl.trim()) ||
-		Boolean(inherited?.apiKeySet) ||
+		Boolean(inherited?.apiKeySet || inherited?.openRouterApiKeySet || inherited?.openRouterApiKey?.trim()) ||
 		Boolean(inherited?.baseUrl?.trim())
 	);
-}
-
-function defaultReasoningPrefill(handle: string): string {
-	return `I need to think about how I feel and what I want to do next, in first person, in character as u/${handle}.`;
 }
 
 function botPromptBudgetRequestKey(
 	botId: string,
 	botHandle: string,
-	draft: { displayName: string; inference: InferenceDraft; prompt: string; shortBio: string; tools: BotToolDraft },
-	inherited?: BotInferenceSettings | null,
+	draft: {
+		allowEarlyLogOff: boolean;
+		compactionMaxCharacters: string;
+		compactionSummaryPercent: string;
+		contextWindowTokens: string;
+		displayName: string;
+		inference: InferenceDraft;
+		prompt: string;
+		shortBio: string;
+		tools: BotToolDraft;
+	},
+	inherited?: InferenceModelUnlockContext | null,
 ): string {
 	return JSON.stringify({
 		botId,
 		baseUrl: effectiveInferenceDraftBaseUrl(draft.inference, inherited),
+		compactionMode: draft.inference.compactionMode,
 		credential: inferenceDraftCredentialState(draft.inference, inherited),
 		displayName: draft.displayName,
 		model: effectiveInferenceDraftModel(draft.inference, inherited),
 		prompt: draft.prompt,
-		reasoningPrefill: draft.inference.reasoningPrefill.trim() ?
-			draft.inference.reasoningPrefill
-		:	defaultReasoningPrefill(botHandle),
+		allowEarlyLogOff: draft.allowEarlyLogOff,
+		compactionMaxCharacters: draft.compactionMaxCharacters.trim(),
+		compactionSummaryPercent: draft.compactionSummaryPercent.trim(),
+		contextWindowTokens: draft.contextWindowTokens.trim(),
+		providerRouting: providerRoutingDraftFingerprintValue(draft.inference.providerRouting, inherited?.providerRouting),
+		recurringPrompt:
+			draft.inference.recurringPromptEnabled ?
+				draft.inference.recurringPrompt.trim() ? draft.inference.recurringPrompt : defaultReasoningPrefill(botHandle)
+			:	null,
+		recurringPromptEnabled: draft.inference.recurringPromptEnabled,
+		reasoningEffort: draft.inference.reasoningEffort,
+		supportsPrefill: draft.inference.supportsPrefill,
+		toolCalls: draft.inference.toolCalls,
 		shortBio: draft.shortBio,
 		tools: toolInputFromDraft(draft.tools),
 	});
 }
 
-function effectiveInferenceDraftModel(
-	draft: InferenceDraft,
-	inherited?: BotInferenceSettings | null,
-): string {
+function effectiveInferenceDraftModel(draft: InferenceDraft, inherited?: InferenceModelUnlockContext | null): string {
 	const draftHasProvider =
 		Boolean(draft.openRouterApiKey.trim()) ||
 		(draft.openRouterApiKeySet && !draft.clearOpenRouterApiKey) ||
 		Boolean(draft.baseUrl.trim());
 	const inheritedHasProvider =
-		Boolean(inherited?.openRouterApiKeySet) ||
+		Boolean(inherited?.apiKeySet || inherited?.openRouterApiKeySet) ||
 		Boolean(inherited?.openRouterApiKey?.trim()) ||
 		Boolean(inherited?.baseUrl?.trim());
 	const draftModel = draft.model.trim();
@@ -9715,14 +13510,14 @@ function effectiveInferenceDraftModel(
 
 function effectiveInferenceDraftBaseUrl(
 	draft: InferenceDraft,
-	inherited?: BotInferenceSettings | null,
+	inherited?: InferenceModelUnlockContext | null,
 ): string {
 	return draft.baseUrl.trim() || inherited?.baseUrl?.trim() || "https://openrouter.ai/api/v1";
 }
 
 function inferenceDraftCredentialState(
 	draft: InferenceDraft,
-	inherited?: BotInferenceSettings | null,
+	inherited?: InferenceModelUnlockContext | null,
 ): string {
 	if (draft.openRouterApiKey.trim()) {
 		return "draft";
@@ -9733,10 +13528,80 @@ function inferenceDraftCredentialState(
 	if (draft.openRouterApiKeySet) {
 		return "saved";
 	}
-	if (inherited?.openRouterApiKeySet || inherited?.openRouterApiKey?.trim()) {
+	if (inherited?.apiKeySet || inherited?.openRouterApiKeySet || inherited?.openRouterApiKey?.trim()) {
 		return "inherited";
 	}
 	return "none";
+}
+
+function inferenceInheritanceContext(settings?: BotInferenceSettings | null): InferenceModelUnlockContext | undefined {
+	if (!settings) {
+		return undefined;
+	}
+	return {
+		...settings,
+		apiKeySet: Boolean(settings.openRouterApiKeySet),
+	};
+}
+
+function inferenceFallbackContextForSettings(
+	settings: Pick<BotInferenceSettings, "model">,
+	inherited?: BotInferenceSettings | null,
+): InferenceModelUnlockContext | undefined {
+	return settings.model?.trim() ? providerConnectionInheritanceContext(inherited) : inferenceInheritanceContext(inherited);
+}
+
+function inferenceFallbackContextForDraft(
+	draft: Pick<InferenceDraft, "model">,
+	inherited?: BotInferenceSettings | null,
+): InferenceModelUnlockContext | undefined {
+	return draft.model.trim() ? providerConnectionInheritanceContext(inherited) : inferenceInheritanceContext(inherited);
+}
+
+function providerConnectionInheritanceContext(settings?: BotInferenceSettings | null): InferenceModelUnlockContext | undefined {
+	if (!settings) {
+		return undefined;
+	}
+	return {
+		apiKeySet: Boolean(settings.openRouterApiKeySet),
+		openRouterApiKey: settings.openRouterApiKey,
+		openRouterApiKeySet: settings.openRouterApiKeySet,
+		baseUrl: settings.baseUrl,
+	};
+}
+
+function rebaseInferenceDraftForFallbackChange(
+	next: InferenceDraft,
+	previousFallback: InferenceModelUnlockContext | undefined,
+	nextFallback: InferenceModelUnlockContext | undefined,
+): InferenceDraft {
+	const previousCompactionMode = previousFallback?.compactionMode ?? "structured_output";
+	const previousSupportsPrefill = previousFallback?.supportsPrefill ?? true;
+	const previousReasoningEffort = previousFallback?.reasoningEffort ?? "default";
+	const previousToolCalls = previousFallback?.toolCalls ?? "require";
+	const nextCompactionMode = nextFallback?.compactionMode ?? "structured_output";
+	const nextSupportsPrefill = nextFallback?.supportsPrefill ?? true;
+	const nextReasoningEffort = nextFallback?.reasoningEffort ?? "default";
+	const nextToolCalls = nextFallback?.toolCalls ?? "require";
+	return {
+		...next,
+		compactionMode: next.compactionMode === previousCompactionMode ? nextCompactionMode : next.compactionMode,
+		supportsPrefill: next.supportsPrefill === previousSupportsPrefill ? nextSupportsPrefill : next.supportsPrefill,
+		reasoningEffort: next.reasoningEffort === previousReasoningEffort ? nextReasoningEffort : next.reasoningEffort,
+		toolCalls: next.toolCalls === previousToolCalls ? nextToolCalls : next.toolCalls,
+	};
+}
+
+function effectiveNumberPlaceholder(value: number | undefined, fallback: number): string {
+	return String(value ?? fallback);
+}
+
+function effectiveOptionalNumberPlaceholder(value: number | undefined): string {
+	return value === undefined ? "default" : String(value);
+}
+
+function providerRoutingPlaceholderForInheritance(inherited?: InferenceModelUnlockContext | null): string {
+	return inherited?.providerRouting ? JSON.stringify(inherited.providerRouting, null, 2) : providerRoutingPlaceholder;
 }
 
 function effectiveBotModel(bot: BotSummary, inherited?: BotInferenceSettings | null): string {
@@ -9758,13 +13623,108 @@ function effectiveBotModel(bot: BotSummary, inherited?: BotInferenceSettings | n
 	return defaultProviderModel;
 }
 
+function providerRoutingDraftValue(value: JsonObject | undefined): string {
+	return value === undefined ? "" : JSON.stringify(value, null, 2);
+}
+
+function providerRoutingDraftError(value: string): string {
+	const trimmed = value.trim();
+	if (!trimmed) {
+		return "";
+	}
+	if (trimmed.length > maxProviderRoutingJsonLength) {
+		return `Provider routing must be ${maxProviderRoutingJsonLength} characters or fewer.`;
+	}
+	try {
+		const parsed = JSON.parse(trimmed) as unknown;
+		if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+			return "Provider routing must be a JSON object.";
+		}
+		const encoded = JSON.stringify(parsed);
+		if (encoded.length > maxProviderRoutingJsonLength) {
+			return `Provider routing must be ${maxProviderRoutingJsonLength} characters or fewer.`;
+		}
+		return "";
+	} catch {
+		return "Provider routing must be valid JSON.";
+	}
+}
+
+function providerRoutingInputFromDraft(value: string): JsonObject | null {
+	const trimmed = value.trim();
+	if (!trimmed) {
+		return null;
+	}
+	if (trimmed.length > maxProviderRoutingJsonLength) {
+		throw new Error(`Provider routing must be ${maxProviderRoutingJsonLength} characters or fewer.`);
+	}
+	const parsed = JSON.parse(trimmed) as unknown;
+	if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+		throw new Error("Provider routing must be a JSON object.");
+	}
+	const encoded = JSON.stringify(parsed);
+	if (encoded.length > maxProviderRoutingJsonLength) {
+		throw new Error(`Provider routing must be ${maxProviderRoutingJsonLength} characters or fewer.`);
+	}
+	return parsed as JsonObject;
+}
+
+function providerRoutingDraftChanged(draftValue: string, settingsValue: JsonObject | undefined): boolean {
+	try {
+		const draftRouting = providerRoutingInputFromDraft(draftValue);
+		if (draftRouting === null) {
+			return settingsValue !== undefined;
+		}
+		return settingsValue === undefined || canonicalJsonString(draftRouting) !== canonicalJsonString(settingsValue);
+	} catch {
+		return draftValue.trim() !== providerRoutingDraftValue(settingsValue).trim();
+	}
+}
+
+function providerRoutingDraftFingerprintValue(value: string, inherited?: JsonObject): string | null {
+	try {
+		const routing = providerRoutingInputFromDraft(value);
+		return routing === null ? (inherited ? canonicalJsonString(inherited) : null) : canonicalJsonString(routing);
+	} catch {
+		return value.trim();
+	}
+}
+
+function canonicalJsonString(value: JsonObject): string {
+	return JSON.stringify(canonicalJsonValue(value));
+}
+
+function canonicalJsonValue(value: unknown): unknown {
+	if (Array.isArray(value)) {
+		return value.map(canonicalJsonValue);
+	}
+	if (value && typeof value === "object") {
+		const object = value as Record<string, unknown>;
+		return Object.fromEntries(Object.keys(object).sort().map((key) => [key, canonicalJsonValue(object[key])]));
+	}
+	return value;
+}
+
 function numericDraftValue(value: number | undefined): string {
+	return value === undefined ? "" : String(value);
+}
+
+function optionalNumberDraftValue(value: number | undefined): string {
 	return value === undefined ? "" : String(value);
 }
 
 function nullableTextInput(value: string): string | null {
 	const trimmed = value.trim();
 	return trimmed ? trimmed : null;
+}
+
+function nullableTextInputMatchingInherited(value: string, inherited: string | undefined): string | null {
+	const trimmed = value.trim();
+	const inheritedTrimmed = inherited?.trim();
+	if (!trimmed || (inheritedTrimmed && trimmed === inheritedTrimmed)) {
+		return null;
+	}
+	return trimmed;
 }
 
 function nullablePreservedTextInput(value: string): string | null {
@@ -9774,6 +13734,23 @@ function nullablePreservedTextInput(value: string): string | null {
 function nullableNumberInput(value: string): number | null {
 	const trimmed = value.trim();
 	return trimmed ? Number(trimmed) : null;
+}
+
+function nullableNumberInputMatchingInherited(value: string, inherited: number | undefined): number | null {
+	const parsed = nullableNumberInput(value);
+	return parsed !== null && inherited !== undefined && parsed === inherited ? null : parsed;
+}
+
+function nullableReasoningEffortInput(value: string): BotInferenceSettings["reasoningEffort"] | null {
+	return value && value !== "default" ? value as BotInferenceSettings["reasoningEffort"] : null;
+}
+
+function nullableToolCallsInput(value: string): BotInferenceSettings["toolCalls"] | null {
+	return value ? value as BotInferenceSettings["toolCalls"] : null;
+}
+
+function nullableStructuredToolCallsInput(value: string): NonNullable<BotInferenceSettings["translation"]>["toolCalls"] | null {
+	return value === "require" || value === "railroad" ? value : null;
 }
 
 function domainDraftValue(value: string[] | undefined): string {

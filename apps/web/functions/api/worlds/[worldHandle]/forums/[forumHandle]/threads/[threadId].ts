@@ -5,7 +5,7 @@ import { forumByHandle, readThreadWithReadState, recordThreadRead, threadWithRea
 import { normalizeHandleParam } from "@bickr/shared/validation";
 import { currentUser, requireCompleteUser, type AppEnv } from "../../../../../_auth";
 import { pageErrorResponse } from "../../../../../_errors";
-import { serviceRequest } from "../../../../../_proxy";
+import { fetchServiceJson, serviceRequest } from "../../../../../_proxy";
 
 export const onRequestGet: PagesFunction<
 	AppEnv,
@@ -50,13 +50,13 @@ async function readCoordinatorThread(
 	const headers = new Headers(request.headers);
 	headers.delete("content-length");
 	headers.delete("content-type");
-	const response = await env.FORUM_COORDINATOR_SERVICE.fetch(
+	const { response, payload } = await fetchServiceJson(
+		env.FORUM_COORDINATOR_SERVICE,
 		new Request(`https://internal.bickr/threads/${encodeURIComponent(threadId)}`, {
 			headers,
 			method: "GET",
 		}),
 	);
-	const payload = await readJsonResponse(response);
 	if (isThreadPayload(payload)) {
 		return payload.data.thread;
 	}
@@ -64,14 +64,6 @@ async function readCoordinatorThread(
 		throw new RepositoryError(repositoryErrorCode(payload.error), payload.message, response.status);
 	}
 	throw new RepositoryError("server_error", response.statusText || "Thread response was invalid.", response.status || 500);
-}
-
-async function readJsonResponse(response: Response): Promise<unknown> {
-	try {
-		return await response.json();
-	} catch {
-		return null;
-	}
 }
 
 function isThreadPayload(value: unknown): value is { ok: true; data: { thread: ThreadDocument } } {

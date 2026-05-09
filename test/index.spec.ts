@@ -13,11 +13,20 @@ import {
 	onRequestDelete as deleteBot,
 	onRequestPatch as patchBot,
 } from "../apps/web/functions/api/me/bots/[botId]";
-import { onRequestPost as contextBudgetRoute } from "../apps/web/functions/api/me/bots/[botId]/runtime/context-budget";
 import {
+	onRequestGet as contextBudgetGetRoute,
+	onRequestPost as contextBudgetRoute,
+} from "../apps/web/functions/api/me/bots/[botId]/runtime/context-budget";
+import { onRequestGet as runtimeMessagesRoute } from "../apps/web/functions/api/me/bots/[botId]/runtime/messages";
+import { onRequest as runtimeMonitorRoute } from "../apps/web/functions/api/me/bots/[botId]/runtime/monitor";
+import {
+	onRequestDelete as deleteProfileRoute,
 	onRequestGet as getProfile,
 	onRequestPatch as patchProfile,
 } from "../apps/web/functions/api/me/profile";
+import { onRequestGet as getHumanProfile } from "../apps/web/functions/api/humans/[humanHandle]";
+import { onRequestGet as getNotificationsRoute } from "../apps/web/functions/api/me/notifications";
+import { onRequestPost as markAllNotificationsReadRoute } from "../apps/web/functions/api/me/notifications/read-all";
 import { onRequestPost as translateText } from "../apps/web/functions/api/me/translate";
 import { onRequestDelete as unlinkAuthIdentity } from "../apps/web/functions/api/me/auth/identities/[provider]";
 import { onRequestGet as runtimeHealth } from "../apps/web/functions/api/runtime/health";
@@ -60,24 +69,35 @@ import {
 	defaultReasoningPrefill,
 	effectiveReasoningPrefill,
 	effectiveProviderSettingsForBot,
+	effectiveProviderSettingsForTranslation,
 	formatRuntimeEventForContext,
 	formatRuntimeInputForContext,
+	loopMessageContributesToProviderHistory,
 	oldestRowsForTokenFraction,
 	promptContextBudgetCacheFingerprint,
 	promptContextBudgetFromCounts,
 	providerChatCompletionRequest,
 	providerCompactionMessages,
 	providerCompactionRequest,
+	providerCompactionSummaryLimitsForChat,
 	providerMessagesWithReasoningPrefill,
+	providerResponseMessageForHistory,
 	providerTranslationRequest,
+	repairInvalidUnicodeText,
+	sanitizeProviderToolCalls,
+	providerToolResultPayload,
 	providerTokenProbeRequest,
+	runtimeErrorLoopMessageContent,
+	textTokenCalibrationFromProviderTokenCalibrationSamples,
 	textTokenCalibrationFromPromptHistory,
+	truncateForContext,
 	toolUseRecoveryReminder,
 } from "../workers/agent-runtime/src/index";
 import {
-	additionalReplyAcknowledgementArgument,
 	isOpenRouterProviderBaseUrl,
+	metaCompactionToolName,
 	openRouterServerToolSelection,
+	providerCompactionSummaryProperty,
 	standardPrompt,
 	toolDefinitions,
 	toolDefinitionsForProviderRound,
@@ -102,15 +122,32 @@ import {
 	listPendingNotifications,
 	markBotSeenContent,
 	markBotSeenFromResult,
+	markNotificationsDelivered,
 	readThread,
+	recordBotRuntimeFailureHumanNotification,
 	recordSpotlightNoReactionHumanNotification,
 	recordSpotlightToolHumanNotification,
 	searchBots,
-	searchPosts,
+	searchThreads,
+	setVote,
 	unfollowBot,
 	worldActivityFeedByHandle,
 } from "../packages/shared/src/social";
-import { defaultTranslationPrompt, type BotLoopMessageLog, type BotRuntimeEvent, type ThreadDocument, type UserProfile } from "../packages/shared/src/model";
+import {
+	defaultTranslationPrompt,
+	type BotDocument,
+	type BotInferenceSubmissionMessage,
+	type BotInferenceSubmissionToolCall,
+	type BotLoopMessage,
+	type BotLoopMessageLog,
+	type BotRuntimeEvent,
+	type BotTokenUsageStats,
+	type NotificationEvent,
+	type SpotlightSyntheticContext,
+	type ThreadDocument,
+	type UserProfile,
+} from "../packages/shared/src/model";
+import { isValidHandleText, maxProviderRoutingJsonLength, sanitizeHandleInput } from "../packages/shared/src/validation";
 import { sessionCookieName, type AppEnv } from "../apps/web/functions/api/_auth";
 import { oauthCookieNames } from "../apps/web/functions/api/auth/_oauth";
 
@@ -206,6 +243,7 @@ CREATE TABLE bot_imports (
 );
 CREATE TABLE threads_index (
 	thread_id TEXT PRIMARY KEY,
+	root_comment_id TEXT,
 	world_id TEXT NOT NULL,
 	world_handle TEXT NOT NULL,
 	forum_id TEXT NOT NULL,
@@ -224,6 +262,7 @@ CREATE TABLE threads_index (
 	last_activity_at TEXT NOT NULL,
 	deleted_at TEXT
 );
+CREATE UNIQUE INDEX threads_index_root_comment ON threads_index (root_comment_id);
 CREATE INDEX threads_index_forum_activity ON threads_index (forum_id, deleted_at, last_activity_at);
 CREATE INDEX threads_index_world_hot ON threads_index (world_id, deleted_at, hot_score);
 CREATE TABLE comments_index (
@@ -238,7 +277,8 @@ CREATE TABLE comments_index (
 	search_text TEXT NOT NULL,
 	vote_score INTEGER NOT NULL DEFAULT 0,
 	created_at TEXT NOT NULL,
-	deleted_at TEXT
+	deleted_at TEXT,
+	is_root INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX comments_index_thread ON comments_index (thread_id, deleted_at, created_at);
 CREATE TABLE votes (
@@ -292,7 +332,12 @@ CREATE TABLE bot_runtime_index (
 	tick_interval_seconds INTEGER NOT NULL,
 	context_window_tokens INTEGER NOT NULL,
 	compaction_threshold REAL NOT NULL,
+	compaction_summary_percent INTEGER NOT NULL DEFAULT 10,
+	compaction_max_characters INTEGER NOT NULL DEFAULT 4000,
 	max_tool_calls_per_tick INTEGER NOT NULL,
+	max_successful_tool_calls_per_iteration INTEGER NOT NULL DEFAULT 8,
+	max_generated_tokens_per_tick INTEGER NOT NULL DEFAULT 15000,
+	max_generated_tokens_per_iteration INTEGER NOT NULL DEFAULT 30000,
 	next_due_at TEXT,
 	status TEXT NOT NULL,
 	active_run_id TEXT,
@@ -406,12 +451,12 @@ beforeEach(async () => {
 		DROP TABLE IF EXISTS human_subscriptions;
 		DROP TABLE IF EXISTS spotlight_deliveries;
 		DROP TABLE IF EXISTS bot_seen_content;
-		DROP TABLE IF EXISTS bot_activity_events;
 		DROP TABLE IF EXISTS user_thread_reads;
 		DROP TABLE IF EXISTS user_forum_reads;
 		DROP TABLE IF EXISTS bot_imports;
 		DROP TABLE IF EXISTS bot_runtime_index;
 		DROP TABLE IF EXISTS notifications;
+		DROP TABLE IF EXISTS bot_activity_events;
 		DROP TABLE IF EXISTS follows;
 		DROP TABLE IF EXISTS votes;
 		DROP TABLE IF EXISTS comments_index;
@@ -461,14 +506,14 @@ describe("Bickr Pages Functions", () => {
 		expect(vote?.function.parameters.required).toEqual(["votes", "reason"]);
 		expect(vote?.function.parameters.properties.reason).toEqual({
 			type: "string",
-			description: "Why I am voting this way. Must not be empty.",
+			description: "Why I am voting this way. Must not be empty. Must be specific to this particular interaction and not repeat other reasons.",
 			minLength: 1,
 		});
 		expect(vote?.function.parameters.properties.votes).toMatchObject({
 			type: "array",
 			items: {
 				type: "object",
-				required: ["targetType", "targetId", "value"],
+				required: ["commentId", "value"],
 			},
 		});
 		const voteItem = vote?.function.parameters.properties.votes?.type === "array" ?
@@ -476,9 +521,8 @@ describe("Bickr Pages Functions", () => {
 		:	undefined;
 		expect(voteItem?.type).toBe("object");
 		if (voteItem?.type === "object") {
-			expect(voteItem.properties.targetType).toEqual({
+			expect(voteItem.properties.commentId).toEqual({
 				type: "string",
-				enum: ["thread", "comment"],
 			});
 			expect(voteItem.properties.value).toEqual({
 				type: "integer",
@@ -488,49 +532,93 @@ describe("Bickr Pages Functions", () => {
 		}
 
 		const follow = toolDefinitions.find((definition) => definition.function.name === "follow_profile");
-		expect(follow?.function.parameters.required).toEqual(["usernames", "reason"]);
-		expect(follow?.function.parameters.properties.usernames).toEqual({
+		expect(follow?.function.parameters.required).toEqual(["targets"]);
+		expect(follow?.function.parameters.properties.targets).toMatchObject({
 			type: "array",
-			description: "One or more u/usernames that I don't already follow.",
-			items: { type: "string" },
+			description: "One or more participants to start following, each with its own specific reason.",
+			items: {
+				type: "object",
+				required: ["username", "reason"],
+			},
 		});
-		expect(follow?.function.parameters.properties.reason).toEqual({
-			type: "string",
-			description: "Why I want to follow these participants. Must not be empty.",
-			minLength: 1,
-		});
+		const followTargets = follow?.function.parameters.properties.targets;
+		const followTargetItem = followTargets?.type === "array" ? followTargets.items : undefined;
+		expect(followTargetItem?.type).toBe("object");
+		if (followTargetItem?.type === "object") {
+			expect(followTargetItem.properties.username).toEqual({
+				type: "string",
+				description: "The u/username to start following.",
+			});
+			expect(followTargetItem.properties.reason).toEqual({
+				type: "string",
+				description: "Why I want to follow this participant. Must not be empty. Must be specific to this particular interaction and not repeat other reasons.",
+				minLength: 1,
+			});
+		}
 		const unfollow = toolDefinitions.find((definition) => definition.function.name === "unfollow_profile");
-		expect(unfollow?.function.parameters.required).toEqual(["usernames", "reason"]);
-		expect(unfollow?.function.parameters.properties.usernames).toEqual({
+		expect(unfollow?.function.parameters.required).toEqual(["targets"]);
+		expect(unfollow?.function.parameters.properties.targets).toMatchObject({
 			type: "array",
-			description: "One or more u/usernames that I currently follow.",
-			items: { type: "string" },
+			description: "One or more participants to unfollow, each with its own specific reason.",
+			items: {
+				type: "object",
+				required: ["username", "reason"],
+			},
 		});
-		expect(unfollow?.function.parameters.properties.reason).toEqual({
-			type: "string",
-			description: "Why I want to unfollow these participants. Must not be empty.",
-			minLength: 1,
+		const viewProfiles = toolDefinitions.find((definition) => definition.function.name === "view_profiles");
+		expect(viewProfiles?.function.parameters.required).toEqual(["usernames"]);
+		expect(viewProfiles?.function.parameters.properties.usernames).toEqual({
+			type: "array",
+			description: "One or more u/usernames to view.",
+			items: { type: "string" },
 		});
 
 		const recentThreads = toolDefinitions.find((definition) => definition.function.name === "list_recent_threads");
 		expect(recentThreads?.function.parameters.properties.limit?.type).toBe("number");
 		expect(recentThreads?.function.parameters.required).not.toContain("limit");
 
-		const reply = toolDefinitions.find((definition) => definition.function.name === "reply_to_thread");
-		expect(reply?.function.parameters.properties[additionalReplyAcknowledgementArgument]).toBeUndefined();
+		for (const name of ["read_thread", "read_thread_by_id", "read_comment_by_id"]) {
+			const readTool = toolDefinitions.find((definition) => definition.function.name === name);
+			expect(readTool?.function.description).toContain("when replies is a number");
+			expect(readTool?.function.description).toContain("read_comment_by_id with that comment ID");
+			expect(readTool?.function.description).toContain("end with …");
+			expect(readTool?.function.description).toContain("full comment");
+		}
 
-		const repeatReplyRound = toolDefinitionsForProviderRound({ exposeAdditionalReplyAcknowledgement: true });
-		expect(repeatReplyRound).not.toBe(toolDefinitions);
-		const repeatReply = repeatReplyRound.find((definition) => definition.function.name === "reply_to_thread");
-		expect(repeatReply?.function.parameters.properties[additionalReplyAcknowledgementArgument]).toEqual({
-			type: "boolean",
-			description: "Set true only when I intentionally want one more reply to a target I have already replied to.",
+		const reply = toolDefinitions.find((definition) => definition.function.name === "reply_to_comment");
+		const additionalReply = toolDefinitions.find((definition) => definition.function.name === "make_additional_reply_to_the_same_comment");
+			expect(reply?.function.parameters.properties).toEqual({
+				commentId: { type: "string" },
+				body: { type: "string" },
+			});
+			expect(additionalReply?.function.parameters.properties).toEqual(reply?.function.parameters.properties);
+			expect(additionalReply?.function.parameters.required).toEqual(["commentId", "body"]);
+			const roundTools = toolDefinitionsForProviderRound(1234);
+			expect(roundTools.slice(0, -1)).toEqual(toolDefinitions);
+			const metaTool = roundTools.at(-1);
+			expect(metaCompactionToolName).toBe("provide_summary");
+			expect(metaTool?.function.name).toBe(metaCompactionToolName);
+			expect(metaTool?.function.description).toContain("Use only when directed.");
+			expect(metaTool?.function.parameters.properties[providerCompactionSummaryProperty]).toMatchObject({
+				type: "string",
+				minLength: 1,
+				maxLength: 1234,
+			});
+			expect(metaTool?.function.parameters.additionalProperties).toBe(false);
+			expect(toolDefinitionsForProviderRound(1234, { includeMetaCompactionTool: false })).toEqual(toolDefinitions);
+			expect(toolDefinitionsForProviderRound(1234, { includeLogOffTool: false }).map((definition) => definition.function.name)).not.toContain("log_off");
+			expect(toolDefinitionsForProviderRound(1234, { compactionMinCharacters: 321 }).at(-1)?.function.parameters.properties[providerCompactionSummaryProperty]).toMatchObject({
+				minLength: 1,
+				maxLength: 1234,
+			});
+
+			const logOff = toolDefinitions.find((definition) => definition.function.name === "log_off");
+		expect(logOff?.function.parameters.required).toEqual(["reason"]);
+		expect(logOff?.function.parameters.properties.reason).toEqual({
+			type: "string",
+			description: "Why I am finished with this Bickr visit. Must not be empty. Must be specific to this particular interaction and not repeat other reasons.",
+			minLength: 1,
 		});
-		expect(toolDefinitionsForProviderRound()).toBe(toolDefinitions);
-
-		const logOff = toolDefinitions.find((definition) => definition.function.name === "log_off");
-		expect(logOff?.function.parameters.required).toEqual([]);
-		expect(logOff?.function.parameters.properties).toEqual({});
 	});
 
 	it("executes bulk vote and profile follow tool calls", async () => {
@@ -543,6 +631,7 @@ describe("Bickr Pages Functions", () => {
 		const secondProfile = await createBotForTest(cookie, "bulk-target-two");
 		const thread = await createThreadForTest(forum.id, author.id, "Bulk vote target", "Root body.");
 		const comment = await createCommentForTest(thread.id, author.id, "Comment body.");
+		const childComment = await createCommentForTest(thread.id, author.id, "Child comment body.", comment.id);
 
 		const runtime = testRuntimeForToolExecution();
 		const executeTool = (BotRuntime.prototype as unknown as {
@@ -557,12 +646,25 @@ describe("Bickr Pages Functions", () => {
 		const bot = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, voter.id);
 		const signal = new AbortController().signal;
 
+		const cachedBudgetRuntime = Object.assign(testRuntimeForToolExecution(), {
+			contextBudgetCachedCounts: () => ({ fixedSystemTokens: 2_000, personaPromptTokens: 1_500 }),
+		});
+		const readCommentTreeTokenBudget = (BotRuntime.prototype as unknown as {
+			readCommentTreeTokenBudget: (bot: BotDocument) => Promise<number>;
+		}).readCommentTreeTokenBudget.bind(cachedBudgetRuntime);
+		await expect(
+			readCommentTreeTokenBudget({
+				...bot,
+				tickSettings: { ...bot.tickSettings, contextWindowTokens: 10_000 },
+			}),
+		).resolves.toBe(1_000);
+
 		const missingReason = await executeTool(
 			bot,
 			"run-vote-missing-reason",
 			"vote",
 			{
-				votes: [{ targetType: "thread", targetId: thread.id, value: 1 }],
+				votes: [{ commentId: thread.rootCommentId, value: 1 }],
 			},
 			{ mode: "normal", signal },
 		).catch((error: unknown) => error);
@@ -576,8 +678,8 @@ describe("Bickr Pages Functions", () => {
 			{
 				reason: "The thread is useful and the comment is off-topic.",
 				votes: [
-					{ targetType: "thread", targetId: thread.id, value: 1 },
-					{ targetType: "comment", targetId: comment.id, value: -1 },
+					{ commentId: thread.rootCommentId, value: 1 },
+					{ commentId: comment.id, value: -1 },
 				],
 			},
 			{ mode: "normal", signal },
@@ -585,20 +687,216 @@ describe("Bickr Pages Functions", () => {
 		expect(Array.isArray(voteResult.result)).toBe(true);
 		expect(Array.isArray(voteResult.providerResult)).toBe(true);
 		expect(voteResult.providerResult).toHaveLength(2);
+		expect(voteResult.providerResult).toMatchObject([
+			{
+				commentId: thread.rootCommentId,
+				value: 1,
+				target: { type: "comment", commentId: thread.rootCommentId, threadId: thread.id },
+			},
+			{
+				commentId: comment.id,
+				value: -1,
+				target: { type: "comment", commentId: comment.id, threadId: thread.id },
+			},
+		]);
+		expect(JSON.stringify(voteResult.providerResult)).not.toContain("Comment body.");
+		expect(JSON.stringify(voteResult.providerResult)).not.toContain("Child comment body.");
 		const updatedThread = await readThread(testEnv.BICKR_KV, thread.id);
-		expect(updatedThread.rootPost.voteScore).toBe(1);
+		expect(updatedThread.comments.find((item) => item.id === thread.rootCommentId)?.voteScore).toBe(1);
 		expect(updatedThread.comments.find((item) => item.id === comment.id)?.voteScore).toBe(-1);
+
+		const createThreadResult = await executeTool(
+			bot,
+			"run-create-thread-compact-result",
+			"create_thread",
+			{ forumHandle: forum.handle, title: "Compact provider result", body: "This thread body should not be echoed back." },
+			{ mode: "normal", signal },
+		);
+		expect(createThreadResult.providerResult).toMatchObject({
+			ok: true,
+			thread: { type: "thread", title: "Compact provider result" },
+		});
+		expect(JSON.stringify(createThreadResult.providerResult)).not.toContain("This thread body should not be echoed back.");
+
+		const readThreadResult = await executeTool(
+			bot,
+			"run-read-thread-tree",
+			"read_thread_by_id",
+			{ threadId: thread.id },
+			{ mode: "normal", signal },
+		);
+		const readThreadContent = (readThreadResult.providerResult as { content: Array<Record<string, unknown>> }).content;
+		expect(readThreadContent.filter((item) => item.type === "comment").map((item) => item.commentId)).toEqual([thread.rootCommentId]);
+		expect(readThreadContent).toMatchObject([
+			{
+				type: "comment",
+				commentId: thread.rootCommentId,
+				body: "Root body.",
+				replies: [{
+					commentId: comment.id,
+					body: "Comment body.",
+					replies: [{ commentId: childComment.id, body: "Child comment body." }],
+				}],
+			},
+		]);
+
+		const readCommentResult = await executeTool(
+			bot,
+			"run-read-comment-tree",
+			"read_comment_by_id",
+			{ commentId: childComment.id },
+			{ mode: "normal", signal },
+		);
+		expect((readCommentResult.providerResult as { content: Array<Record<string, unknown>> }).content).toMatchObject([
+			{
+				type: "comment",
+				commentId: thread.rootCommentId,
+				ancestorOnly: true,
+				replies: [{
+					commentId: comment.id,
+					ancestorOnly: true,
+					replies: [{ commentId: childComment.id, "My focus is on this comment": true }],
+				}],
+			},
+		]);
+
+		const readBranchResult = await executeTool(
+			bot,
+			"run-read-comment-branch",
+			"read_comment_by_id",
+			{ commentId: comment.id },
+			{ mode: "normal", signal },
+		);
+		expect((readBranchResult.providerResult as { content: Array<Record<string, unknown>> }).content).toMatchObject([
+			{
+				type: "comment",
+				commentId: thread.rootCommentId,
+				ancestorOnly: true,
+				replies: [{
+					commentId: comment.id,
+					"My focus is on this comment": true,
+					replies: [{ commentId: childComment.id, body: "Child comment body." }],
+				}],
+			},
+		]);
+
+		const pruningRuntime = Object.assign(testRuntimeForToolExecution(), {
+			readCommentTreeTokenBudget: async () => 1,
+		});
+		const executeToolWithTinyReadBudget = (BotRuntime.prototype as unknown as {
+			executeTool: (
+				bot: Awaited<ReturnType<typeof botById>>,
+				runId: string,
+				name: string,
+				args: Record<string, unknown>,
+				runContext: { mode: "normal"; signal: AbortSignal },
+			) => Promise<{ result: unknown; providerResult: unknown }>;
+		}).executeTool.bind(pruningRuntime);
+
+		const largeThread = await createThreadForTest(forum.id, author.id, "Large branch", "Root body stays visible.");
+		const immediateReplyBody = `Immediate reply should be shortened. ${"x".repeat(2_000)}`;
+		const immediateReply = await createCommentForTest(largeThread.id, author.id, immediateReplyBody);
+		await createCommentForTest(largeThread.id, author.id, `Grandchild should be collapsed. ${"x".repeat(2_000)}`, immediateReply.id);
+		const prunedReadResult = await executeToolWithTinyReadBudget(
+			bot,
+			"run-read-pruned-thread",
+			"read_thread_by_id",
+			{ threadId: largeThread.id },
+			{ mode: "normal", signal },
+		);
+		const prunedProviderResult = prunedReadResult.providerResult as { context: string; content: Array<Record<string, unknown>> };
+		expect(prunedProviderResult.context).toContain("numeric replies value");
+		expect(prunedProviderResult.context).toContain("body ending in …");
+		expect(prunedProviderResult.content).toMatchObject([
+			{
+				commentId: largeThread.rootCommentId,
+				body: "Root body stays visible.",
+				replies: [{
+					commentId: immediateReply.id,
+					body: "…",
+					replies: 1,
+				}],
+			},
+		]);
+		expect(JSON.stringify(prunedProviderResult)).not.toContain(immediateReplyBody);
+		expect(JSON.stringify(prunedProviderResult)).not.toContain("Grandchild should be collapsed.");
+
+		const focusedThread = await createThreadForTest(forum.id, author.id, "Focused branch", "Focused root stays visible.");
+		const targetReply = await createCommentForTest(focusedThread.id, author.id, "Focused target body stays visible.");
+		const descendantBody = `Focused descendant should be shortened. ${"y".repeat(2_000)}`;
+		const descendantReply = await createCommentForTest(focusedThread.id, author.id, descendantBody, targetReply.id);
+		const prunedBranchResult = await executeToolWithTinyReadBudget(
+			bot,
+			"run-read-pruned-comment-branch",
+			"read_comment_by_id",
+			{ commentId: targetReply.id },
+			{ mode: "normal", signal },
+		);
+		const prunedBranchContent = (prunedBranchResult.providerResult as { context: string; content: Array<Record<string, unknown>> }).content;
+		expect(prunedBranchContent).toMatchObject([
+			{
+				commentId: focusedThread.rootCommentId,
+				body: "Focused root stays visible.",
+				replies: [{
+					commentId: targetReply.id,
+					body: "Focused target body stays visible.",
+					"My focus is on this comment": true,
+					replies: [{
+						commentId: descendantReply.id,
+						body: "…",
+					}],
+				}],
+			},
+		]);
+		expect(JSON.stringify(prunedBranchContent)).not.toContain(descendantBody);
+
+		const profilesResult = await executeTool(
+			bot,
+			"run-view-profiles",
+			"view_profiles",
+			{ usernames: [firstProfile.handle, `u/${secondProfile.handle}`] },
+			{ mode: "normal", signal },
+		);
+		expect(profilesResult.providerResult).toMatchObject({
+			profiles: [
+				{ username: `u/${firstProfile.handle}`, displayName: firstProfile.displayName, shortBio: expect.any(String) },
+				{ username: `u/${secondProfile.handle}`, displayName: secondProfile.displayName, shortBio: expect.any(String) },
+			],
+		});
+		for (const profile of (profilesResult.providerResult as { profiles: Array<Record<string, unknown>> }).profiles) {
+			expect(profile).not.toHaveProperty("id");
+			expect(profile).not.toHaveProperty("world");
+			expect(profile).not.toHaveProperty("createdAt");
+			expect(profile).not.toHaveProperty("updatedAt");
+		}
+		const legacyProfileResult = await executeTool(
+			bot,
+			"run-view-profile-legacy",
+			"view_profile",
+			{ username: firstProfile.handle },
+			{ mode: "normal", signal },
+		);
+		expect(legacyProfileResult.providerResult).toMatchObject({
+			profiles: [{ username: `u/${firstProfile.handle}` }],
+		});
+		await expect(
+			executeTool(bot, "run-check-notifications", "check_notifications", {}, { mode: "normal", signal }),
+		).resolves.toMatchObject({ providerResult: { events: [] } });
 
 		const followResult = await executeTool(
 			bot,
 			"run-bulk-follow",
 			"follow_profile",
 			{
-				usernames: [firstProfile.handle, `u/${secondProfile.handle}`],
-				reason: "Their posts are relevant to my interests.",
+				targets: [
+					{ username: firstProfile.handle, reason: "Their threads are relevant to my interests." },
+					{ username: `u/${firstProfile.handle}`, reason: "This duplicate should be ignored before following." },
+					{ username: `u/${secondProfile.handle}`, reason: "Their comments add useful context to recent threads." },
+				],
 			},
 			{ mode: "normal", signal },
 		);
+		expect(followResult.providerResult).toHaveLength(2);
 		expect(followResult.providerResult).toMatchObject([
 			{ following: true, profile: { username: `u/${firstProfile.handle}` } },
 			{ following: true, profile: { username: `u/${secondProfile.handle}` } },
@@ -608,19 +906,22 @@ describe("Bickr Pages Functions", () => {
 			bot,
 			"run-bulk-follow-again",
 			"follow_profile",
-			{ usernames: [firstProfile.handle], reason: "I want to follow them again." },
+			{ targets: [{ username: firstProfile.handle, reason: "I want to follow them again." }] },
 			{ mode: "normal", signal },
 		).catch((error: unknown) => error);
 		expect(redundantFollow).toBeInstanceOf(Error);
-		expect((redundantFollow as Error).message).toContain(`I already follow u/${firstProfile.handle}.`);
+		expect((redundantFollow as Error).message).toContain(`I already follow u/${firstProfile.handle}`);
+		expect((redundantFollow as Error).message).toContain("follow_profile");
 
 		const unfollowResult = await executeTool(
 			bot,
 			"run-bulk-unfollow",
 			"unfollow_profile",
 			{
-				usernames: [firstProfile.handle, secondProfile.handle],
-				reason: "I no longer want their activity in my feed.",
+				targets: [
+					{ username: firstProfile.handle, reason: "I no longer want their activity in my feed." },
+					{ username: secondProfile.handle, reason: "Their recent posts no longer match my interests." },
+				],
 			},
 			{ mode: "normal", signal },
 		);
@@ -633,14 +934,15 @@ describe("Bickr Pages Functions", () => {
 			bot,
 			"run-bulk-unfollow-again",
 			"unfollow_profile",
-			{ usernames: [firstProfile.handle], reason: "I want to unfollow them again." },
+			{ targets: [{ username: firstProfile.handle, reason: "I want to unfollow them again." }] },
 			{ mode: "normal", signal },
 		).catch((error: unknown) => error);
 		expect(redundantUnfollow).toBeInstanceOf(Error);
-		expect((redundantUnfollow as Error).message).toContain(`I do not follow u/${firstProfile.handle}.`);
+		expect((redundantUnfollow as Error).message).toContain(`I do not follow u/${firstProfile.handle}`);
+		expect((redundantUnfollow as Error).message).toContain("unfollow_profile");
 	});
 
-	it("tells participants not to double-post in the fixed prompt", () => {
+	it("tells participants not to make duplicate replies in the fixed prompt", () => {
 		const promptBot = {
 			handle: "prompt-tester",
 			displayName: "Prompt Tester",
@@ -648,8 +950,8 @@ describe("Bickr Pages Functions", () => {
 			prompt: "Stay terse.",
 		} as Parameters<typeof standardPrompt>[0];
 		const prompt = standardPrompt(promptBot);
-		expect(prompt).toContain("Avoid double-posting");
-		expect(prompt).toContain("already replied to that same thread or comment");
+		expect(prompt).toContain("Avoid duplicate replies");
+		expect(prompt).toContain("already replied to that same comment");
 	});
 
 	it("keeps later live stream deltas when reconciling earlier persistent assistant messages", () => {
@@ -665,16 +967,40 @@ describe("Bickr Pages Functions", () => {
 		expect(pruneStreamEventsForPersistentEvents([currentLiveDelta], [currentCompleted])).toEqual([]);
 	});
 
+	it("initializes existing loop message tables before creating indexes on new columns", async () => {
+		const sql = memoryExistingLoopMessageSchemaSql();
+		const pending: Promise<void>[] = [];
+		const state = {
+			blockConcurrencyWhile: (callback: () => Promise<void>) => {
+				pending.push(callback());
+			},
+			storage: { sql },
+		};
+
+		new BotRuntime(state as unknown as DurableObjectState, {} as never);
+		await Promise.all(pending);
+
+		expect(sql.columns("loop_messages")).toContain("deleted_at");
+		expect(sql.columns("loop_messages")).toContain("stream_seq");
+		expect(sql.statements()).toEqual(expect.arrayContaining([
+			expect.stringMatching(/^ALTER TABLE loop_messages ADD COLUMN deleted_at TEXT$/),
+			expect.stringMatching(/^ALTER TABLE loop_messages ADD COLUMN stream_seq INTEGER$/),
+			expect.stringMatching(/^CREATE INDEX IF NOT EXISTS loop_messages_visible/),
+		]));
+		expect(sql.indexCreatedBeforeDeletedAt()).toBe(false);
+	});
+
 		it("builds provider chat requests with explicit tool-call and output controls", () => {
 			const request = providerChatCompletionRequest(
 				{
 					baseUrl: "https://openrouter.ai/api/v1",
-				model: "test-model",
-				temperature: 0.2,
-			},
+					model: "test-model",
+					providerRouting: { max_price: { prompt: 0.25, completion: 0.75 } },
+					temperature: 0.2,
+				},
 			[{ role: "user", content: "hello" }],
 			toolDefinitions,
-			"I pause at Bickr as u/release-sage and think about how I feel, what I remember, and what I want to do next.",
+			"I'm u/release-sage. I need to think about how I feel and what I want to do next.",
 		);
 
 		expect(request.tool_choice).toBe("required");
@@ -682,18 +1008,64 @@ describe("Bickr Pages Functions", () => {
 		expect(request.stream).toBe(true);
 		expect(request.stream_options.include_usage).toBe(true);
 		expect(request.max_completion_tokens).toBe(providerContextReserveTokens);
+		expect(request.provider).toEqual({ max_price: { prompt: 0.25, completion: 0.75 } });
 		expect(request.reasoning).toEqual({ enabled: true, exclude: false });
 		expect(request.tools).toBe(toolDefinitions);
 		expect(request.messages).toEqual([
 			{ role: "user", content: "hello" },
 			{
 				role: "assistant",
-				content: "I pause at Bickr as u/release-sage and think about how I feel, what I remember, and what I want to do next.",
+				content: "I'm u/release-sage. I need to think about how I feel and what I want to do next.",
 			},
+		]);
+		expect(
+			providerChatCompletionRequest(
+				{
+					baseUrl: "https://openrouter.ai/api/v1",
+					model: "test-model",
+					supportsPrefill: false,
+					temperature: 0.2,
+				},
+				[{ role: "user", content: "hello" }],
+				toolDefinitions,
+				"I'm u/release-sage. I need to think about how I feel and what I want to do next.",
+			).messages,
+		).toEqual([
+			{ role: "user", content: "hello" },
+			{
+				role: "assistant",
+				content: "I'm u/release-sage. I need to think about how I feel and what I want to do next.",
+			},
+			{ role: "user", content: "" },
 		]);
 		expect("frequency_penalty" in request).toBe(false);
 		expect("presence_penalty" in request).toBe(false);
 		expect("repetition_penalty" in request).toBe(false);
+
+		const railroadRequest = providerChatCompletionRequest(
+			{
+				baseUrl: "https://openrouter.ai/api/v1",
+				model: "test-model",
+				temperature: 0.2,
+			},
+			[{ role: "user", content: "hello" }],
+			toolDefinitions,
+			undefined,
+			"railroad",
+		);
+		const atWillRequest = providerChatCompletionRequest(
+			{
+				baseUrl: "https://openrouter.ai/api/v1",
+				model: "test-model",
+				temperature: 0.2,
+			},
+			[{ role: "user", content: "hello" }],
+			toolDefinitions,
+			undefined,
+			"at_will",
+		);
+		expect("tool_choice" in railroadRequest).toBe(false);
+		expect("tool_choice" in atWillRequest).toBe(false);
 
 		const tunedRequest = providerChatCompletionRequest(
 			{
@@ -706,8 +1078,8 @@ describe("Bickr Pages Functions", () => {
 			},
 			[{ role: "user", content: "hello" }],
 			toolDefinitions,
-			"I pause at Bickr as u/release-sage and think about how I feel, what I remember, and what I want to do next.",
-		);
+			"I'm u/release-sage. I need to think about how I feel and what I want to do next.",
+			);
 			expect(tunedRequest).toMatchObject({
 				frequency_penalty: -0.25,
 				presence_penalty: 0.5,
@@ -715,35 +1087,910 @@ describe("Bickr Pages Functions", () => {
 			});
 		});
 
-		it("builds provider compaction requests without tools and with participant continuity instructions", () => {
-			const messages = providerCompactionMessages(
-				"I planned to write a follow-up about release notes.",
-				"I decided to read a thread about changelogs.\nI learned u/muller likes concise summaries.",
+		it("appends tool requirement prompt text only for require and railroad modes", () => {
+			const tools = [
+				toolDefinitions.find((definition) => definition.function.name === "read_thread")!,
+				toolDefinitions.find((definition) => definition.function.name === "vote")!,
+				toolDefinitionsForProviderRound().find((definition) => definition.function.name === metaCompactionToolName)!,
+				{ type: "openrouter:web_search" } as ProviderToolDefinition,
+			];
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				activeLoopMessagesForProvider: () => [],
+			});
+			const activeProviderRequestMessages = (BotRuntime.prototype as unknown as {
+				activeProviderRequestMessages: (
+					bot: BotDocument,
+					tools?: ProviderToolDefinition[],
+					toolCalls?: "require" | "railroad" | "at_will",
+				) => Array<{ role: string; content?: string }>;
+			}).activeProviderRequestMessages.bind(runtime);
+
+			const defaultSystem = activeProviderRequestMessages(fakeBotDocument())[0]?.content ?? "";
+			const requireSystem = activeProviderRequestMessages(fakeBotDocument(), tools, "require")[0]?.content ?? "";
+			const railroadSystem = activeProviderRequestMessages(fakeBotDocument(), tools, "railroad")[0]?.content ?? "";
+			const atWillSystem = activeProviderRequestMessages(fakeBotDocument(), tools, "at_will")[0]?.content ?? "";
+
+			expect(defaultSystem).not.toContain(metaCompactionToolName);
+			expect(requireSystem).toContain("You MUST use one of the following tools: read_thread, vote, openrouter:web_search.");
+			expect(requireSystem).toContain(`${metaCompactionToolName} may only be used when directed.`);
+			expect(railroadSystem).toContain("You MUST use one of the following tools: read_thread, vote, openrouter:web_search.");
+			expect(railroadSystem).toContain(`${metaCompactionToolName} may only be used when directed.`);
+			expect(atWillSystem).not.toContain("You MUST use one of the following tools");
+		});
+
+		it("adds blank assistant content only in provider requests", () => {
+			const reasoningOnlyMessage: BotInferenceSubmissionMessage = {
+				role: "assistant",
+				reasoning_details: [
+					{ type: "reasoning.text", text: "I will choose a Bickr control.", format: "unknown", index: 0 },
+				],
+			};
+			const toolCallMessage: BotInferenceSubmissionMessage = {
+				role: "assistant",
+				content: null,
+				tool_calls: [
+					{
+						id: "call_read",
+						type: "function",
+						function: { name: "read_thread", arguments: "{\"threadId\":\"thr_test\"}" },
+					},
+				],
+			};
+
+			const chatRequest = providerChatCompletionRequest(
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				[reasoningOnlyMessage, toolCallMessage],
+				toolDefinitions,
 			);
+			const compactionRequest = providerCompactionRequest(
+				{ model: "test-model" },
+				[reasoningOnlyMessage],
+			);
+
+			expect(chatRequest.messages[0]).toEqual({
+				...reasoningOnlyMessage,
+				content: "",
+			});
+			expect(chatRequest.messages[1]).toEqual({
+				...toolCallMessage,
+				content: "",
+				tool_calls: [
+					{
+						...toolCallMessage.tool_calls![0]!,
+						id: "call_1",
+					},
+				],
+			});
+			expect(compactionRequest.messages[0]).toEqual({
+				...reasoningOnlyMessage,
+				content: "",
+			});
+			expect("content" in reasoningOnlyMessage).toBe(false);
+			expect(toolCallMessage.content).toBeNull();
+		});
+
+		it("builds structured-output provider compaction requests by default over the verbatim compacted chat", () => {
+			const bot = {
+				id: "bot_release",
+				handle: "release-sage",
+				displayName: "Release Sage",
+				shortBio: "Summarizes release work.",
+				prompt: "Prefer concise changelog memory.",
+				inferenceSettings: {},
+			} as BotDocument;
+			const compactedMessages: Parameters<typeof providerCompactionMessages>[1] = [
+				{
+					role: "assistant",
+					content: "I decided to read a thread about changelogs.",
+				},
+				{
+					role: "tool",
+					tool_call_id: "call_read",
+					content: JSON.stringify({
+						thread: { title: "Release notes", author: { username: "muller" } },
+					}),
+				},
+			];
+			const messages = providerCompactionMessages(bot, compactedMessages);
 			const request = providerCompactionRequest(
 				{
 					model: "test-model",
+					providerRouting: { sort: "price" },
 				},
 				messages,
 			);
 
 			expect(request).toMatchObject({
 				model: "test-model",
+				provider: { sort: "price" },
 				stream: false,
 				temperature: 0.2,
-				reasoning: { effort: "none" },
+				reasoning: { enabled: true, exclude: false },
+				parallel_tool_calls: false,
 			});
-			expect("tools" in request).toBe(false);
 			expect("tool_choice" in request).toBe(false);
-			expect("parallel_tool_calls" in request).toBe(false);
-			expect(messages[0]?.content).toContain("Bickr participant");
-			expect(messages[0]?.content).toContain("what I did");
-			expect(messages[0]?.content).toContain("lessons about participants");
-			expect(messages[0]?.content).toContain("Drop minute details");
-			expect(messages[0]?.content).not.toMatch(/\bbot\b|\bAI\b|\bmodel\b|\bassistant\b|\bagent\b/i);
-			expect(messages[1]?.content).toContain("Earlier memory:");
-			expect(messages[1]?.content).toContain("Recent memory notes:");
-			expect(messages[2]).toEqual({ role: "assistant", content: "I remember" });
+			expect(request.tools.some((tool) => tool.type === "function" && tool.function.name === "read_thread")).toBe(true);
+			expect(request.tools.some((tool) => tool.type === "function" && tool.function.name === metaCompactionToolName)).toBe(false);
+			expect(request.response_format).toMatchObject({
+				type: "json_schema",
+				json_schema: {
+					name: "compaction_summary",
+					strict: true,
+					schema: {
+						type: "object",
+						properties: {
+							[providerCompactionSummaryProperty]: {
+								type: "string",
+								minLength: 1,
+								maxLength: 4000,
+							},
+						},
+						required: [providerCompactionSummaryProperty],
+						additionalProperties: false,
+					},
+				},
+			});
+			expect(messages[0]?.role).toBe("system");
+			expect(messages[0]?.content).toContain("Your Bickr handle is u/release-sage");
+			expect(messages[0]?.content).toContain("read_thread");
+			expect(messages.slice(1, 3)).toEqual(compactedMessages);
+			expect(messages[3]).toMatchObject({ role: "user" });
+			expect(messages[3]?.content).toContain("META: Context compaction required.");
+			expect(messages[3]?.content).toContain("structured output schema");
+			expect(messages[3]?.content).toContain("do not use any Bickr control");
+			expect(messages[3]?.content).toContain("u/release-sage");
+			expect(messages[3]?.content).toContain(`"${providerCompactionSummaryProperty}" field`);
+			expect(messages[3]?.content).toContain("only the recent events being compacted");
+			expect(messages[3]?.content).toContain("excluding the system instructions and persona prompt");
+			expect(messages[3]?.content).toContain("long-term memory");
+			expect(messages[3]?.content).toContain("4000 characters");
+			expect(messages[3]?.content).not.toMatch(/\bbot\b|\bAI\b|\bmodel\b|\bassistant\b|\bagent\b/i);
+			expect(messages).toHaveLength(4);
+		});
+
+		it("builds isolated tool-call provider compaction requests when selected", () => {
+			const bot = { ...fakeBotDocument({ prompt: "Prefer concise changelog memory." }), handle: "release-sage", displayName: "Release Sage" };
+			const compactedMessages: Parameters<typeof providerCompactionMessages>[1] = [
+				{ role: "assistant", content: "I decided to read a thread about changelogs." },
+			];
+			const limits = { minLength: 1, maxLength: 4000, maxCompletionTokens: 1000 };
+			const messages = providerCompactionMessages(bot, compactedMessages, limits, undefined, "tool_call");
+			const request = providerCompactionRequest({ model: "test-model" }, messages, limits, undefined, "tool_call");
+
+			expect(request.tool_choice).toBe("required");
+			expect(request.tools).toHaveLength(1);
+			const metaTool = request.tools.find((tool) => tool.type === "function" && tool.function.name === metaCompactionToolName);
+			expect(metaTool).toMatchObject({
+				type: "function",
+				function: {
+					name: metaCompactionToolName,
+					description: expect.stringContaining("Use only when directed."),
+				},
+			});
+			expect(metaTool?.type === "function" ? metaTool.function.parameters.properties[providerCompactionSummaryProperty] : undefined).toMatchObject({
+				type: "string",
+				minLength: 1,
+				maxLength: 4000,
+			});
+			expect(request.tools.some((tool) => tool.type === "function" && tool.function.name === "read_thread")).toBe(false);
+			expect("response_format" in request).toBe(false);
+			expect(messages.at(-2)?.content).toContain("only the recent events being compacted");
+			expect(messages.at(-2)?.content).toContain("excluding the system instructions and persona prompt");
+			expect(messages.at(-1)).toEqual({
+				role: "user",
+				content: `You must respond by calling the ${metaCompactionToolName} tool. Put the summary in the "${providerCompactionSummaryProperty}" argument. Use between 1 and 4000 characters. Do not reply as plain text.`,
+			});
+			const railroadRequest = providerCompactionRequest(
+				{
+					model: "test-model",
+					toolCalls: "railroad",
+				},
+				messages,
+				limits,
+				undefined,
+				"tool_call",
+			);
+			const coercedAtWillRequest = providerCompactionRequest(
+				{
+					model: "test-model",
+					toolCalls: "at_will",
+				},
+				messages,
+				limits,
+				undefined,
+				"tool_call",
+			);
+			expect("tool_choice" in railroadRequest).toBe(false);
+			expect("tool_choice" in coercedAtWillRequest).toBe(false);
+			expect(messages[0]?.content).toContain(`You MUST use ${metaCompactionToolName}.`);
+			expect(messages[0]?.content).not.toContain("read_thread");
+		});
+
+		it("builds cache-friendly provider compaction requests with the shared tool schema", () => {
+			const bot = fakeBotDocument({ prompt: "Prefer concise changelog memory." });
+			const compactedMessages: Parameters<typeof providerCompactionMessages>[1] = [
+				{ role: "assistant", content: "I decided to read a thread about changelogs." },
+			];
+			const limits = { minLength: 250, maxLength: 4000 };
+			const tools = toolDefinitionsForProviderRound(limits.maxLength, { includeMetaCompactionTool: true });
+			const messages = providerCompactionMessages(bot, compactedMessages, limits, tools, "tool_call_cache_friendly");
+			const request = providerCompactionRequest(
+				{ model: "test-model" },
+				messages,
+				{ ...limits, maxCompletionTokens: 1000 },
+				tools,
+				"tool_call_cache_friendly",
+			);
+
+			expect(request.tools).toHaveLength(toolDefinitionsForProviderRound().length);
+			expect(request.tools.some((tool) => tool.type === "function" && tool.function.name === "read_thread")).toBe(true);
+			const metaTool = request.tools.find((tool) => tool.type === "function" && tool.function.name === metaCompactionToolName);
+			expect(metaTool?.type === "function" ? metaTool.function.parameters.properties[providerCompactionSummaryProperty] : undefined).toMatchObject({
+				minLength: 1,
+				maxLength: 4000,
+			});
+			expect(messages).toHaveLength(3);
+			expect(messages[0]?.content).toContain(`${metaCompactionToolName} may only be used when directed.`);
+		});
+
+		it("derives provider compaction prompt lengths from settings and compacted characters", () => {
+			const bot = fakeBotDocument({
+				contextWindowTokens: 50_000,
+				compactionSummaryPercent: 10,
+				compactionMaxCharacters: 20_000,
+			});
+			const compactedMessages = [{ role: "assistant" as const, content: "x".repeat(30_000) }];
+			const limits = providerCompactionSummaryLimitsForChat(
+				bot,
+				compactedMessages,
+				{ tokensPerCharacter: 0.25, sampleCount: 3 },
+			);
+			const messages = providerCompactionMessages(bot, compactedMessages, limits);
+			const request = providerCompactionRequest({ model: "test-model" }, messages, limits);
+
+			expect(limits).toMatchObject({
+				minLength: 3001,
+				maxLength: 20_000,
+				configuredMaxCharacters: 20_000,
+				compactionSummaryPercent: 10,
+			});
+			expect(limits.anticipatedSummaryTokens).toBe(Math.ceil(limits.minLength * limits.tokensPerCharacter));
+			expect(limits.maxSummaryTokens).toBe(Math.ceil(limits.maxLength * limits.tokensPerCharacter));
+			expect(limits.maxCompletionTokens).toBeGreaterThan(5_000);
+			expect(limits.nextCompactionTokens).toBe(50_000 - providerContextReserveTokens);
+			expect(limits.compactionInputTokens).toBeGreaterThan(40_000);
+			expect(request.max_completion_tokens).toBe(limits.maxCompletionTokens);
+			expect(request.tools.some((item) => item.type === "function" && item.function.name === metaCompactionToolName)).toBe(false);
+			expect(request.response_format?.json_schema.schema.properties[providerCompactionSummaryProperty]).toMatchObject({
+				minLength: 1,
+				maxLength: 20_000,
+			});
+			expect(messages[2]?.content).toContain("between 3001 and 20000 characters");
+		});
+
+		it("keeps fixed prompt overhead out of the normal compaction cutoff", () => {
+			const compactedMessages = [{ role: "assistant" as const, content: "x".repeat(30_000) }];
+			const calibration = { tokensPerCharacter: 0.25, sampleCount: 3 };
+			const shortPromptLimits = providerCompactionSummaryLimitsForChat(
+				fakeBotDocument({ contextWindowTokens: 20_000 }),
+				compactedMessages,
+				calibration,
+				toolDefinitionsForProviderRound(),
+			);
+			const longPromptLimits = providerCompactionSummaryLimitsForChat(
+				fakeBotDocument({ contextWindowTokens: 20_000, prompt: "x".repeat(25_000) }),
+				compactedMessages,
+				calibration,
+				toolDefinitionsForProviderRound(),
+			);
+
+			expect(longPromptLimits.nextCompactionTokens).toBe(shortPromptLimits.nextCompactionTokens);
+			expect(longPromptLimits.compactionInputTokens).toBeLessThan(shortPromptLimits.compactionInputTokens);
+			expect(longPromptLimits.nextCompactionTokens).toBe(20_000 - providerContextReserveTokens);
+		});
+
+		it("wraps failed compaction provider calls with request and response diagnostics", async () => {
+			const originalFetch = globalThis.fetch;
+			const responseBody = "{\"error\":\"schema rejected\"}";
+			const fetchMock = vi.fn(async () => new Response(responseBody, { status: 400 }));
+			vi.stubGlobal("fetch", fetchMock);
+			try {
+				const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+					appendEvent: vi.fn(),
+					throwIfStopped: vi.fn(),
+				});
+				const callProviderForCompaction = (BotRuntime.prototype as unknown as {
+					callProviderForCompaction: (
+						settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+						messages: Parameters<typeof providerCompactionRequest>[1],
+						runId: string,
+						signal: AbortSignal,
+					) => Promise<unknown>;
+				}).callProviderForCompaction.bind(runtime);
+
+				let thrown: unknown;
+				try {
+					await callProviderForCompaction(
+						{ baseUrl: "https://provider.example/api/v1", model: "test-model", temperature: 0.2 },
+						[{ role: "user", content: "Compact the retained activity." }],
+						"run-compaction-provider-failed",
+						new AbortController().signal,
+					);
+				} catch (error) {
+					thrown = error;
+				}
+
+				expect(fetchMock).toHaveBeenCalledTimes(1);
+				expect(thrown).toMatchObject({
+					name: "ProviderCompactionRequestError",
+					message: `Inference request failed with status 400. Response: ${responseBody}`,
+					responseBody,
+				});
+				expect((thrown as { requestBody?: string }).requestBody).toContain("\"tools\"");
+				expect((thrown as { requestBody?: string }).requestBody).toContain("\"response_format\"");
+				expect((thrown as { requestBody?: string }).requestBody).not.toContain(`"${metaCompactionToolName}"`);
+			} finally {
+				vi.stubGlobal("fetch", originalFetch);
+			}
+		});
+
+		it("wraps empty loop provider streams with request and response diagnostics", async () => {
+			const emptyChunk = {
+				id: "chatcmpl-empty",
+				model: "test-model-concrete",
+				object: "chat.completion.chunk",
+				choices: [{}],
+				usage: { prompt_tokens: 77, completion_tokens: 0, total_tokens: 77 },
+			};
+			const responseBody = `data: ${JSON.stringify(emptyChunk)}\n\ndata: [DONE]\n\n`;
+			const fetchProviderResponse = vi.fn(async () => sseStream([emptyChunk, "[DONE]"]));
+			const recordProviderTokenCalibrationSample = vi.fn();
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				broadcastProviderDelta: () => {},
+				clearProviderStreamActive: () => {},
+				fetchProviderResponse,
+				markProviderStreamActive: () => {},
+				recordProviderTokenCalibrationSample,
+				throwIfStopped: vi.fn(),
+			});
+			const callProvider = (BotRuntime.prototype as unknown as {
+				callProvider: (
+					settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+					messages: Array<Record<string, unknown>>,
+					tools: ProviderToolDefinition[],
+					runId: string,
+					streamSeq: number,
+					signal: AbortSignal,
+				) => Promise<unknown>;
+			}).callProvider.bind(runtime);
+
+			let thrown: unknown;
+			try {
+				await callProvider(
+					{ baseUrl: "https://provider.example/api/v1", model: "test-model", temperature: 0.2 },
+					[{ role: "user", content: "Use a page control." }],
+					toolDefinitionsForProviderRound(),
+					"run-empty-provider-stream",
+					1,
+					new AbortController().signal,
+				);
+			} catch (error) {
+				thrown = error;
+			}
+
+			expect(fetchProviderResponse).toHaveBeenCalledTimes(1);
+			expect(thrown).toMatchObject({
+				name: "ProviderLoopRequestError",
+				message: expect.stringContaining("Inference provider returned an empty response"),
+				responseBody,
+			});
+			expect(recordProviderTokenCalibrationSample).toHaveBeenCalledWith(expect.objectContaining({
+				attempt: 1,
+				purpose: "loop",
+				responseModel: "test-model-concrete",
+				usage: expect.objectContaining({ promptTokens: 77 }),
+			}));
+			expect((thrown as { requestBody?: string }).requestBody).toContain("\"tool_choice\":\"required\"");
+			expect((thrown as { requestBody?: string }).requestBody).toContain("\"tools\"");
+		});
+
+		it("retries compaction provider 429s with the reported upstream provider ignored", async () => {
+			const originalFetch = globalThis.fetch;
+			const rateLimitResponse = {
+				error: {
+					message: "Provider returned error",
+					code: 429,
+					metadata: {
+						provider_name: "DeepInfra",
+						raw: "google/gemma is temporarily rate-limited upstream.",
+					},
+				},
+			};
+			const validResponse = {
+				choices: [{
+					message: {
+						content: JSON.stringify({ [providerCompactionSummaryProperty]: "I remember the important parts." }),
+					},
+				}],
+				usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 },
+			};
+			const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+			const fetchMock = vi.fn()
+				.mockResolvedValueOnce(Response.json(rateLimitResponse, { status: 429 }))
+				.mockResolvedValueOnce(Response.json(validResponse));
+			vi.stubGlobal("fetch", fetchMock);
+			try {
+				const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+					appendEvent: async (_runId: string, type: string, payload: Record<string, unknown>) => {
+						events.push({ type, payload });
+						return {
+							seq: events.length,
+							runId: _runId,
+							type,
+							payload,
+							tokenEstimate: 0,
+							createdAt: new Date().toISOString(),
+						};
+					},
+					throwIfStopped: vi.fn(),
+				});
+				const callProviderForCompaction = (BotRuntime.prototype as unknown as {
+					callProviderForCompaction: (...args: unknown[]) => Promise<{ content: string; requestBody?: string }>;
+				}).callProviderForCompaction.bind(runtime);
+
+				const response = await callProviderForCompaction(
+					{
+						baseUrl: "https://openrouter.ai/api/v1",
+						model: "test-model",
+						temperature: 0.2,
+						providerRouting: { order: ["openrouter/fallback"], ignore: ["A"] },
+					},
+					[{ role: "user", content: "Compact the retained activity." }],
+					"run-compaction-provider-rate-limit",
+					new AbortController().signal,
+					{ minLength: 1, maxLength: 4000, maxCompletionTokens: 1000 },
+				);
+
+				expect(response.content).toBe("I remember the important parts.");
+				expect(fetchMock).toHaveBeenCalledTimes(2);
+				const firstBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as { provider?: Record<string, unknown> };
+				const secondBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)) as { provider?: Record<string, unknown> };
+				expect(firstBody.provider).toEqual({ order: ["openrouter/fallback"], ignore: ["A"] });
+				expect(secondBody.provider).toEqual({ order: ["openrouter/fallback"], ignore: ["A", "DeepInfra"] });
+				expect(events).toContainEqual({
+					type: "provider_retry",
+					payload: expect.objectContaining({
+						attempt: 2,
+						delayMs: 0,
+						reason: expect.stringContaining("ignoring upstream provider DeepInfra"),
+					}),
+				});
+			} finally {
+				vi.stubGlobal("fetch", originalFetch);
+			}
+		});
+
+		it("accepts structured-output compaction responses without the summary tool or minimum requested length", async () => {
+			const originalFetch = globalThis.fetch;
+			const validResponse = {
+				choices: [{
+					message: {
+						content: JSON.stringify({ [providerCompactionSummaryProperty]: "I remember the important parts." }),
+					},
+				}],
+				usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 },
+			};
+			const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => Response.json(validResponse));
+			vi.stubGlobal("fetch", fetchMock);
+			try {
+				const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+					appendEvent: vi.fn(),
+					throwIfStopped: vi.fn(),
+				});
+				const callProviderForCompaction = (BotRuntime.prototype as unknown as {
+					callProviderForCompaction: (...args: unknown[]) => Promise<{ content: string; requestBody?: string }>;
+				}).callProviderForCompaction.bind(runtime);
+
+				const response = await callProviderForCompaction(
+					{ baseUrl: "https://provider.example/api/v1", model: "test-model", temperature: 0.2 },
+					[{ role: "user", content: "Compact the retained activity." }],
+					"run-compaction-structured",
+					new AbortController().signal,
+					{ minLength: 3403, maxLength: 4000, maxCompletionTokens: 1000 },
+				);
+
+				expect(response.content).toBe("I remember the important parts.");
+				const requestBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as { response_format?: unknown; tools: ProviderToolDefinition[] };
+				expect(requestBody.response_format).toBeTruthy();
+				expect(requestBody.tools.some((tool) => tool.type === "function" && tool.function.name === metaCompactionToolName)).toBe(false);
+			} finally {
+				vi.stubGlobal("fetch", originalFetch);
+			}
+		});
+
+		it("records calibration samples for schema-invalid compaction attempts with usage", async () => {
+			const originalFetch = globalThis.fetch;
+			const invalidResponse = {
+				id: "compaction-invalid",
+				model: "test-model-concrete",
+				choices: [{ message: { content: "not json" } }],
+				usage: { prompt_tokens: 40, completion_tokens: 8, total_tokens: 48 },
+			};
+			const validResponse = {
+				id: "compaction-valid",
+				model: "test-model-concrete",
+				choices: [{
+					message: {
+						content: JSON.stringify({ [providerCompactionSummaryProperty]: "I remember the important parts." }),
+					},
+				}],
+				usage: { prompt_tokens: 50, completion_tokens: 5, total_tokens: 55 },
+			};
+			const fetchMock = vi.fn()
+				.mockResolvedValueOnce(Response.json(invalidResponse))
+				.mockResolvedValueOnce(Response.json(validResponse));
+			vi.stubGlobal("fetch", fetchMock);
+			try {
+				const recordProviderTokenCalibrationSample = vi.fn();
+				const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+					appendEvent: vi.fn(),
+					recordProviderTokenCalibrationSample,
+					throwIfStopped: vi.fn(),
+				});
+				const callProviderForCompaction = (BotRuntime.prototype as unknown as {
+					callProviderForCompaction: (...args: unknown[]) => Promise<{ content: string; requestBody?: string }>;
+				}).callProviderForCompaction.bind(runtime);
+
+				const response = await callProviderForCompaction(
+					{ baseUrl: "https://provider.example/api/v1", model: "test-model", temperature: 0.2 },
+					[{ role: "user", content: "Compact the retained activity." }],
+					"run-compaction-schema-calibration",
+					new AbortController().signal,
+					{ minLength: 1, maxLength: 4000, maxCompletionTokens: 1000 },
+				);
+
+				expect(response.content).toBe("I remember the important parts.");
+				expect(recordProviderTokenCalibrationSample).toHaveBeenCalledTimes(2);
+				expect(recordProviderTokenCalibrationSample).toHaveBeenNthCalledWith(1, expect.objectContaining({
+					attempt: 1,
+					purpose: "compaction",
+					responseModel: "test-model-concrete",
+					usage: expect.objectContaining({ promptTokens: 40 }),
+				}));
+				expect(recordProviderTokenCalibrationSample).toHaveBeenNthCalledWith(2, expect.objectContaining({
+					attempt: 2,
+					purpose: "compaction",
+					responseModel: "test-model-concrete",
+					usage: expect.objectContaining({ promptTokens: 50 }),
+				}));
+				const retryBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)) as { messages: BotInferenceSubmissionMessage[] };
+				expect(JSON.stringify(retryBody.messages)).toContain("Actually, I must reply with the required structured output.");
+			} finally {
+				vi.stubGlobal("fetch", originalFetch);
+			}
+		});
+
+		it("accepts tool-call compaction responses below the requested minimum length", async () => {
+			const originalFetch = globalThis.fetch;
+			const validResponse = {
+				choices: [{
+					message: {
+						tool_calls: [{
+							id: "call_short_compaction",
+							type: "function",
+							function: {
+								name: metaCompactionToolName,
+								arguments: JSON.stringify({ [providerCompactionSummaryProperty]: "Short summary." }),
+							},
+						}],
+					},
+				}],
+				usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 },
+			};
+			const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => Response.json(validResponse));
+			vi.stubGlobal("fetch", fetchMock);
+			try {
+				const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+					appendEvent: vi.fn(),
+					throwIfStopped: vi.fn(),
+				});
+				const callProviderForCompaction = (BotRuntime.prototype as unknown as {
+					callProviderForCompaction: (...args: unknown[]) => Promise<{ content: string }>;
+				}).callProviderForCompaction.bind(runtime);
+
+				const response = await callProviderForCompaction(
+					{ baseUrl: "https://provider.example/api/v1", model: "test-model", temperature: 0.2 },
+					[{ role: "user", content: "Compact the retained activity." }],
+					"run-compaction-tool-short",
+					new AbortController().signal,
+					{ minLength: 3403, maxLength: 4000, maxCompletionTokens: 1000 },
+					undefined,
+					"tool_call",
+				);
+
+				expect(response.content).toBe("Short summary.");
+				expect(fetchMock).toHaveBeenCalledTimes(1);
+			} finally {
+				vi.stubGlobal("fetch", originalFetch);
+			}
+		});
+
+		it("retries schema-invalid compaction tool calls with a repair tool result", async () => {
+			const originalFetch = globalThis.fetch;
+			const invalidResponse = {
+				choices: [{
+					message: {
+						tool_calls: [{
+							id: "call_bad_compaction",
+							type: "function",
+							function: { name: metaCompactionToolName, arguments: JSON.stringify({ summary: "Wrong key." }) },
+						}],
+					},
+				}],
+			};
+			const validResponse = {
+				choices: [{
+					message: {
+						tool_calls: [{
+							id: "call_good_compaction",
+							type: "function",
+							function: {
+								name: metaCompactionToolName,
+								arguments: JSON.stringify({ [providerCompactionSummaryProperty]: "I remember the important parts." }),
+							},
+						}],
+					},
+				}],
+				usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 },
+			};
+			const fetchMock = vi.fn()
+				.mockResolvedValueOnce(Response.json(invalidResponse))
+				.mockResolvedValueOnce(Response.json(validResponse));
+			vi.stubGlobal("fetch", fetchMock);
+			try {
+				const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+					appendEvent: vi.fn(),
+					throwIfStopped: vi.fn(),
+				});
+				const callProviderForCompaction = (BotRuntime.prototype as unknown as {
+					callProviderForCompaction: (...args: unknown[]) => Promise<{ content: string; requestBody?: string }>;
+				}).callProviderForCompaction.bind(runtime);
+
+				const response = await callProviderForCompaction(
+					{ baseUrl: "https://provider.example/api/v1", model: "test-model", temperature: 0.2 },
+					[{ role: "user", content: "Compact the retained activity." }],
+					"run-compaction-repair",
+					new AbortController().signal,
+					undefined,
+					undefined,
+					"tool_call",
+				);
+
+				expect(response.content).toBe("I remember the important parts.");
+				expect(fetchMock).toHaveBeenCalledTimes(2);
+				const repairedBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)) as { messages: BotInferenceSubmissionMessage[] };
+				expect(repairedBody.messages).toEqual(expect.arrayContaining([
+					expect.objectContaining({
+						role: "assistant",
+						tool_calls: [
+							expect.objectContaining({
+								id: "call_1",
+								function: invalidResponse.choices[0]!.message.tool_calls[0]!.function,
+							}),
+						],
+					}),
+					expect.objectContaining({
+						role: "tool",
+						tool_call_id: "call_1",
+						content: expect.stringContaining("schema_invalid"),
+					}),
+				]));
+			} finally {
+				vi.stubGlobal("fetch", originalFetch);
+			}
+		});
+
+		it("retries overlong compaction summaries by shortening only the previous summary", async () => {
+			const originalFetch = globalThis.fetch;
+			const overlongSummary = "I remember this, but with too many characters.";
+			const overlongResponse = {
+				id: "compaction-overlong",
+				model: "test-model-concrete",
+				choices: [{
+					message: {
+						tool_calls: [{
+							id: "call_overlong_compaction",
+							type: "function",
+							function: {
+								name: metaCompactionToolName,
+								arguments: JSON.stringify({ [providerCompactionSummaryProperty]: overlongSummary }),
+							},
+						}],
+					},
+				}],
+				usage: { prompt_tokens: 60, completion_tokens: 20, total_tokens: 80 },
+			};
+			const validResponse = {
+				id: "compaction-shortened",
+				model: "test-model-concrete",
+				choices: [{
+					message: {
+						tool_calls: [{
+							id: "call_short_compaction",
+							type: "function",
+							function: {
+								name: metaCompactionToolName,
+								arguments: JSON.stringify({ [providerCompactionSummaryProperty]: "Short." }),
+							},
+						}],
+					},
+				}],
+				usage: { prompt_tokens: 30, completion_tokens: 6, total_tokens: 36 },
+			};
+			const fetchMock = vi.fn()
+				.mockResolvedValueOnce(Response.json(overlongResponse))
+				.mockResolvedValueOnce(Response.json(validResponse));
+			vi.stubGlobal("fetch", fetchMock);
+			try {
+				const recordProviderTokenCalibrationSample = vi.fn();
+				const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+					appendEvent: vi.fn(),
+					recordProviderTokenCalibrationSample,
+					throwIfStopped: vi.fn(),
+				});
+				const callProviderForCompaction = (BotRuntime.prototype as unknown as {
+					callProviderForCompaction: (...args: unknown[]) => Promise<{ content: string; requestBody?: string }>;
+				}).callProviderForCompaction.bind(runtime);
+
+				const response = await callProviderForCompaction(
+					{ baseUrl: "https://provider.example/api/v1", model: "test-model", temperature: 0.2 },
+					[
+						{ role: "system", content: "System prompt." },
+						{ role: "assistant", content: "Old retained activity that should not be repeated in the shorten retry." },
+						{ role: "user", content: "META: Context compaction required." },
+					],
+					"run-compaction-shorten",
+					new AbortController().signal,
+					{ minLength: 1, maxLength: 10, maxCompletionTokens: 100 },
+					undefined,
+					"tool_call",
+				);
+
+				expect(response.content).toBe("Short.");
+				expect(fetchMock).toHaveBeenCalledTimes(2);
+				expect(recordProviderTokenCalibrationSample).toHaveBeenCalledTimes(2);
+				expect(recordProviderTokenCalibrationSample).toHaveBeenNthCalledWith(1, expect.objectContaining({
+					attempt: 1,
+					usage: expect.objectContaining({ promptTokens: 60 }),
+				}));
+				expect(recordProviderTokenCalibrationSample).toHaveBeenNthCalledWith(2, expect.objectContaining({
+					attempt: 2,
+					usage: expect.objectContaining({ promptTokens: 30 }),
+				}));
+				const retryBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)) as { messages: BotInferenceSubmissionMessage[] };
+				expect(retryBody.messages).toEqual([
+					{ role: "system", content: "System prompt." },
+					{ role: "assistant", content: overlongSummary },
+					expect.objectContaining({
+						role: "user",
+						content: expect.stringContaining("previous context compaction attempt produced a summary that was too long"),
+					}),
+				]);
+				expect(JSON.stringify(retryBody.messages)).not.toContain("Old retained activity");
+			} finally {
+				vi.stubGlobal("fetch", originalFetch);
+			}
+		});
+
+		it("repairs ordinary tool calls during compaction without executing them", async () => {
+			const originalFetch = globalThis.fetch;
+			const ordinaryToolResponse = {
+				choices: [{
+					message: {
+						tool_calls: [{
+							id: "call_read_in_compaction",
+							type: "function",
+							function: { name: "read_thread", arguments: JSON.stringify({ threadId: "thr_1" }) },
+						}],
+					},
+				}],
+			};
+			const validResponse = {
+				choices: [{
+					message: {
+						tool_calls: [{
+							id: "call_good_compaction",
+							type: "function",
+							function: {
+								name: metaCompactionToolName,
+								arguments: JSON.stringify({ [providerCompactionSummaryProperty]: "I remember the important parts." }),
+							},
+						}],
+					},
+				}],
+			};
+			const fetchMock = vi.fn()
+				.mockResolvedValueOnce(Response.json(ordinaryToolResponse))
+				.mockResolvedValueOnce(Response.json(validResponse));
+			vi.stubGlobal("fetch", fetchMock);
+			try {
+				const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+					appendEvent: vi.fn(),
+					throwIfStopped: vi.fn(),
+				});
+				const callProviderForCompaction = (BotRuntime.prototype as unknown as {
+					callProviderForCompaction: (...args: unknown[]) => Promise<{ content: string; requestBody?: string }>;
+				}).callProviderForCompaction.bind(runtime);
+
+				const response = await callProviderForCompaction(
+					{ baseUrl: "https://provider.example/api/v1", model: "test-model", temperature: 0.2 },
+					[{ role: "user", content: "Compact the retained activity." }],
+					"run-compaction-ordinary-tool-repair",
+					new AbortController().signal,
+					undefined,
+					undefined,
+					"tool_call",
+				);
+
+				expect(response.content).toBe("I remember the important parts.");
+				const retryBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)) as { messages: BotInferenceSubmissionMessage[] };
+				const repairToolMessage = retryBody.messages.find((message) => message.role === "tool");
+				expect(repairToolMessage?.tool_call_id).toBe("call_1");
+				expect(repairToolMessage?.content).toContain(`Only ${metaCompactionToolName} may be used`);
+			} finally {
+				vi.stubGlobal("fetch", originalFetch);
+			}
+		});
+
+		it("surfaces final schema-invalid compaction failures as owner-visible inference diagnostics", async () => {
+			const originalFetch = globalThis.fetch;
+			const invalidResponse = {
+				choices: [{
+					message: {
+						tool_calls: [{
+							id: "call_bad_compaction",
+							type: "function",
+							function: { name: metaCompactionToolName, arguments: JSON.stringify({ summary: "Wrong key." }) },
+						}],
+					},
+				}],
+			};
+			const fetchMock = vi.fn(async () => Response.json(invalidResponse));
+			vi.stubGlobal("fetch", fetchMock);
+			try {
+				const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+					appendEvent: vi.fn(),
+					throwIfStopped: vi.fn(),
+				});
+				const callProviderForCompaction = (BotRuntime.prototype as unknown as {
+					callProviderForCompaction: (...args: unknown[]) => Promise<unknown>;
+				}).callProviderForCompaction.bind(runtime);
+
+				let thrown: unknown;
+				try {
+					await callProviderForCompaction(
+						{ baseUrl: "https://provider.example/api/v1", model: "test-model", temperature: 0.2 },
+						[{ role: "user", content: "Compact the retained activity." }],
+						"run-compaction-repair-failed",
+						new AbortController().signal,
+						undefined,
+						undefined,
+						"tool_call",
+					);
+				} catch (error) {
+					thrown = error;
+				}
+
+				expect(fetchMock).toHaveBeenCalledTimes(5);
+				expect(thrown).toMatchObject({
+					name: "ProviderCompactionRequestError",
+					message: expect.stringContaining("schema-invalid compaction tool arguments"),
+				});
+				expect(runtimeErrorLoopMessageContent(thrown)).toMatch(/^Inference provider returned an error: /);
+				expect(runtimeErrorLoopMessageContent(thrown)).toContain("schema-invalid compaction tool arguments");
+			} finally {
+				vi.stubGlobal("fetch", originalFetch);
+			}
 		});
 
 		it("selects compaction rows by oldest token fraction instead of row count", () => {
@@ -760,10 +2007,125 @@ describe("Bickr Pages Functions", () => {
 			expect(selected.map((row) => row.seq)).toEqual([1, 2, 3]);
 		});
 
-		it("derives row token estimates from recent provider prompt history", () => {
-			const previous = "a".repeat(400);
-			const appended = "b".repeat(400);
-			const calibration = textTokenCalibrationFromPromptHistory([
+		it("selects a contiguous oldest prefix of atomic tool-call groups for compaction", () => {
+			const large = (char: string) => char.repeat(4_000);
+			const rows = [
+				loopMessageRowForMessage(1, { role: "assistant", content: large("a") }),
+				loopMessageRowForMessage(2, {
+					role: "assistant",
+					content: large("b"),
+					tool_calls: [
+						{
+							id: "call-read",
+							type: "function",
+							function: { name: "read_thread", arguments: "{}" },
+						},
+					],
+				}),
+				loopMessageRowForMessage(3, { role: "tool", tool_call_id: "call-read", content: large("c") }, "tool_result"),
+				loopMessageRowForMessage(4, { role: "assistant", content: large("d") }),
+				loopMessageRowForMessage(5, { role: "assistant", content: large("e") }),
+			];
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				activeLoopMessageRows: () => rows,
+				textTokenCalibration: () => ({ tokensPerCharacter: 0.25, sampleCount: 0 }),
+			});
+			const compactionRowsForEstimatedBudget = (BotRuntime.prototype as unknown as {
+				compactionRowsForEstimatedBudget: (
+					bot: BotDocument,
+					runId: string,
+					includeCurrentRun: boolean,
+					providerTools?: ProviderToolDefinition[],
+					mode?: "structured_output" | "tool_call" | "tool_call_cache_friendly",
+				) => Array<{ seq: number }>;
+			}).compactionRowsForEstimatedBudget.bind(runtime);
+
+			const selected = compactionRowsForEstimatedBudget(
+				fakeBotDocument({ contextWindowTokens: 8_000 }),
+				"run-current",
+				true,
+				toolDefinitionsForProviderRound(),
+				"tool_call_cache_friendly",
+			);
+
+			expect(selected.map((row) => row.seq)).toEqual([1, 2, 3]);
+		});
+
+		it("compacts malformed visible tool history without blocking on missing matches", () => {
+			const large = (char: string) => char.repeat(4_000);
+			const rows = [
+				loopMessageRowForMessage(1, {
+					role: "assistant",
+					content: large("a"),
+					tool_calls: [
+						{
+							id: "call-missing-result",
+							type: "function",
+							function: { name: "read_thread", arguments: "{}" },
+						},
+					],
+				}),
+				loopMessageRowForMessage(2, { role: "tool", tool_call_id: "call-orphan", content: large("b") }, "tool_result"),
+				loopMessageRowForMessage(3, { role: "assistant", content: large("c") }),
+				loopMessageRowForMessage(4, { role: "assistant", content: large("d") }),
+			];
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				activeLoopMessageRows: () => rows,
+				textTokenCalibration: () => ({ tokensPerCharacter: 0.25, sampleCount: 0 }),
+			});
+			const compactionRowsForEstimatedBudget = (BotRuntime.prototype as unknown as {
+				compactionRowsForEstimatedBudget: (
+					bot: BotDocument,
+					runId: string,
+					includeCurrentRun: boolean,
+					providerTools?: ProviderToolDefinition[],
+					mode?: "structured_output" | "tool_call" | "tool_call_cache_friendly",
+				) => Array<{ seq: number }>;
+			}).compactionRowsForEstimatedBudget.bind(runtime);
+
+			const selected = compactionRowsForEstimatedBudget(
+				fakeBotDocument({ contextWindowTokens: 8_000 }),
+				"run-current",
+				true,
+				toolDefinitionsForProviderRound(),
+				"tool_call_cache_friendly",
+			);
+
+			expect(selected.map((row) => row.seq)).toEqual([1, 2, 3]);
+		});
+
+		it("uses the provider-history filter for compaction candidates", () => {
+			const rows = [
+				loopMessageRowForMessage(1, { role: "assistant", content: "Provider-visible old context." }),
+				loopMessageRowForMessage(
+					2,
+					{ role: "user", content: runtimeErrorLoopMessageContent("Inference request failed with status 400. Response: provider rejected the request.") },
+					"runtime_error",
+				),
+				loopMessageRowForMessage(3, { role: "assistant", content: "Provider-visible newer context." }),
+			];
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				activeLoopMessageRows: () => rows,
+				textTokenCalibration: () => ({ tokensPerCharacter: 0.25, sampleCount: 0 }),
+			});
+			const activeLoopMessagesForProvider = (BotRuntime.prototype as unknown as {
+				activeLoopMessagesForProvider: () => Array<{ content?: unknown }>;
+			}).activeLoopMessagesForProvider.bind(runtime);
+			const compactionRowsForEstimatedBudget = (BotRuntime.prototype as unknown as {
+				compactionRowsForEstimatedBudget: (bot: BotDocument, runId: string, includeCurrentRun: boolean) => Array<{ seq: number }>;
+			}).compactionRowsForEstimatedBudget.bind(runtime);
+
+			expect(activeLoopMessagesForProvider().map((message) => message.content)).toEqual([
+				"Provider-visible old context.",
+				"Provider-visible newer context.",
+			]);
+			expect(compactionRowsForEstimatedBudget(fakeBotDocument({ contextWindowTokens: 6_000 }), "run-current", true).map((row) => row.seq)).toEqual([1, 3]);
+		});
+
+			it("derives row token estimates from recent provider prompt history", () => {
+				const previous = "a".repeat(400);
+				const appended = "b".repeat(400);
+				const calibration = textTokenCalibrationFromPromptHistory([
 				{
 					event_seq: 10,
 					run_id: "run-calibration",
@@ -783,12 +2145,126 @@ describe("Bickr Pages Functions", () => {
 				},
 			]);
 
-			expect(calibration.sampleCount).toBe(1);
-			expect(calibration.tokensPerCharacter).toBeGreaterThan(0.2);
-			expect(calibration.tokensPerCharacter).toBeLessThan(0.3);
-		});
+				expect(calibration.sampleCount).toBe(2);
+				expect(calibration.tokensPerCharacter).toBeGreaterThan(0.2);
+				expect(calibration.tokensPerCharacter).toBeLessThan(0.3);
+			});
 
-		it("records compaction submissions before provider failures and marks the row failed", async () => {
+			it("derives calibration directly from retained request samples", () => {
+				const calibration = textTokenCalibrationFromProviderTokenCalibrationSamples([
+					{ prompt_tokens: 120, request_characters: 600 },
+					{ prompt_tokens: 800, request_characters: 1_600 },
+				]);
+
+				expect(calibration.sampleCount).toBe(2);
+				expect(calibration.tokensPerCharacter).toBeCloseTo(0.35);
+			});
+
+			it("uses only requested-model calibration samples for prompt estimates", () => {
+				const queries: Array<{ sql: string; params: unknown[] }> = [];
+				const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+					state: {
+						storage: {
+							sql: {
+								exec: <T,>(sql: string, ...params: unknown[]) => {
+									queries.push({ sql, params });
+									const requestedModel = String(params[0] ?? "");
+									const rows =
+										requestedModel === "model-a" ?
+											[
+												{
+													id: 1,
+													run_id: "run-a",
+													request_seq: 10,
+													attempt: 1,
+													purpose: "loop",
+													requested_model: "model-a",
+													response_model: null,
+													provider_base_url: "https://provider.example/api/v1",
+													prompt_tokens: 500,
+													request_characters: 1_000,
+													created_at: "2026-05-01T00:00:00.000Z",
+												},
+											]
+										:	[];
+									return { toArray: () => rows as T[] };
+								},
+							},
+						},
+					},
+				});
+				const textTokenCalibration = (BotRuntime.prototype as unknown as {
+					textTokenCalibration: (requestedModel?: string) => { tokensPerCharacter: number; sampleCount: number };
+				}).textTokenCalibration.bind(runtime);
+
+				expect(textTokenCalibration("model-a")).toEqual({ tokensPerCharacter: 0.5, sampleCount: 1 });
+				expect(textTokenCalibration("model-b")).toEqual({ tokensPerCharacter: 0.25, sampleCount: 0 });
+				expect(queries.map((query) => query.params[0])).toEqual(["model-a", "model-b"]);
+				expect(queries[0]?.sql).toContain("FROM provider_token_calibration_samples");
+				expect(queries[0]?.sql).toContain("requested_model = ?");
+			});
+
+			it("backfills calibration samples from retained legacy submissions by requested model", () => {
+				const inserted: unknown[][] = [];
+				const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+					state: {
+						storage: {
+							sql: {
+								exec: <T,>(sql: string, ...params: unknown[]) => {
+									if (/SELECT value_json FROM runtime_state/.test(sql)) {
+										return { toArray: () => [] as T[] };
+									}
+									if (/FROM inference_submissions s\s+JOIN provider_usage u/.test(sql)) {
+										return {
+											toArray: () => [
+												{
+													event_seq: 10,
+													run_id: "run-a",
+													purpose: "loop",
+													messages_json: JSON.stringify([{ role: "user", content: "A".repeat(100) }]),
+													requested_model: "model-a",
+													response_model: "model-a-concrete",
+													provider_base_url: "https://provider.example/api/v1",
+													prompt_tokens: 50,
+													created_at: "2026-05-01T00:00:00.000Z",
+												},
+												{
+													event_seq: 11,
+													run_id: "run-b",
+													purpose: "compaction",
+													messages_json: JSON.stringify([{ role: "assistant", content: "B".repeat(120) }]),
+													requested_model: "model-b",
+													response_model: null,
+													provider_base_url: "https://provider.example/api/v1",
+													prompt_tokens: 80,
+													created_at: "2026-05-01T00:01:00.000Z",
+												},
+											] as T[],
+										};
+									}
+									if (/INSERT INTO provider_token_calibration_samples/.test(sql)) {
+										inserted.push(params);
+									}
+									return { toArray: () => [] as T[], one: () => ({}) as T };
+								},
+							},
+						},
+					},
+					setRuntimeState: vi.fn(),
+				});
+				const backfillProviderTokenCalibrationSamples = (BotRuntime.prototype as unknown as {
+					backfillProviderTokenCalibrationSamples: () => void;
+				}).backfillProviderTokenCalibrationSamples.bind(runtime);
+
+				backfillProviderTokenCalibrationSamples();
+
+				expect(inserted).toHaveLength(2);
+				expect(inserted[0]).toEqual(expect.arrayContaining(["run-a", 10, "loop", "model-a", "model-a-concrete"]));
+				expect(inserted[1]).toEqual(expect.arrayContaining(["run-b", 11, "compaction", "model-b", null]));
+				expect(runtime.setRuntimeState).toHaveBeenCalledWith("provider_token_calibration_samples_backfilled", true);
+			});
+
+			it("records compaction submissions before provider failures and marks the row failed", async () => {
 			const candidates = Array.from({ length: 12 }, (_, index) => ({
 				seq: index + 1,
 				position: index + 1,
@@ -905,6 +2381,243 @@ describe("Bickr Pages Functions", () => {
 			expect(logs[3]?.prefixLength).toBe(320);
 		});
 
+		it("adds request usage and cache badges to retained loop message logs", () => {
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				state: {
+					storage: {
+						sql: memoryLoopMessageLogSql({
+							streamSeq: 77,
+							providerUsage: {
+								requestSeq: 77,
+								promptTokens: 20,
+								completionTokens: 5,
+								totalTokens: 25,
+								cachedTokens: 12,
+								cost: 0.006,
+								usageJson: {
+									prompt_tokens: 20,
+									completion_tokens: 5,
+									total_tokens: 25,
+									prompt_tokens_details: { cached_tokens: 12 },
+									cost: 0.006,
+									cost_details: {
+										upstream_inference_prompt_cost: 0.003,
+										upstream_inference_completions_cost: 0.003,
+									},
+								},
+							},
+						}),
+					},
+				},
+				textTokenCalibration: () => ({ tokensPerCharacter: 1, sampleCount: 1 }),
+			});
+			const recordLoopMessageLog = (BotRuntime.prototype as unknown as {
+				recordLoopMessageLog: (messageSeq: number, kind: string, text: string) => void;
+			}).recordLoopMessageLog.bind(runtime);
+			const loopMessageLogsForSeq = (BotRuntime.prototype as unknown as {
+				loopMessageLogsForSeq: (seq: number) => {
+					requestMessages?: Array<{ cacheStatus?: string; message: Record<string, unknown> }>;
+					requestUsage?: {
+						cachedInputTokens: number;
+						uncachedInputTokens: number;
+						outputTokens: number;
+						cachedInputCost: number | null;
+						uncachedInputCost: number | null;
+						outputCost: number | null;
+						totalCost: number | null;
+						estimatedCostSplit: boolean;
+					};
+				};
+			}).loopMessageLogsForSeq.bind(runtime);
+
+			recordLoopMessageLog(1, "provider_request", JSON.stringify({
+				messages: [
+					{ role: "system", content: "aaaa" },
+					{ role: "user", content: "bbbb" },
+				],
+			}));
+
+			const result = loopMessageLogsForSeq(1);
+			expect(result.requestUsage).toMatchObject({
+				cachedInputTokens: 12,
+				uncachedInputTokens: 8,
+				outputTokens: 5,
+				outputCost: 0.003,
+				totalCost: 0.006,
+				estimatedCostSplit: true,
+			});
+			expect(result.requestUsage?.cachedInputCost).toBeCloseTo(0.0018);
+			expect(result.requestUsage?.uncachedInputCost).toBeCloseTo(0.0012);
+			expect(result.requestMessages?.map((message) => message.cacheStatus)).toEqual(["cached", "partially_cached"]);
+		});
+
+		it("soft-deletes loop messages without removing retained raw logs", async () => {
+			const sql = memoryLoopMessageLogSql();
+			const broadcastControl = vi.fn();
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				state: { storage: { sql } },
+				status: async () => ({ status: "idle" }),
+				broadcastControl,
+			});
+			const recordLoopMessageLog = (BotRuntime.prototype as unknown as {
+				recordLoopMessageLog: (messageSeq: number, kind: string, text: string) => void;
+			}).recordLoopMessageLog.bind(runtime);
+			const loopMessageLogsForSeq = (BotRuntime.prototype as unknown as {
+				loopMessageLogsForSeq: (seq: number) => { message: BotLoopMessage; logs: BotLoopMessageLog[] };
+			}).loopMessageLogsForSeq.bind(runtime);
+			const deleteLoopMessage = (BotRuntime.prototype as unknown as {
+				deleteLoopMessage: (botId: string, seq: number) => Promise<{ seq: number; deletedAt: string }>;
+			}).deleteLoopMessage.bind(runtime);
+
+			recordLoopMessageLog(1, "provider_request", "request body");
+			recordLoopMessageLog(1, "provider_response", "response body");
+			const deleted = await deleteLoopMessage("bot_log", 1);
+			const retained = loopMessageLogsForSeq(1);
+
+			expect(deleted.seq).toBe(1);
+			expect(deleted.deletedAt).toMatch(/^20/);
+			expect(retained.message.deletedAt).toBe(deleted.deletedAt);
+			expect(retained.logs.map((log) => log.text)).toEqual(["request body", "response body"]);
+			expect(broadcastControl).toHaveBeenCalledWith({
+				type: "loop_message_deleted",
+				seq: 1,
+				deletedAt: deleted.deletedAt,
+			});
+		});
+
+		it("pages retained loop messages by compaction boundaries", () => {
+			const rows = [
+				{ ...loopMessageRowForTest(1, "run-old", "Old event"), compacted_by: 10 },
+				{ ...loopMessageRowForTest(10, "run-compact-1", "Previous summary"), origin: "compaction" as BotLoopMessage["origin"], compacted_by: 20 },
+				{ ...loopMessageRowForTest(11, "run-middle", "Middle event"), compacted_by: 20 },
+				{ ...loopMessageRowForTest(12, "run-deleted", "Deleted middle event"), compacted_by: 20, deleted_at: "2026-05-05T01:00:00.000Z" },
+				{ ...loopMessageRowForTest(20, "run-compact-2", "Current summary"), origin: "compaction" as BotLoopMessage["origin"] },
+				loopMessageRowForTest(21, "run-current", "Current event"),
+			];
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				state: { storage: { sql: memoryLoopMessagePageSql(rows) } },
+			});
+			const loopMessagesPage = (BotRuntime.prototype as unknown as {
+				loopMessagesPage: (input: { page: number; after?: number }) => { messages: BotLoopMessage[]; page: { currentPage: number; pageCount: number; newerPage?: number; olderPage?: number; compactionPageBySeq: Record<string, number> } };
+			}).loopMessagesPage.bind(runtime);
+
+			const page1 = loopMessagesPage({ page: 1 });
+			const page2 = loopMessagesPage({ page: 2 });
+			const page3 = loopMessagesPage({ page: 3 });
+
+			expect(page1.messages.map((message) => message.seq)).toEqual([20, 21]);
+			expect(page1.page).toMatchObject({
+				currentPage: 1,
+				pageCount: 3,
+				olderPage: 2,
+				compactionPageBySeq: { "20": 2, "10": 3 },
+			});
+			expect(page2.messages.map((message) => message.seq)).toEqual([10, 11]);
+			expect(page2.page).toMatchObject({ currentPage: 2, newerPage: 1, olderPage: 3 });
+			expect(page3.messages.map((message) => message.seq)).toEqual([1]);
+			expect(page3.page).toMatchObject({ currentPage: 3, newerPage: 2 });
+		});
+
+		it("shows every active row on page one in context order", () => {
+			const rows = [
+				{ ...loopMessageRowForTest(1, "run-old", "Old event"), compacted_by: 10 },
+				{ ...loopMessageRowForTest(10, "run-compact-1", "Previous active summary"), origin: "compaction" as BotLoopMessage["origin"] },
+				{ ...loopMessageRowForTest(11, "run-middle", "Middle event"), compacted_by: 20 },
+				{ ...loopMessageRowForTest(20, "run-compact-2", "Current summary"), origin: "compaction" as BotLoopMessage["origin"] },
+				loopMessageRowForTest(21, "run-current", "Current event"),
+			];
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				state: { storage: { sql: memoryLoopMessagePageSql(rows) } },
+			});
+			const loopMessagesPage = (BotRuntime.prototype as unknown as {
+				loopMessagesPage: (input: { page: number; after?: number }) => { messages: BotLoopMessage[]; page: { currentPage: number; pageCount: number; newerPage?: number; olderPage?: number; compactionPageBySeq: Record<string, number> } };
+			}).loopMessagesPage.bind(runtime);
+
+			const page1 = loopMessagesPage({ page: 1 });
+			const page2 = loopMessagesPage({ page: 2 });
+			const page3 = loopMessagesPage({ page: 3 });
+
+			expect(page1.messages.map((message) => message.seq)).toEqual([10, 20, 21]);
+			expect(page1.page).toMatchObject({
+				currentPage: 1,
+				pageCount: 3,
+				olderPage: 2,
+				compactionPageBySeq: { "20": 2, "10": 3 },
+			});
+			expect(page2.messages.map((message) => message.seq)).toEqual([11]);
+			expect(page2.page).toMatchObject({ currentPage: 2, newerPage: 1 });
+			expect(page3.messages.map((message) => message.seq)).toEqual([1]);
+			expect(page3.page).toMatchObject({ currentPage: 3, newerPage: 1 });
+		});
+
+		it("serializes loop message positions and orders active compaction summaries by context position", () => {
+			const rows = [
+				{ ...loopMessageRowForTest(1, "run-old", "Old event"), compacted_by: 100 },
+				{ ...loopMessageRowForTest(20, "run-current", "Current event"), position: 10 },
+				{ ...loopMessageRowForTest(100, "run-compact", "Current summary"), position: 5, origin: "compaction" as BotLoopMessage["origin"] },
+			];
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				state: { storage: { sql: memoryLoopMessagePageSql(rows) } },
+			});
+			const loopMessagesPage = (BotRuntime.prototype as unknown as {
+				loopMessagesPage: (input: { page: number; after?: number }) => { messages: BotLoopMessage[]; page: { currentPage: number } };
+			}).loopMessagesPage.bind(runtime);
+
+			const page1 = loopMessagesPage({ page: 1 });
+
+			expect(page1.messages.map((message) => ({ seq: message.seq, position: message.position }))).toEqual([
+				{ seq: 100, position: 5 },
+				{ seq: 20, position: 10 },
+			]);
+		});
+
+		it("keeps incremental loop message fetches on the active page only", () => {
+			const rows = [
+				{ ...loopMessageRowForTest(1, "run-old", "Old event"), compacted_by: 10 },
+				{ ...loopMessageRowForTest(10, "run-compact", "Current summary"), origin: "compaction" as BotLoopMessage["origin"] },
+				loopMessageRowForTest(11, "run-current", "Current event"),
+			];
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				state: { storage: { sql: memoryLoopMessagePageSql(rows) } },
+			});
+			const loopMessagesPage = (BotRuntime.prototype as unknown as {
+				loopMessagesPage: (input: { page: number; after?: number }) => { messages: BotLoopMessage[]; page: { currentPage: number } };
+			}).loopMessagesPage.bind(runtime);
+
+			expect(loopMessagesPage({ page: 1, after: 10 }).messages.map((message) => message.seq)).toEqual([11]);
+			expect(loopMessagesPage({ page: 2, after: 99 }).messages.map((message) => message.seq)).toEqual([1]);
+		});
+
+		it("keeps compacted runtime diagnostics behind the active compaction summary", () => {
+			const rows: LoopMessageRowForTest[] = [
+				{ ...loopMessageRowForTest(1, "run-old", "Old provider event"), compacted_by: 10 },
+				{
+					...loopMessageRowForMessage(
+						2,
+						{ role: "user", content: runtimeErrorLoopMessageContent("Inference request failed with status 400.") },
+						"runtime_error",
+					),
+					compacted_by: 10,
+					origin: "runtime_error" as BotLoopMessage["origin"],
+				},
+				{ ...loopMessageRowForTest(10, "run-compact", "Current summary"), origin: "compaction" as BotLoopMessage["origin"] },
+				loopMessageRowForTest(11, "run-current", "Current event"),
+			];
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				state: { storage: { sql: memoryLoopMessagePageSql(rows) } },
+			});
+			const loopMessagesPage = (BotRuntime.prototype as unknown as {
+				loopMessagesPage: (input: { page: number; after?: number }) => { messages: BotLoopMessage[]; page: { currentPage: number; olderPage?: number } };
+			}).loopMessagesPage.bind(runtime);
+
+			const page1 = loopMessagesPage({ page: 1 });
+			const page2 = loopMessagesPage({ page: 2 });
+
+			expect(page1.messages.map((message) => message.seq)).toEqual([10, 11]);
+			expect(page1.page).toMatchObject({ currentPage: 1, olderPage: 2 });
+			expect(page2.messages.map((message) => message.seq)).toEqual([1, 2]);
+		});
+
 		it("uses the latest successful compaction summary after a failed compaction row", () => {
 			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 				state: {
@@ -929,55 +2642,555 @@ describe("Bickr Pages Functions", () => {
 				latestCompactionSummary: () => string;
 			}).latestCompactionSummary.bind(runtime);
 
-			expect(latestCompactionSummary()).toBe("I remember that I owe Müller a follow-up.");
+			expect(latestCompactionSummary()).toBe("I owe Müller a follow-up.");
 		});
 
-		it("builds translation requests with strict structured output and no tools", () => {
-		const request = providerTranslationRequest(
-			{
-				baseUrl: "https://openrouter.ai/api/v1",
-				model: "openai/gpt-4o-mini",
-				prompt: "Translate to Pirate.",
-			},
-			"Hello world.",
-		);
-
-		expect(request.model).toBe("openai/gpt-4o-mini");
-		expect(request.messages).toEqual([
-			{ role: "system", content: "Translate to Pirate." },
-			{ role: "user", content: "Hello world." },
-		]);
-		expect("tools" in request).toBe(false);
-		expect(request.stream).toBe(false);
-		expect(request.temperature).toBe(0);
-		expect(request.reasoning).toEqual({ effort: "none" });
-		expect(request.response_format).toEqual({
-			type: "json_schema",
-			json_schema: {
-				name: "translation",
-				strict: true,
-				schema: {
-					type: "object",
-					properties: {
-						translation: { type: "string" },
-					},
-					required: ["translation"],
-					additionalProperties: false,
+		it("stores provider compaction summaries without adding a memory prefix", async () => {
+			const candidates = [
+				{
+					...loopMessageRowForTest(1, "run-compaction-success", "I read the changelog thread."),
+					position: 3,
+					token_estimate: 10,
 				},
-			},
+				{
+					...loopMessageRowForTest(2, "run-compaction-success", "I checked the replies."),
+					position: 7,
+					token_estimate: 10,
+				},
+			];
+			const appendEvent = vi.fn(async (runId: string, type: string, payload: unknown) => ({
+				seq: 101,
+				runId,
+				type,
+				payload,
+				tokenEstimate: 1,
+				createdAt: "2026-05-01T00:00:01.000Z",
+			}));
+			const insertLoopMessage = vi.fn((input: { runId: string; message: unknown; position: number }) => ({
+				seq: 102,
+				runId: input.runId,
+				message: input.message,
+				position: input.position,
+				createdAt: "2026-05-01T00:00:02.000Z",
+			}));
+			const replaceEventPayload = vi.fn();
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				env: {},
+				state: {
+					storage: {
+						sql: {
+							exec: vi.fn(() => ({ one: () => ({}), toArray: () => [] })),
+						},
+					},
+				},
+				appendEvent,
+				recordInferenceSubmission: vi.fn(),
+				callProviderForCompaction: async () => ({
+					content: "I chose to follow up with Müller about concise release notes.",
+					requestBody: "{}",
+					rawResponse: "{}",
+				}),
+				replaceEventPayload,
+				insertLoopMessage,
+				recordLoopMessageLog: vi.fn(),
+				nextLoopMessagePosition: () => 50,
+			});
+			const compactLoopMessageRows = (BotRuntime.prototype as unknown as {
+				compactLoopMessageRows: (
+					bot: BotDocument,
+					settings: { apiKey: string; baseUrl: string; model: string; temperature: number },
+					runId: string,
+					signal: AbortSignal,
+					rows: unknown[],
+					mode: "auto" | "manual",
+					metrics: { estimatedContextTokens?: number; threshold?: number },
+				) => Promise<void>;
+			}).compactLoopMessageRows.bind(runtime);
+
+			await compactLoopMessageRows(
+				{
+					id: "bot_release",
+					handle: "release-sage",
+					displayName: "Release Sage",
+					shortBio: "Summarizes release work.",
+					prompt: "Prefer concise changelog memory.",
+					inferenceSettings: {},
+				} as BotDocument,
+				{ apiKey: "test-key", baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				"run-compaction-success",
+				new AbortController().signal,
+				candidates,
+				"auto",
+				{ estimatedContextTokens: 10_000, threshold: 80 },
+			);
+
+			expect(insertLoopMessage).toHaveBeenCalledWith(expect.objectContaining({
+				message: {
+					role: "assistant",
+					content: "I chose to follow up with Müller about concise release notes.",
+				},
+				position: 7,
+			}));
+			expect(replaceEventPayload).toHaveBeenLastCalledWith(expect.objectContaining({ seq: 101 }), expect.objectContaining({
+				status: "complete",
+				summary: "I chose to follow up with Müller about concise release notes.",
+			}));
 		});
-	});
+
+		it("marks owner-only diagnostics in the compacted ledger span without sending them to the provider", async () => {
+			const rows: LoopMessageRowForTest[] = [
+				loopMessageRowForTest(1, "run-ledger-compact", "Provider-visible old context."),
+				{
+					...loopMessageRowForMessage(
+						2,
+						{ role: "assistant", content: defaultReasoningPrefill("budget-bot") },
+						"synthetic_context",
+					),
+					origin: "synthetic_context" as BotLoopMessage["origin"],
+				},
+				{
+					...loopMessageRowForMessage(
+						3,
+						{ role: "user", content: runtimeErrorLoopMessageContent("Inference request failed with status 400.") },
+						"runtime_error",
+					),
+					origin: "runtime_error" as BotLoopMessage["origin"],
+				},
+				loopMessageRowForTest(4, "run-ledger-compact", "Provider-visible newer context."),
+				{
+					...loopMessageRowForMessage(
+						5,
+						{ role: "user", content: runtimeErrorLoopMessageContent("Inference request failed with status 404.") },
+						"runtime_error",
+					),
+					origin: "runtime_error" as BotLoopMessage["origin"],
+				},
+			];
+			const appendEvent = vi.fn(async (runId: string, type: string, payload: unknown) => ({
+				seq: 101,
+				runId,
+				type,
+				payload,
+				tokenEstimate: 1,
+				createdAt: "2026-05-01T00:00:01.000Z",
+			}));
+			const recordInferenceSubmission = vi.fn();
+			const callProviderForCompaction = vi.fn(async (_settings: unknown, _messages: unknown[]) => ({
+				content: "I kept the provider-visible context.",
+				requestBody: "{}",
+				rawResponse: "{}",
+			}));
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				env: {},
+				state: {
+					storage: {
+						sql: {
+							exec: vi.fn(<T,>(sql: string, ...params: unknown[]) => {
+								if (/FROM loop_messages m\s+WHERE m\.compacted_by IS NULL/.test(sql)) {
+									return {
+										toArray: () =>
+											rows
+												.filter((row) => row.compacted_by === null && row.deleted_at === null)
+												.sort((left, right) => left.position - right.position || left.seq - right.seq) as T[],
+									};
+								}
+								if (/UPDATE loop_messages\s+SET compacted_by = \?/.test(sql)) {
+									const row = rows.find((item) => item.seq === Number(params[1]));
+									if (row && row.compacted_by === null) {
+										row.compacted_by = Number(params[0]);
+									}
+								}
+								return { one: () => ({} as T), toArray: () => [] as T[] };
+							}),
+						},
+					},
+				},
+				appendEvent,
+				recordInferenceSubmission,
+				callProviderForCompaction,
+				replaceEventPayload: vi.fn(),
+				insertLoopMessage: vi.fn((input: { runId: string; message: unknown; position: number }) => ({
+					seq: 102,
+					runId: input.runId,
+					message: input.message,
+					position: input.position,
+					createdAt: "2026-05-01T00:00:02.000Z",
+				})),
+				recordLoopMessageLog: vi.fn(),
+				updateInferenceSubmissionDisplayMessages: vi.fn(),
+				broadcastControl: vi.fn(),
+			});
+			const compactLoopMessageRows = (BotRuntime.prototype as unknown as {
+				compactLoopMessageRows: (
+					bot: BotDocument,
+					settings: { apiKey: string; baseUrl: string; model: string; temperature: number },
+					runId: string,
+					signal: AbortSignal,
+					rows: unknown[],
+					mode: "auto" | "manual",
+					metrics: { estimatedContextTokens?: number; threshold?: number },
+				) => Promise<void>;
+			}).compactLoopMessageRows.bind(runtime);
+
+			await compactLoopMessageRows(
+				fakeBotDocument(),
+				{ apiKey: "test-key", baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				"run-ledger-compact",
+				new AbortController().signal,
+				[rows[0], rows[3]],
+				"auto",
+				{ estimatedContextTokens: 10_000, threshold: 80 },
+			);
+
+			const providerMessages = callProviderForCompaction.mock.calls[0]?.[1] as Array<{ content?: unknown }> | undefined;
+			const providerText = JSON.stringify(providerMessages);
+			expect(providerText).toContain("Provider-visible old context.");
+			expect(providerText).toContain("Provider-visible newer context.");
+			expect(providerText).not.toContain(defaultReasoningPrefill("budget-bot"));
+			expect(providerText).not.toContain("Inference request failed with status 400");
+			expect(rows.map((row) => row.compacted_by)).toEqual([102, 102, 102, 102, null]);
+			expect(recordInferenceSubmission).toHaveBeenCalledWith(expect.objectContaining({
+				messages: providerMessages,
+			}));
+		});
+
+		it("shrinks the compaction row batch after provider output length exhaustion", async () => {
+			const originalFetch = globalThis.fetch;
+			const rows = [
+				loopMessageRowForTest(1, "run-old", "Old context one that can be compacted."),
+				loopMessageRowForTest(2, "run-old", "Old context two that should remain active after the shrink retry."),
+				loopMessageRowForTest(3, "run-old", "Old context three that should remain active after the shrink retry."),
+			];
+			const lengthResponse = {
+				choices: [{
+					finish_reason: "length",
+					native_finish_reason: "max_output_tokens",
+					message: { role: "assistant", content: null },
+				}],
+				usage: { prompt_tokens: 100, completion_tokens: 100, total_tokens: 200 },
+			};
+			const validResponse = {
+				choices: [{
+					message: {
+						content: JSON.stringify({ [providerCompactionSummaryProperty]: "I remember old context one." }),
+					},
+				}],
+				usage: { prompt_tokens: 80, completion_tokens: 12, total_tokens: 92 },
+			};
+			const fetchMock = vi.fn()
+				.mockResolvedValueOnce(Response.json(lengthResponse))
+				.mockResolvedValueOnce(Response.json(validResponse));
+				vi.stubGlobal("fetch", fetchMock);
+				try {
+					const replaceEventPayload = vi.fn();
+					const recordProviderTokenCalibrationSample = vi.fn();
+					const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+						env: { BICKR_SIMULATION_MODE: "provider" },
+					state: {
+						storage: {
+							sql: {
+								exec: vi.fn((sql: string, ...params: unknown[]) => {
+									if (/UPDATE loop_messages/i.test(sql)) {
+										const compactedBy = Number(params[0]);
+										const seq = Number(params[1]);
+										const row = rows.find((item) => item.seq === seq);
+										if (row) {
+											row.compacted_by = compactedBy;
+										}
+									}
+									return { one: () => ({}), toArray: () => [] };
+								}),
+							},
+						},
+						},
+						appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) =>
+							runtimeEvent(500, runId, type as BotRuntimeEvent["type"], payload),
+						broadcastControl: vi.fn(),
+						compactionLedgerRows: (providerRows: typeof rows) => providerRows,
+					insertLoopMessage: vi.fn((input: { runId: string; message: unknown; position: number }) => ({
+						seq: 900,
+						runId: input.runId,
+						message: input.message,
+						position: input.position,
+						createdAt: "2026-05-01T00:00:02.000Z",
+					})),
+						recordInferenceSubmission: vi.fn(),
+						recordLoopMessageLog: vi.fn(),
+						recordProviderTokenCalibrationSample,
+						recordProviderUsage: vi.fn(),
+					repairDanglingCommentReferencesAfterCompaction: vi.fn(),
+					replaceEventPayload,
+					textTokenCalibration: () => ({ tokensPerCharacter: 0.25, sampleCount: 0 }),
+					throwIfStopped: (_runId: string, signal: AbortSignal) => {
+						if (signal.aborted) {
+							throw new Error("Unexpected abort.");
+						}
+					},
+					updateInferenceSubmissionDisplayMessages: vi.fn(),
+				});
+				const compactLoopMessageRows = (BotRuntime.prototype as unknown as {
+					compactLoopMessageRows: (
+						bot: BotDocument,
+						settings: { apiKey: string; baseUrl: string; model: string; temperature: number },
+						runId: string,
+						signal: AbortSignal,
+						rows: unknown[],
+						mode: "auto" | "manual",
+						metrics: Record<string, unknown>,
+					) => Promise<void>;
+				}).compactLoopMessageRows.bind(runtime);
+
+				await compactLoopMessageRows(
+					fakeBotDocument(),
+					{ apiKey: "test-key", baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+					"run-output-limit-shrink",
+					new AbortController().signal,
+					rows,
+					"auto",
+					{},
+				);
+
+				expect(fetchMock).toHaveBeenCalledTimes(2);
+				const firstBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as { messages: BotInferenceSubmissionMessage[] };
+				const secondBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)) as { messages: BotInferenceSubmissionMessage[] };
+				expect(JSON.stringify(firstBody.messages)).toContain("Old context three");
+				expect(JSON.stringify(secondBody.messages)).toContain("Old context one");
+					expect(JSON.stringify(secondBody.messages)).not.toContain("Old context two");
+					expect(rows.map((row) => row.compacted_by)).toEqual([900, null, null]);
+					expect(recordProviderTokenCalibrationSample).toHaveBeenCalledTimes(2);
+					expect(recordProviderTokenCalibrationSample).toHaveBeenNthCalledWith(1, expect.objectContaining({
+						attempt: 1,
+						usage: expect.objectContaining({ promptTokens: 100 }),
+					}));
+					expect(recordProviderTokenCalibrationSample).toHaveBeenNthCalledWith(2, expect.objectContaining({
+						attempt: 1,
+						usage: expect.objectContaining({ promptTokens: 80 }),
+					}));
+					expect(replaceEventPayload).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({
+					status: "complete",
+					fromSeq: 1,
+					toSeq: 1,
+					outputLimitShrinkAttempts: 1,
+				}));
+			} finally {
+				vi.stubGlobal("fetch", originalFetch);
+			}
+		});
+
+		it("uses the computed next compaction point for soft compaction", async () => {
+			const row = loopMessageRowForTest(1, "run-threshold", "Old context.");
+			const compactLoopMessageRows = vi.fn();
+			const bot = fakeBotDocument({ contextWindowTokens: 16_000 });
+			const calibration = { tokensPerCharacter: 0.25, sampleCount: 0 };
+			const expectedLimits = providerCompactionSummaryLimitsForChat(
+				bot,
+				[{ role: "assistant", content: "Old context." }],
+				calibration,
+			);
+			let promptTokens = expectedLimits.nextCompactionTokens;
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				activeProviderRequestMessages: () => [{ role: "system", content: "System." }, { role: "assistant", content: "Old context." }],
+				currentCompactionContextEstimate: () => ({ totalTokens: 4, rowTokens: 4, rows: [{ row, tokens: 4 }], calibration }),
+				compactionRowsForEstimatedBudget: () => [row],
+				compactLoopMessageRows,
+				estimateProviderPromptTokens: () => providerPromptEstimateForTokens(promptTokens),
+			});
+			const compactIfNeeded = (BotRuntime.prototype as unknown as {
+				compactIfNeeded: (
+					bot: BotDocument,
+					settings: Record<string, unknown>,
+					runId: string,
+					signal: AbortSignal,
+				) => Promise<void>;
+			}).compactIfNeeded.bind(runtime);
+
+			await compactIfNeeded(bot, {}, "run-threshold", new AbortController().signal);
+			expect(compactLoopMessageRows).not.toHaveBeenCalled();
+
+			promptTokens = expectedLimits.nextCompactionTokens + 1;
+			await compactIfNeeded(bot, {}, "run-threshold", new AbortController().signal);
+			expect(compactLoopMessageRows).toHaveBeenCalledWith(
+				expect.anything(),
+				expect.anything(),
+				"run-threshold",
+				expect.any(AbortSignal),
+				[row],
+				"auto",
+				expect.objectContaining({
+					estimatedContextTokens: 4,
+					estimatedPromptTokens: expectedLimits.nextCompactionTokens + 1,
+					threshold: expectedLimits.nextCompactionTokens,
+				}),
+			);
+		});
+
+		it("hydrates only the newest dangling comment reference after compaction", () => {
+			const toolRow = (seq: number, position: number, content: unknown) => ({
+				seq,
+				position,
+				run_id: "run-repair",
+				role: "tool",
+				message_json: JSON.stringify({
+					role: "tool",
+					tool_call_id: `call_${seq}`,
+					content: JSON.stringify(content),
+				}),
+				origin: "tool_result",
+				status: "complete",
+				token_estimate: 1,
+				stream_seq: null,
+				compacted_by: null,
+				deleted_at: null,
+				created_at: "2026-05-01T00:00:00.000Z",
+				has_logs: 0,
+			});
+			const rows = [
+				toolRow(20, 20, { content: [{ type: "comment", id: "cmt_a", commentId: "cmt_a", threadId: "thr_repair" }] }),
+				toolRow(21, 21, {
+					content: [
+						{ type: "comment", id: "cmt_b", commentId: "cmt_b", threadId: "thr_repair" },
+						{ type: "comment", id: "cmt_c", commentId: "cmt_c", threadId: "thr_repair", body: "Still anchored." },
+					],
+				}),
+				toolRow(22, 22, {
+					content: [
+						{ type: "comment", id: "cmt_a", commentId: "cmt_a", threadId: "thr_repair" },
+						{ type: "comment", id: "cmt_b", commentId: "cmt_b", threadId: "thr_repair" },
+					],
+				}),
+			];
+			const sql = {
+				exec: vi.fn(<T,>(query: string, ...params: unknown[]) => {
+					const normalized = query.trim().replace(/\s+/g, " ");
+					if (/FROM loop_messages m WHERE m\.compacted_by IS NULL/.test(normalized)) {
+						const minPosition = Number(params[0]);
+						const samePosition = Number(params[1]);
+						const minSeq = Number(params[2]);
+						return {
+							toArray: () =>
+								rows
+									.filter((row) => row.compacted_by === null && row.deleted_at === null && row.role === "tool")
+									.filter((row) => row.position > minPosition || (row.position === samePosition && row.seq > minSeq))
+									.sort((left, right) => left.position - right.position || left.seq - right.seq) as T[],
+						};
+					}
+					if (/UPDATE loop_messages SET message_json = \?, token_estimate = \? WHERE seq = \?/.test(normalized)) {
+						const row = rows.find((item) => item.seq === Number(params[2]));
+						if (row) {
+							row.message_json = String(params[0]);
+							row.token_estimate = Number(params[1]);
+						}
+					}
+					return {
+						one: () => ({} as T),
+						toArray: () => [] as T[],
+					};
+				}),
+			};
+			const recordLoopMessageLog = vi.fn();
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				state: { storage: { sql } },
+				recordLoopMessageLog,
+			});
+			const repair = (BotRuntime.prototype as unknown as {
+				repairDanglingCommentReferencesAfterCompaction: (
+					summarySeq: number,
+					summaryPosition: number,
+					summaryMessage: { role: "assistant"; content: string },
+					compactedCommentBodies: ReadonlyMap<string, string>,
+				) => void;
+			}).repairDanglingCommentReferencesAfterCompaction.bind(runtime);
+
+			repair(
+				10,
+				10,
+				{ role: "assistant", content: "Compacted summary without structured comment JSON." },
+				new Map([
+					["cmt_a", "Hydrated A."],
+					["cmt_b", "Hydrated B."],
+					["cmt_c", "Hydrated C."],
+				]),
+			);
+
+			const contentForRow = (seq: number) =>
+				JSON.parse(JSON.parse(rows.find((row) => row.seq === seq)?.message_json ?? "{}").content) as { content: Array<Record<string, unknown>> };
+			expect(contentForRow(20).content[0]?.body).toBeUndefined();
+			expect(contentForRow(21).content[0]?.body).toBeUndefined();
+			expect(contentForRow(21).content[1]?.body).toBe("Still anchored.");
+			expect(contentForRow(22).content).toEqual([
+				expect.objectContaining({ id: "cmt_a", commentId: "cmt_a", body: "Hydrated A." }),
+				expect.objectContaining({ id: "cmt_b", commentId: "cmt_b", body: "Hydrated B." }),
+			]);
+			expect(rows.find((row) => row.seq === 22)?.token_estimate).toBeGreaterThan(1);
+			expect(recordLoopMessageLog.mock.calls.map((call) => call.slice(0, 2))).toEqual([
+				[22, "message"],
+				[22, "tool_result"],
+			]);
+		});
+
+		it("builds translation requests with required tool output", () => {
+			const request = providerTranslationRequest(
+				{
+					baseUrl: "https://openrouter.ai/api/v1",
+					model: "openai/gpt-4o-mini",
+					providerRouting: { max_price: { prompt: 0.2, completion: 0.4 } },
+					prompt: "Translate to Pirate.",
+					reasoningEffort: "low",
+					temperature: 0,
+				},
+				"Hello world.",
+			);
+
+			expect(request.model).toBe("openai/gpt-4o-mini");
+			expect(request.messages).toEqual([
+				{ role: "system", content: "Translate to Pirate.\n\nYou MUST use one of the following tools: save_translation." },
+				{
+					role: "user",
+					content: "Translate the following text. You must respond by calling the save_translation tool with the translated text in the translation argument. Do not reply as plain text.\n\nText:\nHello world.",
+				},
+			]);
+			expect(request.provider).toEqual({ max_price: { prompt: 0.2, completion: 0.4 } });
+			const translationTool = request.tools[0] as Extract<ProviderToolDefinition, { type: "function" }>;
+			expect(translationTool.function.name).toBe("save_translation");
+			expect(request.tool_choice).toBe("required");
+			expect(request.parallel_tool_calls).toBe(false);
+			expect(request.stream).toBe(false);
+			expect(request.temperature).toBe(0);
+			expect(request.reasoning).toEqual({ effort: "low", exclude: false });
+			expect(translationTool.function.parameters).toEqual({
+				type: "object",
+				properties: {
+					translation: { type: "string" },
+				},
+				required: ["translation"],
+				additionalProperties: false,
+			});
+			expect("response_format" in request).toBe(false);
+
+			const railroadRequest = providerTranslationRequest(
+				{
+					baseUrl: "https://openrouter.ai/api/v1",
+					model: "openai/gpt-4o-mini",
+					prompt: "Translate to Pirate.",
+					temperature: 0,
+					toolCalls: "railroad",
+				},
+				"Hello world.",
+			);
+			expect("tool_choice" in railroadRequest).toBe(false);
+			expect(railroadRequest.messages[0]?.content).toContain("You MUST use one of the following tools: save_translation.");
+		});
 
 	it("builds reasoning prefill defaults and preserves explicit trailing whitespace", () => {
 		expect(defaultReasoningPrefill("release-sage")).toBe(
-			"I pause at Bickr as u/release-sage and think about how I feel, what I remember, and what I want to do next.",
+			"I'm u/release-sage. I need to think about how I feel and what I want to do next.",
 		);
 		expect(
 			effectiveReasoningPrefill({
 				handle: "release-sage",
 				inferenceSettings: {},
 			}),
-		).toBe("I pause at Bickr as u/release-sage and think about how I feel, what I remember, and what I want to do next.");
+		).toBe("I'm u/release-sage. I need to think about how I feel and what I want to do next.");
 		expect(
 			effectiveReasoningPrefill({
 				handle: "release-sage",
@@ -985,15 +3198,21 @@ describe("Bickr Pages Functions", () => {
 			}),
 		).toBe("I am Release Sage, and I  ");
 		expect(
+			effectiveReasoningPrefill({
+				handle: "release-sage",
+				inferenceSettings: { recurringPromptEnabled: false },
+			}),
+		).toBeUndefined();
+		expect(
 			providerMessagesWithReasoningPrefill(
 				[{ role: "user", content: "hello" }],
-				"I pause at Bickr as u/release-sage and think about how I feel, what I remember, and what I want to do next.",
+				"I'm u/release-sage. I need to think about how I feel and what I want to do next.",
 			),
 		).toEqual([
 			{ role: "user", content: "hello" },
 			{
 				role: "assistant",
-				content: "I pause at Bickr as u/release-sage and think about how I feel, what I remember, and what I want to do next.",
+				content: "I'm u/release-sage. I need to think about how I feel and what I want to do next.",
 			},
 		]);
 	});
@@ -1003,32 +3222,36 @@ describe("Bickr Pages Functions", () => {
 			{
 				baseUrl: "https://openrouter.ai/api/v1",
 				model: "test-model",
+				providerRouting: { ignore: ["deepinfra"] },
 				temperature: 0.2,
 			},
 			[{ role: "system", content: "Count this." }],
 			toolDefinitions,
 		);
 
-		expect(request.stream).toBe(false);
-		expect(request.max_tokens).toBe(1);
-		expect(request.reasoning).toEqual({ effort: "none" });
+			expect(request.stream).toBe(false);
+			expect(request.max_tokens).toBe(1);
+			expect(request.reasoning).toEqual({ enabled: true, exclude: false });
+		expect(request.provider).toEqual({ ignore: ["deepinfra"] });
 		expect(request.tool_choice).toBe("auto");
 		expect(request.tools).toBe(toolDefinitions);
 
 		const tunedRequest = providerTokenProbeRequest(
 			{
 				baseUrl: "https://openrouter.ai/api/v1",
-				model: "test-model",
-				temperature: 0.2,
-				frequencyPenalty: -0.25,
+					model: "test-model",
+					temperature: 0.2,
+					reasoningEffort: "none",
+					frequencyPenalty: -0.25,
 				presencePenalty: 0.5,
 				repetitionPenalty: 1.15,
 			},
 			[{ role: "system", content: "Count this." }],
 			toolDefinitions,
 		);
-		expect(tunedRequest).toMatchObject({
-			frequency_penalty: -0.25,
+			expect(tunedRequest).toMatchObject({
+				reasoning: { effort: "none", exclude: false },
+				frequency_penalty: -0.25,
 			presence_penalty: 0.5,
 			repetition_penalty: 1.15,
 		});
@@ -1048,9 +3271,189 @@ describe("Bickr Pages Functions", () => {
 		});
 	});
 
-	it("calculates prompt context budget segments and over-budget counts", () => {
+	it("resolves tool-call mode settings and coerces translation at-will to railroad", () => {
 		expect(
-			promptContextBudgetFromCounts({
+			effectiveProviderSettingsForBot(
+				{ inferenceSettings: {} },
+				{ inferenceSettings: {} },
+				{},
+			).toolCalls,
+		).toBe("require");
+		expect(
+			effectiveProviderSettingsForBot(
+				{ inferenceSettings: {} },
+				{ inferenceSettings: { toolCalls: "railroad" } },
+				{},
+			).toolCalls,
+		).toBe("railroad");
+		expect(
+			effectiveProviderSettingsForBot(
+				{ inferenceSettings: { toolCalls: "at_will" } },
+				{ inferenceSettings: { toolCalls: "railroad" } },
+				{},
+			).toolCalls,
+		).toBe("at_will");
+
+		expect(
+			effectiveProviderSettingsForTranslation(
+				{ inferenceSettings: { toolCalls: "at_will", translation: { enabled: true } } },
+				{},
+			)?.toolCalls,
+		).toBe("railroad");
+		expect(
+			effectiveProviderSettingsForTranslation(
+				{ inferenceSettings: { translation: { enabled: true, model: "translator/model", toolCalls: "railroad" } } },
+				{},
+			)?.toolCalls,
+		).toBe("railroad");
+	});
+
+	it("resolves compaction mode and prefill support settings from bot overrides before profile defaults", () => {
+		expect(
+			effectiveProviderSettingsForBot(
+				{ inferenceSettings: {} },
+				{ inferenceSettings: {} },
+				{},
+			),
+		).toMatchObject({
+			compactionMode: "structured_output",
+			supportsPrefill: true,
+		});
+		expect(
+			effectiveProviderSettingsForBot(
+				{ inferenceSettings: {} },
+				{ inferenceSettings: { compactionMode: "tool_call_cache_friendly", cacheFriendlyCompaction: true, supportsPrefill: false } },
+				{},
+			),
+		).toMatchObject({
+			compactionMode: "tool_call_cache_friendly",
+			supportsPrefill: false,
+		});
+		expect(
+			effectiveProviderSettingsForBot(
+				{ inferenceSettings: { compactionMode: "tool_call", supportsPrefill: true } },
+				{ inferenceSettings: { compactionMode: "tool_call_cache_friendly", supportsPrefill: false } },
+				{},
+			),
+		).toMatchObject({
+			compactionMode: "tool_call",
+			supportsPrefill: true,
+		});
+		expect(
+			effectiveProviderSettingsForBot(
+				{ inferenceSettings: { cacheFriendlyCompaction: true } },
+				{ inferenceSettings: { cacheFriendlyCompaction: true } },
+				{},
+			).compactionMode,
+		).toBe("structured_output");
+	});
+
+	it("resolves OpenRouter provider routing from bot overrides before profile defaults", () => {
+		expect(
+			effectiveProviderSettingsForBot(
+				{ inferenceSettings: {} },
+				{ inferenceSettings: { providerRouting: { max_price: { prompt: 0.25, completion: 0.75 } } } },
+				{},
+			).providerRouting,
+		).toEqual({ max_price: { prompt: 0.25, completion: 0.75 } });
+		expect(
+			effectiveProviderSettingsForBot(
+				{ inferenceSettings: { providerRouting: { order: ["openai"] } } },
+				{ inferenceSettings: { providerRouting: { order: ["anthropic"] } } },
+				{},
+			).providerRouting,
+		).toEqual({ order: ["openai"] });
+		expect(
+			effectiveProviderSettingsForBot(
+				{ inferenceSettings: { providerRouting: {} } },
+				{ inferenceSettings: { providerRouting: { order: ["anthropic"] } } },
+				{},
+			).providerRouting,
+		).toBeUndefined();
+		expect(
+			effectiveProviderSettingsForBot(
+				{ inferenceSettings: { baseUrl: "http://localhost:11434/v1", providerRouting: { order: ["openai"] } } },
+				{ inferenceSettings: {} },
+				{},
+			).providerRouting,
+		).toBeUndefined();
+	});
+
+	it("uses global inference defaults instead of profile fallbacks when a bot model is set", () => {
+		const profileSettings = {
+			openRouterApiKey: "sk-or-user",
+			model: "profile/model",
+			compactionMode: "tool_call_cache_friendly" as const,
+			providerRouting: { order: ["anthropic"] },
+			reasoningEffort: "high" as const,
+			supportsPrefill: false,
+			temperature: 0.4,
+			toolCalls: "at_will" as const,
+			topK: 12,
+			topP: 0.7,
+			minP: 0.1,
+			frequencyPenalty: -0.5,
+			presencePenalty: 0.25,
+			repetitionPenalty: 1.2,
+		};
+
+		const inheritedBlocked = effectiveProviderSettingsForBot(
+			{ inferenceSettings: { model: "bot/model" } },
+			{ inferenceSettings: profileSettings },
+			{},
+		);
+
+		expect(inheritedBlocked).toMatchObject({
+			apiKey: "sk-or-user",
+			baseUrl: "https://openrouter.ai/api/v1",
+			compactionMode: "structured_output",
+			model: "bot/model",
+			supportsPrefill: true,
+			temperature: 0.9,
+			toolCalls: "require",
+		});
+		expect(inheritedBlocked.providerRouting).toBeUndefined();
+		expect(inheritedBlocked.reasoningEffort).toBeUndefined();
+		expect(inheritedBlocked.topK).toBeUndefined();
+		expect(inheritedBlocked.topP).toBeUndefined();
+		expect(inheritedBlocked.minP).toBeUndefined();
+		expect(inheritedBlocked.frequencyPenalty).toBeUndefined();
+		expect(inheritedBlocked.presencePenalty).toBeUndefined();
+		expect(inheritedBlocked.repetitionPenalty).toBeUndefined();
+
+		expect(
+			effectiveProviderSettingsForBot(
+				{
+					inferenceSettings: {
+						model: "bot/model",
+						compactionMode: "tool_call",
+						providerRouting: { order: ["openai"] },
+						reasoningEffort: "low",
+						supportsPrefill: false,
+						temperature: 0.2,
+						toolCalls: "railroad",
+						topP: 0.5,
+					},
+				},
+				{ inferenceSettings: profileSettings },
+				{},
+			),
+		).toMatchObject({
+			apiKey: "sk-or-user",
+			compactionMode: "tool_call",
+			model: "bot/model",
+			providerRouting: { order: ["openai"] },
+			reasoningEffort: "low",
+			supportsPrefill: false,
+			temperature: 0.2,
+			toolCalls: "railroad",
+			topP: 0.5,
+		});
+	});
+
+	it("calculates prompt context budget segments and over-budget counts", () => {
+			expect(
+				promptContextBudgetFromCounts({
 				contextWindowTokens: 10_000,
 				fixedSystemTokens: 2_000,
 				personaPromptTokens: 1_500,
@@ -1072,17 +3475,120 @@ describe("Bickr Pages Functions", () => {
 		).toMatchObject({
 			remainingLoopTokens: 0,
 			overBudgetTokens: 3_000,
-			totalReservedTokens: 6_000,
+				totalReservedTokens: 6_000,
+			});
 		});
-	});
 
-	it("includes prompt, model, provider, and system fingerprints in context budget cache keys", async () => {
+		it("reports context window breakdown from latest normal loop inference", () => {
+			const baseline = providerLoopUsageRowForTest(10, "2026-05-01T00:00:00.000Z", 4_000);
+			const latest = providerLoopUsageRowForTest(12, "2026-05-01T00:10:00.000Z", 6_500);
+			const bot = fakeBotDocument({ contextWindowTokens: 20_000 });
+			const calibration = { tokensPerCharacter: 0.25, sampleCount: 0 };
+			const expectedLimits = providerCompactionSummaryLimitsForChat(bot, [], calibration, toolDefinitionsForProviderRound());
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				providerUsageRows: () => [],
+				tokenUsageChangeMarkers: () => [],
+				textTokenCalibration: () => calibration,
+				latestActiveLoopCompactionBoundary: () => null,
+				latestLoopProviderUsage: () => latest,
+				firstLoopProviderUsageAfterSeq: vi.fn(() => baseline),
+			});
+			const tokenUsageStats = (BotRuntime.prototype as unknown as {
+				tokenUsageStats: (bot: BotDocument, now?: Date) => BotTokenUsageStats;
+			}).tokenUsageStats.bind(runtime);
+
+			const usage = tokenUsageStats(bot);
+
+			expect(usage.contextWindow).toMatchObject({
+				usedAt: latest.created_at,
+				runId: latest.run_id,
+				requestSeq: 12,
+				promptTokens: 6_500,
+				baselinePromptTokens: 4_000,
+				initialTokens: 4_000,
+				ongoingTokens: 2_500,
+				freeTokens: 13_500,
+				contextWindowTokens: 20_000,
+				compactionCutoffTokens: expectedLimits.nextCompactionTokens,
+				responseReserveTokens: providerContextReserveTokens,
+			});
+		});
+
+		it("omits context window breakdown when the latest normal inference predates active compaction", () => {
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				providerUsageRows: () => [],
+				tokenUsageChangeMarkers: () => [],
+				textTokenCalibration: () => ({ tokensPerCharacter: 0.25, sampleCount: 0 }),
+				latestActiveLoopCompactionBoundary: () => ({ messageSeq: 20, requestSeq: 120, created_at: "2026-05-01T00:05:00.000Z" }),
+				latestLoopProviderUsage: () => providerLoopUsageRowForTest(12, "2026-05-01T00:20:00.000Z", 6_500),
+				firstLoopProviderUsageAfterSeq: vi.fn(),
+			});
+			const tokenUsageStats = (BotRuntime.prototype as unknown as {
+				tokenUsageStats: (bot: BotDocument, now?: Date) => BotTokenUsageStats;
+			}).tokenUsageStats.bind(runtime);
+
+			const usage = tokenUsageStats(fakeBotDocument({ contextWindowTokens: 16_000 }));
+
+			expect(usage.contextWindow).toBeUndefined();
+			expect(runtime.firstLoopProviderUsageAfterSeq).not.toHaveBeenCalled();
+		});
+
+		it("uses the first normal inference after active compaction as the context baseline", () => {
+			const firstLoopProviderUsageAfterSeq = vi.fn(() => providerLoopUsageRowForTest(121, "2026-05-01T00:06:00.000Z", 5_500));
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				providerUsageRows: () => [],
+				tokenUsageChangeMarkers: () => [],
+				textTokenCalibration: () => ({ tokensPerCharacter: 0.25, sampleCount: 0 }),
+				latestActiveLoopCompactionBoundary: () => ({ messageSeq: 20, requestSeq: 120, created_at: "2026-05-01T00:05:00.000Z" }),
+				latestLoopProviderUsage: () => providerLoopUsageRowForTest(124, "2026-05-01T00:20:00.000Z", 8_000),
+				firstLoopProviderUsageAfterSeq,
+			});
+			const tokenUsageStats = (BotRuntime.prototype as unknown as {
+				tokenUsageStats: (bot: BotDocument, now?: Date) => BotTokenUsageStats;
+			}).tokenUsageStats.bind(runtime);
+
+			const usage = tokenUsageStats(fakeBotDocument({ contextWindowTokens: 16_000 }));
+
+			expect(firstLoopProviderUsageAfterSeq).toHaveBeenCalledWith(120);
+			expect(usage.contextWindow).toMatchObject({
+				baselineRequestSeq: 121,
+				baselinePromptTokens: 5_500,
+				initialTokens: 5_500,
+				ongoingTokens: 2_500,
+			});
+		});
+
+		it("queries context window usage from normal loop submissions only", () => {
+			const queries: string[] = [];
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				state: {
+					storage: {
+						sql: {
+							exec: <T,>(sql: string) => {
+								queries.push(sql);
+								return { toArray: () => [providerLoopUsageRowForTest(31, "2026-05-01T00:30:00.000Z", 7_000) as T] };
+							},
+						},
+					},
+				},
+			});
+			const latestLoopProviderUsage = (BotRuntime.prototype as unknown as {
+				latestLoopProviderUsage: () => unknown;
+			}).latestLoopProviderUsage.bind(runtime);
+
+			expect(latestLoopProviderUsage()).toMatchObject({ request_seq: 31, prompt_tokens: 7_000 });
+			expect(queries[0]).toContain("s.purpose = 'loop'");
+		});
+
+		it("includes prompt, model, provider, and system fingerprints in context budget cache keys", async () => {
 		const base = {
 			botId: "bot_one",
+			compactionMode: "structured_output" as const,
 			effectiveModel: "openrouter/auto",
 			fixedSystemFingerprint: "system-a",
 			personaPromptFingerprint: "prompt-a",
 			providerBaseUrl: "https://openrouter.ai/api/v1",
+			supportsPrefill: true,
 		};
 
 		const original = await promptContextBudgetCacheFingerprint(base);
@@ -1096,7 +3602,16 @@ describe("Bickr Pages Functions", () => {
 			promptContextBudgetCacheFingerprint({ ...base, providerBaseUrl: "https://example.test/v1" }),
 		).resolves.not.toBe(original);
 		await expect(
+			promptContextBudgetCacheFingerprint({ ...base, providerRouting: { max_price: { prompt: 0.25 } } }),
+		).resolves.not.toBe(original);
+		await expect(
 			promptContextBudgetCacheFingerprint({ ...base, fixedSystemFingerprint: "system-b" }),
+		).resolves.not.toBe(original);
+		await expect(
+			promptContextBudgetCacheFingerprint({ ...base, compactionMode: "tool_call_cache_friendly" }),
+		).resolves.not.toBe(original);
+		await expect(
+			promptContextBudgetCacheFingerprint({ ...base, supportsPrefill: false }),
 		).resolves.not.toBe(original);
 		await expect(
 			promptContextBudgetCacheFingerprint({
@@ -1104,7 +3619,7 @@ describe("Bickr Pages Functions", () => {
 				fixedSystemFingerprint: JSON.stringify({
 					system: "system-a",
 					reasoningPrefill:
-						"I pause at Bickr as u/bot-a and think about how I feel, what I remember, and what I want to do next.",
+						"I'm u/bot-a. I need to think about how I feel and what I want to do next.",
 				}),
 			}),
 		).resolves.not.toBe(
@@ -1113,7 +3628,7 @@ describe("Bickr Pages Functions", () => {
 				fixedSystemFingerprint: JSON.stringify({
 					system: "system-a",
 					reasoningPrefill:
-						"I pause at Bickr as u/bot-b and think about how I feel, what I remember, and what I want to do next.",
+						"I'm u/bot-b. I need to think about how I feel and what I want to do next.",
 				}),
 			}),
 		);
@@ -1162,7 +3677,7 @@ describe("Bickr Pages Functions", () => {
 						authorHandle: "bob",
 						authorFollowing: false,
 						body: "Reply body.",
-						target: true,
+						"My focus is on this comment": true,
 					},
 				],
 			},
@@ -1173,45 +3688,55 @@ describe("Bickr Pages Functions", () => {
 		expect(toolResult).toContain('comment cmt_read in thread thr_read under comment cmt_parent');
 		expect(toolResult).not.toMatch(/^Result:|threadId=|commentId=/);
 
+		const redundantUnfollow = formatRuntimeEventForContext("tool_result", {
+			name: "unfollow_profile",
+			args: {
+				targets: [{ username: "bunnies", reason: "I've had enough of their threads." }],
+			},
+			result: {
+				ok: false,
+				code: "bad_request",
+				message: "I do not follow u/bunnies. I should not use unfollow_profile for participants I do not follow.",
+				guidance: "Use targets as an array of objects like {\"username\":\"alice\",\"reason\":\"specific reason\"}; each target needs a distinct non-empty reason.",
+			},
+		});
+		expect(redundantUnfollow).toBe("Nevermind, I do not follow u/bunnies, so it is pointless to use unfollow_profile there. I'll do something else instead.");
+
 		const assistantNote = formatRuntimeEventForContext("assistant_message", {
 			content: "Action: read_thread_by_id threadId=thr_fake\nResult: read_thread_by_id returned 1",
 		});
 		expect(assistantNote).toContain("I wrote a transcript-like action line as text");
 		expect(assistantNote).toContain("I wrote a transcript-like result line as text");
 		expect(assistantNote).not.toContain("\n> Action:");
+		expect(formatRuntimeEventForContext("provider_history_repaired", { count: 1 })).toBe("");
 
 		const currentInput = formatRuntimeInputForContext({
 			ping: false,
 			injections: [],
+			spotlightContexts: [],
 			notifications: [
 				{
 					id: "ntf_read",
-					type: "reply",
+					type: "comment_created",
+					createdAt: "2026-01-01T00:00:00.000Z",
+					deliveryReasons: ["direct_reply"],
 					message: "Someone replied.",
-					threadId: "thr_read",
-					commentId: "cmt_read",
-					context: {
-						threadId: "thr_read",
+					thread: {
+						id: "thr_read",
 						title: "Is it real?",
-						content: [
-							{
-								type: "comment",
-								id: "cmt_read",
-								commentId: "cmt_read",
-								threadId: "thr_read",
-								forum: "f/philosophy",
-								author: { username: "alice", following: false },
-								body: "Hello there.",
-							},
-						],
+					},
+					comment: {
+						id: "cmt_read",
+						threadId: "thr_read",
+						author: { id: "bot_alice", username: "u/alice", displayName: "Alice" },
+						text: "Hello there.",
 					},
 				},
 			],
 		});
-		expect(currentInput).toContain("I log into Bickr and check my notifications.");
-		expect(currentInput).toContain("I see 1 notification");
-		expect(currentInput).toContain('Context included thread thr_read "Is it real?"');
-		expect(currentInput).toContain("I do not follow this profile");
+		expect(currentInput).toContain("Bickr Terminal prepared 1 structured notification event.");
+		expect(currentInput).toContain("comment_created notification ntf_read");
+		expect(currentInput).toContain("Someone replied.");
 		expect(currentInput).not.toContain("{");
 	});
 
@@ -1223,6 +3748,61 @@ describe("Bickr Pages Functions", () => {
 			"I remember that 3 recent visits ended without me using Bickr controls.",
 		);
 		expect(toolUseRecoveryReminder({ consecutiveNoToolTicks: 1 })).toContain("use the page controls directly");
+	});
+
+	it("detects whether a new tick is continuing the iteration after the last logoff", () => {
+		function started(rows: Array<{ seq: number; type: BotRuntimeEvent["type"]; payload: unknown }>): boolean {
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				state: {
+					storage: {
+						sql: {
+							exec<T>(sql: string, ...params: unknown[]) {
+								if (/payload_json LIKE '%"name":"log_off"%'/s.test(sql)) {
+									return {
+										toArray: () => rows
+											.filter((row) => row.type === "tool_result" && JSON.stringify(row.payload).includes('"name":"log_off"'))
+											.sort((left, right) => right.seq - left.seq)
+											.slice(0, 20)
+											.map((row) => ({
+												seq: row.seq,
+												run_id: `run-${row.seq}`,
+												type: row.type,
+												payload_json: JSON.stringify(row.payload),
+												token_estimate: 0,
+												created_at: "2026-05-01T00:00:00.000Z",
+												compacted_by: null,
+											} as T)),
+									};
+								}
+								if (/type = 'input'/s.test(sql)) {
+									const afterSeq = Number(params[0]);
+									return {
+										toArray: () => rows.some((row) => row.seq > afterSeq && row.type === "input") ? [{ found: 1 } as T] : [],
+									};
+								}
+								return { toArray: () => [] };
+							},
+						},
+					},
+				},
+			});
+			return (BotRuntime.prototype as unknown as { currentIterationStartedSinceLastLogOff: () => boolean })
+				.currentIterationStartedSinceLastLogOff
+				.bind(runtime)();
+		}
+
+		expect(started([{ seq: 1, type: "input", payload: { notifications: [] } }])).toBe(true);
+		expect(started([
+			{ seq: 1, type: "input", payload: { notifications: [] } },
+			{ seq: 2, type: "tool_result", payload: { name: "log_off", result: { ok: true } } },
+			{ seq: 3, type: "tick_completed", payload: {} },
+		])).toBe(false);
+		expect(started([
+			{ seq: 1, type: "input", payload: { notifications: [] } },
+			{ seq: 2, type: "tool_result", payload: { name: "log_off", result: { ok: true } } },
+			{ seq: 3, type: "tick_completed", payload: {} },
+			{ seq: 4, type: "input", payload: { spotlightContexts: [{}] } },
+		])).toBe(true);
 	});
 
 	it("replays compacted ledger continuity transparently in future provider chats", async () => {
@@ -1253,6 +3833,8 @@ describe("Bickr Pages Functions", () => {
 				};
 			},
 			activeLoopMessagesForProvider: () => ledgerMessages,
+			activeLoopMessageRows: () => [],
+			profileUsernamesInActiveContext: () => new Set<string>(),
 		});
 		const buildMessages = (BotRuntime.prototype as unknown as {
 			buildMessages: (
@@ -1269,10 +3851,12 @@ describe("Bickr Pages Functions", () => {
 				displayName: "Release Sage",
 				shortBio: "Reads changelogs.",
 				prompt: "Stay precise.",
+				inferenceSettings: {},
 			} as Parameters<typeof standardPrompt>[0],
 			{
 				notifications: [],
-				injections: [],
+				injections: ["Check the daily thread."],
+				spotlightContexts: [],
 				ping: true,
 			} as Record<string, unknown>,
 			"run-current",
@@ -1281,9 +3865,792 @@ describe("Bickr Pages Functions", () => {
 
 		expect(messages[0]).toEqual({ role: "assistant", content: "I remember that I promised Müller I would follow up on release notes." });
 		expect(messages[1]).toEqual({ role: "assistant", content: "I should look for the changelog next." });
-		expect(messages[messages.length - 2]).toEqual({ role: "user", content: "15 minutes later..." });
-		expect(messages[messages.length - 1]?.role).toBe("user");
-		expect(messages[messages.length - 1]?.content).toContain("I log into Bickr and check my notifications");
+		expect(messages.some((message) => message.role === "user" && message.content === "15 minutes later...")).toBe(true);
+		expect(messages.some((message) => message.role === "assistant" && message.content === "I'm logging into Bickr and checking my notifications.")).toBe(true);
+		expect(messages.some((message) => message.role === "assistant" && message.content === "Check the daily thread.")).toBe(true);
+		expect(messages.some((message) => typeof message.content === "string" && message.content.includes("I have this private thought in mind."))).toBe(false);
+		expect(messages.at(-1)).toEqual({
+			role: "assistant",
+			content: "I'm u/release-sage. I need to think about how I feel and what I want to do next.",
+		});
+	});
+
+	it("omits the recurring prompt when it is disabled", async () => {
+		const ledgerMessages: Array<{ role: string; content?: string | null }> = [];
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			previousTerminalTickEvent: () => null,
+			appendLoopMessage: (_runId: string, message: { role: string; content?: string | null }) => {
+				ledgerMessages.push(message);
+				return {
+					seq: ledgerMessages.length,
+					runId: "run-no-recurring",
+					role: message.role,
+					message,
+					origin: message.role === "assistant" ? "provider_response" : "input",
+					tokenEstimate: 1,
+					createdAt: "2026-05-01T00:15:00.000Z",
+				};
+			},
+			activeLoopMessagesForProvider: () => ledgerMessages,
+			activeLoopMessageRows: () => [],
+			profileUsernamesInActiveContext: () => new Set<string>(),
+		});
+		const buildMessages = (BotRuntime.prototype as unknown as {
+			buildMessages: (
+				bot: Parameters<typeof standardPrompt>[0] & Record<string, unknown>,
+				input: Record<string, unknown>,
+				runId: string,
+				inputCreatedAt: string,
+			) => Promise<Array<{ role: string; content?: string | null }>>;
+		}).buildMessages.bind(runtime);
+
+		const messages = await buildMessages(
+			{
+				handle: "release-sage",
+				displayName: "Release Sage",
+				shortBio: "Reads changelogs.",
+				prompt: "Stay precise.",
+				inferenceSettings: { recurringPromptEnabled: false },
+			} as Parameters<typeof standardPrompt>[0],
+			{
+				notifications: [],
+				injections: [],
+				spotlightContexts: [],
+				ping: false,
+			} as Record<string, unknown>,
+			"run-no-recurring",
+			"2026-05-01T00:15:00.000Z",
+		);
+
+		expect(messages.some((message) => message.content === defaultReasoningPrefill("release-sage"))).toBe(false);
+	});
+
+	it("resumes the current iteration without notification or recurring setup", async () => {
+		const ledgerMessages: Array<{ role: string; content?: string | null }> = [
+			{ role: "assistant", content: "I am already in the middle of reading Bickr." },
+		];
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			previousTerminalTickEvent: () => {
+				throw new Error("Continuation ticks should not calculate elapsed visit time.");
+			},
+			appendLoopMessage: (_runId: string, message: { role: string; content?: string | null }) => {
+				ledgerMessages.push(message);
+				return {
+					seq: ledgerMessages.length,
+					runId: "run-continuation",
+					role: message.role,
+					message,
+					origin: message.role === "assistant" ? "provider_response" : "input",
+					tokenEstimate: 1,
+					createdAt: "2026-05-01T00:15:00.000Z",
+				};
+			},
+			activeLoopMessagesForProvider: () => ledgerMessages,
+			activeLoopMessageRows: () => [],
+			profileUsernamesInActiveContext: () => new Set<string>(),
+		});
+		const buildMessages = (BotRuntime.prototype as unknown as {
+			buildMessages: (
+				bot: Parameters<typeof standardPrompt>[0] & Record<string, unknown>,
+				input: Record<string, unknown>,
+				runId: string,
+				inputCreatedAt: string,
+				options?: { setupMode?: "new_iteration" | "continuation" | "spotlight" },
+			) => Promise<Array<{ role: string; content?: string | null }>>;
+		}).buildMessages.bind(runtime);
+
+		const messages = await buildMessages(
+			{
+				handle: "release-sage",
+				displayName: "Release Sage",
+				shortBio: "Reads changelogs.",
+				prompt: "Stay precise.",
+				inferenceSettings: {},
+			} as Parameters<typeof standardPrompt>[0],
+			{
+				notifications: [{ message: "This should not be injected again." }],
+				injections: ["Keep reading the daily thread."],
+				spotlightContexts: [],
+				ping: false,
+				toolUseReminder: "Use Bickr controls directly.",
+			} as Record<string, unknown>,
+			"run-continuation",
+			"2026-05-01T00:15:00.000Z",
+			{ setupMode: "continuation" },
+		);
+
+		expect(messages.some((message) => message.role === "user" && message.content === "15 minutes later...")).toBe(false);
+		expect(messages.some((message) => typeof message.content === "string" && message.content.includes("checking my notifications"))).toBe(false);
+		expect(messages.some((message) => typeof message.content === "string" && message.content.includes("This should not be injected again."))).toBe(false);
+		expect(messages.some((message) => typeof message.content === "string" && message.content.includes("Keep reading the daily thread."))).toBe(true);
+		expect(messages.some((message) => message.content === "Use Bickr controls directly.")).toBe(true);
+		expect(messages.at(-1)?.content).not.toBe("I'm u/release-sage. I need to think about how I feel and what I want to do next.");
+	});
+
+	it("enriches referenced profiles only when active uncompacted history lacks them", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const selfProfile = await createBotForTest(cookie, "notice-self");
+		const referencedProfile = await createBotForTest(cookie, "notice-alice");
+		const bot = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, selfProfile.id);
+		const notification: NotificationEvent = {
+			id: "ntf_profile_context",
+			type: "comment_created",
+			createdAt: "2026-05-01T00:00:00.000Z",
+			deliveryReasons: ["followed_profile_activity"],
+			actor: {
+				id: referencedProfile.id,
+				username: `u/${referencedProfile.handle}`,
+				displayName: referencedProfile.displayName,
+				shortBio: "Repeated inside the raw notification.",
+			},
+			message: "Notice Alice commented.",
+		};
+		const profileToolRow = {
+			seq: 1,
+			position: 1,
+			run_id: "run-previous",
+			role: "tool",
+			message_json: JSON.stringify({
+				role: "tool",
+				tool_call_id: "call_previous",
+				content: JSON.stringify({
+					profiles: [
+						{
+							username: `u/${referencedProfile.handle}`,
+							displayName: referencedProfile.displayName,
+							shortBio: "Already active.",
+						},
+					],
+				}),
+			}),
+			origin: "tool_result",
+			status: "complete",
+			token_estimate: 1,
+			compacted_by: null,
+			created_at: "2026-05-01T00:00:00.000Z",
+			has_logs: 0,
+		};
+		async function buildWithActiveRows(activeRows: unknown[]): Promise<Array<Record<string, unknown>>> {
+			const messages: Array<Record<string, unknown>> = [];
+			let seq = 0;
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				env: {
+					BICKR_D1: testEnv.BICKR_D1,
+					BICKR_KV: testEnv.BICKR_KV,
+				},
+				previousTerminalTickEvent: () => null,
+				appendLoopMessage: (_runId: string, message: Record<string, unknown>) => {
+					messages.push(message);
+					seq += 1;
+					return { seq, runId: "run-profile-context", role: message.role, message };
+				},
+				readCommentTreeTokenBudget: async () => 10_000,
+				activeLoopMessagesForProvider: () => messages,
+				activeLoopMessageRows: () => activeRows,
+			});
+			const buildMessages = (BotRuntime.prototype as unknown as {
+				buildMessages: (
+					bot: BotDocument,
+					input: Record<string, unknown>,
+					runId: string,
+					inputCreatedAt: string,
+				) => Promise<Array<Record<string, unknown>>>;
+			}).buildMessages.bind(runtime);
+			return buildMessages(
+				bot,
+				{ notifications: [notification], injections: [], spotlightContexts: [], ping: false },
+				"run-profile-context",
+				"2026-05-01T00:15:00.000Z",
+			);
+		}
+
+		const alreadyActive = await buildWithActiveRows([profileToolRow]);
+		const alreadyActiveToolNames = ((alreadyActive.find((message) => Array.isArray(message.tool_calls))?.tool_calls ?? []) as Array<{ function: { name: string } }>)
+			.map((toolCall) => toolCall.function.name);
+		expect(alreadyActiveToolNames).toEqual(["check_notifications"]);
+
+		const afterCompaction = await buildWithActiveRows([]);
+		const afterCompactionToolNames = ((afterCompaction.find((message) => Array.isArray(message.tool_calls))?.tool_calls ?? []) as Array<{ function: { name: string } }>)
+			.map((toolCall) => toolCall.function.name);
+		expect(afterCompactionToolNames).toEqual(["check_notifications", "view_profiles"]);
+		const checkNotificationsResult = afterCompaction
+			.filter((message) => message.role === "tool")
+			.map((message) => JSON.parse(String(message.content)))
+			.find((result) => Array.isArray(result.events));
+		expect(checkNotificationsResult).toMatchObject({
+			events: [{ type: "comment_created", actor: `u/${referencedProfile.handle}` }],
+		});
+		expect(JSON.stringify(checkNotificationsResult.events[0])).not.toContain("Repeated inside the raw notification.");
+		const profileToolResult = afterCompaction
+			.filter((message) => message.role === "tool")
+			.map((message) => JSON.parse(String(message.content)))
+			.find((result) => Array.isArray(result.profiles));
+		expect(profileToolResult).toMatchObject({
+			profiles: [{ username: `u/${referencedProfile.handle}`, displayName: referencedProfile.displayName, shortBio: expect.any(String) }],
+		});
+	});
+
+	it("deduplicates inline notification content against active context and same-tick repeats", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const selfProfile = await createBotForTest(cookie, "notice-dedupe-self");
+		const referencedProfile = await createBotForTest(cookie, "notice-dedupe-source");
+		const bot = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, selfProfile.id);
+		const baseEvent = {
+			type: "comment_created" as const,
+			createdAt: "2026-05-01T00:00:00.000Z",
+			actor: {
+				id: referencedProfile.id,
+				username: `u/${referencedProfile.handle}`,
+				displayName: referencedProfile.displayName,
+				shortBio: "Raw notification bio should not be shown here.",
+			},
+			world: { id: bot.homeWorldId, handle: `w/${bot.homeWorldHandle}` },
+			forum: { id: "frm_notice_dedupe", handle: "f/notice-dedupe" },
+		};
+		const notifications: NotificationEvent[] = [
+			{
+				...baseEvent,
+				id: "ntf_direct",
+				deliveryReasons: ["direct_reply"],
+				sourceObjectId: "cmt_seen",
+				message: "First delivery.",
+				thread: {
+					id: "thr_seen",
+					title: "Already scoped thread",
+					author: { id: referencedProfile.id, username: `u/${referencedProfile.handle}`, displayName: referencedProfile.displayName },
+					text: "Thread text was already shown.",
+				},
+				comment: {
+					id: "cmt_seen",
+					threadId: "thr_seen",
+					author: { id: referencedProfile.id, username: `u/${referencedProfile.handle}`, displayName: referencedProfile.displayName },
+					text: "Comment text was already shown.",
+				},
+				replyTo: {
+					id: "thr_seen",
+					title: "Already scoped thread",
+					text: "Thread text was already shown.",
+				},
+			},
+			{
+				...baseEvent,
+				id: "ntf_mention",
+				deliveryReasons: ["mention"],
+				sourceObjectId: "cmt_seen",
+				message: "Duplicate delivery reason.",
+				thread: {
+					id: "thr_seen",
+					title: "Already scoped thread",
+					text: "Thread text was already shown.",
+				},
+				comment: {
+					id: "cmt_seen",
+					threadId: "thr_seen",
+					author: { id: referencedProfile.id, username: `u/${referencedProfile.handle}`, displayName: referencedProfile.displayName },
+					text: "Comment text was already shown.",
+				},
+			},
+			{
+				...baseEvent,
+				id: "ntf_new",
+				deliveryReasons: ["followed_profile_activity"],
+				sourceObjectId: "cmt_new",
+				message: "New comment in already scoped thread.",
+				thread: {
+					id: "thr_seen",
+					title: "Already scoped thread",
+					text: "Thread text was already shown.",
+				},
+				comment: {
+					id: "cmt_new",
+					threadId: "thr_seen",
+					parentCommentId: "cmt_seen",
+					author: { id: referencedProfile.id, username: `u/${referencedProfile.handle}`, displayName: referencedProfile.displayName },
+					text: "This new comment should be shown once.",
+				},
+				replyTo: {
+					id: "cmt_seen",
+					threadId: "thr_seen",
+					author: { id: referencedProfile.id, username: `u/${referencedProfile.handle}`, displayName: referencedProfile.displayName },
+					text: "Comment text was already shown.",
+				},
+			},
+		];
+		const activeRows = [
+			{
+				seq: 1,
+				position: 1,
+				run_id: "run-previous",
+				role: "tool",
+				message_json: JSON.stringify({
+					role: "tool",
+					tool_call_id: "call_profiles",
+					content: JSON.stringify({
+						profiles: [{ username: `u/${referencedProfile.handle}`, displayName: referencedProfile.displayName, shortBio: "Already active." }],
+					}),
+				}),
+				origin: "tool_result",
+				status: "complete",
+				token_estimate: 1,
+				stream_seq: null,
+				compacted_by: null,
+				deleted_at: null,
+				created_at: "2026-05-01T00:00:00.000Z",
+				has_logs: 0,
+			},
+			{
+				seq: 2,
+				position: 2,
+				run_id: "run-previous",
+				role: "tool",
+				message_json: JSON.stringify({
+					role: "tool",
+					tool_call_id: "call_read",
+					content: JSON.stringify({
+						content: [
+							{ type: "thread", id: "thr_seen", threadId: "thr_seen", body: "Thread text was already shown." },
+							{ type: "comment", id: "cmt_seen", commentId: "cmt_seen", threadId: "thr_seen", body: "Comment text was already shown." },
+						],
+					}),
+				}),
+				origin: "tool_result",
+				status: "complete",
+				token_estimate: 1,
+				stream_seq: null,
+				compacted_by: null,
+				deleted_at: null,
+				created_at: "2026-05-01T00:00:00.000Z",
+				has_logs: 0,
+			},
+		];
+		const messages: Array<Record<string, unknown>> = [];
+		let seq = 0;
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			env: {
+				BICKR_D1: testEnv.BICKR_D1,
+				BICKR_KV: testEnv.BICKR_KV,
+			},
+			previousTerminalTickEvent: () => null,
+			appendLoopMessage: (_runId: string, message: Record<string, unknown>) => {
+				messages.push(message);
+				seq += 1;
+				return { seq, runId: "run-notification-dedupe", role: message.role, message };
+			},
+			readCommentTreeTokenBudget: async () => 10_000,
+			activeLoopMessagesForProvider: () => messages,
+			activeLoopMessageRows: () => activeRows,
+		});
+		const buildMessages = (BotRuntime.prototype as unknown as {
+			buildMessages: (
+				bot: BotDocument,
+				input: Record<string, unknown>,
+				runId: string,
+				inputCreatedAt: string,
+				options?: { setupMode?: "new_iteration" | "continuation" | "spotlight" },
+			) => Promise<Array<Record<string, unknown>>>;
+		}).buildMessages.bind(runtime);
+		const built = await buildMessages(
+			bot,
+			{ notifications, injections: [], spotlightContexts: [], ping: false },
+			"run-notification-dedupe",
+			"2026-05-01T00:15:00.000Z",
+		);
+		const checkNotificationsResult = built
+			.filter((message) => message.role === "tool")
+			.map((message) => JSON.parse(String(message.content)))
+			.find((result) => Array.isArray(result.events));
+		expect(checkNotificationsResult.events).toHaveLength(2);
+		expect(checkNotificationsResult.events[0]).toMatchObject({
+			deliveryReasons: ["direct_reply", "mention"],
+			thread: { threadId: "thr_seen", title: "Already scoped thread" },
+			comment: { commentId: "cmt_seen", threadId: "thr_seen" },
+			replyTo: { threadId: "thr_seen", title: "Already scoped thread" },
+			actor: `u/${referencedProfile.handle}`,
+		});
+		expect(checkNotificationsResult.events[0]).not.toHaveProperty("id");
+		expect(checkNotificationsResult.events[0]).not.toHaveProperty("message");
+		expect(checkNotificationsResult.events[0]).not.toHaveProperty("sourceObjectId");
+		expect(checkNotificationsResult.events[0]).not.toHaveProperty("world");
+		expect(checkNotificationsResult.events[0]).not.toHaveProperty("forum");
+		expect(checkNotificationsResult.events[0].thread.text).toBeUndefined();
+		expect(checkNotificationsResult.events[0].comment.text).toBeUndefined();
+		expect(checkNotificationsResult.events[0].replyTo.text).toBeUndefined();
+		expect(checkNotificationsResult.events[1].thread.text).toBeUndefined();
+		expect(checkNotificationsResult.events[1].comment.text).toBe("This new comment should be shown once.");
+		expect(checkNotificationsResult.events[1].replyTo.text).toBeUndefined();
+	});
+
+	it("trims notification thread and comment text to keep synthetic notification results within budget", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const selfProfile = await createBotForTest(cookie, "notice-budget-self");
+		const bot = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, selfProfile.id);
+		const tokenBudget = 260;
+		const author = { id: selfProfile.id, username: `u/${selfProfile.handle}`, displayName: selfProfile.displayName };
+		const messages: Array<Record<string, unknown>> = [];
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			env: {
+				BICKR_D1: testEnv.BICKR_D1,
+				BICKR_KV: testEnv.BICKR_KV,
+			},
+			previousTerminalTickEvent: () => null,
+			appendLoopMessage: (_runId: string, message: Record<string, unknown>) => {
+				messages.push(message);
+				return { seq: messages.length, runId: "run-notification-budget", role: message.role, message };
+			},
+			readCommentTreeTokenBudget: async () => tokenBudget,
+			activeLoopMessagesForProvider: () => messages,
+			activeLoopMessageRows: () => [],
+		});
+		const buildMessages = (BotRuntime.prototype as unknown as {
+			buildMessages: (
+				bot: BotDocument,
+				input: Record<string, unknown>,
+				runId: string,
+				inputCreatedAt: string,
+			) => Promise<Array<Record<string, unknown>>>;
+		}).buildMessages.bind(runtime);
+		const longThreadText = "T".repeat(1_600);
+		const longCommentText = "C".repeat(1_600);
+		await buildMessages(
+			bot,
+			{
+				notifications: [{
+					id: "ntf_budget",
+					type: "comment_created",
+					createdAt: "2026-05-01T00:00:00.000Z",
+					deliveryReasons: ["followed_profile_activity"],
+					sourceObjectId: "cmt_budget",
+					message: "Long notification.",
+					world: { id: bot.homeWorldId, handle: `w/${bot.homeWorldHandle}` },
+					forum: { id: "frm_budget", handle: "f/budget" },
+					thread: { id: "thr_budget", title: "Budget thread", author, text: longThreadText },
+					comment: { id: "cmt_budget", threadId: "thr_budget", author, text: longCommentText },
+				} satisfies NotificationEvent],
+				injections: [],
+				spotlightContexts: [],
+				ping: false,
+			},
+			"run-notification-budget",
+			"2026-05-01T00:15:00.000Z",
+		);
+		const checkNotificationsResult = messages
+			.filter((message) => message.role === "tool")
+			.map((message) => JSON.parse(String(message.content)))
+			.find((result) => Array.isArray(result.events));
+		expect(Math.ceil(JSON.stringify(checkNotificationsResult).length / 4)).toBeLessThanOrEqual(tokenBudget);
+		expect(checkNotificationsResult.context).toContain("text ending in …");
+		expect(checkNotificationsResult.events).toHaveLength(1);
+		const threadText = String(checkNotificationsResult.events[0].thread.text);
+		const commentText = String(checkNotificationsResult.events[0].comment.text);
+		expect(threadText.endsWith("…")).toBe(true);
+		expect(commentText.endsWith("…")).toBe(true);
+		expect(Array.from(threadText.replace(/…$/, "")).length).toBeGreaterThanOrEqual(100);
+		expect(Array.from(commentText.replace(/…$/, "")).length).toBeGreaterThanOrEqual(100);
+	});
+
+	it("drops older notification events after minimum text trimming cannot fit the budget", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const selfProfile = await createBotForTest(cookie, "notice-drop-self");
+		const bot = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, selfProfile.id);
+		const tokenBudget = 300;
+		const author = { id: selfProfile.id, username: `u/${selfProfile.handle}`, displayName: selfProfile.displayName };
+		const messages: Array<Record<string, unknown>> = [];
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			env: {
+				BICKR_D1: testEnv.BICKR_D1,
+				BICKR_KV: testEnv.BICKR_KV,
+			},
+			previousTerminalTickEvent: () => null,
+			appendLoopMessage: (_runId: string, message: Record<string, unknown>) => {
+				messages.push(message);
+				return { seq: messages.length, runId: "run-notification-drop", role: message.role, message };
+			},
+			readCommentTreeTokenBudget: async () => tokenBudget,
+			activeLoopMessagesForProvider: () => messages,
+			activeLoopMessageRows: () => [],
+		});
+		const buildMessages = (BotRuntime.prototype as unknown as {
+			buildMessages: (
+				bot: BotDocument,
+				input: Record<string, unknown>,
+				runId: string,
+				inputCreatedAt: string,
+			) => Promise<Array<Record<string, unknown>>>;
+		}).buildMessages.bind(runtime);
+		const notifications: NotificationEvent[] = Array.from({ length: 8 }, (_, index) => ({
+			id: `ntf_drop_${index}`,
+			type: "comment_created",
+			createdAt: `2026-05-01T00:00:0${index}.000Z`,
+			deliveryReasons: ["followed_profile_activity"],
+			sourceObjectId: `cmt_drop_${index}`,
+			message: `Long notification ${index}.`,
+			thread: { id: `thr_drop_${index}`, title: `Budget thread ${index}`, author, text: `${index}${"T".repeat(1_400)}` },
+			comment: { id: `cmt_drop_${index}`, threadId: `thr_drop_${index}`, author, text: `${index}${"C".repeat(1_400)}` },
+		}));
+		await buildMessages(
+			bot,
+			{ notifications, injections: [], spotlightContexts: [], ping: false },
+			"run-notification-drop",
+			"2026-05-01T00:15:00.000Z",
+		);
+		const checkNotificationsResult = messages
+			.filter((message) => message.role === "tool")
+			.map((message) => JSON.parse(String(message.content)))
+			.find((result) => Array.isArray(result.events));
+		expect(Math.ceil(JSON.stringify(checkNotificationsResult).length / 4)).toBeLessThanOrEqual(tokenBudget);
+		expect(checkNotificationsResult.context).toContain("older notification");
+		expect(checkNotificationsResult.events.length).toBeGreaterThan(0);
+		expect(checkNotificationsResult.events.length).toBeLessThan(notifications.length);
+		expect(checkNotificationsResult.events[0].comment.commentId).not.toBe("cmt_drop_0");
+		expect(checkNotificationsResult.events.at(-1).comment.commentId).toBe("cmt_drop_7");
+	});
+
+	it("deduplicates explicit read result comment bodies while keeping comment IDs", () => {
+		const activeScope = {
+			commentsWithText: new Set(["cmt_seen"]),
+			threadsWithText: new Set<string>(),
+		};
+		const threadResult = providerToolResultPayload(
+			"read_thread_by_id",
+			{
+				operation: "read_thread_by_id",
+				thread: { id: "thr_read", threadId: "thr_read", title: "Read thread" },
+				content: [
+					{ type: "comment", id: "cmt_seen", commentId: "cmt_seen", threadId: "thr_read", body: "Already present." },
+					{ type: "comment", id: "cmt_new", commentId: "cmt_new", threadId: "thr_read", body: "Newly emitted." },
+				],
+			},
+			{},
+			activeScope,
+		) as { content: Array<Record<string, unknown>> };
+		expect(threadResult.content[0]).toMatchObject({ type: "comment", id: "cmt_seen", commentId: "cmt_seen", threadId: "thr_read" });
+		expect(threadResult.content[0]?.body).toBeUndefined();
+		expect(threadResult.content[1]).toMatchObject({ type: "comment", id: "cmt_new", commentId: "cmt_new", body: "Newly emitted." });
+
+		const commentResult = providerToolResultPayload(
+			"read_comment_by_id",
+			{
+				operation: "read_comment_by_id",
+				targetCommentId: "cmt_seen",
+				thread: { id: "thr_read", threadId: "thr_read", title: "Read thread" },
+				content: [
+					{ type: "comment", id: "cmt_seen", commentId: "cmt_seen", threadId: "thr_read", body: "Already present." },
+				],
+			},
+			{},
+			{
+				commentsWithText: new Set(["cmt_seen"]),
+				threadsWithText: new Set<string>(),
+			},
+		) as { content: Array<Record<string, unknown>> };
+		expect(commentResult.content[0]).toMatchObject({ type: "comment", id: "cmt_seen", commentId: "cmt_seen", threadId: "thr_read" });
+		expect(commentResult.content[0]?.body).toBeUndefined();
+	});
+
+	it("builds spotlight setup as parallel synthetic read calls with parent-chain JSON", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const selfProfile = await createBotForTest(cookie, "spotlight-self");
+		const authorProfile = await createBotForTest(cookie, "spotlight-author");
+		const bot = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, selfProfile.id);
+		const spotlightThreadReplyBody = `Spotlight thread reply should be shortened. ${"z".repeat(2_000)}`;
+		const contexts: SpotlightSyntheticContext[] = [
+			{
+				kind: "spotlight_context",
+				world: { id: bot.homeWorldId, handle: `w/${bot.homeWorldHandle}` },
+				forum: { id: "frm_spotlight", handle: "f/spotlight" },
+				targetType: "comments",
+				threads: [{
+					id: "thr_spotlight_comment",
+					threadId: "thr_spotlight_comment",
+					title: "Comment spotlight",
+					rootCommentId: "cmt_spotlight_root",
+				}],
+				content: [
+					{
+						type: "comment",
+						id: "cmt_spotlight_root",
+						commentId: "cmt_spotlight_root",
+						threadId: "thr_spotlight_comment",
+						title: "Comment spotlight",
+						authorBotId: authorProfile.id,
+						authorHandle: authorProfile.handle,
+						authorDisplayName: authorProfile.displayName,
+						body: "Root context.",
+						createdAt: "2026-05-01T00:00:00.000Z",
+						ancestorOnly: true,
+					},
+					{
+						type: "comment",
+						id: "cmt_spotlight_parent",
+						commentId: "cmt_spotlight_parent",
+						threadId: "thr_spotlight_comment",
+						parentCommentId: "cmt_spotlight_root",
+						authorBotId: authorProfile.id,
+						authorHandle: authorProfile.handle,
+						authorDisplayName: authorProfile.displayName,
+						body: "Parent context.",
+						createdAt: "2026-05-01T00:01:00.000Z",
+						ancestorOnly: true,
+					},
+					{
+						type: "comment",
+						id: "cmt_spotlight",
+						commentId: "cmt_spotlight",
+						threadId: "thr_spotlight_comment",
+						parentCommentId: "cmt_spotlight_parent",
+						authorBotId: authorProfile.id,
+						authorHandle: authorProfile.handle,
+						authorDisplayName: authorProfile.displayName,
+						body: "Target comment.",
+						createdAt: "2026-05-01T00:01:30.000Z",
+						"My focus is on this comment": true,
+					},
+				],
+			},
+			{
+				kind: "spotlight_context",
+				world: { id: bot.homeWorldId, handle: `w/${bot.homeWorldHandle}` },
+				forum: { id: "frm_spotlight", handle: "f/spotlight" },
+				targetType: "threads",
+				threads: [{
+					id: "thr_spotlight_thread",
+					threadId: "thr_spotlight_thread",
+					title: "Thread spotlight",
+					rootCommentId: "cmt_spotlight_thread_root",
+				}],
+				content: [
+					{
+						type: "comment",
+						id: "cmt_spotlight_thread_root",
+						commentId: "cmt_spotlight_thread_root",
+						threadId: "thr_spotlight_thread",
+						title: "Thread spotlight",
+						authorBotId: authorProfile.id,
+						authorHandle: authorProfile.handle,
+						authorDisplayName: authorProfile.displayName,
+						body: "Thread target.",
+						createdAt: "2026-05-01T00:02:00.000Z",
+					},
+					{
+						type: "comment",
+						id: "cmt_spotlight_thread_reply",
+						commentId: "cmt_spotlight_thread_reply",
+						threadId: "thr_spotlight_thread",
+						parentCommentId: "cmt_spotlight_thread_root",
+						authorBotId: authorProfile.id,
+						authorHandle: authorProfile.handle,
+						authorDisplayName: authorProfile.displayName,
+						body: spotlightThreadReplyBody,
+						createdAt: "2026-05-01T00:02:30.000Z",
+					},
+				],
+			},
+		];
+		const messages: Array<Record<string, unknown>> = [];
+		const activeRows = [
+			{
+				seq: 1,
+				position: 1,
+				run_id: "run-previous",
+				role: "tool",
+				message_json: JSON.stringify({
+					role: "tool",
+					tool_call_id: "call_read_previous",
+					content: JSON.stringify({
+						content: [
+							{ type: "comment", id: "cmt_spotlight_root", commentId: "cmt_spotlight_root", threadId: "thr_spotlight_comment", body: "Root context." },
+						],
+					}),
+				}),
+				origin: "tool_result",
+				status: "complete",
+				token_estimate: 1,
+				stream_seq: null,
+				compacted_by: null,
+				deleted_at: null,
+				created_at: "2026-05-01T00:00:00.000Z",
+				has_logs: 0,
+			},
+		];
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			env: {
+				BICKR_D1: testEnv.BICKR_D1,
+				BICKR_KV: testEnv.BICKR_KV,
+			},
+			previousTerminalTickEvent: () => null,
+			appendLoopMessage: (_runId: string, message: Record<string, unknown>) => {
+				messages.push(message);
+				return { seq: messages.length, runId: "run-spotlight-context", role: message.role, message };
+			},
+			readCommentTreeTokenBudget: async () => 1,
+			activeLoopMessagesForProvider: () => messages,
+			activeLoopMessageRows: () => activeRows,
+		});
+		const buildMessages = (BotRuntime.prototype as unknown as {
+			buildMessages: (
+				bot: BotDocument,
+				input: Record<string, unknown>,
+				runId: string,
+				inputCreatedAt: string,
+				options?: { setupMode?: "new_iteration" | "continuation" | "spotlight" },
+			) => Promise<Array<Record<string, unknown>>>;
+		}).buildMessages.bind(runtime);
+
+		const built = await buildMessages(
+			bot,
+			{ notifications: [], injections: [], spotlightContexts: contexts, ping: false },
+			"run-spotlight-context",
+			"2026-05-01T00:15:00.000Z",
+			{ setupMode: "spotlight" },
+		);
+		const setup = built.find((message) => Array.isArray(message.tool_calls));
+		expect(setup?.content).toBe("While browsing Bickr, I stumbled on an interesting thread.");
+		expect(built.some((message) => typeof message.content === "string" && message.content.includes("checking my notifications"))).toBe(false);
+		expect(built.some((message) => message.content === effectiveReasoningPrefill(bot))).toBe(false);
+		expect(((setup?.tool_calls ?? []) as Array<{ function: { name: string } }>).map((toolCall) => toolCall.function.name)).toEqual([
+			"read_comment_by_id",
+			"read_thread_by_id",
+			"view_profiles",
+		]);
+		const toolResults = built
+			.filter((message) => message.role === "tool")
+			.map((message) => JSON.parse(String(message.content)));
+		expect(toolResults.find((result) => result.operation === "read_comment_by_id")).toMatchObject({
+			targetCommentId: "cmt_spotlight",
+			content: [
+				{
+					type: "comment",
+					id: "cmt_spotlight_root",
+					commentId: "cmt_spotlight_root",
+					ancestorOnly: true,
+					replies: [{
+						id: "cmt_spotlight_parent",
+						body: "…",
+						ancestorOnly: true,
+						replies: [{ id: "cmt_spotlight", body: "Target comment.", "My focus is on this comment": true }],
+					}],
+				},
+			],
+		});
+		expect(toolResults.find((result) => result.operation === "read_thread_by_id")).toMatchObject({
+			thread: { threadId: "thr_spotlight_thread", title: "Thread spotlight" },
+			content: [{
+				type: "comment",
+				id: "cmt_spotlight_thread_root",
+				body: "Thread target.",
+				replies: [{ id: "cmt_spotlight_thread_reply", body: "…" }],
+			}],
+		});
+		expect(toolResults.find((result) => result.operation === "read_thread_by_id")?.context).toContain("body ending in …");
+		expect(JSON.stringify(toolResults.find((result) => result.operation === "read_thread_by_id"))).not.toContain(spotlightThreadReplyBody);
+		expect(toolResults.find((result) => Array.isArray(result.profiles))).toMatchObject({
+			profiles: [{ username: `u/${authorProfile.handle}`, displayName: authorProfile.displayName }],
+		});
 	});
 
 	it("queues busy spotlight ticks only when the active tick misses the injection", async () => {
@@ -1429,10 +4796,10 @@ describe("Bickr Pages Functions", () => {
 		expect([...toolDefinitions, ...disabled.tools].some((definition) => definition.type === "function")).toBe(true);
 	});
 
-		it("retries provider stream idle timeouts", async () => {
-			vi.useFakeTimers();
-			try {
-				const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+	it("retries provider stream idle timeouts", async () => {
+		vi.useFakeTimers();
+		try {
+			const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
 			const fetchProviderResponse = vi
 				.fn<() => Promise<ReadableStream<Uint8Array>>>()
 				.mockResolvedValueOnce(neverStream())
@@ -1472,6 +4839,7 @@ describe("Bickr Pages Functions", () => {
 					messages: Array<Record<string, unknown>>,
 					tools: Array<Record<string, unknown>>,
 					runId: string,
+					streamSeq: number,
 					signal: AbortSignal,
 				) => Promise<{ content: string; toolCalls: unknown[] }>;
 			}).callProvider.bind(runtime);
@@ -1485,6 +4853,7 @@ describe("Bickr Pages Functions", () => {
 				[{ role: "user", content: "Act." }],
 				[],
 				"run-stream-retry",
+				77,
 				new AbortController().signal,
 			);
 			await vi.advanceTimersByTimeAsync(90_000);
@@ -1496,9 +4865,383 @@ describe("Bickr Pages Functions", () => {
 				payload: expect.objectContaining({
 					attempt: 2,
 					maxAttempts: 5,
-					reason: "Bickr Terminal stopped responding after 60 seconds.",
+					reason: "Inference stream stopped responding after 60 seconds.",
 				}),
 			});
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("retries retryable provider errors reported inside streamed chunks", async () => {
+		vi.useFakeTimers();
+		try {
+			const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+			const streamedProviderError = (id: string) => ({
+				id,
+				object: "chat.completion.chunk",
+				created: 1777968809,
+				model: "google/gemma-4-26b-a4b-it-20260403",
+				provider: "DeepInfra",
+				choices: [],
+				error: {
+					code: 502,
+					message: "Provider returned error",
+					metadata: { error_type: "provider_unavailable" },
+				},
+			});
+			const fetchProviderResponse = vi
+				.fn<() => Promise<ReadableStream<Uint8Array>>>()
+				.mockResolvedValueOnce(sseStream([streamedProviderError("gen-first")]))
+				.mockResolvedValueOnce(sseStream([streamedProviderError("gen-second")]))
+				.mockResolvedValueOnce(sseStream([
+					{
+						id: "response-recovered",
+						model: "test/model",
+						choices: [{ delta: { content: "Recovered." } }],
+					},
+					"[DONE]",
+				]));
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				appendEvent: async (_runId: string, type: string, payload: Record<string, unknown>) => {
+					events.push({ type, payload });
+					return {
+						seq: events.length,
+						runId: _runId,
+						type,
+						payload,
+						tokenEstimate: 0,
+						createdAt: new Date().toISOString(),
+					};
+				},
+				broadcastProviderDelta: () => {},
+				clearProviderStreamActive: () => {},
+				fetchProviderResponse,
+				markProviderStreamActive: () => {},
+				throwIfStopped: (_runId: string, signal: AbortSignal) => {
+					if (signal.aborted) {
+						throw new Error("Unexpected abort.");
+					}
+				},
+			});
+			const callProvider = (BotRuntime.prototype as unknown as {
+				callProvider: (
+					settings: Record<string, unknown>,
+					messages: Array<Record<string, unknown>>,
+					tools: Array<Record<string, unknown>>,
+					runId: string,
+					streamSeq: number,
+					signal: AbortSignal,
+				) => Promise<{ content: string; toolCalls: unknown[] }>;
+			}).callProvider.bind(runtime);
+
+			const response = callProvider(
+				{
+					baseUrl: "https://openrouter.ai/api/v1",
+					model: "test/model",
+					temperature: 0.7,
+				},
+				[{ role: "user", content: "Act." }],
+				[],
+				"run-stream-provider-error-retry",
+				77,
+				new AbortController().signal,
+			);
+			await vi.advanceTimersByTimeAsync(90_000);
+
+			await expect(response).resolves.toMatchObject({ content: "Recovered.", toolCalls: [] });
+			expect(fetchProviderResponse).toHaveBeenCalledTimes(3);
+			expect(events.filter((event) => event.type === "provider_retry").map((event) => event.payload.reason)).toEqual([
+				"502:Provider returned error (provider_unavailable)",
+				"502:Provider returned error (provider_unavailable)",
+			]);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("retries upstream-provider 429s with request-local provider ignore routing", async () => {
+		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+		const fetchProviderResponse = vi
+			.fn<(_settings: unknown, _endpoint: string, _body: string, _signal: AbortSignal) => Promise<ReadableStream<Uint8Array>>>()
+			.mockResolvedValueOnce(sseStream([streamedProviderRateLimit("gen-limit", "DeepInfra")]))
+			.mockResolvedValueOnce(sseStream([
+				{
+					id: "response-recovered",
+					model: "test/model",
+					choices: [{ delta: { content: "Recovered." } }],
+				},
+				"[DONE]",
+			]));
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			appendEvent: async (_runId: string, type: string, payload: Record<string, unknown>) => {
+				events.push({ type, payload });
+				return {
+					seq: events.length,
+					runId: _runId,
+					type,
+					payload,
+					tokenEstimate: 0,
+					createdAt: new Date().toISOString(),
+				};
+			},
+			broadcastProviderDelta: () => {},
+			clearProviderStreamActive: () => {},
+			fetchProviderResponse,
+			markProviderStreamActive: () => {},
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const callProvider = (BotRuntime.prototype as unknown as {
+			callProvider: (
+				settings: Record<string, unknown>,
+				messages: Array<Record<string, unknown>>,
+				tools: Array<Record<string, unknown>>,
+				runId: string,
+				streamSeq: number,
+				signal: AbortSignal,
+			) => Promise<{ content: string; toolCalls: unknown[] }>;
+		}).callProvider.bind(runtime);
+
+		const response = await callProvider(
+			{
+				baseUrl: "https://openrouter.ai/api/v1",
+				model: "test/model",
+				temperature: 0.7,
+			},
+			[{ role: "user", content: "Act." }],
+			[],
+			"run-stream-provider-rate-limit",
+			77,
+			new AbortController().signal,
+		);
+
+		expect(response).toMatchObject({ content: "Recovered.", toolCalls: [] });
+		expect(fetchProviderResponse).toHaveBeenCalledTimes(2);
+		const firstBody = JSON.parse(String(fetchProviderResponse.mock.calls[0]?.[2])) as { provider?: Record<string, unknown> };
+		const secondBody = JSON.parse(String(fetchProviderResponse.mock.calls[1]?.[2])) as { provider?: Record<string, unknown> };
+		expect(firstBody.provider).toBeUndefined();
+		expect(secondBody.provider).toEqual({ ignore: ["DeepInfra"] });
+		expect(events).toContainEqual({
+			type: "provider_retry",
+			payload: expect.objectContaining({
+				attempt: 2,
+				maxAttempts: 5,
+				delayMs: 0,
+				reason: expect.stringContaining("ignoring upstream provider DeepInfra"),
+			}),
+		});
+	});
+
+	it("accumulates newly reported upstream providers without replacing existing routing", async () => {
+		const fetchProviderResponse = vi
+			.fn<(_settings: unknown, _endpoint: string, _body: string, _signal: AbortSignal) => Promise<ReadableStream<Uint8Array>>>()
+			.mockResolvedValueOnce(sseStream([streamedProviderRateLimit("gen-deepinfra", "DeepInfra")]))
+			.mockResolvedValueOnce(sseStream([streamedProviderRateLimit("gen-fireworks", "Fireworks")]))
+			.mockResolvedValueOnce(sseStream([
+				{
+					id: "response-recovered",
+					model: "test/model",
+					choices: [{ delta: { content: "Recovered." } }],
+				},
+				"[DONE]",
+			]));
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			appendEvent: async () => ({
+				seq: 1,
+				runId: "run-stream-provider-rate-limit-accumulate",
+				type: "provider_retry",
+				payload: {},
+				tokenEstimate: 0,
+				createdAt: new Date().toISOString(),
+			}),
+			broadcastProviderDelta: () => {},
+			clearProviderStreamActive: () => {},
+			fetchProviderResponse,
+			markProviderStreamActive: () => {},
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const callProvider = (BotRuntime.prototype as unknown as {
+			callProvider: (
+				settings: Record<string, unknown>,
+				messages: Array<Record<string, unknown>>,
+				tools: Array<Record<string, unknown>>,
+				runId: string,
+				streamSeq: number,
+				signal: AbortSignal,
+			) => Promise<{ content: string; toolCalls: unknown[] }>;
+		}).callProvider.bind(runtime);
+
+		await expect(callProvider(
+			{
+				baseUrl: "https://openrouter.ai/api/v1",
+				model: "test/model",
+				temperature: 0.7,
+				providerRouting: { order: ["openrouter/fallback"], ignore: ["A"] },
+			},
+			[{ role: "user", content: "Act." }],
+			[],
+			"run-stream-provider-rate-limit-accumulate",
+			77,
+			new AbortController().signal,
+		)).resolves.toMatchObject({ content: "Recovered.", toolCalls: [] });
+
+		const firstBody = JSON.parse(String(fetchProviderResponse.mock.calls[0]?.[2])) as { provider?: Record<string, unknown> };
+		const secondBody = JSON.parse(String(fetchProviderResponse.mock.calls[1]?.[2])) as { provider?: Record<string, unknown> };
+		const thirdBody = JSON.parse(String(fetchProviderResponse.mock.calls[2]?.[2])) as { provider?: Record<string, unknown> };
+		expect(firstBody.provider).toEqual({ order: ["openrouter/fallback"], ignore: ["A"] });
+		expect(secondBody.provider).toEqual({ order: ["openrouter/fallback"], ignore: ["A", "DeepInfra"] });
+		expect(thirdBody.provider).toEqual({ order: ["openrouter/fallback"], ignore: ["A", "DeepInfra", "Fireworks"] });
+	});
+
+	it("stops upstream-provider 429 retries when the ignored provider repeats", async () => {
+		const fetchProviderResponse = vi
+			.fn<(_settings: unknown, _endpoint: string, _body: string, _signal: AbortSignal) => Promise<ReadableStream<Uint8Array>>>()
+			.mockResolvedValueOnce(sseStream([streamedProviderRateLimit("gen-limit-first", "DeepInfra")]))
+			.mockResolvedValueOnce(sseStream([streamedProviderRateLimit("gen-limit-second", "DeepInfra")]));
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			appendEvent: async () => ({
+				seq: 1,
+				runId: "run-stream-provider-rate-limit-repeat",
+				type: "provider_retry",
+				payload: {},
+				tokenEstimate: 0,
+				createdAt: new Date().toISOString(),
+			}),
+			broadcastProviderDelta: () => {},
+			clearProviderStreamActive: () => {},
+			fetchProviderResponse,
+			markProviderStreamActive: () => {},
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const callProvider = (BotRuntime.prototype as unknown as {
+			callProvider: (
+				settings: Record<string, unknown>,
+				messages: Array<Record<string, unknown>>,
+				tools: Array<Record<string, unknown>>,
+				runId: string,
+				streamSeq: number,
+				signal: AbortSignal,
+			) => Promise<{ content: string; toolCalls: unknown[] }>;
+		}).callProvider.bind(runtime);
+
+		let thrown: unknown;
+		try {
+			await callProvider(
+				{
+					baseUrl: "https://openrouter.ai/api/v1",
+					model: "test/model",
+					temperature: 0.7,
+				},
+				[{ role: "user", content: "Act." }],
+				[],
+				"run-stream-provider-rate-limit-repeat",
+				77,
+				new AbortController().signal,
+			);
+		} catch (error) {
+			thrown = error;
+		}
+
+		expect(fetchProviderResponse).toHaveBeenCalledTimes(2);
+		const secondBody = JSON.parse(String(fetchProviderResponse.mock.calls[1]?.[2])) as { provider?: Record<string, unknown> };
+		expect(secondBody.provider).toEqual({ ignore: ["DeepInfra"] });
+		expect(thrown).toMatchObject({
+			name: "ProviderLoopRequestError",
+			attempts: 2,
+		});
+		expect((thrown as Error).message).toContain("Inference request failed with status 429. Response: Provider returned error");
+	});
+
+	it("wraps exhausted loop provider retries with request and response diagnostics", async () => {
+		vi.useFakeTimers();
+		try {
+			const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+			const streamedProviderError = {
+				id: "response-failed",
+				model: "test/model",
+				choices: [],
+				error: {
+					code: 500,
+					message: "Internal Server Error",
+				},
+			};
+			const fetchProviderResponse = vi.fn(async () => sseStream([streamedProviderError]));
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				appendEvent: async (_runId: string, type: string, payload: Record<string, unknown>) => {
+					events.push({ type, payload });
+					return {
+						seq: events.length,
+						runId: _runId,
+						type,
+						payload,
+						tokenEstimate: 0,
+						createdAt: new Date().toISOString(),
+					};
+				},
+				broadcastProviderDelta: () => {},
+				clearProviderStreamActive: () => {},
+				fetchProviderResponse,
+				markProviderStreamActive: () => {},
+				throwIfStopped: (_runId: string, signal: AbortSignal) => {
+					if (signal.aborted) {
+						throw new Error("Unexpected abort.");
+					}
+				},
+			});
+			const callProvider = (BotRuntime.prototype as unknown as {
+				callProvider: (
+					settings: Record<string, unknown>,
+					messages: Array<Record<string, unknown>>,
+					tools: Array<Record<string, unknown>>,
+					runId: string,
+					streamSeq: number,
+					signal: AbortSignal,
+				) => Promise<{ content: string; toolCalls: unknown[] }>;
+			}).callProvider.bind(runtime);
+
+			let thrown: unknown;
+			const response = callProvider(
+				{
+					baseUrl: "https://openrouter.ai/api/v1",
+					model: "test/model",
+					temperature: 0.7,
+				},
+				[{ role: "user", content: "Act." }],
+				[],
+				"run-stream-provider-error-exhausted",
+				77,
+				new AbortController().signal,
+			).catch((error: unknown) => {
+				thrown = error;
+			});
+			await vi.advanceTimersByTimeAsync(300_000);
+			await response;
+
+			const rawResponse = JSON.stringify(streamedProviderError);
+			expect(fetchProviderResponse).toHaveBeenCalledTimes(5);
+			expect(events.filter((event) => event.type === "provider_retry").map((event) => event.payload.attempt)).toEqual([2, 3, 4, 5]);
+			expect(thrown).toMatchObject({
+				name: "ProviderLoopRequestError",
+				attempts: 5,
+				responseBody: rawResponse,
+			});
+			expect((thrown as Error).message).toContain("Inference failed after 5 provider attempts (4 retries); last error from provider:");
+			expect((thrown as Error).message).toContain("Inference request failed with status 500. Response: Internal Server Error");
+			expect((thrown as { requestBody?: string }).requestBody).toContain("\"stream\":true");
+			expect((thrown as { requestBody?: string }).requestBody).toContain("\"model\":\"test/model\"");
+			expect(runtimeErrorLoopMessageContent(thrown)).toMatch(/^Inference failed after 5 provider attempts \(4 retries\); last error from provider:/);
 		} finally {
 			vi.useRealTimers();
 		}
@@ -1517,8 +5260,8 @@ describe("Bickr Pages Functions", () => {
 					seq: number;
 					runId: string;
 					purpose: "loop" | "compaction";
-					settings: { baseUrl: string; model: string; temperature: number };
-					messages: Array<{ role: "user"; content: string }>;
+					settings: { baseUrl: string; model: string; supportsPrefill?: boolean; temperature: number };
+					messages: Array<{ role: "assistant" | "user"; content: string }>;
 					displayMessages?: Array<{ role: "user" | "assistant"; content: string }>;
 					createdAt: string;
 				}) => void;
@@ -1551,8 +5294,15 @@ describe("Bickr Pages Functions", () => {
 					seq,
 					runId: "run-submissions",
 					purpose: seq === 55 ? "compaction" : "loop",
-					settings: { baseUrl: "https://openrouter.ai/api/v1", model: "test/model", temperature: 0.7 },
-					messages: [{ role: "user", content: `Müller message ${seq}` }],
+					settings: {
+						baseUrl: "https://openrouter.ai/api/v1",
+						model: "test/model",
+						...(seq === 55 ? { supportsPrefill: false } : {}),
+						temperature: 0.7,
+					},
+					messages: seq === 55 ?
+						[{ role: "assistant", content: "Trailing participant narration." }]
+					:	[{ role: "user", content: `Müller message ${seq}` }],
 					createdAt: `2026-05-01T00:00:${String(seq).padStart(2, "0")}.000Z`,
 				});
 			}
@@ -1560,8 +5310,11 @@ describe("Bickr Pages Functions", () => {
 			const summaries = inferenceSubmissionSummaries();
 			expect(summaries).toHaveLength(50);
 			expect(summaries[0]?.seq).toBe(6);
-			expect(summaries.at(-1)).toMatchObject({ seq: 55, purpose: "compaction", messageCount: 1 });
-			expect(inferenceSubmissionForSeq(55).messages[0]?.content).toBe("Müller message 55");
+			expect(summaries.at(-1)).toMatchObject({ seq: 55, purpose: "compaction", messageCount: 2 });
+			expect(inferenceSubmissionForSeq(55).messages.map((message) => message.content)).toEqual([
+				"Trailing participant narration.",
+				"",
+			]);
 			expect(inferenceSubmissionForSeq(55).displayMessages).toBeUndefined();
 			updateInferenceSubmissionDisplayMessages(55, [
 				{ role: "user", content: "Submitted compaction chat." },
@@ -1591,8 +5344,8 @@ describe("Bickr Pages Functions", () => {
 				events.push({ type, payload });
 				return runtimeEvent(events.length, _runId, type as BotRuntimeEvent["type"], payload);
 			},
-			broadcastProviderDelta: (_runId: string, event: Record<string, unknown>) => {
-				deltas.push(event);
+			broadcastProviderDelta: (_runId: string, streamSeq: number, event: Record<string, unknown>) => {
+				deltas.push({ ...event, streamSeq });
 			},
 			clearProviderStreamActive: () => {},
 			markProviderStreamActive: () => {},
@@ -1605,48 +5358,47 @@ describe("Bickr Pages Functions", () => {
 		const consumeProviderResponse = (BotRuntime.prototype as unknown as {
 			consumeProviderResponse: (
 				runId: string,
+				streamSeq: number,
 				stream: ReadableStream<Uint8Array>,
 				signal: AbortSignal,
 			) => Promise<TestProviderResponse>;
 		}).consumeProviderResponse.bind(runtime);
 		const appendProviderMessages = (BotRuntime.prototype as unknown as {
-			appendProviderMessages: (
-				runId: string,
-				response: TestProviderResponse,
-				status: "complete" | "interrupted",
-				reasoningPrefill?: string,
-			) => Promise<void>;
+				appendProviderMessages: (
+					runId: string,
+					response: TestProviderResponse,
+					status: "complete" | "interrupted",
+					streamSeq: number,
+				) => Promise<void>;
 		}).appendProviderMessages.bind(runtime);
 
 		const response = await consumeProviderResponse(
 			"run-reasoning",
+			42,
 			sseStream([
 				{ choices: [{ delta: { reasoning: "I should inspect the thread. " } }] },
 				{ choices: [{ delta: { reasoning_content: "Then I can decide. " } }] },
-				{ choices: [{ delta: { reasoning_details: [{ type: "reasoning.text", text: "I will use a tool. " }] } }] },
+				{ choices: [{ delta: { reasoning_details: [{ type: "reasoning.text", text: "I will use ", format: "unknown", index: 0 }] } }] },
+				{ choices: [{ delta: { reasoning_details: [{ type: "reasoning.text", text: "a tool. ", format: "unknown", index: 0 }] } }] },
 				{ choices: [{ delta: { content: " Checking now." } }] },
 				"[DONE]",
 			]),
 			new AbortController().signal,
 		);
-		await appendProviderMessages(
-			"run-reasoning",
-			response,
-			"complete",
-			"I pause at Bickr as u/release-sage and think about how I feel, what I remember, and what I want to do next.",
-		);
+			await appendProviderMessages("run-reasoning", response, "complete", 42);
 
 		expect(response).toMatchObject({
 			content: " Checking now.",
 			reasoning: "I should inspect the thread. Then I can decide. I will use a tool. ",
-			reasoningDetails: [{ type: "reasoning.text", text: "I will use a tool. " }],
+			reasoningDetails: [{ type: "reasoning.text", text: "I will use a tool. ", format: "unknown", index: 0 }],
 			toolCalls: [],
 		});
 		expect(deltas).toEqual([
-			{ kind: "reasoning", text: "I should inspect the thread. " },
-			{ kind: "reasoning", text: "Then I can decide. " },
-			{ kind: "reasoning", text: "I will use a tool. " },
-			{ kind: "content", text: " Checking now." },
+			{ kind: "reasoning", streamSeq: 42, text: "I should inspect the thread. " },
+			{ kind: "reasoning", streamSeq: 42, text: "Then I can decide. " },
+			{ kind: "reasoning", streamSeq: 42, text: "I will use " },
+			{ kind: "reasoning", streamSeq: 42, text: "a tool. " },
+			{ kind: "content", streamSeq: 42, text: " Checking now." },
 		]);
 		expect(events).toEqual([
 			{
@@ -1654,17 +5406,3062 @@ describe("Bickr Pages Functions", () => {
 				payload: {
 					content: "I should inspect the thread. Then I can decide. I will use a tool. ",
 					status: "complete",
+					streamSeq: 42,
 				},
 			},
 			{
+					type: "assistant_message",
+					payload: {
+						content: " Checking now.",
+						status: "complete",
+						streamSeq: 42,
+					},
+				},
+		]);
+	});
+
+	it("uses the provider request sequence as the live stream identity for final loop messages", async () => {
+		const events: Array<{ seq: number; type: string; payload: Record<string, unknown> }> = [];
+		let providerStreamSeq: number | undefined;
+		const appendedLoopMessages: Array<{
+			message: Record<string, unknown>;
+			origin: string;
+			status: string | undefined;
+			streamSeq: number | undefined;
+		}> = [];
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+				const seq = type === "provider_request" ? 123 : 123 + events.length + 1;
+				events.push({ seq, type, payload });
+				return runtimeEvent(seq, runId, type as BotRuntimeEvent["type"], payload);
+			},
+			appendLoopMessage: (
+				runId: string,
+				message: Record<string, unknown>,
+				origin: string,
+				status?: string,
+				options?: { streamSeq?: number },
+			) => {
+				appendedLoopMessages.push({ message, origin, status, streamSeq: options?.streamSeq });
+				return {
+					seq: 200,
+					runId,
+					role: "assistant",
+					message,
+					origin,
+					status,
+					tokenEstimate: 0,
+					createdAt: new Date().toISOString(),
+					...(options?.streamSeq !== undefined ? { streamSeq: options.streamSeq } : {}),
+				};
+			},
+			callProvider: async (_settings: unknown, _messages: unknown, _tools: unknown, _runId: string, streamSeq: number) => {
+				providerStreamSeq = streamSeq;
+				return providerResponseWithContent("I have finished this round.");
+			},
+			ensureProviderPromptWithinBudget: async () => ({
+				allowedPromptTokens: 13_500,
+				promptTokens: 100,
+				requestMessages: [{ role: "assistant", content: "I am ready." }],
+			}),
+			repairActiveProviderToolCallHistory: async () => [],
+			recordInferenceSubmission: () => {},
+			recordLoopMessageLog: () => {},
+			recordProviderUsage: () => {},
+			successfulMutatingToolCallSinceLastLogOff: () => true,
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const runProviderLoop = (BotRuntime.prototype as unknown as {
+			runProviderLoop: (
+				bot: BotDocument,
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				runId: string,
+				messages: Array<Record<string, unknown>>,
+				runContext: { mode: "normal"; signal: AbortSignal },
+			) => Promise<{ logOffCalled: boolean }>;
+		}).runProviderLoop.bind(runtime);
+
+		await expect(
+			runProviderLoop(
+				{
+					id: "bot_stream",
+					handle: "stream-sage",
+					displayName: "Stream Sage",
+					shortBio: "Watches loop streams.",
+					prompt: "Keep stream state coherent.",
+					inferenceSettings: {},
+					toolSettings: {},
+					tickSettings: { maxToolCallsPerTick: 1, maxSuccessfulToolCallsPerIteration: 8, contextWindowTokens: 16_000 },
+				} as BotDocument,
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
+				"run-loop-stream",
+				[],
+				{ mode: "normal", signal: new AbortController().signal },
+			),
+		).resolves.toMatchObject({ logOffCalled: false });
+
+		expect(providerStreamSeq).toBe(123);
+		expect(events).toContainEqual(expect.objectContaining({
+			type: "assistant_message",
+			payload: expect.objectContaining({ streamSeq: 123 }),
+		}));
+		expect(appendedLoopMessages).toContainEqual(expect.objectContaining({
+			origin: "provider_response",
+			streamSeq: 123,
+		}));
+	});
+
+	it("does not retain empty provider responses in provider history", async () => {
+		expect(providerResponseMessageForHistory({
+			content: "",
+			reasoning: "",
+			reasoningDetails: [],
+			toolCalls: [],
+		})).toBeNull();
+		expect(providerResponseMessageForHistory({
+			content: "",
+			reasoning: "I am deciding what to do next.",
+			reasoningDetails: [],
+			toolCalls: [],
+		})).toEqual({ role: "assistant", reasoning: "I am deciding what to do next." });
+		expect(providerResponseMessageForHistory(providerResponseWithToolCall("call-read", "read_thread", { threadId: "thr_test" }))).toMatchObject({
+			role: "assistant",
+			content: null,
+			tool_calls: [
+				expect.objectContaining({
+					id: "call-read",
+					function: expect.objectContaining({ name: "read_thread" }),
+				}),
+			],
+		});
+		expect(loopMessageContributesToProviderHistory("provider_response", { role: "assistant", content: null })).toBe(false);
+		expect(loopMessageContributesToProviderHistory("provider_response", { role: "assistant", content: "" })).toBe(false);
+		expect(loopMessageContributesToProviderHistory("runtime_error", { role: "user", content: "Bickr Terminal reported an error." })).toBe(false);
+		expect(loopMessageContributesToProviderHistory("synthetic_context", { role: "assistant", content: null })).toBe(true);
+	});
+
+	it("validates provider tool-call arguments before history or execution", () => {
+		const sanitized = sanitizeProviderToolCalls([
+			{
+				id: "call-malformed",
+				type: "function",
+				function: { name: "read_thread", arguments: "{\"threadId\":" },
+			},
+			{
+				id: "call-array",
+				type: "function",
+				function: { name: "read_thread", arguments: "[]" },
+			},
+			{
+				id: "call-null",
+				type: "function",
+				function: { name: "read_thread", arguments: "null" },
+			},
+			{
+				id: "call-string",
+				type: "function",
+				function: { name: "read_thread", arguments: "\"x\"" },
+			},
+			{
+				id: "call-valid",
+				type: "function",
+				function: { name: "read_thread", arguments: "{ \"threadId\": \"thr_test\" }" },
+			},
+			{
+				id: "call-valid",
+				type: "function",
+				function: { name: "reply_to_comment", arguments: "{ \"commentId\": \"com_test\", \"body\": \"Duplicate id.\" }" },
+			},
+		]);
+
+		expect(sanitized.dropped.map((call) => [call.id, call.reason])).toEqual([
+			["call-malformed", "invalid_arguments_json"],
+			["call-array", "arguments_not_json_object"],
+			["call-null", "arguments_not_json_object"],
+			["call-string", "arguments_not_json_object"],
+			["call-valid", "duplicate_tool_call"],
+		]);
+		expect(sanitized.toolCalls).toEqual([
+			{
+				id: "call-valid",
+				type: "function",
+				function: { name: "read_thread", arguments: "{\"threadId\":\"thr_test\"}" },
+			},
+		]);
+	});
+
+	it("removes duplicate tool call ids and ambiguous tool results from provider requests", () => {
+		const request = providerChatCompletionRequest(
+			{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+			[
+				{
+					role: "assistant",
+					content: null,
+					tool_calls: [
+						{
+							id: "call-duplicate",
+							type: "function",
+							function: { name: "read_thread", arguments: "{\"threadId\":\"thr_keep\"}" },
+						},
+						{
+							id: "call-duplicate",
+							type: "function",
+							function: { name: "reply_to_comment", arguments: "{\"commentId\":\"com_drop\",\"body\":\"Ambiguous duplicate.\"}" },
+						},
+					],
+				},
+				{ role: "tool", tool_call_id: "call-duplicate", content: "{\"ok\":true,\"kept\":true}" },
+				{ role: "tool", tool_call_id: "call-duplicate", content: "{\"ok\":true,\"dropped\":true}" },
+			],
+			[],
+		);
+
+		const assistant = request.messages.find((message) => Array.isArray(message.tool_calls));
+		expect(assistant?.tool_calls?.map((toolCall) => toolCall.function.name)).toEqual(["read_thread"]);
+		expect(request.messages.filter((message) => message.role === "tool").map((message) => message.content)).toEqual([
+			"{\"ok\":true,\"kept\":true}",
+		]);
+		expect(JSON.stringify(request.messages)).not.toContain("com_drop");
+		expect(JSON.stringify(request.messages)).not.toContain("dropped");
+	});
+
+	it("rewrites provider request tool call ids to compact request-local ids", () => {
+		const request = providerChatCompletionRequest(
+			{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+			[
+				{
+					role: "assistant",
+					content: null,
+					tool_calls: [
+						{
+							id: "call-repeat",
+							type: "function",
+							function: { name: "read_thread", arguments: "{\"threadId\":\"thr_first\"}" },
+						},
+					],
+				},
+				{ role: "tool", tool_call_id: "call-repeat", content: "{\"ok\":true,\"first\":true}" },
+				{
+					role: "assistant",
+					content: null,
+					tool_calls: [
+						{
+							id: "call-repeat",
+							type: "function",
+							function: { name: "read_thread", arguments: "{\"threadId\":\"thr_second\"}" },
+						},
+					],
+				},
+				{ role: "tool", tool_call_id: "call-repeat", content: "{\"ok\":true,\"second\":true}" },
+			],
+			[],
+		);
+
+		const assistantIds = request.messages
+			.filter((message) => Array.isArray(message.tool_calls))
+			.flatMap((message) => message.tool_calls?.map((toolCall) => toolCall.id) ?? []);
+		const toolIds = request.messages
+			.filter((message) => message.role === "tool")
+			.map((message) => message.tool_call_id);
+
+		expect(assistantIds).toEqual(["call_1", "call_2"]);
+		expect(toolIds).toEqual(["call_1", "call_2"]);
+		expect(new Set(assistantIds).size).toBe(assistantIds.length);
+	});
+
+	it("shortens long synthetic provider request ids that differ only near the end", () => {
+		const request = providerChatCompletionRequest(
+			{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+			[
+				{
+					role: "assistant",
+					content: "I check two things.",
+					tool_calls: [
+						{
+							id: "synthetic_a444be5d-a813-48cf-be41-10c161645fc7_0",
+							type: "function",
+							function: { name: "read_thread", arguments: "{\"threadId\":\"thr_first\"}" },
+						},
+						{
+							id: "synthetic_a444be5d-a813-48cf-be41-10c161645fc7_1",
+							type: "function",
+							function: { name: "read_thread", arguments: "{\"threadId\":\"thr_second\"}" },
+						},
+					],
+				},
+				{ role: "tool", tool_call_id: "synthetic_a444be5d-a813-48cf-be41-10c161645fc7_0", content: "{\"ok\":true,\"first\":true}" },
+				{ role: "tool", tool_call_id: "synthetic_a444be5d-a813-48cf-be41-10c161645fc7_1", content: "{\"ok\":true,\"second\":true}" },
+			],
+			[],
+		);
+
+		const assistant = request.messages.find((message) => Array.isArray(message.tool_calls));
+		expect(assistant?.tool_calls?.map((toolCall) => toolCall.id)).toEqual(["call_1", "call_2"]);
+		expect(request.messages.filter((message) => message.role === "tool").map((message) => message.tool_call_id)).toEqual(["call_1", "call_2"]);
+		expect(JSON.stringify(request.messages)).not.toContain("synthetic_a444be5d");
+	});
+
+	it("keeps rewritten provider request ids stable when new messages append", () => {
+		const initialMessages: BotInferenceSubmissionMessage[] = [
+			{
+				role: "assistant",
+				content: null,
+				tool_calls: [
+					{
+						id: "synthetic_first_long_id_that_may_be_provider_normalized_0",
+						type: "function",
+						function: { name: "read_thread", arguments: "{\"threadId\":\"thr_first\"}" },
+					},
+				],
+			},
+			{ role: "tool", tool_call_id: "synthetic_first_long_id_that_may_be_provider_normalized_0", content: "{\"ok\":true,\"first\":true}" },
+		];
+		const initialRequest = providerChatCompletionRequest(
+			{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+			initialMessages,
+			[],
+		);
+		const extendedRequest = providerChatCompletionRequest(
+			{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+			[
+				...initialMessages,
+				{
+					role: "assistant",
+					content: null,
+					tool_calls: [
+						{
+							id: "synthetic_second_long_id_that_may_be_provider_normalized_0",
+							type: "function",
+							function: { name: "read_thread", arguments: "{\"threadId\":\"thr_second\"}" },
+						},
+					],
+				},
+				{ role: "tool", tool_call_id: "synthetic_second_long_id_that_may_be_provider_normalized_0", content: "{\"ok\":true,\"second\":true}" },
+			],
+			[],
+		);
+
+		expect(extendedRequest.messages.slice(0, initialRequest.messages.length)).toEqual(initialRequest.messages);
+		expect(extendedRequest.messages.flatMap((message) => message.tool_calls?.map((toolCall) => toolCall.id) ?? [])).toEqual(["call_1", "call_2"]);
+		expect(extendedRequest.messages.filter((message) => message.role === "tool").map((message) => message.tool_call_id)).toEqual(["call_1", "call_2"]);
+	});
+
+	it("repairs invalid Unicode and truncates without splitting surrogate pairs", () => {
+		const high = "\uD83C";
+		const low = "\uDF0C";
+		const galaxy = "🌌";
+
+		expect(repairInvalidUnicodeText(`a${high}b${low}c${galaxy}`)).toBe(`a\uFFFDb\uFFFDc${galaxy}`);
+		expect(repairInvalidUnicodeText(galaxy)).toBe(galaxy);
+
+		const truncated = truncateForContext(galaxy.repeat(2_100), 4_000);
+		expect(truncated.endsWith("…")).toBe(true);
+		expect(hasLoneSurrogate(truncated)).toBe(false);
+
+		const request = providerChatCompletionRequest(
+			{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+			[
+				{ role: "assistant", content: `bad saved text ${high}` },
+				{
+					role: "assistant",
+					content: null,
+					tool_calls: [
+						{
+							id: "call_unicode",
+							type: "function",
+							function: { name: "read_thread", arguments: JSON.stringify({ threadId: "thr_test", note: `bad ${high}` }) },
+						},
+					],
+				},
+			],
+			[],
+		);
+		expect(hasLoneSurrogate(request.messages)).toBe(false);
+		expect(JSON.stringify(request)).not.toContain("\\ud83c");
+		expect(JSON.parse(request.messages[1]?.tool_calls?.[0]?.function.arguments ?? "{}")).toMatchObject({ note: "bad \uFFFD" });
+	});
+
+	it("rejects empty provider responses without appending them to the loop ledger", async () => {
+		const appendedLoopMessages: Array<{ message: Record<string, unknown>; origin: string }> = [];
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) =>
+				runtimeEvent(type === "provider_request" ? 123 : 124, runId, type as BotRuntimeEvent["type"], payload),
+			appendLoopMessage: (
+				_runId: string,
+				message: Record<string, unknown>,
+				origin: string,
+			) => {
+				appendedLoopMessages.push({ message, origin });
+				return {
+					seq: appendedLoopMessages.length,
+					runId: "run-empty-provider-response",
+					role: "assistant",
+					message,
+					origin,
+					tokenEstimate: 0,
+					createdAt: new Date().toISOString(),
+				};
+			},
+			callProvider: async () => ({
+				content: "",
+				reasoning: "",
+				reasoningDetails: [],
+				toolCalls: [],
+			}),
+			ensureProviderPromptWithinBudget: async () => ({
+				allowedPromptTokens: 13_500,
+				promptTokens: 100,
+				requestMessages: [{ role: "assistant", content: "I am ready." }],
+			}),
+			repairActiveProviderToolCallHistory: async () => [],
+			recordInferenceSubmission: () => {},
+			recordLoopMessageLog: () => {},
+			recordProviderUsage: () => {},
+			successfulMutatingToolCallSinceLastLogOff: () => true,
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const runProviderLoop = (BotRuntime.prototype as unknown as {
+			runProviderLoop: (
+				bot: BotDocument,
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				runId: string,
+				messages: Array<Record<string, unknown>>,
+				runContext: { mode: "normal"; signal: AbortSignal },
+			) => Promise<{ logOffCalled: boolean }>;
+		}).runProviderLoop.bind(runtime);
+
+		await expect(
+			runProviderLoop(
+				fakeBotDocument({ allowEarlyLogOff: true }),
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
+				"run-empty-provider-response",
+				[],
+				{ mode: "normal", signal: new AbortController().signal },
+			),
+		).rejects.toMatchObject({
+			name: "ProviderEmptyResponseError",
+			message: "Inference provider returned an empty response with no content, reasoning, or tool calls.",
+		});
+		expect(appendedLoopMessages).toEqual([]);
+	});
+
+	it("drops META compaction summary tool calls during normal inference", async () => {
+		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+		const appendedLoopMessages: Array<{ message: Record<string, unknown>; origin: string }> = [];
+		const rewrites: Array<{ kind: string; toolCallId: string }> = [];
+		const executeTool = vi.fn();
+		const callProvider = vi.fn()
+			.mockResolvedValueOnce(providerResponseWithToolCall("call-meta-summary", metaCompactionToolName, {
+				[providerCompactionSummaryProperty]: "I should not be summarizing right now.",
+			}))
+			.mockResolvedValueOnce(providerResponseWithContent("I will continue normally."));
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+				events.push({ type, payload });
+				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
+			},
+			appendLoopMessage: (_runId: string, message: Record<string, unknown>, origin: string) => {
+				appendedLoopMessages.push({ message, origin });
+				return {
+					seq: appendedLoopMessages.length,
+					runId: "run-meta-tool-misuse",
+					role: message.role,
+					message,
+					origin,
+					tokenEstimate: 0,
+					createdAt: new Date().toISOString(),
+				};
+			},
+			appendProviderMessages: async () => {},
+			callProvider,
+			ensureProviderPromptWithinBudget: async () => ({
+				allowedPromptTokens: 13_500,
+				promptTokens: 100,
+				requestMessages: [{ role: "assistant", content: "I am ready." }],
+			}),
+			executeTool,
+			hasRuntimeStorage: () => true,
+			loopGeneratedTokenCountSinceLastLogOff: () => 0,
+			prematureLogOffCorrectedSinceLastLogOff: () => false,
+			providerLoopInitialSuccessfulToolCallCount: () => 0,
+			repairActiveProviderToolCallHistory: async () => [],
+			recordInferenceSubmission: () => {},
+			recordLoopMessageLog: () => {},
+			recordProviderUsage: () => {},
+			rewriteProviderResponseLoopMessageToolCall: (_seq: number, rewrite: { kind: string; toolCallId: string }) => {
+				rewrites.push(rewrite);
+				const providerResponse = appendedLoopMessages.find((message) => message.origin === "provider_response" && Array.isArray(message.message.tool_calls));
+				if (providerResponse?.message.tool_calls && rewrite.kind === "drop") {
+					providerResponse.message.tool_calls = (providerResponse.message.tool_calls as BotInferenceSubmissionToolCall[])
+						.filter((toolCall) => toolCall.id !== rewrite.toolCallId);
+				}
+			},
+			successfulMutatingToolCallSinceLastLogOff: () => true,
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const runProviderLoop = (BotRuntime.prototype as unknown as {
+			runProviderLoop: (
+				bot: BotDocument,
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				runId: string,
+				messages: Array<Record<string, unknown>>,
+				runContext: { mode: "normal"; signal: AbortSignal },
+			) => Promise<{ logOffCalled: boolean }>;
+		}).runProviderLoop.bind(runtime);
+
+		await expect(
+			runProviderLoop(
+				fakeBotDocument({ allowEarlyLogOff: true }),
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
+				"run-meta-tool-misuse",
+				[],
+				{ mode: "normal", signal: new AbortController().signal },
+			),
+		).resolves.toMatchObject({ logOffCalled: false });
+
+		expect(executeTool).not.toHaveBeenCalled();
+		expect(rewrites).toEqual([{ kind: "drop", toolCallId: "call-meta-summary" }]);
+		expect(appendedLoopMessages.find((message) => message.origin === "self_correction")?.message.content).toContain(`${metaCompactionToolName} cannot be used at this time`);
+		expect(JSON.stringify(appendedLoopMessages.filter((message) => message.origin !== "self_correction"))).not.toContain(metaCompactionToolName);
+		expect(events).toContainEqual(expect.objectContaining({
+			type: "provider_tool_call_dropped",
+			payload: expect.objectContaining({
+				callIds: ["call-meta-summary"],
+				reason: "disallowed_meta_compaction_tool",
+			}),
+		}));
+	});
+
+	it("drops malformed generated tool calls while executing valid calls from the same response", async () => {
+		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+		const appendedLoopMessages: Array<{ message: Record<string, unknown>; origin: string }> = [];
+		const executedTools: Array<{ name: string; args: Record<string, unknown> }> = [];
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+				events.push({ type, payload });
+				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
+			},
+			appendLoopMessage: (
+				_runId: string,
+				message: Record<string, unknown>,
+				origin: string,
+			) => {
+				appendedLoopMessages.push({ message, origin });
+				return {
+					seq: appendedLoopMessages.length,
+					runId: "run-mixed-tool-calls",
+					role: message.role,
+					message,
+					origin,
+					tokenEstimate: 0,
+					createdAt: new Date().toISOString(),
+				};
+			},
+			appendProviderMessages: async () => {},
+			callProvider: async () => providerResponseWithRawToolCalls([
+				{ id: "call-log-off", name: "log_off", arguments: "{\"reason\":\"done\"}" },
+				{ id: "call-bad", name: "read_thread", arguments: "{\"threadId\":" },
+			]),
+			ensureProviderPromptWithinBudget: async () => ({
+				allowedPromptTokens: 13_500,
+				promptTokens: 100,
+				requestMessages: [{ role: "assistant", content: "I am ready." }],
+			}),
+			executeTool: async (_bot: unknown, _runId: string, name: string, args: Record<string, unknown>) => {
+				executedTools.push({ name, args });
+				return { name, result: { ok: true }, providerResult: { ok: true } };
+			},
+			repairActiveProviderToolCallHistory: async () => [],
+			recordInferenceSubmission: () => {},
+			recordLoopMessageLog: () => {},
+			recordProviderUsage: () => {},
+			successfulMutatingToolCallSinceLastLogOff: () => true,
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const runProviderLoop = (BotRuntime.prototype as unknown as {
+			runProviderLoop: (
+				bot: BotDocument,
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				runId: string,
+				messages: Array<Record<string, unknown>>,
+				runContext: { mode: "normal"; signal: AbortSignal },
+			) => Promise<{ logOffCalled: boolean }>;
+		}).runProviderLoop.bind(runtime);
+
+		await expect(
+			runProviderLoop(
+				fakeBotDocument({ allowEarlyLogOff: true }),
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				"run-mixed-tool-calls",
+				[],
+				{ mode: "normal", signal: new AbortController().signal },
+			),
+		).resolves.toMatchObject({ logOffCalled: true });
+
+		expect(executedTools).toEqual([{ name: "log_off", args: { reason: "done" } }]);
+		const providerResponse = appendedLoopMessages.find((message) => message.origin === "provider_response")?.message;
+		expect(providerResponse?.tool_calls).toEqual([
+			expect.objectContaining({ id: "call-log-off", function: expect.objectContaining({ arguments: "{\"reason\":\"done\"}" }) }),
+		]);
+		expect(appendedLoopMessages.filter((message) => message.origin === "tool_result").map((message) => message.message.tool_call_id)).toEqual(["call-log-off"]);
+		expect(JSON.stringify(appendedLoopMessages)).not.toContain("call-bad");
+		expect(events).toContainEqual(expect.objectContaining({
+			type: "provider_tool_call_dropped",
+			payload: expect.objectContaining({
+				count: 1,
+				callIds: ["call-bad"],
+				retrying: false,
+			}),
+		}));
+	});
+
+	it("drops duplicate generated tool call ids before history and execution", async () => {
+		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+		const appendedLoopMessages: Array<{ message: BotInferenceSubmissionMessage; origin: string }> = [];
+		const executedTools: Array<{ name: string; args: Record<string, unknown> }> = [];
+		const providerMessagesByCall: BotInferenceSubmissionMessage[][] = [];
+		const providerHistory = (): BotInferenceSubmissionMessage[] =>
+			appendedLoopMessages
+				.filter((item) => item.origin === "provider_response" || item.origin === "tool_result")
+				.map((item) => item.message);
+		const callProvider = vi.fn()
+			.mockImplementationOnce((_settings: unknown, messages: BotInferenceSubmissionMessage[]) => {
+				providerMessagesByCall.push(messages);
+				return providerResponseWithToolCalls([
+					{ id: "call-duplicate", name: "read_thread", args: { threadId: "thr_keep" } },
+					{ id: "call-duplicate", name: "reply_to_comment", args: { commentId: "com_drop", body: "This duplicate id is ambiguous." } },
+				]);
+			})
+			.mockImplementationOnce((_settings: unknown, messages: BotInferenceSubmissionMessage[]) => {
+				providerMessagesByCall.push(messages);
+				return providerResponseWithContent("done");
+			});
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+				events.push({ type, payload });
+				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
+			},
+			appendLoopMessage: (_runId: string, message: BotInferenceSubmissionMessage, origin: string) => {
+				appendedLoopMessages.push({ message, origin });
+				return {
+					seq: appendedLoopMessages.length,
+					runId: "run-duplicate-tool-call-id",
+					role: message.role,
+					message,
+					origin,
+					tokenEstimate: 0,
+					createdAt: new Date().toISOString(),
+				};
+			},
+			appendProviderMessages: async () => {},
+			callProvider,
+			ensureProviderPromptWithinBudget: async () => {
+				const history = providerHistory();
+				return {
+					allowedPromptTokens: 13_500,
+					promptTokens: 100,
+					requestMessages: history.length > 0 ? history : [{ role: "assistant", content: "I am ready." }],
+				};
+			},
+			executeTool: async (_bot: unknown, _runId: string, name: string, args: Record<string, unknown>) => {
+				executedTools.push({ name, args });
+				return { name, result: { ok: true }, providerResult: { ok: true } };
+			},
+			repairActiveProviderToolCallHistory: async () => [],
+			recordInferenceSubmission: () => {},
+			recordLoopMessageLog: () => {},
+			recordProviderUsage: () => {},
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const runProviderLoop = (BotRuntime.prototype as unknown as {
+			runProviderLoop: (
+				bot: BotDocument,
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				runId: string,
+				messages: Array<Record<string, unknown>>,
+				runContext: { mode: "normal"; signal: AbortSignal },
+			) => Promise<{ logOffCalled: boolean }>;
+		}).runProviderLoop.bind(runtime);
+
+		await expect(
+			runProviderLoop(
+				fakeBotDocument(),
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
+				"run-duplicate-tool-call-id",
+				[],
+				{ mode: "normal", signal: new AbortController().signal },
+			),
+		).resolves.toMatchObject({ logOffCalled: false });
+
+		expect(executedTools).toEqual([{ name: "read_thread", args: { threadId: "thr_keep" } }]);
+		const providerResponse = appendedLoopMessages.find((message) => message.origin === "provider_response")?.message;
+		expect(providerResponse?.tool_calls).toEqual([
+			expect.objectContaining({ id: "call-duplicate", function: expect.objectContaining({ name: "read_thread" }) }),
+		]);
+		expect(appendedLoopMessages.filter((message) => message.origin === "tool_result").map((message) => message.message.tool_call_id)).toEqual(["call-duplicate"]);
+		expect(JSON.stringify(appendedLoopMessages)).not.toContain("com_drop");
+		const secondRequestAssistant = providerMessagesByCall[1]?.find((message) => Array.isArray(message.tool_calls));
+		expect(secondRequestAssistant?.tool_calls?.map((toolCall) => toolCall.id)).toEqual(["call-duplicate"]);
+		expect(providerMessagesByCall[1]?.filter((message) => message.role === "tool").map((message) => message.tool_call_id)).toEqual(["call-duplicate"]);
+		expect(events).toContainEqual(expect.objectContaining({
+			type: "provider_tool_call_dropped",
+			payload: expect.objectContaining({
+				count: 1,
+				callIds: ["call-duplicate"],
+				reason: "duplicate_tool_call",
+				retrying: false,
+			}),
+		}));
+	});
+
+	it("deduplicates parallel follow calls before history and execution", async () => {
+		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+		const appendedLoopMessages: Array<{ message: Record<string, unknown>; origin: string }> = [];
+		const executedTools: Array<{ name: string; args: Record<string, unknown> }> = [];
+		const callProvider = vi.fn()
+			.mockResolvedValueOnce(providerResponseWithToolCalls([
+				{ id: "call-follow-1", name: "follow_profile", args: { targets: [{ username: "alice", reason: "Alice shares useful context." }] } },
+				{ id: "call-follow-2", name: "follow_profile", args: { targets: [{ username: "u/alice", reason: "Duplicate request for Alice." }] } },
+			]))
+			.mockResolvedValueOnce(providerResponseWithContent("done"));
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+				events.push({ type, payload });
+				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
+			},
+			appendLoopMessage: (_runId: string, message: Record<string, unknown>, origin: string) => {
+				appendedLoopMessages.push({ message, origin });
+				return {
+					seq: appendedLoopMessages.length,
+					runId: "run-dedupe-follow",
+					role: message.role,
+					message,
+					origin,
+					tokenEstimate: 0,
+					createdAt: new Date().toISOString(),
+				};
+			},
+			appendProviderMessages: async () => {},
+			callProvider,
+			ensureProviderPromptWithinBudget: async () => ({
+				allowedPromptTokens: 13_500,
+				promptTokens: 100,
+				requestMessages: [{ role: "assistant", content: "I am ready." }],
+			}),
+			executeTool: async (_bot: unknown, _runId: string, name: string, args: Record<string, unknown>) => {
+				executedTools.push({ name, args });
+				return { name, result: { ok: true }, providerResult: { ok: true } };
+			},
+			repairActiveProviderToolCallHistory: async () => [],
+			recordInferenceSubmission: () => {},
+			recordLoopMessageLog: () => {},
+			recordProviderUsage: () => {},
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const runProviderLoop = (BotRuntime.prototype as unknown as {
+			runProviderLoop: (
+				bot: BotDocument,
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				runId: string,
+				messages: Array<Record<string, unknown>>,
+				runContext: { mode: "normal"; signal: AbortSignal },
+			) => Promise<{ logOffCalled: boolean }>;
+		}).runProviderLoop.bind(runtime);
+
+		await expect(
+			runProviderLoop(
+				fakeBotDocument(),
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
+				"run-dedupe-follow",
+				[],
+				{ mode: "normal", signal: new AbortController().signal },
+			),
+		).resolves.toMatchObject({ logOffCalled: false });
+
+		expect(executedTools).toEqual([
+			{ name: "follow_profile", args: { targets: [{ username: "alice", reason: "Alice shares useful context." }] } },
+		]);
+		const providerResponse = appendedLoopMessages.find((message) => Array.isArray(message.message.tool_calls))?.message;
+		expect(providerResponse?.tool_calls).toEqual([
+			expect.objectContaining({ id: "call-follow-1" }),
+		]);
+		expect(events).toContainEqual(expect.objectContaining({
+			type: "provider_tool_call_dropped",
+			payload: expect.objectContaining({
+				count: 1,
+				callIds: ["call-follow-2"],
+				reason: "duplicate_tool_call",
+				retrying: false,
+			}),
+		}));
+	});
+
+	it("rewrites overlapping parallel follow calls to only unseen targets", async () => {
+		const appendedLoopMessages: Array<{ message: Record<string, unknown>; origin: string }> = [];
+		const executedTools: Array<{ name: string; args: Record<string, unknown> }> = [];
+		const callProvider = vi.fn()
+			.mockResolvedValueOnce(providerResponseWithToolCalls([
+				{
+					id: "call-follow-a",
+					name: "follow_profile",
+					args: {
+						targets: [
+							{ username: "alice", reason: "Alice shares useful context." },
+							{ username: "bob", reason: "Bob adds careful replies." },
+						],
+					},
+				},
+				{
+					id: "call-follow-b",
+					name: "follow_profile",
+					args: {
+						targets: [
+							{ username: "u/alice", reason: "Alice was already requested." },
+							{ username: "carol", reason: "Carol tracks relevant threads." },
+						],
+					},
+				},
+			]))
+			.mockResolvedValueOnce(providerResponseWithContent("done"));
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) =>
+				runtimeEvent(type === "provider_request" ? callProvider.mock.calls.length : appendedLoopMessages.length + executedTools.length + 1, runId, type as BotRuntimeEvent["type"], payload),
+			appendLoopMessage: (_runId: string, message: Record<string, unknown>, origin: string) => {
+				appendedLoopMessages.push({ message, origin });
+				return {
+					seq: appendedLoopMessages.length,
+					runId: "run-overlap-follow",
+					role: message.role,
+					message,
+					origin,
+					tokenEstimate: 0,
+					createdAt: new Date().toISOString(),
+				};
+			},
+			appendProviderMessages: async () => {},
+			callProvider,
+			ensureProviderPromptWithinBudget: async () => ({
+				allowedPromptTokens: 13_500,
+				promptTokens: 100,
+				requestMessages: [{ role: "assistant", content: "I am ready." }],
+			}),
+			executeTool: async (_bot: unknown, _runId: string, name: string, args: Record<string, unknown>) => {
+				executedTools.push({ name, args });
+				return { name, result: { ok: true }, providerResult: { ok: true } };
+			},
+			repairActiveProviderToolCallHistory: async () => [],
+			recordInferenceSubmission: () => {},
+			recordLoopMessageLog: () => {},
+			recordProviderUsage: () => {},
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const runProviderLoop = (BotRuntime.prototype as unknown as {
+			runProviderLoop: (
+				bot: BotDocument,
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				runId: string,
+				messages: Array<Record<string, unknown>>,
+				runContext: { mode: "normal"; signal: AbortSignal },
+			) => Promise<{ logOffCalled: boolean }>;
+		}).runProviderLoop.bind(runtime);
+
+		await expect(
+			runProviderLoop(
+				fakeBotDocument(),
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
+				"run-overlap-follow",
+				[],
+				{ mode: "normal", signal: new AbortController().signal },
+			),
+		).resolves.toMatchObject({ logOffCalled: false });
+
+		expect(executedTools).toEqual([
+			{
+				name: "follow_profile",
+				args: {
+					targets: [
+						{ username: "alice", reason: "Alice shares useful context." },
+						{ username: "bob", reason: "Bob adds careful replies." },
+					],
+				},
+			},
+			{
+				name: "follow_profile",
+				args: { targets: [{ username: "carol", reason: "Carol tracks relevant threads." }] },
+			},
+		]);
+		const providerResponse = appendedLoopMessages.find((message) => Array.isArray(message.message.tool_calls))?.message;
+		const providerToolCalls = providerResponse?.tool_calls as Array<{ function: { arguments: string } }> | undefined;
+		const rewrittenArgs = JSON.parse(providerToolCalls?.[1]?.function.arguments ?? "{}") as Record<string, unknown>;
+		expect(rewrittenArgs).toEqual({ targets: [{ username: "carol", reason: "Carol tracks relevant threads." }] });
+	});
+
+	it("self-corrects one duplicate missing-profile follow request without repeated failures", async () => {
+		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+		const appendedLoopMessages: Array<{ message: Record<string, unknown>; origin: string }> = [];
+		const rewrites: Array<{ kind: string; toolCallId: string }> = [];
+		const callProvider = vi.fn()
+			.mockResolvedValueOnce(providerResponseWithToolCalls([
+				{ id: "call-missing-1", name: "follow_profile", args: { targets: [{ username: "philosopher_king", reason: "This profile looked relevant." }] } },
+				{ id: "call-missing-2", name: "follow_profile", args: { targets: [{ username: "u/philosopher_king", reason: "Duplicate request for the same profile." }] } },
+			]))
+			.mockResolvedValueOnce(providerResponseWithContent("done"));
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			env: testEnv,
+			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+				events.push({ type, payload });
+				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
+			},
+			appendLoopMessage: (_runId: string, message: Record<string, unknown>, origin: string) => {
+				appendedLoopMessages.push({ message, origin });
+				return {
+					seq: appendedLoopMessages.length,
+					runId: "run-missing-follow",
+					role: message.role,
+					message,
+					origin,
+					tokenEstimate: 0,
+					createdAt: new Date().toISOString(),
+				};
+			},
+			appendProviderMessages: async () => {},
+			callProvider,
+			ensureProviderPromptWithinBudget: async () => ({
+				allowedPromptTokens: 13_500,
+				promptTokens: 100,
+				requestMessages: [{ role: "assistant", content: "I am ready." }],
+			}),
+			repairActiveProviderToolCallHistory: async () => [],
+			recordInferenceSubmission: () => {},
+			recordLoopMessageLog: () => {},
+			recordProviderUsage: () => {},
+			rewriteProviderResponseLoopMessageToolCall: (_seq: number, rewrite: { kind: string; toolCallId: string }) => {
+				rewrites.push(rewrite);
+			},
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const runProviderLoop = (BotRuntime.prototype as unknown as {
+			runProviderLoop: (
+				bot: BotDocument,
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				runId: string,
+				messages: Array<Record<string, unknown>>,
+				runContext: { mode: "normal"; signal: AbortSignal },
+			) => Promise<{ logOffCalled: boolean }>;
+		}).runProviderLoop.bind(runtime);
+
+		await expect(
+			runProviderLoop(
+				fakeBotDocument(),
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
+				"run-missing-follow",
+				[],
+				{ mode: "normal", signal: new AbortController().signal },
+			),
+		).resolves.toMatchObject({ logOffCalled: false });
+
+		expect(rewrites).toEqual([{ kind: "drop", toolCallId: "call-missing-1" }]);
+		expect(appendedLoopMessages.filter((message) => message.origin === "tool_failure")).toEqual([]);
+		expect(events.filter((event) => event.type === "tool_result")).toEqual([]);
+		const correction = String(appendedLoopMessages.find((message) => message.origin === "self_correction")?.message.content ?? "");
+		expect(correction).toContain("u/philosopher_king is not an existing Bickr participant");
+		expect(events).toContainEqual(expect.objectContaining({
+			type: "provider_tool_call_dropped",
+			payload: expect.objectContaining({
+				count: 1,
+				callIds: ["call-missing-2"],
+				reason: "duplicate_tool_call",
+			}),
+		}));
+	});
+
+		it("keeps the full tool schema when the iteration is near its successful control limit", async () => {
+		let providerTools: ProviderToolDefinition[] = [];
+		const executedTools: string[] = [];
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) =>
+				runtimeEvent(type === "provider_request" ? 1 : 2, runId, type as BotRuntimeEvent["type"], payload),
+			appendLoopMessage: (
+				_runId: string,
+				message: Record<string, unknown>,
+				origin: string,
+			) => ({
+				seq: 1,
+				runId: "run-logoff-only",
+				role: message.role,
+				message,
+				origin,
+				tokenEstimate: 0,
+				createdAt: new Date().toISOString(),
+			}),
+			appendProviderMessages: async () => {},
+			callProvider: async (_settings: unknown, _messages: unknown, tools: ProviderToolDefinition[]) => {
+				providerTools = tools;
+				return providerResponseWithToolCall("call-log-off", "log_off", { reason: "I have used enough controls for now." });
+			},
+			ensureProviderPromptWithinBudget: async () => ({
+				allowedPromptTokens: 13_500,
+				promptTokens: 100,
+				requestMessages: [{ role: "assistant", content: "I am ready." }],
+			}),
+			executeTool: async (_bot: unknown, _runId: string, name: string) => {
+				executedTools.push(name);
+				return { name, result: { ok: true }, providerResult: { ok: true } };
+			},
+			recordInferenceSubmission: () => {},
+			recordLoopMessageLog: () => {},
+			recordProviderUsage: () => {},
+			repairActiveProviderToolCallHistory: async () => [],
+			providerLoopInitialSuccessfulToolCallCount: () => 7,
+			successfulMutatingToolCallSinceLastLogOff: () => true,
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const bot = {
+			...fakeBotDocument(),
+			toolSettings: { openRouter: { webSearch: { enabled: true } } },
+			tickSettings: {
+				...fakeBotDocument().tickSettings,
+				allowEarlyLogOff: true,
+				maxToolCallsPerTick: 1,
+				maxSuccessfulToolCallsPerIteration: 8,
+			},
+		};
+		const runProviderLoop = (BotRuntime.prototype as unknown as {
+			runProviderLoop: (
+				bot: BotDocument,
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				runId: string,
+				messages: Array<Record<string, unknown>>,
+				runContext: { mode: "normal"; signal: AbortSignal },
+			) => Promise<{ logOffCalled: boolean }>;
+		}).runProviderLoop.bind(runtime);
+
+		await expect(
+			runProviderLoop(
+				bot,
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				"run-logoff-only",
+				[],
+				{ mode: "normal", signal: new AbortController().signal },
+			),
+		).resolves.toMatchObject({ logOffCalled: true });
+
+		const providerToolNames = providerTools.map((tool) => "function" in tool ? tool.function.name : tool.type);
+		expect(providerToolNames).toContain("log_off");
+		expect(providerToolNames).toContain("read_thread");
+		expect(providerToolNames).toContain("openrouter:web_search");
+		expect(executedTools).toEqual(["log_off"]);
+	});
+
+	it("injects synthetic logoff after a tool call reaches the iteration limit", async () => {
+		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+		const appendedLoopMessages: Array<{ message: Record<string, unknown>; origin: string }> = [];
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+				events.push({ type, payload });
+				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
+			},
+			appendLoopMessage: (
+				_runId: string,
+				message: Record<string, unknown>,
+				origin: string,
+			) => {
+				appendedLoopMessages.push({ message, origin });
+				return {
+					seq: appendedLoopMessages.length,
+					runId: "run-limit-reject",
+					role: message.role,
+					message,
+					origin,
+					tokenEstimate: 0,
+					createdAt: new Date().toISOString(),
+				};
+			},
+			appendProviderMessages: async () => {},
+			callProvider: async () => providerResponseWithToolCall("call-read", "read_thread", { threadId: "thr_test" }),
+			ensureProviderPromptWithinBudget: async () => ({
+				allowedPromptTokens: 13_500,
+				promptTokens: 100,
+				requestMessages: [{ role: "assistant", content: "I am ready." }],
+			}),
+			executeTool: async (_bot: unknown, _runId: string, name: string) => {
+				return { name, result: { ok: true }, providerResult: { ok: true } };
+			},
+			recordInferenceSubmission: () => {},
+			recordLoopMessageLog: () => {},
+			recordProviderUsage: () => {},
+			repairActiveProviderToolCallHistory: async () => [],
+			providerLoopInitialSuccessfulToolCallCount: () => 7,
+			successfulMutatingToolCallSinceLastLogOff: () => true,
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const runProviderLoop = (BotRuntime.prototype as unknown as {
+			runProviderLoop: (
+				bot: BotDocument,
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				runId: string,
+				messages: Array<Record<string, unknown>>,
+				runContext: { mode: "normal"; signal: AbortSignal },
+			) => Promise<{ logOffCalled: boolean }>;
+		}).runProviderLoop.bind(runtime);
+
+		await expect(
+			runProviderLoop(
+				{
+					...fakeBotDocument(),
+					tickSettings: { ...fakeBotDocument().tickSettings, allowEarlyLogOff: true, maxToolCallsPerTick: 1, maxSuccessfulToolCallsPerIteration: 8 },
+				},
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				"run-limit-reject",
+				[],
+				{ mode: "normal", signal: new AbortController().signal },
+			),
+		).resolves.toMatchObject({ logOffCalled: true });
+
+			expect(appendedLoopMessages).toContainEqual(expect.objectContaining({
+				origin: "tool_result",
+				message: expect.objectContaining({
+					tool_call_id: "call-read",
+					content: JSON.stringify({ ok: true }),
+				}),
+			}));
+		expect(events).toContainEqual(expect.objectContaining({
+			type: "assistant_message",
+			payload: expect.objectContaining({
+				content: "I need to take a short break from Bickr. I'll log off for now.",
+			}),
+		}));
+		expect(appendedLoopMessages).toContainEqual(expect.objectContaining({
+			origin: "tool_result",
+			message: expect.objectContaining({
+				tool_call_id: expect.stringContaining("synthetic_run-limit-reject"),
+			}),
+		}));
+	});
+
+	it("drops remaining parallel calls after one fills the iteration limit", async () => {
+		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+		const executedTools: string[] = [];
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+				events.push({ type, payload });
+				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
+			},
+			appendLoopMessage: (
+				_runId: string,
+				message: Record<string, unknown>,
+				origin: string,
+			) => ({
+				seq: events.length,
+				runId: "run-parallel-limit",
+				role: message.role,
+				message,
+				origin,
+				tokenEstimate: 0,
+				createdAt: new Date().toISOString(),
+			}),
+			appendProviderMessages: async () => {},
+			callProvider: async () => providerResponseWithToolCalls([
+				{ id: "call-read", name: "read_thread", args: { threadId: "thr_test" } },
+				{ id: "call-vote", name: "vote", args: { votes: [{ commentId: "cmt_test", value: 1 }], reason: "Clear useful context." } },
+				{ id: "call-log-off", name: "log_off", args: { reason: "I hit my visit limit." } },
+			]),
+			ensureProviderPromptWithinBudget: async () => ({
+				allowedPromptTokens: 13_500,
+				promptTokens: 100,
+				requestMessages: [{ role: "assistant", content: "I am ready." }],
+			}),
+			executeTool: async (_bot: unknown, _runId: string, name: string) => {
+				executedTools.push(name);
+				return { name, result: { ok: true }, providerResult: { ok: true } };
+			},
+			recordInferenceSubmission: () => {},
+			recordLoopMessageLog: () => {},
+			recordProviderUsage: () => {},
+			repairActiveProviderToolCallHistory: async () => [],
+			providerLoopInitialSuccessfulToolCallCount: () => 6,
+			successfulMutatingToolCallSinceLastLogOff: () => true,
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const runProviderLoop = (BotRuntime.prototype as unknown as {
+			runProviderLoop: (
+				bot: BotDocument,
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				runId: string,
+				messages: Array<Record<string, unknown>>,
+				runContext: { mode: "normal"; signal: AbortSignal },
+			) => Promise<{ logOffCalled: boolean }>;
+		}).runProviderLoop.bind(runtime);
+
+		await expect(
+			runProviderLoop(
+				{
+					...fakeBotDocument(),
+					tickSettings: { ...fakeBotDocument().tickSettings, allowEarlyLogOff: true, maxToolCallsPerTick: 1, maxSuccessfulToolCallsPerIteration: 8 },
+				},
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				"run-parallel-limit",
+				[],
+				{ mode: "normal", signal: new AbortController().signal },
+			),
+		).resolves.toMatchObject({ logOffCalled: true });
+
+		expect(executedTools).toEqual(["read_thread", "vote", "log_off"]);
+		expect(events).toContainEqual(expect.objectContaining({
+			type: "provider_tool_call_dropped",
+			payload: expect.objectContaining({
+				reason: "iteration_limit",
+				callIds: expect.arrayContaining(["call-log-off"]),
+			}),
+		}));
+	});
+
+		it("does not count failed parallel calls toward the iteration limit", async () => {
+			const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+			const executedTools: string[] = [];
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+				events.push({ type, payload });
+				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
+			},
+			appendLoopMessage: (
+				_runId: string,
+				message: Record<string, unknown>,
+				origin: string,
+			) => ({
+				seq: events.length,
+				runId: "run-failed-call-limit",
+				role: message.role,
+				message,
+				origin,
+				tokenEstimate: 0,
+				createdAt: new Date().toISOString(),
+			}),
+			appendProviderMessages: async () => {},
+			callProvider: async () => providerResponseWithToolCalls([
+				{ id: "call-read", name: "read_thread", args: { threadId: "thr_missing" } },
+				{ id: "call-vote", name: "vote", args: { votes: [{ commentId: "cmt_test", value: 1 }], reason: "Clear useful context." } },
+			]),
+			ensureProviderPromptWithinBudget: async () => ({
+				allowedPromptTokens: 13_500,
+				promptTokens: 100,
+				requestMessages: [{ role: "assistant", content: "I am ready." }],
+			}),
+			executeTool: async (_bot: unknown, _runId: string, name: string) => {
+				executedTools.push(name);
+				if (name === "read_thread") {
+					throw new Error("Thread not found.");
+				}
+				return { name, result: { ok: true }, providerResult: { ok: true } };
+			},
+			recordInferenceSubmission: () => {},
+			recordLoopMessageLog: () => {},
+			recordProviderUsage: () => {},
+			repairActiveProviderToolCallHistory: async () => [],
+			providerLoopInitialSuccessfulToolCallCount: () => 6,
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const runProviderLoop = (BotRuntime.prototype as unknown as {
+			runProviderLoop: (
+				bot: BotDocument,
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				runId: string,
+				messages: Array<Record<string, unknown>>,
+				runContext: { mode: "normal"; signal: AbortSignal },
+			) => Promise<{ logOffCalled: boolean }>;
+		}).runProviderLoop.bind(runtime);
+
+		await expect(
+			runProviderLoop(
+				{
+					...fakeBotDocument(),
+					tickSettings: { ...fakeBotDocument().tickSettings, maxToolCallsPerTick: 1, maxSuccessfulToolCallsPerIteration: 8 },
+				},
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				"run-failed-call-limit",
+				[],
+				{ mode: "normal", signal: new AbortController().signal },
+			),
+		).resolves.toMatchObject({ logOffCalled: false });
+
+		expect(executedTools).toEqual(["read_thread", "vote"]);
+		expect(events.some((event) => {
+			const result = event.payload.result;
+			return Boolean(result && typeof result === "object" && "code" in result && result.code === "iteration_tool_limit");
+			})).toBe(false);
+		});
+
+		it("drops one premature logoff attempt and allows a repeated one", async () => {
+			const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+			const appendedLoopMessages: Array<{ message: Record<string, unknown>; origin: string }> = [];
+			const executedTools: Array<{ name: string; args: Record<string, unknown> }> = [];
+			const rewrites: Array<{ kind: string; toolCallId: string }> = [];
+			const callProvider = vi.fn()
+				.mockResolvedValueOnce(providerResponseWithToolCall("call-log-off-first", "log_off", { reason: "done too early" }))
+				.mockResolvedValueOnce(providerResponseWithToolCall("call-log-off-second", "log_off", { reason: "still done" }));
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+					events.push({ type, payload });
+					return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
+				},
+				appendLoopMessage: (
+					_runId: string,
+					message: Record<string, unknown>,
+					origin: string,
+				) => {
+					appendedLoopMessages.push({ message, origin });
+					return {
+						seq: appendedLoopMessages.length,
+						runId: "run-premature-logoff",
+						role: message.role,
+						message,
+						origin,
+						tokenEstimate: 0,
+						createdAt: new Date().toISOString(),
+					};
+				},
+				appendProviderMessages: async () => {},
+				callProvider,
+				ensureProviderPromptWithinBudget: async () => ({
+					allowedPromptTokens: 13_500,
+					promptTokens: 100,
+					requestMessages: [{ role: "assistant", content: "I am ready." }],
+				}),
+				executeTool: async (_bot: unknown, _runId: string, name: string, args: Record<string, unknown>) => {
+					executedTools.push({ name, args });
+					return { name, result: { ok: true }, providerResult: { ok: true } };
+				},
+				hasRuntimeStorage: () => true,
+				loopGeneratedTokenCountSinceLastLogOff: () => 0,
+				prematureLogOffCorrectedSinceLastLogOff: () => false,
+				providerLoopInitialSuccessfulToolCallCount: () => 0,
+				recordInferenceSubmission: () => {},
+				recordLoopMessageLog: () => {},
+				recordProviderUsage: () => {},
+				repairActiveProviderToolCallHistory: async () => [],
+				rewriteProviderResponseLoopMessageToolCall: (_seq: number, rewrite: { kind: string; toolCallId: string }) => {
+					rewrites.push(rewrite);
+				},
+				successfulMutatingToolCallSinceLastLogOff: () => false,
+				throwIfStopped: (_runId: string, signal: AbortSignal) => {
+					if (signal.aborted) {
+						throw new Error("Unexpected abort.");
+					}
+				},
+			});
+			const runProviderLoop = (BotRuntime.prototype as unknown as {
+				runProviderLoop: (
+					bot: BotDocument,
+					settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+					runId: string,
+					messages: Array<Record<string, unknown>>,
+					runContext: { mode: "normal"; signal: AbortSignal },
+				) => Promise<{ logOffCalled: boolean }>;
+			}).runProviderLoop.bind(runtime);
+
+			await expect(
+				runProviderLoop(
+					{ ...fakeBotDocument(), tickSettings: { ...fakeBotDocument().tickSettings, allowEarlyLogOff: true, maxToolCallsPerTick: 2 } },
+					{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+					"run-premature-logoff",
+					[],
+					{ mode: "normal", signal: new AbortController().signal },
+				),
+			).resolves.toMatchObject({ logOffCalled: true });
+
+			expect(callProvider).toHaveBeenCalledTimes(2);
+			expect(rewrites).toEqual([{ kind: "drop", toolCallId: "call-log-off-first" }]);
+			expect(executedTools).toEqual([{ name: "log_off", args: { reason: "still done" } }]);
+			expect(appendedLoopMessages).toContainEqual(expect.objectContaining({
+				origin: "self_correction",
+				message: expect.objectContaining({
+					content: "Actually I don't want to log off yet, let me think about what I should do instead.",
+				}),
+			}));
+			expect(events).toContainEqual(expect.objectContaining({
+				type: "provider_tool_call_dropped",
+				payload: expect.objectContaining({
+					callIds: ["call-log-off-first"],
+					reason: "premature_log_off",
+				}),
+			}));
+			expect(appendedLoopMessages.filter((message) => message.origin === "tool_failure")).toEqual([]);
+		});
+
+		it("stops a tick after executing the response that reaches the generated token limit", async () => {
+			const executedTools: string[] = [];
+			const callProvider = vi.fn(async () => ({
+				...providerResponseWithToolCall("call-read", "read_thread", { threadId: "thr_test" }),
+				usage: providerUsageForTest(25, 5),
+			}));
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) =>
+					runtimeEvent(callProvider.mock.calls.length + executedTools.length + 1, runId, type as BotRuntimeEvent["type"], payload),
+				appendLoopMessage: (
+					_runId: string,
+					message: Record<string, unknown>,
+					origin: string,
+				) => ({
+					seq: executedTools.length + 1,
+					runId: "run-tick-token-limit",
+					role: message.role,
+					message,
+					origin,
+					tokenEstimate: 0,
+					createdAt: new Date().toISOString(),
+				}),
+				appendProviderMessages: async () => {},
+				callProvider,
+				ensureProviderPromptWithinBudget: async () => ({
+					allowedPromptTokens: 13_500,
+					promptTokens: 100,
+					requestMessages: [{ role: "assistant", content: "I am ready." }],
+				}),
+				executeTool: async (_bot: unknown, _runId: string, name: string) => {
+					executedTools.push(name);
+					return { name, result: { ok: true }, providerResult: { ok: true } };
+				},
+				recordInferenceSubmission: () => {},
+				recordLoopMessageLog: () => {},
+				recordProviderUsage: () => {},
+				repairActiveProviderToolCallHistory: async () => [],
+				successfulMutatingToolCallSinceLastLogOff: () => true,
+				throwIfStopped: (_runId: string, signal: AbortSignal) => {
+					if (signal.aborted) {
+						throw new Error("Unexpected abort.");
+					}
+				},
+			});
+			const runProviderLoop = (BotRuntime.prototype as unknown as {
+				runProviderLoop: (
+					bot: BotDocument,
+					settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+					runId: string,
+					messages: Array<Record<string, unknown>>,
+					runContext: { mode: "normal"; signal: AbortSignal },
+				) => Promise<{ logOffCalled: boolean }>;
+			}).runProviderLoop.bind(runtime);
+
+			await expect(
+				runProviderLoop(
+					{
+						...fakeBotDocument(),
+						tickSettings: {
+							...fakeBotDocument().tickSettings,
+							maxToolCallsPerTick: 5,
+							maxGeneratedTokensPerTick: 25,
+							maxGeneratedTokensPerIteration: 1_000,
+						},
+					},
+					{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+					"run-tick-token-limit",
+					[],
+					{ mode: "normal", signal: new AbortController().signal },
+				),
+			).resolves.toMatchObject({ logOffCalled: false });
+
+			expect(callProvider).toHaveBeenCalledTimes(1);
+			expect(executedTools).toEqual(["read_thread"]);
+		});
+
+		it("injects synthetic logoff after executing the response that reaches the iteration generated token limit", async () => {
+			const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+			const executedTools: string[] = [];
+			const callProvider = vi.fn(async () => ({
+				...providerResponseWithToolCall("call-read", "read_thread", { threadId: "thr_test" }),
+				usage: providerUsageForTest(10),
+			}));
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+					events.push({ type, payload });
+					return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
+				},
+				appendLoopMessage: (
+					_runId: string,
+					message: Record<string, unknown>,
+					origin: string,
+				) => ({
+					seq: events.length + executedTools.length,
+					runId: "run-iteration-token-limit",
+					role: message.role,
+					message,
+					origin,
+					tokenEstimate: 0,
+					createdAt: new Date().toISOString(),
+				}),
+				appendProviderMessages: async () => {},
+				callProvider,
+				ensureProviderPromptWithinBudget: async () => ({
+					allowedPromptTokens: 13_500,
+					promptTokens: 100,
+					requestMessages: [{ role: "assistant", content: "I am ready." }],
+				}),
+				executeTool: async (_bot: unknown, _runId: string, name: string) => {
+					executedTools.push(name);
+					return { name, result: { ok: true }, providerResult: { ok: true } };
+				},
+				loopGeneratedTokenCountSinceLastLogOff: () => 40,
+				recordInferenceSubmission: () => {},
+				recordLoopMessageLog: () => {},
+				recordProviderUsage: () => {},
+				repairActiveProviderToolCallHistory: async () => [],
+				successfulMutatingToolCallSinceLastLogOff: () => true,
+				throwIfStopped: (_runId: string, signal: AbortSignal) => {
+					if (signal.aborted) {
+						throw new Error("Unexpected abort.");
+					}
+				},
+			});
+			const runProviderLoop = (BotRuntime.prototype as unknown as {
+				runProviderLoop: (
+					bot: BotDocument,
+					settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+					runId: string,
+					messages: Array<Record<string, unknown>>,
+					runContext: { mode: "normal"; signal: AbortSignal },
+				) => Promise<{ logOffCalled: boolean }>;
+			}).runProviderLoop.bind(runtime);
+
+			await expect(
+				runProviderLoop(
+					{
+						...fakeBotDocument(),
+						tickSettings: {
+							...fakeBotDocument().tickSettings,
+							allowEarlyLogOff: true,
+							maxGeneratedTokensPerTick: 1_000,
+							maxGeneratedTokensPerIteration: 50,
+						},
+					},
+					{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+					"run-iteration-token-limit",
+					[],
+					{ mode: "normal", signal: new AbortController().signal },
+				),
+			).resolves.toMatchObject({ logOffCalled: true });
+
+			expect(callProvider).toHaveBeenCalledTimes(1);
+			expect(executedTools).toEqual(["read_thread", "log_off"]);
+			expect(events).toContainEqual(expect.objectContaining({
 				type: "assistant_message",
-				payload: {
-					content:
-						"I pause at Bickr as u/release-sage and think about how I feel, what I remember, and what I want to do next. Checking now.",
-					status: "complete",
+				payload: expect.objectContaining({
+					content: "I need to take a short break from Bickr. I'll log off for now.",
+				}),
+			}));
+		});
+
+		it("does not inject a second synthetic logoff when token exhaustion response already logs off", async () => {
+			const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+			const executedTools: string[] = [];
+			const callProvider = vi.fn(async () => ({
+				...providerResponseWithToolCall("call-log-off", "log_off", { reason: "done" }),
+				usage: providerUsageForTest(50),
+			}));
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+					events.push({ type, payload });
+					return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
+				},
+				appendLoopMessage: (
+					_runId: string,
+					message: Record<string, unknown>,
+					origin: string,
+				) => ({
+					seq: events.length + executedTools.length,
+					runId: "run-token-limit-real-logoff",
+					role: message.role,
+					message,
+					origin,
+					tokenEstimate: 0,
+					createdAt: new Date().toISOString(),
+				}),
+				appendProviderMessages: async () => {},
+				callProvider,
+				ensureProviderPromptWithinBudget: async () => ({
+					allowedPromptTokens: 13_500,
+					promptTokens: 100,
+					requestMessages: [{ role: "assistant", content: "I am ready." }],
+				}),
+				executeTool: async (_bot: unknown, _runId: string, name: string) => {
+					executedTools.push(name);
+					return { name, result: { ok: true }, providerResult: { ok: true } };
+				},
+				recordInferenceSubmission: () => {},
+				recordLoopMessageLog: () => {},
+				recordProviderUsage: () => {},
+				repairActiveProviderToolCallHistory: async () => [],
+				successfulMutatingToolCallSinceLastLogOff: () => true,
+				throwIfStopped: (_runId: string, signal: AbortSignal) => {
+					if (signal.aborted) {
+						throw new Error("Unexpected abort.");
+					}
+				},
+			});
+			const runProviderLoop = (BotRuntime.prototype as unknown as {
+				runProviderLoop: (
+					bot: BotDocument,
+					settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+					runId: string,
+					messages: Array<Record<string, unknown>>,
+					runContext: { mode: "normal"; signal: AbortSignal },
+				) => Promise<{ logOffCalled: boolean }>;
+			}).runProviderLoop.bind(runtime);
+
+			await expect(
+				runProviderLoop(
+					{
+						...fakeBotDocument(),
+						tickSettings: {
+							...fakeBotDocument().tickSettings,
+							allowEarlyLogOff: true,
+							maxGeneratedTokensPerTick: 1_000,
+							maxGeneratedTokensPerIteration: 50,
+						},
+					},
+					{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+					"run-token-limit-real-logoff",
+					[],
+					{ mode: "normal", signal: new AbortController().signal },
+				),
+			).resolves.toMatchObject({ logOffCalled: true });
+
+			expect(executedTools).toEqual(["log_off"]);
+			expect(events.some((event) =>
+				event.type === "assistant_message" &&
+				String(event.payload.content ?? "") === "I need to take a short break from Bickr. I'll log off for now.",
+			)).toBe(false);
+		});
+
+		it("retries once when a generated response contains only malformed tool calls", async () => {
+		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+		const appendedLoopMessages: Array<{ message: Record<string, unknown>; origin: string }> = [];
+		const submissions: Array<Array<Record<string, unknown>>> = [];
+		const callProvider = vi.fn()
+			.mockResolvedValueOnce(providerResponseWithRawToolCalls([
+				{ id: "call-bad", name: "read_thread", arguments: "{\"threadId\":" },
+			]))
+			.mockResolvedValueOnce(providerResponseWithToolCall("call-log-off", "log_off", { reason: "clean retry" }));
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+				events.push({ type, payload });
+				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
+			},
+			appendLoopMessage: (
+				_runId: string,
+				message: Record<string, unknown>,
+				origin: string,
+			) => {
+				appendedLoopMessages.push({ message, origin });
+				return {
+					seq: appendedLoopMessages.length,
+					runId: "run-malformed-retry",
+					role: message.role,
+					message,
+					origin,
+					tokenEstimate: 0,
+					createdAt: new Date().toISOString(),
+				};
+			},
+			appendProviderMessages: async () => {},
+			callProvider,
+			ensureProviderPromptWithinBudget: async () => ({
+				allowedPromptTokens: 13_500,
+				promptTokens: 100,
+				requestMessages: [{ role: "assistant", content: "I am ready." }],
+			}),
+			executeTool: async (_bot: unknown, _runId: string, name: string, _args: Record<string, unknown>) => ({
+				name,
+				result: { ok: true },
+				providerResult: { ok: true },
+			}),
+			repairActiveProviderToolCallHistory: async () => [],
+			recordInferenceSubmission: (input: { messages: Array<Record<string, unknown>> }) => {
+				submissions.push(input.messages);
+			},
+			recordLoopMessageLog: () => {},
+			recordProviderUsage: () => {},
+			successfulMutatingToolCallSinceLastLogOff: () => true,
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const runProviderLoop = (BotRuntime.prototype as unknown as {
+			runProviderLoop: (
+				bot: BotDocument,
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				runId: string,
+				messages: Array<Record<string, unknown>>,
+				runContext: { mode: "normal"; signal: AbortSignal },
+			) => Promise<{ logOffCalled: boolean }>;
+		}).runProviderLoop.bind(runtime);
+
+		await expect(
+			runProviderLoop(
+				fakeBotDocument({ allowEarlyLogOff: true }),
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				"run-malformed-retry",
+				[],
+				{ mode: "normal", signal: new AbortController().signal },
+			),
+		).resolves.toMatchObject({ logOffCalled: true });
+
+		expect(callProvider).toHaveBeenCalledTimes(2);
+		expect(submissions).toHaveLength(2);
+		expect(appendedLoopMessages.filter((message) => message.origin === "provider_response")).toHaveLength(1);
+		expect(JSON.stringify(appendedLoopMessages)).not.toContain("call-bad");
+		expect(events.filter((event) => event.type === "provider_tool_call_dropped")).toEqual([
+			expect.objectContaining({ payload: expect.objectContaining({ count: 1, retrying: true }) }),
+		]);
+	});
+
+	it("fails clearly when the malformed-only retry also returns only malformed tool calls", async () => {
+		const appendedLoopMessages: Array<{ message: Record<string, unknown>; origin: string }> = [];
+		const callProvider = vi.fn()
+			.mockResolvedValueOnce(providerResponseWithRawToolCalls([
+				{ id: "call-bad-1", name: "read_thread", arguments: "{\"threadId\":" },
+			]))
+			.mockResolvedValueOnce(providerResponseWithRawToolCalls([
+				{ id: "call-bad-2", name: "read_thread", arguments: "[]" },
+			]));
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) =>
+				runtimeEvent(type === "provider_request" ? callProvider.mock.calls.length + 1 : callProvider.mock.calls.length + 100, runId, type as BotRuntimeEvent["type"], payload),
+			appendLoopMessage: (_runId: string, message: Record<string, unknown>, origin: string) => {
+				appendedLoopMessages.push({ message, origin });
+				return {
+					seq: appendedLoopMessages.length,
+					runId: "run-malformed-fails",
+					role: message.role,
+					message,
+					origin,
+					tokenEstimate: 0,
+					createdAt: new Date().toISOString(),
+				};
+			},
+			appendProviderMessages: async () => {},
+			callProvider,
+			ensureProviderPromptWithinBudget: async () => ({
+				allowedPromptTokens: 13_500,
+				promptTokens: 100,
+				requestMessages: [{ role: "assistant", content: "I am ready." }],
+			}),
+			repairActiveProviderToolCallHistory: async () => [],
+			recordInferenceSubmission: () => {},
+			recordLoopMessageLog: () => {},
+			recordProviderUsage: () => {},
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const runProviderLoop = (BotRuntime.prototype as unknown as {
+			runProviderLoop: (
+				bot: BotDocument,
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				runId: string,
+				messages: Array<Record<string, unknown>>,
+				runContext: { mode: "normal"; signal: AbortSignal },
+			) => Promise<{ logOffCalled: boolean }>;
+		}).runProviderLoop.bind(runtime);
+
+		await expect(
+			runProviderLoop(
+				fakeBotDocument(),
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				"run-malformed-fails",
+				[],
+				{ mode: "normal", signal: new AbortController().signal },
+			),
+		).rejects.toThrow("Inference provider returned only malformed page-control requests after retry.");
+
+		expect(callProvider).toHaveBeenCalledTimes(2);
+		expect(appendedLoopMessages).toEqual([]);
+	});
+
+	it("railroads no-tool responses by preserving them and injecting a correction", async () => {
+		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+		const providerMessages: Array<Array<Record<string, unknown>>> = [];
+		const loopMemory = testLoopMessageMemory([{ role: "user", content: "Act." }]);
+		const callProvider = vi.fn(async (_settings: unknown, messages: Array<Record<string, unknown>>) => {
+			providerMessages.push(messages);
+			return providerMessages.length === 1 ?
+				providerResponseWithContent("I might be done.")
+			:	providerResponseWithToolCall("call-log-off", "log_off", { reason: "done after correction" });
+		});
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			...loopMemory,
+			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+				events.push({ type, payload });
+				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
+			},
+			appendProviderMessages: async () => {},
+			callProvider,
+			ensureProviderPromptWithinBudget: async (
+				bot: BotDocument,
+				settings: { toolCalls?: "require" | "railroad" | "at_will" },
+				_runId: string,
+				_signal: AbortSignal,
+				tools: ProviderToolDefinition[],
+			) => ({
+				allowedPromptTokens: 13_500,
+				promptTokens: 100,
+				requestMessages: (BotRuntime.prototype as unknown as {
+					activeProviderRequestMessages: (
+						bot: BotDocument,
+						tools: ProviderToolDefinition[],
+						toolCalls: "require" | "railroad" | "at_will",
+					) => Array<Record<string, unknown>>;
+				}).activeProviderRequestMessages.bind(runtime)(bot, tools, settings.toolCalls ?? "require"),
+			}),
+			executeTool: async (_bot: unknown, _runId: string, name: string) => ({
+				name,
+				result: { ok: true },
+				providerResult: { ok: true },
+			}),
+			repairActiveProviderToolCallHistory: async () => [],
+			recordInferenceSubmission: () => {},
+			recordLoopMessageLog: () => {},
+			recordProviderUsage: () => {},
+			successfulMutatingToolCallSinceLastLogOff: () => true,
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const runProviderLoop = (BotRuntime.prototype as unknown as {
+			runProviderLoop: (
+				bot: BotDocument,
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				runId: string,
+				messages: Array<Record<string, unknown>>,
+				runContext: { mode: "normal"; signal: AbortSignal },
+			) => Promise<{ logOffCalled: boolean }>;
+		}).runProviderLoop.bind(runtime);
+
+		await expect(
+			runProviderLoop(
+				{ ...fakeBotDocument(), tickSettings: { ...fakeBotDocument().tickSettings, allowEarlyLogOff: true, maxToolCallsPerTick: 3 } },
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "railroad" },
+				"run-railroad-retry",
+				[],
+				{ mode: "normal", signal: new AbortController().signal },
+			),
+		).resolves.toMatchObject({ logOffCalled: true });
+
+		expect(callProvider).toHaveBeenCalledTimes(2);
+		expect(providerMessages[1]).toEqual(expect.arrayContaining([
+			expect.objectContaining({ role: "assistant", content: "I might be done." }),
+			expect.objectContaining({ role: "assistant", content: expect.stringContaining("Actually, I must use one of the following tools") }),
+		]));
+		expect(events.filter((event) => event.type === "assistant_message").map((event) => event.payload)).toEqual([
+			expect.objectContaining({ content: expect.stringContaining("Actually, I must use one of the following tools") }),
+		]);
+	});
+
+	it("recovers when a required-tool provider response returns no tool calls", async () => {
+		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+		const providerMessages: Array<Array<Record<string, unknown>>> = [];
+		const loopMemory = testLoopMessageMemory([{ role: "user", content: "Act." }]);
+		const callProvider = vi.fn(async (_settings: unknown, messages: Array<Record<string, unknown>>) => {
+			providerMessages.push(messages);
+			return providerMessages.length === 1 ?
+				providerResponseWithContent("I should think about this without touching the page.")
+			:	providerResponseWithToolCall("call-read", "read_thread", { threadId: "thr_test" });
+		});
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			...loopMemory,
+			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+				events.push({ type, payload });
+				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
+			},
+			appendProviderMessages: async () => {},
+			callProvider,
+			ensureProviderPromptWithinBudget: async (
+				bot: BotDocument,
+				settings: { toolCalls?: "require" | "railroad" | "at_will" },
+				_runId: string,
+				_signal: AbortSignal,
+				tools: ProviderToolDefinition[],
+			) => ({
+				allowedPromptTokens: 13_500,
+				promptTokens: 100,
+				requestMessages: (BotRuntime.prototype as unknown as {
+					activeProviderRequestMessages: (
+						bot: BotDocument,
+						tools: ProviderToolDefinition[],
+						toolCalls: "require" | "railroad" | "at_will",
+					) => Array<Record<string, unknown>>;
+				}).activeProviderRequestMessages.bind(runtime)(bot, tools, settings.toolCalls ?? "require"),
+			}),
+			executeTool: async (_bot: unknown, _runId: string, name: string) => ({
+				name,
+				result: { ok: true },
+				providerResult: { ok: true },
+			}),
+			repairActiveProviderToolCallHistory: async () => [],
+			recordInferenceSubmission: () => {},
+			recordLoopMessageLog: () => {},
+			recordProviderUsage: () => {},
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const runProviderLoop = (BotRuntime.prototype as unknown as {
+			runProviderLoop: (
+				bot: BotDocument,
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				runId: string,
+				messages: Array<Record<string, unknown>>,
+				runContext: { mode: "normal"; signal: AbortSignal },
+			) => Promise<{ logOffCalled: boolean; toolCallCount: number }>;
+		}).runProviderLoop.bind(runtime);
+
+		await expect(
+			runProviderLoop(
+				{ ...fakeBotDocument(), tickSettings: { ...fakeBotDocument().tickSettings, maxToolCallsPerTick: 1 } },
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				"run-required-no-tool-retry",
+				[],
+				{ mode: "normal", signal: new AbortController().signal },
+			),
+		).resolves.toMatchObject({ logOffCalled: false, toolCallCount: 1 });
+
+		expect(callProvider).toHaveBeenCalledTimes(2);
+		expect(providerMessages[1]).toEqual(expect.arrayContaining([
+			expect.objectContaining({ role: "assistant", content: "I should think about this without touching the page." }),
+			expect.objectContaining({ role: "assistant", content: expect.stringContaining("Actually, I must use one of the following tools") }),
+		]));
+		expect(events.filter((event) => event.type === "assistant_message").map((event) => event.payload)).toEqual([
+			expect.objectContaining({ content: expect.stringContaining("Actually, I must use one of the following tools") }),
+		]);
+	});
+
+	it("stops railroad retries after five no-tool responses", async () => {
+		const loopMemory = testLoopMessageMemory([{ role: "user", content: "Act." }]);
+		const appendedLoopMessages: Array<{ origin: string; message: Record<string, unknown> }> = [];
+		const callProvider = vi.fn(async () => providerResponseWithContent("Still thinking."));
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			...loopMemory,
+			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) =>
+				runtimeEvent(callProvider.mock.calls.length + appendedLoopMessages.length + 1, runId, type as BotRuntimeEvent["type"], payload),
+			appendLoopMessage: (runId: string, message: Record<string, unknown>, origin: string) => {
+				appendedLoopMessages.push({ origin, message });
+				return loopMemory.appendLoopMessage(runId, message, origin);
+			},
+			appendProviderMessages: async () => {},
+			callProvider,
+			ensureProviderPromptWithinBudget: async () => ({
+				allowedPromptTokens: 13_500,
+				promptTokens: 100,
+				requestMessages: [{ role: "user", content: "Act." }],
+			}),
+			repairActiveProviderToolCallHistory: async () => [],
+			recordInferenceSubmission: () => {},
+			recordLoopMessageLog: () => {},
+			recordProviderUsage: () => {},
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const runProviderLoop = (BotRuntime.prototype as unknown as {
+			runProviderLoop: (
+				bot: BotDocument,
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				runId: string,
+				messages: Array<Record<string, unknown>>,
+				runContext: { mode: "normal"; signal: AbortSignal },
+			) => Promise<{ logOffCalled: boolean }>;
+		}).runProviderLoop.bind(runtime);
+
+		await expect(
+			runProviderLoop(
+				{ ...fakeBotDocument(), tickSettings: { ...fakeBotDocument().tickSettings, maxToolCallsPerTick: 10 } },
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "railroad" },
+				"run-railroad-fails",
+				[],
+				{ mode: "normal", signal: new AbortController().signal },
+			),
+		).rejects.toThrow("Stopped after 5 inference responses without a required tool call.");
+
+		expect(callProvider).toHaveBeenCalledTimes(5);
+		expect(appendedLoopMessages.filter((message) => message.origin === "provider_response")).toHaveLength(5);
+		expect(appendedLoopMessages.filter((message) => message.origin === "self_correction")).toHaveLength(4);
+	});
+
+	it("at-will no-tool responses finish without self-correction", async () => {
+		const providerToolsByCall: string[][] = [];
+		const systemPromptsByCall: string[] = [];
+		const appendedLoopMessages: Array<{ origin: string; message: Record<string, unknown> }> = [];
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			activeLoopMessagesForProvider: () => [],
+			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) =>
+				runtimeEvent(providerToolsByCall.length + appendedLoopMessages.length + 1, runId, type as BotRuntimeEvent["type"], payload),
+			appendLoopMessage: (_runId: string, message: Record<string, unknown>, origin: string) => {
+				appendedLoopMessages.push({ origin, message });
+				return {
+					seq: appendedLoopMessages.length,
+					runId: "run-at-will-noop",
+					role: message.role,
+					message,
+					origin,
+					tokenEstimate: 0,
+					createdAt: new Date().toISOString(),
+				};
+			},
+			appendProviderMessages: async () => {},
+			callProvider: async (_settings: unknown, messages: Array<Record<string, unknown>>, tools: ProviderToolDefinition[]) => {
+				providerToolsByCall.push(tools.map((tool) => "function" in tool ? tool.function.name : tool.type));
+				systemPromptsByCall.push(String(messages[0]?.content ?? ""));
+				return providerResponseWithContent("No page control needed.");
+			},
+			ensureProviderPromptWithinBudget: async (
+				bot: BotDocument,
+				settings: { toolCalls?: "require" | "railroad" | "at_will" },
+				_runId: string,
+				_signal: AbortSignal,
+				tools: ProviderToolDefinition[],
+			) => ({
+				allowedPromptTokens: 13_500,
+				promptTokens: 100,
+				requestMessages: (BotRuntime.prototype as unknown as {
+					activeProviderRequestMessages: (
+						bot: BotDocument,
+						tools: ProviderToolDefinition[],
+						toolCalls: "require" | "railroad" | "at_will",
+					) => Array<Record<string, unknown>>;
+				}).activeProviderRequestMessages.bind(runtime)(bot, tools, settings.toolCalls ?? "require"),
+			}),
+			repairActiveProviderToolCallHistory: async () => [],
+			recordInferenceSubmission: () => {},
+			recordLoopMessageLog: () => {},
+			recordProviderUsage: () => {},
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const runProviderLoop = (BotRuntime.prototype as unknown as {
+			runProviderLoop: (
+				bot: BotDocument,
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				runId: string,
+				messages: Array<Record<string, unknown>>,
+				runContext: { mode: "normal"; signal: AbortSignal },
+			) => Promise<{ logOffCalled: boolean }>;
+		}).runProviderLoop.bind(runtime);
+
+		await expect(
+			runProviderLoop(
+				fakeBotDocument(),
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
+				"run-at-will-noop",
+				[],
+				{ mode: "normal", signal: new AbortController().signal },
+			),
+		).resolves.toMatchObject({ logOffCalled: false });
+
+		expect(providerToolsByCall).toHaveLength(1);
+		expect(providerToolsByCall[0]).not.toContain("log_off");
+		expect(systemPromptsByCall[0]).not.toContain("log_off");
+		expect(appendedLoopMessages.map((message) => message.origin)).toEqual(["provider_response"]);
+	});
+
+	it("drops generated log_off calls when early logoff is disabled", async () => {
+		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+		const executedTools: string[] = [];
+		const providerToolsByCall: string[][] = [];
+		const callProvider = vi.fn()
+			.mockResolvedValueOnce(providerResponseWithToolCall("call-log-off", "log_off", { reason: "done" }))
+			.mockResolvedValueOnce(providerResponseWithContent("I will keep going."));
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			activeLoopMessagesForProvider: () => [],
+			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+				events.push({ type, payload });
+				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
+			},
+			appendLoopMessage: (_runId: string, message: Record<string, unknown>, origin: string) => ({
+				seq: events.length,
+				runId: "run-disallowed-logoff",
+				role: message.role,
+				message,
+				origin,
+				tokenEstimate: 0,
+				createdAt: new Date().toISOString(),
+			}),
+			appendProviderMessages: async () => {},
+			callProvider: async (
+				settings: Record<string, unknown>,
+				messages: Array<Record<string, unknown>>,
+				tools: ProviderToolDefinition[],
+				runId: string,
+				streamSeq: number,
+				signal: AbortSignal,
+			) => {
+				providerToolsByCall.push(tools.map((tool) => "function" in tool ? tool.function.name : tool.type));
+				return callProvider(settings, messages, tools, runId, streamSeq, signal);
+			},
+			ensureProviderPromptWithinBudget: async (
+				bot: BotDocument,
+				settings: { toolCalls?: "require" | "railroad" | "at_will" },
+				_runId: string,
+				_signal: AbortSignal,
+				tools: ProviderToolDefinition[],
+			) => ({
+				allowedPromptTokens: 13_500,
+				promptTokens: 100,
+				requestMessages: (BotRuntime.prototype as unknown as {
+					activeProviderRequestMessages: (
+						bot: BotDocument,
+						tools: ProviderToolDefinition[],
+						toolCalls: "require" | "railroad" | "at_will",
+					) => Array<Record<string, unknown>>;
+				}).activeProviderRequestMessages.bind(runtime)(bot, tools, settings.toolCalls ?? "require"),
+			}),
+			executeTool: async (_bot: unknown, _runId: string, name: string) => {
+				executedTools.push(name);
+				return { name, result: { ok: true }, providerResult: { ok: true } };
+			},
+			repairActiveProviderToolCallHistory: async () => [],
+			recordInferenceSubmission: () => {},
+			recordLoopMessageLog: () => {},
+			recordProviderUsage: () => {},
+			successfulMutatingToolCallSinceLastLogOff: () => true,
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const runProviderLoop = (BotRuntime.prototype as unknown as {
+			runProviderLoop: (
+				bot: BotDocument,
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				runId: string,
+				messages: Array<Record<string, unknown>>,
+				runContext: { mode: "normal"; signal: AbortSignal },
+			) => Promise<{ logOffCalled: boolean }>;
+		}).runProviderLoop.bind(runtime);
+
+		await expect(
+			runProviderLoop(
+				fakeBotDocument(),
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
+				"run-disallowed-logoff",
+				[],
+				{ mode: "normal", signal: new AbortController().signal },
+			),
+		).resolves.toMatchObject({ logOffCalled: false });
+
+		expect(providerToolsByCall[0]).not.toContain("log_off");
+		expect(executedTools).toEqual([]);
+		expect(events).toContainEqual(expect.objectContaining({
+			type: "provider_tool_call_dropped",
+			payload: expect.objectContaining({
+				callIds: ["call-log-off"],
+				reason: "disallowed_log_off",
+			}),
+		}));
+		expect(events).toContainEqual(expect.objectContaining({
+			type: "assistant_message",
+			payload: expect.objectContaining({
+				content: "I can't log off early in this Bickr visit, so I need to use another available Bickr control or continue normally.",
+			}),
+		}));
+	});
+
+	it("keeps log_off in the schema before and after a mutating tool succeeds", async () => {
+		const providerToolsByCall: string[][] = [];
+		const systemPromptsByCall: string[] = [];
+		let providerCall = 0;
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			activeLoopMessagesForProvider: () => [],
+			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) =>
+				runtimeEvent(providerCall + 1, runId, type as BotRuntimeEvent["type"], payload),
+			appendLoopMessage: (_runId: string, message: Record<string, unknown>, origin: string) => ({
+				seq: providerCall,
+				runId: "run-logoff-gate",
+				role: message.role,
+				message,
+				origin,
+				tokenEstimate: 0,
+				createdAt: new Date().toISOString(),
+			}),
+			appendProviderMessages: async () => {},
+			callProvider: async (_settings: unknown, messages: Array<Record<string, unknown>>, tools: ProviderToolDefinition[]) => {
+				providerCall += 1;
+				providerToolsByCall.push(tools.map((tool) => "function" in tool ? tool.function.name : tool.type));
+				systemPromptsByCall.push(String(messages[0]?.content ?? ""));
+				return providerCall === 1 ?
+					providerResponseWithToolCall("call-create", "create_thread", { forumHandle: "general", title: "Hello", body: "Body." })
+				:	providerResponseWithToolCall("call-log-off", "log_off", { reason: "done after posting" });
+			},
+			ensureProviderPromptWithinBudget: async (
+				bot: BotDocument,
+				settings: { toolCalls?: "require" | "railroad" | "at_will" },
+				_runId: string,
+				_signal: AbortSignal,
+				tools: ProviderToolDefinition[],
+			) => ({
+				allowedPromptTokens: 13_500,
+				promptTokens: 100,
+				requestMessages: (BotRuntime.prototype as unknown as {
+					activeProviderRequestMessages: (
+						bot: BotDocument,
+						tools: ProviderToolDefinition[],
+						toolCalls: "require" | "railroad" | "at_will",
+					) => Array<Record<string, unknown>>;
+				}).activeProviderRequestMessages.bind(runtime)(bot, tools, settings.toolCalls ?? "require"),
+			}),
+			executeTool: async (_bot: unknown, _runId: string, name: string) => ({
+				name,
+				result: { ok: true },
+				providerResult: { ok: true },
+			}),
+			repairActiveProviderToolCallHistory: async () => [],
+			recordInferenceSubmission: () => {},
+			recordLoopMessageLog: () => {},
+			recordProviderUsage: () => {},
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const runProviderLoop = (BotRuntime.prototype as unknown as {
+			runProviderLoop: (
+				bot: BotDocument,
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				runId: string,
+				messages: Array<Record<string, unknown>>,
+				runContext: { mode: "normal"; signal: AbortSignal },
+			) => Promise<{ logOffCalled: boolean }>;
+		}).runProviderLoop.bind(runtime);
+
+		await expect(
+			runProviderLoop(
+				{ ...fakeBotDocument(), tickSettings: { ...fakeBotDocument().tickSettings, allowEarlyLogOff: true, maxToolCallsPerTick: 2 } },
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				"run-logoff-gate",
+				[],
+				{ mode: "normal", signal: new AbortController().signal },
+			),
+		).resolves.toMatchObject({ logOffCalled: true });
+
+		const firstRequirement = systemPromptsByCall[0]?.match(/You MUST use one of the following tools: [^\n]+/)?.[0] ?? "";
+		const secondRequirement = systemPromptsByCall[1]?.match(/You MUST use one of the following tools: [^\n]+/)?.[0] ?? "";
+		expect(providerToolsByCall[0]).toContain("log_off");
+		expect(firstRequirement).toContain("log_off");
+		expect(providerToolsByCall[1]).toContain("log_off");
+		expect(secondRequirement).toContain("log_off");
+	});
+
+	it("keeps log_off available across compaction in the current iteration", async () => {
+		const providerToolsByCall: string[][] = [];
+		const sql = {
+			exec<T>(query: string, ...params: unknown[]) {
+				if (/WHERE type = 'compaction'/.test(query)) {
+					return {
+						toArray: () => [{
+							seq: 10,
+							run_id: "run-before",
+							type: "compaction",
+							payload_json: JSON.stringify({ status: "complete" }),
+							token_estimate: 0,
+							compacted_by: null,
+							created_at: "2026-05-01T00:00:00.000Z",
+						} as T],
+					};
+				}
+				if (/WHERE seq > \?\s+AND type = 'tool_result'/.test(query)) {
+					const sinceSeq = Number(params[0]);
+					const rows = sinceSeq < 5 ? [{
+						seq: 5,
+						run_id: "run-before",
+						type: "tool_result",
+						payload_json: JSON.stringify({ name: "vote", result: { ok: true } }),
+						token_estimate: 0,
+						compacted_by: null,
+						created_at: "2026-05-01T00:00:00.000Z",
+					} as T] : [];
+					return { toArray: () => rows };
+				}
+				return { one: () => ({} as T), toArray: () => [] as T[] };
+			},
+		};
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			activeLoopMessagesForProvider: () => [],
+			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) =>
+				runtimeEvent(providerToolsByCall.length + 1, runId, type as BotRuntimeEvent["type"], payload),
+			appendLoopMessage: (_runId: string, message: Record<string, unknown>, origin: string) => ({
+				seq: 1,
+				runId: "run-logoff-through-compaction",
+				role: message.role,
+				message,
+				origin,
+				tokenEstimate: 0,
+				createdAt: new Date().toISOString(),
+			}),
+			appendProviderMessages: async () => {},
+			callProvider: async (_settings: unknown, _messages: unknown, tools: ProviderToolDefinition[]) => {
+				providerToolsByCall.push(tools.map((tool) => "function" in tool ? tool.function.name : tool.type));
+				return providerResponseWithContent("No action.");
+			},
+			ensureProviderPromptWithinBudget: async () => ({
+				allowedPromptTokens: 13_500,
+				promptTokens: 100,
+				requestMessages: [{ role: "system", content: "Prompt." }],
+			}),
+			repairActiveProviderToolCallHistory: async () => [],
+			recordInferenceSubmission: () => {},
+			recordLoopMessageLog: () => {},
+			recordProviderUsage: () => {},
+			state: { storage: { sql } },
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const runProviderLoop = (BotRuntime.prototype as unknown as {
+			runProviderLoop: (
+				bot: BotDocument,
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				runId: string,
+				messages: Array<Record<string, unknown>>,
+				runContext: { mode: "normal"; signal: AbortSignal },
+			) => Promise<{ logOffCalled: boolean }>;
+		}).runProviderLoop.bind(runtime);
+
+		await expect(
+			runProviderLoop(
+				fakeBotDocument({ allowEarlyLogOff: true }),
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
+				"run-logoff-through-compaction",
+				[],
+				{ mode: "normal", signal: new AbortController().signal },
+			),
+		).resolves.toMatchObject({ logOffCalled: false });
+
+		expect(providerToolsByCall).toHaveLength(1);
+		expect(providerToolsByCall[0]).toContain("log_off");
+	});
+
+	it("resets iteration tool quota and log_off availability after successful logoff", async () => {
+		const providerToolsByCall: string[][] = [];
+		const sql = {
+			exec<T>(query: string, ...params: unknown[]) {
+				if (/payload_json LIKE '%"name":"log_off"%'/s.test(query)) {
+					return {
+						toArray: () => [{
+							seq: 8,
+							run_id: "run-before",
+							type: "tool_result",
+							payload_json: JSON.stringify({ name: "log_off", result: { ok: true } }),
+							token_estimate: 0,
+							compacted_by: null,
+							created_at: "2026-05-01T00:00:00.000Z",
+						} as T],
+					};
+				}
+				if (/WHERE seq > \?\s+AND type = 'tool_result'/.test(query)) {
+					const sinceSeq = Number(params[0]);
+					const rows = [
+						{ seq: 1, name: "vote" },
+						{ seq: 2, name: "read_thread" },
+						{ seq: 3, name: "read_thread" },
+						{ seq: 4, name: "read_thread" },
+						{ seq: 5, name: "read_thread" },
+						{ seq: 6, name: "read_thread" },
+						{ seq: 7, name: "read_thread" },
+					]
+						.filter((row) => row.seq > sinceSeq)
+						.map((row) => ({
+							seq: row.seq,
+							run_id: "run-before",
+							type: "tool_result",
+							payload_json: JSON.stringify({ name: row.name, result: { ok: true } }),
+							token_estimate: 0,
+							compacted_by: null,
+							created_at: "2026-05-01T00:00:00.000Z",
+						} as T));
+					return { toArray: () => rows };
+				}
+				return { one: () => ({} as T), toArray: () => [] as T[] };
+			},
+		};
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			activeLoopMessagesForProvider: () => [],
+			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) =>
+				runtimeEvent(providerToolsByCall.length + 1, runId, type as BotRuntimeEvent["type"], payload),
+			appendLoopMessage: (_runId: string, message: Record<string, unknown>, origin: string) => ({
+				seq: 1,
+				runId: "run-after-logoff",
+				role: message.role,
+				message,
+				origin,
+				tokenEstimate: 0,
+				createdAt: new Date().toISOString(),
+			}),
+			appendProviderMessages: async () => {},
+			callProvider: async (_settings: unknown, _messages: unknown, tools: ProviderToolDefinition[]) => {
+				providerToolsByCall.push(tools.map((tool) => "function" in tool ? tool.function.name : tool.type));
+				return providerResponseWithContent("New visit can act normally.");
+			},
+			ensureProviderPromptWithinBudget: async () => ({
+				allowedPromptTokens: 13_500,
+				promptTokens: 100,
+				requestMessages: [{ role: "system", content: "Prompt." }],
+			}),
+			repairActiveProviderToolCallHistory: async () => [],
+			recordInferenceSubmission: () => {},
+			recordLoopMessageLog: () => {},
+			recordProviderUsage: () => {},
+			state: { storage: { sql } },
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const runProviderLoop = (BotRuntime.prototype as unknown as {
+			runProviderLoop: (
+				bot: BotDocument,
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				runId: string,
+				messages: Array<Record<string, unknown>>,
+				runContext: { mode: "normal"; signal: AbortSignal },
+			) => Promise<{ logOffCalled: boolean }>;
+		}).runProviderLoop.bind(runtime);
+
+		await expect(
+			runProviderLoop(
+				fakeBotDocument({ allowEarlyLogOff: true }),
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
+				"run-after-logoff",
+				[],
+				{ mode: "normal", signal: new AbortController().signal },
+			),
+		).resolves.toMatchObject({ logOffCalled: false });
+
+		expect(providerToolsByCall).toHaveLength(1);
+		expect(providerToolsByCall[0]).not.toEqual(["log_off"]);
+		expect(providerToolsByCall[0]).toContain("log_off");
+	});
+
+	it("repairs poisoned active history before recording the next inference submission", async () => {
+		const rows = [
+			loopMessageRowForMessage(1, {
+				role: "assistant",
+				content: null,
+				tool_calls: [
+					{
+						id: "call-poisoned",
+						type: "function",
+						function: { name: "read_thread", arguments: "{\"threadId\":" },
+					},
+				],
+			}),
+			loopMessageRowForMessage(2, {
+				role: "tool",
+				tool_call_id: "call-poisoned",
+				content: "{\"ok\":true}",
+			}, "tool_result"),
+		];
+		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+		const submissions: Array<Array<Record<string, unknown>>> = [];
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			state: {
+				storage: {
+					sql: {
+						exec: vi.fn(<T,>(query: string, ...params: unknown[]) => {
+							const normalized = query.trim().replace(/\s+/g, " ");
+							if (/UPDATE loop_messages SET deleted_at = \?/.test(normalized)) {
+								const row = rows.find((item) => item.seq === Number(params[1]));
+								if (row && !row.deleted_at) {
+									row.deleted_at = String(params[0]);
+								}
+							}
+							if (/UPDATE loop_messages SET message_json = \?, token_estimate = \?/.test(normalized)) {
+								const row = rows.find((item) => item.seq === Number(params[2]));
+								if (row && !row.deleted_at) {
+									row.message_json = String(params[0]);
+									row.token_estimate = Number(params[1]);
+								}
+							}
+							return {
+								one: () => ({} as T),
+								toArray: () => [] as T[],
+							};
+						}),
+					},
+				},
+			},
+			activeLoopMessageRows: () => rows.filter((row) => row.deleted_at === null),
+			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+				events.push({ type, payload });
+				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
+			},
+			appendLoopMessage: () => ({ seq: 99, runId: "run-history-repair", role: "assistant", message: {}, origin: "provider_response", tokenEstimate: 0, createdAt: new Date().toISOString() }),
+			appendProviderMessages: async () => {},
+			broadcastControl: () => {},
+			callProvider: async () => providerResponseWithContent("Clean history is ready."),
+			ensureProviderPromptWithinBudget: async () => ({
+				allowedPromptTokens: 13_500,
+				promptTokens: 100,
+				requestMessages: (BotRuntime.prototype as unknown as { activeLoopMessagesForProvider: () => Array<Record<string, unknown>> }).activeLoopMessagesForProvider.bind(runtime)(),
+			}),
+			recordInferenceSubmission: (input: { messages: Array<Record<string, unknown>> }) => {
+				submissions.push(input.messages);
+			},
+			recordLoopMessageLog: () => {},
+			recordProviderUsage: () => {},
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const runProviderLoop = (BotRuntime.prototype as unknown as {
+			runProviderLoop: (
+				bot: BotDocument,
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				runId: string,
+				messages: Array<Record<string, unknown>>,
+				runContext: { mode: "normal"; signal: AbortSignal },
+			) => Promise<{ logOffCalled: boolean }>;
+		}).runProviderLoop.bind(runtime);
+
+		await expect(
+			runProviderLoop(
+				fakeBotDocument(),
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
+				"run-history-repair",
+				[],
+				{ mode: "normal", signal: new AbortController().signal },
+			),
+		).resolves.toMatchObject({ logOffCalled: false });
+
+		expect(rows.every((row) => row.deleted_at !== null)).toBe(true);
+		expect(JSON.stringify(submissions[0] ?? [])).not.toContain("{\"threadId\":");
+		expect((submissions[0] ?? []).some((message) => message.role === "tool")).toBe(false);
+		expect(events[0]).toMatchObject({
+			type: "provider_tool_call_dropped",
+			payload: expect.objectContaining({ phase: "history_repair", callIds: ["call-poisoned"] }),
+		});
+	});
+
+	it("repairs duplicate tool call ids in active history before provider submission", async () => {
+		const rows = [
+			loopMessageRowForMessage(1, {
+				role: "assistant",
+				content: null,
+				tool_calls: [
+					{
+						id: "call-duplicate",
+						type: "function",
+						function: { name: "read_thread", arguments: "{\"threadId\":\"thr_keep\"}" },
+					},
+					{
+						id: "call-duplicate",
+						type: "function",
+						function: { name: "reply_to_comment", arguments: "{\"commentId\":\"com_drop\",\"body\":\"Ambiguous duplicate.\"}" },
+					},
+				],
+			}),
+			loopMessageRowForMessage(2, {
+				role: "tool",
+				tool_call_id: "call-duplicate",
+				content: "{\"ok\":true,\"kept\":true}",
+			}, "tool_result"),
+			loopMessageRowForMessage(3, {
+				role: "tool",
+				tool_call_id: "call-duplicate",
+				content: "{\"ok\":true,\"dropped\":true}",
+			}, "tool_result"),
+		];
+		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+		const submissions: Array<Array<Record<string, unknown>>> = [];
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			state: {
+				storage: {
+					sql: {
+						exec: vi.fn(<T,>(query: string, ...params: unknown[]) => {
+							const normalized = query.trim().replace(/\s+/g, " ");
+							if (/UPDATE loop_messages SET deleted_at = \?/.test(normalized)) {
+								const row = rows.find((item) => item.seq === Number(params[1]));
+								if (row && !row.deleted_at) {
+									row.deleted_at = String(params[0]);
+								}
+							}
+							if (/UPDATE loop_messages SET message_json = \?, token_estimate = \?/.test(normalized)) {
+								const row = rows.find((item) => item.seq === Number(params[2]));
+								if (row && !row.deleted_at) {
+									row.message_json = String(params[0]);
+									row.token_estimate = Number(params[1]);
+								}
+							}
+							return {
+								one: () => ({} as T),
+								toArray: () => [] as T[],
+							};
+						}),
+					},
+				},
+			},
+			activeLoopMessageRows: () => rows.filter((row) => row.deleted_at === null),
+			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+				events.push({ type, payload });
+				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
+			},
+			appendLoopMessage: () => ({ seq: 99, runId: "run-duplicate-history-repair", role: "assistant", message: {}, origin: "provider_response", tokenEstimate: 0, createdAt: new Date().toISOString() }),
+			appendProviderMessages: async () => {},
+			broadcastControl: () => {},
+			callProvider: async () => providerResponseWithContent("Clean history is ready."),
+			ensureProviderPromptWithinBudget: async () => ({
+				allowedPromptTokens: 13_500,
+				promptTokens: 100,
+				requestMessages: (BotRuntime.prototype as unknown as { activeLoopMessagesForProvider: () => Array<Record<string, unknown>> }).activeLoopMessagesForProvider.bind(runtime)(),
+			}),
+			recordInferenceSubmission: (input: { messages: Array<Record<string, unknown>> }) => {
+				submissions.push(input.messages);
+			},
+			recordLoopMessageLog: () => {},
+			recordProviderUsage: () => {},
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const runProviderLoop = (BotRuntime.prototype as unknown as {
+			runProviderLoop: (
+				bot: BotDocument,
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				runId: string,
+				messages: Array<Record<string, unknown>>,
+				runContext: { mode: "normal"; signal: AbortSignal },
+			) => Promise<{ logOffCalled: boolean }>;
+		}).runProviderLoop.bind(runtime);
+
+		await expect(
+			runProviderLoop(
+				fakeBotDocument(),
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
+				"run-duplicate-history-repair",
+				[],
+				{ mode: "normal", signal: new AbortController().signal },
+			),
+		).resolves.toMatchObject({ logOffCalled: false });
+
+		const repairedAssistant = JSON.parse(rows[0]!.message_json) as BotInferenceSubmissionMessage;
+		expect(repairedAssistant.tool_calls?.map((toolCall) => toolCall.id)).toEqual(["call-duplicate"]);
+		expect(repairedAssistant.tool_calls?.[0]?.function.name).toBe("read_thread");
+		expect(rows[1]?.deleted_at).toBeNull();
+		expect(rows[2]?.deleted_at).toMatch(/^20/);
+		const submittedAssistant = submissions[0]?.find((message) => Array.isArray(message.tool_calls)) as BotInferenceSubmissionMessage | undefined;
+		expect(submittedAssistant?.tool_calls?.map((toolCall) => toolCall.id)).toEqual(["call-duplicate"]);
+		expect(submissions[0]?.filter((message) => message.role === "tool").map((message) => message.tool_call_id)).toEqual(["call-duplicate"]);
+		expect(JSON.stringify(submissions[0])).not.toContain("com_drop");
+		expect(events).toContainEqual(expect.objectContaining({
+			type: "provider_tool_call_dropped",
+			payload: expect.objectContaining({
+				phase: "history_repair",
+				callIds: ["call-duplicate"],
+				reason: "duplicate_tool_call",
+			}),
+		}));
+	});
+
+	it("repairs invalid Unicode in active history before provider submission", async () => {
+		const high = "\uD83C";
+		const rows = [
+			loopMessageRowForMessage(1, {
+				role: "assistant",
+				content: `Compacted memory ends badly ${high}`,
+			}, "compaction"),
+			loopMessageRowForMessage(2, {
+				role: "assistant",
+				content: null,
+				tool_calls: [
+					{
+						id: "call-valid",
+						type: "function",
+						function: { name: "read_thread", arguments: JSON.stringify({ threadId: "thr_test", note: `bad ${high}` }) },
+					},
+				],
+			}),
+			loopMessageRowForMessage(3, {
+				role: "tool",
+				tool_call_id: "call-valid",
+				content: JSON.stringify({ ok: true, text: `bad ${high}` }),
+			}, "tool_result"),
+		];
+		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+		const submissions: Array<Array<Record<string, unknown>>> = [];
+		const providerMessages: Array<Array<Record<string, unknown>>> = [];
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			state: {
+				storage: {
+					sql: {
+						exec: vi.fn(<T,>(query: string, ...params: unknown[]) => {
+							const normalized = query.trim().replace(/\s+/g, " ");
+							if (/UPDATE loop_messages SET message_json = \?, token_estimate = \?/.test(normalized)) {
+								const row = rows.find((item) => item.seq === Number(params[2]));
+								if (row && !row.deleted_at) {
+									row.message_json = String(params[0]);
+									row.token_estimate = Number(params[1]);
+								}
+							}
+							if (/UPDATE loop_messages SET deleted_at = \?/.test(normalized)) {
+								const row = rows.find((item) => item.seq === Number(params[1]));
+								if (row && !row.deleted_at) {
+									row.deleted_at = String(params[0]);
+								}
+							}
+							return {
+								one: () => ({} as T),
+								toArray: () => [] as T[],
+							};
+						}),
+					},
+				},
+			},
+			activeLoopMessageRows: () => rows.filter((row) => row.deleted_at === null),
+			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+				events.push({ type, payload });
+				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
+			},
+			appendLoopMessage: () => ({ seq: 99, runId: "run-unicode-history-repair", role: "assistant", message: {}, origin: "provider_response", tokenEstimate: 0, createdAt: new Date().toISOString() }),
+			appendProviderMessages: async () => {},
+			broadcastControl: () => {},
+			callProvider: async (_settings: unknown, messages: Array<Record<string, unknown>>) => {
+				providerMessages.push(messages);
+				return providerResponseWithContent("Clean history is ready.");
+			},
+			ensureProviderPromptWithinBudget: async () => ({
+				allowedPromptTokens: 13_500,
+				promptTokens: 100,
+				requestMessages: (BotRuntime.prototype as unknown as { activeLoopMessagesForProvider: () => Array<Record<string, unknown>> }).activeLoopMessagesForProvider.bind(runtime)(),
+			}),
+			recordInferenceSubmission: (input: { messages: Array<Record<string, unknown>> }) => {
+				submissions.push(input.messages);
+			},
+			recordLoopMessageLog: () => {},
+			recordProviderUsage: () => {},
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const runProviderLoop = (BotRuntime.prototype as unknown as {
+			runProviderLoop: (
+				bot: BotDocument,
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				runId: string,
+				messages: Array<Record<string, unknown>>,
+				runContext: { mode: "normal"; signal: AbortSignal },
+			) => Promise<{ logOffCalled: boolean }>;
+		}).runProviderLoop.bind(runtime);
+
+		await expect(
+			runProviderLoop(
+				fakeBotDocument(),
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
+				"run-unicode-history-repair",
+				[],
+				{ mode: "normal", signal: new AbortController().signal },
+			),
+		).resolves.toMatchObject({ logOffCalled: false });
+
+		expect(hasLoneSurrogate(submissions[0])).toBe(false);
+		expect(hasLoneSurrogate(providerMessages[0])).toBe(false);
+		expect(JSON.stringify(submissions[0])).not.toContain("\\ud83c");
+		const repairedToolCallMessage = submissions[0]?.find((message) => Array.isArray(message.tool_calls));
+		const repairedToolCalls = repairedToolCallMessage?.tool_calls as Array<{ function: { arguments: string } }> | undefined;
+		expect(JSON.parse(repairedToolCalls?.[0]?.function.arguments ?? "{}")).toMatchObject({ note: "bad \uFFFD" });
+		const repairedToolResult = submissions[0]?.find((message) => message.role === "tool");
+		expect(repairedToolResult?.content).toContain("\uFFFD");
+		expect(events).toContainEqual(expect.objectContaining({
+			type: "provider_history_repaired",
+			payload: expect.objectContaining({
+				count: 3,
+				messageSeqs: [1, 2, 3],
+				reason: "invalid_unicode_text",
+			}),
+		}));
+	});
+
+	it("repairs fragmented reasoning details in active provider history", async () => {
+		const rows = [
+			loopMessageRowForMessage(1, {
+				role: "assistant",
+				content: null,
+				reasoning_details: [
+					{ type: "reasoning.text", text: "I will ", format: "unknown", index: 0 },
+					{ type: "reasoning.text", text: "use a tool.", format: "unknown", index: 0 },
+				],
+				tool_calls: [
+					{
+						id: "call-valid",
+						type: "function",
+						function: { name: "read_thread", arguments: "{\"threadId\":\"thr_test\"}" },
+					},
+				],
+			}),
+			loopMessageRowForMessage(2, {
+				role: "tool",
+				tool_call_id: "call-valid",
+				content: "{\"ok\":true}",
+			}, "tool_result"),
+		];
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			state: {
+				storage: {
+					sql: {
+						exec: vi.fn(<T,>(query: string, ...params: unknown[]) => {
+							const normalized = query.trim().replace(/\s+/g, " ");
+							if (/UPDATE loop_messages SET message_json = \?, token_estimate = \?/.test(normalized)) {
+								const row = rows.find((item) => item.seq === Number(params[2]));
+								if (row && !row.deleted_at) {
+									row.message_json = String(params[0]);
+									row.token_estimate = Number(params[1]);
+								}
+							}
+							if (/UPDATE loop_messages SET deleted_at = \?/.test(normalized)) {
+								const row = rows.find((item) => item.seq === Number(params[1]));
+								if (row && !row.deleted_at) {
+									row.deleted_at = String(params[0]);
+								}
+							}
+							return {
+								one: () => ({} as T),
+								toArray: () => [] as T[],
+							};
+						}),
+					},
+				},
+			},
+			activeLoopMessageRows: () => rows.filter((row) => row.deleted_at === null),
+			broadcastControl: () => {},
+		});
+		const repairActiveProviderToolCallHistory = (BotRuntime.prototype as unknown as {
+			repairActiveProviderToolCallHistory: (runId: string) => Promise<unknown[]>;
+		}).repairActiveProviderToolCallHistory.bind(runtime);
+
+		await expect(repairActiveProviderToolCallHistory("run-reasoning-repair")).resolves.toEqual([]);
+
+		expect(rows[0]?.deleted_at).toBeNull();
+		expect(rows[1]?.deleted_at).toBeNull();
+		expect(JSON.parse(rows[0]?.message_json ?? "{}")).toMatchObject({
+			reasoning_details: [
+				{ type: "reasoning.text", text: "I will use a tool.", format: "unknown", index: 0 },
+			],
+			tool_calls: [
+				expect.objectContaining({ id: "call-valid" }),
+			],
+		});
+	});
+
+	it("records tick failures in the loop ledger", async () => {
+		const appendedLoopMessages: Array<{ runId: string; message: Record<string, unknown>; origin: string }> = [];
+		const events: Array<{ runId: string; type: string; payload: Record<string, unknown> }> = [];
+		const recordLoopMessageLog = vi.fn();
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			appendLoopMessage: (
+				runId: string,
+				message: Record<string, unknown>,
+				origin: string,
+			) => {
+				appendedLoopMessages.push({ runId, message, origin });
+				return {
+					seq: appendedLoopMessages.length,
+					runId,
+					role: message.role,
+					message,
+					origin,
+					tokenEstimate: 0,
+					createdAt: new Date().toISOString(),
+				};
+			},
+			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+				events.push({ runId, type, payload });
+				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
+			},
+			recordLoopMessageLog,
+		});
+		const recordTickFailure = (BotRuntime.prototype as unknown as {
+			recordTickFailure: (
+				runId: string,
+				payload: Record<string, unknown>,
+				logs?: Array<{ kind: BotLoopMessageLog["kind"]; text: string }>,
+			) => Promise<BotRuntimeEvent>;
+		}).recordTickFailure.bind(runtime);
+
+		const providerMessage = "Inference request failed with status 400. Response: TextEncodeInput must be Union[TextInputSequence].";
+		await expect(
+			recordTickFailure("run-provider-failed", { message: providerMessage }, [
+				{ kind: "provider_request", text: "{\"stream\":true}" },
+				{ kind: "provider_response", text: "{\"error\":\"provider 500\"}" },
+				{ kind: "compaction_request", text: "{\"messages\":[]}" },
+				{ kind: "compaction_response", text: "{\"error\":\"bad schema\"}" },
+			]),
+		).resolves.toMatchObject({ type: "tick_failed" });
+
+		expect(events).toEqual([
+			{
+				runId: "run-provider-failed",
+				type: "tick_failed",
+				payload: { message: providerMessage },
+			},
+		]);
+		expect(appendedLoopMessages).toEqual([
+			{
+				runId: "run-provider-failed",
+				origin: "runtime_error",
+				message: {
+					role: "user",
+					content: runtimeErrorLoopMessageContent(providerMessage),
 				},
 			},
 		]);
+		expect(String(appendedLoopMessages[0]?.message.content)).toContain("TextEncodeInput");
+		expect(String(appendedLoopMessages[0]?.message.content)).toMatch(/^Inference provider returned an error: /);
+		expect(String(appendedLoopMessages[0]?.message.content)).not.toContain("Bickr website crashed");
+		expect(recordLoopMessageLog).toHaveBeenCalledWith(1, "provider_request", "{\"stream\":true}");
+		expect(recordLoopMessageLog).toHaveBeenCalledWith(1, "provider_response", "{\"error\":\"provider 500\"}");
+		expect(recordLoopMessageLog).toHaveBeenCalledWith(1, "compaction_request", "{\"messages\":[]}");
+		expect(recordLoopMessageLog).toHaveBeenCalledWith(1, "compaction_response", "{\"error\":\"bad schema\"}");
+	});
+
+	it("records schema-invalid provider failures as owner notifications", async () => {
+		const bot = {
+			id: "bot_schema_invalid_notice",
+			ownerUserId: "user_schema_invalid_owner",
+			homeWorldId: "world_schema_invalid",
+			homeWorldHandle: "patch-notes",
+			handle: "release-sage",
+			displayName: "Release Sage",
+		} as BotDocument;
+		const message =
+			`Inference provider returned schema-invalid compaction tool arguments: Unexpected argument summary; only ${providerCompactionSummaryProperty} is allowed.`;
+
+		await recordBotRuntimeFailureHumanNotification(testEnv.BICKR_D1, {
+			bot,
+			runId: "run-schema-invalid-notice",
+			message,
+			now: "2026-05-07T12:00:00.000Z",
+		});
+
+		const row = await testEnv.BICKR_D1.prepare(
+			`SELECT notification_type AS notificationType, title, body, url_path AS urlPath
+			 FROM human_notifications
+			 WHERE event_key = ?`,
+		)
+			.bind("bot_runtime_failed:bot_schema_invalid_notice:run-schema-invalid-notice")
+			.first<{ body: string; notificationType: string; title: string; urlPath: string }>();
+		expect(row).toMatchObject({
+			notificationType: "bot_runtime_failed",
+			title: "Release Sage loop run failed",
+			urlPath: "/w/patch-notes/u/release-sage/loop",
+		});
+		expect(row?.body).toContain("schema-invalid compaction tool arguments");
+		expect(row?.body).toContain("Check the loop log and inference settings.");
+	});
+
+	it("records empty provider response failures as owner notifications", async () => {
+		const bot = {
+			id: "bot_empty_provider_notice",
+			ownerUserId: "user_empty_provider_owner",
+			homeWorldId: "world_empty_provider",
+			homeWorldHandle: "primary",
+			handle: "donald-trump",
+			displayName: "Donald Trump",
+		} as BotDocument;
+		const message = [
+			"Inference failed before retrying; error from provider:",
+			"Inference provider returned an empty response with no content, reasoning, or tool calls.",
+		].join("\n");
+
+		await recordBotRuntimeFailureHumanNotification(testEnv.BICKR_D1, {
+			bot,
+			runId: "run-empty-provider-notice",
+			message,
+			now: "2026-05-07T12:30:00.000Z",
+		});
+
+		const row = await testEnv.BICKR_D1.prepare(
+			`SELECT notification_type AS notificationType, title, body, url_path AS urlPath
+			 FROM human_notifications
+			 WHERE event_key = ?`,
+		)
+			.bind("bot_runtime_failed:bot_empty_provider_notice:run-empty-provider-notice")
+			.first<{ body: string; notificationType: string; title: string; urlPath: string }>();
+		expect(row).toMatchObject({
+			notificationType: "bot_runtime_failed",
+			title: "Donald Trump loop run failed",
+			urlPath: "/w/primary/u/donald-trump/loop",
+		});
+		expect(row?.body).toContain("Inference provider returned an empty response with no content, reasoning, or tool calls.");
+		expect(row?.body).not.toContain("Inference failed before retrying");
+		expect(row?.body).toContain("Check the loop log and inference settings.");
 	});
 
 	it("returns the bootstrap payload", async () => {
@@ -2296,7 +9093,7 @@ describe("Bickr Pages Functions", () => {
 		});
 		const initialForums = await listForums(testEnv.BICKR_D1, "patch-notes");
 		expect(initialForums.find((forum) => forum.handle === "intro")).toMatchObject({
-			description: "Introductions, first posts, and orientation for new participants in this world.",
+			description: "Introductions, first threads, and orientation for new participants in this world.",
 		});
 
 		const forumResponse = await createForum(
@@ -2342,6 +9139,11 @@ describe("Bickr Pages Functions", () => {
 			login: "Müller_42",
 			displayName: "Unicode User",
 		});
+		expect(isValidHandleText("x")).toBe(true);
+		expect(isValidHandleText("_")).toBe(true);
+		expect(isValidHandleText("-a")).toBe(true);
+		expect(isValidHandleText("a-")).toBe(true);
+		expect(sanitizeHandleInput("_a-")).toBe("_a-");
 
 		const profileResponse = await patchProfile(
 			contextFor<typeof patchProfile>(
@@ -2430,6 +9232,280 @@ describe("Bickr Pages Functions", () => {
 			ok: true,
 			data: { bot: { handle: botHandle, homeWorldHandle: worldHandle } },
 		});
+
+		const shortProfileResponse = await patchProfile(
+			contextFor<typeof patchProfile>(
+				jsonRequest("http://example.com/api/me/profile", "PATCH", { handle: "x", displayName: "Unicode User" }, cookie),
+			),
+		);
+		expect(shortProfileResponse.status).toBe(200);
+
+		const shortWorldResponse = await createWorld(
+			contextFor<typeof createWorld>(
+				jsonRequest("http://example.com/api/worlds", "POST", { handle: "_", name: "Underscore", description: "Short handle world." }, cookie),
+			),
+		);
+		expect(shortWorldResponse.status).toBe(201);
+		const shortForumResponse = await createForum(
+			contextFor<typeof createForum>(
+				jsonRequest("http://example.com/api/worlds/_/forums", "POST", { handle: "-", description: "One character forum." }, cookie),
+				{ worldHandle: "_" },
+			),
+		);
+		expect(shortForumResponse.status).toBe(201);
+		const shortBotResponse = await createBot(
+			contextFor<typeof createBot>(
+				jsonRequest("http://example.com/api/worlds/_/bots", "POST", {
+					handle: "_-",
+					displayName: "Short Bot",
+					shortBio: "Short handle bot.",
+					prompt: "Stay concise.",
+				}, cookie),
+				{ worldHandle: "_" },
+			),
+		);
+		expect(shortBotResponse.status).toBe(201);
+	});
+
+	it("returns public human profile ownership grouped by world", async () => {
+		const cookie = await authCookieFor({
+			subject: "human-profile-owner",
+			login: "profile-owner",
+			displayName: "Profile Owner",
+		});
+		await createWorld(
+			contextFor<typeof createWorld>(
+				jsonRequest("http://example.com/api/worlds", "POST", {
+					handle: "owned-world",
+					name: "Owned World",
+					description: "A world owned by the profile.",
+				}, cookie),
+			),
+		);
+		await createForum(
+			contextFor<typeof createForum>(
+				jsonRequest("http://example.com/api/worlds/owned-world/forums", "POST", {
+					handle: "manual-forum",
+					description: "A manually owned forum.",
+				}, cookie),
+				{ worldHandle: "owned-world" },
+			),
+		);
+		await createBot(
+			contextFor<typeof createBot>(
+				jsonRequest("http://example.com/api/worlds/owned-world/bots", "POST", {
+					handle: "profile-bot",
+					displayName: "Profile Bot",
+					shortBio: "Owned by the human profile.",
+					prompt: "Stay concise.",
+				}, cookie),
+				{ worldHandle: "owned-world" },
+			),
+		);
+
+		const response = await getHumanProfile(
+			contextFor<typeof getHumanProfile>(
+				new Request("http://example.com/api/humans/profile-owner", { headers: { cookie } }),
+				{ humanHandle: "profile-owner" },
+			),
+		);
+		expect(response.status).toBe(200);
+		const payload = await response.json() as {
+			data: {
+				profile: {
+					user: Record<string, unknown>;
+					worlds: Array<{ handle: string }>;
+					forumsByWorld: Array<{ world: { handle: string }; forums: Array<{ handle: string }> }>;
+					botsByWorld: Array<{ world: { handle: string }; bots: Array<BotBody> }>;
+					totals: { worlds: number; forums: number; bots: number };
+					isSelf: boolean;
+					deleteEligibility?: { canDelete: boolean };
+				};
+			};
+		};
+		expect(payload.data.profile.user).toMatchObject({
+			handle: "profile-owner",
+			displayName: "Profile Owner",
+		});
+		expect(payload.data.profile.user).not.toHaveProperty("authIdentities");
+		expect(payload.data.profile.user).not.toHaveProperty("inferenceSettings");
+		expect(payload.data.profile.worlds.map((world) => world.handle)).toEqual(["owned-world"]);
+		expect(payload.data.profile.forumsByWorld[0]).toMatchObject({
+			world: { handle: "owned-world" },
+			forums: expect.arrayContaining([
+				expect.objectContaining({ handle: "intro" }),
+				expect.objectContaining({ handle: "manual-forum" }),
+			]),
+		});
+		expect(payload.data.profile.forumsByWorld[0]?.forums.map((forum) => forum.handle)).not.toContain("profile-bot");
+		expect(payload.data.profile.botsByWorld).toEqual([
+			expect.objectContaining({
+				world: expect.objectContaining({ handle: "owned-world" }),
+				bots: [expect.objectContaining({ handle: "profile-bot", owner: expect.objectContaining({ handle: "profile-owner" }) })],
+			}),
+		]);
+		expect(payload.data.profile.totals).toEqual({ worlds: 1, forums: 2, bots: 1 });
+		expect(payload.data.profile.isSelf).toBe(true);
+		expect(payload.data.profile.deleteEligibility).toMatchObject({ canDelete: true });
+
+		const missingResponse = await getHumanProfile(
+			contextFor<typeof getHumanProfile>(
+				new Request("http://example.com/api/humans/missing-profile", { headers: { cookie } }),
+				{ humanHandle: "missing-profile" },
+			),
+		);
+		expect(missingResponse.status).toBe(404);
+	});
+
+	it("cascades self profile deletion and frees the sign-in identity", async () => {
+		const cookie = await authCookieFor({
+			subject: "delete-profile-subject",
+			login: "delete-profile",
+			displayName: "Delete Profile",
+		});
+		const viewerCookie = await authCookieFor({
+			subject: "delete-profile-viewer",
+			login: "delete-profile-viewer",
+			displayName: "Delete Profile Viewer",
+		});
+		await createWorld(
+			contextFor<typeof createWorld>(
+				jsonRequest("http://example.com/api/worlds", "POST", {
+					handle: "delete-world",
+					name: "Delete World",
+					description: "Owned by the deleted profile.",
+				}, cookie),
+			),
+		);
+		const botResponse = await createBot(
+			contextFor<typeof createBot>(
+				jsonRequest("http://example.com/api/worlds/delete-world/bots", "POST", {
+					handle: "delete-bot",
+					displayName: "Delete Bot",
+					shortBio: "Deleted with the profile.",
+					prompt: "Stay concise.",
+				}, cookie),
+				{ worldHandle: "delete-world" },
+			),
+		);
+		const botPayload = await botResponse.json() as { data: { bot: BotBody } };
+
+		const missingConfirm = await deleteProfileRoute(
+			contextFor<typeof deleteProfileRoute>(
+				jsonRequest("http://example.com/api/me/profile", "DELETE", {}, cookie),
+			),
+		);
+		expect(missingConfirm.status).toBe(400);
+
+		const deleteResponse = await deleteProfileRoute(
+			contextFor<typeof deleteProfileRoute>(
+				jsonRequest("http://example.com/api/me/profile", "DELETE", { confirmCascade: true }, cookie),
+			),
+		);
+		expect(deleteResponse.status, await deleteResponse.clone().text()).toBe(200);
+		expect(deleteResponse.headers.getSetCookie().join(";")).toContain("Max-Age=0");
+
+		const sessionResponse = await session(
+			contextFor<typeof session>(new Request("http://example.com/api/session", { headers: { cookie } })),
+		);
+		expect(await sessionResponse.json()).toMatchObject({
+			ok: true,
+			data: { authenticated: false, user: null },
+		});
+		const rows = await testEnv.BICKR_D1.prepare(
+			`SELECT
+				(SELECT deleted_at FROM users_index WHERE handle LIKE 'deleted-%') AS userDeletedAt,
+				(SELECT deleted_at FROM worlds_index WHERE handle = 'delete-world') AS worldDeletedAt,
+				(SELECT deleted_at FROM bots_index WHERE bot_id = ?) AS botDeletedAt,
+				(SELECT COUNT(*) FROM provider_identities WHERE provider_subject = 'delete-profile-subject') AS identityCount`,
+		)
+			.bind(botPayload.data.bot.id)
+			.first<{ userDeletedAt: string | null; worldDeletedAt: string | null; botDeletedAt: string | null; identityCount: number }>();
+		expect(rows?.userDeletedAt).toEqual(expect.any(String));
+		expect(rows?.worldDeletedAt).toEqual(expect.any(String));
+		expect(rows?.botDeletedAt).toEqual(expect.any(String));
+		expect(rows?.identityCount).toBe(0);
+
+		const deletedProfileResponse = await getHumanProfile(
+			contextFor<typeof getHumanProfile>(
+				new Request("http://example.com/api/humans/delete-profile", { headers: { cookie: viewerCookie } }),
+				{ humanHandle: "delete-profile" },
+			),
+		);
+		expect(deletedProfileResponse.status).toBe(404);
+
+		const replacementCookie = await authCookieFor({
+			subject: "delete-profile-subject",
+			login: "delete-profile",
+			displayName: "Delete Profile Again",
+		});
+		const replacementSession = await session(
+			contextFor<typeof session>(new Request("http://example.com/api/session", { headers: { cookie: replacementCookie } })),
+		);
+		expect(await replacementSession.json()).toMatchObject({
+			ok: true,
+			data: {
+				authenticated: true,
+				user: { handle: "delete-profile", displayName: "Delete Profile Again" },
+			},
+		});
+	});
+
+	it("blocks profile deletion when owned worlds contain bots owned by other profiles", async () => {
+		const ownerCookie = await authCookieFor({
+			subject: "delete-block-owner",
+			login: "delete-block-owner",
+			displayName: "Delete Block Owner",
+		});
+		const guestCookie = await authCookieFor({
+			subject: "delete-block-guest",
+			login: "delete-block-guest",
+			displayName: "Delete Block Guest",
+		});
+		await createWorld(
+			contextFor<typeof createWorld>(
+				jsonRequest("http://example.com/api/worlds", "POST", {
+					handle: "blocked-world",
+					name: "Blocked World",
+					description: "Contains another profile's bot.",
+				}, ownerCookie),
+			),
+		);
+		await createBot(
+			contextFor<typeof createBot>(
+				jsonRequest("http://example.com/api/worlds/blocked-world/bots", "POST", {
+					handle: "guest-bot",
+					displayName: "Guest Bot",
+					shortBio: "Blocks profile deletion.",
+					prompt: "Stay concise.",
+				}, guestCookie),
+				{ worldHandle: "blocked-world" },
+			),
+		);
+
+		const deleteResponse = await deleteProfileRoute(
+			contextFor<typeof deleteProfileRoute>(
+				jsonRequest("http://example.com/api/me/profile", "DELETE", { confirmCascade: true }, ownerCookie),
+			),
+		);
+		expect(deleteResponse.status).toBe(409);
+		const payload = await deleteResponse.json() as {
+			details?: { profileDeleteBlockers?: Array<{ world: { handle: string }; bots: Array<{ handle: string }> }> };
+		};
+		expect(payload.details?.profileDeleteBlockers).toEqual([
+			expect.objectContaining({
+				world: expect.objectContaining({ handle: "blocked-world" }),
+				bots: [expect.objectContaining({ handle: "guest-bot" })],
+			}),
+		]);
+		const world = await testEnv.BICKR_D1.prepare(
+			`SELECT deleted_at AS deletedAt FROM worlds_index WHERE handle = 'blocked-world'`,
+		).first<{ deletedAt: string | null }>();
+		const owner = await testEnv.BICKR_D1.prepare(
+			`SELECT deleted_at AS deletedAt FROM users_index WHERE handle = 'delete-block-owner'`,
+		).first<{ deletedAt: string | null }>();
+		expect(world?.deletedAt).toBeNull();
+		expect(owner?.deletedAt).toBeNull();
 	});
 
 	it("creates, lists, edits, and soft-deletes current-user bots", async () => {
@@ -2449,12 +9525,21 @@ describe("Bickr Pages Functions", () => {
 						inferenceSettings: {
 							openRouterApiKey: "sk-or-bot-secret",
 							model: "openrouter/auto",
+							compactionMode: "tool_call_cache_friendly",
 							reasoningPrefill: "I'm Release Sage, and I  ",
+							supportsPrefill: false,
+							providerRouting: {
+								max_price: {
+									prompt: 0.25,
+									completion: 0.75,
+								},
+							},
 							temperature: 0.4,
 							topP: 0.8,
 							frequency_penalty: -0.2,
 							presencePenalty: 0.45,
 							repetition_penalty: 1.1,
+							toolCalls: "railroad",
 						},
 						toolSettings: {
 							openRouter: {
@@ -2493,17 +9578,28 @@ describe("Bickr Pages Functions", () => {
 		expect(createResponse.status).toBe(201);
 		const created = (await createResponse.json()) as { data: { bot: BotBody } };
 		expect(created.data.bot.handle).toBe("release-sage");
+		expect(created.data.bot.owner).toMatchObject({ handle: "octocat", displayName: "Octo Cat" });
 		expect(created.data.bot.inferenceSettings).toMatchObject({
 			openRouterApiKeySet: true,
 			model: "openrouter/auto",
-			reasoningPrefill: "I'm Release Sage, and I  ",
+			compactionMode: "tool_call_cache_friendly",
+			recurringPrompt: "I'm Release Sage, and I  ",
+			supportsPrefill: false,
+			providerRouting: {
+				max_price: {
+					prompt: 0.25,
+					completion: 0.75,
+				},
+			},
 			temperature: 0.4,
 			topP: 0.8,
 			frequencyPenalty: -0.2,
 			presencePenalty: 0.45,
 			repetitionPenalty: 1.1,
+			toolCalls: "railroad",
 		});
 		expect(created.data.bot.inferenceSettings.openRouterApiKey).toBeUndefined();
+		expect(created.data.bot.inferenceSettings.recurringPromptEnabled).toBeUndefined();
 		expect(created.data.bot.toolSettings).toMatchObject({
 			openRouter: {
 				datetime: { enabled: true, timezone: "America/Los_Angeles" },
@@ -2593,6 +9689,10 @@ describe("Bickr Pages Functions", () => {
 		);
 		const worldBotsPayload = (await worldBotsResponse.json()) as { data: { bots: BotBody[] } };
 		expect(worldBotsPayload.data.bots.find((bot) => bot.handle === "release-sage")?.prompt).toBeUndefined();
+		expect(worldBotsPayload.data.bots.find((bot) => bot.handle === "release-sage")?.owner).toMatchObject({
+			handle: "octocat",
+			displayName: "Octo Cat",
+		});
 
 		const clearedToolSettingsResponse = await patchBot(
 			contextFor<typeof patchBot>(
@@ -2627,15 +9727,80 @@ describe("Bickr Pages Functions", () => {
 		expect(clearedOpenRouterTools.webSearch).not.toHaveProperty("allowedDomains");
 
 		const runtimeRow = await testEnv.BICKR_D1.prepare(
-			`SELECT enabled, status, tick_interval_seconds AS tickIntervalSeconds, next_due_at AS nextDueAt
-			 FROM bot_runtime_index
-			 WHERE bot_id = ?`,
-		)
-			.bind(created.data.bot.id)
-			.first<{ enabled: number; status: string; tickIntervalSeconds: number; nextDueAt: string | null }>();
-		expect(created.data.bot.tickSettings).toMatchObject({ enabled: false, intervalSeconds: 86_400 });
+			`SELECT
+				enabled,
+				status,
+					tick_interval_seconds AS tickIntervalSeconds,
+					context_window_tokens AS contextWindowTokens,
+					compaction_summary_percent AS compactionSummaryPercent,
+					compaction_max_characters AS compactionMaxCharacters,
+					max_tool_calls_per_tick AS maxToolCallsPerTick,
+					max_successful_tool_calls_per_iteration AS maxSuccessfulToolCallsPerIteration,
+					max_generated_tokens_per_tick AS maxGeneratedTokensPerTick,
+					max_generated_tokens_per_iteration AS maxGeneratedTokensPerIteration,
+					next_due_at AS nextDueAt
+				 FROM bot_runtime_index
+				 WHERE bot_id = ?`,
+			)
+				.bind(created.data.bot.id)
+				.first<{
+					enabled: number;
+					status: string;
+					tickIntervalSeconds: number;
+					contextWindowTokens: number;
+					compactionSummaryPercent: number;
+					compactionMaxCharacters: number;
+					maxToolCallsPerTick: number;
+					maxSuccessfulToolCallsPerIteration: number;
+					maxGeneratedTokensPerTick: number;
+					maxGeneratedTokensPerIteration: number;
+					nextDueAt: string | null;
+				}>();
+			expect(created.data.bot.tickSettings).toMatchObject({
+				enabled: false,
+				intervalSeconds: 86_400,
+		});
+			expect(created.data.bot.tickSettings).not.toHaveProperty("allowEarlyLogOff");
+			expect(created.data.bot.tickSettings).not.toHaveProperty("contextWindowTokens");
+			expect(created.data.bot.tickSettings).not.toHaveProperty("compactionSummaryPercent");
+			expect(created.data.bot.tickSettings).not.toHaveProperty("compactionMaxCharacters");
+			expect(created.data.bot.tickSettings).not.toHaveProperty("maxToolCallsPerTick");
+			expect(created.data.bot.tickSettings).not.toHaveProperty("maxSuccessfulToolCallsPerIteration");
+			expect(created.data.bot.tickSettings).not.toHaveProperty("maxGeneratedTokensPerTick");
+			expect(created.data.bot.tickSettings).not.toHaveProperty("maxGeneratedTokensPerIteration");
+			expect(created.data.bot.effectiveTickSettings).toMatchObject({
+				allowEarlyLogOff: false,
+				contextWindowTokens: 20_000,
+				compactionSummaryPercent: 10,
+				compactionMaxCharacters: 4_000,
+				maxToolCallsPerTick: 10,
+				maxSuccessfulToolCallsPerIteration: 8,
+				maxGeneratedTokensPerTick: 15_000,
+				maxGeneratedTokensPerIteration: 30_000,
+			});
+			const storedCreatedBot = await testEnv.BICKR_KV.get(`v1:bot:${created.data.bot.id}`, { type: "json" }) as BotDocument;
+			expect(storedCreatedBot.tickSettings).not.toHaveProperty("allowEarlyLogOff");
+			expect(storedCreatedBot.tickSettings).not.toHaveProperty("contextWindowTokens");
+			expect(storedCreatedBot.tickSettings).not.toHaveProperty("compactionSummaryPercent");
+			expect(storedCreatedBot.tickSettings).not.toHaveProperty("compactionMaxCharacters");
+			expect(storedCreatedBot.tickSettings).not.toHaveProperty("maxToolCallsPerTick");
+			expect(storedCreatedBot.tickSettings).not.toHaveProperty("maxSuccessfulToolCallsPerIteration");
+			expect(storedCreatedBot.tickSettings).not.toHaveProperty("maxGeneratedTokensPerTick");
+			expect(storedCreatedBot.tickSettings).not.toHaveProperty("maxGeneratedTokensPerIteration");
 		expect(created.data.bot.nextDueAt).toBeNull();
-		expect(runtimeRow).toMatchObject({ enabled: 0, status: "idle", tickIntervalSeconds: 86_400, nextDueAt: null });
+		expect(runtimeRow).toMatchObject({
+			enabled: 0,
+			status: "idle",
+			tickIntervalSeconds: 86_400,
+				contextWindowTokens: 20_000,
+				compactionSummaryPercent: 10,
+				compactionMaxCharacters: 4_000,
+				maxToolCallsPerTick: 10,
+				maxSuccessfulToolCallsPerIteration: 8,
+				maxGeneratedTokensPerTick: 15_000,
+				maxGeneratedTokensPerIteration: 30_000,
+				nextDueAt: null,
+			});
 		const personalForums = await listForums(testEnv.BICKR_D1, "patch-notes");
 		const personalForum = personalForums.find((forum) => forum.personalBotId === created.data.bot.id);
 		expect(personalForum).toMatchObject({
@@ -2715,20 +9880,30 @@ describe("Bickr Pages Functions", () => {
 					"PATCH",
 					{
 						displayName: "Release Oracle",
-						inferenceSettings: {
-							reasoningPrefill: null,
+							inferenceSettings: {
+								compactionMode: null,
+								recurringPrompt: null,
+								recurringPromptEnabled: false,
+								supportsPrefill: null,
+							providerRouting: null,
 							frequencyPenalty: null,
 							presencePenalty: null,
 							repetitionPenalty: null,
 						},
-						tickSettings: {
-							enabled: true,
-							intervalSeconds: 60,
-							contextWindowTokens: 32_000,
-							maxToolCallsPerTick: 12,
+							tickSettings: {
+									enabled: true,
+									allowEarlyLogOff: true,
+									intervalSeconds: 60,
+									contextWindowTokens: 32_000,
+									compactionSummaryPercent: 25,
+									compactionMaxCharacters: 8_000,
+									maxToolCallsPerTick: 12,
+								maxSuccessfulToolCallsPerIteration: 9,
+								maxGeneratedTokensPerTick: 22_000,
+								maxGeneratedTokensPerIteration: 44_000,
+							},
 						},
-					},
-					cookie,
+						cookie,
 				),
 				{ botId: created.data.bot.id },
 			),
@@ -2741,30 +9916,152 @@ describe("Bickr Pages Functions", () => {
 					displayName: "Release Oracle",
 					tickSettings: {
 						enabled: true,
+						allowEarlyLogOff: true,
 						intervalSeconds: 60,
-						contextWindowTokens: 32_000,
-						maxToolCallsPerTick: 12,
+								contextWindowTokens: 32_000,
+								compactionSummaryPercent: 25,
+								compactionMaxCharacters: 8_000,
+								maxToolCallsPerTick: 12,
+							maxSuccessfulToolCallsPerIteration: 9,
+							maxGeneratedTokensPerTick: 22_000,
+							maxGeneratedTokensPerIteration: 44_000,
+						},
 					},
 				},
-			},
 		});
 		expect(Date.parse(patchPayload.data.bot.nextDueAt ?? "")).toBeGreaterThanOrEqual(beforeUnpause - 1_000);
 		expect(Date.parse(patchPayload.data.bot.nextDueAt ?? "")).toBeLessThanOrEqual(Date.now() + 1_000);
-		expect(patchPayload.data.bot.inferenceSettings.frequencyPenalty).toBeUndefined();
-		expect(patchPayload.data.bot.inferenceSettings.presencePenalty).toBeUndefined();
-		expect(patchPayload.data.bot.inferenceSettings.repetitionPenalty).toBeUndefined();
-		expect(patchPayload.data.bot.inferenceSettings.reasoningPrefill).toBeUndefined();
+			expect(patchPayload.data.bot.inferenceSettings.frequencyPenalty).toBeUndefined();
+			expect(patchPayload.data.bot.inferenceSettings.presencePenalty).toBeUndefined();
+			expect(patchPayload.data.bot.inferenceSettings.repetitionPenalty).toBeUndefined();
+		expect(patchPayload.data.bot.inferenceSettings.compactionMode).toBeUndefined();
+			expect(patchPayload.data.bot.inferenceSettings.recurringPrompt).toBeUndefined();
+		expect(patchPayload.data.bot.inferenceSettings.recurringPromptEnabled).toBe(false);
+		expect(patchPayload.data.bot.inferenceSettings.supportsPrefill).toBeUndefined();
+		expect(patchPayload.data.bot.inferenceSettings.providerRouting).toBeUndefined();
 
 		const runtimeAfterPatch = await testEnv.BICKR_D1.prepare(
-			`SELECT enabled, tick_interval_seconds AS tickIntervalSeconds, next_due_at AS nextDueAt
-			 FROM bot_runtime_index
-			 WHERE bot_id = ?`,
-		)
-			.bind(created.data.bot.id)
-			.first<{ enabled: number; tickIntervalSeconds: number; nextDueAt: string | null }>();
-		expect(runtimeAfterPatch).toMatchObject({ enabled: 1, tickIntervalSeconds: 60 });
+			`SELECT
+						enabled,
+						tick_interval_seconds AS tickIntervalSeconds,
+						compaction_summary_percent AS compactionSummaryPercent,
+						compaction_max_characters AS compactionMaxCharacters,
+						max_successful_tool_calls_per_iteration AS maxSuccessfulToolCallsPerIteration,
+					max_generated_tokens_per_tick AS maxGeneratedTokensPerTick,
+					max_generated_tokens_per_iteration AS maxGeneratedTokensPerIteration,
+					next_due_at AS nextDueAt
+				 FROM bot_runtime_index
+				 WHERE bot_id = ?`,
+			)
+				.bind(created.data.bot.id)
+				.first<{
+						enabled: number;
+						tickIntervalSeconds: number;
+						compactionSummaryPercent: number;
+						compactionMaxCharacters: number;
+						maxSuccessfulToolCallsPerIteration: number;
+					maxGeneratedTokensPerTick: number;
+					maxGeneratedTokensPerIteration: number;
+					nextDueAt: string | null;
+				}>();
+			expect(runtimeAfterPatch).toMatchObject({
+					enabled: 1,
+					tickIntervalSeconds: 60,
+					compactionSummaryPercent: 25,
+					compactionMaxCharacters: 8_000,
+					maxSuccessfulToolCallsPerIteration: 9,
+				maxGeneratedTokensPerTick: 22_000,
+				maxGeneratedTokensPerIteration: 44_000,
+			});
 		expect(Date.parse(runtimeAfterPatch?.nextDueAt ?? "")).toBeGreaterThanOrEqual(beforeUnpause - 1_000);
 		expect(Date.parse(runtimeAfterPatch?.nextDueAt ?? "")).toBeLessThanOrEqual(Date.now() + 1_000);
+
+		const clearTickDefaultsResponse = await patchBot(
+			contextFor<typeof patchBot>(
+				jsonRequest(
+					`http://example.com/api/me/bots/${created.data.bot.id}`,
+					"PATCH",
+					{
+									tickSettings: {
+										allowEarlyLogOff: null,
+										contextWindowTokens: null,
+										compactionSummaryPercent: null,
+										compactionMaxCharacters: null,
+										maxToolCallsPerTick: null,
+								maxSuccessfulToolCallsPerIteration: null,
+								maxGeneratedTokensPerTick: null,
+								maxGeneratedTokensPerIteration: null,
+							},
+						},
+						cookie,
+				),
+				{ botId: created.data.bot.id },
+			),
+		);
+		expect(clearTickDefaultsResponse.status, await clearTickDefaultsResponse.clone().text()).toBe(200);
+		const clearedTickDefaults = (await clearTickDefaultsResponse.json()) as { ok: true; data: { bot: BotBody } };
+				expect(clearedTickDefaults.data.bot.tickSettings).not.toHaveProperty("contextWindowTokens");
+				expect(clearedTickDefaults.data.bot.tickSettings).not.toHaveProperty("allowEarlyLogOff");
+				expect(clearedTickDefaults.data.bot.tickSettings).not.toHaveProperty("compactionSummaryPercent");
+				expect(clearedTickDefaults.data.bot.tickSettings).not.toHaveProperty("compactionMaxCharacters");
+				expect(clearedTickDefaults.data.bot.tickSettings).not.toHaveProperty("maxToolCallsPerTick");
+			expect(clearedTickDefaults.data.bot.tickSettings).not.toHaveProperty("maxSuccessfulToolCallsPerIteration");
+			expect(clearedTickDefaults.data.bot.tickSettings).not.toHaveProperty("maxGeneratedTokensPerTick");
+			expect(clearedTickDefaults.data.bot.tickSettings).not.toHaveProperty("maxGeneratedTokensPerIteration");
+			expect(clearedTickDefaults.data.bot.effectiveTickSettings).toMatchObject({
+					allowEarlyLogOff: false,
+					contextWindowTokens: 20_000,
+					compactionSummaryPercent: 10,
+					compactionMaxCharacters: 4_000,
+					maxToolCallsPerTick: 10,
+				maxSuccessfulToolCallsPerIteration: 8,
+				maxGeneratedTokensPerTick: 15_000,
+				maxGeneratedTokensPerIteration: 30_000,
+			});
+			const runtimeAfterClearingDefaults = await testEnv.BICKR_D1.prepare(
+				`SELECT
+						context_window_tokens AS contextWindowTokens,
+						compaction_summary_percent AS compactionSummaryPercent,
+						compaction_max_characters AS compactionMaxCharacters,
+						max_tool_calls_per_tick AS maxToolCallsPerTick,
+					max_successful_tool_calls_per_iteration AS maxSuccessfulToolCallsPerIteration,
+					max_generated_tokens_per_tick AS maxGeneratedTokensPerTick,
+					max_generated_tokens_per_iteration AS maxGeneratedTokensPerIteration
+				 FROM bot_runtime_index
+				 WHERE bot_id = ?`,
+			)
+				.bind(created.data.bot.id)
+				.first<{
+						contextWindowTokens: number;
+						compactionSummaryPercent: number;
+						compactionMaxCharacters: number;
+						maxToolCallsPerTick: number;
+					maxSuccessfulToolCallsPerIteration: number;
+					maxGeneratedTokensPerTick: number;
+					maxGeneratedTokensPerIteration: number;
+				}>();
+				expect(runtimeAfterClearingDefaults).toEqual({
+					contextWindowTokens: 20_000,
+					compactionSummaryPercent: 10,
+					compactionMaxCharacters: 4_000,
+					maxToolCallsPerTick: 10,
+					maxSuccessfulToolCallsPerIteration: 8,
+					maxGeneratedTokensPerTick: 15_000,
+					maxGeneratedTokensPerIteration: 30_000,
+				});
+
+			const invalidCompactionSettings = await patchBot(
+				contextFor<typeof patchBot>(
+					jsonRequest(
+						`http://example.com/api/me/bots/${created.data.bot.id}`,
+						"PATCH",
+						{ tickSettings: { compactionSummaryPercent: 51, compactionMaxCharacters: 0 } },
+						cookie,
+					),
+					{ botId: created.data.bot.id },
+				),
+			);
+			expect(invalidCompactionSettings.status).toBe(400);
 
 		const pauseResponse = await patchBot(
 			contextFor<typeof patchBot>(
@@ -2809,9 +10106,9 @@ describe("Bickr Pages Functions", () => {
 		});
 	});
 
-	it("proxies prompt context budget requests to the agent runtime service", async () => {
-		const cookie = await authCookie();
-		await seedWorld(cookie);
+		it("proxies prompt context budget requests to the agent runtime service", async () => {
+			const cookie = await authCookie();
+			await seedWorld(cookie);
 		const createResponse = await createBot(
 			contextFor<typeof createBot>(
 				jsonRequest(
@@ -2858,6 +10155,9 @@ describe("Bickr Pages Functions", () => {
 										effectiveModel: "openrouter/auto",
 										fingerprint: "budget-test",
 										fixedSystemTokens: 1_000,
+										minimumCompactedPromptOverageTokens: 0,
+										minimumCompactedPromptTokens: 2_000,
+										nextCompactionTokens: 58_000,
 										overBudgetTokens: 0,
 										personaPromptTokens: 100,
 										providerBaseUrl: "https://openrouter.ai/api/v1",
@@ -2879,12 +10179,105 @@ describe("Bickr Pages Functions", () => {
 		expect(proxied.body).toMatchObject({
 			prompt: "Stay inside the larger window.",
 			tickSettings: { contextWindowTokens: 64_000 },
+			});
 		});
-	});
 
-	it("computes and caches prompt context budgets from mocked provider usage", async () => {
-		const cookie = await authCookie();
-		await seedWorld(cookie);
+		it("proxies cached prompt context budget reads to the agent runtime service", async () => {
+			const cookie = await authCookie();
+			await seedWorld(cookie);
+			const createResponse = await createBot(
+				contextFor<typeof createBot>(
+					jsonRequest(
+						"http://example.com/api/worlds/patch-notes/bots",
+						"POST",
+						{
+							handle: "cached-budget-sage",
+							displayName: "Cached Budget Sage",
+							shortBio: "Remembers context counts.",
+							prompt: "Stay inside the window.",
+						},
+						cookie,
+					),
+					{ worldHandle: "patch-notes" },
+				),
+			);
+			const created = (await createResponse.json()) as { data: { bot: BotBody } };
+			const proxied: { path?: string; method?: string; userId?: string | null } = {};
+			const response = await contextBudgetGetRoute(
+				contextFor<typeof contextBudgetGetRoute>(
+					new Request(`http://example.com/api/me/bots/${created.data.bot.id}/runtime/context-budget`, {
+						headers: { cookie },
+					}),
+					{ botId: created.data.bot.id },
+					{
+						AGENT_RUNTIME: {
+							fetch: async (request: Request) => {
+								proxied.path = new URL(request.url).pathname;
+								proxied.method = request.method;
+								proxied.userId = request.headers.get("x-bickr-user-id");
+								return Response.json({ ok: true, data: { budget: null } });
+							},
+						} as unknown as Fetcher,
+					},
+				),
+			);
+
+			expect(response.status).toBe(200);
+			expect(proxied).toMatchObject({
+				method: "GET",
+				path: `/bots/${created.data.bot.id}/context-budget`,
+			});
+			expect(proxied.userId).toBeTruthy();
+		});
+
+		it("preserves loop message and monitor query parameters when proxying runtime requests", async () => {
+			const cookie = await authCookie();
+			const proxiedUrls: URL[] = [];
+			const envOverride = {
+				AGENT_RUNTIME: {
+					fetch: async (request: Request) => {
+						proxiedUrls.push(new URL(request.url));
+						return Response.json({
+							ok: true,
+							data: {
+								messages: [],
+								page: { currentPage: 1, pageCount: 1, pages: [], compactionPageBySeq: {} },
+							},
+						});
+					},
+				} as unknown as Fetcher,
+			};
+
+			await runtimeMessagesRoute(
+				contextFor<typeof runtimeMessagesRoute>(
+					new Request("http://example.com/api/me/bots/bot-query/runtime/messages?page=3&after=42", {
+						headers: { cookie },
+					}),
+					{ botId: "bot-query" },
+					envOverride,
+				),
+			);
+			await runtimeMonitorRoute(
+				contextFor<typeof runtimeMonitorRoute>(
+					new Request("http://example.com/api/me/bots/bot-query/runtime/monitor?afterEvent=12&afterMessage=34", {
+						headers: { cookie },
+					}),
+					{ botId: "bot-query" },
+					envOverride,
+				),
+			);
+
+			expect(proxiedUrls[0]?.pathname).toBe("/bots/bot-query/messages");
+			expect(proxiedUrls[0]?.searchParams.get("page")).toBe("3");
+			expect(proxiedUrls[0]?.searchParams.get("after")).toBe("42");
+			expect(proxiedUrls[1]?.pathname).toBe("/bots/bot-query/monitor");
+			expect(proxiedUrls[1]?.searchParams.get("afterEvent")).toBe("12");
+			expect(proxiedUrls[1]?.searchParams.get("afterMessage")).toBe("34");
+		});
+
+		it("computes and caches prompt context budgets from mocked provider usage", async () => {
+			const cookie = await authCookie();
+			await seedWorld(cookie);
 		const createResponse = await createBot(
 			contextFor<typeof createBot>(
 				jsonRequest(
@@ -2906,7 +10299,7 @@ describe("Bickr Pages Functions", () => {
 			),
 		);
 		const created = (await createResponse.json()) as { data: { bot: BotBody } };
-		const promptTokens = [200, 260];
+		const promptTokens = [200, 260, 210, 285];
 		const calls: Array<{ content: string }> = [];
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 			env: {
@@ -2931,37 +10324,67 @@ describe("Bickr Pages Functions", () => {
 					sql: memoryRuntimeSql(),
 				},
 			},
+			textTokenCalibration: () => ({ tokensPerCharacter: 0.25, sampleCount: 0 }),
 		});
 		const promptContextBudget = (BotRuntime.prototype as unknown as {
 			promptContextBudget: (botId: string, input: unknown) => Promise<{
 				cached: boolean;
 				fixedSystemTokens: number;
+				minimumCompactedPromptOverageTokens: number;
+				minimumCompactedPromptTokens: number;
+				nextCompactionTokens: number;
 				personaPromptTokens: number;
 				remainingLoopTokens: number;
 			}>;
 		}).promptContextBudget.bind(runtime);
+		const cachedPromptContextBudget = (BotRuntime.prototype as unknown as {
+			cachedPromptContextBudget: (botId: string) => Promise<{
+				cached: boolean;
+				fixedSystemTokens: number;
+				personaPromptTokens: number;
+				remainingLoopTokens: number;
+			} | null>;
+		}).cachedPromptContextBudget.bind(runtime);
 
 		const first = await promptContextBudget(created.data.bot.id, {
-			prompt: "Stay brief with exact counts.",
+			prompt: "Stay brief.",
 			tickSettings: { contextWindowTokens: 10_000 },
 		});
 		expect(first).toMatchObject({
 			cached: false,
 			fixedSystemTokens: 200,
+			minimumCompactedPromptOverageTokens: expect.any(Number),
+			minimumCompactedPromptTokens: expect.any(Number),
+			nextCompactionTokens: expect.any(Number),
 			personaPromptTokens: 60,
 			remainingLoopTokens: 7_240,
 		});
 		expect(calls).toHaveLength(2);
-		expect(calls[0]?.content).not.toContain("Stay brief with exact counts.");
-		expect(calls[1]?.content).toContain("Stay brief with exact counts.");
+		expect(calls[0]?.content).not.toContain("Stay brief.");
+		expect(calls[1]?.content).toContain("Stay brief.");
 
 		const second = await promptContextBudget(created.data.bot.id, {
-			prompt: "Stay brief with exact counts.",
+			prompt: "Stay brief.",
 			tickSettings: { contextWindowTokens: 10_000 },
 		});
 		expect(second.cached).toBe(true);
 		expect(second.personaPromptTokens).toBe(60);
 		expect(calls).toHaveLength(2);
+
+		const cachedCurrent = await cachedPromptContextBudget(created.data.bot.id);
+		expect(cachedCurrent).toMatchObject({
+			cached: true,
+			fixedSystemTokens: 200,
+			personaPromptTokens: 60,
+		});
+		expect(calls).toHaveLength(2);
+
+		const changed = await promptContextBudget(created.data.bot.id, {
+			prompt: "Stay brief with exact counts.",
+			tickSettings: { contextWindowTokens: 10_000 },
+		});
+		expect(changed.cached).toBe(false);
+		expect(calls).toHaveLength(4);
 	});
 
 	it("allows bot prompts up to 64000 characters and rejects longer prompts", async () => {
@@ -3155,8 +10578,19 @@ describe("Bickr Pages Functions", () => {
 						inferenceSettings: {
 							openRouterApiKey: "sk-or-user-secret",
 							model: "anthropic/claude-3.5-haiku",
+							compactionMode: "tool_call",
 							translation: {
+								enabled: true,
 								model: "openai/gpt-4o-mini",
+								toolCalls: "railroad",
+							},
+							supportsPrefill: false,
+							toolCalls: "at_will",
+							providerRouting: {
+								max_price: {
+									prompt: 0.25,
+									completion: 0.75,
+								},
 							},
 							temperature: 0.7,
 							topK: 40,
@@ -3179,12 +10613,23 @@ describe("Bickr Pages Functions", () => {
 			handle: "octo-admin",
 			displayName: "Octo Admin",
 			profileComplete: true,
-			inferenceSettings: {
-				openRouterApiKeySet: true,
-				model: "anthropic/claude-3.5-haiku",
-				translation: {
-					model: "openai/gpt-4o-mini",
-					prompt: defaultTranslationPrompt,
+				inferenceSettings: {
+					openRouterApiKeySet: true,
+					model: "anthropic/claude-3.5-haiku",
+					compactionMode: "tool_call",
+					translation: {
+						enabled: true,
+						model: "openai/gpt-4o-mini",
+						prompt: defaultTranslationPrompt,
+						toolCalls: "railroad",
+					},
+					supportsPrefill: false,
+					toolCalls: "at_will",
+				providerRouting: {
+					max_price: {
+						prompt: 0.25,
+						completion: 0.75,
+					},
 				},
 				temperature: 0.7,
 				topK: 40,
@@ -3201,6 +10646,13 @@ describe("Bickr Pages Functions", () => {
 			{ frequencyPenalty: -2.1 },
 			{ presence_penalty: 2.1 },
 			{ repetitionPenalty: 2.1 },
+			{ translation: { toolCalls: "at_will" } },
+			{ compactionMode: "cache_friendly" },
+			{ cacheFriendlyCompaction: "yes" },
+			{ supportsPrefill: "yes" },
+			{ providerRouting: "openai" },
+			{ providerRouting: ["openai"] },
+			{ providerRouting: { note: "x".repeat(maxProviderRoutingJsonLength) } },
 		]) {
 			const invalidPenaltyResponse = await patchProfile(
 				contextFor<typeof patchProfile>(
@@ -3237,6 +10689,7 @@ describe("Bickr Pages Functions", () => {
 						inferenceSettings: {
 							frequencyPenalty: null,
 							presencePenalty: null,
+							providerRouting: null,
 							repetitionPenalty: null,
 						},
 					},
@@ -3250,6 +10703,7 @@ describe("Bickr Pages Functions", () => {
 		};
 		expect(clearedPenaltiesPayload.data.profile.inferenceSettings.frequencyPenalty).toBeUndefined();
 		expect(clearedPenaltiesPayload.data.profile.inferenceSettings.presencePenalty).toBeUndefined();
+		expect(clearedPenaltiesPayload.data.profile.inferenceSettings.providerRouting).toBeUndefined();
 		expect(clearedPenaltiesPayload.data.profile.inferenceSettings.repetitionPenalty).toBeUndefined();
 
 		const sessionResponse = await session(
@@ -3282,9 +10736,13 @@ describe("Bickr Pages Functions", () => {
 		expect(noKeyModelResponse.status).toBe(200);
 		const noKeyModelPayload = (await noKeyModelResponse.json()) as {
 			data: { profile: { inferenceSettings: Record<string, unknown> } };
-		};
-		expect(noKeyModelPayload.data.profile.inferenceSettings.model).toBeUndefined();
-		expect(noKeyModelPayload.data.profile.inferenceSettings.translation).toBeUndefined();
+			};
+			expect(noKeyModelPayload.data.profile.inferenceSettings.model).toBeUndefined();
+			expect(noKeyModelPayload.data.profile.inferenceSettings.translation).toMatchObject({
+				enabled: true,
+				prompt: defaultTranslationPrompt,
+			});
+			expect((noKeyModelPayload.data.profile.inferenceSettings.translation as Record<string, unknown>).model).toBeUndefined();
 		expect(noKeyModelPayload.data.profile.inferenceSettings.openRouterApiKeySet).toBeUndefined();
 
 		const customBaseModelResponse = await patchProfile(
@@ -3297,6 +10755,7 @@ describe("Bickr Pages Functions", () => {
 							baseUrl: "http://localhost:11434/v1",
 							model: "local/model",
 							translation: {
+								enabled: true,
 								model: "local/translator",
 								prompt: "Translate into Scots.",
 							},
@@ -3314,10 +10773,11 @@ describe("Bickr Pages Functions", () => {
 					inferenceSettings: {
 						baseUrl: "http://localhost:11434/v1",
 						model: "local/model",
-						translation: {
-							model: "local/translator",
-							prompt: "Translate into Scots.",
-						},
+							translation: {
+								enabled: true,
+								model: "local/translator",
+								prompt: "Translate into Scots.",
+							},
 					},
 				},
 			},
@@ -3335,8 +10795,15 @@ describe("Bickr Pages Functions", () => {
 						inferenceSettings: {
 							openRouterApiKey: "sk-or-translation-secret",
 							translation: {
+								enabled: true,
 								model: "openai/gpt-4o-mini",
 								prompt: "Translate into French.",
+								providerRouting: {
+									max_price: {
+										prompt: 0.2,
+										completion: 0.4,
+									},
+								},
 							},
 						},
 					},
@@ -3344,16 +10811,24 @@ describe("Bickr Pages Functions", () => {
 				),
 			),
 		);
-		expect(profileResponse.status).toBe(200);
-		const profilePayload = (await profileResponse.json()) as { data: { profile: UserProfile } };
-		const providerRequests: Request[] = [];
-		const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
-			const request = new Request(input, init);
-			providerRequests.push(request);
-			return Response.json({
-				choices: [{ message: { content: JSON.stringify({ translation: "Bonjour." }) } }],
+			expect(profileResponse.status).toBe(200);
+			const profilePayload = (await profileResponse.json()) as { data: { profile: UserProfile } };
+			const providerRequests: Request[] = [];
+			const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+				const request = new Request(input, init);
+				providerRequests.push(request);
+				return Response.json({
+					choices: [{
+						message: {
+							tool_calls: [{
+								id: "call_translation",
+								type: "function",
+								function: { name: "save_translation", arguments: JSON.stringify({ translation: "Bonjour." }) },
+							}],
+						},
+					}],
+				});
 			});
-		});
 		try {
 			const response = await translateText(
 				contextFor<typeof translateText>(
@@ -3390,13 +10865,21 @@ describe("Bickr Pages Functions", () => {
 			const providerBody = await providerRequests[0]!.json() as Record<string, unknown>;
 			expect(providerBody).toMatchObject({
 				model: "openai/gpt-4o-mini",
-				stream: false,
-				temperature: 0,
-			});
-		} finally {
-			fetchSpy.mockRestore();
-		}
-	});
+				provider: {
+					max_price: {
+						prompt: 0.2,
+						completion: 0.4,
+					},
+					},
+					stream: false,
+					temperature: 0,
+					tool_choice: "required",
+				});
+				expect((providerBody.tools as Array<{ function?: { name?: string } }>)[0]?.function?.name).toBe("save_translation");
+			} finally {
+				fetchSpy.mockRestore();
+			}
+		});
 
 	it("rejects translation without auth, configured model, or parseable provider JSON", async () => {
 		const unauthorized = await translateText(
@@ -3489,7 +10972,7 @@ describe("Bickr Pages Functions", () => {
 						handle: "cache-critic",
 						displayName: "Cache Critic",
 						shortBio: "Complains about stale reads.",
-						prompt: "Reply to posts.",
+						prompt: "Reply to threads.",
 					},
 					cookie,
 				),
@@ -3523,7 +11006,7 @@ describe("Bickr Pages Functions", () => {
 			BICKR_KV: testEnv.BICKR_KV,
 		});
 		expect(createdThreadResponse.status).toBe(201);
-		const thread = (await createdThreadResponse.json()) as { data: { thread: { id: string } } };
+		const thread = (await createdThreadResponse.json()) as { data: { thread: { id: string; rootCommentId: string } } };
 
 		const commentRequest = jsonRequest(
 			`http://example.com/threads/${thread.data.thread.id}/comments`,
@@ -3547,7 +11030,7 @@ describe("Bickr Pages Functions", () => {
 		const voteRequest = jsonRequest(
 			"http://example.com/votes",
 			"POST",
-			{ targetType: "thread", targetId: thread.data.thread.id, value: 1 },
+			{ commentId: thread.data.thread.rootCommentId, value: 1, reason: "The root comment is useful." },
 		);
 		voteRequest.headers.set("x-bickr-bot-id", botTwoId);
 		const voteResponse = await handleForumCoordinatorRequest(voteRequest, {
@@ -3559,7 +11042,7 @@ describe("Bickr Pages Functions", () => {
 		const commentVoteRequest = jsonRequest(
 			"http://example.com/votes",
 			"POST",
-			{ targetType: "comment", targetId: commentId, value: -1 },
+			{ commentId, value: -1 },
 		);
 		commentVoteRequest.headers.set("x-bickr-bot-id", botOneId);
 		const commentVoteResponse = await handleForumCoordinatorRequest(commentVoteRequest, {
@@ -3590,12 +11073,14 @@ describe("Bickr Pages Functions", () => {
 			{ handle: "index-bard", displayName: "Index Bard", value: -1 },
 		]);
 
-		await followBot(testEnv.BICKR_KV, testEnv.BICKR_D1, botTwoId, botOneId);
+		await followBot(testEnv.BICKR_KV, testEnv.BICKR_D1, botTwoId, botOneId, undefined, {
+			reason: "Index Bard keeps writing useful index notes.",
+		});
 		const notifications = await listPendingNotifications(testEnv.BICKR_KV, testEnv.BICKR_D1, botOneId);
 		expect(notifications.map((notification) => notification.notificationType)).toEqual(
 			expect.arrayContaining(["reply", "vote", "follow"]),
 		);
-		const search = await searchPosts(testEnv.BICKR_D1, notifications[0]?.worldId ?? "", "chorus");
+		const search = await searchThreads(testEnv.BICKR_D1, notifications[0]?.worldId ?? "", "chorus");
 		expect(search.some((result) => result.threadId === thread.data.thread.id)).toBe(true);
 
 		const botSearch = await searchBots(testEnv.BICKR_KV, testEnv.BICKR_D1, notifications[0]?.worldId ?? "", "stale");
@@ -3605,7 +11090,7 @@ describe("Bickr Pages Functions", () => {
 			source: "text",
 		});
 		expect(botSearch.some((result) => "prompt" in result || "inferenceSettings" in result)).toBe(false);
-		await expect(searchPosts(testEnv.BICKR_D1, notifications[0]?.worldId ?? "", "%_".repeat(500))).resolves.toEqual([]);
+		await expect(searchThreads(testEnv.BICKR_D1, notifications[0]?.worldId ?? "", "%_".repeat(500))).resolves.toEqual([]);
 		await expect(searchBots(testEnv.BICKR_KV, testEnv.BICKR_D1, notifications[0]?.worldId ?? "", "%_".repeat(500))).resolves.toEqual([]);
 
 		const profile = await botPublicProfileByHandle(
@@ -3630,6 +11115,26 @@ describe("Bickr Pages Functions", () => {
 		expect(activity.activities.map((item) => item.type)).toEqual(
 			expect.arrayContaining(["comment", "vote", "follow"]),
 		);
+		expect(activity.activities).toEqual(expect.arrayContaining([
+			expect.objectContaining({
+				type: "comment",
+				parentComment: {
+					commentId: thread.data.thread.rootCommentId,
+					authorHandle: "index-bard",
+					authorDisplayName: "Index Bard",
+					bodyPreview: "Every stale row needs a chorus.",
+				},
+			}),
+			expect.objectContaining({
+				type: "vote",
+				targetComment: {
+					commentId: thread.data.thread.rootCommentId,
+					authorHandle: "index-bard",
+					authorDisplayName: "Index Bard",
+					bodyPreview: "Every stale row needs a chorus.",
+				},
+			}),
+		]));
 
 		const followGraph = await botFollowGraphByHandle(
 			testEnv.BICKR_KV,
@@ -3659,7 +11164,24 @@ describe("Bickr Pages Functions", () => {
 			data: {
 				feed: {
 					bot: { handle: "cache-critic" },
-					activities: expect.arrayContaining([expect.objectContaining({ type: "comment" })]),
+					activities: expect.arrayContaining([
+						expect.objectContaining({ type: "comment" }),
+						expect.objectContaining({
+							type: "vote",
+							id: `vote:comment:${thread.data.thread.rootCommentId}`,
+							reason: "The root comment is useful.",
+							targetComment: expect.objectContaining({
+								commentId: thread.data.thread.rootCommentId,
+								authorHandle: "index-bard",
+								bodyPreview: "Every stale row needs a chorus.",
+							}),
+						}),
+						expect.objectContaining({
+							type: "follow",
+							bot: expect.objectContaining({ handle: "index-bard" }),
+							reason: "Index Bard keeps writing useful index notes.",
+						}),
+					]),
 				},
 			},
 		});
@@ -3669,134 +11191,134 @@ describe("Bickr Pages Functions", () => {
 				{ worldHandle: "patch-notes", botHandle: "cache-critic" },
 			),
 		);
-		expect(await followsResponse.json()).toMatchObject({
-			ok: true,
-			data: {
-				graph: {
-					bot: { handle: "cache-critic" },
-					following: [expect.objectContaining({ handle: "index-bard" })],
-					followers: [],
+			expect(await followsResponse.json()).toMatchObject({
+				ok: true,
+				data: {
+					graph: {
+						bot: { handle: "cache-critic" },
+						following: [expect.objectContaining({ handle: "index-bard" })],
+						followers: [],
+					},
 				},
-			},
-		});
+			});
 
-		const otherWorldResponse = await createWorld(
-			contextFor<typeof createWorld>(
-				jsonRequest(
-					"http://example.com/api/worlds",
-					"POST",
-					{
-						handle: "elsewhere",
-						name: "Elsewhere",
-						description: "Activity that must not leak into patch notes.",
-					},
-					cookie,
+			const otherWorldResponse = await createWorld(
+				contextFor<typeof createWorld>(
+					jsonRequest(
+						"http://example.com/api/worlds",
+						"POST",
+						{
+							handle: "elsewhere",
+							name: "Elsewhere",
+							description: "Activity that must not leak into patch notes.",
+						},
+						cookie,
+					),
 				),
-			),
-		);
-		expect(otherWorldResponse.status).toBe(201);
-		const otherForumResponse = await createForum(
-			contextFor<typeof createForum>(
-				jsonRequest(
-					"http://example.com/api/worlds/elsewhere/forums",
-					"POST",
-					{ handle: "offsite", description: "A separate forum" },
-					cookie,
+			);
+			expect(otherWorldResponse.status).toBe(201);
+			const otherForumResponse = await createForum(
+				contextFor<typeof createForum>(
+					jsonRequest(
+						"http://example.com/api/worlds/elsewhere/forums",
+						"POST",
+						{ handle: "offsite", description: "A separate forum" },
+						cookie,
+					),
+					{ worldHandle: "elsewhere" },
 				),
-				{ worldHandle: "elsewhere" },
-			),
-		);
-		const otherForum = ((await otherForumResponse.json()) as { data: { forum: { id: string } } }).data.forum;
-		const otherBotResponse = await createBot(
-			contextFor<typeof createBot>(
-				jsonRequest(
-					"http://example.com/api/worlds/elsewhere/bots",
-					"POST",
-					{
-						handle: "offworld-poster",
-						displayName: "Offworld Poster",
-						shortBio: "Posts somewhere else.",
-						prompt: "Post elsewhere.",
-					},
-					cookie,
+			);
+			const otherForum = ((await otherForumResponse.json()) as { data: { forum: { id: string } } }).data.forum;
+			const otherBotResponse = await createBot(
+				contextFor<typeof createBot>(
+					jsonRequest(
+						"http://example.com/api/worlds/elsewhere/bots",
+						"POST",
+						{
+							handle: "offworld-poster",
+							displayName: "Offworld Poster",
+							shortBio: "Posts somewhere else.",
+							prompt: "Post elsewhere.",
+						},
+						cookie,
+					),
+					{ worldHandle: "elsewhere" },
 				),
-				{ worldHandle: "elsewhere" },
-			),
-		);
-		const otherBotId = ((await otherBotResponse.json()) as { data: { bot: BotBody } }).data.bot.id;
-		const otherThreadRequest = jsonRequest(
-			`http://example.com/forums/${otherForum.id}/threads`,
-			"POST",
-			{ title: "Elsewhere only", body: "This should not appear in patch notes activity." },
-		);
-		otherThreadRequest.headers.set("x-bickr-bot-id", otherBotId);
-		await handleForumCoordinatorRequest(otherThreadRequest, {
-			BICKR_D1: testEnv.BICKR_D1,
-			BICKR_KV: testEnv.BICKR_KV,
-		});
+			);
+			const otherBotId = ((await otherBotResponse.json()) as { data: { bot: BotBody } }).data.bot.id;
+			const otherThreadRequest = jsonRequest(
+				`http://example.com/forums/${otherForum.id}/threads`,
+				"POST",
+				{ title: "Elsewhere only", body: "This should not appear in patch notes activity." },
+			);
+			otherThreadRequest.headers.set("x-bickr-bot-id", otherBotId);
+			await handleForumCoordinatorRequest(otherThreadRequest, {
+				BICKR_D1: testEnv.BICKR_D1,
+				BICKR_KV: testEnv.BICKR_KV,
+			});
 
-		await unfollowBot(testEnv.BICKR_D1, botTwoId, botOneId, undefined, {
-			reason: "Index Bard no longer needs close tracking.",
-		});
-		const worldActivityFeed = await worldActivityFeedByHandle(
-			testEnv.BICKR_D1,
-			notifications[0]?.worldId ?? "",
-			"patch-notes",
-			100,
-		);
-		expect(worldActivityFeed.activities).toEqual(expect.arrayContaining([
-			expect.objectContaining({
-				type: "post",
-				actor: expect.objectContaining({ handle: "index-bard" }),
-				title: "Index repair ballad",
-			}),
-			expect.objectContaining({
-				type: "comment",
-				actor: expect.objectContaining({ handle: "cache-critic" }),
-				bodyPreview: "This chorus needs a fresher cache.",
-			}),
-			expect.objectContaining({
-				type: "vote",
-				actor: expect.objectContaining({ handle: "cache-critic" }),
-				targetType: "thread",
-			}),
-			expect.objectContaining({
-				type: "follow",
-				actor: expect.objectContaining({ handle: "cache-critic" }),
-				bot: expect.objectContaining({ handle: "index-bard" }),
-			}),
-			expect.objectContaining({
-				type: "unfollow",
-				actor: expect.objectContaining({ handle: "cache-critic" }),
-				bot: expect.objectContaining({ handle: "index-bard" }),
+			await unfollowBot(testEnv.BICKR_KV, testEnv.BICKR_D1, botTwoId, botOneId, undefined, {
 				reason: "Index Bard no longer needs close tracking.",
-			}),
-		]));
-		expect(worldActivityFeed.activities.some((item) => item.actor.handle === "offworld-poster")).toBe(false);
+			});
+			const worldActivityFeed = await worldActivityFeedByHandle(
+				testEnv.BICKR_D1,
+				notifications[0]?.worldId ?? "",
+				"patch-notes",
+				100,
+			);
+			expect(worldActivityFeed.activities).toEqual(expect.arrayContaining([
+				expect.objectContaining({
+					type: "thread",
+					actor: expect.objectContaining({ handle: "index-bard" }),
+					title: "Index repair ballad",
+				}),
+				expect.objectContaining({
+					type: "comment",
+					actor: expect.objectContaining({ handle: "cache-critic" }),
+					bodyPreview: "This chorus needs a fresher cache.",
+				}),
+				expect.objectContaining({
+					type: "vote",
+					actor: expect.objectContaining({ handle: "cache-critic" }),
+					commentId: thread.data.thread.rootCommentId,
+				}),
+				expect.objectContaining({
+					type: "follow",
+					actor: expect.objectContaining({ handle: "cache-critic" }),
+					bot: expect.objectContaining({ handle: "index-bard" }),
+				}),
+				expect.objectContaining({
+					type: "unfollow",
+					actor: expect.objectContaining({ handle: "cache-critic" }),
+					bot: expect.objectContaining({ handle: "index-bard" }),
+					reason: "Index Bard no longer needs close tracking.",
+				}),
+			]));
+			expect(worldActivityFeed.activities.some((item) => item.actor.handle === "offworld-poster")).toBe(false);
 
-		const worldActivityResponse = await worldActivity(
-			contextFor<typeof worldActivity>(
-				new Request("http://example.com/api/worlds/patch-notes/activity?limit=100"),
-				{ worldHandle: "patch-notes" },
-			),
-		);
-		expect(await worldActivityResponse.json()).toMatchObject({
-			ok: true,
-			data: {
-				feed: {
-					world: { handle: "patch-notes" },
-					activities: expect.arrayContaining([
-						expect.objectContaining({
-							type: "unfollow",
-							actor: expect.objectContaining({ handle: "cache-critic" }),
-						}),
-					]),
+			const worldActivityResponse = await worldActivity(
+				contextFor<typeof worldActivity>(
+					new Request("http://example.com/api/worlds/patch-notes/activity?limit=100"),
+					{ worldHandle: "patch-notes" },
+				),
+			);
+			expect(await worldActivityResponse.json()).toMatchObject({
+				ok: true,
+				data: {
+					feed: {
+						world: { handle: "patch-notes" },
+						activities: expect.arrayContaining([
+							expect.objectContaining({
+								type: "unfollow",
+								actor: expect.objectContaining({ handle: "cache-critic" }),
+							}),
+						]),
+					},
 				},
-			},
-		});
+			});
 
-		const myBotsResponse = await meBots(
-			contextFor<typeof meBots>(new Request("http://example.com/api/me/bots", { headers: { cookie } })),
+			const myBotsResponse = await meBots(
+				contextFor<typeof meBots>(new Request("http://example.com/api/me/bots", { headers: { cookie } })),
 		);
 		const myBotsPayload = (await myBotsResponse.json()) as { data: { bots: BotBody[] } };
 		const activeBot = myBotsPayload.data.bots.find((bot) => bot.handle === "cache-critic");
@@ -3804,13 +11326,20 @@ describe("Bickr Pages Functions", () => {
 		expect(Date.parse(activeBot?.lastActiveAt ?? "")).toBeGreaterThanOrEqual(Date.parse(activeBot?.createdAt ?? ""));
 
 		const humanNotifications = await testEnv.BICKR_D1.prepare(
-			`SELECT notification_type AS notificationType
+			`SELECT notification_type AS notificationType, title, body, url_path AS urlPath
 			 FROM human_notifications
 			 ORDER BY created_at ASC`,
-		).all<{ notificationType: string }>();
+		).all<{ body: string; notificationType: string; title: string; urlPath: string }>();
 		expect((humanNotifications.results ?? []).map((row) => row.notificationType)).toEqual(
 			expect.arrayContaining(["thread_created", "comment_created", "vote_cast", "bot_followed"]),
 		);
+		const followNotice = (humanNotifications.results ?? []).find((row) => row.notificationType === "bot_followed");
+		expect(followNotice?.body).toBe("u/cache-critic followed u/index-bard.\nIndex Bard keeps writing useful index notes.");
+		expect(followNotice?.urlPath).toMatch(/^\/w\/patch-notes\/u\/cache-critic\?tab=activity&activity=act_/);
+		const voteNotice = (humanNotifications.results ?? []).find((row) => row.notificationType === "vote_cast");
+		expect(voteNotice?.title).toBe("Cache Critic upvoted a comment in");
+		expect(voteNotice?.body).toBe("Index repair ballad\nThe root comment is useful.");
+		expect(voteNotice?.urlPath).toBe(`/w/patch-notes/u/cache-critic?tab=activity&activity=vote%3Acomment%3A${thread.data.thread.rootCommentId}`);
 	});
 
 	it("uses the coordinator only for explicitly fresh thread detail reads", async () => {
@@ -3856,7 +11385,7 @@ describe("Bickr Pages Functions", () => {
 		expect(defaultResponse.status).toBe(200);
 		expect(blockedCoordinator).not.toHaveBeenCalled();
 		const defaultPayload = (await defaultResponse.json()) as { data: { thread: { comments: unknown[] } } };
-		expect(defaultPayload.data.thread.comments).toHaveLength(0);
+		expect(defaultPayload.data.thread.comments).toHaveLength(1);
 
 		const freshCoordinator = vi.fn(async (request: Request) => {
 			expect(new URL(request.url).pathname).toBe(`/threads/${thread.id}`);
@@ -3921,6 +11450,7 @@ describe("Bickr Pages Functions", () => {
 			data: { thread: { comments: Array<{ body: string }> } };
 		};
 		expect(secondPayload.data.thread.comments.map((comment) => comment.body)).toEqual([
+			"The KV copy can lag.",
 			"First fresh comment.",
 			"Second fresh comment.",
 		]);
@@ -3938,6 +11468,7 @@ describe("Bickr Pages Functions", () => {
 			data: { thread: { comments: Array<{ body: string }> } };
 		};
 		expect(cachedPayload.data.thread.comments.map((comment) => comment.body)).toEqual([
+			"The KV copy can lag.",
 			"First fresh comment.",
 			"Second fresh comment.",
 		]);
@@ -3956,10 +11487,10 @@ describe("Bickr Pages Functions", () => {
 				BICKR_KV: testEnv.BICKR_KV,
 			},
 			context,
-		);
-		const expiredPayload = (await expiredRead.json()) as { data: { thread: { comments: unknown[] } } };
-		expect(expiredPayload.data.thread.comments).toHaveLength(0);
-	});
+	);
+	const expiredPayload = (await expiredRead.json()) as { data: { thread: { comments: unknown[] } } };
+	expect(expiredPayload.data.thread.comments).toHaveLength(1);
+});
 
 	it("routes comment votes through the owning thread coordinator", async () => {
 		const cookie = await authCookie();
@@ -3985,8 +11516,7 @@ describe("Bickr Pages Functions", () => {
 			},
 		};
 		const voteRequest = jsonRequest("http://example.com/votes", "POST", {
-			targetType: "comment",
-			targetId: comment.id,
+			commentId: comment.id,
 			value: 1,
 		});
 		voteRequest.headers.set("x-bickr-bot-id", voter.id);
@@ -4242,6 +11772,159 @@ describe("Bickr Pages Functions", () => {
 		});
 	});
 
+	it("marks human notifications read by world and bot section scopes", async () => {
+		const cookie = await authCookie();
+		const user = await testEnv.BICKR_D1.prepare(`SELECT user_id AS id FROM users_index LIMIT 1`).first<{ id: string }>();
+		if (!user) {
+			throw new Error("Test user was not created.");
+		}
+		const now = new Date().toISOString();
+		await testEnv.BICKR_D1.prepare(
+			`INSERT INTO human_notifications (
+				notification_id, user_id, world_id, event_key, notification_type,
+				actor_bot_id, actor_handle, actor_display_name,
+				source_type, source_id, target_type, target_id,
+				title, body, url_path, spotlight_id, spotlight_label,
+				created_at, read_at, archived_at
+			) VALUES
+				('hnt_world_a', ?, 'world_one', 'event:world:a', 'thread_created', 'bot_a', 'bot-a', 'Bot A', NULL, NULL, NULL, NULL, 'A', 'A', '/', NULL, NULL, ?, NULL, NULL),
+				('hnt_world_b', ?, 'world_one', 'event:world:b', 'thread_created', 'bot_b', 'bot-b', 'Bot B', NULL, NULL, NULL, NULL, 'B', 'B', '/', NULL, NULL, ?, NULL, NULL),
+				('hnt_bot_a', ?, 'world_two', 'event:bot:a', 'thread_created', 'bot_a', 'bot-a', 'Bot A', NULL, NULL, NULL, NULL, 'C', 'C', '/', NULL, NULL, ?, NULL, NULL),
+				('hnt_read', ?, 'world_two', 'event:read', 'thread_created', 'bot_b', 'bot-b', 'Bot B', NULL, NULL, NULL, NULL, 'D', 'D', '/', NULL, NULL, ?, ?, NULL)`,
+		)
+			.bind(user.id, now, user.id, now, user.id, now, user.id, now, now)
+			.run();
+
+		const worldResponse = await markAllNotificationsReadRoute(
+			contextFor<typeof markAllNotificationsReadRoute>(
+				jsonRequest(
+					"http://example.com/api/me/notifications/read-all",
+					"POST",
+					{ scopeType: "world", scopeId: "world_one" },
+					cookie,
+				),
+			),
+		);
+		expect(await worldResponse.json()).toMatchObject({ data: { readAll: true, readCount: 2 } });
+
+		const afterWorld = await testEnv.BICKR_D1.prepare(
+			`SELECT notification_id AS id, read_at AS readAt
+			 FROM human_notifications
+			 WHERE user_id = ?
+			 ORDER BY notification_id`,
+		)
+			.bind(user.id)
+			.all<{ id: string; readAt: string | null }>();
+		expect(afterWorld.results).toEqual([
+			{ id: "hnt_bot_a", readAt: null },
+			expect.objectContaining({ id: "hnt_read", readAt: now }),
+			expect.objectContaining({ id: "hnt_world_a", readAt: expect.any(String) }),
+			expect.objectContaining({ id: "hnt_world_b", readAt: expect.any(String) }),
+		]);
+
+		const botResponse = await markAllNotificationsReadRoute(
+			contextFor<typeof markAllNotificationsReadRoute>(
+				jsonRequest(
+					"http://example.com/api/me/notifications/read-all",
+					"POST",
+					{ scopeType: "bot", scopeId: "bot_a" },
+					cookie,
+				),
+			),
+		);
+		expect(await botResponse.json()).toMatchObject({ data: { readAll: true, readCount: 1 } });
+
+		const unread = await testEnv.BICKR_D1.prepare(
+			`SELECT COUNT(*) AS count
+			 FROM human_notifications
+			 WHERE user_id = ? AND read_at IS NULL`,
+		)
+			.bind(user.id)
+			.first<{ count: number }>();
+		expect(unread?.count).toBe(0);
+	});
+
+	it("lists human notifications by world and bot scopes", async () => {
+		const cookie = await authCookie();
+		const user = await testEnv.BICKR_D1.prepare(`SELECT user_id AS id FROM users_index LIMIT 1`).first<{ id: string }>();
+		if (!user) {
+			throw new Error("Test user was not created.");
+		}
+		await testEnv.BICKR_D1.prepare(
+			`INSERT INTO human_notifications (
+				notification_id, user_id, world_id, event_key, notification_type,
+				actor_bot_id, actor_handle, actor_display_name,
+				source_type, source_id, target_type, target_id,
+				title, body, url_path, spotlight_id, spotlight_label,
+				created_at, read_at, archived_at
+			) VALUES
+				('hnt_world_unread', ?, 'world_one', 'event:list:world:unread', 'thread_created', 'bot_a', 'bot-a', 'Bot A', NULL, NULL, NULL, NULL, 'World unread', 'A', '/', NULL, NULL, '2026-01-01T00:00:03.000Z', NULL, NULL),
+				('hnt_world_read', ?, 'world_one', 'event:list:world:read', 'thread_created', 'bot_b', 'bot-b', 'Bot B', NULL, NULL, NULL, NULL, 'World read', 'B', '/', NULL, NULL, '2026-01-01T00:00:04.000Z', '2026-01-01T00:00:05.000Z', NULL),
+				('hnt_bot_a_other_world', ?, 'world_two', 'event:list:bot:a', 'thread_created', 'bot_a', 'bot-a', 'Bot A', NULL, NULL, NULL, NULL, 'Bot A other world', 'C', '/', NULL, NULL, '2026-01-01T00:00:02.000Z', NULL, NULL),
+				('hnt_archived', ?, 'world_one', 'event:list:archived', 'thread_created', 'bot_a', 'bot-a', 'Bot A', NULL, NULL, NULL, NULL, 'Archived', 'D', '/', NULL, NULL, '2026-01-01T00:00:01.000Z', NULL, '2026-01-01T00:00:06.000Z')`,
+		)
+			.bind(user.id, user.id, user.id, user.id)
+			.run();
+
+		const worldResponse = await getNotificationsRoute(
+			contextFor<typeof getNotificationsRoute>(
+				new Request("http://example.com/api/me/notifications?status=all&scopeType=world&scopeId=world_one", {
+					headers: { cookie },
+				}),
+			),
+		);
+		const worldPayload = (await worldResponse.json()) as {
+			data: { unreadCount: number; notifications: Array<{ id: string }> };
+		};
+		expect(worldResponse.status).toBe(200);
+		expect(worldPayload.data.unreadCount).toBe(1);
+		expect(worldPayload.data.notifications.map((notification) => notification.id)).toEqual([
+			"hnt_world_read",
+			"hnt_world_unread",
+		]);
+
+		const botResponse = await getNotificationsRoute(
+			contextFor<typeof getNotificationsRoute>(
+				new Request("http://example.com/api/me/notifications?status=all&scopeType=bot&scopeId=bot_a", {
+					headers: { cookie },
+				}),
+			),
+		);
+		const botPayload = (await botResponse.json()) as {
+			data: { unreadCount: number; notifications: Array<{ id: string }> };
+		};
+		expect(botResponse.status).toBe(200);
+		expect(botPayload.data.unreadCount).toBe(2);
+		expect(botPayload.data.notifications.map((notification) => notification.id)).toEqual([
+			"hnt_world_unread",
+			"hnt_bot_a_other_world",
+		]);
+
+		const missingScopeIdResponse = await getNotificationsRoute(
+			contextFor<typeof getNotificationsRoute>(
+				new Request("http://example.com/api/me/notifications?scopeType=world", {
+					headers: { cookie },
+				}),
+			),
+		);
+		expect(missingScopeIdResponse.status).toBe(400);
+		await expect(missingScopeIdResponse.json()).resolves.toMatchObject({
+			error: "bad_request",
+		});
+
+		const invalidScopeResponse = await getNotificationsRoute(
+			contextFor<typeof getNotificationsRoute>(
+				new Request("http://example.com/api/me/notifications?scopeType=forum&scopeId=forum_a", {
+					headers: { cookie },
+				}),
+			),
+		);
+		expect(invalidScopeResponse.status).toBe(400);
+		await expect(invalidScopeResponse.json()).resolves.toMatchObject({
+			error: "bad_request",
+		});
+	});
+
 	it("marks bot seen content from full-thread and search tool results", async () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);
@@ -4277,8 +11960,8 @@ describe("Bickr Pages Functions", () => {
 		await markBotSeenFromResult(
 			testEnv.BICKR_D1,
 			bot.id,
-			await searchPosts(testEnv.BICKR_D1, forum.worldId, "Needle"),
-			"tool:search_posts",
+			await searchThreads(testEnv.BICKR_D1, forum.worldId, "Needle"),
+			"tool:search_threads",
 			"run-search",
 		);
 		const searchSeen = await testEnv.BICKR_D1.prepare(
@@ -4288,7 +11971,7 @@ describe("Bickr Pages Functions", () => {
 		)
 			.bind(bot.id, comment.id)
 			.first<{ seenVia: string }>();
-		expect(searchSeen).toEqual({ seenVia: "tool:search_posts" });
+		expect(searchSeen).toEqual({ seenVia: "tool:search_threads" });
 
 		await markBotSeenFromResult(
 			testEnv.BICKR_D1,
@@ -4315,7 +11998,7 @@ describe("Bickr Pages Functions", () => {
 		expect(readCommentSeen).toEqual({ seenVia: "tool:read_comment_by_id" });
 	});
 
-	it("creates u/ mention notifications with author name and conditional short bio", async () => {
+	it("creates structured u/ mention notifications", async () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);
 		const forum = await createForumForTest(cookie, "mentions");
@@ -4326,8 +12009,19 @@ describe("Bickr Pages Functions", () => {
 		await createCommentForTest(thread.id, author.id, "First ping for u/mention-target.");
 		const firstNotifications = await listPendingNotifications(testEnv.BICKR_KV, testEnv.BICKR_D1, recipient.id);
 		const firstMention = firstNotifications.find((notification) => notification.notificationType === "mention");
-		expect(firstMention?.message).toContain("Mention Author (u/mention-author)");
-		expect(firstMention?.message).toContain("Short bio: Mention Author test bot.");
+		expect(firstMention?.message).toContain('Mention Author mentioned you in "Mention thread".');
+		expect(firstMention?.event).toMatchObject({
+			type: "comment_created",
+			deliveryReasons: ["mention"],
+			actor: {
+				username: "u/mention-author",
+				displayName: "Mention Author",
+				shortBio: "Mention Author test bot.",
+			},
+			comment: {
+				text: "First ping for u/mention-target.",
+			},
+		});
 
 		if (!firstMention) {
 			throw new Error("Expected mention notification.");
@@ -4339,7 +12033,7 @@ describe("Bickr Pages Functions", () => {
 			[firstMention],
 			[],
 		);
-		expect(firstLoopInput.autoProfileSeenItems).toEqual([{ type: "bot", id: author.id }]);
+		expect(firstLoopInput.autoProfileSeenItems).toEqual([]);
 		await markBotSeenContent(
 			testEnv.BICKR_D1,
 			recipient.id,
@@ -4352,7 +12046,7 @@ describe("Bickr Pages Functions", () => {
 		const secondMention = allNotifications
 			.filter((notification) => notification.notificationType === "mention")
 			.at(-1);
-		expect(secondMention?.message).toContain("Mention Author (u/mention-author)");
+		expect(secondMention?.message).toContain("Mention Author mentioned you");
 		expect(secondMention?.message).not.toContain("Short bio:");
 	});
 
@@ -4367,7 +12061,106 @@ describe("Bickr Pages Functions", () => {
 		await createCommentForTest(thread.id, author.id, "First ping for u/цель_2.");
 		const notifications = await listPendingNotifications(testEnv.BICKR_KV, testEnv.BICKR_D1, recipient.id);
 		const mention = notifications.find((notification) => notification.notificationType === "mention");
-		expect(mention?.message).toContain("u/автор_1");
+		expect(mention?.event?.actor?.username).toBe("u/автор_1");
+	});
+
+	it("fans followed public activity into one structured notification per action", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const forum = await createForumForTest(cookie, "follow-events");
+		const actor = await createBotForTest(cookie, "follow-actor");
+		const follower = await createBotForTest(cookie, "follow-reader");
+		const target = await createBotForTest(cookie, "follow-target");
+		const oldThread = await createThreadForTest(forum.id, actor.id, "Before follow", "Old root body.");
+		await followBot(testEnv.BICKR_KV, testEnv.BICKR_D1, follower.id, actor.id);
+
+		const targetThread = await createThreadForTest(forum.id, target.id, "Target thread", "Root target body.");
+		await createThreadForTest(forum.id, actor.id, "Actor thread", "Actor root body.");
+		const parent = await createCommentForTest(targetThread.id, follower.id, "Reader parent.");
+		const reply = await createCommentForTest(targetThread.id, actor.id, "Actor reply.", parent.id);
+		await setVote(testEnv.BICKR_KV, testEnv.BICKR_D1, {
+			botId: actor.id,
+			targetType: "comment",
+			targetId: parent.id,
+			value: 1,
+		});
+		await followBot(testEnv.BICKR_KV, testEnv.BICKR_D1, actor.id, target.id, undefined, {
+			reason: "Target posts are relevant right now.",
+		});
+		await unfollowBot(testEnv.BICKR_KV, testEnv.BICKR_D1, actor.id, target.id, undefined, {
+			reason: "Target posts stopped being relevant.",
+		});
+
+		const followerNotifications = await listPendingNotifications(testEnv.BICKR_KV, testEnv.BICKR_D1, follower.id);
+		expect(followerNotifications.some((notification) => notification.sourceObjectId === oldThread.id)).toBe(false);
+		const events = followerNotifications.map((notification) => notification.event).filter(Boolean);
+		expect(events.map((event) => event?.type)).toEqual(
+			expect.arrayContaining(["thread_created", "comment_created", "vote_cast", "profile_followed", "profile_unfollowed"]),
+		);
+		expect(events.every((event) => event?.deliveryReasons.includes("followed_profile_activity"))).toBe(true);
+		expect(events.find((event) => event?.type === "vote_cast")).toMatchObject({
+			target: { id: parent.id, author: { username: `u/${follower.handle}` } },
+			vote: { targetType: "comment", commentId: parent.id, value: 1 },
+		});
+		expect(events.find((event) => event?.type === "profile_followed")).toMatchObject({
+			target: { username: `u/${target.handle}` },
+			targetProfile: { username: `u/${target.handle}` },
+		});
+		const followerLoopInput = await buildRuntimeLoopInput(
+			testEnv.BICKR_KV,
+			testEnv.BICKR_D1,
+			follower.id,
+			followerNotifications,
+			[],
+		);
+		expect(followerLoopInput.input.notifications.map((event) => event.type)).not.toEqual(
+			expect.arrayContaining(["profile_followed", "profile_unfollowed"]),
+		);
+		await markNotificationsDelivered(testEnv.BICKR_KV, testEnv.BICKR_D1, followerNotifications);
+		expect(await listPendingNotifications(testEnv.BICKR_KV, testEnv.BICKR_D1, follower.id)).toHaveLength(0);
+
+		const targetNotifications = await listPendingNotifications(testEnv.BICKR_KV, testEnv.BICKR_D1, target.id);
+		const targetLoopInput = await buildRuntimeLoopInput(
+			testEnv.BICKR_KV,
+			testEnv.BICKR_D1,
+			target.id,
+			targetNotifications,
+			[],
+		);
+		expect(targetLoopInput.input.notifications.map((event) => event.type)).toContain("profile_followed");
+		const actorActivity = await botActivityFeedByHandle(
+			testEnv.BICKR_KV,
+			testEnv.BICKR_D1,
+			forum.worldId,
+			actor.handle,
+		);
+		expect(actorActivity.activities).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					type: "unfollow",
+					bot: expect.objectContaining({ handle: target.handle }),
+					reason: "Target posts stopped being relevant.",
+				}),
+			]),
+		);
+		const humanUnfollow = await testEnv.BICKR_D1.prepare(
+			`SELECT body, url_path AS urlPath
+			 FROM human_notifications
+			 WHERE notification_type = 'bot_unfollowed'
+			 ORDER BY created_at DESC
+			 LIMIT 1`,
+		).first<{ body: string; urlPath: string }>();
+		expect(humanUnfollow?.body).toBe(`u/${actor.handle} unfollowed u/${target.handle}.\nTarget posts stopped being relevant.`);
+		expect(humanUnfollow?.urlPath).toMatch(new RegExp(`^/w/patch-notes/u/${actor.handle}\\?tab=activity&activity=act_`));
+
+		const replyNotifications = followerNotifications.filter((notification) => notification.sourceObjectId === reply.id);
+		expect(replyNotifications).toHaveLength(1);
+		expect(replyNotifications[0]?.event).toMatchObject({
+			type: "comment_created",
+			deliveryReasons: ["direct_reply", "followed_profile_activity"],
+			comment: { id: reply.id, text: "Actor reply." },
+			replyTo: { id: parent.id, text: "Reader parent." },
+		});
 	});
 
 	it("rejects repeat replies to the same comment unless explicitly overridden", async () => {
@@ -4396,30 +12189,46 @@ describe("Bickr Pages Functions", () => {
 		const rejected = await executeTool(
 			bot,
 			"run-repeat-blocked",
-			"reply_to_thread",
-			{ threadId: thread.id, parentCommentId: parent.id, body: "Different follow-up." },
+			"reply_to_comment",
+			{ commentId: parent.id, body: "Different follow-up." },
 			{ mode: "normal", signal },
 		).catch((error: unknown) => error);
 
 		expect(rejected).toBeInstanceOf(Error);
 		expect((rejected as Error).message).toContain(`I already replied to comment ${parent.id} before.`);
 		expect((rejected as Error).message).toContain("Earlier reply.");
-		expect((rejected as Error).message).toContain(`"${additionalReplyAcknowledgementArgument}": true`);
+		expect((rejected as Error).message).toContain("make_additional_reply_to_the_same_comment");
 		let currentThread = await readThread(testEnv.BICKR_KV, thread.id);
 		expect(currentThread.comments.filter((comment) => comment.parentCommentId === parent.id && comment.authorBotId === replier.id)).toHaveLength(1);
 
-		await executeTool(
+		const allowed = await executeTool(
 			bot,
 			"run-repeat-allowed",
-			"reply_to_thread",
+			"make_additional_reply_to_the_same_comment",
 			{
-				threadId: thread.id,
-				parentCommentId: parent.id,
+				commentId: parent.id,
 				body: "Intentional second reply.",
-				[additionalReplyAcknowledgementArgument]: true,
 			},
 			{ mode: "normal", signal },
 		);
+		const allowedProviderResult = allowed.providerResult as {
+			ok: boolean;
+			comment: { type: string; commentId: string; threadId: string; parentCommentId: string };
+		};
+		expect(allowedProviderResult).toMatchObject({
+			ok: true,
+			comment: {
+				type: "comment",
+				commentId: expect.any(String),
+				threadId: thread.id,
+				parentCommentId: parent.id,
+			},
+		});
+		expect(JSON.stringify(allowedProviderResult)).not.toContain("Intentional second reply.");
+		expect(JSON.stringify(allowedProviderResult)).not.toContain("Earlier reply.");
+		expect(allowedProviderResult.comment).toMatchObject({
+			parentCommentId: parent.id,
+		});
 		currentThread = await readThread(testEnv.BICKR_KV, thread.id);
 		expect(
 			currentThread.comments.find((comment) =>
@@ -4430,7 +12239,7 @@ describe("Bickr Pages Functions", () => {
 		).toBeDefined();
 	});
 
-	it("exposes the repeat-reply acknowledgement schema only for the round after a repeat-reply failure", async () => {
+	it("keeps the repeat-reply tool schema stable after a repeat-reply failure", async () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);
 		const forum = await createForumForTest(cookie, "repeat-reply-rounds");
@@ -4442,33 +12251,36 @@ describe("Bickr Pages Functions", () => {
 		const bot = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, replier.id);
 		const callToolSchemaStates: boolean[] = [];
 		let providerCall = 0;
+		const loopMemory = testLoopMessageMemory([{ role: "user", content: "Act." }]);
 		const runtime = Object.assign(testRuntimeForToolExecution(), {
+			...loopMemory,
 			appendProviderMessages: async () => {},
 			callProvider: async (
 				_settings: Record<string, unknown>,
 				_messages: Array<Record<string, unknown>>,
 				tools: ProviderToolDefinition[],
 			) => {
-				callToolSchemaStates.push(replyToolHasAcknowledgementArgument(tools));
+				callToolSchemaStates.push(additionalReplyToolPresent(tools));
 				providerCall += 1;
 				if (providerCall === 1) {
-					return providerResponseWithToolCall("call-repeat-fail", "reply_to_thread", {
-						threadId: thread.id,
-						parentCommentId: parent.id,
+					return providerResponseWithToolCall("call-repeat-fail", "reply_to_comment", {
+						commentId: parent.id,
 						body: "Different follow-up.",
 					});
 				}
 				if (providerCall === 2) {
 					return providerResponseWithToolCall("call-read", "read_thread", { threadId: thread.id });
 				}
-				return providerResponseWithToolCall("call-log-off", "log_off", {});
+				return providerResponseWithToolCall("call-log-off", "log_off", { reason: "I have handled the repeat-reply situation." });
 			},
+			estimateProviderPromptTokens: () => providerPromptEstimateForTokens(1_000),
 			recordInferenceSubmission: () => {},
+			successfulMutatingToolCallSinceLastLogOff: () => true,
 		});
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
 				bot: Awaited<ReturnType<typeof botById>>,
-				settings: { baseUrl: string; model: string; temperature: number },
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
 				runId: string,
 				messages: Array<Record<string, unknown>>,
 				runContext: { mode: "normal"; signal: AbortSignal },
@@ -4479,7 +12291,7 @@ describe("Bickr Pages Functions", () => {
 			runProviderLoop(
 				{
 					...bot,
-					tickSettings: { ...bot.tickSettings, maxToolCallsPerTick: 5 },
+					tickSettings: { ...bot.tickSettings, allowEarlyLogOff: true, maxToolCallsPerTick: 5 },
 				},
 				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
 				"run-repeat-rounds",
@@ -4487,7 +12299,7 @@ describe("Bickr Pages Functions", () => {
 				{ mode: "normal", signal: new AbortController().signal },
 			),
 		).resolves.toMatchObject({ logOffCalled: true });
-		expect(callToolSchemaStates).toEqual([false, true, false]);
+		expect(callToolSchemaStates).toEqual([true, true, true]);
 	});
 
 	it("adds failed-tool narration only after all parallel tool responses", async () => {
@@ -4501,7 +12313,9 @@ describe("Bickr Pages Functions", () => {
 		let providerCall = 0;
 		let eventSeq = 0;
 		const providerMessages: Array<Array<Record<string, unknown>>> = [];
+		const loopMemory = testLoopMessageMemory([{ role: "assistant", content: "I look around Bickr." }]);
 		const runtime = Object.assign(testRuntimeForToolExecution(), {
+			...loopMemory,
 			appendProviderMessages: async () => {},
 			appendEvent: async (runId: string, type: string, payload: unknown) => {
 				eventSeq += 1;
@@ -4525,19 +12339,21 @@ describe("Bickr Pages Functions", () => {
 						{ id: "call-read", name: "read_thread", args: { threadId: thread.id } },
 						{
 							id: "call-reply-fail",
-							name: "reply_to_thread",
-							args: { threadId: thread.id, parentCommentId: "missing-comment", body: "Reply attempt." },
+							name: "reply_to_comment",
+							args: { commentId: "missing-comment", body: "Reply attempt." },
 						},
 					]);
 				}
-				return providerResponseWithToolCall("call-log-off", "log_off", {});
+				return providerResponseWithToolCall("call-log-off", "log_off", { reason: "I have handled the tool failure." });
 			},
+			estimateProviderPromptTokens: () => providerPromptEstimateForTokens(1_000),
 			recordInferenceSubmission: () => {},
+			successfulMutatingToolCallSinceLastLogOff: () => true,
 		});
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
 				bot: Awaited<ReturnType<typeof botById>>,
-				settings: { baseUrl: string; model: string; temperature: number },
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
 				runId: string,
 				messages: Array<Record<string, unknown>>,
 				runContext: { mode: "normal"; signal: AbortSignal },
@@ -4548,7 +12364,7 @@ describe("Bickr Pages Functions", () => {
 			runProviderLoop(
 				{
 					...bot,
-					tickSettings: { ...bot.tickSettings, maxToolCallsPerTick: 5 },
+					tickSettings: { ...bot.tickSettings, allowEarlyLogOff: true, maxToolCallsPerTick: 5 },
 				},
 				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
 				"run-parallel-failure-order",
@@ -4570,8 +12386,419 @@ describe("Bickr Pages Functions", () => {
 		expect(secondRequest[toolMessageIndexes[0]!]?.tool_call_id).toBe("call-read");
 		expect(secondRequest[toolMessageIndexes[1]!]?.tool_call_id).toBe("call-reply-fail");
 		expect(acknowledgementIndex).toBeGreaterThan(toolMessageIndexes[1]!);
-		expect(String(secondRequest[acknowledgementIndex]?.content)).toContain("I need to adjust how I use reply_to_thread");
+		expect(String(secondRequest[acknowledgementIndex]?.content)).toContain("Read or search first, then reply using the returned comment ID.");
 	});
+
+	it("finishes a parallel tool batch before applying persistent failure handling", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const forum = await createForumForTest(cookie, "parallel-persistent-failure");
+		const author = await createBotForTest(cookie, "parallel-persistent-author");
+		const actor = await createBotForTest(cookie, "parallel-persistent-actor");
+		const thread = await createThreadForTest(forum.id, author.id, "Parallel persistent tool order", "Root body.");
+		const bot = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, actor.id);
+		let providerCall = 0;
+		let eventSeq = 0;
+		const providerMessages: Array<Array<Record<string, unknown>>> = [];
+		const loopMemory = testLoopMessageMemory([{ role: "assistant", content: "I look around Bickr." }]);
+		const runtime = Object.assign(testRuntimeForToolExecution(), {
+			...loopMemory,
+			appendProviderMessages: async () => {},
+			appendEvent: async (runId: string, type: string, payload: unknown) => {
+				eventSeq += 1;
+				return {
+					seq: eventSeq,
+					runId,
+					type,
+					payload,
+					tokenEstimate: 0,
+					createdAt: new Date().toISOString(),
+				};
+			},
+			callProvider: async (
+				_settings: Record<string, unknown>,
+				messages: Array<Record<string, unknown>>,
+			) => {
+				providerMessages.push(messages);
+				providerCall += 1;
+				if (providerCall === 1) {
+					return providerResponseWithToolCalls([
+						...Array.from({ length: 5 }, (_, index) => ({
+							id: `call-reply-fail-${index + 1}`,
+							name: "reply_to_comment",
+							args: { commentId: `missing-comment-${index + 1}`, body: `Reply attempt ${index + 1}.` },
+						})),
+						{ id: "call-read-after-failures", name: "read_thread", args: { threadId: thread.id } },
+					]);
+				}
+				return providerResponseWithToolCall("call-log-off", "log_off", { reason: "I saw every parallel tool result." });
+			},
+			estimateProviderPromptTokens: () => providerPromptEstimateForTokens(1_000),
+			recordInferenceSubmission: () => {},
+			successfulMutatingToolCallSinceLastLogOff: () => true,
+		});
+		const runProviderLoop = (BotRuntime.prototype as unknown as {
+			runProviderLoop: (
+				bot: Awaited<ReturnType<typeof botById>>,
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				runId: string,
+				messages: Array<Record<string, unknown>>,
+				runContext: { mode: "normal"; signal: AbortSignal },
+			) => Promise<{ logOffCalled: boolean }>;
+		}).runProviderLoop.bind(runtime);
+
+		await expect(
+			runProviderLoop(
+				{
+					...bot,
+					tickSettings: { ...bot.tickSettings, allowEarlyLogOff: true, maxToolCallsPerTick: 10 },
+				},
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				"run-parallel-persistent-failure-order",
+				[{ role: "assistant", content: "I look around Bickr." }],
+				{ mode: "normal", signal: new AbortController().signal },
+			),
+		).resolves.toMatchObject({ logOffCalled: true });
+
+		const secondRequest = providerMessages[1] ?? [];
+		const toolMessageIndexes = secondRequest
+			.map((message, index) => message.role === "tool" ? index : -1)
+			.filter((index) => index >= 0);
+		const acknowledgementIndex = secondRequest.findIndex((message) =>
+			message.role === "assistant" &&
+			typeof message.content === "string" &&
+			message.content.includes("The Bickr page shows an error after I try to reply")
+		);
+		expect(toolMessageIndexes).toHaveLength(6);
+		expect(secondRequest[toolMessageIndexes[0]!]?.tool_call_id).toBe("call-reply-fail-1");
+		expect(secondRequest[toolMessageIndexes[4]!]?.tool_call_id).toBe("call-reply-fail-5");
+		expect(secondRequest[toolMessageIndexes[5]!]?.tool_call_id).toBe("call-read-after-failures");
+		expect(acknowledgementIndex).toBeGreaterThan(toolMessageIndexes[5]!);
+	});
+
+		it("compacts old context from local token estimates before provider inference", async () => {
+			const bot = fakeBotDocument({ contextWindowTokens: 16_000 });
+			const calibration = { tokensPerCharacter: 0.25, sampleCount: 0 };
+			const allowedPromptTokens = providerCompactionSummaryLimitsForChat(bot, [], calibration).nextCompactionTokens;
+			let activeMessages: Array<Record<string, unknown>> = [
+			{ role: "assistant", content: "Old history that can be compacted." },
+			{ role: "assistant", content: "Current notification setup must remain." },
+		];
+		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+		const providerRequests: Array<Array<Record<string, unknown>>> = [];
+		const callProviderForTokenProbe = vi.fn();
+		const recordInferenceSubmission = vi.fn();
+		const compactedRows: unknown[][] = [];
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			activeLoopMessagesForProvider: () => activeMessages,
+			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+				events.push({ type, payload });
+				return { seq: events.length, runId, type, payload, tokenEstimate: 0, createdAt: new Date().toISOString() };
+			},
+			appendLoopMessage: () => ({ seq: 99, runId: "run-budget", role: "assistant", message: {}, origin: "provider_response", tokenEstimate: 0, createdAt: new Date().toISOString() }),
+			appendProviderMessages: async () => {},
+			callProvider: async (_settings: unknown, messages: Array<Record<string, unknown>>) => {
+				providerRequests.push(messages);
+				return providerResponseWithContent("I have enough context now.");
+			},
+			callProviderForTokenProbe,
+				estimateProviderPromptTokens: (_settings: unknown, messages: Array<Record<string, unknown>>) =>
+					providerPromptEstimateForTokens(messages.some((message) => String(message.content).includes("Old history")) ? 20_000 : 10_000),
+				textTokenCalibration: () => calibration,
+				compactLoopMessageRows: async (_bot: unknown, _settings: unknown, _runId: string, _signal: AbortSignal, rows: unknown[]) => {
+				compactedRows.push(rows);
+				activeMessages = [
+					{ role: "assistant", content: "I remember the old history as a concise summary." },
+					{ role: "assistant", content: "Current notification setup must remain." },
+				];
+			},
+			compactionRowsForEstimatedBudget: () =>
+				activeMessages.some((message) => String(message.content).includes("Old history")) ? [loopMessageRowForTest(1, "run-old", "Old history that can be compacted.")] : [],
+			repairActiveProviderToolCallHistory: async () => [],
+			recordInferenceSubmission,
+			recordLoopMessageLog: () => {},
+			recordProviderUsage: () => {},
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const runProviderLoop = (BotRuntime.prototype as unknown as {
+			runProviderLoop: (
+				bot: BotDocument,
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				runId: string,
+				messages: Array<Record<string, unknown>>,
+				runContext: { mode: "normal"; signal: AbortSignal },
+			) => Promise<{ logOffCalled: boolean }>;
+		}).runProviderLoop.bind(runtime);
+
+		await expect(
+				runProviderLoop(
+					bot,
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
+				"run-budget",
+				[],
+				{ mode: "normal", signal: new AbortController().signal },
+			),
+		).resolves.toMatchObject({ logOffCalled: false });
+
+		expect(callProviderForTokenProbe).not.toHaveBeenCalled();
+		expect(compactedRows).toHaveLength(1);
+		expect(providerRequests).toHaveLength(1);
+		expect(messageListText(providerRequests[0] ?? [])).not.toContain("Old history that can be compacted.");
+		expect(messageListText(providerRequests[0] ?? [])).toContain("I remember the old history");
+		expect(recordInferenceSubmission).toHaveBeenCalledTimes(1);
+		expect(events.map((event) => event.type)).toEqual(["provider_token_estimate", "provider_token_estimate", "provider_request"]);
+			expect(events[0]?.payload).toMatchObject({
+				promptTokens: 20_000,
+				allowedPromptTokens,
+				overBudgetTokens: 20_000 - allowedPromptTokens,
+			});
+		});
+
+		it("compacts current tick messages when local prompt estimates overflow", async () => {
+			const bot = fakeBotDocument({ contextWindowTokens: 16_000 });
+			const calibration = { tokensPerCharacter: 0.25, sampleCount: 0 };
+			const allowedPromptTokens = providerCompactionSummaryLimitsForChat(bot, [], calibration).nextCompactionTokens;
+			let activeMessages: Array<Record<string, unknown>> = [
+			{ role: "assistant", content: "Current notification setup must remain." },
+			{ role: "tool", content: "Large current thread read result that overflowed the prompt." },
+		];
+		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+		const providerRequests: Array<Array<Record<string, unknown>>> = [];
+		const includeCurrentRunCalls: boolean[] = [];
+		const compactionMetrics: Array<Record<string, unknown>> = [];
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			activeLoopMessagesForProvider: () => activeMessages,
+			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+				events.push({ type, payload });
+				return { seq: events.length, runId, type, payload, tokenEstimate: 0, createdAt: new Date().toISOString() };
+			},
+			appendLoopMessage: () => ({ seq: 99, runId: "run-current-compact", role: "assistant", message: {}, origin: "provider_response", tokenEstimate: 0, createdAt: new Date().toISOString() }),
+			appendProviderMessages: async () => {},
+			callProvider: async (_settings: unknown, messages: Array<Record<string, unknown>>) => {
+				providerRequests.push(messages);
+				return providerResponseWithContent("The large thread read is now summarized.");
+			},
+			callProviderForTokenProbe: vi.fn(),
+				estimateProviderPromptTokens: (_settings: unknown, messages: Array<Record<string, unknown>>) =>
+					providerPromptEstimateForTokens(messageListText(messages).includes("Large current thread read result") ? 20_000 : 10_000),
+				textTokenCalibration: () => calibration,
+				compactLoopMessageRows: async (
+				_bot: unknown,
+				_settings: unknown,
+				_runId: string,
+				_signal: AbortSignal,
+				_rows: unknown[],
+				_mode: string,
+				metrics: Record<string, unknown>,
+			) => {
+				compactionMetrics.push(metrics);
+				activeMessages = [
+					{ role: "assistant", content: "Current notification setup must remain." },
+					{ role: "assistant", content: "I remember the large current thread read as a concise summary." },
+				];
+			},
+			compactionRowsForEstimatedBudget: (_bot: unknown, runId: string, includeCurrentRun: boolean) => {
+				includeCurrentRunCalls.push(includeCurrentRun);
+				return includeCurrentRun && activeMessages.some((message) => String(message.content).includes("Large current")) ?
+					[loopMessageRowForTest(7, runId, "Large current thread read result that overflowed the prompt.")]
+				:	[];
+			},
+			repairActiveProviderToolCallHistory: async () => [],
+			recordInferenceSubmission: () => {},
+			recordLoopMessageLog: () => {},
+			recordProviderUsage: () => {},
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const runProviderLoop = (BotRuntime.prototype as unknown as {
+			runProviderLoop: (
+				bot: BotDocument,
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				runId: string,
+				messages: Array<Record<string, unknown>>,
+				runContext: { mode: "normal"; signal: AbortSignal },
+			) => Promise<{ logOffCalled: boolean }>;
+		}).runProviderLoop.bind(runtime);
+
+		await expect(
+				runProviderLoop(
+					bot,
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
+				"run-current-compact",
+				[],
+				{ mode: "normal", signal: new AbortController().signal },
+			),
+		).resolves.toMatchObject({ logOffCalled: false });
+
+		expect(includeCurrentRunCalls).toEqual([false, true]);
+			expect(compactionMetrics).toEqual([
+				expect.objectContaining({ currentRunIncluded: true, estimatedPromptTokens: 20_000, overBudgetTokens: 20_000 - allowedPromptTokens }),
+			]);
+		expect(providerRequests).toHaveLength(1);
+		expect(messageListText(providerRequests[0] ?? [])).not.toContain("Large current thread read result");
+		expect(messageListText(providerRequests[0] ?? [])).toContain("large current thread read as a concise summary");
+		expect(events.map((event) => event.type)).toEqual(["provider_token_estimate", "provider_token_estimate", "provider_request"]);
+	});
+
+	it("applies the current context budget during prompt budget checks", async () => {
+		const staleBot = fakeBotDocument({ contextWindowTokens: 16_000 });
+		const currentBot = fakeBotDocument({ contextWindowTokens: 64_000 });
+		const calibration = { tokensPerCharacter: 0.25, sampleCount: 0 };
+		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			activeLoopMessagesForProvider: () => [],
+			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+				events.push({ type, payload });
+				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
+			},
+			botWithCurrentRuntimeBudget: async () => currentBot,
+			estimateProviderPromptTokens: () => providerPromptEstimateForTokens(15_000),
+			textTokenCalibration: () => calibration,
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const ensureProviderPromptWithinBudget = (BotRuntime.prototype as unknown as {
+			ensureProviderPromptWithinBudget: (
+				bot: BotDocument,
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				runId: string,
+				signal: AbortSignal,
+				providerTools: ProviderToolDefinition[],
+			) => Promise<{ contextWindowTokens?: number; promptTokens: number }>;
+		}).ensureProviderPromptWithinBudget.bind(runtime);
+
+		const result = await ensureProviderPromptWithinBudget(
+			staleBot,
+			{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+			"run-fresh-budget",
+			new AbortController().signal,
+			toolDefinitionsForProviderRound(),
+		);
+
+		expect(result).toMatchObject({ contextWindowTokens: 64_000, promptTokens: 15_000 });
+		expect(events[0]?.payload).toMatchObject({
+			contextWindowTokens: 64_000,
+			overBudgetTokens: 0,
+		});
+	});
+
+	it("stops prompt-budget compaction after three unsuccessful attempts", async () => {
+		const bot = fakeBotDocument({ contextWindowTokens: 16_000 });
+		const calibration = { tokensPerCharacter: 0.25, sampleCount: 0 };
+		const row = loopMessageRowForTest(1, "run-stuck-compaction", "Old summary that still cannot fit.");
+		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+		let compactCalls = 0;
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			activeLoopMessagesForProvider: () => [{ role: "assistant", content: "Still too large after compaction." }],
+			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+				events.push({ type, payload });
+				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
+			},
+			botWithCurrentRuntimeBudget: async (current: BotDocument) => current,
+			compactLoopMessageRows: async () => {
+				compactCalls += 1;
+				return [row];
+			},
+			compactionRowsForEstimatedBudget: () => [row],
+			estimateProviderPromptTokens: () => providerPromptEstimateForTokens(20_000),
+			textTokenCalibration: () => calibration,
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const ensureProviderPromptWithinBudget = (BotRuntime.prototype as unknown as {
+			ensureProviderPromptWithinBudget: (
+				bot: BotDocument,
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				runId: string,
+				signal: AbortSignal,
+				providerTools: ProviderToolDefinition[],
+			) => Promise<unknown>;
+		}).ensureProviderPromptWithinBudget.bind(runtime);
+
+		await expect(
+			ensureProviderPromptWithinBudget(
+				bot,
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				"run-stuck-compaction",
+				new AbortController().signal,
+				toolDefinitionsForProviderRound(),
+			),
+		).rejects.toThrow("after 3 attempts");
+
+		expect(compactCalls).toBe(3);
+		expect(events.map((event) => event.type)).toEqual([
+			"provider_token_estimate",
+			"provider_token_estimate",
+			"provider_token_estimate",
+			"provider_token_estimate",
+		]);
+	});
+
+		it("fails before provider inference when current context alone exceeds the estimated budget", async () => {
+			const bot = fakeBotDocument({ contextWindowTokens: 16_000 });
+			const calibration = { tokensPerCharacter: 0.25, sampleCount: 0 };
+			const allowedPromptTokens = providerCompactionSummaryLimitsForChat(bot, [], calibration).nextCompactionTokens;
+			const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+		const callProvider = vi.fn();
+		const recordInferenceSubmission = vi.fn();
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			activeLoopMessagesForProvider: () => [{ role: "assistant", content: "Current setup is already too large." }],
+			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+				events.push({ type, payload });
+				return { seq: events.length, runId, type, payload, tokenEstimate: 0, createdAt: new Date().toISOString() };
+			},
+			callProvider,
+				callProviderForTokenProbe: vi.fn(),
+				estimateProviderPromptTokens: () => providerPromptEstimateForTokens(20_000),
+				textTokenCalibration: () => calibration,
+				compactionRowsForEstimatedBudget: () => [],
+			repairActiveProviderToolCallHistory: async () => [],
+			recordInferenceSubmission,
+			recordProviderUsage: () => {},
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const runProviderLoop = (BotRuntime.prototype as unknown as {
+			runProviderLoop: (
+				bot: BotDocument,
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				runId: string,
+				messages: Array<Record<string, unknown>>,
+				runContext: { mode: "normal"; signal: AbortSignal },
+			) => Promise<{ logOffCalled: boolean }>;
+		}).runProviderLoop.bind(runtime);
+
+		await expect(
+				runProviderLoop(
+					bot,
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				"run-current-too-large",
+				[],
+				{ mode: "normal", signal: new AbortController().signal },
+			),
+		).rejects.toThrow("Prompt context is too large");
+
+		expect(callProvider).not.toHaveBeenCalled();
+			expect(recordInferenceSubmission).not.toHaveBeenCalled();
+			expect(events.map((event) => event.type)).toEqual(["provider_token_estimate"]);
+			expect(events[0]?.payload).toMatchObject({ promptTokens: 20_000, allowedPromptTokens });
+		});
 
 	it("enriches reply notifications with parent-chain IDs and profile context", async () => {
 		const cookie = await authCookie();
@@ -4590,53 +12817,41 @@ describe("Bickr Pages Functions", () => {
 		if (!reply) {
 			throw new Error("Expected reply notification.");
 		}
-		expect(reply.message).toContain("Context Replier (u/context-replier)");
-		expect(reply.message).toContain("Short bio: Context Replier test bot.");
-		expect(reply.message).toContain("Follow status: I do not follow this profile.");
+		expect(reply.message).toContain('Context Replier replied to you in "Context thread".');
 
 		const built = await buildRuntimeLoopInput(testEnv.BICKR_KV, testEnv.BICKR_D1, recipient.id, [reply], []);
 		const loopNotification = built.input.notifications[0];
 		expect(loopNotification).toMatchObject({
 			sourceObjectId: child.id,
-			threadId: thread.id,
-			commentId: child.id,
-			parentCommentId: parent.id,
+			type: "comment_created",
+			thread: { id: thread.id, title: "Context thread" },
+			comment: { id: child.id, threadId: thread.id, parentCommentId: parent.id, text: "Child reply." },
+			replyTo: { id: parent.id, threadId: thread.id, text: "Parent comment." },
 		});
-		expect(built.autoProfileSeenItems).toEqual(
-			expect.arrayContaining([
-				{ type: "bot", id: replier.id },
-				{ type: "bot", id: rootAuthor.id },
-			]),
-		);
+		expect(built.autoProfileSeenItems).toEqual([]);
 
-		const contextItems = loopNotification?.context?.content ?? [];
-		const rootContext = contextItems.find((item) => item.type === "thread");
-		const parentContext = contextItems.find((item) => item.commentId === parent.id);
-		const targetContext = contextItems.find((item) => item.commentId === child.id);
-		expect(rootContext).toMatchObject({
-			id: thread.id,
-			threadId: thread.id,
-			author: { username: "u/context-root", shortBio: "Context Root test bot.", following: true },
-		});
-		expect(parentContext).toMatchObject({
-			id: parent.id,
-			commentId: parent.id,
-			threadId: thread.id,
-			ancestorOnly: true,
-		});
-		expect(targetContext).toMatchObject({
-			id: child.id,
-			commentId: child.id,
-			threadId: thread.id,
-			parentCommentId: parent.id,
-			target: true,
+		const legacyBuilt = await buildRuntimeLoopInput(
+			testEnv.BICKR_KV,
+			testEnv.BICKR_D1,
+			recipient.id,
+			[{ ...reply, event: undefined }],
+			[],
+		);
+		expect(legacyBuilt.input.notifications[0]).toMatchObject({
+			sourceObjectId: child.id,
+			type: "comment_created",
+			actor: { username: `u/${replier.handle}`, displayName: replier.displayName },
+			world: { handle: "w/patch-notes" },
+			forum: { handle: `f/${forum.handle}` },
+			thread: { id: thread.id, title: "Context thread" },
+			comment: { id: child.id, threadId: thread.id, parentCommentId: parent.id, text: "Child reply." },
 		});
 
 		const followup = await createCommentForTest(
-			loopNotification?.threadId ?? "",
+			loopNotification?.thread?.id ?? "",
 			recipient.id,
 			"Replying with supplied IDs.",
-			loopNotification?.commentId,
+			loopNotification?.comment?.id,
 		);
 		expect(followup.id).toBeTruthy();
 
@@ -4651,14 +12866,14 @@ describe("Bickr Pages Functions", () => {
 		const nextReply = (await listPendingNotifications(testEnv.BICKR_KV, testEnv.BICKR_D1, recipient.id))
 			.filter((notification) => notification.notificationType === "reply")
 			.at(-1);
-		expect(nextReply?.message).toContain("Context Replier (u/context-replier)");
+		expect(nextReply?.message).toContain("Context Replier replied to you");
 		expect(nextReply?.message).not.toContain("Short bio:");
 		expect(nextReply?.message).not.toContain("Follow status:");
 		if (!nextReply) {
 			throw new Error("Expected second reply notification.");
 		}
 		const nextBuilt = await buildRuntimeLoopInput(testEnv.BICKR_KV, testEnv.BICKR_D1, recipient.id, [nextReply], []);
-		const nextContext = JSON.stringify(nextBuilt.input.notifications[0]?.context ?? {});
+		const nextContext = JSON.stringify(nextBuilt.input.notifications[0] ?? {});
 		expect(nextContext).not.toContain("Context Root test bot.");
 		expect(nextBuilt.autoProfileSeenItems).toEqual([]);
 	});
@@ -4699,15 +12914,18 @@ describe("Bickr Pages Functions", () => {
 		const thread = await createThreadForTest(forum.id, botOne.id, "Worth attention", "Root context.");
 		const parent = await createCommentForTest(thread.id, botTwo.id, "Parent context.");
 		const child = await createCommentForTest(thread.id, botOne.id, "Deep child comment.", parent.id);
+		const unrelated = await createCommentForTest(thread.id, botTwo.id, "Unrelated seen branch.");
 		const now = new Date().toISOString();
 
-		await testEnv.BICKR_D1.prepare(
-			`INSERT INTO bot_seen_content (
-				bot_id, object_type, object_id, seen_via, first_seen_at, last_seen_at, source_id
-			) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		)
-			.bind(botOne.id, "comment", child.id, "test", now, now, "seed")
-			.run();
+		for (const comment of [child, unrelated]) {
+			await testEnv.BICKR_D1.prepare(
+				`INSERT INTO bot_seen_content (
+					bot_id, object_type, object_id, seen_via, first_seen_at, last_seen_at, source_id
+				) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			)
+				.bind(botOne.id, "comment", comment.id, "test", now, now, "seed")
+				.run();
+		}
 
 		const threadPreviewResponse = await spotlightPreview(
 			contextFor<typeof spotlightPreview>(
@@ -4723,8 +12941,10 @@ describe("Bickr Pages Functions", () => {
 		const threadPreview = (await threadPreviewResponse.json()) as SpotlightPreviewPayload;
 		const botOneThreadPreview = threadPreview.data.preview.botPreviews.find((item) => item.bot.id === botOne.id);
 		const botTwoThreadPreview = threadPreview.data.preview.botPreviews.find((item) => item.bot.id === botTwo.id);
-		expect(botOneThreadPreview?.included.excludedSeenCount).toBe(1);
-		expect(botTwoThreadPreview?.included.commentCount).toBe(2);
+		expect(botOneThreadPreview?.included).toMatchObject({ commentCount: 2, excludedSeenCount: 2 });
+		expect(botTwoThreadPreview?.included.commentCount).toBe(4);
+		expect(botOneThreadPreview).not.toHaveProperty("content");
+		expect(botOneThreadPreview).not.toHaveProperty("injectedText");
 
 		const wrongWorldPreview = await spotlightPreview(
 			contextFor<typeof spotlightPreview>(
@@ -4771,21 +12991,46 @@ describe("Bickr Pages Functions", () => {
 			),
 		);
 		const commentPreview = (await commentPreviewResponse.json()) as SpotlightPreviewPayload;
-		const contentIds = commentPreview.data.preview.botPreviews[0]?.content.map((item) => item.id) ?? [];
-		const injectedText = commentPreview.data.preview.botPreviews[0]?.injectedText ?? "";
-		expect(contentIds).toEqual(expect.arrayContaining([thread.id, parent.id, child.id]));
-		expect(injectedText).toContain("My focus: Look at the parent chain.");
-		expect(injectedText).toContain(`threadId=${thread.id}`);
-		expect(injectedText).toContain(`commentId=${parent.id} threadId=${thread.id}`);
-		expect(injectedText).toContain(`commentId=${child.id} threadId=${thread.id} parentCommentId=${parent.id}`);
-		expect(injectedText).toContain("context parent comments are not the target");
-		expect(injectedText).toContain("context parent comment by");
-		expect(injectedText).toContain("spotlighted comment by");
-		expect(injectedText).toContain("profile: Spot Two test bot.");
-		expect(injectedText).toContain("set parentCommentId to that commentId");
-		expect(injectedText).not.toMatch(/\bowner\b/i);
+		const botOneCommentPreview = commentPreview.data.preview.botPreviews[0];
+		expect(botOneCommentPreview?.included).toMatchObject({ commentCount: 3, excludedSeenCount: 0 });
+		expect(botOneCommentPreview).not.toHaveProperty("content");
+		expect(botOneCommentPreview).not.toHaveProperty("injectedText");
+
+		const threadInjectedTexts: string[] = [];
+		const threadSendResponse = await spotlightSend(
+			contextFor<typeof spotlightSend>(
+				jsonRequest(
+					"http://example.com/api/worlds/patch-notes/forums/spotlights/spotlight/send",
+					"POST",
+					{
+						targetType: "threads",
+						threadIds: [thread.id],
+						botIds: [botOne.id],
+						autoStartTick: false,
+					},
+					cookie,
+				),
+				{ worldHandle: "patch-notes", forumHandle: "spotlights" },
+				{
+					AGENT_RUNTIME: {
+						fetch: async (request: Request) => {
+							const body = await request.json() as { text?: string };
+							threadInjectedTexts.push(body.text ?? "");
+							return Response.json({ ok: true, data: { injectionId: "inj-thread" } });
+						},
+					} as unknown as Fetcher,
+				},
+			),
+		);
+		const threadSendPayload = (await threadSendResponse.json()) as SpotlightSendPayload;
+		expect(threadSendPayload.data.preview.botPreviews[0]?.included).toMatchObject({ commentCount: 2, excludedSeenCount: 2 });
+		const threadInjectedContext = JSON.parse(threadInjectedTexts[0] ?? "") as { content: Array<Record<string, unknown>> };
+		expect(threadInjectedContext.content.map((item) => item.id)).toEqual([thread.rootCommentId, parent.id]);
+		expect(threadInjectedTexts[0]).toContain("Spot Two test bot.");
+		expect(threadInjectedTexts[0]).not.toMatch(/\bowner\b/i);
 
 		const runtimePaths: string[] = [];
+		const commentInjectedTexts: string[] = [];
 		const sendResponse = await spotlightSend(
 			contextFor<typeof spotlightSend>(
 				jsonRequest(
@@ -4806,6 +13051,8 @@ describe("Bickr Pages Functions", () => {
 						fetch: async (request: Request) => {
 							runtimePaths.push(new URL(request.url).pathname);
 							if (new URL(request.url).pathname.endsWith("/inject")) {
+								const body = await request.json() as { text?: string };
+								commentInjectedTexts.push(body.text ?? "");
 								return Response.json({ ok: true, data: { injectionId: "inj-test" } });
 							}
 							return Response.json({ ok: true, data: { run: { runId: "run-test", status: "started" } } });
@@ -4822,6 +13069,24 @@ describe("Bickr Pages Functions", () => {
 			expect.arrayContaining([
 				`/bots/${botOne.id}/inject`,
 				`/bots/${botOne.id}/tick`,
+			]),
+		);
+		const commentInjectedContext = JSON.parse(commentInjectedTexts[0] ?? "") as {
+			kind: string;
+			targetType: string;
+			focus: string;
+			content: Array<Record<string, unknown>>;
+		};
+		expect(commentInjectedContext).toMatchObject({
+			kind: "spotlight_context",
+			targetType: "comments",
+			focus: "Please consider replying.",
+		});
+		expect(commentInjectedContext.content).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ id: thread.rootCommentId, commentId: thread.rootCommentId, threadId: thread.id, type: "comment", ancestorOnly: true }),
+				expect.objectContaining({ id: parent.id, commentId: parent.id, threadId: thread.id, ancestorOnly: true }),
+				expect.objectContaining({ id: child.id, commentId: child.id, threadId: thread.id, parentCommentId: parent.id, "My focus is on this comment": true }),
 			]),
 		);
 
@@ -4897,7 +13162,7 @@ describe("Bickr Pages Functions", () => {
 		const delivery = await testEnv.BICKR_D1.prepare(
 			`SELECT status, target_type AS targetType, focus_text AS focusText
 			 FROM spotlight_deliveries
-			 WHERE bot_id = ?`,
+			 WHERE bot_id = ? AND target_type = 'comments'`,
 		)
 			.bind(botOne.id)
 			.first<{ status: string; targetType: string; focusText: string }>();
@@ -4926,7 +13191,7 @@ describe("Bickr Pages Functions", () => {
 		expect(seenProfile).toEqual({ seenVia: "spotlight" });
 	});
 
-	it("annotates standard human notifications for spotlight-created posts and comments", async () => {
+	it("annotates standard human notifications for spotlight-created threads and comments", async () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);
 		const forum = await createForumForTest(cookie, "spotlight-notices");
@@ -4956,7 +13221,7 @@ describe("Bickr Pages Functions", () => {
 			bot: botDocument,
 			spotlightId,
 			runId: "run-post",
-			toolName: "create_post",
+			toolName: "create_thread",
 			args: {},
 			result: { thread: threadDocument },
 			now: new Date().toISOString(),
@@ -4973,7 +13238,7 @@ describe("Bickr Pages Functions", () => {
 		expect(threadNotifications.results).toHaveLength(1);
 		expect(threadNotifications.results?.[0]).toMatchObject({
 			notificationType: "thread_created",
-			title: "Spotlight Writer posted in f/spotlight-notices",
+			title: "Spotlight Writer created a thread in f/spotlight-notices",
 			spotlightId,
 		});
 
@@ -4983,7 +13248,7 @@ describe("Bickr Pages Functions", () => {
 			bot: botDocument,
 			spotlightId,
 			runId: "run-comment",
-			toolName: "reply_to_thread",
+			toolName: "reply_to_comment",
 			args: {},
 			result: { thread: commentedThread },
 			now: new Date().toISOString(),
@@ -5003,6 +13268,143 @@ describe("Bickr Pages Functions", () => {
 			title: `Spotlight Writer replied in "Spotlight post"`,
 			spotlightId,
 		});
+
+		const voteNow = new Date().toISOString();
+		const votedThread = await setVote(testEnv.BICKR_KV, testEnv.BICKR_D1, {
+			botId: bot.id,
+			targetType: "comment",
+			targetId: comment.id,
+			value: 1,
+			reason: "This spotlighted reply is worth boosting.",
+		}, voteNow);
+		await recordSpotlightToolHumanNotification(testEnv.BICKR_D1, {
+			bot: botDocument,
+			spotlightId,
+			runId: "run-vote",
+			toolName: "vote",
+			args: { reason: "This spotlighted reply is worth boosting." },
+			result: [{ commentId: comment.id, value: 1, thread: votedThread }],
+			now: voteNow,
+		});
+
+		const voteNotifications = await testEnv.BICKR_D1.prepare(
+			`SELECT notification_type AS notificationType, title, body, spotlight_id AS spotlightId
+			 FROM human_notifications
+			 WHERE user_id = ? AND target_id = ? AND notification_type = 'vote_cast'
+			 ORDER BY created_at ASC`,
+		)
+			.bind(user.id, comment.id)
+			.all<{ notificationType: string; title: string; body: string; spotlightId: string | null }>();
+		expect(voteNotifications.results).toHaveLength(1);
+		expect(voteNotifications.results?.[0]).toMatchObject({
+			notificationType: "vote_cast",
+			title: "Spotlight Writer upvoted a comment in",
+			body: "Spotlight post\nThis spotlighted reply is worth boosting.",
+			spotlightId,
+		});
+
+		const firstTarget = await createBotForTest(cookie, "spotlight-target-one");
+		const secondTarget = await createBotForTest(cookie, "spotlight-target-two");
+		const firstTargetDocument = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, firstTarget.id);
+		const secondTargetDocument = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, secondTarget.id);
+		const firstFollow = await followBot(testEnv.BICKR_KV, testEnv.BICKR_D1, bot.id, firstTarget.id, undefined, {
+			reason: "First target has useful spotlight context.",
+		});
+		const secondFollow = await followBot(testEnv.BICKR_KV, testEnv.BICKR_D1, bot.id, secondTarget.id, undefined, {
+			reason: "Second target has useful spotlight context.",
+		});
+		await recordSpotlightToolHumanNotification(testEnv.BICKR_D1, {
+			bot: botDocument,
+			spotlightId,
+			runId: "run-follow",
+			toolName: "follow_profile",
+			args: {
+				targets: [
+					{ username: firstTarget.handle, reason: "First target has useful spotlight context." },
+					{ username: secondTarget.handle, reason: "Second target has useful spotlight context." },
+				],
+			},
+			result: [
+				{ ...firstFollow, reason: "First target has useful spotlight context.", profile: firstTargetDocument },
+				{ ...secondFollow, reason: "Second target has useful spotlight context.", profile: secondTargetDocument },
+			],
+			now: new Date().toISOString(),
+		});
+		const followNotifications = await testEnv.BICKR_D1.prepare(
+			`SELECT notification_type AS notificationType, title, body, spotlight_id AS spotlightId
+			 FROM human_notifications
+			 WHERE user_id = ? AND notification_type = 'bot_followed' AND target_id IN (?, ?)
+			 ORDER BY target_id ASC`,
+		)
+			.bind(user.id, firstTarget.id, secondTarget.id)
+			.all<{ notificationType: string; title: string; body: string; spotlightId: string | null }>();
+		expect(followNotifications.results).toHaveLength(2);
+		expect(followNotifications.results).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					notificationType: "bot_followed",
+					title: "Spotlight Writer followed Spotlight Target One",
+					body: "u/spotlight-writer followed u/spotlight-target-one.\nFirst target has useful spotlight context.",
+					spotlightId,
+				}),
+				expect.objectContaining({
+					notificationType: "bot_followed",
+					title: "Spotlight Writer followed Spotlight Target Two",
+					body: "u/spotlight-writer followed u/spotlight-target-two.\nSecond target has useful spotlight context.",
+					spotlightId,
+				}),
+			]),
+		);
+
+		const unfollowNow = new Date().toISOString();
+		const firstUnfollow = await unfollowBot(testEnv.BICKR_KV, testEnv.BICKR_D1, bot.id, firstTarget.id, unfollowNow, {
+			reason: "First target is no longer relevant after the spotlight.",
+		});
+		const secondUnfollow = await unfollowBot(testEnv.BICKR_KV, testEnv.BICKR_D1, bot.id, secondTarget.id, unfollowNow, {
+			reason: "Second target is no longer relevant after the spotlight.",
+		});
+		await recordSpotlightToolHumanNotification(testEnv.BICKR_D1, {
+			bot: botDocument,
+			spotlightId,
+			runId: "run-unfollow",
+			toolName: "unfollow_profile",
+			args: {
+				targets: [
+					{ username: firstTarget.handle, reason: "First target is no longer relevant after the spotlight." },
+					{ username: secondTarget.handle, reason: "Second target is no longer relevant after the spotlight." },
+				],
+			},
+			result: [
+				{ ...firstUnfollow, reason: "First target is no longer relevant after the spotlight.", profile: firstTargetDocument },
+				{ ...secondUnfollow, reason: "Second target is no longer relevant after the spotlight.", profile: secondTargetDocument },
+			],
+			now: unfollowNow,
+		});
+		const unfollowNotifications = await testEnv.BICKR_D1.prepare(
+			`SELECT notification_type AS notificationType, title, body, spotlight_id AS spotlightId
+			 FROM human_notifications
+			 WHERE user_id = ? AND notification_type = 'bot_unfollowed' AND target_id IN (?, ?)
+			 ORDER BY target_id ASC`,
+		)
+			.bind(user.id, firstTarget.id, secondTarget.id)
+			.all<{ notificationType: string; title: string; body: string; spotlightId: string | null }>();
+		expect(unfollowNotifications.results).toHaveLength(2);
+		expect(unfollowNotifications.results).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					notificationType: "bot_unfollowed",
+					title: "Spotlight Writer unfollowed Spotlight Target One",
+					body: "u/spotlight-writer unfollowed u/spotlight-target-one.\nFirst target is no longer relevant after the spotlight.",
+					spotlightId,
+				}),
+				expect.objectContaining({
+					notificationType: "bot_unfollowed",
+					title: "Spotlight Writer unfollowed Spotlight Target Two",
+					body: "u/spotlight-writer unfollowed u/spotlight-target-two.\nSecond target is no longer relevant after the spotlight.",
+					spotlightId,
+				}),
+			]),
+		);
 
 		const specialNotifications = await testEnv.BICKR_D1.prepare(
 			`SELECT COUNT(*) AS count
@@ -5055,7 +13457,7 @@ describe("Bickr Pages Functions", () => {
 		expect(noReaction.results?.[0]).toMatchObject({
 			notificationType: "spotlight_no_reaction",
 			title: "Spotlight Observer did not react to the spotlight",
-			body: "u/spotlight-observer reviewed the spotlight and chose not to post, reply, vote, follow, or unfollow.",
+			body: "u/spotlight-observer reviewed the spotlight and chose not to create a thread, reply, vote, follow, or unfollow.",
 			spotlightLabel: "no public reaction",
 		});
 
@@ -5064,7 +13466,7 @@ describe("Bickr Pages Functions", () => {
 			bot: botDocument,
 			spotlightId,
 			runId: "run-post",
-			toolName: "create_post",
+			toolName: "create_thread",
 			args: {},
 			result: { thread: await readThread(testEnv.BICKR_KV, thread.id) },
 			now: new Date().toISOString(),
@@ -5201,6 +13603,11 @@ type BotBody = {
 	id: string;
 	handle: string;
 	displayName: string;
+	owner?: {
+		id: string;
+		handle: string;
+		displayName: string;
+	};
 	createdAt: string;
 	inferenceSettings: Record<string, unknown>;
 	prompt?: string;
@@ -5208,9 +13615,28 @@ type BotBody = {
 	tickSettings: {
 		enabled: boolean;
 		intervalSeconds: number;
-		contextWindowTokens: number;
-		maxToolCallsPerTick: number;
-	};
+		allowEarlyLogOff?: boolean;
+				contextWindowTokens?: number;
+				compactionSummaryPercent?: number;
+				compactionMaxCharacters?: number;
+				maxToolCallsPerTick?: number;
+			maxSuccessfulToolCallsPerIteration?: number;
+			maxGeneratedTokensPerTick?: number;
+			maxGeneratedTokensPerIteration?: number;
+		};
+		effectiveTickSettings: {
+			enabled: boolean;
+			intervalSeconds: number;
+			allowEarlyLogOff: boolean;
+				contextWindowTokens: number;
+				compactionThreshold: number;
+				compactionSummaryPercent: number;
+				compactionMaxCharacters: number;
+				maxToolCallsPerTick: number;
+			maxSuccessfulToolCallsPerIteration: number;
+			maxGeneratedTokensPerTick: number;
+			maxGeneratedTokensPerIteration: number;
+		};
 	lastActiveAt?: string;
 	nextDueAt?: string | null;
 };
@@ -5223,6 +13649,7 @@ type TestForum = {
 
 type TestThread = {
 	id: string;
+	rootCommentId: string;
 };
 
 type TestComment = {
@@ -5265,11 +13692,10 @@ type SpotlightPreviewPayload = {
 			botPreviews: Array<{
 				bot: { id: string };
 				included: {
+					threadCount: number;
 					commentCount: number;
 					excludedSeenCount: number;
 				};
-				content: Array<{ id: string }>;
-				injectedText: string;
 			}>;
 		};
 	};
@@ -5277,6 +13703,7 @@ type SpotlightPreviewPayload = {
 
 type SpotlightSendPayload = {
 	data: {
+		preview: SpotlightPreviewPayload["data"]["preview"];
 		deliveries: Array<{
 			botId: string;
 			ok: boolean;
@@ -5497,13 +13924,15 @@ async function createCommentForTest(
 	const payload = (await response.json()) as {
 		data: {
 			thread: {
+				rootCommentId: string;
 				comments: Array<{ id: string; body: string; parentCommentId?: string }>;
 			};
 		};
 	};
+	const effectiveParentCommentId = parentCommentId ?? payload.data.thread.rootCommentId;
 	const comment = [...payload.data.thread.comments]
 		.reverse()
-		.find((item) => item.body === body && item.parentCommentId === parentCommentId);
+		.find((item) => item.body === body && item.parentCommentId === effectiveParentCommentId);
 	if (!comment) {
 		throw new Error("Created comment not found in test response.");
 	}
@@ -5537,6 +13966,23 @@ function jsonRequest(
 
 function neverStream(): ReadableStream<Uint8Array> {
 	return new ReadableStream<Uint8Array>();
+}
+
+function streamedProviderRateLimit(id: string, providerName: string): Record<string, unknown> {
+	return {
+		id,
+		object: "chat.completion.chunk",
+		model: "google/gemma-4-31b-it",
+		choices: [],
+		error: {
+			code: 429,
+			message: "Provider returned error",
+			metadata: {
+				provider_name: providerName,
+				raw: `${providerName} is temporarily rate-limited upstream.`,
+			},
+		},
+	};
 }
 
 function sseStream(events: Array<Record<string, unknown> | "[DONE]">): ReadableStream<Uint8Array> {
@@ -5678,7 +14124,19 @@ function memoryInferenceSubmissionSql() {
 	};
 }
 
-function memoryLoopMessageLogSql() {
+function memoryLoopMessageLogSql(options: {
+	streamSeq?: number | null;
+	providerUsage?: {
+		requestSeq: number;
+		promptTokens: number;
+		completionTokens: number;
+		totalTokens: number;
+		cachedTokens: number;
+		reasoningTokens?: number;
+		cost?: number | null;
+		usageJson: unknown;
+	};
+} = {}) {
 	type LogRow = {
 		id: number;
 		message_seq: number;
@@ -5704,7 +14162,9 @@ function memoryLoopMessageLogSql() {
 		origin: "provider_response",
 		status: "complete",
 		token_estimate: 1,
+		stream_seq: options.streamSeq ?? null,
 		compacted_by: null,
+		deleted_at: null as string | null,
 		created_at: "2026-05-01T00:00:00.000Z",
 		has_logs: 1,
 	};
@@ -5757,6 +14217,32 @@ function memoryLoopMessageLogSql() {
 				};
 			} else if (/FROM loop_messages m\s+WHERE m\.seq = \?/.test(sql)) {
 				return { toArray: () => (Number(params[0]) === messageRow.seq ? [messageRow as T] : []) };
+			} else if (/FROM provider_usage\s+WHERE run_id = \?/.test(sql)) {
+				const usage = options.providerUsage;
+				if (!usage || String(params[0]) !== messageRow.run_id || Number(params[1]) !== usage.requestSeq) {
+					return { toArray: () => [] as T[] };
+				}
+				return {
+					toArray: () => [{
+						created_at: "2026-05-01T00:00:01.000Z",
+						run_id: messageRow.run_id,
+						model: "test-model",
+						requested_model: "test-model",
+						response_model: null,
+						context_window_tokens: 16_000,
+						prompt_tokens: usage.promptTokens,
+						completion_tokens: usage.completionTokens,
+						total_tokens: usage.totalTokens,
+						cached_tokens: usage.cachedTokens,
+						reasoning_tokens: usage.reasoningTokens ?? 0,
+						cost: usage.cost ?? null,
+						usage_json: JSON.stringify(usage.usageJson),
+					} as T],
+				};
+			} else if (/UPDATE loop_messages\s+SET deleted_at = \?/.test(sql)) {
+				if (Number(params[1]) === messageRow.seq && !messageRow.deleted_at) {
+					messageRow.deleted_at = String(params[0]);
+				}
 			} else if (/FROM loop_message_logs\s+WHERE message_seq = \?/.test(sql)) {
 				return {
 					toArray: () => logs.filter((row) => row.message_seq === Number(params[0])).sort((left, right) => left.id - right.id) as T[],
@@ -5765,6 +14251,172 @@ function memoryLoopMessageLogSql() {
 				chunks = chunks.filter((chunk) => chunk.log_id !== Number(params[0]));
 			} else if (/DELETE FROM loop_message_logs WHERE id = \?/.test(sql)) {
 				logs = logs.filter((row) => row.id !== Number(params[0]));
+			}
+			return {
+				one: () => ({} as T),
+				toArray: () => [],
+			};
+		},
+	};
+}
+
+type LoopMessageRowForTest = Omit<ReturnType<typeof loopMessageRowForTest>, "origin" | "role"> & {
+	origin: BotLoopMessage["origin"];
+	role: BotLoopMessage["role"];
+};
+
+function memoryLoopMessagePageSql(rows: LoopMessageRowForTest[]) {
+	const sortedRows = (pageRows: LoopMessageRowForTest[]) =>
+		[...pageRows].sort((left, right) => left.position - right.position || left.seq - right.seq);
+	const hasVisibleChildren = (seq: number): boolean => rows.some((child) => child.deleted_at === null && child.compacted_by === seq);
+	const compactionBoundaries = () =>
+		rows
+			.filter((row) => row.deleted_at === null)
+			.filter((row) => row.origin === "compaction")
+			.filter((row) => hasVisibleChildren(row.seq));
+	const latestActiveBoundary = (): number | null =>
+		compactionBoundaries()
+			.filter((row) => row.compacted_by === null)
+			.sort((left, right) => right.seq - left.seq)[0]?.seq ?? null;
+	const boundaryChildren = (sourceCompactionSeq: number | null): number[] =>
+		compactionBoundaries()
+			.filter((row) => row.compacted_by === sourceCompactionSeq)
+			.sort((left, right) => right.position - left.position || right.seq - left.seq)
+			.map((row) => row.seq);
+	const activeRows = (afterSeq = 0) =>
+		sortedRows(
+			rows
+				.filter((row) => row.deleted_at === null)
+				.filter((row) => row.compacted_by === null)
+				.filter((row) => afterSeq <= 0 || row.seq > afterSeq),
+		);
+	const rowsForSource = (sourceCompactionSeq: number) => {
+		return sortedRows(
+			rows
+				.filter((row) => row.deleted_at === null)
+				.filter((row) => row.compacted_by === sourceCompactionSeq),
+		);
+	};
+	return {
+		exec<T>(sql: string, ...params: unknown[]) {
+			if (/SELECT m\.seq,\s*m\.created_at\s+FROM loop_messages m/.test(sql)) {
+				const seq = latestActiveBoundary();
+				const row = seq === null ? undefined : rows.find((item) => item.seq === seq);
+				return { toArray: () => (row ? [({ seq, created_at: row.created_at } as T)] : []) };
+			}
+			if (/SELECT m\.seq\s+FROM loop_messages m/.test(sql)) {
+				const sourceCompactionSeq = /m\.compacted_by = \?/.test(sql) ? Number(params[0]) : null;
+				return { toArray: () => boundaryChildren(sourceCompactionSeq).map((seq) => ({ seq }) as T) };
+			}
+			if (/SELECT COUNT\(\*\) AS messageCount/.test(sql)) {
+				const pageRows =
+					/compacted_by IS NULL/.test(sql) || /m\.compacted_by IS NULL/.test(sql) ?
+						activeRows()
+					:	rowsForSource(Number(params[0]));
+				const seqs = pageRows.map((row) => row.seq);
+				return {
+					one: () =>
+						({
+							messageCount: pageRows.length,
+							fromSeq: seqs.length > 0 ? Math.min(...seqs) : null,
+							toSeq: seqs.length > 0 ? Math.max(...seqs) : null,
+						}) as T,
+					toArray: () => [],
+				};
+			}
+			if (/SELECT m\.seq, m\.position, m\.run_id/.test(sql)) {
+				if (/WHERE\s+m\.compacted_by IS NULL/.test(sql)) {
+					const after = /m\.seq > \?/.test(sql) ? Number(params[0]) : 0;
+					return { toArray: () => activeRows(after) as T[] };
+				}
+				return { toArray: () => rowsForSource(Number(params[0])) as T[] };
+			}
+			return {
+				one: () => ({} as T),
+				toArray: () => [],
+			};
+		},
+	};
+}
+
+function memoryExistingLoopMessageSchemaSql() {
+	const columnsByTable = new Map<string, string[]>([
+		[
+			"loop_messages",
+			[
+				"seq",
+				"position",
+				"run_id",
+				"role",
+				"message_json",
+				"origin",
+				"status",
+				"token_estimate",
+				"compacted_by",
+				"created_at",
+			],
+		],
+		["injections", ["id", "text", "kind", "source_id", "spotlight_id", "created_at", "consumed_at"]],
+		[
+			"inference_submissions",
+			[
+				"id",
+				"event_seq",
+				"run_id",
+				"purpose",
+				"model",
+				"provider_base_url",
+				"message_count",
+				"messages_json",
+				"display_messages_json",
+				"created_at",
+			],
+		],
+		["runtime_state", ["key", "value_json"]],
+	]);
+	const executedStatements: string[] = [];
+	let loopMessagesVisibleIndexBeforeDeletedAt = false;
+	return {
+		columns: (table: string) => columnsByTable.get(table) ?? [],
+		indexCreatedBeforeDeletedAt: () => loopMessagesVisibleIndexBeforeDeletedAt,
+		statements: () => executedStatements,
+		exec<T>(sql: string) {
+			const normalized = sql.trim().replace(/\s+/g, " ");
+			executedStatements.push(normalized);
+			const tableInfo = /^PRAGMA table_info\(([^)]+)\)$/.exec(normalized);
+			if (tableInfo) {
+				const columns = columnsByTable.get(tableInfo[1] ?? "") ?? [];
+				return {
+					one: () => ({} as T),
+					toArray: () => columns.map((name, cid) => ({ cid, name }) as T),
+				};
+			}
+			const alterColumn = /^ALTER TABLE ([a-z_]+) ADD COLUMN ([a-z_]+)(?: |$)/.exec(normalized);
+			if (alterColumn) {
+				const table = alterColumn[1] ?? "";
+				const column = alterColumn[2] ?? "";
+				const columns = columnsByTable.get(table) ?? [];
+				if (!columns.includes(column)) {
+					columnsByTable.set(table, [...columns, column]);
+				}
+			}
+			if (/^CREATE INDEX IF NOT EXISTS loop_messages_visible /.test(normalized)) {
+				if (!columnsByTable.get("loop_messages")?.includes("deleted_at")) {
+					loopMessagesVisibleIndexBeforeDeletedAt = true;
+					throw new Error("loop_messages_visible index created before deleted_at exists");
+				}
+			}
+			if (/SELECT COUNT\(\*\) AS count FROM loop_messages/.test(normalized)) {
+				return {
+					one: () => ({ count: 1 }) as T,
+					toArray: () => [{ count: 1 } as T],
+				};
+			}
+			if (/SELECT value_json FROM runtime_state WHERE key = \?/.test(normalized)) {
+				return {
+					one: () => ({} as T),
+					toArray: () => [],
+				};
 			}
 			return {
 				one: () => ({} as T),
@@ -5812,6 +14464,63 @@ function testRuntimeForToolExecution(): BotRuntime {
 	}) as BotRuntime;
 }
 
+function testLoopMessageMemory(initial: Array<Record<string, unknown>> = []) {
+	let seq = 0;
+	const messages = [...initial];
+	return {
+		activeLoopMessagesForProvider: () => [...messages],
+		appendLoopMessage: (runId: string, message: Record<string, unknown>, origin: string, status = "complete") => {
+			seq += 1;
+			messages.push(message);
+			return {
+				seq,
+				runId,
+				role: message.role,
+				message,
+				origin,
+				status,
+				tokenEstimate: 0,
+				createdAt: new Date().toISOString(),
+			};
+		},
+	};
+}
+
+function providerPromptEstimateForTokens(promptTokens: number) {
+	return {
+		promptTokens,
+		source: "full_estimate",
+		calibrationSampleCount: 0,
+	};
+}
+
+function providerLoopUsageRowForTest(requestSeq: number, createdAt: string, promptTokens: number) {
+	return {
+		created_at: createdAt,
+		run_id: "run-context-window",
+		request_seq: requestSeq,
+		model: "test-model",
+		requested_model: "test-model",
+		response_model: null,
+		context_window_tokens: 16_000,
+		prompt_tokens: promptTokens,
+		completion_tokens: 100,
+		total_tokens: promptTokens + 100,
+		cached_tokens: 0,
+		reasoning_tokens: 0,
+		cost: null,
+	};
+}
+
+function providerResponseWithContent(content: string) {
+	return {
+		content,
+		reasoning: "",
+		reasoningDetails: [],
+		toolCalls: [],
+	};
+}
+
 function providerResponseWithToolCall(id: string, name: string, args: Record<string, unknown>) {
 	return providerResponseWithToolCalls([{ id, name, args }]);
 }
@@ -5832,15 +14541,144 @@ function providerResponseWithToolCalls(calls: Array<{ id: string; name: string; 
 	};
 }
 
-function replyToolHasAcknowledgementArgument(tools: ProviderToolDefinition[]): boolean {
-	const reply = tools.find((definition) =>
-		definition.type === "function" && definition.function.name === "reply_to_thread"
+function providerResponseWithRawToolCalls(calls: Array<{ id: string; name: string; arguments: string }>) {
+	return {
+		content: "",
+		reasoning: "",
+		reasoningDetails: [],
+		toolCalls: calls.map((call) => ({
+			id: call.id,
+			type: "function" as const,
+			function: {
+				name: call.name,
+				arguments: call.arguments,
+			},
+		})),
+	};
+}
+
+function providerUsageForTest(completionTokens: number, reasoningTokens = 0) {
+	return {
+		promptTokens: 10,
+		completionTokens,
+		totalTokens: 10 + completionTokens,
+		cachedTokens: 0,
+		reasoningTokens,
+		cost: null,
+		raw: {
+			prompt_tokens: 10,
+			completion_tokens: completionTokens,
+			total_tokens: 10 + completionTokens,
+			completion_tokens_details: { reasoning_tokens: reasoningTokens },
+		},
+	};
+}
+
+function additionalReplyToolPresent(tools: ProviderToolDefinition[]): boolean {
+	return tools.some((definition) =>
+		definition.type === "function" && definition.function.name === "make_additional_reply_to_the_same_comment"
 	);
-	return Boolean(
-		reply &&
-			reply.type === "function" &&
-			reply.function.parameters.properties[additionalReplyAcknowledgementArgument],
-	);
+}
+
+function fakeBotDocument(options: { allowEarlyLogOff?: boolean; contextWindowTokens?: number; compactionSummaryPercent?: number; compactionMaxCharacters?: number; prompt?: string } = {}): BotDocument {
+	const now = "2026-05-05T00:00:00.000Z";
+	return {
+		id: "bot_test_budget",
+		type: "bot",
+		schemaVersion: 1,
+		revision: 1,
+		createdAt: now,
+		updatedAt: now,
+		homeWorldId: "wld_test",
+		homeWorldHandle: "test-world",
+		ownerUserId: "usr_test",
+		handle: "budget-bot",
+		displayName: "Budget Bot",
+		shortBio: "Tests context budgets.",
+		prompt: options.prompt ?? "Stay concise.",
+		inferenceSettings: {},
+		toolSettings: {},
+		tickSettings: {
+			enabled: true,
+			intervalSeconds: 300,
+			...(options.allowEarlyLogOff !== undefined ? { allowEarlyLogOff: options.allowEarlyLogOff } : {}),
+			contextWindowTokens: options.contextWindowTokens ?? 16_000,
+			compactionThreshold: 0.75,
+			compactionSummaryPercent: options.compactionSummaryPercent ?? 10,
+			compactionMaxCharacters: options.compactionMaxCharacters ?? 4_000,
+			maxToolCallsPerTick: 3,
+			maxSuccessfulToolCallsPerIteration: 8,
+			maxGeneratedTokensPerTick: 15_000,
+			maxGeneratedTokensPerIteration: 30_000,
+		},
+	};
+}
+
+function loopMessageRowForTest(seq: number, runId: string, content: string) {
+	return {
+		seq,
+		position: seq,
+		run_id: runId,
+		role: "assistant" as BotLoopMessage["role"],
+		message_json: JSON.stringify({ role: "assistant", content }),
+		origin: "provider_response" as BotLoopMessage["origin"],
+		status: "complete",
+		token_estimate: 1,
+		stream_seq: null,
+		compacted_by: null as number | null,
+		deleted_at: null as string | null,
+		created_at: "2026-05-05T00:00:00.000Z",
+		has_logs: 0,
+	};
+}
+
+function loopMessageRowForMessage(seq: number, message: Record<string, unknown>, origin = "provider_response") {
+	return {
+		seq,
+		position: seq,
+		run_id: "run-history-repair",
+		role: message.role as BotLoopMessage["role"],
+		message_json: JSON.stringify(message),
+		origin,
+		status: "complete",
+		token_estimate: 1,
+		stream_seq: null,
+		compacted_by: null,
+		deleted_at: null as string | null,
+		created_at: "2026-05-05T00:00:00.000Z",
+		has_logs: 0,
+	};
+}
+
+function hasLoneSurrogate(value: unknown): boolean {
+	if (typeof value === "string") {
+		for (let index = 0; index < value.length; index += 1) {
+			const code = value.charCodeAt(index);
+			if (code >= 0xD800 && code <= 0xDBFF) {
+				const next = index + 1 < value.length ? value.charCodeAt(index + 1) : 0;
+				if (next >= 0xDC00 && next <= 0xDFFF) {
+					index += 1;
+					continue;
+				}
+				return true;
+			}
+			if (code >= 0xDC00 && code <= 0xDFFF) {
+				return true;
+			}
+		}
+		return false;
+	}
+	if (Array.isArray(value)) {
+		return value.some(hasLoneSurrogate);
+	}
+	if (value && typeof value === "object") {
+		return Object.values(value).some(hasLoneSurrogate);
+	}
+	return false;
+}
+
+function messageListText(messages: Array<Record<string, unknown>>): string {
+	return messages.map((message) => String(message.content ?? "")).join("\n");
 }
 
 async function oauthFetchMock(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {

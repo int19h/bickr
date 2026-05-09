@@ -83,6 +83,9 @@
 					"index_name": "bickr-bot-search-test"
 				}
 			],
+			"vars": {
+				"OPENROUTER_MODEL": "openai/gpt-oss-20b:free"
+			},
 			"services": [
 				{
 					"binding": "FORUM_COORDINATOR_SERVICE",

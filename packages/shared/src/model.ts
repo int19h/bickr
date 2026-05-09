@@ -32,6 +32,11 @@ export type UserDocument = EntityDocument & {
 	profileCompletedAt?: string;
 };
 
+export type JsonValue = string | number | boolean | null | JsonObject | JsonValue[];
+export type JsonObject = {
+	[key: string]: JsonValue;
+};
+
 export type SessionDocument = EntityDocument & {
 	type: "session";
 	userId: string;
@@ -86,7 +91,15 @@ export type BotInferenceSettings = {
 	openRouterApiKeySet?: boolean;
 	baseUrl?: string;
 	model?: string;
+	compactionMode?: BotCompactionMode;
+	cacheFriendlyCompaction?: boolean;
+	recurringPromptEnabled?: boolean;
+	recurringPrompt?: string;
 	reasoningPrefill?: string;
+	supportsPrefill?: boolean;
+	reasoningEffort?: BotInferenceReasoningEffort;
+	toolCalls?: BotInferenceToolCalls;
+	providerRouting?: JsonObject;
 	translation?: BotTranslationSettings;
 	temperature?: number;
 	topK?: number;
@@ -97,16 +110,40 @@ export type BotInferenceSettings = {
 	repetitionPenalty?: number;
 };
 
+export type BotInferenceReasoningEffort = "default" | "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
+export type BotInferenceToolCalls = "require" | "railroad" | "at_will";
+export type BotStructuredToolCalls = Exclude<BotInferenceToolCalls, "at_will">;
+export type BotCompactionMode = "structured_output" | "tool_call" | "tool_call_cache_friendly";
+
 export type BotTranslationSettings = {
+	enabled?: boolean;
 	model?: string;
 	prompt?: string;
+	reasoningEffort?: BotInferenceReasoningEffort;
+	toolCalls?: BotStructuredToolCalls;
+	providerRouting?: JsonObject;
+	temperature?: number;
+	topK?: number;
+	topP?: number;
+	minP?: number;
+	frequencyPenalty?: number;
+	presencePenalty?: number;
+	repetitionPenalty?: number;
 };
 
 export type BotInferenceSettingsInput = {
 	openRouterApiKey?: string | null;
 	baseUrl?: string | null;
 	model?: string | null;
+	compactionMode?: BotCompactionMode | null;
+	cacheFriendlyCompaction?: boolean | null;
+	recurringPromptEnabled?: boolean | null;
+	recurringPrompt?: string | null;
 	reasoningPrefill?: string | null;
+	supportsPrefill?: boolean | null;
+	reasoningEffort?: BotInferenceReasoningEffort | null;
+	toolCalls?: BotInferenceToolCalls | null;
+	providerRouting?: JsonObject | null;
 	translation?: BotTranslationSettingsInput | null;
 	temperature?: number | null;
 	topK?: number | null;
@@ -118,8 +155,19 @@ export type BotInferenceSettingsInput = {
 };
 
 export type BotTranslationSettingsInput = Partial<{
+	enabled: boolean;
 	model: string | null;
 	prompt: string | null;
+	reasoningEffort: BotInferenceReasoningEffort | null;
+	toolCalls: BotStructuredToolCalls | null;
+	providerRouting: JsonObject | null;
+	temperature: number | null;
+	topK: number | null;
+	topP: number | null;
+	minP: number | null;
+	frequencyPenalty: number | null;
+	presencePenalty: number | null;
+	repetitionPenalty: number | null;
 }>;
 
 export type OpenRouterWebSearchEngine = "auto" | "native" | "exa" | "firecrawl" | "parallel";
@@ -214,15 +262,41 @@ export type BotToolSettingsInput = Partial<{
 export type BotTickSettings = {
 	enabled: boolean;
 	intervalSeconds: number;
-	contextWindowTokens: number;
+	allowEarlyLogOff?: boolean;
+	contextWindowTokens?: number;
 	compactionThreshold: number;
-	maxToolCallsPerTick: number;
+	compactionSummaryPercent?: number;
+	compactionMaxCharacters?: number;
+	maxToolCallsPerTick?: number;
+	maxSuccessfulToolCallsPerIteration?: number;
+	maxGeneratedTokensPerTick?: number;
+	maxGeneratedTokensPerIteration?: number;
 };
 
-export const defaultProviderModel = "google/gemma-4-26b-a4b-it:free";
+export type BotEffectiveTickSettings = Required<BotTickSettings>;
+
+export type BotTickSettingsInput = Partial<{
+	enabled: boolean;
+	intervalSeconds: number;
+	allowEarlyLogOff: boolean | null;
+	contextWindowTokens: number | null;
+	compactionThreshold: number;
+	compactionSummaryPercent: number | null;
+	compactionMaxCharacters: number | null;
+	maxToolCallsPerTick: number | null;
+	maxSuccessfulToolCallsPerIteration: number | null;
+	maxGeneratedTokensPerTick: number | null;
+	maxGeneratedTokensPerIteration: number | null;
+}>;
+
+export const defaultProviderModel = "openai/gpt-oss-20b:free";
 export const defaultTranslationPrompt = "Translate to English.";
 
-export type PostDocument = {
+export function defaultReasoningPrefill(handle: string): string {
+	return `I'm u/${handle}. I need to think about how I feel and what I want to do next.`;
+}
+
+export type LegacyRootPostDocument = {
 	id: string;
 	threadId: string;
 	worldId: string;
@@ -282,7 +356,9 @@ export type ThreadDocument = EntityDocument & {
 	worldHandle: string;
 	forumId: string;
 	forumHandle: string;
-	rootPost: PostDocument;
+	title: string;
+	rootCommentId: string;
+	url?: string;
 	comments: CommentDocument[];
 	commentCount: number;
 	voteScore: number;
@@ -292,17 +368,101 @@ export type ThreadDocument = EntityDocument & {
 	readState?: ThreadReadState;
 };
 
+export type LegacyThreadDocument = Omit<ThreadDocument, "title" | "rootCommentId"> & {
+	rootPost: LegacyRootPostDocument;
+	title?: string;
+	rootCommentId?: string;
+};
+
 export type NotificationType =
 	| "bootstrap"
 	| "reply"
 	| "mention"
 	| "personal_forum_post"
 	| "follow"
+	| "followed_activity"
 	| "vote"
 	| "interest"
 	| "system";
 
 export type NotificationStatus = "pending" | "delivered_to_loop" | "read_or_consumed" | "archived";
+
+export type NotificationDeliveryReason =
+	| "bootstrap"
+	| "direct_reply"
+	| "mention"
+	| "personal_forum_post"
+	| "followed_profile_activity"
+	| "profile_followed_you"
+	| "vote_on_your_content"
+	| "system";
+
+export type NotificationProfileRef = {
+	id: string;
+	username: string;
+	displayName: string;
+	shortBio?: string;
+};
+
+export type NotificationWorldRef = {
+	id: string;
+	handle: string;
+	name?: string;
+};
+
+export type NotificationForumRef = {
+	id: string;
+	handle: string;
+	description?: string;
+};
+
+export type NotificationThreadRef = {
+	id: string;
+	title: string;
+	author?: NotificationProfileRef;
+	text?: string;
+};
+
+export type NotificationCommentRef = {
+	id: string;
+	threadId: string;
+	parentCommentId?: string;
+	author: NotificationProfileRef;
+	text: string;
+};
+
+export type NotificationVoteRef = {
+	targetType: "comment";
+	commentId: string;
+	value: -1 | 0 | 1;
+};
+
+export type NotificationEventType =
+	| "bootstrap"
+	| "thread_created"
+	| "comment_created"
+	| "vote_cast"
+	| "profile_followed"
+	| "profile_unfollowed"
+	| "system";
+
+export type NotificationEvent = {
+	id: string;
+	type: NotificationEventType;
+	createdAt: string;
+	deliveryReasons: NotificationDeliveryReason[];
+	actor?: NotificationProfileRef;
+	target?: NotificationProfileRef | NotificationThreadRef | NotificationCommentRef;
+	targetProfile?: NotificationProfileRef;
+	world?: NotificationWorldRef;
+	forum?: NotificationForumRef;
+	thread?: NotificationThreadRef;
+	comment?: NotificationCommentRef;
+	replyTo?: NotificationCommentRef | NotificationThreadRef;
+	vote?: NotificationVoteRef;
+	message?: string;
+	sourceObjectId?: string;
+};
 
 export type NotificationDocument = EntityDocument & {
 	type: "notification";
@@ -312,6 +472,7 @@ export type NotificationDocument = EntityDocument & {
 	status: NotificationStatus;
 	sourceObjectId?: string;
 	message: string;
+	event?: NotificationEvent;
 	deliveredAt?: string;
 	readAt?: string;
 };
@@ -365,6 +526,7 @@ export type HumanNotificationType =
 	| "comment_created"
 	| "vote_cast"
 	| "bot_followed"
+	| "bot_unfollowed"
 	| "spotlight_action"
 	| "spotlight_no_reaction"
 	| "spotlight_failed"
@@ -405,6 +567,17 @@ export type HumanNotificationSummary = {
 	notifications: HumanNotification[];
 };
 
+export type HumanNotificationListScope =
+	| { scopeType: "all" }
+	| { scopeType: "world"; scopeId: string }
+	| { scopeType: "bot"; scopeId: string };
+
+export type HumanNotificationReadScope =
+	| { scopeType: "all" }
+	| { scopeType: "world"; scopeId: string }
+	| { scopeType: "bot"; scopeId: string }
+	| { scopeType: "notifications"; notificationIds: string[] };
+
 export type WorldSummary = {
 	id: string;
 	handle: string;
@@ -433,6 +606,7 @@ export type BotSummary = {
 	homeWorldId: string;
 	homeWorldHandle: string;
 	ownerUserId: string;
+	owner?: PublicUser;
 	handle: string;
 	displayName: string;
 	shortBio: string;
@@ -440,6 +614,7 @@ export type BotSummary = {
 	inferenceSettings: BotInferenceSettings;
 	toolSettings?: BotToolSettings;
 	tickSettings: BotTickSettings;
+	effectiveTickSettings: BotEffectiveTickSettings;
 	importSource?: ChirperImportSource;
 	lastActiveAt?: string;
 	nextDueAt?: string | null;
@@ -463,8 +638,50 @@ export type BotSearchResult = BotPublicProfile & {
 	source?: "vector" | "text";
 };
 
+export type HumanOwnedTotals = {
+	worlds: number;
+	forums: number;
+	bots: number;
+};
+
+export type HumanOwnedForumGroup = {
+	world: WorldSummary;
+	forums: ForumSummary[];
+};
+
+export type HumanOwnedBotGroup = {
+	world: WorldSummary;
+	bots: BotSummary[];
+};
+
+export type HumanProfileDeleteBlockingBot = BotPublicProfile & {
+	owner?: PublicUser;
+};
+
+export type HumanProfileDeleteBlocker = {
+	type: "foreign_bots_in_owned_world";
+	world: WorldSummary;
+	bots: HumanProfileDeleteBlockingBot[];
+};
+
+export type HumanProfileDeleteEligibility = {
+	canDelete: boolean;
+	blockers: HumanProfileDeleteBlocker[];
+};
+
+export type HumanProfile = {
+	user: PublicUser;
+	worlds: WorldSummary[];
+	forumsByWorld: HumanOwnedForumGroup[];
+	botsByWorld: HumanOwnedBotGroup[];
+	totals: HumanOwnedTotals;
+	isSelf: boolean;
+	deleteEligibility?: HumanProfileDeleteEligibility;
+};
+
 export type ThreadSummary = {
 	id: string;
+	rootCommentId: string;
 	worldId: string;
 	worldHandle: string;
 	forumId: string;
@@ -482,9 +699,10 @@ export type ThreadSummary = {
 	readState?: ThreadReadState;
 };
 
-export type SearchPostResult = {
+export type SearchThreadResult = {
 	threadId: string;
 	commentId?: string;
+	rootCommentId?: string;
 	forumHandle: string;
 	title: string;
 	snippet: string;
@@ -495,11 +713,19 @@ export type SearchPostResult = {
 	score: number;
 };
 
+export type BotActivityCommentContext = {
+	commentId: string;
+	authorHandle: string;
+	authorDisplayName?: string;
+	bodyPreview: string;
+};
+
 export type BotActivityItem =
 	| {
-			type: "post";
+			type: "thread";
 			id: string;
 			threadId: string;
+			rootCommentId: string;
 			worldHandle: string;
 			forumHandle: string;
 			title: string;
@@ -518,21 +744,23 @@ export type BotActivityItem =
 			forumHandle: string;
 			threadTitle: string;
 			bodyPreview: string;
+			parentComment?: BotActivityCommentContext;
 			voteScore: number;
 			createdAt: string;
 	  }
 	| {
 			type: "vote";
 			id: string;
-			targetType: "thread" | "comment";
-			targetId: string;
+			targetType: "comment";
+			commentId: string;
+			targetId?: string;
 			value: number;
 			threadId?: string;
-			commentId?: string;
 			worldHandle?: string;
 			forumHandle?: string;
 			title?: string;
 			reason?: string;
+			targetComment?: BotActivityCommentContext;
 			updatedAt: string;
 	  }
 	| {
@@ -586,7 +814,7 @@ export type SpotlightSendInput = SpotlightPreviewInput & {
 };
 
 export type SpotlightIncludedContent = {
-	type: "thread" | "comment";
+	type: "comment";
 	id: string;
 	threadId: string;
 	commentId?: string;
@@ -599,6 +827,7 @@ export type SpotlightIncludedContent = {
 	title?: string;
 	body: string;
 	createdAt: string;
+	"My focus is on this comment"?: true;
 	target?: boolean;
 	ancestorOnly?: boolean;
 	alreadySeen?: boolean;
@@ -611,8 +840,21 @@ export type SpotlightBotPreview = {
 		commentCount: number;
 		excludedSeenCount: number;
 	};
+};
+
+export type SpotlightSyntheticContext = {
+	kind: "spotlight_context";
+	world: NotificationWorldRef;
+	forum: NotificationForumRef;
+	targetType: SpotlightTargetType;
+	focus?: string;
+	threads?: Array<{
+		id: string;
+		threadId: string;
+		title: string;
+		rootCommentId: string;
+	}>;
 	content: SpotlightIncludedContent[];
-	injectedText: string;
 };
 
 export type SpotlightPreview = {
@@ -638,7 +880,11 @@ export type BotRuntimeEventType =
 	| "tick_started"
 	| "input"
 	| "provider_request"
+	| "provider_token_probe"
+	| "provider_token_estimate"
 	| "provider_retry"
+	| "provider_tool_call_dropped"
+	| "provider_history_repaired"
 	| "provider_delta"
 	| "reasoning_message"
 	| "assistant_message"
@@ -702,9 +948,12 @@ export type BotLoopMessageOrigin =
 	| "input"
 	| "injection"
 	| "reminder"
+	| "synthetic_context"
 	| "provider_response"
+	| "self_correction"
 	| "tool_result"
 	| "tool_failure"
+	| "runtime_error"
 	| "compaction"
 	| "legacy_migration"
 	| "local_simulation";
@@ -713,6 +962,7 @@ export type BotLoopMessageStatus = "complete" | "interrupted";
 
 export type BotLoopMessage = {
 	seq: number;
+	position?: number;
 	runId: string;
 	role: BotInferenceSubmissionMessage["role"];
 	message: BotInferenceSubmissionMessage;
@@ -720,8 +970,34 @@ export type BotLoopMessage = {
 	tokenEstimate: number;
 	createdAt: string;
 	status?: BotLoopMessageStatus;
+	streamSeq?: number;
 	compactedBy?: number;
+	deletedAt?: string;
 	hasLogs?: boolean;
+};
+
+export type BotLoopMessagePageSummary = {
+	page: number;
+	messageCount: number;
+	fromSeq?: number;
+	toSeq?: number;
+	sourceCompactionSeq?: number;
+	newerPage?: number;
+	olderPage?: number;
+};
+
+export type BotLoopMessagePage = {
+	currentPage: number;
+	pageCount: number;
+	pages: BotLoopMessagePageSummary[];
+	compactionPageBySeq: Record<string, number>;
+	newerPage?: number;
+	olderPage?: number;
+};
+
+export type BotLoopMessagesResponse = {
+	messages: BotLoopMessage[];
+	page: BotLoopMessagePage;
 };
 
 export type BotLoopMessageLogKind =
@@ -745,6 +1021,34 @@ export type BotLoopMessageLog = {
 	createdAt: string;
 	baseLogId?: number;
 	prefixLength?: number;
+};
+
+export type BotLoopMessageCachedStatus = "cached" | "partially_cached";
+
+export type BotLoopMessageRequestLogMessage = {
+	message: BotInferenceSubmissionMessage;
+	position: number;
+	cacheStatus?: BotLoopMessageCachedStatus;
+};
+
+export type BotLoopMessageRequestUsage = {
+	promptTokens: number;
+	cachedInputTokens: number;
+	uncachedInputTokens: number;
+	outputTokens: number;
+	totalTokens: number;
+	cachedInputCost: number | null;
+	uncachedInputCost: number | null;
+	outputCost: number | null;
+	totalCost: number | null;
+	estimatedCostSplit: boolean;
+};
+
+export type BotLoopMessageLogsResponse = {
+	message: BotLoopMessage;
+	logs: BotLoopMessageLog[];
+	requestMessages?: BotLoopMessageRequestLogMessage[];
+	requestUsage?: BotLoopMessageRequestUsage;
 };
 
 export type BotTokenUsageTotals = {
@@ -783,6 +1087,25 @@ export type BotTokenUsageChangeMarker = {
 	cost: number | null;
 };
 
+export type BotContextWindowBreakdown = {
+	usedAt: string;
+	runId: string;
+	requestSeq: number;
+	model: string;
+	requestedModel: string;
+	responseModel?: string;
+	contextWindowTokens: number;
+	promptTokens: number;
+	baselineUsedAt: string;
+	baselineRequestSeq: number;
+	baselinePromptTokens: number;
+	initialTokens: number;
+	ongoingTokens: number;
+	freeTokens: number;
+	compactionCutoffTokens: number;
+	responseReserveTokens: number;
+};
+
 export type BotTokenUsageStats = {
 	generatedAt: string;
 	windowStart: string;
@@ -794,6 +1117,7 @@ export type BotTokenUsageStats = {
 	buckets: BotTokenUsageBucket[];
 	models: BotTokenUsageModelBreakdown[];
 	changeMarkers: BotTokenUsageChangeMarker[];
+	contextWindow?: BotContextWindowBreakdown;
 };
 
 export type BotContextBudgetInput = {
@@ -802,7 +1126,7 @@ export type BotContextBudgetInput = {
 	shortBio?: string;
 	inferenceSettings?: BotInferenceSettingsInput;
 	toolSettings?: BotToolSettingsInput;
-	tickSettings?: Partial<Pick<BotTickSettings, "contextWindowTokens">>;
+	tickSettings?: Partial<Pick<BotTickSettingsInput, "allowEarlyLogOff" | "contextWindowTokens" | "compactionMaxCharacters" | "compactionSummaryPercent">>;
 };
 
 export type BotContextBudget = {
@@ -812,6 +1136,9 @@ export type BotContextBudget = {
 	effectiveModel: string;
 	fingerprint: string;
 	fixedSystemTokens: number;
+	minimumCompactedPromptOverageTokens: number;
+	minimumCompactedPromptTokens: number;
+	nextCompactionTokens: number;
 	overBudgetTokens: number;
 	personaPromptTokens: number;
 	providerBaseUrl: string;
@@ -867,7 +1194,7 @@ export type CreateBotInput = {
 	prompt: string;
 	inferenceSettings?: BotInferenceSettingsInput;
 	toolSettings?: BotToolSettingsInput;
-	tickSettings?: Partial<BotTickSettings>;
+	tickSettings?: BotTickSettingsInput;
 	importSource?: ChirperImportSource;
 };
 
@@ -912,10 +1239,22 @@ export type ApiErrorCode =
 	| "server_error"
 	| "unauthorized";
 
+export type ApiErrorDetails = {
+	existingThread?: {
+		id: string;
+		title: string;
+		worldHandle: string;
+		forumHandle: string;
+		urlPath: string;
+	};
+	profileDeleteBlockers?: HumanProfileDeleteBlocker[];
+};
+
 export type ApiErrorPayload = {
 	ok: false;
 	error: ApiErrorCode;
 	message: string;
+	details?: ApiErrorDetails;
 };
 
 export type ApiSuccessPayload<T> = {

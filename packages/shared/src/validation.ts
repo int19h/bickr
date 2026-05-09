@@ -1,9 +1,10 @@
 import {
 	type BotInferenceSettingsInput,
+	type BotCompactionMode,
 	type BotContextBudgetInput,
 	type BotTranslationSettingsInput,
 	type BotToolSettingsInput,
-	type BotTickSettings,
+	type BotTickSettingsInput,
 	type ChirperImportSource,
 	type CreateBotInput,
 	type CreateCommentInput,
@@ -18,6 +19,8 @@ import {
 	type OpenRouterWebSearchEngine,
 	type OpenRouterWebSearchToolSettingsInput,
 	type OpenRouterWebSearchUserLocationInput,
+	type JsonObject,
+	type JsonValue,
 	type UpdateBotInput,
 	type UpdateForumInput,
 	type UpdateUserProfileInput,
@@ -35,17 +38,21 @@ export class InputError extends Error {
 export const maxBotShortBioLength = 1_200;
 export const maxBotPromptLength = 64_000;
 export const maxBotReasoningPrefillLength = 500;
-export const maxPostTitleLength = 160;
-export const maxPostBodyLength = 8_000;
+export const maxProviderRoutingJsonLength = 8_000;
+export const maxThreadTitleLength = 160;
+export const maxThreadBodyLength = 8_000;
 export const maxCommentBodyLength = 4_000;
+const inferenceReasoningEfforts = ["default", "none", "minimal", "low", "medium", "high", "xhigh"] as const;
+const inferenceToolCallModes = ["require", "railroad", "at_will"] as const;
+const compactionModes = ["structured_output", "tool_call", "tool_call_cache_friendly"] as const satisfies readonly BotCompactionMode[];
+const structuredToolCallModes = ["require", "railroad"] as const;
 
-export const handlePatternSource = String.raw`[\p{Letter}\p{Number}][\p{Letter}\p{Number}\p{Mark}_-]{1,30}[\p{Letter}\p{Number}\p{Mark}]`;
+export const handlePatternSource = String.raw`[\p{Letter}\p{Number}_-][\p{Letter}\p{Number}\p{Mark}_-]{0,31}`;
 export const handleHelpText =
-	"Handle must be 3-32 letters or numbers from any language, may include hyphens or underscores, and cannot start or end with a hyphen or underscore.";
+	"Handle must be 1-32 letters, numbers, hyphens, or underscores from any language.";
 
 const handlePattern = new RegExp(`^${handlePatternSource}$`, "u");
 const disallowedHandleCharacterPattern = /[^\p{Letter}\p{Number}\p{Mark}_-]+/gu;
-const handleEdgeSeparatorPattern = /^[-_]+|[-_]+$/gu;
 type RouteParamValue = string | string[] | undefined;
 
 export function normalizeHandleText(value: string): string {
@@ -58,10 +65,8 @@ export function isValidHandleText(value: string): boolean {
 
 export function sanitizeHandleInput(value: string, maxLength = 32): string {
 	const safeMaxLength = Math.max(0, Math.min(32, Math.trunc(maxLength)));
-	const normalized = normalizeHandleText(value)
-		.replace(disallowedHandleCharacterPattern, "-")
-		.replace(handleEdgeSeparatorPattern, "");
-	return Array.from(normalized).slice(0, safeMaxLength).join("").replace(handleEdgeSeparatorPattern, "");
+	const normalized = normalizeHandleText(value).replace(disallowedHandleCharacterPattern, "-");
+	return Array.from(normalized).slice(0, safeMaxLength).join("");
 }
 
 export function slugifyHandle(value: string, fallback = "", maxLength = 32): string {
@@ -289,10 +294,10 @@ export function parseUpdateUserProfileInput(input: unknown): UpdateUserProfileIn
 
 export function parseCreateThreadInput(input: unknown): Omit<CreateThreadInput, "forumId" | "authorBotId"> {
 	const record = asRecord(input);
-	const url = optionalText(record.url, "Post URL", 1_000);
+	const url = optionalText(record.url, "Thread URL", 1_000);
 	return {
-		title: requiredText(record.title, "Post title", maxPostTitleLength),
-		body: requiredText(record.body, "Post body", maxPostBodyLength),
+		title: requiredText(record.title, "Thread title", maxThreadTitleLength),
+		body: requiredText(record.body, "Thread body", maxThreadBodyLength),
 		...(url ? { url } : {}),
 	};
 }
@@ -308,22 +313,29 @@ export function parseCreateCommentInput(input: unknown): Omit<CreateCommentInput
 
 export function parseVoteInput(input: unknown): Pick<VoteInput, "targetType" | "targetId" | "value" | "reason"> {
 	const record = asRecord(input);
-	if (record.targetType !== "thread" && record.targetType !== "comment") {
-		throw new InputError("Vote target type must be thread or comment.");
-	}
-	if (typeof record.targetId !== "string" || record.targetId.trim().length === 0) {
-		throw new InputError("Vote target ID is required.");
+	const commentId =
+		typeof record.commentId === "string" && record.commentId.trim().length > 0 ?
+			record.commentId.trim()
+		:	undefined;
+	const legacyTargetType = record.targetType === "thread" || record.targetType === "comment" ? record.targetType : undefined;
+	const legacyTargetId =
+		typeof record.targetId === "string" && record.targetId.trim().length > 0 ?
+			record.targetId.trim()
+		:	undefined;
+	if (!commentId && (!legacyTargetType || !legacyTargetId)) {
+		throw new InputError("Vote comment ID is required.");
 	}
 	const value = Number(record.value);
 	if (value !== -1 && value !== 0 && value !== 1) {
 		throw new InputError("Vote value must be -1, 0, or 1.");
 	}
+	const reason = optionalText(record.reason, "Vote reason", 2_000);
 
 	return {
-		targetType: record.targetType,
-		targetId: record.targetId.trim(),
+		targetType: commentId ? "comment" : legacyTargetType!,
+		targetId: commentId ?? legacyTargetId!,
 		value,
-		...(record.reason === undefined ? {} : { reason: optionalText(record.reason, "Vote reason", 500) }),
+		...(reason ? { reason } : {}),
 	};
 }
 
@@ -333,6 +345,14 @@ export function asRecord(input: unknown): Record<string, unknown> {
 	}
 
 	return input as Record<string, unknown>;
+}
+
+function isPlainRecord(input: unknown): input is Record<string, unknown> {
+	if (!input || typeof input !== "object" || Array.isArray(input)) {
+		return false;
+	}
+	const prototype = Object.getPrototypeOf(input);
+	return prototype === Object.prototype || prototype === null;
 }
 
 function parseImportSource(value: unknown): ChirperImportSource | undefined {
@@ -360,13 +380,32 @@ function parseInferenceSettings(value: unknown): BotInferenceSettingsInput {
 	assignOptionalSecretText(settings, "openRouterApiKey", record.openRouterApiKey, "OpenRouter API key", 4_000);
 	assignOptionalText(settings, "baseUrl", record.baseUrl, "Inference base URL", 500);
 	assignOptionalText(settings, "model", record.model, "Inference model", 160);
+	assignOptionalEnum(settings, "compactionMode", aliasedValue(record, "compactionMode", "compaction_mode"), "compactionMode", compactionModes);
+	assignOptionalNullableBoolean(settings, "cacheFriendlyCompaction", aliasedValue(record, "cacheFriendlyCompaction", "cache_friendly_compaction"));
+	if (record.recurringPromptEnabled !== undefined || record.recurring_prompt_enabled !== undefined) {
+		const enabled = aliasedValue(record, "recurringPromptEnabled", "recurring_prompt_enabled");
+		if (enabled === null) {
+			settings.recurringPromptEnabled = null;
+		} else if (typeof enabled === "boolean") {
+			settings.recurringPromptEnabled = enabled;
+		} else {
+			throw new InputError("recurringPromptEnabled must be a boolean.");
+		}
+	}
 	assignOptionalPreservedText(
 		settings,
-		"reasoningPrefill",
-		record.reasoningPrefill,
-		"Reasoning prefill",
+		"recurringPrompt",
+		aliasedValue(record, "recurringPrompt", "reasoningPrefill"),
+		"Recurring prompt",
 		maxBotReasoningPrefillLength,
 	);
+	assignOptionalNullableBoolean(settings, "supportsPrefill", aliasedValue(record, "supportsPrefill", "supports_prefill"));
+	assignOptionalEnum(settings, "reasoningEffort", aliasedValue(record, "reasoningEffort", "reasoning_effort"), "Reasoning effort", inferenceReasoningEfforts);
+	assignOptionalEnum(settings, "toolCalls", aliasedValue(record, "toolCalls", "tool_calls"), "Tool calls", inferenceToolCallModes);
+	if (record.providerRouting !== undefined || record.provider_routing !== undefined) {
+		const providerRouting = aliasedValue(record, "providerRouting", "provider_routing");
+		settings.providerRouting = providerRouting === null ? null : parseProviderRouting(providerRouting);
+	}
 	if (record.translation !== undefined) {
 		settings.translation = record.translation === null ? null : parseTranslationSettings(record.translation);
 	}
@@ -401,11 +440,85 @@ function parseInferenceSettings(value: unknown): BotInferenceSettingsInput {
 	return settings;
 }
 
+function parseProviderRouting(value: unknown): JsonObject {
+	if (!isPlainRecord(value)) {
+		throw new InputError("Provider routing must be a JSON object.");
+	}
+	const routing = jsonObjectValue(value, "Provider routing");
+	const encoded = JSON.stringify(routing);
+	if (encoded.length > maxProviderRoutingJsonLength) {
+		throw new InputError(`Provider routing must be ${maxProviderRoutingJsonLength} characters or fewer.`);
+	}
+	return routing;
+}
+
+function jsonObjectValue(value: Record<string, unknown>, label: string): JsonObject {
+	const object: JsonObject = {};
+	for (const [key, item] of Object.entries(value)) {
+		object[key] = jsonValue(item, `${label}.${key}`);
+	}
+	return object;
+}
+
+function jsonValue(value: unknown, label: string): JsonValue {
+	if (value === null || typeof value === "string" || typeof value === "boolean") {
+		return value;
+	}
+	if (typeof value === "number") {
+		if (!Number.isFinite(value)) {
+			throw new InputError(`${label} must be a finite number.`);
+		}
+		return value;
+	}
+	if (Array.isArray(value)) {
+		return value.map((item, index) => jsonValue(item, `${label}[${index}]`));
+	}
+	if (isPlainRecord(value)) {
+		return jsonObjectValue(value, label);
+	}
+	throw new InputError(`${label} must contain only JSON values.`);
+}
+
 function parseTranslationSettings(value: unknown): BotTranslationSettingsInput {
 	const record = asRecord(value);
 	const settings: BotTranslationSettingsInput = {};
+	assignOptionalBoolean(settings, "enabled", record.enabled);
 	assignOptionalPlainText(settings, "model", record.model, "Translation model", 160);
 	assignOptionalPlainText(settings, "prompt", record.prompt, "Translation prompt", 2_000);
+	assignOptionalEnum(settings, "reasoningEffort", aliasedValue(record, "reasoningEffort", "reasoning_effort"), "Translation reasoning effort", inferenceReasoningEfforts);
+	assignOptionalEnum(settings, "toolCalls", aliasedValue(record, "toolCalls", "tool_calls"), "Translation tool calls", structuredToolCallModes);
+	if (record.providerRouting !== undefined || record.provider_routing !== undefined) {
+		const providerRouting = aliasedValue(record, "providerRouting", "provider_routing");
+		settings.providerRouting = providerRouting === null ? null : parseProviderRouting(providerRouting);
+	}
+	assignOptionalNumber(settings, "temperature", record.temperature, "Translation temperature", 0, 2);
+	assignOptionalNumber(settings, "topK", aliasedValue(record, "topK", "top_k"), "Translation top K", 0, 10_000);
+	assignOptionalNumber(settings, "topP", aliasedValue(record, "topP", "top_p"), "Translation top P", 0, 1);
+	assignOptionalNumber(settings, "minP", aliasedValue(record, "minP", "min_p"), "Translation min P", 0, 1);
+	assignOptionalNumber(
+		settings,
+		"frequencyPenalty",
+		aliasedValue(record, "frequencyPenalty", "frequency_penalty"),
+		"Translation frequency penalty",
+		-2,
+		2,
+	);
+	assignOptionalNumber(
+		settings,
+		"presencePenalty",
+		aliasedValue(record, "presencePenalty", "presence_penalty"),
+		"Translation presence penalty",
+		-2,
+		2,
+	);
+	assignOptionalNumber(
+		settings,
+		"repetitionPenalty",
+		aliasedValue(record, "repetitionPenalty", "repetition_penalty"),
+		"Translation repetition penalty",
+		0,
+		2,
+	);
 	return settings;
 }
 
@@ -576,8 +689,8 @@ function assignOptionalPreservedText<K extends keyof BotInferenceSettingsInput>(
 	settings[key] = value as BotInferenceSettingsInput[K];
 }
 
-function assignOptionalNumber<K extends keyof BotInferenceSettingsInput>(
-	settings: BotInferenceSettingsInput,
+function assignOptionalNumber<T extends object, K extends keyof T>(
+	settings: T,
 	key: K,
 	value: unknown,
 	label: string,
@@ -588,14 +701,14 @@ function assignOptionalNumber<K extends keyof BotInferenceSettingsInput>(
 		return;
 	}
 	if (value === null || value === "") {
-		settings[key] = null as BotInferenceSettingsInput[K];
+		settings[key] = null as T[K];
 		return;
 	}
 	const number = Number(value);
 	if (!Number.isFinite(number) || number < min || number > max) {
 		throw new InputError(`${label} must be between ${min} and ${max}.`);
 	}
-	settings[key] = number as BotInferenceSettingsInput[K];
+	settings[key] = number as T[K];
 }
 
 function assignOptionalPlainText<T extends object, K extends keyof T>(
@@ -621,6 +734,24 @@ function assignOptionalBoolean<T extends object, K extends keyof T>(
 	value: unknown,
 ): void {
 	if (value === undefined) {
+		return;
+	}
+	if (typeof value !== "boolean") {
+		throw new InputError(`${String(key)} must be a boolean.`);
+	}
+	settings[key] = Boolean(value) as T[K];
+}
+
+function assignOptionalNullableBoolean<T extends object, K extends keyof T>(
+	settings: T,
+	key: K,
+	value: unknown,
+): void {
+	if (value === undefined) {
+		return;
+	}
+	if (value === null) {
+		settings[key] = null as T[K];
 		return;
 	}
 	if (typeof value !== "boolean") {
@@ -717,22 +848,35 @@ function aliasedValue(record: Record<string, unknown>, preferredKey: string, fal
 	return Object.prototype.hasOwnProperty.call(record, preferredKey) ? record[preferredKey] : record[fallbackKey];
 }
 
-function parseTickSettings(value: unknown): Partial<BotTickSettings> {
+function parseTickSettings(value: unknown): BotTickSettingsInput {
 	const record = asRecord(value);
-	const settings: Partial<BotTickSettings> = {};
+	const settings: BotTickSettingsInput = {};
 	if (record.enabled !== undefined) {
 		settings.enabled = Boolean(record.enabled);
 	}
 	if (record.intervalSeconds !== undefined) {
 		settings.intervalSeconds = boundedInteger(record.intervalSeconds, "Tick interval", 30, 86_400);
 	}
+	if (record.allowEarlyLogOff !== undefined || record.allow_early_log_off !== undefined) {
+		const allowEarlyLogOff = aliasedValue(record, "allowEarlyLogOff", "allow_early_log_off");
+		if (allowEarlyLogOff === null) {
+			settings.allowEarlyLogOff = null;
+		} else if (typeof allowEarlyLogOff === "boolean") {
+			settings.allowEarlyLogOff = allowEarlyLogOff;
+		} else {
+			throw new InputError("Allow to log off early must be a boolean.");
+		}
+	}
 	if (record.contextWindowTokens !== undefined) {
-		settings.contextWindowTokens = boundedInteger(
-			record.contextWindowTokens,
-			"Context window",
-			2_000,
-			1_000_000,
-		);
+		settings.contextWindowTokens =
+			record.contextWindowTokens === null ?
+				null
+			:	boundedInteger(
+					record.contextWindowTokens,
+					"Context window",
+					2_000,
+					1_000_000,
+				);
 	}
 	if (record.compactionThreshold !== undefined) {
 		const threshold = Number(record.compactionThreshold);
@@ -741,19 +885,92 @@ function parseTickSettings(value: unknown): Partial<BotTickSettings> {
 		}
 		settings.compactionThreshold = threshold;
 	}
+	if (record.compactionSummaryPercent !== undefined) {
+		settings.compactionSummaryPercent =
+			record.compactionSummaryPercent === null ?
+				null
+			:	boundedInteger(
+					record.compactionSummaryPercent,
+					"Compaction percentage",
+					1,
+					50,
+				);
+	}
+	if (record.compactionMaxCharacters !== undefined) {
+		settings.compactionMaxCharacters =
+			record.compactionMaxCharacters === null ?
+				null
+			:	boundedInteger(
+					record.compactionMaxCharacters,
+					"Max number of characters after compaction",
+					1,
+					1_000_000,
+				);
+	}
 	if (record.maxToolCallsPerTick !== undefined) {
-		settings.maxToolCallsPerTick = boundedInteger(
-			record.maxToolCallsPerTick,
-			"Maximum tool calls per tick",
-			1,
-			32,
-		);
+		settings.maxToolCallsPerTick =
+			record.maxToolCallsPerTick === null ?
+				null
+			:	boundedInteger(
+					record.maxToolCallsPerTick,
+					"Max tool call attempts per tick",
+					1,
+					32,
+				);
+	}
+	if (record.maxSuccessfulToolCallsPerIteration !== undefined) {
+		settings.maxSuccessfulToolCallsPerIteration =
+			record.maxSuccessfulToolCallsPerIteration === null ?
+				null
+			:	boundedInteger(
+					record.maxSuccessfulToolCallsPerIteration,
+					"Max successful tool calls per iteration",
+					1,
+					32,
+				);
+	}
+	if (record.maxGeneratedTokensPerTick !== undefined) {
+		settings.maxGeneratedTokensPerTick =
+			record.maxGeneratedTokensPerTick === null ?
+				null
+			:	boundedInteger(
+					record.maxGeneratedTokensPerTick,
+					"Max generated tokens per tick",
+					1,
+					1_000_000,
+				);
+	}
+	if (record.maxGeneratedTokensPerIteration !== undefined) {
+		settings.maxGeneratedTokensPerIteration =
+			record.maxGeneratedTokensPerIteration === null ?
+				null
+			:	boundedInteger(
+					record.maxGeneratedTokensPerIteration,
+					"Max generated tokens per iteration",
+					1,
+					1_000_000,
+				);
 	}
 	return settings;
 }
 
-function pickContextWindowTickSettings(settings: Partial<BotTickSettings>): Pick<BotTickSettings, "contextWindowTokens"> | undefined {
-	return settings.contextWindowTokens === undefined ? undefined : { contextWindowTokens: settings.contextWindowTokens };
+function pickContextWindowTickSettings(
+	settings: BotTickSettingsInput,
+): Pick<BotTickSettingsInput, "allowEarlyLogOff" | "contextWindowTokens" | "compactionMaxCharacters" | "compactionSummaryPercent"> | undefined {
+	const picked: Pick<BotTickSettingsInput, "allowEarlyLogOff" | "contextWindowTokens" | "compactionMaxCharacters" | "compactionSummaryPercent"> = {};
+	if (settings.allowEarlyLogOff !== undefined) {
+		picked.allowEarlyLogOff = settings.allowEarlyLogOff;
+	}
+	if (settings.contextWindowTokens !== undefined) {
+		picked.contextWindowTokens = settings.contextWindowTokens;
+	}
+	if (settings.compactionMaxCharacters !== undefined) {
+		picked.compactionMaxCharacters = settings.compactionMaxCharacters;
+	}
+	if (settings.compactionSummaryPercent !== undefined) {
+		picked.compactionSummaryPercent = settings.compactionSummaryPercent;
+	}
+	return Object.keys(picked).length === 0 ? undefined : picked;
 }
 
 function boundedInteger(value: unknown, label: string, min: number, max: number): number {

@@ -187,6 +187,35 @@ export async function handleForumCoordinatorRequest(
 			return ok({ thread, coordinator: coordinator.objectId }, { status: 201 });
 		}
 
+		const commentReplyMatch = /^\/comments\/([^/]+)\/replies$/.exec(url.pathname);
+		if (request.method === "POST" && commentReplyMatch) {
+			const actor = requireBotActor(request);
+			const parentCommentId = decodeURIComponent(commentReplyMatch[1] ?? "");
+			const input = parseCreateCommentInput(await readJsonBody(request));
+			const row = await env.BICKR_D1.prepare(
+				`SELECT thread_id AS threadId
+				 FROM comments_index
+				 WHERE comment_id = ? AND deleted_at IS NULL
+				 LIMIT 1`,
+			)
+				.bind(parentCommentId)
+				.first<{ threadId: string }>();
+			if (!row) {
+				throw new RepositoryError("not_found", "Parent comment not found.", 404);
+			}
+			const latestThread = await readFreshThread(coordinator, row.threadId);
+			const thread = await createComment(env.BICKR_KV, env.BICKR_D1, {
+				...input,
+				threadId: row.threadId,
+				parentCommentId,
+				authorBotId: actor.botId,
+			}, undefined, {
+				...(latestThread ? { thread: latestThread } : {}),
+			});
+			await writeFreshThread(coordinator, thread);
+			return ok({ thread, coordinator: coordinator.objectId }, { status: 201 });
+		}
+
 		const commentDeleteMatch = /^\/forums\/([^/]+)\/threads\/([^/]+)\/comments\/([^/]+)$/.exec(url.pathname);
 		if (request.method === "DELETE" && commentDeleteMatch) {
 			const userId = requireUserHeader(request);
@@ -210,7 +239,9 @@ export async function handleForumCoordinatorRequest(
 
 		if (request.method === "POST" && url.pathname === "/votes") {
 			const actor = requireBotActor(request);
-			const input = parseVoteInput(await readJsonBody(request));
+			const body = await readJsonBody(request);
+			const input = parseVoteInput(body);
+			const spotlightId = spotlightIdFromRequestBody(body);
 			const threadId = request.headers.get("x-bickr-thread-id");
 			const latestThread = threadId ? await readFreshThread(coordinator, threadId) : null;
 			const thread = await setVote(env.BICKR_KV, env.BICKR_D1, {
@@ -218,6 +249,7 @@ export async function handleForumCoordinatorRequest(
 				botId: actor.botId,
 			}, undefined, {
 				...(latestThread ? { thread: latestThread } : {}),
+				...(spotlightId ? { spotlightId } : {}),
 			});
 			await writeFreshThread(coordinator, thread);
 			return ok({ thread, coordinator: coordinator.objectId });
@@ -227,6 +259,14 @@ export async function handleForumCoordinatorRequest(
 	} catch (error) {
 		return errorResponse(error);
 	}
+}
+
+function spotlightIdFromRequestBody(body: unknown): string | undefined {
+	if (!body || typeof body !== "object" || Array.isArray(body)) {
+		return undefined;
+	}
+	const value = (body as Record<string, unknown>).spotlightId;
+	return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
 export default {
@@ -303,6 +343,21 @@ export default {
 			const threadId = url.pathname.split("/")[2] ?? "unknown";
 			const objectId = env.FORUM_COORDINATOR.idFromName(threadId);
 			return env.FORUM_COORDINATOR.get(objectId).fetch(request);
+		}
+
+		if (url.pathname.startsWith("/comments/")) {
+			try {
+				const parentCommentId = url.pathname.split("/")[2] ?? "unknown";
+				const row = await env.BICKR_D1.prepare(
+					`SELECT thread_id AS threadId FROM comments_index WHERE comment_id = ? AND deleted_at IS NULL`,
+				)
+					.bind(parentCommentId)
+					.first<{ threadId: string }>();
+				const objectId = env.FORUM_COORDINATOR.idFromName(row?.threadId ?? parentCommentId);
+				return env.FORUM_COORDINATOR.get(objectId).fetch(request);
+			} catch (error) {
+				return errorResponse(error);
+			}
 		}
 
 		if (url.pathname === "/votes") {
@@ -396,7 +451,11 @@ async function voteCoordinatorName(
 	input: { targetType: "thread" | "comment"; targetId: string },
 ): Promise<string> {
 	if (input.targetType === "thread") {
-		return input.targetId;
+		const row = await db
+			.prepare(`SELECT thread_id AS threadId FROM threads_index WHERE thread_id = ? AND deleted_at IS NULL`)
+			.bind(input.targetId)
+			.first<{ threadId: string }>();
+		return row?.threadId ?? input.targetId;
 	}
 	const row = await db
 		.prepare(`SELECT thread_id AS threadId FROM comments_index WHERE comment_id = ? AND deleted_at IS NULL`)
@@ -435,7 +494,7 @@ function jsonRequest(url: URL, original: Request, body: unknown): Request {
 
 function errorResponse(error: unknown): Response {
 	if (error instanceof RepositoryError) {
-		return fail(error.code, error.message, error.status);
+		return fail(error.code, error.message, error.status, error.details);
 	}
 	if (error instanceof InputError) {
 		return fail("bad_request", error.message, 400);

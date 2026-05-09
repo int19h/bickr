@@ -8,7 +8,7 @@ import {
 	type WorldSummary,
 } from "./model";
 import { RepositoryError } from "./repository";
-import { readThread, softDeleteComment, softDeleteThread, softDeleteThreadsInForum } from "./social";
+import { readThread, rootCommentForThread, softDeleteComment, softDeleteThread, softDeleteThreadsInForum } from "./social";
 import {
 	type D1DatabaseLike,
 	type KVNamespaceLike,
@@ -145,8 +145,8 @@ export async function deleteThread(
 	if (thread.forumId !== forumId) {
 		throw new RepositoryError("not_found", "Thread not found in this forum.", 404);
 	}
-	if (!(await canModerateForumId(db, forumId, userId)) && !(await userOwnsBot(db, userId, thread.rootPost.authorBotId))) {
-		throw new RepositoryError("forbidden", "You cannot delete this post.", 403);
+	if (!(await canModerateForumId(db, forumId, userId)) && !(await userOwnsBot(db, userId, rootCommentForThread(thread).authorBotId))) {
+		throw new RepositoryError("forbidden", "You cannot delete this thread.", 403);
 	}
 	return softDeleteThread(kv, db, thread, now);
 }

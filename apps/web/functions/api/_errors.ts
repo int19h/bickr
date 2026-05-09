@@ -11,7 +11,7 @@ export function pageErrorResponse(error: unknown): Response {
 		return fail("forbidden", error.message, 403);
 	}
 	if (error instanceof RepositoryError) {
-		return fail(error.code, error.message, error.status);
+		return fail(error.code, error.message, error.status, error.details);
 	}
 	if (error instanceof InputError) {
 		return fail("bad_request", error.message, 400);
