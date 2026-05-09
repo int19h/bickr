@@ -930,7 +930,7 @@ function App() {
 
 	async function markHumanNotificationReadState(
 		notification: HumanNotification,
-		options: { removeUnread?: boolean } = { removeUnread: true },
+		options: { removeUnread?: boolean; removeFromList?: boolean } = { removeUnread: true },
 	): Promise<string | null> {
 		const result = await api(`/api/me/notifications/${encodeURIComponent(notification.id)}`, {
 			method: "PATCH",
@@ -942,10 +942,12 @@ function App() {
 		}
 		const wasUnread = !notification.readAt;
 		const readAt = notification.readAt ?? new Date().toISOString();
+		const removeFromList = options.removeFromList || (wasUnread && options.removeUnread !== false);
 		setHumanNotifications((current) => ({
+			...current,
 			unreadCount: Math.max(0, current.unreadCount - (wasUnread ? 1 : 0)),
 			notifications:
-				wasUnread && options.removeUnread !== false ?
+				removeFromList ?
 					current.notifications.filter((item) => item.id !== notification.id)
 				:	current.notifications.map((item) =>
 						item.id === notification.id ? { ...item, readAt: item.readAt ?? readAt } : item,
@@ -1602,6 +1604,9 @@ function App() {
 					bot={activeBot}
 					forum={activeForum}
 					onMarkAllNotificationsRead={() => void markAllNotificationsRead()}
+					onNotificationClose={(notification) =>
+						void markHumanNotificationReadState(notification, { removeFromList: true })
+					}
 					onNotificationOpen={(notification) => void openHumanNotification(notification)}
 					onRefresh={() => void refreshCurrentRoute()}
 					onRefreshNotifications={(status) => void loadHumanNotifications(status)}
@@ -1878,6 +1883,7 @@ function Topbar({
 	forum,
 	notifications,
 	onMarkAllNotificationsRead,
+	onNotificationClose,
 	onNotificationOpen,
 	onRefresh,
 	onRefreshNotifications,
@@ -1896,6 +1902,7 @@ function Topbar({
 	forum: ForumSummary | null;
 	notifications: HumanNotificationSummary;
 	onMarkAllNotificationsRead: () => void;
+	onNotificationClose: (notification: HumanNotification) => void;
 	onNotificationOpen: (notification: HumanNotification) => void;
 	onRefresh: () => void;
 	onRefreshNotifications: (status?: "unread" | "all") => void;
@@ -2024,6 +2031,7 @@ function Topbar({
 				</button>
 				<NotificationBell
 					notifications={notifications}
+					onCloseNotification={onNotificationClose}
 					onMarkAllRead={onMarkAllNotificationsRead}
 					onOpenNotification={onNotificationOpen}
 					onRefresh={onRefreshNotifications}
@@ -2070,11 +2078,13 @@ function ThemeSwitch({
 
 function NotificationBell({
 	notifications,
+	onCloseNotification,
 	onMarkAllRead,
 	onOpenNotification,
 	onRefresh,
 }: {
 	notifications: HumanNotificationSummary;
+	onCloseNotification: (notification: HumanNotification) => void;
 	onMarkAllRead: () => void;
 	onOpenNotification: (notification: HumanNotification) => void;
 	onRefresh: (status?: "unread" | "all") => void;
@@ -2110,24 +2120,41 @@ function NotificationBell({
 					{notifications.notifications.length === 0 ?
 						<div className="notification-empty">No unread notifications.</div>
 					:	notifications.notifications.map((notification) => (
-							<a
+							<div
 								className={`notification-card ${notification.readAt ? "" : "unread"} ${notification.spotlightId ? "has-spotlight" : ""}`}
-								href={notificationHref(notification)}
 								key={notification.id}
-								onClick={(event) => {
-									if (!shouldHandleSpaClick(event)) {
-										return;
-									}
-									event.preventDefault();
-									setOpen(false);
-									onOpenNotification(notification);
-								}}
 							>
-								<span className="notification-title">{notification.title}</span>
-								<NotificationBody body={notification.body} />
-								<span className="notification-meta">{notificationMeta(notification)}</span>
+								<a
+									className="notification-card-link"
+									href={notificationHref(notification)}
+									onClick={(event) => {
+										if (!shouldHandleSpaClick(event)) {
+											return;
+										}
+										event.preventDefault();
+										setOpen(false);
+										onOpenNotification(notification);
+									}}
+								>
+									<span className="notification-title">{notification.title}</span>
+									<NotificationBody body={notification.body} />
+									<span className="notification-meta">{notificationMeta(notification)}</span>
+								</a>
+								<button
+									aria-label="Close notification"
+									className="notification-close"
+									onClick={(event) => {
+										event.preventDefault();
+										event.stopPropagation();
+										onCloseNotification(notification);
+									}}
+									title="Close"
+									type="button"
+								>
+									<Icon name="x" size={13} />
+								</button>
 								{notification.spotlightId && <SpotlightNotificationBadge />}
-							</a>
+							</div>
 						))}
 					<button className="notification-load" onClick={() => onRefresh("all")} type="button">
 						Show recent read

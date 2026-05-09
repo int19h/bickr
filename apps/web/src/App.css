@@ -305,8 +305,10 @@ a {
 		0 0 0 1px var(--rule-soft);
 	display: grid;
 	gap: 6px;
+	grid-template-columns: minmax(0, 1fr);
 	max-height: min(520px, calc(100vh - 72px));
-	overflow: auto;
+	overflow-x: hidden;
+	overflow-y: auto;
 	padding: 10px;
 	position: absolute;
 	right: 0;
@@ -343,16 +345,11 @@ a {
 	border: 1px solid var(--rule-soft);
 	border-radius: var(--radius);
 	cursor: pointer;
-	display: grid;
-	gap: 3px;
-	padding: 9px 10px;
+	min-width: 0;
+	overflow: hidden;
 	position: relative;
 	text-align: left;
 	width: 100%;
-}
-
-.notification-card.has-spotlight {
-	padding-right: 34px;
 }
 
 .notification-card.unread {
@@ -364,10 +361,43 @@ a {
 	border-color: var(--accent);
 }
 
+.notification-card-link {
+	display: grid;
+	gap: 3px;
+	min-width: 0;
+	padding: 9px 38px 9px 10px;
+}
+
+.notification-close {
+	align-items: center;
+	background: transparent;
+	border: 1px solid transparent;
+	border-radius: 4px;
+	color: var(--ink-4);
+	cursor: pointer;
+	display: inline-grid;
+	height: 22px;
+	justify-content: center;
+	padding: 0;
+	position: absolute;
+	right: 7px;
+	top: 7px;
+	width: 22px;
+	z-index: 1;
+}
+
+.notification-close:hover {
+	background: var(--paper);
+	border-color: var(--rule);
+	color: var(--ink);
+}
+
 .notification-title {
 	color: var(--ink);
 	font-size: 13px;
 	font-weight: 650;
+	min-width: 0;
+	overflow-wrap: anywhere;
 }
 
 .notification-body {
@@ -376,11 +406,19 @@ a {
 	font-size: 12.5px;
 	gap: 2px;
 	line-height: 1.35;
+	min-width: 0;
+	overflow-wrap: anywhere;
 	white-space: pre-wrap;
 }
 
 .notification-body-detail {
 	color: var(--ink);
+}
+
+.notification-body > span,
+.notification-meta {
+	min-width: 0;
+	overflow-wrap: anywhere;
 }
 
 .notification-meta,
