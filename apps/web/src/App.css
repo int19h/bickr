@@ -1099,6 +1099,14 @@ button:disabled {
 	justify-content: flex-start;
 }
 
+.checkbox-help-field {
+	gap: 3px;
+}
+
+.checkbox-help-field .checkbox-line {
+	min-height: 0;
+}
+
 fieldset {
 	border: 0;
 	margin: 0;

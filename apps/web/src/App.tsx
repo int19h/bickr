@@ -208,9 +208,22 @@ type PromptBudgetState =
 
 type InferenceModelUnlockContext = {
 	apiKeySet?: boolean;
+	openRouterApiKey?: string;
+	openRouterApiKeySet?: boolean;
 	baseUrl?: string;
+	model?: string;
 	compactionMode?: BotCompactionMode;
+	providerRouting?: JsonObject;
+	reasoningEffort?: BotInferenceSettings["reasoningEffort"];
 	supportsPrefill?: boolean;
+	toolCalls?: BotInferenceSettings["toolCalls"];
+	temperature?: number;
+	topK?: number;
+	topP?: number;
+	minP?: number;
+	frequencyPenalty?: number;
+	presencePenalty?: number;
+	repetitionPenalty?: number;
 };
 
 type ProfileDraft = {
@@ -1120,24 +1133,6 @@ function App() {
 		});
 	}
 
-	async function seedSimulation(): Promise<boolean> {
-		if (!profileReadyFor("seeding the demo world")) {
-			return false;
-		}
-		return submit(async () => {
-			const result = await api<{ worldHandle: string; forums: ForumSummary[]; bots: BotSummary[] }>(
-				"/api/seed/simulation",
-				{ method: "POST", body: {} },
-			);
-			if (!result.ok) {
-				throw new Error(result.message);
-			}
-			await refreshAll();
-			navigate({ route: "world", worldHandle: result.data.worldHandle });
-			return `Seeded ${result.data.bots.length} bots and ${result.data.forums.length} forums.`;
-		});
-	}
-
 	async function createForum(worldHandle: string, input: CreateForumInput): Promise<boolean> {
 		if (!profileReadyFor("creating forums")) {
 			return false;
@@ -1548,7 +1543,6 @@ function App() {
 						<WorldsScreen
 							busy={busy}
 							onCreate={createWorld}
-							onSeed={seedSimulation}
 							worlds={worldViews}
 						/>
 					)}
@@ -2394,12 +2388,10 @@ function SidebarNavigation({
 function WorldsScreen({
 	busy,
 	onCreate,
-	onSeed,
 	worlds,
 }: {
 	busy: boolean;
 	onCreate: (input: CreateWorldInput) => Promise<boolean>;
-	onSeed: () => Promise<boolean>;
 	worlds: WorldView[];
 }) {
 	const [createOpen, setCreateOpen] = useState(false);
@@ -2422,10 +2414,6 @@ function WorldsScreen({
 							Mine
 						</button>
 					</div>
-					<button className="btn" disabled={busy} onClick={() => void onSeed()} type="button">
-						<Icon name="refresh" size={14} />
-						Seed simulation
-					</button>
 					<button className="btn primary" disabled={busy} onClick={() => setCreateOpen(true)} type="button">
 						<Icon name="plus" size={14} />
 						New world
@@ -5540,12 +5528,7 @@ function BotEdit({
 	const resolvedContextWindowTokens = contextWindowTokens ?? bot.effectiveTickSettings.contextWindowTokens;
 	const providerRoutingError = providerRoutingDraftError(draft.inference.providerRouting);
 	const translationProviderRoutingError = providerRoutingDraftError(draft.inference.translationProviderRouting);
-	const inferenceInheritance: InferenceModelUnlockContext = {
-		apiKeySet: Boolean(ownerInferenceSettings?.openRouterApiKeySet),
-		...(ownerInferenceSettings?.baseUrl ? { baseUrl: ownerInferenceSettings.baseUrl } : {}),
-		compactionMode: ownerInferenceSettings?.compactionMode ?? "structured_output",
-		supportsPrefill: ownerInferenceSettings?.supportsPrefill ?? true,
-	};
+	const inferenceInheritance = inferenceInheritanceContext(ownerInferenceSettings);
 	const promptBudgetRequestKey = botPromptBudgetRequestKey(bot.id, bot.handle, draft, ownerInferenceSettings);
 	const promptBudgetReady =
 		promptBudget.status === "ready" && promptBudget.requestKey === promptBudgetRequestKey ? promptBudget.budget : null;
@@ -6004,6 +5987,7 @@ function BotEdit({
 							draft={draft.inference}
 							inheritedApiKeySet={Boolean(ownerInferenceSettings?.openRouterApiKeySet)}
 							inheritedBaseUrl={ownerInferenceSettings?.baseUrl}
+							inheritedSettings={ownerInferenceSettings}
 							onChange={(inference) => setDraft((current) => ({ ...current, inference }))}
 							scope="bot"
 						/>
@@ -6017,6 +6001,7 @@ function BotEdit({
 							draft={draft.inference}
 							inheritedApiKeySet={Boolean(ownerInferenceSettings?.openRouterApiKeySet)}
 							inheritedBaseUrl={ownerInferenceSettings?.baseUrl}
+							inheritedSettings={ownerInferenceSettings}
 							modelSuggestions={modelSuggestions}
 							onChange={(inference) => setDraft((current) => ({ ...current, inference }))}
 							scope="bot"
@@ -7366,12 +7351,14 @@ function InferenceProviderFields({
 	draft,
 	inheritedApiKeySet = false,
 	inheritedBaseUrl,
+	inheritedSettings,
 	onChange,
 	scope,
 }: {
 	draft: InferenceDraft;
 	inheritedApiKeySet?: boolean;
 	inheritedBaseUrl?: string;
+	inheritedSettings?: BotInferenceSettings | null;
 	onChange: (draft: InferenceDraft) => void;
 	scope: "bot" | "profile";
 }) {
@@ -7385,6 +7372,7 @@ function InferenceProviderFields({
 	function patch(update: Partial<InferenceDraft>): void {
 		onChange(normalizeInferenceDraftModel({ ...draft, ...update }, inheritedContext));
 	}
+	const baseUrlPlaceholder = effectiveInferenceDraftBaseUrl(draft, inheritedSettings);
 
 	return (
 		<div className="field-stack">
@@ -7432,7 +7420,7 @@ function InferenceProviderFields({
 				<input
 					className="input"
 					onChange={(event) => patch({ baseUrl: event.target.value })}
-					placeholder="https://openrouter.ai/api/v1"
+					placeholder={baseUrlPlaceholder}
 					value={draft.baseUrl}
 				/>
 			</Field>
@@ -7444,6 +7432,7 @@ function AgenticLoopInferenceFields({
 	draft,
 	inheritedApiKeySet = false,
 	inheritedBaseUrl,
+	inheritedSettings,
 	modelSuggestions = [],
 	onChange,
 	scope,
@@ -7451,6 +7440,7 @@ function AgenticLoopInferenceFields({
 	draft: InferenceDraft;
 	inheritedApiKeySet?: boolean;
 	inheritedBaseUrl?: string;
+	inheritedSettings?: BotInferenceSettings | null;
 	modelSuggestions?: string[];
 	onChange: (draft: InferenceDraft) => void;
 		scope: "bot" | "profile";
@@ -7464,6 +7454,14 @@ function AgenticLoopInferenceFields({
 		[inheritedApiKeySet, inheritedBaseUrl],
 	);
 		const modelLocked = !canCustomizeInferenceModel(draft, inheritedContext);
+		const modelPlaceholder = effectiveInferenceDraftModel(draft, inheritedSettings);
+		const temperaturePlaceholder = effectiveNumberPlaceholder(inheritedSettings?.temperature, 0.9);
+		const topKPlaceholder = effectiveOptionalNumberPlaceholder(inheritedSettings?.topK);
+		const topPPlaceholder = effectiveNumberPlaceholder(inheritedSettings?.topP, 1);
+		const minPPlaceholder = effectiveOptionalNumberPlaceholder(inheritedSettings?.minP);
+		const frequencyPenaltyPlaceholder = effectiveOptionalNumberPlaceholder(inheritedSettings?.frequencyPenalty);
+		const presencePenaltyPlaceholder = effectiveOptionalNumberPlaceholder(inheritedSettings?.presencePenalty);
+		const repetitionPenaltyPlaceholder = effectiveOptionalNumberPlaceholder(inheritedSettings?.repetitionPenalty);
 		function patch(update: Partial<InferenceDraft>): void {
 			onChange(normalizeInferenceDraftModel({ ...draft, ...update }, inheritedContext));
 		}
@@ -7486,7 +7484,7 @@ function AgenticLoopInferenceFields({
 						disabled={modelLocked}
 						list={modelSuggestions.length > 0 ? modelListId : undefined}
 						onChange={(event) => patch({ model: event.target.value })}
-						placeholder={defaultProviderModel}
+						placeholder={modelPlaceholder}
 						value={modelLocked ? "" : draft.model}
 					/>
 							{modelSuggestions.length > 0 && (
@@ -7525,7 +7523,7 @@ function AgenticLoopInferenceFields({
 					</Field>
 				</div>
 				<div className="inference-row two">
-					<Field help="Turn off for providers that reject tool-enabled requests ending with participant narration.">
+					<Field className="checkbox-help-field" help="Turn off for providers that reject tool-enabled requests ending with participant narration.">
 						<label className="checkbox-line">
 							<input
 								checked={draft.supportsPrefill}
@@ -7536,7 +7534,7 @@ function AgenticLoopInferenceFields({
 						</label>
 					</Field>
 					<Field
-						help="How context compaction asks for the memory summary. Structured output keeps the normal tools in context without adding the summary control."
+						help="How context compaction asks for the memory summary."
 						label="Compaction mode"
 					>
 						<select
@@ -7559,7 +7557,7 @@ function AgenticLoopInferenceFields({
 						max="2"
 						min="0"
 						onChange={(event) => patch({ temperature: event.target.value })}
-						placeholder="0.9"
+						placeholder={temperaturePlaceholder}
 						step="0.05"
 						type="number"
 							value={draft.temperature}
@@ -7570,7 +7568,7 @@ function AgenticLoopInferenceFields({
 							className="input"
 							min="0"
 							onChange={(event) => patch({ topK: event.target.value })}
-							placeholder="default"
+							placeholder={topKPlaceholder}
 							step="1"
 							type="number"
 							value={draft.topK}
@@ -7582,7 +7580,7 @@ function AgenticLoopInferenceFields({
 						max="1"
 						min="0"
 						onChange={(event) => patch({ topP: event.target.value })}
-						placeholder="1"
+						placeholder={topPPlaceholder}
 						step="0.01"
 						type="number"
 							value={draft.topP}
@@ -7594,7 +7592,7 @@ function AgenticLoopInferenceFields({
 						max="1"
 						min="0"
 						onChange={(event) => patch({ minP: event.target.value })}
-						placeholder="default"
+						placeholder={minPPlaceholder}
 						step="0.01"
 						type="number"
 						value={draft.minP}
@@ -7608,7 +7606,7 @@ function AgenticLoopInferenceFields({
 						max="2"
 						min="-2"
 						onChange={(event) => patch({ frequencyPenalty: event.target.value })}
-						placeholder="default"
+						placeholder={frequencyPenaltyPlaceholder}
 						step="0.05"
 						type="number"
 						value={draft.frequencyPenalty}
@@ -7620,7 +7618,7 @@ function AgenticLoopInferenceFields({
 						max="2"
 						min="-2"
 						onChange={(event) => patch({ presencePenalty: event.target.value })}
-						placeholder="default"
+						placeholder={presencePenaltyPlaceholder}
 						step="0.05"
 						type="number"
 							value={draft.presencePenalty}
@@ -7632,7 +7630,7 @@ function AgenticLoopInferenceFields({
 						max="2"
 						min="0"
 						onChange={(event) => patch({ repetitionPenalty: event.target.value })}
-						placeholder="default"
+						placeholder={repetitionPenaltyPlaceholder}
 						step="0.05"
 						type="number"
 						value={draft.repetitionPenalty}
@@ -7641,6 +7639,7 @@ function AgenticLoopInferenceFields({
 				</div>
 				<ProviderRoutingField
 					onChange={(providerRouting) => patch({ providerRouting })}
+					placeholder={providerRoutingPlaceholderForInheritance(inheritedSettings)}
 					value={draft.providerRouting}
 				/>
 			</div>
@@ -7672,9 +7671,11 @@ const structuredToolCallOptions = toolCallOptions.filter((option) => option.valu
 
 function ProviderRoutingField({
 	onChange,
+	placeholder = providerRoutingPlaceholder,
 	value,
 }: {
 	onChange: (value: string) => void;
+	placeholder?: string;
 	value: string;
 }) {
 	const error = providerRoutingDraftError(value);
@@ -7684,7 +7685,7 @@ function ProviderRoutingField({
 				<textarea
 					className={`textarea provider-routing-editor ${error ? "invalid" : ""}`}
 					onChange={(event) => onChange(event.target.value)}
-					placeholder={providerRoutingPlaceholder}
+					placeholder={placeholder}
 					rows={7}
 					spellCheck={false}
 					value={value}
@@ -12142,17 +12143,19 @@ function Modal({
 
 function Field({
 	children,
+	className,
 	help,
 	hint,
 	label,
 }: {
 	children: ReactNode;
+	className?: string;
 	help?: ReactNode;
 	hint?: string;
 	label?: ReactNode;
 }) {
 	return (
-		<div className="field">
+		<div className={className ? `field ${className}` : "field"}>
 			{label && (
 				<label>
 					{label}
@@ -13101,7 +13104,7 @@ function profileDraftChanged(draft: ProfileDraft, profile: UserProfile): boolean
 
 function inferenceDraftFromSettings(
 	settings: BotInferenceSettings,
-	inherited?: Pick<BotInferenceSettings, "compactionMode" | "supportsPrefill">,
+	inherited?: InferenceModelUnlockContext,
 ): InferenceDraft {
 	return {
 		openRouterApiKey: "",
@@ -13113,8 +13116,8 @@ function inferenceDraftFromSettings(
 		recurringPromptEnabled: settings.recurringPromptEnabled !== false,
 		recurringPrompt: settings.recurringPrompt ?? settings.reasoningPrefill ?? "",
 		supportsPrefill: settings.supportsPrefill ?? inherited?.supportsPrefill ?? true,
-		reasoningEffort: settings.reasoningEffort ?? "default",
-		toolCalls: settings.toolCalls ?? "require",
+		reasoningEffort: settings.reasoningEffort ?? inherited?.reasoningEffort ?? "default",
+		toolCalls: settings.toolCalls ?? inherited?.toolCalls ?? "require",
 		providerRouting: providerRoutingDraftValue(settings.providerRouting),
 		translationEnabled: Boolean(settings.translation?.enabled),
 		translationModel: settings.translation?.model ?? "",
@@ -13145,11 +13148,13 @@ function inferenceDraftChanged(
 	options: {
 		includeReasoningPrefill?: boolean;
 		includeTranslation?: boolean;
-		inherited?: Pick<BotInferenceSettings, "compactionMode" | "supportsPrefill">;
+		inherited?: InferenceModelUnlockContext;
 	} = {},
 ): boolean {
 	const compactionMode = settings.compactionMode ?? options.inherited?.compactionMode ?? "structured_output";
 	const supportsPrefill = settings.supportsPrefill ?? options.inherited?.supportsPrefill ?? true;
+	const reasoningEffort = settings.reasoningEffort ?? options.inherited?.reasoningEffort ?? "default";
+	const toolCalls = settings.toolCalls ?? options.inherited?.toolCalls ?? "require";
 	return (
 		Boolean(draft.openRouterApiKey.trim()) ||
 		draft.clearOpenRouterApiKey ||
@@ -13159,8 +13164,8 @@ function inferenceDraftChanged(
 		(Boolean(options.includeReasoningPrefill) && draft.recurringPromptEnabled !== (settings.recurringPromptEnabled !== false)) ||
 		(Boolean(options.includeReasoningPrefill) && draft.recurringPrompt !== (settings.recurringPrompt ?? settings.reasoningPrefill ?? "")) ||
 		draft.supportsPrefill !== supportsPrefill ||
-		nullableReasoningEffortInput(draft.reasoningEffort) !== (settings.reasoningEffort ?? null) ||
-		nullableToolCallsInput(draft.toolCalls) !== (settings.toolCalls ?? "require") ||
+		draft.reasoningEffort !== reasoningEffort ||
+		draft.toolCalls !== toolCalls ||
 		providerRoutingDraftChanged(draft.providerRouting, settings.providerRouting) ||
 		(Boolean(options.includeTranslation) && translationDraftChanged(draft, settings)) ||
 		draft.temperature.trim() !== numericDraftValue(settings.temperature) ||
@@ -13201,12 +13206,14 @@ function inferenceInputFromDraft(
 	const normalized = normalizeInferenceDraftModel(draft, inherited);
 	const inheritedCompactionMode = inherited?.compactionMode ?? "structured_output";
 	const inheritedSupportsPrefill = inherited?.supportsPrefill ?? true;
+	const inheritedReasoningEffort = inherited?.reasoningEffort ?? "default";
+	const inheritedToolCalls = inherited?.toolCalls ?? "require";
 	return {
 		...(normalized.openRouterApiKey.trim() ? { openRouterApiKey: normalized.openRouterApiKey.trim() }
 		: normalized.clearOpenRouterApiKey ? { openRouterApiKey: null }
 		: {}),
-		baseUrl: nullableTextInput(normalized.baseUrl),
-		model: nullableTextInput(normalized.model),
+		baseUrl: nullableTextInputMatchingInherited(normalized.baseUrl, inherited?.baseUrl),
+		model: nullableTextInputMatchingInherited(normalized.model, inherited?.model),
 		compactionMode:
 			normalized.compactionMode === inheritedCompactionMode ? null : normalized.compactionMode,
 		...(options.includeReasoningPrefill ?
@@ -13216,17 +13223,18 @@ function inferenceInputFromDraft(
 			}
 		:	{}),
 		supportsPrefill: normalized.supportsPrefill === inheritedSupportsPrefill ? null : normalized.supportsPrefill,
-		reasoningEffort: nullableReasoningEffortInput(normalized.reasoningEffort),
-		toolCalls: nullableToolCallsInput(normalized.toolCalls),
+		reasoningEffort:
+			normalized.reasoningEffort === inheritedReasoningEffort ? null : nullableReasoningEffortInput(normalized.reasoningEffort),
+		toolCalls: normalized.toolCalls === inheritedToolCalls ? null : nullableToolCallsInput(normalized.toolCalls),
 		providerRouting: providerRoutingInputFromDraft(normalized.providerRouting),
 		...(options.includeTranslation ? { translation: translationInputFromDraft(normalized) } : {}),
-		temperature: nullableNumberInput(normalized.temperature),
-		topK: nullableNumberInput(normalized.topK),
-		topP: nullableNumberInput(normalized.topP),
-		minP: nullableNumberInput(normalized.minP),
-		frequencyPenalty: nullableNumberInput(normalized.frequencyPenalty),
-		presencePenalty: nullableNumberInput(normalized.presencePenalty),
-		repetitionPenalty: nullableNumberInput(normalized.repetitionPenalty),
+		temperature: nullableNumberInputMatchingInherited(normalized.temperature, inherited?.temperature),
+		topK: nullableNumberInputMatchingInherited(normalized.topK, inherited?.topK),
+		topP: nullableNumberInputMatchingInherited(normalized.topP, inherited?.topP),
+		minP: nullableNumberInputMatchingInherited(normalized.minP, inherited?.minP),
+		frequencyPenalty: nullableNumberInputMatchingInherited(normalized.frequencyPenalty, inherited?.frequencyPenalty),
+		presencePenalty: nullableNumberInputMatchingInherited(normalized.presencePenalty, inherited?.presencePenalty),
+		repetitionPenalty: nullableNumberInputMatchingInherited(normalized.repetitionPenalty, inherited?.repetitionPenalty),
 	};
 }
 
@@ -13333,7 +13341,7 @@ function canCustomizeInferenceModel(
 		Boolean(draft.openRouterApiKey.trim()) ||
 		(draft.openRouterApiKeySet && !draft.clearOpenRouterApiKey) ||
 		Boolean(draft.baseUrl.trim()) ||
-		Boolean(inherited?.apiKeySet) ||
+		Boolean(inherited?.apiKeySet || inherited?.openRouterApiKeySet || inherited?.openRouterApiKey?.trim()) ||
 		Boolean(inherited?.baseUrl?.trim())
 	);
 }
@@ -13380,16 +13388,13 @@ function botPromptBudgetRequestKey(
 	});
 }
 
-function effectiveInferenceDraftModel(
-	draft: InferenceDraft,
-	inherited?: BotInferenceSettings | null,
-): string {
+function effectiveInferenceDraftModel(draft: InferenceDraft, inherited?: InferenceModelUnlockContext | null): string {
 	const draftHasProvider =
 		Boolean(draft.openRouterApiKey.trim()) ||
 		(draft.openRouterApiKeySet && !draft.clearOpenRouterApiKey) ||
 		Boolean(draft.baseUrl.trim());
 	const inheritedHasProvider =
-		Boolean(inherited?.openRouterApiKeySet) ||
+		Boolean(inherited?.apiKeySet || inherited?.openRouterApiKeySet) ||
 		Boolean(inherited?.openRouterApiKey?.trim()) ||
 		Boolean(inherited?.baseUrl?.trim());
 	const draftModel = draft.model.trim();
@@ -13404,14 +13409,14 @@ function effectiveInferenceDraftModel(
 
 function effectiveInferenceDraftBaseUrl(
 	draft: InferenceDraft,
-	inherited?: BotInferenceSettings | null,
+	inherited?: InferenceModelUnlockContext | null,
 ): string {
 	return draft.baseUrl.trim() || inherited?.baseUrl?.trim() || "https://openrouter.ai/api/v1";
 }
 
 function inferenceDraftCredentialState(
 	draft: InferenceDraft,
-	inherited?: BotInferenceSettings | null,
+	inherited?: InferenceModelUnlockContext | null,
 ): string {
 	if (draft.openRouterApiKey.trim()) {
 		return "draft";
@@ -13422,10 +13427,32 @@ function inferenceDraftCredentialState(
 	if (draft.openRouterApiKeySet) {
 		return "saved";
 	}
-	if (inherited?.openRouterApiKeySet || inherited?.openRouterApiKey?.trim()) {
+	if (inherited?.apiKeySet || inherited?.openRouterApiKeySet || inherited?.openRouterApiKey?.trim()) {
 		return "inherited";
 	}
 	return "none";
+}
+
+function inferenceInheritanceContext(settings?: BotInferenceSettings | null): InferenceModelUnlockContext | undefined {
+	if (!settings) {
+		return undefined;
+	}
+	return {
+		...settings,
+		apiKeySet: Boolean(settings.openRouterApiKeySet),
+	};
+}
+
+function effectiveNumberPlaceholder(value: number | undefined, fallback: number): string {
+	return String(value ?? fallback);
+}
+
+function effectiveOptionalNumberPlaceholder(value: number | undefined): string {
+	return value === undefined ? "default" : String(value);
+}
+
+function providerRoutingPlaceholderForInheritance(inherited?: InferenceModelUnlockContext | null): string {
+	return inherited?.providerRouting ? JSON.stringify(inherited.providerRouting, null, 2) : providerRoutingPlaceholder;
 }
 
 function effectiveBotModel(bot: BotSummary, inherited?: BotInferenceSettings | null): string {
@@ -13542,6 +13569,15 @@ function nullableTextInput(value: string): string | null {
 	return trimmed ? trimmed : null;
 }
 
+function nullableTextInputMatchingInherited(value: string, inherited: string | undefined): string | null {
+	const trimmed = value.trim();
+	const inheritedTrimmed = inherited?.trim();
+	if (!trimmed || (inheritedTrimmed && trimmed === inheritedTrimmed)) {
+		return null;
+	}
+	return trimmed;
+}
+
 function nullablePreservedTextInput(value: string): string | null {
 	return value.trim() ? value : null;
 }
@@ -13549,6 +13585,11 @@ function nullablePreservedTextInput(value: string): string | null {
 function nullableNumberInput(value: string): number | null {
 	const trimmed = value.trim();
 	return trimmed ? Number(trimmed) : null;
+}
+
+function nullableNumberInputMatchingInherited(value: string, inherited: number | undefined): number | null {
+	const parsed = nullableNumberInput(value);
+	return parsed !== null && inherited !== undefined && parsed === inherited ? null : parsed;
 }
 
 function nullableReasoningEffortInput(value: string): BotInferenceSettings["reasoningEffort"] | null {
