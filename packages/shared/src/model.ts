@@ -91,6 +91,7 @@ export type BotInferenceSettings = {
 	openRouterApiKeySet?: boolean;
 	baseUrl?: string;
 	model?: string;
+	compactionMode?: BotCompactionMode;
 	cacheFriendlyCompaction?: boolean;
 	recurringPromptEnabled?: boolean;
 	recurringPrompt?: string;
@@ -112,6 +113,7 @@ export type BotInferenceSettings = {
 export type BotInferenceReasoningEffort = "default" | "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
 export type BotInferenceToolCalls = "require" | "railroad" | "at_will";
 export type BotStructuredToolCalls = Exclude<BotInferenceToolCalls, "at_will">;
+export type BotCompactionMode = "structured_output" | "tool_call" | "tool_call_cache_friendly";
 
 export type BotTranslationSettings = {
 	enabled?: boolean;
@@ -133,6 +135,7 @@ export type BotInferenceSettingsInput = {
 	openRouterApiKey?: string | null;
 	baseUrl?: string | null;
 	model?: string | null;
+	compactionMode?: BotCompactionMode | null;
 	cacheFriendlyCompaction?: boolean | null;
 	recurringPromptEnabled?: boolean | null;
 	recurringPrompt?: string | null;

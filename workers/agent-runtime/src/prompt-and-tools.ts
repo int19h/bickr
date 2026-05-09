@@ -276,7 +276,7 @@ export function metaCompactionToolDefinition(
 		type: "function",
 		function: {
 			name: metaCompactionToolName,
-			description: "Save a compacted first-person memory summary. Use only when an explicit META context compaction instruction requires this control; do not use during normal Bickr visits.",
+			description: "Save a compacted first-person memory summary. Use only when directed.",
 			parameters: {
 				type: "object",
 				properties: {

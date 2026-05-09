@@ -88,6 +88,7 @@ import {
 	type BotDocument,
 	type BotInferenceReasoningEffort,
 	type BotInferenceToolCalls,
+	type BotCompactionMode,
 	type BotPublicProfile,
 	type BotActivityFeed,
 	type CommentDocument,
@@ -625,7 +626,7 @@ export type ProviderSettings = {
 	apiKey?: string;
 	baseUrl: string;
 	model: string;
-	cacheFriendlyCompaction?: boolean;
+	compactionMode?: BotCompactionMode;
 	providerRouting?: JsonObject;
 	reasoningEffort?: Exclude<BotInferenceReasoningEffort, "default">;
 	supportsPrefill?: boolean;
@@ -651,7 +652,7 @@ export type PromptContextBudgetCounts = Pick<
 
 export type PromptContextBudgetFingerprintParts = {
 	botId: string;
-	cacheFriendlyCompaction: boolean;
+	compactionMode: BotCompactionMode;
 	effectiveModel: string;
 	fixedSystemFingerprint: string;
 	personaPromptFingerprint: string;
@@ -709,9 +710,24 @@ type ProviderCompactionRequest = {
 	tools: ProviderToolDefinition[];
 	tool_choice?: typeof providerRequiredToolChoice;
 	parallel_tool_calls: false;
+	response_format?: ProviderJsonSchemaResponseFormat;
 	max_completion_tokens: number;
 	reasoning: ProviderReasoningConfig;
 	temperature: number;
+};
+
+type ProviderJsonSchemaResponseFormat = {
+	type: "json_schema";
+	json_schema: {
+		name: string;
+		strict: true;
+		schema: {
+			type: "object";
+			properties: Record<string, { type: "string"; minLength?: number; maxLength?: number }>;
+			required: string[];
+			additionalProperties: false;
+		};
+	};
 };
 
 type TranslationProviderSettings = {
@@ -850,7 +866,7 @@ class ProviderStructuredOutputValidationError extends Error {
 	readonly outputText?: string;
 
 	constructor(kind: "compaction" | "translation", repairMessage: string, options: { rawResponse?: string; requiredToolName?: string; toolCalls?: BotInferenceSubmissionToolCall[]; outputText?: string } = {}) {
-		super(`Inference provider returned schema-invalid ${kind} tool arguments: ${repairMessage}`);
+		super(`Inference provider returned schema-invalid ${kind} ${options.requiredToolName ? "tool arguments" : "structured output"}: ${repairMessage}`);
 		this.name = "ProviderStructuredOutputValidationError";
 		this.repairMessage = repairMessage;
 		this.requiredToolName = options.requiredToolName ?? "";
@@ -1038,7 +1054,7 @@ function toolRequirementInstruction(tools: readonly ProviderToolDefinition[]): s
 	const prefix = names ? `You MUST use one of the following tools: ${names}.` : "You MUST use an available Bickr control.";
 	const metaInstruction =
 		tools.some(isMetaCompactionToolDefinition) ?
-			` ${providerCompactionToolName} may only be used when a later META context compaction instruction explicitly requires it.`
+			` ${providerCompactionToolName} may only be used when directed.`
 		:	"";
 	return `${prefix}${metaInstruction}`;
 }
@@ -1054,16 +1070,16 @@ function appendToolRequirementInstruction(content: string, tools: readonly Provi
 
 function providerFunctionToolsForBot(
 	bot: Pick<BotDocument, "tickSettings">,
-	settings?: Pick<ProviderSettings, "cacheFriendlyCompaction">,
+	settings?: Pick<ProviderSettings, "compactionMode">,
 ): ProviderToolDefinition[] {
 	return toolDefinitionsForProviderRound(effectiveTickSettings(bot.tickSettings).compactionMaxCharacters, {
-		includeMetaCompactionTool: settings?.cacheFriendlyCompaction === true,
+		includeMetaCompactionTool: settings?.compactionMode === "tool_call_cache_friendly",
 	});
 }
 
 function providerToolsForBotRound(
 	bot: Pick<BotDocument, "tickSettings" | "toolSettings">,
-	settings: Pick<ProviderSettings, "baseUrl" | "cacheFriendlyCompaction">,
+	settings: Pick<ProviderSettings, "baseUrl" | "compactionMode">,
 ): { tools: ProviderToolDefinition[]; serverTools: ReturnType<typeof openRouterServerToolSelection> } {
 	const serverTools = openRouterServerToolSelection(settings.baseUrl, bot.toolSettings);
 	return {
@@ -1134,10 +1150,10 @@ const defaultProviderCompactionSummaryLimits: ProviderCompactionSummaryLimits = 
 	compactionSummaryPercent: providerCompactionDefaultSummaryPercent,
 };
 
-export type ProviderCompactionMode = "isolated" | "cache_friendly";
+export type ProviderCompactionMode = BotCompactionMode;
 
-function providerCompactionMode(settings: Pick<ProviderSettings, "cacheFriendlyCompaction">): ProviderCompactionMode {
-	return settings.cacheFriendlyCompaction === true ? "cache_friendly" : "isolated";
+function providerCompactionMode(settings: Pick<ProviderSettings, "compactionMode">): ProviderCompactionMode {
+	return settings.compactionMode ?? "structured_output";
 }
 
 function providerCompactionOnlyTools(limits: Pick<ProviderCompactionSummaryLimits, "minLength" | "maxLength">): [ProviderToolDefinition] {
@@ -1149,15 +1165,20 @@ function providerCompactionToolsForMode(
 	providerTools: ProviderToolDefinition[] | undefined,
 	mode: ProviderCompactionMode,
 ): ProviderToolDefinition[] {
-	if (mode === "isolated") {
+	if (mode === "tool_call") {
 		return providerCompactionOnlyTools(limits);
 	}
-	const tools = providerTools ?? toolDefinitionsForProviderRound(limits.maxLength, { includeMetaCompactionTool: true });
-	return tools.some(isMetaCompactionToolDefinition) ? tools : [...tools, metaCompactionToolDefinition(limits.maxLength)];
+	if (mode === "tool_call_cache_friendly") {
+		const tools = providerTools ?? toolDefinitionsForProviderRound(limits.maxLength, { includeMetaCompactionTool: true });
+		return tools.some(isMetaCompactionToolDefinition) ? tools : [...tools, metaCompactionToolDefinition(limits.maxLength)];
+	}
+	return (providerTools ?? toolDefinitionsForProviderRound(limits.maxLength, { includeMetaCompactionTool: false })).filter(
+		(tool) => !isMetaCompactionToolDefinition(tool),
+	);
 }
 
 function providerCompactionSystemInstruction(bot: BotDocument, tools: readonly ProviderToolDefinition[], mode: ProviderCompactionMode): string {
-	return mode === "isolated" ?
+	return mode === "tool_call" ?
 			[
 				"You are an autonomous Bickr participant.",
 				`"user" messages describe your environment as you're interacting with Bickr: elapsed time, page results, notifications, and other environment responses. Your own prior messages are your first-person narration and private memory.`,
@@ -1168,16 +1189,22 @@ function providerCompactionSystemInstruction(bot: BotDocument, tools: readonly P
 				`Your persona is:\n${bot.prompt}`,
 				`You MUST use ${providerCompactionToolName}. Do not use any other Bickr control.`,
 			].join("\n\n")
-		:	appendToolRequirementInstruction(standardPrompt(bot), tools);
+	:	appendToolRequirementInstruction(standardPrompt(bot), tools);
 }
 
-function providerCompactionSummaryInstruction(bot: Pick<BotDocument, "handle">, limits: Pick<ProviderCompactionSummaryLimits, "minLength" | "maxLength">): string {
+function providerCompactionSummaryInstruction(bot: Pick<BotDocument, "handle">, limits: Pick<ProviderCompactionSummaryLimits, "minLength" | "maxLength">, mode: ProviderCompactionMode): string {
 	const lengthInstruction = providerCompactionLengthInstruction(limits);
+	if (mode === "structured_output") {
+		return `META: Context compaction required. Reply with a JSON object matching the required structured output schema, and do not use any Bickr control. Put a detailed summary of everything important, from the first-person perspective of u/${bot.handle}, in the "${providerCompactionSummaryProperty}" field; your response will become the long-term memory of these events, replacing them in context henceforth. ${lengthInstruction}`;
+	}
 	return `META: Context compaction required. Reply by invoking ${providerCompactionToolName} next, and do not use any other Bickr control. Put a detailed summary of everything important, from the first-person perspective of u/${bot.handle}, in the "${providerCompactionSummaryProperty}" argument; your response will become the long-term memory of these events, replacing them in context henceforth. ${lengthInstruction}`;
 }
 
-function providerCompactionShortenInstruction(limits: Pick<ProviderCompactionSummaryLimits, "minLength" | "maxLength">): string {
+function providerCompactionShortenInstruction(limits: Pick<ProviderCompactionSummaryLimits, "minLength" | "maxLength">, mode: ProviderCompactionMode): string {
 	const lengthInstruction = providerCompactionLengthInstruction(limits);
+	if (mode === "structured_output") {
+		return `META: The previous context compaction attempt produced a summary that was too long. Reply with a JSON object matching the required structured output schema, and do not use any Bickr control. Put a shorter first-person memory summary in the "${providerCompactionSummaryProperty}" field. ${lengthInstruction}`;
+	}
 	return `META: The previous context compaction attempt produced a summary that was too long. Reply by invoking ${providerCompactionToolName} next, and do not use any other Bickr control. Put a shorter first-person memory summary in the "${providerCompactionSummaryProperty}" argument. ${lengthInstruction}`;
 }
 
@@ -1191,12 +1218,13 @@ function providerCompactionShortenMessages(
 	previousMessages: readonly ChatMessage[],
 	previousSummary: string,
 	limits: Pick<ProviderCompactionSummaryLimits, "minLength" | "maxLength">,
+	mode: ProviderCompactionMode = "structured_output",
 ): ChatMessage[] {
 	const systemMessage = previousMessages.find((message) => message.role === "system");
 	return [
 		...(systemMessage ? [systemMessage] : []),
 		{ role: "assistant", content: previousSummary },
-		{ role: "user", content: providerCompactionShortenInstruction(limits) },
+		{ role: "user", content: providerCompactionShortenInstruction(limits, mode) },
 	];
 }
 
@@ -1205,7 +1233,7 @@ export function providerCompactionMessages(
 	compactedMessages: ChatMessage[],
 	limits: Pick<ProviderCompactionSummaryLimits, "minLength" | "maxLength"> = defaultProviderCompactionSummaryLimits,
 	providerTools: ProviderToolDefinition[] = toolDefinitionsForProviderRound(limits.maxLength),
-	mode: ProviderCompactionMode = "isolated",
+	mode: ProviderCompactionMode = "structured_output",
 ): ChatMessage[] {
 	const tools = providerCompactionToolsForMode(limits, providerTools, mode);
 	return [
@@ -1216,9 +1244,9 @@ export function providerCompactionMessages(
 		...compactedMessages,
 		{
 			role: "user",
-			content: providerCompactionSummaryInstruction(bot, limits),
+			content: providerCompactionSummaryInstruction(bot, limits, mode),
 		},
-		...(mode === "isolated" ?
+		...(mode === "tool_call" ?
 			[{
 				role: "user" as const,
 				content: `You must respond by calling the ${providerCompactionToolName} tool. Put the summary in the "${providerCompactionSummaryProperty}" argument. ${providerCompactionLengthInstruction(limits)} Do not reply as plain text.`,
@@ -1232,7 +1260,7 @@ export function providerCompactionSummaryLimitsForChat(
 	compactedMessages: readonly ChatMessage[],
 	calibration: TextTokenCalibration,
 	providerTools?: ProviderToolDefinition[],
-	mode: ProviderCompactionMode = "isolated",
+	mode: ProviderCompactionMode = "structured_output",
 ): ProviderCompactionSummaryLimits {
 	const tickSettings = effectiveTickSettings(bot.tickSettings);
 	const contextWindowTokens = Math.max(1, Math.floor(tickSettings.contextWindowTokens));
@@ -1257,7 +1285,13 @@ export function providerCompactionSummaryLimitsForChat(
 		maxSummaryTokens = Math.max(1, Math.ceil(maxLength * tokensPerCharacter));
 		compactionRequestOverheadTokens = providerCompactionRequestOverheadTokens(bot, { minLength, maxLength }, calibration, effectiveProviderTools, mode);
 		const messages = providerCompactionMessages(bot, [...compactedMessages], { minLength, maxLength }, effectiveProviderTools, mode);
-		maxCompletionTokens = providerCompactionMaxCompletionTokensForRequest(contextWindowTokens, messages, effectiveProviderTools, calibration);
+		maxCompletionTokens = providerCompactionMaxCompletionTokensForRequest(
+			contextWindowTokens,
+			messages,
+			effectiveProviderTools,
+			calibration,
+			providerCompactionResponseFormat(maxLength, mode),
+		);
 		compactionInputTokens = Math.max(1, contextWindowTokens - anticipatedSummaryTokens - compactionRequestOverheadTokens);
 		nextCompactionTokens = providerPromptCompactionCutoffTokens(contextWindowTokens, anticipatedSummaryTokens);
 	}
@@ -1290,13 +1324,15 @@ function providerCompactionRequestOverheadTokens(
 	limits: Pick<ProviderCompactionSummaryLimits, "minLength" | "maxLength">,
 	calibration: TextTokenCalibration,
 	providerTools: ProviderToolDefinition[] = toolDefinitionsForProviderRound(limits.maxLength),
-	mode: ProviderCompactionMode = "isolated",
+	mode: ProviderCompactionMode = "structured_output",
 ): number {
 	const tools = providerCompactionToolsForMode(limits, providerTools, mode);
 	const overheadMessages = providerCompactionMessages(bot, [], limits, tools, mode);
+	const responseFormat = providerCompactionResponseFormat(limits.maxLength, mode);
 	return (
 		estimateChatMessagesTokens(overheadMessages, calibration) +
 		estimateTextTokensWithCalibration(JSON.stringify(tools), calibration) +
+		estimateTextTokensWithCalibration(JSON.stringify(responseFormat ?? {}), calibration) +
 		providerPromptEstimateSafetyTokens
 	);
 }
@@ -1306,31 +1342,66 @@ function providerCompactionMaxCompletionTokensForRequest(
 	messages: readonly ChatMessage[],
 	providerTools: readonly ProviderToolDefinition[],
 	calibration: TextTokenCalibration,
+	responseFormat?: ProviderJsonSchemaResponseFormat,
 ): number {
 	return Math.max(
 		1,
 		Math.floor(contextWindowTokens) -
 			estimateChatMessagesTokens(messages, calibration) -
 			estimateTextTokensWithCalibration(JSON.stringify(providerTools), calibration) -
+			estimateTextTokensWithCalibration(JSON.stringify(responseFormat ?? {}), calibration) -
 			providerPromptEstimateSafetyTokens,
 	);
+}
+
+function providerCompactionResponseFormat(
+	maxCharacters: number,
+	mode: ProviderCompactionMode = "structured_output",
+): ProviderJsonSchemaResponseFormat | undefined {
+	if (mode !== "structured_output") {
+		return undefined;
+	}
+	return {
+		type: "json_schema",
+		json_schema: {
+			name: "compaction_summary",
+			strict: true,
+			schema: {
+				type: "object",
+				properties: {
+					[providerCompactionSummaryProperty]: {
+						type: "string",
+						minLength: 1,
+						maxLength: Math.max(1, Math.floor(maxCharacters)),
+					},
+				},
+				required: [providerCompactionSummaryProperty],
+				additionalProperties: false,
+			},
+		},
+	};
 }
 
 export function providerCompactionRequest(
 	settings: Pick<ProviderSettings, "model" | "providerRouting" | "reasoningEffort" | "supportsPrefill" | "toolCalls">,
 	messages: ChatMessage[],
 	limits: Pick<ProviderCompactionSummaryLimits, "minLength" | "maxLength" | "maxCompletionTokens"> = defaultProviderCompactionSummaryLimits,
-	providerTools: ProviderToolDefinition[] = providerCompactionOnlyTools(limits),
+	providerTools?: ProviderToolDefinition[],
+	mode: ProviderCompactionMode = "structured_output",
 ): ProviderCompactionRequest {
 	const toolCalls = structuredToolCallsMode(settings.toolCalls ?? "require");
+	const effectiveProviderTools = providerTools ?? providerCompactionToolsForMode(limits, undefined, mode);
+	const toolChoice = mode === "structured_output" ? undefined : providerToolChoiceForMode(toolCalls);
+	const responseFormat = providerCompactionResponseFormat(limits.maxLength, mode);
 	return {
 		model: settings.model,
 		messages: sanitizeProviderMessagesForRequest(providerMessagesWithPrefillCompatibility(settings, messages)),
 		...(settings.providerRouting ? { provider: settings.providerRouting } : {}),
 		stream: false,
-		tools: providerTools,
-		...(providerToolChoiceForMode(toolCalls) ? { tool_choice: providerToolChoiceForMode(toolCalls) } : {}),
+		tools: effectiveProviderTools,
+		...(toolChoice ? { tool_choice: toolChoice } : {}),
 		parallel_tool_calls: false,
+		...(responseFormat ? { response_format: responseFormat } : {}),
 		max_completion_tokens: limits.maxCompletionTokens,
 		reasoning: providerReasoningForSettings(settings),
 		temperature: providerCompactionTemperature,
@@ -2222,7 +2293,7 @@ export function effectiveProviderSettingsForBot(
 			apiKey: botApiKey ?? userApiKey ?? (hasCustomBaseUrl ? undefined : envApiKey),
 			baseUrl,
 			model,
-			cacheFriendlyCompaction: bot.inferenceSettings.cacheFriendlyCompaction ?? userSettings.cacheFriendlyCompaction ?? false,
+			compactionMode: bot.inferenceSettings.compactionMode ?? userSettings.compactionMode ?? "structured_output",
 			...(effectiveProviderRouting ? { providerRouting: effectiveProviderRouting } : {}),
 			...(reasoningEffort && reasoningEffort !== "default" ? { reasoningEffort } : {}),
 			supportsPrefill: bot.inferenceSettings.supportsPrefill ?? userSettings.supportsPrefill ?? true,
@@ -3689,14 +3760,16 @@ export class BotRuntime {
 		runId: string,
 		signal: AbortSignal,
 		limits: Pick<ProviderCompactionSummaryLimits, "minLength" | "maxLength" | "maxCompletionTokens"> = defaultProviderCompactionSummaryLimits,
-		providerTools: ProviderToolDefinition[] = providerCompactionOnlyTools(limits),
+		providerTools?: ProviderToolDefinition[],
+		mode: ProviderCompactionMode = "structured_output",
 	): Promise<Pick<ProviderResponse, "usage" | "responseId" | "responseModel" | "requestBody" | "rawResponse"> & { content: string }> {
 		const endpoint = providerChatCompletionsUrl(settings.baseUrl);
+		const effectiveProviderTools = providerTools ?? providerCompactionToolsForMode(limits, undefined, mode);
 		let requestMessages = messages;
-		let lastBody = stringifyProviderRequest(providerCompactionRequest(settings, requestMessages, limits, providerTools));
+		let lastBody = stringifyProviderRequest(providerCompactionRequest(settings, requestMessages, limits, effectiveProviderTools, mode));
 		let lastValidationError: ProviderStructuredOutputValidationError | null = null;
 		for (let schemaAttempt = 0; schemaAttempt <= providerStructuredOutputRepairAttempts; schemaAttempt += 1) {
-			const body = stringifyProviderRequest(providerCompactionRequest(settings, requestMessages, limits, providerTools));
+			const body = stringifyProviderRequest(providerCompactionRequest(settings, requestMessages, limits, effectiveProviderTools, mode));
 			lastBody = body;
 			let previousRetryKey: string | null = null;
 			for (let attempt = 1; attempt <= providerMaxAttempts; attempt += 1) {
@@ -3714,7 +3787,7 @@ export class BotRuntime {
 				}
 
 				try {
-					const response = await this.fetchProviderCompactionResponse(settings, endpoint, body, signal, limits);
+					const response = await this.fetchProviderCompactionResponse(settings, endpoint, body, signal, limits, mode);
 					return { ...response, requestBody: body };
 				} catch (error) {
 					if (error instanceof TickStoppedError || isAbortError(error)) {
@@ -3738,7 +3811,7 @@ export class BotRuntime {
 			if (lastValidationError && schemaAttempt < providerStructuredOutputRepairAttempts) {
 				requestMessages =
 					lastValidationError.outputText && lastValidationError.outputText.length > limits.maxLength ?
-						providerCompactionShortenMessages(messages, lastValidationError.outputText, limits)
+						providerCompactionShortenMessages(messages, lastValidationError.outputText, limits, mode)
 					:	[...requestMessages, ...structuredOutputRepairMessages(lastValidationError)];
 				continue;
 			}
@@ -4934,7 +5007,7 @@ export class BotRuntime {
 		const personaPromptFingerprint = await sha256Hex(bot.prompt);
 		const fingerprint = await promptContextBudgetCacheFingerprint({
 			botId,
-			cacheFriendlyCompaction: settings.cacheFriendlyCompaction ?? false,
+			compactionMode: settings.compactionMode ?? "structured_output",
 			effectiveModel: settings.model,
 			fixedSystemFingerprint,
 			personaPromptFingerprint,
@@ -5012,7 +5085,7 @@ export class BotRuntime {
 		const personaPromptFingerprint = await sha256Hex(bot.prompt);
 		const cachedCounts = this.contextBudgetCachedCounts(await promptContextBudgetCacheFingerprint({
 			botId: bot.id,
-			cacheFriendlyCompaction: settings.cacheFriendlyCompaction ?? false,
+			compactionMode: settings.compactionMode ?? "structured_output",
 			effectiveModel: settings.model,
 			fixedSystemFingerprint,
 			personaPromptFingerprint,
@@ -5243,6 +5316,7 @@ export class BotRuntime {
 		body: string,
 		signal: AbortSignal,
 		limits: Pick<ProviderCompactionSummaryLimits, "minLength" | "maxLength"> = defaultProviderCompactionSummaryLimits,
+		mode: ProviderCompactionMode = "structured_output",
 	): Promise<Pick<ProviderResponse, "usage" | "responseId" | "responseModel" | "rawResponse"> & { content: string }> {
 		const headers: Record<string, string> = {
 			"content-type": "application/json",
@@ -5285,7 +5359,7 @@ export class BotRuntime {
 		if (providerCompactionOutputLimitReached(finishReason, nativeFinishReason)) {
 			throw new ProviderCompactionOutputLimitError(rawResponse, finishReason, nativeFinishReason);
 		}
-		const content = providerCompactionSummaryFromToolMessage(choice?.message, rawResponse, limits);
+		const content = providerCompactionSummaryFromResponseMessage(choice?.message, rawResponse, limits, mode);
 		const usage = providerUsageFromValue(payload.usage);
 		return {
 			content,
@@ -6495,7 +6569,7 @@ export class BotRuntime {
 		runId: string,
 		includeCurrentRun: boolean,
 		providerTools?: ProviderToolDefinition[],
-		mode: ProviderCompactionMode = "isolated",
+		mode: ProviderCompactionMode = "structured_output",
 	): LoopMessageRow[] {
 		const calibration = this.textTokenCalibration();
 		const rows = this.compactionCandidateEstimates(calibration)
@@ -6593,6 +6667,7 @@ export class BotRuntime {
 			const baseLimits = providerCompactionSummaryLimitsForChat(bot, compactedMessages, calibration, providerTools, compactionMode);
 			const compactionTools = providerCompactionToolsForMode(baseLimits, providerTools, compactionMode);
 			const compactionMessages = providerCompactionMessages(bot, compactedMessages, baseLimits, compactionTools, compactionMode);
+			const compactionResponseFormat = providerCompactionResponseFormat(baseLimits.maxLength, compactionMode);
 			const tickSettings = effectiveTickSettings(bot.tickSettings);
 			compactionLimits = {
 				...baseLimits,
@@ -6601,6 +6676,7 @@ export class BotRuntime {
 					compactionMessages,
 					compactionTools,
 					calibration,
+					compactionResponseFormat,
 				),
 			};
 			compactionEventPayload = {
@@ -6616,7 +6692,7 @@ export class BotRuntime {
 				compactionRequestOverheadTokens: compactionLimits.compactionRequestOverheadTokens,
 				anticipatedSummaryTokens: compactionLimits.anticipatedSummaryTokens,
 				nextCompactionTokens: compactionLimits.nextCompactionTokens,
-				cacheFriendlyCompaction: compactionMode === "cache_friendly",
+				compactionMode,
 				...(outputLimitShrinkAttempts > 0 ? { outputLimitShrinkAttempts } : {}),
 			};
 			if (!summaryEvent) {
@@ -6642,7 +6718,7 @@ export class BotRuntime {
 			}
 			try {
 				response = providerActive ?
-					await this.callProviderForCompaction(settings, compactionMessages, runId, signal, compactionLimits, compactionTools)
+					await this.callProviderForCompaction(settings, compactionMessages, runId, signal, compactionLimits, compactionTools, compactionMode)
 				:	{
 						content: deterministicCompactionSummary("", recentActivity),
 					};
@@ -6889,7 +6965,7 @@ export class BotRuntime {
 		rows: readonly LoopMessageRow[],
 		calibration = this.textTokenCalibration(),
 		providerTools?: ProviderToolDefinition[],
-		mode: ProviderCompactionMode = "isolated",
+		mode: ProviderCompactionMode = "structured_output",
 	): ProviderCompactionSummaryLimits {
 		return providerCompactionSummaryLimitsForChat(
 			bot,
@@ -6910,8 +6986,8 @@ export class BotRuntime {
 			budgetBot,
 			this.hasRuntimeStorage() ? this.activeLoopMessagesForProvider() : [],
 			this.textTokenCalibration(),
-			providerFunctionToolsForBot(budgetBot, { cacheFriendlyCompaction: budgetBot.inferenceSettings.cacheFriendlyCompaction === true }),
-			budgetBot.inferenceSettings.cacheFriendlyCompaction === true ? "cache_friendly" : "isolated",
+			providerFunctionToolsForBot(budgetBot, { compactionMode: budgetBot.inferenceSettings.compactionMode ?? "structured_output" }),
+			budgetBot.inferenceSettings.compactionMode ?? "structured_output",
 		).nextCompactionTokens;
 	}
 
@@ -6920,7 +6996,7 @@ export class BotRuntime {
 		rows: readonly LoopMessageRow[],
 		calibration = this.textTokenCalibration(),
 		providerTools?: ProviderToolDefinition[],
-		mode: ProviderCompactionMode = "isolated",
+		mode: ProviderCompactionMode = "structured_output",
 	): number {
 		const limits = this.compactionSummaryLimitsForRows(bot, rows, calibration, providerTools, mode);
 		return Math.max(1, Math.min(providerCompactionMaxPromptEstimateTokens, limits.compactionInputTokens));
@@ -8213,6 +8289,28 @@ function providerCompactionSummaryFromToolMessage(
 	);
 }
 
+function providerCompactionSummaryFromResponseMessage(
+	message: unknown,
+	rawResponse: string,
+	limits: Pick<ProviderCompactionSummaryLimits, "minLength" | "maxLength"> = defaultProviderCompactionSummaryLimits,
+	mode: ProviderCompactionMode = "structured_output",
+): string {
+	if (mode !== "structured_output") {
+		return providerCompactionSummaryFromToolMessage(message, rawResponse, limits);
+	}
+	return providerStructuredOutputFromMessageContent(
+		message,
+		{
+			kind: "compaction",
+			property: providerCompactionSummaryProperty,
+			label: providerCompactionSummaryProperty,
+			minCharacters: limits.minLength,
+			maxCharacters: limits.maxLength,
+		},
+		rawResponse,
+	);
+}
+
 function providerTranslationFromToolMessage(message: unknown, rawResponse: string): string {
 	return providerStructuredOutputFromToolMessage(
 		message,
@@ -8225,6 +8323,38 @@ function providerTranslationFromToolMessage(message: unknown, rawResponse: strin
 		},
 		rawResponse,
 	).trim();
+}
+
+function providerStructuredOutputFromMessageContent(
+	messageValue: unknown,
+	spec: {
+		kind: "compaction" | "translation";
+		property: string;
+		label: string;
+		minCharacters?: number;
+		maxCharacters: number;
+	},
+	rawResponse: string,
+): string {
+	const message = runtimeRecord(messageValue);
+	const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls.map(providerToolCallFromValue).filter((toolCall): toolCall is BotInferenceSubmissionToolCall => Boolean(toolCall)) : [];
+	if (toolCalls.length > 0) {
+		throw new ProviderStructuredOutputValidationError(spec.kind, "Do not use a Bickr control for this request; reply with the required structured output.", {
+			rawResponse,
+			toolCalls,
+		});
+	}
+	const content = stringValue(message.content);
+	if (!content) {
+		throw new ProviderStructuredOutputValidationError(spec.kind, "No structured output content was returned.", { rawResponse });
+	}
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(content);
+	} catch {
+		throw new ProviderStructuredOutputValidationError(spec.kind, "The structured output content was not valid JSON.", { rawResponse });
+	}
+	return providerStructuredOutputPropertyFromRecord(parsed, spec, rawResponse, []);
 }
 
 function providerStructuredOutputFromToolMessage(
@@ -8278,8 +8408,24 @@ function providerStructuredOutputFromToolMessage(
 			toolCalls,
 		});
 	}
+	return providerStructuredOutputPropertyFromRecord(parsed, spec, rawResponse, toolCalls);
+}
+
+function providerStructuredOutputPropertyFromRecord(
+	parsed: unknown,
+	spec: {
+		kind: "compaction" | "translation";
+		toolName?: string;
+		property: string;
+		label: string;
+		minCharacters?: number;
+		maxCharacters: number;
+	},
+	rawResponse: string,
+	toolCalls: BotInferenceSubmissionToolCall[],
+): string {
 	if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-		throw new ProviderStructuredOutputValidationError(spec.kind, `The ${spec.toolName} arguments must be a JSON object.`, {
+		throw new ProviderStructuredOutputValidationError(spec.kind, spec.toolName ? `The ${spec.toolName} arguments must be a JSON object.` : "The structured output must be a JSON object.", {
 			rawResponse,
 			requiredToolName: spec.toolName,
 			toolCalls,
@@ -8289,7 +8435,7 @@ function providerStructuredOutputFromToolMessage(
 	const keys = Object.keys(record);
 	const extraKeys = keys.filter((key) => key !== spec.property);
 	if (extraKeys.length > 0) {
-		throw new ProviderStructuredOutputValidationError(spec.kind, `Unexpected argument ${extraKeys.join(", ")}; only ${spec.property} is allowed.`, {
+		throw new ProviderStructuredOutputValidationError(spec.kind, `Unexpected ${spec.toolName ? "argument" : "field"} ${extraKeys.join(", ")}; only ${spec.property} is allowed.`, {
 			rawResponse,
 			requiredToolName: spec.toolName,
 			toolCalls,
@@ -8351,7 +8497,9 @@ function structuredOutputRepairMessages(error: ProviderStructuredOutputValidatio
 		return [
 			{
 				role: "assistant",
-				content: `Actually, I must use the ${error.requiredToolName || "required"} tool.`,
+				content: error.requiredToolName ?
+					`Actually, I must use the ${error.requiredToolName} tool.`
+				:	"Actually, I must reply with the required structured output.",
 			},
 		];
 	}

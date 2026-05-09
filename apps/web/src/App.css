@@ -1095,6 +1095,10 @@ button:disabled {
 	min-height: 36px;
 }
 
+.field > label.checkbox-line {
+	justify-content: flex-start;
+}
+
 fieldset {
 	border: 0;
 	margin: 0;

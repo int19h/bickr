@@ -6,6 +6,7 @@ import {
 	type AuthProvider,
 	type BotInferenceSettingsInput,
 	type BotInferenceSettings,
+	type BotCompactionMode,
 	type BotInferenceToolCalls,
 	type BotInferenceReasoningEffort,
 	type BotDocument,
@@ -2016,6 +2017,7 @@ export function mergeInferenceSettings(
 	assignInferenceString(next, "openRouterApiKey", patch.openRouterApiKey);
 	assignInferenceString(next, "baseUrl", patch.baseUrl);
 	assignInferenceString(next, "model", patch.model);
+	assignInferenceCompactionMode(next, "compactionMode", patch.compactionMode);
 	assignInferenceBoolean(next, "cacheFriendlyCompaction", patch.cacheFriendlyCompaction);
 	assignInferenceDefaultTrueBoolean(next, "recurringPromptEnabled", patch.recurringPromptEnabled);
 	const recurringPromptPatch = Object.prototype.hasOwnProperty.call(patch, "recurringPrompt")
@@ -2414,6 +2416,21 @@ function assignInferenceToolCalls<T extends { toolCalls?: BotInferenceToolCalls 
 	settings: T,
 	key: "toolCalls",
 	value: BotInferenceToolCalls | null | undefined,
+): void {
+	if (value === undefined) {
+		return;
+	}
+	if (value === null) {
+		delete settings[key];
+		return;
+	}
+	settings[key] = value;
+}
+
+function assignInferenceCompactionMode<T extends { compactionMode?: BotCompactionMode }>(
+	settings: T,
+	key: "compactionMode",
+	value: BotCompactionMode | null | undefined,
 ): void {
 	if (value === undefined) {
 		return;

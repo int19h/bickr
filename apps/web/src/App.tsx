@@ -27,6 +27,7 @@ import {
 	type CommentDocument,
 	type BotInferenceSettings,
 	type BotInferenceSettingsInput,
+	type BotCompactionMode,
 	type ChirperImportPreview,
 	type BotToolSettings,
 	type CreateForumInput,
@@ -163,7 +164,7 @@ type InferenceDraft = {
 	openRouterApiKeySet: boolean;
 	baseUrl: string;
 	model: string;
-	cacheFriendlyCompaction: boolean;
+	compactionMode: BotCompactionMode;
 	recurringPromptEnabled: boolean;
 	recurringPrompt: string;
 	supportsPrefill: boolean;
@@ -201,7 +202,7 @@ type PromptBudgetState =
 type InferenceModelUnlockContext = {
 	apiKeySet?: boolean;
 	baseUrl?: string;
-	cacheFriendlyCompaction?: boolean;
+	compactionMode?: BotCompactionMode;
 	supportsPrefill?: boolean;
 };
 
@@ -5457,7 +5458,7 @@ function BotEdit({
 	const inferenceInheritance: InferenceModelUnlockContext = {
 		apiKeySet: Boolean(ownerInferenceSettings?.openRouterApiKeySet),
 		...(ownerInferenceSettings?.baseUrl ? { baseUrl: ownerInferenceSettings.baseUrl } : {}),
-		cacheFriendlyCompaction: ownerInferenceSettings?.cacheFriendlyCompaction ?? false,
+		compactionMode: ownerInferenceSettings?.compactionMode ?? "structured_output",
 		supportsPrefill: ownerInferenceSettings?.supportsPrefill ?? true,
 	};
 	const promptBudgetRequestKey = botPromptBudgetRequestKey(bot.id, bot.handle, draft, ownerInferenceSettings);
@@ -7350,16 +7351,6 @@ function AgenticLoopInferenceFields({
 					</Field>
 				</div>
 				<div className="inference-row two">
-					<Field help="Reuse the normal tool schema during compaction to improve provider prompt caching. Leave off for providers that need a dedicated compaction request.">
-						<label className="checkbox-line">
-							<input
-								checked={draft.cacheFriendlyCompaction}
-								onChange={(event) => patch({ cacheFriendlyCompaction: event.target.checked })}
-								type="checkbox"
-							/>
-							<span>Cache-friendly compaction</span>
-						</label>
-					</Field>
 					<Field help="Turn off for providers that reject tool-enabled requests ending with participant narration.">
 						<label className="checkbox-line">
 							<input
@@ -7369,6 +7360,22 @@ function AgenticLoopInferenceFields({
 							/>
 							<span>Supports prefill</span>
 						</label>
+					</Field>
+					<Field
+						help="How context compaction asks for the memory summary. Structured output keeps the normal tools in context without adding the summary control."
+						label="Compaction mode"
+					>
+						<select
+							className="input reasoning-select"
+							onChange={(event) => patch({ compactionMode: event.target.value as BotCompactionMode })}
+							value={draft.compactionMode}
+						>
+							{compactionModeOptions.map((option) => (
+								<option key={option.value} value={option.value}>
+									{option.label}
+								</option>
+							))}
+						</select>
 					</Field>
 				</div>
 				<div className="inference-row four">
@@ -7482,6 +7489,11 @@ const toolCallOptions = [
 	{ value: "railroad", label: "Railroad" },
 	{ value: "at_will", label: "At will" },
 ] as const;
+const compactionModeOptions = [
+	{ value: "structured_output", label: "Structured output" },
+	{ value: "tool_call", label: "Tool call" },
+	{ value: "tool_call_cache_friendly", label: "Tool call (cache-friendly)" },
+] as const satisfies readonly { value: BotCompactionMode; label: string }[];
 const structuredToolCallOptions = toolCallOptions.filter((option) => option.value !== "at_will");
 
 function ProviderRoutingField({
@@ -12906,7 +12918,7 @@ function profileDraftChanged(draft: ProfileDraft, profile: UserProfile): boolean
 
 function inferenceDraftFromSettings(
 	settings: BotInferenceSettings,
-	inherited?: Pick<BotInferenceSettings, "cacheFriendlyCompaction" | "supportsPrefill">,
+	inherited?: Pick<BotInferenceSettings, "compactionMode" | "supportsPrefill">,
 ): InferenceDraft {
 	return {
 		openRouterApiKey: "",
@@ -12914,7 +12926,7 @@ function inferenceDraftFromSettings(
 		openRouterApiKeySet: Boolean(settings.openRouterApiKeySet),
 		baseUrl: settings.baseUrl ?? "",
 		model: settings.model ?? "",
-		cacheFriendlyCompaction: settings.cacheFriendlyCompaction ?? inherited?.cacheFriendlyCompaction ?? false,
+		compactionMode: settings.compactionMode ?? inherited?.compactionMode ?? "structured_output",
 		recurringPromptEnabled: settings.recurringPromptEnabled !== false,
 		recurringPrompt: settings.recurringPrompt ?? settings.reasoningPrefill ?? "",
 		supportsPrefill: settings.supportsPrefill ?? inherited?.supportsPrefill ?? true,
@@ -12950,17 +12962,17 @@ function inferenceDraftChanged(
 	options: {
 		includeReasoningPrefill?: boolean;
 		includeTranslation?: boolean;
-		inherited?: Pick<BotInferenceSettings, "cacheFriendlyCompaction" | "supportsPrefill">;
+		inherited?: Pick<BotInferenceSettings, "compactionMode" | "supportsPrefill">;
 	} = {},
 ): boolean {
-	const cacheFriendlyCompaction = settings.cacheFriendlyCompaction ?? options.inherited?.cacheFriendlyCompaction ?? false;
+	const compactionMode = settings.compactionMode ?? options.inherited?.compactionMode ?? "structured_output";
 	const supportsPrefill = settings.supportsPrefill ?? options.inherited?.supportsPrefill ?? true;
 	return (
 		Boolean(draft.openRouterApiKey.trim()) ||
 		draft.clearOpenRouterApiKey ||
 		draft.baseUrl.trim() !== (settings.baseUrl ?? "") ||
 		draft.model.trim() !== (settings.model ?? "") ||
-		draft.cacheFriendlyCompaction !== cacheFriendlyCompaction ||
+		draft.compactionMode !== compactionMode ||
 		(Boolean(options.includeReasoningPrefill) && draft.recurringPromptEnabled !== (settings.recurringPromptEnabled !== false)) ||
 		(Boolean(options.includeReasoningPrefill) && draft.recurringPrompt !== (settings.recurringPrompt ?? settings.reasoningPrefill ?? "")) ||
 		draft.supportsPrefill !== supportsPrefill ||
@@ -13004,7 +13016,7 @@ function inferenceInputFromDraft(
 	options: { includeReasoningPrefill?: boolean; includeTranslation?: boolean } = {},
 ): BotInferenceSettingsInput {
 	const normalized = normalizeInferenceDraftModel(draft, inherited);
-	const inheritedCacheFriendlyCompaction = inherited?.cacheFriendlyCompaction ?? false;
+	const inheritedCompactionMode = inherited?.compactionMode ?? "structured_output";
 	const inheritedSupportsPrefill = inherited?.supportsPrefill ?? true;
 	return {
 		...(normalized.openRouterApiKey.trim() ? { openRouterApiKey: normalized.openRouterApiKey.trim() }
@@ -13012,8 +13024,8 @@ function inferenceInputFromDraft(
 		: {}),
 		baseUrl: nullableTextInput(normalized.baseUrl),
 		model: nullableTextInput(normalized.model),
-		cacheFriendlyCompaction:
-			normalized.cacheFriendlyCompaction === inheritedCacheFriendlyCompaction ? null : normalized.cacheFriendlyCompaction,
+		compactionMode:
+			normalized.compactionMode === inheritedCompactionMode ? null : normalized.compactionMode,
 		...(options.includeReasoningPrefill ?
 			{
 				recurringPrompt: nullablePreservedTextInput(normalized.recurringPrompt),
@@ -13161,7 +13173,7 @@ function botPromptBudgetRequestKey(
 	return JSON.stringify({
 		botId,
 		baseUrl: effectiveInferenceDraftBaseUrl(draft.inference, inherited),
-		cacheFriendlyCompaction: draft.inference.cacheFriendlyCompaction,
+		compactionMode: draft.inference.compactionMode,
 		credential: inferenceDraftCredentialState(draft.inference, inherited),
 		displayName: draft.displayName,
 		model: effectiveInferenceDraftModel(draft.inference, inherited),

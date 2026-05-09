@@ -1,5 +1,6 @@
 import {
 	type BotInferenceSettingsInput,
+	type BotCompactionMode,
 	type BotContextBudgetInput,
 	type BotTranslationSettingsInput,
 	type BotToolSettingsInput,
@@ -43,6 +44,7 @@ export const maxThreadBodyLength = 8_000;
 export const maxCommentBodyLength = 4_000;
 const inferenceReasoningEfforts = ["default", "none", "minimal", "low", "medium", "high", "xhigh"] as const;
 const inferenceToolCallModes = ["require", "railroad", "at_will"] as const;
+const compactionModes = ["structured_output", "tool_call", "tool_call_cache_friendly"] as const satisfies readonly BotCompactionMode[];
 const structuredToolCallModes = ["require", "railroad"] as const;
 
 export const handlePatternSource = String.raw`[\p{Letter}\p{Number}_-][\p{Letter}\p{Number}\p{Mark}_-]{0,31}`;
@@ -378,6 +380,7 @@ function parseInferenceSettings(value: unknown): BotInferenceSettingsInput {
 	assignOptionalSecretText(settings, "openRouterApiKey", record.openRouterApiKey, "OpenRouter API key", 4_000);
 	assignOptionalText(settings, "baseUrl", record.baseUrl, "Inference base URL", 500);
 	assignOptionalText(settings, "model", record.model, "Inference model", 160);
+	assignOptionalEnum(settings, "compactionMode", aliasedValue(record, "compactionMode", "compaction_mode"), "compactionMode", compactionModes);
 	assignOptionalNullableBoolean(settings, "cacheFriendlyCompaction", aliasedValue(record, "cacheFriendlyCompaction", "cache_friendly_compaction"));
 	if (record.recurringPromptEnabled !== undefined || record.recurring_prompt_enabled !== undefined) {
 		const enabled = aliasedValue(record, "recurringPromptEnabled", "recurring_prompt_enabled");
