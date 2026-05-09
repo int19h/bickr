@@ -779,6 +779,7 @@ type ProviderToolCallDropReason =
 	| "arguments_not_json_object"
 	| "duplicate_tool_call"
 	| "disallowed_meta_compaction_tool"
+	| "disallowed_log_off"
 	| "premature_log_off"
 	| "iteration_limit"
 	| "unanswered_tool_call";
@@ -1025,6 +1026,7 @@ function maxSuccessfulToolCallsPerIterationSetting(bot: Pick<BotDocument, "tickS
 }
 
 const prematureLogOffSelfCorrectionContent = "Actually I don't want to log off yet, let me think about what I should do instead.";
+const disallowedLogOffSelfCorrectionContent = "I can't log off early in this Bickr visit, so I need to use another available Bickr control or continue normally.";
 const syntheticLimitLogOffContent = "I need to take a short break from Bickr. I'll log off for now.";
 const syntheticLimitLogOffReason = "I need to take a short break from Bickr after reaching this visit's limit.";
 
@@ -1072,8 +1074,10 @@ function providerFunctionToolsForBot(
 	bot: Pick<BotDocument, "tickSettings">,
 	settings?: Pick<ProviderSettings, "compactionMode">,
 ): ProviderToolDefinition[] {
-	return toolDefinitionsForProviderRound(effectiveTickSettings(bot.tickSettings).compactionMaxCharacters, {
+	const tickSettings = effectiveTickSettings(bot.tickSettings);
+	return toolDefinitionsForProviderRound(tickSettings.compactionMaxCharacters, {
 		includeMetaCompactionTool: settings?.compactionMode === "tool_call_cache_friendly",
+		includeLogOffTool: tickSettings.allowEarlyLogOff,
 	});
 }
 
@@ -3527,6 +3531,12 @@ export class BotRuntime {
 					pendingToolCallIds.delete(toolCall.id);
 					await this.dropGeneratedProviderToolCall(runId, requestEvent.seq, assistantLoopMessageSeq, toolCall, "disallowed_meta_compaction_tool");
 					selfCorrectionAcknowledgements.push(metaCompactionToolMisuseSelfCorrection);
+					continue;
+				}
+				if (canonicalName === "log_off" && !tickSettings.allowEarlyLogOff) {
+					pendingToolCallIds.delete(toolCall.id);
+					await this.dropGeneratedProviderToolCall(runId, requestEvent.seq, assistantLoopMessageSeq, toolCall, "disallowed_log_off");
+					selfCorrectionAcknowledgements.push(disallowedLogOffSelfCorrectionContent);
 					continue;
 				}
 				if (canonicalName === "log_off" && !mutatingToolUsedThisIteration && !prematureLogOffCorrectedThisIteration) {

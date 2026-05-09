@@ -598,6 +598,7 @@ describe("Bickr Pages Functions", () => {
 			});
 			expect(metaTool?.function.parameters.additionalProperties).toBe(false);
 			expect(toolDefinitionsForProviderRound(1234, { includeMetaCompactionTool: false })).toEqual(toolDefinitions);
+			expect(toolDefinitionsForProviderRound(1234, { includeLogOffTool: false }).map((definition) => definition.function.name)).not.toContain("log_off");
 			expect(toolDefinitionsForProviderRound(1234, { compactionMinCharacters: 321 }).at(-1)?.function.parameters.properties[providerCompactionSummaryProperty]).toMatchObject({
 				minLength: 1,
 				maxLength: 1234,
@@ -5297,7 +5298,7 @@ describe("Bickr Pages Functions", () => {
 
 		await expect(
 			runProviderLoop(
-				fakeBotDocument(),
+				fakeBotDocument({ allowEarlyLogOff: true }),
 				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
 				"run-empty-provider-response",
 				[],
@@ -5377,7 +5378,7 @@ describe("Bickr Pages Functions", () => {
 
 		await expect(
 			runProviderLoop(
-				fakeBotDocument(),
+				fakeBotDocument({ allowEarlyLogOff: true }),
 				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
 				"run-meta-tool-misuse",
 				[],
@@ -5460,7 +5461,7 @@ describe("Bickr Pages Functions", () => {
 
 		await expect(
 			runProviderLoop(
-				fakeBotDocument(),
+				fakeBotDocument({ allowEarlyLogOff: true }),
 				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
 				"run-mixed-tool-calls",
 				[],
@@ -5808,6 +5809,7 @@ describe("Bickr Pages Functions", () => {
 			toolSettings: { openRouter: { webSearch: { enabled: true } } },
 			tickSettings: {
 				...fakeBotDocument().tickSettings,
+				allowEarlyLogOff: true,
 				maxToolCallsPerTick: 1,
 				maxSuccessfulToolCallsPerIteration: 8,
 			},
@@ -5899,7 +5901,7 @@ describe("Bickr Pages Functions", () => {
 			runProviderLoop(
 				{
 					...fakeBotDocument(),
-					tickSettings: { ...fakeBotDocument().tickSettings, maxToolCallsPerTick: 1, maxSuccessfulToolCallsPerIteration: 8 },
+					tickSettings: { ...fakeBotDocument().tickSettings, allowEarlyLogOff: true, maxToolCallsPerTick: 1, maxSuccessfulToolCallsPerIteration: 8 },
 				},
 				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
 				"run-limit-reject",
@@ -5991,7 +5993,7 @@ describe("Bickr Pages Functions", () => {
 			runProviderLoop(
 				{
 					...fakeBotDocument(),
-					tickSettings: { ...fakeBotDocument().tickSettings, maxToolCallsPerTick: 1, maxSuccessfulToolCallsPerIteration: 8 },
+					tickSettings: { ...fakeBotDocument().tickSettings, allowEarlyLogOff: true, maxToolCallsPerTick: 1, maxSuccessfulToolCallsPerIteration: 8 },
 				},
 				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
 				"run-parallel-limit",
@@ -6159,7 +6161,7 @@ describe("Bickr Pages Functions", () => {
 
 			await expect(
 				runProviderLoop(
-					{ ...fakeBotDocument(), tickSettings: { ...fakeBotDocument().tickSettings, maxToolCallsPerTick: 2 } },
+					{ ...fakeBotDocument(), tickSettings: { ...fakeBotDocument().tickSettings, allowEarlyLogOff: true, maxToolCallsPerTick: 2 } },
 					{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
 					"run-premature-logoff",
 					[],
@@ -6326,6 +6328,7 @@ describe("Bickr Pages Functions", () => {
 						...fakeBotDocument(),
 						tickSettings: {
 							...fakeBotDocument().tickSettings,
+							allowEarlyLogOff: true,
 							maxGeneratedTokensPerTick: 1_000,
 							maxGeneratedTokensPerIteration: 50,
 						},
@@ -6410,6 +6413,7 @@ describe("Bickr Pages Functions", () => {
 						...fakeBotDocument(),
 						tickSettings: {
 							...fakeBotDocument().tickSettings,
+							allowEarlyLogOff: true,
 							maxGeneratedTokensPerTick: 1_000,
 							maxGeneratedTokensPerIteration: 50,
 						},
@@ -6495,7 +6499,7 @@ describe("Bickr Pages Functions", () => {
 
 		await expect(
 			runProviderLoop(
-				fakeBotDocument(),
+				fakeBotDocument({ allowEarlyLogOff: true }),
 				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
 				"run-malformed-retry",
 				[],
@@ -6640,7 +6644,7 @@ describe("Bickr Pages Functions", () => {
 
 		await expect(
 			runProviderLoop(
-				{ ...fakeBotDocument(), tickSettings: { ...fakeBotDocument().tickSettings, maxToolCallsPerTick: 3 } },
+				{ ...fakeBotDocument(), tickSettings: { ...fakeBotDocument().tickSettings, allowEarlyLogOff: true, maxToolCallsPerTick: 3 } },
 				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "railroad" },
 				"run-railroad-retry",
 				[],
@@ -6714,6 +6718,7 @@ describe("Bickr Pages Functions", () => {
 
 	it("at-will no-tool responses finish without self-correction", async () => {
 		const providerToolsByCall: string[][] = [];
+		const systemPromptsByCall: string[] = [];
 		const appendedLoopMessages: Array<{ origin: string; message: Record<string, unknown> }> = [];
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 			activeLoopMessagesForProvider: () => [],
@@ -6732,8 +6737,9 @@ describe("Bickr Pages Functions", () => {
 				};
 			},
 			appendProviderMessages: async () => {},
-			callProvider: async (_settings: unknown, _messages: unknown, tools: ProviderToolDefinition[]) => {
+			callProvider: async (_settings: unknown, messages: Array<Record<string, unknown>>, tools: ProviderToolDefinition[]) => {
 				providerToolsByCall.push(tools.map((tool) => "function" in tool ? tool.function.name : tool.type));
+				systemPromptsByCall.push(String(messages[0]?.content ?? ""));
 				return providerResponseWithContent("No page control needed.");
 			},
 			ensureProviderPromptWithinBudget: async (
@@ -6784,8 +6790,112 @@ describe("Bickr Pages Functions", () => {
 		).resolves.toMatchObject({ logOffCalled: false });
 
 		expect(providerToolsByCall).toHaveLength(1);
-		expect(providerToolsByCall[0]).toContain("log_off");
+		expect(providerToolsByCall[0]).not.toContain("log_off");
+		expect(systemPromptsByCall[0]).not.toContain("log_off");
 		expect(appendedLoopMessages.map((message) => message.origin)).toEqual(["provider_response"]);
+	});
+
+	it("drops generated log_off calls when early logoff is disabled", async () => {
+		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+		const executedTools: string[] = [];
+		const providerToolsByCall: string[][] = [];
+		const callProvider = vi.fn()
+			.mockResolvedValueOnce(providerResponseWithToolCall("call-log-off", "log_off", { reason: "done" }))
+			.mockResolvedValueOnce(providerResponseWithContent("I will keep going."));
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			activeLoopMessagesForProvider: () => [],
+			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+				events.push({ type, payload });
+				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
+			},
+			appendLoopMessage: (_runId: string, message: Record<string, unknown>, origin: string) => ({
+				seq: events.length,
+				runId: "run-disallowed-logoff",
+				role: message.role,
+				message,
+				origin,
+				tokenEstimate: 0,
+				createdAt: new Date().toISOString(),
+			}),
+			appendProviderMessages: async () => {},
+			callProvider: async (
+				settings: Record<string, unknown>,
+				messages: Array<Record<string, unknown>>,
+				tools: ProviderToolDefinition[],
+				runId: string,
+				streamSeq: number,
+				signal: AbortSignal,
+			) => {
+				providerToolsByCall.push(tools.map((tool) => "function" in tool ? tool.function.name : tool.type));
+				return callProvider(settings, messages, tools, runId, streamSeq, signal);
+			},
+			ensureProviderPromptWithinBudget: async (
+				bot: BotDocument,
+				settings: { toolCalls?: "require" | "railroad" | "at_will" },
+				_runId: string,
+				_signal: AbortSignal,
+				tools: ProviderToolDefinition[],
+			) => ({
+				allowedPromptTokens: 13_500,
+				promptTokens: 100,
+				requestMessages: (BotRuntime.prototype as unknown as {
+					activeProviderRequestMessages: (
+						bot: BotDocument,
+						tools: ProviderToolDefinition[],
+						toolCalls: "require" | "railroad" | "at_will",
+					) => Array<Record<string, unknown>>;
+				}).activeProviderRequestMessages.bind(runtime)(bot, tools, settings.toolCalls ?? "require"),
+			}),
+			executeTool: async (_bot: unknown, _runId: string, name: string) => {
+				executedTools.push(name);
+				return { name, result: { ok: true }, providerResult: { ok: true } };
+			},
+			repairActiveProviderToolCallHistory: async () => [],
+			recordInferenceSubmission: () => {},
+			recordLoopMessageLog: () => {},
+			recordProviderUsage: () => {},
+			successfulMutatingToolCallSinceLastLogOff: () => true,
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const runProviderLoop = (BotRuntime.prototype as unknown as {
+			runProviderLoop: (
+				bot: BotDocument,
+				settings: { baseUrl: string; model: string; temperature: number },
+				runId: string,
+				messages: Array<Record<string, unknown>>,
+				runContext: { mode: "normal"; signal: AbortSignal },
+			) => Promise<{ logOffCalled: boolean }>;
+		}).runProviderLoop.bind(runtime);
+
+		await expect(
+			runProviderLoop(
+				fakeBotDocument(),
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				"run-disallowed-logoff",
+				[],
+				{ mode: "normal", signal: new AbortController().signal },
+			),
+		).resolves.toMatchObject({ logOffCalled: false });
+
+		expect(providerToolsByCall[0]).not.toContain("log_off");
+		expect(executedTools).toEqual([]);
+		expect(events).toContainEqual(expect.objectContaining({
+			type: "provider_tool_call_dropped",
+			payload: expect.objectContaining({
+				callIds: ["call-log-off"],
+				reason: "disallowed_log_off",
+			}),
+		}));
+		expect(events).toContainEqual(expect.objectContaining({
+			type: "assistant_message",
+			payload: expect.objectContaining({
+				content: "I can't log off early in this Bickr visit, so I need to use another available Bickr control or continue normally.",
+			}),
+		}));
 	});
 
 	it("keeps log_off in the schema before and after a mutating tool succeeds", async () => {
@@ -6858,7 +6968,7 @@ describe("Bickr Pages Functions", () => {
 
 		await expect(
 			runProviderLoop(
-				{ ...fakeBotDocument(), tickSettings: { ...fakeBotDocument().tickSettings, maxToolCallsPerTick: 2 } },
+				{ ...fakeBotDocument(), tickSettings: { ...fakeBotDocument().tickSettings, allowEarlyLogOff: true, maxToolCallsPerTick: 2 } },
 				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
 				"run-logoff-gate",
 				[],
@@ -6953,7 +7063,7 @@ describe("Bickr Pages Functions", () => {
 
 		await expect(
 			runProviderLoop(
-				fakeBotDocument(),
+				fakeBotDocument({ allowEarlyLogOff: true }),
 				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
 				"run-logoff-through-compaction",
 				[],
@@ -7054,7 +7164,7 @@ describe("Bickr Pages Functions", () => {
 
 		await expect(
 			runProviderLoop(
-				fakeBotDocument(),
+				fakeBotDocument({ allowEarlyLogOff: true }),
 				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
 				"run-after-logoff",
 				[],
@@ -8758,10 +8868,11 @@ describe("Bickr Pages Functions", () => {
 					maxGeneratedTokensPerIteration: number;
 					nextDueAt: string | null;
 				}>();
-		expect(created.data.bot.tickSettings).toMatchObject({
-			enabled: false,
-			intervalSeconds: 86_400,
+			expect(created.data.bot.tickSettings).toMatchObject({
+				enabled: false,
+				intervalSeconds: 86_400,
 		});
+			expect(created.data.bot.tickSettings).not.toHaveProperty("allowEarlyLogOff");
 			expect(created.data.bot.tickSettings).not.toHaveProperty("contextWindowTokens");
 			expect(created.data.bot.tickSettings).not.toHaveProperty("compactionSummaryPercent");
 			expect(created.data.bot.tickSettings).not.toHaveProperty("compactionMaxCharacters");
@@ -8770,6 +8881,7 @@ describe("Bickr Pages Functions", () => {
 			expect(created.data.bot.tickSettings).not.toHaveProperty("maxGeneratedTokensPerTick");
 			expect(created.data.bot.tickSettings).not.toHaveProperty("maxGeneratedTokensPerIteration");
 			expect(created.data.bot.effectiveTickSettings).toMatchObject({
+				allowEarlyLogOff: false,
 				contextWindowTokens: 20_000,
 				compactionSummaryPercent: 10,
 				compactionMaxCharacters: 4_000,
@@ -8779,6 +8891,7 @@ describe("Bickr Pages Functions", () => {
 				maxGeneratedTokensPerIteration: 30_000,
 			});
 			const storedCreatedBot = await testEnv.BICKR_KV.get(`v1:bot:${created.data.bot.id}`, { type: "json" }) as BotDocument;
+			expect(storedCreatedBot.tickSettings).not.toHaveProperty("allowEarlyLogOff");
 			expect(storedCreatedBot.tickSettings).not.toHaveProperty("contextWindowTokens");
 			expect(storedCreatedBot.tickSettings).not.toHaveProperty("compactionSummaryPercent");
 			expect(storedCreatedBot.tickSettings).not.toHaveProperty("compactionMaxCharacters");
@@ -8891,6 +9004,7 @@ describe("Bickr Pages Functions", () => {
 						},
 							tickSettings: {
 									enabled: true,
+									allowEarlyLogOff: true,
 									intervalSeconds: 60,
 									contextWindowTokens: 32_000,
 									compactionSummaryPercent: 25,
@@ -8914,6 +9028,7 @@ describe("Bickr Pages Functions", () => {
 					displayName: "Release Oracle",
 					tickSettings: {
 						enabled: true,
+						allowEarlyLogOff: true,
 						intervalSeconds: 60,
 								contextWindowTokens: 32_000,
 								compactionSummaryPercent: 25,
@@ -8980,6 +9095,7 @@ describe("Bickr Pages Functions", () => {
 					"PATCH",
 					{
 									tickSettings: {
+										allowEarlyLogOff: null,
 										contextWindowTokens: null,
 										compactionSummaryPercent: null,
 										compactionMaxCharacters: null,
@@ -8997,6 +9113,7 @@ describe("Bickr Pages Functions", () => {
 		expect(clearTickDefaultsResponse.status, await clearTickDefaultsResponse.clone().text()).toBe(200);
 		const clearedTickDefaults = (await clearTickDefaultsResponse.json()) as { ok: true; data: { bot: BotBody } };
 				expect(clearedTickDefaults.data.bot.tickSettings).not.toHaveProperty("contextWindowTokens");
+				expect(clearedTickDefaults.data.bot.tickSettings).not.toHaveProperty("allowEarlyLogOff");
 				expect(clearedTickDefaults.data.bot.tickSettings).not.toHaveProperty("compactionSummaryPercent");
 				expect(clearedTickDefaults.data.bot.tickSettings).not.toHaveProperty("compactionMaxCharacters");
 				expect(clearedTickDefaults.data.bot.tickSettings).not.toHaveProperty("maxToolCallsPerTick");
@@ -9004,6 +9121,7 @@ describe("Bickr Pages Functions", () => {
 			expect(clearedTickDefaults.data.bot.tickSettings).not.toHaveProperty("maxGeneratedTokensPerTick");
 			expect(clearedTickDefaults.data.bot.tickSettings).not.toHaveProperty("maxGeneratedTokensPerIteration");
 			expect(clearedTickDefaults.data.bot.effectiveTickSettings).toMatchObject({
+					allowEarlyLogOff: false,
 					contextWindowTokens: 20_000,
 					compactionSummaryPercent: 10,
 					compactionMaxCharacters: 4_000,
@@ -11170,7 +11288,7 @@ describe("Bickr Pages Functions", () => {
 			runProviderLoop(
 				{
 					...bot,
-					tickSettings: { ...bot.tickSettings, maxToolCallsPerTick: 5 },
+					tickSettings: { ...bot.tickSettings, allowEarlyLogOff: true, maxToolCallsPerTick: 5 },
 				},
 				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
 				"run-repeat-rounds",
@@ -11243,7 +11361,7 @@ describe("Bickr Pages Functions", () => {
 			runProviderLoop(
 				{
 					...bot,
-					tickSettings: { ...bot.tickSettings, maxToolCallsPerTick: 5 },
+					tickSettings: { ...bot.tickSettings, allowEarlyLogOff: true, maxToolCallsPerTick: 5 },
 				},
 				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
 				"run-parallel-failure-order",
@@ -11330,7 +11448,7 @@ describe("Bickr Pages Functions", () => {
 			runProviderLoop(
 				{
 					...bot,
-					tickSettings: { ...bot.tickSettings, maxToolCallsPerTick: 10 },
+					tickSettings: { ...bot.tickSettings, allowEarlyLogOff: true, maxToolCallsPerTick: 10 },
 				},
 				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
 				"run-parallel-persistent-failure-order",
@@ -12494,6 +12612,7 @@ type BotBody = {
 	tickSettings: {
 		enabled: boolean;
 		intervalSeconds: number;
+		allowEarlyLogOff?: boolean;
 				contextWindowTokens?: number;
 				compactionSummaryPercent?: number;
 				compactionMaxCharacters?: number;
@@ -12505,6 +12624,7 @@ type BotBody = {
 		effectiveTickSettings: {
 			enabled: boolean;
 			intervalSeconds: number;
+			allowEarlyLogOff: boolean;
 				contextWindowTokens: number;
 				compactionThreshold: number;
 				compactionSummaryPercent: number;
@@ -13457,7 +13577,7 @@ function additionalReplyToolPresent(tools: ProviderToolDefinition[]): boolean {
 	);
 }
 
-function fakeBotDocument(options: { contextWindowTokens?: number; compactionSummaryPercent?: number; compactionMaxCharacters?: number; prompt?: string } = {}): BotDocument {
+function fakeBotDocument(options: { allowEarlyLogOff?: boolean; contextWindowTokens?: number; compactionSummaryPercent?: number; compactionMaxCharacters?: number; prompt?: string } = {}): BotDocument {
 	const now = "2026-05-05T00:00:00.000Z";
 	return {
 		id: "bot_test_budget",
@@ -13478,6 +13598,7 @@ function fakeBotDocument(options: { contextWindowTokens?: number; compactionSumm
 		tickSettings: {
 			enabled: true,
 			intervalSeconds: 300,
+			...(options.allowEarlyLogOff !== undefined ? { allowEarlyLogOff: options.allowEarlyLogOff } : {}),
 			contextWindowTokens: options.contextWindowTokens ?? 16_000,
 			compactionThreshold: 0.75,
 			compactionSummaryPercent: options.compactionSummaryPercent ?? 10,

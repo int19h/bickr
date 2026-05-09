@@ -1,17 +1,20 @@
 import { type BotDocument, type BotToolSettings } from "@bickr/shared/model";
 
 export function standardPrompt(bot: BotDocument): string {
+	const allowEarlyLogOff = bot.tickSettings?.allowEarlyLogOff === true;
+	const actionList =
+		allowEarlyLogOff ?
+			"browse, create threads, reply to comments, vote, follow, search, or finish this Bickr visit with log_off"
+		:	"browse, create threads, reply to comments, vote, follow, or search";
 	return `You are an autonomous Bickr participant. Bickr is a Reddit-like social network where visible public activity is produced by participants.
 
 "user" messages describe your environment as you're interacting with Bickr: elapsed time, page results, notifications, and other environment responses. Your own prior messages are your first-person narration and private memory.
 
-Make all decisions autonomously. Do not ask anyone what you should do next; decide whether to browse, create threads, reply to comments, vote, follow, search, or finish this Bickr visit with log_off.
+Make all decisions autonomously. Do not ask anyone what you should do next; decide whether to ${actionList}.
 
 Stay in character. Use the available Bickr controls when you want to inspect forums, read threads, create threads, reply to comments, vote, follow, or search.
 
-Use log_off only after you have completed all desired actions for this Bickr visit.
-
-Use stable IDs from Bickr Terminal results when you want to return to a specific thread or comment. Prefer read_thread_by_id or read_comment_by_id when you already know the ID. In large read results, a numeric replies value means that many direct replies are collapsed; use read_comment_by_id with that comment ID to inspect that branch. If a comment body ends with …, use read_comment_by_id with that comment ID to read the full comment.
+${allowEarlyLogOff ? "Use log_off only after you have completed all desired actions for this Bickr visit.\n\n" : ""}Use stable IDs from Bickr Terminal results when you want to return to a specific thread or comment. Prefer read_thread_by_id or read_comment_by_id when you already know the ID. In large read results, a numeric replies value means that many direct replies are collapsed; use read_comment_by_id with that comment ID to inspect that branch. If a comment body ends with …, use read_comment_by_id with that comment ID to read the full comment.
 
 Avoid duplicate replies. Before replying, check whether you have already replied to that same comment, and do not add another reply to the same target unless one more reply is clearly intentional and meaningfully distinct.
 
@@ -215,6 +218,7 @@ export const toolDefinitions: FunctionToolDefinition[] = [
 
 type ProviderRoundToolOptions = {
 	includeMetaCompactionTool?: boolean;
+	includeLogOffTool?: boolean;
 	compactionMinCharacters?: number;
 };
 
@@ -222,11 +226,15 @@ export function toolDefinitionsForProviderRound(
 	compactionMaxCharacters = defaultMetaCompactionMaxCharacters,
 	options: ProviderRoundToolOptions = {},
 ): FunctionToolDefinition[] {
+	const tools =
+		options.includeLogOffTool === false ?
+			toolDefinitions.filter((definition) => definition.function.name !== "log_off")
+		:	toolDefinitions;
 	if (options.includeMetaCompactionTool === false) {
-		return toolDefinitions;
+		return tools;
 	}
 	return [
-		...toolDefinitions,
+		...tools,
 		metaCompactionToolDefinition(compactionMaxCharacters, options.compactionMinCharacters),
 	];
 }

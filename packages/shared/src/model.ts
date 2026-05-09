@@ -262,6 +262,7 @@ export type BotToolSettingsInput = Partial<{
 export type BotTickSettings = {
 	enabled: boolean;
 	intervalSeconds: number;
+	allowEarlyLogOff?: boolean;
 	contextWindowTokens?: number;
 	compactionThreshold: number;
 	compactionSummaryPercent?: number;
@@ -277,6 +278,7 @@ export type BotEffectiveTickSettings = Required<BotTickSettings>;
 export type BotTickSettingsInput = Partial<{
 	enabled: boolean;
 	intervalSeconds: number;
+	allowEarlyLogOff: boolean | null;
 	contextWindowTokens: number | null;
 	compactionThreshold: number;
 	compactionSummaryPercent: number | null;
@@ -1114,7 +1116,7 @@ export type BotContextBudgetInput = {
 	shortBio?: string;
 	inferenceSettings?: BotInferenceSettingsInput;
 	toolSettings?: BotToolSettingsInput;
-	tickSettings?: Partial<Pick<BotTickSettingsInput, "contextWindowTokens" | "compactionMaxCharacters" | "compactionSummaryPercent">>;
+	tickSettings?: Partial<Pick<BotTickSettingsInput, "allowEarlyLogOff" | "contextWindowTokens" | "compactionMaxCharacters" | "compactionSummaryPercent">>;
 };
 
 export type BotContextBudget = {

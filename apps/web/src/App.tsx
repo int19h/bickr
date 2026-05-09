@@ -5479,6 +5479,7 @@ function BotEdit({
 		inference: inferenceDraftFromSettings(bot.inferenceSettings, ownerInferenceSettings ?? undefined),
 		tools: toolDraftFromSettings(bot.toolSettings),
 		tickIntervalMinutes: String(secondsToMinutes(bot.tickSettings.intervalSeconds)),
+		allowEarlyLogOff: bot.effectiveTickSettings.allowEarlyLogOff,
 		contextWindowTokens: optionalNumberDraftValue(bot.tickSettings.contextWindowTokens),
 		compactionSummaryPercent: optionalNumberDraftValue(bot.tickSettings.compactionSummaryPercent),
 		compactionMaxCharacters: optionalNumberDraftValue(bot.tickSettings.compactionMaxCharacters),
@@ -5499,6 +5500,7 @@ function BotEdit({
 			inference: inferenceDraftFromSettings(bot.inferenceSettings, ownerInferenceSettings ?? undefined),
 			tools: toolDraftFromSettings(bot.toolSettings),
 			tickIntervalMinutes: String(secondsToMinutes(bot.tickSettings.intervalSeconds)),
+			allowEarlyLogOff: bot.effectiveTickSettings.allowEarlyLogOff,
 			contextWindowTokens: optionalNumberDraftValue(bot.tickSettings.contextWindowTokens),
 			compactionSummaryPercent: optionalNumberDraftValue(bot.tickSettings.compactionSummaryPercent),
 			compactionMaxCharacters: optionalNumberDraftValue(bot.tickSettings.compactionMaxCharacters),
@@ -5515,6 +5517,7 @@ function BotEdit({
 		bot.prompt,
 		bot.shortBio,
 		bot.toolSettings,
+		bot.effectiveTickSettings.allowEarlyLogOff,
 		bot.tickSettings.contextWindowTokens,
 		bot.tickSettings.compactionSummaryPercent,
 		bot.tickSettings.compactionMaxCharacters,
@@ -5554,6 +5557,7 @@ function BotEdit({
 		draft.shortBio !== bot.shortBio ||
 		draft.prompt !== (bot.prompt ?? "") ||
 		tickIntervalMinutes !== secondsToMinutes(bot.tickSettings.intervalSeconds) ||
+		draft.allowEarlyLogOff !== bot.effectiveTickSettings.allowEarlyLogOff ||
 		contextWindowTokens !== (bot.tickSettings.contextWindowTokens ?? null) ||
 		compactionSummaryPercent !== (bot.tickSettings.compactionSummaryPercent ?? null) ||
 		compactionMaxCharacters !== (bot.tickSettings.compactionMaxCharacters ?? null) ||
@@ -5622,6 +5626,7 @@ function BotEdit({
 			toolSettings: toolInputFromDraft(draft.tools),
 			tickSettings: {
 				intervalSeconds: tickIntervalMinutes * 60,
+				allowEarlyLogOff: draft.allowEarlyLogOff,
 				contextWindowTokens,
 				compactionSummaryPercent,
 				compactionMaxCharacters,
@@ -5660,7 +5665,12 @@ function BotEdit({
 					shortBio: draft.shortBio,
 					inferenceSettings: inferenceInputFromDraft(draft.inference, inferenceInheritance, { includeReasoningPrefill: true }),
 					toolSettings: toolInputFromDraft(draft.tools),
-					tickSettings: { contextWindowTokens, compactionMaxCharacters, compactionSummaryPercent },
+					tickSettings: {
+						allowEarlyLogOff: draft.allowEarlyLogOff,
+						contextWindowTokens,
+						compactionMaxCharacters,
+						compactionSummaryPercent,
+					},
 				},
 			},
 		);
@@ -5937,6 +5947,18 @@ function BotEdit({
 									</div>
 								</Field>
 							</div>
+							<Field help="When enabled, this participant can use log_off to end a loop iteration before reaching the configured control limits.">
+								<label className="checkbox-line">
+									<input
+										checked={draft.allowEarlyLogOff}
+										onChange={(event) =>
+											setDraft((current) => ({ ...current, allowEarlyLogOff: event.target.checked }))
+										}
+										type="checkbox"
+									/>
+									<span>Allow to log off early</span>
+								</label>
+							</Field>
 							<Field
 								help="When enabled, this first-person prompt is injected into the chat at the start of each new loop iteration, after Bickr Terminal adds elapsed time, notifications, and any pending owner thoughts. Blank uses the default recurring prompt for this participant."
 								label={
@@ -13320,6 +13342,7 @@ function botPromptBudgetRequestKey(
 	botId: string,
 	botHandle: string,
 	draft: {
+		allowEarlyLogOff: boolean;
 		compactionMaxCharacters: string;
 		compactionSummaryPercent: string;
 		contextWindowTokens: string;
@@ -13339,6 +13362,7 @@ function botPromptBudgetRequestKey(
 		displayName: draft.displayName,
 		model: effectiveInferenceDraftModel(draft.inference, inherited),
 		prompt: draft.prompt,
+		allowEarlyLogOff: draft.allowEarlyLogOff,
 		compactionMaxCharacters: draft.compactionMaxCharacters.trim(),
 		compactionSummaryPercent: draft.compactionSummaryPercent.trim(),
 		contextWindowTokens: draft.contextWindowTokens.trim(),

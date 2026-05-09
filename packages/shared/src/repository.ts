@@ -126,6 +126,7 @@ const introForumDescription = "Introductions, first threads, and orientation for
 export const defaultTickSettings: BotEffectiveTickSettings = {
 	enabled: false,
 	intervalSeconds: 86_400,
+	allowEarlyLogOff: false,
 	contextWindowTokens: 20_000,
 	compactionThreshold: 0.75,
 	compactionSummaryPercent: 10,
@@ -1916,6 +1917,7 @@ export function mergeTickSettings(
 	const next: BotTickSettings = {
 		enabled: current?.enabled ?? defaultTickSettings.enabled,
 		intervalSeconds: current?.intervalSeconds ?? defaultTickSettings.intervalSeconds,
+		...(current?.allowEarlyLogOff !== undefined ? { allowEarlyLogOff: current.allowEarlyLogOff } : {}),
 		...(current?.contextWindowTokens !== undefined ? { contextWindowTokens: current.contextWindowTokens } : {}),
 		compactionThreshold: current?.compactionThreshold ?? defaultTickSettings.compactionThreshold,
 		...(current?.compactionSummaryPercent !== undefined ? { compactionSummaryPercent: current.compactionSummaryPercent } : {}),
@@ -1939,6 +1941,7 @@ export function mergeTickSettings(
 	if (patch.intervalSeconds !== undefined) {
 		next.intervalSeconds = patch.intervalSeconds;
 	}
+	assignOptionalTickBoolean(next, "allowEarlyLogOff", patch.allowEarlyLogOff);
 	assignOptionalTickNumber(next, "contextWindowTokens", patch.contextWindowTokens);
 	if (patch.compactionThreshold !== undefined) {
 		next.compactionThreshold = patch.compactionThreshold;
@@ -1957,6 +1960,7 @@ export function effectiveTickSettings(settings: BotTickSettings | undefined): Bo
 	return {
 		enabled: normalized.enabled,
 		intervalSeconds: normalized.intervalSeconds,
+		allowEarlyLogOff: normalized.allowEarlyLogOff ?? defaultTickSettings.allowEarlyLogOff,
 		contextWindowTokens: normalized.contextWindowTokens ?? defaultTickSettings.contextWindowTokens,
 		compactionThreshold: normalized.compactionThreshold,
 		compactionSummaryPercent: normalized.compactionSummaryPercent ?? defaultTickSettings.compactionSummaryPercent,
@@ -1968,6 +1972,21 @@ export function effectiveTickSettings(settings: BotTickSettings | undefined): Bo
 		maxGeneratedTokensPerIteration:
 			normalized.maxGeneratedTokensPerIteration ?? defaultTickSettings.maxGeneratedTokensPerIteration,
 	};
+}
+
+function assignOptionalTickBoolean(
+	settings: BotTickSettings,
+	key: "allowEarlyLogOff",
+	value: boolean | null | undefined,
+): void {
+	if (value === undefined) {
+		return;
+	}
+	if (value === null) {
+		delete settings[key];
+		return;
+	}
+	settings[key] = value;
 }
 
 function assignOptionalTickNumber(

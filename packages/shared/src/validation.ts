@@ -857,6 +857,16 @@ function parseTickSettings(value: unknown): BotTickSettingsInput {
 	if (record.intervalSeconds !== undefined) {
 		settings.intervalSeconds = boundedInteger(record.intervalSeconds, "Tick interval", 30, 86_400);
 	}
+	if (record.allowEarlyLogOff !== undefined || record.allow_early_log_off !== undefined) {
+		const allowEarlyLogOff = aliasedValue(record, "allowEarlyLogOff", "allow_early_log_off");
+		if (allowEarlyLogOff === null) {
+			settings.allowEarlyLogOff = null;
+		} else if (typeof allowEarlyLogOff === "boolean") {
+			settings.allowEarlyLogOff = allowEarlyLogOff;
+		} else {
+			throw new InputError("Allow to log off early must be a boolean.");
+		}
+	}
 	if (record.contextWindowTokens !== undefined) {
 		settings.contextWindowTokens =
 			record.contextWindowTokens === null ?
@@ -946,8 +956,11 @@ function parseTickSettings(value: unknown): BotTickSettingsInput {
 
 function pickContextWindowTickSettings(
 	settings: BotTickSettingsInput,
-): Pick<BotTickSettingsInput, "contextWindowTokens" | "compactionMaxCharacters" | "compactionSummaryPercent"> | undefined {
-	const picked: Pick<BotTickSettingsInput, "contextWindowTokens" | "compactionMaxCharacters" | "compactionSummaryPercent"> = {};
+): Pick<BotTickSettingsInput, "allowEarlyLogOff" | "contextWindowTokens" | "compactionMaxCharacters" | "compactionSummaryPercent"> | undefined {
+	const picked: Pick<BotTickSettingsInput, "allowEarlyLogOff" | "contextWindowTokens" | "compactionMaxCharacters" | "compactionSummaryPercent"> = {};
+	if (settings.allowEarlyLogOff !== undefined) {
+		picked.allowEarlyLogOff = settings.allowEarlyLogOff;
+	}
 	if (settings.contextWindowTokens !== undefined) {
 		picked.contextWindowTokens = settings.contextWindowTokens;
 	}
