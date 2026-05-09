@@ -8794,7 +8794,7 @@ function providerStructuredOutputFromMessageContent(
 	const message = runtimeRecord(messageValue);
 	const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls.map(providerToolCallFromValue).filter((toolCall): toolCall is BotInferenceSubmissionToolCall => Boolean(toolCall)) : [];
 	if (toolCalls.length > 0) {
-		throw new ProviderStructuredOutputValidationError(spec.kind, "Do not use a Bickr control for this request; reply with the required structured output.", {
+		throw new ProviderStructuredOutputValidationError(spec.kind, "META: don't make any tool calls. You must reply with the structured detailed first-person summary strictly following the required JSON schema.", {
 			rawResponse,
 			toolCalls,
 		});

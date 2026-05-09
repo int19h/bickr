@@ -1670,6 +1670,56 @@ describe("Bickr Pages Functions", () => {
 			}
 		});
 
+		it("repairs structured-output compaction tool calls with the schema summary prompt", async () => {
+			const originalFetch = globalThis.fetch;
+			const ordinaryToolResponse = {
+				choices: [{
+					message: {
+						tool_calls: [{
+							id: "call_read_in_structured_compaction",
+							type: "function",
+							function: { name: "read_thread", arguments: JSON.stringify({ threadId: "thr_1" }) },
+						}],
+					},
+				}],
+			};
+			const validResponse = {
+				choices: [{
+					message: {
+						content: JSON.stringify({ [providerCompactionSummaryProperty]: "I remember the important parts." }),
+					},
+				}],
+			};
+			const fetchMock = vi.fn()
+				.mockResolvedValueOnce(Response.json(ordinaryToolResponse))
+				.mockResolvedValueOnce(Response.json(validResponse));
+			vi.stubGlobal("fetch", fetchMock);
+			try {
+				const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+					appendEvent: vi.fn(),
+					throwIfStopped: vi.fn(),
+				});
+				const callProviderForCompaction = (BotRuntime.prototype as unknown as {
+					callProviderForCompaction: (...args: unknown[]) => Promise<{ content: string; requestBody?: string }>;
+				}).callProviderForCompaction.bind(runtime);
+
+				const response = await callProviderForCompaction(
+					{ baseUrl: "https://provider.example/api/v1", model: "test-model", temperature: 0.2 },
+					[{ role: "user", content: "Compact the retained activity." }],
+					"run-compaction-structured-tool-repair",
+					new AbortController().signal,
+				);
+
+				expect(response.content).toBe("I remember the important parts.");
+				expect(fetchMock).toHaveBeenCalledTimes(2);
+				const retryBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)) as { messages: BotInferenceSubmissionMessage[] };
+				const repairToolMessage = retryBody.messages.find((message) => message.role === "tool");
+				expect(repairToolMessage?.content).toContain("META: don't make any tool calls. You must reply with the structured detailed first-person summary strictly following the required JSON schema.");
+			} finally {
+				vi.stubGlobal("fetch", originalFetch);
+			}
+		});
+
 		it("accepts tool-call compaction responses below the requested minimum length", async () => {
 			const originalFetch = globalThis.fetch;
 			const validResponse = {
