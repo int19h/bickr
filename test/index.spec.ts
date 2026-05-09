@@ -1226,6 +1226,8 @@ describe("Bickr Pages Functions", () => {
 			expect(messages[3]?.content).toContain("do not use any Bickr control");
 			expect(messages[3]?.content).toContain("u/release-sage");
 			expect(messages[3]?.content).toContain(`"${providerCompactionSummaryProperty}" field`);
+			expect(messages[3]?.content).toContain("only the recent events being compacted");
+			expect(messages[3]?.content).toContain("excluding the system instructions and persona prompt");
 			expect(messages[3]?.content).toContain("long-term memory");
 			expect(messages[3]?.content).toContain("4000 characters");
 			expect(messages[3]?.content).not.toMatch(/\bbot\b|\bAI\b|\bmodel\b|\bassistant\b|\bagent\b/i);
@@ -1258,6 +1260,8 @@ describe("Bickr Pages Functions", () => {
 			});
 			expect(request.tools.some((tool) => tool.type === "function" && tool.function.name === "read_thread")).toBe(false);
 			expect("response_format" in request).toBe(false);
+			expect(messages.at(-2)?.content).toContain("only the recent events being compacted");
+			expect(messages.at(-2)?.content).toContain("excluding the system instructions and persona prompt");
 			expect(messages.at(-1)).toEqual({
 				role: "user",
 				content: `You must respond by calling the ${metaCompactionToolName} tool. Put the summary in the "${providerCompactionSummaryProperty}" argument. Use between 1 and 4000 characters. Do not reply as plain text.`,
@@ -3115,6 +3119,78 @@ describe("Bickr Pages Functions", () => {
 				{},
 			).providerRouting,
 		).toBeUndefined();
+	});
+
+	it("uses global inference defaults instead of profile fallbacks when a bot model is set", () => {
+		const profileSettings = {
+			openRouterApiKey: "sk-or-user",
+			model: "profile/model",
+			compactionMode: "tool_call_cache_friendly" as const,
+			providerRouting: { order: ["anthropic"] },
+			reasoningEffort: "high" as const,
+			supportsPrefill: false,
+			temperature: 0.4,
+			toolCalls: "at_will" as const,
+			topK: 12,
+			topP: 0.7,
+			minP: 0.1,
+			frequencyPenalty: -0.5,
+			presencePenalty: 0.25,
+			repetitionPenalty: 1.2,
+		};
+
+		const inheritedBlocked = effectiveProviderSettingsForBot(
+			{ inferenceSettings: { model: "bot/model" } },
+			{ inferenceSettings: profileSettings },
+			{},
+		);
+
+		expect(inheritedBlocked).toMatchObject({
+			apiKey: "sk-or-user",
+			baseUrl: "https://openrouter.ai/api/v1",
+			compactionMode: "structured_output",
+			model: "bot/model",
+			supportsPrefill: true,
+			temperature: 0.9,
+			toolCalls: "require",
+		});
+		expect(inheritedBlocked.providerRouting).toBeUndefined();
+		expect(inheritedBlocked.reasoningEffort).toBeUndefined();
+		expect(inheritedBlocked.topK).toBeUndefined();
+		expect(inheritedBlocked.topP).toBeUndefined();
+		expect(inheritedBlocked.minP).toBeUndefined();
+		expect(inheritedBlocked.frequencyPenalty).toBeUndefined();
+		expect(inheritedBlocked.presencePenalty).toBeUndefined();
+		expect(inheritedBlocked.repetitionPenalty).toBeUndefined();
+
+		expect(
+			effectiveProviderSettingsForBot(
+				{
+					inferenceSettings: {
+						model: "bot/model",
+						compactionMode: "tool_call",
+						providerRouting: { order: ["openai"] },
+						reasoningEffort: "low",
+						supportsPrefill: false,
+						temperature: 0.2,
+						toolCalls: "railroad",
+						topP: 0.5,
+					},
+				},
+				{ inferenceSettings: profileSettings },
+				{},
+			),
+		).toMatchObject({
+			apiKey: "sk-or-user",
+			compactionMode: "tool_call",
+			model: "bot/model",
+			providerRouting: { order: ["openai"] },
+			reasoningEffort: "low",
+			supportsPrefill: false,
+			temperature: 0.2,
+			toolCalls: "railroad",
+			topP: 0.5,
+		});
 	});
 
 	it("calculates prompt context budget segments and over-budget counts", () => {

@@ -5464,7 +5464,10 @@ function BotEdit({
 		displayName: bot.displayName,
 		shortBio: bot.shortBio,
 		prompt: bot.prompt ?? "",
-		inference: inferenceDraftFromSettings(bot.inferenceSettings, ownerInferenceSettings ?? undefined),
+		inference: inferenceDraftFromSettings(
+			bot.inferenceSettings,
+			inferenceFallbackContextForSettings(bot.inferenceSettings, ownerInferenceSettings),
+		),
 		tools: toolDraftFromSettings(bot.toolSettings),
 		tickIntervalMinutes: String(secondsToMinutes(bot.tickSettings.intervalSeconds)),
 		allowEarlyLogOff: bot.effectiveTickSettings.allowEarlyLogOff,
@@ -5485,7 +5488,10 @@ function BotEdit({
 			displayName: bot.displayName,
 			shortBio: bot.shortBio,
 			prompt: bot.prompt ?? "",
-			inference: inferenceDraftFromSettings(bot.inferenceSettings, ownerInferenceSettings ?? undefined),
+			inference: inferenceDraftFromSettings(
+				bot.inferenceSettings,
+				inferenceFallbackContextForSettings(bot.inferenceSettings, ownerInferenceSettings),
+			),
 			tools: toolDraftFromSettings(bot.toolSettings),
 			tickIntervalMinutes: String(secondsToMinutes(bot.tickSettings.intervalSeconds)),
 			allowEarlyLogOff: bot.effectiveTickSettings.allowEarlyLogOff,
@@ -5528,8 +5534,8 @@ function BotEdit({
 	const resolvedContextWindowTokens = contextWindowTokens ?? bot.effectiveTickSettings.contextWindowTokens;
 	const providerRoutingError = providerRoutingDraftError(draft.inference.providerRouting);
 	const translationProviderRoutingError = providerRoutingDraftError(draft.inference.translationProviderRouting);
-	const inferenceInheritance = inferenceInheritanceContext(ownerInferenceSettings);
-	const promptBudgetRequestKey = botPromptBudgetRequestKey(bot.id, bot.handle, draft, ownerInferenceSettings);
+	const inferenceInheritance = inferenceFallbackContextForDraft(draft.inference, ownerInferenceSettings);
+	const promptBudgetRequestKey = botPromptBudgetRequestKey(bot.id, bot.handle, draft, inferenceInheritance);
 	const promptBudgetReady =
 		promptBudget.status === "ready" && promptBudget.requestKey === promptBudgetRequestKey ? promptBudget.budget : null;
 	const promptBudgetError =
@@ -7454,16 +7460,18 @@ function AgenticLoopInferenceFields({
 		[inheritedApiKeySet, inheritedBaseUrl],
 	);
 		const modelLocked = !canCustomizeInferenceModel(draft, inheritedContext);
-		const modelPlaceholder = effectiveInferenceDraftModel(draft, inheritedSettings);
-		const temperaturePlaceholder = effectiveNumberPlaceholder(inheritedSettings?.temperature, 0.9);
-		const topKPlaceholder = effectiveOptionalNumberPlaceholder(inheritedSettings?.topK);
-		const topPPlaceholder = effectiveNumberPlaceholder(inheritedSettings?.topP, 1);
-		const minPPlaceholder = effectiveOptionalNumberPlaceholder(inheritedSettings?.minP);
-		const frequencyPenaltyPlaceholder = effectiveOptionalNumberPlaceholder(inheritedSettings?.frequencyPenalty);
-		const presencePenaltyPlaceholder = effectiveOptionalNumberPlaceholder(inheritedSettings?.presencePenalty);
-		const repetitionPenaltyPlaceholder = effectiveOptionalNumberPlaceholder(inheritedSettings?.repetitionPenalty);
+		const fallbackContext = inferenceFallbackContextForDraft(draft, inheritedSettings);
+		const modelPlaceholder = effectiveInferenceDraftModel(draft, fallbackContext);
+		const temperaturePlaceholder = effectiveNumberPlaceholder(fallbackContext?.temperature, 0.9);
+		const topKPlaceholder = effectiveOptionalNumberPlaceholder(fallbackContext?.topK);
+		const topPPlaceholder = effectiveNumberPlaceholder(fallbackContext?.topP, 1);
+		const minPPlaceholder = effectiveOptionalNumberPlaceholder(fallbackContext?.minP);
+		const frequencyPenaltyPlaceholder = effectiveOptionalNumberPlaceholder(fallbackContext?.frequencyPenalty);
+		const presencePenaltyPlaceholder = effectiveOptionalNumberPlaceholder(fallbackContext?.presencePenalty);
+		const repetitionPenaltyPlaceholder = effectiveOptionalNumberPlaceholder(fallbackContext?.repetitionPenalty);
 		function patch(update: Partial<InferenceDraft>): void {
-			onChange(normalizeInferenceDraftModel({ ...draft, ...update }, inheritedContext));
+			const updated = normalizeInferenceDraftModel({ ...draft, ...update }, inheritedContext);
+			onChange(rebaseInferenceDraftForFallbackChange(updated, fallbackContext, inferenceFallbackContextForDraft(updated, inheritedSettings)));
 		}
 
 		return (
@@ -7639,7 +7647,7 @@ function AgenticLoopInferenceFields({
 				</div>
 				<ProviderRoutingField
 					onChange={(providerRouting) => patch({ providerRouting })}
-					placeholder={providerRoutingPlaceholderForInheritance(inheritedSettings)}
+					placeholder={providerRoutingPlaceholderForInheritance(fallbackContext)}
 					value={draft.providerRouting}
 				/>
 			</div>
@@ -13360,7 +13368,7 @@ function botPromptBudgetRequestKey(
 		shortBio: string;
 		tools: BotToolDraft;
 	},
-	inherited?: BotInferenceSettings | null,
+	inherited?: InferenceModelUnlockContext | null,
 ): string {
 	return JSON.stringify({
 		botId,
@@ -13374,7 +13382,7 @@ function botPromptBudgetRequestKey(
 		compactionMaxCharacters: draft.compactionMaxCharacters.trim(),
 		compactionSummaryPercent: draft.compactionSummaryPercent.trim(),
 		contextWindowTokens: draft.contextWindowTokens.trim(),
-		providerRouting: providerRoutingDraftFingerprintValue(draft.inference.providerRouting),
+		providerRouting: providerRoutingDraftFingerprintValue(draft.inference.providerRouting, inherited?.providerRouting),
 		recurringPrompt:
 			draft.inference.recurringPromptEnabled ?
 				draft.inference.recurringPrompt.trim() ? draft.inference.recurringPrompt : defaultReasoningPrefill(botHandle)
@@ -13440,6 +13448,54 @@ function inferenceInheritanceContext(settings?: BotInferenceSettings | null): In
 	return {
 		...settings,
 		apiKeySet: Boolean(settings.openRouterApiKeySet),
+	};
+}
+
+function inferenceFallbackContextForSettings(
+	settings: Pick<BotInferenceSettings, "model">,
+	inherited?: BotInferenceSettings | null,
+): InferenceModelUnlockContext | undefined {
+	return settings.model?.trim() ? providerConnectionInheritanceContext(inherited) : inferenceInheritanceContext(inherited);
+}
+
+function inferenceFallbackContextForDraft(
+	draft: Pick<InferenceDraft, "model">,
+	inherited?: BotInferenceSettings | null,
+): InferenceModelUnlockContext | undefined {
+	return draft.model.trim() ? providerConnectionInheritanceContext(inherited) : inferenceInheritanceContext(inherited);
+}
+
+function providerConnectionInheritanceContext(settings?: BotInferenceSettings | null): InferenceModelUnlockContext | undefined {
+	if (!settings) {
+		return undefined;
+	}
+	return {
+		apiKeySet: Boolean(settings.openRouterApiKeySet),
+		openRouterApiKey: settings.openRouterApiKey,
+		openRouterApiKeySet: settings.openRouterApiKeySet,
+		baseUrl: settings.baseUrl,
+	};
+}
+
+function rebaseInferenceDraftForFallbackChange(
+	next: InferenceDraft,
+	previousFallback: InferenceModelUnlockContext | undefined,
+	nextFallback: InferenceModelUnlockContext | undefined,
+): InferenceDraft {
+	const previousCompactionMode = previousFallback?.compactionMode ?? "structured_output";
+	const previousSupportsPrefill = previousFallback?.supportsPrefill ?? true;
+	const previousReasoningEffort = previousFallback?.reasoningEffort ?? "default";
+	const previousToolCalls = previousFallback?.toolCalls ?? "require";
+	const nextCompactionMode = nextFallback?.compactionMode ?? "structured_output";
+	const nextSupportsPrefill = nextFallback?.supportsPrefill ?? true;
+	const nextReasoningEffort = nextFallback?.reasoningEffort ?? "default";
+	const nextToolCalls = nextFallback?.toolCalls ?? "require";
+	return {
+		...next,
+		compactionMode: next.compactionMode === previousCompactionMode ? nextCompactionMode : next.compactionMode,
+		supportsPrefill: next.supportsPrefill === previousSupportsPrefill ? nextSupportsPrefill : next.supportsPrefill,
+		reasoningEffort: next.reasoningEffort === previousReasoningEffort ? nextReasoningEffort : next.reasoningEffort,
+		toolCalls: next.toolCalls === previousToolCalls ? nextToolCalls : next.toolCalls,
 	};
 }
 
@@ -13532,10 +13588,10 @@ function providerRoutingDraftChanged(draftValue: string, settingsValue: JsonObje
 	}
 }
 
-function providerRoutingDraftFingerprintValue(value: string): string | null {
+function providerRoutingDraftFingerprintValue(value: string, inherited?: JsonObject): string | null {
 	try {
 		const routing = providerRoutingInputFromDraft(value);
-		return routing === null ? null : canonicalJsonString(routing);
+		return routing === null ? (inherited ? canonicalJsonString(inherited) : null) : canonicalJsonString(routing);
 	} catch {
 		return value.trim();
 	}

@@ -86,6 +86,7 @@ import {
 	type BotLoopMessageOrigin,
 	type BotLoopMessageStatus,
 	type BotDocument,
+	type BotInferenceSettings,
 	type BotInferenceReasoningEffort,
 	type BotInferenceToolCalls,
 	type BotCompactionMode,
@@ -1210,9 +1211,9 @@ function providerCompactionSystemInstruction(bot: BotDocument, tools: readonly P
 function providerCompactionSummaryInstruction(bot: Pick<BotDocument, "handle">, limits: Pick<ProviderCompactionSummaryLimits, "minLength" | "maxLength">, mode: ProviderCompactionMode): string {
 	const lengthInstruction = providerCompactionLengthInstruction(limits);
 	if (mode === "structured_output") {
-		return `META: Context compaction required. Reply with a JSON object matching the required structured output schema, and do not use any Bickr control. Put a detailed summary of everything important, from the first-person perspective of u/${bot.handle}, in the "${providerCompactionSummaryProperty}" field; your response will become the long-term memory of these events, replacing them in context henceforth. ${lengthInstruction}`;
+		return `META: Context compaction required. Reply with a JSON object matching the required structured output schema, and do not use any Bickr control. Put a detailed summary of only the recent events being compacted, excluding the system instructions and persona prompt, from the first-person perspective of u/${bot.handle}, in the "${providerCompactionSummaryProperty}" field; your response will become the long-term memory of these events, replacing them in context henceforth. ${lengthInstruction}`;
 	}
-	return `META: Context compaction required. Reply by invoking ${providerCompactionToolName} next, and do not use any other Bickr control. Put a detailed summary of everything important, from the first-person perspective of u/${bot.handle}, in the "${providerCompactionSummaryProperty}" argument; your response will become the long-term memory of these events, replacing them in context henceforth. ${lengthInstruction}`;
+	return `META: Context compaction required. Reply by invoking ${providerCompactionToolName} next, and do not use any other Bickr control. Put a detailed summary of only the recent events being compacted, excluding the system instructions and persona prompt, from the first-person perspective of u/${bot.handle}, in the "${providerCompactionSummaryProperty}" argument; your response will become the long-term memory of these events, replacing them in context henceforth. ${lengthInstruction}`;
 }
 
 function providerCompactionShortenInstruction(limits: Pick<ProviderCompactionSummaryLimits, "minLength" | "maxLength">, mode: ProviderCompactionMode): string {
@@ -2311,6 +2312,7 @@ export function effectiveProviderSettingsForBot(
 	const hasUserProvider = Boolean(userApiKey || userBaseUrl);
 	const hasBotOrInheritedProvider = Boolean(botApiKey || botBaseUrl || hasUserProvider);
 	const hasCustomBaseUrl = Boolean(botBaseUrl || userBaseUrl);
+	const inheritedDefaults: BotInferenceSettings = botModel ? {} : userSettings;
 
 	const model =
 		botModel && hasBotOrInheritedProvider ? botModel
@@ -2322,43 +2324,43 @@ export function effectiveProviderSettingsForBot(
 		bot.inferenceSettings.temperature !== undefined &&
 		(!botTemperatureIsLegacyDefault || userSettings.temperature === undefined) ?
 			bot.inferenceSettings.temperature
-		: userSettings.temperature !== undefined ? userSettings.temperature
+		: inheritedDefaults.temperature !== undefined ? inheritedDefaults.temperature
 		: bot.inferenceSettings.temperature !== undefined ? bot.inferenceSettings.temperature
 		: 0.9;
-		const providerRouting =
-			bot.inferenceSettings.providerRouting !== undefined ? bot.inferenceSettings.providerRouting : userSettings.providerRouting;
-		const effectiveProviderRouting = openRouterProviderRouting(baseUrl, providerRouting);
-		const reasoningEffort = bot.inferenceSettings.reasoningEffort ?? userSettings.reasoningEffort;
-		const toolCalls = bot.inferenceSettings.toolCalls ?? userSettings.toolCalls ?? "require";
+	const providerRouting =
+		bot.inferenceSettings.providerRouting !== undefined ? bot.inferenceSettings.providerRouting : inheritedDefaults.providerRouting;
+	const effectiveProviderRouting = openRouterProviderRouting(baseUrl, providerRouting);
+	const reasoningEffort = bot.inferenceSettings.reasoningEffort ?? inheritedDefaults.reasoningEffort;
+	const toolCalls = bot.inferenceSettings.toolCalls ?? inheritedDefaults.toolCalls ?? "require";
 
-		return {
-			apiKey: botApiKey ?? userApiKey ?? (hasCustomBaseUrl ? undefined : envApiKey),
-			baseUrl,
-			model,
-			compactionMode: bot.inferenceSettings.compactionMode ?? userSettings.compactionMode ?? "structured_output",
-			...(effectiveProviderRouting ? { providerRouting: effectiveProviderRouting } : {}),
-			...(reasoningEffort && reasoningEffort !== "default" ? { reasoningEffort } : {}),
-			supportsPrefill: bot.inferenceSettings.supportsPrefill ?? userSettings.supportsPrefill ?? true,
-			toolCalls,
-			temperature,
+	return {
+		apiKey: botApiKey ?? userApiKey ?? (hasCustomBaseUrl ? undefined : envApiKey),
+		baseUrl,
+		model,
+		compactionMode: bot.inferenceSettings.compactionMode ?? inheritedDefaults.compactionMode ?? "structured_output",
+		...(effectiveProviderRouting ? { providerRouting: effectiveProviderRouting } : {}),
+		...(reasoningEffort && reasoningEffort !== "default" ? { reasoningEffort } : {}),
+		supportsPrefill: bot.inferenceSettings.supportsPrefill ?? inheritedDefaults.supportsPrefill ?? true,
+		toolCalls,
+		temperature,
 		...(hasCustomBaseUrl ? { usesCustomBaseUrl: true } : {}),
 		...(bot.inferenceSettings.topK !== undefined ? { topK: bot.inferenceSettings.topK }
-		: userSettings.topK !== undefined ? { topK: userSettings.topK }
+		: inheritedDefaults.topK !== undefined ? { topK: inheritedDefaults.topK }
 		: {}),
 		...(bot.inferenceSettings.topP !== undefined ? { topP: bot.inferenceSettings.topP }
-		: userSettings.topP !== undefined ? { topP: userSettings.topP }
+		: inheritedDefaults.topP !== undefined ? { topP: inheritedDefaults.topP }
 		: {}),
 		...(bot.inferenceSettings.minP !== undefined ? { minP: bot.inferenceSettings.minP }
-		: userSettings.minP !== undefined ? { minP: userSettings.minP }
+		: inheritedDefaults.minP !== undefined ? { minP: inheritedDefaults.minP }
 		: {}),
 		...(bot.inferenceSettings.frequencyPenalty !== undefined ? { frequencyPenalty: bot.inferenceSettings.frequencyPenalty }
-		: userSettings.frequencyPenalty !== undefined ? { frequencyPenalty: userSettings.frequencyPenalty }
+		: inheritedDefaults.frequencyPenalty !== undefined ? { frequencyPenalty: inheritedDefaults.frequencyPenalty }
 		: {}),
 		...(bot.inferenceSettings.presencePenalty !== undefined ? { presencePenalty: bot.inferenceSettings.presencePenalty }
-		: userSettings.presencePenalty !== undefined ? { presencePenalty: userSettings.presencePenalty }
+		: inheritedDefaults.presencePenalty !== undefined ? { presencePenalty: inheritedDefaults.presencePenalty }
 		: {}),
 		...(bot.inferenceSettings.repetitionPenalty !== undefined ? { repetitionPenalty: bot.inferenceSettings.repetitionPenalty }
-		: userSettings.repetitionPenalty !== undefined ? { repetitionPenalty: userSettings.repetitionPenalty }
+		: inheritedDefaults.repetitionPenalty !== undefined ? { repetitionPenalty: inheritedDefaults.repetitionPenalty }
 		: {}),
 	};
 }
