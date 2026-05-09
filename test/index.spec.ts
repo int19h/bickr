@@ -330,7 +330,7 @@ CREATE TABLE bot_runtime_index (
 	world_id TEXT NOT NULL,
 	enabled INTEGER NOT NULL,
 	tick_interval_seconds INTEGER NOT NULL,
-	context_window_tokens INTEGER NOT NULL,
+	context_window_tokens INTEGER,
 	compaction_threshold REAL NOT NULL,
 	compaction_summary_percent INTEGER NOT NULL DEFAULT 10,
 	compaction_max_characters INTEGER NOT NULL DEFAULT 4000,
@@ -9839,7 +9839,7 @@ describe("Bickr Pages Functions", () => {
 					enabled: number;
 					status: string;
 					tickIntervalSeconds: number;
-					contextWindowTokens: number;
+					contextWindowTokens: number | null;
 					compactionSummaryPercent: number;
 					compactionMaxCharacters: number;
 					maxToolCallsPerTick: number;
@@ -9884,7 +9884,7 @@ describe("Bickr Pages Functions", () => {
 			enabled: 0,
 			status: "idle",
 			tickIntervalSeconds: 86_400,
-				contextWindowTokens: 20_000,
+				contextWindowTokens: null,
 				compactionSummaryPercent: 10,
 				compactionMaxCharacters: 4_000,
 				maxToolCallsPerTick: 10,
@@ -10124,7 +10124,7 @@ describe("Bickr Pages Functions", () => {
 			)
 				.bind(created.data.bot.id)
 				.first<{
-						contextWindowTokens: number;
+					contextWindowTokens: number | null;
 						compactionSummaryPercent: number;
 						compactionMaxCharacters: number;
 						maxToolCallsPerTick: number;
@@ -10133,7 +10133,7 @@ describe("Bickr Pages Functions", () => {
 					maxGeneratedTokensPerIteration: number;
 				}>();
 				expect(runtimeAfterClearingDefaults).toEqual({
-					contextWindowTokens: 20_000,
+					contextWindowTokens: null,
 					compactionSummaryPercent: 10,
 					compactionMaxCharacters: 4_000,
 					maxToolCallsPerTick: 10,

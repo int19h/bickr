@@ -1808,6 +1808,7 @@ async function upsertBotRuntimeIndex(
 	options: { reschedule?: boolean; scheduleIfMissing?: boolean } = {},
 ): Promise<void> {
 	const settings = effectiveTickSettings(bot.tickSettings);
+	const contextWindowTokens = bot.tickSettings.contextWindowTokens ?? null;
 	const nextDue =
 		!settings.enabled ? null
 		: options.scheduleIfMissing ? now
@@ -1850,7 +1851,7 @@ async function upsertBotRuntimeIndex(
 			bot.homeWorldId,
 			settings.enabled ? 1 : 0,
 			settings.intervalSeconds,
-			settings.contextWindowTokens,
+			contextWindowTokens,
 			settings.compactionThreshold,
 			settings.compactionSummaryPercent,
 			settings.compactionMaxCharacters,
