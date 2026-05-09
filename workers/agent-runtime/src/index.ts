@@ -3716,24 +3716,29 @@ export class BotRuntime {
 		toolCalls: BotInferenceToolCalls = settings.toolCalls ?? "require",
 	): Promise<ProviderResponse> {
 		const endpoint = providerChatCompletionsUrl(settings.baseUrl);
-		const body = stringifyProviderRequest(providerChatCompletionRequest(settings, messages, tools, undefined, toolCalls));
+		let requestSettings = settings;
+		let lastBody = stringifyProviderRequest(providerChatCompletionRequest(requestSettings, messages, tools, undefined, toolCalls));
 		let previousRetryKey: string | null = null;
+		let retryDelayMs = 0;
+		let retryReason: string | null = null;
 		for (let attempt = 1; attempt <= providerMaxAttempts; attempt += 1) {
 			this.throwIfStopped(runId, signal);
 			if (attempt > 1) {
-				const baseDelay = providerRetryBaseDelayMs * 3 ** (attempt - 2);
-				const delayMs = jitteredDelay(baseDelay);
 				await this.appendEvent(runId, "provider_retry", {
 					attempt,
 					maxAttempts: providerMaxAttempts,
-					delayMs,
-					reason: previousRetryKey,
+					delayMs: retryDelayMs,
+					reason: retryReason,
 				});
-				await sleep(delayMs, signal);
+				if (retryDelayMs > 0) {
+					await sleep(retryDelayMs, signal);
+				}
 			}
+			const body = stringifyProviderRequest(providerChatCompletionRequest(requestSettings, messages, tools, undefined, toolCalls));
+			lastBody = body;
 
 			try {
-				const stream = await this.fetchProviderResponse(settings, endpoint, body, signal);
+				const stream = await this.fetchProviderResponse(requestSettings, endpoint, body, signal);
 				const response = await this.consumeProviderResponse(runId, streamSeq, stream, signal);
 				return { ...response, requestBody: body };
 			} catch (error) {
@@ -3743,15 +3748,31 @@ export class BotRuntime {
 				if (error instanceof TickStoppedError || isAbortError(error)) {
 					throw error;
 				}
+				const upstreamLimit = providerUpstreamRateLimitRetry(error);
+				if (upstreamLimit) {
+					const routing = providerRoutingWithIgnoredProvider(requestSettings.providerRouting, upstreamLimit.providerName);
+					if (!routing.changed) {
+						throw new ProviderLoopRequestError(error, body, attempt, providerFailureResponseText(error));
+					}
+					if (attempt < providerMaxAttempts) {
+						requestSettings = { ...requestSettings, providerRouting: routing.providerRouting };
+						retryDelayMs = 0;
+						retryReason = providerIgnoreRetryReason(upstreamLimit);
+						previousRetryKey = null;
+						continue;
+					}
+				}
 				const retryKey = providerRetryKey(error);
 				if (retryKey && attempt < providerMaxAttempts && (previousRetryKey === null || previousRetryKey === retryKey)) {
 					previousRetryKey = retryKey;
+					retryDelayMs = providerRetryDelayMsForAttempt(attempt + 1);
+					retryReason = retryKey;
 					continue;
 				}
 				throw new ProviderLoopRequestError(error, body, attempt, providerFailureResponseText(error));
 			}
 		}
-		throw new ProviderLoopRequestError(new ProviderRequestTimeoutError(providerRequestTimeoutMs), body, providerMaxAttempts);
+		throw new ProviderLoopRequestError(new ProviderRequestTimeoutError(providerRequestTimeoutMs), lastBody, providerMaxAttempts);
 	}
 
 	private async callProviderForCompaction(
@@ -3766,28 +3787,31 @@ export class BotRuntime {
 		const endpoint = providerChatCompletionsUrl(settings.baseUrl);
 		const effectiveProviderTools = providerTools ?? providerCompactionToolsForMode(limits, undefined, mode);
 		let requestMessages = messages;
-		let lastBody = stringifyProviderRequest(providerCompactionRequest(settings, requestMessages, limits, effectiveProviderTools, mode));
+		let requestSettings = settings;
+		let lastBody = stringifyProviderRequest(providerCompactionRequest(requestSettings, requestMessages, limits, effectiveProviderTools, mode));
 		let lastValidationError: ProviderStructuredOutputValidationError | null = null;
 		for (let schemaAttempt = 0; schemaAttempt <= providerStructuredOutputRepairAttempts; schemaAttempt += 1) {
-			const body = stringifyProviderRequest(providerCompactionRequest(settings, requestMessages, limits, effectiveProviderTools, mode));
-			lastBody = body;
 			let previousRetryKey: string | null = null;
+			let retryDelayMs = 0;
+			let retryReason: string | null = null;
 			for (let attempt = 1; attempt <= providerMaxAttempts; attempt += 1) {
 				this.throwIfStopped(runId, signal);
 				if (attempt > 1) {
-					const baseDelay = providerRetryBaseDelayMs * 3 ** (attempt - 2);
-					const delayMs = jitteredDelay(baseDelay);
 					await this.appendEvent(runId, "provider_retry", {
 						attempt,
 						maxAttempts: providerMaxAttempts,
-						delayMs,
-						reason: previousRetryKey,
+						delayMs: retryDelayMs,
+						reason: retryReason,
 					});
-					await sleep(delayMs, signal);
+					if (retryDelayMs > 0) {
+						await sleep(retryDelayMs, signal);
+					}
 				}
+				const body = stringifyProviderRequest(providerCompactionRequest(requestSettings, requestMessages, limits, effectiveProviderTools, mode));
+				lastBody = body;
 
 				try {
-					const response = await this.fetchProviderCompactionResponse(settings, endpoint, body, signal, limits, mode);
+					const response = await this.fetchProviderCompactionResponse(requestSettings, endpoint, body, signal, limits, mode);
 					return { ...response, requestBody: body };
 				} catch (error) {
 					if (error instanceof TickStoppedError || isAbortError(error)) {
@@ -3800,9 +3824,25 @@ export class BotRuntime {
 						lastValidationError = error;
 						break;
 					}
+					const upstreamLimit = providerUpstreamRateLimitRetry(error);
+					if (upstreamLimit) {
+						const routing = providerRoutingWithIgnoredProvider(requestSettings.providerRouting, upstreamLimit.providerName);
+						if (!routing.changed) {
+							throw new ProviderCompactionRequestError(error, body, providerCompactionFailureResponseText(error));
+						}
+						if (attempt < providerMaxAttempts) {
+							requestSettings = { ...requestSettings, providerRouting: routing.providerRouting };
+							retryDelayMs = 0;
+							retryReason = providerIgnoreRetryReason(upstreamLimit);
+							previousRetryKey = null;
+							continue;
+						}
+					}
 					const retryKey = providerRetryKey(error);
 					if (retryKey && attempt < providerMaxAttempts && (previousRetryKey === null || previousRetryKey === retryKey)) {
 						previousRetryKey = retryKey;
+						retryDelayMs = providerRetryDelayMsForAttempt(attempt + 1);
+						retryReason = retryKey;
 						continue;
 					}
 					throw new ProviderCompactionRequestError(error, body, providerCompactionFailureResponseText(error));
@@ -3816,7 +3856,7 @@ export class BotRuntime {
 				continue;
 			}
 			if (lastValidationError) {
-				throw new ProviderCompactionRequestError(lastValidationError, body, providerCompactionFailureResponseText(lastValidationError));
+				throw new ProviderCompactionRequestError(lastValidationError, lastBody, providerCompactionFailureResponseText(lastValidationError));
 			}
 		}
 		throw new ProviderCompactionRequestError(new ProviderRequestTimeoutError(providerRequestTimeoutMs), lastBody);
@@ -11736,6 +11776,97 @@ function providerRetryKey(error: unknown): string | null {
 		return `${error.status}:${error.body}`;
 	}
 	return null;
+}
+
+type ProviderUpstreamRateLimitRetry = {
+	providerName: string;
+	retryKey: string;
+};
+
+function providerRetryDelayMsForAttempt(attempt: number): number {
+	return jitteredDelay(providerRetryBaseDelayMs * 3 ** Math.max(0, attempt - 2));
+}
+
+function providerUpstreamRateLimitRetry(error: unknown): ProviderUpstreamRateLimitRetry | null {
+	if (!(error instanceof ProviderRequestError)) {
+		return null;
+	}
+	for (const payload of providerErrorPayloads(error)) {
+		const match = providerUpstreamRateLimitRetryFromPayload(payload, error.status, providerRetryKey(error) ?? `${error.status}:${error.body}`);
+		if (match) {
+			return match;
+		}
+	}
+	return null;
+}
+
+function providerUpstreamRateLimitRetryFromPayload(payload: unknown, fallbackStatus: number, retryKey: string): ProviderUpstreamRateLimitRetry | null {
+	const payloadRecord = runtimeRecord(payload);
+	const errorRecord = runtimeRecord(payloadRecord.error);
+	const record = Object.keys(errorRecord).length > 0 ? errorRecord : payloadRecord;
+	const status = providerErrorStatus(record.code);
+	if (fallbackStatus !== 429 && status !== 429) {
+		return null;
+	}
+	if (stringValue(record.message) !== "Provider returned error") {
+		return null;
+	}
+	const providerName = stringValue(runtimeRecord(record.metadata).provider_name)?.trim();
+	if (!providerName) {
+		return null;
+	}
+	return { providerName, retryKey };
+}
+
+function providerErrorPayloads(error: ProviderRequestError): unknown[] {
+	const payloads: unknown[] = [];
+	const body = parseJsonValue(error.body);
+	if (body !== undefined) {
+		payloads.push(body);
+	}
+	const rawResponse = parseJsonValue(error.rawResponse);
+	if (rawResponse !== undefined) {
+		payloads.push(rawResponse);
+	}
+	return payloads;
+}
+
+function parseJsonValue(text: string | undefined): unknown | undefined {
+	if (text === undefined || !text.trim()) {
+		return undefined;
+	}
+	try {
+		return JSON.parse(text);
+	} catch {
+		return undefined;
+	}
+}
+
+function providerRoutingWithIgnoredProvider(
+	providerRouting: JsonObject | undefined,
+	providerName: string,
+): { providerRouting: JsonObject; changed: boolean } {
+	const trimmedProviderName = providerName.trim();
+	const existingIgnore = Array.isArray(providerRouting?.ignore) ?
+		providerRouting.ignore
+			.filter((value): value is string => typeof value === "string")
+			.filter((value) => value.trim().length > 0)
+	:	[];
+	const existingNames = new Set(existingIgnore.map((value) => value.trim().toLowerCase()));
+	if (existingNames.has(trimmedProviderName.toLowerCase())) {
+		return {
+			providerRouting: { ...(providerRouting ?? {}), ignore: existingIgnore },
+			changed: false,
+		};
+	}
+	return {
+		providerRouting: { ...(providerRouting ?? {}), ignore: [...existingIgnore, trimmedProviderName] },
+		changed: true,
+	};
+}
+
+function providerIgnoreRetryReason(retry: ProviderUpstreamRateLimitRetry): string {
+	return `${retry.retryKey}; ignoring upstream provider ${retry.providerName}`;
 }
 
 function providerFailureResponseText(error: unknown): string | undefined {

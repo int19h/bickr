@@ -1415,6 +1415,82 @@ describe("Bickr Pages Functions", () => {
 			}
 		});
 
+		it("retries compaction provider 429s with the reported upstream provider ignored", async () => {
+			const originalFetch = globalThis.fetch;
+			const rateLimitResponse = {
+				error: {
+					message: "Provider returned error",
+					code: 429,
+					metadata: {
+						provider_name: "DeepInfra",
+						raw: "google/gemma is temporarily rate-limited upstream.",
+					},
+				},
+			};
+			const validResponse = {
+				choices: [{
+					message: {
+						content: JSON.stringify({ [providerCompactionSummaryProperty]: "I remember the important parts." }),
+					},
+				}],
+				usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 },
+			};
+			const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+			const fetchMock = vi.fn()
+				.mockResolvedValueOnce(Response.json(rateLimitResponse, { status: 429 }))
+				.mockResolvedValueOnce(Response.json(validResponse));
+			vi.stubGlobal("fetch", fetchMock);
+			try {
+				const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+					appendEvent: async (_runId: string, type: string, payload: Record<string, unknown>) => {
+						events.push({ type, payload });
+						return {
+							seq: events.length,
+							runId: _runId,
+							type,
+							payload,
+							tokenEstimate: 0,
+							createdAt: new Date().toISOString(),
+						};
+					},
+					throwIfStopped: vi.fn(),
+				});
+				const callProviderForCompaction = (BotRuntime.prototype as unknown as {
+					callProviderForCompaction: (...args: unknown[]) => Promise<{ content: string; requestBody?: string }>;
+				}).callProviderForCompaction.bind(runtime);
+
+				const response = await callProviderForCompaction(
+					{
+						baseUrl: "https://openrouter.ai/api/v1",
+						model: "test-model",
+						temperature: 0.2,
+						providerRouting: { order: ["openrouter/fallback"], ignore: ["A"] },
+					},
+					[{ role: "user", content: "Compact the retained activity." }],
+					"run-compaction-provider-rate-limit",
+					new AbortController().signal,
+					{ minLength: 1, maxLength: 4000, maxCompletionTokens: 1000 },
+				);
+
+				expect(response.content).toBe("I remember the important parts.");
+				expect(fetchMock).toHaveBeenCalledTimes(2);
+				const firstBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as { provider?: Record<string, unknown> };
+				const secondBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)) as { provider?: Record<string, unknown> };
+				expect(firstBody.provider).toEqual({ order: ["openrouter/fallback"], ignore: ["A"] });
+				expect(secondBody.provider).toEqual({ order: ["openrouter/fallback"], ignore: ["A", "DeepInfra"] });
+				expect(events).toContainEqual({
+					type: "provider_retry",
+					payload: expect.objectContaining({
+						attempt: 2,
+						delayMs: 0,
+						reason: expect.stringContaining("ignoring upstream provider DeepInfra"),
+					}),
+				});
+			} finally {
+				vi.stubGlobal("fetch", originalFetch);
+			}
+		});
+
 		it("accepts structured-output compaction responses without the summary tool or minimum requested length", async () => {
 			const originalFetch = globalThis.fetch;
 			const validResponse = {
@@ -4501,6 +4577,210 @@ describe("Bickr Pages Functions", () => {
 		} finally {
 			vi.useRealTimers();
 		}
+	});
+
+	it("retries upstream-provider 429s with request-local provider ignore routing", async () => {
+		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+		const fetchProviderResponse = vi
+			.fn<(_settings: unknown, _endpoint: string, _body: string, _signal: AbortSignal) => Promise<ReadableStream<Uint8Array>>>()
+			.mockResolvedValueOnce(sseStream([streamedProviderRateLimit("gen-limit", "DeepInfra")]))
+			.mockResolvedValueOnce(sseStream([
+				{
+					id: "response-recovered",
+					model: "test/model",
+					choices: [{ delta: { content: "Recovered." } }],
+				},
+				"[DONE]",
+			]));
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			appendEvent: async (_runId: string, type: string, payload: Record<string, unknown>) => {
+				events.push({ type, payload });
+				return {
+					seq: events.length,
+					runId: _runId,
+					type,
+					payload,
+					tokenEstimate: 0,
+					createdAt: new Date().toISOString(),
+				};
+			},
+			broadcastProviderDelta: () => {},
+			clearProviderStreamActive: () => {},
+			fetchProviderResponse,
+			markProviderStreamActive: () => {},
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const callProvider = (BotRuntime.prototype as unknown as {
+			callProvider: (
+				settings: Record<string, unknown>,
+				messages: Array<Record<string, unknown>>,
+				tools: Array<Record<string, unknown>>,
+				runId: string,
+				streamSeq: number,
+				signal: AbortSignal,
+			) => Promise<{ content: string; toolCalls: unknown[] }>;
+		}).callProvider.bind(runtime);
+
+		const response = await callProvider(
+			{
+				baseUrl: "https://openrouter.ai/api/v1",
+				model: "test/model",
+				temperature: 0.7,
+			},
+			[{ role: "user", content: "Act." }],
+			[],
+			"run-stream-provider-rate-limit",
+			77,
+			new AbortController().signal,
+		);
+
+		expect(response).toMatchObject({ content: "Recovered.", toolCalls: [] });
+		expect(fetchProviderResponse).toHaveBeenCalledTimes(2);
+		const firstBody = JSON.parse(String(fetchProviderResponse.mock.calls[0]?.[2])) as { provider?: Record<string, unknown> };
+		const secondBody = JSON.parse(String(fetchProviderResponse.mock.calls[1]?.[2])) as { provider?: Record<string, unknown> };
+		expect(firstBody.provider).toBeUndefined();
+		expect(secondBody.provider).toEqual({ ignore: ["DeepInfra"] });
+		expect(events).toContainEqual({
+			type: "provider_retry",
+			payload: expect.objectContaining({
+				attempt: 2,
+				maxAttempts: 5,
+				delayMs: 0,
+				reason: expect.stringContaining("ignoring upstream provider DeepInfra"),
+			}),
+		});
+	});
+
+	it("accumulates newly reported upstream providers without replacing existing routing", async () => {
+		const fetchProviderResponse = vi
+			.fn<(_settings: unknown, _endpoint: string, _body: string, _signal: AbortSignal) => Promise<ReadableStream<Uint8Array>>>()
+			.mockResolvedValueOnce(sseStream([streamedProviderRateLimit("gen-deepinfra", "DeepInfra")]))
+			.mockResolvedValueOnce(sseStream([streamedProviderRateLimit("gen-fireworks", "Fireworks")]))
+			.mockResolvedValueOnce(sseStream([
+				{
+					id: "response-recovered",
+					model: "test/model",
+					choices: [{ delta: { content: "Recovered." } }],
+				},
+				"[DONE]",
+			]));
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			appendEvent: async () => ({
+				seq: 1,
+				runId: "run-stream-provider-rate-limit-accumulate",
+				type: "provider_retry",
+				payload: {},
+				tokenEstimate: 0,
+				createdAt: new Date().toISOString(),
+			}),
+			broadcastProviderDelta: () => {},
+			clearProviderStreamActive: () => {},
+			fetchProviderResponse,
+			markProviderStreamActive: () => {},
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const callProvider = (BotRuntime.prototype as unknown as {
+			callProvider: (
+				settings: Record<string, unknown>,
+				messages: Array<Record<string, unknown>>,
+				tools: Array<Record<string, unknown>>,
+				runId: string,
+				streamSeq: number,
+				signal: AbortSignal,
+			) => Promise<{ content: string; toolCalls: unknown[] }>;
+		}).callProvider.bind(runtime);
+
+		await expect(callProvider(
+			{
+				baseUrl: "https://openrouter.ai/api/v1",
+				model: "test/model",
+				temperature: 0.7,
+				providerRouting: { order: ["openrouter/fallback"], ignore: ["A"] },
+			},
+			[{ role: "user", content: "Act." }],
+			[],
+			"run-stream-provider-rate-limit-accumulate",
+			77,
+			new AbortController().signal,
+		)).resolves.toMatchObject({ content: "Recovered.", toolCalls: [] });
+
+		const firstBody = JSON.parse(String(fetchProviderResponse.mock.calls[0]?.[2])) as { provider?: Record<string, unknown> };
+		const secondBody = JSON.parse(String(fetchProviderResponse.mock.calls[1]?.[2])) as { provider?: Record<string, unknown> };
+		const thirdBody = JSON.parse(String(fetchProviderResponse.mock.calls[2]?.[2])) as { provider?: Record<string, unknown> };
+		expect(firstBody.provider).toEqual({ order: ["openrouter/fallback"], ignore: ["A"] });
+		expect(secondBody.provider).toEqual({ order: ["openrouter/fallback"], ignore: ["A", "DeepInfra"] });
+		expect(thirdBody.provider).toEqual({ order: ["openrouter/fallback"], ignore: ["A", "DeepInfra", "Fireworks"] });
+	});
+
+	it("stops upstream-provider 429 retries when the ignored provider repeats", async () => {
+		const fetchProviderResponse = vi
+			.fn<(_settings: unknown, _endpoint: string, _body: string, _signal: AbortSignal) => Promise<ReadableStream<Uint8Array>>>()
+			.mockResolvedValueOnce(sseStream([streamedProviderRateLimit("gen-limit-first", "DeepInfra")]))
+			.mockResolvedValueOnce(sseStream([streamedProviderRateLimit("gen-limit-second", "DeepInfra")]));
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			appendEvent: async () => ({
+				seq: 1,
+				runId: "run-stream-provider-rate-limit-repeat",
+				type: "provider_retry",
+				payload: {},
+				tokenEstimate: 0,
+				createdAt: new Date().toISOString(),
+			}),
+			broadcastProviderDelta: () => {},
+			clearProviderStreamActive: () => {},
+			fetchProviderResponse,
+			markProviderStreamActive: () => {},
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const callProvider = (BotRuntime.prototype as unknown as {
+			callProvider: (
+				settings: Record<string, unknown>,
+				messages: Array<Record<string, unknown>>,
+				tools: Array<Record<string, unknown>>,
+				runId: string,
+				streamSeq: number,
+				signal: AbortSignal,
+			) => Promise<{ content: string; toolCalls: unknown[] }>;
+		}).callProvider.bind(runtime);
+
+		let thrown: unknown;
+		try {
+			await callProvider(
+				{
+					baseUrl: "https://openrouter.ai/api/v1",
+					model: "test/model",
+					temperature: 0.7,
+				},
+				[{ role: "user", content: "Act." }],
+				[],
+				"run-stream-provider-rate-limit-repeat",
+				77,
+				new AbortController().signal,
+			);
+		} catch (error) {
+			thrown = error;
+		}
+
+		expect(fetchProviderResponse).toHaveBeenCalledTimes(2);
+		const secondBody = JSON.parse(String(fetchProviderResponse.mock.calls[1]?.[2])) as { provider?: Record<string, unknown> };
+		expect(secondBody.provider).toEqual({ ignore: ["DeepInfra"] });
+		expect(thrown).toMatchObject({
+			name: "ProviderLoopRequestError",
+			attempts: 2,
+		});
+		expect((thrown as Error).message).toContain("Inference request failed with status 429. Response: Provider returned error");
 	});
 
 	it("wraps exhausted loop provider retries with request and response diagnostics", async () => {
@@ -12563,6 +12843,23 @@ function jsonRequest(
 
 function neverStream(): ReadableStream<Uint8Array> {
 	return new ReadableStream<Uint8Array>();
+}
+
+function streamedProviderRateLimit(id: string, providerName: string): Record<string, unknown> {
+	return {
+		id,
+		object: "chat.completion.chunk",
+		model: "google/gemma-4-31b-it",
+		choices: [],
+		error: {
+			code: 429,
+			message: "Provider returned error",
+			metadata: {
+				provider_name: providerName,
+				raw: `${providerName} is temporarily rate-limited upstream.`,
+			},
+		},
+	};
 }
 
 function sseStream(events: Array<Record<string, unknown> | "[DONE]">): ReadableStream<Uint8Array> {
