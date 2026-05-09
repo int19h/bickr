@@ -1806,6 +1806,7 @@ function invalidUnicodePath(value: unknown): boolean {
 export function sanitizeProviderToolCalls(toolCalls: readonly BotInferenceSubmissionToolCall[]): ProviderToolCallSanitization {
 	const sanitized: ToolCall[] = [];
 	const dropped: DroppedProviderToolCall[] = [];
+	const seenIds = new Set<string>();
 	let repairedTextCount = 0;
 	for (const toolCall of toolCalls) {
 		const functionRecord = runtimeRecord(toolCall.function);
@@ -1845,6 +1846,11 @@ export function sanitizeProviderToolCalls(toolCalls: readonly BotInferenceSubmis
 		}
 		const argumentRepair = repairInvalidUnicodeValue(parsed);
 		repairedTextCount += argumentRepair.repairCount;
+		if (seenIds.has(id)) {
+			dropped.push(droppedProviderToolCall(id, name, "duplicate_tool_call", rawArguments));
+			continue;
+		}
+		seenIds.add(id);
 		sanitized.push({
 			id,
 			type: "function",

@@ -5553,6 +5553,11 @@ describe("Bickr Pages Functions", () => {
 				type: "function",
 				function: { name: "read_thread", arguments: "{ \"threadId\": \"thr_test\" }" },
 			},
+			{
+				id: "call-valid",
+				type: "function",
+				function: { name: "reply_to_comment", arguments: "{ \"commentId\": \"com_test\", \"body\": \"Duplicate id.\" }" },
+			},
 		]);
 
 		expect(sanitized.dropped.map((call) => [call.id, call.reason])).toEqual([
@@ -5560,6 +5565,7 @@ describe("Bickr Pages Functions", () => {
 			["call-array", "arguments_not_json_object"],
 			["call-null", "arguments_not_json_object"],
 			["call-string", "arguments_not_json_object"],
+			["call-valid", "duplicate_tool_call"],
 		]);
 		expect(sanitized.toolCalls).toEqual([
 			{
@@ -5846,6 +5852,109 @@ describe("Bickr Pages Functions", () => {
 			payload: expect.objectContaining({
 				count: 1,
 				callIds: ["call-bad"],
+				retrying: false,
+			}),
+		}));
+	});
+
+	it("drops duplicate generated tool call ids before history and execution", async () => {
+		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+		const appendedLoopMessages: Array<{ message: BotInferenceSubmissionMessage; origin: string }> = [];
+		const executedTools: Array<{ name: string; args: Record<string, unknown> }> = [];
+		const providerMessagesByCall: BotInferenceSubmissionMessage[][] = [];
+		const providerHistory = (): BotInferenceSubmissionMessage[] =>
+			appendedLoopMessages
+				.filter((item) => item.origin === "provider_response" || item.origin === "tool_result")
+				.map((item) => item.message);
+		const callProvider = vi.fn()
+			.mockImplementationOnce((_settings: unknown, messages: BotInferenceSubmissionMessage[]) => {
+				providerMessagesByCall.push(messages);
+				return providerResponseWithToolCalls([
+					{ id: "call-duplicate", name: "read_thread", args: { threadId: "thr_keep" } },
+					{ id: "call-duplicate", name: "reply_to_comment", args: { commentId: "com_drop", body: "This duplicate id is ambiguous." } },
+				]);
+			})
+			.mockImplementationOnce((_settings: unknown, messages: BotInferenceSubmissionMessage[]) => {
+				providerMessagesByCall.push(messages);
+				return providerResponseWithContent("done");
+			});
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+				events.push({ type, payload });
+				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
+			},
+			appendLoopMessage: (_runId: string, message: BotInferenceSubmissionMessage, origin: string) => {
+				appendedLoopMessages.push({ message, origin });
+				return {
+					seq: appendedLoopMessages.length,
+					runId: "run-duplicate-tool-call-id",
+					role: message.role,
+					message,
+					origin,
+					tokenEstimate: 0,
+					createdAt: new Date().toISOString(),
+				};
+			},
+			appendProviderMessages: async () => {},
+			callProvider,
+			ensureProviderPromptWithinBudget: async () => {
+				const history = providerHistory();
+				return {
+					allowedPromptTokens: 13_500,
+					promptTokens: 100,
+					requestMessages: history.length > 0 ? history : [{ role: "assistant", content: "I am ready." }],
+				};
+			},
+			executeTool: async (_bot: unknown, _runId: string, name: string, args: Record<string, unknown>) => {
+				executedTools.push({ name, args });
+				return { name, result: { ok: true }, providerResult: { ok: true } };
+			},
+			repairActiveProviderToolCallHistory: async () => [],
+			recordInferenceSubmission: () => {},
+			recordLoopMessageLog: () => {},
+			recordProviderUsage: () => {},
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const runProviderLoop = (BotRuntime.prototype as unknown as {
+			runProviderLoop: (
+				bot: BotDocument,
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				runId: string,
+				messages: Array<Record<string, unknown>>,
+				runContext: { mode: "normal"; signal: AbortSignal },
+			) => Promise<{ logOffCalled: boolean }>;
+		}).runProviderLoop.bind(runtime);
+
+		await expect(
+			runProviderLoop(
+				fakeBotDocument(),
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
+				"run-duplicate-tool-call-id",
+				[],
+				{ mode: "normal", signal: new AbortController().signal },
+			),
+		).resolves.toMatchObject({ logOffCalled: false });
+
+		expect(executedTools).toEqual([{ name: "read_thread", args: { threadId: "thr_keep" } }]);
+		const providerResponse = appendedLoopMessages.find((message) => message.origin === "provider_response")?.message;
+		expect(providerResponse?.tool_calls).toEqual([
+			expect.objectContaining({ id: "call-duplicate", function: expect.objectContaining({ name: "read_thread" }) }),
+		]);
+		expect(appendedLoopMessages.filter((message) => message.origin === "tool_result").map((message) => message.message.tool_call_id)).toEqual(["call-duplicate"]);
+		expect(JSON.stringify(appendedLoopMessages)).not.toContain("com_drop");
+		const secondRequestAssistant = providerMessagesByCall[1]?.find((message) => Array.isArray(message.tool_calls));
+		expect(secondRequestAssistant?.tool_calls?.map((toolCall) => toolCall.id)).toEqual(["call-duplicate"]);
+		expect(providerMessagesByCall[1]?.filter((message) => message.role === "tool").map((message) => message.tool_call_id)).toEqual(["call-duplicate"]);
+		expect(events).toContainEqual(expect.objectContaining({
+			type: "provider_tool_call_dropped",
+			payload: expect.objectContaining({
+				count: 1,
+				callIds: ["call-duplicate"],
+				reason: "duplicate_tool_call",
 				retrying: false,
 			}),
 		}));
@@ -7722,6 +7831,128 @@ describe("Bickr Pages Functions", () => {
 			type: "provider_tool_call_dropped",
 			payload: expect.objectContaining({ phase: "history_repair", callIds: ["call-poisoned"] }),
 		});
+	});
+
+	it("repairs duplicate tool call ids in active history before provider submission", async () => {
+		const rows = [
+			loopMessageRowForMessage(1, {
+				role: "assistant",
+				content: null,
+				tool_calls: [
+					{
+						id: "call-duplicate",
+						type: "function",
+						function: { name: "read_thread", arguments: "{\"threadId\":\"thr_keep\"}" },
+					},
+					{
+						id: "call-duplicate",
+						type: "function",
+						function: { name: "reply_to_comment", arguments: "{\"commentId\":\"com_drop\",\"body\":\"Ambiguous duplicate.\"}" },
+					},
+				],
+			}),
+			loopMessageRowForMessage(2, {
+				role: "tool",
+				tool_call_id: "call-duplicate",
+				content: "{\"ok\":true,\"kept\":true}",
+			}, "tool_result"),
+			loopMessageRowForMessage(3, {
+				role: "tool",
+				tool_call_id: "call-duplicate",
+				content: "{\"ok\":true,\"dropped\":true}",
+			}, "tool_result"),
+		];
+		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+		const submissions: Array<Array<Record<string, unknown>>> = [];
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			state: {
+				storage: {
+					sql: {
+						exec: vi.fn(<T,>(query: string, ...params: unknown[]) => {
+							const normalized = query.trim().replace(/\s+/g, " ");
+							if (/UPDATE loop_messages SET deleted_at = \?/.test(normalized)) {
+								const row = rows.find((item) => item.seq === Number(params[1]));
+								if (row && !row.deleted_at) {
+									row.deleted_at = String(params[0]);
+								}
+							}
+							if (/UPDATE loop_messages SET message_json = \?, token_estimate = \?/.test(normalized)) {
+								const row = rows.find((item) => item.seq === Number(params[2]));
+								if (row && !row.deleted_at) {
+									row.message_json = String(params[0]);
+									row.token_estimate = Number(params[1]);
+								}
+							}
+							return {
+								one: () => ({} as T),
+								toArray: () => [] as T[],
+							};
+						}),
+					},
+				},
+			},
+			activeLoopMessageRows: () => rows.filter((row) => row.deleted_at === null),
+			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+				events.push({ type, payload });
+				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
+			},
+			appendLoopMessage: () => ({ seq: 99, runId: "run-duplicate-history-repair", role: "assistant", message: {}, origin: "provider_response", tokenEstimate: 0, createdAt: new Date().toISOString() }),
+			appendProviderMessages: async () => {},
+			broadcastControl: () => {},
+			callProvider: async () => providerResponseWithContent("Clean history is ready."),
+			ensureProviderPromptWithinBudget: async () => ({
+				allowedPromptTokens: 13_500,
+				promptTokens: 100,
+				requestMessages: (BotRuntime.prototype as unknown as { activeLoopMessagesForProvider: () => Array<Record<string, unknown>> }).activeLoopMessagesForProvider.bind(runtime)(),
+			}),
+			recordInferenceSubmission: (input: { messages: Array<Record<string, unknown>> }) => {
+				submissions.push(input.messages);
+			},
+			recordLoopMessageLog: () => {},
+			recordProviderUsage: () => {},
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const runProviderLoop = (BotRuntime.prototype as unknown as {
+			runProviderLoop: (
+				bot: BotDocument,
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				runId: string,
+				messages: Array<Record<string, unknown>>,
+				runContext: { mode: "normal"; signal: AbortSignal },
+			) => Promise<{ logOffCalled: boolean }>;
+		}).runProviderLoop.bind(runtime);
+
+		await expect(
+			runProviderLoop(
+				fakeBotDocument(),
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
+				"run-duplicate-history-repair",
+				[],
+				{ mode: "normal", signal: new AbortController().signal },
+			),
+		).resolves.toMatchObject({ logOffCalled: false });
+
+		const repairedAssistant = JSON.parse(rows[0]!.message_json) as BotInferenceSubmissionMessage;
+		expect(repairedAssistant.tool_calls?.map((toolCall) => toolCall.id)).toEqual(["call-duplicate"]);
+		expect(repairedAssistant.tool_calls?.[0]?.function.name).toBe("read_thread");
+		expect(rows[1]?.deleted_at).toBeNull();
+		expect(rows[2]?.deleted_at).toMatch(/^20/);
+		const submittedAssistant = submissions[0]?.find((message) => Array.isArray(message.tool_calls)) as BotInferenceSubmissionMessage | undefined;
+		expect(submittedAssistant?.tool_calls?.map((toolCall) => toolCall.id)).toEqual(["call-duplicate"]);
+		expect(submissions[0]?.filter((message) => message.role === "tool").map((message) => message.tool_call_id)).toEqual(["call-duplicate"]);
+		expect(JSON.stringify(submissions[0])).not.toContain("com_drop");
+		expect(events).toContainEqual(expect.objectContaining({
+			type: "provider_tool_call_dropped",
+			payload: expect.objectContaining({
+				phase: "history_repair",
+				callIds: ["call-duplicate"],
+				reason: "duplicate_tool_call",
+			}),
+		}));
 	});
 
 	it("repairs invalid Unicode in active history before provider submission", async () => {
