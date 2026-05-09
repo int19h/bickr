@@ -379,6 +379,20 @@ type ProviderUsageRow = {
 	cost: number | null;
 };
 
+type ProviderTokenCalibrationSampleRow = {
+	id: number;
+	run_id: string;
+	request_seq: number;
+	attempt: number;
+	purpose: BotInferenceSubmissionPurpose;
+	requested_model: string;
+	response_model: string | null;
+	provider_base_url: string;
+	prompt_tokens: number;
+	request_characters: number;
+	created_at: string;
+};
+
 type ProviderUsageLogRow = ProviderUsageRow & {
 	usage_json: string;
 };
@@ -393,6 +407,13 @@ type PromptTokenCalibrationRow = {
 	purpose: BotInferenceSubmissionPurpose;
 	messages_json: string;
 	prompt_tokens: number;
+};
+
+type ProviderTokenCalibrationLegacyBackfillRow = PromptTokenCalibrationRow & {
+	requested_model: string;
+	response_model: string | null;
+	provider_base_url: string;
+	created_at: string;
 };
 
 type PromptTokenBaselineRow = PromptTokenCalibrationRow & {
@@ -717,6 +738,12 @@ type ProviderCompactionRequest = {
 	temperature: number;
 };
 
+type ProviderTokenCalibrationRequestShape = {
+	messages: ChatMessage[];
+	tools?: readonly ProviderToolDefinition[];
+	response_format?: ProviderJsonSchemaResponseFormat;
+};
+
 type ProviderJsonSchemaResponseFormat = {
 	type: "json_schema";
 	json_schema: {
@@ -819,14 +846,20 @@ class ProviderRequestError extends Error {
 	readonly status: number;
 	readonly body: string;
 	readonly rawResponse?: string;
+	readonly responseId?: string;
+	readonly responseModel?: string;
+	readonly usage?: ProviderUsage;
 
-	constructor(status: number, _model: string, _endpoint: string, body: string, options: { rawResponse?: string } = {}) {
+	constructor(status: number, _model: string, _endpoint: string, body: string, options: { rawResponse?: string; responseId?: string; responseModel?: string; usage?: ProviderUsage } = {}) {
 		const suffix = body ? ` Response: ${body}` : "";
 		super(`Inference request failed with status ${status}.${suffix}`);
 		this.name = "ProviderRequestError";
 		this.status = status;
 		this.body = body;
 		this.rawResponse = options.rawResponse;
+		this.responseId = options.responseId;
+		this.responseModel = options.responseModel;
+		this.usage = options.usage;
 	}
 }
 
@@ -866,8 +899,11 @@ class ProviderStructuredOutputValidationError extends Error {
 	readonly repairMessage: string;
 	readonly requiredToolName: string;
 	readonly outputText?: string;
+	responseId?: string;
+	responseModel?: string;
+	usage?: ProviderUsage;
 
-	constructor(kind: "compaction" | "translation", repairMessage: string, options: { rawResponse?: string; requiredToolName?: string; toolCalls?: BotInferenceSubmissionToolCall[]; outputText?: string } = {}) {
+	constructor(kind: "compaction" | "translation", repairMessage: string, options: { rawResponse?: string; requiredToolName?: string; toolCalls?: BotInferenceSubmissionToolCall[]; outputText?: string; responseId?: string; responseModel?: string; usage?: ProviderUsage } = {}) {
 		super(`Inference provider returned schema-invalid ${kind} ${options.requiredToolName ? "tool arguments" : "structured output"}: ${repairMessage}`);
 		this.name = "ProviderStructuredOutputValidationError";
 		this.repairMessage = repairMessage;
@@ -875,6 +911,9 @@ class ProviderStructuredOutputValidationError extends Error {
 		this.rawResponse = options.rawResponse;
 		this.toolCalls = options.toolCalls ?? [];
 		this.outputText = options.outputText;
+		this.responseId = options.responseId;
+		this.responseModel = options.responseModel;
+		this.usage = options.usage;
 	}
 }
 
@@ -882,14 +921,20 @@ class ProviderCompactionOutputLimitError extends Error {
 	readonly rawResponse: string;
 	readonly finishReason: string;
 	readonly nativeFinishReason: string;
+	readonly responseId?: string;
+	readonly responseModel?: string;
+	readonly usage?: ProviderUsage;
 
-	constructor(rawResponse: string, finishReason: string, nativeFinishReason: string) {
+	constructor(rawResponse: string, finishReason: string, nativeFinishReason: string, options: { responseId?: string; responseModel?: string; usage?: ProviderUsage } = {}) {
 		const details = [finishReason, nativeFinishReason].filter(Boolean).join("/");
 		super(`Inference provider exhausted the compaction output budget${details ? ` (${details})` : ""}.`);
 		this.name = "ProviderCompactionOutputLimitError";
 		this.rawResponse = rawResponse;
 		this.finishReason = finishReason;
 		this.nativeFinishReason = nativeFinishReason;
+		this.responseId = options.responseId;
+		this.responseModel = options.responseModel;
+		this.usage = options.usage;
 	}
 }
 
@@ -915,11 +960,17 @@ class ProviderResponseBodyTimeoutError extends Error {
 
 class ProviderEmptyResponseError extends Error {
 	readonly rawResponse?: string;
+	readonly responseId?: string;
+	readonly responseModel?: string;
+	readonly usage?: ProviderUsage;
 
-	constructor(rawResponse?: string) {
+	constructor(rawResponse?: string, options: { responseId?: string; responseModel?: string; usage?: ProviderUsage } = {}) {
 		super("Inference provider returned an empty response with no content, reasoning, or tool calls.");
 		this.name = "ProviderEmptyResponseError";
 		this.rawResponse = rawResponse;
+		this.responseId = options.responseId;
+		this.responseModel = options.responseModel;
+		this.usage = options.usage;
 	}
 }
 
@@ -1011,6 +1062,7 @@ const providerCompactionDefaultSummaryPercent = 10;
 const providerCompactionDefaultMaxCharacters = 4_000;
 const providerStructuredOutputRepairAttempts = 4;
 const inferenceSubmissionRetentionCount = 50;
+const providerTokenCalibrationRetentionCount = 100;
 const loopMessageLogRetentionCount = 50;
 const loopMessageLogChunkLength = 250_000;
 const loopMessagePageIndexLimit = 100;
@@ -2473,6 +2525,20 @@ CREATE TABLE IF NOT EXISTS provider_usage (
 );
 CREATE INDEX IF NOT EXISTS provider_usage_created_at ON provider_usage (created_at);
 CREATE INDEX IF NOT EXISTS provider_usage_model_context ON provider_usage (model, context_window_tokens, created_at);
+CREATE TABLE IF NOT EXISTS provider_token_calibration_samples (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	run_id TEXT NOT NULL,
+	request_seq INTEGER NOT NULL,
+	attempt INTEGER NOT NULL,
+	purpose TEXT NOT NULL,
+	requested_model TEXT NOT NULL,
+	response_model TEXT,
+	provider_base_url TEXT NOT NULL,
+	prompt_tokens INTEGER NOT NULL,
+	request_characters INTEGER NOT NULL,
+	created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS provider_token_calibration_samples_model ON provider_token_calibration_samples (requested_model, id);
 CREATE TABLE IF NOT EXISTS inference_submissions (
 	id TEXT PRIMARY KEY,
 	event_seq INTEGER NOT NULL UNIQUE,
@@ -2546,6 +2612,7 @@ export class BotRuntime {
 			this.ensureInferenceSubmissionColumns();
 			this.ensureLoopMessageColumns();
 			this.migrateLegacyLoopMessages();
+			this.backfillProviderTokenCalibrationSamples();
 		});
 	}
 
@@ -3462,7 +3529,7 @@ export class BotRuntime {
 				responseStatus = "complete";
 				interruptedError = null;
 				try {
-					response = await this.callProvider(settings, requestMessages, providerTools, runId, requestEvent.seq, runContext.signal, toolCallsMode);
+					response = await this.callProvider(settings, requestMessages, providerTools, runId, requestEvent.seq, runContext.signal, toolCallsMode, requestEvent.createdAt);
 				} catch (error) {
 					if (error instanceof ProviderResponseInterruptedError) {
 						response = error.response;
@@ -3767,6 +3834,7 @@ export class BotRuntime {
 		streamSeq: number,
 		signal: AbortSignal,
 		toolCalls: BotInferenceToolCalls = settings.toolCalls ?? "require",
+		createdAt = new Date().toISOString(),
 	): Promise<ProviderResponse> {
 		const endpoint = providerChatCompletionsUrl(settings.baseUrl);
 		let requestSettings = settings;
@@ -3774,6 +3842,7 @@ export class BotRuntime {
 		let previousRetryKey: string | null = null;
 		let retryDelayMs = 0;
 		let retryReason: string | null = null;
+		let calibrationAttempt = 0;
 		for (let attempt = 1; attempt <= providerMaxAttempts; attempt += 1) {
 			this.throwIfStopped(runId, signal);
 			if (attempt > 1) {
@@ -3787,16 +3856,43 @@ export class BotRuntime {
 					await sleep(retryDelayMs, signal);
 				}
 			}
-			const body = stringifyProviderRequest(providerChatCompletionRequest(requestSettings, messages, tools, undefined, toolCalls));
+			const request = providerChatCompletionRequest(requestSettings, messages, tools, undefined, toolCalls);
+			const body = stringifyProviderRequest(request);
+			calibrationAttempt += 1;
 			lastBody = body;
 
 			try {
 				const stream = await this.fetchProviderResponse(requestSettings, endpoint, body, signal);
 				const response = await this.consumeProviderResponse(runId, streamSeq, stream, signal);
+				if (response.usage) {
+					this.recordProviderTokenCalibrationSample({
+						attempt: calibrationAttempt,
+						createdAt,
+						purpose: "loop",
+						request,
+						requestSeq: streamSeq,
+						...(response.responseModel ? { responseModel: response.responseModel } : {}),
+						runId,
+						settings: requestSettings,
+						usage: response.usage,
+					});
+				}
 				return { ...response, requestBody: body };
 			} catch (error) {
+				this.recordProviderTokenCalibrationSampleFromError({
+					attempt: calibrationAttempt,
+					createdAt,
+					error,
+					purpose: "loop",
+					request,
+					requestSeq: streamSeq,
+					runId,
+					settings: requestSettings,
+				});
 				if (error instanceof ProviderResponseInterruptedError) {
-					throw new ProviderResponseInterruptedError({ ...error.response, requestBody: body }, error.originalError);
+					const interruptedResponse = { ...error.response };
+					delete interruptedResponse.usage;
+					throw new ProviderResponseInterruptedError({ ...interruptedResponse, requestBody: body }, error.originalError);
 				}
 				if (error instanceof TickStoppedError || isAbortError(error)) {
 					throw error;
@@ -3836,6 +3932,8 @@ export class BotRuntime {
 		limits: Pick<ProviderCompactionSummaryLimits, "minLength" | "maxLength" | "maxCompletionTokens"> = defaultProviderCompactionSummaryLimits,
 		providerTools?: ProviderToolDefinition[],
 		mode: ProviderCompactionMode = "structured_output",
+		requestSeq = 0,
+		createdAt = new Date().toISOString(),
 	): Promise<Pick<ProviderResponse, "usage" | "responseId" | "responseModel" | "requestBody" | "rawResponse"> & { content: string }> {
 		const endpoint = providerChatCompletionsUrl(settings.baseUrl);
 		const effectiveProviderTools = providerTools ?? providerCompactionToolsForMode(limits, undefined, mode);
@@ -3843,6 +3941,7 @@ export class BotRuntime {
 		let requestSettings = settings;
 		let lastBody = stringifyProviderRequest(providerCompactionRequest(requestSettings, requestMessages, limits, effectiveProviderTools, mode));
 		let lastValidationError: ProviderStructuredOutputValidationError | null = null;
+		let calibrationAttempt = 0;
 		for (let schemaAttempt = 0; schemaAttempt <= providerStructuredOutputRepairAttempts; schemaAttempt += 1) {
 			let previousRetryKey: string | null = null;
 			let retryDelayMs = 0;
@@ -3860,13 +3959,38 @@ export class BotRuntime {
 						await sleep(retryDelayMs, signal);
 					}
 				}
-				const body = stringifyProviderRequest(providerCompactionRequest(requestSettings, requestMessages, limits, effectiveProviderTools, mode));
+				const request = providerCompactionRequest(requestSettings, requestMessages, limits, effectiveProviderTools, mode);
+				const body = stringifyProviderRequest(request);
+				calibrationAttempt += 1;
 				lastBody = body;
 
 				try {
 					const response = await this.fetchProviderCompactionResponse(requestSettings, endpoint, body, signal, limits, mode);
+					if (response.usage) {
+						this.recordProviderTokenCalibrationSample({
+							attempt: calibrationAttempt,
+							createdAt,
+							purpose: "compaction",
+							request,
+							requestSeq,
+							...(response.responseModel ? { responseModel: response.responseModel } : {}),
+							runId,
+							settings: requestSettings,
+							usage: response.usage,
+						});
+					}
 					return { ...response, requestBody: body };
 				} catch (error) {
+					this.recordProviderTokenCalibrationSampleFromError({
+						attempt: calibrationAttempt,
+						createdAt,
+						error,
+						purpose: "compaction",
+						request,
+						requestSeq,
+						runId,
+						settings: requestSettings,
+					});
 					if (error instanceof TickStoppedError || isAbortError(error)) {
 						throw error;
 					}
@@ -3962,11 +4086,11 @@ export class BotRuntime {
 				};
 				responseId = stringValue(chunk.id) ?? responseId;
 				responseModel = stringValue(chunk.model) ?? responseModel;
+				usage = providerUsageFromValue(chunk.usage) ?? usage;
 				const providerError = providerStreamErrorFromChunk(chunk);
 				if (providerError) {
 					throw providerError;
 				}
-				usage = providerUsageFromValue(chunk.usage) ?? usage;
 				const delta = chunk.choices?.[0]?.delta;
 				if (!delta) {
 					continue;
@@ -4018,7 +4142,16 @@ export class BotRuntime {
 			}
 				if (error instanceof TickStoppedError || isAbortError(error)) {
 					throw new ProviderResponseInterruptedError(
-						{ content, reasoning, reasoningDetails, toolCalls: [...toolCalls.values()].filter((tool) => tool.function.name) },
+						{
+							content,
+							reasoning,
+							reasoningDetails,
+							toolCalls: [...toolCalls.values()].filter((tool) => tool.function.name),
+							...(rawResponse ? { rawResponse } : {}),
+							...(usage ? { usage } : {}),
+							...(responseId ? { responseId } : {}),
+							...(responseModel ? { responseModel } : {}),
+						},
 						error,
 					);
 				}
@@ -4037,7 +4170,11 @@ export class BotRuntime {
 			...(responseModel ? { responseModel } : {}),
 		};
 		if (providerResponseIsEmpty(response)) {
-			throw new ProviderEmptyResponseError(response.rawResponse);
+			throw new ProviderEmptyResponseError(response.rawResponse, {
+				...(responseId ? { responseId } : {}),
+				...(responseModel ? { responseModel } : {}),
+				...(usage ? { usage } : {}),
+			});
 		}
 		return response;
 	}
@@ -4852,6 +4989,130 @@ export class BotRuntime {
 		);
 	}
 
+	private recordProviderTokenCalibrationSample(input: {
+		attempt: number;
+		createdAt: string;
+		purpose: BotInferenceSubmissionPurpose;
+		request: ProviderTokenCalibrationRequestShape;
+		requestSeq: number;
+		responseModel?: string;
+		runId: string;
+		settings: Pick<ProviderSettings, "baseUrl" | "model">;
+		usage: ProviderUsage;
+	}): void {
+		if (!this.hasRuntimeStorage()) {
+			return;
+		}
+		const promptTokens = Math.max(0, Math.floor(input.usage.promptTokens));
+		const requestCharacters = providerTokenCalibrationRequestCharacterCount(input.request);
+		if (promptTokens <= 0 || requestCharacters <= 0) {
+			return;
+		}
+		this.state.storage.sql.exec(
+			`INSERT INTO provider_token_calibration_samples (
+				run_id, request_seq, attempt, purpose, requested_model, response_model,
+				provider_base_url, prompt_tokens, request_characters, created_at
+			)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			input.runId,
+			input.requestSeq,
+			Math.max(1, Math.floor(input.attempt)),
+			input.purpose,
+			input.settings.model,
+			input.responseModel ?? null,
+			input.settings.baseUrl,
+			promptTokens,
+			requestCharacters,
+			input.createdAt,
+		);
+		this.pruneProviderTokenCalibrationSamples(input.settings.model);
+	}
+
+	private recordProviderTokenCalibrationSampleFromError(input: {
+		attempt: number;
+		createdAt: string;
+		error: unknown;
+		purpose: BotInferenceSubmissionPurpose;
+		request: ProviderTokenCalibrationRequestShape;
+		requestSeq: number;
+		runId: string;
+		settings: Pick<ProviderSettings, "baseUrl" | "model">;
+	}): void {
+		const metadata = providerTokenUsageMetadataFromError(input.error);
+		if (!metadata?.usage) {
+			return;
+		}
+		this.recordProviderTokenCalibrationSample({
+			attempt: input.attempt,
+			createdAt: input.createdAt,
+			purpose: input.purpose,
+			request: input.request,
+			requestSeq: input.requestSeq,
+			...(metadata.responseModel ? { responseModel: metadata.responseModel } : {}),
+			runId: input.runId,
+			settings: input.settings,
+			usage: metadata.usage,
+		});
+	}
+
+	private pruneProviderTokenCalibrationSamples(requestedModel: string): void {
+		this.state.storage.sql.exec(
+			`DELETE FROM provider_token_calibration_samples
+			 WHERE requested_model = ?
+			   AND id NOT IN (
+				SELECT id
+				FROM provider_token_calibration_samples
+				WHERE requested_model = ?
+				ORDER BY id DESC
+				LIMIT ?
+			   )`,
+			requestedModel,
+			requestedModel,
+			providerTokenCalibrationRetentionCount,
+		);
+	}
+
+	private backfillProviderTokenCalibrationSamples(): void {
+		if (this.runtimeStateBoolean("provider_token_calibration_samples_backfilled")) {
+			return;
+		}
+		const rows = this.state.storage.sql
+			.exec<ProviderTokenCalibrationLegacyBackfillRow>(
+				`SELECT s.event_seq, s.run_id, s.purpose, s.messages_json, s.model AS requested_model,
+				        u.response_model, s.provider_base_url, u.prompt_tokens, u.created_at
+				 FROM inference_submissions s
+				 JOIN provider_usage u
+				   ON u.request_seq = s.event_seq
+				  AND u.run_id = s.run_id
+				 WHERE u.prompt_tokens > 0
+				 ORDER BY s.event_seq ASC`,
+			)
+			.toArray();
+		for (const row of rows) {
+			const requestCharacters = chatMessagesCharacterCountFromJson(row.messages_json);
+			if (requestCharacters <= 0) {
+				continue;
+			}
+			this.state.storage.sql.exec(
+				`INSERT INTO provider_token_calibration_samples (
+					run_id, request_seq, attempt, purpose, requested_model, response_model,
+					provider_base_url, prompt_tokens, request_characters, created_at
+				)
+				VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?)`,
+				row.run_id,
+				row.event_seq,
+				row.purpose,
+				row.requested_model,
+				row.response_model ?? null,
+				row.provider_base_url,
+				Math.max(0, Math.floor(row.prompt_tokens)),
+				requestCharacters,
+				row.created_at,
+			);
+		}
+		this.setRuntimeState("provider_token_calibration_samples_backfilled", true);
+	}
+
 	private recordInferenceSubmission(input: {
 		seq: number;
 		runId: string;
@@ -5032,7 +5293,7 @@ export class BotRuntime {
 		const initialTokens = Math.min(baselinePromptTokens, promptTokens);
 		const ongoingTokens = Math.max(0, promptTokens - baselinePromptTokens);
 		const freeTokens = Math.max(0, contextWindowTokens - promptTokens);
-		const compactionCutoffTokens = this.nextCompactionTokens(bot, contextWindowTokens);
+		const compactionCutoffTokens = this.nextCompactionTokens(bot, contextWindowTokens, latest.requested_model);
 		return {
 			usedAt: latest.created_at,
 			runId: latest.run_id,
@@ -5152,7 +5413,7 @@ export class BotRuntime {
 			contextWindowTokens: tickSettings.contextWindowTokens,
 			responseReserveTokens: providerContextReserveTokens,
 		});
-		const calibration = this.textTokenCalibration();
+		const calibration = this.textTokenCalibration(settings.model);
 		const compactionLimits = providerCompactionSummaryLimitsForChat(bot, [], calibration, providerTools, providerCompactionMode(settings));
 		const minimumCompactedPromptTokens = estimatedMinimumCompactedPromptTokens(
 			{ fixedSystemMessage, fullSystemMessage, reasoningPrefill, providerTools, supportsPrefill: settings.supportsPrefill ?? true },
@@ -5195,7 +5456,7 @@ export class BotRuntime {
 			...(settings.providerRouting ? { providerRouting: settings.providerRouting } : {}),
 			supportsPrefill: settings.supportsPrefill ?? true,
 		}));
-		const counts = cachedCounts ?? this.estimatedContextBudgetCounts(parts, this.textTokenCalibration());
+		const counts = cachedCounts ?? this.estimatedContextBudgetCounts(parts, this.textTokenCalibration(settings.model));
 		const tickSettings = effectiveTickSettings(bot.tickSettings);
 		return providerReadCommentTreeTokenBudget(promptContextBudgetFromCounts({
 			...counts,
@@ -5458,17 +5719,33 @@ export class BotRuntime {
 		const choice = payload.choices?.[0];
 		const finishReason = stringValue(choice?.finish_reason) ?? "";
 		const nativeFinishReason = stringValue(choice?.native_finish_reason) ?? "";
-		if (providerCompactionOutputLimitReached(finishReason, nativeFinishReason)) {
-			throw new ProviderCompactionOutputLimitError(rawResponse, finishReason, nativeFinishReason);
-		}
-		const content = providerCompactionSummaryFromResponseMessage(choice?.message, rawResponse, limits, mode);
 		const usage = providerUsageFromValue(payload.usage);
+		const responseId = stringValue(payload.id);
+		const responseModel = stringValue(payload.model);
+		if (providerCompactionOutputLimitReached(finishReason, nativeFinishReason)) {
+			throw new ProviderCompactionOutputLimitError(rawResponse, finishReason, nativeFinishReason, {
+				...(responseId ? { responseId } : {}),
+				...(responseModel ? { responseModel } : {}),
+				...(usage ? { usage } : {}),
+			});
+		}
+		let content: string;
+		try {
+			content = providerCompactionSummaryFromResponseMessage(choice?.message, rawResponse, limits, mode);
+		} catch (error) {
+			if (error instanceof ProviderStructuredOutputValidationError) {
+				error.responseId = responseId;
+				error.responseModel = responseModel;
+				error.usage = usage;
+			}
+			throw error;
+		}
 		return {
 			content,
 			rawResponse,
 			...(usage ? { usage } : {}),
-			...(stringValue(payload.id) ? { responseId: stringValue(payload.id) } : {}),
-			...(stringValue(payload.model) ? { responseModel: stringValue(payload.model) } : {}),
+			...(responseId ? { responseId } : {}),
+			...(responseModel ? { responseModel } : {}),
 		};
 	}
 
@@ -6488,7 +6765,7 @@ export class BotRuntime {
 		signal: AbortSignal,
 	): Promise<void> {
 		bot = await this.botWithCurrentRuntimeBudget(bot);
-		const contextEstimate = this.currentCompactionContextEstimate();
+		const contextEstimate = this.currentCompactionContextEstimate(settings.model);
 		const providerTools = providerToolsForBotRound(bot, settings).tools;
 		const compactionMode = providerCompactionMode(settings);
 		const limits = this.compactionSummaryLimitsForRows(bot, contextEstimate.rows.map((item) => item.row), contextEstimate.calibration, providerTools, compactionMode);
@@ -6502,7 +6779,7 @@ export class BotRuntime {
 			return;
 		}
 
-		const compacted = this.compactionRowsForEstimatedBudget(bot, runId, true, providerTools, compactionMode);
+		const compacted = this.compactionRowsForEstimatedBudget(bot, runId, true, providerTools, compactionMode, settings.model);
 		if (compacted.length === 0) {
 			return;
 		}
@@ -6529,7 +6806,7 @@ export class BotRuntime {
 			const tickSettings = effectiveTickSettings(budgetBot.tickSettings);
 			providerTools = providerToolsForBotRound(budgetBot, settings).tools;
 			const compactionMode = providerCompactionMode(settings);
-			const calibration = this.textTokenCalibration();
+			const calibration = this.textTokenCalibration(settings.model);
 			const requestMessages = providerMessagesWithPrefillCompatibility(
 				settings,
 				this.activeProviderRequestMessages(budgetBot, providerTools, settings.toolCalls ?? "require"),
@@ -6572,10 +6849,10 @@ export class BotRuntime {
 			if (compactionAttempts >= providerPromptCompactionMaxAttempts) {
 				throw new PromptContextCompactionLimitError(estimate.promptTokens, allowedPromptTokens, providerPromptCompactionMaxAttempts);
 			}
-			const compacted = this.compactionRowsForEstimatedBudget(budgetBot, runId, false, providerTools, compactionMode);
+			const compacted = this.compactionRowsForEstimatedBudget(budgetBot, runId, false, providerTools, compactionMode, settings.model);
 			const currentRunIncluded = compacted.length === 0;
 			const rowsToCompact = currentRunIncluded ?
-					this.compactionRowsForEstimatedBudget(budgetBot, runId, true, providerTools, compactionMode)
+					this.compactionRowsForEstimatedBudget(budgetBot, runId, true, providerTools, compactionMode, settings.model)
 				:	compacted;
 			if (rowsToCompact.length === 0) {
 				throw new PromptContextBudgetExceededError(estimate.promptTokens, allowedPromptTokens);
@@ -6611,7 +6888,7 @@ export class BotRuntime {
 		requestMessages: ChatMessage[],
 		providerTools: ProviderToolDefinition[],
 	): ProviderPromptTokenEstimate {
-		const calibration = this.textTokenCalibration();
+		const calibration = this.textTokenCalibration(settings.model);
 		requestMessages = providerMessagesWithPrefillCompatibility(settings, requestMessages);
 		const baseline = this.latestCompatiblePromptTokenBaseline(settings, requestMessages);
 		if (baseline) {
@@ -6672,8 +6949,9 @@ export class BotRuntime {
 		includeCurrentRun: boolean,
 		providerTools?: ProviderToolDefinition[],
 		mode: ProviderCompactionMode = "structured_output",
+		requestedModel?: string,
 	): LoopMessageRow[] {
-		const calibration = this.textTokenCalibration();
+		const calibration = this.textTokenCalibration(requestedModel);
 		const rows = this.compactionCandidateEstimates(calibration)
 			.filter((item) => includeCurrentRun || item.row.run_id !== runId);
 		return oldestLoopMessageGroupsForPromptLimit(
@@ -6712,7 +6990,7 @@ export class BotRuntime {
 		let batchIndex = 0;
 		const providerTools = providerToolsForBotRound(bot, settings).tools;
 		while (remaining.length > 0) {
-			const calibration = this.textTokenCalibration();
+			const calibration = this.textTokenCalibration(settings.model);
 			const estimates = remaining.map((row) => ({
 				row,
 				tokens: estimateChatMessageTokens(loopMessageChatMessageFromRow(row), calibration),
@@ -6758,7 +7036,7 @@ export class BotRuntime {
 		let outputLimitShrinkAttempts = 0;
 
 		for (;;) {
-			const calibration = this.textTokenCalibration();
+			const calibration = this.textTokenCalibration(settings.model);
 			const compactionMode = providerCompactionMode(settings);
 			ledgerRows = this.compactionLedgerRows(providerRows);
 			recentActivity = providerRows
@@ -6820,7 +7098,7 @@ export class BotRuntime {
 			}
 			try {
 				response = providerActive ?
-					await this.callProviderForCompaction(settings, compactionMessages, runId, signal, compactionLimits, compactionTools, compactionMode)
+					await this.callProviderForCompaction(settings, compactionMessages, runId, signal, compactionLimits, compactionTools, compactionMode, summaryEvent.seq, summaryEvent.createdAt)
 				:	{
 						content: deterministicCompactionSummary("", recentActivity),
 					};
@@ -7034,13 +7312,13 @@ export class BotRuntime {
 		}
 	}
 
-	private currentCompactionContextEstimate(): {
+	private currentCompactionContextEstimate(requestedModel?: string): {
 		totalTokens: number;
 		rowTokens: number;
 		rows: CompactionCandidateEstimate[];
 		calibration: TextTokenCalibration;
 	} {
-		const calibration = this.textTokenCalibration();
+		const calibration = this.textTokenCalibration(requestedModel);
 		const rows = this.compactionCandidateEstimates(calibration);
 		const rowTokens = rows.reduce((total, item) => total + item.tokens, 0);
 		return {
@@ -7078,7 +7356,7 @@ export class BotRuntime {
 		);
 	}
 
-	private nextCompactionTokens(bot: BotDocument, contextWindowTokens?: number): number {
+	private nextCompactionTokens(bot: BotDocument, contextWindowTokens?: number, requestedModel?: string): number {
 		const tickSettings =
 			contextWindowTokens === undefined ?
 				bot.tickSettings
@@ -7087,7 +7365,7 @@ export class BotRuntime {
 		return providerCompactionSummaryLimitsForChat(
 			budgetBot,
 			this.hasRuntimeStorage() ? this.activeLoopMessagesForProvider() : [],
-			this.textTokenCalibration(),
+			this.textTokenCalibration(requestedModel),
 			providerFunctionToolsForBot(budgetBot, { compactionMode: budgetBot.inferenceSettings.compactionMode ?? "structured_output" }),
 			budgetBot.inferenceSettings.compactionMode ?? "structured_output",
 		).nextCompactionTokens;
@@ -7104,20 +7382,24 @@ export class BotRuntime {
 		return Math.max(1, Math.min(providerCompactionMaxPromptEstimateTokens, limits.compactionInputTokens));
 	}
 
-	private textTokenCalibration(): TextTokenCalibration {
+	private textTokenCalibration(requestedModel?: string): TextTokenCalibration {
+		if (!requestedModel) {
+			return textTokenCalibrationFromProviderTokenCalibrationSamples([]);
+		}
 		const rows = this.state.storage.sql
-			.exec<PromptTokenCalibrationRow>(
-				`SELECT s.event_seq, s.run_id, s.purpose, s.messages_json, u.prompt_tokens
-				 FROM inference_submissions s
-				 JOIN provider_usage u
-				   ON u.request_seq = s.event_seq
-				  AND u.run_id = s.run_id
-				 WHERE u.prompt_tokens > 0
-				 ORDER BY s.event_seq DESC
+			.exec<ProviderTokenCalibrationSampleRow>(
+				`SELECT id, run_id, request_seq, attempt, purpose, requested_model, response_model,
+				        provider_base_url, prompt_tokens, request_characters, created_at
+				 FROM provider_token_calibration_samples
+				 WHERE requested_model = ?
+				   AND prompt_tokens > 0
+				   AND request_characters > 0
+				 ORDER BY id DESC
 				 LIMIT 50`,
+				requestedModel,
 			)
 			.toArray();
-		return textTokenCalibrationFromPromptHistory(rows);
+		return textTokenCalibrationFromProviderTokenCalibrationSamples(rows);
 	}
 
 	private async appendEvent(
@@ -9719,7 +10001,7 @@ function providerUsageFromValue(value: unknown): ProviderUsage | undefined {
 	};
 }
 
-function providerStreamErrorFromChunk(chunk: { model?: unknown; error?: unknown }): ProviderRequestError | null {
+function providerStreamErrorFromChunk(chunk: { id?: unknown; model?: unknown; usage?: unknown; error?: unknown }): ProviderRequestError | null {
 	const error = runtimeRecord(chunk.error);
 	if (Object.keys(error).length === 0) {
 		return null;
@@ -9729,7 +10011,15 @@ function providerStreamErrorFromChunk(chunk: { model?: unknown; error?: unknown 
 	const metadata = runtimeRecord(error.metadata);
 	const errorType = stringValue(metadata.error_type);
 	const body = errorType ? `${message} (${errorType})` : message;
-	return new ProviderRequestError(status, stringValue(chunk.model) ?? "unknown", "stream", body, { rawResponse: JSON.stringify(chunk) });
+	const responseId = stringValue(chunk.id);
+	const responseModel = stringValue(chunk.model);
+	const usage = providerUsageFromValue(chunk.usage);
+	return new ProviderRequestError(status, responseModel ?? "unknown", "stream", body, {
+		rawResponse: JSON.stringify(chunk),
+		...(responseId ? { responseId } : {}),
+		...(responseModel ? { responseModel } : {}),
+		...(usage ? { usage } : {}),
+	});
 }
 
 function providerErrorStatus(value: unknown): number {
@@ -11271,6 +11561,16 @@ function estimateChatMessagesTokens(messages: readonly ChatMessage[], calibratio
 	return Math.max(1, Math.ceil(characters * calibration.tokensPerCharacter));
 }
 
+function providerTokenCalibrationRequestCharacterCount(
+	request: ProviderTokenCalibrationRequestShape,
+): number {
+	return (
+		chatMessagesCharacterCount(request.messages) +
+		JSON.stringify(request.tools ?? []).length +
+		JSON.stringify(request.response_format ?? {}).length
+	);
+}
+
 export function oldestRowsForTokenFraction<T>(
 	rows: readonly { row: T; tokens: number }[],
 	fraction: number,
@@ -11348,38 +11648,15 @@ function isProviderCompactionOutputLimitFailure(error: unknown): boolean {
 	);
 }
 
-export function textTokenCalibrationFromPromptHistory(rows: readonly {
-	event_seq: number;
-	run_id: string;
-	purpose: BotInferenceSubmissionPurpose;
-	messages_json: string;
+export function textTokenCalibrationFromProviderTokenCalibrationSamples(rows: readonly {
 	prompt_tokens: number;
+	request_characters: number;
 }[]): TextTokenCalibration {
 	const samples: number[] = [];
-	const previousLoopRequestByRun = new Map<string, { messageCharacters: number; promptTokens: number }>();
-	const sortedRows = [...rows].sort((left, right) => left.event_seq - right.event_seq);
-
-	for (const row of sortedRows) {
-		const messageCharacters = chatMessagesCharacterCountFromJson(row.messages_json);
+	for (const row of rows) {
 		const promptTokens = Math.max(0, Number(row.prompt_tokens));
-		if (messageCharacters <= 0 || promptTokens <= 0) {
-			continue;
-		}
-
-		if (row.purpose === "compaction") {
-			addTokenCalibrationSample(samples, promptTokens, messageCharacters);
-			continue;
-		}
-
-		const previous = previousLoopRequestByRun.get(row.run_id);
-		if (previous) {
-			addTokenCalibrationSample(
-				samples,
-				promptTokens - previous.promptTokens,
-				messageCharacters - previous.messageCharacters,
-			);
-		}
-		previousLoopRequestByRun.set(row.run_id, { messageCharacters, promptTokens });
+		const requestCharacters = Math.max(0, Number(row.request_characters));
+		addTokenCalibrationSample(samples, promptTokens, requestCharacters);
 	}
 
 	if (samples.length === 0) {
@@ -11398,6 +11675,21 @@ export function textTokenCalibrationFromPromptHistory(rows: readonly {
 		tokensPerCharacter: clampNumber(median, minCalibratedTokensPerCharacter, maxCalibratedTokensPerCharacter),
 		sampleCount: sortedSamples.length,
 	};
+}
+
+export function textTokenCalibrationFromPromptHistory(rows: readonly {
+	event_seq: number;
+	run_id: string;
+	purpose: BotInferenceSubmissionPurpose;
+	messages_json: string;
+	prompt_tokens: number;
+}[]): TextTokenCalibration {
+	return textTokenCalibrationFromProviderTokenCalibrationSamples(
+		rows.map((row) => ({
+			prompt_tokens: row.prompt_tokens,
+			request_characters: chatMessagesCharacterCountFromJson(row.messages_json),
+		})),
+	);
 }
 
 async function sha256Hex(text: string): Promise<string> {
@@ -11945,6 +12237,29 @@ function providerFailureResponseText(error: unknown): string | undefined {
 		return error.rawResponse;
 	}
 	return undefined;
+}
+
+function providerTokenUsageMetadataFromError(error: unknown): { responseId?: string; responseModel?: string; usage?: ProviderUsage } | null {
+	if (
+		error instanceof ProviderRequestError ||
+		error instanceof ProviderStructuredOutputValidationError ||
+		error instanceof ProviderCompactionOutputLimitError ||
+		error instanceof ProviderEmptyResponseError
+	) {
+		return {
+			...(error.responseId ? { responseId: error.responseId } : {}),
+			...(error.responseModel ? { responseModel: error.responseModel } : {}),
+			...(error.usage ? { usage: error.usage } : {}),
+		};
+	}
+	if (error instanceof ProviderResponseInterruptedError) {
+		return {
+			...(error.response.responseId ? { responseId: error.response.responseId } : {}),
+			...(error.response.responseModel ? { responseModel: error.response.responseModel } : {}),
+			...(error.response.usage ? { usage: error.response.usage } : {}),
+		};
+	}
+	return null;
 }
 
 function providerCompactionOutputLimitReached(finishReason: string, nativeFinishReason: string): boolean {

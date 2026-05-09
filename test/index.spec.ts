@@ -87,6 +87,7 @@ import {
 	providerToolResultPayload,
 	providerTokenProbeRequest,
 	runtimeErrorLoopMessageContent,
+	textTokenCalibrationFromProviderTokenCalibrationSamples,
 	textTokenCalibrationFromPromptHistory,
 	truncateForContext,
 	toolUseRecoveryReminder,
@@ -1421,14 +1422,22 @@ describe("Bickr Pages Functions", () => {
 		});
 
 		it("wraps empty loop provider streams with request and response diagnostics", async () => {
-			const emptyChunk = { id: "chatcmpl-empty", object: "chat.completion.chunk", choices: [{}] };
+			const emptyChunk = {
+				id: "chatcmpl-empty",
+				model: "test-model-concrete",
+				object: "chat.completion.chunk",
+				choices: [{}],
+				usage: { prompt_tokens: 77, completion_tokens: 0, total_tokens: 77 },
+			};
 			const responseBody = `data: ${JSON.stringify(emptyChunk)}\n\ndata: [DONE]\n\n`;
 			const fetchProviderResponse = vi.fn(async () => sseStream([emptyChunk, "[DONE]"]));
+			const recordProviderTokenCalibrationSample = vi.fn();
 			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 				broadcastProviderDelta: () => {},
 				clearProviderStreamActive: () => {},
 				fetchProviderResponse,
 				markProviderStreamActive: () => {},
+				recordProviderTokenCalibrationSample,
 				throwIfStopped: vi.fn(),
 			});
 			const callProvider = (BotRuntime.prototype as unknown as {
@@ -1462,6 +1471,12 @@ describe("Bickr Pages Functions", () => {
 				message: expect.stringContaining("Inference provider returned an empty response"),
 				responseBody,
 			});
+			expect(recordProviderTokenCalibrationSample).toHaveBeenCalledWith(expect.objectContaining({
+				attempt: 1,
+				purpose: "loop",
+				responseModel: "test-model-concrete",
+				usage: expect.objectContaining({ promptTokens: 77 }),
+			}));
 			expect((thrown as { requestBody?: string }).requestBody).toContain("\"tool_choice\":\"required\"");
 			expect((thrown as { requestBody?: string }).requestBody).toContain("\"tools\"");
 		});
@@ -1575,6 +1590,68 @@ describe("Bickr Pages Functions", () => {
 				const requestBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as { response_format?: unknown; tools: ProviderToolDefinition[] };
 				expect(requestBody.response_format).toBeTruthy();
 				expect(requestBody.tools.some((tool) => tool.type === "function" && tool.function.name === metaCompactionToolName)).toBe(false);
+			} finally {
+				vi.stubGlobal("fetch", originalFetch);
+			}
+		});
+
+		it("records calibration samples for schema-invalid compaction attempts with usage", async () => {
+			const originalFetch = globalThis.fetch;
+			const invalidResponse = {
+				id: "compaction-invalid",
+				model: "test-model-concrete",
+				choices: [{ message: { content: "not json" } }],
+				usage: { prompt_tokens: 40, completion_tokens: 8, total_tokens: 48 },
+			};
+			const validResponse = {
+				id: "compaction-valid",
+				model: "test-model-concrete",
+				choices: [{
+					message: {
+						content: JSON.stringify({ [providerCompactionSummaryProperty]: "I remember the important parts." }),
+					},
+				}],
+				usage: { prompt_tokens: 50, completion_tokens: 5, total_tokens: 55 },
+			};
+			const fetchMock = vi.fn()
+				.mockResolvedValueOnce(Response.json(invalidResponse))
+				.mockResolvedValueOnce(Response.json(validResponse));
+			vi.stubGlobal("fetch", fetchMock);
+			try {
+				const recordProviderTokenCalibrationSample = vi.fn();
+				const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+					appendEvent: vi.fn(),
+					recordProviderTokenCalibrationSample,
+					throwIfStopped: vi.fn(),
+				});
+				const callProviderForCompaction = (BotRuntime.prototype as unknown as {
+					callProviderForCompaction: (...args: unknown[]) => Promise<{ content: string; requestBody?: string }>;
+				}).callProviderForCompaction.bind(runtime);
+
+				const response = await callProviderForCompaction(
+					{ baseUrl: "https://provider.example/api/v1", model: "test-model", temperature: 0.2 },
+					[{ role: "user", content: "Compact the retained activity." }],
+					"run-compaction-schema-calibration",
+					new AbortController().signal,
+					{ minLength: 1, maxLength: 4000, maxCompletionTokens: 1000 },
+				);
+
+				expect(response.content).toBe("I remember the important parts.");
+				expect(recordProviderTokenCalibrationSample).toHaveBeenCalledTimes(2);
+				expect(recordProviderTokenCalibrationSample).toHaveBeenNthCalledWith(1, expect.objectContaining({
+					attempt: 1,
+					purpose: "compaction",
+					responseModel: "test-model-concrete",
+					usage: expect.objectContaining({ promptTokens: 40 }),
+				}));
+				expect(recordProviderTokenCalibrationSample).toHaveBeenNthCalledWith(2, expect.objectContaining({
+					attempt: 2,
+					purpose: "compaction",
+					responseModel: "test-model-concrete",
+					usage: expect.objectContaining({ promptTokens: 50 }),
+				}));
+				const retryBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)) as { messages: BotInferenceSubmissionMessage[] };
+				expect(JSON.stringify(retryBody.messages)).toContain("Actually, I must reply with the required structured output.");
 			} finally {
 				vi.stubGlobal("fetch", originalFetch);
 			}
@@ -1699,6 +1776,8 @@ describe("Bickr Pages Functions", () => {
 			const originalFetch = globalThis.fetch;
 			const overlongSummary = "I remember this, but with too many characters.";
 			const overlongResponse = {
+				id: "compaction-overlong",
+				model: "test-model-concrete",
 				choices: [{
 					message: {
 						tool_calls: [{
@@ -1711,8 +1790,11 @@ describe("Bickr Pages Functions", () => {
 						}],
 					},
 				}],
+				usage: { prompt_tokens: 60, completion_tokens: 20, total_tokens: 80 },
 			};
 			const validResponse = {
+				id: "compaction-shortened",
+				model: "test-model-concrete",
 				choices: [{
 					message: {
 						tool_calls: [{
@@ -1725,14 +1807,17 @@ describe("Bickr Pages Functions", () => {
 						}],
 					},
 				}],
+				usage: { prompt_tokens: 30, completion_tokens: 6, total_tokens: 36 },
 			};
 			const fetchMock = vi.fn()
 				.mockResolvedValueOnce(Response.json(overlongResponse))
 				.mockResolvedValueOnce(Response.json(validResponse));
 			vi.stubGlobal("fetch", fetchMock);
 			try {
+				const recordProviderTokenCalibrationSample = vi.fn();
 				const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 					appendEvent: vi.fn(),
+					recordProviderTokenCalibrationSample,
 					throwIfStopped: vi.fn(),
 				});
 				const callProviderForCompaction = (BotRuntime.prototype as unknown as {
@@ -1755,6 +1840,15 @@ describe("Bickr Pages Functions", () => {
 
 				expect(response.content).toBe("Short.");
 				expect(fetchMock).toHaveBeenCalledTimes(2);
+				expect(recordProviderTokenCalibrationSample).toHaveBeenCalledTimes(2);
+				expect(recordProviderTokenCalibrationSample).toHaveBeenNthCalledWith(1, expect.objectContaining({
+					attempt: 1,
+					usage: expect.objectContaining({ promptTokens: 60 }),
+				}));
+				expect(recordProviderTokenCalibrationSample).toHaveBeenNthCalledWith(2, expect.objectContaining({
+					attempt: 2,
+					usage: expect.objectContaining({ promptTokens: 30 }),
+				}));
 				const retryBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)) as { messages: BotInferenceSubmissionMessage[] };
 				expect(retryBody.messages).toEqual([
 					{ role: "system", content: "System prompt." },
@@ -2010,10 +2104,10 @@ describe("Bickr Pages Functions", () => {
 			expect(compactionRowsForEstimatedBudget(fakeBotDocument({ contextWindowTokens: 6_000 }), "run-current", true).map((row) => row.seq)).toEqual([1, 3]);
 		});
 
-		it("derives row token estimates from recent provider prompt history", () => {
-			const previous = "a".repeat(400);
-			const appended = "b".repeat(400);
-			const calibration = textTokenCalibrationFromPromptHistory([
+			it("derives row token estimates from recent provider prompt history", () => {
+				const previous = "a".repeat(400);
+				const appended = "b".repeat(400);
+				const calibration = textTokenCalibrationFromPromptHistory([
 				{
 					event_seq: 10,
 					run_id: "run-calibration",
@@ -2033,12 +2127,126 @@ describe("Bickr Pages Functions", () => {
 				},
 			]);
 
-			expect(calibration.sampleCount).toBe(1);
-			expect(calibration.tokensPerCharacter).toBeGreaterThan(0.2);
-			expect(calibration.tokensPerCharacter).toBeLessThan(0.3);
-		});
+				expect(calibration.sampleCount).toBe(2);
+				expect(calibration.tokensPerCharacter).toBeGreaterThan(0.2);
+				expect(calibration.tokensPerCharacter).toBeLessThan(0.3);
+			});
 
-		it("records compaction submissions before provider failures and marks the row failed", async () => {
+			it("derives calibration directly from retained request samples", () => {
+				const calibration = textTokenCalibrationFromProviderTokenCalibrationSamples([
+					{ prompt_tokens: 120, request_characters: 600 },
+					{ prompt_tokens: 800, request_characters: 1_600 },
+				]);
+
+				expect(calibration.sampleCount).toBe(2);
+				expect(calibration.tokensPerCharacter).toBeCloseTo(0.35);
+			});
+
+			it("uses only requested-model calibration samples for prompt estimates", () => {
+				const queries: Array<{ sql: string; params: unknown[] }> = [];
+				const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+					state: {
+						storage: {
+							sql: {
+								exec: <T,>(sql: string, ...params: unknown[]) => {
+									queries.push({ sql, params });
+									const requestedModel = String(params[0] ?? "");
+									const rows =
+										requestedModel === "model-a" ?
+											[
+												{
+													id: 1,
+													run_id: "run-a",
+													request_seq: 10,
+													attempt: 1,
+													purpose: "loop",
+													requested_model: "model-a",
+													response_model: null,
+													provider_base_url: "https://provider.example/api/v1",
+													prompt_tokens: 500,
+													request_characters: 1_000,
+													created_at: "2026-05-01T00:00:00.000Z",
+												},
+											]
+										:	[];
+									return { toArray: () => rows as T[] };
+								},
+							},
+						},
+					},
+				});
+				const textTokenCalibration = (BotRuntime.prototype as unknown as {
+					textTokenCalibration: (requestedModel?: string) => { tokensPerCharacter: number; sampleCount: number };
+				}).textTokenCalibration.bind(runtime);
+
+				expect(textTokenCalibration("model-a")).toEqual({ tokensPerCharacter: 0.5, sampleCount: 1 });
+				expect(textTokenCalibration("model-b")).toEqual({ tokensPerCharacter: 0.25, sampleCount: 0 });
+				expect(queries.map((query) => query.params[0])).toEqual(["model-a", "model-b"]);
+				expect(queries[0]?.sql).toContain("FROM provider_token_calibration_samples");
+				expect(queries[0]?.sql).toContain("requested_model = ?");
+			});
+
+			it("backfills calibration samples from retained legacy submissions by requested model", () => {
+				const inserted: unknown[][] = [];
+				const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+					state: {
+						storage: {
+							sql: {
+								exec: <T,>(sql: string, ...params: unknown[]) => {
+									if (/SELECT value_json FROM runtime_state/.test(sql)) {
+										return { toArray: () => [] as T[] };
+									}
+									if (/FROM inference_submissions s\s+JOIN provider_usage u/.test(sql)) {
+										return {
+											toArray: () => [
+												{
+													event_seq: 10,
+													run_id: "run-a",
+													purpose: "loop",
+													messages_json: JSON.stringify([{ role: "user", content: "A".repeat(100) }]),
+													requested_model: "model-a",
+													response_model: "model-a-concrete",
+													provider_base_url: "https://provider.example/api/v1",
+													prompt_tokens: 50,
+													created_at: "2026-05-01T00:00:00.000Z",
+												},
+												{
+													event_seq: 11,
+													run_id: "run-b",
+													purpose: "compaction",
+													messages_json: JSON.stringify([{ role: "assistant", content: "B".repeat(120) }]),
+													requested_model: "model-b",
+													response_model: null,
+													provider_base_url: "https://provider.example/api/v1",
+													prompt_tokens: 80,
+													created_at: "2026-05-01T00:01:00.000Z",
+												},
+											] as T[],
+										};
+									}
+									if (/INSERT INTO provider_token_calibration_samples/.test(sql)) {
+										inserted.push(params);
+									}
+									return { toArray: () => [] as T[], one: () => ({}) as T };
+								},
+							},
+						},
+					},
+					setRuntimeState: vi.fn(),
+				});
+				const backfillProviderTokenCalibrationSamples = (BotRuntime.prototype as unknown as {
+					backfillProviderTokenCalibrationSamples: () => void;
+				}).backfillProviderTokenCalibrationSamples.bind(runtime);
+
+				backfillProviderTokenCalibrationSamples();
+
+				expect(inserted).toHaveLength(2);
+				expect(inserted[0]).toEqual(expect.arrayContaining(["run-a", 10, "loop", "model-a", "model-a-concrete"]));
+				expect(inserted[1]).toEqual(expect.arrayContaining(["run-b", 11, "compaction", "model-b", null]));
+				expect(runtime.setRuntimeState).toHaveBeenCalledWith("provider_token_calibration_samples_backfilled", true);
+			});
+
+			it("records compaction submissions before provider failures and marks the row failed", async () => {
 			const candidates = Array.from({ length: 12 }, (_, index) => ({
 				seq: index + 1,
 				position: index + 1,
@@ -2633,11 +2841,12 @@ describe("Bickr Pages Functions", () => {
 			const fetchMock = vi.fn()
 				.mockResolvedValueOnce(Response.json(lengthResponse))
 				.mockResolvedValueOnce(Response.json(validResponse));
-			vi.stubGlobal("fetch", fetchMock);
-			try {
-				const replaceEventPayload = vi.fn();
-				const runtime = Object.assign(Object.create(BotRuntime.prototype), {
-					env: { BICKR_SIMULATION_MODE: "provider" },
+				vi.stubGlobal("fetch", fetchMock);
+				try {
+					const replaceEventPayload = vi.fn();
+					const recordProviderTokenCalibrationSample = vi.fn();
+					const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+						env: { BICKR_SIMULATION_MODE: "provider" },
 					state: {
 						storage: {
 							sql: {
@@ -2654,11 +2863,11 @@ describe("Bickr Pages Functions", () => {
 								}),
 							},
 						},
-					},
-					appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) =>
-						runtimeEvent(500, runId, type as BotRuntimeEvent["type"], payload),
-					broadcastControl: vi.fn(),
-					compactionLedgerRows: (providerRows: typeof rows) => providerRows,
+						},
+						appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) =>
+							runtimeEvent(500, runId, type as BotRuntimeEvent["type"], payload),
+						broadcastControl: vi.fn(),
+						compactionLedgerRows: (providerRows: typeof rows) => providerRows,
 					insertLoopMessage: vi.fn((input: { runId: string; message: unknown; position: number }) => ({
 						seq: 900,
 						runId: input.runId,
@@ -2666,9 +2875,10 @@ describe("Bickr Pages Functions", () => {
 						position: input.position,
 						createdAt: "2026-05-01T00:00:02.000Z",
 					})),
-					recordInferenceSubmission: vi.fn(),
-					recordLoopMessageLog: vi.fn(),
-					recordProviderUsage: vi.fn(),
+						recordInferenceSubmission: vi.fn(),
+						recordLoopMessageLog: vi.fn(),
+						recordProviderTokenCalibrationSample,
+						recordProviderUsage: vi.fn(),
 					repairDanglingCommentReferencesAfterCompaction: vi.fn(),
 					replaceEventPayload,
 					textTokenCalibration: () => ({ tokensPerCharacter: 0.25, sampleCount: 0 }),
@@ -2706,9 +2916,18 @@ describe("Bickr Pages Functions", () => {
 				const secondBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)) as { messages: BotInferenceSubmissionMessage[] };
 				expect(JSON.stringify(firstBody.messages)).toContain("Old context three");
 				expect(JSON.stringify(secondBody.messages)).toContain("Old context one");
-				expect(JSON.stringify(secondBody.messages)).not.toContain("Old context two");
-				expect(rows.map((row) => row.compacted_by)).toEqual([900, null, null]);
-				expect(replaceEventPayload).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({
+					expect(JSON.stringify(secondBody.messages)).not.toContain("Old context two");
+					expect(rows.map((row) => row.compacted_by)).toEqual([900, null, null]);
+					expect(recordProviderTokenCalibrationSample).toHaveBeenCalledTimes(2);
+					expect(recordProviderTokenCalibrationSample).toHaveBeenNthCalledWith(1, expect.objectContaining({
+						attempt: 1,
+						usage: expect.objectContaining({ promptTokens: 100 }),
+					}));
+					expect(recordProviderTokenCalibrationSample).toHaveBeenNthCalledWith(2, expect.objectContaining({
+						attempt: 1,
+						usage: expect.objectContaining({ promptTokens: 80 }),
+					}));
+					expect(replaceEventPayload).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({
 					status: "complete",
 					fromSeq: 1,
 					toSeq: 1,
