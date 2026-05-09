@@ -3500,7 +3500,7 @@ export class BotRuntime {
 				if (tickGeneratedLimitReached) {
 					return { logOffCalled, publicSpotlightToolCallCount, toolCallCount };
 				}
-				if (toolCallsMode === "railroad") {
+				if (toolCallsMode !== "at_will") {
 					railroadNoToolAttempts += 1;
 					if (railroadNoToolAttempts >= providerRailroadNoToolMaxAttempts) {
 						throw new PersistentMissingToolCallError(providerToolNames(providerTools));

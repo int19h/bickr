@@ -1383,7 +1383,7 @@ describe("Bickr Pages Functions", () => {
 				});
 				const callProviderForCompaction = (BotRuntime.prototype as unknown as {
 					callProviderForCompaction: (
-						settings: { baseUrl: string; model: string; temperature: number },
+						settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
 						messages: Parameters<typeof providerCompactionRequest>[1],
 						runId: string,
 						signal: AbortSignal,
@@ -5098,7 +5098,7 @@ describe("Bickr Pages Functions", () => {
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
 				bot: BotDocument,
-				settings: { baseUrl: string; model: string; temperature: number },
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
 				runId: string,
 				messages: Array<Record<string, unknown>>,
 				runContext: { mode: "normal"; signal: AbortSignal },
@@ -5117,7 +5117,7 @@ describe("Bickr Pages Functions", () => {
 					toolSettings: {},
 					tickSettings: { maxToolCallsPerTick: 1, maxSuccessfulToolCallsPerIteration: 8, contextWindowTokens: 16_000 },
 				} as BotDocument,
-				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
 				"run-loop-stream",
 				[],
 				{ mode: "normal", signal: new AbortController().signal },
@@ -5289,7 +5289,7 @@ describe("Bickr Pages Functions", () => {
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
 				bot: BotDocument,
-				settings: { baseUrl: string; model: string; temperature: number },
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
 				runId: string,
 				messages: Array<Record<string, unknown>>,
 				runContext: { mode: "normal"; signal: AbortSignal },
@@ -5299,7 +5299,7 @@ describe("Bickr Pages Functions", () => {
 		await expect(
 			runProviderLoop(
 				fakeBotDocument({ allowEarlyLogOff: true }),
-				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
 				"run-empty-provider-response",
 				[],
 				{ mode: "normal", signal: new AbortController().signal },
@@ -5369,7 +5369,7 @@ describe("Bickr Pages Functions", () => {
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
 				bot: BotDocument,
-				settings: { baseUrl: string; model: string; temperature: number },
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
 				runId: string,
 				messages: Array<Record<string, unknown>>,
 				runContext: { mode: "normal"; signal: AbortSignal },
@@ -5379,7 +5379,7 @@ describe("Bickr Pages Functions", () => {
 		await expect(
 			runProviderLoop(
 				fakeBotDocument({ allowEarlyLogOff: true }),
-				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
 				"run-meta-tool-misuse",
 				[],
 				{ mode: "normal", signal: new AbortController().signal },
@@ -5452,7 +5452,7 @@ describe("Bickr Pages Functions", () => {
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
 				bot: BotDocument,
-				settings: { baseUrl: string; model: string; temperature: number },
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
 				runId: string,
 				messages: Array<Record<string, unknown>>,
 				runContext: { mode: "normal"; signal: AbortSignal },
@@ -5537,7 +5537,7 @@ describe("Bickr Pages Functions", () => {
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
 				bot: BotDocument,
-				settings: { baseUrl: string; model: string; temperature: number },
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
 				runId: string,
 				messages: Array<Record<string, unknown>>,
 				runContext: { mode: "normal"; signal: AbortSignal },
@@ -5547,7 +5547,7 @@ describe("Bickr Pages Functions", () => {
 		await expect(
 			runProviderLoop(
 				fakeBotDocument(),
-				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
 				"run-dedupe-follow",
 				[],
 				{ mode: "normal", signal: new AbortController().signal },
@@ -5638,7 +5638,7 @@ describe("Bickr Pages Functions", () => {
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
 				bot: BotDocument,
-				settings: { baseUrl: string; model: string; temperature: number },
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
 				runId: string,
 				messages: Array<Record<string, unknown>>,
 				runContext: { mode: "normal"; signal: AbortSignal },
@@ -5648,7 +5648,7 @@ describe("Bickr Pages Functions", () => {
 		await expect(
 			runProviderLoop(
 				fakeBotDocument(),
-				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
 				"run-overlap-follow",
 				[],
 				{ mode: "normal", signal: new AbortController().signal },
@@ -5727,7 +5727,7 @@ describe("Bickr Pages Functions", () => {
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
 				bot: BotDocument,
-				settings: { baseUrl: string; model: string; temperature: number },
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
 				runId: string,
 				messages: Array<Record<string, unknown>>,
 				runContext: { mode: "normal"; signal: AbortSignal },
@@ -5737,7 +5737,7 @@ describe("Bickr Pages Functions", () => {
 		await expect(
 			runProviderLoop(
 				fakeBotDocument(),
-				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
 				"run-missing-follow",
 				[],
 				{ mode: "normal", signal: new AbortController().signal },
@@ -5817,7 +5817,7 @@ describe("Bickr Pages Functions", () => {
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
 				bot: BotDocument,
-				settings: { baseUrl: string; model: string; temperature: number },
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
 				runId: string,
 				messages: Array<Record<string, unknown>>,
 				runContext: { mode: "normal"; signal: AbortSignal },
@@ -5890,7 +5890,7 @@ describe("Bickr Pages Functions", () => {
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
 				bot: BotDocument,
-				settings: { baseUrl: string; model: string; temperature: number },
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
 				runId: string,
 				messages: Array<Record<string, unknown>>,
 				runContext: { mode: "normal"; signal: AbortSignal },
@@ -5982,7 +5982,7 @@ describe("Bickr Pages Functions", () => {
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
 				bot: BotDocument,
-				settings: { baseUrl: string; model: string; temperature: number },
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
 				runId: string,
 				messages: Array<Record<string, unknown>>,
 				runContext: { mode: "normal"; signal: AbortSignal },
@@ -6064,7 +6064,7 @@ describe("Bickr Pages Functions", () => {
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
 				bot: BotDocument,
-				settings: { baseUrl: string; model: string; temperature: number },
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
 				runId: string,
 				messages: Array<Record<string, unknown>>,
 				runContext: { mode: "normal"; signal: AbortSignal },
@@ -6152,7 +6152,7 @@ describe("Bickr Pages Functions", () => {
 			const runProviderLoop = (BotRuntime.prototype as unknown as {
 				runProviderLoop: (
 					bot: BotDocument,
-					settings: { baseUrl: string; model: string; temperature: number },
+					settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
 					runId: string,
 					messages: Array<Record<string, unknown>>,
 					runContext: { mode: "normal"; signal: AbortSignal },
@@ -6235,7 +6235,7 @@ describe("Bickr Pages Functions", () => {
 			const runProviderLoop = (BotRuntime.prototype as unknown as {
 				runProviderLoop: (
 					bot: BotDocument,
-					settings: { baseUrl: string; model: string; temperature: number },
+					settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
 					runId: string,
 					messages: Array<Record<string, unknown>>,
 					runContext: { mode: "normal"; signal: AbortSignal },
@@ -6315,7 +6315,7 @@ describe("Bickr Pages Functions", () => {
 			const runProviderLoop = (BotRuntime.prototype as unknown as {
 				runProviderLoop: (
 					bot: BotDocument,
-					settings: { baseUrl: string; model: string; temperature: number },
+					settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
 					runId: string,
 					messages: Array<Record<string, unknown>>,
 					runContext: { mode: "normal"; signal: AbortSignal },
@@ -6400,7 +6400,7 @@ describe("Bickr Pages Functions", () => {
 			const runProviderLoop = (BotRuntime.prototype as unknown as {
 				runProviderLoop: (
 					bot: BotDocument,
-					settings: { baseUrl: string; model: string; temperature: number },
+					settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
 					runId: string,
 					messages: Array<Record<string, unknown>>,
 					runContext: { mode: "normal"; signal: AbortSignal },
@@ -6490,7 +6490,7 @@ describe("Bickr Pages Functions", () => {
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
 				bot: BotDocument,
-				settings: { baseUrl: string; model: string; temperature: number },
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
 				runId: string,
 				messages: Array<Record<string, unknown>>,
 				runContext: { mode: "normal"; signal: AbortSignal },
@@ -6560,7 +6560,7 @@ describe("Bickr Pages Functions", () => {
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
 				bot: BotDocument,
-				settings: { baseUrl: string; model: string; temperature: number },
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
 				runId: string,
 				messages: Array<Record<string, unknown>>,
 				runContext: { mode: "normal"; signal: AbortSignal },
@@ -6655,6 +6655,86 @@ describe("Bickr Pages Functions", () => {
 		expect(callProvider).toHaveBeenCalledTimes(2);
 		expect(providerMessages[1]).toEqual(expect.arrayContaining([
 			expect.objectContaining({ role: "assistant", content: "I might be done." }),
+			expect.objectContaining({ role: "assistant", content: expect.stringContaining("Actually, I must use one of the following tools") }),
+		]));
+		expect(events.filter((event) => event.type === "assistant_message").map((event) => event.payload)).toEqual([
+			expect.objectContaining({ content: expect.stringContaining("Actually, I must use one of the following tools") }),
+		]);
+	});
+
+	it("recovers when a required-tool provider response returns no tool calls", async () => {
+		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+		const providerMessages: Array<Array<Record<string, unknown>>> = [];
+		const loopMemory = testLoopMessageMemory([{ role: "user", content: "Act." }]);
+		const callProvider = vi.fn(async (_settings: unknown, messages: Array<Record<string, unknown>>) => {
+			providerMessages.push(messages);
+			return providerMessages.length === 1 ?
+				providerResponseWithContent("I should think about this without touching the page.")
+			:	providerResponseWithToolCall("call-read", "read_thread", { threadId: "thr_test" });
+		});
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			...loopMemory,
+			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+				events.push({ type, payload });
+				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
+			},
+			appendProviderMessages: async () => {},
+			callProvider,
+			ensureProviderPromptWithinBudget: async (
+				bot: BotDocument,
+				settings: { toolCalls?: "require" | "railroad" | "at_will" },
+				_runId: string,
+				_signal: AbortSignal,
+				tools: ProviderToolDefinition[],
+			) => ({
+				allowedPromptTokens: 13_500,
+				promptTokens: 100,
+				requestMessages: (BotRuntime.prototype as unknown as {
+					activeProviderRequestMessages: (
+						bot: BotDocument,
+						tools: ProviderToolDefinition[],
+						toolCalls: "require" | "railroad" | "at_will",
+					) => Array<Record<string, unknown>>;
+				}).activeProviderRequestMessages.bind(runtime)(bot, tools, settings.toolCalls ?? "require"),
+			}),
+			executeTool: async (_bot: unknown, _runId: string, name: string) => ({
+				name,
+				result: { ok: true },
+				providerResult: { ok: true },
+			}),
+			repairActiveProviderToolCallHistory: async () => [],
+			recordInferenceSubmission: () => {},
+			recordLoopMessageLog: () => {},
+			recordProviderUsage: () => {},
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const runProviderLoop = (BotRuntime.prototype as unknown as {
+			runProviderLoop: (
+				bot: BotDocument,
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				runId: string,
+				messages: Array<Record<string, unknown>>,
+				runContext: { mode: "normal"; signal: AbortSignal },
+			) => Promise<{ logOffCalled: boolean; toolCallCount: number }>;
+		}).runProviderLoop.bind(runtime);
+
+		await expect(
+			runProviderLoop(
+				{ ...fakeBotDocument(), tickSettings: { ...fakeBotDocument().tickSettings, maxToolCallsPerTick: 1 } },
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				"run-required-no-tool-retry",
+				[],
+				{ mode: "normal", signal: new AbortController().signal },
+			),
+		).resolves.toMatchObject({ logOffCalled: false, toolCallCount: 1 });
+
+		expect(callProvider).toHaveBeenCalledTimes(2);
+		expect(providerMessages[1]).toEqual(expect.arrayContaining([
+			expect.objectContaining({ role: "assistant", content: "I should think about this without touching the page." }),
 			expect.objectContaining({ role: "assistant", content: expect.stringContaining("Actually, I must use one of the following tools") }),
 		]));
 		expect(events.filter((event) => event.type === "assistant_message").map((event) => event.payload)).toEqual([
@@ -6864,7 +6944,7 @@ describe("Bickr Pages Functions", () => {
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
 				bot: BotDocument,
-				settings: { baseUrl: string; model: string; temperature: number },
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
 				runId: string,
 				messages: Array<Record<string, unknown>>,
 				runContext: { mode: "normal"; signal: AbortSignal },
@@ -6874,7 +6954,7 @@ describe("Bickr Pages Functions", () => {
 		await expect(
 			runProviderLoop(
 				fakeBotDocument(),
-				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
 				"run-disallowed-logoff",
 				[],
 				{ mode: "normal", signal: new AbortController().signal },
@@ -7253,7 +7333,7 @@ describe("Bickr Pages Functions", () => {
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
 				bot: BotDocument,
-				settings: { baseUrl: string; model: string; temperature: number },
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
 				runId: string,
 				messages: Array<Record<string, unknown>>,
 				runContext: { mode: "normal"; signal: AbortSignal },
@@ -7263,7 +7343,7 @@ describe("Bickr Pages Functions", () => {
 		await expect(
 			runProviderLoop(
 				fakeBotDocument(),
-				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
 				"run-history-repair",
 				[],
 				{ mode: "normal", signal: new AbortController().signal },
@@ -7364,7 +7444,7 @@ describe("Bickr Pages Functions", () => {
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
 				bot: BotDocument,
-				settings: { baseUrl: string; model: string; temperature: number },
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
 				runId: string,
 				messages: Array<Record<string, unknown>>,
 				runContext: { mode: "normal"; signal: AbortSignal },
@@ -7374,7 +7454,7 @@ describe("Bickr Pages Functions", () => {
 		await expect(
 			runProviderLoop(
 				fakeBotDocument(),
-				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
 				"run-unicode-history-repair",
 				[],
 				{ mode: "normal", signal: new AbortController().signal },
@@ -11277,7 +11357,7 @@ describe("Bickr Pages Functions", () => {
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
 				bot: Awaited<ReturnType<typeof botById>>,
-				settings: { baseUrl: string; model: string; temperature: number },
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
 				runId: string,
 				messages: Array<Record<string, unknown>>,
 				runContext: { mode: "normal"; signal: AbortSignal },
@@ -11350,7 +11430,7 @@ describe("Bickr Pages Functions", () => {
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
 				bot: Awaited<ReturnType<typeof botById>>,
-				settings: { baseUrl: string; model: string; temperature: number },
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
 				runId: string,
 				messages: Array<Record<string, unknown>>,
 				runContext: { mode: "normal"; signal: AbortSignal },
@@ -11437,7 +11517,7 @@ describe("Bickr Pages Functions", () => {
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
 				bot: Awaited<ReturnType<typeof botById>>,
-				settings: { baseUrl: string; model: string; temperature: number },
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
 				runId: string,
 				messages: Array<Record<string, unknown>>,
 				runContext: { mode: "normal"; signal: AbortSignal },
@@ -11524,7 +11604,7 @@ describe("Bickr Pages Functions", () => {
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
 				bot: BotDocument,
-				settings: { baseUrl: string; model: string; temperature: number },
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
 				runId: string,
 				messages: Array<Record<string, unknown>>,
 				runContext: { mode: "normal"; signal: AbortSignal },
@@ -11534,7 +11614,7 @@ describe("Bickr Pages Functions", () => {
 		await expect(
 				runProviderLoop(
 					bot,
-				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
 				"run-budget",
 				[],
 				{ mode: "normal", signal: new AbortController().signal },
@@ -11617,7 +11697,7 @@ describe("Bickr Pages Functions", () => {
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
 				bot: BotDocument,
-				settings: { baseUrl: string; model: string; temperature: number },
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
 				runId: string,
 				messages: Array<Record<string, unknown>>,
 				runContext: { mode: "normal"; signal: AbortSignal },
@@ -11627,7 +11707,7 @@ describe("Bickr Pages Functions", () => {
 		await expect(
 				runProviderLoop(
 					bot,
-				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
 				"run-current-compact",
 				[],
 				{ mode: "normal", signal: new AbortController().signal },
@@ -11667,7 +11747,7 @@ describe("Bickr Pages Functions", () => {
 		const ensureProviderPromptWithinBudget = (BotRuntime.prototype as unknown as {
 			ensureProviderPromptWithinBudget: (
 				bot: BotDocument,
-				settings: { baseUrl: string; model: string; temperature: number },
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
 				runId: string,
 				signal: AbortSignal,
 				providerTools: ProviderToolDefinition[],
@@ -11718,7 +11798,7 @@ describe("Bickr Pages Functions", () => {
 		const ensureProviderPromptWithinBudget = (BotRuntime.prototype as unknown as {
 			ensureProviderPromptWithinBudget: (
 				bot: BotDocument,
-				settings: { baseUrl: string; model: string; temperature: number },
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
 				runId: string,
 				signal: AbortSignal,
 				providerTools: ProviderToolDefinition[],
@@ -11774,7 +11854,7 @@ describe("Bickr Pages Functions", () => {
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
 				bot: BotDocument,
-				settings: { baseUrl: string; model: string; temperature: number },
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
 				runId: string,
 				messages: Array<Record<string, unknown>>,
 				runContext: { mode: "normal"; signal: AbortSignal },
