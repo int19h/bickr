@@ -2828,8 +2828,12 @@ fieldset {
 	padding-bottom: 1px;
 }
 
-.token-model-breakdown th:not(:first-child),
-.token-model-breakdown td:not(:first-child) {
+.token-model-breakdown th:nth-child(2) {
+	padding-left: 18px;
+}
+
+.token-model-breakdown th:nth-child(n + 3),
+.token-model-breakdown td:nth-child(n + 3) {
 	color: var(--ink-2);
 	font-variant-numeric: tabular-nums;
 	font-weight: 650;
@@ -2841,9 +2845,19 @@ fieldset {
 .token-model-name {
 	color: var(--ink-4);
 	font-weight: 400;
-	max-width: min(56vw, 560px);
+	max-width: min(42vw, 420px);
 	min-width: 0;
 	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.token-provider-name {
+	color: var(--ink-4);
+	font-weight: 500;
+	max-width: min(22vw, 180px);
+	overflow: hidden;
+	padding-left: 18px;
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }

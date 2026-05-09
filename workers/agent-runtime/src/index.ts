@@ -371,6 +371,7 @@ type ProviderUsageRow = {
 	model: string;
 	requested_model: string;
 	response_model: string | null;
+	provider_name: string | null;
 	context_window_tokens: number;
 	prompt_tokens: number;
 	completion_tokens: number;
@@ -1042,6 +1043,8 @@ const providerBodyReadTimeoutMs = 60_000;
 const providerStreamIdleTimeoutMs = 60_000;
 const providerResponseBodyMaxBytes = 2_000_000;
 const providerFailureRawResponseMaxCharacters = 64_000;
+const openRouterGenerationMetadataMaxBytes = 64_000;
+const openRouterGenerationMetadataTimeoutMs = 5_000;
 const serviceBindingTimeoutMs = 30_000;
 const serviceBindingResponseBodyMaxBytes = 1_000_000;
 const scheduledDispatchTimeoutMs = 10_000;
@@ -2588,6 +2591,7 @@ CREATE TABLE IF NOT EXISTS provider_usage (
 	model TEXT NOT NULL,
 	context_window_tokens INTEGER NOT NULL,
 	provider_base_url TEXT NOT NULL,
+	provider_name TEXT,
 	prompt_tokens INTEGER NOT NULL,
 	completion_tokens INTEGER NOT NULL,
 	total_tokens INTEGER NOT NULL,
@@ -2683,6 +2687,7 @@ export class BotRuntime {
 				}
 			}
 			this.ensureInjectionColumns();
+			this.ensureProviderUsageColumns();
 			this.ensureInferenceSubmissionColumns();
 			this.ensureLoopMessageColumns();
 			this.migrateLegacyLoopMessages();
@@ -2705,6 +2710,18 @@ export class BotRuntime {
 		}
 		if (!columns.has("spotlight_id")) {
 			this.state.storage.sql.exec(`ALTER TABLE injections ADD COLUMN spotlight_id TEXT`);
+		}
+	}
+
+	private ensureProviderUsageColumns(): void {
+		const columns = new Set(
+			this.state.storage.sql
+				.exec<{ name: string }>(`PRAGMA table_info(provider_usage)`)
+				.toArray()
+				.map((row) => row.name),
+		);
+		if (!columns.has("provider_name")) {
+			this.state.storage.sql.exec(`ALTER TABLE provider_usage ADD COLUMN provider_name TEXT`);
 		}
 	}
 
@@ -3627,7 +3644,7 @@ export class BotRuntime {
 					malformedOnlyResponse && !malformedOnlyRetried,
 				);
 				if (response.usage) {
-					this.recordProviderUsage({
+					await this.recordProviderUsage({
 						contextWindowTokens: requestContextWindowTokens,
 						createdAt: requestEvent.createdAt,
 						providerResponseId: response.responseId,
@@ -4789,7 +4806,7 @@ export class BotRuntime {
 	private loopMessageRequestUsage(runId: string, requestSeq: number): BotLoopMessageRequestUsage | undefined {
 		const row = this.state.storage.sql
 			.exec<ProviderUsageLogRow>(
-				`SELECT created_at, run_id, model, requested_model, response_model, context_window_tokens,
+				`SELECT created_at, run_id, model, requested_model, response_model, provider_name, context_window_tokens,
 				        prompt_tokens, completion_tokens, total_tokens, cached_tokens, reasoning_tokens, cost, usage_json
 				 FROM provider_usage
 				 WHERE run_id = ?
@@ -5026,7 +5043,7 @@ export class BotRuntime {
 		}
 	}
 
-	private recordProviderUsage(input: {
+	private async recordProviderUsage(input: {
 		contextWindowTokens: number;
 		createdAt: string;
 		providerResponseId?: string;
@@ -5035,15 +5052,16 @@ export class BotRuntime {
 		runId: string;
 		settings: ProviderSettings;
 		usage: ProviderUsage;
-	}): void {
+	}): Promise<void> {
 		const model = input.responseModel?.trim() || input.settings.model;
+		const providerName = await this.providerUsageProviderName(input.settings, input.providerResponseId);
 		this.state.storage.sql.exec(
 			`INSERT INTO provider_usage (
 				run_id, request_seq, provider_response_id, requested_model, response_model, model,
-				context_window_tokens, provider_base_url, prompt_tokens, completion_tokens, total_tokens,
+				context_window_tokens, provider_base_url, provider_name, prompt_tokens, completion_tokens, total_tokens,
 				cached_tokens, reasoning_tokens, cost, usage_json, created_at
 			)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			input.runId,
 			input.requestSeq,
 			input.providerResponseId ?? null,
@@ -5052,6 +5070,7 @@ export class BotRuntime {
 			model,
 			input.contextWindowTokens,
 			input.settings.baseUrl,
+			providerName,
 			input.usage.promptTokens,
 			input.usage.completionTokens,
 			input.usage.totalTokens,
@@ -5061,6 +5080,20 @@ export class BotRuntime {
 			JSON.stringify(input.usage.raw),
 			input.createdAt,
 		);
+	}
+
+	private async providerUsageProviderName(settings: ProviderSettings, providerResponseId: string | undefined): Promise<string | null> {
+		if (!isOpenRouterProviderBaseUrl(settings.baseUrl)) {
+			return providerNameFromBaseUrl(settings.baseUrl);
+		}
+		if (!settings.apiKey || !providerResponseId?.trim()) {
+			return null;
+		}
+		try {
+			return await fetchOpenRouterGenerationProviderName(settings.baseUrl, settings.apiKey, providerResponseId);
+		} catch {
+			return null;
+		}
 	}
 
 	private recordProviderTokenCalibrationSample(input: {
@@ -5312,22 +5345,25 @@ export class BotRuntime {
 			if (Number.isFinite(usedAt) && usedAt >= last24StartMs) {
 				addUsageRow(last24Hours, row);
 			}
-			const modelKey = `${row.requested_model}\u0000${row.context_window_tokens}`;
-			const current = models.get(modelKey);
-			if (current) {
-				addUsageRow(current, row);
-				current.firstUsedAt = row.created_at < current.firstUsedAt ? row.created_at : current.firstUsedAt;
-				current.lastUsedAt = row.created_at > current.lastUsedAt ? row.created_at : current.lastUsedAt;
-			} else {
-				const totals = emptyUsageTotals();
-				addUsageRow(totals, row);
-				models.set(modelKey, {
-					...totals,
-					model: row.requested_model,
-					contextWindowTokens: row.context_window_tokens,
-					firstUsedAt: row.created_at,
-					lastUsedAt: row.created_at,
-				});
+			const providerName = row.provider_name?.trim();
+			if (providerName) {
+				const modelKey = `${row.requested_model}\u0000${providerName}`;
+				const current = models.get(modelKey);
+				if (current) {
+					addUsageRow(current, row);
+					current.firstUsedAt = row.created_at < current.firstUsedAt ? row.created_at : current.firstUsedAt;
+					current.lastUsedAt = row.created_at > current.lastUsedAt ? row.created_at : current.lastUsedAt;
+				} else {
+					const totals = emptyUsageTotals();
+					addUsageRow(totals, row);
+					models.set(modelKey, {
+						...totals,
+						model: row.requested_model,
+						providerName,
+						firstUsedAt: row.created_at,
+						lastUsedAt: row.created_at,
+					});
+				}
 			}
 		}
 		const dailyAverageDays = tokenUsageAverageDays(rows, windowEndMs);
@@ -5342,7 +5378,7 @@ export class BotRuntime {
 			dailyAverageTokens: dailyAverageDays > 0 ? Math.round(last7Days.totalTokens / dailyAverageDays) : 0,
 			dailyAverageDays,
 			buckets,
-			models: [...models.values()].sort((left, right) => right.totalTokens - left.totalTokens),
+			models: [...models.values()].sort(compareTokenUsageModelBreakdowns),
 			changeMarkers: this.tokenUsageChangeMarkers(windowStart, windowEnd),
 			...(contextWindow ? { contextWindow } : {}),
 		};
@@ -5592,7 +5628,7 @@ export class BotRuntime {
 	private providerUsageRows(since: string, until: string): ProviderUsageRow[] {
 		return this.state.storage.sql
 			.exec<ProviderUsageRow>(
-				`SELECT created_at, run_id, model, requested_model, response_model, context_window_tokens,
+				`SELECT created_at, run_id, model, requested_model, response_model, provider_name, context_window_tokens,
 				        prompt_tokens, completion_tokens, total_tokens, cached_tokens, reasoning_tokens, cost
 				 FROM provider_usage
 				 WHERE created_at >= ?
@@ -5607,7 +5643,7 @@ export class BotRuntime {
 	private latestLoopProviderUsage(): ProviderLoopUsageRow | null {
 		return this.state.storage.sql
 			.exec<ProviderLoopUsageRow>(
-				`SELECT u.created_at, u.run_id, u.request_seq, u.model, u.requested_model, u.response_model,
+				`SELECT u.created_at, u.run_id, u.request_seq, u.model, u.requested_model, u.response_model, u.provider_name,
 				        u.context_window_tokens, u.prompt_tokens, u.completion_tokens, u.total_tokens,
 				        u.cached_tokens, u.reasoning_tokens, u.cost
 				 FROM provider_usage u
@@ -5627,7 +5663,7 @@ export class BotRuntime {
 		const params = afterSeq !== undefined ? [afterSeq] : [];
 		return this.state.storage.sql
 			.exec<ProviderLoopUsageRow>(
-				`SELECT u.created_at, u.run_id, u.request_seq, u.model, u.requested_model, u.response_model,
+				`SELECT u.created_at, u.run_id, u.request_seq, u.model, u.requested_model, u.response_model, u.provider_name,
 				        u.context_window_tokens, u.prompt_tokens, u.completion_tokens, u.total_tokens,
 				        u.cached_tokens, u.reasoning_tokens, u.cost
 				 FROM provider_usage u
@@ -5647,7 +5683,7 @@ export class BotRuntime {
 	private tokenUsageChangeMarkers(since: string, until: string): BotTokenUsageChangeMarker[] {
 		const previous = this.state.storage.sql
 			.exec<ProviderUsageRow>(
-				`SELECT created_at, run_id, model, requested_model, response_model, context_window_tokens,
+				`SELECT created_at, run_id, model, requested_model, response_model, provider_name, context_window_tokens,
 				        prompt_tokens, completion_tokens, total_tokens, cached_tokens, reasoning_tokens, cost
 				 FROM provider_usage
 				 WHERE created_at < ?
@@ -7240,7 +7276,7 @@ export class BotRuntime {
 		}
 		if (response.usage) {
 			const tickSettings = effectiveTickSettings(bot.tickSettings);
-			this.recordProviderUsage({
+			await this.recordProviderUsage({
 				contextWindowTokens: tickSettings.contextWindowTokens,
 				createdAt: summaryEvent.createdAt,
 				providerResponseId: response.responseId,
@@ -10075,6 +10111,72 @@ function providerUsageFromValue(value: unknown): ProviderUsage | undefined {
 	};
 }
 
+async function fetchOpenRouterGenerationProviderName(
+	baseUrl: string,
+	apiKey: string,
+	providerResponseId: string,
+): Promise<string | null> {
+	const endpoint = openRouterGenerationMetadataUrl(baseUrl, providerResponseId);
+	const signal = new AbortController().signal;
+	const response = await providerFetchWithHeaderTimeout(
+		endpoint,
+		{
+			method: "GET",
+			headers: {
+				accept: "application/json",
+				authorization: `Bearer ${apiKey}`,
+			},
+		},
+		signal,
+		openRouterGenerationMetadataTimeoutMs,
+	);
+	if (!response.ok) {
+		await readLimitedText(response.body, openRouterGenerationMetadataMaxBytes, {
+			signal,
+			timeoutMs: openRouterGenerationMetadataTimeoutMs,
+			timeoutError: () => new ProviderResponseBodyTimeoutError(openRouterGenerationMetadataTimeoutMs),
+		});
+		return null;
+	}
+	return openRouterGenerationProviderNameFromPayload(
+		await readJsonResponse(
+			response,
+			openRouterGenerationMetadataMaxBytes,
+			signal,
+			openRouterGenerationMetadataTimeoutMs,
+			() => new ProviderResponseBodyTimeoutError(openRouterGenerationMetadataTimeoutMs),
+		),
+	);
+}
+
+function openRouterGenerationMetadataUrl(baseUrl: string, providerResponseId: string): string {
+	const url = new URL(baseUrl);
+	url.pathname = "/api/v1/generation";
+	url.search = "";
+	url.searchParams.set("id", providerResponseId.trim());
+	return url.toString();
+}
+
+function openRouterGenerationProviderNameFromPayload(payload: unknown): string | null {
+	return normalizedProviderName(stringValue(runtimeRecord(runtimeRecord(payload).data).provider_name));
+}
+
+function providerNameFromBaseUrl(baseUrl: string): string | null {
+	try {
+		return normalizedProviderName(new URL(baseUrl).hostname);
+	} catch {
+		return null;
+	}
+}
+
+function normalizedProviderName(value: string | undefined): string | null {
+	const trimmed = value?.trim();
+	if (!trimmed) {
+		return null;
+	}
+	return trimmed.slice(0, 120);
+}
+
 function providerStreamErrorFromChunk(chunk: { id?: unknown; model?: unknown; usage?: unknown; error?: unknown }): ProviderRequestError | null {
 	const error = runtimeRecord(chunk.error);
 	if (Object.keys(error).length === 0) {
@@ -10159,6 +10261,21 @@ function addUsageRow(total: BotTokenUsageTotals, row: ProviderUsageRow): void {
 	if (row.cost !== null) {
 		total.cost = (total.cost ?? 0) + row.cost;
 	}
+}
+
+function compareTokenUsageModelBreakdowns(
+	left: BotTokenUsageModelBreakdown,
+	right: BotTokenUsageModelBreakdown,
+): number {
+	const model = left.model.localeCompare(right.model);
+	if (model !== 0) {
+		return model;
+	}
+	const tokens = right.totalTokens - left.totalTokens;
+	if (tokens !== 0) {
+		return tokens;
+	}
+	return left.providerName.localeCompare(right.providerName);
 }
 
 function sevenDayUsageBuckets(windowStartMs: number, rows: ProviderUsageRow[]): BotTokenUsageBucket[] {

@@ -1,3 +1,5 @@
+import { type BotTokenUsageModelBreakdown } from "@bickr/shared/model";
+
 export type TokenUsageChartMetric = "totalTokens" | "cachedTokens";
 
 export type TokenUsageChartPoint = Readonly<{
@@ -27,6 +29,31 @@ export type ContextWindowBarSegments = Readonly<{
 	overCutoffTokens: number;
 	overWindowTokens: number;
 }>;
+
+export const tokenUsageModelBreakdownHeaders = ["Model", "Provider", "Total", "Cached", "Cost"] as const;
+
+export type TokenUsageModelBreakdownRow = Readonly<{
+	breakdown: BotTokenUsageModelBreakdown;
+	currentModel: boolean;
+	key: string;
+	showModelName: boolean;
+}>;
+
+export function tokenUsageModelBreakdownRows(
+	models: readonly BotTokenUsageModelBreakdown[],
+	currentModel: string,
+): TokenUsageModelBreakdownRow[] {
+	const normalizedCurrentModel = currentModel.trim();
+	return models.map((breakdown, index) => {
+		const showModelName = index === 0 || models[index - 1]?.model !== breakdown.model;
+		return {
+			breakdown,
+			currentModel: showModelName && breakdown.model === normalizedCurrentModel,
+			key: `${breakdown.model}\u0000${breakdown.providerName}`,
+			showModelName,
+		};
+	});
+}
 
 export function contextWindowBarSegments(input: ContextWindowBarInput): ContextWindowBarSegments {
 	const contextWindowTokens = Math.max(1, Math.floor(input.contextWindowTokens));

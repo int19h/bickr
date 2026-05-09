@@ -2,13 +2,32 @@ import { describe, expect, it } from "vitest";
 import {
 	contextWindowBarSegments,
 	interpolateTokenUsageChartValue,
+	tokenUsageModelBreakdownHeaders,
+	tokenUsageModelBreakdownRows,
 	type TokenUsageChartPoint,
 } from "../apps/web/src/token-usage-chart";
+import { type BotTokenUsageModelBreakdown } from "../packages/shared/src/model";
 import { loopContinuationRowsForPage } from "../apps/web/src/loop-page-continuations";
 import { loopPagePagerItems } from "../apps/web/src/loop-page-pager";
 
 function point(timeMs: number, totalTokens: number, cachedTokens = 0): TokenUsageChartPoint {
 	return { timeMs, x: timeMs, totalTokens, cachedTokens };
+}
+
+function modelBreakdown(model: string, providerName: string, totalTokens: number): BotTokenUsageModelBreakdown {
+	return {
+		cachedTokens: 0,
+		completionTokens: 0,
+		cost: null,
+		firstUsedAt: "2026-05-01T00:00:00.000Z",
+		lastUsedAt: "2026-05-01T00:00:00.000Z",
+		model,
+		promptTokens: 0,
+		providerName,
+		reasoningTokens: 0,
+		requestCount: 1,
+		totalTokens,
+	};
 }
 
 describe("interpolateTokenUsageChartValue", () => {
@@ -68,6 +87,46 @@ describe("contextWindowBarSegments", () => {
 		expect(segments.freePercent).toBe(0);
 		expect(segments.cutoffPercent).toBe(100);
 		expect(segments.overWindowTokens).toBe(2_000);
+	});
+});
+
+describe("tokenUsageModelBreakdownRows", () => {
+	it("defines the model breakdown header order", () => {
+		expect([...tokenUsageModelBreakdownHeaders]).toEqual(["Model", "Provider", "Total", "Cached", "Cost"]);
+	});
+
+	it("blanks repeated model cells and marks the current model group", () => {
+		const rows = tokenUsageModelBreakdownRows([
+			modelBreakdown("google/gemini", "Provider A", 100),
+			modelBreakdown("google/gemini", "Provider B", 80),
+			modelBreakdown("google/gemma", "Provider A", 50),
+		], "google/gemini");
+
+		expect(rows.map((row) => ({
+			currentModel: row.currentModel,
+			key: row.key,
+			modelCell: row.showModelName ? row.breakdown.model : "",
+			provider: row.breakdown.providerName,
+		}))).toEqual([
+			{
+				currentModel: true,
+				key: "google/gemini\u0000Provider A",
+				modelCell: "google/gemini",
+				provider: "Provider A",
+			},
+			{
+				currentModel: false,
+				key: "google/gemini\u0000Provider B",
+				modelCell: "",
+				provider: "Provider B",
+			},
+			{
+				currentModel: false,
+				key: "google/gemma\u0000Provider A",
+				modelCell: "google/gemma",
+				provider: "Provider A",
+			},
+		]);
 	});
 });
 

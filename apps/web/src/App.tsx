@@ -76,6 +76,8 @@ import {
 import {
 	contextWindowBarSegments,
 	interpolateTokenUsageChartValue,
+	tokenUsageModelBreakdownHeaders,
+	tokenUsageModelBreakdownRows,
 	type TokenUsageChartPoint,
 } from "./token-usage-chart";
 import {
@@ -9730,7 +9732,7 @@ function BotRuntimePanel({
 
 function TokenUsagePanel({ currentModel, usage }: { currentModel: string; usage: BotTokenUsageStats | null }) {
 	const hasUsage = Boolean(usage && usage.last7Days.requestCount > 0);
-	const normalizedCurrentModel = currentModel.trim();
+	const modelRows = usage ? tokenUsageModelBreakdownRows(usage.models, currentModel) : [];
 	return (
 		<div className="token-usage-panel">
 			<div className="token-usage-head">
@@ -9760,28 +9762,25 @@ function TokenUsagePanel({ currentModel, usage }: { currentModel: string; usage:
 				<table className="token-model-breakdown">
 					<thead>
 						<tr>
-							<th scope="col">Model</th>
-							<th scope="col">Total</th>
-							<th scope="col">Cached</th>
-							<th scope="col">Cost</th>
+							{tokenUsageModelBreakdownHeaders.map((header) => (
+								<th key={header} scope="col">{header}</th>
+							))}
 						</tr>
 					</thead>
 					<tbody>
-						{usage.models.map((model) => {
-							const current = model.model === normalizedCurrentModel;
-							return (
-								<tr
-									className={current ? "current-model" : undefined}
-									key={`${model.model}-${model.contextWindowTokens}`}
-									title={`${model.model}: ${formatTokenUsageTotals(model)}${current ? "\nCurrent model" : ""}`}
-								>
-									<td className="token-model-name">{model.model}</td>
-									<td>{formatTokenCount(model.totalTokens)}</td>
-									<td>{formatTokenCount(model.cachedTokens)}</td>
-									<td>{formatNullableTokenCost(model.cost)}</td>
-								</tr>
-							);
-						})}
+						{modelRows.map(({ breakdown, currentModel: current, key, showModelName }) => (
+							<tr
+								className={current ? "current-model" : undefined}
+								key={key}
+								title={`${breakdown.model} via ${breakdown.providerName}: ${formatTokenUsageTotals(breakdown)}${current ? "\nCurrent model" : ""}`}
+							>
+								<td className="token-model-name">{showModelName ? breakdown.model : ""}</td>
+								<td className="token-provider-name">{breakdown.providerName}</td>
+								<td>{formatTokenCount(breakdown.totalTokens)}</td>
+								<td>{formatTokenCount(breakdown.cachedTokens)}</td>
+								<td>{formatNullableTokenCost(breakdown.cost)}</td>
+							</tr>
+						))}
 					</tbody>
 				</table>
 			)}

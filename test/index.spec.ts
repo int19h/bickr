@@ -3501,13 +3501,14 @@ describe("Bickr Pages Functions", () => {
 		});
 	});
 
-	it("groups token usage by requested model instead of routed response model", () => {
+	it("groups token usage breakdown by requested model and provider", () => {
 		const rows = [
 			{
 				...providerLoopUsageRowForTest(1, "2026-05-01T00:00:00.000Z", 100),
 				model: "provider/concrete-a",
 				requested_model: "requested/model-a",
 				response_model: "provider/concrete-a",
+				provider_name: "Provider One",
 				total_tokens: 150,
 			},
 			{
@@ -3515,14 +3516,23 @@ describe("Bickr Pages Functions", () => {
 				model: "provider/concrete-b",
 				requested_model: "requested/model-a",
 				response_model: "provider/concrete-b",
+				provider_name: "Provider One",
 				total_tokens: 275,
+				context_window_tokens: 32_000,
 			},
 			{
 				...providerLoopUsageRowForTest(3, "2026-05-01T00:10:00.000Z", 50),
 				model: "provider/concrete-c",
-				requested_model: "requested/model-b",
+				requested_model: "requested/model-a",
 				response_model: "provider/concrete-c",
+				provider_name: "Provider Two",
 				total_tokens: 75,
+			},
+			{
+				...providerLoopUsageRowForTest(4, "2026-05-01T00:15:00.000Z", 500),
+				requested_model: "requested/model-z",
+				provider_name: null,
+				total_tokens: 550,
 			},
 		];
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
@@ -3537,10 +3547,96 @@ describe("Bickr Pages Functions", () => {
 
 		const usage = tokenUsageStats(fakeBotDocument({ contextWindowTokens: 16_000 }), new Date("2026-05-01T01:00:00.000Z"));
 
-		expect(usage.models.map((model) => [model.model, model.totalTokens])).toEqual([
-			["requested/model-a", 425],
-			["requested/model-b", 75],
+		expect(usage.last7Days.totalTokens).toBe(1_050);
+		expect(usage.models.map((model) => [model.model, model.providerName, model.totalTokens])).toEqual([
+			["requested/model-a", "Provider One", 425],
+			["requested/model-a", "Provider Two", 75],
 		]);
+	});
+
+	it("stores routed OpenRouter provider names with provider usage", async () => {
+		const sql = capturingProviderUsageSql();
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			state: { storage: { sql } },
+		});
+		const recordProviderUsage = (BotRuntime.prototype as unknown as {
+			recordProviderUsage: (input: RecordProviderUsageInputForTest) => Promise<void>;
+		}).recordProviderUsage.bind(runtime);
+		const originalFetch = globalThis.fetch;
+		const fetchMock = vi.fn(async () => new Response(JSON.stringify({ data: { provider_name: "Together" } })));
+		vi.stubGlobal("fetch", fetchMock);
+		try {
+			await recordProviderUsage(providerUsageInputForTest({
+				providerResponseId: "gen-provider",
+				settings: {
+					apiKey: "sk-or-test",
+					baseUrl: "https://openrouter.ai/api/v1",
+					model: "requested/model",
+					temperature: 0.2,
+				},
+			}));
+		} finally {
+			vi.stubGlobal("fetch", originalFetch);
+		}
+
+		expect(fetchMock).toHaveBeenCalledWith(
+			"https://openrouter.ai/api/v1/generation?id=gen-provider",
+			expect.objectContaining({
+				headers: expect.objectContaining({ authorization: "Bearer sk-or-test" }),
+			}),
+		);
+		expect(sql.providerNames()).toEqual(["Together"]);
+	});
+
+	it("keeps provider usage when OpenRouter provider metadata is unavailable", async () => {
+		const sql = capturingProviderUsageSql();
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			state: { storage: { sql } },
+		});
+		const recordProviderUsage = (BotRuntime.prototype as unknown as {
+			recordProviderUsage: (input: RecordProviderUsageInputForTest) => Promise<void>;
+		}).recordProviderUsage.bind(runtime);
+		const originalFetch = globalThis.fetch;
+		const fetchMock = vi.fn()
+			.mockResolvedValueOnce(new Response(JSON.stringify({ data: {} })))
+			.mockResolvedValueOnce(new Response("missing", { status: 404 }));
+		vi.stubGlobal("fetch", fetchMock);
+		try {
+			await recordProviderUsage(providerUsageInputForTest({ providerResponseId: "gen-missing" }));
+			await recordProviderUsage(providerUsageInputForTest({ providerResponseId: "gen-failed" }));
+		} finally {
+			vi.stubGlobal("fetch", originalFetch);
+		}
+
+		expect(sql.providerNames()).toEqual([null, null]);
+	});
+
+	it("stores direct provider hosts without OpenRouter metadata lookups", async () => {
+		const sql = capturingProviderUsageSql();
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			state: { storage: { sql } },
+		});
+		const recordProviderUsage = (BotRuntime.prototype as unknown as {
+			recordProviderUsage: (input: RecordProviderUsageInputForTest) => Promise<void>;
+		}).recordProviderUsage.bind(runtime);
+		const originalFetch = globalThis.fetch;
+		const fetchMock = vi.fn();
+		vi.stubGlobal("fetch", fetchMock);
+		try {
+			await recordProviderUsage(providerUsageInputForTest({
+				settings: {
+					apiKey: "direct-key",
+					baseUrl: "https://api.provider.example/v1",
+					model: "requested/model",
+					temperature: 0.2,
+				},
+			}));
+		} finally {
+			vi.stubGlobal("fetch", originalFetch);
+		}
+
+		expect(fetchMock).not.toHaveBeenCalled();
+		expect(sql.providerNames()).toEqual(["api.provider.example"]);
 	});
 
 	it("calculates prompt context budget segments and over-budget counts", () => {
@@ -14463,6 +14559,7 @@ function memoryLoopMessageLogSql(options: {
 						model: "test-model",
 						requested_model: "test-model",
 						response_model: null,
+						provider_name: null,
 						context_window_tokens: 16_000,
 						prompt_tokens: usage.promptTokens,
 						completion_tokens: usage.completionTokens,
@@ -14728,6 +14825,58 @@ function providerPromptEstimateForTokens(promptTokens: number) {
 	};
 }
 
+type RecordProviderUsageInputForTest = {
+	contextWindowTokens: number;
+	createdAt: string;
+	providerResponseId?: string;
+	requestSeq: number;
+	responseModel?: string;
+	runId: string;
+	settings: {
+		apiKey?: string;
+		baseUrl: string;
+		model: string;
+		temperature: number;
+	};
+	usage: ReturnType<typeof providerUsageForTest>;
+};
+
+function providerUsageInputForTest(
+	overrides: Partial<RecordProviderUsageInputForTest> = {},
+): RecordProviderUsageInputForTest {
+	return {
+		contextWindowTokens: 16_000,
+		createdAt: "2026-05-01T00:00:00.000Z",
+		providerResponseId: "gen-test",
+		requestSeq: 1,
+		runId: "run-provider-usage",
+		settings: {
+			apiKey: "sk-or-test",
+			baseUrl: "https://openrouter.ai/api/v1",
+			model: "requested/model",
+			temperature: 0.2,
+		},
+		usage: providerUsageForTest(20),
+		...overrides,
+	};
+}
+
+function capturingProviderUsageSql() {
+	const inserts: unknown[][] = [];
+	return {
+		providerNames: () => inserts.map((params) => params[8] as string | null),
+		exec<T>(sql: string, ...params: unknown[]) {
+			if (/INSERT INTO provider_usage/.test(sql)) {
+				inserts.push(params);
+			}
+			return {
+				one: () => ({} as T),
+				toArray: () => [],
+			};
+		},
+	};
+}
+
 function providerLoopUsageRowForTest(requestSeq: number, createdAt: string, promptTokens: number) {
 	return {
 		created_at: createdAt,
@@ -14736,6 +14885,7 @@ function providerLoopUsageRowForTest(requestSeq: number, createdAt: string, prom
 		model: "test-model",
 		requested_model: "test-model",
 		response_model: null,
+		provider_name: null,
 		context_window_tokens: 16_000,
 		prompt_tokens: promptTokens,
 		completion_tokens: 100,

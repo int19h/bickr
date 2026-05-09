@@ -1068,7 +1068,7 @@ export type BotTokenUsageBucket = BotTokenUsageTotals & {
 
 export type BotTokenUsageModelBreakdown = BotTokenUsageTotals & {
 	model: string;
-	contextWindowTokens: number;
+	providerName: string;
 	firstUsedAt: string;
 	lastUsedAt: string;
 };
