@@ -1828,7 +1828,7 @@ fieldset {
 	position: sticky;
 	text-transform: uppercase;
 	top: 0;
-	z-index: 8;
+	z-index: 2;
 }
 
 .bot-table-check-heading,
@@ -1885,17 +1885,26 @@ fieldset {
 	color: var(--ink-3);
 	font-size: 12px;
 	font-weight: 650;
-	padding-block: 8px;
+	padding: 0;
 }
 
-.bot-table-group-row th > .bot-table-group-label,
-.bot-table-group-row th > .bot-table-group-count {
+.bot-table-group-layout {
+	align-items: center;
+	column-gap: 10px;
+	display: grid;
+	grid-template-columns: 44px max-content max-content;
+	min-height: 38px;
+}
+
+.bot-table-group-checkbox {
+	justify-self: center;
+	margin: 0;
+}
+
+.bot-table-group-label,
+.bot-table-group-count {
 	display: inline-flex;
-	vertical-align: middle;
-}
-
-.bot-table-group-label {
-	margin-right: 10px;
+	min-width: 0;
 }
 
 .bot-table-group-count {

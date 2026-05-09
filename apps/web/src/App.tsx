@@ -6503,6 +6503,21 @@ function MyBotsScreen({
 		});
 	}
 
+	function toggleGroup(botIds: string[]): void {
+		setSelectedBotIds((current) => {
+			const next = new Set(current);
+			const allGroupSelected = botIds.length > 0 && botIds.every((id) => next.has(id));
+			for (const id of botIds) {
+				if (allGroupSelected) {
+					next.delete(id);
+				} else {
+					next.add(id);
+				}
+			}
+			return next;
+		});
+	}
+
 	function toggleBot(botId: string): void {
 		setSelectedBotIds((current) => {
 			const next = new Set(current);
@@ -6617,75 +6632,90 @@ function MyBotsScreen({
 											<MyBotsSortHeader label="Current model" onSort={toggleSort} sort={sort} sortKey="model" />
 										</tr>
 									</thead>
-									{groups.map((group) => (
-										<tbody key={group.worldHandle}>
-											<tr className="bot-table-group-row">
-												<th colSpan={7} scope="rowgroup">
-													<span className="bot-table-group-label">
-														{group.world ?
-															<SpaLink to={{ route: "world", worldHandle: group.worldHandle }}>
-																<Reference kind="world" link={false} name={group.worldHandle} />
-															</SpaLink>
-														:	<Reference kind="world" name={group.worldHandle} />}
-													</span>
-													<span className="bot-table-group-count">
-														{group.rows.length} bot{group.rows.length === 1 ? "" : "s"}
-													</span>
-												</th>
-											</tr>
-											{group.rows.map((record) => {
-												const { bot } = record;
-												const selected = selectedBotIds.has(bot.id);
-												return (
-													<tr
-														className={`bot-table-row ${selected ? "selected" : ""} ${bot.tickSettings.enabled ? "" : "paused"}`.trim()}
-														key={bot.id}
-													>
-														<td className="bot-table-check-cell">
-															<input
-																aria-label={`Select u/${bot.handle}`}
-																checked={selected}
-																onChange={() => toggleBot(bot.id)}
-																type="checkbox"
+									{groups.map((group) => {
+										const groupBotIds = group.rows.map((row) => row.bot.id);
+										const selectedInGroup = groupBotIds.filter((id) => selectedBotIds.has(id)).length;
+										const allGroupSelected = groupBotIds.length > 0 && selectedInGroup === groupBotIds.length;
+										const someGroupSelected = selectedInGroup > 0;
+										return (
+											<tbody key={group.worldHandle}>
+												<tr className="bot-table-group-row">
+													<th colSpan={7} scope="rowgroup">
+														<span className="bot-table-group-layout">
+															<MyBotsGroupCheckbox
+																allSelected={allGroupSelected}
+																botIds={groupBotIds}
+																label={`w/${group.worldHandle}`}
+																onToggle={toggleGroup}
+																someSelected={someGroupSelected}
 															/>
-														</td>
-														<td className="bot-table-avatar-cell">
-															<BotProfileHoverLink
-																bot={bot}
-																className="bot-table-avatar-link"
-																title={`Open ${bot.displayName}`}
-															>
-																<Avatar actor="bot" colorSeed={bot.handle} name={bot.displayName} size="sm" />
-															</BotProfileHoverLink>
-														</td>
-														<td className="bot-table-username-cell">
-															<Reference isBot kind="bot" name={bot.handle} worldHandle={bot.homeWorldHandle} />
-														</td>
-														<td className="bot-table-display-cell">
-															<BotProfileHoverLink
-																bot={bot}
-																className="bot-table-display-link"
-																title={`Open ${bot.displayName}`}
-															>
-																{bot.displayName}
-															</BotProfileHoverLink>
-														</td>
-														<td className="bot-table-time-cell" title={bot.lastActiveAt ?? bot.createdAt}>
-															{timeAgoWithAgo(bot.lastActiveAt ?? bot.createdAt)}
-														</td>
-														<td className="bot-table-time-cell" title={bot.nextDueAt ?? undefined}>
-															{bot.tickSettings.enabled ?
-																timeUntil(bot.nextDueAt)
-															:	<span className="bot-status-label paused">Paused</span>}
-														</td>
-														<td className="bot-table-model-cell" title={record.effectiveModel}>
-															{record.effectiveModel}
-														</td>
-													</tr>
-												);
-											})}
-										</tbody>
-									))}
+															<span className="bot-table-group-label">
+																{group.world ?
+																	<SpaLink to={{ route: "world", worldHandle: group.worldHandle }}>
+																		<Reference kind="world" link={false} name={group.worldHandle} />
+																	</SpaLink>
+																:	<Reference kind="world" name={group.worldHandle} />}
+															</span>
+															<span className="bot-table-group-count">
+																{group.rows.length} bot{group.rows.length === 1 ? "" : "s"}
+															</span>
+														</span>
+													</th>
+												</tr>
+												{group.rows.map((record) => {
+													const { bot } = record;
+													const selected = selectedBotIds.has(bot.id);
+													return (
+														<tr
+															className={`bot-table-row ${selected ? "selected" : ""} ${bot.tickSettings.enabled ? "" : "paused"}`.trim()}
+															key={bot.id}
+														>
+															<td className="bot-table-check-cell">
+																<input
+																	aria-label={`Select u/${bot.handle}`}
+																	checked={selected}
+																	onChange={() => toggleBot(bot.id)}
+																	type="checkbox"
+																/>
+															</td>
+															<td className="bot-table-avatar-cell">
+																<BotProfileHoverLink
+																	bot={bot}
+																	className="bot-table-avatar-link"
+																	title={`Open ${bot.displayName}`}
+																>
+																	<Avatar actor="bot" colorSeed={bot.handle} name={bot.displayName} size="sm" />
+																</BotProfileHoverLink>
+															</td>
+															<td className="bot-table-username-cell">
+																<Reference isBot kind="bot" name={bot.handle} worldHandle={bot.homeWorldHandle} />
+															</td>
+															<td className="bot-table-display-cell">
+																<BotProfileHoverLink
+																	bot={bot}
+																	className="bot-table-display-link"
+																	title={`Open ${bot.displayName}`}
+																>
+																	{bot.displayName}
+																</BotProfileHoverLink>
+															</td>
+															<td className="bot-table-time-cell" title={bot.lastActiveAt ?? bot.createdAt}>
+																{timeAgoWithAgo(bot.lastActiveAt ?? bot.createdAt)}
+															</td>
+															<td className="bot-table-time-cell" title={bot.nextDueAt ?? undefined}>
+																{bot.tickSettings.enabled ?
+																	timeUntil(bot.nextDueAt)
+																:	<span className="bot-status-label paused">Paused</span>}
+															</td>
+															<td className="bot-table-model-cell" title={record.effectiveModel}>
+																{record.effectiveModel}
+															</td>
+														</tr>
+													);
+												})}
+											</tbody>
+										);
+									})}
 								</table>
 							</div>
 						</div>
@@ -6744,6 +6774,38 @@ function MyBotsSortHeader({
 				{active && <Icon name={sort.direction === "asc" ? "arrowUp" : "arrowDown"} size={12} />}
 			</button>
 		</th>
+	);
+}
+
+function MyBotsGroupCheckbox({
+	allSelected,
+	botIds,
+	label,
+	onToggle,
+	someSelected,
+}: {
+	allSelected: boolean;
+	botIds: string[];
+	label: string;
+	onToggle: (botIds: string[]) => void;
+	someSelected: boolean;
+}) {
+	const inputRef = useRef<HTMLInputElement>(null);
+	useEffect(() => {
+		if (inputRef.current) {
+			inputRef.current.indeterminate = someSelected && !allSelected;
+		}
+	}, [allSelected, someSelected]);
+	return (
+		<input
+			aria-label={allSelected ? `Clear ${label} bot selection` : `Select all bots in ${label}`}
+			checked={allSelected}
+			className="bot-table-group-checkbox"
+			disabled={botIds.length === 0}
+			onChange={() => onToggle(botIds)}
+			ref={inputRef}
+			type="checkbox"
+		/>
 	);
 }
 
