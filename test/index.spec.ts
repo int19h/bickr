@@ -1196,6 +1196,7 @@ describe("Bickr Pages Functions", () => {
 				{
 					model: "test-model",
 					providerRouting: { sort: "price" },
+					reasoningEffort: "high",
 				},
 				messages,
 			);
@@ -1205,7 +1206,7 @@ describe("Bickr Pages Functions", () => {
 				provider: { sort: "price" },
 				stream: false,
 				temperature: 0.2,
-				reasoning: { enabled: true, exclude: false },
+				reasoning: { effort: "none", exclude: false },
 				parallel_tool_calls: false,
 			});
 			expect(request.tool_choice).toBe("none");

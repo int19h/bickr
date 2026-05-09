@@ -1064,6 +1064,7 @@ const providerParallelToolCalls = true;
 const providerRailroadNoToolMaxAttempts = 5;
 const providerPromptCompactionMaxAttempts = 3;
 const providerDefaultReasoning = { enabled: true, exclude: false } as const;
+const providerCompactionReasoning = { effort: "none", exclude: false } as const satisfies ProviderReasoningConfig;
 const providerTranslationMaxCompletionTokens = 8_192;
 const providerCompactionTemperature = 0.2;
 const providerCompactionToolName = metaCompactionToolName;
@@ -1482,7 +1483,7 @@ export function providerCompactionRequest(
 		parallel_tool_calls: false,
 		...(responseFormat ? { response_format: responseFormat } : {}),
 		max_completion_tokens: limits.maxCompletionTokens,
-		reasoning: providerReasoningForSettings(settings),
+		reasoning: providerCompactionReasoning,
 		temperature: providerCompactionTemperature,
 	};
 }
