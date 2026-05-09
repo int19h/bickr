@@ -1206,7 +1206,7 @@ describe("Bickr Pages Functions", () => {
 				provider: { sort: "price" },
 				stream: false,
 				temperature: 0.2,
-				reasoning: { effort: "none", exclude: false },
+				reasoning: { effort: "minimal", exclude: false },
 				parallel_tool_calls: false,
 			});
 			expect(request.tool_choice).toBe("none");
