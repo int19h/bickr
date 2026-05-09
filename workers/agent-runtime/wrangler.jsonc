@@ -84,7 +84,7 @@
 				}
 			],
 			"vars": {
-				"OPENROUTER_MODEL": "openai/gpt-oss-20b:free"
+				"OPENROUTER_MODEL": "openai/gpt-oss-120b:free"
 			},
 			"services": [
 				{

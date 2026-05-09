@@ -289,7 +289,7 @@ export type BotTickSettingsInput = Partial<{
 	maxGeneratedTokensPerIteration: number | null;
 }>;
 
-export const defaultProviderModel = "openai/gpt-oss-20b:free";
+export const defaultProviderModel = "openai/gpt-oss-120b:free";
 export const defaultTranslationPrompt = "Translate to English.";
 
 export function defaultReasoningPrefill(handle: string): string {
