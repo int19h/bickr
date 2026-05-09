@@ -589,6 +589,11 @@ export type WorldSummary = {
 	updatedAt: string;
 };
 
+export type WorldListSummary = WorldSummary & {
+	forumCount: number;
+	botCount: number;
+};
+
 export type ForumSummary = {
 	id: string;
 	worldId: string;

@@ -50,6 +50,7 @@ import {
 	type UserDocument,
 	type UserProfile,
 	type WorldDocument,
+	type WorldListSummary,
 	type WorldSummary,
 } from "./model";
 import {
@@ -649,23 +650,37 @@ export async function updateUserProfile(
 	return userProfile(updated, await listUserAuthIdentities(db, updated.id));
 }
 
-export async function listWorlds(db: D1DatabaseLike): Promise<WorldSummary[]> {
+export async function listWorlds(db: D1DatabaseLike): Promise<WorldListSummary[]> {
 	const result = await db
 		.prepare(
 			`SELECT
-				world_id AS id,
-				handle,
-				name,
-				description,
-				initial_bot_notification AS initialBotNotification,
-				created_by_user_id AS createdByUserId,
-				created_at AS createdAt,
-				updated_at AS updatedAt
-			 FROM worlds_index
-			 WHERE deleted_at IS NULL
-			 ORDER BY updated_at DESC, handle ASC`,
+				w.world_id AS id,
+				w.handle,
+				w.name,
+				w.description,
+				w.initial_bot_notification AS initialBotNotification,
+				w.created_by_user_id AS createdByUserId,
+				w.created_at AS createdAt,
+				w.updated_at AS updatedAt,
+				COALESCE(forum_counts.forumCount, 0) AS forumCount,
+				COALESCE(bot_counts.botCount, 0) AS botCount
+			 FROM worlds_index w
+			 LEFT JOIN (
+				SELECT world_id, COUNT(*) AS forumCount
+				FROM forums_index
+				WHERE deleted_at IS NULL
+				GROUP BY world_id
+			 ) forum_counts ON forum_counts.world_id = w.world_id
+			 LEFT JOIN (
+				SELECT home_world_id AS world_id, COUNT(*) AS botCount
+				FROM bots_index
+				WHERE deleted_at IS NULL
+				GROUP BY home_world_id
+			 ) bot_counts ON bot_counts.world_id = w.world_id
+			 WHERE w.deleted_at IS NULL
+			 ORDER BY w.updated_at DESC, w.handle ASC`,
 		)
-		.all<WorldSummary>();
+		.all<WorldListSummary>();
 
 	return result.results ?? [];
 }

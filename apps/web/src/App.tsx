@@ -61,6 +61,7 @@ import {
 	type VoteDetail,
 	type WorldActivityFeed,
 	type WorldActivityItem,
+	type WorldListSummary,
 	type WorldSummary,
 } from "@bickr/shared/model";
 import {
@@ -247,13 +248,10 @@ type RuntimeMonitorPayload = {
 	deletedAt?: string;
 };
 
-type WorldView = WorldSummary & {
+type WorldView = WorldListSummary & {
 	bannerIdx: number;
-	botCount: number | null;
-	forumCount: number | null;
 	isMine: boolean;
 	myBotCount: number;
-	myForumCount: number;
 };
 
 type ReferenceData = {
@@ -366,7 +364,7 @@ function App() {
 	const initialRoute = useMemo(() => parseBrowserRoute(), []);
 	const [initializing, setInitializing] = useState(true);
 	const [session, setSession] = useState<SessionState>({ authenticated: false, user: null });
-	const [worlds, setWorlds] = useState<WorldSummary[]>([]);
+	const [worlds, setWorlds] = useState<WorldListSummary[]>([]);
 	const [forumsByWorld, setForumsByWorld] = useState<Record<string, ForumSummary[]>>({});
 	const [bots, setBots] = useState<BotSummary[]>([]);
 	const [botsByWorld, setBotsByWorld] = useState<Record<string, BotSummary[]>>({});
@@ -474,17 +472,18 @@ function App() {
 	}, [route, session.authenticated, session.user?.id, session.user?.profileComplete]);
 
 	const worldViews = useMemo<WorldView[]>(() => {
-		return worlds.map((world) => ({
-			...world,
-			bannerIdx: hash(world.handle) % banners.length,
-			botCount: botsByWorld[world.handle]?.length ?? null,
-			forumCount: visibleForums(forumsByWorld[world.handle] ?? []).length,
-			isMine: Boolean(session.user && world.createdByUserId === session.user.id),
-			myBotCount: bots.filter((bot) => bot.homeWorldHandle === world.handle).length,
-			myForumCount: visibleForums(forumsByWorld[world.handle] ?? []).filter(
-				(forum) => Boolean(session.user && forum.createdByUserId === session.user.id),
-			).length,
-		}));
+		return worlds.map((world) => {
+			const loadedBots = botsByWorld[world.handle];
+			const loadedForums = forumsByWorld[world.handle];
+			return {
+				...world,
+				bannerIdx: hash(world.handle) % banners.length,
+				botCount: loadedBots ? loadedBots.length : world.botCount,
+				forumCount: loadedForums ? Math.max(loadedForums.length, world.forumCount) : world.forumCount,
+				isMine: Boolean(session.user && world.createdByUserId === session.user.id),
+				myBotCount: bots.filter((bot) => bot.homeWorldHandle === world.handle).length,
+			};
+		});
 	}, [bots, botsByWorld, forumsByWorld, session.user, worlds]);
 
 	const activeWorld = useMemo(
@@ -693,7 +692,7 @@ function App() {
 		try {
 			const [sessionResult, worldsResult] = await Promise.all([
 				api<SessionState>("/api/session"),
-				api<{ worlds: WorldSummary[] }>("/api/worlds"),
+				api<{ worlds: WorldListSummary[] }>("/api/worlds"),
 			]);
 
 			if (sessionResult.ok) {
@@ -740,6 +739,11 @@ function App() {
 			return [];
 		}
 		setForumsByWorld((current) => ({ ...current, [worldHandle]: result.data.forums }));
+		setWorlds((current) =>
+			current.map((world) =>
+				world.handle === worldHandle ? { ...world, forumCount: result.data.forums.length } : world,
+			),
+		);
 		return result.data.forums;
 	}
 
@@ -752,6 +756,11 @@ function App() {
 			return [];
 		}
 		setBotsByWorld((current) => ({ ...current, [worldHandle]: result.data.bots }));
+		setWorlds((current) =>
+			current.map((world) =>
+				world.handle === worldHandle ? { ...world, botCount: result.data.bots.length } : world,
+			),
+		);
 		return result.data.bots;
 	}
 
@@ -1083,10 +1092,10 @@ function App() {
 			if (!result.ok) {
 				throw new Error(result.message);
 			}
-			setWorlds((current) => [result.data.world, ...current.filter((world) => world.id !== result.data.world.id)]);
-			setForumsByWorld((current) => ({ ...current, [result.data.world.handle]: [] }));
-			navigate({ route: "world", worldHandle: result.data.world.handle });
-			return `Created world ${result.data.world.handle}.`;
+			const createdWorld: WorldListSummary = { ...result.data.world, forumCount: 1, botCount: 0 };
+			setWorlds((current) => [createdWorld, ...current.filter((world) => world.id !== createdWorld.id)]);
+			navigate({ route: "world", worldHandle: createdWorld.handle });
+			return `Created world ${createdWorld.handle}.`;
 		});
 	}
 
@@ -1103,7 +1112,7 @@ function App() {
 				throw new Error(result.message);
 			}
 			setWorlds((current) =>
-				current.map((world) => world.id === result.data.world.id ? result.data.world : world),
+				current.map((world) => world.id === result.data.world.id ? { ...world, ...result.data.world } : world),
 			);
 			return `Saved world ${result.data.world.handle}.`;
 		});
@@ -1153,9 +1162,12 @@ function App() {
 			if (!result.ok) {
 				throw new Error(result.message);
 			}
+			setWorlds((current) => adjustWorldCounts(current, worldHandle, { forumCount: 1 }));
 			setForumsByWorld((current) => ({
 				...current,
-				[worldHandle]: [result.data.forum, ...(current[worldHandle] ?? [])],
+				...(hasOwn(current, worldHandle) ?
+					{ [worldHandle]: [result.data.forum, ...(current[worldHandle] ?? [])] }
+				:	{}),
 			}));
 			return `Created forum ${result.data.forum.handle}.`;
 		});
@@ -1198,9 +1210,12 @@ function App() {
 			if (!result.ok) {
 				throw new Error(result.message);
 			}
+			setWorlds((current) => adjustWorldCounts(current, forum.worldHandle, { forumCount: -1 }));
 			setForumsByWorld((current) => ({
 				...current,
-				[forum.worldHandle]: (current[forum.worldHandle] ?? []).filter((item) => item.id !== forum.id),
+				...(hasOwn(current, forum.worldHandle) ?
+					{ [forum.worldHandle]: (current[forum.worldHandle] ?? []).filter((item) => item.id !== forum.id) }
+				:	{}),
 			}));
 			setThreadsByForum((current) => {
 				const next = { ...current };
@@ -1233,10 +1248,13 @@ function App() {
 				...result.data.bot,
 				lastActiveAt: result.data.bot.lastActiveAt ?? result.data.bot.createdAt,
 			};
+			setWorlds((current) => adjustWorldCounts(current, worldHandle, { botCount: 1, forumCount: 1 }));
 			setBots((current) => [createdBot, ...current.filter((bot) => bot.id !== createdBot.id)]);
 			setBotsByWorld((current) => ({
 				...current,
-				[worldHandle]: [createdBot, ...(current[worldHandle] ?? []).filter((bot) => bot.id !== createdBot.id)],
+				...(hasOwn(current, worldHandle) ?
+					{ [worldHandle]: [createdBot, ...(current[worldHandle] ?? []).filter((bot) => bot.id !== createdBot.id)] }
+				:	{}),
 			}));
 			setCreateBotWorldHandle(null);
 			navigate({
@@ -1415,11 +1433,23 @@ function App() {
 		}
 		const deletedIds = new Set(deletedBots.map((bot) => bot.id));
 		const affectedWorldHandles = new Set(deletedBots.map((bot) => bot.homeWorldHandle));
+		const deletedCountByWorld = new Map<string, number>();
+		for (const bot of deletedBots) {
+			deletedCountByWorld.set(bot.homeWorldHandle, (deletedCountByWorld.get(bot.homeWorldHandle) ?? 0) + 1);
+		}
+		setWorlds((current) =>
+			current.map((world) => {
+				const deletedCount = deletedCountByWorld.get(world.handle) ?? 0;
+				return deletedCount > 0 ? { ...world, botCount: Math.max(0, world.botCount - deletedCount) } : world;
+			}),
+		);
 		setBots((current) => current.filter((currentBot) => !deletedIds.has(currentBot.id)));
 		setBotsByWorld((current) => {
 			const next = { ...current };
 			for (const worldHandle of affectedWorldHandles) {
-				next[worldHandle] = (next[worldHandle] ?? []).filter((currentBot) => !deletedIds.has(currentBot.id));
+				if (hasOwn(next, worldHandle)) {
+					next[worldHandle] = (next[worldHandle] ?? []).filter((currentBot) => !deletedIds.has(currentBot.id));
+				}
 			}
 			return next;
 		});
@@ -2506,10 +2536,10 @@ function WorldCard({ world }: { world: WorldView }) {
 				</span>
 				<span className="stats">
 					<span>
-						<b>{world.forumCount ?? "-"}</b>forums
+						<b>{world.forumCount}</b>forums
 					</span>
 					<span>
-						<b>{world.myBotCount}</b>my bots
+						<b>{world.botCount}</b>bots
 					</span>
 				</span>
 			</span>
@@ -13373,6 +13403,26 @@ function parseOptionalPositiveInteger(value: string): number | null {
 
 function visibleForums(forums: ForumSummary[]): ForumSummary[] {
 	return forums.filter((forum) => !forum.personalBotId);
+}
+
+function hasOwn<T>(record: Record<string, T>, key: string): boolean {
+	return Object.prototype.hasOwnProperty.call(record, key);
+}
+
+function adjustWorldCounts(
+	worlds: WorldListSummary[],
+	worldHandle: string,
+	delta: Partial<Pick<WorldListSummary, "botCount" | "forumCount">>,
+): WorldListSummary[] {
+	return worlds.map((world) =>
+		world.handle === worldHandle ?
+			{
+				...world,
+				botCount: Math.max(0, world.botCount + (delta.botCount ?? 0)),
+				forumCount: Math.max(0, world.forumCount + (delta.forumCount ?? 0)),
+			}
+		:	world,
+	);
 }
 
 function compareHandles(left: string, right: string): number {

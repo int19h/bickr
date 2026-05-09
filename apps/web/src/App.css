@@ -1502,6 +1502,16 @@ fieldset {
 	-webkit-line-clamp: 2;
 }
 
+.world-card .translation-controls {
+	z-index: 6;
+}
+
+.world-card:hover .world-card-description > .translation-controls,
+.world-card:focus-within .world-card-description > .translation-controls {
+	opacity: 1;
+	pointer-events: auto;
+}
+
 .world-ref-row {
 	color: var(--ink-3);
 	display: block;

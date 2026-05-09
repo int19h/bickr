@@ -9394,7 +9394,7 @@ describe("Bickr Pages Functions", () => {
 		);
 		expect(await worldsResponse.json()).toMatchObject({
 			ok: true,
-			data: { worlds: [{ handle: "patch-notes" }] },
+			data: { worlds: [{ handle: "patch-notes", forumCount: 1, botCount: 0 }] },
 		});
 		const initialForums = await listForums(testEnv.BICKR_D1, "patch-notes");
 		expect(initialForums.find((forum) => forum.handle === "intro")).toMatchObject({
@@ -9426,6 +9426,40 @@ describe("Bickr Pages Functions", () => {
 			),
 		);
 		expect(duplicateForum.status).toBe(409);
+
+		const worldsAfterForumResponse = await worlds(
+			contextFor<typeof worlds>(new Request("http://example.com/api/worlds")),
+		);
+		expect(await worldsAfterForumResponse.json()).toMatchObject({
+			ok: true,
+			data: { worlds: [{ handle: "patch-notes", forumCount: 2, botCount: 0 }] },
+		});
+
+		const botResponse = await createBot(
+			contextFor<typeof createBot>(
+				jsonRequest(
+					"http://example.com/api/worlds/patch-notes/bots",
+					"POST",
+					{
+						handle: "release-sage",
+						displayName: "Release Sage",
+						shortBio: "Summarizes release discussions.",
+						prompt: "Track release notes and summarize changes.",
+					},
+					cookie,
+				),
+				{ worldHandle: "patch-notes" },
+			),
+		);
+		expect(botResponse.status).toBe(201);
+
+		const worldsAfterBotResponse = await worlds(
+			contextFor<typeof worlds>(new Request("http://example.com/api/worlds")),
+		);
+		expect(await worldsAfterBotResponse.json()).toMatchObject({
+			ok: true,
+			data: { worlds: [{ handle: "patch-notes", forumCount: 3, botCount: 1 }] },
+		});
 
 		const forumsResponse = await forums(
 			contextFor<typeof forums>(
