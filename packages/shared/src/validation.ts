@@ -306,7 +306,7 @@ export function parseCreateCommentInput(input: unknown): Omit<CreateCommentInput
 	};
 }
 
-export function parseVoteInput(input: unknown): Pick<VoteInput, "targetType" | "targetId" | "value"> {
+export function parseVoteInput(input: unknown): Pick<VoteInput, "targetType" | "targetId" | "value" | "reason"> {
 	const record = asRecord(input);
 	if (record.targetType !== "thread" && record.targetType !== "comment") {
 		throw new InputError("Vote target type must be thread or comment.");
@@ -323,6 +323,7 @@ export function parseVoteInput(input: unknown): Pick<VoteInput, "targetType" | "
 		targetType: record.targetType,
 		targetId: record.targetId.trim(),
 		value,
+		...(record.reason === undefined ? {} : { reason: optionalText(record.reason, "Vote reason", 500) }),
 	};
 }
 

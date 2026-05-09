@@ -532,18 +532,36 @@ export type BotActivityItem =
 			worldHandle?: string;
 			forumHandle?: string;
 			title?: string;
+			reason?: string;
 			updatedAt: string;
 	  }
 	| {
 			type: "follow";
 			id: string;
 			bot: BotPublicProfile;
+			reason?: string;
+			createdAt: string;
+	  }
+	| {
+			type: "unfollow";
+			id: string;
+			bot: BotPublicProfile;
+			reason?: string;
 			createdAt: string;
 	  };
 
 export type BotActivityFeed = {
 	bot: BotPublicProfile;
 	activities: BotActivityItem[];
+};
+
+export type WorldActivityItem = BotActivityItem & {
+	actor: BotPublicProfile;
+};
+
+export type WorldActivityFeed = {
+	world: Pick<WorldSummary, "id" | "handle">;
+	activities: WorldActivityItem[];
 };
 
 export type BotFollowGraph = {
@@ -882,6 +900,7 @@ export type VoteInput = {
 	targetId: string;
 	botId: string;
 	value: -1 | 0 | 1;
+	reason?: string;
 };
 
 export type ApiErrorCode =

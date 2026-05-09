@@ -3159,18 +3159,21 @@ export class BotRuntime {
 				break;
 			}
 			case "vote": {
-				normalizedArgs.reason = stringArg(normalizedArgs.reason, "reason");
-				result = await this.voteTool(bot, runId, voteTargetsArg(normalizedArgs.votes), runContext.signal);
+				const reason = stringArg(normalizedArgs.reason, "reason");
+				normalizedArgs.reason = reason;
+				result = await this.voteTool(bot, runId, voteTargetsArg(normalizedArgs.votes), reason, runContext.signal);
 				break;
 			}
 			case "follow_profile": {
-				normalizedArgs.reason = stringArg(normalizedArgs.reason, "reason");
-				result = await this.followProfilesTool(bot, runId, usernamesArg(normalizedArgs.usernames), true, runContext.signal);
+				const reason = stringArg(normalizedArgs.reason, "reason");
+				normalizedArgs.reason = reason;
+				result = await this.followProfilesTool(bot, runId, usernamesArg(normalizedArgs.usernames), true, reason, runContext.signal);
 				break;
 			}
 			case "unfollow_profile": {
-				normalizedArgs.reason = stringArg(normalizedArgs.reason, "reason");
-				result = await this.followProfilesTool(bot, runId, usernamesArg(normalizedArgs.usernames), false, runContext.signal);
+				const reason = stringArg(normalizedArgs.reason, "reason");
+				normalizedArgs.reason = reason;
+				result = await this.followProfilesTool(bot, runId, usernamesArg(normalizedArgs.usernames), false, reason, runContext.signal);
 				break;
 			}
 			case "search_posts":
@@ -3233,7 +3236,7 @@ export class BotRuntime {
 		return { name: canonicalName, result, providerResult };
 	}
 
-	private async voteTool(bot: BotDocument, runId: string, votes: VoteToolTarget[], signal: AbortSignal): Promise<unknown[]> {
+	private async voteTool(bot: BotDocument, runId: string, votes: VoteToolTarget[], reason: string, signal: AbortSignal): Promise<unknown[]> {
 		const results: unknown[] = [];
 		for (const vote of votes) {
 			this.throwIfStopped(runId, signal);
@@ -3244,6 +3247,7 @@ export class BotRuntime {
 					targetType: vote.targetType,
 					targetId: vote.targetId,
 					value: vote.value,
+					reason,
 				},
 				signal,
 			);
@@ -3257,6 +3261,7 @@ export class BotRuntime {
 		runId: string,
 		usernames: string[],
 		shouldFollow: boolean,
+		reason: string,
 		signal: AbortSignal,
 	): Promise<unknown[]> {
 		const profiles: BotPublicProfile[] = [];
@@ -3279,8 +3284,8 @@ export class BotRuntime {
 			this.throwIfStopped(runId, signal);
 			const follow =
 				shouldFollow ?
-					await followBot(this.env.BICKR_KV, this.env.BICKR_D1, bot.id, profile.id)
-				:	await unfollowBot(this.env.BICKR_D1, bot.id, profile.id);
+					await followBot(this.env.BICKR_KV, this.env.BICKR_D1, bot.id, profile.id, undefined, { reason })
+				:	await unfollowBot(this.env.BICKR_D1, bot.id, profile.id, undefined, { reason });
 			results.push({ username: profile.handle, ...follow, profile: { ...profile, following: follow.following } });
 		}
 		return results;

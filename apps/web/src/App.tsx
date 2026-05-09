@@ -45,6 +45,8 @@ import {
 	type UserProfile,
 	type VoteDetail,
 	type WorldSummary,
+	type WorldActivityFeed,
+	type WorldActivityItem,
 } from "@bickr/shared/model";
 import {
 	handleHelpText,
@@ -89,8 +91,9 @@ type Route =
 	| "my-bots"
 	| "notifications"
 	| "profile";
-type WorldTab = "forums" | "bots" | "lore";
+type WorldTab = "forums" | "bots" | "activity" | "lore";
 type BotProfileTab = "activity" | "follows";
+type BotActivityKindFilter = "all" | "posts" | "replies" | "votes" | "follows";
 type BotCreateTab = "manual" | "clone" | "chirper";
 type ImportState = "idle" | "loading" | "preview" | "error";
 type ThemePreference = "system" | "light" | "dark";
@@ -2261,9 +2264,9 @@ function WorldsScreen({
 			:	<div className="world-grid">
 					{filtered.map((world) => (
 						<WorldCard key={world.id} world={world} />
-					))}
-				</div>
-			}
+									))}
+								</div>
+							}
 
 			<CreateWorldModal busy={busy} onClose={() => setCreateOpen(false)} onCreate={onCreate} open={createOpen} />
 		</div>
@@ -2552,12 +2555,42 @@ function WorldDetail({
 	const [confirmForum, setConfirmForum] = useState<ForumSummary | null>(null);
 	const [forumFilter, setForumFilter] = useState("");
 	const [botFilter, setBotFilter] = useState("");
+	const [activityFeed, setActivityFeed] = useState<WorldActivityFeed | null>(null);
+	const [activityFilter, setActivityFilter] = useState("");
+	const [activityKindFilter, setActivityKindFilter] = useState<BotActivityKindFilter>("all");
+	const [activityLoading, setActivityLoading] = useState(false);
+	const [activityError, setActivityError] = useState("");
 	const toast = useContext(ToastContext);
 
 	useEffect(() => {
 		setForumFilter("");
 		setBotFilter("");
+		setActivityFilter("");
+		setActivityKindFilter("all");
 	}, [world.id]);
+
+	useEffect(() => {
+		let cancelled = false;
+		setActivityLoading(true);
+		setActivityError("");
+		setActivityFeed(null);
+		void api<{ feed: WorldActivityFeed }>(
+			`/api/worlds/${encodeURIComponent(world.handle)}/activity?limit=100`,
+		).then((result) => {
+			if (cancelled) {
+				return;
+			}
+			if (result.ok) {
+				setActivityFeed(result.data.feed);
+			} else {
+				setActivityError(result.message);
+			}
+			setActivityLoading(false);
+		});
+		return () => {
+			cancelled = true;
+		};
+	}, [world.handle]);
 
 	const publicForums = useMemo(
 		() => sortByHandle(visibleForums(forums)),
@@ -2570,6 +2603,14 @@ function WorldDetail({
 	const filteredBots = useMemo(
 		() => sortBotsForCards(bots.filter((bot) => matchesFilter(botFilter, bot.handle, bot.displayName, bot.shortBio))),
 		[botFilter, bots],
+	);
+	const activities = activityFeed?.activities ?? [];
+	const activityKindCounts = useMemo(() => botActivityKindCounts(activities), [activities]);
+	const filteredActivities = useMemo(
+		() => activities
+			.filter((activity) => matchesBotActivityKind(activityKindFilter, activity))
+			.filter((activity) => matchesBotActivityFilter(activityFilter, activity)),
+		[activityFilter, activityKindFilter, activities],
 	);
 	const ownedBotCount = bots.filter((bot) => bot.ownerUserId === currentUserId).length;
 	const ownedForumCount = publicForums.filter((forum) => forum.createdByUserId === currentUserId).length;
@@ -2629,33 +2670,42 @@ function WorldDetail({
 							</button>
 						</>
 					)}
-					{tab === "forums" ?
+					{tab === "forums" && (
 						<button className="btn primary" disabled={busy} onClick={() => setForumModalOpen(true)} type="button">
 							<Icon name="plus" size={14} />
 							New forum
 						</button>
-					:	<button className="btn primary" disabled={busy} onClick={() => onCreateBot(world)} type="button">
+					)}
+					{tab === "bots" && (
+						<button className="btn primary" disabled={busy} onClick={() => onCreateBot(world)} type="button">
 							<Icon name="plus" size={14} />
 							New bot
 						</button>
-					}
+					)}
 				</div>
 			</div>
 
-				<div className="tabs" role="tablist">
-					<SpaLink
-						to={{ route: "world", worldHandle: world.handle, worldTab: "forums" }}
-						aria-selected={tab === "forums"}
-						role="tab"
-					>
-						Forums <span className="count">{publicForums.length}</span>
-					</SpaLink>
+			<div className="tabs" role="tablist">
+				<SpaLink
+					to={{ route: "world", worldHandle: world.handle, worldTab: "forums" }}
+					aria-selected={tab === "forums"}
+					role="tab"
+				>
+					Forums <span className="count">{publicForums.length}</span>
+				</SpaLink>
 				<SpaLink
 					to={{ route: "world", worldHandle: world.handle, worldTab: "bots" }}
 					aria-selected={tab === "bots"}
 					role="tab"
 				>
 					Bots <span className="count">{bots.length}</span>
+				</SpaLink>
+				<SpaLink
+					to={{ route: "world", worldHandle: world.handle, worldTab: "activity" }}
+					aria-selected={tab === "activity"}
+					role="tab"
+				>
+					Activity <span className="count">{activities.length}</span>
 				</SpaLink>
 				<button aria-selected={tab === "lore"} disabled role="tab" title="Coming later" type="button">
 					Lore <span className="count">-</span>
@@ -2740,6 +2790,25 @@ function WorldDetail({
 							</div>
 						}
 					</>)}
+
+			{tab === "activity" && (
+				<section className="profile-tab-panel" role="tabpanel">
+					<ActivityFilterControls
+						activities={activities}
+						counts={activityKindCounts}
+						filter={activityKindFilter}
+						onFilterChange={setActivityKindFilter}
+						onSearchChange={setActivityFilter}
+						search={activityFilter}
+					/>
+					<BotActivityList
+						activities={filteredActivities}
+						emptyMessage={botActivityEmptyMessage(activityFilter, activityKindFilter)}
+						error={activityError}
+						loading={activityLoading}
+					/>
+				</section>
+			)}
 
 			<CreateForumModal
 				busy={busy}
@@ -4126,6 +4195,7 @@ function BotProfileScreen({
 	const [activeTab, setActiveTab] = useState<BotProfileTab>("activity");
 	const [activityFeed, setActivityFeed] = useState<BotActivityFeed | null>(null);
 	const [activityFilter, setActivityFilter] = useState("");
+	const [activityKindFilter, setActivityKindFilter] = useState<BotActivityKindFilter>("all");
 	const [activityLoading, setActivityLoading] = useState(false);
 	const [activityError, setActivityError] = useState("");
 	const [followGraph, setFollowGraph] = useState<BotFollowGraph | null>(null);
@@ -4140,7 +4210,7 @@ function BotProfileScreen({
 		setActivityError("");
 		setActivityFeed(null);
 		void api<{ feed: BotActivityFeed }>(
-			`/api/worlds/${encodeURIComponent(world.handle)}/bots/${encodeURIComponent(bot.handle)}/activity?limit=30`,
+			`/api/worlds/${encodeURIComponent(world.handle)}/bots/${encodeURIComponent(bot.handle)}/activity?limit=100`,
 		).then((result) => {
 			if (cancelled) {
 				return;
@@ -4183,13 +4253,17 @@ function BotProfileScreen({
 	useEffect(() => {
 		setActiveTab("activity");
 		setActivityFilter("");
+		setActivityKindFilter("all");
 		setFollowFilter("");
 	}, [bot.id]);
 
 	const activities = activityFeed?.activities ?? [];
+	const activityKindCounts = useMemo(() => botActivityKindCounts(activities), [activities]);
 	const filteredActivities = useMemo(
-		() => activities.filter((activity) => matchesBotActivityFilter(activityFilter, activity)),
-		[activityFilter, activities],
+		() => activities
+			.filter((activity) => matchesBotActivityKind(activityKindFilter, activity))
+			.filter((activity) => matchesBotActivityFilter(activityFilter, activity)),
+		[activityFilter, activityKindFilter, activities],
 	);
 	const following = followGraph?.following ?? [];
 	const followers = followGraph?.followers ?? [];
@@ -4322,15 +4396,17 @@ function BotProfileScreen({
 
 				{activeTab === "activity" && (
 					<section className="profile-tab-panel" role="tabpanel">
-						<FilterBox
-							label="Search activity"
-							onChange={setActivityFilter}
-							placeholder="Search activity"
-							value={activityFilter}
+						<ActivityFilterControls
+							activities={activities}
+							counts={activityKindCounts}
+							filter={activityKindFilter}
+							onFilterChange={setActivityKindFilter}
+							onSearchChange={setActivityFilter}
+							search={activityFilter}
 						/>
 						<BotActivityList
 							activities={filteredActivities}
-							emptyMessage={activityFilter.trim() ? "No activity matches this search." : "No visible activity yet."}
+							emptyMessage={botActivityEmptyMessage(activityFilter, activityKindFilter)}
 							error={activityError}
 							loading={activityLoading}
 						/>
@@ -4359,13 +4435,55 @@ function BotProfileScreen({
 	);
 }
 
+type ActivityListItem = BotActivityItem | WorldActivityItem;
+
+function ActivityFilterControls({
+	activities,
+	counts,
+	filter,
+	onFilterChange,
+	onSearchChange,
+	search,
+}: {
+	activities: ActivityListItem[];
+	counts: BotActivityKindCounts;
+	filter: BotActivityKindFilter;
+	onFilterChange: (filter: BotActivityKindFilter) => void;
+	onSearchChange: (query: string) => void;
+	search: string;
+}) {
+	return (
+		<div className="activity-tools">
+			<div className="seg activity-kind-filter" role="tablist">
+				{botActivityKindOptions.map((option) => (
+					<button
+						aria-pressed={filter === option.id}
+						disabled={option.id !== "all" && botActivityKindCount(counts, option.id, activities) === 0}
+						key={option.id}
+						onClick={() => onFilterChange(option.id)}
+						type="button"
+					>
+						{option.label} <span className="count">{botActivityKindCount(counts, option.id, activities)}</span>
+					</button>
+				))}
+			</div>
+			<FilterBox
+				label="Search activity"
+				onChange={onSearchChange}
+				placeholder="Search activity"
+				value={search}
+			/>
+		</div>
+	);
+}
+
 function BotActivityList({
 	activities,
 	emptyMessage = "No visible activity yet.",
 	error,
 	loading,
 }: {
-	activities: BotActivityItem[];
+	activities: ActivityListItem[];
 	emptyMessage?: string;
 	error: string;
 	loading: boolean;
@@ -4485,21 +4603,24 @@ function BotPublicProfileCard({ bot }: { bot: BotPublicProfile }) {
 	);
 }
 
-function BotActivityCard({ activity }: { activity: BotActivityItem }) {
+function BotActivityCard({ activity }: { activity: ActivityListItem }) {
 	const route = botActivityRoute(activity);
 	const summary = botActivitySummary(activity);
 	const createdAt = "updatedAt" in activity ? activity.updatedAt : activity.createdAt;
+	const actor = activityActor(activity);
 	return (
 		<SpaLink className="bot-activity-card" to={route}>
-			<span className="activity-title">{summary.title}</span>
+			<span className="activity-title">
+				{actor ? `${actor.displayName} (u/${actor.handle}) / ${summary.title}` : summary.title}
+			</span>
 			{summary.body && <span className="activity-body">{summary.body}</span>}
 			<span className="activity-meta">{summary.meta} / {timeAgo(createdAt)}</span>
 		</SpaLink>
 	);
 }
 
-function botActivityRoute(activity: BotActivityItem): ParsedRoute {
-	if (activity.type === "follow") {
+function botActivityRoute(activity: ActivityListItem): ParsedRoute {
+	if (activity.type === "follow" || activity.type === "unfollow") {
 		return {
 			route: "bot-profile",
 			worldHandle: activity.bot.homeWorldHandle,
@@ -4531,7 +4652,7 @@ function botActivityRoute(activity: BotActivityItem): ParsedRoute {
 	};
 }
 
-function botActivitySummary(activity: BotActivityItem): { title: string; body?: string; meta: string } {
+function botActivitySummary(activity: ActivityListItem): { title: string; body?: string; meta: string } {
 	switch (activity.type) {
 		case "post":
 			return {
@@ -4548,6 +4669,7 @@ function botActivitySummary(activity: BotActivityItem): { title: string; body?: 
 		case "vote":
 			return {
 				title: `${activity.value > 0 ? "Upvoted" : "Downvoted"} ${activity.targetType === "thread" ? "thread" : "comment"}${activity.title ? ` in "${activity.title}"` : ""}`,
+				body: activity.reason ? `Reason: ${activity.reason}` : undefined,
 				meta: [
 					activity.forumHandle ? `f/${activity.forumHandle}` : null,
 					activity.targetType,
@@ -4557,18 +4679,27 @@ function botActivitySummary(activity: BotActivityItem): { title: string; body?: 
 		case "follow":
 			return {
 				title: `Followed ${activity.bot.displayName} (u/${activity.bot.handle})`,
-				body: activity.bot.shortBio,
+				body: activity.reason ?? activity.bot.shortBio,
+				meta: `w/${activity.bot.homeWorldHandle}`,
+			};
+		case "unfollow":
+			return {
+				title: `Unfollowed ${activity.bot.displayName} (u/${activity.bot.handle})`,
+				body: activity.reason ?? activity.bot.shortBio,
 				meta: `w/${activity.bot.homeWorldHandle}`,
 			};
 	}
 }
 
-function matchesBotActivityFilter(query: string, activity: BotActivityItem): boolean {
+function matchesBotActivityFilter(query: string, activity: ActivityListItem): boolean {
 	const summary = botActivitySummary(activity);
+	const actor = activityActor(activity);
+	const actorFields = actor ? [actor.handle, actor.displayName, actor.shortBio, actor.homeWorldHandle] : [];
 	switch (activity.type) {
 		case "post":
 			return matchesFilter(
 				query,
+				...actorFields,
 				activity.type,
 				summary.title,
 				summary.body,
@@ -4581,6 +4712,7 @@ function matchesBotActivityFilter(query: string, activity: BotActivityItem): boo
 		case "comment":
 			return matchesFilter(
 				query,
+				...actorFields,
 				activity.type,
 				summary.title,
 				summary.body,
@@ -4593,8 +4725,10 @@ function matchesBotActivityFilter(query: string, activity: BotActivityItem): boo
 		case "vote":
 			return matchesFilter(
 				query,
+				...actorFields,
 				activity.type,
 				summary.title,
+				summary.body,
 				summary.meta,
 				activity.targetType,
 				activity.title,
@@ -4602,8 +4736,10 @@ function matchesBotActivityFilter(query: string, activity: BotActivityItem): boo
 				activity.worldHandle,
 			);
 		case "follow":
+		case "unfollow":
 			return matchesFilter(
 				query,
+				...actorFields,
 				activity.type,
 				summary.title,
 				summary.body,
@@ -4613,6 +4749,77 @@ function matchesBotActivityFilter(query: string, activity: BotActivityItem): boo
 				activity.bot.shortBio,
 				activity.bot.homeWorldHandle,
 			);
+	}
+}
+
+function activityActor(activity: ActivityListItem): BotPublicProfile | null {
+	return "actor" in activity ? activity.actor : null;
+}
+
+const botActivityKindOptions: Array<{ id: BotActivityKindFilter; label: string }> = [
+	{ id: "all", label: "All" },
+	{ id: "posts", label: "Posts" },
+	{ id: "replies", label: "Replies" },
+	{ id: "votes", label: "Votes" },
+	{ id: "follows", label: "Follows" },
+];
+
+type BotActivitySpecificKind = Exclude<BotActivityKindFilter, "all">;
+type BotActivityKindCounts = Record<BotActivitySpecificKind, number>;
+
+function botActivityKindCounts(activities: ActivityListItem[]): BotActivityKindCounts {
+	const counts: BotActivityKindCounts = {
+		posts: 0,
+		replies: 0,
+		votes: 0,
+		follows: 0,
+	};
+	for (const activity of activities) {
+		counts[botActivityKind(activity)] += 1;
+	}
+	return counts;
+}
+
+function botActivityKindCount(
+	counts: BotActivityKindCounts,
+	filter: BotActivityKindFilter,
+	activities: ActivityListItem[],
+): number {
+	return filter === "all" ? activities.length : counts[filter];
+}
+
+function matchesBotActivityKind(filter: BotActivityKindFilter, activity: ActivityListItem): boolean {
+	return filter === "all" || botActivityKind(activity) === filter;
+}
+
+function botActivityKind(activity: ActivityListItem): BotActivitySpecificKind {
+	if (activity.type === "post") {
+		return "posts";
+	}
+	if (activity.type === "comment") {
+		return "replies";
+	}
+	if (activity.type === "vote") {
+		return "votes";
+	}
+	return "follows";
+}
+
+function botActivityEmptyMessage(query: string, filter: BotActivityKindFilter): string {
+	if (query.trim()) {
+		return "No activity matches this search.";
+	}
+	switch (filter) {
+		case "posts":
+			return "No posts yet.";
+		case "replies":
+			return "No replies yet.";
+		case "votes":
+			return "No votes yet.";
+		case "follows":
+			return "No follows yet.";
+		case "all":
+			return "No visible activity yet.";
 	}
 }
 
@@ -8756,7 +8963,7 @@ function currentLocationPath(): string {
 
 function worldTabFromSearch(search: string): WorldTab {
 	const tab = new URLSearchParams(search).get("tab");
-	return tab === "bots" ? "bots" : "forums";
+	return tab === "bots" || tab === "activity" || tab === "lore" ? tab : "forums";
 }
 
 function readThemePreference(): ThemePreference {

@@ -43,6 +43,7 @@ import {
 	onRequestGet as worldBots,
 	onRequestPost as createBot,
 } from "../apps/web/functions/api/worlds/[worldHandle]/bots";
+import { onRequestGet as worldActivity } from "../apps/web/functions/api/worlds/[worldHandle]/activity";
 import { onRequestGet as botActivity } from "../apps/web/functions/api/worlds/[worldHandle]/bots/[botHandle]/activity";
 import { onRequestGet as botFollows } from "../apps/web/functions/api/worlds/[worldHandle]/bots/[botHandle]/follows";
 import { onRequestPost as chirperPreview } from "../apps/web/functions/api/worlds/[worldHandle]/chirper-imports/preview";
@@ -106,6 +107,8 @@ import {
 	recordSpotlightToolHumanNotification,
 	searchBots,
 	searchPosts,
+	unfollowBot,
+	worldActivityFeedByHandle,
 } from "../packages/shared/src/social";
 import { defaultTranslationPrompt, type BotLoopMessageLog, type BotRuntimeEvent, type ThreadDocument, type UserProfile } from "../packages/shared/src/model";
 import { sessionCookieName, type AppEnv } from "../apps/web/functions/api/_auth";
@@ -257,6 +260,17 @@ CREATE TABLE follows (
 	PRIMARY KEY (follower_bot_id, followed_bot_id)
 );
 CREATE INDEX follows_followed ON follows (followed_bot_id, created_at);
+CREATE TABLE bot_activity_events (
+	activity_id TEXT PRIMARY KEY,
+	world_id TEXT NOT NULL,
+	bot_id TEXT NOT NULL,
+	activity_type TEXT NOT NULL,
+	target_type TEXT NOT NULL,
+	target_id TEXT NOT NULL,
+	value INTEGER,
+	reason TEXT,
+	created_at TEXT NOT NULL
+);
 CREATE TABLE notifications (
 	notification_id TEXT PRIMARY KEY,
 	world_id TEXT NOT NULL,
@@ -377,6 +391,13 @@ CREATE INDEX threads_index_author_activity ON threads_index (author_bot_id, dele
 CREATE INDEX comments_index_author_activity ON comments_index (author_bot_id, deleted_at, created_at);
 CREATE INDEX votes_bot_activity ON votes (bot_id, updated_at);
 CREATE INDEX follows_follower_activity ON follows (follower_bot_id, created_at);
+CREATE INDEX bot_activity_events_bot_recent ON bot_activity_events (bot_id, created_at);
+CREATE INDEX bot_activity_events_world_recent ON bot_activity_events (world_id, created_at);
+CREATE INDEX bot_activity_events_target ON bot_activity_events (activity_type, target_type, target_id, created_at);
+CREATE INDEX threads_index_world_activity ON threads_index (world_id, deleted_at, created_at);
+CREATE INDEX comments_index_world_activity ON comments_index (world_id, deleted_at, created_at);
+CREATE INDEX votes_world_activity ON votes (world_id, updated_at);
+CREATE INDEX follows_world_activity ON follows (world_id, created_at);
 `;
 
 beforeEach(async () => {
@@ -385,6 +406,7 @@ beforeEach(async () => {
 		DROP TABLE IF EXISTS human_subscriptions;
 		DROP TABLE IF EXISTS spotlight_deliveries;
 		DROP TABLE IF EXISTS bot_seen_content;
+		DROP TABLE IF EXISTS bot_activity_events;
 		DROP TABLE IF EXISTS user_thread_reads;
 		DROP TABLE IF EXISTS user_forum_reads;
 		DROP TABLE IF EXISTS bot_imports;
@@ -469,19 +491,24 @@ describe("Bickr Pages Functions", () => {
 		expect(follow?.function.parameters.required).toEqual(["usernames", "reason"]);
 		expect(follow?.function.parameters.properties.usernames).toEqual({
 			type: "array",
-			description: "One or more u/usernames to follow.",
+			description: "One or more u/usernames that I don't already follow.",
 			items: { type: "string" },
 		});
 		expect(follow?.function.parameters.properties.reason).toEqual({
 			type: "string",
-			description: "Why I am following these participants. Must not be empty.",
+			description: "Why I want to follow these participants. Must not be empty.",
 			minLength: 1,
 		});
 		const unfollow = toolDefinitions.find((definition) => definition.function.name === "unfollow_profile");
 		expect(unfollow?.function.parameters.required).toEqual(["usernames", "reason"]);
+		expect(unfollow?.function.parameters.properties.usernames).toEqual({
+			type: "array",
+			description: "One or more u/usernames that I currently follow.",
+			items: { type: "string" },
+		});
 		expect(unfollow?.function.parameters.properties.reason).toEqual({
 			type: "string",
-			description: "Why I am unfollowing these participants. Must not be empty.",
+			description: "Why I want to unfollow these participants. Must not be empty.",
 			minLength: 1,
 		});
 
@@ -3649,6 +3676,121 @@ describe("Bickr Pages Functions", () => {
 					bot: { handle: "cache-critic" },
 					following: [expect.objectContaining({ handle: "index-bard" })],
 					followers: [],
+				},
+			},
+		});
+
+		const otherWorldResponse = await createWorld(
+			contextFor<typeof createWorld>(
+				jsonRequest(
+					"http://example.com/api/worlds",
+					"POST",
+					{
+						handle: "elsewhere",
+						name: "Elsewhere",
+						description: "Activity that must not leak into patch notes.",
+					},
+					cookie,
+				),
+			),
+		);
+		expect(otherWorldResponse.status).toBe(201);
+		const otherForumResponse = await createForum(
+			contextFor<typeof createForum>(
+				jsonRequest(
+					"http://example.com/api/worlds/elsewhere/forums",
+					"POST",
+					{ handle: "offsite", description: "A separate forum" },
+					cookie,
+				),
+				{ worldHandle: "elsewhere" },
+			),
+		);
+		const otherForum = ((await otherForumResponse.json()) as { data: { forum: { id: string } } }).data.forum;
+		const otherBotResponse = await createBot(
+			contextFor<typeof createBot>(
+				jsonRequest(
+					"http://example.com/api/worlds/elsewhere/bots",
+					"POST",
+					{
+						handle: "offworld-poster",
+						displayName: "Offworld Poster",
+						shortBio: "Posts somewhere else.",
+						prompt: "Post elsewhere.",
+					},
+					cookie,
+				),
+				{ worldHandle: "elsewhere" },
+			),
+		);
+		const otherBotId = ((await otherBotResponse.json()) as { data: { bot: BotBody } }).data.bot.id;
+		const otherThreadRequest = jsonRequest(
+			`http://example.com/forums/${otherForum.id}/threads`,
+			"POST",
+			{ title: "Elsewhere only", body: "This should not appear in patch notes activity." },
+		);
+		otherThreadRequest.headers.set("x-bickr-bot-id", otherBotId);
+		await handleForumCoordinatorRequest(otherThreadRequest, {
+			BICKR_D1: testEnv.BICKR_D1,
+			BICKR_KV: testEnv.BICKR_KV,
+		});
+
+		await unfollowBot(testEnv.BICKR_D1, botTwoId, botOneId, undefined, {
+			reason: "Index Bard no longer needs close tracking.",
+		});
+		const worldActivityFeed = await worldActivityFeedByHandle(
+			testEnv.BICKR_D1,
+			notifications[0]?.worldId ?? "",
+			"patch-notes",
+			100,
+		);
+		expect(worldActivityFeed.activities).toEqual(expect.arrayContaining([
+			expect.objectContaining({
+				type: "post",
+				actor: expect.objectContaining({ handle: "index-bard" }),
+				title: "Index repair ballad",
+			}),
+			expect.objectContaining({
+				type: "comment",
+				actor: expect.objectContaining({ handle: "cache-critic" }),
+				bodyPreview: "This chorus needs a fresher cache.",
+			}),
+			expect.objectContaining({
+				type: "vote",
+				actor: expect.objectContaining({ handle: "cache-critic" }),
+				targetType: "thread",
+			}),
+			expect.objectContaining({
+				type: "follow",
+				actor: expect.objectContaining({ handle: "cache-critic" }),
+				bot: expect.objectContaining({ handle: "index-bard" }),
+			}),
+			expect.objectContaining({
+				type: "unfollow",
+				actor: expect.objectContaining({ handle: "cache-critic" }),
+				bot: expect.objectContaining({ handle: "index-bard" }),
+				reason: "Index Bard no longer needs close tracking.",
+			}),
+		]));
+		expect(worldActivityFeed.activities.some((item) => item.actor.handle === "offworld-poster")).toBe(false);
+
+		const worldActivityResponse = await worldActivity(
+			contextFor<typeof worldActivity>(
+				new Request("http://example.com/api/worlds/patch-notes/activity?limit=100"),
+				{ worldHandle: "patch-notes" },
+			),
+		);
+		expect(await worldActivityResponse.json()).toMatchObject({
+			ok: true,
+			data: {
+				feed: {
+					world: { handle: "patch-notes" },
+					activities: expect.arrayContaining([
+						expect.objectContaining({
+							type: "unfollow",
+							actor: expect.objectContaining({ handle: "cache-critic" }),
+						}),
+					]),
 				},
 			},
 		});

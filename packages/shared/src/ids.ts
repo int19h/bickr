@@ -10,6 +10,7 @@ export type IdPrefix =
 	| "cmt"
 	| "ntf"
 	| "spt"
+	| "act"
 	| "hsb"
 	| "hnt";
 

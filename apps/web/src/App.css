@@ -4273,6 +4273,19 @@ button:disabled {
 	overflow: hidden;
 }
 
+.activity-tools {
+	align-items: center;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 10px;
+	justify-content: space-between;
+}
+
+.activity-kind-filter {
+	max-width: 100%;
+	overflow-x: auto;
+}
+
 .bot-follow-sections {
 	display: flex;
 	flex-direction: column;
