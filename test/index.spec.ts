@@ -2200,8 +2200,6 @@ describe("Bickr Pages Functions", () => {
 			const compactionRowsForEstimatedBudget = (BotRuntime.prototype as unknown as {
 				compactionRowsForEstimatedBudget: (
 					bot: BotDocument,
-					runId: string,
-					includeCurrentRun: boolean,
 					providerTools?: ProviderToolDefinition[],
 					mode?: "structured_output" | "tool_call" | "tool_call_cache_friendly",
 				) => Array<{ seq: number }>;
@@ -2209,8 +2207,6 @@ describe("Bickr Pages Functions", () => {
 
 			const selected = compactionRowsForEstimatedBudget(
 				fakeBotDocument({ contextWindowTokens: 8_000 }),
-				"run-current",
-				true,
 				toolDefinitionsForProviderRound(),
 				"tool_call_cache_friendly",
 			);
@@ -2243,8 +2239,6 @@ describe("Bickr Pages Functions", () => {
 			const compactionRowsForEstimatedBudget = (BotRuntime.prototype as unknown as {
 				compactionRowsForEstimatedBudget: (
 					bot: BotDocument,
-					runId: string,
-					includeCurrentRun: boolean,
 					providerTools?: ProviderToolDefinition[],
 					mode?: "structured_output" | "tool_call" | "tool_call_cache_friendly",
 				) => Array<{ seq: number }>;
@@ -2252,8 +2246,45 @@ describe("Bickr Pages Functions", () => {
 
 			const selected = compactionRowsForEstimatedBudget(
 				fakeBotDocument({ contextWindowTokens: 8_000 }),
-				"run-current",
-				true,
+				toolDefinitionsForProviderRound(),
+				"tool_call_cache_friendly",
+			);
+
+			expect(selected.map((row) => row.seq)).toEqual([1, 2, 3]);
+		});
+
+		it("includes the tool-call group that crosses the compaction prompt budget", () => {
+			const huge = (char: string) => char.repeat(20_000);
+			const rows = [
+				loopMessageRowForMessage(1, { role: "assistant", content: "a" }),
+				loopMessageRowForMessage(2, {
+					role: "assistant",
+					content: huge("b"),
+					tool_calls: [
+						{
+							id: "call-read",
+							type: "function",
+							function: { name: "read_thread", arguments: "{}" },
+						},
+					],
+				}),
+				loopMessageRowForMessage(3, { role: "tool", tool_call_id: "call-read", content: huge("c") }, "tool_result"),
+				loopMessageRowForMessage(4, { role: "assistant", content: huge("d") }),
+			];
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				activeLoopMessageRows: () => rows,
+				textTokenCalibration: () => ({ tokensPerCharacter: 0.25, sampleCount: 0 }),
+			});
+			const compactionRowsForEstimatedBudget = (BotRuntime.prototype as unknown as {
+				compactionRowsForEstimatedBudget: (
+					bot: BotDocument,
+					providerTools?: ProviderToolDefinition[],
+					mode?: "structured_output" | "tool_call" | "tool_call_cache_friendly",
+				) => Array<{ seq: number }>;
+			}).compactionRowsForEstimatedBudget.bind(runtime);
+
+			const selected = compactionRowsForEstimatedBudget(
+				fakeBotDocument({ contextWindowTokens: 8_000 }),
 				toolDefinitionsForProviderRound(),
 				"tool_call_cache_friendly",
 			);
@@ -2269,7 +2300,8 @@ describe("Bickr Pages Functions", () => {
 					{ role: "user", content: runtimeErrorLoopMessageContent("Inference request failed with status 400. Response: provider rejected the request.") },
 					"runtime_error",
 				),
-				loopMessageRowForMessage(3, { role: "assistant", content: "Provider-visible newer context." }),
+				loopMessageRowForMessage(3, { role: "assistant", content: defaultReasoningPrefill("budget-bot") }, "synthetic_context"),
+				loopMessageRowForMessage(4, { role: "assistant", content: "Provider-visible newer context." }),
 			];
 			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 				activeLoopMessageRows: () => rows,
@@ -2279,14 +2311,15 @@ describe("Bickr Pages Functions", () => {
 				activeLoopMessagesForProvider: () => Array<{ content?: unknown }>;
 			}).activeLoopMessagesForProvider.bind(runtime);
 			const compactionRowsForEstimatedBudget = (BotRuntime.prototype as unknown as {
-				compactionRowsForEstimatedBudget: (bot: BotDocument, runId: string, includeCurrentRun: boolean) => Array<{ seq: number }>;
+				compactionRowsForEstimatedBudget: (bot: BotDocument) => Array<{ seq: number }>;
 			}).compactionRowsForEstimatedBudget.bind(runtime);
 
 			expect(activeLoopMessagesForProvider().map((message) => message.content)).toEqual([
 				"Provider-visible old context.",
+				defaultReasoningPrefill("budget-bot"),
 				"Provider-visible newer context.",
 			]);
-			expect(compactionRowsForEstimatedBudget(fakeBotDocument({ contextWindowTokens: 6_000 }), "run-current", true).map((row) => row.seq)).toEqual([1, 3]);
+			expect(compactionRowsForEstimatedBudget(fakeBotDocument({ contextWindowTokens: 6_000 })).map((row) => row.seq)).toEqual([1, 3, 4]);
 		});
 
 			it("derives row token estimates from recent provider prompt history", () => {
@@ -2904,7 +2937,7 @@ describe("Bickr Pages Functions", () => {
 			}));
 		});
 
-		it("marks owner-only diagnostics in the compacted ledger span without sending them to the provider", async () => {
+		it("marks runtime diagnostics in the compacted ledger span while sending provider-visible synthetic context", async () => {
 			const rows: LoopMessageRowForTest[] = [
 				loopMessageRowForTest(1, "run-ledger-compact", "Provider-visible old context."),
 				{
@@ -3004,7 +3037,7 @@ describe("Bickr Pages Functions", () => {
 				{ apiKey: "test-key", baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
 				"run-ledger-compact",
 				new AbortController().signal,
-				[rows[0], rows[3]],
+				[rows[0], rows[1], rows[3]],
 				"auto",
 				{ estimatedContextTokens: 10_000, threshold: 80 },
 			);
@@ -3012,8 +3045,8 @@ describe("Bickr Pages Functions", () => {
 			const providerMessages = callProviderForCompaction.mock.calls[0]?.[1] as Array<{ content?: unknown }> | undefined;
 			const providerText = JSON.stringify(providerMessages);
 			expect(providerText).toContain("Provider-visible old context.");
+			expect(providerText).toContain(defaultReasoningPrefill("budget-bot"));
 			expect(providerText).toContain("Provider-visible newer context.");
-			expect(providerText).not.toContain(defaultReasoningPrefill("budget-bot"));
 			expect(providerText).not.toContain("Inference request failed with status 400");
 			expect(rows.map((row) => row.compacted_by)).toEqual([102, 102, 102, 102, null]);
 			expect(recordInferenceSubmission).toHaveBeenCalledWith(expect.objectContaining({
@@ -13012,7 +13045,7 @@ describe("Bickr Pages Functions", () => {
 		];
 		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
 		const providerRequests: Array<Array<Record<string, unknown>>> = [];
-		const includeCurrentRunCalls: boolean[] = [];
+		let compactionSelectionCalls = 0;
 		const compactionMetrics: Array<Record<string, unknown>> = [];
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 			activeLoopMessagesForProvider: () => activeMessages,
@@ -13045,10 +13078,10 @@ describe("Bickr Pages Functions", () => {
 					{ role: "assistant", content: "I remember the large current thread read as a concise summary." },
 				];
 			},
-			compactionRowsForEstimatedBudget: (_bot: unknown, runId: string, includeCurrentRun: boolean) => {
-				includeCurrentRunCalls.push(includeCurrentRun);
-				return includeCurrentRun && activeMessages.some((message) => String(message.content).includes("Large current")) ?
-					[loopMessageRowForTest(7, runId, "Large current thread read result that overflowed the prompt.")]
+			compactionRowsForEstimatedBudget: () => {
+				compactionSelectionCalls += 1;
+				return activeMessages.some((message) => String(message.content).includes("Large current")) ?
+					[loopMessageRowForTest(7, "run-current-compact", "Large current thread read result that overflowed the prompt.")]
 				:	[];
 			},
 			repairActiveProviderToolCallHistory: async () => [],
@@ -13081,14 +13114,118 @@ describe("Bickr Pages Functions", () => {
 			),
 		).resolves.toMatchObject({ logOffCalled: false });
 
-		expect(includeCurrentRunCalls).toEqual([false, true]);
+		expect(compactionSelectionCalls).toBe(1);
 			expect(compactionMetrics).toEqual([
-				expect.objectContaining({ currentRunIncluded: true, estimatedPromptTokens: 20_000, overBudgetTokens: 20_000 - allowedPromptTokens }),
+				expect.objectContaining({ estimatedPromptTokens: 20_000, overBudgetTokens: 20_000 - allowedPromptTokens }),
 			]);
+		expect(compactionMetrics[0]).not.toHaveProperty("currentRunIncluded");
 		expect(providerRequests).toHaveLength(1);
 		expect(messageListText(providerRequests[0] ?? [])).not.toContain("Large current thread read result");
 		expect(messageListText(providerRequests[0] ?? [])).toContain("large current thread read as a concise summary");
 		expect(events.map((event) => event.type)).toEqual(["provider_token_estimate", "provider_token_estimate", "provider_request"]);
+	});
+
+	it("compacts a contiguous provider-history prefix when recurring context precedes current tool results", async () => {
+		const bot = fakeBotDocument({ contextWindowTokens: 16_000 });
+		const calibration = { tokensPerCharacter: 0.25, sampleCount: 0 };
+		const currentRunId = "run-recurring-current-tool";
+		const rows = [
+			{
+				...loopMessageRowForMessage(
+					1,
+					{ role: "assistant", content: defaultReasoningPrefill("budget-bot") },
+					"synthetic_context",
+				),
+				run_id: "run-old-recurring-context",
+			},
+			{
+				...loopMessageRowForMessage(
+					2,
+					{
+						role: "assistant",
+						content: "",
+						tool_calls: [
+							{
+								id: "call-current-read",
+								type: "function",
+								function: { name: "read_thread", arguments: "{}" },
+							},
+						],
+					},
+				),
+				run_id: currentRunId,
+			},
+			{
+				...loopMessageRowForMessage(
+					3,
+					{
+						role: "tool",
+						tool_call_id: "call-current-read",
+						content: "Large current thread read result.\n".repeat(4_000),
+					},
+					"tool_result",
+				),
+				run_id: currentRunId,
+			},
+			{
+				...loopMessageRowForMessage(
+					4,
+					{ role: "user", content: runtimeErrorLoopMessageContent("Context compaction did not reduce the prompt.") },
+					"runtime_error",
+				),
+				run_id: currentRunId,
+			},
+		];
+		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+		const compactedSeqs: number[][] = [];
+		let compacted = false;
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			activeLoopMessageRows: () => rows,
+			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+				events.push({ type, payload });
+				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
+			},
+			botWithCurrentRuntimeBudget: async (current: BotDocument) => current,
+			compactLoopMessageRows: async (
+				_bot: unknown,
+				_settings: unknown,
+				_runId: string,
+				_signal: AbortSignal,
+				selected: Array<{ seq: number }>,
+			) => {
+				compactedSeqs.push(selected.map((row) => row.seq));
+				compacted = true;
+				return selected;
+			},
+			estimateProviderPromptTokens: () => providerPromptEstimateForTokens(compacted ? 10_000 : 20_000),
+			textTokenCalibration: () => calibration,
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const ensureProviderPromptWithinBudget = (BotRuntime.prototype as unknown as {
+			ensureProviderPromptWithinBudget: (
+				bot: BotDocument,
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				runId: string,
+				signal: AbortSignal,
+				providerTools: ProviderToolDefinition[],
+			) => Promise<{ contextWindowTokens?: number; promptTokens: number }>;
+		}).ensureProviderPromptWithinBudget.bind(runtime);
+
+		const result = await ensureProviderPromptWithinBudget(
+			bot,
+			{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+			currentRunId,
+			new AbortController().signal,
+			toolDefinitionsForProviderRound(),
+		);
+
+		expect(result.promptTokens).toBe(10_000);
+		expect(compactedSeqs).toEqual([[1, 2, 3]]);
+		expect(events.map((event) => event.type)).toEqual(["provider_token_estimate", "provider_token_estimate"]);
 	});
 
 	it("applies the current context budget during prompt budget checks", async () => {

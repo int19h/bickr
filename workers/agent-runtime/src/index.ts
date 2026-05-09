@@ -164,7 +164,6 @@ type CompactionMetrics = {
 	allowedPromptTokens?: number;
 	compactionMaxCharacters?: number;
 	compactionMaxCompletionTokens?: number;
-	currentRunIncluded?: boolean;
 	estimatedContextTokens?: number;
 	estimatedPromptTokens?: number;
 	exactPromptTokens?: number;
@@ -2199,20 +2198,7 @@ export function loopMessageContributesToProviderHistory(
 
 function loopMessageContributesToCompactionProviderInput(row: LoopMessageRow): boolean {
 	const message = loopMessageChatMessageFromRow(row);
-	return loopMessageContributesToProviderHistory(row.origin, message) && !isRecurringPromptSyntheticContext(row.origin, message);
-}
-
-function isRecurringPromptSyntheticContext(
-	origin: BotLoopMessageOrigin,
-	message: BotInferenceSubmissionMessage,
-): boolean {
-	return (
-		origin === "synthetic_context" &&
-		message.role === "assistant" &&
-		!message.tool_calls?.length &&
-		typeof message.content === "string" &&
-		Boolean(message.content.trim())
-	);
+	return loopMessageContributesToProviderHistory(row.origin, message);
 }
 
 export function runtimeErrorLoopMessageContent(message: unknown): string {
@@ -6893,7 +6879,7 @@ export class BotRuntime {
 			return;
 		}
 
-		const compacted = this.compactionRowsForEstimatedBudget(bot, runId, true, providerTools, compactionMode, settings.model);
+		const compacted = this.compactionRowsForEstimatedBudget(bot, providerTools, compactionMode, settings.model);
 		if (compacted.length === 0) {
 			return;
 		}
@@ -6963,11 +6949,7 @@ export class BotRuntime {
 			if (compactionAttempts >= providerPromptCompactionMaxAttempts) {
 				throw new PromptContextCompactionLimitError(estimate.promptTokens, allowedPromptTokens, providerPromptCompactionMaxAttempts);
 			}
-			const compacted = this.compactionRowsForEstimatedBudget(budgetBot, runId, false, providerTools, compactionMode, settings.model);
-			const currentRunIncluded = compacted.length === 0;
-			const rowsToCompact = currentRunIncluded ?
-					this.compactionRowsForEstimatedBudget(budgetBot, runId, true, providerTools, compactionMode, settings.model)
-				:	compacted;
+			const rowsToCompact = this.compactionRowsForEstimatedBudget(budgetBot, providerTools, compactionMode, settings.model);
 			if (rowsToCompact.length === 0) {
 				throw new PromptContextBudgetExceededError(estimate.promptTokens, allowedPromptTokens);
 			}
@@ -6977,7 +6959,6 @@ export class BotRuntime {
 				compactionMaxCharacters: promptBudgetLimits.maxLength,
 				compactionMaxCompletionTokens: promptBudgetLimits.maxCompletionTokens,
 				estimatedPromptTokens: estimate.promptTokens,
-				...(currentRunIncluded ? { currentRunIncluded: true } : {}),
 				overBudgetTokens,
 				threshold: allowedPromptTokens,
 			});
@@ -7059,15 +7040,12 @@ export class BotRuntime {
 
 	private compactionRowsForEstimatedBudget(
 		bot: BotDocument,
-		runId: string,
-		includeCurrentRun: boolean,
 		providerTools?: ProviderToolDefinition[],
 		mode: ProviderCompactionMode = "structured_output",
 		requestedModel?: string,
 	): LoopMessageRow[] {
 		const calibration = this.textTokenCalibration(requestedModel);
-		const rows = this.compactionCandidateEstimates(calibration)
-			.filter((item) => includeCurrentRun || item.row.run_id !== runId);
+		const rows = this.compactionCandidateEstimates(calibration);
 		return oldestLoopMessageGroupsForPromptLimit(
 			rows,
 			this.compactionPromptTokenLimit(bot, rows.map((item) => item.row), calibration, providerTools, mode),
@@ -7308,8 +7286,7 @@ export class BotRuntime {
 			if (
 				providerSeqs.has(row.seq) ||
 				(row.position <= lastProviderPosition &&
-					(!loopMessageContributesToProviderHistory(row.origin, message) ||
-						isRecurringPromptSyntheticContext(row.origin, message)))
+					!loopMessageContributesToProviderHistory(row.origin, message))
 			) {
 				rowsBySeq.set(row.seq, row);
 			}
@@ -11850,15 +11827,13 @@ function oldestLoopMessageGroupsForPromptLimit(
 	limitTokens: number,
 ): LoopMessageRow[] {
 	const groups = loopMessageCompactionGroups(rows);
+	const targetTokens = Math.max(1, Math.ceil(Math.max(1, Math.floor(limitTokens)) * compactionRowTokenFraction));
 	const selected: LoopMessageRow[] = [];
 	let selectedTokens = 0;
 	for (const group of groups) {
-		if (selected.length > 0 && selectedTokens + group.tokens > limitTokens) {
-			break;
-		}
 		selected.push(...group.rows);
 		selectedTokens += group.tokens;
-		if (selectedTokens >= limitTokens * compactionRowTokenFraction) {
+		if (selectedTokens >= targetTokens) {
 			break;
 		}
 	}
