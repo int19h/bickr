@@ -7486,7 +7486,7 @@ function AgenticLoopInferenceFields({
 						disabled={modelLocked}
 						list={modelSuggestions.length > 0 ? modelListId : undefined}
 						onChange={(event) => patch({ model: event.target.value })}
-						placeholder="google/gemma-4-26b-a4b-it:free"
+						placeholder={defaultProviderModel}
 						value={modelLocked ? "" : draft.model}
 					/>
 							{modelSuggestions.length > 0 && (
