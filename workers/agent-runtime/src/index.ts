@@ -1717,6 +1717,7 @@ function sanitizeProviderMessageForRequest(message: ChatMessage): ChatMessage {
 
 function sanitizeProviderMessageSequenceForRequest(messages: readonly ChatMessage[]): ChatMessage[] {
 	const sanitized: ChatMessage[] = [];
+	const usedToolCallIds = new Set<string>();
 	for (let index = 0; index < messages.length; index += 1) {
 		const message = messages[index]!;
 		if (message.role === "tool") {
@@ -1728,7 +1729,18 @@ function sanitizeProviderMessageSequenceForRequest(messages: readonly ChatMessag
 		}
 
 		const toolCallSanitization = sanitizeProviderToolCalls(message.tool_calls);
-		const expectedToolCallIds = new Set(toolCallSanitization.toolCalls.map((toolCall) => toolCall.id));
+		const retainedToolCalls = toolCallSanitization.toolCalls.map((toolCall, toolIndex) => {
+			const id = uniqueProviderRequestToolCallId(toolCall.id, index, toolIndex, usedToolCallIds);
+			usedToolCallIds.add(id);
+			return id === toolCall.id ? toolCall : { ...toolCall, id };
+		});
+		const rewrittenIdsByOriginal = new Map<string, string>();
+		for (let toolIndex = 0; toolIndex < toolCallSanitization.toolCalls.length; toolIndex += 1) {
+			const original = toolCallSanitization.toolCalls[toolIndex]!;
+			const retained = retainedToolCalls[toolIndex]!;
+			rewrittenIdsByOriginal.set(original.id, retained.id);
+		}
+		const expectedToolCallIds = new Set(rewrittenIdsByOriginal.keys());
 		const toolMessages: ChatMessage[] = [];
 		let scan = index + 1;
 		while (scan < messages.length) {
@@ -1737,13 +1749,16 @@ function sanitizeProviderMessageSequenceForRequest(messages: readonly ChatMessag
 				break;
 			}
 			if (candidate.tool_call_id && expectedToolCallIds.delete(candidate.tool_call_id)) {
-				toolMessages.push(candidate);
+				toolMessages.push({
+					...candidate,
+					tool_call_id: rewrittenIdsByOriginal.get(candidate.tool_call_id) ?? candidate.tool_call_id,
+				});
 			}
 			scan += 1;
 		}
 
-		if (toolCallSanitization.toolCalls.length > 0) {
-			sanitized.push({ ...message, tool_calls: toolCallSanitization.toolCalls });
+		if (retainedToolCalls.length > 0) {
+			sanitized.push({ ...message, tool_calls: retainedToolCalls });
 			sanitized.push(...toolMessages);
 		} else {
 			const withoutToolCalls = { ...message };
@@ -1755,6 +1770,20 @@ function sanitizeProviderMessageSequenceForRequest(messages: readonly ChatMessag
 		index = scan - 1;
 	}
 	return sanitized;
+}
+
+function uniqueProviderRequestToolCallId(id: string, messageIndex: number, toolIndex: number, usedIds: ReadonlySet<string>): string {
+	if (!usedIds.has(id)) {
+		return id;
+	}
+	const base = `${id}_bickr_${messageIndex}_${toolIndex}`;
+	let candidate = base;
+	let suffix = 2;
+	while (usedIds.has(candidate)) {
+		candidate = `${base}_${suffix}`;
+		suffix += 1;
+	}
+	return candidate;
 }
 
 function repairProviderMessageUnicode(message: ChatMessage): InvalidUnicodeRepair<ChatMessage> {

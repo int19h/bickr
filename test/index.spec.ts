@@ -5611,6 +5611,50 @@ describe("Bickr Pages Functions", () => {
 		expect(JSON.stringify(request.messages)).not.toContain("dropped");
 	});
 
+	it("rewrites repeated tool call ids across provider request history", () => {
+		const request = providerChatCompletionRequest(
+			{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+			[
+				{
+					role: "assistant",
+					content: null,
+					tool_calls: [
+						{
+							id: "call-repeat",
+							type: "function",
+							function: { name: "read_thread", arguments: "{\"threadId\":\"thr_first\"}" },
+						},
+					],
+				},
+				{ role: "tool", tool_call_id: "call-repeat", content: "{\"ok\":true,\"first\":true}" },
+				{
+					role: "assistant",
+					content: null,
+					tool_calls: [
+						{
+							id: "call-repeat",
+							type: "function",
+							function: { name: "read_thread", arguments: "{\"threadId\":\"thr_second\"}" },
+						},
+					],
+				},
+				{ role: "tool", tool_call_id: "call-repeat", content: "{\"ok\":true,\"second\":true}" },
+			],
+			[],
+		);
+
+		const assistantIds = request.messages
+			.filter((message) => Array.isArray(message.tool_calls))
+			.flatMap((message) => message.tool_calls?.map((toolCall) => toolCall.id) ?? []);
+		const toolIds = request.messages
+			.filter((message) => message.role === "tool")
+			.map((message) => message.tool_call_id);
+
+		expect(assistantIds).toEqual(["call-repeat", "call-repeat_bickr_2_0"]);
+		expect(toolIds).toEqual(["call-repeat", "call-repeat_bickr_2_0"]);
+		expect(new Set(assistantIds).size).toBe(assistantIds.length);
+	});
+
 	it("repairs invalid Unicode and truncates without splitting surrogate pairs", () => {
 		const high = "\uD83C";
 		const low = "\uDF0C";
