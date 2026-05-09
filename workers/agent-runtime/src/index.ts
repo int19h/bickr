@@ -192,6 +192,10 @@ export type ProviderCompactionSummaryLimits = {
 	compactionSummaryPercent: number;
 };
 
+type ProviderCompactionValidationLimits =
+	Pick<ProviderCompactionSummaryLimits, "minLength" | "maxLength"> &
+	Partial<Pick<ProviderCompactionSummaryLimits, "compactedCharacterCount" | "tokensPerCharacter">>;
+
 type InferenceSubmissionRow = {
 	id: string;
 	event_seq: number;
@@ -4020,7 +4024,7 @@ export class BotRuntime {
 		messages: ChatMessage[],
 		runId: string,
 		signal: AbortSignal,
-		limits: Pick<ProviderCompactionSummaryLimits, "minLength" | "maxLength" | "maxCompletionTokens"> = defaultProviderCompactionSummaryLimits,
+		limits: ProviderCompactionValidationLimits & Pick<ProviderCompactionSummaryLimits, "maxCompletionTokens"> = defaultProviderCompactionSummaryLimits,
 		providerTools?: ProviderToolDefinition[],
 		mode: ProviderCompactionMode = "structured_output",
 		requestSeq = 0,
@@ -4118,7 +4122,7 @@ export class BotRuntime {
 			}
 			if (lastValidationError && schemaAttempt < providerStructuredOutputRepairAttempts) {
 				requestMessages =
-					lastValidationError.outputText && lastValidationError.outputText.length > limits.maxLength ?
+					lastValidationError.outputText ?
 						providerCompactionShortenMessages(messages, lastValidationError.outputText, limits, mode)
 					:	[...requestMessages, ...structuredOutputRepairMessages(lastValidationError)];
 				continue;
@@ -5788,7 +5792,7 @@ export class BotRuntime {
 		endpoint: string,
 		body: string,
 		signal: AbortSignal,
-		limits: Pick<ProviderCompactionSummaryLimits, "minLength" | "maxLength"> = defaultProviderCompactionSummaryLimits,
+		limits: ProviderCompactionValidationLimits = defaultProviderCompactionSummaryLimits,
 		mode: ProviderCompactionMode = "structured_output",
 	): Promise<Pick<ProviderResponse, "usage" | "responseId" | "responseModel" | "rawResponse"> & { content: string }> {
 		const headers: Record<string, string> = {
@@ -8767,7 +8771,7 @@ function providerToolArgs(name: string, args: Record<string, unknown>): Record<s
 function providerCompactionSummaryFromToolMessage(
 	message: unknown,
 	rawResponse: string,
-	limits: Pick<ProviderCompactionSummaryLimits, "minLength" | "maxLength"> = defaultProviderCompactionSummaryLimits,
+	limits: ProviderCompactionValidationLimits = defaultProviderCompactionSummaryLimits,
 ): string {
 	return providerStructuredOutputFromToolMessage(
 		message,
@@ -8777,6 +8781,7 @@ function providerCompactionSummaryFromToolMessage(
 			property: providerCompactionSummaryProperty,
 			label: providerCompactionSummaryProperty,
 			maxCharacters: limits.maxLength,
+			reduction: providerCompactionReductionCheck(limits),
 		},
 		rawResponse,
 	);
@@ -8785,7 +8790,7 @@ function providerCompactionSummaryFromToolMessage(
 function providerCompactionSummaryFromResponseMessage(
 	message: unknown,
 	rawResponse: string,
-	limits: Pick<ProviderCompactionSummaryLimits, "minLength" | "maxLength"> = defaultProviderCompactionSummaryLimits,
+	limits: ProviderCompactionValidationLimits = defaultProviderCompactionSummaryLimits,
 	mode: ProviderCompactionMode = "structured_output",
 ): string {
 	if (mode !== "structured_output") {
@@ -8798,6 +8803,7 @@ function providerCompactionSummaryFromResponseMessage(
 			property: providerCompactionSummaryProperty,
 			label: providerCompactionSummaryProperty,
 			maxCharacters: limits.maxLength,
+			reduction: providerCompactionReductionCheck(limits),
 		},
 		rawResponse,
 	);
@@ -8825,6 +8831,7 @@ function providerStructuredOutputFromMessageContent(
 		label: string;
 		minCharacters?: number;
 		maxCharacters: number;
+		reduction?: ProviderCompactionReductionCheck;
 	},
 	rawResponse: string,
 ): string {
@@ -8858,6 +8865,7 @@ function providerStructuredOutputFromToolMessage(
 		label: string;
 		minCharacters?: number;
 		maxCharacters: number;
+		reduction?: ProviderCompactionReductionCheck;
 	},
 	rawResponse: string,
 ): string {
@@ -8912,6 +8920,7 @@ function providerStructuredOutputPropertyFromRecord(
 		label: string;
 		minCharacters?: number;
 		maxCharacters: number;
+		reduction?: ProviderCompactionReductionCheck;
 	},
 	rawResponse: string,
 	toolCalls: BotInferenceSubmissionToolCall[],
@@ -8949,7 +8958,16 @@ function providerStructuredOutputPropertyFromRecord(
 			toolCalls,
 		});
 	}
-	if (value.length > spec.maxCharacters) {
+	const reduction = spec.reduction?.(value);
+	if (reduction && !reduction.reduces) {
+		throw new ProviderStructuredOutputValidationError(spec.kind, `The ${spec.label} argument did not reduce the compacted context (${reduction.replacementTokens} estimated replacement tokens vs ${reduction.compactedTokens} compacted tokens).`, {
+			rawResponse,
+			requiredToolName: spec.toolName,
+			toolCalls,
+			outputText: value,
+		});
+	}
+	if (value.length > spec.maxCharacters && !reduction) {
 		throw new ProviderStructuredOutputValidationError(spec.kind, `The ${spec.label} argument must be at most ${spec.maxCharacters} characters.`, {
 			rawResponse,
 			requiredToolName: spec.toolName,
@@ -8958,6 +8976,35 @@ function providerStructuredOutputPropertyFromRecord(
 		});
 	}
 	return value;
+}
+
+type ProviderCompactionReductionCheck = (summary: string) => {
+	compactedTokens: number;
+	reduces: boolean;
+	replacementTokens: number;
+};
+
+function providerCompactionReductionCheck(
+	limits: ProviderCompactionValidationLimits,
+): ProviderCompactionReductionCheck | undefined {
+	const compactedCharacters = Number(limits.compactedCharacterCount);
+	const tokensPerCharacter = Number(limits.tokensPerCharacter);
+	if (!Number.isFinite(compactedCharacters) || compactedCharacters <= 0 || !Number.isFinite(tokensPerCharacter) || tokensPerCharacter <= 0) {
+		return undefined;
+	}
+	const calibration = {
+		tokensPerCharacter: clampNumber(tokensPerCharacter, minCalibratedTokensPerCharacter, maxCalibratedTokensPerCharacter),
+		sampleCount: 0,
+	};
+	const compactedTokens = Math.max(1, Math.ceil(Math.floor(compactedCharacters) * calibration.tokensPerCharacter));
+	return (summary: string) => {
+		const replacementTokens = estimateChatMessageTokens({ role: "assistant", content: storedCompactionSummary(summary) }, calibration);
+		return {
+			compactedTokens,
+			replacementTokens,
+			reduces: replacementTokens < compactedTokens,
+		};
+	};
 }
 
 function providerToolCallFromValue(value: unknown): BotInferenceSubmissionToolCall | null {

@@ -1608,6 +1608,123 @@ describe("Bickr Pages Functions", () => {
 			}
 		});
 
+		it("accepts over-max compaction summaries when they reduce the estimated context", async () => {
+			const originalFetch = globalThis.fetch;
+			const overMaxSummary = "I retain the useful context from a much larger span. ".repeat(3);
+			const validResponse = {
+				choices: [{
+					message: {
+						content: JSON.stringify({ [providerCompactionSummaryProperty]: overMaxSummary }),
+					},
+				}],
+				usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+			};
+			const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => Response.json(validResponse));
+			vi.stubGlobal("fetch", fetchMock);
+			try {
+				const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+					appendEvent: vi.fn(),
+					recordProviderTokenCalibrationSample: vi.fn(),
+					throwIfStopped: vi.fn(),
+				});
+				const callProviderForCompaction = (BotRuntime.prototype as unknown as {
+					callProviderForCompaction: (...args: unknown[]) => Promise<{ content: string }>;
+				}).callProviderForCompaction.bind(runtime);
+
+				const response = await callProviderForCompaction(
+					{ baseUrl: "https://provider.example/api/v1", model: "test-model", temperature: 0.2 },
+					[{ role: "user", content: "Compact the retained activity." }],
+					"run-compaction-soft-max",
+					new AbortController().signal,
+					{
+						minLength: 1,
+						maxLength: 20,
+						maxCompletionTokens: 1000,
+						compactedCharacterCount: 2_000,
+						tokensPerCharacter: 0.25,
+					},
+				);
+
+				expect(overMaxSummary.length).toBeGreaterThan(20);
+				expect(response.content).toBe(overMaxSummary);
+				expect(fetchMock).toHaveBeenCalledTimes(1);
+			} finally {
+				vi.stubGlobal("fetch", originalFetch);
+			}
+		});
+
+		it("retries compaction summaries that do not reduce the estimated context", async () => {
+			const originalFetch = globalThis.fetch;
+			const nonCompactingSummary = "This summary is still longer than the retained context.";
+			const invalidResponse = {
+				id: "compaction-non-reducing",
+				model: "test-model-concrete",
+				choices: [{
+					message: {
+						content: JSON.stringify({ [providerCompactionSummaryProperty]: nonCompactingSummary }),
+					},
+				}],
+				usage: { prompt_tokens: 20, completion_tokens: 12, total_tokens: 32 },
+			};
+			const validResponse = {
+				id: "compaction-reducing",
+				model: "test-model-concrete",
+				choices: [{
+					message: {
+						content: JSON.stringify({ [providerCompactionSummaryProperty]: "Short." }),
+					},
+				}],
+				usage: { prompt_tokens: 10, completion_tokens: 3, total_tokens: 13 },
+			};
+			const fetchMock = vi.fn()
+				.mockResolvedValueOnce(Response.json(invalidResponse))
+				.mockResolvedValueOnce(Response.json(validResponse));
+			vi.stubGlobal("fetch", fetchMock);
+			try {
+				const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+					appendEvent: vi.fn(),
+					recordProviderTokenCalibrationSample: vi.fn(),
+					throwIfStopped: vi.fn(),
+				});
+				const callProviderForCompaction = (BotRuntime.prototype as unknown as {
+					callProviderForCompaction: (...args: unknown[]) => Promise<{ content: string; requestBody?: string }>;
+				}).callProviderForCompaction.bind(runtime);
+
+				const response = await callProviderForCompaction(
+					{ baseUrl: "https://provider.example/api/v1", model: "test-model", temperature: 0.2 },
+					[
+						{ role: "system", content: "System prompt." },
+						{ role: "assistant", content: "Old retained activity that should not be repeated in the retry." },
+						{ role: "user", content: "META: Context compaction required." },
+					],
+					"run-compaction-non-reducing",
+					new AbortController().signal,
+					{
+						minLength: 1,
+						maxLength: 100,
+						maxCompletionTokens: 1000,
+						compactedCharacterCount: 20,
+						tokensPerCharacter: 1,
+					},
+				);
+
+				expect(response.content).toBe("Short.");
+				expect(fetchMock).toHaveBeenCalledTimes(2);
+				const retryBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)) as { messages: BotInferenceSubmissionMessage[] };
+				expect(retryBody.messages).toEqual([
+					{ role: "system", content: "System prompt." },
+					{ role: "assistant", content: nonCompactingSummary },
+					expect.objectContaining({
+						role: "user",
+						content: expect.stringContaining("previous context compaction attempt produced a summary that was too long"),
+					}),
+				]);
+				expect(JSON.stringify(retryBody.messages)).not.toContain("Old retained activity");
+			} finally {
+				vi.stubGlobal("fetch", originalFetch);
+			}
+		});
+
 		it("records calibration samples for schema-invalid compaction attempts with usage", async () => {
 			const originalFetch = globalThis.fetch;
 			const invalidResponse = {
