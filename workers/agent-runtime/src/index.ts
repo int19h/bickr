@@ -9048,8 +9048,11 @@ export function providerToolResultPayload(
 	if (canonical === "list_accessible_forums" && Array.isArray(result)) {
 		return result.map((item) => providerForum(runtimeRecord(item)));
 	}
-	if ((canonical === "list_recent_threads" || canonical === "list_hot_threads") && Array.isArray(result)) {
-		return result.map((item) => providerThreadSummary(runtimeRecord(item)));
+	if (canonical === "list_recent_threads" && Array.isArray(result)) {
+		return result.map((item) => providerThreadSummary(runtimeRecord(item), { includeForum: false }));
+	}
+	if (canonical === "list_hot_threads" && Array.isArray(result)) {
+		return result.map((item) => providerThreadSummary(runtimeRecord(item), { includeForum: true }));
 	}
 	if (canonical === "search_threads" || canonical === "search_threads_semantic") {
 		return Array.isArray(result) ? result.map((item) => providerSearchPost(runtimeRecord(item))) : providerSafeJsonValue(result);
@@ -9069,10 +9072,10 @@ export function providerToolResultPayload(
 	}
 	if (canonical === "view_activity") {
 		const record = runtimeRecord(result);
-		return {
-			profile: providerProfile(runtimeRecord(record.bot)),
+		return removeUndefinedProperties({
+			profile: providerProfileUsername(runtimeRecord(record.bot)),
 			activities: Array.isArray(record.activities) ? record.activities.map((item) => providerActivity(runtimeRecord(item))) : [],
-		};
+		});
 	}
 	if (canonical === "follow_profile" || canonical === "unfollow_profile") {
 		return Array.isArray(result) ?
@@ -9650,23 +9653,82 @@ function removeUndefinedProperties(record: Record<string, unknown>): Record<stri
 	return output;
 }
 
+const providerRelativeTimeUnits: Array<{ name: string; ms: number }> = [
+	{ name: "year", ms: 365 * 24 * 60 * 60 * 1000 },
+	{ name: "month", ms: 30 * 24 * 60 * 60 * 1000 },
+	{ name: "day", ms: 24 * 60 * 60 * 1000 },
+	{ name: "hour", ms: 60 * 60 * 1000 },
+	{ name: "minute", ms: 60 * 1000 },
+];
+
+function providerRelativeTime(value: unknown, nowMs = Date.now()): string | undefined {
+	const text = stringValue(value);
+	if (!text) {
+		return undefined;
+	}
+	const timeMs = Date.parse(text);
+	if (!Number.isFinite(timeMs)) {
+		return sanitizeProviderFacingText(text);
+	}
+	const diffMs = nowMs - timeMs;
+	const absMs = Math.abs(diffMs);
+	if (absMs < 60 * 1000) {
+		return "just now";
+	}
+	const unit = providerRelativeTimeUnits.find((candidate) => absMs >= candidate.ms) ?? providerRelativeTimeUnits.at(-1)!;
+	const count = Math.max(1, Math.floor(absMs / unit.ms));
+	const label = `${count} ${unit.name}${count === 1 ? "" : "s"}`;
+	return diffMs < 0 ? `in ${label}` : `${label} ago`;
+}
+
+function providerUsername(value: unknown): string | undefined {
+	const raw = stringValue(value);
+	if (!raw) {
+		return undefined;
+	}
+	const handle = raw.replace(/^u\//, "");
+	return handle ? `u/${handle}` : undefined;
+}
+
+function providerProfileUsername(record: Record<string, unknown>): string | undefined {
+	return providerUsername(record.username) ?? providerUsername(record.handle) ?? providerUsername(record.authorHandle);
+}
+
+function providerAuthorUsername(record: Record<string, unknown>): string | undefined {
+	const author = runtimeRecord(record.author);
+	return providerProfileUsername(author) ?? providerUsername(record.authorHandle) ?? providerUsername(record.handle);
+}
+
+function providerForumName(value: unknown): string | undefined {
+	const raw = stringValue(value);
+	if (!raw) {
+		return undefined;
+	}
+	const handle = raw.replace(/^f\//, "");
+	return handle ? `f/${handle}` : undefined;
+}
+
+function providerForumNameFromRecord(record: Record<string, unknown>): string | undefined {
+	return providerForumName(record.forum) ?? providerForumName(record.handle) ?? providerForumName(record.forumHandle);
+}
+
 function providerFollowResult(record: Record<string, unknown>): Record<string, unknown> {
 	const reason = stringValue(record.reason);
-	return {
+	return removeUndefinedProperties({
 		following: record.following === true,
-		...(record.profile ? { profile: providerProfile(runtimeRecord(record.profile)) } : {}),
+		...(record.profile ? { profile: providerProfileUsername(runtimeRecord(record.profile)) } : {}),
 		...(reason ? { reason: sanitizeProviderFacingText(reason) } : {}),
-	};
+	});
 }
 
 function providerVoteResult(record: Record<string, unknown>): Record<string, unknown> {
 	const thread = threadRecordFromToolResult(record);
 	const commentId = stringValue(record.commentId) ?? stringValue(record.targetId);
-	return {
+	return removeUndefinedProperties({
 		commentId,
 		value: numberValue(record.value),
 		...(thread ? { target: providerVoteTargetReference(thread, record) } : {}),
-	};
+	});
 }
 
 function providerCreateThreadResult(result: unknown): Record<string, unknown> {
@@ -9692,61 +9754,47 @@ function providerReplyCommentResult(result: unknown, args: Record<string, unknow
 
 function providerForum(record: Record<string, unknown>): Record<string, unknown> {
 	return {
-		id: stringValue(record.id) ?? stringValue(record.forumId),
-		world: `w/${stringValue(record.worldHandle) ?? "unknown"}`,
-		forum: `f/${stringValue(record.handle) ?? stringValue(record.forumHandle) ?? "unknown"}`,
+		forum: providerForumNameFromRecord(record) ?? "f/unknown",
 		description: stringValue(record.description) ?? "",
 	};
 }
 
-function providerThreadSummary(record: Record<string, unknown>): Record<string, unknown> {
-	return {
-		id: stringValue(record.id) ?? stringValue(record.threadId),
+function providerThreadSummary(
+	record: Record<string, unknown>,
+	options: { includeForum?: boolean } = {},
+): Record<string, unknown> {
+	return removeUndefinedProperties({
 		threadId: stringValue(record.threadId) ?? stringValue(record.id),
 		rootCommentId: stringValue(record.rootCommentId),
-		world: `w/${stringValue(record.worldHandle) ?? "unknown"}`,
-		forum: `f/${stringValue(record.forumHandle) ?? "unknown"}`,
+		...(options.includeForum ? { forum: providerForumNameFromRecord(record) ?? "f/unknown" } : {}),
 		title: stringValue(record.title) ?? "untitled",
-		author: providerAuthor(record),
+		author: providerAuthorUsername(record),
 		commentCount: numberValue(record.commentCount),
 		voteScore: numberValue(record.voteScore),
-		lastActivityAt: stringValue(record.lastActivityAt),
-	};
+		lastActivityAt: providerRelativeTime(record.lastActivityAt),
+	});
 }
 
 function providerSearchPost(record: Record<string, unknown>): Record<string, unknown> {
-	return {
+	return removeUndefinedProperties({
 		threadId: stringValue(record.threadId),
 		...(stringValue(record.rootCommentId) ? { rootCommentId: stringValue(record.rootCommentId) } : {}),
 		...(stringValue(record.commentId) ? { commentId: stringValue(record.commentId) } : {}),
-		forum: `f/${stringValue(record.forumHandle) ?? "unknown"}`,
+		forum: providerForumNameFromRecord(record) ?? "f/unknown",
 		title: stringValue(record.title) ?? "untitled",
 		snippet: stringValue(record.snippet) ?? "",
-		author: providerAuthor(record),
-		createdAt: stringValue(record.createdAt),
+		author: providerAuthorUsername(record),
+		createdAt: providerRelativeTime(record.createdAt),
 		score: numberValue(record.score),
-	};
+	});
 }
 
 function providerProfile(record: Record<string, unknown>): Record<string, unknown> {
-	const handle = stringValue(record.handle);
 	const following = typeof record.following === "boolean" ? record.following : undefined;
 	return {
-		username: handle ? `u/${handle}` : undefined,
+		username: providerProfileUsername(record),
 		displayName: stringValue(record.displayName) ?? "unknown",
 		shortBio: stringValue(record.shortBio) ?? "",
-		...(typeof following === "boolean" ? { following } : {}),
-	};
-}
-
-function providerAuthor(record: Record<string, unknown>): Record<string, unknown> {
-	const handle = stringValue(record.authorHandle) ?? stringValue(record.handle);
-	const shortBio = stringValue(record.authorShortBio);
-	const following = typeof record.authorFollowing === "boolean" ? record.authorFollowing : undefined;
-	return {
-		username: handle ? `u/${handle}` : undefined,
-		displayName: stringValue(record.authorDisplayName) ?? stringValue(record.displayName) ?? "unknown",
-		...(shortBio ? { shortBio } : {}),
 		...(typeof following === "boolean" ? { following } : {}),
 	};
 }
@@ -9797,21 +9845,15 @@ function providerReadContent(record: Record<string, unknown>, scope: ProviderCon
 	if (type === "comment" && commentId && body) {
 		scope.commentsWithText.add(commentId);
 	}
-	const item = {
-		type,
-		id,
-		threadId: stringValue(record.threadId),
+	const item = removeUndefinedProperties({
 		...(commentId ? { commentId } : {}),
 		...(stringValue(record.parentCommentId) ? { parentCommentId: stringValue(record.parentCommentId) } : {}),
-		world: stringValue(record.world) ?? `w/${stringValue(record.worldHandle) ?? "unknown"}`,
-		forum: stringValue(record.forum) ?? `f/${stringValue(record.forumHandle) ?? "unknown"}`,
 		author: providerReadAuthor(record),
 		...(stringValue(record.title) ? { title: stringValue(record.title) } : {}),
 		...(includeBody ? { body: body ?? "" } : {}),
-		createdAt: stringValue(record.createdAt),
 		...(record["My focus is on this comment"] === true || record.target === true ? { "My focus is on this comment": true } : {}),
 		...(record.ancestorOnly ? { ancestorOnly: true } : {}),
-	};
+	});
 	if (type !== "comment") {
 		return item;
 	}
@@ -9821,17 +9863,8 @@ function providerReadContent(record: Record<string, unknown>, scope: ProviderCon
 	};
 }
 
-function providerReadAuthor(record: Record<string, unknown>): Record<string, unknown> {
-	const author = runtimeRecord(record.author);
-	if (stringValue(author.username) || stringValue(author.displayName)) {
-		return removeUndefinedProperties({
-			username: stringValue(author.username),
-			displayName: stringValue(author.displayName) ?? "unknown",
-			...(stringValue(author.shortBio) ? { shortBio: stringValue(author.shortBio) } : {}),
-			...(typeof author.following === "boolean" ? { following: author.following } : {}),
-		});
-	}
-	return providerAuthor(record);
+function providerReadAuthor(record: Record<string, unknown>): string | undefined {
+	return providerAuthorUsername(record);
 }
 
 function providerReadReplies(value: unknown, scope: ProviderContextContentScope): Record<string, unknown>[] | number {
@@ -9864,11 +9897,19 @@ function providerNestedCommentList(comments: Record<string, unknown>[]): Record<
 			roots.push(node);
 		}
 	}
-	return roots;
+	return roots.map(providerCommentWithoutInternalNestingMetadata);
 }
 
 function providerCommentReplies(comment: Record<string, unknown>): Record<string, unknown>[] {
 	return Array.isArray(comment.replies) ? comment.replies.map(runtimeRecord) : [];
+}
+
+function providerCommentWithoutInternalNestingMetadata(comment: Record<string, unknown>): Record<string, unknown> {
+	const { parentCommentId: _parentCommentId, ...rest } = comment;
+	return {
+		...rest,
+		replies: providerNestedReplies(rest.replies),
+	};
 }
 
 function providerNestedReplies(value: unknown): Record<string, unknown>[] | number {
@@ -9939,48 +9980,31 @@ function providerCommentId(record: Record<string, unknown>): string | undefined 
 function providerCommentReference(thread: Record<string, unknown>, comment: Record<string, unknown>): Record<string, unknown> {
 	const commentId = providerCommentId(comment);
 	const threadId = stringValue(comment.threadId) ?? stringValue(thread.id) ?? stringValue(thread.threadId);
-	const worldHandle = stringValue(thread.worldHandle);
-	const forumHandle = stringValue(thread.forumHandle);
-	return {
-		type: "comment",
-		id: commentId,
+	return removeUndefinedProperties({
 		commentId,
 		threadId,
-		...(stringValue(comment.parentCommentId) ? { parentCommentId: stringValue(comment.parentCommentId) } : {}),
-		...(worldHandle ? { world: `w/${worldHandle}` } : {}),
-		...(forumHandle ? { forum: `f/${forumHandle}` } : {}),
-		...(worldHandle && forumHandle && threadId && commentId ? { urlPath: commentUrlPathFromParts(worldHandle, forumHandle, threadId, commentId) } : {}),
-		createdAt: stringValue(comment.createdAt),
-	};
+		createdAt: providerRelativeTime(comment.createdAt),
+	});
 }
 
 function providerThreadReference(thread: Record<string, unknown>): Record<string, unknown> {
 	const threadId = stringValue(thread.id) ?? stringValue(thread.threadId);
-	const worldHandle = stringValue(thread.worldHandle);
-	const forumHandle = stringValue(thread.forumHandle);
 	const rootPost = runtimeRecord(thread.rootPost);
 	const title = stringValue(thread.title) ?? stringValue(rootPost.title);
-	return {
-		type: "thread",
-		id: threadId,
+	return removeUndefinedProperties({
 		threadId,
-		rootCommentId: stringValue(thread.rootCommentId),
-		...(worldHandle ? { world: `w/${worldHandle}` } : {}),
-		...(forumHandle ? { forum: `f/${forumHandle}` } : {}),
+		rootCommentId: stringValue(thread.rootCommentId) ?? stringValue(rootPost.id) ?? stringValue(rootPost.commentId),
 		...(title ? { title } : {}),
-		...(worldHandle && forumHandle && threadId ? { urlPath: `/w/${encodeURIComponent(worldHandle)}/f/${encodeURIComponent(forumHandle)}/t/${encodeURIComponent(threadId)}` } : {}),
-	};
+	});
 }
 
 function providerVoteTargetReference(thread: Record<string, unknown>, vote: Record<string, unknown>): Record<string, unknown> {
 	const targetId = stringValue(vote.commentId) ?? stringValue(vote.targetId);
 	const comment = allThreadCommentRecords(thread).find((item) => providerCommentId(item) === targetId);
-	return comment ? providerCommentReference(thread, comment) : {
-		type: "comment",
-		id: targetId,
+	return comment ? providerCommentReference(thread, comment) : removeUndefinedProperties({
 		commentId: targetId,
 		threadId: stringValue(thread.id) ?? stringValue(thread.threadId),
-	};
+	});
 }
 
 function replyCommentFromThread(thread: Record<string, unknown>, args: Record<string, unknown>): Record<string, unknown> | null {
@@ -10016,17 +10040,73 @@ function allThreadCommentRecords(thread: Record<string, unknown>): Record<string
 
 function providerActivity(record: Record<string, unknown>): Record<string, unknown> {
 	const type = stringValue(record.type);
+	if (type === "thread") {
+		return removeUndefinedProperties({
+			type,
+			threadId: stringValue(record.threadId),
+			rootCommentId: stringValue(record.rootCommentId),
+			forum: providerForumNameFromRecord(record),
+			title: stringValue(record.title),
+			bodyPreview: stringValue(record.bodyPreview),
+			voteScore: numberValue(record.voteScore),
+			commentCount: numberValue(record.commentCount),
+			createdAt: providerRelativeTime(record.createdAt),
+		});
+	}
+	if (type === "comment") {
+		return removeUndefinedProperties({
+			type,
+			threadId: stringValue(record.threadId),
+			commentId: stringValue(record.commentId),
+			forum: providerForumNameFromRecord(record),
+			threadTitle: stringValue(record.threadTitle),
+			bodyPreview: stringValue(record.bodyPreview),
+			parentComment: providerActivityCommentContext(runtimeRecord(record.parentComment)),
+			voteScore: numberValue(record.voteScore),
+			createdAt: providerRelativeTime(record.createdAt),
+		});
+	}
+	if (type === "vote") {
+		const reason = stringValue(record.reason);
+		return removeUndefinedProperties({
+			type,
+			commentId: stringValue(record.commentId) ?? stringValue(record.targetId),
+			value: numberValue(record.value),
+			threadId: stringValue(record.threadId),
+			forum: providerForumNameFromRecord(record),
+			title: stringValue(record.title),
+			...(reason ? { reason: sanitizeProviderFacingText(reason) } : {}),
+			targetComment: providerActivityCommentContext(runtimeRecord(record.targetComment)),
+			updatedAt: providerRelativeTime(record.updatedAt ?? record.createdAt),
+		});
+	}
 	if (type === "follow" || type === "unfollow") {
 		const reason = stringValue(record.reason);
-		return {
+		return removeUndefinedProperties({
 			type,
-			id: stringValue(record.id),
-			profile: providerProfile(runtimeRecord(record.bot)),
+			profile: providerProfileUsername(runtimeRecord(record.bot)),
 			...(reason ? { reason: sanitizeProviderFacingText(reason) } : {}),
-			createdAt: stringValue(record.createdAt),
-		};
+			createdAt: providerRelativeTime(record.createdAt),
+		});
 	}
-	return runtimeRecord(providerSafeJsonValue(record));
+	return removeUndefinedProperties({
+		type,
+		createdAt: providerRelativeTime(record.createdAt ?? record.updatedAt),
+	});
+}
+
+function providerActivityCommentContext(record: Record<string, unknown>): Record<string, unknown> | undefined {
+	const commentId = stringValue(record.commentId);
+	const author = providerUsername(record.authorHandle);
+	const bodyPreview = stringValue(record.bodyPreview);
+	if (!commentId && !author && !bodyPreview) {
+		return undefined;
+	}
+	return removeUndefinedProperties({
+		commentId,
+		author,
+		bodyPreview,
+	});
 }
 
 function providerSafeJsonValue(value: unknown): unknown {
@@ -10042,9 +10122,17 @@ function providerSafeJsonValue(value: unknown): unknown {
 		if (!safeKey) {
 			continue;
 		}
-		output[safeKey] = providerSafeJsonValue(item);
+		if (providerTimestampKey(safeKey)) {
+			output[safeKey] = providerRelativeTime(item) ?? providerSafeJsonValue(item);
+		} else {
+			output[safeKey] = providerSafeJsonValue(item);
+		}
 	}
 	return output;
+}
+
+function providerTimestampKey(key: string): boolean {
+	return /(?:At|_at)$/.test(key);
 }
 
 function providerSafeKey(key: string): string | null {

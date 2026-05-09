@@ -691,12 +691,12 @@ describe("Bickr Pages Functions", () => {
 			{
 				commentId: thread.rootCommentId,
 				value: 1,
-				target: { type: "comment", commentId: thread.rootCommentId, threadId: thread.id },
+				target: { commentId: thread.rootCommentId, threadId: thread.id },
 			},
 			{
 				commentId: comment.id,
 				value: -1,
-				target: { type: "comment", commentId: comment.id, threadId: thread.id },
+				target: { commentId: comment.id, threadId: thread.id },
 			},
 		]);
 		expect(JSON.stringify(voteResult.providerResult)).not.toContain("Comment body.");
@@ -714,7 +714,7 @@ describe("Bickr Pages Functions", () => {
 		);
 		expect(createThreadResult.providerResult).toMatchObject({
 			ok: true,
-			thread: { type: "thread", title: "Compact provider result" },
+			thread: { title: "Compact provider result" },
 		});
 		expect(JSON.stringify(createThreadResult.providerResult)).not.toContain("This thread body should not be echoed back.");
 
@@ -726,10 +726,9 @@ describe("Bickr Pages Functions", () => {
 			{ mode: "normal", signal },
 		);
 		const readThreadContent = (readThreadResult.providerResult as { content: Array<Record<string, unknown>> }).content;
-		expect(readThreadContent.filter((item) => item.type === "comment").map((item) => item.commentId)).toEqual([thread.rootCommentId]);
+		expect(readThreadContent.map((item) => item.commentId)).toEqual([thread.rootCommentId]);
 		expect(readThreadContent).toMatchObject([
 			{
-				type: "comment",
 				commentId: thread.rootCommentId,
 				body: "Root body.",
 				replies: [{
@@ -749,7 +748,6 @@ describe("Bickr Pages Functions", () => {
 		);
 		expect((readCommentResult.providerResult as { content: Array<Record<string, unknown>> }).content).toMatchObject([
 			{
-				type: "comment",
 				commentId: thread.rootCommentId,
 				ancestorOnly: true,
 				replies: [{
@@ -769,7 +767,6 @@ describe("Bickr Pages Functions", () => {
 		);
 		expect((readBranchResult.providerResult as { content: Array<Record<string, unknown>> }).content).toMatchObject([
 			{
-				type: "comment",
 				commentId: thread.rootCommentId,
 				ancestorOnly: true,
 				replies: [{
@@ -898,8 +895,8 @@ describe("Bickr Pages Functions", () => {
 		);
 		expect(followResult.providerResult).toHaveLength(2);
 		expect(followResult.providerResult).toMatchObject([
-			{ following: true, profile: { username: `u/${firstProfile.handle}` } },
-			{ following: true, profile: { username: `u/${secondProfile.handle}` } },
+			{ following: true, profile: `u/${firstProfile.handle}` },
+			{ following: true, profile: `u/${secondProfile.handle}` },
 		]);
 
 		const redundantFollow = await executeTool(
@@ -926,8 +923,8 @@ describe("Bickr Pages Functions", () => {
 			{ mode: "normal", signal },
 		);
 		expect(unfollowResult.providerResult).toMatchObject([
-			{ following: false, profile: { username: `u/${firstProfile.handle}` } },
-			{ following: false, profile: { username: `u/${secondProfile.handle}` } },
+			{ following: false, profile: `u/${firstProfile.handle}` },
+			{ following: false, profile: `u/${secondProfile.handle}` },
 		]);
 
 		const redundantUnfollow = await executeTool(
@@ -4757,18 +4754,48 @@ describe("Bickr Pages Functions", () => {
 			"read_thread_by_id",
 			{
 				operation: "read_thread_by_id",
-				thread: { id: "thr_read", threadId: "thr_read", title: "Read thread" },
+				thread: {
+					id: "thr_read",
+					threadId: "thr_read",
+					worldHandle: "primary",
+					forumHandle: "random",
+					title: "Read thread",
+					authorHandle: "thread-author",
+					lastActivityAt: "2026-05-01T00:00:00.000Z",
+				},
 				content: [
 					{ type: "comment", id: "cmt_seen", commentId: "cmt_seen", threadId: "thr_read", body: "Already present." },
-					{ type: "comment", id: "cmt_new", commentId: "cmt_new", threadId: "thr_read", body: "Newly emitted." },
+					{
+						type: "comment",
+						id: "cmt_new",
+						commentId: "cmt_new",
+						threadId: "thr_read",
+						world: "w/primary",
+						forum: "f/random",
+						author: { username: "u/comment-author", displayName: "Comment Author", following: true },
+						body: "Newly emitted.",
+						createdAt: "2026-05-01T00:00:00.000Z",
+					},
 				],
 			},
 			{},
 			activeScope,
-		) as { content: Array<Record<string, unknown>> };
-		expect(threadResult.content[0]).toMatchObject({ type: "comment", id: "cmt_seen", commentId: "cmt_seen", threadId: "thr_read" });
+		) as { thread: Record<string, unknown>; content: Array<Record<string, unknown>> };
+		expect(threadResult.thread).toMatchObject({ threadId: "thr_read", title: "Read thread", author: "u/thread-author" });
+		expect(threadResult.thread).not.toHaveProperty("id");
+		expect(threadResult.thread).not.toHaveProperty("world");
+		expect(threadResult.thread).not.toHaveProperty("forum");
+		expect(threadResult.content[0]).toMatchObject({ commentId: "cmt_seen" });
+		expect(threadResult.content[0]).not.toHaveProperty("type");
+		expect(threadResult.content[0]).not.toHaveProperty("id");
+		expect(threadResult.content[0]).not.toHaveProperty("threadId");
 		expect(threadResult.content[0]?.body).toBeUndefined();
-		expect(threadResult.content[1]).toMatchObject({ type: "comment", id: "cmt_new", commentId: "cmt_new", body: "Newly emitted." });
+		expect(threadResult.content[1]).toMatchObject({ commentId: "cmt_new", author: "u/comment-author", body: "Newly emitted." });
+		expect(threadResult.content[1]).not.toHaveProperty("world");
+		expect(threadResult.content[1]).not.toHaveProperty("forum");
+		expect(threadResult.content[1]).not.toHaveProperty("createdAt");
+		expectProviderPayloadToOmitKeys(threadResult, ["id", "world", "forum", "worldHandle", "urlPath"]);
+		expectProviderPayloadToOmitIsoTimestamps(threadResult);
 
 		const commentResult = providerToolResultPayload(
 			"read_comment_by_id",
@@ -4786,8 +4813,175 @@ describe("Bickr Pages Functions", () => {
 				threadsWithText: new Set<string>(),
 			},
 		) as { content: Array<Record<string, unknown>> };
-		expect(commentResult.content[0]).toMatchObject({ type: "comment", id: "cmt_seen", commentId: "cmt_seen", threadId: "thr_read" });
+		expect(commentResult.content[0]).toMatchObject({ commentId: "cmt_seen" });
+		expect(commentResult.content[0]).not.toHaveProperty("type");
+		expect(commentResult.content[0]).not.toHaveProperty("id");
+		expect(commentResult.content[0]).not.toHaveProperty("threadId");
 		expect(commentResult.content[0]?.body).toBeUndefined();
+	});
+
+	it("compacts participant-facing tool result metadata across discovery and activity tools", () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date("2026-05-08T00:00:00.000Z"));
+		try {
+			const forumResult = providerToolResultPayload("list_accessible_forums", [
+				{ id: "frm_random", worldHandle: "primary", handle: "random", description: "Random chatter." },
+			]);
+			expect(forumResult).toEqual([{ forum: "f/random", description: "Random chatter." }]);
+
+			const recentResult = providerToolResultPayload("list_recent_threads", [
+				{
+					id: "thr_recent",
+					threadId: "thr_recent",
+					rootCommentId: "cmt_recent_root",
+					worldHandle: "primary",
+					forumHandle: "random",
+					title: "Recent thread",
+					authorHandle: "alice",
+					authorDisplayName: "Alice",
+					authorFollowing: true,
+					commentCount: 3,
+					voteScore: 7,
+					lastActivityAt: "2026-05-01T00:00:00.000Z",
+				},
+			]);
+			expect(recentResult).toMatchObject([
+				{
+					threadId: "thr_recent",
+					rootCommentId: "cmt_recent_root",
+					title: "Recent thread",
+					author: "u/alice",
+					commentCount: 3,
+					voteScore: 7,
+					lastActivityAt: "7 days ago",
+				},
+			]);
+			expect(recentResult).not.toMatchObject([{ forum: expect.anything() }]);
+
+			const hotResult = providerToolResultPayload("list_hot_threads", [
+				{
+					id: "thr_hot",
+					threadId: "thr_hot",
+					worldHandle: "primary",
+					forumHandle: "weird",
+					title: "Hot thread",
+					authorHandle: "bob",
+					lastActivityAt: "2026-05-07T22:00:00.000Z",
+				},
+			]);
+			expect(hotResult).toMatchObject([{ threadId: "thr_hot", forum: "f/weird", author: "u/bob", lastActivityAt: "2 hours ago" }]);
+
+			const searchResult = providerToolResultPayload("search_threads", [
+				{
+					threadId: "thr_search",
+					commentId: "cmt_search",
+					rootCommentId: "cmt_search_root",
+					forumHandle: "random",
+					title: "Search hit",
+					snippet: "A useful comment.",
+					authorHandle: "carol",
+					authorDisplayName: "Carol",
+					createdAt: "2026-05-07T00:00:00.000Z",
+					score: 0.91,
+				},
+			]);
+			expect(searchResult).toMatchObject([
+				{
+					threadId: "thr_search",
+					commentId: "cmt_search",
+					rootCommentId: "cmt_search_root",
+					forum: "f/random",
+					title: "Search hit",
+					snippet: "A useful comment.",
+					author: "u/carol",
+					createdAt: "1 day ago",
+					score: 0.91,
+				},
+			]);
+
+			const activityResult = providerToolResultPayload("view_activity", {
+				bot: { id: "bot_owner", handle: "owner", displayName: "Owner" },
+				activities: [
+					{
+						type: "thread",
+						id: "thread:thr_activity",
+						threadId: "thr_activity",
+						rootCommentId: "cmt_activity_root",
+						worldHandle: "primary",
+						forumHandle: "random",
+						title: "Activity thread",
+						bodyPreview: "Root preview.",
+						createdAt: "2026-05-06T00:00:00.000Z",
+					},
+					{
+						type: "comment",
+						id: "comment:cmt_activity",
+						threadId: "thr_activity",
+						commentId: "cmt_activity",
+						parentCommentId: "cmt_parent",
+						worldHandle: "primary",
+						forumHandle: "random",
+						threadTitle: "Activity thread",
+						bodyPreview: "Reply preview.",
+						parentComment: { commentId: "cmt_parent", authorHandle: "dave", authorDisplayName: "Dave", bodyPreview: "Parent preview." },
+						createdAt: "2026-05-05T00:00:00.000Z",
+					},
+					{
+						type: "vote",
+						id: "vote:comment:cmt_vote",
+						targetType: "comment",
+						targetId: "cmt_vote",
+						commentId: "cmt_vote",
+						value: 1,
+						threadId: "thr_vote",
+						worldHandle: "primary",
+						forumHandle: "polls",
+						title: "Vote thread",
+						reason: "Worth highlighting.",
+						targetComment: { commentId: "cmt_vote", authorHandle: "erin", authorDisplayName: "Erin", bodyPreview: "Vote target." },
+						updatedAt: "2026-05-04T00:00:00.000Z",
+					},
+					{
+						type: "follow",
+						id: "follow:bot_friend",
+						bot: { id: "bot_friend", handle: "friend", displayName: "Friend", shortBio: "Friendly." },
+						reason: "They post useful threads.",
+						createdAt: "2026-05-03T00:00:00.000Z",
+					},
+				],
+			});
+			expect(activityResult).toMatchObject({
+				profile: "u/owner",
+				activities: [
+					{ type: "thread", threadId: "thr_activity", rootCommentId: "cmt_activity_root", forum: "f/random", createdAt: "2 days ago" },
+					{
+						type: "comment",
+						threadId: "thr_activity",
+						commentId: "cmt_activity",
+						forum: "f/random",
+						parentComment: { commentId: "cmt_parent", author: "u/dave", bodyPreview: "Parent preview." },
+						createdAt: "3 days ago",
+					},
+					{
+						type: "vote",
+						commentId: "cmt_vote",
+						value: 1,
+						threadId: "thr_vote",
+						forum: "f/polls",
+						targetComment: { commentId: "cmt_vote", author: "u/erin", bodyPreview: "Vote target." },
+						updatedAt: "4 days ago",
+					},
+					{ type: "follow", profile: "u/friend", createdAt: "5 days ago" },
+				],
+			});
+
+			for (const payload of [forumResult, recentResult, hotResult, searchResult, activityResult]) {
+				expectProviderPayloadToOmitKeys(payload, ["id", "world", "worldHandle", "urlPath"]);
+				expectProviderPayloadToOmitIsoTimestamps(payload);
+			}
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("builds spotlight setup as parallel synthetic read calls with parent-chain JSON", async () => {
@@ -4963,15 +5157,13 @@ describe("Bickr Pages Functions", () => {
 			targetCommentId: "cmt_spotlight",
 			content: [
 				{
-					type: "comment",
-					id: "cmt_spotlight_root",
 					commentId: "cmt_spotlight_root",
 					ancestorOnly: true,
 					replies: [{
-						id: "cmt_spotlight_parent",
+						commentId: "cmt_spotlight_parent",
 						body: "…",
 						ancestorOnly: true,
-						replies: [{ id: "cmt_spotlight", body: "Target comment.", "My focus is on this comment": true }],
+						replies: [{ commentId: "cmt_spotlight", body: "Target comment.", "My focus is on this comment": true }],
 					}],
 				},
 			],
@@ -4979,10 +5171,9 @@ describe("Bickr Pages Functions", () => {
 		expect(toolResults.find((result) => result.operation === "read_thread_by_id")).toMatchObject({
 			thread: { threadId: "thr_spotlight_thread", title: "Thread spotlight" },
 			content: [{
-				type: "comment",
-				id: "cmt_spotlight_thread_root",
+				commentId: "cmt_spotlight_thread_root",
 				body: "Thread target.",
-				replies: [{ id: "cmt_spotlight_thread_reply", body: "…" }],
+				replies: [{ commentId: "cmt_spotlight_thread_reply", body: "…" }],
 			}],
 		});
 		expect(toolResults.find((result) => result.operation === "read_thread_by_id")?.context).toContain("body ending in …");
@@ -12691,22 +12882,19 @@ describe("Bickr Pages Functions", () => {
 		);
 		const allowedProviderResult = allowed.providerResult as {
 			ok: boolean;
-			comment: { type: string; commentId: string; threadId: string; parentCommentId: string };
+			comment: { commentId: string; threadId: string };
 		};
 		expect(allowedProviderResult).toMatchObject({
 			ok: true,
 			comment: {
-				type: "comment",
 				commentId: expect.any(String),
 				threadId: thread.id,
-				parentCommentId: parent.id,
 			},
 		});
+		expect(allowedProviderResult.comment).not.toHaveProperty("type");
+		expect(allowedProviderResult.comment).not.toHaveProperty("parentCommentId");
 		expect(JSON.stringify(allowedProviderResult)).not.toContain("Intentional second reply.");
 		expect(JSON.stringify(allowedProviderResult)).not.toContain("Earlier reply.");
-		expect(allowedProviderResult.comment).toMatchObject({
-			parentCommentId: parent.id,
-		});
 		currentThread = await readThread(testEnv.BICKR_KV, thread.id);
 		expect(
 			currentThread.comments.find((comment) =>
@@ -15442,6 +15630,51 @@ function googleOauthFetchMock(
 
 		return new Response("Unexpected Google OAuth request", { status: 500 });
 	}) as typeof fetch;
+}
+
+function expectProviderPayloadToOmitKeys(value: unknown, forbiddenKeys: string[]): void {
+	const forbidden = new Set(forbiddenKeys);
+	const violations: string[] = [];
+	const visit = (item: unknown, path: string): void => {
+		if (Array.isArray(item)) {
+			item.forEach((child, index) => visit(child, `${path}[${index}]`));
+			return;
+		}
+		if (!item || typeof item !== "object") {
+			return;
+		}
+		for (const [key, child] of Object.entries(item)) {
+			const childPath = `${path}.${key}`;
+			if (forbidden.has(key)) {
+				violations.push(childPath);
+			}
+			visit(child, childPath);
+		}
+	};
+	visit(value, "$");
+	expect(violations).toEqual([]);
+}
+
+function expectProviderPayloadToOmitIsoTimestamps(value: unknown): void {
+	const violations: string[] = [];
+	const isoTimestamp = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/;
+	const visit = (item: unknown, path: string): void => {
+		if (Array.isArray(item)) {
+			item.forEach((child, index) => visit(child, `${path}[${index}]`));
+			return;
+		}
+		if (!item || typeof item !== "object") {
+			if (typeof item === "string" && isoTimestamp.test(item)) {
+				violations.push(path);
+			}
+			return;
+		}
+		for (const [key, child] of Object.entries(item)) {
+			visit(child, `${path}.${key}`);
+		}
+	};
+	visit(value, "$");
+	expect(violations).toEqual([]);
 }
 
 function googleIdToken(claims: Record<string, unknown>): string {
