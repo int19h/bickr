@@ -587,6 +587,7 @@ describe("Bickr Pages Functions", () => {
 			const roundTools = toolDefinitionsForProviderRound(1234);
 			expect(roundTools.slice(0, -1)).toEqual(toolDefinitions);
 			const metaTool = roundTools.at(-1);
+			expect(metaCompactionToolName).toBe("provide_summary");
 			expect(metaTool?.function.name).toBe(metaCompactionToolName);
 			expect(metaTool?.function.description).toContain("explicit META context compaction instruction");
 			expect(metaTool?.function.parameters.properties[providerCompactionSummaryProperty]).toMatchObject({
@@ -597,7 +598,7 @@ describe("Bickr Pages Functions", () => {
 			expect(metaTool?.function.parameters.additionalProperties).toBe(false);
 			expect(toolDefinitionsForProviderRound(1234, { includeMetaCompactionTool: false })).toEqual(toolDefinitions);
 			expect(toolDefinitionsForProviderRound(1234, { compactionMinCharacters: 321 }).at(-1)?.function.parameters.properties[providerCompactionSummaryProperty]).toMatchObject({
-				minLength: 321,
+				minLength: 1,
 				maxLength: 1234,
 			});
 
@@ -1229,7 +1230,7 @@ describe("Bickr Pages Functions", () => {
 			expect(messages[3]?.content).not.toMatch(/\bbot\b|\bAI\b|\bmodel\b|\bassistant\b|\bagent\b/i);
 			expect(messages[4]).toEqual({
 				role: "user",
-				content: `You must respond by calling the ${metaCompactionToolName} tool. Put the summary in the "${providerCompactionSummaryProperty}" argument. Do not reply as plain text.`,
+				content: `You must respond by calling the ${metaCompactionToolName} tool. Put the summary in the "${providerCompactionSummaryProperty}" argument. Use between 1 and 4000 characters. Do not reply as plain text.`,
 			});
 			const railroadRequest = providerCompactionRequest(
 				{
@@ -1277,7 +1278,7 @@ describe("Bickr Pages Functions", () => {
 			expect(messages[0]?.content).toContain(`${metaCompactionToolName} may only be used when a later META context compaction instruction explicitly requires it.`);
 		});
 
-		it("derives provider compaction schema lengths from settings and compacted characters", () => {
+		it("derives provider compaction prompt lengths from settings and compacted characters", () => {
 			const bot = fakeBotDocument({
 				contextWindowTokens: 50_000,
 				compactionSummaryPercent: 10,
@@ -1307,10 +1308,11 @@ describe("Bickr Pages Functions", () => {
 			const tool = request.tools.find((item) => item.type === "function" && item.function.name === metaCompactionToolName);
 			expect(tool?.type).toBe("function");
 			expect(tool?.type === "function" ? tool.function.parameters.properties[providerCompactionSummaryProperty] : undefined).toMatchObject({
-				minLength: 3001,
+				minLength: 1,
 				maxLength: 20_000,
 			});
 			expect(messages[2]?.content).toContain("between 3001 and 20000 characters");
+			expect(messages[3]?.content).toContain("between 3001 and 20000 characters");
 		});
 
 		it("keeps fixed prompt overhead out of the normal compaction cutoff", () => {

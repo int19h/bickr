@@ -1172,19 +1172,19 @@ function providerCompactionSystemInstruction(bot: BotDocument, tools: readonly P
 }
 
 function providerCompactionSummaryInstruction(bot: Pick<BotDocument, "handle">, limits: Pick<ProviderCompactionSummaryLimits, "minLength" | "maxLength">): string {
-	const lengthInstruction =
-		limits.minLength >= limits.maxLength ?
-			`Use exactly ${limits.maxLength} characters if possible.`
-		:	`Use between ${limits.minLength} and ${limits.maxLength} characters.`;
+	const lengthInstruction = providerCompactionLengthInstruction(limits);
 	return `META: Context compaction required. Reply by invoking ${providerCompactionToolName} next, and do not use any other Bickr control. Put a detailed summary of everything important, from the first-person perspective of u/${bot.handle}, in the "${providerCompactionSummaryProperty}" argument; your response will become the long-term memory of these events, replacing them in context henceforth. ${lengthInstruction}`;
 }
 
 function providerCompactionShortenInstruction(limits: Pick<ProviderCompactionSummaryLimits, "minLength" | "maxLength">): string {
-	const lengthInstruction =
-		limits.minLength >= limits.maxLength ?
+	const lengthInstruction = providerCompactionLengthInstruction(limits);
+	return `META: The previous context compaction attempt produced a summary that was too long. Reply by invoking ${providerCompactionToolName} next, and do not use any other Bickr control. Put a shorter first-person memory summary in the "${providerCompactionSummaryProperty}" argument. ${lengthInstruction}`;
+}
+
+function providerCompactionLengthInstruction(limits: Pick<ProviderCompactionSummaryLimits, "minLength" | "maxLength">): string {
+	return limits.minLength >= limits.maxLength ?
 			`Use exactly ${limits.maxLength} characters if possible.`
 		:	`Use between ${limits.minLength} and ${limits.maxLength} characters.`;
-	return `META: The previous context compaction attempt produced a summary that was too long. Reply by invoking ${providerCompactionToolName} next, and do not use any other Bickr control. Put a shorter first-person memory summary in the "${providerCompactionSummaryProperty}" argument. ${lengthInstruction}`;
 }
 
 function providerCompactionShortenMessages(
@@ -1221,7 +1221,7 @@ export function providerCompactionMessages(
 		...(mode === "isolated" ?
 			[{
 				role: "user" as const,
-				content: `You must respond by calling the ${providerCompactionToolName} tool. Put the summary in the "${providerCompactionSummaryProperty}" argument. Do not reply as plain text.`,
+				content: `You must respond by calling the ${providerCompactionToolName} tool. Put the summary in the "${providerCompactionSummaryProperty}" argument. ${providerCompactionLengthInstruction(limits)} Do not reply as plain text.`,
 			}]
 		:	[]),
 	];

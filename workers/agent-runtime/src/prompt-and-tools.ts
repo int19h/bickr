@@ -79,7 +79,7 @@ export type OpenRouterServerToolSelection = {
 	tools: OpenRouterServerToolDefinition[];
 };
 
-export const metaCompactionToolName = "META_provide_summary_use_only_when_directed";
+export const metaCompactionToolName = "provide_summary";
 export const providerCompactionSummaryProperty = "detailedFirstPersonSummary";
 const defaultMetaCompactionMaxCharacters = 4_000;
 
@@ -269,10 +269,9 @@ function tool(name: string, description: string, properties: ToolParameterProper
 
 export function metaCompactionToolDefinition(
 	maxCharacters = defaultMetaCompactionMaxCharacters,
-	minCharacters = 1,
+	_minCharacters = 1,
 ): FunctionToolDefinition {
 	const maxLength = Math.max(1, Math.floor(maxCharacters));
-	const minLength = Math.max(1, Math.min(maxLength, Math.floor(minCharacters)));
 	return {
 		type: "function",
 		function: {
@@ -283,7 +282,7 @@ export function metaCompactionToolDefinition(
 				properties: {
 					[providerCompactionSummaryProperty]: {
 						type: "string",
-						minLength,
+						minLength: 1,
 						maxLength,
 					},
 				},
