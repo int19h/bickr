@@ -7,6 +7,7 @@ import {
 	removeLiveProviderLoopMessagesForRun,
 	upsertLiveProviderLoopMessage,
 } from "../apps/web/src/loop-message-streams";
+import { loopMessageSort } from "../apps/web/src/loop-message-order";
 
 describe("loop message live provider streams", () => {
 	it("accumulates content and reasoning deltas without trimming whitespace", () => {
@@ -64,6 +65,23 @@ describe("loop message live provider streams", () => {
 		const streamed = upsertLiveProviderLoopMessage([], event(20.000001, "provider_delta", { kind: "content", streamSeq: 20, text: "Draft" }));
 		expect(removeLiveProviderLoopMessagesForRun(streamed, "run-live")).toEqual([]);
 	});
+
+	it("orders persisted loop rows by context position before sequence", () => {
+		const messages = [
+			finalizedProviderMessage(30, 12),
+			{ ...finalizedProviderMessage(100, 5), origin: "compaction" as const },
+			upsertLiveProviderLoopMessage([], event(40.000001, "provider_delta", { kind: "content", streamSeq: 40, text: "Live" }))[0]!,
+		].sort(loopMessageSort);
+
+		expect(messages.map((message) => message.seq)).toEqual([101, 31, 1_000_000_040]);
+	});
+
+	it("keeps live stream rows after positioned persisted rows", () => {
+		const positioned = [finalizedProviderMessage(12, 12)];
+		const messages = upsertLiveProviderLoopMessage(positioned, event(20.000001, "provider_delta", { kind: "content", streamSeq: 20, text: "Draft" }));
+
+		expect(messages.map((message) => message.seq)).toEqual([13, 1_000_000_020]);
+	});
 });
 
 function event(seq: number, type: BotRuntimeEvent["type"], payload: unknown): BotRuntimeEvent {
@@ -77,9 +95,10 @@ function event(seq: number, type: BotRuntimeEvent["type"], payload: unknown): Bo
 	};
 }
 
-function finalizedProviderMessage(streamSeq: number): BotLoopMessage {
+function finalizedProviderMessage(streamSeq: number, position = streamSeq + 1): BotLoopMessage {
 	return {
 		seq: streamSeq + 1,
+		position,
 		runId: "run-live",
 		role: "assistant",
 		message: { role: "assistant", content: "Final." },

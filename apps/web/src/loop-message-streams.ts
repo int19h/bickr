@@ -1,4 +1,5 @@
 import type { BotInferenceSubmissionMessage, BotLoopMessage, BotRuntimeEvent } from "@bickr/shared/model";
+import { loopMessageSort } from "./loop-message-order";
 
 const liveStreamSeqBase = 1_000_000_000;
 
@@ -72,10 +73,6 @@ function liveProviderLoopMessageSeq(streamSeq: number): number {
 function providerDeltaStreamSeq(event: BotRuntimeEvent): number {
 	const payload = recordValue(event.payload);
 	return integerValue(payload.streamSeq) ?? Math.max(0, Math.floor(event.seq));
-}
-
-function loopMessageSort(left: BotLoopMessage, right: BotLoopMessage): number {
-	return left.seq - right.seq;
 }
 
 function recordValue(value: unknown): Record<string, unknown> {

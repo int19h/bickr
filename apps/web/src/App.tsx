@@ -91,6 +91,7 @@ import {
 	removeLiveProviderLoopMessagesForRun,
 	upsertLiveProviderLoopMessage,
 } from "./loop-message-streams";
+import { loopMessageSort } from "./loop-message-order";
 import { loopContinuationRowsForPage } from "./loop-page-continuations";
 import { loopPagePagerItems } from "./loop-page-pager";
 import { normalizeReadableText, reasoningDetailsTextForDisplay, textValueForDisplay } from "./reasoning-formatting";
@@ -12556,10 +12557,6 @@ function latestLoopMessageSeq(messages: BotLoopMessage[]): number {
 
 function loopMessageKey(message: BotLoopMessage): string {
 	return `${message.runId}:${message.seq}`;
-}
-
-function loopMessageSort(left: BotLoopMessage, right: BotLoopMessage): number {
-	return left.seq - right.seq;
 }
 
 function loopMessageActivityKind(message: BotLoopMessage): "input" | "assistant" | "tool" | "error" {

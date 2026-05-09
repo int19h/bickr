@@ -12736,6 +12736,7 @@ function runtimeRecord(value: unknown): Record<string, unknown> {
 function loopMessageFromRow(row: LoopMessageRow): BotLoopMessage {
 	return {
 		seq: row.seq,
+		position: row.position,
 		runId: row.run_id,
 		role: row.role,
 		message: loopMessageChatMessageFromRow(row),

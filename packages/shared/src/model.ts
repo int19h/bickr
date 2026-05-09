@@ -953,6 +953,7 @@ export type BotLoopMessageStatus = "complete" | "interrupted";
 
 export type BotLoopMessage = {
 	seq: number;
+	position?: number;
 	runId: string;
 	role: BotInferenceSubmissionMessage["role"];
 	message: BotInferenceSubmissionMessage;

@@ -2532,6 +2532,27 @@ describe("Bickr Pages Functions", () => {
 			expect(page3.page).toMatchObject({ currentPage: 3, newerPage: 1 });
 		});
 
+		it("serializes loop message positions and orders active compaction summaries by context position", () => {
+			const rows = [
+				{ ...loopMessageRowForTest(1, "run-old", "Old event"), compacted_by: 100 },
+				{ ...loopMessageRowForTest(20, "run-current", "Current event"), position: 10 },
+				{ ...loopMessageRowForTest(100, "run-compact", "Current summary"), position: 5, origin: "compaction" as BotLoopMessage["origin"] },
+			];
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				state: { storage: { sql: memoryLoopMessagePageSql(rows) } },
+			});
+			const loopMessagesPage = (BotRuntime.prototype as unknown as {
+				loopMessagesPage: (input: { page: number; after?: number }) => { messages: BotLoopMessage[]; page: { currentPage: number } };
+			}).loopMessagesPage.bind(runtime);
+
+			const page1 = loopMessagesPage({ page: 1 });
+
+			expect(page1.messages.map((message) => ({ seq: message.seq, position: message.position }))).toEqual([
+				{ seq: 100, position: 5 },
+				{ seq: 20, position: 10 },
+			]);
+		});
+
 		it("keeps incremental loop message fetches on the active page only", () => {
 			const rows = [
 				{ ...loopMessageRowForTest(1, "run-old", "Old event"), compacted_by: 10 },
