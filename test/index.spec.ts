@@ -1414,7 +1414,7 @@ describe("Bickr Pages Functions", () => {
 			}
 		});
 
-		it("accepts structured-output compaction responses without the summary tool", async () => {
+		it("accepts structured-output compaction responses without the summary tool or minimum requested length", async () => {
 			const originalFetch = globalThis.fetch;
 			const validResponse = {
 				choices: [{
@@ -1440,12 +1440,58 @@ describe("Bickr Pages Functions", () => {
 					[{ role: "user", content: "Compact the retained activity." }],
 					"run-compaction-structured",
 					new AbortController().signal,
+					{ minLength: 3403, maxLength: 4000, maxCompletionTokens: 1000 },
 				);
 
 				expect(response.content).toBe("I remember the important parts.");
 				const requestBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as { response_format?: unknown; tools: ProviderToolDefinition[] };
 				expect(requestBody.response_format).toBeTruthy();
 				expect(requestBody.tools.some((tool) => tool.type === "function" && tool.function.name === metaCompactionToolName)).toBe(false);
+			} finally {
+				vi.stubGlobal("fetch", originalFetch);
+			}
+		});
+
+		it("accepts tool-call compaction responses below the requested minimum length", async () => {
+			const originalFetch = globalThis.fetch;
+			const validResponse = {
+				choices: [{
+					message: {
+						tool_calls: [{
+							id: "call_short_compaction",
+							type: "function",
+							function: {
+								name: metaCompactionToolName,
+								arguments: JSON.stringify({ [providerCompactionSummaryProperty]: "Short summary." }),
+							},
+						}],
+					},
+				}],
+				usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 },
+			};
+			const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => Response.json(validResponse));
+			vi.stubGlobal("fetch", fetchMock);
+			try {
+				const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+					appendEvent: vi.fn(),
+					throwIfStopped: vi.fn(),
+				});
+				const callProviderForCompaction = (BotRuntime.prototype as unknown as {
+					callProviderForCompaction: (...args: unknown[]) => Promise<{ content: string }>;
+				}).callProviderForCompaction.bind(runtime);
+
+				const response = await callProviderForCompaction(
+					{ baseUrl: "https://provider.example/api/v1", model: "test-model", temperature: 0.2 },
+					[{ role: "user", content: "Compact the retained activity." }],
+					"run-compaction-tool-short",
+					new AbortController().signal,
+					{ minLength: 3403, maxLength: 4000, maxCompletionTokens: 1000 },
+					undefined,
+					"tool_call",
+				);
+
+				expect(response.content).toBe("Short summary.");
+				expect(fetchMock).toHaveBeenCalledTimes(1);
 			} finally {
 				vi.stubGlobal("fetch", originalFetch);
 			}
