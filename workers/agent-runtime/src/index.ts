@@ -731,7 +731,7 @@ type ProviderCompactionRequest = {
 	provider?: JsonObject;
 	stream: false;
 	tools: ProviderToolDefinition[];
-	tool_choice?: typeof providerRequiredToolChoice;
+	tool_choice?: typeof providerRequiredToolChoice | typeof providerNoToolChoice;
 	parallel_tool_calls: false;
 	response_format?: ProviderJsonSchemaResponseFormat;
 	max_completion_tokens: number;
@@ -1052,6 +1052,7 @@ const cloudflareBindingRetryMaxDelayMs = 4_000;
 const providerMaxAttempts = 5;
 const providerRetryBaseDelayMs = 3_000;
 const providerRequiredToolChoice = "required" as const;
+const providerNoToolChoice = "none" as const;
 const providerTokenProbeToolChoice = "auto" as const;
 const providerParallelToolCalls = true;
 const providerRailroadNoToolMaxAttempts = 5;
@@ -1463,7 +1464,7 @@ export function providerCompactionRequest(
 ): ProviderCompactionRequest {
 	const toolCalls = structuredToolCallsMode(settings.toolCalls ?? "require");
 	const effectiveProviderTools = providerTools ?? providerCompactionToolsForMode(limits, undefined, mode);
-	const toolChoice = mode === "structured_output" ? undefined : providerToolChoiceForMode(toolCalls);
+	const toolChoice = mode === "structured_output" ? providerNoToolChoice : providerToolChoiceForMode(toolCalls);
 	const responseFormat = providerCompactionResponseFormat(limits.maxLength, mode);
 	return {
 		model: settings.model,

@@ -1208,7 +1208,7 @@ describe("Bickr Pages Functions", () => {
 				reasoning: { enabled: true, exclude: false },
 				parallel_tool_calls: false,
 			});
-			expect("tool_choice" in request).toBe(false);
+			expect(request.tool_choice).toBe("none");
 			expect(request.tools.some((tool) => tool.type === "function" && tool.function.name === "read_thread")).toBe(true);
 			expect(request.tools.some((tool) => tool.type === "function" && tool.function.name === metaCompactionToolName)).toBe(false);
 			expect(request.response_format).toMatchObject({
