@@ -1434,6 +1434,12 @@ function providerCompactionMaxCompletionTokensForRequest(
 	);
 }
 
+function providerCompactionRequiredCompletionTokens(
+	limits: Pick<ProviderCompactionSummaryLimits, "maxSummaryTokens">,
+): number {
+	return Math.max(1, Math.ceil(limits.maxSummaryTokens + providerPromptEstimateSafetyTokens));
+}
+
 function providerCompactionResponseFormat(
 	maxCharacters: number,
 	mode: ProviderCompactionMode = "structured_output",
@@ -7050,6 +7056,9 @@ export class BotRuntime {
 		return oldestLoopMessageGroupsForPromptLimit(
 			rows,
 			this.compactionPromptTokenLimit(bot, rows.map((item) => item.row), calibration, providerTools, mode),
+			{
+				canIncludeRows: (selectedRows) => this.compactionRowsLeaveOutputBudget(bot, selectedRows, calibration, providerTools, mode),
+			},
 		);
 	}
 
@@ -7091,8 +7100,15 @@ export class BotRuntime {
 			const batch = oldestLoopMessageGroupsForPromptLimit(
 				estimates,
 				this.compactionPromptTokenLimit(bot, remaining, calibration, providerTools, providerCompactionMode(settings)),
+				{
+					canIncludeRows: (selectedRows) =>
+						this.compactionRowsLeaveOutputBudget(bot, selectedRows, calibration, providerTools, providerCompactionMode(settings)),
+				},
 			);
-			const selected = batch.length > 0 ? batch : [remaining[0]!];
+			if (batch.length === 0) {
+				throw new RepositoryError("bad_request", "The oldest loop message group is too large to compact within the current context budget.", 400);
+			}
+			const selected = batch;
 			const compactedRows = await this.compactLoopMessageRows(bot, settings, runId, signal, selected, mode, {
 				...metrics,
 				...(rows.length !== selected.length ? { batchIndex } : {}),
@@ -7101,6 +7117,17 @@ export class BotRuntime {
 			remaining = remaining.filter((row) => !selectedSeqs.has(row.seq));
 			batchIndex += 1;
 		}
+	}
+
+	private compactionRowsLeaveOutputBudget(
+		bot: BotDocument,
+		rows: readonly LoopMessageRow[],
+		calibration: TextTokenCalibration,
+		providerTools?: ProviderToolDefinition[],
+		mode: ProviderCompactionMode = "structured_output",
+	): boolean {
+		const limits = this.compactionSummaryLimitsForRows(bot, rows, calibration, providerTools, mode);
+		return limits.maxCompletionTokens >= providerCompactionRequiredCompletionTokens(limits);
 	}
 
 	private async compactLoopMessageRows(
@@ -11914,17 +11941,20 @@ export function oldestRowsForTokenFraction<T>(
 function oldestLoopMessageGroupsForPromptLimit(
 	rows: readonly CompactionCandidateEstimate[],
 	limitTokens: number,
+	options: { canIncludeRows?: (rows: readonly LoopMessageRow[]) => boolean } = {},
 ): LoopMessageRow[] {
 	const groups = loopMessageCompactionGroups(rows);
 	const targetTokens = Math.max(1, Math.ceil(Math.max(1, Math.floor(limitTokens)) * compactionRowTokenFraction));
 	const selected: LoopMessageRow[] = [];
 	let selectedTokens = 0;
 	for (const group of groups) {
-		selected.push(...group.rows);
-		selectedTokens += group.tokens;
-		if (selectedTokens >= targetTokens) {
+		const nextTokens = selectedTokens + group.tokens;
+		const nextRows = [...selected, ...group.rows];
+		if (nextTokens >= targetTokens || options.canIncludeRows?.(nextRows) === false) {
 			break;
 		}
+		selected.push(...group.rows);
+		selectedTokens = nextTokens;
 	}
 	return selected;
 }

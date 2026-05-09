@@ -2172,7 +2172,7 @@ describe("Bickr Pages Functions", () => {
 			expect(selected.map((row) => row.seq)).toEqual([1, 2, 3]);
 		});
 
-		it("selects a contiguous oldest prefix of atomic tool-call groups for compaction", () => {
+		it("stops before the atomic tool-call group that crosses the compaction prompt budget", () => {
 			const large = (char: string) => char.repeat(4_000);
 			const rows = [
 				loopMessageRowForMessage(1, { role: "assistant", content: large("a") }),
@@ -2209,7 +2209,7 @@ describe("Bickr Pages Functions", () => {
 				"tool_call_cache_friendly",
 			);
 
-			expect(selected.map((row) => row.seq)).toEqual([1, 2, 3]);
+			expect(selected.map((row) => row.seq)).toEqual([1]);
 		});
 
 		it("compacts malformed visible tool history without blocking on missing matches", () => {
@@ -2248,10 +2248,10 @@ describe("Bickr Pages Functions", () => {
 				"tool_call_cache_friendly",
 			);
 
-			expect(selected.map((row) => row.seq)).toEqual([1, 2, 3]);
+			expect(selected.map((row) => row.seq)).toEqual([1, 2]);
 		});
 
-		it("includes the tool-call group that crosses the compaction prompt budget", () => {
+		it("excludes the tool-call group that crosses the compaction prompt budget", () => {
 			const huge = (char: string) => char.repeat(20_000);
 			const rows = [
 				loopMessageRowForMessage(1, { role: "assistant", content: "a" }),
@@ -2287,7 +2287,72 @@ describe("Bickr Pages Functions", () => {
 				"tool_call_cache_friendly",
 			);
 
-			expect(selected.map((row) => row.seq)).toEqual([1, 2, 3]);
+			expect(selected.map((row) => row.seq)).toEqual([1]);
+		});
+
+		it("excludes a prefix group that would leave too little compaction output budget", () => {
+			const text = (char: string, length: number) => char.repeat(length);
+			const rows = [
+				loopMessageRowForMessage(1, { role: "assistant", content: text("a", 3_200) }),
+				loopMessageRowForMessage(2, { role: "assistant", content: text("b", 420) }),
+				loopMessageRowForMessage(3, {
+					role: "assistant",
+					content: "",
+					tool_calls: [
+						{
+							id: "call-hot",
+							type: "function",
+							function: { name: "list_hot_threads", arguments: "{}" },
+						},
+					],
+				}),
+				loopMessageRowForMessage(4, { role: "tool", tool_call_id: "call-hot", content: text("c", 8_500) }, "tool_result"),
+				loopMessageRowForMessage(5, {
+					role: "assistant",
+					content: "",
+					tool_calls: [
+						{
+							id: "call-read",
+							type: "function",
+							function: { name: "read_thread_by_id", arguments: "{}" },
+						},
+					],
+				}),
+				loopMessageRowForMessage(6, { role: "tool", tool_call_id: "call-read", content: text("d", 10_500) }, "tool_result"),
+			];
+			const calibration = { tokensPerCharacter: 0.325, sampleCount: 50 };
+			const tools = toolDefinitionsForProviderRound();
+			const bot = fakeBotDocument({
+				contextWindowTokens: 20_000,
+				compactionMaxCharacters: 20_000,
+				prompt: "Long persona. ".repeat(900),
+			});
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				activeLoopMessageRows: () => rows,
+				textTokenCalibration: () => calibration,
+			});
+			const compactionRowsForEstimatedBudget = (BotRuntime.prototype as unknown as {
+				compactionRowsForEstimatedBudget: (
+					bot: BotDocument,
+					providerTools?: ProviderToolDefinition[],
+					mode?: "structured_output" | "tool_call" | "tool_call_cache_friendly",
+				) => Array<{ seq: number; message_json: string }>;
+			}).compactionRowsForEstimatedBudget.bind(runtime);
+
+			const selected = compactionRowsForEstimatedBudget(bot, tools, "structured_output");
+			const selectedMessages = selected.map(
+				(row) => JSON.parse(row.message_json) as Parameters<typeof providerCompactionSummaryLimitsForChat>[1][number],
+			);
+			const selectedLimits = providerCompactionSummaryLimitsForChat(bot, selectedMessages, calibration, tools, "structured_output");
+			const rejectedMessages = rows.slice(0, 6).map(
+				(row) => JSON.parse(row.message_json) as Parameters<typeof providerCompactionSummaryLimitsForChat>[1][number],
+			);
+			const rejectedLimits = providerCompactionSummaryLimitsForChat(bot, rejectedMessages, calibration, tools, "structured_output");
+			const compactionOutputSafetyTokens = 512;
+
+			expect(selected.map((row) => row.seq)).toEqual([1, 2, 3, 4]);
+			expect(selectedLimits.maxCompletionTokens).toBeGreaterThanOrEqual(selectedLimits.maxSummaryTokens + compactionOutputSafetyTokens);
+			expect(rejectedLimits.maxCompletionTokens).toBeLessThan(rejectedLimits.maxSummaryTokens + compactionOutputSafetyTokens);
 		});
 
 		it("uses the provider-history filter for compaction candidates", () => {
@@ -13413,7 +13478,7 @@ describe("Bickr Pages Functions", () => {
 		);
 
 		expect(result.promptTokens).toBe(10_000);
-		expect(compactedSeqs).toEqual([[1, 2, 3]]);
+		expect(compactedSeqs).toEqual([[1]]);
 		expect(events.map((event) => event.type)).toEqual(["provider_token_estimate", "provider_token_estimate"]);
 	});
 
