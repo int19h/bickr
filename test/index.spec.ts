@@ -5576,6 +5576,41 @@ describe("Bickr Pages Functions", () => {
 		]);
 	});
 
+	it("removes duplicate tool call ids and ambiguous tool results from provider requests", () => {
+		const request = providerChatCompletionRequest(
+			{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+			[
+				{
+					role: "assistant",
+					content: null,
+					tool_calls: [
+						{
+							id: "call-duplicate",
+							type: "function",
+							function: { name: "read_thread", arguments: "{\"threadId\":\"thr_keep\"}" },
+						},
+						{
+							id: "call-duplicate",
+							type: "function",
+							function: { name: "reply_to_comment", arguments: "{\"commentId\":\"com_drop\",\"body\":\"Ambiguous duplicate.\"}" },
+						},
+					],
+				},
+				{ role: "tool", tool_call_id: "call-duplicate", content: "{\"ok\":true,\"kept\":true}" },
+				{ role: "tool", tool_call_id: "call-duplicate", content: "{\"ok\":true,\"dropped\":true}" },
+			],
+			[],
+		);
+
+		const assistant = request.messages.find((message) => Array.isArray(message.tool_calls));
+		expect(assistant?.tool_calls?.map((toolCall) => toolCall.function.name)).toEqual(["read_thread"]);
+		expect(request.messages.filter((message) => message.role === "tool").map((message) => message.content)).toEqual([
+			"{\"ok\":true,\"kept\":true}",
+		]);
+		expect(JSON.stringify(request.messages)).not.toContain("com_drop");
+		expect(JSON.stringify(request.messages)).not.toContain("dropped");
+	});
+
 	it("repairs invalid Unicode and truncates without splitting surrogate pairs", () => {
 		const high = "\uD83C";
 		const low = "\uDF0C";

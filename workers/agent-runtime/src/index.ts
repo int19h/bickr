@@ -1706,13 +1706,55 @@ function unicodeSafeSlice(text: string, end: number): string {
 }
 
 function sanitizeProviderMessagesForRequest(messages: readonly ChatMessage[]): ChatMessage[] {
-	const sanitized = messages.map(sanitizeProviderMessageForRequest);
+	const sanitized = sanitizeProviderMessageSequenceForRequest(messages.map(sanitizeProviderMessageForRequest));
 	assertNoInvalidUnicodeValue(sanitized, "provider request messages");
 	return sanitized;
 }
 
 function sanitizeProviderMessageForRequest(message: ChatMessage): ChatMessage {
 	return ensureAssistantContentForProviderRequest(repairProviderMessageUnicode(message).value);
+}
+
+function sanitizeProviderMessageSequenceForRequest(messages: readonly ChatMessage[]): ChatMessage[] {
+	const sanitized: ChatMessage[] = [];
+	for (let index = 0; index < messages.length; index += 1) {
+		const message = messages[index]!;
+		if (message.role === "tool") {
+			continue;
+		}
+		if (message.role !== "assistant" || !Array.isArray(message.tool_calls) || message.tool_calls.length === 0) {
+			sanitized.push(message);
+			continue;
+		}
+
+		const toolCallSanitization = sanitizeProviderToolCalls(message.tool_calls);
+		const expectedToolCallIds = new Set(toolCallSanitization.toolCalls.map((toolCall) => toolCall.id));
+		const toolMessages: ChatMessage[] = [];
+		let scan = index + 1;
+		while (scan < messages.length) {
+			const candidate = messages[scan]!;
+			if (candidate.role !== "tool") {
+				break;
+			}
+			if (candidate.tool_call_id && expectedToolCallIds.delete(candidate.tool_call_id)) {
+				toolMessages.push(candidate);
+			}
+			scan += 1;
+		}
+
+		if (toolCallSanitization.toolCalls.length > 0) {
+			sanitized.push({ ...message, tool_calls: toolCallSanitization.toolCalls });
+			sanitized.push(...toolMessages);
+		} else {
+			const withoutToolCalls = { ...message };
+			delete withoutToolCalls.tool_calls;
+			if (!isEmptyProviderAssistantMessage(withoutToolCalls)) {
+				sanitized.push(withoutToolCalls);
+			}
+		}
+		index = scan - 1;
+	}
+	return sanitized;
 }
 
 function repairProviderMessageUnicode(message: ChatMessage): InvalidUnicodeRepair<ChatMessage> {
