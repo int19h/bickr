@@ -25,6 +25,7 @@ import {
 	onRequestPatch as patchProfile,
 } from "../apps/web/functions/api/me/profile";
 import { onRequestGet as getHumanProfile } from "../apps/web/functions/api/humans/[humanHandle]";
+import { onRequestGet as getNotificationsRoute } from "../apps/web/functions/api/me/notifications";
 import { onRequestPost as markAllNotificationsReadRoute } from "../apps/web/functions/api/me/notifications/read-all";
 import { onRequestPost as translateText } from "../apps/web/functions/api/me/translate";
 import { onRequestDelete as unlinkAuthIdentity } from "../apps/web/functions/api/me/auth/identities/[provider]";
@@ -10440,6 +10441,87 @@ describe("Bickr Pages Functions", () => {
 			.bind(user.id)
 			.first<{ count: number }>();
 		expect(unread?.count).toBe(0);
+	});
+
+	it("lists human notifications by world and bot scopes", async () => {
+		const cookie = await authCookie();
+		const user = await testEnv.BICKR_D1.prepare(`SELECT user_id AS id FROM users_index LIMIT 1`).first<{ id: string }>();
+		if (!user) {
+			throw new Error("Test user was not created.");
+		}
+		await testEnv.BICKR_D1.prepare(
+			`INSERT INTO human_notifications (
+				notification_id, user_id, world_id, event_key, notification_type,
+				actor_bot_id, actor_handle, actor_display_name,
+				source_type, source_id, target_type, target_id,
+				title, body, url_path, spotlight_id, spotlight_label,
+				created_at, read_at, archived_at
+			) VALUES
+				('hnt_world_unread', ?, 'world_one', 'event:list:world:unread', 'thread_created', 'bot_a', 'bot-a', 'Bot A', NULL, NULL, NULL, NULL, 'World unread', 'A', '/', NULL, NULL, '2026-01-01T00:00:03.000Z', NULL, NULL),
+				('hnt_world_read', ?, 'world_one', 'event:list:world:read', 'thread_created', 'bot_b', 'bot-b', 'Bot B', NULL, NULL, NULL, NULL, 'World read', 'B', '/', NULL, NULL, '2026-01-01T00:00:04.000Z', '2026-01-01T00:00:05.000Z', NULL),
+				('hnt_bot_a_other_world', ?, 'world_two', 'event:list:bot:a', 'thread_created', 'bot_a', 'bot-a', 'Bot A', NULL, NULL, NULL, NULL, 'Bot A other world', 'C', '/', NULL, NULL, '2026-01-01T00:00:02.000Z', NULL, NULL),
+				('hnt_archived', ?, 'world_one', 'event:list:archived', 'thread_created', 'bot_a', 'bot-a', 'Bot A', NULL, NULL, NULL, NULL, 'Archived', 'D', '/', NULL, NULL, '2026-01-01T00:00:01.000Z', NULL, '2026-01-01T00:00:06.000Z')`,
+		)
+			.bind(user.id, user.id, user.id, user.id)
+			.run();
+
+		const worldResponse = await getNotificationsRoute(
+			contextFor<typeof getNotificationsRoute>(
+				new Request("http://example.com/api/me/notifications?status=all&scopeType=world&scopeId=world_one", {
+					headers: { cookie },
+				}),
+			),
+		);
+		const worldPayload = (await worldResponse.json()) as {
+			data: { unreadCount: number; notifications: Array<{ id: string }> };
+		};
+		expect(worldResponse.status).toBe(200);
+		expect(worldPayload.data.unreadCount).toBe(1);
+		expect(worldPayload.data.notifications.map((notification) => notification.id)).toEqual([
+			"hnt_world_read",
+			"hnt_world_unread",
+		]);
+
+		const botResponse = await getNotificationsRoute(
+			contextFor<typeof getNotificationsRoute>(
+				new Request("http://example.com/api/me/notifications?status=all&scopeType=bot&scopeId=bot_a", {
+					headers: { cookie },
+				}),
+			),
+		);
+		const botPayload = (await botResponse.json()) as {
+			data: { unreadCount: number; notifications: Array<{ id: string }> };
+		};
+		expect(botResponse.status).toBe(200);
+		expect(botPayload.data.unreadCount).toBe(2);
+		expect(botPayload.data.notifications.map((notification) => notification.id)).toEqual([
+			"hnt_world_unread",
+			"hnt_bot_a_other_world",
+		]);
+
+		const missingScopeIdResponse = await getNotificationsRoute(
+			contextFor<typeof getNotificationsRoute>(
+				new Request("http://example.com/api/me/notifications?scopeType=world", {
+					headers: { cookie },
+				}),
+			),
+		);
+		expect(missingScopeIdResponse.status).toBe(400);
+		await expect(missingScopeIdResponse.json()).resolves.toMatchObject({
+			error: "bad_request",
+		});
+
+		const invalidScopeResponse = await getNotificationsRoute(
+			contextFor<typeof getNotificationsRoute>(
+				new Request("http://example.com/api/me/notifications?scopeType=forum&scopeId=forum_a", {
+					headers: { cookie },
+				}),
+			),
+		);
+		expect(invalidScopeResponse.status).toBe(400);
+		await expect(invalidScopeResponse.json()).resolves.toMatchObject({
+			error: "bad_request",
+		});
 	});
 
 	it("marks bot seen content from full-thread and search tool results", async () => {

@@ -14,6 +14,7 @@ import {
 	type CreateThreadInput,
 	type ForumDocument,
 	type HumanNotification,
+	type HumanNotificationListScope,
 	type HumanNotificationReadScope,
 	type HumanNotificationSummary,
 	type HumanNotificationType,
@@ -553,18 +554,20 @@ export async function listHumanNotifications(
 	status: "unread" | "all" = "unread",
 	limit = 30,
 	offset = 0,
+	scope: HumanNotificationListScope = { scopeType: "all" },
 ): Promise<HumanNotificationSummary> {
 	const pageSize = Math.max(1, Math.floor(limit));
 	const pageOffset = Math.max(0, Math.floor(offset));
+	const scopedWhere = humanNotificationListScopeWhere(scope);
 	const unread = await db
 		.prepare(
 			`SELECT COUNT(*) AS count
-			 FROM human_notifications
-			 WHERE user_id = ? AND archived_at IS NULL AND read_at IS NULL`,
+			 FROM human_notifications hn
+			 WHERE hn.user_id = ? AND hn.archived_at IS NULL AND hn.read_at IS NULL${scopedWhere.sql}`,
 		)
-		.bind(userId)
+		.bind(userId, ...scopedWhere.bindings)
 		.first<{ count: number }>();
-	const filter = status === "unread" ? "AND read_at IS NULL" : "";
+	const filter = status === "unread" ? "AND hn.read_at IS NULL" : "";
 	const result = await db
 		.prepare(
 			`SELECT ${humanNotificationColumns}
@@ -608,11 +611,11 @@ export async function listHumanNotifications(
 			 LEFT JOIN bots_index forum_bot
 				ON forum_bot.bot_id = resolved_forum.personal_bot_id
 			   AND forum_bot.deleted_at IS NULL
-			 WHERE hn.user_id = ? AND hn.archived_at IS NULL ${filter}
+			 WHERE hn.user_id = ? AND hn.archived_at IS NULL ${filter}${scopedWhere.sql}
 			 ORDER BY hn.created_at DESC
 			 LIMIT ? OFFSET ?`,
 		)
-		.bind(userId, pageSize + 1, pageOffset)
+		.bind(userId, ...scopedWhere.bindings, pageSize + 1, pageOffset)
 		.all<HumanNotificationRow>();
 	const rows = result.results ?? [];
 	const notifications = rows.slice(0, pageSize).map(humanNotificationFromRow);
@@ -705,6 +708,17 @@ async function markHumanNotificationsReadByIds(
 		readCount += result.meta?.changes ?? 0;
 	}
 	return readCount;
+}
+
+function humanNotificationListScopeWhere(scope: HumanNotificationListScope): { sql: string; bindings: string[] } {
+	switch (scope.scopeType) {
+		case "all":
+			return { sql: "", bindings: [] };
+		case "world":
+			return { sql: " AND hn.world_id = ?", bindings: [scope.scopeId] };
+		case "bot":
+			return { sql: " AND hn.actor_bot_id = ?", bindings: [scope.scopeId] };
+	}
 }
 
 function humanNotificationReadScopeWhere(

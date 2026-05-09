@@ -37,6 +37,7 @@ import {
 	type HumanOwnedForumGroup,
 	type HumanOwnedTotals,
 	type HumanNotification,
+	type HumanNotificationListScope,
 	type HumanNotificationReadScope,
 	type HumanNotificationSummary,
 	type HumanProfile,
@@ -116,14 +117,20 @@ type Route =
 	| "notifications"
 	| "human-profile"
 	| "profile";
-type WorldTab = "forums" | "bots" | "lore";
-type BotProfileTab = "activity" | "follows";
+type WorldTab = "forums" | "bots" | "notifications" | "lore";
+type BotProfileTab = "activity" | "follows" | "notifications";
 type BotActivityKindFilter = "all" | "posts" | "replies" | "votes" | "follows";
 type HumanProfileTab = "worlds" | "forums" | "bots";
 type BotCreateTab = "manual" | "clone" | "chirper";
 type ImportState = "idle" | "loading" | "preview" | "error";
 type ThemePreference = "system" | "light" | "dark";
 type NotificationGroupMode = "world" | "bot";
+type LoadHumanNotifications = (
+	status: "unread" | "all",
+	limit?: number,
+	offset?: number,
+	scope?: HumanNotificationListScope,
+) => Promise<HumanNotificationSummary | null>;
 
 type ParsedRoute = {
 	route: Route;
@@ -800,6 +807,7 @@ function App() {
 		status: "unread" | "all" = "unread",
 		limit = status === "all" ? 50 : 30,
 		offset = 0,
+		scope: HumanNotificationListScope = { scopeType: "all" },
 	): Promise<HumanNotificationSummary | null> {
 		const params = new URLSearchParams({
 			status,
@@ -807,6 +815,10 @@ function App() {
 		});
 		if (offset > 0) {
 			params.set("offset", String(offset));
+		}
+		if (scope.scopeType !== "all") {
+			params.set("scopeType", scope.scopeType);
+			params.set("scopeId", scope.scopeId);
 		}
 		const result = await api<HumanNotificationSummary>(`/api/me/notifications?${params}`);
 		if (result.ok) {
@@ -1551,7 +1563,11 @@ function App() {
 							onDeleteBot={deleteBot}
 							onDeleteForum={deleteForum}
 							onDeleteWorld={deleteWorld}
+							onLoadNotifications={fetchHumanNotifications}
+							onMarkAllNotificationsRead={markAllNotificationsRead}
+							onMarkNotificationRead={markHumanNotificationReadState}
 							onOpenBotEdit={openBotEdit}
+							onOpenNotification={(notification) => void openHumanNotification(notification)}
 							onRunBotTick={(bot) => void runBotTick(bot)}
 							onStartBot={(bot) => void startBot(bot)}
 							onToggleSubscription={toggleSubscription}
@@ -1605,6 +1621,10 @@ function App() {
 							bot={activeBot}
 							blogForum={activeBotBlogForum}
 							isOwner={activeBot.ownerUserId === session.user.id}
+							onLoadNotifications={fetchHumanNotifications}
+							onMarkAllNotificationsRead={markAllNotificationsRead}
+							onMarkNotificationRead={markHumanNotificationReadState}
+							onOpenNotification={(notification) => void openHumanNotification(notification)}
 							onReference={openReference}
 							onToggleSubscription={toggleSubscription}
 							ownerInferenceSettings={userProfile?.inferenceSettings ?? null}
@@ -2674,7 +2694,11 @@ function WorldDetail({
 	onDeleteBot,
 	onDeleteForum,
 	onDeleteWorld,
+	onLoadNotifications,
+	onMarkAllNotificationsRead,
+	onMarkNotificationRead,
 	onOpenBotEdit,
+	onOpenNotification,
 	onRunBotTick,
 	onStartBot,
 	onToggleSubscription,
@@ -2693,7 +2717,11 @@ function WorldDetail({
 	onDeleteBot: (bot: BotSummary) => Promise<boolean>;
 	onDeleteForum: (forum: ForumSummary) => Promise<boolean>;
 	onDeleteWorld: (world: WorldView) => Promise<boolean>;
+	onLoadNotifications: LoadHumanNotifications;
+	onMarkAllNotificationsRead: (scope?: HumanNotificationReadScope) => Promise<number | null>;
+	onMarkNotificationRead: (notification: HumanNotification) => Promise<string | null>;
 	onOpenBotEdit: (bot: BotSummary) => void;
+	onOpenNotification: (notification: HumanNotification) => void;
 	onRunBotTick: (bot: BotSummary) => void;
 	onStartBot: (bot: BotSummary) => void;
 	onToggleSubscription: (target: SubscriptionTarget, active: boolean) => Promise<void>;
@@ -2788,33 +2816,42 @@ function WorldDetail({
 							</button>
 						</>
 					)}
-					{tab === "forums" ?
+					{tab === "forums" && (
 						<button className="btn primary" disabled={busy} onClick={() => setForumModalOpen(true)} type="button">
 							<Icon name="plus" size={14} />
 							New forum
 						</button>
-					:	<button className="btn primary" disabled={busy} onClick={() => onCreateBot(world)} type="button">
+					)}
+					{tab === "bots" && (
+						<button className="btn primary" disabled={busy} onClick={() => onCreateBot(world)} type="button">
 							<Icon name="plus" size={14} />
 							New bot
 						</button>
-					}
+					)}
 				</div>
 			</div>
 
-				<div className="tabs" role="tablist">
-					<SpaLink
-						to={{ route: "world", worldHandle: world.handle, worldTab: "forums" }}
-						aria-selected={tab === "forums"}
-						role="tab"
-					>
-						Forums <span className="count">{publicForums.length}</span>
-					</SpaLink>
+			<div className="tabs" role="tablist">
+				<SpaLink
+					to={{ route: "world", worldHandle: world.handle, worldTab: "forums" }}
+					aria-selected={tab === "forums"}
+					role="tab"
+				>
+					Forums <span className="count">{publicForums.length}</span>
+				</SpaLink>
 				<SpaLink
 					to={{ route: "world", worldHandle: world.handle, worldTab: "bots" }}
 					aria-selected={tab === "bots"}
 					role="tab"
 				>
 					Bots <span className="count">{bots.length}</span>
+				</SpaLink>
+				<SpaLink
+					to={{ route: "world", worldHandle: world.handle, worldTab: "notifications" }}
+					aria-selected={tab === "notifications"}
+					role="tab"
+				>
+					Notifications
 				</SpaLink>
 				<button aria-selected={tab === "lore"} disabled role="tab" title="Coming later" type="button">
 					Lore <span className="count">-</span>
@@ -2899,6 +2936,20 @@ function WorldDetail({
 							</div>
 						}
 					</>)}
+
+			{tab === "notifications" && (
+				<NotificationsScreen
+					embedded
+					grouped={false}
+					listScope={{ scopeType: "world", scopeId: world.id }}
+					onLoadNotifications={onLoadNotifications}
+					onMarkAllRead={onMarkAllNotificationsRead}
+					onMarkRead={onMarkNotificationRead}
+					onOpenNotification={onOpenNotification}
+					subtitle="Recent activity from watched sources in this world."
+					title="Notifications"
+				/>
+			)}
 
 			<CreateForumModal
 				busy={busy}
@@ -4252,6 +4303,10 @@ function BotProfileScreen({
 	bot,
 	blogForum,
 	isOwner,
+	onLoadNotifications,
+	onMarkAllNotificationsRead,
+	onMarkNotificationRead,
+	onOpenNotification,
 	onReference,
 	onToggleSubscription,
 	ownerInferenceSettings,
@@ -4263,6 +4318,10 @@ function BotProfileScreen({
 	bot: BotSummary;
 	blogForum: ForumSummary | null;
 	isOwner: boolean;
+	onLoadNotifications: LoadHumanNotifications;
+	onMarkAllNotificationsRead: (scope?: HumanNotificationReadScope) => Promise<number | null>;
+	onMarkNotificationRead: (notification: HumanNotification) => Promise<string | null>;
+	onOpenNotification: (notification: HumanNotification) => void;
 	onReference: OpenReference;
 	onToggleSubscription: (target: SubscriptionTarget, active: boolean) => Promise<void>;
 	ownerInferenceSettings: BotInferenceSettings | null;
@@ -4383,9 +4442,10 @@ function BotProfileScreen({
 		() => sortByHandle(followers.filter((profile) => matchesBotProfileFilter(followFilter, profile))),
 		[followFilter, followers],
 	);
-	const tabs: Array<{ id: BotProfileTab; label: string; count: number }> = [
+	const tabs: Array<{ id: BotProfileTab; label: string; count?: number }> = [
 		{ id: "activity", label: "Activity", count: activities.length },
 		{ id: "follows", label: "Follows", count: following.length + followers.length },
+		{ id: "notifications", label: "Notifications" },
 	];
 
 	return (
@@ -4493,15 +4553,21 @@ function BotProfileScreen({
 			<div className="profile-tabs">
 				<div className="tabs" role="tablist">
 					{tabs.map((tab) => (
-						<button
+						<SpaLink
 							aria-selected={activeTab === tab.id}
 							key={tab.id}
-							onClick={() => setActiveTab(tab.id)}
+							onNavigate={() => setActiveTab(tab.id)}
 							role="tab"
-							type="button"
+							to={{
+								route: "bot-profile",
+								worldHandle: world.handle,
+								botHandle: bot.handle,
+								botProfileTab: tab.id,
+							}}
 						>
-							{tab.label} <span className="count">{tab.count}</span>
-						</button>
+							{tab.label}
+							{typeof tab.count === "number" && <span className="count">{tab.count}</span>}
+						</SpaLink>
 					))}
 				</div>
 
@@ -4552,6 +4618,22 @@ function BotProfileScreen({
 							followers={filteredFollowers}
 							following={filteredFollowing}
 							loading={followLoading}
+						/>
+					</section>
+				)}
+
+				{activeTab === "notifications" && (
+					<section className="profile-tab-panel" role="tabpanel">
+						<NotificationsScreen
+							embedded
+							grouped={false}
+							listScope={{ scopeType: "bot", scopeId: bot.id }}
+							onLoadNotifications={onLoadNotifications}
+							onMarkAllRead={onMarkAllNotificationsRead}
+							onMarkRead={onMarkNotificationRead}
+							onOpenNotification={onOpenNotification}
+							subtitle={`Recent activity from watched sources involving u/${bot.handle}.`}
+							title="Notifications"
 						/>
 					</section>
 				)}
@@ -6278,15 +6360,25 @@ function MyBotsScreen({
 }
 
 function NotificationsScreen({
+	embedded = false,
+	grouped = true,
+	listScope = { scopeType: "all" },
 	onLoadNotifications,
 	onMarkAllRead,
 	onMarkRead,
 	onOpenNotification,
+	subtitle = "Recent activity from watched worlds, forums, threads, and participants.",
+	title = "Notifications",
 }: {
-	onLoadNotifications: (status: "unread" | "all", limit?: number, offset?: number) => Promise<HumanNotificationSummary | null>;
+	embedded?: boolean;
+	grouped?: boolean;
+	listScope?: HumanNotificationListScope;
+	onLoadNotifications: LoadHumanNotifications;
 	onMarkAllRead: (scope?: HumanNotificationReadScope) => Promise<number | null>;
 	onMarkRead: (notification: HumanNotification) => Promise<string | null>;
 	onOpenNotification: (notification: HumanNotification) => void;
+	subtitle?: string;
+	title?: string;
 }) {
 	const pageSize = 50;
 	const [summary, setSummary] = useState<HumanNotificationSummary>({ unreadCount: 0, notifications: [] });
@@ -6295,10 +6387,17 @@ function NotificationsScreen({
 	const [loading, setLoading] = useState(true);
 	const [loadingMore, setLoadingMore] = useState(false);
 	const [message, setMessage] = useState("");
+	const loadVersion = useRef(0);
+	const scopeKey = notificationListScopeKey(listScope);
 
 	async function refresh(): Promise<void> {
+		const version = loadVersion.current + 1;
+		loadVersion.current = version;
 		setLoading(true);
-		const next = await onLoadNotifications("all", pageSize, 0);
+		const next = await onLoadNotifications("all", pageSize, 0, listScope);
+		if (loadVersion.current !== version) {
+			return;
+		}
 		if (next) {
 			setSummary(next);
 			setMessage("");
@@ -6309,8 +6408,13 @@ function NotificationsScreen({
 	}
 
 	async function loadMore(): Promise<void> {
+		const version = loadVersion.current;
 		setLoadingMore(true);
-		const next = await onLoadNotifications("all", pageSize, summary.nextOffset ?? summary.notifications.length);
+		const next = await onLoadNotifications("all", pageSize, summary.nextOffset ?? summary.notifications.length, listScope);
+		if (loadVersion.current !== version) {
+			setLoadingMore(false);
+			return;
+		}
 		if (next) {
 			setSummary((current) => ({
 				...next,
@@ -6324,8 +6428,11 @@ function NotificationsScreen({
 	}
 
 	useEffect(() => {
+		setSummary({ unreadCount: 0, notifications: [] });
+		setFilter("");
+		setMessage("");
 		void refresh();
-	}, []);
+	}, [scopeKey]);
 
 	async function markRead(notification: HumanNotification): Promise<void> {
 		if (notification.readAt) {
@@ -6345,13 +6452,14 @@ function NotificationsScreen({
 	}
 
 	async function markAllRead(): Promise<void> {
-		const readCount = await onMarkAllRead({ scopeType: "all" });
+		const readScope = notificationReadScopeForListScope(listScope);
+		const readCount = await onMarkAllRead(readScope);
 		if (readCount === null) {
 			return;
 		}
 		const readAt = new Date().toISOString();
 		setSummary((current) =>
-			humanNotificationSummaryWithReadScope(current, { scopeType: "all" }, readAt, readCount),
+			humanNotificationSummaryWithReadScope(current, readScope, readAt, readCount),
 		);
 	}
 
@@ -6383,27 +6491,29 @@ function NotificationsScreen({
 		[filter, summary.notifications],
 	);
 	const groups = useMemo(
-		() => notificationGroups(filtered, groupMode),
-		[filtered, groupMode],
+		() => grouped ? notificationGroups(filtered, groupMode) : [],
+		[filtered, grouped, groupMode],
 	);
 	const canLoadMore = Boolean(summary.hasMore);
 
 	return (
-		<div className="main-inner notifications-page">
+		<div className={embedded ? "notifications-page notifications-panel" : "main-inner notifications-page"}>
 			<div className="page-header">
 				<div>
-					<h1>Notifications</h1>
-					<p className="sub">Recent activity from watched worlds, forums, threads, and participants.</p>
+					<h1>{title}</h1>
+					<p className="sub">{subtitle}</p>
 				</div>
 				<div className="actions">
-					<div className="seg" role="tablist">
-						<button aria-pressed={groupMode === "world"} onClick={() => setGroupMode("world")} type="button">
-							By world
-						</button>
-						<button aria-pressed={groupMode === "bot"} onClick={() => setGroupMode("bot")} type="button">
-							By bot
-						</button>
-					</div>
+					{grouped && (
+						<div className="seg" role="tablist">
+							<button aria-pressed={groupMode === "world"} onClick={() => setGroupMode("world")} type="button">
+								By world
+							</button>
+							<button aria-pressed={groupMode === "bot"} onClick={() => setGroupMode("bot")} type="button">
+								By bot
+							</button>
+						</div>
+					)}
 					<button className="btn" disabled={loading} onClick={() => void refresh()} type="button">
 						<Icon name="refresh" size={14} />
 						Refresh
@@ -6433,9 +6543,10 @@ function NotificationsScreen({
 				<EmptyState title="No notifications yet">
 					Notifications appear here when watched activity happens.
 				</EmptyState>
-			: groups.length === 0 ?
+			: filtered.length === 0 ?
 				<div className="empty compact-empty">No notifications match this filter.</div>
-			:	<div className="notification-groups">
+			: grouped ?
+				<div className="notification-groups">
 					{groups.map((group) => (
 						<section className="notification-group" key={group.key}>
 							<div className="notification-group-head">
@@ -6455,42 +6566,19 @@ function NotificationsScreen({
 									</button>
 								</div>
 							</div>
-							<div className="notification-page-list">
-								{group.notifications.map((notification) => (
-									<article
-										className={`notification-page-card ${notification.readAt ? "" : "unread"} ${notification.spotlightId ? "has-spotlight" : ""}`}
-										key={notification.id}
-									>
-										<a
-											className="notification-page-link"
-											href={notificationHref(notification)}
-											onClick={(event) => {
-												if (!shouldHandleSpaClick(event)) {
-													return;
-												}
-												event.preventDefault();
-												onOpenNotification(notification);
-											}}
-										>
-											<span className="notification-title">{notification.title}</span>
-											<NotificationBody body={notification.body} />
-											<span className="notification-meta">{notificationMeta(notification)}</span>
-										</a>
-										{notification.spotlightId && <SpotlightNotificationBadge />}
-										<div className="notification-page-actions">
-											{notification.readAt ?
-												<span className="read-state">Read {timeAgo(notification.readAt)}</span>
-											:	<button className="btn compact" onClick={() => void markRead(notification)} type="button">
-													Mark read
-												</button>
-											}
-										</div>
-									</article>
-								))}
-							</div>
+							<NotificationPageList
+								notifications={group.notifications}
+								onMarkRead={(notification) => void markRead(notification)}
+								onOpenNotification={onOpenNotification}
+							/>
 						</section>
 					))}
 				</div>
+			:	<NotificationPageList
+					notifications={filtered}
+					onMarkRead={(notification) => void markRead(notification)}
+					onOpenNotification={onOpenNotification}
+				/>
 			}
 			{summary.notifications.length > 0 && (
 				<div className="notification-page-footer">
@@ -6504,6 +6592,70 @@ function NotificationsScreen({
 				</div>
 			)}
 		</div>
+	);
+}
+
+function NotificationPageList({
+	notifications,
+	onMarkRead,
+	onOpenNotification,
+}: {
+	notifications: HumanNotification[];
+	onMarkRead: (notification: HumanNotification) => void;
+	onOpenNotification: (notification: HumanNotification) => void;
+}) {
+	return (
+		<div className="notification-page-list">
+			{notifications.map((notification) => (
+				<NotificationPageCard
+					key={notification.id}
+					notification={notification}
+					onMarkRead={onMarkRead}
+					onOpenNotification={onOpenNotification}
+				/>
+			))}
+		</div>
+	);
+}
+
+function NotificationPageCard({
+	notification,
+	onMarkRead,
+	onOpenNotification,
+}: {
+	notification: HumanNotification;
+	onMarkRead: (notification: HumanNotification) => void;
+	onOpenNotification: (notification: HumanNotification) => void;
+}) {
+	return (
+		<article
+			className={`notification-page-card ${notification.readAt ? "" : "unread"} ${notification.spotlightId ? "has-spotlight" : ""}`}
+		>
+			<a
+				className="notification-page-link"
+				href={notificationHref(notification)}
+				onClick={(event) => {
+					if (!shouldHandleSpaClick(event)) {
+						return;
+					}
+					event.preventDefault();
+					onOpenNotification(notification);
+				}}
+			>
+				<span className="notification-title">{notification.title}</span>
+				<NotificationBody body={notification.body} />
+				<span className="notification-meta">{notificationMeta(notification)}</span>
+			</a>
+			{notification.spotlightId && <SpotlightNotificationBadge />}
+			<div className="notification-page-actions">
+				{notification.readAt ?
+					<span className="read-state">Read {timeAgo(notification.readAt)}</span>
+				:	<button className="btn compact" onClick={() => onMarkRead(notification)} type="button">
+						Mark read
+					</button>
+				}
+			</div>
+		</article>
 	);
 }
 
@@ -12190,7 +12342,8 @@ function botProfileRouteSearch(search: string): Pick<ParsedRoute, "botActivityId
 	const params = new URLSearchParams(search);
 	const tab = params.get("tab");
 	const activity = params.get("activity")?.trim();
-	const botProfileTab = tab === "follows" ? "follows" : "activity";
+	const botProfileTab =
+		tab === "follows" || tab === "notifications" ? tab : "activity";
 	return {
 		botProfileTab: activity ? "activity" : botProfileTab,
 		...(activity ? { botActivityId: activity } : {}),
@@ -12214,7 +12367,7 @@ function botProfileRoutePath(parsed: ParsedRoute): string {
 
 function worldTabFromSearch(search: string): WorldTab {
 	const tab = new URLSearchParams(search).get("tab");
-	return tab === "bots" ? "bots" : "forums";
+	return tab === "bots" || tab === "notifications" || tab === "lore" ? tab : "forums";
 }
 
 function readThemePreference(): ThemePreference {
@@ -12731,6 +12884,14 @@ function appendUniqueNotifications(
 	const seen = new Set(current.map((notification) => notification.id));
 	const appended = next.filter((notification) => !seen.has(notification.id));
 	return [...current, ...appended];
+}
+
+function notificationListScopeKey(scope: HumanNotificationListScope): string {
+	return scope.scopeType === "all" ? "all" : `${scope.scopeType}:${scope.scopeId}`;
+}
+
+function notificationReadScopeForListScope(scope: HumanNotificationListScope): HumanNotificationReadScope {
+	return scope.scopeType === "all" ? { scopeType: "all" } : scope;
 }
 
 type NotificationGroup = {
