@@ -1754,6 +1754,247 @@ fieldset {
 	text-underline-offset: 2px;
 }
 
+.bot-table-bulk-actions {
+	align-items: center;
+	flex-wrap: wrap;
+}
+
+.selection-count {
+	color: var(--ink-3);
+	font-size: 12px;
+	font-weight: 600;
+	white-space: nowrap;
+}
+
+.bot-table-shell {
+	background: var(--paper);
+	border: 1px solid var(--rule);
+	border-radius: var(--radius-lg);
+	overflow: hidden;
+}
+
+.bot-table-scroll {
+	max-height: clamp(320px, calc(100vh - 260px), 720px);
+	overflow: auto;
+}
+
+.bot-table {
+	border-collapse: separate;
+	border-spacing: 0;
+	min-width: 920px;
+	table-layout: fixed;
+	width: 100%;
+}
+
+.bot-table-select-col {
+	width: 44px;
+}
+
+.bot-table-avatar-col {
+	width: 48px;
+}
+
+.bot-table-username-col {
+	width: 160px;
+}
+
+.bot-table-display-col {
+	width: 220px;
+}
+
+.bot-table-time-col {
+	width: 140px;
+}
+
+.bot-table-model-col {
+	width: 260px;
+}
+
+.bot-table th,
+.bot-table td {
+	border-bottom: 1px solid var(--rule-soft);
+	padding: 9px 12px;
+	text-align: left;
+	vertical-align: middle;
+}
+
+.bot-table thead th {
+	background: var(--paper);
+	border-bottom-color: var(--rule);
+	color: var(--ink-3);
+	font-size: 11px;
+	font-weight: 700;
+	letter-spacing: 0.04em;
+	position: sticky;
+	text-transform: uppercase;
+	top: 0;
+	z-index: 8;
+}
+
+.bot-table-check-heading,
+.bot-table-check-cell,
+.bot-table-avatar-heading,
+.bot-table-avatar-cell {
+	text-align: center;
+}
+
+.bot-table-check-heading input,
+.bot-table-check-cell input {
+	display: block;
+	margin: 0 auto;
+}
+
+.bot-table-sort {
+	align-items: center;
+	background: transparent;
+	border: 0;
+	color: inherit;
+	cursor: pointer;
+	display: inline-flex;
+	font: inherit;
+	gap: 5px;
+	justify-content: flex-start;
+	letter-spacing: inherit;
+	margin: -4px -6px;
+	max-width: calc(100% + 12px);
+	min-width: 0;
+	padding: 4px 6px;
+	text-align: left;
+	text-transform: inherit;
+}
+
+.bot-table-sort:hover,
+.bot-table-sort.active {
+	color: var(--ink);
+}
+
+.bot-table-sort span {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.bot-table-sort svg {
+	flex: 0 0 auto;
+}
+
+.bot-table-group-row th {
+	background: var(--paper-2);
+	border-bottom-color: var(--rule);
+	color: var(--ink-3);
+	font-size: 12px;
+	font-weight: 650;
+	padding-block: 8px;
+}
+
+.bot-table-group-row th > .bot-table-group-label,
+.bot-table-group-row th > .bot-table-group-count {
+	display: inline-flex;
+	vertical-align: middle;
+}
+
+.bot-table-group-label {
+	margin-right: 10px;
+}
+
+.bot-table-group-count {
+	color: var(--ink-4);
+	font-weight: 500;
+}
+
+.bot-table-row td {
+	background: var(--paper);
+	transition: background 80ms;
+}
+
+.bot-table-row:hover td {
+	background: var(--paper-2);
+}
+
+.bot-table-row.paused td {
+	background: color-mix(in oklch, oklch(0.82 0.16 85) 10%, var(--paper));
+}
+
+.bot-table-row.paused:hover td {
+	background: color-mix(in oklch, oklch(0.82 0.16 85) 15%, var(--paper-2));
+}
+
+.bot-table-row.selected td {
+	background: color-mix(in oklch, var(--bot) 9%, var(--paper));
+}
+
+.bot-table-row.selected:hover td {
+	background: color-mix(in oklch, var(--bot) 13%, var(--paper-2));
+}
+
+.bot-table tbody:last-child .bot-table-row:last-child td {
+	border-bottom: 0;
+}
+
+.bot-table-avatar-link {
+	border-radius: 3px;
+	display: inline-flex;
+	text-decoration: none;
+}
+
+.bot-profile-hover-wrap {
+	max-width: 100%;
+}
+
+.bot-table-display-cell .bot-profile-hover-wrap {
+	display: block;
+}
+
+.bot-table-display-link {
+	color: var(--ink);
+	display: block;
+	font-weight: 600;
+	max-width: 100%;
+	overflow: hidden;
+	text-decoration: none;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.bot-table-display-link:hover {
+	text-decoration: underline;
+	text-underline-offset: 2px;
+}
+
+.bot-table-username-cell,
+.bot-table-display-cell,
+.bot-table-time-cell,
+.bot-table-model-cell {
+	font-size: 13px;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.bot-table-time-cell,
+.bot-table-model-cell {
+	color: var(--ink-3);
+}
+
+.bot-table-model-cell {
+	font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+	font-size: 12px;
+}
+
+.bot-table-username-cell .ref-wrap {
+	max-width: 100%;
+}
+
+.bot-table-username-cell .ref {
+	display: inline-block;
+	max-width: 100%;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	vertical-align: bottom;
+}
+
 .bot-card {
 	background: var(--paper);
 	border: 1px solid var(--rule);

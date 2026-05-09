@@ -1023,22 +1023,22 @@ function App() {
 		setStatus(result.error ? `Could not start tick for u/${bot.handle}: ${result.error}` : `Tick ${result.status} for u/${bot.handle}.`);
 	}
 
-	async function runWorldBotTicks(worldHandle: string, targetBots: BotSummary[]): Promise<void> {
+	async function runBotTicks(label: string, targetBots: BotSummary[]): Promise<void> {
 		if (!profileReadyFor("running bot actions")) {
 			return;
 		}
 		if (targetBots.length === 0) {
-			setStatus(`No owned bots in w/${worldHandle}.`);
+			setStatus(`No bots selected for ${label}.`);
 			return;
 		}
-		setStatus(`Starting ticks for ${targetBots.length} bot${targetBots.length === 1 ? "" : "s"} in w/${worldHandle}...`);
+		setStatus(`Starting ticks for ${targetBots.length} bot${targetBots.length === 1 ? "" : "s"} in ${label}...`);
 		const results = await Promise.all(targetBots.map((bot) => startBotTick(bot)));
 		const started = results.filter((result) => result.status === "started").length;
 		const alreadyRunning = results.filter((result) => result.status === "already_running").length;
 		const paused = results.filter((result) => result.status === "paused").length;
 		const failed = results.filter((result) => !["started", "already_running", "paused"].includes(result.status)).length;
 		setStatus(
-			`w/${worldHandle}: ${started} started${alreadyRunning ? `, ${alreadyRunning} already running` : ""}${paused ? `, ${paused} paused` : ""}${failed ? `, ${failed} failed` : ""}.`,
+			`${label}: ${started} started${alreadyRunning ? `, ${alreadyRunning} already running` : ""}${paused ? `, ${paused} paused` : ""}${failed ? `, ${failed} failed` : ""}.`,
 		);
 	}
 
@@ -1407,6 +1407,25 @@ function App() {
 		});
 	}
 
+	function removeDeletedBots(deletedBots: BotSummary[]): void {
+		if (deletedBots.length === 0) {
+			return;
+		}
+		const deletedIds = new Set(deletedBots.map((bot) => bot.id));
+		const affectedWorldHandles = new Set(deletedBots.map((bot) => bot.homeWorldHandle));
+		setBots((current) => current.filter((currentBot) => !deletedIds.has(currentBot.id)));
+		setBotsByWorld((current) => {
+			const next = { ...current };
+			for (const worldHandle of affectedWorldHandles) {
+				next[worldHandle] = (next[worldHandle] ?? []).filter((currentBot) => !deletedIds.has(currentBot.id));
+			}
+			return next;
+		});
+		if (activeBot && deletedIds.has(activeBot.id)) {
+			navigate({ route: "my-bots" });
+		}
+	}
+
 	async function deleteBot(bot: BotSummary): Promise<boolean> {
 		if (!profileReadyFor("deleting bots")) {
 			return false;
@@ -1418,16 +1437,49 @@ function App() {
 			if (!result.ok) {
 				throw new Error(result.message);
 			}
-			setBots((current) => current.filter((currentBot) => currentBot.id !== bot.id));
-			setBotsByWorld((current) => ({
-				...current,
-				[bot.homeWorldHandle]: (current[bot.homeWorldHandle] ?? []).filter((currentBot) => currentBot.id !== bot.id),
-			}));
-			if (activeBot?.id === bot.id) {
-				navigate({ route: "my-bots" });
-			}
+			removeDeletedBots([bot]);
 			return `Deleted bot ${bot.handle}.`;
 		});
+	}
+
+	async function deleteBots(targetBots: BotSummary[]): Promise<{ deleted: BotSummary[]; failed: BotSummary[] }> {
+		if (!profileReadyFor("deleting bots")) {
+			return { deleted: [], failed: targetBots };
+		}
+		if (targetBots.length === 0) {
+			setStatus("No bots selected for deletion.");
+			return { deleted: [], failed: [] };
+		}
+		setBusy(true);
+		try {
+			const deleted: BotSummary[] = [];
+			const failed: BotSummary[] = [];
+			for (const bot of targetBots) {
+				try {
+					const result = await api<{ bot: BotSummary }>(`/api/me/bots/${encodeURIComponent(bot.id)}`, {
+						method: "DELETE",
+					});
+					if (result.ok) {
+						deleted.push(bot);
+					} else {
+						failed.push(bot);
+					}
+				} catch {
+					failed.push(bot);
+				}
+			}
+			removeDeletedBots(deleted);
+			const deletedLabel = `${deleted.length} bot${deleted.length === 1 ? "" : "s"}`;
+			const failedLabel = `${failed.length} failed`;
+			setStatus(
+				failed.length > 0 ?
+					`Deleted ${deletedLabel}; ${failedLabel}.`
+				:	`Deleted ${deletedLabel}.`,
+			);
+			return { deleted, failed };
+		} finally {
+			setBusy(false);
+		}
 	}
 
 	async function logout(): Promise<void> {
@@ -1440,10 +1492,6 @@ function App() {
 			navigate({ route: "worlds" });
 			return "Signed out.";
 		});
-	}
-
-	function openBotProfile(bot: BotSummary): void {
-		navigate({ route: "bot-profile", worldHandle: bot.homeWorldHandle, botHandle: bot.handle });
 	}
 
 	function openBotEdit(bot: BotSummary): void {
@@ -1668,12 +1716,9 @@ function App() {
 					{route === "my-bots" && (
 						<MyBotsScreen
 							bots={bots}
-							onCreateBot={openCreateBot}
-							onDelete={deleteBot}
-							onOpen={openBotProfile}
-							onRunBotTick={(bot) => void runBotTick(bot)}
-							onRunWorldBotTicks={(worldHandle, rows) => void runWorldBotTicks(worldHandle, rows)}
-							onStartBot={(bot) => void startBot(bot)}
+							onDeleteBots={deleteBots}
+							onRunBotTicks={(rows) => runBotTicks("selected bots", rows)}
+							ownerInferenceSettings={userProfile?.inferenceSettings ?? null}
 							worlds={worldViews}
 						/>
 					)}
@@ -6324,49 +6369,173 @@ function promptBudgetSegments(
 	];
 }
 
+type MyBotsSortKey = "displayName" | "handle" | "lastActive" | "model" | "nextDue";
+type MyBotsSortDirection = "asc" | "desc";
+type MyBotsConfirmAction = "delete" | "tick";
+
+type MyBotsSortState = {
+	direction: MyBotsSortDirection;
+	key: MyBotsSortKey;
+};
+
+type MyBotTableRecord = {
+	bot: BotSummary;
+	effectiveModel: string;
+	lastActiveSort: number | null;
+	nextDueSort: number | null;
+	world: WorldView | null;
+};
+
 function MyBotsScreen({
 	bots,
-	onCreateBot,
-	onDelete,
-	onOpen,
-	onRunBotTick,
-	onRunWorldBotTicks,
-	onStartBot,
+	onDeleteBots,
+	onRunBotTicks,
+	ownerInferenceSettings,
 	worlds,
 }: {
 	bots: BotSummary[];
-	onCreateBot: (world: WorldView | null) => void;
-	onDelete: (bot: BotSummary) => Promise<boolean>;
-	onOpen: (bot: BotSummary) => void;
-	onRunBotTick: (bot: BotSummary) => void;
-	onRunWorldBotTicks: (worldHandle: string, bots: BotSummary[]) => void;
-	onStartBot: (bot: BotSummary) => void;
+	onDeleteBots: (bots: BotSummary[]) => Promise<{ deleted: BotSummary[]; failed: BotSummary[] }>;
+	onRunBotTicks: (bots: BotSummary[]) => Promise<void>;
+	ownerInferenceSettings: BotInferenceSettings | null;
 	worlds: WorldView[];
 }) {
 	const [botFilter, setBotFilter] = useState("");
-	const groups = useMemo(() => {
+	const [confirmAction, setConfirmAction] = useState<MyBotsConfirmAction | null>(null);
+	const [selectedBotIds, setSelectedBotIds] = useState<Set<string>>(() => new Set());
+	const [sort, setSort] = useState<MyBotsSortState>({ direction: "asc", key: "handle" });
+	const selectAllRef = useRef<HTMLInputElement>(null);
+	const toast = useContext(ToastContext);
+
+	const records = useMemo<MyBotTableRecord[]>(() => {
 		const worldsByHandle = new Map(worlds.map((world) => [world.handle, world]));
-		const grouped = new Map<string, Array<{ bot: BotSummary; world: WorldView | null }>>();
-		for (const bot of bots) {
+		return bots.flatMap((bot) => {
 			const world = worldsByHandle.get(bot.homeWorldHandle) ?? null;
 			if (!matchesFilter(botFilter, bot.handle, bot.displayName, bot.shortBio, bot.homeWorldHandle, world?.name)) {
-				continue;
+				return [];
 			}
-			const rows = grouped.get(bot.homeWorldHandle) ?? [];
-			rows.push({ bot, world });
-			grouped.set(bot.homeWorldHandle, rows);
+			return [{
+				bot,
+				effectiveModel: effectiveBotModel(bot, ownerInferenceSettings),
+				lastActiveSort: timestampSortValue(bot.lastActiveAt ?? bot.createdAt),
+				nextDueSort: bot.tickSettings.enabled ? timestampSortValue(bot.nextDueAt) : null,
+				world,
+			}];
+		});
+	}, [botFilter, bots, ownerInferenceSettings, worlds]);
+
+	const groups = useMemo(() => {
+		const grouped = new Map<string, { rows: MyBotTableRecord[]; world: WorldView | null; worldHandle: string }>();
+		for (const record of records) {
+			const worldHandle = record.bot.homeWorldHandle;
+			const group = grouped.get(worldHandle) ?? { rows: [], world: record.world, worldHandle };
+			group.rows.push(record);
+			grouped.set(worldHandle, group);
 		}
 
-		return [...grouped.entries()]
-			.sort(([left], [right]) => compareHandles(left, right))
-			.map(([worldHandle, rows]) => ({
-				worldHandle,
-				world: worldsByHandle.get(worldHandle) ?? null,
-				rows: rows.sort((left, right) => compareBotCardOrder(left.bot, right.bot)),
+		return [...grouped.values()]
+			.sort((left, right) => compareHandles(left.worldHandle, right.worldHandle))
+			.map((group) => ({
+				...group,
+				rows: [...group.rows].sort((left, right) => compareMyBotTableRecords(left, right, sort)),
 			}));
-	}, [botFilter, bots, worlds]);
-	const [confirmBot, setConfirmBot] = useState<BotSummary | null>(null);
-	const toast = useContext(ToastContext);
+	}, [records, sort]);
+
+	const visibleBotIds = useMemo(
+		() => groups.flatMap((group) => group.rows.map((row) => row.bot.id)),
+		[groups],
+	);
+	const selectedRecords = useMemo(
+		() => groups.flatMap((group) => group.rows).filter((row) => selectedBotIds.has(row.bot.id)),
+		[groups, selectedBotIds],
+	);
+	const selectedBots = useMemo(
+		() => selectedRecords.map((record) => record.bot),
+		[selectedRecords],
+	);
+	const selectedPausedCount = selectedBots.filter((bot) => !bot.tickSettings.enabled).length;
+	const selectedCount = selectedBots.length;
+	const allVisibleSelected = visibleBotIds.length > 0 && visibleBotIds.every((id) => selectedBotIds.has(id));
+	const someVisibleSelected = selectedCount > 0;
+
+	useEffect(() => {
+		const visibleIds = new Set(visibleBotIds);
+		setSelectedBotIds((current) => {
+			let changed = false;
+			const next = new Set<string>();
+			for (const id of current) {
+				if (visibleIds.has(id)) {
+					next.add(id);
+				} else {
+					changed = true;
+				}
+			}
+			return changed ? next : current;
+		});
+	}, [visibleBotIds]);
+
+	useEffect(() => {
+		if (selectAllRef.current) {
+			selectAllRef.current.indeterminate = someVisibleSelected && !allVisibleSelected;
+		}
+	}, [allVisibleSelected, someVisibleSelected]);
+
+	function toggleSort(key: MyBotsSortKey): void {
+		setSort((current) =>
+			current.key === key ?
+				{ key, direction: current.direction === "asc" ? "desc" : "asc" }
+			:	{ key, direction: "asc" },
+		);
+	}
+
+	function toggleAllVisible(): void {
+		setSelectedBotIds((current) => {
+			const next = new Set(current);
+			if (allVisibleSelected) {
+				for (const id of visibleBotIds) {
+					next.delete(id);
+				}
+			} else {
+				for (const id of visibleBotIds) {
+					next.add(id);
+				}
+			}
+			return next;
+		});
+	}
+
+	function toggleBot(botId: string): void {
+		setSelectedBotIds((current) => {
+			const next = new Set(current);
+			if (next.has(botId)) {
+				next.delete(botId);
+			} else {
+				next.add(botId);
+			}
+			return next;
+		});
+	}
+
+	async function deleteSelectedBots(): Promise<void> {
+		const result = await onDeleteBots(selectedBots);
+		if (result.deleted.length > 0) {
+			const deletedIds = new Set(result.deleted.map((bot) => bot.id));
+			setSelectedBotIds((current) => {
+				const next = new Set(current);
+				for (const id of deletedIds) {
+					next.delete(id);
+				}
+				return next;
+			});
+			toast.push(`Deleted ${result.deleted.length} bot${result.deleted.length === 1 ? "" : "s"}.`);
+		}
+	}
+
+	async function runSelectedTicks(): Promise<void> {
+		if (selectedPausedCount > 0) {
+			return;
+		}
+		await onRunBotTicks(selectedBots);
+	}
 
 	return (
 		<div className="main-inner">
@@ -6375,6 +6544,31 @@ function MyBotsScreen({
 					<h1>My bots</h1>
 					<p className="sub">All bots you own across every world.</p>
 				</div>
+				{selectedCount > 0 && (
+					<div className="actions bot-table-bulk-actions">
+						<span className="selection-count">
+							{selectedCount} selected
+						</span>
+						<button className="btn danger" onClick={() => setConfirmAction("delete")} type="button">
+							<Icon name="trash" size={14} />
+							Delete
+						</button>
+						<button
+							className="btn"
+							disabled={selectedPausedCount > 0}
+							onClick={() => setConfirmAction("tick")}
+							title={
+								selectedPausedCount > 0 ?
+									"Paused bots cannot be bulk-run from this page."
+								:	"Run tick for selected bots"
+							}
+							type="button"
+						>
+							<Icon name="refresh" size={14} />
+							Run tick
+						</button>
+					</div>
+				)}
 			</div>
 			{bots.length === 0 ?
 				<EmptyState title="You do not own any bots yet">
@@ -6389,83 +6583,218 @@ function MyBotsScreen({
 					/>
 					{groups.length === 0 ?
 						<div className="empty compact-empty">No bots match this filter.</div>
-					:	<div className="bot-world-groups">
-							{groups.map((group) => (
-								<section className="bot-world-group" key={group.worldHandle}>
-									<div className="bot-world-head">
-										{group.world ?
-											<SpaLink to={{ route: "world", worldHandle: group.worldHandle }}>
-												<Reference kind="world" link={false} name={group.worldHandle} />
-											</SpaLink>
-										:	<Reference kind="world" name={group.worldHandle} />}
-										<div className="bot-world-head-actions">
-											<span>{group.rows.length} bot{group.rows.length === 1 ? "" : "s"}</span>
-											{group.world && (
-												<button className="btn compact primary" onClick={() => onCreateBot(group.world!)} type="button">
-													<Icon name="plus" size={12} />
-													New bot
-												</button>
-											)}
-											<button
-												className="btn compact"
-												onClick={() => onRunWorldBotTicks(group.worldHandle, group.rows.map((row) => row.bot))}
-												type="button"
-											>
-												<Icon name="refresh" size={12} />
-												Run all ticks
-											</button>
-										</div>
-									</div>
-									<div className="bot-grid">
-										{group.rows.map(({ bot, world }) => (
-											<BotCard
-												bot={bot}
-												hideWorld
-												key={bot.id}
-												onDelete={() => setConfirmBot(bot)}
-												onEdit={() => onOpen(bot)}
-												onRunTick={() => onRunBotTick(bot)}
-												onStart={() => onStartBot(bot)}
-												showActive
-												world={world}
-											/>
-										))}
-									</div>
-								</section>
-							))}
+					:	<div className="bot-table-shell">
+							<div className="bot-table-scroll">
+								<table className="bot-table">
+									<colgroup>
+										<col className="bot-table-select-col" />
+										<col className="bot-table-avatar-col" />
+										<col className="bot-table-username-col" />
+										<col className="bot-table-display-col" />
+										<col className="bot-table-time-col" />
+										<col className="bot-table-time-col" />
+										<col className="bot-table-model-col" />
+									</colgroup>
+									<thead>
+										<tr>
+											<th className="bot-table-check-heading" scope="col">
+												<input
+													aria-label={allVisibleSelected ? "Clear visible bot selection" : "Select all visible bots"}
+													checked={allVisibleSelected}
+													disabled={visibleBotIds.length === 0}
+													onChange={toggleAllVisible}
+													ref={selectAllRef}
+													type="checkbox"
+												/>
+											</th>
+											<th className="bot-table-avatar-heading" scope="col">
+												<span className="sr-only">Avatar</span>
+											</th>
+											<MyBotsSortHeader label="u/username" onSort={toggleSort} sort={sort} sortKey="handle" />
+											<MyBotsSortHeader label="Display name" onSort={toggleSort} sort={sort} sortKey="displayName" />
+											<MyBotsSortHeader label="Last active" onSort={toggleSort} sort={sort} sortKey="lastActive" />
+											<MyBotsSortHeader label="Next tick" onSort={toggleSort} sort={sort} sortKey="nextDue" />
+											<MyBotsSortHeader label="Current model" onSort={toggleSort} sort={sort} sortKey="model" />
+										</tr>
+									</thead>
+									{groups.map((group) => (
+										<tbody key={group.worldHandle}>
+											<tr className="bot-table-group-row">
+												<th colSpan={7} scope="rowgroup">
+													<span className="bot-table-group-label">
+														{group.world ?
+															<SpaLink to={{ route: "world", worldHandle: group.worldHandle }}>
+																<Reference kind="world" link={false} name={group.worldHandle} />
+															</SpaLink>
+														:	<Reference kind="world" name={group.worldHandle} />}
+													</span>
+													<span className="bot-table-group-count">
+														{group.rows.length} bot{group.rows.length === 1 ? "" : "s"}
+													</span>
+												</th>
+											</tr>
+											{group.rows.map((record) => {
+												const { bot } = record;
+												const selected = selectedBotIds.has(bot.id);
+												return (
+													<tr
+														className={`bot-table-row ${selected ? "selected" : ""} ${bot.tickSettings.enabled ? "" : "paused"}`.trim()}
+														key={bot.id}
+													>
+														<td className="bot-table-check-cell">
+															<input
+																aria-label={`Select u/${bot.handle}`}
+																checked={selected}
+																onChange={() => toggleBot(bot.id)}
+																type="checkbox"
+															/>
+														</td>
+														<td className="bot-table-avatar-cell">
+															<BotProfileHoverLink
+																bot={bot}
+																className="bot-table-avatar-link"
+																title={`Open ${bot.displayName}`}
+															>
+																<Avatar actor="bot" colorSeed={bot.handle} name={bot.displayName} size="sm" />
+															</BotProfileHoverLink>
+														</td>
+														<td className="bot-table-username-cell">
+															<Reference isBot kind="bot" name={bot.handle} worldHandle={bot.homeWorldHandle} />
+														</td>
+														<td className="bot-table-display-cell">
+															<BotProfileHoverLink
+																bot={bot}
+																className="bot-table-display-link"
+																title={`Open ${bot.displayName}`}
+															>
+																{bot.displayName}
+															</BotProfileHoverLink>
+														</td>
+														<td className="bot-table-time-cell" title={bot.lastActiveAt ?? bot.createdAt}>
+															{timeAgoWithAgo(bot.lastActiveAt ?? bot.createdAt)}
+														</td>
+														<td className="bot-table-time-cell" title={bot.nextDueAt ?? undefined}>
+															{bot.tickSettings.enabled ?
+																timeUntil(bot.nextDueAt)
+															:	<span className="bot-status-label paused">Paused</span>}
+														</td>
+														<td className="bot-table-model-cell" title={record.effectiveModel}>
+															{record.effectiveModel}
+														</td>
+													</tr>
+												);
+											})}
+										</tbody>
+									))}
+								</table>
+							</div>
 						</div>
 					}
 				</>
 			}
 			<Confirm
 				body={
-					confirmBot ?
+					confirmAction === "delete" ?
 						<>
-							This will remove <b>{confirmBot.displayName}</b> (<Reference isBot kind="bot" name={confirmBot.handle} />)
-							from your current bot list.
+							This will remove {selectedCount} selected bot{selectedCount === 1 ? "" : "s"} from your active bot list.
+						</>
+					: confirmAction === "tick" ?
+						<>
+							This will start a tick for {selectedCount} selected bot{selectedCount === 1 ? "" : "s"}.
 						</>
 					:	null
 				}
-				confirmText="Delete bot"
-				danger
-				onClose={() => setConfirmBot(null)}
+				confirmText={
+					confirmAction === "delete" ?
+						`Delete ${selectedCount} bot${selectedCount === 1 ? "" : "s"}`
+					:	`Run ${selectedCount} tick${selectedCount === 1 ? "" : "s"}`
+				}
+				danger={confirmAction === "delete"}
+				onClose={() => setConfirmAction(null)}
 				onConfirm={() => {
-					if (confirmBot) {
-						void onDelete(confirmBot).then((ok) => {
-							if (ok) {
-								toast.push(
-									<>
-										Deleted <Reference isBot kind="bot" name={confirmBot.handle} />
-									</>,
-								);
-							}
-						});
+					if (confirmAction === "delete") {
+						void deleteSelectedBots();
+					} else if (confirmAction === "tick") {
+						void runSelectedTicks();
 					}
 				}}
-				open={Boolean(confirmBot)}
-				title="Delete this bot?"
+				open={Boolean(confirmAction)}
+				title={confirmAction === "delete" ? "Delete selected bots?" : "Run selected ticks?"}
 			/>
 		</div>
+	);
+}
+
+function MyBotsSortHeader({
+	label,
+	onSort,
+	sort,
+	sortKey,
+}: {
+	label: string;
+	onSort: (key: MyBotsSortKey) => void;
+	sort: MyBotsSortState;
+	sortKey: MyBotsSortKey;
+}) {
+	const active = sort.key === sortKey;
+	return (
+		<th aria-sort={active ? (sort.direction === "asc" ? "ascending" : "descending") : "none"} scope="col">
+			<button className={`bot-table-sort ${active ? "active" : ""}`} onClick={() => onSort(sortKey)} type="button">
+				<span>{label}</span>
+				{active && <Icon name={sort.direction === "asc" ? "arrowUp" : "arrowDown"} size={12} />}
+			</button>
+		</th>
+	);
+}
+
+function BotProfileHoverLink({
+	bot,
+	children,
+	className,
+	title,
+}: {
+	bot: BotSummary;
+	children: ReactNode;
+	className?: string;
+	title?: string;
+}) {
+	const referenceData = useContext(ReferenceDataContext);
+	const { navigate } = useContext(NavigationContext);
+	const hoverTooltip = useContext(HoverTooltipContext);
+	const tooltipId = useId();
+	const meta = referenceMeta(referenceData, "bot", bot.handle, bot.homeWorldHandle);
+	const route: ParsedRoute = { route: "bot-profile", worldHandle: bot.homeWorldHandle, botHandle: bot.handle };
+	return (
+		<span
+			className="ref-wrap bot-profile-hover-wrap"
+			onBlur={() => hoverTooltip.hide(tooltipId)}
+			onFocus={() => meta ? hoverTooltip.show(tooltipId) : undefined}
+			onMouseEnter={() => meta ? hoverTooltip.show(tooltipId) : undefined}
+			onMouseLeave={() => hoverTooltip.hide(tooltipId)}
+		>
+			<a
+				className={className}
+				href={routePath(route)}
+				onClick={(event) => {
+					if (!shouldHandleSpaClick(event)) {
+						return;
+					}
+					event.preventDefault();
+					event.stopPropagation();
+					hoverTooltip.clear();
+					navigate(route);
+				}}
+				title={title}
+			>
+				{children}
+			</a>
+			{meta && (
+				<span className={`ref-popover ${hoverTooltip.activeId === tooltipId ? "active" : ""}`} role="tooltip">
+					<span className="ref-pop-title">{meta.title}</span>
+					<span className="ref-pop-desc">{meta.description}</span>
+				</span>
+			)}
+		</span>
 	);
 }
 
@@ -12986,6 +13315,59 @@ function compareBotCardOrder(left: BotSummary, right: BotSummary): number {
 
 function sortBotsForCards<T extends BotSummary>(items: T[]): T[] {
 	return [...items].sort(compareBotCardOrder);
+}
+
+function compareMyBotTableRecords(left: MyBotTableRecord, right: MyBotTableRecord, sort: MyBotsSortState): number {
+	let result = 0;
+	switch (sort.key) {
+		case "displayName":
+			result = compareSortText(left.bot.displayName, right.bot.displayName, sort.direction);
+			break;
+		case "handle":
+			result = compareSortText(left.bot.handle, right.bot.handle, sort.direction);
+			break;
+		case "lastActive":
+			result = compareNullableTimestampSort(left.lastActiveSort, right.lastActiveSort, sort.direction);
+			break;
+		case "model":
+			result = compareSortText(left.effectiveModel, right.effectiveModel, sort.direction);
+			break;
+		case "nextDue":
+			result = compareNullableTimestampSort(left.nextDueSort, right.nextDueSort, sort.direction);
+			break;
+	}
+	return result || compareHandles(left.bot.handle, right.bot.handle);
+}
+
+function compareSortText(left: string, right: string, direction: MyBotsSortDirection): number {
+	const result = left.localeCompare(right, undefined, { sensitivity: "base" });
+	return direction === "asc" ? result : -result;
+}
+
+function compareNullableTimestampSort(
+	left: number | null,
+	right: number | null,
+	direction: MyBotsSortDirection,
+): number {
+	if (left === null && right === null) {
+		return 0;
+	}
+	if (left === null) {
+		return 1;
+	}
+	if (right === null) {
+		return -1;
+	}
+	const result = left - right;
+	return direction === "asc" ? result : -result;
+}
+
+function timestampSortValue(value: string | null | undefined): number | null {
+	if (!value) {
+		return null;
+	}
+	const parsed = Date.parse(value);
+	return Number.isFinite(parsed) ? parsed : null;
 }
 
 function normalizeFilterText(value: string): string {
