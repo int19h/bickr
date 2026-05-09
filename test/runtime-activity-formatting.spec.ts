@@ -77,6 +77,21 @@ describe("runtimeActivities tool log formatting", () => {
 		expect(activity?.body).not.toContain("Bickr Terminal");
 	});
 
+	it("formats empty provider response failures as direct Loop errors", () => {
+		const [activity] = runtimeActivities([
+			runtimeEvent("tick_failed", {
+				message: [
+					"Inference failed before retrying; error from provider:",
+					"Inference provider returned an empty response with no content, reasoning, or tool calls.",
+				].join("\n"),
+			}),
+		], "sandbox");
+
+		expect(activity?.title).toBe("Tick failed");
+		expect(activity?.body).toBe("Inference provider returned an empty response with no content, reasoning, or tool calls.");
+		expect(activity?.body).not.toContain("Inference failed before retrying");
+	});
+
 	it("formats invalid saved context repair as owner-visible runtime activity", () => {
 		const [activity] = runtimeActivities([
 			runtimeEvent("provider_history_repaired", { count: 2, reason: "invalid_unicode_text", messageSeqs: [1, 2] }),

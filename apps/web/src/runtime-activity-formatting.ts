@@ -1,4 +1,5 @@
 import type { BotRuntimeEvent } from "@bickr/shared/model";
+import { ownerRuntimeErrorMessage } from "@bickr/shared/runtime-errors";
 import { handlePatternSource, normalizeHandleText } from "@bickr/shared/validation";
 
 export type RuntimeActivityKind =
@@ -148,7 +149,7 @@ export function runtimeActivities(events: BotRuntimeEvent[], fallbackWorldHandle
 					createdAt: event.createdAt,
 					kind: "provider",
 					title: "Inference retry",
-					body: humanRuntimeErrorMessage(stringValue(payload.reason)),
+					body: ownerRuntimeErrorMessage(stringValue(payload.reason)),
 					meta: `attempt ${stringValue(payload.attempt) ?? "?"}/${stringValue(payload.maxAttempts) ?? "?"} after ${formatDelay(payload.delayMs)}`,
 					raw: event,
 				});
@@ -295,7 +296,7 @@ export function runtimeActivities(events: BotRuntimeEvent[], fallbackWorldHandle
 					createdAt: event.createdAt,
 					kind: "error",
 					title: "Tick failed",
-					body: humanRuntimeErrorMessage(stringValue(payload.message)) ?? formatPayload(event.payload),
+					body: ownerRuntimeErrorMessage(stringValue(payload.message)) ?? formatPayload(event.payload),
 					raw: event,
 				});
 				break;
@@ -1143,19 +1144,6 @@ function entityFields(record: Record<string, unknown>, keys: string[]): string {
 
 function shortId(value: string | undefined): string {
 	return value ? value.slice(-8) : "...";
-}
-
-function humanRuntimeErrorMessage(message: string | undefined): string | undefined {
-	if (!message) {
-		return undefined;
-	}
-	return message
-		.replace(/^Bickr Terminal request failed with status (\d+) at the configured service\. Response: /, "Inference request failed with status $1: ")
-		.replace(/^Inference request failed with status (\d+)\. Response: /, "Inference request failed with status $1: ")
-		.replace(/^Bickr Terminal did not respond within /, "Inference request did not respond within ")
-		.replace(/^Bickr Terminal stopped responding after /, "Inference stream stopped responding after ")
-		.replace(/^Bickr Terminal reported an error during this visit: /, "")
-		.replace(/^Bickr website crashed with an error: /, "");
 }
 
 function runtimeRecord(value: unknown): Record<string, unknown> {

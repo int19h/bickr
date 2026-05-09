@@ -912,6 +912,16 @@ class ProviderResponseBodyTimeoutError extends Error {
 	}
 }
 
+class ProviderEmptyResponseError extends Error {
+	readonly rawResponse?: string;
+
+	constructor(rawResponse?: string) {
+		super("Inference provider returned an empty response with no content, reasoning, or tool calls.");
+		this.name = "ProviderEmptyResponseError";
+		this.rawResponse = rawResponse;
+	}
+}
+
 class ProviderStreamIdleTimeoutError extends Error {
 	readonly timeoutMs: number;
 
@@ -978,6 +988,7 @@ const providerRequestTimeoutMs = 60_000;
 const providerBodyReadTimeoutMs = 60_000;
 const providerStreamIdleTimeoutMs = 60_000;
 const providerResponseBodyMaxBytes = 2_000_000;
+const providerFailureRawResponseMaxCharacters = 64_000;
 const serviceBindingTimeoutMs = 30_000;
 const serviceBindingResponseBodyMaxBytes = 1_000_000;
 const scheduledDispatchTimeoutMs = 10_000;
@@ -2152,6 +2163,33 @@ function cloneToolCall(toolCall: ToolCall): ToolCall {
 
 function hasProviderHistoryText(value: unknown): value is string {
 	return typeof value === "string" && value.trim().length > 0;
+}
+
+function providerResponseIsEmpty(
+	response: Pick<ProviderResponse, "content" | "reasoning" | "reasoningDetails" | "toolCalls">,
+): boolean {
+	return providerResponsePartsAreEmpty(response.content, response.reasoning, response.reasoningDetails, response.toolCalls);
+}
+
+function providerResponsePartsAreEmpty(
+	content: unknown,
+	reasoning: unknown,
+	reasoningDetails: readonly unknown[],
+	toolCalls: readonly unknown[],
+): boolean {
+	return (
+		!hasProviderHistoryText(content) &&
+		!hasProviderHistoryText(reasoning) &&
+		reasoningDetails.length === 0 &&
+		toolCalls.length === 0
+	);
+}
+
+function appendRawResponsePreview(current: string, next: string): string {
+	if (current.length >= providerFailureRawResponseMaxCharacters) {
+		return current;
+	}
+	return `${current}${next}`.slice(0, providerFailureRawResponseMaxCharacters);
 }
 
 export function providerTokenProbeRequest(
@@ -3492,6 +3530,9 @@ export class BotRuntime {
 				}
 				throw interruptedError?.originalError instanceof Error ? interruptedError.originalError : new TickStoppedError();
 			}
+			if (providerResponseIsEmpty(response)) {
+				throw new ProviderEmptyResponseError(response.rawResponse);
+			}
 			if (response.toolCalls.length === 0) {
 				if (forceSyntheticLogOff) {
 					await this.appendSyntheticLimitLogOff(bot, runId, runContext);
@@ -3885,11 +3926,15 @@ export class BotRuntime {
 		let usage: ProviderUsage | undefined;
 		let responseId: string | undefined;
 		let responseModel: string | undefined;
+		let rawResponse = "";
 		this.markProviderStreamActive(runId);
 		try {
 			for await (const event of readSse(stream, signal)) {
 				this.throwIfStopped(runId, signal);
 				this.markProviderStreamActive(runId);
+				if (providerResponsePartsAreEmpty(content, reasoning, reasoningDetails, [...toolCalls.values()])) {
+					rawResponse = appendRawResponsePreview(rawResponse, event.raw);
+				}
 				if (event.data === "[DONE]") {
 					break;
 				}
@@ -3979,15 +4024,20 @@ export class BotRuntime {
 		} finally {
 			this.clearProviderStreamActive(runId);
 		}
-		return {
+		const response = {
 			content: repairInvalidUnicodeText(content),
 			reasoning: repairInvalidUnicodeText(reasoning),
 			reasoningDetails: repairInvalidUnicodeValue(reasoningDetails).value,
 			toolCalls: [...toolCalls.values()].filter((tool) => tool.function.name),
+			...(rawResponse ? { rawResponse } : {}),
 			...(usage ? { usage } : {}),
 			...(responseId ? { responseId } : {}),
 			...(responseModel ? { responseModel } : {}),
 		};
+		if (providerResponseIsEmpty(response)) {
+			throw new ProviderEmptyResponseError(response.rawResponse);
+		}
+		return response;
 	}
 
 	private async appendProviderMessages(
@@ -11888,6 +11938,9 @@ function providerFailureResponseText(error: unknown): string | undefined {
 	}
 	if (error instanceof ProviderRequestError) {
 		return error.rawResponse ?? (error.body ? error.body : undefined);
+	}
+	if (error instanceof ProviderEmptyResponseError) {
+		return error.rawResponse;
 	}
 	return undefined;
 }

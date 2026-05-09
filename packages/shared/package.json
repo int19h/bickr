@@ -10,6 +10,7 @@
 		"./ids": "./src/ids.ts",
 		"./model": "./src/model.ts",
 		"./repository": "./src/repository.ts",
+		"./runtime-errors": "./src/runtime-errors.ts",
 		"./social": "./src/social.ts",
 		"./storage": "./src/storage.ts",
 		"./validation": "./src/validation.ts",

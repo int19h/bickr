@@ -51,6 +51,7 @@ import {
 	RepositoryError,
 	type RepositoryErrorDetails,
 } from "./repository";
+import { ownerRuntimeErrorMessage } from "./runtime-errors";
 import {
 	type D1DatabaseLike,
 	type D1Result,
@@ -999,12 +1000,12 @@ export async function recordBotRuntimeFailureHumanNotification(
 			[
 				`u/${input.bot.handle} stopped after repeated invalid tool calls.`,
 				input.toolName ? `Last failed tool: ${input.toolName}.` : "",
-				input.message,
+				ownerRuntimeErrorMessage(input.message),
 				"Check the loop and consider changing the bot's model or settings.",
 			]
 		:	[
 				`u/${input.bot.handle}'s loop run stopped with an error.`,
-				input.message,
+				ownerRuntimeErrorMessage(input.message),
 				"Check the loop log and inference settings.",
 			];
 	await insertHumanNotification(db, {

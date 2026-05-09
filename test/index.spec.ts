@@ -1416,6 +1416,52 @@ describe("Bickr Pages Functions", () => {
 			}
 		});
 
+		it("wraps empty loop provider streams with request and response diagnostics", async () => {
+			const emptyChunk = { id: "chatcmpl-empty", object: "chat.completion.chunk", choices: [{}] };
+			const responseBody = `data: ${JSON.stringify(emptyChunk)}\n\ndata: [DONE]\n\n`;
+			const fetchProviderResponse = vi.fn(async () => sseStream([emptyChunk, "[DONE]"]));
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				broadcastProviderDelta: () => {},
+				clearProviderStreamActive: () => {},
+				fetchProviderResponse,
+				markProviderStreamActive: () => {},
+				throwIfStopped: vi.fn(),
+			});
+			const callProvider = (BotRuntime.prototype as unknown as {
+				callProvider: (
+					settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+					messages: Array<Record<string, unknown>>,
+					tools: ProviderToolDefinition[],
+					runId: string,
+					streamSeq: number,
+					signal: AbortSignal,
+				) => Promise<unknown>;
+			}).callProvider.bind(runtime);
+
+			let thrown: unknown;
+			try {
+				await callProvider(
+					{ baseUrl: "https://provider.example/api/v1", model: "test-model", temperature: 0.2 },
+					[{ role: "user", content: "Use a page control." }],
+					toolDefinitionsForProviderRound(),
+					"run-empty-provider-stream",
+					1,
+					new AbortController().signal,
+				);
+			} catch (error) {
+				thrown = error;
+			}
+
+			expect(fetchProviderResponse).toHaveBeenCalledTimes(1);
+			expect(thrown).toMatchObject({
+				name: "ProviderLoopRequestError",
+				message: expect.stringContaining("Inference provider returned an empty response"),
+				responseBody,
+			});
+			expect((thrown as { requestBody?: string }).requestBody).toContain("\"tool_choice\":\"required\"");
+			expect((thrown as { requestBody?: string }).requestBody).toContain("\"tools\"");
+		});
+
 		it("retries compaction provider 429s with the reported upstream provider ignored", async () => {
 			const originalFetch = globalThis.fetch;
 			const rateLimitResponse = {
@@ -5243,7 +5289,7 @@ describe("Bickr Pages Functions", () => {
 		expect(JSON.parse(request.messages[1]?.tool_calls?.[0]?.function.arguments ?? "{}")).toMatchObject({ note: "bad \uFFFD" });
 	});
 
-	it("does not append empty provider responses to the loop ledger", async () => {
+	it("rejects empty provider responses without appending them to the loop ledger", async () => {
 		const appendedLoopMessages: Array<{ message: Record<string, unknown>; origin: string }> = [];
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) =>
@@ -5304,7 +5350,10 @@ describe("Bickr Pages Functions", () => {
 				[],
 				{ mode: "normal", signal: new AbortController().signal },
 			),
-		).resolves.toMatchObject({ logOffCalled: false });
+		).rejects.toMatchObject({
+			name: "ProviderEmptyResponseError",
+			message: "Inference provider returned an empty response with no content, reasoning, or tool calls.",
+		});
 		expect(appendedLoopMessages).toEqual([]);
 	});
 
@@ -7653,6 +7702,44 @@ describe("Bickr Pages Functions", () => {
 			urlPath: "/w/patch-notes/u/release-sage/loop",
 		});
 		expect(row?.body).toContain("schema-invalid compaction tool arguments");
+		expect(row?.body).toContain("Check the loop log and inference settings.");
+	});
+
+	it("records empty provider response failures as owner notifications", async () => {
+		const bot = {
+			id: "bot_empty_provider_notice",
+			ownerUserId: "user_empty_provider_owner",
+			homeWorldId: "world_empty_provider",
+			homeWorldHandle: "primary",
+			handle: "donald-trump",
+			displayName: "Donald Trump",
+		} as BotDocument;
+		const message = [
+			"Inference failed before retrying; error from provider:",
+			"Inference provider returned an empty response with no content, reasoning, or tool calls.",
+		].join("\n");
+
+		await recordBotRuntimeFailureHumanNotification(testEnv.BICKR_D1, {
+			bot,
+			runId: "run-empty-provider-notice",
+			message,
+			now: "2026-05-07T12:30:00.000Z",
+		});
+
+		const row = await testEnv.BICKR_D1.prepare(
+			`SELECT notification_type AS notificationType, title, body, url_path AS urlPath
+			 FROM human_notifications
+			 WHERE event_key = ?`,
+		)
+			.bind("bot_runtime_failed:bot_empty_provider_notice:run-empty-provider-notice")
+			.first<{ body: string; notificationType: string; title: string; urlPath: string }>();
+		expect(row).toMatchObject({
+			notificationType: "bot_runtime_failed",
+			title: "Donald Trump loop run failed",
+			urlPath: "/w/primary/u/donald-trump/loop",
+		});
+		expect(row?.body).toContain("Inference provider returned an empty response with no content, reasoning, or tool calls.");
+		expect(row?.body).not.toContain("Inference failed before retrying");
 		expect(row?.body).toContain("Check the loop log and inference settings.");
 	});
 
