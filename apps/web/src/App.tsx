@@ -9225,8 +9225,6 @@ function BotRuntimePanel({
 				return;
 			}
 			if (payload.type === "loop_messages_reset") {
-				setLoopMessages([]);
-				setLoopMessagePage(null);
 				setOpenLoopMessageLogs(null);
 				setDeletingLoopMessageSeq(null);
 				latestLoopMessageSeqRef.current = 0;
