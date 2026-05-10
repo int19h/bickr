@@ -5839,6 +5839,7 @@ function BotAvatarGenerationScreen({
 					</button>
 				</div>
 				{generationSettingsError && <div className="runtime-message error">{generationSettingsError}</div>}
+				<ImageGenerationBasicFields draft={draft} models={models} onChange={setDraft} />
 				<details className="advanced-panel">
 					<summary>
 						<span className="advanced-panel-summary">
@@ -5847,7 +5848,7 @@ function BotAvatarGenerationScreen({
 						</span>
 					</summary>
 					<div className="advanced-panel-body">
-						<ImageGenerationInferenceFields draft={draft} models={models} onChange={setDraft} />
+						<ImageGenerationAdvancedFields draft={draft} onChange={setDraft} />
 					</div>
 				</details>
 				<div className="field avatar-prompt-field">
@@ -9939,6 +9940,23 @@ function ImageGenerationInferenceFields({
 	models?: OpenRouterImageModel[];
 	onChange: (draft: InferenceDraft) => void;
 }) {
+	return (
+		<div className="field-stack">
+			<ImageGenerationBasicFields draft={draft} models={models} onChange={onChange} />
+			<ImageGenerationAdvancedFields draft={draft} onChange={onChange} />
+		</div>
+	);
+}
+
+function ImageGenerationBasicFields({
+	draft,
+	models,
+	onChange,
+}: {
+	draft: InferenceDraft;
+	models?: OpenRouterImageModel[];
+	onChange: (draft: InferenceDraft) => void;
+}) {
 	const [loadedModels, setLoadedModels] = useState<OpenRouterImageModel[]>(models ?? []);
 	const [loadError, setLoadError] = useState("");
 	useEffect(() => {
@@ -9980,71 +9998,88 @@ function ImageGenerationInferenceFields({
 	const modelSelected = draft.imageGenerationModel.trim().length > 0;
 	const supportsExtendedConfig = supportsOpenRouterExtendedImageConfig(draft.imageGenerationModel);
 	return (
-		<div className="field-stack">
-			<div className="inference-row three">
-				<Field help={loadError || "Only OpenRouter models that advertise image output are listed."} label="Model">
-					<select
-						className="input"
-						onChange={(event) => patchModel(event.target.value)}
-						value={draft.imageGenerationModel}
-					>
-						<option value="">Choose a model</option>
-						{loadedModels.map((model) => (
-							<option key={model.id} value={model.id}>
-								{model.name ? `${model.name} (${model.id})` : model.id}
+		<div className="inference-row three">
+			<Field help={loadError || "Only OpenRouter models that advertise image output are listed."} label="Model">
+				<select
+					className="input"
+					onChange={(event) => patchModel(event.target.value)}
+					value={draft.imageGenerationModel}
+				>
+					<option value="">Choose a model</option>
+					{loadedModels.map((model) => (
+						<option key={model.id} value={model.id}>
+							{model.name ? `${model.name} (${model.id})` : model.id}
+						</option>
+					))}
+				</select>
+			</Field>
+			<Field
+				help={<ImageConfigHelp text="OpenRouter uses the selected model's default when this is left blank. Extended ratios are Gemini 3.1 Flash Image Preview-only." />}
+				label="Aspect ratio"
+			>
+				<select
+					className="input"
+					disabled={!modelSelected}
+					onChange={(event) => patch({ imageGenerationAspectRatio: event.target.value })}
+					value={draft.imageGenerationAspectRatio}
+				>
+					<option value="">Default</option>
+					<optgroup label="Standard">
+						{openRouterImageAspectRatios.map((ratio) => (
+							<option key={ratio} value={ratio}>{imageAspectRatioLabel(ratio)}</option>
+						))}
+					</optgroup>
+					<optgroup label="Gemini 3.1 only">
+						{openRouterExtendedImageAspectRatios.map((ratio) => (
+							<option disabled={!supportsExtendedConfig} key={ratio} value={ratio}>
+								{imageAspectRatioLabel(ratio)}
 							</option>
 						))}
-					</select>
-				</Field>
-				<Field
-					help={<ImageConfigHelp text="OpenRouter uses the selected model's default when this is left blank. Extended ratios are Gemini 3.1 Flash Image Preview-only." />}
-					label="Aspect ratio"
+					</optgroup>
+				</select>
+			</Field>
+			<Field
+				help={<ImageConfigHelp text="OpenRouter uses the selected model's default when this is left blank. 0.5K is Gemini 3.1 Flash Image Preview-only." />}
+				label="Image size"
+			>
+				<select
+					className="input"
+					disabled={!modelSelected}
+					onChange={(event) => patch({ imageGenerationImageSize: event.target.value })}
+					value={draft.imageGenerationImageSize}
 				>
-					<select
-						className="input"
-						onChange={(event) => patch({ imageGenerationAspectRatio: event.target.value })}
-						value={draft.imageGenerationAspectRatio}
-					>
-						<option value="">Default</option>
-						<optgroup label="Standard">
-							{openRouterImageAspectRatios.map((ratio) => (
-								<option key={ratio} value={ratio}>{imageAspectRatioLabel(ratio)}</option>
-							))}
-						</optgroup>
-						<optgroup label="Gemini 3.1 only">
-							{openRouterExtendedImageAspectRatios.map((ratio) => (
-								<option disabled={!supportsExtendedConfig} key={ratio} value={ratio}>
-									{imageAspectRatioLabel(ratio)}
-								</option>
-							))}
-						</optgroup>
-					</select>
-				</Field>
-				<Field
-					help={<ImageConfigHelp text="OpenRouter uses the selected model's default when this is left blank. 0.5K is Gemini 3.1 Flash Image Preview-only." />}
-					label="Image size"
-				>
-					<select
-						className="input"
-						onChange={(event) => patch({ imageGenerationImageSize: event.target.value })}
-						value={draft.imageGenerationImageSize}
-					>
-						<option value="">Default</option>
-						<optgroup label="Standard">
-							{openRouterImageSizes.map((size) => (
-								<option key={size} value={size}>{imageSizeLabel(size)}</option>
-							))}
-						</optgroup>
-						<optgroup label="Gemini 3.1 only">
-							{openRouterExtendedImageSizes.map((size) => (
-								<option disabled={!supportsExtendedConfig} key={size} value={size}>
-									{imageSizeLabel(size)}
-								</option>
-							))}
-						</optgroup>
-					</select>
-				</Field>
-			</div>
+					<option value="">Default</option>
+					<optgroup label="Standard">
+						{openRouterImageSizes.map((size) => (
+							<option key={size} value={size}>{imageSizeLabel(size)}</option>
+						))}
+					</optgroup>
+					<optgroup label="Gemini 3.1 only">
+						{openRouterExtendedImageSizes.map((size) => (
+							<option disabled={!supportsExtendedConfig} key={size} value={size}>
+								{imageSizeLabel(size)}
+							</option>
+						))}
+					</optgroup>
+				</select>
+			</Field>
+		</div>
+	);
+}
+
+function ImageGenerationAdvancedFields({
+	draft,
+	onChange,
+}: {
+	draft: InferenceDraft;
+	onChange: (draft: InferenceDraft) => void;
+}) {
+	function patch(update: Partial<InferenceDraft>): void {
+		onChange({ ...draft, ...update });
+	}
+	const modelSelected = draft.imageGenerationModel.trim().length > 0;
+	return (
+		<div className="field-stack">
 			<div className="inference-row four">
 				<Field label="Temperature">
 					<input

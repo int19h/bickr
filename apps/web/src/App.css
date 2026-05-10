@@ -5891,7 +5891,7 @@ fieldset {
 .advanced-panel {
 	border: 1px solid var(--rule);
 	border-radius: var(--radius);
-	margin-bottom: 16px;
+	margin: 16px 0;
 	overflow: hidden;
 }
 
