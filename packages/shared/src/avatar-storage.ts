@@ -324,7 +324,12 @@ function ascii(bytes: Uint8Array, start: number, end: number): string {
 }
 
 function base64Bytes(value: string): Uint8Array {
-	const binary = atob(value);
+	let binary: string;
+	try {
+		binary = atob(value);
+	} catch {
+		throw new InputError("Generated avatar image was not valid base64.");
+	}
 	const bytes = new Uint8Array(binary.length);
 	for (let index = 0; index < binary.length; index += 1) {
 		bytes[index] = binary.charCodeAt(index);

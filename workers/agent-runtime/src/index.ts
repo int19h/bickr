@@ -1,5 +1,6 @@
 import { fail, ok, readJsonBody } from "@bickr/shared/api";
 import {
+	avatarMaxBytes,
 	fetchRemoteAvatarBytes,
 	normalizeAvatarPublicBaseUrl,
 	promoteAvatarCandidate,
@@ -1070,6 +1071,16 @@ class ProviderResponseBodyTimeoutError extends Error {
 	}
 }
 
+class ResponseBodySizeLimitError extends Error {
+	readonly maxBytes: number;
+
+	constructor(maxBytes: number) {
+		super(`Response body exceeded ${maxBytes} bytes.`);
+		this.name = "ResponseBodySizeLimitError";
+		this.maxBytes = maxBytes;
+	}
+}
+
 class ProviderEmptyResponseError extends Error {
 	readonly rawResponse?: string;
 	readonly responseId?: string;
@@ -1153,6 +1164,9 @@ const providerRequestTimeoutMs = 60_000;
 const providerBodyReadTimeoutMs = 60_000;
 const providerStreamIdleTimeoutMs = 60_000;
 const providerResponseBodyMaxBytes = 2_000_000;
+// Image outputs arrive inside JSON as base64 data URLs, so the response cap has to
+// account for base64 expansion before avatar byte validation can run.
+const providerImageResponseBodyMaxBytes = Math.ceil((avatarMaxBytes * 4) / 3) + 2_000_000;
 const providerFailureRawResponseMaxCharacters = 64_000;
 const openRouterGenerationMetadataMaxBytes = 64_000;
 const openRouterGenerationMetadataTimeoutMs = 5_000;
@@ -9217,7 +9231,20 @@ async function generateAvatarForBot(
 		prompt: input.prompt,
 		currentAvatarUrl: input.includeCurrentAvatar ? bot.avatar?.url : undefined,
 	});
-	const validated = validateAvatarDataUrl(dataUrl);
+	let validated: ReturnType<typeof validateAvatarDataUrl>;
+	try {
+		validated = validateAvatarDataUrl(dataUrl);
+	} catch (error) {
+		if (error instanceof InputError) {
+			throw new ProviderRequestError(
+				502,
+				settings.model,
+				providerChatCompletionsUrl(settings.baseUrl),
+				`Provider returned an invalid generated avatar image. ${error.message}`,
+			);
+		}
+		throw error;
+	}
 	return storeAvatarImage(requireAvatarBucket(env), {
 		botId: bot.id,
 		worldId: bot.homeWorldId,
@@ -9297,7 +9324,7 @@ async function fetchProviderAvatarImage(
 	const requestBody = {
 		model: settings.model,
 		messages: [{ role: "user", content }],
-		modalities: ["image", "text"],
+		modalities: await providerImageOutputModalities(settings),
 		...(Object.keys(imageConfig).length > 0 ? { image_config: imageConfig } : {}),
 		...(settings.providerRouting ? { provider: settings.providerRouting } : {}),
 		...(settings.temperature !== undefined ? { temperature: settings.temperature } : {}),
@@ -9318,13 +9345,21 @@ async function fetchProviderAvatarImage(
 		const bodyText = await readProviderErrorBody(response, signal);
 		throw new ProviderRequestError(response.status, settings.model, endpoint, bodyText);
 	}
-	const rawResponse = await readJsonResponseText(
-		response,
-		providerResponseBodyMaxBytes,
-		signal,
-		providerBodyReadTimeoutMs,
-		() => new ProviderResponseBodyTimeoutError(providerBodyReadTimeoutMs),
-	);
+	let rawResponse: string;
+	try {
+		rawResponse = await readJsonResponseText(
+			response,
+			providerImageResponseBodyMaxBytes,
+			signal,
+			providerBodyReadTimeoutMs,
+			() => new ProviderResponseBodyTimeoutError(providerBodyReadTimeoutMs),
+		);
+	} catch (error) {
+		if (error instanceof ResponseBodySizeLimitError) {
+			throw new ProviderRequestError(502, settings.model, endpoint, "Provider image response was larger than the supported avatar size.");
+		}
+		throw error;
+	}
 	let payload: unknown;
 	try {
 		payload = JSON.parse(rawResponse) as unknown;
@@ -9336,6 +9371,34 @@ async function fetchProviderAvatarImage(
 		throw new ProviderRequestError(502, settings.model, endpoint, "Provider image response did not include an image.", { rawResponse });
 	}
 	return dataUrl;
+}
+
+async function providerImageOutputModalities(settings: Pick<ImageGenerationProviderSettings, "baseUrl" | "model">): Promise<["image"] | ["image", "text"]> {
+	if (!isOpenRouterProviderBaseUrl(settings.baseUrl)) {
+		return ["image", "text"];
+	}
+	try {
+		const response = await fetch("https://openrouter.ai/api/v1/models?output_modalities=image", {
+			headers: { accept: "application/json" },
+		});
+		if (!response.ok) {
+			return ["image", "text"];
+		}
+		const payload = await response.json() as { data?: unknown };
+		const data = Array.isArray(payload.data) ? payload.data : [];
+		for (const item of data) {
+			const record = runtimeRecord(item);
+			if (stringValue(record.id) !== settings.model) {
+				continue;
+			}
+			const architecture = runtimeRecord(record.architecture);
+			const outputModalities = stringArrayValue(architecture.output_modalities);
+			return outputModalities.includes("text") ? ["image", "text"] : ["image"];
+		}
+	} catch {
+		return ["image", "text"];
+	}
+	return ["image", "text"];
 }
 
 function providerImageDataUrl(payload: unknown): string | null {
@@ -13449,7 +13512,7 @@ async function readJsonResponseText(
 		timeoutError,
 	});
 	if (result.truncated) {
-		throw new Error(`Response body exceeded ${maxBytes} bytes.`);
+		throw new ResponseBodySizeLimitError(maxBytes);
 	}
 	return result.text;
 }
@@ -14602,6 +14665,9 @@ function errorResponse(error: unknown): Response {
 		return fail(error.code, error.message, error.status, error.details);
 	}
 	if (error instanceof ProviderRequestError) {
+		return fail("server_error", error.message, 502);
+	}
+	if (error instanceof ResponseBodySizeLimitError) {
 		return fail("server_error", error.message, 502);
 	}
 	if (error instanceof InputError) {

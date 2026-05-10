@@ -16588,7 +16588,18 @@ describe("Bickr Pages Functions", () => {
 		const r2 = fakeR2Bucket();
 		const originalFetch = globalThis.fetch;
 		const fetchMock = vi.fn<(_input: RequestInfo | URL, _init?: RequestInit) => Promise<Response>>(
-			async (_input, init) => {
+			async (input, init) => {
+				if (String(input) === "https://openrouter.ai/api/v1/models?output_modalities=image") {
+					return Response.json({
+						data: [
+							{
+								id: "openai/image-one",
+								architecture: { input_modalities: ["text"], output_modalities: ["image", "text"] },
+							},
+						],
+					});
+				}
+				expect(String(input)).toBe("https://openrouter.ai/api/v1/chat/completions");
 				const requestBody = JSON.parse(String(init?.body)) as {
 					modalities?: string[];
 					image_config?: Record<string, unknown>;
@@ -16601,7 +16612,7 @@ describe("Bickr Pages Functions", () => {
 					choices: [
 						{
 							message: {
-								images: [{ image_url: { url: avatarDataUrl() } }],
+								images: [{ image_url: { url: avatarDataUrl(largePngAvatarBytes()) } }],
 							},
 						},
 					],
@@ -16644,6 +16655,7 @@ describe("Bickr Pages Functions", () => {
 				model: "openai/image-one",
 				prompt: "Paint me as a luminous portrait.",
 			});
+			expect(candidate.byteLength).toBeGreaterThan(1_500_000);
 			expect(r2.objects.has(candidate.key)).toBe(true);
 		} finally {
 			vi.stubGlobal("fetch", originalFetch);
@@ -16680,6 +16692,65 @@ describe("Bickr Pages Functions", () => {
 			aspectRatio: "1:1",
 			imageSize: "512x512",
 		});
+	});
+
+	it("uses image-only OpenRouter modalities for image-only avatar models", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const bot = await createBotForTest(cookie, "avatar-image-only");
+		const userId = await userIdForHandle("octocat");
+		const r2 = fakeR2Bucket();
+		const originalFetch = globalThis.fetch;
+		const fetchMock = vi.fn<(_input: RequestInfo | URL, _init?: RequestInit) => Promise<Response>>(
+			async (input, init) => {
+				if (String(input) === "https://openrouter.ai/api/v1/models?output_modalities=image") {
+					return Response.json({
+						data: [
+							{
+								id: "image/only",
+								architecture: { input_modalities: ["text"], output_modalities: ["image"] },
+							},
+						],
+					});
+				}
+				const requestBody = JSON.parse(String(init?.body)) as { modalities?: string[] };
+				expect(requestBody.modalities).toEqual(["image"]);
+				return Response.json({
+					choices: [
+						{
+							message: {
+								images: [{ image_url: { url: avatarDataUrl() } }],
+							},
+						},
+					],
+				});
+			},
+		);
+		vi.stubGlobal("fetch", fetchMock);
+		try {
+			const response = await handleAgentRuntimeRequest(
+				serviceJsonRequest(
+					`/users/${encodeURIComponent(userId)}/bots/${encodeURIComponent(bot.id)}/avatar/generate`,
+					userId,
+					{
+						prompt: "Paint me as a luminous portrait.",
+						includeCurrentAvatar: false,
+						settings: { model: "image/only" },
+					},
+				),
+				{
+					BICKR_D1: testEnv.BICKR_D1,
+					BICKR_KV: testEnv.BICKR_KV,
+					BICKR_R2: r2.bucket,
+					BICKR_R2_PUBLIC_BASE_URL: "https://assets-test.bickr.social",
+					OPENROUTER_API_KEY: "test-key",
+				},
+			);
+			expect(response.status).toBe(200);
+			expect(fetchMock).toHaveBeenCalledTimes(2);
+		} finally {
+			vi.stubGlobal("fetch", originalFetch);
+		}
 	});
 
 	it("prefills avatar prompts with structured output when configured", async () => {
@@ -17602,6 +17673,14 @@ function pngAvatarBytes(): Uint8Array {
 	return base64Bytes("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==");
 }
 
+function largePngAvatarBytes(): Uint8Array {
+	const bytes = new Uint8Array(1_600_000);
+	bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 0);
+	bytes.set([0x00, 0x00, 0x04, 0x00], 16);
+	bytes.set([0x00, 0x00, 0x04, 0x00], 20);
+	return bytes;
+}
+
 function webpAvatarBytes(): Uint8Array {
 	return new Uint8Array([
 		0x52, 0x49, 0x46, 0x46,
@@ -17610,8 +17689,8 @@ function webpAvatarBytes(): Uint8Array {
 	]);
 }
 
-function avatarDataUrl(): string {
-	return `data:image/png;base64,${base64String(pngAvatarBytes())}`;
+function avatarDataUrl(bytes = pngAvatarBytes()): string {
+	return `data:image/png;base64,${base64String(bytes)}`;
 }
 
 function base64Bytes(value: string): Uint8Array {
