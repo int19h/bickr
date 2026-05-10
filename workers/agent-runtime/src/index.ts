@@ -1027,6 +1027,22 @@ class ProviderStructuredOutputValidationError extends Error {
 	}
 }
 
+class ProviderAvatarDescriptionValidationError extends Error {
+	readonly rawResponse: string;
+	readonly outputText?: string;
+	readonly repairMessage: string;
+	readonly toolCalls: BotInferenceSubmissionToolCall[];
+
+	constructor(repairMessage: string, options: { rawResponse: string; outputText?: string; toolCalls?: BotInferenceSubmissionToolCall[] }) {
+		super(`Inference provider returned invalid avatar description: ${repairMessage}`);
+		this.name = "ProviderAvatarDescriptionValidationError";
+		this.rawResponse = options.rawResponse;
+		this.outputText = options.outputText;
+		this.repairMessage = repairMessage;
+		this.toolCalls = options.toolCalls ?? [];
+	}
+}
+
 class ProviderCompactionOutputLimitError extends Error {
 	readonly rawResponse: string;
 	readonly finishReason: string;
@@ -1171,6 +1187,7 @@ const providerTokenProbeToolChoice = "auto" as const;
 const providerParallelToolCalls = true;
 const providerRailroadNoToolMaxAttempts = 5;
 const providerPromptCompactionMaxAttempts = 3;
+const providerAvatarDescriptionMaxAttempts = 3;
 const providerDefaultReasoning = { effort: "minimal", exclude: false } as const satisfies ProviderReasoningConfig;
 const providerCompactionNoReasoning = { effort: "none", exclude: false } as const satisfies ProviderReasoningConfig;
 const providerCompactionMinimalReasoning = { effort: "minimal", exclude: false } as const satisfies ProviderReasoningConfig;
@@ -9341,6 +9358,31 @@ function providerAvatarDescriptionTools(): [ProviderToolDefinition] {
 	];
 }
 
+function providerAvatarDescriptionResponseFormat(mode: ProviderCompactionMode): ProviderJsonSchemaResponseFormat | undefined {
+	if (mode !== "structured_output") {
+		return undefined;
+	}
+	return {
+		type: "json_schema",
+		json_schema: {
+			name: "avatar_description",
+			strict: true,
+			schema: {
+				type: "object",
+				properties: {
+					description: {
+						type: "string",
+						minLength: 1,
+						maxLength: 8_000,
+					},
+				},
+				required: ["description"],
+				additionalProperties: false,
+			},
+		},
+	};
+}
+
 async function fetchProviderAvatarDescription(settings: ProviderSettings, bot: BotDocument): Promise<string> {
 	const endpoint = providerChatCompletionsUrl(settings.baseUrl);
 	const signal = new AbortController().signal;
@@ -9348,79 +9390,263 @@ async function fetchProviderAvatarDescription(settings: ProviderSettings, bot: B
 	if (settings.apiKey) {
 		headers.authorization = `Bearer ${settings.apiKey}`;
 	}
-	const tools = providerAvatarDescriptionTools();
+	const mode = providerCompactionMode(settings);
+	const tools = mode === "structured_output" ? [] : providerAvatarDescriptionTools();
 	const toolCalls = settings.toolCalls === "railroad" ? "railroad" : "require";
-	const requestBody = {
-		model: settings.model,
-		messages: sanitizeProviderMessagesForRequest([
-			{ role: "system", content: appendToolRequirementInstruction(standardPrompt(bot), tools) },
-			{
-				role: "user",
-				content: `Bickr Terminal needs a profile image description. I should call ${providerAvatarDescriptionToolName} with a first-person, in-character description that is highly verbose and full of concrete visual detail. The description should focus only on visible appearance, style, scene, lighting, and composition.`,
-			},
-		]),
-		...(settings.providerRouting ? { provider: settings.providerRouting } : {}),
-		stream: false,
-		tools,
-		...(providerToolChoiceForMode(toolCalls) ? { tool_choice: providerToolChoiceForMode(toolCalls) } : {}),
-		parallel_tool_calls: false,
-		max_completion_tokens: 1400,
-		reasoning: providerReasoningForSettings(settings),
-		temperature: settings.temperature,
-		...(settings.topK !== undefined ? { top_k: settings.topK } : {}),
-		...(settings.topP !== undefined ? { top_p: settings.topP } : {}),
-		...(settings.minP !== undefined ? { min_p: settings.minP } : {}),
-		...(settings.frequencyPenalty !== undefined ? { frequency_penalty: settings.frequencyPenalty } : {}),
-		...(settings.presencePenalty !== undefined ? { presence_penalty: settings.presencePenalty } : {}),
-		...(settings.repetitionPenalty !== undefined ? { repetition_penalty: settings.repetitionPenalty } : {}),
-	};
-	const response = await providerFetchWithHeaderTimeout(
+	const toolChoice =
+		mode === "structured_output" ? undefined
+		: providerToolChoiceForMode(toolCalls);
+	const responseFormat = providerAvatarDescriptionResponseFormat(mode);
+	const messages: ChatMessage[] = [
+		{
+			role: "system",
+			content: mode === "structured_output" ? standardPrompt(bot) : appendToolRequirementInstruction(standardPrompt(bot), tools),
+		},
+		{
+			role: "user",
+			content:
+				mode === "structured_output" ?
+					"Bickr Terminal needs a profile image description. I should return the required JSON object with a first-person, in-character description that is highly verbose and full of concrete visual detail. The description should focus only on visible appearance, style, scene, lighting, and composition."
+				:	`Bickr Terminal needs a profile image description. I should call ${providerAvatarDescriptionToolName} with a first-person, in-character description that is highly verbose and full of concrete visual detail. The description should focus only on visible appearance, style, scene, lighting, and composition.`,
+		},
+	];
+	let lastValidationError: ProviderAvatarDescriptionValidationError | undefined;
+	let fallbackDescription: string | null = null;
+	for (let attempt = 1; attempt <= providerAvatarDescriptionMaxAttempts; attempt += 1) {
+		const requestBody = {
+			model: settings.model,
+			messages: sanitizeProviderMessagesForRequest(messages),
+			...(settings.providerRouting ? { provider: settings.providerRouting } : {}),
+			stream: false,
+			...(tools.length > 0 ? { tools } : {}),
+			...(toolChoice ? { tool_choice: toolChoice } : {}),
+			...(tools.length > 0 ? { parallel_tool_calls: false } : {}),
+			...(responseFormat ? { response_format: responseFormat } : {}),
+			max_completion_tokens: 1400,
+			reasoning: providerReasoningForSettings(settings),
+			temperature: settings.temperature,
+			...(settings.topK !== undefined ? { top_k: settings.topK } : {}),
+			...(settings.topP !== undefined ? { top_p: settings.topP } : {}),
+			...(settings.minP !== undefined ? { min_p: settings.minP } : {}),
+			...(settings.frequencyPenalty !== undefined ? { frequency_penalty: settings.frequencyPenalty } : {}),
+			...(settings.presencePenalty !== undefined ? { presence_penalty: settings.presencePenalty } : {}),
+			...(settings.repetitionPenalty !== undefined ? { repetition_penalty: settings.repetitionPenalty } : {}),
+		};
+		const response = await providerFetchWithHeaderTimeout(
+			endpoint,
+			{ method: "POST", headers, body: JSON.stringify(requestBody) },
+			signal,
+			providerRequestTimeoutMs,
+		);
+		if (!response.ok) {
+			const bodyText = await readProviderErrorBody(response, signal);
+			throw new ProviderRequestError(response.status, settings.model, endpoint, bodyText);
+		}
+		const rawResponse = await readJsonResponseText(
+			response,
+			providerResponseBodyMaxBytes,
+			signal,
+			providerBodyReadTimeoutMs,
+			() => new ProviderResponseBodyTimeoutError(providerBodyReadTimeoutMs),
+		);
+		let payload: ProviderCompactionResponsePayload;
+		try {
+			payload = JSON.parse(rawResponse) as ProviderCompactionResponsePayload;
+		} catch {
+			throw new ProviderRequestError(502, settings.model, endpoint, "Provider avatar description response was not valid JSON.", { rawResponse });
+		}
+		try {
+			return providerAvatarDescriptionFromResponseMessage(payload.choices?.[0]?.message, rawResponse, mode);
+		} catch (error) {
+			if (!(error instanceof ProviderAvatarDescriptionValidationError)) {
+				throw error;
+			}
+			lastValidationError = error;
+			fallbackDescription ??= normalizeAvatarDescriptionText(error.outputText);
+			if (attempt < providerAvatarDescriptionMaxAttempts) {
+				messages.push(...avatarDescriptionRepairMessages(error, mode));
+				continue;
+			}
+			const fallback = normalizeAvatarDescriptionText(error.outputText) ?? fallbackDescription;
+			if (fallback) {
+				return fallback;
+			}
+		}
+	}
+	throw new ProviderRequestError(
+		502,
+		settings.model,
 		endpoint,
-		{ method: "POST", headers, body: JSON.stringify(requestBody) },
-		signal,
-		providerRequestTimeoutMs,
+		lastValidationError?.repairMessage ?? "Provider avatar description response did not call the required tool.",
+		lastValidationError ? { rawResponse: lastValidationError.rawResponse } : {},
 	);
-	if (!response.ok) {
-		const bodyText = await readProviderErrorBody(response, signal);
-		throw new ProviderRequestError(response.status, settings.model, endpoint, bodyText);
+}
+
+function providerAvatarDescriptionFromResponseMessage(message: unknown, rawResponse: string, mode: ProviderCompactionMode): string {
+	return mode === "structured_output" ?
+			providerAvatarDescriptionFromStructuredMessage(message, rawResponse)
+		:	providerAvatarDescriptionFromToolMessage(message, rawResponse);
+}
+
+function providerAvatarDescriptionFromStructuredMessage(message: unknown, rawResponse: string): string {
+	const messageRecord = runtimeRecord(message);
+	const toolCalls =
+		Array.isArray(messageRecord.tool_calls) ?
+			messageRecord.tool_calls.map(providerAvatarDescriptionToolCallFromValue).filter((toolCall): toolCall is BotInferenceSubmissionToolCall => Boolean(toolCall))
+		:	[];
+	const content = providerMessageTextContent(messageRecord.content);
+	if (toolCalls.length > 0) {
+		throw new ProviderAvatarDescriptionValidationError("The profile image description should be returned in the required JSON object without using a Bickr control.", {
+			rawResponse,
+			outputText: content,
+			toolCalls,
+		});
 	}
-	const rawResponse = await readJsonResponseText(
-		response,
-		providerResponseBodyMaxBytes,
-		signal,
-		providerBodyReadTimeoutMs,
-		() => new ProviderResponseBodyTimeoutError(providerBodyReadTimeoutMs),
-	);
-	let payload: ProviderCompactionResponsePayload;
+	if (!content) {
+		throw new ProviderAvatarDescriptionValidationError("The profile image description response was empty.", { rawResponse });
+	}
+	let parsed: unknown;
 	try {
-		payload = JSON.parse(rawResponse) as ProviderCompactionResponsePayload;
+		parsed = JSON.parse(content);
 	} catch {
-		throw new ProviderRequestError(502, settings.model, endpoint, "Provider avatar description response was not valid JSON.", { rawResponse });
+		throw new ProviderAvatarDescriptionValidationError("The profile image description response must be a JSON object with a description field.", {
+			rawResponse,
+			outputText: content,
+		});
 	}
-	const description = providerAvatarDescriptionFromToolMessage(payload.choices?.[0]?.message, rawResponse);
-	if (!description.trim()) {
-		throw new ProviderRequestError(502, settings.model, endpoint, "Provider avatar description response was empty.", { rawResponse });
+	const record = runtimeRecord(parsed);
+	const extraKeys = Object.keys(record).filter((key) => key !== "description");
+	if (extraKeys.length > 0) {
+		throw new ProviderAvatarDescriptionValidationError(`The profile image description response included unexpected fields: ${extraKeys.join(", ")}.`, {
+			rawResponse,
+			outputText: content,
+		});
 	}
-	return description.trim();
+	const description = normalizeAvatarDescriptionText(record.description);
+	if (!description) {
+		throw new ProviderAvatarDescriptionValidationError("The profile image description response needs a non-empty description field.", {
+			rawResponse,
+			outputText: content,
+		});
+	}
+	return description;
 }
 
 function providerAvatarDescriptionFromToolMessage(message: unknown, rawResponse: string): string {
-	const toolCalls = Array.isArray((message as { tool_calls?: unknown }).tool_calls) ? (message as { tool_calls: unknown[] }).tool_calls : [];
-	const call = toolCalls.find((item) => runtimeRecord(runtimeRecord(item).function).name === providerAvatarDescriptionToolName);
+	const messageRecord = runtimeRecord(message);
+	const toolCalls =
+		Array.isArray(messageRecord.tool_calls) ?
+			messageRecord.tool_calls.map(providerAvatarDescriptionToolCallFromValue).filter((toolCall): toolCall is BotInferenceSubmissionToolCall => Boolean(toolCall))
+		:	[];
+	const call = toolCalls.find((item) => item.function.name === providerAvatarDescriptionToolName);
 	if (!call) {
-		throw new ProviderRequestError(502, "unknown", "provider", "Provider avatar description response did not call the required tool.", { rawResponse });
+		throw new ProviderAvatarDescriptionValidationError("Bickr Terminal still needs the profile image description control to be used.", {
+			rawResponse,
+			outputText: providerMessageTextContent(messageRecord.content),
+			toolCalls,
+		});
 	}
-	const argsText = stringValue(runtimeRecord(runtimeRecord(call).function).arguments);
+	const argsText = stringValue(call.function.arguments);
 	if (!argsText) {
-		throw new ProviderRequestError(502, "unknown", "provider", "Provider avatar description response had no arguments.", { rawResponse });
+		throw new ProviderAvatarDescriptionValidationError("The profile image description control needs a description field.", { rawResponse, toolCalls });
 	}
 	let args: unknown;
 	try {
 		args = JSON.parse(argsText);
 	} catch {
-		throw new ProviderRequestError(502, "unknown", "provider", "Provider avatar description arguments were not valid JSON.", { rawResponse });
+		throw new ProviderAvatarDescriptionValidationError("The profile image description control arguments were not readable.", { rawResponse, toolCalls });
 	}
-	return requiredText(runtimeRecord(args).description, "Avatar description", 8_000);
+	const description = normalizeAvatarDescriptionText(runtimeRecord(args).description);
+	if (!description) {
+		throw new ProviderAvatarDescriptionValidationError("The profile image description control needs a non-empty description field.", { rawResponse, toolCalls });
+	}
+	return description;
+}
+
+function providerAvatarDescriptionToolCallFromValue(value: unknown, index: number): BotInferenceSubmissionToolCall | null {
+	const record = runtimeRecord(value);
+	const fn = runtimeRecord(record.function);
+	const name = stringValue(fn.name);
+	const args = stringValue(fn.arguments);
+	if (!name || args === undefined) {
+		return null;
+	}
+	return {
+		id: stringValue(record.id) ?? `call_avatar_description_${index}`,
+		type: "function",
+		function: {
+			name,
+			arguments: args,
+		},
+	};
+}
+
+function normalizeAvatarDescriptionText(value: unknown): string | null {
+	if (typeof value !== "string") {
+		return null;
+	}
+	const trimmed = value.trim();
+	if (!trimmed) {
+		return null;
+	}
+	if (trimmed.length > 8_000) {
+		return trimmed.slice(0, 8_000).trim();
+	}
+	return trimmed;
+}
+
+function providerMessageTextContent(value: unknown): string | undefined {
+	if (typeof value === "string") {
+		return value.trim() || undefined;
+	}
+	if (!Array.isArray(value)) {
+		return undefined;
+	}
+	const text = value
+		.map((item) => {
+			const record = runtimeRecord(item);
+			return typeof record.text === "string" ? record.text : "";
+		})
+		.join("\n")
+		.trim();
+	return text || undefined;
+}
+
+function avatarDescriptionRepairMessages(error: ProviderAvatarDescriptionValidationError, mode: ProviderCompactionMode): ChatMessage[] {
+	if (mode === "structured_output") {
+		return [
+			...(error.outputText ? [{ role: "assistant" as const, content: error.outputText }] : []),
+			{
+				role: "user",
+				content: "Bickr Terminal still needs the profile image description as the required JSON object with exactly one field named description. The description must be first person, in character, and focused only on visible appearance, style, scene, lighting, and composition.",
+			},
+		];
+	}
+	if (error.toolCalls.length === 0) {
+		return [
+			...(error.outputText ? [{ role: "assistant" as const, content: error.outputText }] : []),
+			{
+				role: "user",
+				content: `Bickr Terminal still needs me to call ${providerAvatarDescriptionToolName}. The description must be first person, in character, and focused only on visible appearance, style, scene, lighting, and composition.`,
+			},
+		];
+	}
+	const content = JSON.stringify({
+		ok: false,
+		message: error.repairMessage,
+	});
+	return [
+		{
+			role: "assistant",
+			content: "",
+			tool_calls: error.toolCalls,
+		},
+		...error.toolCalls.map((toolCall): ChatMessage => ({
+			role: "tool",
+			tool_call_id: toolCall.id,
+			content,
+		})),
+	];
 }
 
 function requireAvatarBucket(env: Pick<Env, "BICKR_R2">): R2BucketLike {

@@ -16682,7 +16682,7 @@ describe("Bickr Pages Functions", () => {
 		});
 	});
 
-	it("prefills avatar prompts with one forced no-history visual-description tool", async () => {
+	it("prefills avatar prompts with structured output when configured", async () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);
 		const bot = await createBotForTest(cookie, "avatar-prefill");
@@ -16692,10 +16692,72 @@ describe("Bickr Pages Functions", () => {
 			async (_input, init) => {
 				const requestBody = JSON.parse(String(init?.body)) as {
 					messages: Array<{ role: string; content: unknown }>;
+					response_format?: { json_schema?: { name?: string } };
+					tools?: unknown[];
+					tool_choice?: unknown;
+				};
+				expect(requestBody.messages).toHaveLength(2);
+				expect(requestBody.response_format?.json_schema?.name).toBe("avatar_description");
+				expect(requestBody.tools).toBeUndefined();
+				expect(requestBody.tool_choice).toBeUndefined();
+				const participantFacingText = JSON.stringify({
+					message: requestBody.messages[1]?.content,
+				});
+				expect(participantFacingText).not.toMatch(/\b(bot|AI|assistant|agent|model)\b/i);
+				return Response.json({
+					choices: [
+						{
+							message: {
+								content: JSON.stringify({
+									description: "I stand in a bright studio wearing a deep green jacket, with amber rim light catching the edges of my face.",
+								}),
+							},
+						},
+					],
+				});
+			},
+		);
+		vi.stubGlobal("fetch", fetchMock);
+		try {
+			const response = await handleAgentRuntimeRequest(
+				serviceJsonRequest(
+					`/users/${encodeURIComponent(userId)}/bots/${encodeURIComponent(bot.id)}/avatar/prompt`,
+					userId,
+					{},
+				),
+				{
+					BICKR_D1: testEnv.BICKR_D1,
+					BICKR_KV: testEnv.BICKR_KV,
+					OPENROUTER_API_KEY: "test-key",
+					OPENROUTER_MODEL: "openai/text-one",
+				},
+			);
+			expect(response.status).toBe(200);
+			const body = (await response.json()) as { data: { prompt: string } };
+			expect(body.data.prompt).toContain("deep green jacket");
+			expect(fetchMock).toHaveBeenCalledTimes(1);
+		} finally {
+			vi.stubGlobal("fetch", originalFetch);
+		}
+	});
+
+	it("prefills avatar prompts with one forced no-history visual-description tool when configured", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const createdBot = await createBotForTest(cookie, "avatar-prefill-tool");
+		const bot = await patchBotInferenceForTest(cookie, createdBot.id, { compactionMode: "tool_call" });
+		const userId = await userIdForHandle("octocat");
+		const originalFetch = globalThis.fetch;
+		const fetchMock = vi.fn<(_input: RequestInfo | URL, _init?: RequestInit) => Promise<Response>>(
+			async (_input, init) => {
+				const requestBody = JSON.parse(String(init?.body)) as {
+					messages: Array<{ role: string; content: unknown }>;
+					response_format?: unknown;
 					tools: Array<{ function: { name: string; description: string } }>;
 					tool_choice?: unknown;
 				};
 				expect(requestBody.messages).toHaveLength(2);
+				expect(requestBody.response_format).toBeUndefined();
 				expect(requestBody.tools.map((tool) => tool.function.name)).toEqual(["save_avatar_description"]);
 				expect(requestBody.tool_choice).toBe("required");
 				const participantFacingText = JSON.stringify({
@@ -16742,6 +16804,82 @@ describe("Bickr Pages Functions", () => {
 			const body = (await response.json()) as { data: { prompt: string } };
 			expect(body.data.prompt).toContain("deep green jacket");
 			expect(fetchMock).toHaveBeenCalledTimes(1);
+		} finally {
+			vi.stubGlobal("fetch", originalFetch);
+		}
+	});
+
+	it("retries avatar prompt prefill when the provider omits the required tool call", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const createdBot = await createBotForTest(cookie, "avatar-prefill-retry");
+		const bot = await patchBotInferenceForTest(cookie, createdBot.id, { compactionMode: "tool_call" });
+		const userId = await userIdForHandle("octocat");
+		const originalFetch = globalThis.fetch;
+		const fetchMock = vi.fn<(_input: RequestInfo | URL, _init?: RequestInit) => Promise<Response>>(
+			async (_input, init) => {
+				const requestBody = JSON.parse(String(init?.body)) as {
+					messages: Array<{ role: string; content: unknown }>;
+					tools: Array<{ function: { name: string } }>;
+					tool_choice?: unknown;
+				};
+				expect(requestBody.tools.map((tool) => tool.function.name)).toEqual(["save_avatar_description"]);
+				expect(requestBody.tool_choice).toBe("required");
+				if (fetchMock.mock.calls.length === 1) {
+					expect(requestBody.messages).toHaveLength(2);
+					return Response.json({
+						choices: [
+							{
+								message: {
+									content: "I am framed in warm light but forgot the control.",
+								},
+							},
+						],
+					});
+				}
+				expect(requestBody.messages.at(-1)?.role).toBe("user");
+				expect(String(requestBody.messages.at(-1)?.content)).toContain("save_avatar_description");
+				return Response.json({
+					choices: [
+						{
+							message: {
+								tool_calls: [
+									{
+										id: "call_avatar_retry",
+										type: "function",
+										function: {
+											name: "save_avatar_description",
+											arguments: JSON.stringify({
+												description: "I stand beneath amber glass panes in a tailored charcoal coat, my expression calm and sharply observant.",
+											}),
+										},
+									},
+								],
+							},
+						},
+					],
+				});
+			},
+		);
+		vi.stubGlobal("fetch", fetchMock);
+		try {
+			const response = await handleAgentRuntimeRequest(
+				serviceJsonRequest(
+					`/users/${encodeURIComponent(userId)}/bots/${encodeURIComponent(bot.id)}/avatar/prompt`,
+					userId,
+					{},
+				),
+				{
+					BICKR_D1: testEnv.BICKR_D1,
+					BICKR_KV: testEnv.BICKR_KV,
+					OPENROUTER_API_KEY: "test-key",
+					OPENROUTER_MODEL: "openai/text-one",
+				},
+			);
+			expect(response.status).toBe(200);
+			const body = (await response.json()) as { data: { prompt: string } };
+			expect(body.data.prompt).toContain("charcoal coat");
+			expect(fetchMock).toHaveBeenCalledTimes(2);
 		} finally {
 			vi.stubGlobal("fetch", originalFetch);
 		}
@@ -17521,6 +17659,22 @@ async function createBotForTest(cookie: string, handle: string, options: { enabl
 		const patchPayload = (await patchResponse.json()) as { data: { bot: BotBody } };
 		return patchPayload.data.bot;
 	}
+	return payload.data.bot;
+}
+
+async function patchBotInferenceForTest(cookie: string, botId: string, inferenceSettings: Record<string, unknown>): Promise<BotBody> {
+	const response = await patchBot(
+		contextFor<typeof patchBot>(
+			jsonRequest(
+				`http://example.com/api/me/bots/${botId}`,
+				"PATCH",
+				{ inferenceSettings },
+				cookie,
+			),
+			{ botId },
+		),
+	);
+	const payload = (await response.json()) as { data: { bot: BotBody } };
 	return payload.data.bot;
 }
 
