@@ -1187,7 +1187,7 @@ const providerTokenProbeToolChoice = "auto" as const;
 const providerParallelToolCalls = true;
 const providerRailroadNoToolMaxAttempts = 5;
 const providerPromptCompactionMaxAttempts = 3;
-const providerAvatarDescriptionMaxAttempts = 3;
+const providerAvatarDescriptionMaxAttempts = 2;
 const providerDefaultReasoning = { effort: "minimal", exclude: false } as const satisfies ProviderReasoningConfig;
 const providerCompactionNoReasoning = { effort: "none", exclude: false } as const satisfies ProviderReasoningConfig;
 const providerCompactionMinimalReasoning = { effort: "minimal", exclude: false } as const satisfies ProviderReasoningConfig;
@@ -9384,13 +9384,34 @@ function providerAvatarDescriptionResponseFormat(mode: ProviderCompactionMode): 
 }
 
 async function fetchProviderAvatarDescription(settings: ProviderSettings, bot: BotDocument): Promise<string> {
+	const mode = providerCompactionMode(settings);
+	try {
+		return await fetchProviderAvatarDescriptionWithMode(settings, bot, mode);
+	} catch (error) {
+		if (mode === "structured_output" && providerAvatarDescriptionCanFallbackToToolCall(error)) {
+			return fetchProviderAvatarDescriptionWithMode(settings, bot, "tool_call");
+		}
+		throw error;
+	}
+}
+
+function providerAvatarDescriptionCanFallbackToToolCall(error: unknown): boolean {
+	if (!(error instanceof ProviderRequestError)) {
+		return false;
+	}
+	if (error.status === 502 && /^The profile image description\b/.test(error.body)) {
+		return true;
+	}
+	return error.status === 400 && /\b(response_format|json_schema|structured)\b/i.test(error.body);
+}
+
+async function fetchProviderAvatarDescriptionWithMode(settings: ProviderSettings, bot: BotDocument, mode: ProviderCompactionMode): Promise<string> {
 	const endpoint = providerChatCompletionsUrl(settings.baseUrl);
 	const signal = new AbortController().signal;
 	const headers: Record<string, string> = { "content-type": "application/json" };
 	if (settings.apiKey) {
 		headers.authorization = `Bearer ${settings.apiKey}`;
 	}
-	const mode = providerCompactionMode(settings);
 	const tools = mode === "structured_output" ? [] : providerAvatarDescriptionTools();
 	const toolCalls = settings.toolCalls === "railroad" ? "railroad" : "require";
 	const toolChoice =
@@ -9423,7 +9444,7 @@ async function fetchProviderAvatarDescription(settings: ProviderSettings, bot: B
 			...(tools.length > 0 ? { parallel_tool_calls: false } : {}),
 			...(responseFormat ? { response_format: responseFormat } : {}),
 			max_completion_tokens: 1400,
-			reasoning: providerReasoningForSettings(settings),
+			reasoning: mode === "structured_output" ? providerCompactionNoReasoning : providerReasoningForSettings(settings),
 			temperature: settings.temperature,
 			...(settings.topK !== undefined ? { top_k: settings.topK } : {}),
 			...(settings.topP !== undefined ? { top_p: settings.topP } : {}),

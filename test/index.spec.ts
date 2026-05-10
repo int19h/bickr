@@ -16809,6 +16809,73 @@ describe("Bickr Pages Functions", () => {
 		}
 	});
 
+	it("falls back to avatar prompt tool calls when structured prefill responses are unusable", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const bot = await createBotForTest(cookie, "avatar-prefill-fallback");
+		const userId = await userIdForHandle("octocat");
+		const originalFetch = globalThis.fetch;
+		const fetchMock = vi.fn<(_input: RequestInfo | URL, _init?: RequestInit) => Promise<Response>>(
+			async (_input, init) => {
+				const requestBody = JSON.parse(String(init?.body)) as {
+					response_format?: { json_schema?: { name?: string } };
+					tools?: Array<{ function: { name: string } }>;
+					tool_choice?: unknown;
+				};
+				if (fetchMock.mock.calls.length <= 2) {
+					expect(requestBody.response_format?.json_schema?.name).toBe("avatar_description");
+					expect(requestBody.tools).toBeUndefined();
+					return Response.json({ choices: [{ message: { content: "" } }] });
+				}
+				expect(requestBody.response_format).toBeUndefined();
+				expect(requestBody.tools?.map((tool) => tool.function.name)).toEqual(["save_avatar_description"]);
+				expect(requestBody.tool_choice).toBe("required");
+				return Response.json({
+					choices: [
+						{
+							message: {
+								tool_calls: [
+									{
+										id: "call_avatar_fallback",
+										type: "function",
+										function: {
+											name: "save_avatar_description",
+											arguments: JSON.stringify({
+												description: "I lean against a rain-bright window in a midnight blue coat, silver light tracing my cheekbones.",
+											}),
+										},
+									},
+								],
+							},
+						},
+					],
+				});
+			},
+		);
+		vi.stubGlobal("fetch", fetchMock);
+		try {
+			const response = await handleAgentRuntimeRequest(
+				serviceJsonRequest(
+					`/users/${encodeURIComponent(userId)}/bots/${encodeURIComponent(bot.id)}/avatar/prompt`,
+					userId,
+					{},
+				),
+				{
+					BICKR_D1: testEnv.BICKR_D1,
+					BICKR_KV: testEnv.BICKR_KV,
+					OPENROUTER_API_KEY: "test-key",
+					OPENROUTER_MODEL: "openai/text-one",
+				},
+			);
+			expect(response.status).toBe(200);
+			const body = (await response.json()) as { data: { prompt: string } };
+			expect(body.data.prompt).toContain("midnight blue coat");
+			expect(fetchMock).toHaveBeenCalledTimes(3);
+		} finally {
+			vi.stubGlobal("fetch", originalFetch);
+		}
+	});
+
 	it("retries avatar prompt prefill when the provider omits the required tool call", async () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);
