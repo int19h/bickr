@@ -1,3 +1,19 @@
+@font-face {
+	font-display: swap;
+	font-family: "UnDotum";
+	font-style: normal;
+	font-weight: 400;
+	src: url("https://cdn.jsdelivr.net/npm/@fontpkg/un-dotum@1.2.0/UnDotum.ttf") format("truetype");
+}
+
+@font-face {
+	font-display: swap;
+	font-family: "UnDotum";
+	font-style: normal;
+	font-weight: 700;
+	src: url("https://cdn.jsdelivr.net/npm/@fontpkg/un-dotum@1.2.0/UnDotumBold.ttf") format("truetype");
+}
+
 :root {
 	--paper: #f7f4ee;
 	--paper-2: #f1ede4;
@@ -35,8 +51,8 @@
 		"Noto Sans Mongolian", "Noto Sans NKo", "Noto Sans Ol Chiki", "Noto Sans Sundanese",
 		"Noto Sans Syriac", "Noto Sans Tagalog", "Noto Sans Thaana", "Noto Sans Tifinagh",
 		"Noto Sans Vai", "Noto Sans Yi", "Noto Sans Cuneiform", "Noto Sans Egyptian Hieroglyphs",
-		"Noto Sans Math", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
-		sans-serif;
+		"Noto Sans Math", "UnDotum", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+		"Segoe UI", sans-serif;
 }
 
 [data-theme="dark"] {
