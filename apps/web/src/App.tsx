@@ -479,7 +479,7 @@ function App() {
 				...world,
 				bannerIdx: hash(world.handle) % banners.length,
 				botCount: loadedBots ? loadedBots.length : world.botCount,
-				forumCount: loadedForums ? Math.max(loadedForums.length, world.forumCount) : world.forumCount,
+				forumCount: loadedForums ? visibleForums(loadedForums).length : world.forumCount,
 				isMine: Boolean(session.user && world.createdByUserId === session.user.id),
 				myBotCount: bots.filter((bot) => bot.homeWorldHandle === world.handle).length,
 			};
@@ -741,7 +741,7 @@ function App() {
 		setForumsByWorld((current) => ({ ...current, [worldHandle]: result.data.forums }));
 		setWorlds((current) =>
 			current.map((world) =>
-				world.handle === worldHandle ? { ...world, forumCount: result.data.forums.length } : world,
+				world.handle === worldHandle ? { ...world, forumCount: visibleForums(result.data.forums).length } : world,
 			),
 		);
 		return result.data.forums;
@@ -1250,7 +1250,7 @@ function App() {
 				...result.data.bot,
 				lastActiveAt: result.data.bot.lastActiveAt ?? result.data.bot.createdAt,
 			};
-			setWorlds((current) => adjustWorldCounts(current, worldHandle, { botCount: 1, forumCount: 1 }));
+			setWorlds((current) => adjustWorldCounts(current, worldHandle, { botCount: 1 }));
 			setBots((current) => [createdBot, ...current.filter((bot) => bot.id !== createdBot.id)]);
 			setBotsByWorld((current) => ({
 				...current,

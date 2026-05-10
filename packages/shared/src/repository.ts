@@ -668,7 +668,7 @@ export async function listWorlds(db: D1DatabaseLike): Promise<WorldListSummary[]
 			 LEFT JOIN (
 				SELECT world_id, COUNT(*) AS forumCount
 				FROM forums_index
-				WHERE deleted_at IS NULL
+				WHERE deleted_at IS NULL AND personal_bot_id IS NULL
 				GROUP BY world_id
 			 ) forum_counts ON forum_counts.world_id = w.world_id
 			 LEFT JOIN (

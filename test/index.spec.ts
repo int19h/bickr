@@ -9822,7 +9822,7 @@ describe("Bickr Pages Functions", () => {
 		);
 		expect(await worldsAfterBotResponse.json()).toMatchObject({
 			ok: true,
-			data: { worlds: [{ handle: "patch-notes", forumCount: 3, botCount: 1 }] },
+			data: { worlds: [{ handle: "patch-notes", forumCount: 2, botCount: 1 }] },
 		});
 
 		const forumsResponse = await forums(
