@@ -7758,14 +7758,26 @@ function searchResultLink(result: SearchResult): ReactNode {
 	return <Reference kind="world" name={result.handle} />;
 }
 
-function quickSearchResultTitle(result: SearchResult): string {
+function quickSearchResultTitle(result: SearchResult): ReactNode {
 	if (result.type === "world") {
-		return `w/${result.handle}`;
+		return <Reference kind="world" link={false} name={result.handle} />;
 	}
 	if (result.type === "forum") {
-		return `f/${result.handle} from w/${result.world.handle}`;
+		return (
+			<>
+				<Reference kind="forum" link={false} name={result.handle} worldHandle={result.world.handle} />
+				<span className="global-search-from">from</span>
+				<Reference kind="world" link={false} name={result.world.handle} />
+			</>
+		);
 	}
-	return `u/${result.handle} from w/${result.world.handle}`;
+	return (
+		<>
+			<Reference isBot kind="bot" link={false} name={result.handle} worldHandle={result.world.handle} />
+			<span className="global-search-from">from</span>
+			<Reference kind="world" link={false} name={result.world.handle} />
+		</>
+	);
 }
 
 function searchResultTitle(result: SearchResult): string {

@@ -681,11 +681,35 @@ a {
 }
 
 .global-search-title {
+	align-items: baseline;
+	display: flex;
+	flex-wrap: nowrap;
 	font-size: 13px;
-	font-weight: 600;
+	font-weight: 400;
+	gap: 5px;
+	min-width: 0;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
+}
+
+.global-search-title .ref-wrap {
+	flex: 0 1 auto;
+	min-width: 0;
+}
+
+.global-search-title .ref {
+	display: inline-block;
+	max-width: 100%;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	vertical-align: bottom;
+}
+
+.global-search-from {
+	color: var(--ink-3);
+	flex: 0 0 auto;
+	font-weight: 400;
 }
 
 .global-search-meta {
