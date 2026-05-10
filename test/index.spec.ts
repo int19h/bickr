@@ -16747,6 +16747,47 @@ describe("Bickr Pages Functions", () => {
 		}
 	});
 
+	it("routes avatar service requests through the user coordinator", async () => {
+		const userId = "usr_avatar_route";
+		const botId = "bot_avatar_route";
+		const actions = ["prompt", "generate", "apply"] as const;
+
+		for (const action of actions) {
+			const routed: { method?: string; path?: string; userId?: string } = {};
+			const namespace = {
+				idFromName(name: string): DurableObjectId {
+					routed.userId = name;
+					return name as unknown as DurableObjectId;
+				},
+				get(): Fetcher {
+					return {
+						fetch: async (request: Request) => {
+							routed.method = request.method;
+							routed.path = new URL(request.url).pathname;
+							return Response.json({ ok: true });
+						},
+					} as unknown as Fetcher;
+				},
+			};
+
+			const request = new Request(`https://internal.bickr/users/${userId}/bots/${botId}/avatar/${action}`, {
+				method: "POST",
+				headers: { "x-bickr-user-id": userId },
+			});
+			const response = await agentRuntimeWorker.fetch(
+				request as unknown as Parameters<typeof agentRuntimeWorker.fetch>[0],
+				{ USER_BOTS: namespace } as unknown as Parameters<typeof agentRuntimeWorker.fetch>[1],
+			);
+
+			expect(response.status).toBe(200);
+			expect(routed).toEqual({
+				method: "POST",
+				path: `/users/${userId}/bots/${botId}/avatar/${action}`,
+				userId,
+			});
+		}
+	});
+
 	it("previews Chirper imports and reports invalid profiles", async () => {
 		const cookie = await authCookie();
 		const success = await chirperPreview(

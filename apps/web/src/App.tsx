@@ -5870,16 +5870,12 @@ function BotAvatarGenerationScreen({
 						}
 					</button>
 				</div>
-				<div className="avatar-generate-control">
-					{!candidate && (
-						<button className="btn primary generate-avatar-btn" disabled={!canGenerate} onClick={() => void generate()} type="button">
-							{generating ? "Generating..." : "Generate"}
-						</button>
-					)}
-				</div>
 				<div className="avatar-pane generated">
 					<div className="avatar-pane-head">
 						<span>Generated avatar</span>
+						<button className="btn primary compact generate-avatar-btn" disabled={!canGenerate} onClick={() => void generate()} type="button">
+							{generating ? "Generating..." : "Generate"}
+						</button>
 					</div>
 					{candidate && <div className="unsaved-warning">Generated image is not saved yet.</div>}
 					<div className={`avatar-large-preview ${generating ? "busy" : ""}`}>
@@ -5890,11 +5886,6 @@ function BotAvatarGenerationScreen({
 						:	<span className="empty-generated">{generating ? "Generating..." : "No image generated"}</span>
 						}
 						{generating && <span className="avatar-spinner" />}
-						{candidate && (
-							<button className="hover-generate" disabled={!canGenerate} onClick={() => void generate()} type="button">
-								Generate
-							</button>
-						)}
 					</div>
 				</div>
 			</section>

@@ -5872,7 +5872,7 @@ fieldset {
 	align-items: stretch;
 	display: grid;
 	gap: 16px;
-	grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+	grid-template-columns: repeat(2, minmax(0, 1fr));
 	margin-bottom: 36px;
 }
 
@@ -5914,44 +5914,8 @@ fieldset {
 	position: absolute;
 }
 
-.avatar-generate-control {
-	align-items: center;
-	display: flex;
-	justify-content: center;
-	padding-top: 38px;
-}
-
 .generate-avatar-btn {
 	white-space: nowrap;
-}
-
-.generated .hover-generate {
-	background: color-mix(in oklch, var(--paper) 92%, transparent);
-	border: 1px solid var(--rule);
-	border-radius: 4px;
-	bottom: 14px;
-	color: var(--ink);
-	font-size: 13px;
-	font-weight: 600;
-	opacity: 0;
-	padding: 8px 12px;
-	position: absolute;
-	right: 14px;
-	transition: opacity 160ms;
-	z-index: 2;
-}
-
-.generated .hover-generate:disabled {
-	cursor: default;
-}
-
-.generated .avatar-large-preview:hover .hover-generate,
-.generated .avatar-large-preview:focus-visible .hover-generate {
-	opacity: 1;
-}
-
-.generated .avatar-large-preview:focus-within .hover-generate {
-	opacity: 1;
 }
 
 .empty-generated {
@@ -6289,10 +6253,6 @@ fieldset {
 
 	.avatar-compare {
 		grid-template-columns: minmax(0, 1fr);
-	}
-
-	.avatar-generate-control {
-		padding-top: 0;
 	}
 
 	.human-profile-head .avatar,

@@ -9653,9 +9653,10 @@ export default {
 			return handleAgentRuntimeRequest(request, env);
 		}
 
-		const userBotsMatch = /^\/users\/([^/]+)\/(?:worlds\/[^/]+\/bots|bots\/[^/]+|profile)$/.exec(
-			url.pathname,
-		);
+		const userBotsMatch =
+			/^\/users\/([^/]+)\/(?:worlds\/[^/]+\/bots|bots\/[^/]+(?:\/avatar\/(?:prompt|generate|apply))?|profile)$/.exec(
+				url.pathname,
+			);
 		if (userBotsMatch && ["POST", "PATCH", "DELETE"].includes(request.method)) {
 			const userId = decodeURIComponent(userBotsMatch[1] ?? "");
 			const objectId = env.USER_BOTS.idFromName(userId);
