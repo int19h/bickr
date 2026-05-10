@@ -94,6 +94,7 @@ export type AvatarImageSource =
 			type: "generated";
 			model: string;
 			generatedAt: string;
+			cost?: number;
 			prompt?: string;
 	  };
 

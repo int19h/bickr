@@ -5715,6 +5715,8 @@ function BotAvatarGenerationScreen({
 	const promptAllowed = prompt.trim().length > 0 || (includeCurrentAvatar && currentAvatarAvailable);
 	const imageProviderRoutingError = providerRoutingDraftError(draft.imageGenerationProviderRouting);
 	const imageConfigError = imageGenerationConfigDraftError(draft);
+	const generationSettingsError = modelsError || imageProviderRoutingError || imageConfigError;
+	const candidateCost = generatedAvatarCost(candidate);
 	const canGenerate = Boolean(draft.imageGenerationModel.trim()) && promptAllowed && !imageProviderRoutingError && !imageConfigError && !generating;
 
 	async function fillPrompt(): Promise<void> {
@@ -5824,9 +5826,6 @@ function BotAvatarGenerationScreen({
 					<button className="btn ghost" onClick={onBack} type="button">
 						Back
 					</button>
-					<button className="btn ghost" disabled={saving || !bot.inferenceSettings.imageGeneration} onClick={() => void discard()} type="button">
-						Discard saved values
-					</button>
 					<button className="btn primary" disabled={saving || Boolean(imageProviderRoutingError) || Boolean(imageConfigError) || (!candidate && !draft.imageGenerationModel.trim())} onClick={() => void save()} type="button">
 						{saving ? "Saving..." : "Save"}
 					</button>
@@ -5835,9 +5834,22 @@ function BotAvatarGenerationScreen({
 			<section className="section">
 				<div className="section-head">
 					<h2>Image Generation</h2>
-					<span className="meta">{modelsError || imageProviderRoutingError || imageConfigError || `${models.length} image-capable models`}</span>
+					<button className="btn ghost compact" disabled={saving || !bot.inferenceSettings.imageGeneration} onClick={() => void discard()} type="button">
+						Reset
+					</button>
 				</div>
-				<ImageGenerationInferenceFields draft={draft} models={models} onChange={setDraft} />
+				{generationSettingsError && <div className="runtime-message error">{generationSettingsError}</div>}
+				<details className="advanced-panel">
+					<summary>
+						<span className="advanced-panel-summary">
+							<span className="advanced-panel-chevron"><Icon name="chev" size={14} /></span>
+							<span>Advanced generation parameters</span>
+						</span>
+					</summary>
+					<div className="advanced-panel-body">
+						<ImageGenerationInferenceFields draft={draft} models={models} onChange={setDraft} />
+					</div>
+				</details>
 				<div className="field avatar-prompt-field">
 					<div className="avatar-prompt-head">
 						<label htmlFor="avatar-generation-prompt">Prompt</label>
@@ -5892,6 +5904,7 @@ function BotAvatarGenerationScreen({
 					<div className="avatar-pane-head">
 						<span className="avatar-pane-title">
 							<span>Generated avatar</span>
+							{candidateCost !== null && <span className="avatar-generation-cost">{formatTokenCost(candidateCost)}</span>}
 							{candidate && <span className="unsaved-tag">unsaved</span>}
 						</span>
 						<button className="btn primary compact generate-avatar-btn" disabled={!canGenerate} onClick={() => void generate()} type="button">
@@ -9862,6 +9875,13 @@ function imageGenerationConfigDraftError(draft: InferenceDraft): string {
 	return "";
 }
 
+function generatedAvatarCost(candidate: AvatarImage | null): number | null {
+	if (candidate?.source?.type !== "generated" || candidate.source.cost === undefined) {
+		return null;
+	}
+	return Number.isFinite(candidate.source.cost) ? candidate.source.cost : null;
+}
+
 const toolCallOptions = [
 	{ value: "require", label: "Require" },
 	{ value: "railroad", label: "Railroad" },
@@ -9977,7 +9997,7 @@ function ImageGenerationInferenceFields({
 					</select>
 				</Field>
 				<Field
-					help={<ImageConfigHelp text="OpenRouter defaults to 1:1. Extended ratios are Gemini 3.1 Flash Image Preview-only." />}
+					help={<ImageConfigHelp text="OpenRouter uses the selected model's default when this is left blank. Extended ratios are Gemini 3.1 Flash Image Preview-only." />}
 					label="Aspect ratio"
 				>
 					<select
@@ -9985,7 +10005,7 @@ function ImageGenerationInferenceFields({
 						onChange={(event) => patch({ imageGenerationAspectRatio: event.target.value })}
 						value={draft.imageGenerationAspectRatio}
 					>
-						<option value="">Default (1:1)</option>
+						<option value="">Default</option>
 						<optgroup label="Standard">
 							{openRouterImageAspectRatios.map((ratio) => (
 								<option key={ratio} value={ratio}>{imageAspectRatioLabel(ratio)}</option>
@@ -10001,7 +10021,7 @@ function ImageGenerationInferenceFields({
 					</select>
 				</Field>
 				<Field
-					help={<ImageConfigHelp text="OpenRouter defaults to 1K. 0.5K is Gemini 3.1 Flash Image Preview-only." />}
+					help={<ImageConfigHelp text="OpenRouter uses the selected model's default when this is left blank. 0.5K is Gemini 3.1 Flash Image Preview-only." />}
 					label="Image size"
 				>
 					<select
@@ -10009,7 +10029,7 @@ function ImageGenerationInferenceFields({
 						onChange={(event) => patch({ imageGenerationImageSize: event.target.value })}
 						value={draft.imageGenerationImageSize}
 					>
-						<option value="">Default (1K)</option>
+						<option value="">Default</option>
 						<optgroup label="Standard">
 							{openRouterImageSizes.map((size) => (
 								<option key={size} value={size}>{imageSizeLabel(size)}</option>

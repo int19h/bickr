@@ -16709,6 +16709,7 @@ describe("Bickr Pages Functions", () => {
 							},
 						},
 					],
+					usage: { prompt_tokens: 10, completion_tokens: 0, total_tokens: 10, cost: 0.0123 },
 				});
 			},
 		);
@@ -16747,6 +16748,7 @@ describe("Bickr Pages Functions", () => {
 				type: "generated",
 				model: "openai/image-one",
 				prompt: "Paint me as a luminous portrait.",
+				cost: 0.0123,
 			});
 			expect(candidate.byteLength).toBeGreaterThan(1_500_000);
 			expect(r2.objects.has(candidate.key)).toBe(true);
@@ -16781,6 +16783,7 @@ describe("Bickr Pages Functions", () => {
 		expect(r2.objects.has(candidate.key)).toBe(false);
 		const storedBot = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, bot.id);
 		expect(storedBot.avatar?.url).toBe(applyBody.data.bot.avatarUrl);
+		expect(storedBot.avatar?.source).toMatchObject({ type: "generated", cost: 0.0123 });
 		expect(storedBot.inferenceSettings.imageGeneration).toMatchObject({
 			model: "openai/image-one",
 			prompt: "Paint me as a luminous portrait.",

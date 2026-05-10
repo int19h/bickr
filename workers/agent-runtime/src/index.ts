@@ -9143,12 +9143,14 @@ function parseAvatarCandidate(value: unknown): AvatarImage {
 		throw new InputError("Avatar candidate content type is invalid.");
 	}
 	const sourceRecord = runtimeRecord(record.source);
+	const generatedCost = numberValue(sourceRecord.cost);
 	const generatedSource =
 		sourceRecord.type === "generated" ?
 			{
 				type: "generated" as const,
 				model: requiredText(sourceRecord.model, "Avatar generation model", 160),
 				generatedAt: requiredText(sourceRecord.generatedAt, "Avatar generation timestamp", 80),
+				...(generatedCost !== undefined ? { cost: generatedCost } : {}),
 				...(typeof sourceRecord.prompt === "string" && sourceRecord.prompt.trim() ? { prompt: sourceRecord.prompt } : {}),
 			}
 		:	undefined;
@@ -9254,13 +9256,13 @@ async function generateAvatarForBot(
 	if (!settings) {
 		throw new InputError("Choose an image generation model before generating an avatar.");
 	}
-	const dataUrl = await fetchProviderAvatarImage(settings, {
+	const generatedImage = await fetchProviderAvatarImage(settings, {
 		prompt: input.prompt,
 		currentAvatarUrl: input.includeCurrentAvatar ? bot.avatar?.url : undefined,
 	});
 	let validated: ReturnType<typeof validateAvatarDataUrl>;
 	try {
-		validated = validateAvatarDataUrl(dataUrl);
+		validated = validateAvatarDataUrl(generatedImage.dataUrl);
 	} catch (error) {
 		if (error instanceof InputError) {
 			throw new ProviderRequestError(
@@ -9282,6 +9284,7 @@ async function generateAvatarForBot(
 			type: "generated",
 			model: settings.model,
 			generatedAt: new Date().toISOString(),
+			...(generatedImage.cost !== null ? { cost: generatedImage.cost } : {}),
 			...(input.prompt.trim() ? { prompt: input.prompt } : {}),
 		},
 		kind: "avatar-candidates",
@@ -9330,7 +9333,7 @@ type ProviderImageContentPart =
 async function fetchProviderAvatarImage(
 	settings: ImageGenerationProviderSettings,
 	input: { prompt: string; currentAvatarUrl?: string },
-): Promise<string> {
+): Promise<{ dataUrl: string; cost: number | null }> {
 	const endpoint = providerChatCompletionsUrl(settings.baseUrl);
 	const signal = new AbortController().signal;
 	const headers: Record<string, string> = { "content-type": "application/json" };
@@ -9397,7 +9400,11 @@ async function fetchProviderAvatarImage(
 	if (!dataUrl) {
 		throw new ProviderRequestError(502, settings.model, endpoint, "Provider image response did not include an image.", { rawResponse });
 	}
-	return dataUrl;
+	const usageRecord = runtimeRecord(payload).usage;
+	return {
+		dataUrl,
+		cost: providerUsageFromValue(usageRecord)?.cost ?? numberValue(runtimeRecord(usageRecord).cost) ?? null,
+	};
 }
 
 async function providerImageOutputModalities(settings: Pick<ImageGenerationProviderSettings, "baseUrl" | "model">): Promise<["image"] | ["image", "text"]> {

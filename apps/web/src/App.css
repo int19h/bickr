@@ -5627,19 +5627,25 @@ fieldset {
 	grid-column: 2;
 }
 
-.image-lightbox {
-	max-width: min(1180px, calc(100vw - 40px));
+.modal.image-lightbox {
+	height: calc(100vh - 32px);
+	max-height: calc(100vh - 32px);
+	max-width: calc(100vw - 32px);
+	width: calc(100vw - 32px);
 }
 
 .image-lightbox .modal-body {
 	align-items: center;
 	background: var(--ink);
+	flex: 1;
+	justify-content: center;
+	min-height: 0;
 	padding: 0;
 }
 
 .image-lightbox img {
 	display: block;
-	max-height: calc(100vh - 150px);
+	max-height: 100%;
 	max-width: 100%;
 	object-fit: contain;
 }
@@ -5882,6 +5888,55 @@ fieldset {
 	margin-right: auto;
 }
 
+.advanced-panel {
+	border: 1px solid var(--rule);
+	border-radius: var(--radius);
+	margin-bottom: 16px;
+	overflow: hidden;
+}
+
+.advanced-panel summary {
+	align-items: center;
+	background: var(--paper-2);
+	color: var(--ink-2);
+	cursor: pointer;
+	display: flex;
+	font-size: 13px;
+	font-weight: 700;
+	justify-content: space-between;
+	list-style: none;
+	padding: 11px 13px;
+	user-select: none;
+}
+
+.advanced-panel summary::-webkit-details-marker {
+	display: none;
+}
+
+.advanced-panel summary:hover {
+	background: color-mix(in oklch, var(--paper-2) 78%, var(--ink) 4%);
+}
+
+.advanced-panel-summary {
+	align-items: center;
+	display: inline-flex;
+	gap: 8px;
+}
+
+.advanced-panel-chevron {
+	display: inline-flex;
+	transition: transform 120ms;
+}
+
+.advanced-panel[open] .advanced-panel-chevron {
+	transform: rotate(90deg);
+}
+
+.advanced-panel-body {
+	background: var(--paper);
+	padding: 14px;
+}
+
 .avatar-compare {
 	align-items: stretch;
 	display: grid;
@@ -5893,6 +5948,7 @@ fieldset {
 .avatar-pane {
 	display: grid;
 	gap: 10px;
+	grid-template-rows: 40px auto;
 	min-width: 0;
 }
 
@@ -5902,8 +5958,13 @@ fieldset {
 	display: flex;
 	font-size: 13px;
 	font-weight: 600;
+	height: 40px;
 	justify-content: space-between;
-	min-height: 28px;
+	min-height: 40px;
+}
+
+.avatar-pane-head .checkbox-line {
+	min-height: 0;
 }
 
 .avatar-pane-title {
@@ -5925,9 +5986,24 @@ fieldset {
 	text-transform: uppercase;
 }
 
+.avatar-generation-cost {
+	color: var(--ink-4);
+	font-size: 12px;
+	font-weight: 700;
+}
+
 .avatar-large-preview {
 	aspect-ratio: 1 / 1;
 	min-height: 320px;
+}
+
+button.avatar-large-preview:not(:disabled),
+.avatar-preview-click {
+	cursor: zoom-in;
+}
+
+.avatar-large-preview img {
+	object-position: center top;
 }
 
 .avatar-preview-click {
