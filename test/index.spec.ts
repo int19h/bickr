@@ -608,6 +608,12 @@ describe("Bickr Pages Functions", () => {
 			description: "One or more u/usernames to view.",
 			items: { type: "string" },
 		});
+		const viewActivity = toolDefinitions.find((definition) => definition.function.name === "view_activity");
+		expect(viewActivity?.function.parameters.properties.limit).toMatchObject({
+			type: "number",
+			minimum: 1,
+			maximum: 20,
+		});
 
 		const recentThreads = toolDefinitions.find((definition) => definition.function.name === "list_recent_threads");
 		expect(recentThreads?.function.parameters.properties.limit?.type).toBe("number");
@@ -764,19 +770,48 @@ describe("Bickr Pages Functions", () => {
 			"create_thread",
 			{ forumHandle: forum.handle, title: "Compact provider result", body: "This thread body should not be echoed back." },
 			{ mode: "normal", signal },
-		);
-		expect(createThreadResult.providerResult).toMatchObject({
-			ok: true,
-			thread: { title: "Compact provider result" },
-		});
-		expect(JSON.stringify(createThreadResult.providerResult)).not.toContain("This thread body should not be echoed back.");
+			);
+			expect(createThreadResult.providerResult).toMatchObject({
+				ok: true,
+				thread: { title: "Compact provider result" },
+			});
+			expect(JSON.stringify(createThreadResult.providerResult)).not.toContain("This thread body should not be echoed back.");
 
-		const readThreadResult = await executeTool(
-			bot,
-			"run-read-thread-tree",
-			"read_thread_by_id",
-			{ threadId: thread.id },
-			{ mode: "normal", signal },
+			await createThreadForTest(forum.id, author.id, "Needle provider result one", "Needle body one.");
+			await createThreadForTest(forum.id, author.id, "Needle provider result two", "Needle body two.");
+			const tinyProviderBudgetRuntime = Object.assign(testRuntimeForToolExecution(), {
+				readCommentTreeTokenBudget: async () => 50,
+			}) as BotRuntime & { events: BotRuntimeEvent[] };
+			const executeToolWithTinyProviderBudget = (BotRuntime.prototype as unknown as {
+				executeTool: (
+					bot: Awaited<ReturnType<typeof botById>>,
+					runId: string,
+					name: string,
+					args: Record<string, unknown>,
+					runContext: { mode: "normal"; signal: AbortSignal },
+				) => Promise<{ result: unknown; providerResult: unknown; displayEventSeq?: number }>;
+			}).executeTool.bind(tinyProviderBudgetRuntime);
+			const searchToolResult = await executeToolWithTinyProviderBudget(
+				bot,
+				"run-search-pruned-provider-result",
+				"search_threads",
+				{ query: "Needle provider" },
+				{ mode: "normal", signal },
+			);
+			expect(Array.isArray(searchToolResult.result)).toBe(true);
+			expect(Array.isArray(searchToolResult.providerResult)).toBe(true);
+			expect((searchToolResult.providerResult as unknown[]).length).toBeLessThan((searchToolResult.result as unknown[]).length);
+			expect(tinyProviderBudgetRuntime.events.find((event) => event.seq === searchToolResult.displayEventSeq)?.payload).toMatchObject({
+				name: "search_threads",
+				result: searchToolResult.result,
+			});
+
+			const readThreadResult = await executeTool(
+				bot,
+				"run-read-thread-tree",
+				"read_thread_by_id",
+				{ threadId: thread.id },
+				{ mode: "normal", signal },
 		);
 		expect(readThreadResult.displayEventSeq).toEqual(expect.any(Number));
 		expect(runtime.events.find((event) => event.seq === readThreadResult.displayEventSeq)?.payload).toMatchObject({
@@ -2354,9 +2389,9 @@ describe("Bickr Pages Functions", () => {
 			expect(selected.map((row) => row.seq)).toEqual([1, 2, 3]);
 		});
 
-			it("stops before the atomic tool-call group that crosses the compaction prompt budget", () => {
-				const large = (char: string) => char.repeat(4_000);
-				const rows: LoopMessageRowForTest[] = [
+		it("stops before the atomic tool-call group that crosses the compaction prompt budget", () => {
+			const large = (char: string) => char.repeat(4_000);
+			const rows: LoopMessageRowForTest[] = [
 				loopMessageRowForMessage(1, { role: "assistant", content: large("a") }),
 				loopMessageRowForMessage(2, {
 					role: "assistant",
@@ -2396,7 +2431,7 @@ describe("Bickr Pages Functions", () => {
 
 		it("compacts malformed visible tool history without blocking on missing matches", () => {
 			const large = (char: string) => char.repeat(4_000);
-				const rows: LoopMessageRowForTest[] = [
+			const rows: LoopMessageRowForTest[] = [
 				loopMessageRowForMessage(1, {
 					role: "assistant",
 					content: large("a"),
@@ -2433,7 +2468,7 @@ describe("Bickr Pages Functions", () => {
 			expect(selected.map((row) => row.seq)).toEqual([1, 2]);
 		});
 
-		it("excludes the tool-call group that crosses the compaction prompt budget", () => {
+		it("allows one over-budget compaction group when the normal prefix would be too small", () => {
 			const huge = (char: string) => char.repeat(20_000);
 			const rows = [
 				loopMessageRowForMessage(1, { role: "assistant", content: "a" }),
@@ -2455,21 +2490,22 @@ describe("Bickr Pages Functions", () => {
 				activeLoopMessageRows: () => rows,
 				textTokenCalibration: () => ({ tokensPerCharacter: 0.25, sampleCount: 0 }),
 			});
-			const compactionRowsForEstimatedBudget = (BotRuntime.prototype as unknown as {
-				compactionRowsForEstimatedBudget: (
+			const compactionRowSelectionForEstimatedBudget = (BotRuntime.prototype as unknown as {
+				compactionRowSelectionForEstimatedBudget: (
 					bot: BotDocument,
 					providerTools?: ProviderToolDefinition[],
 					mode?: "structured_output" | "tool_call" | "tool_call_cache_friendly",
-				) => Array<{ seq: number }>;
-			}).compactionRowsForEstimatedBudget.bind(runtime);
+				) => { rows: Array<{ seq: number }>; overBudgetFallback: boolean };
+			}).compactionRowSelectionForEstimatedBudget.bind(runtime);
 
-			const selected = compactionRowsForEstimatedBudget(
+			const selected = compactionRowSelectionForEstimatedBudget(
 				fakeBotDocument({ contextWindowTokens: 8_000 }),
 				toolDefinitionsForProviderRound(),
 				"tool_call_cache_friendly",
 			);
 
-			expect(selected.map((row) => row.seq)).toEqual([1]);
+			expect(selected.rows.map((row) => row.seq)).toEqual([1, 2, 3]);
+			expect(selected.overBudgetFallback).toBe(true);
 		});
 
 		it("excludes a prefix group that would leave too little compaction output budget", () => {
@@ -2710,62 +2746,62 @@ describe("Bickr Pages Functions", () => {
 			});
 
 			it("records compaction submissions before provider failures and marks the row failed", async () => {
-			const candidates = Array.from({ length: 12 }, (_, index) => ({
-				seq: index + 1,
-				position: index + 1,
-				run_id: "run-compaction-failure",
-				role: "assistant",
-				message_json: JSON.stringify({ role: "assistant", content: `Recent activity ${index + 1}` }),
-				origin: "provider_response",
-				status: "complete",
-				token_estimate: 10,
-				compacted_by: null,
-				created_at: "2026-05-01T00:00:00.000Z",
-				has_logs: 0,
-			}));
-			const appendEvent = vi.fn(async (runId: string, type: string, payload: unknown) => ({
-				seq: 101,
-				runId,
-				type,
-				payload,
-				tokenEstimate: 1,
-				createdAt: "2026-05-01T00:00:01.000Z",
-			}));
-			const recordInferenceSubmission = vi.fn();
-			const replaceEventPayload = vi.fn();
-			const providerError = new Error("Provider returned an empty compaction response.");
-			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
-				env: {},
-				state: {
-					storage: {
-						sql: {
-							exec: <T,>(sql: string) => {
-								if (/FROM events\s+WHERE compacted_by IS NULL/.test(sql)) {
-									return { toArray: () => candidates as T[] };
-								}
-								return { one: () => ({} as T), toArray: () => [] as T[] };
+				const candidates = Array.from({ length: 12 }, (_, index) => ({
+					seq: index + 1,
+					position: index + 1,
+					run_id: "run-compaction-failure",
+					role: "assistant",
+					message_json: JSON.stringify({ role: "assistant", content: `Recent activity ${index + 1}` }),
+					origin: "provider_response",
+					status: "complete",
+					token_estimate: 10,
+					compacted_by: null,
+					created_at: "2026-05-01T00:00:00.000Z",
+					has_logs: 0,
+				}));
+				const appendEvent = vi.fn(async (runId: string, type: string, payload: unknown) => ({
+					seq: 101,
+					runId,
+					type,
+					payload,
+					tokenEstimate: 1,
+					createdAt: "2026-05-01T00:00:01.000Z",
+				}));
+				const recordInferenceSubmission = vi.fn();
+				const replaceEventPayload = vi.fn();
+				const providerError = new Error("Provider returned an empty compaction response.");
+				const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+					env: {},
+					state: {
+						storage: {
+							sql: {
+								exec: <T,>(sql: string) => {
+									if (/FROM events\s+WHERE compacted_by IS NULL/.test(sql)) {
+										return { toArray: () => candidates as T[] };
+									}
+									return { one: () => ({} as T), toArray: () => [] as T[] };
+								},
 							},
 						},
 					},
-				},
-				appendEvent,
-				recordInferenceSubmission,
-				callProviderForCompaction: async () => {
-					throw providerError;
-				},
-				replaceEventPayload,
-			});
-			const compactLoopMessageRows = (BotRuntime.prototype as unknown as {
-				compactLoopMessageRows: (
-					bot: { tickSettings: { contextWindowTokens: number } },
-					settings: { apiKey: string; baseUrl: string; model: string; temperature: number },
-					runId: string,
-					signal: AbortSignal,
-					rows: unknown[],
-					mode: "auto" | "manual",
-					metrics: { estimatedContextTokens?: number; threshold?: number },
-				) => Promise<void>;
-			}).compactLoopMessageRows.bind(runtime);
+					appendEvent,
+					recordInferenceSubmission,
+					callProviderForCompaction: async () => {
+						throw providerError;
+					},
+					replaceEventPayload,
+				});
+				const compactLoopMessageRows = (BotRuntime.prototype as unknown as {
+					compactLoopMessageRows: (
+						bot: { tickSettings: { contextWindowTokens: number } },
+						settings: { apiKey: string; baseUrl: string; model: string; temperature: number },
+						runId: string,
+						signal: AbortSignal,
+						rows: unknown[],
+						mode: "auto" | "manual",
+						metrics: { estimatedContextTokens?: number; threshold?: number },
+					) => Promise<void>;
+				}).compactLoopMessageRows.bind(runtime);
 
 			await expect(
 				compactLoopMessageRows(
@@ -2792,6 +2828,92 @@ describe("Bickr Pages Functions", () => {
 				status: "failed",
 				error: "Provider returned an empty compaction response.",
 			}));
+		});
+
+		it("does not clamp over-budget fallback compaction output limits to the prompt budget", async () => {
+			const candidates = [
+				{
+					seq: 1,
+					position: 1,
+					run_id: "run-compaction-over-budget-fallback",
+					role: "assistant",
+					message_json: JSON.stringify({ role: "assistant", content: "Huge atomic group." + "x".repeat(20_000) }),
+					origin: "provider_response",
+					status: "complete",
+					token_estimate: 5_000,
+					compacted_by: null,
+					created_at: "2026-05-01T00:00:00.000Z",
+					has_logs: 0,
+				},
+			];
+			let capturedLimits: { maxLength: number; maxCompletionTokens: number } | null = null;
+			const appendEvent = vi.fn(async (runId: string, type: string, payload: unknown) => ({
+				seq: 102,
+				runId,
+				type,
+				payload,
+				tokenEstimate: 1,
+				createdAt: "2026-05-01T00:00:01.000Z",
+			}));
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				env: {},
+				state: {
+					storage: {
+						sql: {
+							exec: <T,>(sql: string) => {
+								if (/FROM events\s+WHERE compacted_by IS NULL/.test(sql)) {
+									return { toArray: () => candidates as T[] };
+								}
+								return { one: () => ({} as T), toArray: () => [] as T[] };
+							},
+						},
+					},
+				},
+				appendEvent,
+				recordInferenceSubmission: vi.fn(),
+				callProviderForCompaction: async (_settings: unknown, _messages: unknown, _runId: string, _signal: AbortSignal, limits: { maxLength: number; maxCompletionTokens: number }) => {
+					capturedLimits = limits;
+					throw new Error("stop after capturing limits");
+				},
+				replaceEventPayload: vi.fn(),
+			});
+			const compactLoopMessageRows = (BotRuntime.prototype as unknown as {
+				compactLoopMessageRows: (
+					bot: BotDocument,
+					settings: { apiKey: string; baseUrl: string; model: string; temperature: number },
+					runId: string,
+					signal: AbortSignal,
+					rows: unknown[],
+					mode: "auto" | "manual",
+					metrics: { compactionOverBudgetFallback?: boolean },
+				) => Promise<void>;
+			}).compactLoopMessageRows.bind(runtime);
+
+			await expect(
+				compactLoopMessageRows(
+					fakeBotDocument({ contextWindowTokens: 100, compactionMaxCharacters: 4_000 }),
+					{ apiKey: "test-key", baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+					"run-compaction-over-budget-fallback",
+					new AbortController().signal,
+					candidates,
+					"auto",
+					{ compactionOverBudgetFallback: true },
+				),
+			).rejects.toThrow("stop after capturing limits");
+
+			expect(capturedLimits).toMatchObject({
+				maxLength: 4_000,
+			});
+			const limits = capturedLimits as { maxLength: number; maxCompletionTokens: number } | null;
+			if (!limits) {
+				throw new Error("Expected compaction limits to be captured.");
+			}
+			expect(limits.maxCompletionTokens).toBeGreaterThan(100);
+			expect(appendEvent).toHaveBeenCalledWith(
+				"run-compaction-over-budget-fallback",
+				"compaction",
+				expect.objectContaining({ overBudgetFallback: true, status: "pending" }),
+			);
 		});
 
 		it("reconstructs retained loop message logs from full, append, and tail-replacement entries", () => {
@@ -4986,12 +5108,12 @@ describe("Bickr Pages Functions", () => {
 		expect(checkNotificationsResult.events[1].replyTo.text).toBeUndefined();
 	});
 
-	it("trims notification thread and comment text to keep synthetic notification results within budget", async () => {
-		const cookie = await authCookie();
-		await seedWorld(cookie);
-		const selfProfile = await createBotForTest(cookie, "notice-budget-self");
-		const bot = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, selfProfile.id);
-		const tokenBudget = 260;
+		it("omits oversized notification events instead of trimming notification text", async () => {
+			const cookie = await authCookie();
+			await seedWorld(cookie);
+			const selfProfile = await createBotForTest(cookie, "notice-budget-self");
+			const bot = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, selfProfile.id);
+			const tokenBudget = 260;
 		const author = { id: selfProfile.id, username: `u/${selfProfile.handle}`, displayName: selfProfile.displayName };
 		const messages: Array<Record<string, unknown>> = [];
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
@@ -5040,27 +5162,24 @@ describe("Bickr Pages Functions", () => {
 			"run-notification-budget",
 			"2026-05-01T00:15:00.000Z",
 		);
-		const checkNotificationsResult = messages
-			.filter((message) => message.role === "tool")
-			.map((message) => JSON.parse(String(message.content)))
-			.find((result) => Array.isArray(result.events));
-		expect(Math.ceil(JSON.stringify(checkNotificationsResult).length / 4)).toBeLessThanOrEqual(tokenBudget);
-		expect(checkNotificationsResult.context).toContain("text ending in …");
-		expect(checkNotificationsResult.events).toHaveLength(1);
-		const threadText = String(checkNotificationsResult.events[0].thread.text);
-		const commentText = String(checkNotificationsResult.events[0].comment.text);
-		expect(threadText.endsWith("…")).toBe(true);
-		expect(commentText.endsWith("…")).toBe(true);
-		expect(Array.from(threadText.replace(/…$/, "")).length).toBeGreaterThanOrEqual(100);
-		expect(Array.from(commentText.replace(/…$/, "")).length).toBeGreaterThanOrEqual(100);
-	});
+			const checkNotificationsResult = messages
+				.filter((message) => message.role === "tool")
+				.map((message) => JSON.parse(String(message.content)))
+				.find((result) => Array.isArray(result.events));
+			expect(Math.ceil(JSON.stringify(checkNotificationsResult).length / 4)).toBeLessThanOrEqual(tokenBudget);
+			expect(checkNotificationsResult.context).toContain("1 older notification event was omitted");
+			expect(checkNotificationsResult.events).toHaveLength(0);
+			expect(JSON.stringify(checkNotificationsResult)).not.toContain(longThreadText);
+			expect(JSON.stringify(checkNotificationsResult)).not.toContain(longCommentText);
+			expect(JSON.stringify(checkNotificationsResult)).not.toContain("…");
+		});
 
-	it("drops older notification events after minimum text trimming cannot fit the budget", async () => {
-		const cookie = await authCookie();
-		await seedWorld(cookie);
-		const selfProfile = await createBotForTest(cookie, "notice-drop-self");
-		const bot = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, selfProfile.id);
-		const tokenBudget = 300;
+		it("drops older notification events without trimming notification text", async () => {
+			const cookie = await authCookie();
+			await seedWorld(cookie);
+			const selfProfile = await createBotForTest(cookie, "notice-drop-self");
+			const bot = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, selfProfile.id);
+			const tokenBudget = 300;
 		const author = { id: selfProfile.id, username: `u/${selfProfile.handle}`, displayName: selfProfile.displayName };
 		const messages: Array<Record<string, unknown>> = [];
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
@@ -5088,13 +5207,13 @@ describe("Bickr Pages Functions", () => {
 		const notifications: NotificationEvent[] = Array.from({ length: 8 }, (_, index) => ({
 			id: `ntf_drop_${index}`,
 			type: "comment_created",
-			createdAt: `2026-05-01T00:00:0${index}.000Z`,
-			deliveryReasons: ["followed_profile_activity"],
-			sourceObjectId: `cmt_drop_${index}`,
-			message: `Long notification ${index}.`,
-			thread: { id: `thr_drop_${index}`, title: `Budget thread ${index}`, author, text: `${index}${"T".repeat(1_400)}` },
-			comment: { id: `cmt_drop_${index}`, threadId: `thr_drop_${index}`, author, text: `${index}${"C".repeat(1_400)}` },
-		}));
+				createdAt: `2026-05-01T00:00:0${index}.000Z`,
+				deliveryReasons: ["followed_profile_activity"],
+				sourceObjectId: `cmt_drop_${index}`,
+				message: `Long notification ${index}.`,
+				thread: { id: `thr_drop_${index}`, title: `Budget thread ${index}`, author, text: `Thread ${index} stays whole.` },
+				comment: { id: `cmt_drop_${index}`, threadId: `thr_drop_${index}`, author, text: `Comment ${index} stays whole.` },
+			}));
 		await buildMessages(
 			bot,
 			{ notifications, injections: [], spotlightContexts: [], ping: false },
@@ -5107,11 +5226,13 @@ describe("Bickr Pages Functions", () => {
 			.find((result) => Array.isArray(result.events));
 		expect(Math.ceil(JSON.stringify(checkNotificationsResult).length / 4)).toBeLessThanOrEqual(tokenBudget);
 		expect(checkNotificationsResult.context).toContain("older notification");
-		expect(checkNotificationsResult.events.length).toBeGreaterThan(0);
-		expect(checkNotificationsResult.events.length).toBeLessThan(notifications.length);
-		expect(checkNotificationsResult.events[0].comment.commentId).not.toBe("cmt_drop_0");
-		expect(checkNotificationsResult.events.at(-1).comment.commentId).toBe("cmt_drop_7");
-	});
+			expect(checkNotificationsResult.events.length).toBeGreaterThan(0);
+			expect(checkNotificationsResult.events.length).toBeLessThan(notifications.length);
+			expect(checkNotificationsResult.events[0].comment.commentId).not.toBe("cmt_drop_0");
+			expect(checkNotificationsResult.events.at(-1).comment.commentId).toBe("cmt_drop_7");
+			expect(checkNotificationsResult.events.at(-1).comment.text).toBe("Comment 7 stays whole.");
+			expect(JSON.stringify(checkNotificationsResult)).not.toContain("…");
+		});
 
 	it("deduplicates explicit read result comment bodies while keeping comment IDs", () => {
 		const activeScope = {
@@ -5188,9 +5309,9 @@ describe("Bickr Pages Functions", () => {
 		expect(commentResult.content[0]?.body).toBeUndefined();
 	});
 
-	it("compacts participant-facing tool result metadata across discovery and activity tools", () => {
-		vi.useFakeTimers();
-		vi.setSystemTime(new Date("2026-05-08T00:00:00.000Z"));
+		it("compacts participant-facing tool result metadata across discovery and activity tools", () => {
+			vi.useFakeTimers();
+			vi.setSystemTime(new Date("2026-05-08T00:00:00.000Z"));
 		try {
 			const forumResult = providerToolResultPayload("list_accessible_forums", [
 				{ id: "frm_random", worldHandle: "primary", handle: "random", description: "Random chatter." },
@@ -5366,19 +5487,18 @@ describe("Bickr Pages Functions", () => {
 					},
 				],
 			});
-			expect(activityResult).toMatchObject({
-				profile: "u/owner",
-				activities: [
-					{ type: "thread", threadId: "thr_activity", forum: "f/random", when: "2 days ago" },
-					{
-						type: "comment",
-						threadId: "thr_activity",
-						commentId: "cmt_activity",
-						forum: "f/random",
-						parentComment: { commentId: "cmt_parent", author: "u/dave", bodyPreview: "Parent preview." },
-						when: "3 days ago",
-					},
-					{
+				expect(activityResult).toMatchObject({
+					profile: "u/owner",
+					activities: [
+						{ type: "thread", threadId: "thr_activity", forum: "f/random", when: "2 days ago" },
+						{
+							type: "comment",
+							commentId: "cmt_activity",
+							forum: "f/random",
+							replyTo: { author: "u/dave", bodyPreview: "Parent preview." },
+							when: "3 days ago",
+						},
+						{
 						type: "vote",
 						commentId: "cmt_vote",
 						value: 1,
@@ -5388,12 +5508,18 @@ describe("Bickr Pages Functions", () => {
 						when: "4 days ago",
 					},
 					{ type: "follow", profile: "u/friend", when: "5 days ago" },
-				],
-			});
-			expect((activityResult as { activities: Array<Record<string, unknown>> }).activities[0]).not.toHaveProperty("rootCommentId");
+					],
+				});
+				expect((activityResult as { activities: Array<Record<string, unknown>> }).activities[0]).not.toHaveProperty("rootCommentId");
+				const providerCommentActivity = (activityResult as { activities: Array<Record<string, unknown>> }).activities[1]!;
+				expect(providerCommentActivity).not.toHaveProperty("threadId");
+				expect(providerCommentActivity).not.toHaveProperty("threadTitle");
+				expect(providerCommentActivity).not.toHaveProperty("voteScore");
+				expect(providerCommentActivity).not.toHaveProperty("parentComment");
+				expect(providerCommentActivity.replyTo as Record<string, unknown>).not.toHaveProperty("commentId");
 
-			for (const payload of [forumResult, recentResult, hotResult, searchResult, notificationResult, activityResult]) {
-				expectProviderPayloadToOmitKeys(payload, ["id", "world", "worldHandle", "urlPath", "score", "createdAt", "updatedAt", "lastActivityAt"]);
+				for (const payload of [forumResult, recentResult, hotResult, searchResult, notificationResult, activityResult]) {
+					expectProviderPayloadToOmitKeys(payload, ["id", "world", "worldHandle", "urlPath", "score", "createdAt", "updatedAt", "lastActivityAt"]);
 				expectProviderPayloadToOmitIsoTimestamps(payload);
 			}
 		} finally {
@@ -12911,6 +13037,192 @@ describe("Bickr Pages Functions", () => {
 			}
 		});
 
+		it("prunes provider-facing discovery arrays to the token budget", () => {
+			vi.useFakeTimers();
+			vi.setSystemTime(new Date("2026-05-08T00:00:00.000Z"));
+			try {
+				const scope = { commentsWithText: new Set<string>(), threadsWithText: new Set<string>() };
+					const searchResult = providerToolResultPayload(
+						"search_threads",
+						[
+							{ threadId: "thr_new", commentId: "cmt_new", forumHandle: "random", title: "New", authorHandle: "alice", createdAt: "2026-05-08T00:00:00.000Z" },
+						{ threadId: "thr_mid", commentId: "cmt_mid", forumHandle: "random", title: "Middle", authorHandle: "bob", createdAt: "2026-05-07T00:00:00.000Z" },
+						{ threadId: "thr_old", commentId: "cmt_old", forumHandle: "random", title: "Old", authorHandle: "carol", createdAt: "2026-05-06T00:00:00.000Z" },
+					],
+					{},
+					scope,
+					{ tokenBudget: 45 },
+					) as Array<Record<string, unknown>>;
+					expect(searchResult.map((item) => item.threadId)).toEqual(["thr_new"]);
+
+					const semanticSearchResult = providerToolResultPayload(
+						"search_threads_semantic",
+						[
+							{ threadId: "thr_semantic_new", commentId: "cmt_semantic_new", forumHandle: "random", title: "New semantic hit", authorHandle: "alice" },
+							{ threadId: "thr_semantic_old", commentId: "cmt_semantic_old", forumHandle: "random", title: "Old semantic hit", authorHandle: "bob" },
+						],
+						{},
+						scope,
+						{ tokenBudget: 45 },
+					) as Array<Record<string, unknown>>;
+					expect(semanticSearchResult.map((item) => item.threadId)).toEqual(["thr_semantic_new"]);
+
+					const profilesResult = providerToolResultPayload(
+						"view_profiles",
+					{
+						profiles: [
+							{ handle: "alpha", displayName: "Alpha", shortBio: "Profile alpha." },
+							{ handle: "beta", displayName: "Beta", shortBio: "Profile beta." },
+							{ handle: "gamma", displayName: "Gamma", shortBio: "Profile gamma." },
+						],
+					},
+					{},
+					scope,
+					{ tokenBudget: 35 },
+				) as { profiles: Array<Record<string, unknown>> };
+				expect(profilesResult.profiles.map((item) => item.username)).toEqual(["u/alpha"]);
+			} finally {
+				vi.useRealTimers();
+			}
+		});
+
+		it("trims activity previews with ellipses before pruning oldest activity entries", () => {
+			vi.useFakeTimers();
+			vi.setSystemTime(new Date("2026-05-08T00:00:00.000Z"));
+			try {
+				const unbudgetedActivityResult = providerToolResultPayload("view_activity", {
+					bot: { handle: "owner" },
+					activities: [{ type: "thread", threadId: "thr_preview", forumHandle: "random", bodyPreview: "p".repeat(240), createdAt: "2026-05-08T00:00:00.000Z" }],
+				}) as { activities: Array<Record<string, unknown>> };
+				expect(unbudgetedActivityResult.activities[0]?.bodyPreview).toBe(`${"p".repeat(240)}…`);
+
+				const activityResult = providerToolResultPayload(
+					"view_activity",
+					{
+						bot: { handle: "owner" },
+						activities: [
+							{
+								type: "comment",
+								commentId: "cmt_new",
+								forumHandle: "random",
+								bodyPreview: "n".repeat(240),
+								parentComment: { authorHandle: "parent", bodyPreview: "p".repeat(240) },
+								createdAt: "2026-05-08T00:00:00.000Z",
+							},
+							{
+								type: "comment",
+								commentId: "cmt_old",
+								forumHandle: "random",
+								bodyPreview: "o".repeat(240),
+								parentComment: { authorHandle: "parent", bodyPreview: "older parent" },
+								createdAt: "2026-05-07T00:00:00.000Z",
+							},
+						],
+					},
+					{},
+					{ commentsWithText: new Set<string>(), threadsWithText: new Set<string>() },
+					{ tokenBudget: 70 },
+				) as { activities: Array<Record<string, unknown>> };
+
+				expect(activityResult.activities).toHaveLength(1);
+				expect(activityResult.activities[0]).toMatchObject({
+					type: "comment",
+					commentId: "cmt_new",
+					bodyPreview: "…",
+					replyTo: { author: "u/parent", bodyPreview: "…" },
+				});
+			} finally {
+				vi.useRealTimers();
+			}
+		});
+
+		it("omits older notification events without trimming notification text", () => {
+			const notifications = [
+				{
+					id: "ntf_old",
+					type: "comment_created",
+					deliveryReasons: ["mention"],
+					sourceObjectId: "cmt_old",
+					actor: { username: "u/old" },
+					comment: { id: "cmt_old", threadId: "thr_old", text: "Old text that should be omitted rather than shortened. " + "x".repeat(400) },
+				},
+				{
+					id: "ntf_new",
+					type: "comment_created",
+					deliveryReasons: ["mention"],
+					sourceObjectId: "cmt_new",
+					actor: { username: "u/new" },
+					comment: { id: "cmt_new", threadId: "thr_new", text: "Newest notification text stays whole." },
+				},
+			];
+			const notificationResult = providerToolResultPayload(
+				"check_notifications",
+				{ events: notifications },
+				{},
+				{ commentsWithText: new Set<string>(), threadsWithText: new Set<string>() },
+				{ tokenBudget: 90 },
+			) as { context?: string; events: Array<Record<string, unknown>> };
+
+			expect(notificationResult.context).toContain("1 older notification event was omitted");
+			expect(JSON.stringify(notificationResult)).not.toContain("Old text that should be omitted");
+			expect(JSON.stringify(notificationResult)).not.toContain("…");
+			expect(notificationResult.events).toHaveLength(1);
+			expect(notificationResult.events[0]).toMatchObject({
+				actor: "u/new",
+				comment: { commentId: "cmt_new", text: "Newest notification text stays whole." },
+			});
+		});
+
+		it("returns only included notification IDs for delivery marking", async () => {
+			const appendedMessages: Array<Record<string, unknown>> = [];
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				readCommentTreeTokenBudget: async () => 90,
+				appendLoopMessage: (_runId: string, message: Record<string, unknown>) => {
+					appendedMessages.push(message);
+					return { seq: appendedMessages.length };
+				},
+			});
+			const appendNotificationSyntheticContext = (BotRuntime.prototype as unknown as {
+				appendNotificationSyntheticContext: (
+					bot: BotDocument,
+					runId: string,
+					notifications: Array<Record<string, unknown>>,
+					existingProfileUsernames: ReadonlySet<string>,
+					existingProviderContent: { commentsWithText: Set<string>; threadsWithText: Set<string> },
+				) => Promise<string[]>;
+			}).appendNotificationSyntheticContext.bind(runtime);
+			const includedIds = await appendNotificationSyntheticContext(
+				fakeBotDocument(),
+				"run-notification-prune",
+				[
+					{
+						id: "ntf_old",
+						type: "comment_created",
+						deliveryReasons: ["mention"],
+						sourceObjectId: "cmt_old",
+						actor: { username: "u/old" },
+						comment: { id: "cmt_old", threadId: "thr_old", text: "Old text " + "x".repeat(400) },
+					},
+					{
+						id: "ntf_new",
+						type: "comment_created",
+						deliveryReasons: ["mention"],
+						sourceObjectId: "cmt_new",
+						actor: { username: "u/new" },
+						comment: { id: "cmt_new", threadId: "thr_new", text: "Newest notification text stays whole." },
+					},
+				],
+				new Set(["new"]),
+				{ commentsWithText: new Set<string>(), threadsWithText: new Set<string>() },
+			);
+
+			expect(includedIds).toEqual(["ntf_new"]);
+			const checkNotificationResult = appendedMessages.find((message) => message.role === "tool");
+			expect(JSON.parse(String(checkNotificationResult?.content))).toMatchObject({
+				events: [{ actor: "u/new" }],
+			});
+		});
+
 	it("rejects translation without auth, configured model, or parseable provider JSON", async () => {
 		const unauthorized = await translateText(
 			contextFor<typeof translateText>(
@@ -14644,8 +14956,10 @@ describe("Bickr Pages Functions", () => {
 					{ role: "assistant", content: "Current notification setup must remain." },
 				];
 			},
-			compactionRowsForEstimatedBudget: () =>
-				activeMessages.some((message) => String(message.content).includes("Old history")) ? [loopMessageRowForTest(1, "run-old", "Old history that can be compacted.")] : [],
+				compactionRowSelectionForEstimatedBudget: () => ({
+					rows: activeMessages.some((message) => String(message.content).includes("Old history")) ? [loopMessageRowForTest(1, "run-old", "Old history that can be compacted.")] : [],
+					overBudgetFallback: false,
+				}),
 			repairActiveProviderToolCallHistory: async () => [],
 			recordInferenceSubmission,
 			recordLoopMessageLog: () => {},
@@ -14733,12 +15047,15 @@ describe("Bickr Pages Functions", () => {
 					{ role: "assistant", content: "I remember the large current thread read as a concise summary." },
 				];
 			},
-			compactionRowsForEstimatedBudget: () => {
-				compactionSelectionCalls += 1;
-				return activeMessages.some((message) => String(message.content).includes("Large current")) ?
-					[loopMessageRowForTest(7, "run-current-compact", "Large current thread read result that overflowed the prompt.")]
-				:	[];
-			},
+				compactionRowSelectionForEstimatedBudget: () => {
+					compactionSelectionCalls += 1;
+					return {
+						rows: activeMessages.some((message) => String(message.content).includes("Large current")) ?
+							[loopMessageRowForTest(7, "run-current-compact", "Large current thread read result that overflowed the prompt.")]
+						:	[],
+						overBudgetFallback: false,
+					};
+				},
 			repairActiveProviderToolCallHistory: async () => [],
 			recordInferenceSubmission: () => {},
 			recordLoopMessageLog: () => {},
@@ -14879,7 +15196,7 @@ describe("Bickr Pages Functions", () => {
 		);
 
 		expect(result.promptTokens).toBe(10_000);
-		expect(compactedSeqs).toEqual([[1]]);
+			expect(compactedSeqs).toEqual([[1, 2, 3]]);
 		expect(events.map((event) => event.type)).toEqual(["provider_token_estimate", "provider_token_estimate"]);
 	});
 
@@ -14945,7 +15262,7 @@ describe("Bickr Pages Functions", () => {
 				compactCalls += 1;
 				return [row];
 			},
-			compactionRowsForEstimatedBudget: () => [row],
+				compactionRowSelectionForEstimatedBudget: () => ({ rows: [row], overBudgetFallback: false }),
 			estimateProviderPromptTokens: () => providerPromptEstimateForTokens(20_000),
 			textTokenCalibration: () => calibration,
 			throwIfStopped: (_runId: string, signal: AbortSignal) => {
@@ -15000,7 +15317,7 @@ describe("Bickr Pages Functions", () => {
 				callProviderForTokenProbe: vi.fn(),
 				estimateProviderPromptTokens: () => providerPromptEstimateForTokens(20_000),
 				textTokenCalibration: () => calibration,
-				compactionRowsForEstimatedBudget: () => [],
+					compactionRowSelectionForEstimatedBudget: () => ({ rows: [], overBudgetFallback: false }),
 			repairActiveProviderToolCallHistory: async () => [],
 			recordInferenceSubmission,
 			recordProviderUsage: () => {},

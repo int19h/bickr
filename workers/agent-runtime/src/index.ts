@@ -181,10 +181,16 @@ type CompactionCandidateEstimate = {
 	tokens: number;
 };
 
+type CompactionRowSelection = {
+	rows: LoopMessageRow[];
+	overBudgetFallback: boolean;
+};
+
 type CompactionMetrics = {
 	allowedPromptTokens?: number;
 	compactionMaxCharacters?: number;
 	compactionMaxCompletionTokens?: number;
+	compactionOverBudgetFallback?: boolean;
 	estimatedContextTokens?: number;
 	estimatedPromptTokens?: number;
 	exactPromptTokens?: number;
@@ -590,6 +596,11 @@ export type LoopInput = {
 export type RuntimeLoopInputBuild = {
 	input: LoopInput;
 	autoProfileSeenItems: SeenContentItem[];
+	notificationSeenItemsById: Record<string, SeenContentItem[]>;
+};
+
+type RuntimeLoopMessages = ChatMessage[] & {
+	deliveredNotificationIds: Set<string>;
 };
 
 type InjectionMetadata = {
@@ -663,10 +674,29 @@ type ReadPruneResult = {
 };
 
 type ProviderNotificationPruneResult = {
-	events: Record<string, unknown>[];
+	events: Array<{ notificationIds: string[]; payload: Record<string, unknown> }>;
 	omittedEventCount: number;
 	tokenEstimate: number;
-	trimmedTextCount: number;
+};
+
+type ProviderNotificationPayloadResult = {
+	payload: Record<string, unknown>;
+	includedEventIds: string[];
+};
+
+type ProviderNotificationEventGroup = {
+	event: Record<string, unknown>;
+	notificationIds: string[];
+};
+
+type ProviderToolResultPayloadOptions = {
+	tokenBudget?: number;
+};
+
+type ProviderToolArrayPruneResult<T> = {
+	items: T[];
+	omittedCount: number;
+	tokenEstimate: number;
 };
 
 type ContextBudgetPromptParts = {
@@ -3145,23 +3175,25 @@ export class BotRuntime {
 			);
 			const input = builtInput.input;
 			const inputEvent = await this.appendEvent(runId, "input", input);
+			const builtMessages = await this.buildMessages(bot, input, runId, inputEvent.createdAt, { setupMode });
 			if (setupMode === "new_iteration") {
+				const deliveredNotificationIds = builtMessages.deliveredNotificationIds;
+				const deliveredSeenItems = uniqueSeenContentItems([...deliveredNotificationIds].flatMap((id) => builtInput.notificationSeenItemsById[id] ?? []));
 				await markBotSeenContent(
 					this.env.BICKR_D1,
 					bot.id,
-					[
-						...notifications
-							.map((notification) => seenItemFromSource(notification.sourceObjectId))
-							.filter((item): item is { type: "thread" | "comment"; id: string } => Boolean(item)),
-						...builtInput.autoProfileSeenItems,
-					],
+					deliveredSeenItems,
 					"notification",
 					runId,
 				);
-				await markNotificationsDelivered(this.env.BICKR_KV, this.env.BICKR_D1, notifications);
+				await markNotificationsDelivered(
+					this.env.BICKR_KV,
+					this.env.BICKR_D1,
+					notifications.filter((notification) => deliveredNotificationIds.has(notification.id)),
+				);
 			}
 
-			const messages = await this.buildMessages(bot, input, runId, inputEvent.createdAt, { setupMode });
+			const messages = builtMessages;
 			this.throwIfStopped(runId, abortController.signal);
 			if (providerSettings.apiKey || providerSettings.usesCustomBaseUrl || this.env.BICKR_SIMULATION_MODE === "provider") {
 				const outcome = await this.runProviderLoop(bot, providerSettings, runId, messages, runContext);
@@ -6421,12 +6453,13 @@ export class BotRuntime {
 				break;
 			}
 			case "view_activity": {
+				const activityLimit = numberArg(normalizedArgs.limit, 10, 20);
 				const feed = await botActivityFeedByHandle(
 					this.env.BICKR_KV,
 					this.env.BICKR_D1,
 					bot.homeWorldId,
 					usernameArg(normalizedArgs.username),
-					numberArg(normalizedArgs.limit, 20),
+					activityLimit,
 				);
 				await markBotSeenContent(this.env.BICKR_D1, bot.id, [{ type: "bot", id: feed.bot.id }], "tool:view_activity", runId);
 				result = await this.annotateActivityFeedFollowStatus(bot.id, feed);
@@ -6458,7 +6491,8 @@ export class BotRuntime {
 				console.warn("spotlight notification failed", error);
 			}
 		}
-		const providerResult = providerToolResultPayload(canonicalName, result, normalizedArgs, this.providerContentInActiveContext());
+		const providerResultTokenBudget = providerToolResultUsesTokenBudget(canonicalName) ? await this.readCommentTreeTokenBudget(bot) : undefined;
+		const providerResult = providerToolResultPayload(canonicalName, result, normalizedArgs, this.providerContentInActiveContext(), { tokenBudget: providerResultTokenBudget });
 		const toolResultEvent = await this.appendEvent(runId, "tool_result", {
 			name: canonicalName,
 			args: providerToolArgs(canonicalName, normalizedArgs),
@@ -6818,8 +6852,9 @@ export class BotRuntime {
 		runId: string,
 		inputCreatedAt: string,
 		options: { setupMode?: LoopSetupMode } = {},
-	): Promise<ChatMessage[]> {
+	): Promise<RuntimeLoopMessages> {
 		const setupMode = options.setupMode ?? "new_iteration";
+		const deliveredNotificationIds = new Set<string>();
 		const elapsed = setupMode === "new_iteration" ? formatElapsedTimeSincePreviousVisit(this.previousTerminalTickEvent(runId), inputCreatedAt) : "";
 		if (elapsed) {
 			this.appendLoopMessage(runId, { role: "user", content: elapsed }, "input");
@@ -6829,7 +6864,9 @@ export class BotRuntime {
 		if (input.spotlightContexts.length > 0) {
 			await this.appendSpotlightSyntheticContext(bot, runId, input.spotlightContexts, existingProfileUsernames, existingProviderContent);
 		} else if (setupMode === "new_iteration") {
-			await this.appendNotificationSyntheticContext(bot, runId, input.notifications, existingProfileUsernames, existingProviderContent);
+			for (const id of await this.appendNotificationSyntheticContext(bot, runId, input.notifications, existingProfileUsernames, existingProviderContent)) {
+				deliveredNotificationIds.add(id);
+			}
 		}
 		if (setupMode !== "spotlight") {
 			for (const injection of input.injections) {
@@ -6843,7 +6880,13 @@ export class BotRuntime {
 		if (setupMode === "new_iteration" && recurringPrompt) {
 			this.appendLoopMessage(runId, { role: "assistant", content: recurringPrompt }, "synthetic_context");
 		}
-		return this.activeLoopMessagesForProvider();
+		const messages = this.activeLoopMessagesForProvider() as RuntimeLoopMessages;
+		Object.defineProperty(messages, "deliveredNotificationIds", {
+			value: deliveredNotificationIds,
+			enumerable: false,
+			configurable: true,
+		});
+		return messages;
 	}
 
 	private async appendNotificationSyntheticContext(
@@ -6852,20 +6895,23 @@ export class BotRuntime {
 		notifications: LoopNotification[],
 		existingProfileUsernames: ReadonlySet<string>,
 		existingProviderContent: ProviderContextContentScope,
-	): Promise<void> {
+	): Promise<string[]> {
 		const toolCalls: ToolCall[] = [
 			syntheticToolCall(runId, "check_notifications", 0, {}),
 		];
 		const providerContentScope = cloneProviderContextContentScope(existingProviderContent);
 		const notificationTokenBudget = notifications.length > 0 ? await this.readCommentTreeTokenBudget(bot) : undefined;
+		const notificationResult = providerCheckNotificationsResultWithInclusions(notifications, providerContentScope, notificationTokenBudget);
+		const includedNotificationIds = new Set(notificationResult.includedEventIds);
+		const includedNotifications = notifications.filter((notification) => includedNotificationIds.has(notification.id));
 		const results: ChatMessage[] = [
 			{
 				role: "tool",
 				tool_call_id: toolCalls[0]?.id ?? syntheticToolCallId(runId, 0),
-				content: JSON.stringify(providerCheckNotificationsResult(notifications, providerContentScope, notificationTokenBudget)),
+				content: JSON.stringify(notificationResult.payload),
 			},
 		];
-		const usernames = referencedProfileUsernamesFromNotifications(notifications, bot.handle, existingProfileUsernames);
+		const usernames = referencedProfileUsernamesFromNotifications(includedNotifications, bot.handle, existingProfileUsernames);
 		if (usernames.length > 0) {
 			const index = toolCalls.length;
 			const profiles = await this.syntheticProfilesForUsernames(bot, usernames, runId, "notification");
@@ -6874,7 +6920,7 @@ export class BotRuntime {
 			results.push({
 				role: "tool",
 				tool_call_id: toolCall.id,
-				content: JSON.stringify(providerToolResultPayload("view_profiles", { profiles })),
+				content: JSON.stringify(providerToolResultPayload("view_profiles", { profiles }, {}, emptyProviderContextContentScope(), { tokenBudget: notificationTokenBudget })),
 			});
 		}
 		this.appendToolCallChainLoopMessages(
@@ -6884,6 +6930,7 @@ export class BotRuntime {
 			toolCalls,
 			results,
 		);
+		return notificationResult.includedEventIds;
 	}
 
 	private async appendSpotlightSyntheticContext(
@@ -7309,7 +7356,8 @@ export class BotRuntime {
 			if (compactionAttempts >= providerPromptCompactionMaxAttempts) {
 				throw new PromptContextCompactionLimitError(estimate.promptTokens, allowedPromptTokens, providerPromptCompactionMaxAttempts);
 			}
-			const rowsToCompact = this.compactionRowsForEstimatedBudget(budgetBot, providerTools, compactionMode, settings.model);
+			const compactionSelection = this.compactionRowSelectionForEstimatedBudget(budgetBot, providerTools, compactionMode, settings.model);
+			const rowsToCompact = compactionSelection.rows;
 			if (rowsToCompact.length === 0) {
 				throw new PromptContextBudgetExceededError(estimate.promptTokens, allowedPromptTokens);
 			}
@@ -7321,6 +7369,7 @@ export class BotRuntime {
 				estimatedPromptTokens: estimate.promptTokens,
 				overBudgetTokens,
 				threshold: allowedPromptTokens,
+				...(compactionSelection.overBudgetFallback ? { compactionOverBudgetFallback: true } : {}),
 			});
 		}
 	}
@@ -7404,9 +7453,18 @@ export class BotRuntime {
 		mode: ProviderCompactionMode = "structured_output",
 		requestedModel?: string,
 	): LoopMessageRow[] {
+		return this.compactionRowSelectionForEstimatedBudget(bot, providerTools, mode, requestedModel).rows;
+	}
+
+	private compactionRowSelectionForEstimatedBudget(
+		bot: BotDocument,
+		providerTools?: ProviderToolDefinition[],
+		mode: ProviderCompactionMode = "structured_output",
+		requestedModel?: string,
+	): CompactionRowSelection {
 		const calibration = this.textTokenCalibration(requestedModel);
 		const rows = this.compactionCandidateEstimates(calibration);
-		return oldestLoopMessageGroupsForPromptLimit(
+		return oldestLoopMessageGroupSelectionForPromptLimit(
 			rows,
 			this.compactionPromptTokenLimit(bot, rows.map((item) => item.row), calibration, providerTools, mode),
 			{
@@ -7451,7 +7509,7 @@ export class BotRuntime {
 				row,
 				tokens: estimateChatMessageTokens(loopMessageChatMessageFromRow(row), calibration),
 			}));
-			const batch = oldestLoopMessageGroupsForPromptLimit(
+			const selection = oldestLoopMessageGroupSelectionForPromptLimit(
 				estimates,
 				this.compactionPromptTokenLimit(bot, remaining, calibration, providerTools, providerCompactionMode(settings)),
 				{
@@ -7459,6 +7517,7 @@ export class BotRuntime {
 						this.compactionRowsLeaveOutputBudget(bot, selectedRows, calibration, providerTools, providerCompactionMode(settings)),
 				},
 			);
+			const batch = selection.rows;
 			if (batch.length === 0) {
 				throw new RepositoryError("bad_request", "The oldest loop message group is too large to compact within the current context budget.", 400);
 			}
@@ -7466,6 +7525,7 @@ export class BotRuntime {
 			const compactedRows = await this.compactLoopMessageRows(bot, settings, runId, signal, selected, mode, {
 				...metrics,
 				...(rows.length !== selected.length ? { batchIndex } : {}),
+				...(selection.overBudgetFallback ? { compactionOverBudgetFallback: true } : {}),
 			});
 			const selectedSeqs = new Set((compactedRows.length > 0 ? compactedRows : selected).map((row) => row.seq));
 			remaining = remaining.filter((row) => !selectedSeqs.has(row.seq));
@@ -7516,39 +7576,43 @@ export class BotRuntime {
 			recentActivity = providerRows
 				.map((message) => truncateForContext(loopMessageContextLine(message), 1_200))
 				.join("\n");
-			compactedMessages = providerRows.map((row) => loopMessageChatMessageFromRow(row));
-			compactedCommentBodies = commentTextRecordsFromChatMessages(compactedMessages);
-			const baseLimits = providerCompactionSummaryLimitsForChat(bot, compactedMessages, calibration, providerTools, compactionMode);
-			const compactionTools = providerCompactionToolsForMode(baseLimits, providerTools, compactionMode);
-			const compactionMessages = providerCompactionMessages(bot, compactedMessages, baseLimits, compactionTools, compactionMode);
-			const compactionResponseFormat = providerCompactionResponseFormat(baseLimits.maxLength, compactionMode);
-			const tickSettings = effectiveTickSettings(bot.tickSettings);
-			compactionLimits = {
-				...baseLimits,
-				maxCompletionTokens: providerCompactionMaxCompletionTokensForRequest(
-					tickSettings.contextWindowTokens,
-					compactionMessages,
-					compactionTools,
-					calibration,
-					compactionResponseFormat,
-				),
-			};
-			compactionEventPayload = {
-				fromSeq: providerRows[0]?.seq,
-				toSeq: providerRows[providerRows.length - 1]?.seq,
-				messageCount: providerRows.length,
-				mode,
+				compactedMessages = providerRows.map((row) => loopMessageChatMessageFromRow(row));
+				compactedCommentBodies = commentTextRecordsFromChatMessages(compactedMessages);
+				const baseLimits = providerCompactionSummaryLimitsForChat(bot, compactedMessages, calibration, providerTools, compactionMode);
+				const compactionTools = providerCompactionToolsForMode(baseLimits, providerTools, compactionMode);
+				const compactionMessages = providerCompactionMessages(bot, compactedMessages, baseLimits, compactionTools, compactionMode);
+				const compactionResponseFormat = providerCompactionResponseFormat(baseLimits.maxLength, compactionMode);
+				const tickSettings = effectiveTickSettings(bot.tickSettings);
+				const overBudgetFallback = metrics.compactionOverBudgetFallback === true;
+				compactionLimits = {
+					...baseLimits,
+					maxCompletionTokens:
+						overBudgetFallback ? providerCompactionRequiredCompletionTokens(baseLimits)
+						:	providerCompactionMaxCompletionTokensForRequest(
+								tickSettings.contextWindowTokens,
+								compactionMessages,
+								compactionTools,
+								calibration,
+								compactionResponseFormat,
+							),
+				};
+				compactionEventPayload = {
+					fromSeq: providerRows[0]?.seq,
+					toSeq: providerRows[providerRows.length - 1]?.seq,
+					messageCount: providerRows.length,
+					mode,
 				...metrics,
 				compactionMinCharacters: compactionLimits.minLength,
 				compactionMaxCharacters: compactionLimits.maxLength,
-				compactionMaxCompletionTokens: compactionLimits.maxCompletionTokens,
-				compactionInputTokens: compactionLimits.compactionInputTokens,
-				compactionRequestOverheadTokens: compactionLimits.compactionRequestOverheadTokens,
-				anticipatedSummaryTokens: compactionLimits.anticipatedSummaryTokens,
-				nextCompactionTokens: compactionLimits.nextCompactionTokens,
-				compactionMode,
-				...(outputLimitShrinkAttempts > 0 ? { outputLimitShrinkAttempts } : {}),
-			};
+					compactionMaxCompletionTokens: compactionLimits.maxCompletionTokens,
+					compactionInputTokens: compactionLimits.compactionInputTokens,
+					compactionRequestOverheadTokens: compactionLimits.compactionRequestOverheadTokens,
+					anticipatedSummaryTokens: compactionLimits.anticipatedSummaryTokens,
+					nextCompactionTokens: compactionLimits.nextCompactionTokens,
+					compactionMode,
+					...(outputLimitShrinkAttempts > 0 ? { outputLimitShrinkAttempts } : {}),
+					...(overBudgetFallback ? { overBudgetFallback: true } : {}),
+				};
 			if (!summaryEvent) {
 				summaryEvent = await this.appendEvent(runId, "compaction", {
 					...compactionEventPayload,
@@ -8329,17 +8393,25 @@ export async function buildRuntimeLoopInput(
 ): Promise<RuntimeLoopInputBuild> {
 	const profileContextState: ForumContextProfileState = { includedProfileIds: new Set<string>() };
 	const autoProfileSeenItems = new Map<string, SeenContentItem>();
+	const notificationSeenItemsById: Record<string, SeenContentItem[]> = {};
 	const messages: LoopNotification[] = [];
 	for (const notification of notifications) {
 		const forumContext = notification.event ? null : await buildNotificationForumContext(kv, db, botId, notification, {
 			profileContextState,
 		});
+		const notificationSeenItems = new Map<string, SeenContentItem>();
+		const sourceSeenItem = seenItemFromSource(notification.sourceObjectId);
+		if (sourceSeenItem) {
+			notificationSeenItems.set(`${sourceSeenItem.type}:${sourceSeenItem.id}`, sourceSeenItem);
+		}
 		for (const item of forumContext?.autoProfileSeenItems ?? []) {
 			autoProfileSeenItems.set(item.id, item);
+			notificationSeenItems.set(`${item.type}:${item.id}`, item);
 		}
 		const event = notification.event ?? legacyNotificationEvent(notification, forumContext);
 		if (providerNotificationEventVisibleForBot(event, botId)) {
 			messages.push(event);
+			notificationSeenItemsById[event.id] = [...notificationSeenItems.values()];
 		}
 	}
 	const spotlightContexts: SpotlightSyntheticContext[] = [];
@@ -8361,6 +8433,7 @@ export async function buildRuntimeLoopInput(
 			...(toolUseReminder ? { toolUseReminder } : {}),
 		},
 		autoProfileSeenItems: [...autoProfileSeenItems.values()],
+		notificationSeenItemsById,
 	};
 }
 
@@ -9474,26 +9547,35 @@ export function providerToolResultPayload(
 	result: unknown,
 	args: Record<string, unknown> = {},
 	scope: ProviderContextContentScope = emptyProviderContextContentScope(),
+	options: ProviderToolResultPayloadOptions = {},
 ): unknown {
 	const canonical = canonicalToolName(name);
 	if (canonical === "check_notifications") {
 		const record = runtimeRecord(result);
-		return providerCheckNotificationsResult(Array.isArray(record.events) ? record.events : [], scope);
+		return providerCheckNotificationsResult(Array.isArray(record.events) ? record.events : [], scope, options.tokenBudget);
 	}
 	if (canonical === "list_accessible_forums" && Array.isArray(result)) {
-		return result.map((item) => providerForum(runtimeRecord(item)));
+		const forums = result.map((item) => providerForum(runtimeRecord(item)));
+		return pruneProviderArrayForBudget(forums, options.tokenBudget).items;
 	}
 	if (canonical === "list_recent_threads" && Array.isArray(result)) {
-		return result.map((item) => providerThreadSummary(runtimeRecord(item), { includeForum: false }));
+		const threads = result.map((item) => providerThreadSummary(runtimeRecord(item), { includeForum: false }));
+		return pruneProviderArrayForBudget(threads, options.tokenBudget).items;
 	}
 	if (canonical === "list_hot_threads" && Array.isArray(result)) {
-		return result.map((item) => providerThreadSummary(runtimeRecord(item), { includeForum: true }));
+		const threads = result.map((item) => providerThreadSummary(runtimeRecord(item), { includeForum: true }));
+		return pruneProviderArrayForBudget(threads, options.tokenBudget).items;
 	}
 	if (canonical === "search_threads" || canonical === "search_threads_semantic") {
-		return Array.isArray(result) ? result.map((item) => providerSearchPost(runtimeRecord(item), scope)) : providerSafeJsonValue(result);
+		if (!Array.isArray(result)) {
+			return providerSafeJsonValue(result);
+		}
+		const posts = result.map((item) => providerSearchPost(runtimeRecord(item), scope));
+		return pruneProviderArrayForBudget(posts, options.tokenBudget).items;
 	}
 	if (canonical === "search_profiles" && Array.isArray(result)) {
-		return result.map((item) => providerProfile(runtimeRecord(item)));
+		const profiles = result.map((item) => providerProfile(runtimeRecord(item)));
+		return pruneProviderArrayForBudget(profiles, options.tokenBudget).items;
 	}
 	if (canonical === "view_profiles") {
 		const record = runtimeRecord(result);
@@ -9501,16 +9583,14 @@ export function providerToolResultPayload(
 			Array.isArray(record.profiles) ? record.profiles
 			:	Array.isArray(result) ? result
 			:	[result];
+		const providerProfiles = profiles.map((item) => providerProfile(runtimeRecord(item)));
+		const pruned = pruneProviderArrayForBudget(providerProfiles, options.tokenBudget, (items) => ({ profiles: items }));
 		return {
-			profiles: profiles.map((item) => providerProfile(runtimeRecord(item))),
+			profiles: pruned.items,
 		};
 	}
 	if (canonical === "view_activity") {
-		const record = runtimeRecord(result);
-		return removeUndefinedProperties({
-			profile: providerProfileUsername(runtimeRecord(record.bot)),
-			activities: Array.isArray(record.activities) ? record.activities.map((item) => providerActivity(runtimeRecord(item))) : [],
-		});
+		return providerActivityFeedResult(runtimeRecord(result), options.tokenBudget);
 	}
 	if (canonical === "follow_profile" || canonical === "unfollow_profile") {
 		return Array.isArray(result) ?
@@ -9538,6 +9618,58 @@ export function providerToolResultPayload(
 	return providerSafeJsonValue(result);
 }
 
+function providerJsonTokenEstimate(value: unknown): number {
+	return estimateTextTokens(JSON.stringify(value));
+}
+
+function pruneProviderArrayForBudget<T>(
+	items: T[],
+	tokenBudget: number | undefined,
+	payloadForItems: (items: T[]) => unknown = (array) => array,
+	removeFrom: "head" | "tail" = "tail",
+): ProviderToolArrayPruneResult<T> {
+	if (tokenBudget === undefined) {
+		return {
+			items,
+			omittedCount: 0,
+			tokenEstimate: providerJsonTokenEstimate(payloadForItems(items)),
+		};
+	}
+	const budget = Math.max(1, Math.floor(tokenBudget));
+	const pruned = [...items];
+	let omittedCount = 0;
+	let tokenEstimate = providerJsonTokenEstimate(payloadForItems(pruned));
+	while (pruned.length > 0 && tokenEstimate > budget) {
+		if (removeFrom === "head") {
+			pruned.shift();
+		} else {
+			pruned.pop();
+		}
+		omittedCount += 1;
+		tokenEstimate = providerJsonTokenEstimate(payloadForItems(pruned));
+	}
+	return {
+		items: pruned,
+		omittedCount,
+		tokenEstimate,
+	};
+}
+
+function providerToolResultUsesTokenBudget(name: string): boolean {
+	const canonical = canonicalToolName(name);
+	return (
+		canonical === "check_notifications" ||
+		canonical === "list_accessible_forums" ||
+		canonical === "list_recent_threads" ||
+		canonical === "list_hot_threads" ||
+		canonical === "search_threads" ||
+		canonical === "search_threads_semantic" ||
+		canonical === "search_profiles" ||
+		canonical === "view_profiles" ||
+		canonical === "view_activity"
+	);
+}
+
 type ProviderContextContentScope = {
 	commentsWithText: Set<string>;
 	threadsWithText: Set<string>;
@@ -9562,33 +9694,45 @@ function providerCheckNotificationsResult(
 	initialScope: ProviderContextContentScope = emptyProviderContextContentScope(),
 	tokenBudget?: number,
 ): Record<string, unknown> {
+	return providerCheckNotificationsResultWithInclusions(events, initialScope, tokenBudget).payload;
+}
+
+function providerCheckNotificationsResultWithInclusions(
+	events: unknown[],
+	initialScope: ProviderContextContentScope = emptyProviderContextContentScope(),
+	tokenBudget?: number,
+): ProviderNotificationPayloadResult {
 	const scope = cloneProviderContextContentScope(initialScope);
-	const providerEvents = mergedProviderNotificationEvents(events.map(runtimeRecord))
-		.map((event) => providerNotificationEvent(event, scope))
-		.map((event) => providerSafeJsonValue(event))
-		.map(runtimeRecord);
+	const providerEvents = mergedProviderNotificationEventGroups(events.map(runtimeRecord))
+		.map((group) => ({
+			notificationIds: group.notificationIds,
+			payload: runtimeRecord(providerSafeJsonValue(providerNotificationEvent(group.event, scope))),
+		}));
 	if (tokenBudget === undefined) {
-		return providerNotificationResultPayload(providerEvents);
+		return {
+			payload: providerNotificationResultPayload(providerEvents.map((event) => event.payload)),
+			includedEventIds: providerEvents.flatMap((event) => event.notificationIds),
+		};
 	}
 	const pruned = pruneProviderNotificationEventsForBudget(providerEvents, tokenBudget);
-	return providerNotificationResultPayload(pruned.events, pruned);
+	return {
+		payload: providerNotificationResultPayload(pruned.events.map((event) => event.payload), pruned),
+		includedEventIds: pruned.events.flatMap((event) => event.notificationIds),
+	};
 }
 
 function providerNotificationResultPayload(
 	events: Record<string, unknown>[],
-	pruned?: Pick<ProviderNotificationPruneResult, "omittedEventCount" | "trimmedTextCount">,
+	pruned?: Pick<ProviderNotificationPruneResult, "omittedEventCount">,
 ): Record<string, unknown> {
 	return removeUndefinedProperties({
-		...(pruned && (pruned.omittedEventCount > 0 || pruned.trimmedTextCount > 0) ? { context: providerNotificationResultContext(pruned) } : {}),
+		...(pruned && pruned.omittedEventCount > 0 ? { context: providerNotificationResultContext(pruned) } : {}),
 		events,
 	});
 }
 
-function providerNotificationResultContext(pruned: Pick<ProviderNotificationPruneResult, "omittedEventCount" | "trimmedTextCount">): string {
+function providerNotificationResultContext(pruned: Pick<ProviderNotificationPruneResult, "omittedEventCount">): string {
 	const parts: string[] = [];
-	if (pruned.trimmedTextCount > 0) {
-		parts.push(`text ending in ${readBodyTrimEllipsis} was shortened; use read_thread_by_id or read_comment_by_id to read the full text`);
-	}
 	if (pruned.omittedEventCount > 0) {
 		parts.push(`${pruned.omittedEventCount} older notification event${pruned.omittedEventCount === 1 ? " was" : "s were"} omitted to keep this result compact`);
 	}
@@ -9596,177 +9740,69 @@ function providerNotificationResultContext(pruned: Pick<ProviderNotificationPrun
 }
 
 function pruneProviderNotificationEventsForBudget(
-	events: Record<string, unknown>[],
+	events: Array<{ notificationIds: string[]; payload: Record<string, unknown> }>,
 	tokenBudget: number,
 ): ProviderNotificationPruneResult {
 	const budget = Math.max(1, Math.floor(tokenBudget));
-	const prunedEvents = providerNotificationEventClones(events);
+	const prunedEvents = events.map((event) => ({
+		notificationIds: [...event.notificationIds],
+		payload: JSON.parse(JSON.stringify(event.payload)) as Record<string, unknown>,
+	}));
 	let omittedEventCount = 0;
-	let trimmedTextCount = 0;
-	let tokenEstimate = providerNotificationTokenEstimate(prunedEvents, { omittedEventCount, trimmedTextCount });
-	if (tokenEstimate > budget) {
-		const trimmed = trimProviderNotificationTextForBudget(prunedEvents, budget);
-		tokenEstimate = trimmed.tokenEstimate;
-		trimmedTextCount = countProviderNotificationTrimmedText(prunedEvents);
-	}
+	let tokenEstimate = providerNotificationTokenEstimate(prunedEvents.map((event) => event.payload), { omittedEventCount });
 	while (prunedEvents.length > 0 && tokenEstimate > budget) {
 		prunedEvents.shift();
 		omittedEventCount += 1;
-		trimmedTextCount = countProviderNotificationTrimmedText(prunedEvents);
-		tokenEstimate = providerNotificationTokenEstimate(prunedEvents, { omittedEventCount, trimmedTextCount });
+		tokenEstimate = providerNotificationTokenEstimate(prunedEvents.map((event) => event.payload), { omittedEventCount });
 	}
 	return {
 		events: prunedEvents,
 		omittedEventCount,
 		tokenEstimate,
-		trimmedTextCount,
 	};
-}
-
-function providerNotificationEventClones(events: Record<string, unknown>[]): Record<string, unknown>[] {
-	return events.map((event) => JSON.parse(JSON.stringify(event)) as Record<string, unknown>);
 }
 
 function providerNotificationTokenEstimate(
 	events: Record<string, unknown>[],
-	pruned: Pick<ProviderNotificationPruneResult, "omittedEventCount" | "trimmedTextCount">,
+	pruned: Pick<ProviderNotificationPruneResult, "omittedEventCount">,
 ): number {
 	return estimateTextTokens(JSON.stringify(providerNotificationResultPayload(events, pruned)));
 }
 
-const providerNotificationMinTrimmedTextCharacters = 100;
-
-function trimProviderNotificationTextForBudget(
-	events: Record<string, unknown>[],
-	tokenBudget: number,
-): { tokenEstimate: number; trimmedTextCount: number } {
-	const candidates = providerNotificationTextTrimCandidates(events);
-	if (candidates.length === 0) {
-		return {
-			tokenEstimate: providerNotificationTokenEstimate(events, { omittedEventCount: 0, trimmedTextCount: 0 }),
-			trimmedTextCount: 0,
-		};
-	}
-	const maxLength = Math.max(...candidates.map((candidate) => candidate.codePoints.length));
-	let low = providerNotificationMinTrimmedTextCharacters;
-	let high = Math.max(providerNotificationMinTrimmedTextCharacters, maxLength - 1);
-	let bestCutoff: number | null = null;
-	while (low <= high) {
-		const cutoff = Math.floor((low + high) / 2);
-		const trimmedTextCount = applyProviderNotificationTextCutoff(candidates, cutoff);
-		const tokenEstimate = providerNotificationTokenEstimate(events, { omittedEventCount: 0, trimmedTextCount });
-		if (tokenEstimate <= tokenBudget) {
-			bestCutoff = cutoff;
-			low = cutoff + 1;
-		} else {
-			high = cutoff - 1;
-		}
-	}
-	const cutoff = bestCutoff ?? providerNotificationMinTrimmedTextCharacters;
-	const trimmedTextCount = applyProviderNotificationTextCutoff(candidates, cutoff);
-	return {
-		tokenEstimate: providerNotificationTokenEstimate(events, { omittedEventCount: 0, trimmedTextCount }),
-		trimmedTextCount,
-	};
-}
-
-function providerNotificationTextTrimCandidates(
-	events: Record<string, unknown>[],
-): Array<{ record: Record<string, unknown>; text: string; codePoints: string[] }> {
-	const candidates: Array<{ record: Record<string, unknown>; text: string; codePoints: string[] }> = [];
-	const visit = (value: unknown): void => {
-		if (Array.isArray(value)) {
-			for (const item of value) {
-				visit(item);
-			}
-			return;
-		}
-		const record = runtimeRecord(value);
-		if (Object.keys(record).length === 0) {
-			return;
-		}
-		const text = stringValue(record.text);
-		if (text !== undefined) {
-			const codePoints = Array.from(text);
-			if (codePoints.length > providerNotificationMinTrimmedTextCharacters) {
-				candidates.push({ record, text, codePoints });
-			}
-		}
-		for (const item of Object.values(record)) {
-			visit(item);
-		}
-	};
-	visit(events);
-	return candidates;
-}
-
-function countProviderNotificationTrimmedText(events: Record<string, unknown>[]): number {
-	let count = 0;
-	const visit = (value: unknown): void => {
-		if (Array.isArray(value)) {
-			for (const item of value) {
-				visit(item);
-			}
-			return;
-		}
-		const record = runtimeRecord(value);
-		if (Object.keys(record).length === 0) {
-			return;
-		}
-		if (stringValue(record.text)?.endsWith(readBodyTrimEllipsis)) {
-			count += 1;
-		}
-		for (const item of Object.values(record)) {
-			visit(item);
-		}
-	};
-	visit(events);
-	return count;
-}
-
-function applyProviderNotificationTextCutoff(
-	candidates: Array<{ record: Record<string, unknown>; text: string; codePoints: string[] }>,
-	cutoff: number,
-): number {
-	let trimmedTextCount = 0;
-	for (const candidate of candidates) {
-		if (candidate.codePoints.length > cutoff) {
-			const prefix = candidate.codePoints.slice(0, Math.max(providerNotificationMinTrimmedTextCharacters, cutoff)).join("").trimEnd();
-			candidate.record.text = `${prefix}${readBodyTrimEllipsis}`;
-			if (candidate.record.text !== candidate.text) {
-				trimmedTextCount += 1;
-			}
-		} else {
-			candidate.record.text = candidate.text;
-		}
-	}
-	return trimmedTextCount;
-}
-
-function mergedProviderNotificationEvents(events: Record<string, unknown>[]): Record<string, unknown>[] {
-	const bySource = new Map<string, Record<string, unknown>>();
+function mergedProviderNotificationEventGroups(events: Record<string, unknown>[]): ProviderNotificationEventGroup[] {
+	const bySource = new Map<string, ProviderNotificationEventGroup>();
 	const order: string[] = [];
 	for (const event of events) {
 		const sourceObjectId = stringValue(event.sourceObjectId);
+		const notificationId = stringValue(event.id);
 		const key = sourceObjectId ? `${stringValue(event.type) ?? "event"}:${sourceObjectId}` : "";
 		if (!key) {
 			const uniqueKey = `event:${stringValue(event.id) ?? crypto.randomUUID()}`;
-			bySource.set(uniqueKey, event);
+			bySource.set(uniqueKey, {
+				event: { ...event },
+				notificationIds: notificationId ? [notificationId] : [],
+			});
 			order.push(uniqueKey);
 			continue;
 		}
 		const existing = bySource.get(key);
 		if (!existing) {
-			bySource.set(key, event);
+			bySource.set(key, {
+				event: { ...event },
+				notificationIds: notificationId ? [notificationId] : [],
+			});
 			order.push(key);
 			continue;
 		}
-		existing.deliveryReasons = orderedProviderDeliveryReasons([
-			...stringArrayValue(existing.deliveryReasons),
+		if (notificationId) {
+			existing.notificationIds.push(notificationId);
+		}
+		existing.event.deliveryReasons = orderedProviderDeliveryReasons([
+			...stringArrayValue(existing.event.deliveryReasons),
 			...stringArrayValue(event.deliveryReasons),
 		]);
 	}
-	return order.map((key) => bySource.get(key)).filter((event): event is Record<string, unknown> => Boolean(event));
+	return order.map((key) => bySource.get(key)).filter((event): event is ProviderNotificationEventGroup => Boolean(event));
 }
 
 function providerNotificationEvent(
@@ -10474,6 +10510,21 @@ function allThreadCommentRecords(thread: Record<string, unknown>): Record<string
 	return result;
 }
 
+function providerActivityFeedResult(record: Record<string, unknown>, tokenBudget?: number): Record<string, unknown> {
+	const profile = providerProfileUsername(runtimeRecord(record.bot));
+	const activities = Array.isArray(record.activities) ? record.activities.map((item) => providerActivity(runtimeRecord(item))) : [];
+	const payloadForActivities = (items: Record<string, unknown>[]) => removeUndefinedProperties({
+		profile,
+		activities: items,
+	});
+	if (tokenBudget === undefined) {
+		return payloadForActivities(activities);
+	}
+	trimProviderActivityBodyPreviewsForBudget(activities, tokenBudget, payloadForActivities);
+	const pruned = pruneProviderArrayForBudget(activities, tokenBudget, payloadForActivities);
+	return payloadForActivities(pruned.items);
+}
+
 function providerActivity(record: Record<string, unknown>): Record<string, unknown> {
 	const type = stringValue(record.type);
 	if (type === "thread") {
@@ -10482,7 +10533,7 @@ function providerActivity(record: Record<string, unknown>): Record<string, unkno
 			threadId: stringValue(record.threadId),
 			forum: providerForumNameFromRecord(record),
 			title: stringValue(record.title),
-			bodyPreview: stringValue(record.bodyPreview),
+			bodyPreview: providerBodyPreview(record.bodyPreview),
 			voteScore: numberValue(record.voteScore),
 			commentCount: numberValue(record.commentCount),
 			when: providerRelativeTime(record.createdAt),
@@ -10491,13 +10542,10 @@ function providerActivity(record: Record<string, unknown>): Record<string, unkno
 	if (type === "comment") {
 		return removeUndefinedProperties({
 			type,
-			threadId: stringValue(record.threadId),
 			commentId: stringValue(record.commentId),
 			forum: providerForumNameFromRecord(record),
-			threadTitle: stringValue(record.threadTitle),
-			bodyPreview: stringValue(record.bodyPreview),
-			parentComment: providerActivityCommentContext(runtimeRecord(record.parentComment)),
-			voteScore: numberValue(record.voteScore),
+			bodyPreview: providerBodyPreview(record.bodyPreview),
+			replyTo: providerActivityCommentContext(runtimeRecord(record.parentComment), { includeCommentId: false }),
 			when: providerRelativeTime(record.createdAt),
 		});
 	}
@@ -10530,18 +10578,108 @@ function providerActivity(record: Record<string, unknown>): Record<string, unkno
 	});
 }
 
-function providerActivityCommentContext(record: Record<string, unknown>): Record<string, unknown> | undefined {
+function providerActivityCommentContext(
+	record: Record<string, unknown>,
+	options: { includeCommentId?: boolean } = {},
+): Record<string, unknown> | undefined {
 	const commentId = stringValue(record.commentId);
 	const author = providerUsername(record.authorHandle);
-	const bodyPreview = stringValue(record.bodyPreview);
+	const bodyPreview = providerBodyPreview(record.bodyPreview);
 	if (!commentId && !author && !bodyPreview) {
 		return undefined;
 	}
 	return removeUndefinedProperties({
-		commentId,
+		...(options.includeCommentId === false ? {} : { commentId }),
 		author,
 		bodyPreview,
 	});
+}
+
+function providerBodyPreview(value: unknown): string | undefined {
+	const text = stringValue(value);
+	if (!text) {
+		return undefined;
+	}
+	const codePoints = Array.from(text);
+	if (codePoints.length >= 240 && !text.endsWith(readBodyTrimEllipsis)) {
+		return `${text.trimEnd()}${readBodyTrimEllipsis}`;
+	}
+	return text;
+}
+
+function trimProviderActivityBodyPreviewsForBudget(
+	activities: Record<string, unknown>[],
+	tokenBudget: number,
+	payloadForActivities: (items: Record<string, unknown>[]) => unknown,
+): void {
+	const budget = Math.max(1, Math.floor(tokenBudget));
+	if (providerJsonTokenEstimate(payloadForActivities(activities)) <= budget) {
+		return;
+	}
+	const candidates = providerBodyPreviewTrimCandidates(activities);
+	if (candidates.length === 0) {
+		return;
+	}
+	const maxLength = Math.max(...candidates.map((candidate) => candidate.codePoints.length));
+	let low = 0;
+	let high = Math.max(0, maxLength - 2);
+	let bestCutoff: number | null = null;
+	while (low <= high) {
+		const cutoff = Math.floor((low + high) / 2);
+		applyProviderBodyPreviewCutoff(candidates, cutoff);
+		const tokenEstimate = providerJsonTokenEstimate(payloadForActivities(activities));
+		if (tokenEstimate <= budget) {
+			bestCutoff = cutoff;
+			low = cutoff + 1;
+		} else {
+			high = cutoff - 1;
+		}
+	}
+	applyProviderBodyPreviewCutoff(candidates, bestCutoff ?? 0);
+}
+
+function providerBodyPreviewTrimCandidates(
+	value: unknown,
+): Array<{ record: Record<string, unknown>; bodyPreview: string; codePoints: string[] }> {
+	const candidates: Array<{ record: Record<string, unknown>; bodyPreview: string; codePoints: string[] }> = [];
+	const visit = (item: unknown): void => {
+		if (Array.isArray(item)) {
+			for (const child of item) {
+				visit(child);
+			}
+			return;
+		}
+		const record = runtimeRecord(item);
+		if (Object.keys(record).length === 0) {
+			return;
+		}
+		const bodyPreview = stringValue(record.bodyPreview);
+		if (bodyPreview) {
+			const codePoints = Array.from(bodyPreview);
+			if (codePoints.length > 1) {
+				candidates.push({ record, bodyPreview, codePoints });
+			}
+		}
+		for (const child of Object.values(record)) {
+			visit(child);
+		}
+	};
+	visit(value);
+	return candidates;
+}
+
+function applyProviderBodyPreviewCutoff(
+	candidates: Array<{ record: Record<string, unknown>; bodyPreview: string; codePoints: string[] }>,
+	cutoff: number,
+): void {
+	for (const candidate of candidates) {
+		if (candidate.codePoints.length > cutoff) {
+			const prefix = candidate.codePoints.slice(0, cutoff).join("").trimEnd();
+			candidate.record.bodyPreview = `${prefix}${readBodyTrimEllipsis}`;
+		} else {
+			candidate.record.bodyPreview = candidate.bodyPreview;
+		}
+	}
 }
 
 function providerSafeJsonValue(value: unknown): unknown {
@@ -12311,6 +12449,14 @@ function seenItemFromSource(sourceObjectId: string | undefined): { type: "thread
 	return null;
 }
 
+function uniqueSeenContentItems(items: SeenContentItem[]): SeenContentItem[] {
+	const byKey = new Map<string, SeenContentItem>();
+	for (const item of items) {
+		byKey.set(`${item.type}:${item.id}`, item);
+	}
+	return [...byKey.values()];
+}
+
 function providerChatCompletionsUrl(baseUrl: string): string {
 	const normalized = baseUrl.replace(/\/+$/, "");
 	return normalized.endsWith("/chat/completions") ? normalized : `${normalized}/chat/completions`;
@@ -12367,25 +12513,45 @@ export function oldestRowsForTokenFraction<T>(
 	return selected;
 }
 
-function oldestLoopMessageGroupsForPromptLimit(
+const compactionOverBudgetFallbackMinSelectedTokens = 1_000;
+
+function oldestLoopMessageGroupSelectionForPromptLimit(
 	rows: readonly CompactionCandidateEstimate[],
 	limitTokens: number,
 	options: { canIncludeRows?: (rows: readonly LoopMessageRow[]) => boolean } = {},
-): LoopMessageRow[] {
+): CompactionRowSelection {
 	const groups = loopMessageCompactionGroups(rows);
-	const targetTokens = Math.max(1, Math.ceil(Math.max(1, Math.floor(limitTokens)) * compactionRowTokenFraction));
+	const promptLimitTokens = Math.max(1, Math.floor(limitTokens));
+	const targetTokens = Math.max(1, Math.ceil(promptLimitTokens * compactionRowTokenFraction));
 	const selected: LoopMessageRow[] = [];
 	let selectedTokens = 0;
 	for (const group of groups) {
 		const nextTokens = selectedTokens + group.tokens;
 		const nextRows = [...selected, ...group.rows];
-		if (nextTokens >= targetTokens || options.canIncludeRows?.(nextRows) === false) {
-			break;
+		const leavesOutputBudget = options.canIncludeRows?.(nextRows) !== false;
+		if (nextTokens >= targetTokens || !leavesOutputBudget) {
+			if (
+				selectedTokens < compactionOverBudgetFallbackMinSelectedTokens &&
+				group.rows.length > 0 &&
+				(nextTokens > promptLimitTokens || !leavesOutputBudget)
+			) {
+				return {
+					rows: nextRows,
+					overBudgetFallback: true,
+				};
+			}
+			return {
+				rows: selected,
+				overBudgetFallback: false,
+			};
 		}
 		selected.push(...group.rows);
 		selectedTokens = nextTokens;
 	}
-	return selected;
+	return {
+		rows: selected,
+		overBudgetFallback: false,
+	};
 }
 
 function reducedCompactionRowsAfterOutputLimit(rows: readonly LoopMessageRow[], calibration: TextTokenCalibration): LoopMessageRow[] {
@@ -13174,6 +13340,9 @@ function normalizeToolArgs(name: string, args: Record<string, unknown>): Record<
 			normalized.username = username;
 		}
 	}
+	if (canonical === "view_activity" && "limit" in normalized) {
+		normalized.limit = numberArg(normalized.limit, 10, 20);
+	}
 	if (canonical === "view_profiles" && "usernames" in normalized) {
 		normalized.usernames = usernamesArg(normalized.usernames);
 	}
@@ -13474,12 +13643,12 @@ function toolFailureGuidance(name: string, error: unknown): string | undefined {
 	return undefined;
 }
 
-function numberArg(value: unknown, fallback: number): number {
+function numberArg(value: unknown, fallback: number, maximum = 50): number {
 	if (value === null || value === undefined || value === "") {
 		return fallback;
 	}
 	const parsed = Number(value);
-	return Number.isFinite(parsed) ? Math.max(1, Math.min(50, Math.floor(parsed))) : fallback;
+	return Number.isFinite(parsed) ? Math.max(1, Math.min(Math.max(1, Math.floor(maximum)), Math.floor(parsed))) : fallback;
 }
 
 function trimmed(value: string | undefined): string | undefined {

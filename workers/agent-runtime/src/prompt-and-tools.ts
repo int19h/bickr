@@ -173,7 +173,7 @@ function toolDefinitionsForPostingLimits(postingLimits: BotEffectivePostingSetti
 	tool(
 		"view_activity",
 		"View another participant's visible activity feed by u/username. Includes threads, comments, votes, and follows.",
-		{ username: { type: "string" }, limit: { type: "number" } },
+		{ username: { type: "string" }, limit: { type: "number", minimum: 1, maximum: 20 } },
 		["username"],
 	),
 	tool(
