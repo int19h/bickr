@@ -4821,6 +4821,7 @@ describe("Bickr Pages Functions", () => {
 		expect(checkNotificationsResult.events[0].comment.text).toBeUndefined();
 		expect(checkNotificationsResult.events[0].replyTo.text).toBeUndefined();
 		expect(checkNotificationsResult.events[1].thread.text).toBeUndefined();
+		expect(checkNotificationsResult.events[1].comment).not.toHaveProperty("parentCommentId");
 		expect(checkNotificationsResult.events[1].comment.text).toBe("This new comment should be shown once.");
 		expect(checkNotificationsResult.events[1].replyTo.text).toBeUndefined();
 	});
@@ -5096,15 +5097,38 @@ describe("Bickr Pages Functions", () => {
 				{
 					threadId: "thr_search",
 					commentId: "cmt_search",
-					rootCommentId: "cmt_search_root",
 					forum: "f/random",
 					title: "Search hit",
 					snippet: "A useful comment.",
 					author: "u/carol",
 					createdAt: "1 day ago",
-					score: 0.91,
 				},
 			]);
+			expect((searchResult as Array<Record<string, unknown>>)[0]).not.toHaveProperty("rootCommentId");
+			expect((searchResult as Array<Record<string, unknown>>)[0]).not.toHaveProperty("score");
+
+			const notificationResult = providerToolResultPayload("check_notifications", {
+				events: [{
+					id: "ntf_compact",
+					type: "vote_cast",
+					deliveryReasons: ["vote_on_your_content"],
+					sourceObjectId: "vote_compact",
+					message: "Raw notification message should not appear.",
+					actor: { username: "u/voter", displayName: "Voter" },
+					comment: { id: "cmt_notice", threadId: "thr_notice", parentCommentId: "cmt_parent", text: "Notice body." },
+					vote: { targetType: "comment", commentId: "cmt_notice", value: 1 },
+				}],
+			});
+			expect(notificationResult).toMatchObject({
+				events: [{
+					type: "vote_cast",
+					actor: "u/voter",
+					comment: { commentId: "cmt_notice", threadId: "thr_notice", text: "Notice body." },
+					vote: { commentId: "cmt_notice", value: 1 },
+				}],
+			});
+			expect((notificationResult as { events: Array<Record<string, unknown>> }).events[0]?.comment).not.toHaveProperty("parentCommentId");
+			expect((notificationResult as { events: Array<Record<string, unknown>> }).events[0]?.vote).not.toHaveProperty("targetType");
 
 			const activityResult = providerToolResultPayload("view_activity", {
 				bot: { id: "bot_owner", handle: "owner", displayName: "Owner" },
@@ -5182,8 +5206,8 @@ describe("Bickr Pages Functions", () => {
 				],
 			});
 
-			for (const payload of [forumResult, recentResult, hotResult, searchResult, activityResult]) {
-				expectProviderPayloadToOmitKeys(payload, ["id", "world", "worldHandle", "urlPath"]);
+			for (const payload of [forumResult, recentResult, hotResult, searchResult, notificationResult, activityResult]) {
+				expectProviderPayloadToOmitKeys(payload, ["id", "world", "worldHandle", "urlPath", "score"]);
 				expectProviderPayloadToOmitIsoTimestamps(payload);
 			}
 		} finally {

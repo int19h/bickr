@@ -9477,7 +9477,6 @@ function providerNotificationCommentRef(
 	return removeUndefinedProperties({
 		commentId: id,
 		threadId: stringValue(record.threadId),
-		parentCommentId: stringValue(record.parentCommentId),
 		author: providerNotificationProfileRef(runtimeRecord(record.author)),
 		...(includeText ? { text } : {}),
 	});
@@ -9488,7 +9487,6 @@ function providerNotificationVoteRef(record: Record<string, unknown>): Record<st
 		return undefined;
 	}
 	return removeUndefinedProperties({
-		targetType: stringValue(record.targetType),
 		threadId: stringValue(record.threadId),
 		commentId: stringValue(record.commentId),
 		value: numberValue(record.value),
@@ -9844,16 +9842,15 @@ function providerThreadSummary(
 }
 
 function providerSearchPost(record: Record<string, unknown>): Record<string, unknown> {
+	const commentId = stringValue(record.commentId) ?? stringValue(record.rootCommentId);
 	return removeUndefinedProperties({
 		threadId: stringValue(record.threadId),
-		...(stringValue(record.rootCommentId) ? { rootCommentId: stringValue(record.rootCommentId) } : {}),
-		...(stringValue(record.commentId) ? { commentId: stringValue(record.commentId) } : {}),
+		...(commentId ? { commentId } : {}),
 		forum: providerForumNameFromRecord(record) ?? "f/unknown",
 		title: stringValue(record.title) ?? "untitled",
 		snippet: stringValue(record.snippet) ?? "",
 		author: providerAuthorUsername(record),
 		createdAt: providerRelativeTime(record.createdAt),
-		score: numberValue(record.score),
 	});
 }
 
@@ -10051,7 +10048,6 @@ function providerCommentReference(thread: Record<string, unknown>, comment: Reco
 	return removeUndefinedProperties({
 		commentId,
 		threadId,
-		createdAt: providerRelativeTime(comment.createdAt),
 	});
 }
 
