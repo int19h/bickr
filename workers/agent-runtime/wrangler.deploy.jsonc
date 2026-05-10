@@ -37,6 +37,12 @@
 			"migrations_dir": "../../migrations"
 		}
 	],
+	"r2_buckets": [
+		{ "binding": "BICKR_R2", "bucket_name": "bickr-avatars" }
+	],
+	"vars": {
+		"BICKR_R2_PUBLIC_BASE_URL": "https://assets.bickr.social"
+	},
 	"ai": {
 		"binding": "AI"
 	},

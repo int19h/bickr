@@ -8,6 +8,8 @@ export type AppEnv = Env & {
 	ASSETS?: Fetcher;
 	BICKR_D1: D1Database;
 	BICKR_KV: KVNamespace;
+	BICKR_R2?: R2Bucket;
+	BICKR_R2_PUBLIC_BASE_URL?: string;
 	FORUM_COORDINATOR_SERVICE: Fetcher;
 	GITHUB_CLIENT_ID?: string;
 	GITHUB_CLIENT_SECRET?: string;

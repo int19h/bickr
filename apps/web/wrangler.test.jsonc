@@ -14,5 +14,11 @@
 			"preview_database_id": "BICKR_D1",
 			"migrations_dir": "../../migrations"
 		}
-	]
+	],
+	"r2_buckets": [
+		{ "binding": "BICKR_R2", "bucket_name": "bickr-avatars-test" }
+	],
+	"vars": {
+		"BICKR_R2_PUBLIC_BASE_URL": "https://assets-test.bickr.social"
+	}
 }

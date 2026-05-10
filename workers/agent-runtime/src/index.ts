@@ -1,4 +1,12 @@
 import { fail, ok, readJsonBody } from "@bickr/shared/api";
+import {
+	fetchRemoteAvatarBytes,
+	normalizeAvatarPublicBaseUrl,
+	promoteAvatarCandidate,
+	storeAvatarImage,
+	validateAvatarDataUrl,
+	type R2BucketLike,
+} from "@bickr/shared/avatar-storage";
 import { isCloudflareRateLimitError, retryCloudflareOperation } from "@bickr/shared/cloudflare";
 import { deleteForum, deleteWorld } from "@bickr/shared/governance";
 import { json } from "@bickr/shared/http";
@@ -20,6 +28,7 @@ import {
 	RepositoryError,
 	softDeleteUserProfile,
 	updateBot,
+	updateBotAvatar,
 	userById,
 } from "@bickr/shared/repository";
 import { effectivePostingSettings, mergePostingSettings } from "@bickr/shared/posting";
@@ -77,6 +86,7 @@ import {
 } from "@bickr/shared/validation";
 import {
 	type ApiErrorPayload,
+	type AvatarImage,
 	type BotContextBudget,
 	type BotContextBudgetInput,
 	type BotContextWindowBreakdown,
@@ -154,6 +164,8 @@ export interface Env {
 	USER_BOTS: DurableObjectNamespace;
 	FORUM_COORDINATOR_SERVICE: Fetcher;
 	AI?: Ai;
+	BICKR_R2?: R2Bucket;
+	BICKR_R2_PUBLIC_BASE_URL?: string;
 	BICKR_BOT_VECTORIZE?: Vectorize;
 	BICKR_SEARCH_VECTORIZE?: Vectorize;
 	OPENROUTER_API_KEY?: string;
@@ -842,6 +854,22 @@ type TranslationProviderSettings = {
 	repetitionPenalty?: number;
 };
 
+type ImageGenerationProviderSettings = {
+	apiKey?: string;
+	baseUrl: string;
+	model: string;
+	providerRouting?: JsonObject;
+	aspectRatio?: string;
+	imageSize?: string;
+	temperature?: number;
+	topK?: number;
+	topP?: number;
+	minP?: number;
+	frequencyPenalty?: number;
+	presencePenalty?: number;
+	repetitionPenalty?: number;
+};
+
 type ProviderTranslationRequest = {
 	model: string;
 	messages: ChatMessage[];
@@ -912,6 +940,15 @@ type ProviderToolCallBundleSplit = {
 type ToolUseRecoveryState = {
 	consecutiveNoToolTicks: number;
 	lastRunId: string;
+	updatedAt: string;
+};
+
+type ProviderCompactionReasoningMode = "none" | "minimal";
+
+type ProviderCompactionReasoningFallbackState = {
+	model: string;
+	mode: "minimal";
+	reason: string;
 	updatedAt: string;
 };
 
@@ -1107,6 +1144,7 @@ class ProviderResponseInterruptedError extends Error {
 const stopRequestStateKey = "stop_requested_run_id";
 const toolUseRecoveryStateKey = "tool_use_recovery";
 const pendingSpotlightTicksStateKey = "pending_spotlight_ticks";
+const compactionReasoningFallbackStateKey = "compaction_reasoning_fallback";
 const contextBudgetCacheStateKey = (fingerprint: string): string => `context_budget:${fingerprint}`;
 const runtimeRunLeaseTimeoutMs = 15 * 60_000;
 const providerRequestTimeoutMs = 60_000;
@@ -1134,7 +1172,8 @@ const providerParallelToolCalls = true;
 const providerRailroadNoToolMaxAttempts = 5;
 const providerPromptCompactionMaxAttempts = 3;
 const providerDefaultReasoning = { effort: "minimal", exclude: false } as const satisfies ProviderReasoningConfig;
-const providerCompactionReasoning = { effort: "minimal", exclude: false } as const satisfies ProviderReasoningConfig;
+const providerCompactionNoReasoning = { effort: "none", exclude: false } as const satisfies ProviderReasoningConfig;
+const providerCompactionMinimalReasoning = { effort: "minimal", exclude: false } as const satisfies ProviderReasoningConfig;
 const providerTranslationMaxCompletionTokens = 8_192;
 const providerCompactionTemperature = 0.2;
 const providerCompactionToolName = metaCompactionToolName;
@@ -1178,6 +1217,10 @@ const syntheticLimitLogOffReason = "I need to take a short break from Bickr afte
 
 function providerReasoningForSettings(settings: Pick<ProviderSettings, "reasoningEffort">): ProviderReasoningConfig {
 	return settings.reasoningEffort ? { effort: settings.reasoningEffort, exclude: false } : providerDefaultReasoning;
+}
+
+function providerCompactionReasoningForMode(mode: ProviderCompactionReasoningMode): ProviderReasoningConfig {
+	return mode === "minimal" ? providerCompactionMinimalReasoning : providerCompactionNoReasoning;
 }
 
 function providerToolChoiceForMode(mode: BotInferenceToolCalls | BotStructuredToolCalls): typeof providerRequiredToolChoice | undefined {
@@ -1545,6 +1588,7 @@ export function providerCompactionRequest(
 	limits: Pick<ProviderCompactionSummaryLimits, "minLength" | "maxLength" | "maxCompletionTokens"> = defaultProviderCompactionSummaryLimits,
 	providerTools?: ProviderToolDefinition[],
 	mode: ProviderCompactionMode = "structured_output",
+	reasoning: ProviderReasoningConfig = providerCompactionNoReasoning,
 ): ProviderCompactionRequest {
 	const toolCalls = structuredToolCallsMode(settings.toolCalls ?? "require");
 	const effectiveProviderTools = providerTools ?? providerCompactionToolsForMode(limits, undefined, mode);
@@ -1560,7 +1604,7 @@ export function providerCompactionRequest(
 		parallel_tool_calls: false,
 		...(responseFormat ? { response_format: responseFormat } : {}),
 		max_completion_tokens: limits.maxCompletionTokens,
-		reasoning: providerCompactionReasoning,
+		reasoning,
 		temperature: providerCompactionTemperature,
 	};
 }
@@ -2639,6 +2683,44 @@ export function effectiveProviderSettingsForTranslation(
 	};
 }
 
+function effectiveProviderSettingsForImageGeneration(
+	bot: Pick<BotDocument, "inferenceSettings">,
+	owner: Pick<UserDocument, "inferenceSettings">,
+	env: Pick<Env, "OPENROUTER_API_KEY" | "OPENROUTER_BASE_URL" | "OPENROUTER_MODEL">,
+	settingsOverride?: BotInferenceSettings["imageGeneration"],
+): ImageGenerationProviderSettings | null {
+	const userSettings = owner.inferenceSettings ?? {};
+	const imageGeneration = settingsOverride ?? bot.inferenceSettings.imageGeneration ?? userSettings.imageGeneration;
+	const model = trimmed(imageGeneration?.model);
+	if (!imageGeneration || !model) {
+		return null;
+	}
+	const userBaseUrl = trimmed(userSettings.baseUrl);
+	const botBaseUrl = trimmed(bot.inferenceSettings.baseUrl);
+	const envBaseUrl = trimmed(env.OPENROUTER_BASE_URL);
+	const userApiKey = trimmed(userSettings.openRouterApiKey);
+	const botApiKey = trimmed(bot.inferenceSettings.openRouterApiKey);
+	const envApiKey = trimmed(env.OPENROUTER_API_KEY);
+	const hasCustomBaseUrl = Boolean(botBaseUrl || userBaseUrl);
+	const baseUrl = botBaseUrl ?? userBaseUrl ?? envBaseUrl ?? fallbackProviderBaseUrl;
+	const providerRouting = openRouterProviderRouting(baseUrl, imageGeneration.providerRouting);
+	return {
+		apiKey: botApiKey ?? userApiKey ?? (hasCustomBaseUrl ? undefined : envApiKey),
+		baseUrl,
+		model,
+		...(providerRouting ? { providerRouting } : {}),
+		...(trimmed(imageGeneration.aspectRatio) ? { aspectRatio: trimmed(imageGeneration.aspectRatio) } : {}),
+		...(trimmed(imageGeneration.imageSize) ? { imageSize: trimmed(imageGeneration.imageSize) } : {}),
+		...(imageGeneration.temperature !== undefined ? { temperature: imageGeneration.temperature } : {}),
+		...(imageGeneration.topK !== undefined ? { topK: imageGeneration.topK } : {}),
+		...(imageGeneration.topP !== undefined ? { topP: imageGeneration.topP } : {}),
+		...(imageGeneration.minP !== undefined ? { minP: imageGeneration.minP } : {}),
+		...(imageGeneration.frequencyPenalty !== undefined ? { frequencyPenalty: imageGeneration.frequencyPenalty } : {}),
+		...(imageGeneration.presencePenalty !== undefined ? { presencePenalty: imageGeneration.presencePenalty } : {}),
+		...(imageGeneration.repetitionPenalty !== undefined ? { repetitionPenalty: imageGeneration.repetitionPenalty } : {}),
+	};
+}
+
 function openRouterProviderRouting(baseUrl: string, providerRouting: JsonObject | undefined): JsonObject | undefined {
 	if (!providerRouting || Object.keys(providerRouting).length === 0 || !isOpenRouterProviderBaseUrl(baseUrl)) {
 		return undefined;
@@ -2896,20 +2978,36 @@ export class BotRuntime {
 	}
 
 	private runtimeStateBoolean(key: string): boolean {
+		const value = this.runtimeStateValue(key);
+		return value === true;
+	}
+
+	private runtimeStateRecord(key: string): Record<string, unknown> | undefined {
+		const value = this.runtimeStateValue(key);
+		return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+	}
+
+	private runtimeStateValue(key: string): unknown {
+		if (!this.state) {
+			return undefined;
+		}
 		const row = this.state.storage.sql
 			.exec<{ value_json: string }>(`SELECT value_json FROM runtime_state WHERE key = ?`, key)
 			.toArray()[0];
 		if (!row) {
-			return false;
+			return undefined;
 		}
 		try {
-			return JSON.parse(row.value_json) === true;
+			return JSON.parse(row.value_json) as unknown;
 		} catch {
-			return false;
+			return undefined;
 		}
 	}
 
 	private setRuntimeState(key: string, value: unknown): void {
+		if (!this.state) {
+			return;
+		}
 		this.state.storage.sql.exec(
 			`INSERT INTO runtime_state (key, value_json)
 			 VALUES (?, ?)
@@ -2917,6 +3015,35 @@ export class BotRuntime {
 			key,
 			JSON.stringify(value),
 		);
+	}
+
+	private deleteRuntimeState(key: string): void {
+		if (!this.state) {
+			return;
+		}
+		this.state.storage.sql.exec(`DELETE FROM runtime_state WHERE key = ?`, key);
+	}
+
+	private compactionReasoningModeForSettings(settings: Pick<ProviderSettings, "model">): ProviderCompactionReasoningMode {
+		const state = this.runtimeStateRecord(compactionReasoningFallbackStateKey);
+		if (!state) {
+			return "none";
+		}
+		if (state.model === settings.model && state.mode === "minimal") {
+			return "minimal";
+		}
+		this.deleteRuntimeState(compactionReasoningFallbackStateKey);
+		return "none";
+	}
+
+	private rememberCompactionNoReasoningRejection(settings: Pick<ProviderSettings, "model">, reason: string): void {
+		const state: ProviderCompactionReasoningFallbackState = {
+			model: settings.model,
+			mode: "minimal",
+			reason: truncateForContext(reason, 500),
+			updatedAt: new Date().toISOString(),
+		};
+		this.setRuntimeState(compactionReasoningFallbackStateKey, state);
 	}
 
 	async fetch(request: Request): Promise<Response> {
@@ -4171,7 +4298,8 @@ export class BotRuntime {
 		const effectiveProviderTools = providerTools ?? providerCompactionToolsForMode(limits, undefined, mode);
 		let requestMessages = messages;
 		let requestSettings = settings;
-		let lastBody = stringifyProviderRequest(providerCompactionRequest(requestSettings, requestMessages, limits, effectiveProviderTools, mode));
+		let compactionReasoningMode = this.compactionReasoningModeForSettings(settings);
+		let lastBody = stringifyProviderRequest(providerCompactionRequest(requestSettings, requestMessages, limits, effectiveProviderTools, mode, providerCompactionReasoningForMode(compactionReasoningMode)));
 		let lastValidationError: ProviderStructuredOutputValidationError | null = null;
 		let calibrationAttempt = 0;
 		for (let schemaAttempt = 0; schemaAttempt <= providerStructuredOutputRepairAttempts; schemaAttempt += 1) {
@@ -4191,7 +4319,7 @@ export class BotRuntime {
 						await sleep(retryDelayMs, signal);
 					}
 				}
-				const request = providerCompactionRequest(requestSettings, requestMessages, limits, effectiveProviderTools, mode);
+					const request = providerCompactionRequest(requestSettings, requestMessages, limits, effectiveProviderTools, mode, providerCompactionReasoningForMode(compactionReasoningMode));
 				const body = stringifyProviderRequest(request);
 				calibrationAttempt += 1;
 				lastBody = body;
@@ -4226,10 +4354,21 @@ export class BotRuntime {
 					if (error instanceof TickStoppedError || isAbortError(error)) {
 						throw error;
 					}
-					if (error instanceof ProviderCompactionOutputLimitError) {
-						throw new ProviderCompactionRequestError(error, body, error.rawResponse);
-					}
-					if (error instanceof ProviderStructuredOutputValidationError) {
+						if (error instanceof ProviderCompactionOutputLimitError) {
+							throw new ProviderCompactionRequestError(error, body, error.rawResponse);
+						}
+						if (compactionReasoningMode === "none" && providerCompactionNoReasoningRejected(error)) {
+							const reason = runtimeErrorText(error);
+							this.rememberCompactionNoReasoningRejection(settings, reason);
+							compactionReasoningMode = "minimal";
+							previousRetryKey = null;
+							retryDelayMs = 0;
+							retryReason = "provider rejected compaction reasoning=none; retrying with minimal";
+							if (attempt < providerMaxAttempts) {
+								continue;
+							}
+						}
+						if (error instanceof ProviderStructuredOutputValidationError) {
 						lastValidationError = error;
 						break;
 					}
@@ -8881,10 +9020,72 @@ type TranslationInput = {
 	text: string;
 };
 
+type AvatarGenerationInput = {
+	prompt: string;
+	includeCurrentAvatar: boolean;
+	settingsOverride?: BotInferenceSettings["imageGeneration"];
+};
+
 function parseTranslationInput(input: unknown): TranslationInput {
 	const record = runtimeRecord(input);
 	return {
 		text: requiredText(record.text, "Translation text", 16_000),
+	};
+}
+
+function parseAvatarGenerationInput(input: unknown): AvatarGenerationInput {
+	const record = runtimeRecord(input);
+	const prompt = typeof record.prompt === "string" ? record.prompt : "";
+	const includeCurrentAvatar = record.includeCurrentAvatar === true;
+	if (prompt.length > 8_000) {
+		throw new InputError("Avatar prompt must be 8000 characters or fewer.");
+	}
+	if (!prompt.trim() && !includeCurrentAvatar) {
+		throw new InputError("Avatar prompt is required unless the current avatar is included.");
+	}
+	const settingsOverride =
+		record.settings === undefined ?
+			undefined
+		:	mergeInferenceSettings(undefined, parseUpdateBotInput({ inferenceSettings: { imageGeneration: record.settings } }).inferenceSettings)
+				.imageGeneration;
+	return {
+		prompt,
+		includeCurrentAvatar,
+		...(settingsOverride ? { settingsOverride } : {}),
+	};
+}
+
+function parseAvatarCandidate(value: unknown): AvatarImage {
+	const record = runtimeRecord(value);
+	const key = requiredText(record.key, "Avatar candidate key", 500);
+	if (!key.includes("/avatar-candidates/")) {
+		throw new InputError("Avatar candidate key is invalid.");
+	}
+	const url = requiredText(record.url, "Avatar candidate URL", 1_000);
+	const contentType = requiredText(record.contentType, "Avatar candidate content type", 80);
+	const updatedAt = requiredText(record.updatedAt, "Avatar candidate timestamp", 80);
+	if (contentType !== "image/jpeg" && contentType !== "image/png" && contentType !== "image/webp") {
+		throw new InputError("Avatar candidate content type is invalid.");
+	}
+	const sourceRecord = runtimeRecord(record.source);
+	const generatedSource =
+		sourceRecord.type === "generated" ?
+			{
+				type: "generated" as const,
+				model: requiredText(sourceRecord.model, "Avatar generation model", 160),
+				generatedAt: requiredText(sourceRecord.generatedAt, "Avatar generation timestamp", 80),
+				...(typeof sourceRecord.prompt === "string" && sourceRecord.prompt.trim() ? { prompt: sourceRecord.prompt } : {}),
+			}
+		:	undefined;
+	return {
+		key,
+		url,
+		contentType,
+		updatedAt,
+		...(typeof record.byteLength === "number" ? { byteLength: record.byteLength } : {}),
+		...(typeof record.width === "number" ? { width: record.width } : {}),
+		...(typeof record.height === "number" ? { height: record.height } : {}),
+		...(generatedSource ? { source: generatedSource } : {}),
 	};
 }
 
@@ -8960,6 +9161,275 @@ async function fetchProviderTranslation(settings: TranslationProviderSettings, t
 	throw new ProviderRequestError(502, settings.model, endpoint, lastValidationError?.message ?? "Provider translation response did not include translation.");
 }
 
+async function generateAvatarForBot(
+	env: Pick<Env, "BICKR_KV" | "BICKR_D1" | "BICKR_R2" | "BICKR_R2_PUBLIC_BASE_URL" | "OPENROUTER_API_KEY" | "OPENROUTER_BASE_URL" | "OPENROUTER_MODEL">,
+	userId: string,
+	botId: string,
+	input: AvatarGenerationInput,
+): Promise<AvatarImage> {
+	const bot = await botById(env.BICKR_KV, env.BICKR_D1, botId);
+	if (bot.ownerUserId !== userId) {
+		throw new RepositoryError("forbidden", "Only this participant's owner can generate an avatar.", 403);
+	}
+	const owner = await userById(env.BICKR_KV, userId);
+	if (input.includeCurrentAvatar && !bot.avatar?.url) {
+		throw new InputError("The current avatar cannot be included because this participant does not have one.");
+	}
+	const settings = effectiveProviderSettingsForImageGeneration(bot, owner, env, input.settingsOverride);
+	if (!settings) {
+		throw new InputError("Choose an image generation model before generating an avatar.");
+	}
+	const dataUrl = await fetchProviderAvatarImage(settings, {
+		prompt: input.prompt,
+		currentAvatarUrl: input.includeCurrentAvatar ? bot.avatar?.url : undefined,
+	});
+	const validated = validateAvatarDataUrl(dataUrl);
+	return storeAvatarImage(requireAvatarBucket(env), {
+		botId: bot.id,
+		worldId: bot.homeWorldId,
+		bytes: validated.bytes,
+		contentType: validated.contentType,
+		publicBaseUrl: normalizeAvatarPublicBaseUrl(env.BICKR_R2_PUBLIC_BASE_URL),
+		source: {
+			type: "generated",
+			model: settings.model,
+			generatedAt: new Date().toISOString(),
+			...(input.prompt.trim() ? { prompt: input.prompt } : {}),
+		},
+		kind: "avatar-candidates",
+	});
+}
+
+async function applyGeneratedAvatarForBot(
+	env: Pick<Env, "BICKR_KV" | "BICKR_D1" | "BICKR_R2" | "BICKR_R2_PUBLIC_BASE_URL">,
+	userId: string,
+	botId: string,
+	candidate: AvatarImage,
+): Promise<BotSummary> {
+	const bot = await botById(env.BICKR_KV, env.BICKR_D1, botId);
+	if (bot.ownerUserId !== userId) {
+		throw new RepositoryError("forbidden", "Only this participant's owner can update its avatar.", 403);
+	}
+	const avatar = await promoteAvatarCandidate(requireAvatarBucket(env), {
+		botId: bot.id,
+		worldId: bot.homeWorldId,
+		candidate,
+		publicBaseUrl: normalizeAvatarPublicBaseUrl(env.BICKR_R2_PUBLIC_BASE_URL),
+		source: candidate.source,
+	});
+	const updated = await updateBotAvatar(env.BICKR_KV, env.BICKR_D1, bot.id, userId, avatar);
+	await requireAvatarBucket(env).delete(candidate.key).catch(() => undefined);
+	return updated;
+}
+
+async function prefillAvatarPromptForBot(
+	env: Pick<Env, "BICKR_KV" | "BICKR_D1" | "OPENROUTER_API_KEY" | "OPENROUTER_BASE_URL" | "OPENROUTER_MODEL">,
+	userId: string,
+	botId: string,
+): Promise<string> {
+	const bot = await botById(env.BICKR_KV, env.BICKR_D1, botId);
+	if (bot.ownerUserId !== userId) {
+		throw new RepositoryError("forbidden", "Only this participant's owner can prepare an avatar prompt.", 403);
+	}
+	const owner = await userById(env.BICKR_KV, userId);
+	return fetchProviderAvatarDescription(effectiveProviderSettingsForBot(bot, owner, env), bot);
+}
+
+type ProviderImageContentPart =
+	| { type: "text"; text: string }
+	| { type: "image_url"; image_url: { url: string } };
+
+async function fetchProviderAvatarImage(
+	settings: ImageGenerationProviderSettings,
+	input: { prompt: string; currentAvatarUrl?: string },
+): Promise<string> {
+	const endpoint = providerChatCompletionsUrl(settings.baseUrl);
+	const signal = new AbortController().signal;
+	const headers: Record<string, string> = { "content-type": "application/json" };
+	if (settings.apiKey) {
+		headers.authorization = `Bearer ${settings.apiKey}`;
+	}
+	const content: ProviderImageContentPart[] = [];
+	if (input.prompt.trim()) {
+		content.push({ type: "text", text: input.prompt });
+	}
+	if (input.currentAvatarUrl) {
+		content.push({ type: "image_url", image_url: { url: input.currentAvatarUrl } });
+	}
+	const imageConfig: JsonObject = {
+		...(settings.aspectRatio ? { aspect_ratio: settings.aspectRatio } : {}),
+		...(settings.imageSize ? { image_size: settings.imageSize } : {}),
+	};
+	const requestBody = {
+		model: settings.model,
+		messages: [{ role: "user", content }],
+		modalities: ["image", "text"],
+		...(Object.keys(imageConfig).length > 0 ? { image_config: imageConfig } : {}),
+		...(settings.providerRouting ? { provider: settings.providerRouting } : {}),
+		...(settings.temperature !== undefined ? { temperature: settings.temperature } : {}),
+		...(settings.topK !== undefined ? { top_k: settings.topK } : {}),
+		...(settings.topP !== undefined ? { top_p: settings.topP } : {}),
+		...(settings.minP !== undefined ? { min_p: settings.minP } : {}),
+		...(settings.frequencyPenalty !== undefined ? { frequency_penalty: settings.frequencyPenalty } : {}),
+		...(settings.presencePenalty !== undefined ? { presence_penalty: settings.presencePenalty } : {}),
+		...(settings.repetitionPenalty !== undefined ? { repetition_penalty: settings.repetitionPenalty } : {}),
+	};
+	const response = await providerFetchWithHeaderTimeout(
+		endpoint,
+		{ method: "POST", headers, body: JSON.stringify(requestBody) },
+		signal,
+		providerRequestTimeoutMs,
+	);
+	if (!response.ok) {
+		const bodyText = await readProviderErrorBody(response, signal);
+		throw new ProviderRequestError(response.status, settings.model, endpoint, bodyText);
+	}
+	const rawResponse = await readJsonResponseText(
+		response,
+		providerResponseBodyMaxBytes,
+		signal,
+		providerBodyReadTimeoutMs,
+		() => new ProviderResponseBodyTimeoutError(providerBodyReadTimeoutMs),
+	);
+	let payload: unknown;
+	try {
+		payload = JSON.parse(rawResponse) as unknown;
+	} catch {
+		throw new ProviderRequestError(502, settings.model, endpoint, "Provider image response was not valid JSON.", { rawResponse });
+	}
+	const dataUrl = providerImageDataUrl(payload);
+	if (!dataUrl) {
+		throw new ProviderRequestError(502, settings.model, endpoint, "Provider image response did not include an image.", { rawResponse });
+	}
+	return dataUrl;
+}
+
+function providerImageDataUrl(payload: unknown): string | null {
+	const choices = Array.isArray((payload as { choices?: unknown }).choices) ? (payload as { choices: unknown[] }).choices : [];
+	for (const choice of choices) {
+		const message = runtimeRecord(runtimeRecord(choice).message);
+		const images = Array.isArray(message.images) ? message.images : [];
+		for (const image of images) {
+			const url = stringValue(runtimeRecord(runtimeRecord(image).image_url).url);
+			if (url?.startsWith("data:image/")) {
+				return url;
+			}
+		}
+	}
+	return null;
+}
+
+const providerAvatarDescriptionToolName = "save_avatar_description";
+
+function providerAvatarDescriptionTools(): [ProviderToolDefinition] {
+	return [
+		{
+			type: "function",
+			function: {
+				name: providerAvatarDescriptionToolName,
+				description: "Save a first-person, in-character profile image description with highly verbose, concrete visual detail. Describe appearance, expression, pose, clothing, style, colors, lighting, background, and composition. Do not mention screenshots, prompts, generation, websites, instructions, systems, or any process outside the character's world.",
+				parameters: {
+					type: "object",
+					properties: {
+						description: { type: "string" },
+					},
+					required: ["description"],
+					additionalProperties: false,
+				},
+			},
+		},
+	];
+}
+
+async function fetchProviderAvatarDescription(settings: ProviderSettings, bot: BotDocument): Promise<string> {
+	const endpoint = providerChatCompletionsUrl(settings.baseUrl);
+	const signal = new AbortController().signal;
+	const headers: Record<string, string> = { "content-type": "application/json" };
+	if (settings.apiKey) {
+		headers.authorization = `Bearer ${settings.apiKey}`;
+	}
+	const tools = providerAvatarDescriptionTools();
+	const toolCalls = settings.toolCalls === "railroad" ? "railroad" : "require";
+	const requestBody = {
+		model: settings.model,
+		messages: sanitizeProviderMessagesForRequest([
+			{ role: "system", content: appendToolRequirementInstruction(standardPrompt(bot), tools) },
+			{
+				role: "user",
+				content: `Bickr Terminal needs a profile image description. I should call ${providerAvatarDescriptionToolName} with a first-person, in-character description that is highly verbose and full of concrete visual detail. The description should focus only on visible appearance, style, scene, lighting, and composition.`,
+			},
+		]),
+		...(settings.providerRouting ? { provider: settings.providerRouting } : {}),
+		stream: false,
+		tools,
+		...(providerToolChoiceForMode(toolCalls) ? { tool_choice: providerToolChoiceForMode(toolCalls) } : {}),
+		parallel_tool_calls: false,
+		max_completion_tokens: 1400,
+		reasoning: providerReasoningForSettings(settings),
+		temperature: settings.temperature,
+		...(settings.topK !== undefined ? { top_k: settings.topK } : {}),
+		...(settings.topP !== undefined ? { top_p: settings.topP } : {}),
+		...(settings.minP !== undefined ? { min_p: settings.minP } : {}),
+		...(settings.frequencyPenalty !== undefined ? { frequency_penalty: settings.frequencyPenalty } : {}),
+		...(settings.presencePenalty !== undefined ? { presence_penalty: settings.presencePenalty } : {}),
+		...(settings.repetitionPenalty !== undefined ? { repetition_penalty: settings.repetitionPenalty } : {}),
+	};
+	const response = await providerFetchWithHeaderTimeout(
+		endpoint,
+		{ method: "POST", headers, body: JSON.stringify(requestBody) },
+		signal,
+		providerRequestTimeoutMs,
+	);
+	if (!response.ok) {
+		const bodyText = await readProviderErrorBody(response, signal);
+		throw new ProviderRequestError(response.status, settings.model, endpoint, bodyText);
+	}
+	const rawResponse = await readJsonResponseText(
+		response,
+		providerResponseBodyMaxBytes,
+		signal,
+		providerBodyReadTimeoutMs,
+		() => new ProviderResponseBodyTimeoutError(providerBodyReadTimeoutMs),
+	);
+	let payload: ProviderCompactionResponsePayload;
+	try {
+		payload = JSON.parse(rawResponse) as ProviderCompactionResponsePayload;
+	} catch {
+		throw new ProviderRequestError(502, settings.model, endpoint, "Provider avatar description response was not valid JSON.", { rawResponse });
+	}
+	const description = providerAvatarDescriptionFromToolMessage(payload.choices?.[0]?.message, rawResponse);
+	if (!description.trim()) {
+		throw new ProviderRequestError(502, settings.model, endpoint, "Provider avatar description response was empty.", { rawResponse });
+	}
+	return description.trim();
+}
+
+function providerAvatarDescriptionFromToolMessage(message: unknown, rawResponse: string): string {
+	const toolCalls = Array.isArray((message as { tool_calls?: unknown }).tool_calls) ? (message as { tool_calls: unknown[] }).tool_calls : [];
+	const call = toolCalls.find((item) => runtimeRecord(runtimeRecord(item).function).name === providerAvatarDescriptionToolName);
+	if (!call) {
+		throw new ProviderRequestError(502, "unknown", "provider", "Provider avatar description response did not call the required tool.", { rawResponse });
+	}
+	const argsText = stringValue(runtimeRecord(runtimeRecord(call).function).arguments);
+	if (!argsText) {
+		throw new ProviderRequestError(502, "unknown", "provider", "Provider avatar description response had no arguments.", { rawResponse });
+	}
+	let args: unknown;
+	try {
+		args = JSON.parse(argsText);
+	} catch {
+		throw new ProviderRequestError(502, "unknown", "provider", "Provider avatar description arguments were not valid JSON.", { rawResponse });
+	}
+	return requiredText(runtimeRecord(args).description, "Avatar description", 8_000);
+}
+
+function requireAvatarBucket(env: Pick<Env, "BICKR_R2">): R2BucketLike {
+	if (!env.BICKR_R2) {
+		throw new InputError("BICKR_R2 must be configured before storing avatars.");
+	}
+	return env.BICKR_R2 as R2BucketLike;
+}
+
 export class UserBotsCoordinator {
 	private readonly state: DurableObjectState;
 	private readonly env: Env;
@@ -8980,11 +9450,14 @@ export async function handleAgentRuntimeRequest(
 		Env,
 		| "BICKR_D1"
 		| "BICKR_KV"
+		| "BICKR_R2"
+		| "BICKR_R2_PUBLIC_BASE_URL"
 		| "AI"
 		| "BICKR_BOT_VECTORIZE"
 		| "BICKR_SEARCH_VECTORIZE"
 		| "OPENROUTER_API_KEY"
 		| "OPENROUTER_BASE_URL"
+		| "OPENROUTER_MODEL"
 	>,
 	objectId = "direct",
 ): Promise<Response> {
@@ -9030,7 +9503,31 @@ export async function handleAgentRuntimeRequest(
 			const userId = requireUserMatch(request, decodeURIComponent(createMatch[1] ?? ""));
 			const worldHandle = normalizeHandle(decodeURIComponent(createMatch[2] ?? ""));
 			const input = parseCreateBotInput(await readJsonBody(request));
-			const bot = await createBot(env.BICKR_KV, env.BICKR_D1, worldHandle, input, userId);
+			if (input.importSource?.sourceAvatarUrl) {
+				requireAvatarBucket(env);
+				normalizeAvatarPublicBaseUrl(env.BICKR_R2_PUBLIC_BASE_URL);
+			}
+			const chirperAvatar =
+				input.importSource?.sourceAvatarUrl ?
+					await fetchRemoteAvatarBytes(input.importSource.sourceAvatarUrl)
+				:	null;
+			let bot = await createBot(env.BICKR_KV, env.BICKR_D1, worldHandle, input, userId);
+			if (chirperAvatar && input.importSource?.sourceAvatarUrl) {
+				const avatar = await storeAvatarImage(requireAvatarBucket(env), {
+					botId: bot.id,
+					worldId: bot.homeWorldId,
+					bytes: chirperAvatar.bytes,
+					contentType: chirperAvatar.contentType,
+					publicBaseUrl: normalizeAvatarPublicBaseUrl(env.BICKR_R2_PUBLIC_BASE_URL),
+					source: {
+						type: "chirper",
+						sourceUrl: input.importSource.sourceAvatarUrl,
+						originalHandle: input.importSource.originalHandle,
+						importedAt: input.importSource.importedAt,
+					},
+				});
+				bot = await updateBotAvatar(env.BICKR_KV, env.BICKR_D1, bot.id, userId, avatar);
+			}
 			await upsertBotVector(env, bot);
 			return ok({ bot, coordinator: objectId }, { status: 201 });
 		}
@@ -9041,6 +9538,36 @@ export async function handleAgentRuntimeRequest(
 			const botId = decodeURIComponent(botMatch[2] ?? "");
 			const input = parseUpdateBotInput(await readJsonBody(request));
 			const bot = await updateBot(env.BICKR_KV, env.BICKR_D1, botId, userId, input);
+			await upsertBotVector(env, bot);
+			return ok({ bot, coordinator: objectId });
+		}
+
+		const avatarPromptMatch = /^\/users\/([^/]+)\/bots\/([^/]+)\/avatar\/prompt$/.exec(url.pathname);
+		if (avatarPromptMatch && request.method === "POST") {
+			const userId = requireUserMatch(request, decodeURIComponent(avatarPromptMatch[1] ?? ""));
+			const botId = decodeURIComponent(avatarPromptMatch[2] ?? "");
+			const prompt = await prefillAvatarPromptForBot(env, userId, botId);
+			return ok({ prompt, coordinator: objectId });
+		}
+
+		const avatarGenerateMatch = /^\/users\/([^/]+)\/bots\/([^/]+)\/avatar\/generate$/.exec(url.pathname);
+		if (avatarGenerateMatch && request.method === "POST") {
+			const userId = requireUserMatch(request, decodeURIComponent(avatarGenerateMatch[1] ?? ""));
+			const botId = decodeURIComponent(avatarGenerateMatch[2] ?? "");
+			const candidate = await generateAvatarForBot(env, userId, botId, parseAvatarGenerationInput(await readJsonBody(request)));
+			return ok({ candidate, coordinator: objectId });
+		}
+
+		const avatarApplyMatch = /^\/users\/([^/]+)\/bots\/([^/]+)\/avatar\/apply$/.exec(url.pathname);
+		if (avatarApplyMatch && request.method === "POST") {
+			const userId = requireUserMatch(request, decodeURIComponent(avatarApplyMatch[1] ?? ""));
+			const botId = decodeURIComponent(avatarApplyMatch[2] ?? "");
+			const body = runtimeRecord(await readJsonBody(request));
+			let bot = await applyGeneratedAvatarForBot(env, userId, botId, parseAvatarCandidate(body.candidate));
+			if (body.settings !== undefined) {
+				const input = parseUpdateBotInput({ inferenceSettings: { imageGeneration: body.settings } });
+				bot = await updateBot(env.BICKR_KV, env.BICKR_D1, bot.id, userId, input);
+			}
 			await upsertBotVector(env, bot);
 			return ok({ bot, coordinator: objectId });
 		}
@@ -12603,6 +13130,20 @@ function isProviderCompactionOutputLimitFailure(error: unknown): boolean {
 	return (
 		error instanceof ProviderCompactionOutputLimitError ||
 		(error instanceof ProviderCompactionRequestError && error.originalError instanceof ProviderCompactionOutputLimitError)
+	);
+}
+
+function providerCompactionNoReasoningRejected(error: unknown): boolean {
+	if (!(error instanceof ProviderRequestError)) {
+		return false;
+	}
+	if (error.status < 400 || error.status >= 500) {
+		return false;
+	}
+	const text = `${error.message}\n${error.body}`.toLowerCase();
+	return (
+		/(?:\breasoning\b|reasoning[_ -]?effort)/.test(text) &&
+		/(?:\bnone\b|disabl|unsupported|not supported|invalid|not allowed|must be one of|unrecognized|unknown)/.test(text)
 	);
 }
 

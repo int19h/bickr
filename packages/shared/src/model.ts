@@ -70,6 +70,42 @@ export type ChirperImportSource = {
 	originalProfileUrl: string;
 	apiUrl: string;
 	importedAt: string;
+	sourceAvatarUrl?: string;
+};
+
+export type AvatarImageSource =
+	| {
+			type: "upload";
+			uploadedAt: string;
+			originalFilename?: string;
+	  }
+	| {
+			type: "remote_url";
+			sourceUrl: string;
+			importedAt: string;
+	  }
+	| {
+			type: "chirper";
+			sourceUrl: string;
+			originalHandle: string;
+			importedAt: string;
+	  }
+	| {
+			type: "generated";
+			model: string;
+			generatedAt: string;
+			prompt?: string;
+	  };
+
+export type AvatarImage = {
+	key: string;
+	url: string;
+	contentType: string;
+	byteLength?: number;
+	width?: number;
+	height?: number;
+	source?: AvatarImageSource;
+	updatedAt: string;
 };
 
 export type BotDocument = EntityDocument & {
@@ -86,6 +122,7 @@ export type BotDocument = EntityDocument & {
 	postingSettings?: PostingSettings;
 	tickSettings: BotTickSettings;
 	importSource?: ChirperImportSource;
+	avatar?: AvatarImage;
 };
 
 export type BotInferenceSettings = {
@@ -102,6 +139,7 @@ export type BotInferenceSettings = {
 	reasoningEffort?: BotInferenceReasoningEffort;
 	toolCalls?: BotInferenceToolCalls;
 	providerRouting?: JsonObject;
+	imageGeneration?: BotImageGenerationSettings;
 	translation?: BotTranslationSettings;
 	temperature?: number;
 	topK?: number;
@@ -133,6 +171,20 @@ export type BotTranslationSettings = {
 	repetitionPenalty?: number;
 };
 
+export type BotImageGenerationSettings = {
+	model?: string;
+	providerRouting?: JsonObject;
+	aspectRatio?: string;
+	imageSize?: string;
+	temperature?: number;
+	topK?: number;
+	topP?: number;
+	minP?: number;
+	frequencyPenalty?: number;
+	presencePenalty?: number;
+	repetitionPenalty?: number;
+};
+
 export type BotInferenceSettingsInput = {
 	openRouterApiKey?: string | null;
 	baseUrl?: string | null;
@@ -146,6 +198,7 @@ export type BotInferenceSettingsInput = {
 	reasoningEffort?: BotInferenceReasoningEffort | null;
 	toolCalls?: BotInferenceToolCalls | null;
 	providerRouting?: JsonObject | null;
+	imageGeneration?: BotImageGenerationSettingsInput | null;
 	translation?: BotTranslationSettingsInput | null;
 	temperature?: number | null;
 	topK?: number | null;
@@ -155,6 +208,20 @@ export type BotInferenceSettingsInput = {
 	presencePenalty?: number | null;
 	repetitionPenalty?: number | null;
 };
+
+export type BotImageGenerationSettingsInput = Partial<{
+	model: string | null;
+	providerRouting: JsonObject | null;
+	aspectRatio: string | null;
+	imageSize: string | null;
+	temperature: number | null;
+	topK: number | null;
+	topP: number | null;
+	minP: number | null;
+	frequencyPenalty: number | null;
+	presencePenalty: number | null;
+	repetitionPenalty: number | null;
+}>;
 
 export type BotTranslationSettingsInput = Partial<{
 	enabled: boolean;
@@ -336,6 +403,7 @@ export type CommentDocument = {
 	authorBotId: string;
 	authorHandle: string;
 	authorDisplayName: string;
+	authorAvatarUrl?: string;
 	parentCommentId?: string;
 	body: string;
 	voteScore: number;
@@ -630,6 +698,8 @@ export type BotSummary = {
 	handle: string;
 	displayName: string;
 	shortBio: string;
+	avatar?: AvatarImage;
+	avatarUrl?: string;
 	prompt?: string;
 	inferenceSettings: BotInferenceSettings;
 	toolSettings?: BotToolSettings;
@@ -651,6 +721,7 @@ export type BotPublicProfile = {
 	handle: string;
 	displayName: string;
 	shortBio: string;
+	avatarUrl?: string;
 	createdAt: string;
 	updatedAt: string;
 };
@@ -770,6 +841,7 @@ export type ThreadSummary = {
 	authorBotId: string;
 	authorHandle: string;
 	authorDisplayName: string;
+	authorAvatarUrl?: string;
 	title: string;
 	bodyPreview: string;
 	voteScore: number;
@@ -790,6 +862,7 @@ export type SearchThreadResult = {
 	authorBotId: string;
 	authorHandle: string;
 	authorDisplayName: string;
+	authorAvatarUrl?: string;
 	createdAt: string;
 	score: number;
 };
@@ -1256,6 +1329,7 @@ export type ChirperImportPreview = {
 	displayName: string;
 	shortBio: string;
 	prompt: string;
+	avatarUrl?: string;
 	importSource: ChirperImportSource;
 };
 
@@ -1295,6 +1369,7 @@ export type CreateBotInput = {
 	postingSettings?: PostingSettingsInput;
 	tickSettings?: BotTickSettingsInput;
 	importSource?: ChirperImportSource;
+	avatar?: AvatarImage;
 };
 
 export type UpdateBotInput = Partial<

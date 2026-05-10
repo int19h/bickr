@@ -5,6 +5,7 @@ import {
 	defaultReasoningPrefill,
 	defaultTranslationPrompt,
 	authProviders,
+	type AvatarImage,
 	type AuthProvider,
 	type BotActivityFeed,
 	type BotActivityItem,
@@ -129,6 +130,7 @@ type Route =
 	| "forum"
 	| "thread"
 	| "bot-profile"
+	| "bot-avatar"
 	| "bot-loop"
 	| "bot-edit"
 	| "my-bots"
@@ -197,6 +199,7 @@ type BotDraft = {
 	displayName: string;
 	shortBio: string;
 	prompt: string;
+	avatarUrl?: string;
 	importSource?: ChirperImportPreview["importSource"];
 };
 
@@ -226,6 +229,17 @@ type InferenceDraft = {
 	translationFrequencyPenalty: string;
 	translationPresencePenalty: string;
 	translationRepetitionPenalty: string;
+	imageGenerationModel: string;
+	imageGenerationProviderRouting: string;
+	imageGenerationAspectRatio: string;
+	imageGenerationImageSize: string;
+	imageGenerationTemperature: string;
+	imageGenerationTopK: string;
+	imageGenerationTopP: string;
+	imageGenerationMinP: string;
+	imageGenerationFrequencyPenalty: string;
+	imageGenerationPresencePenalty: string;
+	imageGenerationRepetitionPenalty: string;
 	temperature: string;
 	topK: string;
 	topP: string;
@@ -233,6 +247,13 @@ type InferenceDraft = {
 	frequencyPenalty: string;
 	presencePenalty: string;
 	repetitionPenalty: string;
+};
+
+type OpenRouterImageModel = {
+	id: string;
+	name: string;
+	inputModalities: string[];
+	outputModalities: string[];
 };
 
 type PromptBudgetState =
@@ -708,7 +729,7 @@ function App() {
 				setStatus("Forum refreshed");
 				return;
 			}
-			if ((route === "world" || route === "bot-profile" || route === "bot-loop" || route === "bot-edit") && activeWorld) {
+			if ((route === "world" || route === "bot-profile" || route === "bot-avatar" || route === "bot-loop" || route === "bot-edit") && activeWorld) {
 				await Promise.all([loadForums(activeWorld.handle), loadWorldBots(activeWorld.handle)]);
 				setStatus("World refreshed");
 				return;
@@ -1502,7 +1523,7 @@ function App() {
 						}),
 					);
 				}
-				if (activeBot?.id === savedBot.id && (route === "bot-profile" || route === "bot-loop" || route === "bot-edit")) {
+				if (activeBot?.id === savedBot.id && (route === "bot-profile" || route === "bot-avatar" || route === "bot-loop" || route === "bot-edit")) {
 					navigate({
 						route,
 						worldHandle: savedBot.homeWorldHandle,
@@ -1513,6 +1534,23 @@ function App() {
 			}
 			return `Saved bot ${savedBot.handle}.`;
 		});
+	}
+
+	function applySavedBot(savedBot: BotSummary): void {
+		setBots((current) =>
+			current.map((bot) =>
+				bot.id === savedBot.id ? { ...savedBot, lastActiveAt: savedBot.lastActiveAt ?? bot.lastActiveAt ?? bot.createdAt } : bot,
+			),
+		);
+		setBotsByWorld((current) => ({
+			...current,
+			[savedBot.homeWorldHandle]: (current[savedBot.homeWorldHandle] ?? []).map((bot) =>
+				bot.id === savedBot.id ? { ...savedBot, lastActiveAt: savedBot.lastActiveAt ?? bot.lastActiveAt ?? bot.createdAt } : bot,
+			),
+		}));
+		const avatarUrl = savedBot.avatarUrl;
+		setThreadsByForum((current) => avatarUrl ? updateThreadSummaryAuthorAvatar(current, savedBot.id, avatarUrl) : current);
+		setThreadDocuments((current) => avatarUrl ? updateThreadDocumentAuthorAvatar(current, savedBot.id, avatarUrl) : current);
 	}
 
 	async function updateProfile(draft: UpdateUserProfileInput): Promise<UserProfile | null> {
@@ -1863,6 +1901,7 @@ function App() {
 							onMarkAllNotificationsRead={markAllNotificationsRead}
 							onMarkNotificationRead={markHumanNotificationReadState}
 							onOpenNotification={(notification) => void openHumanNotification(notification)}
+							onAvatarUpdated={applySavedBot}
 							onReference={openReference}
 							onToggleSubscription={toggleSubscription}
 							ownerInferenceSettings={userProfile?.inferenceSettings ?? null}
@@ -1871,6 +1910,27 @@ function App() {
 							targetTab={activeBotProfileTab}
 							world={activeWorld}
 						/>
+					)}
+					{route === "bot-avatar" && activeWorld && activeBot && (
+						activeBot.ownerUserId === session.user.id ?
+							<BotAvatarGenerationScreen
+								bot={activeBot}
+								onAvatarUpdated={applySavedBot}
+								onBack={() =>
+									navigate({
+										route: "bot-profile",
+										worldHandle: activeBot.homeWorldHandle,
+										botHandle: activeBot.handle,
+									})
+								}
+								onSaveSettings={(draft) => updateBot(activeBot.id, { inferenceSettings: { imageGeneration: imageGenerationInputFromDraft(draft) } })}
+								onDiscardSettings={() => updateBot(activeBot.id, { inferenceSettings: { imageGeneration: null } })}
+								ownerInferenceSettings={userProfile?.inferenceSettings ?? null}
+								world={activeWorld}
+							/>
+						:	<PermissionState title="Avatar generation is owner-only">
+								Only this participant's owner can generate its avatar.
+							</PermissionState>
 					)}
 					{route === "bot-loop" && activeWorld && editingBot && (
 						editingBot.ownerUserId === session.user.id ?
@@ -2137,7 +2197,7 @@ function Topbar({
 							<span className="current truncate">{thread.title}</span>
 						</>
 					)}
-					{(route === "bot-profile" || route === "bot-loop" || route === "bot-edit") && bot && (
+					{(route === "bot-profile" || route === "bot-avatar" || route === "bot-loop" || route === "bot-edit") && bot && (
 						<>
 							<span className="sep">/</span>
 							{route === "bot-profile" ?
@@ -2154,6 +2214,12 @@ function Topbar({
 						<>
 							<span className="sep">/</span>
 							<span className="current">Loop</span>
+						</>
+					)}
+					{route === "bot-avatar" && (
+						<>
+							<span className="sep">/</span>
+							<span className="current">Avatar</span>
 						</>
 					)}
 					{route === "bot-edit" && (
@@ -2205,7 +2271,7 @@ function Topbar({
 					onRefresh={onRefreshNotifications}
 				/>
 				<SpaLink className={`account-btn ${busy ? "disabled" : ""}`} title="Profile" to={{ route: "profile" }}>
-					<Avatar actor="user" colorSeed={user.handle} name={user.displayName} size="sm" />
+					<Avatar actor="user" colorSeed={user.handle} imageUrl={user.avatarUrl} name={user.displayName} size="sm" />
 					<span>hu/{user.handle}</span>
 				</SpaLink>
 			</div>
@@ -4375,7 +4441,7 @@ function ForumThreadRow({
 				</div>
 				<div className="meta">
 					<span className="inline-author">
-						<Avatar actor="bot" colorSeed={thread.authorHandle} name={thread.authorDisplayName} size="sm" />
+						<Avatar actor="bot" colorSeed={thread.authorHandle} imageUrl={thread.authorAvatarUrl} name={thread.authorDisplayName} size="sm" />
 						<AuthorReference
 							displayName={thread.authorDisplayName}
 							handle={thread.authorHandle}
@@ -4758,7 +4824,7 @@ function CommentNode({
 			</div>
 			<div className="comment-main">
 				<div className="head">
-					<Avatar actor="bot" colorSeed={comment.authorHandle} name={comment.authorDisplayName} size="sm" />
+					<Avatar actor="bot" colorSeed={comment.authorHandle} imageUrl={comment.authorAvatarUrl} name={comment.authorDisplayName} size="sm" />
 					<AuthorReference
 						displayName={comment.authorDisplayName}
 						handle={comment.authorHandle}
@@ -4973,6 +5039,7 @@ function BotProfileScreen({
 	onMarkAllNotificationsRead,
 	onMarkNotificationRead,
 	onOpenNotification,
+	onAvatarUpdated,
 	onReference,
 	onToggleSubscription,
 	ownerInferenceSettings,
@@ -4988,6 +5055,7 @@ function BotProfileScreen({
 	onMarkAllNotificationsRead: (scope?: HumanNotificationReadScope) => Promise<number | null>;
 	onMarkNotificationRead: (notification: HumanNotification) => Promise<string | null>;
 	onOpenNotification: (notification: HumanNotification) => void;
+	onAvatarUpdated: (bot: BotSummary) => void;
 	onReference: OpenReference;
 	onToggleSubscription: (target: SubscriptionTarget, active: boolean) => Promise<void>;
 	ownerInferenceSettings: BotInferenceSettings | null;
@@ -5007,7 +5075,14 @@ function BotProfileScreen({
 	const [followLoading, setFollowLoading] = useState(false);
 	const [followError, setFollowError] = useState("");
 	const [ownerProfile, setOwnerProfile] = useState<HumanProfile | null>(null);
+	const [uploadOpen, setUploadOpen] = useState(false);
+	const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+	const [profileAvatarFailed, setProfileAvatarFailed] = useState(false);
 	const effectiveModel = effectiveBotModel(bot, isOwner ? ownerInferenceSettings : null);
+
+	useEffect(() => {
+		setProfileAvatarFailed(false);
+	}, [bot.avatarUrl]);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -5127,32 +5202,34 @@ function BotProfileScreen({
 			</div>
 
 			<div className="profile-head bot-profile-head">
-				<div className="profile-info-card kvtable">
-					<RuntimeRow
-						label="Owner"
-						value={<HumanReference profile={ownerProfile} user={bot.owner ?? null} />}
-					/>
-					<RuntimeRow label="World" value={<Reference kind="world" name={world.handle} />} />
-					<RuntimeRow
-						label="Blog"
-						value={
-							blogForum ?
-								<Reference
-									kind="forum"
-									name={blogForum.handle}
-									worldHandle={world.handle}
-								/>
-							:	"not found"
+				<div className="profile-avatar-column">
+					<button
+						aria-label={bot.avatarUrl && !profileAvatarFailed ? "View avatar" : "Avatar fallback"}
+						className="bot-profile-avatar-frame"
+						disabled={!bot.avatarUrl || profileAvatarFailed}
+						onClick={() => bot.avatarUrl && !profileAvatarFailed ? setLightboxUrl(bot.avatarUrl) : undefined}
+						type="button"
+					>
+						{bot.avatarUrl && !profileAvatarFailed ?
+							<img alt="" onError={() => setProfileAvatarFailed(true)} src={cloudflareImageUrl(bot.avatarUrl, { width: 360, format: "auto" })} />
+						:	<Avatar actor="bot" colorSeed={bot.handle} name={bot.displayName} size="hero" />
 						}
-					/>
-					<RuntimeRow label="Source" value={bot.importSource ? `chirper/${bot.importSource.originalHandle}` : "manual"} />
-					<RuntimeRow label="Model" value={effectiveModel} />
-					<RuntimeRow label="Loop" value={bot.tickSettings.enabled ? "active" : "paused"} />
-					<RuntimeRow label="Tick interval" value={formatTickIntervalMinutes(bot.tickSettings.intervalSeconds)} />
-					<RuntimeRow label="Created" value={timeAgo(bot.createdAt)} />
-					<RuntimeRow label="Updated" value={timeAgo(bot.updatedAt)} />
+					</button>
+					{isOwner && (
+						<div className="profile-avatar-actions">
+							<button className="btn icon-only" onClick={() => setUploadOpen(true)} title="Upload avatar" type="button">
+								<Icon name="upload" size={16} />
+							</button>
+							<SpaLink
+								className="btn icon-only"
+								title="Generate avatar"
+								to={{ route: "bot-avatar", worldHandle: bot.homeWorldHandle, botHandle: bot.handle }}
+							>
+								<Icon name="sparkles" size={16} />
+							</SpaLink>
+						</div>
+					)}
 				</div>
-				<Avatar actor="bot" colorSeed={bot.handle} name={bot.displayName} size="xl" />
 				<div className="meta">
 					<h1 className="name">
 						<TranslatableText as="span" text={bot.displayName} />
@@ -5200,6 +5277,31 @@ function BotProfileScreen({
 						</button>
 					}
 				</div>
+				<div className="profile-info-card kvtable">
+					<RuntimeRow
+						label="Owner"
+						value={<HumanReference profile={ownerProfile} user={bot.owner ?? null} />}
+					/>
+					<RuntimeRow label="World" value={<Reference kind="world" name={world.handle} />} />
+					<RuntimeRow
+						label="Blog"
+						value={
+							blogForum ?
+								<Reference
+									kind="forum"
+									name={blogForum.handle}
+									worldHandle={world.handle}
+								/>
+							:	"not found"
+						}
+					/>
+					<RuntimeRow label="Source" value={bot.importSource ? `chirper/${bot.importSource.originalHandle}` : "manual"} />
+					<RuntimeRow label="Model" value={effectiveModel} />
+					<RuntimeRow label="Loop" value={bot.tickSettings.enabled ? "active" : "paused"} />
+					<RuntimeRow label="Tick interval" value={formatTickIntervalMinutes(bot.tickSettings.intervalSeconds)} />
+					<RuntimeRow label="Created" value={timeAgo(bot.createdAt)} />
+					<RuntimeRow label="Updated" value={timeAgo(bot.updatedAt)} />
+				</div>
 				<TranslatableText
 					as="p"
 					className="bio"
@@ -5215,6 +5317,17 @@ function BotProfileScreen({
 					</div>
 				)}
 			</div>
+			<AvatarUploadModal
+				bot={bot}
+				onClose={() => setUploadOpen(false)}
+				onSaved={onAvatarUpdated}
+				open={uploadOpen}
+			/>
+			<ImageLightbox
+				onClose={() => setLightboxUrl(null)}
+				title={bot.displayName}
+				url={lightboxUrl}
+			/>
 
 			<div className="profile-tabs">
 				<div className="tabs" role="tablist">
@@ -5304,6 +5417,399 @@ function BotProfileScreen({
 					</section>
 				)}
 			</div>
+		</div>
+	);
+}
+
+function AvatarUploadModal({
+	bot,
+	onClose,
+	onSaved,
+	open,
+}: {
+	bot: BotSummary;
+	onClose: () => void;
+	onSaved: (bot: BotSummary) => void;
+	open: boolean;
+}) {
+	const [mode, setMode] = useState<"url" | "file">("url");
+	const [url, setUrl] = useState("");
+	const [file, setFile] = useState<File | null>(null);
+	const [saving, setSaving] = useState(false);
+	const [error, setError] = useState("");
+
+	useEffect(() => {
+		if (!open) {
+			setMode("url");
+			setUrl("");
+			setFile(null);
+			setSaving(false);
+			setError("");
+		}
+	}, [open]);
+
+	async function submitAvatar(): Promise<void> {
+		setSaving(true);
+		setError("");
+		try {
+			const body =
+				mode === "file" ?
+					(() => {
+						if (!file) {
+							throw new Error("Choose an image file.");
+						}
+						const form = new FormData();
+						form.set("file", file);
+						return form;
+					})()
+				:	{ url };
+			const result = await api<{ bot: BotSummary }>(`/api/me/bots/${encodeURIComponent(bot.id)}/avatar`, {
+				method: "PUT",
+				body,
+			});
+			if (!result.ok) {
+				throw new Error(result.message);
+			}
+			onSaved(result.data.bot);
+			onClose();
+		} catch (caught) {
+			setError(caught instanceof Error ? caught.message : "Could not save avatar.");
+		} finally {
+			setSaving(false);
+		}
+	}
+
+	const canSubmit = mode === "file" ? Boolean(file) : Boolean(url.trim());
+	return (
+		<Modal
+			foot={
+				<>
+					<span />
+					<div className="right">
+						<button className="btn ghost" disabled={saving} onClick={onClose} type="button">
+							Cancel
+						</button>
+						<button className="btn primary" disabled={!canSubmit || saving} onClick={() => void submitAvatar()} type="button">
+							{saving ? "Saving..." : "Save avatar"}
+						</button>
+					</div>
+				</>
+			}
+			onClose={onClose}
+			open={open}
+			title="Upload Avatar"
+		>
+			<div className="seg" role="tablist">
+				<button aria-selected={mode === "url"} onClick={() => setMode("url")} role="tab" type="button">
+					URL
+				</button>
+				<button aria-selected={mode === "file"} onClick={() => setMode("file")} role="tab" type="button">
+					File
+				</button>
+			</div>
+			{mode === "url" ?
+				<Field label="Image URL">
+					<input
+						className="input"
+						onChange={(event) => setUrl(event.target.value)}
+						placeholder="https://example.com/avatar.png"
+						value={url}
+					/>
+				</Field>
+			:	<Field label="Image file">
+					<input
+						accept="image/jpeg,image/png,image/webp"
+						className="input"
+						onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+						type="file"
+					/>
+				</Field>
+			}
+			{error && <div className="runtime-message error">{error}</div>}
+		</Modal>
+	);
+}
+
+function ImageLightbox({
+	onClose,
+	title,
+	url,
+}: {
+	onClose: () => void;
+	title: string;
+	url: string | null;
+}) {
+	return (
+		<Modal className="image-lightbox" onClose={onClose} open={Boolean(url)} title={title} wide>
+			{url && <img alt="" src={url} />}
+		</Modal>
+	);
+}
+
+function BotAvatarGenerationScreen({
+	bot,
+	onAvatarUpdated,
+	onBack,
+	onDiscardSettings,
+	onSaveSettings,
+	ownerInferenceSettings,
+	world,
+}: {
+	bot: BotSummary;
+	onAvatarUpdated: (bot: BotSummary) => void;
+	onBack: () => void;
+	onDiscardSettings: () => Promise<boolean>;
+	onSaveSettings: (draft: InferenceDraft) => Promise<boolean>;
+	ownerInferenceSettings: BotInferenceSettings | null;
+	world: WorldView;
+}) {
+	const initialSettings = bot.inferenceSettings.imageGeneration ? bot.inferenceSettings : ownerInferenceSettings ?? {};
+	const [draft, setDraft] = useState<InferenceDraft>(() => inferenceDraftFromSettings(initialSettings));
+	const [models, setModels] = useState<OpenRouterImageModel[]>([]);
+	const [modelsError, setModelsError] = useState("");
+	const [prompt, setPrompt] = useState("");
+	const [includeCurrentAvatar, setIncludeCurrentAvatar] = useState(Boolean(bot.avatarUrl));
+	const [candidate, setCandidate] = useState<AvatarImage | null>(null);
+	const [generating, setGenerating] = useState(false);
+	const [prefilling, setPrefilling] = useState(false);
+	const [saving, setSaving] = useState(false);
+	const [message, setMessage] = useState("");
+	const [error, setError] = useState("");
+	const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+	const [currentAvatarFailed, setCurrentAvatarFailed] = useState(false);
+
+	useEffect(() => {
+		setDraft(inferenceDraftFromSettings(bot.inferenceSettings.imageGeneration ? bot.inferenceSettings : ownerInferenceSettings ?? {}));
+		setIncludeCurrentAvatar(Boolean(bot.avatarUrl));
+		setCurrentAvatarFailed(false);
+		setCandidate(null);
+		setMessage("");
+		setError("");
+	}, [bot.id, bot.inferenceSettings, bot.avatarUrl, ownerInferenceSettings]);
+
+	useEffect(() => {
+		let cancelled = false;
+		void api<{ models: OpenRouterImageModel[] }>("/api/openrouter/image-models").then((result) => {
+			if (cancelled) {
+				return;
+			}
+			if (result.ok) {
+				setModels(result.data.models);
+				setModelsError("");
+			} else {
+				setModelsError(result.message);
+			}
+		});
+		return () => {
+			cancelled = true;
+		};
+	}, []);
+
+	const selectedModel = models.find((model) => model.id === draft.imageGenerationModel);
+	const selectedSupportsImageInput = Boolean(selectedModel?.inputModalities.includes("image"));
+	const currentAvatarAvailable = Boolean(bot.avatarUrl && !currentAvatarFailed);
+	useEffect(() => {
+		if (!selectedSupportsImageInput || !currentAvatarAvailable) {
+			setIncludeCurrentAvatar(false);
+		} else if (!candidate) {
+			setIncludeCurrentAvatar(true);
+		}
+	}, [candidate, currentAvatarAvailable, selectedSupportsImageInput]);
+
+	const promptAllowed = prompt.trim().length > 0 || (includeCurrentAvatar && currentAvatarAvailable);
+	const imageProviderRoutingError = providerRoutingDraftError(draft.imageGenerationProviderRouting);
+	const canGenerate = Boolean(draft.imageGenerationModel.trim()) && promptAllowed && !imageProviderRoutingError && !generating;
+
+	async function fillPrompt(): Promise<void> {
+		if (prompt.trim()) {
+			return;
+		}
+		setPrefilling(true);
+		setError("");
+		try {
+			const result = await api<{ prompt: string }>(`/api/me/bots/${encodeURIComponent(bot.id)}/avatar/prompt`, {
+				method: "POST",
+				body: {},
+			});
+			if (!result.ok) {
+				throw new Error(result.message);
+			}
+			setPrompt(result.data.prompt);
+		} catch (caught) {
+			setError(caught instanceof Error ? caught.message : "Could not fill prompt.");
+		} finally {
+			setPrefilling(false);
+		}
+	}
+
+	async function generate(): Promise<void> {
+		setGenerating(true);
+		setError("");
+		setMessage("");
+		try {
+			const result = await api<{ candidate: AvatarImage }>(`/api/me/bots/${encodeURIComponent(bot.id)}/avatar/generate`, {
+				method: "POST",
+				body: {
+					prompt,
+					includeCurrentAvatar,
+					settings: imageGenerationInputFromDraft(draft),
+				},
+			});
+			if (!result.ok) {
+				throw new Error(result.message);
+			}
+			setCandidate(result.data.candidate);
+		} catch (caught) {
+			setError(caught instanceof Error ? caught.message : "Could not generate avatar.");
+		} finally {
+			setGenerating(false);
+		}
+	}
+
+	async function save(): Promise<void> {
+		setSaving(true);
+		setError("");
+		setMessage("");
+		try {
+			if (candidate) {
+				const result = await api<{ bot: BotSummary }>(`/api/me/bots/${encodeURIComponent(bot.id)}/avatar/apply`, {
+					method: "POST",
+					body: {
+						candidate,
+						settings: imageGenerationInputFromDraft(draft),
+					},
+				});
+				if (!result.ok) {
+					throw new Error(result.message);
+				}
+				onAvatarUpdated(result.data.bot);
+				setCandidate(null);
+				setMessage("Avatar saved.");
+			} else {
+				const ok = await onSaveSettings(draft);
+				if (ok) {
+					setMessage("Image generation settings saved.");
+				}
+			}
+		} catch (caught) {
+			setError(caught instanceof Error ? caught.message : "Could not save avatar.");
+		} finally {
+			setSaving(false);
+		}
+	}
+
+	async function discard(): Promise<void> {
+		const ok = await onDiscardSettings();
+		if (ok) {
+			setDraft(inferenceDraftFromSettings(ownerInferenceSettings ?? {}));
+			setMessage("Participant image generation settings discarded.");
+		}
+	}
+
+	return (
+		<div className="main-inner avatar-generation-screen">
+			<div className="thread-crumb">
+				<SpaLink className="linklike" to={{ route: "bot-profile", worldHandle: world.handle, botHandle: bot.handle }}>
+					<Reference isBot kind="bot" link={false} name={bot.handle} />
+				</SpaLink>
+				<span>/</span>
+				<span>avatar</span>
+			</div>
+			<div className="page-header">
+				<div>
+					<h1>Generate Avatar</h1>
+					<p>u/{bot.handle}</p>
+				</div>
+				<div className="actions">
+					<button className="btn ghost" onClick={onBack} type="button">
+						Back
+					</button>
+					<button className="btn ghost" disabled={saving || !bot.inferenceSettings.imageGeneration} onClick={() => void discard()} type="button">
+						Discard saved values
+					</button>
+					<button className="btn primary" disabled={saving || Boolean(imageProviderRoutingError) || (!candidate && !draft.imageGenerationModel.trim())} onClick={() => void save()} type="button">
+						{saving ? "Saving..." : "Save"}
+					</button>
+				</div>
+			</div>
+			<section className="section">
+				<div className="section-head">
+					<h2>Image Generation</h2>
+					<span className="meta">{modelsError || imageProviderRoutingError || `${models.length} image-capable models`}</span>
+				</div>
+				<ImageGenerationInferenceFields draft={draft} models={models} onChange={setDraft} />
+				<Field label="Prompt">
+					<div className="prompt-fill-row">
+						<button className="btn ghost compact" disabled={prefilling || Boolean(prompt.trim())} onClick={() => void fillPrompt()} type="button">
+							{prefilling ? "Filling..." : "Fill from persona"}
+						</button>
+					</div>
+					<textarea
+						className="textarea avatar-prompt"
+						onChange={(event) => setPrompt(event.target.value)}
+						placeholder={includeCurrentAvatar ? "Optional when current avatar is included" : "Describe the avatar to generate"}
+						rows={5}
+						value={prompt}
+					/>
+				</Field>
+				{error && <div className="runtime-message error">{error}</div>}
+				{message && <div className="runtime-message">{message}</div>}
+			</section>
+			<section className="avatar-compare">
+				<div className="avatar-pane">
+					<div className="avatar-pane-head">
+						<span>Current avatar</span>
+						<label className="checkbox-line">
+							<input
+								checked={includeCurrentAvatar}
+								disabled={!currentAvatarAvailable || !selectedSupportsImageInput}
+								onChange={(event) => setIncludeCurrentAvatar(event.target.checked)}
+								type="checkbox"
+							/>
+							<span>Use as input</span>
+						</label>
+					</div>
+					<button
+						className="avatar-large-preview"
+						disabled={!bot.avatarUrl || currentAvatarFailed}
+						onClick={() => bot.avatarUrl && !currentAvatarFailed ? setLightboxUrl(bot.avatarUrl) : undefined}
+						type="button"
+					>
+						{bot.avatarUrl && !currentAvatarFailed ?
+							<img alt="" onError={() => setCurrentAvatarFailed(true)} src={cloudflareImageUrl(bot.avatarUrl, { width: 720, format: "auto" })} />
+						:	<Avatar actor="bot" colorSeed={bot.handle} name={bot.displayName} size="hero" />
+						}
+					</button>
+				</div>
+				<div className="avatar-generate-control">
+					{!candidate && (
+						<button className="btn primary generate-avatar-btn" disabled={!canGenerate} onClick={() => void generate()} type="button">
+							{generating ? "Generating..." : "Generate"}
+						</button>
+					)}
+				</div>
+				<div className="avatar-pane generated">
+					<div className="avatar-pane-head">
+						<span>Generated avatar</span>
+					</div>
+					{candidate && <div className="unsaved-warning">Generated image is not saved yet.</div>}
+					<div className={`avatar-large-preview ${generating ? "busy" : ""}`}>
+						{candidate ?
+							<button className="avatar-preview-click" onClick={() => setLightboxUrl(candidate.url)} type="button">
+								<img alt="" src={cloudflareImageUrl(candidate.url, { width: 720, format: "auto" })} />
+							</button>
+						:	<span className="empty-generated">{generating ? "Generating..." : "No image generated"}</span>
+						}
+						{generating && <span className="avatar-spinner" />}
+						{candidate && (
+							<button className="hover-generate" disabled={!canGenerate} onClick={() => void generate()} type="button">
+								Generate
+							</button>
+						)}
+					</div>
+				</div>
+			</section>
+			<ImageLightbox onClose={() => setLightboxUrl(null)} title={bot.displayName} url={lightboxUrl} />
 		</div>
 	);
 }
@@ -5414,7 +5920,7 @@ function BotPublicProfileCard({ bot }: { bot: BotPublicProfile }) {
 					title={`Open ${bot.displayName}`}
 					to={{ route: "bot-profile", worldHandle: bot.homeWorldHandle, botHandle: bot.handle }}
 				>
-					<Avatar actor="bot" colorSeed={bot.handle} name={bot.displayName} />
+					<Avatar actor="bot" colorSeed={bot.handle} imageUrl={bot.avatarUrl} name={bot.displayName} />
 				</SpaLink>
 				<div className="bot-card-title">
 					<SpaLink
@@ -5759,7 +6265,7 @@ function BotLoopScreen({
 			<div className="page-header">
 				<div className="page-title-block">
 					<h1>
-						<Avatar actor="bot" colorSeed={bot.handle} name={bot.displayName} size="lg" />
+						<Avatar actor="bot" colorSeed={bot.handle} imageUrl={bot.avatarUrl} name={bot.displayName} size="lg" />
 						<span>{bot.displayName}'s loop</span>
 					</h1>
 					<p className="sub">
@@ -5949,7 +6455,7 @@ function SpotlightPanel({
 											onChange={(event) => setSelectedBots((current) => ({ ...current, [bot.id]: event.target.checked }))}
 											type="checkbox"
 										/>
-										<Avatar actor="bot" colorSeed={bot.handle} name={bot.displayName} size="sm" />
+										<Avatar actor="bot" colorSeed={bot.handle} imageUrl={bot.avatarUrl} name={bot.displayName} size="sm" />
 										<span className="bot-pick-copy">
 											<span className="nm">{bot.displayName}</span>
 											<span className="hd">
@@ -6081,7 +6587,7 @@ function BotCard({
 					title={`Open ${bot.displayName}`}
 					to={{ route: "bot-profile", worldHandle: bot.homeWorldHandle, botHandle: bot.handle }}
 				>
-					<Avatar actor="bot" colorSeed={bot.handle} name={bot.displayName} />
+					<Avatar actor="bot" colorSeed={bot.handle} imageUrl={bot.avatarUrl} name={bot.displayName} />
 				</SpaLink>
 				<div className="bot-card-title">
 					<SpaLink
@@ -6412,7 +6918,7 @@ function BotEdit({
 						{world?.name ?? bot.homeWorldHandle}
 					</button>
 					<h1>
-						<Avatar actor="bot" colorSeed={bot.handle} name={draft.displayName} size="lg" />
+						<Avatar actor="bot" colorSeed={bot.handle} imageUrl={bot.avatarUrl} name={draft.displayName} size="lg" />
 						<span>{draft.displayName || bot.displayName}</span>
 					</h1>
 					<p className="sub">
@@ -6480,7 +6986,7 @@ function BotEdit({
 							</Field>
 							<Field help="Bots use monogram avatars until avatar uploads are implemented." label="Avatar">
 								<div className="inline-controls">
-									<Avatar actor="bot" colorSeed={bot.handle} name={draft.displayName} size="lg" />
+									<Avatar actor="bot" colorSeed={bot.handle} imageUrl={bot.avatarUrl} name={draft.displayName} size="lg" />
 									<button className="btn" disabled type="button">
 										<Icon name="upload" size={14} />
 										Upload image
@@ -7361,7 +7867,7 @@ function MyBotsScreen({
 																	className="bot-table-avatar-link"
 																	title={`Open ${bot.displayName}`}
 																>
-																	<Avatar actor="bot" colorSeed={bot.handle} name={bot.displayName} size="sm" />
+																	<Avatar actor="bot" colorSeed={bot.handle} imageUrl={bot.avatarUrl} name={bot.displayName} size="sm" />
 																</BotProfileHoverLink>
 															</td>
 															<td className="bot-table-username-cell">
@@ -8281,7 +8787,7 @@ function HumanProfileScreen({
 	return (
 		<div className="main-inner">
 			<div className="profile-head human-profile-head">
-				<Avatar actor="user" colorSeed={profile.user.handle} name={profile.user.displayName} size="xl" />
+				<Avatar actor="user" colorSeed={profile.user.handle} imageUrl={profile.user.avatarUrl} name={profile.user.displayName} size="xl" />
 				<div className="meta">
 					<h1 className="name">{profile.user.displayName}</h1>
 					<div className="handle">
@@ -8647,6 +9153,7 @@ function ProfileScreen({
 		isValidHandle(draft.handle) &&
 		draft.displayName.trim().length > 0 &&
 		!providerRoutingDraftError(draft.inference.providerRouting) &&
+		!providerRoutingDraftError(draft.inference.imageGenerationProviderRouting) &&
 		!providerRoutingDraftError(draft.inference.translationProviderRouting);
 	const canSave = (dirty || profileIncomplete) && valid && !busy && !loading;
 
@@ -8655,7 +9162,7 @@ function ProfileScreen({
 			handle: draft.handle,
 			displayName: draft.displayName,
 			avatarUrl: draft.avatarUrl.trim() || null,
-			inferenceSettings: inferenceInputFromDraft(draft.inference, undefined, { includeTranslation: true }),
+			inferenceSettings: inferenceInputFromDraft(draft.inference, undefined, { includeImageGeneration: true, includeTranslation: true }),
 		});
 		if (saved) {
 			setProfile(saved);
@@ -8677,7 +9184,7 @@ function ProfileScreen({
 			<div className="page-header">
 				<div className="page-title-block">
 					<h1>
-						<Avatar actor="user" colorSeed={draft.handle || user.handle} name={draft.displayName || user.displayName} size="lg" />
+						<Avatar actor="user" colorSeed={draft.handle || user.handle} imageUrl={draft.avatarUrl || user.avatarUrl} name={draft.displayName || user.displayName} size="lg" />
 						<span>{draft.displayName || user.displayName}</span>
 					</h1>
 					<p className="sub">
@@ -8770,6 +9277,16 @@ function ProfileScreen({
 							draft={draft.inference}
 							onChange={(inference) => setDraft((current) => ({ ...current, inference }))}
 							scope="profile"
+						/>
+					</section>
+					<section className="section">
+						<div className="section-head">
+							<h2>Inference: Image Generation</h2>
+							<span className="meta">avatar generation defaults</span>
+						</div>
+						<ImageGenerationInferenceFields
+							draft={draft.inference}
+							onChange={(inference) => setDraft((current) => ({ ...current, inference }))}
 						/>
 					</section>
 					<section className="section">
@@ -9225,6 +9742,180 @@ function ProviderRoutingField({
 					</div>
 					}
 				</Field>
+		</div>
+	);
+}
+
+function ImageGenerationInferenceFields({
+	draft,
+	models,
+	onChange,
+}: {
+	draft: InferenceDraft;
+	models?: OpenRouterImageModel[];
+	onChange: (draft: InferenceDraft) => void;
+}) {
+	const [loadedModels, setLoadedModels] = useState<OpenRouterImageModel[]>(models ?? []);
+	const [loadError, setLoadError] = useState("");
+	useEffect(() => {
+		if (models) {
+			setLoadedModels(models);
+			return undefined;
+		}
+		let cancelled = false;
+		void api<{ models: OpenRouterImageModel[] }>("/api/openrouter/image-models").then((result) => {
+			if (cancelled) {
+				return;
+			}
+			if (result.ok) {
+				setLoadedModels(result.data.models);
+				setLoadError("");
+			} else {
+				setLoadError(result.message);
+			}
+		});
+		return () => {
+			cancelled = true;
+		};
+	}, [models]);
+	function patch(update: Partial<InferenceDraft>): void {
+		onChange({ ...draft, ...update });
+	}
+	const modelSelected = draft.imageGenerationModel.trim().length > 0;
+	return (
+		<div className="field-stack">
+			<div className="inference-row three">
+				<Field help={loadError || "Only OpenRouter models that advertise image output are listed."} label="Model">
+					<select
+						className="input"
+						onChange={(event) => patch({ imageGenerationModel: event.target.value })}
+						value={draft.imageGenerationModel}
+					>
+						<option value="">Choose a model</option>
+						{loadedModels.map((model) => (
+							<option key={model.id} value={model.id}>
+								{model.name ? `${model.name} (${model.id})` : model.id}
+							</option>
+						))}
+					</select>
+				</Field>
+				<Field label="Aspect ratio">
+					<input
+						className="input"
+						onChange={(event) => patch({ imageGenerationAspectRatio: event.target.value })}
+						placeholder="1:1"
+						value={draft.imageGenerationAspectRatio}
+					/>
+				</Field>
+				<Field label="Image size">
+					<input
+						className="input"
+						onChange={(event) => patch({ imageGenerationImageSize: event.target.value })}
+						placeholder="1024x1024"
+						value={draft.imageGenerationImageSize}
+					/>
+				</Field>
+			</div>
+			<div className="inference-row four">
+				<Field label="Temperature">
+					<input
+						className="input"
+						disabled={!modelSelected}
+						max="2"
+						min="0"
+						onChange={(event) => patch({ imageGenerationTemperature: event.target.value })}
+						placeholder="default"
+						step="0.05"
+						type="number"
+						value={draft.imageGenerationTemperature}
+					/>
+				</Field>
+				<Field label="Top K">
+					<input
+						className="input"
+						disabled={!modelSelected}
+						min="0"
+						onChange={(event) => patch({ imageGenerationTopK: event.target.value })}
+						placeholder="default"
+						step="1"
+						type="number"
+						value={draft.imageGenerationTopK}
+					/>
+				</Field>
+				<Field label="Top P">
+					<input
+						className="input"
+						disabled={!modelSelected}
+						max="1"
+						min="0"
+						onChange={(event) => patch({ imageGenerationTopP: event.target.value })}
+						placeholder="default"
+						step="0.01"
+						type="number"
+						value={draft.imageGenerationTopP}
+					/>
+				</Field>
+				<Field label="Min P">
+					<input
+						className="input"
+						disabled={!modelSelected}
+						max="1"
+						min="0"
+						onChange={(event) => patch({ imageGenerationMinP: event.target.value })}
+						placeholder="default"
+						step="0.01"
+						type="number"
+						value={draft.imageGenerationMinP}
+					/>
+				</Field>
+			</div>
+			<div className="inference-row three">
+				<Field label="Frequency penalty">
+					<input
+						className="input"
+						disabled={!modelSelected}
+						max="2"
+						min="-2"
+						onChange={(event) => patch({ imageGenerationFrequencyPenalty: event.target.value })}
+						placeholder="default"
+						step="0.05"
+						type="number"
+						value={draft.imageGenerationFrequencyPenalty}
+					/>
+				</Field>
+				<Field label="Presence penalty">
+					<input
+						className="input"
+						disabled={!modelSelected}
+						max="2"
+						min="-2"
+						onChange={(event) => patch({ imageGenerationPresencePenalty: event.target.value })}
+						placeholder="default"
+						step="0.05"
+						type="number"
+						value={draft.imageGenerationPresencePenalty}
+					/>
+				</Field>
+				<Field label="Repetition penalty">
+					<input
+						className="input"
+						disabled={!modelSelected}
+						max="2"
+						min="0"
+						onChange={(event) => patch({ imageGenerationRepetitionPenalty: event.target.value })}
+						placeholder="default"
+						step="0.05"
+						type="number"
+						value={draft.imageGenerationRepetitionPenalty}
+					/>
+				</Field>
+			</div>
+			<fieldset disabled={!modelSelected}>
+				<ProviderRoutingField
+					onChange={(imageGenerationProviderRouting) => patch({ imageGenerationProviderRouting })}
+					value={draft.imageGenerationProviderRouting}
+				/>
+			</fieldset>
 		</div>
 	);
 }
@@ -9773,6 +10464,7 @@ function CreateBotModal({
 			displayName: preview.displayName,
 			shortBio: preview.shortBio,
 			prompt: preview.prompt,
+			avatarUrl: preview.avatarUrl,
 			importSource: preview.importSource,
 		});
 		setImportState("preview");
@@ -9927,7 +10619,7 @@ function CreateBotModal({
 											onClick={() => selectCloneSource(bot)}
 											type="button"
 										>
-											<Avatar actor="bot" colorSeed={bot.handle} name={bot.displayName} />
+											<Avatar actor="bot" colorSeed={bot.handle} imageUrl={bot.avatarUrl} name={bot.displayName} />
 											<span className="clone-source-body">
 												<span className="clone-source-title">
 													<span>{bot.displayName}</span>
@@ -10033,7 +10725,7 @@ function CreateBotModal({
 									<span>{importDraft.importSource?.originalHandle}</span>
 								</div>
 								<div className="preview-profile">
-									<Avatar actor="bot" colorSeed={importDraft.handle} name={importDraft.displayName} size="lg" />
+									<Avatar actor="bot" colorSeed={importDraft.handle} imageUrl={importDraft.avatarUrl} name={importDraft.displayName} size="lg" />
 									<div>
 										<div className="preview-name">{importDraft.displayName}</div>
 										<div className="preview-bio">{importDraft.shortBio}</div>
@@ -13317,20 +14009,63 @@ function Icon({ name, size = 16 }: { name: IconName; size?: number }) {
 function Avatar({
 	actor = "bot",
 	colorSeed,
+	fit = "cover",
+	imageUrl,
 	name,
 	size = "md",
 }: {
 	actor?: "bot" | "user";
 	colorSeed?: string | number;
+	fit?: "cover" | "contain";
+	imageUrl?: string;
 	name: string;
-	size?: "sm" | "md" | "lg" | "xl";
+	size?: "sm" | "md" | "lg" | "xl" | "hero";
 }) {
-	const className = `avatar ${size === "sm" ? "sm" : size === "lg" ? "lg" : size === "xl" ? "xl" : ""}`.trim();
+	const [imageFailed, setImageFailed] = useState(false);
+	useEffect(() => {
+		setImageFailed(false);
+	}, [imageUrl]);
+	const className = `avatar ${size === "sm" ? "sm" : size === "lg" ? "lg" : size === "xl" ? "xl" : size === "hero" ? "hero" : ""}`.trim();
+	const imageSrc = imageUrl && !imageFailed ? avatarThumbnailUrl(imageUrl, size) : "";
 	return (
 		<span className={className} data-actor={actor} style={avatarStyle(colorSeed ?? name)}>
-			{initials(name)}
+			{imageSrc ?
+				<img alt="" className={`avatar-img ${fit}`} onError={() => setImageFailed(true)} src={imageSrc} />
+			:	initials(name)
+			}
 		</span>
 	);
+}
+
+function avatarThumbnailUrl(url: string, size: "sm" | "md" | "lg" | "xl" | "hero"): string {
+	const pixels =
+		size === "sm" ? 48
+		: size === "lg" ? 112
+		: size === "xl" ? 192
+		: size === "hero" ? 360
+		: 64;
+	return cloudflareImageUrl(url, { width: pixels, height: pixels, fit: "cover", format: "auto" });
+}
+
+function cloudflareImageUrl(
+	url: string,
+	options: { width?: number; height?: number; fit?: "cover" | "contain" | "scale-down"; format?: "auto" } = {},
+): string {
+	try {
+		const parsed = new URL(url);
+		const directives = [
+			options.width ? `width=${Math.trunc(options.width)}` : "",
+			options.height ? `height=${Math.trunc(options.height)}` : "",
+			options.fit ? `fit=${options.fit}` : "",
+			options.format ? `format=${options.format}` : "",
+		].filter(Boolean);
+		if (directives.length === 0) {
+			return url;
+		}
+		return `${parsed.origin}/cdn-cgi/image/${directives.join(",")}${parsed.pathname}${parsed.search}`;
+	} catch {
+		return url;
+	}
 }
 
 function referenceMeta(
@@ -13908,9 +14643,14 @@ async function api<T = unknown>(
 	path: string,
 	options?: { method?: string; body?: unknown },
 ): Promise<ApiResult<T>> {
+	const hasBody = options ? Object.prototype.hasOwnProperty.call(options, "body") && options.body !== undefined : false;
+	const body = hasBody && options?.body instanceof FormData ? options.body
+		: hasBody ? JSON.stringify(options?.body)
+		: undefined;
+	const headers = hasBody && !(options?.body instanceof FormData) ? { "content-type": "application/json" } : undefined;
 	const response = await fetch(path, {
-		body: options?.body ? JSON.stringify(options.body) : undefined,
-		headers: options?.body ? { "content-type": "application/json" } : undefined,
+		body,
+		headers,
 		method: options?.method ?? "GET",
 	});
 	const text = await response.text();
@@ -13978,6 +14718,9 @@ function parsePathname(pathname: string, search = ""): ParsedRoute {
 			if (parts[4] === "edit") {
 				return { route: "bot-edit", worldHandle, botHandle };
 			}
+			if (parts[4] === "avatar") {
+				return { route: "bot-avatar", worldHandle, botHandle };
+			}
 			return { route: "bot-profile", worldHandle, botHandle, ...botProfileRouteSearch(search) };
 		}
 		return { route: "world", worldHandle, worldTab: worldTabFromSearch(search) };
@@ -14001,6 +14744,8 @@ function routePath(parsed: ParsedRoute): string {
 		}
 		case "bot-profile":
 			return botProfileRoutePath(parsed);
+		case "bot-avatar":
+			return `/w/${encodeURIComponent(parsed.worldHandle ?? "")}/u/${encodeURIComponent(parsed.botHandle ?? "")}/avatar`;
 		case "bot-loop":
 			return `/w/${encodeURIComponent(parsed.worldHandle ?? "")}/u/${encodeURIComponent(parsed.botHandle ?? "")}/loop`;
 		case "bot-edit":
@@ -14694,6 +15439,37 @@ function renameThreadDocuments(
 	);
 }
 
+function updateThreadSummaryAuthorAvatar(
+	current: Record<string, ThreadSummary[]>,
+	botId: string,
+	avatarUrl: string,
+): Record<string, ThreadSummary[]> {
+	return Object.fromEntries(
+		Object.entries(current).map(([forumId, threads]) => [
+			forumId,
+			threads.map((thread) => thread.authorBotId === botId ? { ...thread, authorAvatarUrl: avatarUrl } : thread),
+		]),
+	);
+}
+
+function updateThreadDocumentAuthorAvatar(
+	current: Record<string, ThreadDocument>,
+	botId: string,
+	avatarUrl: string,
+): Record<string, ThreadDocument> {
+	return Object.fromEntries(
+		Object.entries(current).map(([threadId, thread]) => [
+			threadId,
+			{
+				...thread,
+				comments: thread.comments.map((comment) =>
+					comment.authorBotId === botId ? { ...comment, authorAvatarUrl: avatarUrl } : comment,
+				),
+			},
+		]),
+	);
+}
+
 function routeWithRenamedWorld(current: ParsedRoute, nextWorldHandle: string): ParsedRoute {
 	switch (current.route) {
 		case "world":
@@ -14716,6 +15492,8 @@ function routeWithRenamedWorld(current: ParsedRoute, nextWorldHandle: string): P
 				botProfileTab: current.botProfileTab,
 				botActivityId: current.botActivityId,
 			};
+		case "bot-avatar":
+			return { route: "bot-avatar", worldHandle: nextWorldHandle, botHandle: current.botHandle };
 		case "bot-loop":
 			return { route: "bot-loop", worldHandle: nextWorldHandle, botHandle: current.botHandle };
 		case "bot-edit":
@@ -15026,7 +15804,7 @@ function profileDraftChanged(draft: ProfileDraft, profile: UserProfile): boolean
 		draft.handle !== profile.handle ||
 		draft.displayName !== profile.displayName ||
 		draft.avatarUrl.trim() !== (profile.avatarUrl ?? "") ||
-		inferenceDraftChanged(draft.inference, profile.inferenceSettings, { includeTranslation: true })
+		inferenceDraftChanged(draft.inference, profile.inferenceSettings, { includeImageGeneration: true, includeTranslation: true })
 	);
 }
 
@@ -15060,6 +15838,17 @@ function inferenceDraftFromSettings(
 		translationFrequencyPenalty: numericDraftValue(settings.translation?.frequencyPenalty),
 		translationPresencePenalty: numericDraftValue(settings.translation?.presencePenalty),
 		translationRepetitionPenalty: numericDraftValue(settings.translation?.repetitionPenalty),
+		imageGenerationModel: settings.imageGeneration?.model ?? "",
+		imageGenerationProviderRouting: providerRoutingDraftValue(settings.imageGeneration?.providerRouting),
+		imageGenerationAspectRatio: settings.imageGeneration?.aspectRatio ?? "",
+		imageGenerationImageSize: settings.imageGeneration?.imageSize ?? "",
+		imageGenerationTemperature: numericDraftValue(settings.imageGeneration?.temperature),
+		imageGenerationTopK: numericDraftValue(settings.imageGeneration?.topK),
+		imageGenerationTopP: numericDraftValue(settings.imageGeneration?.topP),
+		imageGenerationMinP: numericDraftValue(settings.imageGeneration?.minP),
+		imageGenerationFrequencyPenalty: numericDraftValue(settings.imageGeneration?.frequencyPenalty),
+		imageGenerationPresencePenalty: numericDraftValue(settings.imageGeneration?.presencePenalty),
+		imageGenerationRepetitionPenalty: numericDraftValue(settings.imageGeneration?.repetitionPenalty),
 		temperature: numericDraftValue(settings.temperature),
 		topK: numericDraftValue(settings.topK),
 		topP: numericDraftValue(settings.topP),
@@ -15075,6 +15864,7 @@ function inferenceDraftChanged(
 	settings: BotInferenceSettings,
 	options: {
 		includeReasoningPrefill?: boolean;
+		includeImageGeneration?: boolean;
 		includeTranslation?: boolean;
 		inherited?: InferenceModelUnlockContext;
 	} = {},
@@ -15095,6 +15885,7 @@ function inferenceDraftChanged(
 		draft.reasoningEffort !== reasoningEffort ||
 		draft.toolCalls !== toolCalls ||
 		providerRoutingDraftChanged(draft.providerRouting, settings.providerRouting) ||
+		(Boolean(options.includeImageGeneration) && imageGenerationDraftChanged(draft, settings)) ||
 		(Boolean(options.includeTranslation) && translationDraftChanged(draft, settings)) ||
 		draft.temperature.trim() !== numericDraftValue(settings.temperature) ||
 		draft.topK.trim() !== numericDraftValue(settings.topK) ||
@@ -15103,6 +15894,22 @@ function inferenceDraftChanged(
 		draft.frequencyPenalty.trim() !== numericDraftValue(settings.frequencyPenalty) ||
 		draft.presencePenalty.trim() !== numericDraftValue(settings.presencePenalty) ||
 		draft.repetitionPenalty.trim() !== numericDraftValue(settings.repetitionPenalty)
+	);
+}
+
+function imageGenerationDraftChanged(draft: InferenceDraft, settings: BotInferenceSettings): boolean {
+	return (
+		draft.imageGenerationModel.trim() !== (settings.imageGeneration?.model ?? "") ||
+		providerRoutingDraftChanged(draft.imageGenerationProviderRouting, settings.imageGeneration?.providerRouting) ||
+		draft.imageGenerationAspectRatio.trim() !== (settings.imageGeneration?.aspectRatio ?? "") ||
+		draft.imageGenerationImageSize.trim() !== (settings.imageGeneration?.imageSize ?? "") ||
+		draft.imageGenerationTemperature.trim() !== numericDraftValue(settings.imageGeneration?.temperature) ||
+		draft.imageGenerationTopK.trim() !== numericDraftValue(settings.imageGeneration?.topK) ||
+		draft.imageGenerationTopP.trim() !== numericDraftValue(settings.imageGeneration?.topP) ||
+		draft.imageGenerationMinP.trim() !== numericDraftValue(settings.imageGeneration?.minP) ||
+		draft.imageGenerationFrequencyPenalty.trim() !== numericDraftValue(settings.imageGeneration?.frequencyPenalty) ||
+		draft.imageGenerationPresencePenalty.trim() !== numericDraftValue(settings.imageGeneration?.presencePenalty) ||
+		draft.imageGenerationRepetitionPenalty.trim() !== numericDraftValue(settings.imageGeneration?.repetitionPenalty)
 	);
 }
 
@@ -15129,7 +15936,7 @@ function translationDraftChanged(draft: InferenceDraft, settings: BotInferenceSe
 function inferenceInputFromDraft(
 	draft: InferenceDraft,
 	inherited?: InferenceModelUnlockContext,
-	options: { includeReasoningPrefill?: boolean; includeTranslation?: boolean } = {},
+	options: { includeReasoningPrefill?: boolean; includeImageGeneration?: boolean; includeTranslation?: boolean } = {},
 ): BotInferenceSettingsInput {
 	const normalized = normalizeInferenceDraftModel(draft, inherited);
 	const inheritedCompactionMode = inherited?.compactionMode ?? "structured_output";
@@ -15155,6 +15962,7 @@ function inferenceInputFromDraft(
 			normalized.reasoningEffort === inheritedReasoningEffort ? null : nullableReasoningEffortInput(normalized.reasoningEffort),
 		toolCalls: normalized.toolCalls === inheritedToolCalls ? null : nullableToolCallsInput(normalized.toolCalls),
 		providerRouting: providerRoutingInputFromDraft(normalized.providerRouting),
+		...(options.includeImageGeneration ? { imageGeneration: imageGenerationInputFromDraft(normalized) } : {}),
 		...(options.includeTranslation ? { translation: translationInputFromDraft(normalized) } : {}),
 		temperature: nullableNumberInputMatchingInherited(normalized.temperature, inherited?.temperature),
 		topK: nullableNumberInputMatchingInherited(normalized.topK, inherited?.topK),
@@ -15182,6 +15990,22 @@ function translationInputFromDraft(draft: InferenceDraft): BotInferenceSettingsI
 		frequencyPenalty: nullableNumberInput(draft.translationFrequencyPenalty),
 		presencePenalty: nullableNumberInput(draft.translationPresencePenalty),
 		repetitionPenalty: nullableNumberInput(draft.translationRepetitionPenalty),
+	};
+}
+
+function imageGenerationInputFromDraft(draft: InferenceDraft): BotInferenceSettingsInput["imageGeneration"] {
+	return {
+		model: nullableTextInput(draft.imageGenerationModel),
+		providerRouting: providerRoutingInputFromDraft(draft.imageGenerationProviderRouting),
+		aspectRatio: nullableTextInput(draft.imageGenerationAspectRatio),
+		imageSize: nullableTextInput(draft.imageGenerationImageSize),
+		temperature: nullableNumberInput(draft.imageGenerationTemperature),
+		topK: nullableNumberInput(draft.imageGenerationTopK),
+		topP: nullableNumberInput(draft.imageGenerationTopP),
+		minP: nullableNumberInput(draft.imageGenerationMinP),
+		frequencyPenalty: nullableNumberInput(draft.imageGenerationFrequencyPenalty),
+		presencePenalty: nullableNumberInput(draft.imageGenerationPresencePenalty),
+		repetitionPenalty: nullableNumberInput(draft.imageGenerationRepetitionPenalty),
 	};
 }
 
@@ -15258,7 +16082,9 @@ function normalizeInferenceDraftModel(
 	if (canCustomizeInferenceModel(draft, inherited)) {
 		return draft;
 	}
-	return draft.model || draft.translationModel ? { ...draft, model: "", translationModel: "" } : draft;
+	return draft.model || draft.translationModel || draft.imageGenerationModel ?
+			{ ...draft, model: "", translationModel: "", imageGenerationModel: "" }
+		:	draft;
 }
 
 function canCustomizeInferenceModel(

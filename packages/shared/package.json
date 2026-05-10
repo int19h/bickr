@@ -5,6 +5,7 @@
 	"type": "module",
 	"exports": {
 		"./api": "./src/api.ts",
+		"./avatar-storage": "./src/avatar-storage.ts",
 		"./bootstrap": "./src/bootstrap.ts",
 		"./cloudflare": "./src/cloudflare.ts",
 		"./governance": "./src/governance.ts",

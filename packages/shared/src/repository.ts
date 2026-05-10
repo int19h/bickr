@@ -3,7 +3,10 @@ import {
 	schemaVersion,
 	authProviders,
 	defaultTranslationPrompt,
+	type AvatarImage,
 	type AuthProvider,
+	type BotImageGenerationSettings,
+	type BotImageGenerationSettingsInput,
 	type BotInferenceSettingsInput,
 	type BotInferenceSettings,
 	type BotCompactionMode,
@@ -611,6 +614,7 @@ export function botPublicProfile(bot: BotDocument | BotSummary): BotPublicProfil
 		handle: bot.handle,
 		displayName: bot.displayName,
 		shortBio: bot.shortBio,
+		...("avatarUrl" in bot && bot.avatarUrl ? { avatarUrl: bot.avatarUrl } : "avatar" in bot && bot.avatar ? { avatarUrl: bot.avatar.url } : {}),
 		createdAt: bot.createdAt,
 		updatedAt: bot.updatedAt,
 	};
@@ -970,6 +974,7 @@ export async function createBot(
 		...(postingSettingsHasValues(postingSettings) ? { postingSettings } : {}),
 		tickSettings: mergeTickSettings(undefined, input.tickSettings),
 		...(input.importSource ? { importSource: input.importSource } : {}),
+		...(input.avatar ? { avatar: input.avatar } : {}),
 		createdAt: now,
 		updatedAt: now,
 	};
@@ -1064,6 +1069,37 @@ export async function updateBot(
 		await putObjectIndex(db, personalForumRename.updated, "forum", personalForumRename.updated.worldId);
 		await upsertForumSearchIndex(db, personalForumRename.updated);
 	}
+	await putObjectIndex(db, updated, "bot", updated.homeWorldId);
+	await upsertBotSearchIndex(db, updated);
+
+	return botSummary(updated, {
+		includeToolSettings: true,
+		nextDueAt: await botRuntimeNextDueAt(db, updated.id),
+		owner: publicUser(owner),
+		worldPostingSettings,
+	});
+}
+
+export async function updateBotAvatar(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	botId: string,
+	userId: string,
+	avatar: AvatarImage,
+	now = new Date().toISOString(),
+): Promise<BotSummary> {
+	const bot = await botForOwner(kv, db, botId, userId);
+	const owner = await userById(kv, userId);
+	const worldPostingSettings = await worldPostingSettingsById(db, bot.homeWorldId);
+	const updated: BotDocument = {
+		...bot,
+		avatar,
+		revision: bot.revision + 1,
+		updatedAt: now,
+	};
+
+	await writeJson(kv, kvKeys.bot(updated.id), updated);
+	await upsertBotIndex(db, updated);
 	await putObjectIndex(db, updated, "bot", updated.homeWorldId);
 	await upsertBotSearchIndex(db, updated);
 
@@ -1552,6 +1588,7 @@ async function foreignBotBlockersForOwnedWorlds(
 		handle: string;
 		displayName: string;
 		shortBio: string;
+		avatarUrl: string | null;
 		createdAt: string;
 		updatedAt: string;
 		ownerUserId: string;
@@ -1579,6 +1616,7 @@ async function foreignBotBlockersForOwnedWorlds(
 				b.handle,
 				b.display_name AS displayName,
 				b.short_bio AS shortBio,
+				b.avatar_url AS avatarUrl,
 				b.created_at AS createdAt,
 				b.updated_at AS updatedAt,
 				b.owner_user_id AS ownerUserId,
@@ -1627,6 +1665,7 @@ async function foreignBotBlockersForOwnedWorlds(
 			handle: row.handle,
 			displayName: row.displayName,
 			shortBio: row.shortBio,
+			...(row.avatarUrl ? { avatarUrl: row.avatarUrl } : {}),
 			createdAt: row.createdAt,
 			updatedAt: row.updatedAt,
 			...(row.ownerHandle && row.ownerDisplayName ?
@@ -1805,13 +1844,14 @@ async function upsertBotIndex(db: D1DatabaseLike, bot: BotDocument): Promise<voi
 		.prepare(
 			`INSERT INTO bots_index (
 				bot_id, home_world_id, home_world_handle, handle, display_name, owner_user_id,
-				short_bio, import_provider, import_external_handle, created_at, updated_at, deleted_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				short_bio, avatar_url, import_provider, import_external_handle, created_at, updated_at, deleted_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(bot_id) DO UPDATE SET
 				home_world_handle = excluded.home_world_handle,
 				handle = excluded.handle,
 				display_name = excluded.display_name,
 				short_bio = excluded.short_bio,
+				avatar_url = excluded.avatar_url,
 				updated_at = excluded.updated_at,
 				deleted_at = excluded.deleted_at`,
 		)
@@ -1823,6 +1863,7 @@ async function upsertBotIndex(db: D1DatabaseLike, bot: BotDocument): Promise<voi
 			bot.displayName,
 			bot.ownerUserId,
 			bot.shortBio,
+			bot.avatar?.url ?? null,
 			bot.importSource?.provider ?? null,
 			bot.importSource?.originalHandle ?? null,
 			bot.createdAt,
@@ -1840,6 +1881,7 @@ function botIndexUpdateStatement(db: D1DatabaseLike, bot: BotDocument): D1Prepar
 			     handle = ?,
 			     display_name = ?,
 			     short_bio = ?,
+			     avatar_url = ?,
 			     updated_at = ?,
 			     deleted_at = ?
 			 WHERE bot_id = ?`,
@@ -1849,6 +1891,7 @@ function botIndexUpdateStatement(db: D1DatabaseLike, bot: BotDocument): D1Prepar
 			bot.handle,
 			bot.displayName,
 			bot.shortBio,
+			bot.avatar?.url ?? null,
 			bot.updatedAt,
 			bot.deletedAt ?? null,
 			bot.id,
@@ -1942,6 +1985,7 @@ function botSummary(
 		handle: bot.handle,
 		displayName: bot.displayName,
 		shortBio: bot.shortBio,
+		...(bot.avatar ? { avatar: bot.avatar, avatarUrl: bot.avatar.url } : {}),
 		...(options.includePrompt === false ? {} : { prompt: bot.prompt }),
 		inferenceSettings: publicInferenceSettings(bot.inferenceSettings),
 		...(options.includeToolSettings ? { toolSettings: publicToolSettings(bot.toolSettings) } : {}),
@@ -2357,6 +2401,7 @@ export function mergeInferenceSettings(
 	const next: BotInferenceSettings = {
 		...defaultInferenceSettings,
 		...(current ?? {}),
+		...(current?.imageGeneration ? { imageGeneration: cloneImageGenerationSettings(current.imageGeneration) } : {}),
 		...(current?.translation ? { translation: cloneTranslationSettings(current.translation) } : {}),
 		...(current?.providerRouting ? { providerRouting: cloneJsonObject(current.providerRouting) } : {}),
 	};
@@ -2386,6 +2431,14 @@ export function mergeInferenceSettings(
 	assignInferenceReasoningEffort(next, "reasoningEffort", patch.reasoningEffort);
 	assignInferenceToolCalls(next, "toolCalls", patch.toolCalls);
 	assignInferenceJsonObject(next, "providerRouting", patch.providerRouting);
+	if (patch.imageGeneration !== undefined) {
+		const imageGeneration = mergeImageGenerationSettings(next.imageGeneration, patch.imageGeneration);
+		if (imageGeneration) {
+			next.imageGeneration = imageGeneration;
+		} else {
+			delete next.imageGeneration;
+		}
+	}
 	if (patch.translation !== undefined) {
 		const translation = mergeTranslationSettings(next.translation, patch.translation);
 		if (translation) {
@@ -2856,6 +2909,103 @@ function assignInferenceNumber(
 
 function cloneJsonObject(value: JsonObject): JsonObject {
 	return JSON.parse(JSON.stringify(value)) as JsonObject;
+}
+
+function cloneImageGenerationSettings(settings: BotImageGenerationSettings): BotImageGenerationSettings {
+	return {
+		...settings,
+		...(settings.providerRouting ? { providerRouting: cloneJsonObject(settings.providerRouting) } : {}),
+	};
+}
+
+function mergeImageGenerationSettings(
+	current: BotImageGenerationSettings | undefined,
+	patch: BotImageGenerationSettingsInput | BotImageGenerationSettings | null,
+): BotImageGenerationSettings | undefined {
+	if (patch === null) {
+		return undefined;
+	}
+	const next: BotImageGenerationSettings = current ? cloneImageGenerationSettings(current) : {};
+	assignImageGenerationString(next, "model", patch.model);
+	assignImageGenerationJsonObject(next, "providerRouting", patch.providerRouting);
+	assignImageGenerationString(next, "aspectRatio", patch.aspectRatio);
+	assignImageGenerationString(next, "imageSize", patch.imageSize);
+	assignImageGenerationNumber(next, "temperature", patch.temperature);
+	assignImageGenerationNumber(next, "topK", patch.topK);
+	assignImageGenerationNumber(next, "topP", patch.topP);
+	assignImageGenerationNumber(next, "minP", patch.minP);
+	assignImageGenerationNumber(next, "frequencyPenalty", patch.frequencyPenalty);
+	assignImageGenerationNumber(next, "presencePenalty", patch.presencePenalty);
+	assignImageGenerationNumber(next, "repetitionPenalty", patch.repetitionPenalty);
+	return imageGenerationSettingsHasValues(next) ? next : undefined;
+}
+
+function assignImageGenerationString(
+	settings: BotImageGenerationSettings,
+	key: "model" | "aspectRatio" | "imageSize",
+	value: string | null | undefined,
+): void {
+	if (value === undefined) {
+		return;
+	}
+	if (value === null) {
+		delete settings[key];
+		return;
+	}
+	const trimmed = value.trim();
+	if (trimmed) {
+		settings[key] = trimmed;
+	} else {
+		delete settings[key];
+	}
+}
+
+function assignImageGenerationJsonObject(
+	settings: BotImageGenerationSettings,
+	key: "providerRouting",
+	value: JsonObject | null | undefined,
+): void {
+	if (value === undefined) {
+		return;
+	}
+	if (value === null) {
+		delete settings[key];
+		return;
+	}
+	settings[key] = cloneJsonObject(value);
+}
+
+type ImageGenerationNumberSettingKey = Exclude<InferenceNumberSettingKey, never>;
+
+function assignImageGenerationNumber(
+	settings: BotImageGenerationSettings,
+	key: ImageGenerationNumberSettingKey,
+	value: number | null | undefined,
+): void {
+	if (value === undefined) {
+		return;
+	}
+	if (value === null) {
+		delete settings[key];
+		return;
+	}
+	settings[key] = value;
+}
+
+function imageGenerationSettingsHasValues(settings: BotImageGenerationSettings): boolean {
+	return (
+		hasInferenceText(settings.model) ||
+		settings.providerRouting !== undefined ||
+		hasInferenceText(settings.aspectRatio) ||
+		hasInferenceText(settings.imageSize) ||
+		settings.temperature !== undefined ||
+		settings.topK !== undefined ||
+		settings.topP !== undefined ||
+		settings.minP !== undefined ||
+		settings.frequencyPenalty !== undefined ||
+		settings.presencePenalty !== undefined ||
+		settings.repetitionPenalty !== undefined
+	);
 }
 
 function cloneTranslationSettings(settings: BotTranslationSettings): BotTranslationSettings {

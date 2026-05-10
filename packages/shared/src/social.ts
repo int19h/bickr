@@ -80,6 +80,14 @@ const d1MaxBoundParameters = 100;
 
 type ExistingThreadDetails = Exclude<RepositoryErrorDetails["existingThread"], undefined>;
 
+function chunks<T>(items: T[], size: number): T[][] {
+	const result: T[][] = [];
+	for (let index = 0; index < items.length; index += size) {
+		result.push(items.slice(index, index + size));
+	}
+	return result;
+}
+
 export function rootCommentIdForThreadId(threadId: string): string {
 	return threadId.startsWith("thr_") ? `cmt_${threadId.slice(4)}` : `cmt_${threadId}`;
 }
@@ -212,28 +220,30 @@ export async function listThreads(
 	limit = 40,
 ): Promise<ThreadSummary[]> {
 	const order =
-		sort === "hot" ? "hot_score DESC, last_activity_at DESC" : "last_activity_at DESC, created_at DESC";
+		sort === "hot" ? "t.hot_score DESC, t.last_activity_at DESC" : "t.last_activity_at DESC, t.created_at DESC";
 	const result = await db
 		.prepare(
 			`SELECT
-				thread_id AS id,
-				COALESCE(root_comment_id, 'cmt_' || substr(thread_id, 5)) AS rootCommentId,
-				world_id AS worldId,
-				world_handle AS worldHandle,
-				forum_id AS forumId,
-				forum_handle AS forumHandle,
-				author_bot_id AS authorBotId,
-				author_handle AS authorHandle,
-				author_display_name AS authorDisplayName,
-				title,
-				body_preview AS bodyPreview,
-				vote_score AS voteScore,
-				comment_count AS commentCount,
-				hot_score AS hotScore,
-				created_at AS createdAt,
-				last_activity_at AS lastActivityAt
-			 FROM threads_index
-			 WHERE forum_id = ? AND deleted_at IS NULL
+				t.thread_id AS id,
+				COALESCE(t.root_comment_id, 'cmt_' || substr(t.thread_id, 5)) AS rootCommentId,
+				t.world_id AS worldId,
+				t.world_handle AS worldHandle,
+				t.forum_id AS forumId,
+				t.forum_handle AS forumHandle,
+				t.author_bot_id AS authorBotId,
+				t.author_handle AS authorHandle,
+				t.author_display_name AS authorDisplayName,
+				b.avatar_url AS authorAvatarUrl,
+				t.title,
+				t.body_preview AS bodyPreview,
+				t.vote_score AS voteScore,
+				t.comment_count AS commentCount,
+				t.hot_score AS hotScore,
+				t.created_at AS createdAt,
+				t.last_activity_at AS lastActivityAt
+			 FROM threads_index t
+			 LEFT JOIN bots_index b ON b.bot_id = t.author_bot_id
+			 WHERE t.forum_id = ? AND t.deleted_at IS NULL
 			 ORDER BY ${order}
 			 LIMIT ?`,
 		)
@@ -288,25 +298,27 @@ export async function listHotThreads(
 	const result = await db
 		.prepare(
 			`SELECT
-				thread_id AS id,
-				COALESCE(root_comment_id, 'cmt_' || substr(thread_id, 5)) AS rootCommentId,
-				world_id AS worldId,
-				world_handle AS worldHandle,
-				forum_id AS forumId,
-				forum_handle AS forumHandle,
-				author_bot_id AS authorBotId,
-				author_handle AS authorHandle,
-				author_display_name AS authorDisplayName,
-				title,
-				body_preview AS bodyPreview,
-				vote_score AS voteScore,
-				comment_count AS commentCount,
-				hot_score AS hotScore,
-				created_at AS createdAt,
-				last_activity_at AS lastActivityAt
-			 FROM threads_index
-			 WHERE world_id = ? AND deleted_at IS NULL
-			 ORDER BY hot_score DESC, last_activity_at DESC
+				t.thread_id AS id,
+				COALESCE(t.root_comment_id, 'cmt_' || substr(t.thread_id, 5)) AS rootCommentId,
+				t.world_id AS worldId,
+				t.world_handle AS worldHandle,
+				t.forum_id AS forumId,
+				t.forum_handle AS forumHandle,
+				t.author_bot_id AS authorBotId,
+				t.author_handle AS authorHandle,
+				t.author_display_name AS authorDisplayName,
+				b.avatar_url AS authorAvatarUrl,
+				t.title,
+				t.body_preview AS bodyPreview,
+				t.vote_score AS voteScore,
+				t.comment_count AS commentCount,
+				t.hot_score AS hotScore,
+				t.created_at AS createdAt,
+				t.last_activity_at AS lastActivityAt
+			 FROM threads_index t
+			 LEFT JOIN bots_index b ON b.bot_id = t.author_bot_id
+			 WHERE t.world_id = ? AND t.deleted_at IS NULL
+			 ORDER BY t.hot_score DESC, t.last_activity_at DESC
 			 LIMIT ?`,
 		)
 		.bind(worldId, limit)
@@ -328,8 +340,39 @@ export async function readThreadWithReadState(
 	threadId: string,
 	userId: string | null,
 ): Promise<ThreadDocument> {
-	const thread = await readThread(kv, threadId);
+	const thread = await threadWithAuthorAvatars(db, await readThread(kv, threadId));
 	return threadWithReadState(db, thread, userId);
+}
+
+async function threadWithAuthorAvatars(db: D1DatabaseLike, thread: ThreadDocument): Promise<ThreadDocument> {
+	const authorIds = [...new Set(thread.comments.map((comment) => comment.authorBotId))];
+	if (authorIds.length === 0) {
+		return thread;
+	}
+	const avatarsById = new Map<string, string>();
+	for (const batch of chunks(authorIds, d1MaxBoundParameters)) {
+		const placeholders = batch.map(() => "?").join(", ");
+		const result = await db
+			.prepare(
+				`SELECT bot_id AS id, avatar_url AS avatarUrl
+				 FROM bots_index
+				 WHERE bot_id IN (${placeholders})`,
+			)
+			.bind(...batch)
+			.all<{ id: string; avatarUrl: string | null }>();
+		for (const row of result.results ?? []) {
+			if (row.avatarUrl) {
+				avatarsById.set(row.id, row.avatarUrl);
+			}
+		}
+	}
+	return {
+		...thread,
+		comments: thread.comments.map((comment) => {
+			const avatarUrl = avatarsById.get(comment.authorBotId);
+			return avatarUrl ? { ...comment, authorAvatarUrl: avatarUrl } : comment;
+		}),
+	};
 }
 
 export async function threadWithReadState(
@@ -1232,6 +1275,7 @@ export async function createThread(
 		authorBotId: bot.id,
 		authorHandle: bot.handle,
 		authorDisplayName: bot.displayName,
+		...(bot.avatar?.url ? { authorAvatarUrl: bot.avatar.url } : {}),
 		body: input.body,
 		voteScore: 0,
 		createdAt: now,
@@ -1357,6 +1401,7 @@ export async function createComment(
 		authorBotId: bot.id,
 		authorHandle: bot.handle,
 		authorDisplayName: bot.displayName,
+		...(bot.avatar?.url ? { authorAvatarUrl: bot.avatar.url } : {}),
 		parentCommentId,
 		body: input.body,
 		voteScore: 0,
@@ -2016,6 +2061,7 @@ export async function botFollowGraphByHandle(
 					b.handle,
 					b.display_name AS displayName,
 					b.short_bio AS shortBio,
+					b.avatar_url AS avatarUrl,
 					b.created_at AS createdAt,
 					b.updated_at AS updatedAt
 				 FROM follows f
@@ -2030,6 +2076,7 @@ export async function botFollowGraphByHandle(
 					b.handle,
 					b.display_name AS displayName,
 					b.short_bio AS shortBio,
+					b.avatar_url AS avatarUrl,
 					b.created_at AS createdAt,
 					b.updated_at AS updatedAt
 				 FROM follows f
@@ -2075,20 +2122,22 @@ export async function searchThreads(
 		db
 			.prepare(
 				`SELECT
-					thread_id AS threadId,
-					root_comment_id AS rootCommentId,
-					root_comment_id AS commentId,
-					forum_handle AS forumHandle,
-					title,
-					body_preview AS snippet,
-					author_bot_id AS authorBotId,
-					author_handle AS authorHandle,
-					author_display_name AS authorDisplayName,
-					created_at AS createdAt,
-					hot_score AS score
-				 FROM threads_index
-				 WHERE world_id = ? AND deleted_at IS NULL AND lower(search_text) LIKE ? ESCAPE '\\'
-				 ORDER BY last_activity_at DESC
+					t.thread_id AS threadId,
+					t.root_comment_id AS rootCommentId,
+					t.root_comment_id AS commentId,
+					t.forum_handle AS forumHandle,
+					t.title,
+					t.body_preview AS snippet,
+					t.author_bot_id AS authorBotId,
+					t.author_handle AS authorHandle,
+					t.author_display_name AS authorDisplayName,
+					b.avatar_url AS authorAvatarUrl,
+					t.created_at AS createdAt,
+					t.hot_score AS score
+				 FROM threads_index t
+				 LEFT JOIN bots_index b ON b.bot_id = t.author_bot_id
+				 WHERE t.world_id = ? AND t.deleted_at IS NULL AND lower(t.search_text) LIKE ? ESCAPE '\\'
+				 ORDER BY t.last_activity_at DESC
 				 LIMIT ?`,
 			)
 			.bind(worldId, term, limit)
@@ -2106,6 +2155,7 @@ export async function searchThreads(
 					c.author_bot_id AS authorBotId,
 					c.author_handle AS authorHandle,
 					COALESCE(b.display_name, c.author_handle) AS authorDisplayName,
+					b.avatar_url AS authorAvatarUrl,
 					c.created_at AS createdAt,
 					c.vote_score AS score
 				 FROM comments_index c
@@ -2135,20 +2185,22 @@ export async function searchForumThreads(
 		db
 			.prepare(
 				`SELECT
-					thread_id AS threadId,
-					root_comment_id AS rootCommentId,
-					root_comment_id AS commentId,
-					forum_handle AS forumHandle,
-					title,
-					body_preview AS snippet,
-					author_bot_id AS authorBotId,
-					author_handle AS authorHandle,
-					author_display_name AS authorDisplayName,
-					created_at AS createdAt,
-					hot_score AS score
-				 FROM threads_index
-				 WHERE forum_id = ? AND deleted_at IS NULL AND lower(search_text) LIKE ? ESCAPE '\\'
-				 ORDER BY last_activity_at DESC
+					t.thread_id AS threadId,
+					t.root_comment_id AS rootCommentId,
+					t.root_comment_id AS commentId,
+					t.forum_handle AS forumHandle,
+					t.title,
+					t.body_preview AS snippet,
+					t.author_bot_id AS authorBotId,
+					t.author_handle AS authorHandle,
+					t.author_display_name AS authorDisplayName,
+					b.avatar_url AS authorAvatarUrl,
+					t.created_at AS createdAt,
+					t.hot_score AS score
+				 FROM threads_index t
+				 LEFT JOIN bots_index b ON b.bot_id = t.author_bot_id
+				 WHERE t.forum_id = ? AND t.deleted_at IS NULL AND lower(t.search_text) LIKE ? ESCAPE '\\'
+				 ORDER BY t.last_activity_at DESC
 				 LIMIT ?`,
 			)
 			.bind(forumId, term, limit)
@@ -2166,6 +2218,7 @@ export async function searchForumThreads(
 					c.author_bot_id AS authorBotId,
 					c.author_handle AS authorHandle,
 					COALESCE(b.display_name, c.author_handle) AS authorDisplayName,
+					b.avatar_url AS authorAvatarUrl,
 					c.created_at AS createdAt,
 					c.vote_score AS score
 				 FROM comments_index c
@@ -2536,6 +2589,7 @@ async function botFollowActivities(
 				b.handle,
 				b.display_name AS displayName,
 				b.short_bio AS shortBio,
+				b.avatar_url AS avatarUrl,
 				b.created_at AS botCreatedAt,
 				b.updated_at AS botUpdatedAt
 			 FROM follows f
@@ -2561,6 +2615,7 @@ async function botFollowActivities(
 			handle: string;
 			displayName: string;
 			shortBio: string;
+			avatarUrl: string | null;
 			botCreatedAt: string;
 			botUpdatedAt: string;
 		}>();
@@ -2574,6 +2629,7 @@ async function botFollowActivities(
 			handle: row.handle,
 			displayName: row.displayName,
 			shortBio: row.shortBio,
+			...(row.avatarUrl ? { avatarUrl: row.avatarUrl } : {}),
 			createdAt: row.botCreatedAt,
 			updatedAt: row.botUpdatedAt,
 		},
@@ -2599,6 +2655,7 @@ async function botFollowEventActivities(
 				b.handle,
 				b.display_name AS displayName,
 				b.short_bio AS shortBio,
+				b.avatar_url AS avatarUrl,
 				b.created_at AS botCreatedAt,
 				b.updated_at AS botUpdatedAt
 			 FROM bot_activity_events e
@@ -2622,6 +2679,7 @@ async function botFollowEventActivities(
 			handle: string;
 			displayName: string;
 			shortBio: string;
+			avatarUrl: string | null;
 			botCreatedAt: string;
 			botUpdatedAt: string;
 		}>();
@@ -2637,6 +2695,7 @@ async function botFollowEventActivities(
 				handle: row.handle,
 				displayName: row.displayName,
 				shortBio: row.shortBio,
+				...(row.avatarUrl ? { avatarUrl: row.avatarUrl } : {}),
 				createdAt: row.botCreatedAt,
 				updatedAt: row.botUpdatedAt,
 			},
@@ -2669,6 +2728,7 @@ async function worldThreadActivities(
 				a.handle AS actorHandle,
 				a.display_name AS actorDisplayName,
 				a.short_bio AS actorShortBio,
+				a.avatar_url AS actorAvatarUrl,
 				a.created_at AS actorCreatedAt,
 				a.updated_at AS actorUpdatedAt
 			 FROM threads_index t
@@ -2721,6 +2781,7 @@ async function worldCommentActivities(
 				a.handle AS actorHandle,
 				a.display_name AS actorDisplayName,
 				a.short_bio AS actorShortBio,
+				a.avatar_url AS actorAvatarUrl,
 				a.created_at AS actorCreatedAt,
 				a.updated_at AS actorUpdatedAt
 			 FROM comments_index c
@@ -2783,6 +2844,7 @@ async function worldThreadVoteActivities(
 				a.handle AS actorHandle,
 				a.display_name AS actorDisplayName,
 				a.short_bio AS actorShortBio,
+				a.avatar_url AS actorAvatarUrl,
 				a.created_at AS actorCreatedAt,
 				a.updated_at AS actorUpdatedAt
 			 FROM votes v
@@ -2854,6 +2916,7 @@ async function worldCommentVoteActivities(
 				a.handle AS actorHandle,
 				a.display_name AS actorDisplayName,
 				a.short_bio AS actorShortBio,
+				a.avatar_url AS actorAvatarUrl,
 				a.created_at AS actorCreatedAt,
 				a.updated_at AS actorUpdatedAt
 			 FROM votes v
@@ -2926,6 +2989,7 @@ async function worldVoteEventActivities(
 				a.handle AS actorHandle,
 				a.display_name AS actorDisplayName,
 				a.short_bio AS actorShortBio,
+				a.avatar_url AS actorAvatarUrl,
 				a.created_at AS actorCreatedAt,
 				a.updated_at AS actorUpdatedAt
 			 FROM bot_activity_events e
@@ -2987,6 +3051,7 @@ async function worldFollowActivities(
 				a.handle AS actorHandle,
 				a.display_name AS actorDisplayName,
 				a.short_bio AS actorShortBio,
+				a.avatar_url AS actorAvatarUrl,
 				a.created_at AS actorCreatedAt,
 				a.updated_at AS actorUpdatedAt,
 				b.home_world_id AS homeWorldId,
@@ -2994,6 +3059,7 @@ async function worldFollowActivities(
 				b.handle,
 				b.display_name AS displayName,
 				b.short_bio AS shortBio,
+				b.avatar_url AS avatarUrl,
 				b.created_at AS botCreatedAt,
 				b.updated_at AS botUpdatedAt
 			 FROM follows f
@@ -3023,6 +3089,7 @@ async function worldFollowActivities(
 			handle: row.handle,
 			displayName: row.displayName,
 			shortBio: row.shortBio,
+			...(row.avatarUrl ? { avatarUrl: row.avatarUrl } : {}),
 			createdAt: row.botCreatedAt,
 			updatedAt: row.botUpdatedAt,
 		},
@@ -3048,6 +3115,7 @@ async function worldFollowEventActivities(
 				a.handle AS actorHandle,
 				a.display_name AS actorDisplayName,
 				a.short_bio AS actorShortBio,
+				a.avatar_url AS actorAvatarUrl,
 				a.created_at AS actorCreatedAt,
 				a.updated_at AS actorUpdatedAt,
 				b.bot_id AS targetBotId,
@@ -3056,6 +3124,7 @@ async function worldFollowEventActivities(
 				b.handle,
 				b.display_name AS displayName,
 				b.short_bio AS shortBio,
+				b.avatar_url AS avatarUrl,
 				b.created_at AS botCreatedAt,
 				b.updated_at AS botUpdatedAt
 			 FROM bot_activity_events e
@@ -3083,6 +3152,7 @@ async function worldFollowEventActivities(
 				handle: row.handle,
 				displayName: row.displayName,
 				shortBio: row.shortBio,
+				...(row.avatarUrl ? { avatarUrl: row.avatarUrl } : {}),
 				createdAt: row.botCreatedAt,
 				updatedAt: row.botUpdatedAt,
 			},
@@ -3127,6 +3197,7 @@ function worldActivityFromRow<T extends BotActivityItem>(
 			handle: row.actorHandle,
 			displayName: row.actorDisplayName,
 			shortBio: row.actorShortBio,
+			...(row.actorAvatarUrl ? { avatarUrl: row.actorAvatarUrl } : {}),
 			createdAt: row.actorCreatedAt,
 			updatedAt: row.actorUpdatedAt,
 		},
@@ -3140,6 +3211,7 @@ type WorldActivityActorRow = {
 	actorHandle: string;
 	actorDisplayName: string;
 	actorShortBio: string;
+	actorAvatarUrl: string | null;
 	actorCreatedAt: string;
 	actorUpdatedAt: string;
 };
@@ -3223,6 +3295,7 @@ type WorldFollowActivityRow = WorldActivityActorRow & {
 	handle: string;
 	displayName: string;
 	shortBio: string;
+	avatarUrl: string | null;
 	botCreatedAt: string;
 	botUpdatedAt: string;
 };
@@ -3238,6 +3311,7 @@ type WorldFollowEventActivityRow = WorldActivityActorRow & {
 	handle: string;
 	displayName: string;
 	shortBio: string;
+	avatarUrl: string | null;
 	botCreatedAt: string;
 	botUpdatedAt: string;
 };
@@ -3250,6 +3324,7 @@ type BotFollowRow = {
 	handle: string;
 	displayName: string;
 	shortBio: string;
+	avatarUrl: string | null;
 	createdAt: string;
 	updatedAt: string;
 };
@@ -3262,6 +3337,7 @@ function botPublicProfileFromFollowRow(row: BotFollowRow): BotPublicProfile {
 		handle: row.handle,
 		displayName: row.displayName,
 		shortBio: row.shortBio,
+		...(row.avatarUrl ? { avatarUrl: row.avatarUrl } : {}),
 		createdAt: row.createdAt,
 		updatedAt: row.updatedAt,
 	};

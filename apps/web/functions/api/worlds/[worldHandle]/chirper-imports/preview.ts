@@ -165,6 +165,7 @@ function chirperPreview(raw: unknown, originalHandle: string, apiUrl: string): C
 		profile.description,
 	);
 	const prompt = firstString(profile.prompt, profile.systemPrompt, profile.system_prompt, profile.persona);
+	const avatarUrl = chirperAvatarUrl(profile);
 
 	if (!shortBio || !prompt) {
 		throw new InputError("Chirper profile did not include the required bio and prompt fields.");
@@ -175,14 +176,29 @@ function chirperPreview(raw: unknown, originalHandle: string, apiUrl: string): C
 		displayName: requiredText(limitText(displayName, 80), "Chirper name", 80),
 		shortBio: requiredText(limitText(shortBio, maxBotShortBioLength), "Chirper short bio", maxBotShortBioLength),
 		prompt: requiredText(prompt, "Chirper prompt", maxBotPromptLength),
+		...(avatarUrl ? { avatarUrl } : {}),
 		importSource: {
 			provider: "chirper",
 			originalHandle,
 			originalProfileUrl: `https://chirper.ai/${encodeURIComponent(originalHandle)}`,
 			apiUrl,
 			importedAt: new Date().toISOString(),
+			...(avatarUrl ? { sourceAvatarUrl: avatarUrl } : {}),
 		},
 	};
+}
+
+function chirperAvatarUrl(profile: Record<string, unknown>): string | undefined {
+	const avatar = candidateRecord(profile.avatar);
+	const rawUrl = firstString(avatar?.url, profile.avatarUrl, profile.avatar_url);
+	if (!rawUrl) {
+		return undefined;
+	}
+	try {
+		return new URL(rawUrl, "https://cdn.chirper.ai/").toString();
+	} catch {
+		return undefined;
+	}
 }
 
 function chirperProfileRecord(raw: unknown): Record<string, unknown> {

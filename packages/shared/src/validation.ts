@@ -1,4 +1,5 @@
 import {
+	type BotImageGenerationSettingsInput,
 	type BotInferenceSettingsInput,
 	type BotCompactionMode,
 	type BotContextBudgetInput,
@@ -423,6 +424,9 @@ function parseImportSource(value: unknown): ChirperImportSource | undefined {
 		originalProfileUrl: requiredText(record.originalProfileUrl, "Original Chirper profile URL", 500),
 		apiUrl: requiredText(record.apiUrl, "Chirper API URL", 500),
 		importedAt: requiredText(record.importedAt, "Import timestamp", 40),
+		...(record.sourceAvatarUrl === undefined ?
+			{}
+		:	{ sourceAvatarUrl: requiredText(record.sourceAvatarUrl, "Chirper avatar URL", 1_000) }),
 	};
 }
 
@@ -457,6 +461,10 @@ function parseInferenceSettings(value: unknown): BotInferenceSettingsInput {
 	if (record.providerRouting !== undefined || record.provider_routing !== undefined) {
 		const providerRouting = aliasedValue(record, "providerRouting", "provider_routing");
 		settings.providerRouting = providerRouting === null ? null : parseProviderRouting(providerRouting);
+	}
+	if (record.imageGeneration !== undefined || record.image_generation !== undefined) {
+		const imageGeneration = aliasedValue(record, "imageGeneration", "image_generation");
+		settings.imageGeneration = imageGeneration === null ? null : parseImageGenerationSettings(imageGeneration);
 	}
 	if (record.translation !== undefined) {
 		settings.translation = record.translation === null ? null : parseTranslationSettings(record.translation);
@@ -529,6 +537,47 @@ function jsonValue(value: unknown, label: string): JsonValue {
 		return jsonObjectValue(value, label);
 	}
 	throw new InputError(`${label} must contain only JSON values.`);
+}
+
+function parseImageGenerationSettings(value: unknown): BotImageGenerationSettingsInput {
+	const record = asRecord(value);
+	const settings: BotImageGenerationSettingsInput = {};
+	assignOptionalPlainText(settings, "model", record.model, "Image generation model", 160);
+	if (record.providerRouting !== undefined || record.provider_routing !== undefined) {
+		const providerRouting = aliasedValue(record, "providerRouting", "provider_routing");
+		settings.providerRouting = providerRouting === null ? null : parseProviderRouting(providerRouting);
+	}
+	assignOptionalPlainText(settings, "aspectRatio", aliasedValue(record, "aspectRatio", "aspect_ratio"), "Image aspect ratio", 40);
+	assignOptionalPlainText(settings, "imageSize", aliasedValue(record, "imageSize", "image_size"), "Image size", 80);
+	assignOptionalNumber(settings, "temperature", record.temperature, "Image generation temperature", 0, 2);
+	assignOptionalNumber(settings, "topK", aliasedValue(record, "topK", "top_k"), "Image generation top K", 0, 10_000);
+	assignOptionalNumber(settings, "topP", aliasedValue(record, "topP", "top_p"), "Image generation top P", 0, 1);
+	assignOptionalNumber(settings, "minP", aliasedValue(record, "minP", "min_p"), "Image generation min P", 0, 1);
+	assignOptionalNumber(
+		settings,
+		"frequencyPenalty",
+		aliasedValue(record, "frequencyPenalty", "frequency_penalty"),
+		"Image generation frequency penalty",
+		-2,
+		2,
+	);
+	assignOptionalNumber(
+		settings,
+		"presencePenalty",
+		aliasedValue(record, "presencePenalty", "presence_penalty"),
+		"Image generation presence penalty",
+		-2,
+		2,
+	);
+	assignOptionalNumber(
+		settings,
+		"repetitionPenalty",
+		aliasedValue(record, "repetitionPenalty", "repetition_penalty"),
+		"Image generation repetition penalty",
+		0,
+		2,
+	);
+	return settings;
 }
 
 function parseTranslationSettings(value: unknown): BotTranslationSettingsInput {

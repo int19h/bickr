@@ -15,10 +15,12 @@ import {
 	onRequestDelete as deleteBot,
 	onRequestPatch as patchBot,
 } from "../apps/web/functions/api/me/bots/[botId]";
+import { onRequestPut as uploadBotAvatar } from "../apps/web/functions/api/me/bots/[botId]/avatar";
 import {
 	onRequestGet as contextBudgetGetRoute,
 	onRequestPost as contextBudgetRoute,
 } from "../apps/web/functions/api/me/bots/[botId]/runtime/context-budget";
+import { onRequestGet as openRouterImageModelsRoute } from "../apps/web/functions/api/openrouter/image-models";
 import { onRequestGet as runtimeMessagesRoute } from "../apps/web/functions/api/me/bots/[botId]/runtime/messages";
 import { onRequest as runtimeMonitorRoute } from "../apps/web/functions/api/me/bots/[botId]/runtime/monitor";
 import {
@@ -148,6 +150,7 @@ import {
 } from "../packages/shared/src/search";
 import {
 	defaultTranslationPrompt,
+	type AvatarImage,
 	type BotDocument,
 	type BotInferenceSubmissionMessage,
 	type BotInferenceSubmissionToolCall,
@@ -244,6 +247,7 @@ CREATE TABLE bots_index (
 	display_name TEXT NOT NULL,
 	owner_user_id TEXT NOT NULL,
 	short_bio TEXT NOT NULL,
+	avatar_url TEXT,
 	import_provider TEXT,
 	import_external_handle TEXT,
 	created_at TEXT NOT NULL,
@@ -1346,7 +1350,7 @@ describe("Bickr Pages Functions", () => {
 				provider: { sort: "price" },
 				stream: false,
 				temperature: 0.2,
-				reasoning: { effort: "minimal", exclude: false },
+				reasoning: { effort: "none", exclude: false },
 				parallel_tool_calls: false,
 			});
 			expect(request.tool_choice).toBe("none");
@@ -1572,6 +1576,119 @@ describe("Bickr Pages Functions", () => {
 				expect((thrown as { requestBody?: string }).requestBody).toContain("\"response_format\"");
 				expect((thrown as { requestBody?: string }).requestBody).not.toContain(`"${metaCompactionToolName}"`);
 			} finally {
+				vi.stubGlobal("fetch", originalFetch);
+			}
+		});
+
+		it("falls back to minimal compaction reasoning when a model rejects disabled reasoning", async () => {
+			const originalFetch = globalThis.fetch;
+			const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+			const runtimeState = new Map<string, unknown>();
+			const unsupportedBody = JSON.stringify({
+				error: {
+					message: "reasoning effort none is not supported for this model",
+				},
+			});
+			const validResponse = {
+				choices: [{
+					message: {
+						content: JSON.stringify({ [providerCompactionSummaryProperty]: "I remember the important parts." }),
+					},
+				}],
+				usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 },
+			};
+			const fetchMock = vi.fn<(_input: RequestInfo | URL, _init?: RequestInit) => Promise<Response>>(
+				async () => Response.json(validResponse),
+			);
+			fetchMock.mockResolvedValueOnce(new Response(unsupportedBody, { status: 400 }));
+			vi.stubGlobal("fetch", fetchMock);
+			try {
+					const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+						appendEvent: async (_runId: string, type: string, payload: Record<string, unknown>) => {
+							events.push({ type, payload });
+							return {
+							seq: events.length,
+							runId: _runId,
+							type,
+							payload,
+							tokenEstimate: 0,
+							createdAt: new Date().toISOString(),
+						};
+					},
+						runtimeStateRecord: (key: string) => {
+							const value = runtimeState.get(key);
+							return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+						},
+						deleteRuntimeState: (key: string) => {
+							runtimeState.delete(key);
+						},
+						setRuntimeState: (key: string, value: unknown) => {
+							runtimeState.set(key, value);
+						},
+					throwIfStopped: vi.fn(),
+				});
+				const callProviderForCompaction = (BotRuntime.prototype as unknown as {
+					callProviderForCompaction: (...args: unknown[]) => Promise<{ content: string; requestBody?: string }>;
+				}).callProviderForCompaction.bind(runtime);
+
+				const settings = {
+					baseUrl: "https://openrouter.ai/api/v1",
+					model: "openai/gpt-5.1-codex-mini",
+					temperature: 0.2,
+				};
+				const response = await callProviderForCompaction(
+					settings,
+					[{ role: "user", content: "Compact the retained activity." }],
+					"run-compaction-reasoning-fallback",
+					new AbortController().signal,
+					{ minLength: 1, maxLength: 4000, maxCompletionTokens: 1000 },
+				);
+
+				expect(response.content).toBe("I remember the important parts.");
+				expect(fetchMock).toHaveBeenCalledTimes(2);
+				const firstBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as { reasoning?: unknown };
+				const secondBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)) as { reasoning?: unknown };
+				expect(firstBody.reasoning).toEqual({ effort: "none", exclude: false });
+				expect(secondBody.reasoning).toEqual({ effort: "minimal", exclude: false });
+				expect([...runtimeState.values()][0]).toMatchObject({
+					model: "openai/gpt-5.1-codex-mini",
+					mode: "minimal",
+				});
+				expect(events).toContainEqual({
+					type: "provider_retry",
+					payload: expect.objectContaining({
+						attempt: 2,
+						delayMs: 0,
+						reason: "provider rejected compaction reasoning=none; retrying with minimal",
+					}),
+				});
+
+				fetchMock.mockClear();
+				await callProviderForCompaction(
+					settings,
+					[{ role: "user", content: "Compact the retained activity again." }],
+					"run-compaction-cached-reasoning-fallback",
+					new AbortController().signal,
+					{ minLength: 1, maxLength: 4000, maxCompletionTokens: 1000 },
+				);
+				expect(fetchMock).toHaveBeenCalledTimes(1);
+				const cachedBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as { reasoning?: unknown };
+				expect(cachedBody.reasoning).toEqual({ effort: "minimal", exclude: false });
+
+				fetchMock.mockClear();
+				await callProviderForCompaction(
+					{ ...settings, model: "google/gemini-3.1-flash-lite-preview" },
+					[{ role: "user", content: "Compact the retained activity after a model change." }],
+					"run-compaction-model-changed",
+					new AbortController().signal,
+					{ minLength: 1, maxLength: 4000, maxCompletionTokens: 1000 },
+				);
+				expect(fetchMock).toHaveBeenCalledTimes(1);
+					const changedModelBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as { model?: string; reasoning?: unknown };
+					expect(changedModelBody.model).toBe("google/gemini-3.1-flash-lite-preview");
+					expect(changedModelBody.reasoning).toEqual({ effort: "none", exclude: false });
+					expect(runtimeState.size).toBe(0);
+				} finally {
 				vi.stubGlobal("fetch", originalFetch);
 			}
 		});
@@ -16223,6 +16340,348 @@ describe("Bickr Pages Functions", () => {
 		expect(noReactionCount?.count).toBe(1);
 	});
 
+	it("uploads participant avatars into R2 and exposes avatar URLs through indexes", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const forum = await createForumForTest(cookie, "avatars");
+		const bot = await createBotForTest(cookie, "avatar-owner");
+		const r2 = fakeR2Bucket();
+		const sourceUrl = "https://images.example/avatar.png";
+		const sourceBytes = pngAvatarBytes();
+		const originalFetch = globalThis.fetch;
+		const fetchMock = vi.fn<(_input: RequestInfo | URL, _init?: RequestInit) => Promise<Response>>(
+			async (input) => {
+				expect(String(input)).toBe(sourceUrl);
+				return new Response(sourceBytes, {
+					headers: {
+						"content-type": "image/png",
+						"content-length": String(sourceBytes.byteLength),
+					},
+				});
+			},
+		);
+		vi.stubGlobal("fetch", fetchMock);
+		let avatarUrl = "";
+		try {
+			const response = await uploadBotAvatar(
+				contextFor<typeof uploadBotAvatar>(
+					jsonRequest(`http://example.com/api/me/bots/${bot.id}/avatar`, "PUT", { url: sourceUrl }, cookie),
+					{ botId: bot.id },
+					{
+						BICKR_R2: r2.bucket,
+						BICKR_R2_PUBLIC_BASE_URL: "https://assets-test.bickr.social",
+					},
+				),
+			);
+			expect(response.status).toBe(200);
+			const body = (await response.json()) as { data: { bot: BotBody } };
+			avatarUrl = body.data.bot.avatarUrl ?? "";
+			expect(avatarUrl).toMatch(/^https:\/\/assets-test\.bickr\.social\/worlds\/.+\/bots\/.+\/avatars\/.+\.png$/);
+			expect(r2.objects.size).toBe(1);
+			const stored = [...r2.objects.values()][0];
+			expect(stored?.bytes).toEqual(sourceBytes);
+			expect(stored?.httpMetadata?.contentType).toBe("image/png");
+			expect(stored?.httpMetadata?.cacheControl).toBe("public, max-age=31536000, immutable");
+		} finally {
+			vi.stubGlobal("fetch", originalFetch);
+		}
+
+		const indexed = await testEnv.BICKR_D1.prepare(`SELECT avatar_url AS avatarUrl FROM bots_index WHERE bot_id = ?`)
+			.bind(bot.id)
+			.first<{ avatarUrl: string | null }>();
+		expect(indexed?.avatarUrl).toBe(avatarUrl);
+
+		const storedBot = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, bot.id);
+		expect(storedBot.avatar).toMatchObject({
+			url: avatarUrl,
+			contentType: "image/png",
+			width: 1,
+			height: 1,
+			source: {
+				type: "remote_url",
+				sourceUrl,
+			},
+		});
+
+		await createThreadForTest(forum.id, bot.id, "Avatar index thread", "Avatar summary body.");
+		const threadsResponse = await forumThreads(
+			contextFor<typeof forumThreads>(
+				new Request(`http://example.com/api/worlds/patch-notes/forums/${forum.handle}/threads`),
+				{ worldHandle: "patch-notes", forumHandle: forum.handle },
+			),
+		);
+		const threadsBody = (await threadsResponse.json()) as {
+			data: { threads: Array<{ authorAvatarUrl?: string }> };
+		};
+		expect(threadsBody.data.threads[0]?.authorAvatarUrl).toBe(avatarUrl);
+	});
+
+	it("rejects unsupported avatar upload file types", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const bot = await createBotForTest(cookie, "avatar-invalid");
+		const form = new FormData();
+		form.set("file", new File([new Uint8Array([0x47, 0x49, 0x46])], "avatar.gif", { type: "image/gif" }));
+		const response = await uploadBotAvatar(
+			contextFor<typeof uploadBotAvatar>(
+				new Request(`http://example.com/api/me/bots/${bot.id}/avatar`, {
+					method: "PUT",
+					headers: { cookie },
+					body: form,
+				}),
+				{ botId: bot.id },
+				{
+					BICKR_R2: fakeR2Bucket().bucket,
+					BICKR_R2_PUBLIC_BASE_URL: "https://assets-test.bickr.social",
+				},
+			),
+		);
+		expect(response.status).toBe(400);
+	});
+
+	it("filters OpenRouter image-capable models and keeps image input capabilities", async () => {
+		const cookie = await authCookie();
+		const originalFetch = globalThis.fetch;
+		const fetchMock = vi.fn<(_input: RequestInfo | URL, _init?: RequestInit) => Promise<Response>>(
+			async (input) => {
+				expect(String(input)).toBe("https://openrouter.ai/api/v1/models?output_modalities=image");
+				return Response.json({
+					data: [
+						{
+							id: "openai/image-one",
+							name: "Image One",
+							architecture: { input_modalities: ["text", "image"], output_modalities: ["image"] },
+						},
+						{
+							id: "text-only",
+							name: "Text Only",
+							architecture: { input_modalities: ["text"], output_modalities: ["text"] },
+						},
+						{
+							id: "image-output",
+							architecture: { input_modalities: ["text"], output_modalities: ["text", "image"] },
+						},
+					],
+				});
+			},
+		);
+		vi.stubGlobal("fetch", fetchMock);
+		try {
+			const response = await openRouterImageModelsRoute(
+				contextFor<typeof openRouterImageModelsRoute>(
+					new Request("http://example.com/api/openrouter/image-models", {
+						headers: { cookie },
+					}),
+				),
+			);
+			expect(response.status).toBe(200);
+			const body = (await response.json()) as {
+				data: {
+					models: Array<{ id: string; name: string; inputModalities: string[]; outputModalities: string[] }>;
+				};
+			};
+			expect(body.data.models).toEqual([
+				{
+					id: "openai/image-one",
+					name: "Image One",
+					inputModalities: ["text", "image"],
+					outputModalities: ["image"],
+				},
+				{
+					id: "image-output",
+					name: "image-output",
+					inputModalities: ["text"],
+					outputModalities: ["text", "image"],
+				},
+			]);
+		} finally {
+			vi.stubGlobal("fetch", originalFetch);
+		}
+	});
+
+	it("creates generated avatar candidates and promotes them explicitly", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const bot = await createBotForTest(cookie, "avatar-generated");
+		const userId = await userIdForHandle("octocat");
+		const blankPrompt = await handleAgentRuntimeRequest(
+			serviceJsonRequest(
+				`/users/${encodeURIComponent(userId)}/bots/${encodeURIComponent(bot.id)}/avatar/generate`,
+				userId,
+				{ prompt: "", includeCurrentAvatar: false, settings: { model: "openai/image-one" } },
+			),
+			{
+				BICKR_D1: testEnv.BICKR_D1,
+				BICKR_KV: testEnv.BICKR_KV,
+				BICKR_R2: fakeR2Bucket().bucket,
+				BICKR_R2_PUBLIC_BASE_URL: "https://assets-test.bickr.social",
+				OPENROUTER_API_KEY: "test-key",
+			},
+		);
+		expect(blankPrompt.status).toBe(400);
+
+		const r2 = fakeR2Bucket();
+		const originalFetch = globalThis.fetch;
+		const fetchMock = vi.fn<(_input: RequestInfo | URL, _init?: RequestInit) => Promise<Response>>(
+			async (_input, init) => {
+				const requestBody = JSON.parse(String(init?.body)) as {
+					modalities?: string[];
+					image_config?: Record<string, unknown>;
+					provider?: Record<string, unknown>;
+				};
+				expect(requestBody.modalities).toEqual(["image", "text"]);
+				expect(requestBody.image_config).toEqual({ aspect_ratio: "1:1", image_size: "1024x1024" });
+				expect(requestBody.provider).toEqual({ sort: "price" });
+				return Response.json({
+					choices: [
+						{
+							message: {
+								images: [{ image_url: { url: avatarDataUrl() } }],
+							},
+						},
+					],
+				});
+			},
+		);
+		vi.stubGlobal("fetch", fetchMock);
+		let candidate: NonNullable<BotBody["avatar"]>;
+		try {
+			const generateResponse = await handleAgentRuntimeRequest(
+				serviceJsonRequest(
+					`/users/${encodeURIComponent(userId)}/bots/${encodeURIComponent(bot.id)}/avatar/generate`,
+					userId,
+					{
+						prompt: "Paint me as a luminous portrait.",
+						includeCurrentAvatar: false,
+						settings: {
+							model: "openai/image-one",
+							providerRouting: { sort: "price" },
+							aspectRatio: "1:1",
+							imageSize: "1024x1024",
+						},
+					},
+				),
+				{
+					BICKR_D1: testEnv.BICKR_D1,
+					BICKR_KV: testEnv.BICKR_KV,
+					BICKR_R2: r2.bucket,
+					BICKR_R2_PUBLIC_BASE_URL: "https://assets-test.bickr.social",
+					OPENROUTER_API_KEY: "test-key",
+				},
+			);
+			expect(generateResponse.status).toBe(200);
+			const generateBody = (await generateResponse.json()) as { data: { candidate: NonNullable<BotBody["avatar"]> } };
+			candidate = generateBody.data.candidate;
+			expect(candidate.key).toContain("/avatar-candidates/");
+			expect(candidate.url).toContain("/avatar-candidates/");
+			expect(candidate.source).toMatchObject({
+				type: "generated",
+				model: "openai/image-one",
+				prompt: "Paint me as a luminous portrait.",
+			});
+			expect(r2.objects.has(candidate.key)).toBe(true);
+		} finally {
+			vi.stubGlobal("fetch", originalFetch);
+		}
+
+		const applyResponse = await handleAgentRuntimeRequest(
+			serviceJsonRequest(
+				`/users/${encodeURIComponent(userId)}/bots/${encodeURIComponent(bot.id)}/avatar/apply`,
+				userId,
+				{
+					candidate,
+					settings: {
+						model: "openai/image-one",
+						aspectRatio: "1:1",
+						imageSize: "512x512",
+					},
+				},
+			),
+			{
+				BICKR_D1: testEnv.BICKR_D1,
+				BICKR_KV: testEnv.BICKR_KV,
+				BICKR_R2: r2.bucket,
+				BICKR_R2_PUBLIC_BASE_URL: "https://assets-test.bickr.social",
+			},
+		);
+		expect(applyResponse.status).toBe(200);
+		const applyBody = (await applyResponse.json()) as { data: { bot: BotBody } };
+		expect(applyBody.data.bot.avatarUrl).toContain("/avatars/");
+		expect(r2.objects.has(candidate.key)).toBe(false);
+		const storedBot = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, bot.id);
+		expect(storedBot.avatar?.url).toBe(applyBody.data.bot.avatarUrl);
+		expect(storedBot.inferenceSettings.imageGeneration).toMatchObject({
+			model: "openai/image-one",
+			aspectRatio: "1:1",
+			imageSize: "512x512",
+		});
+	});
+
+	it("prefills avatar prompts with one forced no-history visual-description tool", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const bot = await createBotForTest(cookie, "avatar-prefill");
+		const userId = await userIdForHandle("octocat");
+		const originalFetch = globalThis.fetch;
+		const fetchMock = vi.fn<(_input: RequestInfo | URL, _init?: RequestInit) => Promise<Response>>(
+			async (_input, init) => {
+				const requestBody = JSON.parse(String(init?.body)) as {
+					messages: Array<{ role: string; content: unknown }>;
+					tools: Array<{ function: { name: string; description: string } }>;
+					tool_choice?: unknown;
+				};
+				expect(requestBody.messages).toHaveLength(2);
+				expect(requestBody.tools.map((tool) => tool.function.name)).toEqual(["save_avatar_description"]);
+				expect(requestBody.tool_choice).toBe("required");
+				const participantFacingText = JSON.stringify({
+					message: requestBody.messages[1]?.content,
+					tools: requestBody.tools.map((tool) => tool.function.description),
+				});
+				expect(participantFacingText).not.toMatch(/\b(bot|AI|assistant|agent|model)\b/i);
+				return Response.json({
+					choices: [
+						{
+							message: {
+								tool_calls: [
+									{
+										function: {
+											name: "save_avatar_description",
+											arguments: JSON.stringify({
+												description: "I stand in a bright studio wearing a deep green jacket, with amber rim light catching the edges of my face.",
+											}),
+										},
+									},
+								],
+							},
+						},
+					],
+				});
+			},
+		);
+		vi.stubGlobal("fetch", fetchMock);
+		try {
+			const response = await handleAgentRuntimeRequest(
+				serviceJsonRequest(
+					`/users/${encodeURIComponent(userId)}/bots/${encodeURIComponent(bot.id)}/avatar/prompt`,
+					userId,
+					{},
+				),
+				{
+					BICKR_D1: testEnv.BICKR_D1,
+					BICKR_KV: testEnv.BICKR_KV,
+					OPENROUTER_API_KEY: "test-key",
+					OPENROUTER_MODEL: "openai/text-one",
+				},
+			);
+			expect(response.status).toBe(200);
+			const body = (await response.json()) as { data: { prompt: string } };
+			expect(body.data.prompt).toContain("deep green jacket");
+			expect(fetchMock).toHaveBeenCalledTimes(1);
+		} finally {
+			vi.stubGlobal("fetch", originalFetch);
+		}
+	});
+
 	it("previews Chirper imports and reports invalid profiles", async () => {
 		const cookie = await authCookie();
 		const success = await chirperPreview(
@@ -16241,6 +16700,7 @@ describe("Bickr Pages Functions", () => {
 							name: "Example Bot",
 							shortBio: "Imported profile.",
 							prompt: "Stay in character.",
+							avatar: { url: "avatars/example.png" },
 						}),
 				},
 			),
@@ -16251,7 +16711,12 @@ describe("Bickr Pages Functions", () => {
 				preview: {
 					handle: "example-bot",
 					displayName: "Example Bot",
-					importSource: { provider: "chirper", originalHandle: "example" },
+					avatarUrl: "https://cdn.chirper.ai/avatars/example.png",
+					importSource: {
+						provider: "chirper",
+						originalHandle: "example",
+						sourceAvatarUrl: "https://cdn.chirper.ai/avatars/example.png",
+					},
 				},
 			},
 		});
@@ -16339,12 +16804,89 @@ describe("Bickr Pages Functions", () => {
 		);
 		expect(failure.status).toBe(400);
 	});
+
+	it("imports Chirper avatars while retaining the original handle", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const r2 = fakeR2Bucket();
+		const sourceUrl = "https://cdn.chirper.ai/avatars/lisp.webp";
+		const sourceBytes = webpAvatarBytes();
+		const originalFetch = globalThis.fetch;
+		const fetchMock = vi.fn<(_input: RequestInfo | URL, _init?: RequestInit) => Promise<Response>>(
+			async (input) => {
+				expect(String(input)).toBe(sourceUrl);
+				return new Response(sourceBytes, {
+					headers: {
+						"content-type": "image/webp",
+						"content-length": String(sourceBytes.byteLength),
+					},
+				});
+			},
+		);
+		vi.stubGlobal("fetch", fetchMock);
+		try {
+			const response = await createBot(
+				contextFor<typeof createBot>(
+					jsonRequest(
+						"http://example.com/api/worlds/patch-notes/bots",
+						"POST",
+						{
+							handle: "lisp",
+							displayName: "Lisp",
+							shortBio: "Parenthetical participant.",
+							prompt: "I speak in carefully nested forms.",
+							importSource: {
+								provider: "chirper",
+								originalHandle: "lisp",
+								originalProfileUrl: "https://chirper.ai/lisp",
+								apiUrl: "https://api.chirper.ai/v1/agent/lisp",
+								importedAt: "2026-05-10T00:00:00.000Z",
+								sourceAvatarUrl: sourceUrl,
+							},
+						},
+						cookie,
+					),
+					{ worldHandle: "patch-notes" },
+					{
+						AGENT_RUNTIME: {
+							fetch: async (serviceRequest: Request) =>
+								handleAgentRuntimeRequest(serviceRequest, {
+									BICKR_D1: testEnv.BICKR_D1,
+									BICKR_KV: testEnv.BICKR_KV,
+									BICKR_R2: r2.bucket,
+									BICKR_R2_PUBLIC_BASE_URL: "https://assets-test.bickr.social",
+								}),
+						} as unknown as Fetcher,
+					},
+				),
+			);
+			expect(response.status).toBe(201);
+			const body = (await response.json()) as { data: { bot: BotBody } };
+			expect(body.data.bot.avatarUrl).toMatch(/^https:\/\/assets-test\.bickr\.social\/worlds\/.+\/bots\/.+\/avatars\/.+\.webp$/);
+			const storedBot = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, body.data.bot.id);
+			expect(storedBot.importSource).toMatchObject({
+				provider: "chirper",
+				originalHandle: "lisp",
+				sourceAvatarUrl: sourceUrl,
+			});
+			expect(storedBot.avatar?.source).toMatchObject({
+				type: "chirper",
+				originalHandle: "lisp",
+				sourceUrl,
+			});
+			expect(r2.objects.size).toBe(1);
+		} finally {
+			vi.stubGlobal("fetch", originalFetch);
+		}
+	});
 });
 
 type BotBody = {
 	id: string;
 	handle: string;
 	displayName: string;
+	avatar?: AvatarImage;
+	avatarUrl?: string;
 	owner?: {
 		id: string;
 		handle: string;
@@ -16633,6 +17175,87 @@ function fakeSearchEmbedding(text: string): number[] {
 	return [normalized.length, normalized.charCodeAt(0) || 0, normalized.charCodeAt(normalized.length - 1) || 0];
 }
 
+type FakeR2StoredObject = {
+	bytes: Uint8Array;
+	httpMetadata?: {
+		contentType?: string;
+		cacheControl?: string;
+	};
+};
+
+function fakeR2Bucket(): { bucket: R2Bucket; objects: Map<string, FakeR2StoredObject> } {
+	const objects = new Map<string, FakeR2StoredObject>();
+	const bucket = {
+		get: async (key: string) => {
+			const object = objects.get(key);
+			if (!object) {
+				return null;
+			}
+			return {
+				arrayBuffer: async () => new Uint8Array(object.bytes).buffer,
+			};
+		},
+		put: async (
+			key: string,
+			value: unknown,
+			options?: { httpMetadata?: FakeR2StoredObject["httpMetadata"] },
+		) => {
+			objects.set(key, {
+				bytes: bytesFromR2PutValue(value),
+				...(options?.httpMetadata ? { httpMetadata: options.httpMetadata } : {}),
+			});
+			return null;
+		},
+		delete: async (key: string) => {
+			objects.delete(key);
+		},
+	} as unknown as R2Bucket;
+	return { bucket, objects };
+}
+
+function bytesFromR2PutValue(value: unknown): Uint8Array {
+	if (value instanceof ArrayBuffer) {
+		return new Uint8Array(value.slice(0));
+	}
+	if (ArrayBuffer.isView(value)) {
+		return new Uint8Array(new Uint8Array(value.buffer, value.byteOffset, value.byteLength));
+	}
+	throw new Error("Unexpected R2 test value.");
+}
+
+function pngAvatarBytes(): Uint8Array {
+	return base64Bytes("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==");
+}
+
+function webpAvatarBytes(): Uint8Array {
+	return new Uint8Array([
+		0x52, 0x49, 0x46, 0x46,
+		0x04, 0x00, 0x00, 0x00,
+		0x57, 0x45, 0x42, 0x50,
+	]);
+}
+
+function avatarDataUrl(): string {
+	return `data:image/png;base64,${base64String(pngAvatarBytes())}`;
+}
+
+function base64Bytes(value: string): Uint8Array {
+	const binary = atob(value);
+	const bytes = new Uint8Array(binary.length);
+	for (let index = 0; index < binary.length; index += 1) {
+		bytes[index] = binary.charCodeAt(index);
+	}
+	return bytes;
+}
+
+function base64String(bytes: Uint8Array): string {
+	let binary = "";
+	for (const byte of bytes) {
+		binary += String.fromCharCode(byte);
+	}
+	return btoa(binary);
+}
+
 async function authCookie(): Promise<string> {
 	return authCookieFor({
 		subject: "1175142",
@@ -16654,6 +17277,16 @@ async function authCookieFor(profile: { subject: string; login: string; displayN
 	});
 	const created = await createSession(testEnv.BICKR_KV, user.id);
 	return `${sessionCookieName}=${encodeURIComponent(created.cookieValue)}`;
+}
+
+async function userIdForHandle(handle: string): Promise<string> {
+	const row = await testEnv.BICKR_D1.prepare(`SELECT user_id AS id FROM users_index WHERE handle = ?`)
+		.bind(handle)
+		.first<{ id: string }>();
+	if (!row) {
+		throw new Error(`No test user for handle ${handle}.`);
+	}
+	return row.id;
 }
 
 async function seedWorld(cookie: string): Promise<void> {
@@ -16796,6 +17429,12 @@ function jsonRequest(
 		method,
 		headers,
 		body: JSON.stringify(body),
+	});
+}
+
+function serviceJsonRequest(path: string, userId: string, body: unknown): Request {
+	return jsonRequest(`https://internal.bickr${path}`, "POST", body, undefined, {
+		"x-bickr-user-id": userId,
 	});
 }
 
