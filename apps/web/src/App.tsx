@@ -201,6 +201,7 @@ type InferenceDraft = {
 	translationPresencePenalty: string;
 	translationRepetitionPenalty: string;
 	imageGenerationModel: string;
+	imageGenerationPrompt: string;
 	imageGenerationProviderRouting: string;
 	imageGenerationAspectRatio: string;
 	imageGenerationImageSize: string;
@@ -5651,7 +5652,7 @@ function BotAvatarGenerationScreen({
 	const [draft, setDraft] = useState<InferenceDraft>(() => inferenceDraftFromSettings(initialSettings));
 	const [models, setModels] = useState<OpenRouterImageModel[]>([]);
 	const [modelsError, setModelsError] = useState("");
-	const [prompt, setPrompt] = useState("");
+	const [prompt, setPrompt] = useState(initialSettings.imageGeneration?.prompt ?? "");
 	const [includeCurrentAvatar, setIncludeCurrentAvatar] = useState(Boolean(bot.avatarUrl));
 	const [candidate, setCandidate] = useState<AvatarImage | null>(null);
 	const [generating, setGenerating] = useState(false);
@@ -5663,7 +5664,9 @@ function BotAvatarGenerationScreen({
 	const [currentAvatarFailed, setCurrentAvatarFailed] = useState(false);
 
 	useEffect(() => {
-		setDraft(inferenceDraftFromSettings(bot.inferenceSettings.imageGeneration ? bot.inferenceSettings : ownerInferenceSettings ?? {}));
+		const effectiveSettings = bot.inferenceSettings.imageGeneration ? bot.inferenceSettings : ownerInferenceSettings ?? {};
+		setDraft(inferenceDraftFromSettings(effectiveSettings));
+		setPrompt(effectiveSettings.imageGeneration?.prompt ?? "");
 		setIncludeCurrentAvatar(Boolean(bot.avatarUrl));
 		setCurrentAvatarFailed(false);
 		setCandidate(null);
@@ -5736,7 +5739,7 @@ function BotAvatarGenerationScreen({
 				body: {
 					prompt,
 					includeCurrentAvatar,
-					settings: imageGenerationInputFromDraft(draft),
+					settings: imageGenerationInputFromDraft(draft, prompt),
 				},
 			});
 			if (!result.ok) {
@@ -5756,11 +5759,12 @@ function BotAvatarGenerationScreen({
 		setMessage("");
 		try {
 			if (candidate) {
+				const promptToSave = candidate.source?.type === "generated" && candidate.source.prompt ? candidate.source.prompt : prompt;
 				const result = await api<{ bot: BotSummary }>(`/api/me/bots/${encodeURIComponent(bot.id)}/avatar/apply`, {
 					method: "POST",
 					body: {
 						candidate,
-						settings: imageGenerationInputFromDraft(draft),
+						settings: imageGenerationInputFromDraft(draft, promptToSave),
 					},
 				});
 				if (!result.ok) {
@@ -5770,7 +5774,7 @@ function BotAvatarGenerationScreen({
 				setCandidate(null);
 				setMessage("Avatar saved.");
 			} else {
-				const ok = await onSaveSettings(draft);
+				const ok = await onSaveSettings({ ...draft, imageGenerationPrompt: prompt });
 				if (ok) {
 					setMessage("Image generation settings saved.");
 				}
@@ -5785,7 +5789,9 @@ function BotAvatarGenerationScreen({
 	async function discard(): Promise<void> {
 		const ok = await onDiscardSettings();
 		if (ok) {
-			setDraft(inferenceDraftFromSettings(ownerInferenceSettings ?? {}));
+			const effectiveSettings = ownerInferenceSettings ?? {};
+			setDraft(inferenceDraftFromSettings(effectiveSettings));
+			setPrompt(effectiveSettings.imageGeneration?.prompt ?? "");
 			setMessage("Participant image generation settings discarded.");
 		}
 	}
@@ -15774,6 +15780,7 @@ function inferenceDraftFromSettings(
 		translationPresencePenalty: numericDraftValue(settings.translation?.presencePenalty),
 		translationRepetitionPenalty: numericDraftValue(settings.translation?.repetitionPenalty),
 		imageGenerationModel: settings.imageGeneration?.model ?? "",
+		imageGenerationPrompt: settings.imageGeneration?.prompt ?? "",
 		imageGenerationProviderRouting: providerRoutingDraftValue(settings.imageGeneration?.providerRouting),
 		imageGenerationAspectRatio: settings.imageGeneration?.aspectRatio ?? "",
 		imageGenerationImageSize: settings.imageGeneration?.imageSize ?? "",
@@ -15835,6 +15842,7 @@ function inferenceDraftChanged(
 function imageGenerationDraftChanged(draft: InferenceDraft, settings: BotInferenceSettings): boolean {
 	return (
 		draft.imageGenerationModel.trim() !== (settings.imageGeneration?.model ?? "") ||
+		draft.imageGenerationPrompt.trim() !== (settings.imageGeneration?.prompt ?? "") ||
 		providerRoutingDraftChanged(draft.imageGenerationProviderRouting, settings.imageGeneration?.providerRouting) ||
 		draft.imageGenerationAspectRatio.trim() !== (settings.imageGeneration?.aspectRatio ?? "") ||
 		draft.imageGenerationImageSize.trim() !== (settings.imageGeneration?.imageSize ?? "") ||
@@ -15928,9 +15936,10 @@ function translationInputFromDraft(draft: InferenceDraft): BotInferenceSettingsI
 	};
 }
 
-function imageGenerationInputFromDraft(draft: InferenceDraft): BotInferenceSettingsInput["imageGeneration"] {
+function imageGenerationInputFromDraft(draft: InferenceDraft, prompt = draft.imageGenerationPrompt): BotInferenceSettingsInput["imageGeneration"] {
 	return {
 		model: nullableTextInput(draft.imageGenerationModel),
+		prompt: nullablePreservedTextInput(prompt),
 		providerRouting: providerRoutingInputFromDraft(draft.imageGenerationProviderRouting),
 		aspectRatio: nullableTextInput(draft.imageGenerationAspectRatio),
 		imageSize: nullableTextInput(draft.imageGenerationImageSize),

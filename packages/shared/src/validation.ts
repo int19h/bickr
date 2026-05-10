@@ -543,6 +543,7 @@ function parseImageGenerationSettings(value: unknown): BotImageGenerationSetting
 	const record = asRecord(value);
 	const settings: BotImageGenerationSettingsInput = {};
 	assignOptionalPlainText(settings, "model", record.model, "Image generation model", 160);
+	assignOptionalPlainText(settings, "prompt", record.prompt, "Image generation prompt", 8_000);
 	if (record.providerRouting !== undefined || record.provider_routing !== undefined) {
 		const providerRouting = aliasedValue(record, "providerRouting", "provider_routing");
 		settings.providerRouting = providerRouting === null ? null : parseProviderRouting(providerRouting);

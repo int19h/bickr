@@ -2927,6 +2927,7 @@ function mergeImageGenerationSettings(
 	}
 	const next: BotImageGenerationSettings = current ? cloneImageGenerationSettings(current) : {};
 	assignImageGenerationString(next, "model", patch.model);
+	assignImageGenerationString(next, "prompt", patch.prompt);
 	assignImageGenerationJsonObject(next, "providerRouting", patch.providerRouting);
 	assignImageGenerationString(next, "aspectRatio", patch.aspectRatio);
 	assignImageGenerationString(next, "imageSize", patch.imageSize);
@@ -2942,7 +2943,7 @@ function mergeImageGenerationSettings(
 
 function assignImageGenerationString(
 	settings: BotImageGenerationSettings,
-	key: "model" | "aspectRatio" | "imageSize",
+	key: "model" | "prompt" | "aspectRatio" | "imageSize",
 	value: string | null | undefined,
 ): void {
 	if (value === undefined) {
@@ -2995,6 +2996,7 @@ function assignImageGenerationNumber(
 function imageGenerationSettingsHasValues(settings: BotImageGenerationSettings): boolean {
 	return (
 		hasInferenceText(settings.model) ||
+		hasInferenceText(settings.prompt) ||
 		settings.providerRouting !== undefined ||
 		hasInferenceText(settings.aspectRatio) ||
 		hasInferenceText(settings.imageSize) ||

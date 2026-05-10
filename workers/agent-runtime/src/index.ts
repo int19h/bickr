@@ -1161,7 +1161,9 @@ const compactionReasoningFallbackStateKey = "compaction_reasoning_fallback";
 const contextBudgetCacheStateKey = (fingerprint: string): string => `context_budget:${fingerprint}`;
 const runtimeRunLeaseTimeoutMs = 15 * 60_000;
 const providerRequestTimeoutMs = 60_000;
+const providerImageRequestTimeoutMs = 240_000;
 const providerBodyReadTimeoutMs = 60_000;
+const providerImageBodyReadTimeoutMs = 240_000;
 const providerStreamIdleTimeoutMs = 60_000;
 const providerResponseBodyMaxBytes = 2_000_000;
 // Image outputs arrive inside JSON as base64 data URLs, so the response cap has to
@@ -9339,7 +9341,7 @@ async function fetchProviderAvatarImage(
 		endpoint,
 		{ method: "POST", headers, body: JSON.stringify(requestBody) },
 		signal,
-		providerRequestTimeoutMs,
+		providerImageRequestTimeoutMs,
 	);
 	if (!response.ok) {
 		const bodyText = await readProviderErrorBody(response, signal);
@@ -9351,8 +9353,8 @@ async function fetchProviderAvatarImage(
 			response,
 			providerImageResponseBodyMaxBytes,
 			signal,
-			providerBodyReadTimeoutMs,
-			() => new ProviderResponseBodyTimeoutError(providerBodyReadTimeoutMs),
+			providerImageBodyReadTimeoutMs,
+			() => new ProviderResponseBodyTimeoutError(providerImageBodyReadTimeoutMs),
 		);
 	} catch (error) {
 		if (error instanceof ResponseBodySizeLimitError) {
@@ -14665,6 +14667,9 @@ function errorResponse(error: unknown): Response {
 		return fail(error.code, error.message, error.status, error.details);
 	}
 	if (error instanceof ProviderRequestError) {
+		return fail("server_error", error.message, 502);
+	}
+	if (error instanceof ProviderRequestTimeoutError || error instanceof ProviderResponseBodyTimeoutError) {
 		return fail("server_error", error.message, 502);
 	}
 	if (error instanceof ResponseBodySizeLimitError) {

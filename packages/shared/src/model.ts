@@ -173,6 +173,7 @@ export type BotTranslationSettings = {
 
 export type BotImageGenerationSettings = {
 	model?: string;
+	prompt?: string;
 	providerRouting?: JsonObject;
 	aspectRatio?: string;
 	imageSize?: string;
@@ -211,6 +212,7 @@ export type BotInferenceSettingsInput = {
 
 export type BotImageGenerationSettingsInput = Partial<{
 	model: string | null;
+	prompt: string | null;
 	providerRouting: JsonObject | null;
 	aspectRatio: string | null;
 	imageSize: string | null;

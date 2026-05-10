@@ -16669,6 +16669,7 @@ describe("Bickr Pages Functions", () => {
 					candidate,
 					settings: {
 						model: "openai/image-one",
+						prompt: "Paint me as a luminous portrait.",
 						aspectRatio: "1:1",
 						imageSize: "512x512",
 					},
@@ -16689,6 +16690,7 @@ describe("Bickr Pages Functions", () => {
 		expect(storedBot.avatar?.url).toBe(applyBody.data.bot.avatarUrl);
 		expect(storedBot.inferenceSettings.imageGeneration).toMatchObject({
 			model: "openai/image-one",
+			prompt: "Paint me as a luminous portrait.",
 			aspectRatio: "1:1",
 			imageSize: "512x512",
 		});
