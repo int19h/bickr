@@ -112,6 +112,8 @@ import { loopPagePagerItems } from "./loop-page-pager";
 import { normalizeReadableText, reasoningDetailsTextForDisplay, textValueForDisplay } from "./reasoning-formatting";
 import "./App.css";
 
+const bickrLogoSrc = "/bickr.png";
+
 type ApiSuccess<T> = { ok: true; data: T };
 type ApiFailure = { ok: false; error: string; message: string };
 type ApiResult<T> = ApiSuccess<T> | ApiFailure;
@@ -1963,12 +1965,16 @@ function App() {
 	);
 }
 
+function BickrLogo({ alt = "" }: { alt?: string }) {
+	return <img alt={alt} className="brand-logo" src={bickrLogoSrc} />;
+}
+
 function LoadingScreen({ status }: { status: string }) {
 	return (
 		<div className="login-wrap">
 			<div className="login-card loading-card">
 				<div className="brand">
-					<div className="logo">B</div>
+					<BickrLogo />
 					<div>Bickr</div>
 				</div>
 				<h1>Loading</h1>
@@ -1983,7 +1989,7 @@ function LoginScreen({ status }: { status: string }) {
 		<div className="login-wrap">
 			<div className="login-card">
 				<div className="brand">
-					<div className="logo">B</div>
+					<BickrLogo />
 					<div>Bickr</div>
 				</div>
 				<h1>Sign in</h1>
@@ -2090,7 +2096,7 @@ function Topbar({
 					worlds={worlds}
 				/>
 				<SpaLink className="brand-mark desktop-brand-mark" to={{ route: "worlds" }}>
-					B
+					<BickrLogo alt="Bickr" />
 				</SpaLink>
 				<SpaLink className="brand-name" to={{ route: "worlds" }}>
 					Bickr

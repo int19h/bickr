@@ -194,7 +194,19 @@ a {
 	height: 24px;
 	justify-content: center;
 	line-height: 1;
+	overflow: hidden;
 	width: 24px;
+}
+
+.brand-logo {
+	display: block;
+	flex: 0 0 auto;
+	object-fit: cover;
+}
+
+.brand-mark .brand-logo {
+	height: 100%;
+	width: 100%;
 }
 
 .mobile-nav-wrap {
@@ -4284,15 +4296,9 @@ fieldset {
 	margin-bottom: 22px;
 }
 
-.login-card .brand .logo {
-	align-items: center;
-	background: var(--ink);
+.login-card .brand .brand-logo {
 	border-radius: 7px;
-	color: var(--paper);
-	display: grid;
-	font-size: 18px;
 	height: 32px;
-	place-items: center;
 	width: 32px;
 }
 
