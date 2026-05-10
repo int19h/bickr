@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useId, useMemo, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { AriaRole, CSSProperties, MouseEvent as ReactMouseEvent, ReactNode } from "react";
 import {
 	defaultProviderModel,
@@ -64,6 +64,11 @@ import {
 	type WorldListSummary,
 	type WorldSummary,
 } from "@bickr/shared/model";
+import {
+	defaultCommentBodyCharacters,
+	defaultThreadBodyCharacters,
+	effectivePostingSettings,
+} from "@bickr/shared/posting";
 import {
 	handleHelpText,
 	handlePatternSource,
@@ -1118,10 +1123,53 @@ function App() {
 			if (!result.ok) {
 				throw new Error(result.message);
 			}
+			const savedWorld = result.data.world;
+			const renamed = savedWorld.handle !== worldHandle;
 			setWorlds((current) =>
-				current.map((world) => world.id === result.data.world.id ? { ...world, ...result.data.world } : world),
+				current.map((world) => world.id === savedWorld.id ? { ...world, ...savedWorld } : world),
 			);
-			return `Saved world ${result.data.world.handle}.`;
+			if (renamed) {
+				setForumsByWorld((current) => {
+					const next = { ...current };
+					const renamedForums = next[worldHandle]?.map((forum) => ({ ...forum, worldHandle: savedWorld.handle }));
+					delete next[worldHandle];
+					if (renamedForums) {
+						next[savedWorld.handle] = renamedForums;
+					}
+					return next;
+				});
+				setBotsByWorld((current) => {
+					const next = { ...current };
+					const renamedBots = next[worldHandle]?.map((bot) => ({ ...bot, homeWorldHandle: savedWorld.handle }));
+					delete next[worldHandle];
+					if (renamedBots) {
+						next[savedWorld.handle] = renamedBots;
+					}
+					return next;
+				});
+				setBots((current) =>
+					current.map((bot) => bot.homeWorldHandle === worldHandle ? { ...bot, homeWorldHandle: savedWorld.handle } : bot),
+				);
+				setThreadsByForum((current) => renameThreadSummaries(current, { worldHandle, nextWorldHandle: savedWorld.handle }));
+				setThreadDocuments((current) => renameThreadDocuments(current, { worldHandle, nextWorldHandle: savedWorld.handle }));
+				if (activeWorldHandle === worldHandle) {
+					navigate(routeWithRenamedWorld(
+						{
+							route,
+							worldHandle,
+							forumHandle: activeForumHandle ?? undefined,
+							threadId: activeThreadId ?? undefined,
+							commentId: activeCommentId ?? undefined,
+							botHandle: activeBotHandle ?? undefined,
+							botProfileTab: activeBotProfileTab,
+							botActivityId: activeBotActivityId ?? undefined,
+							worldTab: activeWorldTab,
+						},
+						savedWorld.handle,
+					), true);
+				}
+			}
+			return `Saved world ${savedWorld.handle}.`;
 		});
 	}
 
@@ -1195,13 +1243,37 @@ function App() {
 			if (!result.ok) {
 				throw new Error(result.message);
 			}
+			const savedForum = result.data.forum;
+			const renamed = savedForum.handle !== forum.handle;
 			setForumsByWorld((current) => ({
 				...current,
 				[forum.worldHandle]: (current[forum.worldHandle] ?? []).map((item) =>
-					item.id === forum.id ? result.data.forum : item,
+					item.id === forum.id ? savedForum : item,
 				),
 			}));
-			return `Saved forum ${result.data.forum.handle}.`;
+			if (renamed) {
+				setThreadsByForum((current) =>
+					renameThreadSummaries(current, { forumId: forum.id, forumHandle: forum.handle, nextForumHandle: savedForum.handle }),
+				);
+				setThreadDocuments((current) =>
+					renameThreadDocuments(current, { forumId: forum.id, forumHandle: forum.handle, nextForumHandle: savedForum.handle }),
+				);
+				if (activeForum?.id === forum.id) {
+					navigate(
+						route === "thread" && activeThreadId ?
+							{
+								route: "thread",
+								worldHandle: savedForum.worldHandle,
+								forumHandle: savedForum.handle,
+								threadId: activeThreadId,
+								...(activeCommentId ? { commentId: activeCommentId } : {}),
+							}
+						:	{ route: "forum", worldHandle: savedForum.worldHandle, forumHandle: savedForum.handle },
+						true,
+					);
+				}
+			}
+			return `Saved forum ${savedForum.handle}.`;
 		});
 	}
 
@@ -1341,6 +1413,13 @@ function App() {
 		if (!profileReadyFor("editing bots")) {
 			return false;
 		}
+		const previousBot = findKnownBot(botId, bots, botsByWorld);
+		const previousPersonalForum =
+			previousBot ?
+				(forumsByWorld[previousBot.homeWorldHandle] ?? []).find(
+					(forum) => forum.personalBotId === previousBot.id && forum.handle === previousBot.handle,
+				) ?? null
+			:	null;
 		return submit(async () => {
 			const result = await api<{ bot: BotSummary }>(`/api/me/bots/${encodeURIComponent(botId)}`, {
 				method: "PATCH",
@@ -1349,18 +1428,58 @@ function App() {
 			if (!result.ok) {
 				throw new Error(result.message);
 			}
+			const savedBot = result.data.bot;
+			const renamed = Boolean(previousBot && previousBot.handle !== savedBot.handle);
 			setBots((current) =>
 				current.map((bot) =>
-					bot.id === botId ? { ...result.data.bot, lastActiveAt: result.data.bot.lastActiveAt ?? bot.lastActiveAt ?? bot.createdAt } : bot,
+					bot.id === botId ? { ...savedBot, lastActiveAt: savedBot.lastActiveAt ?? bot.lastActiveAt ?? bot.createdAt } : bot,
 				),
 			);
 			setBotsByWorld((current) => ({
 				...current,
-				[result.data.bot.homeWorldHandle]: (current[result.data.bot.homeWorldHandle] ?? []).map((bot) =>
-					bot.id === botId ? { ...result.data.bot, lastActiveAt: result.data.bot.lastActiveAt ?? bot.lastActiveAt ?? bot.createdAt } : bot,
+				[savedBot.homeWorldHandle]: (current[savedBot.homeWorldHandle] ?? []).map((bot) =>
+					bot.id === botId ? { ...savedBot, lastActiveAt: savedBot.lastActiveAt ?? bot.lastActiveAt ?? bot.createdAt } : bot,
 				),
 			}));
-			return `Saved bot ${result.data.bot.handle}.`;
+			if (renamed && previousBot) {
+				setForumsByWorld((current) => ({
+					...current,
+					[savedBot.homeWorldHandle]: (current[savedBot.homeWorldHandle] ?? []).map((forum) =>
+						forum.personalBotId === savedBot.id && forum.handle === previousBot.handle ?
+							{
+								...forum,
+								handle: savedBot.handle,
+								description: `Blog of ${savedBot.displayName} (u/${savedBot.handle})`,
+							}
+						:	forum,
+					),
+				}));
+				if (previousPersonalForum) {
+					setThreadsByForum((current) =>
+						renameThreadSummaries(current, {
+							forumId: previousPersonalForum.id,
+							forumHandle: previousPersonalForum.handle,
+							nextForumHandle: savedBot.handle,
+						}),
+					);
+					setThreadDocuments((current) =>
+						renameThreadDocuments(current, {
+							forumId: previousPersonalForum.id,
+							forumHandle: previousPersonalForum.handle,
+							nextForumHandle: savedBot.handle,
+						}),
+					);
+				}
+				if (activeBot?.id === savedBot.id && (route === "bot-profile" || route === "bot-loop" || route === "bot-edit")) {
+					navigate({
+						route,
+						worldHandle: savedBot.homeWorldHandle,
+						botHandle: savedBot.handle,
+						...(route === "bot-profile" ? { botProfileTab: activeBotProfileTab, botActivityId: activeBotActivityId ?? undefined } : {}),
+					}, true);
+				}
+			}
+			return `Saved bot ${savedBot.handle}.`;
 		});
 	}
 
@@ -1750,6 +1869,8 @@ function App() {
 								onDelete={deleteBot}
 								onSave={updateBot}
 								ownerInferenceSettings={userProfile?.inferenceSettings ?? null}
+								personalForum={activeBotBlogForum}
+								personalForumsLoaded={editingWorld ? hasOwn(forumsByWorld, editingWorld.handle) : false}
 								world={editingWorld}
 							/>
 						:	<PermissionState title="Bot edit is owner-only">
@@ -2630,7 +2751,7 @@ function CreateWorldModal({
 		<Modal
 			foot={
 				<>
-					<span className="help">Handles are permanent in this slice.</span>
+					<span className="help">World handles can be changed later.</span>
 					<div className="right">
 						<button className="btn ghost" disabled={busy} onClick={onClose} type="button">
 							Cancel
@@ -2697,31 +2818,67 @@ function EditWorldModal({
 	open: boolean;
 	world: WorldView;
 }) {
+	const [handle, setHandle] = useState(world.handle);
 	const [name, setName] = useState(world.name);
 	const [description, setDescription] = useState(world.description);
 	const [initialBotNotification, setInitialBotNotification] = useState(world.initialBotNotification);
+	const [threadBodyCharacters, setThreadBodyCharacters] = useState(optionalNumberDraftValue(world.postingSettings?.threadBodyCharacters));
+	const [commentBodyCharacters, setCommentBodyCharacters] = useState(optionalNumberDraftValue(world.postingSettings?.commentBodyCharacters));
 	const toast = useContext(ToastContext);
 
 	useEffect(() => {
 		if (open) {
+			setHandle(world.handle);
 			setName(world.name);
 			setDescription(world.description);
 			setInitialBotNotification(world.initialBotNotification);
+			setThreadBodyCharacters(optionalNumberDraftValue(world.postingSettings?.threadBodyCharacters));
+			setCommentBodyCharacters(optionalNumberDraftValue(world.postingSettings?.commentBodyCharacters));
 		}
-	}, [open, world.description, world.initialBotNotification, world.name]);
+	}, [
+		open,
+		world.description,
+		world.handle,
+		world.initialBotNotification,
+		world.name,
+		world.postingSettings?.commentBodyCharacters,
+		world.postingSettings?.threadBodyCharacters,
+	]);
 
-	const valid = name.trim().length > 0 && description.trim().length > 0 && initialBotNotification.trim().length > 0;
+	const threadBodyCharactersValue = parseOptionalPositiveInteger(threadBodyCharacters);
+	const commentBodyCharactersValue = parseOptionalPositiveInteger(commentBodyCharacters);
+	const valid =
+		isValidHandleText(handle) &&
+		name.trim().length > 0 &&
+		description.trim().length > 0 &&
+		initialBotNotification.trim().length > 0 &&
+		(threadBodyCharactersValue === null ||
+			(threadBodyCharactersValue >= 1 && threadBodyCharactersValue <= defaultThreadBodyCharacters)) &&
+		(commentBodyCharactersValue === null ||
+			(commentBodyCharactersValue >= 1 && commentBodyCharactersValue <= defaultCommentBodyCharacters));
 	const dirty =
+		handle !== world.handle ||
 		name !== world.name ||
 		description !== world.description ||
-		initialBotNotification !== world.initialBotNotification;
+		initialBotNotification !== world.initialBotNotification ||
+		threadBodyCharactersValue !== (world.postingSettings?.threadBodyCharacters ?? null) ||
+		commentBodyCharactersValue !== (world.postingSettings?.commentBodyCharacters ?? null);
 
 	async function submit(): Promise<void> {
-		const ok = await onSave({ name, description, initialBotNotification });
+		const ok = await onSave({
+			handle,
+			name,
+			description,
+			initialBotNotification,
+			postingSettings: {
+				threadBodyCharacters: threadBodyCharactersValue,
+				commentBodyCharacters: commentBodyCharactersValue,
+			},
+		});
 		if (ok) {
 			toast.push(
 				<>
-					Saved <Reference kind="world" name={world.handle} />
+					Saved <Reference kind="world" name={handle} />
 				</>,
 			);
 			onClose();
@@ -2732,7 +2889,7 @@ function EditWorldModal({
 		<Modal
 			foot={
 				<>
-					<span className="help">World handles are permanent for now.</span>
+					<span className="help">Routes in this world will move to the new handle.</span>
 					<div className="right">
 						<button className="btn ghost" disabled={busy} onClick={onClose} type="button">
 							Cancel
@@ -2748,10 +2905,14 @@ function EditWorldModal({
 			title="Edit world"
 			wide
 		>
-			<Field help={`bickr.local/w/${world.handle}`} label="Handle">
+			<Field help={handle ? `bickr.local/w/${handle}` : handleHelpText} label="Handle">
 				<div className="input-prefix">
 					<span className="prefix">w/</span>
-					<input className="input" disabled value={world.handle} />
+					<input
+						className="input"
+						onChange={(event) => setHandle(slugify(event.target.value))}
+						value={handle}
+					/>
 				</div>
 			</Field>
 			<Field hint="shown to humans" label="Name">
@@ -2781,6 +2942,38 @@ function EditWorldModal({
 					value={initialBotNotification}
 				/>
 			</Field>
+			<div className="field-row">
+				<Field help="Blank keeps the global default." label="Thread body characters">
+					<div className="input-suffix">
+						<input
+							className="input"
+							min={1}
+							max={defaultThreadBodyCharacters}
+							onChange={(event) => setThreadBodyCharacters(event.target.value)}
+							placeholder={String(defaultThreadBodyCharacters)}
+							step={1}
+							type="number"
+							value={threadBodyCharacters}
+						/>
+						<span className="suffix">chars</span>
+					</div>
+				</Field>
+				<Field help="Blank keeps the global default." label="Comment body characters">
+					<div className="input-suffix">
+						<input
+							className="input"
+							min={1}
+							max={defaultCommentBodyCharacters}
+							onChange={(event) => setCommentBodyCharacters(event.target.value)}
+							placeholder={String(defaultCommentBodyCharacters)}
+							step={1}
+							type="number"
+							value={commentBodyCharacters}
+						/>
+						<span className="suffix">chars</span>
+					</div>
+				</Field>
+			</div>
 		</Modal>
 	);
 }
@@ -3334,11 +3527,20 @@ function EditForumModal({
 	onSave: (forum: ForumSummary, input: UpdateForumInput) => Promise<boolean>;
 }) {
 	const [description, setDescription] = useState("");
+	const [renameOpen, setRenameOpen] = useState(false);
 	const toast = useContext(ToastContext);
+	const closeEditModal = useCallback(() => {
+		if (renameOpen) {
+			setRenameOpen(false);
+			return;
+		}
+		onClose();
+	}, [onClose, renameOpen]);
 
 	useEffect(() => {
 		if (forum) {
 			setDescription(forum.description);
+			setRenameOpen(false);
 		}
 	}, [forum]);
 
@@ -3366,9 +3568,9 @@ function EditForumModal({
 		<Modal
 			foot={
 				<>
-					<span className="help">Forum handles are permanent for now.</span>
+					<span className="help">Use Change to rename this forum.</span>
 					<div className="right">
-						<button className="btn ghost" disabled={busy} onClick={onClose} type="button">
+						<button className="btn ghost" disabled={busy} onClick={closeEditModal} type="button">
 							Cancel
 						</button>
 						<button className="btn primary" disabled={!dirty || !valid || busy} onClick={() => void submit()} type="button">
@@ -3377,14 +3579,19 @@ function EditForumModal({
 					</div>
 				</>
 			}
-			onClose={onClose}
+			onClose={closeEditModal}
 			open={Boolean(forum)}
 			title="Edit forum"
 		>
 			<Field help={`bickr.local/w/${activeForum.worldHandle}/f/${activeForum.handle}`} label="Handle">
-				<div className="input-prefix">
-					<span className="prefix">f/</span>
-					<input className="input" disabled value={activeForum.handle} />
+				<div className="inline-controls">
+					<div className="input-prefix input-prefix-grow">
+						<span className="prefix">f/</span>
+						<input className="input" disabled value={activeForum.handle} />
+					</div>
+					<button className="btn" disabled={busy} onClick={() => setRenameOpen(true)} type="button">
+						Change
+					</button>
 				</div>
 			</Field>
 			<Field hint="required" label="Short description">
@@ -3396,6 +3603,108 @@ function EditForumModal({
 					rows={4}
 					value={description}
 				/>
+			</Field>
+			<RenameHandleModal
+				busy={busy}
+				kind="forum"
+				routeHelp={(handle) => `bickr.local/w/${activeForum.worldHandle}/f/${handle}`}
+				onClose={() => setRenameOpen(false)}
+				onSave={async (handle) => {
+					const ok = await onSave(activeForum, { handle });
+					if (ok) {
+						toast.push(
+							<>
+								Renamed <Reference kind="forum" name={handle} />
+							</>,
+						);
+						setRenameOpen(false);
+						onClose();
+					}
+					return ok;
+				}}
+				open={renameOpen}
+				oldHandle={activeForum.handle}
+				warning={
+					<>
+						Existing comments and descriptions of other forums and bots that mention <b>f/{activeForum.handle}</b> will
+						not be updated. Those references will continue to show <b>f/{activeForum.handle}</b> after this forum is
+						renamed.
+					</>
+				}
+			/>
+		</Modal>
+	);
+}
+
+function RenameHandleModal({
+	busy,
+	kind,
+	oldHandle,
+	routeHelp,
+	onClose,
+	onSave,
+	open,
+	warning,
+}: {
+	busy: boolean;
+	kind: "forum" | "bot";
+	oldHandle: string;
+	routeHelp: (handle: string) => string;
+	onClose: () => void;
+	onSave: (handle: string) => Promise<boolean>;
+	open: boolean;
+	warning: ReactNode;
+}) {
+	const [handle, setHandle] = useState(oldHandle);
+	const label = kind === "forum" ? "Forum handle" : "Bot handle";
+	const prefix = kind === "forum" ? "f/" : "u/";
+
+	useEffect(() => {
+		if (open) {
+			setHandle(oldHandle);
+		}
+	}, [oldHandle, open]);
+
+	const valid = isValidHandleText(handle);
+	const dirty = handle !== oldHandle;
+
+	async function submit(): Promise<void> {
+		const ok = await onSave(handle);
+		if (ok) {
+			onClose();
+		}
+	}
+
+	return (
+		<Modal
+			foot={
+				<>
+					<span className="help">{prefix}{oldHandle} will stop being the canonical handle.</span>
+					<div className="right">
+						<button className="btn ghost" disabled={busy} onClick={onClose} type="button">
+							Cancel
+						</button>
+						<button className="btn primary" disabled={!dirty || !valid || busy} onClick={() => void submit()} type="button">
+							Save
+						</button>
+					</div>
+				</>
+			}
+			onClose={onClose}
+			open={open}
+			title={`Change ${kind} handle`}
+		>
+			<div className="rename-warning">⚠️ {warning}</div>
+			<Field help={handle ? routeHelp(handle) : handleHelpText} label={label}>
+				<div className="input-prefix">
+					<span className="prefix">{prefix}</span>
+					<input
+						autoFocus
+						className="input"
+						onChange={(event) => setHandle(slugify(event.target.value))}
+						value={handle}
+					/>
+				</div>
 			</Field>
 		</Modal>
 	);
@@ -5658,6 +5967,8 @@ function BotEdit({
 	onDelete,
 	onSave,
 	ownerInferenceSettings,
+	personalForum,
+	personalForumsLoaded,
 	world,
 }: {
 	bot: BotSummary;
@@ -5667,6 +5978,8 @@ function BotEdit({
 	onDelete: (bot: BotSummary) => Promise<boolean>;
 	onSave: (botId: string, draft: UpdateBotInput) => Promise<boolean>;
 	ownerInferenceSettings: BotInferenceSettings | null;
+	personalForum: ForumSummary | null;
+	personalForumsLoaded: boolean;
 	world: WorldView | null;
 }) {
 	const [draft, setDraft] = useState({
@@ -5678,6 +5991,8 @@ function BotEdit({
 			inferenceFallbackContextForSettings(bot.inferenceSettings, ownerInferenceSettings),
 		),
 		tools: toolDraftFromSettings(bot.toolSettings),
+		threadBodyCharacters: optionalNumberDraftValue(bot.postingSettings.threadBodyCharacters),
+		commentBodyCharacters: optionalNumberDraftValue(bot.postingSettings.commentBodyCharacters),
 		tickIntervalMinutes: String(secondsToMinutes(bot.tickSettings.intervalSeconds)),
 		allowEarlyLogOff: bot.effectiveTickSettings.allowEarlyLogOff,
 		contextWindowTokens: optionalNumberDraftValue(bot.tickSettings.contextWindowTokens),
@@ -5689,6 +6004,7 @@ function BotEdit({
 		maxGeneratedTokensPerIteration: optionalNumberDraftValue(bot.tickSettings.maxGeneratedTokensPerIteration),
 	});
 	const [confirm, setConfirm] = useState(false);
+	const [renameOpen, setRenameOpen] = useState(false);
 	const [promptBudget, setPromptBudget] = useState<PromptBudgetState>({ status: "idle" });
 	const toast = useContext(ToastContext);
 
@@ -5702,6 +6018,8 @@ function BotEdit({
 				inferenceFallbackContextForSettings(bot.inferenceSettings, ownerInferenceSettings),
 			),
 			tools: toolDraftFromSettings(bot.toolSettings),
+			threadBodyCharacters: optionalNumberDraftValue(bot.postingSettings.threadBodyCharacters),
+			commentBodyCharacters: optionalNumberDraftValue(bot.postingSettings.commentBodyCharacters),
 			tickIntervalMinutes: String(secondsToMinutes(bot.tickSettings.intervalSeconds)),
 			allowEarlyLogOff: bot.effectiveTickSettings.allowEarlyLogOff,
 			contextWindowTokens: optionalNumberDraftValue(bot.tickSettings.contextWindowTokens),
@@ -5719,6 +6037,8 @@ function BotEdit({
 		ownerInferenceSettings,
 		bot.prompt,
 		bot.shortBio,
+		bot.postingSettings.commentBodyCharacters,
+		bot.postingSettings.threadBodyCharacters,
 		bot.toolSettings,
 		bot.effectiveTickSettings.allowEarlyLogOff,
 		bot.tickSettings.contextWindowTokens,
@@ -5740,6 +6060,9 @@ function BotEdit({
 	const maxSuccessfulToolCallsPerIteration = parseOptionalPositiveInteger(draft.maxSuccessfulToolCallsPerIteration);
 	const maxGeneratedTokensPerTick = parseOptionalPositiveInteger(draft.maxGeneratedTokensPerTick);
 	const maxGeneratedTokensPerIteration = parseOptionalPositiveInteger(draft.maxGeneratedTokensPerIteration);
+	const threadBodyCharacters = parseOptionalPositiveInteger(draft.threadBodyCharacters);
+	const commentBodyCharacters = parseOptionalPositiveInteger(draft.commentBodyCharacters);
+	const inheritedPostingSettings = effectivePostingSettings(world?.postingSettings, undefined);
 	const resolvedContextWindowTokens = contextWindowTokens ?? bot.effectiveTickSettings.contextWindowTokens;
 	const providerRoutingError = providerRoutingDraftError(draft.inference.providerRouting);
 	const translationProviderRoutingError = providerRoutingDraftError(draft.inference.translationProviderRouting);
@@ -5763,6 +6086,8 @@ function BotEdit({
 		maxSuccessfulToolCallsPerIteration !== (bot.tickSettings.maxSuccessfulToolCallsPerIteration ?? null) ||
 		maxGeneratedTokensPerTick !== (bot.tickSettings.maxGeneratedTokensPerTick ?? null) ||
 		maxGeneratedTokensPerIteration !== (bot.tickSettings.maxGeneratedTokensPerIteration ?? null) ||
+		threadBodyCharacters !== (bot.postingSettings.threadBodyCharacters ?? null) ||
+		commentBodyCharacters !== (bot.postingSettings.commentBodyCharacters ?? null) ||
 		inferenceDraftChanged(draft.inference, bot.inferenceSettings, {
 			includeReasoningPrefill: true,
 			inherited: inferenceInheritance,
@@ -5787,6 +6112,10 @@ function BotEdit({
 		(maxGeneratedTokensPerTick === null || (maxGeneratedTokensPerTick >= 1 && maxGeneratedTokensPerTick <= 1_000_000)) &&
 		(maxGeneratedTokensPerIteration === null ||
 			(maxGeneratedTokensPerIteration >= 1 && maxGeneratedTokensPerIteration <= 1_000_000)) &&
+		(threadBodyCharacters === null ||
+			(threadBodyCharacters >= 1 && threadBodyCharacters <= inheritedPostingSettings.threadBodyCharacters)) &&
+		(commentBodyCharacters === null ||
+			(commentBodyCharacters >= 1 && commentBodyCharacters <= inheritedPostingSettings.commentBodyCharacters)) &&
 		toolDraftValid(draft.tools);
 
 	useEffect(() => {
@@ -5822,6 +6151,10 @@ function BotEdit({
 			prompt: draft.prompt,
 			inferenceSettings: inferenceInputFromDraft(draft.inference, inferenceInheritance, { includeReasoningPrefill: true }),
 			toolSettings: toolInputFromDraft(draft.tools),
+			postingSettings: {
+				threadBodyCharacters,
+				commentBodyCharacters,
+			},
 			tickSettings: {
 				intervalSeconds: tickIntervalMinutes * 60,
 				allowEarlyLogOff: draft.allowEarlyLogOff,
@@ -5847,6 +6180,10 @@ function BotEdit({
 		if (
 			!draft.prompt.trim() ||
 			(contextWindowTokens !== null && (contextWindowTokens < 2_000 || contextWindowTokens > 1_000_000)) ||
+			(threadBodyCharacters !== null &&
+				(threadBodyCharacters < 1 || threadBodyCharacters > inheritedPostingSettings.threadBodyCharacters)) ||
+			(commentBodyCharacters !== null &&
+				(commentBodyCharacters < 1 || commentBodyCharacters > inheritedPostingSettings.commentBodyCharacters)) ||
 			providerRoutingDraftError(draft.inference.providerRouting)
 		) {
 			return;
@@ -5863,6 +6200,10 @@ function BotEdit({
 					shortBio: draft.shortBio,
 					inferenceSettings: inferenceInputFromDraft(draft.inference, inferenceInheritance, { includeReasoningPrefill: true }),
 					toolSettings: toolInputFromDraft(draft.tools),
+					postingSettings: {
+						threadBodyCharacters,
+						commentBodyCharacters,
+					},
 					tickSettings: {
 						allowEarlyLogOff: draft.allowEarlyLogOff,
 						contextWindowTokens,
@@ -5883,6 +6224,7 @@ function BotEdit({
 		draft.inference.baseUrl,
 		ownerInferenceSettings?.baseUrl,
 	);
+	const personalForumRenames = personalForum?.handle === bot.handle;
 
 	return (
 		<div className="main-inner">
@@ -5927,10 +6269,25 @@ function BotEdit({
 										value={draft.displayName}
 									/>
 								</Field>
-								<Field help="Bot handles are immutable for now." label="Handle">
-									<div className="input-prefix">
-										<span className="prefix">u/</span>
-										<input className="input" disabled value={bot.handle} />
+								<Field help={dirty ? "Save or discard other edits before changing this handle." : "Handle changes require confirmation."} label="Handle">
+									<div className="inline-controls">
+										<div className="input-prefix input-prefix-grow">
+											<span className="prefix">u/</span>
+											<input className="input" disabled value={bot.handle} />
+										</div>
+										<button
+											className="btn"
+											disabled={busy || dirty || !personalForumsLoaded}
+											onClick={() => setRenameOpen(true)}
+											title={
+												!personalForumsLoaded ? "Loading personal forum state"
+												: dirty ? "Save or discard other edits first"
+												: "Change handle"
+											}
+											type="button"
+										>
+											Change
+										</button>
 									</div>
 								</Field>
 							</div>
@@ -5980,6 +6337,49 @@ function BotEdit({
 							loading={promptBudgetLoading}
 							onCompute={() => void computePromptBudget()}
 						/>
+					</section>
+
+					<section className="section">
+						<div className="section-head">
+							<h2>Posting</h2>
+							<span className="meta">soft body limits</span>
+						</div>
+						<div className="field-row">
+							<Field help="Blank inherits the world limit." label="Thread body characters">
+								<div className="input-suffix">
+									<input
+										className="input"
+										min={1}
+										max={inheritedPostingSettings.threadBodyCharacters}
+										onChange={(event) =>
+											setDraft((current) => ({ ...current, threadBodyCharacters: event.target.value }))
+										}
+										placeholder={String(bot.effectivePostingSettings.threadBodyCharacters)}
+										step={1}
+										type="number"
+										value={draft.threadBodyCharacters}
+									/>
+									<span className="suffix">chars</span>
+								</div>
+							</Field>
+							<Field help="Blank inherits the world limit." label="Comment body characters">
+								<div className="input-suffix">
+									<input
+										className="input"
+										min={1}
+										max={inheritedPostingSettings.commentBodyCharacters}
+										onChange={(event) =>
+											setDraft((current) => ({ ...current, commentBodyCharacters: event.target.value }))
+										}
+										placeholder={String(bot.effectivePostingSettings.commentBodyCharacters)}
+										step={1}
+										type="number"
+										value={draft.commentBodyCharacters}
+									/>
+									<span className="suffix">chars</span>
+								</div>
+							</Field>
+						</div>
 					</section>
 
 					<section className="section">
@@ -6279,6 +6679,38 @@ function BotEdit({
 					</section>
 				</aside>
 			</div>
+
+			<RenameHandleModal
+				busy={busy}
+				kind="bot"
+				routeHelp={(handle) => world ? `bickr.local/w/${world.handle}/u/${handle}` : `u/${handle}`}
+				onClose={() => setRenameOpen(false)}
+				onSave={async (handle) => {
+					const ok = await onSave(bot.id, { handle });
+					if (ok) {
+						toast.push(
+							<>
+								Renamed <Reference isBot kind="bot" name={handle} />
+							</>,
+						);
+						setRenameOpen(false);
+					}
+					return ok;
+				}}
+				open={renameOpen}
+				oldHandle={bot.handle}
+				warning={
+					<>
+						Existing comments and descriptions of other forums and bots that mention <b>u/{bot.handle}</b> will
+						not be updated. Those references will continue to show <b>u/{bot.handle}</b> after this bot is renamed.
+						{personalForumRenames && (
+							<>
+								{" "}The personal forum <b>f/{personalForum.handle}</b> will be renamed too, and old <b>f/{personalForum.handle}</b> references will not be updated.
+							</>
+						)}
+					</>
+				}
+			/>
 
 			<Confirm
 				body={
@@ -13599,6 +14031,99 @@ function hasOwn<T>(record: Record<string, T>, key: string): boolean {
 	return Object.prototype.hasOwnProperty.call(record, key);
 }
 
+function findKnownBot(
+	botId: string,
+	ownedBots: BotSummary[],
+	botsByWorld: Record<string, BotSummary[]>,
+): BotSummary | null {
+	return ownedBots.find((bot) => bot.id === botId) ??
+		Object.values(botsByWorld).flat().find((bot) => bot.id === botId) ??
+		null;
+}
+
+function renameThreadSummaries(
+	current: Record<string, ThreadSummary[]>,
+	rename: {
+		worldHandle?: string;
+		nextWorldHandle?: string;
+		forumId?: string;
+		forumHandle?: string;
+		nextForumHandle?: string;
+	},
+): Record<string, ThreadSummary[]> {
+	return Object.fromEntries(
+		Object.entries(current).map(([forumId, threads]) => [
+			forumId,
+			threads.map((thread) => ({
+				...thread,
+				...(rename.worldHandle && thread.worldHandle === rename.worldHandle ?
+					{ worldHandle: rename.nextWorldHandle ?? thread.worldHandle }
+				:	{}),
+				...(rename.forumId && thread.forumId === rename.forumId && thread.forumHandle === rename.forumHandle ?
+					{ forumHandle: rename.nextForumHandle ?? thread.forumHandle }
+				:	{}),
+			})),
+		]),
+	);
+}
+
+function renameThreadDocuments(
+	current: Record<string, ThreadDocument>,
+	rename: {
+		worldHandle?: string;
+		nextWorldHandle?: string;
+		forumId?: string;
+		forumHandle?: string;
+		nextForumHandle?: string;
+	},
+): Record<string, ThreadDocument> {
+	return Object.fromEntries(
+		Object.entries(current).map(([threadId, thread]) => [
+			threadId,
+			{
+				...thread,
+				...(rename.worldHandle && thread.worldHandle === rename.worldHandle ?
+					{ worldHandle: rename.nextWorldHandle ?? thread.worldHandle }
+				:	{}),
+				...(rename.forumId && thread.forumId === rename.forumId && thread.forumHandle === rename.forumHandle ?
+					{ forumHandle: rename.nextForumHandle ?? thread.forumHandle }
+				:	{}),
+			},
+		]),
+	);
+}
+
+function routeWithRenamedWorld(current: ParsedRoute, nextWorldHandle: string): ParsedRoute {
+	switch (current.route) {
+		case "world":
+			return { route: "world", worldHandle: nextWorldHandle, worldTab: current.worldTab };
+		case "forum":
+			return { route: "forum", worldHandle: nextWorldHandle, forumHandle: current.forumHandle };
+		case "thread":
+			return {
+				route: "thread",
+				worldHandle: nextWorldHandle,
+				forumHandle: current.forumHandle,
+				threadId: current.threadId,
+				commentId: current.commentId,
+			};
+		case "bot-profile":
+			return {
+				route: "bot-profile",
+				worldHandle: nextWorldHandle,
+				botHandle: current.botHandle,
+				botProfileTab: current.botProfileTab,
+				botActivityId: current.botActivityId,
+			};
+		case "bot-loop":
+			return { route: "bot-loop", worldHandle: nextWorldHandle, botHandle: current.botHandle };
+		case "bot-edit":
+			return { route: "bot-edit", worldHandle: nextWorldHandle, botHandle: current.botHandle };
+		default:
+			return { route: "world", worldHandle: nextWorldHandle };
+	}
+}
+
 function adjustWorldCounts(
 	worlds: WorldListSummary[],
 	worldHandle: string,
@@ -14159,7 +14684,9 @@ function botPromptBudgetRequestKey(
 		displayName: string;
 		inference: InferenceDraft;
 		prompt: string;
+		commentBodyCharacters: string;
 		shortBio: string;
+		threadBodyCharacters: string;
 		tools: BotToolDraft;
 	},
 	inherited?: InferenceModelUnlockContext | null,
@@ -14176,6 +14703,7 @@ function botPromptBudgetRequestKey(
 		compactionMaxCharacters: draft.compactionMaxCharacters.trim(),
 		compactionSummaryPercent: draft.compactionSummaryPercent.trim(),
 		contextWindowTokens: draft.contextWindowTokens.trim(),
+		commentBodyCharacters: draft.commentBodyCharacters.trim(),
 		providerRouting: providerRoutingDraftFingerprintValue(draft.inference.providerRouting, inherited?.providerRouting),
 		recurringPrompt:
 			draft.inference.recurringPromptEnabled ?
@@ -14186,6 +14714,7 @@ function botPromptBudgetRequestKey(
 		supportsPrefill: draft.inference.supportsPrefill,
 		toolCalls: draft.inference.toolCalls,
 		shortBio: draft.shortBio,
+		threadBodyCharacters: draft.threadBodyCharacters.trim(),
 		tools: toolInputFromDraft(draft.tools),
 	});
 }

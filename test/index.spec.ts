@@ -146,7 +146,12 @@ import {
 	type SpotlightSyntheticContext,
 	type ThreadDocument,
 	type UserProfile,
+	type WorldSummary,
 } from "../packages/shared/src/model";
+import {
+	defaultCommentBodyCharacters,
+	defaultThreadBodyCharacters,
+} from "../packages/shared/src/posting";
 import { isValidHandleText, maxProviderRoutingJsonLength, sanitizeHandleInput } from "../packages/shared/src/validation";
 import { sessionCookieName, type AppEnv } from "../apps/web/functions/api/_auth";
 import { oauthCookieNames } from "../apps/web/functions/api/auth/_oauth";
@@ -193,6 +198,8 @@ CREATE TABLE worlds_index (
 	name TEXT NOT NULL,
 	description TEXT NOT NULL,
 	initial_bot_notification TEXT NOT NULL DEFAULT 'You have just finished creating your Bickr account and logged in for the first time.',
+	posting_thread_body_characters INTEGER,
+	posting_comment_body_characters INTEGER,
 	created_by_user_id TEXT NOT NULL,
 	visibility TEXT NOT NULL,
 	created_at TEXT NOT NULL,
@@ -587,32 +594,49 @@ describe("Bickr Pages Functions", () => {
 
 		const reply = toolDefinitions.find((definition) => definition.function.name === "reply_to_comment");
 		const additionalReply = toolDefinitions.find((definition) => definition.function.name === "make_additional_reply_to_the_same_comment");
-			expect(reply?.function.parameters.properties).toEqual({
-				commentId: { type: "string" },
-				body: { type: "string" },
-			});
-			expect(additionalReply?.function.parameters.properties).toEqual(reply?.function.parameters.properties);
-			expect(additionalReply?.function.parameters.required).toEqual(["commentId", "body"]);
-			const roundTools = toolDefinitionsForProviderRound(1234);
-			expect(roundTools.slice(0, -1)).toEqual(toolDefinitions);
-			const metaTool = roundTools.at(-1);
-			expect(metaCompactionToolName).toBe("provide_summary");
-			expect(metaTool?.function.name).toBe(metaCompactionToolName);
-			expect(metaTool?.function.description).toContain("Use only when directed.");
-			expect(metaTool?.function.parameters.properties[providerCompactionSummaryProperty]).toMatchObject({
-				type: "string",
-				minLength: 1,
-				maxLength: 1234,
-			});
-			expect(metaTool?.function.parameters.additionalProperties).toBe(false);
-			expect(toolDefinitionsForProviderRound(1234, { includeMetaCompactionTool: false })).toEqual(toolDefinitions);
-			expect(toolDefinitionsForProviderRound(1234, { includeLogOffTool: false }).map((definition) => definition.function.name)).not.toContain("log_off");
-			expect(toolDefinitionsForProviderRound(1234, { compactionMinCharacters: 321 }).at(-1)?.function.parameters.properties[providerCompactionSummaryProperty]).toMatchObject({
-				minLength: 1,
-				maxLength: 1234,
-			});
+		expect(reply?.function.parameters.properties).toEqual({
+			commentId: { type: "string" },
+			body: { type: "string", maxLength: defaultCommentBodyCharacters },
+		});
+		expect(additionalReply?.function.parameters.properties).toEqual(reply?.function.parameters.properties);
+		expect(additionalReply?.function.parameters.required).toEqual(["commentId", "body"]);
+		const createThread = toolDefinitions.find((definition) => definition.function.name === "create_thread");
+		expect(createThread?.function.parameters.properties.body).toEqual({
+			type: "string",
+			maxLength: defaultThreadBodyCharacters,
+		});
+		const customPostingTools = toolDefinitionsForProviderRound(1234, {
+			includeMetaCompactionTool: false,
+			postingLimits: { threadBodyCharacters: 123, commentBodyCharacters: 45 },
+		});
+		expect(customPostingTools.find((definition) => definition.function.name === "create_thread")?.function.parameters.properties.body).toEqual({
+			type: "string",
+			maxLength: 123,
+		});
+		expect(customPostingTools.find((definition) => definition.function.name === "reply_to_comment")?.function.parameters.properties.body).toEqual({
+			type: "string",
+			maxLength: 45,
+		});
+		const roundTools = toolDefinitionsForProviderRound(1234);
+		expect(roundTools.slice(0, -1)).toEqual(toolDefinitions);
+		const metaTool = roundTools.at(-1);
+		expect(metaCompactionToolName).toBe("provide_summary");
+		expect(metaTool?.function.name).toBe(metaCompactionToolName);
+		expect(metaTool?.function.description).toContain("Use only when directed.");
+		expect(metaTool?.function.parameters.properties[providerCompactionSummaryProperty]).toMatchObject({
+			type: "string",
+			minLength: 1,
+			maxLength: 1234,
+		});
+		expect(metaTool?.function.parameters.additionalProperties).toBe(false);
+		expect(toolDefinitionsForProviderRound(1234, { includeMetaCompactionTool: false })).toEqual(toolDefinitions);
+		expect(toolDefinitionsForProviderRound(1234, { includeLogOffTool: false }).map((definition) => definition.function.name)).not.toContain("log_off");
+		expect(toolDefinitionsForProviderRound(1234, { compactionMinCharacters: 321 }).at(-1)?.function.parameters.properties[providerCompactionSummaryProperty]).toMatchObject({
+			minLength: 1,
+			maxLength: 1234,
+		});
 
-			const logOff = toolDefinitions.find((definition) => definition.function.name === "log_off");
+		const logOff = toolDefinitions.find((definition) => definition.function.name === "log_off");
 		expect(logOff?.function.parameters.required).toEqual(["reason"]);
 		expect(logOff?.function.parameters.properties.reason).toEqual({
 			type: "string",
@@ -10341,6 +10365,386 @@ describe("Bickr Pages Functions", () => {
 		expect(forumsPayload.data.forums.map((forum) => forum.handle)).toEqual(expect.arrayContaining(["announcements", "intro"]));
 	});
 
+	it("renames world handles across route metadata", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const forum = await createForumForTest(cookie, "release-room");
+		const bot = await createBotForTest(cookie, "release-sage");
+		const thread = await createThreadForTest(forum.id, bot.id, "World rename route", "World route body.");
+		await createWorld(
+			contextFor<typeof createWorld>(
+				jsonRequest(
+					"http://example.com/api/worlds",
+					"POST",
+					{ handle: "taken-world", name: "Taken World", description: "Already exists." },
+					cookie,
+				),
+			),
+		);
+
+		const conflict = await patchWorld(
+			contextFor<typeof patchWorld>(
+				jsonRequest(
+					"http://example.com/api/worlds/patch-notes",
+					"PATCH",
+					{ handle: "taken-world" },
+					cookie,
+				),
+				{ worldHandle: "patch-notes" },
+			),
+		);
+		expect(conflict.status).toBe(409);
+
+		const response = await patchWorld(
+			contextFor<typeof patchWorld>(
+				jsonRequest(
+					"http://example.com/api/worlds/patch-notes",
+					"PATCH",
+					{ handle: "release-notes", name: "Release Notes" },
+					cookie,
+				),
+				{ worldHandle: "patch-notes" },
+			),
+		);
+		expect(response.status, await response.clone().text()).toBe(200);
+		expect(await response.json()).toMatchObject({
+			ok: true,
+			data: { world: { handle: "release-notes", name: "Release Notes" } },
+		});
+
+		const worldsResponse = await worlds(contextFor<typeof worlds>(new Request("http://example.com/api/worlds")));
+		expect(await worldsResponse.json()).toMatchObject({
+			ok: true,
+			data: { worlds: expect.arrayContaining([expect.objectContaining({ handle: "release-notes" })]) },
+		});
+
+		const forumsResponse = await forums(
+			contextFor<typeof forums>(
+				new Request("http://example.com/api/worlds/release-notes/forums"),
+				{ worldHandle: "release-notes" },
+			),
+		);
+		const forumsPayload = (await forumsResponse.json()) as { data: { forums: Array<{ handle: string; worldHandle: string }> } };
+		expect(forumsPayload.data.forums.find((item) => item.handle === "release-room")).toMatchObject({
+			worldHandle: "release-notes",
+		});
+
+		const botsResponse = await worldBots(
+			contextFor<typeof worldBots>(
+				new Request("http://example.com/api/worlds/release-notes/bots"),
+				{ worldHandle: "release-notes" },
+			),
+		);
+		const botsPayload = (await botsResponse.json()) as { data: { bots: Array<{ handle: string; homeWorldHandle: string }> } };
+		expect(botsPayload.data.bots.find((item) => item.handle === "release-sage")).toMatchObject({
+			homeWorldHandle: "release-notes",
+		});
+
+		const threadResponse = await threadDetail(
+			contextFor<typeof threadDetail>(
+				new Request(`http://example.com/api/worlds/release-notes/forums/release-room/threads/${thread.id}`),
+				{ worldHandle: "release-notes", forumHandle: "release-room", threadId: thread.id },
+			),
+		);
+		expect(threadResponse.status, await threadResponse.clone().text()).toBe(200);
+		expect(await threadResponse.json()).toMatchObject({
+			ok: true,
+			data: { thread: { id: thread.id, worldHandle: "release-notes", forumHandle: "release-room" } },
+		});
+	});
+
+	it("persists configurable posting settings in world and bot summaries", async () => {
+		const cookie = await authCookie();
+		const worldResponse = await createWorld(
+			contextFor<typeof createWorld>(
+				jsonRequest(
+					"http://example.com/api/worlds",
+					"POST",
+					{
+						handle: "limits-world",
+						name: "Limits World",
+						description: "Posting limits.",
+						postingSettings: {
+							threadBodyCharacters: 6000,
+							commentBodyCharacters: 3000,
+						},
+					},
+					cookie,
+				),
+			),
+		);
+		expect(worldResponse.status, await worldResponse.clone().text()).toBe(201);
+		expect(await worldResponse.json()).toMatchObject({
+			ok: true,
+			data: {
+				world: {
+					handle: "limits-world",
+					postingSettings: {
+						threadBodyCharacters: 6000,
+						commentBodyCharacters: 3000,
+					},
+				},
+			},
+		});
+
+		const worldsResponse = await worlds(contextFor<typeof worlds>(new Request("http://example.com/api/worlds")));
+		expect(await worldsResponse.json()).toMatchObject({
+			ok: true,
+			data: {
+				worlds: expect.arrayContaining([
+					expect.objectContaining({
+						handle: "limits-world",
+						postingSettings: {
+							threadBodyCharacters: 6000,
+							commentBodyCharacters: 3000,
+						},
+					}),
+				]),
+			},
+		});
+
+		const tooLargeBotResponse = await createBot(
+			contextFor<typeof createBot>(
+				jsonRequest(
+					"http://example.com/api/worlds/limits-world/bots",
+					"POST",
+					{
+						handle: "too-large-limits",
+						displayName: "Too Large Limits",
+						shortBio: "Limit test.",
+						prompt: "Post within the configured limits.",
+						postingSettings: { threadBodyCharacters: 7000 },
+					},
+					cookie,
+				),
+				{ worldHandle: "limits-world" },
+			),
+		);
+		expect(tooLargeBotResponse.status).toBe(400);
+
+		const botResponse = await createBot(
+			contextFor<typeof createBot>(
+				jsonRequest(
+					"http://example.com/api/worlds/limits-world/bots",
+					"POST",
+					{
+						handle: "limits-bot",
+						displayName: "Limits Bot",
+						shortBio: "Limit test.",
+						prompt: "Post within the configured limits.",
+						postingSettings: {
+							threadBodyCharacters: 5000,
+						},
+					},
+					cookie,
+				),
+				{ worldHandle: "limits-world" },
+			),
+		);
+		expect(botResponse.status, await botResponse.clone().text()).toBe(201);
+		const botPayload = (await botResponse.json()) as { data: { bot: BotBody } };
+		expect(botPayload.data.bot.postingSettings).toEqual({ threadBodyCharacters: 5000 });
+		expect(botPayload.data.bot.effectivePostingSettings).toEqual({
+			threadBodyCharacters: 5000,
+			commentBodyCharacters: 3000,
+		});
+
+		const patchedBotResponse = await patchBot(
+			contextFor<typeof patchBot>(
+				jsonRequest(
+					`http://example.com/api/me/bots/${botPayload.data.bot.id}`,
+					"PATCH",
+					{
+						postingSettings: {
+							threadBodyCharacters: null,
+							commentBodyCharacters: 2000,
+						},
+					},
+					cookie,
+				),
+				{ botId: botPayload.data.bot.id },
+			),
+		);
+		expect(patchedBotResponse.status, await patchedBotResponse.clone().text()).toBe(200);
+		expect(await patchedBotResponse.json()).toMatchObject({
+			ok: true,
+			data: {
+				bot: {
+					postingSettings: { commentBodyCharacters: 2000 },
+					effectivePostingSettings: {
+						threadBodyCharacters: 6000,
+						commentBodyCharacters: 2000,
+					},
+				},
+			},
+		});
+
+		const clearedWorldResponse = await patchWorld(
+			contextFor<typeof patchWorld>(
+				jsonRequest(
+					"http://example.com/api/worlds/limits-world",
+					"PATCH",
+					{
+						postingSettings: {
+							threadBodyCharacters: null,
+							commentBodyCharacters: null,
+						},
+					},
+					cookie,
+				),
+				{ worldHandle: "limits-world" },
+			),
+		);
+		expect(clearedWorldResponse.status, await clearedWorldResponse.clone().text()).toBe(200);
+		const clearedWorldPayload = (await clearedWorldResponse.json()) as { data: { world: WorldSummary } };
+		expect(clearedWorldPayload.data.world.postingSettings).toBeUndefined();
+	});
+
+	it("renames forum handles without rewriting old textual references", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const forum = await createForumForTest(cookie, "dev-log");
+		const bot = await createBotForTest(cookie, "scribe");
+		const thread = await createThreadForTest(
+			forum.id,
+			bot.id,
+			"Forum rename route",
+			"Older prose still says f/dev-log and should stay that way.",
+		);
+		await createForumForTest(cookie, "taken-forum");
+
+		const conflict = await patchForum(
+			contextFor<typeof patchForum>(
+				jsonRequest(
+					"http://example.com/api/worlds/patch-notes/forums/dev-log",
+					"PATCH",
+					{ handle: "taken-forum" },
+					cookie,
+				),
+				{ worldHandle: "patch-notes", forumHandle: "dev-log" },
+			),
+		);
+		expect(conflict.status).toBe(409);
+
+		const response = await patchForum(
+			contextFor<typeof patchForum>(
+				jsonRequest(
+					"http://example.com/api/worlds/patch-notes/forums/dev-log",
+					"PATCH",
+					{ handle: "release-log" },
+					cookie,
+				),
+				{ worldHandle: "patch-notes", forumHandle: "dev-log" },
+			),
+		);
+		expect(response.status, await response.clone().text()).toBe(200);
+		expect(await response.json()).toMatchObject({
+			ok: true,
+			data: { forum: { handle: "release-log" } },
+		});
+
+		const threadResponse = await threadDetail(
+			contextFor<typeof threadDetail>(
+				new Request(`http://example.com/api/worlds/patch-notes/forums/release-log/threads/${thread.id}`),
+				{ worldHandle: "patch-notes", forumHandle: "release-log", threadId: thread.id },
+			),
+		);
+		expect(threadResponse.status, await threadResponse.clone().text()).toBe(200);
+		const payload = (await threadResponse.json()) as { data: { thread: ThreadDocument } };
+		expect(payload.data.thread.forumHandle).toBe("release-log");
+		expect(payload.data.thread.comments.find((comment) => comment.id === payload.data.thread.rootCommentId)?.body).toContain("f/dev-log");
+	});
+
+	it("renames bot handles and matching personal forums without rewriting old authors", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const bot = await createBotForTest(cookie, "release-sage");
+		const personalForum = (await listForums(testEnv.BICKR_D1, "patch-notes")).find((forum) => forum.personalBotId === bot.id);
+		expect(personalForum).toMatchObject({ handle: "release-sage" });
+		if (!personalForum) {
+			throw new Error("Personal forum missing.");
+		}
+		const thread = await createThreadForTest(
+			personalForum.id,
+			bot.id,
+			"Bot rename route",
+			"Older prose still says u/release-sage and f/release-sage.",
+		);
+
+		const response = await patchBot(
+			contextFor<typeof patchBot>(
+				jsonRequest(
+					`http://example.com/api/me/bots/${bot.id}`,
+					"PATCH",
+					{ handle: "release-oracle" },
+					cookie,
+				),
+				{ botId: bot.id },
+			),
+		);
+		expect(response.status, await response.clone().text()).toBe(200);
+		expect(await response.json()).toMatchObject({
+			ok: true,
+			data: { bot: { handle: "release-oracle" } },
+		});
+
+		const forumsAfter = await listForums(testEnv.BICKR_D1, "patch-notes");
+		expect(forumsAfter.find((forum) => forum.personalBotId === bot.id)).toMatchObject({
+			handle: "release-oracle",
+			description: "Blog of Release Sage (u/release-oracle)",
+		});
+
+		const storedThread = await readThread(testEnv.BICKR_KV, thread.id);
+		const root = storedThread.comments.find((comment) => comment.id === storedThread.rootCommentId);
+		expect(storedThread.forumHandle).toBe("release-oracle");
+		expect(root).toMatchObject({
+			authorHandle: "release-sage",
+			body: "Older prose still says u/release-sage and f/release-sage.",
+		});
+
+		const threadResponse = await threadDetail(
+			contextFor<typeof threadDetail>(
+				new Request(`http://example.com/api/worlds/patch-notes/forums/release-oracle/threads/${thread.id}`),
+				{ worldHandle: "patch-notes", forumHandle: "release-oracle", threadId: thread.id },
+			),
+		);
+		expect(threadResponse.status, await threadResponse.clone().text()).toBe(200);
+	});
+
+	it("rejects bot rename conflicts for bot and personal forum handles", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const bot = await createBotForTest(cookie, "first-bot");
+		await createBotForTest(cookie, "second-bot");
+
+		const botConflict = await patchBot(
+			contextFor<typeof patchBot>(
+				jsonRequest(
+					`http://example.com/api/me/bots/${bot.id}`,
+					"PATCH",
+					{ handle: "second-bot" },
+					cookie,
+				),
+				{ botId: bot.id },
+			),
+		);
+		expect(botConflict.status).toBe(409);
+
+		await createForumForTest(cookie, "forum-taken");
+		const forumConflict = await patchBot(
+			contextFor<typeof patchBot>(
+				jsonRequest(
+					`http://example.com/api/me/bots/${bot.id}`,
+					"PATCH",
+					{ handle: "forum-taken" },
+					cookie,
+				),
+				{ botId: bot.id },
+			),
+		);
+		expect(forumConflict.status).toBe(409);
+	});
+
 	it("accepts Unicode letters, numbers, hyphens, and underscores in handles", async () => {
 		const cookie = await authCookieFor({
 			subject: "unicode-handles",
@@ -15025,6 +15429,14 @@ type BotBody = {
 	createdAt: string;
 	inferenceSettings: Record<string, unknown>;
 	prompt?: string;
+	postingSettings: {
+		threadBodyCharacters?: number;
+		commentBodyCharacters?: number;
+	};
+	effectivePostingSettings: {
+		threadBodyCharacters: number;
+		commentBodyCharacters: number;
+	};
 	toolSettings?: Record<string, unknown>;
 	tickSettings: {
 		enabled: boolean;

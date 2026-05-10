@@ -10,6 +10,7 @@
 		"./governance": "./src/governance.ts",
 		"./ids": "./src/ids.ts",
 		"./model": "./src/model.ts",
+		"./posting": "./src/posting.ts",
 		"./repository": "./src/repository.ts",
 		"./runtime-errors": "./src/runtime-errors.ts",
 		"./social": "./src/social.ts",

@@ -10,6 +10,7 @@ import {
 	type BotInferenceToolCalls,
 	type BotInferenceReasoningEffort,
 	type BotDocument,
+	type BotEffectivePostingSettings,
 	type BotEffectiveTickSettings,
 	type BotPublicProfile,
 	type BotSummary,
@@ -43,8 +44,11 @@ import {
 	type HumanProfileDeleteEligibility,
 	type JsonObject,
 	type LinkedAuthIdentity,
+	type PostingSettings,
+	type PostingSettingsInput,
 	type PublicUser,
 	type SessionDocument,
+	type ThreadDocument,
 	type UpdateBotInput,
 	type UpdateUserProfileInput,
 	type UserDocument,
@@ -54,7 +58,13 @@ import {
 	type WorldSummary,
 } from "./model";
 import {
+	effectivePostingSettings,
+	mergePostingSettings,
+	postingSettingsHasValues,
+} from "./posting";
+import {
 	type D1DatabaseLike,
+	type D1PreparedStatementLike,
 	type KVNamespaceLike,
 	deleteKey,
 	kvKeys,
@@ -113,6 +123,11 @@ type PublicUserIndexRow = {
 	profileCompletedAt: string | null;
 	createdAt: string;
 	updatedAt: string;
+};
+
+type WorldSummaryIndexRow = Omit<WorldSummary, "postingSettings"> & {
+	postingThreadBodyCharacters: number | null;
+	postingCommentBodyCharacters: number | null;
 };
 
 export type SessionCreateResult = {
@@ -659,6 +674,8 @@ export async function listWorlds(db: D1DatabaseLike): Promise<WorldListSummary[]
 				w.name,
 				w.description,
 				w.initial_bot_notification AS initialBotNotification,
+				w.posting_thread_body_characters AS postingThreadBodyCharacters,
+				w.posting_comment_body_characters AS postingCommentBodyCharacters,
 				w.created_by_user_id AS createdByUserId,
 				w.created_at AS createdAt,
 				w.updated_at AS updatedAt,
@@ -680,9 +697,9 @@ export async function listWorlds(db: D1DatabaseLike): Promise<WorldListSummary[]
 			 WHERE w.deleted_at IS NULL
 			 ORDER BY w.updated_at DESC, w.handle ASC`,
 		)
-		.all<WorldListSummary>();
+		.all<WorldSummaryIndexRow & Pick<WorldListSummary, "forumCount" | "botCount">>();
 
-	return result.results ?? [];
+	return (result.results ?? []).map(worldSummaryFromIndexRow);
 }
 
 export async function createWorld(
@@ -700,6 +717,7 @@ export async function createWorld(
 		throw new RepositoryError("conflict", "A world with that handle already exists.", 409);
 	}
 
+	const postingSettings = mergePostingSettings(undefined, input.postingSettings);
 	const world: WorldDocument = {
 		id: makeId("wld"),
 		type: "world",
@@ -709,6 +727,7 @@ export async function createWorld(
 		name: input.name,
 		description: input.description,
 		initialBotNotification: input.initialBotNotification ?? defaultInitialBotNotification,
+		...(postingSettingsHasValues(postingSettings) ? { postingSettings } : {}),
 		createdByUserId: userId,
 		visibility: "public",
 		createdAt: now,
@@ -720,8 +739,8 @@ export async function createWorld(
 		.prepare(
 			`INSERT INTO worlds_index (
 				world_id, handle, name, description, initial_bot_notification, created_by_user_id,
-				visibility, created_at, updated_at, deleted_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+				visibility, posting_thread_body_characters, posting_comment_body_characters, created_at, updated_at, deleted_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
 		)
 		.bind(
 			world.id,
@@ -731,6 +750,8 @@ export async function createWorld(
 			world.initialBotNotification,
 			world.createdByUserId,
 			world.visibility,
+			world.postingSettings?.threadBodyCharacters ?? null,
+			world.postingSettings?.commentBodyCharacters ?? null,
 			now,
 			now,
 		)
@@ -888,12 +909,14 @@ export async function listUserBots(
 	const activeBots = bots
 		.filter((bot): bot is BotDocument => Boolean(bot && !bot.deletedAt))
 		.map((bot) => normalizeBotDefaults(bot));
+	const worldPostingSettings = await worldPostingSettingsByIds(db, activeBots.map((bot) => bot.homeWorldId));
 
 	return attachBotOwners(db, activeBots.map((bot) => {
 		const runtime = runtimeById.get(bot.id);
 		return botSummaryWithLastActive(bot, runtime?.lastActiveAt, {
 			includeToolSettings: true,
 			nextDueAt: runtime?.nextDueAt ?? null,
+			worldPostingSettings: worldPostingSettings.get(bot.homeWorldId),
 		});
 	}));
 }
@@ -923,6 +946,9 @@ export async function createBot(
 	const inferenceSettings = mergeInferenceSettings(undefined, input.inferenceSettings);
 	enforceInferenceModelAccess(inferenceSettings, owner.inferenceSettings);
 	const toolSettings = mergeToolSettings(undefined, input.toolSettings);
+	const inheritedPostingSettings = effectivePostingSettings(world.postingSettings, undefined);
+	assertPostingSettingsInputWithinLimits(input.postingSettings, inheritedPostingSettings);
+	const postingSettings = mergePostingSettings(undefined, input.postingSettings);
 
 	const bot: BotDocument = {
 		id: makeId("bot"),
@@ -938,6 +964,7 @@ export async function createBot(
 		prompt: input.prompt,
 		inferenceSettings,
 		toolSettings,
+		...(postingSettingsHasValues(postingSettings) ? { postingSettings } : {}),
 		tickSettings: mergeTickSettings(undefined, input.tickSettings),
 		...(input.importSource ? { importSource: input.importSource } : {}),
 		createdAt: now,
@@ -973,6 +1000,7 @@ export async function createBot(
 		includeToolSettings: true,
 		nextDueAt: await botRuntimeNextDueAt(db, bot.id),
 		owner: publicUser(owner),
+		worldPostingSettings: world.postingSettings,
 	});
 }
 
@@ -986,28 +1014,58 @@ export async function updateBot(
 ): Promise<BotSummary> {
 	const bot = await botForOwner(kv, db, botId, userId);
 	const owner = await userById(kv, userId);
+	const worldPostingSettings = await worldPostingSettingsById(db, bot.homeWorldId);
+	const nextHandle = input.handle ?? bot.handle;
+	if (nextHandle !== bot.handle) {
+		await assertBotHandleAvailable(db, bot.homeWorldId, bot.id, nextHandle);
+	}
+	const personalForumRename =
+		nextHandle !== bot.handle ? await personalForumRenameForBotHandle(kv, db, bot, nextHandle, now) : null;
 	const inferenceSettings = mergeInferenceSettings(bot.inferenceSettings, input.inferenceSettings);
 	enforceInferenceModelAccess(inferenceSettings, owner.inferenceSettings);
 	const toolSettings = mergeToolSettings(bot.toolSettings, input.toolSettings);
+	const inheritedPostingSettings = effectivePostingSettings(worldPostingSettings, undefined);
+	assertPostingSettingsInputWithinLimits(input.postingSettings, inheritedPostingSettings);
+	const postingSettings = mergePostingSettings(bot.postingSettings, input.postingSettings);
 	const updated: BotDocument = {
 		...bot,
 		...input,
+		handle: nextHandle,
 		inferenceSettings,
 		toolSettings,
+		...(postingSettingsHasValues(postingSettings) ? { postingSettings } : { postingSettings: undefined }),
 		tickSettings: mergeTickSettings(bot.tickSettings, input.tickSettings),
 		revision: bot.revision + 1,
 		updatedAt: now,
 	};
 
-	await writeJson(kv, kvKeys.bot(updated.id), updated);
-	await upsertBotIndex(db, updated);
+	if (personalForumRename) {
+		await db.batch([
+			botIndexUpdateStatement(db, updated),
+			db
+				.prepare(`UPDATE forums_index SET handle = ?, updated_at = ? WHERE forum_id = ? AND deleted_at IS NULL`)
+				.bind(personalForumRename.updated.handle, now, personalForumRename.updated.id),
+			db
+				.prepare(`UPDATE threads_index SET forum_handle = ? WHERE forum_id = ? AND deleted_at IS NULL`)
+				.bind(personalForumRename.updated.handle, personalForumRename.updated.id),
+		]);
+	} else {
+		await upsertBotIndex(db, updated);
+	}
 	await upsertBotRuntimeIndex(db, updated, now, shouldRescheduleBotRuntime(bot.tickSettings, updated.tickSettings, input.tickSettings));
+	await writeJson(kv, kvKeys.bot(updated.id), updated);
+	if (personalForumRename) {
+		await writeJson(kv, kvKeys.forum(personalForumRename.updated.id), personalForumRename.updated);
+		await writePersonalForumThreadRenameDocuments(kv, db, personalForumRename.updated, now);
+		await putObjectIndex(db, personalForumRename.updated, "forum", personalForumRename.updated.worldId);
+	}
 	await putObjectIndex(db, updated, "bot", updated.homeWorldId);
 
 	return botSummary(updated, {
 		includeToolSettings: true,
 		nextDueAt: await botRuntimeNextDueAt(db, updated.id),
 		owner: publicUser(owner),
+		worldPostingSettings,
 	});
 }
 
@@ -1020,6 +1078,7 @@ export async function deleteBot(
 ): Promise<BotSummary> {
 	const bot = await botForOwner(kv, db, botId, userId);
 	const owner = await publicUserById(db, userId);
+	const worldPostingSettings = await worldPostingSettingsById(db, bot.homeWorldId);
 	const deleted: BotDocument = {
 		...bot,
 		revision: bot.revision + 1,
@@ -1032,7 +1091,7 @@ export async function deleteBot(
 	await disableBotRuntime(db, deleted.id, now);
 	await putObjectIndex(db, deleted, "bot", deleted.homeWorldId);
 
-	return botSummary(deleted, { includeToolSettings: true, nextDueAt: null, owner });
+	return botSummary(deleted, { includeToolSettings: true, nextDueAt: null, owner, worldPostingSettings });
 }
 
 export async function botById(kv: KVNamespaceLike, db: D1DatabaseLike, botId: string): Promise<BotDocument> {
@@ -1123,6 +1182,7 @@ export async function listWorldBots(
 		return botSummaryWithLastActive(bot, runtime?.lastActiveAt, {
 			includePrompt: false,
 			nextDueAt: runtime?.nextDueAt ?? null,
+			worldPostingSettings: world.postingSettings,
 		});
 	}));
 }
@@ -1165,6 +1225,8 @@ export async function listOwnedWorlds(db: D1DatabaseLike, userId: string): Promi
 				name,
 				description,
 				initial_bot_notification AS initialBotNotification,
+				posting_thread_body_characters AS postingThreadBodyCharacters,
+				posting_comment_body_characters AS postingCommentBodyCharacters,
 				created_by_user_id AS createdByUserId,
 				created_at AS createdAt,
 				updated_at AS updatedAt
@@ -1173,8 +1235,8 @@ export async function listOwnedWorlds(db: D1DatabaseLike, userId: string): Promi
 			 ORDER BY lower(handle) ASC`,
 		)
 		.bind(userId)
-		.all<WorldSummary>();
-	return result.results ?? [];
+		.all<WorldSummaryIndexRow>();
+	return (result.results ?? []).map(worldSummaryFromIndexRow);
 }
 
 export async function listOwnedForumsOutsideOwnedWorlds(
@@ -1260,6 +1322,8 @@ async function listOwnedForumsByWorld(
 		groupWorldName: string;
 		groupWorldDescription: string;
 		groupWorldInitialBotNotification: string;
+		groupWorldPostingThreadBodyCharacters: number | null;
+		groupWorldPostingCommentBodyCharacters: number | null;
 		groupWorldCreatedByUserId: string;
 		groupWorldCreatedAt: string;
 		groupWorldUpdatedAt: string;
@@ -1285,6 +1349,8 @@ async function listOwnedForumsByWorld(
 				w.name AS groupWorldName,
 				w.description AS groupWorldDescription,
 				w.initial_bot_notification AS groupWorldInitialBotNotification,
+				w.posting_thread_body_characters AS groupWorldPostingThreadBodyCharacters,
+				w.posting_comment_body_characters AS groupWorldPostingCommentBodyCharacters,
 				w.created_by_user_id AS groupWorldCreatedByUserId,
 				w.created_at AS groupWorldCreatedAt,
 				w.updated_at AS groupWorldUpdatedAt
@@ -1309,6 +1375,10 @@ async function listOwnedForumsByWorld(
 					name: row.groupWorldName,
 					description: row.groupWorldDescription,
 					initialBotNotification: row.groupWorldInitialBotNotification,
+					...postingSettingsObject(
+						row.groupWorldPostingThreadBodyCharacters,
+						row.groupWorldPostingCommentBodyCharacters,
+					),
 					createdByUserId: row.groupWorldCreatedByUserId,
 					createdAt: row.groupWorldCreatedAt,
 					updatedAt: row.groupWorldUpdatedAt,
@@ -1372,6 +1442,8 @@ async function worldSummariesByIds(
 					name,
 					description,
 					initial_bot_notification AS initialBotNotification,
+					posting_thread_body_characters AS postingThreadBodyCharacters,
+					posting_comment_body_characters AS postingCommentBodyCharacters,
 					created_by_user_id AS createdByUserId,
 					created_at AS createdAt,
 					updated_at AS updatedAt
@@ -1379,12 +1451,77 @@ async function worldSummariesByIds(
 				 WHERE world_id IN (${placeholders}) AND deleted_at IS NULL`,
 			)
 			.bind(...batch)
-			.all<WorldSummary>();
-		for (const world of result.results ?? []) {
+			.all<WorldSummaryIndexRow>();
+		for (const row of result.results ?? []) {
+			const world = worldSummaryFromIndexRow(row);
 			worlds.set(world.id, world);
 		}
 	}
 	return worlds;
+}
+
+async function worldPostingSettingsById(
+	db: D1DatabaseLike,
+	worldId: string,
+): Promise<PostingSettings | undefined> {
+	const worlds = await worldPostingSettingsByIds(db, [worldId]);
+	return worlds.get(worldId);
+}
+
+async function worldPostingSettingsByIds(
+	db: D1DatabaseLike,
+	worldIds: string[],
+): Promise<Map<string, PostingSettings | undefined>> {
+	const ids = [...new Set(worldIds.filter(Boolean))];
+	const worlds = new Map<string, PostingSettings | undefined>();
+	for (let index = 0; index < ids.length; index += 90) {
+		const batch = ids.slice(index, index + 90);
+		if (batch.length === 0) {
+			continue;
+		}
+		const placeholders = batch.map(() => "?").join(", ");
+		const result = await db
+			.prepare(
+				`SELECT
+					world_id AS id,
+					posting_thread_body_characters AS postingThreadBodyCharacters,
+					posting_comment_body_characters AS postingCommentBodyCharacters
+				 FROM worlds_index
+				 WHERE world_id IN (${placeholders}) AND deleted_at IS NULL`,
+			)
+			.bind(...batch)
+			.all<{ id: string; postingThreadBodyCharacters: number | null; postingCommentBodyCharacters: number | null }>();
+		for (const row of result.results ?? []) {
+			worlds.set(
+				row.id,
+				postingSettingsObject(row.postingThreadBodyCharacters, row.postingCommentBodyCharacters).postingSettings,
+			);
+		}
+	}
+	return worlds;
+}
+
+function assertPostingSettingsInputWithinLimits(
+	input: PostingSettingsInput | undefined,
+	inherited: BotEffectivePostingSettings,
+): void {
+	if (!input) {
+		return;
+	}
+	if (input.threadBodyCharacters !== undefined && input.threadBodyCharacters !== null && input.threadBodyCharacters > inherited.threadBodyCharacters) {
+		throw new RepositoryError(
+			"bad_request",
+			`Thread body characters must be an integer between 1 and ${inherited.threadBodyCharacters}.`,
+			400,
+		);
+	}
+	if (input.commentBodyCharacters !== undefined && input.commentBodyCharacters !== null && input.commentBodyCharacters > inherited.commentBodyCharacters) {
+		throw new RepositoryError(
+			"bad_request",
+			`Comment body characters must be an integer between 1 and ${inherited.commentBodyCharacters}.`,
+			400,
+		);
+	}
 }
 
 async function foreignBotBlockersForOwnedWorlds(
@@ -1397,6 +1534,8 @@ async function foreignBotBlockersForOwnedWorlds(
 		worldName: string;
 		worldDescription: string;
 		worldInitialBotNotification: string;
+		worldPostingThreadBodyCharacters: number | null;
+		worldPostingCommentBodyCharacters: number | null;
 		worldCreatedByUserId: string;
 		worldCreatedAt: string;
 		worldUpdatedAt: string;
@@ -1422,6 +1561,8 @@ async function foreignBotBlockersForOwnedWorlds(
 				w.name AS worldName,
 				w.description AS worldDescription,
 				w.initial_bot_notification AS worldInitialBotNotification,
+				w.posting_thread_body_characters AS worldPostingThreadBodyCharacters,
+				w.posting_comment_body_characters AS worldPostingCommentBodyCharacters,
 				w.created_by_user_id AS worldCreatedByUserId,
 				w.created_at AS worldCreatedAt,
 				w.updated_at AS worldUpdatedAt,
@@ -1460,6 +1601,10 @@ async function foreignBotBlockersForOwnedWorlds(
 					name: row.worldName,
 					description: row.worldDescription,
 					initialBotNotification: row.worldInitialBotNotification,
+					...postingSettingsObject(
+						row.worldPostingThreadBodyCharacters,
+						row.worldPostingCommentBodyCharacters,
+					),
 					createdByUserId: row.worldCreatedByUserId,
 					createdAt: row.worldCreatedAt,
 					updatedAt: row.worldUpdatedAt,
@@ -1501,20 +1646,28 @@ function deletedUserHandle(userId: string): string {
 export async function worldByHandle(
 	db: D1DatabaseLike,
 	worldHandle: string,
-): Promise<{ id: string; handle: string }> {
+): Promise<{ id: string; handle: string; postingSettings?: PostingSettings }> {
 	const world = await db
 		.prepare(
-			`SELECT world_id AS id, handle
+			`SELECT
+				world_id AS id,
+				handle,
+				posting_thread_body_characters AS postingThreadBodyCharacters,
+				posting_comment_body_characters AS postingCommentBodyCharacters
 			 FROM worlds_index
 			 WHERE handle = ? AND deleted_at IS NULL`,
 		)
 		.bind(worldHandle)
-		.first<{ id: string; handle: string }>();
+		.first<{ id: string; handle: string; postingThreadBodyCharacters: number | null; postingCommentBodyCharacters: number | null }>();
 	if (!world) {
 		throw new RepositoryError("not_found", "World not found.", 404);
 	}
 
-	return world;
+	return {
+		id: world.id,
+		handle: world.handle,
+		...postingSettingsObject(world.postingThreadBodyCharacters, world.postingCommentBodyCharacters),
+	};
 }
 
 async function botForOwner(
@@ -1546,6 +1699,100 @@ async function botForOwner(
 	return normalizeBotDefaults(bot);
 }
 
+type PersonalForumRename = {
+	updated: ForumDocument;
+};
+
+async function assertBotHandleAvailable(
+	db: D1DatabaseLike,
+	worldId: string,
+	currentBotId: string,
+	handle: string,
+): Promise<void> {
+	const existing = await db
+		.prepare(
+			`SELECT bot_id AS id
+			 FROM bots_index
+			 WHERE home_world_id = ? AND handle = ? AND deleted_at IS NULL`,
+		)
+		.bind(worldId, handle)
+		.first<{ id: string }>();
+	if (existing && existing.id !== currentBotId) {
+		throw new RepositoryError("conflict", "A bot with that handle already exists in this world.", 409);
+	}
+}
+
+async function personalForumRenameForBotHandle(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	bot: BotDocument,
+	nextHandle: string,
+	now: string,
+): Promise<PersonalForumRename | null> {
+	const row = await db
+		.prepare(
+			`SELECT forum_id AS id, handle
+			 FROM forums_index
+			 WHERE personal_bot_id = ? AND deleted_at IS NULL`,
+		)
+		.bind(bot.id)
+		.first<{ id: string; handle: string }>();
+	if (!row || row.handle !== bot.handle) {
+		return null;
+	}
+
+	const existing = await db
+		.prepare(
+			`SELECT forum_id AS id
+			 FROM forums_index
+			 WHERE world_id = ? AND handle = ? AND deleted_at IS NULL`,
+		)
+		.bind(bot.homeWorldId, nextHandle)
+		.first<{ id: string }>();
+	if (existing && existing.id !== row.id) {
+		throw new RepositoryError("conflict", "A forum with that handle already exists in this world.", 409);
+	}
+
+	const forum = await readJson<ForumDocument>(kv, kvKeys.forum(row.id));
+	if (!forum || forum.deletedAt) {
+		throw new RepositoryError("server_error", "Personal forum document is missing.", 500);
+	}
+	return {
+		updated: {
+			...forum,
+			handle: nextHandle,
+			revision: forum.revision + 1,
+			updatedAt: now,
+		},
+	};
+}
+
+async function writePersonalForumThreadRenameDocuments(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	forum: ForumDocument,
+	now: string,
+): Promise<void> {
+	const threads = await db
+		.prepare(`SELECT thread_id AS id FROM threads_index WHERE forum_id = ? AND deleted_at IS NULL`)
+		.bind(forum.id)
+		.all<{ id: string }>();
+	for (const row of threads.results ?? []) {
+		const thread = await readJson<ThreadDocument>(kv, kvKeys.thread(row.id));
+		if (!thread || thread.deletedAt || thread.forumHandle === forum.handle) {
+			continue;
+		}
+		const renamed: ThreadDocument = {
+			...thread,
+			forumHandle: forum.handle,
+			revision: thread.revision + 1,
+			updatedAt: now,
+		};
+		await writeJson(kv, kvKeys.thread(renamed.id), renamed);
+		await putObjectIndex(db, renamed, "thread", renamed.worldId);
+	}
+}
+
 async function upsertBotIndex(db: D1DatabaseLike, bot: BotDocument): Promise<void> {
 	await db
 		.prepare(
@@ -1554,6 +1801,8 @@ async function upsertBotIndex(db: D1DatabaseLike, bot: BotDocument): Promise<voi
 				short_bio, import_provider, import_external_handle, created_at, updated_at, deleted_at
 			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(bot_id) DO UPDATE SET
+				home_world_handle = excluded.home_world_handle,
+				handle = excluded.handle,
 				display_name = excluded.display_name,
 				short_bio = excluded.short_bio,
 				updated_at = excluded.updated_at,
@@ -1574,6 +1823,29 @@ async function upsertBotIndex(db: D1DatabaseLike, bot: BotDocument): Promise<voi
 			bot.deletedAt ?? null,
 		)
 		.run();
+}
+
+function botIndexUpdateStatement(db: D1DatabaseLike, bot: BotDocument): D1PreparedStatementLike {
+	return db
+		.prepare(
+			`UPDATE bots_index
+			 SET home_world_handle = ?,
+			     handle = ?,
+			     display_name = ?,
+			     short_bio = ?,
+			     updated_at = ?,
+			     deleted_at = ?
+			 WHERE bot_id = ?`,
+		)
+		.bind(
+			bot.homeWorldHandle,
+			bot.handle,
+			bot.displayName,
+			bot.shortBio,
+			bot.updatedAt,
+			bot.deletedAt ?? null,
+			bot.id,
+		);
 }
 
 async function uniqueUserHandle(db: D1DatabaseLike, preferred: string): Promise<string> {
@@ -1600,10 +1872,34 @@ function worldSummary(world: WorldDocument): WorldSummary {
 		name: world.name,
 		description: world.description,
 		initialBotNotification: world.initialBotNotification,
+		...(postingSettingsHasValues(world.postingSettings) ? { postingSettings: world.postingSettings } : {}),
 		createdByUserId: world.createdByUserId,
 		createdAt: world.createdAt,
 		updatedAt: world.updatedAt,
 	};
+}
+
+function worldSummaryFromIndexRow<T extends WorldSummaryIndexRow>(row: T): Omit<T, keyof WorldSummaryIndexRow> & WorldSummary {
+	const {
+		postingThreadBodyCharacters,
+		postingCommentBodyCharacters,
+		...world
+	} = row;
+	return {
+		...world,
+		...postingSettingsObject(postingThreadBodyCharacters, postingCommentBodyCharacters),
+	} as Omit<T, keyof WorldSummaryIndexRow> & WorldSummary;
+}
+
+function postingSettingsObject(
+	threadBodyCharacters: number | null | undefined,
+	commentBodyCharacters: number | null | undefined,
+): { postingSettings?: PostingSettings } {
+	const postingSettings: PostingSettings = {
+		...(threadBodyCharacters !== null && threadBodyCharacters !== undefined ? { threadBodyCharacters } : {}),
+		...(commentBodyCharacters !== null && commentBodyCharacters !== undefined ? { commentBodyCharacters } : {}),
+	};
+	return postingSettingsHasValues(postingSettings) ? { postingSettings } : {};
 }
 
 function forumSummary(forum: ForumDocument): ForumSummary {
@@ -1622,7 +1918,13 @@ function forumSummary(forum: ForumDocument): ForumSummary {
 
 function botSummary(
 	bot: BotDocument,
-	options: { includePrompt?: boolean; includeToolSettings?: boolean; nextDueAt?: string | null; owner?: PublicUser } = {},
+	options: {
+		includePrompt?: boolean;
+		includeToolSettings?: boolean;
+		nextDueAt?: string | null;
+		owner?: PublicUser;
+		worldPostingSettings?: PostingSettings;
+	} = {},
 ): BotSummary {
 	return {
 		id: bot.id,
@@ -1636,6 +1938,8 @@ function botSummary(
 		...(options.includePrompt === false ? {} : { prompt: bot.prompt }),
 		inferenceSettings: publicInferenceSettings(bot.inferenceSettings),
 		...(options.includeToolSettings ? { toolSettings: publicToolSettings(bot.toolSettings) } : {}),
+		postingSettings: mergePostingSettings(bot.postingSettings, undefined),
+		effectivePostingSettings: effectivePostingSettings(options.worldPostingSettings, bot.postingSettings),
 		tickSettings: bot.tickSettings,
 		effectiveTickSettings: effectiveTickSettings(bot.tickSettings),
 		...(bot.importSource ? { importSource: bot.importSource } : {}),
@@ -1648,7 +1952,13 @@ function botSummary(
 function botSummaryWithLastActive(
 	bot: BotDocument,
 	lastActiveAt?: string | null,
-	options: { includePrompt?: boolean; includeToolSettings?: boolean; nextDueAt?: string | null; owner?: PublicUser } = {},
+	options: {
+		includePrompt?: boolean;
+		includeToolSettings?: boolean;
+		nextDueAt?: string | null;
+		owner?: PublicUser;
+		worldPostingSettings?: PostingSettings;
+	} = {},
 ): BotSummary {
 	return {
 		...botSummary(bot, options),
@@ -1916,6 +2226,9 @@ function normalizeBotDefaults(bot: BotDocument): BotDocument {
 		...bot,
 		inferenceSettings: mergeInferenceSettings(undefined, bot.inferenceSettings),
 		toolSettings: mergeToolSettings(undefined, bot.toolSettings),
+		...(postingSettingsHasValues(bot.postingSettings) ?
+			{ postingSettings: mergePostingSettings(undefined, bot.postingSettings) }
+		:	{ postingSettings: undefined }),
 		tickSettings: mergeTickSettings(undefined, bot.tickSettings),
 	};
 }

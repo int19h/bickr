@@ -1,4 +1,5 @@
 import {
+	type BotDocument,
 	type ForumDocument,
 	type ForumSummary,
 	type ThreadDocument,
@@ -7,6 +8,10 @@ import {
 	type WorldDocument,
 	type WorldSummary,
 } from "./model";
+import {
+	mergePostingSettings,
+	postingSettingsHasValues,
+} from "./posting";
 import { RepositoryError } from "./repository";
 import { readThread, rootCommentForThread, softDeleteComment, softDeleteThread, softDeleteThreadsInForum } from "./social";
 import {
@@ -28,21 +33,78 @@ export async function updateWorld(
 ): Promise<WorldSummary> {
 	const world = await worldDocumentByHandle(kv, db, worldHandle);
 	assertWorldOwner(world, userId);
+	const nextHandle = input.handle ?? world.handle;
+	if (nextHandle !== world.handle) {
+		await assertWorldHandleAvailable(db, world.id, nextHandle);
+	}
+	const postingSettings = mergePostingSettings(world.postingSettings, input.postingSettings);
 	const updated: WorldDocument = {
 		...world,
 		...input,
+		handle: nextHandle,
+		...(postingSettingsHasValues(postingSettings) ? { postingSettings } : { postingSettings: undefined }),
 		revision: world.revision + 1,
 		updatedAt: now,
 	};
-	await writeJson(kv, kvKeys.world(updated.id), updated);
-	await db
-		.prepare(
-			`UPDATE worlds_index
-			 SET name = ?, description = ?, initial_bot_notification = ?, updated_at = ?
-			 WHERE world_id = ? AND deleted_at IS NULL`,
-		)
-		.bind(updated.name, updated.description, updated.initialBotNotification, now, updated.id)
-		.run();
+	if (nextHandle !== world.handle) {
+		await db.batch([
+			db
+				.prepare(
+					`UPDATE worlds_index
+					 SET handle = ?,
+					     name = ?,
+					     description = ?,
+					     initial_bot_notification = ?,
+					     posting_thread_body_characters = ?,
+					     posting_comment_body_characters = ?,
+					     updated_at = ?
+					 WHERE world_id = ? AND deleted_at IS NULL`,
+				)
+				.bind(
+					updated.handle,
+					updated.name,
+					updated.description,
+					updated.initialBotNotification,
+					updated.postingSettings?.threadBodyCharacters ?? null,
+					updated.postingSettings?.commentBodyCharacters ?? null,
+					now,
+					updated.id,
+				),
+			db
+				.prepare(`UPDATE forums_index SET world_handle = ?, updated_at = ? WHERE world_id = ? AND deleted_at IS NULL`)
+				.bind(updated.handle, now, updated.id),
+			db
+				.prepare(`UPDATE bots_index SET home_world_handle = ?, updated_at = ? WHERE home_world_id = ? AND deleted_at IS NULL`)
+				.bind(updated.handle, now, updated.id),
+			db
+				.prepare(`UPDATE threads_index SET world_handle = ? WHERE world_id = ? AND deleted_at IS NULL`)
+				.bind(updated.handle, updated.id),
+		]);
+		await writeWorldRenameDocuments(kv, db, world, updated, now);
+	} else {
+		await db
+			.prepare(
+				`UPDATE worlds_index
+				 SET name = ?,
+				     description = ?,
+				     initial_bot_notification = ?,
+				     posting_thread_body_characters = ?,
+				     posting_comment_body_characters = ?,
+				     updated_at = ?
+				 WHERE world_id = ? AND deleted_at IS NULL`,
+			)
+			.bind(
+				updated.name,
+				updated.description,
+				updated.initialBotNotification,
+				updated.postingSettings?.threadBodyCharacters ?? null,
+				updated.postingSettings?.commentBodyCharacters ?? null,
+				now,
+				updated.id,
+			)
+			.run();
+		await writeJson(kv, kvKeys.world(updated.id), updated);
+	}
 	await putObjectIndex(db, updated, "world", updated.id);
 	return worldSummary(updated);
 }
@@ -103,17 +165,34 @@ export async function updateForum(
 ): Promise<ForumSummary> {
 	const forum = await forumDocumentByHandle(kv, db, worldHandle, forumHandle);
 	await assertCanModerateForum(db, forum, userId);
+	const nextHandle = input.handle ?? forum.handle;
+	if (nextHandle !== forum.handle) {
+		await assertForumHandleAvailable(db, forum.worldId, forum.id, nextHandle);
+	}
 	const updated: ForumDocument = {
 		...forum,
 		...input,
+		handle: nextHandle,
 		revision: forum.revision + 1,
 		updatedAt: now,
 	};
-	await writeJson(kv, kvKeys.forum(updated.id), updated);
-	await db
-		.prepare(`UPDATE forums_index SET description = ?, updated_at = ? WHERE forum_id = ? AND deleted_at IS NULL`)
-		.bind(updated.description, now, updated.id)
-		.run();
+	if (nextHandle !== forum.handle) {
+		await db.batch([
+			db
+				.prepare(`UPDATE forums_index SET handle = ?, description = ?, updated_at = ? WHERE forum_id = ? AND deleted_at IS NULL`)
+				.bind(updated.handle, updated.description, now, updated.id),
+			db
+				.prepare(`UPDATE threads_index SET forum_handle = ? WHERE forum_id = ? AND deleted_at IS NULL`)
+				.bind(updated.handle, updated.id),
+		]);
+		await writeForumRenameDocuments(kv, db, forum, updated, now);
+	} else {
+		await db
+			.prepare(`UPDATE forums_index SET description = ?, updated_at = ? WHERE forum_id = ? AND deleted_at IS NULL`)
+			.bind(updated.description, now, updated.id)
+			.run();
+		await writeJson(kv, kvKeys.forum(updated.id), updated);
+	}
 	await putObjectIndex(db, updated, "forum", updated.worldId);
 	return forumSummary(updated);
 }
@@ -195,6 +274,110 @@ async function softDeleteForum(
 		.run();
 	await putObjectIndex(db, deleted, "forum", deleted.worldId);
 	return deleted;
+}
+
+async function writeWorldRenameDocuments(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	previous: WorldDocument,
+	updated: WorldDocument,
+	now: string,
+): Promise<void> {
+	await writeJson(kv, kvKeys.world(updated.id), updated);
+
+	const forums = await db
+		.prepare(`SELECT forum_id AS id FROM forums_index WHERE world_id = ? AND deleted_at IS NULL`)
+		.bind(updated.id)
+		.all<{ id: string }>();
+	for (const row of forums.results ?? []) {
+		const forum = await forumDocumentById(kv, db, row.id);
+		if (forum.worldHandle === updated.handle) {
+			continue;
+		}
+		const renamed: ForumDocument = {
+			...forum,
+			worldHandle: updated.handle,
+			revision: forum.revision + 1,
+			updatedAt: now,
+		};
+		await writeJson(kv, kvKeys.forum(renamed.id), renamed);
+		await putObjectIndex(db, renamed, "forum", renamed.worldId);
+	}
+
+	const bots = await db
+		.prepare(`SELECT bot_id AS id FROM bots_index WHERE home_world_id = ? AND deleted_at IS NULL`)
+		.bind(updated.id)
+		.all<{ id: string }>();
+	for (const row of bots.results ?? []) {
+		const bot = await readJson<BotDocument>(kv, kvKeys.bot(row.id));
+		if (!bot || bot.deletedAt || bot.homeWorldHandle === updated.handle) {
+			continue;
+		}
+		const renamed: BotDocument = {
+			...bot,
+			homeWorldHandle: updated.handle,
+			revision: bot.revision + 1,
+			updatedAt: now,
+		};
+		await writeJson(kv, kvKeys.bot(renamed.id), renamed);
+		await putObjectIndex(db, renamed, "bot", renamed.homeWorldId);
+	}
+
+	const threads = await db
+		.prepare(`SELECT thread_id AS id FROM threads_index WHERE world_id = ? AND deleted_at IS NULL`)
+		.bind(updated.id)
+		.all<{ id: string }>();
+	for (const row of threads.results ?? []) {
+		const thread = await readThread(kv, row.id);
+		if (thread.worldHandle === updated.handle) {
+			continue;
+		}
+		const renamed: ThreadDocument = {
+			...thread,
+			worldHandle: updated.handle,
+			revision: thread.revision + 1,
+			updatedAt: now,
+		};
+		await writeJson(kv, kvKeys.thread(renamed.id), renamed);
+		await putObjectIndex(db, renamed, "thread", renamed.worldId);
+	}
+
+	if (previous.handle !== updated.handle) {
+		await putObjectIndex(db, updated, "world", updated.id);
+	}
+}
+
+async function writeForumRenameDocuments(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	previous: ForumDocument,
+	updated: ForumDocument,
+	now: string,
+): Promise<void> {
+	await writeJson(kv, kvKeys.forum(updated.id), updated);
+
+	const threads = await db
+		.prepare(`SELECT thread_id AS id FROM threads_index WHERE forum_id = ? AND deleted_at IS NULL`)
+		.bind(updated.id)
+		.all<{ id: string }>();
+	for (const row of threads.results ?? []) {
+		const thread = await readThread(kv, row.id);
+		if (thread.forumHandle === updated.handle) {
+			continue;
+		}
+		const renamed: ThreadDocument = {
+			...thread,
+			forumHandle: updated.handle,
+			revision: thread.revision + 1,
+			updatedAt: now,
+		};
+		await writeJson(kv, kvKeys.thread(renamed.id), renamed);
+		await putObjectIndex(db, renamed, "thread", renamed.worldId);
+	}
+
+	if (previous.handle !== updated.handle) {
+		await putObjectIndex(db, updated, "forum", updated.worldId);
+	}
 }
 
 async function worldDocumentByHandle(
@@ -313,6 +496,39 @@ async function userOwnsWorld(
 	return Boolean(row);
 }
 
+async function assertWorldHandleAvailable(
+	db: D1DatabaseLike,
+	currentWorldId: string,
+	handle: string,
+): Promise<void> {
+	const existing = await db
+		.prepare(`SELECT world_id AS id FROM worlds_index WHERE handle = ? AND deleted_at IS NULL`)
+		.bind(handle)
+		.first<{ id: string }>();
+	if (existing && existing.id !== currentWorldId) {
+		throw new RepositoryError("conflict", "A world with that handle already exists.", 409);
+	}
+}
+
+async function assertForumHandleAvailable(
+	db: D1DatabaseLike,
+	worldId: string,
+	currentForumId: string,
+	handle: string,
+): Promise<void> {
+	const existing = await db
+		.prepare(
+			`SELECT forum_id AS id
+			 FROM forums_index
+			 WHERE world_id = ? AND handle = ? AND deleted_at IS NULL`,
+		)
+		.bind(worldId, handle)
+		.first<{ id: string }>();
+	if (existing && existing.id !== currentForumId) {
+		throw new RepositoryError("conflict", "A forum with that handle already exists in this world.", 409);
+	}
+}
+
 async function userOwnsBot(
 	db: D1DatabaseLike,
 	userId: string,
@@ -332,6 +548,7 @@ function worldSummary(world: WorldDocument): WorldSummary {
 		name: world.name,
 		description: world.description,
 		initialBotNotification: world.initialBotNotification,
+		...(postingSettingsHasValues(world.postingSettings) ? { postingSettings: world.postingSettings } : {}),
 		createdByUserId: world.createdByUserId,
 		createdAt: world.createdAt,
 		updatedAt: world.updatedAt,

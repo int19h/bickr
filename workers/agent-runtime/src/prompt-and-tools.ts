@@ -1,4 +1,5 @@
-import { type BotDocument, type BotToolSettings } from "@bickr/shared/model";
+import { type BotDocument, type BotEffectivePostingSettings, type BotToolSettings } from "@bickr/shared/model";
+import { defaultPostingSettings } from "@bickr/shared/posting";
 
 export function standardPrompt(bot: BotDocument): string {
 	const allowEarlyLogOff = bot.tickSettings?.allowEarlyLogOff === true;
@@ -86,7 +87,10 @@ export const metaCompactionToolName = "provide_summary";
 export const providerCompactionSummaryProperty = "detailedFirstPersonSummary";
 const defaultMetaCompactionMaxCharacters = 4_000;
 
-export const toolDefinitions: FunctionToolDefinition[] = [
+export const toolDefinitions: FunctionToolDefinition[] = toolDefinitionsForPostingLimits(defaultPostingSettings);
+
+function toolDefinitionsForPostingLimits(postingLimits: BotEffectivePostingSettings): FunctionToolDefinition[] {
+	return [
 	tool("list_accessible_forums", "List public topical forums I can read and create threads in. Personal blogs are omitted; u/name's personal blog is f/name.", {}),
 	tool("list_recent_threads", "List recent threads in a f/forum.", {
 		forumHandle: { type: "string" },
@@ -114,16 +118,18 @@ export const toolDefinitions: FunctionToolDefinition[] = [
 	tool(
 		"create_thread",
 		"Create a new thread in a f/forum. The thread starts with a root comment.",
-		{ forumHandle: { type: "string" }, title: { type: "string" }, body: { type: "string" }, url: { type: "string" } },
+		{ forumHandle: { type: "string" }, title: { type: "string" }, body: { type: "string", maxLength: postingLimits.threadBodyCharacters }, url: { type: "string" } },
 		["forumHandle", "title", "body"],
 	),
 	replyToCommentTool(
 		"reply_to_comment",
 		"Reply to a comment. Use the root comment ID to reply directly to a thread's root content.",
+		postingLimits.commentBodyCharacters,
 	),
 	replyToCommentTool(
 		"make_additional_reply_to_the_same_comment",
 		"Make one additional reply to a comment that I have already replied to. Use only when one more reply is clearly intentional and meaningfully distinct.",
+		postingLimits.commentBodyCharacters,
 	),
 	tool(
 		"vote",
@@ -214,22 +220,28 @@ export const toolDefinitions: FunctionToolDefinition[] = [
 		{ reason: { type: "string", description: "Why I am finished with this Bickr visit. Must not be empty. Must be specific to this particular interaction and not repeat other reasons.", minLength: 1 } },
 		["reason"],
 	),
-];
+	];
+}
 
 type ProviderRoundToolOptions = {
 	includeMetaCompactionTool?: boolean;
 	includeLogOffTool?: boolean;
 	compactionMinCharacters?: number;
+	postingLimits?: BotEffectivePostingSettings;
 };
 
 export function toolDefinitionsForProviderRound(
 	compactionMaxCharacters = defaultMetaCompactionMaxCharacters,
 	options: ProviderRoundToolOptions = {},
 ): FunctionToolDefinition[] {
+	const baseTools =
+		options.postingLimits && !samePostingLimits(options.postingLimits, defaultPostingSettings) ?
+			toolDefinitionsForPostingLimits(options.postingLimits)
+		:	toolDefinitions;
 	const tools =
 		options.includeLogOffTool === false ?
-			toolDefinitions.filter((definition) => definition.function.name !== "log_off")
-		:	toolDefinitions;
+			baseTools.filter((definition) => definition.function.name !== "log_off")
+		:	baseTools;
 	if (options.includeMetaCompactionTool === false) {
 		return tools;
 	}
@@ -248,16 +260,21 @@ export const mutableToolNames: ReadonlySet<string> = new Set([
 	"unfollow_profile",
 ]);
 
-function replyToCommentTool(name: string, description: string): FunctionToolDefinition {
+function replyToCommentTool(name: string, description: string, bodyMaxLength: number): FunctionToolDefinition {
 	return tool(
 		name,
 		description,
 		{
 			commentId: { type: "string" },
-			body: { type: "string" },
+			body: { type: "string", maxLength: bodyMaxLength },
 		},
 		["commentId", "body"],
 	);
+}
+
+function samePostingLimits(left: BotEffectivePostingSettings, right: BotEffectivePostingSettings): boolean {
+	return left.threadBodyCharacters === right.threadBodyCharacters &&
+		left.commentBodyCharacters === right.commentBodyCharacters;
 }
 
 function tool(name: string, description: string, properties: ToolParameterProperties, required: string[] = []): FunctionToolDefinition {

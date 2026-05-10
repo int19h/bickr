@@ -49,6 +49,7 @@ export type WorldDocument = EntityDocument & {
 	name: string;
 	description: string;
 	initialBotNotification: string;
+	postingSettings?: PostingSettings;
 	createdByUserId: string;
 	visibility: "public";
 };
@@ -82,6 +83,7 @@ export type BotDocument = EntityDocument & {
 	prompt: string;
 	inferenceSettings: BotInferenceSettings;
 	toolSettings: BotToolSettings;
+	postingSettings?: PostingSettings;
 	tickSettings: BotTickSettings;
 	importSource?: ChirperImportSource;
 };
@@ -257,6 +259,18 @@ export type OpenRouterServerToolSettingsInput = Partial<{
 
 export type BotToolSettingsInput = Partial<{
 	openRouter: OpenRouterServerToolSettingsInput | null;
+}>;
+
+export type PostingSettings = Partial<{
+	threadBodyCharacters: number;
+	commentBodyCharacters: number;
+}>;
+
+export type BotEffectivePostingSettings = Required<PostingSettings>;
+
+export type PostingSettingsInput = Partial<{
+	threadBodyCharacters: number | null;
+	commentBodyCharacters: number | null;
 }>;
 
 export type BotTickSettings = {
@@ -584,6 +598,7 @@ export type WorldSummary = {
 	name: string;
 	description: string;
 	initialBotNotification: string;
+	postingSettings?: PostingSettings;
 	createdByUserId: string;
 	createdAt: string;
 	updatedAt: string;
@@ -618,6 +633,8 @@ export type BotSummary = {
 	prompt?: string;
 	inferenceSettings: BotInferenceSettings;
 	toolSettings?: BotToolSettings;
+	postingSettings: PostingSettings;
+	effectivePostingSettings: BotEffectivePostingSettings;
 	tickSettings: BotTickSettings;
 	effectiveTickSettings: BotEffectiveTickSettings;
 	importSource?: ChirperImportSource;
@@ -1143,6 +1160,7 @@ export type BotContextBudgetInput = {
 	shortBio?: string;
 	inferenceSettings?: BotInferenceSettingsInput;
 	toolSettings?: BotToolSettingsInput;
+	postingSettings?: PostingSettingsInput;
 	tickSettings?: Partial<Pick<BotTickSettingsInput, "allowEarlyLogOff" | "contextWindowTokens" | "compactionMaxCharacters" | "compactionSummaryPercent">>;
 };
 
@@ -1187,12 +1205,15 @@ export type CreateWorldInput = {
 	name: string;
 	description: string;
 	initialBotNotification?: string;
+	postingSettings?: PostingSettingsInput;
 };
 
 export type UpdateWorldInput = Partial<{
+	handle: string;
 	name: string;
 	description: string;
 	initialBotNotification: string;
+	postingSettings: PostingSettingsInput;
 }>;
 
 export type CreateForumInput = {
@@ -1201,6 +1222,7 @@ export type CreateForumInput = {
 };
 
 export type UpdateForumInput = Partial<{
+	handle: string;
 	description: string;
 }>;
 
@@ -1211,12 +1233,13 @@ export type CreateBotInput = {
 	prompt: string;
 	inferenceSettings?: BotInferenceSettingsInput;
 	toolSettings?: BotToolSettingsInput;
+	postingSettings?: PostingSettingsInput;
 	tickSettings?: BotTickSettingsInput;
 	importSource?: ChirperImportSource;
 };
 
 export type UpdateBotInput = Partial<
-	Pick<CreateBotInput, "displayName" | "shortBio" | "prompt" | "inferenceSettings" | "toolSettings" | "tickSettings">
+	Pick<CreateBotInput, "handle" | "displayName" | "shortBio" | "prompt" | "inferenceSettings" | "toolSettings" | "postingSettings" | "tickSettings">
 >;
 
 export type UpdateUserProfileInput = Partial<Pick<UserProfile, "handle" | "displayName">> & {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { createThread } from "./social";
+import { createComment, createThread } from "./social";
 import { kvKeys, type D1DatabaseLike, type D1PreparedStatementLike, type D1Result, type KVNamespaceLike } from "./storage";
-import { schemaVersion, type BotDocument, type ForumDocument } from "./model";
+import { schemaVersion, type BotDocument, type ForumDocument, type PostingSettings, type WorldDocument } from "./model";
 
 const now = "2026-05-06T12:00:00.000Z";
 
@@ -75,6 +75,81 @@ describe("createThread duplicate title guard", () => {
 		});
 		expect(kv.puts.some((key) => key.startsWith("v1:thread:thr_"))).toBe(true);
 	});
+
+	it("preserves exact body text while rejecting all-whitespace bodies", async () => {
+		const { db, kv } = fixture({ existingThreads: [] });
+		const body = "  Leading and trailing text.  \n";
+
+		const thread = await createThread(kv, db, {
+			forumId: "frm_main",
+			authorBotId: "bot_author",
+			title: "Preserve body",
+			body,
+		}, now);
+
+		expect(thread.comments[0]?.body).toBe(body);
+		await expect(createThread(kv, db, {
+			forumId: "frm_main",
+			authorBotId: "bot_author",
+			title: "Blank body",
+			body: " \n\t ",
+		}, now)).rejects.toMatchObject({
+			name: "InputError",
+			message: "Thread body is required.",
+		});
+	});
+
+	it("uses the effective posting limit as a soft target and accepts up to twice that length", async () => {
+		const { db, kv } = fixture({
+			existingThreads: [],
+			worldPostingSettings: { threadBodyCharacters: 100 },
+			botPostingSettings: { threadBodyCharacters: 80 },
+		});
+
+		await expect(createThread(kv, db, {
+			forumId: "frm_main",
+			authorBotId: "bot_author",
+			title: "At hard limit",
+			body: "x".repeat(160),
+		}, now)).resolves.toMatchObject({ title: "At hard limit" });
+		await expect(createThread(kv, db, {
+			forumId: "frm_main",
+			authorBotId: "bot_author",
+			title: "Over hard limit",
+			body: "x".repeat(161),
+		}, now)).rejects.toMatchObject({
+			name: "InputError",
+			message: "Thread body must be 160 characters or fewer.",
+		});
+	});
+
+	it("applies the effective posting limit to comment bodies", async () => {
+		const { db, kv } = fixture({
+			existingThreads: [],
+			worldPostingSettings: { commentBodyCharacters: 50 },
+			botPostingSettings: { commentBodyCharacters: 40 },
+		});
+		const thread = await createThread(kv, db, {
+			forumId: "frm_main",
+			authorBotId: "bot_author",
+			title: "Comment target",
+			body: "Root body",
+		}, now);
+
+		await expect(createComment(kv, db, {
+			threadId: thread.id,
+			authorBotId: "bot_author",
+			body: "x".repeat(80),
+		}, now)).resolves.toMatchObject({ id: thread.id });
+		await expect(createComment(kv, db, {
+			threadId: thread.id,
+			authorBotId: "bot_author",
+			body: "x".repeat(81),
+		}, now)).rejects.toMatchObject({
+			name: "InputError",
+			message: "Comment body must be 80 characters or fewer.",
+		});
+	});
 });
 
 type ExistingThread = {
@@ -89,6 +164,8 @@ type ExistingThread = {
 
 type FixtureOptions = {
 	existingThreads: ExistingThread[];
+	worldPostingSettings?: PostingSettings;
+	botPostingSettings?: PostingSettings;
 };
 
 function fixture(options: FixtureOptions): { db: FakeD1; kv: FakeKV } {
@@ -102,6 +179,21 @@ function fixture(options: FixtureOptions): { db: FakeD1; kv: FakeKV } {
 		handle: "general",
 		description: "General discussion",
 		createdByUserId: "usr_owner",
+		createdAt: now,
+		updatedAt: now,
+	};
+	const world: WorldDocument = {
+		id: "wld_primary",
+		type: "world",
+		schemaVersion,
+		revision: 1,
+		handle: "primary",
+		name: "Primary",
+		description: "Primary world",
+		initialBotNotification: "Welcome.",
+		...(options.worldPostingSettings ? { postingSettings: options.worldPostingSettings } : {}),
+		createdByUserId: "usr_owner",
+		visibility: "public",
 		createdAt: now,
 		updatedAt: now,
 	};
@@ -119,6 +211,7 @@ function fixture(options: FixtureOptions): { db: FakeD1; kv: FakeKV } {
 		prompt: "Post clearly.",
 		inferenceSettings: {},
 		toolSettings: {},
+		...(options.botPostingSettings ? { postingSettings: options.botPostingSettings } : {}),
 		tickSettings: {
 			enabled: false,
 			intervalSeconds: 86_400,
@@ -131,6 +224,7 @@ function fixture(options: FixtureOptions): { db: FakeD1; kv: FakeKV } {
 		updatedAt: now,
 	};
 	const kv = new FakeKV(new Map<string, unknown>([
+		[kvKeys.world(world.id), world],
 		[kvKeys.forum(forum.id), forum],
 		[kvKeys.bot(bot.id), bot],
 	]));
@@ -173,6 +267,14 @@ class FakeD1 implements D1DatabaseLike {
 
 	prepare(query: string): D1PreparedStatementLike {
 		return new FakeStatement(this, query);
+	}
+
+	async batch(statements: D1PreparedStatementLike[]): Promise<Array<D1Result>> {
+		const results: D1Result[] = [];
+		for (const statement of statements) {
+			results.push(await statement.run());
+		}
+		return results;
 	}
 
 	first<T>(query: string, bindings: unknown[]): T | null {

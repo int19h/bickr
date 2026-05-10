@@ -1316,6 +1316,11 @@ fieldset {
 	overflow: hidden;
 }
 
+.input-prefix-grow {
+	flex: 1 1 240px;
+	min-width: 0;
+}
+
 .input-prefix:focus-within {
 	border-color: var(--ink-3);
 }
@@ -3689,6 +3694,17 @@ fieldset {
 	color: var(--ink-3);
 	font-size: 13px;
 	margin: 0 0 12px;
+}
+
+.rename-warning {
+	background: color-mix(in oklch, var(--danger) 8%, var(--paper));
+	border: 1px solid color-mix(in oklch, var(--danger) 30%, var(--rule));
+	border-radius: var(--radius);
+	color: var(--danger);
+	font-size: 13px;
+	line-height: 1.45;
+	margin-bottom: 14px;
+	padding: 10px 12px;
 }
 
 .modal-veil {

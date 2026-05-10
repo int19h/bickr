@@ -19,6 +19,7 @@ import {
 	type OpenRouterWebSearchEngine,
 	type OpenRouterWebSearchToolSettingsInput,
 	type OpenRouterWebSearchUserLocationInput,
+	type PostingSettingsInput,
 	type JsonObject,
 	type JsonValue,
 	type UpdateBotInput,
@@ -27,6 +28,12 @@ import {
 	type UpdateWorldInput,
 	type VoteInput,
 } from "./model";
+import {
+	defaultCommentBodyCharacters,
+	defaultPostingSettings,
+	defaultThreadBodyCharacters,
+	postingHardLimit,
+} from "./posting";
 
 export class InputError extends Error {
 	constructor(message: string) {
@@ -40,8 +47,10 @@ export const maxBotPromptLength = 64_000;
 export const maxBotReasoningPrefillLength = 500;
 export const maxProviderRoutingJsonLength = 8_000;
 export const maxThreadTitleLength = 160;
-export const maxThreadBodyLength = 8_000;
-export const maxCommentBodyLength = 4_000;
+export const maxThreadBodyLength = defaultThreadBodyCharacters;
+export const maxCommentBodyLength = defaultCommentBodyCharacters;
+export const maxThreadBodyHardLength = postingHardLimit(defaultThreadBodyCharacters);
+export const maxCommentBodyHardLength = postingHardLimit(defaultCommentBodyCharacters);
 const inferenceReasoningEfforts = ["default", "none", "minimal", "low", "medium", "high", "xhigh"] as const;
 const inferenceToolCallModes = ["require", "railroad", "at_will"] as const;
 const compactionModes = ["structured_output", "tool_call", "tool_call_cache_friendly"] as const satisfies readonly BotCompactionMode[];
@@ -124,6 +133,22 @@ export function requiredText(value: unknown, label: string, maxLength: number): 
 	return trimmed;
 }
 
+export function requiredPostingBody(value: unknown, label: string, maxLength: number): string {
+	if (typeof value !== "string") {
+		throw new InputError(`${label} is required.`);
+	}
+
+	if (value.trim().length === 0) {
+		throw new InputError(`${label} is required.`);
+	}
+
+	if (value.length > maxLength) {
+		throw new InputError(`${label} must be ${maxLength} characters or fewer.`);
+	}
+
+	return value;
+}
+
 export function optionalText(value: unknown, label: string, maxLength: number): string | undefined {
 	if (value === undefined || value === null || value === "") {
 		return undefined;
@@ -147,12 +172,18 @@ export function parseCreateWorldInput(input: unknown): CreateWorldInput {
 					1_000,
 				),
 			}),
+		...(record.postingSettings === undefined ?
+			{}
+		:	{ postingSettings: parsePostingSettings(record.postingSettings, defaultPostingSettings) }),
 	};
 }
 
 export function parseUpdateWorldInput(input: unknown): UpdateWorldInput {
 	const record = asRecord(input);
 	const update: UpdateWorldInput = {};
+	if (record.handle !== undefined) {
+		update.handle = normalizeHandle(record.handle);
+	}
 	if (record.name !== undefined) {
 		update.name = requiredText(record.name, "World name", 80);
 	}
@@ -165,6 +196,9 @@ export function parseUpdateWorldInput(input: unknown): UpdateWorldInput {
 			"Initial bot notification",
 			1_000,
 		);
+	}
+	if (record.postingSettings !== undefined) {
+		update.postingSettings = parsePostingSettings(record.postingSettings, defaultPostingSettings);
 	}
 	if (Object.keys(update).length === 0) {
 		throw new InputError("At least one world field must be provided.");
@@ -183,6 +217,9 @@ export function parseCreateForumInput(input: unknown): CreateForumInput {
 export function parseUpdateForumInput(input: unknown): UpdateForumInput {
 	const record = asRecord(input);
 	const update: UpdateForumInput = {};
+	if (record.handle !== undefined) {
+		update.handle = normalizeHandle(record.handle);
+	}
 	if (record.description !== undefined) {
 		update.description = requiredText(record.description, "Forum description", 500);
 	}
@@ -204,6 +241,9 @@ export function parseCreateBotInput(input: unknown): CreateBotInput {
 			{}
 		:	{ inferenceSettings: parseInferenceSettings(record.inferenceSettings) }),
 		...(record.toolSettings === undefined ? {} : { toolSettings: parseToolSettings(record.toolSettings) }),
+		...(record.postingSettings === undefined ?
+			{}
+		:	{ postingSettings: parsePostingSettings(record.postingSettings, defaultPostingSettings) }),
 		...(record.tickSettings === undefined ? {} : { tickSettings: parseTickSettings(record.tickSettings) }),
 		...(importSource ? { importSource } : {}),
 	};
@@ -212,14 +252,20 @@ export function parseCreateBotInput(input: unknown): CreateBotInput {
 export function parseUpdateBotInput(input: unknown): UpdateBotInput {
 	const record = asRecord(input);
 	const update: UpdateBotInput = {};
+	const handle = record.handle === undefined ? undefined : normalizeHandle(record.handle);
 	const displayName = optionalText(record.displayName ?? record.name, "Bot name", 80);
 	const shortBio = optionalText(record.shortBio, "Short bio", maxBotShortBioLength);
 	const prompt = optionalText(record.prompt, "Prompt", maxBotPromptLength);
 	const inferenceSettings =
 		record.inferenceSettings === undefined ? undefined : parseInferenceSettings(record.inferenceSettings);
 	const toolSettings = record.toolSettings === undefined ? undefined : parseToolSettings(record.toolSettings);
+	const postingSettings =
+		record.postingSettings === undefined ? undefined : parsePostingSettings(record.postingSettings, defaultPostingSettings);
 	const tickSettings = record.tickSettings === undefined ? undefined : parseTickSettings(record.tickSettings);
 
+	if (handle !== undefined) {
+		update.handle = handle;
+	}
 	if (displayName !== undefined) {
 		update.displayName = displayName;
 	}
@@ -234,6 +280,9 @@ export function parseUpdateBotInput(input: unknown): UpdateBotInput {
 	}
 	if (toolSettings !== undefined) {
 		update.toolSettings = toolSettings;
+	}
+	if (postingSettings !== undefined) {
+		update.postingSettings = postingSettings;
 	}
 	if (tickSettings !== undefined) {
 		update.tickSettings = tickSettings;
@@ -259,6 +308,9 @@ export function parseBotContextBudgetInput(input: unknown): BotContextBudgetInpu
 			{}
 		:	{ inferenceSettings: parseInferenceSettings(record.inferenceSettings) }),
 		...(record.toolSettings === undefined ? {} : { toolSettings: parseToolSettings(record.toolSettings) }),
+		...(record.postingSettings === undefined ?
+			{}
+		:	{ postingSettings: parsePostingSettings(record.postingSettings, defaultPostingSettings) }),
 		...(tickSettings === undefined ? {} : { tickSettings }),
 	};
 }
@@ -297,7 +349,7 @@ export function parseCreateThreadInput(input: unknown): Omit<CreateThreadInput, 
 	const url = optionalText(record.url, "Thread URL", 1_000);
 	return {
 		title: requiredText(record.title, "Thread title", maxThreadTitleLength),
-		body: requiredText(record.body, "Thread body", maxThreadBodyLength),
+		body: requiredPostingBody(record.body, "Thread body", maxThreadBodyHardLength),
 		...(url ? { url } : {}),
 	};
 }
@@ -306,7 +358,7 @@ export function parseCreateCommentInput(input: unknown): Omit<CreateCommentInput
 	const record = asRecord(input);
 	const parentCommentId = optionalText(record.parentCommentId, "Parent comment ID", 80);
 	return {
-		body: requiredText(record.body, "Comment body", maxCommentBodyLength),
+		body: requiredPostingBody(record.body, "Comment body", maxCommentBodyHardLength),
 		...(parentCommentId ? { parentCommentId } : {}),
 	};
 }
@@ -528,6 +580,37 @@ function parseToolSettings(value: unknown): BotToolSettingsInput {
 	if (record.openRouter !== undefined) {
 		settings.openRouter = record.openRouter === null ? null : parseOpenRouterToolSettings(record.openRouter);
 	}
+	return settings;
+}
+
+function parsePostingSettings(
+	value: unknown,
+	limits: Pick<PostingSettingsInput, "threadBodyCharacters" | "commentBodyCharacters">,
+): PostingSettingsInput {
+	if (value === null) {
+		return {
+			threadBodyCharacters: null,
+			commentBodyCharacters: null,
+		};
+	}
+	const record = asRecord(value);
+	const settings: PostingSettingsInput = {};
+	assignOptionalInteger(
+		settings,
+		"threadBodyCharacters",
+		record.threadBodyCharacters,
+		"Thread body characters",
+		1,
+		limits.threadBodyCharacters ?? defaultThreadBodyCharacters,
+	);
+	assignOptionalInteger(
+		settings,
+		"commentBodyCharacters",
+		record.commentBodyCharacters,
+		"Comment body characters",
+		1,
+		limits.commentBodyCharacters ?? defaultCommentBodyCharacters,
+	);
 	return settings;
 }
 

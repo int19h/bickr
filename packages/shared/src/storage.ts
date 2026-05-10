@@ -35,6 +35,7 @@ export type D1PreparedStatementLike = {
 };
 
 export type D1DatabaseLike = {
+	batch(statements: D1PreparedStatementLike[]): Promise<Array<D1Result>>;
 	prepare(query: string): D1PreparedStatementLike;
 };
 

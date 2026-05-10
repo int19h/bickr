@@ -22,6 +22,7 @@ import {
 	updateBot,
 	userById,
 } from "@bickr/shared/repository";
+import { effectivePostingSettings, mergePostingSettings } from "@bickr/shared/posting";
 import {
 	followBot,
 	forumByHandle,
@@ -52,6 +53,8 @@ import {
 import {
 	type D1DatabaseLike,
 	type KVNamespaceLike,
+	kvKeys,
+	readJson,
 } from "@bickr/shared/storage";
 import {
 	InputError,
@@ -88,6 +91,7 @@ import {
 	type BotLoopMessageOrigin,
 	type BotLoopMessageStatus,
 	type BotDocument,
+	type BotEffectivePostingSettings,
 	type BotInferenceSettings,
 	type BotInferenceReasoningEffort,
 	type BotInferenceToolCalls,
@@ -115,6 +119,7 @@ import {
 	type ThreadDocument,
 	type ThreadSummary,
 	type UserDocument,
+	type WorldDocument,
 } from "@bickr/shared/model";
 import {
 	isOpenRouterProviderBaseUrl,
@@ -145,6 +150,10 @@ export interface Env {
 	OPENROUTER_MODEL?: string;
 	BICKR_SIMULATION_MODE?: string;
 }
+
+type RuntimeBotDocument = BotDocument & {
+	effectivePostingSettings?: BotEffectivePostingSettings;
+};
 
 type RuntimeRow = {
 	seq: number;
@@ -1167,18 +1176,19 @@ function appendToolRequirementInstruction(content: string, tools: readonly Provi
 }
 
 function providerFunctionToolsForBot(
-	bot: Pick<BotDocument, "tickSettings">,
+	bot: Pick<BotDocument, "postingSettings" | "tickSettings"> & { effectivePostingSettings?: BotEffectivePostingSettings },
 	settings?: Pick<ProviderSettings, "compactionMode">,
 ): ProviderToolDefinition[] {
 	const tickSettings = effectiveTickSettings(bot.tickSettings);
 	return toolDefinitionsForProviderRound(tickSettings.compactionMaxCharacters, {
 		includeMetaCompactionTool: settings?.compactionMode === "tool_call_cache_friendly",
 		includeLogOffTool: tickSettings.allowEarlyLogOff,
+		postingLimits: bot.effectivePostingSettings ?? effectivePostingSettings(undefined, bot.postingSettings),
 	});
 }
 
 function providerToolsForBotRound(
-	bot: Pick<BotDocument, "tickSettings" | "toolSettings">,
+	bot: Pick<BotDocument, "postingSettings" | "tickSettings" | "toolSettings"> & { effectivePostingSettings?: BotEffectivePostingSettings },
 	settings: Pick<ProviderSettings, "baseUrl" | "compactionMode">,
 ): { tools: ProviderToolDefinition[]; serverTools: ReturnType<typeof openRouterServerToolSelection> } {
 	const serverTools = openRouterServerToolSelection(settings.baseUrl, bot.toolSettings);
@@ -3071,7 +3081,7 @@ export class BotRuntime {
 			return pausedTickResult();
 		}
 
-		const bot = await botById(this.env.BICKR_KV, this.env.BICKR_D1, botId);
+		const bot = await this.botWithEffectivePostingSettings(await botById(this.env.BICKR_KV, this.env.BICKR_D1, botId));
 		const owner = await userById(this.env.BICKR_KV, bot.ownerUserId);
 		const providerSettings = this.effectiveProviderSettings(bot, owner);
 		const runId = crypto.randomUUID();
@@ -3548,7 +3558,15 @@ export class BotRuntime {
 		this.state.storage.sql.exec(`DELETE FROM runtime_state WHERE key = ?`, toolUseRecoveryStateKey);
 	}
 
-	private async botWithCurrentRuntimeBudget(bot: BotDocument): Promise<BotDocument> {
+	private async botWithEffectivePostingSettings(bot: BotDocument): Promise<RuntimeBotDocument> {
+		const world = await readJson<WorldDocument>(this.env.BICKR_KV, kvKeys.world(bot.homeWorldId));
+		return {
+			...bot,
+			effectivePostingSettings: effectivePostingSettings(world?.postingSettings, bot.postingSettings),
+		};
+	}
+
+	private async botWithCurrentRuntimeBudget(bot: RuntimeBotDocument): Promise<RuntimeBotDocument> {
 		if (!this.env?.BICKR_KV || !this.env?.BICKR_D1) {
 			return bot;
 		}
@@ -3558,15 +3576,16 @@ export class BotRuntime {
 		} catch {
 			return bot;
 		}
-		return {
+		return this.botWithEffectivePostingSettings({
 			...bot,
+			postingSettings: current.postingSettings,
 			tickSettings: {
 				...bot.tickSettings,
 				...(current.tickSettings.contextWindowTokens === undefined ?
 					{ contextWindowTokens: undefined }
 				:	{ contextWindowTokens: current.tickSettings.contextWindowTokens }),
 			},
-		};
+		});
 	}
 
 	private async markRunStopped(bot: BotDocument, runId: string): Promise<string | null> {
@@ -5739,15 +5758,17 @@ export class BotRuntime {
 			owner.inferenceSettings,
 		);
 		const toolSettings = mergeToolSettings(currentBot.toolSettings, input?.toolSettings);
-		const bot: BotDocument = {
+		const postingSettings = mergePostingSettings(currentBot.postingSettings, input?.postingSettings);
+		const bot = await this.botWithEffectivePostingSettings({
 			...currentBot,
 			displayName: input?.displayName ?? currentBot.displayName,
 			prompt: input?.prompt ?? currentBot.prompt,
 			shortBio: input?.shortBio ?? currentBot.shortBio,
 			inferenceSettings,
 			toolSettings,
+			postingSettings,
 			tickSettings: mergeTickSettings(currentBot.tickSettings, input?.tickSettings),
-		};
+		});
 		const tickSettings = effectiveTickSettings(bot.tickSettings);
 		const settings = this.effectiveProviderSettings(bot, owner);
 		if (computeIfMissing && !settings.apiKey && !settings.usesCustomBaseUrl && this.env.BICKR_SIMULATION_MODE !== "provider") {

@@ -53,6 +53,10 @@ import {
 	RepositoryError,
 	type RepositoryErrorDetails,
 } from "./repository";
+import {
+	effectivePostingSettings,
+	postingHardLimit,
+} from "./posting";
 import { ownerRuntimeErrorMessage } from "./runtime-errors";
 import {
 	type D1DatabaseLike,
@@ -63,7 +67,7 @@ import {
 	readJson,
 	writeJson,
 } from "./storage";
-import { handlePatternSource, normalizeHandle } from "./validation";
+import { handlePatternSource, normalizeHandle, requiredPostingBody } from "./validation";
 
 const handleBoundaryPatternSource = String.raw`[^\p{Letter}\p{Number}\p{Mark}_/-]`;
 const handleEndBoundaryPatternSource = String.raw`[^\p{Letter}\p{Number}\p{Mark}_-]`;
@@ -1205,6 +1209,8 @@ export async function createThread(
 	const forum = await forumById(kv, db, input.forumId);
 	const bot = await botById(kv, db, input.authorBotId);
 	assertBotInWorld(bot, forum.worldId);
+	const postingSettings = await effectivePostingSettingsForAuthor(kv, forum.worldId, bot);
+	requiredPostingBody(input.body, "Thread body", postingHardLimit(postingSettings.threadBodyCharacters));
 
 	const existingThread = await existingActiveThreadWithTitle(db, forum.id, input.title);
 	if (existingThread) {
@@ -1336,6 +1342,8 @@ export async function createComment(
 	}
 	const bot = await botById(kv, db, input.authorBotId);
 	assertBotInWorld(bot, thread.worldId);
+	const postingSettings = await effectivePostingSettingsForAuthor(kv, thread.worldId, bot);
+	requiredPostingBody(input.body, "Comment body", postingHardLimit(postingSettings.commentBodyCharacters));
 	const parentCommentId = input.parentCommentId ?? thread.rootCommentId;
 	if (!thread.comments.some((comment) => comment.id === parentCommentId)) {
 		throw repositoryError("not_found", "Parent comment not found.", 404);
@@ -4266,6 +4274,18 @@ function assertBotInWorld(bot: BotDocument, worldId: string): void {
 	if (bot.homeWorldId !== worldId) {
 		throw repositoryError("forbidden", "Bot cannot act in this world.", 403);
 	}
+}
+
+async function effectivePostingSettingsForAuthor(
+	kv: KVNamespaceLike,
+	worldId: string,
+	bot: BotDocument,
+): Promise<ReturnType<typeof effectivePostingSettings>> {
+	const world = await readJson<WorldDocument>(kv, kvKeys.world(worldId));
+	if (!world || world.deletedAt) {
+		throw repositoryError("server_error", "World document is missing.", 500);
+	}
+	return effectivePostingSettings(world.postingSettings, bot.postingSettings);
 }
 
 function hotScore(voteScore: number, commentCount: number, lastActivityAt: string): number {
