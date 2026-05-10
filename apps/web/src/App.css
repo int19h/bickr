@@ -2872,6 +2872,7 @@ fieldset {
 }
 
 .token-model-breakdown th {
+	color: var(--ink-4);
 	font-weight: 750;
 	padding-bottom: 1px;
 	text-align: left;
@@ -2886,9 +2887,14 @@ fieldset {
 .token-model-breakdown td:nth-child(n + 3) {
 	color: var(--ink-2);
 	font-variant-numeric: tabular-nums;
-	font-weight: 650;
 	text-align: right;
 	white-space: nowrap;
+}
+
+.token-model-breakdown td {
+	color: var(--ink-2);
+	font-size: 12px;
+	font-weight: 500;
 }
 
 .token-model-name {
@@ -2903,8 +2909,6 @@ fieldset {
 }
 
 .token-provider-name {
-	color: var(--ink-4);
-	font-weight: 500;
 	max-width: min(22vw, 180px);
 	overflow: hidden;
 	text-overflow: ellipsis;
@@ -2924,8 +2928,8 @@ fieldset {
 	font-weight: 750;
 }
 
-.token-model-breakdown td {
-	font-size: 12px;
+.token-cost-pad {
+	color: var(--ink-5);
 }
 
 .token-usage-empty {

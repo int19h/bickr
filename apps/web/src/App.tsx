@@ -9788,6 +9788,7 @@ function BotRuntimePanel({
 function TokenUsagePanel({ currentModel, usage }: { currentModel: string; usage: BotTokenUsageStats | null }) {
 	const hasUsage = Boolean(usage && usage.last7Days.requestCount > 0);
 	const modelRows = usage ? tokenUsageModelBreakdownRows(usage.models, currentModel) : [];
+	const modelCostFractionDigits = tokenUsageModelCostFractionDigits(modelRows.map((row) => row.breakdown.cost));
 	const showModelBreakdown = Boolean(usage && hasUsage);
 	return (
 		<div className="token-usage-panel">
@@ -9835,7 +9836,7 @@ function TokenUsagePanel({ currentModel, usage }: { currentModel: string; usage:
 									<td className="token-provider-name">{breakdown.providerName}</td>
 									<td>{formatTokenCount(breakdown.totalTokens)}</td>
 									<td>{formatTokenCount(breakdown.cachedTokens)}</td>
-									<td>{formatNullableTokenCost(breakdown.cost)}</td>
+									<td>{formatTokenCostParts(breakdown.cost, modelCostFractionDigits)}</td>
 								</tr>
 							))
 						:	<tr className="token-model-breakdown-empty">
@@ -13333,16 +13334,49 @@ function formatTokenCost(value: number): string {
 		return "$0.00";
 	}
 	const fractionDigits = Math.abs(value) > 0 && Math.abs(value) < 0.01 ? 4 : 2;
+	return formatTokenCostFixed(value, fractionDigits);
+}
+
+function formatTokenCostFixed(value: number, fractionDigits: number): string {
 	return new Intl.NumberFormat(undefined, {
 		currency: "USD",
-		maximumFractionDigits: fractionDigits,
-		minimumFractionDigits: fractionDigits,
+		maximumFractionDigits: Math.max(0, fractionDigits),
+		minimumFractionDigits: Math.max(0, fractionDigits),
 		style: "currency",
 	}).format(value);
 }
 
-function formatNullableTokenCost(value: number | null): string {
-	return value === null ? "-" : formatTokenCost(value);
+function tokenUsageModelCostFractionDigits(values: readonly (number | null)[]): number {
+	return Math.max(2, ...values.map((value) => {
+		if (value === null || !Number.isFinite(value)) {
+			return 2;
+		}
+		return Math.abs(value) > 0 && Math.abs(value) < 0.01 ? 4 : 2;
+	}));
+}
+
+function formatTokenCostParts(value: number | null, fractionDigits: number): ReactNode {
+	if (value === null) {
+		return "-";
+	}
+	const formatted = formatTokenCostFixed(value, fractionDigits);
+	const decimal = formatted.lastIndexOf(".");
+	if (decimal < 0) {
+		return formatted;
+	}
+	let padStart = formatted.length;
+	while (padStart > decimal + 1 && formatted[padStart - 1] === "0") {
+		padStart -= 1;
+	}
+	if (padStart === formatted.length) {
+		return formatted;
+	}
+	return (
+		<>
+			{formatted.slice(0, padStart)}
+			<span className="token-cost-pad">{formatted.slice(padStart)}</span>
+		</>
+	);
 }
 
 function formatNullableUsageCost(value: number | null): string {
