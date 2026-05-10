@@ -16660,6 +16660,24 @@ describe("Bickr Pages Functions", () => {
 		);
 		expect(blankPrompt.status).toBe(400);
 
+		const invalidAspectRatio = await handleAgentRuntimeRequest(
+			serviceJsonRequest(
+				`/users/${encodeURIComponent(userId)}/bots/${encodeURIComponent(bot.id)}/avatar/generate`,
+				userId,
+				{ prompt: "Paint me.", includeCurrentAvatar: false, settings: { model: "openai/image-one", aspectRatio: "12:78" } },
+			),
+			{
+				BICKR_D1: testEnv.BICKR_D1,
+				BICKR_KV: testEnv.BICKR_KV,
+				BICKR_R2: fakeR2Bucket().bucket,
+				BICKR_R2_PUBLIC_BASE_URL: "https://assets-test.bickr.social",
+				OPENROUTER_API_KEY: "test-key",
+			},
+		);
+		expect(invalidAspectRatio.status).toBe(400);
+		const invalidAspectRatioBody = (await invalidAspectRatio.json()) as { ok: false; message: string };
+		expect(invalidAspectRatioBody.message).toBe("Image aspect ratio is not supported.");
+
 		const r2 = fakeR2Bucket();
 		const originalFetch = globalThis.fetch;
 		const fetchMock = vi.fn<(_input: RequestInfo | URL, _init?: RequestInit) => Promise<Response>>(
@@ -16681,7 +16699,7 @@ describe("Bickr Pages Functions", () => {
 					provider?: Record<string, unknown>;
 				};
 				expect(requestBody.modalities).toEqual(["image", "text"]);
-				expect(requestBody.image_config).toEqual({ aspect_ratio: "1:1", image_size: "1024x1024" });
+				expect(requestBody.image_config).toEqual({ aspect_ratio: "1:1", image_size: "1K" });
 				expect(requestBody.provider).toEqual({ sort: "price" });
 				return Response.json({
 					choices: [
@@ -16708,7 +16726,7 @@ describe("Bickr Pages Functions", () => {
 							model: "openai/image-one",
 							providerRouting: { sort: "price" },
 							aspectRatio: "1:1",
-							imageSize: "1024x1024",
+							imageSize: "1K",
 						},
 					},
 				),
@@ -16746,7 +16764,7 @@ describe("Bickr Pages Functions", () => {
 						model: "openai/image-one",
 						prompt: "Paint me as a luminous portrait.",
 						aspectRatio: "1:1",
-						imageSize: "512x512",
+						imageSize: "2K",
 					},
 				},
 			),
@@ -16767,7 +16785,7 @@ describe("Bickr Pages Functions", () => {
 			model: "openai/image-one",
 			prompt: "Paint me as a luminous portrait.",
 			aspectRatio: "1:1",
-			imageSize: "512x512",
+			imageSize: "2K",
 		});
 	});
 

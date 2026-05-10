@@ -1,4 +1,6 @@
 import {
+	isOpenRouterImageAspectRatio,
+	isOpenRouterImageSize,
 	type BotImageGenerationSettingsInput,
 	type BotInferenceSettingsInput,
 	type BotCompactionMode,
@@ -548,8 +550,20 @@ function parseImageGenerationSettings(value: unknown): BotImageGenerationSetting
 		const providerRouting = aliasedValue(record, "providerRouting", "provider_routing");
 		settings.providerRouting = providerRouting === null ? null : parseProviderRouting(providerRouting);
 	}
-	assignOptionalPlainText(settings, "aspectRatio", aliasedValue(record, "aspectRatio", "aspect_ratio"), "Image aspect ratio", 40);
-	assignOptionalPlainText(settings, "imageSize", aliasedValue(record, "imageSize", "image_size"), "Image size", 80);
+	assignOptionalImageGenerationChoice(
+		settings,
+		"aspectRatio",
+		aliasedValue(record, "aspectRatio", "aspect_ratio"),
+		"Image aspect ratio",
+		isOpenRouterImageAspectRatio,
+	);
+	assignOptionalImageGenerationChoice(
+		settings,
+		"imageSize",
+		aliasedValue(record, "imageSize", "image_size"),
+		"Image size",
+		isOpenRouterImageSize,
+	);
 	assignOptionalNumber(settings, "temperature", record.temperature, "Image generation temperature", 0, 2);
 	assignOptionalNumber(settings, "topK", aliasedValue(record, "topK", "top_k"), "Image generation top K", 0, 10_000);
 	assignOptionalNumber(settings, "topP", aliasedValue(record, "topP", "top_p"), "Image generation top P", 0, 1);
@@ -859,6 +873,27 @@ function assignOptionalPlainText<T extends object, K extends keyof T>(
 		return;
 	}
 	settings[key] = requiredText(value, label, maxLength) as T[K];
+}
+
+function assignOptionalImageGenerationChoice(
+	settings: BotImageGenerationSettingsInput,
+	key: "aspectRatio" | "imageSize",
+	value: unknown,
+	label: string,
+	isSupported: (value: string) => boolean,
+): void {
+	if (value === undefined) {
+		return;
+	}
+	if (value === null || value === "") {
+		settings[key] = null;
+		return;
+	}
+	const text = requiredText(value, label, 40);
+	if (!isSupported(text)) {
+		throw new InputError(`${label} is not supported.`);
+	}
+	settings[key] = text;
 }
 
 function assignOptionalBoolean<T extends object, K extends keyof T>(

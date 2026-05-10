@@ -5,6 +5,15 @@ import {
 	defaultReasoningPrefill,
 	defaultTranslationPrompt,
 	authProviders,
+	isOpenRouterExtendedImageAspectRatio,
+	isOpenRouterExtendedImageSize,
+	isOpenRouterImageAspectRatio,
+	isOpenRouterImageSize,
+	openRouterExtendedImageAspectRatios,
+	openRouterExtendedImageSizes,
+	openRouterImageAspectRatios,
+	openRouterImageSizes,
+	supportsOpenRouterExtendedImageConfig,
 	type AvatarImage,
 	type AuthProvider,
 	type BotActivityFeed,
@@ -5705,7 +5714,8 @@ function BotAvatarGenerationScreen({
 
 	const promptAllowed = prompt.trim().length > 0 || (includeCurrentAvatar && currentAvatarAvailable);
 	const imageProviderRoutingError = providerRoutingDraftError(draft.imageGenerationProviderRouting);
-	const canGenerate = Boolean(draft.imageGenerationModel.trim()) && promptAllowed && !imageProviderRoutingError && !generating;
+	const imageConfigError = imageGenerationConfigDraftError(draft);
+	const canGenerate = Boolean(draft.imageGenerationModel.trim()) && promptAllowed && !imageProviderRoutingError && !imageConfigError && !generating;
 
 	async function fillPrompt(): Promise<void> {
 		if (prompt.trim()) {
@@ -5817,7 +5827,7 @@ function BotAvatarGenerationScreen({
 					<button className="btn ghost" disabled={saving || !bot.inferenceSettings.imageGeneration} onClick={() => void discard()} type="button">
 						Discard saved values
 					</button>
-					<button className="btn primary" disabled={saving || Boolean(imageProviderRoutingError) || (!candidate && !draft.imageGenerationModel.trim())} onClick={() => void save()} type="button">
+					<button className="btn primary" disabled={saving || Boolean(imageProviderRoutingError) || Boolean(imageConfigError) || (!candidate && !draft.imageGenerationModel.trim())} onClick={() => void save()} type="button">
 						{saving ? "Saving..." : "Save"}
 					</button>
 				</div>
@@ -5825,23 +5835,25 @@ function BotAvatarGenerationScreen({
 			<section className="section">
 				<div className="section-head">
 					<h2>Image Generation</h2>
-					<span className="meta">{modelsError || imageProviderRoutingError || `${models.length} image-capable models`}</span>
+					<span className="meta">{modelsError || imageProviderRoutingError || imageConfigError || `${models.length} image-capable models`}</span>
 				</div>
 				<ImageGenerationInferenceFields draft={draft} models={models} onChange={setDraft} />
-				<Field label="Prompt">
-					<div className="prompt-fill-row">
+				<div className="field avatar-prompt-field">
+					<div className="avatar-prompt-head">
+						<label htmlFor="avatar-generation-prompt">Prompt</label>
 						<button className="btn ghost compact" disabled={prefilling || Boolean(prompt.trim())} onClick={() => void fillPrompt()} type="button">
 							{prefilling ? "Filling..." : "Fill from persona"}
 						</button>
 					</div>
 					<textarea
 						className="textarea avatar-prompt"
+						id="avatar-generation-prompt"
 						onChange={(event) => setPrompt(event.target.value)}
 						placeholder={includeCurrentAvatar ? "Optional when current avatar is included" : "Describe the avatar to generate"}
 						rows={5}
 						value={prompt}
 					/>
-				</Field>
+				</div>
 				{error && <div className="runtime-message error">{error}</div>}
 				{message && <div className="runtime-message">{message}</div>}
 			</section>
@@ -5878,12 +5890,14 @@ function BotAvatarGenerationScreen({
 				</div>
 				<div className="avatar-pane generated">
 					<div className="avatar-pane-head">
-						<span>Generated avatar</span>
+						<span className="avatar-pane-title">
+							<span>Generated avatar</span>
+							{candidate && <span className="unsaved-tag">unsaved</span>}
+						</span>
 						<button className="btn primary compact generate-avatar-btn" disabled={!canGenerate} onClick={() => void generate()} type="button">
 							{generating ? "Generating..." : "Generate"}
 						</button>
 					</div>
-					{candidate && <div className="unsaved-warning">Generated image is not saved yet.</div>}
 					<div className={`avatar-large-preview ${generating ? "busy" : ""}`}>
 						{candidate ?
 							<button className="avatar-preview-click" onClick={() => setLightboxUrl(candidate.url)} type="button">
@@ -9774,6 +9788,7 @@ function AgenticLoopInferenceFields({
 	}
 
 const openRouterProviderRoutingDocsUrl = "https://openrouter.ai/docs/guides/routing/provider-selection";
+const openRouterImageGenerationDocsUrl = "https://openrouter.ai/docs/guides/overview/multimodal/image-generation#aspect-ratio";
 const providerRoutingPlaceholder = "{\n\n}";
 const reasoningEffortOptions = [
 	{ value: "default", label: "Default" },
@@ -9784,6 +9799,69 @@ const reasoningEffortOptions = [
 	{ value: "high", label: "High" },
 	{ value: "xhigh", label: "XHigh" },
 ] as const;
+
+const imageAspectRatioLabels: Record<string, string> = {
+	"1:1": "1:1 - square, 1024x1024",
+	"2:3": "2:3 - portrait, 832x1248",
+	"3:2": "3:2 - landscape, 1248x832",
+	"3:4": "3:4 - portrait, 864x1184",
+	"4:3": "4:3 - landscape, 1184x864",
+	"4:5": "4:5 - portrait, 896x1152",
+	"5:4": "5:4 - landscape, 1152x896",
+	"9:16": "9:16 - vertical, 768x1344",
+	"16:9": "16:9 - wide, 1344x768",
+	"21:9": "21:9 - ultrawide, 1536x672",
+	"1:4": "1:4 - extended tall",
+	"4:1": "4:1 - extended wide",
+	"1:8": "1:8 - extended extra tall",
+	"8:1": "8:1 - extended extra wide",
+};
+
+const imageSizeLabels: Record<string, string> = {
+	"0.5K": "0.5K - lower resolution",
+	"1K": "1K - standard",
+	"2K": "2K - higher resolution",
+	"4K": "4K - highest resolution",
+};
+
+function imageAspectRatioLabel(value: string): string {
+	return imageAspectRatioLabels[value] ?? value;
+}
+
+function imageSizeLabel(value: string): string {
+	return imageSizeLabels[value] ?? value;
+}
+
+function ImageConfigHelp({ text }: { text: string }) {
+	return (
+		<>
+			{text}{" "}
+			<a href={openRouterImageGenerationDocsUrl} rel="noreferrer" target="_blank">
+				Docs
+			</a>
+			.
+		</>
+	);
+}
+
+function imageGenerationConfigDraftError(draft: InferenceDraft): string {
+	const aspectRatio = draft.imageGenerationAspectRatio.trim();
+	const imageSize = draft.imageGenerationImageSize.trim();
+	if (aspectRatio && !isOpenRouterImageAspectRatio(aspectRatio)) {
+		return "Image generation aspect ratio is not supported.";
+	}
+	if (imageSize && !isOpenRouterImageSize(imageSize)) {
+		return "Image generation size is not supported.";
+	}
+	if (
+		(isOpenRouterExtendedImageAspectRatio(aspectRatio) || isOpenRouterExtendedImageSize(imageSize)) &&
+		!supportsOpenRouterExtendedImageConfig(draft.imageGenerationModel)
+	) {
+		return "Extended image config is only supported by google/gemini-3.1-flash-image-preview.";
+	}
+	return "";
+}
+
 const toolCallOptions = [
 	{ value: "require", label: "Require" },
 	{ value: "railroad", label: "Railroad" },
@@ -9867,14 +9945,27 @@ function ImageGenerationInferenceFields({
 	function patch(update: Partial<InferenceDraft>): void {
 		onChange({ ...draft, ...update });
 	}
+	function patchModel(model: string): void {
+		const update: Partial<InferenceDraft> = { imageGenerationModel: model };
+		if (!supportsOpenRouterExtendedImageConfig(model)) {
+			if (isOpenRouterExtendedImageAspectRatio(draft.imageGenerationAspectRatio)) {
+				update.imageGenerationAspectRatio = "";
+			}
+			if (isOpenRouterExtendedImageSize(draft.imageGenerationImageSize)) {
+				update.imageGenerationImageSize = "";
+			}
+		}
+		patch(update);
+	}
 	const modelSelected = draft.imageGenerationModel.trim().length > 0;
+	const supportsExtendedConfig = supportsOpenRouterExtendedImageConfig(draft.imageGenerationModel);
 	return (
 		<div className="field-stack">
 			<div className="inference-row three">
 				<Field help={loadError || "Only OpenRouter models that advertise image output are listed."} label="Model">
 					<select
 						className="input"
-						onChange={(event) => patch({ imageGenerationModel: event.target.value })}
+						onChange={(event) => patchModel(event.target.value)}
 						value={draft.imageGenerationModel}
 					>
 						<option value="">Choose a model</option>
@@ -9885,21 +9976,53 @@ function ImageGenerationInferenceFields({
 						))}
 					</select>
 				</Field>
-				<Field label="Aspect ratio">
-					<input
+				<Field
+					help={<ImageConfigHelp text="OpenRouter defaults to 1:1. Extended ratios are Gemini 3.1 Flash Image Preview-only." />}
+					label="Aspect ratio"
+				>
+					<select
 						className="input"
 						onChange={(event) => patch({ imageGenerationAspectRatio: event.target.value })}
-						placeholder="1:1"
 						value={draft.imageGenerationAspectRatio}
-					/>
+					>
+						<option value="">Default (1:1)</option>
+						<optgroup label="Standard">
+							{openRouterImageAspectRatios.map((ratio) => (
+								<option key={ratio} value={ratio}>{imageAspectRatioLabel(ratio)}</option>
+							))}
+						</optgroup>
+						<optgroup label="Gemini 3.1 only">
+							{openRouterExtendedImageAspectRatios.map((ratio) => (
+								<option disabled={!supportsExtendedConfig} key={ratio} value={ratio}>
+									{imageAspectRatioLabel(ratio)}
+								</option>
+							))}
+						</optgroup>
+					</select>
 				</Field>
-				<Field label="Image size">
-					<input
+				<Field
+					help={<ImageConfigHelp text="OpenRouter defaults to 1K. 0.5K is Gemini 3.1 Flash Image Preview-only." />}
+					label="Image size"
+				>
+					<select
 						className="input"
 						onChange={(event) => patch({ imageGenerationImageSize: event.target.value })}
-						placeholder="1024x1024"
 						value={draft.imageGenerationImageSize}
-					/>
+					>
+						<option value="">Default (1K)</option>
+						<optgroup label="Standard">
+							{openRouterImageSizes.map((size) => (
+								<option key={size} value={size}>{imageSizeLabel(size)}</option>
+							))}
+						</optgroup>
+						<optgroup label="Gemini 3.1 only">
+							{openRouterExtendedImageSizes.map((size) => (
+								<option disabled={!supportsExtendedConfig} key={size} value={size}>
+									{imageSizeLabel(size)}
+								</option>
+							))}
+						</optgroup>
+					</select>
 				</Field>
 			</div>
 			<div className="inference-row four">
@@ -15785,8 +15908,8 @@ function inferenceDraftFromSettings(
 		imageGenerationModel: settings.imageGeneration?.model ?? "",
 		imageGenerationPrompt: settings.imageGeneration?.prompt ?? "",
 		imageGenerationProviderRouting: providerRoutingDraftValue(settings.imageGeneration?.providerRouting),
-		imageGenerationAspectRatio: settings.imageGeneration?.aspectRatio ?? "",
-		imageGenerationImageSize: settings.imageGeneration?.imageSize ?? "",
+		imageGenerationAspectRatio: imageGenerationAspectRatioDraftValue(settings.imageGeneration?.aspectRatio),
+		imageGenerationImageSize: imageGenerationImageSizeDraftValue(settings.imageGeneration?.imageSize),
 		imageGenerationTemperature: numericDraftValue(settings.imageGeneration?.temperature),
 		imageGenerationTopK: numericDraftValue(settings.imageGeneration?.topK),
 		imageGenerationTopP: numericDraftValue(settings.imageGeneration?.topP),
@@ -15944,8 +16067,8 @@ function imageGenerationInputFromDraft(draft: InferenceDraft, prompt = draft.ima
 		model: nullableTextInput(draft.imageGenerationModel),
 		prompt: nullablePreservedTextInput(prompt),
 		providerRouting: providerRoutingInputFromDraft(draft.imageGenerationProviderRouting),
-		aspectRatio: nullableTextInput(draft.imageGenerationAspectRatio),
-		imageSize: nullableTextInput(draft.imageGenerationImageSize),
+		aspectRatio: nullableImageGenerationAspectRatioInput(draft.imageGenerationAspectRatio),
+		imageSize: nullableImageGenerationSizeInput(draft.imageGenerationImageSize),
 		temperature: nullableNumberInput(draft.imageGenerationTemperature),
 		topK: nullableNumberInput(draft.imageGenerationTopK),
 		topP: nullableNumberInput(draft.imageGenerationTopP),
@@ -16317,9 +16440,29 @@ function optionalNumberDraftValue(value: number | undefined): string {
 	return value === undefined ? "" : String(value);
 }
 
+function imageGenerationAspectRatioDraftValue(value: string | undefined): string {
+	const trimmed = value?.trim() ?? "";
+	return trimmed && isOpenRouterImageAspectRatio(trimmed) ? trimmed : "";
+}
+
+function imageGenerationImageSizeDraftValue(value: string | undefined): string {
+	const trimmed = value?.trim() ?? "";
+	return trimmed && isOpenRouterImageSize(trimmed) ? trimmed : "";
+}
+
 function nullableTextInput(value: string): string | null {
 	const trimmed = value.trim();
 	return trimmed ? trimmed : null;
+}
+
+function nullableImageGenerationAspectRatioInput(value: string): string | null {
+	const trimmed = value.trim();
+	return trimmed && isOpenRouterImageAspectRatio(trimmed) ? trimmed : null;
+}
+
+function nullableImageGenerationSizeInput(value: string): string | null {
+	const trimmed = value.trim();
+	return trimmed && isOpenRouterImageSize(trimmed) ? trimmed : null;
 }
 
 function nullableTextInputMatchingInherited(value: string, inherited: string | undefined): string | null {

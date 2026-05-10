@@ -138,6 +138,11 @@ import {
 	type SearchThreadResult,
 	type SpotlightIncludedContent,
 	type SpotlightSyntheticContext,
+	isOpenRouterExtendedImageAspectRatio,
+	isOpenRouterExtendedImageSize,
+	isOpenRouterImageAspectRatio,
+	isOpenRouterImageSize,
+	supportsOpenRouterExtendedImageConfig,
 	type ThreadDocument,
 	type ThreadSummary,
 	type UserDocument,
@@ -2755,7 +2760,7 @@ function effectiveProviderSettingsForImageGeneration(
 	const hasCustomBaseUrl = Boolean(botBaseUrl || userBaseUrl);
 	const baseUrl = botBaseUrl ?? userBaseUrl ?? envBaseUrl ?? fallbackProviderBaseUrl;
 	const providerRouting = openRouterProviderRouting(baseUrl, imageGeneration.providerRouting);
-	return {
+	const settings: ImageGenerationProviderSettings = {
 		apiKey: botApiKey ?? userApiKey ?? (hasCustomBaseUrl ? undefined : envApiKey),
 		baseUrl,
 		model,
@@ -2770,6 +2775,8 @@ function effectiveProviderSettingsForImageGeneration(
 		...(imageGeneration.presencePenalty !== undefined ? { presencePenalty: imageGeneration.presencePenalty } : {}),
 		...(imageGeneration.repetitionPenalty !== undefined ? { repetitionPenalty: imageGeneration.repetitionPenalty } : {}),
 	};
+	assertSupportedOpenRouterImageConfig(settings);
+	return settings;
 }
 
 function openRouterProviderRouting(baseUrl: string, providerRouting: JsonObject | undefined): JsonObject | undefined {
@@ -2777,6 +2784,23 @@ function openRouterProviderRouting(baseUrl: string, providerRouting: JsonObject 
 		return undefined;
 	}
 	return providerRouting;
+}
+
+function assertSupportedOpenRouterImageConfig(settings: ImageGenerationProviderSettings): void {
+	if (settings.aspectRatio && !isOpenRouterImageAspectRatio(settings.aspectRatio)) {
+		throw new InputError("Image generation aspect ratio is not supported.");
+	}
+	if (settings.imageSize && !isOpenRouterImageSize(settings.imageSize)) {
+		throw new InputError("Image generation size is not supported.");
+	}
+	if (
+		(settings.aspectRatio && isOpenRouterExtendedImageAspectRatio(settings.aspectRatio)) ||
+		(settings.imageSize && isOpenRouterExtendedImageSize(settings.imageSize))
+	) {
+		if (!supportsOpenRouterExtendedImageConfig(settings.model)) {
+			throw new InputError("Extended image generation aspect ratios and 0.5K size are only supported by google/gemini-3.1-flash-image-preview.");
+		}
+	}
 }
 
 const runtimeSchema = `

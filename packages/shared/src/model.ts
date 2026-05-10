@@ -186,6 +186,55 @@ export type BotImageGenerationSettings = {
 	repetitionPenalty?: number;
 };
 
+export const openRouterImageAspectRatios = [
+	"1:1",
+	"2:3",
+	"3:2",
+	"3:4",
+	"4:3",
+	"4:5",
+	"5:4",
+	"9:16",
+	"16:9",
+	"21:9",
+] as const;
+
+export const openRouterExtendedImageAspectRatios = ["1:4", "4:1", "1:8", "8:1"] as const;
+
+export const openRouterImageSizes = ["1K", "2K", "4K"] as const;
+export const openRouterExtendedImageSizes = ["0.5K"] as const;
+export const openRouterExtendedImageConfigModel = "google/gemini-3.1-flash-image-preview";
+
+export type OpenRouterImageAspectRatio =
+	| (typeof openRouterImageAspectRatios)[number]
+	| (typeof openRouterExtendedImageAspectRatios)[number];
+
+export type OpenRouterImageSize =
+	| (typeof openRouterImageSizes)[number]
+	| (typeof openRouterExtendedImageSizes)[number];
+
+export function isOpenRouterImageAspectRatio(value: string): value is OpenRouterImageAspectRatio {
+	return (openRouterImageAspectRatios as readonly string[]).includes(value) ||
+		(openRouterExtendedImageAspectRatios as readonly string[]).includes(value);
+}
+
+export function isOpenRouterImageSize(value: string): value is OpenRouterImageSize {
+	return (openRouterImageSizes as readonly string[]).includes(value) ||
+		(openRouterExtendedImageSizes as readonly string[]).includes(value);
+}
+
+export function isOpenRouterExtendedImageAspectRatio(value: string): value is (typeof openRouterExtendedImageAspectRatios)[number] {
+	return (openRouterExtendedImageAspectRatios as readonly string[]).includes(value);
+}
+
+export function isOpenRouterExtendedImageSize(value: string): value is (typeof openRouterExtendedImageSizes)[number] {
+	return (openRouterExtendedImageSizes as readonly string[]).includes(value);
+}
+
+export function supportsOpenRouterExtendedImageConfig(model: string): boolean {
+	return model.trim().split(":")[0] === openRouterExtendedImageConfigModel;
+}
+
 export type BotInferenceSettingsInput = {
 	openRouterApiKey?: string | null;
 	baseUrl?: string | null;
