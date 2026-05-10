@@ -7,7 +7,8 @@ import {
 	updateForum,
 	updateWorld,
 } from "@bickr/shared/governance";
-import { RepositoryError, createForum, createWorld } from "@bickr/shared/repository";
+import { RepositoryError, createForum, createWorld, listForums } from "@bickr/shared/repository";
+import { deleteSearchVector, upsertForumSearchVector, upsertWorldSearchVector } from "@bickr/shared/search";
 import { createComment, createThread, readThread, setVote } from "@bickr/shared/social";
 import { type ThreadDocument } from "@bickr/shared/model";
 import {
@@ -26,6 +27,9 @@ import { json } from "@bickr/shared/http";
 export interface Env {
 	BICKR_D1: D1Database;
 	BICKR_KV: KVNamespace;
+	AI?: Ai;
+	BICKR_BOT_VECTORIZE?: Vectorize;
+	BICKR_SEARCH_VECTORIZE?: Vectorize;
 	WORLD_COORDINATOR: DurableObjectNamespace;
 	FORUM_COORDINATOR: DurableObjectNamespace;
 }
@@ -110,7 +114,7 @@ export class ForumCoordinator {
 
 export async function handleForumCoordinatorRequest(
 	request: Request,
-	env: Pick<Env, "BICKR_D1" | "BICKR_KV">,
+	env: Pick<Env, "AI" | "BICKR_BOT_VECTORIZE" | "BICKR_D1" | "BICKR_KV" | "BICKR_SEARCH_VECTORIZE">,
 	context: CoordinatorContext | string = "direct",
 ): Promise<Response> {
 	const coordinator: CoordinatorContext = typeof context === "string" ? { objectId: context } : context;
@@ -120,7 +124,7 @@ export async function handleForumCoordinatorRequest(
 
 async function handleForumCoordinatorRequestExclusive(
 	request: Request,
-	env: Pick<Env, "BICKR_D1" | "BICKR_KV">,
+	env: Pick<Env, "AI" | "BICKR_BOT_VECTORIZE" | "BICKR_D1" | "BICKR_KV" | "BICKR_SEARCH_VECTORIZE">,
 	coordinator: CoordinatorContext,
 ): Promise<Response> {
 	try {
@@ -130,6 +134,8 @@ async function handleForumCoordinatorRequestExclusive(
 			const userId = requireUserHeader(request);
 			const input = parseCreateWorldInput(await readJsonBody(request));
 			const world = await createWorld(env.BICKR_KV, env.BICKR_D1, input, userId);
+			await upsertWorldSearchVector(env, world);
+			await Promise.all((await listForums(env.BICKR_D1, world.handle)).map((forum) => upsertForumSearchVector(env, forum)));
 			return ok({ world, coordinator: coordinator.objectId }, { status: 201 });
 		}
 
@@ -139,6 +145,7 @@ async function handleForumCoordinatorRequestExclusive(
 			const worldHandle = normalizeHandle(decodeURIComponent(worldMatch[1] ?? ""));
 			const input = parseUpdateWorldInput(await readJsonBody(request));
 			const world = await updateWorld(env.BICKR_KV, env.BICKR_D1, worldHandle, userId, input);
+			await upsertWorldSearchVector(env, world);
 			return ok({ world, coordinator: coordinator.objectId });
 		}
 
@@ -146,6 +153,7 @@ async function handleForumCoordinatorRequestExclusive(
 			const userId = requireUserHeader(request);
 			const worldHandle = normalizeHandle(decodeURIComponent(worldMatch[1] ?? ""));
 			const world = await deleteWorld(env.BICKR_KV, env.BICKR_D1, worldHandle, userId);
+			await deleteSearchVector(env, "world", world.id);
 			return ok({ world, coordinator: coordinator.objectId });
 		}
 
@@ -155,6 +163,7 @@ async function handleForumCoordinatorRequestExclusive(
 			const worldHandle = normalizeHandle(decodeURIComponent(forumMatch[1] ?? ""));
 			const input = parseCreateForumInput(await readJsonBody(request));
 			const forum = await createForum(env.BICKR_KV, env.BICKR_D1, worldHandle, input, userId);
+			await upsertForumSearchVector(env, forum);
 			return ok({ forum, coordinator: coordinator.objectId }, { status: 201 });
 		}
 
@@ -165,6 +174,7 @@ async function handleForumCoordinatorRequestExclusive(
 			const forumHandle = normalizeHandle(decodeURIComponent(forumManageMatch[2] ?? ""));
 			const input = parseUpdateForumInput(await readJsonBody(request));
 			const forum = await updateForum(env.BICKR_KV, env.BICKR_D1, worldHandle, forumHandle, userId, input);
+			await upsertForumSearchVector(env, forum);
 			return ok({ forum, coordinator: coordinator.objectId });
 		}
 
@@ -173,6 +183,7 @@ async function handleForumCoordinatorRequestExclusive(
 			const worldHandle = normalizeHandle(decodeURIComponent(forumManageMatch[1] ?? ""));
 			const forumHandle = normalizeHandle(decodeURIComponent(forumManageMatch[2] ?? ""));
 			const forum = await deleteForum(env.BICKR_KV, env.BICKR_D1, worldHandle, forumHandle, userId);
+			await deleteSearchVector(env, "forum", forum.id);
 			return ok({ forum, coordinator: coordinator.objectId });
 		}
 

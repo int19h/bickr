@@ -8,6 +8,8 @@ import { onRequestGet as googleCallback } from "../apps/web/functions/api/auth/g
 import { onRequestPost as logout } from "../apps/web/functions/api/auth/logout";
 import { onRequestPost as testLogin } from "../apps/web/functions/api/__test__/login";
 import { onRequestGet as health } from "../apps/web/functions/api/health";
+import { onRequestGet as searchRoute } from "../apps/web/functions/api/search";
+import { onRequestGet as searchSuggestRoute } from "../apps/web/functions/api/search/suggest";
 import { onRequestGet as meBots } from "../apps/web/functions/api/me/bots";
 import {
 	onRequestDelete as deleteBot,
@@ -134,6 +136,17 @@ import {
 	worldActivityFeedByHandle,
 } from "../packages/shared/src/social";
 import {
+	normalizeSearchFilters,
+	deleteSearchVector,
+	reindexSearchVectors,
+	searchEntitiesSemantic,
+	searchEntitiesText,
+	upsertBotSearchVector,
+	upsertForumSearchVector,
+	upsertWorldSearchVector,
+	type SearchVectorEnv,
+} from "../packages/shared/src/search";
+import {
 	defaultTranslationPrompt,
 	type BotDocument,
 	type BotInferenceSubmissionMessage,
@@ -143,6 +156,7 @@ import {
 	type BotRuntimeEvent,
 	type BotTokenUsageStats,
 	type NotificationEvent,
+	type SearchResponse,
 	type SpotlightSyntheticContext,
 	type ThreadDocument,
 	type UserProfile,
@@ -239,6 +253,20 @@ CREATE TABLE bots_index (
 );
 CREATE INDEX bots_index_owner ON bots_index (owner_user_id, deleted_at, updated_at);
 CREATE INDEX bots_index_world ON bots_index (home_world_id, deleted_at, handle);
+CREATE VIRTUAL TABLE search_entities_fts USING fts5(
+	entity_type UNINDEXED,
+	entity_id UNINDEXED,
+	world_id UNINDEXED,
+	world_handle UNINDEXED,
+	world_name UNINDEXED,
+	forum_id UNINDEXED,
+	forum_handle UNINDEXED,
+	bot_id UNINDEXED,
+	bot_handle UNINDEXED,
+	title,
+	body,
+	updated_at UNINDEXED
+);
 CREATE TABLE bot_imports (
 	bot_id TEXT PRIMARY KEY,
 	world_id TEXT NOT NULL,
@@ -468,6 +496,7 @@ beforeEach(async () => {
 		DROP TABLE IF EXISTS votes;
 		DROP TABLE IF EXISTS comments_index;
 		DROP TABLE IF EXISTS threads_index;
+		DROP TABLE IF EXISTS search_entities_fts;
 		DROP TABLE IF EXISTS bots_index;
 		DROP TABLE IF EXISTS forums_index;
 		DROP TABLE IF EXISTS worlds_index;
@@ -10365,6 +10394,347 @@ describe("Bickr Pages Functions", () => {
 		expect(forumsPayload.data.forums.map((forum) => forum.handle)).toEqual(expect.arrayContaining(["announcements", "intro"]));
 	});
 
+	it("searches active worlds, forums, and bots by substring suggestions, escaped substrings, globs, and exact filters", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		await createWorld(
+			contextFor<typeof createWorld>(
+				jsonRequest(
+					"http://example.com/api/worlds",
+					"POST",
+					{ handle: "literal-percent", name: "100% Pure", description: "Literal percent world." },
+					cookie,
+				),
+			),
+		);
+		await createWorld(
+			contextFor<typeof createWorld>(
+				jsonRequest(
+					"http://example.com/api/worlds",
+					"POST",
+					{ handle: "literal-number", name: "1000 Pure", description: "Literal number world." },
+					cookie,
+				),
+			),
+		);
+		const forum = await createForumForTest(cookie, "release-room");
+		const bot = await createBotForTest(cookie, "release-sage");
+		await createThreadForTest(forum.id, bot.id, "Release notes", "Release notes from u/release-sage.");
+
+		const suggestions = await searchSuggestRoute(
+			contextFor<typeof searchSuggestRoute>(
+				new Request("http://example.com/api/search/suggest?q=release", { headers: { cookie } }),
+			),
+		);
+		expect(suggestions.status, await suggestions.clone().text()).toBe(200);
+		const suggestionsPayload = await suggestions.json() as { data: Pick<SearchResponse, "query" | "results"> };
+		expect(suggestionsPayload.data.results.map((result) => `${result.type}:${"handle" in result ? result.handle : ""}`)).toEqual(
+			expect.arrayContaining(["forum:release-room", "bot:release-sage"]),
+		);
+
+		const escaped = await searchEntitiesText(testEnv.BICKR_D1, {
+			mode: "substring",
+			query: "100%",
+			types: ["world"],
+		});
+		expect(escaped.results.map((result) => result.type === "world" ? result.handle : "")).toEqual(["literal-percent"]);
+
+		const glob = await searchEntitiesText(testEnv.BICKR_D1, {
+			mode: "substring",
+			query: "patch*notes",
+			types: ["world"],
+		});
+		expect(glob.results.map((result) => result.type === "world" ? result.handle : "")).toEqual(["patch-notes"]);
+
+		const literalWildcard = await searchEntitiesText(testEnv.BICKR_D1, {
+			mode: "substring",
+			query: "patch%notes",
+			types: ["world"],
+		});
+		expect(literalWildcard.results).toEqual([]);
+
+		const usernameFilteredWorld = await searchEntitiesText(testEnv.BICKR_D1, {
+			...normalizeSearchFilters({ username: "u/release-sage" }),
+			mode: "substring",
+			query: "patch",
+			types: ["world"],
+		});
+		expect(usernameFilteredWorld.results.map((result) => result.type === "world" ? result.handle : "")).toEqual(["patch-notes"]);
+
+		const usernameFilteredForum = await searchEntitiesText(testEnv.BICKR_D1, {
+			...normalizeSearchFilters({ username: "@release-sage" }),
+			mode: "substring",
+			query: "release",
+			types: ["forum"],
+		});
+		expect(usernameFilteredForum.results.map((result) => result.type === "forum" ? result.handle : "")).toEqual(["release-room"]);
+		expect(usernameFilteredForum.results[0]?.world.matched).toBe(false);
+
+		const forumFilteredBot = await searchEntitiesText(testEnv.BICKR_D1, {
+			...normalizeSearchFilters({ forum: "f/release-room" }),
+			mode: "substring",
+			query: "release",
+			types: ["bot"],
+		});
+		expect(forumFilteredBot.results.map((result) => result.type === "bot" ? result.handle : "")).toEqual(["release-sage"]);
+	});
+
+	it("supports FTS search, syntax errors, and 20-result pagination", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		for (let index = 0; index < 21; index += 1) {
+			const padded = String(index).padStart(2, "0");
+			const response = await createForum(
+				contextFor<typeof createForum>(
+					jsonRequest(
+						"http://example.com/api/worlds/patch-notes/forums",
+						"POST",
+						{ handle: `pager-${padded}`, description: `Pagination needle ${padded}` },
+						cookie,
+					),
+					{ worldHandle: "patch-notes" },
+				),
+			);
+			expect(response.status, await response.clone().text()).toBe(201);
+		}
+
+		const firstPage = await searchEntitiesText(testEnv.BICKR_D1, {
+			mode: "fts",
+			page: 1,
+			query: "pagination",
+			types: ["forum"],
+		});
+		expect(firstPage.total).toBe(21);
+		expect(firstPage.results).toHaveLength(20);
+		expect(firstPage.hasNextPage).toBe(true);
+		expect(firstPage.results.every((result) => result.type === "forum" && !result.world.matched)).toBe(true);
+
+		const operatorQuery = await searchEntitiesText(testEnv.BICKR_D1, {
+			mode: "fts",
+			page: 1,
+			query: "Pagination OR needle",
+			types: ["forum"],
+		});
+		expect(operatorQuery.total).toBe(21);
+
+		const secondPage = await searchEntitiesText(testEnv.BICKR_D1, {
+			mode: "fts",
+			page: 2,
+			query: "pagination",
+			types: ["forum"],
+		});
+		expect(secondPage.results).toHaveLength(1);
+		expect(secondPage.hasNextPage).toBe(false);
+
+		const invalid = await searchRoute(
+			contextFor<typeof searchRoute>(
+				new Request("http://example.com/api/search?q=%22&mode=fts&types=world", { headers: { cookie } }),
+			),
+		);
+		expect(invalid.status).toBe(400);
+	});
+
+	it("keeps FTS rows current on world, forum, and bot rename and soft-delete paths", async () => {
+		const cookie = await authCookie();
+		const worldResponse = await createWorld(
+			contextFor<typeof createWorld>(
+				jsonRequest(
+					"http://example.com/api/worlds",
+					"POST",
+					{ handle: "index-lab", name: "Old Search Needle", description: "Old world search row." },
+					cookie,
+				),
+			),
+		);
+		const worldPayload = await worldResponse.json() as { data: { world: WorldSummary } };
+		const forumResponse = await createForum(
+			contextFor<typeof createForum>(
+				jsonRequest(
+					"http://example.com/api/worlds/index-lab/forums",
+					"POST",
+					{ handle: "old-forum-needle", description: "Old forum search row." },
+					cookie,
+				),
+				{ worldHandle: "index-lab" },
+			),
+		);
+		const forumPayload = await forumResponse.json() as { data: { forum: TestForum } };
+		const botResponse = await createBot(
+			contextFor<typeof createBot>(
+				jsonRequest(
+					"http://example.com/api/worlds/index-lab/bots",
+					"POST",
+					{
+						handle: "old-bot-needle",
+						displayName: "Old Bot Needle",
+						shortBio: "Old bot search row.",
+						prompt: "Stay concise.",
+					},
+					cookie,
+				),
+				{ worldHandle: "index-lab" },
+			),
+		);
+		const botPayload = await botResponse.json() as { data: { bot: BotBody } };
+		const oldMatches = await searchEntitiesText(testEnv.BICKR_D1, {
+			mode: "fts",
+			query: "old",
+			types: ["world", "forum", "bot"],
+		});
+		expect(oldMatches.results.map((result) => `${result.type}:${"handle" in result ? result.handle : ""}`)).toEqual(
+			expect.arrayContaining(["world:index-lab", "forum:old-forum-needle", "bot:old-bot-needle"]),
+		);
+
+		const worldPatch = await patchWorld(
+			contextFor<typeof patchWorld>(
+				jsonRequest(
+					"http://example.com/api/worlds/index-lab",
+					"PATCH",
+					{ handle: "index-lab-new", name: "New Search Needle", description: "New world search row." },
+					cookie,
+				),
+				{ worldHandle: "index-lab" },
+			),
+		);
+		expect(worldPatch.status, await worldPatch.clone().text()).toBe(200);
+		const forumPatch = await patchForum(
+			contextFor<typeof patchForum>(
+				jsonRequest(
+					"http://example.com/api/worlds/index-lab-new/forums/old-forum-needle",
+					"PATCH",
+					{ handle: "new-forum-needle", description: "New forum search row." },
+					cookie,
+				),
+				{ worldHandle: "index-lab-new", forumHandle: "old-forum-needle" },
+			),
+		);
+		expect(forumPatch.status, await forumPatch.clone().text()).toBe(200);
+		const botPatch = await patchBot(
+			contextFor<typeof patchBot>(
+				jsonRequest(
+					`http://example.com/api/me/bots/${botPayload.data.bot.id}`,
+					"PATCH",
+					{ handle: "new-bot-needle", displayName: "New Bot Needle", shortBio: "New bot search row." },
+					cookie,
+				),
+				{ botId: botPayload.data.bot.id },
+			),
+		);
+		expect(botPatch.status, await botPatch.clone().text()).toBe(200);
+
+		const afterRenameOld = await searchEntitiesText(testEnv.BICKR_D1, {
+			mode: "fts",
+			query: "old",
+			types: ["world", "forum", "bot"],
+		});
+		expect(afterRenameOld.results.filter((result) => result.id === worldPayload.data.world.id || result.id === forumPayload.data.forum.id || result.id === botPayload.data.bot.id)).toEqual([]);
+		const afterRenameNew = await searchEntitiesText(testEnv.BICKR_D1, {
+			mode: "fts",
+			query: "new",
+			types: ["world", "forum", "bot"],
+		});
+		expect(afterRenameNew.results.map((result) => `${result.type}:${"handle" in result ? result.handle : ""}`)).toEqual(
+			expect.arrayContaining(["world:index-lab-new", "forum:new-forum-needle", "bot:new-bot-needle"]),
+		);
+
+		const botDelete = await deleteBot(
+			contextFor<typeof deleteBot>(
+				new Request(`http://example.com/api/me/bots/${botPayload.data.bot.id}`, { method: "DELETE", headers: { cookie } }),
+				{ botId: botPayload.data.bot.id },
+			),
+		);
+		expect(botDelete.status, await botDelete.clone().text()).toBe(200);
+		const forumDelete = await deleteForumRoute(
+			contextFor<typeof deleteForumRoute>(
+				new Request("http://example.com/api/worlds/index-lab-new/forums/new-forum-needle", { method: "DELETE", headers: { cookie } }),
+				{ worldHandle: "index-lab-new", forumHandle: "new-forum-needle" },
+			),
+		);
+		expect(forumDelete.status, await forumDelete.clone().text()).toBe(200);
+		const worldDelete = await deleteWorldRoute(
+			contextFor<typeof deleteWorldRoute>(
+				new Request("http://example.com/api/worlds/index-lab-new", { method: "DELETE", headers: { cookie } }),
+				{ worldHandle: "index-lab-new" },
+			),
+		);
+		expect(worldDelete.status, await worldDelete.clone().text()).toBe(200);
+		const afterDelete = await searchEntitiesText(testEnv.BICKR_D1, {
+			mode: "fts",
+			query: "new",
+			types: ["world", "forum", "bot"],
+		});
+		expect(afterDelete.results.filter((result) => result.id === worldPayload.data.world.id || result.id === forumPayload.data.forum.id || result.id === botPayload.data.bot.id)).toEqual([]);
+	});
+
+	it("indexes and searches semantic entities with exact-filter hydration, score ordering, and bot vector fallback", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const forum = await createForumForTest(cookie, "semantic-room");
+		const bot = await createBotForTest(cookie, "semantic-sage");
+		await createThreadForTest(forum.id, bot.id, "Semantic trail", "Semantic coverage post.");
+		const worldResponse = await worlds(contextFor<typeof worlds>(new Request("http://example.com/api/worlds")));
+		const worldPayload = await worldResponse.json() as { data: { worlds: WorldSummary[] } };
+		const world = worldPayload.data.worlds.find((item) => item.handle === "patch-notes");
+		const forumSummary = (await listForums(testEnv.BICKR_D1, "patch-notes")).find((item) => item.id === forum.id);
+		const botDocument = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, bot.id);
+		if (!world || !forumSummary) {
+			throw new Error("Semantic fixture missing world or forum.");
+		}
+
+		const bindings = fakeSearchBindings();
+		await upsertWorldSearchVector(bindings.env, world);
+		await upsertForumSearchVector(bindings.env, forumSummary);
+		await upsertBotSearchVector(bindings.env, botDocument);
+		expect(bindings.upserted.map((item) => item.id)).toEqual([
+			`world:${world.id}`,
+			`forum:${forum.id}`,
+			bot.id,
+		]);
+		expect(bindings.upserted.map((item) => item.metadata?.type)).toEqual(["world", "forum", "bot"]);
+
+		const reindex = await reindexSearchVectors(testEnv.BICKR_D1, bindings.env, 10);
+		expect(reindex.attempted).toBeGreaterThanOrEqual(3);
+
+		bindings.matches = [
+			{ id: `world:${world.id}`, metadata: { entityId: world.id, type: "world" }, score: 0.5 },
+			{ id: bot.id, metadata: { entityId: bot.id, type: "bot" }, score: 0.8 },
+			{ id: `forum:${forum.id}`, metadata: { entityId: forum.id, type: "forum" }, score: 0.9 },
+		];
+		const semantic = await searchEntitiesSemantic(testEnv.BICKR_D1, bindings.env, {
+			mode: "semantic",
+			query: "semantic coverage",
+			types: ["world", "forum", "bot"],
+			...normalizeSearchFilters({ username: "semantic-sage" }),
+		});
+		expect(semantic.results.map((result) => `${result.type}:${"handle" in result ? result.handle : ""}`)).toEqual([
+			"forum:semantic-room",
+			"bot:semantic-sage",
+			"world:patch-notes",
+		]);
+		expect(semantic.results.map((result) => result.score)).toEqual([0.9, 0.8, 0.5]);
+
+		const filteredOut = await searchEntitiesSemantic(testEnv.BICKR_D1, bindings.env, {
+			mode: "semantic",
+			query: "semantic coverage",
+			types: ["world", "forum", "bot"],
+			...normalizeSearchFilters({ forum: "missing-forum" }),
+		});
+		expect(filteredOut.results).toEqual([]);
+
+		const fallback = fakeSearchBindings("legacy");
+		fallback.matches = [{ id: bot.id, metadata: { type: "bot" }, score: 0.77 }];
+		await upsertBotSearchVector(fallback.env, botDocument);
+		expect(fallback.upserted.map((item) => item.id)).toEqual([bot.id]);
+		const fallbackResult = await searchEntitiesSemantic(testEnv.BICKR_D1, fallback.env, {
+			mode: "semantic",
+			query: "semantic sage",
+			types: ["bot"],
+		});
+		expect(fallbackResult.results).toMatchObject([{ type: "bot", handle: "semantic-sage", score: 0.77 }]);
+		await deleteSearchVector(fallback.env, "bot", bot.id);
+		expect(fallback.deleted).toEqual([bot.id, `bot:${bot.id}`]);
+	});
+
 	it("renames world handles across route metadata", async () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);
@@ -15659,6 +16029,54 @@ function kvWithDelayedFirstPut(
 		},
 		delete: delegate.delete.bind(delegate),
 	} as unknown as KVNamespace;
+}
+
+type FakeSearchMatch = {
+	id: string;
+	metadata?: unknown;
+	score: number;
+};
+
+function fakeSearchBindings(mode: "generic" | "legacy" = "generic"): {
+	deleted: string[];
+	env: SearchVectorEnv;
+	matches: FakeSearchMatch[];
+	upserted: Array<{ id: string; metadata?: Record<string, string | number | boolean>; values: number[] }>;
+} {
+	const deleted: string[] = [];
+	const upserted: Array<{ id: string; metadata?: Record<string, string | number | boolean>; values: number[] }> = [];
+	let matches: FakeSearchMatch[] = [];
+	const vectorize: NonNullable<SearchVectorEnv["BICKR_SEARCH_VECTORIZE"]> = {
+		deleteByIds: async (ids) => {
+			deleted.push(...ids);
+		},
+		query: async () => ({ matches }),
+		upsert: async (vectors) => {
+			upserted.push(...vectors);
+		},
+	};
+	const env: SearchVectorEnv = {
+		AI: {
+			run: async (_model, input) => ({ data: input.text.map(fakeSearchEmbedding) }),
+		},
+		...(mode === "generic" ? { BICKR_SEARCH_VECTORIZE: vectorize } : { BICKR_BOT_VECTORIZE: vectorize }),
+	};
+	return {
+		deleted,
+		env,
+		get matches() {
+			return matches;
+		},
+		set matches(next) {
+			matches = next;
+		},
+		upserted,
+	};
+}
+
+function fakeSearchEmbedding(text: string): number[] {
+	const normalized = text.trim();
+	return [normalized.length, normalized.charCodeAt(0) || 0, normalized.charCodeAt(normalized.length - 1) || 0];
 }
 
 async function authCookie(): Promise<string> {

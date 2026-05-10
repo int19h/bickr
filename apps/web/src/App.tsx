@@ -47,6 +47,11 @@ import {
 	type JsonObject,
 	type LinkedAuthIdentity,
 	type PublicUser,
+	type SearchEntityType,
+	type SearchMode,
+	type SearchResponse,
+	type SearchResult,
+	type SearchSuggestResponse,
 	type SearchThreadResult,
 	type SpotlightDeliveryResult,
 	type SpotlightPreview,
@@ -125,6 +130,7 @@ type Route =
 	| "bot-loop"
 	| "bot-edit"
 	| "my-bots"
+	| "search"
 	| "notifications"
 	| "human-profile"
 	| "profile";
@@ -143,6 +149,16 @@ type LoadHumanNotifications = (
 	scope?: HumanNotificationListScope,
 ) => Promise<HumanNotificationSummary | null>;
 
+type SearchRouteState = {
+	forum: string;
+	mode: SearchMode;
+	page: number;
+	query: string;
+	types: SearchEntityType[];
+	username: string;
+	world: string;
+};
+
 type ParsedRoute = {
 	route: Route;
 	worldHandle?: string;
@@ -153,6 +169,7 @@ type ParsedRoute = {
 	botProfileTab?: BotProfileTab;
 	botActivityId?: string;
 	humanHandle?: string;
+	search?: SearchRouteState;
 	worldTab?: WorldTab;
 };
 
@@ -347,6 +364,17 @@ const banners = [
 	"linear-gradient(135deg, oklch(0.76 0.10 20), oklch(0.68 0.12 350))",
 ];
 
+const allSearchTypes = ["world", "forum", "bot"] as const satisfies readonly SearchEntityType[];
+const defaultSearchRouteState: SearchRouteState = {
+	forum: "",
+	mode: "substring",
+	page: 1,
+	query: "",
+	types: [...allSearchTypes],
+	username: "",
+	world: "",
+};
+
 const ReferenceDataContext = createContext<ReferenceData>({
 	activeWorldHandle: null,
 	bots: [],
@@ -393,6 +421,7 @@ function App() {
 	const [activeBotProfileTab, setActiveBotProfileTab] = useState<BotProfileTab>(initialRoute.botProfileTab ?? "activity");
 	const [activeBotActivityId, setActiveBotActivityId] = useState<string | null>(initialRoute.botActivityId ?? null);
 	const [activeHumanHandle, setActiveHumanHandle] = useState<string | null>(initialRoute.humanHandle ?? null);
+	const [activeSearch, setActiveSearch] = useState<SearchRouteState>(initialRoute.search ?? defaultSearchRouteState);
 	const [activeWorldTab, setActiveWorldTab] = useState<WorldTab>(initialRoute.worldTab ?? "forums");
 	const [createBotWorldHandle, setCreateBotWorldHandle] = useState<string | null>(null);
 	const [status, setStatus] = useState("Loading local data...");
@@ -611,6 +640,7 @@ function App() {
 		setActiveBotProfileTab(parsed.route === "bot-profile" ? parsed.botProfileTab ?? "activity" : "activity");
 		setActiveBotActivityId(parsed.route === "bot-profile" ? parsed.botActivityId ?? null : null);
 		setActiveHumanHandle(parsed.humanHandle ?? null);
+		setActiveSearch(parsed.route === "search" ? parsed.search ?? defaultSearchRouteState : defaultSearchRouteState);
 		setActiveWorldTab(parsed.route === "world" ? parsed.worldTab ?? "forums" : "forums");
 	}
 
@@ -1886,6 +1916,9 @@ function App() {
 							worlds={worldViews}
 						/>
 					)}
+					{route === "search" && (
+						<AdvancedSearchScreen routeState={activeSearch} />
+					)}
 					{route === "notifications" && (
 						<NotificationsScreen
 							onLoadNotifications={fetchHumanNotifications}
@@ -2129,6 +2162,12 @@ function Topbar({
 							<span className="current">My bots</span>
 						</>
 					)}
+					{route === "search" && (
+						<>
+							<span className="sep">/</span>
+							<span className="current">Search</span>
+						</>
+					)}
 					{route === "notifications" && (
 						<>
 							<span className="sep">/</span>
@@ -2144,10 +2183,7 @@ function Topbar({
 				</div>
 			</div>
 			<div className="right">
-				<div className="search">
-					<Icon name="search" size={14} />
-					<input aria-label="Search" disabled placeholder="Search worlds, forums, bots" />
-				</div>
+				<GlobalSearchBox />
 				<span className="status-chip" title={status}>
 					{busy ? "Working..." : status}
 				</span>
@@ -2168,6 +2204,135 @@ function Topbar({
 				</SpaLink>
 			</div>
 		</header>
+	);
+}
+
+function GlobalSearchBox() {
+	const { navigate } = useContext(NavigationContext);
+	const [query, setQuery] = useState("");
+	const [results, setResults] = useState<SearchResult[]>([]);
+	const [loading, setLoading] = useState(false);
+	const [open, setOpen] = useState(false);
+	const [message, setMessage] = useState("");
+	const wrapRef = useRef<HTMLDivElement>(null);
+	const requestSeq = useRef(0);
+	const trimmed = query.trim();
+
+	useEffect(() => {
+		if (!open) {
+			return undefined;
+		}
+		function handlePointerDown(event: PointerEvent): void {
+			if (wrapRef.current && event.target instanceof Node && !wrapRef.current.contains(event.target)) {
+				setOpen(false);
+			}
+		}
+		function handleKeyDown(event: KeyboardEvent): void {
+			if (event.key === "Escape") {
+				setOpen(false);
+			}
+		}
+		document.addEventListener("pointerdown", handlePointerDown);
+		document.addEventListener("keydown", handleKeyDown);
+		return () => {
+			document.removeEventListener("pointerdown", handlePointerDown);
+			document.removeEventListener("keydown", handleKeyDown);
+		};
+	}, [open]);
+
+	useEffect(() => {
+		const normalized = trimmed;
+		requestSeq.current += 1;
+		const seq = requestSeq.current;
+		if (normalized.length < 2) {
+			setResults([]);
+			setLoading(false);
+			setMessage("");
+			return undefined;
+		}
+		setLoading(true);
+		setMessage("");
+		const timeout = window.setTimeout(() => {
+			void api<SearchSuggestResponse>(`/api/search/suggest?q=${encodeURIComponent(normalized)}`).then((result) => {
+				if (requestSeq.current !== seq) {
+					return;
+				}
+				setLoading(false);
+				if (result.ok) {
+					setResults(result.data.results);
+					setMessage(result.data.results.length === 0 ? "No quick matches" : "");
+				} else {
+					setResults([]);
+					setMessage(result.message);
+				}
+			});
+		}, 260);
+		return () => window.clearTimeout(timeout);
+	}, [trimmed]);
+
+	function openAdvanced(page = 1): void {
+		const state: SearchRouteState = {
+			...defaultSearchRouteState,
+			page,
+			query: trimmed,
+		};
+		setOpen(false);
+		navigate({ route: "search", search: state });
+	}
+
+	function openResult(result: SearchResult): void {
+		const url = new URL(result.urlPath, window.location.origin);
+		setOpen(false);
+		setQuery("");
+		navigate(parsePathname(url.pathname, url.search));
+	}
+
+	return (
+		<div className="search global-search" ref={wrapRef}>
+			<Icon name="search" size={14} />
+			<input
+				aria-autocomplete="list"
+				aria-expanded={open}
+				aria-label="Search"
+				onChange={(event) => {
+					setQuery(event.target.value);
+					setOpen(true);
+				}}
+				onFocus={() => setOpen(true)}
+				onKeyDown={(event) => {
+					if (event.key === "Enter" && trimmed.length >= 2) {
+						event.preventDefault();
+						openAdvanced();
+					}
+				}}
+				placeholder="Search worlds, forums, bots"
+				value={query}
+			/>
+			{open && trimmed.length >= 2 && (
+				<div className="global-search-menu" role="listbox">
+					<div className="global-search-head">
+						<span>{loading ? "Searching" : message || "Quick matches"}</span>
+					</div>
+					{results.map((result) => (
+						<button
+							className="global-search-result"
+							key={`${result.type}:${result.id}`}
+							onClick={() => openResult(result)}
+							role="option"
+							type="button"
+						>
+							<span className="global-search-kind">{searchResultTypeLabel(result.type)}</span>
+							<span className="global-search-title">{searchResultTitle(result)}</span>
+							<span className="global-search-meta">{searchResultMeta(result)}</span>
+						</button>
+					))}
+					<button className="global-search-advanced" onClick={() => openAdvanced()} type="button">
+						<Icon name="search" size={13} />
+						Advanced search
+					</button>
+				</div>
+			)}
+		</div>
 	);
 }
 
@@ -2559,6 +2724,14 @@ function SidebarNavigation({
 					<Icon name="bot" size={16} />
 					<span>My bots</span>
 					<span className="count">{botTotal}</span>
+				</SpaLink>
+				<SpaLink
+					className={`nav-item ${route === "search" ? "active" : ""}`}
+					onNavigate={onNavigate}
+					to={{ route: "search" }}
+				>
+					<Icon name="search" size={16} />
+					<span>Search</span>
 				</SpaLink>
 				<SpaLink
 					className={`nav-item ${route === "notifications" ? "active" : ""}`}
@@ -7306,6 +7479,338 @@ function MyBotsGroupCheckbox({
 			type="checkbox"
 		/>
 	);
+}
+
+type SearchResultGroup = {
+	rows: SearchResult[];
+	world: SearchResult["world"];
+	worldResult: SearchResult | null;
+};
+
+function AdvancedSearchScreen({ routeState }: { routeState: SearchRouteState }) {
+	const { navigate } = useContext(NavigationContext);
+	const [draft, setDraft] = useState<SearchRouteState>(routeState);
+	const [search, setSearch] = useState<SearchResponse | null>(null);
+	const [loading, setLoading] = useState(false);
+	const [message, setMessage] = useState("");
+	const lastRequestKey = useRef("");
+
+	useEffect(() => {
+		setDraft(routeState);
+		if (!routeState.query.trim()) {
+			setSearch(null);
+			setMessage("");
+			lastRequestKey.current = "";
+			return;
+		}
+		void loadSearch(routeState);
+	}, [routeState]);
+
+	async function loadSearch(state: SearchRouteState): Promise<void> {
+		const path = searchApiPath(state);
+		lastRequestKey.current = path;
+		setLoading(true);
+		setMessage("");
+		const result = await api<{ search: SearchResponse }>(path);
+		if (lastRequestKey.current !== path) {
+			return;
+		}
+		setLoading(false);
+		if (result.ok) {
+			setSearch(result.data.search);
+			setMessage(result.data.search.results.length === 0 ? "No matches." : "");
+		} else {
+			setSearch(null);
+			setMessage(result.message);
+		}
+	}
+
+	function submit(page = 1): void {
+		const next = {
+			...draft,
+			page,
+			query: draft.query.trim(),
+			forum: draft.forum.trim(),
+			username: draft.username.trim(),
+			world: draft.world.trim(),
+		};
+		if (!next.query || next.types.length === 0) {
+			return;
+		}
+		const parsed: ParsedRoute = { route: "search", search: next };
+		if (currentLocationPath() === routePath(parsed)) {
+			void loadSearch(next);
+		} else {
+			navigate(parsed);
+		}
+	}
+
+	function patchDraft(patch: Partial<SearchRouteState>): void {
+		setDraft((current) => ({ ...current, ...patch, page: 1 }));
+	}
+
+	function toggleType(type: SearchEntityType): void {
+		setDraft((current) => {
+			const types =
+				current.types.includes(type) ?
+					current.types.filter((item) => item !== type)
+				:	[...current.types, type].sort(searchTypeSort);
+			return { ...current, page: 1, types };
+		});
+	}
+
+	const groups = useMemo(() => searchResultGroups(search?.results ?? []), [search]);
+	const canSearch = draft.query.trim().length > 0 && draft.types.length > 0 && !loading;
+
+	return (
+		<div className="main-inner">
+			<div className="page-header">
+				<div>
+					<h1>Search</h1>
+					<p className="sub">Search worlds, forums, and bots with exact-handle filters.</p>
+				</div>
+			</div>
+			<form
+				className="advanced-search-panel"
+				onSubmit={(event) => {
+					event.preventDefault();
+					submit();
+				}}
+			>
+				<Field label="Query">
+					<input
+						className="input"
+						onChange={(event) => patchDraft({ query: event.target.value })}
+						placeholder="Search text"
+						value={draft.query}
+					/>
+				</Field>
+				<Field label="Mode">
+					<div className="seg search-mode-control">
+						{(["substring", "fts", "semantic"] as const).map((mode) => (
+							<button
+								aria-pressed={draft.mode === mode}
+								className={draft.mode === mode ? "active" : ""}
+								key={mode}
+								onClick={() => patchDraft({ mode })}
+								type="button"
+							>
+								{searchModeLabel(mode)}
+							</button>
+						))}
+					</div>
+				</Field>
+				<fieldset className="search-type-fieldset">
+					<legend>Types</legend>
+					{allSearchTypes.map((type) => (
+						<label className="checkbox-line compact" key={type}>
+							<input
+								checked={draft.types.includes(type)}
+								onChange={() => toggleType(type)}
+								type="checkbox"
+							/>
+							<span>{searchResultTypeLabel(type)}</span>
+						</label>
+					))}
+				</fieldset>
+				<div className="advanced-search-filters">
+					<Field hint="exact w/handle" label="World">
+						<input
+							className="input"
+							onChange={(event) => patchDraft({ world: event.target.value })}
+							placeholder="w/handle"
+							value={draft.world}
+						/>
+					</Field>
+					<Field hint="exact f/handle" label="Forum">
+						<input
+							className="input"
+							onChange={(event) => patchDraft({ forum: event.target.value })}
+							placeholder="f/handle"
+							value={draft.forum}
+						/>
+					</Field>
+					<Field hint="exact u/username" label="Username">
+						<input
+							className="input"
+							onChange={(event) => patchDraft({ username: event.target.value })}
+							placeholder="u/username"
+							value={draft.username}
+						/>
+					</Field>
+				</div>
+				<div className="advanced-search-actions">
+					<button className="btn primary" disabled={!canSearch} type="submit">
+						<Icon name="search" size={14} />
+						Search
+					</button>
+					{loading && <span className="mini-status">Searching</span>}
+					{message && !loading && <span className="mini-status">{message}</span>}
+				</div>
+			</form>
+
+			{search && (
+				<>
+					<div className="section-head compact search-summary-head">
+						<h2>{search.total} result{search.total === 1 ? "" : "s"}</h2>
+						<span className="meta">Page {search.page}</span>
+					</div>
+					{groups.length === 0 ?
+						<div className="empty compact-empty">No results match this search.</div>
+					:	<div className="bot-table-shell search-table-shell">
+							<div className="bot-table-scroll">
+								<table className="bot-table search-table">
+									<thead>
+										<tr>
+											<th scope="col">Result</th>
+											<th scope="col">Type</th>
+											<th scope="col">Details</th>
+											<th scope="col">Rank</th>
+										</tr>
+									</thead>
+									{groups.map((group) => (
+										<tbody key={group.world.id}>
+											<tr className={`bot-table-group-row search-world-row ${group.worldResult ? "" : "dimmed"}`.trim()}>
+												<th scope="rowgroup">
+													<SpaLink to={{ route: "world", worldHandle: group.world.handle }}>
+														<Reference kind="world" link={false} name={group.world.handle} />
+													</SpaLink>
+												</th>
+												<td>World</td>
+												<td>
+													<span className="search-result-primary">{group.world.name}</span>
+													<span className="search-result-secondary">{group.world.description}</span>
+												</td>
+												<td>{group.worldResult ? searchRankLabel(group.worldResult) : "context"}</td>
+											</tr>
+											{group.rows.map((result) => (
+												<tr className="bot-table-row search-result-row" key={`${result.type}:${result.id}`}>
+													<td>{searchResultLink(result)}</td>
+													<td>{searchResultTypeLabel(result.type)}</td>
+													<td>
+														<span className="search-result-primary">{searchResultTitle(result)}</span>
+														<span className="search-result-secondary">{searchResultMeta(result)}</span>
+													</td>
+													<td>{searchRankLabel(result)}</td>
+												</tr>
+											))}
+										</tbody>
+									))}
+								</table>
+							</div>
+						</div>
+					}
+					<div className="search-pagination">
+						<button className="btn" disabled={loading || search.page <= 1} onClick={() => submit(search.page - 1)} type="button">
+							Previous
+						</button>
+						<span className="meta">Page {search.page}</span>
+						<button className="btn" disabled={loading || !search.hasNextPage} onClick={() => submit(search.page + 1)} type="button">
+							Next
+						</button>
+					</div>
+				</>
+			)}
+		</div>
+	);
+}
+
+function searchResultGroups(results: SearchResult[]): SearchResultGroup[] {
+	const groups = new Map<string, SearchResultGroup>();
+	for (const result of results) {
+		const group = groups.get(result.world.id) ?? { rows: [], world: result.world, worldResult: null };
+		if (result.type === "world") {
+			group.worldResult = result;
+			group.world = result.world;
+		} else {
+			group.rows.push(result);
+		}
+		groups.set(result.world.id, group);
+	}
+	return [...groups.values()].sort((left, right) => {
+		const leftRank = left.worldResult?.rank ?? left.rows[0]?.rank ?? Number.MAX_SAFE_INTEGER;
+		const rightRank = right.worldResult?.rank ?? right.rows[0]?.rank ?? Number.MAX_SAFE_INTEGER;
+		return leftRank - rightRank;
+	});
+}
+
+function searchApiPath(state: SearchRouteState): string {
+	const params = new URLSearchParams();
+	params.set("q", state.query.trim());
+	params.set("mode", state.mode);
+	params.set("types", state.types.join(","));
+	params.set("page", String(state.page));
+	if (state.world.trim()) {
+		params.set("world", state.world.trim());
+	}
+	if (state.forum.trim()) {
+		params.set("forum", state.forum.trim());
+	}
+	if (state.username.trim()) {
+		params.set("username", state.username.trim());
+	}
+	return `/api/search?${params}`;
+}
+
+function searchResultLink(result: SearchResult): ReactNode {
+	if (result.type === "forum") {
+		return <Reference kind="forum" name={result.handle} worldHandle={result.world.handle} />;
+	}
+	if (result.type === "bot") {
+		return <Reference isBot kind="bot" name={result.handle} worldHandle={result.world.handle} />;
+	}
+	return <Reference kind="world" name={result.handle} />;
+}
+
+function searchResultTitle(result: SearchResult): string {
+	if (result.type === "world") {
+		return `w/${result.handle}`;
+	}
+	if (result.type === "forum") {
+		return `f/${result.handle}`;
+	}
+	return `u/${result.handle}`;
+}
+
+function searchResultMeta(result: SearchResult): string {
+	if (result.type === "world") {
+		return result.name;
+	}
+	if (result.type === "forum") {
+		return `${result.description} · w/${result.world.handle}`;
+	}
+	return `${result.displayName} · ${result.shortBio}`;
+}
+
+function searchResultTypeLabel(type: SearchEntityType): string {
+	switch (type) {
+		case "world":
+			return "World";
+		case "forum":
+			return "Forum";
+		case "bot":
+			return "Bot";
+	}
+}
+
+function searchModeLabel(mode: SearchMode): string {
+	switch (mode) {
+		case "substring":
+			return "Substring";
+		case "fts":
+			return "FTS";
+		case "semantic":
+			return "Semantic";
+	}
+}
+
+function searchRankLabel(result: SearchResult): string {
+	const score = result.score === undefined ? "" : ` · ${result.score.toFixed(3)}`;
+	return `#${result.rank}${score}`;
+}
+
+function searchTypeSort(left: SearchEntityType, right: SearchEntityType): number {
+	return allSearchTypes.indexOf(left) - allSearchTypes.indexOf(right);
 }
 
 function BotProfileHoverLink({
@@ -13422,6 +13927,9 @@ function parsePathname(pathname: string, search = ""): ParsedRoute {
 	if (parts[0] === "me" && parts[1] === "profile") {
 		return { route: "profile" };
 	}
+	if (parts[0] === "search") {
+		return { route: "search", search: searchRouteStateFromSearch(search) };
+	}
 	if (parts[0] === "hu" && parts[1]) {
 		return { route: "human-profile", humanHandle: parts[1] };
 	}
@@ -13475,6 +13983,8 @@ function routePath(parsed: ParsedRoute): string {
 			return `/w/${encodeURIComponent(parsed.worldHandle ?? "")}/u/${encodeURIComponent(parsed.botHandle ?? "")}/edit`;
 		case "my-bots":
 			return "/me/bots";
+		case "search":
+			return searchRoutePath(parsed.search);
 		case "notifications":
 			return "/me/notifications";
 		case "human-profile":
@@ -13520,6 +14030,73 @@ function botProfileRoutePath(parsed: ParsedRoute): string {
 	}
 	const query = params.toString();
 	return query ? `${base}?${query}` : base;
+}
+
+function searchRouteStateFromSearch(search: string): SearchRouteState {
+	const params = new URLSearchParams(search);
+	return {
+		forum: params.get("forum") ?? "",
+		mode: searchModeFromParam(params.get("mode")),
+		page: positivePage(params.get("page")),
+		query: params.get("q") ?? "",
+		types: searchTypesFromParam(params.get("types")),
+		username: params.get("username") ?? "",
+		world: params.get("world") ?? "",
+	};
+}
+
+function searchRoutePath(state: SearchRouteState | undefined): string {
+	const params = new URLSearchParams();
+	const next = state ?? defaultSearchRouteState;
+	if (next.query.trim()) {
+		params.set("q", next.query.trim());
+	}
+	if (next.mode !== "substring") {
+		params.set("mode", next.mode);
+	}
+	if (!sameSearchTypes(next.types, allSearchTypes)) {
+		params.set("types", next.types.join(","));
+	}
+	if (next.page > 1) {
+		params.set("page", String(next.page));
+	}
+	if (next.world.trim()) {
+		params.set("world", next.world.trim());
+	}
+	if (next.forum.trim()) {
+		params.set("forum", next.forum.trim());
+	}
+	if (next.username.trim()) {
+		params.set("username", next.username.trim());
+	}
+	const query = params.toString();
+	return query ? `/search?${query}` : "/search";
+}
+
+function searchModeFromParam(value: string | null): SearchMode {
+	return value === "fts" || value === "semantic" ? value : "substring";
+}
+
+function searchTypesFromParam(value: string | null): SearchEntityType[] {
+	if (!value) {
+		return [...allSearchTypes];
+	}
+	const next: SearchEntityType[] = [];
+	for (const type of value.split(",")) {
+		if ((allSearchTypes as readonly string[]).includes(type) && !next.includes(type as SearchEntityType)) {
+			next.push(type as SearchEntityType);
+		}
+	}
+	return next.length > 0 ? next : [...allSearchTypes];
+}
+
+function sameSearchTypes(left: readonly SearchEntityType[], right: readonly SearchEntityType[]): boolean {
+	return left.length === right.length && left.every((type) => right.includes(type));
+}
+
+function positivePage(value: string | null): number {
+	const parsed = Number(value ?? 1);
+	return Number.isFinite(parsed) ? Math.max(1, Math.floor(parsed)) : 1;
 }
 
 function worldTabFromSearch(search: string): WorldTab {

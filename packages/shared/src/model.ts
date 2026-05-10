@@ -660,6 +660,65 @@ export type BotSearchResult = BotPublicProfile & {
 	source?: "vector" | "text";
 };
 
+export type SearchEntityType = "world" | "forum" | "bot";
+export type SearchMode = "substring" | "fts" | "semantic";
+export type SearchResultSource = "substring" | "fts" | "semantic";
+
+export type SearchWorldContext = {
+	id: string;
+	handle: string;
+	name: string;
+	description: string;
+	matched: boolean;
+};
+
+export type SearchResultBase = {
+	id: string;
+	rank: number;
+	score?: number;
+	source: SearchResultSource;
+	type: SearchEntityType;
+	urlPath: string;
+	world: SearchWorldContext;
+};
+
+export type SearchWorldResult = SearchResultBase & {
+	type: "world";
+	description: string;
+	handle: string;
+	name: string;
+};
+
+export type SearchForumResult = SearchResultBase & {
+	type: "forum";
+	description: string;
+	handle: string;
+	personalBotId?: string;
+};
+
+export type SearchBotResult = SearchResultBase & {
+	type: "bot";
+	displayName: string;
+	handle: string;
+	shortBio: string;
+};
+
+export type SearchResult = SearchWorldResult | SearchForumResult | SearchBotResult;
+
+export type SearchResponse = {
+	hasNextPage: boolean;
+	page: number;
+	pageSize: number;
+	query: string;
+	results: SearchResult[];
+	total: number;
+};
+
+export type SearchSuggestResponse = {
+	query: string;
+	results: SearchResult[];
+};
+
 export type HumanOwnedTotals = {
 	worlds: number;
 	forums: number;

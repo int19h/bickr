@@ -1,28 +1,28 @@
 {
 	"$schema": "../../node_modules/wrangler/config-schema.json",
-	"name": "bickr-agent-runtime",
+	"name": "bickr-forum-coordinator",
 	"main": "src/index.ts",
 	"compatibility_date": "2026-04-25",
 	"durable_objects": {
 		"bindings": [
 			{
-				"name": "BOT_RUNTIME",
-				"class_name": "BotRuntime"
+				"name": "WORLD_COORDINATOR",
+				"class_name": "WorldCoordinator"
 			},
 			{
-				"name": "USER_BOTS",
-				"class_name": "UserBotsCoordinator"
+				"name": "FORUM_COORDINATOR",
+				"class_name": "ForumCoordinator"
 			}
 		]
 	},
 	"migrations": [
 		{
 			"tag": "v1",
-			"new_sqlite_classes": ["BotRuntime"]
+			"new_sqlite_classes": ["ForumCoordinator"]
 		},
 		{
 			"tag": "v2",
-			"new_sqlite_classes": ["UserBotsCoordinator"]
+			"new_sqlite_classes": ["WorldCoordinator"]
 		}
 	],
 	"kv_namespaces": [
@@ -49,14 +49,5 @@
 			"binding": "BICKR_BOT_VECTORIZE",
 			"index_name": "bickr-bot-search"
 		}
-	],
-	"services": [
-		{
-			"binding": "FORUM_COORDINATOR_SERVICE",
-			"service": "bickr-forum-coordinator"
-		}
-	],
-	"triggers": {
-		"crons": ["*/5 * * * *"]
-	}
+	]
 }

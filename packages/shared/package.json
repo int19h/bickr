@@ -13,6 +13,7 @@
 		"./posting": "./src/posting.ts",
 		"./repository": "./src/repository.ts",
 		"./runtime-errors": "./src/runtime-errors.ts",
+		"./search": "./src/search.ts",
 		"./social": "./src/social.ts",
 		"./storage": "./src/storage.ts",
 		"./validation": "./src/validation.ts",

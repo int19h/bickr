@@ -618,6 +618,93 @@ a {
 	outline: none;
 }
 
+.global-search {
+	position: relative;
+}
+
+.global-search:focus-within {
+	border-color: var(--ink-3);
+}
+
+.global-search-menu {
+	background: var(--paper);
+	border: 1px solid var(--rule);
+	border-radius: var(--radius);
+	box-shadow: 0 14px 34px rgb(0 0 0 / 0.16);
+	display: grid;
+	left: 0;
+	min-width: 340px;
+	overflow: hidden;
+	position: absolute;
+	right: 0;
+	top: calc(100% + 6px);
+	z-index: 40;
+}
+
+.global-search-head {
+	background: var(--paper-2);
+	color: var(--ink-4);
+	font-size: 11px;
+	font-weight: 600;
+	padding: 7px 10px;
+	text-transform: uppercase;
+}
+
+.global-search-result,
+.global-search-advanced {
+	background: var(--paper);
+	border: 0;
+	border-top: 1px solid var(--rule-soft);
+	color: var(--ink);
+	cursor: pointer;
+	display: grid;
+	gap: 2px 8px;
+	grid-template-columns: 54px minmax(0, 1fr);
+	padding: 9px 10px;
+	text-align: left;
+}
+
+.global-search-result:hover,
+.global-search-result:focus-visible,
+.global-search-advanced:hover,
+.global-search-advanced:focus-visible {
+	background: var(--paper-2);
+	outline: none;
+}
+
+.global-search-kind {
+	color: var(--ink-4);
+	font-size: 11px;
+	font-weight: 600;
+	grid-row: span 2;
+	text-transform: uppercase;
+}
+
+.global-search-title {
+	font-size: 13px;
+	font-weight: 600;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.global-search-meta {
+	color: var(--ink-3);
+	font-size: 12px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.global-search-advanced {
+	align-items: center;
+	color: var(--accent-ink);
+	display: flex;
+	font-size: 13px;
+	font-weight: 600;
+	gap: 8px;
+}
+
 .list-filter {
 	align-items: center;
 	background: var(--paper);
@@ -1170,6 +1257,12 @@ button:disabled {
 
 .checkbox-help-field .checkbox-line {
 	min-height: 0;
+}
+
+.checkbox-line.compact {
+	font-size: 13px;
+	font-weight: 500;
+	min-height: 28px;
 }
 
 fieldset {
@@ -2082,6 +2175,121 @@ fieldset {
 	overflow: hidden;
 	text-overflow: ellipsis;
 	vertical-align: bottom;
+}
+
+.advanced-search-panel {
+	background: var(--paper);
+	border: 1px solid var(--rule);
+	border-radius: var(--radius-lg);
+	display: grid;
+	gap: 16px;
+	margin-bottom: 20px;
+	padding: 16px;
+}
+
+.advanced-search-filters {
+	display: grid;
+	gap: 14px;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.advanced-search-actions {
+	align-items: center;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 10px;
+}
+
+.search-type-fieldset {
+	align-items: center;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 10px 18px;
+}
+
+.search-type-fieldset legend {
+	color: var(--ink-2);
+	font-size: 12px;
+	font-weight: 500;
+	margin-right: 4px;
+}
+
+.search-mode-control {
+	width: max-content;
+}
+
+.search-summary-head {
+	margin-top: 8px;
+}
+
+.search-table-shell {
+	margin-bottom: 12px;
+}
+
+.search-table {
+	min-width: 820px;
+}
+
+.search-table th:first-child,
+.search-table td:first-child {
+	width: 180px;
+}
+
+.search-table th:nth-child(2),
+.search-table td:nth-child(2) {
+	width: 96px;
+}
+
+.search-table th:last-child,
+.search-table td:last-child {
+	width: 120px;
+}
+
+.search-world-row th,
+.search-world-row td {
+	background: var(--paper-2);
+	border-bottom: 1px solid var(--rule);
+	padding: 9px 12px;
+	text-align: left;
+	vertical-align: middle;
+}
+
+.search-world-row.dimmed th,
+.search-world-row.dimmed td {
+	color: var(--ink-4);
+	opacity: 0.72;
+}
+
+.search-result-primary,
+.search-result-secondary {
+	display: block;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.search-result-primary {
+	color: var(--ink);
+	font-size: 13px;
+	font-weight: 600;
+}
+
+.search-result-secondary {
+	color: var(--ink-3);
+	font-size: 12px;
+	margin-top: 2px;
+}
+
+.search-result-row td {
+	font-size: 13px;
+}
+
+.search-pagination {
+	align-items: center;
+	display: flex;
+	gap: 10px;
+	justify-content: flex-end;
 }
 
 .bot-card {
@@ -4340,6 +4548,18 @@ fieldset {
 @media (max-width: 680px) {
 	.topbar {
 		padding: 0 12px;
+	}
+
+	.advanced-search-filters {
+		grid-template-columns: minmax(0, 1fr);
+	}
+
+	.advanced-search-panel {
+		padding: 14px;
+	}
+
+	.search-pagination {
+		justify-content: space-between;
 	}
 
 	.crumbs {

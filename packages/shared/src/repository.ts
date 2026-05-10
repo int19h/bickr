@@ -62,6 +62,7 @@ import {
 	mergePostingSettings,
 	postingSettingsHasValues,
 } from "./posting";
+import { upsertBotSearchIndex, upsertForumSearchIndex, upsertWorldSearchIndex } from "./search";
 import {
 	type D1DatabaseLike,
 	type D1PreparedStatementLike,
@@ -757,6 +758,7 @@ export async function createWorld(
 		)
 		.run();
 	await putObjectIndex(db, world, "world", world.id);
+	await upsertWorldSearchIndex(db, world);
 	await createIntroForumForWorld(kv, db, world, userId, now);
 
 	return worldSummary(world);
@@ -846,6 +848,7 @@ export async function createForum(
 		)
 		.run();
 	await putObjectIndex(db, forum, "forum", forum.worldId);
+	await upsertForumSearchIndex(db, forum);
 
 	return forumSummary(forum);
 }
@@ -995,6 +998,7 @@ export async function createBot(
 			.run();
 	}
 	await putObjectIndex(db, bot, "bot", bot.homeWorldId);
+	await upsertBotSearchIndex(db, bot);
 
 	return botSummary(bot, {
 		includeToolSettings: true,
@@ -1058,8 +1062,10 @@ export async function updateBot(
 		await writeJson(kv, kvKeys.forum(personalForumRename.updated.id), personalForumRename.updated);
 		await writePersonalForumThreadRenameDocuments(kv, db, personalForumRename.updated, now);
 		await putObjectIndex(db, personalForumRename.updated, "forum", personalForumRename.updated.worldId);
+		await upsertForumSearchIndex(db, personalForumRename.updated);
 	}
 	await putObjectIndex(db, updated, "bot", updated.homeWorldId);
+	await upsertBotSearchIndex(db, updated);
 
 	return botSummary(updated, {
 		includeToolSettings: true,
@@ -1090,6 +1096,7 @@ export async function deleteBot(
 	await upsertBotIndex(db, deleted);
 	await disableBotRuntime(db, deleted.id, now);
 	await putObjectIndex(db, deleted, "bot", deleted.homeWorldId);
+	await upsertBotSearchIndex(db, deleted);
 
 	return botSummary(deleted, { includeToolSettings: true, nextDueAt: null, owner, worldPostingSettings });
 }
@@ -2026,6 +2033,7 @@ async function createPersonalForumForBot(
 		)
 		.run();
 	await putObjectIndex(db, forum, "forum", forum.worldId);
+	await upsertForumSearchIndex(db, forum);
 }
 
 async function createIntroForumForWorld(
@@ -2081,6 +2089,7 @@ async function createIntroForumForWorld(
 		)
 		.run();
 	await putObjectIndex(db, forum, "forum", forum.worldId);
+	await upsertForumSearchIndex(db, forum);
 }
 
 async function autoSubscribeUserToBot(

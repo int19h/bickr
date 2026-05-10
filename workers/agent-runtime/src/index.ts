@@ -24,6 +24,16 @@ import {
 } from "@bickr/shared/repository";
 import { effectivePostingSettings, mergePostingSettings } from "@bickr/shared/posting";
 import {
+	boundedSearchPage,
+	deleteSearchVector,
+	normalizeSearchFilters,
+	parseSearchMode,
+	parseSearchTypes,
+	reindexSearchVectors,
+	searchEntitiesSemantic,
+	upsertBotSearchVector,
+} from "@bickr/shared/search";
+import {
 	followBot,
 	forumByHandle,
 	followedBotIdSet,
@@ -145,6 +155,7 @@ export interface Env {
 	FORUM_COORDINATOR_SERVICE: Fetcher;
 	AI?: Ai;
 	BICKR_BOT_VECTORIZE?: Vectorize;
+	BICKR_SEARCH_VECTORIZE?: Vectorize;
 	OPENROUTER_API_KEY?: string;
 	OPENROUTER_BASE_URL?: string;
 	OPENROUTER_MODEL?: string;
@@ -8897,6 +8908,7 @@ export async function handleAgentRuntimeRequest(
 		| "BICKR_KV"
 		| "AI"
 		| "BICKR_BOT_VECTORIZE"
+		| "BICKR_SEARCH_VECTORIZE"
 		| "OPENROUTER_API_KEY"
 		| "OPENROUTER_BASE_URL"
 	>,
@@ -8910,6 +8922,33 @@ export async function handleAgentRuntimeRequest(
 			const input = parseTranslationInput(await readJsonBody(request));
 			const translation = await translateForUser(env, userId, input.text);
 			return ok({ translation, coordinator: objectId });
+		}
+
+		if (request.method === "GET" && url.pathname === "/search/entities") {
+			requireInternalServiceRequest(request);
+			const mode = parseSearchMode(url.searchParams.get("mode"));
+			if (mode !== "semantic") {
+				throw new InputError("Agent runtime search only supports semantic mode.");
+			}
+			const result = await searchEntitiesSemantic(env.BICKR_D1, env, {
+				...normalizeSearchFilters({
+					forum: url.searchParams.get("forum"),
+					username: url.searchParams.get("username"),
+					world: url.searchParams.get("world"),
+				}),
+				mode,
+				page: boundedSearchPage(url.searchParams.get("page")),
+				query: url.searchParams.get("q") ?? "",
+				types: parseSearchTypes(url.searchParams.get("types")),
+			});
+			return ok({ search: result, coordinator: objectId });
+		}
+
+		if (request.method === "POST" && url.pathname === "/search/reindex-vectors") {
+			requireInternalServiceRequest(request);
+			const limit = Number(url.searchParams.get("limit") ?? 100);
+			const result = await reindexSearchVectors(env.BICKR_D1, env, Number.isFinite(limit) ? limit : 100);
+			return ok({ reindex: result, coordinator: objectId });
 		}
 
 		const createMatch = /^\/users\/([^/]+)\/worlds\/([^/]+)\/bots$/.exec(url.pathname);
@@ -12156,54 +12195,14 @@ type EmbeddingResponse = {
 	shape?: number[];
 };
 
-type BotVectorEnv = Pick<Env, "AI" | "BICKR_BOT_VECTORIZE" | "BICKR_D1" | "BICKR_KV">;
+type BotVectorEnv = Pick<Env, "AI" | "BICKR_BOT_VECTORIZE" | "BICKR_SEARCH_VECTORIZE" | "BICKR_D1" | "BICKR_KV">;
 
 async function upsertBotVector(env: BotVectorEnv, bot: BotSummary): Promise<void> {
-	if (!env.AI || !env.BICKR_BOT_VECTORIZE) {
-		return;
-	}
-	const vectorIndex = env.BICKR_BOT_VECTORIZE;
-	try {
-		const vector = await embedText(env, botVectorText(bot));
-		if (!vector) {
-			return;
-		}
-		await retryIdempotentCloudflareBinding("Profile vector upsert", () => withStandaloneTimeout(
-			"Profile vector upsert",
-			vectorBindingTimeoutMs,
-			() =>
-				vectorIndex.upsert([
-					{
-						id: bot.id,
-						values: vector,
-						metadata: {
-							type: "bot",
-							worldId: bot.homeWorldId,
-							worldHandle: bot.homeWorldHandle,
-							handle: bot.handle,
-						},
-					},
-				]),
-		));
-	} catch (error) {
-		console.warn("bot vector upsert failed", error);
-	}
+	await upsertBotSearchVector(env, bot);
 }
 
 async function deleteBotVector(env: BotVectorEnv, botId: string): Promise<void> {
-	if (!env.BICKR_BOT_VECTORIZE) {
-		return;
-	}
-	const vectorIndex = env.BICKR_BOT_VECTORIZE;
-	try {
-		await retryIdempotentCloudflareBinding("Profile vector delete", () => withStandaloneTimeout(
-			"Profile vector delete",
-			vectorBindingTimeoutMs,
-			() => vectorIndex.deleteByIds([botId]),
-		));
-	} catch (error) {
-		console.warn("bot vector delete failed", error);
-	}
+	await deleteSearchVector(env, "bot", botId);
 }
 
 async function vectorSearchBots(
@@ -12212,10 +12211,13 @@ async function vectorSearchBots(
 	query: string,
 	limit: number,
 ): Promise<BotSearchResult[]> {
-	if (!env.AI || !env.BICKR_BOT_VECTORIZE || !query.trim()) {
+	if (!env.AI || (!env.BICKR_SEARCH_VECTORIZE && !env.BICKR_BOT_VECTORIZE) || !query.trim()) {
 		return [];
 	}
-	const vectorIndex = env.BICKR_BOT_VECTORIZE;
+	const vectorIndex = env.BICKR_SEARCH_VECTORIZE ?? env.BICKR_BOT_VECTORIZE;
+	if (!vectorIndex) {
+		return [];
+	}
 	try {
 		const vector = await embedText(env, query);
 		if (!vector) {
@@ -12261,10 +12263,6 @@ async function embedText(env: Pick<Env, "AI">, text: string): Promise<number[] |
 		),
 	);
 	return response.data?.[0] ?? null;
-}
-
-function botVectorText(bot: BotSummary): string {
-	return [bot.displayName, `u/${bot.handle}`, bot.shortBio].filter(Boolean).join("\n");
 }
 
 function retryIdempotentCloudflareBinding<T>(operation: string, run: () => Promise<T>): Promise<T> {
@@ -13733,6 +13731,13 @@ function requireUserMatch(request: Request, pathUserId: string): string {
 	}
 
 	return headerUserId;
+}
+
+function requireInternalServiceRequest(request: Request): void {
+	if (request.headers.get("x-bickr-scheduler") === "1" || request.headers.get("x-bickr-user-id")) {
+		return;
+	}
+	throw new RepositoryError("unauthorized", "Authentication is required.", 401);
 }
 
 function errorResponse(error: unknown): Response {

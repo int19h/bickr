@@ -13,6 +13,7 @@ import {
 	postingSettingsHasValues,
 } from "./posting";
 import { RepositoryError } from "./repository";
+import { upsertForumSearchIndex, upsertWorldSearchIndex } from "./search";
 import { readThread, rootCommentForThread, softDeleteComment, softDeleteThread, softDeleteThreadsInForum } from "./social";
 import {
 	type D1DatabaseLike,
@@ -106,6 +107,7 @@ export async function updateWorld(
 		await writeJson(kv, kvKeys.world(updated.id), updated);
 	}
 	await putObjectIndex(db, updated, "world", updated.id);
+	await upsertWorldSearchIndex(db, updated);
 	return worldSummary(updated);
 }
 
@@ -151,6 +153,7 @@ export async function deleteWorld(
 		.bind(now, now, deleted.id)
 		.run();
 	await putObjectIndex(db, deleted, "world", deleted.id);
+	await upsertWorldSearchIndex(db, deleted);
 	return worldSummary(deleted);
 }
 
@@ -194,6 +197,7 @@ export async function updateForum(
 		await writeJson(kv, kvKeys.forum(updated.id), updated);
 	}
 	await putObjectIndex(db, updated, "forum", updated.worldId);
+	await upsertForumSearchIndex(db, updated);
 	return forumSummary(updated);
 }
 
@@ -273,6 +277,7 @@ async function softDeleteForum(
 		.bind(now, now, deleted.id)
 		.run();
 	await putObjectIndex(db, deleted, "forum", deleted.worldId);
+	await upsertForumSearchIndex(db, deleted);
 	return deleted;
 }
 
