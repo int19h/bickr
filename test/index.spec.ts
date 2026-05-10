@@ -4609,13 +4609,17 @@ describe("Bickr Pages Functions", () => {
 		}
 
 		const alreadyActive = await buildWithActiveRows([profileToolRow]);
-		const alreadyActiveToolNames = ((alreadyActive.find((message) => Array.isArray(message.tool_calls))?.tool_calls ?? []) as Array<{ function: { name: string } }>)
-			.map((toolCall) => toolCall.function.name);
+		const toolNames = (messages: Array<Record<string, unknown>>): string[] =>
+			messages.flatMap((message) => (
+				Array.isArray(message.tool_calls) ?
+					(message.tool_calls as Array<{ function: { name: string } }>).map((toolCall) => toolCall.function.name)
+				:	[]
+			));
+		const alreadyActiveToolNames = toolNames(alreadyActive);
 		expect(alreadyActiveToolNames).toEqual(["check_notifications"]);
 
 		const afterCompaction = await buildWithActiveRows([]);
-		const afterCompactionToolNames = ((afterCompaction.find((message) => Array.isArray(message.tool_calls))?.tool_calls ?? []) as Array<{ function: { name: string } }>)
-			.map((toolCall) => toolCall.function.name);
+		const afterCompactionToolNames = toolNames(afterCompaction);
 		expect(afterCompactionToolNames).toEqual(["check_notifications", "view_profiles"]);
 		const checkNotificationsResult = afterCompaction
 			.filter((message) => message.role === "tool")
@@ -5107,6 +5111,31 @@ describe("Bickr Pages Functions", () => {
 			expect((searchResult as Array<Record<string, unknown>>)[0]).not.toHaveProperty("rootCommentId");
 			expect((searchResult as Array<Record<string, unknown>>)[0]).not.toHaveProperty("score");
 
+			const compactedSearchResult = providerToolResultPayload(
+				"search_threads",
+				[
+					{
+						threadId: "thr_search",
+						commentId: "cmt_search",
+						forumHandle: "random",
+						title: "Search hit",
+						snippet: "A useful comment.",
+						authorHandle: "carol",
+					},
+				],
+				{},
+				{
+					commentsWithText: new Set(["cmt_search"]),
+					threadsWithText: new Set<string>(),
+				},
+			);
+			expect((compactedSearchResult as Array<Record<string, unknown>>)[0]).toMatchObject({
+				threadId: "thr_search",
+				commentId: "cmt_search",
+				title: "Search hit",
+			});
+			expect((compactedSearchResult as Array<Record<string, unknown>>)[0]).not.toHaveProperty("snippet");
+
 			const notificationResult = providerToolResultPayload("check_notifications", {
 				events: [{
 					id: "ntf_compact",
@@ -5376,11 +5405,16 @@ describe("Bickr Pages Functions", () => {
 		expect(setup?.content).toBe("While browsing Bickr, I stumbled on an interesting thread.");
 		expect(built.some((message) => typeof message.content === "string" && message.content.includes("checking my notifications"))).toBe(false);
 		expect(built.some((message) => message.content === effectiveReasoningPrefill(bot))).toBe(false);
-		expect(((setup?.tool_calls ?? []) as Array<{ function: { name: string } }>).map((toolCall) => toolCall.function.name)).toEqual([
+		const setupToolCallMessages = built.filter(
+			(message): message is Record<string, unknown> & { tool_calls: Array<{ function: { name: string } }> } => Array.isArray(message.tool_calls),
+		);
+		expect(setupToolCallMessages.every((message) => message.tool_calls?.length === 1)).toBe(true);
+		expect(setupToolCallMessages.flatMap((message) => message.tool_calls?.map((toolCall) => toolCall.function.name) ?? [])).toEqual([
 			"read_comment_by_id",
 			"read_thread_by_id",
 			"view_profiles",
 		]);
+		expect(setupToolCallMessages.slice(1).every((message) => message.content === null)).toBe(true);
 		const toolResults = built
 			.filter((message) => message.role === "tool")
 			.map((message) => JSON.parse(String(message.content)));
@@ -6956,6 +6990,86 @@ describe("Bickr Pages Functions", () => {
 		}));
 	});
 
+	it("stores generated parallel tool calls as interleaved single-call provider history groups", async () => {
+		const appendedLoopMessages: Array<{ message: BotInferenceSubmissionMessage; origin: string }> = [];
+		const callProvider = vi.fn()
+			.mockResolvedValueOnce(providerResponseWithToolCalls([
+				{ id: "call-search-a", name: "search_threads", args: { query: "astronomy" } },
+				{ id: "call-search-b", name: "search_threads", args: { query: "telescopes" } },
+			]))
+			.mockResolvedValueOnce(providerResponseWithContent("done"));
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) =>
+				runtimeEvent(appendedLoopMessages.length + callProvider.mock.calls.length + 1, runId, type as BotRuntimeEvent["type"], payload),
+			appendLoopMessage: (_runId: string, message: BotInferenceSubmissionMessage, origin: string) => {
+				appendedLoopMessages.push({ message, origin });
+				return {
+					seq: appendedLoopMessages.length,
+					runId: "run-split-parallel-tool-calls",
+					role: message.role,
+					message,
+					origin,
+					tokenEstimate: 0,
+					createdAt: new Date().toISOString(),
+				};
+			},
+			appendProviderMessages: async () => {},
+			callProvider,
+			ensureProviderPromptWithinBudget: async () => ({
+				allowedPromptTokens: 13_500,
+				promptTokens: 100,
+				requestMessages: [{ role: "assistant", content: "I am ready." }],
+			}),
+			executeTool: async (_bot: unknown, _runId: string, name: string, args: Record<string, unknown>) => ({
+				name,
+				result: { ok: true, args },
+				providerResult: { ok: true, args },
+			}),
+			repairActiveProviderToolCallHistory: async () => [],
+			recordInferenceSubmission: () => {},
+			recordLoopMessageLog: () => {},
+			recordProviderUsage: () => {},
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const runProviderLoop = (BotRuntime.prototype as unknown as {
+			runProviderLoop: (
+				bot: BotDocument,
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				runId: string,
+				messages: Array<Record<string, unknown>>,
+				runContext: { mode: "normal"; signal: AbortSignal },
+			) => Promise<{ logOffCalled: boolean }>;
+		}).runProviderLoop.bind(runtime);
+
+		await expect(
+			runProviderLoop(
+				fakeBotDocument(),
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
+				"run-split-parallel-tool-calls",
+				[],
+				{ mode: "normal", signal: new AbortController().signal },
+			),
+		).resolves.toMatchObject({ logOffCalled: false });
+
+		const providerHistory = appendedLoopMessages.filter((item) => item.origin === "provider_response" || item.origin === "tool_result");
+		expect(providerHistory.slice(0, 4).map((item) => ({
+			origin: item.origin,
+			role: item.message.role,
+			toolCallIds: item.message.tool_calls?.map((toolCall) => toolCall.id),
+			toolCallId: item.message.tool_call_id,
+		}))).toEqual([
+			{ origin: "provider_response", role: "assistant", toolCallIds: ["call-search-a"], toolCallId: undefined },
+			{ origin: "tool_result", role: "tool", toolCallIds: undefined, toolCallId: "call-search-a" },
+			{ origin: "provider_response", role: "assistant", toolCallIds: ["call-search-b"], toolCallId: undefined },
+			{ origin: "tool_result", role: "tool", toolCallIds: undefined, toolCallId: "call-search-b" },
+		]);
+		expect(providerHistory[2]?.message.content).toBeNull();
+	});
+
 	it("deduplicates parallel follow calls before history and execution", async () => {
 		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
 		const appendedLoopMessages: Array<{ message: Record<string, unknown>; origin: string }> = [];
@@ -7140,9 +7254,10 @@ describe("Bickr Pages Functions", () => {
 				args: { targets: [{ username: "carol", reason: "Carol tracks relevant threads." }] },
 			},
 		]);
-		const providerResponse = appendedLoopMessages.find((message) => Array.isArray(message.message.tool_calls))?.message;
-		const providerToolCalls = providerResponse?.tool_calls as Array<{ function: { arguments: string } }> | undefined;
-		const rewrittenArgs = JSON.parse(providerToolCalls?.[1]?.function.arguments ?? "{}") as Record<string, unknown>;
+		const rewrittenToolCall = appendedLoopMessages
+			.flatMap((message) => (message.message.tool_calls ?? []) as BotInferenceSubmissionToolCall[])
+			.find((toolCall) => toolCall.id === "call-follow-b");
+		const rewrittenArgs = JSON.parse(rewrittenToolCall?.function.arguments ?? "{}") as Record<string, unknown>;
 		expect(rewrittenArgs).toEqual({ targets: [{ username: "carol", reason: "Carol tracks relevant threads." }] });
 	});
 
@@ -8947,6 +9062,137 @@ describe("Bickr Pages Functions", () => {
 				phase: "history_repair",
 				callIds: ["call-duplicate"],
 				reason: "duplicate_tool_call",
+			}),
+		}));
+	});
+
+	it("splits legacy multi-call assistant history into interleaved single-call groups", async () => {
+		let nextSeq = 6;
+		let lastInsertSeq = 0;
+		const rows = [
+			loopMessageRowForMessage(1, {
+				role: "assistant",
+				content: "I searched several things.",
+				tool_calls: [
+					{ id: "call-search-a", type: "function", function: { name: "search_threads", arguments: "{\"query\":\"a\"}" } },
+					{ id: "call-search-b", type: "function", function: { name: "search_threads", arguments: "{\"query\":\"b\"}" } },
+					{ id: "call-search-c", type: "function", function: { name: "search_threads", arguments: "{\"query\":\"c\"}" } },
+				],
+			}),
+			loopMessageRowForMessage(2, { role: "tool", tool_call_id: "call-search-a", content: "{\"ok\":true,\"a\":true}" }, "tool_result"),
+			loopMessageRowForMessage(3, { role: "tool", tool_call_id: "call-search-b", content: "{\"ok\":true,\"b\":true}" }, "tool_result"),
+			loopMessageRowForMessage(4, { role: "tool", tool_call_id: "call-search-c", content: "{\"ok\":true,\"c\":true}" }, "tool_result"),
+			loopMessageRowForMessage(5, { role: "assistant", content: "After searches." }),
+		];
+		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			state: {
+				storage: {
+					sql: {
+						exec: vi.fn(<T,>(query: string, ...params: unknown[]) => {
+							const normalized = query.trim().replace(/\s+/g, " ");
+							if (/INSERT INTO loop_messages/.test(normalized)) {
+								lastInsertSeq = nextSeq;
+								rows.push({
+									seq: nextSeq,
+									position: Number(params[0]),
+									run_id: String(params[1]),
+									role: params[2] as BotLoopMessage["role"],
+									message_json: String(params[3]),
+									origin: params[4] as BotLoopMessage["origin"],
+									status: String(params[5] ?? "complete"),
+									token_estimate: Number(params[6]),
+									stream_seq: null,
+									compacted_by: null,
+									deleted_at: null,
+									created_at: String(params[8]),
+									has_logs: 0,
+								});
+								nextSeq += 1;
+							}
+							if (/SELECT last_insert_rowid\(\) AS seq/.test(normalized)) {
+								return {
+									one: () => ({ seq: lastInsertSeq } as T),
+									toArray: () => [] as T[],
+								};
+							}
+							if (normalized.includes("MAX(position)")) {
+								const activePositions = rows
+									.filter((row) => row.deleted_at === null && row.compacted_by === null && Number.isFinite(row.position))
+									.map((row) => row.position);
+								return {
+									one: () => ({ position: Math.max(0, ...activePositions) + 1 } as T),
+									toArray: () => [] as T[],
+								};
+							}
+							if (normalized.includes("MIN(position)")) {
+								const activePositions = rows
+									.filter((row) => row.deleted_at === null && row.compacted_by === null && Number.isFinite(row.position))
+									.map((row) => row.position);
+								return {
+									one: () => ({ position: Math.min(...activePositions) } as T),
+									toArray: () => [] as T[],
+								};
+							}
+							if (/UPDATE loop_messages SET message_json = \?, token_estimate = \?/.test(normalized)) {
+								const row = rows.find((item) => item.seq === Number(params[2]));
+								if (row && !row.deleted_at) {
+									row.message_json = String(params[0]);
+									row.token_estimate = Number(params[1]);
+								}
+							}
+							if (normalized.startsWith("UPDATE loop_messages") && normalized.includes("position = ?")) {
+								const row = rows.find((item) => item.seq === Number(params[1]));
+								if (row && !row.deleted_at) {
+									row.position = Number(params[0]);
+								}
+							}
+							return {
+								one: () => ({} as T),
+								toArray: () => [] as T[],
+							};
+						}),
+					},
+				},
+			},
+			activeLoopMessageRows: () => rows.filter((row) => row.deleted_at === null).sort((left, right) => left.position - right.position || left.seq - right.seq),
+			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+				events.push({ type, payload });
+				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
+			},
+			broadcastControl: () => {},
+			recordLoopMessageLog: () => {},
+		});
+		const repairActiveProviderToolCallHistory = (BotRuntime.prototype as unknown as {
+			repairActiveProviderToolCallHistory: (runId: string) => Promise<unknown[]>;
+		}).repairActiveProviderToolCallHistory.bind(runtime);
+
+		await expect(repairActiveProviderToolCallHistory("run-split-history")).resolves.toEqual([]);
+
+		const messages = rows
+			.filter((row) => row.deleted_at === null)
+			.sort((left, right) => left.position - right.position || left.seq - right.seq)
+			.map((row) => JSON.parse(row.message_json) as BotInferenceSubmissionMessage);
+		expect(messages.map((message) => ({
+			role: message.role,
+			toolCallIds: message.tool_calls?.map((toolCall) => toolCall.id),
+			toolCallId: message.tool_call_id,
+			content: message.content,
+		}))).toEqual([
+			{ role: "assistant", toolCallIds: ["call-search-a"], toolCallId: undefined, content: "I searched several things." },
+			{ role: "tool", toolCallIds: undefined, toolCallId: "call-search-a", content: "{\"ok\":true,\"a\":true}" },
+			{ role: "assistant", toolCallIds: ["call-search-b"], toolCallId: undefined, content: null },
+			{ role: "tool", toolCallIds: undefined, toolCallId: "call-search-b", content: "{\"ok\":true,\"b\":true}" },
+			{ role: "assistant", toolCallIds: ["call-search-c"], toolCallId: undefined, content: null },
+			{ role: "tool", toolCallIds: undefined, toolCallId: "call-search-c", content: "{\"ok\":true,\"c\":true}" },
+			{ role: "assistant", toolCallIds: undefined, toolCallId: undefined, content: "After searches." },
+		]);
+		expect(events).toContainEqual(expect.objectContaining({
+			type: "provider_history_repaired",
+			payload: expect.objectContaining({
+				count: 2,
+				messageSeqs: [1, 6, 7],
+				reason: "split_multi_tool_call_message",
 			}),
 		}));
 	});

@@ -848,6 +848,12 @@ type ProviderToolCallHistoryRepair = {
 	repairedMessageSeqs: number[];
 };
 
+type ProviderToolCallBundleSplit = {
+	assistantRow: LoopMessageRow;
+	assistantMessage: ChatMessage;
+	pairs: Array<{ toolCall: ToolCall; toolRow: LoopMessageRow }>;
+};
+
 type ToolUseRecoveryState = {
 	consecutiveNoToolTicks: number;
 	lastRunId: string;
@@ -1606,6 +1612,28 @@ export function providerResponseMessageForHistory(response: {
 		message.reasoning = reasoning;
 	}
 	return message;
+}
+
+function providerResponseToolCallMessageForHistory(
+	message: BotInferenceSubmissionMessage,
+	toolCall: ToolCall,
+	includeResponseContext: boolean,
+): BotInferenceSubmissionMessage {
+	if (!includeResponseContext) {
+		return {
+			role: "assistant",
+			content: null,
+			tool_calls: [cloneToolCall(toolCall)],
+		};
+	}
+	const splitMessage: BotInferenceSubmissionMessage = {
+		...message,
+		tool_calls: [cloneToolCall(toolCall)],
+	};
+	if (!hasProviderHistoryText(splitMessage.content)) {
+		splitMessage.content = null;
+	}
+	return splitMessage;
 }
 
 function normalizeReasoningDetailsForProviderHistory(details: readonly unknown[]): ReasoningDetail[] {
@@ -3678,21 +3706,51 @@ export class BotRuntime {
 			let forceSyntheticLogOff =
 				generatedTokensThisIteration >= tickSettings.maxGeneratedTokensPerIteration;
 			const assistantMessage = providerResponseMessageForHistory(response);
-			let assistantLoopMessageSeq: number | null = null;
-			if (assistantMessage) {
-				const assistantLoopMessage = this.appendLoopMessage(runId, assistantMessage, "provider_response", responseStatus, { streamSeq: requestEvent.seq });
-				assistantLoopMessageSeq = assistantLoopMessage.seq;
-				if (response.requestBody) {
-					this.recordLoopMessageLog(assistantLoopMessage.seq, "provider_request", response.requestBody);
+			const assistantToolCallLoopMessageSeqs = new Map<string, number>();
+			let providerResponseLogsRecorded = false;
+			const recordProviderResponseLogs = (assistantLoopMessageSeq: number): void => {
+				if (providerResponseLogsRecorded) {
+					return;
 				}
-				this.recordLoopMessageLog(assistantLoopMessage.seq, "provider_response", JSON.stringify(providerResponseLogPayload(response, responseStatus)));
-			}
+				if (response.requestBody) {
+					this.recordLoopMessageLog(assistantLoopMessageSeq, "provider_request", response.requestBody);
+				}
+				this.recordLoopMessageLog(assistantLoopMessageSeq, "provider_response", JSON.stringify(providerResponseLogPayload(response, responseStatus)));
+				providerResponseLogsRecorded = true;
+			};
+			const appendAssistantMessageForToolCall = (toolCall: ToolCall): number | null => {
+				if (!assistantMessage) {
+					return null;
+				}
+				const existing = assistantToolCallLoopMessageSeqs.get(toolCall.id);
+				if (existing !== undefined) {
+					return existing;
+				}
+				const assistantLoopMessage = this.appendLoopMessage(
+					runId,
+					providerResponseToolCallMessageForHistory(assistantMessage, toolCall, assistantToolCallLoopMessageSeqs.size === 0),
+					"provider_response",
+					responseStatus,
+					{ streamSeq: requestEvent.seq },
+				);
+				assistantToolCallLoopMessageSeqs.set(toolCall.id, assistantLoopMessage.seq);
+				recordProviderResponseLogs(assistantLoopMessage.seq);
+				return assistantLoopMessage.seq;
+			};
+			const appendAssistantMessageWithoutToolCalls = (): void => {
+				if (!assistantMessage) {
+					return;
+				}
+				const assistantLoopMessage = this.appendLoopMessage(runId, assistantMessage, "provider_response", responseStatus, { streamSeq: requestEvent.seq });
+				recordProviderResponseLogs(assistantLoopMessage.seq);
+			};
 			if (responseStatus === "interrupted") {
 				if (response.toolCalls.length > 0) {
 					this.appendInterruptedToolMessages(
 						runId,
 						response.toolCalls,
 						new Set(response.toolCalls.map((toolCall) => toolCall.id)),
+						appendAssistantMessageForToolCall,
 					);
 				}
 				throw interruptedError?.originalError instanceof Error ? interruptedError.originalError : new TickStoppedError();
@@ -3701,6 +3759,7 @@ export class BotRuntime {
 				throw new ProviderEmptyResponseError(response.rawResponse);
 			}
 			if (response.toolCalls.length === 0) {
+				appendAssistantMessageWithoutToolCalls();
 				if (forceSyntheticLogOff) {
 					await this.appendSyntheticLimitLogOff(bot, runId, runContext);
 					return { logOffCalled: true, publicSpotlightToolCallCount, toolCallCount };
@@ -3733,6 +3792,7 @@ export class BotRuntime {
 
 			for (const toolCall of response.toolCalls) {
 				this.throwIfStopped(runId, runContext.signal);
+				const assistantLoopMessageSeq = appendAssistantMessageForToolCall(toolCall);
 				const args = parseToolArgs(toolCall);
 				const canonicalName = canonicalToolName(toolCall.function.name);
 				if (canonicalName === providerCompactionToolName) {
@@ -3783,7 +3843,7 @@ export class BotRuntime {
 					}
 				} catch (error) {
 					if (error instanceof TickStoppedError || isAbortError(error)) {
-						this.appendInterruptedToolMessages(runId, response.toolCalls, pendingToolCallIds);
+						this.appendInterruptedToolMessages(runId, response.toolCalls, pendingToolCallIds, appendAssistantMessageForToolCall);
 						throw error;
 					}
 					if (error instanceof SelfCorrectingToolCallError) {
@@ -3849,7 +3909,7 @@ export class BotRuntime {
 					await this.dropPendingGeneratedProviderToolCalls(
 						runId,
 						requestEvent.seq,
-						assistantLoopMessageSeq,
+						null,
 						response.toolCalls,
 						pendingToolCallIds,
 						"iteration_limit",
@@ -3902,12 +3962,14 @@ export class BotRuntime {
 		runId: string,
 		toolCalls: ToolCall[],
 		pendingToolCallIds: Set<string>,
+		appendAssistantForToolCall?: (toolCall: ToolCall) => number | null,
 	): void {
 		for (const toolCall of toolCalls) {
 			if (!pendingToolCallIds.has(toolCall.id)) {
 				continue;
 			}
 			pendingToolCallIds.delete(toolCall.id);
+			appendAssistantForToolCall?.(toolCall);
 			const content = JSON.stringify({
 				ok: false,
 				code: "interrupted",
@@ -4555,53 +4617,199 @@ export class BotRuntime {
 	}
 
 	private async repairActiveProviderToolCallHistory(runId: string): Promise<DroppedProviderToolCall[]> {
+		if (!this.hasRuntimeStorage()) {
+			return [];
+		}
 		const repair = repairProviderToolCallHistoryRows(this.activeLoopMessageRows());
-		if (repair.actions.length === 0) {
-			if (repair.repairedTextCount > 0) {
-				await this.recordProviderHistoryRepair(runId, repair.repairedTextCount, repair.repairedMessageSeqs);
+		if (repair.actions.length > 0) {
+			const deletedAt = new Date().toISOString();
+			for (const action of repair.actions) {
+				if (action.kind === "delete") {
+					this.state.storage.sql.exec(
+						`UPDATE loop_messages
+						 SET deleted_at = ?
+						 WHERE seq = ?
+						   AND deleted_at IS NULL`,
+						deletedAt,
+						action.seq,
+					);
+				} else {
+					const messageJson = JSON.stringify(action.message);
+					this.state.storage.sql.exec(
+						`UPDATE loop_messages
+						 SET message_json = ?, token_estimate = ?
+						 WHERE seq = ?
+						   AND deleted_at IS NULL`,
+						messageJson,
+						estimateTextTokens(messageJson),
+						action.seq,
+					);
+				}
 			}
-			return repair.dropped;
+			this.broadcastControl({ type: "loop_messages_reset" });
 		}
-		const deletedAt = new Date().toISOString();
-		for (const action of repair.actions) {
-			if (action.kind === "delete") {
-				this.state.storage.sql.exec(
-					`UPDATE loop_messages
-					 SET deleted_at = ?
-					 WHERE seq = ?
-					   AND deleted_at IS NULL`,
-					deletedAt,
-					action.seq,
-				);
-			} else {
-				const messageJson = JSON.stringify(action.message);
-				this.state.storage.sql.exec(
-					`UPDATE loop_messages
-					 SET message_json = ?, token_estimate = ?
-					 WHERE seq = ?
-					   AND deleted_at IS NULL`,
-					messageJson,
-					estimateTextTokens(messageJson),
-					action.seq,
-				);
-			}
-		}
-		this.broadcastControl({ type: "loop_messages_reset" });
 		if (repair.repairedTextCount > 0) {
 			await this.recordProviderHistoryRepair(runId, repair.repairedTextCount, repair.repairedMessageSeqs);
 		}
 		if (repair.dropped.length > 0) {
 			await this.recordDroppedProviderToolCalls(runId, null, repair.dropped, "history_repair", false);
 		}
+		await this.splitActiveProviderToolCallBundles(runId);
 		return repair.dropped;
 	}
 
-	private async recordProviderHistoryRepair(runId: string, count: number, messageSeqs: readonly number[]): Promise<void> {
+	private async splitActiveProviderToolCallBundles(runId: string): Promise<number> {
+		if (!this.hasRuntimeStorage()) {
+			return 0;
+		}
+		let splitCount = 0;
+		const repairedSeqs: number[] = [];
+		const maxSplits = Math.max(1, this.activeLoopMessageRows().length);
+		for (let attempts = 0; attempts < maxSplits; attempts += 1) {
+			const split = this.activeProviderToolCallBundleSplit();
+			if (!split) {
+				break;
+			}
+			const insertedSeqs = this.applyProviderToolCallBundleSplit(split);
+			splitCount += insertedSeqs.length;
+			repairedSeqs.push(split.assistantRow.seq, ...insertedSeqs);
+		}
+		if (splitCount === 0) {
+			return 0;
+		}
+		this.broadcastControl({ type: "loop_messages_reset" });
+		await this.recordProviderHistoryRepair(runId, splitCount, repairedSeqs, "split_multi_tool_call_message");
+		return splitCount;
+	}
+
+	private activeProviderToolCallBundleSplit(): ProviderToolCallBundleSplit | null {
+		const rows = this.activeLoopMessageRows();
+		const providerRows = rows
+			.map((row) => ({ row, message: loopMessageChatMessageFromRow(row) }))
+			.filter(({ row, message }) => loopMessageContributesToProviderHistory(row.origin, message));
+		for (let index = 0; index < providerRows.length; index += 1) {
+			const current = providerRows[index];
+			if (!current || current.message.role !== "assistant" || !Array.isArray(current.message.tool_calls) || current.message.tool_calls.length <= 1) {
+				continue;
+			}
+			const toolCalls = current.message.tool_calls;
+			const expectedIds = new Set(toolCalls.map((toolCall) => toolCall.id));
+			const toolRowsByCallId = new Map<string, LoopMessageRow>();
+			let scan = index + 1;
+			while (scan < providerRows.length && toolRowsByCallId.size < expectedIds.size) {
+				const candidate = providerRows[scan];
+				if (!candidate || candidate.message.role !== "tool" || !candidate.message.tool_call_id || !expectedIds.has(candidate.message.tool_call_id)) {
+					break;
+				}
+				toolRowsByCallId.set(candidate.message.tool_call_id, candidate.row);
+				scan += 1;
+			}
+			if (toolRowsByCallId.size !== toolCalls.length) {
+				continue;
+			}
+			return {
+				assistantRow: current.row,
+				assistantMessage: current.message,
+				pairs: toolCalls.map((toolCall) => ({ toolCall, toolRow: toolRowsByCallId.get(toolCall.id)! })),
+			};
+		}
+		return null;
+	}
+
+	private applyProviderToolCallBundleSplit(split: ProviderToolCallBundleSplit): number[] {
+		const activeRows = this.activeLoopMessageRows();
+		const insertedSeqs: number[] = [];
+		const originalMessage = providerResponseToolCallMessageForHistory(split.assistantMessage, split.pairs[0]!.toolCall, true);
+		this.updateLoopMessageJson(split.assistantRow.seq, originalMessage);
+		const insertedByToolRowSeq = new Map<number, number>();
+		for (const pair of split.pairs.slice(1)) {
+			const message = providerResponseToolCallMessageForHistory(split.assistantMessage, pair.toolCall, false);
+			const inserted = this.insertLoopMessage({
+				runId: split.assistantRow.run_id,
+				message,
+				origin: split.assistantRow.origin,
+				status: split.assistantRow.status ?? undefined,
+				streamSeq: split.assistantRow.stream_seq ?? undefined,
+				createdAt: split.assistantRow.created_at,
+				broadcast: false,
+			});
+			this.recordLoopMessageLog(inserted.seq, "message", JSON.stringify(message));
+			insertedSeqs.push(inserted.seq);
+			insertedByToolRowSeq.set(pair.toolRow.seq, inserted.seq);
+		}
+		const toolRowSeqs = new Set(split.pairs.map((pair) => pair.toolRow.seq));
+		const desiredSeqs: number[] = [];
+		for (const row of activeRows) {
+			if (row.seq === split.assistantRow.seq) {
+				desiredSeqs.push(split.assistantRow.seq);
+				for (const pair of split.pairs) {
+					const insertedSeq = insertedByToolRowSeq.get(pair.toolRow.seq);
+					if (insertedSeq !== undefined) {
+						desiredSeqs.push(insertedSeq);
+					}
+					desiredSeqs.push(pair.toolRow.seq);
+				}
+				continue;
+			}
+			if (toolRowSeqs.has(row.seq)) {
+				continue;
+			}
+			desiredSeqs.push(row.seq);
+		}
+		this.repositionActiveLoopMessages(desiredSeqs);
+		return insertedSeqs;
+	}
+
+	private updateLoopMessageJson(seq: number, message: ChatMessage): void {
+		const messageJson = JSON.stringify(message);
+		this.state.storage.sql.exec(
+			`UPDATE loop_messages
+			 SET message_json = ?, token_estimate = ?
+			 WHERE seq = ?
+			   AND deleted_at IS NULL`,
+			messageJson,
+			estimateTextTokens(messageJson),
+			seq,
+		);
+		this.recordLoopMessageLog(seq, "message", messageJson);
+	}
+
+	private repositionActiveLoopMessages(seqOrder: readonly number[]): void {
+		if (seqOrder.length === 0) {
+			return;
+		}
+		const minPosition = this.state.storage.sql
+			.exec<{ position: number }>(
+				`SELECT COALESCE(MIN(position), 1) AS position
+				 FROM loop_messages
+				 WHERE compacted_by IS NULL
+				   AND deleted_at IS NULL`,
+			)
+			.one().position;
+		for (let index = 0; index < seqOrder.length; index += 1) {
+			this.state.storage.sql.exec(
+				`UPDATE loop_messages
+				 SET position = ?
+				 WHERE seq = ?
+				   AND compacted_by IS NULL
+				   AND deleted_at IS NULL`,
+				minPosition + index,
+				seqOrder[index],
+			);
+		}
+	}
+
+	private async recordProviderHistoryRepair(
+		runId: string,
+		count: number,
+		messageSeqs: readonly number[],
+		reason = "invalid_unicode_text",
+	): Promise<void> {
 		await this.appendEvent(runId, "provider_history_repaired", {
 			runId,
 			count,
 			messageSeqs: [...messageSeqs],
-			reason: "invalid_unicode_text",
+			reason,
 		});
 	}
 
@@ -6570,14 +6778,13 @@ export class BotRuntime {
 				content: JSON.stringify(providerToolResultPayload("view_profiles", { profiles })),
 			});
 		}
-		this.appendLoopMessage(runId, {
-			role: "assistant",
-			content: "I'm logging into Bickr and checking my notifications.",
-			tool_calls: toolCalls,
-		}, "synthetic_context");
-		for (const result of results) {
-			this.appendLoopMessage(runId, result, "synthetic_context");
-		}
+		this.appendToolCallChainLoopMessages(
+			runId,
+			"synthetic_context",
+			"I'm logging into Bickr and checking my notifications.",
+			toolCalls,
+			results,
+		);
 	}
 
 	private async appendSpotlightSyntheticContext(
@@ -6611,13 +6818,37 @@ export class BotRuntime {
 		if (toolCalls.length === 0) {
 			return;
 		}
-		this.appendLoopMessage(runId, {
-			role: "assistant",
-			content: "While browsing Bickr, I stumbled on an interesting thread.",
-			tool_calls: toolCalls,
-		}, "synthetic_context");
-		for (const result of results) {
-			this.appendLoopMessage(runId, result, "synthetic_context");
+		this.appendToolCallChainLoopMessages(
+			runId,
+			"synthetic_context",
+			"While browsing Bickr, I stumbled on an interesting thread.",
+			toolCalls,
+			results,
+		);
+	}
+
+	private appendToolCallChainLoopMessages(
+		runId: string,
+		origin: BotLoopMessageOrigin,
+		firstAssistantContent: string,
+		toolCalls: readonly ToolCall[],
+		results: readonly ChatMessage[],
+		status: BotLoopMessageStatus = "complete",
+	): void {
+		if (toolCalls.length !== results.length) {
+			throw new Error("Synthetic tool-call chain must have one result per request.");
+		}
+		for (let index = 0; index < toolCalls.length; index += 1) {
+			const toolCall = toolCalls[index]!;
+			this.appendLoopMessage(runId, {
+				role: "assistant",
+				content: index === 0 ? firstAssistantContent : null,
+				tool_calls: [toolCall],
+			}, origin, status);
+			const result = results[index];
+			if (result) {
+				this.appendLoopMessage(runId, result, origin, status);
+			}
 		}
 	}
 
@@ -6894,6 +7125,7 @@ export class BotRuntime {
 		signal: AbortSignal,
 	): Promise<void> {
 		bot = await this.botWithCurrentRuntimeBudget(bot);
+		await this.repairActiveProviderToolCallHistory(runId);
 		const contextEstimate = this.currentCompactionContextEstimate(settings.model);
 		const providerTools = providerToolsForBotRound(bot, settings).tools;
 		const compactionMode = providerCompactionMode(settings);
@@ -7092,11 +7324,12 @@ export class BotRuntime {
 		const bot = await botById(this.env.BICKR_KV, this.env.BICKR_D1, botId);
 		const owner = await userById(this.env.BICKR_KV, bot.ownerUserId);
 		const settings = this.effectiveProviderSettings(bot, owner);
+		const runId = crypto.randomUUID();
+		await this.repairActiveProviderToolCallHistory(runId);
 		const rows = this.compactionCandidateRows();
 		if (rows.length === 0) {
 			return { messageCount: 0 };
 		}
-		const runId = crypto.randomUUID();
 		await this.compactLoopMessageRowsInBatches(bot, settings, runId, new AbortController().signal, rows, "manual", {});
 		return { fromSeq: rows[0]?.seq, toSeq: rows[rows.length - 1]?.seq, messageCount: rows.length };
 	}
@@ -9123,7 +9356,7 @@ export function providerToolResultPayload(
 		return result.map((item) => providerThreadSummary(runtimeRecord(item), { includeForum: true }));
 	}
 	if (canonical === "search_threads" || canonical === "search_threads_semantic") {
-		return Array.isArray(result) ? result.map((item) => providerSearchPost(runtimeRecord(item))) : providerSafeJsonValue(result);
+		return Array.isArray(result) ? result.map((item) => providerSearchPost(runtimeRecord(item), scope)) : providerSafeJsonValue(result);
 	}
 	if (canonical === "search_profiles" && Array.isArray(result)) {
 		return result.map((item) => providerProfile(runtimeRecord(item)));
@@ -9841,14 +10074,19 @@ function providerThreadSummary(
 	});
 }
 
-function providerSearchPost(record: Record<string, unknown>): Record<string, unknown> {
+function providerSearchPost(record: Record<string, unknown>, scope: ProviderContextContentScope = emptyProviderContextContentScope()): Record<string, unknown> {
 	const commentId = stringValue(record.commentId) ?? stringValue(record.rootCommentId);
+	const threadId = stringValue(record.threadId);
+	const snippet = stringValue(record.snippet);
+	const snippetAlreadyInContext =
+		(commentId ? scope.commentsWithText.has(commentId) : false) ||
+		(!commentId && threadId ? scope.threadsWithText.has(threadId) : false);
 	return removeUndefinedProperties({
-		threadId: stringValue(record.threadId),
+		threadId,
 		...(commentId ? { commentId } : {}),
 		forum: providerForumNameFromRecord(record) ?? "f/unknown",
 		title: stringValue(record.title) ?? "untitled",
-		snippet: stringValue(record.snippet) ?? "",
+		...(snippet && !snippetAlreadyInContext ? { snippet } : {}),
 		author: providerAuthorUsername(record),
 		createdAt: providerRelativeTime(record.createdAt),
 	});
