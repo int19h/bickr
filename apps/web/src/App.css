@@ -161,7 +161,7 @@ a {
 	grid-column: 1 / -1;
 	justify-content: space-between;
 	min-width: 0;
-	padding: 0 18px;
+	padding: 0 18px 0 6px;
 	z-index: 5;
 }
 
@@ -207,6 +207,19 @@ a {
 .brand-mark .brand-logo {
 	height: 100%;
 	width: 100%;
+}
+
+.desktop-brand-mark {
+	background: transparent;
+	border-radius: 0;
+	height: 44px;
+	width: 44px;
+}
+
+.desktop-brand-mark .brand-logo {
+	height: 76px;
+	max-width: none;
+	width: 76px;
 }
 
 .mobile-nav-wrap {
@@ -4325,8 +4338,9 @@ fieldset {
 
 .login-card .brand .brand-logo {
 	border-radius: 7px;
-	height: 32px;
-	width: 32px;
+	height: 56px;
+	margin: -12px;
+	width: 56px;
 }
 
 .login-card h1 {
