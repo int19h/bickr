@@ -633,7 +633,7 @@ describe("Bickr Pages Functions", () => {
 		const comment = await createCommentForTest(thread.id, author.id, "Comment body.");
 		const childComment = await createCommentForTest(thread.id, author.id, "Child comment body.", comment.id);
 
-		const runtime = testRuntimeForToolExecution();
+		const runtime = testRuntimeForToolExecution() as BotRuntime & { events: BotRuntimeEvent[] };
 		const executeTool = (BotRuntime.prototype as unknown as {
 			executeTool: (
 				bot: Awaited<ReturnType<typeof botById>>,
@@ -641,7 +641,7 @@ describe("Bickr Pages Functions", () => {
 				name: string,
 				args: Record<string, unknown>,
 				runContext: { mode: "normal"; signal: AbortSignal },
-			) => Promise<{ result: unknown; providerResult: unknown }>;
+			) => Promise<{ result: unknown; providerResult: unknown; displayEventSeq?: number }>;
 		}).executeTool.bind(runtime);
 		const bot = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, voter.id);
 		const signal = new AbortController().signal;
@@ -725,6 +725,12 @@ describe("Bickr Pages Functions", () => {
 			{ threadId: thread.id },
 			{ mode: "normal", signal },
 		);
+		expect(readThreadResult.displayEventSeq).toEqual(expect.any(Number));
+		expect(runtime.events.find((event) => event.seq === readThreadResult.displayEventSeq)?.payload).toMatchObject({
+			displayContext: { worldHandle: bot.homeWorldHandle },
+			name: "read_thread_by_id",
+			result: readThreadResult.result,
+		});
 		const readThreadContent = (readThreadResult.providerResult as { content: Array<Record<string, unknown>> }).content;
 		expect(readThreadContent.map((item) => item.commentId)).toEqual([thread.rootCommentId]);
 		expect(readThreadContent).toMatchObject([
@@ -979,12 +985,61 @@ describe("Bickr Pages Functions", () => {
 
 		expect(sql.columns("loop_messages")).toContain("deleted_at");
 		expect(sql.columns("loop_messages")).toContain("stream_seq");
+		expect(sql.columns("loop_messages")).toContain("display_event_seq");
 		expect(sql.statements()).toEqual(expect.arrayContaining([
 			expect.stringMatching(/^ALTER TABLE loop_messages ADD COLUMN deleted_at TEXT$/),
 			expect.stringMatching(/^ALTER TABLE loop_messages ADD COLUMN stream_seq INTEGER$/),
+			expect.stringMatching(/^ALTER TABLE loop_messages ADD COLUMN display_event_seq INTEGER$/),
 			expect.stringMatching(/^CREATE INDEX IF NOT EXISTS loop_messages_visible/),
 		]));
 		expect(sql.indexCreatedBeforeDeletedAt()).toBe(false);
+	});
+
+	it("stores display event sequence when inserting rich tool result loop messages", () => {
+		const displayPayload = {
+			name: "read_thread_by_id",
+			args: { threadId: "thr_display" },
+			result: {
+				thread: { threadId: "thr_display", forumHandle: "rules", title: "Display thread" },
+				content: [{ commentId: "cmt_display", body: "Full owner-facing body." }],
+			},
+			displayContext: { worldHandle: "sandbox" },
+		};
+		const sql = memoryLoopMessageInsertSql(42, displayPayload);
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			state: { storage: { sql } },
+		});
+		const insertLoopMessage = (BotRuntime.prototype as unknown as {
+			insertLoopMessage: (input: {
+				runId: string;
+				message: BotInferenceSubmissionMessage;
+				origin: BotLoopMessage["origin"];
+				status?: BotLoopMessage["status"];
+				displayEventSeq?: number;
+				broadcast: boolean;
+			}) => BotLoopMessage;
+		}).insertLoopMessage.bind(runtime);
+		const minimizedContent = JSON.stringify({ content: [{ commentId: "cmt_display" }] });
+
+		const inserted = insertLoopMessage({
+			runId: "run-display",
+			message: { role: "tool", tool_call_id: "call-read", content: minimizedContent },
+			origin: "tool_result",
+			status: "complete",
+			displayEventSeq: 42,
+			broadcast: false,
+		});
+
+		expect(sql.inserted()?.display_event_seq).toBe(42);
+		expect(inserted.message.content).toBe(minimizedContent);
+		expect(inserted.display).toEqual({
+			kind: "tool_result",
+			eventSeq: 42,
+			name: "read_thread_by_id",
+			args: displayPayload.args,
+			result: displayPayload.result,
+			context: { worldHandle: "sandbox" },
+		});
 	});
 
 		it("builds provider chat requests with explicit tool-call and output controls", () => {
@@ -2246,9 +2301,9 @@ describe("Bickr Pages Functions", () => {
 			expect(selected.map((row) => row.seq)).toEqual([1, 2, 3]);
 		});
 
-		it("stops before the atomic tool-call group that crosses the compaction prompt budget", () => {
-			const large = (char: string) => char.repeat(4_000);
-			const rows = [
+			it("stops before the atomic tool-call group that crosses the compaction prompt budget", () => {
+				const large = (char: string) => char.repeat(4_000);
+				const rows: LoopMessageRowForTest[] = [
 				loopMessageRowForMessage(1, { role: "assistant", content: large("a") }),
 				loopMessageRowForMessage(2, {
 					role: "assistant",
@@ -2288,7 +2343,7 @@ describe("Bickr Pages Functions", () => {
 
 		it("compacts malformed visible tool history without blocking on missing matches", () => {
 			const large = (char: string) => char.repeat(4_000);
-			const rows = [
+				const rows: LoopMessageRowForTest[] = [
 				loopMessageRowForMessage(1, {
 					role: "assistant",
 					content: large("a"),
@@ -2923,6 +2978,54 @@ describe("Bickr Pages Functions", () => {
 
 			expect(loopMessagesPage({ page: 1, after: 10 }).messages.map((message) => message.seq)).toEqual([11]);
 			expect(loopMessagesPage({ page: 2, after: 99 }).messages.map((message) => message.seq)).toEqual([1]);
+		});
+
+		it("hydrates linked rich tool display payloads without changing minimized tool content", () => {
+			const minimizedContent = JSON.stringify([
+				{ threadId: "thr_rule", commentId: "cmt_match", forum: "f/rules", title: "Rule 82", author: "u/alice" },
+			]);
+			const displayPayload = {
+				name: "search_threads",
+				args: { query: "potato" },
+				result: [{
+					threadId: "thr_rule",
+					commentId: "cmt_match",
+					forumHandle: "rules",
+					title: "Rule 82",
+					snippet: "mashed potato discourse",
+					authorHandle: "alice",
+					authorDisplayName: "Alice",
+				}],
+				displayContext: { worldHandle: "sandbox" },
+			};
+			const rows: LoopMessageRowForTest[] = [
+				{
+					...loopMessageRowForMessage(1, { role: "tool", tool_call_id: "call-search", content: minimizedContent }, "tool_result"),
+					display_event_seq: 42,
+					display_event_type: "tool_result",
+					display_event_payload_json: JSON.stringify(displayPayload),
+				},
+				loopMessageRowForMessage(2, { role: "tool", tool_call_id: "call-legacy", content: "{}" }, "tool_result"),
+			];
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				state: { storage: { sql: memoryLoopMessagePageSql(rows) } },
+			});
+			const loopMessagesPage = (BotRuntime.prototype as unknown as {
+				loopMessagesPage: (input: { page: number; after?: number }) => { messages: BotLoopMessage[]; page: { currentPage: number } };
+			}).loopMessagesPage.bind(runtime);
+
+			const [richMessage, legacyMessage] = loopMessagesPage({ page: 1 }).messages;
+
+			expect(richMessage?.message.content).toBe(minimizedContent);
+			expect(richMessage?.display).toEqual({
+				kind: "tool_result",
+				eventSeq: 42,
+				name: "search_threads",
+				args: displayPayload.args,
+				result: displayPayload.result,
+				context: { worldHandle: "sandbox" },
+			});
+			expect(legacyMessage?.display).toBeUndefined();
 		});
 
 		it("keeps compacted runtime diagnostics behind the active compaction summary", () => {
@@ -8843,7 +8946,7 @@ describe("Bickr Pages Functions", () => {
 	});
 
 	it("repairs poisoned active history before recording the next inference submission", async () => {
-		const rows = [
+		const rows: LoopMessageRowForTest[] = [
 			loopMessageRowForMessage(1, {
 				role: "assistant",
 				content: null,
@@ -9069,7 +9172,7 @@ describe("Bickr Pages Functions", () => {
 	it("splits legacy multi-call assistant history into interleaved single-call groups", async () => {
 		let nextSeq = 6;
 		let lastInsertSeq = 0;
-		const rows = [
+		const rows: LoopMessageRowForTest[] = [
 			loopMessageRowForMessage(1, {
 				role: "assistant",
 				content: "I searched several things.",
@@ -9102,10 +9205,13 @@ describe("Bickr Pages Functions", () => {
 									origin: params[4] as BotLoopMessage["origin"],
 									status: String(params[5] ?? "complete"),
 									token_estimate: Number(params[6]),
-									stream_seq: null,
+									stream_seq: params[7] === null ? null : Number(params[7]),
+									display_event_seq: params[8] === null ? null : Number(params[8]),
+									display_event_type: null,
+									display_event_payload_json: null,
 									compacted_by: null,
 									deleted_at: null,
-									created_at: String(params[8]),
+									created_at: String(params[9]),
 									has_logs: 0,
 								});
 								nextSeq += 1;
@@ -15389,6 +15495,62 @@ function memoryRuntimeSql(options: { unconsumedInjections?: ReadonlySet<string> 
 	};
 }
 
+function memoryLoopMessageInsertSql(displayEventSeq: number, displayPayload: unknown) {
+	let inserted: (Record<string, unknown> & { display_event_seq: number | null }) | null = null;
+	let lastInsertSeq = 0;
+	return {
+		inserted: () => inserted,
+		exec<T>(sql: string, ...params: unknown[]) {
+			const normalized = sql.trim().replace(/\s+/g, " ");
+			if (/SELECT COALESCE\(MAX\(position\), 0\) \+ 1 AS position FROM loop_messages/.test(normalized)) {
+				return {
+					one: () => ({ position: 1 }) as T,
+					toArray: () => [{ position: 1 } as T],
+				};
+			}
+			if (/SELECT seq, type, payload_json FROM events WHERE seq = \? LIMIT 1/.test(normalized)) {
+				return {
+					toArray: () =>
+						Number(params[0]) === displayEventSeq ?
+							[{ seq: displayEventSeq, type: "tool_result", payload_json: JSON.stringify(displayPayload) } as T]
+						:	[],
+				};
+			}
+			if (/INSERT INTO loop_messages/.test(normalized)) {
+				lastInsertSeq = 1;
+				inserted = {
+					seq: lastInsertSeq,
+					position: Number(params[0]),
+					run_id: String(params[1]),
+					role: params[2] as BotLoopMessage["role"],
+					message_json: String(params[3]),
+					origin: params[4] as BotLoopMessage["origin"],
+					status: params[5] === null || params[5] === undefined ? "complete" : String(params[5]),
+					token_estimate: Number(params[6]),
+					stream_seq: params[7] === null ? null : Number(params[7]),
+					display_event_seq: params[8] === null ? null : Number(params[8]),
+					display_event_type: Number(params[8]) === displayEventSeq ? "tool_result" : null,
+					display_event_payload_json: Number(params[8]) === displayEventSeq ? JSON.stringify(displayPayload) : null,
+					compacted_by: null,
+					deleted_at: null,
+					created_at: String(params[9]),
+					has_logs: 0,
+				};
+			}
+			if (/SELECT last_insert_rowid\(\) AS seq/.test(normalized)) {
+				return {
+					one: () => ({ seq: lastInsertSeq }) as T,
+					toArray: () => [{ seq: lastInsertSeq } as T],
+				};
+			}
+			return {
+				one: () => ({} as T),
+				toArray: () => [],
+			};
+		},
+	};
+}
+
 function memoryInferenceSubmissionSql() {
 	type Row = {
 		id: string;
@@ -15508,6 +15670,9 @@ function memoryLoopMessageLogSql(options: {
 		status: "complete",
 		token_estimate: 1,
 		stream_seq: options.streamSeq ?? null,
+		display_event_seq: null,
+		display_event_type: null,
+		display_event_payload_json: null,
 		compacted_by: null,
 		deleted_at: null as string | null,
 		created_at: "2026-05-01T00:00:00.000Z",
@@ -15560,7 +15725,7 @@ function memoryLoopMessageLogSql(options: {
 							.filter((chunk) => chunk.log_id === Number(params[0]))
 							.sort((left, right) => left.chunk_index - right.chunk_index) as T[],
 				};
-			} else if (/FROM loop_messages m\s+WHERE m\.seq = \?/.test(sql)) {
+			} else if (/FROM loop_messages m[\s\S]+WHERE m\.seq = \?/.test(sql)) {
 				return { toArray: () => (Number(params[0]) === messageRow.seq ? [messageRow as T] : []) };
 			} else if (/FROM provider_usage\s+WHERE run_id = \?/.test(sql)) {
 				const usage = options.providerUsage;
@@ -15774,6 +15939,7 @@ function memoryExistingLoopMessageSchemaSql() {
 
 function testRuntimeForToolExecution(): BotRuntime {
 	let seq = 0;
+	const events: BotRuntimeEvent[] = [];
 	return Object.assign(Object.create(BotRuntime.prototype), {
 		env: {
 			BICKR_D1: testEnv.BICKR_D1,
@@ -15791,16 +15957,19 @@ function testRuntimeForToolExecution(): BotRuntime {
 				sql: memoryRuntimeSql(),
 			},
 		},
+		events,
 		appendEvent: async (runId: string, type: string, payload: unknown) => {
 			seq += 1;
-			return {
+			const event = {
 				seq,
 				runId,
 				type,
 				payload,
 				tokenEstimate: 0,
 				createdAt: new Date().toISOString(),
-			};
+			} as BotRuntimeEvent;
+			events.push(event);
+			return event;
 		},
 		throwIfStopped: (_runId: string, signal: AbortSignal) => {
 			if (signal.aborted) {
@@ -16024,7 +16193,10 @@ function loopMessageRowForTest(seq: number, runId: string, content: string) {
 		origin: "provider_response" as BotLoopMessage["origin"],
 		status: "complete",
 		token_estimate: 1,
-		stream_seq: null,
+		stream_seq: null as number | null,
+		display_event_seq: null as number | null,
+		display_event_type: null as BotRuntimeEvent["type"] | null,
+		display_event_payload_json: null as string | null,
 		compacted_by: null as number | null,
 		deleted_at: null as string | null,
 		created_at: "2026-05-05T00:00:00.000Z",
@@ -16032,7 +16204,7 @@ function loopMessageRowForTest(seq: number, runId: string, content: string) {
 	};
 }
 
-function loopMessageRowForMessage(seq: number, message: Record<string, unknown>, origin = "provider_response") {
+function loopMessageRowForMessage(seq: number, message: Record<string, unknown>, origin: BotLoopMessage["origin"] = "provider_response") {
 	return {
 		seq,
 		position: seq,
@@ -16042,7 +16214,10 @@ function loopMessageRowForMessage(seq: number, message: Record<string, unknown>,
 		origin,
 		status: "complete",
 		token_estimate: 1,
-		stream_seq: null,
+		stream_seq: null as number | null,
+		display_event_seq: null as number | null,
+		display_event_type: null as BotRuntimeEvent["type"] | null,
+		display_event_payload_json: null as string | null,
 		compacted_by: null,
 		deleted_at: null as string | null,
 		created_at: "2026-05-05T00:00:00.000Z",

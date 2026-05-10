@@ -76,6 +76,7 @@ import {
 	type BotInferenceSubmissionSummary,
 	type BotInferenceSubmissionToolCall,
 	type BotLoopMessage,
+	type BotLoopMessageDisplay,
 	type BotLoopMessagePageSummary,
 	type BotLoopMessagesResponse,
 	type BotLoopMessageLog,
@@ -218,6 +219,9 @@ type LoopMessageRow = {
 	status: BotLoopMessageStatus | null;
 	token_estimate: number;
 	stream_seq: number | null;
+	display_event_seq?: number | null;
+	display_event_type?: BotRuntimeEventType | null;
+	display_event_payload_json?: string | null;
 	compacted_by: number | null;
 	deleted_at: string | null;
 	created_at: string;
@@ -285,6 +289,7 @@ type ToolResult = {
 	name: string;
 	result: unknown;
 	providerResult: unknown;
+	displayEventSeq?: number;
 	effectiveArgs?: Record<string, unknown>;
 	selfCorrectionMessages?: string[];
 };
@@ -2675,6 +2680,7 @@ CREATE TABLE IF NOT EXISTS loop_messages (
 	status TEXT,
 	token_estimate INTEGER NOT NULL,
 	stream_seq INTEGER,
+	display_event_seq INTEGER,
 	compacted_by INTEGER,
 	deleted_at TEXT,
 	created_at TEXT NOT NULL
@@ -2783,6 +2789,9 @@ export class BotRuntime {
 		}
 		if (!columns.has("stream_seq")) {
 			this.state.storage.sql.exec(`ALTER TABLE loop_messages ADD COLUMN stream_seq INTEGER`);
+		}
+		if (!columns.has("display_event_seq")) {
+			this.state.storage.sql.exec(`ALTER TABLE loop_messages ADD COLUMN display_event_seq INTEGER`);
 		}
 		this.state.storage.sql.exec(`CREATE INDEX IF NOT EXISTS loop_messages_visible ON loop_messages (deleted_at, compacted_by, position, seq)`);
 	}
@@ -3872,6 +3881,7 @@ export class BotRuntime {
 						name: toolCall.function.name || "unknown_tool",
 						args,
 						result: failure,
+						displayContext: { worldHandle: bot.homeWorldHandle },
 						error: true,
 						consecutiveFailures: consecutiveToolFailures,
 					});
@@ -3895,7 +3905,7 @@ export class BotRuntime {
 					tool_call_id: toolCall.id,
 					content: JSON.stringify(result.providerResult),
 				};
-				const loopMessage = this.appendLoopMessage(runId, toolMessage, "tool_result");
+				const loopMessage = this.appendLoopMessage(runId, toolMessage, "tool_result", "complete", { displayEventSeq: result.displayEventSeq });
 				const recordedToolCall = result.effectiveArgs ?
 						toolCallWithArguments(toolCall, JSON.stringify(providerToolArgs(result.name, result.effectiveArgs)))
 					:	toolCall;
@@ -4457,7 +4467,7 @@ export class BotRuntime {
 			tool_call_id: toolCall.id,
 			content: JSON.stringify(result.providerResult),
 		};
-		const loopMessage = this.appendLoopMessage(runId, toolMessage, "tool_result");
+		const loopMessage = this.appendLoopMessage(runId, toolMessage, "tool_result", "complete", { displayEventSeq: result.displayEventSeq });
 		this.recordLoopMessageLog(loopMessage.seq, "tool_call", JSON.stringify(toolCall));
 		this.recordLoopMessageLog(loopMessage.seq, "tool_result", toolMessage.content ?? "");
 	}
@@ -4513,9 +4523,17 @@ export class BotRuntime {
 		message: ChatMessage,
 		origin: BotLoopMessageOrigin,
 		status: BotLoopMessageStatus = "complete",
-		options: { streamSeq?: number } = {},
+		options: { streamSeq?: number; displayEventSeq?: number } = {},
 	): BotLoopMessage {
-		const inserted = this.insertLoopMessage({ runId, message, origin, status, streamSeq: options.streamSeq, broadcast: true });
+		const inserted = this.insertLoopMessage({
+			runId,
+			message,
+			origin,
+			status,
+			streamSeq: options.streamSeq,
+			displayEventSeq: options.displayEventSeq,
+			broadcast: true,
+		});
 		this.recordLoopMessageLog(inserted.seq, "message", JSON.stringify(message));
 		return inserted;
 	}
@@ -4538,6 +4556,7 @@ export class BotRuntime {
 		origin: BotLoopMessageOrigin;
 		status?: BotLoopMessageStatus;
 		streamSeq?: number;
+		displayEventSeq?: number;
 		position?: number;
 		createdAt?: string;
 		broadcast: boolean;
@@ -4546,9 +4565,10 @@ export class BotRuntime {
 		const messageJson = JSON.stringify(input.message);
 		const tokenEstimate = estimateTextTokens(messageJson);
 		const position = input.position ?? this.nextLoopMessagePosition();
+		const displayEvent = this.loopMessageDisplayEventRow(input.displayEventSeq);
 		this.state.storage.sql.exec(
-			`INSERT INTO loop_messages (position, run_id, role, message_json, origin, status, token_estimate, stream_seq, compacted_by, created_at)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
+			`INSERT INTO loop_messages (position, run_id, role, message_json, origin, status, token_estimate, stream_seq, display_event_seq, compacted_by, created_at)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
 			position,
 			input.runId,
 			input.message.role,
@@ -4557,6 +4577,7 @@ export class BotRuntime {
 			input.status ?? null,
 			tokenEstimate,
 			input.streamSeq ?? null,
+			displayEvent.display_event_seq,
 			now,
 		);
 		const seq = this.state.storage.sql.exec<{ seq: number }>(`SELECT last_insert_rowid() AS seq`).one().seq;
@@ -4570,6 +4591,9 @@ export class BotRuntime {
 			status: input.status ?? null,
 			token_estimate: tokenEstimate,
 			stream_seq: input.streamSeq ?? null,
+			display_event_seq: displayEvent.display_event_seq,
+			display_event_type: displayEvent.display_event_type,
+			display_event_payload_json: displayEvent.display_event_payload_json,
 			compacted_by: null,
 			deleted_at: null,
 			created_at: now,
@@ -4579,6 +4603,37 @@ export class BotRuntime {
 			this.broadcastLoopMessage(message);
 		}
 		return message;
+	}
+
+	private loopMessageDisplayEventRow(displayEventSeq: number | undefined): Pick<LoopMessageRow, "display_event_seq" | "display_event_type" | "display_event_payload_json"> {
+		if (typeof displayEventSeq !== "number" || !Number.isInteger(displayEventSeq) || displayEventSeq <= 0) {
+			return {
+				display_event_seq: null,
+				display_event_type: null,
+				display_event_payload_json: null,
+			};
+		}
+		const row = this.state.storage.sql
+			.exec<{ seq: number; type: BotRuntimeEventType; payload_json: string }>(
+				`SELECT seq, type, payload_json
+				 FROM events
+				 WHERE seq = ?
+				 LIMIT 1`,
+				displayEventSeq,
+			)
+			.toArray()[0];
+		if (!row || row.type !== "tool_result") {
+			return {
+				display_event_seq: null,
+				display_event_type: null,
+				display_event_payload_json: null,
+			};
+		}
+		return {
+			display_event_seq: row.seq,
+			display_event_type: row.type,
+			display_event_payload_json: row.payload_json,
+		};
 	}
 
 	private nextLoopMessagePosition(): number {
@@ -4906,9 +4961,11 @@ export class BotRuntime {
 			return this.state.storage.sql
 				.exec<LoopMessageRow>(
 					`SELECT m.seq, m.position, m.run_id, m.role, m.message_json, m.origin, m.status,
-					        m.token_estimate, m.stream_seq, m.compacted_by, m.deleted_at, m.created_at,
+					        m.token_estimate, m.stream_seq, m.display_event_seq, display.type AS display_event_type,
+					        display.payload_json AS display_event_payload_json, m.compacted_by, m.deleted_at, m.created_at,
 					        CASE WHEN EXISTS (SELECT 1 FROM loop_message_logs l WHERE l.message_seq = m.seq) THEN 1 ELSE 0 END AS has_logs
 					 FROM loop_messages m
+					 LEFT JOIN events display ON display.seq = m.display_event_seq
 					 WHERE ${filters.join("\n\t\t\t\t\t   AND ")}
 					 ORDER BY m.position ASC, m.seq ASC
 					 ${afterSeq > 0 ? "LIMIT 2000" : ""}`,
@@ -4919,9 +4976,11 @@ export class BotRuntime {
 		return this.state.storage.sql
 			.exec<LoopMessageRow>(
 				`SELECT m.seq, m.position, m.run_id, m.role, m.message_json, m.origin, m.status,
-				        m.token_estimate, m.stream_seq, m.compacted_by, m.deleted_at, m.created_at,
+				        m.token_estimate, m.stream_seq, m.display_event_seq, display.type AS display_event_type,
+				        display.payload_json AS display_event_payload_json, m.compacted_by, m.deleted_at, m.created_at,
 				        CASE WHEN EXISTS (SELECT 1 FROM loop_message_logs l WHERE l.message_seq = m.seq) THEN 1 ELSE 0 END AS has_logs
 				 FROM loop_messages m
+				 LEFT JOIN events display ON display.seq = m.display_event_seq
 				 WHERE m.compacted_by = ?
 				   AND m.deleted_at IS NULL
 				 ORDER BY m.position ASC, m.seq ASC`,
@@ -4993,9 +5052,11 @@ export class BotRuntime {
 		const row = this.state.storage.sql
 			.exec<LoopMessageRow>(
 				`SELECT m.seq, m.position, m.run_id, m.role, m.message_json, m.origin, m.status,
-				        m.token_estimate, m.stream_seq, m.compacted_by, m.deleted_at, m.created_at,
+				        m.token_estimate, m.stream_seq, m.display_event_seq, display.type AS display_event_type,
+				        display.payload_json AS display_event_payload_json, m.compacted_by, m.deleted_at, m.created_at,
 				        CASE WHEN EXISTS (SELECT 1 FROM loop_message_logs l WHERE l.message_seq = m.seq) THEN 1 ELSE 0 END AS has_logs
 				 FROM loop_messages m
+				 LEFT JOIN events display ON display.seq = m.display_event_seq
 				 WHERE m.seq = ?
 				 LIMIT 1`,
 				seq,
@@ -6366,11 +6427,17 @@ export class BotRuntime {
 			}
 		}
 		const providerResult = providerToolResultPayload(canonicalName, result, normalizedArgs, this.providerContentInActiveContext());
-		await this.appendEvent(runId, "tool_result", { name: canonicalName, args: providerToolArgs(canonicalName, normalizedArgs), result });
+		const toolResultEvent = await this.appendEvent(runId, "tool_result", {
+			name: canonicalName,
+			args: providerToolArgs(canonicalName, normalizedArgs),
+			result,
+			displayContext: { worldHandle: bot.homeWorldHandle },
+		});
 		return {
 			name: canonicalName,
 			result,
 			providerResult,
+			displayEventSeq: toolResultEvent.seq,
 			...(effectiveArgs ? { effectiveArgs } : {}),
 			...(selfCorrectionMessages ? { selfCorrectionMessages } : {}),
 		};
@@ -13418,12 +13485,14 @@ function runtimeRecord(value: unknown): Record<string, unknown> {
 }
 
 function loopMessageFromRow(row: LoopMessageRow): BotLoopMessage {
+	const display = loopMessageDisplayFromRow(row);
 	return {
 		seq: row.seq,
 		position: row.position,
 		runId: row.run_id,
 		role: row.role,
 		message: loopMessageChatMessageFromRow(row),
+		...(display ? { display } : {}),
 		origin: row.origin,
 		tokenEstimate: row.token_estimate,
 		createdAt: row.created_at,
@@ -13433,6 +13502,33 @@ function loopMessageFromRow(row: LoopMessageRow): BotLoopMessage {
 		...(row.deleted_at ? { deletedAt: row.deleted_at } : {}),
 		...(row.has_logs ? { hasLogs: true } : {}),
 	};
+}
+
+function loopMessageDisplayFromRow(row: LoopMessageRow): BotLoopMessageDisplay | undefined {
+	const eventSeq = row.display_event_seq;
+	const payloadJson = row.display_event_payload_json;
+	if (typeof eventSeq !== "number" || !Number.isInteger(eventSeq) || !payloadJson || row.display_event_type !== "tool_result") {
+		return undefined;
+	}
+	try {
+		const payload = runtimeRecord(JSON.parse(payloadJson) as unknown);
+		const name = stringValue(payload.name);
+		if (!name || !Object.hasOwn(payload, "result")) {
+			return undefined;
+		}
+		const context = runtimeRecord(payload.displayContext);
+		const worldHandle = stringValue(context.worldHandle);
+		return {
+			kind: "tool_result",
+			eventSeq,
+			name,
+			args: payload.args,
+			result: payload.result,
+			...(worldHandle ? { context: { worldHandle } } : {}),
+		};
+	} catch {
+		return undefined;
+	}
 }
 
 function loopMessageChatMessageFromRow(row: Pick<LoopMessageRow, "message_json">): ChatMessage {

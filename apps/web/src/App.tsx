@@ -160,8 +160,13 @@ type LoopToolCallContext = {
 	name: string;
 	args: Record<string, unknown>;
 	result?: unknown;
+	display?: BotLoopMessage["display"];
 };
 type JsonRecord = Record<string, unknown>;
+type ReadableDisplayContext = {
+	worldHandle?: string;
+	allowActiveWorldFallback: boolean;
+};
 
 type BotDraft = {
 	handle: string;
@@ -10108,7 +10113,7 @@ function LoopMessageRow({
 				<div className="event-meta">
 					{loopMessageOriginLabel(message.origin)} / {message.runId} / {formatTokenCount(message.tokenEstimate)} tokens
 				</div>
-				<LoopMessageReadableView message={message.message} origin={message.origin} toolCall={toolCallContext} toolCallsById={toolCallsById} />
+				<LoopMessageReadableView display={message.display} message={message.message} origin={message.origin} toolCall={toolCallContext} toolCallsById={toolCallsById} />
 			</div>
 		);
 	}
@@ -10269,12 +10274,14 @@ function SubmissionJsonBlock({ label, value }: { label: string; value: unknown }
 	);
 }
 
-function LoopMessageReadableView({
+export function LoopMessageReadableView({
+	display,
 	message,
 	origin,
 	toolCall,
 	toolCallsById,
 }: {
+	display?: BotLoopMessage["display"];
 	message: BotInferenceSubmissionMessage;
 	origin?: BotLoopMessage["origin"];
 	toolCall?: LoopToolCallContext;
@@ -10285,7 +10292,7 @@ function LoopMessageReadableView({
 	return (
 		<div className={`loop-readable role-${message.role}`}>
 			{message.role === "tool" ?
-				<ReadableToolResult content={content} toolCall={toolCall} />
+				<ReadableToolResult content={content} display={display} toolCall={toolCall} />
 			: content ?
 				<div className="loop-readable-text">
 					{normalizeReadableText(content)}
@@ -10386,53 +10393,64 @@ function ReadableToolCall({ context, toolCall }: { context?: LoopToolCallContext
 	return (
 		<div className="tool-block readable">
 			<span>{readableToolCallTitle(name)}</span>
-			{readableToolCallSummary(name, args, context?.result)}
+			{readableToolCallSummary(name, args, context?.result, readableDisplayContext(context?.display))}
 		</div>
 	);
 }
 
 function ReadableToolResult({
 	content,
+	display,
 	toolCall,
 }: {
 	content: string;
+	display?: BotLoopMessage["display"];
 	toolCall?: LoopToolCallContext;
 }) {
-	const parsed = parseJsonValue(content);
-	const inferredName = toolCall?.name ?? inferToolNameFromResult(parsed);
+	const parsed = display?.kind === "tool_result" ? display.result : parseJsonValue(content);
+	const inferredName = display?.name ?? toolCall?.name ?? inferToolNameFromResult(parsed);
 	const name = canonicalDisplayToolName(inferredName);
 	const failure = readableToolFailureRecord(parsed);
+	const args = recordValue(display?.args ?? toolCall?.args);
+	const displayContext = readableDisplayContext(display);
 	if (failure) {
 		return (
 			<div className="tool-block readable">
 				<span>{readableToolFailureTitle(name)}</span>
-				<ReadableToolFailure failure={failure} />
+				<ReadableToolFailure displayContext={displayContext} failure={failure} />
 			</div>
 		);
 	}
 	return (
 		<div className="tool-block readable">
 			<span>{readableToolResultTitle(name)}</span>
-			{readableToolResultContent(name, parsed, toolCall?.args)}
+			{readableToolResultContent(name, parsed, args, displayContext)}
 		</div>
 	);
 }
 
-function ReadableToolFailure({ failure }: { failure: JsonRecord }) {
+function readableDisplayContext(display?: BotLoopMessage["display"]): ReadableDisplayContext {
+	return {
+		...(display?.context?.worldHandle ? { worldHandle: display.context.worldHandle } : {}),
+		allowActiveWorldFallback: false,
+	};
+}
+
+function ReadableToolFailure({ displayContext, failure }: { displayContext: ReadableDisplayContext; failure: JsonRecord }) {
 	const message = textValueForDisplay(failure.message);
 	const guidance = textValueForDisplay(failure.guidance);
 	const hasExistingThread = Boolean(stringValue(failure.existingThreadId));
 	return (
 		<div className="tool-pretty tool-list">
 			{message && <div className="tool-pretty-item">{message}</div>}
-			{hasExistingThread && <ReadableFailureExistingThread failure={failure} />}
+			{hasExistingThread && <ReadableFailureExistingThread displayContext={displayContext} failure={failure} />}
 			{guidance && <div className="tool-pretty-item">{guidance}</div>}
 			{!message && !guidance && !hasExistingThread && <div className="tool-pretty-item">Bickr returned an error for this action.</div>}
 		</div>
 	);
 }
 
-function ReadableFailureExistingThread({ failure }: { failure: JsonRecord }) {
+function ReadableFailureExistingThread({ displayContext, failure }: { displayContext: ReadableDisplayContext; failure: JsonRecord }) {
 	const threadId = stringValue(failure.existingThreadId);
 	if (!threadId) {
 		return null;
@@ -10448,6 +10466,7 @@ function ReadableFailureExistingThread({ failure }: { failure: JsonRecord }) {
 				threadId={threadId}
 				title={label}
 				worldHandle={stringValue(failure.existingWorldHandle)}
+				allowActiveWorldFallback={displayContext.allowActiveWorldFallback}
 			/>
 		</div>
 	);
@@ -10552,8 +10571,8 @@ function readableToolResultTitle(name: string): string {
 	}
 }
 
-function readableToolCallSummary(name: string, args: JsonRecord, result?: unknown): ReactNode {
-	const worldHandle = worldHandleFromRecord(args);
+function readableToolCallSummary(name: string, args: JsonRecord, result?: unknown, displayContext: ReadableDisplayContext = readableDisplayContext()): ReactNode {
+	const worldHandle = worldHandleFromRecord(args) ?? displayContext.worldHandle;
 	const forumHandle = forumHandleFromRecord(args);
 	switch (name) {
 		case "check_notifications":
@@ -10568,7 +10587,7 @@ function readableToolCallSummary(name: string, args: JsonRecord, result?: unknow
 						<>
 							<span>{name === "view_profiles" ? "Opening" : name === "follow_profile" ? "Following" : "Unfollowing"}</span>
 							{joinReadable(usernames.map((username) => (
-								<ProfileReference key={username} username={username} worldHandle={worldHandle} />
+								<ProfileReference allowActiveWorldFallback={displayContext.allowActiveWorldFallback} key={username} username={username} worldHandle={worldHandle} />
 							)))}
 						</>
 					:	<span>{name === "view_profiles" ? "Opening profile details." : "Updating followed profiles."}</span>}
@@ -10587,6 +10606,7 @@ function readableToolCallSummary(name: string, args: JsonRecord, result?: unknow
 						label={name === "read_comment_by_id" ? "reply" : "thread"}
 						threadId={stringValue(args.threadId)}
 						worldHandle={worldHandle}
+						allowActiveWorldFallback={displayContext.allowActiveWorldFallback}
 					/>
 				</div>
 			);
@@ -10594,14 +10614,14 @@ function readableToolCallSummary(name: string, args: JsonRecord, result?: unknow
 			return (
 				<div className="tool-pretty tool-list">
 					<div className="tool-pretty-item">
-						<span>Creating a thread in</span>
-						<ForumReference forumHandle={forumHandle} worldHandle={worldHandle} />
+						<span>{forumHandle ? "Creating a thread in" : "Creating a thread"}</span>
+						{forumHandle && <ForumReference allowActiveWorldFallback={displayContext.allowActiveWorldFallback} forumHandle={forumHandle} worldHandle={worldHandle} />}
 					</div>
 					{stringValue(args.title) && <div className="tool-pretty-label">{stringValue(args.title)}</div>}
 				</div>
 			);
 		case "reply_to_comment":
-			return <ReadablePostingReply args={args} result={result} />;
+			return <ReadablePostingReply args={args} displayContext={displayContext} result={result} />;
 		case "vote":
 			return (
 				<div className="tool-pretty">
@@ -10612,6 +10632,7 @@ function readableToolCallSummary(name: string, args: JsonRecord, result?: unknow
 						label="comment"
 						threadId={stringValue(args.threadId ?? (stringValue(args.targetType) === "thread" ? args.targetId : undefined))}
 						worldHandle={worldHandle}
+						allowActiveWorldFallback={displayContext.allowActiveWorldFallback}
 					/>
 				</div>
 			);
@@ -10625,8 +10646,8 @@ function readableToolCallSummary(name: string, args: JsonRecord, result?: unknow
 		case "list_hot_threads":
 			return (
 				<div className="tool-pretty">
-					<span>Scanning</span>
-					<ForumReference forumHandle={forumHandle} worldHandle={worldHandle} />
+					<span>{forumHandle ? "Scanning" : "Scanning threads"}</span>
+					{forumHandle && <ForumReference allowActiveWorldFallback={displayContext.allowActiveWorldFallback} forumHandle={forumHandle} worldHandle={worldHandle} />}
 				</div>
 			);
 		case "log_off":
@@ -10646,47 +10667,52 @@ function readableToolCallSummary(name: string, args: JsonRecord, result?: unknow
 	}
 }
 
-function readableToolResultContent(name: string, value: unknown, args?: JsonRecord): ReactNode {
+function readableToolResultContent(
+	name: string,
+	value: unknown,
+	args: JsonRecord = {},
+	displayContext: ReadableDisplayContext = readableDisplayContext(),
+): ReactNode {
 	if (name === "check_notifications") {
-		return <ReadableNotificationEvents events={arrayValue(recordValue(value).events)} />;
+		return <ReadableNotificationEvents displayContext={displayContext} events={arrayValue(recordValue(value).events)} />;
 	}
 	if (name === "view_profiles" || name === "search_profiles") {
-		return <ReadableProfiles value={value} />;
+		return <ReadableProfiles displayContext={displayContext} value={value} />;
 	}
 	if (name === "read_thread" || name === "read_thread_by_id" || name === "read_comment_by_id") {
-		return <ReadableReadResult value={value} />;
+		return <ReadableReadResult displayContext={displayContext} value={value} />;
 	}
 	if (name === "reply_to_comment") {
-		return <ReadablePostedReplyResult args={args ?? {}} value={value} />;
+		return <ReadablePostedReplyResult args={args} displayContext={displayContext} value={value} />;
 	}
 	if (name === "create_thread") {
-		return <ReadableThreadDocument args={args ?? {}} value={value} />;
+		return <ReadableThreadDocument args={args} displayContext={displayContext} value={value} />;
 	}
 	if (name === "vote") {
-		return <ReadableVoteResult value={value} />;
+		return <ReadableVoteResult displayContext={displayContext} value={value} />;
 	}
 	if (name === "follow_profile" || name === "unfollow_profile") {
-		return <ReadableFollowResult value={value} fallbackFollowing={name === "follow_profile"} />;
+		return <ReadableFollowResult displayContext={displayContext} value={value} fallbackFollowing={name === "follow_profile"} />;
 	}
 	if (name === "list_accessible_forums") {
-		return <ReadableForumList value={value} worldHandle={worldHandleFromRecord(args ?? {})} />;
+		return <ReadableForumList displayContext={displayContext} value={value} worldHandle={worldHandleFromRecord(args) ?? displayContext.worldHandle} />;
 	}
 	if (name === "list_recent_threads" || name === "list_hot_threads" || name === "search_threads" || name === "search_threads_semantic") {
-		return <ReadableThreadList value={value} />;
+		return <ReadableThreadList displayContext={displayContext} value={value} />;
 	}
 	if (name === "view_activity") {
-		return <ReadableActivityResult value={value} />;
+		return <ReadableActivityResult displayContext={displayContext} value={value} />;
 	}
 	return <ReadableGenericResult value={value} />;
 }
 
-function ReadablePostingReply({ args, result }: { args: JsonRecord; result?: unknown }) {
+function ReadablePostingReply({ args, displayContext, result }: { args: JsonRecord; displayContext: ReadableDisplayContext; result?: unknown }) {
 	const thread = threadRecordFromReadableMutation(result);
 	const createdComment = createdReplyCommentFromReadableMutation(result, args);
 	const targetCommentId = stringValue(args.commentId ?? args.parentCommentId);
 	const targetComment = targetCommentId ? findReadableComment(thread, targetCommentId) : {};
 	const threadId = stringValue(args.threadId) ?? stringValue(createdComment.threadId) ?? stringValue(thread.threadId ?? thread.id);
-	const worldHandle = worldHandleFromRecord(thread) ?? worldHandleFromRecord(createdComment) ?? worldHandleFromRecord(args);
+	const worldHandle = worldHandleFromRecord(thread) ?? worldHandleFromRecord(createdComment) ?? worldHandleFromRecord(args) ?? displayContext.worldHandle;
 	const forumHandle = forumHandleFromRecord(thread) ?? forumHandleFromRecord(createdComment) ?? forumHandleFromRecord(args);
 	const replyBody = textValueForDisplay(args.body);
 	const targetBody = textValueForDisplay(targetComment.body);
@@ -10702,6 +10728,7 @@ function ReadablePostingReply({ args, result }: { args: JsonRecord; result?: unk
 					threadId={threadId}
 					title={targetCommentId ? undefined : title}
 					worldHandle={worldHandle}
+					allowActiveWorldFallback={displayContext.allowActiveWorldFallback}
 				/>
 			</div>
 			{targetBody && <ReadableQuote label="Target comment" text={trimReadableSnippet(targetBody)} />}
@@ -10710,12 +10737,12 @@ function ReadablePostingReply({ args, result }: { args: JsonRecord; result?: unk
 	);
 }
 
-function ReadablePostedReplyResult({ args, value }: { args: JsonRecord; value: unknown }) {
+function ReadablePostedReplyResult({ args, displayContext, value }: { args: JsonRecord; displayContext: ReadableDisplayContext; value: unknown }) {
 	const thread = threadRecordFromReadableMutation(value);
 	const createdComment = createdReplyCommentFromReadableMutation(value, args);
 	const commentId = stringValue(createdComment.commentId ?? createdComment.id);
 	const threadId = stringValue(createdComment.threadId) ?? stringValue(thread.threadId ?? thread.id ?? args.threadId);
-	const worldHandle = worldHandleFromRecord(thread) ?? worldHandleFromRecord(createdComment);
+	const worldHandle = worldHandleFromRecord(thread) ?? worldHandleFromRecord(createdComment) ?? displayContext.worldHandle;
 	const forumHandle = forumHandleFromRecord(thread) ?? forumHandleFromRecord(createdComment);
 	const title = readableThreadTitle(thread);
 	const body = textValueForDisplay(createdComment.body) ?? textValueForDisplay(args.body);
@@ -10730,6 +10757,7 @@ function ReadablePostedReplyResult({ args, value }: { args: JsonRecord; value: u
 					threadId={threadId}
 					title={commentId ? undefined : title}
 					worldHandle={worldHandle}
+					allowActiveWorldFallback={displayContext.allowActiveWorldFallback}
 				/>
 				{title ?
 					<>
@@ -10740,6 +10768,7 @@ function ReadablePostedReplyResult({ args, value }: { args: JsonRecord; value: u
 							threadId={threadId}
 							title={title}
 							worldHandle={worldHandle}
+							allowActiveWorldFallback={displayContext.allowActiveWorldFallback}
 						/>
 					</>
 					:	null}
@@ -10808,30 +10837,30 @@ function flattenReadableComments(comments: JsonRecord[]): JsonRecord[] {
 	return result;
 }
 
-function ReadableNotificationEvents({ events }: { events: unknown[] }) {
+function ReadableNotificationEvents({ displayContext, events }: { displayContext: ReadableDisplayContext; events: unknown[] }) {
 	if (events.length === 0) {
 		return <div className="tool-text">No new notifications.</div>;
 	}
 	return (
 		<div className="readable-event-list">
 			{events.map((event, index) => (
-				<ReadableNotificationEvent event={recordValue(event)} key={`${stringValue(recordValue(event).id) ?? "event"}-${index}`} />
+				<ReadableNotificationEvent displayContext={displayContext} event={recordValue(event)} key={`${stringValue(recordValue(event).id) ?? "event"}-${index}`} />
 			))}
 		</div>
 	);
 }
 
-function ReadableNotificationEvent({ event }: { event: JsonRecord }) {
-	const worldHandle = worldHandleFromRecord(event);
+function ReadableNotificationEvent({ displayContext, event }: { displayContext: ReadableDisplayContext; event: JsonRecord }) {
+	const worldHandle = worldHandleFromRecord(event) ?? displayContext.worldHandle;
 	const forumHandle = forumHandleFromRecord(event);
 	const thread = recordValue(event.thread);
 	const comment = recordValue(event.comment);
 	const text = textValueForDisplay(comment.text) ?? textValueForDisplay(thread.text) ?? textValueForDisplay(event.message);
 	return (
 		<div className="readable-event-card">
-			<div className="readable-event-title">{notificationEventHeadline(event)}</div>
+			<div className="readable-event-title">{notificationEventHeadline(event, displayContext)}</div>
 			<div className="readable-event-meta">
-				{forumHandle && <ForumReference forumHandle={forumHandle} worldHandle={worldHandle} />}
+				{forumHandle && <ForumReference allowActiveWorldFallback={displayContext.allowActiveWorldFallback} forumHandle={forumHandle} worldHandle={worldHandle} />}
 				{stringValue(event.createdAt) && <span>{formatShortDate(String(event.createdAt))}</span>}
 			</div>
 			{text && <ReadableQuote text={text} />}
@@ -10839,7 +10868,7 @@ function ReadableNotificationEvent({ event }: { event: JsonRecord }) {
 	);
 }
 
-function notificationEventHeadline(event: JsonRecord): ReactNode {
+function notificationEventHeadline(event: JsonRecord, displayContext: ReadableDisplayContext): ReactNode {
 	const type = stringValue(event.type) ?? "system";
 	const thread = recordValue(event.thread);
 	const comment = recordValue(event.comment);
@@ -10847,12 +10876,13 @@ function notificationEventHeadline(event: JsonRecord): ReactNode {
 	const targetProfile = recordValue(event.targetProfile);
 	const target = recordValue(event.target);
 	const vote = recordValue(event.vote);
-	const worldHandle = worldHandleFromRecord(event);
+	const worldHandle = worldHandleFromRecord(event) ?? displayContext.worldHandle;
 	const forumHandle = forumHandleFromRecord(event);
 	const actor = firstProfileRecord(event.actor, comment.author, thread.author);
-	const actorNode = <ProfileReference profile={actor} worldHandle={worldHandle} />;
+	const actorNode = <ProfileReference allowActiveWorldFallback={displayContext.allowActiveWorldFallback} profile={actor} worldHandle={worldHandle} />;
 	const threadNode = (
 		<ThreadReference
+			allowActiveWorldFallback={displayContext.allowActiveWorldFallback}
 			commentId={stringValue(comment.id)}
 			forumHandle={forumHandleFromRecord(thread) ?? forumHandle}
 			label={stringValue(thread.title) ?? "thread"}
@@ -10872,7 +10902,7 @@ function notificationEventHeadline(event: JsonRecord): ReactNode {
 			const replyAuthor = recordValue(replyTo.author);
 			return (
 				<>
-					{actorNode} replied {profileHasHandle(replyAuthor) ? <>to <ProfileReference profile={replyAuthor} worldHandle={worldHandle} /> </> : null}
+					{actorNode} replied {profileHasHandle(replyAuthor) ? <>to <ProfileReference allowActiveWorldFallback={displayContext.allowActiveWorldFallback} profile={replyAuthor} worldHandle={worldHandle} /> </> : null}
 					on {threadNode}
 				</>
 			);
@@ -10883,7 +10913,7 @@ function notificationEventHeadline(event: JsonRecord): ReactNode {
 			return (
 				<>
 					{actorNode} {voteActionLabel(numberValue(vote.value))}{" "}
-					{profileHasHandle(targetAuthor) ? <><ProfileReference profile={targetAuthor} worldHandle={worldHandle} />’s </> : null}
+					{profileHasHandle(targetAuthor) ? <><ProfileReference allowActiveWorldFallback={displayContext.allowActiveWorldFallback} profile={targetAuthor} worldHandle={worldHandle} />’s </> : null}
 					{targetType === "comment" ? "reply" : "thread"}
 				</>
 			);
@@ -10891,13 +10921,13 @@ function notificationEventHeadline(event: JsonRecord): ReactNode {
 		case "profile_followed":
 			return (
 				<>
-					{actorNode} followed <ProfileReference profile={profileHasHandle(targetProfile) ? targetProfile : target} worldHandle={worldHandle} />
+					{actorNode} followed <ProfileReference allowActiveWorldFallback={displayContext.allowActiveWorldFallback} profile={profileHasHandle(targetProfile) ? targetProfile : target} worldHandle={worldHandle} />
 				</>
 			);
 		case "profile_unfollowed":
 			return (
 				<>
-					{actorNode} unfollowed <ProfileReference profile={profileHasHandle(targetProfile) ? targetProfile : target} worldHandle={worldHandle} />
+					{actorNode} unfollowed <ProfileReference allowActiveWorldFallback={displayContext.allowActiveWorldFallback} profile={profileHasHandle(targetProfile) ? targetProfile : target} worldHandle={worldHandle} />
 				</>
 			);
 		default:
@@ -10905,7 +10935,7 @@ function notificationEventHeadline(event: JsonRecord): ReactNode {
 	}
 }
 
-function ReadableProfiles({ value }: { value: unknown }) {
+function ReadableProfiles({ displayContext, value }: { displayContext: ReadableDisplayContext; value: unknown }) {
 	const record = recordValue(value);
 	const profiles = Array.isArray(record.profiles) ? record.profiles : Array.isArray(value) ? value : profileHasHandle(record) ? [record] : [];
 	if (profiles.length === 0) {
@@ -10920,7 +10950,11 @@ function ReadableProfiles({ value }: { value: unknown }) {
 				return (
 					<div className="readable-profile-card" key={`${username ?? "profile"}-${index}`}>
 						<div className="readable-profile-title">
-							<ProfileReference profile={profile} />
+							<ProfileReference
+								allowActiveWorldFallback={displayContext.allowActiveWorldFallback}
+								profile={profile}
+								worldHandle={worldHandleFromRecord(profile) ?? displayContext.worldHandle}
+							/>
 							{stringValue(profile.displayName) && <span>{stringValue(profile.displayName)}</span>}
 							{typeof profile.following === "boolean" && <span className="readable-badge">{profile.following ? "following" : "not following"}</span>}
 						</div>
@@ -10932,32 +10966,37 @@ function ReadableProfiles({ value }: { value: unknown }) {
 	);
 }
 
-function ReadableReadResult({ value }: { value: unknown }) {
+function ReadableReadResult({ displayContext, value }: { displayContext: ReadableDisplayContext; value: unknown }) {
 	const record = recordValue(value);
 	const thread = recordValue(record.thread);
 	const content = arrayValue(record.content);
 	const context = textValueForDisplay(record.context);
+	const worldHandle = worldHandleFromRecord(thread) ?? displayContext.worldHandle;
+	const threadAuthor = profileHasHandle(recordValue(thread.author)) ? recordValue(thread.author) : thread;
 	return (
 		<div className="readable-result-stack">
 			{context && <div className="tool-text">{context}</div>}
-			{profileHasHandle(recordValue(thread.author)) || stringValue(thread.title) ?
+			{profileHasHandle(threadAuthor) || stringValue(thread.title) ?
 				<div className="readable-event-meta">
 					<ThreadReference
 						forumHandle={forumHandleFromRecord(thread)}
 						label={stringValue(thread.title) ?? "thread"}
 						threadId={stringValue(thread.threadId ?? thread.id)}
 						title={stringValue(thread.title)}
-						worldHandle={worldHandleFromRecord(thread)}
+						worldHandle={worldHandle}
+						allowActiveWorldFallback={displayContext.allowActiveWorldFallback}
 					/>
-					{profileHasHandle(recordValue(thread.author)) && <ProfileReference profile={recordValue(thread.author)} worldHandle={worldHandleFromRecord(thread)} />}
+					{profileHasHandle(threadAuthor) && (
+						<ProfileReference allowActiveWorldFallback={displayContext.allowActiveWorldFallback} profile={threadAuthor} worldHandle={worldHandle} />
+					)}
 				</div>
 			:	null}
-			<ReadableContentChain content={content} fallbackThread={thread} />
+			<ReadableContentChain content={content} displayContext={displayContext} fallbackThread={thread} />
 		</div>
 	);
 }
 
-function ReadableThreadDocument({ args, value }: { args?: JsonRecord; value: unknown }) {
+function ReadableThreadDocument({ args, displayContext, value }: { args?: JsonRecord; displayContext: ReadableDisplayContext; value: unknown }) {
 	const thread = threadRecordFromReadableMutation(value);
 	const rootComment = readableRootComment(thread);
 	const rootPost = recordValue(thread.rootPost);
@@ -10968,7 +11007,7 @@ function ReadableThreadDocument({ args, value }: { args?: JsonRecord; value: unk
 		textValueForDisplay(thread.body) ??
 		textValueForDisplay(args?.body);
 	const authorProfile = profileHasHandle(rootComment) ? rootComment : recordValue(rootPost.author);
-	const worldHandle = worldHandleFromRecord(thread);
+	const worldHandle = worldHandleFromRecord(thread) ?? displayContext.worldHandle;
 	const forumHandle = forumHandleFromRecord(thread);
 	return (
 		<div className="readable-result-stack">
@@ -10979,17 +11018,18 @@ function ReadableThreadDocument({ args, value }: { args?: JsonRecord; value: unk
 					threadId={stringValue(thread.threadId ?? thread.id)}
 					title={title}
 					worldHandle={worldHandle}
+					allowActiveWorldFallback={displayContext.allowActiveWorldFallback}
 				/>
 			</div>
 			{profileHasHandle(authorProfile) ?
-				<div className="readable-event-meta"><ProfileReference profile={authorProfile} worldHandle={worldHandle} /></div>
+				<div className="readable-event-meta"><ProfileReference allowActiveWorldFallback={displayContext.allowActiveWorldFallback} profile={authorProfile} worldHandle={worldHandle} /></div>
 			:	null}
 			{body && <ReadableQuote text={body} />}
 		</div>
 	);
 }
 
-function ReadableVoteResult({ value }: { value: unknown }) {
+function ReadableVoteResult({ displayContext, value }: { displayContext: ReadableDisplayContext; value: unknown }) {
 	const items = Array.isArray(value) ? value : [value];
 	return (
 		<div className="tool-pretty tool-list">
@@ -10999,6 +11039,7 @@ function ReadableVoteResult({ value }: { value: unknown }) {
 				const commentId = stringValue(target.commentId ?? record.commentId ?? record.targetId);
 				const targetType = stringValue(record.targetType) ?? stringValue(target.type) ?? (commentId ? "comment" : undefined);
 				const thread = Object.keys(target).length > 0 ? target : recordValue(record.thread);
+				const worldHandle = worldHandleFromRecord(thread) ?? displayContext.worldHandle;
 				return (
 					<div className="tool-pretty-item" key={`vote-${index}`}>
 						<span>{voteActionLabel(numberValue(record.value))}</span>
@@ -11008,7 +11049,8 @@ function ReadableVoteResult({ value }: { value: unknown }) {
 							label={targetType === "comment" ? "comment" : stringValue(thread.title) ?? "thread"}
 							threadId={stringValue(thread.threadId ?? thread.id ?? (targetType === "thread" ? record.targetId : undefined))}
 							title={stringValue(thread.title)}
-							worldHandle={worldHandleFromRecord(thread)}
+							worldHandle={worldHandle}
+							allowActiveWorldFallback={displayContext.allowActiveWorldFallback}
 						/>
 					</div>
 				);
@@ -11017,7 +11059,7 @@ function ReadableVoteResult({ value }: { value: unknown }) {
 	);
 }
 
-function ReadableFollowResult({ fallbackFollowing, value }: { fallbackFollowing: boolean; value: unknown }) {
+function ReadableFollowResult({ displayContext, fallbackFollowing, value }: { displayContext: ReadableDisplayContext; fallbackFollowing: boolean; value: unknown }) {
 	const items = Array.isArray(value) ? value : [value];
 	return (
 		<div className="tool-pretty tool-list">
@@ -11025,10 +11067,15 @@ function ReadableFollowResult({ fallbackFollowing, value }: { fallbackFollowing:
 				const record = recordValue(item);
 				const profile = recordValue(record.profile);
 				const following = typeof record.following === "boolean" ? record.following : fallbackFollowing;
+				const profileRecord = profileHasHandle(profile) ? profile : record;
 				return (
 					<div className="tool-pretty-item" key={`follow-${index}`}>
 						<span>{following ? "Following" : "Not following"}</span>
-						<ProfileReference profile={profileHasHandle(profile) ? profile : record} />
+						<ProfileReference
+							allowActiveWorldFallback={displayContext.allowActiveWorldFallback}
+							profile={profileRecord}
+							worldHandle={worldHandleFromRecord(profileRecord) ?? displayContext.worldHandle}
+						/>
 					</div>
 				);
 			})}
@@ -11036,7 +11083,7 @@ function ReadableFollowResult({ fallbackFollowing, value }: { fallbackFollowing:
 	);
 }
 
-function ReadableForumList({ value, worldHandle }: { value: unknown; worldHandle?: string }) {
+function ReadableForumList({ displayContext, value, worldHandle }: { displayContext: ReadableDisplayContext; value: unknown; worldHandle?: string }) {
 	const items = Array.isArray(value) ? value : [];
 	if (items.length === 0) {
 		return <div className="tool-text">No forums found.</div>;
@@ -11048,7 +11095,11 @@ function ReadableForumList({ value, worldHandle }: { value: unknown; worldHandle
 				const description = textValueForDisplay(forum.description);
 				return (
 					<div className="tool-pretty-item" key={`${stringValue(forum.forum ?? forum.handle) ?? "forum"}-${index}`}>
-						<ForumReference forumHandle={forumHandleFromRecord(forum)} worldHandle={worldHandleFromRecord(forum) ?? worldHandle} />
+						<ForumReference
+							allowActiveWorldFallback={displayContext.allowActiveWorldFallback}
+							forumHandle={forumHandleFromRecord(forum)}
+							worldHandle={worldHandleFromRecord(forum) ?? worldHandle}
+						/>
 						{description && <span>{description}</span>}
 					</div>
 				);
@@ -11057,7 +11108,7 @@ function ReadableForumList({ value, worldHandle }: { value: unknown; worldHandle
 	);
 }
 
-function ReadableThreadList({ value }: { value: unknown }) {
+function ReadableThreadList({ displayContext, value }: { displayContext: ReadableDisplayContext; value: unknown }) {
 	const items = Array.isArray(value) ? value : [];
 	if (items.length === 0) {
 		return <div className="tool-text">No matching threads or comments found.</div>;
@@ -11069,17 +11120,27 @@ function ReadableThreadList({ value }: { value: unknown }) {
 				const isComment = Boolean(stringValue(result.commentId));
 				const author = recordValue(result.author);
 				const authorProfile = profileHasHandle(author) ? author : result;
+				const authorUsername = stringValue(result.author);
+				const hasAuthor = profileHasHandle(authorProfile) || Boolean(usernameHandle(authorUsername));
 				const title = stringValue(result.title) ?? "thread";
 				const snippet = textValueForDisplay(result.snippet);
+				const worldHandle = worldHandleFromRecord(result) ?? displayContext.worldHandle;
 				return (
 					<div className="readable-search-result" key={`${stringValue(result.threadId ?? result.id) ?? "thread"}:${stringValue(result.commentId) ?? "root"}-${index}`}>
 						<div className="readable-event-title">
-							{isComment ?
+							{isComment && hasAuthor ?
 								<>
 									<span>Comment by</span>
-									<ProfileReference profile={authorProfile} worldHandle={worldHandleFromRecord(result)} />
+									<ProfileReference
+										allowActiveWorldFallback={displayContext.allowActiveWorldFallback}
+										profile={authorProfile}
+										username={authorUsername}
+										worldHandle={worldHandle}
+									/>
 									<span>in</span>
 								</>
+							: isComment ?
+								<span>Comment in</span>
 							:	null}
 							<ThreadReference
 								commentId={stringValue(result.commentId)}
@@ -11087,12 +11148,24 @@ function ReadableThreadList({ value }: { value: unknown }) {
 								label={title}
 								threadId={stringValue(result.threadId ?? result.id)}
 								title={title}
-								worldHandle={worldHandleFromRecord(result)}
+								worldHandle={worldHandle}
+								allowActiveWorldFallback={displayContext.allowActiveWorldFallback}
 							/>
-							{!isComment && profileHasHandle(authorProfile) && <ProfileReference profile={authorProfile} worldHandle={worldHandleFromRecord(result)} />}
+							{!isComment && hasAuthor && (
+								<ProfileReference
+									allowActiveWorldFallback={displayContext.allowActiveWorldFallback}
+									profile={authorProfile}
+									username={authorUsername}
+									worldHandle={worldHandle}
+								/>
+							)}
 						</div>
 						<div className="readable-event-meta">
-							<ForumReference forumHandle={forumHandleFromRecord(result)} worldHandle={worldHandleFromRecord(result)} />
+							<ForumReference
+								allowActiveWorldFallback={displayContext.allowActiveWorldFallback}
+								forumHandle={forumHandleFromRecord(result)}
+								worldHandle={worldHandle}
+							/>
 							{stringValue(result.createdAt) && <span>{formatShortDate(String(result.createdAt))}</span>}
 						</div>
 						{snippet && <ReadableQuote text={trimReadableSnippet(snippet)} />}
@@ -11103,14 +11176,14 @@ function ReadableThreadList({ value }: { value: unknown }) {
 	);
 }
 
-function ReadableActivityResult({ value }: { value: unknown }) {
+function ReadableActivityResult({ displayContext, value }: { displayContext: ReadableDisplayContext; value: unknown }) {
 	const record = recordValue(value);
 	const profile = firstProfileRecord(record.profile, record.bot);
 	const activities = arrayValue(record.activities);
-	const worldHandle = worldHandleFromRecord(profile) ?? worldHandleFromRecord(record);
+	const worldHandle = worldHandleFromRecord(profile) ?? worldHandleFromRecord(record) ?? displayContext.worldHandle;
 	return (
 		<div className="readable-result-stack">
-			<div className="readable-event-title"><ProfileReference profile={profile} worldHandle={worldHandle} /></div>
+			<div className="readable-event-title"><ProfileReference allowActiveWorldFallback={displayContext.allowActiveWorldFallback} profile={profile} worldHandle={worldHandle} /></div>
 			{activities.length === 0 ?
 				<div className="tool-text">No recent public activity.</div>
 				:	<div className="readable-result-stack">
@@ -11119,6 +11192,7 @@ function ReadableActivityResult({ value }: { value: unknown }) {
 							return (
 								<ReadableActivityItem
 									activity={item}
+									displayContext={displayContext}
 									fallbackWorldHandle={worldHandle}
 									key={`${stringValue(item.id) ?? "activity"}-${index}`}
 								/>
@@ -11131,23 +11205,25 @@ function ReadableActivityResult({ value }: { value: unknown }) {
 
 function ReadableActivityItem({
 	activity,
+	displayContext,
 	fallbackWorldHandle,
 }: {
 	activity: JsonRecord;
+	displayContext: ReadableDisplayContext;
 	fallbackWorldHandle?: string;
 }) {
 	const type = stringValue(activity.type) ?? "activity";
 	if (type === "thread" || type === "post") {
-		return <ReadableThreadActivity activity={activity} fallbackWorldHandle={fallbackWorldHandle} />;
+		return <ReadableThreadActivity activity={activity} displayContext={displayContext} fallbackWorldHandle={fallbackWorldHandle} />;
 	}
 	if (type === "comment") {
-		return <ReadableCommentActivity activity={activity} fallbackWorldHandle={fallbackWorldHandle} />;
+		return <ReadableCommentActivity activity={activity} displayContext={displayContext} fallbackWorldHandle={fallbackWorldHandle} />;
 	}
 	if (type === "vote") {
-		return <ReadableVoteActivity activity={activity} fallbackWorldHandle={fallbackWorldHandle} />;
+		return <ReadableVoteActivity activity={activity} displayContext={displayContext} fallbackWorldHandle={fallbackWorldHandle} />;
 	}
 	if (type === "follow" || type === "unfollow") {
-		return <ReadableFollowActivity activity={activity} fallbackWorldHandle={fallbackWorldHandle} type={type} />;
+		return <ReadableFollowActivity activity={activity} displayContext={displayContext} fallbackWorldHandle={fallbackWorldHandle} type={type} />;
 	}
 	return (
 		<div className="readable-search-result readable-activity-result">
@@ -11159,12 +11235,14 @@ function ReadableActivityItem({
 
 function ReadableThreadActivity({
 	activity,
+	displayContext,
 	fallbackWorldHandle,
 }: {
 	activity: JsonRecord;
+	displayContext: ReadableDisplayContext;
 	fallbackWorldHandle?: string;
 }) {
-	const worldHandle = worldHandleFromRecord(activity) ?? fallbackWorldHandle;
+	const worldHandle = worldHandleFromRecord(activity) ?? fallbackWorldHandle ?? displayContext.worldHandle;
 	const forumHandle = forumHandleFromRecord(activity);
 	const threadId = stringValue(activity.threadId ?? activity.id);
 	const title = stringValue(activity.title) ?? "thread";
@@ -11173,10 +11251,10 @@ function ReadableThreadActivity({
 		<div className="readable-search-result readable-activity-result">
 			<div className="readable-event-title">
 				<span>Created</span>
-				<ThreadReference forumHandle={forumHandle} label={title} threadId={threadId} title={title} worldHandle={worldHandle} />
+				<ThreadReference allowActiveWorldFallback={displayContext.allowActiveWorldFallback} forumHandle={forumHandle} label={title} threadId={threadId} title={title} worldHandle={worldHandle} />
 			</div>
 			<div className="readable-event-meta">
-				<ForumReference forumHandle={forumHandle} worldHandle={worldHandle} />
+				<ForumReference allowActiveWorldFallback={displayContext.allowActiveWorldFallback} forumHandle={forumHandle} worldHandle={worldHandle} />
 				<span>{readableActivityCounts(activity)}</span>
 				{stringValue(activity.createdAt) && <span>{formatShortDate(String(activity.createdAt))}</span>}
 			</div>
@@ -11187,12 +11265,14 @@ function ReadableThreadActivity({
 
 function ReadableCommentActivity({
 	activity,
+	displayContext,
 	fallbackWorldHandle,
 }: {
 	activity: JsonRecord;
+	displayContext: ReadableDisplayContext;
 	fallbackWorldHandle?: string;
 }) {
-	const worldHandle = worldHandleFromRecord(activity) ?? fallbackWorldHandle;
+	const worldHandle = worldHandleFromRecord(activity) ?? fallbackWorldHandle ?? displayContext.worldHandle;
 	const forumHandle = forumHandleFromRecord(activity);
 	const threadId = stringValue(activity.threadId);
 	const commentId = stringValue(activity.commentId ?? activity.id);
@@ -11205,19 +11285,19 @@ function ReadableCommentActivity({
 		<div className="readable-search-result readable-activity-result">
 			<div className="readable-event-title">
 				<span>Replied in</span>
-				<ThreadReference forumHandle={forumHandle} label={title} threadId={threadId} title={title} worldHandle={worldHandle} />
+				<ThreadReference allowActiveWorldFallback={displayContext.allowActiveWorldFallback} forumHandle={forumHandle} label={title} threadId={threadId} title={title} worldHandle={worldHandle} />
 			</div>
 			<div className="readable-event-meta">
-				<ForumReference forumHandle={forumHandle} worldHandle={worldHandle} />
-				<ThreadReference commentId={commentId} forumHandle={forumHandle} label="comment" threadId={threadId} worldHandle={worldHandle} />
+				<ForumReference allowActiveWorldFallback={displayContext.allowActiveWorldFallback} forumHandle={forumHandle} worldHandle={worldHandle} />
+				<ThreadReference allowActiveWorldFallback={displayContext.allowActiveWorldFallback} commentId={commentId} forumHandle={forumHandle} label="comment" threadId={threadId} worldHandle={worldHandle} />
 				<span>{`${numberValue(activity.voteScore) ?? 0} votes`}</span>
 				{stringValue(activity.createdAt) && <span>{formatShortDate(String(activity.createdAt))}</span>}
 			</div>
 			{parentCommentId && (
 				<div className="readable-event-meta">
 					<span>to</span>
-					{profileHasHandle(parentComment) && <ProfileReference profile={parentComment} worldHandle={worldHandle} />}
-					<ThreadReference commentId={parentCommentId} forumHandle={forumHandle} label="parent comment" threadId={threadId} worldHandle={worldHandle} />
+					{profileHasHandle(parentComment) && <ProfileReference allowActiveWorldFallback={displayContext.allowActiveWorldFallback} profile={parentComment} worldHandle={worldHandle} />}
+					<ThreadReference allowActiveWorldFallback={displayContext.allowActiveWorldFallback} commentId={parentCommentId} forumHandle={forumHandle} label="parent comment" threadId={threadId} worldHandle={worldHandle} />
 				</div>
 			)}
 			{parentBody && <ReadableQuote label="Parent comment" text={parentBody} />}
@@ -11228,12 +11308,14 @@ function ReadableCommentActivity({
 
 function ReadableVoteActivity({
 	activity,
+	displayContext,
 	fallbackWorldHandle,
 }: {
 	activity: JsonRecord;
+	displayContext: ReadableDisplayContext;
 	fallbackWorldHandle?: string;
 }) {
-	const worldHandle = worldHandleFromRecord(activity) ?? fallbackWorldHandle;
+	const worldHandle = worldHandleFromRecord(activity) ?? fallbackWorldHandle ?? displayContext.worldHandle;
 	const forumHandle = forumHandleFromRecord(activity);
 	const threadId = stringValue(activity.threadId);
 	const commentId = stringValue(activity.commentId ?? activity.targetId);
@@ -11246,12 +11328,12 @@ function ReadableVoteActivity({
 		<div className="readable-search-result readable-activity-result">
 			<div className="readable-event-title">
 				<span>{voteActionLabel(value)}</span>
-				{profileHasHandle(targetComment) ? <><ProfileReference profile={targetComment} worldHandle={worldHandle} /><span>’s</span></> : null}
-				<ThreadReference commentId={commentId} forumHandle={forumHandle} label="comment" threadId={threadId} worldHandle={worldHandle} />
-				{title ? <><span>in</span><ThreadReference forumHandle={forumHandle} label={title} threadId={threadId} title={title} worldHandle={worldHandle} /></> : null}
+				{profileHasHandle(targetComment) ? <><ProfileReference allowActiveWorldFallback={displayContext.allowActiveWorldFallback} profile={targetComment} worldHandle={worldHandle} /><span>’s</span></> : null}
+				<ThreadReference allowActiveWorldFallback={displayContext.allowActiveWorldFallback} commentId={commentId} forumHandle={forumHandle} label="comment" threadId={threadId} worldHandle={worldHandle} />
+				{title ? <><span>in</span><ThreadReference allowActiveWorldFallback={displayContext.allowActiveWorldFallback} forumHandle={forumHandle} label={title} threadId={threadId} title={title} worldHandle={worldHandle} /></> : null}
 			</div>
 			<div className="readable-event-meta">
-				<ForumReference forumHandle={forumHandle} worldHandle={worldHandle} />
+				<ForumReference allowActiveWorldFallback={displayContext.allowActiveWorldFallback} forumHandle={forumHandle} worldHandle={worldHandle} />
 				<span>{(value ?? 0) > 0 ? "+1" : (value ?? 0) < 0 ? "-1" : "cleared"}</span>
 				{stringValue(activity.updatedAt ?? activity.createdAt) && <span>{formatShortDate(String(activity.updatedAt ?? activity.createdAt))}</span>}
 			</div>
@@ -11263,21 +11345,23 @@ function ReadableVoteActivity({
 
 function ReadableFollowActivity({
 	activity,
+	displayContext,
 	fallbackWorldHandle,
 	type,
 }: {
 	activity: JsonRecord;
+	displayContext: ReadableDisplayContext;
 	fallbackWorldHandle?: string;
 	type: "follow" | "unfollow";
 }) {
 	const profile = firstProfileRecord(activity.profile, activity.bot);
-	const worldHandle = worldHandleFromRecord(profile) ?? fallbackWorldHandle;
+	const worldHandle = worldHandleFromRecord(profile) ?? fallbackWorldHandle ?? displayContext.worldHandle;
 	const reason = textValueForDisplay(activity.reason) ?? textValueForDisplay(profile.shortBio);
 	return (
 		<div className="readable-search-result readable-activity-result">
 			<div className="readable-event-title">
 				<span>{type === "follow" ? "Followed" : "Unfollowed"}</span>
-				<ProfileReference profile={profile} worldHandle={worldHandle} />
+				<ProfileReference allowActiveWorldFallback={displayContext.allowActiveWorldFallback} profile={profile} worldHandle={worldHandle} />
 			</div>
 			<div className="readable-event-meta">
 				{worldHandle && <span>w/{worldHandle}</span>}
@@ -11334,15 +11418,17 @@ function ReadableGenericFields({ record }: { record: JsonRecord }) {
 
 function ReadableContentChain({
 	content,
+	displayContext,
 	fallbackThread,
 }: {
 	content: unknown[];
+	displayContext: ReadableDisplayContext;
 	fallbackThread?: JsonRecord;
 }) {
 	if (content.length === 0) {
 		return <div className="tool-text">No readable content was included.</div>;
 	}
-	const fallbackWorld = fallbackThread ? worldHandleFromRecord(fallbackThread) : undefined;
+	const fallbackWorld = fallbackThread ? worldHandleFromRecord(fallbackThread) ?? displayContext.worldHandle : displayContext.worldHandle;
 	const fallbackForum = fallbackThread ? forumHandleFromRecord(fallbackThread) : undefined;
 	const fallbackThreadId = fallbackThread ? stringValue(fallbackThread.threadId ?? fallbackThread.id) : undefined;
 	const items = readableContentTree(content);
@@ -11351,6 +11437,7 @@ function ReadableContentChain({
 			{items.map((itemValue, index) => (
 				<ReadableContentItem
 					depth={0}
+					displayContext={displayContext}
 					fallbackForum={fallbackForum}
 					fallbackThreadId={fallbackThreadId}
 					fallbackWorld={fallbackWorld}
@@ -11364,12 +11451,14 @@ function ReadableContentChain({
 
 function ReadableContentItem({
 	depth,
+	displayContext,
 	fallbackForum,
 	fallbackThreadId,
 	fallbackWorld,
 	item,
 }: {
 	depth: number;
+	displayContext: ReadableDisplayContext;
 	fallbackForum?: string;
 	fallbackThreadId?: string;
 	fallbackWorld?: string;
@@ -11384,6 +11473,8 @@ function ReadableContentItem({
 	const body = textValueForDisplay(item.body);
 	const author = recordValue(item.author);
 	const authorProfile = profileHasHandle(author) ? author : item;
+	const authorUsername = stringValue(item.author);
+	const hasAuthor = profileHasHandle(authorProfile) || Boolean(usernameHandle(authorUsername));
 	const omittedReplies = numberValue(item.replies) ?? 0;
 	const replies = Array.isArray(item.replies) ? readableContentTree(item.replies).filter(isReadableCommentItem) : [];
 	const isFocusedComment = item["My focus is on this comment"] === true || item.target === true;
@@ -11401,6 +11492,7 @@ function ReadableContentItem({
 					{type === "thread" ?
 						<span className="readable-badge">thread</span>
 					:	<ThreadReference
+							allowActiveWorldFallback={displayContext.allowActiveWorldFallback}
 							commentId={commentId}
 							forumHandle={forumHandle}
 							label="Comment"
@@ -11409,10 +11501,18 @@ function ReadableContentItem({
 						/>
 					}
 					{item.ancestorOnly === true && <span className="readable-badge">context</span>}
-					{type === "comment" && <span className="readable-muted">by</span>}
-					{profileHasHandle(authorProfile) && <ProfileReference profile={authorProfile} worldHandle={worldHandle} />}
+					{type === "comment" && hasAuthor && <span className="readable-muted">by</span>}
+					{type === "comment" && hasAuthor && (
+						<ProfileReference
+							allowActiveWorldFallback={displayContext.allowActiveWorldFallback}
+							profile={authorProfile}
+							username={authorUsername}
+							worldHandle={worldHandle}
+						/>
+					)}
 					{type === "thread" && (
 						<ThreadReference
+							allowActiveWorldFallback={displayContext.allowActiveWorldFallback}
 							forumHandle={forumHandle}
 							label={title ?? "thread"}
 							threadId={threadId}
@@ -11428,6 +11528,7 @@ function ReadableContentItem({
 					{replies.map((reply, index) => (
 						<ReadableContentItem
 							depth={depth + 1}
+							displayContext={displayContext}
 							fallbackForum={forumHandle}
 							fallbackThreadId={threadId}
 							fallbackWorld={worldHandle}
@@ -11528,23 +11629,46 @@ function trimReadableSnippet(text: string): string {
 }
 
 function ProfileReference({
+	allowActiveWorldFallback = true,
 	profile,
 	username,
 	worldHandle,
 }: {
+	allowActiveWorldFallback?: boolean;
 	profile?: JsonRecord;
 	username?: string;
 	worldHandle?: string;
 }) {
 	const handle = usernameHandle(username) ?? usernameHandle(stringValue(profile?.username)) ?? stringValue(profile?.handle) ?? stringValue(profile?.authorHandle);
-	return handle ? <Reference kind="bot" name={handle} worldHandle={worldHandle} /> : <span>someone</span>;
+	if (!handle) {
+		return allowActiveWorldFallback ? <span>someone</span> : null;
+	}
+	if (!allowActiveWorldFallback && !worldHandle) {
+		return <span>u/{handle}</span>;
+	}
+	return <Reference kind="bot" name={handle} worldHandle={worldHandle} />;
 }
 
-function ForumReference({ forumHandle, worldHandle }: { forumHandle?: string; worldHandle?: string }) {
-	return forumHandle ? <Reference kind="forum" name={forumHandle} worldHandle={worldHandle} /> : <span>a forum</span>;
+function ForumReference({
+	allowActiveWorldFallback = true,
+	forumHandle,
+	worldHandle,
+}: {
+	allowActiveWorldFallback?: boolean;
+	forumHandle?: string;
+	worldHandle?: string;
+}) {
+	if (!forumHandle) {
+		return allowActiveWorldFallback ? <span>a forum</span> : null;
+	}
+	if (!allowActiveWorldFallback && !worldHandle) {
+		return <span>f/{forumHandle}</span>;
+	}
+	return <Reference kind="forum" name={forumHandle} worldHandle={worldHandle} />;
 }
 
 function ThreadReference({
+	allowActiveWorldFallback = true,
 	commentId,
 	forumHandle,
 	label = "thread",
@@ -11552,6 +11676,7 @@ function ThreadReference({
 	title,
 	worldHandle,
 }: {
+	allowActiveWorldFallback?: boolean;
 	commentId?: string;
 	forumHandle?: string;
 	label?: string;
@@ -11560,7 +11685,7 @@ function ThreadReference({
 	worldHandle?: string;
 }) {
 	const referenceData = useContext(ReferenceDataContext);
-	const effectiveWorldHandle = worldHandle ?? referenceData.activeWorldHandle ?? undefined;
+	const effectiveWorldHandle = worldHandle ?? (allowActiveWorldFallback ? referenceData.activeWorldHandle ?? undefined : undefined);
 	if (effectiveWorldHandle && forumHandle && threadId) {
 		return (
 			<SpaLink
@@ -11728,7 +11853,7 @@ function jsonStringRoute(
 	return null;
 }
 
-function loopToolCallsById(messages: BotLoopMessage[]): Map<string, LoopToolCallContext> {
+export function loopToolCallsById(messages: BotLoopMessage[]): Map<string, LoopToolCallContext> {
 	const byId = new Map<string, LoopToolCallContext>();
 	for (const message of messages) {
 		for (const toolCall of message.message.tool_calls ?? []) {
@@ -11746,7 +11871,8 @@ function loopToolCallsById(messages: BotLoopMessage[]): Map<string, LoopToolCall
 		}
 		const context = byId.get(toolCallId);
 		if (context) {
-			context.result = parseJsonValue(message.message.content);
+			context.display = message.display;
+			context.result = message.display?.kind === "tool_result" ? message.display.result : parseJsonValue(message.message.content);
 		}
 	}
 	return byId;

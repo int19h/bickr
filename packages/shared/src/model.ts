@@ -965,12 +965,24 @@ export type BotLoopMessageOrigin =
 
 export type BotLoopMessageStatus = "complete" | "interrupted";
 
+export type BotLoopMessageDisplay = {
+	kind: "tool_result";
+	eventSeq: number;
+	name: string;
+	args: unknown;
+	result: unknown;
+	context?: {
+		worldHandle?: string;
+	};
+};
+
 export type BotLoopMessage = {
 	seq: number;
 	position?: number;
 	runId: string;
 	role: BotInferenceSubmissionMessage["role"];
 	message: BotInferenceSubmissionMessage;
+	display?: BotLoopMessageDisplay;
 	origin: BotLoopMessageOrigin;
 	tokenEstimate: number;
 	createdAt: string;
