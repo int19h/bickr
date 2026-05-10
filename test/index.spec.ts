@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { env as testEnv } from "cloudflare:test";
 import { onRequestGet as bootstrap } from "../apps/web/functions/api/bootstrap";
+import { onRequest as pageShell } from "../apps/web/functions/[[path]]";
 import { onRequestGet as githubStart } from "../apps/web/functions/api/auth/github/start";
 import { onRequestGet as githubCallback } from "../apps/web/functions/api/auth/github/callback";
 import { onRequestGet as googleStart } from "../apps/web/functions/api/auth/google/start";
@@ -110,6 +111,7 @@ import {
 import { providerContextReserveTokens } from "../workers/agent-runtime/src/provider-requests";
 import forumCoordinatorWorker, { ExclusiveOperationQueue, handleForumCoordinatorRequest } from "../workers/forum-coordinator/src/index";
 import { pruneStreamEventsForPersistentEvents } from "../apps/web/src/runtime-streams";
+import { parsePathname, routePath } from "../apps/web/src/routes";
 import {
 	botById,
 	createSession,
@@ -528,6 +530,69 @@ describe("Bickr Pages Functions", () => {
 			ok: true,
 			runtime: "cloudflare-pages-functions",
 		});
+	});
+
+	it("canonicalizes shared SPA route parsing for legacy bot paths", () => {
+		expect(routePath(parsePathname("/w/primary/b/release-sage"))).toBe("/w/primary/u/release-sage");
+		expect(routePath(parsePathname("/w/primary/b/release-sage/avatar"))).toBe("/w/primary/u/release-sage/avatar");
+		expect(routePath(parsePathname("/w/primary", "?tab=bots"))).toBe("/w/primary?tab=bots");
+	});
+
+	it("rewrites SPA shell metadata with entity titles, descriptions, and account avatars", async () => {
+		const cookie = await authCookie();
+		await updateUserProfile(testEnv.BICKR_KV, testEnv.BICKR_D1, await userIdForHandle("octocat"), {
+			avatarUrl: "https://assets-test.bickr.social/humans/octocat.png",
+		});
+		await seedWorld(cookie);
+		const forum = await createForumForTest(cookie, "release-room");
+		const author = await createBotForTest(cookie, "release-sage");
+		const replier = await createBotForTest(cookie, "reply-scribe");
+		await setBotAvatarForTest(author, "https://assets-test.bickr.social/bots/release-sage.png");
+		await setBotAvatarForTest(replier, "https://assets-test.bickr.social/bots/reply-scribe.png");
+		const thread = await createThreadForTest(forum.id, author.id, "Release notes", "Release notes from u/release-sage.");
+		const reply = await createCommentForTest(thread.id, replier.id, "This comment should be the embed description.");
+
+		const worldHtml = await pageHtml("/w/patch-notes?tab=bots");
+		expect(htmlTitle(worldHtml)).toBe("w/patch-notes: bots - Bickr");
+		expect(metaContent(worldHtml, "property", "og:description")).toContain("Change discussion");
+
+		const botHtml = await pageHtml("/w/patch-notes/u/release-sage?tab=follows");
+		expect(htmlTitle(botHtml)).toBe("u/release-sage: follows - Bickr");
+		expect(metaContent(botHtml, "property", "og:image")).toBe("https://assets-test.bickr.social/bots/release-sage.png");
+		expect(metaContent(botHtml, "name", "twitter:image")).toBe("https://assets-test.bickr.social/bots/release-sage.png");
+
+		const threadHtml = await pageHtml(`/w/patch-notes/f/release-room/t/${thread.id}`);
+		expect(htmlTitle(threadHtml)).toBe("Release notes - Bickr");
+		expect(metaContent(threadHtml, "name", "description")).toBe("Release notes from u/release-sage.");
+		expect(metaContent(threadHtml, "property", "og:image")).toBe("https://assets-test.bickr.social/bots/release-sage.png");
+
+		const commentHtml = await pageHtml(`/w/patch-notes/f/release-room/t/${thread.id}/c/${reply.id}`);
+		expect(htmlTitle(commentHtml)).toBe("u/reply-scribe on Release notes - Bickr");
+		expect(metaContent(commentHtml, "property", "og:description")).toBe("This comment should be the embed description.");
+		expect(metaContent(commentHtml, "property", "og:image")).toBe("https://assets-test.bickr.social/bots/reply-scribe.png");
+
+		const humanHtml = await pageHtml("/hu/octocat");
+		expect(htmlTitle(humanHtml)).toBe("hu/octocat - Bickr");
+		expect(metaContent(humanHtml, "property", "og:image")).toBe("https://assets-test.bickr.social/humans/octocat.png");
+
+		const privateHtml = await pageHtml("/me/profile", cookie);
+		expect(htmlTitle(privateHtml)).toBe("hu/octocat: profile - Bickr");
+		expect(metaContent(privateHtml, "name", "robots")).toBe("noindex,nofollow");
+		expect(metaContent(privateHtml, "property", "og:image")).toBe("https://assets-test.bickr.social/humans/octocat.png");
+	});
+
+	it("does not rewrite API or static asset-looking requests as HTML pages", async () => {
+		const apiRootHtml = await pageHtml("/api");
+		expect(apiRootHtml).toBe(testSpaShell);
+		expect(apiRootHtml).not.toContain("og:title");
+
+		const apiHtml = await pageHtml("/api/missing");
+		expect(apiHtml).toBe(testSpaShell);
+		expect(apiHtml).not.toContain("og:title");
+
+		const assetHtml = await pageHtml("/assets/app.js");
+		expect(assetHtml).toBe(testSpaShell);
+		expect(assetHtml).not.toContain("og:title");
 	});
 
 	it("declares provider tool schemas with typed required properties", () => {
@@ -17051,6 +17116,66 @@ function contextFor<F extends PagesFunction<AppEnv>>(
 		request,
 		waitUntil: () => {},
 	} as unknown as Parameters<F>[0];
+}
+
+const testSpaShell = `<!doctype html><html><head><meta name="description" content="Bickr" /><title>Bickr</title></head><body></body></html>`;
+
+async function pageHtml(path: string, cookie?: string): Promise<string> {
+	const headers = new Headers();
+	if (cookie) {
+		headers.set("cookie", cookie);
+	}
+	const response = await pageShell(pageContext(new Request(`http://example.com${path}`, { headers })));
+	return response.text();
+}
+
+function pageContext(request: Request): Parameters<typeof pageShell>[0] {
+	return {
+		...contextFor<typeof pageShell>(request),
+		next: async () =>
+			new Response(testSpaShell, {
+				headers: { "content-type": "text/html; charset=UTF-8" },
+			}),
+	} as Parameters<typeof pageShell>[0];
+}
+
+function htmlTitle(html: string): string {
+	return html.match(/<title>([^<]*)<\/title>/)?.[1] ?? "";
+}
+
+function metaContent(html: string, attribute: "name" | "property", key: string): string {
+	const pattern = new RegExp(`<meta ${attribute}="${escapeRegExp(key)}" content="([^"]*)"`);
+	return decodeHtmlAttribute(html.match(pattern)?.[1] ?? "");
+}
+
+async function setBotAvatarForTest(bot: Pick<BotBody, "id">, avatarUrl: string): Promise<void> {
+	const stored = await testEnv.BICKR_KV.get(`v1:bot:${bot.id}`, { type: "json" }) as BotDocument | null;
+	if (!stored) {
+		throw new Error(`Bot ${bot.id} not found.`);
+	}
+	const now = new Date().toISOString();
+	const avatar: AvatarImage = {
+		contentType: "image/png",
+		key: `test/${bot.id}.png`,
+		updatedAt: now,
+		url: avatarUrl,
+	};
+	await testEnv.BICKR_KV.put(`v1:bot:${bot.id}`, JSON.stringify({ ...stored, avatar, updatedAt: now }));
+	await testEnv.BICKR_D1.prepare(`UPDATE bots_index SET avatar_url = ?, updated_at = ? WHERE bot_id = ?`)
+		.bind(avatarUrl, now, bot.id)
+		.run();
+}
+
+function decodeHtmlAttribute(value: string): string {
+	return value
+		.replace(/&quot;/g, "\"")
+		.replace(/&lt;/g, "<")
+		.replace(/&gt;/g, ">")
+		.replace(/&amp;/g, "&");
+}
+
+function escapeRegExp(value: string): string {
+	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 async function clearKv(kv: KVNamespace): Promise<void> {

@@ -111,6 +111,17 @@ import { loopMessageSort } from "./loop-message-order";
 import { loopContinuationRowsForPage } from "./loop-page-continuations";
 import { loopPagePagerItems } from "./loop-page-pager";
 import { normalizeReadableText, reasoningDetailsTextForDisplay, textValueForDisplay } from "./reasoning-formatting";
+import {
+	allSearchTypes,
+	defaultSearchRouteState,
+	parsePathname,
+	routePath,
+	type BotProfileTab,
+	type ParsedRoute,
+	type Route,
+	type SearchRouteState,
+	type WorldTab,
+} from "./routes";
 import "./App.css";
 
 const bickrLogoSrc = "/bickr.png";
@@ -124,22 +135,6 @@ type SessionState = {
 	user: PublicUser | null;
 };
 
-type Route =
-	| "worlds"
-	| "world"
-	| "forum"
-	| "thread"
-	| "bot-profile"
-	| "bot-avatar"
-	| "bot-loop"
-	| "bot-edit"
-	| "my-bots"
-	| "search"
-	| "notifications"
-	| "human-profile"
-	| "profile";
-type WorldTab = "forums" | "bots" | "activity" | "notifications" | "lore";
-type BotProfileTab = "activity" | "follows" | "notifications";
 type BotActivityKindFilter = "all" | "posts" | "replies" | "votes" | "follows";
 type HumanProfileTab = "worlds" | "forums" | "bots";
 type BotCreateTab = "manual" | "clone" | "chirper";
@@ -152,30 +147,6 @@ type LoadHumanNotifications = (
 	offset?: number,
 	scope?: HumanNotificationListScope,
 ) => Promise<HumanNotificationSummary | null>;
-
-type SearchRouteState = {
-	forum: string;
-	mode: SearchMode;
-	page: number;
-	query: string;
-	types: SearchEntityType[];
-	username: string;
-	world: string;
-};
-
-type ParsedRoute = {
-	route: Route;
-	worldHandle?: string;
-	forumHandle?: string;
-	threadId?: string;
-	commentId?: string;
-	botHandle?: string;
-	botProfileTab?: BotProfileTab;
-	botActivityId?: string;
-	humanHandle?: string;
-	search?: SearchRouteState;
-	worldTab?: WorldTab;
-};
 
 type ReferenceKind = "world" | "forum" | "bot" | "human";
 type ReferenceMeta = { title: string; description: ReactNode };
@@ -387,17 +358,6 @@ const banners = [
 	"linear-gradient(135deg, oklch(0.76 0.10 20), oklch(0.68 0.12 350))",
 ];
 
-const allSearchTypes = ["world", "forum", "bot"] as const satisfies readonly SearchEntityType[];
-const defaultSearchRouteState: SearchRouteState = {
-	forum: "",
-	mode: "substring",
-	page: 1,
-	query: "",
-	types: [...allSearchTypes],
-	username: "",
-	world: "",
-};
-
 const ReferenceDataContext = createContext<ReferenceData>({
 	activeWorldHandle: null,
 	bots: [],
@@ -420,6 +380,92 @@ const TranslationContext = createContext<TranslationContextValue>({
 	model: "",
 	prompt: defaultTranslationPrompt,
 });
+
+function clientRouteTitle({
+	bot,
+	botActivityId,
+	botHandle,
+	botProfileTab,
+	commentId,
+	forum,
+	forumHandle,
+	humanHandle,
+	route,
+	search,
+	thread,
+	user,
+	world,
+	worldHandle,
+	worldTab,
+}: {
+	bot: BotSummary | null;
+	botActivityId: string | null;
+	botHandle: string | null;
+	botProfileTab: BotProfileTab;
+	commentId: string | null;
+	forum: ForumSummary | null;
+	forumHandle: string | null;
+	humanHandle: string | null;
+	route: Route;
+	search: SearchRouteState;
+	thread: ThreadDocument | null;
+	user: PublicUser | null;
+	world: WorldView | null;
+	worldHandle: string | null;
+	worldTab: WorldTab;
+}): string {
+	switch (route) {
+		case "worlds":
+			return titleWithBickr("Worlds");
+		case "world": {
+			const handle = world?.handle ?? worldHandle;
+			return handle ? titleWithBickr(worldTab === "forums" ? `w/${handle}` : `w/${handle}: ${worldTab}`) : "Bickr";
+		}
+		case "forum": {
+			const handle = forum?.handle ?? forumHandle;
+			const parentWorldHandle = forum?.worldHandle ?? world?.handle ?? worldHandle;
+			return handle && parentWorldHandle ? titleWithBickr(`f/${handle} in w/${parentWorldHandle}`) : "Bickr";
+		}
+		case "thread": {
+			if (!thread) {
+				return titleWithBickr("Thread");
+			}
+			const comment = commentId ? thread.comments.find((item) => item.id === commentId) : null;
+			return titleWithBickr(comment ? `u/${comment.authorHandle} on ${thread.title}` : thread.title);
+		}
+		case "bot-profile": {
+			const handle = bot?.handle ?? botHandle;
+			if (!handle) {
+				return "Bickr";
+			}
+			const tab = botActivityId ? "activity" : botProfileTab;
+			return titleWithBickr(tab === "activity" && !botActivityId ? `u/${handle}` : `u/${handle}: ${tab}`);
+		}
+		case "bot-avatar":
+		case "bot-loop":
+		case "bot-edit": {
+			const handle = bot?.handle ?? botHandle;
+			const label = route === "bot-avatar" ? "avatar" : route === "bot-loop" ? "loop" : "edit";
+			return handle ? titleWithBickr(`u/${handle}: ${label}`) : titleWithBickr(label);
+		}
+		case "my-bots":
+			return titleWithBickr(user ? `hu/${user.handle}: bots` : "My bots");
+		case "notifications":
+			return titleWithBickr(user ? `hu/${user.handle}: notifications` : "Notifications");
+		case "profile":
+			return titleWithBickr(user ? `hu/${user.handle}: profile` : "Profile");
+		case "human-profile":
+			return titleWithBickr(humanHandle ? `hu/${humanHandle}` : "Profile");
+		case "search": {
+			const query = search.query.trim();
+			return titleWithBickr(query ? `Search: ${query}` : "Search");
+		}
+	}
+}
+
+function titleWithBickr(prefix: string): string {
+	return `${prefix} - Bickr`;
+}
 
 function App() {
 	const initialRoute = useMemo(() => parseBrowserRoute(), []);
@@ -629,6 +675,43 @@ function App() {
 	}, [userProfile?.inferenceSettings.model, userProfile?.inferenceSettings.translation]);
 	const activeBotBlogForum =
 		activeBot ? activeForums.find((forum) => forum.personalBotId === activeBot.id) ?? null : null;
+	const documentTitle = useMemo(
+		() =>
+			clientRouteTitle({
+				bot: activeBot,
+				botActivityId: activeBotActivityId,
+				botHandle: activeBotHandle,
+				botProfileTab: activeBotProfileTab,
+				commentId: activeCommentId,
+				forum: activeForum,
+				forumHandle: activeForumHandle,
+				humanHandle: activeHumanHandle,
+				route,
+				search: activeSearch,
+				thread: activeThread,
+				user: session.user,
+				world: activeWorld,
+				worldHandle: activeWorldHandle,
+				worldTab: activeWorldTab,
+			}),
+		[
+			activeBot,
+			activeBotActivityId,
+			activeBotHandle,
+			activeBotProfileTab,
+			activeCommentId,
+			activeForum,
+			activeForumHandle,
+			activeHumanHandle,
+			activeSearch,
+			activeThread,
+			activeWorld,
+			activeWorldHandle,
+			activeWorldTab,
+			route,
+			session.user,
+		],
+	);
 	const ownedBotModels = useMemo(() => {
 		const models = new Set<string>();
 		for (const bot of bots) {
@@ -639,6 +722,10 @@ function App() {
 		}
 		return [...models].sort((left, right) => left.localeCompare(right));
 	}, [bots]);
+
+	useEffect(() => {
+		document.title = documentTitle;
+	}, [documentTitle]);
 
 	useEffect(() => {
 		if (route === "forum" && activeForum) {
@@ -14677,92 +14764,6 @@ function parseBrowserRoute(): ParsedRoute {
 	return parsePathname(window.location.pathname, window.location.search);
 }
 
-function parsePathname(pathname: string, search = ""): ParsedRoute {
-	const parts = pathname.split("/").filter(Boolean).map(decodeURIComponent);
-	if (parts.length === 0) {
-		return { route: "worlds" };
-	}
-	if (parts[0] === "me" && parts[1] === "bots") {
-		return { route: "my-bots" };
-	}
-	if (parts[0] === "me" && parts[1] === "notifications") {
-		return { route: "notifications" };
-	}
-	if (parts[0] === "me" && parts[1] === "profile") {
-		return { route: "profile" };
-	}
-	if (parts[0] === "search") {
-		return { route: "search", search: searchRouteStateFromSearch(search) };
-	}
-	if (parts[0] === "hu" && parts[1]) {
-		return { route: "human-profile", humanHandle: parts[1] };
-	}
-	if (parts[0] === "w" && parts[1]) {
-		const worldHandle = parts[1];
-		if (parts[2] === "f" && parts[3]) {
-			const forumHandle = parts[3];
-			if (parts[4] === "t" && parts[5]) {
-				const threadId = parts[5];
-				if (parts[6] === "c" && parts[7]) {
-					return { route: "thread", worldHandle, forumHandle, threadId, commentId: parts[7] };
-				}
-				return { route: "thread", worldHandle, forumHandle, threadId };
-			}
-			return { route: "forum", worldHandle, forumHandle };
-		}
-		if ((parts[2] === "u" || parts[2] === "b") && parts[3]) {
-			const botHandle = parts[3];
-			if (parts[4] === "loop") {
-				return { route: "bot-loop", worldHandle, botHandle };
-			}
-			if (parts[4] === "edit") {
-				return { route: "bot-edit", worldHandle, botHandle };
-			}
-			if (parts[4] === "avatar") {
-				return { route: "bot-avatar", worldHandle, botHandle };
-			}
-			return { route: "bot-profile", worldHandle, botHandle, ...botProfileRouteSearch(search) };
-		}
-		return { route: "world", worldHandle, worldTab: worldTabFromSearch(search) };
-	}
-	return { route: "worlds" };
-}
-
-function routePath(parsed: ParsedRoute): string {
-	switch (parsed.route) {
-		case "worlds":
-			return "/";
-		case "world": {
-			const base = `/w/${encodeURIComponent(parsed.worldHandle ?? "")}`;
-			return parsed.worldTab && parsed.worldTab !== "forums" ? `${base}?tab=${encodeURIComponent(parsed.worldTab)}` : base;
-		}
-		case "forum":
-			return `/w/${encodeURIComponent(parsed.worldHandle ?? "")}/f/${encodeURIComponent(parsed.forumHandle ?? "")}`;
-		case "thread": {
-			const base = `/w/${encodeURIComponent(parsed.worldHandle ?? "")}/f/${encodeURIComponent(parsed.forumHandle ?? "")}/t/${encodeURIComponent(parsed.threadId ?? "")}`;
-			return parsed.commentId ? `${base}/c/${encodeURIComponent(parsed.commentId)}` : base;
-		}
-		case "bot-profile":
-			return botProfileRoutePath(parsed);
-		case "bot-avatar":
-			return `/w/${encodeURIComponent(parsed.worldHandle ?? "")}/u/${encodeURIComponent(parsed.botHandle ?? "")}/avatar`;
-		case "bot-loop":
-			return `/w/${encodeURIComponent(parsed.worldHandle ?? "")}/u/${encodeURIComponent(parsed.botHandle ?? "")}/loop`;
-		case "bot-edit":
-			return `/w/${encodeURIComponent(parsed.worldHandle ?? "")}/u/${encodeURIComponent(parsed.botHandle ?? "")}/edit`;
-		case "my-bots":
-			return "/me/bots";
-		case "search":
-			return searchRoutePath(parsed.search);
-		case "notifications":
-			return "/me/notifications";
-		case "human-profile":
-			return `/hu/${encodeURIComponent(parsed.humanHandle ?? "")}`;
-		case "profile":
-			return "/me/profile";
-	}
-}
-
 function canonicalizeCurrentPath(parsed: ParsedRoute): void {
 	const canonical = routePath(parsed);
 	if (currentLocationPath() !== canonical) {
@@ -14772,105 +14773,6 @@ function canonicalizeCurrentPath(parsed: ParsedRoute): void {
 
 function currentLocationPath(): string {
 	return `${window.location.pathname}${window.location.search}`;
-}
-
-function botProfileRouteSearch(search: string): Pick<ParsedRoute, "botActivityId" | "botProfileTab"> {
-	const params = new URLSearchParams(search);
-	const tab = params.get("tab");
-	const activity = params.get("activity")?.trim();
-	const botProfileTab =
-		tab === "follows" || tab === "notifications" ? tab : "activity";
-	return {
-		botProfileTab: activity ? "activity" : botProfileTab,
-		...(activity ? { botActivityId: activity } : {}),
-	};
-}
-
-function botProfileRoutePath(parsed: ParsedRoute): string {
-	const base = `/w/${encodeURIComponent(parsed.worldHandle ?? "")}/u/${encodeURIComponent(parsed.botHandle ?? "")}`;
-	const params = new URLSearchParams();
-	if (parsed.botProfileTab && parsed.botProfileTab !== "activity") {
-		params.set("tab", parsed.botProfileTab);
-	} else if (parsed.botActivityId) {
-		params.set("tab", "activity");
-	}
-	if (parsed.botActivityId) {
-		params.set("activity", parsed.botActivityId);
-	}
-	const query = params.toString();
-	return query ? `${base}?${query}` : base;
-}
-
-function searchRouteStateFromSearch(search: string): SearchRouteState {
-	const params = new URLSearchParams(search);
-	return {
-		forum: params.get("forum") ?? "",
-		mode: searchModeFromParam(params.get("mode")),
-		page: positivePage(params.get("page")),
-		query: params.get("q") ?? "",
-		types: searchTypesFromParam(params.get("types")),
-		username: params.get("username") ?? "",
-		world: params.get("world") ?? "",
-	};
-}
-
-function searchRoutePath(state: SearchRouteState | undefined): string {
-	const params = new URLSearchParams();
-	const next = state ?? defaultSearchRouteState;
-	if (next.query.trim()) {
-		params.set("q", next.query.trim());
-	}
-	if (next.mode !== "substring") {
-		params.set("mode", next.mode);
-	}
-	if (!sameSearchTypes(next.types, allSearchTypes)) {
-		params.set("types", next.types.join(","));
-	}
-	if (next.page > 1) {
-		params.set("page", String(next.page));
-	}
-	if (next.world.trim()) {
-		params.set("world", next.world.trim());
-	}
-	if (next.forum.trim()) {
-		params.set("forum", next.forum.trim());
-	}
-	if (next.username.trim()) {
-		params.set("username", next.username.trim());
-	}
-	const query = params.toString();
-	return query ? `/search?${query}` : "/search";
-}
-
-function searchModeFromParam(value: string | null): SearchMode {
-	return value === "fts" || value === "semantic" ? value : "substring";
-}
-
-function searchTypesFromParam(value: string | null): SearchEntityType[] {
-	if (!value) {
-		return [...allSearchTypes];
-	}
-	const next: SearchEntityType[] = [];
-	for (const type of value.split(",")) {
-		if ((allSearchTypes as readonly string[]).includes(type) && !next.includes(type as SearchEntityType)) {
-			next.push(type as SearchEntityType);
-		}
-	}
-	return next.length > 0 ? next : [...allSearchTypes];
-}
-
-function sameSearchTypes(left: readonly SearchEntityType[], right: readonly SearchEntityType[]): boolean {
-	return left.length === right.length && left.every((type) => right.includes(type));
-}
-
-function positivePage(value: string | null): number {
-	const parsed = Number(value ?? 1);
-	return Number.isFinite(parsed) ? Math.max(1, Math.floor(parsed)) : 1;
-}
-
-function worldTabFromSearch(search: string): WorldTab {
-	const tab = new URLSearchParams(search).get("tab");
-	return tab === "bots" || tab === "activity" || tab === "notifications" || tab === "lore" ? tab : "forums";
 }
 
 function readThemePreference(): ThemePreference {
