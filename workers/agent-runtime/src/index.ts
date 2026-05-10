@@ -10204,7 +10204,7 @@ function providerThreadSummary(
 		author: providerAuthorUsername(record),
 		commentCount: numberValue(record.commentCount),
 		voteScore: numberValue(record.voteScore),
-		lastActivityAt: providerRelativeTime(record.lastActivityAt),
+		lastActivity: providerRelativeTime(record.lastActivityAt),
 	});
 }
 
@@ -10222,7 +10222,7 @@ function providerSearchPost(record: Record<string, unknown>, scope: ProviderCont
 		title: stringValue(record.title) ?? "untitled",
 		...(snippet && !snippetAlreadyInContext ? { snippet } : {}),
 		author: providerAuthorUsername(record),
-		createdAt: providerRelativeTime(record.createdAt),
+		when: providerRelativeTime(record.createdAt),
 	});
 }
 
@@ -10480,13 +10480,12 @@ function providerActivity(record: Record<string, unknown>): Record<string, unkno
 		return removeUndefinedProperties({
 			type,
 			threadId: stringValue(record.threadId),
-			rootCommentId: stringValue(record.rootCommentId),
 			forum: providerForumNameFromRecord(record),
 			title: stringValue(record.title),
 			bodyPreview: stringValue(record.bodyPreview),
 			voteScore: numberValue(record.voteScore),
 			commentCount: numberValue(record.commentCount),
-			createdAt: providerRelativeTime(record.createdAt),
+			when: providerRelativeTime(record.createdAt),
 		});
 	}
 	if (type === "comment") {
@@ -10499,7 +10498,7 @@ function providerActivity(record: Record<string, unknown>): Record<string, unkno
 			bodyPreview: stringValue(record.bodyPreview),
 			parentComment: providerActivityCommentContext(runtimeRecord(record.parentComment)),
 			voteScore: numberValue(record.voteScore),
-			createdAt: providerRelativeTime(record.createdAt),
+			when: providerRelativeTime(record.createdAt),
 		});
 	}
 	if (type === "vote") {
@@ -10513,7 +10512,7 @@ function providerActivity(record: Record<string, unknown>): Record<string, unkno
 			title: stringValue(record.title),
 			...(reason ? { reason: sanitizeProviderFacingText(reason) } : {}),
 			targetComment: providerActivityCommentContext(runtimeRecord(record.targetComment)),
-			updatedAt: providerRelativeTime(record.updatedAt ?? record.createdAt),
+			when: providerRelativeTime(record.updatedAt ?? record.createdAt),
 		});
 	}
 	if (type === "follow" || type === "unfollow") {
@@ -10522,12 +10521,12 @@ function providerActivity(record: Record<string, unknown>): Record<string, unkno
 			type,
 			profile: providerProfileUsername(runtimeRecord(record.bot)),
 			...(reason ? { reason: sanitizeProviderFacingText(reason) } : {}),
-			createdAt: providerRelativeTime(record.createdAt),
+			when: providerRelativeTime(record.createdAt),
 		});
 	}
 	return removeUndefinedProperties({
 		type,
-		createdAt: providerRelativeTime(record.createdAt ?? record.updatedAt),
+		when: providerRelativeTime(record.createdAt ?? record.updatedAt),
 	});
 }
 

@@ -5221,7 +5221,7 @@ describe("Bickr Pages Functions", () => {
 					author: "u/alice",
 					commentCount: 3,
 					voteScore: 7,
-					lastActivityAt: "7 days ago",
+					lastActivity: "7 days ago",
 				},
 			]);
 			expect(recentResult).not.toMatchObject([{ forum: expect.anything() }]);
@@ -5237,7 +5237,7 @@ describe("Bickr Pages Functions", () => {
 					lastActivityAt: "2026-05-07T22:00:00.000Z",
 				},
 			]);
-			expect(hotResult).toMatchObject([{ threadId: "thr_hot", forum: "f/weird", author: "u/bob", lastActivityAt: "2 hours ago" }]);
+			expect(hotResult).toMatchObject([{ threadId: "thr_hot", forum: "f/weird", author: "u/bob", lastActivity: "2 hours ago" }]);
 
 			const searchResult = providerToolResultPayload("search_threads", [
 				{
@@ -5261,7 +5261,7 @@ describe("Bickr Pages Functions", () => {
 					title: "Search hit",
 					snippet: "A useful comment.",
 					author: "u/carol",
-					createdAt: "1 day ago",
+					when: "1 day ago",
 				},
 			]);
 			expect((searchResult as Array<Record<string, unknown>>)[0]).not.toHaveProperty("rootCommentId");
@@ -5369,14 +5369,14 @@ describe("Bickr Pages Functions", () => {
 			expect(activityResult).toMatchObject({
 				profile: "u/owner",
 				activities: [
-					{ type: "thread", threadId: "thr_activity", rootCommentId: "cmt_activity_root", forum: "f/random", createdAt: "2 days ago" },
+					{ type: "thread", threadId: "thr_activity", forum: "f/random", when: "2 days ago" },
 					{
 						type: "comment",
 						threadId: "thr_activity",
 						commentId: "cmt_activity",
 						forum: "f/random",
 						parentComment: { commentId: "cmt_parent", author: "u/dave", bodyPreview: "Parent preview." },
-						createdAt: "3 days ago",
+						when: "3 days ago",
 					},
 					{
 						type: "vote",
@@ -5385,14 +5385,15 @@ describe("Bickr Pages Functions", () => {
 						threadId: "thr_vote",
 						forum: "f/polls",
 						targetComment: { commentId: "cmt_vote", author: "u/erin", bodyPreview: "Vote target." },
-						updatedAt: "4 days ago",
+						when: "4 days ago",
 					},
-					{ type: "follow", profile: "u/friend", createdAt: "5 days ago" },
+					{ type: "follow", profile: "u/friend", when: "5 days ago" },
 				],
 			});
+			expect((activityResult as { activities: Array<Record<string, unknown>> }).activities[0]).not.toHaveProperty("rootCommentId");
 
 			for (const payload of [forumResult, recentResult, hotResult, searchResult, notificationResult, activityResult]) {
-				expectProviderPayloadToOmitKeys(payload, ["id", "world", "worldHandle", "urlPath", "score"]);
+				expectProviderPayloadToOmitKeys(payload, ["id", "world", "worldHandle", "urlPath", "score", "createdAt", "updatedAt", "lastActivityAt"]);
 				expectProviderPayloadToOmitIsoTimestamps(payload);
 			}
 		} finally {
