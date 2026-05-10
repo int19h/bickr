@@ -2883,9 +2883,14 @@ fieldset {
 	padding-left: 24px;
 }
 
-.token-model-breakdown th:nth-child(n + 3),
 .token-model-breakdown td:nth-child(n + 3) {
 	color: var(--ink-2);
+	font-variant-numeric: tabular-nums;
+	text-align: right;
+	white-space: nowrap;
+}
+
+.token-model-breakdown th:nth-child(n + 3) {
 	font-variant-numeric: tabular-nums;
 	text-align: right;
 	white-space: nowrap;
@@ -2897,7 +2902,7 @@ fieldset {
 	font-weight: 500;
 }
 
-.token-model-name {
+.token-model-breakdown .token-model-name {
 	color: var(--ink-2);
 	font-weight: 750;
 	max-width: min(42vw, 420px);
