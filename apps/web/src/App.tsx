@@ -5298,7 +5298,12 @@ function BotProfileScreen({
 						type="button"
 					>
 						{bot.avatarUrl && !profileAvatarFailed ?
-							<img alt="" onError={() => setProfileAvatarFailed(true)} src={cloudflareImageUrl(bot.avatarUrl, { width: 360, format: "auto" })} />
+							<FallbackImage
+								alt=""
+								fallbackSrc={bot.avatarUrl}
+								onFinalError={() => setProfileAvatarFailed(true)}
+								src={cloudflareImageUrl(bot.avatarUrl, { width: 360, format: "auto" })}
+							/>
 						:	<Avatar actor="bot" colorSeed={bot.handle} name={bot.displayName} size="hero" />
 						}
 					</button>
@@ -5519,7 +5524,6 @@ function AvatarUploadModal({
 	onSaved: (bot: BotSummary) => void;
 	open: boolean;
 }) {
-	const [mode, setMode] = useState<"url" | "file">("url");
 	const [url, setUrl] = useState("");
 	const [file, setFile] = useState<File | null>(null);
 	const [saving, setSaving] = useState(false);
@@ -5527,7 +5531,6 @@ function AvatarUploadModal({
 
 	useEffect(() => {
 		if (!open) {
-			setMode("url");
 			setUrl("");
 			setFile(null);
 			setSaving(false);
@@ -5540,16 +5543,13 @@ function AvatarUploadModal({
 		setError("");
 		try {
 			const body =
-				mode === "file" ?
+				file ?
 					(() => {
-						if (!file) {
-							throw new Error("Choose an image file.");
-						}
 						const form = new FormData();
 						form.set("file", file);
 						return form;
 					})()
-				:	{ url };
+				:	{ url: url.trim() };
 			const result = await api<{ bot: BotSummary }>(`/api/me/bots/${encodeURIComponent(bot.id)}/avatar`, {
 				method: "PUT",
 				body,
@@ -5566,7 +5566,9 @@ function AvatarUploadModal({
 		}
 	}
 
-	const canSubmit = mode === "file" ? Boolean(file) : Boolean(url.trim());
+	const urlFilled = Boolean(url.trim());
+	const fileFilled = Boolean(file);
+	const canSubmit = urlFilled !== fileFilled;
 	return (
 		<Modal
 			foot={
@@ -5586,32 +5588,27 @@ function AvatarUploadModal({
 			open={open}
 			title="Upload Avatar"
 		>
-			<div className="seg" role="tablist">
-				<button aria-selected={mode === "url"} onClick={() => setMode("url")} role="tab" type="button">
-					URL
-				</button>
-				<button aria-selected={mode === "file"} onClick={() => setMode("file")} role="tab" type="button">
-					File
-				</button>
+			<Field label="Image URL">
+				<input
+					className="input"
+					disabled={fileFilled || saving}
+					onChange={(event) => setUrl(event.target.value)}
+					placeholder="https://example.com/avatar.png"
+					value={url}
+				/>
+			</Field>
+			<div className="modal-or-line">
+				<span>or</span>
 			</div>
-			{mode === "url" ?
-				<Field label="Image URL">
-					<input
-						className="input"
-						onChange={(event) => setUrl(event.target.value)}
-						placeholder="https://example.com/avatar.png"
-						value={url}
-					/>
-				</Field>
-			:	<Field label="Image file">
-					<input
-						accept="image/jpeg,image/png,image/webp"
-						className="input"
-						onChange={(event) => setFile(event.target.files?.[0] ?? null)}
-						type="file"
-					/>
-				</Field>
-			}
+			<Field label="Image file">
+				<input
+					accept="image/jpeg,image/png,image/webp"
+					className="input"
+					disabled={urlFilled || saving}
+					onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+					type="file"
+				/>
+			</Field>
 			{error && <div className="runtime-message error">{error}</div>}
 		</Modal>
 	);
@@ -5863,7 +5860,12 @@ function BotAvatarGenerationScreen({
 						type="button"
 					>
 						{bot.avatarUrl && !currentAvatarFailed ?
-							<img alt="" onError={() => setCurrentAvatarFailed(true)} src={cloudflareImageUrl(bot.avatarUrl, { width: 720, format: "auto" })} />
+							<FallbackImage
+								alt=""
+								fallbackSrc={bot.avatarUrl}
+								onFinalError={() => setCurrentAvatarFailed(true)}
+								src={cloudflareImageUrl(bot.avatarUrl, { width: 720, format: "auto" })}
+							/>
 						:	<Avatar actor="bot" colorSeed={bot.handle} name={bot.displayName} size="hero" />
 						}
 					</button>
@@ -5883,7 +5885,7 @@ function BotAvatarGenerationScreen({
 					<div className={`avatar-large-preview ${generating ? "busy" : ""}`}>
 						{candidate ?
 							<button className="avatar-preview-click" onClick={() => setLightboxUrl(candidate.url)} type="button">
-								<img alt="" src={cloudflareImageUrl(candidate.url, { width: 720, format: "auto" })} />
+								<FallbackImage alt="" fallbackSrc={candidate.url} src={cloudflareImageUrl(candidate.url, { width: 720, format: "auto" })} />
 							</button>
 						:	<span className="empty-generated">{generating ? "Generating..." : "No image generated"}</span>
 						}
@@ -14117,10 +14119,50 @@ function Avatar({
 	return (
 		<span className={className} data-actor={actor} style={avatarStyle(colorSeed ?? name)}>
 			{imageSrc ?
-				<img alt="" className={`avatar-img ${fit}`} onError={() => setImageFailed(true)} src={imageSrc} />
+				<FallbackImage
+					alt=""
+					className={`avatar-img ${fit}`}
+					fallbackSrc={imageUrl}
+					onFinalError={() => setImageFailed(true)}
+					src={imageSrc}
+				/>
 			:	initials(name)
 			}
 		</span>
+	);
+}
+
+function FallbackImage({
+	alt,
+	className,
+	fallbackSrc,
+	onFinalError,
+	src,
+}: {
+	alt: string;
+	className?: string;
+	fallbackSrc?: string;
+	onFinalError?: () => void;
+	src: string;
+}) {
+	const [usingFallback, setUsingFallback] = useState(false);
+	useEffect(() => {
+		setUsingFallback(false);
+	}, [fallbackSrc, src]);
+	const activeSrc = usingFallback && fallbackSrc ? fallbackSrc : src;
+	return (
+		<img
+			alt={alt}
+			className={className}
+			onError={() => {
+				if (!usingFallback && fallbackSrc && fallbackSrc !== src) {
+					setUsingFallback(true);
+					return;
+				}
+				onFinalError?.();
+			}}
+			src={activeSrc}
+		/>
 	);
 }
 

@@ -16,7 +16,7 @@ import {
 	onRequestDelete as deleteBot,
 	onRequestPatch as patchBot,
 } from "../apps/web/functions/api/me/bots/[botId]";
-import { onRequestPut as uploadBotAvatar } from "../apps/web/functions/api/me/bots/[botId]/avatar";
+import { onRequestPut as uploadBotAvatar } from "../apps/web/functions/api/me/bots/[botId]/avatar/index";
 import {
 	onRequestGet as contextBudgetGetRoute,
 	onRequestPost as contextBudgetRoute,

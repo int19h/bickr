@@ -8,8 +8,8 @@ import {
 } from "@bickr/shared/avatar-storage";
 import { botById, RepositoryError, updateBotAvatar } from "@bickr/shared/repository";
 import { InputError, requiredText } from "@bickr/shared/validation";
-import { type AppEnv, requireCompleteUser } from "../../../_auth";
-import { pageErrorResponse } from "../../../_errors";
+import { type AppEnv, requireCompleteUser } from "../../../../_auth";
+import { pageErrorResponse } from "../../../../_errors";
 
 export const onRequestPut: PagesFunction<AppEnv, "botId"> = async ({ env, request, params }) => {
 	try {
