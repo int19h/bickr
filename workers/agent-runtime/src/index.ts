@@ -9045,6 +9045,13 @@ export default {
 			return handleAgentRuntimeRequest(request, env);
 		}
 
+		if (
+			(url.pathname === "/search/entities" && request.method === "GET") ||
+			(url.pathname === "/search/reindex-vectors" && request.method === "POST")
+		) {
+			return handleAgentRuntimeRequest(request, env);
+		}
+
 		const userBotsMatch = /^\/users\/([^/]+)\/(?:worlds\/[^/]+\/bots|bots\/[^/]+|profile)$/.exec(
 			url.pathname,
 		);

@@ -10431,6 +10431,7 @@ describe("Bickr Pages Functions", () => {
 		expect(suggestionsPayload.data.results.map((result) => `${result.type}:${"handle" in result ? result.handle : ""}`)).toEqual(
 			expect.arrayContaining(["forum:release-room", "bot:release-sage"]),
 		);
+		expect(suggestionsPayload.data.results.map((result) => `${result.type}:${"handle" in result ? result.handle : ""}`)).not.toContain("forum:release-sage");
 
 		const escaped = await searchEntitiesText(testEnv.BICKR_D1, {
 			mode: "substring",
@@ -10477,6 +10478,13 @@ describe("Bickr Pages Functions", () => {
 			types: ["bot"],
 		});
 		expect(forumFilteredBot.results.map((result) => result.type === "bot" ? result.handle : "")).toEqual(["release-sage"]);
+
+		const personalForumSearch = await searchEntitiesText(testEnv.BICKR_D1, {
+			mode: "substring",
+			query: "release-sage",
+			types: ["forum"],
+		});
+		expect(personalForumSearch.results).toEqual([]);
 	});
 
 	it("supports FTS search, syntax errors, and 20-result pagination", async () => {
@@ -10584,6 +10592,7 @@ describe("Bickr Pages Functions", () => {
 		expect(oldMatches.results.map((result) => `${result.type}:${"handle" in result ? result.handle : ""}`)).toEqual(
 			expect.arrayContaining(["world:index-lab", "forum:old-forum-needle", "bot:old-bot-needle"]),
 		);
+		expect(oldMatches.results.map((result) => `${result.type}:${"handle" in result ? result.handle : ""}`)).not.toContain("forum:old-bot-needle");
 
 		const worldPatch = await patchWorld(
 			contextFor<typeof patchWorld>(
@@ -10675,9 +10684,11 @@ describe("Bickr Pages Functions", () => {
 		const worldResponse = await worlds(contextFor<typeof worlds>(new Request("http://example.com/api/worlds")));
 		const worldPayload = await worldResponse.json() as { data: { worlds: WorldSummary[] } };
 		const world = worldPayload.data.worlds.find((item) => item.handle === "patch-notes");
-		const forumSummary = (await listForums(testEnv.BICKR_D1, "patch-notes")).find((item) => item.id === forum.id);
+		const forumSummaries = await listForums(testEnv.BICKR_D1, "patch-notes");
+		const forumSummary = forumSummaries.find((item) => item.id === forum.id);
+		const personalForum = forumSummaries.find((item) => item.personalBotId === bot.id);
 		const botDocument = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, bot.id);
-		if (!world || !forumSummary) {
+		if (!world || !forumSummary || !personalForum) {
 			throw new Error("Semantic fixture missing world or forum.");
 		}
 
@@ -10691,9 +10702,17 @@ describe("Bickr Pages Functions", () => {
 			bot.id,
 		]);
 		expect(bindings.upserted.map((item) => item.metadata?.type)).toEqual(["world", "forum", "bot"]);
+		await upsertForumSearchVector(bindings.env, personalForum);
+		expect(bindings.upserted.map((item) => item.id)).toEqual([
+			`world:${world.id}`,
+			`forum:${forum.id}`,
+			bot.id,
+		]);
+		expect(bindings.deleted).toContain(`forum:${personalForum.id}`);
 
-		const reindex = await reindexSearchVectors(testEnv.BICKR_D1, bindings.env, 10);
+		const reindex = await reindexSearchVectors(testEnv.BICKR_D1, bindings.env, 20);
 		expect(reindex.attempted).toBeGreaterThanOrEqual(3);
+		expect(bindings.deleted).toContain(`forum:${personalForum.id}`);
 
 		bindings.matches = [
 			{ id: `world:${world.id}`, metadata: { entityId: world.id, type: "world" }, score: 0.5 },
@@ -10712,6 +10731,34 @@ describe("Bickr Pages Functions", () => {
 			"world:patch-notes",
 		]);
 		expect(semantic.results.map((result) => result.score)).toEqual([0.9, 0.8, 0.5]);
+
+		bindings.matches = [
+			{ id: `forum:${personalForum.id}`, metadata: { entityId: personalForum.id, type: "forum" }, score: 0.99 },
+			{ id: `forum:${forum.id}`, metadata: { entityId: forum.id, type: "forum" }, score: 0.9 },
+		];
+		const semanticForums = await searchEntitiesSemantic(testEnv.BICKR_D1, bindings.env, {
+			mode: "semantic",
+			query: "semantic coverage",
+			types: ["forum"],
+		});
+		expect(semanticForums.results.map((result) => `${result.type}:${"handle" in result ? result.handle : ""}`)).toEqual(["forum:semantic-room"]);
+
+		const serviceResponse = await agentRuntimeWorker.fetch(
+			new Request("https://internal.bickr/search/entities?mode=semantic&q=semantic%20coverage&types=forum", {
+				headers: { "x-bickr-user-id": "semantic-test-user" },
+			}) as unknown as Parameters<typeof agentRuntimeWorker.fetch>[0],
+			{
+				BICKR_D1: testEnv.BICKR_D1,
+				BICKR_KV: testEnv.BICKR_KV,
+				AI: bindings.env.AI,
+				BICKR_SEARCH_VECTORIZE: bindings.env.BICKR_SEARCH_VECTORIZE,
+			} as unknown as Parameters<typeof agentRuntimeWorker.fetch>[1],
+		);
+		expect(serviceResponse.status, await serviceResponse.clone().text()).toBe(200);
+		expect(await serviceResponse.json()).toMatchObject({
+			ok: true,
+			data: { search: { results: [{ type: "forum", handle: "semantic-room" }] } },
+		});
 
 		const filteredOut = await searchEntitiesSemantic(testEnv.BICKR_D1, bindings.env, {
 			mode: "semantic",

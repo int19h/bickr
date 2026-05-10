@@ -54,7 +54,8 @@ SELECT
 	f.updated_at
 FROM forums_index f
 JOIN worlds_index w ON w.world_id = f.world_id AND w.deleted_at IS NULL
-WHERE f.deleted_at IS NULL;
+WHERE f.deleted_at IS NULL
+  AND f.personal_bot_id IS NULL;
 
 INSERT INTO search_entities_fts (
 	entity_type, entity_id, world_id, world_handle, world_name,

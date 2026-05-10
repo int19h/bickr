@@ -2321,8 +2321,7 @@ function GlobalSearchBox() {
 							role="option"
 							type="button"
 						>
-							<span className="global-search-kind">{searchResultTypeLabel(result.type)}</span>
-							<span className="global-search-title">{searchResultTitle(result)}</span>
+							<span className="global-search-title">{quickSearchResultTitle(result)}</span>
 							<span className="global-search-meta">{searchResultMeta(result)}</span>
 						</button>
 					))}
@@ -7663,7 +7662,6 @@ function AdvancedSearchScreen({ routeState }: { routeState: SearchRouteState }) 
 									<thead>
 										<tr>
 											<th scope="col">Result</th>
-											<th scope="col">Type</th>
 											<th scope="col">Details</th>
 											<th scope="col">Rank</th>
 										</tr>
@@ -7676,7 +7674,6 @@ function AdvancedSearchScreen({ routeState }: { routeState: SearchRouteState }) 
 														<Reference kind="world" link={false} name={group.world.handle} />
 													</SpaLink>
 												</th>
-												<td>World</td>
 												<td>
 													<span className="search-result-primary">{group.world.name}</span>
 													<span className="search-result-secondary">{group.world.description}</span>
@@ -7686,7 +7683,6 @@ function AdvancedSearchScreen({ routeState }: { routeState: SearchRouteState }) 
 											{group.rows.map((result) => (
 												<tr className="bot-table-row search-result-row" key={`${result.type}:${result.id}`}>
 													<td>{searchResultLink(result)}</td>
-													<td>{searchResultTypeLabel(result.type)}</td>
 													<td>
 														<span className="search-result-primary">{searchResultTitle(result)}</span>
 														<span className="search-result-secondary">{searchResultMeta(result)}</span>
@@ -7762,6 +7758,16 @@ function searchResultLink(result: SearchResult): ReactNode {
 	return <Reference kind="world" name={result.handle} />;
 }
 
+function quickSearchResultTitle(result: SearchResult): string {
+	if (result.type === "world") {
+		return `w/${result.handle}`;
+	}
+	if (result.type === "forum") {
+		return `f/${result.handle} from w/${result.world.handle}`;
+	}
+	return `u/${result.handle} from w/${result.world.handle}`;
+}
+
 function searchResultTitle(result: SearchResult): string {
 	if (result.type === "world") {
 		return `w/${result.handle}`;
@@ -7777,7 +7783,7 @@ function searchResultMeta(result: SearchResult): string {
 		return result.name;
 	}
 	if (result.type === "forum") {
-		return `${result.description} · w/${result.world.handle}`;
+		return result.description;
 	}
 	return `${result.displayName} · ${result.shortBio}`;
 }

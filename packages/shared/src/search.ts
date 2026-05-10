@@ -20,6 +20,8 @@ const searchVectorTimeoutMs = 10_000;
 const searchVectorRetryMaxAttempts = 3;
 const searchVectorRetryInitialDelayMs = 1_100;
 const searchVectorRetryMaxDelayMs = 8_000;
+const searchVectorDeleteBatchSize = 100;
+const searchVectorReindexBatchSize = 20;
 const searchTypes = ["world", "forum", "bot"] as const satisfies readonly SearchEntityType[];
 
 type SearchFilters = {
@@ -269,6 +271,7 @@ export async function upsertForumSearchIndex(
 ): Promise<void> {
 	await replaceSearchIndexEntity(db, {
 		...forum,
+		...(forum.personalBotId ? { deletedAt: forum.deletedAt ?? forum.updatedAt } : {}),
 		type: "forum",
 	});
 }
@@ -294,7 +297,14 @@ export async function upsertWorldSearchVector(env: SearchVectorEnv, world: Pick<
 	await upsertSearchVector(env, { type: "world", world });
 }
 
-export async function upsertForumSearchVector(env: SearchVectorEnv, forum: Pick<ForumSummary, "description" | "handle" | "id" | "worldHandle" | "worldId">): Promise<void> {
+export async function upsertForumSearchVector(
+	env: SearchVectorEnv,
+	forum: Pick<ForumSummary, "description" | "handle" | "id" | "worldHandle" | "worldId"> & { personalBotId?: string },
+): Promise<void> {
+	if (forum.personalBotId) {
+		await deleteSearchVector(env, "forum", forum.id);
+		return;
+	}
 	await upsertSearchVector(env, { type: "forum", forum });
 }
 
@@ -303,16 +313,28 @@ export async function upsertBotSearchVector(env: SearchVectorEnv, bot: Pick<BotS
 }
 
 export async function deleteSearchVector(env: SearchVectorEnv, type: SearchEntityType, id: string): Promise<void> {
+	await deleteSearchVectors(env, [{ id, type }]);
+}
+
+async function deleteSearchVectors(
+	env: SearchVectorEnv,
+	entities: Array<{ id: string; type: SearchEntityType }>,
+): Promise<void> {
 	const vectorIndex = searchVectorIndex(env);
-	if (!vectorIndex) {
+	if (!vectorIndex || entities.length === 0) {
 		return;
 	}
-	const vectorId = type === "bot" ? `bot:${id}` : vectorIdForEntity(type, id);
-	const ids = type === "bot" ? [id, vectorId] : [vectorId];
+	const ids = entities.flatMap((entity) => {
+		const vectorId = entity.type === "bot" ? `bot:${entity.id}` : vectorIdForEntity(entity.type, entity.id);
+		return entity.type === "bot" ? [entity.id, vectorId] : [vectorId];
+	});
 	try {
-		await retrySearchBinding("Search vector delete", () =>
-			withSearchBindingTimeout("Search vector delete", () => vectorIndex.deleteByIds(ids)),
-		);
+		for (let index = 0; index < ids.length; index += searchVectorDeleteBatchSize) {
+			const batch = ids.slice(index, index + searchVectorDeleteBatchSize);
+			await retrySearchBinding("Search vector delete", () =>
+				withSearchBindingTimeout("Search vector delete", () => vectorIndex.deleteByIds(batch)),
+			);
+		}
 	} catch (error) {
 		console.warn("search vector delete failed", error);
 	}
@@ -326,23 +348,47 @@ export async function reindexSearchVectors(
 	const boundedLimit = Math.max(1, Math.min(250, Math.floor(limit)));
 	const rows = await db
 		.prepare(
-			`SELECT object_id AS id, object_type AS type
-			 FROM objects_index
+			`SELECT world_id AS id, 'world' AS type, updated_at
+			 FROM worlds_index
 			 WHERE deleted_at IS NULL
-			   AND object_type IN ('world', 'forum', 'bot')
+			 UNION ALL
+			 SELECT forum_id AS id, 'forum' AS type, updated_at
+			 FROM forums_index
+			 WHERE deleted_at IS NULL
+			   AND personal_bot_id IS NULL
+			 UNION ALL
+			 SELECT bot_id AS id, 'bot' AS type, updated_at
+			 FROM bots_index
+			 WHERE deleted_at IS NULL
 			 ORDER BY updated_at DESC
 			 LIMIT ?`,
 		)
 		.bind(boundedLimit)
 		.all<{ id: string; type: SearchEntityType }>();
 	let attempted = 0;
+	const entities: SearchVectorEntity[] = [];
 	for (const row of rows.results ?? []) {
 		const entity = await searchVectorEntityById(db, row.type, row.id);
 		if (entity) {
 			attempted += 1;
-			await upsertSearchVector(env, entity);
+			entities.push(entity);
+		} else if (row.type === "forum") {
+			await deleteSearchVector(env, "forum", row.id);
 		}
 	}
+	await upsertSearchVectors(env, entities);
+	const personalForums = await db
+		.prepare(
+			`SELECT forum_id AS id
+			 FROM forums_index
+			 WHERE deleted_at IS NULL
+			   AND personal_bot_id IS NOT NULL
+			 ORDER BY updated_at DESC
+			 LIMIT ?`,
+		)
+		.bind(boundedLimit)
+		.all<{ id: string }>();
+	await deleteSearchVectors(env, (personalForums.results ?? []).map((row) => ({ id: row.id, type: "forum" })));
 	return { attempted };
 }
 
@@ -472,6 +518,7 @@ function searchRowsSql(input: {
 				 JOIN forums_index f ON fts.entity_type = 'forum' AND fts.entity_id = f.forum_id
 				 JOIN worlds_index w ON w.world_id = f.world_id AND w.deleted_at IS NULL
 				 WHERE f.deleted_at IS NULL
+				   AND f.personal_bot_id IS NULL
 				 UNION ALL
 				SELECT
 					'bot' AS type,
@@ -550,6 +597,7 @@ function searchRowsSql(input: {
 				 FROM forums_index f
 				 JOIN worlds_index w ON w.world_id = f.world_id AND w.deleted_at IS NULL
 				 WHERE f.deleted_at IS NULL
+				   AND f.personal_bot_id IS NULL
 				 UNION ALL
 				SELECT
 					'bot' AS type,
@@ -624,6 +672,7 @@ function appendSearchFilters(conditions: string[], binds: unknown[], options: Se
 				SELECT 1 FROM forums_index filter_forum
 				WHERE filter_forum.world_id = candidates.worldId
 				  AND filter_forum.handle = ?
+				  AND filter_forum.personal_bot_id IS NULL
 				  AND filter_forum.deleted_at IS NULL
 			))
 			OR (type = 'bot' AND ${botPostedInForumSql("candidates.botId")})
@@ -653,6 +702,7 @@ function botPostedInForumSql(botIdExpression: string): string {
 		WHERE filter_thread.author_bot_id = ${botIdExpression}
 		  AND filter_thread.deleted_at IS NULL
 		  AND filter_forum.deleted_at IS NULL
+		  AND filter_forum.personal_bot_id IS NULL
 		  AND filter_forum.handle = ?
 		UNION ALL
 		SELECT 1
@@ -661,6 +711,7 @@ function botPostedInForumSql(botIdExpression: string): string {
 		WHERE filter_comment.author_bot_id = ${botIdExpression}
 		  AND filter_comment.deleted_at IS NULL
 		  AND filter_forum.deleted_at IS NULL
+		  AND filter_forum.personal_bot_id IS NULL
 		  AND filter_forum.handle = ?
 	)`;
 }
@@ -731,6 +782,7 @@ async function hydrateSemanticType(
 				SELECT 1 FROM forums_index filter_forum
 				WHERE filter_forum.world_id = w.world_id
 				  AND filter_forum.handle = ?
+				  AND filter_forum.personal_bot_id IS NULL
 				  AND filter_forum.deleted_at IS NULL
 			)`);
 			binds.push(filters.forumHandle);
@@ -800,7 +852,8 @@ async function hydrateSemanticType(
 			 FROM forums_index f
 			 JOIN worlds_index w ON w.world_id = f.world_id AND w.deleted_at IS NULL
 			 WHERE f.forum_id IN (${placeholders})
-			   AND f.deleted_at IS NULL${whereTail}`
+			   AND f.deleted_at IS NULL
+			   AND f.personal_bot_id IS NULL${whereTail}`
 		:	`SELECT
 				'bot' AS type,
 				b.bot_id AS id,
@@ -830,7 +883,7 @@ async function replaceSearchIndexEntity(db: D1DatabaseLike, entity: SearchIndexE
 	const deleteStatement = db
 		.prepare(`DELETE FROM search_entities_fts WHERE entity_type = ? AND entity_id = ?`)
 		.bind(entity.type, entity.id);
-	if (entity.deletedAt) {
+	if (entity.deletedAt || (entity.type === "forum" && entity.personalBotId)) {
 		await deleteStatement.run();
 		return;
 	}
@@ -881,7 +934,7 @@ async function searchVectorEntityById(
 			.prepare(
 				`SELECT forum_id AS id, world_id AS worldId, world_handle AS worldHandle, handle, description
 				 FROM forums_index
-				 WHERE forum_id = ? AND deleted_at IS NULL`,
+				 WHERE forum_id = ? AND deleted_at IS NULL AND personal_bot_id IS NULL`,
 			)
 			.bind(id)
 			.first<Pick<ForumSummary, "description" | "handle" | "id" | "worldHandle" | "worldId">>();
@@ -905,42 +958,55 @@ async function searchVectorEntityById(
 }
 
 async function upsertSearchVector(env: SearchVectorEnv, entity: SearchVectorEntity): Promise<void> {
+	await upsertSearchVectors(env, [entity]);
+}
+
+async function upsertSearchVectors(env: SearchVectorEnv, entities: SearchVectorEntity[]): Promise<void> {
 	if (!env.AI) {
 		return;
 	}
 	const vectorIndex = searchVectorIndex(env);
-	if (!vectorIndex) {
+	if (!vectorIndex || entities.length === 0) {
 		return;
 	}
-	try {
-		const vector = await embedSearchText(env.AI, searchVectorText(entity));
-		if (!vector) {
-			return;
-		}
-		await retrySearchBinding("Search vector upsert", () =>
-			withSearchBindingTimeout("Search vector upsert", () =>
-				vectorIndex.upsert([
-					{
+	for (let index = 0; index < entities.length; index += searchVectorReindexBatchSize) {
+		const batch = entities.slice(index, index + searchVectorReindexBatchSize);
+		try {
+			const vectors = await embedSearchTexts(env.AI, batch.map(searchVectorText));
+			const upserts = batch.flatMap((entity, vectorIndexInBatch) => {
+				const vector = vectors[vectorIndexInBatch];
+				return vector ?
+					[{
 						id: vectorIdForSearchEntity(entity),
 						values: vector,
 						metadata: searchVectorMetadata(entity),
-					},
-				]),
-			),
-		);
-	} catch (error) {
-		console.warn("search vector upsert failed", error);
+					}]
+				:	[];
+			});
+			if (upserts.length === 0) {
+				continue;
+			}
+			await retrySearchBinding("Search vector upsert", () =>
+				withSearchBindingTimeout("Search vector upsert", () => vectorIndex.upsert(upserts)),
+			);
+		} catch (error) {
+			console.warn("search vector upsert failed", error);
+		}
 	}
 }
 
 async function embedSearchText(ai: SearchAiLike, text: string): Promise<number[] | null> {
+	return (await embedSearchTexts(ai, [text]))[0] ?? null;
+}
+
+async function embedSearchTexts(ai: SearchAiLike, texts: string[]): Promise<number[][]> {
 	const response = await retrySearchBinding("Search embedding", () =>
 		withSearchBindingTimeout(
 			"Search embedding",
-			() => ai.run(searchEmbeddingModel, { text: [text] }),
+			() => ai.run(searchEmbeddingModel, { text: texts }),
 		),
 	);
-	return response.data?.[0] ?? null;
+	return response.data ?? [];
 }
 
 function searchVectorIndex(env: SearchVectorEnv): SearchVectorizeIndexLike | undefined {
