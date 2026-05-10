@@ -5603,7 +5603,7 @@ function AvatarUploadModal({
 			</div>
 			<Field label="Image file">
 				<input
-					accept="image/jpeg,image/png,image/webp"
+					accept="image/jpeg,image/png,image/webp,image/svg+xml"
 					className="input"
 					disabled={urlFilled || saving}
 					onChange={(event) => setFile(event.target.files?.[0] ?? null)}
@@ -14179,6 +14179,9 @@ function cloudflareImageUrl(
 ): string {
 	try {
 		const parsed = new URL(url);
+		if (parsed.pathname.toLowerCase().endsWith(".svg")) {
+			return url;
+		}
 		const directives = [
 			options.width ? `width=${Math.trunc(options.width)}` : "",
 			options.height ? `height=${Math.trunc(options.height)}` : "",

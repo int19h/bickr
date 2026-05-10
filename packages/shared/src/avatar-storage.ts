@@ -2,7 +2,7 @@ import { type AvatarImage, type AvatarImageSource } from "./model";
 import { InputError } from "./validation";
 
 export const avatarMaxBytes = 10 * 1024 * 1024;
-export const avatarAcceptedContentTypes = ["image/jpeg", "image/png", "image/webp"] as const;
+export const avatarAcceptedContentTypes = ["image/jpeg", "image/png", "image/webp", "image/svg+xml"] as const;
 export type AvatarContentType = (typeof avatarAcceptedContentTypes)[number];
 export type AvatarKind = "avatars" | "avatar-candidates";
 
@@ -104,10 +104,13 @@ export function validateAvatarBytes(bytes: Uint8Array, declaredContentType?: str
 	}
 	const detected = detectAvatarContentType(bytes);
 	if (!detected) {
-		throw new InputError("Avatar image must be JPEG, PNG, or WebP.");
+		throw new InputError("Avatar image must be JPEG, PNG, WebP, or SVG.");
+	}
+	if (detected === "image/svg+xml") {
+		validateSvgAvatar(bytes);
 	}
 	const declared = declaredContentType?.split(";")[0]?.trim().toLowerCase();
-	if (declared && avatarAcceptedContentTypes.includes(declared as AvatarContentType) && declared !== detected) {
+	if (declared && isAvatarContentType(declared) && declared !== detected) {
 		throw new InputError("Avatar image content does not match its declared type.");
 	}
 	return {
@@ -176,8 +179,13 @@ function avatarObjectKey(worldId: string, botId: string, kind: AvatarKind, conte
 	const extension =
 		contentType === "image/png" ? "png"
 		: contentType === "image/webp" ? "webp"
+		: contentType === "image/svg+xml" ? "svg"
 		: "jpg";
 	return `worlds/${encodeURIComponent(worldId)}/bots/${encodeURIComponent(botId)}/${kind}/${crypto.randomUUID()}.${extension}`;
+}
+
+export function isAvatarContentType(value: string): value is AvatarContentType {
+	return avatarAcceptedContentTypes.includes(value as AvatarContentType);
 }
 
 function remoteAvatarUrl(value: string): URL {
@@ -248,6 +256,10 @@ function detectAvatarContentType(bytes: Uint8Array): AvatarContentType | null {
 	) {
 		return "image/webp";
 	}
+	const svgText = decodeSvgText(bytes);
+	if (svgText && /^<svg(?:[\s>/]|$)/i.test(svgDocumentBody(svgText))) {
+		return "image/svg+xml";
+	}
 	return null;
 }
 
@@ -261,7 +273,112 @@ function avatarDimensions(bytes: Uint8Array, contentType: AvatarContentType): { 
 	if (contentType === "image/webp") {
 		return webpDimensions(bytes);
 	}
+	if (contentType === "image/svg+xml") {
+		return svgDimensions(bytes);
+	}
 	return {};
+}
+
+function validateSvgAvatar(bytes: Uint8Array): void {
+	const text = decodeSvgText(bytes);
+	if (!text) {
+		throw new InputError("SVG avatar image must be UTF-8 encoded.");
+	}
+	const body = svgDocumentBody(text);
+	if (!/^<svg(?:[\s>/]|$)/i.test(body)) {
+		throw new InputError("SVG avatar image must contain an SVG document.");
+	}
+	if (
+		/<!\s*(?:doctype|entity)\b/i.test(text) ||
+		/<\s*(?:script|foreignobject|iframe|object|embed|audio|video|image|canvas|link|base)\b/i.test(text) ||
+		/\son[a-z][\w:-]*\s*=/i.test(text) ||
+		/(?:javascript:|data:|@import\b)/i.test(text)
+	) {
+		throw new InputError("SVG avatar images must not contain active content or embedded resources.");
+	}
+	const urlAttributes = /\b(?:href|xlink:href|src)\s*=\s*(["'])(.*?)\1/gi;
+	for (const match of text.matchAll(urlAttributes)) {
+		const value = (match[2] ?? "").trim();
+		if (value && !value.startsWith("#")) {
+			throw new InputError("SVG avatar images must not reference external resources.");
+		}
+	}
+	if (/\b(?:href|xlink:href|src)\s*=\s*[^"'\s>]/i.test(text)) {
+		throw new InputError("SVG avatar images must quote resource references.");
+	}
+	const urlFunctions = /url\(\s*(["']?)(.*?)\1\s*\)/gi;
+	for (const match of text.matchAll(urlFunctions)) {
+		const value = (match[2] ?? "").trim();
+		if (value && !value.startsWith("#")) {
+			throw new InputError("SVG avatar images must not reference external resources.");
+		}
+	}
+}
+
+function decodeSvgText(bytes: Uint8Array): string | null {
+	try {
+		return new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(bytes);
+	} catch {
+		return null;
+	}
+}
+
+function svgDocumentBody(text: string): string {
+	let body = text.replace(/^\uFEFF/, "").trimStart();
+	const xmlDeclaration = /^<\?xml\s[\s\S]*?\?>\s*/i.exec(body);
+	if (xmlDeclaration) {
+		body = body.slice(xmlDeclaration[0].length).trimStart();
+	}
+	while (body.startsWith("<!--")) {
+		const end = body.indexOf("-->");
+		if (end < 0) {
+			break;
+		}
+		body = body.slice(end + 3).trimStart();
+	}
+	return body;
+}
+
+function svgDimensions(bytes: Uint8Array): { width?: number; height?: number } {
+	const text = decodeSvgText(bytes);
+	if (!text) {
+		return {};
+	}
+	const svgTag = /<svg\b([^>]*)>/i.exec(text);
+	if (!svgTag) {
+		return {};
+	}
+	const attrs = svgTag[1] ?? "";
+	const width = svgLengthAttribute(attrs, "width");
+	const height = svgLengthAttribute(attrs, "height");
+	if (width && height) {
+		return { width, height };
+	}
+	const viewBox = /\bviewBox\s*=\s*(["'])(.*?)\1/i.exec(attrs);
+	const numbers = viewBox?.[2]?.trim().split(/[\s,]+/).map((value) => Number(value)) ?? [];
+	const viewBoxWidth = finitePositiveNumber(numbers[2]) ? numbers[2] : undefined;
+	const viewBoxHeight = finitePositiveNumber(numbers[3]) ? numbers[3] : undefined;
+	const resolvedWidth = width ?? viewBoxWidth;
+	const resolvedHeight = height ?? viewBoxHeight;
+	return {
+		...(resolvedWidth !== undefined ? { width: resolvedWidth } : {}),
+		...(resolvedHeight !== undefined ? { height: resolvedHeight } : {}),
+	};
+}
+
+function svgLengthAttribute(attrs: string, name: "width" | "height"): number | undefined {
+	const match = new RegExp(`\\b${name}\\s*=\\s*(["'])(.*?)\\1`, "i").exec(attrs);
+	const value = match?.[2]?.trim();
+	if (!value) {
+		return undefined;
+	}
+	const numberMatch = /^([0-9]+(?:\.[0-9]+)?|\.[0-9]+)(?:px)?$/i.exec(value);
+	const number = numberMatch ? Number(numberMatch[1]) : NaN;
+	return finitePositiveNumber(number) ? number : undefined;
+}
+
+function finitePositiveNumber(value: number | undefined): value is number {
+	return typeof value === "number" && Number.isFinite(value) && value > 0;
 }
 
 function jpegDimensions(bytes: Uint8Array): { width?: number; height?: number } {

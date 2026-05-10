@@ -2,6 +2,7 @@ import { fail, ok, readJsonBody } from "@bickr/shared/api";
 import {
 	avatarMaxBytes,
 	fetchRemoteAvatarBytes,
+	isAvatarContentType,
 	normalizeAvatarPublicBaseUrl,
 	promoteAvatarCandidate,
 	storeAvatarImage,
@@ -9114,7 +9115,7 @@ function parseAvatarCandidate(value: unknown): AvatarImage {
 	const url = requiredText(record.url, "Avatar candidate URL", 1_000);
 	const contentType = requiredText(record.contentType, "Avatar candidate content type", 80);
 	const updatedAt = requiredText(record.updatedAt, "Avatar candidate timestamp", 80);
-	if (contentType !== "image/jpeg" && contentType !== "image/png" && contentType !== "image/webp") {
+	if (!isAvatarContentType(contentType)) {
 		throw new InputError("Avatar candidate content type is invalid.");
 	}
 	const sourceRecord = runtimeRecord(record.source);

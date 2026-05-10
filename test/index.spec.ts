@@ -16481,6 +16481,81 @@ describe("Bickr Pages Functions", () => {
 		expect(threadsBody.data.threads[0]?.authorAvatarUrl).toBe(avatarUrl);
 	});
 
+	it("uploads SVG participant avatars into R2", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const bot = await createBotForTest(cookie, "avatar-svg");
+		const r2 = fakeR2Bucket();
+		const sourceUrl = "https://images.example/avatar.svg";
+		const sourceBytes = svgAvatarBytes();
+		const originalFetch = globalThis.fetch;
+		const fetchMock = vi.fn<(_input: RequestInfo | URL, _init?: RequestInit) => Promise<Response>>(
+			async (input) => {
+				expect(String(input)).toBe(sourceUrl);
+				return new Response(sourceBytes, {
+					headers: {
+						"content-type": "image/svg+xml; charset=utf-8",
+						"content-length": String(sourceBytes.byteLength),
+					},
+				});
+			},
+		);
+		vi.stubGlobal("fetch", fetchMock);
+		try {
+			const response = await uploadBotAvatar(
+				contextFor<typeof uploadBotAvatar>(
+					jsonRequest(`http://example.com/api/me/bots/${bot.id}/avatar`, "PUT", { url: sourceUrl }, cookie),
+					{ botId: bot.id },
+					{
+						BICKR_R2: r2.bucket,
+						BICKR_R2_PUBLIC_BASE_URL: "https://assets-test.bickr.social",
+					},
+				),
+			);
+			expect(response.status).toBe(200);
+			const body = (await response.json()) as { data: { bot: BotBody } };
+			expect(body.data.bot.avatarUrl).toMatch(/^https:\/\/assets-test\.bickr\.social\/worlds\/.+\/bots\/.+\/avatars\/.+\.svg$/);
+			const stored = [...r2.objects.values()][0];
+			expect(stored?.bytes).toEqual(sourceBytes);
+			expect(stored?.httpMetadata?.contentType).toBe("image/svg+xml");
+			const storedBot = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, bot.id);
+			expect(storedBot.avatar).toMatchObject({
+				contentType: "image/svg+xml",
+				width: 24,
+				height: 32,
+				source: {
+					type: "remote_url",
+					sourceUrl,
+				},
+			});
+		} finally {
+			vi.stubGlobal("fetch", originalFetch);
+		}
+	});
+
+	it("rejects SVG avatar uploads with active content", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const bot = await createBotForTest(cookie, "avatar-unsafe-svg");
+		const form = new FormData();
+		form.set("file", new File([unsafeSvgAvatarBytes()], "avatar.svg", { type: "image/svg+xml" }));
+		const response = await uploadBotAvatar(
+			contextFor<typeof uploadBotAvatar>(
+				new Request(`http://example.com/api/me/bots/${bot.id}/avatar`, {
+					method: "PUT",
+					headers: { cookie },
+					body: form,
+				}),
+				{ botId: bot.id },
+				{
+					BICKR_R2: fakeR2Bucket().bucket,
+					BICKR_R2_PUBLIC_BASE_URL: "https://assets-test.bickr.social",
+				},
+			),
+		);
+		expect(response.status).toBe(400);
+	});
+
 	it("rejects unsupported avatar upload file types", async () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);
@@ -16694,6 +16769,86 @@ describe("Bickr Pages Functions", () => {
 			aspectRatio: "1:1",
 			imageSize: "512x512",
 		});
+	});
+
+	it("creates and promotes SVG generated avatar candidates", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const bot = await createBotForTest(cookie, "avatar-generated-svg");
+		const userId = await userIdForHandle("octocat");
+		const r2 = fakeR2Bucket();
+		const originalFetch = globalThis.fetch;
+		const fetchMock = vi.fn<(_input: RequestInfo | URL, _init?: RequestInit) => Promise<Response>>(
+			async (input) => {
+				if (String(input) === "https://openrouter.ai/api/v1/models?output_modalities=image") {
+					return Response.json({
+						data: [
+							{
+								id: "openai/svg-image",
+								architecture: { input_modalities: ["text"], output_modalities: ["image"] },
+							},
+						],
+					});
+				}
+				return Response.json({
+					choices: [
+						{
+							message: {
+								images: [{ image_url: { url: avatarDataUrl(svgAvatarBytes(), "image/svg+xml") } }],
+							},
+						},
+					],
+				});
+			},
+		);
+		vi.stubGlobal("fetch", fetchMock);
+		let candidate: NonNullable<BotBody["avatar"]>;
+		try {
+			const generateResponse = await handleAgentRuntimeRequest(
+				serviceJsonRequest(
+					`/users/${encodeURIComponent(userId)}/bots/${encodeURIComponent(bot.id)}/avatar/generate`,
+					userId,
+					{
+						prompt: "Draw me as a clean vector emblem.",
+						includeCurrentAvatar: false,
+						settings: { model: "openai/svg-image" },
+					},
+				),
+				{
+					BICKR_D1: testEnv.BICKR_D1,
+					BICKR_KV: testEnv.BICKR_KV,
+					BICKR_R2: r2.bucket,
+					BICKR_R2_PUBLIC_BASE_URL: "https://assets-test.bickr.social",
+					OPENROUTER_API_KEY: "test-key",
+				},
+			);
+			expect(generateResponse.status).toBe(200);
+			const generateBody = (await generateResponse.json()) as { data: { candidate: NonNullable<BotBody["avatar"]> } };
+			candidate = generateBody.data.candidate;
+			expect(candidate.contentType).toBe("image/svg+xml");
+			expect(candidate.url).toMatch(/\/avatar-candidates\/.+\.svg$/);
+		} finally {
+			vi.stubGlobal("fetch", originalFetch);
+		}
+
+		const applyResponse = await handleAgentRuntimeRequest(
+			serviceJsonRequest(
+				`/users/${encodeURIComponent(userId)}/bots/${encodeURIComponent(bot.id)}/avatar/apply`,
+				userId,
+				{ candidate },
+			),
+			{
+				BICKR_D1: testEnv.BICKR_D1,
+				BICKR_KV: testEnv.BICKR_KV,
+				BICKR_R2: r2.bucket,
+				BICKR_R2_PUBLIC_BASE_URL: "https://assets-test.bickr.social",
+			},
+		);
+		expect(applyResponse.status).toBe(200);
+		const applyBody = (await applyResponse.json()) as { data: { bot: BotBody } };
+		expect(applyBody.data.bot.avatarUrl).toMatch(/\/avatars\/.+\.svg$/);
+		const storedBot = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, bot.id);
+		expect(storedBot.avatar?.contentType).toBe("image/svg+xml");
 	});
 
 	it("uses image-only OpenRouter modalities for image-only avatar models", async () => {
@@ -17691,8 +17846,25 @@ function webpAvatarBytes(): Uint8Array {
 	]);
 }
 
-function avatarDataUrl(bytes = pngAvatarBytes()): string {
-	return `data:image/png;base64,${base64String(bytes)}`;
+function svgAvatarBytes(): Uint8Array {
+	return new TextEncoder().encode(
+		`<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="32" viewBox="0 0 24 32">
+	<defs><linearGradient id="paint" x1="0" x2="1"><stop offset="0" stop-color="#2244ff"/><stop offset="1" stop-color="#ffcc33"/></linearGradient></defs>
+	<rect width="24" height="32" rx="4" fill="url(#paint)"/>
+	<circle cx="12" cy="12" r="6" fill="#ffffff"/>
+</svg>`,
+	);
+}
+
+function unsafeSvgAvatarBytes(): Uint8Array {
+	return new TextEncoder().encode(
+		`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><script>alert("avatar")</script><rect width="24" height="24"/></svg>`,
+	);
+}
+
+function avatarDataUrl(bytes = pngAvatarBytes(), contentType = "image/png"): string {
+	return `data:${contentType};base64,${base64String(bytes)}`;
 }
 
 function base64Bytes(value: string): Uint8Array {

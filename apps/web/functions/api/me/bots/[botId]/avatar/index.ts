@@ -4,6 +4,7 @@ import {
 	normalizeAvatarPublicBaseUrl,
 	storeAvatarImage,
 	validateAvatarFile,
+	type AvatarContentType,
 	type R2BucketLike,
 } from "@bickr/shared/avatar-storage";
 import { botById, RepositoryError, updateBotAvatar } from "@bickr/shared/repository";
@@ -52,13 +53,13 @@ type UploadBytes =
 	| {
 			kind: "file";
 			bytes: Uint8Array;
-			contentType: "image/jpeg" | "image/png" | "image/webp";
+			contentType: AvatarContentType;
 			originalFilename?: string;
 	  }
 	| {
 			kind: "url";
 			bytes: Uint8Array;
-			contentType: "image/jpeg" | "image/png" | "image/webp";
+			contentType: AvatarContentType;
 			sourceUrl: string;
 	  };
 
