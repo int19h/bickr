@@ -268,10 +268,17 @@ a {
 	background: transparent;
 	color: var(--ink);
 	cursor: pointer;
+	font-family: "Reddit Sans", var(--font-sans);
 	font-size: 16px;
-	font-weight: 700;
+	font-weight: 900;
 	letter-spacing: 0;
 	padding: 0;
+}
+
+.brand-word {
+	font-family: "Reddit Sans", var(--font-sans);
+	font-weight: 900;
+	letter-spacing: 0;
 }
 
 .crumbs {

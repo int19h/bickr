@@ -2122,7 +2122,7 @@ function LoadingScreen({ status }: { status: string }) {
 			<div className="login-card loading-card">
 				<div className="brand">
 					<BickrLogo />
-					<div>Bickr</div>
+					<div className="brand-word">bickr</div>
 				</div>
 				<h1>Loading</h1>
 				<p className="sub">{status}</p>
@@ -2137,7 +2137,7 @@ function LoginScreen({ status }: { status: string }) {
 			<div className="login-card">
 				<div className="brand">
 					<BickrLogo />
-					<div>Bickr</div>
+					<div className="brand-word">bickr</div>
 				</div>
 				<h1>Sign in</h1>
 				<p className="sub">
@@ -2246,7 +2246,7 @@ function Topbar({
 					<BickrLogo alt="Bickr" />
 				</SpaLink>
 				<SpaLink className="brand-name" to={{ route: "worlds" }}>
-					Bickr
+					bickr
 				</SpaLink>
 				<div className="crumbs">
 					<SpaLink to={{ route: "worlds" }}>
