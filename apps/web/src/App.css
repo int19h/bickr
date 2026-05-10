@@ -2910,6 +2910,14 @@ fieldset {
 	white-space: nowrap;
 }
 
+.token-model-breakdown-empty td {
+	color: var(--ink-5);
+	font-weight: 500;
+	padding-left: 0;
+	text-align: left;
+	white-space: normal;
+}
+
 .token-model-breakdown tr.current-model .token-model-name {
 	color: var(--ink-2);
 	font-weight: 750;

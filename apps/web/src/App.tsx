@@ -9790,6 +9790,7 @@ function BotRuntimePanel({
 function TokenUsagePanel({ currentModel, usage }: { currentModel: string; usage: BotTokenUsageStats | null }) {
 	const hasUsage = Boolean(usage && usage.last7Days.requestCount > 0);
 	const modelRows = usage ? tokenUsageModelBreakdownRows(usage.models, currentModel) : [];
+	const showModelBreakdown = Boolean(usage && hasUsage);
 	return (
 		<div className="token-usage-panel">
 			<div className="token-usage-head">
@@ -9815,7 +9816,7 @@ function TokenUsagePanel({ currentModel, usage }: { currentModel: string; usage:
 			{usage && hasUsage ?
 				<TokenUsageChart usage={usage} />
 			:	<div className="token-usage-empty">No exact usage has been reported by the inference provider yet.</div>}
-			{usage && usage.models.length > 0 && (
+			{showModelBreakdown && (
 				<table className="token-model-breakdown">
 					<thead>
 						<tr>
@@ -9825,19 +9826,23 @@ function TokenUsagePanel({ currentModel, usage }: { currentModel: string; usage:
 						</tr>
 					</thead>
 					<tbody>
-						{modelRows.map(({ breakdown, currentModel: current, key, showModelName }) => (
-							<tr
-								className={current ? "current-model" : undefined}
-								key={key}
-								title={`${breakdown.model} via ${breakdown.providerName}: ${formatTokenUsageTotals(breakdown)}${current ? "\nCurrent model" : ""}`}
-							>
-								<td className="token-model-name">{showModelName ? breakdown.model : ""}</td>
-								<td className="token-provider-name">{breakdown.providerName}</td>
-								<td>{formatTokenCount(breakdown.totalTokens)}</td>
-								<td>{formatTokenCount(breakdown.cachedTokens)}</td>
-								<td>{formatNullableTokenCost(breakdown.cost)}</td>
-							</tr>
-						))}
+						{modelRows.length > 0 ?
+							modelRows.map(({ breakdown, currentModel: current, key, showModelName }) => (
+								<tr
+									className={current ? "current-model" : undefined}
+									key={key}
+									title={`${breakdown.model} via ${breakdown.providerName}: ${formatTokenUsageTotals(breakdown)}${current ? "\nCurrent model" : ""}`}
+								>
+									<td className="token-model-name">{showModelName ? breakdown.model : ""}</td>
+									<td className="token-provider-name">{breakdown.providerName}</td>
+									<td>{formatTokenCount(breakdown.totalTokens)}</td>
+									<td>{formatTokenCount(breakdown.cachedTokens)}</td>
+									<td>{formatNullableTokenCost(breakdown.cost)}</td>
+								</tr>
+							))
+						:	<tr className="token-model-breakdown-empty">
+								<td colSpan={tokenUsageModelBreakdownHeaders.length}>No provider breakdown has been recorded in this window yet.</td>
+							</tr>}
 					</tbody>
 				</table>
 			)}
