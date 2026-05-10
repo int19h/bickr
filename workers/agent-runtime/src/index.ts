@@ -1003,6 +1003,8 @@ class ProviderLoopRequestError extends Error {
 	}
 }
 
+type ProviderStructuredOutputKind = "avatar_description" | "compaction" | "translation";
+
 class ProviderStructuredOutputValidationError extends Error {
 	readonly rawResponse?: string;
 	readonly toolCalls: BotInferenceSubmissionToolCall[];
@@ -1013,7 +1015,7 @@ class ProviderStructuredOutputValidationError extends Error {
 	responseModel?: string;
 	usage?: ProviderUsage;
 
-	constructor(kind: "compaction" | "translation", repairMessage: string, options: { rawResponse?: string; requiredToolName?: string; toolCalls?: BotInferenceSubmissionToolCall[]; outputText?: string; responseId?: string; responseModel?: string; usage?: ProviderUsage } = {}) {
+	constructor(kind: ProviderStructuredOutputKind, repairMessage: string, options: { rawResponse?: string; requiredToolName?: string; toolCalls?: BotInferenceSubmissionToolCall[]; outputText?: string; responseId?: string; responseModel?: string; usage?: ProviderUsage } = {}) {
 		super(`Inference provider returned schema-invalid ${kind} ${options.requiredToolName ? "tool arguments" : "structured output"}: ${repairMessage}`);
 		this.name = "ProviderStructuredOutputValidationError";
 		this.repairMessage = repairMessage;
@@ -1024,22 +1026,6 @@ class ProviderStructuredOutputValidationError extends Error {
 		this.responseId = options.responseId;
 		this.responseModel = options.responseModel;
 		this.usage = options.usage;
-	}
-}
-
-class ProviderAvatarDescriptionValidationError extends Error {
-	readonly rawResponse: string;
-	readonly outputText?: string;
-	readonly repairMessage: string;
-	readonly toolCalls: BotInferenceSubmissionToolCall[];
-
-	constructor(repairMessage: string, options: { rawResponse: string; outputText?: string; toolCalls?: BotInferenceSubmissionToolCall[] }) {
-		super(`Inference provider returned invalid avatar description: ${repairMessage}`);
-		this.name = "ProviderAvatarDescriptionValidationError";
-		this.rawResponse = options.rawResponse;
-		this.outputText = options.outputText;
-		this.repairMessage = repairMessage;
-		this.toolCalls = options.toolCalls ?? [];
 	}
 }
 
@@ -1571,8 +1557,19 @@ function providerCompactionRequiredCompletionTokens(
 	return Math.max(1, Math.ceil(limits.maxSummaryTokens + providerPromptEstimateSafetyTokens));
 }
 
-function providerCompactionResponseFormat(
-	maxCharacters: number,
+type ProviderSingleStringResponseSpec = {
+	kind: ProviderStructuredOutputKind;
+	property: string;
+	label: string;
+	maxCharacters: number;
+	minCharacters?: number;
+	reduction?: ProviderCompactionReductionCheck;
+	toolName?: string;
+};
+
+function providerSingleStringResponseFormat(
+	name: string,
+	spec: Pick<ProviderSingleStringResponseSpec, "maxCharacters" | "minCharacters" | "property">,
 	mode: ProviderCompactionMode = "structured_output",
 ): ProviderJsonSchemaResponseFormat | undefined {
 	if (mode !== "structured_output") {
@@ -1581,22 +1578,42 @@ function providerCompactionResponseFormat(
 	return {
 		type: "json_schema",
 		json_schema: {
-			name: "compaction_summary",
+			name,
 			strict: true,
 			schema: {
 				type: "object",
 				properties: {
-					[providerCompactionSummaryProperty]: {
+					[spec.property]: {
 						type: "string",
-						minLength: 1,
-						maxLength: Math.max(1, Math.floor(maxCharacters)),
+						minLength: Math.max(1, Math.floor(spec.minCharacters ?? 1)),
+						maxLength: Math.max(1, Math.floor(spec.maxCharacters)),
 					},
 				},
-				required: [providerCompactionSummaryProperty],
+				required: [spec.property],
 				additionalProperties: false,
 			},
 		},
 	};
+}
+
+function providerCompactionSummarySpec(
+	limits: Pick<ProviderCompactionSummaryLimits, "maxLength"> & Partial<Pick<ProviderCompactionSummaryLimits, "compactedCharacterCount" | "tokensPerCharacter">>,
+): ProviderSingleStringResponseSpec {
+	return {
+		kind: "compaction",
+		property: providerCompactionSummaryProperty,
+		label: providerCompactionSummaryProperty,
+		maxCharacters: limits.maxLength,
+		reduction: providerCompactionReductionCheck(limits),
+		toolName: providerCompactionToolName,
+	};
+}
+
+function providerCompactionResponseFormat(
+	maxCharacters: number,
+	mode: ProviderCompactionMode = "structured_output",
+): ProviderJsonSchemaResponseFormat | undefined {
+	return providerSingleStringResponseFormat("compaction_summary", providerCompactionSummarySpec({ maxLength: maxCharacters }), mode);
 }
 
 export function providerCompactionRequest(
@@ -9338,6 +9355,16 @@ function providerImageDataUrl(payload: unknown): string | null {
 
 const providerAvatarDescriptionToolName = "save_avatar_description";
 
+function providerAvatarDescriptionSpec(): ProviderSingleStringResponseSpec {
+	return {
+		kind: "avatar_description",
+		property: "description",
+		label: "profile image description",
+		maxCharacters: 8_000,
+		toolName: providerAvatarDescriptionToolName,
+	};
+}
+
 function providerAvatarDescriptionTools(): [ProviderToolDefinition] {
 	return [
 		{
@@ -9359,28 +9386,7 @@ function providerAvatarDescriptionTools(): [ProviderToolDefinition] {
 }
 
 function providerAvatarDescriptionResponseFormat(mode: ProviderCompactionMode): ProviderJsonSchemaResponseFormat | undefined {
-	if (mode !== "structured_output") {
-		return undefined;
-	}
-	return {
-		type: "json_schema",
-		json_schema: {
-			name: "avatar_description",
-			strict: true,
-			schema: {
-				type: "object",
-				properties: {
-					description: {
-						type: "string",
-						minLength: 1,
-						maxLength: 8_000,
-					},
-				},
-				required: ["description"],
-				additionalProperties: false,
-			},
-		},
-	};
+	return providerSingleStringResponseFormat("avatar_description", providerAvatarDescriptionSpec(), mode);
 }
 
 async function fetchProviderAvatarDescription(settings: ProviderSettings, bot: BotDocument): Promise<string> {
@@ -9431,7 +9437,7 @@ async function fetchProviderAvatarDescriptionWithMode(settings: ProviderSettings
 				:	`Bickr Terminal needs a profile image description. I should call ${providerAvatarDescriptionToolName} with a first-person, in-character description that is highly verbose and full of concrete visual detail. The description should focus only on visible appearance, style, scene, lighting, and composition.`,
 		},
 	];
-	let lastValidationError: ProviderAvatarDescriptionValidationError | undefined;
+	let lastValidationError: ProviderStructuredOutputValidationError | undefined;
 	let fallbackDescription: string | null = null;
 	for (let attempt = 1; attempt <= providerAvatarDescriptionMaxAttempts; attempt += 1) {
 		const requestBody = {
@@ -9479,7 +9485,7 @@ async function fetchProviderAvatarDescriptionWithMode(settings: ProviderSettings
 		try {
 			return providerAvatarDescriptionFromResponseMessage(payload.choices?.[0]?.message, rawResponse, mode);
 		} catch (error) {
-			if (!(error instanceof ProviderAvatarDescriptionValidationError)) {
+			if (!(error instanceof ProviderStructuredOutputValidationError)) {
 				throw error;
 			}
 			lastValidationError = error;
@@ -9504,102 +9510,7 @@ async function fetchProviderAvatarDescriptionWithMode(settings: ProviderSettings
 }
 
 function providerAvatarDescriptionFromResponseMessage(message: unknown, rawResponse: string, mode: ProviderCompactionMode): string {
-	return mode === "structured_output" ?
-			providerAvatarDescriptionFromStructuredMessage(message, rawResponse)
-		:	providerAvatarDescriptionFromToolMessage(message, rawResponse);
-}
-
-function providerAvatarDescriptionFromStructuredMessage(message: unknown, rawResponse: string): string {
-	const messageRecord = runtimeRecord(message);
-	const toolCalls =
-		Array.isArray(messageRecord.tool_calls) ?
-			messageRecord.tool_calls.map(providerAvatarDescriptionToolCallFromValue).filter((toolCall): toolCall is BotInferenceSubmissionToolCall => Boolean(toolCall))
-		:	[];
-	const content = providerMessageTextContent(messageRecord.content);
-	if (toolCalls.length > 0) {
-		throw new ProviderAvatarDescriptionValidationError("The profile image description should be returned in the required JSON object without using a Bickr control.", {
-			rawResponse,
-			outputText: content,
-			toolCalls,
-		});
-	}
-	if (!content) {
-		throw new ProviderAvatarDescriptionValidationError("The profile image description response was empty.", { rawResponse });
-	}
-	let parsed: unknown;
-	try {
-		parsed = JSON.parse(content);
-	} catch {
-		throw new ProviderAvatarDescriptionValidationError("The profile image description response must be a JSON object with a description field.", {
-			rawResponse,
-			outputText: content,
-		});
-	}
-	const record = runtimeRecord(parsed);
-	const extraKeys = Object.keys(record).filter((key) => key !== "description");
-	if (extraKeys.length > 0) {
-		throw new ProviderAvatarDescriptionValidationError(`The profile image description response included unexpected fields: ${extraKeys.join(", ")}.`, {
-			rawResponse,
-			outputText: content,
-		});
-	}
-	const description = normalizeAvatarDescriptionText(record.description);
-	if (!description) {
-		throw new ProviderAvatarDescriptionValidationError("The profile image description response needs a non-empty description field.", {
-			rawResponse,
-			outputText: content,
-		});
-	}
-	return description;
-}
-
-function providerAvatarDescriptionFromToolMessage(message: unknown, rawResponse: string): string {
-	const messageRecord = runtimeRecord(message);
-	const toolCalls =
-		Array.isArray(messageRecord.tool_calls) ?
-			messageRecord.tool_calls.map(providerAvatarDescriptionToolCallFromValue).filter((toolCall): toolCall is BotInferenceSubmissionToolCall => Boolean(toolCall))
-		:	[];
-	const call = toolCalls.find((item) => item.function.name === providerAvatarDescriptionToolName);
-	if (!call) {
-		throw new ProviderAvatarDescriptionValidationError("Bickr Terminal still needs the profile image description control to be used.", {
-			rawResponse,
-			outputText: providerMessageTextContent(messageRecord.content),
-			toolCalls,
-		});
-	}
-	const argsText = stringValue(call.function.arguments);
-	if (!argsText) {
-		throw new ProviderAvatarDescriptionValidationError("The profile image description control needs a description field.", { rawResponse, toolCalls });
-	}
-	let args: unknown;
-	try {
-		args = JSON.parse(argsText);
-	} catch {
-		throw new ProviderAvatarDescriptionValidationError("The profile image description control arguments were not readable.", { rawResponse, toolCalls });
-	}
-	const description = normalizeAvatarDescriptionText(runtimeRecord(args).description);
-	if (!description) {
-		throw new ProviderAvatarDescriptionValidationError("The profile image description control needs a non-empty description field.", { rawResponse, toolCalls });
-	}
-	return description;
-}
-
-function providerAvatarDescriptionToolCallFromValue(value: unknown, index: number): BotInferenceSubmissionToolCall | null {
-	const record = runtimeRecord(value);
-	const fn = runtimeRecord(record.function);
-	const name = stringValue(fn.name);
-	const args = stringValue(fn.arguments);
-	if (!name || args === undefined) {
-		return null;
-	}
-	return {
-		id: stringValue(record.id) ?? `call_avatar_description_${index}`,
-		type: "function",
-		function: {
-			name,
-			arguments: args,
-		},
-	};
+	return providerSingleStringResponseFromMessage(message, providerAvatarDescriptionSpec(), rawResponse, mode).trim();
 }
 
 function normalizeAvatarDescriptionText(value: unknown): string | null {
@@ -9633,7 +9544,7 @@ function providerMessageTextContent(value: unknown): string | undefined {
 	return text || undefined;
 }
 
-function avatarDescriptionRepairMessages(error: ProviderAvatarDescriptionValidationError, mode: ProviderCompactionMode): ChatMessage[] {
+function avatarDescriptionRepairMessages(error: ProviderStructuredOutputValidationError, mode: ProviderCompactionMode): ChatMessage[] {
 	if (mode === "structured_output") {
 		return [
 			...(error.outputText ? [{ role: "assistant" as const, content: error.outputText }] : []),
@@ -10012,84 +9923,66 @@ function providerToolArgs(name: string, args: Record<string, unknown>): Record<s
 	return normalized;
 }
 
-function providerCompactionSummaryFromToolMessage(
-	message: unknown,
-	rawResponse: string,
-	limits: ProviderCompactionValidationLimits = defaultProviderCompactionSummaryLimits,
-): string {
-	return providerStructuredOutputFromToolMessage(
-		message,
-		{
-			kind: "compaction",
-			toolName: providerCompactionToolName,
-			property: providerCompactionSummaryProperty,
-			label: providerCompactionSummaryProperty,
-			maxCharacters: limits.maxLength,
-			reduction: providerCompactionReductionCheck(limits),
-		},
-		rawResponse,
-	);
-}
-
 function providerCompactionSummaryFromResponseMessage(
 	message: unknown,
 	rawResponse: string,
 	limits: ProviderCompactionValidationLimits = defaultProviderCompactionSummaryLimits,
 	mode: ProviderCompactionMode = "structured_output",
 ): string {
-	if (mode !== "structured_output") {
-		return providerCompactionSummaryFromToolMessage(message, rawResponse, limits);
-	}
-	return providerStructuredOutputFromMessageContent(
-		message,
-		{
-			kind: "compaction",
-			property: providerCompactionSummaryProperty,
-			label: providerCompactionSummaryProperty,
-			maxCharacters: limits.maxLength,
-			reduction: providerCompactionReductionCheck(limits),
-		},
-		rawResponse,
-	);
+	return providerSingleStringResponseFromMessage(message, providerCompactionSummarySpec(limits), rawResponse, mode);
 }
 
 function providerTranslationFromToolMessage(message: unknown, rawResponse: string): string {
-	return providerStructuredOutputFromToolMessage(
+	return providerSingleStringResponseFromMessage(
 		message,
 		{
 			kind: "translation",
-			toolName: providerTranslationToolName,
 			property: "translation",
 			label: "translation",
 			maxCharacters: providerTranslationMaxCompletionTokens * 8,
+			toolName: providerTranslationToolName,
 		},
 		rawResponse,
+		"tool_call",
 	).trim();
+}
+
+function providerSingleStringResponseFromMessage(
+	message: unknown,
+	spec: ProviderSingleStringResponseSpec,
+	rawResponse: string,
+	mode: ProviderCompactionMode,
+): string {
+	if (mode === "structured_output") {
+		return providerStructuredOutputFromMessageContent(message, spec, rawResponse);
+	}
+	if (!spec.toolName) {
+		throw new Error(`Provider single-string response ${spec.kind} requires a tool name for tool-call mode.`);
+	}
+	return providerStructuredOutputFromToolMessage(message, spec as ProviderSingleStringResponseSpec & { toolName: string }, rawResponse);
 }
 
 function providerStructuredOutputFromMessageContent(
 	messageValue: unknown,
-	spec: {
-		kind: "compaction" | "translation";
-		property: string;
-		label: string;
-		minCharacters?: number;
-		maxCharacters: number;
-		reduction?: ProviderCompactionReductionCheck;
-	},
+	spec: ProviderSingleStringResponseSpec,
 	rawResponse: string,
 ): string {
 	const message = runtimeRecord(messageValue);
 	const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls.map(providerToolCallFromValue).filter((toolCall): toolCall is BotInferenceSubmissionToolCall => Boolean(toolCall)) : [];
 	if (toolCalls.length > 0) {
-		throw new ProviderStructuredOutputValidationError(spec.kind, "META: don't make any tool calls. You must reply with the structured detailed first-person summary strictly following the required JSON schema.", {
+		const repairMessage =
+			spec.kind === "compaction" ?
+				"META: don't make any tool calls. You must reply with the structured detailed first-person summary strictly following the required JSON schema."
+			:	`Do not use a Bickr control for this response. Reply with the required JSON object containing only ${spec.property}.`;
+		throw new ProviderStructuredOutputValidationError(spec.kind, repairMessage, {
 			rawResponse,
+			outputText: providerMessageTextContent(message.content),
 			toolCalls,
 		});
 	}
-	const content = stringValue(message.content);
+	const content = providerMessageTextContent(message.content);
 	if (!content) {
-		throw new ProviderStructuredOutputValidationError(spec.kind, "No structured output content was returned.", { rawResponse });
+		throw new ProviderStructuredOutputValidationError(spec.kind, `The ${spec.label} response was empty.`, { rawResponse });
 	}
 	const parsed = parseProviderStructuredMessageContent(content, spec, rawResponse);
 	return providerStructuredOutputPropertyFromRecord(parsed, spec, rawResponse, []);
@@ -10097,38 +9990,31 @@ function providerStructuredOutputFromMessageContent(
 
 function parseProviderStructuredMessageContent(
 	content: string,
-	spec: { kind: "compaction" | "translation" },
+	spec: Pick<ProviderSingleStringResponseSpec, "kind" | "label">,
 	rawResponse: string,
 ): unknown {
 	try {
 		return JSON.parse(content) as unknown;
 	} catch {
-		if (spec.kind === "compaction") {
-			const firstBrace = content.indexOf("{");
-			const lastBrace = content.lastIndexOf("}");
-			if (firstBrace >= 0 && lastBrace > firstBrace) {
-				try {
-					return JSON.parse(content.slice(firstBrace, lastBrace + 1)) as unknown;
-				} catch {
-					// Fall through to the shared validation error below.
-				}
+		const firstBrace = content.indexOf("{");
+		const lastBrace = content.lastIndexOf("}");
+		if (firstBrace >= 0 && lastBrace > firstBrace) {
+			try {
+				return JSON.parse(content.slice(firstBrace, lastBrace + 1)) as unknown;
+			} catch {
+				// Fall through to the shared validation error below.
 			}
 		}
 	}
-	throw new ProviderStructuredOutputValidationError(spec.kind, "The structured output content was not valid JSON.", { rawResponse });
+	throw new ProviderStructuredOutputValidationError(spec.kind, `The ${spec.label} response must be a JSON object.`, {
+		rawResponse,
+		...(spec.kind === "compaction" ? {} : { outputText: content }),
+	});
 }
 
 function providerStructuredOutputFromToolMessage(
 	messageValue: unknown,
-	spec: {
-		kind: "compaction" | "translation";
-		toolName: string;
-		property: string;
-		label: string;
-		minCharacters?: number;
-		maxCharacters: number;
-		reduction?: ProviderCompactionReductionCheck;
-	},
+	spec: ProviderSingleStringResponseSpec & { toolName: string },
 	rawResponse: string,
 ): string {
 	const message = runtimeRecord(messageValue);
@@ -10175,15 +10061,7 @@ function providerStructuredOutputFromToolMessage(
 
 function providerStructuredOutputPropertyFromRecord(
 	parsed: unknown,
-	spec: {
-		kind: "compaction" | "translation";
-		toolName?: string;
-		property: string;
-		label: string;
-		minCharacters?: number;
-		maxCharacters: number;
-		reduction?: ProviderCompactionReductionCheck;
-	},
+	spec: ProviderSingleStringResponseSpec,
 	rawResponse: string,
 	toolCalls: BotInferenceSubmissionToolCall[],
 ): string {
@@ -10247,7 +10125,7 @@ type ProviderCompactionReductionCheck = (summary: string) => {
 };
 
 function providerCompactionReductionCheck(
-	limits: ProviderCompactionValidationLimits,
+	limits: Partial<Pick<ProviderCompactionSummaryLimits, "compactedCharacterCount" | "tokensPerCharacter">>,
 ): ProviderCompactionReductionCheck | undefined {
 	const compactedCharacters = Number(limits.compactedCharacterCount);
 	const tokensPerCharacter = Number(limits.tokensPerCharacter);
@@ -10269,17 +10147,16 @@ function providerCompactionReductionCheck(
 	};
 }
 
-function providerToolCallFromValue(value: unknown): BotInferenceSubmissionToolCall | null {
+function providerToolCallFromValue(value: unknown, index = 0): BotInferenceSubmissionToolCall | null {
 	const record = runtimeRecord(value);
 	const fn = runtimeRecord(record.function);
-	const id = stringValue(record.id);
 	const name = stringValue(fn.name);
 	const args = stringValue(fn.arguments);
-	if (!id || !name || args === undefined) {
+	if (!name || args === undefined) {
 		return null;
 	}
 	return {
-		id,
+		id: stringValue(record.id) ?? `call_recovered_${index}`,
 		type: "function",
 		function: {
 			name,

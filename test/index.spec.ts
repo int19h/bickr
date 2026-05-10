@@ -16708,9 +16708,13 @@ describe("Bickr Pages Functions", () => {
 					choices: [
 						{
 							message: {
-								content: JSON.stringify({
-									description: "I stand in a bright studio wearing a deep green jacket, with amber rim light catching the edges of my face.",
-								}),
+								content: [
+									"I can picture it clearly.",
+									JSON.stringify({
+										description: "I stand in a bright studio wearing a deep green jacket, with amber rim light catching the edges of my face.",
+									}),
+									"That is the profile image description.",
+								].join("\n"),
 							},
 						},
 					],
