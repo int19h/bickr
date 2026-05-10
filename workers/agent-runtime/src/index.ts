@@ -8852,13 +8852,31 @@ function providerStructuredOutputFromMessageContent(
 	if (!content) {
 		throw new ProviderStructuredOutputValidationError(spec.kind, "No structured output content was returned.", { rawResponse });
 	}
-	let parsed: unknown;
-	try {
-		parsed = JSON.parse(content);
-	} catch {
-		throw new ProviderStructuredOutputValidationError(spec.kind, "The structured output content was not valid JSON.", { rawResponse });
-	}
+	const parsed = parseProviderStructuredMessageContent(content, spec, rawResponse);
 	return providerStructuredOutputPropertyFromRecord(parsed, spec, rawResponse, []);
+}
+
+function parseProviderStructuredMessageContent(
+	content: string,
+	spec: { kind: "compaction" | "translation" },
+	rawResponse: string,
+): unknown {
+	try {
+		return JSON.parse(content) as unknown;
+	} catch {
+		if (spec.kind === "compaction") {
+			const firstBrace = content.indexOf("{");
+			const lastBrace = content.lastIndexOf("}");
+			if (firstBrace >= 0 && lastBrace > firstBrace) {
+				try {
+					return JSON.parse(content.slice(firstBrace, lastBrace + 1)) as unknown;
+				} catch {
+					// Fall through to the shared validation error below.
+				}
+			}
+		}
+	}
+	throw new ProviderStructuredOutputValidationError(spec.kind, "The structured output content was not valid JSON.", { rawResponse });
 }
 
 function providerStructuredOutputFromToolMessage(

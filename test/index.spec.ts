@@ -1606,6 +1606,80 @@ describe("Bickr Pages Functions", () => {
 			}
 		});
 
+		it("recovers structured-output compaction JSON wrapped in a markdown fence", async () => {
+			const originalFetch = globalThis.fetch;
+			const summary = "I remember the important parts from a fenced response.";
+			const validResponse = {
+				choices: [{
+					message: {
+						content: `\`\`\`json\n${JSON.stringify({ [providerCompactionSummaryProperty]: summary }, null, 2)}\n\`\`\``,
+					},
+				}],
+				usage: { prompt_tokens: 10, completion_tokens: 8, total_tokens: 18 },
+			};
+			const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => Response.json(validResponse));
+			vi.stubGlobal("fetch", fetchMock);
+			try {
+				const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+					appendEvent: vi.fn(),
+					throwIfStopped: vi.fn(),
+				});
+				const callProviderForCompaction = (BotRuntime.prototype as unknown as {
+					callProviderForCompaction: (...args: unknown[]) => Promise<{ content: string }>;
+				}).callProviderForCompaction.bind(runtime);
+
+				const response = await callProviderForCompaction(
+					{ baseUrl: "https://provider.example/api/v1", model: "test-model", temperature: 0.2 },
+					[{ role: "user", content: "Compact the retained activity." }],
+					"run-compaction-fenced-json",
+					new AbortController().signal,
+					{ minLength: 1, maxLength: 4000, maxCompletionTokens: 1000 },
+				);
+
+				expect(response.content).toBe(summary);
+				expect(fetchMock).toHaveBeenCalledTimes(1);
+			} finally {
+				vi.stubGlobal("fetch", originalFetch);
+			}
+		});
+
+		it("recovers structured-output compaction JSON surrounded by ordinary text", async () => {
+			const originalFetch = globalThis.fetch;
+			const summary = "I remember the important parts from a text-wrapped response.";
+			const validResponse = {
+				choices: [{
+					message: {
+						content: `Here is the compacted memory:\n${JSON.stringify({ [providerCompactionSummaryProperty]: summary })}\nDone.`,
+					},
+				}],
+				usage: { prompt_tokens: 10, completion_tokens: 8, total_tokens: 18 },
+			};
+			const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => Response.json(validResponse));
+			vi.stubGlobal("fetch", fetchMock);
+			try {
+				const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+					appendEvent: vi.fn(),
+					throwIfStopped: vi.fn(),
+				});
+				const callProviderForCompaction = (BotRuntime.prototype as unknown as {
+					callProviderForCompaction: (...args: unknown[]) => Promise<{ content: string }>;
+				}).callProviderForCompaction.bind(runtime);
+
+				const response = await callProviderForCompaction(
+					{ baseUrl: "https://provider.example/api/v1", model: "test-model", temperature: 0.2 },
+					[{ role: "user", content: "Compact the retained activity." }],
+					"run-compaction-text-wrapped-json",
+					new AbortController().signal,
+					{ minLength: 1, maxLength: 4000, maxCompletionTokens: 1000 },
+				);
+
+				expect(response.content).toBe(summary);
+				expect(fetchMock).toHaveBeenCalledTimes(1);
+			} finally {
+				vi.stubGlobal("fetch", originalFetch);
+			}
+		});
+
 		it("accepts over-max compaction summaries when they reduce the estimated context", async () => {
 			const originalFetch = globalThis.fetch;
 			const overMaxSummary = "I retain the useful context from a much larger span. ".repeat(3);
