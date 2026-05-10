@@ -3875,6 +3875,74 @@ describe("Bickr Pages Functions", () => {
 		expect(sql.providerNames()).toEqual(["Together"]);
 	});
 
+	it("stores OpenRouter router metadata provider names without generation lookup", async () => {
+		const sql = capturingProviderUsageSql();
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			state: { storage: { sql } },
+		});
+		const recordProviderUsage = (BotRuntime.prototype as unknown as {
+			recordProviderUsage: (input: RecordProviderUsageInputForTest) => Promise<void>;
+		}).recordProviderUsage.bind(runtime);
+		const originalFetch = globalThis.fetch;
+		const fetchMock = vi.fn();
+		vi.stubGlobal("fetch", fetchMock);
+		try {
+			await recordProviderUsage(providerUsageInputForTest({
+				providerName: "Google AI Studio",
+				providerResponseId: "gen-provider",
+			}));
+		} finally {
+			vi.stubGlobal("fetch", originalFetch);
+		}
+
+		expect(fetchMock).not.toHaveBeenCalled();
+		expect(sql.providerNames()).toEqual(["Google AI Studio"]);
+	});
+
+	it("opts OpenRouter streaming requests into router metadata and keeps the generation id header", async () => {
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {});
+		const fetchProviderResponse = (BotRuntime.prototype as unknown as {
+			fetchProviderResponse: (
+				settings: Record<string, unknown>,
+				endpoint: string,
+				body: string,
+				signal: AbortSignal,
+			) => Promise<{ stream: ReadableStream<Uint8Array>; responseId?: string }>;
+		}).fetchProviderResponse.bind(runtime);
+		const originalFetch = globalThis.fetch;
+		const fetchMock = vi.fn(async () => new Response(sseStream(["[DONE]"]), {
+			headers: { "x-generation-id": "gen-header" },
+		}));
+		vi.stubGlobal("fetch", fetchMock);
+		let response: { responseId?: string } | undefined;
+		try {
+			response = await fetchProviderResponse(
+				{
+					apiKey: "sk-or-test",
+					baseUrl: "https://openrouter.ai/api/v1",
+					model: "requested/model",
+					temperature: 0.2,
+				},
+				"https://openrouter.ai/api/v1/chat/completions",
+				"{}",
+				new AbortController().signal,
+			);
+		} finally {
+			vi.stubGlobal("fetch", originalFetch);
+		}
+
+		expect(fetchMock).toHaveBeenCalledWith(
+			"https://openrouter.ai/api/v1/chat/completions",
+			expect.objectContaining({
+				headers: expect.objectContaining({
+					"X-OpenRouter-Experimental-Metadata": "enabled",
+					authorization: "Bearer sk-or-test",
+				}),
+			}),
+		);
+		expect(response?.responseId).toBe("gen-header");
+	});
+
 	it("keeps provider usage when OpenRouter provider metadata is unavailable", async () => {
 		const sql = capturingProviderUsageSql();
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
@@ -6085,8 +6153,69 @@ describe("Bickr Pages Functions", () => {
 						status: "complete",
 						streamSeq: 42,
 					},
-				},
+			},
 		]);
+	});
+
+	it("captures OpenRouter router metadata from streamed final chunks", async () => {
+		type TestProviderResponse = {
+			content: string;
+			responseId?: string;
+			responseProviderName?: string;
+			toolCalls: Array<Record<string, unknown>>;
+		};
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			broadcastProviderDelta: () => {},
+			clearProviderStreamActive: () => {},
+			markProviderStreamActive: () => {},
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const consumeProviderResponse = (BotRuntime.prototype as unknown as {
+			consumeProviderResponse: (
+				runId: string,
+				streamSeq: number,
+				stream: ReadableStream<Uint8Array>,
+				signal: AbortSignal,
+				generationResponseId?: string,
+			) => Promise<TestProviderResponse>;
+		}).consumeProviderResponse.bind(runtime);
+
+		const response = await consumeProviderResponse(
+			"run-router-metadata",
+			42,
+			sseStream([
+				{
+					id: "chatcmpl-upstream",
+					model: "test/model",
+					choices: [{ delta: { content: "Done." } }],
+				},
+				{
+					choices: [],
+					usage: { prompt_tokens: 10, completion_tokens: 2, total_tokens: 12 },
+					openrouter_metadata: {
+						endpoints: {
+							available: [
+								{ provider: "DeepInfra", model: "test/model", selected: true },
+							],
+						},
+					},
+				},
+				"[DONE]",
+			]),
+			new AbortController().signal,
+			"gen-header",
+		);
+
+		expect(response).toMatchObject({
+			content: "Done.",
+			responseId: "gen-header",
+			responseProviderName: "DeepInfra",
+			toolCalls: [],
+		});
 	});
 
 	it("uses the provider request sequence as the live stream identity for final loop messages", async () => {
@@ -15444,6 +15573,7 @@ function providerPromptEstimateForTokens(promptTokens: number) {
 type RecordProviderUsageInputForTest = {
 	contextWindowTokens: number;
 	createdAt: string;
+	providerName?: string;
 	providerResponseId?: string;
 	requestSeq: number;
 	responseModel?: string;

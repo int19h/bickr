@@ -258,6 +258,7 @@ type ProviderCompactionResponsePayload = {
 	id?: unknown;
 	model?: unknown;
 	usage?: unknown;
+	openrouter_metadata?: unknown;
 	choices?: Array<{
 		finish_reason?: unknown;
 		native_finish_reason?: unknown;
@@ -350,7 +351,13 @@ type ProviderResponse = {
 	usage?: ProviderUsage;
 	responseId?: string;
 	responseModel?: string;
+	responseProviderName?: string;
 };
+
+type ProviderStreamFetchResponse = Readonly<{
+	stream: ReadableStream<Uint8Array>;
+	responseId?: string;
+}> | ReadableStream<Uint8Array>;
 
 type ProviderPromptBudgetCheck = {
 	allowedPromptTokens: number;
@@ -1048,6 +1055,8 @@ const providerResponseBodyMaxBytes = 2_000_000;
 const providerFailureRawResponseMaxCharacters = 64_000;
 const openRouterGenerationMetadataMaxBytes = 64_000;
 const openRouterGenerationMetadataTimeoutMs = 5_000;
+const openRouterExperimentalMetadataHeader = "X-OpenRouter-Experimental-Metadata";
+const openRouterGenerationIdHeader = "x-generation-id";
 const serviceBindingTimeoutMs = 30_000;
 const serviceBindingResponseBodyMaxBytes = 1_000_000;
 const scheduledDispatchTimeoutMs = 10_000;
@@ -3644,6 +3653,7 @@ export class BotRuntime {
 					await this.recordProviderUsage({
 						contextWindowTokens: requestContextWindowTokens,
 						createdAt: requestEvent.createdAt,
+						providerName: response.responseProviderName,
 						providerResponseId: response.responseId,
 						requestSeq: requestEvent.seq,
 						responseModel: response.responseModel,
@@ -3950,8 +3960,8 @@ export class BotRuntime {
 			lastBody = body;
 
 			try {
-				const stream = await this.fetchProviderResponse(requestSettings, endpoint, body, signal);
-				const response = await this.consumeProviderResponse(runId, streamSeq, stream, signal);
+				const streamResponse = providerStreamFetchResponse(await this.fetchProviderResponse(requestSettings, endpoint, body, signal));
+				const response = await this.consumeProviderResponse(runId, streamSeq, streamResponse.stream, signal, streamResponse.responseId);
 				if (response.usage) {
 					this.recordProviderTokenCalibrationSample({
 						attempt: calibrationAttempt,
@@ -4022,7 +4032,7 @@ export class BotRuntime {
 		mode: ProviderCompactionMode = "structured_output",
 		requestSeq = 0,
 		createdAt = new Date().toISOString(),
-	): Promise<Pick<ProviderResponse, "usage" | "responseId" | "responseModel" | "requestBody" | "rawResponse"> & { content: string }> {
+	): Promise<Pick<ProviderResponse, "usage" | "responseId" | "responseModel" | "responseProviderName" | "requestBody" | "rawResponse"> & { content: string }> {
 		const endpoint = providerChatCompletionsUrl(settings.baseUrl);
 		const effectiveProviderTools = providerTools ?? providerCompactionToolsForMode(limits, undefined, mode);
 		let requestMessages = messages;
@@ -4132,14 +4142,16 @@ export class BotRuntime {
 		streamSeq: number,
 		stream: ReadableStream<Uint8Array>,
 		signal: AbortSignal,
+		generationResponseId?: string,
 	): Promise<ProviderResponse> {
 		let content = "";
 		let reasoning = "";
 		const reasoningDetails: ReasoningDetail[] = [];
 		const toolCalls = new Map<number, ToolCall>();
 		let usage: ProviderUsage | undefined;
-		let responseId: string | undefined;
+		let responseId: string | undefined = generationResponseId;
 		let responseModel: string | undefined;
+		let responseProviderName: string | undefined;
 		let rawResponse = "";
 		this.markProviderStreamActive(runId);
 		try {
@@ -4157,6 +4169,7 @@ export class BotRuntime {
 					model?: unknown;
 					usage?: unknown;
 					error?: unknown;
+					openrouter_metadata?: unknown;
 					choices?: Array<{
 						delta?: {
 							content?: string;
@@ -4172,9 +4185,10 @@ export class BotRuntime {
 						};
 					}>;
 				};
-				responseId = stringValue(chunk.id) ?? responseId;
+				responseId = responseId ?? stringValue(chunk.id);
 				responseModel = stringValue(chunk.model) ?? responseModel;
 				usage = providerUsageFromValue(chunk.usage) ?? usage;
+				responseProviderName = openRouterMetadataProviderName(chunk.openrouter_metadata) ?? responseProviderName;
 				const providerError = providerStreamErrorFromChunk(chunk);
 				if (providerError) {
 					throw providerError;
@@ -4239,6 +4253,7 @@ export class BotRuntime {
 							...(usage ? { usage } : {}),
 							...(responseId ? { responseId } : {}),
 							...(responseModel ? { responseModel } : {}),
+							...(responseProviderName ? { responseProviderName } : {}),
 						},
 						error,
 					);
@@ -4256,6 +4271,7 @@ export class BotRuntime {
 			...(usage ? { usage } : {}),
 			...(responseId ? { responseId } : {}),
 			...(responseModel ? { responseModel } : {}),
+			...(responseProviderName ? { responseProviderName } : {}),
 		};
 		if (providerResponseIsEmpty(response)) {
 			throw new ProviderEmptyResponseError(response.rawResponse, {
@@ -5043,6 +5059,7 @@ export class BotRuntime {
 	private async recordProviderUsage(input: {
 		contextWindowTokens: number;
 		createdAt: string;
+		providerName?: string;
 		providerResponseId?: string;
 		requestSeq: number;
 		responseModel?: string;
@@ -5051,7 +5068,7 @@ export class BotRuntime {
 		usage: ProviderUsage;
 	}): Promise<void> {
 		const model = input.responseModel?.trim() || input.settings.model;
-		const providerName = await this.providerUsageProviderName(input.settings, input.providerResponseId);
+		const providerName = await this.providerUsageProviderName(input.settings, input.providerName, input.providerResponseId);
 		this.state.storage.sql.exec(
 			`INSERT INTO provider_usage (
 				run_id, request_seq, provider_response_id, requested_model, response_model, model,
@@ -5079,9 +5096,17 @@ export class BotRuntime {
 		);
 	}
 
-	private async providerUsageProviderName(settings: ProviderSettings, providerResponseId: string | undefined): Promise<string | null> {
+	private async providerUsageProviderName(
+		settings: ProviderSettings,
+		responseProviderName: string | undefined,
+		providerResponseId: string | undefined,
+	): Promise<string | null> {
 		if (!isOpenRouterProviderBaseUrl(settings.baseUrl)) {
 			return providerNameFromBaseUrl(settings.baseUrl);
+		}
+		const providerName = normalizedProviderName(responseProviderName);
+		if (providerName) {
+			return providerName;
 		}
 		if (!settings.apiKey || !providerResponseId?.trim()) {
 			return null;
@@ -5751,13 +5776,8 @@ export class BotRuntime {
 		endpoint: string,
 		body: string,
 		signal: AbortSignal,
-	): Promise<ReadableStream<Uint8Array>> {
-		const headers: Record<string, string> = {
-			"content-type": "application/json",
-		};
-		if (settings.apiKey) {
-			headers.authorization = `Bearer ${settings.apiKey}`;
-		}
+	): Promise<ProviderStreamFetchResponse> {
+		const headers = providerJsonRequestHeaders(settings);
 		const response = await providerFetchWithHeaderTimeout(
 			endpoint,
 			{
@@ -5773,7 +5793,11 @@ export class BotRuntime {
 			if (!response.body) {
 				throw new ProviderRequestError(502, settings.model, endpoint, "Inference provider did not return a streaming response body.");
 			}
-			return response.body;
+			const responseId = openRouterGenerationIdFromHeaders(response.headers);
+			return {
+				stream: response.body,
+				...(responseId ? { responseId } : {}),
+			};
 		}
 
 		const bodyText = await readProviderErrorBody(response, signal);
@@ -5787,13 +5811,8 @@ export class BotRuntime {
 		signal: AbortSignal,
 		limits: ProviderCompactionValidationLimits = defaultProviderCompactionSummaryLimits,
 		mode: ProviderCompactionMode = "structured_output",
-	): Promise<Pick<ProviderResponse, "usage" | "responseId" | "responseModel" | "rawResponse"> & { content: string }> {
-		const headers: Record<string, string> = {
-			"content-type": "application/json",
-		};
-		if (settings.apiKey) {
-			headers.authorization = `Bearer ${settings.apiKey}`;
-		}
+	): Promise<Pick<ProviderResponse, "usage" | "responseId" | "responseModel" | "responseProviderName" | "rawResponse"> & { content: string }> {
+		const headers = providerJsonRequestHeaders(settings);
 		const response = await providerFetchWithHeaderTimeout(
 			endpoint,
 			{
@@ -5810,6 +5829,7 @@ export class BotRuntime {
 			throw new ProviderRequestError(response.status, settings.model, endpoint, bodyText);
 		}
 
+		const headerResponseId = openRouterGenerationIdFromHeaders(response.headers);
 		const rawResponse = await readJsonResponseText(
 			response,
 			providerResponseBodyMaxBytes,
@@ -5827,8 +5847,9 @@ export class BotRuntime {
 		const finishReason = stringValue(choice?.finish_reason) ?? "";
 		const nativeFinishReason = stringValue(choice?.native_finish_reason) ?? "";
 		const usage = providerUsageFromValue(payload.usage);
-		const responseId = stringValue(payload.id);
+		const responseId = headerResponseId ?? stringValue(payload.id);
 		const responseModel = stringValue(payload.model);
+		const responseProviderName = openRouterMetadataProviderName(payload.openrouter_metadata);
 		if (providerCompactionOutputLimitReached(finishReason, nativeFinishReason)) {
 			throw new ProviderCompactionOutputLimitError(rawResponse, finishReason, nativeFinishReason, {
 				...(responseId ? { responseId } : {}),
@@ -5853,6 +5874,7 @@ export class BotRuntime {
 			...(usage ? { usage } : {}),
 			...(responseId ? { responseId } : {}),
 			...(responseModel ? { responseModel } : {}),
+			...(responseProviderName ? { responseProviderName } : {}),
 		};
 	}
 
@@ -7145,7 +7167,7 @@ export class BotRuntime {
 		}
 		const providerTools = providerToolsForBotRound(bot, settings).tools;
 		const providerActive = Boolean(settings.apiKey || settings.usesCustomBaseUrl || this.env.BICKR_SIMULATION_MODE === "provider");
-		let response: (Pick<ProviderResponse, "usage" | "responseId" | "responseModel" | "requestBody" | "rawResponse"> & { content: string }) | null = null;
+		let response: (Pick<ProviderResponse, "usage" | "responseId" | "responseModel" | "responseProviderName" | "requestBody" | "rawResponse"> & { content: string }) | null = null;
 		let summaryEvent: BotRuntimeEvent | null = null;
 		let compactionEventPayload: Record<string, unknown> | null = null;
 		let compactionLimits: ProviderCompactionSummaryLimits | null = null;
@@ -7289,6 +7311,7 @@ export class BotRuntime {
 			await this.recordProviderUsage({
 				contextWindowTokens: tickSettings.contextWindowTokens,
 				createdAt: summaryEvent.createdAt,
+				providerName: response.responseProviderName,
 				providerResponseId: response.responseId,
 				requestSeq: summaryEvent.seq,
 				responseModel: response.responseModel,
@@ -10267,6 +10290,68 @@ function providerUsageFromValue(value: unknown): ProviderUsage | undefined {
 		cost: numberValue(record.cost) ?? null,
 		raw: record,
 	};
+}
+
+function providerJsonRequestHeaders(settings: Pick<ProviderSettings, "apiKey" | "baseUrl">): Record<string, string> {
+	const headers: Record<string, string> = {
+		"content-type": "application/json",
+	};
+	if (settings.apiKey) {
+		headers.authorization = `Bearer ${settings.apiKey}`;
+	}
+	if (isOpenRouterProviderBaseUrl(settings.baseUrl)) {
+		headers[openRouterExperimentalMetadataHeader] = "enabled";
+	}
+	return headers;
+}
+
+function providerStreamFetchResponse(response: ProviderStreamFetchResponse): Readonly<{
+	stream: ReadableStream<Uint8Array>;
+	responseId?: string;
+}> {
+	if (response && typeof response === "object" && "stream" in response) {
+		return response;
+	}
+	return { stream: response };
+}
+
+function openRouterGenerationIdFromHeaders(headers: Headers): string | undefined {
+	return trimmed(headers.get(openRouterGenerationIdHeader) ?? undefined);
+}
+
+function openRouterMetadataProviderName(payload: unknown): string | null {
+	const metadata = runtimeRecord(payload);
+	const direct = normalizedProviderName(
+		stringValue(metadata.provider_name) ??
+		stringValue(metadata.provider) ??
+		stringValue(metadata.selected_provider),
+	);
+	if (direct) {
+		return direct;
+	}
+
+	const endpoints = runtimeRecord(metadata.endpoints);
+	const available = Array.isArray(endpoints.available) ? endpoints.available.map(runtimeRecord) : [];
+	const selectedEndpoint = available.find((item) => item.selected === true) ?? (available.length === 1 ? available[0] : undefined);
+	const selectedProvider = normalizedProviderName(
+		stringValue(selectedEndpoint?.provider) ?? stringValue(selectedEndpoint?.provider_name),
+	);
+	if (selectedProvider) {
+		return selectedProvider;
+	}
+
+	const attempts = Array.isArray(metadata.attempts) ? metadata.attempts.map(runtimeRecord) : [];
+	const successfulAttempt = attempts.find((item) => {
+		const status = numberValue(item.status);
+		return status !== undefined && status >= 200 && status < 300;
+	});
+	const attemptProvider = normalizedProviderName(
+		stringValue(successfulAttempt?.provider) ??
+		stringValue(successfulAttempt?.provider_name) ??
+		stringValue(attempts.at(-1)?.provider) ??
+		stringValue(attempts.at(-1)?.provider_name),
+	);
+	return attemptProvider;
 }
 
 async function fetchOpenRouterGenerationProviderName(
