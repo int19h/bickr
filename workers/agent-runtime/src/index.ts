@@ -1346,7 +1346,7 @@ function providerCompactionSystemInstruction(bot: BotDocument, tools: readonly P
 function providerCompactionSummaryInstruction(bot: Pick<BotDocument, "handle">, limits: Pick<ProviderCompactionSummaryLimits, "minLength" | "maxLength">, mode: ProviderCompactionMode): string {
 	const lengthInstruction = providerCompactionLengthInstruction(limits);
 	if (mode === "structured_output") {
-		return `META: Context compaction required. Reply with a JSON object matching the required structured output schema, and do not use any Bickr control. Put a detailed summary of only the recent events being compacted, excluding the system instructions and persona prompt, from the first-person perspective of u/${bot.handle}, in the "${providerCompactionSummaryProperty}" field; your response will become the long-term memory of these events, replacing them in context henceforth. ${lengthInstruction}`;
+		return `META: Context compaction required. Don't spend any time thinking about this; respond immediately with JSON summary. Reply with a JSON object matching the required structured output schema, and do not use any Bickr control. Put a detailed summary of only the recent events being compacted, excluding the system instructions and persona prompt, from the first-person perspective of u/${bot.handle}, in the "${providerCompactionSummaryProperty}" field; your response will become the long-term memory of these events, replacing them in context henceforth. ${lengthInstruction}`;
 	}
 	return `META: Context compaction required. Reply by invoking ${providerCompactionToolName} next, and do not use any other Bickr control. Put a detailed summary of only the recent events being compacted, excluding the system instructions and persona prompt, from the first-person perspective of u/${bot.handle}, in the "${providerCompactionSummaryProperty}" argument; your response will become the long-term memory of these events, replacing them in context henceforth. ${lengthInstruction}`;
 }
@@ -1354,7 +1354,7 @@ function providerCompactionSummaryInstruction(bot: Pick<BotDocument, "handle">, 
 function providerCompactionShortenInstruction(limits: Pick<ProviderCompactionSummaryLimits, "minLength" | "maxLength">, mode: ProviderCompactionMode): string {
 	const lengthInstruction = providerCompactionLengthInstruction(limits);
 	if (mode === "structured_output") {
-		return `META: The previous context compaction attempt produced a summary that was too long. Reply with a JSON object matching the required structured output schema, and do not use any Bickr control. Put a shorter first-person memory summary in the "${providerCompactionSummaryProperty}" field. ${lengthInstruction}`;
+		return `META: The previous context compaction attempt produced a summary that was too long. Don't spend any time thinking about this; respond immediately with JSON summary. Reply with a JSON object matching the required structured output schema, and do not use any Bickr control. Put a shorter first-person memory summary in the "${providerCompactionSummaryProperty}" field. ${lengthInstruction}`;
 	}
 	return `META: The previous context compaction attempt produced a summary that was too long. Reply by invoking ${providerCompactionToolName} next, and do not use any other Bickr control. Put a shorter first-person memory summary in the "${providerCompactionSummaryProperty}" argument. ${lengthInstruction}`;
 }
@@ -7469,6 +7469,7 @@ export class BotRuntime {
 			this.compactionPromptTokenLimit(bot, rows.map((item) => item.row), calibration, providerTools, mode),
 			{
 				canIncludeRows: (selectedRows) => this.compactionRowsLeaveOutputBudget(bot, selectedRows, calibration, providerTools, mode),
+				requireMinimumSelectedTokens: true,
 			},
 		);
 	}
@@ -12518,7 +12519,7 @@ const compactionOverBudgetFallbackMinSelectedTokens = 1_000;
 function oldestLoopMessageGroupSelectionForPromptLimit(
 	rows: readonly CompactionCandidateEstimate[],
 	limitTokens: number,
-	options: { canIncludeRows?: (rows: readonly LoopMessageRow[]) => boolean } = {},
+	options: { canIncludeRows?: (rows: readonly LoopMessageRow[]) => boolean; requireMinimumSelectedTokens?: boolean } = {},
 ): CompactionRowSelection {
 	const groups = loopMessageCompactionGroups(rows);
 	const promptLimitTokens = Math.max(1, Math.floor(limitTokens));
@@ -12529,11 +12530,10 @@ function oldestLoopMessageGroupSelectionForPromptLimit(
 		const nextTokens = selectedTokens + group.tokens;
 		const nextRows = [...selected, ...group.rows];
 		const leavesOutputBudget = options.canIncludeRows?.(nextRows) !== false;
-		if (nextTokens >= targetTokens || !leavesOutputBudget) {
+		if (nextTokens > promptLimitTokens || !leavesOutputBudget) {
 			if (
 				selectedTokens < compactionOverBudgetFallbackMinSelectedTokens &&
-				group.rows.length > 0 &&
-				(nextTokens > promptLimitTokens || !leavesOutputBudget)
+				group.rows.length > 0
 			) {
 				return {
 					rows: nextRows,
@@ -12545,11 +12545,19 @@ function oldestLoopMessageGroupSelectionForPromptLimit(
 				overBudgetFallback: false,
 			};
 		}
+		if (nextTokens >= targetTokens) {
+			return {
+				rows: selectedTokens < compactionOverBudgetFallbackMinSelectedTokens ? nextRows : selected,
+				overBudgetFallback: false,
+			};
+		}
 		selected.push(...group.rows);
 		selectedTokens = nextTokens;
 	}
 	return {
-		rows: selected,
+		rows:
+			options.requireMinimumSelectedTokens && selectedTokens < compactionOverBudgetFallbackMinSelectedTokens ? []
+			:	selected,
 		overBudgetFallback: false,
 	};
 }
@@ -12568,7 +12576,11 @@ function reducedCompactionRowsAfterOutputLimit(rows: readonly LoopMessageRow[], 
 	let selectedGroups: Array<{ rows: LoopMessageRow[]; tokens: number }> = [];
 	let selectedTokens = 0;
 	for (const group of groups) {
-		if (selectedGroups.length > 0 && selectedTokens + group.tokens > targetTokens) {
+		if (
+			selectedGroups.length > 0 &&
+			selectedTokens >= compactionOverBudgetFallbackMinSelectedTokens &&
+			selectedTokens + group.tokens > targetTokens
+		) {
 			break;
 		}
 		selectedGroups.push(group);
@@ -12579,6 +12591,10 @@ function reducedCompactionRowsAfterOutputLimit(rows: readonly LoopMessageRow[], 
 	}
 	if (selectedGroups.length === 0 || selectedGroups.length >= groups.length) {
 		selectedGroups = groups.slice(0, -1);
+	}
+	const reducedTokens = selectedGroups.reduce((total, group) => total + Math.max(0, group.tokens), 0);
+	if (reducedTokens < compactionOverBudgetFallbackMinSelectedTokens) {
+		return [...rows];
 	}
 	return selectedGroups.flatMap((group) => group.rows);
 }

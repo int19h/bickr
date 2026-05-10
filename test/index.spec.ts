@@ -1377,6 +1377,7 @@ describe("Bickr Pages Functions", () => {
 			expect(messages.slice(1, 3)).toEqual(compactedMessages);
 			expect(messages[3]).toMatchObject({ role: "user" });
 			expect(messages[3]?.content).toContain("META: Context compaction required.");
+			expect(messages[3]?.content).toContain("Don't spend any time thinking about this; respond immediately with JSON summary.");
 			expect(messages[3]?.content).toContain("structured output schema");
 			expect(messages[3]?.content).toContain("do not use any Bickr control");
 			expect(messages[3]?.content).toContain("u/release-sage");
@@ -2508,6 +2509,72 @@ describe("Bickr Pages Functions", () => {
 			expect(selected.overBudgetFallback).toBe(true);
 		});
 
+		it("includes the next fitting atomic group instead of compacting a tiny prefix", () => {
+			const large = (char: string) => char.repeat(60_000);
+			const rows = [
+				loopMessageRowForMessage(1, { role: "assistant", content: "small runtime note" }),
+				loopMessageRowForMessage(2, {
+					role: "assistant",
+					content: large("b"),
+					tool_calls: [
+						{
+							id: "call-read",
+							type: "function",
+							function: { name: "read_thread", arguments: "{}" },
+						},
+					],
+				}),
+				loopMessageRowForMessage(3, { role: "tool", tool_call_id: "call-read", content: large("c") }, "tool_result"),
+				loopMessageRowForMessage(4, { role: "assistant", content: large("d") }),
+			];
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				activeLoopMessageRows: () => rows,
+				textTokenCalibration: () => ({ tokensPerCharacter: 0.25, sampleCount: 0 }),
+			});
+			const compactionRowSelectionForEstimatedBudget = (BotRuntime.prototype as unknown as {
+				compactionRowSelectionForEstimatedBudget: (
+					bot: BotDocument,
+					providerTools?: ProviderToolDefinition[],
+					mode?: "structured_output" | "tool_call" | "tool_call_cache_friendly",
+				) => { rows: Array<{ seq: number }>; overBudgetFallback: boolean };
+			}).compactionRowSelectionForEstimatedBudget.bind(runtime);
+
+			const selected = compactionRowSelectionForEstimatedBudget(
+				fakeBotDocument({ contextWindowTokens: 64_000 }),
+				toolDefinitionsForProviderRound(),
+				"tool_call_cache_friendly",
+			);
+
+			expect(selected.rows.map((row) => row.seq)).toEqual([1, 2, 3]);
+			expect(selected.overBudgetFallback).toBe(false);
+		});
+
+		it("does not auto-compact a tiny complete provider history", () => {
+			const rows = [
+				loopMessageRowForMessage(1, { role: "assistant", content: "I remember a short summary." }, "compaction"),
+			];
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				activeLoopMessageRows: () => rows,
+				textTokenCalibration: () => ({ tokensPerCharacter: 0.25, sampleCount: 0 }),
+			});
+			const compactionRowSelectionForEstimatedBudget = (BotRuntime.prototype as unknown as {
+				compactionRowSelectionForEstimatedBudget: (
+					bot: BotDocument,
+					providerTools?: ProviderToolDefinition[],
+					mode?: "structured_output" | "tool_call" | "tool_call_cache_friendly",
+				) => { rows: Array<{ seq: number }>; overBudgetFallback: boolean };
+			}).compactionRowSelectionForEstimatedBudget.bind(runtime);
+
+			const selected = compactionRowSelectionForEstimatedBudget(
+				fakeBotDocument({ contextWindowTokens: 20_000 }),
+				toolDefinitionsForProviderRound(),
+				"tool_call_cache_friendly",
+			);
+
+			expect(selected.rows).toEqual([]);
+			expect(selected.overBudgetFallback).toBe(false);
+		});
+
 		it("excludes a prefix group that would leave too little compaction output budget", () => {
 			const text = (char: string, length: number) => char.repeat(length);
 			const rows = [
@@ -2591,16 +2658,16 @@ describe("Bickr Pages Functions", () => {
 			const activeLoopMessagesForProvider = (BotRuntime.prototype as unknown as {
 				activeLoopMessagesForProvider: () => Array<{ content?: unknown }>;
 			}).activeLoopMessagesForProvider.bind(runtime);
-			const compactionRowsForEstimatedBudget = (BotRuntime.prototype as unknown as {
-				compactionRowsForEstimatedBudget: (bot: BotDocument) => Array<{ seq: number }>;
-			}).compactionRowsForEstimatedBudget.bind(runtime);
+			const compactionCandidateRows = (BotRuntime.prototype as unknown as {
+				compactionCandidateRows: () => Array<{ seq: number }>;
+			}).compactionCandidateRows.bind(runtime);
 
 			expect(activeLoopMessagesForProvider().map((message) => message.content)).toEqual([
 				"Provider-visible old context.",
 				defaultReasoningPrefill("budget-bot"),
 				"Provider-visible newer context.",
 			]);
-			expect(compactionRowsForEstimatedBudget(fakeBotDocument({ contextWindowTokens: 6_000 })).map((row) => row.seq)).toEqual([1, 3, 4]);
+			expect(compactionCandidateRows().map((row) => row.seq)).toEqual([1, 3, 4]);
 		});
 
 			it("derives row token estimates from recent provider prompt history", () => {
@@ -3471,10 +3538,11 @@ describe("Bickr Pages Functions", () => {
 
 		it("shrinks the compaction row batch after provider output length exhaustion", async () => {
 			const originalFetch = globalThis.fetch;
+			const large = (label: string) => `${label} ${"x".repeat(4_000)}`;
 			const rows = [
-				loopMessageRowForTest(1, "run-old", "Old context one that can be compacted."),
-				loopMessageRowForTest(2, "run-old", "Old context two that should remain active after the shrink retry."),
-				loopMessageRowForTest(3, "run-old", "Old context three that should remain active after the shrink retry."),
+				loopMessageRowForTest(1, "run-old", large("Old context one that can be compacted.")),
+				loopMessageRowForTest(2, "run-old", large("Old context two that should remain active after the shrink retry.")),
+				loopMessageRowForTest(3, "run-old", large("Old context three that should remain active after the shrink retry.")),
 			];
 			const lengthResponse = {
 				choices: [{
@@ -3570,8 +3638,8 @@ describe("Bickr Pages Functions", () => {
 				const secondBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)) as { messages: BotInferenceSubmissionMessage[] };
 				expect(JSON.stringify(firstBody.messages)).toContain("Old context three");
 				expect(JSON.stringify(secondBody.messages)).toContain("Old context one");
-					expect(JSON.stringify(secondBody.messages)).not.toContain("Old context two");
-					expect(rows.map((row) => row.compacted_by)).toEqual([900, null, null]);
+				expect(JSON.stringify(secondBody.messages)).not.toContain("Old context two");
+				expect(rows.map((row) => row.compacted_by)).toEqual([900, null, null]);
 					expect(recordProviderTokenCalibrationSample).toHaveBeenCalledTimes(2);
 					expect(recordProviderTokenCalibrationSample).toHaveBeenNthCalledWith(1, expect.objectContaining({
 						attempt: 1,
@@ -3585,6 +3653,127 @@ describe("Bickr Pages Functions", () => {
 					status: "complete",
 					fromSeq: 1,
 					toSeq: 1,
+					outputLimitShrinkAttempts: 1,
+				}));
+			} finally {
+				vi.stubGlobal("fetch", originalFetch);
+			}
+		});
+
+		it("does not shrink output-limit retries down to a tiny prefix", async () => {
+			const originalFetch = globalThis.fetch;
+			const large = (char: string) => char.repeat(8_000);
+			const rows = [
+				loopMessageRowForMessage(1, { role: "assistant", content: "Tiny summary." }, "compaction"),
+				loopMessageRowForMessage(2, {
+					role: "assistant",
+					content: large("a"),
+					tool_calls: [{
+						id: "call-read",
+						type: "function",
+						function: { name: "read_thread", arguments: "{}" },
+					}],
+				}),
+				loopMessageRowForMessage(3, { role: "tool", tool_call_id: "call-read", content: `Large read result ${large("b")}` }, "tool_result"),
+				loopMessageRowForMessage(4, { role: "assistant", content: `Later context ${large("c")}` }),
+			] as LoopMessageRowForTest[];
+			const lengthResponse = {
+				choices: [{
+					finish_reason: "length",
+					native_finish_reason: "max_output_tokens",
+					message: { role: "assistant", content: null },
+				}],
+			};
+			const validResponse = {
+				choices: [{
+					message: {
+						content: JSON.stringify({ [providerCompactionSummaryProperty]: "I remember the tiny summary and large read result." }),
+					},
+				}],
+			};
+			const fetchMock = vi.fn()
+				.mockResolvedValueOnce(Response.json(lengthResponse))
+				.mockResolvedValueOnce(Response.json(validResponse));
+			vi.stubGlobal("fetch", fetchMock);
+			try {
+				const replaceEventPayload = vi.fn();
+				const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+					env: { BICKR_SIMULATION_MODE: "provider" },
+					state: {
+						storage: {
+							sql: {
+								exec: vi.fn((sql: string, ...params: unknown[]) => {
+									if (/UPDATE loop_messages/i.test(sql)) {
+										const compactedBy = Number(params[0]);
+										const seq = Number(params[1]);
+										const row = rows.find((item) => item.seq === seq);
+										if (row) {
+											row.compacted_by = compactedBy;
+										}
+									}
+									return { one: () => ({}), toArray: () => [] };
+								}),
+							},
+						},
+					},
+					appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) =>
+						runtimeEvent(501, runId, type as BotRuntimeEvent["type"], payload),
+					broadcastControl: vi.fn(),
+					compactionLedgerRows: (providerRows: typeof rows) => providerRows,
+					insertLoopMessage: vi.fn((input: { runId: string; message: unknown; position: number }) => ({
+						seq: 901,
+						runId: input.runId,
+						message: input.message,
+						position: input.position,
+						createdAt: "2026-05-01T00:00:02.000Z",
+					})),
+					recordInferenceSubmission: vi.fn(),
+					recordLoopMessageLog: vi.fn(),
+					recordProviderTokenCalibrationSample: vi.fn(),
+					recordProviderUsage: vi.fn(),
+					repairDanglingCommentReferencesAfterCompaction: vi.fn(),
+					replaceEventPayload,
+					textTokenCalibration: () => ({ tokensPerCharacter: 0.25, sampleCount: 0 }),
+					throwIfStopped: (_runId: string, signal: AbortSignal) => {
+						if (signal.aborted) {
+							throw new Error("Unexpected abort.");
+						}
+					},
+					updateInferenceSubmissionDisplayMessages: vi.fn(),
+				});
+				const compactLoopMessageRows = (BotRuntime.prototype as unknown as {
+					compactLoopMessageRows: (
+						bot: BotDocument,
+						settings: { apiKey: string; baseUrl: string; model: string; temperature: number },
+						runId: string,
+						signal: AbortSignal,
+						rows: unknown[],
+						mode: "auto" | "manual",
+						metrics: Record<string, unknown>,
+					) => Promise<void>;
+				}).compactLoopMessageRows.bind(runtime);
+
+				await compactLoopMessageRows(
+					fakeBotDocument(),
+					{ apiKey: "test-key", baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+					"run-output-limit-tiny-prefix",
+					new AbortController().signal,
+					rows,
+					"auto",
+					{},
+				);
+
+				expect(fetchMock).toHaveBeenCalledTimes(2);
+				const secondBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)) as { messages: BotInferenceSubmissionMessage[] };
+				expect(JSON.stringify(secondBody.messages)).toContain("Tiny summary.");
+				expect(JSON.stringify(secondBody.messages)).toContain("Large read result");
+				expect(JSON.stringify(secondBody.messages)).not.toContain("Later context");
+				expect(rows.map((row) => row.compacted_by)).toEqual([901, 901, 901, null]);
+				expect(replaceEventPayload).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({
+					status: "complete",
+					fromSeq: 1,
+					toSeq: 3,
+					messageCount: 3,
 					outputLimitShrinkAttempts: 1,
 				}));
 			} finally {
