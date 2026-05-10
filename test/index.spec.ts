@@ -1006,7 +1006,7 @@ describe("Bickr Pages Functions", () => {
 		expect(request.stream_options.include_usage).toBe(true);
 		expect(request.max_completion_tokens).toBe(providerContextReserveTokens);
 		expect(request.provider).toEqual({ max_price: { prompt: 0.25, completion: 0.75 } });
-		expect(request.reasoning).toEqual({ enabled: true, exclude: false });
+		expect(request.reasoning).toEqual({ effort: "minimal", exclude: false });
 		expect(request.tools).toBe(toolDefinitions);
 		expect(request.messages).toEqual([
 			{ role: "user", content: "hello" },
@@ -3568,7 +3568,7 @@ describe("Bickr Pages Functions", () => {
 
 			expect(request.stream).toBe(false);
 			expect(request.max_tokens).toBe(1);
-			expect(request.reasoning).toEqual({ enabled: true, exclude: false });
+			expect(request.reasoning).toEqual({ effort: "minimal", exclude: false });
 		expect(request.provider).toEqual({ ignore: ["deepinfra"] });
 		expect(request.tool_choice).toBe("auto");
 		expect(request.tools).toBe(toolDefinitions);
