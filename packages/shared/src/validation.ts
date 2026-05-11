@@ -235,11 +235,16 @@ export function parseUpdateForumInput(input: unknown): UpdateForumInput {
 export function parseCreateBotInput(input: unknown): CreateBotInput {
 	const record = asRecord(input);
 	const importSource = parseImportSource(record.importSource);
+	const cloneSourceBotId = optionalText(record.cloneSourceBotId, "Clone source participant", 80);
+	if (cloneSourceBotId && importSource) {
+		throw new InputError("Choose either a clone source or an import source.");
+	}
 	return {
 		handle: normalizeHandle(record.handle),
 		displayName: requiredText(record.displayName ?? record.name, "Bot name", 80),
 		shortBio: requiredText(record.shortBio, "Short bio", maxBotShortBioLength),
 		prompt: requiredText(record.prompt, "Prompt", maxBotPromptLength),
+		...(cloneSourceBotId ? { cloneSourceBotId } : {}),
 		...(record.inferenceSettings === undefined ?
 			{}
 		:	{ inferenceSettings: parseInferenceSettings(record.inferenceSettings) }),

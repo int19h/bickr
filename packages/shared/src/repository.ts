@@ -160,6 +160,11 @@ export const defaultTickSettings: BotEffectiveTickSettings = {
 export const defaultInferenceSettings: BotInferenceSettings = {};
 export const defaultToolSettings: BotToolSettings = {};
 
+export type CreateBotOptions = {
+	now?: string;
+	prepareAvatar?: (bot: BotDocument) => Promise<AvatarImage | undefined>;
+};
+
 export async function upsertProviderUser(
 	kv: KVNamespaceLike,
 	db: D1DatabaseLike,
@@ -934,8 +939,10 @@ export async function createBot(
 	worldHandle: string,
 	input: CreateBotInput,
 	userId: string,
-	now = new Date().toISOString(),
+	options: CreateBotOptions | string = {},
 ): Promise<BotSummary> {
+	const createOptions = typeof options === "string" ? { now: options } : options;
+	const now = createOptions.now ?? new Date().toISOString();
 	const world = await worldByHandle(db, worldHandle);
 	const existing = await db
 		.prepare(
@@ -957,7 +964,7 @@ export async function createBot(
 	assertPostingSettingsInputWithinLimits(input.postingSettings, inheritedPostingSettings);
 	const postingSettings = mergePostingSettings(undefined, input.postingSettings);
 
-	const bot: BotDocument = {
+	let bot: BotDocument = {
 		id: makeId("bot"),
 		type: "bot",
 		schemaVersion,
@@ -978,6 +985,10 @@ export async function createBot(
 		createdAt: now,
 		updatedAt: now,
 	};
+	const preparedAvatar = await createOptions.prepareAvatar?.(bot);
+	if (preparedAvatar) {
+		bot = { ...bot, avatar: preparedAvatar };
+	}
 
 	await writeJson(kv, kvKeys.bot(bot.id), bot);
 	await upsertBotIndex(db, bot);

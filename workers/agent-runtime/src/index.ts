@@ -1,6 +1,7 @@
 import { fail, ok, readJsonBody } from "@bickr/shared/api";
 import {
 	avatarMaxBytes,
+	copyAvatarImage,
 	fetchRemoteAvatarBytes,
 	isAvatarContentType,
 	normalizeAvatarPublicBaseUrl,
@@ -9758,6 +9759,18 @@ export async function handleAgentRuntimeRequest(
 			const userId = requireUserMatch(request, decodeURIComponent(createMatch[1] ?? ""));
 			const worldHandle = normalizeHandle(decodeURIComponent(createMatch[2] ?? ""));
 			const input = parseCreateBotInput(await readJsonBody(request));
+			const cloneSourceBot =
+				input.cloneSourceBotId ?
+					await botById(env.BICKR_KV, env.BICKR_D1, input.cloneSourceBotId)
+				:	null;
+			if (cloneSourceBot && cloneSourceBot.ownerUserId !== userId) {
+				throw new RepositoryError("forbidden", "You can only clone your own participants.", 403);
+			}
+			const cloneSourceAvatar = cloneSourceBot?.avatar;
+			if (cloneSourceAvatar) {
+				requireAvatarBucket(env);
+				normalizeAvatarPublicBaseUrl(env.BICKR_R2_PUBLIC_BASE_URL);
+			}
 			if (input.importSource?.sourceAvatarUrl) {
 				requireAvatarBucket(env);
 				normalizeAvatarPublicBaseUrl(env.BICKR_R2_PUBLIC_BASE_URL);
@@ -9766,7 +9779,19 @@ export async function handleAgentRuntimeRequest(
 				input.importSource?.sourceAvatarUrl ?
 					await fetchRemoteAvatarBytes(input.importSource.sourceAvatarUrl)
 				:	null;
-			let bot = await createBot(env.BICKR_KV, env.BICKR_D1, worldHandle, input, userId);
+			let bot = await createBot(env.BICKR_KV, env.BICKR_D1, worldHandle, input, userId, {
+				prepareAvatar:
+					cloneSourceAvatar ?
+						(createdBot) =>
+							copyAvatarImage(requireAvatarBucket(env), {
+								botId: createdBot.id,
+								worldId: createdBot.homeWorldId,
+								sourceAvatar: cloneSourceAvatar,
+								publicBaseUrl: normalizeAvatarPublicBaseUrl(env.BICKR_R2_PUBLIC_BASE_URL),
+								now: createdBot.createdAt,
+							})
+					:	undefined,
+			});
 			if (chirperAvatar && input.importSource?.sourceAvatarUrl) {
 				const avatar = await storeAvatarImage(requireAvatarBucket(env), {
 					botId: bot.id,

@@ -175,6 +175,36 @@ export async function promoteAvatarCandidate(
 	});
 }
 
+export async function copyAvatarImage(
+	bucket: R2BucketLike,
+	input: {
+		botId: string;
+		worldId: string;
+		sourceAvatar: AvatarImage;
+		publicBaseUrl: string;
+		now?: string;
+	},
+): Promise<AvatarImage> {
+	if (!isAvatarContentType(input.sourceAvatar.contentType)) {
+		throw new InputError("Source avatar content type is invalid.");
+	}
+	const object = await bucket.get(input.sourceAvatar.key);
+	if (!object) {
+		throw new InputError("Source avatar image is no longer available.");
+	}
+	const validated = validateAvatarBytes(new Uint8Array(await object.arrayBuffer()), input.sourceAvatar.contentType);
+	return storeAvatarImage(bucket, {
+		botId: input.botId,
+		worldId: input.worldId,
+		bytes: validated.bytes,
+		contentType: validated.contentType,
+		publicBaseUrl: input.publicBaseUrl,
+		...(input.sourceAvatar.source ? { source: input.sourceAvatar.source } : {}),
+		now: input.now,
+		kind: "avatars",
+	});
+}
+
 function avatarObjectKey(worldId: string, botId: string, kind: AvatarKind, contentType: AvatarContentType): string {
 	const extension =
 		contentType === "image/png" ? "png"

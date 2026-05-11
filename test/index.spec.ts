@@ -116,9 +116,11 @@ import {
 	botById,
 	createSession,
 	listForums,
+	updateBotAvatar,
 	updateUserProfile,
 	upsertProviderUser,
 } from "../packages/shared/src/repository";
+import { storeAvatarImage } from "../packages/shared/src/avatar-storage";
 import {
 	botActivityFeedByHandle,
 	botFollowGraphByHandle,
@@ -16605,6 +16607,96 @@ describe("Bickr Pages Functions", () => {
 			data: { threads: Array<{ authorAvatarUrl?: string }> };
 		};
 		expect(threadsBody.data.threads[0]?.authorAvatarUrl).toBe(avatarUrl);
+	});
+
+	it("copies avatar objects and generation metadata when cloning participants across worlds", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const source = await createBotForTest(cookie, "avatar-clone-source");
+		const sourceDocument = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, source.id);
+		const userId = await userIdForHandle("octocat");
+		const r2 = fakeR2Bucket();
+		const publicBaseUrl = "https://assets-test.bickr.social";
+		const sourceBytes = pngAvatarBytes();
+		const sourceAvatar = await storeAvatarImage(r2.bucket, {
+			botId: sourceDocument.id,
+			worldId: sourceDocument.homeWorldId,
+			bytes: sourceBytes,
+			contentType: "image/png",
+			publicBaseUrl,
+			source: {
+				type: "generated",
+				model: "openai/image-one",
+				generatedAt: "2026-05-10T00:00:00.000Z",
+				cost: 0.0123,
+				prompt: "Paint me as a luminous portrait.",
+			},
+		});
+		await updateBotAvatar(testEnv.BICKR_KV, testEnv.BICKR_D1, source.id, userId, sourceAvatar);
+
+		const worldResponse = await createWorld(
+			contextFor<typeof createWorld>(
+				jsonRequest(
+					"http://example.com/api/worlds",
+					"POST",
+					{ handle: "avatar-clones", name: "Avatar Clones", description: "Cloned avatar checks." },
+					cookie,
+				),
+			),
+		);
+		expect(worldResponse.status).toBe(201);
+
+		const cloneResponse = await createBot(
+			contextFor<typeof createBot>(
+				jsonRequest(
+					"http://example.com/api/worlds/avatar-clones/bots",
+					"POST",
+					{
+						handle: "avatar-clone",
+						displayName: "Avatar Clone",
+						shortBio: "A participant cloned with an avatar.",
+						prompt: "Continue the source persona.",
+						cloneSourceBotId: source.id,
+					},
+					cookie,
+				),
+				{ worldHandle: "avatar-clones" },
+				{
+					AGENT_RUNTIME: {
+						fetch: async (serviceRequest: Request) =>
+							handleAgentRuntimeRequest(serviceRequest, {
+								BICKR_D1: testEnv.BICKR_D1,
+								BICKR_KV: testEnv.BICKR_KV,
+								BICKR_R2: r2.bucket,
+								BICKR_R2_PUBLIC_BASE_URL: publicBaseUrl,
+							}),
+					} as unknown as Fetcher,
+				},
+			),
+		);
+		expect(cloneResponse.status, await cloneResponse.clone().text()).toBe(201);
+		const cloneBody = (await cloneResponse.json()) as { data: { bot: BotBody } };
+		expect(cloneBody.data.bot.avatarUrl).toMatch(/^https:\/\/assets-test\.bickr\.social\/worlds\/.+\/bots\/.+\/avatars\/.+\.png$/);
+		expect(cloneBody.data.bot.avatarUrl).not.toBe(sourceAvatar.url);
+
+		const storedClone = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, cloneBody.data.bot.id);
+		expect(storedClone.avatar?.key).not.toBe(sourceAvatar.key);
+		expect(storedClone.avatar?.url).toBe(cloneBody.data.bot.avatarUrl);
+		expect(storedClone.avatar?.source).toMatchObject({
+			type: "generated",
+			model: "openai/image-one",
+			generatedAt: "2026-05-10T00:00:00.000Z",
+			cost: 0.0123,
+			prompt: "Paint me as a luminous portrait.",
+		});
+		const copiedObject = storedClone.avatar?.key ? r2.objects.get(storedClone.avatar.key) : undefined;
+		expect(copiedObject?.bytes).toEqual(sourceBytes);
+		expect(copiedObject?.httpMetadata?.cacheControl).toBe("public, max-age=31536000, immutable");
+		const indexed = await testEnv.BICKR_D1.prepare(`SELECT avatar_url AS avatarUrl FROM bots_index WHERE bot_id = ?`)
+			.bind(storedClone.id)
+			.first<{ avatarUrl: string | null }>();
+		expect(indexed?.avatarUrl).toBe(storedClone.avatar?.url);
+		expect(r2.objects.size).toBe(2);
 	});
 
 	it("uploads SVG participant avatars into R2", async () => {

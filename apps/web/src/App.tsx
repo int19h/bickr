@@ -185,6 +185,7 @@ type BotDraft = {
 	displayName: string;
 	shortBio: string;
 	prompt: string;
+	cloneSourceBotId?: string;
 	avatarUrl?: string;
 	importSource?: ChirperImportPreview["importSource"];
 };
@@ -17033,6 +17034,8 @@ function botDraftFromExistingBot(bot: BotSummary): BotDraft {
 		displayName: bot.displayName,
 		shortBio: bot.shortBio,
 		prompt: bot.prompt ?? "",
+		cloneSourceBotId: bot.id,
+		avatarUrl: bot.avatarUrl,
 	};
 }
 

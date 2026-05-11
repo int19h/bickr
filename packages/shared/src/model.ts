@@ -1416,6 +1416,7 @@ export type CreateBotInput = {
 	displayName: string;
 	shortBio: string;
 	prompt: string;
+	cloneSourceBotId?: string;
 	inferenceSettings?: BotInferenceSettingsInput;
 	toolSettings?: BotToolSettingsInput;
 	postingSettings?: PostingSettingsInput;
