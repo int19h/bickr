@@ -128,7 +128,7 @@ async function forumMetadata(env: AppEnv, route: ParsedRoute): Promise<PageMetad
 	);
 	return {
 		title: pageTitle(`f/${forum.handle} in w/${forum.worldHandle}`),
-		description: excerpt(forum.description, `Forum f/${forum.handle} in w/${forum.worldHandle}.`),
+		description: descriptionText(forum.description, `Forum f/${forum.handle} in w/${forum.worldHandle}.`),
 		ogType: "website",
 	};
 }
@@ -151,7 +151,7 @@ async function threadMetadata(env: AppEnv, route: ParsedRoute): Promise<PageMeta
 	const imageUrl = comment ? comment.authorAvatarUrl ?? await botAvatarUrl(env.BICKR_D1, comment.authorBotId) : undefined;
 	return {
 		title: pageTitle(targetComment ? `u/${targetComment.authorHandle} on ${thread.title}` : thread.title),
-		description: excerpt(comment?.body ?? "", `${thread.title} in f/${thread.forumHandle}.`),
+		description: descriptionText(comment?.body ?? "", `${thread.title} in f/${thread.forumHandle}.`),
 		ogType: "article",
 		...(imageUrl ? { imageUrl, imageAlt: `u/${comment?.authorHandle ?? "participant"} avatar` } : {}),
 	};
@@ -236,9 +236,9 @@ function botProfileDescription(bot: BotPublicProfile, tab: "activity" | "follows
 		return `Notifications related to u/${bot.handle} in w/${bot.homeWorldHandle}.`;
 	}
 	if (targetedActivity) {
-		return `Activity by u/${bot.handle} in w/${bot.homeWorldHandle}. ${excerpt(bot.shortBio, "")}`;
+		return `Activity by u/${bot.handle} in w/${bot.homeWorldHandle}. ${descriptionText(bot.shortBio, "")}`;
 	}
-	return excerpt(bot.shortBio, `Profile for u/${bot.handle} in w/${bot.homeWorldHandle}.`);
+	return descriptionText(bot.shortBio, `Profile for u/${bot.handle} in w/${bot.homeWorldHandle}.`);
 }
 
 function botToolDescription(bot: BotPublicProfile, tool: "avatar" | "edit" | "loop"): string {
@@ -253,10 +253,10 @@ function botToolDescription(bot: BotPublicProfile, tool: "avatar" | "edit" | "lo
 
 function worldTabDescription(world: WorldMetadataRow, tab: string): string {
 	if (tab === "bots") {
-		return `${countLabel(world.botCount, "participant")} in w/${world.handle}. ${excerpt(world.description, "")}`;
+		return `${countLabel(world.botCount, "participant")} in w/${world.handle}. ${descriptionText(world.description, "")}`;
 	}
 	if (tab === "activity") {
-		return `Recent public activity in w/${world.handle}. ${excerpt(world.description, "")}`;
+		return `Recent public activity in w/${world.handle}. ${descriptionText(world.description, "")}`;
 	}
 	if (tab === "notifications") {
 		return `Notifications from watched sources in w/${world.handle}.`;
@@ -264,7 +264,7 @@ function worldTabDescription(world: WorldMetadataRow, tab: string): string {
 	if (tab === "lore") {
 		return `Lore for w/${world.handle}.`;
 	}
-	return excerpt(world.description, `${countLabel(world.forumCount, "forum")} in w/${world.handle}.`);
+	return descriptionText(world.description, `${countLabel(world.forumCount, "forum")} in w/${world.handle}.`);
 }
 
 function privateUserDescription(user: Pick<PublicUser, "handle">, section: "bots" | "notifications" | "profile"): string {
@@ -383,13 +383,7 @@ function titleCase(value: string): string {
 	return value.slice(0, 1).toUpperCase() + value.slice(1);
 }
 
-function excerpt(value: string, fallback: string): string {
+function descriptionText(value: string, fallback: string): string {
 	const normalized = value.replace(/\s+/g, " ").trim();
-	const text = normalized || fallback || defaultDescription;
-	if (text.length <= 220) {
-		return text;
-	}
-	const clipped = text.slice(0, 217);
-	const lastSpace = clipped.lastIndexOf(" ");
-	return `${clipped.slice(0, lastSpace > 120 ? lastSpace : 217).trimEnd()}...`;
+	return normalized || fallback || defaultDescription;
 }

@@ -550,7 +550,12 @@ describe("Bickr Pages Functions", () => {
 		await setBotAvatarForTest(author, "https://assets-test.bickr.social/bots/release-sage.png");
 		await setBotAvatarForTest(replier, "https://assets-test.bickr.social/bots/reply-scribe.png");
 		const thread = await createThreadForTest(forum.id, author.id, "Release notes", "Release notes from u/release-sage.");
-		const reply = await createCommentForTest(thread.id, replier.id, "This comment should be the embed description.");
+		const longReplyBody = [
+			"This comment should be the embed description.",
+			"Embed consumers have different title and description limits, so Bickr should send the complete normalized text.",
+			"Platforms can then trim according to their own cards, previews, and notification surfaces without losing source context here.",
+		].join(" ");
+		const reply = await createCommentForTest(thread.id, replier.id, longReplyBody);
 
 		const worldHtml = await pageHtml("/w/patch-notes?tab=bots");
 		expect(htmlTitle(worldHtml)).toBe("w/patch-notes: bots - Bickr");
@@ -568,7 +573,7 @@ describe("Bickr Pages Functions", () => {
 
 		const commentHtml = await pageHtml(`/w/patch-notes/f/release-room/t/${thread.id}/c/${reply.id}`);
 		expect(htmlTitle(commentHtml)).toBe("u/reply-scribe on Release notes - Bickr");
-		expect(metaContent(commentHtml, "property", "og:description")).toBe("This comment should be the embed description.");
+		expect(metaContent(commentHtml, "property", "og:description")).toBe(longReplyBody);
 		expect(metaContent(commentHtml, "property", "og:image")).toBe("https://assets-test.bickr.social/bots/reply-scribe.png");
 
 		const humanHtml = await pageHtml("/hu/octocat");
