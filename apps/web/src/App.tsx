@@ -139,6 +139,12 @@ type ApiSuccess<T> = { ok: true; data: T };
 type ApiFailure = { ok: false; error: string; message: string };
 type ApiResult<T> = ApiSuccess<T> | ApiFailure;
 
+type BeforeInstallPromptEvent = Event & {
+	platforms: string[];
+	prompt: () => Promise<void>;
+	userChoice: Promise<{ outcome: "accepted" | "dismissed"; platform: string }>;
+};
+
 type SessionState = {
 	authenticated: boolean;
 	user: PublicUser | null;
@@ -339,6 +345,7 @@ type IconName =
 	| "google"
 	| "chirper"
 	| "info"
+	| "install"
 	| "upload"
 	| "refresh"
 	| "play"
@@ -519,6 +526,8 @@ function App() {
 	});
 	const [subscriptions, setSubscriptions] = useState<HumanSubscription[]>([]);
 	const [activeTooltipId, setActiveTooltipId] = useState<string | null>(null);
+	const [installPromptEvent, setInstallPromptEvent] = useState<BeforeInstallPromptEvent | null>(null);
+	const [standaloneDisplay, setStandaloneDisplay] = useState(() => isStandaloneDisplayMode());
 	const pendingFreshThreadIds = useRef(new Set<string>());
 
 	useEffect(() => {
@@ -538,6 +547,28 @@ function App() {
 	useEffect(() => {
 		canonicalizeCurrentPath(initialRoute);
 	}, [initialRoute]);
+
+	useEffect(() => {
+		const displayMode = window.matchMedia("(display-mode: standalone)");
+		const updateStandaloneDisplay = () => setStandaloneDisplay(isStandaloneDisplayMode());
+		const handleBeforeInstallPrompt = (event: Event) => {
+			event.preventDefault();
+			setInstallPromptEvent(event as BeforeInstallPromptEvent);
+		};
+		const handleAppInstalled = () => {
+			setInstallPromptEvent(null);
+			updateStandaloneDisplay();
+		};
+		window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+		window.addEventListener("appinstalled", handleAppInstalled);
+		displayMode.addEventListener("change", updateStandaloneDisplay);
+		updateStandaloneDisplay();
+		return () => {
+			window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+			window.removeEventListener("appinstalled", handleAppInstalled);
+			displayMode.removeEventListener("change", updateStandaloneDisplay);
+		};
+	}, []);
 
 	useEffect(() => {
 		window.localStorage.setItem("bickr.theme", themePreference);
@@ -1866,6 +1897,22 @@ function App() {
 		return false;
 	}
 
+	async function promptPwaInstall(): Promise<void> {
+		const promptEvent = installPromptEvent;
+		if (!promptEvent) {
+			return;
+		}
+		setInstallPromptEvent(null);
+		try {
+			await promptEvent.prompt();
+			await promptEvent.userChoice;
+		} catch {
+			setStatus("Install prompt could not be opened.");
+		} finally {
+			setStandaloneDisplay(isStandaloneDisplayMode());
+		}
+	}
+
 	if (initializing) {
 		return (
 			<ToastProvider>
@@ -1894,7 +1941,9 @@ function App() {
 					busy={busy}
 					bot={activeBot}
 					forum={activeForum}
+					installAvailable={Boolean(installPromptEvent) && !standaloneDisplay}
 					onMarkAllNotificationsRead={() => void markAllNotificationsRead()}
+					onInstall={() => void promptPwaInstall()}
 					onNotificationClose={(notification) =>
 						void markHumanNotificationReadState(notification, { removeFromList: true })
 					}
@@ -2203,8 +2252,10 @@ function Topbar({
 	bot,
 	busy,
 	forum,
+	installAvailable,
 	notifications,
 	onMarkAllNotificationsRead,
+	onInstall,
 	onNotificationClose,
 	onNotificationOpen,
 	onRefresh,
@@ -2222,8 +2273,10 @@ function Topbar({
 	bot: BotSummary | null;
 	busy: boolean;
 	forum: ForumSummary | null;
+	installAvailable: boolean;
 	notifications: HumanNotificationSummary;
 	onMarkAllNotificationsRead: () => void;
+	onInstall: () => void;
 	onNotificationClose: (notification: HumanNotification) => void;
 	onNotificationOpen: (notification: HumanNotification) => void;
 	onRefresh: () => void;
@@ -2357,6 +2410,11 @@ function Topbar({
 					{busy ? "Working..." : status}
 				</span>
 				<ThemeSwitch onChange={onTheme} value={themePreference} />
+				{installAvailable && (
+					<button aria-label="Install Bickr" className="icon-btn" onClick={onInstall} title="Install Bickr" type="button">
+						<Icon name="install" size={15} />
+					</button>
+				)}
 				<button className="icon-btn" disabled={busy} onClick={onRefresh} title="Refresh" type="button">
 					<Icon name="refresh" size={15} />
 				</button>
@@ -14200,6 +14258,12 @@ function Icon({ name, size = 16 }: { name: IconName; size?: number }) {
 				<path d="M12 8h.01M11 12h1v5h1" />
 			</svg>
 		),
+		install: (
+			<svg height={size} viewBox="0 0 24 24" width={size} {...stroke}>
+				<path d="M12 3v11M7 9l5 5 5-5" />
+				<path d="M5 17v3h14v-3" />
+			</svg>
+		),
 		upload: (
 			<svg height={size} viewBox="0 0 24 24" width={size} {...stroke}>
 				<path d="M12 16V4M6 10l6-6 6 6M4 21h16" />
@@ -14955,12 +15019,30 @@ async function api<T = unknown>(
 		: hasBody ? JSON.stringify(options?.body)
 		: undefined;
 	const headers = hasBody && !(options?.body instanceof FormData) ? { "content-type": "application/json" } : undefined;
-	const response = await fetch(path, {
-		body,
-		headers,
-		method: options?.method ?? "GET",
-	});
-	const text = await response.text();
+	let response: Response;
+	try {
+		response = await fetch(path, {
+			body,
+			headers,
+			method: options?.method ?? "GET",
+		});
+	} catch {
+		return {
+			ok: false,
+			error: "network_error",
+			message: "Network request failed.",
+		};
+	}
+	let text: string;
+	try {
+		text = await response.text();
+	} catch {
+		return {
+			ok: false,
+			error: "network_error",
+			message: "Network response could not be read.",
+		};
+	}
 	let payload: unknown = null;
 	try {
 		payload = text ? JSON.parse(text) : null;
@@ -14978,6 +15060,11 @@ async function api<T = unknown>(
 		return { ok: true, data: payload as T };
 	}
 	return { ok: false, error: "server_error", message: response.statusText || "Request failed." };
+}
+
+function isStandaloneDisplayMode(): boolean {
+	const navigatorWithStandalone = window.navigator as Navigator & { standalone?: boolean };
+	return window.matchMedia("(display-mode: standalone)").matches || navigatorWithStandalone.standalone === true;
 }
 
 function parseBrowserRoute(): ParsedRoute {
