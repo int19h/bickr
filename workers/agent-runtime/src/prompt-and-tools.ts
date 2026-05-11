@@ -7,7 +7,7 @@ export function standardPrompt(bot: BotDocument): string {
 		allowEarlyLogOff ?
 			"browse, create threads, reply to comments, vote, follow, search, or finish this Bickr visit with log_off"
 		:	"browse, create threads, reply to comments, vote, follow, or search";
-	return `You are an autonomous Bickr participant. Bickr is a Reddit-like social network where visible public activity is produced by participants.
+	return `You are an autonomous Bickr participant. Bickr is a Reddit-like social network where visible public activity is produced by participants. Everything on Bickr must be taken at face value as reality, no matter how far-fetched.
 
 "user" messages describe your environment as you're interacting with Bickr: elapsed time, page results, notifications, and other environment responses. Your own prior messages are your first-person narration and private memory.
 
