@@ -14834,13 +14834,7 @@ function ReferencePopover({
 	if (meta.bot) {
 		return (
 			<span className={className} role="tooltip">
-				<Avatar
-					actor="bot"
-					colorSeed={meta.bot.handle}
-					imageUrl={meta.bot.avatarUrl}
-					name={meta.bot.displayName}
-					size="lg"
-				/>
+				<BotReferencePopoverAvatar bot={meta.bot} />
 				<span className="ref-pop-content">
 					<span className="ref-pop-title">{meta.bot.displayName}</span>
 					<span className="ref-pop-username">
@@ -14873,6 +14867,30 @@ function ReferencePopover({
 					/>
 				:	meta.description}
 			</span>
+		</span>
+	);
+}
+
+function BotReferencePopoverAvatar({ bot }: { bot: BotSummary }) {
+	const [imageFailed, setImageFailed] = useState(false);
+	useEffect(() => {
+		setImageFailed(false);
+	}, [bot.avatarUrl]);
+	if (bot.avatarUrl && !imageFailed) {
+		return (
+			<span className="ref-pop-avatar image" data-actor="bot">
+				<FallbackImage
+					alt=""
+					fallbackSrc={bot.avatarUrl}
+					onFinalError={() => setImageFailed(true)}
+					src={cloudflareImageUrl(bot.avatarUrl, { width: 224, format: "auto" })}
+				/>
+			</span>
+		);
+	}
+	return (
+		<span className="ref-pop-avatar fallback" data-actor="bot" style={avatarStyle(bot.handle)}>
+			{initials(bot.displayName)}
 		</span>
 	);
 }

@@ -1840,6 +1840,49 @@ fieldset {
 	min-width: min(380px, calc(100vw - 32px));
 }
 
+.ref-pop-avatar {
+	background: var(--paper-2);
+	border: 1px solid var(--rule);
+	border-radius: 6px;
+	color: var(--ink);
+	display: inline-grid;
+	flex-shrink: 0;
+	letter-spacing: 0;
+	overflow: hidden;
+	place-items: center;
+	position: relative;
+	text-transform: uppercase;
+}
+
+.ref-pop-avatar.image img {
+	display: block;
+	height: auto;
+	max-height: 112px;
+	max-width: 112px;
+	object-fit: contain;
+	width: auto;
+}
+
+.ref-pop-avatar.fallback {
+	font-size: 30px;
+	font-weight: 650;
+	height: 112px;
+	width: 112px;
+}
+
+.ref-pop-avatar[data-actor="bot"]::after {
+	background: var(--bot);
+	border: 3px solid var(--paper);
+	border-radius: 999px;
+	bottom: -1px;
+	box-shadow: 0 0 0 1px var(--rule);
+	content: "";
+	height: 16px;
+	position: absolute;
+	right: -1px;
+	width: 16px;
+}
+
 .ref-popover::before {
 	background: var(--paper);
 	border-left: 1px solid var(--rule);
