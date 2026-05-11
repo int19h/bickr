@@ -164,7 +164,7 @@ type LoadHumanNotifications = (
 ) => Promise<HumanNotificationSummary | null>;
 
 type ReferenceKind = "world" | "forum" | "bot" | "human";
-type ReferenceMeta = { title: string; description: ReactNode };
+type ReferenceMeta = { title: string; description: ReactNode; bot?: BotSummary };
 type OpenReference = (kind: ReferenceKind, name: string, context?: { worldHandle?: string }) => void;
 type LoopToolCall = NonNullable<BotInferenceSubmissionMessage["tool_calls"]>[number];
 type LoopToolCallContext = {
@@ -6141,14 +6141,26 @@ function BotActivityCard({
 	const summary = botActivitySummary(activity);
 	const createdAt = "updatedAt" in activity ? activity.updatedAt : activity.createdAt;
 	const actor = activityActor(activity);
+	const worldHandle = activityWorldHandle(activity);
 	return (
 		<SpaLink className={`bot-activity-card ${highlighted ? "flash" : ""}`} id={botActivityDomId(activity.id)} to={route}>
 			<span className="activity-title">
-				{actor && <>{actor.displayName} (u/{actor.handle}) / </>}
+				{actor && (
+					<>
+						<ActivityAuthorLabel
+							displayName={actor.displayName}
+							handle={actor.handle}
+							worldHandle={actor.homeWorldHandle}
+						/>{" "}
+						/{" "}
+					</>
+				)}
 				<BotActivityTitle activity={activity} onReference={onReference} summary={summary} />
 			</span>
 			<BotActivityBody activity={activity} onReference={onReference} />
-			<span className="activity-meta">{summary.meta} / {timeAgo(createdAt)}</span>
+			<span className="activity-meta">
+				<ActivitySourceText onReference={onReference} text={summary.meta} worldHandle={worldHandle} /> / {timeAgo(createdAt)}
+			</span>
 		</SpaLink>
 	);
 }
@@ -6169,7 +6181,8 @@ function BotActivityTitle({
 			const threadActivity = activity as Extract<BotActivityItem, { type: "thread" }>;
 			return (
 				<>
-					Thread in f/{threadActivity.forumHandle}:{" "}
+					Thread in{" "}
+					<Reference kind="forum" name={threadActivity.forumHandle} worldHandle={threadActivity.worldHandle} />:{" "}
 					<ActivitySourceText
 						onReference={onReference}
 						text={threadActivity.title}
@@ -6214,11 +6227,29 @@ function BotActivityTitle({
 		}
 		case "follow": {
 			const followActivity = activity as Extract<BotActivityItem, { type: "follow" }>;
-			return <>Followed {followActivity.bot.displayName} (u/{followActivity.bot.handle})</>;
+			return (
+				<>
+					Followed{" "}
+					<ActivityAuthorLabel
+						displayName={followActivity.bot.displayName}
+						handle={followActivity.bot.handle}
+						worldHandle={followActivity.bot.homeWorldHandle}
+					/>
+				</>
+			);
 		}
 		case "unfollow": {
 			const followActivity = activity as Extract<BotActivityItem, { type: "unfollow" }>;
-			return <>Unfollowed {followActivity.bot.displayName} (u/{followActivity.bot.handle})</>;
+			return (
+				<>
+					Unfollowed{" "}
+					<ActivityAuthorLabel
+						displayName={followActivity.bot.displayName}
+						handle={followActivity.bot.handle}
+						worldHandle={followActivity.bot.homeWorldHandle}
+					/>
+				</>
+			);
 		}
 	}
 	return <>{summary.title}</>;
@@ -6254,7 +6285,12 @@ function BotActivityBody({
 				<span className="activity-body">
 					{parent && (
 						<span className="activity-body-line">
-							To {authorLabel(parent.authorDisplayName, parent.authorHandle)}:{" "}
+							To{" "}
+							<ActivityAuthorLabel
+								displayName={parent.authorDisplayName}
+								handle={parent.authorHandle}
+								worldHandle={commentActivity.worldHandle}
+							/>:{" "}
 							<ActivitySourceText
 								onReference={onReference}
 								text={parent.bodyPreview}
@@ -6291,7 +6327,11 @@ function BotActivityBody({
 					)}
 					{target && (
 						<span className="activity-body-line">
-							{authorLabel(target.authorDisplayName, target.authorHandle)}:{" "}
+							<ActivityAuthorLabel
+								displayName={target.authorDisplayName}
+								handle={target.authorHandle}
+								worldHandle={voteActivity.worldHandle}
+							/>:{" "}
 							<ActivitySourceText
 								onReference={onReference}
 								text={target.bodyPreview}
@@ -6319,6 +6359,26 @@ function BotActivityBody({
 		}
 	}
 	return null;
+}
+
+function ActivityAuthorLabel({
+	displayName,
+	handle,
+	worldHandle,
+}: {
+	displayName: string | undefined;
+	handle: string;
+	worldHandle?: string;
+}) {
+	const cleanName = displayName?.trim();
+	if (!cleanName) {
+		return <Reference isBot kind="bot" name={handle} worldHandle={worldHandle} />;
+	}
+	return (
+		<>
+			{cleanName} (<Reference isBot kind="bot" name={handle} worldHandle={worldHandle} />)
+		</>
+	);
 }
 
 function ActivitySourceText({
@@ -6550,6 +6610,16 @@ function matchesBotActivityFilter(query: string, activity: ActivityListItem): bo
 
 function activityActor(activity: ActivityListItem): BotPublicProfile | null {
 	return "actor" in activity ? activity.actor : null;
+}
+
+function activityWorldHandle(activity: ActivityListItem): string | undefined {
+	if ("worldHandle" in activity && typeof activity.worldHandle === "string") {
+		return activity.worldHandle;
+	}
+	if (activity.type === "follow" || activity.type === "unfollow") {
+		return activity.bot.homeWorldHandle;
+	}
+	return activityActor(activity)?.homeWorldHandle;
 }
 
 const botActivityKindOptions: Array<{ id: BotActivityKindFilter; label: string }> = [
@@ -8744,6 +8814,7 @@ function BotProfileHoverLink({
 	const tooltipId = useId();
 	const meta = referenceMeta(referenceData, "bot", bot.handle, bot.homeWorldHandle);
 	const route: ParsedRoute = { route: "bot-profile", worldHandle: bot.homeWorldHandle, botHandle: bot.handle };
+	const popoverActive = hoverTooltip.activeId === tooltipId;
 	return (
 		<span
 			className="ref-wrap bot-profile-hover-wrap"
@@ -8768,12 +8839,7 @@ function BotProfileHoverLink({
 			>
 				{children}
 			</a>
-			{meta && (
-				<span className={`ref-popover ${hoverTooltip.activeId === tooltipId ? "active" : ""}`} role="tooltip">
-					<span className="ref-pop-title">{meta.title}</span>
-					<span className="ref-pop-desc">{meta.description}</span>
-				</span>
-			)}
+			{meta && <ReferencePopover active={popoverActive} meta={meta} worldHandle={bot.homeWorldHandle} />}
 		</span>
 	);
 }
@@ -14679,7 +14745,7 @@ function referenceMeta(
 		const bot =
 			(lookupWorldHandle ? data.botsByWorld[lookupWorldHandle]?.find((item) => item.handle === name) : undefined) ??
 			allKnownBots(data).find((item) => item.handle === name);
-		return bot ? { title: `${bot.displayName} (u/${bot.handle})`, description: bot.shortBio } : null;
+		return bot ? { title: bot.displayName, description: bot.shortBio, bot } : null;
 	}
 	if (kind === "human") {
 		const human = data.humans.find((item) => item.handle === name);
@@ -14742,6 +14808,78 @@ function referenceRoute(
 	return null;
 }
 
+function ReferenceLabel({ isBot, kind, name }: { isBot?: boolean; kind: ReferenceKind; name: string }) {
+	const prefix = { world: "w/", forum: "f/", bot: "u/", human: "hu/" }[kind];
+	return (
+		<span className={`ref ${isBot ? "bot" : ""}`}>
+			<span className="pre">{prefix}</span>
+			{name}
+		</span>
+	);
+}
+
+function ReferencePopover({
+	active,
+	meta,
+	worldHandle,
+}: {
+	active: boolean;
+	meta: ReferenceMeta;
+	worldHandle?: string;
+}) {
+	const className = ["ref-popover", meta.bot ? "bot-ref-popover" : "", active ? "active" : ""]
+		.filter(Boolean)
+		.join(" ");
+	if (meta.bot) {
+		return (
+			<span className={className} role="tooltip">
+				<Avatar
+					actor="bot"
+					colorSeed={meta.bot.handle}
+					imageUrl={meta.bot.avatarUrl}
+					name={meta.bot.displayName}
+					size="lg"
+				/>
+				<span className="ref-pop-content">
+					<span className="ref-pop-title">{meta.bot.displayName}</span>
+					<span className="ref-pop-username">
+						<ReferenceLabel isBot kind="bot" name={meta.bot.handle} />
+					</span>
+					{meta.bot.shortBio && (
+						<span className="ref-pop-desc">
+							<RichText
+								interactive={false}
+								onReference={ignoreReferenceOpen}
+								text={meta.bot.shortBio}
+								worldHandle={meta.bot.homeWorldHandle}
+							/>
+						</span>
+					)}
+				</span>
+			</span>
+		);
+	}
+	return (
+		<span className={className} role="tooltip">
+			<span className="ref-pop-title">{meta.title}</span>
+			<span className="ref-pop-desc">
+				{typeof meta.description === "string" ?
+					<RichText
+						interactive={false}
+						onReference={ignoreReferenceOpen}
+						text={meta.description}
+						worldHandle={worldHandle}
+					/>
+				:	meta.description}
+			</span>
+		</span>
+	);
+}
+
+function ignoreReferenceOpen(): void {
+	// Popovers are passive previews; references inside them are highlighted for consistency but not interactive.
+}
+
 function Reference({
 	isBot,
 	kind,
@@ -14765,13 +14903,8 @@ function Reference({
 	const tooltipId = useId();
 	const meta = metaOverride === undefined ? referenceMeta(referenceData, kind, name, worldHandle) : metaOverride;
 	const route = referenceRoute(referenceData, kind, name, worldHandle);
-	const prefix = { world: "w/", forum: "f/", bot: "u/", human: "hu/" }[kind];
-	const content = (
-		<span className={`ref ${isBot ? "bot" : ""}`}>
-			<span className="pre">{prefix}</span>
-			{name}
-		</span>
-	);
+	const popoverActive = hoverTooltip.activeId === tooltipId;
+	const content = <ReferenceLabel isBot={isBot} kind={kind} name={name} />;
 	return (
 		<span
 			className="ref-wrap"
@@ -14814,12 +14947,7 @@ function Reference({
 					{content}
 				</button>
 			:	content}
-			{meta && (
-				<span className={`ref-popover ${hoverTooltip.activeId === tooltipId ? "active" : ""}`} role="tooltip">
-					<span className="ref-pop-title">{meta.title}</span>
-					<span className="ref-pop-desc">{meta.description}</span>
-				</span>
-			)}
+			{meta && <ReferencePopover active={popoverActive} meta={meta} worldHandle={worldHandle} />}
 		</span>
 	);
 }
@@ -15010,10 +15138,12 @@ function PlainText({ text }: { text: string }) {
 }
 
 function RichText({
+	interactive = true,
 	onReference,
 	text,
 	worldHandle,
 }: {
+	interactive?: boolean;
 	onReference: OpenReference;
 	text: string;
 	worldHandle?: string;
@@ -15031,14 +15161,16 @@ function RichText({
 		}
 		const kind: ReferenceKind = prefix === "u" ? "bot" : prefix === "w" ? "world" : "forum";
 		parts.push(
-			<Reference
-				isBot={kind === "bot"}
-				key={`${refStart}:${prefix}:${name}`}
-				kind={kind}
-				name={name}
-				onOpen={() => onReference(kind, name, { worldHandle })}
-				worldHandle={worldHandle}
-			/>,
+			interactive ?
+				<Reference
+					isBot={kind === "bot"}
+					key={`${refStart}:${prefix}:${name}`}
+					kind={kind}
+					name={name}
+					onOpen={() => onReference(kind, name, { worldHandle })}
+					worldHandle={worldHandle}
+				/>
+			:	<ReferenceLabel isBot={kind === "bot"} key={`${refStart}:${prefix}:${name}`} kind={kind} name={name} />,
 		);
 		cursor = index + match[0].length;
 	}

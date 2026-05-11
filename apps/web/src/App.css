@@ -1767,7 +1767,7 @@ fieldset {
 }
 
 .ref-wrap:has(.ref-popover.active) {
-	z-index: 120;
+	z-index: 1000;
 }
 
 .ref .pre {
@@ -1815,20 +1815,29 @@ fieldset {
 	font-size: 12px;
 	left: 0;
 	line-height: 1.4;
-	max-width: min(320px, 80vw);
+	max-width: min(460px, calc(100vw - 32px));
 	min-width: 220px;
 	padding: 10px 12px;
 	pointer-events: none;
 	position: absolute;
 	text-align: left;
 	top: calc(100% + 8px);
+	width: max-content;
 	white-space: normal;
-	z-index: 60;
+	z-index: 1000;
 }
 
 .ref-popover.active {
 	display: grid;
 	gap: 4px;
+}
+
+.bot-ref-popover.active {
+	align-items: start;
+	display: grid;
+	gap: 12px;
+	grid-template-columns: auto minmax(0, 1fr);
+	min-width: min(380px, calc(100vw - 32px));
 }
 
 .ref-popover::before {
@@ -1847,6 +1856,17 @@ fieldset {
 .ref-pop-title {
 	color: var(--ink);
 	font-weight: 650;
+}
+
+.ref-pop-content {
+	display: grid;
+	gap: 3px;
+	min-width: 0;
+}
+
+.ref-pop-username {
+	color: var(--ink-4);
+	font-size: 11px;
 }
 
 .ref-pop-desc {
@@ -2259,6 +2279,21 @@ fieldset {
 	overflow: hidden;
 	text-overflow: ellipsis;
 	vertical-align: bottom;
+}
+
+.bot-table-row:has(.ref-popover.active) {
+	position: relative;
+	z-index: 30;
+}
+
+.bot-table-row:has(.ref-popover.active) td {
+	position: relative;
+	z-index: 30;
+}
+
+.bot-table td:has(.ref-popover.active) {
+	overflow: visible;
+	z-index: 31;
 }
 
 .advanced-search-panel {
