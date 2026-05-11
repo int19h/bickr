@@ -6060,6 +6060,11 @@ button.avatar-large-preview:not(:disabled),
 	white-space: pre-wrap;
 }
 
+.activity-body-line {
+	display: block;
+	min-width: 0;
+}
+
 .activity-meta {
 	color: var(--ink-3);
 	font-size: 12.5px;

@@ -1990,6 +1990,7 @@ function App() {
 							onMarkNotificationRead={markHumanNotificationReadState}
 							onOpenBotEdit={openBotEdit}
 							onOpenNotification={(notification) => void openHumanNotification(notification)}
+							onReference={openReference}
 							onRunBotTick={(bot) => void runBotTick(bot)}
 							onStartBot={(bot) => void startBot(bot)}
 							onToggleSubscription={toggleSubscription}
@@ -3392,6 +3393,7 @@ function WorldDetail({
 	onMarkNotificationRead,
 	onOpenBotEdit,
 	onOpenNotification,
+	onReference,
 	onRunBotTick,
 	onStartBot,
 	onToggleSubscription,
@@ -3415,6 +3417,7 @@ function WorldDetail({
 	onMarkNotificationRead: (notification: HumanNotification) => Promise<string | null>;
 	onOpenBotEdit: (bot: BotSummary) => void;
 	onOpenNotification: (notification: HumanNotification) => void;
+	onReference: OpenReference;
 	onRunBotTick: (bot: BotSummary) => void;
 	onStartBot: (bot: BotSummary) => void;
 	onToggleSubscription: (target: SubscriptionTarget, active: boolean) => Promise<void>;
@@ -3704,6 +3707,7 @@ function WorldDetail({
 							emptyMessage={activityEmptyMessage}
 							error={activityError}
 							loading={activityLoading}
+							onReference={onReference}
 						/>
 					</section>
 				)}
@@ -5538,6 +5542,7 @@ function BotProfileScreen({
 							emptyMessage={activityEmptyMessage}
 							error={activityError}
 							loading={activityLoading}
+							onReference={onReference}
 							targetActivityId={targetActivityId}
 						/>
 					</section>
@@ -5993,12 +5998,14 @@ function BotActivityList({
 	emptyMessage = "No visible activity yet.",
 	error,
 	loading,
+	onReference,
 	targetActivityId = null,
 }: {
 	activities: ActivityListItem[];
 	emptyMessage?: string;
 	error: string;
 	loading: boolean;
+	onReference: OpenReference;
 	targetActivityId?: string | null;
 }) {
 	if (loading) {
@@ -6013,7 +6020,12 @@ function BotActivityList({
 	return (
 		<div className="bot-activity-list">
 			{activities.map((activity) => (
-				<BotActivityCard activity={activity} highlighted={activity.id === targetActivityId} key={activity.id} />
+				<BotActivityCard
+					activity={activity}
+					highlighted={activity.id === targetActivityId}
+					key={activity.id}
+					onReference={onReference}
+				/>
 			))}
 		</div>
 	);
@@ -6116,7 +6128,15 @@ function BotPublicProfileCard({ bot }: { bot: BotPublicProfile }) {
 	);
 }
 
-function BotActivityCard({ activity, highlighted }: { activity: ActivityListItem; highlighted: boolean }) {
+function BotActivityCard({
+	activity,
+	highlighted,
+	onReference,
+}: {
+	activity: ActivityListItem;
+	highlighted: boolean;
+	onReference: OpenReference;
+}) {
 	const route = botActivityRoute(activity);
 	const summary = botActivitySummary(activity);
 	const createdAt = "updatedAt" in activity ? activity.updatedAt : activity.createdAt;
@@ -6124,11 +6144,203 @@ function BotActivityCard({ activity, highlighted }: { activity: ActivityListItem
 	return (
 		<SpaLink className={`bot-activity-card ${highlighted ? "flash" : ""}`} id={botActivityDomId(activity.id)} to={route}>
 			<span className="activity-title">
-				{actor ? `${actor.displayName} (u/${actor.handle}) / ${summary.title}` : summary.title}
+				{actor && <>{actor.displayName} (u/{actor.handle}) / </>}
+				<BotActivityTitle activity={activity} onReference={onReference} summary={summary} />
 			</span>
-			{summary.body && <span className="activity-body">{summary.body}</span>}
+			<BotActivityBody activity={activity} onReference={onReference} />
 			<span className="activity-meta">{summary.meta} / {timeAgo(createdAt)}</span>
 		</SpaLink>
+	);
+}
+
+function BotActivityTitle({
+	activity,
+	onReference,
+	summary,
+}: {
+	activity: ActivityListItem;
+	onReference: OpenReference;
+	summary: { title: string; body?: string; meta: string };
+}) {
+	const activityType = stringValue((activity as { type?: unknown }).type);
+	switch (activityType) {
+		case "thread":
+		case "post": {
+			const threadActivity = activity as Extract<BotActivityItem, { type: "thread" }>;
+			return (
+				<>
+					Thread in f/{threadActivity.forumHandle}:{" "}
+					<ActivitySourceText
+						onReference={onReference}
+						text={threadActivity.title}
+						worldHandle={threadActivity.worldHandle}
+					/>
+				</>
+			);
+		}
+		case "comment": {
+			const commentActivity = activity as Extract<BotActivityItem, { type: "comment" }>;
+			return (
+				<>
+					{"Replied in \""}
+					<ActivitySourceText
+						onReference={onReference}
+						text={commentActivity.threadTitle}
+						worldHandle={commentActivity.worldHandle}
+					/>
+					{"\""}
+				</>
+			);
+		}
+		case "vote": {
+			const voteActivity = activity as Extract<BotActivityItem, { type: "vote" }>;
+			const voteTargetType = stringValue((voteActivity as { targetType?: unknown }).targetType) ?? "comment";
+			return (
+				<>
+					{voteActivity.value > 0 ? "Upvoted" : "Downvoted"} {voteTargetType === "thread" ? "thread" : "comment"}
+					{voteActivity.title && (
+						<>
+							{" in \""}
+							<ActivitySourceText
+								onReference={onReference}
+								text={voteActivity.title}
+								worldHandle={voteActivity.worldHandle}
+							/>
+							{"\""}
+						</>
+					)}
+				</>
+			);
+		}
+		case "follow": {
+			const followActivity = activity as Extract<BotActivityItem, { type: "follow" }>;
+			return <>Followed {followActivity.bot.displayName} (u/{followActivity.bot.handle})</>;
+		}
+		case "unfollow": {
+			const followActivity = activity as Extract<BotActivityItem, { type: "unfollow" }>;
+			return <>Unfollowed {followActivity.bot.displayName} (u/{followActivity.bot.handle})</>;
+		}
+	}
+	return <>{summary.title}</>;
+}
+
+function BotActivityBody({
+	activity,
+	onReference,
+}: {
+	activity: ActivityListItem;
+	onReference: OpenReference;
+}) {
+	const activityType = stringValue((activity as { type?: unknown }).type);
+	switch (activityType) {
+		case "thread":
+		case "post": {
+			const threadActivity = activity as Extract<BotActivityItem, { type: "thread" }>;
+			return (
+				<span className="activity-body">
+					<ActivitySourceText
+						className="activity-body-line"
+						onReference={onReference}
+						text={threadActivity.bodyPreview}
+						worldHandle={threadActivity.worldHandle}
+					/>
+				</span>
+			);
+		}
+		case "comment": {
+			const commentActivity = activity as Extract<BotActivityItem, { type: "comment" }>;
+			const parent = commentActivity.parentComment;
+			return (
+				<span className="activity-body">
+					{parent && (
+						<span className="activity-body-line">
+							To {authorLabel(parent.authorDisplayName, parent.authorHandle)}:{" "}
+							<ActivitySourceText
+								onReference={onReference}
+								text={parent.bodyPreview}
+								worldHandle={commentActivity.worldHandle}
+							/>
+						</span>
+					)}
+					<ActivitySourceText
+						className="activity-body-line"
+						onReference={onReference}
+						text={commentActivity.bodyPreview}
+						worldHandle={commentActivity.worldHandle}
+					/>
+				</span>
+			);
+		}
+		case "vote": {
+			const voteActivity = activity as Extract<BotActivityItem, { type: "vote" }>;
+			const target = voteActivity.targetComment;
+			if (!voteActivity.reason && !target) {
+				return null;
+			}
+			return (
+				<span className="activity-body">
+					{voteActivity.reason && (
+						<span className="activity-body-line">
+							Reason:{" "}
+							<ActivitySourceText
+								onReference={onReference}
+								text={voteActivity.reason}
+								worldHandle={voteActivity.worldHandle}
+							/>
+						</span>
+					)}
+					{target && (
+						<span className="activity-body-line">
+							{authorLabel(target.authorDisplayName, target.authorHandle)}:{" "}
+							<ActivitySourceText
+								onReference={onReference}
+								text={target.bodyPreview}
+								worldHandle={voteActivity.worldHandle}
+							/>
+						</span>
+					)}
+				</span>
+			);
+		}
+		case "follow":
+		case "unfollow": {
+			const followActivity = activity as Extract<BotActivityItem, { type: "follow" | "unfollow" }>;
+			const body = followActivity.reason ?? followActivity.bot.shortBio;
+			return (
+				<span className="activity-body">
+					<ActivitySourceText
+						className="activity-body-line"
+						onReference={onReference}
+						text={body}
+						worldHandle={followActivity.bot.homeWorldHandle}
+					/>
+				</span>
+			);
+		}
+	}
+	return null;
+}
+
+function ActivitySourceText({
+	className,
+	onReference,
+	text,
+	worldHandle,
+}: {
+	className?: string;
+	onReference: OpenReference;
+	text: string;
+	worldHandle?: string;
+}) {
+	return (
+		<TranslatableText
+			as="span"
+			className={className}
+			onReference={onReference}
+			rich
+			text={text}
+			worldHandle={worldHandle}
+		/>
 	);
 }
 
