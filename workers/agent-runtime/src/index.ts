@@ -10087,19 +10087,28 @@ function providerStructuredOutputFromMessageContent(
 
 function parseProviderStructuredMessageContent(
 	content: string,
-	spec: Pick<ProviderSingleStringResponseSpec, "kind" | "label">,
+	spec: Pick<ProviderSingleStringResponseSpec, "kind" | "label" | "property">,
 	rawResponse: string,
 ): unknown {
+	const repairCandidates = new Set<string>();
 	try {
 		return JSON.parse(content) as unknown;
 	} catch {
 		const firstBrace = content.indexOf("{");
 		const lastBrace = content.lastIndexOf("}");
 		if (firstBrace >= 0 && lastBrace > firstBrace) {
+			const candidate = content.slice(firstBrace, lastBrace + 1);
 			try {
-				return JSON.parse(content.slice(firstBrace, lastBrace + 1)) as unknown;
+				return JSON.parse(candidate) as unknown;
 			} catch {
-				// Fall through to the shared validation error below.
+				repairCandidates.add(candidate);
+			}
+		}
+		repairCandidates.add(content);
+		for (const candidate of repairCandidates) {
+			const repaired = repairSingleStringStructuredJsonObject(candidate, spec.property);
+			if (repaired) {
+				return repaired;
 			}
 		}
 	}
@@ -10107,6 +10116,175 @@ function parseProviderStructuredMessageContent(
 		rawResponse,
 		...(spec.kind === "compaction" ? {} : { outputText: content }),
 	});
+}
+
+function repairSingleStringStructuredJsonObject(source: string, property: string): Record<string, string> | null {
+	const text = source.trim();
+	let index = 0;
+	if (text[index] !== "{") {
+		return null;
+	}
+	index = skipJsonWhitespace(text, index + 1);
+	const key = readJsonStringToken(text, index);
+	if (!key || key.value !== property) {
+		return null;
+	}
+	index = skipJsonWhitespace(text, key.end);
+	if (text[index] !== ":") {
+		return null;
+	}
+	index = skipJsonWhitespace(text, index + 1);
+	if (text[index] !== "\"") {
+		return null;
+	}
+	const valueStart = index + 1;
+	const objectEnd = lastNonWhitespaceIndex(text);
+	if (objectEnd <= valueStart || text[objectEnd] !== "}") {
+		return null;
+	}
+	let closingQuote = objectEnd - 1;
+	while (closingQuote >= valueStart && isJsonWhitespace(text[closingQuote] ?? "")) {
+		closingQuote -= 1;
+	}
+	if (closingQuote < valueStart || text[closingQuote] !== "\"" || isEscapedJsonStringQuote(text, closingQuote)) {
+		return null;
+	}
+	if (text.slice(closingQuote + 1, objectEnd).trim()) {
+		return null;
+	}
+	const rawValue = text.slice(valueStart, closingQuote);
+	if (looksLikeAdditionalJsonMember(rawValue)) {
+		return null;
+	}
+	return { [property]: decodeLooseJsonStringContent(rawValue) };
+}
+
+function readJsonStringToken(text: string, start: number): { value: string; end: number } | null {
+	if (text[start] !== "\"") {
+		return null;
+	}
+	for (let index = start + 1; index < text.length; index += 1) {
+		if (text[index] === "\"" && !isEscapedJsonStringQuote(text, index)) {
+			try {
+				const value = JSON.parse(text.slice(start, index + 1)) as unknown;
+				return typeof value === "string" ? { value, end: index + 1 } : null;
+			} catch {
+				return null;
+			}
+		}
+	}
+	return null;
+}
+
+function decodeLooseJsonStringContent(value: string): string {
+	let decoded = "";
+	for (let index = 0; index < value.length;) {
+		const char = value[index];
+		if (char !== "\\") {
+			decoded += char ?? "";
+			index += 1;
+			continue;
+		}
+		const escaped = value[index + 1];
+		if (escaped === undefined) {
+			decoded += "\\";
+			index += 1;
+			continue;
+		}
+		switch (escaped) {
+			case "\"":
+			case "\\":
+			case "/":
+				decoded += escaped;
+				index += 2;
+				break;
+			case "b":
+				decoded += "\b";
+				index += 2;
+				break;
+			case "f":
+				decoded += "\f";
+				index += 2;
+				break;
+			case "n":
+				decoded += "\n";
+				index += 2;
+				break;
+			case "r":
+				decoded += "\r";
+				index += 2;
+				break;
+			case "t":
+				decoded += "\t";
+				index += 2;
+				break;
+			case "u": {
+				const hex = value.slice(index + 2, index + 6);
+				if (/^[0-9a-fA-F]{4}$/.test(hex)) {
+					decoded += String.fromCharCode(Number.parseInt(hex, 16));
+					index += 6;
+				} else {
+					decoded += "\\u";
+					index += 2;
+				}
+				break;
+			}
+			default:
+				decoded += `\\${escaped}`;
+				index += 2;
+				break;
+		}
+	}
+	return decoded;
+}
+
+function looksLikeAdditionalJsonMember(rawValue: string): boolean {
+	for (let index = 0; index < rawValue.length; index += 1) {
+		if (rawValue[index] !== "\"" || isEscapedJsonStringQuote(rawValue, index)) {
+			continue;
+		}
+		let next = skipJsonWhitespace(rawValue, index + 1);
+		if (rawValue[next] === ",") {
+			next = skipJsonWhitespace(rawValue, next + 1);
+		}
+		const key = readJsonStringToken(rawValue, next);
+		if (!key) {
+			continue;
+		}
+		const afterKey = skipJsonWhitespace(rawValue, key.end);
+		if (rawValue[afterKey] === ":") {
+			return true;
+		}
+	}
+	return false;
+}
+
+function skipJsonWhitespace(text: string, index: number): number {
+	while (index < text.length && isJsonWhitespace(text[index] ?? "")) {
+		index += 1;
+	}
+	return index;
+}
+
+function lastNonWhitespaceIndex(text: string): number {
+	for (let index = text.length - 1; index >= 0; index -= 1) {
+		if (!isJsonWhitespace(text[index] ?? "")) {
+			return index;
+		}
+	}
+	return -1;
+}
+
+function isJsonWhitespace(char: string): boolean {
+	return char === " " || char === "\n" || char === "\r" || char === "\t";
+}
+
+function isEscapedJsonStringQuote(text: string, quoteIndex: number): boolean {
+	let slashCount = 0;
+	for (let index = quoteIndex - 1; index >= 0 && text[index] === "\\"; index -= 1) {
+		slashCount += 1;
+	}
+	return slashCount % 2 === 1;
 }
 
 function providerStructuredOutputFromToolMessage(
