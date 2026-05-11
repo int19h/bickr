@@ -81,7 +81,7 @@ describe("LoopMessageReadableView", () => {
 		expect(html).toContain("Rule 82");
 		expect(html).not.toContain("Comment by");
 		expect(html).not.toContain("someone");
-		expect(html).not.toContain("href=");
+		expect(html).toContain("href=\"/c/cmt_match\"");
 	});
 
 	it("uses linked rich results when rendering matching tool requests", () => {

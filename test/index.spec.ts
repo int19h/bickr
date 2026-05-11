@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { env as testEnv } from "cloudflare:test";
 import { onRequestGet as bootstrap } from "../apps/web/functions/api/bootstrap";
 import { onRequest as pageShell } from "../apps/web/functions/[[path]]";
+import { onRequestGet as commentRefResolver } from "../apps/web/functions/c/[commentRef]";
+import { onRequestGet as threadRefResolver } from "../apps/web/functions/t/[threadRef]";
 import { onRequestGet as githubStart } from "../apps/web/functions/api/auth/github/start";
 import { onRequestGet as githubCallback } from "../apps/web/functions/api/auth/github/callback";
 import { onRequestGet as googleStart } from "../apps/web/functions/api/auth/google/start";
@@ -173,6 +175,7 @@ import {
 	defaultCommentBodyCharacters,
 	defaultThreadBodyCharacters,
 } from "../packages/shared/src/posting";
+import { formatCommentRef, formatThreadRef } from "../packages/shared/src/ids";
 import { isValidHandleText, maxProviderRoutingJsonLength, sanitizeHandleInput } from "../packages/shared/src/validation";
 import { sessionCookieName, type AppEnv } from "../apps/web/functions/api/_auth";
 import { oauthCookieNames } from "../apps/web/functions/api/auth/_oauth";
@@ -308,6 +311,11 @@ CREATE TABLE threads_index (
 CREATE UNIQUE INDEX threads_index_root_comment ON threads_index (root_comment_id);
 CREATE INDEX threads_index_forum_activity ON threads_index (forum_id, deleted_at, last_activity_at);
 CREATE INDEX threads_index_world_hot ON threads_index (world_id, deleted_at, hot_score);
+CREATE TABLE content_ids (
+	id TEXT PRIMARY KEY,
+	ref_type TEXT NOT NULL,
+	created_at TEXT NOT NULL
+);
 CREATE TABLE comments_index (
 	comment_id TEXT PRIMARY KEY,
 	thread_id TEXT NOT NULL,
@@ -502,6 +510,7 @@ beforeEach(async () => {
 		DROP TABLE IF EXISTS bot_activity_events;
 		DROP TABLE IF EXISTS follows;
 		DROP TABLE IF EXISTS votes;
+		DROP TABLE IF EXISTS content_ids;
 		DROP TABLE IF EXISTS comments_index;
 		DROP TABLE IF EXISTS threads_index;
 		DROP TABLE IF EXISTS search_entities_fts;
@@ -625,7 +634,7 @@ describe("Bickr Pages Functions", () => {
 			type: "array",
 			items: {
 				type: "object",
-				required: ["commentId", "value"],
+				required: ["commentRef", "value"],
 			},
 		});
 		const voteItem = vote?.function.parameters.properties.votes?.type === "array" ?
@@ -633,7 +642,7 @@ describe("Bickr Pages Functions", () => {
 		:	undefined;
 		expect(voteItem?.type).toBe("object");
 		if (voteItem?.type === "object") {
-			expect(voteItem.properties.commentId).toEqual({
+			expect(voteItem.properties.commentRef).toEqual({
 				type: "string",
 			});
 			expect(voteItem.properties.value).toEqual({
@@ -698,7 +707,7 @@ describe("Bickr Pages Functions", () => {
 		for (const name of ["read_thread", "read_thread_by_id", "read_comment_by_id"]) {
 			const readTool = toolDefinitions.find((definition) => definition.function.name === name);
 			expect(readTool?.function.description).toContain("when replies is a number");
-			expect(readTool?.function.description).toContain("read_comment_by_id with that comment ID");
+			expect(readTool?.function.description).toContain("read_comment_by_id with that comment ref");
 			expect(readTool?.function.description).toContain("end with …");
 			expect(readTool?.function.description).toContain("full comment");
 		}
@@ -706,11 +715,11 @@ describe("Bickr Pages Functions", () => {
 		const reply = toolDefinitions.find((definition) => definition.function.name === "reply_to_comment");
 		const additionalReply = toolDefinitions.find((definition) => definition.function.name === "make_additional_reply_to_the_same_comment");
 		expect(reply?.function.parameters.properties).toEqual({
-			commentId: { type: "string" },
+			commentRef: { type: "string" },
 			body: { type: "string", maxLength: defaultCommentBodyCharacters },
 		});
 		expect(additionalReply?.function.parameters.properties).toEqual(reply?.function.parameters.properties);
-		expect(additionalReply?.function.parameters.required).toEqual(["commentId", "body"]);
+		expect(additionalReply?.function.parameters.required).toEqual(["commentRef", "body"]);
 		const createThread = toolDefinitions.find((definition) => definition.function.name === "create_thread");
 		expect(createThread?.function.parameters.properties.body).toEqual({
 			type: "string",
@@ -824,14 +833,12 @@ describe("Bickr Pages Functions", () => {
 		expect(voteResult.providerResult).toHaveLength(2);
 		expect(voteResult.providerResult).toMatchObject([
 			{
-				commentId: thread.rootCommentId,
 				value: 1,
-				target: { commentId: thread.rootCommentId, threadId: thread.id },
+				target: { commentRef: formatCommentRef(thread.rootCommentId), threadRef: formatThreadRef(thread.id) },
 			},
 			{
-				commentId: comment.id,
 				value: -1,
-				target: { commentId: comment.id, threadId: thread.id },
+				target: { commentRef: formatCommentRef(comment.id), threadRef: formatThreadRef(thread.id) },
 			},
 		]);
 		expect(JSON.stringify(voteResult.providerResult)).not.toContain("Comment body.");
@@ -896,15 +903,15 @@ describe("Bickr Pages Functions", () => {
 			result: readThreadResult.result,
 		});
 		const readThreadContent = (readThreadResult.providerResult as { content: Array<Record<string, unknown>> }).content;
-		expect(readThreadContent.map((item) => item.commentId)).toEqual([thread.rootCommentId]);
+		expect(readThreadContent.map((item) => item.commentRef)).toEqual([formatCommentRef(thread.rootCommentId)]);
 		expect(readThreadContent).toMatchObject([
 			{
-				commentId: thread.rootCommentId,
+				commentRef: formatCommentRef(thread.rootCommentId),
 				body: "Root body.",
 				replies: [{
-					commentId: comment.id,
+					commentRef: formatCommentRef(comment.id),
 					body: "Comment body.",
-					replies: [{ commentId: childComment.id, body: "Child comment body." }],
+					replies: [{ commentRef: formatCommentRef(childComment.id), body: "Child comment body." }],
 				}],
 			},
 		]);
@@ -918,12 +925,12 @@ describe("Bickr Pages Functions", () => {
 		);
 		expect((readCommentResult.providerResult as { content: Array<Record<string, unknown>> }).content).toMatchObject([
 			{
-				commentId: thread.rootCommentId,
+				commentRef: formatCommentRef(thread.rootCommentId),
 				ancestorOnly: true,
 				replies: [{
-					commentId: comment.id,
+					commentRef: formatCommentRef(comment.id),
 					ancestorOnly: true,
-					replies: [{ commentId: childComment.id, "My focus is on this comment": true }],
+					replies: [{ commentRef: formatCommentRef(childComment.id), "My focus is on this comment": true }],
 				}],
 			},
 		]);
@@ -937,12 +944,12 @@ describe("Bickr Pages Functions", () => {
 		);
 		expect((readBranchResult.providerResult as { content: Array<Record<string, unknown>> }).content).toMatchObject([
 			{
-				commentId: thread.rootCommentId,
+				commentRef: formatCommentRef(thread.rootCommentId),
 				ancestorOnly: true,
 				replies: [{
-					commentId: comment.id,
+					commentRef: formatCommentRef(comment.id),
 					"My focus is on this comment": true,
-					replies: [{ commentId: childComment.id, body: "Child comment body." }],
+					replies: [{ commentRef: formatCommentRef(childComment.id), body: "Child comment body." }],
 				}],
 			},
 		]);
@@ -976,10 +983,10 @@ describe("Bickr Pages Functions", () => {
 		expect(prunedProviderResult.context).toContain("body ending in …");
 		expect(prunedProviderResult.content).toMatchObject([
 			{
-				commentId: largeThread.rootCommentId,
+				commentRef: formatCommentRef(largeThread.rootCommentId),
 				body: "Root body stays visible.",
 				replies: [{
-					commentId: immediateReply.id,
+					commentRef: formatCommentRef(immediateReply.id),
 					body: "…",
 					replies: 1,
 				}],
@@ -1002,14 +1009,14 @@ describe("Bickr Pages Functions", () => {
 		const prunedBranchContent = (prunedBranchResult.providerResult as { context: string; content: Array<Record<string, unknown>> }).content;
 		expect(prunedBranchContent).toMatchObject([
 			{
-				commentId: focusedThread.rootCommentId,
+				commentRef: formatCommentRef(focusedThread.rootCommentId),
 				body: "Focused root stays visible.",
 				replies: [{
-					commentId: targetReply.id,
+					commentRef: formatCommentRef(targetReply.id),
 					body: "Focused target body stays visible.",
 					"My focus is on this comment": true,
 					replies: [{
-						commentId: descendantReply.id,
+						commentRef: formatCommentRef(descendantReply.id),
 						body: "…",
 					}],
 				}],
@@ -4959,7 +4966,7 @@ describe("Bickr Pages Functions", () => {
 			name: "read_thread_by_id",
 			args: { threadId: "thr_read" },
 		});
-		expect(toolCall).toBe("I decided to read thread thr_read.");
+		expect(toolCall).toBe("I decided to read thread t/thr_read.");
 		expect(toolCall).not.toMatch(/^Action:/);
 
 		const toolResult = formatRuntimeEventForContext("tool_result", {
@@ -5002,10 +5009,10 @@ describe("Bickr Pages Functions", () => {
 				],
 			},
 		});
-		expect(toolResult).toContain('I read thread thr_read in f/philosophy titled "Is it real?" by u/alice');
+		expect(toolResult).toContain('I read thread t/thr_read in f/philosophy titled "Is it real?" by u/alice');
 		expect(toolResult).toContain("I follow this profile");
 		expect(toolResult).toContain("I do not follow this profile");
-		expect(toolResult).toContain('comment cmt_read in thread thr_read under comment cmt_parent');
+		expect(toolResult).toContain('comment c/cmt_read in thread t/thr_read under comment c/cmt_parent');
 		expect(toolResult).not.toMatch(/^Result:|threadId=|commentId=/);
 
 		const redundantUnfollow = formatRuntimeEventForContext("tool_result", {
@@ -5588,9 +5595,9 @@ describe("Bickr Pages Functions", () => {
 		expect(checkNotificationsResult.events).toHaveLength(2);
 		expect(checkNotificationsResult.events[0]).toMatchObject({
 			deliveryReasons: ["direct_reply", "mention"],
-			thread: { threadId: "thr_seen", title: "Already scoped thread" },
-			comment: { commentId: "cmt_seen", threadId: "thr_seen" },
-			replyTo: { threadId: "thr_seen", title: "Already scoped thread" },
+			thread: { threadRef: "t/thr_seen", title: "Already scoped thread" },
+			comment: { commentRef: "c/cmt_seen", threadRef: "t/thr_seen" },
+			replyTo: { title: "Already scoped thread" },
 			actor: `u/${referencedProfile.handle}`,
 		});
 		expect(checkNotificationsResult.events[0]).not.toHaveProperty("id");
@@ -5727,8 +5734,8 @@ describe("Bickr Pages Functions", () => {
 		expect(checkNotificationsResult.context).toContain("older notification");
 			expect(checkNotificationsResult.events.length).toBeGreaterThan(0);
 			expect(checkNotificationsResult.events.length).toBeLessThan(notifications.length);
-			expect(checkNotificationsResult.events[0].comment.commentId).not.toBe("cmt_drop_0");
-			expect(checkNotificationsResult.events.at(-1).comment.commentId).toBe("cmt_drop_7");
+			expect(checkNotificationsResult.events[0].comment.commentRef).not.toBe("c/cmt_drop_0");
+			expect(checkNotificationsResult.events.at(-1).comment.commentRef).toBe("c/cmt_drop_7");
 			expect(checkNotificationsResult.events.at(-1).comment.text).toBe("Comment 7 stays whole.");
 			expect(JSON.stringify(checkNotificationsResult)).not.toContain("…");
 		});
@@ -5769,16 +5776,16 @@ describe("Bickr Pages Functions", () => {
 			{},
 			activeScope,
 		) as { thread: Record<string, unknown>; content: Array<Record<string, unknown>> };
-		expect(threadResult.thread).toMatchObject({ threadId: "thr_read", title: "Read thread", author: "u/thread-author" });
+		expect(threadResult.thread).toMatchObject({ threadRef: "t/thr_read", title: "Read thread", author: "u/thread-author" });
 		expect(threadResult.thread).not.toHaveProperty("id");
 		expect(threadResult.thread).not.toHaveProperty("world");
 		expect(threadResult.thread).not.toHaveProperty("forum");
-		expect(threadResult.content[0]).toMatchObject({ commentId: "cmt_seen" });
+		expect(threadResult.content[0]).toMatchObject({ commentRef: "c/cmt_seen" });
 		expect(threadResult.content[0]).not.toHaveProperty("type");
 		expect(threadResult.content[0]).not.toHaveProperty("id");
 		expect(threadResult.content[0]).not.toHaveProperty("threadId");
 		expect(threadResult.content[0]?.body).toBeUndefined();
-		expect(threadResult.content[1]).toMatchObject({ commentId: "cmt_new", author: "u/comment-author", body: "Newly emitted." });
+		expect(threadResult.content[1]).toMatchObject({ commentRef: "c/cmt_new", author: "u/comment-author", body: "Newly emitted." });
 		expect(threadResult.content[1]).not.toHaveProperty("world");
 		expect(threadResult.content[1]).not.toHaveProperty("forum");
 		expect(threadResult.content[1]).not.toHaveProperty("createdAt");
@@ -5801,7 +5808,7 @@ describe("Bickr Pages Functions", () => {
 				threadsWithText: new Set<string>(),
 			},
 		) as { content: Array<Record<string, unknown>> };
-		expect(commentResult.content[0]).toMatchObject({ commentId: "cmt_seen" });
+		expect(commentResult.content[0]).toMatchObject({ commentRef: "c/cmt_seen" });
 		expect(commentResult.content[0]).not.toHaveProperty("type");
 		expect(commentResult.content[0]).not.toHaveProperty("id");
 		expect(commentResult.content[0]).not.toHaveProperty("threadId");
@@ -5835,8 +5842,8 @@ describe("Bickr Pages Functions", () => {
 			]);
 			expect(recentResult).toMatchObject([
 				{
-					threadId: "thr_recent",
-					rootCommentId: "cmt_recent_root",
+					threadRef: "t/thr_recent",
+					rootCommentRef: "c/cmt_recent_root",
 					title: "Recent thread",
 					author: "u/alice",
 					commentCount: 3,
@@ -5857,7 +5864,7 @@ describe("Bickr Pages Functions", () => {
 					lastActivityAt: "2026-05-07T22:00:00.000Z",
 				},
 			]);
-			expect(hotResult).toMatchObject([{ threadId: "thr_hot", forum: "f/weird", author: "u/bob", lastActivity: "2 hours ago" }]);
+			expect(hotResult).toMatchObject([{ threadRef: "t/thr_hot", forum: "f/weird", author: "u/bob", lastActivity: "2 hours ago" }]);
 
 			const searchResult = providerToolResultPayload("search_threads", [
 				{
@@ -5875,8 +5882,8 @@ describe("Bickr Pages Functions", () => {
 			]);
 			expect(searchResult).toMatchObject([
 				{
-					threadId: "thr_search",
-					commentId: "cmt_search",
+					threadRef: "t/thr_search",
+					commentRef: "c/cmt_search",
 					forum: "f/random",
 					title: "Search hit",
 					snippet: "A useful comment.",
@@ -5906,8 +5913,8 @@ describe("Bickr Pages Functions", () => {
 				},
 			);
 			expect((compactedSearchResult as Array<Record<string, unknown>>)[0]).toMatchObject({
-				threadId: "thr_search",
-				commentId: "cmt_search",
+				threadRef: "t/thr_search",
+				commentRef: "c/cmt_search",
 				title: "Search hit",
 			});
 			expect((compactedSearchResult as Array<Record<string, unknown>>)[0]).not.toHaveProperty("snippet");
@@ -5928,8 +5935,8 @@ describe("Bickr Pages Functions", () => {
 				events: [{
 					type: "vote_cast",
 					actor: "u/voter",
-					comment: { commentId: "cmt_notice", threadId: "thr_notice", text: "Notice body." },
-					vote: { commentId: "cmt_notice", value: 1 },
+					comment: { commentRef: "c/cmt_notice", threadRef: "t/thr_notice", text: "Notice body." },
+					vote: { commentRef: "c/cmt_notice", value: 1 },
 				}],
 			});
 			expect((notificationResult as { events: Array<Record<string, unknown>> }).events[0]?.comment).not.toHaveProperty("parentCommentId");
@@ -5989,21 +5996,21 @@ describe("Bickr Pages Functions", () => {
 				expect(activityResult).toMatchObject({
 					profile: "u/owner",
 					activities: [
-						{ type: "thread", threadId: "thr_activity", forum: "f/random", when: "2 days ago" },
+						{ type: "thread", threadRef: "t/thr_activity", forum: "f/random", when: "2 days ago" },
 						{
 							type: "comment",
-							commentId: "cmt_activity",
+							commentRef: "c/cmt_activity",
 							forum: "f/random",
 							replyTo: { author: "u/dave", bodyPreview: "Parent preview." },
 							when: "3 days ago",
 						},
 						{
 						type: "vote",
-						commentId: "cmt_vote",
+						commentRef: "c/cmt_vote",
 						value: 1,
-						threadId: "thr_vote",
+						threadRef: "t/thr_vote",
 						forum: "f/polls",
-						targetComment: { commentId: "cmt_vote", author: "u/erin", bodyPreview: "Vote target." },
+						targetComment: { commentRef: "c/cmt_vote", author: "u/erin", bodyPreview: "Vote target." },
 						when: "4 days ago",
 					},
 					{ type: "follow", profile: "u/friend", when: "5 days ago" },
@@ -6012,6 +6019,7 @@ describe("Bickr Pages Functions", () => {
 				expect((activityResult as { activities: Array<Record<string, unknown>> }).activities[0]).not.toHaveProperty("rootCommentId");
 				const providerCommentActivity = (activityResult as { activities: Array<Record<string, unknown>> }).activities[1]!;
 				expect(providerCommentActivity).not.toHaveProperty("threadId");
+				expect(providerCommentActivity).not.toHaveProperty("threadRef");
 				expect(providerCommentActivity).not.toHaveProperty("threadTitle");
 				expect(providerCommentActivity).not.toHaveProperty("voteScore");
 				expect(providerCommentActivity).not.toHaveProperty("parentComment");
@@ -6201,26 +6209,26 @@ describe("Bickr Pages Functions", () => {
 			.filter((message) => message.role === "tool")
 			.map((message) => JSON.parse(String(message.content)));
 		expect(toolResults.find((result) => result.operation === "read_comment_by_id")).toMatchObject({
-			targetCommentId: "cmt_spotlight",
+			targetCommentRef: "c/cmt_spotlight",
 			content: [
 				{
-					commentId: "cmt_spotlight_root",
+					commentRef: "c/cmt_spotlight_root",
 					ancestorOnly: true,
 					replies: [{
-						commentId: "cmt_spotlight_parent",
+						commentRef: "c/cmt_spotlight_parent",
 						body: "…",
 						ancestorOnly: true,
-						replies: [{ commentId: "cmt_spotlight", body: "Target comment.", "My focus is on this comment": true }],
+						replies: [{ commentRef: "c/cmt_spotlight", body: "Target comment.", "My focus is on this comment": true }],
 					}],
 				},
 			],
 		});
 		expect(toolResults.find((result) => result.operation === "read_thread_by_id")).toMatchObject({
-			thread: { threadId: "thr_spotlight_thread", title: "Thread spotlight" },
+			thread: { threadRef: "t/thr_spotlight_thread", title: "Thread spotlight" },
 			content: [{
-				commentId: "cmt_spotlight_thread_root",
+				commentRef: "c/cmt_spotlight_thread_root",
 				body: "Thread target.",
-				replies: [{ commentId: "cmt_spotlight_thread_reply", body: "…" }],
+				replies: [{ commentRef: "c/cmt_spotlight_thread_reply", body: "…" }],
 			}],
 		});
 		expect(toolResults.find((result) => result.operation === "read_thread_by_id")?.context).toContain("body ending in …");
@@ -13552,7 +13560,7 @@ describe("Bickr Pages Functions", () => {
 					scope,
 					{ tokenBudget: 45 },
 					) as Array<Record<string, unknown>>;
-					expect(searchResult.map((item) => item.threadId)).toEqual(["thr_new"]);
+					expect(searchResult.map((item) => item.threadRef)).toEqual(["t/thr_new"]);
 
 					const semanticSearchResult = providerToolResultPayload(
 						"search_threads_semantic",
@@ -13564,7 +13572,7 @@ describe("Bickr Pages Functions", () => {
 						scope,
 						{ tokenBudget: 45 },
 					) as Array<Record<string, unknown>>;
-					expect(semanticSearchResult.map((item) => item.threadId)).toEqual(["thr_semantic_new"]);
+					expect(semanticSearchResult.map((item) => item.threadRef)).toEqual(["t/thr_semantic_new"]);
 
 					const profilesResult = providerToolResultPayload(
 						"view_profiles",
@@ -13626,7 +13634,7 @@ describe("Bickr Pages Functions", () => {
 				expect(activityResult.activities).toHaveLength(1);
 				expect(activityResult.activities[0]).toMatchObject({
 					type: "comment",
-					commentId: "cmt_new",
+					commentRef: "c/cmt_new",
 					bodyPreview: "…",
 					replyTo: { author: "u/parent", bodyPreview: "…" },
 				});
@@ -13668,7 +13676,7 @@ describe("Bickr Pages Functions", () => {
 			expect(notificationResult.events).toHaveLength(1);
 			expect(notificationResult.events[0]).toMatchObject({
 				actor: "u/new",
-				comment: { commentId: "cmt_new", text: "Newest notification text stays whole." },
+				comment: { commentRef: "c/cmt_new", text: "Newest notification text stays whole." },
 			});
 		});
 
@@ -14181,6 +14189,29 @@ describe("Bickr Pages Functions", () => {
 		expect(voteNotice?.title).toBe("Cache Critic upvoted a comment in");
 		expect(voteNotice?.body).toBe("Index repair ballad\nThe root comment is useful.");
 		expect(voteNotice?.urlPath).toBe(`/w/patch-notes/u/cache-critic?tab=activity&activity=vote%3Acomment%3A${thread.data.thread.rootCommentId}`);
+	});
+
+	it("redirects standalone thread and comment refs to canonical forum routes", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const forum = await createForumForTest(cookie, "short-ref-routes");
+		const author = await createBotForTest(cookie, "short-ref-author");
+		const thread = await createThreadForTest(forum.id, author.id, "Short ref route target", "Root body.");
+		const comment = await createCommentForTest(thread.id, author.id, "Linked reply.");
+
+		const threadResponse = await threadRefResolver(contextFor<typeof threadRefResolver>(
+			new Request(`http://example.com/t/${thread.id.toUpperCase()}`),
+			{ threadRef: thread.id.toUpperCase() },
+		));
+		expect(threadResponse.status).toBe(302);
+		expect(threadResponse.headers.get("location")).toBe(`http://example.com/w/patch-notes/f/short-ref-routes/t/${thread.id}`);
+
+		const commentResponse = await commentRefResolver(contextFor<typeof commentRefResolver>(
+			new Request(`http://example.com/c/${comment.id.toUpperCase()}`),
+			{ commentRef: comment.id.toUpperCase() },
+		));
+		expect(commentResponse.status).toBe(302);
+		expect(commentResponse.headers.get("location")).toBe(`http://example.com/w/patch-notes/f/short-ref-routes/t/${thread.id}/c/${comment.id}`);
 	});
 
 	it("uses the coordinator only for explicitly fresh thread detail reads", async () => {
@@ -15099,7 +15130,7 @@ describe("Bickr Pages Functions", () => {
 		expect(humanUnfollow?.body).toBe(`u/${actor.handle} unfollowed u/${target.handle}.\nTarget posts stopped being relevant.`);
 		expect(humanUnfollow?.urlPath).toMatch(new RegExp(`^/w/patch-notes/u/${actor.handle}\\?tab=activity&activity=act_`));
 
-		const replyNotifications = followerNotifications.filter((notification) => notification.sourceObjectId === reply.id);
+		const replyNotifications = followerNotifications.filter((notification) => notification.sourceObjectId === formatCommentRef(reply.id));
 		expect(replyNotifications).toHaveLength(1);
 		expect(replyNotifications[0]?.event).toMatchObject({
 			type: "comment_created",
@@ -15159,13 +15190,13 @@ describe("Bickr Pages Functions", () => {
 		);
 		const allowedProviderResult = allowed.providerResult as {
 			ok: boolean;
-			comment: { commentId: string; threadId: string };
+			comment: { commentRef: string; threadRef: string };
 		};
 		expect(allowedProviderResult).toMatchObject({
 			ok: true,
 			comment: {
-				commentId: expect.any(String),
-				threadId: thread.id,
+				commentRef: expect.any(String),
+				threadRef: formatThreadRef(thread.id),
 			},
 		});
 		expect(allowedProviderResult.comment).not.toHaveProperty("type");
@@ -15329,7 +15360,7 @@ describe("Bickr Pages Functions", () => {
 		expect(secondRequest[toolMessageIndexes[0]!]?.tool_call_id).toBe("call-read");
 		expect(secondRequest[toolMessageIndexes[1]!]?.tool_call_id).toBe("call-reply-fail");
 		expect(acknowledgementIndex).toBeGreaterThan(toolMessageIndexes[1]!);
-		expect(String(secondRequest[acknowledgementIndex]?.content)).toContain("Read or search first, then reply using the returned comment ID.");
+		expect(String(secondRequest[acknowledgementIndex]?.content)).toContain("Read or search first, then reply using the returned comment ref.");
 	});
 
 	it("finishes a parallel tool batch before applying persistent failure handling", async () => {
@@ -15874,7 +15905,7 @@ describe("Bickr Pages Functions", () => {
 		const built = await buildRuntimeLoopInput(testEnv.BICKR_KV, testEnv.BICKR_D1, recipient.id, [reply], []);
 		const loopNotification = built.input.notifications[0];
 		expect(loopNotification).toMatchObject({
-			sourceObjectId: child.id,
+			sourceObjectId: formatCommentRef(child.id),
 			type: "comment_created",
 			thread: { id: thread.id, title: "Context thread" },
 			comment: { id: child.id, threadId: thread.id, parentCommentId: parent.id, text: "Child reply." },
@@ -15890,7 +15921,7 @@ describe("Bickr Pages Functions", () => {
 			[],
 		);
 		expect(legacyBuilt.input.notifications[0]).toMatchObject({
-			sourceObjectId: child.id,
+			sourceObjectId: formatCommentRef(child.id),
 			type: "comment_created",
 			actor: { username: `u/${replier.handle}`, displayName: replier.displayName },
 			world: { handle: "w/patch-notes" },

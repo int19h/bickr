@@ -1,5 +1,6 @@
 import type { BotRuntimeEvent } from "@bickr/shared/model";
 import { ownerRuntimeErrorMessage } from "@bickr/shared/runtime-errors";
+import { parseCommentRef, parseThreadRef } from "@bickr/shared/ids";
 import { handlePatternSource, normalizeHandleText } from "@bickr/shared/validation";
 
 export type RuntimeActivityKind =
@@ -488,14 +489,14 @@ function toolCallTitle(name: string, args: unknown): string {
 		case "create_thread":
 			return `Creating a thread in f/${stringValue(record.forumHandle) ?? "..."}`;
 		case "reply_to_comment":
-			return `Replying to comment ${shortId(stringValue(record.commentId ?? record.parentCommentId))}`;
+			return `Replying to comment ${shortId(commentIdFromRecord(record) ?? commentIdFromValue(record.parentCommentRef ?? record.parentCommentId))}`;
 		case "vote":
 			return bulkVoteTitle(record);
 		case "read_thread":
 		case "read_thread_by_id":
-			return `Reading thread ${shortId(stringValue(record.threadId))}`;
+			return `Reading thread ${shortId(threadIdFromRecord(record))}`;
 		case "read_comment_by_id":
-			return `Reading comment ${shortId(stringValue(record.commentId))}`;
+			return `Reading comment ${shortId(commentIdFromRecord(record))}`;
 		case "list_accessible_forums":
 			return "Listing public forums";
 		case "list_recent_threads":
@@ -536,7 +537,8 @@ function toolResultSummary(name: string, args: unknown, result: unknown, fallbac
 		return resultWithDisplay(`Created "${thread.title ?? "thread"}"`, details, items);
 	}
 	if (canonical === "reply_to_comment" && thread) {
-		const parentCommentId = stringValue(runtimeRecord(args).commentId ?? runtimeRecord(args).parentCommentId);
+		const argsRecord = runtimeRecord(args);
+		const parentCommentId = commentIdFromRecord(argsRecord) ?? commentIdFromValue(argsRecord.parentCommentRef ?? argsRecord.parentCommentId);
 		const details = [
 			threadFacts(thread),
 			parentCommentId ? `Parent comment ${shortId(parentCommentId)}` : "",
@@ -551,7 +553,8 @@ function toolResultSummary(name: string, args: unknown, result: unknown, fallbac
 		return resultWithDisplay(`Read "${thread.title ?? "thread"}"`, threadFacts(thread), items);
 	}
 	if (canonical === "read_comment_by_id") {
-		const target = stringValue(record.targetCommentId) ?? stringValue(runtimeRecord(args).commentId);
+		const argsRecord = runtimeRecord(args);
+		const target = commentIdFromValue(record.targetCommentRef ?? record.targetCommentId) ?? commentIdFromRecord(argsRecord);
 		const displayThread = threadRecord({ thread: record.thread });
 		const details = [
 			displayThread?.title ? `In "${displayThread.title}"` : "",
@@ -628,7 +631,7 @@ function toolResultSummary(name: string, args: unknown, result: unknown, fallbac
 			Number(argsRecord.value) > 0 ? "Upvote"
 			: Number(argsRecord.value) < 0 ? "Downvote"
 			: "Vote cleared";
-		const commentId = stringValue(argsRecord.commentId ?? argsRecord.targetId);
+		const commentId = commentIdFromRecord(argsRecord) ?? commentIdFromValue(argsRecord.targetId);
 		const details = [
 			toolReasonBody(args),
 			`${direction} on comment ${shortId(commentId)}`,
@@ -681,17 +684,17 @@ function existingFailureItem(result: Record<string, unknown>): ToolDisplayItem[]
 	if (!href) {
 		return [];
 	}
-	const threadId = stringValue(result.existingThreadId);
+	const threadId = threadIdFromValue(result.existingThreadRef ?? result.existingThreadId);
 	if (threadId) {
 		return [{
 			key: `existing-thread-${threadId}`,
 			label: "Existing thread",
-			detail: [stringValue(result.existingThreadTitle), threadId].filter(Boolean).join(" - "),
+			detail: [stringValue(result.existingThreadTitle), stringValue(result.existingThreadRef) ?? threadId].filter(Boolean).join(" - "),
 			href,
 		}];
 	}
 	return [{
-		key: `existing-comment-${stringValue(result.existingCommentId) ?? href}`,
+		key: `existing-comment-${commentIdFromValue(result.existingCommentRef ?? result.existingCommentId) ?? href}`,
 		label: "Existing comment",
 		href,
 	}];
@@ -700,8 +703,8 @@ function existingFailureItem(result: Record<string, unknown>): ToolDisplayItem[]
 function existingReplyItems(result: Record<string, unknown>): ToolDisplayItem[] {
 	const replies = Array.isArray(result.existingReplies) ? result.existingReplies.map(runtimeRecord) : [];
 	return replies.map((reply, index) => ({
-		key: `existing-reply-${stringValue(reply.commentId) ?? index}`,
-		label: `Existing reply ${shortId(stringValue(reply.commentId))}`,
+		key: `existing-reply-${commentIdFromRecord(reply) ?? index}`,
+		label: `Existing reply ${shortId(commentIdFromRecord(reply))}`,
 		detail: stringValue(reply.body),
 		href: stringValue(reply.urlPath),
 	}));
@@ -755,7 +758,7 @@ function bulkVoteTitle(record: Record<string, unknown>): string {
 		Number(vote.value) > 0 ? "Upvoting"
 		: Number(vote.value) < 0 ? "Downvoting"
 		: "Clearing vote on";
-	return `${direction} comment ${shortId(stringValue(vote.commentId ?? vote.targetId))}`;
+	return `${direction} comment ${shortId(commentIdFromRecord(vote) ?? commentIdFromValue(vote.targetId))}`;
 }
 
 function bulkProfileTitle(action: string, record: Record<string, unknown>): string {
@@ -812,7 +815,7 @@ function threadListItem(record: Record<string, unknown>, index: number, fallback
 	const title = stringValue(record.title) ?? "Untitled thread";
 	const forum = forumHandle(record);
 	return {
-		key: stringValue(record.id) ?? stringValue(record.threadId) ?? `thread-${index}`,
+		key: threadIdFromRecord(record) ?? `thread-${index}`,
 		label: title,
 		detail: `f/${forum} · ${countLabel(numberValue(record.commentCount) ?? 0, "comment")} / ${numberValue(record.voteScore) ?? 0} votes`,
 		href: threadUrl(record, fallbackWorldHandle) ?? undefined,
@@ -820,8 +823,8 @@ function threadListItem(record: Record<string, unknown>, index: number, fallback
 }
 
 function threadSearchItem(record: Record<string, unknown>, index: number, fallbackWorldHandle: string): ToolDisplayItem {
-	const threadId = stringValue(record.threadId);
-	const commentId = stringValue(record.commentId);
+	const threadId = threadIdFromRecord(record);
+	const commentId = commentIdFromRecord(record);
 	const forum = forumHandle(record);
 	const href = threadId ?
 			`/w/${encodeURIComponent(fallbackWorldHandle)}/f/${encodeURIComponent(forum)}/t/${encodeURIComponent(threadId)}${commentId ? `/c/${encodeURIComponent(commentId)}` : ""}`
@@ -875,7 +878,7 @@ function activityItem(record: Record<string, unknown>, index: number, fallbackWo
 		const title = stringValue(record.title) ?? "Untitled thread";
 		const body = trimSearchSnippet(stringValue(record.bodyPreview ?? record.body));
 		return {
-			key: stringValue(record.id) ?? stringValue(record.threadId) ?? `activity-${index}`,
+			key: threadIdFromRecord(record) ?? stringValue(record.id) ?? `activity-${index}`,
 			label: `Thread in f/${forumHandle(record)}: ${title}`,
 			detail: [
 				body,
@@ -885,14 +888,14 @@ function activityItem(record: Record<string, unknown>, index: number, fallbackWo
 		};
 	}
 	if (type === "comment") {
-		const commentId = stringValue(record.commentId) ?? stringValue(record.id);
+		const commentId = commentIdFromRecord(record);
 		const title = stringValue(record.threadTitle ?? record.title);
 		const parentComment = runtimeRecord(record.parentComment);
 		const parentAuthor = profileLabel(parentComment);
 		const parentBody = trimSearchSnippet(stringValue(parentComment.bodyPreview));
 		const body = trimSearchSnippet(stringValue(record.bodyPreview ?? record.body));
 		const parentDetail =
-			stringValue(parentComment.commentId) ?
+			commentIdFromRecord(parentComment) ?
 				`to ${parentAuthor}${parentBody ? `: ${parentBody}` : ""}`
 			:	undefined;
 		return {
@@ -903,9 +906,9 @@ function activityItem(record: Record<string, unknown>, index: number, fallbackWo
 		};
 	}
 	if (type === "vote") {
-		const commentId = stringValue(record.commentId ?? record.targetId);
+		const commentId = commentIdFromRecord(record) ?? commentIdFromValue(record.targetId);
 		const targetComment = runtimeRecord(record.targetComment);
-		const targetAuthor = stringValue(targetComment.commentId) ? profileLabel(targetComment) : undefined;
+		const targetAuthor = commentIdFromRecord(targetComment) ? profileLabel(targetComment) : undefined;
 		const targetBody = trimSearchSnippet(stringValue(targetComment.bodyPreview));
 		const direction =
 			Number(record.value) > 0 ? "Upvoted"
@@ -932,7 +935,7 @@ function activityItem(record: Record<string, unknown>, index: number, fallbackWo
 	return {
 		key: stringValue(record.id) ?? `activity-${index}`,
 		label: type,
-		detail: entityFields(record, ["threadId", "commentId", "targetId"]),
+		detail: entityFields(record, ["threadRef", "threadId", "commentRef", "commentId", "targetId"]),
 	};
 }
 
@@ -940,7 +943,7 @@ function activityThreadHref(record: Record<string, unknown>, fallbackWorldHandle
 	const world = worldHandle(record, fallbackWorldHandle);
 	const forum = forumHandle(record);
 	const type = stringValue(record.type);
-	const threadId = stringValue(record.threadId) ?? (type === "thread" || type === "post" ? stringValue(record.id) : undefined);
+	const threadId = threadIdFromRecord(record) ?? (type === "thread" || type === "post" ? stringValue(record.id) : undefined);
 	if (!world || !forum || !threadId) {
 		return undefined;
 	}
@@ -950,7 +953,7 @@ function activityThreadHref(record: Record<string, unknown>, fallbackWorldHandle
 
 function voteResultItem(record: Record<string, unknown>, index: number, fallbackWorldHandle: string): ToolDisplayItem {
 	const thread = threadRecord(record);
-	const targetId = stringValue(record.commentId ?? record.targetId);
+	const targetId = commentIdFromRecord(record) ?? commentIdFromValue(record.targetId);
 	const direction =
 		Number(record.value) > 0 ? "Upvote"
 		: Number(record.value) < 0 ? "Downvote"
@@ -999,18 +1002,22 @@ function openCommentItem(thread: Record<string, unknown> | null, commentId: stri
 function threadRecord(value: unknown): Record<string, unknown> | null {
 	const record = runtimeRecord(value);
 	const thread = runtimeRecord(record.thread);
-	if (stringValue(thread.id) && (stringValue(thread.title) || stringValue(runtimeRecord(thread.rootPost).title))) {
+	const threadId = threadIdFromRecord(thread);
+	if (threadId && (stringValue(thread.title) || stringValue(runtimeRecord(thread.rootPost).title))) {
 		const rootPost = runtimeRecord(thread.rootPost);
 		return {
 			...thread,
+			id: threadId,
 			title: stringValue(thread.title) ?? stringValue(rootPost.title),
 			body: stringValue(rootCommentBody(thread)) ?? stringValue(rootPost.body) ?? stringValue(thread.body),
 		};
 	}
-	if (stringValue(record.id) && (stringValue(record.title) || record.rootPost && typeof record.rootPost === "object")) {
+	const recordThreadId = threadIdFromRecord(record);
+	if (recordThreadId && (stringValue(record.title) || record.rootPost && typeof record.rootPost === "object")) {
 		const rootPost = runtimeRecord(record.rootPost);
 		return {
 			...record,
+			id: recordThreadId,
 			title: stringValue(record.title) ?? stringValue(rootPost.title),
 			body: stringValue(rootCommentBody(record)) ?? stringValue(rootPost.body),
 		};
@@ -1020,9 +1027,9 @@ function threadRecord(value: unknown): Record<string, unknown> | null {
 
 function rootCommentBody(thread: Record<string, unknown>): string | undefined {
 	const comments = Array.isArray(thread.comments) ? thread.comments.map(runtimeRecord) : [];
-	const rootCommentId = stringValue(thread.rootCommentId);
+	const rootCommentId = commentIdFromValue(thread.rootCommentRef ?? thread.rootCommentId);
 	const root =
-		(rootCommentId ? comments.find((comment) => stringValue(comment.id ?? comment.commentId) === rootCommentId) : undefined) ??
+		(rootCommentId ? comments.find((comment) => commentIdFromRecord(comment) === rootCommentId) : undefined) ??
 		comments.find((comment) => !stringValue(comment.parentCommentId));
 	return stringValue(root?.body);
 }
@@ -1038,13 +1045,13 @@ function createdReplyBody(result: unknown, args: unknown): string | undefined {
 
 function createdReplyCommentId(result: unknown): string | undefined {
 	const comment = runtimeRecord(runtimeRecord(result).comment);
-	return stringValue(comment.commentId ?? comment.id);
+	return commentIdFromRecord(comment);
 }
 
 function threadUrl(thread: Record<string, unknown>, fallbackWorldHandle: string): string | null {
 	const world = worldHandle(thread, fallbackWorldHandle);
 	const forum = forumHandle(thread);
-	const id = stringValue(thread.id) ?? stringValue(thread.threadId);
+	const id = threadIdFromRecord(thread);
 	return world && forum && id ?
 			`/w/${encodeURIComponent(world)}/f/${encodeURIComponent(forum)}/t/${encodeURIComponent(id)}`
 		:	null;
@@ -1158,6 +1165,30 @@ function stringValue(value: unknown): string | undefined {
 		return String(value);
 	}
 	return undefined;
+}
+
+function threadIdFromValue(value: unknown): string | undefined {
+	const text = stringValue(value)?.trim();
+	if (!text) {
+		return undefined;
+	}
+	return parseThreadRef(text);
+}
+
+function commentIdFromValue(value: unknown): string | undefined {
+	const text = stringValue(value)?.trim();
+	if (!text) {
+		return undefined;
+	}
+	return parseCommentRef(text);
+}
+
+function threadIdFromRecord(record: Record<string, unknown>): string | undefined {
+	return threadIdFromValue(record.threadRef ?? record.threadId ?? record.id);
+}
+
+function commentIdFromRecord(record: Record<string, unknown>): string | undefined {
+	return commentIdFromValue(record.commentRef ?? record.commentId ?? record.id);
 }
 
 function numberValue(value: unknown): number | undefined {

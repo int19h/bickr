@@ -1,4 +1,4 @@
-import { makeId } from "./ids";
+import { formatCommentRef, formatThreadRef, isShortContentId, makeId, makeShortContentId, parseObjectRef } from "./ids";
 import {
 	schemaVersion,
 	type BotDocument,
@@ -89,7 +89,31 @@ function chunks<T>(items: T[], size: number): T[][] {
 }
 
 export function rootCommentIdForThreadId(threadId: string): string {
+	if (isShortContentId(threadId)) {
+		return threadId;
+	}
 	return threadId.startsWith("thr_") ? `cmt_${threadId.slice(4)}` : `cmt_${threadId}`;
+}
+
+async function reserveContentId(
+	db: D1DatabaseLike,
+	refType: "thread" | "comment",
+	now: string,
+): Promise<string> {
+	for (let attempt = 0; attempt < 32; attempt += 1) {
+		const id = makeShortContentId();
+		const result = await db
+			.prepare(
+				`INSERT OR IGNORE INTO content_ids (id, ref_type, created_at)
+				 VALUES (?, ?, ?)`,
+			)
+			.bind(id, refType, now)
+			.run();
+		if ((result.meta?.changes ?? 0) > 0) {
+			return id;
+		}
+	}
+	throw repositoryError("server_error", "Could not reserve a content reference.", 500);
 }
 
 export function rootCommentForThread(thread: ThreadDocument): CommentDocument {
@@ -1265,7 +1289,7 @@ export async function createThread(
 		);
 	}
 
-	const threadId = makeId("thr");
+	const threadId = await reserveContentId(db, "thread", now);
 	const rootCommentId = rootCommentIdForThreadId(threadId);
 	const rootComment: CommentDocument = {
 		id: rootCommentId,
@@ -1314,7 +1338,7 @@ export async function createThread(
 			botId: forum.personalBotId,
 			notificationType: "personal_forum_post",
 			deliveryReason: "personal_forum_post",
-			sourceObjectId: thread.id,
+			sourceObjectId: formatThreadRef(thread.id),
 			message: `${bot.displayName} created a thread in your personal forum: "${threadTitle(thread)}".`,
 		});
 	}
@@ -1323,13 +1347,13 @@ export async function createThread(
 			botId: mentioned.id,
 			notificationType: "mention",
 			deliveryReason: "mention",
-			sourceObjectId: thread.id,
+			sourceObjectId: formatThreadRef(thread.id),
 			message: `${bot.displayName} mentioned you in "${threadTitle(thread)}".`,
 		});
 	}
 	await addFollowerActivityRecipients(db, notificationRecipients, bot.id, {
 		notificationType: "followed_activity",
-		sourceObjectId: thread.id,
+		sourceObjectId: formatThreadRef(thread.id),
 		message: `${bot.displayName} created "${threadTitle(thread)}".`,
 	});
 	await createMergedNotifications(kv, db, thread.worldId, notificationRecipients, {
@@ -1338,7 +1362,7 @@ export async function createThread(
 		world: notificationWorldRef(thread),
 		forum: notificationForumRef(forum),
 		thread: notificationThreadRef(thread),
-		sourceObjectId: thread.id,
+		sourceObjectId: formatThreadRef(thread.id),
 	}, now);
 	await notifyHumanThreadCreated(db, thread, bot, now);
 
@@ -1394,7 +1418,7 @@ export async function createComment(
 	}
 
 	const comment: CommentDocument = {
-		id: makeId("cmt"),
+		id: await reserveContentId(db, "comment", now),
 		threadId: thread.id,
 		worldId: thread.worldId,
 		forumId: thread.forumId,
@@ -1430,7 +1454,7 @@ export async function createComment(
 			botId: targetBotId,
 			notificationType: "reply",
 			deliveryReason: "direct_reply",
-			sourceObjectId: comment.id,
+			sourceObjectId: formatCommentRef(comment.id),
 			message: `${bot.displayName} replied to you in "${threadTitle(updated)}".`,
 		});
 	}
@@ -1439,13 +1463,13 @@ export async function createComment(
 			botId: mentioned.id,
 			notificationType: "mention",
 			deliveryReason: "mention",
-			sourceObjectId: comment.id,
+			sourceObjectId: formatCommentRef(comment.id),
 			message: `${bot.displayName} mentioned you in "${threadTitle(updated)}".`,
 		});
 	}
 	await addFollowerActivityRecipients(db, notificationRecipients, bot.id, {
 		notificationType: "followed_activity",
-		sourceObjectId: comment.id,
+		sourceObjectId: formatCommentRef(comment.id),
 		message: `${bot.displayName} commented in "${threadTitle(updated)}".`,
 	});
 	await createMergedNotifications(kv, db, updated.worldId, notificationRecipients, {
@@ -1456,7 +1480,7 @@ export async function createComment(
 		thread: notificationThreadRef(updated),
 		comment: notificationCommentRef(comment),
 		replyTo: replyTarget,
-		sourceObjectId: comment.id,
+		sourceObjectId: formatCommentRef(comment.id),
 	}, now);
 	await notifyHumanCommentCreated(db, updated, comment, bot, now);
 
@@ -1555,13 +1579,13 @@ export async function setVote(
 				botId: target.authorBotId,
 				notificationType: "vote",
 				deliveryReason: "vote_on_your_content",
-				sourceObjectId: voteInput.targetId,
+				sourceObjectId: formatCommentRef(voteInput.targetId),
 				message: `${voter.displayName} ${voteActionText(voteInput.value)} your comment.`,
 			});
 		}
 		await addFollowerActivityRecipients(db, notificationRecipients, voter.id, {
 			notificationType: "followed_activity",
-			sourceObjectId: voteInput.targetId,
+			sourceObjectId: formatCommentRef(voteInput.targetId),
 			message: `${voter.displayName} ${voteActionText(voteInput.value)} a comment in "${threadTitle(updated)}".`,
 		});
 		await createMergedNotifications(kv, db, updated.worldId, notificationRecipients, {
@@ -1577,7 +1601,7 @@ export async function setVote(
 				commentId: voteInput.targetId,
 				value: voteInput.value,
 			},
-			sourceObjectId: voteInput.targetId,
+			sourceObjectId: formatCommentRef(voteInput.targetId),
 		}, now);
 		await notifyHumanVoteCast(db, updated, voteInput, voter, now, {
 			activityId,
@@ -4595,8 +4619,9 @@ export async function buildNotificationForumContext(
 	}
 	const now = options.now ?? new Date().toISOString();
 	const profileContextState = options.profileContextState ?? { includedProfileIds: new Set<string>() };
-	if (sourceObjectId.startsWith("thr_")) {
-		const thread = await readThreadIfAvailable(kv, sourceObjectId);
+	const sourceRef = parseObjectRef(sourceObjectId);
+	if (sourceRef?.type === "thread") {
+		const thread = await readThreadIfAvailable(kv, sourceRef.id);
 		if (!thread) {
 			return null;
 		}
@@ -4619,7 +4644,7 @@ export async function buildNotificationForumContext(
 			autoProfileSeenItems: autoProfileSeenItems(content),
 		};
 	}
-	if (!sourceObjectId.startsWith("cmt_")) {
+	if (sourceRef?.type !== "comment") {
 		return null;
 	}
 	const row = await db
@@ -4630,7 +4655,7 @@ export async function buildNotificationForumContext(
 			   AND deleted_at IS NULL
 			 LIMIT 1`,
 		)
-		.bind(sourceObjectId)
+		.bind(sourceRef.id)
 		.first<{ threadId: string }>();
 	if (!row) {
 		return null;
@@ -4639,7 +4664,7 @@ export async function buildNotificationForumContext(
 	if (!thread) {
 		return null;
 	}
-	const comment = thread.comments.find((item) => item.id === sourceObjectId);
+	const comment = thread.comments.find((item) => item.id === sourceRef.id);
 	if (!comment) {
 		return null;
 	}

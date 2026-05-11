@@ -157,7 +157,7 @@ describe("redundant post and reply self-corrections", () => {
 			existingUrlPath: "/w/primary/f/general/t/thr_existing",
 		}));
 
-		expect(message).toContain("thread thr_existing");
+		expect(message).toContain("thread t/thr_existing");
 		expect(message).toContain("/w/primary/f/general/t/thr_existing");
 		expect(message).toContain("duplicate");
 	});
@@ -176,8 +176,8 @@ describe("redundant post and reply self-corrections", () => {
 			}],
 		}));
 
-		expect(message).toContain("comment c_parent");
-		expect(message).toContain("comment c_reply");
+		expect(message).toContain("comment c/c_parent");
+		expect(message).toContain("comment c/c_reply");
 		expect(message).toContain("/w/primary/f/general/t/thr_1/c/c_reply");
 	});
 
@@ -190,7 +190,7 @@ describe("redundant post and reply self-corrections", () => {
 			existingUrlPath: "/w/primary/f/general/t/thr_1/c/c_dup",
 		}));
 
-		expect(message).toContain("comment c_dup");
+		expect(message).toContain("comment c/c_dup");
 		expect(message).toContain("/w/primary/f/general/t/thr_1/c/c_dup");
 		expect(message).toContain("duplicate");
 	});

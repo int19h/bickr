@@ -1,4 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import {
+	formatCommentRef,
+	formatThreadRef,
+	isShortContentId,
+	parseCommentRef,
+	parseObjectRef,
+	parseThreadRef,
+} from "./ids";
 import { createComment, createThread } from "./social";
 import { kvKeys, type D1DatabaseLike, type D1PreparedStatementLike, type D1Result, type KVNamespaceLike } from "./storage";
 import { schemaVersion, type BotDocument, type ForumDocument, type PostingSettings, type WorldDocument } from "./model";
@@ -73,7 +81,7 @@ describe("createThread duplicate title guard", () => {
 			forumId: "frm_main",
 			title: "Reusable title",
 		});
-		expect(kv.puts.some((key) => key.startsWith("v1:thread:thr_"))).toBe(true);
+		expect(kv.puts.some((key) => /^v1:thread:[a-z2-7]{8}$/.test(key))).toBe(true);
 	});
 
 	it("preserves exact body text while rejecting all-whitespace bodies", async () => {
@@ -150,6 +158,68 @@ describe("createThread duplicate title guard", () => {
 			message: "Comment body must be 80 characters or fewer.",
 		});
 	});
+
+	it("creates short thread and comment IDs with the root comment sharing the thread ID", async () => {
+		const { db, kv } = fixture({ existingThreads: [] });
+		const thread = await createThread(kv, db, {
+			forumId: "frm_main",
+			authorBotId: "bot_author",
+			title: "Short refs",
+			body: "Root body",
+		}, now);
+		const updated = await createComment(kv, db, {
+			threadId: thread.id,
+			authorBotId: "bot_author",
+			body: "Reply body",
+		}, now, { thread });
+		const reply = updated.comments.find((comment) => comment.body === "Reply body");
+
+		expect(isShortContentId(thread.id)).toBe(true);
+		expect(thread.rootCommentId).toBe(thread.id);
+		expect(thread.comments[0]?.id).toBe(thread.id);
+		expect(reply?.id).toMatch(/^[a-z2-7]{8}$/);
+		expect(reply?.id).not.toBe(thread.id);
+	});
+
+	it("retries short ID reservation collisions", async () => {
+		const restore = mockRandomBytes([
+			[0, 0, 0, 0, 0],
+			[0, 0, 0, 0, 1],
+		]);
+		try {
+			const { db, kv } = fixture({
+				existingThreads: [],
+				reservedContentIds: new Set(["aaaaaaaa"]),
+			});
+			const thread = await createThread(kv, db, {
+				forumId: "frm_main",
+				authorBotId: "bot_author",
+				title: "Collision retry",
+				body: "Root body",
+			}, now);
+
+			expect(thread.id).toBe("aaaaaaab");
+			expect(db.contentIds.has("aaaaaaaa")).toBe(true);
+			expect(db.contentIds.has("aaaaaaab")).toBe(true);
+		} finally {
+			restore();
+		}
+	});
+});
+
+describe("content refs", () => {
+	it("formats and parses short and legacy refs", () => {
+		expect(formatThreadRef("abcdefgh")).toBe("t/abcdefgh");
+		expect(formatCommentRef("ABCDEFGH")).toBe("c/abcdefgh");
+		expect(parseThreadRef("T/ABCDEFGH")).toBe("abcdefgh");
+		expect(parseCommentRef("C/ABCDEFGH")).toBe("abcdefgh");
+		expect(parseThreadRef("thr_legacy")).toBe("thr_legacy");
+		expect(parseCommentRef("cmt_legacy")).toBe("cmt_legacy");
+		expect(parseObjectRef("t/ABCDEFGH")).toEqual({ type: "thread", id: "abcdefgh" });
+		expect(parseObjectRef("c/cmt_legacy")).toEqual({ type: "comment", id: "cmt_legacy" });
+		expect(parseThreadRef("c/abcdefgh")).toBeUndefined();
+		expect(parseObjectRef("abcdefgh")).toBeUndefined();
+	});
 });
 
 type ExistingThread = {
@@ -164,6 +234,7 @@ type ExistingThread = {
 
 type FixtureOptions = {
 	existingThreads: ExistingThread[];
+	reservedContentIds?: Set<string>;
 	worldPostingSettings?: PostingSettings;
 	botPostingSettings?: PostingSettings;
 };
@@ -228,7 +299,17 @@ function fixture(options: FixtureOptions): { db: FakeD1; kv: FakeKV } {
 		[kvKeys.forum(forum.id), forum],
 		[kvKeys.bot(bot.id), bot],
 	]));
-	return { db: new FakeD1(options.existingThreads), kv };
+	return { db: new FakeD1(options.existingThreads, options.reservedContentIds), kv };
+}
+
+function mockRandomBytes(sequences: number[][]): () => void {
+	const pending = [...sequences];
+	const spy = vi.spyOn(crypto, "getRandomValues").mockImplementation(((array: Uint8Array) => {
+		const next = pending.shift() ?? [0, 0, 0, 0, 2];
+		array.set(next);
+		return array;
+	}) as Crypto["getRandomValues"]);
+	return () => spy.mockRestore();
 }
 
 class FakeKV implements KVNamespaceLike {
@@ -259,10 +340,12 @@ class FakeKV implements KVNamespaceLike {
 
 class FakeD1 implements D1DatabaseLike {
 	readonly runs: Array<{ query: string; bindings: unknown[] }> = [];
+	readonly contentIds: Set<string>;
 	private readonly existingThreads: ExistingThread[];
 
-	constructor(existingThreads: ExistingThread[]) {
+	constructor(existingThreads: ExistingThread[], reservedContentIds = new Set<string>()) {
 		this.existingThreads = existingThreads;
+		this.contentIds = new Set(reservedContentIds);
 	}
 
 	prepare(query: string): D1PreparedStatementLike {
@@ -328,6 +411,14 @@ class FakeStatement implements D1PreparedStatementLike {
 
 	async run(): Promise<D1Result> {
 		this.db.runs.push({ query: this.query, bindings: this.bindings });
+		if (this.query.includes("INSERT OR IGNORE INTO content_ids")) {
+			const id = String(this.bindings[0]);
+			if (this.db.contentIds.has(id)) {
+				return { success: true, meta: { changes: 0 } };
+			}
+			this.db.contentIds.add(id);
+			return { success: true, meta: { changes: 1 } };
+		}
 		return { success: true, meta: { changes: 1 } };
 	}
 }

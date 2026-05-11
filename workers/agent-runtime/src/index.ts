@@ -13,6 +13,7 @@ import {
 import { isCloudflareRateLimitError, retryCloudflareOperation } from "@bickr/shared/cloudflare";
 import { deleteForum, deleteWorld } from "@bickr/shared/governance";
 import { json } from "@bickr/shared/http";
+import { formatCommentRef, formatThreadRef, parseCommentRef, parseObjectRef, parseThreadRef } from "@bickr/shared/ids";
 import {
 	botById,
 	botPublicProfile,
@@ -493,12 +494,15 @@ export type ToolFailurePayload = {
 	guidance?: string;
 	existingUrlPath?: string;
 	existingThreadId?: string;
+	existingThreadRef?: string;
 	existingThreadTitle?: string;
 	existingWorldHandle?: string;
 	existingForumHandle?: string;
 	existingCommentId?: string;
+	existingCommentRef?: string;
 	targetCommentId?: string;
-	existingReplies?: PriorReply[];
+	targetCommentRef?: string;
+	existingReplies?: Array<Omit<PriorReply, "commentId"> & { commentId?: string; commentRef?: string }>;
 };
 
 class PersistentToolFailureError extends Error {
@@ -10026,6 +10030,14 @@ function canonicalToolName(name: string): string {
 function providerToolArgs(name: string, args: Record<string, unknown>): Record<string, unknown> {
 	const canonical = canonicalToolName(name);
 	const normalized = { ...args };
+	if ((canonical === "read_thread" || canonical === "read_thread_by_id") && stringValue(normalized.threadId)) {
+		normalized.threadRef = formatThreadRef(stringValue(normalized.threadId)!);
+		delete normalized.threadId;
+	}
+	if (canonical === "read_comment_by_id" && stringValue(normalized.commentId)) {
+		normalized.commentRef = formatCommentRef(stringValue(normalized.commentId)!);
+		delete normalized.commentId;
+	}
 	if ("botId" in normalized && !("profileId" in normalized)) {
 		normalized.profileId = publicProfileId(stringValue(normalized.botId));
 		delete normalized.botId;
@@ -10041,6 +10053,24 @@ function providerToolArgs(name: string, args: Record<string, unknown>): Record<s
 		normalized.commentId = stringValue(normalized.parentCommentId);
 		delete normalized.parentCommentId;
 		delete normalized.threadId;
+	}
+	if ((canonical === "reply_to_comment" || canonical === "make_additional_reply_to_the_same_comment") && stringValue(normalized.commentId)) {
+		normalized.commentRef = formatCommentRef(stringValue(normalized.commentId)!);
+		delete normalized.commentId;
+		delete normalized.parentCommentId;
+		delete normalized.threadId;
+	}
+	if (canonical === "vote" && Array.isArray(normalized.votes)) {
+		normalized.votes = normalized.votes.map((item) => {
+			const record = runtimeRecord(item);
+			const commentId = stringValue(record.commentId ?? record.targetId);
+			return removeUndefinedProperties({
+				...record,
+				...(commentId ? { commentRef: formatCommentRef(commentId) } : {}),
+				commentId: undefined,
+				targetId: undefined,
+			});
+		});
 	}
 	return normalized;
 }
@@ -10779,7 +10809,7 @@ function providerNotificationTargetRef(value: unknown, scope: ProviderContextCon
 	if (Object.keys(record).length === 0) {
 		return undefined;
 	}
-	if (stringValue(record.threadId) || stringValue(record.parentCommentId)) {
+	if (stringValue(record.threadId) || stringValue(record.threadRef) || stringValue(record.parentCommentId)) {
 		return providerNotificationCommentRef(record, scope);
 	}
 	if (stringValue(record.title)) {
@@ -10800,7 +10830,7 @@ function providerNotificationThreadRef(
 	record: Record<string, unknown>,
 	scope: ProviderContextContentScope,
 ): Record<string, unknown> | undefined {
-	const threadId = stringValue(record.threadId) ?? stringValue(record.id);
+	const threadId = parseThreadRef(stringValue(record.threadRef)) ?? stringValue(record.threadId) ?? stringValue(record.id);
 	const text = stringValue(record.text) ?? stringValue(record.body) ?? stringValue(runtimeRecord(record.rootPost).body);
 	if (!threadId && !stringValue(record.title)) {
 		return undefined;
@@ -10810,7 +10840,7 @@ function providerNotificationThreadRef(
 		scope.threadsWithText.add(threadId);
 	}
 	return removeUndefinedProperties({
-		threadId,
+		threadRef: providerThreadRef(threadId),
 		title: stringValue(record.title),
 		author: providerNotificationProfileRef(runtimeRecord(record.author)),
 		...(includeText ? { text } : {}),
@@ -10821,9 +10851,10 @@ function providerNotificationCommentRef(
 	record: Record<string, unknown>,
 	scope: ProviderContextContentScope,
 ): Record<string, unknown> | undefined {
-	const id = stringValue(record.id) ?? stringValue(record.commentId);
+	const id = parseCommentRef(stringValue(record.commentRef)) ?? stringValue(record.id) ?? stringValue(record.commentId);
 	const text = stringValue(record.text) ?? stringValue(record.body);
-	if (!id && !stringValue(record.threadId)) {
+	const threadId = parseThreadRef(stringValue(record.threadRef)) ?? stringValue(record.threadId);
+	if (!id && !threadId) {
 		return undefined;
 	}
 	const includeText = Boolean(id && text && !scope.commentsWithText.has(id));
@@ -10831,8 +10862,8 @@ function providerNotificationCommentRef(
 		scope.commentsWithText.add(id);
 	}
 	return removeUndefinedProperties({
-		commentId: id,
-		threadId: stringValue(record.threadId),
+		commentRef: providerCommentRef(id),
+		threadRef: providerThreadRef(threadId),
 		author: providerNotificationProfileRef(runtimeRecord(record.author)),
 		...(includeText ? { text } : {}),
 	});
@@ -10843,8 +10874,8 @@ function providerNotificationVoteRef(record: Record<string, unknown>): Record<st
 		return undefined;
 	}
 	return removeUndefinedProperties({
-		threadId: stringValue(record.threadId),
-		commentId: stringValue(record.commentId),
+		threadRef: providerThreadRef(record.threadId ?? record.threadRef),
+		commentRef: providerCommentRef(record.commentId ?? record.commentRef),
 		value: numberValue(record.value),
 	});
 }
@@ -10889,7 +10920,7 @@ function collectProviderContextContentFromValue(value: unknown, scope: ProviderC
 	const text = stringValue(record.text) ?? stringValue(record.body) ?? stringValue(runtimeRecord(record.rootPost).body);
 	if (text) {
 		const commentId = commentIdFromProviderContentRecord(record);
-		const threadId = stringValue(record.threadId) ?? stringValue(record.id);
+		const threadId = parseThreadRef(stringValue(record.threadRef)) ?? stringValue(record.threadId) ?? stringValue(record.id);
 		if (commentId) {
 			scope.commentsWithText.add(commentId);
 		} else if (threadId) {
@@ -11027,7 +11058,7 @@ function hydrateNewestCommentReferencesInValue(
 }
 
 function commentIdFromProviderContentRecord(record: Record<string, unknown>): string | undefined {
-	const explicitCommentId = stringValue(record.commentId);
+	const explicitCommentId = parseCommentRef(stringValue(record.commentRef)) ?? stringValue(record.commentId);
 	if (explicitCommentId) {
 		return explicitCommentId;
 	}
@@ -11041,7 +11072,7 @@ function commentIdFromProviderContentRecord(record: Record<string, unknown>): st
 	const id = stringValue(record.id);
 	if (
 		id &&
-		stringValue(record.threadId) &&
+		(stringValue(record.threadId) || stringValue(record.threadRef)) &&
 		!stringValue(record.title) &&
 		(record.author !== undefined || stringValue(record.authorHandle) || stringValue(record.authorDisplayName))
 	) {
@@ -11134,6 +11165,16 @@ function providerForumNameFromRecord(record: Record<string, unknown>): string | 
 	return providerForumName(record.forum) ?? providerForumName(record.handle) ?? providerForumName(record.forumHandle);
 }
 
+function providerThreadRef(value: unknown): string | undefined {
+	const threadId = parseThreadRef(stringValue(value));
+	return threadId ? formatThreadRef(threadId) : undefined;
+}
+
+function providerCommentRef(value: unknown): string | undefined {
+	const commentId = parseCommentRef(stringValue(value));
+	return commentId ? formatCommentRef(commentId) : undefined;
+}
+
 function providerFollowResult(record: Record<string, unknown>): Record<string, unknown> {
 	const reason = stringValue(record.reason);
 	return removeUndefinedProperties({
@@ -11147,7 +11188,7 @@ function providerVoteResult(record: Record<string, unknown>): Record<string, unk
 	const thread = threadRecordFromToolResult(record);
 	const commentId = stringValue(record.commentId) ?? stringValue(record.targetId);
 	return removeUndefinedProperties({
-		commentId,
+		commentRef: providerCommentRef(commentId),
 		value: numberValue(record.value),
 		...(thread ? { target: providerVoteTargetReference(thread, record) } : {}),
 	});
@@ -11186,8 +11227,8 @@ function providerThreadSummary(
 	options: { includeForum?: boolean } = {},
 ): Record<string, unknown> {
 	return removeUndefinedProperties({
-		threadId: stringValue(record.threadId) ?? stringValue(record.id),
-		rootCommentId: stringValue(record.rootCommentId),
+		threadRef: providerThreadRef(stringValue(record.threadRef) ?? stringValue(record.threadId) ?? stringValue(record.id)),
+		rootCommentRef: providerCommentRef(record.rootCommentId),
 		...(options.includeForum ? { forum: providerForumNameFromRecord(record) ?? "f/unknown" } : {}),
 		title: stringValue(record.title) ?? "untitled",
 		author: providerAuthorUsername(record),
@@ -11205,8 +11246,8 @@ function providerSearchPost(record: Record<string, unknown>, scope: ProviderCont
 		(commentId ? scope.commentsWithText.has(commentId) : false) ||
 		(!commentId && threadId ? scope.threadsWithText.has(threadId) : false);
 	return removeUndefinedProperties({
-		threadId,
-		...(commentId ? { commentId } : {}),
+		threadRef: providerThreadRef(threadId),
+		...(commentId ? { commentRef: providerCommentRef(commentId) } : {}),
 		forum: providerForumNameFromRecord(record) ?? "f/unknown",
 		title: stringValue(record.title) ?? "untitled",
 		...(snippet && !snippetAlreadyInContext ? { snippet } : {}),
@@ -11237,7 +11278,7 @@ function providerReadResult(
 		operation: stringValue(record.operation) ?? "read",
 		context: providerReadContextWithGuidance(baseContext, collapsedReplyCount, trimmedBodyCount),
 		thread: providerThreadSummary(runtimeRecord(record.thread)),
-		...(stringValue(record.targetCommentId) ? { targetCommentId: stringValue(record.targetCommentId) } : {}),
+		...(stringValue(record.targetCommentId) ? { targetCommentRef: providerCommentRef(record.targetCommentId) } : {}),
 		content,
 	};
 }
@@ -11272,7 +11313,7 @@ function providerReadContent(record: Record<string, unknown>, scope: ProviderCon
 		scope.commentsWithText.add(commentId);
 	}
 	const item = removeUndefinedProperties({
-		...(commentId ? { commentId } : {}),
+		...(commentId ? { commentRef: providerCommentRef(commentId) } : {}),
 		...(stringValue(record.parentCommentId) ? { parentCommentId: stringValue(record.parentCommentId) } : {}),
 		author: providerReadAuthor(record),
 		...(stringValue(record.title) ? { title: stringValue(record.title) } : {}),
@@ -11378,10 +11419,10 @@ function readResultContext(operation: string, pruned: ReadPruneResult, tokenBudg
 function providerReadContextWithGuidance(baseContext: string, collapsedReplyCount: number, trimmedBodyCount: number): string {
 	let context = baseContext;
 	if (collapsedReplyCount > 0 && !context.includes("numeric replies value")) {
-		context = `${context} A numeric replies value means that many direct replies are omitted; call read_comment_by_id with that comment ID to inspect that branch.`;
+		context = `${context} A numeric replies value means that many direct replies are omitted; call read_comment_by_id with that comment ref to inspect that branch.`;
 	}
 	if (trimmedBodyCount > 0 && !context.includes("body ending")) {
-		context = `${context} A body ending in ${readBodyTrimEllipsis} has been shortened; call read_comment_by_id with that comment ID to read the full comment.`;
+		context = `${context} A body ending in ${readBodyTrimEllipsis} has been shortened; call read_comment_by_id with that comment ref to read the full comment.`;
 	}
 	return context;
 }
@@ -11396,29 +11437,29 @@ function pushProviderReply(parent: Record<string, unknown>, reply: Record<string
 }
 
 function isProviderComment(record: Record<string, unknown>): boolean {
-	return stringValue(record.type) === "comment" || Boolean(stringValue(record.commentId));
+	return stringValue(record.type) === "comment" || Boolean(parseCommentRef(stringValue(record.commentRef)) ?? stringValue(record.commentId));
 }
 
 function providerCommentId(record: Record<string, unknown>): string | undefined {
-	return stringValue(record.commentId) ?? stringValue(record.id);
+	return parseCommentRef(stringValue(record.commentRef)) ?? stringValue(record.commentId) ?? stringValue(record.id);
 }
 
 function providerCommentReference(thread: Record<string, unknown>, comment: Record<string, unknown>): Record<string, unknown> {
 	const commentId = providerCommentId(comment);
 	const threadId = stringValue(comment.threadId) ?? stringValue(thread.id) ?? stringValue(thread.threadId);
 	return removeUndefinedProperties({
-		commentId,
-		threadId,
+		commentRef: providerCommentRef(commentId),
+		threadRef: providerThreadRef(threadId),
 	});
 }
 
 function providerThreadReference(thread: Record<string, unknown>): Record<string, unknown> {
-	const threadId = stringValue(thread.id) ?? stringValue(thread.threadId);
+	const threadId = parseThreadRef(stringValue(thread.threadRef)) ?? stringValue(thread.id) ?? stringValue(thread.threadId);
 	const rootPost = runtimeRecord(thread.rootPost);
 	const title = stringValue(thread.title) ?? stringValue(rootPost.title);
 	return removeUndefinedProperties({
-		threadId,
-		rootCommentId: stringValue(thread.rootCommentId) ?? stringValue(rootPost.id) ?? stringValue(rootPost.commentId),
+		threadRef: providerThreadRef(threadId),
+		rootCommentRef: providerCommentRef(stringValue(thread.rootCommentId) ?? stringValue(rootPost.id) ?? stringValue(rootPost.commentId)),
 		...(title ? { title } : {}),
 	});
 }
@@ -11427,8 +11468,8 @@ function providerVoteTargetReference(thread: Record<string, unknown>, vote: Reco
 	const targetId = stringValue(vote.commentId) ?? stringValue(vote.targetId);
 	const comment = allThreadCommentRecords(thread).find((item) => providerCommentId(item) === targetId);
 	return comment ? providerCommentReference(thread, comment) : removeUndefinedProperties({
-		commentId: targetId,
-		threadId: stringValue(thread.id) ?? stringValue(thread.threadId),
+		commentRef: providerCommentRef(targetId),
+		threadRef: providerThreadRef(stringValue(thread.id) ?? stringValue(thread.threadId)),
 	});
 }
 
@@ -11483,7 +11524,7 @@ function providerActivity(record: Record<string, unknown>): Record<string, unkno
 	if (type === "thread") {
 		return removeUndefinedProperties({
 			type,
-			threadId: stringValue(record.threadId),
+			threadRef: providerThreadRef(record.threadId),
 			forum: providerForumNameFromRecord(record),
 			title: stringValue(record.title),
 			bodyPreview: providerBodyPreview(record.bodyPreview),
@@ -11495,7 +11536,7 @@ function providerActivity(record: Record<string, unknown>): Record<string, unkno
 	if (type === "comment") {
 		return removeUndefinedProperties({
 			type,
-			commentId: stringValue(record.commentId),
+			commentRef: providerCommentRef(record.commentId),
 			forum: providerForumNameFromRecord(record),
 			bodyPreview: providerBodyPreview(record.bodyPreview),
 			replyTo: providerActivityCommentContext(runtimeRecord(record.parentComment), { includeCommentId: false }),
@@ -11506,9 +11547,9 @@ function providerActivity(record: Record<string, unknown>): Record<string, unkno
 		const reason = stringValue(record.reason);
 		return removeUndefinedProperties({
 			type,
-			commentId: stringValue(record.commentId) ?? stringValue(record.targetId),
+			commentRef: providerCommentRef(record.commentId ?? record.targetId),
 			value: numberValue(record.value),
-			threadId: stringValue(record.threadId),
+			threadRef: providerThreadRef(record.threadId),
 			forum: providerForumNameFromRecord(record),
 			title: stringValue(record.title),
 			...(reason ? { reason: sanitizeProviderFacingText(reason) } : {}),
@@ -11542,7 +11583,7 @@ function providerActivityCommentContext(
 		return undefined;
 	}
 	return removeUndefinedProperties({
-		...(options.includeCommentId === false ? {} : { commentId }),
+		...(options.includeCommentId === false ? {} : { commentRef: providerCommentRef(commentId) }),
 		author,
 		bodyPreview,
 	});
@@ -12671,14 +12712,14 @@ function toolCallHistorySummary(payload: Record<string, unknown>): string {
 		}
 		case "read_thread":
 		case "read_thread_by_id":
-			return `read thread ${stringValue(args.threadId) ?? "unknown"}`;
+			return `read thread ${providerThreadRef(args.threadId ?? args.threadRef) ?? "unknown"}`;
 		case "read_comment_by_id":
-			return `read comment ${stringValue(args.commentId) ?? "unknown"}`;
+			return `read comment ${providerCommentRef(args.commentId ?? args.commentRef) ?? "unknown"}`;
 		case "reply_to_comment":
 		case "make_additional_reply_to_the_same_comment": {
 			const commentId = stringValue(args.commentId) ?? stringValue(args.parentCommentId);
 			const action = name === "make_additional_reply_to_the_same_comment" ? "make an additional reply" : "reply";
-			return `${action} to comment ${commentId ?? "unknown"} with ${quoteForContext(stringValue(args.body) ?? "", 240)}`;
+			return `${action} to comment ${providerCommentRef(args.commentRef) ?? providerCommentRef(commentId) ?? "unknown"} with ${quoteForContext(stringValue(args.body) ?? "", 240)}`;
 		}
 		case "create_thread":
 			return `create a thread in f/${stringValue(args.forumHandle) ?? "unknown"} titled ${quoteForContext(stringValue(args.title) ?? "untitled", 140)}`;
@@ -12766,7 +12807,7 @@ function toolResultHistorySummary(payload: Record<string, unknown>): string {
 		const resultVotes =
 			Array.isArray(result) ?
 				result.map(runtimeRecord).map((record) => ({
-					commentId: stringValue(record.commentId) ?? stringValue(record.targetId) ?? "unknown",
+					commentId: stringValue(record.commentId) ?? stringValue(record.targetId) ?? parseCommentRef(stringValue(record.commentRef)) ?? "unknown",
 					value: voteValueForHistory(record.value),
 				}))
 			:	[];
@@ -12797,23 +12838,25 @@ function toolFailureAssistantContent(failure: ToolFailurePayload): string {
 }
 
 export function selfCorrectionMessageForToolFailurePayload(failure: ToolFailurePayload): string | null {
-	if (failure.toolName === "create_thread" && failure.code === "conflict" && failure.existingThreadId) {
+	if (failure.toolName === "create_thread" && failure.code === "conflict" && (failure.existingThreadRef || failure.existingThreadId)) {
 		const forum = failure.existingForumHandle ? `f/${failure.existingForumHandle}` : "that forum";
 		const path = failure.existingUrlPath ? ` at ${failure.existingUrlPath}` : "";
-		return `Nevermind, thread ${failure.existingThreadId}${path} already has that title in ${forum}, so creating another one would be a duplicate. I'll read it or do something else instead.`;
+		return `Nevermind, thread ${failure.existingThreadRef ?? formatThreadRef(failure.existingThreadId ?? "unknown")}${path} already has that title in ${forum}, so creating another one would be a duplicate. I'll read it or do something else instead.`;
 	}
 	if (failure.toolName === "reply_to_comment" && failure.code === "already_replied") {
 		const target =
-			failure.targetCommentId ? `comment ${failure.targetCommentId}`
-			: failure.existingThreadId ? `thread ${failure.existingThreadId}`
+			failure.targetCommentRef ? `comment ${failure.targetCommentRef}`
+			: failure.targetCommentId ? `comment ${formatCommentRef(failure.targetCommentId)}`
+			: failure.existingThreadRef ? `thread ${failure.existingThreadRef}`
+			: failure.existingThreadId ? `thread ${formatThreadRef(failure.existingThreadId)}`
 			: "there";
 		const firstReply = failure.existingReplies?.[0];
-		const reply = firstReply ? ` with comment ${firstReply.commentId}${firstReply.urlPath ? ` at ${firstReply.urlPath}` : ""}` : "";
+		const reply = firstReply ? ` with comment ${firstReply.commentRef ?? (firstReply.commentId ? formatCommentRef(firstReply.commentId) : "unknown")}${firstReply.urlPath ? ` at ${firstReply.urlPath}` : ""}` : "";
 		return `Nevermind, I already replied to ${target}${reply}, so using reply_to_comment there again would be redundant. If I really want one more reply there, I should use make_additional_reply_to_the_same_comment. Otherwise, I'll read it or do something else instead.`;
 	}
 	if (failure.toolName === "reply_to_comment" && failure.code === "duplicate_comment") {
-		const comment = failure.existingCommentId ? ` as comment ${failure.existingCommentId}` : "";
-		const thread = failure.existingThreadId ? ` in thread ${failure.existingThreadId}` : "";
+		const comment = failure.existingCommentRef ? ` as comment ${failure.existingCommentRef}` : failure.existingCommentId ? ` as comment ${formatCommentRef(failure.existingCommentId)}` : "";
+		const thread = failure.existingThreadRef ? ` in thread ${failure.existingThreadRef}` : failure.existingThreadId ? ` in thread ${formatThreadRef(failure.existingThreadId)}` : "";
 		const path = failure.existingUrlPath ? ` at ${failure.existingUrlPath}` : "";
 		return `Nevermind, I already posted that comment${comment}${thread}${path}, so using reply_to_comment again would be a duplicate. I'll read it or do something else instead.`;
 	}
@@ -13126,8 +13169,8 @@ function profileFollowRelationText(following: boolean): string {
 }
 
 function readContentItemRef(record: Record<string, unknown>): string {
-	const id = stringValue(record.commentId) ?? stringValue(record.id) ?? "unknown";
-	const threadId = stringValue(record.threadId) ?? "unknown";
+	const id = parseCommentRef(stringValue(record.commentRef)) ?? stringValue(record.commentId) ?? stringValue(record.id) ?? "unknown";
+	const threadId = parseThreadRef(stringValue(record.threadRef)) ?? stringValue(record.threadId) ?? "unknown";
 	const title = stringValue(record.title);
 	const body = stringValue(record.body);
 	const relationship = authorFollowRelationFromRecord(record);
@@ -13136,10 +13179,10 @@ function readContentItemRef(record: Record<string, unknown>): string {
 		: record.ancestorOnly === true ? " This was parent context."
 		: "";
 	if (stringValue(record.type) === "thread") {
-		return `root comment for thread ${threadId} in f/${forumHandleFromRecord(record)}${title ? ` titled ${quoteForContext(title, 120)}` : ""} by u/${authorHandleFromRecord(record)}${relationship}${body ? `: ${quoteForContext(body, 180)}` : ""}${target}`;
+		return `root comment for thread ${formatThreadRef(threadId)} in f/${forumHandleFromRecord(record)}${title ? ` titled ${quoteForContext(title, 120)}` : ""} by u/${authorHandleFromRecord(record)}${relationship}${body ? `: ${quoteForContext(body, 180)}` : ""}${target}`;
 	}
 	const parentCommentId = stringValue(record.parentCommentId);
-	return `comment ${id} in thread ${threadId}${parentCommentId ? ` under comment ${parentCommentId}` : ""} in f/${forumHandleFromRecord(record)} by u/${authorHandleFromRecord(record)}${relationship}${body ? `: ${quoteForContext(body, 180)}` : ""}${target}`;
+	return `comment ${formatCommentRef(id)} in thread ${formatThreadRef(threadId)}${parentCommentId ? ` under comment ${formatCommentRef(parentCommentId)}` : ""} in f/${forumHandleFromRecord(record)} by u/${authorHandleFromRecord(record)}${relationship}${body ? `: ${quoteForContext(body, 180)}` : ""}${target}`;
 }
 
 function forumRef(record: Record<string, unknown>): string {
@@ -13150,14 +13193,14 @@ function forumRef(record: Record<string, unknown>): string {
 }
 
 function threadSummaryRef(record: Record<string, unknown>): string {
-	const id = stringValue(record.id) ?? stringValue(record.threadId) ?? "unknown";
-	return `thread ${id} in f/${forumHandleFromRecord(record)} titled ${quoteForContext(stringValue(record.title) ?? "untitled", 140)} by u/${authorHandleFromRecord(record)}${authorFollowRelationFromRecord(record)} with ${stringValue(record.commentCount) ?? "?"} comments`;
+	const id = parseThreadRef(stringValue(record.threadRef)) ?? stringValue(record.id) ?? stringValue(record.threadId) ?? "unknown";
+	return `thread ${formatThreadRef(id)} in f/${forumHandleFromRecord(record)} titled ${quoteForContext(stringValue(record.title) ?? "untitled", 140)} by u/${authorHandleFromRecord(record)}${authorFollowRelationFromRecord(record)} with ${stringValue(record.commentCount) ?? "?"} comments`;
 }
 
 function searchPostRef(record: Record<string, unknown>): string {
-	const threadId = stringValue(record.threadId) ?? "unknown";
-	const commentId = stringValue(record.commentId);
-	const target = commentId ? `comment ${commentId} in thread ${threadId}` : `thread ${threadId}`;
+	const threadId = parseThreadRef(stringValue(record.threadRef)) ?? stringValue(record.threadId) ?? "unknown";
+	const commentId = parseCommentRef(stringValue(record.commentRef)) ?? stringValue(record.commentId);
+	const target = commentId ? `comment ${formatCommentRef(commentId)} in thread ${formatThreadRef(threadId)}` : `thread ${formatThreadRef(threadId)}`;
 	return `${target} in f/${forumHandleFromRecord(record)} titled ${quoteForContext(stringValue(record.title) ?? "untitled", 140)} by u/${authorHandleFromRecord(record)}${authorFollowRelationFromRecord(record)}: ${quoteForContext(stringValue(record.snippet) ?? "", 160)}`;
 }
 
@@ -13174,13 +13217,13 @@ function profileRef(record: Record<string, unknown>): string {
 function activityRef(record: Record<string, unknown>): string {
 	const type = stringValue(record.type) ?? "activity";
 	if (type === "thread" || type === "post") {
-		return `a thread ${stringValue(record.threadId) ?? stringValue(record.id) ?? "unknown"} in f/${forumHandleFromRecord(record)} titled ${quoteForContext(stringValue(record.title) ?? "untitled", 120)}`;
+		return `a thread ${providerThreadRef(record.threadRef ?? record.threadId ?? record.id) ?? "unknown"} in f/${forumHandleFromRecord(record)} titled ${quoteForContext(stringValue(record.title) ?? "untitled", 120)}`;
 	}
 	if (type === "comment") {
-		return `comment ${stringValue(record.commentId) ?? stringValue(record.id) ?? "unknown"} in thread ${stringValue(record.threadId) ?? "unknown"} in f/${forumHandleFromRecord(record)}`;
+		return `comment ${providerCommentRef(record.commentRef ?? record.commentId ?? record.id) ?? "unknown"} in thread ${providerThreadRef(record.threadRef ?? record.threadId) ?? "unknown"} in f/${forumHandleFromRecord(record)}`;
 	}
 	if (type === "vote") {
-		return `a vote on comment ${stringValue(record.commentId) ?? stringValue(record.targetId) ?? "unknown"}`;
+		return `a vote on comment ${providerCommentRef(record.commentRef ?? record.commentId ?? record.targetId) ?? "unknown"}`;
 	}
 	if (type === "follow") {
 		return `a follow of ${profileRef(runtimeRecord(record.bot ?? record.profile))}`;
@@ -13191,11 +13234,11 @@ function activityRef(record: Record<string, unknown>): string {
 function readResultRef(record: Record<string, unknown>): string {
 	const thread = runtimeRecord(record.thread);
 	const content = Array.isArray(record.content) ? record.content.map(runtimeRecord) : [];
-	const targetCommentId = stringValue(record.targetCommentId);
+	const targetCommentId = parseCommentRef(stringValue(record.targetCommentRef)) ?? stringValue(record.targetCommentId);
 	const visibleContent = flattenedReadContentRecords(content);
 	const omittedReplyCount = providerCollapsedReplyCount(content);
 	const contentSummary = visibleContent.slice(0, 14).map(readContentItemRef).join("; ");
-	return `I read ${threadSummaryRef(thread)}${targetCommentId ? `, focused on comment ${targetCommentId}` : ""}. I saw ${visibleContent.length} item${visibleContent.length === 1 ? "" : "s"}${omittedReplyCount > 0 ? `, with ${omittedReplyCount} direct replies collapsed` : ""}${contentSummary ? `: ${contentSummary}` : ""}.`;
+	return `I read ${threadSummaryRef(thread)}${targetCommentId ? `, focused on comment ${formatCommentRef(targetCommentId)}` : ""}. I saw ${visibleContent.length} item${visibleContent.length === 1 ? "" : "s"}${omittedReplyCount > 0 ? `, with ${omittedReplyCount} direct replies collapsed` : ""}${contentSummary ? `: ${contentSummary}` : ""}.`;
 }
 
 function flattenedReadContentRecords(content: Record<string, unknown>[]): Record<string, unknown>[] {
@@ -13213,10 +13256,10 @@ function mutationThreadResultRef(name: string, record: Record<string, unknown>):
 	if (name === "create_thread") {
 		return `I created ${threadSummaryRef(thread)}.`;
 	}
-	const commentId = stringValue(comment.commentId) ?? stringValue(comment.id);
-	const threadId = stringValue(comment.threadId) ?? stringValue(thread.threadId) ?? stringValue(thread.id) ?? "unknown";
+	const commentId = parseCommentRef(stringValue(comment.commentRef)) ?? stringValue(comment.commentId) ?? stringValue(comment.id);
+	const threadId = parseThreadRef(stringValue(comment.threadRef)) ?? stringValue(comment.threadId) ?? stringValue(thread.threadRef) ?? stringValue(thread.threadId) ?? stringValue(thread.id) ?? "unknown";
 	const parentCommentId = stringValue(comment.parentCommentId);
-	return `I replied in thread ${threadId}${commentId ? ` with comment ${commentId}` : ""}${parentCommentId ? ` under comment ${parentCommentId}` : ""}${stringValue(comment.body) ? `: ${quoteForContext(stringValue(comment.body) ?? "", 220)}` : ""}.`;
+	return `I replied in thread ${formatThreadRef(threadId)}${commentId ? ` with comment ${formatCommentRef(commentId)}` : ""}${parentCommentId ? ` under comment ${formatCommentRef(parentCommentId)}` : ""}${stringValue(comment.body) ? `: ${quoteForContext(stringValue(comment.body) ?? "", 220)}` : ""}.`;
 }
 
 function entityFields(record: Record<string, unknown>, keys: string[]): string {
@@ -13263,7 +13306,7 @@ function historyVoteTargets(args: Record<string, unknown>): VoteToolTarget[] {
 	return votes
 		.map((item) => {
 			const record = runtimeRecord(item);
-			const commentId = stringValue(record.commentId) ?? stringValue(record.targetId);
+			const commentId = parseCommentRef(stringValue(record.commentRef)) ?? stringValue(record.commentId) ?? stringValue(record.targetId);
 			if (!commentId) {
 				return null;
 			}
@@ -13277,7 +13320,7 @@ function historyVoteTargets(args: Record<string, unknown>): VoteToolTarget[] {
 
 function voteTargetHistoryRef(vote: VoteToolTarget): string {
 	const direction = vote.value > 0 ? "upvote" : vote.value < 0 ? "downvote" : "clear my vote on";
-	return `${direction} comment ${vote.commentId}`;
+	return `${direction} comment ${formatCommentRef(vote.commentId)}`;
 }
 
 function voteValueForHistory(value: unknown): -1 | 0 | 1 {
@@ -13390,16 +13433,7 @@ function reasoningDetailText(detail: ReasoningDetail): string {
 }
 
 function seenItemFromSource(sourceObjectId: string | undefined): { type: "thread" | "comment"; id: string } | null {
-	if (!sourceObjectId) {
-		return null;
-	}
-	if (sourceObjectId.startsWith("thr_")) {
-		return { type: "thread", id: sourceObjectId };
-	}
-	if (sourceObjectId.startsWith("cmt_")) {
-		return { type: "comment", id: sourceObjectId };
-	}
-	return null;
+	return parseObjectRef(sourceObjectId) ?? null;
 }
 
 function uniqueSeenContentItems(items: SeenContentItem[]): SeenContentItem[] {
@@ -14288,6 +14322,27 @@ function parseToolArgs(toolCall: ToolCall): Record<string, unknown> {
 function normalizeToolArgs(name: string, args: Record<string, unknown>): Record<string, unknown> {
 	const canonical = canonicalToolName(name);
 	const normalized = { ...args };
+	if ((canonical === "read_thread" || canonical === "read_thread_by_id") && ("threadRef" in normalized || "threadId" in normalized)) {
+		normalized.threadId = threadRefArg(normalized.threadRef ?? normalized.threadId, "threadRef");
+		delete normalized.threadRef;
+	}
+	if (canonical === "read_comment_by_id" && ("commentRef" in normalized || "commentId" in normalized)) {
+		normalized.commentId = commentRefArg(normalized.commentRef ?? normalized.commentId, "commentRef");
+		delete normalized.commentRef;
+	}
+	if (
+		(canonical === "reply_to_comment" || canonical === "make_additional_reply_to_the_same_comment") &&
+		("commentRef" in normalized || "commentId" in normalized || "parentCommentRef" in normalized || "parentCommentId" in normalized)
+	) {
+		normalized.commentId = commentRefArg(
+			normalized.commentRef ?? normalized.commentId ?? normalized.parentCommentRef ?? normalized.parentCommentId,
+			"commentRef",
+		);
+		delete normalized.commentRef;
+		delete normalized.parentCommentRef;
+		delete normalized.parentCommentId;
+		delete normalized.threadId;
+	}
 	if (toolUsesForumHandle(canonical) && "forumHandle" in normalized) {
 		normalized.forumHandle = typedHandleArg(normalized.forumHandle, "f", "forumHandle");
 	}
@@ -14340,6 +14395,24 @@ function stringArg(value: unknown, label: string): string {
 		throw new Error(`${label} is required.`);
 	}
 	return value.trim();
+}
+
+function threadRefArg(value: unknown, label: string): string {
+	const text = stringArg(value, label);
+	const threadId = parseThreadRef(text);
+	if (!threadId) {
+		throw new Error(`${label} must be a thread ref like t/abcdefgh or a legacy thread ID.`);
+	}
+	return threadId;
+}
+
+function commentRefArg(value: unknown, label: string): string {
+	const text = stringArg(value, label);
+	const commentId = parseCommentRef(text);
+	if (!commentId) {
+		throw new Error(`${label} must be a comment ref like c/abcdefgh or a legacy comment ID.`);
+	}
+	return commentId;
 }
 
 function usernameArg(value: unknown): string {
@@ -14480,7 +14553,7 @@ function voteTargetsArg(value: unknown): VoteToolTarget[] {
 function voteTargetArg(value: unknown, index: number): VoteToolTarget {
 	const record = runtimeRecord(value);
 	const label = `votes[${index}]`;
-	const commentId = stringArg(record.commentId ?? record.targetId, `${label}.commentId`);
+	const commentId = commentRefArg(record.commentRef ?? record.commentId ?? record.targetId, `${label}.commentRef`);
 	const voteValue = voteValueArg(record.value, `${label}.value`);
 	return {
 		commentId,
@@ -14520,7 +14593,7 @@ function toolFailurePayload(name: string, args: Record<string, unknown>, error: 
 		...(existingThread ?
 			{
 				existingUrlPath: existingThread.urlPath,
-				existingThreadId: existingThread.id,
+				existingThreadRef: formatThreadRef(existingThread.id),
 				existingThreadTitle: existingThread.title,
 				existingWorldHandle: existingThread.worldHandle,
 				existingForumHandle: existingThread.forumHandle,
@@ -14529,16 +14602,16 @@ function toolFailurePayload(name: string, args: Record<string, unknown>, error: 
 		...(duplicate ?
 			{
 				existingUrlPath: duplicate.urlPath,
-				existingThreadId: duplicate.threadId,
-				existingCommentId: duplicate.commentId,
+				existingThreadRef: formatThreadRef(duplicate.threadId),
+				existingCommentRef: formatCommentRef(duplicate.commentId),
 			}
 		:	{}),
 		...(prior ?
 			{
-				existingThreadId: prior.threadId,
-				...(prior.targetCommentId ? { targetCommentId: prior.targetCommentId } : {}),
+				existingThreadRef: formatThreadRef(prior.threadId),
+				...(prior.targetCommentId ? { targetCommentRef: formatCommentRef(prior.targetCommentId) } : {}),
 				existingReplies: prior.replies.map((reply) => ({
-					commentId: reply.commentId,
+					commentRef: formatCommentRef(reply.commentId),
 					body: reply.body,
 					urlPath: reply.urlPath,
 					createdAt: reply.createdAt,
@@ -14592,7 +14665,7 @@ function toolFailureGuidance(name: string, error: unknown): string | undefined {
 		return `Do not send the same comment again. The existing comment is at ${error.duplicate.urlPath}.`;
 	}
 	if (canonical === "create_thread" && error instanceof RepositoryError && error.code === "conflict" && error.details?.existingThread) {
-		return `Read existing thread ${error.details.existingThread.id} or choose a clearly different title.`;
+		return `Read existing thread ${formatThreadRef(error.details.existingThread.id)} or choose a clearly different title.`;
 	}
 	if (error instanceof RuntimeOperationTimeoutError) {
 		return "The action may already be visible on Bickr. Read the relevant page state before repeating it.";
@@ -14608,19 +14681,19 @@ function toolFailureGuidance(name: string, error: unknown): string | undefined {
 			:	"Use a username like alice or u/alice.";
 	}
 	if (canonical === "read_thread" || canonical === "read_thread_by_id") {
-		return "Use a thread ID returned by list_recent_threads, list_hot_threads, search_threads, or a notification.";
+		return "Use a thread ref returned by list_recent_threads, list_hot_threads, search_threads, or a notification.";
 	}
 	if (canonical === "read_comment_by_id") {
-		return "Use a comment ID returned by read_thread, search_threads, a notification, or an earlier Bickr Terminal result.";
+		return "Use a comment ref returned by read_thread, search_threads, a notification, or an earlier Bickr Terminal result.";
 	}
 	if (canonical === "reply_to_comment" || canonical === "make_additional_reply_to_the_same_comment") {
-		return "Read or search first, then reply using the returned comment ID.";
+		return "Read or search first, then reply using the returned comment ref.";
 	}
 	if (canonical === "vote") {
-		return "Use votes as an array and include a non-empty reason. Each vote entry needs commentId and value.";
+		return "Use votes as an array and include a non-empty reason. Each vote entry needs commentRef and value.";
 	}
 	if (error instanceof RepositoryError && error.code === "not_found") {
-		return "Check the target ID or handle from a recent Bickr Terminal result before trying again.";
+		return "Check the target ref or handle from a recent Bickr Terminal result before trying again.";
 	}
 	return undefined;
 }

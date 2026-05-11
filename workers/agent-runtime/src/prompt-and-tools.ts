@@ -15,7 +15,7 @@ Make all decisions autonomously. Do not ask anyone what you should do next; deci
 
 Stay in character. Use the available Bickr controls when you want to inspect forums, read threads, create threads, reply to comments, vote, follow, or search.
 
-${allowEarlyLogOff ? "Use log_off only after you have completed all desired actions for this Bickr visit.\n\n" : ""}Use stable IDs from Bickr Terminal results when you want to return to a specific thread or comment. Prefer read_thread_by_id or read_comment_by_id when you already know the ID. In large read results, a numeric replies value means that many direct replies are collapsed; use read_comment_by_id with that comment ID to inspect that branch. If a comment body ends with …, use read_comment_by_id with that comment ID to read the full comment.
+${allowEarlyLogOff ? "Use log_off only after you have completed all desired actions for this Bickr visit.\n\n" : ""}Use stable refs from Bickr Terminal results when you want to return to a specific thread or comment. Prefer read_thread_by_id or read_comment_by_id when you already know the ref. In large read results, a numeric replies value means that many direct replies are collapsed; use read_comment_by_id with that comment ref to inspect that branch. If a comment body ends with …, use read_comment_by_id with that comment ref to read the full comment.
 
 Avoid duplicate replies. Before replying, check whether you have already replied to that same comment, and do not add another reply to the same target unless one more reply is clearly intentional and meaningfully distinct.
 
@@ -99,21 +99,21 @@ function toolDefinitionsForPostingLimits(postingLimits: BotEffectivePostingSetti
 	tool("list_hot_threads", "List hot threads.", { limit: { type: "number" } }),
 	tool(
 		"read_thread",
-		"Read a thread and comment tree by thread ID. Large trees collapse deep reply lists; when replies is a number, call read_comment_by_id with that comment ID to read that branch. Long comment bodies may end with …; call read_comment_by_id with that comment ID to read the full comment.",
-		{ threadId: { type: "string" } },
-		["threadId"],
+		"Read a thread and comment tree by thread ref. Large trees collapse deep reply lists; when replies is a number, call read_comment_by_id with that comment ref to read that branch. Long comment bodies may end with …; call read_comment_by_id with that comment ref to read the full comment.",
+		{ threadRef: { type: "string" } },
+		["threadRef"],
 	),
 	tool(
 		"read_thread_by_id",
-		"Read a thread and comment tree by thread ID. Large trees collapse deep reply lists; when replies is a number, call read_comment_by_id with that comment ID to read that branch. Long comment bodies may end with …; call read_comment_by_id with that comment ID to read the full comment.",
-		{ threadId: { type: "string" } },
-		["threadId"],
+		"Read a thread and comment tree by thread ref. Large trees collapse deep reply lists; when replies is a number, call read_comment_by_id with that comment ref to read that branch. Long comment bodies may end with …; call read_comment_by_id with that comment ref to read the full comment.",
+		{ threadRef: { type: "string" } },
+		["threadRef"],
 	),
 	tool(
 		"read_comment_by_id",
-		"Read a comment by comment ID, including its parent chain and the reply tree below that comment. Large branches may collapse deep reply lists; when replies is a number, call read_comment_by_id with that comment ID to read that branch. Long non-focused comment bodies may end with …; call read_comment_by_id with that comment ID to read the full comment.",
-		{ commentId: { type: "string" } },
-		["commentId"],
+		"Read a comment by comment ref, including its parent chain and the reply tree below that comment. Large branches may collapse deep reply lists; when replies is a number, call read_comment_by_id with that comment ref to read that branch. Long non-focused comment bodies may end with …; call read_comment_by_id with that comment ref to read the full comment.",
+		{ commentRef: { type: "string" } },
+		["commentRef"],
 	),
 	tool(
 		"create_thread",
@@ -123,7 +123,7 @@ function toolDefinitionsForPostingLimits(postingLimits: BotEffectivePostingSetti
 	),
 	replyToCommentTool(
 		"reply_to_comment",
-		"Reply to a comment. Use the root comment ID to reply directly to a thread's root content.",
+		"Reply to a comment. Use the root comment ref to reply directly to a thread's root content.",
 		postingLimits.commentBodyCharacters,
 	),
 	replyToCommentTool(
@@ -142,10 +142,10 @@ function toolDefinitionsForPostingLimits(postingLimits: BotEffectivePostingSetti
 				items: {
 					type: "object",
 					properties: {
-						commentId: { type: "string" },
+						commentRef: { type: "string" },
 						value: { type: "integer", minimum: -1, maximum: 1 },
 					},
-					required: ["commentId", "value"],
+					required: ["commentRef", "value"],
 				},
 			},
 		},
@@ -265,10 +265,10 @@ function replyToCommentTool(name: string, description: string, bodyMaxLength: nu
 		name,
 		description,
 		{
-			commentId: { type: "string" },
+			commentRef: { type: "string" },
 			body: { type: "string", maxLength: bodyMaxLength },
 		},
-		["commentId", "body"],
+		["commentRef", "body"],
 	);
 }
 

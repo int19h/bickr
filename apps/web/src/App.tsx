@@ -84,6 +84,7 @@ import {
 	defaultThreadBodyCharacters,
 	effectivePostingSettings,
 } from "@bickr/shared/posting";
+import { formatCommentRef, formatThreadRef, parseCommentRef, parseThreadRef } from "@bickr/shared/ids";
 import {
 	handleHelpText,
 	handlePatternSource,
@@ -12693,7 +12694,7 @@ function readableDisplayContext(display?: BotLoopMessage["display"]): ReadableDi
 function ReadableToolFailure({ displayContext, failure }: { displayContext: ReadableDisplayContext; failure: JsonRecord }) {
 	const message = textValueForDisplay(failure.message);
 	const guidance = textValueForDisplay(failure.guidance);
-	const hasExistingThread = Boolean(stringValue(failure.existingThreadId));
+	const hasExistingThread = Boolean(threadIdFromValue(failure.existingThreadRef ?? failure.existingThreadId));
 	return (
 		<div className="tool-pretty tool-list">
 			{message && <div className="tool-pretty-item">{message}</div>}
@@ -12705,12 +12706,13 @@ function ReadableToolFailure({ displayContext, failure }: { displayContext: Read
 }
 
 function ReadableFailureExistingThread({ displayContext, failure }: { displayContext: ReadableDisplayContext; failure: JsonRecord }) {
-	const threadId = stringValue(failure.existingThreadId);
+	const threadId = threadIdFromValue(failure.existingThreadRef ?? failure.existingThreadId);
 	if (!threadId) {
 		return null;
 	}
 	const title = stringValue(failure.existingThreadTitle);
-	const label = title ? `${title} (${threadId})` : threadId;
+	const ref = formatThreadRef(threadId);
+	const label = title ? `${title} (${ref})` : ref;
 	return (
 		<div className="tool-pretty-item">
 			<span>Existing thread</span>
@@ -12855,10 +12857,10 @@ function readableToolCallSummary(name: string, args: JsonRecord, result?: unknow
 				<div className="tool-pretty">
 					<span>Reading</span>
 					<ThreadReference
-						commentId={stringValue(args.commentId ?? args.targetCommentId)}
+						commentId={commentIdFromValue(args.commentRef ?? args.commentId ?? args.targetCommentRef ?? args.targetCommentId)}
 						forumHandle={forumHandle}
 						label={name === "read_comment_by_id" ? "reply" : "thread"}
-						threadId={stringValue(args.threadId)}
+						threadId={threadIdFromValue(args.threadRef ?? args.threadId)}
 						worldHandle={worldHandle}
 						allowActiveWorldFallback={displayContext.allowActiveWorldFallback}
 					/>
@@ -12877,14 +12879,15 @@ function readableToolCallSummary(name: string, args: JsonRecord, result?: unknow
 		case "reply_to_comment":
 			return <ReadablePostingReply args={args} displayContext={displayContext} result={result} />;
 		case "vote":
+			const voteTarget = firstVoteArg(args);
 			return (
 				<div className="tool-pretty">
-					<span>{voteActionLabel(numberValue(args.value))}</span>
+					<span>{voteActionLabel(numberValue(voteTarget.value ?? args.value))}</span>
 					<ThreadReference
-						commentId={stringValue(args.commentId ?? (stringValue(args.targetType) === "comment" ? args.targetId : undefined))}
+						commentId={commentIdFromValue(voteTarget.commentRef ?? voteTarget.commentId ?? args.commentRef ?? args.commentId ?? (stringValue(args.targetType) === "comment" ? args.targetId : undefined))}
 						forumHandle={forumHandle}
 						label="comment"
-						threadId={stringValue(args.threadId ?? (stringValue(args.targetType) === "thread" ? args.targetId : undefined))}
+						threadId={threadIdFromValue(args.threadRef ?? args.threadId ?? (stringValue(args.targetType) === "thread" ? args.targetId : undefined))}
 						worldHandle={worldHandle}
 						allowActiveWorldFallback={displayContext.allowActiveWorldFallback}
 					/>
@@ -12963,9 +12966,9 @@ function readableToolResultContent(
 function ReadablePostingReply({ args, displayContext, result }: { args: JsonRecord; displayContext: ReadableDisplayContext; result?: unknown }) {
 	const thread = threadRecordFromReadableMutation(result);
 	const createdComment = createdReplyCommentFromReadableMutation(result, args);
-	const targetCommentId = stringValue(args.commentId ?? args.parentCommentId);
+	const targetCommentId = commentIdFromValue(args.commentRef ?? args.commentId ?? args.parentCommentRef ?? args.parentCommentId);
 	const targetComment = targetCommentId ? findReadableComment(thread, targetCommentId) : {};
-	const threadId = stringValue(args.threadId) ?? stringValue(createdComment.threadId) ?? stringValue(thread.threadId ?? thread.id);
+	const threadId = threadIdFromRecord(args) ?? threadIdFromRecord(createdComment) ?? threadIdFromRecord(thread);
 	const worldHandle = worldHandleFromRecord(thread) ?? worldHandleFromRecord(createdComment) ?? worldHandleFromRecord(args) ?? displayContext.worldHandle;
 	const forumHandle = forumHandleFromRecord(thread) ?? forumHandleFromRecord(createdComment) ?? forumHandleFromRecord(args);
 	const replyBody = textValueForDisplay(args.body);
@@ -12994,8 +12997,8 @@ function ReadablePostingReply({ args, displayContext, result }: { args: JsonReco
 function ReadablePostedReplyResult({ args, displayContext, value }: { args: JsonRecord; displayContext: ReadableDisplayContext; value: unknown }) {
 	const thread = threadRecordFromReadableMutation(value);
 	const createdComment = createdReplyCommentFromReadableMutation(value, args);
-	const commentId = stringValue(createdComment.commentId ?? createdComment.id);
-	const threadId = stringValue(createdComment.threadId) ?? stringValue(thread.threadId ?? thread.id ?? args.threadId);
+	const commentId = commentIdFromRecord(createdComment);
+	const threadId = threadIdFromRecord(createdComment) ?? threadIdFromRecord(thread) ?? threadIdFromRecord(args);
 	const worldHandle = worldHandleFromRecord(thread) ?? worldHandleFromRecord(createdComment) ?? displayContext.worldHandle;
 	const forumHandle = forumHandleFromRecord(thread) ?? forumHandleFromRecord(createdComment);
 	const title = readableThreadTitle(thread);
@@ -13040,7 +13043,7 @@ function threadRecordFromReadableMutation(value: unknown): JsonRecord {
 
 function readableRootComment(thread: JsonRecord): JsonRecord {
 	const comments = flattenReadableComments(arrayValue(thread.comments).map(recordValue));
-	const rootCommentId = stringValue(thread.rootCommentId);
+	const rootCommentId = commentIdFromValue(thread.rootCommentRef ?? thread.rootCommentId);
 	return (
 		(rootCommentId ? comments.find((comment) => readableCommentId(comment) === rootCommentId) : undefined) ??
 		comments.find((comment) => !stringValue(comment.parentCommentId)) ??
@@ -13055,7 +13058,7 @@ function readableThreadTitle(thread: JsonRecord): string | undefined {
 function createdReplyCommentFromReadableMutation(value: unknown, args: JsonRecord): JsonRecord {
 	const record = recordValue(value);
 	const comment = recordValue(record.comment);
-	if (stringValue(comment.commentId ?? comment.id)) {
+	if (commentIdFromRecord(comment)) {
 		return comment;
 	}
 	const thread = threadRecordFromReadableMutation(value);
@@ -13064,7 +13067,7 @@ function createdReplyCommentFromReadableMutation(value: unknown, args: JsonRecor
 
 function findReadableReplyComment(thread: JsonRecord, args: JsonRecord): JsonRecord | null {
 	const body = stringValue(args.body);
-	const parentCommentId = stringValue(args.commentId ?? args.parentCommentId);
+	const parentCommentId = commentIdFromValue(args.commentRef ?? args.commentId ?? args.parentCommentRef ?? args.parentCommentId);
 	const candidates = flattenReadableComments(arrayValue(thread.comments).map(recordValue)).filter((comment) => {
 		if (body && stringValue(comment.body) !== body) {
 			return false;
@@ -13079,7 +13082,7 @@ function findReadableReplyComment(thread: JsonRecord, args: JsonRecord): JsonRec
 
 function findReadableComment(thread: JsonRecord, commentId: string): JsonRecord {
 	return flattenReadableComments(arrayValue(thread.comments).map(recordValue))
-		.find((comment) => stringValue(comment.commentId ?? comment.id) === commentId) ?? {};
+		.find((comment) => readableCommentId(comment) === commentId) ?? {};
 }
 
 function flattenReadableComments(comments: JsonRecord[]): JsonRecord[] {
@@ -13137,10 +13140,10 @@ function notificationEventHeadline(event: JsonRecord, displayContext: ReadableDi
 	const threadNode = (
 		<ThreadReference
 			allowActiveWorldFallback={displayContext.allowActiveWorldFallback}
-			commentId={stringValue(comment.id)}
+			commentId={commentIdFromRecord(comment)}
 			forumHandle={forumHandleFromRecord(thread) ?? forumHandle}
 			label={stringValue(thread.title) ?? "thread"}
-			threadId={stringValue(comment.threadId) ?? stringValue(thread.id)}
+			threadId={threadIdFromRecord(comment) ?? threadIdFromRecord(thread)}
 			title={stringValue(thread.title)}
 			worldHandle={worldHandleFromRecord(thread) ?? worldHandle}
 		/>
@@ -13163,7 +13166,9 @@ function notificationEventHeadline(event: JsonRecord, displayContext: ReadableDi
 		}
 		case "vote_cast": {
 			const targetAuthor = recordValue(target.author);
-			const targetType = stringValue(vote.targetType) ?? (stringValue(target.threadId) ? "comment" : "thread");
+			const targetType =
+				stringValue(vote.targetType) ??
+				(commentIdFromRecord(target) || commentIdFromRecord(vote) || threadIdFromRecord(target) ? "comment" : "thread");
 			return (
 				<>
 					{actorNode} {voteActionLabel(numberValue(vote.value))}{" "}
@@ -13235,7 +13240,7 @@ function ReadableReadResult({ displayContext, value }: { displayContext: Readabl
 					<ThreadReference
 						forumHandle={forumHandleFromRecord(thread)}
 						label={stringValue(thread.title) ?? "thread"}
-						threadId={stringValue(thread.threadId ?? thread.id)}
+						threadId={threadIdFromRecord(thread)}
 						title={stringValue(thread.title)}
 						worldHandle={worldHandle}
 						allowActiveWorldFallback={displayContext.allowActiveWorldFallback}
@@ -13269,7 +13274,7 @@ function ReadableThreadDocument({ args, displayContext, value }: { args?: JsonRe
 				<ThreadReference
 					forumHandle={forumHandle}
 					label={title ?? "thread"}
-					threadId={stringValue(thread.threadId ?? thread.id)}
+					threadId={threadIdFromRecord(thread)}
 					title={title}
 					worldHandle={worldHandle}
 					allowActiveWorldFallback={displayContext.allowActiveWorldFallback}
@@ -13290,7 +13295,7 @@ function ReadableVoteResult({ displayContext, value }: { displayContext: Readabl
 			{items.map((item, index) => {
 				const record = recordValue(item);
 				const target = recordValue(record.target);
-				const commentId = stringValue(target.commentId ?? record.commentId ?? record.targetId);
+				const commentId = commentIdFromValue(target.commentRef ?? target.commentId ?? record.commentRef ?? record.commentId ?? record.targetId);
 				const targetType = stringValue(record.targetType) ?? stringValue(target.type) ?? (commentId ? "comment" : undefined);
 				const thread = Object.keys(target).length > 0 ? target : recordValue(record.thread);
 				const worldHandle = worldHandleFromRecord(thread) ?? displayContext.worldHandle;
@@ -13301,7 +13306,7 @@ function ReadableVoteResult({ displayContext, value }: { displayContext: Readabl
 							commentId={commentId}
 							forumHandle={forumHandleFromRecord(thread)}
 							label={targetType === "comment" ? "comment" : stringValue(thread.title) ?? "thread"}
-							threadId={stringValue(thread.threadId ?? thread.id ?? (targetType === "thread" ? record.targetId : undefined))}
+							threadId={threadIdFromRecord(thread) ?? threadIdFromValue(targetType === "thread" ? record.targetId : undefined)}
 							title={stringValue(thread.title)}
 							worldHandle={worldHandle}
 							allowActiveWorldFallback={displayContext.allowActiveWorldFallback}
@@ -13371,7 +13376,9 @@ function ReadableThreadList({ displayContext, value }: { displayContext: Readabl
 		<div className="tool-pretty tool-list">
 			{items.slice(0, 12).map((item, index) => {
 				const result = recordValue(item);
-				const isComment = Boolean(stringValue(result.commentId));
+				const commentId = commentIdFromRecord(result);
+				const threadId = threadIdFromRecord(result);
+				const isComment = Boolean(commentId);
 				const author = recordValue(result.author);
 				const authorProfile = profileHasHandle(author) ? author : result;
 				const authorUsername = stringValue(result.author);
@@ -13380,7 +13387,7 @@ function ReadableThreadList({ displayContext, value }: { displayContext: Readabl
 				const snippet = textValueForDisplay(result.snippet);
 				const worldHandle = worldHandleFromRecord(result) ?? displayContext.worldHandle;
 				return (
-					<div className="readable-search-result" key={`${stringValue(result.threadId ?? result.id) ?? "thread"}:${stringValue(result.commentId) ?? "root"}-${index}`}>
+					<div className="readable-search-result" key={`${threadId ?? "thread"}:${commentId ?? "root"}-${index}`}>
 						<div className="readable-event-title">
 							{isComment && hasAuthor ?
 								<>
@@ -13397,10 +13404,10 @@ function ReadableThreadList({ displayContext, value }: { displayContext: Readabl
 								<span>Comment in</span>
 							:	null}
 							<ThreadReference
-								commentId={stringValue(result.commentId)}
+								commentId={commentId}
 								forumHandle={forumHandleFromRecord(result)}
 								label={title}
-								threadId={stringValue(result.threadId ?? result.id)}
+								threadId={threadId}
 								title={title}
 								worldHandle={worldHandle}
 								allowActiveWorldFallback={displayContext.allowActiveWorldFallback}
@@ -13498,7 +13505,7 @@ function ReadableThreadActivity({
 }) {
 	const worldHandle = worldHandleFromRecord(activity) ?? fallbackWorldHandle ?? displayContext.worldHandle;
 	const forumHandle = forumHandleFromRecord(activity);
-	const threadId = stringValue(activity.threadId ?? activity.id);
+	const threadId = threadIdFromRecord(activity);
 	const title = stringValue(activity.title) ?? "thread";
 	const body = readableActivityPreview(activity);
 	return (
@@ -13528,11 +13535,11 @@ function ReadableCommentActivity({
 }) {
 	const worldHandle = worldHandleFromRecord(activity) ?? fallbackWorldHandle ?? displayContext.worldHandle;
 	const forumHandle = forumHandleFromRecord(activity);
-	const threadId = stringValue(activity.threadId);
-	const commentId = stringValue(activity.commentId ?? activity.id);
+	const threadId = threadIdFromRecord(activity);
+	const commentId = commentIdFromRecord(activity);
 	const title = stringValue(activity.threadTitle ?? activity.title) ?? "thread";
 	const parentComment = recordValue(activity.parentComment);
-	const parentCommentId = stringValue(parentComment.commentId ?? activity.parentCommentId);
+	const parentCommentId = commentIdFromValue(parentComment.commentRef ?? parentComment.commentId ?? activity.parentCommentRef ?? activity.parentCommentId);
 	const parentBody = readableActivityPreview(parentComment);
 	const body = readableActivityPreview(activity);
 	return (
@@ -13571,8 +13578,8 @@ function ReadableVoteActivity({
 }) {
 	const worldHandle = worldHandleFromRecord(activity) ?? fallbackWorldHandle ?? displayContext.worldHandle;
 	const forumHandle = forumHandleFromRecord(activity);
-	const threadId = stringValue(activity.threadId);
-	const commentId = stringValue(activity.commentId ?? activity.targetId);
+	const threadId = threadIdFromRecord(activity);
+	const commentId = commentIdFromValue(activity.commentRef ?? activity.commentId ?? activity.targetId);
 	const title = stringValue(activity.title);
 	const targetComment = recordValue(activity.targetComment);
 	const targetBody = readableActivityPreview(targetComment);
@@ -13684,7 +13691,7 @@ function ReadableContentChain({
 	}
 	const fallbackWorld = fallbackThread ? worldHandleFromRecord(fallbackThread) ?? displayContext.worldHandle : displayContext.worldHandle;
 	const fallbackForum = fallbackThread ? forumHandleFromRecord(fallbackThread) : undefined;
-	const fallbackThreadId = fallbackThread ? stringValue(fallbackThread.threadId ?? fallbackThread.id) : undefined;
+	const fallbackThreadId = fallbackThread ? threadIdFromRecord(fallbackThread) : undefined;
 	const items = readableContentTree(content);
 	return (
 		<div className="readable-chain">
@@ -13696,7 +13703,7 @@ function ReadableContentChain({
 					fallbackThreadId={fallbackThreadId}
 					fallbackWorld={fallbackWorld}
 					item={itemValue}
-					key={`${stringValue(itemValue.id) ?? stringValue(itemValue.commentId) ?? "item"}-${index}`}
+					key={`${commentIdFromRecord(itemValue) ?? threadIdFromRecord(itemValue) ?? "item"}-${index}`}
 				/>
 			))}
 		</div>
@@ -13721,8 +13728,8 @@ function ReadableContentItem({
 	const type = readableContentType(item);
 	const worldHandle = worldHandleFromRecord(item) ?? fallbackWorld;
 	const forumHandle = forumHandleFromRecord(item) ?? fallbackForum;
-	const threadId = stringValue(item.threadId) ?? fallbackThreadId;
-	const commentId = stringValue(item.commentId ?? (type === "comment" ? item.id : undefined));
+	const threadId = threadIdFromRecord(item) ?? fallbackThreadId;
+	const commentId = commentIdFromValue(item.commentRef ?? item.commentId ?? (type === "comment" ? item.id : undefined));
 	const title = stringValue(item.title);
 	const body = textValueForDisplay(item.body);
 	const author = recordValue(item.author);
@@ -13787,7 +13794,7 @@ function ReadableContentItem({
 							fallbackThreadId={threadId}
 							fallbackWorld={worldHandle}
 							item={reply}
-							key={`${stringValue(reply.id) ?? stringValue(reply.commentId) ?? "reply"}-${index}`}
+							key={`${commentIdFromRecord(reply) ?? threadIdFromRecord(reply) ?? "reply"}-${index}`}
 						/>
 					))}
 				</div>
@@ -13861,11 +13868,11 @@ function readableContentType(item: JsonRecord): "thread" | "comment" {
 }
 
 function isReadableCommentItem(item: JsonRecord): boolean {
-	return stringValue(item.type) === "comment" || Boolean(stringValue(item.commentId));
+	return stringValue(item.type) === "comment" || Boolean(commentIdFromRecord(item));
 }
 
 function readableCommentId(item: JsonRecord): string | undefined {
-	return stringValue(item.commentId) ?? stringValue(item.id);
+	return commentIdFromRecord(item);
 }
 
 function ReadableQuote({ label, text }: { label?: string; text: string }) {
@@ -13940,15 +13947,28 @@ function ThreadReference({
 }) {
 	const referenceData = useContext(ReferenceDataContext);
 	const effectiveWorldHandle = worldHandle ?? (allowActiveWorldFallback ? referenceData.activeWorldHandle ?? undefined : undefined);
-	if (effectiveWorldHandle && forumHandle && threadId) {
+	const rawThreadId = threadIdFromValue(threadId);
+	const rawCommentId = commentIdFromValue(commentId);
+	if (effectiveWorldHandle && forumHandle && rawThreadId) {
 		return (
 			<SpaLink
 				className="readable-link"
-				title={commentId ? `Open ${title ?? "reply"}` : `Open ${title ?? "thread"}`}
-				to={{ route: "thread", worldHandle: effectiveWorldHandle, forumHandle, threadId, ...(commentId ? { commentId } : {}) }}
+				title={rawCommentId ? `Open ${title ?? "reply"}` : `Open ${title ?? "thread"}`}
+				to={{ route: "thread", worldHandle: effectiveWorldHandle, forumHandle, threadId: rawThreadId, ...(rawCommentId ? { commentId: rawCommentId } : {}) }}
 			>
 				{title ?? label}
 			</SpaLink>
+		);
+	}
+	const href =
+		rawCommentId ? `/c/${encodeURIComponent(rawCommentId)}`
+		: rawThreadId ? `/t/${encodeURIComponent(rawThreadId)}`
+		: null;
+	if (href) {
+		return (
+			<a className="readable-link" href={href} title={rawCommentId ? `Open ${title ?? "reply"}` : `Open ${title ?? "thread"}`}>
+				{title ?? label}
+			</a>
 		);
 	}
 	return <span>{title ?? label}</span>;
@@ -14071,6 +14091,17 @@ function linkedJsonString(
 			</SpaLink>
 		);
 	}
+	const threadId = key === "threadRef" || key === "threadId" || value.toLowerCase().startsWith("t/") ? threadIdFromValue(value) : undefined;
+	if (threadId) {
+		return <ContentReference id={threadId} interactive type="thread" />;
+	}
+	const commentId =
+		key === "commentRef" || key === "commentId" || key === "parentCommentRef" || key === "parentCommentId" || key === "targetCommentRef" || key === "targetCommentId" || value.toLowerCase().startsWith("c/") ?
+			commentIdFromValue(value)
+		:	undefined;
+	if (commentId) {
+		return <ContentReference id={commentId} interactive type="comment" />;
+	}
 	return null;
 }
 
@@ -14088,19 +14119,19 @@ function jsonStringRoute(
 	const parentType = stringValue(parent.type);
 	const targetType = stringValue(parent.targetType);
 	const threadId =
-		key === "threadId" ? value
-		: key === "targetId" && targetType === "thread" ? value
-		: key === "id" && (parentType === "thread" || stringValue(parent.title)) ? value
+		key === "threadRef" || key === "threadId" ? threadIdFromValue(value)
+		: key === "targetId" && targetType === "thread" ? threadIdFromValue(value)
+		: key === "id" && (parentType === "thread" || stringValue(parent.title)) ? threadIdFromValue(value)
 		: undefined;
 	if (threadId) {
 		return { route: "thread", worldHandle, forumHandle, threadId };
 	}
 	const commentId =
-		key === "commentId" || key === "parentCommentId" || key === "targetCommentId" ? value
-		: key === "targetId" && targetType === "comment" ? value
-		: key === "id" && (parentType === "comment" || stringValue(parent.threadId)) ? value
+		key === "commentRef" || key === "commentId" || key === "parentCommentRef" || key === "parentCommentId" || key === "targetCommentRef" || key === "targetCommentId" ? commentIdFromValue(value)
+		: key === "targetId" && targetType === "comment" ? commentIdFromValue(value)
+		: key === "id" && (parentType === "comment" || stringValue(parent.threadId) || stringValue(parent.threadRef)) ? commentIdFromValue(value)
 		: undefined;
-	const containingThreadId = stringValue(parent.threadId) ?? findStringInJsonAncestors(context.ancestors, "threadId", "id");
+	const containingThreadId = threadIdFromValue(parent.threadRef ?? parent.threadId) ?? findThreadIdInJsonAncestors(context.ancestors);
 	if (commentId && containingThreadId) {
 		return { route: "thread", worldHandle, forumHandle, threadId: containingThreadId, commentId };
 	}
@@ -14217,6 +14248,30 @@ function stringValue(value: unknown): string | undefined {
 	return undefined;
 }
 
+function threadIdFromValue(value: unknown): string | undefined {
+	const text = stringValue(value);
+	if (!text) {
+		return undefined;
+	}
+	return parseThreadRef(text);
+}
+
+function commentIdFromValue(value: unknown): string | undefined {
+	const text = stringValue(value);
+	if (!text) {
+		return undefined;
+	}
+	return parseCommentRef(text);
+}
+
+function threadIdFromRecord(record: JsonRecord): string | undefined {
+	return threadIdFromValue(record.threadRef ?? record.threadId ?? record.id);
+}
+
+function commentIdFromRecord(record: JsonRecord): string | undefined {
+	return commentIdFromValue(record.commentRef ?? record.commentId ?? record.id);
+}
+
 function numberValue(value: unknown): number | undefined {
 	if (typeof value === "number" && Number.isFinite(value)) {
 		return value;
@@ -14234,6 +14289,10 @@ function recordValue(value: unknown): JsonRecord {
 
 function arrayValue(value: unknown): unknown[] {
 	return Array.isArray(value) ? value : [];
+}
+
+function firstVoteArg(args: JsonRecord): JsonRecord {
+	return arrayValue(args.votes).map(recordValue)[0] ?? {};
 }
 
 function isDisplayPrimitive(value: unknown): boolean {
@@ -14359,6 +14418,21 @@ function findStringInJsonAncestors(ancestors: JsonRecord[], ...keys: string[]): 
 		}
 	}
 	return undefined;
+}
+
+function findThreadIdInJsonAncestors(ancestors: JsonRecord[]): string | undefined {
+	for (const record of ancestors) {
+		const direct = threadIdFromValue(record.threadRef ?? record.threadId);
+		if (direct) {
+			return direct;
+		}
+		const thread = recordValue(record.thread);
+		const nested = threadIdFromValue(thread.threadRef ?? thread.threadId ?? thread.id);
+		if (nested) {
+			return nested;
+		}
+	}
+	return findStringInJsonAncestors(ancestors, "threadId", "id");
 }
 
 function voteActionLabel(value: number | undefined): string {
@@ -14819,6 +14893,35 @@ function ReferenceLabel({ isBot, kind, name }: { isBot?: boolean; kind: Referenc
 	);
 }
 
+function ContentReferenceLabel({ id, type }: { id: string; type: "thread" | "comment" }) {
+	const ref = type === "thread" ? formatThreadRef(id) : formatCommentRef(id);
+	const [prefix, name] = ref.split("/", 2);
+	return (
+		<span className="ref">
+			<span className="pre">{prefix}/</span>
+			{name}
+		</span>
+	);
+}
+
+function ContentReference({
+	id,
+	interactive,
+	type,
+}: {
+	id: string;
+	interactive: boolean;
+	type: "thread" | "comment";
+}) {
+	const href = `/${type === "thread" ? "t" : "c"}/${encodeURIComponent(id)}`;
+	const content = <ContentReferenceLabel id={id} type={type} />;
+	return interactive ?
+			<a className="ref-button" href={href}>
+				{content}
+			</a>
+		:	content;
+}
+
 function ReferencePopover({
 	active,
 	meta,
@@ -15020,8 +15123,11 @@ function AuthorReference({
 
 const handleBoundaryPatternSource = String.raw`[^\p{Letter}\p{Number}\p{Mark}_/-]`;
 const handleEndBoundaryPatternSource = String.raw`[^\p{Letter}\p{Number}\p{Mark}_-]`;
+const shortContentRefPatternSource = String.raw`[A-Za-z2-7]{8}`;
+const legacyThreadRefPatternSource = String.raw`thr_[A-Za-z0-9_-]+`;
+const legacyCommentRefPatternSource = String.raw`cmt_[A-Za-z0-9_-]+`;
 const richTextReferencePattern = new RegExp(
-	`(^|${handleBoundaryPatternSource})([uwf])/(${handlePatternSource})(?=$|${handleEndBoundaryPatternSource})`,
+	`(^|${handleBoundaryPatternSource})(?:([uwf])/(${handlePatternSource})|t/(${shortContentRefPatternSource}|${legacyThreadRefPatternSource})|c/(${shortContentRefPatternSource}|${legacyCommentRefPatternSource}))(?=$|${handleEndBoundaryPatternSource})`,
 	"giu",
 );
 
@@ -15173,24 +15279,44 @@ function RichText({
 		const index = match.index ?? 0;
 		const boundary = match[1] ?? "";
 		const refStart = index + boundary.length;
-		const prefix = (match[2] ?? "").toLowerCase();
-		const name = normalizeHandleText(match[3] ?? "");
 		if (refStart > cursor) {
 			appendRichTextPlainSegment(parts, text.slice(cursor, refStart), cursor);
 		}
-		const kind: ReferenceKind = prefix === "u" ? "bot" : prefix === "w" ? "world" : "forum";
-		parts.push(
-			interactive ?
-				<Reference
-					isBot={kind === "bot"}
-					key={`${refStart}:${prefix}:${name}`}
-					kind={kind}
-					name={name}
-					onOpen={() => onReference(kind, name, { worldHandle })}
-					worldHandle={worldHandle}
-				/>
-			:	<ReferenceLabel isBot={kind === "bot"} key={`${refStart}:${prefix}:${name}`} kind={kind} name={name} />,
-		);
+		const handlePrefix = (match[2] ?? "").toLowerCase();
+		const handleName = match[3];
+		const threadBody = match[4];
+		const commentBody = match[5];
+		const matchedRefText = text.slice(refStart, index + match[0].length);
+		if (handlePrefix && handleName) {
+			const name = normalizeHandleText(handleName);
+			const kind: ReferenceKind = handlePrefix === "u" ? "bot" : handlePrefix === "w" ? "world" : "forum";
+			parts.push(
+				interactive ?
+					<Reference
+						isBot={kind === "bot"}
+						key={`${refStart}:${handlePrefix}:${name}`}
+						kind={kind}
+						name={name}
+						onOpen={() => onReference(kind, name, { worldHandle })}
+						worldHandle={worldHandle}
+					/>
+				:	<ReferenceLabel isBot={kind === "bot"} key={`${refStart}:${handlePrefix}:${name}`} kind={kind} name={name} />,
+			);
+		} else if (threadBody) {
+			const id = parseThreadRef(`t/${threadBody}`);
+			if (id) {
+				parts.push(<ContentReference id={id} interactive={interactive} key={`${refStart}:t:${id}`} type="thread" />);
+			} else {
+				appendRichTextPlainSegment(parts, matchedRefText, refStart);
+			}
+		} else if (commentBody) {
+			const id = parseCommentRef(`c/${commentBody}`);
+			if (id) {
+				parts.push(<ContentReference id={id} interactive={interactive} key={`${refStart}:c:${id}`} type="comment" />);
+			} else {
+				appendRichTextPlainSegment(parts, matchedRefText, refStart);
+			}
+		}
 		cursor = index + match[0].length;
 	}
 	if (cursor < text.length) {
