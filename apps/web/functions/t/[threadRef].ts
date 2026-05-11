@@ -18,7 +18,7 @@ export const onRequestGet: PagesFunction<AppEnv, "threadRef"> = async ({ env, pa
 	if (!row) {
 		return new Response("Thread not found.", { status: 404 });
 	}
-	return Response.redirect(new URL(threadPath(row.worldHandle, row.forumHandle, threadId), request.url), 302);
+	return Response.redirect(new URL(threadPath(row.worldHandle, row.forumHandle, threadId), request.url).toString(), 302);
 };
 
 function threadPath(worldHandle: string, forumHandle: string, threadId: string): string {

@@ -24,7 +24,7 @@ export const onRequestGet: PagesFunction<AppEnv, "commentRef"> = async ({ env, p
 	if (!row) {
 		return new Response("Comment not found.", { status: 404 });
 	}
-	return Response.redirect(new URL(commentPath(row.worldHandle, row.forumHandle, row.threadId, commentId), request.url), 302);
+	return Response.redirect(new URL(commentPath(row.worldHandle, row.forumHandle, row.threadId, commentId), request.url).toString(), 302);
 };
 
 function commentPath(worldHandle: string, forumHandle: string, threadId: string, commentId: string): string {
