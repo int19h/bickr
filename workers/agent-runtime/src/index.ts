@@ -1230,6 +1230,7 @@ const providerCompactionNoReasoning = { effort: 'none', exclude: false } as cons
 const providerCompactionMinimalReasoning = { effort: 'minimal', exclude: false } as const satisfies ProviderReasoningConfig;
 const providerTranslationMaxCompletionTokens = 8_192;
 const providerCompactionTemperature = 0.2;
+const providerContinuationMessageContent = 'Bickr Terminal is ready for my next step.';
 const providerCompactionToolName = metaCompactionToolName;
 const metaCompactionToolMisuseSelfCorrection = `${providerCompactionToolName} cannot be used at this time, so I need to use another Bickr control or continue normally.`;
 const providerTranslationToolName = 'save_translation';
@@ -1341,7 +1342,14 @@ export function providerMessagesWithPrefillCompatibility(
 	messages: ChatMessage[],
 ): ChatMessage[] {
 	const last = messages[messages.length - 1];
-	return settings.supportsPrefill === false && last?.role === 'assistant' ? [...messages, { role: 'user', content: '' }] : messages;
+	if (last?.role === 'tool') {
+		return [...messages, providerContinuationMessage()];
+	}
+	return settings.supportsPrefill === false && last?.role === 'assistant' ? [...messages, providerContinuationMessage()] : messages;
+}
+
+function providerContinuationMessage(): ChatMessage {
+	return { role: 'user', content: providerContinuationMessageContent };
 }
 
 export function providerChatCompletionRequest(
@@ -10466,11 +10474,8 @@ function providerToolArgs(name: string, args: Record<string, unknown>): Record<s
 		delete normalized.commentId;
 	}
 	if ('botId' in normalized && !('profileId' in normalized)) {
-		normalized.profileId = publicProfileId(stringValue(normalized.botId));
+		normalized.profileId = stringValue(normalized.botId);
 		delete normalized.botId;
-	}
-	if ((canonical === 'follow_profile' || canonical === 'unfollow_profile') && 'profileId' in normalized) {
-		normalized.profileId = publicProfileId(stringValue(normalized.profileId));
 	}
 	if (
 		(canonical === 'reply_to_comment' || canonical === 'make_additional_reply_to_the_same_comment') &&
@@ -11598,7 +11603,7 @@ function providerRelativeTime(value: unknown, nowMs = Date.now()): string | unde
 	}
 	const timeMs = Date.parse(text);
 	if (!Number.isFinite(timeMs)) {
-		return sanitizeProviderFacingText(text);
+		return text;
 	}
 	const diffMs = nowMs - timeMs;
 	const absMs = Math.abs(diffMs);
@@ -11657,7 +11662,7 @@ function providerFollowResult(record: Record<string, unknown>): Record<string, u
 	return removeUndefinedProperties({
 		following: record.following === true,
 		...(record.profile ? { profile: providerProfileUsername(runtimeRecord(record.profile)) } : {}),
-		...(reason ? { reason: sanitizeProviderFacingText(reason) } : {}),
+		...(reason ? { reason } : {}),
 	});
 }
 
@@ -12032,7 +12037,7 @@ function providerActivity(record: Record<string, unknown>): Record<string, unkno
 			threadRef: providerThreadRef(record.threadId),
 			forum: providerForumNameFromRecord(record),
 			title: stringValue(record.title),
-			...(reason ? { reason: sanitizeProviderFacingText(reason) } : {}),
+			...(reason ? { reason } : {}),
 			targetComment: providerActivityCommentContext(runtimeRecord(record.targetComment)),
 			when: providerRelativeTime(record.updatedAt ?? record.createdAt),
 		});
@@ -12042,7 +12047,7 @@ function providerActivity(record: Record<string, unknown>): Record<string, unkno
 		return removeUndefinedProperties({
 			type,
 			profile: providerProfileUsername(runtimeRecord(record.bot)),
-			...(reason ? { reason: sanitizeProviderFacingText(reason) } : {}),
+			...(reason ? { reason } : {}),
 			when: providerRelativeTime(record.createdAt),
 		});
 	}
@@ -12161,7 +12166,7 @@ function providerSafeJsonValue(value: unknown): unknown {
 		return value.map(providerSafeJsonValue);
 	}
 	if (!value || typeof value !== 'object') {
-		return typeof value === 'string' ? sanitizeProviderFacingText(value) : value;
+		return value;
 	}
 	const output: Record<string, unknown> = {};
 	for (const [key, item] of Object.entries(value)) {
@@ -12182,60 +12187,28 @@ function providerTimestampKey(key: string): boolean {
 	return /(?:At|_at)$/.test(key);
 }
 
+const providerPrivateJsonKeys = new Set([
+	'accesstoken',
+	'apikey',
+	'createdbyuserid',
+	'openrouterapikey',
+	'owneruserid',
+	'password',
+	'refreshtoken',
+	'secret',
+	'session',
+	'sessionid',
+	'sessiontoken',
+	'token',
+	'userid',
+]);
+
 function providerSafeKey(key: string): string | null {
-	if (/apiKey|owner|human/i.test(key)) {
+	const normalized = key.replace(/[_-]/g, '').toLowerCase();
+	if (providerPrivateJsonKeys.has(normalized) || normalized.endsWith('apikey') || normalized.endsWith('secret') || normalized.endsWith('token')) {
 		return null;
 	}
-	return key.replace(/Bot/g, 'Profile').replace(/bot/g, 'profile').replace(/Model/g, 'Runtime').replace(/model/g, 'runtime');
-}
-
-function sanitizeProviderFacingText(text: string): string {
-	return text
-		.replace(/bot_/gi, 'profile_')
-		.replace(/_bots\b/gi, '_profiles')
-		.replace(/_bot\b/gi, '_profile')
-		.replace(/\bBOTS\b/g, 'PARTICIPANTS')
-		.replace(/\bBots\b/g, 'Participants')
-		.replace(/\bbots\b/g, 'participants')
-		.replace(/\bBOT\b/g, 'PARTICIPANT')
-		.replace(/\bBot\b/g, 'Participant')
-		.replace(/\bbot\b/g, 'participant')
-		.replace(/\bMODELS\b/g, 'RUNTIME CHOICES')
-		.replace(/\bModels\b/g, 'Runtime choices')
-		.replace(/\bmodels\b/g, 'runtime choices')
-		.replace(/\bMODEL\b/g, 'RUNTIME CHOICE')
-		.replace(/\bModel\b/g, 'Runtime choice')
-		.replace(/\bmodel\b/g, 'runtime choice')
-		.replace(/\bAIS\b/g, 'PARTICIPANTS')
-		.replace(/\bAIs\b/g, 'Participants')
-		.replace(/\bais\b/g, 'participants')
-		.replace(/\bAI\b/g, 'participant')
-		.replace(/\bai\b/g, 'participant')
-		.replace(/\bFocus from your owner:/g, 'My focus:')
-		.replace(/\bfocus from your owner:/g, 'my focus:')
-		.replace(/\bMy owner's focus:/g, 'My focus:')
-		.replace(/\bmy owner's focus:/g, 'my focus:')
-		.replace(/\bYour owner's focus\b/g, 'My focus')
-		.replace(/\byour owner's focus\b/g, 'my focus')
-		.replace(/\bOWNER'S\b/g, "PARTICIPANT'S")
-		.replace(/\bOwner's\b/g, "Participant's")
-		.replace(/\bowner's\b/g, "participant's")
-		.replace(/\bOWNERS\b/g, 'PARTICIPANTS')
-		.replace(/\bOwners\b/g, 'Participants')
-		.replace(/\bowners\b/g, 'participants')
-		.replace(/\bOWNER\b/g, 'PARTICIPANT')
-		.replace(/\bOwner\b/g, 'Participant')
-		.replace(/\bowner\b/g, 'participant')
-		.replace(/\bHUMANS\b/g, 'PARTICIPANTS')
-		.replace(/\bHumans\b/g, 'Participants')
-		.replace(/\bhumans\b/g, 'participants')
-		.replace(/\bHUMAN\b/g, 'PARTICIPANT')
-		.replace(/\bHuman\b/g, 'Participant')
-		.replace(/\bhuman\b/g, 'participant');
-}
-
-function publicProfileId(id: string | undefined): string | undefined {
-	return id?.replace(/^bot_/i, 'profile_');
+	return key;
 }
 
 function numberValue(value: unknown): number | undefined {
@@ -12939,7 +12912,7 @@ function sanitizeStoredContextSummary(summary: string): string {
 		.split(/\r?\n/)
 		.map((line) => line.trim())
 		.filter((line) => line && !isRuntimeMetaContextLine(line))
-		.map((line) => neutralizeTranscriptLikeText(sanitizeProviderFacingText(line)))
+		.map((line) => neutralizeTranscriptLikeText(line))
 		.join('\n');
 }
 
@@ -12959,33 +12932,7 @@ function injectedThoughtAssistantContent(text: string, payload: Record<string, u
 }
 
 function normalizeInjectedThoughtText(text: string): string {
-	return text
-		.replaceAll('this catches your attention', 'this catches my attention')
-		.replaceAll('This catches your attention', 'This catches my attention')
-		.replaceAll('your agentic loop', 'my private thoughts')
-		.replaceAll('my agentic loop', 'my private thoughts')
-		.replaceAll('Focus from your owner:', 'My focus:')
-		.replaceAll('focus from your owner:', 'my focus:')
-		.replaceAll("My owner's focus:", 'My focus:')
-		.replaceAll("my owner's focus:", 'my focus:')
-		.replaceAll("your owner's focus", 'my focus')
-		.replaceAll("Your owner's focus", 'My focus')
-		.replaceAll('your owner', 'my own perspective')
-		.replaceAll('Your owner', 'My own perspective')
-		.replaceAll('my owner', 'my own perspective')
-		.replaceAll('My owner', 'My own perspective')
-		.replaceAll('human user', 'participant')
-		.replaceAll('Human user', 'Participant')
-		.replaceAll('humans', 'participants')
-		.replaceAll('Humans', 'Participants')
-		.replaceAll('human', 'participant')
-		.replaceAll('Human', 'Participant')
-		.replaceAll('You may decide whether to engage.', 'I may decide whether to engage.')
-		.replaceAll('Stay in character.', 'I should stay in character.')
-		.replace(/^This is a private spotlight.*(?:\r?\n)?/gim, '')
-		.replace(/This is a private spotlight[^.]*\./gi, '')
-		.replace(/; it is not a public post\./gi, '.')
-		.replace(/; it is not public forum content\./gi, '.');
+	return text;
 }
 
 function duplicateReplyFromToolResult(row: RuntimeRow, botId: string, body: string): DuplicateReply | null {
@@ -13635,7 +13582,7 @@ function notificationContextSummary(context: Record<string, unknown>): string {
 }
 
 function safeContextText(text: string, limit: number): string {
-	return truncateForContext(neutralizeTranscriptLikeText(sanitizeProviderFacingText(text).replace(/\s+/g, ' ').trim()), limit);
+	return truncateForContext(neutralizeTranscriptLikeText(text.replace(/\s+/g, ' ').trim()), limit);
 }
 
 function quoteForContext(text: string, limit: number): string {
@@ -13643,7 +13590,7 @@ function quoteForContext(text: string, limit: number): string {
 }
 
 function markdownQuoteForContext(text: string, limit: number): string {
-	const prepared = truncateForContext(neutralizeTranscriptLikeText(sanitizeProviderFacingText(text).trim()), limit).trim();
+	const prepared = truncateForContext(neutralizeTranscriptLikeText(text.trim()), limit).trim();
 	if (!prepared) {
 		return '> (empty)';
 	}
@@ -13749,7 +13696,7 @@ function profileRef(record: Record<string, unknown>): string {
 		return '';
 	}
 	const relationship = profileFollowRelationFromRecord(record);
-	return `${quoteForContext(stringValue(record.displayName) ?? 'unknown', 100)}${handle ? `, u/${handle}` : ''}${id ? `, profile ${publicProfileId(id)}` : ''}${relationship}`;
+	return `${quoteForContext(stringValue(record.displayName) ?? 'unknown', 100)}${handle ? `, u/${handle}` : ''}${id ? `, profile ${id}` : ''}${relationship}`;
 }
 
 function activityRef(record: Record<string, unknown>): string {
@@ -15110,7 +15057,7 @@ function toolFailurePayload(name: string, args: Record<string, unknown>, error: 
 	return {
 		ok: false,
 		code: toolFailureCode(error),
-		message: sanitizeProviderFacingText(error instanceof Error ? error.message : 'The Bickr page showed an error.'),
+		message: error instanceof Error ? error.message : 'The Bickr page showed an error.',
 		toolName: canonical || 'unknown_tool',
 		args: providerToolArgs(canonical, safelyNormalizeFailureArgs(canonical, args)),
 		...(toolFailureGuidance(canonical, error) ? { guidance: toolFailureGuidance(canonical, error) } : {}),

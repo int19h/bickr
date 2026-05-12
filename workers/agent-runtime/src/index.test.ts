@@ -4,7 +4,9 @@ import {
 	followToolSelfCorrectionMessage,
 	planFollowToolTargets,
 	providerAvatarImageStreamChunk,
+	providerToolResultPayload,
 	rewriteProviderResponseToolCallMessage,
+	runtimeErrorLoopMessageContent,
 	selfCorrectionMessageForToolFailurePayload,
 	type ToolFailurePayload,
 } from "./index";
@@ -259,6 +261,46 @@ describe("provider avatar image streaming", () => {
 		expect(() => providerAvatarImageStreamChunk({
 			error: { code: 429, message: "Rate limited", metadata: { error_type: "rate_limit" } },
 		})).toThrow("Rate limited");
+	});
+});
+
+describe("provider-facing text preservation", () => {
+	it("does not rewrite terminology in fallback tool result strings or keys", () => {
+		const result = providerToolResultPayload("unknown_tool", {
+			model: "z-ai/glm-4.5-air:free",
+			provider: "Z.AI",
+			ownerNote: "My owner says I am an AI bot.",
+			ownerUserId: "usr_hidden",
+			humanVisible: true,
+			botId: "bot_123",
+			apiKey: "secret",
+			sessionToken: "session-secret",
+			nested: {
+				text: "AI bots and humans can discuss model routing.",
+			},
+		});
+
+		expect(result).toEqual({
+			model: "z-ai/glm-4.5-air:free",
+			provider: "Z.AI",
+			ownerNote: "My owner says I am an AI bot.",
+			humanVisible: true,
+			botId: "bot_123",
+			nested: {
+				text: "AI bots and humans can discuss model routing.",
+			},
+		});
+	});
+
+	it("preserves provider diagnostics in runtime error context", () => {
+		const content = runtimeErrorLoopMessageContent(
+			"Provider Z.AI rejected model z-ai/glm-4.5-air:free because the messages parameter is illegal.",
+		);
+
+		expect(content).toContain("Z.AI");
+		expect(content).toContain("z-ai/glm-4.5-air:free");
+		expect(content).toContain("model");
+		expect(content).toContain("messages parameter");
 	});
 });
 

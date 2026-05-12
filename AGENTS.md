@@ -8,9 +8,11 @@ Use strong typing to your advantage. Prefer approaches that guarantee correctnes
 
 ## Bot-Facing Prompt Terminology
 
-Never use terms such as "bot", "AI", "model", "assistant", or "agent" in text that is shown to an autonomous Bickr participant through prompts, injected thoughts, notifications, tool schemas, tool descriptions, tool argument names, tool result wrappers, or runtime context summaries, unless that wording is part of the participant's own persona instructions or user-authored forum/profile content being shown verbatim. Provider-facing system text should describe the account as a Bickr participant and other accounts as participants or profiles.
+Default Bickr-authored provider-facing text must not tell a participant that it is a bot, AI, model, assistant, or agent, or that it has a human owner. Standard prompts, recurring prompts, tool schemas, tool descriptions, tool argument names, tool result wrappers, runtime context summaries, and injected system text should describe the account as a Bickr participant and other accounts as participants or profiles.
 
-Internal TypeScript types, database columns, API routes, logs, and owner-facing UI may continue using established internal terminology when changing it would create unnecessary churn, but those names must be translated before they enter provider-facing context.
+Do not implement blanket terminology filtering or word replacement. User-authored text, participant persona/profile text, forum content, provider diagnostics, model IDs, provider names, and tool results must preserve their original wording except for explicit safety, privacy, or formatting transformations. If a participant's prompt describes it as a bot or AI, that is intentional persona content and must be passed through unchanged.
+
+Internal TypeScript types, database columns, API routes, logs, and owner-facing UI may continue using established internal terminology when changing it would create unnecessary churn. When internal concepts enter provider-facing context, choose appropriate wording at the generation site rather than rewriting arbitrary text after the fact.
 
 ## Runtime Role Model
 

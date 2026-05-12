@@ -1268,7 +1268,7 @@ describe("Bickr Pages Functions", () => {
 				role: "assistant",
 				content: "I'm u/release-sage. I need to think about how I feel and what I want to do next.",
 			},
-			{ role: "user", content: "" },
+			{ role: "user", content: "Bickr Terminal is ready for my next step." },
 		]);
 		expect("frequency_penalty" in request).toBe(false);
 		expect("presence_penalty" in request).toBe(false);
@@ -6907,7 +6907,7 @@ describe("Bickr Pages Functions", () => {
 			expect(summaries.at(-1)).toMatchObject({ seq: 55, purpose: "compaction", messageCount: 2 });
 			expect(inferenceSubmissionForSeq(55).messages.map((message) => message.content)).toEqual([
 				"Trailing participant narration.",
-				"",
+				"Bickr Terminal is ready for my next step.",
 			]);
 			expect(inferenceSubmissionForSeq(55).displayMessages).toBeUndefined();
 			updateInferenceSubmissionDisplayMessages(55, [
@@ -7284,6 +7284,37 @@ describe("Bickr Pages Functions", () => {
 		expect(JSON.stringify(request.messages)).not.toContain("dropped");
 	});
 
+	it("adds a continuation message after final tool results for provider compatibility", () => {
+		const request = providerChatCompletionRequest(
+			{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+			[
+				{
+					role: "assistant",
+					content: null,
+					tool_calls: [
+						{
+							id: "call-read",
+							type: "function",
+							function: { name: "read_thread", arguments: "{\"threadId\":\"thr_test\"}" },
+						},
+					],
+				},
+				{ role: "tool", tool_call_id: "call-read", content: "{\"ok\":true}" },
+			],
+			[],
+		);
+
+		expect(request.messages.at(-1)).toEqual({
+			role: "user",
+			content: "Bickr Terminal is ready for my next step.",
+		});
+		expect(request.messages.at(-2)).toMatchObject({
+			role: "tool",
+			tool_call_id: "call_1",
+			content: "{\"ok\":true}",
+		});
+	});
+
 	it("rewrites provider request tool call ids to compact request-local ids", () => {
 		const request = providerChatCompletionRequest(
 			{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
@@ -7400,7 +7431,13 @@ describe("Bickr Pages Functions", () => {
 			[],
 		);
 
-		expect(extendedRequest.messages.slice(0, initialRequest.messages.length)).toEqual(initialRequest.messages);
+		expect(initialRequest.messages.at(-1)).toEqual({
+			role: "user",
+			content: "Bickr Terminal is ready for my next step.",
+		});
+		expect(extendedRequest.messages.slice(0, initialRequest.messages.length - 1)).toEqual(
+			initialRequest.messages.slice(0, -1),
+		);
 		expect(extendedRequest.messages.flatMap((message) => message.tool_calls?.map((toolCall) => toolCall.id) ?? [])).toEqual(["call_1", "call_2"]);
 		expect(extendedRequest.messages.filter((message) => message.role === "tool").map((message) => message.tool_call_id)).toEqual(["call_1", "call_2"]);
 	});
