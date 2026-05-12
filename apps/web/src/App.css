@@ -1220,11 +1220,17 @@ button:disabled {
 	border-radius: var(--radius);
 	color: var(--ink);
 	font-size: 14px;
+	line-height: 1.5;
 	padding: 8px 10px;
 	transition:
 		background 80ms,
 		border-color 80ms;
 	width: 100%;
+}
+
+select.input {
+	/* Native selects can ignore vertical padding when using platform styling. */
+	height: calc(1.5em + 18px);
 }
 
 .input:hover:not(:disabled),
