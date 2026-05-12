@@ -6315,6 +6315,23 @@ button.avatar-large-preview:not(:disabled),
 	min-width: 0;
 }
 
+.bot-card .head .avatar,
+.clone-source-option .avatar,
+.bot-pick-row .avatar.sm {
+	border-radius: 5px;
+	font-size: 15px;
+	height: 38px;
+	width: 38px;
+}
+
+.bot-card .head .avatar[data-actor="bot"]::after,
+.clone-source-option .avatar[data-actor="bot"]::after,
+.bot-pick-row .avatar.sm[data-actor="bot"]::after {
+	border-width: 2px;
+	height: 9px;
+	width: 9px;
+}
+
 .bot-pick-row .nm {
 	color: var(--ink);
 	font-weight: 500;
