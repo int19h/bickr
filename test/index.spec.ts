@@ -111,7 +111,11 @@ import {
 	type ProviderToolDefinition,
 } from "../workers/agent-runtime/src/prompt-and-tools";
 import { providerContextReserveTokens } from "../workers/agent-runtime/src/provider-requests";
-import forumCoordinatorWorker, { ExclusiveOperationQueue, handleForumCoordinatorRequest } from "../workers/forum-coordinator/src/index";
+import forumCoordinatorWorker, {
+	ExclusiveOperationQueue,
+	handleForumCoordinatorRequest,
+	type Env as ForumCoordinatorEnv,
+} from "../workers/forum-coordinator/src/index";
 import { pruneStreamEventsForPersistentEvents } from "../apps/web/src/runtime-streams";
 import { parsePathname, routePath } from "../apps/web/src/routes";
 import {
@@ -129,7 +133,9 @@ import {
 	botPublicProfileByHandle,
 	followBot,
 	ensureBootstrapNotification,
+	listHotThreads,
 	listPendingNotifications,
+	listThreads,
 	markBotSeenContent,
 	markBotSeenFromResult,
 	markNotificationsDelivered,
@@ -137,9 +143,11 @@ import {
 	recordBotRuntimeFailureHumanNotification,
 	recordSpotlightNoReactionHumanNotification,
 	recordSpotlightToolHumanNotification,
+	refreshThreadHotScores,
 	searchBots,
 	searchThreads,
 	setVote,
+	threadHotScore,
 	unfollowBot,
 	worldActivityFeedByHandle,
 } from "../packages/shared/src/social";
@@ -311,6 +319,7 @@ CREATE TABLE threads_index (
 CREATE UNIQUE INDEX threads_index_root_comment ON threads_index (root_comment_id);
 CREATE INDEX threads_index_forum_activity ON threads_index (forum_id, deleted_at, last_activity_at);
 CREATE INDEX threads_index_world_hot ON threads_index (world_id, deleted_at, hot_score);
+CREATE INDEX threads_index_forum_hot ON threads_index (forum_id, deleted_at, hot_score DESC, last_activity_at DESC);
 CREATE TABLE content_ids (
 	id TEXT PRIMARY KEY,
 	ref_type TEXT NOT NULL,
@@ -14189,6 +14198,137 @@ describe("Bickr Pages Functions", () => {
 		expect(voteNotice?.title).toBe("Cache Critic upvoted a comment in");
 		expect(voteNotice?.body).toBe("Index repair ballad\nThe root comment is useful.");
 		expect(voteNotice?.urlPath).toBe(`/w/patch-notes/u/cache-critic?tab=activity&activity=vote%3Acomment%3A${thread.data.thread.rootCommentId}`);
+	});
+
+	it("decays and expires hot threads by creation age without hiding recent or direct reads", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const forum = await createForumForTest(cookie, "hot-decay");
+		const author = await createBotForTest(cookie, "hot-author");
+		const now = "2026-05-08T12:00:00.000Z";
+		vi.useFakeTimers();
+		try {
+			const createAt = async (createdAt: string, title: string): Promise<TestThread> => {
+				vi.setSystemTime(new Date(createdAt));
+				return createThreadForTest(forum.id, author.id, title, `${title} body.`);
+			};
+			const expired = await createAt("2026-05-01T12:00:00.000Z", "Expired hot thread");
+			const almostExpired = await createAt("2026-05-01T13:00:00.000Z", "Almost expired hot thread");
+			const halfAge = await createAt("2026-05-05T00:00:00.000Z", "Half age hot thread");
+			const fresh = await createAt(now, "Fresh hot thread");
+
+			vi.setSystemTime(new Date(now));
+			await refreshThreadHotScores(testEnv.BICKR_D1, now);
+
+			const hot = await listThreads(testEnv.BICKR_D1, forum.id, "hot", 10);
+			const hotIds = hot.map((thread) => thread.id);
+			expect(hotIds).toEqual(expect.arrayContaining([fresh.id, halfAge.id, almostExpired.id]));
+			expect(hotIds).not.toContain(expired.id);
+			expect((await listHotThreads(testEnv.BICKR_D1, forum.worldId, 10)).map((thread) => thread.id)).not.toContain(expired.id);
+
+			const halfAgeDocument = await readThread(testEnv.BICKR_KV, halfAge.id);
+			expect(hot.find((thread) => thread.id === halfAge.id)?.hotScore).toBeCloseTo(
+				threadHotScore(0, 1, halfAgeDocument.createdAt, now),
+			);
+			const recent = await listThreads(testEnv.BICKR_D1, forum.id, "recent", 10);
+			expect(recent.map((thread) => thread.id)).toContain(expired.id);
+			await expect(readThread(testEnv.BICKR_KV, expired.id)).resolves.toMatchObject({ id: expired.id });
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("uses creation-age decay for root votes and comment mutations", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const forum = await createForumForTest(cookie, "hot-mutations");
+		const author = await createBotForTest(cookie, "hot-root-author");
+		const voter = await createBotForTest(cookie, "hot-voter");
+		vi.useFakeTimers();
+		try {
+			vi.setSystemTime(new Date("2026-05-01T12:00:00.000Z"));
+			const thread = await createThreadForTest(forum.id, author.id, "Mutable hot thread", "Root body.");
+			const reply = await createCommentForTest(thread.id, author.id, "Reply body.");
+
+			const voteNow = "2026-05-05T00:00:00.000Z";
+			vi.setSystemTime(new Date(voteNow));
+			const beforeVote = await readThread(testEnv.BICKR_KV, thread.id);
+			const rootVoted = await setVote(testEnv.BICKR_KV, testEnv.BICKR_D1, {
+				botId: voter.id,
+				targetType: "comment",
+				targetId: thread.rootCommentId,
+				value: 1,
+			}, voteNow);
+			expect(rootVoted.hotScore).toBeCloseTo(threadHotScore(1, beforeVote.commentCount, beforeVote.createdAt, voteNow));
+
+			const commentVoted = await setVote(testEnv.BICKR_KV, testEnv.BICKR_D1, {
+				botId: voter.id,
+				targetType: "comment",
+				targetId: reply.id,
+				value: -1,
+			}, voteNow);
+			expect(commentVoted.hotScore).toBeCloseTo(rootVoted.hotScore);
+
+			const expiredNow = "2026-05-09T12:00:00.000Z";
+			vi.setSystemTime(new Date(expiredNow));
+			await createCommentForTest(thread.id, voter.id, "Expired follow-up.");
+			expect((await readThread(testEnv.BICKR_KV, thread.id)).hotScore).toBe(0);
+			expect((await listHotThreads(testEnv.BICKR_D1, forum.worldId, 10)).map((item) => item.id)).not.toContain(thread.id);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("refreshes stored hot scores from the forum coordinator cron", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const forum = await createForumForTest(cookie, "hot-cron");
+		const author = await createBotForTest(cookie, "hot-cron-author");
+		vi.useFakeTimers();
+		try {
+			vi.setSystemTime(new Date("2026-05-01T00:00:00.000Z"));
+			const thread = await createThreadForTest(forum.id, author.id, "Cron refreshed hot thread", "Root body.");
+			const threadDocument = await readThread(testEnv.BICKR_KV, thread.id);
+			const runScheduled = async (scheduledTime: string): Promise<void> => {
+				if (!forumCoordinatorWorker.scheduled) {
+					throw new Error("Forum coordinator scheduled handler is missing.");
+				}
+				const pending: Array<Promise<unknown>> = [];
+				const controller = {
+					scheduledTime: Date.parse(scheduledTime),
+					cron: "0 0 * * *",
+					noRetry: () => {},
+				} as ScheduledController;
+				const ctx = {
+					waitUntil: (promise: Promise<unknown>) => {
+						pending.push(promise);
+					},
+					passThroughOnException: () => {},
+				} as ExecutionContext;
+				await forumCoordinatorWorker.scheduled(controller, testEnv as unknown as ForumCoordinatorEnv, ctx);
+				await Promise.all(pending);
+			};
+			const storedHotScore = async (): Promise<number> => {
+				const row = await testEnv.BICKR_D1.prepare(
+					`SELECT hot_score AS hotScore FROM threads_index WHERE thread_id = ?`,
+				)
+					.bind(thread.id)
+					.first<{ hotScore: number }>();
+				if (!row) {
+					throw new Error("Thread index row was not found.");
+				}
+				return row.hotScore;
+			};
+
+			const firstRefresh = "2026-05-02T00:00:00.000Z";
+			await runScheduled(firstRefresh);
+			expect(await storedHotScore()).toBeCloseTo(threadHotScore(0, 1, threadDocument.createdAt, firstRefresh));
+
+			await runScheduled("2026-05-08T00:00:00.000Z");
+			expect(await storedHotScore()).toBe(0);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("redirects standalone thread and comment refs to canonical forum routes", async () => {

@@ -7,11 +7,25 @@ import {
 	parseObjectRef,
 	parseThreadRef,
 } from "./ids";
-import { createComment, createThread } from "./social";
+import { createComment, createThread, threadHotScore } from "./social";
 import { kvKeys, type D1DatabaseLike, type D1PreparedStatementLike, type D1Result, type KVNamespaceLike } from "./storage";
 import { schemaVersion, type BotDocument, type ForumDocument, type PostingSettings, type WorldDocument } from "./model";
 
 const now = "2026-05-06T12:00:00.000Z";
+
+describe("threadHotScore", () => {
+	it("linearly decays engagement over the seven-day hot window", () => {
+		expect(threadHotScore(2, 4, now, now)).toBeCloseTo(10);
+		expect(threadHotScore(2, 4, now, "2026-05-10T00:00:00.000Z")).toBeCloseTo(5);
+		expect(threadHotScore(2, 4, now, "2026-05-13T12:00:00.000Z")).toBe(0);
+		expect(threadHotScore(2, 4, now, "2026-05-14T12:00:00.000Z")).toBe(0);
+	});
+
+	it("clamps negative engagement and future creation timestamps", () => {
+		expect(threadHotScore(-10, 1, now, now)).toBe(0);
+		expect(threadHotScore(1, 1, "2026-05-07T12:00:00.000Z", now)).toBeCloseTo(3.5);
+	});
+});
 
 describe("createThread duplicate title guard", () => {
 	it("rejects an active duplicate title in the same forum before writing", async () => {

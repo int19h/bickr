@@ -37,6 +37,9 @@
 			"migrations_dir": "../../migrations"
 		}
 	],
+	"triggers": {
+		"crons": ["0 0 * * *"]
+	},
 	"env": {
 		"test": {
 			"name": "bickr-forum-coordinator-test",
@@ -75,7 +78,10 @@
 					"binding": "BICKR_BOT_VECTORIZE",
 					"index_name": "bickr-bot-search-test"
 				}
-			]
+			],
+			"triggers": {
+				"crons": ["0 0 * * *"]
+			}
 		}
 	}
 }

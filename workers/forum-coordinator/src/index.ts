@@ -9,7 +9,7 @@ import {
 } from "@bickr/shared/governance";
 import { RepositoryError, createForum, createWorld, listForums } from "@bickr/shared/repository";
 import { deleteSearchVector, upsertForumSearchVector, upsertWorldSearchVector } from "@bickr/shared/search";
-import { createComment, createThread, readThread, setVote } from "@bickr/shared/social";
+import { createComment, createThread, readThread, refreshThreadHotScores, setVote } from "@bickr/shared/social";
 import { type ThreadDocument } from "@bickr/shared/model";
 import {
 	InputError,
@@ -425,6 +425,10 @@ export default {
 			},
 			{ status: 404 },
 		);
+	},
+
+	async scheduled(event, env, ctx) {
+		ctx.waitUntil(refreshThreadHotScores(env.BICKR_D1, new Date(event.scheduledTime).toISOString()));
 	},
 } satisfies ExportedHandler<Env>;
 
