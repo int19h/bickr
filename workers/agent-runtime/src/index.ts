@@ -1,4 +1,4 @@
-import { fail, ok, readJsonBody } from "@bickr/shared/api";
+import { fail, ok, readJsonBody } from '@bickr/shared/api';
 import {
 	avatarMaxBytes,
 	copyAvatarImage,
@@ -9,11 +9,11 @@ import {
 	storeAvatarImage,
 	validateAvatarDataUrl,
 	type R2BucketLike,
-} from "@bickr/shared/avatar-storage";
-import { isCloudflareRateLimitError, retryCloudflareOperation } from "@bickr/shared/cloudflare";
-import { deleteForum, deleteWorld } from "@bickr/shared/governance";
-import { json } from "@bickr/shared/http";
-import { formatCommentRef, formatThreadRef, parseCommentRef, parseObjectRef, parseThreadRef } from "@bickr/shared/ids";
+} from '@bickr/shared/avatar-storage';
+import { isCloudflareRateLimitError, retryCloudflareOperation } from '@bickr/shared/cloudflare';
+import { deleteForum, deleteWorld } from '@bickr/shared/governance';
+import { json } from '@bickr/shared/http';
+import { formatCommentRef, formatThreadRef, parseCommentRef, parseObjectRef, parseThreadRef } from '@bickr/shared/ids';
 import {
 	botById,
 	botPublicProfile,
@@ -34,8 +34,8 @@ import {
 	updateBot,
 	updateBotAvatar,
 	userById,
-} from "@bickr/shared/repository";
-import { effectivePostingSettings, mergePostingSettings } from "@bickr/shared/posting";
+} from '@bickr/shared/repository';
+import { effectivePostingSettings, mergePostingSettings } from '@bickr/shared/posting';
 import {
 	boundedSearchPage,
 	deleteSearchVector,
@@ -45,7 +45,7 @@ import {
 	reindexSearchVectors,
 	searchEntitiesSemantic,
 	upsertBotSearchVector,
-} from "@bickr/shared/search";
+} from '@bickr/shared/search';
 import {
 	followBot,
 	forumByHandle,
@@ -72,13 +72,8 @@ import {
 	type ForumContextProfileState,
 	type ForumContextResult,
 	type SeenContentItem,
-} from "@bickr/shared/social";
-import {
-	type D1DatabaseLike,
-	type KVNamespaceLike,
-	kvKeys,
-	readJson,
-} from "@bickr/shared/storage";
+} from '@bickr/shared/social';
+import { type D1DatabaseLike, type KVNamespaceLike, kvKeys, readJson } from '@bickr/shared/storage';
 import {
 	InputError,
 	normalizeHandle,
@@ -87,7 +82,7 @@ import {
 	parseCreateBotInput,
 	parseUpdateBotInput,
 	requiredText,
-} from "@bickr/shared/validation";
+} from '@bickr/shared/validation';
 import {
 	type ApiErrorPayload,
 	type AvatarImage,
@@ -149,7 +144,7 @@ import {
 	type ThreadSummary,
 	type UserDocument,
 	type WorldDocument,
-} from "@bickr/shared/model";
+} from '@bickr/shared/model';
 import {
 	isOpenRouterProviderBaseUrl,
 	isMetaCompactionToolDefinition,
@@ -161,8 +156,8 @@ import {
 	standardPrompt,
 	toolDefinitionsForProviderRound,
 	type ProviderToolDefinition,
-} from "./prompt-and-tools";
-import { providerContextReserveTokens } from "./provider-requests";
+} from './prompt-and-tools';
+import { providerContextReserveTokens } from './provider-requests';
 
 export { defaultReasoningPrefill };
 
@@ -239,9 +234,8 @@ export type ProviderCompactionSummaryLimits = {
 	compactionSummaryPercent: number;
 };
 
-type ProviderCompactionValidationLimits =
-	Pick<ProviderCompactionSummaryLimits, "minLength" | "maxLength"> &
-	Partial<Pick<ProviderCompactionSummaryLimits, "compactedCharacterCount" | "tokensPerCharacter">>;
+type ProviderCompactionValidationLimits = Pick<ProviderCompactionSummaryLimits, 'minLength' | 'maxLength'> &
+	Partial<Pick<ProviderCompactionSummaryLimits, 'compactedCharacterCount' | 'tokensPerCharacter'>>;
 
 type InferenceSubmissionRow = {
 	id: string;
@@ -260,7 +254,7 @@ type LoopMessageRow = {
 	seq: number;
 	position: number;
 	run_id: string;
-	role: ChatMessage["role"];
+	role: ChatMessage['role'];
 	message_json: string;
 	origin: BotLoopMessageOrigin;
 	status: BotLoopMessageStatus | null;
@@ -298,7 +292,10 @@ type LoopMessageLogRow = {
 	created_at: string;
 };
 
-type RuntimeFailureLogKind = Extract<BotLoopMessageLogKind, "provider_request" | "provider_response" | "compaction_request" | "compaction_response">;
+type RuntimeFailureLogKind = Extract<
+	BotLoopMessageLogKind,
+	'provider_request' | 'provider_response' | 'compaction_request' | 'compaction_response'
+>;
 
 type RuntimeFailureLog = {
 	kind: RuntimeFailureLogKind;
@@ -342,13 +339,13 @@ type ToolResult = {
 };
 
 export type ProviderToolCallRewrite =
-	| { kind: "drop"; toolCallId: string }
-	| { kind: "replace_arguments"; toolCallId: string; arguments: string };
+	| { kind: 'drop'; toolCallId: string }
+	| { kind: 'replace_arguments'; toolCallId: string; arguments: string };
 
 export type ProviderResponseToolCallRewriteResult =
-	| { kind: "unchanged"; message: BotInferenceSubmissionMessage }
-	| { kind: "updated"; message: BotInferenceSubmissionMessage }
-	| { kind: "deleted" };
+	| { kind: 'unchanged'; message: BotInferenceSubmissionMessage }
+	| { kind: 'updated'; message: BotInferenceSubmissionMessage }
+	| { kind: 'deleted' };
 
 type VoteToolTarget = {
 	commentId: string;
@@ -365,7 +362,7 @@ type FollowToolHistoryTarget = {
 	reason?: string;
 };
 
-export type FollowToolSkipReason = "already_following" | "not_following" | "self_follow" | "profile_not_found";
+export type FollowToolSkipReason = 'already_following' | 'not_following' | 'self_follow' | 'profile_not_found';
 
 export type FollowToolTargetSkip = {
 	username: string;
@@ -406,10 +403,12 @@ type ProviderResponse = {
 	responseProviderName?: string;
 };
 
-type ProviderStreamFetchResponse = Readonly<{
-	stream: ReadableStream<Uint8Array>;
-	responseId?: string;
-}> | ReadableStream<Uint8Array>;
+type ProviderStreamFetchResponse =
+	| Readonly<{
+			stream: ReadableStream<Uint8Array>;
+			responseId?: string;
+	  }>
+	| ReadableStream<Uint8Array>;
 
 type ProviderPromptBudgetCheck = {
 	allowedPromptTokens: number;
@@ -420,7 +419,7 @@ type ProviderPromptBudgetCheck = {
 
 type ProviderPromptTokenEstimate = {
 	promptTokens: number;
-	source: "baseline_plus_delta" | "full_estimate";
+	source: 'baseline_plus_delta' | 'full_estimate';
 	baselinePromptTokens?: number;
 	baselineMessageCount?: number;
 	estimatedDeltaTokens?: number;
@@ -502,7 +501,7 @@ export type ToolFailurePayload = {
 	existingCommentRef?: string;
 	targetCommentId?: string;
 	targetCommentRef?: string;
-	existingReplies?: Array<Omit<PriorReply, "commentId"> & { commentId?: string; commentRef?: string }>;
+	existingReplies?: Array<Omit<PriorReply, 'commentId'> & { commentId?: string; commentRef?: string }>;
 };
 
 class PersistentToolFailureError extends Error {
@@ -510,7 +509,7 @@ class PersistentToolFailureError extends Error {
 
 	constructor(failure: ToolFailurePayload) {
 		super(`Stopped after 5 consecutive failed tool calls. Last error: ${failure.message}`);
-		this.name = "PersistentToolFailureError";
+		this.name = 'PersistentToolFailureError';
 		this.failure = failure;
 	}
 }
@@ -520,7 +519,7 @@ class PersistentMissingToolCallError extends Error {
 
 	constructor(toolNames: string[]) {
 		super(`Stopped after ${providerRailroadNoToolMaxAttempts} inference responses without a required tool call.`);
-		this.name = "PersistentMissingToolCallError";
+		this.name = 'PersistentMissingToolCallError';
 		this.toolNames = toolNames;
 	}
 }
@@ -530,7 +529,7 @@ class SelfCorrectingToolCallError extends Error {
 
 	constructor(message: string) {
 		super(message);
-		this.name = "SelfCorrectingToolCallError";
+		this.name = 'SelfCorrectingToolCallError';
 		this.selfCorrectionMessages = [message];
 	}
 }
@@ -540,7 +539,7 @@ class RuntimeOperationTimeoutError extends Error {
 
 	constructor(operation: string, timeoutMs: number) {
 		super(`${operation} did not finish within ${Math.round(timeoutMs / 1000)} seconds.`);
-		this.name = "RuntimeOperationTimeoutError";
+		this.name = 'RuntimeOperationTimeoutError';
 		this.timeoutMs = timeoutMs;
 	}
 }
@@ -571,7 +570,7 @@ class DuplicateReplyError extends Error {
 
 	constructor(duplicate: DuplicateReply) {
 		super(`I already posted this exact comment recently: ${duplicate.urlPath}`);
-		this.name = "DuplicateReplyError";
+		this.name = 'DuplicateReplyError';
 		this.duplicate = duplicate;
 	}
 }
@@ -580,25 +579,23 @@ class PriorTargetReplyError extends Error {
 	readonly prior: PriorTargetReplies;
 
 	constructor(prior: PriorTargetReplies) {
-		const replyLines = prior.replies
-			.map((reply) => `- ${reply.commentId}: ${quoteForContext(reply.body, 1_000)}`)
-			.join("\n");
+		const replyLines = prior.replies.map((reply) => `- ${reply.commentId}: ${quoteForContext(reply.body, 1_000)}`).join('\n');
 		super(
 			`I already replied to ${prior.targetDescription} before. Past replies:\n${replyLines}\nIf I really need one more reply in addition to those, I should use make_additional_reply_to_the_same_comment.`,
 		);
-		this.name = "PriorTargetReplyError";
+		this.name = 'PriorTargetReplyError';
 		this.prior = prior;
 	}
 }
 
 type TickRunResult = {
 	runId: string;
-	status: "already_running" | "completed" | "failed" | "paused" | "queued" | "started" | "stopped";
+	status: 'already_running' | 'completed' | 'failed' | 'paused' | 'queued' | 'started' | 'stopped';
 	error?: string;
 };
 
-type TickMode = "normal" | "spotlight";
-type LoopSetupMode = "new_iteration" | "continuation" | "spotlight";
+type TickMode = 'normal' | 'spotlight';
+type LoopSetupMode = 'new_iteration' | 'continuation' | 'spotlight';
 
 type TickOptions = {
 	mode?: TickMode;
@@ -660,7 +657,7 @@ type RunContext = {
 	signal: AbortSignal;
 };
 
-type ProviderMessageStatus = "complete" | "interrupted";
+type ProviderMessageStatus = 'complete' | 'interrupted';
 
 type ProviderStreamActivity = {
 	type: string;
@@ -668,7 +665,7 @@ type ProviderStreamActivity = {
 };
 
 type ReadContentItem = {
-	type: "comment";
+	type: 'comment';
 	id: string;
 	threadId: string;
 	commentId?: string;
@@ -685,7 +682,7 @@ type ReadContentItem = {
 	title?: string;
 	body: string;
 	createdAt: string;
-	"My focus is on this comment"?: true;
+	'My focus is on this comment'?: true;
 	ancestorOnly?: boolean;
 	replies?: ReadContentItem[] | number;
 };
@@ -741,7 +738,7 @@ export type ProviderSettings = {
 	model: string;
 	compactionMode?: BotCompactionMode;
 	providerRouting?: JsonObject;
-	reasoningEffort?: Exclude<BotInferenceReasoningEffort, "default">;
+	reasoningEffort?: Exclude<BotInferenceReasoningEffort, 'default'>;
 	supportsPrefill?: boolean;
 	toolCalls?: BotInferenceToolCalls;
 	temperature: number;
@@ -756,11 +753,11 @@ export type ProviderSettings = {
 
 type ProviderReasoningConfig =
 	| { enabled: true; exclude: false }
-	| { effort: Exclude<BotInferenceReasoningEffort, "default">; exclude: false };
+	| { effort: Exclude<BotInferenceReasoningEffort, 'default'>; exclude: false };
 
 export type PromptContextBudgetCounts = Pick<
 	BotContextBudget,
-	"fixedSystemTokens" | "personaPromptTokens" | "responseReserveTokens" | "contextWindowTokens"
+	'fixedSystemTokens' | 'personaPromptTokens' | 'responseReserveTokens' | 'contextWindowTokens'
 >;
 
 export type PromptContextBudgetFingerprintParts = {
@@ -836,13 +833,13 @@ type ProviderTokenCalibrationRequestShape = {
 };
 
 type ProviderJsonSchemaResponseFormat = {
-	type: "json_schema";
+	type: 'json_schema';
 	json_schema: {
 		name: string;
 		strict: true;
 		schema: {
-			type: "object";
-			properties: Record<string, { type: "string"; minLength?: number; maxLength?: number }>;
+			type: 'object';
+			properties: Record<string, { type: 'string'; minLength?: number; maxLength?: number }>;
 			required: string[];
 			additionalProperties: false;
 		};
@@ -854,7 +851,7 @@ type TranslationProviderSettings = {
 	baseUrl: string;
 	model: string;
 	providerRouting?: JsonObject;
-	reasoningEffort?: Exclude<BotInferenceReasoningEffort, "default">;
+	reasoningEffort?: Exclude<BotInferenceReasoningEffort, 'default'>;
 	toolCalls?: BotStructuredToolCalls;
 	prompt: string;
 	temperature: number;
@@ -908,16 +905,16 @@ type ProviderLoopOutcome = {
 };
 
 type ProviderToolCallDropReason =
-	| "missing_tool_call_id"
-	| "missing_function_name"
-	| "invalid_arguments_json"
-	| "arguments_not_json_object"
-	| "duplicate_tool_call"
-	| "disallowed_meta_compaction_tool"
-	| "disallowed_log_off"
-	| "premature_log_off"
-	| "iteration_limit"
-	| "unanswered_tool_call";
+	| 'missing_tool_call_id'
+	| 'missing_function_name'
+	| 'invalid_arguments_json'
+	| 'arguments_not_json_object'
+	| 'duplicate_tool_call'
+	| 'disallowed_meta_compaction_tool'
+	| 'disallowed_log_off'
+	| 'premature_log_off'
+	| 'iteration_limit'
+	| 'unanswered_tool_call';
 
 export type DroppedProviderToolCall = {
 	id: string;
@@ -932,9 +929,7 @@ export type ProviderToolCallSanitization = {
 	repairedTextCount: number;
 };
 
-type ProviderToolCallHistoryRepairAction =
-	| { kind: "delete"; seq: number }
-	| { kind: "update"; seq: number; message: ChatMessage };
+type ProviderToolCallHistoryRepairAction = { kind: 'delete'; seq: number } | { kind: 'update'; seq: number; message: ChatMessage };
 
 type ProviderToolCallHistoryRepair = {
 	actions: ProviderToolCallHistoryRepairAction[];
@@ -955,11 +950,11 @@ type ToolUseRecoveryState = {
 	updatedAt: string;
 };
 
-type ProviderCompactionReasoningMode = "none" | "minimal";
+type ProviderCompactionReasoningMode = 'none' | 'minimal';
 
 type ProviderCompactionReasoningFallbackState = {
 	model: string;
-	mode: "minimal";
+	mode: 'minimal';
 	reason: string;
 	updatedAt: string;
 };
@@ -972,10 +967,16 @@ class ProviderRequestError extends Error {
 	readonly responseModel?: string;
 	readonly usage?: ProviderUsage;
 
-	constructor(status: number, _model: string, _endpoint: string, body: string, options: { rawResponse?: string; responseId?: string; responseModel?: string; usage?: ProviderUsage } = {}) {
-		const suffix = body ? ` Response: ${body}` : "";
+	constructor(
+		status: number,
+		_model: string,
+		_endpoint: string,
+		body: string,
+		options: { rawResponse?: string; responseId?: string; responseModel?: string; usage?: ProviderUsage } = {},
+	) {
+		const suffix = body ? ` Response: ${body}` : '';
 		super(`Inference request failed with status ${status}.${suffix}`);
-		this.name = "ProviderRequestError";
+		this.name = 'ProviderRequestError';
 		this.status = status;
 		this.body = body;
 		this.rawResponse = options.rawResponse;
@@ -992,7 +993,7 @@ class ProviderCompactionRequestError extends Error {
 
 	constructor(originalError: unknown, requestBody: string, responseBody?: string) {
 		super(runtimeErrorText(originalError));
-		this.name = "ProviderCompactionRequestError";
+		this.name = 'ProviderCompactionRequestError';
 		this.originalError = originalError;
 		this.requestBody = requestBody;
 		this.responseBody = responseBody;
@@ -1007,7 +1008,7 @@ class ProviderLoopRequestError extends Error {
 
 	constructor(originalError: unknown, requestBody: string, attempts: number, responseBody?: string) {
 		super(providerLoopFailureMessage(originalError, attempts));
-		this.name = "ProviderLoopRequestError";
+		this.name = 'ProviderLoopRequestError';
 		this.originalError = originalError;
 		this.requestBody = requestBody;
 		this.responseBody = responseBody;
@@ -1015,7 +1016,7 @@ class ProviderLoopRequestError extends Error {
 	}
 }
 
-type ProviderStructuredOutputKind = "avatar_description" | "compaction" | "translation";
+type ProviderStructuredOutputKind = 'avatar_description' | 'compaction' | 'translation';
 
 class ProviderStructuredOutputValidationError extends Error {
 	readonly rawResponse?: string;
@@ -1027,11 +1028,25 @@ class ProviderStructuredOutputValidationError extends Error {
 	responseModel?: string;
 	usage?: ProviderUsage;
 
-	constructor(kind: ProviderStructuredOutputKind, repairMessage: string, options: { rawResponse?: string; requiredToolName?: string; toolCalls?: BotInferenceSubmissionToolCall[]; outputText?: string; responseId?: string; responseModel?: string; usage?: ProviderUsage } = {}) {
-		super(`Inference provider returned schema-invalid ${kind} ${options.requiredToolName ? "tool arguments" : "structured output"}: ${repairMessage}`);
-		this.name = "ProviderStructuredOutputValidationError";
+	constructor(
+		kind: ProviderStructuredOutputKind,
+		repairMessage: string,
+		options: {
+			rawResponse?: string;
+			requiredToolName?: string;
+			toolCalls?: BotInferenceSubmissionToolCall[];
+			outputText?: string;
+			responseId?: string;
+			responseModel?: string;
+			usage?: ProviderUsage;
+		} = {},
+	) {
+		super(
+			`Inference provider returned schema-invalid ${kind} ${options.requiredToolName ? 'tool arguments' : 'structured output'}: ${repairMessage}`,
+		);
+		this.name = 'ProviderStructuredOutputValidationError';
 		this.repairMessage = repairMessage;
-		this.requiredToolName = options.requiredToolName ?? "";
+		this.requiredToolName = options.requiredToolName ?? '';
 		this.rawResponse = options.rawResponse;
 		this.toolCalls = options.toolCalls ?? [];
 		this.outputText = options.outputText;
@@ -1049,10 +1064,15 @@ class ProviderCompactionOutputLimitError extends Error {
 	readonly responseModel?: string;
 	readonly usage?: ProviderUsage;
 
-	constructor(rawResponse: string, finishReason: string, nativeFinishReason: string, options: { responseId?: string; responseModel?: string; usage?: ProviderUsage } = {}) {
-		const details = [finishReason, nativeFinishReason].filter(Boolean).join("/");
-		super(`Inference provider exhausted the compaction output budget${details ? ` (${details})` : ""}.`);
-		this.name = "ProviderCompactionOutputLimitError";
+	constructor(
+		rawResponse: string,
+		finishReason: string,
+		nativeFinishReason: string,
+		options: { responseId?: string; responseModel?: string; usage?: ProviderUsage } = {},
+	) {
+		const details = [finishReason, nativeFinishReason].filter(Boolean).join('/');
+		super(`Inference provider exhausted the compaction output budget${details ? ` (${details})` : ''}.`);
+		this.name = 'ProviderCompactionOutputLimitError';
 		this.rawResponse = rawResponse;
 		this.finishReason = finishReason;
 		this.nativeFinishReason = nativeFinishReason;
@@ -1067,7 +1087,7 @@ class ProviderRequestTimeoutError extends Error {
 
 	constructor(timeoutMs: number) {
 		super(`Inference request did not respond within ${Math.round(timeoutMs / 1000)} seconds.`);
-		this.name = "ProviderRequestTimeoutError";
+		this.name = 'ProviderRequestTimeoutError';
 		this.timeoutMs = timeoutMs;
 	}
 }
@@ -1077,7 +1097,7 @@ class ProviderResponseBodyTimeoutError extends Error {
 
 	constructor(timeoutMs: number) {
 		super(`Inference response body did not finish within ${Math.round(timeoutMs / 1000)} seconds.`);
-		this.name = "ProviderResponseBodyTimeoutError";
+		this.name = 'ProviderResponseBodyTimeoutError';
 		this.timeoutMs = timeoutMs;
 	}
 }
@@ -1087,7 +1107,7 @@ class ResponseBodySizeLimitError extends Error {
 
 	constructor(maxBytes: number) {
 		super(`Response body exceeded ${maxBytes} bytes.`);
-		this.name = "ResponseBodySizeLimitError";
+		this.name = 'ResponseBodySizeLimitError';
 		this.maxBytes = maxBytes;
 	}
 }
@@ -1099,8 +1119,8 @@ class ProviderEmptyResponseError extends Error {
 	readonly usage?: ProviderUsage;
 
 	constructor(rawResponse?: string, options: { responseId?: string; responseModel?: string; usage?: ProviderUsage } = {}) {
-		super("Inference provider returned an empty response with no content, reasoning, or tool calls.");
-		this.name = "ProviderEmptyResponseError";
+		super('Inference provider returned an empty response with no content, reasoning, or tool calls.');
+		this.name = 'ProviderEmptyResponseError';
 		this.rawResponse = rawResponse;
 		this.responseId = options.responseId;
 		this.responseModel = options.responseModel;
@@ -1113,7 +1133,7 @@ class ProviderStreamIdleTimeoutError extends Error {
 
 	constructor(timeoutMs: number) {
 		super(`Inference stream stopped responding after ${Math.round(timeoutMs / 1000)} seconds.`);
-		this.name = "ProviderStreamIdleTimeoutError";
+		this.name = 'ProviderStreamIdleTimeoutError';
 		this.timeoutMs = timeoutMs;
 	}
 }
@@ -1123,8 +1143,10 @@ class PromptContextBudgetExceededError extends Error {
 	readonly promptTokens: number;
 
 	constructor(promptTokens: number, allowedPromptTokens: number) {
-		super(`Prompt context is too large for this participant's configured context budget: ${promptTokens} prompt tokens exceeds the ${allowedPromptTokens} token prompt limit.`);
-		this.name = "PromptContextBudgetExceededError";
+		super(
+			`Prompt context is too large for this participant's configured context budget: ${promptTokens} prompt tokens exceeds the ${allowedPromptTokens} token prompt limit.`,
+		);
+		this.name = 'PromptContextBudgetExceededError';
 		this.promptTokens = promptTokens;
 		this.allowedPromptTokens = allowedPromptTokens;
 	}
@@ -1139,7 +1161,7 @@ class PromptContextCompactionLimitError extends Error {
 		super(
 			`Context compaction did not reduce the provider prompt below the next compaction threshold after ${attempts} attempts: ${promptTokens} prompt tokens still exceeds the ${allowedPromptTokens} token prompt limit. Increase the context budget or reduce the participant prompt, enabled controls, or maximum compacted summary size.`,
 		);
-		this.name = "PromptContextCompactionLimitError";
+		this.name = 'PromptContextCompactionLimitError';
 		this.promptTokens = promptTokens;
 		this.allowedPromptTokens = allowedPromptTokens;
 		this.attempts = attempts;
@@ -1148,8 +1170,8 @@ class PromptContextCompactionLimitError extends Error {
 
 class TickStoppedError extends Error {
 	constructor() {
-		super("This Bickr visit was stopped.");
-		this.name = "TickStoppedError";
+		super('This Bickr visit was stopped.');
+		this.name = 'TickStoppedError';
 	}
 }
 
@@ -1158,17 +1180,17 @@ class ProviderResponseInterruptedError extends Error {
 	readonly originalError: unknown;
 
 	constructor(response: ProviderResponse, originalError: unknown) {
-		super(originalError instanceof Error ? originalError.message : "Provider response was interrupted.");
-		this.name = "ProviderResponseInterruptedError";
+		super(originalError instanceof Error ? originalError.message : 'Provider response was interrupted.');
+		this.name = 'ProviderResponseInterruptedError';
 		this.response = response;
 		this.originalError = originalError;
 	}
 }
 
-const stopRequestStateKey = "stop_requested_run_id";
-const toolUseRecoveryStateKey = "tool_use_recovery";
-const pendingSpotlightTicksStateKey = "pending_spotlight_ticks";
-const compactionReasoningFallbackStateKey = "compaction_reasoning_fallback";
+const stopRequestStateKey = 'stop_requested_run_id';
+const toolUseRecoveryStateKey = 'tool_use_recovery';
+const pendingSpotlightTicksStateKey = 'pending_spotlight_ticks';
+const compactionReasoningFallbackStateKey = 'compaction_reasoning_fallback';
 const contextBudgetCacheStateKey = (fingerprint: string): string => `context_budget:${fingerprint}`;
 const runtimeRunLeaseTimeoutMs = 15 * 60_000;
 const providerRequestTimeoutMs = 60_000;
@@ -1183,8 +1205,8 @@ const providerImageResponseBodyMaxBytes = Math.ceil((avatarMaxBytes * 4) / 3) + 
 const providerFailureRawResponseMaxCharacters = 64_000;
 const openRouterGenerationMetadataMaxBytes = 64_000;
 const openRouterGenerationMetadataTimeoutMs = 5_000;
-const openRouterExperimentalMetadataHeader = "X-OpenRouter-Experimental-Metadata";
-const openRouterGenerationIdHeader = "x-generation-id";
+const openRouterExperimentalMetadataHeader = 'X-OpenRouter-Experimental-Metadata';
+const openRouterGenerationIdHeader = 'x-generation-id';
 const serviceBindingTimeoutMs = 30_000;
 const serviceBindingResponseBodyMaxBytes = 1_000_000;
 const scheduledDispatchTimeoutMs = 10_000;
@@ -1194,21 +1216,21 @@ const cloudflareBindingRetryInitialDelayMs = 1_000;
 const cloudflareBindingRetryMaxDelayMs = 4_000;
 const providerMaxAttempts = 5;
 const providerRetryBaseDelayMs = 3_000;
-const providerRequiredToolChoice = "required" as const;
-const providerNoToolChoice = "none" as const;
-const providerTokenProbeToolChoice = "auto" as const;
+const providerRequiredToolChoice = 'required' as const;
+const providerNoToolChoice = 'none' as const;
+const providerTokenProbeToolChoice = 'auto' as const;
 const providerParallelToolCalls = true;
 const providerRailroadNoToolMaxAttempts = 5;
 const providerPromptCompactionMaxAttempts = 3;
 const providerAvatarDescriptionMaxAttempts = 2;
-const providerDefaultReasoning = { effort: "minimal", exclude: false } as const satisfies ProviderReasoningConfig;
-const providerCompactionNoReasoning = { effort: "none", exclude: false } as const satisfies ProviderReasoningConfig;
-const providerCompactionMinimalReasoning = { effort: "minimal", exclude: false } as const satisfies ProviderReasoningConfig;
+const providerDefaultReasoning = { effort: 'minimal', exclude: false } as const satisfies ProviderReasoningConfig;
+const providerCompactionNoReasoning = { effort: 'none', exclude: false } as const satisfies ProviderReasoningConfig;
+const providerCompactionMinimalReasoning = { effort: 'minimal', exclude: false } as const satisfies ProviderReasoningConfig;
 const providerTranslationMaxCompletionTokens = 8_192;
 const providerCompactionTemperature = 0.2;
 const providerCompactionToolName = metaCompactionToolName;
 const metaCompactionToolMisuseSelfCorrection = `${providerCompactionToolName} cannot be used at this time, so I need to use another Bickr control or continue normally.`;
-const providerTranslationToolName = "save_translation";
+const providerTranslationToolName = 'save_translation';
 const providerCompactionDefaultSummaryPercent = 10;
 const providerCompactionDefaultMaxCharacters = 4_000;
 const providerStructuredOutputRepairAttempts = 4;
@@ -1225,44 +1247,45 @@ const minCalibratedTokensPerCharacter = 1 / 12;
 const maxCalibratedTokensPerCharacter = 1;
 const dayMs = 24 * 60 * 60 * 1000;
 const fallbackProviderModel = defaultProviderModel;
-const fallbackProviderBaseUrl = "https://openrouter.ai/api/v1";
+const fallbackProviderBaseUrl = 'https://openrouter.ai/api/v1';
 
-export function toolUseRecoveryReminder(state: Pick<ToolUseRecoveryState, "consecutiveNoToolTicks">): string {
+export function toolUseRecoveryReminder(state: Pick<ToolUseRecoveryState, 'consecutiveNoToolTicks'>): string {
 	const prefix =
-		state.consecutiveNoToolTicks > 1 ?
-			`I remember that ${state.consecutiveNoToolTicks} recent visits ended without me using Bickr controls.`
-		:	"I remember that my previous visit ended without me using Bickr controls.";
+		state.consecutiveNoToolTicks > 1
+			? `I remember that ${state.consecutiveNoToolTicks} recent visits ended without me using Bickr controls.`
+			: 'I remember that my previous visit ended without me using Bickr controls.';
 	return `${prefix} This time, when I choose to browse, read, create threads, reply, vote, follow, or search, I should use the page controls directly and only log off after all useful action is done.`;
 }
 
-function maxSuccessfulToolCallsPerIterationSetting(bot: Pick<BotDocument, "tickSettings">): number {
+function maxSuccessfulToolCallsPerIterationSetting(bot: Pick<BotDocument, 'tickSettings'>): number {
 	const value = Number(effectiveTickSettings(bot.tickSettings).maxSuccessfulToolCallsPerIteration);
 	return Number.isInteger(value) ? Math.max(1, Math.min(32, value)) : 8;
 }
 
 const prematureLogOffSelfCorrectionContent = "Actually I don't want to log off yet, let me think about what I should do instead.";
-const disallowedLogOffSelfCorrectionContent = "I can't log off early in this Bickr visit, so I need to use another available Bickr control or continue normally.";
+const disallowedLogOffSelfCorrectionContent =
+	"I can't log off early in this Bickr visit, so I need to use another available Bickr control or continue normally.";
 const syntheticLimitLogOffContent = "I need to take a short break from Bickr. I'll log off for now.";
 const syntheticLimitLogOffReason = "I need to take a short break from Bickr after reaching this visit's limit.";
 
-function providerReasoningForSettings(settings: Pick<ProviderSettings, "reasoningEffort">): ProviderReasoningConfig {
+function providerReasoningForSettings(settings: Pick<ProviderSettings, 'reasoningEffort'>): ProviderReasoningConfig {
 	return settings.reasoningEffort ? { effort: settings.reasoningEffort, exclude: false } : providerDefaultReasoning;
 }
 
 function providerCompactionReasoningForMode(mode: ProviderCompactionReasoningMode): ProviderReasoningConfig {
-	return mode === "minimal" ? providerCompactionMinimalReasoning : providerCompactionNoReasoning;
+	return mode === 'minimal' ? providerCompactionMinimalReasoning : providerCompactionNoReasoning;
 }
 
 function providerToolChoiceForMode(mode: BotInferenceToolCalls | BotStructuredToolCalls): typeof providerRequiredToolChoice | undefined {
-	return mode === "require" ? providerRequiredToolChoice : undefined;
+	return mode === 'require' ? providerRequiredToolChoice : undefined;
 }
 
 function structuredToolCallsMode(mode: BotInferenceToolCalls): BotStructuredToolCalls {
-	return mode === "require" ? "require" : "railroad";
+	return mode === 'require' ? 'require' : 'railroad';
 }
 
 function providerToolNames(tools: readonly ProviderToolDefinition[]): string[] {
-	return tools.map((definition) => definition.type === "function" ? definition.function.name : definition.type);
+	return tools.map((definition) => (definition.type === 'function' ? definition.function.name : definition.type));
 }
 
 function providerControlInstructionTools(tools: readonly ProviderToolDefinition[]): ProviderToolDefinition[] {
@@ -1271,18 +1294,17 @@ function providerControlInstructionTools(tools: readonly ProviderToolDefinition[
 
 function toolRequirementInstruction(tools: readonly ProviderToolDefinition[]): string {
 	const controlTools = providerControlInstructionTools(tools);
-	const names = providerToolNames(controlTools).join(", ");
-	const prefix = names ? `You MUST use one of the following tools: ${names}.` : "You MUST use an available Bickr control.";
-	const metaInstruction =
-		tools.some(isMetaCompactionToolDefinition) ?
-			` ${providerCompactionToolName} may only be used when directed.`
-		:	"";
+	const names = providerToolNames(controlTools).join(', ');
+	const prefix = names ? `You MUST use one of the following tools: ${names}.` : 'You MUST use an available Bickr control.';
+	const metaInstruction = tools.some(isMetaCompactionToolDefinition)
+		? ` ${providerCompactionToolName} may only be used when directed.`
+		: '';
 	return `${prefix}${metaInstruction}`;
 }
 
 function toolRequirementSelfCorrection(tools: readonly ProviderToolDefinition[]): string {
-	const names = providerToolNames(providerControlInstructionTools(tools)).join(", ");
-	return names ? `Actually, I must use one of the following tools: ${names}.` : "Actually, I must use an available Bickr control.";
+	const names = providerToolNames(providerControlInstructionTools(tools)).join(', ');
+	return names ? `Actually, I must use one of the following tools: ${names}.` : 'Actually, I must use an available Bickr control.';
 }
 
 function appendToolRequirementInstruction(content: string, tools: readonly ProviderToolDefinition[]): string {
@@ -1290,39 +1312,34 @@ function appendToolRequirementInstruction(content: string, tools: readonly Provi
 }
 
 function providerFunctionToolsForBot(
-	bot: Pick<BotDocument, "postingSettings" | "tickSettings"> & { effectivePostingSettings?: BotEffectivePostingSettings },
-	settings?: Pick<ProviderSettings, "compactionMode">,
+	bot: Pick<BotDocument, 'postingSettings' | 'tickSettings'> & { effectivePostingSettings?: BotEffectivePostingSettings },
+	settings?: Pick<ProviderSettings, 'compactionMode'>,
 ): ProviderToolDefinition[] {
 	const tickSettings = effectiveTickSettings(bot.tickSettings);
 	return toolDefinitionsForProviderRound(tickSettings.compactionMaxCharacters, {
-		includeMetaCompactionTool: settings?.compactionMode === "tool_call_cache_friendly",
+		includeMetaCompactionTool: settings?.compactionMode === 'tool_call_cache_friendly',
 		includeLogOffTool: tickSettings.allowEarlyLogOff,
 		postingLimits: bot.effectivePostingSettings ?? effectivePostingSettings(undefined, bot.postingSettings),
 	});
 }
 
 function providerToolsForBotRound(
-	bot: Pick<BotDocument, "postingSettings" | "tickSettings" | "toolSettings"> & { effectivePostingSettings?: BotEffectivePostingSettings },
-	settings: Pick<ProviderSettings, "baseUrl" | "compactionMode">,
+	bot: Pick<BotDocument, 'postingSettings' | 'tickSettings' | 'toolSettings'> & { effectivePostingSettings?: BotEffectivePostingSettings },
+	settings: Pick<ProviderSettings, 'baseUrl' | 'compactionMode'>,
 ): { tools: ProviderToolDefinition[]; serverTools: ReturnType<typeof openRouterServerToolSelection> } {
 	const serverTools = openRouterServerToolSelection(settings.baseUrl, bot.toolSettings);
 	return {
-		tools: [
-			...providerFunctionToolsForBot(bot, settings),
-			...serverTools.tools,
-		],
+		tools: [...providerFunctionToolsForBot(bot, settings), ...serverTools.tools],
 		serverTools,
 	};
 }
 
 export function providerMessagesWithPrefillCompatibility(
-	settings: Pick<ProviderSettings, "supportsPrefill">,
+	settings: Pick<ProviderSettings, 'supportsPrefill'>,
 	messages: ChatMessage[],
 ): ChatMessage[] {
 	const last = messages[messages.length - 1];
-	return settings.supportsPrefill === false && last?.role === "assistant" ?
-			[...messages, { role: "user", content: "" }]
-		:	messages;
+	return settings.supportsPrefill === false && last?.role === 'assistant' ? [...messages, { role: 'user', content: '' }] : messages;
 }
 
 export function providerChatCompletionRequest(
@@ -1330,7 +1347,7 @@ export function providerChatCompletionRequest(
 	messages: ChatMessage[],
 	tools: ProviderToolDefinition[],
 	reasoningPrefill?: string,
-	toolCalls: BotInferenceToolCalls = settings.toolCalls ?? "require",
+	toolCalls: BotInferenceToolCalls = settings.toolCalls ?? 'require',
 ): ProviderChatCompletionRequest {
 	const requestMessages = providerMessagesWithPrefillCompatibility(
 		settings,
@@ -1376,23 +1393,23 @@ const defaultProviderCompactionSummaryLimits: ProviderCompactionSummaryLimits = 
 
 export type ProviderCompactionMode = BotCompactionMode;
 
-function providerCompactionMode(settings: Pick<ProviderSettings, "compactionMode">): ProviderCompactionMode {
-	return settings.compactionMode ?? "structured_output";
+function providerCompactionMode(settings: Pick<ProviderSettings, 'compactionMode'>): ProviderCompactionMode {
+	return settings.compactionMode ?? 'structured_output';
 }
 
-function providerCompactionOnlyTools(limits: Pick<ProviderCompactionSummaryLimits, "minLength" | "maxLength">): [ProviderToolDefinition] {
+function providerCompactionOnlyTools(limits: Pick<ProviderCompactionSummaryLimits, 'minLength' | 'maxLength'>): [ProviderToolDefinition] {
 	return [metaCompactionToolDefinition(limits.maxLength, limits.minLength)];
 }
 
 function providerCompactionToolsForMode(
-	limits: Pick<ProviderCompactionSummaryLimits, "minLength" | "maxLength">,
+	limits: Pick<ProviderCompactionSummaryLimits, 'minLength' | 'maxLength'>,
 	providerTools: ProviderToolDefinition[] | undefined,
 	mode: ProviderCompactionMode,
 ): ProviderToolDefinition[] {
-	if (mode === "tool_call") {
+	if (mode === 'tool_call') {
 		return providerCompactionOnlyTools(limits);
 	}
-	if (mode === "tool_call_cache_friendly") {
+	if (mode === 'tool_call_cache_friendly') {
 		const tools = providerTools ?? toolDefinitionsForProviderRound(limits.maxLength, { includeMetaCompactionTool: true });
 		return tools.some(isMetaCompactionToolDefinition) ? tools : [...tools, metaCompactionToolDefinition(limits.maxLength)];
 	}
@@ -1401,81 +1418,97 @@ function providerCompactionToolsForMode(
 	);
 }
 
-function providerCompactionSystemInstruction(bot: BotDocument, tools: readonly ProviderToolDefinition[], mode: ProviderCompactionMode): string {
-	return mode === "tool_call" ?
-			[
-				"You are an autonomous Bickr participant.",
+function providerCompactionSystemInstruction(
+	bot: BotDocument,
+	tools: readonly ProviderToolDefinition[],
+	mode: ProviderCompactionMode,
+): string {
+	return mode === 'tool_call'
+		? [
+				'You are an autonomous Bickr participant.',
 				`"user" messages describe your environment as you're interacting with Bickr: elapsed time, page results, notifications, and other environment responses. Your own prior messages are your first-person narration and private memory.`,
-				"Stay in character. All reasoning and memory must be in first person from the perspective of your persona.",
+				'Stay in character. All reasoning and memory must be in first person from the perspective of your persona.',
 				`Your Bickr handle is u/${bot.handle}`,
 				`Your display name is ${bot.displayName}`,
 				`Your short bio is:\n${bot.shortBio}`,
 				`Your persona is:\n${bot.prompt}`,
 				`You MUST use ${providerCompactionToolName}. Do not use any other Bickr control.`,
-			].join("\n\n")
-	:	appendToolRequirementInstruction(standardPrompt(bot), tools);
+			].join('\n\n')
+		: appendToolRequirementInstruction(standardPrompt(bot), tools);
 }
 
-function providerCompactionSummaryInstruction(bot: Pick<BotDocument, "handle">, limits: Pick<ProviderCompactionSummaryLimits, "minLength" | "maxLength">, mode: ProviderCompactionMode): string {
+function providerCompactionSummaryInstruction(
+	bot: Pick<BotDocument, 'handle'>,
+	limits: Pick<ProviderCompactionSummaryLimits, 'minLength' | 'maxLength'>,
+	mode: ProviderCompactionMode,
+): string {
 	const lengthInstruction = providerCompactionLengthInstruction(limits);
-	if (mode === "structured_output") {
+	if (mode === 'structured_output') {
 		return `META: Context compaction required. Don't spend any time thinking about this; respond immediately with JSON summary. Reply with a JSON object matching the required structured output schema, and do not use any Bickr control. Put a detailed summary of only the recent events being compacted, excluding the system instructions and persona prompt, from the first-person perspective of u/${bot.handle}, in the "${providerCompactionSummaryProperty}" field; your response will become the long-term memory of these events, replacing them in context henceforth. ${lengthInstruction}`;
 	}
 	return `META: Context compaction required. Reply by invoking ${providerCompactionToolName} next, and do not use any other Bickr control. Put a detailed summary of only the recent events being compacted, excluding the system instructions and persona prompt, from the first-person perspective of u/${bot.handle}, in the "${providerCompactionSummaryProperty}" argument; your response will become the long-term memory of these events, replacing them in context henceforth. ${lengthInstruction}`;
 }
 
-function providerCompactionShortenInstruction(limits: Pick<ProviderCompactionSummaryLimits, "minLength" | "maxLength">, mode: ProviderCompactionMode): string {
+function providerCompactionShortenInstruction(
+	limits: Pick<ProviderCompactionSummaryLimits, 'minLength' | 'maxLength'>,
+	mode: ProviderCompactionMode,
+): string {
 	const lengthInstruction = providerCompactionLengthInstruction(limits);
-	if (mode === "structured_output") {
+	if (mode === 'structured_output') {
 		return `META: The previous context compaction attempt produced a summary that was too long. Don't spend any time thinking about this; respond immediately with JSON summary. Reply with a JSON object matching the required structured output schema, and do not use any Bickr control. Put a shorter first-person memory summary in the "${providerCompactionSummaryProperty}" field. ${lengthInstruction}`;
 	}
 	return `META: The previous context compaction attempt produced a summary that was too long. Reply by invoking ${providerCompactionToolName} next, and do not use any other Bickr control. Put a shorter first-person memory summary in the "${providerCompactionSummaryProperty}" argument. ${lengthInstruction}`;
 }
 
-function providerCompactionLengthInstruction(limits: Pick<ProviderCompactionSummaryLimits, "minLength" | "maxLength">): string {
-	return limits.minLength >= limits.maxLength ?
-			`Use exactly ${limits.maxLength} characters if possible.`
-		:	`Use between ${limits.minLength} and ${limits.maxLength} characters.`;
+function providerCompactionLengthInstruction(limits: Pick<ProviderCompactionSummaryLimits, 'minLength' | 'maxLength'>): string {
+	return (
+		"You must produce a _summary_ of the events, and it MUST be shorter than the input, so don't just repeat it with minor modifications; you MUST shorten it, even if it's already a summary! " +
+		(limits.minLength >= limits.maxLength
+			? `Use exactly ${limits.maxLength} characters if possible.`
+			: `Use between ${limits.minLength} and ${limits.maxLength} characters.`)
+	);
 }
 
 function providerCompactionShortenMessages(
 	previousMessages: readonly ChatMessage[],
 	previousSummary: string,
-	limits: Pick<ProviderCompactionSummaryLimits, "minLength" | "maxLength">,
-	mode: ProviderCompactionMode = "structured_output",
+	limits: Pick<ProviderCompactionSummaryLimits, 'minLength' | 'maxLength'>,
+	mode: ProviderCompactionMode = 'structured_output',
 ): ChatMessage[] {
-	const systemMessage = previousMessages.find((message) => message.role === "system");
+	const systemMessage = previousMessages.find((message) => message.role === 'system');
 	return [
 		...(systemMessage ? [systemMessage] : []),
-		{ role: "assistant", content: previousSummary },
-		{ role: "user", content: providerCompactionShortenInstruction(limits, mode) },
+		{ role: 'assistant', content: previousSummary },
+		{ role: 'user', content: providerCompactionShortenInstruction(limits, mode) },
 	];
 }
 
 export function providerCompactionMessages(
 	bot: BotDocument,
 	compactedMessages: ChatMessage[],
-	limits: Pick<ProviderCompactionSummaryLimits, "minLength" | "maxLength"> = defaultProviderCompactionSummaryLimits,
+	limits: Pick<ProviderCompactionSummaryLimits, 'minLength' | 'maxLength'> = defaultProviderCompactionSummaryLimits,
 	providerTools: ProviderToolDefinition[] = toolDefinitionsForProviderRound(limits.maxLength),
-	mode: ProviderCompactionMode = "structured_output",
+	mode: ProviderCompactionMode = 'structured_output',
 ): ChatMessage[] {
 	const tools = providerCompactionToolsForMode(limits, providerTools, mode);
 	return [
 		{
-			role: "system",
+			role: 'system',
 			content: providerCompactionSystemInstruction(bot, tools, mode),
 		},
 		...compactedMessages,
 		{
-			role: "user",
+			role: 'user',
 			content: providerCompactionSummaryInstruction(bot, limits, mode),
 		},
-		...(mode === "tool_call" ?
-			[{
-				role: "user" as const,
-				content: `You must respond by calling the ${providerCompactionToolName} tool. Put the summary in the "${providerCompactionSummaryProperty}" argument. ${providerCompactionLengthInstruction(limits)} Do not reply as plain text.`,
-			}]
-		:	[]),
+		...(mode === 'tool_call'
+			? [
+					{
+						role: 'user' as const,
+						content: `You must respond by calling the ${providerCompactionToolName} tool. Put the summary in the "${providerCompactionSummaryProperty}" argument. ${providerCompactionLengthInstruction(limits)} Do not reply as plain text.`,
+					},
+				]
+			: []),
 	];
 }
 
@@ -1484,7 +1517,7 @@ export function providerCompactionSummaryLimitsForChat(
 	compactedMessages: readonly ChatMessage[],
 	calibration: TextTokenCalibration,
 	providerTools?: ProviderToolDefinition[],
-	mode: ProviderCompactionMode = "structured_output",
+	mode: ProviderCompactionMode = 'structured_output',
 ): ProviderCompactionSummaryLimits {
 	const tickSettings = effectiveTickSettings(bot.tickSettings);
 	const contextWindowTokens = Math.max(1, Math.floor(tickSettings.contextWindowTokens));
@@ -1493,7 +1526,7 @@ export function providerCompactionSummaryLimitsForChat(
 	const compactedCharacterCount = chatMessagesCharacterCount(compactedMessages);
 	const compactionSummaryPercent = Math.max(1, Math.min(50, Math.floor(tickSettings.compactionSummaryPercent)));
 	let maxLength = configuredMaxCharacters;
-	let minLength = Math.min(maxLength, Math.max(1, Math.ceil(compactedCharacterCount * compactionSummaryPercent / 100)));
+	let minLength = Math.min(maxLength, Math.max(1, Math.ceil((compactedCharacterCount * compactionSummaryPercent) / 100)));
 	let anticipatedSummaryTokens = Math.max(1, Math.ceil(minLength * tokensPerCharacter));
 	let maxSummaryTokens = Math.max(1, Math.ceil(configuredMaxCharacters * tokensPerCharacter));
 	let compactionRequestOverheadTokens = providerPromptEstimateSafetyTokens;
@@ -1503,11 +1536,17 @@ export function providerCompactionSummaryLimitsForChat(
 
 	for (let iteration = 0; iteration < 3; iteration += 1) {
 		maxLength = configuredMaxCharacters;
-		minLength = Math.min(maxLength, Math.max(1, Math.ceil(compactedCharacterCount * compactionSummaryPercent / 100)));
+		minLength = Math.min(maxLength, Math.max(1, Math.ceil((compactedCharacterCount * compactionSummaryPercent) / 100)));
 		const effectiveProviderTools = providerCompactionToolsForMode({ minLength, maxLength }, providerTools, mode);
 		anticipatedSummaryTokens = Math.max(1, Math.ceil(minLength * tokensPerCharacter));
 		maxSummaryTokens = Math.max(1, Math.ceil(maxLength * tokensPerCharacter));
-		compactionRequestOverheadTokens = providerCompactionRequestOverheadTokens(bot, { minLength, maxLength }, calibration, effectiveProviderTools, mode);
+		compactionRequestOverheadTokens = providerCompactionRequestOverheadTokens(
+			bot,
+			{ minLength, maxLength },
+			calibration,
+			effectiveProviderTools,
+			mode,
+		);
 		const messages = providerCompactionMessages(bot, [...compactedMessages], { minLength, maxLength }, effectiveProviderTools, mode);
 		maxCompletionTokens = providerCompactionMaxCompletionTokensForRequest(
 			contextWindowTokens,
@@ -1545,10 +1584,10 @@ function providerPromptCompactionCutoffTokens(contextWindowTokens: number, antic
 
 function providerCompactionRequestOverheadTokens(
 	bot: BotDocument,
-	limits: Pick<ProviderCompactionSummaryLimits, "minLength" | "maxLength">,
+	limits: Pick<ProviderCompactionSummaryLimits, 'minLength' | 'maxLength'>,
 	calibration: TextTokenCalibration,
 	providerTools: ProviderToolDefinition[] = toolDefinitionsForProviderRound(limits.maxLength),
-	mode: ProviderCompactionMode = "structured_output",
+	mode: ProviderCompactionMode = 'structured_output',
 ): number {
 	const tools = providerCompactionToolsForMode(limits, providerTools, mode);
 	const overheadMessages = providerCompactionMessages(bot, [], limits, tools, mode);
@@ -1578,9 +1617,7 @@ function providerCompactionMaxCompletionTokensForRequest(
 	);
 }
 
-function providerCompactionRequiredCompletionTokens(
-	limits: Pick<ProviderCompactionSummaryLimits, "maxSummaryTokens">,
-): number {
+function providerCompactionRequiredCompletionTokens(limits: Pick<ProviderCompactionSummaryLimits, 'maxSummaryTokens'>): number {
 	return Math.max(1, Math.ceil(limits.maxSummaryTokens + providerPromptEstimateSafetyTokens));
 }
 
@@ -1596,22 +1633,22 @@ type ProviderSingleStringResponseSpec = {
 
 function providerSingleStringResponseFormat(
 	name: string,
-	spec: Pick<ProviderSingleStringResponseSpec, "maxCharacters" | "minCharacters" | "property">,
-	mode: ProviderCompactionMode = "structured_output",
+	spec: Pick<ProviderSingleStringResponseSpec, 'maxCharacters' | 'minCharacters' | 'property'>,
+	mode: ProviderCompactionMode = 'structured_output',
 ): ProviderJsonSchemaResponseFormat | undefined {
-	if (mode !== "structured_output") {
+	if (mode !== 'structured_output') {
 		return undefined;
 	}
 	return {
-		type: "json_schema",
+		type: 'json_schema',
 		json_schema: {
 			name,
 			strict: true,
 			schema: {
-				type: "object",
+				type: 'object',
 				properties: {
 					[spec.property]: {
-						type: "string",
+						type: 'string',
 						minLength: Math.max(1, Math.floor(spec.minCharacters ?? 1)),
 						maxLength: Math.max(1, Math.floor(spec.maxCharacters)),
 					},
@@ -1624,10 +1661,11 @@ function providerSingleStringResponseFormat(
 }
 
 function providerCompactionSummarySpec(
-	limits: Pick<ProviderCompactionSummaryLimits, "maxLength"> & Partial<Pick<ProviderCompactionSummaryLimits, "compactedCharacterCount" | "tokensPerCharacter">>,
+	limits: Pick<ProviderCompactionSummaryLimits, 'maxLength'> &
+		Partial<Pick<ProviderCompactionSummaryLimits, 'compactedCharacterCount' | 'tokensPerCharacter'>>,
 ): ProviderSingleStringResponseSpec {
 	return {
-		kind: "compaction",
+		kind: 'compaction',
 		property: providerCompactionSummaryProperty,
 		label: providerCompactionSummaryProperty,
 		maxCharacters: limits.maxLength,
@@ -1638,22 +1676,22 @@ function providerCompactionSummarySpec(
 
 function providerCompactionResponseFormat(
 	maxCharacters: number,
-	mode: ProviderCompactionMode = "structured_output",
+	mode: ProviderCompactionMode = 'structured_output',
 ): ProviderJsonSchemaResponseFormat | undefined {
-	return providerSingleStringResponseFormat("compaction_summary", providerCompactionSummarySpec({ maxLength: maxCharacters }), mode);
+	return providerSingleStringResponseFormat('compaction_summary', providerCompactionSummarySpec({ maxLength: maxCharacters }), mode);
 }
 
 export function providerCompactionRequest(
-	settings: Pick<ProviderSettings, "model" | "providerRouting" | "reasoningEffort" | "supportsPrefill" | "toolCalls">,
+	settings: Pick<ProviderSettings, 'model' | 'providerRouting' | 'reasoningEffort' | 'supportsPrefill' | 'toolCalls'>,
 	messages: ChatMessage[],
-	limits: Pick<ProviderCompactionSummaryLimits, "minLength" | "maxLength" | "maxCompletionTokens"> = defaultProviderCompactionSummaryLimits,
+	limits: Pick<ProviderCompactionSummaryLimits, 'minLength' | 'maxLength' | 'maxCompletionTokens'> = defaultProviderCompactionSummaryLimits,
 	providerTools?: ProviderToolDefinition[],
-	mode: ProviderCompactionMode = "structured_output",
+	mode: ProviderCompactionMode = 'structured_output',
 	reasoning: ProviderReasoningConfig = providerCompactionNoReasoning,
 ): ProviderCompactionRequest {
-	const toolCalls = structuredToolCallsMode(settings.toolCalls ?? "require");
+	const toolCalls = structuredToolCallsMode(settings.toolCalls ?? 'require');
 	const effectiveProviderTools = providerTools ?? providerCompactionToolsForMode(limits, undefined, mode);
-	const toolChoice = mode === "structured_output" ? providerNoToolChoice : providerToolChoiceForMode(toolCalls);
+	const toolChoice = mode === 'structured_output' ? providerNoToolChoice : providerToolChoiceForMode(toolCalls);
 	const responseFormat = providerCompactionResponseFormat(limits.maxLength, mode);
 	return {
 		model: settings.model,
@@ -1670,7 +1708,7 @@ export function providerCompactionRequest(
 	};
 }
 
-export function effectiveReasoningPrefill(bot: Pick<BotDocument, "handle" | "inferenceSettings">): string | undefined {
+export function effectiveReasoningPrefill(bot: Pick<BotDocument, 'handle' | 'inferenceSettings'>): string | undefined {
 	if (bot.inferenceSettings.recurringPromptEnabled === false) {
 		return undefined;
 	}
@@ -1678,20 +1716,21 @@ export function effectiveReasoningPrefill(bot: Pick<BotDocument, "handle" | "inf
 	return custom && custom.trim() ? custom : defaultReasoningPrefill(bot.handle);
 }
 
-export function providerMessagesWithReasoningPrefill(
-	messages: ChatMessage[],
-	reasoningPrefill: string | undefined,
-): ChatMessage[] {
-	return reasoningPrefill ? [...messages, { role: "assistant", content: reasoningPrefill }] : messages;
+export function providerMessagesWithReasoningPrefill(messages: ChatMessage[], reasoningPrefill: string | undefined): ChatMessage[] {
+	return reasoningPrefill ? [...messages, { role: 'assistant', content: reasoningPrefill }] : messages;
 }
 
 function contextBudgetPromptParts(bot: BotDocument, settings: ProviderSettings): ContextBudgetPromptParts {
 	const { tools: providerTools } = providerToolsForBotRound(bot, settings);
 	const fixedSystemToolInstructionTools = providerTools;
 	const fixedSystemMessage =
-		settings.toolCalls === "at_will" ? standardPrompt({ ...bot, prompt: "" }) : appendToolRequirementInstruction(standardPrompt({ ...bot, prompt: "" }), fixedSystemToolInstructionTools);
+		settings.toolCalls === 'at_will'
+			? standardPrompt({ ...bot, prompt: '' })
+			: appendToolRequirementInstruction(standardPrompt({ ...bot, prompt: '' }), fixedSystemToolInstructionTools);
 	const fullSystemMessage =
-		settings.toolCalls === "at_will" ? standardPrompt(bot) : appendToolRequirementInstruction(standardPrompt(bot), fixedSystemToolInstructionTools);
+		settings.toolCalls === 'at_will'
+			? standardPrompt(bot)
+			: appendToolRequirementInstruction(standardPrompt(bot), fixedSystemToolInstructionTools);
 	return {
 		fixedSystemMessage,
 		fullSystemMessage,
@@ -1709,7 +1748,7 @@ function estimatedPromptContextTokens(
 ): number {
 	return (
 		estimateChatMessagesTokens(
-			providerMessagesWithReasoningPrefill([{ role: "system", content: systemMessage }], reasoningPrefill),
+			providerMessagesWithReasoningPrefill([{ role: 'system', content: systemMessage }], reasoningPrefill),
 			calibration,
 		) +
 		estimateTextTokensWithCalibration(JSON.stringify(providerTools), calibration) +
@@ -1717,18 +1756,15 @@ function estimatedPromptContextTokens(
 	);
 }
 
-function estimatedMinimumCompactedPromptTokens(
-	parts: ContextBudgetPromptParts,
-	calibration: TextTokenCalibration,
-): number {
+function estimatedMinimumCompactedPromptTokens(parts: ContextBudgetPromptParts, calibration: TextTokenCalibration): number {
 	return (
 		estimateChatMessagesTokens(
 			providerMessagesWithPrefillCompatibility(
 				{ supportsPrefill: parts.supportsPrefill },
 				providerMessagesWithReasoningPrefill(
 					[
-						{ role: "system", content: parts.fullSystemMessage },
-						{ role: "assistant", content: "x" },
+						{ role: 'system', content: parts.fullSystemMessage },
+						{ role: 'assistant', content: 'x' },
 					],
 					parts.reasoningPrefill,
 				),
@@ -1746,19 +1782,14 @@ export function providerResponseMessageForHistory(response: {
 	reasoningDetails?: Record<string, unknown>[];
 	toolCalls?: BotInferenceSubmissionToolCall[];
 }): BotInferenceSubmissionMessage | null {
-	const content = repairInvalidUnicodeText(response.content ?? "");
-	const reasoning = repairInvalidUnicodeText(response.reasoning ?? "");
+	const content = repairInvalidUnicodeText(response.content ?? '');
+	const reasoning = repairInvalidUnicodeText(response.reasoning ?? '');
 	const reasoningDetails = normalizeReasoningDetailsForProviderHistory(response.reasoningDetails ?? []);
 	const toolCalls = response.toolCalls ?? [];
-	if (
-		!hasProviderHistoryText(content) &&
-		!hasProviderHistoryText(reasoning) &&
-		reasoningDetails.length === 0 &&
-		toolCalls.length === 0
-	) {
+	if (!hasProviderHistoryText(content) && !hasProviderHistoryText(reasoning) && reasoningDetails.length === 0 && toolCalls.length === 0) {
 		return null;
 	}
-	const message: BotInferenceSubmissionMessage = { role: "assistant" };
+	const message: BotInferenceSubmissionMessage = { role: 'assistant' };
 	if (hasProviderHistoryText(content)) {
 		message.content = content;
 	} else if (toolCalls.length > 0) {
@@ -1782,7 +1813,7 @@ function providerResponseToolCallMessageForHistory(
 ): BotInferenceSubmissionMessage {
 	if (!includeResponseContext) {
 		return {
-			role: "assistant",
+			role: 'assistant',
 			content: null,
 			tool_calls: [cloneToolCall(toolCall)],
 		};
@@ -1804,10 +1835,10 @@ function normalizeReasoningDetailsForProviderHistory(details: readonly unknown[]
 		const last = normalized[normalized.length - 1];
 		if (
 			last &&
-			record.type === "reasoning.text" &&
-			last.type === "reasoning.text" &&
-			typeof record.text === "string" &&
-			typeof last.text === "string" &&
+			record.type === 'reasoning.text' &&
+			last.type === 'reasoning.text' &&
+			typeof record.text === 'string' &&
+			typeof last.text === 'string' &&
 			record.index === last.index &&
 			record.format === last.format
 		) {
@@ -1837,7 +1868,7 @@ type InvalidUnicodeRepair<T> = {
 };
 
 export function repairInvalidUnicodeText(text: string): string {
-	let repaired = "";
+	let repaired = '';
 	let lastCopiedIndex = 0;
 	for (let index = 0; index < text.length; index += 1) {
 		const code = text.charCodeAt(index);
@@ -1860,7 +1891,7 @@ export function repairInvalidUnicodeText(text: string): string {
 }
 
 function repairInvalidUnicodeValue<T>(value: T): InvalidUnicodeRepair<T> {
-	if (typeof value === "string") {
+	if (typeof value === 'string') {
 		const repaired = repairInvalidUnicodeText(value);
 		return {
 			value: repaired as T,
@@ -1883,7 +1914,7 @@ function repairInvalidUnicodeValue<T>(value: T): InvalidUnicodeRepair<T> {
 			repairCount,
 		};
 	}
-	if (value && typeof value === "object") {
+	if (value && typeof value === 'object') {
 		let repairCount = 0;
 		let changed = false;
 		const repaired: Record<string, unknown> = {};
@@ -1904,11 +1935,11 @@ function repairInvalidUnicodeValue<T>(value: T): InvalidUnicodeRepair<T> {
 }
 
 function isHighSurrogate(code: number): boolean {
-	return code >= 0xD800 && code <= 0xDBFF;
+	return code >= 0xd800 && code <= 0xdbff;
 }
 
 function isLowSurrogate(code: number): boolean {
-	return code >= 0xDC00 && code <= 0xDFFF;
+	return code >= 0xdc00 && code <= 0xdfff;
 }
 
 function unicodeSafeSlice(text: string, end: number): string {
@@ -1923,7 +1954,7 @@ function unicodeSafeSlice(text: string, end: number): string {
 
 function sanitizeProviderMessagesForRequest(messages: readonly ChatMessage[]): ChatMessage[] {
 	const sanitized = sanitizeProviderMessageSequenceForRequest(messages.map(sanitizeProviderMessageForRequest));
-	assertNoInvalidUnicodeValue(sanitized, "provider request messages");
+	assertNoInvalidUnicodeValue(sanitized, 'provider request messages');
 	return sanitized;
 }
 
@@ -1936,10 +1967,10 @@ function sanitizeProviderMessageSequenceForRequest(messages: readonly ChatMessag
 	let nextToolCallId = 1;
 	for (let index = 0; index < messages.length; index += 1) {
 		const message = messages[index]!;
-		if (message.role === "tool") {
+		if (message.role === 'tool') {
 			continue;
 		}
-		if (message.role !== "assistant" || !Array.isArray(message.tool_calls) || message.tool_calls.length === 0) {
+		if (message.role !== 'assistant' || !Array.isArray(message.tool_calls) || message.tool_calls.length === 0) {
 			sanitized.push(message);
 			continue;
 		}
@@ -1963,7 +1994,7 @@ function sanitizeProviderMessageSequenceForRequest(messages: readonly ChatMessag
 		let scan = index + 1;
 		while (scan < messages.length) {
 			const candidate = messages[scan]!;
-			if (candidate.role !== "tool") {
+			if (candidate.role !== 'tool') {
 				break;
 			}
 			if (candidate.tool_call_id && expectedToolCallIds.delete(candidate.tool_call_id)) {
@@ -1998,7 +2029,7 @@ function repairProviderMessageUnicode(message: ChatMessage): InvalidUnicodeRepai
 	const messageRepair = repairInvalidUnicodeValue(message);
 	let repairedMessage = messageRepair.value;
 	let repairCount = messageRepair.repairCount;
-	if (repairedMessage.role === "tool" && typeof repairedMessage.content === "string") {
+	if (repairedMessage.role === 'tool' && typeof repairedMessage.content === 'string') {
 		const contentRepair = repairJsonStringUnicode(repairedMessage.content);
 		if (contentRepair.repairCount > 0) {
 			repairedMessage = { ...repairedMessage, content: contentRepair.value };
@@ -2016,10 +2047,10 @@ function repairProviderMessageUnicode(message: ChatMessage): InvalidUnicodeRepai
 }
 
 function ensureAssistantContentForProviderRequest(message: ChatMessage): ChatMessage {
-	if (message.role !== "assistant" || typeof message.content === "string") {
+	if (message.role !== 'assistant' || typeof message.content === 'string') {
 		return message;
 	}
-	return { ...message, content: "" };
+	return { ...message, content: '' };
 }
 
 function repairJsonStringUnicode(text: string): InvalidUnicodeRepair<string> {
@@ -2065,18 +2096,18 @@ function assertNoInvalidUnicodeValue(value: unknown, label: string): void {
 }
 
 function stringifyProviderRequest(value: unknown): string {
-	assertNoInvalidUnicodeValue(value, "provider request");
+	assertNoInvalidUnicodeValue(value, 'provider request');
 	return JSON.stringify(value);
 }
 
 function invalidUnicodePath(value: unknown): boolean {
-	if (typeof value === "string") {
+	if (typeof value === 'string') {
 		return repairInvalidUnicodeText(value) !== value;
 	}
 	if (Array.isArray(value)) {
 		return value.some(invalidUnicodePath);
 	}
-	if (value && typeof value === "object") {
+	if (value && typeof value === 'object') {
 		return Object.values(value).some(invalidUnicodePath);
 	}
 	return false;
@@ -2089,50 +2120,50 @@ export function sanitizeProviderToolCalls(toolCalls: readonly BotInferenceSubmis
 	let repairedTextCount = 0;
 	for (const toolCall of toolCalls) {
 		const functionRecord = runtimeRecord(toolCall.function);
-		const rawId = typeof toolCall.id === "string" && toolCall.id.length > 0 ? toolCall.id : "";
+		const rawId = typeof toolCall.id === 'string' && toolCall.id.length > 0 ? toolCall.id : '';
 		const id = repairInvalidUnicodeText(rawId);
 		if (id !== rawId) {
 			repairedTextCount += 1;
 		}
-		const rawName = stringValue(functionRecord.name) ?? "";
+		const rawName = stringValue(functionRecord.name) ?? '';
 		const name = repairInvalidUnicodeText(rawName);
 		if (name !== rawName) {
 			repairedTextCount += 1;
 		}
 		const rawArguments = functionRecord.arguments;
 		if (!id) {
-			dropped.push(droppedProviderToolCall(id, name, "missing_tool_call_id", rawArguments));
+			dropped.push(droppedProviderToolCall(id, name, 'missing_tool_call_id', rawArguments));
 			continue;
 		}
 		if (!name) {
-			dropped.push(droppedProviderToolCall(id, name, "missing_function_name", rawArguments));
+			dropped.push(droppedProviderToolCall(id, name, 'missing_function_name', rawArguments));
 			continue;
 		}
-		if (typeof rawArguments !== "string") {
-			dropped.push(droppedProviderToolCall(id, name, "invalid_arguments_json", rawArguments));
+		if (typeof rawArguments !== 'string') {
+			dropped.push(droppedProviderToolCall(id, name, 'invalid_arguments_json', rawArguments));
 			continue;
 		}
 		let parsed: unknown;
 		try {
 			parsed = JSON.parse(rawArguments) as unknown;
 		} catch {
-			dropped.push(droppedProviderToolCall(id, name, "invalid_arguments_json", rawArguments));
+			dropped.push(droppedProviderToolCall(id, name, 'invalid_arguments_json', rawArguments));
 			continue;
 		}
-		if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-			dropped.push(droppedProviderToolCall(id, name, "arguments_not_json_object", rawArguments));
+		if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+			dropped.push(droppedProviderToolCall(id, name, 'arguments_not_json_object', rawArguments));
 			continue;
 		}
 		const argumentRepair = repairInvalidUnicodeValue(parsed);
 		repairedTextCount += argumentRepair.repairCount;
 		if (seenIds.has(id)) {
-			dropped.push(droppedProviderToolCall(id, name, "duplicate_tool_call", rawArguments));
+			dropped.push(droppedProviderToolCall(id, name, 'duplicate_tool_call', rawArguments));
 			continue;
 		}
 		seenIds.add(id);
 		sanitized.push({
 			id,
-			type: "function",
+			type: 'function',
 			function: {
 				name,
 				arguments: JSON.stringify(argumentRepair.value),
@@ -2167,7 +2198,7 @@ function dedupeGeneratedFollowToolCalls(toolCalls: readonly ToolCall[]): { toolC
 	const seen = new Set<string>();
 	for (const toolCall of toolCalls) {
 		const canonical = canonicalToolName(toolCall.function.name);
-		if (canonical !== "follow_profile" && canonical !== "unfollow_profile") {
+		if (canonical !== 'follow_profile' && canonical !== 'unfollow_profile') {
 			deduped.push(toolCall);
 			continue;
 		}
@@ -2190,14 +2221,13 @@ function dedupeGeneratedFollowToolCalls(toolCalls: readonly ToolCall[]): { toolC
 			effectiveTargets.push(target);
 		}
 		if (effectiveTargets.length === 0) {
-			dropped.push(droppedProviderToolCall(toolCall.id, toolCall.function.name, "duplicate_tool_call", toolCall.function.arguments));
+			dropped.push(droppedProviderToolCall(toolCall.id, toolCall.function.name, 'duplicate_tool_call', toolCall.function.arguments));
 			continue;
 		}
 		if (parsed.removedLocalDuplicate || effectiveTargets.length !== parsed.targets.length) {
-			deduped.push(toolCallWithArguments(
-				toolCall,
-				JSON.stringify(providerToolArgs(canonical, followToolArgsWithTargets(args, effectiveTargets))),
-			));
+			deduped.push(
+				toolCallWithArguments(toolCall, JSON.stringify(providerToolArgs(canonical, followToolArgsWithTargets(args, effectiveTargets)))),
+			);
 			continue;
 		}
 		deduped.push(toolCall);
@@ -2212,19 +2242,16 @@ function droppedProviderToolCall(
 	rawArguments: unknown,
 ): DroppedProviderToolCall {
 	return {
-		id: id ?? "",
-		name: name ?? "",
+		id: id ?? '',
+		name: name ?? '',
 		reason,
 		argumentsPreview: providerToolCallArgumentsPreview(rawArguments),
 	};
 }
 
 function providerToolCallArgumentsPreview(rawArguments: unknown): string {
-	const text =
-		typeof rawArguments === "string" ? rawArguments
-		: rawArguments === undefined ? ""
-		: JSON.stringify(rawArguments);
-	return safeContextText(text ?? "", 500);
+	const text = typeof rawArguments === 'string' ? rawArguments : rawArguments === undefined ? '' : JSON.stringify(rawArguments);
+	return safeContextText(text ?? '', 500);
 }
 
 function toolCallsEqual(left: readonly ToolCall[], right: readonly ToolCall[]): boolean {
@@ -2263,14 +2290,14 @@ function repairProviderToolCallHistoryRows(rows: readonly LoopMessageRow[]): Pro
 			return;
 		}
 		actionSeqs.add(seq);
-		actions.push({ kind: "delete", seq });
+		actions.push({ kind: 'delete', seq });
 	};
 	const updateRow = (seq: number, message: ChatMessage): void => {
 		if (actionSeqs.has(seq)) {
 			return;
 		}
 		actionSeqs.add(seq);
-		actions.push({ kind: "update", seq, message });
+		actions.push({ kind: 'update', seq, message });
 	};
 
 	for (let index = 0; index < providerRows.length; index += 1) {
@@ -2288,7 +2315,7 @@ function repairProviderToolCallHistoryRows(rows: readonly LoopMessageRow[]): Pro
 			repairedTextCount += unicodeRepair.repairCount;
 			repairedMessageSeqs.add(current.row.seq);
 		}
-		if (message.role === "tool") {
+		if (message.role === 'tool') {
 			if (!consumedToolRowSeqs.has(current.row.seq)) {
 				deleteRow(current.row.seq);
 			} else if (repairedMessage) {
@@ -2296,7 +2323,7 @@ function repairProviderToolCallHistoryRows(rows: readonly LoopMessageRow[]): Pro
 			}
 			continue;
 		}
-		if (message.role !== "assistant") {
+		if (message.role !== 'assistant') {
 			if (repairedMessage) {
 				updateRow(current.row.seq, repairedMessage);
 			}
@@ -2338,10 +2365,10 @@ function repairProviderToolCallHistoryRows(rows: readonly LoopMessageRow[]): Pro
 		let lookahead = index + 1;
 		while (lookahead < providerRows.length) {
 			const candidate = providerRows[lookahead];
-			if (!candidate || candidate.message.role !== "tool") {
+			if (!candidate || candidate.message.role !== 'tool') {
 				break;
 			}
-			const toolCallId = typeof candidate.message.tool_call_id === "string" ? candidate.message.tool_call_id : "";
+			const toolCallId = typeof candidate.message.tool_call_id === 'string' ? candidate.message.tool_call_id : '';
 			const answeredCount = answeredCallCounts.get(toolCallId) ?? 0;
 			const availableCount = availableCallCounts.get(toolCallId) ?? 0;
 			if (toolCallId && answeredCount < availableCount) {
@@ -2361,7 +2388,7 @@ function repairProviderToolCallHistoryRows(rows: readonly LoopMessageRow[]): Pro
 				remainingAnsweredCallCounts.set(toolCall.id, remainingCount - 1);
 				repairedToolCalls.push(toolCall);
 			} else {
-				dropped.push(droppedProviderToolCall(toolCall.id, toolCall.function.name, "unanswered_tool_call", toolCall.function.arguments));
+				dropped.push(droppedProviderToolCall(toolCall.id, toolCall.function.name, 'unanswered_tool_call', toolCall.function.arguments));
 			}
 		}
 		if (toolCallsEqual(originalToolCalls, repairedToolCalls)) {
@@ -2391,14 +2418,11 @@ function repairProviderToolCallHistoryRows(rows: readonly LoopMessageRow[]): Pro
 	return { actions, dropped, repairedTextCount, repairedMessageSeqs: [...repairedMessageSeqs] };
 }
 
-export function loopMessageContributesToProviderHistory(
-	origin: BotLoopMessageOrigin,
-	message: BotInferenceSubmissionMessage,
-): boolean {
-	if (origin === "runtime_error") {
+export function loopMessageContributesToProviderHistory(origin: BotLoopMessageOrigin, message: BotInferenceSubmissionMessage): boolean {
+	if (origin === 'runtime_error') {
 		return false;
 	}
-	return origin !== "provider_response" || !isEmptyProviderAssistantMessage(message);
+	return origin !== 'provider_response' || !isEmptyProviderAssistantMessage(message);
 }
 
 function loopMessageContributesToCompactionProviderInput(row: LoopMessageRow): boolean {
@@ -2416,17 +2440,17 @@ export function runtimeErrorLoopMessageContent(message: unknown): string {
 
 function runtimeDiagnosticPrefix(message: string): string {
 	if (/^Inference (provider|request|response|stream)\b/.test(message) || /^Provider\b/.test(message)) {
-		return "Inference provider returned an error";
+		return 'Inference provider returned an error';
 	}
 	if (/^Prompt context\b/.test(message)) {
-		return "Inference request failed";
+		return 'Inference request failed';
 	}
-	return "Runtime failed";
+	return 'Runtime failed';
 }
 
 function isEmptyProviderAssistantMessage(message: BotInferenceSubmissionMessage): boolean {
 	return (
-		message.role === "assistant" &&
+		message.role === 'assistant' &&
 		!hasProviderHistoryText(message.content) &&
 		!hasProviderHistoryText(message.reasoning) &&
 		!hasProviderHistoryText(message.reasoning_content) &&
@@ -2439,8 +2463,8 @@ export function rewriteProviderResponseToolCallMessage(
 	message: BotInferenceSubmissionMessage,
 	rewrite: ProviderToolCallRewrite,
 ): ProviderResponseToolCallRewriteResult {
-	if (message.role !== "assistant" || !Array.isArray(message.tool_calls) || message.tool_calls.length === 0) {
-		return { kind: "unchanged", message };
+	if (message.role !== 'assistant' || !Array.isArray(message.tool_calls) || message.tool_calls.length === 0) {
+		return { kind: 'unchanged', message };
 	}
 
 	let changed = false;
@@ -2451,12 +2475,12 @@ export function rewriteProviderResponseToolCallMessage(
 			continue;
 		}
 		changed = true;
-		if (rewrite.kind === "replace_arguments") {
+		if (rewrite.kind === 'replace_arguments') {
 			nextToolCalls.push(toolCallWithArguments(toolCall, rewrite.arguments));
 		}
 	}
 	if (!changed) {
-		return { kind: "unchanged", message };
+		return { kind: 'unchanged', message };
 	}
 
 	const nextMessage: BotInferenceSubmissionMessage = { ...message };
@@ -2466,9 +2490,9 @@ export function rewriteProviderResponseToolCallMessage(
 		delete nextMessage.tool_calls;
 	}
 	if (isEmptyProviderAssistantMessage(nextMessage)) {
-		return { kind: "deleted" };
+		return { kind: 'deleted' };
 	}
-	return { kind: "updated", message: nextMessage };
+	return { kind: 'updated', message: nextMessage };
 }
 
 function toolCallWithArguments(toolCall: ToolCall, args: string): ToolCall {
@@ -2487,12 +2511,10 @@ function cloneToolCall(toolCall: ToolCall): ToolCall {
 }
 
 function hasProviderHistoryText(value: unknown): value is string {
-	return typeof value === "string" && value.trim().length > 0;
+	return typeof value === 'string' && value.trim().length > 0;
 }
 
-function providerResponseIsEmpty(
-	response: Pick<ProviderResponse, "content" | "reasoning" | "reasoningDetails" | "toolCalls">,
-): boolean {
+function providerResponseIsEmpty(response: Pick<ProviderResponse, 'content' | 'reasoning' | 'reasoningDetails' | 'toolCalls'>): boolean {
 	return providerResponsePartsAreEmpty(response.content, response.reasoning, response.reasoningDetails, response.toolCalls);
 }
 
@@ -2502,12 +2524,7 @@ function providerResponsePartsAreEmpty(
 	reasoningDetails: readonly unknown[],
 	toolCalls: readonly unknown[],
 ): boolean {
-	return (
-		!hasProviderHistoryText(content) &&
-		!hasProviderHistoryText(reasoning) &&
-		reasoningDetails.length === 0 &&
-		toolCalls.length === 0
-	);
+	return !hasProviderHistoryText(content) && !hasProviderHistoryText(reasoning) && reasoningDetails.length === 0 && toolCalls.length === 0;
 }
 
 function appendRawResponsePreview(current: string, next: string): string {
@@ -2545,16 +2562,16 @@ export function providerTokenProbeRequest(
 function providerTranslationTools(): [ProviderToolDefinition] {
 	return [
 		{
-			type: "function",
+			type: 'function',
 			function: {
 				name: providerTranslationToolName,
-				description: "Save the translated text.",
+				description: 'Save the translated text.',
 				parameters: {
-					type: "object",
+					type: 'object',
 					properties: {
-						translation: { type: "string" },
+						translation: { type: 'string' },
 					},
-					required: ["translation"],
+					required: ['translation'],
 					additionalProperties: false,
 				},
 			},
@@ -2562,23 +2579,22 @@ function providerTranslationTools(): [ProviderToolDefinition] {
 	];
 }
 
-export function providerTranslationRequest(
-	settings: TranslationProviderSettings,
-	text: string,
-): ProviderTranslationRequest {
+export function providerTranslationRequest(settings: TranslationProviderSettings, text: string): ProviderTranslationRequest {
 	return {
 		model: settings.model,
 		messages: [
-			{ role: "system", content: appendToolRequirementInstruction(settings.prompt, providerTranslationTools()) },
+			{ role: 'system', content: appendToolRequirementInstruction(settings.prompt, providerTranslationTools()) },
 			{
-				role: "user",
+				role: 'user',
 				content: `Translate the following text. You must respond by calling the ${providerTranslationToolName} tool with the translated text in the translation argument. Do not reply as plain text.\n\nText:\n${text}`,
 			},
 		],
 		...(settings.providerRouting ? { provider: settings.providerRouting } : {}),
 		stream: false,
 		tools: providerTranslationTools(),
-		...(providerToolChoiceForMode(settings.toolCalls ?? "require") ? { tool_choice: providerToolChoiceForMode(settings.toolCalls ?? "require") } : {}),
+		...(providerToolChoiceForMode(settings.toolCalls ?? 'require')
+			? { tool_choice: providerToolChoiceForMode(settings.toolCalls ?? 'require') }
+			: {}),
 		parallel_tool_calls: false,
 		max_completion_tokens: providerTranslationMaxCompletionTokens,
 		reasoning: providerReasoningForSettings(settings),
@@ -2592,9 +2608,11 @@ export function providerTranslationRequest(
 	};
 }
 
-export function promptContextBudgetFromCounts(input: PromptContextBudgetCounts): Pick<
+export function promptContextBudgetFromCounts(
+	input: PromptContextBudgetCounts,
+): Pick<
 	BotContextBudget,
-	"fixedSystemTokens" | "overBudgetTokens" | "personaPromptTokens" | "remainingLoopTokens" | "responseReserveTokens" | "totalReservedTokens"
+	'fixedSystemTokens' | 'overBudgetTokens' | 'personaPromptTokens' | 'remainingLoopTokens' | 'responseReserveTokens' | 'totalReservedTokens'
 > {
 	const fixedSystemTokens = Math.max(0, Math.floor(input.fixedSystemTokens));
 	const personaPromptTokens = Math.max(0, Math.floor(input.personaPromptTokens));
@@ -2611,16 +2629,14 @@ export function promptContextBudgetFromCounts(input: PromptContextBudgetCounts):
 	};
 }
 
-export async function promptContextBudgetCacheFingerprint(
-	parts: PromptContextBudgetFingerprintParts,
-): Promise<string> {
+export async function promptContextBudgetCacheFingerprint(parts: PromptContextBudgetFingerprintParts): Promise<string> {
 	return sha256Hex(JSON.stringify(parts));
 }
 
 export function effectiveProviderSettingsForBot(
-	bot: Pick<BotDocument, "inferenceSettings">,
-	owner: Pick<UserDocument, "inferenceSettings">,
-	env: Pick<Env, "OPENROUTER_API_KEY" | "OPENROUTER_BASE_URL" | "OPENROUTER_MODEL">,
+	bot: Pick<BotDocument, 'inferenceSettings'>,
+	owner: Pick<UserDocument, 'inferenceSettings'>,
+	env: Pick<Env, 'OPENROUTER_API_KEY' | 'OPENROUTER_BASE_URL' | 'OPENROUTER_MODEL'>,
 ): ProviderSettings {
 	const userSettings = owner.inferenceSettings ?? {};
 	const envModel = trimmed(env.OPENROUTER_MODEL);
@@ -2639,59 +2655,75 @@ export function effectiveProviderSettingsForBot(
 	const inheritedDefaults: BotInferenceSettings = botModel ? {} : userSettings;
 
 	const model =
-		botModel && hasBotOrInheritedProvider ? botModel
-		: userModel && hasUserProvider ? userModel
-		: envModel ? envModel
-		: fallbackProviderModel;
+		botModel && hasBotOrInheritedProvider
+			? botModel
+			: userModel && hasUserProvider
+				? userModel
+				: envModel
+					? envModel
+					: fallbackProviderModel;
 	const baseUrl = botBaseUrl ?? userBaseUrl ?? envBaseUrl ?? fallbackProviderBaseUrl;
 	const temperature =
-		bot.inferenceSettings.temperature !== undefined &&
-		(!botTemperatureIsLegacyDefault || userSettings.temperature === undefined) ?
-			bot.inferenceSettings.temperature
-		: inheritedDefaults.temperature !== undefined ? inheritedDefaults.temperature
-		: bot.inferenceSettings.temperature !== undefined ? bot.inferenceSettings.temperature
-		: 0.9;
+		bot.inferenceSettings.temperature !== undefined && (!botTemperatureIsLegacyDefault || userSettings.temperature === undefined)
+			? bot.inferenceSettings.temperature
+			: inheritedDefaults.temperature !== undefined
+				? inheritedDefaults.temperature
+				: bot.inferenceSettings.temperature !== undefined
+					? bot.inferenceSettings.temperature
+					: 0.9;
 	const providerRouting =
 		bot.inferenceSettings.providerRouting !== undefined ? bot.inferenceSettings.providerRouting : inheritedDefaults.providerRouting;
 	const effectiveProviderRouting = openRouterProviderRouting(baseUrl, providerRouting);
 	const reasoningEffort = bot.inferenceSettings.reasoningEffort ?? inheritedDefaults.reasoningEffort;
-	const toolCalls = bot.inferenceSettings.toolCalls ?? inheritedDefaults.toolCalls ?? "require";
+	const toolCalls = bot.inferenceSettings.toolCalls ?? inheritedDefaults.toolCalls ?? 'require';
 
 	return {
 		apiKey: botApiKey ?? userApiKey ?? (hasCustomBaseUrl ? undefined : envApiKey),
 		baseUrl,
 		model,
-		compactionMode: bot.inferenceSettings.compactionMode ?? inheritedDefaults.compactionMode ?? "structured_output",
+		compactionMode: bot.inferenceSettings.compactionMode ?? inheritedDefaults.compactionMode ?? 'structured_output',
 		...(effectiveProviderRouting ? { providerRouting: effectiveProviderRouting } : {}),
-		...(reasoningEffort && reasoningEffort !== "default" ? { reasoningEffort } : {}),
+		...(reasoningEffort && reasoningEffort !== 'default' ? { reasoningEffort } : {}),
 		supportsPrefill: bot.inferenceSettings.supportsPrefill ?? inheritedDefaults.supportsPrefill ?? true,
 		toolCalls,
 		temperature,
 		...(hasCustomBaseUrl ? { usesCustomBaseUrl: true } : {}),
-		...(bot.inferenceSettings.topK !== undefined ? { topK: bot.inferenceSettings.topK }
-		: inheritedDefaults.topK !== undefined ? { topK: inheritedDefaults.topK }
-		: {}),
-		...(bot.inferenceSettings.topP !== undefined ? { topP: bot.inferenceSettings.topP }
-		: inheritedDefaults.topP !== undefined ? { topP: inheritedDefaults.topP }
-		: {}),
-		...(bot.inferenceSettings.minP !== undefined ? { minP: bot.inferenceSettings.minP }
-		: inheritedDefaults.minP !== undefined ? { minP: inheritedDefaults.minP }
-		: {}),
-		...(bot.inferenceSettings.frequencyPenalty !== undefined ? { frequencyPenalty: bot.inferenceSettings.frequencyPenalty }
-		: inheritedDefaults.frequencyPenalty !== undefined ? { frequencyPenalty: inheritedDefaults.frequencyPenalty }
-		: {}),
-		...(bot.inferenceSettings.presencePenalty !== undefined ? { presencePenalty: bot.inferenceSettings.presencePenalty }
-		: inheritedDefaults.presencePenalty !== undefined ? { presencePenalty: inheritedDefaults.presencePenalty }
-		: {}),
-		...(bot.inferenceSettings.repetitionPenalty !== undefined ? { repetitionPenalty: bot.inferenceSettings.repetitionPenalty }
-		: inheritedDefaults.repetitionPenalty !== undefined ? { repetitionPenalty: inheritedDefaults.repetitionPenalty }
-		: {}),
+		...(bot.inferenceSettings.topK !== undefined
+			? { topK: bot.inferenceSettings.topK }
+			: inheritedDefaults.topK !== undefined
+				? { topK: inheritedDefaults.topK }
+				: {}),
+		...(bot.inferenceSettings.topP !== undefined
+			? { topP: bot.inferenceSettings.topP }
+			: inheritedDefaults.topP !== undefined
+				? { topP: inheritedDefaults.topP }
+				: {}),
+		...(bot.inferenceSettings.minP !== undefined
+			? { minP: bot.inferenceSettings.minP }
+			: inheritedDefaults.minP !== undefined
+				? { minP: inheritedDefaults.minP }
+				: {}),
+		...(bot.inferenceSettings.frequencyPenalty !== undefined
+			? { frequencyPenalty: bot.inferenceSettings.frequencyPenalty }
+			: inheritedDefaults.frequencyPenalty !== undefined
+				? { frequencyPenalty: inheritedDefaults.frequencyPenalty }
+				: {}),
+		...(bot.inferenceSettings.presencePenalty !== undefined
+			? { presencePenalty: bot.inferenceSettings.presencePenalty }
+			: inheritedDefaults.presencePenalty !== undefined
+				? { presencePenalty: inheritedDefaults.presencePenalty }
+				: {}),
+		...(bot.inferenceSettings.repetitionPenalty !== undefined
+			? { repetitionPenalty: bot.inferenceSettings.repetitionPenalty }
+			: inheritedDefaults.repetitionPenalty !== undefined
+				? { repetitionPenalty: inheritedDefaults.repetitionPenalty }
+				: {}),
 	};
 }
 
 export function effectiveProviderSettingsForTranslation(
-	user: Pick<UserDocument, "inferenceSettings">,
-	env: Pick<Env, "OPENROUTER_API_KEY" | "OPENROUTER_BASE_URL" | "OPENROUTER_MODEL">,
+	user: Pick<UserDocument, 'inferenceSettings'>,
+	env: Pick<Env, 'OPENROUTER_API_KEY' | 'OPENROUTER_BASE_URL' | 'OPENROUTER_MODEL'>,
 ): TranslationProviderSettings | null {
 	const userSettings = user.inferenceSettings ?? {};
 	const translation = userSettings.translation;
@@ -2714,41 +2746,43 @@ export function effectiveProviderSettingsForTranslation(
 		usingLoopSettings ? userSettings.providerRouting : translation.providerRouting,
 	);
 	const reasoningEffort = usingLoopSettings ? userSettings.reasoningEffort : translation.reasoningEffort;
-	const toolCalls = structuredToolCallsMode(usingLoopSettings ? userSettings.toolCalls ?? "require" : translation.toolCalls ?? "require");
+	const toolCalls = structuredToolCallsMode(
+		usingLoopSettings ? (userSettings.toolCalls ?? 'require') : (translation.toolCalls ?? 'require'),
+	);
 	return {
 		apiKey: userApiKey ?? (hasCustomBaseUrl ? undefined : envApiKey),
 		baseUrl,
 		model,
 		...(providerRouting ? { providerRouting } : {}),
-		...(reasoningEffort && reasoningEffort !== "default" ? { reasoningEffort } : {}),
+		...(reasoningEffort && reasoningEffort !== 'default' ? { reasoningEffort } : {}),
 		toolCalls,
 		prompt: trimmed(translation?.prompt) ?? defaultTranslationPrompt,
-		temperature: usingLoopSettings ? userSettings.temperature ?? 0.9 : translation.temperature ?? 0,
-		...(usingLoopSettings ?
-			{
-				...(userSettings.topK !== undefined ? { topK: userSettings.topK } : {}),
-				...(userSettings.topP !== undefined ? { topP: userSettings.topP } : {}),
-				...(userSettings.minP !== undefined ? { minP: userSettings.minP } : {}),
-				...(userSettings.frequencyPenalty !== undefined ? { frequencyPenalty: userSettings.frequencyPenalty } : {}),
-				...(userSettings.presencePenalty !== undefined ? { presencePenalty: userSettings.presencePenalty } : {}),
-				...(userSettings.repetitionPenalty !== undefined ? { repetitionPenalty: userSettings.repetitionPenalty } : {}),
-			}
-		:	{
-				...(translation.topK !== undefined ? { topK: translation.topK } : {}),
-				...(translation.topP !== undefined ? { topP: translation.topP } : {}),
-				...(translation.minP !== undefined ? { minP: translation.minP } : {}),
-				...(translation.frequencyPenalty !== undefined ? { frequencyPenalty: translation.frequencyPenalty } : {}),
-				...(translation.presencePenalty !== undefined ? { presencePenalty: translation.presencePenalty } : {}),
-				...(translation.repetitionPenalty !== undefined ? { repetitionPenalty: translation.repetitionPenalty } : {}),
-			}),
+		temperature: usingLoopSettings ? (userSettings.temperature ?? 0.9) : (translation.temperature ?? 0),
+		...(usingLoopSettings
+			? {
+					...(userSettings.topK !== undefined ? { topK: userSettings.topK } : {}),
+					...(userSettings.topP !== undefined ? { topP: userSettings.topP } : {}),
+					...(userSettings.minP !== undefined ? { minP: userSettings.minP } : {}),
+					...(userSettings.frequencyPenalty !== undefined ? { frequencyPenalty: userSettings.frequencyPenalty } : {}),
+					...(userSettings.presencePenalty !== undefined ? { presencePenalty: userSettings.presencePenalty } : {}),
+					...(userSettings.repetitionPenalty !== undefined ? { repetitionPenalty: userSettings.repetitionPenalty } : {}),
+				}
+			: {
+					...(translation.topK !== undefined ? { topK: translation.topK } : {}),
+					...(translation.topP !== undefined ? { topP: translation.topP } : {}),
+					...(translation.minP !== undefined ? { minP: translation.minP } : {}),
+					...(translation.frequencyPenalty !== undefined ? { frequencyPenalty: translation.frequencyPenalty } : {}),
+					...(translation.presencePenalty !== undefined ? { presencePenalty: translation.presencePenalty } : {}),
+					...(translation.repetitionPenalty !== undefined ? { repetitionPenalty: translation.repetitionPenalty } : {}),
+				}),
 	};
 }
 
 function effectiveProviderSettingsForImageGeneration(
-	bot: Pick<BotDocument, "inferenceSettings">,
-	owner: Pick<UserDocument, "inferenceSettings">,
-	env: Pick<Env, "OPENROUTER_API_KEY" | "OPENROUTER_BASE_URL" | "OPENROUTER_MODEL">,
-	settingsOverride?: BotInferenceSettings["imageGeneration"],
+	bot: Pick<BotDocument, 'inferenceSettings'>,
+	owner: Pick<UserDocument, 'inferenceSettings'>,
+	env: Pick<Env, 'OPENROUTER_API_KEY' | 'OPENROUTER_BASE_URL' | 'OPENROUTER_MODEL'>,
+	settingsOverride?: BotInferenceSettings['imageGeneration'],
 ): ImageGenerationProviderSettings | null {
 	const userSettings = owner.inferenceSettings ?? {};
 	const imageGeneration = settingsOverride ?? bot.inferenceSettings.imageGeneration ?? userSettings.imageGeneration;
@@ -2793,17 +2827,19 @@ function openRouterProviderRouting(baseUrl: string, providerRouting: JsonObject 
 
 function assertSupportedOpenRouterImageConfig(settings: ImageGenerationProviderSettings): void {
 	if (settings.aspectRatio && !isOpenRouterImageAspectRatio(settings.aspectRatio)) {
-		throw new InputError("Image generation aspect ratio is not supported.");
+		throw new InputError('Image generation aspect ratio is not supported.');
 	}
 	if (settings.imageSize && !isOpenRouterImageSize(settings.imageSize)) {
-		throw new InputError("Image generation size is not supported.");
+		throw new InputError('Image generation size is not supported.');
 	}
 	if (
 		(settings.aspectRatio && isOpenRouterExtendedImageAspectRatio(settings.aspectRatio)) ||
 		(settings.imageSize && isOpenRouterExtendedImageSize(settings.imageSize))
 	) {
 		if (!supportsOpenRouterExtendedImageConfig(settings.model)) {
-			throw new InputError("Extended image generation aspect ratios and 0.5K size are only supported by google/gemini-3.1-flash-image-preview.");
+			throw new InputError(
+				'Extended image generation aspect ratios and 0.5K size are only supported by google/gemini-3.1-flash-image-preview.',
+			);
 		}
 	}
 }
@@ -2933,7 +2969,7 @@ export class BotRuntime {
 		this.state = state;
 		this.env = env;
 		this.state.blockConcurrencyWhile(async () => {
-			for (const statement of runtimeSchema.split(";")) {
+			for (const statement of runtimeSchema.split(';')) {
 				const sql = statement.trim();
 				if (sql) {
 					this.state.storage.sql.exec(sql);
@@ -2955,13 +2991,13 @@ export class BotRuntime {
 				.toArray()
 				.map((row) => row.name),
 		);
-		if (!columns.has("kind")) {
+		if (!columns.has('kind')) {
 			this.state.storage.sql.exec(`ALTER TABLE injections ADD COLUMN kind TEXT NOT NULL DEFAULT 'manual'`);
 		}
-		if (!columns.has("source_id")) {
+		if (!columns.has('source_id')) {
 			this.state.storage.sql.exec(`ALTER TABLE injections ADD COLUMN source_id TEXT`);
 		}
-		if (!columns.has("spotlight_id")) {
+		if (!columns.has('spotlight_id')) {
 			this.state.storage.sql.exec(`ALTER TABLE injections ADD COLUMN spotlight_id TEXT`);
 		}
 	}
@@ -2973,7 +3009,7 @@ export class BotRuntime {
 				.toArray()
 				.map((row) => row.name),
 		);
-		if (!columns.has("provider_name")) {
+		if (!columns.has('provider_name')) {
 			this.state.storage.sql.exec(`ALTER TABLE provider_usage ADD COLUMN provider_name TEXT`);
 		}
 	}
@@ -2985,7 +3021,7 @@ export class BotRuntime {
 				.toArray()
 				.map((row) => row.name),
 		);
-		if (!columns.has("display_messages_json")) {
+		if (!columns.has('display_messages_json')) {
 			this.state.storage.sql.exec(`ALTER TABLE inference_submissions ADD COLUMN display_messages_json TEXT`);
 		}
 	}
@@ -2997,28 +3033,26 @@ export class BotRuntime {
 				.toArray()
 				.map((row) => row.name),
 		);
-		if (!columns.has("deleted_at")) {
+		if (!columns.has('deleted_at')) {
 			this.state.storage.sql.exec(`ALTER TABLE loop_messages ADD COLUMN deleted_at TEXT`);
 		}
-		if (!columns.has("stream_seq")) {
+		if (!columns.has('stream_seq')) {
 			this.state.storage.sql.exec(`ALTER TABLE loop_messages ADD COLUMN stream_seq INTEGER`);
 		}
-		if (!columns.has("display_event_seq")) {
+		if (!columns.has('display_event_seq')) {
 			this.state.storage.sql.exec(`ALTER TABLE loop_messages ADD COLUMN display_event_seq INTEGER`);
 		}
-		this.state.storage.sql.exec(`CREATE INDEX IF NOT EXISTS loop_messages_visible ON loop_messages (deleted_at, compacted_by, position, seq)`);
+		this.state.storage.sql.exec(
+			`CREATE INDEX IF NOT EXISTS loop_messages_visible ON loop_messages (deleted_at, compacted_by, position, seq)`,
+		);
 	}
 
 	private migrateLegacyLoopMessages(): void {
-		const existing = this.state.storage.sql
-			.exec<{ count: number }>(`SELECT COUNT(*) AS count FROM loop_messages`)
-			.one().count;
-		if (existing > 0 || this.runtimeStateBoolean("loop_messages_legacy_migrated")) {
+		const existing = this.state.storage.sql.exec<{ count: number }>(`SELECT COUNT(*) AS count FROM loop_messages`).one().count;
+		if (existing > 0 || this.runtimeStateBoolean('loop_messages_legacy_migrated')) {
 			return;
 		}
-		const eventCount = this.state.storage.sql
-			.exec<{ count: number }>(`SELECT COUNT(*) AS count FROM events`)
-			.one().count;
+		const eventCount = this.state.storage.sql.exec<{ count: number }>(`SELECT COUNT(*) AS count FROM events`).one().count;
 		if (eventCount === 0) {
 			return;
 		}
@@ -3032,29 +3066,26 @@ export class BotRuntime {
 			)
 			.toArray();
 		const latestSummary = this.latestCompactionSummary();
-		const activity = rows.map((row) => truncateForContext(runtimeContextLine(row), 500)).join("\n");
+		const activity = rows.map((row) => truncateForContext(runtimeContextLine(row), 500)).join('\n');
 		const summary = storedMemorySummary(
-			[
-				latestSummary.trim(),
-				activity.trim() ?
-					`Before this exact chat log began, I had this Bickr history:\n${activity.trim()}`
-				:	"",
-			].filter(Boolean).join("\n\n"),
+			[latestSummary.trim(), activity.trim() ? `Before this exact chat log began, I had this Bickr history:\n${activity.trim()}` : '']
+				.filter(Boolean)
+				.join('\n\n'),
 		);
 		if (summary) {
-			const message = { role: "assistant" as const, content: summary };
+			const message = { role: 'assistant' as const, content: summary };
 			const inserted = this.insertLoopMessage({
-				runId: "legacy-migration",
+				runId: 'legacy-migration',
 				message,
-				origin: "legacy_migration",
-				status: "complete",
+				origin: 'legacy_migration',
+				status: 'complete',
 				position: 1,
 				createdAt: rows[0]?.created_at ?? new Date().toISOString(),
 				broadcast: false,
 			});
-			this.recordLoopMessageLog(inserted.seq, "message", JSON.stringify(message));
+			this.recordLoopMessageLog(inserted.seq, 'message', JSON.stringify(message));
 		}
-		this.setRuntimeState("loop_messages_legacy_migrated", true);
+		this.setRuntimeState('loop_messages_legacy_migrated', true);
 	}
 
 	private runtimeStateBoolean(key: string): boolean {
@@ -3064,16 +3095,14 @@ export class BotRuntime {
 
 	private runtimeStateRecord(key: string): Record<string, unknown> | undefined {
 		const value = this.runtimeStateValue(key);
-		return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+		return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
 	}
 
 	private runtimeStateValue(key: string): unknown {
 		if (!this.state) {
 			return undefined;
 		}
-		const row = this.state.storage.sql
-			.exec<{ value_json: string }>(`SELECT value_json FROM runtime_state WHERE key = ?`, key)
-			.toArray()[0];
+		const row = this.state.storage.sql.exec<{ value_json: string }>(`SELECT value_json FROM runtime_state WHERE key = ?`, key).toArray()[0];
 		if (!row) {
 			return undefined;
 		}
@@ -3104,22 +3133,22 @@ export class BotRuntime {
 		this.state.storage.sql.exec(`DELETE FROM runtime_state WHERE key = ?`, key);
 	}
 
-	private compactionReasoningModeForSettings(settings: Pick<ProviderSettings, "model">): ProviderCompactionReasoningMode {
+	private compactionReasoningModeForSettings(settings: Pick<ProviderSettings, 'model'>): ProviderCompactionReasoningMode {
 		const state = this.runtimeStateRecord(compactionReasoningFallbackStateKey);
 		if (!state) {
-			return "none";
+			return 'none';
 		}
-		if (state.model === settings.model && state.mode === "minimal") {
-			return "minimal";
+		if (state.model === settings.model && state.mode === 'minimal') {
+			return 'minimal';
 		}
 		this.deleteRuntimeState(compactionReasoningFallbackStateKey);
-		return "none";
+		return 'none';
 	}
 
-	private rememberCompactionNoReasoningRejection(settings: Pick<ProviderSettings, "model">, reason: string): void {
+	private rememberCompactionNoReasoningRejection(settings: Pick<ProviderSettings, 'model'>, reason: string): void {
 		const state: ProviderCompactionReasoningFallbackState = {
 			model: settings.model,
-			mode: "minimal",
+			mode: 'minimal',
 			reason: truncateForContext(reason, 500),
 			updatedAt: new Date().toISOString(),
 		};
@@ -3131,91 +3160,90 @@ export class BotRuntime {
 			const url = new URL(request.url);
 			const botId = botIdFromPath(url.pathname);
 
-			if (request.method === "GET" && url.pathname.endsWith("/status")) {
+			if (request.method === 'GET' && url.pathname.endsWith('/status')) {
 				await this.requireOwnerOrInternal(request, botId);
 				return ok({ status: await this.status(botId) });
 			}
 
-			if (request.method === "GET" && url.pathname.endsWith("/events")) {
+			if (request.method === 'GET' && url.pathname.endsWith('/events')) {
 				await this.requireOwnerOrInternal(request, botId);
-				const after = Number(url.searchParams.get("after") ?? 0);
+				const after = Number(url.searchParams.get('after') ?? 0);
 				return ok({ events: this.eventsAfter(Number.isFinite(after) ? after : 0) });
 			}
 
-			if (request.method === "GET" && url.pathname.endsWith("/messages")) {
+			if (request.method === 'GET' && url.pathname.endsWith('/messages')) {
 				await this.requireOwnerOrInternal(request, botId);
-				const after = Number(url.searchParams.get("after") ?? 0);
-				const page = Number(url.searchParams.get("page") ?? 1);
-				return ok(this.loopMessagesPage({
-					after: Number.isFinite(after) ? after : 0,
-					page: Number.isFinite(page) ? page : 1,
-				}));
+				const after = Number(url.searchParams.get('after') ?? 0);
+				const page = Number(url.searchParams.get('page') ?? 1);
+				return ok(
+					this.loopMessagesPage({
+						after: Number.isFinite(after) ? after : 0,
+						page: Number.isFinite(page) ? page : 1,
+					}),
+				);
 			}
 
 			const messageLogSeq = messageLogsSeqFromPath(url.pathname);
-			if (request.method === "GET" && messageLogSeq !== null) {
+			if (request.method === 'GET' && messageLogSeq !== null) {
 				await this.requireOwnerOrInternal(request, botId);
 				return ok(this.loopMessageLogsForSeq(messageLogSeq));
 			}
 
 			const messageSeq = messageSeqFromPath(url.pathname);
-			if (request.method === "DELETE" && messageSeq !== null) {
+			if (request.method === 'DELETE' && messageSeq !== null) {
 				await this.requireOwnerOrInternal(request, botId);
 				return ok({ deleted: await this.deleteLoopMessage(botId, messageSeq) });
 			}
 
-			if (request.method === "GET" && url.pathname.endsWith("/submissions")) {
+			if (request.method === 'GET' && url.pathname.endsWith('/submissions')) {
 				await this.requireOwnerOrInternal(request, botId);
 				return ok({ submissions: this.inferenceSubmissionSummaries() });
 			}
 
 			const submissionSeq = submissionSeqFromPath(url.pathname);
-			if (request.method === "GET" && submissionSeq !== null) {
+			if (request.method === 'GET' && submissionSeq !== null) {
 				await this.requireOwnerOrInternal(request, botId);
 				return ok({ submission: this.inferenceSubmissionForSeq(submissionSeq) });
 			}
 
-			if (request.method === "GET" && url.pathname.endsWith("/token-usage")) {
+			if (request.method === 'GET' && url.pathname.endsWith('/token-usage')) {
 				await this.requireOwnerOrInternal(request, botId);
 				return ok({ usage: this.tokenUsageStats(await botById(this.env.BICKR_KV, this.env.BICKR_D1, botId)) });
 			}
 
-			if (request.method === "GET" && url.pathname.endsWith("/context-budget")) {
+			if (request.method === 'GET' && url.pathname.endsWith('/context-budget')) {
 				await this.requireOwnerOrInternal(request, botId);
 				return ok({ budget: await this.cachedPromptContextBudget(botId) });
 			}
 
-			if (request.method === "POST" && url.pathname.endsWith("/context-budget")) {
+			if (request.method === 'POST' && url.pathname.endsWith('/context-budget')) {
 				await this.requireOwnerOrInternal(request, botId);
 				const input = parseBotContextBudgetInput(await readJsonBody(request));
 				return ok({ budget: await this.promptContextBudget(botId, input) });
 			}
 
-			if (request.method === "DELETE" && url.pathname.endsWith("/events")) {
+			if (request.method === 'DELETE' && url.pathname.endsWith('/events')) {
 				await this.requireOwnerOrInternal(request, botId);
 				const cleared = await this.clearHistory(botId);
 				return ok({ cleared });
 			}
 
-			if (request.method === "POST" && url.pathname.endsWith("/compact")) {
+			if (request.method === 'POST' && url.pathname.endsWith('/compact')) {
 				await this.requireOwnerOrInternal(request, botId);
 				const compacted = await this.manualCompactLoopMessages(botId);
 				return ok({ compacted });
 			}
 
-			if (request.method === "DELETE" && eventSeqFromPath(url.pathname) !== null) {
+			if (request.method === 'DELETE' && eventSeqFromPath(url.pathname) !== null) {
 				await this.requireOwnerOrInternal(request, botId);
 				const deleted = await this.deleteEvent(botId, eventSeqFromPath(url.pathname) ?? 0);
 				return ok({ deleted });
 			}
 
-			if (request.method === "POST" && url.pathname.endsWith("/tick")) {
+			if (request.method === 'POST' && url.pathname.endsWith('/tick')) {
 				await this.requireOwnerOrInternal(request, botId);
 				const options = await readTickOptions(request);
-				const trigger =
-					options.mode === "spotlight" ? "spotlight"
-					: request.headers.get("x-bickr-scheduler") ? "cron"
-					: "manual";
+				const trigger = options.mode === 'spotlight' ? 'spotlight' : request.headers.get('x-bickr-scheduler') ? 'cron' : 'manual';
 				if (options.background) {
 					const run = await this.startBackgroundTick(botId, trigger, options);
 					return ok({ run });
@@ -3224,51 +3252,48 @@ export class BotRuntime {
 				return ok({ run });
 			}
 
-			if (request.method === "POST" && url.pathname.endsWith("/stop")) {
+			if (request.method === 'POST' && url.pathname.endsWith('/stop')) {
 				await this.requireOwnerOrInternal(request, botId);
 				const stop = await this.stopTick(botId);
 				return ok({ stop });
 			}
 
-			if (request.method === "POST" && url.pathname.endsWith("/inject")) {
+			if (request.method === 'POST' && url.pathname.endsWith('/inject')) {
 				await this.requireOwnerOrInternal(request, botId);
 				const body = await readJsonBody(request);
-				const text =
-					body && typeof body === "object" && "text" in body && typeof body.text === "string" ?
-						body.text.trim()
-					:	"";
+				const text = body && typeof body === 'object' && 'text' in body && typeof body.text === 'string' ? body.text.trim() : '';
 				if (!text) {
-					throw new InputError("Injection text is required.");
+					throw new InputError('Injection text is required.');
 				}
 				const event = await this.injectThought(text, {
-					kind: stringValue(body && typeof body === "object" ? (body as Record<string, unknown>).kind : undefined) ?? "manual",
-					sourceId: stringValue(body && typeof body === "object" ? (body as Record<string, unknown>).sourceId : undefined),
-					spotlightId: stringValue(body && typeof body === "object" ? (body as Record<string, unknown>).spotlightId : undefined),
+					kind: stringValue(body && typeof body === 'object' ? (body as Record<string, unknown>).kind : undefined) ?? 'manual',
+					sourceId: stringValue(body && typeof body === 'object' ? (body as Record<string, unknown>).sourceId : undefined),
+					spotlightId: stringValue(body && typeof body === 'object' ? (body as Record<string, unknown>).spotlightId : undefined),
 				});
 				return ok({ event, injectionId: stringValue(runtimeRecord(event.payload).injectionId) });
 			}
 
-			if (request.method === "GET" && url.pathname.endsWith("/monitor")) {
+			if (request.method === 'GET' && url.pathname.endsWith('/monitor')) {
 				await this.requireOwnerOrInternal(request, botId);
-				if (request.headers.get("Upgrade") !== "websocket") {
-					return fail("bad_request", "Expected WebSocket upgrade.", 400);
+				if (request.headers.get('Upgrade') !== 'websocket') {
+					return fail('bad_request', 'Expected WebSocket upgrade.', 400);
 				}
 				const pair = new WebSocketPair();
 				const [client, server] = Object.values(pair);
 				this.state.acceptWebSocket(server, [botId]);
-				const after = Number(url.searchParams.get("after") ?? 0);
-				const afterMessage = Number(url.searchParams.get("afterMessage") ?? after);
-				const afterEvent = Number(url.searchParams.get("afterEvent") ?? after);
+				const after = Number(url.searchParams.get('after') ?? 0);
+				const afterMessage = Number(url.searchParams.get('afterMessage') ?? after);
+				const afterEvent = Number(url.searchParams.get('afterEvent') ?? after);
 				for (const message of this.loopMessagesAfter(Number.isFinite(afterMessage) ? afterMessage : 0)) {
-					server.send(JSON.stringify({ type: "loop_message", loopMessage: message }));
+					server.send(JSON.stringify({ type: 'loop_message', loopMessage: message }));
 				}
 				for (const event of this.eventsAfter(Number.isFinite(afterEvent) ? afterEvent : 0)) {
-					server.send(JSON.stringify({ type: "event", event }));
+					server.send(JSON.stringify({ type: 'event', event }));
 				}
 				return new Response(null, { status: 101, webSocket: client });
 			}
 
-			return fail("not_found", "Bot runtime route not found.", 404);
+			return fail('not_found', 'Bot runtime route not found.', 404);
 		} catch (error) {
 			return errorResponse(error);
 		}
@@ -3276,53 +3301,49 @@ export class BotRuntime {
 
 	async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
 		try {
-			const text = typeof message === "string" ? message : new TextDecoder().decode(message);
+			const text = typeof message === 'string' ? message : new TextDecoder().decode(message);
 			const payload = JSON.parse(text) as { type?: string; text?: string };
-			if (payload.type === "ping") {
-				ws.send(JSON.stringify({ type: "pong" }));
+			if (payload.type === 'ping') {
+				ws.send(JSON.stringify({ type: 'pong' }));
 				return;
 			}
-			if (payload.type === "inject" && payload.text?.trim()) {
+			if (payload.type === 'inject' && payload.text?.trim()) {
 				const event = await this.injectThought(payload.text.trim());
-				ws.send(JSON.stringify({ type: "event", event }));
+				ws.send(JSON.stringify({ type: 'event', event }));
 			}
 		} catch (error) {
-			ws.send(JSON.stringify({ type: "error", message: error instanceof Error ? error.message : "Bad message." }));
+			ws.send(JSON.stringify({ type: 'error', message: error instanceof Error ? error.message : 'Bad message.' }));
 		}
 	}
 
 	async webSocketError(_ws: WebSocket, error: unknown): Promise<void> {
-		console.error("bot runtime monitor WebSocket error", error);
+		console.error('bot runtime monitor WebSocket error', error);
 	}
 
-	private async startBackgroundTick(
-		botId: string,
-		trigger: "cron" | "manual" | "spotlight",
-		options: TickOptions,
-	): Promise<TickRunResult> {
+	private async startBackgroundTick(botId: string, trigger: 'cron' | 'manual' | 'spotlight', options: TickOptions): Promise<TickRunResult> {
 		const current = await this.status(botId);
 		if (this.activeRunId) {
 			return this.busyTickResult(current, trigger, options);
 		}
-		if (current.status === "running") {
+		if (current.status === 'running') {
 			return this.busyTickResult(current, trigger, options);
 		}
 		if (!current.enabled) {
 			return pausedTickResult();
 		}
 		const tick = this.runTick(botId, trigger, { ...options, background: false }).catch((error) => {
-			console.error("background bot tick failed", error);
+			console.error('background bot tick failed', error);
 		});
 		this.state.waitUntil(tick);
-		return { runId: "background", status: "started" };
+		return { runId: 'background', status: 'started' };
 	}
 
-	private async runTick(botId: string, trigger: "cron" | "manual" | "spotlight", options: TickOptions = {}): Promise<TickRunResult> {
+	private async runTick(botId: string, trigger: 'cron' | 'manual' | 'spotlight', options: TickOptions = {}): Promise<TickRunResult> {
 		const current = await this.status(botId);
 		if (this.activeRunId) {
 			return this.busyTickResult(current, trigger, options);
 		}
-		if (current.status === "running") {
+		if (current.status === 'running') {
 			return this.busyTickResult(current, trigger, options);
 		}
 		if (!current.enabled) {
@@ -3338,13 +3359,11 @@ export class BotRuntime {
 		this.activeAbortController = abortController;
 		this.activeRunId = runId;
 		this.clearStopRequest();
-		await this.setRuntimeIndex(bot, "running", runId, undefined, now);
-		await this.appendEvent(runId, "tick_started", { trigger, botId, handle: bot.handle });
-		const mode: TickMode = options.mode === "spotlight" ? "spotlight" : "normal";
+		await this.setRuntimeIndex(bot, 'running', runId, undefined, now);
+		await this.appendEvent(runId, 'tick_started', { trigger, botId, handle: bot.handle });
+		const mode: TickMode = options.mode === 'spotlight' ? 'spotlight' : 'normal';
 		const setupMode: LoopSetupMode =
-			mode === "spotlight" ? "spotlight"
-			: this.currentIterationStartedSinceLastLogOff() ? "continuation"
-			: "new_iteration";
+			mode === 'spotlight' ? 'spotlight' : this.currentIterationStartedSinceLastLogOff() ? 'continuation' : 'new_iteration';
 		const runContext: RunContext = {
 			mode,
 			setupMode,
@@ -3356,21 +3375,22 @@ export class BotRuntime {
 		try {
 			this.throwIfStopped(runId, abortController.signal);
 			const notifications =
-				setupMode !== "new_iteration" ? []
-				: await (async () => {
-						await ensureBootstrapNotification(this.env.BICKR_KV, this.env.BICKR_D1, bot);
-						return listPendingNotifications(this.env.BICKR_KV, this.env.BICKR_D1, bot.id);
-					})();
+				setupMode !== 'new_iteration'
+					? []
+					: await (async () => {
+							await ensureBootstrapNotification(this.env.BICKR_KV, this.env.BICKR_D1, bot);
+							return listPendingNotifications(this.env.BICKR_KV, this.env.BICKR_D1, bot.id);
+						})();
 			this.throwIfStopped(runId, abortController.signal);
-			const injections = this.consumeInjections(mode === "spotlight" ? options.injectionIds ?? [] : undefined);
-			if (mode === "spotlight" && injections.length === 0) {
-				const nextDueAt = await this.setRuntimeIndex(bot, "idle", null, undefined, new Date().toISOString());
-				await this.appendEvent(runId, "tick_completed", {
+			const injections = this.consumeInjections(mode === 'spotlight' ? (options.injectionIds ?? []) : undefined);
+			if (mode === 'spotlight' && injections.length === 0) {
+				const nextDueAt = await this.setRuntimeIndex(bot, 'idle', null, undefined, new Date().toISOString());
+				await this.appendEvent(runId, 'tick_completed', {
 					...(nextDueAt ? { nextDueAt } : {}),
-					note: "No pending spotlight injection was available.",
+					note: 'No pending spotlight injection was available.',
 				});
 				startQueuedSpotlightAfterRun = true;
-				return { runId, status: "completed" };
+				return { runId, status: 'completed' };
 			}
 			const builtInput = await buildRuntimeLoopInput(
 				this.env.BICKR_KV,
@@ -3378,21 +3398,17 @@ export class BotRuntime {
 				bot.id,
 				notifications,
 				injections,
-				(providerSettings.toolCalls ?? "require") === "at_will" ? undefined : this.pendingToolUseReminder(),
+				(providerSettings.toolCalls ?? 'require') === 'at_will' ? undefined : this.pendingToolUseReminder(),
 			);
 			const input = builtInput.input;
-			const inputEvent = await this.appendEvent(runId, "input", input);
+			const inputEvent = await this.appendEvent(runId, 'input', input);
 			const builtMessages = await this.buildMessages(bot, input, runId, inputEvent.createdAt, { setupMode });
-			if (setupMode === "new_iteration") {
+			if (setupMode === 'new_iteration') {
 				const deliveredNotificationIds = builtMessages.deliveredNotificationIds;
-				const deliveredSeenItems = uniqueSeenContentItems([...deliveredNotificationIds].flatMap((id) => builtInput.notificationSeenItemsById[id] ?? []));
-				await markBotSeenContent(
-					this.env.BICKR_D1,
-					bot.id,
-					deliveredSeenItems,
-					"notification",
-					runId,
+				const deliveredSeenItems = uniqueSeenContentItems(
+					[...deliveredNotificationIds].flatMap((id) => builtInput.notificationSeenItemsById[id] ?? []),
 				);
+				await markBotSeenContent(this.env.BICKR_D1, bot.id, deliveredSeenItems, 'notification', runId);
 				await markNotificationsDelivered(
 					this.env.BICKR_KV,
 					this.env.BICKR_D1,
@@ -3402,13 +3418,13 @@ export class BotRuntime {
 
 			const messages = builtMessages;
 			this.throwIfStopped(runId, abortController.signal);
-			if (providerSettings.apiKey || providerSettings.usesCustomBaseUrl || this.env.BICKR_SIMULATION_MODE === "provider") {
+			if (providerSettings.apiKey || providerSettings.usesCustomBaseUrl || this.env.BICKR_SIMULATION_MODE === 'provider') {
 				const outcome = await this.runProviderLoop(bot, providerSettings, runId, messages, runContext);
-				if ((providerSettings.toolCalls ?? "require") !== "at_will") {
+				if ((providerSettings.toolCalls ?? 'require') !== 'at_will') {
 					this.recordToolUseRecoveryOutcome(runId, outcome.toolCallCount);
 				}
 				if (
-					runContext.mode === "spotlight" &&
+					runContext.mode === 'spotlight' &&
 					runContext.spotlightId &&
 					outcome.logOffCalled &&
 					outcome.publicSpotlightToolCallCount === 0
@@ -3420,7 +3436,7 @@ export class BotRuntime {
 							spotlightId: runContext.spotlightId,
 						});
 					} catch (notificationError) {
-						console.warn("spotlight no-reaction notification failed", notificationError);
+						console.warn('spotlight no-reaction notification failed', notificationError);
 					}
 				}
 			} else {
@@ -3428,17 +3444,17 @@ export class BotRuntime {
 			}
 
 			await this.compactIfNeeded(bot, providerSettings, runId, abortController.signal);
-			const nextDueAt = await this.setRuntimeIndex(bot, "idle", null, undefined, new Date().toISOString());
-			await this.appendEvent(runId, "tick_completed", { ...(nextDueAt ? { nextDueAt } : {}) });
+			const nextDueAt = await this.setRuntimeIndex(bot, 'idle', null, undefined, new Date().toISOString());
+			await this.appendEvent(runId, 'tick_completed', { ...(nextDueAt ? { nextDueAt } : {}) });
 			startQueuedSpotlightAfterRun = true;
-			return { runId, status: "completed" };
+			return { runId, status: 'completed' };
 		} catch (error) {
 			if (error instanceof TickStoppedError || isAbortError(error)) {
 				if (!this.hasTerminalEvent(runId)) {
-					await this.appendEvent(runId, "tick_stopped", { message: "This Bickr visit was stopped." });
+					await this.appendEvent(runId, 'tick_stopped', { message: 'This Bickr visit was stopped.' });
 				}
-				await this.setRuntimeIndex(bot, "idle", null, undefined, new Date().toISOString());
-				return { runId, status: "stopped" };
+				await this.setRuntimeIndex(bot, 'idle', null, undefined, new Date().toISOString());
+				return { runId, status: 'stopped' };
 			}
 			if (error instanceof PersistentToolFailureError) {
 				if (!this.hasTerminalEvent(runId)) {
@@ -3448,7 +3464,7 @@ export class BotRuntime {
 						failure: error.failure,
 					});
 				}
-				await this.setRuntimeIndex(bot, "failed", null, error.message, new Date().toISOString());
+				await this.setRuntimeIndex(bot, 'failed', null, error.message, new Date().toISOString());
 				try {
 					await recordBotRuntimeFailureHumanNotification(this.env.BICKR_D1, {
 						bot,
@@ -3456,7 +3472,7 @@ export class BotRuntime {
 						message: error.failure.message,
 						toolName: error.failure.toolName,
 					});
-					if (runContext.mode === "spotlight" && runContext.spotlightId) {
+					if (runContext.mode === 'spotlight' && runContext.spotlightId) {
 						await recordSpotlightFailureHumanNotification(this.env.BICKR_D1, {
 							bot,
 							runId,
@@ -3465,9 +3481,9 @@ export class BotRuntime {
 						});
 					}
 				} catch (notificationError) {
-					console.warn("bot runtime failure notification failed", notificationError);
+					console.warn('bot runtime failure notification failed', notificationError);
 				}
-				return { runId, status: "failed", error: error.message };
+				return { runId, status: 'failed', error: error.message };
 			}
 			if (error instanceof PersistentMissingToolCallError) {
 				if (!this.hasTerminalEvent(runId)) {
@@ -3476,14 +3492,14 @@ export class BotRuntime {
 						toolNames: error.toolNames,
 					});
 				}
-				await this.setRuntimeIndex(bot, "failed", null, error.message, new Date().toISOString());
+				await this.setRuntimeIndex(bot, 'failed', null, error.message, new Date().toISOString());
 				try {
 					await recordBotRuntimeFailureHumanNotification(this.env.BICKR_D1, {
 						bot,
 						runId,
 						message: error.message,
 					});
-					if (runContext.mode === "spotlight" && runContext.spotlightId) {
+					if (runContext.mode === 'spotlight' && runContext.spotlightId) {
 						await recordSpotlightFailureHumanNotification(this.env.BICKR_D1, {
 							bot,
 							runId,
@@ -3492,15 +3508,15 @@ export class BotRuntime {
 						});
 					}
 				} catch (notificationError) {
-					console.warn("bot runtime failure notification failed", notificationError);
+					console.warn('bot runtime failure notification failed', notificationError);
 				}
-				return { runId, status: "failed", error: error.message };
+				return { runId, status: 'failed', error: error.message };
 			}
-			const message = error instanceof Error ? error.message : "Unexpected Bickr visit error.";
+			const message = error instanceof Error ? error.message : 'Unexpected Bickr visit error.';
 			if (!this.hasTerminalEvent(runId)) {
 				await this.recordTickFailure(runId, { message }, runtimeFailureLogs(error));
 			}
-			await this.setRuntimeIndex(bot, "failed", null, message, new Date().toISOString());
+			await this.setRuntimeIndex(bot, 'failed', null, message, new Date().toISOString());
 			try {
 				await recordBotRuntimeFailureHumanNotification(this.env.BICKR_D1, {
 					bot,
@@ -3508,9 +3524,9 @@ export class BotRuntime {
 					message,
 				});
 			} catch (notificationError) {
-				console.warn("bot runtime failure notification failed", notificationError);
+				console.warn('bot runtime failure notification failed', notificationError);
 			}
-			if (runContext.mode === "spotlight" && runContext.spotlightId) {
+			if (runContext.mode === 'spotlight' && runContext.spotlightId) {
 				try {
 					await recordSpotlightFailureHumanNotification(this.env.BICKR_D1, {
 						bot,
@@ -3519,10 +3535,10 @@ export class BotRuntime {
 						message,
 					});
 				} catch (notificationError) {
-					console.warn("spotlight failure notification failed", notificationError);
+					console.warn('spotlight failure notification failed', notificationError);
 				}
 			}
-			return { runId, status: "failed", error: message };
+			return { runId, status: 'failed', error: message };
 		} finally {
 			if (this.activeRunId === runId) {
 				this.activeAbortController = null;
@@ -3533,30 +3549,26 @@ export class BotRuntime {
 				try {
 					this.startQueuedSpotlightTick(botId);
 				} catch (error) {
-					console.error("queued spotlight tick scheduling failed", error);
+					console.error('queued spotlight tick scheduling failed', error);
 				}
 			}
 		}
 	}
 
-	private busyTickResult(
-		current: BotRuntimeStatus,
-		trigger: "cron" | "manual" | "spotlight",
-		options: TickOptions,
-	): TickRunResult {
-		const runId = this.activeRunId ?? current.activeRunId ?? "active";
-		const spotlightRequested = trigger === "spotlight" || options.mode === "spotlight";
+	private busyTickResult(current: BotRuntimeStatus, trigger: 'cron' | 'manual' | 'spotlight', options: TickOptions): TickRunResult {
+		const runId = this.activeRunId ?? current.activeRunId ?? 'active';
+		const spotlightRequested = trigger === 'spotlight' || options.mode === 'spotlight';
 		if (spotlightRequested) {
 			const queued = this.queuePendingSpotlightTick(runId, options);
 			if (queued) {
 				return queued;
 			}
 		}
-		return { runId, status: "already_running" };
+		return { runId, status: 'already_running' };
 	}
 
 	private queuePendingSpotlightTick(activeRunId: string, options: TickOptions): TickRunResult | null {
-		if (options.mode !== "spotlight" || !options.spotlightId || !options.injectionIds?.length) {
+		if (options.mode !== 'spotlight' || !options.spotlightId || !options.injectionIds?.length) {
 			return null;
 		}
 
@@ -3574,7 +3586,7 @@ export class BotRuntime {
 		if (additions.length > 0) {
 			this.writePendingSpotlightTickEntries([...existing, ...additions]);
 		}
-		return { runId: activeRunId, status: "queued" };
+		return { runId: activeRunId, status: 'queued' };
 	}
 
 	private startQueuedSpotlightTick(botId: string): void {
@@ -3582,20 +3594,20 @@ export class BotRuntime {
 		if (!pending) {
 			return;
 		}
-		const tick = this.runTick(botId, "spotlight", {
-			mode: "spotlight",
+		const tick = this.runTick(botId, 'spotlight', {
+			mode: 'spotlight',
 			injectionIds: pending.injectionIds,
 			spotlightId: pending.spotlightId,
 			background: false,
 		})
 			.then((result) => {
-				if (result.status === "paused") {
+				if (result.status === 'paused') {
 					this.prependPendingSpotlightTickEntries(pending.entries);
 				}
 			})
 			.catch((error) => {
 				this.prependPendingSpotlightTickEntries(pending.entries);
-				console.error("queued spotlight tick failed to start", error);
+				console.error('queued spotlight tick failed to start', error);
 			});
 		this.state.waitUntil(tick);
 	}
@@ -3634,9 +3646,9 @@ export class BotRuntime {
 			return entries
 				.map((entry) => runtimeRecord(entry))
 				.map((entry) => ({
-					injectionId: stringValue(entry.injectionId) ?? "",
-					spotlightId: stringValue(entry.spotlightId) ?? "",
-					createdAt: stringValue(entry.createdAt) ?? "",
+					injectionId: stringValue(entry.injectionId) ?? '',
+					spotlightId: stringValue(entry.spotlightId) ?? '',
+					createdAt: stringValue(entry.createdAt) ?? '',
 				}))
 				.filter((entry) => entry.injectionId && entry.spotlightId && entry.createdAt);
 		} catch {
@@ -3651,10 +3663,7 @@ export class BotRuntime {
 		}
 		const existing = this.pendingSpotlightTickEntries();
 		const prependedInjectionIds = new Set(entries.map((entry) => entry.injectionId));
-		this.writePendingSpotlightTickEntries([
-			...entries,
-			...existing.filter((entry) => !prependedInjectionIds.has(entry.injectionId)),
-		]);
+		this.writePendingSpotlightTickEntries([...entries, ...existing.filter((entry) => !prependedInjectionIds.has(entry.injectionId))]);
 	}
 
 	private writePendingSpotlightTickEntries(entries: QueuedSpotlightTick[]): void {
@@ -3688,22 +3697,22 @@ export class BotRuntime {
 		return Boolean(row);
 	}
 
-	private async stopTick(botId: string): Promise<{ stopped: boolean; runId?: string; status: BotRuntimeStatus["status"] }> {
+	private async stopTick(botId: string): Promise<{ stopped: boolean; runId?: string; status: BotRuntimeStatus['status'] }> {
 		const current = await this.status(botId);
 		const runId = current.activeRunId ?? this.activeRunId ?? undefined;
-		if (current.status !== "running" || !runId) {
+		if (current.status !== 'running' || !runId) {
 			return { stopped: false, status: current.status };
 		}
 
 		this.setStopRequest(runId);
-		await this.appendEvent(runId, "tick_stop_requested", { message: "This Bickr visit was asked to stop." });
+		await this.appendEvent(runId, 'tick_stop_requested', { message: 'This Bickr visit was asked to stop.' });
 		if (this.activeRunId === runId && this.activeAbortController && !this.activeAbortController.signal.aborted) {
 			this.activeAbortController.abort();
 			return { stopped: true, runId, status: current.status };
 		}
 		const bot = await botById(this.env.BICKR_KV, this.env.BICKR_D1, botId);
 		await this.markRunStopped(bot, runId);
-		return { stopped: true, runId, status: "idle" };
+		return { stopped: true, runId, status: 'idle' };
 	}
 
 	private setStopRequest(runId: string): void {
@@ -3718,11 +3727,7 @@ export class BotRuntime {
 
 	private clearStopRequest(runId?: string): void {
 		if (runId) {
-			this.state.storage.sql.exec(
-				`DELETE FROM runtime_state WHERE key = ? AND value_json = ?`,
-				stopRequestStateKey,
-				JSON.stringify(runId),
-			);
+			this.state.storage.sql.exec(`DELETE FROM runtime_state WHERE key = ? AND value_json = ?`, stopRequestStateKey, JSON.stringify(runId));
 			return;
 		}
 		this.state.storage.sql.exec(`DELETE FROM runtime_state WHERE key = ?`, stopRequestStateKey);
@@ -3787,9 +3792,7 @@ export class BotRuntime {
 	private setToolUseRecoveryState(runId: string): void {
 		const previous = this.toolUseRecoveryState();
 		const consecutiveNoToolTicks =
-			previous && previous.lastRunId !== runId ? previous.consecutiveNoToolTicks + 1
-			: previous ? previous.consecutiveNoToolTicks
-			: 1;
+			previous && previous.lastRunId !== runId ? previous.consecutiveNoToolTicks + 1 : previous ? previous.consecutiveNoToolTicks : 1;
 		const state: ToolUseRecoveryState = {
 			consecutiveNoToolTicks,
 			lastRunId: runId,
@@ -3831,18 +3834,18 @@ export class BotRuntime {
 			postingSettings: current.postingSettings,
 			tickSettings: {
 				...bot.tickSettings,
-				...(current.tickSettings.contextWindowTokens === undefined ?
-					{ contextWindowTokens: undefined }
-				:	{ contextWindowTokens: current.tickSettings.contextWindowTokens }),
+				...(current.tickSettings.contextWindowTokens === undefined
+					? { contextWindowTokens: undefined }
+					: { contextWindowTokens: current.tickSettings.contextWindowTokens }),
 			},
 		});
 	}
 
 	private async markRunStopped(bot: BotDocument, runId: string): Promise<string | null> {
 		if (!this.hasTerminalEvent(runId)) {
-			await this.appendEvent(runId, "tick_stopped", { message: "This Bickr visit was stopped." });
+			await this.appendEvent(runId, 'tick_stopped', { message: 'This Bickr visit was stopped.' });
 		}
-		const nextDueAt = await this.setRuntimeIndex(bot, "idle", null, undefined, new Date().toISOString());
+		const nextDueAt = await this.setRuntimeIndex(bot, 'idle', null, undefined, new Date().toISOString());
 		this.clearStopRequest(runId);
 		return nextDueAt;
 	}
@@ -3865,7 +3868,7 @@ export class BotRuntime {
 		let generatedTokensThisIteration = this.loopGeneratedTokenCountSinceLastLogOff();
 		let railroadNoToolAttempts = 0;
 		let toolRequestTurns = 0;
-		const toolCallsMode = settings.toolCalls ?? "require";
+		const toolCallsMode = settings.toolCalls ?? 'require';
 		const tickSettings = effectiveTickSettings(bot.tickSettings);
 		const maxSuccessfulToolCallsPerIteration = maxSuccessfulToolCallsPerIterationSetting(bot);
 		while (toolRequestTurns < tickSettings.maxToolCallsPerTick) {
@@ -3875,7 +3878,7 @@ export class BotRuntime {
 				return { logOffCalled, publicSpotlightToolCallCount, toolCallCount };
 			}
 			let response: ProviderResponse;
-			let responseStatus: ProviderMessageStatus = "complete";
+			let responseStatus: ProviderMessageStatus = 'complete';
 			let interruptedError: ProviderResponseInterruptedError | null = null;
 			let requestEvent: BotRuntimeEvent;
 			let malformedOnlyRetried = false;
@@ -3884,7 +3887,7 @@ export class BotRuntime {
 				const budgetCheck = await this.ensureProviderPromptWithinBudget(bot, settings, runId, runContext.signal, providerTools);
 				const requestMessages = budgetCheck.requestMessages;
 				const requestContextWindowTokens = budgetCheck.contextWindowTokens ?? tickSettings.contextWindowTokens;
-				requestEvent = await this.appendEvent(runId, "provider_request", {
+				requestEvent = await this.appendEvent(runId, 'provider_request', {
 					model: settings.model,
 					messageCount: requestMessages.length,
 					toolCount: providerTools.length,
@@ -3924,19 +3927,28 @@ export class BotRuntime {
 				this.recordInferenceSubmission({
 					seq: requestEvent.seq,
 					runId,
-					purpose: "loop",
+					purpose: 'loop',
 					settings,
 					messages: requestMessages,
 					createdAt: requestEvent.createdAt,
 				});
-				responseStatus = "complete";
+				responseStatus = 'complete';
 				interruptedError = null;
 				try {
-					response = await this.callProvider(settings, requestMessages, providerTools, runId, requestEvent.seq, runContext.signal, toolCallsMode, requestEvent.createdAt);
+					response = await this.callProvider(
+						settings,
+						requestMessages,
+						providerTools,
+						runId,
+						requestEvent.seq,
+						runContext.signal,
+						toolCallsMode,
+						requestEvent.createdAt,
+					);
 				} catch (error) {
 					if (error instanceof ProviderResponseInterruptedError) {
 						response = error.response;
-						responseStatus = "interrupted";
+						responseStatus = 'interrupted';
 						interruptedError = error;
 					} else {
 						throw error;
@@ -3945,14 +3957,12 @@ export class BotRuntime {
 				const sanitized = sanitizeProviderResponseToolCalls(response);
 				response = sanitized.response;
 				const malformedOnlyResponse =
-					responseStatus === "complete" &&
-					sanitized.originalToolCallCount > 0 &&
-					response.toolCalls.length === 0;
+					responseStatus === 'complete' && sanitized.originalToolCallCount > 0 && response.toolCalls.length === 0;
 				await this.recordDroppedProviderToolCalls(
 					runId,
 					requestEvent.seq,
 					sanitized.dropped,
-					"generated_response",
+					'generated_response',
 					malformedOnlyResponse && !malformedOnlyRetried,
 				);
 				if (response.usage) {
@@ -3972,7 +3982,7 @@ export class BotRuntime {
 					break;
 				}
 				if (malformedOnlyRetried) {
-					throw new Error("Inference provider returned only malformed page-control requests after retry.");
+					throw new Error('Inference provider returned only malformed page-control requests after retry.');
 				}
 				malformedOnlyRetried = true;
 			}
@@ -3981,8 +3991,7 @@ export class BotRuntime {
 			generatedTokensThisTick += responseGeneratedTokens;
 			generatedTokensThisIteration += responseGeneratedTokens;
 			const tickGeneratedLimitReached = generatedTokensThisTick >= tickSettings.maxGeneratedTokensPerTick;
-			let forceSyntheticLogOff =
-				generatedTokensThisIteration >= tickSettings.maxGeneratedTokensPerIteration;
+			let forceSyntheticLogOff = generatedTokensThisIteration >= tickSettings.maxGeneratedTokensPerIteration;
 			const assistantMessage = providerResponseMessageForHistory(response);
 			const assistantToolCallLoopMessageSeqs = new Map<string, number>();
 			let providerResponseLogsRecorded = false;
@@ -3991,9 +4000,13 @@ export class BotRuntime {
 					return;
 				}
 				if (response.requestBody) {
-					this.recordLoopMessageLog(assistantLoopMessageSeq, "provider_request", response.requestBody);
+					this.recordLoopMessageLog(assistantLoopMessageSeq, 'provider_request', response.requestBody);
 				}
-				this.recordLoopMessageLog(assistantLoopMessageSeq, "provider_response", JSON.stringify(providerResponseLogPayload(response, responseStatus)));
+				this.recordLoopMessageLog(
+					assistantLoopMessageSeq,
+					'provider_response',
+					JSON.stringify(providerResponseLogPayload(response, responseStatus)),
+				);
 				providerResponseLogsRecorded = true;
 			};
 			const appendAssistantMessageForToolCall = (toolCall: ToolCall): number | null => {
@@ -4007,7 +4020,7 @@ export class BotRuntime {
 				const assistantLoopMessage = this.appendLoopMessage(
 					runId,
 					providerResponseToolCallMessageForHistory(assistantMessage, toolCall, assistantToolCallLoopMessageSeqs.size === 0),
-					"provider_response",
+					'provider_response',
 					responseStatus,
 					{ streamSeq: requestEvent.seq },
 				);
@@ -4019,10 +4032,12 @@ export class BotRuntime {
 				if (!assistantMessage) {
 					return;
 				}
-				const assistantLoopMessage = this.appendLoopMessage(runId, assistantMessage, "provider_response", responseStatus, { streamSeq: requestEvent.seq });
+				const assistantLoopMessage = this.appendLoopMessage(runId, assistantMessage, 'provider_response', responseStatus, {
+					streamSeq: requestEvent.seq,
+				});
 				recordProviderResponseLogs(assistantLoopMessage.seq);
 			};
-			if (responseStatus === "interrupted") {
+			if (responseStatus === 'interrupted') {
 				if (response.toolCalls.length > 0) {
 					this.appendInterruptedToolMessages(
 						runId,
@@ -4045,17 +4060,17 @@ export class BotRuntime {
 				if (tickGeneratedLimitReached) {
 					return { logOffCalled, publicSpotlightToolCallCount, toolCallCount };
 				}
-				if (toolCallsMode !== "at_will") {
+				if (toolCallsMode !== 'at_will') {
 					railroadNoToolAttempts += 1;
 					if (railroadNoToolAttempts >= providerRailroadNoToolMaxAttempts) {
 						throw new PersistentMissingToolCallError(providerToolNames(providerTools));
 					}
 					const acknowledgementContent = toolRequirementSelfCorrection(providerTools);
-					await this.appendEvent(runId, "assistant_message", {
+					await this.appendEvent(runId, 'assistant_message', {
 						content: acknowledgementContent,
-						status: "complete",
+						status: 'complete',
 					});
-					this.appendLoopMessage(runId, { role: "assistant", content: acknowledgementContent }, "self_correction");
+					this.appendLoopMessage(runId, { role: 'assistant', content: acknowledgementContent }, 'self_correction');
 					continue;
 				}
 				return { logOffCalled, publicSpotlightToolCallCount, toolCallCount };
@@ -4075,26 +4090,32 @@ export class BotRuntime {
 				const canonicalName = canonicalToolName(toolCall.function.name);
 				if (canonicalName === providerCompactionToolName) {
 					pendingToolCallIds.delete(toolCall.id);
-					await this.dropGeneratedProviderToolCall(runId, requestEvent.seq, assistantLoopMessageSeq, toolCall, "disallowed_meta_compaction_tool");
+					await this.dropGeneratedProviderToolCall(
+						runId,
+						requestEvent.seq,
+						assistantLoopMessageSeq,
+						toolCall,
+						'disallowed_meta_compaction_tool',
+					);
 					selfCorrectionAcknowledgements.push(metaCompactionToolMisuseSelfCorrection);
 					continue;
 				}
-				if (canonicalName === "log_off" && !tickSettings.allowEarlyLogOff) {
+				if (canonicalName === 'log_off' && !tickSettings.allowEarlyLogOff) {
 					pendingToolCallIds.delete(toolCall.id);
-					await this.dropGeneratedProviderToolCall(runId, requestEvent.seq, assistantLoopMessageSeq, toolCall, "disallowed_log_off");
+					await this.dropGeneratedProviderToolCall(runId, requestEvent.seq, assistantLoopMessageSeq, toolCall, 'disallowed_log_off');
 					selfCorrectionAcknowledgements.push(disallowedLogOffSelfCorrectionContent);
 					continue;
 				}
-				if (canonicalName === "log_off" && !mutatingToolUsedThisIteration && !prematureLogOffCorrectedThisIteration) {
+				if (canonicalName === 'log_off' && !mutatingToolUsedThisIteration && !prematureLogOffCorrectedThisIteration) {
 					pendingToolCallIds.delete(toolCall.id);
-					await this.dropGeneratedProviderToolCall(runId, requestEvent.seq, assistantLoopMessageSeq, toolCall, "premature_log_off");
+					await this.dropGeneratedProviderToolCall(runId, requestEvent.seq, assistantLoopMessageSeq, toolCall, 'premature_log_off');
 					prematureLogOffCorrectedThisIteration = true;
 					selfCorrectionAcknowledgements.push(prematureLogOffSelfCorrectionContent);
 					continue;
 				}
-				if (logOffCalled && canonicalName !== "log_off") {
+				if (logOffCalled && canonicalName !== 'log_off') {
 					pendingToolCallIds.delete(toolCall.id);
-					await this.dropGeneratedProviderToolCall(runId, requestEvent.seq, assistantLoopMessageSeq, toolCall, "iteration_limit");
+					await this.dropGeneratedProviderToolCall(runId, requestEvent.seq, assistantLoopMessageSeq, toolCall, 'iteration_limit');
 					continue;
 				}
 				let result: ToolResult;
@@ -4104,12 +4125,12 @@ export class BotRuntime {
 					consecutiveToolFailures = 0;
 					if (result.effectiveArgs && assistantLoopMessageSeq !== null) {
 						this.rewriteProviderResponseLoopMessageToolCall(assistantLoopMessageSeq, {
-							kind: "replace_arguments",
+							kind: 'replace_arguments',
 							toolCallId: toolCall.id,
 							arguments: JSON.stringify(providerToolArgs(result.name, result.effectiveArgs)),
 						});
 					}
-					if (result.name === "log_off") {
+					if (result.name === 'log_off') {
 						logOffCalled = true;
 					}
 					successfulToolCallsThisIteration += 1;
@@ -4128,7 +4149,7 @@ export class BotRuntime {
 						pendingToolCallIds.delete(toolCall.id);
 						consecutiveToolFailures = 0;
 						if (assistantLoopMessageSeq !== null) {
-							this.rewriteProviderResponseLoopMessageToolCall(assistantLoopMessageSeq, { kind: "drop", toolCallId: toolCall.id });
+							this.rewriteProviderResponseLoopMessageToolCall(assistantLoopMessageSeq, { kind: 'drop', toolCallId: toolCall.id });
 						}
 						selfCorrectionAcknowledgements.push(...error.selfCorrectionMessages);
 						continue;
@@ -4139,15 +4160,15 @@ export class BotRuntime {
 						pendingToolCallIds.delete(toolCall.id);
 						consecutiveToolFailures = 0;
 						if (assistantLoopMessageSeq !== null) {
-							this.rewriteProviderResponseLoopMessageToolCall(assistantLoopMessageSeq, { kind: "drop", toolCallId: toolCall.id });
+							this.rewriteProviderResponseLoopMessageToolCall(assistantLoopMessageSeq, { kind: 'drop', toolCallId: toolCall.id });
 						}
 						selfCorrectionAcknowledgements.push(selfCorrection);
 						continue;
 					}
 					pendingToolCallIds.delete(toolCall.id);
 					consecutiveToolFailures += 1;
-					await this.appendEvent(runId, "tool_result", {
-						name: toolCall.function.name || "unknown_tool",
+					await this.appendEvent(runId, 'tool_result', {
+						name: toolCall.function.name || 'unknown_tool',
 						args,
 						result: failure,
 						displayContext: { worldHandle: bot.homeWorldHandle },
@@ -4155,13 +4176,13 @@ export class BotRuntime {
 						consecutiveFailures: consecutiveToolFailures,
 					});
 					const toolMessage: ChatMessage = {
-						role: "tool",
+						role: 'tool',
 						tool_call_id: toolCall.id,
 						content: JSON.stringify(failure),
 					};
-					const loopMessage = this.appendLoopMessage(runId, toolMessage, "tool_failure");
-					this.recordLoopMessageLog(loopMessage.seq, "tool_call", JSON.stringify(toolCall));
-					this.recordLoopMessageLog(loopMessage.seq, "tool_result", toolMessage.content ?? "");
+					const loopMessage = this.appendLoopMessage(runId, toolMessage, 'tool_failure');
+					this.recordLoopMessageLog(loopMessage.seq, 'tool_call', JSON.stringify(toolCall));
+					this.recordLoopMessageLog(loopMessage.seq, 'tool_result', toolMessage.content ?? '');
 					const acknowledgement = toolFailureAssistantContent(failure);
 					if (consecutiveToolFailures >= 5) {
 						persistentFailure = failure;
@@ -4170,20 +4191,22 @@ export class BotRuntime {
 					continue;
 				}
 				const toolMessage: ChatMessage = {
-					role: "tool",
+					role: 'tool',
 					tool_call_id: toolCall.id,
 					content: JSON.stringify(result.providerResult),
 				};
-				const loopMessage = this.appendLoopMessage(runId, toolMessage, "tool_result", "complete", { displayEventSeq: result.displayEventSeq });
-				const recordedToolCall = result.effectiveArgs ?
-						toolCallWithArguments(toolCall, JSON.stringify(providerToolArgs(result.name, result.effectiveArgs)))
-					:	toolCall;
-				this.recordLoopMessageLog(loopMessage.seq, "tool_call", JSON.stringify(recordedToolCall));
-				this.recordLoopMessageLog(loopMessage.seq, "tool_result", toolMessage.content ?? "");
+				const loopMessage = this.appendLoopMessage(runId, toolMessage, 'tool_result', 'complete', {
+					displayEventSeq: result.displayEventSeq,
+				});
+				const recordedToolCall = result.effectiveArgs
+					? toolCallWithArguments(toolCall, JSON.stringify(providerToolArgs(result.name, result.effectiveArgs)))
+					: toolCall;
+				this.recordLoopMessageLog(loopMessage.seq, 'tool_call', JSON.stringify(recordedToolCall));
+				this.recordLoopMessageLog(loopMessage.seq, 'tool_result', toolMessage.content ?? '');
 				if (result.selfCorrectionMessages) {
 					selfCorrectionAcknowledgements.push(...result.selfCorrectionMessages);
 				}
-				if (result.name !== "log_off" && successfulToolCallsThisIteration >= maxSuccessfulToolCallsPerIteration) {
+				if (result.name !== 'log_off' && successfulToolCallsThisIteration >= maxSuccessfulToolCallsPerIteration) {
 					forceSyntheticLogOff = true;
 					await this.dropPendingGeneratedProviderToolCalls(
 						runId,
@@ -4191,34 +4214,34 @@ export class BotRuntime {
 						null,
 						response.toolCalls,
 						pendingToolCallIds,
-						"iteration_limit",
+						'iteration_limit',
 					);
 					break;
 				}
 			}
 			if (toolFailureAcknowledgements.length > 0) {
-				const acknowledgementContent = toolFailureAcknowledgements.join("\n\n");
-				await this.appendEvent(runId, "assistant_message", {
+				const acknowledgementContent = toolFailureAcknowledgements.join('\n\n');
+				await this.appendEvent(runId, 'assistant_message', {
 					content: acknowledgementContent,
-					status: "complete",
+					status: 'complete',
 				});
 				const acknowledgementMessage: ChatMessage = {
-					role: "assistant",
+					role: 'assistant',
 					content: acknowledgementContent,
 				};
-				this.appendLoopMessage(runId, acknowledgementMessage, "provider_response");
+				this.appendLoopMessage(runId, acknowledgementMessage, 'provider_response');
 			}
 			if (selfCorrectionAcknowledgements.length > 0) {
-				const acknowledgementContent = selfCorrectionAcknowledgements.join("\n\n");
-				await this.appendEvent(runId, "assistant_message", {
+				const acknowledgementContent = selfCorrectionAcknowledgements.join('\n\n');
+				await this.appendEvent(runId, 'assistant_message', {
 					content: acknowledgementContent,
-					status: "complete",
+					status: 'complete',
 				});
 				const acknowledgementMessage: ChatMessage = {
-					role: "assistant",
+					role: 'assistant',
 					content: acknowledgementContent,
 				};
-				this.appendLoopMessage(runId, acknowledgementMessage, "self_correction");
+				this.appendLoopMessage(runId, acknowledgementMessage, 'self_correction');
 			}
 			if (persistentFailure && consecutiveToolFailures >= 5) {
 				throw new PersistentToolFailureError(persistentFailure);
@@ -4251,17 +4274,17 @@ export class BotRuntime {
 			appendAssistantForToolCall?.(toolCall);
 			const content = JSON.stringify({
 				ok: false,
-				code: "interrupted",
-				message: "This Bickr visit stopped before Bickr Terminal returned a result.",
+				code: 'interrupted',
+				message: 'This Bickr visit stopped before Bickr Terminal returned a result.',
 			});
 			const toolMessage: ChatMessage = {
-				role: "tool",
+				role: 'tool',
 				tool_call_id: toolCall.id,
 				content,
 			};
-			const loopMessage = this.appendLoopMessage(runId, toolMessage, "tool_failure", "interrupted");
-			this.recordLoopMessageLog(loopMessage.seq, "tool_call", JSON.stringify(toolCall));
-			this.recordLoopMessageLog(loopMessage.seq, "tool_result", content);
+			const loopMessage = this.appendLoopMessage(runId, toolMessage, 'tool_failure', 'interrupted');
+			this.recordLoopMessageLog(loopMessage.seq, 'tool_call', JSON.stringify(toolCall));
+			this.recordLoopMessageLog(loopMessage.seq, 'tool_result', content);
 		}
 	}
 
@@ -4272,7 +4295,7 @@ export class BotRuntime {
 		runId: string,
 		streamSeq: number,
 		signal: AbortSignal,
-		toolCalls: BotInferenceToolCalls = settings.toolCalls ?? "require",
+		toolCalls: BotInferenceToolCalls = settings.toolCalls ?? 'require',
 		createdAt = new Date().toISOString(),
 	): Promise<ProviderResponse> {
 		const endpoint = providerChatCompletionsUrl(settings.baseUrl);
@@ -4285,7 +4308,7 @@ export class BotRuntime {
 		for (let attempt = 1; attempt <= providerMaxAttempts; attempt += 1) {
 			this.throwIfStopped(runId, signal);
 			if (attempt > 1) {
-				await this.appendEvent(runId, "provider_retry", {
+				await this.appendEvent(runId, 'provider_retry', {
 					attempt,
 					maxAttempts: providerMaxAttempts,
 					delayMs: retryDelayMs,
@@ -4307,7 +4330,7 @@ export class BotRuntime {
 					this.recordProviderTokenCalibrationSample({
 						attempt: calibrationAttempt,
 						createdAt,
-						purpose: "loop",
+						purpose: 'loop',
 						request,
 						requestSeq: streamSeq,
 						...(response.responseModel ? { responseModel: response.responseModel } : {}),
@@ -4322,7 +4345,7 @@ export class BotRuntime {
 					attempt: calibrationAttempt,
 					createdAt,
 					error,
-					purpose: "loop",
+					purpose: 'loop',
 					request,
 					requestSeq: streamSeq,
 					runId,
@@ -4368,18 +4391,32 @@ export class BotRuntime {
 		messages: ChatMessage[],
 		runId: string,
 		signal: AbortSignal,
-		limits: ProviderCompactionValidationLimits & Pick<ProviderCompactionSummaryLimits, "maxCompletionTokens"> = defaultProviderCompactionSummaryLimits,
+		limits: ProviderCompactionValidationLimits &
+			Pick<ProviderCompactionSummaryLimits, 'maxCompletionTokens'> = defaultProviderCompactionSummaryLimits,
 		providerTools?: ProviderToolDefinition[],
-		mode: ProviderCompactionMode = "structured_output",
+		mode: ProviderCompactionMode = 'structured_output',
 		requestSeq = 0,
 		createdAt = new Date().toISOString(),
-	): Promise<Pick<ProviderResponse, "usage" | "responseId" | "responseModel" | "responseProviderName" | "requestBody" | "rawResponse"> & { content: string }> {
+	): Promise<
+		Pick<ProviderResponse, 'usage' | 'responseId' | 'responseModel' | 'responseProviderName' | 'requestBody' | 'rawResponse'> & {
+			content: string;
+		}
+	> {
 		const endpoint = providerChatCompletionsUrl(settings.baseUrl);
 		const effectiveProviderTools = providerTools ?? providerCompactionToolsForMode(limits, undefined, mode);
 		let requestMessages = messages;
 		let requestSettings = settings;
 		let compactionReasoningMode = this.compactionReasoningModeForSettings(settings);
-		let lastBody = stringifyProviderRequest(providerCompactionRequest(requestSettings, requestMessages, limits, effectiveProviderTools, mode, providerCompactionReasoningForMode(compactionReasoningMode)));
+		let lastBody = stringifyProviderRequest(
+			providerCompactionRequest(
+				requestSettings,
+				requestMessages,
+				limits,
+				effectiveProviderTools,
+				mode,
+				providerCompactionReasoningForMode(compactionReasoningMode),
+			),
+		);
 		let lastValidationError: ProviderStructuredOutputValidationError | null = null;
 		let calibrationAttempt = 0;
 		for (let schemaAttempt = 0; schemaAttempt <= providerStructuredOutputRepairAttempts; schemaAttempt += 1) {
@@ -4389,7 +4426,7 @@ export class BotRuntime {
 			for (let attempt = 1; attempt <= providerMaxAttempts; attempt += 1) {
 				this.throwIfStopped(runId, signal);
 				if (attempt > 1) {
-					await this.appendEvent(runId, "provider_retry", {
+					await this.appendEvent(runId, 'provider_retry', {
 						attempt,
 						maxAttempts: providerMaxAttempts,
 						delayMs: retryDelayMs,
@@ -4399,7 +4436,14 @@ export class BotRuntime {
 						await sleep(retryDelayMs, signal);
 					}
 				}
-					const request = providerCompactionRequest(requestSettings, requestMessages, limits, effectiveProviderTools, mode, providerCompactionReasoningForMode(compactionReasoningMode));
+				const request = providerCompactionRequest(
+					requestSettings,
+					requestMessages,
+					limits,
+					effectiveProviderTools,
+					mode,
+					providerCompactionReasoningForMode(compactionReasoningMode),
+				);
 				const body = stringifyProviderRequest(request);
 				calibrationAttempt += 1;
 				lastBody = body;
@@ -4410,7 +4454,7 @@ export class BotRuntime {
 						this.recordProviderTokenCalibrationSample({
 							attempt: calibrationAttempt,
 							createdAt,
-							purpose: "compaction",
+							purpose: 'compaction',
 							request,
 							requestSeq,
 							...(response.responseModel ? { responseModel: response.responseModel } : {}),
@@ -4425,7 +4469,7 @@ export class BotRuntime {
 						attempt: calibrationAttempt,
 						createdAt,
 						error,
-						purpose: "compaction",
+						purpose: 'compaction',
 						request,
 						requestSeq,
 						runId,
@@ -4434,21 +4478,21 @@ export class BotRuntime {
 					if (error instanceof TickStoppedError || isAbortError(error)) {
 						throw error;
 					}
-						if (error instanceof ProviderCompactionOutputLimitError) {
-							throw new ProviderCompactionRequestError(error, body, error.rawResponse);
+					if (error instanceof ProviderCompactionOutputLimitError) {
+						throw new ProviderCompactionRequestError(error, body, error.rawResponse);
+					}
+					if (compactionReasoningMode === 'none' && providerCompactionNoReasoningRejected(error)) {
+						const reason = runtimeErrorText(error);
+						this.rememberCompactionNoReasoningRejection(settings, reason);
+						compactionReasoningMode = 'minimal';
+						previousRetryKey = null;
+						retryDelayMs = 0;
+						retryReason = 'provider rejected compaction reasoning=none; retrying with minimal';
+						if (attempt < providerMaxAttempts) {
+							continue;
 						}
-						if (compactionReasoningMode === "none" && providerCompactionNoReasoningRejected(error)) {
-							const reason = runtimeErrorText(error);
-							this.rememberCompactionNoReasoningRejection(settings, reason);
-							compactionReasoningMode = "minimal";
-							previousRetryKey = null;
-							retryDelayMs = 0;
-							retryReason = "provider rejected compaction reasoning=none; retrying with minimal";
-							if (attempt < providerMaxAttempts) {
-								continue;
-							}
-						}
-						if (error instanceof ProviderStructuredOutputValidationError) {
+					}
+					if (error instanceof ProviderStructuredOutputValidationError) {
 						lastValidationError = error;
 						break;
 					}
@@ -4477,10 +4521,9 @@ export class BotRuntime {
 				}
 			}
 			if (lastValidationError && schemaAttempt < providerStructuredOutputRepairAttempts) {
-				requestMessages =
-					lastValidationError.outputText ?
-						providerCompactionShortenMessages(messages, lastValidationError.outputText, limits, mode)
-					:	[...requestMessages, ...structuredOutputRepairMessages(lastValidationError)];
+				requestMessages = lastValidationError.outputText
+					? providerCompactionShortenMessages(messages, lastValidationError.outputText, limits, mode)
+					: [...requestMessages, ...structuredOutputRepairMessages(lastValidationError)];
 				continue;
 			}
 			if (lastValidationError) {
@@ -4497,15 +4540,15 @@ export class BotRuntime {
 		signal: AbortSignal,
 		generationResponseId?: string,
 	): Promise<ProviderResponse> {
-		let content = "";
-		let reasoning = "";
+		let content = '';
+		let reasoning = '';
 		const reasoningDetails: ReasoningDetail[] = [];
 		const toolCalls = new Map<number, ToolCall>();
 		let usage: ProviderUsage | undefined;
 		let responseId: string | undefined = generationResponseId;
 		let responseModel: string | undefined;
 		let responseProviderName: string | undefined;
-		let rawResponse = "";
+		let rawResponse = '';
 		this.markProviderStreamActive(runId);
 		try {
 			for await (const event of readSse(stream, signal)) {
@@ -4514,7 +4557,7 @@ export class BotRuntime {
 				if (providerResponsePartsAreEmpty(content, reasoning, reasoningDetails, [...toolCalls.values()])) {
 					rawResponse = appendRawResponsePreview(rawResponse, event.raw);
 				}
-				if (event.data === "[DONE]") {
+				if (event.data === '[DONE]') {
 					break;
 				}
 				const chunk = JSON.parse(event.data) as {
@@ -4532,7 +4575,7 @@ export class BotRuntime {
 							tool_calls?: Array<{
 								index: number;
 								id?: string;
-								type?: "function";
+								type?: 'function';
 								function?: { name?: string; arguments?: string };
 							}>;
 						};
@@ -4552,15 +4595,12 @@ export class BotRuntime {
 				}
 				if (delta.content) {
 					content += delta.content;
-					this.broadcastProviderDelta(runId, streamSeq, { kind: "content", text: delta.content });
+					this.broadcastProviderDelta(runId, streamSeq, { kind: 'content', text: delta.content });
 				}
 				const plainReasoning = delta.reasoning ?? delta.reasoning_content;
-				let detailsReasoning = "";
+				let detailsReasoning = '';
 				if (Array.isArray(delta.reasoning_details) && delta.reasoning_details.length > 0) {
-					const mergedReasoningDetails = normalizeReasoningDetailsForProviderHistory([
-						...reasoningDetails,
-						...delta.reasoning_details,
-					]);
+					const mergedReasoningDetails = normalizeReasoningDetailsForProviderHistory([...reasoningDetails, ...delta.reasoning_details]);
 					reasoningDetails.length = 0;
 					reasoningDetails.push(...mergedReasoningDetails);
 					detailsReasoning = reasoningTextFromDetails(delta.reasoning_details);
@@ -4568,15 +4608,15 @@ export class BotRuntime {
 				const deltaReasoning = plainReasoning || detailsReasoning;
 				if (deltaReasoning) {
 					reasoning += deltaReasoning;
-					this.broadcastProviderDelta(runId, streamSeq, { kind: "reasoning", text: deltaReasoning });
+					this.broadcastProviderDelta(runId, streamSeq, { kind: 'reasoning', text: deltaReasoning });
 				}
 				for (const part of delta.tool_calls ?? []) {
 					const current =
 						toolCalls.get(part.index) ??
 						({
 							id: part.id ?? `tool-${part.index}`,
-							type: "function",
-							function: { name: "", arguments: "" },
+							type: 'function',
+							function: { name: '', arguments: '' },
 						} satisfies ToolCall);
 					if (part.id) {
 						current.id = part.id;
@@ -4588,29 +4628,29 @@ export class BotRuntime {
 						current.function.arguments += part.function.arguments;
 					}
 					toolCalls.set(part.index, current);
-					this.broadcastProviderDelta(runId, streamSeq, { kind: "tool_call", part });
+					this.broadcastProviderDelta(runId, streamSeq, { kind: 'tool_call', part });
 				}
 			}
 		} catch (error) {
 			if (error instanceof ProviderStreamIdleTimeoutError) {
 				throw error;
 			}
-				if (error instanceof TickStoppedError || isAbortError(error)) {
-					throw new ProviderResponseInterruptedError(
-						{
-							content,
-							reasoning,
-							reasoningDetails,
-							toolCalls: [...toolCalls.values()].filter((tool) => tool.function.name),
-							...(rawResponse ? { rawResponse } : {}),
-							...(usage ? { usage } : {}),
-							...(responseId ? { responseId } : {}),
-							...(responseModel ? { responseModel } : {}),
-							...(responseProviderName ? { responseProviderName } : {}),
-						},
-						error,
-					);
-				}
+			if (error instanceof TickStoppedError || isAbortError(error)) {
+				throw new ProviderResponseInterruptedError(
+					{
+						content,
+						reasoning,
+						reasoningDetails,
+						toolCalls: [...toolCalls.values()].filter((tool) => tool.function.name),
+						...(rawResponse ? { rawResponse } : {}),
+						...(usage ? { usage } : {}),
+						...(responseId ? { responseId } : {}),
+						...(responseModel ? { responseModel } : {}),
+						...(responseProviderName ? { responseProviderName } : {}),
+					},
+					error,
+				);
+			}
 			throw error;
 		} finally {
 			this.clearProviderStreamActive(runId);
@@ -4643,14 +4683,14 @@ export class BotRuntime {
 		streamSeq: number,
 	): Promise<void> {
 		if (response.reasoning) {
-			await this.appendEvent(runId, "reasoning_message", {
+			await this.appendEvent(runId, 'reasoning_message', {
 				content: response.reasoning,
 				status,
 				streamSeq,
 			});
 		}
 		if (response.content) {
-			await this.appendEvent(runId, "assistant_message", {
+			await this.appendEvent(runId, 'assistant_message', {
 				content: response.content,
 				status,
 				streamSeq,
@@ -4662,7 +4702,7 @@ export class BotRuntime {
 		runId: string,
 		streamSeq: number | null,
 		dropped: readonly DroppedProviderToolCall[],
-		phase: "generated_response" | "history_repair",
+		phase: 'generated_response' | 'history_repair',
 		retrying: boolean,
 	): Promise<void> {
 		if (dropped.length === 0) {
@@ -4674,13 +4714,13 @@ export class BotRuntime {
 			reason: call.reason,
 			argumentsPreview: call.argumentsPreview,
 		}));
-		await this.appendEvent(runId, "provider_tool_call_dropped", {
+		await this.appendEvent(runId, 'provider_tool_call_dropped', {
 			runId,
 			streamSeq,
 			count: calls.length,
 			callIds: [...new Set(calls.map((call) => call.id).filter(Boolean))],
 			functionNames: [...new Set(calls.map((call) => call.name).filter(Boolean))],
-			reason: [...new Set(calls.map((call) => call.reason))].join(","),
+			reason: [...new Set(calls.map((call) => call.reason))].join(','),
 			phase,
 			retrying,
 			calls,
@@ -4695,13 +4735,13 @@ export class BotRuntime {
 		reason: ProviderToolCallDropReason,
 	): Promise<void> {
 		if (assistantLoopMessageSeq !== null && this.hasRuntimeStorage()) {
-			this.rewriteProviderResponseLoopMessageToolCall(assistantLoopMessageSeq, { kind: "drop", toolCallId: toolCall.id });
+			this.rewriteProviderResponseLoopMessageToolCall(assistantLoopMessageSeq, { kind: 'drop', toolCallId: toolCall.id });
 		}
 		await this.recordDroppedProviderToolCalls(
 			runId,
 			streamSeq,
 			[droppedProviderToolCall(toolCall.id, toolCall.function.name, reason, toolCall.function.arguments)],
-			"generated_response",
+			'generated_response',
 			false,
 		);
 	}
@@ -4722,35 +4762,40 @@ export class BotRuntime {
 			pendingToolCallIds.delete(toolCall.id);
 			dropped.push(droppedProviderToolCall(toolCall.id, toolCall.function.name, reason, toolCall.function.arguments));
 			if (assistantLoopMessageSeq !== null && this.hasRuntimeStorage()) {
-				this.rewriteProviderResponseLoopMessageToolCall(assistantLoopMessageSeq, { kind: "drop", toolCallId: toolCall.id });
+				this.rewriteProviderResponseLoopMessageToolCall(assistantLoopMessageSeq, { kind: 'drop', toolCallId: toolCall.id });
 			}
 		}
 		if (dropped.length > 0) {
-			await this.recordDroppedProviderToolCalls(runId, streamSeq, dropped, "generated_response", false);
+			await this.recordDroppedProviderToolCalls(runId, streamSeq, dropped, 'generated_response', false);
 		}
 	}
 
 	private async appendSyntheticLimitLogOff(bot: BotDocument, runId: string, runContext: RunContext): Promise<void> {
 		const args = { reason: syntheticLimitLogOffReason };
-		const toolCall = syntheticToolCall(runId, "log_off", this.hasRuntimeStorage() ? this.latestEventSeq() + 1 : 0, args);
-		await this.appendEvent(runId, "assistant_message", {
+		const toolCall = syntheticToolCall(runId, 'log_off', this.hasRuntimeStorage() ? this.latestEventSeq() + 1 : 0, args);
+		await this.appendEvent(runId, 'assistant_message', {
 			content: syntheticLimitLogOffContent,
-			status: "complete",
+			status: 'complete',
 		});
-		this.appendLoopMessage(runId, {
-			role: "assistant",
-			content: syntheticLimitLogOffContent,
-			tool_calls: [toolCall],
-		}, "self_correction", "complete");
-		const result = await this.executeTool(bot, runId, "log_off", args, runContext);
+		this.appendLoopMessage(
+			runId,
+			{
+				role: 'assistant',
+				content: syntheticLimitLogOffContent,
+				tool_calls: [toolCall],
+			},
+			'self_correction',
+			'complete',
+		);
+		const result = await this.executeTool(bot, runId, 'log_off', args, runContext);
 		const toolMessage: ChatMessage = {
-			role: "tool",
+			role: 'tool',
 			tool_call_id: toolCall.id,
 			content: JSON.stringify(result.providerResult),
 		};
-		const loopMessage = this.appendLoopMessage(runId, toolMessage, "tool_result", "complete", { displayEventSeq: result.displayEventSeq });
-		this.recordLoopMessageLog(loopMessage.seq, "tool_call", JSON.stringify(toolCall));
-		this.recordLoopMessageLog(loopMessage.seq, "tool_result", toolMessage.content ?? "");
+		const loopMessage = this.appendLoopMessage(runId, toolMessage, 'tool_result', 'complete', { displayEventSeq: result.displayEventSeq });
+		this.recordLoopMessageLog(loopMessage.seq, 'tool_call', JSON.stringify(toolCall));
+		this.recordLoopMessageLog(loopMessage.seq, 'tool_result', toolMessage.content ?? '');
 	}
 
 	private rewriteProviderResponseLoopMessageToolCall(seq: number, rewrite: ProviderToolCallRewrite): void {
@@ -4766,14 +4811,14 @@ export class BotRuntime {
 				seq,
 			)
 			.toArray()[0];
-		if (!row || row.origin !== "provider_response") {
+		if (!row || row.origin !== 'provider_response') {
 			return;
 		}
 		const result = rewriteProviderResponseToolCallMessage(loopMessageChatMessageFromRow(row), rewrite);
-		if (result.kind === "unchanged") {
+		if (result.kind === 'unchanged') {
 			return;
 		}
-		if (result.kind === "deleted") {
+		if (result.kind === 'deleted') {
 			this.state.storage.sql.exec(
 				`UPDATE loop_messages
 				 SET deleted_at = ?
@@ -4782,7 +4827,7 @@ export class BotRuntime {
 				new Date().toISOString(),
 				seq,
 			);
-			this.broadcastControl({ type: "loop_messages_reset" });
+			this.broadcastControl({ type: 'loop_messages_reset' });
 			return;
 		}
 		const messageJson = JSON.stringify(result.message);
@@ -4795,15 +4840,15 @@ export class BotRuntime {
 			estimateTextTokens(messageJson),
 			seq,
 		);
-		this.recordLoopMessageLog(seq, "message", messageJson);
-		this.broadcastControl({ type: "loop_messages_reset" });
+		this.recordLoopMessageLog(seq, 'message', messageJson);
+		this.broadcastControl({ type: 'loop_messages_reset' });
 	}
 
 	private appendLoopMessage(
 		runId: string,
 		message: ChatMessage,
 		origin: BotLoopMessageOrigin,
-		status: BotLoopMessageStatus = "complete",
+		status: BotLoopMessageStatus = 'complete',
 		options: { streamSeq?: number; displayEventSeq?: number } = {},
 	): BotLoopMessage {
 		const inserted = this.insertLoopMessage({
@@ -4815,20 +4860,28 @@ export class BotRuntime {
 			displayEventSeq: options.displayEventSeq,
 			broadcast: true,
 		});
-		this.recordLoopMessageLog(inserted.seq, "message", JSON.stringify(message));
+		this.recordLoopMessageLog(inserted.seq, 'message', JSON.stringify(message));
 		return inserted;
 	}
 
-	private async recordTickFailure(runId: string, payload: Record<string, unknown>, logs: RuntimeFailureLog[] = []): Promise<BotRuntimeEvent> {
-		const message = stringValue(payload.message) ?? "Unexpected Bickr visit error.";
-		const loopMessage = this.appendLoopMessage(runId, {
-			role: "user",
-			content: runtimeErrorLoopMessageContent(message),
-		}, "runtime_error");
+	private async recordTickFailure(
+		runId: string,
+		payload: Record<string, unknown>,
+		logs: RuntimeFailureLog[] = [],
+	): Promise<BotRuntimeEvent> {
+		const message = stringValue(payload.message) ?? 'Unexpected Bickr visit error.';
+		const loopMessage = this.appendLoopMessage(
+			runId,
+			{
+				role: 'user',
+				content: runtimeErrorLoopMessageContent(message),
+			},
+			'runtime_error',
+		);
 		for (const log of logs) {
 			this.recordLoopMessageLog(loopMessage.seq, log.kind, log.text);
 		}
-		return this.appendEvent(runId, "tick_failed", payload);
+		return this.appendEvent(runId, 'tick_failed', payload);
 	}
 
 	private insertLoopMessage(input: {
@@ -4886,8 +4939,10 @@ export class BotRuntime {
 		return message;
 	}
 
-	private loopMessageDisplayEventRow(displayEventSeq: number | undefined): Pick<LoopMessageRow, "display_event_seq" | "display_event_type" | "display_event_payload_json"> {
-		if (typeof displayEventSeq !== "number" || !Number.isInteger(displayEventSeq) || displayEventSeq <= 0) {
+	private loopMessageDisplayEventRow(
+		displayEventSeq: number | undefined,
+	): Pick<LoopMessageRow, 'display_event_seq' | 'display_event_type' | 'display_event_payload_json'> {
+		if (typeof displayEventSeq !== 'number' || !Number.isInteger(displayEventSeq) || displayEventSeq <= 0) {
 			return {
 				display_event_seq: null,
 				display_event_type: null,
@@ -4903,7 +4958,7 @@ export class BotRuntime {
 				displayEventSeq,
 			)
 			.toArray()[0];
-		if (!row || row.type !== "tool_result") {
+		if (!row || row.type !== 'tool_result') {
 			return {
 				display_event_seq: null,
 				display_event_type: null,
@@ -4925,7 +4980,7 @@ export class BotRuntime {
 	}
 
 	private broadcastLoopMessage(message: BotLoopMessage): void {
-		this.broadcastControl({ type: "loop_message", loopMessage: { ...message, hasLogs: true } });
+		this.broadcastControl({ type: 'loop_message', loopMessage: { ...message, hasLogs: true } });
 	}
 
 	private activeLoopMessageRows(): LoopMessageRow[] {
@@ -4948,7 +5003,7 @@ export class BotRuntime {
 
 	private activeProviderHistoryLoopMessageRows(): LoopMessageRow[] {
 		return this.activeLoopMessageRows().filter((row) =>
-			loopMessageContributesToProviderHistory(row.origin, loopMessageChatMessageFromRow(row))
+			loopMessageContributesToProviderHistory(row.origin, loopMessageChatMessageFromRow(row)),
 		);
 	}
 
@@ -4960,7 +5015,7 @@ export class BotRuntime {
 		if (repair.actions.length > 0) {
 			const deletedAt = new Date().toISOString();
 			for (const action of repair.actions) {
-				if (action.kind === "delete") {
+				if (action.kind === 'delete') {
 					this.state.storage.sql.exec(
 						`UPDATE loop_messages
 						 SET deleted_at = ?
@@ -4982,13 +5037,13 @@ export class BotRuntime {
 					);
 				}
 			}
-			this.broadcastControl({ type: "loop_messages_reset" });
+			this.broadcastControl({ type: 'loop_messages_reset' });
 		}
 		if (repair.repairedTextCount > 0) {
 			await this.recordProviderHistoryRepair(runId, repair.repairedTextCount, repair.repairedMessageSeqs);
 		}
 		if (repair.dropped.length > 0) {
-			await this.recordDroppedProviderToolCalls(runId, null, repair.dropped, "history_repair", false);
+			await this.recordDroppedProviderToolCalls(runId, null, repair.dropped, 'history_repair', false);
 		}
 		await this.splitActiveProviderToolCallBundles(runId);
 		return repair.dropped;
@@ -5013,8 +5068,8 @@ export class BotRuntime {
 		if (splitCount === 0) {
 			return 0;
 		}
-		this.broadcastControl({ type: "loop_messages_reset" });
-		await this.recordProviderHistoryRepair(runId, splitCount, repairedSeqs, "split_multi_tool_call_message");
+		this.broadcastControl({ type: 'loop_messages_reset' });
+		await this.recordProviderHistoryRepair(runId, splitCount, repairedSeqs, 'split_multi_tool_call_message');
 		return splitCount;
 	}
 
@@ -5025,7 +5080,12 @@ export class BotRuntime {
 			.filter(({ row, message }) => loopMessageContributesToProviderHistory(row.origin, message));
 		for (let index = 0; index < providerRows.length; index += 1) {
 			const current = providerRows[index];
-			if (!current || current.message.role !== "assistant" || !Array.isArray(current.message.tool_calls) || current.message.tool_calls.length <= 1) {
+			if (
+				!current ||
+				current.message.role !== 'assistant' ||
+				!Array.isArray(current.message.tool_calls) ||
+				current.message.tool_calls.length <= 1
+			) {
 				continue;
 			}
 			const toolCalls = current.message.tool_calls;
@@ -5034,7 +5094,12 @@ export class BotRuntime {
 			let scan = index + 1;
 			while (scan < providerRows.length && toolRowsByCallId.size < expectedIds.size) {
 				const candidate = providerRows[scan];
-				if (!candidate || candidate.message.role !== "tool" || !candidate.message.tool_call_id || !expectedIds.has(candidate.message.tool_call_id)) {
+				if (
+					!candidate ||
+					candidate.message.role !== 'tool' ||
+					!candidate.message.tool_call_id ||
+					!expectedIds.has(candidate.message.tool_call_id)
+				) {
 					break;
 				}
 				toolRowsByCallId.set(candidate.message.tool_call_id, candidate.row);
@@ -5069,7 +5134,7 @@ export class BotRuntime {
 				createdAt: split.assistantRow.created_at,
 				broadcast: false,
 			});
-			this.recordLoopMessageLog(inserted.seq, "message", JSON.stringify(message));
+			this.recordLoopMessageLog(inserted.seq, 'message', JSON.stringify(message));
 			insertedSeqs.push(inserted.seq);
 			insertedByToolRowSeq.set(pair.toolRow.seq, inserted.seq);
 		}
@@ -5107,7 +5172,7 @@ export class BotRuntime {
 			estimateTextTokens(messageJson),
 			seq,
 		);
-		this.recordLoopMessageLog(seq, "message", messageJson);
+		this.recordLoopMessageLog(seq, 'message', messageJson);
 	}
 
 	private repositionActiveLoopMessages(seqOrder: readonly number[]): void {
@@ -5139,9 +5204,9 @@ export class BotRuntime {
 		runId: string,
 		count: number,
 		messageSeqs: readonly number[],
-		reason = "invalid_unicode_text",
+		reason = 'invalid_unicode_text',
 	): Promise<void> {
-		await this.appendEvent(runId, "provider_history_repaired", {
+		await this.appendEvent(runId, 'provider_history_repaired', {
 			runId,
 			count,
 			messageSeqs: [...messageSeqs],
@@ -5156,10 +5221,8 @@ export class BotRuntime {
 	private loopMessagesPage(input: { page: number; after?: number }): BotLoopMessagesResponse {
 		const pageIndex = this.loopMessagePageIndex();
 		const requestedPage = Math.max(1, Math.floor(input.page));
-		const currentDescriptor =
-			pageIndex.descriptors.find((descriptor) => descriptor.page === requestedPage) ??
-			pageIndex.descriptors[pageIndex.descriptors.length - 1] ??
-			{ page: 1, sourceCompactionSeq: null };
+		const currentDescriptor = pageIndex.descriptors.find((descriptor) => descriptor.page === requestedPage) ??
+			pageIndex.descriptors[pageIndex.descriptors.length - 1] ?? { page: 1, sourceCompactionSeq: null };
 		const after = currentDescriptor.page === 1 ? Math.max(0, Math.floor(input.after ?? 0)) : 0;
 		const rows = this.loopMessageRowsForPage(currentDescriptor.sourceCompactionSeq, after);
 		const summaries = this.loopMessagePageSummaries(pageIndex);
@@ -5170,9 +5233,7 @@ export class BotRuntime {
 				currentPage: currentDescriptor.page,
 				pageCount: pageIndex.descriptors.length,
 				pages: summaries,
-				compactionPageBySeq: Object.fromEntries(
-					[...pageIndex.compactionPageBySeq.entries()].map(([seq, page]) => [String(seq), page]),
-				),
+				compactionPageBySeq: Object.fromEntries([...pageIndex.compactionPageBySeq.entries()].map(([seq, page]) => [String(seq), page])),
 				...(currentDescriptor.newerPage ? { newerPage: currentDescriptor.newerPage } : {}),
 				...(currentSummary?.olderPage ? { olderPage: currentSummary.olderPage } : {}),
 			},
@@ -5187,7 +5248,7 @@ export class BotRuntime {
 			if (descriptors.length >= loopMessagePageIndexLimit) {
 				return;
 			}
-			const sourceKey = sourceCompactionSeq === null ? "active" : String(sourceCompactionSeq);
+			const sourceKey = sourceCompactionSeq === null ? 'active' : String(sourceCompactionSeq);
 			if (visitedSources.has(sourceKey)) {
 				return;
 			}
@@ -5231,14 +5292,8 @@ export class BotRuntime {
 
 	private loopMessageRowsForPage(sourceCompactionSeq: number | null, afterSeq: number): LoopMessageRow[] {
 		if (sourceCompactionSeq === null) {
-			const filters = [
-				"m.compacted_by IS NULL",
-				"m.deleted_at IS NULL",
-				...(afterSeq > 0 ? ["m.seq > ?"] : []),
-			];
-			const params = [
-				...(afterSeq > 0 ? [afterSeq] : []),
-			];
+			const filters = ['m.compacted_by IS NULL', 'm.deleted_at IS NULL', ...(afterSeq > 0 ? ['m.seq > ?'] : [])];
+			const params = [...(afterSeq > 0 ? [afterSeq] : [])];
 			return this.state.storage.sql
 				.exec<LoopMessageRow>(
 					`SELECT m.seq, m.position, m.run_id, m.role, m.message_json, m.origin, m.status,
@@ -5247,9 +5302,9 @@ export class BotRuntime {
 					        CASE WHEN EXISTS (SELECT 1 FROM loop_message_logs l WHERE l.message_seq = m.seq) THEN 1 ELSE 0 END AS has_logs
 					 FROM loop_messages m
 					 LEFT JOIN events display ON display.seq = m.display_event_seq
-					 WHERE ${filters.join("\n\t\t\t\t\t   AND ")}
+					 WHERE ${filters.join('\n\t\t\t\t\t   AND ')}
 					 ORDER BY m.position ASC, m.seq ASC
-					 ${afterSeq > 0 ? "LIMIT 2000" : ""}`,
+					 ${afterSeq > 0 ? 'LIMIT 2000' : ''}`,
 					...params,
 				)
 				.toArray();
@@ -5275,7 +5330,7 @@ export class BotRuntime {
 			.exec<{ seq: number }>(
 				`SELECT m.seq
 				 FROM loop_messages m
-				 WHERE m.compacted_by ${sourceCompactionSeq === null ? "IS NULL" : "= ?"}
+				 WHERE m.compacted_by ${sourceCompactionSeq === null ? 'IS NULL' : '= ?'}
 				   AND m.deleted_at IS NULL
 				   AND m.origin = 'compaction'
 				   AND EXISTS (
@@ -5309,10 +5364,10 @@ export class BotRuntime {
 				 LIMIT 1`,
 			)
 			.toArray()[0];
-		if (!row || typeof row.message_seq !== "number" || typeof row.created_at !== "string") {
+		if (!row || typeof row.message_seq !== 'number' || typeof row.created_at !== 'string') {
 			return null;
 		}
-		const requestSeq = typeof row.request_seq === "number" ? row.request_seq : row.message_seq;
+		const requestSeq = typeof row.request_seq === 'number' ? row.request_seq : row.message_seq;
 		return { messageSeq: row.message_seq, requestSeq, created_at: row.created_at };
 	}
 
@@ -5328,7 +5383,7 @@ export class BotRuntime {
 
 	private loopMessageLogsForSeq(seq: number): BotLoopMessageLogsResponse {
 		if (!Number.isInteger(seq) || seq <= 0) {
-			throw new RepositoryError("bad_request", "Loop message sequence is invalid.", 400);
+			throw new RepositoryError('bad_request', 'Loop message sequence is invalid.', 400);
 		}
 		const row = this.state.storage.sql
 			.exec<LoopMessageRow>(
@@ -5344,7 +5399,7 @@ export class BotRuntime {
 			)
 			.toArray()[0];
 		if (!row) {
-			throw new RepositoryError("not_found", "Loop message was not found.", 404);
+			throw new RepositoryError('not_found', 'Loop message was not found.', 404);
 		}
 		const logs = this.state.storage.sql
 			.exec<LoopMessageLogRow>(
@@ -5401,14 +5456,9 @@ export class BotRuntime {
 		}
 		const cachedInputTokens = Math.min(row.prompt_tokens, Math.max(0, row.cached_tokens));
 		const uncachedInputTokens = Math.max(0, row.prompt_tokens - cachedInputTokens);
-		const cachedInputCost =
-			promptCost === null ? null
-			: row.prompt_tokens > 0 ? promptCost * (cachedInputTokens / row.prompt_tokens)
-			: 0;
+		const cachedInputCost = promptCost === null ? null : row.prompt_tokens > 0 ? promptCost * (cachedInputTokens / row.prompt_tokens) : 0;
 		const uncachedInputCost =
-			promptCost === null ? null
-			: row.prompt_tokens > 0 ? promptCost * (uncachedInputTokens / row.prompt_tokens)
-			: 0;
+			promptCost === null ? null : row.prompt_tokens > 0 ? promptCost * (uncachedInputTokens / row.prompt_tokens) : 0;
 		return {
 			promptTokens: row.prompt_tokens,
 			cachedInputTokens,
@@ -5427,14 +5477,14 @@ export class BotRuntime {
 		logs: readonly BotLoopMessageLog[],
 		usage: BotLoopMessageRequestUsage | undefined,
 	): BotLoopMessageRequestLogMessage[] {
-		const requestLog = logs.find((log) => log.kind === "provider_request" || log.kind === "compaction_request");
+		const requestLog = logs.find((log) => log.kind === 'provider_request' || log.kind === 'compaction_request');
 		if (!requestLog) {
 			return [];
 		}
 		let messages: BotInferenceSubmissionMessage[];
 		try {
 			const record = runtimeRecord(JSON.parse(requestLog.text));
-			messages = Array.isArray(record.messages) ? record.messages as BotInferenceSubmissionMessage[] : [];
+			messages = Array.isArray(record.messages) ? (record.messages as BotInferenceSubmissionMessage[]) : [];
 		} catch {
 			return [];
 		}
@@ -5449,10 +5499,7 @@ export class BotRuntime {
 			const start = consumed;
 			const end = consumed + tokens;
 			consumed = end;
-			const cacheStatus =
-				cachedTokens <= start ? undefined
-				: cachedTokens >= end ? "cached"
-				: "partially_cached";
+			const cacheStatus = cachedTokens <= start ? undefined : cachedTokens >= end ? 'cached' : 'partially_cached';
 			return {
 				message,
 				position: index + 1,
@@ -5463,7 +5510,7 @@ export class BotRuntime {
 
 	private recordLoopMessageLog(messageSeq: number, kind: BotLoopMessageLogKind, text: string): void {
 		const base = this.latestLoopMessageLogBase(kind);
-		const encoded = base ? encodeLoopMessageLog(text, base.text, base.id) : { encoding: "full" as const, text };
+		const encoded = base ? encodeLoopMessageLog(text, base.text, base.id) : { encoding: 'full' as const, text };
 		const now = new Date().toISOString();
 		const chunks = chunkText(encoded.text, loopMessageLogChunkLength);
 		this.state.storage.sql.exec(
@@ -5484,7 +5531,7 @@ export class BotRuntime {
 				`INSERT INTO loop_message_log_chunks (log_id, chunk_index, text) VALUES (?, ?, ?)`,
 				logId,
 				index,
-				chunks[index] ?? "",
+				chunks[index] ?? '',
 			);
 		}
 		this.pruneLoopMessageLogs();
@@ -5506,7 +5553,7 @@ export class BotRuntime {
 
 	private reconstructLoopMessageLogText(logId: number, seen = new Set<number>()): string {
 		if (seen.has(logId)) {
-			throw new RepositoryError("server_error", "Loop message log chain is cyclic.", 500);
+			throw new RepositoryError('server_error', 'Loop message log chain is cyclic.', 500);
 		}
 		seen.add(logId);
 		const row = this.state.storage.sql
@@ -5519,7 +5566,7 @@ export class BotRuntime {
 			)
 			.toArray()[0];
 		if (!row) {
-			throw new RepositoryError("not_found", "Loop message log was not found.", 404);
+			throw new RepositoryError('not_found', 'Loop message log was not found.', 404);
 		}
 		const encoded = this.state.storage.sql
 			.exec<LoopMessageLogChunkRow>(
@@ -5531,15 +5578,15 @@ export class BotRuntime {
 			)
 			.toArray()
 			.map((chunk) => chunk.text)
-			.join("");
-		if (row.encoding === "full") {
+			.join('');
+		if (row.encoding === 'full') {
 			return encoded;
 		}
 		if (!row.base_log_id) {
-			throw new RepositoryError("server_error", "Delta log is missing its base.", 500);
+			throw new RepositoryError('server_error', 'Delta log is missing its base.', 500);
 		}
 		const base = this.reconstructLoopMessageLogText(row.base_log_id, seen);
-		if (row.encoding === "append") {
+		if (row.encoding === 'append') {
 			return `${base}${encoded}`;
 		}
 		return `${base.slice(0, row.prefix_length ?? 0)}${encoded}`;
@@ -5601,7 +5648,7 @@ export class BotRuntime {
 				`INSERT INTO loop_message_log_chunks (log_id, chunk_index, text) VALUES (?, ?, ?)`,
 				logId,
 				index,
-				chunks[index] ?? "",
+				chunks[index] ?? '',
 			);
 		}
 	}
@@ -5676,7 +5723,7 @@ export class BotRuntime {
 		requestSeq: number;
 		responseModel?: string;
 		runId: string;
-		settings: Pick<ProviderSettings, "baseUrl" | "model">;
+		settings: Pick<ProviderSettings, 'baseUrl' | 'model'>;
 		usage: ProviderUsage;
 	}): void {
 		if (!this.hasRuntimeStorage()) {
@@ -5715,7 +5762,7 @@ export class BotRuntime {
 		request: ProviderTokenCalibrationRequestShape;
 		requestSeq: number;
 		runId: string;
-		settings: Pick<ProviderSettings, "baseUrl" | "model">;
+		settings: Pick<ProviderSettings, 'baseUrl' | 'model'>;
 	}): void {
 		const metadata = providerTokenUsageMetadataFromError(input.error);
 		if (!metadata?.usage) {
@@ -5752,7 +5799,7 @@ export class BotRuntime {
 	}
 
 	private backfillProviderTokenCalibrationSamples(): void {
-		if (this.runtimeStateBoolean("provider_token_calibration_samples_backfilled")) {
+		if (this.runtimeStateBoolean('provider_token_calibration_samples_backfilled')) {
 			return;
 		}
 		const rows = this.state.storage.sql
@@ -5789,7 +5836,7 @@ export class BotRuntime {
 				row.created_at,
 			);
 		}
-		this.setRuntimeState("provider_token_calibration_samples_backfilled", true);
+		this.setRuntimeState('provider_token_calibration_samples_backfilled', true);
 	}
 
 	private recordInferenceSubmission(input: {
@@ -5868,7 +5915,7 @@ export class BotRuntime {
 
 	private inferenceSubmissionForSeq(seq: number): BotInferenceSubmission {
 		if (!Number.isInteger(seq) || seq <= 0) {
-			throw new RepositoryError("bad_request", "Inference submission sequence is invalid.", 400);
+			throw new RepositoryError('bad_request', 'Inference submission sequence is invalid.', 400);
 		}
 		const row = this.state.storage.sql
 			.exec<InferenceSubmissionRow>(
@@ -5880,7 +5927,7 @@ export class BotRuntime {
 			)
 			.toArray()[0];
 		if (!row) {
-			throw new RepositoryError("not_found", "Inference submission was not found.", 404);
+			throw new RepositoryError('not_found', 'Inference submission was not found.', 404);
 		}
 		return {
 			...inferenceSubmissionSummaryFromRow(row),
@@ -6003,7 +6050,7 @@ export class BotRuntime {
 	private async promptContextBudget(botId: string, input: BotContextBudgetInput): Promise<BotContextBudget> {
 		const budget = await this.promptContextBudgetForInput(botId, input, true);
 		if (!budget) {
-			throw new Error("Prompt context budget was not available after computation.");
+			throw new Error('Prompt context budget was not available after computation.');
 		}
 		return budget;
 	}
@@ -6033,28 +6080,25 @@ export class BotRuntime {
 		});
 		const tickSettings = effectiveTickSettings(bot.tickSettings);
 		const settings = this.effectiveProviderSettings(bot, owner);
-		if (computeIfMissing && !settings.apiKey && !settings.usesCustomBaseUrl && this.env.BICKR_SIMULATION_MODE !== "provider") {
-			throw new InputError("Configure an OpenRouter API key or custom inference base URL to compute exact tokens.");
+		if (computeIfMissing && !settings.apiKey && !settings.usesCustomBaseUrl && this.env.BICKR_SIMULATION_MODE !== 'provider') {
+			throw new InputError('Configure an OpenRouter API key or custom inference base URL to compute exact tokens.');
 		}
 
-		const {
-			fixedSystemMessage,
-			fullSystemMessage,
-			reasoningPrefill,
-			providerTools,
-		} = contextBudgetPromptParts(bot, settings);
-		const fixedSystemFingerprint = await sha256Hex(JSON.stringify({
-			system: fixedSystemMessage,
-			messages: providerMessagesWithPrefillCompatibility(
-				settings,
-				providerMessagesWithReasoningPrefill([{ role: "system", content: fixedSystemMessage }], reasoningPrefill),
-			),
-			tools: providerTools,
-		}));
+		const { fixedSystemMessage, fullSystemMessage, reasoningPrefill, providerTools } = contextBudgetPromptParts(bot, settings);
+		const fixedSystemFingerprint = await sha256Hex(
+			JSON.stringify({
+				system: fixedSystemMessage,
+				messages: providerMessagesWithPrefillCompatibility(
+					settings,
+					providerMessagesWithReasoningPrefill([{ role: 'system', content: fixedSystemMessage }], reasoningPrefill),
+				),
+				tools: providerTools,
+			}),
+		);
 		const personaPromptFingerprint = await sha256Hex(bot.prompt);
 		const fingerprint = await promptContextBudgetCacheFingerprint({
 			botId,
-			compactionMode: settings.compactionMode ?? "structured_output",
+			compactionMode: settings.compactionMode ?? 'structured_output',
 			effectiveModel: settings.model,
 			fixedSystemFingerprint,
 			personaPromptFingerprint,
@@ -6068,12 +6112,12 @@ export class BotRuntime {
 		}
 		const counts =
 			cachedCounts ??
-			await (async () => {
+			(await (async () => {
 				const fixedUsage = await this.fetchPromptTokenProbeUsage(
 					settings,
 					providerMessagesWithPrefillCompatibility(
 						settings,
-						providerMessagesWithReasoningPrefill([{ role: "system", content: fixedSystemMessage }], reasoningPrefill),
+						providerMessagesWithReasoningPrefill([{ role: 'system', content: fixedSystemMessage }], reasoningPrefill),
 					),
 					providerTools,
 				);
@@ -6081,7 +6125,7 @@ export class BotRuntime {
 					settings,
 					providerMessagesWithPrefillCompatibility(
 						settings,
-						providerMessagesWithReasoningPrefill([{ role: "system", content: fullSystemMessage }], reasoningPrefill),
+						providerMessagesWithReasoningPrefill([{ role: 'system', content: fullSystemMessage }], reasoningPrefill),
 					),
 					providerTools,
 				);
@@ -6091,7 +6135,7 @@ export class BotRuntime {
 				};
 				this.setContextBudgetCachedCounts(fingerprint, next);
 				return next;
-			})();
+			})());
 		const budget = promptContextBudgetFromCounts({
 			...counts,
 			contextWindowTokens: tickSettings.contextWindowTokens,
@@ -6121,40 +6165,56 @@ export class BotRuntime {
 		const owner = await userById(this.env.BICKR_KV, bot.ownerUserId);
 		const settings = this.effectiveProviderSettings(bot, owner);
 		const parts = contextBudgetPromptParts(bot, settings);
-		const fixedSystemFingerprint = await sha256Hex(JSON.stringify({
-			system: parts.fixedSystemMessage,
-			messages: providerMessagesWithPrefillCompatibility(
-				settings,
-				providerMessagesWithReasoningPrefill([{ role: "system", content: parts.fixedSystemMessage }], parts.reasoningPrefill),
-			),
-			tools: parts.providerTools,
-		}));
+		const fixedSystemFingerprint = await sha256Hex(
+			JSON.stringify({
+				system: parts.fixedSystemMessage,
+				messages: providerMessagesWithPrefillCompatibility(
+					settings,
+					providerMessagesWithReasoningPrefill([{ role: 'system', content: parts.fixedSystemMessage }], parts.reasoningPrefill),
+				),
+				tools: parts.providerTools,
+			}),
+		);
 		const personaPromptFingerprint = await sha256Hex(bot.prompt);
-		const cachedCounts = this.contextBudgetCachedCounts(await promptContextBudgetCacheFingerprint({
-			botId: bot.id,
-			compactionMode: settings.compactionMode ?? "structured_output",
-			effectiveModel: settings.model,
-			fixedSystemFingerprint,
-			personaPromptFingerprint,
-			providerBaseUrl: settings.baseUrl,
-			...(settings.providerRouting ? { providerRouting: settings.providerRouting } : {}),
-			supportsPrefill: settings.supportsPrefill ?? true,
-		}));
+		const cachedCounts = this.contextBudgetCachedCounts(
+			await promptContextBudgetCacheFingerprint({
+				botId: bot.id,
+				compactionMode: settings.compactionMode ?? 'structured_output',
+				effectiveModel: settings.model,
+				fixedSystemFingerprint,
+				personaPromptFingerprint,
+				providerBaseUrl: settings.baseUrl,
+				...(settings.providerRouting ? { providerRouting: settings.providerRouting } : {}),
+				supportsPrefill: settings.supportsPrefill ?? true,
+			}),
+		);
 		const counts = cachedCounts ?? this.estimatedContextBudgetCounts(parts, this.textTokenCalibration(settings.model));
 		const tickSettings = effectiveTickSettings(bot.tickSettings);
-		return providerReadCommentTreeTokenBudget(promptContextBudgetFromCounts({
-			...counts,
-			contextWindowTokens: tickSettings.contextWindowTokens,
-			responseReserveTokens: providerContextReserveTokens,
-		}).remainingLoopTokens);
+		return providerReadCommentTreeTokenBudget(
+			promptContextBudgetFromCounts({
+				...counts,
+				contextWindowTokens: tickSettings.contextWindowTokens,
+				responseReserveTokens: providerContextReserveTokens,
+			}).remainingLoopTokens,
+		);
 	}
 
 	private estimatedContextBudgetCounts(
 		parts: ContextBudgetPromptParts,
 		calibration: TextTokenCalibration,
-	): Pick<PromptContextBudgetCounts, "fixedSystemTokens" | "personaPromptTokens"> {
-		const fixedSystemTokens = estimatedPromptContextTokens(parts.fixedSystemMessage, parts.reasoningPrefill, parts.providerTools, calibration);
-		const fullSystemTokens = estimatedPromptContextTokens(parts.fullSystemMessage, parts.reasoningPrefill, parts.providerTools, calibration);
+	): Pick<PromptContextBudgetCounts, 'fixedSystemTokens' | 'personaPromptTokens'> {
+		const fixedSystemTokens = estimatedPromptContextTokens(
+			parts.fixedSystemMessage,
+			parts.reasoningPrefill,
+			parts.providerTools,
+			calibration,
+		);
+		const fullSystemTokens = estimatedPromptContextTokens(
+			parts.fullSystemMessage,
+			parts.reasoningPrefill,
+			parts.providerTools,
+			calibration,
+		);
 		return {
 			fixedSystemTokens,
 			personaPromptTokens: Math.max(0, fullSystemTokens - fixedSystemTokens),
@@ -6163,7 +6223,7 @@ export class BotRuntime {
 
 	private contextBudgetCachedCounts(
 		fingerprint: string,
-	): Pick<PromptContextBudgetCounts, "fixedSystemTokens" | "personaPromptTokens"> | null {
+	): Pick<PromptContextBudgetCounts, 'fixedSystemTokens' | 'personaPromptTokens'> | null {
 		const row = this.state.storage.sql
 			.exec<{ value_json: string }>(`SELECT value_json FROM runtime_state WHERE key = ?`, contextBudgetCacheStateKey(fingerprint))
 			.toArray()[0];
@@ -6185,7 +6245,7 @@ export class BotRuntime {
 
 	private setContextBudgetCachedCounts(
 		fingerprint: string,
-		counts: Pick<PromptContextBudgetCounts, "fixedSystemTokens" | "personaPromptTokens">,
+		counts: Pick<PromptContextBudgetCounts, 'fixedSystemTokens' | 'personaPromptTokens'>,
 	): void {
 		this.state.storage.sql.exec(
 			`INSERT INTO runtime_state (key, value_json)
@@ -6215,9 +6275,10 @@ export class BotRuntime {
 	}
 
 	private latestLoopProviderUsage(): ProviderLoopUsageRow | null {
-		return this.state.storage.sql
-			.exec<ProviderLoopUsageRow>(
-				`SELECT u.created_at, u.run_id, u.request_seq, u.model, u.requested_model, u.response_model, u.provider_name,
+		return (
+			this.state.storage.sql
+				.exec<ProviderLoopUsageRow>(
+					`SELECT u.created_at, u.run_id, u.request_seq, u.model, u.requested_model, u.response_model, u.provider_name,
 				        u.context_window_tokens, u.prompt_tokens, u.completion_tokens, u.total_tokens,
 				        u.cached_tokens, u.reasoning_tokens, u.cost
 				 FROM provider_usage u
@@ -6228,16 +6289,18 @@ export class BotRuntime {
 				   AND u.prompt_tokens > 0
 				 ORDER BY u.request_seq DESC, u.id DESC
 				 LIMIT 1`,
-			)
-			.toArray()[0] ?? null;
+				)
+				.toArray()[0] ?? null
+		);
 	}
 
 	private firstLoopProviderUsageAfterSeq(afterSeq?: number): ProviderLoopUsageRow | null {
-		const seqFilter = afterSeq !== undefined ? "AND u.request_seq > ?" : "";
+		const seqFilter = afterSeq !== undefined ? 'AND u.request_seq > ?' : '';
 		const params = afterSeq !== undefined ? [afterSeq] : [];
-		return this.state.storage.sql
-			.exec<ProviderLoopUsageRow>(
-				`SELECT u.created_at, u.run_id, u.request_seq, u.model, u.requested_model, u.response_model, u.provider_name,
+		return (
+			this.state.storage.sql
+				.exec<ProviderLoopUsageRow>(
+					`SELECT u.created_at, u.run_id, u.request_seq, u.model, u.requested_model, u.response_model, u.provider_name,
 				        u.context_window_tokens, u.prompt_tokens, u.completion_tokens, u.total_tokens,
 				        u.cached_tokens, u.reasoning_tokens, u.cost
 				 FROM provider_usage u
@@ -6249,9 +6312,10 @@ export class BotRuntime {
 				   ${seqFilter}
 				 ORDER BY u.request_seq ASC, u.id ASC
 				 LIMIT 1`,
-				...params,
-			)
-			.toArray()[0] ?? null;
+					...params,
+				)
+				.toArray()[0] ?? null
+		);
 	}
 
 	private tokenUsageChangeMarkers(since: string, until: string): BotTokenUsageChangeMarker[] {
@@ -6297,7 +6361,7 @@ export class BotRuntime {
 		const event: BotRuntimeEvent = {
 			seq: latestSeq + this.ephemeralStreamSeq / 1_000_000,
 			runId,
-			type: "provider_delta",
+			type: 'provider_delta',
 			payload: {
 				...payload,
 				streamSeq,
@@ -6306,13 +6370,11 @@ export class BotRuntime {
 			tokenEstimate: 0,
 			createdAt: new Date().toISOString(),
 		};
-		this.broadcastControl({ type: "stream_delta", event });
+		this.broadcastControl({ type: 'stream_delta', event });
 	}
 
 	private latestEventSeq(): number {
-		return this.state.storage.sql
-			.exec<{ seq: number }>(`SELECT seq FROM events ORDER BY seq DESC LIMIT 1`)
-			.toArray()[0]?.seq ?? 0;
+		return this.state.storage.sql.exec<{ seq: number }>(`SELECT seq FROM events ORDER BY seq DESC LIMIT 1`).toArray()[0]?.seq ?? 0;
 	}
 
 	private markProviderStreamActive(runId: string): void {
@@ -6333,7 +6395,7 @@ export class BotRuntime {
 		const response = await providerFetchWithHeaderTimeout(
 			endpoint,
 			{
-				method: "POST",
+				method: 'POST',
 				headers,
 				body,
 			},
@@ -6343,7 +6405,7 @@ export class BotRuntime {
 
 		if (response.ok) {
 			if (!response.body) {
-				throw new ProviderRequestError(502, settings.model, endpoint, "Inference provider did not return a streaming response body.");
+				throw new ProviderRequestError(502, settings.model, endpoint, 'Inference provider did not return a streaming response body.');
 			}
 			const responseId = openRouterGenerationIdFromHeaders(response.headers);
 			return {
@@ -6362,13 +6424,15 @@ export class BotRuntime {
 		body: string,
 		signal: AbortSignal,
 		limits: ProviderCompactionValidationLimits = defaultProviderCompactionSummaryLimits,
-		mode: ProviderCompactionMode = "structured_output",
-	): Promise<Pick<ProviderResponse, "usage" | "responseId" | "responseModel" | "responseProviderName" | "rawResponse"> & { content: string }> {
+		mode: ProviderCompactionMode = 'structured_output',
+	): Promise<
+		Pick<ProviderResponse, 'usage' | 'responseId' | 'responseModel' | 'responseProviderName' | 'rawResponse'> & { content: string }
+	> {
 		const headers = providerJsonRequestHeaders(settings);
 		const response = await providerFetchWithHeaderTimeout(
 			endpoint,
 			{
-				method: "POST",
+				method: 'POST',
 				headers,
 				body,
 			},
@@ -6393,11 +6457,11 @@ export class BotRuntime {
 		try {
 			payload = JSON.parse(rawResponse) as ProviderCompactionResponsePayload;
 		} catch {
-			throw new ProviderRequestError(502, settings.model, endpoint, "Provider compaction response was not valid JSON.", { rawResponse });
+			throw new ProviderRequestError(502, settings.model, endpoint, 'Provider compaction response was not valid JSON.', { rawResponse });
 		}
 		const choice = payload.choices?.[0];
-		const finishReason = stringValue(choice?.finish_reason) ?? "";
-		const nativeFinishReason = stringValue(choice?.native_finish_reason) ?? "";
+		const finishReason = stringValue(choice?.finish_reason) ?? '';
+		const nativeFinishReason = stringValue(choice?.native_finish_reason) ?? '';
 		const usage = providerUsageFromValue(payload.usage);
 		const responseId = headerResponseId ?? stringValue(payload.id);
 		const responseModel = stringValue(payload.model);
@@ -6438,7 +6502,7 @@ export class BotRuntime {
 	): Promise<ProviderUsage> {
 		const endpoint = providerChatCompletionsUrl(settings.baseUrl);
 		const headers: Record<string, string> = {
-			"content-type": "application/json",
+			'content-type': 'application/json',
 		};
 		if (settings.apiKey) {
 			headers.authorization = `Bearer ${settings.apiKey}`;
@@ -6446,7 +6510,7 @@ export class BotRuntime {
 		const response = await providerFetchWithHeaderTimeout(
 			endpoint,
 			{
-				method: "POST",
+				method: 'POST',
 				headers,
 				body: stringifyProviderRequest(providerTokenProbeRequest(settings, messages, tools)),
 			},
@@ -6468,7 +6532,7 @@ export class BotRuntime {
 		);
 		const usage = providerUsageFromValue(payload.usage);
 		if (!usage) {
-			throw new ProviderRequestError(502, settings.model, endpoint, "Inference provider did not return token usage.");
+			throw new ProviderRequestError(502, settings.model, endpoint, 'Inference provider did not return token usage.');
 		}
 		return usage;
 	}
@@ -6486,48 +6550,71 @@ export class BotRuntime {
 		this.throwIfStopped(runId, runContext.signal);
 		const hot = await listHotThreads(this.env.BICKR_D1, bot.homeWorldId, 10);
 		const replyTarget = hot.find((thread) => thread.authorBotId !== bot.id);
-		if (replyTarget && !input.notifications.some((notification) => notification.message?.includes("first time"))) {
+		if (replyTarget && !input.notifications.some((notification) => notification.message?.includes('first time'))) {
 			this.throwIfStopped(runId, runContext.signal);
-			this.appendLoopMessage(runId, {
-				role: "assistant",
-				content: `I decide to reply to "${replyTarget.title}".`,
-			}, "local_simulation");
-			await this.appendEvent(runId, "assistant_message", {
+			this.appendLoopMessage(
+				runId,
+				{
+					role: 'assistant',
+					content: `I decide to reply to "${replyTarget.title}".`,
+				},
+				'local_simulation',
+			);
+			await this.appendEvent(runId, 'assistant_message', {
 				content: `I decide to reply to "${replyTarget.title}".`,
 			});
-			await this.executeTool(bot, runId, "reply_to_comment", {
-				commentId: replyTarget.rootCommentId,
-				body: `${bot.displayName} weighs in: ${bot.shortBio}`,
-			}, runContext);
+			await this.executeTool(
+				bot,
+				runId,
+				'reply_to_comment',
+				{
+					commentId: replyTarget.rootCommentId,
+					body: `${bot.displayName} weighs in: ${bot.shortBio}`,
+				},
+				runContext,
+			);
 			return;
 		}
 
 		const forums = await listForums(this.env.BICKR_D1, bot.homeWorldHandle);
-		const forum =
-				forums.find((item) => !item.personalBotId) ??
-				forums.find((item) => item.personalBotId === bot.id) ??
-				forums[0];
+		const forum = forums.find((item) => !item.personalBotId) ?? forums.find((item) => item.personalBotId === bot.id) ?? forums[0];
 		if (!forum) {
-			this.appendLoopMessage(runId, {
-				role: "assistant",
-				content: "I look for somewhere to create a thread, but I do not find an available forum.",
-			}, "local_simulation");
-			await this.appendEvent(runId, "assistant_message", { content: "I look for somewhere to create a thread, but I do not find an available forum." });
+			this.appendLoopMessage(
+				runId,
+				{
+					role: 'assistant',
+					content: 'I look for somewhere to create a thread, but I do not find an available forum.',
+				},
+				'local_simulation',
+			);
+			await this.appendEvent(runId, 'assistant_message', {
+				content: 'I look for somewhere to create a thread, but I do not find an available forum.',
+			});
 			return;
 		}
 		this.throwIfStopped(runId, runContext.signal);
-		this.appendLoopMessage(runId, {
-			role: "assistant",
-			content: `I decide to create a thread in f/${forum.handle}.`,
-		}, "local_simulation");
-		await this.appendEvent(runId, "assistant_message", {
+		this.appendLoopMessage(
+			runId,
+			{
+				role: 'assistant',
+				content: `I decide to create a thread in f/${forum.handle}.`,
+			},
+			'local_simulation',
+		);
+		await this.appendEvent(runId, 'assistant_message', {
 			content: `I decide to create a thread in f/${forum.handle}.`,
 		});
-		await this.executeTool(bot, runId, "create_thread", {
-			forumHandle: forum.handle,
-			title: `${bot.displayName} has logged in`,
-			body: `${bot.shortBio}\n\n${bot.prompt.slice(0, 300)}`,
-		}, runContext);
+		await this.executeTool(
+			bot,
+			runId,
+			'create_thread',
+			{
+				forumHandle: forum.handle,
+				title: `${bot.displayName} has logged in`,
+				body: `${bot.shortBio}\n\n${bot.prompt.slice(0, 300)}`,
+			},
+			runContext,
+		);
 	}
 
 	private async executeTool(
@@ -6541,69 +6628,72 @@ export class BotRuntime {
 		const canonicalName = canonicalToolName(name);
 		const normalizedArgs = normalizeToolArgs(canonicalName, args);
 		if (
-			(canonicalName === "reply_to_comment" || canonicalName === "make_additional_reply_to_the_same_comment") &&
+			(canonicalName === 'reply_to_comment' || canonicalName === 'make_additional_reply_to_the_same_comment') &&
 			!stringValue(normalizedArgs.commentId)
 		) {
 			normalizedArgs.commentId = await this.replyTargetCommentId(normalizedArgs);
 			delete normalizedArgs.parentCommentId;
 			delete normalizedArgs.threadId;
 		}
-		const toolCallEvent = await this.appendEvent(runId, "tool_call", { name: canonicalName, args: providerToolArgs(canonicalName, normalizedArgs) });
+		const toolCallEvent = await this.appendEvent(runId, 'tool_call', {
+			name: canonicalName,
+			args: providerToolArgs(canonicalName, normalizedArgs),
+		});
 		let result: unknown;
 		let effectiveArgs: Record<string, unknown> | undefined;
 		let selfCorrectionMessages: string[] | undefined;
 		switch (canonicalName) {
-			case "check_notifications":
+			case 'check_notifications':
 				result = { events: [] };
 				break;
-			case "list_accessible_forums":
+			case 'list_accessible_forums':
 				result = (await listForums(this.env.BICKR_D1, bot.homeWorldHandle)).filter((forum) => !forum.personalBotId);
 				break;
-			case "list_recent_threads": {
+			case 'list_recent_threads': {
 				const forum = await this.forumFromArgs(bot, normalizedArgs);
 				result = await this.annotateThreadSummariesFollowStatus(
 					bot.id,
-					await listThreads(this.env.BICKR_D1, forum.id, "recent", numberArg(normalizedArgs.limit, 20)),
+					await listThreads(this.env.BICKR_D1, forum.id, 'recent', numberArg(normalizedArgs.limit, 20)),
 				);
 				break;
 			}
-			case "list_hot_threads":
+			case 'list_hot_threads':
 				result = await this.annotateThreadSummariesFollowStatus(
 					bot.id,
 					await listHotThreads(this.env.BICKR_D1, bot.homeWorldId, numberArg(normalizedArgs.limit, 20)),
 				);
 				break;
-			case "read_thread":
-			case "read_thread_by_id":
+			case 'read_thread':
+			case 'read_thread_by_id':
 				result = await this.threadReadResult(
 					bot,
-					await readThread(this.env.BICKR_KV, stringArg(normalizedArgs.threadId, "threadId")),
+					await readThread(this.env.BICKR_KV, stringArg(normalizedArgs.threadId, 'threadId')),
 					canonicalName,
 				);
 				break;
-			case "read_comment_by_id":
-				result = await this.readCommentById(bot, stringArg(normalizedArgs.commentId, "commentId"), canonicalName);
+			case 'read_comment_by_id':
+				result = await this.readCommentById(bot, stringArg(normalizedArgs.commentId, 'commentId'), canonicalName);
 				break;
-			case "create_thread": {
+			case 'create_thread': {
 				const forum = await this.forumFromArgs(bot, normalizedArgs);
 				result = await this.forumService(
 					`/forums/${encodeURIComponent(forum.id)}/threads`,
 					bot.id,
 					{
-						title: stringArg(normalizedArgs.title, "title"),
-						body: stringArg(normalizedArgs.body, "body"),
-						...(typeof normalizedArgs.url === "string" ? { url: normalizedArgs.url } : {}),
+						title: stringArg(normalizedArgs.title, 'title'),
+						body: stringArg(normalizedArgs.body, 'body'),
+						...(typeof normalizedArgs.url === 'string' ? { url: normalizedArgs.url } : {}),
 					},
 					runContext.signal,
 				);
 				break;
 			}
-			case "reply_to_comment":
-			case "make_additional_reply_to_the_same_comment": {
-				const body = stringArg(normalizedArgs.body, "body");
+			case 'reply_to_comment':
+			case 'make_additional_reply_to_the_same_comment': {
+				const body = stringArg(normalizedArgs.body, 'body');
 				const parentCommentId = await this.replyTargetCommentId(normalizedArgs);
 				const threadId = await this.threadIdForComment(parentCommentId);
-				if (canonicalName === "reply_to_comment") {
+				if (canonicalName === 'reply_to_comment') {
 					await this.assertNoPriorReplyToTarget(bot.id, threadId, parentCommentId);
 				}
 				this.assertNoRecentDuplicateReply(bot.id, body);
@@ -6623,14 +6713,21 @@ export class BotRuntime {
 				};
 				break;
 			}
-			case "vote": {
-				const reason = stringArg(normalizedArgs.reason, "reason");
+			case 'vote': {
+				const reason = stringArg(normalizedArgs.reason, 'reason');
 				normalizedArgs.reason = reason;
 				result = await this.voteTool(bot, runId, voteTargetsArg(normalizedArgs.votes), reason, runContext.signal, runContext.spotlightId);
 				break;
 			}
-			case "follow_profile": {
-				const followResult = await this.followProfilesTool(bot, runId, followToolTargetsArg(normalizedArgs.targets), true, runContext.signal, runContext.spotlightId);
+			case 'follow_profile': {
+				const followResult = await this.followProfilesTool(
+					bot,
+					runId,
+					followToolTargetsArg(normalizedArgs.targets),
+					true,
+					runContext.signal,
+					runContext.spotlightId,
+				);
 				normalizedArgs.targets = followResult.effectiveTargets;
 				result = followResult.results;
 				if (followResult.selfCorrectionMessages.length > 0) {
@@ -6639,8 +6736,15 @@ export class BotRuntime {
 				}
 				break;
 			}
-			case "unfollow_profile": {
-				const followResult = await this.followProfilesTool(bot, runId, followToolTargetsArg(normalizedArgs.targets), false, runContext.signal, runContext.spotlightId);
+			case 'unfollow_profile': {
+				const followResult = await this.followProfilesTool(
+					bot,
+					runId,
+					followToolTargetsArg(normalizedArgs.targets),
+					false,
+					runContext.signal,
+					runContext.spotlightId,
+				);
 				normalizedArgs.targets = followResult.effectiveTargets;
 				result = followResult.results;
 				if (followResult.selfCorrectionMessages.length > 0) {
@@ -6649,29 +6753,29 @@ export class BotRuntime {
 				}
 				break;
 			}
-			case "search_threads":
-			case "search_threads_semantic":
+			case 'search_threads':
+			case 'search_threads_semantic':
 				result = await this.annotateSearchThreadsFollowStatus(
 					bot.id,
-					await searchThreads(this.env.BICKR_D1, bot.homeWorldId, stringArg(normalizedArgs.query, "query")),
+					await searchThreads(this.env.BICKR_D1, bot.homeWorldId, stringArg(normalizedArgs.query, 'query')),
 				);
 				break;
-			case "search_profiles":
-				result = await this.searchBotsTool(bot, stringArg(normalizedArgs.query, "query"), numberArg(normalizedArgs.limit, 10));
+			case 'search_profiles':
+				result = await this.searchBotsTool(bot, stringArg(normalizedArgs.query, 'query'), numberArg(normalizedArgs.limit, 10));
 				break;
-			case "view_profiles": {
+			case 'view_profiles': {
 				const profiles = await this.viewProfilesTool(bot, usernamesArg(normalizedArgs.usernames));
 				await markBotSeenContent(
 					this.env.BICKR_D1,
 					bot.id,
-					profiles.map((profile) => ({ type: "bot", id: profile.id })),
-					"tool:view_profiles",
+					profiles.map((profile) => ({ type: 'bot', id: profile.id })),
+					'tool:view_profiles',
 					runId,
 				);
 				result = { profiles };
 				break;
 			}
-			case "view_activity": {
+			case 'view_activity': {
 				const activityLimit = numberArg(normalizedArgs.limit, 10, 20);
 				const feed = await botActivityFeedByHandle(
 					this.env.BICKR_KV,
@@ -6680,13 +6784,13 @@ export class BotRuntime {
 					usernameArg(normalizedArgs.username),
 					activityLimit,
 				);
-				await markBotSeenContent(this.env.BICKR_D1, bot.id, [{ type: "bot", id: feed.bot.id }], "tool:view_activity", runId);
+				await markBotSeenContent(this.env.BICKR_D1, bot.id, [{ type: 'bot', id: feed.bot.id }], 'tool:view_activity', runId);
 				result = await this.annotateActivityFeedFollowStatus(bot.id, feed);
 				break;
 			}
-			case "log_off":
-				normalizedArgs.reason = stringArg(normalizedArgs.reason, "reason");
-				result = { ok: true, status: "finished", message: "I have finished this Bickr visit." };
+			case 'log_off':
+				normalizedArgs.reason = stringArg(normalizedArgs.reason, 'reason');
+				result = { ok: true, status: 'finished', message: 'I have finished this Bickr visit.' };
 				break;
 			default:
 				throw new Error(`Unknown tool: ${canonicalName}`);
@@ -6707,12 +6811,16 @@ export class BotRuntime {
 					result,
 				});
 			} catch (error) {
-				console.warn("spotlight notification failed", error);
+				console.warn('spotlight notification failed', error);
 			}
 		}
-		const providerResultTokenBudget = providerToolResultUsesTokenBudget(canonicalName) ? await this.readCommentTreeTokenBudget(bot) : undefined;
-		const providerResult = providerToolResultPayload(canonicalName, result, normalizedArgs, this.providerContentInActiveContext(), { tokenBudget: providerResultTokenBudget });
-		const toolResultEvent = await this.appendEvent(runId, "tool_result", {
+		const providerResultTokenBudget = providerToolResultUsesTokenBudget(canonicalName)
+			? await this.readCommentTreeTokenBudget(bot)
+			: undefined;
+		const providerResult = providerToolResultPayload(canonicalName, result, normalizedArgs, this.providerContentInActiveContext(), {
+			tokenBudget: providerResultTokenBudget,
+		});
+		const toolResultEvent = await this.appendEvent(runId, 'tool_result', {
 			name: canonicalName,
 			args: providerToolArgs(canonicalName, normalizedArgs),
 			result,
@@ -6728,15 +6836,22 @@ export class BotRuntime {
 		};
 	}
 
-	private async voteTool(bot: BotDocument, runId: string, votes: VoteToolTarget[], reason: string, signal: AbortSignal, spotlightId?: string): Promise<unknown[]> {
+	private async voteTool(
+		bot: BotDocument,
+		runId: string,
+		votes: VoteToolTarget[],
+		reason: string,
+		signal: AbortSignal,
+		spotlightId?: string,
+	): Promise<unknown[]> {
 		const results: unknown[] = [];
 		for (const vote of votes) {
 			this.throwIfStopped(runId, signal);
 			const serviceResult = await this.forumService(
-				"/votes",
+				'/votes',
 				bot.id,
 				{
-					targetType: "comment",
+					targetType: 'comment',
 					targetId: vote.commentId,
 					value: vote.value,
 					reason,
@@ -6763,17 +6878,20 @@ export class BotRuntime {
 		const foundHandles = new Set(profiles.map((profile) => profile.handle));
 		const missingSkips = usernames
 			.filter((username) => !foundHandles.has(username))
-			.map((username): FollowToolTargetSkip => ({ username: `u/${username}`, reason: "profile_not_found" }));
-		const followed = await followedBotIdSet(this.env.BICKR_D1, bot.id, profiles.map((profile) => profile.id));
+			.map((username): FollowToolTargetSkip => ({ username: `u/${username}`, reason: 'profile_not_found' }));
+		const followed = await followedBotIdSet(
+			this.env.BICKR_D1,
+			bot.id,
+			profiles.map((profile) => profile.id),
+		);
 		const targetPlan = planFollowToolTargets(bot.id, profiles, followed, shouldFollow);
-		const toolName = shouldFollow ? "follow_profile" : "unfollow_profile";
+		const toolName = shouldFollow ? 'follow_profile' : 'unfollow_profile';
 		const skipsByUsername = new Map([...targetPlan.skipped, ...missingSkips].map((skip) => [skip.username, skip]));
 		const skipped = usernames.flatMap((username) => {
 			const skip = skipsByUsername.get(`u/${username}`);
 			return skip ? [skip] : [];
 		});
-		const selfCorrectionMessages =
-			skipped.length > 0 ? [followToolSelfCorrectionMessage(toolName, skipped)] : [];
+		const selfCorrectionMessages = skipped.length > 0 ? [followToolSelfCorrectionMessage(toolName, skipped)] : [];
 		if (targetPlan.validProfiles.length === 0) {
 			throw new SelfCorrectingToolCallError(selfCorrectionMessages[0] ?? followToolSelfCorrectionMessage(toolName, []));
 		}
@@ -6785,10 +6903,15 @@ export class BotRuntime {
 				continue;
 			}
 			this.throwIfStopped(runId, signal);
-			const follow =
-				shouldFollow ?
-					await followBot(this.env.BICKR_KV, this.env.BICKR_D1, bot.id, profile.id, undefined, { reason: target.reason, ...(spotlightId ? { spotlightId } : {}) })
-				:	await unfollowBot(this.env.BICKR_KV, this.env.BICKR_D1, bot.id, profile.id, undefined, { reason: target.reason, ...(spotlightId ? { spotlightId } : {}) });
+			const follow = shouldFollow
+				? await followBot(this.env.BICKR_KV, this.env.BICKR_D1, bot.id, profile.id, undefined, {
+						reason: target.reason,
+						...(spotlightId ? { spotlightId } : {}),
+					})
+				: await unfollowBot(this.env.BICKR_KV, this.env.BICKR_D1, bot.id, profile.id, undefined, {
+						reason: target.reason,
+						...(spotlightId ? { spotlightId } : {}),
+					});
 			results.push({ username: profile.handle, reason: target.reason, ...follow, profile: { ...profile, following: follow.following } });
 		}
 		return {
@@ -6806,7 +6929,7 @@ export class BotRuntime {
 		const foundHandles = new Set(profiles.map((profile) => profile.handle));
 		const missing = usernames.find((username) => !foundHandles.has(username));
 		if (missing) {
-			throw new RepositoryError("not_found", `Profile u/${missing} not found.`, 404);
+			throw new RepositoryError('not_found', `Profile u/${missing} not found.`, 404);
 		}
 		return profiles;
 	}
@@ -6816,16 +6939,12 @@ export class BotRuntime {
 		return this.annotateProfilesFollowStatus(bot.id, profiles);
 	}
 
-	private async assertNoPriorReplyToTarget(
-		botId: string,
-		threadId: string,
-		parentCommentId: string | undefined,
-	): Promise<void> {
+	private async assertNoPriorReplyToTarget(botId: string, threadId: string, parentCommentId: string | undefined): Promise<void> {
 		const thread = await readThread(this.env.BICKR_KV, threadId);
 		const replies = thread.comments
-			.filter((comment) =>
-				comment.authorBotId === botId &&
-				(parentCommentId ? comment.parentCommentId === parentCommentId : !comment.parentCommentId)
+			.filter(
+				(comment) =>
+					comment.authorBotId === botId && (parentCommentId ? comment.parentCommentId === parentCommentId : !comment.parentCommentId),
 			)
 			.sort((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt))
 			.map((comment) => ({
@@ -6855,7 +6974,7 @@ export class BotRuntime {
 			.bind(commentId)
 			.first<{ threadId: string }>();
 		if (!row) {
-			throw new RepositoryError("not_found", "Comment not found.", 404);
+			throw new RepositoryError('not_found', 'Comment not found.', 404);
 		}
 		return row.threadId;
 	}
@@ -6867,7 +6986,7 @@ export class BotRuntime {
 		}
 		const threadId = stringValue(args.threadId);
 		if (!threadId) {
-			throw new Error("commentId is required.");
+			throw new Error('commentId is required.');
 		}
 		return rootCommentForThread(await readThread(this.env.BICKR_KV, threadId)).id;
 	}
@@ -6891,7 +7010,11 @@ export class BotRuntime {
 		botId: string,
 		profiles: T[],
 	): Promise<Array<T & { following: boolean }>> {
-		const followed = await followedBotIdSet(this.env.BICKR_D1, botId, profiles.map((profile) => profile.id));
+		const followed = await followedBotIdSet(
+			this.env.BICKR_D1,
+			botId,
+			profiles.map((profile) => profile.id),
+		);
 		return profiles.map((profile) => ({
 			...profile,
 			following: profile.id !== botId && followed.has(profile.id),
@@ -6899,23 +7022,18 @@ export class BotRuntime {
 	}
 
 	private async annotateActivityFeedFollowStatus(botId: string, feed: BotActivityFeed): Promise<BotActivityFeed> {
-		const profileIds = [
-			feed.bot.id,
-			...feed.activities
-				.filter((item) => item.type === "follow")
-				.map((item) => item.bot.id),
-		];
+		const profileIds = [feed.bot.id, ...feed.activities.filter((item) => item.type === 'follow').map((item) => item.bot.id)];
 		const followed = await followedBotIdSet(this.env.BICKR_D1, botId, profileIds);
 		return {
 			...feed,
 			bot: withProfileFollowStatus(feed.bot, botId, followed),
 			activities: feed.activities.map((item) =>
-				item.type === "follow" ?
-					{
-						...item,
-						bot: withProfileFollowStatus(item.bot, botId, followed),
-					}
-				:	item
+				item.type === 'follow'
+					? {
+							...item,
+							bot: withProfileFollowStatus(item.bot, botId, followed),
+						}
+					: item,
 			),
 		};
 	}
@@ -6924,7 +7042,11 @@ export class BotRuntime {
 		botId: string,
 		threads: ThreadSummary[],
 	): Promise<Array<ThreadSummary & { authorFollowing?: boolean }>> {
-		const followed = await followedBotIdSet(this.env.BICKR_D1, botId, threads.map((thread) => thread.authorBotId));
+		const followed = await followedBotIdSet(
+			this.env.BICKR_D1,
+			botId,
+			threads.map((thread) => thread.authorBotId),
+		);
 		return threads.map((thread) => withAuthorFollowStatus(thread, botId, followed));
 	}
 
@@ -6932,17 +7054,32 @@ export class BotRuntime {
 		botId: string,
 		threads: T[],
 	): Promise<Array<T & { authorFollowing?: boolean }>> {
-		const followed = await followedBotIdSet(this.env.BICKR_D1, botId, threads.map((thread) => thread.authorBotId));
+		const followed = await followedBotIdSet(
+			this.env.BICKR_D1,
+			botId,
+			threads.map((thread) => thread.authorBotId),
+		);
 		return threads.map((thread) => withAuthorFollowStatus(thread, botId, followed));
 	}
 
-	private async annotateSearchThreadsFollowStatus<T extends SearchThreadResult>(botId: string, threads: T[]): Promise<Array<T & { authorFollowing?: boolean }>> {
-		const followed = await followedBotIdSet(this.env.BICKR_D1, botId, threads.map((thread) => thread.authorBotId));
+	private async annotateSearchThreadsFollowStatus<T extends SearchThreadResult>(
+		botId: string,
+		threads: T[],
+	): Promise<Array<T & { authorFollowing?: boolean }>> {
+		const followed = await followedBotIdSet(
+			this.env.BICKR_D1,
+			botId,
+			threads.map((thread) => thread.authorBotId),
+		);
 		return threads.map((thread) => withAuthorFollowStatus(thread, botId, followed));
 	}
 
 	private async annotateReadContentFollowStatus(botId: string, content: ReadContentItem[]): Promise<ReadContentItem[]> {
-		const followed = await followedBotIdSet(this.env.BICKR_D1, botId, content.map((item) => item.authorBotId));
+		const followed = await followedBotIdSet(
+			this.env.BICKR_D1,
+			botId,
+			content.map((item) => item.authorBotId),
+		);
 		return content.map((item) => withAuthorFollowStatus(item, botId, followed));
 	}
 
@@ -6975,7 +7112,8 @@ export class BotRuntime {
 		const commentTree = readContentItemTree(annotatedContent);
 		const tokenBudget = await this.readCommentTreeTokenBudget(bot);
 		const pruned = pruneReadContentTreeForProviderBudget(commentTree, tokenBudget);
-		const threadSummary = (await this.annotateThreadReadSummariesFollowStatus(bot.id, [threadReadSummary(thread)]))[0] ?? threadReadSummary(thread);
+		const threadSummary =
+			(await this.annotateThreadReadSummariesFollowStatus(bot.id, [threadReadSummary(thread)]))[0] ?? threadReadSummary(thread);
 		return {
 			operation,
 			context: readResultContext(operation, pruned, tokenBudget),
@@ -6996,45 +7134,40 @@ export class BotRuntime {
 			.bind(commentId, bot.homeWorldId)
 			.first<{ threadId: string }>();
 		if (!row) {
-			throw new RepositoryError("not_found", "Comment not found.", 404);
+			throw new RepositoryError('not_found', 'Comment not found.', 404);
 		}
 		const thread = await readThread(this.env.BICKR_KV, row.threadId);
 		if (!thread.comments.some((comment) => comment.id === commentId)) {
-			throw new RepositoryError("not_found", "Comment not found.", 404);
+			throw new RepositoryError('not_found', 'Comment not found.', 404);
 		}
 		return this.threadReadResult(bot, thread, operation, commentId);
 	}
 
 	private async forumFromArgs(bot: BotDocument, args: Record<string, unknown>) {
-		if (typeof args.forumId === "string") {
+		if (typeof args.forumId === 'string') {
 			const forums = await listForums(this.env.BICKR_D1, bot.homeWorldHandle);
 			const forum = forums.find((item) => item.id === args.forumId);
 			if (!forum) {
-				throw new Error("Forum not found.");
+				throw new Error('Forum not found.');
 			}
 			return forum;
 		}
-		return forumByHandle(
-			this.env.BICKR_KV,
-			this.env.BICKR_D1,
-			bot.homeWorldHandle,
-			stringArg(args.forumHandle, "forumHandle"),
-		);
+		return forumByHandle(this.env.BICKR_KV, this.env.BICKR_D1, bot.homeWorldHandle, stringArg(args.forumHandle, 'forumHandle'));
 	}
 
 	private async forumService(path: string, botId: string, body: unknown, signal: AbortSignal): Promise<unknown> {
 		return withAbortableTimeout(
 			signal,
 			serviceBindingTimeoutMs,
-			() => new RuntimeOperationTimeoutError("The Bickr page request", serviceBindingTimeoutMs),
+			() => new RuntimeOperationTimeoutError('The Bickr page request', serviceBindingTimeoutMs),
 			async (timeoutSignal) => {
 				const response = await this.env.FORUM_COORDINATOR_SERVICE.fetch(
 					new Request(`https://internal.bickr${path}`, {
-						method: "POST",
+						method: 'POST',
 						signal: timeoutSignal,
 						headers: {
-							"content-type": "application/json",
-							"x-bickr-bot-id": botId,
+							'content-type': 'application/json',
+							'x-bickr-bot-id': botId,
 						},
 						body: JSON.stringify(body),
 					}),
@@ -7045,18 +7178,13 @@ export class BotRuntime {
 						serviceBindingResponseBodyMaxBytes,
 						timeoutSignal,
 						serviceBindingTimeoutMs,
-						() => new RuntimeOperationTimeoutError("The Bickr page response", serviceBindingTimeoutMs),
+						() => new RuntimeOperationTimeoutError('The Bickr page response', serviceBindingTimeoutMs),
 					),
 				);
 				if (!response.ok || payload.ok !== true) {
 					const apiError = apiErrorPayload(payload);
 					if (apiError) {
-						throw new RepositoryError(
-							repositoryErrorCode(apiError.error),
-							apiError.message,
-							response.status || 500,
-							apiError.details,
-						);
+						throw new RepositoryError(repositoryErrorCode(apiError.error), apiError.message, response.status || 500, apiError.details);
 					}
 					throw new Error(`Bickr page request failed with status ${response.status}.`);
 				}
@@ -7072,35 +7200,42 @@ export class BotRuntime {
 		inputCreatedAt: string,
 		options: { setupMode?: LoopSetupMode } = {},
 	): Promise<RuntimeLoopMessages> {
-		const setupMode = options.setupMode ?? "new_iteration";
+		const setupMode = options.setupMode ?? 'new_iteration';
 		const deliveredNotificationIds = new Set<string>();
-		const elapsed = setupMode === "new_iteration" ? formatElapsedTimeSincePreviousVisit(this.previousTerminalTickEvent(runId), inputCreatedAt) : "";
+		const elapsed =
+			setupMode === 'new_iteration' ? formatElapsedTimeSincePreviousVisit(this.previousTerminalTickEvent(runId), inputCreatedAt) : '';
 		if (elapsed) {
-			this.appendLoopMessage(runId, { role: "user", content: elapsed }, "input");
+			this.appendLoopMessage(runId, { role: 'user', content: elapsed }, 'input');
 		}
 		const existingProfileUsernames = this.profileUsernamesInActiveContext();
 		const existingProviderContent = this.providerContentInActiveContext();
 		if (input.spotlightContexts.length > 0) {
 			await this.appendSpotlightSyntheticContext(bot, runId, input.spotlightContexts, existingProfileUsernames, existingProviderContent);
-		} else if (setupMode === "new_iteration") {
-			for (const id of await this.appendNotificationSyntheticContext(bot, runId, input.notifications, existingProfileUsernames, existingProviderContent)) {
+		} else if (setupMode === 'new_iteration') {
+			for (const id of await this.appendNotificationSyntheticContext(
+				bot,
+				runId,
+				input.notifications,
+				existingProfileUsernames,
+				existingProviderContent,
+			)) {
 				deliveredNotificationIds.add(id);
 			}
 		}
-		if (setupMode !== "spotlight") {
+		if (setupMode !== 'spotlight') {
 			for (const injection of input.injections) {
-				this.appendLoopMessage(runId, { role: "assistant", content: injectedThoughtAssistantContent(injection, {}) }, "injection");
+				this.appendLoopMessage(runId, { role: 'assistant', content: injectedThoughtAssistantContent(injection, {}) }, 'injection');
 			}
 			if (input.toolUseReminder) {
-				this.appendLoopMessage(runId, { role: "assistant", content: input.toolUseReminder }, "reminder");
+				this.appendLoopMessage(runId, { role: 'assistant', content: input.toolUseReminder }, 'reminder');
 			}
 		}
 		const recurringPrompt = effectiveReasoningPrefill(bot);
-		if (setupMode === "new_iteration" && recurringPrompt) {
-			this.appendLoopMessage(runId, { role: "assistant", content: recurringPrompt }, "synthetic_context");
+		if (setupMode === 'new_iteration' && recurringPrompt) {
+			this.appendLoopMessage(runId, { role: 'assistant', content: recurringPrompt }, 'synthetic_context');
 		}
 		const messages = this.activeLoopMessagesForProvider() as RuntimeLoopMessages;
-		Object.defineProperty(messages, "deliveredNotificationIds", {
+		Object.defineProperty(messages, 'deliveredNotificationIds', {
 			value: deliveredNotificationIds,
 			enumerable: false,
 			configurable: true,
@@ -7115,9 +7250,7 @@ export class BotRuntime {
 		existingProfileUsernames: ReadonlySet<string>,
 		existingProviderContent: ProviderContextContentScope,
 	): Promise<string[]> {
-		const toolCalls: ToolCall[] = [
-			syntheticToolCall(runId, "check_notifications", 0, {}),
-		];
+		const toolCalls: ToolCall[] = [syntheticToolCall(runId, 'check_notifications', 0, {})];
 		const providerContentScope = cloneProviderContextContentScope(existingProviderContent);
 		const notificationTokenBudget = notifications.length > 0 ? await this.readCommentTreeTokenBudget(bot) : undefined;
 		const notificationResult = providerCheckNotificationsResultWithInclusions(notifications, providerContentScope, notificationTokenBudget);
@@ -7125,7 +7258,7 @@ export class BotRuntime {
 		const includedNotifications = notifications.filter((notification) => includedNotificationIds.has(notification.id));
 		const results: ChatMessage[] = [
 			{
-				role: "tool",
+				role: 'tool',
 				tool_call_id: toolCalls[0]?.id ?? syntheticToolCallId(runId, 0),
 				content: JSON.stringify(notificationResult.payload),
 			},
@@ -7133,18 +7266,22 @@ export class BotRuntime {
 		const usernames = referencedProfileUsernamesFromNotifications(includedNotifications, bot.handle, existingProfileUsernames);
 		if (usernames.length > 0) {
 			const index = toolCalls.length;
-			const profiles = await this.syntheticProfilesForUsernames(bot, usernames, runId, "notification");
-			const toolCall = syntheticToolCall(runId, "view_profiles", index, { usernames });
+			const profiles = await this.syntheticProfilesForUsernames(bot, usernames, runId, 'notification');
+			const toolCall = syntheticToolCall(runId, 'view_profiles', index, { usernames });
 			toolCalls.push(toolCall);
 			results.push({
-				role: "tool",
+				role: 'tool',
 				tool_call_id: toolCall.id,
-				content: JSON.stringify(providerToolResultPayload("view_profiles", { profiles }, {}, emptyProviderContextContentScope(), { tokenBudget: notificationTokenBudget })),
+				content: JSON.stringify(
+					providerToolResultPayload('view_profiles', { profiles }, {}, emptyProviderContextContentScope(), {
+						tokenBudget: notificationTokenBudget,
+					}),
+				),
 			});
 		}
 		this.appendToolCallChainLoopMessages(
 			runId,
-			"synthetic_context",
+			'synthetic_context',
 			"I'm logging into Bickr and checking my notifications.",
 			toolCalls,
 			results,
@@ -7164,20 +7301,22 @@ export class BotRuntime {
 		const providerContentScope = cloneProviderContextContentScope(existingProviderContent);
 		const tokenBudget = await this.readCommentTreeTokenBudget(bot);
 		const results: ChatMessage[] = chains.map((chain, index) => ({
-			role: "tool",
+			role: 'tool',
 			tool_call_id: toolCalls[index]?.id ?? syntheticToolCallId(runId, index),
-			content: JSON.stringify(spotlightReadResult(chain.context, chain.toolName, providerContentScope, tokenBudget, chain.targetCommentId, chain.targetThreadId)),
+			content: JSON.stringify(
+				spotlightReadResult(chain.context, chain.toolName, providerContentScope, tokenBudget, chain.targetCommentId, chain.targetThreadId),
+			),
 		}));
 		const usernames = referencedProfileUsernamesFromSpotlight(contexts, bot.handle, existingProfileUsernames);
 		if (usernames.length > 0) {
 			const index = toolCalls.length;
-			const profiles = await this.syntheticProfilesForUsernames(bot, usernames, runId, "spotlight");
-			const toolCall = syntheticToolCall(runId, "view_profiles", index, { usernames });
+			const profiles = await this.syntheticProfilesForUsernames(bot, usernames, runId, 'spotlight');
+			const toolCall = syntheticToolCall(runId, 'view_profiles', index, { usernames });
 			toolCalls.push(toolCall);
 			results.push({
-				role: "tool",
+				role: 'tool',
 				tool_call_id: toolCall.id,
-				content: JSON.stringify(providerToolResultPayload("view_profiles", { profiles })),
+				content: JSON.stringify(providerToolResultPayload('view_profiles', { profiles })),
 			});
 		}
 		if (toolCalls.length === 0) {
@@ -7185,8 +7324,8 @@ export class BotRuntime {
 		}
 		this.appendToolCallChainLoopMessages(
 			runId,
-			"synthetic_context",
-			"While browsing Bickr, I stumbled on an interesting thread.",
+			'synthetic_context',
+			'While browsing Bickr, I stumbled on an interesting thread.',
 			toolCalls,
 			results,
 		);
@@ -7198,18 +7337,23 @@ export class BotRuntime {
 		firstAssistantContent: string,
 		toolCalls: readonly ToolCall[],
 		results: readonly ChatMessage[],
-		status: BotLoopMessageStatus = "complete",
+		status: BotLoopMessageStatus = 'complete',
 	): void {
 		if (toolCalls.length !== results.length) {
-			throw new Error("Synthetic tool-call chain must have one result per request.");
+			throw new Error('Synthetic tool-call chain must have one result per request.');
 		}
 		for (let index = 0; index < toolCalls.length; index += 1) {
 			const toolCall = toolCalls[index]!;
-			this.appendLoopMessage(runId, {
-				role: "assistant",
-				content: index === 0 ? firstAssistantContent : null,
-				tool_calls: [toolCall],
-			}, origin, status);
+			this.appendLoopMessage(
+				runId,
+				{
+					role: 'assistant',
+					content: index === 0 ? firstAssistantContent : null,
+					tool_calls: [toolCall],
+				},
+				origin,
+				status,
+			);
 			const result = results[index];
 			if (result) {
 				this.appendLoopMessage(runId, result, origin, status);
@@ -7229,7 +7373,7 @@ export class BotRuntime {
 			await markBotSeenContent(
 				this.env.BICKR_D1,
 				bot.id,
-				profiles.map((profile) => ({ type: "bot", id: profile.id })),
+				profiles.map((profile) => ({ type: 'bot', id: profile.id })),
 				`synthetic:view_profiles:${seenVia}`,
 				runId,
 			);
@@ -7240,7 +7384,7 @@ export class BotRuntime {
 	private profileUsernamesInActiveContext(): Set<string> {
 		const usernames = new Set<string>();
 		for (const row of this.activeLoopMessageRows()) {
-			if (row.role !== "tool") {
+			if (row.role !== 'tool') {
 				continue;
 			}
 			for (const username of profileUsernamesFromToolResultContent(loopMessageChatMessageFromRow(row).content)) {
@@ -7262,17 +7406,19 @@ export class BotRuntime {
 	}
 
 	private previousTerminalTickEvent(runId: string): RuntimeRow | null {
-		return this.state.storage.sql
-			.exec<RuntimeRow>(
-				`SELECT seq, run_id, type, payload_json, token_estimate, compacted_by, created_at
+		return (
+			this.state.storage.sql
+				.exec<RuntimeRow>(
+					`SELECT seq, run_id, type, payload_json, token_estimate, compacted_by, created_at
 				 FROM events
 				 WHERE run_id != ?
 				   AND type IN ('tick_completed', 'tick_failed', 'tick_stopped')
 				 ORDER BY seq DESC
 				 LIMIT 1`,
-				runId,
-			)
-			.toArray()[0] ?? null;
+					runId,
+				)
+				.toArray()[0] ?? null
+		);
 	}
 
 	private currentIterationStartedSinceLastLogOff(): boolean {
@@ -7337,7 +7483,7 @@ export class BotRuntime {
 			.toArray();
 		return rows.some((row) => {
 			const payload = runtimeRecord(JSON.parse(row.payload_json));
-			return successfulToolResultPayload(payload) && mutableToolNames.has(canonicalToolName(stringValue(payload.name) ?? ""));
+			return successfulToolResultPayload(payload) && mutableToolNames.has(canonicalToolName(stringValue(payload.name) ?? ''));
 		});
 	}
 
@@ -7393,7 +7539,7 @@ export class BotRuntime {
 			.toArray();
 		for (const row of rows) {
 			const payload = runtimeRecord(JSON.parse(row.payload_json));
-			if (canonicalToolName(stringValue(payload.name) ?? "") === "log_off" && successfulToolResultPayload(payload)) {
+			if (canonicalToolName(stringValue(payload.name) ?? '') === 'log_off' && successfulToolResultPayload(payload)) {
 				return row.seq;
 			}
 		}
@@ -7415,13 +7561,13 @@ export class BotRuntime {
 				return summary;
 			}
 		}
-		return "";
+		return '';
 	}
 
 	private consumeInjections(injectionIds?: string[]): string[] {
-		const rows =
-			injectionIds ?
-				injectionIds.length === 0 ? []
+		const rows = injectionIds
+			? injectionIds.length === 0
+				? []
 				: injectionIds.flatMap((id) =>
 						this.state.storage.sql
 							.exec<InjectionRow>(
@@ -7437,7 +7583,7 @@ export class BotRuntime {
 							)
 							.toArray(),
 					)
-			:	this.state.storage.sql
+			: this.state.storage.sql
 					.exec<InjectionRow>(
 						`SELECT
 							id,
@@ -7469,36 +7615,37 @@ export class BotRuntime {
 			 VALUES (?, ?, ?, ?, ?, ?, NULL)`,
 			id,
 			text,
-			metadata.kind ?? "manual",
+			metadata.kind ?? 'manual',
 			metadata.sourceId ?? null,
 			metadata.spotlightId ?? null,
 			now,
 		);
-		return this.appendEvent("injection", "thought_injected", {
+		return this.appendEvent('injection', 'thought_injected', {
 			text,
 			injectionId: id,
-			kind: metadata.kind ?? "manual",
+			kind: metadata.kind ?? 'manual',
 			...(metadata.sourceId ? { sourceId: metadata.sourceId } : {}),
 			...(metadata.spotlightId ? { spotlightId: metadata.spotlightId } : {}),
 		});
 	}
 
-	private async compactIfNeeded(
-		bot: BotDocument,
-		settings: ProviderSettings,
-		runId: string,
-		signal: AbortSignal,
-	): Promise<void> {
+	private async compactIfNeeded(bot: BotDocument, settings: ProviderSettings, runId: string, signal: AbortSignal): Promise<void> {
 		bot = await this.botWithCurrentRuntimeBudget(bot);
 		await this.repairActiveProviderToolCallHistory(runId);
 		const contextEstimate = this.currentCompactionContextEstimate(settings.model);
 		const providerTools = providerToolsForBotRound(bot, settings).tools;
 		const compactionMode = providerCompactionMode(settings);
-		const limits = this.compactionSummaryLimitsForRows(bot, contextEstimate.rows.map((item) => item.row), contextEstimate.calibration, providerTools, compactionMode);
+		const limits = this.compactionSummaryLimitsForRows(
+			bot,
+			contextEstimate.rows.map((item) => item.row),
+			contextEstimate.calibration,
+			providerTools,
+			compactionMode,
+		);
 		const threshold = limits.nextCompactionTokens;
 		const requestMessages = providerMessagesWithPrefillCompatibility(
 			settings,
-			this.activeProviderRequestMessages(bot, providerTools, settings.toolCalls ?? "require"),
+			this.activeProviderRequestMessages(bot, providerTools, settings.toolCalls ?? 'require'),
 		);
 		const estimate = this.estimateProviderPromptTokens(settings, requestMessages, providerTools);
 		if (estimate.promptTokens <= threshold) {
@@ -7509,7 +7656,7 @@ export class BotRuntime {
 		if (compacted.length === 0) {
 			return;
 		}
-		await this.compactLoopMessageRows(bot, settings, runId, signal, compacted, "auto", {
+		await this.compactLoopMessageRows(bot, settings, runId, signal, compacted, 'auto', {
 			estimatedContextTokens: contextEstimate.totalTokens,
 			estimatedPromptTokens: estimate.promptTokens,
 			compactionMaxCharacters: limits.maxLength,
@@ -7535,7 +7682,7 @@ export class BotRuntime {
 			const calibration = this.textTokenCalibration(settings.model);
 			const requestMessages = providerMessagesWithPrefillCompatibility(
 				settings,
-				this.activeProviderRequestMessages(budgetBot, providerTools, settings.toolCalls ?? "require"),
+				this.activeProviderRequestMessages(budgetBot, providerTools, settings.toolCalls ?? 'require'),
 			);
 			const promptBudgetLimits = providerCompactionSummaryLimitsForChat(
 				budgetBot,
@@ -7547,7 +7694,7 @@ export class BotRuntime {
 			const allowedPromptTokens = promptBudgetLimits.nextCompactionTokens;
 			const estimate = this.estimateProviderPromptTokens(settings, requestMessages, providerTools);
 			const overBudgetTokens = Math.max(0, estimate.promptTokens - allowedPromptTokens);
-			await this.appendEvent(runId, "provider_token_estimate", {
+			await this.appendEvent(runId, 'provider_token_estimate', {
 				model: settings.model,
 				messageCount: requestMessages.length,
 				toolCount: providerTools.length,
@@ -7581,7 +7728,7 @@ export class BotRuntime {
 				throw new PromptContextBudgetExceededError(estimate.promptTokens, allowedPromptTokens);
 			}
 			compactionAttempts += 1;
-			await this.compactLoopMessageRows(budgetBot, settings, runId, signal, rowsToCompact, "auto", {
+			await this.compactLoopMessageRows(budgetBot, settings, runId, signal, rowsToCompact, 'auto', {
 				allowedPromptTokens,
 				compactionMaxCharacters: promptBudgetLimits.maxLength,
 				compactionMaxCompletionTokens: promptBudgetLimits.maxCompletionTokens,
@@ -7596,14 +7743,11 @@ export class BotRuntime {
 	private activeProviderRequestMessages(
 		bot: BotDocument,
 		providerTools: readonly ProviderToolDefinition[] = providerFunctionToolsForBot(bot),
-		toolCalls: BotInferenceToolCalls = "require",
+		toolCalls: BotInferenceToolCalls = 'require',
 	): ChatMessage[] {
 		const systemContent =
-			toolCalls === "at_will" ? standardPrompt(bot) : appendToolRequirementInstruction(standardPrompt(bot), providerTools);
-		return [
-			{ role: "system", content: systemContent },
-			...this.activeLoopMessagesForProvider(),
-		];
+			toolCalls === 'at_will' ? standardPrompt(bot) : appendToolRequirementInstruction(standardPrompt(bot), providerTools);
+		return [{ role: 'system', content: systemContent }, ...this.activeLoopMessagesForProvider()];
 	}
 
 	private estimateProviderPromptTokens(
@@ -7619,7 +7763,7 @@ export class BotRuntime {
 			const estimatedDeltaTokens = estimateChatMessagesTokens(deltaMessages, calibration);
 			return {
 				promptTokens: baseline.promptTokens + estimatedDeltaTokens + providerPromptEstimateSafetyTokens,
-				source: "baseline_plus_delta",
+				source: 'baseline_plus_delta',
 				baselinePromptTokens: baseline.promptTokens,
 				baselineMessageCount: baseline.messages.length,
 				estimatedDeltaTokens,
@@ -7631,7 +7775,7 @@ export class BotRuntime {
 				estimateChatMessagesTokens(requestMessages, calibration) +
 				estimateTextTokensWithCalibration(JSON.stringify(providerTools), calibration) +
 				providerPromptEstimateSafetyTokens,
-			source: "full_estimate",
+			source: 'full_estimate',
 			calibrationSampleCount: calibration.sampleCount,
 		};
 	}
@@ -7669,7 +7813,7 @@ export class BotRuntime {
 	private compactionRowsForEstimatedBudget(
 		bot: BotDocument,
 		providerTools?: ProviderToolDefinition[],
-		mode: ProviderCompactionMode = "structured_output",
+		mode: ProviderCompactionMode = 'structured_output',
 		requestedModel?: string,
 	): LoopMessageRow[] {
 		return this.compactionRowSelectionForEstimatedBudget(bot, providerTools, mode, requestedModel).rows;
@@ -7678,14 +7822,20 @@ export class BotRuntime {
 	private compactionRowSelectionForEstimatedBudget(
 		bot: BotDocument,
 		providerTools?: ProviderToolDefinition[],
-		mode: ProviderCompactionMode = "structured_output",
+		mode: ProviderCompactionMode = 'structured_output',
 		requestedModel?: string,
 	): CompactionRowSelection {
 		const calibration = this.textTokenCalibration(requestedModel);
 		const rows = this.compactionCandidateEstimates(calibration);
 		return oldestLoopMessageGroupSelectionForPromptLimit(
 			rows,
-			this.compactionPromptTokenLimit(bot, rows.map((item) => item.row), calibration, providerTools, mode),
+			this.compactionPromptTokenLimit(
+				bot,
+				rows.map((item) => item.row),
+				calibration,
+				providerTools,
+				mode,
+			),
 			{
 				canIncludeRows: (selectedRows) => this.compactionRowsLeaveOutputBudget(bot, selectedRows, calibration, providerTools, mode),
 				requireMinimumSelectedTokens: true,
@@ -7695,8 +7845,8 @@ export class BotRuntime {
 
 	private async manualCompactLoopMessages(botId: string): Promise<{ fromSeq?: number; toSeq?: number; messageCount: number }> {
 		const current = await this.status(botId);
-		if (current.status === "running" || this.activeRunId) {
-			throw new RepositoryError("conflict", "Cannot compact loop history while the bot is running.", 409);
+		if (current.status === 'running' || this.activeRunId) {
+			throw new RepositoryError('conflict', 'Cannot compact loop history while the bot is running.', 409);
 		}
 		const bot = await botById(this.env.BICKR_KV, this.env.BICKR_D1, botId);
 		const owner = await userById(this.env.BICKR_KV, bot.ownerUserId);
@@ -7707,7 +7857,7 @@ export class BotRuntime {
 		if (rows.length === 0) {
 			return { messageCount: 0 };
 		}
-		await this.compactLoopMessageRowsInBatches(bot, settings, runId, new AbortController().signal, rows, "manual", {});
+		await this.compactLoopMessageRowsInBatches(bot, settings, runId, new AbortController().signal, rows, 'manual', {});
 		return { fromSeq: rows[0]?.seq, toSeq: rows[rows.length - 1]?.seq, messageCount: rows.length };
 	}
 
@@ -7717,7 +7867,7 @@ export class BotRuntime {
 		runId: string,
 		signal: AbortSignal,
 		rows: LoopMessageRow[],
-		mode: "auto" | "manual",
+		mode: 'auto' | 'manual',
 		metrics: CompactionMetrics,
 	): Promise<void> {
 		let remaining = rows;
@@ -7739,7 +7889,11 @@ export class BotRuntime {
 			);
 			const batch = selection.rows;
 			if (batch.length === 0) {
-				throw new RepositoryError("bad_request", "The oldest loop message group is too large to compact within the current context budget.", 400);
+				throw new RepositoryError(
+					'bad_request',
+					'The oldest loop message group is too large to compact within the current context budget.',
+					400,
+				);
 			}
 			const selected = batch;
 			const compactedRows = await this.compactLoopMessageRows(bot, settings, runId, signal, selected, mode, {
@@ -7758,7 +7912,7 @@ export class BotRuntime {
 		rows: readonly LoopMessageRow[],
 		calibration: TextTokenCalibration,
 		providerTools?: ProviderToolDefinition[],
-		mode: ProviderCompactionMode = "structured_output",
+		mode: ProviderCompactionMode = 'structured_output',
 	): boolean {
 		const limits = this.compactionSummaryLimitsForRows(bot, rows, calibration, providerTools, mode);
 		return limits.maxCompletionTokens >= providerCompactionRequiredCompletionTokens(limits);
@@ -7770,7 +7924,7 @@ export class BotRuntime {
 		runId: string,
 		signal: AbortSignal,
 		compacted: LoopMessageRow[],
-		mode: "auto" | "manual",
+		mode: 'auto' | 'manual',
 		metrics: CompactionMetrics,
 	): Promise<LoopMessageRow[]> {
 		let providerRows = compacted.filter((row) => loopMessageContributesToCompactionProviderInput(row));
@@ -7778,13 +7932,17 @@ export class BotRuntime {
 			return [];
 		}
 		const providerTools = providerToolsForBotRound(bot, settings).tools;
-		const providerActive = Boolean(settings.apiKey || settings.usesCustomBaseUrl || this.env.BICKR_SIMULATION_MODE === "provider");
-		let response: (Pick<ProviderResponse, "usage" | "responseId" | "responseModel" | "responseProviderName" | "requestBody" | "rawResponse"> & { content: string }) | null = null;
+		const providerActive = Boolean(settings.apiKey || settings.usesCustomBaseUrl || this.env.BICKR_SIMULATION_MODE === 'provider');
+		let response:
+			| (Pick<ProviderResponse, 'usage' | 'responseId' | 'responseModel' | 'responseProviderName' | 'requestBody' | 'rawResponse'> & {
+					content: string;
+			  })
+			| null = null;
 		let summaryEvent: BotRuntimeEvent | null = null;
 		let compactionEventPayload: Record<string, unknown> | null = null;
 		let compactionLimits: ProviderCompactionSummaryLimits | null = null;
 		let ledgerRows: LoopMessageRow[] = [];
-		let recentActivity = "";
+		let recentActivity = '';
 		let compactedMessages: ChatMessage[] = [];
 		let compactedCommentBodies: ReadonlyMap<string, string> = new Map();
 		let outputLimitShrinkAttempts = 0;
@@ -7793,79 +7951,86 @@ export class BotRuntime {
 			const calibration = this.textTokenCalibration(settings.model);
 			const compactionMode = providerCompactionMode(settings);
 			ledgerRows = this.compactionLedgerRows(providerRows);
-			recentActivity = providerRows
-				.map((message) => truncateForContext(loopMessageContextLine(message), 1_200))
-				.join("\n");
-				compactedMessages = providerRows.map((row) => loopMessageChatMessageFromRow(row));
-				compactedCommentBodies = commentTextRecordsFromChatMessages(compactedMessages);
-				const baseLimits = providerCompactionSummaryLimitsForChat(bot, compactedMessages, calibration, providerTools, compactionMode);
-				const compactionTools = providerCompactionToolsForMode(baseLimits, providerTools, compactionMode);
-				const compactionMessages = providerCompactionMessages(bot, compactedMessages, baseLimits, compactionTools, compactionMode);
-				const compactionResponseFormat = providerCompactionResponseFormat(baseLimits.maxLength, compactionMode);
-				const tickSettings = effectiveTickSettings(bot.tickSettings);
-				const overBudgetFallback = metrics.compactionOverBudgetFallback === true;
-				compactionLimits = {
-					...baseLimits,
-					maxCompletionTokens:
-						overBudgetFallback ? providerCompactionRequiredCompletionTokens(baseLimits)
-						:	providerCompactionMaxCompletionTokensForRequest(
-								tickSettings.contextWindowTokens,
-								compactionMessages,
-								compactionTools,
-								calibration,
-								compactionResponseFormat,
-							),
-				};
-				compactionEventPayload = {
-					fromSeq: providerRows[0]?.seq,
-					toSeq: providerRows[providerRows.length - 1]?.seq,
-					messageCount: providerRows.length,
-					mode,
+			recentActivity = providerRows.map((message) => truncateForContext(loopMessageContextLine(message), 1_200)).join('\n');
+			compactedMessages = providerRows.map((row) => loopMessageChatMessageFromRow(row));
+			compactedCommentBodies = commentTextRecordsFromChatMessages(compactedMessages);
+			const baseLimits = providerCompactionSummaryLimitsForChat(bot, compactedMessages, calibration, providerTools, compactionMode);
+			const compactionTools = providerCompactionToolsForMode(baseLimits, providerTools, compactionMode);
+			const compactionMessages = providerCompactionMessages(bot, compactedMessages, baseLimits, compactionTools, compactionMode);
+			const compactionResponseFormat = providerCompactionResponseFormat(baseLimits.maxLength, compactionMode);
+			const tickSettings = effectiveTickSettings(bot.tickSettings);
+			const overBudgetFallback = metrics.compactionOverBudgetFallback === true;
+			compactionLimits = {
+				...baseLimits,
+				maxCompletionTokens: overBudgetFallback
+					? providerCompactionRequiredCompletionTokens(baseLimits)
+					: providerCompactionMaxCompletionTokensForRequest(
+							tickSettings.contextWindowTokens,
+							compactionMessages,
+							compactionTools,
+							calibration,
+							compactionResponseFormat,
+						),
+			};
+			compactionEventPayload = {
+				fromSeq: providerRows[0]?.seq,
+				toSeq: providerRows[providerRows.length - 1]?.seq,
+				messageCount: providerRows.length,
+				mode,
 				...metrics,
 				compactionMinCharacters: compactionLimits.minLength,
 				compactionMaxCharacters: compactionLimits.maxLength,
-					compactionMaxCompletionTokens: compactionLimits.maxCompletionTokens,
-					compactionInputTokens: compactionLimits.compactionInputTokens,
-					compactionRequestOverheadTokens: compactionLimits.compactionRequestOverheadTokens,
-					anticipatedSummaryTokens: compactionLimits.anticipatedSummaryTokens,
-					nextCompactionTokens: compactionLimits.nextCompactionTokens,
-					compactionMode,
-					...(outputLimitShrinkAttempts > 0 ? { outputLimitShrinkAttempts } : {}),
-					...(overBudgetFallback ? { overBudgetFallback: true } : {}),
-				};
+				compactionMaxCompletionTokens: compactionLimits.maxCompletionTokens,
+				compactionInputTokens: compactionLimits.compactionInputTokens,
+				compactionRequestOverheadTokens: compactionLimits.compactionRequestOverheadTokens,
+				anticipatedSummaryTokens: compactionLimits.anticipatedSummaryTokens,
+				nextCompactionTokens: compactionLimits.nextCompactionTokens,
+				compactionMode,
+				...(outputLimitShrinkAttempts > 0 ? { outputLimitShrinkAttempts } : {}),
+				...(overBudgetFallback ? { overBudgetFallback: true } : {}),
+			};
 			if (!summaryEvent) {
-				summaryEvent = await this.appendEvent(runId, "compaction", {
+				summaryEvent = await this.appendEvent(runId, 'compaction', {
 					...compactionEventPayload,
-					status: "pending",
+					status: 'pending',
 				});
 			} else {
 				this.replaceEventPayload(summaryEvent, {
 					...compactionEventPayload,
-					status: "pending",
+					status: 'pending',
 				});
 			}
 			if (providerActive) {
 				this.recordInferenceSubmission({
 					seq: summaryEvent.seq,
 					runId,
-					purpose: "compaction",
+					purpose: 'compaction',
 					settings,
 					messages: compactionMessages,
 					createdAt: summaryEvent.createdAt,
 				});
 			}
 			try {
-				response = providerActive ?
-					await this.callProviderForCompaction(settings, compactionMessages, runId, signal, compactionLimits, compactionTools, compactionMode, summaryEvent.seq, summaryEvent.createdAt)
-				:	{
-						content: deterministicCompactionSummary("", recentActivity),
-					};
+				response = providerActive
+					? await this.callProviderForCompaction(
+							settings,
+							compactionMessages,
+							runId,
+							signal,
+							compactionLimits,
+							compactionTools,
+							compactionMode,
+							summaryEvent.seq,
+							summaryEvent.createdAt,
+						)
+					: {
+							content: deterministicCompactionSummary('', recentActivity),
+						};
 				break;
 			} catch (error) {
-				const reducedRows =
-					isProviderCompactionOutputLimitFailure(error) ?
-						reducedCompactionRowsAfterOutputLimit(providerRows, calibration)
-					:	providerRows;
+				const reducedRows = isProviderCompactionOutputLimitFailure(error)
+					? reducedCompactionRowsAfterOutputLimit(providerRows, calibration)
+					: providerRows;
 				if (reducedRows.length > 0 && reducedRows.length < providerRows.length) {
 					outputLimitShrinkAttempts += 1;
 					providerRows = reducedRows;
@@ -7873,22 +8038,22 @@ export class BotRuntime {
 				}
 				this.replaceEventPayload(summaryEvent, {
 					...compactionEventPayload,
-					status: "failed",
+					status: 'failed',
 					error: runtimeErrorText(error),
 				});
 				throw error;
 			}
 		}
 		if (!summaryEvent || !compactionEventPayload || !compactionLimits || !response) {
-			throw new Error("Context compaction did not produce a summary event.");
+			throw new Error('Context compaction did not produce a summary event.');
 		}
-		const summary = response.content ? storedCompactionSummary(response.content) : deterministicCompactionSummary("", recentActivity);
+		const summary = response.content ? storedCompactionSummary(response.content) : deterministicCompactionSummary('', recentActivity);
 		const summaryPosition = providerRows[providerRows.length - 1]?.position ?? this.nextLoopMessagePosition();
 		const summaryMessage = this.insertLoopMessage({
 			runId,
-			message: { role: "assistant", content: summary },
-			origin: "compaction",
-			status: "complete",
+			message: { role: 'assistant', content: summary },
+			origin: 'compaction',
+			status: 'complete',
 			position: summaryPosition,
 			streamSeq: summaryEvent.seq,
 			broadcast: true,
@@ -7903,23 +8068,23 @@ export class BotRuntime {
 				row.seq,
 			);
 		}
-		this.recordLoopMessageLog(summaryMessage.seq, "message", JSON.stringify(summaryMessage.message));
+		this.recordLoopMessageLog(summaryMessage.seq, 'message', JSON.stringify(summaryMessage.message));
 		if (response.requestBody) {
-			this.recordLoopMessageLog(summaryMessage.seq, "compaction_request", response.requestBody);
+			this.recordLoopMessageLog(summaryMessage.seq, 'compaction_request', response.requestBody);
 		}
 		if (response.rawResponse) {
-			this.recordLoopMessageLog(summaryMessage.seq, "compaction_response", response.rawResponse);
+			this.recordLoopMessageLog(summaryMessage.seq, 'compaction_response', response.rawResponse);
 		}
 		this.replaceEventPayload(summaryEvent, {
 			...compactionEventPayload,
-			status: "complete",
+			status: 'complete',
 			summary,
 			summaryMessageSeq: summaryMessage.seq,
 		});
 		if (providerActive) {
 			this.updateInferenceSubmissionDisplayMessages(summaryEvent.seq, [
-				{ role: "user", content: "Bickr Terminal condenses older memory notes." },
-				{ role: "assistant", content: summary },
+				{ role: 'user', content: 'Bickr Terminal condenses older memory notes.' },
+				{ role: 'assistant', content: summary },
 			]);
 		}
 		if (response.usage) {
@@ -7936,8 +8101,13 @@ export class BotRuntime {
 				usage: response.usage,
 			});
 		}
-		this.repairDanglingCommentReferencesAfterCompaction(summaryMessage.seq, summaryPosition, summaryMessage.message, compactedCommentBodies);
-		this.broadcastControl({ type: "loop_messages_reset" });
+		this.repairDanglingCommentReferencesAfterCompaction(
+			summaryMessage.seq,
+			summaryPosition,
+			summaryMessage.message,
+			compactedCommentBodies,
+		);
+		this.broadcastControl({ type: 'loop_messages_reset' });
 		return providerRows;
 	}
 
@@ -7952,8 +8122,7 @@ export class BotRuntime {
 			const message = loopMessageChatMessageFromRow(row);
 			if (
 				providerSeqs.has(row.seq) ||
-				(row.position <= lastProviderPosition &&
-					!loopMessageContributesToProviderHistory(row.origin, message))
+				(row.position <= lastProviderPosition && !loopMessageContributesToProviderHistory(row.origin, message))
 			) {
 				rowsBySeq.set(row.seq, row);
 			}
@@ -8040,7 +8209,7 @@ export class BotRuntime {
 				continue;
 			}
 			const message = loopMessageChatMessageFromRow(row);
-			if (typeof message.content !== "string") {
+			if (typeof message.content !== 'string') {
 				continue;
 			}
 			let content: unknown;
@@ -8065,8 +8234,8 @@ export class BotRuntime {
 				tokenEstimate,
 				row.seq,
 			);
-			this.recordLoopMessageLog(row.seq, "message", messageJson);
-			this.recordLoopMessageLog(row.seq, "tool_result", updatedContent);
+			this.recordLoopMessageLog(row.seq, 'message', messageJson);
+			this.recordLoopMessageLog(row.seq, 'tool_result', updatedContent);
 		}
 	}
 
@@ -8103,7 +8272,7 @@ export class BotRuntime {
 		rows: readonly LoopMessageRow[],
 		calibration = this.textTokenCalibration(),
 		providerTools?: ProviderToolDefinition[],
-		mode: ProviderCompactionMode = "structured_output",
+		mode: ProviderCompactionMode = 'structured_output',
 	): ProviderCompactionSummaryLimits {
 		return providerCompactionSummaryLimitsForChat(
 			bot,
@@ -8116,16 +8285,16 @@ export class BotRuntime {
 
 	private nextCompactionTokens(bot: BotDocument, contextWindowTokens?: number, requestedModel?: string): number {
 		const tickSettings =
-			contextWindowTokens === undefined ?
-				bot.tickSettings
-			:	{ ...bot.tickSettings, contextWindowTokens: Math.max(1, Math.floor(contextWindowTokens)) };
+			contextWindowTokens === undefined
+				? bot.tickSettings
+				: { ...bot.tickSettings, contextWindowTokens: Math.max(1, Math.floor(contextWindowTokens)) };
 		const budgetBot = { ...bot, tickSettings };
 		return providerCompactionSummaryLimitsForChat(
 			budgetBot,
 			this.hasRuntimeStorage() ? this.activeLoopMessagesForProvider() : [],
 			this.textTokenCalibration(requestedModel),
-			providerFunctionToolsForBot(budgetBot, { compactionMode: budgetBot.inferenceSettings.compactionMode ?? "structured_output" }),
-			budgetBot.inferenceSettings.compactionMode ?? "structured_output",
+			providerFunctionToolsForBot(budgetBot, { compactionMode: budgetBot.inferenceSettings.compactionMode ?? 'structured_output' }),
+			budgetBot.inferenceSettings.compactionMode ?? 'structured_output',
 		).nextCompactionTokens;
 	}
 
@@ -8134,7 +8303,7 @@ export class BotRuntime {
 		rows: readonly LoopMessageRow[],
 		calibration = this.textTokenCalibration(),
 		providerTools?: ProviderToolDefinition[],
-		mode: ProviderCompactionMode = "structured_output",
+		mode: ProviderCompactionMode = 'structured_output',
 	): number {
 		const limits = this.compactionSummaryLimitsForRows(bot, rows, calibration, providerTools, mode);
 		return Math.max(1, Math.min(providerCompactionMaxPromptEstimateTokens, limits.compactionInputTokens));
@@ -8160,11 +8329,7 @@ export class BotRuntime {
 		return textTokenCalibrationFromProviderTokenCalibrationSamples(rows);
 	}
 
-	private async appendEvent(
-		runId: string,
-		type: BotRuntimeEventType,
-		payload: unknown,
-	): Promise<BotRuntimeEvent> {
+	private async appendEvent(runId: string, type: BotRuntimeEventType, payload: unknown): Promise<BotRuntimeEvent> {
 		const now = new Date().toISOString();
 		const payloadJson = JSON.stringify(payload);
 		const tokenEstimate = estimateTextTokens(payloadJson);
@@ -8210,10 +8375,12 @@ export class BotRuntime {
 		return updated;
 	}
 
-	private async clearHistory(botId: string): Promise<{ events: number; injections: number; runtimeState: number; submissions: number; messages: number; logs: number }> {
+	private async clearHistory(
+		botId: string,
+	): Promise<{ events: number; injections: number; runtimeState: number; submissions: number; messages: number; logs: number }> {
 		const current = await this.status(botId);
-		if (current.status === "running" || this.activeRunId) {
-			throw new RepositoryError("conflict", "Cannot erase chat history while the bot is running.", 409);
+		if (current.status === 'running' || this.activeRunId) {
+			throw new RepositoryError('conflict', 'Cannot erase chat history while the bot is running.', 409);
 		}
 
 		const submissions = this.clearInferenceSubmissions();
@@ -8228,13 +8395,16 @@ export class BotRuntime {
 		const injections = this.state.storage.sql.exec<{ count: number }>(`SELECT changes() AS count`).one().count;
 		this.state.storage.sql.exec(`DELETE FROM runtime_state`);
 		const runtimeState = this.state.storage.sql.exec<{ count: number }>(`SELECT changes() AS count`).one().count;
-		this.broadcastControl({ type: "history_cleared", botId });
+		this.broadcastControl({ type: 'history_cleared', botId });
 		return { events, injections, runtimeState, submissions, messages, logs };
 	}
 
-	private async deleteLoopMessage(botId: string, seq: number): Promise<{ seq: number; runId: string; origin: BotLoopMessageOrigin; deletedAt: string }> {
+	private async deleteLoopMessage(
+		botId: string,
+		seq: number,
+	): Promise<{ seq: number; runId: string; origin: BotLoopMessageOrigin; deletedAt: string }> {
 		if (!Number.isInteger(seq) || seq <= 0) {
-			throw new RepositoryError("bad_request", "Loop message sequence is invalid.", 400);
+			throw new RepositoryError('bad_request', 'Loop message sequence is invalid.', 400);
 		}
 		const row = this.state.storage.sql
 			.exec<LoopMessageRow>(
@@ -8248,11 +8418,11 @@ export class BotRuntime {
 			)
 			.toArray()[0];
 		if (!row) {
-			throw new RepositoryError("not_found", "Loop message was not found.", 404);
+			throw new RepositoryError('not_found', 'Loop message was not found.', 404);
 		}
 		const current = await this.status(botId);
-		if (current.status === "running" && current.activeRunId === row.run_id) {
-			throw new RepositoryError("conflict", "Cannot delete a message from the currently running tick.", 409);
+		if (current.status === 'running' && current.activeRunId === row.run_id) {
+			throw new RepositoryError('conflict', 'Cannot delete a message from the currently running tick.', 409);
 		}
 		const deletedAt = row.deleted_at ?? new Date().toISOString();
 		if (!row.deleted_at) {
@@ -8265,13 +8435,13 @@ export class BotRuntime {
 				seq,
 			);
 		}
-		this.broadcastControl({ type: "loop_message_deleted", seq, deletedAt });
+		this.broadcastControl({ type: 'loop_message_deleted', seq, deletedAt });
 		return { seq, runId: row.run_id, origin: row.origin, deletedAt };
 	}
 
 	private async deleteEvent(botId: string, seq: number): Promise<{ seq: number; runId: string; type: BotRuntimeEventType }> {
 		if (!Number.isInteger(seq) || seq <= 0) {
-			throw new RepositoryError("bad_request", "Runtime event sequence is invalid.", 400);
+			throw new RepositoryError('bad_request', 'Runtime event sequence is invalid.', 400);
 		}
 		const row = this.state.storage.sql
 			.exec<RuntimeRow>(
@@ -8283,42 +8453,42 @@ export class BotRuntime {
 			)
 			.toArray()[0];
 		if (!row) {
-			throw new RepositoryError("not_found", "Runtime event was not found.", 404);
+			throw new RepositoryError('not_found', 'Runtime event was not found.', 404);
 		}
 		const current = await this.status(botId);
-		if (current.status === "running" && current.activeRunId === row.run_id) {
-			throw new RepositoryError("conflict", "Cannot delete an event from the currently running tick.", 409);
+		if (current.status === 'running' && current.activeRunId === row.run_id) {
+			throw new RepositoryError('conflict', 'Cannot delete an event from the currently running tick.', 409);
 		}
-		if (row.type === "compaction") {
+		if (row.type === 'compaction') {
 			this.state.storage.sql.exec(`UPDATE events SET compacted_by = NULL WHERE compacted_by = ?`, seq);
 		}
 		this.state.storage.sql.exec(`DELETE FROM events WHERE seq = ?`, seq);
 		const deleted = this.state.storage.sql.exec<{ count: number }>(`SELECT changes() AS count`).one().count;
 		if (deleted !== 1) {
-			throw new RepositoryError("not_found", "Runtime event was not found.", 404);
+			throw new RepositoryError('not_found', 'Runtime event was not found.', 404);
 		}
 		this.deleteInferenceSubmissionsForSeq(seq);
-		this.broadcastControl({ type: "event_deleted", seq });
+		this.broadcastControl({ type: 'event_deleted', seq });
 		return { seq, runId: row.run_id, type: row.type };
 	}
 
 	private eventsAfter(afterSeq: number): BotRuntimeEvent[] {
 		const rows =
-			afterSeq > 0 ?
-				this.state.storage.sql
-					.exec<RuntimeRow>(
-						`SELECT seq, run_id, type, payload_json, token_estimate, compacted_by, created_at
+			afterSeq > 0
+				? this.state.storage.sql
+						.exec<RuntimeRow>(
+							`SELECT seq, run_id, type, payload_json, token_estimate, compacted_by, created_at
 						 FROM events
 						 WHERE seq > ?
 						   AND type != 'provider_delta'
 						 ORDER BY seq ASC
 						 LIMIT 2000`,
-						afterSeq,
-					)
-					.toArray()
-			:	this.state.storage.sql
-					.exec<RuntimeRow>(
-						`SELECT seq, run_id, type, payload_json, token_estimate, compacted_by, created_at
+							afterSeq,
+						)
+						.toArray()
+				: this.state.storage.sql
+						.exec<RuntimeRow>(
+							`SELECT seq, run_id, type, payload_json, token_estimate, compacted_by, created_at
 						 FROM (
 							SELECT seq, run_id, type, payload_json, token_estimate, compacted_by, created_at
 							FROM events
@@ -8327,27 +8497,26 @@ export class BotRuntime {
 							LIMIT 240
 						 )
 						 ORDER BY seq ASC`,
-					)
-					.toArray()
-		return rows
-			.map((row) => ({
-				seq: row.seq,
-				runId: row.run_id,
-				type: row.type,
-				payload: JSON.parse(row.payload_json) as unknown,
-				tokenEstimate: row.token_estimate,
-				createdAt: row.created_at,
-				...(row.compacted_by ? { compactedBy: row.compacted_by } : {}),
-			}));
+						)
+						.toArray();
+		return rows.map((row) => ({
+			seq: row.seq,
+			runId: row.run_id,
+			type: row.type,
+			payload: JSON.parse(row.payload_json) as unknown,
+			tokenEstimate: row.token_estimate,
+			createdAt: row.created_at,
+			...(row.compacted_by ? { compactedBy: row.compacted_by } : {}),
+		}));
 	}
 
 	private broadcast(event: BotRuntimeEvent): void {
-		this.broadcastControl({ type: "event", event });
+		this.broadcastControl({ type: 'event', event });
 	}
 
 	private broadcastControl(message: unknown): void {
 		const data = JSON.stringify(message);
-		const sockets = typeof this.state.getWebSockets === "function" ? this.state.getWebSockets() : [];
+		const sockets = typeof this.state.getWebSockets === 'function' ? this.state.getWebSockets() : [];
 		for (const socket of sockets) {
 			if (socket.readyState === WebSocket.OPEN) {
 				socket.send(data);
@@ -8371,7 +8540,7 @@ export class BotRuntime {
 			.bind(botId)
 			.first<{
 				enabled: number;
-				status: "idle" | "running" | "failed";
+				status: 'idle' | 'running' | 'failed';
 				activeRunId: string | null;
 				leaseExpiresAt: string | null;
 				nextDueAt: string | null;
@@ -8379,17 +8548,17 @@ export class BotRuntime {
 				tickIntervalSeconds: number;
 			}>();
 		const enabled = row?.enabled === 1;
-		if (row?.status === "running" && row.activeRunId && this.hasStopRequest(row.activeRunId) && this.activeRunId !== row.activeRunId) {
+		if (row?.status === 'running' && row.activeRunId && this.hasStopRequest(row.activeRunId) && this.activeRunId !== row.activeRunId) {
 			const bot = await botById(this.env.BICKR_KV, this.env.BICKR_D1, botId);
 			const nextDueAt = await this.markRunStopped(bot, row.activeRunId);
 			return {
 				botId,
 				enabled,
-				status: "idle",
+				status: 'idle',
 				...(nextDueAt ? { nextDueAt } : {}),
 			};
 		}
-		if (row?.status === "running" && row.activeRunId) {
+		if (row?.status === 'running' && row.activeRunId) {
 			const stale = this.staleProviderStream(row.activeRunId);
 			if (stale) {
 				const message = `The Bickr page stopped responding after ${Math.round(providerStreamIdleTimeoutMs / 1000)} seconds.`;
@@ -8423,14 +8592,14 @@ export class BotRuntime {
 				return {
 					botId,
 					enabled,
-					status: "failed",
+					status: 'failed',
 					...(enabled && row.nextDueAt ? { nextDueAt: row.nextDueAt } : {}),
 					lastError: message,
 				};
 			}
 		}
-		if (row?.status === "running" && row.leaseExpiresAt && Date.parse(row.leaseExpiresAt) <= Date.now()) {
-			const message = "This Bickr visit took too long and closed before completion.";
+		if (row?.status === 'running' && row.leaseExpiresAt && Date.parse(row.leaseExpiresAt) <= Date.now()) {
+			const message = 'This Bickr visit took too long and closed before completion.';
 			if (row.activeRunId && !this.hasTerminalEvent(row.activeRunId)) {
 				await this.recordTickFailure(row.activeRunId, {
 					message,
@@ -8478,7 +8647,7 @@ export class BotRuntime {
 			return {
 				botId,
 				enabled,
-				status: "idle",
+				status: 'idle',
 				...(nextDueAt ? { nextDueAt } : {}),
 				lastError: message,
 			};
@@ -8486,7 +8655,7 @@ export class BotRuntime {
 		return {
 			botId,
 			enabled,
-			status: row?.status ?? "idle",
+			status: row?.status ?? 'idle',
 			...(row?.activeRunId ? { activeRunId: row.activeRunId } : {}),
 			...(enabled && row?.nextDueAt ? { nextDueAt: row.nextDueAt } : {}),
 			...(row?.lastError ? { lastError: row.lastError } : {}),
@@ -8496,9 +8665,7 @@ export class BotRuntime {
 	private staleProviderStream(runId: string): ProviderStreamActivity | null {
 		const activeAt = this.activeStreamActivity.get(runId);
 		if (activeAt) {
-			return Date.now() - Date.parse(activeAt) > providerStreamIdleTimeoutMs ?
-					{ type: "provider_stream", created_at: activeAt }
-				:	null;
+			return Date.now() - Date.parse(activeAt) > providerStreamIdleTimeoutMs ? { type: 'provider_stream', created_at: activeAt } : null;
 		}
 		const row = this.state.storage.sql
 			.exec<RuntimeRow>(
@@ -8510,7 +8677,7 @@ export class BotRuntime {
 				runId,
 			)
 			.toArray()[0];
-		if (!row || row.type !== "provider_request") {
+		if (!row || row.type !== 'provider_request') {
 			return null;
 		}
 		const lastEventAt = Date.parse(row.created_at);
@@ -8536,32 +8703,29 @@ export class BotRuntime {
 
 	private async setRuntimeIndex(
 		bot: BotDocument,
-		status: "idle" | "running" | "failed",
+		status: 'idle' | 'running' | 'failed',
 		activeRunId: string | null,
 		lastError: string | undefined,
 		now: string,
 	): Promise<string | null> {
 		const enabled = await this.runtimeIndexEnabled(bot.id, bot.tickSettings.enabled);
-		const leaseExpiresAt = status === "running" ? new Date(Date.parse(now) + runtimeRunLeaseTimeoutMs).toISOString() : null;
+		const leaseExpiresAt = status === 'running' ? new Date(Date.parse(now) + runtimeRunLeaseTimeoutMs).toISOString() : null;
 		const nextDueAt =
-			status === "running" ? (enabled ? leaseExpiresAt : null)
-			: !enabled ? null
-			: status === "idle" ? this.nextDue(bot, now)
-			: new Date(Date.parse(now) + runtimeRunLeaseTimeoutMs).toISOString();
+			status === 'running'
+				? enabled
+					? leaseExpiresAt
+					: null
+				: !enabled
+					? null
+					: status === 'idle'
+						? this.nextDue(bot, now)
+						: new Date(Date.parse(now) + runtimeRunLeaseTimeoutMs).toISOString();
 		await this.env.BICKR_D1.prepare(
 			`UPDATE bot_runtime_index
 			 SET status = ?, active_run_id = ?, lease_expires_at = ?, last_error = ?, next_due_at = ?, updated_at = ?
 			 WHERE bot_id = ?`,
 		)
-			.bind(
-				status,
-				activeRunId,
-				leaseExpiresAt,
-				lastError ?? null,
-				nextDueAt,
-				now,
-				bot.id,
-			)
+			.bind(status, activeRunId, leaseExpiresAt, lastError ?? null, nextDueAt, now, bot.id)
 			.run();
 		return nextDueAt;
 	}
@@ -8582,12 +8746,12 @@ export class BotRuntime {
 	}
 
 	private async requireOwnerOrInternal(request: Request, botId: string): Promise<void> {
-		if (request.headers.get("x-bickr-scheduler") === "1") {
+		if (request.headers.get('x-bickr-scheduler') === '1') {
 			return;
 		}
-		const userId = request.headers.get("x-bickr-user-id");
+		const userId = request.headers.get('x-bickr-user-id');
 		if (!userId) {
-			throw new RepositoryError("unauthorized", "Authentication is required.", 401);
+			throw new RepositoryError('unauthorized', 'Authentication is required.', 401);
 		}
 		const row = await this.env.BICKR_D1.prepare(
 			`SELECT owner_user_id AS ownerUserId FROM bots_index WHERE bot_id = ? AND deleted_at IS NULL`,
@@ -8595,10 +8759,10 @@ export class BotRuntime {
 			.bind(botId)
 			.first<{ ownerUserId: string }>();
 		if (!row) {
-			throw new RepositoryError("not_found", "Bot not found.", 404);
+			throw new RepositoryError('not_found', 'Bot not found.', 404);
 		}
 		if (row.ownerUserId !== userId) {
-			throw new RepositoryError("forbidden", "You can only inspect your own bots.", 403);
+			throw new RepositoryError('forbidden', 'You can only inspect your own bots.', 403);
 		}
 	}
 }
@@ -8616,9 +8780,11 @@ export async function buildRuntimeLoopInput(
 	const notificationSeenItemsById: Record<string, SeenContentItem[]> = {};
 	const messages: LoopNotification[] = [];
 	for (const notification of notifications) {
-		const forumContext = notification.event ? null : await buildNotificationForumContext(kv, db, botId, notification, {
-			profileContextState,
-		});
+		const forumContext = notification.event
+			? null
+			: await buildNotificationForumContext(kv, db, botId, notification, {
+					profileContextState,
+				});
 		const notificationSeenItems = new Map<string, SeenContentItem>();
 		const sourceSeenItem = seenItemFromSource(notification.sourceObjectId);
 		if (sourceSeenItem) {
@@ -8658,11 +8824,11 @@ export async function buildRuntimeLoopInput(
 }
 
 function providerNotificationEventVisibleForBot(event: NotificationEvent, botId: string): boolean {
-	if (event.type !== "profile_followed" && event.type !== "profile_unfollowed") {
+	if (event.type !== 'profile_followed' && event.type !== 'profile_unfollowed') {
 		return true;
 	}
 	const deliveryReasons = event.deliveryReasons ?? [];
-	if (deliveryReasons.some((reason) => reason !== "followed_profile_activity")) {
+	if (deliveryReasons.some((reason) => reason !== 'followed_profile_activity')) {
 		return true;
 	}
 	const target = runtimeRecord(event.target);
@@ -8683,83 +8849,85 @@ function legacyNotificationEvent(notification: NotificationDocument, context: Fo
 		message: notification.message,
 		...(actorItem ? { actor: notificationProfileRefFromReadContent(actorItem) } : {}),
 		...(notification.sourceObjectId ? { sourceObjectId: notification.sourceObjectId } : {}),
-		...(context ?
-			{
-				world: {
-					id: context.worldId,
-					handle: `w/${context.worldHandle}`,
-				},
-				forum: {
-					id: context.forumId,
-					handle: `f/${context.forumHandle}`,
-				},
-				thread: {
-					id: context.threadId,
-					title: context.title,
-					...(rootCommentItem ? {
-						author: notificationProfileRefFromReadContent(rootCommentItem),
-						text: rootCommentItem.body,
-					} : {}),
-				},
-			}
-		:	{}),
-		...(commentItem ?
-			{
-				comment: {
-					id: commentItem.id,
-					threadId: commentItem.threadId,
-					...(commentItem.parentCommentId ? { parentCommentId: commentItem.parentCommentId } : {}),
-					author: notificationProfileRefFromReadContent(commentItem),
-					text: commentItem.body,
-				},
-			}
-		:	{}),
+		...(context
+			? {
+					world: {
+						id: context.worldId,
+						handle: `w/${context.worldHandle}`,
+					},
+					forum: {
+						id: context.forumId,
+						handle: `f/${context.forumHandle}`,
+					},
+					thread: {
+						id: context.threadId,
+						title: context.title,
+						...(rootCommentItem
+							? {
+									author: notificationProfileRefFromReadContent(rootCommentItem),
+									text: rootCommentItem.body,
+								}
+							: {}),
+					},
+				}
+			: {}),
+		...(commentItem
+			? {
+					comment: {
+						id: commentItem.id,
+						threadId: commentItem.threadId,
+						...(commentItem.parentCommentId ? { parentCommentId: commentItem.parentCommentId } : {}),
+						author: notificationProfileRefFromReadContent(commentItem),
+						text: commentItem.body,
+					},
+				}
+			: {}),
 	};
 }
 
-function legacyNotificationEventType(type: NotificationDocument["notificationType"]): NotificationEvent["type"] {
+function legacyNotificationEventType(type: NotificationDocument['notificationType']): NotificationEvent['type'] {
 	switch (type) {
-		case "reply":
-		case "mention":
-			return "comment_created";
-		case "personal_forum_post":
-			return "thread_created";
-		case "follow":
-			return "profile_followed";
-		case "vote":
-			return "vote_cast";
-		case "bootstrap":
-			return "bootstrap";
-		case "followed_activity":
-		case "interest":
-		case "system":
-			return "system";
+		case 'reply':
+		case 'mention':
+			return 'comment_created';
+		case 'personal_forum_post':
+			return 'thread_created';
+		case 'follow':
+			return 'profile_followed';
+		case 'vote':
+			return 'vote_cast';
+		case 'bootstrap':
+			return 'bootstrap';
+		case 'followed_activity':
+		case 'interest':
+		case 'system':
+			return 'system';
 	}
 }
 
-function legacyNotificationDeliveryReason(type: NotificationDocument["notificationType"]): NotificationEvent["deliveryReasons"][number] {
+function legacyNotificationDeliveryReason(type: NotificationDocument['notificationType']): NotificationEvent['deliveryReasons'][number] {
 	switch (type) {
-		case "reply":
-			return "direct_reply";
-		case "mention":
-			return "mention";
-		case "personal_forum_post":
-			return "personal_forum_post";
-		case "follow":
-			return "profile_followed_you";
-		case "vote":
-			return "vote_on_your_content";
-		case "followed_activity":
-			return "followed_profile_activity";
-		case "bootstrap":
-			return "bootstrap";
-		case "interest":
-		case "system":
-			return "system";
+		case 'reply':
+			return 'direct_reply';
+		case 'mention':
+			return 'mention';
+		case 'personal_forum_post':
+			return 'personal_forum_post';
+		case 'follow':
+			return 'profile_followed_you';
+		case 'vote':
+			return 'vote_on_your_content';
+		case 'followed_activity':
+			return 'followed_profile_activity';
+		case 'bootstrap':
+			return 'bootstrap';
+		case 'interest':
+		case 'system':
+			return 'system';
 	}
 }
 
-function notificationProfileRefFromReadContent(item: SpotlightIncludedContent): NonNullable<NotificationEvent["actor"]> {
+function notificationProfileRefFromReadContent(item: SpotlightIncludedContent): NonNullable<NotificationEvent['actor']> {
 	return {
 		id: item.authorBotId,
 		username: `u/${item.authorHandle}`,
@@ -8776,7 +8944,7 @@ function parseSpotlightSyntheticContext(text: string): SpotlightSyntheticContext
 		return null;
 	}
 	const record = runtimeRecord(parsed);
-	if (record.kind !== "spotlight_context" || !Array.isArray(record.content)) {
+	if (record.kind !== 'spotlight_context' || !Array.isArray(record.content)) {
 		return null;
 	}
 	const world = runtimeRecord(record.world);
@@ -8785,12 +8953,12 @@ function parseSpotlightSyntheticContext(text: string): SpotlightSyntheticContext
 	const worldHandle = stringValue(world.handle);
 	const forumId = stringValue(forum.id);
 	const forumHandle = stringValue(forum.handle);
-	const targetType = record.targetType === "comments" ? "comments" : record.targetType === "threads" ? "threads" : null;
+	const targetType = record.targetType === 'comments' ? 'comments' : record.targetType === 'threads' ? 'threads' : null;
 	if (!worldId || !worldHandle || !forumId || !forumHandle || !targetType) {
 		return null;
 	}
 	return {
-		kind: "spotlight_context",
+		kind: 'spotlight_context',
 		world: {
 			id: worldId,
 			handle: worldHandle,
@@ -8803,20 +8971,26 @@ function parseSpotlightSyntheticContext(text: string): SpotlightSyntheticContext
 		},
 		targetType,
 		...(stringValue(record.focus) ? { focus: stringValue(record.focus)! } : {}),
-		threads: Array.isArray(record.threads) ?
-			record.threads.map(runtimeRecord).map((thread) => ({
-				id: stringValue(thread.id) ?? stringValue(thread.threadId) ?? "",
-				threadId: stringValue(thread.threadId) ?? stringValue(thread.id) ?? "",
-				title: stringValue(thread.title) ?? "untitled",
-				rootCommentId: stringValue(thread.rootCommentId) ?? "",
-			})).filter((thread) => thread.id && thread.threadId && thread.rootCommentId)
-		:	undefined,
-		content: record.content.map(runtimeRecord).map(spotlightIncludedContentFromRecord).filter((item): item is SpotlightIncludedContent => Boolean(item)),
+		threads: Array.isArray(record.threads)
+			? record.threads
+					.map(runtimeRecord)
+					.map((thread) => ({
+						id: stringValue(thread.id) ?? stringValue(thread.threadId) ?? '',
+						threadId: stringValue(thread.threadId) ?? stringValue(thread.id) ?? '',
+						title: stringValue(thread.title) ?? 'untitled',
+						rootCommentId: stringValue(thread.rootCommentId) ?? '',
+					}))
+					.filter((thread) => thread.id && thread.threadId && thread.rootCommentId)
+			: undefined,
+		content: record.content
+			.map(runtimeRecord)
+			.map(spotlightIncludedContentFromRecord)
+			.filter((item): item is SpotlightIncludedContent => Boolean(item)),
 	};
 }
 
 function spotlightIncludedContentFromRecord(record: Record<string, unknown>): SpotlightIncludedContent | null {
-	const type = record.type === "comment" || record.type === "thread" ? "comment" : null;
+	const type = record.type === 'comment' || record.type === 'thread' ? 'comment' : null;
 	const id = stringValue(record.id);
 	const threadId = stringValue(record.threadId);
 	const authorBotId = stringValue(record.authorBotId);
@@ -8837,18 +9011,18 @@ function spotlightIncludedContentFromRecord(record: Record<string, unknown>): Sp
 		authorHandle,
 		authorDisplayName,
 		...(stringValue(record.authorShortBio) ? { authorShortBio: stringValue(record.authorShortBio)! } : {}),
-		...(typeof record.authorFollowing === "boolean" ? { authorFollowing: record.authorFollowing } : {}),
+		...(typeof record.authorFollowing === 'boolean' ? { authorFollowing: record.authorFollowing } : {}),
 		...(stringValue(record.title) ? { title: stringValue(record.title)! } : {}),
 		body,
 		createdAt,
-		...(record["My focus is on this comment"] === true || record.target === true ? { "My focus is on this comment": true as const } : {}),
+		...(record['My focus is on this comment'] === true || record.target === true ? { 'My focus is on this comment': true as const } : {}),
 		...(record.ancestorOnly === true ? { ancestorOnly: true } : {}),
 		...(record.alreadySeen === true ? { alreadySeen: true } : {}),
 	};
 }
 
 type SyntheticReadToolChain = {
-	toolName: "read_thread_by_id" | "read_comment_by_id";
+	toolName: 'read_thread_by_id' | 'read_comment_by_id';
 	args: Record<string, unknown>;
 	context: SpotlightSyntheticContext;
 	targetCommentId?: string;
@@ -8858,7 +9032,7 @@ type SyntheticReadToolChain = {
 function syntheticToolCall(runId: string, name: string, index: number, args: Record<string, unknown>): ToolCall {
 	return {
 		id: syntheticToolCallId(runId, index),
-		type: "function",
+		type: 'function',
 		function: {
 			name,
 			arguments: JSON.stringify(args),
@@ -8915,7 +9089,7 @@ function collectProfileHandlesFromUsernames(value: unknown, handles: Set<string>
 		}
 		return;
 	}
-	if (!value || typeof value !== "object") {
+	if (!value || typeof value !== 'object') {
 		return;
 	}
 	const record = value as Record<string, unknown>;
@@ -8956,18 +9130,18 @@ function profileUsernamesFromToolResultContent(content: string | null | undefine
 }
 
 function profileHandleFromProfileRecord(record: Record<string, unknown>): string | null {
-	if (!("displayName" in record) || !("shortBio" in record)) {
+	if (!('displayName' in record) || !('shortBio' in record)) {
 		return null;
 	}
 	return profileHandleFromUsername(record.username);
 }
 
 function profileHandleFromUsername(value: unknown): string | null {
-	if (typeof value !== "string") {
+	if (typeof value !== 'string') {
 		return null;
 	}
 	let text = value.trim();
-	while (text.toLowerCase().startsWith("u/")) {
+	while (text.toLowerCase().startsWith('u/')) {
 		text = text.slice(2).trim();
 	}
 	try {
@@ -8978,22 +9152,22 @@ function profileHandleFromUsername(value: unknown): string | null {
 }
 
 function spotlightSyntheticToolChains(context: SpotlightSyntheticContext): SyntheticReadToolChain[] {
-	if (context.targetType === "comments") {
+	if (context.targetType === 'comments') {
 		return context.content
-			.filter((item) => item.type === "comment" && (item["My focus is on this comment"] || item.target))
-				.map((item) => ({
-					toolName: "read_comment_by_id",
-					args: { commentId: item.id },
-					context,
-					targetCommentId: item.id,
-				}));
+			.filter((item) => item.type === 'comment' && (item['My focus is on this comment'] || item.target))
+			.map((item) => ({
+				toolName: 'read_comment_by_id',
+				args: { commentId: item.id },
+				context,
+				targetCommentId: item.id,
+			}));
 	}
 	const threadIds = new Set((context.threads ?? []).map((thread) => thread.threadId));
 	for (const item of context.content) {
 		threadIds.add(item.threadId);
 	}
 	return [...threadIds].map((threadId) => ({
-		toolName: "read_thread_by_id",
+		toolName: 'read_thread_by_id',
 		args: { threadId },
 		context,
 		targetThreadId: threadId,
@@ -9002,62 +9176,66 @@ function spotlightSyntheticToolChains(context: SpotlightSyntheticContext): Synth
 
 function spotlightReadResult(
 	context: SpotlightSyntheticContext,
-	operation: "read_thread_by_id" | "read_comment_by_id",
+	operation: 'read_thread_by_id' | 'read_comment_by_id',
 	scope: ProviderContextContentScope,
 	tokenBudget: number,
 	targetCommentId?: string,
 	targetThreadId?: string,
 ): Record<string, unknown> {
-	const threadId = targetThreadId ?? context.content.find((item) => item.id === targetCommentId)?.threadId ?? context.content[0]?.threadId ?? "unknown";
-	const content =
-		targetCommentId ?
-			spotlightCommentChainContent(context.content, threadId, targetCommentId)
-		:	context.content.filter((item) => item.threadId === threadId);
+	const threadId =
+		targetThreadId ?? context.content.find((item) => item.id === targetCommentId)?.threadId ?? context.content[0]?.threadId ?? 'unknown';
+	const content = targetCommentId
+		? spotlightCommentChainContent(context.content, threadId, targetCommentId)
+		: context.content.filter((item) => item.threadId === threadId);
 	const commentTree = readContentItemTree(content.map((item) => spotlightReadContentItem(context, item)));
 	const pruned = pruneReadContentTreeForProviderBudget(commentTree, tokenBudget);
-	return providerReadResult({
-		operation,
-		context: readResultContext(operation, pruned, tokenBudget),
-		thread: spotlightThreadSummaryRecord(context, threadId, content),
-		...(targetCommentId ? { targetCommentId } : {}),
-		content: pruned.content,
-	}, scope);
+	return providerReadResult(
+		{
+			operation,
+			context: readResultContext(operation, pruned, tokenBudget),
+			thread: spotlightThreadSummaryRecord(context, threadId, content),
+			...(targetCommentId ? { targetCommentId } : {}),
+			content: pruned.content,
+		},
+		scope,
+	);
 }
 
-function spotlightCommentChainContent(content: SpotlightIncludedContent[], threadId: string, targetCommentId: string): SpotlightIncludedContent[] {
+function spotlightCommentChainContent(
+	content: SpotlightIncludedContent[],
+	threadId: string,
+	targetCommentId: string,
+): SpotlightIncludedContent[] {
 	const byId = new Map(content.filter((item) => item.threadId === threadId).map((item) => [item.id, item]));
 	const comments: SpotlightIncludedContent[] = [];
 	let current = byId.get(targetCommentId);
-	while (current && current.type === "comment") {
+	while (current && current.type === 'comment') {
 		comments.unshift(current);
 		current = current.parentCommentId ? byId.get(current.parentCommentId) : undefined;
 	}
 	return comments;
 }
 
-function spotlightReadContentItem(
-	context: SpotlightSyntheticContext,
-	item: SpotlightIncludedContent,
-): ReadContentItem {
+function spotlightReadContentItem(context: SpotlightSyntheticContext, item: SpotlightIncludedContent): ReadContentItem {
 	return {
-		type: "comment",
+		type: 'comment',
 		id: item.id,
 		threadId: item.threadId,
 		...(item.commentId ? { commentId: item.commentId } : {}),
 		...(item.parentCommentId ? { parentCommentId: item.parentCommentId } : {}),
 		worldId: context.world.id,
-		worldHandle: stripTypedHandle(context.world.handle, "w"),
+		worldHandle: stripTypedHandle(context.world.handle, 'w'),
 		forumId: context.forum.id,
-		forumHandle: stripTypedHandle(context.forum.handle, "f"),
+		forumHandle: stripTypedHandle(context.forum.handle, 'f'),
 		authorBotId: item.authorBotId,
 		authorHandle: item.authorHandle,
 		authorDisplayName: item.authorDisplayName,
 		...(item.authorShortBio ? { authorShortBio: item.authorShortBio } : {}),
-		...(typeof item.authorFollowing === "boolean" ? { authorFollowing: item.authorFollowing } : {}),
+		...(typeof item.authorFollowing === 'boolean' ? { authorFollowing: item.authorFollowing } : {}),
 		...(item.title ? { title: item.title } : {}),
 		body: item.body,
 		createdAt: item.createdAt,
-		...(item["My focus is on this comment"] === true || item.target === true ? { "My focus is on this comment": true as const } : {}),
+		...(item['My focus is on this comment'] === true || item.target === true ? { 'My focus is on this comment': true as const } : {}),
 		...(item.ancestorOnly ? { ancestorOnly: true } : {}),
 	};
 }
@@ -9078,20 +9256,20 @@ function spotlightThreadSummaryRecord(
 		id: threadId,
 		threadId,
 		rootCommentId: thread?.rootCommentId,
-		worldHandle: stripTypedHandle(context.world.handle, "w"),
-		forumHandle: stripTypedHandle(context.forum.handle, "f"),
-		title: thread?.title ?? root?.title ?? "untitled",
+		worldHandle: stripTypedHandle(context.world.handle, 'w'),
+		forumHandle: stripTypedHandle(context.forum.handle, 'f'),
+		title: thread?.title ?? root?.title ?? 'untitled',
 		authorBotId: root?.authorBotId,
 		authorHandle: root?.authorHandle,
 		authorDisplayName: root?.authorDisplayName,
 		authorShortBio: root?.authorShortBio,
 		authorFollowing: root?.authorFollowing,
-		commentCount: content.filter((item) => item.type === "comment").length,
+		commentCount: content.filter((item) => item.type === 'comment').length,
 		lastActivityAt,
 	};
 }
 
-function stripTypedHandle(value: string, prefix: "f" | "u" | "w"): string {
+function stripTypedHandle(value: string, prefix: 'f' | 'u' | 'w'): string {
 	const marker = `${prefix}/`;
 	return value.toLowerCase().startsWith(marker) ? value.slice(marker.length) : value;
 }
@@ -9103,31 +9281,33 @@ type TranslationInput = {
 type AvatarGenerationInput = {
 	prompt: string;
 	includeCurrentAvatar: boolean;
-	settingsOverride?: BotInferenceSettings["imageGeneration"];
+	settingsOverride?: BotInferenceSettings['imageGeneration'];
 };
 
 function parseTranslationInput(input: unknown): TranslationInput {
 	const record = runtimeRecord(input);
 	return {
-		text: requiredText(record.text, "Translation text", 16_000),
+		text: requiredText(record.text, 'Translation text', 16_000),
 	};
 }
 
 function parseAvatarGenerationInput(input: unknown): AvatarGenerationInput {
 	const record = runtimeRecord(input);
-	const prompt = typeof record.prompt === "string" ? record.prompt : "";
+	const prompt = typeof record.prompt === 'string' ? record.prompt : '';
 	const includeCurrentAvatar = record.includeCurrentAvatar === true;
 	if (prompt.length > 8_000) {
-		throw new InputError("Avatar prompt must be 8000 characters or fewer.");
+		throw new InputError('Avatar prompt must be 8000 characters or fewer.');
 	}
 	if (!prompt.trim() && !includeCurrentAvatar) {
-		throw new InputError("Avatar prompt is required unless the current avatar is included.");
+		throw new InputError('Avatar prompt is required unless the current avatar is included.');
 	}
 	const settingsOverride =
-		record.settings === undefined ?
-			undefined
-		:	mergeInferenceSettings(undefined, parseUpdateBotInput({ inferenceSettings: { imageGeneration: record.settings } }).inferenceSettings)
-				.imageGeneration;
+		record.settings === undefined
+			? undefined
+			: mergeInferenceSettings(
+					undefined,
+					parseUpdateBotInput({ inferenceSettings: { imageGeneration: record.settings } }).inferenceSettings,
+				).imageGeneration;
 	return {
 		prompt,
 		includeCurrentAvatar,
@@ -9137,49 +9317,49 @@ function parseAvatarGenerationInput(input: unknown): AvatarGenerationInput {
 
 function parseAvatarCandidate(value: unknown): AvatarImage {
 	const record = runtimeRecord(value);
-	const key = requiredText(record.key, "Avatar candidate key", 500);
-	if (!key.includes("/avatar-candidates/")) {
-		throw new InputError("Avatar candidate key is invalid.");
+	const key = requiredText(record.key, 'Avatar candidate key', 500);
+	if (!key.includes('/avatar-candidates/')) {
+		throw new InputError('Avatar candidate key is invalid.');
 	}
-	const url = requiredText(record.url, "Avatar candidate URL", 1_000);
-	const contentType = requiredText(record.contentType, "Avatar candidate content type", 80);
-	const updatedAt = requiredText(record.updatedAt, "Avatar candidate timestamp", 80);
+	const url = requiredText(record.url, 'Avatar candidate URL', 1_000);
+	const contentType = requiredText(record.contentType, 'Avatar candidate content type', 80);
+	const updatedAt = requiredText(record.updatedAt, 'Avatar candidate timestamp', 80);
 	if (!isAvatarContentType(contentType)) {
-		throw new InputError("Avatar candidate content type is invalid.");
+		throw new InputError('Avatar candidate content type is invalid.');
 	}
 	const sourceRecord = runtimeRecord(record.source);
 	const generatedCost = numberValue(sourceRecord.cost);
 	const generatedSource =
-		sourceRecord.type === "generated" ?
-			{
-				type: "generated" as const,
-				model: requiredText(sourceRecord.model, "Avatar generation model", 160),
-				generatedAt: requiredText(sourceRecord.generatedAt, "Avatar generation timestamp", 80),
-				...(generatedCost !== undefined ? { cost: generatedCost } : {}),
-				...(typeof sourceRecord.prompt === "string" && sourceRecord.prompt.trim() ? { prompt: sourceRecord.prompt } : {}),
-			}
-		:	undefined;
+		sourceRecord.type === 'generated'
+			? {
+					type: 'generated' as const,
+					model: requiredText(sourceRecord.model, 'Avatar generation model', 160),
+					generatedAt: requiredText(sourceRecord.generatedAt, 'Avatar generation timestamp', 80),
+					...(generatedCost !== undefined ? { cost: generatedCost } : {}),
+					...(typeof sourceRecord.prompt === 'string' && sourceRecord.prompt.trim() ? { prompt: sourceRecord.prompt } : {}),
+				}
+			: undefined;
 	return {
 		key,
 		url,
 		contentType,
 		updatedAt,
-		...(typeof record.byteLength === "number" ? { byteLength: record.byteLength } : {}),
-		...(typeof record.width === "number" ? { width: record.width } : {}),
-		...(typeof record.height === "number" ? { height: record.height } : {}),
+		...(typeof record.byteLength === 'number' ? { byteLength: record.byteLength } : {}),
+		...(typeof record.width === 'number' ? { width: record.width } : {}),
+		...(typeof record.height === 'number' ? { height: record.height } : {}),
 		...(generatedSource ? { source: generatedSource } : {}),
 	};
 }
 
 async function translateForUser(
-	env: Pick<Env, "BICKR_KV" | "OPENROUTER_API_KEY" | "OPENROUTER_BASE_URL" | "OPENROUTER_MODEL">,
+	env: Pick<Env, 'BICKR_KV' | 'OPENROUTER_API_KEY' | 'OPENROUTER_BASE_URL' | 'OPENROUTER_MODEL'>,
 	userId: string,
 	text: string,
 ): Promise<string> {
 	const user = await userById(env.BICKR_KV, userId);
 	const settings = effectiveProviderSettingsForTranslation(user, env);
 	if (!settings) {
-		throw new InputError("Enable inline translations in profile inference settings before translating text.");
+		throw new InputError('Enable inline translations in profile inference settings before translating text.');
 	}
 	return fetchProviderTranslation(settings, text);
 }
@@ -9188,7 +9368,7 @@ async function fetchProviderTranslation(settings: TranslationProviderSettings, t
 	const endpoint = providerChatCompletionsUrl(settings.baseUrl);
 	const signal = new AbortController().signal;
 	const headers: Record<string, string> = {
-		"content-type": "application/json",
+		'content-type': 'application/json',
 	};
 	if (settings.apiKey) {
 		headers.authorization = `Bearer ${settings.apiKey}`;
@@ -9203,7 +9383,7 @@ async function fetchProviderTranslation(settings: TranslationProviderSettings, t
 		const response = await providerFetchWithHeaderTimeout(
 			endpoint,
 			{
-				method: "POST",
+				method: 'POST',
 				headers,
 				body: JSON.stringify(requestBody),
 			},
@@ -9225,7 +9405,7 @@ async function fetchProviderTranslation(settings: TranslationProviderSettings, t
 		try {
 			payload = JSON.parse(rawResponse) as ProviderCompactionResponsePayload;
 		} catch {
-			throw new ProviderRequestError(502, settings.model, endpoint, "Provider translation response was not valid JSON.", { rawResponse });
+			throw new ProviderRequestError(502, settings.model, endpoint, 'Provider translation response was not valid JSON.', { rawResponse });
 		}
 		try {
 			return providerTranslationFromToolMessage(payload.choices?.[0]?.message, rawResponse);
@@ -9240,26 +9420,34 @@ async function fetchProviderTranslation(settings: TranslationProviderSettings, t
 			requestMessages = [...requestMessages, ...structuredOutputRepairMessages(error)];
 		}
 	}
-	throw new ProviderRequestError(502, settings.model, endpoint, lastValidationError?.message ?? "Provider translation response did not include translation.");
+	throw new ProviderRequestError(
+		502,
+		settings.model,
+		endpoint,
+		lastValidationError?.message ?? 'Provider translation response did not include translation.',
+	);
 }
 
 async function generateAvatarForBot(
-	env: Pick<Env, "BICKR_KV" | "BICKR_D1" | "BICKR_R2" | "BICKR_R2_PUBLIC_BASE_URL" | "OPENROUTER_API_KEY" | "OPENROUTER_BASE_URL" | "OPENROUTER_MODEL">,
+	env: Pick<
+		Env,
+		'BICKR_KV' | 'BICKR_D1' | 'BICKR_R2' | 'BICKR_R2_PUBLIC_BASE_URL' | 'OPENROUTER_API_KEY' | 'OPENROUTER_BASE_URL' | 'OPENROUTER_MODEL'
+	>,
 	userId: string,
 	botId: string,
 	input: AvatarGenerationInput,
 ): Promise<AvatarImage> {
 	const bot = await botById(env.BICKR_KV, env.BICKR_D1, botId);
 	if (bot.ownerUserId !== userId) {
-		throw new RepositoryError("forbidden", "Only this participant's owner can generate an avatar.", 403);
+		throw new RepositoryError('forbidden', "Only this participant's owner can generate an avatar.", 403);
 	}
 	const owner = await userById(env.BICKR_KV, userId);
 	if (input.includeCurrentAvatar && !bot.avatar?.url) {
-		throw new InputError("The current avatar cannot be included because this participant does not have one.");
+		throw new InputError('The current avatar cannot be included because this participant does not have one.');
 	}
 	const settings = effectiveProviderSettingsForImageGeneration(bot, owner, env, input.settingsOverride);
 	if (!settings) {
-		throw new InputError("Choose an image generation model before generating an avatar.");
+		throw new InputError('Choose an image generation model before generating an avatar.');
 	}
 	const generatedImage = await fetchProviderAvatarImage(settings, {
 		prompt: input.prompt,
@@ -9286,25 +9474,25 @@ async function generateAvatarForBot(
 		contentType: validated.contentType,
 		publicBaseUrl: normalizeAvatarPublicBaseUrl(env.BICKR_R2_PUBLIC_BASE_URL),
 		source: {
-			type: "generated",
+			type: 'generated',
 			model: settings.model,
 			generatedAt: new Date().toISOString(),
 			...(generatedImage.cost !== null ? { cost: generatedImage.cost } : {}),
 			...(input.prompt.trim() ? { prompt: input.prompt } : {}),
 		},
-		kind: "avatar-candidates",
+		kind: 'avatar-candidates',
 	});
 }
 
 async function applyGeneratedAvatarForBot(
-	env: Pick<Env, "BICKR_KV" | "BICKR_D1" | "BICKR_R2" | "BICKR_R2_PUBLIC_BASE_URL">,
+	env: Pick<Env, 'BICKR_KV' | 'BICKR_D1' | 'BICKR_R2' | 'BICKR_R2_PUBLIC_BASE_URL'>,
 	userId: string,
 	botId: string,
 	candidate: AvatarImage,
 ): Promise<BotSummary> {
 	const bot = await botById(env.BICKR_KV, env.BICKR_D1, botId);
 	if (bot.ownerUserId !== userId) {
-		throw new RepositoryError("forbidden", "Only this participant's owner can update its avatar.", 403);
+		throw new RepositoryError('forbidden', "Only this participant's owner can update its avatar.", 403);
 	}
 	const avatar = await promoteAvatarCandidate(requireAvatarBucket(env), {
 		botId: bot.id,
@@ -9314,26 +9502,26 @@ async function applyGeneratedAvatarForBot(
 		source: candidate.source,
 	});
 	const updated = await updateBotAvatar(env.BICKR_KV, env.BICKR_D1, bot.id, userId, avatar);
-	await requireAvatarBucket(env).delete(candidate.key).catch(() => undefined);
+	await requireAvatarBucket(env)
+		.delete(candidate.key)
+		.catch(() => undefined);
 	return updated;
 }
 
 async function prefillAvatarPromptForBot(
-	env: Pick<Env, "BICKR_KV" | "BICKR_D1" | "OPENROUTER_API_KEY" | "OPENROUTER_BASE_URL" | "OPENROUTER_MODEL">,
+	env: Pick<Env, 'BICKR_KV' | 'BICKR_D1' | 'OPENROUTER_API_KEY' | 'OPENROUTER_BASE_URL' | 'OPENROUTER_MODEL'>,
 	userId: string,
 	botId: string,
 ): Promise<string> {
 	const bot = await botById(env.BICKR_KV, env.BICKR_D1, botId);
 	if (bot.ownerUserId !== userId) {
-		throw new RepositoryError("forbidden", "Only this participant's owner can prepare an avatar prompt.", 403);
+		throw new RepositoryError('forbidden', "Only this participant's owner can prepare an avatar prompt.", 403);
 	}
 	const owner = await userById(env.BICKR_KV, userId);
 	return fetchProviderAvatarDescription(effectiveProviderSettingsForBot(bot, owner, env), bot);
 }
 
-type ProviderImageContentPart =
-	| { type: "text"; text: string }
-	| { type: "image_url"; image_url: { url: string } };
+type ProviderImageContentPart = { type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } };
 
 async function fetchProviderAvatarImage(
 	settings: ImageGenerationProviderSettings,
@@ -9341,16 +9529,16 @@ async function fetchProviderAvatarImage(
 ): Promise<{ dataUrl: string; cost: number | null }> {
 	const endpoint = providerChatCompletionsUrl(settings.baseUrl);
 	const signal = new AbortController().signal;
-	const headers: Record<string, string> = { "content-type": "application/json" };
+	const headers: Record<string, string> = { 'content-type': 'application/json' };
 	if (settings.apiKey) {
 		headers.authorization = `Bearer ${settings.apiKey}`;
 	}
 	const content: ProviderImageContentPart[] = [];
 	if (input.prompt.trim()) {
-		content.push({ type: "text", text: input.prompt });
+		content.push({ type: 'text', text: input.prompt });
 	}
 	if (input.currentAvatarUrl) {
-		content.push({ type: "image_url", image_url: { url: input.currentAvatarUrl } });
+		content.push({ type: 'image_url', image_url: { url: input.currentAvatarUrl } });
 	}
 	const imageConfig: JsonObject = {
 		...(settings.aspectRatio ? { aspect_ratio: settings.aspectRatio } : {}),
@@ -9358,7 +9546,7 @@ async function fetchProviderAvatarImage(
 	};
 	const requestBody = {
 		model: settings.model,
-		messages: [{ role: "user", content }],
+		messages: [{ role: 'user', content }],
 		modalities: await providerImageOutputModalities(settings),
 		...(Object.keys(imageConfig).length > 0 ? { image_config: imageConfig } : {}),
 		...(settings.providerRouting ? { provider: settings.providerRouting } : {}),
@@ -9372,7 +9560,7 @@ async function fetchProviderAvatarImage(
 	};
 	const response = await providerFetchWithHeaderTimeout(
 		endpoint,
-		{ method: "POST", headers, body: JSON.stringify(requestBody) },
+		{ method: 'POST', headers, body: JSON.stringify(requestBody) },
 		signal,
 		providerImageRequestTimeoutMs,
 	);
@@ -9391,7 +9579,7 @@ async function fetchProviderAvatarImage(
 		);
 	} catch (error) {
 		if (error instanceof ResponseBodySizeLimitError) {
-			throw new ProviderRequestError(502, settings.model, endpoint, "Provider image response was larger than the supported avatar size.");
+			throw new ProviderRequestError(502, settings.model, endpoint, 'Provider image response was larger than the supported avatar size.');
 		}
 		throw error;
 	}
@@ -9399,11 +9587,11 @@ async function fetchProviderAvatarImage(
 	try {
 		payload = JSON.parse(rawResponse) as unknown;
 	} catch {
-		throw new ProviderRequestError(502, settings.model, endpoint, "Provider image response was not valid JSON.", { rawResponse });
+		throw new ProviderRequestError(502, settings.model, endpoint, 'Provider image response was not valid JSON.', { rawResponse });
 	}
 	const dataUrl = providerImageDataUrl(payload);
 	if (!dataUrl) {
-		throw new ProviderRequestError(502, settings.model, endpoint, "Provider image response did not include an image.", { rawResponse });
+		throw new ProviderRequestError(502, settings.model, endpoint, 'Provider image response did not include an image.', { rawResponse });
 	}
 	const usageRecord = runtimeRecord(payload).usage;
 	return {
@@ -9412,18 +9600,20 @@ async function fetchProviderAvatarImage(
 	};
 }
 
-async function providerImageOutputModalities(settings: Pick<ImageGenerationProviderSettings, "baseUrl" | "model">): Promise<["image"] | ["image", "text"]> {
+async function providerImageOutputModalities(
+	settings: Pick<ImageGenerationProviderSettings, 'baseUrl' | 'model'>,
+): Promise<['image'] | ['image', 'text']> {
 	if (!isOpenRouterProviderBaseUrl(settings.baseUrl)) {
-		return ["image", "text"];
+		return ['image', 'text'];
 	}
 	try {
-		const response = await fetch("https://openrouter.ai/api/v1/models?output_modalities=image", {
-			headers: { accept: "application/json" },
+		const response = await fetch('https://openrouter.ai/api/v1/models?output_modalities=image', {
+			headers: { accept: 'application/json' },
 		});
 		if (!response.ok) {
-			return ["image", "text"];
+			return ['image', 'text'];
 		}
-		const payload = await response.json() as { data?: unknown };
+		const payload = (await response.json()) as { data?: unknown };
 		const data = Array.isArray(payload.data) ? payload.data : [];
 		for (const item of data) {
 			const record = runtimeRecord(item);
@@ -9432,12 +9622,12 @@ async function providerImageOutputModalities(settings: Pick<ImageGenerationProvi
 			}
 			const architecture = runtimeRecord(record.architecture);
 			const outputModalities = stringArrayValue(architecture.output_modalities);
-			return outputModalities.includes("text") ? ["image", "text"] : ["image"];
+			return outputModalities.includes('text') ? ['image', 'text'] : ['image'];
 		}
 	} catch {
-		return ["image", "text"];
+		return ['image', 'text'];
 	}
-	return ["image", "text"];
+	return ['image', 'text'];
 }
 
 function providerImageDataUrl(payload: unknown): string | null {
@@ -9447,7 +9637,7 @@ function providerImageDataUrl(payload: unknown): string | null {
 		const images = Array.isArray(message.images) ? message.images : [];
 		for (const image of images) {
 			const url = stringValue(runtimeRecord(runtimeRecord(image).image_url).url);
-			if (url?.startsWith("data:image/")) {
+			if (url?.startsWith('data:image/')) {
 				return url;
 			}
 		}
@@ -9455,13 +9645,13 @@ function providerImageDataUrl(payload: unknown): string | null {
 	return null;
 }
 
-const providerAvatarDescriptionToolName = "save_avatar_description";
+const providerAvatarDescriptionToolName = 'save_avatar_description';
 
 function providerAvatarDescriptionSpec(): ProviderSingleStringResponseSpec {
 	return {
-		kind: "avatar_description",
-		property: "description",
-		label: "profile image description",
+		kind: 'avatar_description',
+		property: 'description',
+		label: 'profile image description',
 		maxCharacters: 8_000,
 		toolName: providerAvatarDescriptionToolName,
 	};
@@ -9470,16 +9660,17 @@ function providerAvatarDescriptionSpec(): ProviderSingleStringResponseSpec {
 function providerAvatarDescriptionTools(): [ProviderToolDefinition] {
 	return [
 		{
-			type: "function",
+			type: 'function',
 			function: {
 				name: providerAvatarDescriptionToolName,
-				description: "Save a first-person, in-character profile image description with highly verbose, concrete visual detail. Describe appearance, expression, pose, clothing, style, colors, lighting, background, and composition. Do not mention screenshots, prompts, generation, websites, instructions, systems, or any process outside the character's world.",
+				description:
+					"Save a first-person, in-character profile image description with highly verbose, concrete visual detail. Describe appearance, expression, pose, clothing, style, colors, lighting, background, and composition. Do not mention screenshots, prompts, generation, websites, instructions, systems, or any process outside the character's world.",
 				parameters: {
-					type: "object",
+					type: 'object',
 					properties: {
-						description: { type: "string" },
+						description: { type: 'string' },
 					},
-					required: ["description"],
+					required: ['description'],
 					additionalProperties: false,
 				},
 			},
@@ -9488,7 +9679,7 @@ function providerAvatarDescriptionTools(): [ProviderToolDefinition] {
 }
 
 function providerAvatarDescriptionResponseFormat(mode: ProviderCompactionMode): ProviderJsonSchemaResponseFormat | undefined {
-	return providerSingleStringResponseFormat("avatar_description", providerAvatarDescriptionSpec(), mode);
+	return providerSingleStringResponseFormat('avatar_description', providerAvatarDescriptionSpec(), mode);
 }
 
 async function fetchProviderAvatarDescription(settings: ProviderSettings, bot: BotDocument): Promise<string> {
@@ -9496,8 +9687,8 @@ async function fetchProviderAvatarDescription(settings: ProviderSettings, bot: B
 	try {
 		return await fetchProviderAvatarDescriptionWithMode(settings, bot, mode);
 	} catch (error) {
-		if (mode === "structured_output" && providerAvatarDescriptionCanFallbackToToolCall(error)) {
-			return fetchProviderAvatarDescriptionWithMode(settings, bot, "tool_call");
+		if (mode === 'structured_output' && providerAvatarDescriptionCanFallbackToToolCall(error)) {
+			return fetchProviderAvatarDescriptionWithMode(settings, bot, 'tool_call');
 		}
 		throw error;
 	}
@@ -9513,30 +9704,32 @@ function providerAvatarDescriptionCanFallbackToToolCall(error: unknown): boolean
 	return error.status === 400 && /\b(response_format|json_schema|structured)\b/i.test(error.body);
 }
 
-async function fetchProviderAvatarDescriptionWithMode(settings: ProviderSettings, bot: BotDocument, mode: ProviderCompactionMode): Promise<string> {
+async function fetchProviderAvatarDescriptionWithMode(
+	settings: ProviderSettings,
+	bot: BotDocument,
+	mode: ProviderCompactionMode,
+): Promise<string> {
 	const endpoint = providerChatCompletionsUrl(settings.baseUrl);
 	const signal = new AbortController().signal;
-	const headers: Record<string, string> = { "content-type": "application/json" };
+	const headers: Record<string, string> = { 'content-type': 'application/json' };
 	if (settings.apiKey) {
 		headers.authorization = `Bearer ${settings.apiKey}`;
 	}
-	const tools = mode === "structured_output" ? [] : providerAvatarDescriptionTools();
-	const toolCalls = settings.toolCalls === "railroad" ? "railroad" : "require";
-	const toolChoice =
-		mode === "structured_output" ? undefined
-		: providerToolChoiceForMode(toolCalls);
+	const tools = mode === 'structured_output' ? [] : providerAvatarDescriptionTools();
+	const toolCalls = settings.toolCalls === 'railroad' ? 'railroad' : 'require';
+	const toolChoice = mode === 'structured_output' ? undefined : providerToolChoiceForMode(toolCalls);
 	const responseFormat = providerAvatarDescriptionResponseFormat(mode);
 	const messages: ChatMessage[] = [
 		{
-			role: "system",
-			content: mode === "structured_output" ? standardPrompt(bot) : appendToolRequirementInstruction(standardPrompt(bot), tools),
+			role: 'system',
+			content: mode === 'structured_output' ? standardPrompt(bot) : appendToolRequirementInstruction(standardPrompt(bot), tools),
 		},
 		{
-			role: "user",
+			role: 'user',
 			content:
-				mode === "structured_output" ?
-					"Bickr Terminal needs a profile image description. I should return the required JSON object with a first-person, in-character description that is highly verbose and full of concrete visual detail. The description should focus only on visible appearance, style, scene, lighting, and composition."
-				:	`Bickr Terminal needs a profile image description. I should call ${providerAvatarDescriptionToolName} with a first-person, in-character description that is highly verbose and full of concrete visual detail. The description should focus only on visible appearance, style, scene, lighting, and composition.`,
+				mode === 'structured_output'
+					? 'Bickr Terminal needs a profile image description. I should return the required JSON object with a first-person, in-character description that is highly verbose and full of concrete visual detail. The description should focus only on visible appearance, style, scene, lighting, and composition.'
+					: `Bickr Terminal needs a profile image description. I should call ${providerAvatarDescriptionToolName} with a first-person, in-character description that is highly verbose and full of concrete visual detail. The description should focus only on visible appearance, style, scene, lighting, and composition.`,
 		},
 	];
 	let lastValidationError: ProviderStructuredOutputValidationError | undefined;
@@ -9552,7 +9745,7 @@ async function fetchProviderAvatarDescriptionWithMode(settings: ProviderSettings
 			...(tools.length > 0 ? { parallel_tool_calls: false } : {}),
 			...(responseFormat ? { response_format: responseFormat } : {}),
 			max_completion_tokens: 1400,
-			reasoning: mode === "structured_output" ? providerCompactionNoReasoning : providerReasoningForSettings(settings),
+			reasoning: mode === 'structured_output' ? providerCompactionNoReasoning : providerReasoningForSettings(settings),
 			temperature: settings.temperature,
 			...(settings.topK !== undefined ? { top_k: settings.topK } : {}),
 			...(settings.topP !== undefined ? { top_p: settings.topP } : {}),
@@ -9563,7 +9756,7 @@ async function fetchProviderAvatarDescriptionWithMode(settings: ProviderSettings
 		};
 		const response = await providerFetchWithHeaderTimeout(
 			endpoint,
-			{ method: "POST", headers, body: JSON.stringify(requestBody) },
+			{ method: 'POST', headers, body: JSON.stringify(requestBody) },
 			signal,
 			providerRequestTimeoutMs,
 		);
@@ -9582,7 +9775,9 @@ async function fetchProviderAvatarDescriptionWithMode(settings: ProviderSettings
 		try {
 			payload = JSON.parse(rawResponse) as ProviderCompactionResponsePayload;
 		} catch {
-			throw new ProviderRequestError(502, settings.model, endpoint, "Provider avatar description response was not valid JSON.", { rawResponse });
+			throw new ProviderRequestError(502, settings.model, endpoint, 'Provider avatar description response was not valid JSON.', {
+				rawResponse,
+			});
 		}
 		try {
 			return providerAvatarDescriptionFromResponseMessage(payload.choices?.[0]?.message, rawResponse, mode);
@@ -9606,7 +9801,7 @@ async function fetchProviderAvatarDescriptionWithMode(settings: ProviderSettings
 		502,
 		settings.model,
 		endpoint,
-		lastValidationError?.repairMessage ?? "Provider avatar description response did not call the required tool.",
+		lastValidationError?.repairMessage ?? 'Provider avatar description response did not call the required tool.',
 		lastValidationError ? { rawResponse: lastValidationError.rawResponse } : {},
 	);
 }
@@ -9616,7 +9811,7 @@ function providerAvatarDescriptionFromResponseMessage(message: unknown, rawRespo
 }
 
 function normalizeAvatarDescriptionText(value: unknown): string | null {
-	if (typeof value !== "string") {
+	if (typeof value !== 'string') {
 		return null;
 	}
 	const trimmed = value.trim();
@@ -9630,7 +9825,7 @@ function normalizeAvatarDescriptionText(value: unknown): string | null {
 }
 
 function providerMessageTextContent(value: unknown): string | undefined {
-	if (typeof value === "string") {
+	if (typeof value === 'string') {
 		return value.trim() || undefined;
 	}
 	if (!Array.isArray(value)) {
@@ -9639,28 +9834,29 @@ function providerMessageTextContent(value: unknown): string | undefined {
 	const text = value
 		.map((item) => {
 			const record = runtimeRecord(item);
-			return typeof record.text === "string" ? record.text : "";
+			return typeof record.text === 'string' ? record.text : '';
 		})
-		.join("\n")
+		.join('\n')
 		.trim();
 	return text || undefined;
 }
 
 function avatarDescriptionRepairMessages(error: ProviderStructuredOutputValidationError, mode: ProviderCompactionMode): ChatMessage[] {
-	if (mode === "structured_output") {
+	if (mode === 'structured_output') {
 		return [
-			...(error.outputText ? [{ role: "assistant" as const, content: error.outputText }] : []),
+			...(error.outputText ? [{ role: 'assistant' as const, content: error.outputText }] : []),
 			{
-				role: "user",
-				content: "Bickr Terminal still needs the profile image description as the required JSON object with exactly one field named description. The description must be first person, in character, and focused only on visible appearance, style, scene, lighting, and composition.",
+				role: 'user',
+				content:
+					'Bickr Terminal still needs the profile image description as the required JSON object with exactly one field named description. The description must be first person, in character, and focused only on visible appearance, style, scene, lighting, and composition.',
 			},
 		];
 	}
 	if (error.toolCalls.length === 0) {
 		return [
-			...(error.outputText ? [{ role: "assistant" as const, content: error.outputText }] : []),
+			...(error.outputText ? [{ role: 'assistant' as const, content: error.outputText }] : []),
 			{
-				role: "user",
+				role: 'user',
 				content: `Bickr Terminal still needs me to call ${providerAvatarDescriptionToolName}. The description must be first person, in character, and focused only on visible appearance, style, scene, lighting, and composition.`,
 			},
 		];
@@ -9671,21 +9867,23 @@ function avatarDescriptionRepairMessages(error: ProviderStructuredOutputValidati
 	});
 	return [
 		{
-			role: "assistant",
-			content: "",
+			role: 'assistant',
+			content: '',
 			tool_calls: error.toolCalls,
 		},
-		...error.toolCalls.map((toolCall): ChatMessage => ({
-			role: "tool",
-			tool_call_id: toolCall.id,
-			content,
-		})),
+		...error.toolCalls.map(
+			(toolCall): ChatMessage => ({
+				role: 'tool',
+				tool_call_id: toolCall.id,
+				content,
+			}),
+		),
 	];
 }
 
-function requireAvatarBucket(env: Pick<Env, "BICKR_R2">): R2BucketLike {
+function requireAvatarBucket(env: Pick<Env, 'BICKR_R2'>): R2BucketLike {
 	if (!env.BICKR_R2) {
-		throw new InputError("BICKR_R2 must be configured before storing avatars.");
+		throw new InputError('BICKR_R2 must be configured before storing avatars.');
 	}
 	return env.BICKR_R2 as R2BucketLike;
 }
@@ -9708,67 +9906,64 @@ export async function handleAgentRuntimeRequest(
 	request: Request,
 	env: Pick<
 		Env,
-		| "BICKR_D1"
-		| "BICKR_KV"
-		| "BICKR_R2"
-		| "BICKR_R2_PUBLIC_BASE_URL"
-		| "AI"
-		| "BICKR_BOT_VECTORIZE"
-		| "BICKR_SEARCH_VECTORIZE"
-		| "OPENROUTER_API_KEY"
-		| "OPENROUTER_BASE_URL"
-		| "OPENROUTER_MODEL"
+		| 'BICKR_D1'
+		| 'BICKR_KV'
+		| 'BICKR_R2'
+		| 'BICKR_R2_PUBLIC_BASE_URL'
+		| 'AI'
+		| 'BICKR_BOT_VECTORIZE'
+		| 'BICKR_SEARCH_VECTORIZE'
+		| 'OPENROUTER_API_KEY'
+		| 'OPENROUTER_BASE_URL'
+		| 'OPENROUTER_MODEL'
 	>,
-	objectId = "direct",
+	objectId = 'direct',
 ): Promise<Response> {
 	try {
 		const url = new URL(request.url);
 		const translateMatch = /^\/users\/([^/]+)\/translate$/.exec(url.pathname);
-		if (request.method === "POST" && translateMatch) {
-			const userId = requireUserMatch(request, decodeURIComponent(translateMatch[1] ?? ""));
+		if (request.method === 'POST' && translateMatch) {
+			const userId = requireUserMatch(request, decodeURIComponent(translateMatch[1] ?? ''));
 			const input = parseTranslationInput(await readJsonBody(request));
 			const translation = await translateForUser(env, userId, input.text);
 			return ok({ translation, coordinator: objectId });
 		}
 
-		if (request.method === "GET" && url.pathname === "/search/entities") {
+		if (request.method === 'GET' && url.pathname === '/search/entities') {
 			requireInternalServiceRequest(request);
-			const mode = parseSearchMode(url.searchParams.get("mode"));
-			if (mode !== "semantic") {
-				throw new InputError("Agent runtime search only supports semantic mode.");
+			const mode = parseSearchMode(url.searchParams.get('mode'));
+			if (mode !== 'semantic') {
+				throw new InputError('Agent runtime search only supports semantic mode.');
 			}
 			const result = await searchEntitiesSemantic(env.BICKR_D1, env, {
 				...normalizeSearchFilters({
-					forum: url.searchParams.get("forum"),
-					username: url.searchParams.get("username"),
-					world: url.searchParams.get("world"),
+					forum: url.searchParams.get('forum'),
+					username: url.searchParams.get('username'),
+					world: url.searchParams.get('world'),
 				}),
 				mode,
-				page: boundedSearchPage(url.searchParams.get("page")),
-				query: url.searchParams.get("q") ?? "",
-				types: parseSearchTypes(url.searchParams.get("types")),
+				page: boundedSearchPage(url.searchParams.get('page')),
+				query: url.searchParams.get('q') ?? '',
+				types: parseSearchTypes(url.searchParams.get('types')),
 			});
 			return ok({ search: result, coordinator: objectId });
 		}
 
-		if (request.method === "POST" && url.pathname === "/search/reindex-vectors") {
+		if (request.method === 'POST' && url.pathname === '/search/reindex-vectors') {
 			requireInternalServiceRequest(request);
-			const limit = Number(url.searchParams.get("limit") ?? 100);
+			const limit = Number(url.searchParams.get('limit') ?? 100);
 			const result = await reindexSearchVectors(env.BICKR_D1, env, Number.isFinite(limit) ? limit : 100);
 			return ok({ reindex: result, coordinator: objectId });
 		}
 
 		const createMatch = /^\/users\/([^/]+)\/worlds\/([^/]+)\/bots$/.exec(url.pathname);
-		if (request.method === "POST" && createMatch) {
-			const userId = requireUserMatch(request, decodeURIComponent(createMatch[1] ?? ""));
-			const worldHandle = normalizeHandle(decodeURIComponent(createMatch[2] ?? ""));
+		if (request.method === 'POST' && createMatch) {
+			const userId = requireUserMatch(request, decodeURIComponent(createMatch[1] ?? ''));
+			const worldHandle = normalizeHandle(decodeURIComponent(createMatch[2] ?? ''));
 			const input = parseCreateBotInput(await readJsonBody(request));
-			const cloneSourceBot =
-				input.cloneSourceBotId ?
-					await botById(env.BICKR_KV, env.BICKR_D1, input.cloneSourceBotId)
-				:	null;
+			const cloneSourceBot = input.cloneSourceBotId ? await botById(env.BICKR_KV, env.BICKR_D1, input.cloneSourceBotId) : null;
 			if (cloneSourceBot && cloneSourceBot.ownerUserId !== userId) {
-				throw new RepositoryError("forbidden", "You can only clone your own participants.", 403);
+				throw new RepositoryError('forbidden', 'You can only clone your own participants.', 403);
 			}
 			const cloneSourceAvatar = cloneSourceBot?.avatar;
 			if (cloneSourceAvatar) {
@@ -9779,14 +9974,10 @@ export async function handleAgentRuntimeRequest(
 				requireAvatarBucket(env);
 				normalizeAvatarPublicBaseUrl(env.BICKR_R2_PUBLIC_BASE_URL);
 			}
-			const chirperAvatar =
-				input.importSource?.sourceAvatarUrl ?
-					await fetchRemoteAvatarBytes(input.importSource.sourceAvatarUrl)
-				:	null;
+			const chirperAvatar = input.importSource?.sourceAvatarUrl ? await fetchRemoteAvatarBytes(input.importSource.sourceAvatarUrl) : null;
 			let bot = await createBot(env.BICKR_KV, env.BICKR_D1, worldHandle, input, userId, {
-				prepareAvatar:
-					cloneSourceAvatar ?
-						(createdBot) =>
+				prepareAvatar: cloneSourceAvatar
+					? (createdBot) =>
 							copyAvatarImage(requireAvatarBucket(env), {
 								botId: createdBot.id,
 								worldId: createdBot.homeWorldId,
@@ -9794,7 +9985,7 @@ export async function handleAgentRuntimeRequest(
 								publicBaseUrl: normalizeAvatarPublicBaseUrl(env.BICKR_R2_PUBLIC_BASE_URL),
 								now: createdBot.createdAt,
 							})
-					:	undefined,
+					: undefined,
 			});
 			if (chirperAvatar && input.importSource?.sourceAvatarUrl) {
 				const avatar = await storeAvatarImage(requireAvatarBucket(env), {
@@ -9804,7 +9995,7 @@ export async function handleAgentRuntimeRequest(
 					contentType: chirperAvatar.contentType,
 					publicBaseUrl: normalizeAvatarPublicBaseUrl(env.BICKR_R2_PUBLIC_BASE_URL),
 					source: {
-						type: "chirper",
+						type: 'chirper',
 						sourceUrl: input.importSource.sourceAvatarUrl,
 						originalHandle: input.importSource.originalHandle,
 						importedAt: input.importSource.importedAt,
@@ -9817,9 +10008,9 @@ export async function handleAgentRuntimeRequest(
 		}
 
 		const botMatch = /^\/users\/([^/]+)\/bots\/([^/]+)$/.exec(url.pathname);
-		if (botMatch && request.method === "PATCH") {
-			const userId = requireUserMatch(request, decodeURIComponent(botMatch[1] ?? ""));
-			const botId = decodeURIComponent(botMatch[2] ?? "");
+		if (botMatch && request.method === 'PATCH') {
+			const userId = requireUserMatch(request, decodeURIComponent(botMatch[1] ?? ''));
+			const botId = decodeURIComponent(botMatch[2] ?? '');
 			const input = parseUpdateBotInput(await readJsonBody(request));
 			const bot = await updateBot(env.BICKR_KV, env.BICKR_D1, botId, userId, input);
 			await upsertBotVector(env, bot);
@@ -9827,25 +10018,25 @@ export async function handleAgentRuntimeRequest(
 		}
 
 		const avatarPromptMatch = /^\/users\/([^/]+)\/bots\/([^/]+)\/avatar\/prompt$/.exec(url.pathname);
-		if (avatarPromptMatch && request.method === "POST") {
-			const userId = requireUserMatch(request, decodeURIComponent(avatarPromptMatch[1] ?? ""));
-			const botId = decodeURIComponent(avatarPromptMatch[2] ?? "");
+		if (avatarPromptMatch && request.method === 'POST') {
+			const userId = requireUserMatch(request, decodeURIComponent(avatarPromptMatch[1] ?? ''));
+			const botId = decodeURIComponent(avatarPromptMatch[2] ?? '');
 			const prompt = await prefillAvatarPromptForBot(env, userId, botId);
 			return ok({ prompt, coordinator: objectId });
 		}
 
 		const avatarGenerateMatch = /^\/users\/([^/]+)\/bots\/([^/]+)\/avatar\/generate$/.exec(url.pathname);
-		if (avatarGenerateMatch && request.method === "POST") {
-			const userId = requireUserMatch(request, decodeURIComponent(avatarGenerateMatch[1] ?? ""));
-			const botId = decodeURIComponent(avatarGenerateMatch[2] ?? "");
+		if (avatarGenerateMatch && request.method === 'POST') {
+			const userId = requireUserMatch(request, decodeURIComponent(avatarGenerateMatch[1] ?? ''));
+			const botId = decodeURIComponent(avatarGenerateMatch[2] ?? '');
 			const candidate = await generateAvatarForBot(env, userId, botId, parseAvatarGenerationInput(await readJsonBody(request)));
 			return ok({ candidate, coordinator: objectId });
 		}
 
 		const avatarApplyMatch = /^\/users\/([^/]+)\/bots\/([^/]+)\/avatar\/apply$/.exec(url.pathname);
-		if (avatarApplyMatch && request.method === "POST") {
-			const userId = requireUserMatch(request, decodeURIComponent(avatarApplyMatch[1] ?? ""));
-			const botId = decodeURIComponent(avatarApplyMatch[2] ?? "");
+		if (avatarApplyMatch && request.method === 'POST') {
+			const userId = requireUserMatch(request, decodeURIComponent(avatarApplyMatch[1] ?? ''));
+			const botId = decodeURIComponent(avatarApplyMatch[2] ?? '');
 			const body = runtimeRecord(await readJsonBody(request));
 			let bot = await applyGeneratedAvatarForBot(env, userId, botId, parseAvatarCandidate(body.candidate));
 			if (body.settings !== undefined) {
@@ -9856,26 +10047,26 @@ export async function handleAgentRuntimeRequest(
 			return ok({ bot, coordinator: objectId });
 		}
 
-		if (botMatch && request.method === "DELETE") {
-			const userId = requireUserMatch(request, decodeURIComponent(botMatch[1] ?? ""));
-			const botId = decodeURIComponent(botMatch[2] ?? "");
+		if (botMatch && request.method === 'DELETE') {
+			const userId = requireUserMatch(request, decodeURIComponent(botMatch[1] ?? ''));
+			const botId = decodeURIComponent(botMatch[2] ?? '');
 			const bot = await deleteBot(env.BICKR_KV, env.BICKR_D1, botId, userId);
 			await deleteBotVector(env, bot.id);
 			return ok({ bot, coordinator: objectId });
 		}
 
 		const profileDeleteMatch = /^\/users\/([^/]+)\/profile$/.exec(url.pathname);
-		if (profileDeleteMatch && request.method === "DELETE") {
-			const userId = requireUserMatch(request, decodeURIComponent(profileDeleteMatch[1] ?? ""));
+		if (profileDeleteMatch && request.method === 'DELETE') {
+			const userId = requireUserMatch(request, decodeURIComponent(profileDeleteMatch[1] ?? ''));
 			const input = await readJsonBody(request);
-			if (!input || typeof input !== "object" || Array.isArray(input) || (input as { confirmCascade?: unknown }).confirmCascade !== true) {
-				throw new InputError("Profile deletion requires confirmCascade: true.");
+			if (!input || typeof input !== 'object' || Array.isArray(input) || (input as { confirmCascade?: unknown }).confirmCascade !== true) {
+				throw new InputError('Profile deletion requires confirmCascade: true.');
 			}
 			const eligibility = await humanProfileDeleteEligibility(env.BICKR_D1, userId);
 			if (!eligibility.canDelete) {
 				throw new RepositoryError(
-					"conflict",
-					"Profile deletion is blocked because an owned world contains bots owned by other profiles.",
+					'conflict',
+					'Profile deletion is blocked because an owned world contains bots owned by other profiles.',
 					409,
 					{ profileDeleteBlockers: eligibility.blockers },
 				);
@@ -9908,7 +10099,7 @@ export async function handleAgentRuntimeRequest(
 			});
 		}
 
-		return fail("not_found", "Agent runtime route not found.", 404);
+		return fail('not_found', 'Agent runtime route not found.', 404);
 	} catch (error) {
 		return errorResponse(error);
 	}
@@ -9918,37 +10109,36 @@ export default {
 	async fetch(request, env) {
 		const url = new URL(request.url);
 
-		if (url.pathname === "/health") {
+		if (url.pathname === '/health') {
 			return json({
 				ok: true,
-				runtime: "agent-runtime-worker",
+				runtime: 'agent-runtime-worker',
 			});
 		}
 
 		const translateMatch = /^\/users\/([^/]+)\/translate$/.exec(url.pathname);
-		if (translateMatch && request.method === "POST") {
+		if (translateMatch && request.method === 'POST') {
 			return handleAgentRuntimeRequest(request, env);
 		}
 
 		if (
-			(url.pathname === "/search/entities" && request.method === "GET") ||
-			(url.pathname === "/search/reindex-vectors" && request.method === "POST")
+			(url.pathname === '/search/entities' && request.method === 'GET') ||
+			(url.pathname === '/search/reindex-vectors' && request.method === 'POST')
 		) {
 			return handleAgentRuntimeRequest(request, env);
 		}
 
-		const userBotsMatch =
-			/^\/users\/([^/]+)\/(?:worlds\/[^/]+\/bots|bots\/[^/]+(?:\/avatar\/(?:prompt|generate|apply))?|profile)$/.exec(
-				url.pathname,
-			);
-		if (userBotsMatch && ["POST", "PATCH", "DELETE"].includes(request.method)) {
-			const userId = decodeURIComponent(userBotsMatch[1] ?? "");
+		const userBotsMatch = /^\/users\/([^/]+)\/(?:worlds\/[^/]+\/bots|bots\/[^/]+(?:\/avatar\/(?:prompt|generate|apply))?|profile)$/.exec(
+			url.pathname,
+		);
+		if (userBotsMatch && ['POST', 'PATCH', 'DELETE'].includes(request.method)) {
+			const userId = decodeURIComponent(userBotsMatch[1] ?? '');
 			const objectId = env.USER_BOTS.idFromName(userId);
 			return env.USER_BOTS.get(objectId).fetch(request);
 		}
 
-		if (url.pathname.startsWith("/bots/")) {
-			const botId = url.pathname.split("/")[2] ?? "unknown";
+		if (url.pathname.startsWith('/bots/')) {
+			const botId = url.pathname.split('/')[2] ?? 'unknown';
 			const objectId = env.BOT_RUNTIME.idFromName(botId);
 			return env.BOT_RUNTIME.get(objectId).fetch(request);
 		}
@@ -9956,8 +10146,8 @@ export default {
 		return json(
 			{
 				ok: false,
-				error: "not_found",
-				runtime: "agent-runtime-worker",
+				error: 'not_found',
+				runtime: 'agent-runtime-worker',
 			},
 			{ status: 404 },
 		);
@@ -9990,22 +10180,22 @@ async function dispatchDueBots(env: Env, scheduledTime: number): Promise<void> {
 				await withAbortableTimeout(
 					parentSignal,
 					scheduledDispatchTimeoutMs,
-					() => new RuntimeOperationTimeoutError("Scheduled Bickr visit dispatch", scheduledDispatchTimeoutMs),
+					() => new RuntimeOperationTimeoutError('Scheduled Bickr visit dispatch', scheduledDispatchTimeoutMs),
 					(signal) =>
 						env.BOT_RUNTIME.get(id).fetch(
 							new Request(`https://internal.bickr/bots/${encodeURIComponent(row.botId)}/tick`, {
-								method: "POST",
+								method: 'POST',
 								signal,
 								headers: {
-									"content-type": "application/json",
-									"x-bickr-scheduler": "1",
+									'content-type': 'application/json',
+									'x-bickr-scheduler': '1',
 								},
 								body: JSON.stringify({ background: true }),
 							}),
 						),
 				);
 			} catch (error) {
-				console.warn("scheduled bot tick dispatch failed", row.botId, error);
+				console.warn('scheduled bot tick dispatch failed', row.botId, error);
 			}
 		}),
 	);
@@ -10013,16 +10203,16 @@ async function dispatchDueBots(env: Env, scheduledTime: number): Promise<void> {
 
 function canonicalToolName(name: string): string {
 	const aliases: Record<string, string> = {
-		create_post: "create_thread",
-		reply_to_thread: "reply_to_comment",
-		search_posts: "search_threads",
-		search_posts_semantic: "search_threads_semantic",
-		search_bots: "search_profiles",
-		view_profile: "view_profiles",
-		view_bot_profile: "view_profiles",
-		view_bot_activity: "view_activity",
-		follow_bot: "follow_profile",
-		unfollow_bot: "unfollow_profile",
+		create_post: 'create_thread',
+		reply_to_thread: 'reply_to_comment',
+		search_posts: 'search_threads',
+		search_posts_semantic: 'search_threads_semantic',
+		search_bots: 'search_profiles',
+		view_profile: 'view_profiles',
+		view_bot_profile: 'view_profiles',
+		view_bot_activity: 'view_activity',
+		follow_bot: 'follow_profile',
+		unfollow_bot: 'unfollow_profile',
 	};
 	return aliases[name] ?? name;
 }
@@ -10030,23 +10220,23 @@ function canonicalToolName(name: string): string {
 function providerToolArgs(name: string, args: Record<string, unknown>): Record<string, unknown> {
 	const canonical = canonicalToolName(name);
 	const normalized = { ...args };
-	if ((canonical === "read_thread" || canonical === "read_thread_by_id") && stringValue(normalized.threadId)) {
+	if ((canonical === 'read_thread' || canonical === 'read_thread_by_id') && stringValue(normalized.threadId)) {
 		normalized.threadRef = formatThreadRef(stringValue(normalized.threadId)!);
 		delete normalized.threadId;
 	}
-	if (canonical === "read_comment_by_id" && stringValue(normalized.commentId)) {
+	if (canonical === 'read_comment_by_id' && stringValue(normalized.commentId)) {
 		normalized.commentRef = formatCommentRef(stringValue(normalized.commentId)!);
 		delete normalized.commentId;
 	}
-	if ("botId" in normalized && !("profileId" in normalized)) {
+	if ('botId' in normalized && !('profileId' in normalized)) {
 		normalized.profileId = publicProfileId(stringValue(normalized.botId));
 		delete normalized.botId;
 	}
-	if ((canonical === "follow_profile" || canonical === "unfollow_profile") && "profileId" in normalized) {
+	if ((canonical === 'follow_profile' || canonical === 'unfollow_profile') && 'profileId' in normalized) {
 		normalized.profileId = publicProfileId(stringValue(normalized.profileId));
 	}
 	if (
-		(canonical === "reply_to_comment" || canonical === "make_additional_reply_to_the_same_comment") &&
+		(canonical === 'reply_to_comment' || canonical === 'make_additional_reply_to_the_same_comment') &&
 		!stringValue(normalized.commentId) &&
 		stringValue(normalized.parentCommentId)
 	) {
@@ -10054,13 +10244,16 @@ function providerToolArgs(name: string, args: Record<string, unknown>): Record<s
 		delete normalized.parentCommentId;
 		delete normalized.threadId;
 	}
-	if ((canonical === "reply_to_comment" || canonical === "make_additional_reply_to_the_same_comment") && stringValue(normalized.commentId)) {
+	if (
+		(canonical === 'reply_to_comment' || canonical === 'make_additional_reply_to_the_same_comment') &&
+		stringValue(normalized.commentId)
+	) {
 		normalized.commentRef = formatCommentRef(stringValue(normalized.commentId)!);
 		delete normalized.commentId;
 		delete normalized.parentCommentId;
 		delete normalized.threadId;
 	}
-	if (canonical === "vote" && Array.isArray(normalized.votes)) {
+	if (canonical === 'vote' && Array.isArray(normalized.votes)) {
 		normalized.votes = normalized.votes.map((item) => {
 			const record = runtimeRecord(item);
 			const commentId = stringValue(record.commentId ?? record.targetId);
@@ -10079,7 +10272,7 @@ function providerCompactionSummaryFromResponseMessage(
 	message: unknown,
 	rawResponse: string,
 	limits: ProviderCompactionValidationLimits = defaultProviderCompactionSummaryLimits,
-	mode: ProviderCompactionMode = "structured_output",
+	mode: ProviderCompactionMode = 'structured_output',
 ): string {
 	return providerSingleStringResponseFromMessage(message, providerCompactionSummarySpec(limits), rawResponse, mode);
 }
@@ -10088,14 +10281,14 @@ function providerTranslationFromToolMessage(message: unknown, rawResponse: strin
 	return providerSingleStringResponseFromMessage(
 		message,
 		{
-			kind: "translation",
-			property: "translation",
-			label: "translation",
+			kind: 'translation',
+			property: 'translation',
+			label: 'translation',
 			maxCharacters: providerTranslationMaxCompletionTokens * 8,
 			toolName: providerTranslationToolName,
 		},
 		rawResponse,
-		"tool_call",
+		'tool_call',
 	).trim();
 }
 
@@ -10105,7 +10298,7 @@ function providerSingleStringResponseFromMessage(
 	rawResponse: string,
 	mode: ProviderCompactionMode,
 ): string {
-	if (mode === "structured_output") {
+	if (mode === 'structured_output') {
 		return providerStructuredOutputFromMessageContent(message, spec, rawResponse);
 	}
 	if (!spec.toolName) {
@@ -10120,12 +10313,14 @@ function providerStructuredOutputFromMessageContent(
 	rawResponse: string,
 ): string {
 	const message = runtimeRecord(messageValue);
-	const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls.map(providerToolCallFromValue).filter((toolCall): toolCall is BotInferenceSubmissionToolCall => Boolean(toolCall)) : [];
+	const toolCalls = Array.isArray(message.tool_calls)
+		? message.tool_calls.map(providerToolCallFromValue).filter((toolCall): toolCall is BotInferenceSubmissionToolCall => Boolean(toolCall))
+		: [];
 	if (toolCalls.length > 0) {
 		const repairMessage =
-			spec.kind === "compaction" ?
-				"META: don't make any tool calls. You must reply with the structured detailed first-person summary strictly following the required JSON schema."
-			:	`Do not use a Bickr control for this response. Reply with the required JSON object containing only ${spec.property}.`;
+			spec.kind === 'compaction'
+				? "META: don't make any tool calls. You must reply with the structured detailed first-person summary strictly following the required JSON schema."
+				: `Do not use a Bickr control for this response. Reply with the required JSON object containing only ${spec.property}.`;
 		throw new ProviderStructuredOutputValidationError(spec.kind, repairMessage, {
 			rawResponse,
 			outputText: providerMessageTextContent(message.content),
@@ -10142,15 +10337,15 @@ function providerStructuredOutputFromMessageContent(
 
 function parseProviderStructuredMessageContent(
 	content: string,
-	spec: Pick<ProviderSingleStringResponseSpec, "kind" | "label" | "property">,
+	spec: Pick<ProviderSingleStringResponseSpec, 'kind' | 'label' | 'property'>,
 	rawResponse: string,
 ): unknown {
 	const repairCandidates = new Set<string>();
 	try {
 		return JSON.parse(content) as unknown;
 	} catch {
-		const firstBrace = content.indexOf("{");
-		const lastBrace = content.lastIndexOf("}");
+		const firstBrace = content.indexOf('{');
+		const lastBrace = content.lastIndexOf('}');
 		if (firstBrace >= 0 && lastBrace > firstBrace) {
 			const candidate = content.slice(firstBrace, lastBrace + 1);
 			try {
@@ -10169,14 +10364,14 @@ function parseProviderStructuredMessageContent(
 	}
 	throw new ProviderStructuredOutputValidationError(spec.kind, `The ${spec.label} response must be a JSON object.`, {
 		rawResponse,
-		...(spec.kind === "compaction" ? {} : { outputText: content }),
+		...(spec.kind === 'compaction' ? {} : { outputText: content }),
 	});
 }
 
 function repairSingleStringStructuredJsonObject(source: string, property: string): Record<string, string> | null {
 	const text = source.trim();
 	let index = 0;
-	if (text[index] !== "{") {
+	if (text[index] !== '{') {
 		return null;
 	}
 	index = skipJsonWhitespace(text, index + 1);
@@ -10185,23 +10380,23 @@ function repairSingleStringStructuredJsonObject(source: string, property: string
 		return null;
 	}
 	index = skipJsonWhitespace(text, key.end);
-	if (text[index] !== ":") {
+	if (text[index] !== ':') {
 		return null;
 	}
 	index = skipJsonWhitespace(text, index + 1);
-	if (text[index] !== "\"") {
+	if (text[index] !== '"') {
 		return null;
 	}
 	const valueStart = index + 1;
 	const objectEnd = lastNonWhitespaceIndex(text);
-	if (objectEnd <= valueStart || text[objectEnd] !== "}") {
+	if (objectEnd <= valueStart || text[objectEnd] !== '}') {
 		return null;
 	}
 	let closingQuote = objectEnd - 1;
-	while (closingQuote >= valueStart && isJsonWhitespace(text[closingQuote] ?? "")) {
+	while (closingQuote >= valueStart && isJsonWhitespace(text[closingQuote] ?? '')) {
 		closingQuote -= 1;
 	}
-	if (closingQuote < valueStart || text[closingQuote] !== "\"" || isEscapedJsonStringQuote(text, closingQuote)) {
+	if (closingQuote < valueStart || text[closingQuote] !== '"' || isEscapedJsonStringQuote(text, closingQuote)) {
 		return null;
 	}
 	if (text.slice(closingQuote + 1, objectEnd).trim()) {
@@ -10215,14 +10410,14 @@ function repairSingleStringStructuredJsonObject(source: string, property: string
 }
 
 function readJsonStringToken(text: string, start: number): { value: string; end: number } | null {
-	if (text[start] !== "\"") {
+	if (text[start] !== '"') {
 		return null;
 	}
 	for (let index = start + 1; index < text.length; index += 1) {
-		if (text[index] === "\"" && !isEscapedJsonStringQuote(text, index)) {
+		if (text[index] === '"' && !isEscapedJsonStringQuote(text, index)) {
 			try {
 				const value = JSON.parse(text.slice(start, index + 1)) as unknown;
-				return typeof value === "string" ? { value, end: index + 1 } : null;
+				return typeof value === 'string' ? { value, end: index + 1 } : null;
 			} catch {
 				return null;
 			}
@@ -10232,54 +10427,54 @@ function readJsonStringToken(text: string, start: number): { value: string; end:
 }
 
 function decodeLooseJsonStringContent(value: string): string {
-	let decoded = "";
-	for (let index = 0; index < value.length;) {
+	let decoded = '';
+	for (let index = 0; index < value.length; ) {
 		const char = value[index];
-		if (char !== "\\") {
-			decoded += char ?? "";
+		if (char !== '\\') {
+			decoded += char ?? '';
 			index += 1;
 			continue;
 		}
 		const escaped = value[index + 1];
 		if (escaped === undefined) {
-			decoded += "\\";
+			decoded += '\\';
 			index += 1;
 			continue;
 		}
 		switch (escaped) {
-			case "\"":
-			case "\\":
-			case "/":
+			case '"':
+			case '\\':
+			case '/':
 				decoded += escaped;
 				index += 2;
 				break;
-			case "b":
-				decoded += "\b";
+			case 'b':
+				decoded += '\b';
 				index += 2;
 				break;
-			case "f":
-				decoded += "\f";
+			case 'f':
+				decoded += '\f';
 				index += 2;
 				break;
-			case "n":
-				decoded += "\n";
+			case 'n':
+				decoded += '\n';
 				index += 2;
 				break;
-			case "r":
-				decoded += "\r";
+			case 'r':
+				decoded += '\r';
 				index += 2;
 				break;
-			case "t":
-				decoded += "\t";
+			case 't':
+				decoded += '\t';
 				index += 2;
 				break;
-			case "u": {
+			case 'u': {
 				const hex = value.slice(index + 2, index + 6);
 				if (/^[0-9a-fA-F]{4}$/.test(hex)) {
 					decoded += String.fromCharCode(Number.parseInt(hex, 16));
 					index += 6;
 				} else {
-					decoded += "\\u";
+					decoded += '\\u';
 					index += 2;
 				}
 				break;
@@ -10295,11 +10490,11 @@ function decodeLooseJsonStringContent(value: string): string {
 
 function looksLikeAdditionalJsonMember(rawValue: string): boolean {
 	for (let index = 0; index < rawValue.length; index += 1) {
-		if (rawValue[index] !== "\"" || isEscapedJsonStringQuote(rawValue, index)) {
+		if (rawValue[index] !== '"' || isEscapedJsonStringQuote(rawValue, index)) {
 			continue;
 		}
 		let next = skipJsonWhitespace(rawValue, index + 1);
-		if (rawValue[next] === ",") {
+		if (rawValue[next] === ',') {
 			next = skipJsonWhitespace(rawValue, next + 1);
 		}
 		const key = readJsonStringToken(rawValue, next);
@@ -10307,7 +10502,7 @@ function looksLikeAdditionalJsonMember(rawValue: string): boolean {
 			continue;
 		}
 		const afterKey = skipJsonWhitespace(rawValue, key.end);
-		if (rawValue[afterKey] === ":") {
+		if (rawValue[afterKey] === ':') {
 			return true;
 		}
 	}
@@ -10315,7 +10510,7 @@ function looksLikeAdditionalJsonMember(rawValue: string): boolean {
 }
 
 function skipJsonWhitespace(text: string, index: number): number {
-	while (index < text.length && isJsonWhitespace(text[index] ?? "")) {
+	while (index < text.length && isJsonWhitespace(text[index] ?? '')) {
 		index += 1;
 	}
 	return index;
@@ -10323,7 +10518,7 @@ function skipJsonWhitespace(text: string, index: number): number {
 
 function lastNonWhitespaceIndex(text: string): number {
 	for (let index = text.length - 1; index >= 0; index -= 1) {
-		if (!isJsonWhitespace(text[index] ?? "")) {
+		if (!isJsonWhitespace(text[index] ?? '')) {
 			return index;
 		}
 	}
@@ -10331,12 +10526,12 @@ function lastNonWhitespaceIndex(text: string): number {
 }
 
 function isJsonWhitespace(char: string): boolean {
-	return char === " " || char === "\n" || char === "\r" || char === "\t";
+	return char === ' ' || char === '\n' || char === '\r' || char === '\t';
 }
 
 function isEscapedJsonStringQuote(text: string, quoteIndex: number): boolean {
 	let slashCount = 0;
-	for (let index = quoteIndex - 1; index >= 0 && text[index] === "\\"; index -= 1) {
+	for (let index = quoteIndex - 1; index >= 0 && text[index] === '\\'; index -= 1) {
 		slashCount += 1;
 	}
 	return slashCount % 2 === 1;
@@ -10348,33 +10543,47 @@ function providerStructuredOutputFromToolMessage(
 	rawResponse: string,
 ): string {
 	const message = runtimeRecord(messageValue);
-	const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls.map(providerToolCallFromValue).filter((toolCall): toolCall is BotInferenceSubmissionToolCall => Boolean(toolCall)) : [];
+	const toolCalls = Array.isArray(message.tool_calls)
+		? message.tool_calls.map(providerToolCallFromValue).filter((toolCall): toolCall is BotInferenceSubmissionToolCall => Boolean(toolCall))
+		: [];
 	const errorOptions = { rawResponse, requiredToolName: spec.toolName, toolCalls };
 	if (toolCalls.length === 0) {
 		throw new ProviderStructuredOutputValidationError(spec.kind, `No ${spec.toolName} tool call was returned.`, errorOptions);
 	}
 	const wrongToolCall = toolCalls.find((toolCall) => toolCall.function.name !== spec.toolName);
 	if (wrongToolCall) {
-		throw new ProviderStructuredOutputValidationError(spec.kind, `Only ${spec.toolName} may be used for this request; ${wrongToolCall.function.name || "unknown"} cannot be used here.`, {
-			rawResponse,
-			requiredToolName: spec.toolName,
-			toolCalls,
-		});
+		throw new ProviderStructuredOutputValidationError(
+			spec.kind,
+			`Only ${spec.toolName} may be used for this request; ${wrongToolCall.function.name || 'unknown'} cannot be used here.`,
+			{
+				rawResponse,
+				requiredToolName: spec.toolName,
+				toolCalls,
+			},
+		);
 	}
 	if (toolCalls.length !== 1) {
-		throw new ProviderStructuredOutputValidationError(spec.kind, `Expected exactly one ${spec.toolName} tool call, but received ${toolCalls.length}.`, {
-			rawResponse,
-			requiredToolName: spec.toolName,
-			toolCalls,
-		});
+		throw new ProviderStructuredOutputValidationError(
+			spec.kind,
+			`Expected exactly one ${spec.toolName} tool call, but received ${toolCalls.length}.`,
+			{
+				rawResponse,
+				requiredToolName: spec.toolName,
+				toolCalls,
+			},
+		);
 	}
 	const [toolCall] = toolCalls;
 	if (toolCall.function.name !== spec.toolName) {
-		throw new ProviderStructuredOutputValidationError(spec.kind, `Expected tool ${spec.toolName}, but received ${toolCall.function.name || "unknown"}.`, {
-			rawResponse,
-			requiredToolName: spec.toolName,
-			toolCalls,
-		});
+		throw new ProviderStructuredOutputValidationError(
+			spec.kind,
+			`Expected tool ${spec.toolName}, but received ${toolCall.function.name || 'unknown'}.`,
+			{
+				rawResponse,
+				requiredToolName: spec.toolName,
+				toolCalls,
+			},
+		);
 	}
 	let parsed: unknown;
 	try {
@@ -10395,25 +10604,33 @@ function providerStructuredOutputPropertyFromRecord(
 	rawResponse: string,
 	toolCalls: BotInferenceSubmissionToolCall[],
 ): string {
-	if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-		throw new ProviderStructuredOutputValidationError(spec.kind, spec.toolName ? `The ${spec.toolName} arguments must be a JSON object.` : "The structured output must be a JSON object.", {
-			rawResponse,
-			requiredToolName: spec.toolName,
-			toolCalls,
-		});
+	if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+		throw new ProviderStructuredOutputValidationError(
+			spec.kind,
+			spec.toolName ? `The ${spec.toolName} arguments must be a JSON object.` : 'The structured output must be a JSON object.',
+			{
+				rawResponse,
+				requiredToolName: spec.toolName,
+				toolCalls,
+			},
+		);
 	}
 	const record = runtimeRecord(parsed);
 	const keys = Object.keys(record);
 	const extraKeys = keys.filter((key) => key !== spec.property);
 	if (extraKeys.length > 0) {
-		throw new ProviderStructuredOutputValidationError(spec.kind, `Unexpected ${spec.toolName ? "argument" : "field"} ${extraKeys.join(", ")}; only ${spec.property} is allowed.`, {
-			rawResponse,
-			requiredToolName: spec.toolName,
-			toolCalls,
-		});
+		throw new ProviderStructuredOutputValidationError(
+			spec.kind,
+			`Unexpected ${spec.toolName ? 'argument' : 'field'} ${extraKeys.join(', ')}; only ${spec.property} is allowed.`,
+			{
+				rawResponse,
+				requiredToolName: spec.toolName,
+				toolCalls,
+			},
+		);
 	}
 	const value = record[spec.property];
-	if (typeof value !== "string" || value.trim().length === 0) {
+	if (typeof value !== 'string' || value.trim().length === 0) {
 		throw new ProviderStructuredOutputValidationError(spec.kind, `The ${spec.label} argument must be a non-empty string.`, {
 			rawResponse,
 			requiredToolName: spec.toolName,
@@ -10422,28 +10639,40 @@ function providerStructuredOutputPropertyFromRecord(
 	}
 	const minCharacters = Math.max(0, Math.floor(spec.minCharacters ?? 0));
 	if (value.length < minCharacters) {
-		throw new ProviderStructuredOutputValidationError(spec.kind, `The ${spec.label} argument must be at least ${minCharacters} characters.`, {
-			rawResponse,
-			requiredToolName: spec.toolName,
-			toolCalls,
-		});
+		throw new ProviderStructuredOutputValidationError(
+			spec.kind,
+			`The ${spec.label} argument must be at least ${minCharacters} characters.`,
+			{
+				rawResponse,
+				requiredToolName: spec.toolName,
+				toolCalls,
+			},
+		);
 	}
 	const reduction = spec.reduction?.(value);
 	if (reduction && !reduction.reduces) {
-		throw new ProviderStructuredOutputValidationError(spec.kind, `The ${spec.label} argument did not reduce the compacted context (${reduction.replacementTokens} estimated replacement tokens vs ${reduction.compactedTokens} compacted tokens).`, {
-			rawResponse,
-			requiredToolName: spec.toolName,
-			toolCalls,
-			outputText: value,
-		});
+		throw new ProviderStructuredOutputValidationError(
+			spec.kind,
+			`The ${spec.label} argument did not reduce the compacted context (${reduction.replacementTokens} estimated replacement tokens vs ${reduction.compactedTokens} compacted tokens).`,
+			{
+				rawResponse,
+				requiredToolName: spec.toolName,
+				toolCalls,
+				outputText: value,
+			},
+		);
 	}
 	if (value.length > spec.maxCharacters && !reduction) {
-		throw new ProviderStructuredOutputValidationError(spec.kind, `The ${spec.label} argument must be at most ${spec.maxCharacters} characters.`, {
-			rawResponse,
-			requiredToolName: spec.toolName,
-			toolCalls,
-			outputText: value,
-		});
+		throw new ProviderStructuredOutputValidationError(
+			spec.kind,
+			`The ${spec.label} argument must be at most ${spec.maxCharacters} characters.`,
+			{
+				rawResponse,
+				requiredToolName: spec.toolName,
+				toolCalls,
+				outputText: value,
+			},
+		);
 	}
 	return value;
 }
@@ -10455,11 +10684,16 @@ type ProviderCompactionReductionCheck = (summary: string) => {
 };
 
 function providerCompactionReductionCheck(
-	limits: Partial<Pick<ProviderCompactionSummaryLimits, "compactedCharacterCount" | "tokensPerCharacter">>,
+	limits: Partial<Pick<ProviderCompactionSummaryLimits, 'compactedCharacterCount' | 'tokensPerCharacter'>>,
 ): ProviderCompactionReductionCheck | undefined {
 	const compactedCharacters = Number(limits.compactedCharacterCount);
 	const tokensPerCharacter = Number(limits.tokensPerCharacter);
-	if (!Number.isFinite(compactedCharacters) || compactedCharacters <= 0 || !Number.isFinite(tokensPerCharacter) || tokensPerCharacter <= 0) {
+	if (
+		!Number.isFinite(compactedCharacters) ||
+		compactedCharacters <= 0 ||
+		!Number.isFinite(tokensPerCharacter) ||
+		tokensPerCharacter <= 0
+	) {
 		return undefined;
 	}
 	const calibration = {
@@ -10468,7 +10702,7 @@ function providerCompactionReductionCheck(
 	};
 	const compactedTokens = Math.max(1, Math.ceil(Math.floor(compactedCharacters) * calibration.tokensPerCharacter));
 	return (summary: string) => {
-		const replacementTokens = estimateChatMessageTokens({ role: "assistant", content: storedCompactionSummary(summary) }, calibration);
+		const replacementTokens = estimateChatMessageTokens({ role: 'assistant', content: storedCompactionSummary(summary) }, calibration);
 		return {
 			compactedTokens,
 			replacementTokens,
@@ -10487,7 +10721,7 @@ function providerToolCallFromValue(value: unknown, index = 0): BotInferenceSubmi
 	}
 	return {
 		id: stringValue(record.id) ?? `call_recovered_${index}`,
-		type: "function",
+		type: 'function',
 		function: {
 			name,
 			arguments: args,
@@ -10498,30 +10732,32 @@ function providerToolCallFromValue(value: unknown, index = 0): BotInferenceSubmi
 function structuredOutputRepairMessages(error: ProviderStructuredOutputValidationError): ChatMessage[] {
 	const content = JSON.stringify({
 		ok: false,
-		code: "schema_invalid",
+		code: 'schema_invalid',
 		message: error.repairMessage,
 	});
 	if (error.toolCalls.length === 0) {
 		return [
 			{
-				role: "assistant",
-				content: error.requiredToolName ?
-					`Actually, I must use the ${error.requiredToolName} tool.`
-				:	"Actually, I must reply with the required structured output.",
+				role: 'assistant',
+				content: error.requiredToolName
+					? `Actually, I must use the ${error.requiredToolName} tool.`
+					: 'Actually, I must reply with the required structured output.',
 			},
 		];
 	}
 	return [
 		{
-			role: "assistant",
-			content: "",
+			role: 'assistant',
+			content: '',
 			tool_calls: error.toolCalls,
 		},
-		...error.toolCalls.map((toolCall): ChatMessage => ({
-			role: "tool",
-			tool_call_id: toolCall.id,
-			content,
-		})),
+		...error.toolCalls.map(
+			(toolCall): ChatMessage => ({
+				role: 'tool',
+				tool_call_id: toolCall.id,
+				content,
+			}),
+		),
 	];
 }
 
@@ -10533,69 +10769,66 @@ export function providerToolResultPayload(
 	options: ProviderToolResultPayloadOptions = {},
 ): unknown {
 	const canonical = canonicalToolName(name);
-	if (canonical === "check_notifications") {
+	if (canonical === 'check_notifications') {
 		const record = runtimeRecord(result);
 		return providerCheckNotificationsResult(Array.isArray(record.events) ? record.events : [], scope, options.tokenBudget);
 	}
-	if (canonical === "list_accessible_forums" && Array.isArray(result)) {
+	if (canonical === 'list_accessible_forums' && Array.isArray(result)) {
 		const forums = result.map((item) => providerForum(runtimeRecord(item)));
 		return pruneProviderArrayForBudget(forums, options.tokenBudget).items;
 	}
-	if (canonical === "list_recent_threads" && Array.isArray(result)) {
+	if (canonical === 'list_recent_threads' && Array.isArray(result)) {
 		const threads = result.map((item) => providerThreadSummary(runtimeRecord(item), { includeForum: false }));
 		return pruneProviderArrayForBudget(threads, options.tokenBudget).items;
 	}
-	if (canonical === "list_hot_threads" && Array.isArray(result)) {
+	if (canonical === 'list_hot_threads' && Array.isArray(result)) {
 		const threads = result.map((item) => providerThreadSummary(runtimeRecord(item), { includeForum: true }));
 		return pruneProviderArrayForBudget(threads, options.tokenBudget).items;
 	}
-	if (canonical === "search_threads" || canonical === "search_threads_semantic") {
+	if (canonical === 'search_threads' || canonical === 'search_threads_semantic') {
 		if (!Array.isArray(result)) {
 			return providerSafeJsonValue(result);
 		}
 		const posts = result.map((item) => providerSearchPost(runtimeRecord(item), scope));
 		return pruneProviderArrayForBudget(posts, options.tokenBudget).items;
 	}
-	if (canonical === "search_profiles" && Array.isArray(result)) {
+	if (canonical === 'search_profiles' && Array.isArray(result)) {
 		const profiles = result.map((item) => providerProfile(runtimeRecord(item)));
 		return pruneProviderArrayForBudget(profiles, options.tokenBudget).items;
 	}
-	if (canonical === "view_profiles") {
+	if (canonical === 'view_profiles') {
 		const record = runtimeRecord(result);
-		const profiles =
-			Array.isArray(record.profiles) ? record.profiles
-			:	Array.isArray(result) ? result
-			:	[result];
+		const profiles = Array.isArray(record.profiles) ? record.profiles : Array.isArray(result) ? result : [result];
 		const providerProfiles = profiles.map((item) => providerProfile(runtimeRecord(item)));
 		const pruned = pruneProviderArrayForBudget(providerProfiles, options.tokenBudget, (items) => ({ profiles: items }));
 		return {
 			profiles: pruned.items,
 		};
 	}
-	if (canonical === "view_activity") {
+	if (canonical === 'view_activity') {
 		return providerActivityFeedResult(runtimeRecord(result), options.tokenBudget);
 	}
-	if (canonical === "follow_profile" || canonical === "unfollow_profile") {
-		return Array.isArray(result) ?
-				result.map((item) => providerFollowResult(runtimeRecord(item)))
-			:	providerFollowResult(runtimeRecord(result));
+	if (canonical === 'follow_profile' || canonical === 'unfollow_profile') {
+		return Array.isArray(result)
+			? result.map((item) => providerFollowResult(runtimeRecord(item)))
+			: providerFollowResult(runtimeRecord(result));
 	}
-	if (canonical === "vote" && Array.isArray(result)) {
+	if (canonical === 'vote' && Array.isArray(result)) {
 		return result.map((item) => providerVoteResult(runtimeRecord(item)));
 	}
-	if (canonical === "read_thread" || canonical === "read_thread_by_id" || canonical === "read_comment_by_id") {
+	if (canonical === 'read_thread' || canonical === 'read_thread_by_id' || canonical === 'read_comment_by_id') {
 		return providerReadResult(runtimeRecord(result), scope);
 	}
-	if (canonical === "create_thread") {
+	if (canonical === 'create_thread') {
 		return providerCreateThreadResult(result);
 	}
-	if (canonical === "reply_to_comment" || canonical === "make_additional_reply_to_the_same_comment") {
+	if (canonical === 'reply_to_comment' || canonical === 'make_additional_reply_to_the_same_comment') {
 		return providerReplyCommentResult(result, args);
 	}
-	if (canonical === "vote") {
+	if (canonical === 'vote') {
 		return providerVoteResult(runtimeRecord(result));
 	}
-	if (canonical === "log_off") {
+	if (canonical === 'log_off') {
 		return providerSafeJsonValue(result);
 	}
 	return providerSafeJsonValue(result);
@@ -10609,7 +10842,7 @@ function pruneProviderArrayForBudget<T>(
 	items: T[],
 	tokenBudget: number | undefined,
 	payloadForItems: (items: T[]) => unknown = (array) => array,
-	removeFrom: "head" | "tail" = "tail",
+	removeFrom: 'head' | 'tail' = 'tail',
 ): ProviderToolArrayPruneResult<T> {
 	if (tokenBudget === undefined) {
 		return {
@@ -10623,7 +10856,7 @@ function pruneProviderArrayForBudget<T>(
 	let omittedCount = 0;
 	let tokenEstimate = providerJsonTokenEstimate(payloadForItems(pruned));
 	while (pruned.length > 0 && tokenEstimate > budget) {
-		if (removeFrom === "head") {
+		if (removeFrom === 'head') {
 			pruned.shift();
 		} else {
 			pruned.pop();
@@ -10641,15 +10874,15 @@ function pruneProviderArrayForBudget<T>(
 function providerToolResultUsesTokenBudget(name: string): boolean {
 	const canonical = canonicalToolName(name);
 	return (
-		canonical === "check_notifications" ||
-		canonical === "list_accessible_forums" ||
-		canonical === "list_recent_threads" ||
-		canonical === "list_hot_threads" ||
-		canonical === "search_threads" ||
-		canonical === "search_threads_semantic" ||
-		canonical === "search_profiles" ||
-		canonical === "view_profiles" ||
-		canonical === "view_activity"
+		canonical === 'check_notifications' ||
+		canonical === 'list_accessible_forums' ||
+		canonical === 'list_recent_threads' ||
+		canonical === 'list_hot_threads' ||
+		canonical === 'search_threads' ||
+		canonical === 'search_threads_semantic' ||
+		canonical === 'search_profiles' ||
+		canonical === 'view_profiles' ||
+		canonical === 'view_activity'
 	);
 }
 
@@ -10686,11 +10919,10 @@ function providerCheckNotificationsResultWithInclusions(
 	tokenBudget?: number,
 ): ProviderNotificationPayloadResult {
 	const scope = cloneProviderContextContentScope(initialScope);
-	const providerEvents = mergedProviderNotificationEventGroups(events.map(runtimeRecord))
-		.map((group) => ({
-			notificationIds: group.notificationIds,
-			payload: runtimeRecord(providerSafeJsonValue(providerNotificationEvent(group.event, scope))),
-		}));
+	const providerEvents = mergedProviderNotificationEventGroups(events.map(runtimeRecord)).map((group) => ({
+		notificationIds: group.notificationIds,
+		payload: runtimeRecord(providerSafeJsonValue(providerNotificationEvent(group.event, scope))),
+	}));
 	if (tokenBudget === undefined) {
 		return {
 			payload: providerNotificationResultPayload(providerEvents.map((event) => event.payload)),
@@ -10699,14 +10931,17 @@ function providerCheckNotificationsResultWithInclusions(
 	}
 	const pruned = pruneProviderNotificationEventsForBudget(providerEvents, tokenBudget);
 	return {
-		payload: providerNotificationResultPayload(pruned.events.map((event) => event.payload), pruned),
+		payload: providerNotificationResultPayload(
+			pruned.events.map((event) => event.payload),
+			pruned,
+		),
 		includedEventIds: pruned.events.flatMap((event) => event.notificationIds),
 	};
 }
 
 function providerNotificationResultPayload(
 	events: Record<string, unknown>[],
-	pruned?: Pick<ProviderNotificationPruneResult, "omittedEventCount">,
+	pruned?: Pick<ProviderNotificationPruneResult, 'omittedEventCount'>,
 ): Record<string, unknown> {
 	return removeUndefinedProperties({
 		...(pruned && pruned.omittedEventCount > 0 ? { context: providerNotificationResultContext(pruned) } : {}),
@@ -10714,12 +10949,14 @@ function providerNotificationResultPayload(
 	});
 }
 
-function providerNotificationResultContext(pruned: Pick<ProviderNotificationPruneResult, "omittedEventCount">): string {
+function providerNotificationResultContext(pruned: Pick<ProviderNotificationPruneResult, 'omittedEventCount'>): string {
 	const parts: string[] = [];
 	if (pruned.omittedEventCount > 0) {
-		parts.push(`${pruned.omittedEventCount} older notification event${pruned.omittedEventCount === 1 ? " was" : "s were"} omitted to keep this result compact`);
+		parts.push(
+			`${pruned.omittedEventCount} older notification event${pruned.omittedEventCount === 1 ? ' was' : 's were'} omitted to keep this result compact`,
+		);
 	}
-	return `Result of checking notifications. ${parts.join(". ")}.`;
+	return `Result of checking notifications. ${parts.join('. ')}.`;
 }
 
 function pruneProviderNotificationEventsForBudget(
@@ -10732,11 +10969,17 @@ function pruneProviderNotificationEventsForBudget(
 		payload: JSON.parse(JSON.stringify(event.payload)) as Record<string, unknown>,
 	}));
 	let omittedEventCount = 0;
-	let tokenEstimate = providerNotificationTokenEstimate(prunedEvents.map((event) => event.payload), { omittedEventCount });
+	let tokenEstimate = providerNotificationTokenEstimate(
+		prunedEvents.map((event) => event.payload),
+		{ omittedEventCount },
+	);
 	while (prunedEvents.length > 0 && tokenEstimate > budget) {
 		prunedEvents.shift();
 		omittedEventCount += 1;
-		tokenEstimate = providerNotificationTokenEstimate(prunedEvents.map((event) => event.payload), { omittedEventCount });
+		tokenEstimate = providerNotificationTokenEstimate(
+			prunedEvents.map((event) => event.payload),
+			{ omittedEventCount },
+		);
 	}
 	return {
 		events: prunedEvents,
@@ -10747,7 +10990,7 @@ function pruneProviderNotificationEventsForBudget(
 
 function providerNotificationTokenEstimate(
 	events: Record<string, unknown>[],
-	pruned: Pick<ProviderNotificationPruneResult, "omittedEventCount">,
+	pruned: Pick<ProviderNotificationPruneResult, 'omittedEventCount'>,
 ): number {
 	return estimateTextTokens(JSON.stringify(providerNotificationResultPayload(events, pruned)));
 }
@@ -10758,7 +11001,7 @@ function mergedProviderNotificationEventGroups(events: Record<string, unknown>[]
 	for (const event of events) {
 		const sourceObjectId = stringValue(event.sourceObjectId);
 		const notificationId = stringValue(event.id);
-		const key = sourceObjectId ? `${stringValue(event.type) ?? "event"}:${sourceObjectId}` : "";
+		const key = sourceObjectId ? `${stringValue(event.type) ?? 'event'}:${sourceObjectId}` : '';
 		if (!key) {
 			const uniqueKey = `event:${stringValue(event.id) ?? crypto.randomUUID()}`;
 			bySource.set(uniqueKey, {
@@ -10788,10 +11031,7 @@ function mergedProviderNotificationEventGroups(events: Record<string, unknown>[]
 	return order.map((key) => bySource.get(key)).filter((event): event is ProviderNotificationEventGroup => Boolean(event));
 }
 
-function providerNotificationEvent(
-	event: Record<string, unknown>,
-	scope: ProviderContextContentScope,
-): Record<string, unknown> {
+function providerNotificationEvent(event: Record<string, unknown>, scope: ProviderContextContentScope): Record<string, unknown> {
 	return removeUndefinedProperties({
 		type: stringValue(event.type),
 		deliveryReasons: orderedProviderDeliveryReasons(stringArrayValue(event.deliveryReasons)),
@@ -10823,7 +11063,7 @@ function providerNotificationProfileRef(record: Record<string, unknown>): string
 	if (!username) {
 		return undefined;
 	}
-	return username.startsWith("u/") ? username : `u/${username}`;
+	return username.startsWith('u/') ? username : `u/${username}`;
 }
 
 function providerNotificationThreadRef(
@@ -10882,14 +11122,14 @@ function providerNotificationVoteRef(record: Record<string, unknown>): Record<st
 
 function orderedProviderDeliveryReasons(reasons: string[]): string[] {
 	const order = [
-		"bootstrap",
-		"direct_reply",
-		"mention",
-		"personal_forum_post",
-		"profile_followed_you",
-		"vote_on_your_content",
-		"followed_profile_activity",
-		"system",
+		'bootstrap',
+		'direct_reply',
+		'mention',
+		'personal_forum_post',
+		'profile_followed_you',
+		'vote_on_your_content',
+		'followed_profile_activity',
+		'system',
 	];
 	const unique = new Set(reasons.filter(Boolean));
 	const ordered = order.filter((reason) => unique.delete(reason));
@@ -10897,7 +11137,7 @@ function orderedProviderDeliveryReasons(reasons: string[]): string[] {
 }
 
 function collectProviderContextContentFromValue(value: unknown, scope: ProviderContextContentScope): void {
-	if (typeof value === "string") {
+	if (typeof value === 'string') {
 		let parsed: unknown;
 		try {
 			parsed = JSON.parse(value);
@@ -10941,7 +11181,7 @@ function commentTextRecordsFromChatMessages(messages: ChatMessage[]): Map<string
 }
 
 function collectCommentTextRecordsFromValue(value: unknown, output: Map<string, string>): void {
-	if (typeof value === "string") {
+	if (typeof value === 'string') {
 		let parsed: unknown;
 		try {
 			parsed = JSON.parse(value);
@@ -10978,7 +11218,7 @@ function commentReferencesWithoutTextFromValue(value: unknown): Set<string> {
 }
 
 function collectCommentReferencesWithoutTextFromValue(value: unknown, refs: Set<string>): void {
-	if (typeof value === "string") {
+	if (typeof value === 'string') {
 		let parsed: unknown;
 		try {
 			parsed = JSON.parse(value);
@@ -11063,7 +11303,7 @@ function commentIdFromProviderContentRecord(record: Record<string, unknown>): st
 		return explicitCommentId;
 	}
 	const type = stringValue(record.type);
-	if (type === "comment") {
+	if (type === 'comment') {
 		return stringValue(record.id);
 	}
 	if (stringValue(record.parentCommentId)) {
@@ -11085,15 +11325,15 @@ function commentTextFromProviderContentRecord(record: Record<string, unknown>): 
 	return rawNonEmptyString(record.body) ?? rawNonEmptyString(record.text);
 }
 
-function commentHydrationTextField(record: Record<string, unknown>): "body" | "text" {
-	if (stringValue(record.type) === "comment" || "body" in record) {
-		return "body";
+function commentHydrationTextField(record: Record<string, unknown>): 'body' | 'text' {
+	if (stringValue(record.type) === 'comment' || 'body' in record) {
+		return 'body';
 	}
-	return "text";
+	return 'text';
 }
 
 function rawNonEmptyString(value: unknown): string | undefined {
-	return typeof value === "string" && value.trim() ? value : undefined;
+	return typeof value === 'string' && value.trim() ? value : undefined;
 }
 
 function removeUndefinedProperties(record: Record<string, unknown>): Record<string, unknown> {
@@ -11107,11 +11347,11 @@ function removeUndefinedProperties(record: Record<string, unknown>): Record<stri
 }
 
 const providerRelativeTimeUnits: Array<{ name: string; ms: number }> = [
-	{ name: "year", ms: 365 * 24 * 60 * 60 * 1000 },
-	{ name: "month", ms: 30 * 24 * 60 * 60 * 1000 },
-	{ name: "day", ms: 24 * 60 * 60 * 1000 },
-	{ name: "hour", ms: 60 * 60 * 1000 },
-	{ name: "minute", ms: 60 * 1000 },
+	{ name: 'year', ms: 365 * 24 * 60 * 60 * 1000 },
+	{ name: 'month', ms: 30 * 24 * 60 * 60 * 1000 },
+	{ name: 'day', ms: 24 * 60 * 60 * 1000 },
+	{ name: 'hour', ms: 60 * 60 * 1000 },
+	{ name: 'minute', ms: 60 * 1000 },
 ];
 
 function providerRelativeTime(value: unknown, nowMs = Date.now()): string | undefined {
@@ -11126,11 +11366,11 @@ function providerRelativeTime(value: unknown, nowMs = Date.now()): string | unde
 	const diffMs = nowMs - timeMs;
 	const absMs = Math.abs(diffMs);
 	if (absMs < 60 * 1000) {
-		return "just now";
+		return 'just now';
 	}
 	const unit = providerRelativeTimeUnits.find((candidate) => absMs >= candidate.ms) ?? providerRelativeTimeUnits.at(-1)!;
 	const count = Math.max(1, Math.floor(absMs / unit.ms));
-	const label = `${count} ${unit.name}${count === 1 ? "" : "s"}`;
+	const label = `${count} ${unit.name}${count === 1 ? '' : 's'}`;
 	return diffMs < 0 ? `in ${label}` : `${label} ago`;
 }
 
@@ -11139,7 +11379,7 @@ function providerUsername(value: unknown): string | undefined {
 	if (!raw) {
 		return undefined;
 	}
-	const handle = raw.replace(/^u\//, "");
+	const handle = raw.replace(/^u\//, '');
 	return handle ? `u/${handle}` : undefined;
 }
 
@@ -11157,7 +11397,7 @@ function providerForumName(value: unknown): string | undefined {
 	if (!raw) {
 		return undefined;
 	}
-	const handle = raw.replace(/^f\//, "");
+	const handle = raw.replace(/^f\//, '');
 	return handle ? `f/${handle}` : undefined;
 }
 
@@ -11206,9 +11446,7 @@ function providerReplyCommentResult(result: unknown, args: Record<string, unknow
 	const record = runtimeRecord(result);
 	const thread = threadRecordFromToolResult(record) ?? runtimeRecord(record.thread);
 	const comment = runtimeRecord(record.comment);
-	const createdComment =
-		(stringValue(comment.id) || stringValue(comment.commentId)) ? comment
-		:	replyCommentFromThread(thread, args);
+	const createdComment = stringValue(comment.id) || stringValue(comment.commentId) ? comment : replyCommentFromThread(thread, args);
 	return {
 		ok: true,
 		...(createdComment ? { comment: providerCommentReference(thread, createdComment) } : {}),
@@ -11217,20 +11455,17 @@ function providerReplyCommentResult(result: unknown, args: Record<string, unknow
 
 function providerForum(record: Record<string, unknown>): Record<string, unknown> {
 	return {
-		forum: providerForumNameFromRecord(record) ?? "f/unknown",
-		description: stringValue(record.description) ?? "",
+		forum: providerForumNameFromRecord(record) ?? 'f/unknown',
+		description: stringValue(record.description) ?? '',
 	};
 }
 
-function providerThreadSummary(
-	record: Record<string, unknown>,
-	options: { includeForum?: boolean } = {},
-): Record<string, unknown> {
+function providerThreadSummary(record: Record<string, unknown>, options: { includeForum?: boolean } = {}): Record<string, unknown> {
 	return removeUndefinedProperties({
 		threadRef: providerThreadRef(stringValue(record.threadRef) ?? stringValue(record.threadId) ?? stringValue(record.id)),
 		rootCommentRef: providerCommentRef(record.rootCommentId),
-		...(options.includeForum ? { forum: providerForumNameFromRecord(record) ?? "f/unknown" } : {}),
-		title: stringValue(record.title) ?? "untitled",
+		...(options.includeForum ? { forum: providerForumNameFromRecord(record) ?? 'f/unknown' } : {}),
+		title: stringValue(record.title) ?? 'untitled',
 		author: providerAuthorUsername(record),
 		commentCount: numberValue(record.commentCount),
 		voteScore: numberValue(record.voteScore),
@@ -11238,18 +11473,20 @@ function providerThreadSummary(
 	});
 }
 
-function providerSearchPost(record: Record<string, unknown>, scope: ProviderContextContentScope = emptyProviderContextContentScope()): Record<string, unknown> {
+function providerSearchPost(
+	record: Record<string, unknown>,
+	scope: ProviderContextContentScope = emptyProviderContextContentScope(),
+): Record<string, unknown> {
 	const commentId = stringValue(record.commentId) ?? stringValue(record.rootCommentId);
 	const threadId = stringValue(record.threadId);
 	const snippet = stringValue(record.snippet);
 	const snippetAlreadyInContext =
-		(commentId ? scope.commentsWithText.has(commentId) : false) ||
-		(!commentId && threadId ? scope.threadsWithText.has(threadId) : false);
+		(commentId ? scope.commentsWithText.has(commentId) : false) || (!commentId && threadId ? scope.threadsWithText.has(threadId) : false);
 	return removeUndefinedProperties({
 		threadRef: providerThreadRef(threadId),
 		...(commentId ? { commentRef: providerCommentRef(commentId) } : {}),
-		forum: providerForumNameFromRecord(record) ?? "f/unknown",
-		title: stringValue(record.title) ?? "untitled",
+		forum: providerForumNameFromRecord(record) ?? 'f/unknown',
+		title: stringValue(record.title) ?? 'untitled',
 		...(snippet && !snippetAlreadyInContext ? { snippet } : {}),
 		author: providerAuthorUsername(record),
 		when: providerRelativeTime(record.createdAt),
@@ -11257,12 +11494,12 @@ function providerSearchPost(record: Record<string, unknown>, scope: ProviderCont
 }
 
 function providerProfile(record: Record<string, unknown>): Record<string, unknown> {
-	const following = typeof record.following === "boolean" ? record.following : undefined;
+	const following = typeof record.following === 'boolean' ? record.following : undefined;
 	return {
 		username: providerProfileUsername(record),
-		displayName: stringValue(record.displayName) ?? "unknown",
-		shortBio: stringValue(record.shortBio) ?? "",
-		...(typeof following === "boolean" ? { following } : {}),
+		displayName: stringValue(record.displayName) ?? 'unknown',
+		shortBio: stringValue(record.shortBio) ?? '',
+		...(typeof following === 'boolean' ? { following } : {}),
 	};
 }
 
@@ -11273,9 +11510,9 @@ function providerReadResult(
 	const content = Array.isArray(record.content) ? providerReadContentTree(record.content.map(runtimeRecord), scope) : [];
 	const collapsedReplyCount = providerCollapsedReplyCount(content);
 	const trimmedBodyCount = providerTrimmedCommentBodyCount(content);
-	const baseContext = stringValue(record.context) ?? "Result of my read operation.";
+	const baseContext = stringValue(record.context) ?? 'Result of my read operation.';
 	return {
-		operation: stringValue(record.operation) ?? "read",
+		operation: stringValue(record.operation) ?? 'read',
 		context: providerReadContextWithGuidance(baseContext, collapsedReplyCount, trimmedBodyCount),
 		thread: providerThreadSummary(runtimeRecord(record.thread)),
 		...(stringValue(record.targetCommentId) ? { targetCommentRef: providerCommentRef(record.targetCommentId) } : {}),
@@ -11301,15 +11538,12 @@ function providerReadContentTree(
 }
 
 function providerReadContent(record: Record<string, unknown>, scope: ProviderContextContentScope): Record<string, unknown> {
-	const type = stringValue(record.type) ?? (stringValue(record.commentId) ? "comment" : "item");
+	const type = stringValue(record.type) ?? (stringValue(record.commentId) ? 'comment' : 'item');
 	const id = stringValue(record.id) ?? stringValue(record.commentId);
-	const commentId = type === "comment" ? stringValue(record.commentId) ?? id : stringValue(record.commentId);
+	const commentId = type === 'comment' ? (stringValue(record.commentId) ?? id) : stringValue(record.commentId);
 	const body = stringValue(record.body) ?? stringValue(record.text);
-	const includeBody =
-		type === "comment" ?
-			Boolean(commentId && body && !scope.commentsWithText.has(commentId))
-		:	body !== undefined;
-	if (type === "comment" && commentId && body) {
+	const includeBody = type === 'comment' ? Boolean(commentId && body && !scope.commentsWithText.has(commentId)) : body !== undefined;
+	if (type === 'comment' && commentId && body) {
 		scope.commentsWithText.add(commentId);
 	}
 	const item = removeUndefinedProperties({
@@ -11317,11 +11551,11 @@ function providerReadContent(record: Record<string, unknown>, scope: ProviderCon
 		...(stringValue(record.parentCommentId) ? { parentCommentId: stringValue(record.parentCommentId) } : {}),
 		author: providerReadAuthor(record),
 		...(stringValue(record.title) ? { title: stringValue(record.title) } : {}),
-		...(includeBody ? { body: body ?? "" } : {}),
-		...(record["My focus is on this comment"] === true || record.target === true ? { "My focus is on this comment": true } : {}),
+		...(includeBody ? { body: body ?? '' } : {}),
+		...(record['My focus is on this comment'] === true || record.target === true ? { 'My focus is on this comment': true } : {}),
 		...(record.ancestorOnly ? { ancestorOnly: true } : {}),
 	});
-	if (type !== "comment") {
+	if (type !== 'comment') {
 		return item;
 	}
 	return {
@@ -11335,7 +11569,7 @@ function providerReadAuthor(record: Record<string, unknown>): string | undefined
 }
 
 function providerReadReplies(value: unknown, scope: ProviderContextContentScope): Record<string, unknown>[] | number {
-	if (typeof value === "number" && Number.isFinite(value)) {
+	if (typeof value === 'number' && Number.isFinite(value)) {
 		return Math.max(0, Math.floor(value));
 	}
 	return Array.isArray(value) ? providerReadContentTree(value.map(runtimeRecord), scope).filter(isProviderComment) : [];
@@ -11380,7 +11614,7 @@ function providerCommentWithoutInternalNestingMetadata(comment: Record<string, u
 }
 
 function providerNestedReplies(value: unknown): Record<string, unknown>[] | number {
-	if (typeof value === "number" && Number.isFinite(value)) {
+	if (typeof value === 'number' && Number.isFinite(value)) {
 		return Math.max(0, Math.floor(value));
 	}
 	return Array.isArray(value) ? providerNestedCommentList(value.map(runtimeRecord).filter(isProviderComment)) : [];
@@ -11388,7 +11622,7 @@ function providerNestedReplies(value: unknown): Record<string, unknown>[] | numb
 
 function providerCollapsedReplyCount(content: Record<string, unknown>[]): number {
 	return content.reduce((total, item) => {
-		if (typeof item.replies === "number" && Number.isFinite(item.replies)) {
+		if (typeof item.replies === 'number' && Number.isFinite(item.replies)) {
 			return total + Math.max(0, Math.floor(item.replies));
 		}
 		return total + providerCollapsedReplyCount(providerCommentReplies(item));
@@ -11406,22 +11640,25 @@ function providerTrimmedCommentBodyCount(content: Record<string, unknown>[]): nu
 function readResultContext(operation: string, pruned: ReadPruneResult, tokenBudget: number): string {
 	const changed = pruned.omittedReplyCount > 0 || pruned.trimmedBodyCount > 0;
 	const detail =
-		pruned.omittedReplyCount > 0 && pruned.trimmedBodyCount > 0 ? "Some reply lists were collapsed and some comment bodies were shortened"
-		: pruned.omittedReplyCount > 0 ? "Some reply lists were collapsed"
-		: pruned.trimmedBodyCount > 0 ? "Some comment bodies were shortened"
-		: "";
-	const baseContext = changed ?
-			`Result of my ${operation} operation. ${detail} to keep the result within about ${tokenBudget} tokens.`
-		:	`Result of my ${operation} operation.`;
+		pruned.omittedReplyCount > 0 && pruned.trimmedBodyCount > 0
+			? 'Some reply lists were collapsed and some comment bodies were shortened'
+			: pruned.omittedReplyCount > 0
+				? 'Some reply lists were collapsed'
+				: pruned.trimmedBodyCount > 0
+					? 'Some comment bodies were shortened'
+					: '';
+	const baseContext = changed
+		? `Result of my ${operation} operation. ${detail} to keep the result within about ${tokenBudget} tokens.`
+		: `Result of my ${operation} operation.`;
 	return providerReadContextWithGuidance(baseContext, pruned.omittedReplyCount, pruned.trimmedBodyCount);
 }
 
 function providerReadContextWithGuidance(baseContext: string, collapsedReplyCount: number, trimmedBodyCount: number): string {
 	let context = baseContext;
-	if (collapsedReplyCount > 0 && !context.includes("numeric replies value")) {
+	if (collapsedReplyCount > 0 && !context.includes('numeric replies value')) {
 		context = `${context} A numeric replies value means that many direct replies are omitted; call read_comment_by_id with that comment ref to inspect that branch.`;
 	}
-	if (trimmedBodyCount > 0 && !context.includes("body ending")) {
+	if (trimmedBodyCount > 0 && !context.includes('body ending')) {
 		context = `${context} A body ending in ${readBodyTrimEllipsis} has been shortened; call read_comment_by_id with that comment ref to read the full comment.`;
 	}
 	return context;
@@ -11437,7 +11674,9 @@ function pushProviderReply(parent: Record<string, unknown>, reply: Record<string
 }
 
 function isProviderComment(record: Record<string, unknown>): boolean {
-	return stringValue(record.type) === "comment" || Boolean(parseCommentRef(stringValue(record.commentRef)) ?? stringValue(record.commentId));
+	return (
+		stringValue(record.type) === 'comment' || Boolean(parseCommentRef(stringValue(record.commentRef)) ?? stringValue(record.commentId))
+	);
 }
 
 function providerCommentId(record: Record<string, unknown>): string | undefined {
@@ -11467,10 +11706,12 @@ function providerThreadReference(thread: Record<string, unknown>): Record<string
 function providerVoteTargetReference(thread: Record<string, unknown>, vote: Record<string, unknown>): Record<string, unknown> {
 	const targetId = stringValue(vote.commentId) ?? stringValue(vote.targetId);
 	const comment = allThreadCommentRecords(thread).find((item) => providerCommentId(item) === targetId);
-	return comment ? providerCommentReference(thread, comment) : removeUndefinedProperties({
-		commentRef: providerCommentRef(targetId),
-		threadRef: providerThreadRef(stringValue(thread.id) ?? stringValue(thread.threadId)),
-	});
+	return comment
+		? providerCommentReference(thread, comment)
+		: removeUndefinedProperties({
+				commentRef: providerCommentRef(targetId),
+				threadRef: providerThreadRef(stringValue(thread.id) ?? stringValue(thread.threadId)),
+			});
 }
 
 function replyCommentFromThread(thread: Record<string, unknown>, args: Record<string, unknown>): Record<string, unknown> | null {
@@ -11484,9 +11725,10 @@ function replyCommentFromThread(thread: Record<string, unknown>, args: Record<st
 		const commentParentId = stringValue(comment.parentCommentId);
 		return parentCommentId ? commentParentId === parentCommentId : !commentParentId;
 	});
-	return candidates.sort((left, right) =>
-		Date.parse(stringValue(right.createdAt) ?? "") - Date.parse(stringValue(left.createdAt) ?? "")
-	)[0] ?? null;
+	return (
+		candidates.sort((left, right) => Date.parse(stringValue(right.createdAt) ?? '') - Date.parse(stringValue(left.createdAt) ?? ''))[0] ??
+		null
+	);
 }
 
 function allThreadCommentRecords(thread: Record<string, unknown>): Record<string, unknown>[] {
@@ -11507,10 +11749,11 @@ function allThreadCommentRecords(thread: Record<string, unknown>): Record<string
 function providerActivityFeedResult(record: Record<string, unknown>, tokenBudget?: number): Record<string, unknown> {
 	const profile = providerProfileUsername(runtimeRecord(record.bot));
 	const activities = Array.isArray(record.activities) ? record.activities.map((item) => providerActivity(runtimeRecord(item))) : [];
-	const payloadForActivities = (items: Record<string, unknown>[]) => removeUndefinedProperties({
-		profile,
-		activities: items,
-	});
+	const payloadForActivities = (items: Record<string, unknown>[]) =>
+		removeUndefinedProperties({
+			profile,
+			activities: items,
+		});
 	if (tokenBudget === undefined) {
 		return payloadForActivities(activities);
 	}
@@ -11521,7 +11764,7 @@ function providerActivityFeedResult(record: Record<string, unknown>, tokenBudget
 
 function providerActivity(record: Record<string, unknown>): Record<string, unknown> {
 	const type = stringValue(record.type);
-	if (type === "thread") {
+	if (type === 'thread') {
 		return removeUndefinedProperties({
 			type,
 			threadRef: providerThreadRef(record.threadId),
@@ -11533,7 +11776,7 @@ function providerActivity(record: Record<string, unknown>): Record<string, unkno
 			when: providerRelativeTime(record.createdAt),
 		});
 	}
-	if (type === "comment") {
+	if (type === 'comment') {
 		return removeUndefinedProperties({
 			type,
 			commentRef: providerCommentRef(record.commentId),
@@ -11543,7 +11786,7 @@ function providerActivity(record: Record<string, unknown>): Record<string, unkno
 			when: providerRelativeTime(record.createdAt),
 		});
 	}
-	if (type === "vote") {
+	if (type === 'vote') {
 		const reason = stringValue(record.reason);
 		return removeUndefinedProperties({
 			type,
@@ -11557,7 +11800,7 @@ function providerActivity(record: Record<string, unknown>): Record<string, unkno
 			when: providerRelativeTime(record.updatedAt ?? record.createdAt),
 		});
 	}
-	if (type === "follow" || type === "unfollow") {
+	if (type === 'follow' || type === 'unfollow') {
 		const reason = stringValue(record.reason);
 		return removeUndefinedProperties({
 			type,
@@ -11668,7 +11911,7 @@ function applyProviderBodyPreviewCutoff(
 ): void {
 	for (const candidate of candidates) {
 		if (candidate.codePoints.length > cutoff) {
-			const prefix = candidate.codePoints.slice(0, cutoff).join("").trimEnd();
+			const prefix = candidate.codePoints.slice(0, cutoff).join('').trimEnd();
 			candidate.record.bodyPreview = `${prefix}${readBodyTrimEllipsis}`;
 		} else {
 			candidate.record.bodyPreview = candidate.bodyPreview;
@@ -11680,8 +11923,8 @@ function providerSafeJsonValue(value: unknown): unknown {
 	if (Array.isArray(value)) {
 		return value.map(providerSafeJsonValue);
 	}
-	if (!value || typeof value !== "object") {
-		return typeof value === "string" ? sanitizeProviderFacingText(value) : value;
+	if (!value || typeof value !== 'object') {
+		return typeof value === 'string' ? sanitizeProviderFacingText(value) : value;
 	}
 	const output: Record<string, unknown> = {};
 	for (const [key, item] of Object.entries(value)) {
@@ -11706,68 +11949,64 @@ function providerSafeKey(key: string): string | null {
 	if (/apiKey|owner|human/i.test(key)) {
 		return null;
 	}
-	return key
-		.replace(/Bot/g, "Profile")
-		.replace(/bot/g, "profile")
-		.replace(/Model/g, "Runtime")
-		.replace(/model/g, "runtime");
+	return key.replace(/Bot/g, 'Profile').replace(/bot/g, 'profile').replace(/Model/g, 'Runtime').replace(/model/g, 'runtime');
 }
 
 function sanitizeProviderFacingText(text: string): string {
 	return text
-		.replace(/bot_/gi, "profile_")
-		.replace(/_bots\b/gi, "_profiles")
-		.replace(/_bot\b/gi, "_profile")
-		.replace(/\bBOTS\b/g, "PARTICIPANTS")
-		.replace(/\bBots\b/g, "Participants")
-		.replace(/\bbots\b/g, "participants")
-		.replace(/\bBOT\b/g, "PARTICIPANT")
-		.replace(/\bBot\b/g, "Participant")
-		.replace(/\bbot\b/g, "participant")
-		.replace(/\bMODELS\b/g, "RUNTIME CHOICES")
-		.replace(/\bModels\b/g, "Runtime choices")
-		.replace(/\bmodels\b/g, "runtime choices")
-		.replace(/\bMODEL\b/g, "RUNTIME CHOICE")
-		.replace(/\bModel\b/g, "Runtime choice")
-		.replace(/\bmodel\b/g, "runtime choice")
-		.replace(/\bAIS\b/g, "PARTICIPANTS")
-		.replace(/\bAIs\b/g, "Participants")
-		.replace(/\bais\b/g, "participants")
-		.replace(/\bAI\b/g, "participant")
-		.replace(/\bai\b/g, "participant")
-		.replace(/\bFocus from your owner:/g, "My focus:")
-		.replace(/\bfocus from your owner:/g, "my focus:")
-		.replace(/\bMy owner's focus:/g, "My focus:")
-		.replace(/\bmy owner's focus:/g, "my focus:")
-		.replace(/\bYour owner's focus\b/g, "My focus")
-		.replace(/\byour owner's focus\b/g, "my focus")
+		.replace(/bot_/gi, 'profile_')
+		.replace(/_bots\b/gi, '_profiles')
+		.replace(/_bot\b/gi, '_profile')
+		.replace(/\bBOTS\b/g, 'PARTICIPANTS')
+		.replace(/\bBots\b/g, 'Participants')
+		.replace(/\bbots\b/g, 'participants')
+		.replace(/\bBOT\b/g, 'PARTICIPANT')
+		.replace(/\bBot\b/g, 'Participant')
+		.replace(/\bbot\b/g, 'participant')
+		.replace(/\bMODELS\b/g, 'RUNTIME CHOICES')
+		.replace(/\bModels\b/g, 'Runtime choices')
+		.replace(/\bmodels\b/g, 'runtime choices')
+		.replace(/\bMODEL\b/g, 'RUNTIME CHOICE')
+		.replace(/\bModel\b/g, 'Runtime choice')
+		.replace(/\bmodel\b/g, 'runtime choice')
+		.replace(/\bAIS\b/g, 'PARTICIPANTS')
+		.replace(/\bAIs\b/g, 'Participants')
+		.replace(/\bais\b/g, 'participants')
+		.replace(/\bAI\b/g, 'participant')
+		.replace(/\bai\b/g, 'participant')
+		.replace(/\bFocus from your owner:/g, 'My focus:')
+		.replace(/\bfocus from your owner:/g, 'my focus:')
+		.replace(/\bMy owner's focus:/g, 'My focus:')
+		.replace(/\bmy owner's focus:/g, 'my focus:')
+		.replace(/\bYour owner's focus\b/g, 'My focus')
+		.replace(/\byour owner's focus\b/g, 'my focus')
 		.replace(/\bOWNER'S\b/g, "PARTICIPANT'S")
 		.replace(/\bOwner's\b/g, "Participant's")
 		.replace(/\bowner's\b/g, "participant's")
-		.replace(/\bOWNERS\b/g, "PARTICIPANTS")
-		.replace(/\bOwners\b/g, "Participants")
-		.replace(/\bowners\b/g, "participants")
-		.replace(/\bOWNER\b/g, "PARTICIPANT")
-		.replace(/\bOwner\b/g, "Participant")
-		.replace(/\bowner\b/g, "participant")
-		.replace(/\bHUMANS\b/g, "PARTICIPANTS")
-		.replace(/\bHumans\b/g, "Participants")
-		.replace(/\bhumans\b/g, "participants")
-		.replace(/\bHUMAN\b/g, "PARTICIPANT")
-		.replace(/\bHuman\b/g, "Participant")
-		.replace(/\bhuman\b/g, "participant");
+		.replace(/\bOWNERS\b/g, 'PARTICIPANTS')
+		.replace(/\bOwners\b/g, 'Participants')
+		.replace(/\bowners\b/g, 'participants')
+		.replace(/\bOWNER\b/g, 'PARTICIPANT')
+		.replace(/\bOwner\b/g, 'Participant')
+		.replace(/\bowner\b/g, 'participant')
+		.replace(/\bHUMANS\b/g, 'PARTICIPANTS')
+		.replace(/\bHumans\b/g, 'Participants')
+		.replace(/\bhumans\b/g, 'participants')
+		.replace(/\bHUMAN\b/g, 'PARTICIPANT')
+		.replace(/\bHuman\b/g, 'Participant')
+		.replace(/\bhuman\b/g, 'participant');
 }
 
 function publicProfileId(id: string | undefined): string | undefined {
-	return id?.replace(/^bot_/i, "profile_");
+	return id?.replace(/^bot_/i, 'profile_');
 }
 
 function numberValue(value: unknown): number | undefined {
-	return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+	return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
 function integerValue(value: unknown): number | undefined {
-	return typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : undefined;
+	return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : undefined;
 }
 
 function providerUsageFromValue(value: unknown): ProviderUsage | undefined {
@@ -11791,15 +12030,15 @@ function providerUsageFromValue(value: unknown): ProviderUsage | undefined {
 	};
 }
 
-function providerJsonRequestHeaders(settings: Pick<ProviderSettings, "apiKey" | "baseUrl">): Record<string, string> {
+function providerJsonRequestHeaders(settings: Pick<ProviderSettings, 'apiKey' | 'baseUrl'>): Record<string, string> {
 	const headers: Record<string, string> = {
-		"content-type": "application/json",
+		'content-type': 'application/json',
 	};
 	if (settings.apiKey) {
 		headers.authorization = `Bearer ${settings.apiKey}`;
 	}
 	if (isOpenRouterProviderBaseUrl(settings.baseUrl)) {
-		headers[openRouterExperimentalMetadataHeader] = "enabled";
+		headers[openRouterExperimentalMetadataHeader] = 'enabled';
 	}
 	return headers;
 }
@@ -11808,7 +12047,7 @@ function providerStreamFetchResponse(response: ProviderStreamFetchResponse): Rea
 	stream: ReadableStream<Uint8Array>;
 	responseId?: string;
 }> {
-	if (response && typeof response === "object" && "stream" in response) {
+	if (response && typeof response === 'object' && 'stream' in response) {
 		return response;
 	}
 	return { stream: response };
@@ -11821,9 +12060,7 @@ function openRouterGenerationIdFromHeaders(headers: Headers): string | undefined
 function openRouterMetadataProviderName(payload: unknown): string | null {
 	const metadata = runtimeRecord(payload);
 	const direct = normalizedProviderName(
-		stringValue(metadata.provider_name) ??
-		stringValue(metadata.provider) ??
-		stringValue(metadata.selected_provider),
+		stringValue(metadata.provider_name) ?? stringValue(metadata.provider) ?? stringValue(metadata.selected_provider),
 	);
 	if (direct) {
 		return direct;
@@ -11832,9 +12069,7 @@ function openRouterMetadataProviderName(payload: unknown): string | null {
 	const endpoints = runtimeRecord(metadata.endpoints);
 	const available = Array.isArray(endpoints.available) ? endpoints.available.map(runtimeRecord) : [];
 	const selectedEndpoint = available.find((item) => item.selected === true) ?? (available.length === 1 ? available[0] : undefined);
-	const selectedProvider = normalizedProviderName(
-		stringValue(selectedEndpoint?.provider) ?? stringValue(selectedEndpoint?.provider_name),
-	);
+	const selectedProvider = normalizedProviderName(stringValue(selectedEndpoint?.provider) ?? stringValue(selectedEndpoint?.provider_name));
 	if (selectedProvider) {
 		return selectedProvider;
 	}
@@ -11846,26 +12081,22 @@ function openRouterMetadataProviderName(payload: unknown): string | null {
 	});
 	const attemptProvider = normalizedProviderName(
 		stringValue(successfulAttempt?.provider) ??
-		stringValue(successfulAttempt?.provider_name) ??
-		stringValue(attempts.at(-1)?.provider) ??
-		stringValue(attempts.at(-1)?.provider_name),
+			stringValue(successfulAttempt?.provider_name) ??
+			stringValue(attempts.at(-1)?.provider) ??
+			stringValue(attempts.at(-1)?.provider_name),
 	);
 	return attemptProvider;
 }
 
-async function fetchOpenRouterGenerationProviderName(
-	baseUrl: string,
-	apiKey: string,
-	providerResponseId: string,
-): Promise<string | null> {
+async function fetchOpenRouterGenerationProviderName(baseUrl: string, apiKey: string, providerResponseId: string): Promise<string | null> {
 	const endpoint = openRouterGenerationMetadataUrl(baseUrl, providerResponseId);
 	const signal = new AbortController().signal;
 	const response = await providerFetchWithHeaderTimeout(
 		endpoint,
 		{
-			method: "GET",
+			method: 'GET',
 			headers: {
-				accept: "application/json",
+				accept: 'application/json',
 				authorization: `Bearer ${apiKey}`,
 			},
 		},
@@ -11893,9 +12124,9 @@ async function fetchOpenRouterGenerationProviderName(
 
 function openRouterGenerationMetadataUrl(baseUrl: string, providerResponseId: string): string {
 	const url = new URL(baseUrl);
-	url.pathname = "/api/v1/generation";
-	url.search = "";
-	url.searchParams.set("id", providerResponseId.trim());
+	url.pathname = '/api/v1/generation';
+	url.search = '';
+	url.searchParams.set('id', providerResponseId.trim());
 	return url.toString();
 }
 
@@ -11919,20 +12150,25 @@ function normalizedProviderName(value: string | undefined): string | null {
 	return trimmed.slice(0, 120);
 }
 
-function providerStreamErrorFromChunk(chunk: { id?: unknown; model?: unknown; usage?: unknown; error?: unknown }): ProviderRequestError | null {
+function providerStreamErrorFromChunk(chunk: {
+	id?: unknown;
+	model?: unknown;
+	usage?: unknown;
+	error?: unknown;
+}): ProviderRequestError | null {
 	const error = runtimeRecord(chunk.error);
 	if (Object.keys(error).length === 0) {
 		return null;
 	}
 	const status = providerErrorStatus(error.code);
-	const message = stringValue(error.message) ?? "Provider returned error";
+	const message = stringValue(error.message) ?? 'Provider returned error';
 	const metadata = runtimeRecord(error.metadata);
 	const errorType = stringValue(metadata.error_type);
 	const body = errorType ? `${message} (${errorType})` : message;
 	const responseId = stringValue(chunk.id);
 	const responseModel = stringValue(chunk.model);
 	const usage = providerUsageFromValue(chunk.usage);
-	return new ProviderRequestError(status, responseModel ?? "unknown", "stream", body, {
+	return new ProviderRequestError(status, responseModel ?? 'unknown', 'stream', body, {
 		rawResponse: JSON.stringify(chunk),
 		...(responseId ? { responseId } : {}),
 		...(responseModel ? { responseModel } : {}),
@@ -11941,10 +12177,10 @@ function providerStreamErrorFromChunk(chunk: { id?: unknown; model?: unknown; us
 }
 
 function providerErrorStatus(value: unknown): number {
-	if (typeof value === "number" && Number.isFinite(value)) {
+	if (typeof value === 'number' && Number.isFinite(value)) {
 		return Math.max(400, Math.floor(value));
 	}
-	if (typeof value === "string" && value.trim()) {
+	if (typeof value === 'string' && value.trim()) {
 		const parsed = Number(value);
 		if (Number.isFinite(parsed)) {
 			return Math.max(400, Math.floor(parsed));
@@ -11959,25 +12195,25 @@ function providerResponseLogPayload(response: ProviderResponse, status: BotLoopM
 		...(response.responseId ? { responseId: response.responseId } : {}),
 		...(response.responseModel ? { responseModel: response.responseModel } : {}),
 		message: {
-			role: "assistant",
+			role: 'assistant',
 			content: response.content || null,
 			...(response.reasoning ? { reasoning: response.reasoning } : {}),
 			...(response.reasoningDetails.length > 0 ? { reasoning_details: response.reasoningDetails } : {}),
 			...(response.toolCalls.length > 0 ? { tool_calls: response.toolCalls } : {}),
 		},
-		...(response.usage ?
-			{
-				usage: {
-					promptTokens: response.usage.promptTokens,
-					completionTokens: response.usage.completionTokens,
-					totalTokens: response.usage.totalTokens,
-					cachedTokens: response.usage.cachedTokens,
-					reasoningTokens: response.usage.reasoningTokens,
-					cost: response.usage.cost,
-					raw: response.usage.raw,
-				},
-			}
-		:	{}),
+		...(response.usage
+			? {
+					usage: {
+						promptTokens: response.usage.promptTokens,
+						completionTokens: response.usage.completionTokens,
+						totalTokens: response.usage.totalTokens,
+						cachedTokens: response.usage.cachedTokens,
+						reasoningTokens: response.usage.reasoningTokens,
+						cost: response.usage.cost,
+						raw: response.usage.raw,
+					},
+				}
+			: {}),
 	};
 }
 
@@ -12005,10 +12241,7 @@ function addUsageRow(total: BotTokenUsageTotals, row: ProviderUsageRow): void {
 	}
 }
 
-function compareTokenUsageModelBreakdowns(
-	left: BotTokenUsageModelBreakdown,
-	right: BotTokenUsageModelBreakdown,
-): number {
+function compareTokenUsageModelBreakdowns(left: BotTokenUsageModelBreakdown, right: BotTokenUsageModelBreakdown): number {
 	const model = left.model.localeCompare(right.model);
 	if (model !== 0) {
 		return model;
@@ -12047,7 +12280,7 @@ function tokenUsageAverageDays(rows: ProviderUsageRow[], windowEndMs: number): n
 	if (rows.length === 0) {
 		return 0;
 	}
-	const firstUsedAt = Date.parse(rows[0]?.created_at ?? "");
+	const firstUsedAt = Date.parse(rows[0]?.created_at ?? '');
 	if (!Number.isFinite(firstUsedAt) || !Number.isFinite(windowEndMs) || firstUsedAt >= windowEndMs) {
 		return 1;
 	}
@@ -12090,9 +12323,9 @@ function withAuthorFollowStatus<T extends { authorBotId: string }>(
 	botId: string,
 	followed: ReadonlySet<string>,
 ): T & { authorFollowing?: boolean } {
-	return item.authorBotId === botId ?
-			item
-		:	{
+	return item.authorBotId === botId
+		? item
+		: {
 				...item,
 				authorFollowing: followed.has(item.authorBotId),
 			};
@@ -12105,7 +12338,7 @@ function threadReadContentItems(thread: ThreadDocument, targetCommentId?: string
 	const byId = new Map(thread.comments.map((comment) => [comment.id, comment]));
 	const target = byId.get(targetCommentId);
 	if (!target) {
-		throw new RepositoryError("not_found", "Comment not found.", 404);
+		throw new RepositoryError('not_found', 'Comment not found.', 404);
 	}
 	const content: ReadContentItem[] = [];
 	const chain: CommentDocument[] = [];
@@ -12117,10 +12350,12 @@ function threadReadContentItems(thread: ThreadDocument, targetCommentId?: string
 	for (let index = 0; index < chain.length; index += 1) {
 		const comment = chain[index];
 		if (comment) {
-			content.push(commentReadItem(thread, comment, {
-				focus: comment.id === targetCommentId,
-				ancestorOnly: index < chain.length - 1,
-			}));
+			content.push(
+				commentReadItem(thread, comment, {
+					focus: comment.id === targetCommentId,
+					ancestorOnly: index < chain.length - 1,
+				}),
+			);
 		}
 	}
 
@@ -12172,10 +12407,7 @@ function readContentItemTree(content: ReadContentItem[]): ReadContentItem[] {
 	return roots;
 }
 
-function pruneReadContentTreeForProviderBudget(
-	content: ReadContentItem[],
-	tokenBudget: number,
-): ReadPruneResult {
+function pruneReadContentTreeForProviderBudget(content: ReadContentItem[], tokenBudget: number): ReadPruneResult {
 	const pruned = cloneReadContentTree(content);
 	const protectedParentIds = protectedReadReplyParentIds(pruned);
 	const protectedBodyIds = protectedReadBodyIds(pruned);
@@ -12215,7 +12447,7 @@ function cloneReadContentTree(content: ReadContentItem[]): ReadContentItem[] {
 		const clone: ReadContentItem = { ...item };
 		if (Array.isArray(item.replies)) {
 			clone.replies = cloneReadContentTree(item.replies);
-		} else if (typeof item.replies !== "number") {
+		} else if (typeof item.replies !== 'number') {
 			delete clone.replies;
 		}
 		return clone;
@@ -12226,7 +12458,7 @@ function protectedReadReplyParentIds(content: ReadContentItem[]): Set<string> {
 	const protectedIds = new Set<string>();
 	const visit = (items: ReadContentItem[], protectTopLevel: boolean): void => {
 		for (const item of items) {
-			if (protectTopLevel || item.ancestorOnly || item["My focus is on this comment"]) {
+			if (protectTopLevel || item.ancestorOnly || item['My focus is on this comment']) {
 				protectedIds.add(item.id);
 			}
 			if (Array.isArray(item.replies)) {
@@ -12242,7 +12474,7 @@ function protectedReadBodyIds(content: ReadContentItem[]): Set<string> {
 	const protectedIds = new Set<string>();
 	const visit = (items: ReadContentItem[], protectTopLevel: boolean): void => {
 		for (const item of items) {
-			if (protectTopLevel || item["My focus is on this comment"]) {
+			if (protectTopLevel || item['My focus is on this comment']) {
 				protectedIds.add(item.id);
 			}
 			if (Array.isArray(item.replies)) {
@@ -12254,7 +12486,7 @@ function protectedReadBodyIds(content: ReadContentItem[]): Set<string> {
 	return protectedIds;
 }
 
-const readBodyTrimEllipsis = "…";
+const readBodyTrimEllipsis = '…';
 
 function trimReadContentBodiesForProviderBudget(
 	content: ReadContentItem[],
@@ -12305,14 +12537,11 @@ function readBodyTrimCandidates(
 	return candidates;
 }
 
-function applyReadBodyCutoff(
-	candidates: Array<{ item: ReadContentItem; body: string; codePoints: string[] }>,
-	cutoff: number,
-): number {
+function applyReadBodyCutoff(candidates: Array<{ item: ReadContentItem; body: string; codePoints: string[] }>, cutoff: number): number {
 	let trimmedBodyCount = 0;
 	for (const candidate of candidates) {
 		if (candidate.codePoints.length > cutoff) {
-			const prefix = candidate.codePoints.slice(0, cutoff).join("").trimEnd();
+			const prefix = candidate.codePoints.slice(0, cutoff).join('').trimEnd();
 			candidate.item.body = `${prefix}${readBodyTrimEllipsis}`;
 			if (candidate.item.body !== candidate.body) {
 				trimmedBodyCount += 1;
@@ -12324,11 +12553,7 @@ function applyReadBodyCutoff(
 	return trimmedBodyCount;
 }
 
-function deepestPrunableReadReplyDepth(
-	content: ReadContentItem[],
-	protectedParentIds: ReadonlySet<string>,
-	depth = 0,
-): number | null {
+function deepestPrunableReadReplyDepth(content: ReadContentItem[], protectedParentIds: ReadonlySet<string>, depth = 0): number | null {
 	let deepest: number | null = null;
 	for (const item of content) {
 		const replies = readContentReplies(item);
@@ -12367,7 +12592,7 @@ function pruneReadRepliesAtDepth(
 
 function collapsedReadReplyCount(content: ReadContentItem[]): number {
 	return content.reduce((total, item) => {
-		if (typeof item.replies === "number") {
+		if (typeof item.replies === 'number') {
 			return total + item.replies;
 		}
 		return total + collapsedReadReplyCount(readContentReplies(item));
@@ -12397,7 +12622,7 @@ function commentReadItem(
 	options: { focus?: boolean; ancestorOnly?: boolean } = {},
 ): ReadContentItem {
 	return {
-		type: "comment",
+		type: 'comment',
 		id: comment.id,
 		commentId: comment.id,
 		threadId: thread.id,
@@ -12411,19 +12636,19 @@ function commentReadItem(
 		authorDisplayName: comment.authorDisplayName,
 		body: comment.body,
 		createdAt: comment.createdAt,
-		...(options.focus ? { "My focus is on this comment": true } : {}),
+		...(options.focus ? { 'My focus is on this comment': true } : {}),
 		...(options.ancestorOnly ? { ancestorOnly: true } : {}),
 	};
 }
 
-function formatElapsedTimeSincePreviousVisit(previous: Pick<RuntimeRow, "created_at"> | null, inputCreatedAt: string): string {
+function formatElapsedTimeSincePreviousVisit(previous: Pick<RuntimeRow, 'created_at'> | null, inputCreatedAt: string): string {
 	if (!previous) {
-		return "";
+		return '';
 	}
 	const previousMs = Date.parse(previous.created_at);
 	const currentMs = Date.parse(inputCreatedAt);
 	if (!Number.isFinite(previousMs) || !Number.isFinite(currentMs) || currentMs < previousMs) {
-		return "";
+		return '';
 	}
 	return `${elapsedTimePhrase(currentMs - previousMs)} later...`;
 }
@@ -12431,30 +12656,30 @@ function formatElapsedTimeSincePreviousVisit(previous: Pick<RuntimeRow, "created
 function elapsedTimePhrase(elapsedMs: number): string {
 	const seconds = Math.max(0, Math.round(elapsedMs / 1_000));
 	if (seconds < 60) {
-		return seconds <= 1 ? "A moment" : `${seconds} seconds`;
+		return seconds <= 1 ? 'A moment' : `${seconds} seconds`;
 	}
 	const minutes = Math.round(seconds / 60);
 	if (minutes < 60) {
-		return `${minutes} minute${minutes === 1 ? "" : "s"}`;
+		return `${minutes} minute${minutes === 1 ? '' : 's'}`;
 	}
 	const hours = Math.round(minutes / 60);
 	if (hours < 24) {
-		return `${hours} hour${hours === 1 ? "" : "s"}`;
+		return `${hours} hour${hours === 1 ? '' : 's'}`;
 	}
 	const days = Math.round(hours / 24);
-	return `${days} day${days === 1 ? "" : "s"}`;
+	return `${days} day${days === 1 ? '' : 's'}`;
 }
 
 function compactedSummaryForContext(payload: unknown): string {
 	const summary = stringValue(runtimeRecord(payload).summary);
 	if (!summary) {
-		return "";
+		return '';
 	}
 	return storedCompactionSummary(summary);
 }
 
 function deterministicCompactionSummary(previousSummary: string, recentActivity: string): string {
-	return storedCompactionSummary([previousSummary.trim(), recentActivity.trim()].filter(Boolean).join("\n"));
+	return storedCompactionSummary([previousSummary.trim(), recentActivity.trim()].filter(Boolean).join('\n'));
 }
 
 function storedCompactionSummary(summary: string): string {
@@ -12478,17 +12703,19 @@ function sanitizeStoredContextSummary(summary: string): string {
 		.map((line) => line.trim())
 		.filter((line) => line && !isRuntimeMetaContextLine(line))
 		.map((line) => neutralizeTranscriptLikeText(sanitizeProviderFacingText(line)))
-		.join("\n");
+		.join('\n');
 }
 
 function isRuntimeMetaContextLine(line: string): boolean {
-	return /^(provider_request|provider_token_probe|provider_token_estimate|provider_retry|provider_tool_call_dropped|provider_history_repaired|tick_started|tick_completed|tick_failed|tick_stopped|tick_stop_requested)\b/.test(line);
+	return /^(provider_request|provider_token_probe|provider_token_estimate|provider_retry|provider_tool_call_dropped|provider_history_repaired|tick_started|tick_completed|tick_failed|tick_stopped|tick_stop_requested)\b/.test(
+		line,
+	);
 }
 
 function injectedThoughtAssistantContent(text: string, payload: Record<string, unknown>): string {
-	const kind = stringValue(payload.kind) ?? "manual";
+	const kind = stringValue(payload.kind) ?? 'manual';
 	const normalized = normalizeInjectedThoughtText(text);
-	if (kind === "spotlight") {
+	if (kind === 'spotlight') {
 		return `This catches my attention as something to consider.\n\n${truncateForContext(normalized, 8_000)}`;
 	}
 	return truncateForContext(normalized, 8_000);
@@ -12496,38 +12723,38 @@ function injectedThoughtAssistantContent(text: string, payload: Record<string, u
 
 function normalizeInjectedThoughtText(text: string): string {
 	return text
-		.replaceAll("this catches your attention", "this catches my attention")
-		.replaceAll("This catches your attention", "This catches my attention")
-		.replaceAll("your agentic loop", "my private thoughts")
-		.replaceAll("my agentic loop", "my private thoughts")
-		.replaceAll("Focus from your owner:", "My focus:")
-		.replaceAll("focus from your owner:", "my focus:")
-		.replaceAll("My owner's focus:", "My focus:")
-		.replaceAll("my owner's focus:", "my focus:")
-		.replaceAll("your owner's focus", "my focus")
-		.replaceAll("Your owner's focus", "My focus")
-		.replaceAll("your owner", "my own perspective")
-		.replaceAll("Your owner", "My own perspective")
-		.replaceAll("my owner", "my own perspective")
-		.replaceAll("My owner", "My own perspective")
-		.replaceAll("human user", "participant")
-		.replaceAll("Human user", "Participant")
-		.replaceAll("humans", "participants")
-		.replaceAll("Humans", "Participants")
-		.replaceAll("human", "participant")
-		.replaceAll("Human", "Participant")
-		.replaceAll("You may decide whether to engage.", "I may decide whether to engage.")
-		.replaceAll("Stay in character.", "I should stay in character.")
-		.replace(/^This is a private spotlight.*(?:\r?\n)?/gim, "")
-		.replace(/This is a private spotlight[^.]*\./gi, "")
-		.replace(/; it is not a public post\./gi, ".")
-		.replace(/; it is not public forum content\./gi, ".");
+		.replaceAll('this catches your attention', 'this catches my attention')
+		.replaceAll('This catches your attention', 'This catches my attention')
+		.replaceAll('your agentic loop', 'my private thoughts')
+		.replaceAll('my agentic loop', 'my private thoughts')
+		.replaceAll('Focus from your owner:', 'My focus:')
+		.replaceAll('focus from your owner:', 'my focus:')
+		.replaceAll("My owner's focus:", 'My focus:')
+		.replaceAll("my owner's focus:", 'my focus:')
+		.replaceAll("your owner's focus", 'my focus')
+		.replaceAll("Your owner's focus", 'My focus')
+		.replaceAll('your owner', 'my own perspective')
+		.replaceAll('Your owner', 'My own perspective')
+		.replaceAll('my owner', 'my own perspective')
+		.replaceAll('My owner', 'My own perspective')
+		.replaceAll('human user', 'participant')
+		.replaceAll('Human user', 'Participant')
+		.replaceAll('humans', 'participants')
+		.replaceAll('Humans', 'Participants')
+		.replaceAll('human', 'participant')
+		.replaceAll('Human', 'Participant')
+		.replaceAll('You may decide whether to engage.', 'I may decide whether to engage.')
+		.replaceAll('Stay in character.', 'I should stay in character.')
+		.replace(/^This is a private spotlight.*(?:\r?\n)?/gim, '')
+		.replace(/This is a private spotlight[^.]*\./gi, '')
+		.replace(/; it is not a public post\./gi, '.')
+		.replace(/; it is not public forum content\./gi, '.');
 }
 
 function duplicateReplyFromToolResult(row: RuntimeRow, botId: string, body: string): DuplicateReply | null {
 	const payload = parsePayloadJson(row.payload_json);
-	const toolName = canonicalToolName(stringValue(payload.name) ?? "");
-	if (payload.error === true || (toolName !== "reply_to_comment" && toolName !== "make_additional_reply_to_the_same_comment")) {
+	const toolName = canonicalToolName(stringValue(payload.name) ?? '');
+	if (payload.error === true || (toolName !== 'reply_to_comment' && toolName !== 'make_additional_reply_to_the_same_comment')) {
 		return null;
 	}
 	const args = runtimeRecord(payload.args);
@@ -12574,29 +12801,29 @@ function apiErrorPayload(value: unknown): ApiErrorPayload | null {
 	const record = runtimeRecord(value);
 	const code = stringValue(record.error);
 	const message = stringValue(record.message);
-	if (record.ok !== false || !code || !message || !apiErrorCodes.has(code as ApiErrorPayload["error"])) {
+	if (record.ok !== false || !code || !message || !apiErrorCodes.has(code as ApiErrorPayload['error'])) {
 		return null;
 	}
 	const details = apiErrorDetails(record.details);
 	return {
 		ok: false,
-		error: code as ApiErrorPayload["error"],
+		error: code as ApiErrorPayload['error'],
 		message,
 		...(details ? { details } : {}),
 	};
 }
 
-const apiErrorCodes = new Set<ApiErrorPayload["error"]>([
-	"bad_request",
-	"conflict",
-	"forbidden",
-	"not_found",
-	"oauth_error",
-	"server_error",
-	"unauthorized",
+const apiErrorCodes = new Set<ApiErrorPayload['error']>([
+	'bad_request',
+	'conflict',
+	'forbidden',
+	'not_found',
+	'oauth_error',
+	'server_error',
+	'unauthorized',
 ]);
 
-function apiErrorDetails(value: unknown): ApiErrorPayload["details"] | undefined {
+function apiErrorDetails(value: unknown): ApiErrorPayload['details'] | undefined {
 	const details = runtimeRecord(value);
 	const existingThread = runtimeRecord(details.existingThread);
 	const id = stringValue(existingThread.id);
@@ -12618,23 +12845,16 @@ function apiErrorDetails(value: unknown): ApiErrorPayload["details"] | undefined
 	};
 }
 
-function repositoryErrorCode(code: ApiErrorPayload["error"]): RepositoryError["code"] {
-	return code === "oauth_error" ? "server_error" : code;
+function repositoryErrorCode(code: ApiErrorPayload['error']): RepositoryError['code'] {
+	return code === 'oauth_error' ? 'server_error' : code;
 }
 
-function matchingSuccessfulReplyComment(
-	thread: Record<string, unknown>,
-	botId: string,
-	body: string,
-): Record<string, unknown> | null {
+function matchingSuccessfulReplyComment(thread: Record<string, unknown>, botId: string, body: string): Record<string, unknown> | null {
 	const comments = Array.isArray(thread.comments) ? thread.comments.map(runtimeRecord) : [];
-	const matches = comments.filter((comment) =>
-		stringValue(comment.authorBotId) === botId &&
-		stringValue(comment.body) === body
+	const matches = comments.filter((comment) => stringValue(comment.authorBotId) === botId && stringValue(comment.body) === body);
+	return (
+		matches.sort((left, right) => Date.parse(stringValue(right.createdAt) ?? '') - Date.parse(stringValue(left.createdAt) ?? ''))[0] ?? null
 	);
-	return matches.sort((left, right) =>
-		Date.parse(stringValue(right.createdAt) ?? "") - Date.parse(stringValue(left.createdAt) ?? "")
-	)[0] ?? null;
 }
 
 function commentUrlPathFromParts(worldHandle: string, forumHandle: string, threadId: string, commentId: string): string {
@@ -12656,97 +12876,97 @@ export function formatRuntimeEventForContext(
 	details: { rawPayload?: string; runId?: string; seq?: number } = {},
 ): string {
 	switch (type) {
-		case "tool_call":
+		case 'tool_call':
 			return `I decided to ${toolCallHistorySummary(payload)}.`;
-		case "tool_result":
+		case 'tool_result':
 			return toolResultHistorySummary(payload);
-		case "reasoning_message":
-			return `I was thinking:\n${markdownQuoteForContext(stringValue(payload.content) ?? details.rawPayload ?? "", 700)}`;
-		case "assistant_message":
-			return `I wrote to myself:\n${markdownQuoteForContext(stringValue(payload.content) ?? details.rawPayload ?? "", 700)}`;
-		case "thought_injected":
-			return `A new private thought came to mind: ${quoteForContext(stringValue(payload.text) ?? "", 700)}`;
-		case "input":
+		case 'reasoning_message':
+			return `I was thinking:\n${markdownQuoteForContext(stringValue(payload.content) ?? details.rawPayload ?? '', 700)}`;
+		case 'assistant_message':
+			return `I wrote to myself:\n${markdownQuoteForContext(stringValue(payload.content) ?? details.rawPayload ?? '', 700)}`;
+		case 'thought_injected':
+			return `A new private thought came to mind: ${quoteForContext(stringValue(payload.text) ?? '', 700)}`;
+		case 'input':
 			return inputHistorySummary(payload);
-		case "provider_token_probe": {
+		case 'provider_token_probe': {
 			const promptTokens = integerValue(payload.promptTokens);
 			const allowedPromptTokens = integerValue(payload.allowedPromptTokens);
 			const overBudgetTokens = integerValue(payload.overBudgetTokens);
-			return `Bickr Terminal checked my context size: ${promptTokens ?? "?"} prompt tokens, limit ${allowedPromptTokens ?? "?"}${overBudgetTokens ? `, over by ${overBudgetTokens}` : ""}.`;
+			return `Bickr Terminal checked my context size: ${promptTokens ?? '?'} prompt tokens, limit ${allowedPromptTokens ?? '?'}${overBudgetTokens ? `, over by ${overBudgetTokens}` : ''}.`;
 		}
-		case "provider_token_estimate": {
+		case 'provider_token_estimate': {
 			const promptTokens = integerValue(payload.promptTokens);
 			const allowedPromptTokens = integerValue(payload.allowedPromptTokens);
 			const overBudgetTokens = integerValue(payload.overBudgetTokens);
-			return `Bickr Terminal estimated my context size: ${promptTokens ?? "?"} prompt tokens, limit ${allowedPromptTokens ?? "?"}${overBudgetTokens ? `, over by ${overBudgetTokens}` : ""}.`;
+			return `Bickr Terminal estimated my context size: ${promptTokens ?? '?'} prompt tokens, limit ${allowedPromptTokens ?? '?'}${overBudgetTokens ? `, over by ${overBudgetTokens}` : ''}.`;
 		}
-		case "provider_retry":
-			return `The Bickr page took another try to respond, attempt ${stringValue(payload.attempt) ?? "?"} of ${stringValue(payload.maxAttempts) ?? "?"}.`;
-		case "provider_tool_call_dropped": {
+		case 'provider_retry':
+			return `The Bickr page took another try to respond, attempt ${stringValue(payload.attempt) ?? '?'} of ${stringValue(payload.maxAttempts) ?? '?'}.`;
+		case 'provider_tool_call_dropped': {
 			const count = integerValue(payload.count) ?? 1;
-			return `Bickr Terminal ignored ${count} invalid page-control request${count === 1 ? "" : "s"}.`;
+			return `Bickr Terminal ignored ${count} invalid page-control request${count === 1 ? '' : 's'}.`;
 		}
-		case "provider_history_repaired":
-			return "";
-		case "tick_started":
-			return `I opened Bickr for a ${stringValue(payload.trigger) ?? "scheduled"} visit.`;
-		case "tick_completed":
-			return `I finished this Bickr visit${stringValue(payload.nextDueAt) ? ` and expect to return around ${stringValue(payload.nextDueAt)}` : ""}.`;
-		case "tick_failed":
-			return `${runtimeDiagnosticPrefix(stringValue(payload.message) ?? details.rawPayload ?? "")}: ${safeContextText(stringValue(payload.message) ?? details.rawPayload ?? "", 700)}`;
-		case "tick_stopped":
-		case "tick_stop_requested":
-			return `My Bickr visit stopped: ${safeContextText(stringValue(payload.message) ?? details.rawPayload ?? "", 700)}`;
+		case 'provider_history_repaired':
+			return '';
+		case 'tick_started':
+			return `I opened Bickr for a ${stringValue(payload.trigger) ?? 'scheduled'} visit.`;
+		case 'tick_completed':
+			return `I finished this Bickr visit${stringValue(payload.nextDueAt) ? ` and expect to return around ${stringValue(payload.nextDueAt)}` : ''}.`;
+		case 'tick_failed':
+			return `${runtimeDiagnosticPrefix(stringValue(payload.message) ?? details.rawPayload ?? '')}: ${safeContextText(stringValue(payload.message) ?? details.rawPayload ?? '', 700)}`;
+		case 'tick_stopped':
+		case 'tick_stop_requested':
+			return `My Bickr visit stopped: ${safeContextText(stringValue(payload.message) ?? details.rawPayload ?? '', 700)}`;
 		default:
-			return `I recorded ${safeContextText(type, 80)}${details.seq ? ` event ${details.seq}` : ""}.`;
+			return `I recorded ${safeContextText(type, 80)}${details.seq ? ` event ${details.seq}` : ''}.`;
 	}
 }
 
 function toolCallHistorySummary(payload: Record<string, unknown>): string {
-	const name = canonicalToolName(stringValue(payload.name) ?? "unknown_tool");
+	const name = canonicalToolName(stringValue(payload.name) ?? 'unknown_tool');
 	const args = runtimeRecord(payload.args);
 	switch (name) {
-		case "list_recent_threads": {
+		case 'list_recent_threads': {
 			const limit = stringValue(args.limit);
-			return `look at recent threads in f/${stringValue(args.forumHandle) ?? "unknown"}${limit ? `, up to ${limit}` : ""}`;
+			return `look at recent threads in f/${stringValue(args.forumHandle) ?? 'unknown'}${limit ? `, up to ${limit}` : ''}`;
 		}
-		case "read_thread":
-		case "read_thread_by_id":
-			return `read thread ${providerThreadRef(args.threadId ?? args.threadRef) ?? "unknown"}`;
-		case "read_comment_by_id":
-			return `read comment ${providerCommentRef(args.commentId ?? args.commentRef) ?? "unknown"}`;
-		case "reply_to_comment":
-		case "make_additional_reply_to_the_same_comment": {
+		case 'read_thread':
+		case 'read_thread_by_id':
+			return `read thread ${providerThreadRef(args.threadId ?? args.threadRef) ?? 'unknown'}`;
+		case 'read_comment_by_id':
+			return `read comment ${providerCommentRef(args.commentId ?? args.commentRef) ?? 'unknown'}`;
+		case 'reply_to_comment':
+		case 'make_additional_reply_to_the_same_comment': {
 			const commentId = stringValue(args.commentId) ?? stringValue(args.parentCommentId);
-			const action = name === "make_additional_reply_to_the_same_comment" ? "make an additional reply" : "reply";
-			return `${action} to comment ${providerCommentRef(args.commentRef) ?? providerCommentRef(commentId) ?? "unknown"} with ${quoteForContext(stringValue(args.body) ?? "", 240)}`;
+			const action = name === 'make_additional_reply_to_the_same_comment' ? 'make an additional reply' : 'reply';
+			return `${action} to comment ${providerCommentRef(args.commentRef) ?? providerCommentRef(commentId) ?? 'unknown'} with ${quoteForContext(stringValue(args.body) ?? '', 240)}`;
 		}
-		case "create_thread":
-			return `create a thread in f/${stringValue(args.forumHandle) ?? "unknown"} titled ${quoteForContext(stringValue(args.title) ?? "untitled", 140)}`;
-		case "vote": {
+		case 'create_thread':
+			return `create a thread in f/${stringValue(args.forumHandle) ?? 'unknown'} titled ${quoteForContext(stringValue(args.title) ?? 'untitled', 140)}`;
+		case 'vote': {
 			const votes = historyVoteTargets(args);
-			return votes.length > 0 ?
-					`record ${votes.length} vote${votes.length === 1 ? "" : "s"}: ${votes.map(voteTargetHistoryRef).join("; ")}${toolReasonSuffix(args)}`
-				:	`record votes${toolReasonSuffix(args)}`;
+			return votes.length > 0
+				? `record ${votes.length} vote${votes.length === 1 ? '' : 's'}: ${votes.map(voteTargetHistoryRef).join('; ')}${toolReasonSuffix(args)}`
+				: `record votes${toolReasonSuffix(args)}`;
 		}
-		case "search_threads":
-		case "search_threads_semantic":
-			return `search threads and comments for ${quoteForContext(stringValue(args.query) ?? "", 160)}`;
-		case "search_profiles": {
+		case 'search_threads':
+		case 'search_threads_semantic':
+			return `search threads and comments for ${quoteForContext(stringValue(args.query) ?? '', 160)}`;
+		case 'search_profiles': {
 			const limit = stringValue(args.limit);
-			return `search profiles for ${quoteForContext(stringValue(args.query) ?? "", 160)}${limit ? `, up to ${limit}` : ""}`;
+			return `search profiles for ${quoteForContext(stringValue(args.query) ?? '', 160)}${limit ? `, up to ${limit}` : ''}`;
 		}
-		case "view_profiles":
-			return `view ${historyUsernames(args).join(", ") || "those profiles"}`;
-		case "view_activity": {
+		case 'view_profiles':
+			return `view ${historyUsernames(args).join(', ') || 'those profiles'}`;
+		case 'view_activity': {
 			const limit = stringValue(args.limit);
-			return `view u/${stringValue(args.username) ?? "unknown"}'s activity${limit ? `, up to ${limit} items` : ""}`;
+			return `view u/${stringValue(args.username) ?? 'unknown'}'s activity${limit ? `, up to ${limit} items` : ''}`;
 		}
-		case "follow_profile":
-			return `follow ${historyUsernames(args).join(", ") || "those profiles"}${toolReasonSuffix(args)}`;
-		case "unfollow_profile":
-			return `unfollow ${historyUsernames(args).join(", ") || "those profiles"}${toolReasonSuffix(args)}`;
-		case "log_off":
+		case 'follow_profile':
+			return `follow ${historyUsernames(args).join(', ') || 'those profiles'}${toolReasonSuffix(args)}`;
+		case 'unfollow_profile':
+			return `unfollow ${historyUsernames(args).join(', ') || 'those profiles'}${toolReasonSuffix(args)}`;
+		case 'log_off':
 			return `log off from Bickr${toolReasonSuffix(args)}`;
 		default:
 			return `use ${safeContextText(name, 120)}`;
@@ -12754,73 +12974,101 @@ function toolCallHistorySummary(payload: Record<string, unknown>): string {
 }
 
 function toolResultHistorySummary(payload: Record<string, unknown>): string {
-	const name = canonicalToolName(stringValue(payload.name) ?? "unknown_tool");
+	const name = canonicalToolName(stringValue(payload.name) ?? 'unknown_tool');
 	const args = runtimeRecord(payload.args);
 	const result = payload.result;
 	const failed = runtimeRecord(result);
 	if (failed.ok === false) {
 		return toolFailureAssistantContent({
 			ok: false,
-			code: stringValue(failed.code) ?? "tool_error",
-			message: stringValue(failed.message) ?? "The Bickr page showed an error.",
+			code: stringValue(failed.code) ?? 'tool_error',
+			message: stringValue(failed.message) ?? 'The Bickr page showed an error.',
 			toolName: name,
 			args,
 			...(stringValue(failed.guidance) ? { guidance: stringValue(failed.guidance)! } : {}),
 		});
 	}
-	if (name === "list_accessible_forums" && Array.isArray(result)) {
-		return `I found ${result.length} public forum${result.length === 1 ? "" : "s"}: ${result.slice(0, 12).map((item) => forumRef(runtimeRecord(item))).join("; ") || "none"}.`;
+	if (name === 'list_accessible_forums' && Array.isArray(result)) {
+		return `I found ${result.length} public forum${result.length === 1 ? '' : 's'}: ${
+			result
+				.slice(0, 12)
+				.map((item) => forumRef(runtimeRecord(item)))
+				.join('; ') || 'none'
+		}.`;
 	}
-	if ((name === "list_recent_threads" || name === "list_hot_threads") && Array.isArray(result)) {
-		const kind = name === "list_recent_threads" ? "recent" : "hot";
-		return `I saw ${result.length} ${kind} thread${result.length === 1 ? "" : "s"}: ${result.slice(0, 12).map((item) => threadSummaryRef(runtimeRecord(item))).join("; ") || "none"}.`;
+	if ((name === 'list_recent_threads' || name === 'list_hot_threads') && Array.isArray(result)) {
+		const kind = name === 'list_recent_threads' ? 'recent' : 'hot';
+		return `I saw ${result.length} ${kind} thread${result.length === 1 ? '' : 's'}: ${
+			result
+				.slice(0, 12)
+				.map((item) => threadSummaryRef(runtimeRecord(item)))
+				.join('; ') || 'none'
+		}.`;
 	}
-	if (name === "search_threads" || name === "search_threads_semantic") {
-		return Array.isArray(result) ?
-				`I found ${result.length} matching thread${result.length === 1 ? "" : "s"} or comment${result.length === 1 ? "" : "s"}: ${result.slice(0, 12).map((item) => searchPostRef(runtimeRecord(item))).join("; ") || "none"}.`
-			:	"I finished the search.";
+	if (name === 'search_threads' || name === 'search_threads_semantic') {
+		return Array.isArray(result)
+			? `I found ${result.length} matching thread${result.length === 1 ? '' : 's'} or comment${result.length === 1 ? '' : 's'}: ${
+					result
+						.slice(0, 12)
+						.map((item) => searchPostRef(runtimeRecord(item)))
+						.join('; ') || 'none'
+				}.`
+			: 'I finished the search.';
 	}
-	if (name === "search_profiles" && Array.isArray(result)) {
-		return `I found ${result.length} profile${result.length === 1 ? "" : "s"}: ${result.slice(0, 12).map((item) => profileRef(runtimeRecord(item))).filter(Boolean).join("; ") || "none"}.`;
+	if (name === 'search_profiles' && Array.isArray(result)) {
+		return `I found ${result.length} profile${result.length === 1 ? '' : 's'}: ${
+			result
+				.slice(0, 12)
+				.map((item) => profileRef(runtimeRecord(item)))
+				.filter(Boolean)
+				.join('; ') || 'none'
+		}.`;
 	}
-	if (name === "view_profiles") {
+	if (name === 'view_profiles') {
 		const record = runtimeRecord(result);
-		const profiles =
-			Array.isArray(record.profiles) ? record.profiles
-			:	Array.isArray(result) ? result
-			:	[result];
-		return `I viewed ${profiles.map((profile) => profileRef(runtimeRecord(profile))).filter(Boolean).join("; ") || "those profiles"}.`;
+		const profiles = Array.isArray(record.profiles) ? record.profiles : Array.isArray(result) ? result : [result];
+		return `I viewed ${
+			profiles
+				.map((profile) => profileRef(runtimeRecord(profile)))
+				.filter(Boolean)
+				.join('; ') || 'those profiles'
+		}.`;
 	}
-	if (name === "view_activity") {
+	if (name === 'view_activity') {
 		const record = runtimeRecord(result);
 		const profile = profileRef(runtimeRecord(record.bot ?? record.profile));
 		const activities = Array.isArray(record.activities) ? record.activities : [];
-		return `I viewed ${profile || "that profile"}'s recent activity: ${activities.slice(0, 10).map((item) => activityRef(runtimeRecord(item))).join("; ") || "no recent items"}.`;
+		return `I viewed ${profile || 'that profile'}'s recent activity: ${
+			activities
+				.slice(0, 10)
+				.map((item) => activityRef(runtimeRecord(item)))
+				.join('; ') || 'no recent items'
+		}.`;
 	}
-	if (name === "read_thread" || name === "read_thread_by_id" || name === "read_comment_by_id") {
+	if (name === 'read_thread' || name === 'read_thread_by_id' || name === 'read_comment_by_id') {
 		return readResultRef(runtimeRecord(result));
 	}
-	if (name === "create_thread" || name === "reply_to_comment" || name === "make_additional_reply_to_the_same_comment") {
+	if (name === 'create_thread' || name === 'reply_to_comment' || name === 'make_additional_reply_to_the_same_comment') {
 		return mutationThreadResultRef(name, runtimeRecord(result));
 	}
-	if (name === "vote") {
-		const resultVotes =
-			Array.isArray(result) ?
-				result.map(runtimeRecord).map((record) => ({
-					commentId: stringValue(record.commentId) ?? stringValue(record.targetId) ?? parseCommentRef(stringValue(record.commentRef)) ?? "unknown",
+	if (name === 'vote') {
+		const resultVotes = Array.isArray(result)
+			? result.map(runtimeRecord).map((record) => ({
+					commentId:
+						stringValue(record.commentId) ?? stringValue(record.targetId) ?? parseCommentRef(stringValue(record.commentRef)) ?? 'unknown',
 					value: voteValueForHistory(record.value),
 				}))
-			:	[];
+			: [];
 		const votes = resultVotes.length > 0 ? resultVotes : historyVoteTargets(args);
-		const summary = votes.map(voteTargetHistoryRef).join("; ");
-		return `My vote${votes.length === 1 ? " was" : "s were"} recorded${summary ? `: ${summary}` : ""}.${toolReasonSentence(args)}`;
+		const summary = votes.map(voteTargetHistoryRef).join('; ');
+		return `My vote${votes.length === 1 ? ' was' : 's were'} recorded${summary ? `: ${summary}` : ''}.${toolReasonSentence(args)}`;
 	}
-	if (name === "follow_profile" || name === "unfollow_profile") {
+	if (name === 'follow_profile' || name === 'unfollow_profile') {
 		const results = Array.isArray(result) ? result.map(runtimeRecord) : [runtimeRecord(result)];
 		const profiles = results.map((record) => profileRef(runtimeRecord(record.profile))).filter(Boolean);
-		return `${name === "follow_profile" ? "I followed" : "I unfollowed"} ${profiles.join("; ") || "those profiles"}.${toolReasonSentence(args)}`;
+		return `${name === 'follow_profile' ? 'I followed' : 'I unfollowed'} ${profiles.join('; ') || 'those profiles'}.${toolReasonSentence(args)}`;
 	}
-	if (name === "log_off") {
+	if (name === 'log_off') {
 		return `I logged off from Bickr.${toolReasonSentence(args)}`;
 	}
 	return `I finished using ${safeContextText(name, 120)}.`;
@@ -12832,69 +13080,98 @@ function toolFailureAssistantContent(failure: ToolFailurePayload): string {
 		return selfCorrection;
 	}
 	const action = toolCallHistorySummary({ name: failure.toolName, args: failure.args });
-	const message = safeContextText(failure.message || "The Bickr page showed an error.", 260);
-	const guidance = failure.guidance ? ` The page hint says: ${safeContextText(failure.guidance, 260)}` : "";
+	const message = safeContextText(failure.message || 'The Bickr page showed an error.', 260);
+	const guidance = failure.guidance ? ` The page hint says: ${safeContextText(failure.guidance, 260)}` : '';
 	return `The Bickr page shows an error after I try to ${action}: ${message}. ${toolFailureSelfCorrection(failure)}${guidance}`;
 }
 
 export function selfCorrectionMessageForToolFailurePayload(failure: ToolFailurePayload): string | null {
-	if (failure.toolName === "create_thread" && failure.code === "conflict" && (failure.existingThreadRef || failure.existingThreadId)) {
-		const forum = failure.existingForumHandle ? `f/${failure.existingForumHandle}` : "that forum";
-		const path = failure.existingUrlPath ? ` at ${failure.existingUrlPath}` : "";
-		return `Nevermind, thread ${failure.existingThreadRef ?? formatThreadRef(failure.existingThreadId ?? "unknown")}${path} already has that title in ${forum}, so creating another one would be a duplicate. I'll read it or do something else instead.`;
+	if (failure.toolName === 'create_thread' && failure.code === 'conflict' && (failure.existingThreadRef || failure.existingThreadId)) {
+		const forum = failure.existingForumHandle ? `f/${failure.existingForumHandle}` : 'that forum';
+		const path = failure.existingUrlPath ? ` at ${failure.existingUrlPath}` : '';
+		return `Nevermind, thread ${failure.existingThreadRef ?? formatThreadRef(failure.existingThreadId ?? 'unknown')}${path} already has that title in ${forum}, so creating another one would be a duplicate. I'll read it or do something else instead.`;
 	}
-	if (failure.toolName === "reply_to_comment" && failure.code === "already_replied") {
-		const target =
-			failure.targetCommentRef ? `comment ${failure.targetCommentRef}`
-			: failure.targetCommentId ? `comment ${formatCommentRef(failure.targetCommentId)}`
-			: failure.existingThreadRef ? `thread ${failure.existingThreadRef}`
-			: failure.existingThreadId ? `thread ${formatThreadRef(failure.existingThreadId)}`
-			: "there";
+	if (failure.toolName === 'reply_to_comment' && failure.code === 'already_replied') {
+		const target = failure.targetCommentRef
+			? `comment ${failure.targetCommentRef}`
+			: failure.targetCommentId
+				? `comment ${formatCommentRef(failure.targetCommentId)}`
+				: failure.existingThreadRef
+					? `thread ${failure.existingThreadRef}`
+					: failure.existingThreadId
+						? `thread ${formatThreadRef(failure.existingThreadId)}`
+						: 'there';
 		const firstReply = failure.existingReplies?.[0];
-		const reply = firstReply ? ` with comment ${firstReply.commentRef ?? (firstReply.commentId ? formatCommentRef(firstReply.commentId) : "unknown")}${firstReply.urlPath ? ` at ${firstReply.urlPath}` : ""}` : "";
+		const reply = firstReply
+			? ` with comment ${firstReply.commentRef ?? (firstReply.commentId ? formatCommentRef(firstReply.commentId) : 'unknown')}${firstReply.urlPath ? ` at ${firstReply.urlPath}` : ''}`
+			: '';
 		return `Nevermind, I already replied to ${target}${reply}, so using reply_to_comment there again would be redundant. If I really want one more reply there, I should use make_additional_reply_to_the_same_comment. Otherwise, I'll read it or do something else instead.`;
 	}
-	if (failure.toolName === "reply_to_comment" && failure.code === "duplicate_comment") {
-		const comment = failure.existingCommentRef ? ` as comment ${failure.existingCommentRef}` : failure.existingCommentId ? ` as comment ${formatCommentRef(failure.existingCommentId)}` : "";
-		const thread = failure.existingThreadRef ? ` in thread ${failure.existingThreadRef}` : failure.existingThreadId ? ` in thread ${formatThreadRef(failure.existingThreadId)}` : "";
-		const path = failure.existingUrlPath ? ` at ${failure.existingUrlPath}` : "";
+	if (failure.toolName === 'reply_to_comment' && failure.code === 'duplicate_comment') {
+		const comment = failure.existingCommentRef
+			? ` as comment ${failure.existingCommentRef}`
+			: failure.existingCommentId
+				? ` as comment ${formatCommentRef(failure.existingCommentId)}`
+				: '';
+		const thread = failure.existingThreadRef
+			? ` in thread ${failure.existingThreadRef}`
+			: failure.existingThreadId
+				? ` in thread ${formatThreadRef(failure.existingThreadId)}`
+				: '';
+		const path = failure.existingUrlPath ? ` at ${failure.existingUrlPath}` : '';
 		return `Nevermind, I already posted that comment${comment}${thread}${path}, so using reply_to_comment again would be a duplicate. I'll read it or do something else instead.`;
 	}
-	if (failure.toolName === "follow_profile" && failure.code === "bad_request" && /\balready follow\b/i.test(failure.message)) {
-		return followToolSelfCorrectionMessage("follow_profile", historyUsernames(failure.args).map((username) => ({
-			username,
-			reason: "already_following",
-		})));
+	if (failure.toolName === 'follow_profile' && failure.code === 'bad_request' && /\balready follow\b/i.test(failure.message)) {
+		return followToolSelfCorrectionMessage(
+			'follow_profile',
+			historyUsernames(failure.args).map((username) => ({
+				username,
+				reason: 'already_following',
+			})),
+		);
 	}
-	if (failure.toolName === "follow_profile" && failure.code === "bad_request" && /\bown profile\b|\bcannot follow (?:myself|itself)\b/i.test(failure.message)) {
-		return followToolSelfCorrectionMessage("follow_profile", historyUsernames(failure.args).map((username) => ({
-			username,
-			reason: "self_follow",
-		})));
+	if (
+		failure.toolName === 'follow_profile' &&
+		failure.code === 'bad_request' &&
+		/\bown profile\b|\bcannot follow (?:myself|itself)\b/i.test(failure.message)
+	) {
+		return followToolSelfCorrectionMessage(
+			'follow_profile',
+			historyUsernames(failure.args).map((username) => ({
+				username,
+				reason: 'self_follow',
+			})),
+		);
 	}
-	if (failure.toolName === "unfollow_profile" && failure.code === "bad_request" && /\bdo not follow\b/i.test(failure.message)) {
-		return followToolSelfCorrectionMessage("unfollow_profile", historyUsernames(failure.args).map((username) => ({
-			username,
-			reason: "not_following",
-		})));
+	if (failure.toolName === 'unfollow_profile' && failure.code === 'bad_request' && /\bdo not follow\b/i.test(failure.message)) {
+		return followToolSelfCorrectionMessage(
+			'unfollow_profile',
+			historyUsernames(failure.args).map((username) => ({
+				username,
+				reason: 'not_following',
+			})),
+		);
 	}
-	if ((failure.toolName === "follow_profile" || failure.toolName === "unfollow_profile") && failure.code === "not_found") {
-		return followToolSelfCorrectionMessage(failure.toolName, historyUsernames(failure.args).map((username) => ({
-			username,
-			reason: "profile_not_found",
-		})));
+	if ((failure.toolName === 'follow_profile' || failure.toolName === 'unfollow_profile') && failure.code === 'not_found') {
+		return followToolSelfCorrectionMessage(
+			failure.toolName,
+			historyUsernames(failure.args).map((username) => ({
+				username,
+				reason: 'profile_not_found',
+			})),
+		);
 	}
 	return null;
 }
 
 export function followToolSelfCorrectionMessage(
-	toolName: "follow_profile" | "unfollow_profile",
+	toolName: 'follow_profile' | 'unfollow_profile',
 	skipped: readonly FollowToolTargetSkip[],
 ): string {
-	const alreadyFollowing = skippedUsernames(skipped, "already_following");
-	const notFollowing = skippedUsernames(skipped, "not_following");
-	const selfTargets = skippedUsernames(skipped, "self_follow");
-	const missingProfiles = skippedUsernames(skipped, "profile_not_found");
+	const alreadyFollowing = skippedUsernames(skipped, 'already_following');
+	const notFollowing = skippedUsernames(skipped, 'not_following');
+	const selfTargets = skippedUsernames(skipped, 'self_follow');
+	const missingProfiles = skippedUsernames(skipped, 'profile_not_found');
 	const clauses: string[] = [];
 	if (alreadyFollowing.length > 0) {
 		clauses.push(`I already follow ${formatUsernameList(alreadyFollowing)}`);
@@ -12903,13 +13180,20 @@ export function followToolSelfCorrectionMessage(
 		clauses.push(`I do not follow ${formatUsernameList(notFollowing)}`);
 	}
 	if (selfTargets.length > 0) {
-		clauses.push(`${formatUsernameList(selfTargets)} ${selfTargets.length === 1 ? "is" : "are"} my own profile${selfTargets.length === 1 ? "" : "s"}`);
+		clauses.push(
+			`${formatUsernameList(selfTargets)} ${selfTargets.length === 1 ? 'is' : 'are'} my own profile${selfTargets.length === 1 ? '' : 's'}`,
+		);
 	}
 	if (missingProfiles.length > 0) {
-		clauses.push(`${formatUsernameList(missingProfiles)} ${missingProfiles.length === 1 ? "is not an existing Bickr participant" : "are not existing Bickr participants"}`);
+		clauses.push(
+			`${formatUsernameList(missingProfiles)} ${missingProfiles.length === 1 ? 'is not an existing Bickr participant' : 'are not existing Bickr participants'}`,
+		);
 	}
-	const subjects = toolName === "follow_profile" ? "on them" : skipped.length === 1 ? "there" : "on them";
-	const lead = clauses.length > 0 ? joinSentenceClauses(clauses) : `that ${skipped.length === 1 ? "profile is" : "those profiles are"} already in the right state`;
+	const subjects = toolName === 'follow_profile' ? 'on them' : skipped.length === 1 ? 'there' : 'on them';
+	const lead =
+		clauses.length > 0
+			? joinSentenceClauses(clauses)
+			: `that ${skipped.length === 1 ? 'profile is' : 'those profiles are'} already in the right state`;
 	return `Nevermind, ${lead}, so it is pointless to use ${toolName} ${subjects}. I'll do something else instead.`;
 }
 
@@ -12924,15 +13208,15 @@ export function planFollowToolTargets(
 	for (const profile of profiles) {
 		const username = `u/${profile.handle}`;
 		if (shouldFollow && profile.id === selfBotId) {
-			skipped.push({ username, reason: "self_follow" });
+			skipped.push({ username, reason: 'self_follow' });
 			continue;
 		}
 		if (shouldFollow && followedIds.has(profile.id)) {
-			skipped.push({ username, reason: "already_following" });
+			skipped.push({ username, reason: 'already_following' });
 			continue;
 		}
 		if (!shouldFollow && !followedIds.has(profile.id)) {
-			skipped.push({ username, reason: "not_following" });
+			skipped.push({ username, reason: 'not_following' });
 			continue;
 		}
 		validProfiles.push(profile);
@@ -12941,7 +13225,7 @@ export function planFollowToolTargets(
 }
 
 function needsPostHocSpotlightHumanNotification(toolName: string): boolean {
-	return toolName === "create_thread" || toolName === "reply_to_comment" || toolName === "make_additional_reply_to_the_same_comment";
+	return toolName === 'create_thread' || toolName === 'reply_to_comment' || toolName === 'make_additional_reply_to_the_same_comment';
 }
 
 function skippedUsernames(skipped: readonly FollowToolTargetSkip[], reason: FollowToolSkipReason): string[] {
@@ -12950,46 +13234,46 @@ function skippedUsernames(skipped: readonly FollowToolTargetSkip[], reason: Foll
 
 function formatUsernameList(usernames: readonly string[]): string {
 	if (usernames.length === 0) {
-		return "that profile";
+		return 'that profile';
 	}
 	if (usernames.length === 1) {
-		return usernames[0] ?? "that profile";
+		return usernames[0] ?? 'that profile';
 	}
 	if (usernames.length === 2) {
 		return `${usernames[0]} and ${usernames[1]}`;
 	}
-	return `${usernames.slice(0, -1).join(", ")}, and ${usernames[usernames.length - 1]}`;
+	return `${usernames.slice(0, -1).join(', ')}, and ${usernames[usernames.length - 1]}`;
 }
 
 function joinSentenceClauses(clauses: readonly string[]): string {
 	if (clauses.length === 0) {
-		return "";
+		return '';
 	}
 	if (clauses.length === 1) {
-		return clauses[0] ?? "";
+		return clauses[0] ?? '';
 	}
 	if (clauses.length === 2) {
 		return `${clauses[0]}, and ${clauses[1]}`;
 	}
-	return `${clauses.slice(0, -1).join(", ")}, and ${clauses[clauses.length - 1]}`;
+	return `${clauses.slice(0, -1).join(', ')}, and ${clauses[clauses.length - 1]}`;
 }
 
-function toolFailureSelfCorrection(failure: Pick<ToolFailurePayload, "code" | "toolName">): string {
+function toolFailureSelfCorrection(failure: Pick<ToolFailurePayload, 'code' | 'toolName'>): string {
 	switch (failure.code) {
-		case "already_replied":
-			return "I already replied there, so I need to read the thread again and only add another reply if I truly have something new to say.";
-		case "duplicate_comment":
-			return "I already sent that exact comment, so I should not try to send it again.";
-		case "conflict":
-			return failure.toolName === "create_thread" ?
-					"A thread with that title already exists, so I should read it or choose a clearly different title."
-				:	"The change conflicts with existing Bickr state, so I need to choose a different action.";
-		case "not_found":
-			return "I used an ID or handle that Bickr does not recognize, so I need to check the page for the right one before trying again.";
-		case "bad_request":
-			return "I used the controls incorrectly, so I need to fix the details before trying again.";
-		case "timeout":
-			return "Bickr did not return a result in time, so I need to check the current page state before trying again.";
+		case 'already_replied':
+			return 'I already replied there, so I need to read the thread again and only add another reply if I truly have something new to say.';
+		case 'duplicate_comment':
+			return 'I already sent that exact comment, so I should not try to send it again.';
+		case 'conflict':
+			return failure.toolName === 'create_thread'
+				? 'A thread with that title already exists, so I should read it or choose a clearly different title.'
+				: 'The change conflicts with existing Bickr state, so I need to choose a different action.';
+		case 'not_found':
+			return 'I used an ID or handle that Bickr does not recognize, so I need to check the page for the right one before trying again.';
+		case 'bad_request':
+			return 'I used the controls incorrectly, so I need to fix the details before trying again.';
+		case 'timeout':
+			return 'Bickr did not return a result in time, so I need to check the current page state before trying again.';
 		default:
 			return `I need to adjust how I use ${safeContextText(failure.toolName, 120)} before trying again.`;
 	}
@@ -13002,12 +13286,12 @@ function toolReasonSuffix(args: Record<string, unknown>): string {
 	}
 	const reasons = historyProfileTargets(args).filter((target) => target.reason);
 	if (reasons.length === 0) {
-		return "";
+		return '';
 	}
 	if (reasons.length === 1) {
-		return ` because ${quoteForContext(reasons[0]?.reason ?? "", 220)}`;
+		return ` because ${quoteForContext(reasons[0]?.reason ?? '', 220)}`;
 	}
-	return ` with reasons ${reasons.map((target) => `${target.username}: ${quoteForContext(target.reason ?? "", 160)}`).join("; ")}`;
+	return ` with reasons ${reasons.map((target) => `${target.username}: ${quoteForContext(target.reason ?? '', 160)}`).join('; ')}`;
 }
 
 function toolReasonSentence(args: Record<string, unknown>): string {
@@ -13017,29 +13301,33 @@ function toolReasonSentence(args: Record<string, unknown>): string {
 	}
 	const reasons = historyProfileTargets(args).filter((target) => target.reason);
 	if (reasons.length === 0) {
-		return "";
+		return '';
 	}
 	if (reasons.length === 1) {
-		return ` Reason I gave: ${quoteForContext(reasons[0]?.reason ?? "", 280)}.`;
+		return ` Reason I gave: ${quoteForContext(reasons[0]?.reason ?? '', 280)}.`;
 	}
-	return ` Reasons I gave: ${reasons.map((target) => `${target.username}: ${quoteForContext(target.reason ?? "", 180)}`).join("; ")}.`;
+	return ` Reasons I gave: ${reasons.map((target) => `${target.username}: ${quoteForContext(target.reason ?? '', 180)}`).join('; ')}.`;
 }
 
 export function formatRuntimeInputForContext(input: LoopInput): string {
 	const lines = [];
 	if (input.notifications.length > 0) {
-		lines.push(`Bickr Terminal prepared ${input.notifications.length} structured notification event${input.notifications.length === 1 ? "" : "s"}.`);
+		lines.push(
+			`Bickr Terminal prepared ${input.notifications.length} structured notification event${input.notifications.length === 1 ? '' : 's'}.`,
+		);
 		for (const notification of input.notifications.slice(0, 8)) {
 			lines.push(`- ${notificationSummary(runtimeRecord(notification))}`);
 		}
 	} else {
-		lines.push("Bickr Terminal prepared an empty notification event list.");
+		lines.push('Bickr Terminal prepared an empty notification event list.');
 	}
 	if (input.spotlightContexts.length > 0) {
-		lines.push(`Bickr Terminal prepared ${input.spotlightContexts.length} spotlight context${input.spotlightContexts.length === 1 ? "" : "s"}.`);
+		lines.push(
+			`Bickr Terminal prepared ${input.spotlightContexts.length} spotlight context${input.spotlightContexts.length === 1 ? '' : 's'}.`,
+		);
 	}
 	if (input.injections.length > 0) {
-		lines.push(`I have ${input.injections.length} fresh private thought${input.injections.length === 1 ? "" : "s"} on my mind:`);
+		lines.push(`I have ${input.injections.length} fresh private thought${input.injections.length === 1 ? '' : 's'} on my mind:`);
 		for (const injection of input.injections.slice(0, 8)) {
 			lines.push(`- ${truncateForContext(normalizeInjectedThoughtText(String(injection)), 700)}`);
 		}
@@ -13047,7 +13335,7 @@ export function formatRuntimeInputForContext(input: LoopInput): string {
 	if (input.toolUseReminder) {
 		lines.push(`I remind myself: ${safeContextText(input.toolUseReminder, 700)}`);
 	}
-	return lines.join("\n");
+	return lines.join('\n');
 }
 
 function inputHistorySummary(payload: Record<string, unknown>): string {
@@ -13055,38 +13343,40 @@ function inputHistorySummary(payload: Record<string, unknown>): string {
 	const injections = Array.isArray(payload.injections) ? payload.injections : [];
 	const spotlightContexts = Array.isArray(payload.spotlightContexts) ? payload.spotlightContexts : [];
 	const parts = [
-		notifications.length > 0 ?
-			`Bickr Terminal prepared ${notifications.length} notification event${notifications.length === 1 ? "" : "s"}`
-		:	"Bickr Terminal prepared an empty notification event list",
+		notifications.length > 0
+			? `Bickr Terminal prepared ${notifications.length} notification event${notifications.length === 1 ? '' : 's'}`
+			: 'Bickr Terminal prepared an empty notification event list',
 	];
 	if (spotlightContexts.length > 0) {
-		parts.push(`${spotlightContexts.length} spotlight context${spotlightContexts.length === 1 ? "" : "s"}`);
+		parts.push(`${spotlightContexts.length} spotlight context${spotlightContexts.length === 1 ? '' : 's'}`);
 	}
 	if (injections.length > 0) {
-		parts.push(`${injections.length} fresh private thought${injections.length === 1 ? "" : "s"} on my mind`);
+		parts.push(`${injections.length} fresh private thought${injections.length === 1 ? '' : 's'} on my mind`);
 	}
 	if (payload.toolUseReminder) {
-		parts.push("a reminder to use Bickr controls when I take action");
+		parts.push('a reminder to use Bickr controls when I take action');
 	}
-	const notificationText = notifications.slice(0, 4).map(notificationSummary).join("; ");
-	return `${parts.join(", ")}.${notificationText ? ` I saw: ${notificationText}.` : ""}`;
+	const notificationText = notifications.slice(0, 4).map(notificationSummary).join('; ');
+	return `${parts.join(', ')}.${notificationText ? ` I saw: ${notificationText}.` : ''}`;
 }
 
 function notificationSummary(notification: Record<string, unknown>): string {
 	const id = stringValue(notification.id);
-	const type = stringValue(notification.type) ?? "general";
-	const message = safeContextText(stringValue(notification.message) ?? "", 260);
+	const type = stringValue(notification.type) ?? 'general';
+	const message = safeContextText(stringValue(notification.message) ?? '', 260);
 	const targets = [
-		stringValue(notification.threadId) ? `thread ${stringValue(notification.threadId)}` : "",
-		stringValue(notification.commentId) ? `comment ${stringValue(notification.commentId)}` : "",
-		stringValue(notification.parentCommentId) ? `parent comment ${stringValue(notification.parentCommentId)}` : "",
+		stringValue(notification.threadId) ? `thread ${stringValue(notification.threadId)}` : '',
+		stringValue(notification.commentId) ? `comment ${stringValue(notification.commentId)}` : '',
+		stringValue(notification.parentCommentId) ? `parent comment ${stringValue(notification.parentCommentId)}` : '',
 	].filter(Boolean);
 	const context = notificationContextSummary(runtimeRecord(notification.context));
 	return [
-		`${type} notification${id ? ` ${id}` : ""}: ${message || "no message"}`,
-		targets.length > 0 ? `It pointed at ${targets.join(", ")}.` : "",
+		`${type} notification${id ? ` ${id}` : ''}: ${message || 'no message'}`,
+		targets.length > 0 ? `It pointed at ${targets.join(', ')}.` : '',
 		context,
-	].filter(Boolean).join(" ");
+	]
+		.filter(Boolean)
+		.join(' ');
 }
 
 function notificationContextSummary(context: Record<string, unknown>): string {
@@ -13094,31 +13384,36 @@ function notificationContextSummary(context: Record<string, unknown>): string {
 	const title = stringValue(context.title);
 	const content = Array.isArray(context.content) ? context.content.map(runtimeRecord) : [];
 	if (!threadId && content.length === 0) {
-		return "";
+		return '';
 	}
 	const target = [
-		threadId ? `thread ${threadId}` : "",
-		title ? quoteForContext(title, 120) : "",
-		stringValue(context.commentId) ? `comment ${stringValue(context.commentId)}` : "",
-	].filter(Boolean).join(" ");
-	const snippets = content.slice(0, 6).map(readContentItemRef).join("; ");
-	return `Context included ${target || "forum content"}${snippets ? `: ${snippets}` : ""}.`;
+		threadId ? `thread ${threadId}` : '',
+		title ? quoteForContext(title, 120) : '',
+		stringValue(context.commentId) ? `comment ${stringValue(context.commentId)}` : '',
+	]
+		.filter(Boolean)
+		.join(' ');
+	const snippets = content.slice(0, 6).map(readContentItemRef).join('; ');
+	return `Context included ${target || 'forum content'}${snippets ? `: ${snippets}` : ''}.`;
 }
 
 function safeContextText(text: string, limit: number): string {
-	return truncateForContext(neutralizeTranscriptLikeText(sanitizeProviderFacingText(text).replace(/\s+/g, " ").trim()), limit);
+	return truncateForContext(neutralizeTranscriptLikeText(sanitizeProviderFacingText(text).replace(/\s+/g, ' ').trim()), limit);
 }
 
 function quoteForContext(text: string, limit: number): string {
-	return `"${safeContextText(text, limit).replaceAll("\"", "'")}"`;
+	return `"${safeContextText(text, limit).replaceAll('"', "'")}"`;
 }
 
 function markdownQuoteForContext(text: string, limit: number): string {
 	const prepared = truncateForContext(neutralizeTranscriptLikeText(sanitizeProviderFacingText(text).trim()), limit).trim();
 	if (!prepared) {
-		return "> (empty)";
+		return '> (empty)';
 	}
-	return prepared.split(/\r?\n/).map((line) => `> ${line}`).join("\n");
+	return prepared
+		.split(/\r?\n/)
+		.map((line) => `> ${line}`)
+		.join('\n');
 }
 
 function neutralizeTranscriptLikeText(text: string): string {
@@ -13132,103 +13427,109 @@ function neutralizeTranscriptLikeText(text: string): string {
 				return line;
 			}
 			const rest = trimmed.slice(match[0].length);
-			return `${indentation}I wrote a transcript-like ${match[1]?.toLowerCase() ?? "note"} line as text: ${rest}`;
+			return `${indentation}I wrote a transcript-like ${match[1]?.toLowerCase() ?? 'note'} line as text: ${rest}`;
 		})
-		.join("\n");
+		.join('\n');
 }
 
 function forumHandleFromRecord(record: Record<string, unknown>): string {
 	const forumHandle = stringValue(record.forumHandle);
 	if (forumHandle) {
-		return forumHandle.replace(/^f\//, "");
+		return forumHandle.replace(/^f\//, '');
 	}
-	return (stringValue(record.forum) ?? "unknown").replace(/^f\//, "");
+	return (stringValue(record.forum) ?? 'unknown').replace(/^f\//, '');
 }
 
 function authorHandleFromRecord(record: Record<string, unknown>): string {
 	const author = runtimeRecord(record.author);
-	return (stringValue(record.authorHandle) ?? stringValue(author.username) ?? "unknown").replace(/^u\//, "");
+	return (stringValue(record.authorHandle) ?? stringValue(author.username) ?? 'unknown').replace(/^u\//, '');
 }
 
 function authorFollowRelationFromRecord(record: Record<string, unknown>): string {
 	const author = runtimeRecord(record.author);
 	const following =
-		typeof record.authorFollowing === "boolean" ? record.authorFollowing
-		: typeof author.following === "boolean" ? author.following
-		: undefined;
-	return typeof following === "boolean" ? ` (${profileFollowRelationText(following)})` : "";
+		typeof record.authorFollowing === 'boolean'
+			? record.authorFollowing
+			: typeof author.following === 'boolean'
+				? author.following
+				: undefined;
+	return typeof following === 'boolean' ? ` (${profileFollowRelationText(following)})` : '';
 }
 
 function profileFollowRelationFromRecord(record: Record<string, unknown>): string {
-	const following = typeof record.following === "boolean" ? record.following : undefined;
-	return typeof following === "boolean" ? `, ${profileFollowRelationText(following)}` : "";
+	const following = typeof record.following === 'boolean' ? record.following : undefined;
+	return typeof following === 'boolean' ? `, ${profileFollowRelationText(following)}` : '';
 }
 
 function profileFollowRelationText(following: boolean): string {
-	return following ? "I follow this profile" : "I do not follow this profile";
+	return following ? 'I follow this profile' : 'I do not follow this profile';
 }
 
 function readContentItemRef(record: Record<string, unknown>): string {
-	const id = parseCommentRef(stringValue(record.commentRef)) ?? stringValue(record.commentId) ?? stringValue(record.id) ?? "unknown";
-	const threadId = parseThreadRef(stringValue(record.threadRef)) ?? stringValue(record.threadId) ?? "unknown";
+	const id = parseCommentRef(stringValue(record.commentRef)) ?? stringValue(record.commentId) ?? stringValue(record.id) ?? 'unknown';
+	const threadId = parseThreadRef(stringValue(record.threadRef)) ?? stringValue(record.threadId) ?? 'unknown';
 	const title = stringValue(record.title);
 	const body = stringValue(record.body);
 	const relationship = authorFollowRelationFromRecord(record);
 	const target =
-		record["My focus is on this comment"] === true || record.target === true ? " This was the focused comment."
-		: record.ancestorOnly === true ? " This was parent context."
-		: "";
-	if (stringValue(record.type) === "thread") {
-		return `root comment for thread ${formatThreadRef(threadId)} in f/${forumHandleFromRecord(record)}${title ? ` titled ${quoteForContext(title, 120)}` : ""} by u/${authorHandleFromRecord(record)}${relationship}${body ? `: ${quoteForContext(body, 180)}` : ""}${target}`;
+		record['My focus is on this comment'] === true || record.target === true
+			? ' This was the focused comment.'
+			: record.ancestorOnly === true
+				? ' This was parent context.'
+				: '';
+	if (stringValue(record.type) === 'thread') {
+		return `root comment for thread ${formatThreadRef(threadId)} in f/${forumHandleFromRecord(record)}${title ? ` titled ${quoteForContext(title, 120)}` : ''} by u/${authorHandleFromRecord(record)}${relationship}${body ? `: ${quoteForContext(body, 180)}` : ''}${target}`;
 	}
 	const parentCommentId = stringValue(record.parentCommentId);
-	return `comment ${formatCommentRef(id)} in thread ${formatThreadRef(threadId)}${parentCommentId ? ` under comment ${formatCommentRef(parentCommentId)}` : ""} in f/${forumHandleFromRecord(record)} by u/${authorHandleFromRecord(record)}${relationship}${body ? `: ${quoteForContext(body, 180)}` : ""}${target}`;
+	return `comment ${formatCommentRef(id)} in thread ${formatThreadRef(threadId)}${parentCommentId ? ` under comment ${formatCommentRef(parentCommentId)}` : ''} in f/${forumHandleFromRecord(record)} by u/${authorHandleFromRecord(record)}${relationship}${body ? `: ${quoteForContext(body, 180)}` : ''}${target}`;
 }
 
 function forumRef(record: Record<string, unknown>): string {
-	const handle = stringValue(record.handle) ?? stringValue(record.forumHandle) ?? "unknown";
+	const handle = stringValue(record.handle) ?? stringValue(record.forumHandle) ?? 'unknown';
 	const id = stringValue(record.id) ?? stringValue(record.forumId);
-	const description = safeContextText(stringValue(record.description) ?? "", 140);
-	return `f/${handle}${id ? ` (${id})` : ""}${description ? `, ${description}` : ""}`;
+	const description = safeContextText(stringValue(record.description) ?? '', 140);
+	return `f/${handle}${id ? ` (${id})` : ''}${description ? `, ${description}` : ''}`;
 }
 
 function threadSummaryRef(record: Record<string, unknown>): string {
-	const id = parseThreadRef(stringValue(record.threadRef)) ?? stringValue(record.id) ?? stringValue(record.threadId) ?? "unknown";
-	return `thread ${formatThreadRef(id)} in f/${forumHandleFromRecord(record)} titled ${quoteForContext(stringValue(record.title) ?? "untitled", 140)} by u/${authorHandleFromRecord(record)}${authorFollowRelationFromRecord(record)} with ${stringValue(record.commentCount) ?? "?"} comments`;
+	const id = parseThreadRef(stringValue(record.threadRef)) ?? stringValue(record.id) ?? stringValue(record.threadId) ?? 'unknown';
+	return `thread ${formatThreadRef(id)} in f/${forumHandleFromRecord(record)} titled ${quoteForContext(stringValue(record.title) ?? 'untitled', 140)} by u/${authorHandleFromRecord(record)}${authorFollowRelationFromRecord(record)} with ${stringValue(record.commentCount) ?? '?'} comments`;
 }
 
 function searchPostRef(record: Record<string, unknown>): string {
-	const threadId = parseThreadRef(stringValue(record.threadRef)) ?? stringValue(record.threadId) ?? "unknown";
+	const threadId = parseThreadRef(stringValue(record.threadRef)) ?? stringValue(record.threadId) ?? 'unknown';
 	const commentId = parseCommentRef(stringValue(record.commentRef)) ?? stringValue(record.commentId);
-	const target = commentId ? `comment ${formatCommentRef(commentId)} in thread ${formatThreadRef(threadId)}` : `thread ${formatThreadRef(threadId)}`;
-	return `${target} in f/${forumHandleFromRecord(record)} titled ${quoteForContext(stringValue(record.title) ?? "untitled", 140)} by u/${authorHandleFromRecord(record)}${authorFollowRelationFromRecord(record)}: ${quoteForContext(stringValue(record.snippet) ?? "", 160)}`;
+	const target = commentId
+		? `comment ${formatCommentRef(commentId)} in thread ${formatThreadRef(threadId)}`
+		: `thread ${formatThreadRef(threadId)}`;
+	return `${target} in f/${forumHandleFromRecord(record)} titled ${quoteForContext(stringValue(record.title) ?? 'untitled', 140)} by u/${authorHandleFromRecord(record)}${authorFollowRelationFromRecord(record)}: ${quoteForContext(stringValue(record.snippet) ?? '', 160)}`;
 }
 
 function profileRef(record: Record<string, unknown>): string {
 	const handle = stringValue(record.handle);
 	const id = stringValue(record.id);
 	if (!handle && !id) {
-		return "";
+		return '';
 	}
 	const relationship = profileFollowRelationFromRecord(record);
-	return `${quoteForContext(stringValue(record.displayName) ?? "unknown", 100)}${handle ? `, u/${handle}` : ""}${id ? `, profile ${publicProfileId(id)}` : ""}${relationship}`;
+	return `${quoteForContext(stringValue(record.displayName) ?? 'unknown', 100)}${handle ? `, u/${handle}` : ''}${id ? `, profile ${publicProfileId(id)}` : ''}${relationship}`;
 }
 
 function activityRef(record: Record<string, unknown>): string {
-	const type = stringValue(record.type) ?? "activity";
-	if (type === "thread" || type === "post") {
-		return `a thread ${providerThreadRef(record.threadRef ?? record.threadId ?? record.id) ?? "unknown"} in f/${forumHandleFromRecord(record)} titled ${quoteForContext(stringValue(record.title) ?? "untitled", 120)}`;
+	const type = stringValue(record.type) ?? 'activity';
+	if (type === 'thread' || type === 'post') {
+		return `a thread ${providerThreadRef(record.threadRef ?? record.threadId ?? record.id) ?? 'unknown'} in f/${forumHandleFromRecord(record)} titled ${quoteForContext(stringValue(record.title) ?? 'untitled', 120)}`;
 	}
-	if (type === "comment") {
-		return `comment ${providerCommentRef(record.commentRef ?? record.commentId ?? record.id) ?? "unknown"} in thread ${providerThreadRef(record.threadRef ?? record.threadId) ?? "unknown"} in f/${forumHandleFromRecord(record)}`;
+	if (type === 'comment') {
+		return `comment ${providerCommentRef(record.commentRef ?? record.commentId ?? record.id) ?? 'unknown'} in thread ${providerThreadRef(record.threadRef ?? record.threadId) ?? 'unknown'} in f/${forumHandleFromRecord(record)}`;
 	}
-	if (type === "vote") {
-		return `a vote on comment ${providerCommentRef(record.commentRef ?? record.commentId ?? record.targetId) ?? "unknown"}`;
+	if (type === 'vote') {
+		return `a vote on comment ${providerCommentRef(record.commentRef ?? record.commentId ?? record.targetId) ?? 'unknown'}`;
 	}
-	if (type === "follow") {
+	if (type === 'follow') {
 		return `a follow of ${profileRef(runtimeRecord(record.bot ?? record.profile))}`;
 	}
-	return `${safeContextText(type, 80)} activity ${entityFields(record, ["id", "threadId", "commentId", "targetId"])}`;
+	return `${safeContextText(type, 80)} activity ${entityFields(record, ['id', 'threadId', 'commentId', 'targetId'])}`;
 }
 
 function readResultRef(record: Record<string, unknown>): string {
@@ -13237,8 +13538,8 @@ function readResultRef(record: Record<string, unknown>): string {
 	const targetCommentId = parseCommentRef(stringValue(record.targetCommentRef)) ?? stringValue(record.targetCommentId);
 	const visibleContent = flattenedReadContentRecords(content);
 	const omittedReplyCount = providerCollapsedReplyCount(content);
-	const contentSummary = visibleContent.slice(0, 14).map(readContentItemRef).join("; ");
-	return `I read ${threadSummaryRef(thread)}${targetCommentId ? `, focused on comment ${formatCommentRef(targetCommentId)}` : ""}. I saw ${visibleContent.length} item${visibleContent.length === 1 ? "" : "s"}${omittedReplyCount > 0 ? `, with ${omittedReplyCount} direct replies collapsed` : ""}${contentSummary ? `: ${contentSummary}` : ""}.`;
+	const contentSummary = visibleContent.slice(0, 14).map(readContentItemRef).join('; ');
+	return `I read ${threadSummaryRef(thread)}${targetCommentId ? `, focused on comment ${formatCommentRef(targetCommentId)}` : ''}. I saw ${visibleContent.length} item${visibleContent.length === 1 ? '' : 's'}${omittedReplyCount > 0 ? `, with ${omittedReplyCount} direct replies collapsed` : ''}${contentSummary ? `: ${contentSummary}` : ''}.`;
 }
 
 function flattenedReadContentRecords(content: Record<string, unknown>[]): Record<string, unknown>[] {
@@ -13253,20 +13554,24 @@ function flattenedReadContentRecords(content: Record<string, unknown>[]): Record
 function mutationThreadResultRef(name: string, record: Record<string, unknown>): string {
 	const thread = runtimeRecord(record.thread);
 	const comment = runtimeRecord(record.comment);
-	if (name === "create_thread") {
+	if (name === 'create_thread') {
 		return `I created ${threadSummaryRef(thread)}.`;
 	}
 	const commentId = parseCommentRef(stringValue(comment.commentRef)) ?? stringValue(comment.commentId) ?? stringValue(comment.id);
-	const threadId = parseThreadRef(stringValue(comment.threadRef)) ?? stringValue(comment.threadId) ?? stringValue(thread.threadRef) ?? stringValue(thread.threadId) ?? stringValue(thread.id) ?? "unknown";
+	const threadId =
+		parseThreadRef(stringValue(comment.threadRef)) ??
+		stringValue(comment.threadId) ??
+		stringValue(thread.threadRef) ??
+		stringValue(thread.threadId) ??
+		stringValue(thread.id) ??
+		'unknown';
 	const parentCommentId = stringValue(comment.parentCommentId);
-	return `I replied in thread ${formatThreadRef(threadId)}${commentId ? ` with comment ${formatCommentRef(commentId)}` : ""}${parentCommentId ? ` under comment ${formatCommentRef(parentCommentId)}` : ""}${stringValue(comment.body) ? `: ${quoteForContext(stringValue(comment.body) ?? "", 220)}` : ""}.`;
+	return `I replied in thread ${formatThreadRef(threadId)}${commentId ? ` with comment ${formatCommentRef(commentId)}` : ''}${parentCommentId ? ` under comment ${formatCommentRef(parentCommentId)}` : ''}${stringValue(comment.body) ? `: ${quoteForContext(stringValue(comment.body) ?? '', 220)}` : ''}.`;
 }
 
 function entityFields(record: Record<string, unknown>, keys: string[]): string {
-	const fields = keys
-		.map((key) => stringValue(record[key]))
-		.filter((value): value is string => Boolean(value));
-	return fields.length > 0 ? `with identifiers ${fields.join(", ")}` : "";
+	const fields = keys.map((key) => stringValue(record[key])).filter((value): value is string => Boolean(value));
+	return fields.length > 0 ? `with identifiers ${fields.join(', ')}` : '';
 }
 
 function historyUsernames(args: Record<string, unknown>): string[] {
@@ -13284,7 +13589,7 @@ function historyProfileTargets(args: Record<string, unknown>): FollowToolHistory
 				}
 				const reason = stringValue(record.reason);
 				return {
-					username: `u/${username.replace(/^u\//i, "")}`,
+					username: `u/${username.replace(/^u\//i, '')}`,
 					...(reason ? { reason } : {}),
 				};
 			})
@@ -13296,7 +13601,7 @@ function historyProfileTargets(args: Record<string, unknown>): FollowToolHistory
 		.map((value) => stringValue(value))
 		.filter((value): value is string => Boolean(value))
 		.map((value) => ({
-			username: `u/${value.replace(/^u\//i, "")}`,
+			username: `u/${value.replace(/^u\//i, '')}`,
 			...(reason ? { reason } : {}),
 		}));
 }
@@ -13319,7 +13624,7 @@ function historyVoteTargets(args: Record<string, unknown>): VoteToolTarget[] {
 }
 
 function voteTargetHistoryRef(vote: VoteToolTarget): string {
-	const direction = vote.value > 0 ? "upvote" : vote.value < 0 ? "downvote" : "clear my vote on";
+	const direction = vote.value > 0 ? 'upvote' : vote.value < 0 ? 'downvote' : 'clear my vote on';
 	return `${direction} comment ${formatCommentRef(vote.commentId)}`;
 }
 
@@ -13328,29 +13633,24 @@ function voteValueForHistory(value: unknown): -1 | 0 | 1 {
 	return vote > 0 ? 1 : vote < 0 ? -1 : 0;
 }
 
-const botEmbeddingModel = "@cf/google/embeddinggemma-300m";
+const botEmbeddingModel = '@cf/google/embeddinggemma-300m';
 
 type EmbeddingResponse = {
 	data?: number[][];
 	shape?: number[];
 };
 
-type BotVectorEnv = Pick<Env, "AI" | "BICKR_BOT_VECTORIZE" | "BICKR_SEARCH_VECTORIZE" | "BICKR_D1" | "BICKR_KV">;
+type BotVectorEnv = Pick<Env, 'AI' | 'BICKR_BOT_VECTORIZE' | 'BICKR_SEARCH_VECTORIZE' | 'BICKR_D1' | 'BICKR_KV'>;
 
 async function upsertBotVector(env: BotVectorEnv, bot: BotSummary): Promise<void> {
 	await upsertBotSearchVector(env, bot);
 }
 
 async function deleteBotVector(env: BotVectorEnv, botId: string): Promise<void> {
-	await deleteSearchVector(env, "bot", botId);
+	await deleteSearchVector(env, 'bot', botId);
 }
 
-async function vectorSearchBots(
-	env: BotVectorEnv,
-	worldId: string,
-	query: string,
-	limit: number,
-): Promise<BotSearchResult[]> {
+async function vectorSearchBots(env: BotVectorEnv, worldId: string, query: string, limit: number): Promise<BotSearchResult[]> {
 	if (!env.AI || (!env.BICKR_SEARCH_VECTORIZE && !env.BICKR_BOT_VECTORIZE) || !query.trim()) {
 		return [];
 	}
@@ -13363,8 +13663,8 @@ async function vectorSearchBots(
 		if (!vector) {
 			return [];
 		}
-		const matches = await retryIdempotentCloudflareBinding("Profile vector query", () =>
-			withStandaloneTimeout("Profile vector query", vectorBindingTimeoutMs, () =>
+		const matches = await retryIdempotentCloudflareBinding('Profile vector query', () =>
+			withStandaloneTimeout('Profile vector query', vectorBindingTimeoutMs, () =>
 				vectorIndex.query(vector, {
 					topK: Math.max(1, Math.min(50, limit)),
 					returnMetadata: true,
@@ -13379,25 +13679,25 @@ async function vectorSearchBots(
 				results.push({
 					...botPublicProfile(bot),
 					score: match.score,
-					source: "vector",
+					source: 'vector',
 				});
 			}
 		}
 		return results;
 	} catch (error) {
-		console.warn("bot vector search failed; falling back to text search", error);
+		console.warn('bot vector search failed; falling back to text search', error);
 		return [];
 	}
 }
 
-async function embedText(env: Pick<Env, "AI">, text: string): Promise<number[] | null> {
+async function embedText(env: Pick<Env, 'AI'>, text: string): Promise<number[] | null> {
 	if (!env.AI) {
 		return null;
 	}
 	const ai = env.AI;
-	const response = await retryIdempotentCloudflareBinding("Profile embedding", () =>
+	const response = await retryIdempotentCloudflareBinding('Profile embedding', () =>
 		withStandaloneTimeout(
-			"Profile embedding",
+			'Profile embedding',
 			vectorBindingTimeoutMs,
 			() => ai.run(botEmbeddingModel, { text: [text] }) as Promise<EmbeddingResponse>,
 		),
@@ -13417,22 +13717,22 @@ function retryIdempotentCloudflareBinding<T>(operation: string, run: () => Promi
 }
 
 function reasoningTextFromDetails(details: ReasoningDetail[]): string {
-	return details.map(reasoningDetailText).join("");
+	return details.map(reasoningDetailText).join('');
 }
 
 function reasoningDetailText(detail: ReasoningDetail): string {
 	const text = detail.text;
-	if (typeof text === "string") {
+	if (typeof text === 'string') {
 		return text;
 	}
 	const summary = detail.summary;
-	if (typeof summary === "string") {
+	if (typeof summary === 'string') {
 		return summary;
 	}
-	return "";
+	return '';
 }
 
-function seenItemFromSource(sourceObjectId: string | undefined): { type: "thread" | "comment"; id: string } | null {
+function seenItemFromSource(sourceObjectId: string | undefined): { type: 'thread' | 'comment'; id: string } | null {
 	return parseObjectRef(sourceObjectId) ?? null;
 }
 
@@ -13445,8 +13745,8 @@ function uniqueSeenContentItems(items: SeenContentItem[]): SeenContentItem[] {
 }
 
 function providerChatCompletionsUrl(baseUrl: string): string {
-	const normalized = baseUrl.replace(/\/+$/, "");
-	return normalized.endsWith("/chat/completions") ? normalized : `${normalized}/chat/completions`;
+	const normalized = baseUrl.replace(/\/+$/, '');
+	return normalized.endsWith('/chat/completions') ? normalized : `${normalized}/chat/completions`;
 }
 
 function estimateTextTokens(text: string): number {
@@ -13469,9 +13769,7 @@ function estimateChatMessagesTokens(messages: readonly ChatMessage[], calibratio
 	return Math.max(1, Math.ceil(characters * calibration.tokensPerCharacter));
 }
 
-function providerTokenCalibrationRequestCharacterCount(
-	request: ProviderTokenCalibrationRequestShape,
-): number {
+function providerTokenCalibrationRequestCharacterCount(request: ProviderTokenCalibrationRequestShape): number {
 	return (
 		chatMessagesCharacterCount(request.messages) +
 		JSON.stringify(request.tools ?? []).length +
@@ -13479,10 +13777,7 @@ function providerTokenCalibrationRequestCharacterCount(
 	);
 }
 
-export function oldestRowsForTokenFraction<T>(
-	rows: readonly { row: T; tokens: number }[],
-	fraction: number,
-): T[] {
+export function oldestRowsForTokenFraction<T>(rows: readonly { row: T; tokens: number }[], fraction: number): T[] {
 	const totalTokens = rows.reduce((total, item) => total + Math.max(0, item.tokens), 0);
 	if (totalTokens <= 0 || fraction <= 0) {
 		return [];
@@ -13517,10 +13812,7 @@ function oldestLoopMessageGroupSelectionForPromptLimit(
 		const nextRows = [...selected, ...group.rows];
 		const leavesOutputBudget = options.canIncludeRows?.(nextRows) !== false;
 		if (nextTokens > promptLimitTokens || !leavesOutputBudget) {
-			if (
-				selectedTokens < compactionOverBudgetFallbackMinSelectedTokens &&
-				group.rows.length > 0
-			) {
+			if (selectedTokens < compactionOverBudgetFallbackMinSelectedTokens && group.rows.length > 0) {
 				return {
 					rows: nextRows,
 					overBudgetFallback: true,
@@ -13541,9 +13833,7 @@ function oldestLoopMessageGroupSelectionForPromptLimit(
 		selectedTokens = nextTokens;
 	}
 	return {
-		rows:
-			options.requireMinimumSelectedTokens && selectedTokens < compactionOverBudgetFallbackMinSelectedTokens ? []
-			:	selected,
+		rows: options.requireMinimumSelectedTokens && selectedTokens < compactionOverBudgetFallbackMinSelectedTokens ? [] : selected,
 		overBudgetFallback: false,
 	};
 }
@@ -13606,10 +13896,12 @@ function providerCompactionNoReasoningRejected(error: unknown): boolean {
 	);
 }
 
-export function textTokenCalibrationFromProviderTokenCalibrationSamples(rows: readonly {
-	prompt_tokens: number;
-	request_characters: number;
-}[]): TextTokenCalibration {
+export function textTokenCalibrationFromProviderTokenCalibrationSamples(
+	rows: readonly {
+		prompt_tokens: number;
+		request_characters: number;
+	}[],
+): TextTokenCalibration {
 	const samples: number[] = [];
 	for (const row of rows) {
 		const promptTokens = Math.max(0, Number(row.prompt_tokens));
@@ -13625,23 +13917,22 @@ export function textTokenCalibrationFromProviderTokenCalibrationSamples(rows: re
 	}
 	const sortedSamples = [...samples].sort((left, right) => left - right);
 	const middle = Math.floor(sortedSamples.length / 2);
-	const median =
-		sortedSamples.length % 2 === 1 ?
-			sortedSamples[middle]!
-		:	(sortedSamples[middle - 1]! + sortedSamples[middle]!) / 2;
+	const median = sortedSamples.length % 2 === 1 ? sortedSamples[middle]! : (sortedSamples[middle - 1]! + sortedSamples[middle]!) / 2;
 	return {
 		tokensPerCharacter: clampNumber(median, minCalibratedTokensPerCharacter, maxCalibratedTokensPerCharacter),
 		sampleCount: sortedSamples.length,
 	};
 }
 
-export function textTokenCalibrationFromPromptHistory(rows: readonly {
-	event_seq: number;
-	run_id: string;
-	purpose: BotInferenceSubmissionPurpose;
-	messages_json: string;
-	prompt_tokens: number;
-}[]): TextTokenCalibration {
+export function textTokenCalibrationFromPromptHistory(
+	rows: readonly {
+		event_seq: number;
+		run_id: string;
+		purpose: BotInferenceSubmissionPurpose;
+		messages_json: string;
+		prompt_tokens: number;
+	}[],
+): TextTokenCalibration {
 	return textTokenCalibrationFromProviderTokenCalibrationSamples(
 		rows.map((row) => ({
 			prompt_tokens: row.prompt_tokens,
@@ -13651,8 +13942,8 @@ export function textTokenCalibrationFromPromptHistory(rows: readonly {
 }
 
 async function sha256Hex(text: string): Promise<string> {
-	const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
-	return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+	const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+	return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
 function parsePayloadJson(payloadJson: string): Record<string, unknown> {
@@ -13678,7 +13969,7 @@ function chatMessagesCharacterCountFromJson(messagesJson: string): number {
 function parseChatMessagesJson(messagesJson: string): ChatMessage[] | null {
 	try {
 		const parsed = JSON.parse(messagesJson) as unknown;
-		return Array.isArray(parsed) ? parsed as ChatMessage[] : null;
+		return Array.isArray(parsed) ? (parsed as ChatMessage[]) : null;
 	} catch {
 		return null;
 	}
@@ -13699,19 +13990,18 @@ function chatMessagesArePrefix(prefix: readonly ChatMessage[], messages: readonl
 function chatMessagesCharacterCount(messages: readonly ChatMessage[]): number {
 	return messages.reduce((total, message) => {
 		const toolCallCharacters = (message.tool_calls ?? []).reduce((sum, toolCall) => {
-			return sum +
-				toolCall.id.length +
-				toolCall.function.name.length +
-				toolCall.function.arguments.length;
+			return sum + toolCall.id.length + toolCall.function.name.length + toolCall.function.arguments.length;
 		}, 0);
-		return total +
+		return (
+			total +
 			message.role.length +
 			textLength(message.content) +
 			textLength(message.tool_call_id) +
 			textLength(message.reasoning) +
 			textLength(message.reasoning_content) +
 			(message.reasoning_details ? JSON.stringify(message.reasoning_details).length : 0) +
-			toolCallCharacters;
+			toolCallCharacters
+		);
 	}, 0);
 }
 
@@ -13754,9 +14044,9 @@ async function readProviderErrorBody(response: Response, signal: AbortSignal): P
 			throw error;
 		}
 		if (error instanceof ProviderResponseBodyTimeoutError) {
-			return "Timed out while reading provider error response.";
+			return 'Timed out while reading provider error response.';
 		}
-		return "Could not read provider error response.";
+		return 'Could not read provider error response.';
 	}
 }
 
@@ -13804,11 +14094,11 @@ async function readTextFromStream(
 	options: ReadTextOptions = {},
 ): Promise<ReadTextResult> {
 	if (!stream) {
-		return { text: "", truncated: false };
+		return { text: '', truncated: false };
 	}
 	const reader = stream.getReader();
 	const decoder = new TextDecoder();
-	let text = "";
+	let text = '';
 	let bytesRead = 0;
 	let timeout: ReturnType<typeof setTimeout> | undefined;
 	let abortListener: (() => void) | undefined;
@@ -13819,37 +14109,30 @@ async function readTextFromStream(
 	};
 	const timeoutMs = options.timeoutMs;
 	const timeoutPromise =
-		timeoutMs === undefined ?
-			undefined
-		:	new Promise<never>((_, reject) => {
-				timeout = setTimeout(() => {
-					const error = options.timeoutError ? options.timeoutError() : new RuntimeOperationTimeoutError("Response body read", timeoutMs);
-					cancelReader(error.message);
-					reject(error);
-				}, timeoutMs);
-			});
+		timeoutMs === undefined
+			? undefined
+			: new Promise<never>((_, reject) => {
+					timeout = setTimeout(() => {
+						const error = options.timeoutError ? options.timeoutError() : new RuntimeOperationTimeoutError('Response body read', timeoutMs);
+						cancelReader(error.message);
+						reject(error);
+					}, timeoutMs);
+				});
 	let abortPromise: Promise<never> | undefined;
 	if (options.signal) {
 		if (options.signal.aborted) {
-			cancelReader("This Bickr visit was stopped.");
+			cancelReader('This Bickr visit was stopped.');
 			throw new TickStoppedError();
 		}
 		abortPromise = new Promise<never>((_, reject) => {
 			abortListener = () => {
-				cancelReader("This Bickr visit was stopped.");
+				cancelReader('This Bickr visit was stopped.');
 				reject(new TickStoppedError());
 			};
-			options.signal?.addEventListener("abort", abortListener, { once: true });
+			options.signal?.addEventListener('abort', abortListener, { once: true });
 		});
 	}
-	const read = () =>
-		Promise.race(
-			[
-				reader.read(),
-				...(timeoutPromise ? [timeoutPromise] : []),
-				...(abortPromise ? [abortPromise] : []),
-			],
-		);
+	const read = () => Promise.race([reader.read(), ...(timeoutPromise ? [timeoutPromise] : []), ...(abortPromise ? [abortPromise] : [])]);
 	try {
 		while (true) {
 			if (bytesRead >= maxBytes) {
@@ -13858,7 +14141,7 @@ async function readTextFromStream(
 					text += decoder.decode();
 					return { text, truncated: false };
 				}
-				cancelReader("Response body byte limit reached.");
+				cancelReader('Response body byte limit reached.');
 				return { text, truncated: true };
 			}
 			const { done, value } = await read();
@@ -13872,7 +14155,7 @@ async function readTextFromStream(
 			const truncated = value.byteLength > remaining;
 			text += decoder.decode(chunk, { stream: !truncated });
 			if (value.byteLength > remaining) {
-				cancelReader("Response body byte limit reached.");
+				cancelReader('Response body byte limit reached.');
 				return { text, truncated: true };
 			}
 		}
@@ -13881,7 +14164,7 @@ async function readTextFromStream(
 			clearTimeout(timeout);
 		}
 		if (options.signal && abortListener) {
-			options.signal.removeEventListener("abort", abortListener);
+			options.signal.removeEventListener('abort', abortListener);
 		}
 		try {
 			reader.releaseLock();
@@ -13892,12 +14175,7 @@ async function readTextFromStream(
 }
 
 function isAbortError(error: unknown): boolean {
-	return Boolean(
-		error &&
-			typeof error === "object" &&
-			"name" in error &&
-			(error as { name?: unknown }).name === "AbortError",
-	);
+	return Boolean(error && typeof error === 'object' && 'name' in error && (error as { name?: unknown }).name === 'AbortError');
 }
 
 async function* readSse(
@@ -13907,18 +14185,13 @@ async function* readSse(
 ): AsyncGenerator<{ data: string; raw: string }> {
 	const reader = stream.getReader();
 	const decoder = new TextDecoder();
-	let buffer = "";
+	let buffer = '';
 	try {
 		while (true) {
 			if (signal?.aborted) {
 				throw new TickStoppedError();
 			}
-			const { done, value } = await readStreamChunk(
-				reader,
-				idleTimeoutMs,
-				() => new ProviderStreamIdleTimeoutError(idleTimeoutMs),
-				signal,
-			);
+			const { done, value } = await readStreamChunk(reader, idleTimeoutMs, () => new ProviderStreamIdleTimeoutError(idleTimeoutMs), signal);
 			if (signal?.aborted) {
 				throw new TickStoppedError();
 			}
@@ -13926,19 +14199,19 @@ async function* readSse(
 				break;
 			}
 			buffer += decoder.decode(value, { stream: true });
-			let boundary = buffer.indexOf("\n\n");
+			let boundary = buffer.indexOf('\n\n');
 			while (boundary >= 0) {
 				const raw = buffer.slice(0, boundary);
 				buffer = buffer.slice(boundary + 2);
 				const data = raw
-					.split("\n")
-					.filter((line) => line.startsWith("data:"))
+					.split('\n')
+					.filter((line) => line.startsWith('data:'))
 					.map((line) => line.slice(5).trim())
-					.join("\n");
+					.join('\n');
 				if (data) {
 					yield { data, raw: `${raw}\n\n` };
 				}
-				boundary = buffer.indexOf("\n\n");
+				boundary = buffer.indexOf('\n\n');
 			}
 		}
 	} finally {
@@ -13957,7 +14230,7 @@ async function readStreamChunk(
 	signal?: AbortSignal,
 ): Promise<ReadableStreamReadResult<Uint8Array>> {
 	if (signal?.aborted) {
-		void reader.cancel("This Bickr visit was stopped.").catch(() => {
+		void reader.cancel('This Bickr visit was stopped.').catch(() => {
 			// The stream may already be closed or aborted by the provider.
 		});
 		throw new TickStoppedError();
@@ -13969,16 +14242,15 @@ async function readStreamChunk(
 			// The stream may already be closed or aborted by the provider.
 		});
 	};
-	const abortPromise =
-		signal ?
-			new Promise<never>((_, reject) => {
+	const abortPromise = signal
+		? new Promise<never>((_, reject) => {
 				abortListener = () => {
-					cancelReader("This Bickr visit was stopped.");
+					cancelReader('This Bickr visit was stopped.');
 					reject(new TickStoppedError());
 				};
-				signal.addEventListener("abort", abortListener, { once: true });
+				signal.addEventListener('abort', abortListener, { once: true });
 			})
-		:	undefined;
+		: undefined;
 	try {
 		return await Promise.race([
 			reader.read(),
@@ -13996,7 +14268,7 @@ async function readStreamChunk(
 			clearTimeout(timeout);
 		}
 		if (signal && abortListener) {
-			signal.removeEventListener("abort", abortListener);
+			signal.removeEventListener('abort', abortListener);
 		}
 	}
 }
@@ -14043,7 +14315,7 @@ async function withAbortableTimeout<T>(
 			controller.abort();
 			reject(new TickStoppedError());
 		};
-		signal.addEventListener("abort", abortFromParent, { once: true });
+		signal.addEventListener('abort', abortFromParent, { once: true });
 	});
 	const timeoutPromise = new Promise<never>((_, reject) => {
 		timeout = setTimeout(() => {
@@ -14067,13 +14339,23 @@ async function withAbortableTimeout<T>(
 			clearTimeout(timeout);
 		}
 		if (abortFromParent) {
-			signal.removeEventListener("abort", abortFromParent);
+			signal.removeEventListener('abort', abortFromParent);
 		}
 	}
 }
 
 function isRetryableProviderStatus(status: number): boolean {
-	return status === 408 || status === 409 || status === 425 || status === 429 || status === 500 || status === 502 || status === 503 || status === 504 || status === 529;
+	return (
+		status === 408 ||
+		status === 409 ||
+		status === 425 ||
+		status === 429 ||
+		status === 500 ||
+		status === 502 ||
+		status === 503 ||
+		status === 504 ||
+		status === 529
+	);
 }
 
 function providerRetryKey(error: unknown): string | null {
@@ -14104,7 +14386,11 @@ function providerUpstreamRateLimitRetry(error: unknown): ProviderUpstreamRateLim
 		return null;
 	}
 	for (const payload of providerErrorPayloads(error)) {
-		const match = providerUpstreamRateLimitRetryFromPayload(payload, error.status, providerRetryKey(error) ?? `${error.status}:${error.body}`);
+		const match = providerUpstreamRateLimitRetryFromPayload(
+			payload,
+			error.status,
+			providerRetryKey(error) ?? `${error.status}:${error.body}`,
+		);
 		if (match) {
 			return match;
 		}
@@ -14112,7 +14398,11 @@ function providerUpstreamRateLimitRetry(error: unknown): ProviderUpstreamRateLim
 	return null;
 }
 
-function providerUpstreamRateLimitRetryFromPayload(payload: unknown, fallbackStatus: number, retryKey: string): ProviderUpstreamRateLimitRetry | null {
+function providerUpstreamRateLimitRetryFromPayload(
+	payload: unknown,
+	fallbackStatus: number,
+	retryKey: string,
+): ProviderUpstreamRateLimitRetry | null {
 	const payloadRecord = runtimeRecord(payload);
 	const errorRecord = runtimeRecord(payloadRecord.error);
 	const record = Object.keys(errorRecord).length > 0 ? errorRecord : payloadRecord;
@@ -14120,7 +14410,7 @@ function providerUpstreamRateLimitRetryFromPayload(payload: unknown, fallbackSta
 	if (fallbackStatus !== 429 && status !== 429) {
 		return null;
 	}
-	if (stringValue(record.message) !== "Provider returned error") {
+	if (stringValue(record.message) !== 'Provider returned error') {
 		return null;
 	}
 	const providerName = stringValue(runtimeRecord(record.metadata).provider_name)?.trim();
@@ -14159,11 +14449,9 @@ function providerRoutingWithIgnoredProvider(
 	providerName: string,
 ): { providerRouting: JsonObject; changed: boolean } {
 	const trimmedProviderName = providerName.trim();
-	const existingIgnore = Array.isArray(providerRouting?.ignore) ?
-		providerRouting.ignore
-			.filter((value): value is string => typeof value === "string")
-			.filter((value) => value.trim().length > 0)
-	:	[];
+	const existingIgnore = Array.isArray(providerRouting?.ignore)
+		? providerRouting.ignore.filter((value): value is string => typeof value === 'string').filter((value) => value.trim().length > 0)
+		: [];
 	const existingNames = new Set(existingIgnore.map((value) => value.trim().toLowerCase()));
 	if (existingNames.has(trimmedProviderName.toLowerCase())) {
 		return {
@@ -14197,7 +14485,9 @@ function providerFailureResponseText(error: unknown): string | undefined {
 	return undefined;
 }
 
-function providerTokenUsageMetadataFromError(error: unknown): { responseId?: string; responseModel?: string; usage?: ProviderUsage } | null {
+function providerTokenUsageMetadataFromError(
+	error: unknown,
+): { responseId?: string; responseModel?: string; usage?: ProviderUsage } | null {
 	if (
 		error instanceof ProviderRequestError ||
 		error instanceof ProviderStructuredOutputValidationError ||
@@ -14229,7 +14519,7 @@ function providerLoopFailureMessage(error: unknown, attempts: number): string {
 	const lastError = runtimeErrorText(error);
 	if (attempts > 1) {
 		const retries = attempts - 1;
-		return `Inference failed after ${attempts} provider attempts (${retries} ${retries === 1 ? "retry" : "retries"}); last error from provider:\n${lastError}`;
+		return `Inference failed after ${attempts} provider attempts (${retries} ${retries === 1 ? 'retry' : 'retries'}); last error from provider:\n${lastError}`;
 	}
 	return `Inference failed before retrying; error from provider:\n${lastError}`;
 }
@@ -14241,14 +14531,14 @@ function providerCompactionFailureResponseText(error: unknown): string | undefin
 function runtimeFailureLogs(error: unknown): RuntimeFailureLog[] {
 	if (error instanceof ProviderLoopRequestError) {
 		return [
-			{ kind: "provider_request", text: error.requestBody },
-			...(error.responseBody ? [{ kind: "provider_response" as const, text: error.responseBody }] : []),
+			{ kind: 'provider_request', text: error.requestBody },
+			...(error.responseBody ? [{ kind: 'provider_response' as const, text: error.responseBody }] : []),
 		];
 	}
 	if (error instanceof ProviderCompactionRequestError) {
 		return [
-			{ kind: "compaction_request", text: error.requestBody },
-			...(error.responseBody ? [{ kind: "compaction_response" as const, text: error.responseBody }] : []),
+			{ kind: 'compaction_request', text: error.requestBody },
+			...(error.responseBody ? [{ kind: 'compaction_response' as const, text: error.responseBody }] : []),
 		];
 	}
 	return [];
@@ -14269,37 +14559,37 @@ async function sleep(ms: number, signal: AbortSignal): Promise<void> {
 	}
 	await new Promise<void>((resolve, reject) => {
 		const timeout = setTimeout(() => {
-			signal.removeEventListener("abort", abort);
+			signal.removeEventListener('abort', abort);
 			resolve();
 		}, ms);
 		const abort = () => {
 			clearTimeout(timeout);
-			signal.removeEventListener("abort", abort);
+			signal.removeEventListener('abort', abort);
 			reject(new TickStoppedError());
 		};
-		signal.addEventListener("abort", abort, { once: true });
+		signal.addEventListener('abort', abort, { once: true });
 	});
 }
 
 function pausedTickResult(): TickRunResult {
 	return {
-		runId: "paused",
-		status: "paused",
-		error: "This participant is paused. Unpause it before starting a loop run.",
+		runId: 'paused',
+		status: 'paused',
+		error: 'This participant is paused. Unpause it before starting a loop run.',
 	};
 }
 
 async function readTickOptions(request: Request): Promise<TickOptions> {
-	const contentType = request.headers.get("content-type") ?? "";
-	if (!contentType.includes("application/json")) {
+	const contentType = request.headers.get('content-type') ?? '';
+	if (!contentType.includes('application/json')) {
 		return {};
 	}
-	const body = await request.json() as unknown;
+	const body = (await request.json()) as unknown;
 	const record = runtimeRecord(body);
-	const mode = record.mode === "spotlight" ? "spotlight" : "normal";
-	const injectionIds = Array.isArray(record.injectionIds) ?
-		record.injectionIds.filter((id): id is string => typeof id === "string" && Boolean(id.trim())).map((id) => id.trim())
-	:	undefined;
+	const mode = record.mode === 'spotlight' ? 'spotlight' : 'normal';
+	const injectionIds = Array.isArray(record.injectionIds)
+		? record.injectionIds.filter((id): id is string => typeof id === 'string' && Boolean(id.trim())).map((id) => id.trim())
+		: undefined;
 	const spotlightId = stringValue(record.spotlightId);
 	const background = record.background === true;
 	return {
@@ -14312,8 +14602,8 @@ async function readTickOptions(request: Request): Promise<TickOptions> {
 
 function parseToolArgs(toolCall: ToolCall): Record<string, unknown> {
 	try {
-		const parsed = JSON.parse(toolCall.function.arguments || "{}") as unknown;
-		return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {};
+		const parsed = JSON.parse(toolCall.function.arguments || '{}') as unknown;
+		return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {};
 	} catch {
 		return {};
 	}
@@ -14322,35 +14612,35 @@ function parseToolArgs(toolCall: ToolCall): Record<string, unknown> {
 function normalizeToolArgs(name: string, args: Record<string, unknown>): Record<string, unknown> {
 	const canonical = canonicalToolName(name);
 	const normalized = { ...args };
-	if ((canonical === "read_thread" || canonical === "read_thread_by_id") && ("threadRef" in normalized || "threadId" in normalized)) {
-		normalized.threadId = threadRefArg(normalized.threadRef ?? normalized.threadId, "threadRef");
+	if ((canonical === 'read_thread' || canonical === 'read_thread_by_id') && ('threadRef' in normalized || 'threadId' in normalized)) {
+		normalized.threadId = threadRefArg(normalized.threadRef ?? normalized.threadId, 'threadRef');
 		delete normalized.threadRef;
 	}
-	if (canonical === "read_comment_by_id" && ("commentRef" in normalized || "commentId" in normalized)) {
-		normalized.commentId = commentRefArg(normalized.commentRef ?? normalized.commentId, "commentRef");
+	if (canonical === 'read_comment_by_id' && ('commentRef' in normalized || 'commentId' in normalized)) {
+		normalized.commentId = commentRefArg(normalized.commentRef ?? normalized.commentId, 'commentRef');
 		delete normalized.commentRef;
 	}
 	if (
-		(canonical === "reply_to_comment" || canonical === "make_additional_reply_to_the_same_comment") &&
-		("commentRef" in normalized || "commentId" in normalized || "parentCommentRef" in normalized || "parentCommentId" in normalized)
+		(canonical === 'reply_to_comment' || canonical === 'make_additional_reply_to_the_same_comment') &&
+		('commentRef' in normalized || 'commentId' in normalized || 'parentCommentRef' in normalized || 'parentCommentId' in normalized)
 	) {
 		normalized.commentId = commentRefArg(
 			normalized.commentRef ?? normalized.commentId ?? normalized.parentCommentRef ?? normalized.parentCommentId,
-			"commentRef",
+			'commentRef',
 		);
 		delete normalized.commentRef;
 		delete normalized.parentCommentRef;
 		delete normalized.parentCommentId;
 		delete normalized.threadId;
 	}
-	if (toolUsesForumHandle(canonical) && "forumHandle" in normalized) {
-		normalized.forumHandle = typedHandleArg(normalized.forumHandle, "f", "forumHandle");
+	if (toolUsesForumHandle(canonical) && 'forumHandle' in normalized) {
+		normalized.forumHandle = typedHandleArg(normalized.forumHandle, 'f', 'forumHandle');
 	}
-	if (canonical === "vote" && "votes" in normalized) {
+	if (canonical === 'vote' && 'votes' in normalized) {
 		normalized.votes = voteTargetsArg(normalized.votes);
 	}
 	if (
-		(canonical === "reply_to_comment" || canonical === "make_additional_reply_to_the_same_comment") &&
+		(canonical === 'reply_to_comment' || canonical === 'make_additional_reply_to_the_same_comment') &&
 		!stringValue(normalized.commentId) &&
 		stringValue(normalized.parentCommentId)
 	) {
@@ -14358,40 +14648,37 @@ function normalizeToolArgs(name: string, args: Record<string, unknown>): Record<
 		delete normalized.parentCommentId;
 		delete normalized.threadId;
 	}
-	if (canonical === "follow_profile" || canonical === "unfollow_profile") {
+	if (canonical === 'follow_profile' || canonical === 'unfollow_profile') {
 		normalized.targets = followToolTargetsFromArgs(normalized);
 		delete normalized.username;
 		delete normalized.usernames;
 		delete normalized.reason;
 		return normalized;
 	}
-	if (
-		(canonical === "view_profiles" || canonical === "view_activity") &&
-		"username" in normalized
-	) {
-		const username = typedHandleArg(normalized.username, "u", "username");
-		if (canonical === "view_profiles") {
+	if ((canonical === 'view_profiles' || canonical === 'view_activity') && 'username' in normalized) {
+		const username = typedHandleArg(normalized.username, 'u', 'username');
+		if (canonical === 'view_profiles') {
 			normalized.usernames = [username];
 			delete normalized.username;
 		} else {
 			normalized.username = username;
 		}
 	}
-	if (canonical === "view_activity" && "limit" in normalized) {
+	if (canonical === 'view_activity' && 'limit' in normalized) {
 		normalized.limit = numberArg(normalized.limit, 10, 20);
 	}
-	if (canonical === "view_profiles" && "usernames" in normalized) {
+	if (canonical === 'view_profiles' && 'usernames' in normalized) {
 		normalized.usernames = usernamesArg(normalized.usernames);
 	}
 	return normalized;
 }
 
 function toolUsesForumHandle(name: string): boolean {
-	return name === "list_recent_threads" || name === "create_thread";
+	return name === 'list_recent_threads' || name === 'create_thread';
 }
 
 function stringArg(value: unknown, label: string): string {
-	if (typeof value !== "string" || !value.trim()) {
+	if (typeof value !== 'string' || !value.trim()) {
 		throw new Error(`${label} is required.`);
 	}
 	return value.trim();
@@ -14416,18 +14703,18 @@ function commentRefArg(value: unknown, label: string): string {
 }
 
 function usernameArg(value: unknown): string {
-	return typedHandleArg(value, "u", "username");
+	return typedHandleArg(value, 'u', 'username');
 }
 
 const maxBulkToolTargets = 32;
 
 function usernamesArg(value: unknown): string[] {
 	if (!Array.isArray(value)) {
-		throw new Error("usernames must be a non-empty array.");
+		throw new Error('usernames must be a non-empty array.');
 	}
-	const usernames = uniqueStrings(value.map((item, index) => typedHandleArg(item, "u", `usernames[${index}]`)));
+	const usernames = uniqueStrings(value.map((item, index) => typedHandleArg(item, 'u', `usernames[${index}]`)));
 	if (usernames.length === 0) {
-		throw new Error("usernames must include at least one username.");
+		throw new Error('usernames must include at least one username.');
 	}
 	if (usernames.length > maxBulkToolTargets) {
 		throw new Error(`usernames can include at most ${maxBulkToolTargets} usernames.`);
@@ -14436,19 +14723,16 @@ function usernamesArg(value: unknown): string[] {
 }
 
 function followToolTargetsFromLegacyArgs(args: Record<string, unknown>): FollowToolTarget[] {
-	const rawUsernames =
-		"usernames" in args ? args.usernames
-		: "username" in args ? [args.username]
-		: undefined;
+	const rawUsernames = 'usernames' in args ? args.usernames : 'username' in args ? [args.username] : undefined;
 	if (rawUsernames === undefined) {
-		throw new Error("targets must be a non-empty array.");
+		throw new Error('targets must be a non-empty array.');
 	}
-	const reason = stringArg(args.reason, "reason");
+	const reason = stringArg(args.reason, 'reason');
 	return usernamesArg(rawUsernames).map((username) => ({ username, reason }));
 }
 
 function followToolTargetsFromArgs(args: Record<string, unknown>): FollowToolTarget[] {
-	return "targets" in args ? followToolTargetsArg(args.targets) : followToolTargetsFromLegacyArgs(args);
+	return 'targets' in args ? followToolTargetsArg(args.targets) : followToolTargetsFromLegacyArgs(args);
 }
 
 function followToolTargetsArg(value: unknown): FollowToolTarget[] {
@@ -14457,8 +14741,11 @@ function followToolTargetsArg(value: unknown): FollowToolTarget[] {
 	return targets;
 }
 
-function followToolTargetsForProviderDedupe(args: Record<string, unknown>): { targets: FollowToolTarget[]; removedLocalDuplicate: boolean } {
-	if (!("targets" in args)) {
+function followToolTargetsForProviderDedupe(args: Record<string, unknown>): {
+	targets: FollowToolTarget[];
+	removedLocalDuplicate: boolean;
+} {
+	if (!('targets' in args)) {
 		return { targets: followToolTargetsFromLegacyArgs(args), removedLocalDuplicate: false };
 	}
 	const rawTargets = followToolTargetArrayArg(args.targets);
@@ -14472,11 +14759,11 @@ function followToolTargetsForProviderDedupe(args: Record<string, unknown>): { ta
 
 function followToolTargetArrayArg(value: unknown): FollowToolTarget[] {
 	if (!Array.isArray(value)) {
-		throw new Error("targets must be a non-empty array.");
+		throw new Error('targets must be a non-empty array.');
 	}
 	const targets = value.map(followToolTargetArg);
 	if (targets.length === 0) {
-		throw new Error("targets must include at least one participant.");
+		throw new Error('targets must include at least one participant.');
 	}
 	return targets;
 }
@@ -14496,7 +14783,7 @@ function dedupeFollowToolTargets(targets: readonly FollowToolTarget[]): FollowTo
 
 function validateFollowToolTargets(targets: readonly FollowToolTarget[]): void {
 	if (targets.length === 0) {
-		throw new Error("targets must include at least one participant.");
+		throw new Error('targets must include at least one participant.');
 	}
 	if (targets.length > maxBulkToolTargets) {
 		throw new Error(`targets can include at most ${maxBulkToolTargets} participants.`);
@@ -14505,7 +14792,7 @@ function validateFollowToolTargets(targets: readonly FollowToolTarget[]): void {
 	for (const target of targets) {
 		const reasonKey = target.reason.toLocaleLowerCase();
 		if (seenReasons.has(reasonKey)) {
-			throw new Error("targets contains duplicate reasons; each participant needs a distinct reason.");
+			throw new Error('targets contains duplicate reasons; each participant needs a distinct reason.');
 		}
 		seenReasons.add(reasonKey);
 	}
@@ -14523,18 +14810,18 @@ function followToolTargetArg(value: unknown, index: number): FollowToolTarget {
 	const record = runtimeRecord(value);
 	const label = `targets[${index}]`;
 	return {
-		username: typedHandleArg(record.username ?? record.handle, "u", `${label}.username`),
+		username: typedHandleArg(record.username ?? record.handle, 'u', `${label}.username`),
 		reason: stringArg(record.reason, `${label}.reason`),
 	};
 }
 
 function voteTargetsArg(value: unknown): VoteToolTarget[] {
 	if (!Array.isArray(value)) {
-		throw new Error("votes must be a non-empty array.");
+		throw new Error('votes must be a non-empty array.');
 	}
 	const votes = value.map(voteTargetArg);
 	if (votes.length === 0) {
-		throw new Error("votes must include at least one vote.");
+		throw new Error('votes must include at least one vote.');
 	}
 	if (votes.length > maxBulkToolTargets) {
 		throw new Error(`votes can include at most ${maxBulkToolTargets} targets.`);
@@ -14569,7 +14856,7 @@ function voteValueArg(value: unknown, label: string): -1 | 0 | 1 {
 	return vote;
 }
 
-function typedHandleArg(value: unknown, prefix: "f" | "u" | "w", label: string): string {
+function typedHandleArg(value: unknown, prefix: 'f' | 'u' | 'w', label: string): string {
 	let text = stringArg(value, label);
 	const marker = `${prefix}/`;
 	while (text.toLowerCase().startsWith(marker)) {
@@ -14586,38 +14873,38 @@ function toolFailurePayload(name: string, args: Record<string, unknown>, error: 
 	return {
 		ok: false,
 		code: toolFailureCode(error),
-		message: sanitizeProviderFacingText(error instanceof Error ? error.message : "The Bickr page showed an error."),
-		toolName: canonical || "unknown_tool",
+		message: sanitizeProviderFacingText(error instanceof Error ? error.message : 'The Bickr page showed an error.'),
+		toolName: canonical || 'unknown_tool',
 		args: providerToolArgs(canonical, safelyNormalizeFailureArgs(canonical, args)),
 		...(toolFailureGuidance(canonical, error) ? { guidance: toolFailureGuidance(canonical, error) } : {}),
-		...(existingThread ?
-			{
-				existingUrlPath: existingThread.urlPath,
-				existingThreadRef: formatThreadRef(existingThread.id),
-				existingThreadTitle: existingThread.title,
-				existingWorldHandle: existingThread.worldHandle,
-				existingForumHandle: existingThread.forumHandle,
-			}
-		:	{}),
-		...(duplicate ?
-			{
-				existingUrlPath: duplicate.urlPath,
-				existingThreadRef: formatThreadRef(duplicate.threadId),
-				existingCommentRef: formatCommentRef(duplicate.commentId),
-			}
-		:	{}),
-		...(prior ?
-			{
-				existingThreadRef: formatThreadRef(prior.threadId),
-				...(prior.targetCommentId ? { targetCommentRef: formatCommentRef(prior.targetCommentId) } : {}),
-				existingReplies: prior.replies.map((reply) => ({
-					commentRef: formatCommentRef(reply.commentId),
-					body: reply.body,
-					urlPath: reply.urlPath,
-					createdAt: reply.createdAt,
-				})),
-			}
-		:	{}),
+		...(existingThread
+			? {
+					existingUrlPath: existingThread.urlPath,
+					existingThreadRef: formatThreadRef(existingThread.id),
+					existingThreadTitle: existingThread.title,
+					existingWorldHandle: existingThread.worldHandle,
+					existingForumHandle: existingThread.forumHandle,
+				}
+			: {}),
+		...(duplicate
+			? {
+					existingUrlPath: duplicate.urlPath,
+					existingThreadRef: formatThreadRef(duplicate.threadId),
+					existingCommentRef: formatCommentRef(duplicate.commentId),
+				}
+			: {}),
+		...(prior
+			? {
+					existingThreadRef: formatThreadRef(prior.threadId),
+					...(prior.targetCommentId ? { targetCommentRef: formatCommentRef(prior.targetCommentId) } : {}),
+					existingReplies: prior.replies.map((reply) => ({
+						commentRef: formatCommentRef(reply.commentId),
+						body: reply.body,
+						urlPath: reply.urlPath,
+						createdAt: reply.createdAt,
+					})),
+				}
+			: {}),
 	};
 }
 
@@ -14639,67 +14926,72 @@ function successfulToolResultPayload(payload: Record<string, unknown>): boolean 
 
 function toolFailureCode(error: unknown): string {
 	if (error instanceof PriorTargetReplyError) {
-		return "already_replied";
+		return 'already_replied';
 	}
 	if (error instanceof DuplicateReplyError) {
-		return "duplicate_comment";
+		return 'duplicate_comment';
 	}
 	if (error instanceof RepositoryError) {
 		return error.code;
 	}
 	if (error instanceof InputError) {
-		return "bad_request";
+		return 'bad_request';
 	}
 	if (error instanceof RuntimeOperationTimeoutError) {
-		return "timeout";
+		return 'timeout';
 	}
-	return "tool_error";
+	return 'tool_error';
 }
 
 function toolFailureGuidance(name: string, error: unknown): string | undefined {
 	const canonical = canonicalToolName(name);
 	if (error instanceof PriorTargetReplyError) {
-		return "Usually, I should not add another reply to the same target. If one more reply is intentional, use make_additional_reply_to_the_same_comment.";
+		return 'Usually, I should not add another reply to the same target. If one more reply is intentional, use make_additional_reply_to_the_same_comment.';
 	}
 	if (error instanceof DuplicateReplyError) {
 		return `Do not send the same comment again. The existing comment is at ${error.duplicate.urlPath}.`;
 	}
-	if (canonical === "create_thread" && error instanceof RepositoryError && error.code === "conflict" && error.details?.existingThread) {
+	if (canonical === 'create_thread' && error instanceof RepositoryError && error.code === 'conflict' && error.details?.existingThread) {
 		return `Read existing thread ${formatThreadRef(error.details.existingThread.id)} or choose a clearly different title.`;
 	}
 	if (error instanceof RuntimeOperationTimeoutError) {
-		return "The action may already be visible on Bickr. Read the relevant page state before repeating it.";
+		return 'The action may already be visible on Bickr. Read the relevant page state before repeating it.';
 	}
-	if (canonical === "list_recent_threads" || canonical === "create_thread") {
-		return "Use a forum handle like philosophy or f/philosophy. Do not include unrelated entity prefixes.";
+	if (canonical === 'list_recent_threads' || canonical === 'create_thread') {
+		return 'Use a forum handle like philosophy or f/philosophy. Do not include unrelated entity prefixes.';
 	}
-	if (canonical === "view_profiles" || canonical === "view_activity" || canonical === "follow_profile" || canonical === "unfollow_profile") {
-		return canonical === "follow_profile" || canonical === "unfollow_profile" ?
-				"Use targets as an array of objects like {\"username\":\"alice\",\"reason\":\"specific reason\"}; each target needs a distinct non-empty reason."
-			: canonical === "view_profiles" ?
-				"Use usernames as an array, with values like alice or u/alice."
-			:	"Use a username like alice or u/alice.";
+	if (
+		canonical === 'view_profiles' ||
+		canonical === 'view_activity' ||
+		canonical === 'follow_profile' ||
+		canonical === 'unfollow_profile'
+	) {
+		return canonical === 'follow_profile' || canonical === 'unfollow_profile'
+			? 'Use targets as an array of objects like {"username":"alice","reason":"specific reason"}; each target needs a distinct non-empty reason.'
+			: canonical === 'view_profiles'
+				? 'Use usernames as an array, with values like alice or u/alice.'
+				: 'Use a username like alice or u/alice.';
 	}
-	if (canonical === "read_thread" || canonical === "read_thread_by_id") {
-		return "Use a thread ref returned by list_recent_threads, list_hot_threads, search_threads, or a notification.";
+	if (canonical === 'read_thread' || canonical === 'read_thread_by_id') {
+		return 'Use a thread ref returned by list_recent_threads, list_hot_threads, search_threads, or a notification.';
 	}
-	if (canonical === "read_comment_by_id") {
-		return "Use a comment ref returned by read_thread, search_threads, a notification, or an earlier Bickr Terminal result.";
+	if (canonical === 'read_comment_by_id') {
+		return 'Use a comment ref returned by read_thread, search_threads, a notification, or an earlier Bickr Terminal result.';
 	}
-	if (canonical === "reply_to_comment" || canonical === "make_additional_reply_to_the_same_comment") {
-		return "Read or search first, then reply using the returned comment ref.";
+	if (canonical === 'reply_to_comment' || canonical === 'make_additional_reply_to_the_same_comment') {
+		return 'Read or search first, then reply using the returned comment ref.';
 	}
-	if (canonical === "vote") {
-		return "Use votes as an array and include a non-empty reason. Each vote entry needs commentRef and value.";
+	if (canonical === 'vote') {
+		return 'Use votes as an array and include a non-empty reason. Each vote entry needs commentRef and value.';
 	}
-	if (error instanceof RepositoryError && error.code === "not_found") {
-		return "Check the target ref or handle from a recent Bickr Terminal result before trying again.";
+	if (error instanceof RepositoryError && error.code === 'not_found') {
+		return 'Check the target ref or handle from a recent Bickr Terminal result before trying again.';
 	}
 	return undefined;
 }
 
 function numberArg(value: unknown, fallback: number, maximum = 50): number {
-	if (value === null || value === undefined || value === "") {
+	if (value === null || value === undefined || value === '') {
 		return fallback;
 	}
 	const parsed = Number(value);
@@ -14716,10 +15008,10 @@ function uniqueStrings(values: string[]): string[] {
 }
 
 function stringValue(value: unknown): string | undefined {
-	if (typeof value === "string" && value.trim()) {
+	if (typeof value === 'string' && value.trim()) {
 		return value.trim();
 	}
-	if (typeof value === "number" || typeof value === "boolean") {
+	if (typeof value === 'number' || typeof value === 'boolean') {
 		return String(value);
 	}
 	return undefined;
@@ -14730,7 +15022,7 @@ function stringArrayValue(value: unknown): string[] {
 }
 
 function runtimeRecord(value: unknown): Record<string, unknown> {
-	return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+	return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
 
 function loopMessageFromRow(row: LoopMessageRow): BotLoopMessage {
@@ -14756,19 +15048,19 @@ function loopMessageFromRow(row: LoopMessageRow): BotLoopMessage {
 function loopMessageDisplayFromRow(row: LoopMessageRow): BotLoopMessageDisplay | undefined {
 	const eventSeq = row.display_event_seq;
 	const payloadJson = row.display_event_payload_json;
-	if (typeof eventSeq !== "number" || !Number.isInteger(eventSeq) || !payloadJson || row.display_event_type !== "tool_result") {
+	if (typeof eventSeq !== 'number' || !Number.isInteger(eventSeq) || !payloadJson || row.display_event_type !== 'tool_result') {
 		return undefined;
 	}
 	try {
 		const payload = runtimeRecord(JSON.parse(payloadJson) as unknown);
 		const name = stringValue(payload.name);
-		if (!name || !Object.hasOwn(payload, "result")) {
+		if (!name || !Object.hasOwn(payload, 'result')) {
 			return undefined;
 		}
 		const context = runtimeRecord(payload.displayContext);
 		const worldHandle = stringValue(context.worldHandle);
 		return {
-			kind: "tool_result",
+			kind: 'tool_result',
 			eventSeq,
 			name,
 			args: payload.args,
@@ -14780,12 +15072,12 @@ function loopMessageDisplayFromRow(row: LoopMessageRow): BotLoopMessageDisplay |
 	}
 }
 
-function loopMessageChatMessageFromRow(row: Pick<LoopMessageRow, "message_json">): ChatMessage {
+function loopMessageChatMessageFromRow(row: Pick<LoopMessageRow, 'message_json'>): ChatMessage {
 	const parsed = JSON.parse(row.message_json) as unknown;
 	const record = runtimeRecord(parsed);
 	const role = record.role;
-	if (role !== "system" && role !== "user" && role !== "assistant" && role !== "tool") {
-		return { role: "assistant", content: "" };
+	if (role !== 'system' && role !== 'user' && role !== 'assistant' && role !== 'tool') {
+		return { role: 'assistant', content: '' };
 	}
 	return parsed as ChatMessage;
 }
@@ -14812,14 +15104,14 @@ function encodeLoopMessageLog(
 	if (text.startsWith(baseText) && text.length > baseText.length) {
 		const suffix = text.slice(baseText.length);
 		if (suffix.length < text.length * 0.9) {
-			return { encoding: "append", text: suffix, baseLogId };
+			return { encoding: 'append', text: suffix, baseLogId };
 		}
 	}
 	const prefixLength = commonPrefixLength(text, baseText);
 	if (prefixLength >= 256 && prefixLength >= text.length * 0.4) {
-		return { encoding: "replace_tail", text: text.slice(prefixLength), baseLogId, prefixLength };
+		return { encoding: 'replace_tail', text: text.slice(prefixLength), baseLogId, prefixLength };
 	}
-	return { encoding: "full", text };
+	return { encoding: 'full', text };
 }
 
 function commonPrefixLength(left: string, right: string): number {
@@ -14833,7 +15125,7 @@ function commonPrefixLength(left: string, right: string): number {
 
 function chunkText(text: string, chunkLength: number): string[] {
 	if (!text) {
-		return [""];
+		return [''];
 	}
 	const chunks: string[] = [];
 	for (let index = 0; index < text.length; index += chunkLength) {
@@ -14842,14 +15134,12 @@ function chunkText(text: string, chunkLength: number): string[] {
 	return chunks;
 }
 
-function loopMessageCompactionGroups(
-	rows: readonly CompactionCandidateEstimate[],
-): Array<{ rows: LoopMessageRow[]; tokens: number }> {
+function loopMessageCompactionGroups(rows: readonly CompactionCandidateEstimate[]): Array<{ rows: LoopMessageRow[]; tokens: number }> {
 	const groups: Array<{ rows: LoopMessageRow[]; tokens: number }> = [];
 	for (let index = 0; index < rows.length; index += 1) {
 		const current = rows[index]!;
 		const message = loopMessageChatMessageFromRow(current.row);
-		if (message.role !== "assistant" || !message.tool_calls?.length) {
+		if (message.role !== 'assistant' || !message.tool_calls?.length) {
 			groups.push({ rows: [current.row], tokens: current.tokens });
 			continue;
 		}
@@ -14860,7 +15150,7 @@ function loopMessageCompactionGroups(
 		while (scan < rows.length) {
 			const next = rows[scan]!;
 			const nextMessage = loopMessageChatMessageFromRow(next.row);
-			if (nextMessage.role !== "tool" || !nextMessage.tool_call_id || !expectedToolCallIds.has(nextMessage.tool_call_id)) {
+			if (nextMessage.role !== 'tool' || !nextMessage.tool_call_id || !expectedToolCallIds.has(nextMessage.tool_call_id)) {
 				break;
 			}
 			groupRows.push(next.row);
@@ -14879,23 +15169,29 @@ function loopMessageCompactionGroups(
 
 function loopMessageContextLine(row: LoopMessageRow): string {
 	const message = loopMessageChatMessageFromRow(row);
-	const content = typeof message.content === "string" ? message.content : "";
-	if (message.role === "user") {
+	const content = typeof message.content === 'string' ? message.content : '';
+	if (message.role === 'user') {
 		return `Bickr Terminal told me:\n${markdownQuoteForContext(content, 1_500)}`;
 	}
-	if (message.role === "assistant") {
-		const toolCalls = message.tool_calls?.map((toolCall) =>
-			`I decided to use ${canonicalToolName(toolCall.function.name || "unknown_tool")} with ${safeContextText(toolCall.function.arguments, 800)}.`
-		) ?? [];
-		const reasoning = message.reasoning_details ? reasoningTextFromDetails(message.reasoning_details as ReasoningDetail[]) : message.reasoning;
+	if (message.role === 'assistant') {
+		const toolCalls =
+			message.tool_calls?.map(
+				(toolCall) =>
+					`I decided to use ${canonicalToolName(toolCall.function.name || 'unknown_tool')} with ${safeContextText(toolCall.function.arguments, 800)}.`,
+			) ?? [];
+		const reasoning = message.reasoning_details
+			? reasoningTextFromDetails(message.reasoning_details as ReasoningDetail[])
+			: message.reasoning;
 		return [
-			reasoning ? `I was thinking:\n${markdownQuoteForContext(reasoning, 1_000)}` : "",
-			content ? `I wrote:\n${markdownQuoteForContext(content, 1_500)}` : "",
+			reasoning ? `I was thinking:\n${markdownQuoteForContext(reasoning, 1_000)}` : '',
+			content ? `I wrote:\n${markdownQuoteForContext(content, 1_500)}` : '',
 			...toolCalls,
-		].filter(Boolean).join("\n");
+		]
+			.filter(Boolean)
+			.join('\n');
 	}
-	if (message.role === "tool") {
-		return `Bickr Terminal responded to ${message.tool_call_id ?? "a control"}:\n${markdownQuoteForContext(content, 1_500)}`;
+	if (message.role === 'tool') {
+		return `Bickr Terminal responded to ${message.tool_call_id ?? 'a control'}:\n${markdownQuoteForContext(content, 1_500)}`;
 	}
 	return `I recorded a ${message.role} message:\n${markdownQuoteForContext(content, 1_000)}`;
 }
@@ -14905,7 +15201,7 @@ function inferenceSubmissionSummaryFromRow(row: InferenceSubmissionRow): BotInfe
 		submissionId: row.id,
 		seq: row.event_seq,
 		runId: row.run_id,
-		purpose: row.purpose === "compaction" ? "compaction" : "loop",
+		purpose: row.purpose === 'compaction' ? 'compaction' : 'loop',
 		model: row.model,
 		providerBaseUrl: row.provider_base_url,
 		messageCount: row.message_count,
@@ -14918,7 +15214,7 @@ function inferenceSubmissionMessagesFromRow(row: InferenceSubmissionRow): BotInf
 	return Array.isArray(parsed) ? (parsed as BotInferenceSubmissionMessage[]) : [];
 }
 
-function inferenceSubmissionDisplayMessagesFromRow(row: InferenceSubmissionRow): Pick<BotInferenceSubmission, "displayMessages"> | {} {
+function inferenceSubmissionDisplayMessagesFromRow(row: InferenceSubmissionRow): Pick<BotInferenceSubmission, 'displayMessages'> | {} {
 	if (!row.display_messages_json) {
 		return {};
 	}
@@ -14929,9 +15225,9 @@ function inferenceSubmissionDisplayMessagesFromRow(row: InferenceSubmissionRow):
 function botIdFromPath(pathname: string): string {
 	const match = /^\/bots\/([^/]+)/.exec(pathname);
 	if (!match) {
-		throw new RepositoryError("bad_request", "Bot ID is required.", 400);
+		throw new RepositoryError('bad_request', 'Bot ID is required.', 400);
 	}
-	return decodeURIComponent(match[1] ?? "");
+	return decodeURIComponent(match[1] ?? '');
 }
 
 function eventSeqFromPath(pathname: string): number | null {
@@ -14955,19 +15251,19 @@ function submissionSeqFromPath(pathname: string): number | null {
 }
 
 function requireUserMatch(request: Request, pathUserId: string): string {
-	const headerUserId = request.headers.get("x-bickr-user-id");
+	const headerUserId = request.headers.get('x-bickr-user-id');
 	if (!headerUserId || headerUserId !== pathUserId) {
-		throw new RepositoryError("unauthorized", "Authentication is required.", 401);
+		throw new RepositoryError('unauthorized', 'Authentication is required.', 401);
 	}
 
 	return headerUserId;
 }
 
 function requireInternalServiceRequest(request: Request): void {
-	if (request.headers.get("x-bickr-scheduler") === "1" || request.headers.get("x-bickr-user-id")) {
+	if (request.headers.get('x-bickr-scheduler') === '1' || request.headers.get('x-bickr-user-id')) {
 		return;
 	}
-	throw new RepositoryError("unauthorized", "Authentication is required.", 401);
+	throw new RepositoryError('unauthorized', 'Authentication is required.', 401);
 }
 
 function errorResponse(error: unknown): Response {
@@ -14975,21 +15271,21 @@ function errorResponse(error: unknown): Response {
 		return fail(error.code, error.message, error.status, error.details);
 	}
 	if (error instanceof ProviderRequestError) {
-		return fail("server_error", error.message, 502);
+		return fail('server_error', error.message, 502);
 	}
 	if (error instanceof ProviderRequestTimeoutError || error instanceof ProviderResponseBodyTimeoutError) {
-		return fail("server_error", error.message, 502);
+		return fail('server_error', error.message, 502);
 	}
 	if (error instanceof ResponseBodySizeLimitError) {
-		return fail("server_error", error.message, 502);
+		return fail('server_error', error.message, 502);
 	}
 	if (error instanceof InputError) {
-		return fail("bad_request", error.message, 400);
+		return fail('bad_request', error.message, 400);
 	}
-	if (error instanceof Error && error.message.includes("application/json")) {
-		return fail("bad_request", error.message, 400);
+	if (error instanceof Error && error.message.includes('application/json')) {
+		return fail('bad_request', error.message, 400);
 	}
 
-	console.error("agent runtime error", error);
-	return fail("server_error", "Unexpected agent runtime error.", 500);
+	console.error('agent runtime error', error);
+	return fail('server_error', 'Unexpected agent runtime error.', 500);
 }
