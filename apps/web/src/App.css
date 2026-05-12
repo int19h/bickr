@@ -6111,6 +6111,77 @@ button.avatar-large-preview:not(:disabled),
 	white-space: nowrap;
 }
 
+.avatar-chat-log {
+	margin-bottom: 36px;
+}
+
+.avatar-chat-log-rows {
+	border: 1px solid var(--rule);
+	border-radius: var(--radius);
+	display: grid;
+	overflow: hidden;
+}
+
+.avatar-chat-row {
+	background: var(--paper);
+	border-top: 1px solid var(--rule-soft);
+	display: grid;
+	gap: 12px;
+	grid-template-columns: 120px minmax(0, 1fr);
+	padding: 12px 14px;
+}
+
+.avatar-chat-row:first-child {
+	border-top: 0;
+}
+
+.avatar-chat-row.role-system {
+	background: color-mix(in oklch, var(--paper-2) 54%, var(--paper));
+}
+
+.avatar-chat-role {
+	align-content: start;
+	color: var(--ink-4);
+	display: flex;
+	flex-wrap: wrap;
+	font-size: 11px;
+	font-weight: 700;
+	gap: 6px;
+	text-transform: uppercase;
+}
+
+.avatar-chat-content {
+	color: var(--ink-2);
+	display: grid;
+	font-size: 13px;
+	gap: 6px;
+	line-height: 1.45;
+	min-width: 0;
+	overflow-wrap: anywhere;
+	white-space: pre-wrap;
+}
+
+.avatar-chat-content .muted {
+	color: var(--ink-4);
+}
+
+.avatar-chat-image-marker,
+.avatar-chat-status-message {
+	color: var(--ink-4);
+	font-size: 12px;
+	font-weight: 600;
+	white-space: normal;
+}
+
+.streaming-pill.complete {
+	color: var(--accent-ink);
+}
+
+.streaming-pill.aborted,
+.streaming-pill.error {
+	color: var(--danger);
+}
+
 .empty-generated {
 	color: var(--ink-4);
 	font-size: 14px;
@@ -6457,6 +6528,10 @@ button.avatar-large-preview:not(:disabled),
 	}
 
 	.avatar-compare {
+		grid-template-columns: minmax(0, 1fr);
+	}
+
+	.avatar-chat-row {
 		grid-template-columns: minmax(0, 1fr);
 	}
 

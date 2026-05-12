@@ -122,6 +122,11 @@ import { loopContinuationRowsForPage } from "./loop-page-continuations";
 import { loopPagePagerItems } from "./loop-page-pager";
 import { normalizeReadableText, reasoningDetailsTextForDisplay, textValueForDisplay } from "./reasoning-formatting";
 import {
+	applyAvatarGenerationStreamEvent,
+	readAvatarGenerationEventStream,
+	type AvatarGenerationChatEntry,
+} from "./avatar-generation-stream";
+import {
 	allSearchTypes,
 	defaultSearchRouteState,
 	parsePathname,
@@ -5729,6 +5734,7 @@ function BotAvatarGenerationScreen({
 	const [prompt, setPrompt] = useState(initialSettings.imageGeneration?.prompt ?? "");
 	const [includeCurrentAvatar, setIncludeCurrentAvatar] = useState(Boolean(bot.avatarUrl));
 	const [candidate, setCandidate] = useState<AvatarImage | null>(null);
+	const [chatEntries, setChatEntries] = useState<AvatarGenerationChatEntry[]>([]);
 	const [generating, setGenerating] = useState(false);
 	const [prefilling, setPrefilling] = useState(false);
 	const [saving, setSaving] = useState(false);
@@ -5736,6 +5742,7 @@ function BotAvatarGenerationScreen({
 	const [error, setError] = useState("");
 	const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 	const [currentAvatarFailed, setCurrentAvatarFailed] = useState(false);
+	const generationAbortRef = useRef<AbortController | null>(null);
 
 	useEffect(() => {
 		const effectiveSettings = bot.inferenceSettings.imageGeneration ? bot.inferenceSettings : ownerInferenceSettings ?? {};
@@ -5744,9 +5751,16 @@ function BotAvatarGenerationScreen({
 		setIncludeCurrentAvatar(Boolean(bot.avatarUrl));
 		setCurrentAvatarFailed(false);
 		setCandidate(null);
+		setChatEntries([]);
 		setMessage("");
 		setError("");
 	}, [bot.id, bot.inferenceSettings, bot.avatarUrl, ownerInferenceSettings]);
+
+	useEffect(() => {
+		return () => {
+			generationAbortRef.current?.abort();
+		};
+	}, []);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -5807,27 +5821,65 @@ function BotAvatarGenerationScreen({
 	}
 
 	async function generate(): Promise<void> {
+		const controller = new AbortController();
+		generationAbortRef.current = controller;
 		setGenerating(true);
+		setCandidate(null);
+		setChatEntries([]);
 		setError("");
 		setMessage("");
+		let streamError = "";
 		try {
-			const result = await api<{ candidate: AvatarImage }>(`/api/me/bots/${encodeURIComponent(bot.id)}/avatar/generate`, {
+			const response = await fetch(`/api/me/bots/${encodeURIComponent(bot.id)}/avatar/generate`, {
 				method: "POST",
-				body: {
+				headers: {
+					accept: "text/event-stream",
+					"content-type": "application/json",
+				},
+				body: JSON.stringify({
 					prompt,
 					includeCurrentAvatar,
 					settings: imageGenerationInputFromDraft(draft, prompt),
-				},
+				}),
+				signal: controller.signal,
 			});
-			if (!result.ok) {
-				throw new Error(result.message);
+			if (!response.ok || !response.headers.get("content-type")?.includes("text/event-stream")) {
+				throw new Error(await apiResponseErrorMessage(response));
 			}
-			setCandidate(result.data.candidate);
+			await readAvatarGenerationEventStream(response, (event) => {
+				setChatEntries((current) => applyAvatarGenerationStreamEvent(current, event));
+				if (event.type === "done") {
+					setCandidate(event.candidate);
+				}
+				if (event.type === "error") {
+					streamError = event.message;
+					setError(event.message);
+				}
+			});
+			if (streamError) {
+				throw new Error(streamError);
+			}
 		} catch (caught) {
-			setError(caught instanceof Error ? caught.message : "Could not generate avatar.");
+			if (controller.signal.aborted) {
+				setChatEntries((current) =>
+					applyAvatarGenerationStreamEvent(current, { type: "aborted", message: "Avatar generation aborted." }),
+				);
+			} else {
+				setError(caught instanceof Error ? caught.message : "Could not generate avatar.");
+			}
 		} finally {
+			if (generationAbortRef.current === controller) {
+				generationAbortRef.current = null;
+			}
 			setGenerating(false);
 		}
+	}
+
+	function abortGeneration(): void {
+		generationAbortRef.current?.abort();
+		setChatEntries((current) =>
+			applyAvatarGenerationStreamEvent(current, { type: "aborted", message: "Avatar generation aborted." }),
+		);
 	}
 
 	async function save(): Promise<void> {
@@ -5973,8 +6025,13 @@ function BotAvatarGenerationScreen({
 							{candidateCost !== null && <span className="avatar-generation-cost">{formatTokenCost(candidateCost)}</span>}
 							{candidate && <span className="unsaved-tag">unsaved</span>}
 						</span>
-						<button className="btn primary compact generate-avatar-btn" disabled={!canGenerate} onClick={() => void generate()} type="button">
-							{generating ? "Generating..." : "Generate"}
+						<button
+							className={`btn compact generate-avatar-btn ${generating ? "danger" : "primary"}`}
+							disabled={generating ? false : !canGenerate}
+							onClick={() => generating ? abortGeneration() : void generate()}
+							type="button"
+						>
+							{generating ? "Abort" : "Generate"}
 						</button>
 					</div>
 					<div className={`avatar-large-preview ${generating ? "busy" : ""}`}>
@@ -5988,8 +6045,45 @@ function BotAvatarGenerationScreen({
 					</div>
 				</div>
 			</section>
+			<AvatarGenerationChatLog entries={chatEntries} />
 			<ImageLightbox onClose={() => setLightboxUrl(null)} title={bot.displayName} url={lightboxUrl} />
 		</div>
+	);
+}
+
+function AvatarGenerationChatLog({ entries }: { entries: AvatarGenerationChatEntry[] }) {
+	return (
+		<section className="avatar-chat-log" aria-label="Image generation chat log">
+			<div className="section-head compact">
+				<h2>Chat log</h2>
+			</div>
+			{entries.length === 0 ?
+				<div className="empty compact-empty">No generation request yet.</div>
+			:	<div className="avatar-chat-log-rows">
+					{entries.map((entry, index) => (
+						<div className={`avatar-chat-row role-${entry.role}`} key={`${entry.role}-${index}`}>
+							<div className="avatar-chat-role">
+								<span>{entry.role}</span>
+								{entry.status && entry.role === "assistant" && <span className={`streaming-pill ${entry.status}`}>{entry.status}</span>}
+							</div>
+							<div className="avatar-chat-content">
+								{entry.content ?
+									<span>{normalizeReadableText(entry.content)}</span>
+								: entry.status === "streaming" ?
+									<span className="muted">Waiting for response...</span>
+								:	null}
+								{entry.imageCount ? (
+									<span className="avatar-chat-image-marker">
+										[{entry.imageCount === 1 ? "image received" : `${entry.imageCount} images received`}]
+									</span>
+								) : null}
+								{entry.statusMessage && <span className="avatar-chat-status-message">{entry.statusMessage}</span>}
+							</div>
+						</div>
+					))}
+				</div>
+			}
+		</section>
 	);
 }
 
@@ -15549,6 +15643,24 @@ async function api<T = unknown>(
 		return { ok: true, data: payload as T };
 	}
 	return { ok: false, error: "server_error", message: response.statusText || "Request failed." };
+}
+
+async function apiResponseErrorMessage(response: Response): Promise<string> {
+	let text = "";
+	try {
+		text = await response.text();
+	} catch {
+		return response.statusText || "Network response could not be read.";
+	}
+	try {
+		const payload = text ? JSON.parse(text) as unknown : null;
+		if (payload && typeof payload === "object" && "message" in payload && typeof (payload as { message?: unknown }).message === "string") {
+			return (payload as { message: string }).message;
+		}
+	} catch {
+		return response.ok ? "Response was not JSON." : response.statusText || text || "Request failed.";
+	}
+	return response.statusText || "Request failed.";
 }
 
 function isStandaloneDisplayMode(): boolean {

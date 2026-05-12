@@ -3,6 +3,7 @@
 	"name": "bickr-agent-runtime",
 	"main": "src/index.ts",
 	"compatibility_date": "2026-04-25",
+	"compatibility_flags": ["enable_request_signal"],
 	"durable_objects": {
 		"bindings": [
 			{

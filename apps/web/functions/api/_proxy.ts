@@ -17,6 +17,7 @@ export function serviceRequest(
 		method: request.method,
 		headers,
 		body,
+		signal: request.signal,
 	});
 }
 

@@ -1503,7 +1503,7 @@ describe("Bickr Pages Functions", () => {
 			expect(messages.at(-2)?.content).toContain("excluding the system instructions and persona prompt");
 			expect(messages.at(-1)).toEqual({
 				role: "user",
-				content: `You must respond by calling the ${metaCompactionToolName} tool. Put the summary in the "${providerCompactionSummaryProperty}" argument. Use between 1 and 4000 characters. Do not reply as plain text.`,
+				content: `You must respond by calling the ${metaCompactionToolName} tool. Put the summary in the "${providerCompactionSummaryProperty}" argument. You must produce a _summary_ of the events, and it MUST be shorter than the input, so don't just repeat it with minor modifications; you MUST shorten it, even if it's already a summary! Use between 1 and 4000 characters. Do not reply as plain text.`,
 			});
 			const railroadRequest = providerCompactionRequest(
 				{
@@ -17041,6 +17041,107 @@ describe("Bickr Pages Functions", () => {
 		});
 	});
 
+	it("streams generated avatar chat events and keeps image bytes out of the chat log", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const bot = await createBotForTest(cookie, "avatar-streamed");
+		const userId = await userIdForHandle("octocat");
+		const r2 = fakeR2Bucket();
+		const rawDataUrl = avatarDataUrl();
+		const originalFetch = globalThis.fetch;
+		const fetchMock = vi.fn<(_input: RequestInfo | URL, _init?: RequestInit) => Promise<Response>>(
+			async (input, init) => {
+				if (String(input) === "https://openrouter.ai/api/v1/models?output_modalities=image") {
+					return Response.json({
+						data: [
+							{
+								id: "openai/image-one",
+								architecture: { input_modalities: ["text"], output_modalities: ["image", "text"] },
+							},
+						],
+					});
+				}
+				expect(String(input)).toBe("https://openrouter.ai/api/v1/chat/completions");
+				const requestBody = JSON.parse(String(init?.body)) as {
+					stream?: boolean;
+					messages?: Array<{ role: string; content: unknown }>;
+				};
+				expect(requestBody.stream).toBe(true);
+				expect(requestBody.messages?.[0]?.role).toBe("system");
+				expect(requestBody.messages?.[1]?.role).toBe("user");
+				return new Response(sseStream([
+					{
+						choices: [{ delta: { content: "Rendering a profile portrait." } }],
+					},
+					{
+						choices: [{
+							delta: {
+								images: [{ image_url: { url: rawDataUrl } }],
+							},
+						}],
+						usage: { prompt_tokens: 12, completion_tokens: 1, total_tokens: 13, cost: 0.045 },
+					},
+					"[DONE]",
+				]), {
+					headers: { "content-type": "text/event-stream" },
+				});
+			},
+		);
+		vi.stubGlobal("fetch", fetchMock);
+		try {
+			const response = await handleAgentRuntimeRequest(
+				serviceStreamJsonRequest(
+					`/users/${encodeURIComponent(userId)}/bots/${encodeURIComponent(bot.id)}/avatar/generate`,
+					userId,
+					{
+						prompt: "Paint me as a luminous portrait.",
+						includeCurrentAvatar: false,
+						settings: { model: "openai/image-one" },
+					},
+				),
+				{
+					BICKR_D1: testEnv.BICKR_D1,
+					BICKR_KV: testEnv.BICKR_KV,
+					BICKR_R2: r2.bucket,
+					BICKR_R2_PUBLIC_BASE_URL: "https://assets-test.bickr.social",
+					OPENROUTER_API_KEY: "test-key",
+				},
+			);
+			expect(response.status).toBe(200);
+			expect(response.headers.get("content-type")).toContain("text/event-stream");
+			const streamText = await response.text();
+			expect(streamText).not.toContain(rawDataUrl);
+			const events = parseJsonSseEvents(streamText);
+			expect(events.map((event) => event.type)).toEqual(["messages", "assistant_delta", "assistant_image", "done"]);
+			expect(events[0]).toMatchObject({
+				type: "messages",
+				messages: [
+					{ role: "system", content: expect.stringContaining("Bickr participant") },
+					{ role: "user", content: "Paint me as a luminous portrait." },
+				],
+			});
+			expect(events[1]).toEqual({ type: "assistant_delta", text: "Rendering a profile portrait." });
+			expect(events[2]).toEqual({ type: "assistant_image", count: 1 });
+			expect(events[3]).toMatchObject({
+				type: "done",
+				candidate: {
+					contentType: "image/png",
+					source: {
+						type: "generated",
+						model: "openai/image-one",
+						prompt: "Paint me as a luminous portrait.",
+						cost: 0.045,
+					},
+				},
+			});
+			const candidate = (events[3] as { candidate: NonNullable<BotBody["avatar"]> }).candidate;
+			expect(candidate.url).toContain("/avatar-candidates/");
+			expect(r2.objects.has(candidate.key)).toBe(true);
+		} finally {
+			vi.stubGlobal("fetch", originalFetch);
+		}
+	});
+
 	it("creates and promotes SVG generated avatar candidates", async () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);
@@ -18350,6 +18451,27 @@ function serviceJsonRequest(path: string, userId: string, body: unknown): Reques
 	return jsonRequest(`https://internal.bickr${path}`, "POST", body, undefined, {
 		"x-bickr-user-id": userId,
 	});
+}
+
+function serviceStreamJsonRequest(path: string, userId: string, body: unknown): Request {
+	return jsonRequest(`https://internal.bickr${path}`, "POST", body, undefined, {
+		accept: "text/event-stream",
+		"x-bickr-user-id": userId,
+	});
+}
+
+function parseJsonSseEvents(text: string): Array<Record<string, unknown>> {
+	return text
+		.split("\n\n")
+		.map((block) =>
+			block
+				.split(/\r?\n/)
+				.filter((line) => line.startsWith("data:"))
+				.map((line) => line.slice(5).trim())
+				.join("\n")
+		)
+		.filter((data) => data && data !== "[DONE]")
+		.map((data) => JSON.parse(data) as Record<string, unknown>);
 }
 
 function neverStream(): ReadableStream<Uint8Array> {

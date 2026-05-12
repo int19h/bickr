@@ -1207,6 +1207,8 @@ const openRouterGenerationMetadataMaxBytes = 64_000;
 const openRouterGenerationMetadataTimeoutMs = 5_000;
 const openRouterExperimentalMetadataHeader = 'X-OpenRouter-Experimental-Metadata';
 const openRouterGenerationIdHeader = 'x-generation-id';
+const avatarImageGenerationSystemPrompt =
+	'Create a public profile avatar image for this Bickr participant. Honor the requested visual direction and any supplied current profile image. Favor a clear, recognizable composition suitable for a square or cropped profile display. Do not include captions, watermarks, interface chrome, or explanatory text inside the image.';
 const serviceBindingTimeoutMs = 30_000;
 const serviceBindingResponseBodyMaxBytes = 1_000_000;
 const scheduledDispatchTimeoutMs = 10_000;
@@ -9284,6 +9286,17 @@ type AvatarGenerationInput = {
 	settingsOverride?: BotInferenceSettings['imageGeneration'];
 };
 
+type AvatarGenerationDisplayMessage = {
+	role: 'system' | 'user';
+	content: string;
+};
+
+type AvatarGenerationStreamSink = {
+	messages: (messages: AvatarGenerationDisplayMessage[]) => void | Promise<void>;
+	assistantDelta: (text: string) => void | Promise<void>;
+	assistantImage: (count: number) => void | Promise<void>;
+};
+
 function parseTranslationInput(input: unknown): TranslationInput {
 	const record = runtimeRecord(input);
 	return {
@@ -9436,6 +9449,7 @@ async function generateAvatarForBot(
 	userId: string,
 	botId: string,
 	input: AvatarGenerationInput,
+	options: { signal?: AbortSignal; stream?: AvatarGenerationStreamSink } = {},
 ): Promise<AvatarImage> {
 	const bot = await botById(env.BICKR_KV, env.BICKR_D1, botId);
 	if (bot.ownerUserId !== userId) {
@@ -9452,7 +9466,7 @@ async function generateAvatarForBot(
 	const generatedImage = await fetchProviderAvatarImage(settings, {
 		prompt: input.prompt,
 		currentAvatarUrl: input.includeCurrentAvatar ? bot.avatar?.url : undefined,
-	});
+	}, options);
 	let validated: ReturnType<typeof validateAvatarDataUrl>;
 	try {
 		validated = validateAvatarDataUrl(generatedImage.dataUrl);
@@ -9482,6 +9496,91 @@ async function generateAvatarForBot(
 		},
 		kind: 'avatar-candidates',
 	});
+}
+
+function streamAvatarGenerationForBot(
+	env: Pick<Env, 'BICKR_KV' | 'BICKR_D1' | 'BICKR_R2' | 'BICKR_R2_PUBLIC_BASE_URL' | 'OPENROUTER_API_KEY' | 'OPENROUTER_BASE_URL' | 'OPENROUTER_MODEL'>,
+	userId: string,
+	botId: string,
+	input: AvatarGenerationInput,
+	requestSignal: AbortSignal,
+): Response {
+	const encoder = new TextEncoder();
+	const abortController = new AbortController();
+	const abortFromRequest = () => abortController.abort();
+	if (requestSignal.aborted) {
+		abortController.abort();
+	} else {
+		requestSignal.addEventListener('abort', abortFromRequest, { once: true });
+	}
+	let closed = false;
+	const stream = new ReadableStream<Uint8Array>({
+		async start(controller) {
+			const send = (event: unknown): void => {
+				if (closed || abortController.signal.aborted) {
+					return;
+				}
+				try {
+					controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+				} catch {
+					closed = true;
+					abortController.abort();
+				}
+			};
+			try {
+				const candidate = await generateAvatarForBot(env, userId, botId, input, {
+					signal: abortController.signal,
+					stream: {
+						messages: (messages) => send({ type: 'messages', messages }),
+						assistantDelta: (text) => send({ type: 'assistant_delta', text }),
+						assistantImage: (count) => send({ type: 'assistant_image', count }),
+					},
+				});
+				send({ type: 'done', candidate });
+			} catch (error) {
+				if (abortController.signal.aborted || error instanceof TickStoppedError || isAbortError(error)) {
+					send({ type: 'aborted', message: 'Avatar generation aborted.' });
+				} else {
+					send({ type: 'error', message: avatarGenerationStreamErrorMessage(error) });
+				}
+			} finally {
+				requestSignal.removeEventListener('abort', abortFromRequest);
+				if (!closed) {
+					try {
+						closed = true;
+						controller.close();
+					} catch {
+						// The client may already have disconnected.
+					}
+				}
+			}
+		},
+		cancel() {
+			closed = true;
+			abortController.abort();
+			requestSignal.removeEventListener('abort', abortFromRequest);
+		},
+	});
+	return new Response(stream, {
+		headers: {
+			'cache-control': 'no-store',
+			'content-type': 'text/event-stream; charset=utf-8',
+			'x-accel-buffering': 'no',
+		},
+	});
+}
+
+function avatarGenerationStreamErrorMessage(error: unknown): string {
+	if (error instanceof ProviderRequestError || error instanceof ProviderRequestTimeoutError || error instanceof ProviderResponseBodyTimeoutError) {
+		return error.message;
+	}
+	if (error instanceof ResponseBodySizeLimitError || error instanceof InputError || error instanceof RepositoryError) {
+		return error.message;
+	}
+	if (error instanceof Error) {
+		return error.message;
+	}
+	return 'Could not generate avatar.';
 }
 
 async function applyGeneratedAvatarForBot(
@@ -9523,31 +9622,41 @@ async function prefillAvatarPromptForBot(
 
 type ProviderImageContentPart = { type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } };
 
+type ProviderImageMessage =
+	| { role: 'system'; content: string }
+	| { role: 'user'; content: ProviderImageContentPart[] };
+
+type ProviderAvatarImageStreamChunk = {
+	content: string;
+	dataUrls: string[];
+	usage?: ProviderUsage;
+	responseId?: string;
+	responseModel?: string;
+	responseProviderName?: string;
+};
+
 async function fetchProviderAvatarImage(
 	settings: ImageGenerationProviderSettings,
 	input: { prompt: string; currentAvatarUrl?: string },
+	options: { signal?: AbortSignal; stream?: AvatarGenerationStreamSink } = {},
 ): Promise<{ dataUrl: string; cost: number | null }> {
 	const endpoint = providerChatCompletionsUrl(settings.baseUrl);
-	const signal = new AbortController().signal;
+	const signal = options.signal ?? new AbortController().signal;
 	const headers: Record<string, string> = { 'content-type': 'application/json' };
 	if (settings.apiKey) {
 		headers.authorization = `Bearer ${settings.apiKey}`;
 	}
-	const content: ProviderImageContentPart[] = [];
-	if (input.prompt.trim()) {
-		content.push({ type: 'text', text: input.prompt });
-	}
-	if (input.currentAvatarUrl) {
-		content.push({ type: 'image_url', image_url: { url: input.currentAvatarUrl } });
-	}
+	const requestMessages = avatarImageGenerationMessages(input);
+	await options.stream?.messages(requestMessages.displayMessages);
 	const imageConfig: JsonObject = {
 		...(settings.aspectRatio ? { aspect_ratio: settings.aspectRatio } : {}),
 		...(settings.imageSize ? { image_size: settings.imageSize } : {}),
 	};
 	const requestBody = {
 		model: settings.model,
-		messages: [{ role: 'user', content }],
-		modalities: await providerImageOutputModalities(settings),
+		messages: requestMessages.providerMessages,
+		modalities: await providerImageOutputModalities(settings, signal),
+		stream: Boolean(options.stream),
 		...(Object.keys(imageConfig).length > 0 ? { image_config: imageConfig } : {}),
 		...(settings.providerRouting ? { provider: settings.providerRouting } : {}),
 		...(settings.temperature !== undefined ? { temperature: settings.temperature } : {}),
@@ -9567,6 +9676,9 @@ async function fetchProviderAvatarImage(
 	if (!response.ok) {
 		const bodyText = await readProviderErrorBody(response, signal);
 		throw new ProviderRequestError(response.status, settings.model, endpoint, bodyText);
+	}
+	if (options.stream) {
+		return fetchProviderAvatarImageFromStream(settings, endpoint, response, signal, options.stream);
 	}
 	let rawResponse: string;
 	try {
@@ -9600,8 +9712,116 @@ async function fetchProviderAvatarImage(
 	};
 }
 
+function avatarImageGenerationMessages(input: { prompt: string; currentAvatarUrl?: string }): {
+	displayMessages: AvatarGenerationDisplayMessage[];
+	providerMessages: ProviderImageMessage[];
+} {
+	const prompt = input.prompt.trim();
+	const userText = prompt || 'Use the supplied current profile image as visual input for a refreshed public profile avatar.';
+	const displayUserMessage = [userText, ...(input.currentAvatarUrl ? ['[current avatar image included]'] : [])].join('\n\n');
+	const content: ProviderImageContentPart[] = [{ type: 'text', text: userText }];
+	if (input.currentAvatarUrl) {
+		content.push({ type: 'image_url', image_url: { url: input.currentAvatarUrl } });
+	}
+	return {
+		displayMessages: [
+			{ role: 'system', content: avatarImageGenerationSystemPrompt },
+			{ role: 'user', content: displayUserMessage },
+		],
+		providerMessages: [
+			{ role: 'system', content: avatarImageGenerationSystemPrompt },
+			{ role: 'user', content },
+		],
+	};
+}
+
+async function fetchProviderAvatarImageFromStream(
+	settings: ImageGenerationProviderSettings,
+	endpoint: string,
+	response: Response,
+	signal: AbortSignal,
+	stream: AvatarGenerationStreamSink,
+): Promise<{ dataUrl: string; cost: number | null }> {
+	if (!response.body) {
+		throw new ProviderRequestError(502, settings.model, endpoint, 'Inference provider did not return a streaming response body.');
+	}
+	let dataUrl: string | null = null;
+	let cost: number | null = null;
+	let imageCount = 0;
+	try {
+		for await (const event of readSse(response.body, signal, providerImageBodyReadTimeoutMs)) {
+			if (event.data === '[DONE]') {
+				break;
+			}
+			let chunk: unknown;
+			try {
+				chunk = JSON.parse(event.data) as unknown;
+			} catch {
+				continue;
+			}
+			const parsed = providerAvatarImageStreamChunk(chunk);
+			if (parsed.usage) {
+				cost = parsed.usage.cost ?? numberValue(parsed.usage.raw.cost) ?? cost;
+			}
+			if (parsed.content) {
+				await stream.assistantDelta(parsed.content);
+			}
+			for (const candidateUrl of parsed.dataUrls) {
+				imageCount += 1;
+				if (!dataUrl) {
+					try {
+						validateAvatarDataUrl(candidateUrl);
+						dataUrl = candidateUrl;
+					} catch {
+						// Keep streaming markers for all returned images, but only promote the first valid avatar image.
+					}
+				}
+				await stream.assistantImage(imageCount);
+			}
+		}
+	} catch (error) {
+		if (error instanceof ResponseBodySizeLimitError) {
+			throw new ProviderRequestError(502, settings.model, endpoint, 'Provider image response was larger than the supported avatar size.');
+		}
+		throw error;
+	}
+	if (!dataUrl) {
+		throw new ProviderRequestError(502, settings.model, endpoint, 'Provider image response did not include a valid image.');
+	}
+	return { dataUrl, cost };
+}
+
+export function providerAvatarImageStreamChunk(chunk: unknown): ProviderAvatarImageStreamChunk {
+	const record = runtimeRecord(chunk);
+	const providerError = providerStreamErrorFromChunk(record);
+	if (providerError) {
+		throw providerError;
+	}
+	const dataUrls: string[] = [];
+	let content = '';
+	const choices = Array.isArray(record.choices) ? record.choices : [];
+	for (const choice of choices) {
+		const delta = runtimeRecord(runtimeRecord(choice).delta);
+		content += stringValue(delta.content) ?? '';
+		dataUrls.push(...providerImageDataUrlsFromImages(delta.images));
+	}
+	const usage = providerUsageFromValue(record.usage);
+	const responseId = stringValue(record.id);
+	const responseModel = stringValue(record.model);
+	const responseProviderName = openRouterMetadataProviderName(record.openrouter_metadata) ?? undefined;
+	return {
+		content,
+		dataUrls,
+		...(usage ? { usage } : {}),
+		...(responseId ? { responseId } : {}),
+		...(responseModel ? { responseModel } : {}),
+		...(responseProviderName ? { responseProviderName } : {}),
+	};
+}
+
 async function providerImageOutputModalities(
 	settings: Pick<ImageGenerationProviderSettings, 'baseUrl' | 'model'>,
+	signal?: AbortSignal,
 ): Promise<['image'] | ['image', 'text']> {
 	if (!isOpenRouterProviderBaseUrl(settings.baseUrl)) {
 		return ['image', 'text'];
@@ -9609,6 +9829,7 @@ async function providerImageOutputModalities(
 	try {
 		const response = await fetch('https://openrouter.ai/api/v1/models?output_modalities=image', {
 			headers: { accept: 'application/json' },
+			...(signal ? { signal } : {}),
 		});
 		if (!response.ok) {
 			return ['image', 'text'];
@@ -9634,15 +9855,27 @@ function providerImageDataUrl(payload: unknown): string | null {
 	const choices = Array.isArray((payload as { choices?: unknown }).choices) ? (payload as { choices: unknown[] }).choices : [];
 	for (const choice of choices) {
 		const message = runtimeRecord(runtimeRecord(choice).message);
-		const images = Array.isArray(message.images) ? message.images : [];
-		for (const image of images) {
-			const url = stringValue(runtimeRecord(runtimeRecord(image).image_url).url);
-			if (url?.startsWith('data:image/')) {
-				return url;
-			}
+		const [url] = providerImageDataUrlsFromImages(message.images);
+		if (url) {
+			return url;
 		}
 	}
 	return null;
+}
+
+function providerImageDataUrlsFromImages(value: unknown): string[] {
+	const images = Array.isArray(value) ? value : [];
+	const urls: string[] = [];
+	for (const image of images) {
+		const imageRecord = runtimeRecord(image);
+		const url =
+			stringValue(runtimeRecord(imageRecord.image_url).url) ??
+			stringValue(runtimeRecord(imageRecord.imageUrl).url);
+		if (url?.startsWith('data:image/')) {
+			urls.push(url);
+		}
+	}
+	return urls;
 }
 
 const providerAvatarDescriptionToolName = 'save_avatar_description';
@@ -10029,7 +10262,11 @@ export async function handleAgentRuntimeRequest(
 		if (avatarGenerateMatch && request.method === 'POST') {
 			const userId = requireUserMatch(request, decodeURIComponent(avatarGenerateMatch[1] ?? ''));
 			const botId = decodeURIComponent(avatarGenerateMatch[2] ?? '');
-			const candidate = await generateAvatarForBot(env, userId, botId, parseAvatarGenerationInput(await readJsonBody(request)));
+			const input = parseAvatarGenerationInput(await readJsonBody(request));
+			if (request.headers.get('accept')?.includes('text/event-stream')) {
+				return streamAvatarGenerationForBot(env, userId, botId, input, request.signal);
+			}
+			const candidate = await generateAvatarForBot(env, userId, botId, input);
 			return ok({ candidate, coordinator: objectId });
 		}
 
