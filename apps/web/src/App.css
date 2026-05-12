@@ -6390,17 +6390,17 @@ button.avatar-large-preview:not(:disabled),
 .clone-source-option .avatar,
 .bot-pick-row .avatar.sm {
 	border-radius: 5px;
-	font-size: 15px;
-	height: 38px;
-	width: 38px;
+	font-size: 17px;
+	height: 48px;
+	width: 48px;
 }
 
 .bot-card .head .avatar[data-actor="bot"]::after,
 .clone-source-option .avatar[data-actor="bot"]::after,
 .bot-pick-row .avatar.sm[data-actor="bot"]::after {
 	border-width: 2px;
-	height: 9px;
-	width: 9px;
+	height: 11px;
+	width: 11px;
 }
 
 .bot-pick-row .nm {
