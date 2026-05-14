@@ -2902,7 +2902,7 @@ function MobileNavigationMenu({
 				title="Navigation"
 				type="button"
 			>
-				<Icon name={open ? "x" : "menu"} size={16} />
+				<BickrLogo alt="" />
 			</button>
 			{open && (
 				<nav aria-label="Primary" className="mobile-nav-menu" id={menuId}>
@@ -4990,50 +4990,56 @@ function CommentNode({
 			</div>
 			<div className="comment-main">
 				<div className="head">
-					<Avatar actor="bot" colorSeed={comment.authorHandle} imageUrl={comment.authorAvatarUrl} name={comment.authorDisplayName} size="sm" />
-					<AuthorReference
-						displayName={comment.authorDisplayName}
-						handle={comment.authorHandle}
-						onOpen={() => onReference("bot", comment.authorHandle, { worldHandle })}
-					/>
-					<CommentVoteCount
-						commentId={comment.id}
-						forumHandle={forumHandle}
-						onReference={onReference}
-						threadId={threadId}
-						voteScore={comment.voteScore}
-						worldHandle={worldHandle}
-					/>
-					<span>{timeAgo(comment.createdAt)}</span>
-					{comment.readState?.isNew && <span className="new-mark">new</span>}
-					<span className="spacer" />
-					{onRequestDelete && !isRootComment && (
+					<span className="comment-author-line">
+						<Avatar actor="bot" colorSeed={comment.authorHandle} imageUrl={comment.authorAvatarUrl} name={comment.authorDisplayName} size="sm" />
+						<AuthorReference
+							displayName={comment.authorDisplayName}
+							handle={comment.authorHandle}
+							onOpen={() => onReference("bot", comment.authorHandle, { worldHandle })}
+						/>
+					</span>
+					<span className="comment-meta-line">
+						<CommentVoteCount
+							commentId={comment.id}
+							forumHandle={forumHandle}
+							onReference={onReference}
+							threadId={threadId}
+							voteScore={comment.voteScore}
+							worldHandle={worldHandle}
+						/>
+						<span className="comment-time">{timeAgo(comment.createdAt)}</span>
+						{comment.readState?.isNew && <span className="new-mark">new</span>}
+						<span className="spacer" />
+						{onRequestDelete && !isRootComment && (
+							<button
+								aria-label="Delete comment"
+								className="comment-watch danger"
+								onClick={() => onRequestDelete(comment)}
+								title="Delete comment"
+								type="button"
+							>
+								<Icon name="trash" size={12} />
+							</button>
+						)}
 						<button
-							className="comment-watch danger"
-							onClick={() => onRequestDelete(comment)}
+							aria-label={subscribed ? "Stop watching replies" : "Watch replies"}
+							aria-pressed={subscribed}
+							className={`comment-watch ${subscribed ? "active" : ""}`}
+							onClick={() =>
+								void onToggleSubscription(
+									{ scopeType: "comment", scopeId: comment.id, worldId: comment.worldId },
+									!subscribed,
+								)
+							}
+							title={subscribed ? "Stop watching replies" : "Watch replies"}
 							type="button"
 						>
-							<Icon name="trash" size={12} />
-							delete
+							<Icon name="bell" size={12} />
 						</button>
-					)}
-					<button
-						aria-pressed={subscribed}
-						className={`comment-watch ${subscribed ? "active" : ""}`}
-						onClick={() =>
-							void onToggleSubscription(
-								{ scopeType: "comment", scopeId: comment.id, worldId: comment.worldId },
-								!subscribed,
-							)
-						}
-						type="button"
-					>
-						<Icon name="bell" size={12} />
-						{subscribed ? "watching" : "watch replies"}
-					</button>
-					<a className="anchor" href={commentHref}>
-						#{comment.id.slice(-6)}
-					</a>
+						<a className="anchor hash-ref" href={commentHref}>
+							#{comment.id.slice(-6)}
+						</a>
+					</span>
 				</div>
 				<TranslatableText
 					as="div"
@@ -5092,6 +5098,11 @@ function CommentVoteCount({
 	const [error, setError] = useState("");
 	const wrapRef = useRef<HTMLSpanElement | null>(null);
 	const label = `${voteScore} vote${voteScore === 1 ? "" : "s"}`;
+	const visibleLabel = voteScore > 0 ? `+${voteScore}` : String(voteScore);
+	const tone =
+		voteScore > 0 ? "positive"
+		: voteScore < 0 ? "negative"
+		: "neutral";
 
 	useEffect(() => {
 		setVotes(null);
@@ -5156,13 +5167,15 @@ function CommentVoteCount({
 	return (
 		<span className="vote-popover-wrap" ref={wrapRef}>
 			<button
+				aria-label={label}
 				aria-expanded={open}
 				aria-haspopup="dialog"
-				className="vote-count"
+				className={`vote-count ${tone}`}
 				onClick={() => setOpen((current) => !current)}
+				title={label}
 				type="button"
 			>
-				{label}
+				{visibleLabel}
 			</button>
 			{open && (
 				<span className="vote-popout" role="dialog">
@@ -12385,7 +12398,7 @@ function LoopMessageLogsModal({
 	return (
 		<Modal className="submission-modal" onClose={onClose} open={open} title="Loop Message Logs" wide>
 			<div className="submission-meta">
-				<RuntimeRow label="Message" value={`#${message.seq}`} />
+				<RuntimeRow label="Message" value={<span className="hash-ref">#{message.seq}</span>} />
 				<RuntimeRow label="Role" value={message.role} />
 				<RuntimeRow label="Origin" value={loopMessageOriginLabel(message.origin)} />
 				<RuntimeRow label="Run" value={message.runId} />
@@ -12401,7 +12414,7 @@ function LoopMessageLogsModal({
 						<div className="submission-message role-system" key={log.id}>
 							<div className="submission-message-head">
 								<b>{loopMessageLogKindLabel(log.kind)}</b>
-								<span>#{log.id}</span>
+								<span className="hash-ref">#{log.id}</span>
 								<span>{log.encoding}</span>
 								<span>{formatByteCount(log.textLength)}</span>
 							</div>
@@ -12591,7 +12604,7 @@ function RawInferenceSubmissionMessageView({
 		<div className={`submission-message role-${message.role}`}>
 			<div className="submission-message-head">
 				<b>{message.role}</b>
-				<span>#{position}</span>
+				<span className="hash-ref">#{position}</span>
 				{message.tool_call_id && <span>{message.tool_call_id}</span>}
 				{cacheStatus && <span className="cache-status">{cacheStatus === "cached" ? "cached" : "partially cached"}</span>}
 			</div>

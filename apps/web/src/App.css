@@ -37,6 +37,7 @@
 	--bot: oklch(0.55 0.1 295);
 	--bot-soft: oklch(0.55 0.1 295 / 0.1);
 	--bot-ink: oklch(0.38 0.1 295);
+	--positive: oklch(0.5 0.12 150);
 	--danger: oklch(0.55 0.16 22);
 	--radius: 6px;
 	--radius-lg: 10px;
@@ -77,6 +78,7 @@
 	--bot: oklch(0.72 0.1 295);
 	--bot-soft: oklch(0.72 0.1 295 / 0.14);
 	--bot-ink: oklch(0.8 0.1 295);
+	--positive: oklch(0.74 0.12 150);
 }
 
 html,
@@ -230,7 +232,50 @@ a {
 }
 
 .mobile-nav-toggle {
+	background: transparent;
+	border-radius: 0;
+	color: var(--ink-3);
+	height: 42px;
+	overflow: visible;
 	padding: 0;
+	position: relative;
+	width: 42px;
+}
+
+.mobile-nav-toggle .brand-logo {
+	height: 56px;
+	max-width: none;
+	width: 56px;
+}
+
+.mobile-nav-toggle::after {
+	background: var(--paper);
+	border: 1px solid var(--rule);
+	border-radius: 999px;
+	box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+	color: var(--ink-3);
+	content: "";
+	height: 12px;
+	position: absolute;
+	right: -1px;
+	top: 25px;
+	width: 12px;
+}
+
+.mobile-nav-toggle::before {
+	border-left: 3px solid transparent;
+	border-right: 3px solid transparent;
+	border-top: 4px solid currentColor;
+	content: "";
+	position: absolute;
+	right: 3px;
+	top: 30px;
+	transition: transform 80ms;
+	z-index: 1;
+}
+
+.mobile-nav-toggle[aria-expanded="true"]::before {
+	transform: rotate(180deg);
 }
 
 .mobile-nav-menu {
@@ -1133,6 +1178,12 @@ button:disabled {
 .translatable-text:focus-within > .translation-controls {
 	opacity: 1;
 	pointer-events: auto;
+}
+
+.comment .body > .translation-controls {
+	bottom: 0;
+	top: auto;
+	transform: none;
 }
 
 .translation-action {
@@ -5134,11 +5185,13 @@ fieldset {
 	align-items: baseline;
 	display: inline-flex;
 	gap: 3px;
+	max-width: 100%;
 	min-width: 0;
 }
 
 .author-display-name {
 	color: var(--ink-2);
+	min-width: 0;
 	font-weight: 600;
 	overflow: hidden;
 	text-overflow: ellipsis;
@@ -5393,13 +5446,35 @@ fieldset {
 	align-items: center;
 	color: var(--ink-3);
 	display: flex;
+	flex-wrap: wrap;
 	font-size: 12.5px;
-	gap: 8px;
+	column-gap: 8px;
+	row-gap: 4px;
 	margin-bottom: 5px;
 }
 
-.comment .head .spacer {
+.comment-author-line,
+.comment-meta-line {
+	align-items: center;
+	display: inline-flex;
+	gap: 8px;
+	min-width: 0;
+}
+
+.comment-author-line {
+	flex: 1 1 max-content;
+	max-width: 100%;
+}
+
+.comment-meta-line {
+	flex: 1 0 max-content;
+	min-width: max-content;
+	white-space: nowrap;
+}
+
+.comment-meta-line .spacer {
 	flex: 1;
+	min-width: 0;
 }
 
 .comment-main {
@@ -5429,15 +5504,28 @@ fieldset {
 	color: var(--ink-3);
 	cursor: pointer;
 	font: inherit;
+	font-weight: 700;
 	padding: 0;
 	text-decoration: underline;
 	text-decoration-color: transparent;
 	text-underline-offset: 2px;
+	white-space: nowrap;
+}
+
+.vote-count.positive {
+	color: var(--positive);
+}
+
+.vote-count.negative {
+	color: var(--danger);
+}
+
+.vote-count.neutral {
+	color: var(--ink-4);
 }
 
 .vote-count:hover,
 .vote-count[aria-expanded="true"] {
-	color: var(--ink);
 	text-decoration-color: currentColor;
 }
 
@@ -5508,34 +5596,56 @@ fieldset {
 
 .comment-watch {
 	align-items: center;
-	background: transparent;
-	border: 1px solid var(--rule-soft);
+	background: color-mix(in oklch, var(--accent) 6%, transparent);
+	border: 1px solid color-mix(in oklch, var(--accent) 18%, var(--rule-soft));
 	border-radius: 4px;
-	color: var(--ink-4);
+	color: var(--accent-ink);
 	cursor: pointer;
-	display: inline-flex;
-	font-size: 11px;
-	gap: 4px;
-	padding: 2px 5px;
-	white-space: nowrap;
+	display: inline-grid;
+	height: 24px;
+	justify-content: center;
+	padding: 0;
+	width: 24px;
 }
 
 .comment-watch:hover {
 	border-color: var(--accent);
+	background: color-mix(in oklch, var(--accent) 10%, var(--paper));
 	color: var(--accent-ink);
+}
+
+.comment-watch.active {
+	background: var(--accent-soft);
+	border-color: color-mix(in oklch, var(--accent) 35%, var(--rule));
+}
+
+.comment-watch.danger {
+	background: color-mix(in oklch, var(--danger) 5%, transparent);
+	border-color: color-mix(in oklch, var(--danger) 22%, var(--rule-soft));
+	color: var(--danger);
 }
 
 .comment-watch.danger:hover {
 	border-color: color-mix(in oklch, var(--danger) 30%, var(--rule));
+	background: color-mix(in oklch, var(--danger) 9%, var(--paper));
 	color: var(--danger);
 }
 
 .comment .head .anchor {
-	color: var(--ink-4);
+	color: var(--ink-5);
 }
 
 .comment .head .anchor:hover {
 	color: var(--ink);
+}
+
+.hash-ref {
+	font-family: "Doto", var(--font-sans);
+	font-size: 8px;
+	font-weight: 700;
+	letter-spacing: 0;
+	line-height: 1;
+	white-space: nowrap;
 }
 
 .comment .body {
@@ -5543,6 +5653,7 @@ fieldset {
 	font-size: 14px;
 	line-height: 1.55;
 	max-width: 88ch;
+	padding-bottom: 28px;
 	white-space: pre-wrap;
 }
 
