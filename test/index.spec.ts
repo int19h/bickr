@@ -18,8 +18,13 @@ import {
 	onRequestDelete as deleteBot,
 	onRequestPatch as patchBot,
 } from "../apps/web/functions/api/me/bots/[botId]";
-import { onRequestPut as uploadBotAvatar } from "../apps/web/functions/api/me/bots/[botId]/avatar/index";
+import {
+	onRequestDelete as deleteBotAvatarRoute,
+	onRequestPut as uploadBotAvatar,
+} from "../apps/web/functions/api/me/bots/[botId]/avatar/index";
 import { onRequestPatch as updateBotAvatarCrop } from "../apps/web/functions/api/me/bots/[botId]/avatar/crop";
+import { onRequestPost as unlinkBotCloneRoute } from "../apps/web/functions/api/me/bots/[botId]/clone/unlink";
+import { onRequestPost as relinkBotCloneRoute } from "../apps/web/functions/api/me/bots/[botId]/clone/relink";
 import {
 	onRequestGet as contextBudgetGetRoute,
 	onRequestPost as contextBudgetRoute,
@@ -121,8 +126,10 @@ import { pruneStreamEventsForPersistentEvents } from "../apps/web/src/runtime-st
 import { parsePathname, routePath } from "../apps/web/src/routes";
 import {
 	botById,
+	backfillInferredCloneSources,
 	createSession,
 	listForums,
+	rawBotById,
 	updateBotAvatar,
 	updateUserProfile,
 	upsertProviderUser,
@@ -298,6 +305,18 @@ CREATE TABLE bot_imports (
 	external_profile_url TEXT NOT NULL,
 	imported_at TEXT NOT NULL
 );
+CREATE TABLE bot_clone_sources (
+	bot_id TEXT PRIMARY KEY,
+	source_bot_id TEXT NOT NULL,
+	source_world_id TEXT NOT NULL,
+	source_world_handle TEXT NOT NULL,
+	source_handle TEXT NOT NULL,
+	cloned_at TEXT NOT NULL,
+	linked INTEGER NOT NULL DEFAULT 1,
+	unlinked_at TEXT,
+	relinked_at TEXT
+);
+CREATE INDEX bot_clone_sources_source_linked ON bot_clone_sources (source_bot_id, linked);
 CREATE TABLE threads_index (
 	thread_id TEXT PRIMARY KEY,
 	root_comment_id TEXT,
@@ -516,6 +535,7 @@ beforeEach(async () => {
 		DROP TABLE IF EXISTS bot_seen_content;
 		DROP TABLE IF EXISTS user_thread_reads;
 		DROP TABLE IF EXISTS user_forum_reads;
+		DROP TABLE IF EXISTS bot_clone_sources;
 		DROP TABLE IF EXISTS bot_imports;
 		DROP TABLE IF EXISTS bot_runtime_index;
 		DROP TABLE IF EXISTS notifications;
@@ -17141,7 +17161,7 @@ describe("Bickr Pages Functions", () => {
 		expect(response.status).toBe(400);
 	});
 
-	it("copies avatar objects and generation metadata when cloning participants across worlds", async () => {
+	it("inherits avatar objects and generation metadata when cloning participants across worlds", async () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);
 		const source = await createBotForTest(cookie, "avatar-clone-source");
@@ -17211,11 +17231,25 @@ describe("Bickr Pages Functions", () => {
 		expect(cloneResponse.status, await cloneResponse.clone().text()).toBe(201);
 		const cloneBody = (await cloneResponse.json()) as { data: { bot: BotBody } };
 		expect(cloneBody.data.bot.avatarUrl).toMatch(/^https:\/\/assets-test\.bickr\.social\/worlds\/.+\/bots\/.+\/avatars\/.+\.png$/);
-		expect(cloneBody.data.bot.avatarUrl).not.toBe(sourceAvatar.url);
+		expect(cloneBody.data.bot.avatarUrl).toBe(sourceAvatar.url);
 		expect(cloneBody.data.bot.avatarCrop).toEqual(sourceCrop);
+		expect(cloneBody.data.bot.cloneSource).toMatchObject({
+			sourceBotId: source.id,
+			sourceHandle: source.handle,
+			sourceWorldHandle: source.homeWorldHandle,
+			linked: true,
+		});
+		expect(cloneBody.data.bot.localOverrides).toMatchObject({
+			hasAvatar: false,
+			displayName: "Avatar Clone",
+			shortBio: "A participant cloned with an avatar.",
+			prompt: "Continue the source persona.",
+		});
 
+		const rawStoredClone = await rawBotById(testEnv.BICKR_KV, testEnv.BICKR_D1, cloneBody.data.bot.id);
+		expect(rawStoredClone.avatar).toBeUndefined();
 		const storedClone = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, cloneBody.data.bot.id);
-		expect(storedClone.avatar?.key).not.toBe(sourceAvatar.key);
+		expect(storedClone.avatar?.key).toBe(sourceAvatar.key);
 		expect(storedClone.avatar?.url).toBe(cloneBody.data.bot.avatarUrl);
 		expect(storedClone.avatar?.crop).toEqual(sourceCrop);
 		expect(storedClone.avatar?.source).toMatchObject({
@@ -17225,15 +17259,247 @@ describe("Bickr Pages Functions", () => {
 			cost: 0.0123,
 			prompt: "Paint me as a luminous portrait.",
 		});
-		const copiedObject = storedClone.avatar?.key ? r2.objects.get(storedClone.avatar.key) : undefined;
-		expect(copiedObject?.bytes).toEqual(sourceBytes);
-		expect(copiedObject?.httpMetadata?.cacheControl).toBe("public, max-age=31536000, immutable");
 		const indexed = await testEnv.BICKR_D1.prepare(`SELECT avatar_url AS avatarUrl, avatar_crop AS avatarCrop FROM bots_index WHERE bot_id = ?`)
 			.bind(storedClone.id)
 			.first<{ avatarUrl: string | null; avatarCrop: string | null }>();
 		expect(indexed?.avatarUrl).toBe(storedClone.avatar?.url);
 		expect(JSON.parse(indexed?.avatarCrop ?? "{}")).toEqual(sourceCrop);
-		expect(r2.objects.size).toBe(2);
+		expect(r2.objects.size).toBe(1);
+	});
+
+	it("stores clone provenance and cascades profile and inference values through clone chains", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const source = await createBotForTest(cookie, "clone-source");
+		const patchedSource = await patchBotInferenceForTest(cookie, source.id, {
+			baseUrl: "https://openrouter.ai/api/v1",
+			model: "source/model",
+			temperature: 0.33,
+			compactionMode: "tool_call",
+		});
+		expect(patchedSource.inferenceSettings).toMatchObject({
+			baseUrl: "https://openrouter.ai/api/v1",
+			model: "source/model",
+			temperature: 0.33,
+			compactionMode: "tool_call",
+		});
+		await createWorldForTest(cookie, "clone-middle-world", "Clone Middle World");
+		await createWorldForTest(cookie, "clone-leaf-world", "Clone Leaf World");
+
+		const middle = await createBotInWorld(cookie, "clone-middle-world", {
+			handle: "clone-middle",
+			displayName: "",
+			shortBio: "",
+			prompt: "",
+			cloneSourceBotId: source.id,
+		});
+		expect(middle.displayName).toBe(source.displayName);
+		expect(middle.shortBio).toBe(source.shortBio);
+		expect(middle.prompt).toBe(source.prompt);
+		expect(middle.cloneSource).toMatchObject({
+			sourceBotId: source.id,
+			sourceHandle: source.handle,
+			sourceWorldHandle: source.homeWorldHandle,
+			linked: true,
+		});
+		expect(middle.localOverrides).toMatchObject({
+			displayName: "",
+			shortBio: "",
+			prompt: "",
+			inferenceSettings: {},
+			hasAvatar: false,
+		});
+		expect(middle.inferenceSettings).toMatchObject({
+			model: "source/model",
+			temperature: 0.33,
+			compactionMode: "tool_call",
+		});
+
+		const leaf = await createBotInWorld(cookie, "clone-leaf-world", {
+			handle: "clone-leaf",
+			displayName: "",
+			shortBio: "Leaf override",
+			prompt: "",
+			cloneSourceBotId: middle.id,
+		});
+		expect(leaf.displayName).toBe(source.displayName);
+		expect(leaf.shortBio).toBe("Leaf override");
+		expect(leaf.prompt).toBe(source.prompt);
+		expect(leaf.inferenceSettings).toMatchObject({
+			model: "source/model",
+			temperature: 0.33,
+			compactionMode: "tool_call",
+		});
+
+		const sourcePatchResponse = await patchBot(
+			contextFor<typeof patchBot>(
+				jsonRequest(
+					`http://example.com/api/me/bots/${source.id}`,
+					"PATCH",
+					{
+						displayName: "Clone Source Updated",
+						prompt: "Updated source prompt.",
+						inferenceSettings: {
+							baseUrl: "https://openrouter.ai/api/v1",
+							model: "source/updated",
+							temperature: 0.55,
+						},
+					},
+					cookie,
+				),
+				{ botId: source.id },
+			),
+		);
+		expect(sourcePatchResponse.status).toBe(200);
+		const patchPayload = (await sourcePatchResponse.json()) as { data: { bot: BotBody; affectedBots: BotBody[] } };
+		expect(patchPayload.data.affectedBots.map((bot) => bot.id).sort()).toEqual([leaf.id, middle.id].sort());
+		const effectiveMiddle = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, middle.id);
+		const effectiveLeaf = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, leaf.id);
+		expect(effectiveMiddle.displayName).toBe("Clone Source Updated");
+		expect(effectiveMiddle.prompt).toBe("Updated source prompt.");
+		expect(effectiveLeaf.displayName).toBe("Clone Source Updated");
+		expect(effectiveLeaf.shortBio).toBe("Leaf override");
+		expect(effectiveLeaf.inferenceSettings).toMatchObject({
+			model: "source/updated",
+			temperature: 0.55,
+		});
+	});
+
+	it("unlinks and relinks clones while preserving provenance and delete blocking", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const source = await createBotForTest(cookie, "unlink-source");
+		await createWorldForTest(cookie, "unlink-clones", "Unlink Clones");
+		const clone = await createBotInWorld(cookie, "unlink-clones", {
+			handle: "unlink-clone",
+			displayName: "",
+			shortBio: "",
+			prompt: "",
+			cloneSourceBotId: source.id,
+		});
+
+		const blockedDelete = await deleteBot(
+			contextFor<typeof deleteBot>(
+				jsonRequest(`http://example.com/api/me/bots/${source.id}`, "DELETE", undefined, cookie),
+				{ botId: source.id },
+			),
+		);
+		expect(blockedDelete.status).toBe(409);
+
+		const unlinkResponse = await unlinkBotCloneRoute(
+			contextFor<typeof unlinkBotCloneRoute>(
+				jsonRequest(`http://example.com/api/me/bots/${clone.id}/clone/unlink`, "POST", {}, cookie),
+				{ botId: clone.id },
+			),
+		);
+		expect(unlinkResponse.status, await unlinkResponse.clone().text()).toBe(200);
+		const unlinked = (await unlinkResponse.json()) as { data: { bot: BotBody } };
+		expect(unlinked.data.bot.cloneSource).toMatchObject({ sourceBotId: source.id, linked: false });
+		const rawUnlinked = await rawBotById(testEnv.BICKR_KV, testEnv.BICKR_D1, clone.id);
+		expect(rawUnlinked.displayName).toBe(source.displayName);
+		expect(rawUnlinked.prompt).toBe(source.prompt);
+
+		const relinkResponse = await relinkBotCloneRoute(
+			contextFor<typeof relinkBotCloneRoute>(
+				jsonRequest(`http://example.com/api/me/bots/${clone.id}/clone/relink`, "POST", {}, cookie),
+				{ botId: clone.id },
+			),
+		);
+		expect(relinkResponse.status, await relinkResponse.clone().text()).toBe(200);
+		const rawRelinked = await rawBotById(testEnv.BICKR_KV, testEnv.BICKR_D1, clone.id);
+		expect(rawRelinked.displayName).toBe("");
+		expect(rawRelinked.prompt).toBe("");
+		expect((await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, clone.id)).cloneSource).toMatchObject({
+			sourceBotId: source.id,
+			linked: true,
+		});
+
+		const unlinkAgain = await unlinkBotCloneRoute(
+			contextFor<typeof unlinkBotCloneRoute>(
+				jsonRequest(`http://example.com/api/me/bots/${clone.id}/clone/unlink`, "POST", {}, cookie),
+				{ botId: clone.id },
+			),
+		);
+		expect(unlinkAgain.status).toBe(200);
+		const allowedDelete = await deleteBot(
+			contextFor<typeof deleteBot>(
+				jsonRequest(`http://example.com/api/me/bots/${source.id}`, "DELETE", undefined, cookie),
+				{ botId: source.id },
+			),
+		);
+		expect(allowedDelete.status).toBe(200);
+	});
+
+	it("deleting a local clone avatar falls back to the source avatar", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const source = await createBotForTest(cookie, "avatar-fallback-source");
+		const userId = await userIdForHandle("octocat");
+		const now = new Date().toISOString();
+		const sourceAvatar: AvatarImage = {
+			contentType: "image/png",
+			key: `test/${source.id}/source.png`,
+			updatedAt: now,
+			url: "https://assets-test.bickr.social/source.png",
+		};
+		await updateBotAvatar(testEnv.BICKR_KV, testEnv.BICKR_D1, source.id, userId, sourceAvatar, now);
+		await createWorldForTest(cookie, "avatar-fallback-clones", "Avatar Fallback Clones");
+		const clone = await createBotInWorld(cookie, "avatar-fallback-clones", {
+			handle: "avatar-fallback-clone",
+			displayName: "",
+			shortBio: "",
+			prompt: "",
+			cloneSourceBotId: source.id,
+		});
+		expect(clone.avatarUrl).toBe(sourceAvatar.url);
+		const localAvatar: AvatarImage = {
+			contentType: "image/png",
+			key: `test/${clone.id}/local.png`,
+			updatedAt: now,
+			url: "https://assets-test.bickr.social/local.png",
+		};
+		await updateBotAvatar(testEnv.BICKR_KV, testEnv.BICKR_D1, clone.id, userId, localAvatar, now);
+		expect((await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, clone.id)).avatar?.url).toBe(localAvatar.url);
+
+		const deleteAvatarResponse = await deleteBotAvatarRoute(
+			contextFor<typeof deleteBotAvatarRoute>(
+				jsonRequest(`http://example.com/api/me/bots/${clone.id}/avatar`, "DELETE", undefined, cookie),
+				{ botId: clone.id },
+			),
+		);
+		expect(deleteAvatarResponse.status).toBe(200);
+		const deletePayload = (await deleteAvatarResponse.json()) as { data: { bot: BotBody } };
+		expect(deletePayload.data.bot.avatarUrl).toBe(sourceAvatar.url);
+		expect((await rawBotById(testEnv.BICKR_KV, testEnv.BICKR_D1, clone.id)).avatar).toBeUndefined();
+	});
+
+	it("backfills inferred same-owner same-handle clone sources and preserves differing overrides", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const source = await createBotForTest(cookie, "duplicate");
+		await createWorldForTest(cookie, "duplicate-world", "Duplicate World");
+		const duplicate = await createBotInWorld(cookie, "duplicate-world", {
+			handle: "duplicate",
+			displayName: source.displayName,
+			shortBio: "Different short bio",
+			prompt: source.prompt,
+		});
+
+		const result = await backfillInferredCloneSources(testEnv.BICKR_KV, testEnv.BICKR_D1, "2026-05-14T00:00:00.000Z");
+		expect(result).toMatchObject({ groups: 1, clonesLinked: 1, clonesSkipped: 0 });
+		const rawDuplicate = await rawBotById(testEnv.BICKR_KV, testEnv.BICKR_D1, duplicate.id);
+		expect(rawDuplicate.displayName).toBe("");
+		expect(rawDuplicate.shortBio).toBe("Different short bio");
+		expect(rawDuplicate.prompt).toBe("");
+		const effectiveDuplicate = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, duplicate.id);
+		expect(effectiveDuplicate.displayName).toBe(source.displayName);
+		expect(effectiveDuplicate.shortBio).toBe("Different short bio");
+		expect(effectiveDuplicate.prompt).toBe(source.prompt);
+		expect(effectiveDuplicate.cloneSource).toMatchObject({
+			sourceBotId: source.id,
+			sourceHandle: source.handle,
+			linked: true,
+		});
 	});
 
 	it("uploads SVG participant avatars into R2", async () => {
@@ -18321,9 +18587,35 @@ type BotBody = {
 	homeWorldHandle: string;
 	handle: string;
 	displayName: string;
+	shortBio: string;
 	avatar?: AvatarImage;
 	avatarUrl?: string;
 	avatarCrop?: AvatarCrop;
+	cloneSource?: {
+		sourceBotId: string;
+		sourceWorldId: string;
+		sourceWorldHandle: string;
+		sourceHandle: string;
+		linked: boolean;
+		sourceBot?: {
+			id: string;
+			homeWorldHandle: string;
+			handle: string;
+			displayName: string;
+			shortBio: string;
+			avatarUrl?: string;
+			avatarCrop?: AvatarCrop;
+		};
+	};
+	localOverrides?: {
+		displayName: string;
+		shortBio: string;
+		prompt?: string;
+		inferenceSettings: Record<string, unknown>;
+		hasAvatar: boolean;
+		avatarUrl?: string;
+		avatarCrop?: AvatarCrop;
+	};
 	owner?: {
 		id: string;
 		handle: string;
@@ -18824,6 +19116,20 @@ async function seedWorld(cookie: string): Promise<void> {
 	);
 }
 
+async function createWorldForTest(cookie: string, handle: string, name: string): Promise<void> {
+	const response = await createWorld(
+		contextFor<typeof createWorld>(
+			jsonRequest(
+				"http://example.com/api/worlds",
+				"POST",
+				{ handle, name, description: `${name} test world.` },
+				cookie,
+			),
+		),
+	);
+	expect(response.status, await response.clone().text()).toBe(201);
+}
+
 async function createForumForTest(cookie: string, handle: string): Promise<TestForum> {
 	const response = await createForum(
 		contextFor<typeof createForum>(
@@ -18838,6 +19144,38 @@ async function createForumForTest(cookie: string, handle: string): Promise<TestF
 	);
 	const payload = (await response.json()) as { data: { forum: TestForum } };
 	return payload.data.forum;
+}
+
+async function createBotInWorld(
+	cookie: string,
+	worldHandle: string,
+	input: {
+		handle: string;
+		displayName?: string;
+		shortBio?: string;
+		prompt?: string;
+		cloneSourceBotId?: string;
+	},
+): Promise<BotBody> {
+	const response = await createBot(
+		contextFor<typeof createBot>(
+			jsonRequest(
+				`http://example.com/api/worlds/${worldHandle}/bots`,
+				"POST",
+				{
+					displayName: `${input.handle} display`,
+					shortBio: `${input.handle} bio`,
+					prompt: `${input.handle} prompt`,
+					...input,
+				},
+				cookie,
+			),
+			{ worldHandle },
+		),
+	);
+	expect(response.status, await response.clone().text()).toBe(201);
+	const payload = (await response.json()) as { data: { bot: BotBody } };
+	return payload.data.bot;
 }
 
 async function createBotForTest(cookie: string, handle: string, options: { enabled?: boolean } = {}): Promise<BotBody> {

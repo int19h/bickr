@@ -17,6 +17,7 @@ import { formatCommentRef, formatThreadRef, parseCommentRef, parseObjectRef, par
 import {
 	botById,
 	botPublicProfile,
+	backfillInferredCloneSources,
 	createBot,
 	deleteBot,
 	effectiveTickSettings,
@@ -29,8 +30,12 @@ import {
 	mergeInferenceSettings,
 	mergeTickSettings,
 	mergeToolSettings,
+	rawBotById,
+	refreshLinkedCloneIndexes,
+	relinkBotClone,
 	RepositoryError,
 	softDeleteUserProfile,
+	unlinkBotClone,
 	updateBot,
 	updateBotAvatar,
 	userById,
@@ -9650,6 +9655,28 @@ async function applyGeneratedAvatarForBot(
 	return updated;
 }
 
+function sortBotsForCascadeDelete(bots: BotSummary[]): BotSummary[] {
+	const byId = new Map(bots.map((bot) => [bot.id, bot]));
+	const depthCache = new Map<string, number>();
+	function cloneDepth(bot: BotSummary, visiting = new Set<string>()): number {
+		const cached = depthCache.get(bot.id);
+		if (cached !== undefined) {
+			return cached;
+		}
+		if (visiting.has(bot.id)) {
+			return 0;
+		}
+		visiting.add(bot.id);
+		const sourceId = bot.cloneSource?.linked ? bot.cloneSource.sourceBotId : undefined;
+		const source = sourceId ? byId.get(sourceId) : undefined;
+		const depth = source ? cloneDepth(source, visiting) + 1 : 0;
+		visiting.delete(bot.id);
+		depthCache.set(bot.id, depth);
+		return depth;
+	}
+	return [...bots].sort((left, right) => cloneDepth(right) - cloneDepth(left));
+}
+
 async function prefillAvatarPromptForBot(
 	env: Pick<Env, 'BICKR_KV' | 'BICKR_D1' | 'OPENROUTER_API_KEY' | 'OPENROUTER_BASE_URL' | 'OPENROUTER_MODEL'>,
 	userId: string,
@@ -10232,19 +10259,20 @@ export async function handleAgentRuntimeRequest(
 			return ok({ reindex: result, coordinator: objectId });
 		}
 
+		if (request.method === 'POST' && url.pathname === '/maintenance/backfill-clone-sources') {
+			requireInternalServiceRequest(request);
+			const backfill = await backfillInferredCloneSources(env.BICKR_KV, env.BICKR_D1);
+			return ok({ backfill, coordinator: objectId });
+		}
+
 		const createMatch = /^\/users\/([^/]+)\/worlds\/([^/]+)\/bots$/.exec(url.pathname);
 		if (request.method === 'POST' && createMatch) {
 			const userId = requireUserMatch(request, decodeURIComponent(createMatch[1] ?? ''));
 			const worldHandle = normalizeHandle(decodeURIComponent(createMatch[2] ?? ''));
 			const input = parseCreateBotInput(await readJsonBody(request));
-			const cloneSourceBot = input.cloneSourceBotId ? await botById(env.BICKR_KV, env.BICKR_D1, input.cloneSourceBotId) : null;
+			const cloneSourceBot = input.cloneSourceBotId ? await rawBotById(env.BICKR_KV, env.BICKR_D1, input.cloneSourceBotId) : null;
 			if (cloneSourceBot && cloneSourceBot.ownerUserId !== userId) {
 				throw new RepositoryError('forbidden', 'You can only clone your own participants.', 403);
-			}
-			const cloneSourceAvatar = cloneSourceBot?.avatar;
-			if (cloneSourceAvatar) {
-				requireAvatarBucket(env);
-				normalizeAvatarPublicBaseUrl(env.BICKR_R2_PUBLIC_BASE_URL);
 			}
 			if (input.importSource?.sourceAvatarUrl) {
 				requireAvatarBucket(env);
@@ -10252,16 +10280,7 @@ export async function handleAgentRuntimeRequest(
 			}
 			const chirperAvatar = input.importSource?.sourceAvatarUrl ? await fetchRemoteAvatarBytes(input.importSource.sourceAvatarUrl) : null;
 			let bot = await createBot(env.BICKR_KV, env.BICKR_D1, worldHandle, input, userId, {
-				prepareAvatar: cloneSourceAvatar
-					? (createdBot) =>
-							copyAvatarImage(requireAvatarBucket(env), {
-								botId: createdBot.id,
-								worldId: createdBot.homeWorldId,
-								sourceAvatar: cloneSourceAvatar,
-								publicBaseUrl: normalizeAvatarPublicBaseUrl(env.BICKR_R2_PUBLIC_BASE_URL),
-								now: createdBot.createdAt,
-							})
-					: undefined,
+				cloneSource: cloneSourceBot ?? undefined,
 			});
 			if (chirperAvatar && input.importSource?.sourceAvatarUrl) {
 				const avatar = await storeAvatarImage(requireAvatarBucket(env), {
@@ -10290,7 +10309,46 @@ export async function handleAgentRuntimeRequest(
 			const input = parseUpdateBotInput(await readJsonBody(request));
 			const bot = await updateBot(env.BICKR_KV, env.BICKR_D1, botId, userId, input);
 			await upsertBotVector(env, bot);
-			return ok({ bot, coordinator: objectId });
+			const affectedBots = await refreshLinkedCloneIndexes(env.BICKR_KV, env.BICKR_D1, bot.id);
+			await Promise.all(affectedBots.map((affectedBot) => upsertBotVector(env, affectedBot)));
+			return ok({ bot, affectedBots, coordinator: objectId });
+		}
+
+		const cloneUnlinkMatch = /^\/users\/([^/]+)\/bots\/([^/]+)\/clone\/unlink$/.exec(url.pathname);
+		if (cloneUnlinkMatch && request.method === 'POST') {
+			const userId = requireUserMatch(request, decodeURIComponent(cloneUnlinkMatch[1] ?? ''));
+			const botId = decodeURIComponent(cloneUnlinkMatch[2] ?? '');
+			const rawBot = await rawBotById(env.BICKR_KV, env.BICKR_D1, botId);
+			if (rawBot.ownerUserId !== userId) {
+				throw new RepositoryError('forbidden', "Only this participant's owner can unlink it.", 403);
+			}
+			const effectiveBot = await botById(env.BICKR_KV, env.BICKR_D1, botId);
+			const now = new Date().toISOString();
+			const copiedAvatar = !rawBot.avatar && effectiveBot.avatar
+				? await copyAvatarImage(requireAvatarBucket(env), {
+					botId: rawBot.id,
+					worldId: rawBot.homeWorldId,
+					sourceAvatar: effectiveBot.avatar,
+					publicBaseUrl: normalizeAvatarPublicBaseUrl(env.BICKR_R2_PUBLIC_BASE_URL),
+					now,
+				})
+				: undefined;
+			const bot = await unlinkBotClone(env.BICKR_KV, env.BICKR_D1, botId, userId, copiedAvatar, now);
+			await upsertBotVector(env, bot);
+			const affectedBots = await refreshLinkedCloneIndexes(env.BICKR_KV, env.BICKR_D1, bot.id);
+			await Promise.all(affectedBots.map((affectedBot) => upsertBotVector(env, affectedBot)));
+			return ok({ bot, affectedBots, coordinator: objectId });
+		}
+
+		const cloneRelinkMatch = /^\/users\/([^/]+)\/bots\/([^/]+)\/clone\/relink$/.exec(url.pathname);
+		if (cloneRelinkMatch && request.method === 'POST') {
+			const userId = requireUserMatch(request, decodeURIComponent(cloneRelinkMatch[1] ?? ''));
+			const botId = decodeURIComponent(cloneRelinkMatch[2] ?? '');
+			const bot = await relinkBotClone(env.BICKR_KV, env.BICKR_D1, botId, userId);
+			await upsertBotVector(env, bot);
+			const affectedBots = await refreshLinkedCloneIndexes(env.BICKR_KV, env.BICKR_D1, bot.id);
+			await Promise.all(affectedBots.map((affectedBot) => upsertBotVector(env, affectedBot)));
+			return ok({ bot, affectedBots, coordinator: objectId });
 		}
 
 		const avatarPromptMatch = /^\/users\/([^/]+)\/bots\/([^/]+)\/avatar\/prompt$/.exec(url.pathname);
@@ -10324,7 +10382,9 @@ export async function handleAgentRuntimeRequest(
 				bot = await updateBot(env.BICKR_KV, env.BICKR_D1, bot.id, userId, input);
 			}
 			await upsertBotVector(env, bot);
-			return ok({ bot, coordinator: objectId });
+			const affectedBots = await refreshLinkedCloneIndexes(env.BICKR_KV, env.BICKR_D1, bot.id);
+			await Promise.all(affectedBots.map((affectedBot) => upsertBotVector(env, affectedBot)));
+			return ok({ bot, affectedBots, coordinator: objectId });
 		}
 
 		if (botMatch && request.method === 'DELETE') {
@@ -10357,8 +10417,8 @@ export async function handleAgentRuntimeRequest(
 				listOwnedForumsOutsideOwnedWorlds(env.BICKR_D1, userId),
 				listOwnedWorlds(env.BICKR_D1, userId),
 			]);
-			for (const bot of ownedBots) {
-				const deleted = await deleteBot(env.BICKR_KV, env.BICKR_D1, bot.id, userId, now);
+			for (const bot of sortBotsForCascadeDelete(ownedBots)) {
+				const deleted = await deleteBot(env.BICKR_KV, env.BICKR_D1, bot.id, userId, { now, allowLinkedCloneDelete: true });
 				await deleteBotVector(env, deleted.id);
 			}
 			for (const forum of ownedForumsOutsideOwnedWorlds) {
@@ -10403,12 +10463,13 @@ export default {
 
 		if (
 			(url.pathname === '/search/entities' && request.method === 'GET') ||
-			(url.pathname === '/search/reindex-vectors' && request.method === 'POST')
+			(url.pathname === '/search/reindex-vectors' && request.method === 'POST') ||
+			(url.pathname === '/maintenance/backfill-clone-sources' && request.method === 'POST')
 		) {
 			return handleAgentRuntimeRequest(request, env);
 		}
 
-		const userBotsMatch = /^\/users\/([^/]+)\/(?:worlds\/[^/]+\/bots|bots\/[^/]+(?:\/avatar\/(?:prompt|generate|apply))?|profile)$/.exec(
+		const userBotsMatch = /^\/users\/([^/]+)\/(?:worlds\/[^/]+\/bots|bots\/[^/]+(?:\/avatar\/(?:prompt|generate|apply)|\/clone\/(?:unlink|relink))?|profile)$/.exec(
 			url.pathname,
 		);
 		if (userBotsMatch && ['POST', 'PATCH', 'DELETE'].includes(request.method)) {

@@ -73,6 +73,17 @@ export type ChirperImportSource = {
 	sourceAvatarUrl?: string;
 };
 
+export type BotCloneSource = {
+	sourceBotId: string;
+	sourceWorldId: string;
+	sourceWorldHandle: string;
+	sourceHandle: string;
+	clonedAt: string;
+	linked: boolean;
+	unlinkedAt?: string;
+	relinkedAt?: string;
+};
+
 export type AvatarImageSource =
 	| {
 			type: "upload";
@@ -116,6 +127,30 @@ export type AvatarImage = {
 	crop?: AvatarCrop;
 	source?: AvatarImageSource;
 	updatedAt: string;
+};
+
+export type BotCloneSourceSummary = BotCloneSource & {
+	sourceBot?: {
+		id: string;
+		homeWorldId: string;
+		homeWorldHandle: string;
+		handle: string;
+		displayName: string;
+		shortBio: string;
+		avatarUrl?: string;
+		avatarCrop?: AvatarCrop;
+	};
+};
+
+export type BotLocalOverrides = {
+	displayName: string;
+	shortBio: string;
+	prompt?: string;
+	inferenceSettings: BotInferenceSettings;
+	hasAvatar: boolean;
+	avatar?: AvatarImage;
+	avatarUrl?: string;
+	avatarCrop?: AvatarCrop;
 };
 
 export function avatarCropFromValue(value: unknown): AvatarCrop | undefined {
@@ -174,6 +209,8 @@ export type BotDocument = EntityDocument & {
 	postingSettings?: PostingSettings;
 	tickSettings: BotTickSettings;
 	importSource?: ChirperImportSource;
+	cloneSource?: BotCloneSourceSummary;
+	localOverrides?: BotLocalOverrides;
 	avatar?: AvatarImage;
 };
 
@@ -813,6 +850,8 @@ export type BotSummary = {
 	tickSettings: BotTickSettings;
 	effectiveTickSettings: BotEffectiveTickSettings;
 	importSource?: ChirperImportSource;
+	cloneSource?: BotCloneSourceSummary;
+	localOverrides?: BotLocalOverrides;
 	lastActiveAt?: string;
 	nextDueAt?: string | null;
 	createdAt: string;

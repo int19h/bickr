@@ -7,6 +7,8 @@ import {
 	defaultTranslationPrompt,
 	type AvatarImage,
 	type AuthProvider,
+	type BotCloneSource,
+	type BotCloneSourceSummary,
 	type BotImageGenerationSettings,
 	type BotImageGenerationSettingsInput,
 	type BotInferenceSettingsInput,
@@ -17,6 +19,7 @@ import {
 	type BotDocument,
 	type BotEffectivePostingSettings,
 	type BotEffectiveTickSettings,
+	type BotLocalOverrides,
 	type BotPublicProfile,
 	type BotSummary,
 	type BotStructuredToolCalls,
@@ -136,6 +139,18 @@ type WorldSummaryIndexRow = Omit<WorldSummary, "postingSettings"> & {
 	postingCommentBodyCharacters: number | null;
 };
 
+type BotCloneSourceRow = {
+	botId: string;
+	sourceBotId: string;
+	sourceWorldId: string;
+	sourceWorldHandle: string;
+	sourceHandle: string;
+	clonedAt: string;
+	linked: number;
+	unlinkedAt: string | null;
+	relinkedAt: string | null;
+};
+
 export type SessionCreateResult = {
 	cookieValue: string;
 	session: SessionDocument;
@@ -165,6 +180,18 @@ export const defaultToolSettings: BotToolSettings = {};
 export type CreateBotOptions = {
 	now?: string;
 	prepareAvatar?: (bot: BotDocument) => Promise<AvatarImage | undefined>;
+	cloneSource?: BotDocument;
+};
+
+export type DeleteBotOptions = {
+	now?: string;
+	allowLinkedCloneDelete?: boolean;
+};
+
+export type CloneSourceBackfillResult = {
+	groups: number;
+	clonesLinked: number;
+	clonesSkipped: number;
 };
 
 export async function upsertProviderUser(
@@ -924,9 +951,10 @@ export async function listUserBots(
 	const activeBots = bots
 		.filter((bot): bot is BotDocument => Boolean(bot && !bot.deletedAt))
 		.map((bot) => normalizeBotDefaults(bot));
-	const worldPostingSettings = await worldPostingSettingsByIds(db, activeBots.map((bot) => bot.homeWorldId));
+	const effectiveBots = await effectiveBotDocuments(kv, db, activeBots);
+	const worldPostingSettings = await worldPostingSettingsByIds(db, effectiveBots.map((bot) => bot.homeWorldId));
 
-	return attachBotOwners(db, activeBots.map((bot) => {
+	return attachBotOwners(db, effectiveBots.map((bot) => {
 		const runtime = runtimeById.get(bot.id);
 		return botSummaryWithLastActive(bot, runtime?.lastActiveAt, {
 			includeToolSettings: true,
@@ -960,6 +988,16 @@ export async function createBot(
 	}
 
 	const owner = await userById(kv, userId);
+	const cloneSource = input.cloneSourceBotId ? createOptions.cloneSource ?? await rawBotById(kv, db, input.cloneSourceBotId) : null;
+	if (cloneSource && cloneSource.id !== input.cloneSourceBotId) {
+		throw new RepositoryError("bad_request", "Clone source does not match the requested source.", 400);
+	}
+	if (cloneSource && cloneSource.ownerUserId !== userId) {
+		throw new RepositoryError("forbidden", "You can only clone your own participants.", 403);
+	}
+	if (!cloneSource) {
+		assertMaterializedProfileFields(input.displayName, input.shortBio, input.prompt);
+	}
 	const inferenceSettings = mergeInferenceSettings(undefined, input.inferenceSettings);
 	enforceInferenceModelAccess(inferenceSettings, owner.inferenceSettings);
 	const toolSettings = mergeToolSettings(undefined, input.toolSettings);
@@ -994,8 +1032,12 @@ export async function createBot(
 	}
 
 	await writeJson(kv, kvKeys.bot(bot.id), bot);
-	await upsertBotIndex(db, bot);
-	await createPersonalForumForBot(kv, db, bot, userId, now);
+	if (cloneSource) {
+		await insertBotCloneSource(db, bot, cloneSource, now);
+	}
+	const effectiveBot = cloneSource ? await effectiveBotDocument(kv, db, bot) : bot;
+	await upsertBotIndex(db, effectiveBot);
+	await createPersonalForumForBot(kv, db, effectiveBot, userId, now);
 	await upsertBotRuntimeIndex(db, bot, now);
 	await autoSubscribeUserToBot(db, userId, bot, now);
 	if (bot.importSource) {
@@ -1017,9 +1059,9 @@ export async function createBot(
 			.run();
 	}
 	await putObjectIndex(db, bot, "bot", bot.homeWorldId);
-	await upsertBotSearchIndex(db, bot);
+	await upsertBotSearchIndex(db, effectiveBot);
 
-	return botSummary(bot, {
+	return botSummary(effectiveBot, {
 		includeToolSettings: true,
 		nextDueAt: await botRuntimeNextDueAt(db, bot.id),
 		owner: publicUser(owner),
@@ -1038,6 +1080,8 @@ export async function updateBot(
 	const bot = await botForOwner(kv, db, botId, userId);
 	const owner = await userById(kv, userId);
 	const worldPostingSettings = await worldPostingSettingsById(db, bot.homeWorldId);
+	const cloneSource = await cloneSourceByBotId(db, bot.id);
+	const canInheritProfile = Boolean(cloneSource?.linked);
 	const nextHandle = input.handle ?? bot.handle;
 	if (nextHandle !== bot.handle) {
 		await assertBotHandleAvailable(db, bot.homeWorldId, bot.id, nextHandle);
@@ -1061,10 +1105,15 @@ export async function updateBot(
 		revision: bot.revision + 1,
 		updatedAt: now,
 	};
+	if (!canInheritProfile) {
+		assertMaterializedProfileFields(updated.displayName, updated.shortBio, updated.prompt);
+	}
 
+	await writeJson(kv, kvKeys.bot(updated.id), updated);
+	const effectiveUpdated = canInheritProfile ? await effectiveBotDocument(kv, db, updated) : updated;
 	if (personalForumRename) {
 		await db.batch([
-			botIndexUpdateStatement(db, updated),
+			botIndexUpdateStatement(db, effectiveUpdated),
 			db
 				.prepare(`UPDATE forums_index SET handle = ?, updated_at = ? WHERE forum_id = ? AND deleted_at IS NULL`)
 				.bind(personalForumRename.updated.handle, now, personalForumRename.updated.id),
@@ -1073,10 +1122,9 @@ export async function updateBot(
 				.bind(personalForumRename.updated.handle, personalForumRename.updated.id),
 		]);
 	} else {
-		await upsertBotIndex(db, updated);
+		await upsertBotIndex(db, effectiveUpdated);
 	}
 	await upsertBotRuntimeIndex(db, updated, now, shouldRescheduleBotRuntime(bot.tickSettings, updated.tickSettings, input.tickSettings));
-	await writeJson(kv, kvKeys.bot(updated.id), updated);
 	if (personalForumRename) {
 		await writeJson(kv, kvKeys.forum(personalForumRename.updated.id), personalForumRename.updated);
 		await writePersonalForumThreadRenameDocuments(kv, db, personalForumRename.updated, now);
@@ -1084,9 +1132,9 @@ export async function updateBot(
 		await upsertForumSearchIndex(db, personalForumRename.updated);
 	}
 	await putObjectIndex(db, updated, "bot", updated.homeWorldId);
-	await upsertBotSearchIndex(db, updated);
+	await upsertBotSearchIndex(db, effectiveUpdated);
 
-	return botSummary(updated, {
+	return botSummary(effectiveUpdated, {
 		includeToolSettings: true,
 		nextDueAt: await botRuntimeNextDueAt(db, updated.id),
 		owner: publicUser(owner),
@@ -1113,11 +1161,43 @@ export async function updateBotAvatar(
 	};
 
 	await writeJson(kv, kvKeys.bot(updated.id), updated);
-	await upsertBotIndex(db, updated);
+	const effectiveUpdated = await effectiveBotDocument(kv, db, updated);
+	await upsertBotIndex(db, effectiveUpdated);
 	await putObjectIndex(db, updated, "bot", updated.homeWorldId);
-	await upsertBotSearchIndex(db, updated);
+	await upsertBotSearchIndex(db, effectiveUpdated);
 
-	return botSummary(updated, {
+	return botSummary(effectiveUpdated, {
+		includeToolSettings: true,
+		nextDueAt: await botRuntimeNextDueAt(db, updated.id),
+		owner: publicUser(owner),
+		worldPostingSettings,
+	});
+}
+
+export async function deleteBotAvatar(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	botId: string,
+	userId: string,
+	now = new Date().toISOString(),
+): Promise<BotSummary> {
+	const bot = await botForOwner(kv, db, botId, userId);
+	const owner = await userById(kv, userId);
+	const worldPostingSettings = await worldPostingSettingsById(db, bot.homeWorldId);
+	const { avatar: _avatar, ...withoutAvatar } = bot;
+	const updated: BotDocument = {
+		...withoutAvatar,
+		revision: bot.revision + 1,
+		updatedAt: now,
+	};
+
+	await writeJson(kv, kvKeys.bot(updated.id), updated);
+	const effectiveUpdated = await effectiveBotDocument(kv, db, updated);
+	await upsertBotIndex(db, effectiveUpdated);
+	await putObjectIndex(db, updated, "bot", updated.homeWorldId);
+	await upsertBotSearchIndex(db, effectiveUpdated);
+
+	return botSummary(effectiveUpdated, {
 		includeToolSettings: true,
 		nextDueAt: await botRuntimeNextDueAt(db, updated.id),
 		owner: publicUser(owner),
@@ -1130,9 +1210,18 @@ export async function deleteBot(
 	db: D1DatabaseLike,
 	botId: string,
 	userId: string,
-	now = new Date().toISOString(),
+	options: DeleteBotOptions | string = {},
 ): Promise<BotSummary> {
+	const deleteOptions = typeof options === "string" ? { now: options } : options;
+	const now = deleteOptions.now ?? new Date().toISOString();
 	const bot = await botForOwner(kv, db, botId, userId);
+	if (!deleteOptions.allowLinkedCloneDelete && await hasLinkedCloneDescendants(db, bot.id)) {
+		throw new RepositoryError(
+			"conflict",
+			"Delete linked clones of this participant, or unlink them, before deleting the source participant.",
+			409,
+		);
+	}
 	const owner = await publicUserById(db, userId);
 	const worldPostingSettings = await worldPostingSettingsById(db, bot.homeWorldId);
 	const deleted: BotDocument = {
@@ -1151,7 +1240,194 @@ export async function deleteBot(
 	return botSummary(deleted, { includeToolSettings: true, nextDueAt: null, owner, worldPostingSettings });
 }
 
-export async function botById(kv: KVNamespaceLike, db: D1DatabaseLike, botId: string): Promise<BotDocument> {
+export async function unlinkBotClone(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	botId: string,
+	userId: string,
+	copiedInheritedAvatar?: AvatarImage,
+	now = new Date().toISOString(),
+): Promise<BotSummary> {
+	const bot = await botForOwner(kv, db, botId, userId);
+	const cloneSource = await cloneSourceByBotId(db, bot.id);
+	if (!cloneSource) {
+		throw new RepositoryError("bad_request", "This participant is not a clone.", 400);
+	}
+	const owner = await userById(kv, userId);
+	const worldPostingSettings = await worldPostingSettingsById(db, bot.homeWorldId);
+	if (!cloneSource.linked) {
+		const effective = await effectiveBotDocument(kv, db, bot);
+		return botSummary(effective, {
+			includeToolSettings: true,
+			nextDueAt: await botRuntimeNextDueAt(db, bot.id),
+			owner: publicUser(owner),
+			worldPostingSettings,
+		});
+	}
+	const effectiveBefore = await effectiveBotDocument(kv, db, bot);
+	const updated: BotDocument = {
+		...bot,
+		displayName: hasProfileText(bot.displayName) ? bot.displayName : effectiveBefore.displayName,
+		shortBio: hasProfileText(bot.shortBio) ? bot.shortBio : effectiveBefore.shortBio,
+		prompt: hasProfileText(bot.prompt) ? bot.prompt : effectiveBefore.prompt,
+		inferenceSettings: hasInferenceText(bot.inferenceSettings.model) ?
+			bot.inferenceSettings
+		:	cloneInferenceSettings(effectiveBefore.inferenceSettings),
+		...(bot.avatar ? { avatar: bot.avatar } : copiedInheritedAvatar ? { avatar: copiedInheritedAvatar } : {}),
+		revision: bot.revision + 1,
+		updatedAt: now,
+	};
+	assertMaterializedProfileFields(updated.displayName, updated.shortBio, updated.prompt);
+
+	await writeJson(kv, kvKeys.bot(updated.id), updated);
+	await db
+		.prepare(
+			`UPDATE bot_clone_sources
+			 SET linked = 0, unlinked_at = ?, relinked_at = NULL
+			 WHERE bot_id = ?`,
+		)
+		.bind(now, updated.id)
+		.run();
+	const effectiveUpdated = await effectiveBotDocument(kv, db, updated);
+	await upsertBotIndex(db, effectiveUpdated);
+	await putObjectIndex(db, updated, "bot", updated.homeWorldId);
+	await upsertBotSearchIndex(db, effectiveUpdated);
+
+	return botSummary(effectiveUpdated, {
+		includeToolSettings: true,
+		nextDueAt: await botRuntimeNextDueAt(db, updated.id),
+		owner: publicUser(owner),
+		worldPostingSettings,
+	});
+}
+
+export async function relinkBotClone(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	botId: string,
+	userId: string,
+	now = new Date().toISOString(),
+): Promise<BotSummary> {
+	const bot = await botForOwner(kv, db, botId, userId);
+	const cloneSource = await cloneSourceByBotId(db, bot.id);
+	if (!cloneSource) {
+		throw new RepositoryError("bad_request", "This participant is not a clone.", 400);
+	}
+	const owner = await userById(kv, userId);
+	const worldPostingSettings = await worldPostingSettingsById(db, bot.homeWorldId);
+	const sourceRaw = await rawBotById(kv, db, cloneSource.sourceBotId);
+	if (sourceRaw.ownerUserId !== userId) {
+		throw new RepositoryError("forbidden", "You can only relink to your own participants.", 403);
+	}
+	await assertNoCloneCycle(db, bot.id, sourceRaw.id);
+	const sourceEffective = await effectiveBotDocument(kv, db, sourceRaw);
+	const next: BotDocument = {
+		...bot,
+		displayName: bot.displayName === sourceEffective.displayName ? "" : bot.displayName,
+		shortBio: bot.shortBio === sourceEffective.shortBio ? "" : bot.shortBio,
+		prompt: bot.prompt === sourceEffective.prompt ? "" : bot.prompt,
+		inferenceSettings: inferenceSettingsEqual(bot.inferenceSettings, sourceEffective.inferenceSettings) ?
+			cloneInferenceSettings(undefined)
+		:	bot.inferenceSettings,
+		revision: bot.revision + 1,
+		updatedAt: now,
+	};
+	if (avatarEquivalentForRelink(bot.avatar, sourceEffective.avatar)) {
+		delete next.avatar;
+	}
+
+	await writeJson(kv, kvKeys.bot(next.id), next);
+	await db
+		.prepare(
+			`UPDATE bot_clone_sources
+			 SET linked = 1, relinked_at = ?, unlinked_at = NULL
+			 WHERE bot_id = ?`,
+		)
+		.bind(now, next.id)
+		.run();
+	const effectiveUpdated = await effectiveBotDocument(kv, db, next);
+	await upsertBotIndex(db, effectiveUpdated);
+	await putObjectIndex(db, next, "bot", next.homeWorldId);
+	await upsertBotSearchIndex(db, effectiveUpdated);
+
+	return botSummary(effectiveUpdated, {
+		includeToolSettings: true,
+		nextDueAt: await botRuntimeNextDueAt(db, next.id),
+		owner: publicUser(owner),
+		worldPostingSettings,
+	});
+}
+
+export async function backfillInferredCloneSources(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	now = new Date().toISOString(),
+): Promise<CloneSourceBackfillResult> {
+	const result = await db
+		.prepare(
+			`SELECT
+				bot_id AS id,
+				owner_user_id AS ownerUserId,
+				handle,
+				created_at AS createdAt
+			 FROM bots_index
+			 WHERE deleted_at IS NULL
+			 ORDER BY owner_user_id ASC, handle ASC, created_at ASC, bot_id ASC`,
+		)
+		.all<{ id: string; ownerUserId: string; handle: string; createdAt: string }>();
+	const groups = new Map<string, string[]>();
+	for (const row of result.results ?? []) {
+		const key = `${row.ownerUserId}\0${row.handle}`;
+		const group = groups.get(key) ?? [];
+		group.push(row.id);
+		groups.set(key, group);
+	}
+
+	let groupCount = 0;
+	let clonesLinked = 0;
+	let clonesSkipped = 0;
+	for (const botIds of groups.values()) {
+		if (botIds.length < 2) {
+			continue;
+		}
+		groupCount += 1;
+		const [sourceId, ...targetIds] = botIds;
+		const sourceRaw = await rawBotById(kv, db, sourceId);
+		const sourceEffective = await effectiveBotDocument(kv, db, sourceRaw);
+		for (const targetId of targetIds) {
+			if (await cloneSourceByBotId(db, targetId)) {
+				clonesSkipped += 1;
+				continue;
+			}
+			const targetRaw = await rawBotById(kv, db, targetId);
+			let updated: BotDocument = {
+				...targetRaw,
+				displayName: targetRaw.displayName === sourceEffective.displayName ? "" : targetRaw.displayName,
+				shortBio: targetRaw.shortBio === sourceEffective.shortBio ? "" : targetRaw.shortBio,
+				prompt: targetRaw.prompt === sourceEffective.prompt ? "" : targetRaw.prompt,
+				inferenceSettings: inferenceSettingsEqual(targetRaw.inferenceSettings, sourceEffective.inferenceSettings) ?
+					cloneInferenceSettings(undefined)
+				:	targetRaw.inferenceSettings,
+				revision: targetRaw.revision + 1,
+				updatedAt: now,
+			};
+			if (avatarEquivalentForRelink(targetRaw.avatar, sourceEffective.avatar)) {
+				const { avatar: _avatar, ...withoutAvatar } = updated;
+				updated = withoutAvatar;
+			}
+			await insertBotCloneSource(db, updated, sourceRaw, now);
+			await writeJson(kv, kvKeys.bot(updated.id), updated);
+			const effective = await effectiveBotDocument(kv, db, updated);
+			await upsertBotIndex(db, effective);
+			await putObjectIndex(db, updated, "bot", updated.homeWorldId);
+			await upsertBotSearchIndex(db, effective);
+			clonesLinked += 1;
+		}
+	}
+	return { groups: groupCount, clonesLinked, clonesSkipped };
+}
+
+export async function rawBotById(kv: KVNamespaceLike, db: D1DatabaseLike, botId: string): Promise<BotDocument> {
 	const row = await db
 		.prepare(`SELECT deleted_at AS deletedAt FROM bots_index WHERE bot_id = ?`)
 		.bind(botId)
@@ -1165,6 +1441,10 @@ export async function botById(kv: KVNamespaceLike, db: D1DatabaseLike, botId: st
 		throw new RepositoryError("not_found", "Bot not found.", 404);
 	}
 	return normalizeBotDefaults(bot);
+}
+
+export async function botById(kv: KVNamespaceLike, db: D1DatabaseLike, botId: string): Promise<BotDocument> {
+	return effectiveBotDocument(kv, db, await rawBotById(kv, db, botId));
 }
 
 export async function botByHandle(
@@ -1234,7 +1514,8 @@ export async function listWorldBots(
 	);
 	const bots = await Promise.all(rows.map((row) => readJson<BotDocument>(kv, kvKeys.bot(row.id))));
 	const activeBots = bots.filter((bot): bot is BotDocument => Boolean(bot && !bot.deletedAt)).map((bot) => normalizeBotDefaults(bot));
-	return attachBotOwners(db, activeBots.map((bot) => {
+	const effectiveBots = await effectiveBotDocuments(kv, db, activeBots);
+	return attachBotOwners(db, effectiveBots.map((bot) => {
 		const runtime = runtimeById.get(bot.id);
 		return botSummaryWithLastActive(bot, runtime?.lastActiveAt, {
 			includePrompt: false,
@@ -1857,6 +2138,309 @@ async function writePersonalForumThreadRenameDocuments(
 	}
 }
 
+const maxCloneChainDepth = 16;
+
+type EffectiveBotContext = {
+	cache: Map<string, BotDocument>;
+	visiting: Set<string>;
+};
+
+function emptyEffectiveBotContext(): EffectiveBotContext {
+	return { cache: new Map(), visiting: new Set() };
+}
+
+async function effectiveBotDocuments(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	bots: BotDocument[],
+): Promise<BotDocument[]> {
+	const context = emptyEffectiveBotContext();
+	return Promise.all(bots.map((bot) => effectiveBotDocument(kv, db, bot, context)));
+}
+
+async function effectiveBotDocument(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	bot: BotDocument,
+	context = emptyEffectiveBotContext(),
+	depth = 0,
+): Promise<BotDocument> {
+	const normalized = normalizeBotDefaults(bot);
+	const cached = context.cache.get(normalized.id);
+	if (cached) {
+		return cached;
+	}
+	if (depth > maxCloneChainDepth) {
+		throw new RepositoryError("conflict", "Clone source chain is too deep.", 409);
+	}
+	if (context.visiting.has(normalized.id)) {
+		throw new RepositoryError("conflict", "Clone source cycle detected.", 409);
+	}
+
+	const cloneSource = await cloneSourceByBotId(db, normalized.id);
+	const localOverrides = cloneSource ? botLocalOverrides(normalized) : undefined;
+	if (!cloneSource?.linked) {
+		const sourceSummary = cloneSource && cloneSource.sourceBotId !== normalized.id ?
+			await cloneSourceSummary(kv, db, cloneSource, context, depth)
+		:	cloneSource ?? undefined;
+		const resolved = {
+			...normalized,
+			...(sourceSummary ? { cloneSource: sourceSummary } : {}),
+			...(localOverrides ? { localOverrides } : {}),
+		};
+		context.cache.set(normalized.id, resolved);
+		return resolved;
+	}
+
+	context.visiting.add(normalized.id);
+	try {
+		const sourceRaw = await sourceRawBotForLinkedClone(kv, db, cloneSource);
+		const sourceEffective = await effectiveBotDocument(kv, db, sourceRaw, context, depth + 1);
+		const inheritedInference = hasInferenceText(normalized.inferenceSettings.model) ?
+			normalized.inferenceSettings
+		:	cloneInferenceSettings(sourceEffective.inferenceSettings);
+		const resolved: BotDocument = {
+			...normalized,
+			displayName: hasProfileText(normalized.displayName) ? normalized.displayName : sourceEffective.displayName,
+			shortBio: hasProfileText(normalized.shortBio) ? normalized.shortBio : sourceEffective.shortBio,
+			prompt: hasProfileText(normalized.prompt) ? normalized.prompt : sourceEffective.prompt,
+			inferenceSettings: inheritedInference,
+			...(normalized.avatar ? { avatar: normalized.avatar } : sourceEffective.avatar ? { avatar: sourceEffective.avatar } : { avatar: undefined }),
+			cloneSource: { ...cloneSource, sourceBot: cloneSourceBotProfile(sourceEffective) },
+			...(localOverrides ? { localOverrides } : {}),
+		};
+		context.cache.set(normalized.id, resolved);
+		return resolved;
+	} finally {
+		context.visiting.delete(normalized.id);
+	}
+}
+
+async function sourceRawBotForLinkedClone(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	cloneSource: BotCloneSource,
+): Promise<BotDocument> {
+	try {
+		return await rawBotById(kv, db, cloneSource.sourceBotId);
+	} catch (error) {
+		if (error instanceof RepositoryError && error.code === "not_found") {
+			throw new RepositoryError("server_error", "Linked clone source is missing.", 500);
+		}
+		throw error;
+	}
+}
+
+async function cloneSourceSummary(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	cloneSource: BotCloneSource,
+	context: EffectiveBotContext,
+	depth: number,
+): Promise<BotCloneSourceSummary> {
+	try {
+		const source = await effectiveBotDocument(kv, db, await rawBotById(kv, db, cloneSource.sourceBotId), context, depth + 1);
+		return { ...cloneSource, sourceBot: cloneSourceBotProfile(source) };
+	} catch (error) {
+		if (error instanceof RepositoryError && error.code === "not_found") {
+			return cloneSource;
+		}
+		throw error;
+	}
+}
+
+function cloneSourceBotProfile(bot: BotDocument): NonNullable<BotCloneSourceSummary["sourceBot"]> {
+	return {
+		id: bot.id,
+		homeWorldId: bot.homeWorldId,
+		homeWorldHandle: bot.homeWorldHandle,
+		handle: bot.handle,
+		displayName: bot.displayName,
+		shortBio: bot.shortBio,
+		...(bot.avatar ? { avatarUrl: bot.avatar.url } : {}),
+		...(bot.avatar?.crop ? { avatarCrop: bot.avatar.crop } : {}),
+	};
+}
+
+function botLocalOverrides(bot: BotDocument): BotLocalOverrides {
+	return {
+		displayName: bot.displayName,
+		shortBio: bot.shortBio,
+		prompt: bot.prompt,
+		inferenceSettings: cloneInferenceSettings(bot.inferenceSettings),
+		hasAvatar: Boolean(bot.avatar),
+		...(bot.avatar ? { avatar: bot.avatar, avatarUrl: bot.avatar.url } : {}),
+		...(bot.avatar?.crop ? { avatarCrop: bot.avatar.crop } : {}),
+	};
+}
+
+async function cloneSourceByBotId(db: D1DatabaseLike, botId: string): Promise<BotCloneSource | null> {
+	const row = await db
+		.prepare(
+			`SELECT
+				bot_id AS botId,
+				source_bot_id AS sourceBotId,
+				source_world_id AS sourceWorldId,
+				source_world_handle AS sourceWorldHandle,
+				source_handle AS sourceHandle,
+				cloned_at AS clonedAt,
+				linked,
+				unlinked_at AS unlinkedAt,
+				relinked_at AS relinkedAt
+			 FROM bot_clone_sources
+			 WHERE bot_id = ?`,
+		)
+		.bind(botId)
+		.first<BotCloneSourceRow>();
+	return row ? cloneSourceFromRow(row) : null;
+}
+
+function cloneSourceFromRow(row: BotCloneSourceRow): BotCloneSource {
+	return {
+		sourceBotId: row.sourceBotId,
+		sourceWorldId: row.sourceWorldId,
+		sourceWorldHandle: row.sourceWorldHandle,
+		sourceHandle: row.sourceHandle,
+		clonedAt: row.clonedAt,
+		linked: row.linked !== 0,
+		...(row.unlinkedAt ? { unlinkedAt: row.unlinkedAt } : {}),
+		...(row.relinkedAt ? { relinkedAt: row.relinkedAt } : {}),
+	};
+}
+
+async function insertBotCloneSource(
+	db: D1DatabaseLike,
+	bot: BotDocument,
+	source: BotDocument,
+	now: string,
+): Promise<void> {
+	await db
+		.prepare(
+			`INSERT INTO bot_clone_sources (
+				bot_id, source_bot_id, source_world_id, source_world_handle, source_handle,
+				cloned_at, linked, unlinked_at, relinked_at
+			) VALUES (?, ?, ?, ?, ?, ?, 1, NULL, NULL)`,
+		)
+		.bind(bot.id, source.id, source.homeWorldId, source.homeWorldHandle, source.handle, now)
+		.run();
+}
+
+function hasProfileText(value: string | undefined): boolean {
+	return Boolean(value?.trim());
+}
+
+function assertMaterializedProfileFields(displayName: string, shortBio: string, prompt: string): void {
+	if (!hasProfileText(displayName)) {
+		throw new RepositoryError("bad_request", "Bot name is required.", 400);
+	}
+	if (!hasProfileText(shortBio)) {
+		throw new RepositoryError("bad_request", "Short bio is required.", 400);
+	}
+	if (!hasProfileText(prompt)) {
+		throw new RepositoryError("bad_request", "Prompt is required.", 400);
+	}
+}
+
+function cloneInferenceSettings(settings: BotInferenceSettings | undefined): BotInferenceSettings {
+	return mergeInferenceSettings(undefined, settings);
+}
+
+function inferenceSettingsEqual(left: BotInferenceSettings | undefined, right: BotInferenceSettings | undefined): boolean {
+	return JSON.stringify(cloneInferenceSettings(left)) === JSON.stringify(cloneInferenceSettings(right));
+}
+
+function avatarEquivalentForRelink(left: AvatarImage | undefined, right: AvatarImage | undefined): boolean {
+	if (!left || !right) {
+		return false;
+	}
+	return (
+		left.contentType === right.contentType &&
+		left.byteLength === right.byteLength &&
+		left.width === right.width &&
+		left.height === right.height &&
+		JSON.stringify(left.crop ?? null) === JSON.stringify(right.crop ?? null) &&
+		JSON.stringify(left.source ?? null) === JSON.stringify(right.source ?? null)
+	);
+}
+
+async function hasLinkedCloneDescendants(db: D1DatabaseLike, sourceBotId: string): Promise<boolean> {
+	const row = await db
+		.prepare(
+			`SELECT c.bot_id AS id
+			 FROM bot_clone_sources c
+			 JOIN bots_index b ON b.bot_id = c.bot_id AND b.deleted_at IS NULL
+			 WHERE c.source_bot_id = ? AND c.linked = 1
+			 LIMIT 1`,
+		)
+		.bind(sourceBotId)
+		.first<{ id: string }>();
+	return Boolean(row);
+}
+
+async function linkedCloneChildIds(db: D1DatabaseLike, sourceBotId: string): Promise<string[]> {
+	const result = await db
+		.prepare(
+			`SELECT c.bot_id AS id
+			 FROM bot_clone_sources c
+			 JOIN bots_index b ON b.bot_id = c.bot_id AND b.deleted_at IS NULL
+			 WHERE c.source_bot_id = ? AND c.linked = 1
+			 ORDER BY b.updated_at ASC, b.handle ASC`,
+		)
+		.bind(sourceBotId)
+		.all<{ id: string }>();
+	return (result.results ?? []).map((row) => row.id);
+}
+
+export async function refreshLinkedCloneIndexes(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	sourceBotId: string,
+): Promise<BotSummary[]> {
+	const summaries: BotSummary[] = [];
+	const seen = new Set<string>();
+	const queue = [sourceBotId];
+	while (queue.length > 0) {
+		const currentSourceId = queue.shift() ?? "";
+		const childIds = await linkedCloneChildIds(db, currentSourceId);
+		for (const childId of childIds) {
+			if (seen.has(childId)) {
+				continue;
+			}
+			seen.add(childId);
+			const raw = await rawBotById(kv, db, childId);
+			const effective = await effectiveBotDocument(kv, db, raw);
+			await upsertBotIndex(db, effective);
+			await putObjectIndex(db, raw, "bot", raw.homeWorldId);
+			await upsertBotSearchIndex(db, effective);
+			const worldPostingSettings = await worldPostingSettingsById(db, raw.homeWorldId);
+			summaries.push(botSummary(effective, {
+				includeToolSettings: true,
+				nextDueAt: await botRuntimeNextDueAt(db, raw.id),
+				worldPostingSettings,
+			}));
+			queue.push(childId);
+		}
+	}
+	return attachBotOwners(db, summaries);
+}
+
+async function assertNoCloneCycle(db: D1DatabaseLike, botId: string, sourceBotId: string): Promise<void> {
+	let currentId = sourceBotId;
+	const visited = new Set<string>([botId]);
+	for (let depth = 0; depth <= maxCloneChainDepth; depth += 1) {
+		if (visited.has(currentId)) {
+			throw new RepositoryError("conflict", "Clone source cycle detected.", 409);
+		}
+		visited.add(currentId);
+		const source = await cloneSourceByBotId(db, currentId);
+		if (!source?.linked) {
+			return;
+		}
+		currentId = source.sourceBotId;
+	}
+	throw new RepositoryError("conflict", "Clone source chain is too deep.", 409);
+}
+
 async function upsertBotIndex(db: D1DatabaseLike, bot: BotDocument): Promise<void> {
 	await db
 		.prepare(
@@ -2017,9 +2601,23 @@ function botSummary(
 		tickSettings: bot.tickSettings,
 		effectiveTickSettings: effectiveTickSettings(bot.tickSettings),
 		...(bot.importSource ? { importSource: bot.importSource } : {}),
+		...(bot.cloneSource ? { cloneSource: bot.cloneSource } : {}),
+		...(bot.localOverrides ? { localOverrides: publicBotLocalOverrides(bot.localOverrides) } : {}),
 		...(options.nextDueAt !== undefined ? { nextDueAt: options.nextDueAt } : {}),
 		createdAt: bot.createdAt,
 		updatedAt: bot.updatedAt,
+	};
+}
+
+function publicBotLocalOverrides(overrides: BotLocalOverrides): BotLocalOverrides {
+	return {
+		displayName: overrides.displayName,
+		shortBio: overrides.shortBio,
+		...(overrides.prompt !== undefined ? { prompt: overrides.prompt } : {}),
+		inferenceSettings: publicInferenceSettings(overrides.inferenceSettings),
+		hasAvatar: overrides.hasAvatar,
+		...(overrides.avatar ? { avatar: overrides.avatar, avatarUrl: overrides.avatar.url } : {}),
+		...(overrides.avatar?.crop ? { avatarCrop: overrides.avatar.crop } : {}),
 	};
 }
 

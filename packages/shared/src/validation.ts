@@ -160,6 +160,20 @@ export function optionalText(value: unknown, label: string, maxLength: number): 
 	return requiredText(value, label, maxLength);
 }
 
+function optionalTextPreservingEmpty(value: unknown, label: string, maxLength: number): string | undefined {
+	if (value === undefined || value === null) {
+		return undefined;
+	}
+	if (typeof value !== "string") {
+		throw new InputError(`${label} must be text.`);
+	}
+	const trimmed = value.trim();
+	if (trimmed.length > maxLength) {
+		throw new InputError(`${label} must be ${maxLength} characters or fewer.`);
+	}
+	return trimmed;
+}
+
 export function parseCreateWorldInput(input: unknown): CreateWorldInput {
 	const record = asRecord(input);
 	return {
@@ -239,11 +253,20 @@ export function parseCreateBotInput(input: unknown): CreateBotInput {
 	if (cloneSourceBotId && importSource) {
 		throw new InputError("Choose either a clone source or an import source.");
 	}
+	const displayName = cloneSourceBotId ?
+		optionalTextPreservingEmpty(record.displayName ?? record.name, "Bot name", 80) ?? ""
+	:	requiredText(record.displayName ?? record.name, "Bot name", 80);
+	const shortBio = cloneSourceBotId ?
+		optionalTextPreservingEmpty(record.shortBio, "Short bio", maxBotShortBioLength) ?? ""
+	:	requiredText(record.shortBio, "Short bio", maxBotShortBioLength);
+	const prompt = cloneSourceBotId ?
+		optionalTextPreservingEmpty(record.prompt, "Prompt", maxBotPromptLength) ?? ""
+	:	requiredText(record.prompt, "Prompt", maxBotPromptLength);
 	return {
 		handle: normalizeHandle(record.handle),
-		displayName: requiredText(record.displayName ?? record.name, "Bot name", 80),
-		shortBio: requiredText(record.shortBio, "Short bio", maxBotShortBioLength),
-		prompt: requiredText(record.prompt, "Prompt", maxBotPromptLength),
+		displayName,
+		shortBio,
+		prompt,
 		...(cloneSourceBotId ? { cloneSourceBotId } : {}),
 		...(record.inferenceSettings === undefined ?
 			{}
@@ -261,9 +284,9 @@ export function parseUpdateBotInput(input: unknown): UpdateBotInput {
 	const record = asRecord(input);
 	const update: UpdateBotInput = {};
 	const handle = record.handle === undefined ? undefined : normalizeHandle(record.handle);
-	const displayName = optionalText(record.displayName ?? record.name, "Bot name", 80);
-	const shortBio = optionalText(record.shortBio, "Short bio", maxBotShortBioLength);
-	const prompt = optionalText(record.prompt, "Prompt", maxBotPromptLength);
+	const displayName = optionalTextPreservingEmpty(record.displayName ?? record.name, "Bot name", 80);
+	const shortBio = optionalTextPreservingEmpty(record.shortBio, "Short bio", maxBotShortBioLength);
+	const prompt = optionalTextPreservingEmpty(record.prompt, "Prompt", maxBotPromptLength);
 	const inferenceSettings =
 		record.inferenceSettings === undefined ? undefined : parseInferenceSettings(record.inferenceSettings);
 	const toolSettings = record.toolSettings === undefined ? undefined : parseToolSettings(record.toolSettings);

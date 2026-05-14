@@ -2914,6 +2914,29 @@ fieldset {
 	padding: 4px 14px;
 }
 
+.source-row-value,
+.bot-source-value {
+	align-items: center;
+	display: inline-flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	justify-content: flex-end;
+	min-width: 0;
+}
+
+.clone-link-action {
+	margin-left: 2px;
+}
+
+.source-status {
+	border: 1px solid var(--rule);
+	border-radius: 999px;
+	color: var(--ink-4);
+	font-size: 11px;
+	line-height: 1;
+	padding: 3px 6px;
+}
+
 .agentic-loop-card {
 	display: grid;
 	gap: 20px;
@@ -5800,7 +5823,7 @@ fieldset {
 .profile-avatar-actions {
 	display: grid;
 	gap: 8px;
-	grid-template-columns: repeat(3, minmax(0, 1fr));
+	grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .btn.icon-only {
@@ -5808,6 +5831,10 @@ fieldset {
 	justify-content: center;
 	min-width: 38px;
 	padding: 0 10px;
+}
+
+.btn.icon-only.clone-inherited-indicator {
+	color: var(--ink-3);
 }
 
 .bot-profile-head .meta {

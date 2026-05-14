@@ -2171,7 +2171,7 @@ export async function searchBots(
 			.bind(worldId, term, term, term, limit)
 			.all<{ id: string }>(),
 	);
-	const bots = await Promise.all((result.results ?? []).map((row) => readJson<BotDocument>(kv, kvKeys.bot(row.id))));
+	const bots = await Promise.all((result.results ?? []).map((row) => botById(kv, db, row.id)));
 	return bots
 		.filter((bot): bot is BotDocument => Boolean(bot && !bot.deletedAt))
 		.map((bot) => ({ ...botPublicProfile(bot), source: "text" as const }));
@@ -2219,10 +2219,7 @@ export async function botPublicProfilesByHandles(
 			if (!row) {
 				return;
 			}
-			const bot = await readJson<BotDocument>(kv, kvKeys.bot(row.id));
-			if (bot && !bot.deletedAt) {
-				profilesByHandle.set(handle, botPublicProfile(bot));
-			}
+			profilesByHandle.set(handle, botPublicProfile(await botById(kv, db, row.id)));
 		}),
 	);
 	return normalizedHandles.flatMap((handle) => {

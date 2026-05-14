@@ -162,6 +162,7 @@ const bickrLogoSrc = "/bickr.png";
 type ApiSuccess<T> = { ok: true; data: T };
 type ApiFailure = { ok: false; error: string; message: string };
 type ApiResult<T> = ApiSuccess<T> | ApiFailure;
+type BotMutationResponse = { bot: BotSummary; affectedBots?: BotSummary[] };
 
 type BeforeInstallPromptEvent = Event & {
 	platforms: string[];
@@ -1671,7 +1672,7 @@ function App() {
 				) ?? null
 			:	null;
 		return submit(async () => {
-			const result = await api<{ bot: BotSummary }>(`/api/me/bots/${encodeURIComponent(botId)}`, {
+			const result = await api<BotMutationResponse>(`/api/me/bots/${encodeURIComponent(botId)}`, {
 				method: "PATCH",
 				body: draft,
 			});
@@ -1680,17 +1681,7 @@ function App() {
 			}
 			const savedBot = result.data.bot;
 			const renamed = Boolean(previousBot && previousBot.handle !== savedBot.handle);
-			setBots((current) =>
-				current.map((bot) =>
-					bot.id === botId ? { ...savedBot, lastActiveAt: savedBot.lastActiveAt ?? bot.lastActiveAt ?? bot.createdAt } : bot,
-				),
-			);
-			setBotsByWorld((current) => ({
-				...current,
-				[savedBot.homeWorldHandle]: (current[savedBot.homeWorldHandle] ?? []).map((bot) =>
-					bot.id === botId ? { ...savedBot, lastActiveAt: savedBot.lastActiveAt ?? bot.lastActiveAt ?? bot.createdAt } : bot,
-				),
-			}));
+			applySavedBots([savedBot, ...(result.data.affectedBots ?? [])]);
 			if (renamed && previousBot) {
 				setForumsByWorld((current) => ({
 					...current,
@@ -1733,21 +1724,88 @@ function App() {
 		});
 	}
 
-	function applySavedBot(savedBot: BotSummary): void {
+	async function unlinkBotClone(bot: BotSummary): Promise<boolean> {
+		if (!profileReadyFor("editing bots")) {
+			return false;
+		}
+		return submit(async () => {
+			const result = await api<BotMutationResponse>(`/api/me/bots/${encodeURIComponent(bot.id)}/clone/unlink`, {
+				method: "POST",
+			});
+			if (!result.ok) {
+				throw new Error(result.message);
+			}
+			applySavedBots([result.data.bot, ...(result.data.affectedBots ?? [])]);
+			return `Unlinked bot ${result.data.bot.handle}.`;
+		});
+	}
+
+	async function relinkBotClone(bot: BotSummary): Promise<boolean> {
+		if (!profileReadyFor("editing bots")) {
+			return false;
+		}
+		return submit(async () => {
+			const result = await api<BotMutationResponse>(`/api/me/bots/${encodeURIComponent(bot.id)}/clone/relink`, {
+				method: "POST",
+			});
+			if (!result.ok) {
+				throw new Error(result.message);
+			}
+			applySavedBots([result.data.bot, ...(result.data.affectedBots ?? [])]);
+			return `Relinked bot ${result.data.bot.handle}.`;
+		});
+	}
+
+	async function deleteBotAvatar(bot: BotSummary): Promise<boolean> {
+		if (!profileReadyFor("editing bots")) {
+			return false;
+		}
+		return submit(async () => {
+			const result = await api<BotMutationResponse>(`/api/me/bots/${encodeURIComponent(bot.id)}/avatar`, {
+				method: "DELETE",
+			});
+			if (!result.ok) {
+				throw new Error(result.message);
+			}
+			applySavedBots([result.data.bot, ...(result.data.affectedBots ?? [])]);
+			return `Deleted avatar for ${result.data.bot.handle}.`;
+		});
+	}
+
+	function applySavedBot(savedBot: BotSummary, affectedBots: BotSummary[] = []): void {
+		applySavedBots([savedBot, ...affectedBots]);
+	}
+
+	function applySavedBots(savedBots: BotSummary[]): void {
+		if (savedBots.length === 0) {
+			return;
+		}
+		const savedById = new Map(savedBots.map((bot) => [bot.id, bot]));
 		setBots((current) =>
 			current.map((bot) =>
-				bot.id === savedBot.id ? { ...savedBot, lastActiveAt: savedBot.lastActiveAt ?? bot.lastActiveAt ?? bot.createdAt } : bot,
+				savedById.has(bot.id) ?
+					{
+						...savedById.get(bot.id)!,
+						lastActiveAt: savedById.get(bot.id)!.lastActiveAt ?? bot.lastActiveAt ?? bot.createdAt,
+					}
+				:	bot,
 			),
 		);
-		setBotsByWorld((current) => ({
-			...current,
-			[savedBot.homeWorldHandle]: (current[savedBot.homeWorldHandle] ?? []).map((bot) =>
-				bot.id === savedBot.id ? { ...savedBot, lastActiveAt: savedBot.lastActiveAt ?? bot.lastActiveAt ?? bot.createdAt } : bot,
-			),
-		}));
-		const avatarUrl = savedBot.avatarUrl;
-		setThreadsByForum((current) => avatarUrl ? updateThreadSummaryAuthorAvatar(current, savedBot.id, avatarUrl, savedBot.avatarCrop) : current);
-		setThreadDocuments((current) => avatarUrl ? updateThreadDocumentAuthorAvatar(current, savedBot.id, avatarUrl, savedBot.avatarCrop) : current);
+		setBotsByWorld((current) => {
+			const next = { ...current };
+			for (const worldHandle of Object.keys(next)) {
+				next[worldHandle] = (next[worldHandle] ?? []).map((bot) => {
+					const saved = savedById.get(bot.id);
+					return saved ? { ...saved, lastActiveAt: saved.lastActiveAt ?? bot.lastActiveAt ?? bot.createdAt } : bot;
+				});
+			}
+			return next;
+		});
+		for (const savedBot of savedBots) {
+			const avatarUrl = savedBot.avatarUrl;
+			setThreadsByForum((current) => avatarUrl ? updateThreadSummaryAuthorAvatar(current, savedBot.id, avatarUrl, savedBot.avatarCrop) : current);
+			setThreadDocuments((current) => avatarUrl ? updateThreadDocumentAuthorAvatar(current, savedBot.id, avatarUrl, savedBot.avatarCrop) : current);
+		}
 	}
 
 	async function updateProfile(draft: UpdateUserProfileInput): Promise<UserProfile | null> {
@@ -1879,7 +1937,7 @@ function App() {
 		try {
 			const deleted: BotSummary[] = [];
 			const failed: BotSummary[] = [];
-			for (const bot of targetBots) {
+			for (const bot of sortBotsForCascadeDelete(targetBots)) {
 				try {
 					const result = await api<{ bot: BotSummary }>(`/api/me/bots/${encodeURIComponent(bot.id)}`, {
 						method: "DELETE",
@@ -2118,6 +2176,7 @@ function App() {
 							onMarkNotificationRead={markHumanNotificationReadState}
 							onOpenNotification={(notification) => void openHumanNotification(notification)}
 							onAvatarUpdated={applySavedBot}
+							onDeleteAvatar={deleteBotAvatar}
 							onReference={openReference}
 							onToggleSubscription={toggleSubscription}
 							ownerInferenceSettings={userProfile?.inferenceSettings ?? null}
@@ -2175,7 +2234,9 @@ function App() {
 									})
 								}
 								onDelete={deleteBot}
+								onRelinkClone={relinkBotClone}
 								onSave={updateBot}
+								onUnlinkClone={unlinkBotClone}
 								ownerInferenceSettings={userProfile?.inferenceSettings ?? null}
 								personalForum={activeBotBlogForum}
 								personalForumsLoaded={editingWorld ? hasOwn(forumsByWorld, editingWorld.handle) : false}
@@ -5292,6 +5353,7 @@ function BotProfileScreen({
 	onMarkNotificationRead,
 	onOpenNotification,
 	onAvatarUpdated,
+	onDeleteAvatar,
 	onReference,
 	onToggleSubscription,
 	ownerInferenceSettings,
@@ -5307,7 +5369,8 @@ function BotProfileScreen({
 	onMarkAllNotificationsRead: (scope?: HumanNotificationReadScope) => Promise<number | null>;
 	onMarkNotificationRead: (notification: HumanNotification) => Promise<string | null>;
 	onOpenNotification: (notification: HumanNotification) => void;
-	onAvatarUpdated: (bot: BotSummary) => void;
+	onAvatarUpdated: (bot: BotSummary, affectedBots?: BotSummary[]) => void;
+	onDeleteAvatar: (bot: BotSummary) => Promise<boolean>;
 	onReference: OpenReference;
 	onToggleSubscription: (target: SubscriptionTarget, active: boolean) => Promise<void>;
 	ownerInferenceSettings: BotInferenceSettings | null;
@@ -5329,9 +5392,12 @@ function BotProfileScreen({
 	const [ownerProfile, setOwnerProfile] = useState<HumanProfile | null>(null);
 	const [uploadOpen, setUploadOpen] = useState(false);
 	const [cropOpen, setCropOpen] = useState(false);
+	const [deleteAvatarConfirm, setDeleteAvatarConfirm] = useState(false);
 	const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 	const [profileAvatarFailed, setProfileAvatarFailed] = useState(false);
 	const effectiveModel = effectiveBotModel(bot, isOwner ? ownerInferenceSettings : null);
+	const hasLocalAvatar = bot.localOverrides?.hasAvatar ?? Boolean(bot.avatarUrl);
+	const inheritingAvatar = Boolean(bot.cloneSource?.linked && bot.avatarUrl && !hasLocalAvatar);
 
 	useEffect(() => {
 		setProfileAvatarFailed(false);
@@ -5477,7 +5543,7 @@ function BotProfileScreen({
 						<div className="profile-avatar-actions">
 							<button
 								className="btn icon-only"
-								disabled={!bot.avatarUrl || profileAvatarFailed}
+								disabled={!hasLocalAvatar || !bot.avatarUrl || profileAvatarFailed}
 								onClick={() => setCropOpen(true)}
 								title="Crop avatar"
 								type="button"
@@ -5494,6 +5560,25 @@ function BotProfileScreen({
 							>
 								<Icon name="sparkles" size={16} />
 							</SpaLink>
+							{inheritingAvatar ?
+								<button
+									className="btn icon-only clone-inherited-indicator"
+									disabled
+									title="The original avatar can only be deleted in the original profile."
+									type="button"
+								>
+									<span aria-hidden>👥</span>
+								</button>
+							:	<button
+									className="btn icon-only danger"
+									disabled={!hasLocalAvatar}
+									onClick={() => setDeleteAvatarConfirm(true)}
+									title="Delete avatar"
+									type="button"
+								>
+									<Icon name="trash" size={16} />
+								</button>
+							}
 						</div>
 					)}
 				</div>
@@ -5562,7 +5647,7 @@ function BotProfileScreen({
 							:	"not found"
 						}
 					/>
-					<RuntimeRow label="Source" value={bot.importSource ? `chirper/${bot.importSource.originalHandle}` : "manual"} />
+					<RuntimeRow label="Source" value={<BotSourceValue bot={bot} />} />
 					<RuntimeRow label="Model" value={effectiveModel} />
 					<RuntimeRow label="Loop" value={bot.tickSettings.enabled ? "active" : "paused"} />
 					<RuntimeRow label="Tick interval" value={formatTickIntervalMinutes(bot.tickSettings.intervalSeconds)} />
@@ -5595,6 +5680,22 @@ function BotProfileScreen({
 				onClose={() => setCropOpen(false)}
 				onSaved={onAvatarUpdated}
 				open={cropOpen}
+			/>
+			<Confirm
+				body={
+					inheritingAvatar ?
+						"The inherited avatar can only be deleted in the original profile."
+					:	<>
+							This removes the local avatar for <b>{bot.displayName}</b>. If this is a linked clone, it will use
+							the source avatar again.
+						</>
+				}
+				confirmText="Delete avatar"
+				danger
+				onClose={() => setDeleteAvatarConfirm(false)}
+				onConfirm={() => void onDeleteAvatar(bot)}
+				open={deleteAvatarConfirm}
+				title="Delete avatar?"
 			/>
 			<ImageLightbox
 				onClose={() => setLightboxUrl(null)}
@@ -5703,7 +5804,7 @@ function AvatarUploadModal({
 }: {
 	bot: BotSummary;
 	onClose: () => void;
-	onSaved: (bot: BotSummary) => void;
+	onSaved: (bot: BotSummary, affectedBots?: BotSummary[]) => void;
 	open: boolean;
 }) {
 	const [url, setUrl] = useState("");
@@ -5732,14 +5833,14 @@ function AvatarUploadModal({
 						return form;
 					})()
 				:	{ url: url.trim() };
-			const result = await api<{ bot: BotSummary }>(`/api/me/bots/${encodeURIComponent(bot.id)}/avatar`, {
+			const result = await api<BotMutationResponse>(`/api/me/bots/${encodeURIComponent(bot.id)}/avatar`, {
 				method: "PUT",
 				body,
 			});
 			if (!result.ok) {
 				throw new Error(result.message);
 			}
-			onSaved(result.data.bot);
+			onSaved(result.data.bot, result.data.affectedBots);
 			onClose();
 		} catch (caught) {
 			setError(caught instanceof Error ? caught.message : "Could not save avatar.");
@@ -5814,7 +5915,7 @@ function AvatarCropModal({
 }: {
 	bot: BotSummary;
 	onClose: () => void;
-	onSaved: (bot: BotSummary) => void;
+	onSaved: (bot: BotSummary, affectedBots?: BotSummary[]) => void;
 	open: boolean;
 }) {
 	const imageRef = useRef<HTMLImageElement | null>(null);
@@ -5922,14 +6023,14 @@ function AvatarCropModal({
 		setSaving(true);
 		setError("");
 		try {
-			const result = await api<{ bot: BotSummary }>(`/api/me/bots/${encodeURIComponent(bot.id)}/avatar/crop`, {
+			const result = await api<BotMutationResponse>(`/api/me/bots/${encodeURIComponent(bot.id)}/avatar/crop`, {
 				method: "PATCH",
 				body: { crop: draft },
 			});
 			if (!result.ok) {
 				throw new Error(result.message);
 			}
-			onSaved(result.data.bot);
+			onSaved(result.data.bot, result.data.affectedBots);
 			onClose();
 		} catch (caught) {
 			setError(caught instanceof Error ? caught.message : "Could not save avatar crop.");
@@ -6031,7 +6132,7 @@ function BotAvatarGenerationScreen({
 	world,
 }: {
 	bot: BotSummary;
-	onAvatarUpdated: (bot: BotSummary) => void;
+	onAvatarUpdated: (bot: BotSummary, affectedBots?: BotSummary[]) => void;
 	onBack: () => void;
 	onDiscardSettings: () => Promise<boolean>;
 	onSaveSettings: (draft: InferenceDraft) => Promise<boolean>;
@@ -6200,7 +6301,7 @@ function BotAvatarGenerationScreen({
 		try {
 			if (candidate) {
 				const promptToSave = candidate.source?.type === "generated" && candidate.source.prompt ? candidate.source.prompt : prompt;
-				const result = await api<{ bot: BotSummary }>(`/api/me/bots/${encodeURIComponent(bot.id)}/avatar/apply`, {
+				const result = await api<BotMutationResponse>(`/api/me/bots/${encodeURIComponent(bot.id)}/avatar/apply`, {
 					method: "POST",
 					body: {
 						candidate,
@@ -6210,7 +6311,7 @@ function BotAvatarGenerationScreen({
 				if (!result.ok) {
 					throw new Error(result.message);
 				}
-				onAvatarUpdated(result.data.bot);
+				onAvatarUpdated(result.data.bot, result.data.affectedBots);
 				setCandidate(null);
 				setMessage("Avatar saved.");
 			} else {
@@ -7510,7 +7611,9 @@ function BotEdit({
 	modelSuggestions,
 	onBack,
 	onDelete,
+	onRelinkClone,
 	onSave,
+	onUnlinkClone,
 	ownerInferenceSettings,
 	personalForum,
 	personalForumsLoaded,
@@ -7521,19 +7624,23 @@ function BotEdit({
 	modelSuggestions: string[];
 	onBack: () => void;
 	onDelete: (bot: BotSummary) => Promise<boolean>;
+	onRelinkClone: (bot: BotSummary) => Promise<boolean>;
 	onSave: (botId: string, draft: UpdateBotInput) => Promise<boolean>;
+	onUnlinkClone: (bot: BotSummary) => Promise<boolean>;
 	ownerInferenceSettings: BotInferenceSettings | null;
 	personalForum: ForumSummary | null;
 	personalForumsLoaded: boolean;
 	world: WorldView | null;
 }) {
+	const initialProfileOverrides = bot.localOverrides;
+	const initialInferenceSettings = botEditableInferenceSettings(bot);
 	const [draft, setDraft] = useState({
-		displayName: bot.displayName,
-		shortBio: bot.shortBio,
-		prompt: bot.prompt ?? "",
+		displayName: initialProfileOverrides?.displayName ?? bot.displayName,
+		shortBio: initialProfileOverrides?.shortBio ?? bot.shortBio,
+		prompt: initialProfileOverrides?.prompt ?? bot.prompt ?? "",
 		inference: inferenceDraftFromSettings(
-			bot.inferenceSettings,
-			inferenceFallbackContextForSettings(bot.inferenceSettings, ownerInferenceSettings),
+			initialInferenceSettings,
+			cloneAwareInferenceFallbackForSettings(bot, initialInferenceSettings, ownerInferenceSettings),
 		),
 		tools: toolDraftFromSettings(bot.toolSettings),
 		threadBodyCharacters: optionalNumberDraftValue(bot.postingSettings.threadBodyCharacters),
@@ -7549,18 +7656,21 @@ function BotEdit({
 		maxGeneratedTokensPerIteration: optionalNumberDraftValue(bot.tickSettings.maxGeneratedTokensPerIteration),
 	});
 	const [confirm, setConfirm] = useState(false);
+	const [cloneLinkConfirm, setCloneLinkConfirm] = useState<"unlink" | "relink" | null>(null);
 	const [renameOpen, setRenameOpen] = useState(false);
 	const [promptBudget, setPromptBudget] = useState<PromptBudgetState>({ status: "idle" });
 	const toast = useContext(ToastContext);
 
 	useEffect(() => {
+		const profileOverrides = bot.localOverrides;
+		const inferenceSettings = botEditableInferenceSettings(bot);
 		setDraft({
-			displayName: bot.displayName,
-			shortBio: bot.shortBio,
-			prompt: bot.prompt ?? "",
+			displayName: profileOverrides?.displayName ?? bot.displayName,
+			shortBio: profileOverrides?.shortBio ?? bot.shortBio,
+			prompt: profileOverrides?.prompt ?? bot.prompt ?? "",
 			inference: inferenceDraftFromSettings(
-				bot.inferenceSettings,
-				inferenceFallbackContextForSettings(bot.inferenceSettings, ownerInferenceSettings),
+				inferenceSettings,
+				cloneAwareInferenceFallbackForSettings(bot, inferenceSettings, ownerInferenceSettings),
 			),
 			tools: toolDraftFromSettings(bot.toolSettings),
 			threadBodyCharacters: optionalNumberDraftValue(bot.postingSettings.threadBodyCharacters),
@@ -7579,6 +7689,7 @@ function BotEdit({
 		bot.displayName,
 		bot.id,
 		bot.inferenceSettings,
+		bot.localOverrides,
 		ownerInferenceSettings,
 		bot.prompt,
 		bot.shortBio,
@@ -7611,17 +7722,31 @@ function BotEdit({
 	const resolvedContextWindowTokens = contextWindowTokens ?? bot.effectiveTickSettings.contextWindowTokens;
 	const providerRoutingError = providerRoutingDraftError(draft.inference.providerRouting);
 	const translationProviderRoutingError = providerRoutingDraftError(draft.inference.translationProviderRouting);
-	const inferenceInheritance = inferenceFallbackContextForDraft(draft.inference, ownerInferenceSettings);
-	const promptBudgetRequestKey = botPromptBudgetRequestKey(bot.id, bot.handle, draft, inferenceInheritance);
+	const linkedClone = Boolean(bot.cloneSource?.linked);
+	const savedDisplayName = bot.localOverrides?.displayName ?? bot.displayName;
+	const savedShortBio = bot.localOverrides?.shortBio ?? bot.shortBio;
+	const savedPrompt = bot.localOverrides?.prompt ?? bot.prompt ?? "";
+	const savedInferenceSettings = botEditableInferenceSettings(bot);
+	const effectiveDraftDisplayName = draft.displayName.trim() || (linkedClone ? bot.displayName : "");
+	const effectiveDraftShortBio = draft.shortBio.trim() || (linkedClone ? bot.shortBio : "");
+	const effectiveDraftPrompt = draft.prompt.trim() || (linkedClone ? bot.prompt ?? "" : "");
+	const inferenceInheritedSettings = cloneAwareInferenceInheritedSettingsForDraft(bot, draft.inference, ownerInferenceSettings);
+	const inferenceInheritance = cloneAwareInferenceFallbackForDraft(bot, draft.inference, ownerInferenceSettings);
+	const promptBudgetRequestKey = botPromptBudgetRequestKey(bot.id, bot.handle, {
+		...draft,
+		displayName: effectiveDraftDisplayName,
+		shortBio: effectiveDraftShortBio,
+		prompt: effectiveDraftPrompt,
+	}, inferenceInheritance);
 	const promptBudgetReady =
 		promptBudget.status === "ready" && promptBudget.requestKey === promptBudgetRequestKey ? promptBudget.budget : null;
 	const promptBudgetError =
 		promptBudget.status === "error" && promptBudget.requestKey === promptBudgetRequestKey ? promptBudget.message : "";
 	const promptBudgetLoading = promptBudget.status === "loading" && promptBudget.requestKey === promptBudgetRequestKey;
 	const dirty =
-		draft.displayName !== bot.displayName ||
-		draft.shortBio !== bot.shortBio ||
-		draft.prompt !== (bot.prompt ?? "") ||
+		draft.displayName !== savedDisplayName ||
+		draft.shortBio !== savedShortBio ||
+		draft.prompt !== savedPrompt ||
 		tickIntervalMinutes !== secondsToMinutes(bot.tickSettings.intervalSeconds) ||
 		draft.allowEarlyLogOff !== bot.effectiveTickSettings.allowEarlyLogOff ||
 		contextWindowTokens !== (bot.tickSettings.contextWindowTokens ?? null) ||
@@ -7633,15 +7758,15 @@ function BotEdit({
 		maxGeneratedTokensPerIteration !== (bot.tickSettings.maxGeneratedTokensPerIteration ?? null) ||
 		threadBodyCharacters !== (bot.postingSettings.threadBodyCharacters ?? null) ||
 		commentBodyCharacters !== (bot.postingSettings.commentBodyCharacters ?? null) ||
-		inferenceDraftChanged(draft.inference, bot.inferenceSettings, {
+		inferenceDraftChanged(draft.inference, savedInferenceSettings, {
 			includeReasoningPrefill: true,
 			inherited: inferenceInheritance,
 		}) ||
 		toolDraftChanged(draft.tools, bot.toolSettings);
 	const valid =
-		draft.displayName.trim().length > 0 &&
-		draft.shortBio.trim().length > 0 &&
-		draft.prompt.trim().length > 0 &&
+		effectiveDraftDisplayName.length > 0 &&
+		effectiveDraftShortBio.length > 0 &&
+		effectiveDraftPrompt.length > 0 &&
 		draft.prompt.length <= maxBotPromptLength &&
 		draft.inference.recurringPrompt.length <= maxBotReasoningPrefillLength &&
 		!providerRoutingError &&
@@ -7723,7 +7848,7 @@ function BotEdit({
 
 	async function computePromptBudget(): Promise<void> {
 		if (
-			!draft.prompt.trim() ||
+			!effectiveDraftPrompt ||
 			(contextWindowTokens !== null && (contextWindowTokens < 2_000 || contextWindowTokens > 1_000_000)) ||
 			(threadBodyCharacters !== null &&
 				(threadBodyCharacters < 1 || threadBodyCharacters > inheritedPostingSettings.threadBodyCharacters)) ||
@@ -7740,9 +7865,9 @@ function BotEdit({
 			{
 				method: "POST",
 				body: {
-					displayName: draft.displayName,
-					prompt: draft.prompt,
-					shortBio: draft.shortBio,
+					displayName: effectiveDraftDisplayName,
+					prompt: effectiveDraftPrompt,
+					shortBio: effectiveDraftShortBio,
 					inferenceSettings: inferenceInputFromDraft(draft.inference, inferenceInheritance, { includeReasoningPrefill: true }),
 					toolSettings: toolInputFromDraft(draft.tools),
 					postingSettings: {
@@ -7767,7 +7892,7 @@ function BotEdit({
 
 	const openRouterServerToolsAvailable = isOpenRouterBaseUrlForTools(
 		draft.inference.baseUrl,
-		ownerInferenceSettings?.baseUrl,
+		inferenceInheritance?.baseUrl,
 	);
 	const personalForumRenames = personalForum?.handle === bot.handle;
 
@@ -7779,8 +7904,8 @@ function BotEdit({
 						{world?.name ?? bot.homeWorldHandle}
 					</button>
 					<h1>
-						<Avatar actor="bot" colorSeed={bot.handle} crop={bot.avatarCrop} imageUrl={bot.avatarUrl} name={draft.displayName} size="lg" />
-						<span>{draft.displayName || bot.displayName}</span>
+						<Avatar actor="bot" colorSeed={bot.handle} crop={bot.avatarCrop} imageUrl={bot.avatarUrl} name={effectiveDraftDisplayName || bot.displayName} size="lg" />
+						<span>{effectiveDraftDisplayName || bot.displayName}</span>
 					</h1>
 					<p className="sub">
 						<Reference isBot kind="bot" name={bot.handle} /> in{" "}
@@ -7811,6 +7936,7 @@ function BotEdit({
 										className="input"
 										maxLength={80}
 										onChange={(event) => setDraft((current) => ({ ...current, displayName: event.target.value }))}
+										placeholder={linkedClone ? bot.displayName : undefined}
 										value={draft.displayName}
 									/>
 								</Field>
@@ -7836,11 +7962,12 @@ function BotEdit({
 									</div>
 								</Field>
 							</div>
-							<Field hint="required" label="Short bio">
+							<Field hint={linkedClone ? "blank inherits source" : "required"} label="Short bio">
 								<textarea
 									className="textarea short-bio-editor"
 									maxLength={1200}
 									onChange={(event) => setDraft((current) => ({ ...current, shortBio: event.target.value }))}
+									placeholder={linkedClone ? bot.shortBio : undefined}
 									rows={4}
 									value={draft.shortBio}
 								/>
@@ -7860,6 +7987,7 @@ function BotEdit({
 								className="textarea prompt-editor"
 								maxLength={maxBotPromptLength}
 								onChange={(event) => setDraft((current) => ({ ...current, prompt: event.target.value }))}
+								placeholder={linkedClone ? bot.prompt : undefined}
 								value={draft.prompt}
 							/>
 						</Field>
@@ -8133,9 +8261,9 @@ function BotEdit({
 						</div>
 						<InferenceProviderFields
 							draft={draft.inference}
-							inheritedApiKeySet={Boolean(ownerInferenceSettings?.openRouterApiKeySet)}
-							inheritedBaseUrl={ownerInferenceSettings?.baseUrl}
-							inheritedSettings={ownerInferenceSettings}
+							inheritedApiKeySet={Boolean(inferenceInheritance?.openRouterApiKeySet ?? inferenceInheritance?.apiKeySet)}
+							inheritedBaseUrl={inferenceInheritance?.baseUrl}
+							inheritedSettings={inferenceInheritedSettings}
 							onChange={(inference) => setDraft((current) => ({ ...current, inference }))}
 							scope="bot"
 						/>
@@ -8147,9 +8275,9 @@ function BotEdit({
 						</div>
 						<AgenticLoopInferenceFields
 							draft={draft.inference}
-							inheritedApiKeySet={Boolean(ownerInferenceSettings?.openRouterApiKeySet)}
-							inheritedBaseUrl={ownerInferenceSettings?.baseUrl}
-							inheritedSettings={ownerInferenceSettings}
+							inheritedApiKeySet={Boolean(inferenceInheritance?.openRouterApiKeySet ?? inferenceInheritance?.apiKeySet)}
+							inheritedBaseUrl={inferenceInheritance?.baseUrl}
+							inheritedSettings={inferenceInheritedSettings}
 							modelSuggestions={modelSuggestions}
 							onChange={(inference) => setDraft((current) => ({ ...current, inference }))}
 							scope="bot"
@@ -8207,7 +8335,34 @@ function BotEdit({
 							<RuntimeRow label="Owner" value="you" />
 							<RuntimeRow label="World" value={<Reference kind="world" name={world?.handle ?? bot.homeWorldHandle} />} />
 							<RuntimeRow label="Created" value={<TimeAgoLabel value={bot.createdAt} />} />
-							<RuntimeRow label="Source" value={bot.importSource ? `chirper/${bot.importSource.originalHandle}` : "manual"} />
+							<RuntimeRow
+								label="Source"
+								value={
+									<span className="source-row-value">
+										<BotSourceValue bot={bot} />
+										{bot.cloneSource?.linked ?
+											<button
+												className="btn icon-only danger clone-link-action"
+												onClick={() => setCloneLinkConfirm("unlink")}
+												title="Break the link between this clone and its original so future original changes are not reflected here."
+												type="button"
+											>
+												<span aria-hidden>⛓️‍💥</span>
+											</button>
+										: bot.cloneSource ?
+											<button
+												className="btn compact clone-link-action"
+												disabled={!bot.cloneSource.sourceBot}
+												onClick={() => setCloneLinkConfirm("relink")}
+												title={bot.cloneSource.sourceBot ? "Restore the clone link and inheritance cascade." : "The original source no longer exists."}
+												type="button"
+											>
+												Relink
+											</button>
+										:	null}
+									</span>
+								}
+							/>
 						</div>
 					</section>
 				</aside>
@@ -8258,6 +8413,25 @@ function BotEdit({
 				onConfirm={() => void onDelete(bot)}
 				open={confirm}
 				title="Delete this bot?"
+			/>
+			<Confirm
+				body={
+					cloneLinkConfirm === "unlink" ?
+						<>
+							This copies all inherited profile, avatar, and inference values into <b>{bot.displayName}</b>,
+							then stops future source changes from cascading into this clone.
+						</>
+					:	<>
+							This restores inheritance from the original source. Local values that exactly match the current
+							source are cleared so future source changes can cascade.
+						</>
+				}
+				confirmText={cloneLinkConfirm === "unlink" ? "Unlink clone" : "Relink clone"}
+				danger={cloneLinkConfirm === "unlink"}
+				onClose={() => setCloneLinkConfirm(null)}
+				onConfirm={() => void (cloneLinkConfirm === "unlink" ? onUnlinkClone(bot) : onRelinkClone(bot))}
+				open={cloneLinkConfirm !== null}
+				title={cloneLinkConfirm === "unlink" ? "Unlink this clone?" : "Relink this clone?"}
 			/>
 		</div>
 	);
@@ -11404,6 +11578,7 @@ function CreateBotModal({
 		() => cloneSources.filter((bot) => matchesFilter(cloneSearch, bot.displayName, bot.handle)),
 		[cloneSearch, cloneSources],
 	);
+	const selectedCloneSource = selectedCloneId ? cloneSources.find((bot) => bot.id === selectedCloneId) ?? null : null;
 
 	useEffect(() => {
 		if (!manualTouchedHandle) {
@@ -11427,7 +11602,7 @@ function CreateBotModal({
 	}, [open]);
 
 	const manualValid = isValidBotDraft(manualDraft);
-	const cloneValid = selectedCloneId !== null && isValidBotDraft(cloneDraft);
+	const cloneValid = selectedCloneId !== null && isValidCloneBotDraft(cloneDraft);
 	const importValid = importState === "preview" && isValidBotDraft(importDraft);
 
 	function selectCloneSource(bot: BotSummary): void {
@@ -11632,7 +11807,7 @@ function CreateBotModal({
 						</div>
 					}
 
-					{selectedCloneId && (
+					{selectedCloneSource && (
 						<div className="clone-draft-fields">
 							<Field help={`bickr.local/w/${world.handle}/u/${cloneDraft.handle || "..."}`} hint="editable" label="Bickr handle">
 								<div className="input-prefix">
@@ -11646,30 +11821,33 @@ function CreateBotModal({
 									/>
 								</div>
 							</Field>
-							<Field hint="editable" label="Display name">
+							<Field hint="blank inherits source" label="Display name">
 								<input
 									className="input"
 									maxLength={80}
 									onChange={(event) =>
 										setCloneDraft((current) => ({ ...current, displayName: event.target.value }))
 									}
+									placeholder={selectedCloneSource.displayName}
 									value={cloneDraft.displayName}
 								/>
 							</Field>
-							<Field hint="editable" label="Short bio">
+							<Field hint="blank inherits source" label="Short bio">
 								<textarea
 									className="textarea short-bio-editor"
 									maxLength={1200}
 									onChange={(event) => setCloneDraft((current) => ({ ...current, shortBio: event.target.value }))}
+									placeholder={selectedCloneSource.shortBio}
 									rows={4}
 									value={cloneDraft.shortBio}
 								/>
 							</Field>
-							<Field hint="editable" label="Prompt">
+							<Field hint="blank inherits source" label="Prompt">
 								<textarea
 									className="textarea"
 									maxLength={maxBotPromptLength}
 									onChange={(event) => setCloneDraft((current) => ({ ...current, prompt: event.target.value }))}
+									placeholder={selectedCloneSource.prompt}
 									rows={6}
 									value={cloneDraft.prompt}
 								/>
@@ -15578,6 +15756,38 @@ function Reference({
 	);
 }
 
+function BotSourceValue({ bot }: { bot: BotSummary }) {
+	const cloneSource = bot.cloneSource;
+	if (cloneSource) {
+		const sourceBot = cloneSource.sourceBot;
+		const handle = sourceBot?.handle ?? cloneSource.sourceHandle;
+		const worldHandle = sourceBot?.homeWorldHandle ?? cloneSource.sourceWorldHandle;
+		return (
+			<span className="bot-source-value">
+				{sourceBot ?
+					<Reference isBot kind="bot" name={handle} worldHandle={worldHandle} />
+				:	<ReferenceLabel isBot kind="bot" name={handle} />
+				}
+				<span> in </span>
+				{sourceBot ?
+					<Reference kind="world" name={worldHandle} />
+				:	<ReferenceLabel kind="world" name={worldHandle} />
+				}
+				{cloneSource.linked ? null : <span className="source-status">unlinked</span>}
+			</span>
+		);
+	}
+	if (bot.importSource) {
+		return (
+			<span className="bot-source-value">
+				<Icon name="chirper" size={14} />
+				<span>chirper/{bot.importSource.originalHandle}</span>
+			</span>
+		);
+	}
+	return <span>manual</span>;
+}
+
 function HumanReference({
 	profile,
 	user,
@@ -16641,6 +16851,27 @@ function findKnownBot(
 		null;
 }
 
+function sortBotsForCascadeDelete(bots: BotSummary[]): BotSummary[] {
+	const byId = new Map(bots.map((bot) => [bot.id, bot]));
+	const depthCache = new Map<string, number>();
+	function depth(bot: BotSummary, visiting = new Set<string>()): number {
+		const cached = depthCache.get(bot.id);
+		if (cached !== undefined) {
+			return cached;
+		}
+		if (visiting.has(bot.id)) {
+			return 0;
+		}
+		visiting.add(bot.id);
+		const source = bot.cloneSource?.linked ? byId.get(bot.cloneSource.sourceBotId) : undefined;
+		const value = source ? depth(source, visiting) + 1 : 0;
+		visiting.delete(bot.id);
+		depthCache.set(bot.id, value);
+		return value;
+	}
+	return [...bots].sort((left, right) => depth(right) - depth(left));
+}
+
 function renameThreadSummaries(
 	current: Record<string, ThreadSummary[]>,
 	rename: {
@@ -17492,6 +17723,48 @@ function inferenceFallbackContextForDraft(
 	return draft.model.trim() ? providerConnectionInheritanceContext(inherited) : inferenceInheritanceContext(inherited);
 }
 
+function botEditableInferenceSettings(bot: BotSummary): BotInferenceSettings {
+	return bot.localOverrides?.inferenceSettings ?? bot.inferenceSettings;
+}
+
+function cloneAwareInferenceInheritedSettingsForSettings(
+	bot: BotSummary,
+	settings: Pick<BotInferenceSettings, "model">,
+	ownerInferenceSettings?: BotInferenceSettings | null,
+): BotInferenceSettings | null | undefined {
+	return bot.cloneSource?.linked && !settings.model?.trim() ? bot.inferenceSettings : ownerInferenceSettings;
+}
+
+function cloneAwareInferenceFallbackForSettings(
+	bot: BotSummary,
+	settings: Pick<BotInferenceSettings, "model">,
+	ownerInferenceSettings?: BotInferenceSettings | null,
+): InferenceModelUnlockContext | undefined {
+	return inferenceFallbackContextForSettings(
+		settings,
+		cloneAwareInferenceInheritedSettingsForSettings(bot, settings, ownerInferenceSettings),
+	);
+}
+
+function cloneAwareInferenceInheritedSettingsForDraft(
+	bot: BotSummary,
+	draft: Pick<InferenceDraft, "model">,
+	ownerInferenceSettings?: BotInferenceSettings | null,
+): BotInferenceSettings | null | undefined {
+	return bot.cloneSource?.linked && !draft.model.trim() ? bot.inferenceSettings : ownerInferenceSettings;
+}
+
+function cloneAwareInferenceFallbackForDraft(
+	bot: BotSummary,
+	draft: Pick<InferenceDraft, "model">,
+	ownerInferenceSettings?: BotInferenceSettings | null,
+): InferenceModelUnlockContext | undefined {
+	return inferenceFallbackContextForDraft(
+		draft,
+		cloneAwareInferenceInheritedSettingsForDraft(bot, draft, ownerInferenceSettings),
+	);
+}
+
 function providerConnectionInheritanceContext(settings?: BotInferenceSettings | null): InferenceModelUnlockContext | undefined {
 	if (!settings) {
 		return undefined;
@@ -17748,14 +18021,17 @@ function isValidBotDraft(draft: BotDraft): boolean {
 	);
 }
 
+function isValidCloneBotDraft(draft: BotDraft): boolean {
+	return isValidHandle(draft.handle) && draft.prompt.length <= maxBotPromptLength;
+}
+
 function botDraftFromExistingBot(bot: BotSummary): BotDraft {
 	return {
 		handle: bot.handle,
-		displayName: bot.displayName,
-		shortBio: bot.shortBio,
-		prompt: bot.prompt ?? "",
+		displayName: "",
+		shortBio: "",
+		prompt: "",
 		cloneSourceBotId: bot.id,
-		avatarUrl: bot.avatarUrl,
 	};
 }
 

@@ -1,6 +1,6 @@
 import { ok, readJsonBody } from "@bickr/shared/api";
 import { type AvatarCrop, type AvatarImage } from "@bickr/shared/model";
-import { botById, RepositoryError, updateBotAvatar } from "@bickr/shared/repository";
+import { rawBotById, RepositoryError, refreshLinkedCloneIndexes, updateBotAvatar } from "@bickr/shared/repository";
 import { InputError } from "@bickr/shared/validation";
 import { type AppEnv, requireCompleteUser } from "../../../../_auth";
 import { pageErrorResponse } from "../../../../_errors";
@@ -11,7 +11,7 @@ export const onRequestPatch: PagesFunction<AppEnv, "botId"> = async ({ env, requ
 	try {
 		const user = await requireCompleteUser(env, request);
 		const botId = singleParam(params.botId);
-		const bot = await botById(env.BICKR_KV, env.BICKR_D1, botId);
+		const bot = await rawBotById(env.BICKR_KV, env.BICKR_D1, botId);
 		if (bot.ownerUserId !== user.id) {
 			throw new RepositoryError("forbidden", "Only this participant's owner can crop its avatar.", 403);
 		}
@@ -29,7 +29,8 @@ export const onRequestPatch: PagesFunction<AppEnv, "botId"> = async ({ env, requ
 			{ ...bot.avatar, crop, updatedAt: now }
 		:	withoutAvatarCrop({ ...bot.avatar, updatedAt: now });
 		const updated = await updateBotAvatar(env.BICKR_KV, env.BICKR_D1, bot.id, user.id, avatar, now);
-		return ok({ bot: updated });
+		const affectedBots = await refreshLinkedCloneIndexes(env.BICKR_KV, env.BICKR_D1, updated.id);
+		return ok({ bot: updated, affectedBots });
 	} catch (error) {
 		return pageErrorResponse(error);
 	}

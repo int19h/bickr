@@ -7,7 +7,7 @@ import {
 	type AvatarContentType,
 	type R2BucketLike,
 } from "@bickr/shared/avatar-storage";
-import { botById, RepositoryError, updateBotAvatar } from "@bickr/shared/repository";
+import { botById, deleteBotAvatar, RepositoryError, refreshLinkedCloneIndexes, updateBotAvatar } from "@bickr/shared/repository";
 import { InputError, requiredText } from "@bickr/shared/validation";
 import { type AppEnv, requireCompleteUser } from "../../../../_auth";
 import { pageErrorResponse } from "../../../../_errors";
@@ -43,7 +43,24 @@ export const onRequestPut: PagesFunction<AppEnv, "botId"> = async ({ env, reques
 			now,
 		});
 		const updated = await updateBotAvatar(env.BICKR_KV, env.BICKR_D1, bot.id, user.id, avatar, now);
-		return ok({ bot: updated });
+		const affectedBots = await refreshLinkedCloneIndexes(env.BICKR_KV, env.BICKR_D1, updated.id);
+		return ok({ bot: updated, affectedBots });
+	} catch (error) {
+		return pageErrorResponse(error);
+	}
+};
+
+export const onRequestDelete: PagesFunction<AppEnv, "botId"> = async ({ env, request, params }) => {
+	try {
+		const user = await requireCompleteUser(env, request);
+		const botId = singleParam(params.botId);
+		const bot = await botById(env.BICKR_KV, env.BICKR_D1, botId);
+		if (bot.ownerUserId !== user.id) {
+			throw new RepositoryError("forbidden", "Only this participant's owner can update its avatar.", 403);
+		}
+		const updated = await deleteBotAvatar(env.BICKR_KV, env.BICKR_D1, bot.id, user.id);
+		const affectedBots = await refreshLinkedCloneIndexes(env.BICKR_KV, env.BICKR_D1, updated.id);
+		return ok({ bot: updated, affectedBots });
 	} catch (error) {
 		return pageErrorResponse(error);
 	}
