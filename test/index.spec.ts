@@ -6272,6 +6272,7 @@ describe("Bickr Pages Functions", () => {
 				world: { id: bot.homeWorldId, handle: `w/${bot.homeWorldHandle}` },
 				forum: { id: "frm_spotlight", handle: "f/spotlight" },
 				targetType: "comments",
+				focus: "Please pay attention to the target comment.",
 				threads: [{
 					id: "thr_spotlight_comment",
 					threadId: "thr_spotlight_comment",
@@ -6461,6 +6462,13 @@ describe("Bickr Pages Functions", () => {
 		expect(toolResults.find((result) => Array.isArray(result.profiles))).toMatchObject({
 			profiles: [{ username: `u/${authorProfile.handle}`, displayName: authorProfile.displayName }],
 		});
+		const profileResultIndex = built.findIndex((message) => message.role === "tool" && String(message.content).includes('"profiles"'));
+		const focusMessageIndex = built.findIndex(
+			(message) => message.role === "assistant" && message.content === "My focus: Please pay attention to the target comment.",
+		);
+		expect(profileResultIndex).toBeGreaterThanOrEqual(0);
+		expect(focusMessageIndex).toBeGreaterThan(profileResultIndex);
+		expect(focusMessageIndex).toBe(built.length - 1);
 	});
 
 	it("queues busy spotlight ticks only when the active tick misses the injection", async () => {

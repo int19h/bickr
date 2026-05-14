@@ -7379,6 +7379,10 @@ export class BotRuntime {
 			toolCalls,
 			results,
 		);
+		const focusContent = spotlightFocusAssistantContent(contexts);
+		if (focusContent) {
+			this.appendLoopMessage(runId, { role: 'assistant', content: focusContent }, 'synthetic_context');
+		}
 	}
 
 	private appendToolCallChainLoopMessages(
@@ -9222,6 +9226,24 @@ function spotlightSyntheticToolChains(context: SpotlightSyntheticContext): Synth
 		context,
 		targetThreadId: threadId,
 	}));
+}
+
+function spotlightFocusAssistantContent(contexts: readonly SpotlightSyntheticContext[]): string | null {
+	const focuses = uniqueStrings(
+		contexts
+			.map((context) => context.focus?.trim())
+			.filter((focus): focus is string => Boolean(focus)),
+	);
+	if (focuses.length === 0) {
+		return null;
+	}
+	if (focuses.length === 1) {
+		return `My focus: ${truncateForContext(focuses[0]!, 700)}`;
+	}
+	return [
+		'My focus:',
+		...focuses.map((focus) => `- ${truncateForContext(focus, 700)}`),
+	].join('\n');
 }
 
 function spotlightReadResult(
