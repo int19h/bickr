@@ -5284,6 +5284,7 @@ fieldset {
 	display: grid;
 	flex-shrink: 0;
 	height: 18px;
+	margin: 0;
 	place-items: center;
 	transition:
 		background 80ms,
@@ -5374,10 +5375,11 @@ fieldset {
 }
 
 .comment {
-	--comment-check: 28px;
 	--comment-checkbox-size: 18px;
+	--comment-check: var(--comment-checkbox-size);
+	--comment-control-gap: 2px;
 	--comment-gap: 12px;
-	--comment-link-size: 20px;
+	--comment-link-size: 18px;
 	--comment-left-pad: 0px;
 	--comment-pad-top: 10px;
 	--comment-checkbox-center: calc(var(--comment-checkbox-size) / 2);
@@ -5385,17 +5387,18 @@ fieldset {
 	--comment-checkbox-top: calc(var(--comment-control-center) - var(--comment-checkbox-center));
 	--comment-checkbox-midline: calc(var(--comment-pad-top) + var(--comment-control-center));
 	--comment-checkbox-bottom-from-main: calc(var(--comment-checkbox-top) + var(--comment-checkbox-size));
-	--comment-rail-offset: calc(var(--comment-check) + var(--comment-gap) + var(--comment-link-size) + var(--comment-gap) - var(--comment-checkbox-center));
+	--comment-rail-offset: calc(var(--comment-check) + var(--comment-control-gap) + var(--comment-link-size) + var(--comment-control-gap) - var(--comment-checkbox-center));
 	--comment-rail-left: calc(-1 * var(--comment-rail-offset) - 1px);
 	--comment-connector-width: calc(var(--comment-rail-offset) + var(--comment-checkbox-center) + 1px);
 	border-left: none;
 	border-radius: 4px;
 	display: grid;
-	gap: var(--comment-gap);
+	column-gap: var(--comment-control-gap);
 	grid-template-columns: var(--comment-check) var(--comment-link-size) minmax(0, 1fr);
 	margin-left: 0;
 	padding: var(--comment-pad-top) 0 10px var(--comment-left-pad);
 	position: relative;
+	row-gap: var(--comment-gap);
 	transition: background 200ms;
 	white-space: normal;
 }
@@ -6714,7 +6717,8 @@ button.avatar-large-preview:not(:disabled),
 	}
 
 	.comment {
-		--comment-check: 24px;
+		--comment-check: var(--comment-checkbox-size);
+		--comment-control-gap: 2px;
 		--comment-gap: 8px;
 		--comment-left-pad: 0px;
 		margin-left: 0;
