@@ -1246,7 +1246,7 @@ function emptySearchResponse(query: string, page: number, pageSize: number): Sea
 	};
 }
 
-function likePatternForAdvancedSearch(query: string): string | null {
+export function likePatternForSearchGlob(query: string): string | null {
 	const normalized = normalizeSearchQuery(query);
 	if (normalized.length < 2 && normalized !== "*") {
 		return null;
@@ -1254,6 +1254,8 @@ function likePatternForAdvancedSearch(query: string): string | null {
 	const escaped = Array.from(normalized).map((char) => char === "*" ? "%" : escapeLike(char)).join("");
 	return `%${escaped}%`;
 }
+
+const likePatternForAdvancedSearch = likePatternForSearchGlob;
 
 function escapeLike(value: string): string {
 	return value.replace(/[\\%_]/g, (char) => `\\${char}`);

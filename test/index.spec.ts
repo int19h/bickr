@@ -705,6 +705,23 @@ describe("Bickr Pages Functions", () => {
 			description: "One or more u/usernames to view.",
 			items: { type: "string" },
 		});
+		expect(viewProfiles?.function.description).toContain("query_followers");
+		const queryFollowers = toolDefinitions.find((definition) => definition.function.name === "query_followers");
+		expect(queryFollowers?.function.parameters.required).toEqual([]);
+		expect(queryFollowers?.function.description).toContain("exactly one of isFollowing or isFollowedBy");
+		expect(queryFollowers?.function.parameters.properties).toMatchObject({
+			isFollowing: {
+				type: "string",
+				description: "The u/username whose followers I want to list.",
+			},
+			isFollowedBy: {
+				type: "string",
+				description: "The u/username whose followed profiles I want to list.",
+			},
+			usernameGlob: {
+				type: "string",
+			},
+		});
 		const viewActivity = toolDefinitions.find((definition) => definition.function.name === "view_activity");
 		expect(viewActivity?.function.parameters.properties.limit).toMatchObject({
 			type: "number",
@@ -1045,8 +1062,8 @@ describe("Bickr Pages Functions", () => {
 		);
 		expect(profilesResult.providerResult).toMatchObject({
 			profiles: [
-				{ username: `u/${firstProfile.handle}`, displayName: firstProfile.displayName, shortBio: expect.any(String) },
-				{ username: `u/${secondProfile.handle}`, displayName: secondProfile.displayName, shortBio: expect.any(String) },
+				{ username: `u/${firstProfile.handle}`, displayName: firstProfile.displayName, shortBio: expect.any(String), isFollowedByMe: false, isFollowingMe: false, followers: 0 },
+				{ username: `u/${secondProfile.handle}`, displayName: secondProfile.displayName, shortBio: expect.any(String), isFollowedByMe: false, isFollowingMe: false, followers: 0 },
 			],
 		});
 		for (const profile of (profilesResult.providerResult as { profiles: Array<Record<string, unknown>> }).profiles) {
@@ -1054,6 +1071,7 @@ describe("Bickr Pages Functions", () => {
 			expect(profile).not.toHaveProperty("world");
 			expect(profile).not.toHaveProperty("createdAt");
 			expect(profile).not.toHaveProperty("updatedAt");
+			expect(profile).not.toHaveProperty("following");
 		}
 		const legacyProfileResult = await executeTool(
 			bot,
@@ -1126,6 +1144,160 @@ describe("Bickr Pages Functions", () => {
 		expect(redundantUnfollow).toBeInstanceOf(Error);
 		expect((redundantUnfollow as Error).message).toContain(`I do not follow u/${firstProfile.handle}`);
 		expect((redundantUnfollow as Error).message).toContain("unfollow_profile");
+	});
+
+	it("exposes profile follow relationships and queries follower usernames", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const viewer = await createBotForTest(cookie, "query-viewer");
+		const target = await createBotForTest(cookie, "query-hub");
+		const rankAlpha = await createBotForTest(cookie, "query-rank-alpha");
+		const rankBeta = await createBotForTest(cookie, "query-rank-beta");
+		const rankGamma = await createBotForTest(cookie, "query-rank-gamma");
+		const followedPopular = await createBotForTest(cookie, "query-followed-popular");
+		const followedPlain = await createBotForTest(cookie, "query-followed-plain");
+		const fanOne = await createBotForTest(cookie, "query-fan-one");
+		const fanTwo = await createBotForTest(cookie, "query-fan-two");
+		const fanThree = await createBotForTest(cookie, "query-fan-three");
+
+		await followBot(testEnv.BICKR_KV, testEnv.BICKR_D1, viewer.id, target.id);
+		await followBot(testEnv.BICKR_KV, testEnv.BICKR_D1, target.id, viewer.id);
+		for (const follower of [rankAlpha, rankBeta, rankGamma]) {
+			await followBot(testEnv.BICKR_KV, testEnv.BICKR_D1, follower.id, target.id);
+		}
+		await followBot(testEnv.BICKR_KV, testEnv.BICKR_D1, fanOne.id, rankAlpha.id);
+		await followBot(testEnv.BICKR_KV, testEnv.BICKR_D1, fanTwo.id, rankAlpha.id);
+		await followBot(testEnv.BICKR_KV, testEnv.BICKR_D1, fanThree.id, rankBeta.id);
+		await followBot(testEnv.BICKR_KV, testEnv.BICKR_D1, target.id, followedPopular.id);
+		await followBot(testEnv.BICKR_KV, testEnv.BICKR_D1, target.id, followedPlain.id);
+		await followBot(testEnv.BICKR_KV, testEnv.BICKR_D1, fanOne.id, followedPopular.id);
+		await followBot(testEnv.BICKR_KV, testEnv.BICKR_D1, fanTwo.id, followedPopular.id);
+
+		for (let index = 0; index < 52; index += 1) {
+			const follower = await createBotForTest(cookie, `query-cap-follower-${String(index).padStart(2, "0")}`);
+			await followBot(testEnv.BICKR_KV, testEnv.BICKR_D1, follower.id, target.id);
+		}
+
+		const runtime = testRuntimeForToolExecution();
+		const executeTool = (BotRuntime.prototype as unknown as {
+			executeTool: (
+				bot: Awaited<ReturnType<typeof botById>>,
+				runId: string,
+				name: string,
+				args: Record<string, unknown>,
+				runContext: { mode: "normal"; signal: AbortSignal },
+			) => Promise<{ result: unknown; providerResult: unknown }>;
+		}).executeTool.bind(runtime);
+		const bot = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, viewer.id);
+		const signal = new AbortController().signal;
+
+		const profileResult = await executeTool(
+			bot,
+			"run-profile-relationships",
+			"view_profiles",
+			{ usernames: [target.handle] },
+			{ mode: "normal", signal },
+		);
+		expect(profileResult.providerResult).toMatchObject({
+			profiles: [{
+				username: `u/${target.handle}`,
+				isFollowedByMe: true,
+				isFollowingMe: true,
+				followers: 56,
+			}],
+		});
+		expect((profileResult.providerResult as { profiles: Array<Record<string, unknown>> }).profiles[0]).not.toHaveProperty("following");
+
+		const searchResult = await executeTool(
+			bot,
+			"run-profile-search-relationships",
+			"search_profiles",
+			{ query: target.handle },
+			{ mode: "normal", signal },
+		);
+		const searchedProfile = (searchResult.providerResult as Array<Record<string, unknown>>).find((profile) => profile.username === `u/${target.handle}`);
+		expect(searchedProfile).toMatchObject({
+			isFollowedByMe: true,
+			isFollowingMe: true,
+			followers: 56,
+		});
+		expect(searchedProfile).not.toHaveProperty("following");
+
+		const rankedFollowers = await executeTool(
+			bot,
+			"run-query-ranked-followers",
+			"query_followers",
+			{ isFollowing: target.handle, usernameGlob: "query-rank-*" },
+			{ mode: "normal", signal },
+		);
+		expect(rankedFollowers.providerResult).toEqual({
+			total: 3,
+			usernames: [`u/${rankAlpha.handle}`, `u/${rankBeta.handle}`, `u/${rankGamma.handle}`],
+		});
+
+		const followedByTarget = await executeTool(
+			bot,
+			"run-query-followed-by-target",
+			"query_followers",
+			{ isFollowedBy: `u/${target.handle}`, usernameGlob: "u/query-followed-*" },
+			{ mode: "normal", signal },
+		);
+		expect(followedByTarget.providerResult).toEqual({
+			total: 2,
+			usernames: [`u/${followedPopular.handle}`, `u/${followedPlain.handle}`],
+		});
+
+		const cappedFollowers = await executeTool(
+			bot,
+			"run-query-capped-followers",
+			"query_followers",
+			{ isFollowing: target.handle, usernameGlob: "query-cap-*" },
+			{ mode: "normal", signal },
+		);
+		const cappedResult = cappedFollowers.providerResult as { total: number; usernames: string[] };
+		expect(cappedResult.total).toBe(52);
+		expect(cappedResult.usernames).toHaveLength(50);
+		expect(cappedResult.usernames[0]).toBe("u/query-cap-follower-00");
+		expect(cappedResult.usernames.at(-1)).toBe("u/query-cap-follower-49");
+
+		const tooShortGlob = await executeTool(
+			bot,
+			"run-query-too-short-glob",
+			"query_followers",
+			{ isFollowing: target.handle, usernameGlob: "q" },
+			{ mode: "normal", signal },
+		);
+		expect(tooShortGlob.providerResult).toEqual({ total: 0, usernames: [] });
+
+		const missingDirection = await executeTool(
+			bot,
+			"run-query-missing-direction",
+			"query_followers",
+			{},
+			{ mode: "normal", signal },
+		).catch((error: unknown) => error);
+		expect(missingDirection).toBeInstanceOf(Error);
+		expect((missingDirection as Error).message).toContain("exactly one of isFollowing or isFollowedBy");
+
+		const bothDirections = await executeTool(
+			bot,
+			"run-query-both-directions",
+			"query_followers",
+			{ isFollowing: target.handle, isFollowedBy: target.handle },
+			{ mode: "normal", signal },
+		).catch((error: unknown) => error);
+		expect(bothDirections).toBeInstanceOf(Error);
+		expect((bothDirections as Error).message).toContain("exactly one of isFollowing or isFollowedBy");
+
+		const missingProfile = await executeTool(
+			bot,
+			"run-query-missing-profile",
+			"query_followers",
+			{ isFollowing: "u/query-missing-profile" },
+			{ mode: "normal", signal },
+		).catch((error: unknown) => error);
+		expect(missingProfile).toBeInstanceOf(Error);
+		expect((missingProfile as Error).message).toContain("Bot not found");
 	});
 
 	it("tells participants not to make duplicate replies in the fixed prompt", () => {
@@ -13655,7 +13827,7 @@ describe("Bickr Pages Functions", () => {
 					},
 					{},
 					scope,
-					{ tokenBudget: 35 },
+					{ tokenBudget: 45 },
 				) as { profiles: Array<Record<string, unknown>> };
 				expect(profilesResult.profiles.map((item) => item.username)).toEqual(["u/alpha"]);
 			} finally {

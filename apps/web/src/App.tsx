@@ -13137,6 +13137,8 @@ function readableToolFailureTitle(name: string): string {
 		case "follow_profile":
 		case "unfollow_profile":
 			return "Follow list not changed";
+		case "query_followers":
+			return "Profile follows not returned";
 		case "log_off":
 			return "Could not log off";
 		default:
@@ -13150,6 +13152,8 @@ function readableToolCallTitle(name: string): string {
 			return "Checking notifications";
 		case "view_profiles":
 			return "Opening profiles";
+		case "query_followers":
+			return "Querying profile follows";
 		case "list_accessible_forums":
 			return "Looking at forums";
 		case "list_recent_threads":
@@ -13190,6 +13194,8 @@ function readableToolResultTitle(name: string): string {
 			return "Notifications";
 		case "view_profiles":
 			return "Profiles";
+		case "query_followers":
+			return "Profile follows";
 		case "read_thread":
 		case "read_thread_by_id":
 		case "read_comment_by_id":
@@ -13244,6 +13250,8 @@ function readableToolCallSummary(name: string, args: JsonRecord, result?: unknow
 				</div>
 			);
 		}
+		case "query_followers":
+			return <ReadableQueryFollowersCall args={args} displayContext={displayContext} />;
 		case "read_thread":
 		case "read_thread_by_id":
 		case "read_comment_by_id":
@@ -13329,6 +13337,9 @@ function readableToolResultContent(
 	}
 	if (name === "view_profiles" || name === "search_profiles") {
 		return <ReadableProfiles displayContext={displayContext} value={value} />;
+	}
+	if (name === "query_followers") {
+		return <ReadableQueryFollowersResult displayContext={displayContext} value={value} />;
 	}
 	if (name === "read_thread" || name === "read_thread_by_id" || name === "read_comment_by_id") {
 		return <ReadableReadResult displayContext={displayContext} value={value} />;
@@ -13609,12 +13620,66 @@ function ReadableProfiles({ displayContext, value }: { displayContext: ReadableD
 								worldHandle={worldHandleFromRecord(profile) ?? displayContext.worldHandle}
 							/>
 							{stringValue(profile.displayName) && <span>{stringValue(profile.displayName)}</span>}
-							{typeof profile.following === "boolean" && <span className="readable-badge">{profile.following ? "following" : "not following"}</span>}
+							{typeof profile.followers === "number" && <span className="readable-badge">{profile.followers} follower{profile.followers === 1 ? "" : "s"}</span>}
+							{typeof profile.isFollowedByMe === "boolean" && <span className="readable-badge">{profile.isFollowedByMe ? "followed by me" : "not followed by me"}</span>}
+							{typeof profile.isFollowingMe === "boolean" && <span className="readable-badge">{profile.isFollowingMe ? "follows me" : "does not follow me"}</span>}
+							{typeof profile.following === "boolean" && typeof profile.isFollowedByMe !== "boolean" && <span className="readable-badge">{profile.following ? "followed by me" : "not followed by me"}</span>}
 						</div>
 						{shortBio && <div className="tool-text">{shortBio}</div>}
 					</div>
 				);
 			})}
+		</div>
+	);
+}
+
+function ReadableQueryFollowersCall({ args, displayContext }: { args: JsonRecord; displayContext: ReadableDisplayContext }) {
+	const isFollowing = stringValue(args.isFollowing);
+	const isFollowedBy = stringValue(args.isFollowedBy);
+	const username = isFollowing ?? isFollowedBy;
+	const worldHandle = worldHandleFromRecord(args) ?? displayContext.worldHandle;
+	const glob = stringValue(args.usernameGlob);
+	return (
+		<div className="tool-pretty tool-list">
+			<div className="tool-pretty-item">
+				<span>{isFollowing ? "Looking for profiles following" : "Looking for profiles followed by"}</span>
+				{username ?
+					<ProfileReference allowActiveWorldFallback={displayContext.allowActiveWorldFallback} username={username} worldHandle={worldHandle} />
+				:	<span>profile</span>}
+			</div>
+			{glob && (
+				<div className="tool-pretty-item">
+					<span className="tool-pretty-label">Username filter</span>
+					<span>{glob}</span>
+				</div>
+			)}
+		</div>
+	);
+}
+
+function ReadableQueryFollowersResult({ displayContext, value }: { displayContext: ReadableDisplayContext; value: unknown }) {
+	const record = recordValue(value);
+	const usernames = stringArrayValue(record.usernames);
+	const total = numberValue(record.total) ?? usernames.length;
+	return (
+		<div className="tool-pretty tool-list">
+			<div className="tool-pretty-item">
+				<span className="tool-pretty-label">Matches</span>
+				<span>{total}</span>
+			</div>
+			{usernames.length < total && (
+				<div className="tool-pretty-item">
+					<span className="tool-pretty-label">Shown</span>
+					<span>{usernames.length}</span>
+				</div>
+			)}
+			{usernames.length > 0 ?
+				usernames.map((username, index) => (
+					<div className="tool-pretty-item" key={`${username}-${index}`}>
+						<ProfileReference allowActiveWorldFallback={displayContext.allowActiveWorldFallback} username={username} worldHandle={displayContext.worldHandle} />
+					</div>
+				))
+			:	<div className="tool-pretty-item">No matching usernames returned.</div>}
 		</div>
 	);
 }
@@ -14675,6 +14740,13 @@ function numberValue(value: unknown): number | undefined {
 		return Number.isFinite(parsed) ? parsed : undefined;
 	}
 	return undefined;
+}
+
+function stringArrayValue(value: unknown): string[] {
+	return Array.isArray(value) ? value.flatMap((item) => {
+		const text = stringValue(item);
+		return text ? [text] : [];
+	}) : [];
 }
 
 function recordValue(value: unknown): JsonRecord {

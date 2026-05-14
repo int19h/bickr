@@ -1062,6 +1062,19 @@ export type BotFollowGraph = {
 	followers: BotPublicProfile[];
 };
 
+export type BotProfileRelationshipSummary = BotPublicProfile & {
+	isFollowedByMe: boolean;
+	isFollowingMe: boolean;
+	followers: number;
+};
+
+export type BotFollowUsernameQueryDirection = "followers" | "following";
+
+export type BotFollowUsernameQueryResult = {
+	total: number;
+	usernames: string[];
+};
+
 export type SpotlightTargetType = "threads" | "comments";
 
 export type SpotlightPreviewInput = {

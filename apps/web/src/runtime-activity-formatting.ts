@@ -508,6 +508,8 @@ function toolCallTitle(name: string, args: unknown): string {
 			return `Searching threads and comments for "${stringValue(record.query) ?? ""}"`;
 		case "search_profiles":
 			return `Searching profiles for "${stringValue(record.query) ?? ""}"`;
+		case "query_followers":
+			return queryFollowersTitle(record);
 		case "view_profiles":
 			return `Viewing ${stringArrayValue(record.usernames).join(", ") || "profiles"}`;
 		case "view_activity":
@@ -591,6 +593,18 @@ function toolResultSummary(name: string, args: unknown, result: unknown, fallbac
 		const items = profiles.map((profile, index) => profileItem(profile, index, fallbackWorldHandle, "Open profile")).filter(isDisplayItem);
 		const labels = profiles.map(profileLabel).filter(Boolean).join(", ");
 		return resultWithDisplay(`Viewed ${labels || "profiles"}`, itemsBody(items, "No profiles returned."), items);
+	}
+	if (canonical === "query_followers") {
+		const total = numberValue(record.total) ?? 0;
+		const usernames = stringArrayValue(record.usernames);
+		const items = usernames.map((username, index) => usernameItem(username, index, fallbackWorldHandle));
+		const title = `${countLabel(total, "matching profile")} found`;
+		const body = [
+			queryFollowersTitle(runtimeRecord(args)),
+			usernames.length < total ? `Showing ${usernames.length} of ${total}.` : "",
+			itemsBody(items, "No matching usernames returned."),
+		].filter(Boolean).join("\n");
+		return resultWithDisplay(title, body, items);
 	}
 	if (canonical === "view_activity") {
 		const profile = runtimeRecord(record.bot ?? record.profile);
@@ -867,9 +881,35 @@ function profileItem(
 	return {
 		key: stringValue(record.id) ?? handle ?? `profile-${index}`,
 		label,
-		detail: [handle ? `u/${handle}` : displayName, stringValue(record.shortBio)].filter(Boolean).join(" · "),
+		detail: [handle ? `u/${handle}` : displayName, stringValue(record.shortBio), profileRelationshipDetail(record)].filter(Boolean).join(" · "),
 		href: handle ? `/w/${encodeURIComponent(worldHandle(record, fallbackWorldHandle))}/u/${encodeURIComponent(handle)}` : undefined,
 	};
+}
+
+function usernameItem(username: string, index: number, fallbackWorldHandle: string): ToolDisplayItem {
+	const handle = username.replace(/^u\//i, "");
+	return {
+		key: handle || `username-${index}`,
+		label: `u/${handle || username}`,
+		href: handle ? `/w/${encodeURIComponent(fallbackWorldHandle)}/u/${encodeURIComponent(handle)}` : undefined,
+	};
+}
+
+function profileRelationshipDetail(record: Record<string, unknown>): string {
+	const parts: string[] = [];
+	const followers = numberValue(record.followers);
+	if (followers !== undefined) {
+		parts.push(countLabel(followers, "follower"));
+	}
+	if (typeof record.isFollowedByMe === "boolean") {
+		parts.push(record.isFollowedByMe ? "followed by me" : "not followed by me");
+	} else if (typeof record.following === "boolean") {
+		parts.push(record.following ? "followed by me" : "not followed by me");
+	}
+	if (typeof record.isFollowingMe === "boolean") {
+		parts.push(record.isFollowingMe ? "follows me" : "does not follow me");
+	}
+	return parts.join(" · ");
 }
 
 function activityItem(record: Record<string, unknown>, index: number, fallbackWorldHandle: string): ToolDisplayItem {
@@ -1063,6 +1103,17 @@ function threadFacts(thread: Record<string, unknown>): string {
 
 function countLabel(count: number, singular: string): string {
 	return `${count} ${singular}${count === 1 ? "" : "s"}`;
+}
+
+function queryFollowersTitle(record: Record<string, unknown>): string {
+	const isFollowing = stringValue(record.isFollowing);
+	const isFollowedBy = stringValue(record.isFollowedBy);
+	const usernameGlob = stringValue(record.usernameGlob);
+	const suffix = usernameGlob ? ` matching ${usernameGlob}` : "";
+	if (isFollowing) {
+		return `Querying profiles following u/${isFollowing.replace(/^u\//i, "")}${suffix}`;
+	}
+	return `Querying profiles followed by u/${(isFollowedBy ?? "...").replace(/^u\//i, "")}${suffix}`;
 }
 
 function profileLabel(profile: Record<string, unknown>): string {

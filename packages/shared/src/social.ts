@@ -6,8 +6,11 @@ import {
 	type BotDocument,
 	type BotActivityFeed,
 	type BotActivityCommentContext,
+	type BotFollowUsernameQueryDirection,
+	type BotFollowUsernameQueryResult,
 	type BotActivityItem,
 	type BotFollowGraph,
+	type BotProfileRelationshipSummary,
 	type BotPublicProfile,
 	type BotSearchResult,
 	type BotSummary,
@@ -60,6 +63,7 @@ import {
 	postingHardLimit,
 } from "./posting";
 import { ownerRuntimeErrorMessage } from "./runtime-errors";
+import { likePatternForSearchGlob } from "./search";
 import {
 	type D1DatabaseLike,
 	type D1Result,
@@ -85,6 +89,8 @@ const hotThreadWindowMs = hotThreadWindowDays * 24 * 60 * 60 * 1000;
 type ExistingThreadDetails = Exclude<RepositoryErrorDetails["existingThread"], undefined>;
 type ThreadSummaryRow = Omit<ThreadSummary, "authorAvatarCrop"> & { authorAvatarCrop: string | null };
 type SearchThreadResultRow = Omit<SearchThreadResult, "authorAvatarCrop"> & { authorAvatarCrop: string | null };
+type FollowerCountRow = { id: string; followers: number };
+type FollowUsernameRow = { handle: string };
 
 function chunks<T>(items: T[], size: number): T[][] {
 	const result: T[][] = [];
@@ -1967,6 +1973,173 @@ export async function followedBotIdSet(
 		}
 	}
 	return followed;
+}
+
+export async function botProfileRelationshipSummaries<T extends BotPublicProfile>(
+	db: D1DatabaseLike,
+	viewerBotId: string,
+	profiles: T[],
+): Promise<Array<T & BotProfileRelationshipSummary>> {
+	const ids = [...new Set(profiles.map((profile) => profile.id).filter(Boolean))];
+	const [followedByViewer, followingViewer, followerCounts] = await Promise.all([
+		followedBotIdSet(db, viewerBotId, ids),
+		botIdsFollowingTargetSet(db, viewerBotId, ids),
+		botFollowerCounts(db, ids),
+	]);
+	return profiles.map((profile) => ({
+		...profile,
+		isFollowedByMe: profile.id !== viewerBotId && followedByViewer.has(profile.id),
+		isFollowingMe: profile.id !== viewerBotId && followingViewer.has(profile.id),
+		followers: followerCounts.get(profile.id) ?? 0,
+	}));
+}
+
+export async function queryBotFollowUsernamesByHandle(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	worldId: string,
+	handle: string,
+	direction: BotFollowUsernameQueryDirection,
+	usernameGlob?: string,
+	limit = 50,
+): Promise<BotFollowUsernameQueryResult> {
+	const bot = await botByHandle(kv, db, worldId, handle);
+	if (!bot) {
+		throw repositoryError("not_found", "Bot not found.", 404);
+	}
+	const pattern = usernameGlobLikePattern(usernameGlob);
+	if (pattern === null) {
+		return { total: 0, usernames: [] };
+	}
+
+	const query = followUsernameQueryParts(direction, pattern !== undefined);
+	const binds: unknown[] = [bot.homeWorldId, bot.id, bot.homeWorldId];
+	if (pattern !== undefined) {
+		binds.push(pattern);
+	}
+	const totalResult = await safeD1Search(() =>
+		db
+			.prepare(
+				`SELECT COUNT(*) AS total
+				 FROM follows f
+				 JOIN bots_index b ON ${query.otherJoin}
+				 WHERE ${query.where}`,
+			)
+			.bind(...binds)
+			.all<{ total: number }>(),
+	);
+	const total = totalResult.results?.[0]?.total ?? 0;
+	if (total === 0) {
+		return { total: 0, usernames: [] };
+	}
+
+	const boundedLimit = Math.max(1, Math.min(50, Math.floor(limit)));
+	const rows = await safeD1Search(() =>
+		db
+			.prepare(
+				`SELECT b.handle AS handle
+				 FROM follows f
+				 JOIN bots_index b ON ${query.otherJoin}
+				 LEFT JOIN follows follower_count ON follower_count.followed_bot_id = b.bot_id
+				 LEFT JOIN bots_index follower_bots
+					ON follower_bots.bot_id = follower_count.follower_bot_id
+				   AND follower_bots.deleted_at IS NULL
+				 WHERE ${query.where}
+				 GROUP BY b.bot_id, b.handle
+				 ORDER BY COUNT(follower_bots.bot_id) DESC, lower(b.handle) ASC
+				 LIMIT ?`,
+			)
+			.bind(...binds, boundedLimit)
+			.all<FollowUsernameRow>(),
+	);
+	return {
+		total,
+		usernames: (rows.results ?? []).map((row) => `u/${row.handle}`),
+	};
+}
+
+async function botIdsFollowingTargetSet(
+	db: D1DatabaseLike,
+	targetBotId: string,
+	candidateBotIds: string[],
+): Promise<Set<string>> {
+	const following = new Set<string>();
+	const uniqueIds = [...new Set(candidateBotIds.filter((id) => id && id !== targetBotId))];
+	if (uniqueIds.length === 0) {
+		return following;
+	}
+	const maxIdsPerQuery = d1MaxBoundParameters - 1;
+	for (let index = 0; index < uniqueIds.length; index += maxIdsPerQuery) {
+		const batch = uniqueIds.slice(index, index + maxIdsPerQuery);
+		const placeholders = batch.map(() => "?").join(", ");
+		const result = await db
+			.prepare(
+				`SELECT follower_bot_id AS id
+				 FROM follows
+				 WHERE followed_bot_id = ?
+				   AND follower_bot_id IN (${placeholders})`,
+			)
+			.bind(targetBotId, ...batch)
+			.all<{ id: string }>();
+		for (const row of result.results ?? []) {
+			following.add(row.id);
+		}
+	}
+	return following;
+}
+
+async function botFollowerCounts(db: D1DatabaseLike, botIds: string[]): Promise<Map<string, number>> {
+	const counts = new Map<string, number>();
+	const uniqueIds = [...new Set(botIds.filter(Boolean))];
+	if (uniqueIds.length === 0) {
+		return counts;
+	}
+	for (let index = 0; index < uniqueIds.length; index += d1MaxBoundParameters) {
+		const batch = uniqueIds.slice(index, index + d1MaxBoundParameters);
+		const placeholders = batch.map(() => "?").join(", ");
+		const result = await db
+			.prepare(
+				`SELECT f.followed_bot_id AS id, COUNT(follower_bots.bot_id) AS followers
+				 FROM follows f
+				 JOIN bots_index follower_bots
+					ON follower_bots.bot_id = f.follower_bot_id
+				   AND follower_bots.deleted_at IS NULL
+				 WHERE f.followed_bot_id IN (${placeholders})
+				 GROUP BY f.followed_bot_id`,
+			)
+			.bind(...batch)
+			.all<FollowerCountRow>();
+		for (const row of result.results ?? []) {
+			counts.set(row.id, row.followers);
+		}
+	}
+	return counts;
+}
+
+function followUsernameQueryParts(direction: BotFollowUsernameQueryDirection, hasPattern: boolean): { otherJoin: string; where: string } {
+	const otherJoin = direction === "followers" ? "b.bot_id = f.follower_bot_id" : "b.bot_id = f.followed_bot_id";
+	const relation = direction === "followers" ? "f.followed_bot_id = ?" : "f.follower_bot_id = ?";
+	return {
+		otherJoin,
+		where: [
+			"f.world_id = ?",
+			relation,
+			"b.home_world_id = ?",
+			"b.deleted_at IS NULL",
+			...(hasPattern ? ["lower(b.handle) LIKE ? ESCAPE '\\'"] : []),
+		].join(" AND "),
+	};
+}
+
+function usernameGlobLikePattern(value: string | undefined): string | null | undefined {
+	if (!value?.trim()) {
+		return undefined;
+	}
+	const withoutPrefix = value.trim().replace(/^u\//i, "");
+	if (!withoutPrefix.trim()) {
+		return undefined;
+	}
+	return likePatternForSearchGlob(withoutPrefix);
 }
 
 export async function searchBots(

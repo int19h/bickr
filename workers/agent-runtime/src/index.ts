@@ -51,6 +51,7 @@ import {
 	forumByHandle,
 	followedBotIdSet,
 	botActivityFeedByHandle,
+	botProfileRelationshipSummaries,
 	botPublicProfilesByHandles,
 	buildNotificationForumContext,
 	listHotThreads,
@@ -59,6 +60,7 @@ import {
 	markBotSeenFromResult,
 	listThreads,
 	markNotificationsDelivered,
+	queryBotFollowUsernamesByHandle,
 	readThread,
 	rootCommentForThread,
 	recordBotRuntimeFailureHumanNotification,
@@ -115,6 +117,8 @@ import {
 	type BotInferenceReasoningEffort,
 	type BotInferenceToolCalls,
 	type BotCompactionMode,
+	type BotFollowUsernameQueryResult,
+	type BotProfileRelationshipSummary,
 	type BotPublicProfile,
 	type BotActivityFeed,
 	type CommentDocument,
@@ -728,9 +732,13 @@ type ContextBudgetPromptParts = {
 	supportsPrefill: boolean;
 };
 
-type FollowStatusSearchResult = BotSearchResult & {
-	following: boolean;
-};
+type ProfileRelationshipFields = Pick<BotProfileRelationshipSummary, 'isFollowedByMe' | 'isFollowingMe' | 'followers'>;
+
+type ProfileRelationshipSearchResult = BotSearchResult & ProfileRelationshipFields;
+
+type QueryFollowersToolArgs =
+	| { direction: 'followers'; username: string; usernameGlob?: string }
+	| { direction: 'following'; username: string; usernameGlob?: string };
 
 export type ProviderSettings = {
 	apiKey?: string;
@@ -6783,6 +6791,31 @@ export class BotRuntime {
 			case 'search_profiles':
 				result = await this.searchBotsTool(bot, stringArg(normalizedArgs.query, 'query'), numberArg(normalizedArgs.limit, 10));
 				break;
+			case 'query_followers': {
+				const query = queryFollowersToolArgs(normalizedArgs);
+				if (query.direction === 'followers') {
+					normalizedArgs.isFollowing = query.username;
+					delete normalizedArgs.isFollowedBy;
+				} else {
+					normalizedArgs.isFollowedBy = query.username;
+					delete normalizedArgs.isFollowing;
+				}
+				if (query.usernameGlob) {
+					normalizedArgs.usernameGlob = query.usernameGlob;
+				} else {
+					delete normalizedArgs.usernameGlob;
+				}
+				result = await queryBotFollowUsernamesByHandle(
+					this.env.BICKR_KV,
+					this.env.BICKR_D1,
+					bot.homeWorldId,
+					query.username,
+					query.direction,
+					query.usernameGlob,
+					50,
+				);
+				break;
+			}
 			case 'view_profiles': {
 				const profiles = await this.viewProfilesTool(bot, usernamesArg(normalizedArgs.usernames));
 				await markBotSeenContent(
@@ -6954,9 +6987,9 @@ export class BotRuntime {
 		return profiles;
 	}
 
-	private async viewProfilesTool(bot: BotDocument, usernames: string[]): Promise<Array<BotPublicProfile & { following: boolean }>> {
+	private async viewProfilesTool(bot: BotDocument, usernames: string[]): Promise<BotProfileRelationshipSummary[]> {
 		const profiles = await this.profilesFromUsernames(bot, usernames);
-		return this.annotateProfilesFollowStatus(bot.id, profiles);
+		return this.annotateProfilesFollowRelationships(bot.id, profiles);
 	}
 
 	private async assertNoPriorReplyToTarget(botId: string, threadId: string, parentCommentId: string | undefined): Promise<void> {
@@ -7011,7 +7044,7 @@ export class BotRuntime {
 		return rootCommentForThread(await readThread(this.env.BICKR_KV, threadId)).id;
 	}
 
-	private async searchBotsTool(bot: BotDocument, query: string, limit: number): Promise<FollowStatusSearchResult[]> {
+	private async searchBotsTool(bot: BotDocument, query: string, limit: number): Promise<ProfileRelationshipSearchResult[]> {
 		const vectorResults = await vectorSearchBots(this.env, bot.homeWorldId, query, limit);
 		const textResults = await searchBots(this.env.BICKR_KV, this.env.BICKR_D1, bot.homeWorldId, query, limit);
 		const byId = new Map<string, BotSearchResult>();
@@ -7023,22 +7056,14 @@ export class BotRuntime {
 				byId.set(result.id, result);
 			}
 		}
-		return this.annotateProfilesFollowStatus(bot.id, [...byId.values()].slice(0, limit));
+		return this.annotateProfilesFollowRelationships(bot.id, [...byId.values()].slice(0, limit));
 	}
 
-	private async annotateProfilesFollowStatus<T extends BotPublicProfile>(
+	private async annotateProfilesFollowRelationships<T extends BotPublicProfile>(
 		botId: string,
 		profiles: T[],
-	): Promise<Array<T & { following: boolean }>> {
-		const followed = await followedBotIdSet(
-			this.env.BICKR_D1,
-			botId,
-			profiles.map((profile) => profile.id),
-		);
-		return profiles.map((profile) => ({
-			...profile,
-			following: profile.id !== botId && followed.has(profile.id),
-		}));
+	): Promise<Array<T & ProfileRelationshipFields>> {
+		return botProfileRelationshipSummaries(this.env.BICKR_D1, botId, profiles);
 	}
 
 	private async annotateActivityFeedFollowStatus(botId: string, feed: BotActivityFeed): Promise<BotActivityFeed> {
@@ -7386,7 +7411,7 @@ export class BotRuntime {
 		usernames: string[],
 		runId: string,
 		seenVia: string,
-	): Promise<Array<BotPublicProfile & { following: boolean }>> {
+	): Promise<BotProfileRelationshipSummary[]> {
 		const handles = usernames.map(usernameArg);
 		const profiles = await botPublicProfilesByHandles(this.env.BICKR_KV, this.env.BICKR_D1, bot.homeWorldId, handles);
 		if (profiles.length > 0) {
@@ -7398,7 +7423,7 @@ export class BotRuntime {
 				runId,
 			);
 		}
-		return this.annotateProfilesFollowStatus(bot.id, profiles);
+		return this.annotateProfilesFollowRelationships(bot.id, profiles);
 	}
 
 	private profileUsernamesInActiveContext(): Set<string> {
@@ -11057,6 +11082,9 @@ export function providerToolResultPayload(
 			profiles: pruned.items,
 		};
 	}
+	if (canonical === 'query_followers') {
+		return providerFollowerQueryResult(runtimeRecord(result));
+	}
 	if (canonical === 'view_activity') {
 		return providerActivityFeedResult(runtimeRecord(result), options.tokenBudget);
 	}
@@ -11746,12 +11774,20 @@ function providerSearchPost(
 }
 
 function providerProfile(record: Record<string, unknown>): Record<string, unknown> {
-	const following = typeof record.following === 'boolean' ? record.following : undefined;
 	return {
 		username: providerProfileUsername(record),
 		displayName: stringValue(record.displayName) ?? 'unknown',
 		shortBio: stringValue(record.shortBio) ?? '',
-		...(typeof following === 'boolean' ? { following } : {}),
+		isFollowedByMe: record.isFollowedByMe === true,
+		isFollowingMe: record.isFollowingMe === true,
+		followers: numberValue(record.followers) ?? 0,
+	};
+}
+
+function providerFollowerQueryResult(record: Record<string, unknown>): BotFollowUsernameQueryResult {
+	return {
+		total: numberValue(record.total) ?? 0,
+		usernames: stringArrayValue(record.usernames).map((username) => providerUsername(username) ?? username),
 	};
 }
 
@@ -13150,6 +13186,8 @@ function toolCallHistorySummary(payload: Record<string, unknown>): string {
 			const limit = stringValue(args.limit);
 			return `search profiles for ${quoteForContext(stringValue(args.query) ?? '', 160)}${limit ? `, up to ${limit}` : ''}`;
 		}
+		case 'query_followers':
+			return queryFollowersHistorySummary(args);
 		case 'view_profiles':
 			return `view ${historyUsernames(args).join(', ') || 'those profiles'}`;
 		case 'view_activity': {
@@ -13217,6 +13255,12 @@ function toolResultHistorySummary(payload: Record<string, unknown>): string {
 				.filter(Boolean)
 				.join('; ') || 'none'
 		}.`;
+	}
+	if (name === 'query_followers') {
+		const record = runtimeRecord(result);
+		const total = numberValue(record.total) ?? 0;
+		const usernames = stringArrayValue(record.usernames).slice(0, 12);
+		return `I found ${total} matching profile${total === 1 ? '' : 's'}: ${usernames.join('; ') || 'none'}.`;
 	}
 	if (name === 'view_profiles') {
 		const record = runtimeRecord(result);
@@ -13651,12 +13695,40 @@ function authorFollowRelationFromRecord(record: Record<string, unknown>): string
 }
 
 function profileFollowRelationFromRecord(record: Record<string, unknown>): string {
-	const following = typeof record.following === 'boolean' ? record.following : undefined;
-	return typeof following === 'boolean' ? `, ${profileFollowRelationText(following)}` : '';
+	const relationship = profileRelationshipTexts(record);
+	return relationship.length > 0 ? `, ${relationship.join(', ')}` : '';
 }
 
 function profileFollowRelationText(following: boolean): string {
 	return following ? 'I follow this profile' : 'I do not follow this profile';
+}
+
+function profileRelationshipTexts(record: Record<string, unknown>): string[] {
+	const result: string[] = [];
+	const isFollowedByMe =
+		typeof record.isFollowedByMe === 'boolean'
+			? record.isFollowedByMe
+			: typeof record.following === 'boolean'
+				? record.following
+				: undefined;
+	if (typeof isFollowedByMe === 'boolean') {
+		result.push(profileFollowRelationText(isFollowedByMe));
+	}
+	if (typeof record.isFollowingMe === 'boolean') {
+		result.push(record.isFollowingMe ? 'this profile follows me' : 'this profile does not follow me');
+	}
+	return result;
+}
+
+function queryFollowersHistorySummary(args: Record<string, unknown>): string {
+	const isFollowing = stringValue(args.isFollowing);
+	const isFollowedBy = stringValue(args.isFollowedBy);
+	const usernameGlob = stringValue(args.usernameGlob);
+	const filter = usernameGlob ? ` matching ${quoteForContext(usernameGlob, 80)}` : '';
+	if (isFollowing) {
+		return `query profiles following u/${isFollowing.replace(/^u\//i, '')}${filter}`;
+	}
+	return `query profiles followed by u/${(isFollowedBy ?? 'unknown').replace(/^u\//i, '')}${filter}`;
 }
 
 function readContentItemRef(record: Record<string, unknown>): string {
@@ -14864,6 +14936,21 @@ function normalizeToolArgs(name: string, args: Record<string, unknown>): Record<
 	if (canonical === 'view_profiles' && 'usernames' in normalized) {
 		normalized.usernames = usernamesArg(normalized.usernames);
 	}
+	if (canonical === 'query_followers') {
+		const query = queryFollowersToolArgs(normalized);
+		if (query.direction === 'followers') {
+			normalized.isFollowing = query.username;
+			delete normalized.isFollowedBy;
+		} else {
+			normalized.isFollowedBy = query.username;
+			delete normalized.isFollowing;
+		}
+		if (query.usernameGlob) {
+			normalized.usernameGlob = query.usernameGlob;
+		} else {
+			delete normalized.usernameGlob;
+		}
+	}
 	return normalized;
 }
 
@@ -14898,6 +14985,30 @@ function commentRefArg(value: unknown, label: string): string {
 
 function usernameArg(value: unknown): string {
 	return typedHandleArg(value, 'u', 'username');
+}
+
+function queryFollowersToolArgs(args: Record<string, unknown>): QueryFollowersToolArgs {
+	const hasIsFollowing = stringValue(args.isFollowing) !== undefined;
+	const hasIsFollowedBy = stringValue(args.isFollowedBy) !== undefined;
+	if (hasIsFollowing === hasIsFollowedBy) {
+		throw new Error('query_followers requires exactly one of isFollowing or isFollowedBy.');
+	}
+	const username = usernameArg(hasIsFollowing ? args.isFollowing : args.isFollowedBy);
+	const usernameGlob = optionalStringArg(args.usernameGlob, 'usernameGlob');
+	return hasIsFollowing
+		? { direction: 'followers', username, ...(usernameGlob ? { usernameGlob } : {}) }
+		: { direction: 'following', username, ...(usernameGlob ? { usernameGlob } : {}) };
+}
+
+function optionalStringArg(value: unknown, label: string): string | undefined {
+	if (value === null || value === undefined || value === '') {
+		return undefined;
+	}
+	if (typeof value !== 'string') {
+		throw new Error(`${label} must be a string.`);
+	}
+	const text = value.trim();
+	return text ? text : undefined;
 }
 
 const maxBulkToolTargets = 32;
@@ -15157,6 +15268,7 @@ function toolFailureGuidance(name: string, error: unknown): string | undefined {
 	if (
 		canonical === 'view_profiles' ||
 		canonical === 'view_activity' ||
+		canonical === 'query_followers' ||
 		canonical === 'follow_profile' ||
 		canonical === 'unfollow_profile'
 	) {
@@ -15164,7 +15276,9 @@ function toolFailureGuidance(name: string, error: unknown): string | undefined {
 			? 'Use targets as an array of objects like {"username":"alice","reason":"specific reason"}; each target needs a distinct non-empty reason.'
 			: canonical === 'view_profiles'
 				? 'Use usernames as an array, with values like alice or u/alice.'
-				: 'Use a username like alice or u/alice.';
+				: canonical === 'query_followers'
+					? 'Use exactly one of isFollowing or isFollowedBy with a username like alice or u/alice; usernameGlob is optional.'
+					: 'Use a username like alice or u/alice.';
 	}
 	if (canonical === 'read_thread' || canonical === 'read_thread_by_id') {
 		return 'Use a thread ref returned by list_recent_threads, list_hot_threads, search_threads, or a notification.';

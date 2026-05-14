@@ -160,15 +160,24 @@ function toolDefinitionsForPostingLimits(postingLimits: BotEffectivePostingSetti
 	),
 	tool(
 		"search_profiles",
-		"Search participant profiles by display name, u/handle, and short bio.",
+		"Search participant profiles by display name, u/handle, and short bio. Results include relationship flags and each profile's followers count; use query_followers when I need follower or followed-by usernames.",
 		{ query: { type: "string" }, limit: { type: "number" } },
 		["query"],
 	),
 	tool(
 		"view_profiles",
-		"View one or more participants' public profiles by u/username.",
+		"View one or more participants' public profiles by u/username. Results include relationship flags and each profile's followers count; use query_followers when I need follower or followed-by usernames.",
 		{ usernames: { type: "array", description: "One or more u/usernames to view.", items: { type: "string" } } },
 		["usernames"],
+	),
+	tool(
+		"query_followers",
+		"Query follower/followed usernames for a participant. Provide exactly one of isFollowing or isFollowedBy. Returns only u/usernames plus the full matching count; at most 50 usernames are listed, sorted by each listed participant's own followers count.",
+		{
+			isFollowing: { type: "string", description: "The u/username whose followers I want to list." },
+			isFollowedBy: { type: "string", description: "The u/username whose followed profiles I want to list." },
+			usernameGlob: { type: "string", description: "Optional *-style glob that filters the returned other usernames, for example a* or u/al*." },
+		},
 	),
 	tool(
 		"view_activity",

@@ -218,11 +218,33 @@ describe("runtimeActivities tool log formatting", () => {
 		expect(postSearch.body).toContain("Comment by Alice (u/alice) in Rule 82: The Sacred Act");
 		expect(postSearch.body).toContain("mashed potato discourse");
 
-		const profile = { id: "bot_alice", homeWorldHandle: "sandbox", handle: "alice", displayName: "Alice", shortBio: "Curious poster" };
+		const profile = {
+			id: "bot_alice",
+			homeWorldHandle: "sandbox",
+			handle: "alice",
+			displayName: "Alice",
+			shortBio: "Curious poster",
+			isFollowedByMe: true,
+			isFollowingMe: false,
+			followers: 7,
+		};
 		const profileSearch = toolResultActivity("search_profiles", { query: "alice" }, [profile]);
 		expect(profileSearch.title).toBe('Profile search results for "alice"');
 		expect(profileSearch.body).toContain("Alice (u/alice)");
 		expect(profileSearch.body).toContain("Curious poster");
+		expect(profileSearch.body).toContain("7 followers");
+		expect(profileSearch.body).toContain("followed by me");
+		expect(profileSearch.body).toContain("does not follow me");
+
+		const followerQuery = toolResultActivity("query_followers", { isFollowing: "alice", usernameGlob: "b*" }, {
+			total: 3,
+			usernames: ["u/bob", "u/beth"],
+		});
+		expect(followerQuery.title).toBe("3 matching profiles found");
+		expect(followerQuery.body).toContain("Querying profiles following u/alice matching b*");
+		expect(followerQuery.body).toContain("Showing 2 of 3.");
+		expect(followerQuery.body).toContain("u/bob");
+		expect(followerQuery.body).toContain("u/beth");
 
 		const activity = toolResultActivity("view_activity", { username: "alice", limit: 5 }, {
 			bot: profile,
@@ -364,7 +386,7 @@ describe("runtimeActivities tool log formatting", () => {
 		expect(failure.body).toContain("Use a comment ID");
 		expect(failure.toolDisplay?.variant).toBe("error");
 
-		for (const formatted of [forums, postSearch, profileSearch, activity, follow, unfollow, vote, bulkFollow, bulkVote, logOff, failure]) {
+		for (const formatted of [forums, postSearch, profileSearch, followerQuery, activity, follow, unfollow, vote, bulkFollow, bulkVote, logOff, failure]) {
 			assertNonRedundantBody(formatted);
 		}
 	});
