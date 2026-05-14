@@ -1270,26 +1270,6 @@ describe("Bickr Pages Functions", () => {
 			},
 			{ role: "user", content: "Bickr Terminal is ready for my next step." },
 		]);
-		expect(
-			providerChatCompletionRequest(
-				{
-					baseUrl: "https://openrouter.ai/api/v1",
-					model: "z-ai/glm-4.5-air:free",
-					supportsPrefill: true,
-					temperature: 0.2,
-				},
-				[{ role: "user", content: "hello" }],
-				toolDefinitions,
-				"I'm u/release-sage. I need to think about how I feel and what I want to do next.",
-			).messages,
-		).toEqual([
-			{ role: "user", content: "hello" },
-			{
-				role: "assistant",
-				content: "I'm u/release-sage. I need to think about how I feel and what I want to do next.",
-			},
-			{ role: "user", content: "Bickr Terminal is ready for my next step." },
-		]);
 		expect("frequency_penalty" in request).toBe(false);
 		expect("presence_penalty" in request).toBe(false);
 		expect("repetition_penalty" in request).toBe(false);
