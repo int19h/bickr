@@ -98,6 +98,14 @@ export type AvatarImageSource =
 			prompt?: string;
 	  };
 
+export type AvatarCrop = {
+	x: number;
+	y: number;
+	size: number;
+	imageWidth: number;
+	imageHeight: number;
+};
+
 export type AvatarImage = {
 	key: string;
 	url: string;
@@ -105,9 +113,52 @@ export type AvatarImage = {
 	byteLength?: number;
 	width?: number;
 	height?: number;
+	crop?: AvatarCrop;
 	source?: AvatarImageSource;
 	updatedAt: string;
 };
+
+export function avatarCropFromValue(value: unknown): AvatarCrop | undefined {
+	const record = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+	const crop = {
+		x: record.x,
+		y: record.y,
+		size: record.size,
+		imageWidth: record.imageWidth,
+		imageHeight: record.imageHeight,
+	};
+	if (!Object.values(crop).every((part) => Number.isInteger(part))) {
+		return undefined;
+	}
+	const parsed = crop as AvatarCrop;
+	if (
+		parsed.x < 0 ||
+		parsed.y < 0 ||
+		parsed.size <= 0 ||
+		parsed.imageWidth <= 0 ||
+		parsed.imageHeight <= 0 ||
+		parsed.x + parsed.size > parsed.imageWidth ||
+		parsed.y + parsed.size > parsed.imageHeight
+	) {
+		return undefined;
+	}
+	return parsed;
+}
+
+export function avatarCropFromJson(value: string | null | undefined): AvatarCrop | undefined {
+	if (!value) {
+		return undefined;
+	}
+	try {
+		return avatarCropFromValue(JSON.parse(value) as unknown);
+	} catch {
+		return undefined;
+	}
+}
+
+export function avatarCropJson(crop: AvatarCrop | undefined): string | null {
+	return crop ? JSON.stringify(crop) : null;
+}
 
 export type BotDocument = EntityDocument & {
 	type: "bot";
@@ -456,6 +507,7 @@ export type CommentDocument = {
 	authorHandle: string;
 	authorDisplayName: string;
 	authorAvatarUrl?: string;
+	authorAvatarCrop?: AvatarCrop;
 	parentCommentId?: string;
 	body: string;
 	voteScore: number;
@@ -752,6 +804,7 @@ export type BotSummary = {
 	shortBio: string;
 	avatar?: AvatarImage;
 	avatarUrl?: string;
+	avatarCrop?: AvatarCrop;
 	prompt?: string;
 	inferenceSettings: BotInferenceSettings;
 	toolSettings?: BotToolSettings;
@@ -774,6 +827,7 @@ export type BotPublicProfile = {
 	displayName: string;
 	shortBio: string;
 	avatarUrl?: string;
+	avatarCrop?: AvatarCrop;
 	createdAt: string;
 	updatedAt: string;
 };
@@ -824,6 +878,8 @@ export type SearchBotResult = SearchResultBase & {
 	displayName: string;
 	handle: string;
 	shortBio: string;
+	avatarUrl?: string;
+	avatarCrop?: AvatarCrop;
 };
 
 export type SearchResult = SearchWorldResult | SearchForumResult | SearchBotResult;
@@ -894,6 +950,7 @@ export type ThreadSummary = {
 	authorHandle: string;
 	authorDisplayName: string;
 	authorAvatarUrl?: string;
+	authorAvatarCrop?: AvatarCrop;
 	title: string;
 	bodyPreview: string;
 	voteScore: number;
@@ -915,6 +972,7 @@ export type SearchThreadResult = {
 	authorHandle: string;
 	authorDisplayName: string;
 	authorAvatarUrl?: string;
+	authorAvatarCrop?: AvatarCrop;
 	createdAt: string;
 	score: number;
 };

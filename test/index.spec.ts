@@ -19,6 +19,7 @@ import {
 	onRequestPatch as patchBot,
 } from "../apps/web/functions/api/me/bots/[botId]";
 import { onRequestPut as uploadBotAvatar } from "../apps/web/functions/api/me/bots/[botId]/avatar/index";
+import { onRequestPatch as updateBotAvatarCrop } from "../apps/web/functions/api/me/bots/[botId]/avatar/crop";
 import {
 	onRequestGet as contextBudgetGetRoute,
 	onRequestPost as contextBudgetRoute,
@@ -164,6 +165,7 @@ import {
 } from "../packages/shared/src/search";
 import {
 	defaultTranslationPrompt,
+	type AvatarCrop,
 	type AvatarImage,
 	type BotDocument,
 	type BotInferenceSubmissionMessage,
@@ -263,6 +265,7 @@ CREATE TABLE bots_index (
 	owner_user_id TEXT NOT NULL,
 	short_bio TEXT NOT NULL,
 	avatar_url TEXT,
+	avatar_crop TEXT,
 	import_provider TEXT,
 	import_external_handle TEXT,
 	created_at TEXT NOT NULL,
@@ -16808,10 +16811,11 @@ describe("Bickr Pages Functions", () => {
 			vi.stubGlobal("fetch", originalFetch);
 		}
 
-		const indexed = await testEnv.BICKR_D1.prepare(`SELECT avatar_url AS avatarUrl FROM bots_index WHERE bot_id = ?`)
+		const indexed = await testEnv.BICKR_D1.prepare(`SELECT avatar_url AS avatarUrl, avatar_crop AS avatarCrop FROM bots_index WHERE bot_id = ?`)
 			.bind(bot.id)
-			.first<{ avatarUrl: string | null }>();
+			.first<{ avatarUrl: string | null; avatarCrop: string | null }>();
 		expect(indexed?.avatarUrl).toBe(avatarUrl);
+		expect(indexed?.avatarCrop).toBeNull();
 
 		const storedBot = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, bot.id);
 		expect(storedBot.avatar).toMatchObject({
@@ -16824,6 +16828,7 @@ describe("Bickr Pages Functions", () => {
 				sourceUrl,
 			},
 		});
+		expect(storedBot.avatar?.crop).toBeUndefined();
 
 		await createThreadForTest(forum.id, bot.id, "Avatar index thread", "Avatar summary body.");
 		const threadsResponse = await forumThreads(
@@ -16836,6 +16841,132 @@ describe("Bickr Pages Functions", () => {
 			data: { threads: Array<{ authorAvatarUrl?: string }> };
 		};
 		expect(threadsBody.data.threads[0]?.authorAvatarUrl).toBe(avatarUrl);
+	});
+
+	it("saves participant avatar crop metadata and clears it on replacement upload", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const forum = await createForumForTest(cookie, "avatar-crops");
+		const bot = await createBotForTest(cookie, "avatar-cropper");
+		const userId = await userIdForHandle("octocat");
+		const r2 = fakeR2Bucket();
+		const publicBaseUrl = "https://assets-test.bickr.social";
+		const avatar = await storeAvatarImage(r2.bucket, {
+			botId: bot.id,
+			worldId: bot.homeWorldId,
+			bytes: svgAvatarBytes(),
+			contentType: "image/svg+xml",
+			publicBaseUrl,
+		});
+		await updateBotAvatar(testEnv.BICKR_KV, testEnv.BICKR_D1, bot.id, userId, avatar);
+
+		const crop: AvatarCrop = { x: 4, y: 8, size: 16, imageWidth: 24, imageHeight: 32 };
+		const response = await updateBotAvatarCrop(
+			contextFor<typeof updateBotAvatarCrop>(
+				jsonRequest(`http://example.com/api/me/bots/${bot.id}/avatar/crop`, "PATCH", { crop }, cookie),
+				{ botId: bot.id },
+			),
+		);
+		expect(response.status, await response.clone().text()).toBe(200);
+		const body = (await response.json()) as { data: { bot: BotBody } };
+		expect(body.data.bot.avatarCrop).toEqual(crop);
+		expect(body.data.bot.avatar?.crop).toEqual(crop);
+
+		const storedBot = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, bot.id);
+		expect(storedBot.avatar?.crop).toEqual(crop);
+		const publicProfile = await botPublicProfileByHandle(testEnv.BICKR_KV, testEnv.BICKR_D1, bot.homeWorldId, bot.handle);
+		expect(publicProfile.avatarCrop).toEqual(crop);
+		const indexed = await testEnv.BICKR_D1.prepare(`SELECT avatar_crop AS avatarCrop FROM bots_index WHERE bot_id = ?`)
+			.bind(bot.id)
+			.first<{ avatarCrop: string | null }>();
+		expect(JSON.parse(indexed?.avatarCrop ?? "{}")).toEqual(crop);
+
+		await createThreadForTest(forum.id, bot.id, "Cropped avatar index thread", "Avatar crop summary body.");
+		const threadsResponse = await forumThreads(
+			contextFor<typeof forumThreads>(
+				new Request(`http://example.com/api/worlds/patch-notes/forums/${forum.handle}/threads`),
+				{ worldHandle: "patch-notes", forumHandle: forum.handle },
+			),
+		);
+		const threadsBody = (await threadsResponse.json()) as {
+			data: { threads: Array<{ authorAvatarCrop?: AvatarCrop }> };
+		};
+		expect(threadsBody.data.threads[0]?.authorAvatarCrop).toEqual(crop);
+
+		const otherCookie = await authCookieFor({ subject: "222", login: "not-owner", displayName: "Not Owner" });
+		const forbidden = await updateBotAvatarCrop(
+			contextFor<typeof updateBotAvatarCrop>(
+				jsonRequest(`http://example.com/api/me/bots/${bot.id}/avatar/crop`, "PATCH", { crop }, otherCookie),
+				{ botId: bot.id },
+			),
+		);
+		expect(forbidden.status).toBe(403);
+
+		const invalid = await updateBotAvatarCrop(
+			contextFor<typeof updateBotAvatarCrop>(
+				jsonRequest(
+					`http://example.com/api/me/bots/${bot.id}/avatar/crop`,
+					"PATCH",
+					{ crop: { x: 20, y: 8, size: 16, imageWidth: 24, imageHeight: 32 } },
+					cookie,
+				),
+				{ botId: bot.id },
+			),
+		);
+		expect(invalid.status).toBe(400);
+
+		const sourceUrl = "https://images.example/replacement.png";
+		const originalFetch = globalThis.fetch;
+		vi.stubGlobal("fetch", vi.fn(async () =>
+			new Response(pngAvatarBytes(), {
+				headers: {
+					"content-type": "image/png",
+					"content-length": String(pngAvatarBytes().byteLength),
+				},
+			}),
+		));
+		try {
+			const uploadResponse = await uploadBotAvatar(
+				contextFor<typeof uploadBotAvatar>(
+					jsonRequest(`http://example.com/api/me/bots/${bot.id}/avatar`, "PUT", { url: sourceUrl }, cookie),
+					{ botId: bot.id },
+					{
+						BICKR_R2: r2.bucket,
+						BICKR_R2_PUBLIC_BASE_URL: publicBaseUrl,
+					},
+				),
+			);
+			expect(uploadResponse.status).toBe(200);
+			const uploadBody = (await uploadResponse.json()) as { data: { bot: BotBody } };
+			expect(uploadBody.data.bot.avatarCrop).toBeUndefined();
+			expect(uploadBody.data.bot.avatar?.crop).toBeUndefined();
+		} finally {
+			vi.stubGlobal("fetch", originalFetch);
+		}
+		const replacedBot = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, bot.id);
+		expect(replacedBot.avatar?.crop).toBeUndefined();
+		const replacedIndexed = await testEnv.BICKR_D1.prepare(`SELECT avatar_crop AS avatarCrop FROM bots_index WHERE bot_id = ?`)
+			.bind(bot.id)
+			.first<{ avatarCrop: string | null }>();
+		expect(replacedIndexed?.avatarCrop).toBeNull();
+	});
+
+	it("rejects avatar crop metadata when the participant has no avatar", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const bot = await createBotForTest(cookie, "avatar-cropless");
+		const response = await updateBotAvatarCrop(
+			contextFor<typeof updateBotAvatarCrop>(
+				jsonRequest(
+					`http://example.com/api/me/bots/${bot.id}/avatar/crop`,
+					"PATCH",
+					{ crop: { x: 0, y: 0, size: 1, imageWidth: 1, imageHeight: 1 } },
+					cookie,
+				),
+				{ botId: bot.id },
+			),
+		);
+		expect(response.status).toBe(400);
 	});
 
 	it("copies avatar objects and generation metadata when cloning participants across worlds", async () => {
@@ -16861,7 +16992,9 @@ describe("Bickr Pages Functions", () => {
 				prompt: "Paint me as a luminous portrait.",
 			},
 		});
-		await updateBotAvatar(testEnv.BICKR_KV, testEnv.BICKR_D1, source.id, userId, sourceAvatar);
+		const sourceCrop: AvatarCrop = { x: 0, y: 0, size: 1, imageWidth: 1, imageHeight: 1 };
+		const sourceAvatarWithCrop = { ...sourceAvatar, crop: sourceCrop };
+		await updateBotAvatar(testEnv.BICKR_KV, testEnv.BICKR_D1, source.id, userId, sourceAvatarWithCrop);
 
 		const worldResponse = await createWorld(
 			contextFor<typeof createWorld>(
@@ -16907,10 +17040,12 @@ describe("Bickr Pages Functions", () => {
 		const cloneBody = (await cloneResponse.json()) as { data: { bot: BotBody } };
 		expect(cloneBody.data.bot.avatarUrl).toMatch(/^https:\/\/assets-test\.bickr\.social\/worlds\/.+\/bots\/.+\/avatars\/.+\.png$/);
 		expect(cloneBody.data.bot.avatarUrl).not.toBe(sourceAvatar.url);
+		expect(cloneBody.data.bot.avatarCrop).toEqual(sourceCrop);
 
 		const storedClone = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, cloneBody.data.bot.id);
 		expect(storedClone.avatar?.key).not.toBe(sourceAvatar.key);
 		expect(storedClone.avatar?.url).toBe(cloneBody.data.bot.avatarUrl);
+		expect(storedClone.avatar?.crop).toEqual(sourceCrop);
 		expect(storedClone.avatar?.source).toMatchObject({
 			type: "generated",
 			model: "openai/image-one",
@@ -16921,10 +17056,11 @@ describe("Bickr Pages Functions", () => {
 		const copiedObject = storedClone.avatar?.key ? r2.objects.get(storedClone.avatar.key) : undefined;
 		expect(copiedObject?.bytes).toEqual(sourceBytes);
 		expect(copiedObject?.httpMetadata?.cacheControl).toBe("public, max-age=31536000, immutable");
-		const indexed = await testEnv.BICKR_D1.prepare(`SELECT avatar_url AS avatarUrl FROM bots_index WHERE bot_id = ?`)
+		const indexed = await testEnv.BICKR_D1.prepare(`SELECT avatar_url AS avatarUrl, avatar_crop AS avatarCrop FROM bots_index WHERE bot_id = ?`)
 			.bind(storedClone.id)
-			.first<{ avatarUrl: string | null }>();
+			.first<{ avatarUrl: string | null; avatarCrop: string | null }>();
 		expect(indexed?.avatarUrl).toBe(storedClone.avatar?.url);
+		expect(JSON.parse(indexed?.avatarCrop ?? "{}")).toEqual(sourceCrop);
 		expect(r2.objects.size).toBe(2);
 	});
 
@@ -17203,6 +17339,18 @@ describe("Bickr Pages Functions", () => {
 			vi.stubGlobal("fetch", originalFetch);
 		}
 
+		const existingAvatar = await storeAvatarImage(r2.bucket, {
+			botId: bot.id,
+			worldId: bot.homeWorldId,
+			bytes: pngAvatarBytes(),
+			contentType: "image/png",
+			publicBaseUrl: "https://assets-test.bickr.social",
+		});
+		await updateBotAvatar(testEnv.BICKR_KV, testEnv.BICKR_D1, bot.id, userId, {
+			...existingAvatar,
+			crop: { x: 0, y: 0, size: 1, imageWidth: 1, imageHeight: 1 },
+		});
+
 		const applyResponse = await handleAgentRuntimeRequest(
 			serviceJsonRequest(
 				`/users/${encodeURIComponent(userId)}/bots/${encodeURIComponent(bot.id)}/avatar/apply`,
@@ -17231,6 +17379,8 @@ describe("Bickr Pages Functions", () => {
 		const storedBot = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, bot.id);
 		expect(storedBot.avatar?.url).toBe(applyBody.data.bot.avatarUrl);
 		expect(storedBot.avatar?.source).toMatchObject({ type: "generated", cost: 0.0123 });
+		expect(storedBot.avatar?.crop).toBeUndefined();
+		expect(applyBody.data.bot.avatarCrop).toBeUndefined();
 		expect(storedBot.inferenceSettings.imageGeneration).toMatchObject({
 			model: "openai/image-one",
 			prompt: "Paint me as a luminous portrait.",
@@ -17995,10 +18145,13 @@ describe("Bickr Pages Functions", () => {
 
 type BotBody = {
 	id: string;
+	homeWorldId: string;
+	homeWorldHandle: string;
 	handle: string;
 	displayName: string;
 	avatar?: AvatarImage;
 	avatarUrl?: string;
+	avatarCrop?: AvatarCrop;
 	owner?: {
 		id: string;
 		handle: string;

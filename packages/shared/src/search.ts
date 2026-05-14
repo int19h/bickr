@@ -1,6 +1,8 @@
 import { isCloudflareRateLimitError, retryCloudflareOperation } from "./cloudflare";
 import {
+	avatarCropFromJson,
 	type BotSummary,
+	type AvatarCrop,
 	type ForumSummary,
 	type SearchEntityType,
 	type SearchMode,
@@ -62,6 +64,8 @@ type SearchSqlRow = {
 	botHandle: string | null;
 	botId: string | null;
 	botShortBio: string | null;
+	botAvatarUrl: string | null;
+	botAvatarCrop: string | null;
 	forumDescription: string | null;
 	forumHandle: string | null;
 	forumId: string | null;
@@ -85,6 +89,14 @@ type SearchVectorMatch = {
 type SearchVectorMatches = {
 	matches: SearchVectorMatch[];
 };
+
+function searchBotAvatarFields(avatarUrl: string | null | undefined, avatarCrop: string | null | undefined): { avatarUrl?: string; avatarCrop?: AvatarCrop } {
+	const crop = avatarCropFromJson(avatarCrop);
+	return {
+		...(avatarUrl ? { avatarUrl } : {}),
+		...(crop ? { avatarCrop: crop } : {}),
+	};
+}
 
 type SearchVectorizeIndexLike = {
 	deleteByIds(ids: string[]): Promise<unknown>;
@@ -489,6 +501,8 @@ function searchRowsSql(input: {
 					NULL AS botHandle,
 					NULL AS botDisplayName,
 					NULL AS botShortBio,
+					NULL AS botAvatarUrl,
+					NULL AS botAvatarCrop,
 					fts.score AS score,
 					lower(w.handle) AS sortHandle,
 					lower(w.name) AS sortName
@@ -511,6 +525,8 @@ function searchRowsSql(input: {
 					NULL AS botHandle,
 					NULL AS botDisplayName,
 					NULL AS botShortBio,
+					NULL AS botAvatarUrl,
+					NULL AS botAvatarCrop,
 					fts.score AS score,
 					lower(f.handle) AS sortHandle,
 					lower(f.description) AS sortName
@@ -535,6 +551,8 @@ function searchRowsSql(input: {
 					b.handle AS botHandle,
 					b.display_name AS botDisplayName,
 					b.short_bio AS botShortBio,
+					b.avatar_url AS botAvatarUrl,
+					b.avatar_crop AS botAvatarCrop,
 					fts.score AS score,
 					lower(b.handle) AS sortHandle,
 					lower(b.display_name) AS sortName
@@ -559,6 +577,8 @@ function searchRowsSql(input: {
 					NULL AS botHandle,
 					NULL AS botDisplayName,
 					NULL AS botShortBio,
+					NULL AS botAvatarUrl,
+					NULL AS botAvatarCrop,
 					CASE
 						WHEN lower(w.handle) = ? THEN 100
 						WHEN lower(w.handle) LIKE ? ESCAPE '\\' THEN 80
@@ -586,6 +606,8 @@ function searchRowsSql(input: {
 					NULL AS botHandle,
 					NULL AS botDisplayName,
 					NULL AS botShortBio,
+					NULL AS botAvatarUrl,
+					NULL AS botAvatarCrop,
 					CASE
 						WHEN lower(f.handle) = ? THEN 100
 						WHEN lower(f.handle) LIKE ? ESCAPE '\\' THEN 80
@@ -614,6 +636,8 @@ function searchRowsSql(input: {
 					b.handle AS botHandle,
 					b.display_name AS botDisplayName,
 					b.short_bio AS botShortBio,
+					b.avatar_url AS botAvatarUrl,
+					b.avatar_crop AS botAvatarCrop,
 					CASE
 						WHEN lower(b.handle) = ? THEN 100
 						WHEN lower(b.handle) LIKE ? ESCAPE '\\' THEN 80
@@ -648,6 +672,8 @@ function searchRowsSql(input: {
 			botHandle AS botHandle,
 			botDisplayName AS botDisplayName,
 			botShortBio AS botShortBio,
+			botAvatarUrl AS botAvatarUrl,
+			botAvatarCrop AS botAvatarCrop,
 			score,
 			COUNT(*) OVER() AS total
 		FROM filtered
@@ -826,6 +852,8 @@ async function hydrateSemanticType(
 				NULL AS botHandle,
 				NULL AS botDisplayName,
 				NULL AS botShortBio,
+				NULL AS botAvatarUrl,
+				NULL AS botAvatarCrop,
 				0 AS score,
 				0 AS total
 			 FROM worlds_index w
@@ -847,6 +875,8 @@ async function hydrateSemanticType(
 				NULL AS botHandle,
 				NULL AS botDisplayName,
 				NULL AS botShortBio,
+				NULL AS botAvatarUrl,
+				NULL AS botAvatarCrop,
 				0 AS score,
 				0 AS total
 			 FROM forums_index f
@@ -869,6 +899,8 @@ async function hydrateSemanticType(
 				b.handle AS botHandle,
 				b.display_name AS botDisplayName,
 				b.short_bio AS botShortBio,
+				b.avatar_url AS botAvatarUrl,
+				b.avatar_crop AS botAvatarCrop,
 				0 AS score,
 				0 AS total
 			 FROM bots_index b
@@ -1189,6 +1221,7 @@ function searchResultFromRow(row: SearchSqlRow, source: SearchResultSource, rank
 		displayName: row.botDisplayName ?? row.botHandle ?? "",
 		handle: row.botHandle ?? "",
 		shortBio: row.botShortBio ?? "",
+		...searchBotAvatarFields(row.botAvatarUrl, row.botAvatarCrop),
 	};
 }
 

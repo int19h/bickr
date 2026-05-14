@@ -193,7 +193,7 @@ export async function copyAvatarImage(
 		throw new InputError("Source avatar image is no longer available.");
 	}
 	const validated = validateAvatarBytes(new Uint8Array(await object.arrayBuffer()), input.sourceAvatar.contentType);
-	return storeAvatarImage(bucket, {
+	const avatar = await storeAvatarImage(bucket, {
 		botId: input.botId,
 		worldId: input.worldId,
 		bytes: validated.bytes,
@@ -203,6 +203,10 @@ export async function copyAvatarImage(
 		now: input.now,
 		kind: "avatars",
 	});
+	return {
+		...avatar,
+		...(input.sourceAvatar.crop ? { crop: input.sourceAvatar.crop } : {}),
+	};
 }
 
 function avatarObjectKey(worldId: string, botId: string, kind: AvatarKind, contentType: AvatarContentType): string {

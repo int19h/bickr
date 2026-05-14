@@ -2,6 +2,8 @@ import { makeId, randomToken, sha256Hex } from "./ids";
 import {
 	schemaVersion,
 	authProviders,
+	avatarCropFromJson,
+	avatarCropJson,
 	defaultTranslationPrompt,
 	type AvatarImage,
 	type AuthProvider,
@@ -620,6 +622,7 @@ export function botPublicProfile(bot: BotDocument | BotSummary): BotPublicProfil
 		displayName: bot.displayName,
 		shortBio: bot.shortBio,
 		...("avatarUrl" in bot && bot.avatarUrl ? { avatarUrl: bot.avatarUrl } : "avatar" in bot && bot.avatar ? { avatarUrl: bot.avatar.url } : {}),
+		...("avatarCrop" in bot && bot.avatarCrop ? { avatarCrop: bot.avatarCrop } : "avatar" in bot && bot.avatar?.crop ? { avatarCrop: bot.avatar.crop } : {}),
 		createdAt: bot.createdAt,
 		updatedAt: bot.updatedAt,
 	};
@@ -1607,6 +1610,7 @@ async function foreignBotBlockersForOwnedWorlds(
 		ownerDisplayName: string | null;
 		ownerAvatarUrl: string | null;
 		ownerProfileCompletedAt: string | null;
+		avatarCrop: string | null;
 	};
 	const result = await db
 		.prepare(
@@ -1628,6 +1632,7 @@ async function foreignBotBlockersForOwnedWorlds(
 				b.display_name AS displayName,
 				b.short_bio AS shortBio,
 				b.avatar_url AS avatarUrl,
+				b.avatar_crop AS avatarCrop,
 				b.created_at AS createdAt,
 				b.updated_at AS updatedAt,
 				b.owner_user_id AS ownerUserId,
@@ -1669,6 +1674,7 @@ async function foreignBotBlockersForOwnedWorlds(
 			};
 			groups.set(row.worldId, group);
 		}
+		const avatarCrop = avatarCropFromJson(row.avatarCrop);
 		group.bots.push({
 			id: row.botId,
 			homeWorldId: row.homeWorldId,
@@ -1677,6 +1683,7 @@ async function foreignBotBlockersForOwnedWorlds(
 			displayName: row.displayName,
 			shortBio: row.shortBio,
 			...(row.avatarUrl ? { avatarUrl: row.avatarUrl } : {}),
+			...(avatarCrop ? { avatarCrop } : {}),
 			createdAt: row.createdAt,
 			updatedAt: row.updatedAt,
 			...(row.ownerHandle && row.ownerDisplayName ?
@@ -1855,14 +1862,15 @@ async function upsertBotIndex(db: D1DatabaseLike, bot: BotDocument): Promise<voi
 		.prepare(
 			`INSERT INTO bots_index (
 				bot_id, home_world_id, home_world_handle, handle, display_name, owner_user_id,
-				short_bio, avatar_url, import_provider, import_external_handle, created_at, updated_at, deleted_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				short_bio, avatar_url, avatar_crop, import_provider, import_external_handle, created_at, updated_at, deleted_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(bot_id) DO UPDATE SET
 				home_world_handle = excluded.home_world_handle,
 				handle = excluded.handle,
 				display_name = excluded.display_name,
 				short_bio = excluded.short_bio,
 				avatar_url = excluded.avatar_url,
+				avatar_crop = excluded.avatar_crop,
 				updated_at = excluded.updated_at,
 				deleted_at = excluded.deleted_at`,
 		)
@@ -1875,6 +1883,7 @@ async function upsertBotIndex(db: D1DatabaseLike, bot: BotDocument): Promise<voi
 			bot.ownerUserId,
 			bot.shortBio,
 			bot.avatar?.url ?? null,
+			avatarCropJson(bot.avatar?.crop),
 			bot.importSource?.provider ?? null,
 			bot.importSource?.originalHandle ?? null,
 			bot.createdAt,
@@ -1893,6 +1902,7 @@ function botIndexUpdateStatement(db: D1DatabaseLike, bot: BotDocument): D1Prepar
 			     display_name = ?,
 			     short_bio = ?,
 			     avatar_url = ?,
+			     avatar_crop = ?,
 			     updated_at = ?,
 			     deleted_at = ?
 			 WHERE bot_id = ?`,
@@ -1903,6 +1913,7 @@ function botIndexUpdateStatement(db: D1DatabaseLike, bot: BotDocument): D1Prepar
 			bot.displayName,
 			bot.shortBio,
 			bot.avatar?.url ?? null,
+			avatarCropJson(bot.avatar?.crop),
 			bot.updatedAt,
 			bot.deletedAt ?? null,
 			bot.id,
@@ -1997,6 +2008,7 @@ function botSummary(
 		displayName: bot.displayName,
 		shortBio: bot.shortBio,
 		...(bot.avatar ? { avatar: bot.avatar, avatarUrl: bot.avatar.url } : {}),
+		...(bot.avatar?.crop ? { avatarCrop: bot.avatar.crop } : {}),
 		...(options.includePrompt === false ? {} : { prompt: bot.prompt }),
 		inferenceSettings: publicInferenceSettings(bot.inferenceSettings),
 		...(options.includeToolSettings ? { toolSettings: publicToolSettings(bot.toolSettings) } : {}),

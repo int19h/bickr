@@ -1,6 +1,8 @@
 import { formatCommentRef, formatThreadRef, isShortContentId, makeId, makeShortContentId, parseObjectRef } from "./ids";
 import {
+	avatarCropFromJson,
 	schemaVersion,
+	type AvatarCrop,
 	type BotDocument,
 	type BotActivityFeed,
 	type BotActivityCommentContext,
@@ -81,6 +83,8 @@ const hotThreadWindowDays = 7;
 const hotThreadWindowMs = hotThreadWindowDays * 24 * 60 * 60 * 1000;
 
 type ExistingThreadDetails = Exclude<RepositoryErrorDetails["existingThread"], undefined>;
+type ThreadSummaryRow = Omit<ThreadSummary, "authorAvatarCrop"> & { authorAvatarCrop: string | null };
+type SearchThreadResultRow = Omit<SearchThreadResult, "authorAvatarCrop"> & { authorAvatarCrop: string | null };
 
 function chunks<T>(items: T[], size: number): T[][] {
 	const result: T[][] = [];
@@ -88,6 +92,40 @@ function chunks<T>(items: T[], size: number): T[][] {
 		result.push(items.slice(index, index + size));
 	}
 	return result;
+}
+
+function cropFromIndex(value: string | null | undefined): AvatarCrop | undefined {
+	return avatarCropFromJson(value);
+}
+
+function withoutAuthorAvatarCrop<T extends { authorAvatarCrop: string | null }>(row: T): Omit<T, "authorAvatarCrop"> {
+	const copy = { ...row };
+	delete (copy as Partial<T>).authorAvatarCrop;
+	return copy;
+}
+
+function threadSummaryFromRow(row: ThreadSummaryRow): ThreadSummary {
+	const crop = cropFromIndex(row.authorAvatarCrop);
+	return {
+		...withoutAuthorAvatarCrop(row),
+		...(crop ? { authorAvatarCrop: crop } : {}),
+	};
+}
+
+function searchThreadResultFromRow(row: SearchThreadResultRow): SearchThreadResult {
+	const crop = cropFromIndex(row.authorAvatarCrop);
+	return {
+		...withoutAuthorAvatarCrop(row),
+		...(crop ? { authorAvatarCrop: crop } : {}),
+	};
+}
+
+function botAvatarFields(avatarUrl: string | null | undefined, avatarCrop: string | null | undefined): Pick<BotPublicProfile, "avatarUrl" | "avatarCrop"> {
+	const crop = cropFromIndex(avatarCrop);
+	return {
+		...(avatarUrl ? { avatarUrl } : {}),
+		...(crop ? { avatarCrop: crop } : {}),
+	};
 }
 
 export function rootCommentIdForThreadId(threadId: string): string {
@@ -261,6 +299,7 @@ export async function listThreads(
 				t.author_handle AS authorHandle,
 				t.author_display_name AS authorDisplayName,
 				b.avatar_url AS authorAvatarUrl,
+				b.avatar_crop AS authorAvatarCrop,
 				t.title,
 				t.body_preview AS bodyPreview,
 				t.vote_score AS voteScore,
@@ -276,8 +315,8 @@ export async function listThreads(
 			 LIMIT ?`,
 		)
 		.bind(...(hotCutoff ? [forumId, hotCutoff, limit] : [forumId, limit]))
-		.all<ThreadSummary>();
-	return result.results ?? [];
+		.all<ThreadSummaryRow>();
+	return (result.results ?? []).map(threadSummaryFromRow);
 }
 
 export async function listThreadsWithReadState(
@@ -336,6 +375,7 @@ export async function listHotThreads(
 				t.author_handle AS authorHandle,
 				t.author_display_name AS authorDisplayName,
 				b.avatar_url AS authorAvatarUrl,
+				b.avatar_crop AS authorAvatarCrop,
 				t.title,
 				t.body_preview AS bodyPreview,
 				t.vote_score AS voteScore,
@@ -350,8 +390,8 @@ export async function listHotThreads(
 			 LIMIT ?`,
 		)
 		.bind(worldId, hotThreadCutoff(), limit)
-		.all<ThreadSummary>();
-	return result.results ?? [];
+		.all<ThreadSummaryRow>();
+	return (result.results ?? []).map(threadSummaryFromRow);
 }
 
 export async function readThread(kv: KVNamespaceLike, threadId: string): Promise<ThreadDocument> {
@@ -377,28 +417,33 @@ async function threadWithAuthorAvatars(db: D1DatabaseLike, thread: ThreadDocumen
 	if (authorIds.length === 0) {
 		return thread;
 	}
-	const avatarsById = new Map<string, string>();
+	const avatarsById = new Map<string, { url: string; crop?: AvatarCrop }>();
 	for (const batch of chunks(authorIds, d1MaxBoundParameters)) {
 		const placeholders = batch.map(() => "?").join(", ");
 		const result = await db
 			.prepare(
-				`SELECT bot_id AS id, avatar_url AS avatarUrl
+				`SELECT bot_id AS id, avatar_url AS avatarUrl, avatar_crop AS avatarCrop
 				 FROM bots_index
 				 WHERE bot_id IN (${placeholders})`,
 			)
 			.bind(...batch)
-			.all<{ id: string; avatarUrl: string | null }>();
+			.all<{ id: string; avatarUrl: string | null; avatarCrop: string | null }>();
 		for (const row of result.results ?? []) {
 			if (row.avatarUrl) {
-				avatarsById.set(row.id, row.avatarUrl);
+				const crop = cropFromIndex(row.avatarCrop);
+				avatarsById.set(row.id, { url: row.avatarUrl, ...(crop ? { crop } : {}) });
 			}
 		}
 	}
 	return {
 		...thread,
 		comments: thread.comments.map((comment) => {
-			const avatarUrl = avatarsById.get(comment.authorBotId);
-			return avatarUrl ? { ...comment, authorAvatarUrl: avatarUrl } : comment;
+			const avatar = avatarsById.get(comment.authorBotId);
+			return avatar ? {
+				...comment,
+				authorAvatarUrl: avatar.url,
+				...(avatar.crop ? { authorAvatarCrop: avatar.crop } : {}),
+			} : comment;
 		}),
 	};
 }
@@ -2090,6 +2135,7 @@ export async function botFollowGraphByHandle(
 					b.display_name AS displayName,
 					b.short_bio AS shortBio,
 					b.avatar_url AS avatarUrl,
+					b.avatar_crop AS avatarCrop,
 					b.created_at AS createdAt,
 					b.updated_at AS updatedAt
 				 FROM follows f
@@ -2105,6 +2151,7 @@ export async function botFollowGraphByHandle(
 					b.display_name AS displayName,
 					b.short_bio AS shortBio,
 					b.avatar_url AS avatarUrl,
+					b.avatar_crop AS avatarCrop,
 					b.created_at AS createdAt,
 					b.updated_at AS updatedAt
 				 FROM follows f
@@ -2160,6 +2207,7 @@ export async function searchThreads(
 					t.author_handle AS authorHandle,
 					t.author_display_name AS authorDisplayName,
 					b.avatar_url AS authorAvatarUrl,
+					b.avatar_crop AS authorAvatarCrop,
 					t.created_at AS createdAt,
 					t.hot_score AS score
 				 FROM threads_index t
@@ -2169,7 +2217,7 @@ export async function searchThreads(
 				 LIMIT ?`,
 			)
 			.bind(worldId, term, limit)
-			.all<SearchThreadResult>(),
+			.all<SearchThreadResultRow>(),
 	);
 	const commentResults = await safeD1Search(() =>
 		db
@@ -2184,6 +2232,7 @@ export async function searchThreads(
 					c.author_handle AS authorHandle,
 					COALESCE(b.display_name, c.author_handle) AS authorDisplayName,
 					b.avatar_url AS authorAvatarUrl,
+					b.avatar_crop AS authorAvatarCrop,
 					c.created_at AS createdAt,
 					c.vote_score AS score
 				 FROM comments_index c
@@ -2194,9 +2243,11 @@ export async function searchThreads(
 				 LIMIT ?`,
 			)
 			.bind(worldId, term, limit)
-			.all<SearchThreadResult>(),
+			.all<SearchThreadResultRow>(),
 	);
-	return [...(threadResults.results ?? []), ...(commentResults.results ?? [])].slice(0, limit);
+	return [...(threadResults.results ?? []), ...(commentResults.results ?? [])]
+		.slice(0, limit)
+		.map(searchThreadResultFromRow);
 }
 
 export async function searchForumThreads(
@@ -2223,6 +2274,7 @@ export async function searchForumThreads(
 					t.author_handle AS authorHandle,
 					t.author_display_name AS authorDisplayName,
 					b.avatar_url AS authorAvatarUrl,
+					b.avatar_crop AS authorAvatarCrop,
 					t.created_at AS createdAt,
 					t.hot_score AS score
 				 FROM threads_index t
@@ -2232,7 +2284,7 @@ export async function searchForumThreads(
 				 LIMIT ?`,
 			)
 			.bind(forumId, term, limit)
-			.all<SearchThreadResult>(),
+			.all<SearchThreadResultRow>(),
 	);
 	const commentResults = await safeD1Search(() =>
 		db
@@ -2247,6 +2299,7 @@ export async function searchForumThreads(
 					c.author_handle AS authorHandle,
 					COALESCE(b.display_name, c.author_handle) AS authorDisplayName,
 					b.avatar_url AS authorAvatarUrl,
+					b.avatar_crop AS authorAvatarCrop,
 					c.created_at AS createdAt,
 					c.vote_score AS score
 				 FROM comments_index c
@@ -2257,9 +2310,11 @@ export async function searchForumThreads(
 				 LIMIT ?`,
 			)
 			.bind(forumId, term, limit)
-			.all<SearchThreadResult>(),
+			.all<SearchThreadResultRow>(),
 	);
-	return [...(threadResults.results ?? []), ...(commentResults.results ?? [])].slice(0, limit);
+	return [...(threadResults.results ?? []), ...(commentResults.results ?? [])]
+		.slice(0, limit)
+		.map(searchThreadResultFromRow);
 }
 
 async function botThreadActivities(
@@ -2618,6 +2673,7 @@ async function botFollowActivities(
 				b.display_name AS displayName,
 				b.short_bio AS shortBio,
 				b.avatar_url AS avatarUrl,
+				b.avatar_crop AS avatarCrop,
 				b.created_at AS botCreatedAt,
 				b.updated_at AS botUpdatedAt
 			 FROM follows f
@@ -2644,6 +2700,7 @@ async function botFollowActivities(
 			displayName: string;
 			shortBio: string;
 			avatarUrl: string | null;
+			avatarCrop: string | null;
 			botCreatedAt: string;
 			botUpdatedAt: string;
 		}>();
@@ -2657,7 +2714,7 @@ async function botFollowActivities(
 			handle: row.handle,
 			displayName: row.displayName,
 			shortBio: row.shortBio,
-			...(row.avatarUrl ? { avatarUrl: row.avatarUrl } : {}),
+			...botAvatarFields(row.avatarUrl, row.avatarCrop),
 			createdAt: row.botCreatedAt,
 			updatedAt: row.botUpdatedAt,
 		},
@@ -2684,6 +2741,7 @@ async function botFollowEventActivities(
 				b.display_name AS displayName,
 				b.short_bio AS shortBio,
 				b.avatar_url AS avatarUrl,
+				b.avatar_crop AS avatarCrop,
 				b.created_at AS botCreatedAt,
 				b.updated_at AS botUpdatedAt
 			 FROM bot_activity_events e
@@ -2708,6 +2766,7 @@ async function botFollowEventActivities(
 			displayName: string;
 			shortBio: string;
 			avatarUrl: string | null;
+			avatarCrop: string | null;
 			botCreatedAt: string;
 			botUpdatedAt: string;
 		}>();
@@ -2723,7 +2782,7 @@ async function botFollowEventActivities(
 				handle: row.handle,
 				displayName: row.displayName,
 				shortBio: row.shortBio,
-				...(row.avatarUrl ? { avatarUrl: row.avatarUrl } : {}),
+				...botAvatarFields(row.avatarUrl, row.avatarCrop),
 				createdAt: row.botCreatedAt,
 				updatedAt: row.botUpdatedAt,
 			},
@@ -2757,6 +2816,7 @@ async function worldThreadActivities(
 				a.display_name AS actorDisplayName,
 				a.short_bio AS actorShortBio,
 				a.avatar_url AS actorAvatarUrl,
+				a.avatar_crop AS actorAvatarCrop,
 				a.created_at AS actorCreatedAt,
 				a.updated_at AS actorUpdatedAt
 			 FROM threads_index t
@@ -2810,6 +2870,7 @@ async function worldCommentActivities(
 				a.display_name AS actorDisplayName,
 				a.short_bio AS actorShortBio,
 				a.avatar_url AS actorAvatarUrl,
+				a.avatar_crop AS actorAvatarCrop,
 				a.created_at AS actorCreatedAt,
 				a.updated_at AS actorUpdatedAt
 			 FROM comments_index c
@@ -2873,6 +2934,7 @@ async function worldThreadVoteActivities(
 				a.display_name AS actorDisplayName,
 				a.short_bio AS actorShortBio,
 				a.avatar_url AS actorAvatarUrl,
+				a.avatar_crop AS actorAvatarCrop,
 				a.created_at AS actorCreatedAt,
 				a.updated_at AS actorUpdatedAt
 			 FROM votes v
@@ -2945,6 +3007,7 @@ async function worldCommentVoteActivities(
 				a.display_name AS actorDisplayName,
 				a.short_bio AS actorShortBio,
 				a.avatar_url AS actorAvatarUrl,
+				a.avatar_crop AS actorAvatarCrop,
 				a.created_at AS actorCreatedAt,
 				a.updated_at AS actorUpdatedAt
 			 FROM votes v
@@ -3018,6 +3081,7 @@ async function worldVoteEventActivities(
 				a.display_name AS actorDisplayName,
 				a.short_bio AS actorShortBio,
 				a.avatar_url AS actorAvatarUrl,
+				a.avatar_crop AS actorAvatarCrop,
 				a.created_at AS actorCreatedAt,
 				a.updated_at AS actorUpdatedAt
 			 FROM bot_activity_events e
@@ -3080,6 +3144,7 @@ async function worldFollowActivities(
 				a.display_name AS actorDisplayName,
 				a.short_bio AS actorShortBio,
 				a.avatar_url AS actorAvatarUrl,
+				a.avatar_crop AS actorAvatarCrop,
 				a.created_at AS actorCreatedAt,
 				a.updated_at AS actorUpdatedAt,
 				b.home_world_id AS homeWorldId,
@@ -3088,6 +3153,7 @@ async function worldFollowActivities(
 				b.display_name AS displayName,
 				b.short_bio AS shortBio,
 				b.avatar_url AS avatarUrl,
+				b.avatar_crop AS avatarCrop,
 				b.created_at AS botCreatedAt,
 				b.updated_at AS botUpdatedAt
 			 FROM follows f
@@ -3117,7 +3183,7 @@ async function worldFollowActivities(
 			handle: row.handle,
 			displayName: row.displayName,
 			shortBio: row.shortBio,
-			...(row.avatarUrl ? { avatarUrl: row.avatarUrl } : {}),
+			...botAvatarFields(row.avatarUrl, row.avatarCrop),
 			createdAt: row.botCreatedAt,
 			updatedAt: row.botUpdatedAt,
 		},
@@ -3144,6 +3210,7 @@ async function worldFollowEventActivities(
 				a.display_name AS actorDisplayName,
 				a.short_bio AS actorShortBio,
 				a.avatar_url AS actorAvatarUrl,
+				a.avatar_crop AS actorAvatarCrop,
 				a.created_at AS actorCreatedAt,
 				a.updated_at AS actorUpdatedAt,
 				b.bot_id AS targetBotId,
@@ -3153,6 +3220,7 @@ async function worldFollowEventActivities(
 				b.display_name AS displayName,
 				b.short_bio AS shortBio,
 				b.avatar_url AS avatarUrl,
+				b.avatar_crop AS avatarCrop,
 				b.created_at AS botCreatedAt,
 				b.updated_at AS botUpdatedAt
 			 FROM bot_activity_events e
@@ -3180,7 +3248,7 @@ async function worldFollowEventActivities(
 				handle: row.handle,
 				displayName: row.displayName,
 				shortBio: row.shortBio,
-				...(row.avatarUrl ? { avatarUrl: row.avatarUrl } : {}),
+				...botAvatarFields(row.avatarUrl, row.avatarCrop),
 				createdAt: row.botCreatedAt,
 				updatedAt: row.botUpdatedAt,
 			},
@@ -3216,6 +3284,7 @@ function worldActivityFromRow<T extends BotActivityItem>(
 	row: WorldActivityActorRow,
 	activity: T,
 ): T & { actor: BotPublicProfile } {
+	const actorCrop = cropFromIndex(row.actorAvatarCrop);
 	return {
 		...activity,
 		actor: {
@@ -3226,6 +3295,7 @@ function worldActivityFromRow<T extends BotActivityItem>(
 			displayName: row.actorDisplayName,
 			shortBio: row.actorShortBio,
 			...(row.actorAvatarUrl ? { avatarUrl: row.actorAvatarUrl } : {}),
+			...(actorCrop ? { avatarCrop: actorCrop } : {}),
 			createdAt: row.actorCreatedAt,
 			updatedAt: row.actorUpdatedAt,
 		},
@@ -3240,6 +3310,7 @@ type WorldActivityActorRow = {
 	actorDisplayName: string;
 	actorShortBio: string;
 	actorAvatarUrl: string | null;
+	actorAvatarCrop: string | null;
 	actorCreatedAt: string;
 	actorUpdatedAt: string;
 };
@@ -3324,6 +3395,7 @@ type WorldFollowActivityRow = WorldActivityActorRow & {
 	displayName: string;
 	shortBio: string;
 	avatarUrl: string | null;
+	avatarCrop: string | null;
 	botCreatedAt: string;
 	botUpdatedAt: string;
 };
@@ -3340,6 +3412,7 @@ type WorldFollowEventActivityRow = WorldActivityActorRow & {
 	displayName: string;
 	shortBio: string;
 	avatarUrl: string | null;
+	avatarCrop: string | null;
 	botCreatedAt: string;
 	botUpdatedAt: string;
 };
@@ -3353,6 +3426,7 @@ type BotFollowRow = {
 	displayName: string;
 	shortBio: string;
 	avatarUrl: string | null;
+	avatarCrop: string | null;
 	createdAt: string;
 	updatedAt: string;
 };
@@ -3365,7 +3439,7 @@ function botPublicProfileFromFollowRow(row: BotFollowRow): BotPublicProfile {
 		handle: row.handle,
 		displayName: row.displayName,
 		shortBio: row.shortBio,
-		...(row.avatarUrl ? { avatarUrl: row.avatarUrl } : {}),
+		...botAvatarFields(row.avatarUrl, row.avatarCrop),
 		createdAt: row.createdAt,
 		updatedAt: row.updatedAt,
 	};

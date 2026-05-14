@@ -1379,6 +1379,10 @@ select.input {
 	min-height: 0;
 }
 
+.checkbox-help-field .help {
+	margin-left: 30px;
+}
+
 .checkbox-line.compact {
 	font-size: 13px;
 	font-weight: 500;
@@ -2064,6 +2068,13 @@ fieldset {
 
 .avatar-img.contain {
 	object-fit: contain;
+}
+
+.avatar-img.crop {
+	max-height: none;
+	max-width: none;
+	object-fit: fill;
+	position: absolute;
 }
 
 .avatar[data-actor="bot"] {
@@ -5789,7 +5800,7 @@ fieldset {
 .profile-avatar-actions {
 	display: grid;
 	gap: 8px;
-	grid-template-columns: 1fr 1fr;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .btn.icon-only {
@@ -5840,6 +5851,105 @@ fieldset {
 	max-height: 100%;
 	max-width: 100%;
 	object-fit: contain;
+}
+
+.modal.avatar-crop-modal {
+	height: min(900px, calc(100vh - 32px));
+	max-height: calc(100vh - 32px);
+	max-width: calc(100vw - 32px);
+	width: min(1120px, calc(100vw - 32px));
+}
+
+.avatar-crop-modal .modal-body {
+	min-height: 0;
+}
+
+.avatar-crop-stage {
+	align-items: center;
+	background: var(--ink);
+	border-radius: var(--radius);
+	display: flex;
+	flex: 1 1 auto;
+	justify-content: center;
+	min-height: min(68vh, 620px);
+	overflow: hidden;
+	padding: 12px;
+}
+
+.avatar-crop-frame {
+	display: inline-grid;
+	max-height: 100%;
+	max-width: 100%;
+	place-items: center;
+	position: relative;
+}
+
+.avatar-crop-image {
+	display: block;
+	max-height: calc(100vh - 230px);
+	max-width: calc(100vw - 96px);
+	object-fit: contain;
+	position: relative;
+}
+
+.avatar-crop-selection {
+	border: 2px solid var(--paper);
+	box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.38);
+	cursor: move;
+	position: absolute;
+	touch-action: none;
+}
+
+.avatar-crop-selection::before,
+.avatar-crop-selection::after {
+	border-color: rgba(255, 255, 255, 0.42);
+	border-style: solid;
+	content: "";
+	inset: 33.333%;
+	pointer-events: none;
+	position: absolute;
+}
+
+.avatar-crop-selection::before {
+	border-width: 0 1px;
+}
+
+.avatar-crop-selection::after {
+	border-width: 1px 0;
+}
+
+.avatar-crop-handle {
+	background: var(--paper);
+	border: 1px solid var(--ink);
+	border-radius: 50%;
+	height: 18px;
+	position: absolute;
+	touch-action: none;
+	width: 18px;
+}
+
+.avatar-crop-handle.nw {
+	cursor: nwse-resize;
+	left: -10px;
+	top: -10px;
+}
+
+.avatar-crop-handle.ne {
+	cursor: nesw-resize;
+	right: -10px;
+	top: -10px;
+}
+
+.avatar-crop-handle.sw {
+	bottom: -10px;
+	cursor: nesw-resize;
+	left: -10px;
+}
+
+.avatar-crop-handle.se {
+	bottom: -10px;
+	cursor: nwse-resize;
+	right: -10px;
 }
 
 .profile-tabs {
@@ -6195,7 +6305,7 @@ button.avatar-large-preview:not(:disabled),
 }
 
 .avatar-large-preview img {
-	object-position: center top;
+	object-position: center;
 }
 
 .avatar-preview-click {

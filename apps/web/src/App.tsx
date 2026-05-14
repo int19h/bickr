@@ -1,5 +1,12 @@
 import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { AriaRole, CSSProperties, MouseEvent as ReactMouseEvent, ReactNode } from "react";
+import type {
+	AriaRole,
+	CSSProperties,
+	MouseEvent as ReactMouseEvent,
+	PointerEvent as ReactPointerEvent,
+	ReactNode,
+	SyntheticEvent as ReactSyntheticEvent,
+} from "react";
 import {
 	defaultProviderModel,
 	defaultReasoningPrefill,
@@ -14,6 +21,7 @@ import {
 	openRouterImageAspectRatios,
 	openRouterImageSizes,
 	supportsOpenRouterExtendedImageConfig,
+	type AvatarCrop,
 	type AvatarImage,
 	type AuthProvider,
 	type BotActivityFeed,
@@ -126,6 +134,16 @@ import {
 	readAvatarGenerationEventStream,
 	type AvatarGenerationChatEntry,
 } from "./avatar-generation-stream";
+import {
+	avatarCropImageStyle,
+	avatarCropOverlayStyle,
+	centeredAvatarCrop,
+	clampAvatarCrop,
+	moveAvatarCrop,
+	normalizedCropDimensions,
+	resizeAvatarCrop,
+	type AvatarCropCorner,
+} from "./avatar-crop";
 import {
 	allSearchTypes,
 	defaultSearchRouteState,
@@ -354,6 +372,7 @@ type IconName =
 	| "chirper"
 	| "info"
 	| "install"
+	| "crop"
 	| "upload"
 	| "refresh"
 	| "play"
@@ -1727,8 +1746,8 @@ function App() {
 			),
 		}));
 		const avatarUrl = savedBot.avatarUrl;
-		setThreadsByForum((current) => avatarUrl ? updateThreadSummaryAuthorAvatar(current, savedBot.id, avatarUrl) : current);
-		setThreadDocuments((current) => avatarUrl ? updateThreadDocumentAuthorAvatar(current, savedBot.id, avatarUrl) : current);
+		setThreadsByForum((current) => avatarUrl ? updateThreadSummaryAuthorAvatar(current, savedBot.id, avatarUrl, savedBot.avatarCrop) : current);
+		setThreadDocuments((current) => avatarUrl ? updateThreadDocumentAuthorAvatar(current, savedBot.id, avatarUrl, savedBot.avatarCrop) : current);
 	}
 
 	async function updateProfile(draft: UpdateUserProfileInput): Promise<UserProfile | null> {
@@ -4653,7 +4672,7 @@ function ForumThreadRow({
 				</div>
 				<div className="meta">
 					<span className="inline-author">
-						<Avatar actor="bot" colorSeed={thread.authorHandle} imageUrl={thread.authorAvatarUrl} name={thread.authorDisplayName} size="sm" />
+						<Avatar actor="bot" colorSeed={thread.authorHandle} crop={thread.authorAvatarCrop} imageUrl={thread.authorAvatarUrl} name={thread.authorDisplayName} size="sm" />
 						<AuthorReference
 							displayName={thread.authorDisplayName}
 							handle={thread.authorHandle}
@@ -5046,7 +5065,7 @@ function CommentNode({
 			<div className="comment-main">
 				<div className="head">
 					<span className="comment-author-line">
-						<Avatar actor="bot" colorSeed={comment.authorHandle} imageUrl={comment.authorAvatarUrl} name={comment.authorDisplayName} size="sm" />
+						<Avatar actor="bot" colorSeed={comment.authorHandle} crop={comment.authorAvatarCrop} imageUrl={comment.authorAvatarUrl} name={comment.authorDisplayName} size="sm" />
 						<AuthorReference
 							displayName={comment.authorDisplayName}
 							handle={comment.authorHandle}
@@ -5309,6 +5328,7 @@ function BotProfileScreen({
 	const [followError, setFollowError] = useState("");
 	const [ownerProfile, setOwnerProfile] = useState<HumanProfile | null>(null);
 	const [uploadOpen, setUploadOpen] = useState(false);
+	const [cropOpen, setCropOpen] = useState(false);
 	const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 	const [profileAvatarFailed, setProfileAvatarFailed] = useState(false);
 	const effectiveModel = effectiveBotModel(bot, isOwner ? ownerInferenceSettings : null);
@@ -5455,6 +5475,15 @@ function BotProfileScreen({
 					</button>
 					{isOwner && (
 						<div className="profile-avatar-actions">
+							<button
+								className="btn icon-only"
+								disabled={!bot.avatarUrl || profileAvatarFailed}
+								onClick={() => setCropOpen(true)}
+								title="Crop avatar"
+								type="button"
+							>
+								<Icon name="crop" size={16} />
+							</button>
 							<button className="btn icon-only" onClick={() => setUploadOpen(true)} title="Upload avatar" type="button">
 								<Icon name="upload" size={16} />
 							</button>
@@ -5560,6 +5589,12 @@ function BotProfileScreen({
 				onClose={() => setUploadOpen(false)}
 				onSaved={onAvatarUpdated}
 				open={uploadOpen}
+			/>
+			<AvatarCropModal
+				bot={bot}
+				onClose={() => setCropOpen(false)}
+				onSaved={onAvatarUpdated}
+				open={cropOpen}
 			/>
 			<ImageLightbox
 				onClose={() => setLightboxUrl(null)}
@@ -5756,6 +5791,215 @@ function AvatarUploadModal({
 					type="file"
 				/>
 			</Field>
+			{error && <div className="runtime-message error">{error}</div>}
+		</Modal>
+	);
+}
+
+type AvatarCropDragState = {
+	corner?: AvatarCropCorner;
+	imageRect: DOMRect;
+	pointerId: number;
+	startCrop: AvatarCrop;
+	startX: number;
+	startY: number;
+	type: "move" | "resize";
+};
+
+function AvatarCropModal({
+	bot,
+	onClose,
+	onSaved,
+	open,
+}: {
+	bot: BotSummary;
+	onClose: () => void;
+	onSaved: (bot: BotSummary) => void;
+	open: boolean;
+}) {
+	const imageRef = useRef<HTMLImageElement | null>(null);
+	const dragRef = useRef<AvatarCropDragState | null>(null);
+	const [draft, setDraft] = useState<AvatarCrop | null>(null);
+	const [saving, setSaving] = useState(false);
+	const [imageReady, setImageReady] = useState(false);
+	const [error, setError] = useState("");
+
+	useEffect(() => {
+		if (!open) {
+			setDraft(null);
+			setSaving(false);
+			setImageReady(false);
+			setError("");
+			dragRef.current = null;
+		}
+	}, [open]);
+
+	useEffect(() => {
+		if (open) {
+			setDraft(null);
+			setImageReady(false);
+			setError("");
+			dragRef.current = null;
+		}
+	}, [bot.avatarUrl, open]);
+
+	function handleImageLoad(event: ReactSyntheticEvent<HTMLImageElement>): void {
+		const image = event.currentTarget;
+		if (!image.naturalWidth || !image.naturalHeight) {
+			setImageReady(false);
+			setDraft(null);
+			setError("This avatar does not expose usable image dimensions.");
+			return;
+		}
+		const dimensions = normalizedCropDimensions(image.naturalWidth, image.naturalHeight);
+		const existing =
+			bot.avatarCrop?.imageWidth === dimensions.imageWidth && bot.avatarCrop.imageHeight === dimensions.imageHeight ?
+				bot.avatarCrop
+			:	null;
+		setDraft(existing ? clampAvatarCrop(existing) : centeredAvatarCrop(dimensions.imageWidth, dimensions.imageHeight));
+		setImageReady(true);
+		setError("");
+	}
+
+	function beginCropDrag(
+		event: ReactPointerEvent<HTMLElement>,
+		type: AvatarCropDragState["type"],
+		corner?: AvatarCropCorner,
+	): void {
+		if (!draft || !imageRef.current) {
+			return;
+		}
+		const imageRect = imageRef.current.getBoundingClientRect();
+		if (imageRect.width <= 0 || imageRect.height <= 0) {
+			return;
+		}
+		event.preventDefault();
+		event.stopPropagation();
+		event.currentTarget.setPointerCapture(event.pointerId);
+		dragRef.current = {
+			imageRect,
+			pointerId: event.pointerId,
+			startCrop: draft,
+			startX: event.clientX,
+			startY: event.clientY,
+			type,
+			...(corner ? { corner } : {}),
+		};
+	}
+
+	function updateCropDrag(event: ReactPointerEvent<HTMLElement>): void {
+		const drag = dragRef.current;
+		if (!drag || event.pointerId !== drag.pointerId) {
+			return;
+		}
+		event.preventDefault();
+		const dx = ((event.clientX - drag.startX) * drag.startCrop.imageWidth) / drag.imageRect.width;
+		const dy = ((event.clientY - drag.startY) * drag.startCrop.imageHeight) / drag.imageRect.height;
+		setDraft(
+			drag.type === "move" ?
+				moveAvatarCrop(drag.startCrop, dx, dy)
+			:	resizeAvatarCrop(drag.startCrop, drag.corner ?? "se", dx, dy),
+		);
+	}
+
+	function endCropDrag(event: ReactPointerEvent<HTMLElement>): void {
+		const drag = dragRef.current;
+		if (!drag || event.pointerId !== drag.pointerId) {
+			return;
+		}
+		try {
+			event.currentTarget.releasePointerCapture(event.pointerId);
+		} catch {
+			// The pointer may already have been released by the browser when the gesture is cancelled.
+		}
+		dragRef.current = null;
+	}
+
+	async function saveCrop(): Promise<void> {
+		if (!draft) {
+			return;
+		}
+		setSaving(true);
+		setError("");
+		try {
+			const result = await api<{ bot: BotSummary }>(`/api/me/bots/${encodeURIComponent(bot.id)}/avatar/crop`, {
+				method: "PATCH",
+				body: { crop: draft },
+			});
+			if (!result.ok) {
+				throw new Error(result.message);
+			}
+			onSaved(result.data.bot);
+			onClose();
+		} catch (caught) {
+			setError(caught instanceof Error ? caught.message : "Could not save avatar crop.");
+		} finally {
+			setSaving(false);
+		}
+	}
+
+	return (
+		<Modal
+			className="avatar-crop-modal"
+			foot={
+				<>
+					<span className="meta">{draft ? `${draft.size} x ${draft.size}` : ""}</span>
+					<div className="right">
+						<button className="btn ghost" disabled={saving} onClick={onClose} type="button">
+							Cancel
+						</button>
+						<button className="btn primary" disabled={!draft || !imageReady || saving} onClick={() => void saveCrop()} type="button">
+							{saving ? "Saving..." : "Save"}
+						</button>
+					</div>
+				</>
+			}
+			onClose={onClose}
+			open={open}
+			title="Crop avatar"
+			wide
+		>
+			{bot.avatarUrl ?
+				<div className="avatar-crop-stage">
+					<div className="avatar-crop-frame">
+						<img
+							alt=""
+							className="avatar-crop-image"
+							onError={() => {
+								setImageReady(false);
+								setDraft(null);
+								setError("This avatar image could not be loaded.");
+							}}
+							onLoad={handleImageLoad}
+							ref={imageRef}
+							src={bot.avatarUrl}
+						/>
+						{draft && imageReady && (
+							<div
+								className="avatar-crop-selection"
+								onPointerCancel={endCropDrag}
+								onPointerDown={(event) => beginCropDrag(event, "move")}
+								onPointerMove={updateCropDrag}
+								onPointerUp={endCropDrag}
+								style={avatarCropOverlayStyle(draft)}
+							>
+								{(["nw", "ne", "sw", "se"] as const).map((corner) => (
+									<span
+										aria-hidden="true"
+										className={`avatar-crop-handle ${corner}`}
+										key={corner}
+										onPointerCancel={endCropDrag}
+										onPointerDown={(event) => beginCropDrag(event, "resize", corner)}
+										onPointerMove={updateCropDrag}
+										onPointerUp={endCropDrag}
+									/>
+								))}
+							</div>
+						)}
+					</div>
+				</div>
+			:	<div className="empty compact-empty">This participant does not have an avatar to crop.</div>
+			}
 			{error && <div className="runtime-message error">{error}</div>}
 		</Modal>
 	);
@@ -6079,7 +6323,7 @@ function BotAvatarGenerationScreen({
 								alt=""
 								fallbackSrc={bot.avatarUrl}
 								onFinalError={() => setCurrentAvatarFailed(true)}
-								src={cloudflareImageUrl(bot.avatarUrl, { width: 720, format: "auto" })}
+								src={avatarPreviewContainUrl(bot.avatarUrl)}
 							/>
 						:	<Avatar actor="bot" colorSeed={bot.handle} name={bot.displayName} size="hero" />
 						}
@@ -6104,7 +6348,7 @@ function BotAvatarGenerationScreen({
 					<div className={`avatar-large-preview ${generating ? "busy" : ""}`}>
 						{candidate ?
 							<button className="avatar-preview-click" onClick={() => setLightboxUrl(candidate.url)} type="button">
-								<FallbackImage alt="" fallbackSrc={candidate.url} src={cloudflareImageUrl(candidate.url, { width: 720, format: "auto" })} />
+								<FallbackImage alt="" fallbackSrc={candidate.url} src={avatarPreviewContainUrl(candidate.url)} />
 							</button>
 						:	<span className="empty-generated">{generating ? "Generating..." : "No image generated"}</span>
 						}
@@ -6264,11 +6508,11 @@ function BotPublicProfileCard({ bot }: { bot: BotPublicProfile }) {
 			<div className="head">
 				<SpaLink
 					className="bot-avatar-link"
-					title={`Open ${bot.displayName}`}
-					to={{ route: "bot-profile", worldHandle: bot.homeWorldHandle, botHandle: bot.handle }}
-				>
-					<Avatar actor="bot" colorSeed={bot.handle} imageUrl={bot.avatarUrl} name={bot.displayName} />
-				</SpaLink>
+				title={`Open ${bot.displayName}`}
+				to={{ route: "bot-profile", worldHandle: bot.homeWorldHandle, botHandle: bot.handle }}
+			>
+					<Avatar actor="bot" colorSeed={bot.handle} crop={bot.avatarCrop} imageUrl={bot.avatarUrl} name={bot.displayName} />
+			</SpaLink>
 				<div className="bot-card-title">
 					<SpaLink
 						className="name bot-name-link"
@@ -6882,7 +7126,7 @@ function BotLoopScreen({
 			<div className="page-header">
 				<div className="page-title-block">
 					<h1>
-						<Avatar actor="bot" colorSeed={bot.handle} imageUrl={bot.avatarUrl} name={bot.displayName} size="lg" />
+						<Avatar actor="bot" colorSeed={bot.handle} crop={bot.avatarCrop} imageUrl={bot.avatarUrl} name={bot.displayName} size="lg" />
 						<span>{bot.displayName}'s loop</span>
 					</h1>
 					<p className="sub">
@@ -7072,7 +7316,7 @@ function SpotlightPanel({
 											onChange={(event) => setSelectedBots((current) => ({ ...current, [bot.id]: event.target.checked }))}
 											type="checkbox"
 										/>
-										<Avatar actor="bot" colorSeed={bot.handle} imageUrl={bot.avatarUrl} name={bot.displayName} size="sm" />
+										<Avatar actor="bot" colorSeed={bot.handle} crop={bot.avatarCrop} imageUrl={bot.avatarUrl} name={bot.displayName} size="sm" />
 										<span className="bot-pick-copy">
 											<span className="nm">{bot.displayName}</span>
 											<span className="hd">
@@ -7201,11 +7445,11 @@ function BotCard({
 			<div className="head">
 				<SpaLink
 					className="bot-avatar-link"
-					title={`Open ${bot.displayName}`}
-					to={{ route: "bot-profile", worldHandle: bot.homeWorldHandle, botHandle: bot.handle }}
-				>
-					<Avatar actor="bot" colorSeed={bot.handle} imageUrl={bot.avatarUrl} name={bot.displayName} />
-				</SpaLink>
+				title={`Open ${bot.displayName}`}
+				to={{ route: "bot-profile", worldHandle: bot.homeWorldHandle, botHandle: bot.handle }}
+			>
+					<Avatar actor="bot" colorSeed={bot.handle} crop={bot.avatarCrop} imageUrl={bot.avatarUrl} name={bot.displayName} />
+			</SpaLink>
 				<div className="bot-card-title">
 					<SpaLink
 						className="name bot-name-link"
@@ -7535,7 +7779,7 @@ function BotEdit({
 						{world?.name ?? bot.homeWorldHandle}
 					</button>
 					<h1>
-						<Avatar actor="bot" colorSeed={bot.handle} imageUrl={bot.avatarUrl} name={draft.displayName} size="lg" />
+						<Avatar actor="bot" colorSeed={bot.handle} crop={bot.avatarCrop} imageUrl={bot.avatarUrl} name={draft.displayName} size="lg" />
 						<span>{draft.displayName || bot.displayName}</span>
 					</h1>
 					<p className="sub">
@@ -7601,20 +7845,8 @@ function BotEdit({
 									value={draft.shortBio}
 								/>
 							</Field>
-							<Field help="Bots use monogram avatars until avatar uploads are implemented." label="Avatar">
-								<div className="inline-controls">
-									<Avatar actor="bot" colorSeed={bot.handle} imageUrl={bot.avatarUrl} name={draft.displayName} size="lg" />
-									<button className="btn" disabled type="button">
-										<Icon name="upload" size={14} />
-										Upload image
-									</button>
-									<button className="btn ghost" disabled type="button">
-										Pick monogram color
-									</button>
-								</div>
-							</Field>
-						</div>
-					</section>
+							</div>
+						</section>
 
 					<section className="section">
 						<div className="section-head">
@@ -7846,7 +8078,7 @@ function BotEdit({
 									</div>
 								</Field>
 							</div>
-							<Field help="When enabled, this participant can use log_off to end a loop iteration before reaching the configured control limits.">
+								<Field className="checkbox-help-field" help="When enabled, this participant can use log_off to end a loop iteration before reaching the configured control limits.">
 								<label className="checkbox-line">
 									<input
 										checked={draft.allowEarlyLogOff}
@@ -8484,7 +8716,7 @@ function MyBotsScreen({
 																	className="bot-table-avatar-link"
 																	title={`Open ${bot.displayName}`}
 																>
-																	<Avatar actor="bot" colorSeed={bot.handle} imageUrl={bot.avatarUrl} name={bot.displayName} size="sm" />
+																	<Avatar actor="bot" colorSeed={bot.handle} crop={bot.avatarCrop} imageUrl={bot.avatarUrl} name={bot.displayName} size="sm" />
 																</BotProfileHoverLink>
 															</td>
 															<td className="bot-table-username-cell">
@@ -11382,7 +11614,7 @@ function CreateBotModal({
 											onClick={() => selectCloneSource(bot)}
 											type="button"
 										>
-											<Avatar actor="bot" colorSeed={bot.handle} imageUrl={bot.avatarUrl} name={bot.displayName} />
+											<Avatar actor="bot" colorSeed={bot.handle} crop={bot.avatarCrop} imageUrl={bot.avatarUrl} name={bot.displayName} />
 											<span className="clone-source-body">
 												<span className="clone-source-title">
 													<span>{bot.displayName}</span>
@@ -14785,6 +15017,13 @@ function Icon({ name, size = 16 }: { name: IconName; size?: number }) {
 				<path d="M5 17v3h14v-3" />
 			</svg>
 		),
+		crop: (
+			<svg height={size} viewBox="0 0 24 24" width={size} {...stroke}>
+				<path d="M6 2v16h16" />
+				<path d="M2 6h16v16" />
+				<path d="M10 6v8h8" />
+			</svg>
+		),
 		upload: (
 			<svg height={size} viewBox="0 0 24 24" width={size} {...stroke}>
 				<path d="M12 16V4M6 10l6-6 6 6M4 21h16" />
@@ -14858,6 +15097,7 @@ function Icon({ name, size = 16 }: { name: IconName; size?: number }) {
 function Avatar({
 	actor = "bot",
 	colorSeed,
+	crop,
 	fit = "cover",
 	imageUrl,
 	name,
@@ -14865,6 +15105,7 @@ function Avatar({
 }: {
 	actor?: "bot" | "user";
 	colorSeed?: string | number;
+	crop?: AvatarCrop;
 	fit?: "cover" | "contain";
 	imageUrl?: string;
 	name: string;
@@ -14873,18 +15114,22 @@ function Avatar({
 	const [imageFailed, setImageFailed] = useState(false);
 	useEffect(() => {
 		setImageFailed(false);
-	}, [imageUrl]);
+	}, [crop, imageUrl]);
 	const className = `avatar ${size === "sm" ? "sm" : size === "lg" ? "lg" : size === "xl" ? "xl" : size === "hero" ? "hero" : ""}`.trim();
-	const imageSrc = imageUrl && !imageFailed ? avatarThumbnailUrl(imageUrl, size) : "";
+	const cropActive = Boolean(crop && fit === "cover");
+	const imageSrc = imageUrl && !imageFailed ?
+		cropActive && crop ? avatarCroppedThumbnailUrl(imageUrl, size, crop) : avatarThumbnailUrl(imageUrl, size, fit)
+	:	"";
 	return (
 		<span className={className} data-actor={actor} style={avatarStyle(colorSeed ?? name)}>
 			{imageSrc ?
 				<FallbackImage
 					alt=""
-					className={`avatar-img ${fit}`}
+					className={`avatar-img ${cropActive ? "crop" : fit}`}
 					fallbackSrc={imageUrl}
 					onFinalError={() => setImageFailed(true)}
 					src={imageSrc}
+					style={cropActive && crop ? avatarCropImageStyle(crop) as CSSProperties : undefined}
 				/>
 			:	initials(name)
 			}
@@ -14898,12 +15143,14 @@ function FallbackImage({
 	fallbackSrc,
 	onFinalError,
 	src,
+	style,
 }: {
 	alt: string;
 	className?: string;
 	fallbackSrc?: string;
 	onFinalError?: () => void;
 	src: string;
+	style?: CSSProperties;
 }) {
 	const [usingFallback, setUsingFallback] = useState(false);
 	useEffect(() => {
@@ -14922,18 +15169,34 @@ function FallbackImage({
 				onFinalError?.();
 			}}
 			src={activeSrc}
+			style={style}
 		/>
 	);
 }
 
-function avatarThumbnailUrl(url: string, size: "sm" | "md" | "lg" | "xl" | "hero"): string {
+function avatarThumbnailUrl(url: string, size: "sm" | "md" | "lg" | "xl" | "hero", fit: "cover" | "contain" = "cover"): string {
 	const pixels =
 		size === "sm" ? 48
 		: size === "lg" ? 112
 		: size === "xl" ? 192
 		: size === "hero" ? 360
 		: 64;
-	return cloudflareImageUrl(url, { width: pixels, height: pixels, fit: "cover", format: "auto" });
+	return cloudflareImageUrl(url, { width: pixels, height: pixels, fit, format: "auto" });
+}
+
+function avatarCroppedThumbnailUrl(url: string, size: "sm" | "md" | "lg" | "xl" | "hero", crop: AvatarCrop): string {
+	const pixels =
+		size === "sm" ? 48
+		: size === "lg" ? 112
+		: size === "xl" ? 192
+		: size === "hero" ? 360
+		: 64;
+	const imageWidth = Math.min(2048, Math.ceil((pixels * crop.imageWidth) / crop.size));
+	return cloudflareImageUrl(url, { width: imageWidth, format: "auto" });
+}
+
+function avatarPreviewContainUrl(url: string): string {
+	return cloudflareImageUrl(url, { width: 720, height: 720, fit: "contain", format: "auto" });
 }
 
 function cloudflareImageUrl(
@@ -16362,11 +16625,12 @@ function updateThreadSummaryAuthorAvatar(
 	current: Record<string, ThreadSummary[]>,
 	botId: string,
 	avatarUrl: string,
+	avatarCrop: AvatarCrop | undefined,
 ): Record<string, ThreadSummary[]> {
 	return Object.fromEntries(
 		Object.entries(current).map(([forumId, threads]) => [
 			forumId,
-			threads.map((thread) => thread.authorBotId === botId ? { ...thread, authorAvatarUrl: avatarUrl } : thread),
+			threads.map((thread) => thread.authorBotId === botId ? botAuthoredThreadWithAvatar(thread, avatarUrl, avatarCrop) : thread),
 		]),
 	);
 }
@@ -16375,6 +16639,7 @@ function updateThreadDocumentAuthorAvatar(
 	current: Record<string, ThreadDocument>,
 	botId: string,
 	avatarUrl: string,
+	avatarCrop: AvatarCrop | undefined,
 ): Record<string, ThreadDocument> {
 	return Object.fromEntries(
 		Object.entries(current).map(([threadId, thread]) => [
@@ -16382,11 +16647,29 @@ function updateThreadDocumentAuthorAvatar(
 			{
 				...thread,
 				comments: thread.comments.map((comment) =>
-					comment.authorBotId === botId ? { ...comment, authorAvatarUrl: avatarUrl } : comment,
+					comment.authorBotId === botId ? botAuthoredCommentWithAvatar(comment, avatarUrl, avatarCrop) : comment,
 				),
 			},
 		]),
 	);
+}
+
+function botAuthoredThreadWithAvatar(thread: ThreadSummary, avatarUrl: string, avatarCrop: AvatarCrop | undefined): ThreadSummary {
+	const next = { ...thread, authorAvatarUrl: avatarUrl };
+	if (avatarCrop) {
+		return { ...next, authorAvatarCrop: avatarCrop };
+	}
+	delete next.authorAvatarCrop;
+	return next;
+}
+
+function botAuthoredCommentWithAvatar(comment: CommentDocument, avatarUrl: string, avatarCrop: AvatarCrop | undefined): CommentDocument {
+	const next = { ...comment, authorAvatarUrl: avatarUrl };
+	if (avatarCrop) {
+		return { ...next, authorAvatarCrop: avatarCrop };
+	}
+	delete next.authorAvatarCrop;
+	return next;
 }
 
 function routeWithRenamedWorld(current: ParsedRoute, nextWorldHandle: string): ParsedRoute {
