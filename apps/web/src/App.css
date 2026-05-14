@@ -6498,8 +6498,7 @@ button.avatar-large-preview:not(:disabled),
 }
 
 .bot-card .head .avatar,
-.clone-source-option .avatar,
-.bot-pick-row .avatar.sm {
+.clone-source-option .avatar {
 	border-radius: 5px;
 	font-size: 17px;
 	height: 48px;
@@ -6507,11 +6506,23 @@ button.avatar-large-preview:not(:disabled),
 }
 
 .bot-card .head .avatar[data-actor="bot"]::after,
-.clone-source-option .avatar[data-actor="bot"]::after,
-.bot-pick-row .avatar.sm[data-actor="bot"]::after {
+.clone-source-option .avatar[data-actor="bot"]::after {
 	border-width: 2px;
 	height: 11px;
 	width: 11px;
+}
+
+.bot-pick-row .avatar.sm {
+	border-radius: 5px;
+	font-size: 15px;
+	height: 42px;
+	width: 42px;
+}
+
+.bot-pick-row .avatar.sm[data-actor="bot"]::after {
+	border-width: 2px;
+	height: 10px;
+	width: 10px;
 }
 
 .bot-pick-row .nm {
