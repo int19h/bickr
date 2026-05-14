@@ -347,6 +347,7 @@ type IconName =
 	| "forum"
 	| "bot"
 	| "bell"
+	| "link"
 	| "settings"
 	| "github"
 	| "google"
@@ -2663,7 +2664,7 @@ function NotificationBell({
 								>
 									<span className="notification-title">{notification.title}</span>
 									<NotificationBody body={notification.body} />
-									<span className="notification-meta">{notificationMeta(notification)}</span>
+									<span className="notification-meta" title={timestampTitle(notification.createdAt)}>{notificationMeta(notification)}</span>
 								</a>
 								<button
 									aria-label="Close notification"
@@ -4420,7 +4421,7 @@ function ForumPage({
 							<span className="title">{result.title}</span>
 							<span className="snippet">{result.snippet}</span>
 							<span className="meta">
-								{authorLabel(result.authorDisplayName, result.authorHandle)} / {result.commentId ? "comment" : "thread"} / {timeAgo(result.createdAt)}
+								{authorLabel(result.authorDisplayName, result.authorHandle)} / {result.commentId ? "comment" : "thread"} / <TimeAgoLabel value={result.createdAt} />
 							</span>
 						</SpaLink>
 					))}
@@ -4615,7 +4616,7 @@ function ForumThreadRow({
 						/>
 					</span>
 					<span>{thread.commentCount} comments</span>
-					<span>active {timeAgo(thread.lastActivityAt)}</span>
+					<span>active <TimeAgoLabel value={thread.lastActivityAt} /></span>
 				</div>
 			</div>
 			<div className="right-meta">
@@ -4963,6 +4964,7 @@ function CommentNode({
 	const isTarget = targetCommentId === comment.id;
 	const isRootComment = comment.id === rootCommentId;
 	const commentHref = `${window.location.pathname.split("/c/")[0]}/c/${encodeURIComponent(comment.id)}`;
+	const commentRef = formatCommentRef(comment.id);
 	const subscribed = subscriptions.some((subscription) =>
 		subscription.scopeType === "comment" && subscription.scopeId === comment.id && subscription.active,
 	);
@@ -4987,6 +4989,14 @@ function CommentNode({
 					title="Spotlight this reply chain"
 					type="checkbox"
 				/>
+				<a
+					aria-label={`Link to ${commentRef}`}
+					className="comment-anchor-link"
+					href={commentHref}
+					title={commentRef}
+				>
+					<Icon name="link" size={13} />
+				</a>
 			</div>
 			<div className="comment-main">
 				<div className="head">
@@ -5007,7 +5017,7 @@ function CommentNode({
 							voteScore={comment.voteScore}
 							worldHandle={worldHandle}
 						/>
-						<span className="comment-time">{timeAgo(comment.createdAt)}</span>
+						<TimeAgoLabel className="comment-time" value={comment.createdAt} />
 						{comment.readState?.isNew && <span className="new-mark">new</span>}
 						<span className="spacer" />
 						{onRequestDelete && !isRootComment && (
@@ -5036,9 +5046,6 @@ function CommentNode({
 						>
 							<Icon name="bell" size={12} />
 						</button>
-						<a className="anchor hash-ref" href={commentHref}>
-							#{comment.id.slice(-6)}
-						</a>
 					</span>
 				</div>
 				<TranslatableText
@@ -5098,7 +5105,7 @@ function CommentVoteCount({
 	const [error, setError] = useState("");
 	const wrapRef = useRef<HTMLSpanElement | null>(null);
 	const label = `${voteScore} vote${voteScore === 1 ? "" : "s"}`;
-	const visibleLabel = voteScore > 0 ? `+${voteScore}` : String(voteScore);
+	const visibleLabel = voteScore >= 0 ? `+${voteScore}` : String(voteScore);
 	const tone =
 		voteScore > 0 ? "positive"
 		: voteScore < 0 ? "negative"
@@ -5483,8 +5490,8 @@ function BotProfileScreen({
 					<RuntimeRow label="Model" value={effectiveModel} />
 					<RuntimeRow label="Loop" value={bot.tickSettings.enabled ? "active" : "paused"} />
 					<RuntimeRow label="Tick interval" value={formatTickIntervalMinutes(bot.tickSettings.intervalSeconds)} />
-					<RuntimeRow label="Created" value={timeAgo(bot.createdAt)} />
-					<RuntimeRow label="Updated" value={timeAgo(bot.updatedAt)} />
+					<RuntimeRow label="Created" value={<TimeAgoLabel value={bot.createdAt} />} />
+					<RuntimeRow label="Updated" value={<TimeAgoLabel value={bot.updatedAt} />} />
 				</div>
 				<TranslatableText
 					as="p"
@@ -6268,7 +6275,7 @@ function BotActivityCard({
 			</span>
 			<BotActivityBody activity={activity} onReference={onReference} />
 			<span className="activity-meta">
-				<ActivitySourceText onReference={onReference} text={summary.meta} worldHandle={worldHandle} /> / {timeAgo(createdAt)}
+				<ActivitySourceText onReference={onReference} text={summary.meta} worldHandle={worldHandle} /> / <TimeAgoLabel value={createdAt} />
 			</span>
 		</SpaLink>
 	);
@@ -7173,8 +7180,8 @@ function BotCard({
 						paused ?
 							<span className="bot-status-label paused">PAUSED</span>
 						:	<span>
-								active {timeAgoWithAgo(bot.lastActiveAt ?? bot.createdAt)}; next tick{" "}
-								{timeUntil(bot.nextDueAt)}
+								active <TimeAgoLabel suffix value={bot.lastActiveAt ?? bot.createdAt} />; next tick{" "}
+								<TimeUntilLabel value={bot.nextDueAt} />
 							</span>
 					:	null}
 				</span>
@@ -7901,8 +7908,8 @@ function BotEdit({
 						<div className="snap-list">
 							{[
 								{ label: "Current draft", when: dirty ? "unsaved" : "saved", current: true },
-								{ label: "Last saved", when: timeAgo(bot.updatedAt) },
-								{ label: "Created", when: timeAgo(bot.createdAt) },
+								{ label: "Last saved", when: <TimeAgoLabel value={bot.updatedAt} /> },
+								{ label: "Created", when: <TimeAgoLabel value={bot.createdAt} /> },
 							].map((snapshot) => (
 								<div className={`snap-row ${snapshot.current ? "current" : ""}`} key={snapshot.label}>
 									<div className="dot" />
@@ -7920,7 +7927,7 @@ function BotEdit({
 						<div className="card runtime-card">
 							<RuntimeRow label="Owner" value="you" />
 							<RuntimeRow label="World" value={<Reference kind="world" name={world?.handle ?? bot.homeWorldHandle} />} />
-							<RuntimeRow label="Created" value={timeAgo(bot.createdAt)} />
+							<RuntimeRow label="Created" value={<TimeAgoLabel value={bot.createdAt} />} />
 							<RuntimeRow label="Source" value={bot.importSource ? `chirper/${bot.importSource.originalHandle}` : "manual"} />
 						</div>
 					</section>
@@ -8445,12 +8452,12 @@ function MyBotsScreen({
 																	{bot.displayName}
 																</BotProfileHoverLink>
 															</td>
-															<td className="bot-table-time-cell" title={bot.lastActiveAt ?? bot.createdAt}>
-																{timeAgoWithAgo(bot.lastActiveAt ?? bot.createdAt)}
+															<td className="bot-table-time-cell">
+																<TimeAgoLabel suffix value={bot.lastActiveAt ?? bot.createdAt} />
 															</td>
-															<td className="bot-table-time-cell" title={bot.nextDueAt ?? undefined}>
+															<td className="bot-table-time-cell">
 																{bot.tickSettings.enabled ?
-																	timeUntil(bot.nextDueAt)
+																	<TimeUntilLabel value={bot.nextDueAt} />
 																:	<span className="bot-status-label paused">Paused</span>}
 															</td>
 															<td className="bot-table-model-cell" title={record.effectiveModel}>
@@ -9238,12 +9245,12 @@ function NotificationPageCard({
 			>
 				<span className="notification-title">{notification.title}</span>
 				<NotificationBody body={notification.body} />
-				<span className="notification-meta">{notificationMeta(notification)}</span>
+				<span className="notification-meta" title={timestampTitle(notification.createdAt)}>{notificationMeta(notification)}</span>
 			</a>
 			{notification.spotlightId && <SpotlightNotificationBadge />}
 			<div className="notification-page-actions">
 				{notification.readAt ?
-					<span className="read-state">Read {timeAgo(notification.readAt)}</span>
+					<span className="read-state">Read <TimeAgoLabel value={notification.readAt} /></span>
 				:	<button className="btn compact" onClick={() => onMarkRead(notification)} type="button">
 						Mark read
 					</button>
@@ -9474,7 +9481,7 @@ function HumanWorldList({ emptyMessage, worlds }: { emptyMessage: string; worlds
 						</div>
 						<TranslatableText as="div" className="human-entity-desc" text={world.description} />
 					</div>
-					<span className="meta">{timeAgo(world.updatedAt)}</span>
+					<span className="meta"><TimeAgoLabel value={world.updatedAt} /></span>
 				</article>
 			))}
 		</div>
@@ -9879,8 +9886,8 @@ function ProfileScreen({
 								/>
 							))}
 							<RuntimeRow label="API key" value={draft.inference.openRouterApiKeySet ? "saved" : "not set"} />
-							<RuntimeRow label="Created" value={profile ? timeAgo(profile.createdAt) : "..."} />
-							<RuntimeRow label="Updated" value={profile ? timeAgo(profile.updatedAt) : "..."} />
+							<RuntimeRow label="Created" value={profile ? <TimeAgoLabel value={profile.createdAt} /> : "..."} />
+							<RuntimeRow label="Updated" value={profile ? <TimeAgoLabel value={profile.updatedAt} /> : "..."} />
 						</div>
 					</section>
 				</aside>
@@ -12028,7 +12035,7 @@ function BotRuntimePanel({
 				<RuntimeRow description="How often this bot wakes up to act." label="Tick interval" value={formatTickIntervalMinutes(bot.tickSettings.intervalSeconds)} />
 				<RuntimeRow label="Context budget" value={`${bot.effectiveTickSettings.contextWindowTokens} tokens`} />
 				<RuntimeRow label="Status" value={status?.status ?? "unknown"} />
-				<RuntimeRow label="Next tick" value={formatNextDueAt(status?.nextDueAt, runtimeEnabled, Boolean(status))} />
+				<RuntimeRow label="Next tick" value={<NextDueAtLabel enabled={runtimeEnabled} loaded={Boolean(status)} value={status?.nextDueAt} />} />
 				<TokenUsagePanel currentModel={currentModel} usage={tokenUsage} />
 				<ContextWindowBar breakdown={tokenUsage?.contextWindow} loading={!tokenUsage} />
 				<div className="runtime-actions">
@@ -12266,7 +12273,7 @@ function ContextWindowBar({ breakdown, loading = false }: { breakdown: BotTokenU
 				<span><i className="context-window-key free" /> free {formatTokenCount(breakdown.freeTokens)}</span>
 			</div>
 			<div className="context-window-foot">
-				Last inference {timeAgo(breakdown.usedAt)}; baseline {timeAgo(breakdown.baselineUsedAt)}
+				Last inference <TimeAgoLabel value={breakdown.usedAt} />; baseline <TimeAgoLabel value={breakdown.baselineUsedAt} />
 			</div>
 		</div>
 	);
@@ -12338,9 +12345,10 @@ function TokenUsageChart({ usage }: { usage: BotTokenUsageStats }) {
 								x={x}
 								y={padding.top}
 							>
-								<title>{`${formatShortDate(bucket.bucketStart)}: ${formatTokenUsageTotals(bucket)}`}</title>
+								<title>{`${formatFullDate(bucket.bucketStart)}: ${formatTokenUsageTotals(bucket)}`}</title>
 							</rect>
 							<text className="token-x-label" x={x + bucketWidth / 2} y={height - 10}>
+								<title>{formatFullDate(bucket.bucketStart)}</title>
 								{formatShortDate(bucket.bucketStart)}
 							</text>
 						</g>
@@ -12398,7 +12406,7 @@ function LoopMessageLogsModal({
 	return (
 		<Modal className="submission-modal" onClose={onClose} open={open} title="Loop Message Logs" wide>
 			<div className="submission-meta">
-				<RuntimeRow label="Message" value={<span className="hash-ref">#{message.seq}</span>} />
+				<RuntimeRow label="Message" value={`#${message.seq}`} />
 				<RuntimeRow label="Role" value={message.role} />
 				<RuntimeRow label="Origin" value={loopMessageOriginLabel(message.origin)} />
 				<RuntimeRow label="Run" value={message.runId} />
@@ -12414,7 +12422,7 @@ function LoopMessageLogsModal({
 						<div className="submission-message role-system" key={log.id}>
 							<div className="submission-message-head">
 								<b>{loopMessageLogKindLabel(log.kind)}</b>
-								<span className="hash-ref">#{log.id}</span>
+								<span>#{log.id}</span>
 								<span>{log.encoding}</span>
 								<span>{formatByteCount(log.textLength)}</span>
 							</div>
@@ -12469,16 +12477,16 @@ function LoopMessageRow({
 			<div className="event-head">
 				<span>{isLive ? "live" : `#${message.seq}`}</span>
 				<b>{loopMessageTitle(message)}</b>
-				<span>{timeAgo(message.createdAt)}</span>
+				<TimeAgoLabel value={message.createdAt} />
 				{status && <span className="streaming-pill">{status}</span>}
 			</div>
-				<div className="event-meta">
-					{loopMessageOriginLabel(message.origin)} / {message.runId} / {formatTokenCount(message.tokenEstimate)} tokens
-				</div>
-				<LoopMessageReadableView display={message.display} message={message.message} origin={message.origin} toolCall={toolCallContext} toolCallsById={toolCallsById} />
+			<div className="event-meta">
+				{loopMessageOriginLabel(message.origin)} / {message.runId} / {formatTokenCount(message.tokenEstimate)} tokens
 			</div>
-		);
-	}
+			<LoopMessageReadableView display={message.display} message={message.message} origin={message.origin} toolCall={toolCallContext} toolCallsById={toolCallsById} />
+		</div>
+	);
+}
 
 function LoopContinuationRow({
 	label,
@@ -12604,7 +12612,7 @@ function RawInferenceSubmissionMessageView({
 		<div className={`submission-message role-${message.role}`}>
 			<div className="submission-message-head">
 				<b>{message.role}</b>
-				<span className="hash-ref">#{position}</span>
+				<span>#{position}</span>
 				{message.tool_call_id && <span>{message.tool_call_id}</span>}
 				{cacheStatus && <span className="cache-status">{cacheStatus === "cached" ? "cached" : "partially cached"}</span>}
 			</div>
@@ -13225,7 +13233,7 @@ function ReadableNotificationEvent({ displayContext, event }: { displayContext: 
 			<div className="readable-event-title">{notificationEventHeadline(event, displayContext)}</div>
 			<div className="readable-event-meta">
 				{forumHandle && <ForumReference allowActiveWorldFallback={displayContext.allowActiveWorldFallback} forumHandle={forumHandle} worldHandle={worldHandle} />}
-				{stringValue(event.createdAt) && <span>{formatShortDate(String(event.createdAt))}</span>}
+				{stringValue(event.createdAt) && <ShortDateLabel value={String(event.createdAt)} />}
 			</div>
 			{text && <ReadableQuote text={text} />}
 		</div>
@@ -13534,7 +13542,7 @@ function ReadableThreadList({ displayContext, value }: { displayContext: Readabl
 								forumHandle={forumHandleFromRecord(result)}
 								worldHandle={worldHandle}
 							/>
-							{stringValue(result.createdAt) && <span>{formatShortDate(String(result.createdAt))}</span>}
+							{stringValue(result.createdAt) && <ShortDateLabel value={String(result.createdAt)} />}
 						</div>
 						{snippet && <ReadableQuote text={trimReadableSnippet(snippet)} />}
 					</div>
@@ -13624,7 +13632,7 @@ function ReadableThreadActivity({
 			<div className="readable-event-meta">
 				<ForumReference allowActiveWorldFallback={displayContext.allowActiveWorldFallback} forumHandle={forumHandle} worldHandle={worldHandle} />
 				<span>{readableActivityCounts(activity)}</span>
-				{stringValue(activity.createdAt) && <span>{formatShortDate(String(activity.createdAt))}</span>}
+				{stringValue(activity.createdAt) && <ShortDateLabel value={String(activity.createdAt)} />}
 			</div>
 			{body && <ReadableQuote text={body} />}
 		</div>
@@ -13659,7 +13667,7 @@ function ReadableCommentActivity({
 				<ForumReference allowActiveWorldFallback={displayContext.allowActiveWorldFallback} forumHandle={forumHandle} worldHandle={worldHandle} />
 				<ThreadReference allowActiveWorldFallback={displayContext.allowActiveWorldFallback} commentId={commentId} forumHandle={forumHandle} label="comment" threadId={threadId} worldHandle={worldHandle} />
 				<span>{`${numberValue(activity.voteScore) ?? 0} votes`}</span>
-				{stringValue(activity.createdAt) && <span>{formatShortDate(String(activity.createdAt))}</span>}
+				{stringValue(activity.createdAt) && <ShortDateLabel value={String(activity.createdAt)} />}
 			</div>
 			{parentCommentId && (
 				<div className="readable-event-meta">
@@ -13703,7 +13711,7 @@ function ReadableVoteActivity({
 			<div className="readable-event-meta">
 				<ForumReference allowActiveWorldFallback={displayContext.allowActiveWorldFallback} forumHandle={forumHandle} worldHandle={worldHandle} />
 				<span>{(value ?? 0) > 0 ? "+1" : (value ?? 0) < 0 ? "-1" : "cleared"}</span>
-				{stringValue(activity.updatedAt ?? activity.createdAt) && <span>{formatShortDate(String(activity.updatedAt ?? activity.createdAt))}</span>}
+				{stringValue(activity.updatedAt ?? activity.createdAt) && <ShortDateLabel value={String(activity.updatedAt ?? activity.createdAt)} />}
 			</div>
 			{targetBody && <ReadableQuote label="Voted comment" text={targetBody} />}
 			{reason && <ReadableQuote label="Reason" text={trimReadableSnippet(reason)} />}
@@ -13733,7 +13741,7 @@ function ReadableFollowActivity({
 			</div>
 			<div className="readable-event-meta">
 				{worldHandle && <span>w/{worldHandle}</span>}
-				{stringValue(activity.createdAt) && <span>{formatShortDate(String(activity.createdAt))}</span>}
+				{stringValue(activity.createdAt) && <ShortDateLabel value={String(activity.createdAt)} />}
 			</div>
 			{reason && <ReadableQuote text={trimReadableSnippet(reason)} />}
 		</div>
@@ -14685,6 +14693,12 @@ function Icon({ name, size = 16 }: { name: IconName; size?: number }) {
 			<svg height={size} viewBox="0 0 24 24" width={size} {...stroke}>
 				<path d="M6 16V11a6 6 0 1 1 12 0v5l1.5 2H4.5z" />
 				<path d="M10 21h4" />
+			</svg>
+		),
+		link: (
+			<svg height={size} viewBox="0 0 24 24" width={size} {...stroke}>
+				<path d="M10 13a5 5 0 0 0 7.1 0l2-2a5 5 0 0 0-7.1-7.1l-1.1 1.1" />
+				<path d="M14 11a5 5 0 0 0-7.1 0l-2 2A5 5 0 0 0 12 20.1l1.1-1.1" />
 			</svg>
 		),
 		settings: (
@@ -16175,7 +16189,41 @@ function formatFullDate(value: string): string {
 		hour: "numeric",
 		minute: "2-digit",
 		month: "short",
+		second: "2-digit",
+		year: "numeric",
 	});
+}
+
+function timestampTitle(value: string | null | undefined): string | undefined {
+	return value ? formatFullDate(value) : undefined;
+}
+
+function TimeAgoLabel({ className, suffix = false, value }: { className?: string; suffix?: boolean; value: string }) {
+	return (
+		<span className={className} title={timestampTitle(value)}>
+			{suffix ? timeAgoWithAgo(value) : timeAgo(value)}
+		</span>
+	);
+}
+
+function TimeUntilLabel({ value }: { value: string | null | undefined }) {
+	return <span title={timestampTitle(value)}>{timeUntil(value)}</span>;
+}
+
+function ShortDateLabel({ value }: { value: string }) {
+	return <span title={timestampTitle(value)}>{formatShortDate(value)}</span>;
+}
+
+function NextDueAtLabel({
+	enabled,
+	loaded,
+	value,
+}: {
+	enabled: boolean;
+	loaded: boolean;
+	value: string | null | undefined;
+}) {
+	return <span title={enabled && loaded ? timestampTitle(value) : undefined}>{formatNextDueAt(value, enabled, loaded)}</span>;
 }
 
 function parsePositiveInteger(value: string): number {

@@ -1181,7 +1181,8 @@ button:disabled {
 }
 
 .comment .body > .translation-controls {
-	bottom: 0;
+	bottom: -8px;
+	right: -2px;
 	top: auto;
 	transform: none;
 }
@@ -5436,10 +5437,27 @@ fieldset {
 
 .comment .checkcell {
 	display: grid;
-	place-items: start;
+	gap: 6px;
+	justify-items: center;
+	align-content: start;
 	padding-top: 4px;
 	position: relative;
 	z-index: 3;
+}
+
+.comment-anchor-link {
+	align-items: center;
+	border-radius: 4px;
+	color: var(--ink-4);
+	display: inline-grid;
+	height: 20px;
+	justify-content: center;
+	width: 20px;
+}
+
+.comment-anchor-link:hover {
+	background: color-mix(in oklch, var(--accent) 8%, transparent);
+	color: var(--accent-ink);
 }
 
 .comment .head {
@@ -5629,23 +5647,6 @@ fieldset {
 	border-color: color-mix(in oklch, var(--danger) 30%, var(--rule));
 	background: color-mix(in oklch, var(--danger) 9%, var(--paper));
 	color: var(--danger);
-}
-
-.comment .head .anchor {
-	color: var(--ink-5);
-}
-
-.comment .head .anchor:hover {
-	color: var(--ink);
-}
-
-.hash-ref {
-	font-family: "Doto", var(--font-sans);
-	font-size: 8px;
-	font-weight: 700;
-	letter-spacing: 0;
-	line-height: 1;
-	white-space: nowrap;
 }
 
 .comment .body {
