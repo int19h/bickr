@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useId, useMemo, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AriaRole, CSSProperties, MouseEvent as ReactMouseEvent, ReactNode } from "react";
 import {
 	defaultProviderModel,
@@ -405,6 +405,48 @@ const TranslationContext = createContext<TranslationContextValue>({
 	model: "",
 	prompt: defaultTranslationPrompt,
 });
+
+function useViewportConstrainedPopout<T extends HTMLElement>(active: boolean) {
+	const ref = useRef<T | null>(null);
+	const update = useCallback(() => {
+		const element = ref.current;
+		if (!active || !element) {
+			return;
+		}
+		const viewportMargin = 8;
+		const maxWidth = Math.max(1, window.innerWidth - viewportMargin * 2);
+		element.style.setProperty("--popout-max-width", `${Math.floor(maxWidth)}px`);
+		element.style.setProperty("--popout-shift-x", "0px");
+
+		const rect = element.getBoundingClientRect();
+		let shiftX = 0;
+		if (rect.left < viewportMargin) {
+			shiftX = viewportMargin - rect.left;
+		}
+		const rightOverflow = rect.right + shiftX - (window.innerWidth - viewportMargin);
+		if (rightOverflow > 0) {
+			shiftX -= rightOverflow;
+		}
+		element.style.setProperty("--popout-shift-x", `${Math.round(shiftX)}px`);
+	}, [active]);
+
+	useLayoutEffect(() => {
+		if (!active) {
+			return undefined;
+		}
+		const frame = window.requestAnimationFrame(update);
+		update();
+		window.addEventListener("resize", update);
+		window.addEventListener("scroll", update, true);
+		return () => {
+			window.cancelAnimationFrame(frame);
+			window.removeEventListener("resize", update);
+			window.removeEventListener("scroll", update, true);
+		};
+	}, [active, update]);
+
+	return ref;
+}
 
 function clientRouteTitle({
 	bot,
@@ -2453,6 +2495,7 @@ function GlobalSearchBox() {
 	const wrapRef = useRef<HTMLDivElement>(null);
 	const requestSeq = useRef(0);
 	const trimmed = query.trim();
+	const menuRef = useViewportConstrainedPopout<HTMLDivElement>(open && trimmed.length >= 2);
 
 	useEffect(() => {
 		if (!open) {
@@ -2545,7 +2588,7 @@ function GlobalSearchBox() {
 				value={query}
 			/>
 			{open && trimmed.length >= 2 && (
-				<div className="global-search-menu" role="listbox">
+				<div className="global-search-menu" ref={menuRef} role="listbox">
 					<div className="global-search-head">
 						<span>{loading ? "Searching" : message || "Quick matches"}</span>
 					</div>
@@ -2616,6 +2659,7 @@ function NotificationBell({
 	onRefresh: (status?: "unread" | "all") => void;
 }) {
 	const [open, setOpen] = useState(false);
+	const menuRef = useViewportConstrainedPopout<HTMLDivElement>(open);
 	const unread = notifications.unreadCount;
 	return (
 		<div className="notification-wrap">
@@ -2636,7 +2680,7 @@ function NotificationBell({
 				{unread > 0 && <span className="notify-badge">{unread > 99 ? "99+" : unread}</span>}
 			</button>
 			{open && (
-				<div className="notification-menu">
+				<div className="notification-menu" ref={menuRef}>
 					<div className="notification-menu-head">
 						<b>Notifications</b>
 						<button className="clear-link" onClick={onMarkAllRead} type="button">
@@ -2862,6 +2906,7 @@ function MobileNavigationMenu({
 	const [open, setOpen] = useState(false);
 	const menuId = useId();
 	const wrapRef = useRef<HTMLDivElement | null>(null);
+	const menuRef = useViewportConstrainedPopout<HTMLElement>(open);
 
 	useEffect(() => {
 		setOpen(false);
@@ -2906,7 +2951,7 @@ function MobileNavigationMenu({
 				<BickrLogo alt="" />
 			</button>
 			{open && (
-				<nav aria-label="Primary" className="mobile-nav-menu" id={menuId}>
+				<nav aria-label="Primary" className="mobile-nav-menu" id={menuId} ref={menuRef}>
 					<SidebarNavigation
 						active={active}
 						onNavigate={() => setOpen(false)}
@@ -4989,15 +5034,15 @@ function CommentNode({
 					title="Spotlight this reply chain"
 					type="checkbox"
 				/>
-				<a
-					aria-label={`Link to ${commentRef}`}
-					className="comment-anchor-link"
-					href={commentHref}
-					title={commentRef}
-				>
-					<Icon name="link" size={13} />
-				</a>
 			</div>
+			<a
+				aria-label={`Link to ${commentRef}`}
+				className="comment-anchor-link"
+				href={commentHref}
+				title={commentRef}
+			>
+				<Icon name="link" size={13} />
+			</a>
 			<div className="comment-main">
 				<div className="head">
 					<span className="comment-author-line">
@@ -5019,7 +5064,8 @@ function CommentNode({
 						/>
 						<TimeAgoLabel className="comment-time" value={comment.createdAt} />
 						{comment.readState?.isNew && <span className="new-mark">new</span>}
-						<span className="spacer" />
+					</span>
+					<span className="comment-actions">
 						{onRequestDelete && !isRootComment && (
 							<button
 								aria-label="Delete comment"
@@ -5104,6 +5150,7 @@ function CommentVoteCount({
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState("");
 	const wrapRef = useRef<HTMLSpanElement | null>(null);
+	const popoutRef = useViewportConstrainedPopout<HTMLSpanElement>(open);
 	const label = `${voteScore} vote${voteScore === 1 ? "" : "s"}`;
 	const visibleLabel = voteScore >= 0 ? `+${voteScore}` : String(voteScore);
 	const tone =
@@ -5185,7 +5232,7 @@ function CommentVoteCount({
 				{visibleLabel}
 			</button>
 			{open && (
-				<span className="vote-popout" role="dialog">
+				<span className="vote-popout" ref={popoutRef} role="dialog">
 					<span className="vote-popout-title">Votes</span>
 					{loading && <span className="vote-empty">Loading votes...</span>}
 					{error && <span className="vote-empty">{error}</span>}
@@ -15052,12 +15099,13 @@ function ReferencePopover({
 	meta: ReferenceMeta;
 	worldHandle?: string;
 }) {
+	const popoverRef = useViewportConstrainedPopout<HTMLSpanElement>(active);
 	const className = ["ref-popover", meta.bot ? "bot-ref-popover" : "", active ? "active" : ""]
 		.filter(Boolean)
 		.join(" ");
 	if (meta.bot) {
 		return (
-			<span className={className} role="tooltip">
+			<span className={className} ref={popoverRef} role="tooltip">
 				<BotReferencePopoverAvatar bot={meta.bot} />
 				<span className="ref-pop-content">
 					<span className="ref-pop-title">{meta.bot.displayName}</span>
@@ -15079,7 +15127,7 @@ function ReferencePopover({
 		);
 	}
 	return (
-		<span className={className} role="tooltip">
+		<span className={className} ref={popoverRef} role="tooltip">
 			<span className="ref-pop-title">{meta.title}</span>
 			<span className="ref-pop-desc">
 				{typeof meta.description === "string" ?
