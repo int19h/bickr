@@ -37,6 +37,7 @@
 	--bot: oklch(0.55 0.1 295);
 	--bot-soft: oklch(0.55 0.1 295 / 0.1);
 	--bot-ink: oklch(0.38 0.1 295);
+	--user: var(--accent);
 	--positive: oklch(0.5 0.12 150);
 	--danger: oklch(0.55 0.16 22);
 	--radius: 6px;
@@ -1933,17 +1934,12 @@ fieldset {
 	width: 112px;
 }
 
-.ref-pop-avatar[data-actor="bot"]::after {
-	background: var(--bot);
-	border: 3px solid var(--paper);
-	border-radius: 999px;
-	bottom: -1px;
-	box-shadow: 0 0 0 1px var(--rule);
-	content: "";
-	height: 16px;
-	position: absolute;
-	right: -1px;
-	width: 16px;
+.ref-pop-avatar[data-actor="bot"] {
+	border-color: var(--bot);
+}
+
+.ref-pop-avatar[data-actor="user"] {
+	border-color: var(--user);
 }
 
 .ref-popover::before {
@@ -2070,28 +2066,12 @@ fieldset {
 	object-fit: contain;
 }
 
-.avatar[data-actor="bot"]::after {
-	background: var(--bot);
-	border: 2px solid var(--paper);
-	border-radius: 50%;
-	bottom: -1px;
-	content: "";
-	height: 8px;
-	position: absolute;
-	right: -1px;
-	width: 8px;
+.avatar[data-actor="bot"] {
+	border-color: var(--bot);
 }
 
-.avatar.lg[data-actor="bot"]::after {
-	border-width: 3px;
-	height: 12px;
-	width: 12px;
-}
-
-.avatar.hero[data-actor="bot"]::after {
-	border-width: 4px;
-	height: 20px;
-	width: 20px;
+.avatar[data-actor="user"] {
+	border-color: var(--user);
 }
 
 .bot-grid {
@@ -4919,12 +4899,6 @@ fieldset {
 	width: 96px;
 }
 
-.avatar.xl[data-actor="bot"]::after {
-	border-width: 3px;
-	height: 14px;
-	width: 14px;
-}
-
 .forum-shell,
 .loop-screen {
 	max-width: 1180px;
@@ -6528,24 +6502,11 @@ button.avatar-large-preview:not(:disabled),
 	width: 48px;
 }
 
-.bot-card .head .avatar[data-actor="bot"]::after,
-.clone-source-option .avatar[data-actor="bot"]::after {
-	border-width: 2px;
-	height: 11px;
-	width: 11px;
-}
-
 .bot-pick-row .avatar.sm {
 	border-radius: 5px;
 	font-size: 15px;
 	height: 42px;
 	width: 42px;
-}
-
-.bot-pick-row .avatar.sm[data-actor="bot"]::after {
-	border-width: 2px;
-	height: 10px;
-	width: 10px;
 }
 
 .bot-pick-row .nm {
