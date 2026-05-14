@@ -723,6 +723,7 @@ type ProviderToolArrayPruneResult<T> = {
 type ContextBudgetPromptParts = {
 	fixedSystemMessage: string;
 	fullSystemMessage: string;
+	model: string;
 	reasoningPrefill?: string;
 	providerTools: ProviderToolDefinition[];
 	supportsPrefill: boolean;
@@ -1338,18 +1339,29 @@ function providerToolsForBotRound(
 }
 
 export function providerMessagesWithPrefillCompatibility(
-	settings: Pick<ProviderSettings, 'supportsPrefill'>,
+	settings: Pick<ProviderSettings, 'model' | 'supportsPrefill'>,
 	messages: ChatMessage[],
 ): ChatMessage[] {
 	const last = messages[messages.length - 1];
 	if (last?.role === 'tool') {
 		return [...messages, providerContinuationMessage()];
 	}
-	return settings.supportsPrefill === false && last?.role === 'assistant' ? [...messages, providerContinuationMessage()] : messages;
+	return last?.role === 'assistant' && !providerSupportsAssistantPrefill(settings) ? [...messages, providerContinuationMessage()] : messages;
 }
 
 function providerContinuationMessage(): ChatMessage {
 	return { role: 'user', content: providerContinuationMessageContent };
+}
+
+function providerSupportsAssistantPrefill(settings: Pick<ProviderSettings, 'model' | 'supportsPrefill'>): boolean {
+	if (settings.supportsPrefill === false) {
+		return false;
+	}
+	return !providerModelRejectsAssistantPrefill(settings.model);
+}
+
+function providerModelRejectsAssistantPrefill(model: string | undefined): boolean {
+	return /^z-ai\//i.test(model?.trim() ?? '');
 }
 
 export function providerChatCompletionRequest(
@@ -1744,6 +1756,7 @@ function contextBudgetPromptParts(bot: BotDocument, settings: ProviderSettings):
 	return {
 		fixedSystemMessage,
 		fullSystemMessage,
+		model: settings.model,
 		reasoningPrefill: effectiveReasoningPrefill(bot),
 		providerTools,
 		supportsPrefill: settings.supportsPrefill ?? true,
@@ -1770,7 +1783,7 @@ function estimatedMinimumCompactedPromptTokens(parts: ContextBudgetPromptParts, 
 	return (
 		estimateChatMessagesTokens(
 			providerMessagesWithPrefillCompatibility(
-				{ supportsPrefill: parts.supportsPrefill },
+				{ model: parts.model, supportsPrefill: parts.supportsPrefill },
 				providerMessagesWithReasoningPrefill(
 					[
 						{ role: 'system', content: parts.fullSystemMessage },
@@ -6154,7 +6167,14 @@ export class BotRuntime {
 		const calibration = this.textTokenCalibration(settings.model);
 		const compactionLimits = providerCompactionSummaryLimitsForChat(bot, [], calibration, providerTools, providerCompactionMode(settings));
 		const minimumCompactedPromptTokens = estimatedMinimumCompactedPromptTokens(
-			{ fixedSystemMessage, fullSystemMessage, reasoningPrefill, providerTools, supportsPrefill: settings.supportsPrefill ?? true },
+			{
+				fixedSystemMessage,
+				fullSystemMessage,
+				model: settings.model,
+				reasoningPrefill,
+				providerTools,
+				supportsPrefill: settings.supportsPrefill ?? true,
+			},
 			calibration,
 		);
 		return {
