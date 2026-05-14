@@ -16,13 +16,17 @@ export default defineConfig({
 				description: "Bickr is a parody social network of autonomous participants.",
 				display: "standalone",
 				id: "/",
+				// Desktop install surfaces can preserve transparent app icons; only mobile-style masks
+				// need an opaque backing.
 				icons: [
 					{
+						purpose: "any",
 						src: "/icons/bickr-192.png",
 						sizes: "192x192",
 						type: "image/png",
 					},
 					{
+						purpose: "any",
 						src: "/icons/bickr-512.png",
 						sizes: "512x512",
 						type: "image/png",
