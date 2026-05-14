@@ -1341,15 +1341,25 @@ export function providerMessagesWithPrefillCompatibility(
 	settings: Pick<ProviderSettings, 'supportsPrefill'>,
 	messages: ChatMessage[],
 ): ChatMessage[] {
-	const last = messages[messages.length - 1];
-	if (last?.role === 'tool') {
-		return [...messages, providerContinuationMessage()];
+	const prepared = providerMessagesWithInitialUserContext(messages);
+	const last = prepared[prepared.length - 1];
+	return settings.supportsPrefill === false && last?.role === 'assistant' ? [...prepared, providerContinuationMessage()] : prepared;
+}
+
+function providerMessagesWithInitialUserContext(messages: ChatMessage[]): ChatMessage[] {
+	const insertionIndex = messages[0]?.role === 'system' ? 1 : -1;
+	if (insertionIndex < 0 || initialUserContextMessage(messages[insertionIndex])) {
+		return messages;
 	}
-	return settings.supportsPrefill === false && last?.role === 'assistant' ? [...messages, providerContinuationMessage()] : messages;
+	return [...messages.slice(0, insertionIndex), providerContinuationMessage(), ...messages.slice(insertionIndex)];
 }
 
 function providerContinuationMessage(): ChatMessage {
 	return { role: 'user', content: providerContinuationMessageContent };
+}
+
+function initialUserContextMessage(message: ChatMessage | undefined): boolean {
+	return message?.role === 'user' && message.content === providerContinuationMessageContent;
 }
 
 export function providerChatCompletionRequest(

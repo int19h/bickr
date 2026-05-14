@@ -1222,14 +1222,14 @@ describe("Bickr Pages Functions", () => {
 		});
 	});
 
-		it("builds provider chat requests with explicit tool-call and output controls", () => {
-			const request = providerChatCompletionRequest(
-				{
-					baseUrl: "https://openrouter.ai/api/v1",
-					model: "test-model",
-					providerRouting: { max_price: { prompt: 0.25, completion: 0.75 } },
-					temperature: 0.2,
-				},
+	it("builds provider chat requests with explicit tool-call and output controls", () => {
+		const request = providerChatCompletionRequest(
+			{
+				baseUrl: "https://openrouter.ai/api/v1",
+				model: "test-model",
+				providerRouting: { max_price: { prompt: 0.25, completion: 0.75 } },
+				temperature: 0.2,
+			},
 			[{ role: "user", content: "hello" }],
 			toolDefinitions,
 			"I'm u/release-sage. I need to think about how I feel and what I want to do next.",
@@ -1269,6 +1269,25 @@ describe("Bickr Pages Functions", () => {
 				content: "I'm u/release-sage. I need to think about how I feel and what I want to do next.",
 			},
 			{ role: "user", content: "Bickr Terminal is ready for my next step." },
+		]);
+		expect(
+			providerChatCompletionRequest(
+				{
+					baseUrl: "https://openrouter.ai/api/v1",
+					model: "test-model",
+					temperature: 0.2,
+				},
+				[{ role: "system", content: "System prompt." }],
+				toolDefinitions,
+				"I'm u/release-sage. I need to think about how I feel and what I want to do next.",
+			).messages,
+		).toEqual([
+			{ role: "system", content: "System prompt." },
+			{ role: "user", content: "Bickr Terminal is ready for my next step." },
+			{
+				role: "assistant",
+				content: "I'm u/release-sage. I need to think about how I feel and what I want to do next.",
+			},
 		]);
 		expect("frequency_penalty" in request).toBe(false);
 		expect("presence_penalty" in request).toBe(false);
@@ -2255,6 +2274,7 @@ describe("Bickr Pages Functions", () => {
 				const retryBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)) as { messages: BotInferenceSubmissionMessage[] };
 				expect(retryBody.messages).toEqual([
 					{ role: "system", content: "System prompt." },
+					{ role: "user", content: "Bickr Terminal is ready for my next step." },
 					{ role: "assistant", content: nonCompactingSummary },
 					expect.objectContaining({
 						role: "user",
@@ -2579,6 +2599,7 @@ describe("Bickr Pages Functions", () => {
 				const retryBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)) as { messages: BotInferenceSubmissionMessage[] };
 				expect(retryBody.messages).toEqual([
 					{ role: "system", content: "System prompt." },
+					{ role: "user", content: "Bickr Terminal is ready for my next step." },
 					{ role: "assistant", content: overlongSummary },
 					expect.objectContaining({
 						role: "user",
@@ -7284,10 +7305,11 @@ describe("Bickr Pages Functions", () => {
 		expect(JSON.stringify(request.messages)).not.toContain("dropped");
 	});
 
-	it("adds a continuation message after final tool results for provider compatibility", () => {
+	it("adds stable initial user context before prior activity for provider compatibility", () => {
 		const request = providerChatCompletionRequest(
 			{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
 			[
+				{ role: "system", content: "System prompt." },
 				{
 					role: "assistant",
 					content: null,
@@ -7304,11 +7326,11 @@ describe("Bickr Pages Functions", () => {
 			[],
 		);
 
-		expect(request.messages.at(-1)).toEqual({
+		expect(request.messages[1]).toEqual({
 			role: "user",
 			content: "Bickr Terminal is ready for my next step.",
 		});
-		expect(request.messages.at(-2)).toMatchObject({
+		expect(request.messages.at(-1)).toMatchObject({
 			role: "tool",
 			tool_call_id: "call_1",
 			content: "{\"ok\":true}",
@@ -7393,6 +7415,7 @@ describe("Bickr Pages Functions", () => {
 
 	it("keeps rewritten provider request ids stable when new messages append", () => {
 		const initialMessages: BotInferenceSubmissionMessage[] = [
+			{ role: "system", content: "System prompt." },
 			{
 				role: "assistant",
 				content: null,
@@ -7431,13 +7454,11 @@ describe("Bickr Pages Functions", () => {
 			[],
 		);
 
-		expect(initialRequest.messages.at(-1)).toEqual({
+		expect(initialRequest.messages[1]).toEqual({
 			role: "user",
 			content: "Bickr Terminal is ready for my next step.",
 		});
-		expect(extendedRequest.messages.slice(0, initialRequest.messages.length - 1)).toEqual(
-			initialRequest.messages.slice(0, -1),
-		);
+		expect(extendedRequest.messages.slice(0, initialRequest.messages.length)).toEqual(initialRequest.messages);
 		expect(extendedRequest.messages.flatMap((message) => message.tool_calls?.map((toolCall) => toolCall.id) ?? [])).toEqual(["call_1", "call_2"]);
 		expect(extendedRequest.messages.filter((message) => message.role === "tool").map((message) => message.tool_call_id)).toEqual(["call_1", "call_2"]);
 	});
