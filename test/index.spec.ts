@@ -1168,6 +1168,203 @@ describe("Bickr Pages Functions", () => {
 		expect((redundantUnfollow as Error).message).toContain("unfollow_profile");
 	});
 
+	it("classifies spotlight vote and follow mutations per effective target", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const forum = await createForumForTest(cookie, "spotlight-tool-scope");
+		const actor = await createBotForTest(cookie, "scope-actor");
+		const spotlightAuthor = await createBotForTest(cookie, "scope-spot-author");
+		const unrelatedAuthor = await createBotForTest(cookie, "scope-other-author");
+		const spotlightProfile = await createBotForTest(cookie, "scope-spot-profile");
+		const unrelatedProfile = await createBotForTest(cookie, "scope-other-profile");
+		const spotlightThread = await createThreadForTest(forum.id, spotlightAuthor.id, "Spotlight vote thread", "Spotlight root.");
+		const unrelatedThread = await createThreadForTest(forum.id, unrelatedAuthor.id, "Ordinary vote thread", "Ordinary root.");
+		const actorDocument = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, actor.id);
+		const user = await testEnv.BICKR_D1.prepare(`SELECT user_id AS id FROM users_index LIMIT 1`).first<{ id: string }>();
+		if (!user) {
+			throw new Error("Test user was not created.");
+		}
+		const spotlightId = "spt_tool_scope";
+		await testEnv.BICKR_D1.prepare(
+			`INSERT INTO spotlight_deliveries (
+				spotlight_id, user_id, bot_id, world_id, forum_id, thread_id, target_type,
+				target_ids_json, focus_text, injected_text, status, error_message, created_at
+			) VALUES (?, ?, ?, ?, ?, ?, 'threads', ?, NULL, 'spotlight', 'sent', NULL, ?)`,
+		)
+			.bind(
+				spotlightId,
+				user.id,
+				actor.id,
+				forum.worldId,
+				forum.id,
+				spotlightThread.id,
+				JSON.stringify([spotlightThread.id]),
+				new Date().toISOString(),
+			)
+			.run();
+
+		const runtime = testRuntimeForToolExecution();
+		const executeTool = (BotRuntime.prototype as unknown as {
+			executeTool: (
+				bot: Awaited<ReturnType<typeof botById>>,
+				runId: string,
+				name: string,
+				args: Record<string, unknown>,
+				runContext: Record<string, unknown>,
+			) => Promise<{
+				result: unknown;
+				providerResult: unknown;
+				spotlightMutation?: boolean;
+				spotlightTickTerminator?: boolean;
+			}>;
+		}).executeTool.bind(runtime);
+		const signal = new AbortController().signal;
+		const spotlightRunContext = {
+			mode: "spotlight",
+			setupMode: "spotlight",
+			spotlightId,
+			spotlightActionScope: {
+				commentIds: new Set([spotlightThread.rootCommentId]),
+				authorBotIds: new Set([spotlightAuthor.id, spotlightProfile.id]),
+				authorHandles: new Set([spotlightAuthor.handle, spotlightProfile.handle]),
+			},
+			signal,
+		};
+
+		const voteResult = await executeTool(
+			actorDocument,
+			"run-spotlight-mixed-vote",
+			"vote",
+			{
+				reason: "The spotlight target is useful; this ordinary target is also useful.",
+				votes: [
+					{ commentId: spotlightThread.rootCommentId, value: 1 },
+					{ commentId: unrelatedThread.rootCommentId, value: 1 },
+				],
+			},
+			spotlightRunContext,
+		);
+		expect(voteResult).toMatchObject({
+			spotlightMutation: true,
+			spotlightTickTerminator: true,
+		});
+		const voteNotifications = await testEnv.BICKR_D1.prepare(
+			`SELECT target_id AS targetId, spotlight_id AS spotlightId
+			 FROM human_notifications
+			 WHERE user_id = ? AND notification_type = 'vote_cast'
+			   AND target_id IN (?, ?)`,
+		)
+			.bind(user.id, spotlightThread.rootCommentId, unrelatedThread.rootCommentId)
+			.all<{ targetId: string; spotlightId: string | null }>();
+		const voteSpotlightIds = new Map(voteNotifications.results?.map((row) => [row.targetId, row.spotlightId]));
+		expect(voteSpotlightIds.get(spotlightThread.rootCommentId)).toBe(spotlightId);
+		expect(voteSpotlightIds.get(unrelatedThread.rootCommentId)).toBeNull();
+
+		const followResult = await executeTool(
+			actorDocument,
+			"run-spotlight-mixed-follow",
+			"follow_profile",
+			{
+				targets: [
+					{ username: spotlightProfile.handle, reason: "The spotlight profile is relevant." },
+					{ username: unrelatedProfile.handle, reason: "The ordinary profile is relevant too." },
+				],
+			},
+			spotlightRunContext,
+		);
+		expect(followResult).toMatchObject({
+			spotlightMutation: true,
+			spotlightTickTerminator: true,
+		});
+		const followNotifications = await testEnv.BICKR_D1.prepare(
+			`SELECT target_id AS targetId, spotlight_id AS spotlightId
+			 FROM human_notifications
+			 WHERE user_id = ? AND notification_type = 'bot_followed'
+			   AND target_id IN (?, ?)`,
+		)
+			.bind(user.id, spotlightProfile.id, unrelatedProfile.id)
+			.all<{ targetId: string; spotlightId: string | null }>();
+		const followSpotlightIds = new Map(followNotifications.results?.map((row) => [row.targetId, row.spotlightId]));
+		expect(followSpotlightIds.get(spotlightProfile.id)).toBe(spotlightId);
+		expect(followSpotlightIds.get(unrelatedProfile.id)).toBeNull();
+	});
+
+	it("does not record spotlight labels for unrelated create-thread mutations during spotlight ticks", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const forum = await createForumForTest(cookie, "spotlight-unrelated-posts");
+		const actor = await createBotForTest(cookie, "unrelated-post-actor");
+		const spotlightAuthor = await createBotForTest(cookie, "unrelated-post-spot-author");
+		const spotlightThread = await createThreadForTest(forum.id, spotlightAuthor.id, "Existing spotlight context", "Spotlight root.");
+		const actorDocument = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, actor.id);
+		const user = await testEnv.BICKR_D1.prepare(`SELECT user_id AS id FROM users_index LIMIT 1`).first<{ id: string }>();
+		if (!user) {
+			throw new Error("Test user was not created.");
+		}
+		const spotlightId = "spt_unrelated_post";
+		await testEnv.BICKR_D1.prepare(
+			`INSERT INTO spotlight_deliveries (
+				spotlight_id, user_id, bot_id, world_id, forum_id, thread_id, target_type,
+				target_ids_json, focus_text, injected_text, status, error_message, created_at
+			) VALUES (?, ?, ?, ?, ?, ?, 'threads', ?, NULL, 'spotlight', 'sent', NULL, ?)`,
+		)
+			.bind(
+				spotlightId,
+				user.id,
+				actor.id,
+				forum.worldId,
+				forum.id,
+				spotlightThread.id,
+				JSON.stringify([spotlightThread.id]),
+				new Date().toISOString(),
+			)
+			.run();
+
+		const runtime = testRuntimeForToolExecution();
+		const executeTool = (BotRuntime.prototype as unknown as {
+			executeTool: (
+				bot: Awaited<ReturnType<typeof botById>>,
+				runId: string,
+				name: string,
+				args: Record<string, unknown>,
+				runContext: Record<string, unknown>,
+			) => Promise<{
+				result: unknown;
+				providerResult: unknown;
+				spotlightMutation?: boolean;
+				spotlightTickTerminator?: boolean;
+			}>;
+		}).executeTool.bind(runtime);
+		const createResult = await executeTool(
+			actorDocument,
+			"run-spotlight-unrelated-post",
+			"create_thread",
+			{ forumHandle: forum.handle, title: "Ordinary thread", body: "This is not in a spotlight author's personal forum." },
+			{
+				mode: "spotlight",
+				setupMode: "spotlight",
+				spotlightId,
+				spotlightActionScope: {
+					commentIds: new Set([spotlightThread.rootCommentId]),
+					authorBotIds: new Set([spotlightAuthor.id]),
+					authorHandles: new Set([spotlightAuthor.handle]),
+				},
+				signal: new AbortController().signal,
+			},
+		);
+		expect(createResult.spotlightMutation).toBeUndefined();
+		expect(createResult.spotlightTickTerminator).toBe(true);
+
+		const spotlightNotifications = await testEnv.BICKR_D1.prepare(
+			`SELECT COUNT(*) AS count
+			 FROM human_notifications
+			 WHERE user_id = ? AND spotlight_id = ?`,
+		)
+			.bind(user.id, spotlightId)
+			.first<{ count: number }>();
+		expect(spotlightNotifications?.count).toBe(0);
+	});
+
 	it("exposes profile follow relationships and queries follower usernames", async () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);
@@ -8574,6 +8771,331 @@ describe("Bickr Pages Functions", () => {
 			origin: "tool_result",
 			message: expect.objectContaining({
 				tool_call_id: expect.stringContaining("synthetic_run-limit-reject"),
+			}),
+		}));
+	});
+
+	it("defers iteration limits during a spotlight streak until the first unrelated mutation ends the tick", async () => {
+		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+		const appendedLoopMessages: Array<{ message: Record<string, unknown>; origin: string }> = [];
+		const executedTools: string[] = [];
+		const callProvider = vi.fn()
+			.mockResolvedValueOnce({
+				...providerResponseWithToolCall("call-view", "view_profiles", { usernames: ["u/spot-author"] }),
+				usage: providerUsageForTest(20),
+			})
+			.mockResolvedValueOnce({
+				...providerResponseWithToolCall("call-reply", "reply_to_comment", { commentId: "cmt_spot", body: "Spotlight reply." }),
+				usage: providerUsageForTest(20),
+			})
+			.mockResolvedValueOnce({
+				...providerResponseWithToolCall("call-create", "create_thread", { forumHandle: "general", title: "Unrelated", body: "Body." }),
+				usage: providerUsageForTest(20),
+			});
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+				events.push({ type, payload });
+				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
+			},
+			appendLoopMessage: (
+				_runId: string,
+				message: Record<string, unknown>,
+				origin: string,
+			) => {
+				appendedLoopMessages.push({ message, origin });
+				return {
+					seq: appendedLoopMessages.length,
+					runId: "run-spotlight-streak-limit",
+					role: message.role,
+					message,
+					origin,
+					tokenEstimate: 0,
+					createdAt: new Date().toISOString(),
+				};
+			},
+			appendProviderMessages: async () => {},
+			callProvider,
+			ensureProviderPromptWithinBudget: async () => ({
+				allowedPromptTokens: 13_500,
+				promptTokens: 100,
+				requestMessages: [{ role: "assistant", content: "I am ready." }],
+			}),
+			executeTool: async (_bot: unknown, _runId: string, name: string) => {
+				executedTools.push(name);
+				return {
+					name,
+					result: { ok: true },
+					providerResult: { ok: true },
+					...(name === "reply_to_comment" ? { spotlightMutation: true } : {}),
+					...(name === "create_thread" ? { spotlightTickTerminator: true } : {}),
+				};
+			},
+			loopGeneratedTokenCountSinceLastLogOff: () => 40,
+			providerLoopInitialSuccessfulToolCallCount: () => 7,
+			recordInferenceSubmission: () => {},
+			recordLoopMessageLog: () => {},
+			recordProviderUsage: () => {},
+			repairActiveProviderToolCallHistory: async () => [],
+			successfulMutatingToolCallSinceLastLogOff: () => true,
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const runProviderLoop = (BotRuntime.prototype as unknown as {
+			runProviderLoop: (
+				bot: BotDocument,
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				runId: string,
+				messages: Array<Record<string, unknown>>,
+				runContext: Record<string, unknown>,
+			) => Promise<{ logOffCalled: boolean; spotlightMutationCount: number }>;
+		}).runProviderLoop.bind(runtime);
+
+		await expect(
+			runProviderLoop(
+				{
+					...fakeBotDocument(),
+					tickSettings: {
+						...fakeBotDocument().tickSettings,
+						allowEarlyLogOff: true,
+						maxToolCallsPerTick: 5,
+						maxSuccessfulToolCallsPerIteration: 8,
+						maxGeneratedTokensPerTick: 1_000,
+						maxGeneratedTokensPerIteration: 50,
+					},
+				},
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
+				"run-spotlight-streak-limit",
+				[],
+				{
+					mode: "spotlight",
+					setupMode: "spotlight",
+					spotlightId: "spt_limit",
+					spotlightActionScope: {
+						commentIds: new Set(["cmt_spot"]),
+						authorBotIds: new Set(["bot_spot"]),
+						authorHandles: new Set(["spot-author"]),
+					},
+					signal: new AbortController().signal,
+				},
+			),
+		).resolves.toMatchObject({ logOffCalled: true, spotlightMutationCount: 1 });
+
+		expect(callProvider).toHaveBeenCalledTimes(3);
+		expect(executedTools).toEqual(["view_profiles", "reply_to_comment", "create_thread", "log_off"]);
+		expect(appendedLoopMessages).toContainEqual(expect.objectContaining({
+			origin: "tool_result",
+			message: expect.objectContaining({
+				tool_call_id: "call-reply",
+			}),
+		}));
+		expect(appendedLoopMessages).toContainEqual(expect.objectContaining({
+			origin: "tool_result",
+			message: expect.objectContaining({
+				tool_call_id: expect.stringContaining("synthetic_run-spotlight-streak-limit"),
+			}),
+		}));
+		expect(events.filter((event) => event.type === "provider_tool_call_dropped")).toEqual([]);
+	});
+
+	it("ends a spotlight tick after an unrelated mutation result and drops remaining generated calls", async () => {
+		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+		const executedTools: string[] = [];
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+				events.push({ type, payload });
+				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
+			},
+			appendLoopMessage: (
+				_runId: string,
+				message: Record<string, unknown>,
+				origin: string,
+			) => ({
+				seq: events.length,
+				runId: "run-spotlight-unrelated-mutating",
+				role: message.role,
+				message,
+				origin,
+				tokenEstimate: 0,
+				createdAt: new Date().toISOString(),
+			}),
+			appendProviderMessages: async () => {},
+			callProvider: async () => providerResponseWithToolCalls([
+				{ id: "call-create", name: "create_thread", args: { forumHandle: "general", title: "Unrelated", body: "Body." } },
+				{ id: "call-reply", name: "reply_to_comment", args: { commentId: "cmt_spot", body: "Spotlight reply." } },
+				{ id: "call-read", name: "read_thread", args: { threadId: "thr_after" } },
+			]),
+			ensureProviderPromptWithinBudget: async () => ({
+				allowedPromptTokens: 13_500,
+				promptTokens: 100,
+				requestMessages: [{ role: "assistant", content: "I am ready." }],
+			}),
+			executeTool: async (_bot: unknown, _runId: string, name: string) => {
+				executedTools.push(name);
+				return {
+					name,
+					result: { ok: true },
+					providerResult: { ok: true },
+					...(name === "create_thread" ? { spotlightTickTerminator: true } : {}),
+				};
+			},
+			recordInferenceSubmission: () => {},
+			recordLoopMessageLog: () => {},
+			recordProviderUsage: () => {},
+			repairActiveProviderToolCallHistory: async () => [],
+			successfulMutatingToolCallSinceLastLogOff: () => true,
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const runProviderLoop = (BotRuntime.prototype as unknown as {
+			runProviderLoop: (
+				bot: BotDocument,
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				runId: string,
+				messages: Array<Record<string, unknown>>,
+				runContext: Record<string, unknown>,
+			) => Promise<{ logOffCalled: boolean; spotlightMutationCount: number }>;
+		}).runProviderLoop.bind(runtime);
+
+		await expect(
+			runProviderLoop(
+				{
+					...fakeBotDocument(),
+					tickSettings: { ...fakeBotDocument().tickSettings, maxToolCallsPerTick: 3, maxSuccessfulToolCallsPerIteration: 8 },
+				},
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
+				"run-spotlight-unrelated-mutating",
+				[],
+				{
+					mode: "spotlight",
+					setupMode: "spotlight",
+					spotlightId: "spt_unrelated",
+					spotlightActionScope: {
+						commentIds: new Set(["cmt_spot"]),
+						authorBotIds: new Set(["bot_spot"]),
+						authorHandles: new Set(["spot-author"]),
+					},
+					signal: new AbortController().signal,
+				},
+			),
+		).resolves.toMatchObject({ logOffCalled: false, spotlightMutationCount: 0 });
+
+		expect(executedTools).toEqual(["create_thread"]);
+		expect(events).toContainEqual(expect.objectContaining({
+			type: "provider_tool_call_dropped",
+			payload: expect.objectContaining({
+				callIds: ["call-reply", "call-read"],
+				reason: "spotlight_tick_ended",
+			}),
+		}));
+	});
+
+	it("counts mixed spotlight mutation batches as reactions while ending the spotlight tick", async () => {
+		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+		const executedTools: string[] = [];
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+				events.push({ type, payload });
+				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
+			},
+			appendLoopMessage: (
+				_runId: string,
+				message: Record<string, unknown>,
+				origin: string,
+			) => ({
+				seq: events.length,
+				runId: "run-spotlight-mixed-batch",
+				role: message.role,
+				message,
+				origin,
+				tokenEstimate: 0,
+				createdAt: new Date().toISOString(),
+			}),
+			appendProviderMessages: async () => {},
+			callProvider: async () => providerResponseWithToolCalls([
+				{
+					id: "call-vote",
+					name: "vote",
+					args: {
+						votes: [
+							{ commentId: "cmt_spot", value: 1 },
+							{ commentId: "cmt_other", value: 1 },
+						],
+						reason: "One spotlight vote and one ordinary vote.",
+					},
+				},
+				{ id: "call-read", name: "read_thread", args: { threadId: "thr_after" } },
+			]),
+			ensureProviderPromptWithinBudget: async () => ({
+				allowedPromptTokens: 13_500,
+				promptTokens: 100,
+				requestMessages: [{ role: "assistant", content: "I am ready." }],
+			}),
+			executeTool: async (_bot: unknown, _runId: string, name: string) => {
+				executedTools.push(name);
+				return {
+					name,
+					result: { ok: true },
+					providerResult: { ok: true },
+					spotlightMutation: true,
+					spotlightTickTerminator: true,
+				};
+			},
+			recordInferenceSubmission: () => {},
+			recordLoopMessageLog: () => {},
+			recordProviderUsage: () => {},
+			repairActiveProviderToolCallHistory: async () => [],
+			successfulMutatingToolCallSinceLastLogOff: () => true,
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const runProviderLoop = (BotRuntime.prototype as unknown as {
+			runProviderLoop: (
+				bot: BotDocument,
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				runId: string,
+				messages: Array<Record<string, unknown>>,
+				runContext: Record<string, unknown>,
+			) => Promise<{ logOffCalled: boolean; spotlightMutationCount: number }>;
+		}).runProviderLoop.bind(runtime);
+
+		await expect(
+			runProviderLoop(
+				{
+					...fakeBotDocument(),
+					tickSettings: { ...fakeBotDocument().tickSettings, maxToolCallsPerTick: 3, maxSuccessfulToolCallsPerIteration: 8 },
+				},
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
+				"run-spotlight-mixed-batch",
+				[],
+				{
+					mode: "spotlight",
+					setupMode: "spotlight",
+					spotlightId: "spt_mixed",
+					spotlightActionScope: {
+						commentIds: new Set(["cmt_spot"]),
+						authorBotIds: new Set(["bot_spot"]),
+						authorHandles: new Set(["spot-author"]),
+					},
+					signal: new AbortController().signal,
+				},
+			),
+		).resolves.toMatchObject({ logOffCalled: false, spotlightMutationCount: 1 });
+
+		expect(executedTools).toEqual(["vote"]);
+		expect(events).toContainEqual(expect.objectContaining({
+			type: "provider_tool_call_dropped",
+			payload: expect.objectContaining({
+				callIds: ["call-read"],
+				reason: "spotlight_tick_ended",
 			}),
 		}));
 	});
@@ -16978,7 +17500,7 @@ describe("Bickr Pages Functions", () => {
 		expect(specialNotifications?.count).toBe(0);
 	});
 
-	it("records a spotlight no-reaction notification only for log-off-only spotlight ticks", async () => {
+	it("records a spotlight no-reaction notification for spotlight ticks with no spotlight-targeted action", async () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);
 		const forum = await createForumForTest(cookie, "spotlight-no-reaction");
@@ -17018,7 +17540,7 @@ describe("Bickr Pages Functions", () => {
 		expect(noReaction.results?.[0]).toMatchObject({
 			notificationType: "spotlight_no_reaction",
 			title: "Spotlight Observer did not react to the spotlight",
-			body: "u/spotlight-observer reviewed the spotlight and chose not to create a thread, reply, vote, follow, or unfollow.",
+			body: "u/spotlight-observer reviewed the spotlight but did not act on the spotlighted content or its authors.",
 			spotlightLabel: "no public reaction",
 		});
 
@@ -17040,6 +17562,133 @@ describe("Bickr Pages Functions", () => {
 			.bind(user.id, spotlightId)
 			.first<{ count: number }>();
 		expect(noReactionCount?.count).toBe(1);
+	});
+
+	it("records spotlight no-reaction at successful tick completion only when no spotlight mutation occurred", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const forum = await createForumForTest(cookie, "spotlight-tick-reactions");
+		const bot = await createBotForTest(cookie, "tick-reaction-observer");
+		const author = await createBotForTest(cookie, "tick-reaction-author");
+		const thread = await createThreadForTest(forum.id, author.id, "Spotlight tick context", "Root spotlight body.");
+		const user = await testEnv.BICKR_D1.prepare(`SELECT user_id AS id FROM users_index LIMIT 1`).first<{ id: string }>();
+		if (!user) {
+			throw new Error("Test user was not created.");
+		}
+		const contextText = JSON.stringify({
+			kind: "spotlight_context",
+			world: { id: forum.worldId, handle: "w/patch-notes" },
+			forum: { id: forum.id, handle: `f/${forum.handle}` },
+			targetType: "threads",
+			threads: [{ id: thread.id, threadId: thread.id, title: "Spotlight tick context", rootCommentId: thread.rootCommentId }],
+			content: [{
+				type: "comment",
+				id: thread.rootCommentId,
+				commentId: thread.rootCommentId,
+				threadId: thread.id,
+				authorBotId: author.id,
+				authorHandle: author.handle,
+				authorDisplayName: author.displayName,
+				body: "Root spotlight body.",
+				createdAt: new Date().toISOString(),
+				target: true,
+			}],
+		});
+		const runSpotlightTick = async (
+			spotlightId: string,
+			outcome: { logOffCalled: boolean; spotlightMutationCount: number; toolCallCount: number },
+		) => {
+			await testEnv.BICKR_D1.prepare(
+				`INSERT INTO spotlight_deliveries (
+					spotlight_id, user_id, bot_id, world_id, forum_id, thread_id, target_type,
+					target_ids_json, focus_text, injected_text, status, error_message, created_at
+				) VALUES (?, ?, ?, ?, ?, ?, 'threads', ?, NULL, 'spotlight', 'sent', NULL, ?)`,
+			)
+				.bind(
+					spotlightId,
+					user.id,
+					bot.id,
+					forum.worldId,
+					forum.id,
+					thread.id,
+					JSON.stringify([thread.id]),
+					new Date().toISOString(),
+				)
+				.run();
+			let seq = 0;
+			const messages = [] as unknown as BotInferenceSubmissionMessage[] & { deliveredNotificationIds: Set<string> };
+			messages.deliveredNotificationIds = new Set();
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				activeAbortController: null,
+				activeRunId: null,
+				env: testEnv,
+				appendEvent: async (runId: string, type: string, payload: unknown) => {
+					seq += 1;
+					return runtimeEvent(seq, runId, type as BotRuntimeEvent["type"], payload);
+				},
+				botWithEffectivePostingSettings: async (document: BotDocument) => document,
+				buildMessages: async () => messages,
+				clearStopRequest: () => {},
+				compactIfNeeded: async () => {},
+				consumeInjections: () => [contextText],
+				effectiveProviderSettings: () => ({
+					apiKey: "test-key",
+					baseUrl: "https://openrouter.ai/api/v1",
+					model: "test-model",
+					temperature: 0.2,
+					toolCalls: "at_will" as const,
+				}),
+				runProviderLoop: async () => outcome,
+				setRuntimeIndex: async () => null,
+				startQueuedSpotlightTick: () => {},
+				status: async () => ({ botId: bot.id, enabled: true, status: "idle" as const }),
+				throwIfStopped: (_runId: string, signal: AbortSignal) => {
+					if (signal.aborted) {
+						throw new Error("Unexpected abort.");
+					}
+				},
+			});
+			const runTick = (BotRuntime.prototype as unknown as {
+				runTick: (
+					botId: string,
+					trigger: "spotlight",
+					options: { mode: "spotlight"; spotlightId: string; injectionIds: string[] },
+				) => Promise<{ status: string }>;
+			}).runTick.bind(runtime);
+			await expect(
+				runTick(bot.id, "spotlight", {
+					mode: "spotlight",
+					spotlightId,
+					injectionIds: [`inj-${spotlightId}`],
+				}),
+			).resolves.toMatchObject({ status: "completed" });
+		};
+
+		await runSpotlightTick("spt_tick_no_reaction", {
+			logOffCalled: false,
+			spotlightMutationCount: 0,
+			toolCallCount: 2,
+		});
+		await runSpotlightTick("spt_tick_reacted", {
+			logOffCalled: false,
+			spotlightMutationCount: 1,
+			toolCallCount: 1,
+		});
+
+		const noReactionRows = await testEnv.BICKR_D1.prepare(
+			`SELECT spotlight_id AS spotlightId, notification_type AS notificationType
+			 FROM human_notifications
+			 WHERE user_id = ? AND spotlight_id IN (?, ?)
+			 ORDER BY spotlight_id ASC`,
+		)
+			.bind(user.id, "spt_tick_no_reaction", "spt_tick_reacted")
+			.all<{ spotlightId: string; notificationType: string }>();
+		expect(noReactionRows.results).toEqual([
+			{
+				spotlightId: "spt_tick_no_reaction",
+				notificationType: "spotlight_no_reaction",
+			},
+		]);
 	});
 
 	it("uploads participant avatars into R2 and exposes avatar URLs through indexes", async () => {

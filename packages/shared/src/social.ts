@@ -1099,7 +1099,7 @@ export async function recordSpotlightNoReactionHumanNotification(
 		targetType: "bot_loop",
 		targetId: input.bot.id,
 		title: `${input.bot.displayName} did not react to the spotlight`,
-		body: `u/${input.bot.handle} reviewed the spotlight and chose not to create a thread, reply, vote, follow, or unfollow.`,
+		body: `u/${input.bot.handle} reviewed the spotlight but did not act on the spotlighted content or its authors.`,
 		urlPath: `/w/${encodeURIComponent(input.bot.homeWorldHandle)}/u/${encodeURIComponent(input.bot.handle)}/loop`,
 		spotlightId: input.spotlightId,
 		spotlightLabel: "no public reaction",

@@ -345,6 +345,8 @@ type ToolResult = {
 	displayEventSeq?: number;
 	effectiveArgs?: Record<string, unknown>;
 	selfCorrectionMessages?: string[];
+	spotlightMutation?: boolean;
+	spotlightTickTerminator?: boolean;
 };
 
 export type ProviderToolCallRewrite =
@@ -387,6 +389,7 @@ type FollowProfilesToolResult = {
 	results: unknown[];
 	effectiveTargets: FollowToolTarget[];
 	selfCorrectionMessages: string[];
+	spotlightMutation: SpotlightMutationScope;
 };
 
 type ProviderUsage = {
@@ -663,6 +666,7 @@ type RunContext = {
 	mode: TickMode;
 	setupMode: LoopSetupMode;
 	spotlightId?: string;
+	spotlightActionScope?: SpotlightActionScope;
 	signal: AbortSignal;
 };
 
@@ -914,7 +918,18 @@ type ProviderTranslationRequest = {
 type ProviderLoopOutcome = {
 	toolCallCount: number;
 	logOffCalled: boolean;
-	publicSpotlightToolCallCount: number;
+	spotlightMutationCount: number;
+};
+
+type SpotlightActionScope = {
+	commentIds: ReadonlySet<string>;
+	authorBotIds: ReadonlySet<string>;
+	authorHandles: ReadonlySet<string>;
+};
+
+type SpotlightMutationScope = {
+	related: boolean;
+	unrelated: boolean;
 };
 
 type ProviderToolCallDropReason =
@@ -927,6 +942,7 @@ type ProviderToolCallDropReason =
 	| 'disallowed_log_off'
 	| 'premature_log_off'
 	| 'iteration_limit'
+	| 'spotlight_tick_ended'
 	| 'unanswered_tool_call';
 
 export type DroppedProviderToolCall = {
@@ -3438,6 +3454,9 @@ export class BotRuntime {
 				(providerSettings.toolCalls ?? 'require') === 'at_will' ? undefined : this.pendingToolUseReminder(),
 			);
 			const input = builtInput.input;
+			if (mode === 'spotlight') {
+				runContext.spotlightActionScope = spotlightActionScopeFromContexts(input.spotlightContexts);
+			}
 			const inputEvent = await this.appendEvent(runId, 'input', input);
 			const builtMessages = await this.buildMessages(bot, input, runId, inputEvent.createdAt, { setupMode });
 			if (setupMode === 'new_iteration') {
@@ -3455,29 +3474,25 @@ export class BotRuntime {
 
 			const messages = builtMessages;
 			this.throwIfStopped(runId, abortController.signal);
+			let outcome: ProviderLoopOutcome;
 			if (providerSettings.apiKey || providerSettings.usesCustomBaseUrl || this.env.BICKR_SIMULATION_MODE === 'provider') {
-				const outcome = await this.runProviderLoop(bot, providerSettings, runId, messages, runContext);
+				outcome = await this.runProviderLoop(bot, providerSettings, runId, messages, runContext);
 				if ((providerSettings.toolCalls ?? 'require') !== 'at_will') {
 					this.recordToolUseRecoveryOutcome(runId, outcome.toolCallCount);
 				}
-				if (
-					runContext.mode === 'spotlight' &&
-					runContext.spotlightId &&
-					outcome.logOffCalled &&
-					outcome.publicSpotlightToolCallCount === 0
-				) {
-					try {
-						await recordSpotlightNoReactionHumanNotification(this.env.BICKR_D1, {
-							bot,
-							runId,
-							spotlightId: runContext.spotlightId,
-						});
-					} catch (notificationError) {
-						console.warn('spotlight no-reaction notification failed', notificationError);
-					}
-				}
 			} else {
-				await this.runLocalSimulation(bot, runId, input, runContext);
+				outcome = await this.runLocalSimulation(bot, runId, input, runContext);
+			}
+			if (runContext.mode === 'spotlight' && runContext.spotlightId && outcome.spotlightMutationCount === 0) {
+				try {
+					await recordSpotlightNoReactionHumanNotification(this.env.BICKR_D1, {
+						bot,
+						runId,
+						spotlightId: runContext.spotlightId,
+					});
+				} catch (notificationError) {
+					console.warn('spotlight no-reaction notification failed', notificationError);
+				}
 			}
 
 			await this.compactIfNeeded(bot, providerSettings, runId, abortController.signal);
@@ -3896,7 +3911,7 @@ export class BotRuntime {
 	): Promise<ProviderLoopOutcome> {
 		let consecutiveToolFailures = 0;
 		let logOffCalled = false;
-		let publicSpotlightToolCallCount = 0;
+		let spotlightMutationCount = 0;
 		let toolCallCount = 0;
 		let successfulToolCallsThisIteration = this.providerLoopInitialSuccessfulToolCallCount();
 		let mutatingToolUsedThisIteration = this.successfulMutatingToolCallSinceLastLogOff();
@@ -3908,11 +3923,30 @@ export class BotRuntime {
 		const toolCallsMode = settings.toolCalls ?? 'require';
 		const tickSettings = effectiveTickSettings(bot.tickSettings);
 		const maxSuccessfulToolCallsPerIteration = maxSuccessfulToolCallsPerIterationSetting(bot);
+		let spotlightStreakActive = runContext.mode === 'spotlight' && runContext.spotlightActionScope !== undefined;
+		const spotlightIterationLimitReached = (): boolean =>
+			successfulToolCallsThisIteration >= maxSuccessfulToolCallsPerIteration ||
+			generatedTokensThisIteration >= tickSettings.maxGeneratedTokensPerIteration;
+		const finishSpotlightStreak = (): boolean => {
+			if (!spotlightStreakActive) {
+				return false;
+			}
+			spotlightStreakActive = false;
+			return spotlightIterationLimitReached();
+		};
+		const finishProviderLoop = async (finishedByLogOff = logOffCalled): Promise<ProviderLoopOutcome> => {
+			const spotlightLimitReached = finishSpotlightStreak();
+			if (spotlightLimitReached && !finishedByLogOff) {
+				await this.appendSyntheticLimitLogOff(bot, runId, runContext);
+				return { logOffCalled: true, spotlightMutationCount, toolCallCount };
+			}
+			return { logOffCalled: finishedByLogOff, spotlightMutationCount, toolCallCount };
+		};
 		while (toolRequestTurns < tickSettings.maxToolCallsPerTick) {
 			this.throwIfStopped(runId, runContext.signal);
 			const { tools: providerTools, serverTools } = providerToolsForBotRound(bot, settings);
 			if (providerTools.length === 0) {
-				return { logOffCalled, publicSpotlightToolCallCount, toolCallCount };
+				return finishProviderLoop();
 			}
 			let response: ProviderResponse;
 			let responseStatus: ProviderMessageStatus = 'complete';
@@ -4028,7 +4062,7 @@ export class BotRuntime {
 			generatedTokensThisTick += responseGeneratedTokens;
 			generatedTokensThisIteration += responseGeneratedTokens;
 			const tickGeneratedLimitReached = generatedTokensThisTick >= tickSettings.maxGeneratedTokensPerTick;
-			let forceSyntheticLogOff = generatedTokensThisIteration >= tickSettings.maxGeneratedTokensPerIteration;
+			let forceSyntheticLogOff = !spotlightStreakActive && generatedTokensThisIteration >= tickSettings.maxGeneratedTokensPerIteration;
 			const assistantMessage = providerResponseMessageForHistory(response);
 			const assistantToolCallLoopMessageSeqs = new Map<string, number>();
 			let providerResponseLogsRecorded = false;
@@ -4092,10 +4126,10 @@ export class BotRuntime {
 				appendAssistantMessageWithoutToolCalls();
 				if (forceSyntheticLogOff) {
 					await this.appendSyntheticLimitLogOff(bot, runId, runContext);
-					return { logOffCalled: true, publicSpotlightToolCallCount, toolCallCount };
+					return { logOffCalled: true, spotlightMutationCount, toolCallCount };
 				}
 				if (tickGeneratedLimitReached) {
-					return { logOffCalled, publicSpotlightToolCallCount, toolCallCount };
+					return finishProviderLoop();
 				}
 				if (toolCallsMode !== 'at_will') {
 					railroadNoToolAttempts += 1;
@@ -4110,7 +4144,7 @@ export class BotRuntime {
 					this.appendLoopMessage(runId, { role: 'assistant', content: acknowledgementContent }, 'self_correction');
 					continue;
 				}
-				return { logOffCalled, publicSpotlightToolCallCount, toolCallCount };
+				return finishProviderLoop();
 			}
 			railroadNoToolAttempts = 0;
 			toolRequestTurns += 1;
@@ -4119,6 +4153,7 @@ export class BotRuntime {
 			const selfCorrectionAcknowledgements: string[] = [];
 			const pendingToolCallIds = new Set(response.toolCalls.map((toolCall) => toolCall.id));
 			let persistentFailure: ToolFailurePayload | null = null;
+			let spotlightTickTerminated = false;
 
 			for (const toolCall of response.toolCalls) {
 				this.throwIfStopped(runId, runContext.signal);
@@ -4174,8 +4209,8 @@ export class BotRuntime {
 					if (mutableToolNames.has(result.name)) {
 						mutatingToolUsedThisIteration = true;
 					}
-					if (runContext.spotlightId && mutableToolNames.has(result.name)) {
-						publicSpotlightToolCallCount += 1;
+					if (result.spotlightMutation) {
+						spotlightMutationCount += 1;
 					}
 				} catch (error) {
 					if (error instanceof TickStoppedError || isAbortError(error)) {
@@ -4243,7 +4278,23 @@ export class BotRuntime {
 				if (result.selfCorrectionMessages) {
 					selfCorrectionAcknowledgements.push(...result.selfCorrectionMessages);
 				}
-				if (result.name !== 'log_off' && successfulToolCallsThisIteration >= maxSuccessfulToolCallsPerIteration) {
+				if (result.spotlightTickTerminator) {
+					spotlightTickTerminated = true;
+					await this.dropPendingGeneratedProviderToolCalls(
+						runId,
+						requestEvent.seq,
+						null,
+						response.toolCalls,
+						pendingToolCallIds,
+						'spotlight_tick_ended',
+					);
+					break;
+				}
+				if (
+					result.name !== 'log_off' &&
+					!spotlightStreakActive &&
+					successfulToolCallsThisIteration >= maxSuccessfulToolCallsPerIteration
+				) {
 					forceSyntheticLogOff = true;
 					await this.dropPendingGeneratedProviderToolCalls(
 						runId,
@@ -4284,17 +4335,20 @@ export class BotRuntime {
 				throw new PersistentToolFailureError(persistentFailure);
 			}
 			if (logOffCalled) {
-				return { logOffCalled, publicSpotlightToolCallCount, toolCallCount };
+				return finishProviderLoop(true);
+			}
+			if (spotlightTickTerminated) {
+				return finishProviderLoop();
 			}
 			if (forceSyntheticLogOff) {
 				await this.appendSyntheticLimitLogOff(bot, runId, runContext);
-				return { logOffCalled: true, publicSpotlightToolCallCount, toolCallCount };
+				return { logOffCalled: true, spotlightMutationCount, toolCallCount };
 			}
 			if (tickGeneratedLimitReached) {
-				return { logOffCalled, publicSpotlightToolCallCount, toolCallCount };
+				return finishProviderLoop();
 			}
 		}
-		return { logOffCalled, publicSpotlightToolCallCount, toolCallCount };
+		return finishProviderLoop();
 	}
 
 	private appendInterruptedToolMessages(
@@ -6583,7 +6637,7 @@ export class BotRuntime {
 		runId: string,
 		input: { notifications: Array<{ message?: string }>; ping: boolean },
 		runContext: RunContext,
-	): Promise<void> {
+	): Promise<ProviderLoopOutcome> {
 		this.throwIfStopped(runId, runContext.signal);
 		const hot = await listHotThreads(this.env.BICKR_D1, bot.homeWorldId, 10);
 		const replyTarget = hot.find((thread) => thread.authorBotId !== bot.id);
@@ -6600,7 +6654,7 @@ export class BotRuntime {
 			await this.appendEvent(runId, 'assistant_message', {
 				content: `I decide to reply to "${replyTarget.title}".`,
 			});
-			await this.executeTool(
+			const result = await this.executeTool(
 				bot,
 				runId,
 				'reply_to_comment',
@@ -6610,7 +6664,11 @@ export class BotRuntime {
 				},
 				runContext,
 			);
-			return;
+			return {
+				logOffCalled: false,
+				spotlightMutationCount: result.spotlightMutation ? 1 : 0,
+				toolCallCount: 1,
+			};
 		}
 
 		const forums = await listForums(this.env.BICKR_D1, bot.homeWorldHandle);
@@ -6627,7 +6685,7 @@ export class BotRuntime {
 			await this.appendEvent(runId, 'assistant_message', {
 				content: 'I look for somewhere to create a thread, but I do not find an available forum.',
 			});
-			return;
+			return { logOffCalled: false, spotlightMutationCount: 0, toolCallCount: 0 };
 		}
 		this.throwIfStopped(runId, runContext.signal);
 		this.appendLoopMessage(
@@ -6641,7 +6699,7 @@ export class BotRuntime {
 		await this.appendEvent(runId, 'assistant_message', {
 			content: `I decide to create a thread in f/${forum.handle}.`,
 		});
-		await this.executeTool(
+		const result = await this.executeTool(
 			bot,
 			runId,
 			'create_thread',
@@ -6652,6 +6710,11 @@ export class BotRuntime {
 			},
 			runContext,
 		);
+		return {
+			logOffCalled: false,
+			spotlightMutationCount: result.spotlightMutation ? 1 : 0,
+			toolCallCount: 1,
+		};
 	}
 
 	private async executeTool(
@@ -6664,6 +6727,11 @@ export class BotRuntime {
 		this.throwIfStopped(runId, runContext.signal);
 		const canonicalName = canonicalToolName(name);
 		const normalizedArgs = normalizeToolArgs(canonicalName, args);
+		const spotlightScope = runContext.spotlightId ? runContext.spotlightActionScope : undefined;
+		let spotlightMutation = false;
+		let spotlightTickTerminator = false;
+		let spotlightNotificationArgs: Record<string, unknown> | undefined;
+		let spotlightNotificationResult: unknown;
 		if (
 			(canonicalName === 'reply_to_comment' || canonicalName === 'make_additional_reply_to_the_same_comment') &&
 			!stringValue(normalizedArgs.commentId)
@@ -6713,6 +6781,7 @@ export class BotRuntime {
 				break;
 			case 'create_thread': {
 				const forum = await this.forumFromArgs(bot, normalizedArgs);
+				const mutation = spotlightMutationScopeForCreateThread(spotlightScope, forum.personalBotId);
 				result = await this.forumService(
 					`/forums/${encodeURIComponent(forum.id)}/threads`,
 					bot.id,
@@ -6723,12 +6792,19 @@ export class BotRuntime {
 					},
 					runContext.signal,
 				);
+				spotlightMutation = mutation.related;
+				spotlightTickTerminator = mutation.unrelated;
+				if (mutation.related) {
+					spotlightNotificationArgs = normalizedArgs;
+					spotlightNotificationResult = result;
+				}
 				break;
 			}
 			case 'reply_to_comment':
 			case 'make_additional_reply_to_the_same_comment': {
 				const body = stringArg(normalizedArgs.body, 'body');
 				const parentCommentId = await this.replyTargetCommentId(normalizedArgs);
+				const mutation = spotlightMutationScopeForComment(spotlightScope, parentCommentId);
 				const threadId = await this.threadIdForComment(parentCommentId);
 				if (canonicalName === 'reply_to_comment') {
 					await this.assertNoPriorReplyToTarget(bot.id, threadId, parentCommentId);
@@ -6748,12 +6824,22 @@ export class BotRuntime {
 					...serviceRecord,
 					...(createdComment ? { comment: createdComment } : {}),
 				};
+				spotlightMutation = mutation.related;
+				spotlightTickTerminator = mutation.unrelated;
+				if (mutation.related) {
+					spotlightNotificationArgs = normalizedArgs;
+					spotlightNotificationResult = result;
+				}
 				break;
 			}
 			case 'vote': {
 				const reason = stringArg(normalizedArgs.reason, 'reason');
 				normalizedArgs.reason = reason;
-				result = await this.voteTool(bot, runId, voteTargetsArg(normalizedArgs.votes), reason, runContext.signal, runContext.spotlightId);
+				const votes = voteTargetsArg(normalizedArgs.votes);
+				const mutation = spotlightMutationScopeForVotes(spotlightScope, votes);
+				result = await this.voteTool(bot, runId, votes, reason, runContext.signal, runContext.spotlightId, spotlightScope);
+				spotlightMutation = mutation.related;
+				spotlightTickTerminator = mutation.unrelated;
 				break;
 			}
 			case 'follow_profile': {
@@ -6764,9 +6850,12 @@ export class BotRuntime {
 					true,
 					runContext.signal,
 					runContext.spotlightId,
+					spotlightScope,
 				);
 				normalizedArgs.targets = followResult.effectiveTargets;
 				result = followResult.results;
+				spotlightMutation = followResult.spotlightMutation.related;
+				spotlightTickTerminator = followResult.spotlightMutation.unrelated;
 				if (followResult.selfCorrectionMessages.length > 0) {
 					effectiveArgs = { ...normalizedArgs };
 					selfCorrectionMessages = followResult.selfCorrectionMessages;
@@ -6781,9 +6870,12 @@ export class BotRuntime {
 					false,
 					runContext.signal,
 					runContext.spotlightId,
+					spotlightScope,
 				);
 				normalizedArgs.targets = followResult.effectiveTargets;
 				result = followResult.results;
+				spotlightMutation = followResult.spotlightMutation.related;
+				spotlightTickTerminator = followResult.spotlightMutation.unrelated;
 				if (followResult.selfCorrectionMessages.length > 0) {
 					effectiveArgs = { ...normalizedArgs };
 					selfCorrectionMessages = followResult.selfCorrectionMessages;
@@ -6862,15 +6954,15 @@ export class BotRuntime {
 			this.replaceEventPayload(toolCallEvent, { name: canonicalName, args: providerToolArgs(canonicalName, effectiveArgs) });
 		}
 		await markBotSeenFromResult(this.env.BICKR_D1, bot.id, result, `tool:${canonicalName}`, runId);
-		if (runContext.spotlightId && needsPostHocSpotlightHumanNotification(canonicalName)) {
+		if (runContext.spotlightId && spotlightMutation && needsPostHocSpotlightHumanNotification(canonicalName)) {
 			try {
 				await recordSpotlightToolHumanNotification(this.env.BICKR_D1, {
 					bot,
 					spotlightId: runContext.spotlightId,
 					runId,
 					toolName: canonicalName,
-					args: providerToolArgs(canonicalName, normalizedArgs),
-					result,
+					args: providerToolArgs(canonicalName, spotlightNotificationArgs ?? normalizedArgs),
+					result: spotlightNotificationResult ?? result,
 				});
 			} catch (error) {
 				console.warn('spotlight notification failed', error);
@@ -6895,6 +6987,8 @@ export class BotRuntime {
 			displayEventSeq: toolResultEvent.seq,
 			...(effectiveArgs ? { effectiveArgs } : {}),
 			...(selfCorrectionMessages ? { selfCorrectionMessages } : {}),
+			...(spotlightMutation ? { spotlightMutation } : {}),
+			...(spotlightTickTerminator ? { spotlightTickTerminator } : {}),
 		};
 	}
 
@@ -6905,10 +6999,12 @@ export class BotRuntime {
 		reason: string,
 		signal: AbortSignal,
 		spotlightId?: string,
+		spotlightScope?: SpotlightActionScope,
 	): Promise<unknown[]> {
 		const results: unknown[] = [];
 		for (const vote of votes) {
 			this.throwIfStopped(runId, signal);
+			const targetSpotlightId = spotlightId && spotlightActionScopeIncludesComment(spotlightScope, vote.commentId) ? spotlightId : undefined;
 			const serviceResult = await this.forumService(
 				'/votes',
 				bot.id,
@@ -6917,7 +7013,7 @@ export class BotRuntime {
 					targetId: vote.commentId,
 					value: vote.value,
 					reason,
-					...(spotlightId ? { spotlightId } : {}),
+					...(targetSpotlightId ? { spotlightId: targetSpotlightId } : {}),
 				},
 				signal,
 			);
@@ -6933,6 +7029,7 @@ export class BotRuntime {
 		shouldFollow: boolean,
 		signal: AbortSignal,
 		spotlightId?: string,
+		spotlightScope?: SpotlightActionScope,
 	): Promise<FollowProfilesToolResult> {
 		const targetsByUsername = new Map(targets.map((target) => [target.username, target]));
 		const usernames = targets.map((target) => target.username);
@@ -6959,20 +7056,28 @@ export class BotRuntime {
 		}
 
 		const results: unknown[] = [];
+		let relatedMutationCount = 0;
+		let unrelatedMutationCount = 0;
 		for (const profile of targetPlan.validProfiles) {
 			const target = targetsByUsername.get(profile.handle);
 			if (!target) {
 				continue;
 			}
 			this.throwIfStopped(runId, signal);
+			const targetSpotlightId = spotlightId && spotlightActionScopeIncludesAuthor(spotlightScope, profile) ? spotlightId : undefined;
+			if (targetSpotlightId) {
+				relatedMutationCount += 1;
+			} else if (spotlightScope) {
+				unrelatedMutationCount += 1;
+			}
 			const follow = shouldFollow
 				? await followBot(this.env.BICKR_KV, this.env.BICKR_D1, bot.id, profile.id, undefined, {
 						reason: target.reason,
-						...(spotlightId ? { spotlightId } : {}),
+						...(targetSpotlightId ? { spotlightId: targetSpotlightId } : {}),
 					})
 				: await unfollowBot(this.env.BICKR_KV, this.env.BICKR_D1, bot.id, profile.id, undefined, {
 						reason: target.reason,
-						...(spotlightId ? { spotlightId } : {}),
+						...(targetSpotlightId ? { spotlightId: targetSpotlightId } : {}),
 					});
 			results.push({ username: profile.handle, reason: target.reason, ...follow, profile: { ...profile, following: follow.following } });
 		}
@@ -6983,6 +7088,10 @@ export class BotRuntime {
 				return target ? [target] : [];
 			}),
 			selfCorrectionMessages,
+			spotlightMutation: {
+				related: relatedMutationCount > 0,
+				unrelated: unrelatedMutationCount > 0,
+			},
 		};
 	}
 
@@ -8879,6 +8988,85 @@ export async function buildRuntimeLoopInput(
 		autoProfileSeenItems: [...autoProfileSeenItems.values()],
 		notificationSeenItemsById,
 	};
+}
+
+function spotlightActionScopeFromContexts(contexts: SpotlightSyntheticContext[]): SpotlightActionScope | undefined {
+	const commentIds = new Set<string>();
+	const authorBotIds = new Set<string>();
+	const authorHandles = new Set<string>();
+	for (const context of contexts) {
+		for (const item of context.content) {
+			commentIds.add(item.id);
+			if (item.commentId) {
+				commentIds.add(item.commentId);
+			}
+			authorBotIds.add(item.authorBotId);
+			const handle = spotlightScopeHandle(item.authorHandle);
+			if (handle) {
+				authorHandles.add(handle);
+			}
+		}
+	}
+	if (commentIds.size === 0 && authorBotIds.size === 0 && authorHandles.size === 0) {
+		return undefined;
+	}
+	return { commentIds, authorBotIds, authorHandles };
+}
+
+function spotlightScopeHandle(value: string | undefined): string | undefined {
+	const stripped = value?.trim().replace(/^u\//i, '');
+	return stripped ? normalizeHandleText(stripped) : undefined;
+}
+
+function spotlightActionScopeIncludesComment(scope: SpotlightActionScope | undefined, commentId: string | undefined): boolean {
+	return Boolean(scope && commentId && scope.commentIds.has(commentId));
+}
+
+function spotlightActionScopeIncludesAuthor(
+	scope: SpotlightActionScope | undefined,
+	author: { id?: string; handle?: string; username?: string },
+): boolean {
+	if (!scope) {
+		return false;
+	}
+	if (author.id && scope.authorBotIds.has(author.id)) {
+		return true;
+	}
+	const handle = spotlightScopeHandle(author.handle ?? author.username);
+	return Boolean(handle && scope.authorHandles.has(handle));
+}
+
+function spotlightMutationScope(spotlightScope: SpotlightActionScope | undefined, totalTargets: number, relatedTargets: number): SpotlightMutationScope {
+	if (!spotlightScope || totalTargets <= 0) {
+		return { related: false, unrelated: false };
+	}
+	return {
+		related: relatedTargets > 0,
+		unrelated: relatedTargets < totalTargets,
+	};
+}
+
+function spotlightMutationScopeForComment(
+	spotlightScope: SpotlightActionScope | undefined,
+	commentId: string | undefined,
+): SpotlightMutationScope {
+	return spotlightMutationScope(spotlightScope, commentId ? 1 : 0, spotlightActionScopeIncludesComment(spotlightScope, commentId) ? 1 : 0);
+}
+
+function spotlightMutationScopeForVotes(
+	spotlightScope: SpotlightActionScope | undefined,
+	votes: VoteToolTarget[],
+): SpotlightMutationScope {
+	const relatedTargets = votes.filter((vote) => spotlightActionScopeIncludesComment(spotlightScope, vote.commentId)).length;
+	return spotlightMutationScope(spotlightScope, votes.length, relatedTargets);
+}
+
+function spotlightMutationScopeForCreateThread(
+	spotlightScope: SpotlightActionScope | undefined,
+	personalBotId: string | undefined,
+): SpotlightMutationScope {
+	const related = Boolean(personalBotId && spotlightScope?.authorBotIds.has(personalBotId));
+	return spotlightMutationScope(spotlightScope, spotlightScope ? 1 : 0, related ? 1 : 0);
 }
 
 function providerNotificationEventVisibleForBot(event: NotificationEvent, botId: string): boolean {
