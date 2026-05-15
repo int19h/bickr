@@ -8,6 +8,7 @@ import type {
 	SyntheticEvent as ReactSyntheticEvent,
 } from "react";
 import {
+	avatarImageGenerationSettingsWithDefaults,
 	defaultProviderModel,
 	defaultReasoningPrefill,
 	defaultTranslationPrompt,
@@ -6139,7 +6140,9 @@ function BotAvatarGenerationScreen({
 	ownerInferenceSettings: BotInferenceSettings | null;
 	world: WorldView;
 }) {
-	const initialSettings = bot.inferenceSettings.imageGeneration ? bot.inferenceSettings : ownerInferenceSettings ?? {};
+	const initialSettings = defaultAvatarGenerationInferenceSettings(
+		bot.inferenceSettings.imageGeneration ? bot.inferenceSettings : ownerInferenceSettings ?? {},
+	);
 	const [draft, setDraft] = useState<InferenceDraft>(() => inferenceDraftFromSettings(initialSettings));
 	const [models, setModels] = useState<OpenRouterImageModel[]>([]);
 	const [modelsError, setModelsError] = useState("");
@@ -6157,7 +6160,9 @@ function BotAvatarGenerationScreen({
 	const generationAbortRef = useRef<AbortController | null>(null);
 
 	useEffect(() => {
-		const effectiveSettings = bot.inferenceSettings.imageGeneration ? bot.inferenceSettings : ownerInferenceSettings ?? {};
+		const effectiveSettings = defaultAvatarGenerationInferenceSettings(
+			bot.inferenceSettings.imageGeneration ? bot.inferenceSettings : ownerInferenceSettings ?? {},
+		);
 		setDraft(inferenceDraftFromSettings(effectiveSettings));
 		setPrompt(effectiveSettings.imageGeneration?.prompt ?? "");
 		setIncludeCurrentAvatar(Boolean(bot.avatarUrl));
@@ -6330,7 +6335,7 @@ function BotAvatarGenerationScreen({
 	async function discard(): Promise<void> {
 		const ok = await onDiscardSettings();
 		if (ok) {
-			const effectiveSettings = ownerInferenceSettings ?? {};
+			const effectiveSettings = defaultAvatarGenerationInferenceSettings(ownerInferenceSettings ?? {});
 			setDraft(inferenceDraftFromSettings(effectiveSettings));
 			setPrompt(effectiveSettings.imageGeneration?.prompt ?? "");
 			setMessage("Participant image generation settings discarded.");
@@ -6461,6 +6466,13 @@ function BotAvatarGenerationScreen({
 			<ImageLightbox onClose={() => setLightboxUrl(null)} title={bot.displayName} url={lightboxUrl} />
 		</div>
 	);
+}
+
+function defaultAvatarGenerationInferenceSettings(settings: BotInferenceSettings): BotInferenceSettings {
+	return {
+		...settings,
+		imageGeneration: avatarImageGenerationSettingsWithDefaults(settings.imageGeneration),
+	};
 }
 
 function AvatarGenerationChatLog({ entries }: { entries: AvatarGenerationChatEntry[] }) {

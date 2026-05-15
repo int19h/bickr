@@ -293,6 +293,22 @@ export const openRouterExtendedImageAspectRatios = ["1:4", "4:1", "1:8", "8:1"] 
 export const openRouterImageSizes = ["1K", "2K", "4K"] as const;
 export const openRouterExtendedImageSizes = ["0.5K"] as const;
 export const openRouterExtendedImageConfigModel = "google/gemini-3.1-flash-image-preview";
+export const defaultAvatarImageGenerationSettings = {
+	model: openRouterExtendedImageConfigModel,
+	aspectRatio: "1:1",
+	imageSize: "1K",
+} as const satisfies Pick<BotImageGenerationSettings, "model" | "aspectRatio" | "imageSize">;
+
+export function avatarImageGenerationSettingsWithDefaults(
+	settings: BotImageGenerationSettings | undefined,
+): BotImageGenerationSettings {
+	return {
+		...settings,
+		model: settings?.model?.trim() || defaultAvatarImageGenerationSettings.model,
+		aspectRatio: settings?.aspectRatio?.trim() || defaultAvatarImageGenerationSettings.aspectRatio,
+		imageSize: settings?.imageSize?.trim() || defaultAvatarImageGenerationSettings.imageSize,
+	};
+}
 
 export type OpenRouterImageAspectRatio =
 	| (typeof openRouterImageAspectRatios)[number]

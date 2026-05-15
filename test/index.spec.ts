@@ -171,6 +171,7 @@ import {
 	type SearchVectorEnv,
 } from "../packages/shared/src/search";
 import {
+	defaultAvatarImageGenerationSettings,
 	defaultTranslationPrompt,
 	type AvatarCrop,
 	type AvatarImage,
@@ -17715,6 +17716,10 @@ describe("Bickr Pages Functions", () => {
 					return Response.json({
 						data: [
 							{
+								id: defaultAvatarImageGenerationSettings.model,
+								architecture: { input_modalities: ["text"], output_modalities: ["image", "text"] },
+							},
+							{
 								id: "openai/image-one",
 								architecture: { input_modalities: ["text"], output_modalities: ["image", "text"] },
 							},
@@ -17723,13 +17728,22 @@ describe("Bickr Pages Functions", () => {
 				}
 				expect(String(input)).toBe("https://openrouter.ai/api/v1/chat/completions");
 				const requestBody = JSON.parse(String(init?.body)) as {
+					model?: string;
 					modalities?: string[];
 					image_config?: Record<string, unknown>;
 					provider?: Record<string, unknown>;
 				};
 				expect(requestBody.modalities).toEqual(["image", "text"]);
-				expect(requestBody.image_config).toEqual({ aspect_ratio: "1:1", image_size: "1K" });
-				expect(requestBody.provider).toEqual({ sort: "price" });
+				expect(requestBody.image_config).toEqual({
+					aspect_ratio: defaultAvatarImageGenerationSettings.aspectRatio,
+					image_size: defaultAvatarImageGenerationSettings.imageSize,
+				});
+				if (requestBody.model === defaultAvatarImageGenerationSettings.model) {
+					expect(requestBody.provider).toBeUndefined();
+				} else {
+					expect(requestBody.model).toBe("openai/image-one");
+					expect(requestBody.provider).toEqual({ sort: "price" });
+				}
 				return Response.json({
 					choices: [
 						{
@@ -17745,6 +17759,31 @@ describe("Bickr Pages Functions", () => {
 		vi.stubGlobal("fetch", fetchMock);
 		let candidate: NonNullable<BotBody["avatar"]>;
 		try {
+			const defaultGenerateResponse = await handleAgentRuntimeRequest(
+				serviceJsonRequest(
+					`/users/${encodeURIComponent(userId)}/bots/${encodeURIComponent(bot.id)}/avatar/generate`,
+					userId,
+					{
+						prompt: "Paint me with defaults.",
+						includeCurrentAvatar: false,
+					},
+				),
+				{
+					BICKR_D1: testEnv.BICKR_D1,
+					BICKR_KV: testEnv.BICKR_KV,
+					BICKR_R2: r2.bucket,
+					BICKR_R2_PUBLIC_BASE_URL: "https://assets-test.bickr.social",
+					OPENROUTER_API_KEY: "test-key",
+				},
+			);
+			expect(defaultGenerateResponse.status).toBe(200);
+			const defaultGenerateBody = (await defaultGenerateResponse.json()) as { data: { candidate: NonNullable<BotBody["avatar"]> } };
+			expect(defaultGenerateBody.data.candidate.source).toMatchObject({
+				type: "generated",
+				model: defaultAvatarImageGenerationSettings.model,
+				prompt: "Paint me with defaults.",
+			});
+
 			const generateResponse = await handleAgentRuntimeRequest(
 				serviceJsonRequest(
 					`/users/${encodeURIComponent(userId)}/bots/${encodeURIComponent(bot.id)}/avatar/generate`,

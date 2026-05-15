@@ -144,6 +144,7 @@ import {
 	type SearchThreadResult,
 	type SpotlightIncludedContent,
 	type SpotlightSyntheticContext,
+	avatarImageGenerationSettingsWithDefaults,
 	isOpenRouterExtendedImageAspectRatio,
 	isOpenRouterExtendedImageSize,
 	isOpenRouterImageAspectRatio,
@@ -2818,9 +2819,11 @@ function effectiveProviderSettingsForImageGeneration(
 	settingsOverride?: BotInferenceSettings['imageGeneration'],
 ): ImageGenerationProviderSettings | null {
 	const userSettings = owner.inferenceSettings ?? {};
-	const imageGeneration = settingsOverride ?? bot.inferenceSettings.imageGeneration ?? userSettings.imageGeneration;
+	const imageGeneration = avatarImageGenerationSettingsWithDefaults(
+		settingsOverride ?? bot.inferenceSettings.imageGeneration ?? userSettings.imageGeneration,
+	);
 	const model = trimmed(imageGeneration?.model);
-	if (!imageGeneration || !model) {
+	if (!model) {
 		return null;
 	}
 	const userBaseUrl = trimmed(userSettings.baseUrl);
