@@ -18464,6 +18464,253 @@ describe("Bickr Pages Functions", () => {
 		}
 	});
 
+	it("streams persona avatar prompt fill chat events with assistant prefill", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const bot = await createBotForTest(cookie, "avatar-prefill-stream");
+		const userId = await userIdForHandle("octocat");
+		const originalFetch = globalThis.fetch;
+		const fetchMock = vi.fn<(_input: RequestInfo | URL, _init?: RequestInit) => Promise<Response>>(
+			async (_input, init) => {
+				const requestBody = JSON.parse(String(init?.body)) as {
+					messages: Array<{ role: string; content?: string | null }>;
+					response_format?: { json_schema?: { name?: string } };
+				};
+				expect(requestBody.response_format?.json_schema?.name).toBe("avatar_description");
+				expect(requestBody.messages.map((message) => message.role)).toEqual(["system", "assistant", "user"]);
+				expect(requestBody.messages[1]?.content).toBe("Existing prompt draft.");
+				return Response.json({
+					choices: [
+						{
+							message: {
+								content: JSON.stringify({
+									description: "I face the viewer in a copper-lit study, wearing a dark green coat with precise gold trim.",
+								}),
+							},
+						},
+					],
+				});
+			},
+		);
+		vi.stubGlobal("fetch", fetchMock);
+		try {
+			const response = await handleAgentRuntimeRequest(
+				serviceStreamJsonRequest(
+					`/users/${encodeURIComponent(userId)}/bots/${encodeURIComponent(bot.id)}/avatar/prompt`,
+					userId,
+					{ mode: "persona", prefill: "Existing prompt draft." },
+				),
+				{
+					BICKR_D1: testEnv.BICKR_D1,
+					BICKR_KV: testEnv.BICKR_KV,
+					OPENROUTER_API_KEY: "test-key",
+					OPENROUTER_MODEL: "openai/text-one",
+				},
+			);
+			expect(response.status).toBe(200);
+			expect(response.headers.get("content-type")).toContain("text/event-stream");
+			const events = parseJsonSseEvents(await response.text());
+			expect(events.map((event) => event.type)).toEqual(["messages", "assistant_delta", "done"]);
+			expect(events[0]).toMatchObject({
+				type: "messages",
+				messages: [
+					{ role: "system" },
+					{ role: "assistant", content: "Existing prompt draft." },
+					{ role: "user" },
+				],
+			});
+			expect(events[1]).toEqual({
+				type: "assistant_delta",
+				text: "\n\nI face the viewer in a copper-lit study, wearing a dark green coat with precise gold trim.",
+			});
+			expect(events[2]).toEqual({
+				type: "done",
+				prompt: "I face the viewer in a copper-lit study, wearing a dark green coat with precise gold trim.",
+			});
+		} finally {
+			vi.stubGlobal("fetch", originalFetch);
+		}
+	});
+
+	it("streams current-avatar prompt fill with text-only image input", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const bot = await createBotForTest(cookie, "avatar-current-fill");
+		const userId = await userIdForHandle("octocat");
+		const avatarUrl = "https://assets-test.bickr.social/worlds/w/bots/b/avatars/current.png";
+		await updateBotAvatar(testEnv.BICKR_KV, testEnv.BICKR_D1, bot.id, userId, {
+			key: "worlds/w/bots/b/avatars/current.png",
+			url: avatarUrl,
+			contentType: "image/png",
+			updatedAt: "2026-05-12T00:00:00.000Z",
+		});
+		const originalFetch = globalThis.fetch;
+		const fetchMock = vi.fn<(_input: RequestInfo | URL, _init?: RequestInit) => Promise<Response>>(
+			async (input, init) => {
+				if (String(input) === "https://openrouter.ai/api/v1/models?output_modalities=image") {
+					return Response.json({
+						data: [
+							{
+								id: "openai/image-text",
+								architecture: { input_modalities: ["text", "image"], output_modalities: ["text", "image"] },
+							},
+						],
+					});
+				}
+				expect(String(input)).toBe("https://openrouter.ai/api/v1/chat/completions");
+				const requestBody = JSON.parse(String(init?.body)) as {
+					model?: string;
+					modalities?: string[];
+					stream?: boolean;
+					messages?: Array<{ role: string; content: unknown }>;
+				};
+				expect(requestBody.model).toBe("openai/image-text");
+				expect(requestBody.modalities).toEqual(["text"]);
+				expect(requestBody.stream).toBe(true);
+				const userContent = requestBody.messages?.find((message) => message.role === "user")?.content;
+				expect(JSON.stringify(userContent)).toContain(avatarUrl);
+				return new Response(sseStream([
+					{ choices: [{ delta: { content: "A full-length portrait in warm window light." } }] },
+					"[DONE]",
+				]), {
+					headers: { "content-type": "text/event-stream" },
+				});
+			},
+		);
+		vi.stubGlobal("fetch", fetchMock);
+		try {
+			const response = await handleAgentRuntimeRequest(
+				serviceStreamJsonRequest(
+					`/users/${encodeURIComponent(userId)}/bots/${encodeURIComponent(bot.id)}/avatar/prompt`,
+					userId,
+					{ mode: "current_avatar", settings: { model: "openai/image-text" } },
+				),
+				{
+					BICKR_D1: testEnv.BICKR_D1,
+					BICKR_KV: testEnv.BICKR_KV,
+					OPENROUTER_API_KEY: "test-key",
+				},
+			);
+			expect(response.status).toBe(200);
+			const events = parseJsonSseEvents(await response.text());
+			expect(events.map((event) => event.type)).toEqual(["messages", "assistant_delta", "done"]);
+			expect(events[0]).toMatchObject({
+				type: "messages",
+				messages: [
+					{ role: "system", content: expect.stringContaining("profile image") },
+					{ role: "user", content: expect.stringContaining("[current avatar image included]") },
+				],
+			});
+			expect(events[1]).toEqual({ type: "assistant_delta", text: "A full-length portrait in warm window light." });
+			expect(events[2]).toEqual({ type: "done", prompt: "A full-length portrait in warm window light." });
+		} finally {
+			vi.stubGlobal("fetch", originalFetch);
+		}
+	});
+
+	it("rejects current-avatar prompt fill when the avatar or model capabilities are missing", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const bot = await createBotForTest(cookie, "avatar-current-reject");
+		const userId = await userIdForHandle("octocat");
+		const missingAvatar = await handleAgentRuntimeRequest(
+			serviceJsonRequest(
+				`/users/${encodeURIComponent(userId)}/bots/${encodeURIComponent(bot.id)}/avatar/prompt`,
+				userId,
+				{ mode: "current_avatar", settings: { model: "openai/image-text" } },
+			),
+			{
+				BICKR_D1: testEnv.BICKR_D1,
+				BICKR_KV: testEnv.BICKR_KV,
+				OPENROUTER_API_KEY: "test-key",
+			},
+		);
+		expect(missingAvatar.status).toBe(400);
+
+		await updateBotAvatar(testEnv.BICKR_KV, testEnv.BICKR_D1, bot.id, userId, {
+			key: "worlds/w/bots/b/avatars/current.png",
+			url: "https://assets-test.bickr.social/worlds/w/bots/b/avatars/current.png",
+			contentType: "image/png",
+			updatedAt: "2026-05-12T00:00:00.000Z",
+		});
+		const originalFetch = globalThis.fetch;
+		const fetchMock = vi.fn<(_input: RequestInfo | URL, _init?: RequestInit) => Promise<Response>>(
+			async (input) => {
+				expect(String(input)).toBe("https://openrouter.ai/api/v1/models?output_modalities=image");
+				return Response.json({
+					data: [
+						{
+							id: "openai/image-output-only",
+							architecture: { input_modalities: ["text"], output_modalities: ["image"] },
+						},
+					],
+				});
+			},
+		);
+		vi.stubGlobal("fetch", fetchMock);
+		try {
+			const badModel = await handleAgentRuntimeRequest(
+				serviceJsonRequest(
+					`/users/${encodeURIComponent(userId)}/bots/${encodeURIComponent(bot.id)}/avatar/prompt`,
+					userId,
+					{ mode: "current_avatar", settings: { model: "openai/image-output-only" } },
+				),
+				{
+					BICKR_D1: testEnv.BICKR_D1,
+					BICKR_KV: testEnv.BICKR_KV,
+					OPENROUTER_API_KEY: "test-key",
+				},
+			);
+			expect(badModel.status).toBe(400);
+			const body = (await badModel.json()) as { message: string };
+			expect(body.message).toContain("image input");
+			expect(fetchMock).toHaveBeenCalledTimes(1);
+		} finally {
+			vi.stubGlobal("fetch", originalFetch);
+		}
+	});
+
+	it("aborts provider work when a prompt-fill stream is canceled", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const bot = await createBotForTest(cookie, "avatar-prefill-abort");
+		const userId = await userIdForHandle("octocat");
+		const originalFetch = globalThis.fetch;
+		let providerSignal: AbortSignal | undefined;
+		const fetchMock = vi.fn<(_input: RequestInfo | URL, _init?: RequestInit) => Promise<Response>>(
+			async (_input, init) => {
+				providerSignal = init?.signal as AbortSignal | undefined;
+				return new Response(neverStream(), {
+					headers: { "content-type": "application/json" },
+				});
+			},
+		);
+		vi.stubGlobal("fetch", fetchMock);
+		try {
+			const response = await handleAgentRuntimeRequest(
+				serviceStreamJsonRequest(
+					`/users/${encodeURIComponent(userId)}/bots/${encodeURIComponent(bot.id)}/avatar/prompt`,
+					userId,
+					{ mode: "persona" },
+				),
+				{
+					BICKR_D1: testEnv.BICKR_D1,
+					BICKR_KV: testEnv.BICKR_KV,
+					OPENROUTER_API_KEY: "test-key",
+					OPENROUTER_MODEL: "openai/text-one",
+				},
+			);
+			const reader = response.body?.getReader();
+			expect(reader).toBeDefined();
+			await reader?.read();
+			await reader?.cancel("test abort");
+			await pause(0);
+			expect(providerSignal?.aborted).toBe(true);
+		} finally {
+			vi.stubGlobal("fetch", originalFetch);
+		}
+	});
+
 	it("routes avatar service requests through the user coordinator", async () => {
 		const userId = "usr_avatar_route";
 		const botId = "bot_avatar_route";

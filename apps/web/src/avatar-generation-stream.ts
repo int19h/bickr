@@ -11,10 +11,11 @@ export type AvatarGenerationChatEntry = {
 };
 
 export type AvatarGenerationStreamEvent =
-	| { type: "messages"; messages: Array<{ role: "system" | "user"; content: string }> }
+	| { type: "messages"; messages: Array<{ role: AvatarGenerationChatRole; content: string }> }
 	| { type: "assistant_delta"; text: string }
 	| { type: "assistant_image"; count: number }
 	| { type: "done"; candidate: AvatarImage }
+	| { type: "done"; prompt: string }
 	| { type: "error"; message: string }
 	| { type: "aborted"; message: string };
 
@@ -23,14 +24,16 @@ export function applyAvatarGenerationStreamEvent(
 	event: AvatarGenerationStreamEvent,
 ): AvatarGenerationChatEntry[] {
 	switch (event.type) {
-		case "messages":
-			return [
-				...event.messages.map((message): AvatarGenerationChatEntry => ({
+		case "messages": {
+			const entriesFromMessages = event.messages.map((message): AvatarGenerationChatEntry => ({
 					role: message.role,
 					content: message.content,
-				})),
-				{ role: "assistant", content: "", status: "streaming" },
-			];
+					...(message.role === "assistant" ? { status: "streaming" as const } : {}),
+				}));
+			return entriesFromMessages.some((entry) => entry.role === "assistant")
+				? entriesFromMessages
+				: [...entriesFromMessages, { role: "assistant", content: "", status: "streaming" }];
+		}
 		case "assistant_delta":
 			return updateAssistantEntry(entries, (entry) => ({
 				...entry,
@@ -46,6 +49,7 @@ export function applyAvatarGenerationStreamEvent(
 		case "done":
 			return updateAssistantEntry(entries, (entry) => ({
 				...entry,
+				content: "prompt" in event && event.prompt && !entry.content ? event.prompt : entry.content,
 				status: "complete",
 			}));
 		case "aborted":
@@ -129,7 +133,8 @@ function parseAvatarGenerationStreamEvent(data: string): AvatarGenerationStreamE
 	switch (record.type) {
 		case "messages": {
 			const messages = Array.isArray(record.messages) ? record.messages.map(recordValue).flatMap((message) => {
-				const role: "system" | "user" | null = message.role === "system" ? "system" : message.role === "user" ? "user" : null;
+				const role: AvatarGenerationChatRole | null =
+					message.role === "system" ? "system" : message.role === "user" ? "user" : message.role === "assistant" ? "assistant" : null;
 				return role && typeof message.content === "string" ? [{ role, content: message.content }] : [];
 			}) : [];
 			return { type: "messages", messages };
@@ -139,6 +144,9 @@ function parseAvatarGenerationStreamEvent(data: string): AvatarGenerationStreamE
 		case "assistant_image":
 			return { type: "assistant_image", count: typeof record.count === "number" ? record.count : 1 };
 		case "done":
+			if (typeof record.prompt === "string") {
+				return { type: "done", prompt: record.prompt };
+			}
 			return { type: "done", candidate: record.candidate as AvatarImage };
 		case "error":
 			return { type: "error", message: typeof record.message === "string" ? record.message : "Could not generate avatar." };
@@ -153,7 +161,13 @@ function updateAssistantEntry(
 	entries: AvatarGenerationChatEntry[],
 	update: (entry: AvatarGenerationChatEntry) => AvatarGenerationChatEntry,
 ): AvatarGenerationChatEntry[] {
-	const index = entries.findIndex((entry) => entry.role === "assistant");
+	let index = -1;
+	for (let entryIndex = entries.length - 1; entryIndex >= 0; entryIndex -= 1) {
+		if (entries[entryIndex]?.role === "assistant") {
+			index = entryIndex;
+			break;
+		}
+	}
 	if (index < 0) {
 		return [...entries, update({ role: "assistant", content: "" })];
 	}

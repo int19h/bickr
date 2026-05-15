@@ -6206,13 +6206,14 @@ function BotAvatarGenerationScreen({
 	const [candidate, setCandidate] = useState<AvatarImage | null>(null);
 	const [chatEntries, setChatEntries] = useState<AvatarGenerationChatEntry[]>([]);
 	const [generating, setGenerating] = useState(false);
-	const [prefilling, setPrefilling] = useState(false);
+	const [activePromptFill, setActivePromptFill] = useState<"persona" | "current_avatar" | null>(null);
 	const [saving, setSaving] = useState(false);
 	const [message, setMessage] = useState("");
 	const [error, setError] = useState("");
 	const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 	const [currentAvatarFailed, setCurrentAvatarFailed] = useState(false);
 	const generationAbortRef = useRef<AbortController | null>(null);
+	const promptFillAbortRef = useRef<AbortController | null>(null);
 
 	useEffect(() => {
 		const effectiveSettings = defaultAvatarGenerationInferenceSettings(
@@ -6231,6 +6232,7 @@ function BotAvatarGenerationScreen({
 	useEffect(() => {
 		return () => {
 			generationAbortRef.current?.abort();
+			promptFillAbortRef.current?.abort();
 		};
 	}, []);
 
@@ -6254,6 +6256,7 @@ function BotAvatarGenerationScreen({
 
 	const selectedModel = models.find((model) => model.id === draft.imageGenerationModel);
 	const selectedSupportsImageInput = Boolean(selectedModel?.inputModalities.includes("image"));
+	const selectedSupportsTextOutput = Boolean(selectedModel?.outputModalities.includes("text"));
 	const currentAvatarAvailable = Boolean(bot.avatarUrl && !currentAvatarFailed);
 	useEffect(() => {
 		if (!selectedSupportsImageInput || !currentAvatarAvailable) {
@@ -6268,27 +6271,79 @@ function BotAvatarGenerationScreen({
 	const imageConfigError = imageGenerationConfigDraftError(draft);
 	const generationSettingsError = modelsError || imageProviderRoutingError || imageConfigError;
 	const candidateCost = generatedAvatarCost(candidate);
-	const canGenerate = Boolean(draft.imageGenerationModel.trim()) && promptAllowed && !imageProviderRoutingError && !imageConfigError && !generating;
+	const promptFillActive = activePromptFill !== null;
+	const currentAvatarPromptFillAvailable = Boolean(
+		!prompt.trim() &&
+		currentAvatarAvailable &&
+		draft.imageGenerationModel.trim() &&
+		selectedSupportsImageInput &&
+		selectedSupportsTextOutput &&
+		!imageProviderRoutingError &&
+		!imageConfigError,
+	);
+	const canGenerate = Boolean(draft.imageGenerationModel.trim()) &&
+		promptAllowed &&
+		!imageProviderRoutingError &&
+		!imageConfigError &&
+		!generating &&
+		!promptFillActive;
 
-	async function fillPrompt(): Promise<void> {
-		if (prompt.trim()) {
-			return;
-		}
-		setPrefilling(true);
+	async function fillPrompt(mode: "persona" | "current_avatar"): Promise<void> {
+		const controller = new AbortController();
+		promptFillAbortRef.current = controller;
+		setActivePromptFill(mode);
+		setChatEntries([]);
 		setError("");
+		setMessage("");
+		let streamError = "";
+		let finalPrompt = "";
 		try {
-			const result = await api<{ prompt: string }>(`/api/me/bots/${encodeURIComponent(bot.id)}/avatar/prompt`, {
+			const body = {
+				mode,
+				...(mode === "persona" && prompt.trim() ? { prefill: prompt } : {}),
+				...(mode === "current_avatar" ? { settings: imageGenerationInputFromDraft(draft, prompt) } : {}),
+			};
+			const response = await fetch(`/api/me/bots/${encodeURIComponent(bot.id)}/avatar/prompt`, {
 				method: "POST",
-				body: {},
+				headers: {
+					accept: "text/event-stream",
+					"content-type": "application/json",
+				},
+				body: JSON.stringify(body),
+				signal: controller.signal,
 			});
-			if (!result.ok) {
-				throw new Error(result.message);
+			if (!response.ok || !response.headers.get("content-type")?.includes("text/event-stream")) {
+				throw new Error(await apiResponseErrorMessage(response));
 			}
-			setPrompt(result.data.prompt);
+			await readAvatarGenerationEventStream(response, (event) => {
+				setChatEntries((current) => applyAvatarGenerationStreamEvent(current, event));
+				if (event.type === "done" && "prompt" in event) {
+					finalPrompt = event.prompt;
+				}
+				if (event.type === "error") {
+					streamError = event.message;
+					setError(event.message);
+				}
+			});
+			if (streamError) {
+				throw new Error(streamError);
+			}
+			if (finalPrompt) {
+				setPrompt(finalPrompt);
+			}
 		} catch (caught) {
-			setError(caught instanceof Error ? caught.message : "Could not fill prompt.");
+			if (controller.signal.aborted) {
+				setChatEntries((current) =>
+					applyAvatarGenerationStreamEvent(current, { type: "aborted", message: "Prompt fill aborted." }),
+				);
+			} else {
+				setError(caught instanceof Error ? caught.message : "Could not fill prompt.");
+			}
 		} finally {
-			setPrefilling(false);
+			if (promptFillAbortRef.current === controller) {
+				promptFillAbortRef.current = null;
+			}
+			setActivePromptFill(null);
 		}
 	}
 
@@ -6320,7 +6375,7 @@ function BotAvatarGenerationScreen({
 			}
 			await readAvatarGenerationEventStream(response, (event) => {
 				setChatEntries((current) => applyAvatarGenerationStreamEvent(current, event));
-				if (event.type === "done") {
+				if (event.type === "done" && "candidate" in event) {
 					setCandidate(event.candidate);
 				}
 				if (event.type === "error") {
@@ -6351,6 +6406,13 @@ function BotAvatarGenerationScreen({
 		generationAbortRef.current?.abort();
 		setChatEntries((current) =>
 			applyAvatarGenerationStreamEvent(current, { type: "aborted", message: "Avatar generation aborted." }),
+		);
+	}
+
+	function abortPromptFill(): void {
+		promptFillAbortRef.current?.abort();
+		setChatEntries((current) =>
+			applyAvatarGenerationStreamEvent(current, { type: "aborted", message: "Prompt fill aborted." }),
 		);
 	}
 
@@ -6443,9 +6505,24 @@ function BotAvatarGenerationScreen({
 				<div className="field avatar-prompt-field">
 					<div className="avatar-prompt-head">
 						<label htmlFor="avatar-generation-prompt">Prompt</label>
-						<button className="btn ghost compact" disabled={prefilling || Boolean(prompt.trim())} onClick={() => void fillPrompt()} type="button">
-							{prefilling ? "Filling..." : "Fill from persona"}
-						</button>
+						<div className="avatar-prompt-actions">
+							<button
+								className={`btn compact ${activePromptFill === "current_avatar" ? "danger" : "ghost"}`}
+								disabled={activePromptFill === "current_avatar" ? false : generating || promptFillActive || !currentAvatarPromptFillAvailable}
+								onClick={() => activePromptFill === "current_avatar" ? abortPromptFill() : void fillPrompt("current_avatar")}
+								type="button"
+							>
+								{activePromptFill === "current_avatar" ? "Abort" : "Fill from current avatar"}
+							</button>
+							<button
+								className={`btn compact ${activePromptFill === "persona" ? "danger" : "ghost"}`}
+								disabled={activePromptFill === "persona" ? false : generating || promptFillActive}
+								onClick={() => activePromptFill === "persona" ? abortPromptFill() : void fillPrompt("persona")}
+								type="button"
+							>
+								{activePromptFill === "persona" ? "Abort" : "Fill from persona"}
+							</button>
+						</div>
 					</div>
 					<textarea
 						className="textarea avatar-prompt"

@@ -70,4 +70,28 @@ describe("avatar generation stream helpers", () => {
 			statusMessage: "Avatar generation aborted.",
 		});
 	});
+
+	it("keeps prompt-fill prefill in the assistant row and parses prompt done events", () => {
+		const parsed = parseAvatarGenerationSseBuffer(`data: ${JSON.stringify({ type: "done", prompt: "Final avatar prompt." })}\n\n`);
+		expect(parsed.events).toEqual([{ type: "done", prompt: "Final avatar prompt." }]);
+
+		let entries: AvatarGenerationChatEntry[] = [];
+		entries = applyAvatarGenerationStreamEvent(entries, {
+			type: "messages",
+			messages: [
+				{ role: "system", content: "Describe a profile image." },
+				{ role: "assistant", content: "Existing prompt draft." },
+				{ role: "user", content: "Continue the description." },
+			],
+		});
+		entries = applyAvatarGenerationStreamEvent(entries, { type: "assistant_delta", text: "\n\nRefined final prompt." });
+		entries = applyAvatarGenerationStreamEvent(entries, { type: "done", prompt: "Refined final prompt." });
+
+		const assistant = entries.find((entry) => entry.role === "assistant");
+		expect(assistant).toMatchObject({
+			content: "Existing prompt draft.\n\nRefined final prompt.",
+			status: "complete",
+		});
+		expect(entries.at(-1)?.role).toBe("user");
+	});
 });
