@@ -146,6 +146,14 @@ import {
 	type AvatarCropCorner,
 } from "./avatar-crop";
 import {
+	avatarCroppedThumbnailUrl,
+	avatarDisplayPixels,
+	avatarImagePixels,
+	avatarPreviewUrl,
+	avatarThumbnailUrl,
+	cloudflareImageUrl,
+} from "./avatar-image-urls";
+import {
 	allSearchTypes,
 	defaultSearchRouteState,
 	parsePathname,
@@ -6603,7 +6611,7 @@ function BotAvatarGenerationScreen({
 								alt=""
 								fallbackSrc={bot.avatarUrl}
 								onFinalError={() => setCurrentAvatarFailed(true)}
-								src={avatarPreviewContainUrl(bot.avatarUrl)}
+								src={avatarPreviewUrl(bot.avatar ?? bot.avatarUrl)}
 							/>
 						:	<Avatar actor="bot" colorSeed={bot.handle} name={bot.displayName} size="hero" />
 						}
@@ -6628,7 +6636,7 @@ function BotAvatarGenerationScreen({
 					<div className={`avatar-large-preview ${generating ? "busy" : ""}`}>
 						{candidate ?
 							<button className="avatar-preview-click" onClick={() => setLightboxUrl(candidate.url)} type="button">
-								<FallbackImage alt="" fallbackSrc={candidate.url} src={avatarPreviewContainUrl(candidate.url)} />
+								<FallbackImage alt="" fallbackSrc={candidate.url} src={avatarPreviewUrl(candidate)} />
 							</button>
 						:	<span className="empty-generated">{generating ? "Generating..." : "No image generated"}</span>
 						}
@@ -15546,34 +15554,6 @@ function Avatar({
 	);
 }
 
-function avatarDisplayPixels(size: "sm" | "md" | "lg" | "xl" | "hero", override?: number): number {
-	if (override && Number.isFinite(override) && override > 0) {
-		return Math.ceil(override);
-	}
-	return (
-		size === "sm" ? 22
-		: size === "lg" ? 56
-		: size === "xl" ? 96
-		: size === "hero" ? 180
-		: 32
-	);
-}
-
-function avatarImagePixels(cssPixels: number): number {
-	return Math.ceil(cssPixels * devicePixelRatioBucket());
-}
-
-function devicePixelRatioBucket(): number {
-	if (typeof window === "undefined") {
-		return 1;
-	}
-	const ratio = window.devicePixelRatio;
-	if (!Number.isFinite(ratio) || ratio <= 1) {
-		return 1;
-	}
-	return Math.min(4, Math.ceil(ratio));
-}
-
 function FallbackImage({
 	alt,
 	className,
@@ -15609,44 +15589,6 @@ function FallbackImage({
 			style={style}
 		/>
 	);
-}
-
-function avatarThumbnailUrl(url: string, pixels: number, fit: "cover" | "contain" = "cover"): string {
-	return cloudflareImageUrl(url, { width: pixels, height: pixels, fit, format: "auto" });
-}
-
-function avatarCroppedThumbnailUrl(url: string, pixels: number, crop: AvatarCrop): string {
-	const imageWidth = Math.min(2048, Math.ceil((pixels * crop.imageWidth) / crop.size));
-	return cloudflareImageUrl(url, { width: imageWidth, format: "auto" });
-}
-
-function avatarPreviewContainUrl(url: string): string {
-	const pixels = Math.min(2048, avatarImagePixels(720));
-	return cloudflareImageUrl(url, { width: pixels, height: pixels, fit: "scale-down", format: "auto" });
-}
-
-function cloudflareImageUrl(
-	url: string,
-	options: { width?: number; height?: number; fit?: "cover" | "contain" | "scale-down"; format?: "auto" } = {},
-): string {
-	try {
-		const parsed = new URL(url);
-		if (parsed.pathname.toLowerCase().endsWith(".svg")) {
-			return url;
-		}
-		const directives = [
-			options.width ? `width=${Math.trunc(options.width)}` : "",
-			options.height ? `height=${Math.trunc(options.height)}` : "",
-			options.fit ? `fit=${options.fit}` : "",
-			options.format ? `format=${options.format}` : "",
-		].filter(Boolean);
-		if (directives.length === 0) {
-			return url;
-		}
-		return `${parsed.origin}/cdn-cgi/image/${directives.join(",")}${parsed.pathname}${parsed.search}`;
-	} catch {
-		return url;
-	}
 }
 
 function referenceMeta(

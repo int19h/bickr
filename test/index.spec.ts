@@ -18700,6 +18700,82 @@ describe("Bickr Pages Functions", () => {
 		}
 	});
 
+	it("submits the full current avatar URL to image generation even when a crop is saved", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const bot = await createBotForTest(cookie, "avatar-full-input");
+		const userId = await userIdForHandle("octocat");
+		const r2 = fakeR2Bucket();
+		const currentAvatar: AvatarImage = {
+			key: "worlds/world_patch-notes/bots/bot_avatar-full-input/avatars/current.png",
+			url: "https://assets-test.bickr.social/worlds/world_patch-notes/bots/bot_avatar-full-input/avatars/current.png",
+			contentType: "image/png",
+			width: 480,
+			height: 720,
+			crop: { x: 80, y: 0, size: 480, imageWidth: 480, imageHeight: 720 },
+			updatedAt: "2026-05-12T00:00:00.000Z",
+		};
+		await updateBotAvatar(testEnv.BICKR_KV, testEnv.BICKR_D1, bot.id, userId, currentAvatar);
+		const originalFetch = globalThis.fetch;
+		const fetchMock = vi.fn<(_input: RequestInfo | URL, _init?: RequestInit) => Promise<Response>>(
+			async (input, init) => {
+				if (String(input) === "https://openrouter.ai/api/v1/models?output_modalities=image") {
+					return Response.json({
+						data: [
+							{
+								id: "openai/image-one",
+								architecture: { input_modalities: ["text", "image"], output_modalities: ["image", "text"] },
+							},
+						],
+					});
+				}
+				expect(String(input)).toBe("https://openrouter.ai/api/v1/chat/completions");
+				const requestBody = JSON.parse(String(init?.body)) as {
+					messages?: Array<{ role: string; content: unknown }>;
+				};
+				const userContent = requestBody.messages?.find((message) => message.role === "user")?.content;
+				expect(Array.isArray(userContent)).toBe(true);
+				const imagePart = (userContent as Array<{ type?: string; image_url?: { url?: string } }>).find((part) => part.type === "image_url");
+				expect(imagePart?.image_url?.url).toBe(currentAvatar.url);
+				expect(imagePart?.image_url?.url).not.toContain("/cdn-cgi/image/");
+				return Response.json({
+					choices: [
+						{
+							message: {
+								images: [{ image_url: { url: avatarDataUrl() } }],
+							},
+						},
+					],
+				});
+			},
+		);
+		vi.stubGlobal("fetch", fetchMock);
+		try {
+			const response = await handleAgentRuntimeRequest(
+				serviceJsonRequest(
+					`/users/${encodeURIComponent(userId)}/bots/${encodeURIComponent(bot.id)}/avatar/generate`,
+					userId,
+					{
+						prompt: "Use my current avatar as the visual source.",
+						includeCurrentAvatar: true,
+						settings: { model: "openai/image-one" },
+					},
+				),
+				{
+					BICKR_D1: testEnv.BICKR_D1,
+					BICKR_KV: testEnv.BICKR_KV,
+					BICKR_R2: r2.bucket,
+					BICKR_R2_PUBLIC_BASE_URL: "https://assets-test.bickr.social",
+					OPENROUTER_API_KEY: "test-key",
+				},
+			);
+			expect(response.status).toBe(200);
+			expect(fetchMock).toHaveBeenCalledTimes(2);
+		} finally {
+			vi.stubGlobal("fetch", originalFetch);
+		}
+	});
+
 	it("creates and promotes SVG generated avatar candidates", async () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);
