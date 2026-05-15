@@ -73,7 +73,6 @@ import {
 	type SearchSuggestResponse,
 	type SearchThreadResult,
 	type SpotlightDeliveryResult,
-	type SpotlightPreview,
 	type SpotlightTargetType,
 	type ThreadDocument,
 	type ThreadSummary,
@@ -130,6 +129,7 @@ import { loopMessageSort } from "./loop-message-order";
 import { loopContinuationRowsForPage } from "./loop-page-continuations";
 import { loopPagePagerItems } from "./loop-page-pager";
 import { normalizeReadableText, reasoningDetailsTextForDisplay, textValueForDisplay } from "./reasoning-formatting";
+import { spotlightFocusSeedFromSelection } from "./spotlight-focus";
 import {
 	applyAvatarGenerationStreamEvent,
 	readAvatarGenerationEventStream,
@@ -4807,11 +4807,14 @@ function ThreadPage({
 }) {
 	const [selectedComments, setSelectedComments] = useState<Record<string, boolean>>({});
 	const [threadSelected, setThreadSelected] = useState(false);
+	const [spotlightFocusSeed, setSpotlightFocusSeed] = useState("");
 	const [activityNotice, setActivityNotice] = useState<ThreadActivityNotice | null>(null);
 	const [confirmThreadDelete, setConfirmThreadDelete] = useState(false);
 	const [confirmComment, setConfirmComment] = useState<CommentDocument | null>(null);
 	const toast = useContext(ToastContext);
+	const pendingSpotlightFocusSeedRef = useRef("");
 	const commentTree = useMemo(() => buildCommentTree(thread?.comments ?? [], thread?.rootCommentId), [thread?.comments, thread?.rootCommentId]);
+	const threadCommentIds = useMemo(() => thread?.comments.map((comment) => comment.id) ?? [], [thread?.comments]);
 	const selectedCommentIds = Object.keys(selectedComments).filter((id) => selectedComments[id]);
 	const ownedBotIds = useMemo(() => new Set(ownedBots.map((bot) => bot.id)), [ownedBots]);
 	const canModerateForum = world.createdByUserId === currentUserId || forum.createdByUserId === currentUserId;
@@ -4824,6 +4827,13 @@ function ThreadPage({
 		[selectedCommentIds.join("|"), commentParentById],
 	);
 	const rootComment = thread ? threadRootComment(thread) : null;
+	const focusSeedForCommentTargets = useCallback(
+		(commentIds: string[]) => {
+			const included = new Set([...commentIds, ...impliedAncestorIds(commentIds, commentParentById)]);
+			return spotlightFocusSeedFromSelection(threadCommentIds.filter((commentId) => included.has(commentId)));
+		},
+		[commentParentById, threadCommentIds],
+	);
 
 	useEffect(() => {
 		if (!targetCommentId || !thread) {
@@ -4904,11 +4914,19 @@ function ThreadPage({
 							aria-label="Spotlight this entire thread"
 							checked={threadSelected}
 							className="cb"
+							onPointerDown={() => {
+								pendingSpotlightFocusSeedRef.current = spotlightFocusSeedFromSelection(threadCommentIds);
+							}}
 							onChange={(event) => {
-								setThreadSelected(event.target.checked);
-								if (event.target.checked) {
+								const checked = event.target.checked;
+								setThreadSelected(checked);
+								if (checked) {
+									setSpotlightFocusSeed(spotlightFocusSeedFromSelection(threadCommentIds) || pendingSpotlightFocusSeedRef.current);
 									setSelectedComments({});
+								} else {
+									setSpotlightFocusSeed("");
 								}
+								pendingSpotlightFocusSeedRef.current = "";
 							}}
 							title="Spotlight this entire thread"
 							type="checkbox"
@@ -4961,9 +4979,34 @@ function ThreadPage({
 						forumHandle={thread.forumHandle}
 						isLastSibling={index === commentTree.length - 1}
 						key={comment.id}
+						onPrepareToggle={(commentId, checked) => {
+							const nextSelectedCommentIds =
+								checked ?
+									[...new Set([...selectedCommentIds, commentId])]
+								:	selectedCommentIds.filter((id) => id !== commentId);
+							pendingSpotlightFocusSeedRef.current = checked ? focusSeedForCommentTargets(nextSelectedCommentIds) : "";
+						}}
 						onToggle={(commentId, checked) => {
+							const nextSelectedCommentIds =
+								checked ?
+									[...new Set([...selectedCommentIds, commentId])]
+								:	selectedCommentIds.filter((id) => id !== commentId);
 							setThreadSelected(false);
-							setSelectedComments((current) => ({ ...current, [commentId]: checked }));
+							if (checked) {
+								setSpotlightFocusSeed(focusSeedForCommentTargets(nextSelectedCommentIds) || pendingSpotlightFocusSeedRef.current);
+							} else if (nextSelectedCommentIds.length === 0) {
+								setSpotlightFocusSeed("");
+							}
+							pendingSpotlightFocusSeedRef.current = "";
+							setSelectedComments((current) => {
+								const next = { ...current };
+								if (checked) {
+									next[commentId] = true;
+								} else {
+									delete next[commentId];
+								}
+								return next;
+							});
 						}}
 						implied={displayedImpliedCommentIds}
 						onReference={onReference}
@@ -4987,7 +5030,11 @@ function ThreadPage({
 				<SpotlightPanel
 					commentIds={[]}
 					forum={forum}
-					onClear={() => setThreadSelected(false)}
+					initialFocusText={spotlightFocusSeed}
+					onClear={() => {
+						setThreadSelected(false);
+						setSpotlightFocusSeed("");
+					}}
 					ownedBots={ownedBots}
 					targetType="threads"
 					threadIds={[thread.id]}
@@ -4998,7 +5045,11 @@ function ThreadPage({
 				<SpotlightPanel
 					commentIds={selectedCommentIds}
 					forum={forum}
-					onClear={() => setSelectedComments({})}
+					initialFocusText={spotlightFocusSeed}
+					onClear={() => {
+						setSelectedComments({});
+						setSpotlightFocusSeed("");
+					}}
 					ownedBots={ownedBots}
 					targetType="comments"
 					threadId={thread.id}
@@ -5059,6 +5110,7 @@ function CommentNode({
 	implied,
 	isLastSibling,
 	onReference,
+	onPrepareToggle,
 	onRequestDelete,
 	onToggle,
 	onToggleSubscription,
@@ -5074,6 +5126,7 @@ function CommentNode({
 	implied: Set<string>;
 	isLastSibling: boolean;
 	onReference: OpenReference;
+	onPrepareToggle?: (commentId: string, checked: boolean) => void;
 	onRequestDelete?: (comment: CommentDocument) => void;
 	onToggle: (commentId: string, checked: boolean) => void;
 	onToggleSubscription: (target: SubscriptionTarget, active: boolean) => Promise<void>;
@@ -5111,6 +5164,7 @@ function CommentNode({
 					checked={checked}
 					className="cb"
 					ref={checkboxRef}
+					onPointerDown={() => onPrepareToggle?.(comment.id, !checked)}
 					onChange={(event) => onToggle(comment.id, event.target.checked)}
 					title="Spotlight this reply chain"
 					type="checkbox"
@@ -5193,6 +5247,7 @@ function CommentNode({
 								isLastSibling={index === comment.replies.length - 1}
 								key={reply.id}
 								onReference={onReference}
+								onPrepareToggle={onPrepareToggle}
 								onRequestDelete={onRequestDelete}
 								onToggle={onToggle}
 								onToggleSubscription={onToggleSubscription}
@@ -7265,6 +7320,7 @@ function BotLoopScreen({
 function SpotlightPanel({
 	commentIds,
 	forum,
+	initialFocusText = "",
 	onClear,
 	ownedBots,
 	targetType,
@@ -7274,6 +7330,7 @@ function SpotlightPanel({
 }: {
 	commentIds: string[];
 	forum: ForumSummary;
+	initialFocusText?: string;
 	onClear: () => void;
 	ownedBots: BotSummary[];
 	targetType: SpotlightTargetType;
@@ -7284,9 +7341,8 @@ function SpotlightPanel({
 	const toast = useContext(ToastContext);
 	const [selectedBots, setSelectedBots] = useState<Record<string, boolean>>({});
 	const [botSearch, setBotSearch] = useState("");
-	const [focusText, setFocusText] = useState("");
+	const [focusText, setFocusText] = useState(() => initialFocusText);
 	const [autoStartTick, setAutoStartTick] = useState(() => readStoredBoolean("bickr.spotlight.autoStartTick", true));
-	const [preview, setPreview] = useState<SpotlightPreview | null>(null);
 	const [sending, setSending] = useState(false);
 	const [message, setMessage] = useState("");
 	const worldOwnedBots = useMemo(
@@ -7305,7 +7361,6 @@ function SpotlightPanel({
 	);
 	const botIds = Object.keys(selectedBots).filter((id) => selectedBots[id]);
 	const targetIds = targetType === "threads" ? threadIds : commentIds;
-	const targetKey = targetIds.join("|");
 
 	useEffect(() => {
 		const eligibleIds = new Set(eligibleBots.map((bot) => bot.id));
@@ -7320,29 +7375,11 @@ function SpotlightPanel({
 	}, [autoStartTick]);
 
 	useEffect(() => {
-		if (botIds.length === 0 || targetIds.length === 0) {
-			setPreview(null);
-			return undefined;
+		if (!initialFocusText) {
+			return;
 		}
-		const handle = window.setTimeout(() => {
-			setMessage("");
-			void api<{ preview: SpotlightPreview }>(
-				`/api/worlds/${encodeURIComponent(world.handle)}/forums/${encodeURIComponent(forum.handle)}/spotlight/preview`,
-				{
-					method: "POST",
-					body: spotlightInput(targetType, botIds, threadIds, threadId, commentIds, focusText),
-				},
-			).then((result) => {
-				if (result.ok) {
-					setPreview(result.data.preview);
-				} else {
-					setPreview(null);
-					setMessage(result.message);
-				}
-			});
-		}, 250);
-		return () => window.clearTimeout(handle);
-	}, [botIds.join("|"), commentIds.join("|"), focusText, forum.handle, targetKey, targetType, threadId, threadIds.join("|"), world.handle]);
+		setFocusText((current) => current.trim() ? current : initialFocusText);
+	}, [initialFocusText]);
 
 	async function send(): Promise<void> {
 		if (botIds.length === 0 || targetIds.length === 0) {
@@ -7350,7 +7387,7 @@ function SpotlightPanel({
 		}
 		setSending(true);
 		setMessage("Sending spotlight...");
-		const result = await api<{ preview: SpotlightPreview; deliveries: SpotlightDeliveryResult[] }>(
+		const result = await api<{ deliveries: SpotlightDeliveryResult[] }>(
 			`/api/worlds/${encodeURIComponent(world.handle)}/forums/${encodeURIComponent(forum.handle)}/spotlight/send`,
 			{
 				method: "POST",
@@ -7364,7 +7401,6 @@ function SpotlightPanel({
 		}
 		const failed = result.data.deliveries.filter((delivery) => !delivery.ok);
 		if (failed.length > 0) {
-			setPreview(result.data.preview);
 			setMessage(`${failed.length} spotlight delivery failed.`);
 			return;
 		}
@@ -7437,7 +7473,6 @@ function SpotlightPanel({
 												{showHomeWorld ? ` / w/${bot.homeWorldHandle}` : ""}
 											</span>
 										</span>
-										{preview?.botPreviews.find((item) => item.bot.id === bot.id) && <span className="count">preview</span>}
 									</label>
 								);
 							})}
@@ -7472,25 +7507,11 @@ function SpotlightPanel({
 					/>
 				</Field>
 
-				<div className="preview">
-					{message && <div className="runtime-message">{message}</div>}
-					{preview ?
-						preview.botPreviews.map((botPreview) => (
-							<div className="preview-details" key={botPreview.bot.id}>
-								<div className="preview-summary">
-									u/{botPreview.bot.handle}: {botPreview.included.threadCount} thread,{" "}
-									{botPreview.included.commentCount} comments
-									{botPreview.included.excludedSeenCount > 0 ?
-										` / ${botPreview.included.excludedSeenCount} already seen excluded`
-									:	""}
-								</div>
-							</div>
-						))
-					:	<div className="injected muted">
-							{botIds.length === 0 ? "Select one or more unpaused owned bots to preview the content summary." : "No preview yet."}
-						</div>
-					}
-				</div>
+				{message && (
+					<div className="spot-status">
+						<div className="runtime-message">{message}</div>
+					</div>
+				)}
 			</div>
 			<div className="foot">
 				<span className="leftnote">

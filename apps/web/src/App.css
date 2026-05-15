@@ -6687,7 +6687,7 @@ button.avatar-large-preview:not(:disabled),
 	font-size: 11.5px;
 }
 
-.spot-panel .preview {
+.spot-panel .spot-status {
 	background: var(--paper-2);
 	border: 1px solid var(--rule-soft);
 	border-radius: var(--radius);
@@ -6695,40 +6695,6 @@ button.avatar-large-preview:not(:disabled),
 	font-size: 12.5px;
 	line-height: 1.55;
 	padding: 10px 12px;
-}
-
-.preview-details {
-	margin-top: 8px;
-}
-
-.preview-summary {
-	color: var(--ink-2);
-	font-size: 12px;
-	font-weight: 600;
-}
-
-.spot-panel .preview .injected {
-	background: var(--paper);
-	border: 1px solid var(--rule-soft);
-	border-radius: 4px;
-	color: var(--ink-2);
-	font-family: var(--font-sans);
-	font-size: 12.5px;
-	margin: 7px 0 0;
-	max-height: 220px;
-	overflow: auto;
-	padding: 8px 10px;
-	white-space: pre-wrap;
-}
-
-.spot-panel .preview .injected.readable-context {
-	display: grid;
-	gap: 8px;
-	white-space: normal;
-}
-
-.spot-panel .preview .injected.muted {
-	color: var(--ink-4);
 }
 
 .spot-panel .foot {

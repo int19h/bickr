@@ -194,6 +194,7 @@ import {
 	defaultThreadBodyCharacters,
 } from "../packages/shared/src/posting";
 import { formatCommentRef, formatThreadRef } from "../packages/shared/src/ids";
+import { kvKeys } from "../packages/shared/src/storage";
 import { isValidHandleText, maxProviderRoutingJsonLength, sanitizeHandleInput } from "../packages/shared/src/validation";
 import { sessionCookieName, type AppEnv } from "../apps/web/functions/api/_auth";
 import { oauthCookieNames } from "../apps/web/functions/api/auth/_oauth";
@@ -16674,6 +16675,81 @@ describe("Bickr Pages Functions", () => {
 			.bind(botOne.id, botTwo.id)
 			.first<{ seenVia: string }>();
 		expect(seenProfile).toEqual({ seenVia: "spotlight" });
+
+		const freshThread = await readThread(testEnv.BICKR_KV, thread.id);
+		const staleThread = {
+			...freshThread,
+			comments: freshThread.comments.filter((comment) => comment.id !== child.id),
+		};
+		const fallbackGet = testEnv.BICKR_KV.get.bind(testEnv.BICKR_KV);
+		let staleThreadReads = 0;
+		const flakyKv = new Proxy(testEnv.BICKR_KV, {
+			get(target, property, receiver) {
+				if (property === "get") {
+					return (async (key: string, options?: { type?: string }) => {
+						if (key === kvKeys.thread(thread.id) && options?.type === "json" && staleThreadReads === 0) {
+							staleThreadReads += 1;
+							return staleThread;
+						}
+						return fallbackGet(key, options as never) as never;
+					}) as KVNamespace["get"];
+				}
+				return Reflect.get(target, property, receiver) as unknown;
+			},
+		}) as KVNamespace;
+		const retryInjectedTexts: string[] = [];
+		const retrySendResponse = await spotlightSend(
+			contextFor<typeof spotlightSend>(
+				jsonRequest(
+					"http://example.com/api/worlds/patch-notes/forums/spotlights/spotlight/send",
+					"POST",
+					{
+						targetType: "comments",
+						threadId: thread.id,
+						commentIds: [child.id],
+						botIds: [botTwo.id],
+						autoStartTick: false,
+					},
+					cookie,
+				),
+				{ worldHandle: "patch-notes", forumHandle: "spotlights" },
+				{
+					BICKR_KV: flakyKv,
+					AGENT_RUNTIME: {
+						fetch: async (request: Request) => {
+							const body = await request.json() as { text?: string };
+							retryInjectedTexts.push(body.text ?? "");
+							return Response.json({ ok: true, data: { injectionId: "inj-retry" } });
+						},
+					} as unknown as Fetcher,
+				},
+			),
+		);
+		const retrySendPayload = (await retrySendResponse.json()) as SpotlightSendPayload;
+		expect(retrySendResponse.status).toBe(200);
+		expect(staleThreadReads).toBe(1);
+		expect(retryInjectedTexts).toHaveLength(1);
+		expect(retrySendPayload.data.deliveries).toMatchObject([
+			{ botId: botTwo.id, ok: true, injectionId: "inj-retry", tickStatus: "queued" },
+		]);
+
+		const pausedSendResponse = await spotlightSend(
+			contextFor<typeof spotlightSend>(
+				jsonRequest(
+					"http://example.com/api/worlds/patch-notes/forums/spotlights/spotlight/send",
+					"POST",
+					{
+						targetType: "threads",
+						threadIds: [thread.id],
+						botIds: [pausedBot.id],
+						autoStartTick: false,
+					},
+					cookie,
+				),
+				{ worldHandle: "patch-notes", forumHandle: "spotlights" },
+			),
+		);
+		expect(pausedSendResponse.status).toBe(400);
 	});
 
 	it("annotates standard human notifications for spotlight-created threads and comments", async () => {
