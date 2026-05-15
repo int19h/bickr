@@ -6203,10 +6203,10 @@ function BotAvatarGenerationScreen({
 	useEffect(() => {
 		if (!selectedSupportsImageInput || !currentAvatarAvailable) {
 			setIncludeCurrentAvatar(false);
-		} else if (!candidate) {
-			setIncludeCurrentAvatar(true);
+			return;
 		}
-	}, [candidate, currentAvatarAvailable, selectedSupportsImageInput]);
+		setIncludeCurrentAvatar(true);
+	}, [currentAvatarAvailable, selectedSupportsImageInput]);
 
 	const promptAllowed = prompt.trim().length > 0 || (includeCurrentAvatar && currentAvatarAvailable);
 	const imageProviderRoutingError = providerRoutingDraftError(draft.imageGenerationProviderRouting);
