@@ -75,6 +75,14 @@ async function pageMetadataForRoute(env: AppEnv, request: Request, route: Parsed
 			return forumMetadata(env, route);
 		case "thread":
 			return threadMetadata(env, route);
+		case "thread-ref":
+		case "comment-ref":
+			return {
+				title: pageTitle("Opening link"),
+				description: "Opening a Bickr content link.",
+				ogType: "website",
+				robots: noIndex,
+			};
 		case "bot-profile":
 			return botProfileMetadata(env, route);
 		case "bot-avatar":

@@ -5,6 +5,8 @@ export type Route =
 	| "world"
 	| "forum"
 	| "thread"
+	| "thread-ref"
+	| "comment-ref"
 	| "bot-profile"
 	| "bot-avatar"
 	| "bot-loop"
@@ -74,6 +76,12 @@ export function parsePathname(pathname: string, search = ""): ParsedRoute {
 	if (parts[0] === "hu" && parts[1]) {
 		return { route: "human-profile", humanHandle: parts[1] };
 	}
+	if (parts[0] === "t" && parts[1]) {
+		return { route: "thread-ref", threadId: parts[1] };
+	}
+	if (parts[0] === "c" && parts[1]) {
+		return { route: "comment-ref", commentId: parts[1] };
+	}
 	if (parts[0] === "w" && parts[1]) {
 		const worldHandle = parts[1];
 		if (parts[2] === "f" && parts[3]) {
@@ -119,6 +127,10 @@ export function routePath(parsed: ParsedRoute): string {
 			const base = `/w/${encodeURIComponent(parsed.worldHandle ?? "")}/f/${encodeURIComponent(parsed.forumHandle ?? "")}/t/${encodeURIComponent(parsed.threadId ?? "")}`;
 			return parsed.commentId ? `${base}/c/${encodeURIComponent(parsed.commentId)}` : base;
 		}
+		case "thread-ref":
+			return `/t/${encodeURIComponent(parsed.threadId ?? "")}`;
+		case "comment-ref":
+			return `/c/${encodeURIComponent(parsed.commentId ?? "")}`;
 		case "bot-profile":
 			return botProfileRoutePath(parsed);
 		case "bot-avatar":

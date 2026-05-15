@@ -156,6 +156,7 @@ import {
 	type SearchRouteState,
 	type WorldTab,
 } from "./routes";
+import { findBickrContentUrlMatches, type BickrContentUrlMatch } from "./content-links";
 import "./App.css";
 
 const bickrLogoSrc = "/bickr.png";
@@ -163,6 +164,8 @@ const bickrLogoSrc = "/bickr.png";
 type ApiSuccess<T> = { ok: true; data: T };
 type ApiFailure = { ok: false; error: string; message: string };
 type ApiResult<T> = ApiSuccess<T> | ApiFailure;
+type ContentRefType = "thread" | "comment";
+type OpenContentRefOptions = { replace?: boolean };
 type BotMutationResponse = { bot: BotSummary; affectedBots?: BotSummary[] };
 
 type BeforeInstallPromptEvent = Event & {
@@ -412,8 +415,12 @@ const ReferenceDataContext = createContext<ReferenceData>({
 	humans: [],
 	worlds: [],
 });
-const NavigationContext = createContext<{ navigate: (parsed: ParsedRoute) => void }>({
+const NavigationContext = createContext<{
+	navigate: (parsed: ParsedRoute, replace?: boolean) => void;
+	openContentRef: (type: ContentRefType, id: string, options?: OpenContentRefOptions) => Promise<void>;
+}>({
 	navigate: () => undefined,
+	openContentRef: () => Promise.resolve(),
 });
 const HoverTooltipContext = createContext<HoverTooltipContextValue>({
 	activeId: null,
@@ -521,6 +528,9 @@ function clientRouteTitle({
 			const comment = commentId ? thread.comments.find((item) => item.id === commentId) : null;
 			return titleWithBickr(comment ? `u/${comment.authorHandle} on ${thread.title}` : thread.title);
 		}
+		case "thread-ref":
+		case "comment-ref":
+			return titleWithBickr("Opening link");
 		case "bot-profile": {
 			const handle = bot?.handle ?? botHandle;
 			if (!handle) {
@@ -877,6 +887,33 @@ function App() {
 			}
 		}
 	}
+
+	async function openContentRef(type: ContentRefType, id: string, options: OpenContentRefOptions = {}): Promise<void> {
+		const result = await api<{ path: string }>(
+			`/api/content-refs/${type}/${encodeURIComponent(id)}`,
+		);
+		if (!result.ok) {
+			setStatus(result.message);
+			return;
+		}
+		const parsed = parsePathname(result.data.path);
+		if (parsed.route === "thread" && parsed.threadId) {
+			navigate(parsed, options.replace ?? false);
+			return;
+		}
+		setStatus("Content link resolved to an unsupported route.");
+	}
+
+	useEffect(() => {
+		if (route === "comment-ref" && activeCommentId) {
+			setStatus("Opening link...");
+			void openContentRef("comment", activeCommentId, { replace: true });
+		}
+		if (route === "thread-ref" && activeThreadId) {
+			setStatus("Opening link...");
+			void openContentRef("thread", activeThreadId, { replace: true });
+		}
+	}, [route, activeCommentId, activeThreadId]);
 
 	function requestFreshThread(threadId: string): void {
 		pendingFreshThreadIds.current.add(threadId);
@@ -2059,7 +2096,7 @@ function App() {
 
 	return (
 		<ToastProvider>
-			<NavigationContext.Provider value={{ navigate }}>
+			<NavigationContext.Provider value={{ navigate, openContentRef }}>
 				<ReferenceDataContext.Provider value={referenceData}>
 					<HoverTooltipContext.Provider value={hoverTooltip}>
 					<TranslationContext.Provider value={translationContext}>
@@ -2094,9 +2131,14 @@ function App() {
 					route={route}
 					worlds={worldViews}
 				/>
-				<main className="main" onClick={handleMainClick}>
-					{route === "worlds" && (
-						<WorldsScreen
+					<main className="main" onClick={handleMainClick}>
+						{(route === "comment-ref" || route === "thread-ref") && (
+							<EmptyState title="Opening link">
+								Resolving this Bickr link.
+							</EmptyState>
+						)}
+						{route === "worlds" && (
+							<WorldsScreen
 							busy={busy}
 							onCreate={createWorld}
 							worlds={worldViews}
@@ -15728,13 +15770,53 @@ function ContentReference({
 	interactive: boolean;
 	type: "thread" | "comment";
 }) {
+	const { openContentRef } = useContext(NavigationContext);
 	const href = `/${type === "thread" ? "t" : "c"}/${encodeURIComponent(id)}`;
 	const content = <ContentReferenceLabel id={id} type={type} />;
 	return interactive ?
-			<a className="ref-button" href={href}>
+			<a
+				className="ref-button"
+				href={href}
+				onClick={(event) => {
+					if (!shouldHandleSpaClick(event)) {
+						return;
+					}
+					event.preventDefault();
+					event.stopPropagation();
+					void openContentRef(type, id);
+				}}
+			>
 				{content}
 			</a>
 		:	content;
+}
+
+function BickrContentUrlLink({ match }: { match: BickrContentUrlMatch }) {
+	const { navigate, openContentRef } = useContext(NavigationContext);
+	return (
+		<a
+			className="readable-link"
+			href={match.href}
+			onClick={(event) => {
+				if (!shouldHandleSpaClick(event)) {
+					return;
+				}
+				event.preventDefault();
+				event.stopPropagation();
+				if (match.route.route === "comment-ref" && match.route.commentId) {
+					void openContentRef("comment", match.route.commentId);
+					return;
+				}
+				if (match.route.route === "thread-ref" && match.route.threadId) {
+					void openContentRef("thread", match.route.threadId);
+					return;
+				}
+				navigate(match.route);
+			}}
+		>
+			{match.text}
+		</a>
+	);
 }
 
 function ReferencePopover({
@@ -16131,7 +16213,7 @@ function RichText({
 		const boundary = match[1] ?? "";
 		const refStart = index + boundary.length;
 		if (refStart > cursor) {
-			appendRichTextPlainSegment(parts, text.slice(cursor, refStart), cursor);
+			appendRichTextPlainSegment(parts, text.slice(cursor, refStart), cursor, { linkifyContentUrls: interactive });
 		}
 		const handlePrefix = (match[2] ?? "").toLowerCase();
 		const handleName = match[3];
@@ -16158,20 +16240,20 @@ function RichText({
 			if (id) {
 				parts.push(<ContentReference id={id} interactive={interactive} key={`${refStart}:t:${id}`} type="thread" />);
 			} else {
-				appendRichTextPlainSegment(parts, matchedRefText, refStart);
+				appendRichTextPlainSegment(parts, matchedRefText, refStart, { linkifyContentUrls: interactive });
 			}
 		} else if (commentBody) {
 			const id = parseCommentRef(`c/${commentBody}`);
 			if (id) {
 				parts.push(<ContentReference id={id} interactive={interactive} key={`${refStart}:c:${id}`} type="comment" />);
 			} else {
-				appendRichTextPlainSegment(parts, matchedRefText, refStart);
+				appendRichTextPlainSegment(parts, matchedRefText, refStart, { linkifyContentUrls: interactive });
 			}
 		}
 		cursor = index + match[0].length;
 	}
 	if (cursor < text.length) {
-		appendRichTextPlainSegment(parts, text.slice(cursor), cursor);
+		appendRichTextPlainSegment(parts, text.slice(cursor), cursor, { linkifyContentUrls: interactive });
 	}
 	if (parts.length === 0) {
 		return null;
@@ -16179,15 +16261,43 @@ function RichText({
 	return <>{parts}</>;
 }
 
-function appendRichTextPlainSegment(parts: ReactNode[], text: string, offset: number): void {
+function appendRichTextPlainSegment(
+	parts: ReactNode[],
+	text: string,
+	offset: number,
+	options: { linkifyContentUrls?: boolean } = {},
+): void {
 	const lines = text.split(/\r\n|\n|\r/);
+	let lineOffset = offset;
 	for (let index = 0; index < lines.length; index += 1) {
 		if (index > 0) {
 			parts.push(<br key={`br:${offset}:${index}`} />);
+			lineOffset += 1;
 		}
-		if (lines[index]) {
-			parts.push(lines[index]);
+		const line = lines[index] ?? "";
+		if (line) {
+			if (options.linkifyContentUrls) {
+				appendContentUrlLinkedText(parts, line, lineOffset);
+			} else {
+				parts.push(line);
+			}
 		}
+		lineOffset += line.length;
+	}
+}
+
+function appendContentUrlLinkedText(parts: ReactNode[], text: string, offset: number): void {
+	const matches = findBickrContentUrlMatches(text);
+	let cursor = 0;
+	for (const match of matches) {
+		if (match.start > cursor) {
+			parts.push(text.slice(cursor, match.start));
+		}
+		parts.push(<BickrContentUrlLink key={`url:${offset + match.start}`} match={match} />);
+		cursor = match.end;
+	}
+	if (cursor < text.length) {
+		parts.push(text.slice(cursor));
 	}
 }
 
