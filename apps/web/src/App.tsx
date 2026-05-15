@@ -15805,7 +15805,6 @@ function BotSourceValue({ bot }: { bot: BotSummary }) {
 						<Reference isBot kind="bot" name={handle} worldHandle={worldHandle} />
 					:	<ReferenceLabel isBot kind="bot" name={handle} />
 					}
-					{cloneSource.linked ? null : <span className="source-status">unlinked</span>}
 				</span>
 				<span className="source-world-line">
 					<span>in </span>

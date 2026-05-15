@@ -2966,15 +2966,6 @@ fieldset {
 	cursor: not-allowed;
 }
 
-.source-status {
-	border: 1px solid var(--rule);
-	border-radius: 999px;
-	color: var(--ink-4);
-	font-size: 11px;
-	line-height: 1;
-	padding: 3px 6px;
-}
-
 .agentic-loop-card {
 	display: grid;
 	gap: 20px;
