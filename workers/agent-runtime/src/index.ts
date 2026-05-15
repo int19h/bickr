@@ -17,7 +17,6 @@ import { formatCommentRef, formatThreadRef, parseCommentRef, parseObjectRef, par
 import {
 	botById,
 	botPublicProfile,
-	backfillInferredCloneSources,
 	createBot,
 	deleteBot,
 	effectiveTickSettings,
@@ -10284,12 +10283,6 @@ export async function handleAgentRuntimeRequest(
 			return ok({ reindex: result, coordinator: objectId });
 		}
 
-		if (request.method === 'POST' && url.pathname === '/maintenance/backfill-clone-sources') {
-			requireInternalServiceRequest(request);
-			const backfill = await backfillInferredCloneSources(env.BICKR_KV, env.BICKR_D1);
-			return ok({ backfill, coordinator: objectId });
-		}
-
 		const createMatch = /^\/users\/([^/]+)\/worlds\/([^/]+)\/bots$/.exec(url.pathname);
 		if (request.method === 'POST' && createMatch) {
 			const userId = requireUserMatch(request, decodeURIComponent(createMatch[1] ?? ''));
@@ -10488,8 +10481,7 @@ export default {
 
 		if (
 			(url.pathname === '/search/entities' && request.method === 'GET') ||
-			(url.pathname === '/search/reindex-vectors' && request.method === 'POST') ||
-			(url.pathname === '/maintenance/backfill-clone-sources' && request.method === 'POST')
+			(url.pathname === '/search/reindex-vectors' && request.method === 'POST')
 		) {
 			return handleAgentRuntimeRequest(request, env);
 		}

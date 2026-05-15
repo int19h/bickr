@@ -2918,18 +2918,52 @@ fieldset {
 	padding: 4px 14px;
 }
 
-.source-row-value,
 .bot-source-value {
-	align-items: center;
+	align-items: flex-end;
 	display: inline-flex;
-	flex-wrap: wrap;
-	gap: 6px;
+	flex-direction: column;
+	gap: 2px;
 	justify-content: flex-end;
 	min-width: 0;
 }
 
-.clone-link-action {
-	margin-left: 2px;
+.source-label-with-action,
+.source-bot-line,
+.source-world-line {
+	align-items: center;
+	display: inline-flex;
+	gap: 6px;
+	min-width: 0;
+}
+
+.source-link-action {
+	align-items: center;
+	background: transparent;
+	border: 1px solid transparent;
+	border-radius: 8px;
+	color: var(--accent);
+	cursor: pointer;
+	display: inline-flex;
+	font: inherit;
+	font-size: 12px;
+	justify-content: center;
+	line-height: 1;
+	min-height: 24px;
+	padding: 2px 5px;
+}
+
+.source-link-action.danger {
+	color: var(--danger);
+}
+
+.source-link-action:hover:not(:disabled) {
+	background: color-mix(in oklch, currentColor 6%, transparent);
+	border-color: color-mix(in oklch, currentColor 45%, var(--rule));
+}
+
+.source-link-action:disabled {
+	color: var(--ink-4);
+	cursor: not-allowed;
 }
 
 .source-status {

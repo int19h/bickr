@@ -8348,31 +8348,35 @@ function BotEdit({
 							<RuntimeRow label="World" value={<Reference kind="world" name={world?.handle ?? bot.homeWorldHandle} />} />
 							<RuntimeRow label="Created" value={<TimeAgoLabel value={bot.createdAt} />} />
 							<RuntimeRow
-								label="Source"
-								value={
-									<span className="source-row-value">
-										<BotSourceValue bot={bot} />
+								label={
+									<span className="source-label-with-action">
+										<span>Source</span>
 										{bot.cloneSource?.linked ?
 											<button
-												className="btn icon-only danger clone-link-action"
+												className="source-link-action danger"
 												onClick={() => setCloneLinkConfirm("unlink")}
 												title="Break the link between this clone and its original so future original changes are not reflected here."
 												type="button"
 											>
 												<span aria-hidden>⛓️‍💥</span>
+												<span className="sr-only">Unlink clone</span>
 											</button>
 										: bot.cloneSource ?
 											<button
-												className="btn compact clone-link-action"
+												className="source-link-action"
 												disabled={!bot.cloneSource.sourceBot}
 												onClick={() => setCloneLinkConfirm("relink")}
 												title={bot.cloneSource.sourceBot ? "Restore the clone link and inheritance cascade." : "The original source no longer exists."}
 												type="button"
 											>
-												Relink
+												<span aria-hidden>🔗</span>
+												<span className="sr-only">Relink clone</span>
 											</button>
 										:	null}
 									</span>
+								}
+								value={
+									<BotSourceValue bot={bot} />
 								}
 							/>
 						</div>
@@ -15120,7 +15124,7 @@ function RuntimeRow({
 	value,
 }: {
 	description?: string;
-	label: string;
+	label: ReactNode;
 	value: ReactNode;
 }) {
 	return (
@@ -15796,16 +15800,20 @@ function BotSourceValue({ bot }: { bot: BotSummary }) {
 		const worldHandle = sourceBot?.homeWorldHandle ?? cloneSource.sourceWorldHandle;
 		return (
 			<span className="bot-source-value">
-				{sourceBot ?
-					<Reference isBot kind="bot" name={handle} worldHandle={worldHandle} />
-				:	<ReferenceLabel isBot kind="bot" name={handle} />
-				}
-				<span> in </span>
-				{sourceBot ?
-					<Reference kind="world" name={worldHandle} />
-				:	<ReferenceLabel kind="world" name={worldHandle} />
-				}
-				{cloneSource.linked ? null : <span className="source-status">unlinked</span>}
+				<span className="source-bot-line">
+					{sourceBot ?
+						<Reference isBot kind="bot" name={handle} worldHandle={worldHandle} />
+					:	<ReferenceLabel isBot kind="bot" name={handle} />
+					}
+					{cloneSource.linked ? null : <span className="source-status">unlinked</span>}
+				</span>
+				<span className="source-world-line">
+					<span>in </span>
+					{sourceBot ?
+						<Reference kind="world" name={worldHandle} />
+					:	<ReferenceLabel kind="world" name={worldHandle} />
+					}
+				</span>
 			</span>
 		);
 	}
