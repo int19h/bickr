@@ -5535,7 +5535,7 @@ function BotProfileScreen({
 								alt=""
 								fallbackSrc={bot.avatarUrl}
 								onFinalError={() => setProfileAvatarFailed(true)}
-								src={cloudflareImageUrl(bot.avatarUrl, { width: 360, format: "auto" })}
+								src={cloudflareImageUrl(bot.avatarUrl, { width: avatarImagePixels(220), format: "auto" })}
 							/>
 						:	<Avatar actor="bot" colorSeed={bot.handle} name={bot.displayName} size="hero" />
 						}
@@ -6624,7 +6624,7 @@ function BotPublicProfileCard({ bot }: { bot: BotPublicProfile }) {
 				title={`Open ${bot.displayName}`}
 				to={{ route: "bot-profile", worldHandle: bot.homeWorldHandle, botHandle: bot.handle }}
 			>
-					<Avatar actor="bot" colorSeed={bot.handle} crop={bot.avatarCrop} imageUrl={bot.avatarUrl} name={bot.displayName} />
+					<Avatar actor="bot" colorSeed={bot.handle} crop={bot.avatarCrop} displayPixels={48} imageUrl={bot.avatarUrl} name={bot.displayName} />
 			</SpaLink>
 				<div className="bot-card-title">
 					<SpaLink
@@ -7429,7 +7429,7 @@ function SpotlightPanel({
 											onChange={(event) => setSelectedBots((current) => ({ ...current, [bot.id]: event.target.checked }))}
 											type="checkbox"
 										/>
-										<Avatar actor="bot" colorSeed={bot.handle} crop={bot.avatarCrop} imageUrl={bot.avatarUrl} name={bot.displayName} size="sm" />
+										<Avatar actor="bot" colorSeed={bot.handle} crop={bot.avatarCrop} displayPixels={42} imageUrl={bot.avatarUrl} name={bot.displayName} size="sm" />
 										<span className="bot-pick-copy">
 											<span className="nm">{bot.displayName}</span>
 											<span className="hd">
@@ -7561,7 +7561,7 @@ function BotCard({
 				title={`Open ${bot.displayName}`}
 				to={{ route: "bot-profile", worldHandle: bot.homeWorldHandle, botHandle: bot.handle }}
 			>
-					<Avatar actor="bot" colorSeed={bot.handle} crop={bot.avatarCrop} imageUrl={bot.avatarUrl} name={bot.displayName} />
+					<Avatar actor="bot" colorSeed={bot.handle} crop={bot.avatarCrop} displayPixels={48} imageUrl={bot.avatarUrl} name={bot.displayName} />
 			</SpaLink>
 				<div className="bot-card-title">
 					<SpaLink
@@ -11801,7 +11801,7 @@ function CreateBotModal({
 											onClick={() => selectCloneSource(bot)}
 											type="button"
 										>
-											<Avatar actor="bot" colorSeed={bot.handle} crop={bot.avatarCrop} imageUrl={bot.avatarUrl} name={bot.displayName} />
+											<Avatar actor="bot" colorSeed={bot.handle} crop={bot.avatarCrop} displayPixels={48} imageUrl={bot.avatarUrl} name={bot.displayName} />
 											<span className="clone-source-body">
 												<span className="clone-source-title">
 													<span>{bot.displayName}</span>
@@ -15360,6 +15360,7 @@ function Avatar({
 	actor = "bot",
 	colorSeed,
 	crop,
+	displayPixels,
 	fit = "cover",
 	imageUrl,
 	name,
@@ -15368,6 +15369,7 @@ function Avatar({
 	actor?: "bot" | "user";
 	colorSeed?: string | number;
 	crop?: AvatarCrop;
+	displayPixels?: number;
 	fit?: "cover" | "contain";
 	imageUrl?: string;
 	name: string;
@@ -15379,8 +15381,9 @@ function Avatar({
 	}, [crop, imageUrl]);
 	const className = `avatar ${size === "sm" ? "sm" : size === "lg" ? "lg" : size === "xl" ? "xl" : size === "hero" ? "hero" : ""}`.trim();
 	const cropActive = Boolean(crop && fit === "cover");
+	const targetPixels = avatarImagePixels(avatarDisplayPixels(size, displayPixels));
 	const imageSrc = imageUrl && !imageFailed ?
-		cropActive && crop ? avatarCroppedThumbnailUrl(imageUrl, size, crop) : avatarThumbnailUrl(imageUrl, size, fit)
+		cropActive && crop ? avatarCroppedThumbnailUrl(imageUrl, targetPixels, crop) : avatarThumbnailUrl(imageUrl, targetPixels, fit)
 	:	"";
 	return (
 		<span className={className} data-actor={actor} style={avatarStyle(colorSeed ?? name)}>
@@ -15397,6 +15400,34 @@ function Avatar({
 			}
 		</span>
 	);
+}
+
+function avatarDisplayPixels(size: "sm" | "md" | "lg" | "xl" | "hero", override?: number): number {
+	if (override && Number.isFinite(override) && override > 0) {
+		return Math.ceil(override);
+	}
+	return (
+		size === "sm" ? 22
+		: size === "lg" ? 56
+		: size === "xl" ? 96
+		: size === "hero" ? 180
+		: 32
+	);
+}
+
+function avatarImagePixels(cssPixels: number): number {
+	return Math.ceil(cssPixels * devicePixelRatioBucket());
+}
+
+function devicePixelRatioBucket(): number {
+	if (typeof window === "undefined") {
+		return 1;
+	}
+	const ratio = window.devicePixelRatio;
+	if (!Number.isFinite(ratio) || ratio <= 1) {
+		return 1;
+	}
+	return Math.min(4, Math.ceil(ratio));
 }
 
 function FallbackImage({
@@ -15436,29 +15467,18 @@ function FallbackImage({
 	);
 }
 
-function avatarThumbnailUrl(url: string, size: "sm" | "md" | "lg" | "xl" | "hero", fit: "cover" | "contain" = "cover"): string {
-	const pixels =
-		size === "sm" ? 48
-		: size === "lg" ? 112
-		: size === "xl" ? 192
-		: size === "hero" ? 360
-		: 64;
+function avatarThumbnailUrl(url: string, pixels: number, fit: "cover" | "contain" = "cover"): string {
 	return cloudflareImageUrl(url, { width: pixels, height: pixels, fit, format: "auto" });
 }
 
-function avatarCroppedThumbnailUrl(url: string, size: "sm" | "md" | "lg" | "xl" | "hero", crop: AvatarCrop): string {
-	const pixels =
-		size === "sm" ? 48
-		: size === "lg" ? 112
-		: size === "xl" ? 192
-		: size === "hero" ? 360
-		: 64;
+function avatarCroppedThumbnailUrl(url: string, pixels: number, crop: AvatarCrop): string {
 	const imageWidth = Math.min(2048, Math.ceil((pixels * crop.imageWidth) / crop.size));
 	return cloudflareImageUrl(url, { width: imageWidth, format: "auto" });
 }
 
 function avatarPreviewContainUrl(url: string): string {
-	return cloudflareImageUrl(url, { width: 720, height: 720, fit: "contain", format: "auto" });
+	const pixels = Math.min(2048, avatarImagePixels(720));
+	return cloudflareImageUrl(url, { width: pixels, height: pixels, fit: "scale-down", format: "auto" });
 }
 
 function cloudflareImageUrl(
