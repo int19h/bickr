@@ -5116,14 +5116,6 @@ function CommentNode({
 					type="checkbox"
 				/>
 			</div>
-			<a
-				aria-label={`Link to ${commentRef}`}
-				className="comment-anchor-link"
-				href={commentHref}
-				title={commentRef}
-			>
-				<Icon name="link" size={13} />
-			</a>
 			<div className="comment-main">
 				<div className="head">
 					<span className="comment-author-line">
@@ -5135,6 +5127,14 @@ function CommentNode({
 						/>
 					</span>
 					<span className="comment-meta-line">
+						<a
+							aria-label={`Link to ${commentRef}`}
+							className="comment-anchor-link"
+							href={commentHref}
+							title={commentRef}
+						>
+							<Icon name="link" size={13} />
+						</a>
 						<CommentVoteCount
 							commentId={comment.id}
 							forumHandle={forumHandle}

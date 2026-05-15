@@ -2711,6 +2711,10 @@ fieldset {
 	border-color: var(--ink-5);
 }
 
+.forum-row:has(.ref-popover.active) {
+	z-index: 20;
+}
+
 .forum-row-main {
 	align-items: center;
 	display: grid;
@@ -5385,7 +5389,7 @@ fieldset {
 .comment {
 	--comment-checkbox-size: 18px;
 	--comment-check: var(--comment-checkbox-size);
-	--comment-control-gap: 2px;
+	--comment-content-gap: 8px;
 	--comment-gap: 12px;
 	--comment-link-size: 18px;
 	--comment-left-pad: 0px;
@@ -5395,14 +5399,14 @@ fieldset {
 	--comment-checkbox-top: calc(var(--comment-control-center) - var(--comment-checkbox-center));
 	--comment-checkbox-midline: calc(var(--comment-pad-top) + var(--comment-control-center));
 	--comment-checkbox-bottom-from-main: calc(var(--comment-checkbox-top) + var(--comment-checkbox-size));
-	--comment-rail-offset: calc(var(--comment-check) + var(--comment-control-gap) + var(--comment-link-size) + var(--comment-control-gap) - var(--comment-checkbox-center));
+	--comment-rail-offset: calc(var(--comment-check) + var(--comment-content-gap) - var(--comment-checkbox-center));
 	--comment-rail-left: calc(-1 * var(--comment-rail-offset) - 1px);
 	--comment-connector-width: calc(var(--comment-rail-offset) + var(--comment-checkbox-center) + 1px);
 	border-left: none;
 	border-radius: 4px;
 	display: grid;
-	column-gap: var(--comment-control-gap);
-	grid-template-columns: var(--comment-check) var(--comment-link-size) minmax(0, 1fr);
+	column-gap: var(--comment-content-gap);
+	grid-template-columns: var(--comment-check) minmax(0, 1fr);
 	margin-left: 0;
 	padding: var(--comment-pad-top) 0 10px var(--comment-left-pad);
 	position: relative;
@@ -5466,14 +5470,12 @@ fieldset {
 
 .comment-anchor-link {
 	align-items: center;
-	align-self: start;
 	border-radius: 4px;
 	color: var(--ink-4);
 	display: inline-grid;
+	flex: 0 0 auto;
 	height: var(--comment-link-size);
 	justify-content: center;
-	justify-self: center;
-	margin-top: calc(var(--comment-control-center) - var(--comment-link-size) / 2);
 	width: var(--comment-link-size);
 }
 
@@ -5523,7 +5525,7 @@ fieldset {
 }
 
 .comment-main {
-	max-width: 88ch;
+	max-width: 132ch;
 	min-width: 0;
 	position: relative;
 	width: 100%;
@@ -6816,7 +6818,7 @@ button.avatar-large-preview:not(:disabled),
 
 	.comment {
 		--comment-check: var(--comment-checkbox-size);
-		--comment-control-gap: 2px;
+		--comment-content-gap: 6px;
 		--comment-gap: 8px;
 		--comment-left-pad: 0px;
 		margin-left: 0;
