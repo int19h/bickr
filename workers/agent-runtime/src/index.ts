@@ -81,6 +81,14 @@ import {
 } from '@bickr/shared/social';
 import { type D1DatabaseLike, type KVNamespaceLike, kvKeys, readJson } from '@bickr/shared/storage';
 import {
+	botInferenceUsageRetentionDays,
+	botTokenSpendSummaryFromUsageRows,
+	listOwnerBotTokenSpendSummaries,
+	pruneBotInferenceUsage,
+	recordBotInferenceUsageBatch,
+	type BotInferenceUsageRecord,
+} from '@bickr/shared/token-spend';
+import {
 	InputError,
 	normalizeHandle,
 	normalizeHandleText,
@@ -453,6 +461,12 @@ type ProviderUsageRow = {
 	cached_tokens: number;
 	reasoning_tokens: number;
 	cost: number | null;
+};
+
+type ProviderUsageExportRow = ProviderUsageRow & {
+	id: number;
+	request_seq: number;
+	provider_base_url: string;
 };
 
 type ProviderTokenCalibrationSampleRow = {
@@ -1221,6 +1235,7 @@ const stopRequestStateKey = 'stop_requested_run_id';
 const toolUseRecoveryStateKey = 'tool_use_recovery';
 const pendingSpotlightTicksStateKey = 'pending_spotlight_ticks';
 const compactionReasoningFallbackStateKey = 'compaction_reasoning_fallback';
+const centralProviderUsageExportCursorStateKey = 'central_provider_usage_export_cursor';
 const contextBudgetCacheStateKey = (fingerprint: string): string => `context_budget:${fingerprint}`;
 const runtimeRunLeaseTimeoutMs = 15 * 60_000;
 const providerRequestTimeoutMs = 60_000;
@@ -1244,6 +1259,7 @@ const currentAvatarDescriptionSystemPrompt =
 const serviceBindingTimeoutMs = 30_000;
 const serviceBindingResponseBodyMaxBytes = 1_000_000;
 const scheduledDispatchTimeoutMs = 10_000;
+const providerUsageExportBatchSize = 100;
 const vectorBindingTimeoutMs = 10_000;
 const cloudflareBindingRetryMaxAttempts = 3;
 const cloudflareBindingRetryInitialDelayMs = 1_000;
@@ -3598,6 +3614,11 @@ export class BotRuntime {
 			}
 			return { runId, status: 'failed', error: message };
 		} finally {
+			try {
+				await this.exportRecentProviderUsage(bot);
+			} catch (error) {
+				console.warn('central provider usage export failed', botId, error);
+			}
 			if (this.activeRunId === runId) {
 				this.activeAbortController = null;
 				this.activeRunId = null;
@@ -6115,63 +6136,18 @@ export class BotRuntime {
 		rows: ProviderUsageRow[],
 		now = new Date(),
 	): BotTokenSpendSummary {
-		const windowEndMs = now.getTime();
-		const windowStartMs = windowEndMs - 7 * dayMs;
-		const last24StartMs = windowEndMs - dayMs;
-		const windowEnd = now.toISOString();
-		const last24Hours = emptySpendAccumulator();
-
-		for (const row of rows) {
-			const usedAt = Date.parse(row.created_at);
-			if (Number.isFinite(usedAt) && usedAt >= last24StartMs && usedAt <= windowEndMs) {
-				addSpendRow(last24Hours, row);
-			}
-		}
-
-		let currentPeriodRows: ProviderUsageRow[] = [];
-		let currentPeriodStartMs = windowEndMs;
-		const latestRow = rows[rows.length - 1];
-		if (latestRow?.requested_model === currentModel) {
-			let firstCurrentIndex = rows.length - 1;
-			while (firstCurrentIndex > 0 && rows[firstCurrentIndex - 1]?.requested_model === currentModel) {
-				firstCurrentIndex -= 1;
-			}
-			currentPeriodRows = rows.slice(firstCurrentIndex);
-			currentPeriodStartMs =
-				firstCurrentIndex > 0 ?
-					Math.max(windowStartMs, timestampMsOrFallback(currentPeriodRows[0]?.created_at, windowEndMs))
-				:	windowStartMs;
-		}
-
-		const average = emptySpendAccumulator();
-		for (const row of currentPeriodRows) {
-			addSpendRow(average, row);
-		}
-		const noCurrentModelUsage = currentPeriodRows.length === 0;
-		const dayCount = noCurrentModelUsage ? 0 : Math.max(1 / 24, (windowEndMs - currentPeriodStartMs) / dayMs);
-		const averageCost = spendAccumulatorCost(average);
-
-		return {
+		return botTokenSpendSummaryFromUsageRows(
 			botId,
 			currentModel,
-			generatedAt: windowEnd,
-			last24Hours: {
-				requestCount: last24Hours.requestCount,
-				windowStart: new Date(last24StartMs).toISOString(),
-				windowEnd,
-				cost: spendAccumulatorCost(last24Hours),
-				unknownCost: last24Hours.unknownCost,
-			},
-			average: {
-				requestCount: average.requestCount,
-				periodStart: new Date(currentPeriodStartMs).toISOString(),
-				periodEnd: windowEnd,
-				dayCount,
-				costPerDay: noCurrentModelUsage ? 0 : averageCost === null ? null : averageCost / dayCount,
-				unknownCost: average.unknownCost,
-				noCurrentModelUsage,
-			},
-		};
+			rows.map((row) => ({
+				botId,
+				createdAt: row.created_at,
+				runId: row.run_id,
+				requestedModel: row.requested_model,
+				cost: row.cost,
+			})),
+			now,
+		);
 	}
 
 	private contextWindowBreakdown(bot: BotDocument): BotContextWindowBreakdown | undefined {
@@ -6443,6 +6419,63 @@ export class BotRuntime {
 				until,
 			)
 			.toArray();
+	}
+
+	private providerUsageExportRows(since: string, afterId: number, limit: number): ProviderUsageExportRow[] {
+		return this.state.storage.sql
+			.exec<ProviderUsageExportRow>(
+				`SELECT id, created_at, run_id, request_seq, model, requested_model, response_model, provider_base_url,
+				        provider_name, context_window_tokens, prompt_tokens, completion_tokens, total_tokens,
+				        cached_tokens, reasoning_tokens, cost
+				 FROM provider_usage
+				 WHERE id > ?
+				   AND created_at >= ?
+				 ORDER BY id ASC
+				 LIMIT ?`,
+				afterId,
+				since,
+				limit,
+			)
+			.toArray();
+	}
+
+	private centralProviderUsageExportCursor(): number {
+		const record = this.runtimeStateRecord(centralProviderUsageExportCursorStateKey);
+		return Math.max(0, integerValue(record?.lastExportedProviderUsageId) ?? 0);
+	}
+
+	private setCentralProviderUsageExportCursor(lastExportedProviderUsageId: number, exportedAt: string): void {
+		this.setRuntimeState(centralProviderUsageExportCursorStateKey, {
+			lastExportedProviderUsageId,
+			exportedAt,
+		});
+	}
+
+	private async exportRecentProviderUsage(bot: BotDocument, now = new Date()): Promise<void> {
+		const since = new Date(now.getTime() - botInferenceUsageRetentionDays * dayMs).toISOString();
+		const exportedAt = now.toISOString();
+		const initialCursor = this.centralProviderUsageExportCursor();
+		let afterId = initialCursor;
+		let maxExportedProviderUsageId = initialCursor;
+		for (;;) {
+			const rows = this.providerUsageExportRows(since, afterId, providerUsageExportBatchSize);
+			if (rows.length === 0) {
+				break;
+			}
+			await recordBotInferenceUsageBatch(
+				this.env.BICKR_D1,
+				rows.map((row) => centralInferenceUsageRecord(bot, row, exportedAt)),
+			);
+			maxExportedProviderUsageId = Math.max(maxExportedProviderUsageId, ...rows.map((row) => row.id));
+			afterId = maxExportedProviderUsageId;
+			if (rows.length < providerUsageExportBatchSize) {
+				break;
+			}
+		}
+		if (maxExportedProviderUsageId > initialCursor) {
+			this.setCentralProviderUsageExportCursor(maxExportedProviderUsageId, exportedAt);
+		}
+		await pruneBotInferenceUsage(this.env.BICKR_D1, now);
 	}
 
 	private latestLoopProviderUsage(): ProviderLoopUsageRow | null {
@@ -8105,6 +8138,11 @@ export class BotRuntime {
 			return { messageCount: 0 };
 		}
 		await this.compactLoopMessageRowsInBatches(bot, settings, runId, new AbortController().signal, rows, 'manual', {});
+		try {
+			await this.exportRecentProviderUsage(bot);
+		} catch (error) {
+			console.warn('central provider usage export failed', botId, error);
+		}
 		return { fromSeq: rows[0]?.seq, toSeq: rows[rows.length - 1]?.seq, messageCount: rows.length };
 	}
 
@@ -10865,6 +10903,30 @@ export async function handleAgentRuntimeRequest(
 			return ok({ reindex: result, coordinator: objectId });
 		}
 
+		const ownedBotSpendMatch = /^\/users\/([^/]+)\/bots\/token-spend$/.exec(url.pathname);
+		if (ownedBotSpendMatch && request.method === 'GET') {
+			const userId = requireUserMatch(request, decodeURIComponent(ownedBotSpendMatch[1] ?? ''));
+			const now = new Date();
+			const [owner, bots] = await Promise.all([
+				userById(env.BICKR_KV, userId),
+				listUserBots(env.BICKR_KV, env.BICKR_D1, userId),
+			]);
+			const summaries = await listOwnerBotTokenSpendSummaries(
+				env.BICKR_D1,
+				userId,
+				bots.map((bot) => ({
+					botId: bot.id,
+					currentModel: effectiveProviderSettingsForBot(bot, owner, env).model,
+				})),
+				now,
+			);
+			return ok({
+				generatedAt: now.toISOString(),
+				spendByBotId: Object.fromEntries(summaries.map((summary) => [summary.botId, summary])),
+				coordinator: objectId,
+			});
+		}
+
 		const createMatch = /^\/users\/([^/]+)\/worlds\/([^/]+)\/bots$/.exec(url.pathname);
 		if (request.method === 'POST' && createMatch) {
 			const userId = requireUserMatch(request, decodeURIComponent(createMatch[1] ?? ''));
@@ -11069,6 +11131,10 @@ export default {
 			(url.pathname === '/search/entities' && request.method === 'GET') ||
 			(url.pathname === '/search/reindex-vectors' && request.method === 'POST')
 		) {
+			return handleAgentRuntimeRequest(request, env);
+		}
+
+		if (/^\/users\/[^/]+\/bots\/token-spend$/.test(url.pathname) && request.method === 'GET') {
 			return handleAgentRuntimeRequest(request, env);
 		}
 
@@ -13137,6 +13203,32 @@ function providerResponseLogPayload(response: ProviderResponse, status: BotLoopM
 	};
 }
 
+function centralInferenceUsageRecord(bot: BotDocument, row: ProviderUsageExportRow, exportedAt: string): BotInferenceUsageRecord {
+	return {
+		botId: bot.id,
+		ownerUserId: bot.ownerUserId,
+		homeWorldId: bot.homeWorldId,
+		homeWorldHandle: bot.homeWorldHandle,
+		sourceUsageId: row.id,
+		runId: row.run_id,
+		requestSeq: row.request_seq,
+		createdAt: row.created_at,
+		requestedModel: row.requested_model,
+		responseModel: row.response_model,
+		model: row.model,
+		contextWindowTokens: row.context_window_tokens,
+		providerBaseUrl: row.provider_base_url,
+		providerName: row.provider_name,
+		promptTokens: row.prompt_tokens,
+		completionTokens: row.completion_tokens,
+		totalTokens: row.total_tokens,
+		cachedTokens: row.cached_tokens,
+		reasoningTokens: row.reasoning_tokens,
+		cost: row.cost,
+		exportedAt,
+	};
+}
+
 function emptyUsageTotals(): BotTokenUsageTotals {
 	return {
 		requestCount: 0,
@@ -13147,38 +13239,6 @@ function emptyUsageTotals(): BotTokenUsageTotals {
 		reasoningTokens: 0,
 		cost: null,
 	};
-}
-
-type SpendAccumulator = {
-	requestCount: number;
-	cost: number;
-	unknownCost: boolean;
-};
-
-function emptySpendAccumulator(): SpendAccumulator {
-	return {
-		requestCount: 0,
-		cost: 0,
-		unknownCost: false,
-	};
-}
-
-function addSpendRow(total: SpendAccumulator, row: ProviderUsageRow): void {
-	total.requestCount += 1;
-	if (row.cost === null) {
-		total.unknownCost = true;
-	} else {
-		total.cost += row.cost;
-	}
-}
-
-function spendAccumulatorCost(total: SpendAccumulator): number | null {
-	return total.unknownCost ? null : total.cost;
-}
-
-function timestampMsOrFallback(value: string | null | undefined, fallback: number): number {
-	const parsed = Date.parse(value ?? '');
-	return Number.isFinite(parsed) ? parsed : fallback;
 }
 
 function addUsageRow(total: BotTokenUsageTotals, row: ProviderUsageRow): void {

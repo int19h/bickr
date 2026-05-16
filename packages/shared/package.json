@@ -17,6 +17,7 @@
 		"./search": "./src/search.ts",
 		"./social": "./src/social.ts",
 		"./storage": "./src/storage.ts",
+		"./token-spend": "./src/token-spend.ts",
 		"./validation": "./src/validation.ts",
 		"./http": "./src/http.ts"
 	}

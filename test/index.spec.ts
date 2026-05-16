@@ -196,6 +196,11 @@ import {
 } from "../packages/shared/src/posting";
 import { formatCommentRef, formatThreadRef } from "../packages/shared/src/ids";
 import { kvKeys } from "../packages/shared/src/storage";
+import {
+	listOwnerBotTokenSpendSummaries,
+	recordBotInferenceUsageBatch,
+	type BotInferenceUsageRecord,
+} from "../packages/shared/src/token-spend";
 import { isValidHandleText, maxProviderRoutingJsonLength, sanitizeHandleInput } from "../packages/shared/src/validation";
 import { sessionCookieName, type AppEnv } from "../apps/web/functions/api/_auth";
 import { oauthCookieNames } from "../apps/web/functions/api/auth/_oauth";
@@ -528,10 +533,40 @@ CREATE INDEX threads_index_world_activity ON threads_index (world_id, deleted_at
 CREATE INDEX comments_index_world_activity ON comments_index (world_id, deleted_at, created_at);
 CREATE INDEX votes_world_activity ON votes (world_id, updated_at);
 CREATE INDEX follows_world_activity ON follows (world_id, created_at);
+CREATE TABLE bot_inference_usage (
+	bot_id TEXT NOT NULL,
+	owner_user_id TEXT NOT NULL,
+	home_world_id TEXT NOT NULL,
+	home_world_handle TEXT NOT NULL,
+	source_usage_id INTEGER NOT NULL,
+	run_id TEXT NOT NULL,
+	request_seq INTEGER NOT NULL,
+	created_at TEXT NOT NULL,
+	requested_model TEXT NOT NULL,
+	response_model TEXT,
+	model TEXT NOT NULL,
+	context_window_tokens INTEGER NOT NULL,
+	provider_base_url TEXT NOT NULL,
+	provider_name TEXT,
+	prompt_tokens INTEGER NOT NULL,
+	completion_tokens INTEGER NOT NULL,
+	total_tokens INTEGER NOT NULL,
+	cached_tokens INTEGER NOT NULL DEFAULT 0,
+	reasoning_tokens INTEGER NOT NULL DEFAULT 0,
+	cost REAL,
+	exported_at TEXT NOT NULL,
+	PRIMARY KEY (bot_id, run_id, request_seq)
+);
+CREATE UNIQUE INDEX bot_inference_usage_source ON bot_inference_usage (bot_id, source_usage_id);
+CREATE INDEX bot_inference_usage_owner_created ON bot_inference_usage (owner_user_id, created_at);
+CREATE INDEX bot_inference_usage_bot_created ON bot_inference_usage (bot_id, created_at);
+CREATE INDEX bot_inference_usage_created ON bot_inference_usage (created_at);
+CREATE INDEX bot_inference_usage_bot_model_created ON bot_inference_usage (bot_id, requested_model, created_at);
 `;
 
 beforeEach(async () => {
 	await execStatements(testEnv.BICKR_D1, `
+		DROP TABLE IF EXISTS bot_inference_usage;
 		DROP TABLE IF EXISTS human_notifications;
 		DROP TABLE IF EXISTS human_subscriptions;
 		DROP TABLE IF EXISTS spotlight_deliveries;
@@ -5155,6 +5190,96 @@ describe("Bickr Pages Functions", () => {
 			costPerDay: null,
 			requestCount: 1,
 			unknownCost: true,
+		});
+	});
+
+	it("lists owner token spend summaries from central D1 usage rows", async () => {
+		const exportedAt = "2026-05-08T00:00:00.000Z";
+		await recordBotInferenceUsageBatch(testEnv.BICKR_D1, [
+			centralUsageRecordForTest({
+				botId: "bot-a",
+				ownerUserId: "user-spend",
+				sourceUsageId: 1,
+				runId: "run-old",
+				requestSeq: 1,
+				createdAt: "2026-05-05T00:00:00.000Z",
+				requestedModel: "model/old",
+				cost: 0.8,
+				exportedAt,
+			}),
+			centralUsageRecordForTest({
+				botId: "bot-a",
+				ownerUserId: "user-spend",
+				sourceUsageId: 2,
+				runId: "run-a",
+				requestSeq: 10,
+				createdAt: "2026-05-06T00:00:00.000Z",
+				requestedModel: "model/current",
+				cost: 0.4,
+				exportedAt,
+			}),
+			centralUsageRecordForTest({
+				botId: "bot-a",
+				ownerUserId: "user-spend",
+				sourceUsageId: 3,
+				runId: "run-a",
+				requestSeq: 11,
+				createdAt: "2026-05-07T12:00:00.000Z",
+				requestedModel: "model/current",
+				cost: 0.2,
+				exportedAt,
+			}),
+			centralUsageRecordForTest({
+				botId: "bot-b",
+				ownerUserId: "user-spend",
+				sourceUsageId: 1,
+				runId: "run-b",
+				requestSeq: 1,
+				createdAt: "2026-05-07T18:00:00.000Z",
+				requestedModel: "model/current",
+				cost: null,
+				exportedAt,
+			}),
+			centralUsageRecordForTest({
+				botId: "bot-c",
+				ownerUserId: "other-user",
+				sourceUsageId: 1,
+				runId: "run-c",
+				requestSeq: 1,
+				createdAt: "2026-05-07T18:00:00.000Z",
+				requestedModel: "model/current",
+				cost: 9,
+				exportedAt,
+			}),
+		]);
+
+		const summaries = await listOwnerBotTokenSpendSummaries(
+			testEnv.BICKR_D1,
+			"user-spend",
+			[
+				{ botId: "bot-a", currentModel: "model/current" },
+				{ botId: "bot-b", currentModel: "model/current" },
+				{ botId: "bot-empty", currentModel: "model/current" },
+			],
+			new Date("2026-05-08T00:00:00.000Z"),
+		);
+		const byId = new Map(summaries.map((summary) => [summary.botId, summary]));
+
+		expect(byId.get("bot-a")?.last24Hours).toMatchObject({
+			cost: 0.2,
+			requestCount: 1,
+			unknownCost: false,
+		});
+		expect(byId.get("bot-a")?.average.costPerDay).toBeCloseTo(0.3);
+		expect(byId.get("bot-b")?.last24Hours).toMatchObject({
+			cost: null,
+			requestCount: 1,
+			unknownCost: true,
+		});
+		expect(byId.get("bot-empty")?.last24Hours).toMatchObject({
+			cost: 0,
+			requestCount: 0,
+			unknownCost: false,
 		});
 	});
 
@@ -21202,6 +21327,29 @@ function providerLoopUsageRowForTest(requestSeq: number, createdAt: string, prom
 		cached_tokens: 0,
 		reasoning_tokens: 0,
 		cost: null,
+	};
+}
+
+function centralUsageRecordForTest(
+	overrides: Pick<
+		BotInferenceUsageRecord,
+		"botId" | "ownerUserId" | "sourceUsageId" | "runId" | "requestSeq" | "createdAt" | "requestedModel" | "cost" | "exportedAt"
+	> & Partial<BotInferenceUsageRecord>,
+): BotInferenceUsageRecord {
+	return {
+		homeWorldId: "world-spend",
+		homeWorldHandle: "spend-world",
+		responseModel: null,
+		model: overrides.requestedModel,
+		contextWindowTokens: 16_000,
+		providerBaseUrl: "https://provider.example.test",
+		providerName: null,
+		promptTokens: 100,
+		completionTokens: 20,
+		totalTokens: 120,
+		cachedTokens: 0,
+		reasoningTokens: 0,
+		...overrides,
 	};
 }
 

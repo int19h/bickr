@@ -8781,19 +8781,9 @@ function MyBotsScreen({
 	const [selectedBotIds, setSelectedBotIds] = useState<Set<string>>(() => new Set());
 	const [sort, setSort] = useState<MyBotsSortState>(() => readMyBotsSortState());
 	const [spendByBotId, setSpendByBotId] = useState<Record<string, MyBotSpendLoadState>>({});
-	const spendByBotIdRef = useRef(spendByBotId);
-	const spendFetchMountedRef = useRef(true);
 	const selectAllRef = useRef<HTMLInputElement>(null);
 	const toast = useContext(ToastContext);
-
-	const spendFetchBotIds = useMemo(() => {
-		const worldsByHandle = new Map(worlds.map((world) => [world.handle, world]));
-		return bots.flatMap((bot) => {
-			const world = worldsByHandle.get(bot.homeWorldHandle) ?? null;
-			return matchesFilter(botFilter, bot.handle, bot.displayName, bot.shortBio, bot.homeWorldHandle, world?.name) ? [bot.id] : [];
-		});
-	}, [botFilter, bots, worlds]);
-	const spendFetchKey = spendFetchBotIds.join("\u0000");
+	const spendFetchKey = useMemo(() => bots.map((bot) => bot.id).sort(compareHandles).join("\u0000"), [bots]);
 
 	const records = useMemo<MyBotTableRecord[]>(() => {
 		const worldsByHandle = new Map(worlds.map((world) => [world.handle, world]));
@@ -8831,44 +8821,42 @@ function MyBotsScreen({
 	}, [records, sort]);
 
 	useEffect(() => {
-		spendByBotIdRef.current = spendByBotId;
-	}, [spendByBotId]);
-
-	useEffect(() => {
 		writeMyBotsSortState(sort);
 	}, [sort]);
 
 	useEffect(() => {
-		return () => {
-			spendFetchMountedRef.current = false;
-		};
-	}, []);
-
-	useEffect(() => {
-		const missingBotIds = spendFetchBotIds.filter((botId) => !spendByBotIdRef.current[botId]);
-		if (missingBotIds.length === 0) {
+		const botIds = bots.map((bot) => bot.id);
+		if (botIds.length === 0) {
+			setSpendByBotId({});
 			return;
 		}
 		setSpendByBotId((current) => {
-			const next = { ...current };
-			for (const botId of missingBotIds) {
-				if (!next[botId]) {
-					next[botId] = { status: "loading" };
-				}
+			const next: Record<string, MyBotSpendLoadState> = {};
+			for (const botId of botIds) {
+				next[botId] = current[botId] ?? { status: "loading" };
 			}
-			spendByBotIdRef.current = next;
 			return next;
 		});
-		void runBounded(missingBotIds, 4, async (botId) => {
-			const result = await api<{ spend: BotTokenSpendSummary }>(`/api/me/bots/${encodeURIComponent(botId)}/runtime/token-spend`);
-			if (!spendFetchMountedRef.current) {
+		let cancelled = false;
+		void (async () => {
+			const result = await api<{ spendByBotId: Record<string, BotTokenSpendSummary> }>("/api/me/bots/token-spend");
+			if (cancelled) {
 				return;
 			}
-			setSpendByBotId((current) => ({
-				...current,
-				[botId]: result.ok ? { status: "loaded", summary: result.data.spend } : { status: "error", message: result.message },
-			}));
-		});
+			setSpendByBotId(() => {
+				const next: Record<string, MyBotSpendLoadState> = {};
+				for (const botId of botIds) {
+					const summary = result.ok ? result.data.spendByBotId[botId] : undefined;
+					next[botId] = result.ok && summary ?
+						{ status: "loaded", summary }
+					:	{ status: "error", message: result.ok ? "Token spend summary was missing." : result.message };
+				}
+				return next;
+			});
+		})();
+		return () => {
+			cancelled = true;
+		};
 	}, [spendFetchKey]);
 
 	const visibleBotIds = useMemo(
@@ -16678,24 +16666,6 @@ function writeMyBotsSortState(sort: MyBotsSortState): void {
 	} catch {
 		// Browser storage can be unavailable; the table still sorts for the current render.
 	}
-}
-
-async function runBounded<T>(
-	items: readonly T[],
-	limit: number,
-	worker: (item: T) => Promise<void>,
-): Promise<void> {
-	let index = 0;
-	const workerCount = Math.min(Math.max(1, Math.floor(limit)), items.length);
-	await Promise.all(Array.from({ length: workerCount }, async () => {
-		while (index < items.length) {
-			const item = items[index];
-			index += 1;
-			if (item !== undefined) {
-				await worker(item);
-			}
-		}
-	}));
 }
 
 function threadRootComment(thread: ThreadDocument): CommentDocument | null {
