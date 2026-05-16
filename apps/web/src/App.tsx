@@ -8503,8 +8503,6 @@ function BotEdit({
 						</div>
 						<InferenceProviderFields
 							draft={draft.inference}
-							inheritedApiKeySet={Boolean(inferenceInheritance?.openRouterApiKeySet ?? inferenceInheritance?.apiKeySet)}
-							inheritedBaseUrl={inferenceInheritance?.baseUrl}
 							inheritedSettings={inferenceInheritedSettings}
 							onChange={(inference) => setDraft((current) => ({ ...current, inference }))}
 							scope="bot"
@@ -8517,8 +8515,6 @@ function BotEdit({
 						</div>
 						<AgenticLoopInferenceFields
 							draft={draft.inference}
-							inheritedApiKeySet={Boolean(inferenceInheritance?.openRouterApiKeySet ?? inferenceInheritance?.apiKeySet)}
-							inheritedBaseUrl={inferenceInheritance?.baseUrl}
 							inheritedSettings={inferenceInheritedSettings}
 							modelSuggestions={modelSuggestions}
 							onChange={(inference) => setDraft((current) => ({ ...current, inference }))}
@@ -11176,28 +11172,17 @@ function AuthIdentityRuntimeRow({
 
 function InferenceProviderFields({
 	draft,
-	inheritedApiKeySet = false,
-	inheritedBaseUrl,
 	inheritedSettings,
 	onChange,
 	scope,
 }: {
 	draft: InferenceDraft;
-	inheritedApiKeySet?: boolean;
-	inheritedBaseUrl?: string;
 	inheritedSettings?: BotInferenceSettings | null;
 	onChange: (draft: InferenceDraft) => void;
 	scope: "bot" | "profile";
 }) {
-	const inheritedContext = useMemo<InferenceModelUnlockContext>(
-		() => ({
-			apiKeySet: inheritedApiKeySet,
-			baseUrl: inheritedBaseUrl,
-		}),
-		[inheritedApiKeySet, inheritedBaseUrl],
-	);
 	function patch(update: Partial<InferenceDraft>): void {
-		onChange(normalizeInferenceDraftModel({ ...draft, ...update }, inheritedContext));
+		onChange({ ...draft, ...update });
 	}
 	const baseUrlPlaceholder = effectiveInferenceDraftBaseUrl(draft, inheritedSettings);
 
@@ -11257,167 +11242,149 @@ function InferenceProviderFields({
 
 function AgenticLoopInferenceFields({
 	draft,
-	inheritedApiKeySet = false,
-	inheritedBaseUrl,
 	inheritedSettings,
 	modelSuggestions = [],
 	onChange,
 	scope,
 }: {
 	draft: InferenceDraft;
-	inheritedApiKeySet?: boolean;
-	inheritedBaseUrl?: string;
 	inheritedSettings?: BotInferenceSettings | null;
 	modelSuggestions?: string[];
 	onChange: (draft: InferenceDraft) => void;
-		scope: "bot" | "profile";
-	}) {
-		const modelListId = useId();
-	const inheritedContext = useMemo<InferenceModelUnlockContext>(
-		() => ({
-			apiKeySet: inheritedApiKeySet,
-			baseUrl: inheritedBaseUrl,
-		}),
-		[inheritedApiKeySet, inheritedBaseUrl],
-	);
-		const modelLocked = !canCustomizeInferenceModel(draft, inheritedContext);
-		const fallbackContext = inferenceFallbackContextForDraft(draft, inheritedSettings);
-		const modelPlaceholder = effectiveInferenceDraftModel(draft, fallbackContext);
-		const temperaturePlaceholder = effectiveNumberPlaceholder(fallbackContext?.temperature, 0.9);
-		const topKPlaceholder = effectiveOptionalNumberPlaceholder(fallbackContext?.topK);
-		const topPPlaceholder = effectiveNumberPlaceholder(fallbackContext?.topP, 1);
-		const minPPlaceholder = effectiveOptionalNumberPlaceholder(fallbackContext?.minP);
-		const frequencyPenaltyPlaceholder = effectiveOptionalNumberPlaceholder(fallbackContext?.frequencyPenalty);
-		const presencePenaltyPlaceholder = effectiveOptionalNumberPlaceholder(fallbackContext?.presencePenalty);
-		const repetitionPenaltyPlaceholder = effectiveOptionalNumberPlaceholder(fallbackContext?.repetitionPenalty);
-		function patch(update: Partial<InferenceDraft>): void {
-			const updated = normalizeInferenceDraftModel({ ...draft, ...update }, inheritedContext);
-			onChange(rebaseInferenceDraftForFallbackChange(updated, fallbackContext, inferenceFallbackContextForDraft(updated, inheritedSettings)));
-		}
+	scope: "bot" | "profile";
+}) {
+	const modelListId = useId();
+	const fallbackContext = inferenceFallbackContextForDraft(draft, inheritedSettings);
+	const modelPlaceholder = effectiveInferenceDraftModel(draft, fallbackContext);
+	const temperaturePlaceholder = effectiveNumberPlaceholder(fallbackContext?.temperature, 0.9);
+	const topKPlaceholder = effectiveOptionalNumberPlaceholder(fallbackContext?.topK);
+	const topPPlaceholder = effectiveNumberPlaceholder(fallbackContext?.topP, 1);
+	const minPPlaceholder = effectiveOptionalNumberPlaceholder(fallbackContext?.minP);
+	const frequencyPenaltyPlaceholder = effectiveOptionalNumberPlaceholder(fallbackContext?.frequencyPenalty);
+	const presencePenaltyPlaceholder = effectiveOptionalNumberPlaceholder(fallbackContext?.presencePenalty);
+	const repetitionPenaltyPlaceholder = effectiveOptionalNumberPlaceholder(fallbackContext?.repetitionPenalty);
+	function patch(update: Partial<InferenceDraft>): void {
+		const updated = { ...draft, ...update };
+		onChange(rebaseInferenceDraftForFallbackChange(updated, fallbackContext, inferenceFallbackContextForDraft(updated, inheritedSettings)));
+	}
 
-		return (
-			<div className="field-stack">
-				<div className="inference-row model-reasoning-row">
-					<Field
-						help={
-							modelLocked ?
-								"Using the default model. Add an API key or custom base URL to choose another model."
-						: scope === "bot" ?
-							"Blank inherits the profile or environment model."
+	return (
+		<div className="field-stack">
+			<div className="inference-row model-reasoning-row">
+				<Field
+					help={
+						scope === "bot" ?
+							"Blank inherits the linked source, profile, or environment model."
 						:	"Blank uses the environment model."
 					}
 					label="Model"
 				>
 					<input
 						className="input"
-						disabled={modelLocked}
 						list={modelSuggestions.length > 0 ? modelListId : undefined}
 						onChange={(event) => patch({ model: event.target.value })}
 						placeholder={modelPlaceholder}
-						value={modelLocked ? "" : draft.model}
+						value={draft.model}
 					/>
-							{modelSuggestions.length > 0 && (
-								<datalist id={modelListId}>
-									{modelSuggestions.map((model) => (
-										<option key={model} value={model} />
-									))}
-								</datalist>
-							)}
-					</Field>
-					<Field label="Reasoning">
-						<select
-							className="input reasoning-select"
-							onChange={(event) => patch({ reasoningEffort: event.target.value })}
-							value={draft.reasoningEffort}
-						>
-							{reasoningEffortOptions.map((option) => (
-								<option key={option.value} value={option.value}>
-									{option.label}
-								</option>
+					{modelSuggestions.length > 0 && (
+						<datalist id={modelListId}>
+							{modelSuggestions.map((model) => (
+								<option key={model} value={model} />
 							))}
-						</select>
-					</Field>
-					<Field label="Tool calls">
-						<select
-							className="input reasoning-select"
-							onChange={(event) => patch({ toolCalls: event.target.value })}
-							value={draft.toolCalls}
-						>
-							{toolCallOptions.map((option) => (
-								<option key={option.value} value={option.value}>
-									{option.label}
-								</option>
-							))}
-						</select>
-					</Field>
-				</div>
-				<div className="inference-row two">
-					<Field className="checkbox-help-field" help="Turn off for providers that reject tool-enabled requests ending with participant narration.">
-						<label className="checkbox-line">
-							<input
-								checked={draft.supportsPrefill}
-								onChange={(event) => patch({ supportsPrefill: event.target.checked })}
-								type="checkbox"
-							/>
-							<span>Supports prefill</span>
-						</label>
-					</Field>
-					<Field
-						help="How context compaction asks for the memory summary."
-						label="Compaction mode"
+						</datalist>
+					)}
+				</Field>
+				<Field label="Reasoning">
+					<select
+						className="input reasoning-select"
+						onChange={(event) => patch({ reasoningEffort: event.target.value })}
+						value={draft.reasoningEffort}
 					>
-						<select
-							className="input reasoning-select"
-							onChange={(event) => patch({ compactionMode: event.target.value as BotCompactionMode })}
-							value={draft.compactionMode}
-						>
-							{compactionModeOptions.map((option) => (
-								<option key={option.value} value={option.value}>
-									{option.label}
-								</option>
-							))}
-						</select>
-					</Field>
-				</div>
-				<div className="inference-row four">
-					<Field label="Temperature">
+						{reasoningEffortOptions.map((option) => (
+							<option key={option.value} value={option.value}>
+								{option.label}
+							</option>
+						))}
+					</select>
+				</Field>
+				<Field label="Tool calls">
+					<select
+						className="input reasoning-select"
+						onChange={(event) => patch({ toolCalls: event.target.value })}
+						value={draft.toolCalls}
+					>
+						{toolCallOptions.map((option) => (
+							<option key={option.value} value={option.value}>
+								{option.label}
+							</option>
+						))}
+					</select>
+				</Field>
+			</div>
+			<div className="inference-row two">
+				<Field className="checkbox-help-field" help="Turn off for providers that reject tool-enabled requests ending with participant narration.">
+					<label className="checkbox-line">
 						<input
-							className="input"
+							checked={draft.supportsPrefill}
+							onChange={(event) => patch({ supportsPrefill: event.target.checked })}
+							type="checkbox"
+						/>
+						<span>Supports prefill</span>
+					</label>
+				</Field>
+				<Field help="How context compaction asks for the memory summary." label="Compaction mode">
+					<select
+						className="input reasoning-select"
+						onChange={(event) => patch({ compactionMode: event.target.value as BotCompactionMode })}
+						value={draft.compactionMode}
+					>
+						{compactionModeOptions.map((option) => (
+							<option key={option.value} value={option.value}>
+								{option.label}
+							</option>
+						))}
+					</select>
+				</Field>
+			</div>
+			<div className="inference-row four">
+				<Field label="Temperature">
+					<input
+						className="input"
 						max="2"
 						min="0"
 						onChange={(event) => patch({ temperature: event.target.value })}
 						placeholder={temperaturePlaceholder}
 						step="0.05"
 						type="number"
-							value={draft.temperature}
-						/>
-					</Field>
-					<Field label="Top K">
-						<input
-							className="input"
-							min="0"
-							onChange={(event) => patch({ topK: event.target.value })}
-							placeholder={topKPlaceholder}
-							step="1"
-							type="number"
-							value={draft.topK}
-						/>
-					</Field>
-					<Field label="Top P">
-						<input
-							className="input"
+						value={draft.temperature}
+					/>
+				</Field>
+				<Field label="Top K">
+					<input
+						className="input"
+						min="0"
+						onChange={(event) => patch({ topK: event.target.value })}
+						placeholder={topKPlaceholder}
+						step="1"
+						type="number"
+						value={draft.topK}
+					/>
+				</Field>
+				<Field label="Top P">
+					<input
+						className="input"
 						max="1"
 						min="0"
 						onChange={(event) => patch({ topP: event.target.value })}
 						placeholder={topPPlaceholder}
 						step="0.01"
 						type="number"
-							value={draft.topP}
-						/>
-					</Field>
-					<Field label="Min P">
-						<input
-							className="input"
+						value={draft.topP}
+					/>
+				</Field>
+				<Field label="Min P">
+					<input
+						className="input"
 						max="1"
 						min="0"
 						onChange={(event) => patch({ minP: event.target.value })}
@@ -11425,13 +11392,13 @@ function AgenticLoopInferenceFields({
 						step="0.01"
 						type="number"
 						value={draft.minP}
-						/>
-					</Field>
-				</div>
-				<div className="inference-row three">
-					<Field label="Frequency penalty">
-						<input
-							className="input"
+					/>
+				</Field>
+			</div>
+			<div className="inference-row three">
+				<Field label="Frequency penalty">
+					<input
+						className="input"
 						max="2"
 						min="-2"
 						onChange={(event) => patch({ frequencyPenalty: event.target.value })}
@@ -11450,12 +11417,12 @@ function AgenticLoopInferenceFields({
 						placeholder={presencePenaltyPlaceholder}
 						step="0.05"
 						type="number"
-							value={draft.presencePenalty}
-						/>
-					</Field>
-					<Field label="Repetition penalty">
-						<input
-							className="input"
+						value={draft.presencePenalty}
+					/>
+				</Field>
+				<Field label="Repetition penalty">
+					<input
+						className="input"
 						max="2"
 						min="0"
 						onChange={(event) => patch({ repetitionPenalty: event.target.value })}
@@ -11463,17 +11430,17 @@ function AgenticLoopInferenceFields({
 						step="0.05"
 						type="number"
 						value={draft.repetitionPenalty}
-						/>
-					</Field>
-				</div>
-				<ProviderRoutingField
-					onChange={(providerRouting) => patch({ providerRouting })}
-					placeholder={providerRoutingPlaceholderForInheritance(fallbackContext)}
-					value={draft.providerRouting}
-				/>
+					/>
+				</Field>
 			</div>
-		);
-	}
+			<ProviderRoutingField
+				onChange={(providerRouting) => patch({ providerRouting })}
+				placeholder={providerRoutingPlaceholderForInheritance(fallbackContext)}
+				value={draft.providerRouting}
+			/>
+		</div>
+	);
+}
 
 const openRouterProviderRoutingDocsUrl = "https://openrouter.ai/docs/guides/routing/provider-selection";
 const openRouterImageGenerationDocsUrl = "https://openrouter.ai/docs/guides/overview/multimodal/image-generation#aspect-ratio";
@@ -18218,7 +18185,7 @@ function inferenceInputFromDraft(
 	inherited?: InferenceModelUnlockContext,
 	options: { includeReasoningPrefill?: boolean; includeImageGeneration?: boolean; includeTranslation?: boolean } = {},
 ): BotInferenceSettingsInput {
-	const normalized = normalizeInferenceDraftModel(draft, inherited);
+	const normalized = draft;
 	const inheritedCompactionMode = inherited?.compactionMode ?? "structured_output";
 	const inheritedSupportsPrefill = inherited?.supportsPrefill ?? true;
 	const inheritedReasoningEffort = inherited?.reasoningEffort ?? "default";
@@ -18356,31 +18323,6 @@ function isOpenRouterProviderBaseUrl(baseUrl: string): boolean {
 	}
 }
 
-function normalizeInferenceDraftModel(
-	draft: InferenceDraft,
-	inherited?: InferenceModelUnlockContext,
-): InferenceDraft {
-	if (canCustomizeInferenceModel(draft, inherited)) {
-		return draft;
-	}
-	return draft.model || draft.translationModel || draft.imageGenerationModel ?
-			{ ...draft, model: "", translationModel: "", imageGenerationModel: "" }
-		:	draft;
-}
-
-function canCustomizeInferenceModel(
-	draft: InferenceDraft,
-	inherited?: InferenceModelUnlockContext,
-): boolean {
-	return (
-		Boolean(draft.openRouterApiKey.trim()) ||
-		(draft.openRouterApiKeySet && !draft.clearOpenRouterApiKey) ||
-		Boolean(draft.baseUrl.trim()) ||
-		Boolean(inherited?.apiKeySet || inherited?.openRouterApiKeySet || inherited?.openRouterApiKey?.trim()) ||
-		Boolean(inherited?.baseUrl?.trim())
-	);
-}
-
 function botPromptBudgetRequestKey(
 	botId: string,
 	botHandle: string,
@@ -18500,12 +18442,50 @@ function botEditableInferenceSettings(bot: BotSummary): BotInferenceSettings {
 	return bot.localOverrides?.inferenceSettings ?? bot.inferenceSettings;
 }
 
+function inferenceSettingsWithProviderConnectionFallback(
+	settings: BotInferenceSettings,
+	fallback?: BotInferenceSettings | null,
+): BotInferenceSettings {
+	const next = { ...settings };
+	if (!inferenceSettingsHasProviderCredential(next)) {
+		if (fallback?.openRouterApiKey) {
+			next.openRouterApiKey = fallback.openRouterApiKey;
+		}
+		if (fallback?.openRouterApiKeySet) {
+			next.openRouterApiKeySet = fallback.openRouterApiKeySet;
+		}
+	}
+	if (!next.baseUrl?.trim() && fallback?.baseUrl?.trim()) {
+		next.baseUrl = fallback.baseUrl;
+	}
+	return next;
+}
+
+function inferenceSettingsWithCascadeFallback(
+	settings: BotInferenceSettings | null | undefined,
+	fallback?: BotInferenceSettings | null,
+): BotInferenceSettings | null | undefined {
+	if (!settings) {
+		return fallback;
+	}
+	if (settings.model?.trim()) {
+		return inferenceSettingsWithProviderConnectionFallback(settings, fallback);
+	}
+	return inferenceSettingsWithProviderConnectionFallback({ ...(fallback ?? {}), ...settings }, fallback);
+}
+
+function inferenceSettingsHasProviderCredential(settings: BotInferenceSettings): boolean {
+	return Boolean(settings.openRouterApiKeySet || settings.openRouterApiKey?.trim());
+}
+
 function cloneAwareInferenceInheritedSettingsForSettings(
 	bot: BotSummary,
 	settings: Pick<BotInferenceSettings, "model">,
 	ownerInferenceSettings?: BotInferenceSettings | null,
 ): BotInferenceSettings | null | undefined {
-	return bot.cloneSource?.linked && !settings.model?.trim() ? bot.inferenceSettings : ownerInferenceSettings;
+	return bot.cloneSource?.linked && !settings.model?.trim() ?
+			inferenceSettingsWithCascadeFallback(bot.inferenceSettings, ownerInferenceSettings)
+		:	ownerInferenceSettings;
 }
 
 function cloneAwareInferenceFallbackForSettings(
@@ -18524,7 +18504,9 @@ function cloneAwareInferenceInheritedSettingsForDraft(
 	draft: Pick<InferenceDraft, "model">,
 	ownerInferenceSettings?: BotInferenceSettings | null,
 ): BotInferenceSettings | null | undefined {
-	return bot.cloneSource?.linked && !draft.model.trim() ? bot.inferenceSettings : ownerInferenceSettings;
+	return bot.cloneSource?.linked && !draft.model.trim() ?
+			inferenceSettingsWithCascadeFallback(bot.inferenceSettings, ownerInferenceSettings)
+		:	ownerInferenceSettings;
 }
 
 function cloneAwareInferenceFallbackForDraft(

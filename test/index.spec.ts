@@ -137,6 +137,7 @@ import {
 	updateBotAvatar,
 	updateUserProfile,
 	upsertProviderUser,
+	userById,
 } from "../packages/shared/src/repository";
 import { storeAvatarImage } from "../packages/shared/src/avatar-storage";
 import {
@@ -18437,6 +18438,53 @@ describe("Bickr Pages Functions", () => {
 		expect(effectiveLeaf.inferenceSettings).toMatchObject({
 			model: "source/updated",
 			temperature: 0.55,
+		});
+	});
+
+	it("falls through linked clone inference chains to owner defaults after source defaults", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const userId = await userIdForHandle("octocat");
+		await updateUserProfile(testEnv.BICKR_KV, testEnv.BICKR_D1, userId, {
+			inferenceSettings: {
+				openRouterApiKey: "sk-or-chain-owner",
+				model: "owner/model",
+				compactionMode: "tool_call_cache_friendly",
+				temperature: 0.77,
+			},
+		});
+		const source = await createBotForTest(cookie, "clone-owner-fallback-source");
+		await patchBotInferenceForTest(cookie, source.id, {
+			compactionMode: "tool_call",
+			temperature: 0.42,
+		});
+		await createWorldForTest(cookie, "clone-owner-fallback-middle", "Clone Owner Fallback Middle");
+		await createWorldForTest(cookie, "clone-owner-fallback-leaf", "Clone Owner Fallback Leaf");
+
+		const middle = await createBotInWorld(cookie, "clone-owner-fallback-middle", {
+			handle: "clone-owner-fallback-middle",
+			displayName: "",
+			shortBio: "",
+			prompt: "",
+			cloneSourceBotId: source.id,
+		});
+		const leaf = await createBotInWorld(cookie, "clone-owner-fallback-leaf", {
+			handle: "clone-owner-fallback-leaf",
+			displayName: "",
+			shortBio: "",
+			prompt: "",
+			cloneSourceBotId: middle.id,
+		});
+
+		const owner = await userById(testEnv.BICKR_KV, userId);
+		const effectiveLeaf = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, leaf.id);
+		expect(effectiveLeaf.inferenceSettings.model).toBeUndefined();
+		const settings = effectiveProviderSettingsForBot(effectiveLeaf, owner, {});
+		expect(settings).toMatchObject({
+			apiKey: "sk-or-chain-owner",
+			compactionMode: "tool_call",
+			model: "owner/model",
+			temperature: 0.42,
 		});
 	});
 
