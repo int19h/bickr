@@ -181,6 +181,7 @@ import {
 	type BotLoopMessage,
 	type BotLoopMessageLog,
 	type BotRuntimeEvent,
+	type BotTokenSpendSummary,
 	type BotTokenUsageStats,
 	type NotificationEvent,
 	type SearchResponse,
@@ -5047,6 +5048,114 @@ describe("Bickr Pages Functions", () => {
 			["requested/model-a", "Provider One", 425],
 			["requested/model-a", "Provider Two", 75],
 		]);
+	});
+
+	type ProviderUsageRowForSpendTest = Omit<ReturnType<typeof providerLoopUsageRowForTest>, "cost" | "requested_model"> & {
+		cost: number | null;
+		requested_model: string;
+	};
+
+	it("summarizes token spend over 24h and the current model period", () => {
+		const rows: ProviderUsageRowForSpendTest[] = [
+			{
+				...providerLoopUsageRowForTest(1, "2026-05-03T00:00:00.000Z", 100),
+				requested_model: "requested/old",
+				cost: 0.9,
+			},
+			{
+				...providerLoopUsageRowForTest(2, "2026-05-06T00:00:00.000Z", 100),
+				requested_model: "requested/current",
+				cost: 0.5,
+			},
+			{
+				...providerLoopUsageRowForTest(3, "2026-05-07T12:00:00.000Z", 100),
+				requested_model: "requested/current",
+				cost: 0.25,
+			},
+		];
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {});
+		const tokenSpendSummaryForRows = (BotRuntime.prototype as unknown as {
+			tokenSpendSummaryForRows: (
+				botId: string,
+				currentModel: string,
+				rows: ProviderUsageRowForSpendTest[],
+				now?: Date,
+			) => BotTokenSpendSummary;
+		}).tokenSpendSummaryForRows.bind(runtime);
+
+		const spend = tokenSpendSummaryForRows("bot-spend", "requested/current", rows, new Date("2026-05-08T00:00:00.000Z"));
+
+		expect(spend.last24Hours).toMatchObject({
+			cost: 0.25,
+			requestCount: 1,
+			unknownCost: false,
+		});
+		expect(spend.average.requestCount).toBe(2);
+		expect(spend.average.dayCount).toBe(2);
+		expect(spend.average.costPerDay).toBeCloseTo(0.375);
+		expect(spend.average.periodStart).toBe("2026-05-06T00:00:00.000Z");
+	});
+
+	it("reports zero average spend when the configured model has no tracked usage", () => {
+		const rows: ProviderUsageRowForSpendTest[] = [
+			{
+				...providerLoopUsageRowForTest(1, "2026-05-07T12:00:00.000Z", 100),
+				requested_model: "requested/old",
+				cost: 0.25,
+			},
+		];
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {});
+		const tokenSpendSummaryForRows = (BotRuntime.prototype as unknown as {
+			tokenSpendSummaryForRows: (
+				botId: string,
+				currentModel: string,
+				rows: ProviderUsageRowForSpendTest[],
+				now?: Date,
+			) => BotTokenSpendSummary;
+		}).tokenSpendSummaryForRows.bind(runtime);
+
+		const spend = tokenSpendSummaryForRows("bot-spend", "requested/current", rows, new Date("2026-05-08T00:00:00.000Z"));
+
+		expect(spend.last24Hours.cost).toBe(0.25);
+		expect(spend.average).toMatchObject({
+			costPerDay: 0,
+			dayCount: 0,
+			noCurrentModelUsage: true,
+			requestCount: 0,
+			unknownCost: false,
+		});
+	});
+
+	it("marks token spend as unknown when provider usage omits cost", () => {
+		const rows: ProviderUsageRowForSpendTest[] = [
+			{
+				...providerLoopUsageRowForTest(1, "2026-05-07T12:00:00.000Z", 100),
+				requested_model: "requested/current",
+				cost: null,
+			},
+		];
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {});
+		const tokenSpendSummaryForRows = (BotRuntime.prototype as unknown as {
+			tokenSpendSummaryForRows: (
+				botId: string,
+				currentModel: string,
+				rows: ProviderUsageRowForSpendTest[],
+				now?: Date,
+			) => BotTokenSpendSummary;
+		}).tokenSpendSummaryForRows.bind(runtime);
+
+		const spend = tokenSpendSummaryForRows("bot-spend", "requested/current", rows, new Date("2026-05-08T00:00:00.000Z"));
+
+		expect(spend.last24Hours).toMatchObject({
+			cost: null,
+			requestCount: 1,
+			unknownCost: true,
+		});
+		expect(spend.average).toMatchObject({
+			costPerDay: null,
+			requestCount: 1,
+			unknownCost: true,
+		});
 	});
 
 	it("stores routed OpenRouter provider names with provider usage", async () => {

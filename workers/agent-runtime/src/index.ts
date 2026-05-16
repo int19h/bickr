@@ -137,6 +137,7 @@ import {
 	type BotTokenUsageModelBreakdown,
 	type BotTokenUsageStats,
 	type BotTokenUsageTotals,
+	type BotTokenSpendSummary,
 	type JsonObject,
 	type NotificationDocument,
 	type NotificationEvent,
@@ -3264,6 +3265,11 @@ export class BotRuntime {
 				return ok({ usage: this.tokenUsageStats(await botById(this.env.BICKR_KV, this.env.BICKR_D1, botId)) });
 			}
 
+			if (request.method === 'GET' && url.pathname.endsWith('/token-spend')) {
+				await this.requireOwnerOrInternal(request, botId);
+				return ok({ spend: await this.tokenSpendSummary(await botById(this.env.BICKR_KV, this.env.BICKR_D1, botId)) });
+			}
+
 			if (request.method === 'GET' && url.pathname.endsWith('/context-budget')) {
 				await this.requireOwnerOrInternal(request, botId);
 				return ok({ budget: await this.cachedPromptContextBudget(botId) });
@@ -6091,6 +6097,80 @@ export class BotRuntime {
 			models: [...models.values()].sort(compareTokenUsageModelBreakdowns),
 			changeMarkers: this.tokenUsageChangeMarkers(windowStart, windowEnd),
 			...(contextWindow ? { contextWindow } : {}),
+		};
+	}
+
+	private async tokenSpendSummary(bot: BotDocument, now = new Date()): Promise<BotTokenSpendSummary> {
+		const owner = await userById(this.env.BICKR_KV, bot.ownerUserId);
+		const currentModel = this.effectiveProviderSettings(bot, owner).model;
+		const windowEndMs = now.getTime();
+		const windowStartMs = windowEndMs - 7 * dayMs;
+		const rows = this.providerUsageRows(new Date(windowStartMs).toISOString(), now.toISOString());
+		return this.tokenSpendSummaryForRows(bot.id, currentModel, rows, now);
+	}
+
+	private tokenSpendSummaryForRows(
+		botId: string,
+		currentModel: string,
+		rows: ProviderUsageRow[],
+		now = new Date(),
+	): BotTokenSpendSummary {
+		const windowEndMs = now.getTime();
+		const windowStartMs = windowEndMs - 7 * dayMs;
+		const last24StartMs = windowEndMs - dayMs;
+		const windowEnd = now.toISOString();
+		const last24Hours = emptySpendAccumulator();
+
+		for (const row of rows) {
+			const usedAt = Date.parse(row.created_at);
+			if (Number.isFinite(usedAt) && usedAt >= last24StartMs && usedAt <= windowEndMs) {
+				addSpendRow(last24Hours, row);
+			}
+		}
+
+		let currentPeriodRows: ProviderUsageRow[] = [];
+		let currentPeriodStartMs = windowEndMs;
+		const latestRow = rows[rows.length - 1];
+		if (latestRow?.requested_model === currentModel) {
+			let firstCurrentIndex = rows.length - 1;
+			while (firstCurrentIndex > 0 && rows[firstCurrentIndex - 1]?.requested_model === currentModel) {
+				firstCurrentIndex -= 1;
+			}
+			currentPeriodRows = rows.slice(firstCurrentIndex);
+			currentPeriodStartMs =
+				firstCurrentIndex > 0 ?
+					Math.max(windowStartMs, timestampMsOrFallback(currentPeriodRows[0]?.created_at, windowEndMs))
+				:	windowStartMs;
+		}
+
+		const average = emptySpendAccumulator();
+		for (const row of currentPeriodRows) {
+			addSpendRow(average, row);
+		}
+		const noCurrentModelUsage = currentPeriodRows.length === 0;
+		const dayCount = noCurrentModelUsage ? 0 : Math.max(1 / 24, (windowEndMs - currentPeriodStartMs) / dayMs);
+		const averageCost = spendAccumulatorCost(average);
+
+		return {
+			botId,
+			currentModel,
+			generatedAt: windowEnd,
+			last24Hours: {
+				requestCount: last24Hours.requestCount,
+				windowStart: new Date(last24StartMs).toISOString(),
+				windowEnd,
+				cost: spendAccumulatorCost(last24Hours),
+				unknownCost: last24Hours.unknownCost,
+			},
+			average: {
+				requestCount: average.requestCount,
+				periodStart: new Date(currentPeriodStartMs).toISOString(),
+				periodEnd: windowEnd,
+				dayCount,
+				costPerDay: noCurrentModelUsage ? 0 : averageCost === null ? null : averageCost / dayCount,
+				unknownCost: average.unknownCost,
+				noCurrentModelUsage,
+			},
 		};
 	}
 
@@ -13067,6 +13147,38 @@ function emptyUsageTotals(): BotTokenUsageTotals {
 		reasoningTokens: 0,
 		cost: null,
 	};
+}
+
+type SpendAccumulator = {
+	requestCount: number;
+	cost: number;
+	unknownCost: boolean;
+};
+
+function emptySpendAccumulator(): SpendAccumulator {
+	return {
+		requestCount: 0,
+		cost: 0,
+		unknownCost: false,
+	};
+}
+
+function addSpendRow(total: SpendAccumulator, row: ProviderUsageRow): void {
+	total.requestCount += 1;
+	if (row.cost === null) {
+		total.unknownCost = true;
+	} else {
+		total.cost += row.cost;
+	}
+}
+
+function spendAccumulatorCost(total: SpendAccumulator): number | null {
+	return total.unknownCost ? null : total.cost;
+}
+
+function timestampMsOrFallback(value: string | null | undefined, fallback: number): number {
+	const parsed = Date.parse(value ?? '');
+	return Number.isFinite(parsed) ? parsed : fallback;
 }
 
 function addUsageRow(total: BotTokenUsageTotals, row: ProviderUsageRow): void {

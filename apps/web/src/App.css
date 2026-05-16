@@ -2155,39 +2155,49 @@ fieldset {
 .bot-table {
 	border-collapse: separate;
 	border-spacing: 0;
-	min-width: 920px;
+	min-width: 0;
 	table-layout: fixed;
 	width: 100%;
 }
 
+@media (max-width: 760px) {
+	.bot-table {
+		min-width: 760px;
+	}
+}
+
 .bot-table-select-col {
-	width: 44px;
+	width: 36px;
 }
 
 .bot-table-avatar-col {
-	width: 48px;
+	width: 42px;
 }
 
 .bot-table-username-col {
-	width: 160px;
+	width: 132px;
 }
 
 .bot-table-display-col {
-	width: 220px;
+	width: auto;
 }
 
 .bot-table-time-col {
-	width: 140px;
+	width: 108px;
 }
 
 .bot-table-model-col {
-	width: 260px;
+	width: 190px;
+}
+
+.bot-table-spend-col {
+	width: 88px;
 }
 
 .bot-table th,
 .bot-table td {
 	border-bottom: 1px solid var(--rule-soft);
-	padding: 9px 12px;
+	padding: 8px 8px;
 	text-align: left;
 	vertical-align: middle;
 }
@@ -2266,7 +2276,7 @@ fieldset {
 	align-items: center;
 	column-gap: 10px;
 	display: grid;
-	grid-template-columns: 44px max-content max-content;
+	grid-template-columns: 36px max-content max-content minmax(0, 1fr);
 	min-height: 38px;
 }
 
@@ -2284,6 +2294,15 @@ fieldset {
 .bot-table-group-count {
 	color: var(--ink-4);
 	font-weight: 500;
+}
+
+.bot-table-group-spend {
+	color: var(--ink-2);
+	font-size: 12px;
+	font-weight: 700;
+	justify-self: end;
+	padding-right: 8px;
+	white-space: nowrap;
 }
 
 .bot-table-row td {
@@ -2348,7 +2367,8 @@ fieldset {
 .bot-table-username-cell,
 .bot-table-display-cell,
 .bot-table-time-cell,
-.bot-table-model-cell {
+.bot-table-model-cell,
+.bot-table-spend-cell {
 	font-size: 13px;
 	min-width: 0;
 	overflow: hidden;
@@ -2357,13 +2377,56 @@ fieldset {
 }
 
 .bot-table-time-cell,
-.bot-table-model-cell {
+.bot-table-model-cell,
+.bot-table-spend-cell {
 	color: var(--ink-3);
 }
 
 .bot-table-model-cell {
-	font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+	font-size: 11px;
+}
+
+.bot-table-model-chip {
+	--model-h: 220;
+	background: oklch(0.93 0.055 var(--model-h));
+	border: 1px solid oklch(0.76 0.075 var(--model-h));
+	border-radius: 4px;
+	color: oklch(0.34 0.11 var(--model-h));
+	display: inline-block;
+	font-size: 11px;
+	font-weight: 700;
+	line-height: 1.35;
+	max-width: 100%;
+	overflow: hidden;
+	padding: 2px 5px;
+	text-overflow: ellipsis;
+	vertical-align: middle;
+	white-space: nowrap;
+}
+
+[data-theme="dark"] .bot-table-model-chip {
+	background: oklch(0.27 0.035 var(--model-h));
+	border-color: oklch(0.4 0.04 var(--model-h));
+	color: oklch(0.78 0.065 var(--model-h));
+}
+
+.bot-table-spend-cell {
+	color: var(--ink-2);
+	font-weight: 700;
+	text-align: right;
+}
+
+.bot-table-total-row th,
+.bot-table-total-row td {
+	background: var(--paper-2);
+	border-top: 1px solid var(--rule);
+	color: var(--ink-2);
 	font-size: 12px;
+	font-weight: 750;
+}
+
+.bot-table-total-row th {
+	text-align: right;
 }
 
 .bot-table-username-cell .ref-wrap {

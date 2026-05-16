@@ -1464,6 +1464,32 @@ export type BotTokenUsageStats = {
 	contextWindow?: BotContextWindowBreakdown;
 };
 
+export type BotTokenSpendWindow = {
+	requestCount: number;
+	windowStart: string;
+	windowEnd: string;
+	cost: number | null;
+	unknownCost: boolean;
+};
+
+export type BotTokenSpendAverage = {
+	requestCount: number;
+	periodStart: string;
+	periodEnd: string;
+	dayCount: number;
+	costPerDay: number | null;
+	unknownCost: boolean;
+	noCurrentModelUsage: boolean;
+};
+
+export type BotTokenSpendSummary = {
+	botId: string;
+	currentModel: string;
+	generatedAt: string;
+	last24Hours: BotTokenSpendWindow;
+	average: BotTokenSpendAverage;
+};
+
 export type BotContextBudgetInput = {
 	displayName?: string;
 	prompt: string;

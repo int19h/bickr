@@ -41,6 +41,7 @@ import {
 	type BotPublicProfile,
 	type BotRuntimeEvent,
 	type BotRuntimeStatus,
+	type BotTokenSpendSummary,
 	type BotTokenUsageStats,
 	type BotTokenUsageTotals,
 	type CommentDocument,
@@ -110,6 +111,18 @@ import {
 	tokenUsageModelBreakdownRows,
 	type TokenUsageChartPoint,
 } from "./token-usage-chart";
+import {
+	compareMyBotTableRecords,
+	defaultMyBotsSortState,
+	modelColorHue,
+	myBotsSortStorageKey,
+	myBotsSpendTotal,
+	parseMyBotsSortState,
+	type MyBotSpendLoadState,
+	type MyBotsSortKey,
+	type MyBotsSortState,
+	type MyBotsSpendTotal,
+} from "./my-bots-table";
 import {
 	toolInputFromDraft,
 	type BotToolDraft,
@@ -8739,20 +8752,14 @@ function promptBudgetSegments(
 	];
 }
 
-type MyBotsSortKey = "displayName" | "handle" | "lastActive" | "model" | "nextDue";
-type MyBotsSortDirection = "asc" | "desc";
 type MyBotsConfirmAction = "delete" | "tick";
-
-type MyBotsSortState = {
-	direction: MyBotsSortDirection;
-	key: MyBotsSortKey;
-};
 
 type MyBotTableRecord = {
 	bot: BotSummary;
 	effectiveModel: string;
 	lastActiveSort: number | null;
 	nextDueSort: number | null;
+	spend?: MyBotSpendLoadState;
 	world: WorldView | null;
 };
 
@@ -8772,9 +8779,21 @@ function MyBotsScreen({
 	const [botFilter, setBotFilter] = useState("");
 	const [confirmAction, setConfirmAction] = useState<MyBotsConfirmAction | null>(null);
 	const [selectedBotIds, setSelectedBotIds] = useState<Set<string>>(() => new Set());
-	const [sort, setSort] = useState<MyBotsSortState>({ direction: "asc", key: "handle" });
+	const [sort, setSort] = useState<MyBotsSortState>(() => readMyBotsSortState());
+	const [spendByBotId, setSpendByBotId] = useState<Record<string, MyBotSpendLoadState>>({});
+	const spendByBotIdRef = useRef(spendByBotId);
+	const spendFetchMountedRef = useRef(true);
 	const selectAllRef = useRef<HTMLInputElement>(null);
 	const toast = useContext(ToastContext);
+
+	const spendFetchBotIds = useMemo(() => {
+		const worldsByHandle = new Map(worlds.map((world) => [world.handle, world]));
+		return bots.flatMap((bot) => {
+			const world = worldsByHandle.get(bot.homeWorldHandle) ?? null;
+			return matchesFilter(botFilter, bot.handle, bot.displayName, bot.shortBio, bot.homeWorldHandle, world?.name) ? [bot.id] : [];
+		});
+	}, [botFilter, bots, worlds]);
+	const spendFetchKey = spendFetchBotIds.join("\u0000");
 
 	const records = useMemo<MyBotTableRecord[]>(() => {
 		const worldsByHandle = new Map(worlds.map((world) => [world.handle, world]));
@@ -8788,10 +8807,11 @@ function MyBotsScreen({
 				effectiveModel: effectiveBotModel(bot, ownerInferenceSettings),
 				lastActiveSort: timestampSortValue(bot.lastActiveAt ?? bot.createdAt),
 				nextDueSort: bot.tickSettings.enabled ? timestampSortValue(bot.nextDueAt) : null,
+				spend: spendByBotId[bot.id],
 				world,
 			}];
 		});
-	}, [botFilter, bots, ownerInferenceSettings, worlds]);
+	}, [botFilter, bots, ownerInferenceSettings, spendByBotId, worlds]);
 
 	const groups = useMemo(() => {
 		const grouped = new Map<string, { rows: MyBotTableRecord[]; world: WorldView | null; worldHandle: string }>();
@@ -8810,6 +8830,47 @@ function MyBotsScreen({
 			}));
 	}, [records, sort]);
 
+	useEffect(() => {
+		spendByBotIdRef.current = spendByBotId;
+	}, [spendByBotId]);
+
+	useEffect(() => {
+		writeMyBotsSortState(sort);
+	}, [sort]);
+
+	useEffect(() => {
+		return () => {
+			spendFetchMountedRef.current = false;
+		};
+	}, []);
+
+	useEffect(() => {
+		const missingBotIds = spendFetchBotIds.filter((botId) => !spendByBotIdRef.current[botId]);
+		if (missingBotIds.length === 0) {
+			return;
+		}
+		setSpendByBotId((current) => {
+			const next = { ...current };
+			for (const botId of missingBotIds) {
+				if (!next[botId]) {
+					next[botId] = { status: "loading" };
+				}
+			}
+			spendByBotIdRef.current = next;
+			return next;
+		});
+		void runBounded(missingBotIds, 4, async (botId) => {
+			const result = await api<{ spend: BotTokenSpendSummary }>(`/api/me/bots/${encodeURIComponent(botId)}/runtime/token-spend`);
+			if (!spendFetchMountedRef.current) {
+				return;
+			}
+			setSpendByBotId((current) => ({
+				...current,
+				[botId]: result.ok ? { status: "loaded", summary: result.data.spend } : { status: "error", message: result.message },
+			}));
+		});
+	}, [spendFetchKey]);
+
 	const visibleBotIds = useMemo(
 		() => groups.flatMap((group) => group.rows.map((row) => row.bot.id)),
 		[groups],
@@ -8822,6 +8883,7 @@ function MyBotsScreen({
 		() => selectedRecords.map((record) => record.bot),
 		[selectedRecords],
 	);
+	const overallSpendTotal = useMemo(() => myBotsSpendTotal(groups.flatMap((group) => group.rows)), [groups]);
 	const selectedPausedCount = selectedBots.filter((bot) => !bot.tickSettings.enabled).length;
 	const selectedCount = selectedBots.length;
 	const allVisibleSelected = visibleBotIds.length > 0 && visibleBotIds.every((id) => selectedBotIds.has(id));
@@ -8979,6 +9041,7 @@ function MyBotsScreen({
 										<col className="bot-table-time-col" />
 										<col className="bot-table-time-col" />
 										<col className="bot-table-model-col" />
+										<col className="bot-table-spend-col" />
 									</colgroup>
 									<thead>
 										<tr>
@@ -9000,6 +9063,7 @@ function MyBotsScreen({
 											<MyBotsSortHeader label="Last active" onSort={toggleSort} sort={sort} sortKey="lastActive" />
 											<MyBotsSortHeader label="Next tick" onSort={toggleSort} sort={sort} sortKey="nextDue" />
 											<MyBotsSortHeader label="Current model" onSort={toggleSort} sort={sort} sortKey="model" />
+											<MyBotsSortHeader label="$/day" onSort={toggleSort} sort={sort} sortKey="spend" />
 										</tr>
 									</thead>
 									{groups.map((group) => {
@@ -9007,10 +9071,11 @@ function MyBotsScreen({
 										const selectedInGroup = groupBotIds.filter((id) => selectedBotIds.has(id)).length;
 										const allGroupSelected = groupBotIds.length > 0 && selectedInGroup === groupBotIds.length;
 										const someGroupSelected = selectedInGroup > 0;
+										const groupSpendTotal = myBotsSpendTotal(group.rows);
 										return (
 											<tbody key={group.worldHandle}>
 												<tr className="bot-table-group-row">
-													<th colSpan={7} scope="rowgroup">
+													<th colSpan={8} scope="rowgroup">
 														<span className="bot-table-group-layout">
 															<MyBotsGroupCheckbox
 																allSelected={allGroupSelected}
@@ -9028,6 +9093,9 @@ function MyBotsScreen({
 															</span>
 															<span className="bot-table-group-count">
 																{group.rows.length} bot{group.rows.length === 1 ? "" : "s"}
+															</span>
+															<span className="bot-table-group-spend" title={formatMyBotsSpendTotalTitle(groupSpendTotal)}>
+																{formatMyBotsSpendTotal(groupSpendTotal)}
 															</span>
 														</span>
 													</th>
@@ -9077,8 +9145,11 @@ function MyBotsScreen({
 																	<TimeUntilLabel value={bot.nextDueAt} />
 																:	<span className="bot-status-label paused">Paused</span>}
 															</td>
-															<td className="bot-table-model-cell" title={record.effectiveModel}>
-																{record.effectiveModel}
+															<td className="bot-table-model-cell">
+																<ModelChip model={record.effectiveModel} />
+															</td>
+															<td className="bot-table-spend-cell" title={formatBotSpendTitle(record.spend)}>
+																{formatBotSpendValue(record.spend)}
 															</td>
 														</tr>
 													);
@@ -9086,6 +9157,14 @@ function MyBotsScreen({
 											</tbody>
 										);
 									})}
+									<tfoot>
+										<tr className="bot-table-total-row">
+											<th colSpan={7} scope="row">Total</th>
+											<td className="bot-table-spend-cell" title={formatMyBotsSpendTotalTitle(overallSpendTotal)}>
+												{formatMyBotsSpendTotal(overallSpendTotal)}
+											</td>
+										</tr>
+									</tfoot>
 								</table>
 							</div>
 						</div>
@@ -9123,6 +9202,73 @@ function MyBotsScreen({
 			/>
 		</div>
 	);
+}
+
+function ModelChip({ model }: { model: string }) {
+	return (
+		<span
+			className="bot-table-model-chip"
+			style={{ "--model-h": String(modelColorHue(model)) } as CSSProperties}
+			title={model}
+		>
+			{model}
+		</span>
+	);
+}
+
+function formatBotSpendValue(spend: MyBotSpendLoadState | undefined): string {
+	if (!spend || spend.status === "loading") {
+		return "...";
+	}
+	if (spend.status === "error" || spend.summary.last24Hours.unknownCost) {
+		return "$?";
+	}
+	return formatTokenCost(spend.summary.last24Hours.cost ?? 0);
+}
+
+function formatBotSpendTitle(spend: MyBotSpendLoadState | undefined): string {
+	if (!spend || spend.status === "loading") {
+		return "Token spend is loading.";
+	}
+	if (spend.status === "error") {
+		return `Token spend could not be loaded: ${spend.message}`;
+	}
+	const last24 = spend.summary.last24Hours;
+	const average = spend.summary.average;
+	const last24Cost = last24.unknownCost ? "unknown" : formatTokenCost(last24.cost ?? 0);
+	const averageCost =
+		average.noCurrentModelUsage ? "$0.00/day; no tracked requests for the current model"
+		: average.unknownCost ? "unknown/day"
+		: `${formatTokenCost(average.costPerDay ?? 0)}/day`;
+	return [
+		`24h: ${last24Cost} across ${last24.requestCount} tracked request${last24.requestCount === 1 ? "" : "s"}.`,
+		`Avg/day: ${averageCost}.`,
+		`Average window: ${formatFullDate(average.periodStart)} to ${formatFullDate(average.periodEnd)} (${formatAverageDays(average.dayCount)}).`,
+		`Current model: ${spend.summary.currentModel}.`,
+	].join("\n");
+}
+
+function formatMyBotsSpendTotal(total: MyBotsSpendTotal): string {
+	if (total.pendingCount > 0) {
+		return "...";
+	}
+	if (total.unknownCost || total.errorCount > 0) {
+		return "$?";
+	}
+	return formatTokenCost(total.cost ?? 0);
+}
+
+function formatMyBotsSpendTotalTitle(total: MyBotsSpendTotal): string {
+	if (total.pendingCount > 0) {
+		return `Loading token spend for ${total.pendingCount} visible bot${total.pendingCount === 1 ? "" : "s"}.`;
+	}
+	if (total.errorCount > 0) {
+		return `Total is unknown because token spend failed to load for ${total.errorCount} visible bot${total.errorCount === 1 ? "" : "s"}.`;
+	}
+	if (total.unknownCost) {
+		return `Total is unknown because at least one visible tracked request did not report cost. Known subtotal: ${formatTokenCost(total.knownCost)}.`;
+	}
+	return `${formatTokenCost(total.cost ?? 0)} across ${total.requestCount} tracked 24h request${total.requestCount === 1 ? "" : "s"}.`;
 }
 
 function MyBotsSortHeader({
@@ -16508,6 +16654,40 @@ function readStoredBoolean(key: string, fallback: boolean): boolean {
 	return fallback;
 }
 
+function readMyBotsSortState(): MyBotsSortState {
+	try {
+		return parseMyBotsSortState(window.localStorage.getItem(myBotsSortStorageKey));
+	} catch {
+		return defaultMyBotsSortState;
+	}
+}
+
+function writeMyBotsSortState(sort: MyBotsSortState): void {
+	try {
+		window.localStorage.setItem(myBotsSortStorageKey, JSON.stringify(sort));
+	} catch {
+		// Browser storage can be unavailable; the table still sorts for the current render.
+	}
+}
+
+async function runBounded<T>(
+	items: readonly T[],
+	limit: number,
+	worker: (item: T) => Promise<void>,
+): Promise<void> {
+	let index = 0;
+	const workerCount = Math.min(Math.max(1, Math.floor(limit)), items.length);
+	await Promise.all(Array.from({ length: workerCount }, async () => {
+		while (index < items.length) {
+			const item = items[index];
+			index += 1;
+			if (item !== undefined) {
+				await worker(item);
+			}
+		}
+	}));
+}
+
 function threadRootComment(thread: ThreadDocument): CommentDocument | null {
 	return thread.comments.find((comment) => comment.id === thread.rootCommentId) ??
 		thread.comments.find((comment) => !comment.parentCommentId) ??
@@ -17232,51 +17412,6 @@ function compareBotCardOrder(left: BotSummary, right: BotSummary): number {
 
 function sortBotsForCards<T extends BotSummary>(items: T[]): T[] {
 	return [...items].sort(compareBotCardOrder);
-}
-
-function compareMyBotTableRecords(left: MyBotTableRecord, right: MyBotTableRecord, sort: MyBotsSortState): number {
-	let result = 0;
-	switch (sort.key) {
-		case "displayName":
-			result = compareSortText(left.bot.displayName, right.bot.displayName, sort.direction);
-			break;
-		case "handle":
-			result = compareSortText(left.bot.handle, right.bot.handle, sort.direction);
-			break;
-		case "lastActive":
-			result = compareNullableTimestampSort(left.lastActiveSort, right.lastActiveSort, sort.direction);
-			break;
-		case "model":
-			result = compareSortText(left.effectiveModel, right.effectiveModel, sort.direction);
-			break;
-		case "nextDue":
-			result = compareNullableTimestampSort(left.nextDueSort, right.nextDueSort, sort.direction);
-			break;
-	}
-	return result || compareHandles(left.bot.handle, right.bot.handle);
-}
-
-function compareSortText(left: string, right: string, direction: MyBotsSortDirection): number {
-	const result = left.localeCompare(right, undefined, { sensitivity: "base" });
-	return direction === "asc" ? result : -result;
-}
-
-function compareNullableTimestampSort(
-	left: number | null,
-	right: number | null,
-	direction: MyBotsSortDirection,
-): number {
-	if (left === null && right === null) {
-		return 0;
-	}
-	if (left === null) {
-		return 1;
-	}
-	if (right === null) {
-		return -1;
-	}
-	const result = left - right;
-	return direction === "asc" ? result : -result;
 }
 
 function timestampSortValue(value: string | null | undefined): number | null {
