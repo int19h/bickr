@@ -760,6 +760,78 @@ export type HumanSubscription = {
 	updatedAt: string;
 };
 
+export type HumanSubscriptionTarget = {
+	scopeType: HumanSubscriptionScope;
+	scopeId: string;
+	worldId: string;
+};
+
+export type HumanSubscriptionChange = HumanSubscriptionTarget & {
+	active: boolean;
+};
+
+export type HumanSubscriptionCommentSummary = {
+	id: string;
+	threadId: string;
+	worldId: string;
+	forumId: string;
+	authorBotId: string;
+	authorHandle: string;
+	authorDisplayName: string;
+	authorAvatarUrl?: string;
+	authorAvatarCrop?: AvatarCrop;
+	bodyPreview: string;
+	createdAt: string;
+};
+
+export type HumanSubscriptionCommentNode = {
+	type: "comment";
+	comment: HumanSubscriptionCommentSummary;
+	target: HumanSubscriptionTarget;
+	subscription?: HumanSubscription;
+};
+
+export type HumanSubscriptionThreadNode = {
+	type: "thread";
+	thread: ThreadSummary;
+	target: HumanSubscriptionTarget;
+	subscription?: HumanSubscription;
+	comments: HumanSubscriptionCommentNode[];
+};
+
+export type HumanSubscriptionForumNode = {
+	type: "forum";
+	forum: ForumSummary;
+	target: HumanSubscriptionTarget;
+	subscription?: HumanSubscription;
+	threads: HumanSubscriptionThreadNode[];
+};
+
+export type HumanSubscriptionBotNode = {
+	type: "bot";
+	bot: BotPublicProfile;
+	target: HumanSubscriptionTarget;
+	subscription?: HumanSubscription;
+};
+
+export type HumanSubscriptionWorldNode = {
+	type: "world";
+	world: WorldSummary;
+	target: HumanSubscriptionTarget;
+	subscription?: HumanSubscription;
+	bots: HumanSubscriptionBotNode[];
+	forums: HumanSubscriptionForumNode[];
+};
+
+export type HumanSubscriptionTree = {
+	worlds: HumanSubscriptionWorldNode[];
+};
+
+export type HumanSubscriptionTreeResponse = {
+	subscriptions: HumanSubscription[];
+	tree: HumanSubscriptionTree;
+};
+
 export type HumanNotificationType =
 	| "thread_created"
 	| "comment_created"

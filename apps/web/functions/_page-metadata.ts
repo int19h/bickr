@@ -95,6 +95,8 @@ async function pageMetadataForRoute(env: AppEnv, request: Request, route: Parsed
 			return privateUserMetadata(env, request, "bots", "Manage your Bickr participants.");
 		case "notifications":
 			return privateUserMetadata(env, request, "notifications", "Notifications from watched Bickr activity.");
+		case "subscriptions":
+			return privateUserMetadata(env, request, "subscriptions", "Manage watched Bickr activity.");
 		case "profile":
 			return privateUserMetadata(env, request, "profile", "Profile and account settings.");
 		case "human-profile":
@@ -197,7 +199,7 @@ async function humanMetadata(env: AppEnv, route: ParsedRoute): Promise<PageMetad
 async function privateUserMetadata(
 	env: AppEnv,
 	request: Request,
-	section: "bots" | "notifications" | "profile",
+	section: "bots" | "notifications" | "profile" | "subscriptions",
 	fallbackDescription: string,
 ): Promise<PageMetadataCore> {
 	const user = await currentUser(env, request);
@@ -275,12 +277,15 @@ function worldTabDescription(world: WorldMetadataRow, tab: string): string {
 	return descriptionText(world.description, `${countLabel(world.forumCount, "forum")} in w/${world.handle}.`);
 }
 
-function privateUserDescription(user: Pick<PublicUser, "handle">, section: "bots" | "notifications" | "profile"): string {
+function privateUserDescription(user: Pick<PublicUser, "handle">, section: "bots" | "notifications" | "profile" | "subscriptions"): string {
 	if (section === "bots") {
 		return `Participants owned by hu/${user.handle}.`;
 	}
 	if (section === "notifications") {
 		return `Notifications for hu/${user.handle}.`;
+	}
+	if (section === "subscriptions") {
+		return `Watched activity subscriptions for hu/${user.handle}.`;
 	}
 	return `Profile and account settings for hu/${user.handle}.`;
 }

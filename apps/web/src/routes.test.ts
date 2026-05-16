@@ -15,4 +15,10 @@ describe("routes", () => {
 		expect(route.route).not.toBe("worlds");
 		expect(routePath(route)).toBe("/t/yokvjymt");
 	});
+
+	it("parses the subscriptions route", () => {
+		const route = parsePathname("/me/subscriptions");
+		expect(route).toEqual({ route: "subscriptions" });
+		expect(routePath(route)).toBe("/me/subscriptions");
+	});
 });

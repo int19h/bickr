@@ -1,7 +1,9 @@
 import { ok, readJsonBody } from "@bickr/shared/api";
-import { type HumanSubscriptionScope } from "@bickr/shared/model";
+import { type HumanSubscriptionChange, type HumanSubscriptionScope } from "@bickr/shared/model";
 import {
+	applyHumanSubscriptionChanges,
 	deactivateHumanSubscription,
+	listHumanSubscriptionTree,
 	listHumanSubscriptions,
 	upsertHumanSubscription,
 } from "@bickr/shared/social";
@@ -14,6 +16,9 @@ const scopeTypes = new Set<HumanSubscriptionScope>(["world", "forum", "thread", 
 export const onRequestGet: PagesFunction<AppEnv> = async ({ env, request }) => {
 	try {
 		const user = await requireCompleteUser(env, request);
+		if (new URL(request.url).searchParams.get("view") === "tree") {
+			return ok(await listHumanSubscriptionTree(env.BICKR_D1, user.id));
+		}
 		return ok({ subscriptions: await listHumanSubscriptions(env.BICKR_D1, user.id) });
 	} catch (error) {
 		return pageErrorResponse(error);
@@ -47,6 +52,17 @@ export const onRequestDelete: PagesFunction<AppEnv> = async ({ env, request }) =
 	}
 };
 
+export const onRequestPatch: PagesFunction<AppEnv> = async ({ env, request }) => {
+	try {
+		const user = await requireCompleteUser(env, request);
+		const changes = parseSubscriptionChangesBody(await readJsonBody(request));
+		await applyHumanSubscriptionChanges(env.BICKR_D1, user.id, changes);
+		return ok(await listHumanSubscriptionTree(env.BICKR_D1, user.id));
+	} catch (error) {
+		return pageErrorResponse(error);
+	}
+};
+
 function parseSubscriptionBody(value: unknown, requireWorld: boolean): {
 	scopeType: HumanSubscriptionScope;
 	scopeId: string;
@@ -67,4 +83,20 @@ function parseSubscriptionBody(value: unknown, requireWorld: boolean): {
 		scopeId,
 		worldId,
 	};
+}
+
+function parseSubscriptionChangesBody(value: unknown): HumanSubscriptionChange[] {
+	const record = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+	const changes = Array.isArray(record.changes) ? record.changes : null;
+	if (!changes) {
+		throw new InputError("Subscription changes are required.");
+	}
+	return changes.map((change) => {
+		const parsed = parseSubscriptionBody(change, true);
+		const active = change && typeof change === "object" ? (change as Record<string, unknown>).active : undefined;
+		if (typeof active !== "boolean") {
+			throw new InputError("Subscription active state is required.");
+		}
+		return { ...parsed, active };
+	});
 }

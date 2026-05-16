@@ -40,6 +40,10 @@ import {
 import { onRequestGet as getHumanProfile } from "../apps/web/functions/api/humans/[humanHandle]";
 import { onRequestGet as getNotificationsRoute } from "../apps/web/functions/api/me/notifications";
 import { onRequestPost as markAllNotificationsReadRoute } from "../apps/web/functions/api/me/notifications/read-all";
+import {
+	onRequestGet as getSubscriptionsRoute,
+	onRequestPatch as patchSubscriptionsRoute,
+} from "../apps/web/functions/api/me/subscriptions";
 import { onRequestPost as translateText } from "../apps/web/functions/api/me/translate";
 import { onRequestDelete as unlinkAuthIdentity } from "../apps/web/functions/api/me/auth/identities/[provider]";
 import { onRequestGet as runtimeHealth } from "../apps/web/functions/api/runtime/health";
@@ -183,6 +187,7 @@ import {
 	type BotRuntimeEvent,
 	type BotTokenSpendSummary,
 	type BotTokenUsageStats,
+	type HumanSubscriptionTreeResponse,
 	type NotificationEvent,
 	type SearchResponse,
 	type SpotlightSyntheticContext,
@@ -16059,6 +16064,108 @@ describe("Bickr Pages Functions", () => {
 		await expect(invalidScopeResponse.json()).resolves.toMatchObject({
 			error: "bad_request",
 		});
+	});
+
+	it("lists active subscriptions as a resolved nested tree", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const forum = await createForumForTest(cookie, "watch-room");
+		const author = await createBotForTest(cookie, "watch-author");
+		const replier = await createBotForTest(cookie, "watch-replier");
+		const thread = await createThreadForTest(forum.id, author.id, "Watched thread", "Root subscription text.");
+		const comment = await createCommentForTest(thread.id, replier.id, "Needle subscription comment text.");
+		const userId = await userIdForHandle("octocat");
+		await testEnv.BICKR_D1.prepare(
+			`INSERT INTO human_subscriptions (
+				subscription_id, user_id, world_id, scope_type, scope_id,
+				active, auto_created, created_at, updated_at
+			) VALUES
+				('hsb_forum', ?, ?, 'forum', ?, 1, 0, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'),
+				('hsb_thread', ?, ?, 'thread', ?, 1, 0, '2026-01-01T00:00:01.000Z', '2026-01-01T00:00:01.000Z'),
+				('hsb_comment', ?, ?, 'comment', ?, 1, 0, '2026-01-01T00:00:02.000Z', '2026-01-01T00:00:02.000Z'),
+				('hsb_missing_comment', ?, ?, 'comment', 'missing-comment', 1, 0, '2026-01-01T00:00:03.000Z', '2026-01-01T00:00:03.000Z')`,
+		)
+			.bind(
+				userId, forum.worldId, forum.id,
+				userId, forum.worldId, thread.id,
+				userId, forum.worldId, comment.id,
+				userId, forum.worldId,
+			)
+			.run();
+
+		const response = await getSubscriptionsRoute(
+			contextFor<typeof getSubscriptionsRoute>(
+				new Request("http://example.com/api/me/subscriptions?view=tree", {
+					headers: { cookie },
+				}),
+			),
+		);
+		const payload = (await response.json()) as { data: HumanSubscriptionTreeResponse };
+
+		expect(response.status).toBe(200);
+		expect(payload.data.subscriptions.map((subscription) => subscription.id)).not.toContain("hsb_missing_comment");
+		const world = payload.data.tree.worlds.find((item) => item.world.handle === "patch-notes");
+		expect(world).toBeTruthy();
+		expect(world?.subscription).toBeUndefined();
+		expect(world?.bots.map((bot) => bot.bot.handle)).toEqual(expect.arrayContaining(["watch-author", "watch-replier"]));
+		const forumNode = world?.forums.find((item) => item.forum.id === forum.id);
+		expect(forumNode?.subscription?.id).toBe("hsb_forum");
+		const threadNode = forumNode?.threads.find((item) => item.thread.id === thread.id);
+		expect(threadNode?.subscription?.id).toBe("hsb_thread");
+		expect(threadNode?.comments).toEqual([
+			expect.objectContaining({
+				comment: expect.objectContaining({
+					id: comment.id,
+					bodyPreview: "Needle subscription comment text.",
+					authorHandle: "watch-replier",
+				}),
+				subscription: expect.objectContaining({ id: "hsb_comment" }),
+			}),
+		]);
+	});
+
+	it("applies subscription updates only through the batch update route", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const forum = await createForumForTest(cookie, "batch-watch");
+		const bot = await createBotForTest(cookie, "batch-bot");
+		const userId = await userIdForHandle("octocat");
+
+		const response = await patchSubscriptionsRoute(
+			contextFor<typeof patchSubscriptionsRoute>(
+				jsonRequest(
+					"http://example.com/api/me/subscriptions",
+					"PATCH",
+					{
+						changes: [
+							{ scopeType: "bot", scopeId: bot.id, worldId: forum.worldId, active: false },
+							{ scopeType: "forum", scopeId: forum.id, worldId: forum.worldId, active: true },
+						],
+					},
+					cookie,
+				),
+			),
+		);
+		const payload = (await response.json()) as { data: HumanSubscriptionTreeResponse };
+		expect(response.status).toBe(200);
+		expect(payload.data.tree.worlds[0]?.bots.some((node) => node.bot.id === bot.id)).toBe(false);
+		expect(payload.data.tree.worlds[0]?.forums.find((node) => node.forum.id === forum.id)?.subscription).toMatchObject({
+			active: true,
+			scopeType: "forum",
+		});
+
+		const rows = await testEnv.BICKR_D1.prepare(
+			`SELECT scope_type AS scopeType, scope_id AS scopeId, active
+			 FROM human_subscriptions
+			 WHERE user_id = ? AND scope_id IN (?, ?)
+			 ORDER BY scope_type`,
+		)
+			.bind(userId, bot.id, forum.id)
+			.all<{ scopeType: string; scopeId: string; active: number }>();
+		expect(rows.results).toEqual([
+			{ scopeType: "bot", scopeId: bot.id, active: 0 },
+			{ scopeType: "forum", scopeId: forum.id, active: 1 },
+		]);
 	});
 
 	it("marks bot seen content from full-thread and search tool results", async () => {

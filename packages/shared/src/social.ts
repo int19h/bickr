@@ -24,7 +24,14 @@ import {
 	type HumanNotificationSummary,
 	type HumanNotificationType,
 	type HumanSubscription,
+	type HumanSubscriptionChange,
+	type HumanSubscriptionCommentNode,
+	type HumanSubscriptionCommentSummary,
+	type HumanSubscriptionForumNode,
 	type HumanSubscriptionScope,
+	type HumanSubscriptionThreadNode,
+	type HumanSubscriptionTreeResponse,
+	type HumanSubscriptionWorldNode,
 	type LegacyRootPostDocument,
 	type LegacyThreadDocument,
 	type NotificationDeliveryReason,
@@ -44,9 +51,11 @@ import {
 	type ThreadSummary,
 	type VoteDetail,
 	type VoteInput,
+	type ForumSummary,
 	type WorldActivityFeed,
 	type WorldActivityItem,
 	type WorldDocument,
+	type WorldSummary,
 } from "./model";
 import {
 	botByHandle,
@@ -66,6 +75,7 @@ import { ownerRuntimeErrorMessage } from "./runtime-errors";
 import { likePatternForSearchGlob } from "./search";
 import {
 	type D1DatabaseLike,
+	type D1PreparedStatementLike,
 	type D1Result,
 	type KVNamespaceLike,
 	kvKeys,
@@ -602,6 +612,223 @@ export async function listHumanSubscriptions(
 	return (result.results ?? []).map(subscriptionFromRow);
 }
 
+export async function listHumanSubscriptionTree(
+	db: D1DatabaseLike,
+	userId: string,
+): Promise<HumanSubscriptionTreeResponse> {
+	const subscriptions = await listActiveHumanSubscriptions(db, userId);
+	if (subscriptions.length === 0) {
+		return { subscriptions: [], tree: { worlds: [] } };
+	}
+
+	const directByKey = new Map(subscriptions.map((subscription) => [
+		subscriptionKey(subscription.scopeType, subscription.scopeId),
+		subscription,
+	]));
+	const directWorldIds = idsForScope(subscriptions, "world");
+	const directForumIds = idsForScope(subscriptions, "forum");
+	const directThreadIds = idsForScope(subscriptions, "thread");
+	const directCommentIds = idsForScope(subscriptions, "comment");
+	const directBotIds = idsForScope(subscriptions, "bot");
+
+	const comments = await subscriptionCommentSummariesByIds(db, directCommentIds);
+	const threadIds = new Set([...directThreadIds, ...comments.map((comment) => comment.threadId)]);
+	const threads = await subscriptionThreadSummariesByIds(db, threadIds);
+	const forumIds = new Set([
+		...directForumIds,
+		...threads.map((thread) => thread.forumId),
+		...comments.map((comment) => comment.forumId),
+	]);
+	const forums = await subscriptionForumSummariesByIds(db, forumIds);
+	const bots = await subscriptionBotProfilesByIds(db, directBotIds);
+	const worldIds = new Set([
+		...directWorldIds,
+		...subscriptions.map((subscription) => subscription.worldId),
+		...forums.map((forum) => forum.worldId),
+		...threads.map((thread) => thread.worldId),
+		...comments.map((comment) => comment.worldId),
+		...bots.map((bot) => bot.homeWorldId),
+	]);
+	const worlds = await subscriptionWorldSummariesByIds(db, worldIds);
+
+	const worldsById = new Map(worlds.map((world) => [world.id, world]));
+	const forumsById = new Map(forums.map((forum) => [forum.id, forum]));
+	const threadsById = new Map(threads.map((thread) => [thread.id, thread]));
+	const resolvedSubscriptionKeys = new Set<string>();
+
+	const commentNodesByThreadId = new Map<string, HumanSubscriptionCommentNode[]>();
+	for (const comment of comments) {
+		if (!threadsById.has(comment.threadId) || !forumsById.has(comment.forumId) || !worldsById.has(comment.worldId)) {
+			continue;
+		}
+		const key = subscriptionKey("comment", comment.id);
+		const subscription = directByKey.get(key);
+		if (!subscription) {
+			continue;
+		}
+		resolvedSubscriptionKeys.add(key);
+		const nodes = commentNodesByThreadId.get(comment.threadId) ?? [];
+		nodes.push({
+			type: "comment",
+			comment,
+			target: { scopeType: "comment", scopeId: comment.id, worldId: comment.worldId },
+			subscription,
+		});
+		commentNodesByThreadId.set(comment.threadId, nodes);
+	}
+
+	const threadNodesByForumId = new Map<string, HumanSubscriptionThreadNode[]>();
+	for (const thread of threads) {
+		if (!forumsById.has(thread.forumId) || !worldsById.has(thread.worldId)) {
+			continue;
+		}
+		const comments = [...(commentNodesByThreadId.get(thread.id) ?? [])]
+			.sort((left, right) => left.comment.createdAt.localeCompare(right.comment.createdAt));
+		const key = subscriptionKey("thread", thread.id);
+		const subscription = directByKey.get(key);
+		if (!subscription && comments.length === 0) {
+			continue;
+		}
+		if (subscription) {
+			resolvedSubscriptionKeys.add(key);
+		}
+		const nodes = threadNodesByForumId.get(thread.forumId) ?? [];
+		nodes.push({
+			type: "thread",
+			thread,
+			target: { scopeType: "thread", scopeId: thread.id, worldId: thread.worldId },
+			...(subscription ? { subscription } : {}),
+			comments,
+		});
+		threadNodesByForumId.set(thread.forumId, nodes);
+	}
+
+	const forumNodesByWorldId = new Map<string, HumanSubscriptionForumNode[]>();
+	for (const forum of forums) {
+		if (!worldsById.has(forum.worldId)) {
+			continue;
+		}
+		const threads = [...(threadNodesByForumId.get(forum.id) ?? [])]
+			.sort((left, right) => right.thread.lastActivityAt.localeCompare(left.thread.lastActivityAt));
+		const key = subscriptionKey("forum", forum.id);
+		const subscription = directByKey.get(key);
+		if (!subscription && threads.length === 0) {
+			continue;
+		}
+		if (subscription) {
+			resolvedSubscriptionKeys.add(key);
+		}
+		const nodes = forumNodesByWorldId.get(forum.worldId) ?? [];
+		nodes.push({
+			type: "forum",
+			forum,
+			target: { scopeType: "forum", scopeId: forum.id, worldId: forum.worldId },
+			...(subscription ? { subscription } : {}),
+			threads,
+		});
+		forumNodesByWorldId.set(forum.worldId, nodes);
+	}
+
+	const botNodesByWorldId = new Map<string, HumanSubscriptionWorldNode["bots"]>();
+	for (const bot of bots) {
+		if (!worldsById.has(bot.homeWorldId)) {
+			continue;
+		}
+		const key = subscriptionKey("bot", bot.id);
+		const subscription = directByKey.get(key);
+		if (!subscription) {
+			continue;
+		}
+		resolvedSubscriptionKeys.add(key);
+		const nodes = botNodesByWorldId.get(bot.homeWorldId) ?? [];
+		nodes.push({
+			type: "bot",
+			bot,
+			target: { scopeType: "bot", scopeId: bot.id, worldId: bot.homeWorldId },
+			subscription,
+		});
+		botNodesByWorldId.set(bot.homeWorldId, nodes);
+	}
+
+	const worldNodes: HumanSubscriptionWorldNode[] = [];
+	for (const world of worlds) {
+		const bots = [...(botNodesByWorldId.get(world.id) ?? [])]
+			.sort((left, right) => left.bot.handle.localeCompare(right.bot.handle, undefined, { sensitivity: "base" }));
+		const forums = [...(forumNodesByWorldId.get(world.id) ?? [])]
+			.sort((left, right) => left.forum.handle.localeCompare(right.forum.handle, undefined, { sensitivity: "base" }));
+		const key = subscriptionKey("world", world.id);
+		const subscription = directByKey.get(key);
+		if (!subscription && bots.length === 0 && forums.length === 0) {
+			continue;
+		}
+		if (subscription) {
+			resolvedSubscriptionKeys.add(key);
+		}
+		worldNodes.push({
+			type: "world",
+			world,
+			target: { scopeType: "world", scopeId: world.id, worldId: world.id },
+			...(subscription ? { subscription } : {}),
+			bots,
+			forums,
+		});
+	}
+
+	worldNodes.sort((left, right) => left.world.handle.localeCompare(right.world.handle, undefined, { sensitivity: "base" }));
+
+	return {
+		subscriptions: subscriptions.filter((subscription) =>
+			resolvedSubscriptionKeys.has(subscriptionKey(subscription.scopeType, subscription.scopeId)),
+		),
+		tree: { worlds: worldNodes },
+	};
+}
+
+export async function applyHumanSubscriptionChanges(
+	db: D1DatabaseLike,
+	userId: string,
+	changes: HumanSubscriptionChange[],
+	now = new Date().toISOString(),
+): Promise<void> {
+	const latestByKey = new Map<string, HumanSubscriptionChange>();
+	for (const change of changes) {
+		latestByKey.set(subscriptionKey(change.scopeType, change.scopeId), change);
+	}
+
+	const statements: D1PreparedStatementLike[] = [];
+	for (const change of latestByKey.values()) {
+		if (change.active) {
+			statements.push(
+				db.prepare(
+					`INSERT INTO human_subscriptions (
+						subscription_id, user_id, world_id, scope_type, scope_id,
+						active, auto_created, created_at, updated_at
+					) VALUES (?, ?, ?, ?, ?, 1, 0, ?, ?)
+					ON CONFLICT(user_id, scope_type, scope_id) DO UPDATE SET
+						world_id = excluded.world_id,
+						active = 1,
+						auto_created = excluded.auto_created,
+						updated_at = excluded.updated_at`,
+				)
+					.bind(makeId("hsb"), userId, change.worldId, change.scopeType, change.scopeId, now, now),
+			);
+		} else {
+			statements.push(
+				db.prepare(
+					`UPDATE human_subscriptions
+					 SET active = 0, updated_at = ?
+					 WHERE user_id = ? AND scope_type = ? AND scope_id = ?`,
+				)
+					.bind(now, userId, change.scopeType, change.scopeId),
+			);
+		}
+	}
+
+	if (statements.length > 0) {
+		await db.batch(statements);
+	}
+}
+
 export async function upsertHumanSubscription(
 	db: D1DatabaseLike,
 	input: {
@@ -675,6 +902,224 @@ export async function deactivateHumanSubscription(
 		)
 		.bind(now, userId, scopeType, scopeId)
 		.run();
+}
+
+async function listActiveHumanSubscriptions(
+	db: D1DatabaseLike,
+	userId: string,
+): Promise<HumanSubscription[]> {
+	const result = await db
+		.prepare(
+			`SELECT
+				subscription_id AS id,
+				user_id AS userId,
+				world_id AS worldId,
+				scope_type AS scopeType,
+				scope_id AS scopeId,
+				active,
+				auto_created AS autoCreated,
+				created_at AS createdAt,
+				updated_at AS updatedAt
+			 FROM human_subscriptions
+			 WHERE user_id = ? AND active = 1
+			 ORDER BY updated_at DESC`,
+		)
+		.bind(userId)
+		.all<HumanSubscriptionRow>();
+	return (result.results ?? []).map(subscriptionFromRow);
+}
+
+function subscriptionKey(scopeType: HumanSubscriptionScope, scopeId: string): string {
+	return `${scopeType}:${scopeId}`;
+}
+
+function idsForScope(
+	subscriptions: HumanSubscription[],
+	scopeType: HumanSubscriptionScope,
+): Set<string> {
+	return new Set(
+		subscriptions
+			.filter((subscription) => subscription.scopeType === scopeType)
+			.map((subscription) => subscription.scopeId),
+	);
+}
+
+async function subscriptionWorldSummariesByIds(
+	db: D1DatabaseLike,
+	ids: Set<string>,
+): Promise<WorldSummary[]> {
+	const worlds: WorldSummary[] = [];
+	for (const batch of chunks([...ids], d1MaxBoundParameters)) {
+		if (batch.length === 0) {
+			continue;
+		}
+		const placeholders = batch.map(() => "?").join(", ");
+		const result = await db
+			.prepare(
+				`SELECT
+					world_id AS id,
+					handle,
+					name,
+					description,
+					initial_bot_notification AS initialBotNotification,
+					created_by_user_id AS createdByUserId,
+					created_at AS createdAt,
+					updated_at AS updatedAt
+				 FROM worlds_index
+				 WHERE world_id IN (${placeholders}) AND deleted_at IS NULL`,
+			)
+			.bind(...batch)
+			.all<WorldSummary>();
+		worlds.push(...(result.results ?? []));
+	}
+	return worlds;
+}
+
+async function subscriptionForumSummariesByIds(
+	db: D1DatabaseLike,
+	ids: Set<string>,
+): Promise<ForumSummary[]> {
+	const forums: ForumSummary[] = [];
+	for (const batch of chunks([...ids], d1MaxBoundParameters)) {
+		if (batch.length === 0) {
+			continue;
+		}
+		const placeholders = batch.map(() => "?").join(", ");
+		const result = await db
+			.prepare(
+				`SELECT
+					f.forum_id AS id,
+					f.world_id AS worldId,
+					f.world_handle AS worldHandle,
+					f.handle,
+					CASE
+						WHEN f.personal_bot_id IS NOT NULL AND b.bot_id IS NOT NULL
+							THEN 'Blog of ' || b.display_name || ' (u/' || b.handle || ')'
+						ELSE f.description
+					END AS description,
+					f.created_by_user_id AS createdByUserId,
+					f.personal_bot_id AS personalBotId,
+					f.created_at AS createdAt,
+					f.updated_at AS updatedAt
+				 FROM forums_index f
+				 LEFT JOIN bots_index b ON b.bot_id = f.personal_bot_id AND b.deleted_at IS NULL
+				 WHERE f.forum_id IN (${placeholders}) AND f.deleted_at IS NULL`,
+			)
+			.bind(...batch)
+			.all<ForumSummary>();
+		forums.push(...(result.results ?? []));
+	}
+	return forums;
+}
+
+async function subscriptionThreadSummariesByIds(
+	db: D1DatabaseLike,
+	ids: Set<string>,
+): Promise<ThreadSummary[]> {
+	const threads: ThreadSummary[] = [];
+	for (const batch of chunks([...ids], d1MaxBoundParameters)) {
+		if (batch.length === 0) {
+			continue;
+		}
+		const placeholders = batch.map(() => "?").join(", ");
+		const result = await db
+			.prepare(
+				`SELECT
+					t.thread_id AS id,
+					COALESCE(t.root_comment_id, 'cmt_' || substr(t.thread_id, 5)) AS rootCommentId,
+					t.world_id AS worldId,
+					t.world_handle AS worldHandle,
+					t.forum_id AS forumId,
+					t.forum_handle AS forumHandle,
+					t.author_bot_id AS authorBotId,
+					t.author_handle AS authorHandle,
+					t.author_display_name AS authorDisplayName,
+					b.avatar_url AS authorAvatarUrl,
+					b.avatar_crop AS authorAvatarCrop,
+					t.title,
+					t.body_preview AS bodyPreview,
+					t.vote_score AS voteScore,
+					t.comment_count AS commentCount,
+					t.hot_score AS hotScore,
+					t.created_at AS createdAt,
+					t.last_activity_at AS lastActivityAt
+				 FROM threads_index t
+				 LEFT JOIN bots_index b ON b.bot_id = t.author_bot_id
+				 WHERE t.thread_id IN (${placeholders}) AND t.deleted_at IS NULL`,
+			)
+			.bind(...batch)
+			.all<ThreadSummaryRow>();
+		threads.push(...(result.results ?? []).map(threadSummaryFromRow));
+	}
+	return threads;
+}
+
+async function subscriptionCommentSummariesByIds(
+	db: D1DatabaseLike,
+	ids: Set<string>,
+): Promise<HumanSubscriptionCommentSummary[]> {
+	const comments: HumanSubscriptionCommentSummary[] = [];
+	for (const batch of chunks([...ids], d1MaxBoundParameters)) {
+		if (batch.length === 0) {
+			continue;
+		}
+		const placeholders = batch.map(() => "?").join(", ");
+		const result = await db
+			.prepare(
+				`SELECT
+					c.comment_id AS id,
+					c.thread_id AS threadId,
+					c.world_id AS worldId,
+					c.forum_id AS forumId,
+					c.author_bot_id AS authorBotId,
+					c.author_handle AS authorHandle,
+					COALESCE(b.display_name, c.author_handle) AS authorDisplayName,
+					b.avatar_url AS authorAvatarUrl,
+					b.avatar_crop AS authorAvatarCrop,
+					c.body_preview AS bodyPreview,
+					c.created_at AS createdAt
+				 FROM comments_index c
+				 LEFT JOIN bots_index b ON b.bot_id = c.author_bot_id
+				 WHERE c.comment_id IN (${placeholders}) AND c.deleted_at IS NULL`,
+			)
+			.bind(...batch)
+			.all<SubscriptionCommentSummaryRow>();
+		comments.push(...(result.results ?? []).map(subscriptionCommentSummaryFromRow));
+	}
+	return comments;
+}
+
+async function subscriptionBotProfilesByIds(
+	db: D1DatabaseLike,
+	ids: Set<string>,
+): Promise<BotPublicProfile[]> {
+	const bots: BotPublicProfile[] = [];
+	for (const batch of chunks([...ids], d1MaxBoundParameters)) {
+		if (batch.length === 0) {
+			continue;
+		}
+		const placeholders = batch.map(() => "?").join(", ");
+		const result = await db
+			.prepare(
+				`SELECT
+					bot_id AS id,
+					home_world_id AS homeWorldId,
+					home_world_handle AS homeWorldHandle,
+					handle,
+					display_name AS displayName,
+					short_bio AS shortBio,
+					avatar_url AS avatarUrl,
+					avatar_crop AS avatarCrop,
+					created_at AS createdAt,
+					updated_at AS updatedAt
+				 FROM bots_index
+				 WHERE bot_id IN (${placeholders}) AND deleted_at IS NULL`,
+			)
+			.bind(...batch)
+			.all<SubscriptionBotProfileRow>();
+		bots.push(...(result.results ?? []).map(subscriptionBotProfileFromRow));
+	}
+	return bots;
 }
 
 export async function listHumanNotifications(
@@ -3627,6 +4072,16 @@ type HumanSubscriptionRow = {
 	updatedAt: string;
 };
 
+type SubscriptionCommentSummaryRow = Omit<HumanSubscriptionCommentSummary, "authorAvatarCrop" | "authorAvatarUrl"> & {
+	authorAvatarUrl: string | null;
+	authorAvatarCrop: string | null;
+};
+
+type SubscriptionBotProfileRow = Omit<BotPublicProfile, "avatarCrop" | "avatarUrl"> & {
+	avatarUrl: string | null;
+	avatarCrop: string | null;
+};
+
 type HumanNotificationRow = {
 	id: string;
 	userId: string;
@@ -3741,6 +4196,26 @@ function subscriptionFromRow(row: HumanSubscriptionRow): HumanSubscription {
 		autoCreated: row.autoCreated === 1,
 		createdAt: row.createdAt,
 		updatedAt: row.updatedAt,
+	};
+}
+
+function subscriptionCommentSummaryFromRow(row: SubscriptionCommentSummaryRow): HumanSubscriptionCommentSummary {
+	const crop = cropFromIndex(row.authorAvatarCrop);
+	const { authorAvatarUrl, ...comment } = withoutAuthorAvatarCrop(row);
+	return {
+		...comment,
+		...(authorAvatarUrl ? { authorAvatarUrl } : {}),
+		...(crop ? { authorAvatarCrop: crop } : {}),
+	};
+}
+
+function subscriptionBotProfileFromRow(row: SubscriptionBotProfileRow): BotPublicProfile {
+	const { avatarCrop, avatarUrl, ...bot } = row;
+	const crop = cropFromIndex(avatarCrop);
+	return {
+		...bot,
+		...(avatarUrl ? { avatarUrl } : {}),
+		...(crop ? { avatarCrop: crop } : {}),
 	};
 }
 

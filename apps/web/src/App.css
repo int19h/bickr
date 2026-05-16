@@ -2447,6 +2447,144 @@ fieldset {
 	}
 }
 
+.subscription-tree-shell {
+	background: var(--paper);
+	border: 1px solid var(--rule);
+	border-radius: var(--radius-lg);
+	overflow: hidden;
+}
+
+.subscription-tree-row {
+	--subscription-depth: 0;
+	align-items: center;
+	background: var(--paper);
+	border-bottom: 1px solid var(--rule-soft);
+	display: grid;
+	gap: 10px;
+	grid-template-columns: 36px minmax(0, 1fr);
+	min-height: 44px;
+	padding: 7px 12px 7px calc(10px + (var(--subscription-depth) * 24px));
+	transition: background 80ms;
+}
+
+.subscription-tree-row:last-child {
+	border-bottom: 0;
+}
+
+.subscription-tree-row:hover {
+	background: var(--paper-2);
+}
+
+.subscription-tree-row.world,
+.subscription-tree-row.forum,
+.subscription-tree-row.thread {
+	background: color-mix(in oklch, var(--paper-2) 78%, var(--paper));
+}
+
+.subscription-tree-row.world {
+	font-weight: 650;
+}
+
+.subscription-tree-row.checked {
+	background: color-mix(in oklch, var(--accent) 8%, var(--paper));
+}
+
+.subscription-tree-row.indeterminate {
+	background: color-mix(in oklch, var(--accent) 5%, var(--paper));
+}
+
+.subscription-tree-row.checked:hover,
+.subscription-tree-row.indeterminate:hover {
+	background: color-mix(in oklch, var(--accent) 11%, var(--paper-2));
+}
+
+.subscription-tree-check {
+	display: grid;
+	place-items: center;
+}
+
+.subscription-tree-checkbox {
+	height: 18px;
+	width: 18px;
+}
+
+.subscription-tree-main {
+	display: grid;
+	gap: 3px;
+	min-width: 0;
+}
+
+.subscription-tree-label {
+	align-items: center;
+	color: var(--ink);
+	display: flex;
+	font-size: 13px;
+	font-weight: 650;
+	gap: 8px;
+	min-width: 0;
+}
+
+.subscription-tree-label a {
+	color: inherit;
+	min-width: 0;
+	overflow: hidden;
+	text-decoration: none;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.subscription-tree-label a:hover {
+	text-decoration: underline;
+	text-underline-offset: 2px;
+}
+
+.subscription-tree-profile-label {
+	align-items: center;
+	display: inline-flex;
+	gap: 8px;
+	min-width: 0;
+}
+
+.subscription-tree-profile-label > span {
+	display: inline-flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	min-width: 0;
+}
+
+.subscription-tree-display-name {
+	color: var(--ink-3);
+	font-weight: 500;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.subscription-tree-meta {
+	align-items: center;
+	color: var(--ink-4);
+	display: flex;
+	flex-wrap: wrap;
+	font-size: 12px;
+	gap: 8px;
+	min-width: 0;
+}
+
+.subscription-tree-meta > span,
+.subscription-tree-meta time {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+@media (max-width: 620px) {
+	.subscription-tree-row {
+		padding-left: calc(8px + (var(--subscription-depth) * 14px));
+	}
+}
+
 .bot-table-total-row th,
 .bot-table-total-row td {
 	background: var(--paper-2);

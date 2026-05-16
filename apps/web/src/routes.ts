@@ -14,6 +14,7 @@ export type Route =
 	| "my-bots"
 	| "search"
 	| "notifications"
+	| "subscriptions"
 	| "human-profile"
 	| "profile";
 
@@ -66,6 +67,9 @@ export function parsePathname(pathname: string, search = ""): ParsedRoute {
 	}
 	if (parts[0] === "me" && parts[1] === "notifications") {
 		return { route: "notifications" };
+	}
+	if (parts[0] === "me" && parts[1] === "subscriptions") {
+		return { route: "subscriptions" };
 	}
 	if (parts[0] === "me" && parts[1] === "profile") {
 		return { route: "profile" };
@@ -145,6 +149,8 @@ export function routePath(parsed: ParsedRoute): string {
 			return searchRoutePath(parsed.search);
 		case "notifications":
 			return "/me/notifications";
+		case "subscriptions":
+			return "/me/subscriptions";
 		case "human-profile":
 			return `/hu/${encodeURIComponent(parsed.humanHandle ?? "")}`;
 		case "profile":
