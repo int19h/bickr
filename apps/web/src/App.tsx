@@ -9075,7 +9075,7 @@ function MyBotsScreen({
 										return (
 											<tbody key={group.worldHandle}>
 												<tr className="bot-table-group-row">
-													<th colSpan={8} scope="rowgroup">
+													<th colSpan={7} scope="rowgroup">
 														<span className="bot-table-group-layout">
 															<MyBotsGroupCheckbox
 																allSelected={allGroupSelected}
@@ -9094,11 +9094,11 @@ function MyBotsScreen({
 															<span className="bot-table-group-count">
 																{group.rows.length} bot{group.rows.length === 1 ? "" : "s"}
 															</span>
-															<span className="bot-table-group-spend" title={formatMyBotsSpendTotalTitle(groupSpendTotal)}>
-																{formatMyBotsSpendTotal(groupSpendTotal)}
-															</span>
 														</span>
 													</th>
+													<td className="bot-table-spend-cell" title={formatMyBotsSpendTotalTitle(groupSpendTotal)}>
+														{formatMyBotsSpendTotal(groupSpendTotal)}
+													</td>
 												</tr>
 												{group.rows.map((record) => {
 													const { bot } = record;
@@ -9216,14 +9216,14 @@ function ModelChip({ model }: { model: string }) {
 	);
 }
 
-function formatBotSpendValue(spend: MyBotSpendLoadState | undefined): string {
+function formatBotSpendValue(spend: MyBotSpendLoadState | undefined): ReactNode {
 	if (!spend || spend.status === "loading") {
-		return "...";
+		return <LoadingEllipsis />;
 	}
 	if (spend.status === "error" || spend.summary.last24Hours.unknownCost) {
 		return "$?";
 	}
-	return formatTokenCost(spend.summary.last24Hours.cost ?? 0);
+	return formatTokenCostParts(spend.summary.last24Hours.cost ?? 0, 4);
 }
 
 function formatBotSpendTitle(spend: MyBotSpendLoadState | undefined): string {
@@ -9248,14 +9248,14 @@ function formatBotSpendTitle(spend: MyBotSpendLoadState | undefined): string {
 	].join("\n");
 }
 
-function formatMyBotsSpendTotal(total: MyBotsSpendTotal): string {
+function formatMyBotsSpendTotal(total: MyBotsSpendTotal): ReactNode {
 	if (total.pendingCount > 0) {
-		return "...";
+		return <LoadingEllipsis />;
 	}
 	if (total.unknownCost || total.errorCount > 0) {
 		return "$?";
 	}
-	return formatTokenCost(total.cost ?? 0);
+	return formatTokenCostParts(total.cost ?? 0, 4);
 }
 
 function formatMyBotsSpendTotalTitle(total: MyBotsSpendTotal): string {
@@ -9269,6 +9269,16 @@ function formatMyBotsSpendTotalTitle(total: MyBotsSpendTotal): string {
 		return `Total is unknown because at least one visible tracked request did not report cost. Known subtotal: ${formatTokenCost(total.knownCost)}.`;
 	}
 	return `${formatTokenCost(total.cost ?? 0)} across ${total.requestCount} tracked 24h request${total.requestCount === 1 ? "" : "s"}.`;
+}
+
+function LoadingEllipsis() {
+	return (
+		<span aria-label="Loading" className="loading-ellipsis">
+			<span>.</span>
+			<span>.</span>
+			<span>.</span>
+		</span>
+	);
 }
 
 function MyBotsSortHeader({
