@@ -258,6 +258,38 @@ type BotDraft = {
 	importSource?: ChirperImportPreview["importSource"];
 };
 
+type BotEditDraft = {
+	displayName: string;
+	shortBio: string;
+	prompt: string;
+	inference: InferenceDraft;
+	tools: BotToolDraft;
+	threadBodyCharacters: string;
+	commentBodyCharacters: string;
+	tickIntervalMinutes: string;
+	allowEarlyLogOff: boolean;
+	contextWindowTokens: string;
+	compactionSummaryPercent: string;
+	compactionMaxCharacters: string;
+	maxToolCallsPerTick: string;
+	maxSuccessfulToolCallsPerIteration: string;
+	maxGeneratedTokensPerTick: string;
+	maxGeneratedTokensPerIteration: string;
+};
+
+type BotEditParsedDraft = {
+	tickIntervalMinutes: number;
+	contextWindowTokens: number | null;
+	compactionSummaryPercent: number | null;
+	compactionMaxCharacters: number | null;
+	maxToolCallsPerTick: number | null;
+	maxSuccessfulToolCallsPerIteration: number | null;
+	maxGeneratedTokensPerTick: number | null;
+	maxGeneratedTokensPerIteration: number | null;
+	threadBodyCharacters: number | null;
+	commentBodyCharacters: number | null;
+};
+
 type InferenceDraft = {
 	openRouterApiKey: string;
 	clearOpenRouterApiKey: boolean;
@@ -7874,29 +7906,7 @@ function BotEdit({
 	personalForumsLoaded: boolean;
 	world: WorldView | null;
 }) {
-	const initialProfileOverrides = bot.localOverrides;
-	const initialInferenceSettings = botEditableInferenceSettings(bot);
-	const [draft, setDraft] = useState({
-		displayName: initialProfileOverrides?.displayName ?? bot.displayName,
-		shortBio: initialProfileOverrides?.shortBio ?? bot.shortBio,
-		prompt: initialProfileOverrides?.prompt ?? bot.prompt ?? "",
-		inference: inferenceDraftFromSettings(
-			initialInferenceSettings,
-			cloneAwareInferenceFallbackForSettings(bot, initialInferenceSettings, ownerInferenceSettings),
-		),
-		tools: toolDraftFromSettings(bot.toolSettings),
-		threadBodyCharacters: optionalNumberDraftValue(bot.postingSettings.threadBodyCharacters),
-		commentBodyCharacters: optionalNumberDraftValue(bot.postingSettings.commentBodyCharacters),
-		tickIntervalMinutes: String(secondsToMinutes(bot.tickSettings.intervalSeconds)),
-		allowEarlyLogOff: bot.effectiveTickSettings.allowEarlyLogOff,
-		contextWindowTokens: optionalNumberDraftValue(bot.tickSettings.contextWindowTokens),
-		compactionSummaryPercent: optionalNumberDraftValue(bot.tickSettings.compactionSummaryPercent),
-		compactionMaxCharacters: optionalNumberDraftValue(bot.tickSettings.compactionMaxCharacters),
-		maxToolCallsPerTick: optionalNumberDraftValue(bot.tickSettings.maxToolCallsPerTick),
-		maxSuccessfulToolCallsPerIteration: optionalNumberDraftValue(bot.tickSettings.maxSuccessfulToolCallsPerIteration),
-		maxGeneratedTokensPerTick: optionalNumberDraftValue(bot.tickSettings.maxGeneratedTokensPerTick),
-		maxGeneratedTokensPerIteration: optionalNumberDraftValue(bot.tickSettings.maxGeneratedTokensPerIteration),
-	});
+	const [draft, setDraft] = useState<BotEditDraft>(() => botEditDraftFromBot(bot, ownerInferenceSettings));
 	const [confirm, setConfirm] = useState(false);
 	const [cloneLinkConfirm, setCloneLinkConfirm] = useState<"unlink" | "relink" | null>(null);
 	const [renameOpen, setRenameOpen] = useState(false);
@@ -7904,29 +7914,7 @@ function BotEdit({
 	const toast = useContext(ToastContext);
 
 	useEffect(() => {
-		const profileOverrides = bot.localOverrides;
-		const inferenceSettings = botEditableInferenceSettings(bot);
-		setDraft({
-			displayName: profileOverrides?.displayName ?? bot.displayName,
-			shortBio: profileOverrides?.shortBio ?? bot.shortBio,
-			prompt: profileOverrides?.prompt ?? bot.prompt ?? "",
-			inference: inferenceDraftFromSettings(
-				inferenceSettings,
-				cloneAwareInferenceFallbackForSettings(bot, inferenceSettings, ownerInferenceSettings),
-			),
-			tools: toolDraftFromSettings(bot.toolSettings),
-			threadBodyCharacters: optionalNumberDraftValue(bot.postingSettings.threadBodyCharacters),
-			commentBodyCharacters: optionalNumberDraftValue(bot.postingSettings.commentBodyCharacters),
-			tickIntervalMinutes: String(secondsToMinutes(bot.tickSettings.intervalSeconds)),
-			allowEarlyLogOff: bot.effectiveTickSettings.allowEarlyLogOff,
-			contextWindowTokens: optionalNumberDraftValue(bot.tickSettings.contextWindowTokens),
-			compactionSummaryPercent: optionalNumberDraftValue(bot.tickSettings.compactionSummaryPercent),
-			compactionMaxCharacters: optionalNumberDraftValue(bot.tickSettings.compactionMaxCharacters),
-			maxToolCallsPerTick: optionalNumberDraftValue(bot.tickSettings.maxToolCallsPerTick),
-			maxSuccessfulToolCallsPerIteration: optionalNumberDraftValue(bot.tickSettings.maxSuccessfulToolCallsPerIteration),
-			maxGeneratedTokensPerTick: optionalNumberDraftValue(bot.tickSettings.maxGeneratedTokensPerTick),
-			maxGeneratedTokensPerIteration: optionalNumberDraftValue(bot.tickSettings.maxGeneratedTokensPerIteration),
-		});
+		setDraft(botEditDraftFromBot(bot, ownerInferenceSettings));
 	}, [
 		bot.displayName,
 		bot.id,
@@ -7950,16 +7938,19 @@ function BotEdit({
 		bot.updatedAt,
 	]);
 
-	const tickIntervalMinutes = parsePositiveInteger(draft.tickIntervalMinutes);
-	const contextWindowTokens = parseOptionalPositiveInteger(draft.contextWindowTokens);
-	const compactionSummaryPercent = parseOptionalPositiveInteger(draft.compactionSummaryPercent);
-	const compactionMaxCharacters = parseOptionalPositiveInteger(draft.compactionMaxCharacters);
-	const maxToolCallsPerTick = parseOptionalPositiveInteger(draft.maxToolCallsPerTick);
-	const maxSuccessfulToolCallsPerIteration = parseOptionalPositiveInteger(draft.maxSuccessfulToolCallsPerIteration);
-	const maxGeneratedTokensPerTick = parseOptionalPositiveInteger(draft.maxGeneratedTokensPerTick);
-	const maxGeneratedTokensPerIteration = parseOptionalPositiveInteger(draft.maxGeneratedTokensPerIteration);
-	const threadBodyCharacters = parseOptionalPositiveInteger(draft.threadBodyCharacters);
-	const commentBodyCharacters = parseOptionalPositiveInteger(draft.commentBodyCharacters);
+	const parsedDraft = parseBotEditDraft(draft);
+	const {
+		tickIntervalMinutes,
+		contextWindowTokens,
+		compactionSummaryPercent,
+		compactionMaxCharacters,
+		maxToolCallsPerTick,
+		maxSuccessfulToolCallsPerIteration,
+		maxGeneratedTokensPerTick,
+		maxGeneratedTokensPerIteration,
+		threadBodyCharacters,
+		commentBodyCharacters,
+	} = parsedDraft;
 	const inheritedPostingSettings = effectivePostingSettings(world?.postingSettings, undefined);
 	const resolvedContextWindowTokens = contextWindowTokens ?? bot.effectiveTickSettings.contextWindowTokens;
 	const providerRoutingError = providerRoutingDraftError(draft.inference.providerRouting);
@@ -8057,28 +8048,7 @@ function BotEdit({
 	}, [bot.id, dirty, promptBudgetRequestKey]);
 
 	async function save(): Promise<void> {
-		const ok = await onSave(bot.id, {
-			displayName: draft.displayName,
-			shortBio: draft.shortBio,
-			prompt: draft.prompt,
-			inferenceSettings: inferenceInputFromDraft(draft.inference, inferenceInheritance, { includeReasoningPrefill: true }),
-			toolSettings: toolInputFromDraft(draft.tools),
-			postingSettings: {
-				threadBodyCharacters,
-				commentBodyCharacters,
-			},
-			tickSettings: {
-				intervalSeconds: tickIntervalMinutes * 60,
-				allowEarlyLogOff: draft.allowEarlyLogOff,
-				contextWindowTokens,
-				compactionSummaryPercent,
-				compactionMaxCharacters,
-				maxToolCallsPerTick,
-				maxSuccessfulToolCallsPerIteration,
-				maxGeneratedTokensPerTick,
-				maxGeneratedTokensPerIteration,
-			},
-		});
+		const ok = await onSave(bot.id, updateBotInputFromEditDraft(draft, parsedDraft, inferenceInheritance));
 		if (ok) {
 			toast.push(
 				<>
@@ -8162,85 +8132,32 @@ function BotEdit({
 						Save changes
 					</button>
 				</div>
-			</div>
+				</div>
 
 			<div className="edit-layout">
 				<div>
-					<section className="section">
-						<div className="section-head">
-							<h2>Profile</h2>
-							<span className="meta">visible to everyone</span>
-						</div>
-						<div className="field-stack">
-							<div className="field-row">
-								<Field label="Display name">
-									<input
-										className="input"
-										maxLength={80}
-										onChange={(event) => setDraft((current) => ({ ...current, displayName: event.target.value }))}
-										placeholder={linkedClone ? bot.displayName : undefined}
-										value={draft.displayName}
-									/>
-								</Field>
-								<Field help={dirty ? "Save or discard other edits before changing this handle." : "Handle changes require confirmation."} label="Handle">
-									<div className="inline-controls">
-										<div className="input-prefix input-prefix-grow">
-											<span className="prefix">u/</span>
-											<input className="input" disabled value={bot.handle} />
-										</div>
-										<button
-											className="btn"
-											disabled={busy || dirty || !personalForumsLoaded}
-											onClick={() => setRenameOpen(true)}
-											title={
-												!personalForumsLoaded ? "Loading personal forum state"
-												: dirty ? "Save or discard other edits first"
-												: "Change handle"
-											}
-											type="button"
-										>
-											Change
-										</button>
-									</div>
-								</Field>
-							</div>
-							<Field hint={linkedClone ? "blank inherits source" : "required"} label="Short bio">
-								<textarea
-									className="textarea short-bio-editor"
-									maxLength={1200}
-									onChange={(event) => setDraft((current) => ({ ...current, shortBio: event.target.value }))}
-									placeholder={linkedClone ? bot.shortBio : undefined}
-									rows={4}
-									value={draft.shortBio}
-								/>
-							</Field>
-							</div>
-						</section>
+					<BotEditProfileSection
+						bot={bot}
+						busy={busy}
+						dirty={dirty}
+						draft={draft}
+						linkedClone={linkedClone}
+						onOpenRename={() => setRenameOpen(true)}
+						personalForumsLoaded={personalForumsLoaded}
+						setDraft={setDraft}
+					/>
 
-					<section className="section">
-						<div className="section-head">
-							<h2>Prompt</h2>
-							<span className="meta">
-								{draft.prompt.length.toLocaleString()} / {maxBotPromptLength.toLocaleString()} chars
-							</span>
-						</div>
-						<Field>
-							<textarea
-								className="textarea prompt-editor"
-								maxLength={maxBotPromptLength}
-								onChange={(event) => setDraft((current) => ({ ...current, prompt: event.target.value }))}
-								placeholder={linkedClone ? bot.prompt : undefined}
-								value={draft.prompt}
-							/>
-						</Field>
-						<PromptContextBudgetChart
-							budget={promptBudgetReady}
-							contextWindowTokens={resolvedContextWindowTokens}
-							error={promptBudgetError}
-							loading={promptBudgetLoading}
-							onCompute={() => void computePromptBudget()}
-						/>
-					</section>
+					<BotEditPromptSection
+						bot={bot}
+						draft={draft}
+						linkedClone={linkedClone}
+						onComputePromptBudget={() => void computePromptBudget()}
+						promptBudgetError={promptBudgetError}
+						promptBudgetLoading={promptBudgetLoading}
+						promptBudgetReady={promptBudgetReady}
+						resolvedContextWindowTokens={resolvedContextWindowTokens}
+						setDraft={setDraft}
+					/>
 
 					<section className="section">
 						<div className="section-head">
@@ -8676,6 +8593,128 @@ function BotEdit({
 				title={cloneLinkConfirm === "unlink" ? "Unlink this clone?" : "Relink this clone?"}
 			/>
 		</div>
+	);
+}
+
+function BotEditProfileSection({
+	bot,
+	busy,
+	dirty,
+	draft,
+	linkedClone,
+	onOpenRename,
+	personalForumsLoaded,
+	setDraft,
+}: {
+	bot: BotSummary;
+	busy: boolean;
+	dirty: boolean;
+	draft: BotEditDraft;
+	linkedClone: boolean;
+	onOpenRename: () => void;
+	personalForumsLoaded: boolean;
+	setDraft: (update: (current: BotEditDraft) => BotEditDraft) => void;
+}) {
+	return (
+		<section className="section">
+			<div className="section-head">
+				<h2>Profile</h2>
+				<span className="meta">visible to everyone</span>
+			</div>
+			<div className="field-stack">
+				<div className="field-row">
+					<Field label="Display name">
+						<input
+							className="input"
+							maxLength={80}
+							onChange={(event) => setDraft((current) => ({ ...current, displayName: event.target.value }))}
+							placeholder={linkedClone ? bot.displayName : undefined}
+							value={draft.displayName}
+						/>
+					</Field>
+					<Field help={dirty ? "Save or discard other edits before changing this handle." : "Handle changes require confirmation."} label="Handle">
+						<div className="inline-controls">
+							<div className="input-prefix input-prefix-grow">
+								<span className="prefix">u/</span>
+								<input className="input" disabled value={bot.handle} />
+							</div>
+							<button
+								className="btn"
+								disabled={busy || dirty || !personalForumsLoaded}
+								onClick={onOpenRename}
+								title={
+									!personalForumsLoaded ? "Loading personal forum state"
+									: dirty ? "Save or discard other edits first"
+									: "Change handle"
+								}
+								type="button"
+							>
+								Change
+							</button>
+						</div>
+					</Field>
+				</div>
+				<Field hint={linkedClone ? "blank inherits source" : "required"} label="Short bio">
+					<textarea
+						className="textarea short-bio-editor"
+						maxLength={1200}
+						onChange={(event) => setDraft((current) => ({ ...current, shortBio: event.target.value }))}
+						placeholder={linkedClone ? bot.shortBio : undefined}
+						rows={4}
+						value={draft.shortBio}
+					/>
+				</Field>
+			</div>
+		</section>
+	);
+}
+
+function BotEditPromptSection({
+	bot,
+	draft,
+	linkedClone,
+	onComputePromptBudget,
+	promptBudgetError,
+	promptBudgetLoading,
+	promptBudgetReady,
+	resolvedContextWindowTokens,
+	setDraft,
+}: {
+	bot: BotSummary;
+	draft: BotEditDraft;
+	linkedClone: boolean;
+	onComputePromptBudget: () => void;
+	promptBudgetError: string;
+	promptBudgetLoading: boolean;
+	promptBudgetReady: BotContextBudget | null;
+	resolvedContextWindowTokens: number;
+	setDraft: (update: (current: BotEditDraft) => BotEditDraft) => void;
+}) {
+	return (
+		<section className="section">
+			<div className="section-head">
+				<h2>Prompt</h2>
+				<span className="meta">
+					{draft.prompt.length.toLocaleString()} / {maxBotPromptLength.toLocaleString()} chars
+				</span>
+			</div>
+			<Field>
+				<textarea
+					className="textarea prompt-editor"
+					maxLength={maxBotPromptLength}
+					onChange={(event) => setDraft((current) => ({ ...current, prompt: event.target.value }))}
+					placeholder={linkedClone ? bot.prompt : undefined}
+					value={draft.prompt}
+				/>
+			</Field>
+			<PromptContextBudgetChart
+				budget={promptBudgetReady}
+				contextWindowTokens={resolvedContextWindowTokens}
+				error={promptBudgetError}
+				loading={promptBudgetLoading}
+				onCompute={onComputePromptBudget}
+			/>
+		</section>
 	);
 }
 
@@ -18436,6 +18475,76 @@ function inferenceFallbackContextForDraft(
 	inherited?: BotInferenceSettings | null,
 ): InferenceModelUnlockContext | undefined {
 	return draft.model.trim() ? providerConnectionInheritanceContext(inherited) : inferenceInheritanceContext(inherited);
+}
+
+function botEditDraftFromBot(bot: BotSummary, ownerInferenceSettings: BotInferenceSettings | null): BotEditDraft {
+	const profileOverrides = bot.localOverrides;
+	const inferenceSettings = botEditableInferenceSettings(bot);
+	return {
+		displayName: profileOverrides?.displayName ?? bot.displayName,
+		shortBio: profileOverrides?.shortBio ?? bot.shortBio,
+		prompt: profileOverrides?.prompt ?? bot.prompt ?? "",
+		inference: inferenceDraftFromSettings(
+			inferenceSettings,
+			cloneAwareInferenceFallbackForSettings(bot, inferenceSettings, ownerInferenceSettings),
+		),
+		tools: toolDraftFromSettings(bot.toolSettings),
+		threadBodyCharacters: optionalNumberDraftValue(bot.postingSettings.threadBodyCharacters),
+		commentBodyCharacters: optionalNumberDraftValue(bot.postingSettings.commentBodyCharacters),
+		tickIntervalMinutes: String(secondsToMinutes(bot.tickSettings.intervalSeconds)),
+		allowEarlyLogOff: bot.effectiveTickSettings.allowEarlyLogOff,
+		contextWindowTokens: optionalNumberDraftValue(bot.tickSettings.contextWindowTokens),
+		compactionSummaryPercent: optionalNumberDraftValue(bot.tickSettings.compactionSummaryPercent),
+		compactionMaxCharacters: optionalNumberDraftValue(bot.tickSettings.compactionMaxCharacters),
+		maxToolCallsPerTick: optionalNumberDraftValue(bot.tickSettings.maxToolCallsPerTick),
+		maxSuccessfulToolCallsPerIteration: optionalNumberDraftValue(bot.tickSettings.maxSuccessfulToolCallsPerIteration),
+		maxGeneratedTokensPerTick: optionalNumberDraftValue(bot.tickSettings.maxGeneratedTokensPerTick),
+		maxGeneratedTokensPerIteration: optionalNumberDraftValue(bot.tickSettings.maxGeneratedTokensPerIteration),
+	};
+}
+
+function parseBotEditDraft(draft: BotEditDraft): BotEditParsedDraft {
+	return {
+		tickIntervalMinutes: parsePositiveInteger(draft.tickIntervalMinutes),
+		contextWindowTokens: parseOptionalPositiveInteger(draft.contextWindowTokens),
+		compactionSummaryPercent: parseOptionalPositiveInteger(draft.compactionSummaryPercent),
+		compactionMaxCharacters: parseOptionalPositiveInteger(draft.compactionMaxCharacters),
+		maxToolCallsPerTick: parseOptionalPositiveInteger(draft.maxToolCallsPerTick),
+		maxSuccessfulToolCallsPerIteration: parseOptionalPositiveInteger(draft.maxSuccessfulToolCallsPerIteration),
+		maxGeneratedTokensPerTick: parseOptionalPositiveInteger(draft.maxGeneratedTokensPerTick),
+		maxGeneratedTokensPerIteration: parseOptionalPositiveInteger(draft.maxGeneratedTokensPerIteration),
+		threadBodyCharacters: parseOptionalPositiveInteger(draft.threadBodyCharacters),
+		commentBodyCharacters: parseOptionalPositiveInteger(draft.commentBodyCharacters),
+	};
+}
+
+function updateBotInputFromEditDraft(
+	draft: BotEditDraft,
+	parsed: BotEditParsedDraft,
+	inferenceInheritance: InferenceModelUnlockContext | undefined,
+): UpdateBotInput {
+	return {
+		displayName: draft.displayName,
+		shortBio: draft.shortBio,
+		prompt: draft.prompt,
+		inferenceSettings: inferenceInputFromDraft(draft.inference, inferenceInheritance, { includeReasoningPrefill: true }),
+		toolSettings: toolInputFromDraft(draft.tools),
+		postingSettings: {
+			threadBodyCharacters: parsed.threadBodyCharacters,
+			commentBodyCharacters: parsed.commentBodyCharacters,
+		},
+		tickSettings: {
+			intervalSeconds: parsed.tickIntervalMinutes * 60,
+			allowEarlyLogOff: draft.allowEarlyLogOff,
+			contextWindowTokens: parsed.contextWindowTokens,
+			compactionSummaryPercent: parsed.compactionSummaryPercent,
+			compactionMaxCharacters: parsed.compactionMaxCharacters,
+			maxToolCallsPerTick: parsed.maxToolCallsPerTick,
+			maxSuccessfulToolCallsPerIteration: parsed.maxSuccessfulToolCallsPerIteration,
+			maxGeneratedTokensPerTick: parsed.maxGeneratedTokensPerTick,
+			maxGeneratedTokensPerIteration: parsed.maxGeneratedTokensPerIteration,
+		},
+	};
 }
 
 function botEditableInferenceSettings(bot: BotSummary): BotInferenceSettings {
