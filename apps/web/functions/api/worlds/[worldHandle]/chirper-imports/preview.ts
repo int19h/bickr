@@ -10,6 +10,7 @@ import {
 } from "@bickr/shared/validation";
 import { type AppEnv, requireCompleteUser } from "../../../_auth";
 import { pageErrorResponse } from "../../../_errors";
+import { isAbortError, readLimitedResponseText } from "../../../_proxy";
 
 const chirperFetchTimeoutMs = 15_000;
 const chirperResponseBodyMaxBytes = 1_000_000;
@@ -69,70 +70,14 @@ async function fetchChirperProfile(fetcher: typeof fetch, apiUrl: string): Promi
 }
 
 async function readChirperJson(response: Response, signal: AbortSignal): Promise<unknown> {
-	return JSON.parse(await readChirperText(response, signal));
-}
-
-async function readChirperText(response: Response, signal: AbortSignal): Promise<string> {
-	if (!response.body) {
-		return "";
-	}
-	const reader = response.body.getReader();
-	const decoder = new TextDecoder();
-	let text = "";
-	let bytesRead = 0;
-	let abortListener: (() => void) | undefined;
-	if (signal.aborted) {
-		void reader.cancel("Chirper profile fetch timed out.").catch(() => {});
-		throw new InputError("Chirper profile fetch timed out.");
-	}
-	const abortPromise = new Promise<never>((_, reject) => {
-		abortListener = () => {
-			void reader.cancel("Chirper profile fetch timed out.").catch(() => {});
-			reject(new InputError("Chirper profile fetch timed out."));
-		};
-		signal.addEventListener("abort", abortListener, { once: true });
-	});
-	try {
-		while (true) {
-			if (bytesRead >= chirperResponseBodyMaxBytes) {
-				const { done } = await Promise.race([reader.read(), abortPromise]);
-				if (done) {
-					return text + decoder.decode();
-				}
-				await reader.cancel("Chirper response body byte limit reached.");
-				throw new InputError("Chirper profile response was too large.");
-			}
-			const { done, value } = await Promise.race([reader.read(), abortPromise]);
-			if (done) {
-				return text + decoder.decode();
-			}
-			const remaining = chirperResponseBodyMaxBytes - bytesRead;
-			if (value.byteLength > remaining) {
-				await reader.cancel("Chirper response body byte limit reached.");
-				throw new InputError("Chirper profile response was too large.");
-			}
-			bytesRead += value.byteLength;
-			text += decoder.decode(value, { stream: true });
-		}
-	} finally {
-		if (abortListener) {
-			signal.removeEventListener("abort", abortListener);
-		}
-		try {
-			reader.releaseLock();
-		} catch {
-			// The body may already be canceled by the timeout path.
-		}
-	}
-}
-
-function isAbortError(error: unknown): boolean {
-	return Boolean(
-		error &&
-			typeof error === "object" &&
-			"name" in error &&
-			(error as { name?: unknown }).name === "AbortError",
-	);
+	return JSON.parse(await readLimitedResponseText(response, signal, {
+		maxBytes: chirperResponseBodyMaxBytes,
+		timeoutCancelReason: "Chirper profile fetch timed out.",
+		timeoutMessage: "Chirper profile fetch timed out.",
+		tooLargeCancelReason: "Chirper response body byte limit reached.",
+		tooLargeMessage: "Chirper profile response was too large.",
+		error: (message) => new InputError(message),
+	}));
 }
 
 function chirperHandle(source: string): string {

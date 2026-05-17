@@ -1,11 +1,12 @@
 import { ok, readJsonBody } from "@bickr/shared/api";
-import { type SpotlightDeliveryResult, type SpotlightSendInput } from "@bickr/shared/model";
+import { type SpotlightDeliveryResult } from "@bickr/shared/model";
 import { RepositoryError } from "@bickr/shared/repository";
 import { forumByHandle, sendSpotlight } from "@bickr/shared/social";
 import { normalizeHandleParam } from "@bickr/shared/validation";
 import { requireCompleteUser, type AppEnv } from "../../../../../_auth";
 import { pageErrorResponse } from "../../../../../_errors";
 import { fetchServiceJson, serviceRequest } from "../../../../../_proxy";
+import { parseSpotlightSendInput } from "./_input";
 
 export const onRequestPost: PagesFunction<AppEnv, "worldHandle" | "forumHandle"> = async ({
 	env,
@@ -17,7 +18,7 @@ export const onRequestPost: PagesFunction<AppEnv, "worldHandle" | "forumHandle">
 		const worldHandle = normalizeHandleParam(params.worldHandle, "World handle");
 		const forumHandle = normalizeHandleParam(params.forumHandle, "Forum handle");
 		const forum = await forumByHandle(env.BICKR_KV, env.BICKR_D1, worldHandle, forumHandle);
-		const input = parseSpotlightInput(await readJsonBody(request));
+		const input = parseSpotlightSendInput(await readJsonBody(request));
 		const result = await sendSpotlightWithStaleReadRetry(() =>
 			sendSpotlight(
 				env.BICKR_KV,
@@ -156,22 +157,4 @@ function spotlightTickStatus(status: string | undefined): NonNullable<SpotlightD
 		default:
 			return "failed";
 	}
-}
-
-function parseSpotlightInput(value: unknown): SpotlightSendInput {
-	const record = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
-	const targetType = record.targetType === "comments" ? "comments" : "threads";
-	return {
-		targetType,
-		threadIds: Array.isArray(record.threadIds) ? record.threadIds.filter(isString) : undefined,
-		threadId: typeof record.threadId === "string" ? record.threadId : undefined,
-		commentIds: Array.isArray(record.commentIds) ? record.commentIds.filter(isString) : undefined,
-		botIds: Array.isArray(record.botIds) ? record.botIds.filter(isString) : [],
-		focusText: typeof record.focusText === "string" ? record.focusText : undefined,
-		autoStartTick: typeof record.autoStartTick === "boolean" ? record.autoStartTick : undefined,
-	};
-}
-
-function isString(value: unknown): value is string {
-	return typeof value === "string";
 }

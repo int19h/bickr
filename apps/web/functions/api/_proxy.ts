@@ -21,6 +21,16 @@ export function serviceRequest(
 	});
 }
 
+export async function forwardServiceJsonRequest(
+	service: Fetcher,
+	request: Request,
+	path: string,
+	userId: string,
+): Promise<Response> {
+	const body = await request.text();
+	return service.fetch(serviceRequest(request, path, userId, body));
+}
+
 const serviceFetchTimeoutMs = 30_000;
 const serviceJsonBodyMaxBytes = 1_000_000;
 
@@ -49,47 +59,67 @@ export async function fetchServiceJson(
 }
 
 async function readServiceJson(response: Response, signal: AbortSignal): Promise<unknown> {
-	return JSON.parse(await readServiceText(response, signal));
+	return JSON.parse(await readLimitedResponseText(response, signal, {
+		maxBytes: serviceJsonBodyMaxBytes,
+		timeoutCancelReason: "Bickr service request timed out.",
+		timeoutMessage: "Bickr service request timed out.",
+		tooLargeCancelReason: "Bickr service response byte limit reached.",
+		tooLargeMessage: "Bickr service response was too large.",
+	}));
 }
 
-async function readServiceText(response: Response, signal: AbortSignal): Promise<string> {
+export type LimitedResponseTextOptions = {
+	maxBytes: number;
+	timeoutCancelReason: string;
+	timeoutMessage: string;
+	tooLargeCancelReason: string;
+	tooLargeMessage: string;
+	error?: (message: string) => Error;
+};
+
+export async function readLimitedResponseText(
+	response: Response,
+	signal: AbortSignal,
+	options: LimitedResponseTextOptions,
+): Promise<string> {
 	if (!response.body) {
 		return "";
 	}
+	const makeError = options.error ?? ((message: string) => new Error(message));
 	const reader = response.body.getReader();
 	const decoder = new TextDecoder();
 	let text = "";
 	let bytesRead = 0;
 	let abortListener: (() => void) | undefined;
 	if (signal.aborted) {
-		void reader.cancel("Bickr service request timed out.").catch(() => {});
-		throw new Error("Bickr service request timed out.");
+		void reader.cancel(options.timeoutCancelReason).catch(() => {});
+		throw makeError(options.timeoutMessage);
 	}
 	const abortPromise = new Promise<never>((_, reject) => {
 		abortListener = () => {
-			void reader.cancel("Bickr service request timed out.").catch(() => {});
-			reject(new Error("Bickr service request timed out."));
+			void reader.cancel(options.timeoutCancelReason).catch(() => {});
+			reject(makeError(options.timeoutMessage));
 		};
 		signal.addEventListener("abort", abortListener, { once: true });
 	});
 	try {
 		while (true) {
-			if (bytesRead >= serviceJsonBodyMaxBytes) {
+			if (bytesRead >= options.maxBytes) {
 				const { done } = await Promise.race([reader.read(), abortPromise]);
 				if (done) {
 					return text + decoder.decode();
 				}
-				await reader.cancel("Bickr service response byte limit reached.");
-				throw new Error("Bickr service response was too large.");
+				await reader.cancel(options.tooLargeCancelReason);
+				throw makeError(options.tooLargeMessage);
 			}
 			const { done, value } = await Promise.race([reader.read(), abortPromise]);
 			if (done) {
 				return text + decoder.decode();
 			}
-			const remaining = serviceJsonBodyMaxBytes - bytesRead;
+			const remaining = options.maxBytes - bytesRead;
 			if (value.byteLength > remaining) {
-				await reader.cancel("Bickr service response byte limit reached.");
-				throw new Error("Bickr service response was too large.");
+				await reader.cancel(options.tooLargeCancelReason);
+				throw makeError(options.tooLargeMessage);
 			}
 			bytesRead += value.byteLength;
 			text += decoder.decode(value, { stream: true });
@@ -106,7 +136,7 @@ async function readServiceText(response: Response, signal: AbortSignal): Promise
 	}
 }
 
-function isAbortError(error: unknown): boolean {
+export function isAbortError(error: unknown): boolean {
 	return Boolean(
 		error &&
 			typeof error === "object" &&

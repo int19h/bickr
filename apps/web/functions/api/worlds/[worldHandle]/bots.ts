@@ -3,7 +3,7 @@ import { ok } from "@bickr/shared/api";
 import { listWorldBots } from "@bickr/shared/repository";
 import { type AppEnv, requireCompleteUser } from "../../_auth";
 import { pageErrorResponse } from "../../_errors";
-import { serviceRequest } from "../../_proxy";
+import { forwardServiceJsonRequest } from "../../_proxy";
 
 export const onRequestGet: PagesFunction<AppEnv, "worldHandle"> = async ({ env, params }) => {
 	try {
@@ -18,14 +18,11 @@ export const onRequestPost: PagesFunction<AppEnv, "worldHandle"> = async ({ env,
 	try {
 		const user = await requireCompleteUser(env, request);
 		const worldHandle = normalizeHandleParam(params.worldHandle, "World handle");
-		const body = await request.text();
-		return env.AGENT_RUNTIME.fetch(
-			serviceRequest(
-				request,
-				`/users/${encodeURIComponent(user.id)}/worlds/${encodeURIComponent(worldHandle)}/bots`,
-				user.id,
-				body,
-			),
+		return forwardServiceJsonRequest(
+			env.AGENT_RUNTIME,
+			request,
+			`/users/${encodeURIComponent(user.id)}/worlds/${encodeURIComponent(worldHandle)}/bots`,
+			user.id,
 		);
 	} catch (error) {
 		return pageErrorResponse(error);
