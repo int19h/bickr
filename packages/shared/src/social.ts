@@ -621,28 +621,67 @@ export async function listHumanSubscriptionTree(
 		return { subscriptions: [], tree: { worlds: [] } };
 	}
 
-	const directByKey = new Map(subscriptions.map((subscription) => [
-		subscriptionKey(subscription.scopeType, subscription.scopeId),
-		subscription,
-	]));
-	const directWorldIds = idsForScope(subscriptions, "world");
-	const directForumIds = idsForScope(subscriptions, "forum");
-	const directThreadIds = idsForScope(subscriptions, "thread");
-	const directCommentIds = idsForScope(subscriptions, "comment");
-	const directBotIds = idsForScope(subscriptions, "bot");
+	const resolvedSubscriptionKeys = new Set<string>();
+	const directSubscriptions = directHumanSubscriptionsByScope(subscriptions);
+	const sources = await readHumanSubscriptionTreeSources(db, subscriptions, directSubscriptions);
+	const worldNodes = buildHumanSubscriptionWorldNodes(directSubscriptions.directByKey, sources, resolvedSubscriptionKeys);
 
-	const comments = await subscriptionCommentSummariesByIds(db, directCommentIds);
-	const threadIds = new Set([...directThreadIds, ...comments.map((comment) => comment.threadId)]);
+	return {
+		subscriptions: subscriptions.filter((subscription) =>
+			resolvedSubscriptionKeys.has(subscriptionKey(subscription.scopeType, subscription.scopeId)),
+		),
+		tree: { worlds: worldNodes },
+	};
+}
+
+type DirectHumanSubscriptions = {
+	directByKey: Map<string, HumanSubscription>;
+	worldIds: Set<string>;
+	forumIds: Set<string>;
+	threadIds: Set<string>;
+	commentIds: Set<string>;
+	botIds: Set<string>;
+};
+
+type HumanSubscriptionTreeSources = {
+	worlds: WorldSummary[];
+	forums: ForumSummary[];
+	threads: ThreadSummary[];
+	comments: HumanSubscriptionCommentSummary[];
+	bots: BotPublicProfile[];
+};
+
+function directHumanSubscriptionsByScope(subscriptions: HumanSubscription[]): DirectHumanSubscriptions {
+	return {
+		directByKey: new Map(subscriptions.map((subscription) => [
+			subscriptionKey(subscription.scopeType, subscription.scopeId),
+			subscription,
+		])),
+		worldIds: idsForScope(subscriptions, "world"),
+		forumIds: idsForScope(subscriptions, "forum"),
+		threadIds: idsForScope(subscriptions, "thread"),
+		commentIds: idsForScope(subscriptions, "comment"),
+		botIds: idsForScope(subscriptions, "bot"),
+	};
+}
+
+async function readHumanSubscriptionTreeSources(
+	db: D1DatabaseLike,
+	subscriptions: HumanSubscription[],
+	direct: DirectHumanSubscriptions,
+): Promise<HumanSubscriptionTreeSources> {
+	const comments = await subscriptionCommentSummariesByIds(db, direct.commentIds);
+	const threadIds = new Set([...direct.threadIds, ...comments.map((comment) => comment.threadId)]);
 	const threads = await subscriptionThreadSummariesByIds(db, threadIds);
 	const forumIds = new Set([
-		...directForumIds,
+		...direct.forumIds,
 		...threads.map((thread) => thread.forumId),
 		...comments.map((comment) => comment.forumId),
 	]);
 	const forums = await subscriptionForumSummariesByIds(db, forumIds);
-	const bots = await subscriptionBotProfilesByIds(db, directBotIds);
+	const bots = await subscriptionBotProfilesByIds(db, direct.botIds);
 	const worldIds = new Set([
-		...directWorldIds,
+		...direct.worldIds,
 		...subscriptions.map((subscription) => subscription.worldId),
 		...forums.map((forum) => forum.worldId),
 		...threads.map((thread) => thread.worldId),
@@ -650,15 +689,71 @@ export async function listHumanSubscriptionTree(
 		...bots.map((bot) => bot.homeWorldId),
 	]);
 	const worlds = await subscriptionWorldSummariesByIds(db, worldIds);
+	return { worlds, forums, threads, comments, bots };
+}
 
-	const worldsById = new Map(worlds.map((world) => [world.id, world]));
-	const forumsById = new Map(forums.map((forum) => [forum.id, forum]));
-	const threadsById = new Map(threads.map((thread) => [thread.id, thread]));
-	const resolvedSubscriptionKeys = new Set<string>();
+function buildHumanSubscriptionWorldNodes(
+	directByKey: Map<string, HumanSubscription>,
+	sources: HumanSubscriptionTreeSources,
+	resolvedSubscriptionKeys: Set<string>,
+): HumanSubscriptionWorldNode[] {
+	const worldsById = itemsById(sources.worlds);
+	const forumsById = itemsById(sources.forums);
+	const threadsById = itemsById(sources.threads);
+	const commentNodesByThreadId = buildHumanSubscriptionCommentNodes(
+		sources.comments,
+		{ worldsById, forumsById, threadsById },
+		directByKey,
+		resolvedSubscriptionKeys,
+	);
+	const threadNodesByForumId = buildHumanSubscriptionThreadNodes(
+		sources.threads,
+		{ worldsById, forumsById },
+		commentNodesByThreadId,
+		directByKey,
+		resolvedSubscriptionKeys,
+	);
+	const forumNodesByWorldId = buildHumanSubscriptionForumNodes(
+		sources.forums,
+		worldsById,
+		threadNodesByForumId,
+		directByKey,
+		resolvedSubscriptionKeys,
+	);
+	const botNodesByWorldId = buildHumanSubscriptionBotNodes(
+		sources.bots,
+		worldsById,
+		directByKey,
+		resolvedSubscriptionKeys,
+	);
+	const worldNodes = buildHumanSubscriptionWorldNodesFromGroups(
+		sources.worlds,
+		directByKey,
+		botNodesByWorldId,
+		forumNodesByWorldId,
+		resolvedSubscriptionKeys,
+	);
+	return worldNodes.sort((left, right) =>
+		left.world.handle.localeCompare(right.world.handle, undefined, { sensitivity: "base" }));
+}
 
+function buildHumanSubscriptionCommentNodes(
+	comments: HumanSubscriptionCommentSummary[],
+	indexes: {
+		worldsById: Map<string, WorldSummary>;
+		forumsById: Map<string, ForumSummary>;
+		threadsById: Map<string, ThreadSummary>;
+	},
+	directByKey: Map<string, HumanSubscription>,
+	resolvedSubscriptionKeys: Set<string>,
+): Map<string, HumanSubscriptionCommentNode[]> {
 	const commentNodesByThreadId = new Map<string, HumanSubscriptionCommentNode[]>();
 	for (const comment of comments) {
-		if (!threadsById.has(comment.threadId) || !forumsById.has(comment.forumId) || !worldsById.has(comment.worldId)) {
+		if (
+			!indexes.threadsById.has(comment.threadId) ||
+			!indexes.forumsById.has(comment.forumId) ||
+			!indexes.worldsById.has(comment.worldId)
+		) {
 			continue;
 		}
 		const key = subscriptionKey("comment", comment.id);
@@ -676,10 +771,22 @@ export async function listHumanSubscriptionTree(
 		});
 		commentNodesByThreadId.set(comment.threadId, nodes);
 	}
+	return commentNodesByThreadId;
+}
 
+function buildHumanSubscriptionThreadNodes(
+	threads: ThreadSummary[],
+	indexes: {
+		worldsById: Map<string, WorldSummary>;
+		forumsById: Map<string, ForumSummary>;
+	},
+	commentNodesByThreadId: Map<string, HumanSubscriptionCommentNode[]>,
+	directByKey: Map<string, HumanSubscription>,
+	resolvedSubscriptionKeys: Set<string>,
+): Map<string, HumanSubscriptionThreadNode[]> {
 	const threadNodesByForumId = new Map<string, HumanSubscriptionThreadNode[]>();
 	for (const thread of threads) {
-		if (!forumsById.has(thread.forumId) || !worldsById.has(thread.worldId)) {
+		if (!indexes.forumsById.has(thread.forumId) || !indexes.worldsById.has(thread.worldId)) {
 			continue;
 		}
 		const comments = [...(commentNodesByThreadId.get(thread.id) ?? [])]
@@ -702,7 +809,16 @@ export async function listHumanSubscriptionTree(
 		});
 		threadNodesByForumId.set(thread.forumId, nodes);
 	}
+	return threadNodesByForumId;
+}
 
+function buildHumanSubscriptionForumNodes(
+	forums: ForumSummary[],
+	worldsById: Map<string, WorldSummary>,
+	threadNodesByForumId: Map<string, HumanSubscriptionThreadNode[]>,
+	directByKey: Map<string, HumanSubscription>,
+	resolvedSubscriptionKeys: Set<string>,
+): Map<string, HumanSubscriptionForumNode[]> {
 	const forumNodesByWorldId = new Map<string, HumanSubscriptionForumNode[]>();
 	for (const forum of forums) {
 		if (!worldsById.has(forum.worldId)) {
@@ -728,7 +844,15 @@ export async function listHumanSubscriptionTree(
 		});
 		forumNodesByWorldId.set(forum.worldId, nodes);
 	}
+	return forumNodesByWorldId;
+}
 
+function buildHumanSubscriptionBotNodes(
+	bots: BotPublicProfile[],
+	worldsById: Map<string, WorldSummary>,
+	directByKey: Map<string, HumanSubscription>,
+	resolvedSubscriptionKeys: Set<string>,
+): Map<string, HumanSubscriptionWorldNode["bots"]> {
 	const botNodesByWorldId = new Map<string, HumanSubscriptionWorldNode["bots"]>();
 	for (const bot of bots) {
 		if (!worldsById.has(bot.homeWorldId)) {
@@ -749,7 +873,16 @@ export async function listHumanSubscriptionTree(
 		});
 		botNodesByWorldId.set(bot.homeWorldId, nodes);
 	}
+	return botNodesByWorldId;
+}
 
+function buildHumanSubscriptionWorldNodesFromGroups(
+	worlds: WorldSummary[],
+	directByKey: Map<string, HumanSubscription>,
+	botNodesByWorldId: Map<string, HumanSubscriptionWorldNode["bots"]>,
+	forumNodesByWorldId: Map<string, HumanSubscriptionForumNode[]>,
+	resolvedSubscriptionKeys: Set<string>,
+): HumanSubscriptionWorldNode[] {
 	const worldNodes: HumanSubscriptionWorldNode[] = [];
 	for (const world of worlds) {
 		const bots = [...(botNodesByWorldId.get(world.id) ?? [])]
@@ -773,15 +906,11 @@ export async function listHumanSubscriptionTree(
 			forums,
 		});
 	}
+	return worldNodes;
+}
 
-	worldNodes.sort((left, right) => left.world.handle.localeCompare(right.world.handle, undefined, { sensitivity: "base" }));
-
-	return {
-		subscriptions: subscriptions.filter((subscription) =>
-			resolvedSubscriptionKeys.has(subscriptionKey(subscription.scopeType, subscription.scopeId)),
-		),
-		tree: { worlds: worldNodes },
-	};
+function itemsById<T extends { id: string }>(items: T[]): Map<string, T> {
+	return new Map(items.map((item) => [item.id, item]));
 }
 
 export async function applyHumanSubscriptionChanges(

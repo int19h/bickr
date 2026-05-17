@@ -1048,104 +1048,122 @@ function parseTickSettings(value: unknown): BotTickSettingsInput {
 	if (record.enabled !== undefined) {
 		settings.enabled = Boolean(record.enabled);
 	}
-	if (record.intervalSeconds !== undefined) {
-		settings.intervalSeconds = boundedInteger(record.intervalSeconds, "Tick interval", 30, 86_400);
-	}
-	if (record.allowEarlyLogOff !== undefined || record.allow_early_log_off !== undefined) {
-		const allowEarlyLogOff = aliasedValue(record, "allowEarlyLogOff", "allow_early_log_off");
-		if (allowEarlyLogOff === null) {
-			settings.allowEarlyLogOff = null;
-		} else if (typeof allowEarlyLogOff === "boolean") {
-			settings.allowEarlyLogOff = allowEarlyLogOff;
-		} else {
-			throw new InputError("Allow to log off early must be a boolean.");
-		}
-	}
-	if (record.contextWindowTokens !== undefined) {
-		settings.contextWindowTokens =
-			record.contextWindowTokens === null ?
-				null
-			:	boundedInteger(
-					record.contextWindowTokens,
-					"Context window",
-					2_000,
-					1_000_000,
-				);
-	}
-	if (record.compactionThreshold !== undefined) {
-		const threshold = Number(record.compactionThreshold);
-		if (!Number.isFinite(threshold) || threshold < 0.2 || threshold > 0.95) {
-			throw new InputError("Compaction threshold must be between 0.2 and 0.95.");
-		}
-		settings.compactionThreshold = threshold;
-	}
-	if (record.compactionSummaryPercent !== undefined) {
-		settings.compactionSummaryPercent =
-			record.compactionSummaryPercent === null ?
-				null
-			:	boundedInteger(
-					record.compactionSummaryPercent,
-					"Compaction percentage",
-					1,
-					50,
-				);
-	}
-	if (record.compactionMaxCharacters !== undefined) {
-		settings.compactionMaxCharacters =
-			record.compactionMaxCharacters === null ?
-				null
-			:	boundedInteger(
-					record.compactionMaxCharacters,
-					"Max number of characters after compaction",
-					1,
-					1_000_000,
-				);
-	}
-	if (record.maxToolCallsPerTick !== undefined) {
-		settings.maxToolCallsPerTick =
-			record.maxToolCallsPerTick === null ?
-				null
-			:	boundedInteger(
-					record.maxToolCallsPerTick,
-					"Max tool call attempts per tick",
-					1,
-					32,
-				);
-	}
-	if (record.maxSuccessfulToolCallsPerIteration !== undefined) {
-		settings.maxSuccessfulToolCallsPerIteration =
-			record.maxSuccessfulToolCallsPerIteration === null ?
-				null
-			:	boundedInteger(
-					record.maxSuccessfulToolCallsPerIteration,
-					"Max successful tool calls per iteration",
-					1,
-					32,
-				);
-	}
-	if (record.maxGeneratedTokensPerTick !== undefined) {
-		settings.maxGeneratedTokensPerTick =
-			record.maxGeneratedTokensPerTick === null ?
-				null
-			:	boundedInteger(
-					record.maxGeneratedTokensPerTick,
-					"Max generated tokens per tick",
-					1,
-					1_000_000,
-				);
-	}
-	if (record.maxGeneratedTokensPerIteration !== undefined) {
-		settings.maxGeneratedTokensPerIteration =
-			record.maxGeneratedTokensPerIteration === null ?
-				null
-			:	boundedInteger(
-					record.maxGeneratedTokensPerIteration,
-					"Max generated tokens per iteration",
-					1,
-					1_000_000,
-				);
+	assignBoundedIntegerSetting(settings, "intervalSeconds", record.intervalSeconds, "Tick interval", 30, 86_400);
+	assignNullableBooleanAlias(
+		settings,
+		"allowEarlyLogOff",
+		record,
+		"allowEarlyLogOff",
+		"allow_early_log_off",
+		"Allow to log off early",
+	);
+	assignNullableBoundedIntegerSetting(
+		settings,
+		"contextWindowTokens",
+		record.contextWindowTokens,
+		"Context window",
+		2_000,
+		1_000_000,
+	);
+	assignNumberRangeSetting(settings, "compactionThreshold", record.compactionThreshold, "Compaction threshold", 0.2, 0.95);
+	for (const rule of nullableTickIntegerSettings) {
+		assignNullableBoundedIntegerSetting(settings, rule.key, record[rule.key], rule.label, rule.min, rule.max);
 	}
 	return settings;
+}
+
+type TickBoundedIntegerKey = "intervalSeconds";
+type TickNullableBooleanKey = "allowEarlyLogOff";
+type TickNullableBoundedIntegerKey =
+	| "contextWindowTokens"
+	| "compactionSummaryPercent"
+	| "compactionMaxCharacters"
+	| "maxToolCallsPerTick"
+	| "maxSuccessfulToolCallsPerIteration"
+	| "maxGeneratedTokensPerTick"
+	| "maxGeneratedTokensPerIteration";
+type TickNumberRangeKey = "compactionThreshold";
+
+const nullableTickIntegerSettings: readonly {
+	key: Exclude<TickNullableBoundedIntegerKey, "contextWindowTokens">;
+	label: string;
+	min: number;
+	max: number;
+}[] = [
+	{ key: "compactionSummaryPercent", label: "Compaction percentage", min: 1, max: 50 },
+	{ key: "compactionMaxCharacters", label: "Max number of characters after compaction", min: 1, max: 1_000_000 },
+	{ key: "maxToolCallsPerTick", label: "Max tool call attempts per tick", min: 1, max: 32 },
+	{ key: "maxSuccessfulToolCallsPerIteration", label: "Max successful tool calls per iteration", min: 1, max: 32 },
+	{ key: "maxGeneratedTokensPerTick", label: "Max generated tokens per tick", min: 1, max: 1_000_000 },
+	{ key: "maxGeneratedTokensPerIteration", label: "Max generated tokens per iteration", min: 1, max: 1_000_000 },
+];
+
+function assignBoundedIntegerSetting(
+	settings: BotTickSettingsInput,
+	key: TickBoundedIntegerKey,
+	value: unknown,
+	label: string,
+	min: number,
+	max: number,
+): void {
+	if (value === undefined) {
+		return;
+	}
+	settings[key] = boundedInteger(value, label, min, max);
+}
+
+function assignNullableBooleanAlias(
+	settings: BotTickSettingsInput,
+	key: TickNullableBooleanKey,
+	record: Record<string, unknown>,
+	preferredKey: string,
+	fallbackKey: string,
+	label: string,
+): void {
+	if (record[preferredKey] === undefined && record[fallbackKey] === undefined) {
+		return;
+	}
+	const value = aliasedValue(record, preferredKey, fallbackKey);
+	if (value === null) {
+		settings[key] = null;
+		return;
+	}
+	if (typeof value !== "boolean") {
+		throw new InputError(`${label} must be a boolean.`);
+	}
+	settings[key] = value;
+}
+
+function assignNullableBoundedIntegerSetting(
+	settings: BotTickSettingsInput,
+	key: TickNullableBoundedIntegerKey,
+	value: unknown,
+	label: string,
+	min: number,
+	max: number,
+): void {
+	if (value === undefined) {
+		return;
+	}
+	settings[key] = value === null ? null : boundedInteger(value, label, min, max);
+}
+
+function assignNumberRangeSetting(
+	settings: BotTickSettingsInput,
+	key: TickNumberRangeKey,
+	value: unknown,
+	label: string,
+	min: number,
+	max: number,
+): void {
+	if (value === undefined) {
+		return;
+	}
+	const parsed = Number(value);
+	if (!Number.isFinite(parsed) || parsed < min || parsed > max) {
+		throw new InputError(`${label} must be between ${min} and ${max}.`);
+	}
+	settings[key] = parsed;
 }
 
 function pickContextWindowTickSettings(
