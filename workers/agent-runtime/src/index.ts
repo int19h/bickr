@@ -1385,6 +1385,68 @@ function providerToolsForBotRound(
 	};
 }
 
+type ProviderLoopRequestEventPayloadInput = {
+	budgetCheck: ProviderPromptBudgetCheck;
+	generatedTokensThisIteration: number;
+	generatedTokensThisTick: number;
+	maxSuccessfulToolCallsPerIteration: number;
+	mutatingToolUsedThisIteration: boolean;
+	prematureLogOffCorrectedThisIteration: boolean;
+	providerTools: ProviderToolDefinition[];
+	requestContextWindowTokens: number;
+	requestMessages: ChatMessage[];
+	serverTools: ReturnType<typeof openRouterServerToolSelection>;
+	settings: ProviderSettings;
+	successfulToolCallsThisIteration: number;
+	tickSettings: {
+		contextWindowTokens: number;
+		maxGeneratedTokensPerIteration: number;
+		maxGeneratedTokensPerTick: number;
+	};
+	toolCallsMode: BotInferenceToolCalls;
+};
+
+function providerLoopRequestEventPayload(input: ProviderLoopRequestEventPayloadInput): Record<string, unknown> {
+	const toolChoice = providerToolChoiceForMode(input.toolCallsMode);
+	return {
+		model: input.settings.model,
+		messageCount: input.requestMessages.length,
+		toolCount: input.providerTools.length,
+		toolCalls: input.toolCallsMode,
+		...(toolChoice ? { toolChoice } : {}),
+		parallelToolCalls: providerParallelToolCalls,
+		contextWindowTokens: input.requestContextWindowTokens,
+		promptTokens: input.budgetCheck.promptTokens,
+		allowedPromptTokens: input.budgetCheck.allowedPromptTokens,
+		maxCompletionTokens: providerContextReserveTokens,
+		reasoning: providerReasoningForSettings(input.settings),
+		temperature: input.settings.temperature,
+		openRouterServerTools: {
+			enabled: input.serverTools.enabled,
+			emitted: input.serverTools.emitted,
+			suppressed: input.serverTools.suppressed,
+		},
+		iterationToolLimit: {
+			successfulToolCalls: input.successfulToolCallsThisIteration,
+			maxSuccessfulToolCalls: input.maxSuccessfulToolCallsPerIteration,
+			mutatingToolUsed: input.mutatingToolUsedThisIteration,
+			prematureLogOffCorrected: input.prematureLogOffCorrectedThisIteration,
+		},
+		generatedTokenLimit: {
+			tickGeneratedTokens: input.generatedTokensThisTick,
+			maxGeneratedTokensPerTick: input.tickSettings.maxGeneratedTokensPerTick,
+			iterationGeneratedTokens: input.generatedTokensThisIteration,
+			maxGeneratedTokensPerIteration: input.tickSettings.maxGeneratedTokensPerIteration,
+		},
+		...(input.settings.topK !== undefined ? { topK: input.settings.topK } : {}),
+		...(input.settings.topP !== undefined ? { topP: input.settings.topP } : {}),
+		...(input.settings.minP !== undefined ? { minP: input.settings.minP } : {}),
+		...(input.settings.frequencyPenalty !== undefined ? { frequencyPenalty: input.settings.frequencyPenalty } : {}),
+		...(input.settings.presencePenalty !== undefined ? { presencePenalty: input.settings.presencePenalty } : {}),
+		...(input.settings.repetitionPenalty !== undefined ? { repetitionPenalty: input.settings.repetitionPenalty } : {}),
+	};
+}
+
 function providerMessagesWithPrefillCompatibility(
 	settings: Pick<ProviderSettings, 'supportsPrefill'>,
 	messages: ChatMessage[],
@@ -3229,149 +3291,171 @@ export class BotRuntime {
 		try {
 			const url = new URL(request.url);
 			const botId = botIdFromPath(url.pathname);
-
-			if (request.method === 'GET' && url.pathname.endsWith('/status')) {
-				await this.requireOwnerOrInternal(request, botId);
-				return ok({ status: await this.status(botId) });
-			}
-
-			if (request.method === 'GET' && url.pathname.endsWith('/events')) {
-				await this.requireOwnerOrInternal(request, botId);
-				const after = Number(url.searchParams.get('after') ?? 0);
-				return ok({ events: this.eventsAfter(Number.isFinite(after) ? after : 0) });
-			}
-
-			if (request.method === 'GET' && url.pathname.endsWith('/messages')) {
-				await this.requireOwnerOrInternal(request, botId);
-				const after = Number(url.searchParams.get('after') ?? 0);
-				const page = Number(url.searchParams.get('page') ?? 1);
-				return ok(
-					this.loopMessagesPage({
-						after: Number.isFinite(after) ? after : 0,
-						page: Number.isFinite(page) ? page : 1,
-					}),
-				);
-			}
-
-			const messageLogSeq = messageLogsSeqFromPath(url.pathname);
-			if (request.method === 'GET' && messageLogSeq !== null) {
-				await this.requireOwnerOrInternal(request, botId);
-				return ok(this.loopMessageLogsForSeq(messageLogSeq));
-			}
-
-			const messageSeq = messageSeqFromPath(url.pathname);
-			if (request.method === 'DELETE' && messageSeq !== null) {
-				await this.requireOwnerOrInternal(request, botId);
-				return ok({ deleted: await this.deleteLoopMessage(botId, messageSeq) });
-			}
-
-			if (request.method === 'GET' && url.pathname.endsWith('/submissions')) {
-				await this.requireOwnerOrInternal(request, botId);
-				return ok({ submissions: this.inferenceSubmissionSummaries() });
-			}
-
-			const submissionSeq = submissionSeqFromPath(url.pathname);
-			if (request.method === 'GET' && submissionSeq !== null) {
-				await this.requireOwnerOrInternal(request, botId);
-				return ok({ submission: this.inferenceSubmissionForSeq(submissionSeq) });
-			}
-
-			if (request.method === 'GET' && url.pathname.endsWith('/token-usage')) {
-				await this.requireOwnerOrInternal(request, botId);
-				return ok({ usage: this.tokenUsageStats(await botById(this.env.BICKR_KV, this.env.BICKR_D1, botId)) });
-			}
-
-			if (request.method === 'GET' && url.pathname.endsWith('/token-spend')) {
-				await this.requireOwnerOrInternal(request, botId);
-				return ok({ spend: await this.tokenSpendSummary(await botById(this.env.BICKR_KV, this.env.BICKR_D1, botId)) });
-			}
-
-			if (request.method === 'GET' && url.pathname.endsWith('/context-budget')) {
-				await this.requireOwnerOrInternal(request, botId);
-				return ok({ budget: await this.cachedPromptContextBudget(botId) });
-			}
-
-			if (request.method === 'POST' && url.pathname.endsWith('/context-budget')) {
-				await this.requireOwnerOrInternal(request, botId);
-				const input = parseBotContextBudgetInput(await readJsonBody(request));
-				return ok({ budget: await this.promptContextBudget(botId, input) });
-			}
-
-			if (request.method === 'DELETE' && url.pathname.endsWith('/events')) {
-				await this.requireOwnerOrInternal(request, botId);
-				const cleared = await this.clearHistory(botId);
-				return ok({ cleared });
-			}
-
-			if (request.method === 'POST' && url.pathname.endsWith('/compact')) {
-				await this.requireOwnerOrInternal(request, botId);
-				const compacted = await this.manualCompactLoopMessages(botId);
-				return ok({ compacted });
-			}
-
-			if (request.method === 'DELETE' && eventSeqFromPath(url.pathname) !== null) {
-				await this.requireOwnerOrInternal(request, botId);
-				const deleted = await this.deleteEvent(botId, eventSeqFromPath(url.pathname) ?? 0);
-				return ok({ deleted });
-			}
-
-			if (request.method === 'POST' && url.pathname.endsWith('/tick')) {
-				await this.requireOwnerOrInternal(request, botId);
-				const options = await readTickOptions(request);
-				const trigger = options.mode === 'spotlight' ? 'spotlight' : request.headers.get('x-bickr-scheduler') ? 'cron' : 'manual';
-				if (options.background) {
-					const run = await this.startBackgroundTick(botId, trigger, options);
-					return ok({ run });
-				}
-				const run = await this.runTick(botId, trigger, options);
-				return ok({ run });
-			}
-
-			if (request.method === 'POST' && url.pathname.endsWith('/stop')) {
-				await this.requireOwnerOrInternal(request, botId);
-				const stop = await this.stopTick(botId);
-				return ok({ stop });
-			}
-
-			if (request.method === 'POST' && url.pathname.endsWith('/inject')) {
-				await this.requireOwnerOrInternal(request, botId);
-				const body = await readJsonBody(request);
-				const text = body && typeof body === 'object' && 'text' in body && typeof body.text === 'string' ? body.text.trim() : '';
-				if (!text) {
-					throw new InputError('Injection text is required.');
-				}
-				const event = await this.injectThought(text, {
-					kind: stringValue(body && typeof body === 'object' ? (body as Record<string, unknown>).kind : undefined) ?? 'manual',
-					sourceId: stringValue(body && typeof body === 'object' ? (body as Record<string, unknown>).sourceId : undefined),
-					spotlightId: stringValue(body && typeof body === 'object' ? (body as Record<string, unknown>).spotlightId : undefined),
-				});
-				return ok({ event, injectionId: stringValue(runtimeRecord(event.payload).injectionId) });
-			}
-
-			if (request.method === 'GET' && url.pathname.endsWith('/monitor')) {
-				await this.requireOwnerOrInternal(request, botId);
-				if (request.headers.get('Upgrade') !== 'websocket') {
-					return fail('bad_request', 'Expected WebSocket upgrade.', 400);
-				}
-				const pair = new WebSocketPair();
-				const [client, server] = Object.values(pair);
-				this.state.acceptWebSocket(server, [botId]);
-				const after = Number(url.searchParams.get('after') ?? 0);
-				const afterMessage = Number(url.searchParams.get('afterMessage') ?? after);
-				const afterEvent = Number(url.searchParams.get('afterEvent') ?? after);
-				for (const message of this.loopMessagesAfter(Number.isFinite(afterMessage) ? afterMessage : 0)) {
-					server.send(JSON.stringify({ type: 'loop_message', loopMessage: message }));
-				}
-				for (const event of this.eventsAfter(Number.isFinite(afterEvent) ? afterEvent : 0)) {
-					server.send(JSON.stringify({ type: 'event', event }));
-				}
-				return new Response(null, { status: 101, webSocket: client });
-			}
-
-			return fail('not_found', 'Bot runtime route not found.', 404);
+			return await this.handleRuntimeHttpRequest(request, url, botId);
 		} catch (error) {
 			return errorResponse(error);
 		}
+	}
+
+	private async handleRuntimeHttpRequest(request: Request, url: URL, botId: string): Promise<Response> {
+		const response =
+			await this.handleRuntimeReadRequest(request, url, botId) ??
+			await this.handleRuntimeMutationRequest(request, url, botId) ??
+			await this.handleRuntimeInjectionRequest(request, url, botId) ??
+			await this.handleRuntimeMonitorRequest(request, url, botId);
+		return response ?? fail('not_found', 'Bot runtime route not found.', 404);
+	}
+
+	private async handleRuntimeReadRequest(request: Request, url: URL, botId: string): Promise<Response | null> {
+		if (request.method === 'GET' && url.pathname.endsWith('/status')) {
+			await this.requireOwnerOrInternal(request, botId);
+			return ok({ status: await this.status(botId) });
+		}
+
+		if (request.method === 'GET' && url.pathname.endsWith('/events')) {
+			await this.requireOwnerOrInternal(request, botId);
+			const after = Number(url.searchParams.get('after') ?? 0);
+			return ok({ events: this.eventsAfter(Number.isFinite(after) ? after : 0) });
+		}
+
+		if (request.method === 'GET' && url.pathname.endsWith('/messages')) {
+			await this.requireOwnerOrInternal(request, botId);
+			const after = Number(url.searchParams.get('after') ?? 0);
+			const page = Number(url.searchParams.get('page') ?? 1);
+			return ok(
+				this.loopMessagesPage({
+					after: Number.isFinite(after) ? after : 0,
+					page: Number.isFinite(page) ? page : 1,
+				}),
+			);
+		}
+
+		const messageLogSeq = messageLogsSeqFromPath(url.pathname);
+		if (request.method === 'GET' && messageLogSeq !== null) {
+			await this.requireOwnerOrInternal(request, botId);
+			return ok(this.loopMessageLogsForSeq(messageLogSeq));
+		}
+
+		if (request.method === 'GET' && url.pathname.endsWith('/submissions')) {
+			await this.requireOwnerOrInternal(request, botId);
+			return ok({ submissions: this.inferenceSubmissionSummaries() });
+		}
+
+		const submissionSeq = submissionSeqFromPath(url.pathname);
+		if (request.method === 'GET' && submissionSeq !== null) {
+			await this.requireOwnerOrInternal(request, botId);
+			return ok({ submission: this.inferenceSubmissionForSeq(submissionSeq) });
+		}
+
+		if (request.method === 'GET' && url.pathname.endsWith('/token-usage')) {
+			await this.requireOwnerOrInternal(request, botId);
+			return ok({ usage: this.tokenUsageStats(await botById(this.env.BICKR_KV, this.env.BICKR_D1, botId)) });
+		}
+
+		if (request.method === 'GET' && url.pathname.endsWith('/token-spend')) {
+			await this.requireOwnerOrInternal(request, botId);
+			return ok({ spend: await this.tokenSpendSummary(await botById(this.env.BICKR_KV, this.env.BICKR_D1, botId)) });
+		}
+
+		if (request.method === 'GET' && url.pathname.endsWith('/context-budget')) {
+			await this.requireOwnerOrInternal(request, botId);
+			return ok({ budget: await this.cachedPromptContextBudget(botId) });
+		}
+		return null;
+	}
+
+	private async handleRuntimeMutationRequest(request: Request, url: URL, botId: string): Promise<Response | null> {
+		const messageSeq = messageSeqFromPath(url.pathname);
+		if (request.method === 'DELETE' && messageSeq !== null) {
+			await this.requireOwnerOrInternal(request, botId);
+			return ok({ deleted: await this.deleteLoopMessage(botId, messageSeq) });
+		}
+
+		if (request.method === 'POST' && url.pathname.endsWith('/context-budget')) {
+			await this.requireOwnerOrInternal(request, botId);
+			const input = parseBotContextBudgetInput(await readJsonBody(request));
+			return ok({ budget: await this.promptContextBudget(botId, input) });
+		}
+
+		if (request.method === 'DELETE' && url.pathname.endsWith('/events')) {
+			await this.requireOwnerOrInternal(request, botId);
+			const cleared = await this.clearHistory(botId);
+			return ok({ cleared });
+		}
+
+		if (request.method === 'POST' && url.pathname.endsWith('/compact')) {
+			await this.requireOwnerOrInternal(request, botId);
+			const compacted = await this.manualCompactLoopMessages(botId);
+			return ok({ compacted });
+		}
+
+		const eventSeq = eventSeqFromPath(url.pathname);
+		if (request.method === 'DELETE' && eventSeq !== null) {
+			await this.requireOwnerOrInternal(request, botId);
+			const deleted = await this.deleteEvent(botId, eventSeq);
+			return ok({ deleted });
+		}
+
+		if (request.method === 'POST' && url.pathname.endsWith('/tick')) {
+			await this.requireOwnerOrInternal(request, botId);
+			const options = await readTickOptions(request);
+			const trigger = options.mode === 'spotlight' ? 'spotlight' : request.headers.get('x-bickr-scheduler') ? 'cron' : 'manual';
+			if (options.background) {
+				const run = await this.startBackgroundTick(botId, trigger, options);
+				return ok({ run });
+			}
+			const run = await this.runTick(botId, trigger, options);
+			return ok({ run });
+		}
+
+		if (request.method === 'POST' && url.pathname.endsWith('/stop')) {
+			await this.requireOwnerOrInternal(request, botId);
+			const stop = await this.stopTick(botId);
+			return ok({ stop });
+		}
+		return null;
+	}
+
+	private async handleRuntimeInjectionRequest(request: Request, url: URL, botId: string): Promise<Response | null> {
+		if (request.method !== 'POST' || !url.pathname.endsWith('/inject')) {
+			return null;
+		}
+		await this.requireOwnerOrInternal(request, botId);
+		const body = await readJsonBody(request);
+		const bodyRecord = body && typeof body === 'object' ? (body as Record<string, unknown>) : {};
+		const text = typeof bodyRecord.text === 'string' ? bodyRecord.text.trim() : '';
+		if (!text) {
+			throw new InputError('Injection text is required.');
+		}
+		const event = await this.injectThought(text, {
+			kind: stringValue(bodyRecord.kind) ?? 'manual',
+			sourceId: stringValue(bodyRecord.sourceId),
+			spotlightId: stringValue(bodyRecord.spotlightId),
+		});
+		return ok({ event, injectionId: stringValue(runtimeRecord(event.payload).injectionId) });
+	}
+
+	private async handleRuntimeMonitorRequest(request: Request, url: URL, botId: string): Promise<Response | null> {
+		if (request.method !== 'GET' || !url.pathname.endsWith('/monitor')) {
+			return null;
+		}
+		await this.requireOwnerOrInternal(request, botId);
+		if (request.headers.get('Upgrade') !== 'websocket') {
+			return fail('bad_request', 'Expected WebSocket upgrade.', 400);
+		}
+		const pair = new WebSocketPair();
+		const [client, server] = Object.values(pair);
+		this.state.acceptWebSocket(server, [botId]);
+		const after = Number(url.searchParams.get('after') ?? 0);
+		const afterMessage = Number(url.searchParams.get('afterMessage') ?? after);
+		const afterEvent = Number(url.searchParams.get('afterEvent') ?? after);
+		for (const message of this.loopMessagesAfter(Number.isFinite(afterMessage) ? afterMessage : 0)) {
+			server.send(JSON.stringify({ type: 'loop_message', loopMessage: message }));
+		}
+		for (const event of this.eventsAfter(Number.isFinite(afterEvent) ? afterEvent : 0)) {
+			server.send(JSON.stringify({ type: 'event', event }));
+		}
+		return new Response(null, { status: 101, webSocket: client });
 	}
 
 	async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
@@ -3985,43 +4069,22 @@ export class BotRuntime {
 				const budgetCheck = await this.ensureProviderPromptWithinBudget(bot, settings, runId, runContext.signal, providerTools);
 				const requestMessages = budgetCheck.requestMessages;
 				const requestContextWindowTokens = budgetCheck.contextWindowTokens ?? tickSettings.contextWindowTokens;
-				requestEvent = await this.appendEvent(runId, 'provider_request', {
-					model: settings.model,
-					messageCount: requestMessages.length,
-					toolCount: providerTools.length,
-					toolCalls: toolCallsMode,
-					...(providerToolChoiceForMode(toolCallsMode) ? { toolChoice: providerToolChoiceForMode(toolCallsMode) } : {}),
-					parallelToolCalls: providerParallelToolCalls,
-					contextWindowTokens: requestContextWindowTokens,
-					promptTokens: budgetCheck.promptTokens,
-					allowedPromptTokens: budgetCheck.allowedPromptTokens,
-					maxCompletionTokens: providerContextReserveTokens,
-					reasoning: providerReasoningForSettings(settings),
-					temperature: settings.temperature,
-					openRouterServerTools: {
-						enabled: serverTools.enabled,
-						emitted: serverTools.emitted,
-						suppressed: serverTools.suppressed,
-					},
-					iterationToolLimit: {
-						successfulToolCalls: successfulToolCallsThisIteration,
-						maxSuccessfulToolCalls: maxSuccessfulToolCallsPerIteration,
-						mutatingToolUsed: mutatingToolUsedThisIteration,
-						prematureLogOffCorrected: prematureLogOffCorrectedThisIteration,
-					},
-					generatedTokenLimit: {
-						tickGeneratedTokens: generatedTokensThisTick,
-						maxGeneratedTokensPerTick: tickSettings.maxGeneratedTokensPerTick,
-						iterationGeneratedTokens: generatedTokensThisIteration,
-						maxGeneratedTokensPerIteration: tickSettings.maxGeneratedTokensPerIteration,
-					},
-					...(settings.topK !== undefined ? { topK: settings.topK } : {}),
-					...(settings.topP !== undefined ? { topP: settings.topP } : {}),
-					...(settings.minP !== undefined ? { minP: settings.minP } : {}),
-					...(settings.frequencyPenalty !== undefined ? { frequencyPenalty: settings.frequencyPenalty } : {}),
-					...(settings.presencePenalty !== undefined ? { presencePenalty: settings.presencePenalty } : {}),
-					...(settings.repetitionPenalty !== undefined ? { repetitionPenalty: settings.repetitionPenalty } : {}),
-				});
+				requestEvent = await this.appendEvent(runId, 'provider_request', providerLoopRequestEventPayload({
+					budgetCheck,
+					generatedTokensThisIteration,
+					generatedTokensThisTick,
+					maxSuccessfulToolCallsPerIteration,
+					mutatingToolUsedThisIteration,
+					prematureLogOffCorrectedThisIteration,
+					providerTools,
+					requestContextWindowTokens,
+					requestMessages,
+					serverTools,
+					settings,
+					successfulToolCallsThisIteration,
+					tickSettings,
+					toolCallsMode,
+				}));
 				this.recordInferenceSubmission({
 					seq: requestEvent.seq,
 					runId,

@@ -533,6 +533,30 @@ function toolResultSummary(name: string, args: unknown, result: unknown, fallbac
 	}
 
 	const thread = threadRecord(result);
+	const summary =
+		threadToolResultSummary(canonical, args, result, record, thread, fallbackWorldHandle) ??
+		listToolResultSummary(canonical, args, result, fallbackWorldHandle) ??
+		profileToolResultSummary(canonical, args, result, record, fallbackWorldHandle) ??
+		voteToolResultSummary(canonical, args, result, thread, fallbackWorldHandle) ??
+		logOffToolResultSummary(canonical, args, record);
+	if (summary) {
+		return summary;
+	}
+
+	return {
+		title: `Tool result: ${canonical}`,
+		body: formatPayload(result, 1_200),
+	};
+}
+
+function threadToolResultSummary(
+	canonical: string,
+	args: unknown,
+	result: unknown,
+	record: Record<string, unknown>,
+	thread: Record<string, unknown> | null,
+	fallbackWorldHandle: string,
+): ToolResultSummary | undefined {
 	if (canonical === "create_thread" && thread) {
 		const details = [threadFacts(thread), createdThreadBody(thread, args)].filter(Boolean).join("\n");
 		const items = [openThreadItem(thread, fallbackWorldHandle)].filter(isDisplayItem);
@@ -565,6 +589,15 @@ function toolResultSummary(name: string, args: unknown, result: unknown, fallbac
 		const items = [openCommentItem(displayThread, target, fallbackWorldHandle)].filter(isDisplayItem);
 		return resultWithDisplay(`Read comment ${shortId(target)}`, details, items);
 	}
+	return undefined;
+}
+
+function listToolResultSummary(
+	canonical: string,
+	args: unknown,
+	result: unknown,
+	fallbackWorldHandle: string,
+): ToolResultSummary | undefined {
 	if (canonical === "list_accessible_forums" && Array.isArray(result)) {
 		const items = result.map((item, index) => forumItem(runtimeRecord(item), index, fallbackWorldHandle));
 		return resultWithDisplay("Listed public forums", itemsBody(items, "No public forums returned."), items);
@@ -588,6 +621,16 @@ function toolResultSummary(name: string, args: unknown, result: unknown, fallbac
 		const items = result.map((item, index) => profileItem(runtimeRecord(item), index, fallbackWorldHandle));
 		return resultWithDisplay(`Profile search results for "${query}"`, itemsBody(items, "No matching profiles returned."), items);
 	}
+	return undefined;
+}
+
+function profileToolResultSummary(
+	canonical: string,
+	args: unknown,
+	result: unknown,
+	record: Record<string, unknown>,
+	fallbackWorldHandle: string,
+): ToolResultSummary | undefined {
 	if (canonical === "view_profiles") {
 		const profiles = Array.isArray(record.profiles) ? record.profiles.map(runtimeRecord) : [record];
 		const items = profiles.map((profile, index) => profileItem(profile, index, fallbackWorldHandle, "Open profile")).filter(isDisplayItem);
@@ -634,6 +677,16 @@ function toolResultSummary(name: string, args: unknown, result: unknown, fallbac
 		const title = `${canonical === "follow_profile" ? "Followed" : "Unfollowed"} ${profileLabel(profile)}`;
 		return resultWithDisplay(title, [toolReasonBody(args), status, itemBody(item)].filter(Boolean).join("\n"), [item]);
 	}
+	return undefined;
+}
+
+function voteToolResultSummary(
+	canonical: string,
+	args: unknown,
+	result: unknown,
+	thread: Record<string, unknown> | null,
+	fallbackWorldHandle: string,
+): ToolResultSummary | undefined {
 	if (canonical === "vote") {
 		if (Array.isArray(result)) {
 			const rows = result.map(runtimeRecord);
@@ -654,14 +707,18 @@ function toolResultSummary(name: string, args: unknown, result: unknown, fallbac
 		const items = thread ? [openThreadItem(thread, fallbackWorldHandle)].filter(isDisplayItem) : [];
 		return resultWithDisplay("Vote recorded", details, items);
 	}
+	return undefined;
+}
+
+function logOffToolResultSummary(
+	canonical: string,
+	args: unknown,
+	record: Record<string, unknown>,
+): ToolResultSummary | undefined {
 	if (canonical === "log_off") {
 		return resultWithDisplay("Logged off", [stringValue(record.message) ?? "Finished this tick.", toolReasonBody(args)].filter(Boolean).join("\n"), []);
 	}
-
-	return {
-		title: `Tool result: ${canonical}`,
-		body: formatPayload(result, 1_200),
-	};
+	return undefined;
 }
 
 function compactionTitle(payload: Record<string, unknown>): string {
