@@ -144,7 +144,7 @@ function botAvatarFields(avatarUrl: string | null | undefined, avatarCrop: strin
 	};
 }
 
-export function rootCommentIdForThreadId(threadId: string): string {
+function rootCommentIdForThreadId(threadId: string): string {
 	if (isShortContentId(threadId)) {
 		return threadId;
 	}
@@ -274,7 +274,7 @@ export async function forumByHandle(
 	return forumById(kv, db, row.id);
 }
 
-export async function forumById(
+async function forumById(
 	kv: KVNamespaceLike,
 	db: D1DatabaseLike,
 	forumId: string,
@@ -4315,7 +4315,7 @@ export async function markBotSeenFromResult(
 	await markBotSeenContent(db, botId, seenItemsFromResult(result), seenVia, sourceId, now);
 }
 
-export function seenItemsFromResult(result: unknown): SeenContentItem[] {
+function seenItemsFromResult(result: unknown): SeenContentItem[] {
 	const items: SeenContentItem[] = [];
 	if (Array.isArray(result)) {
 		for (const item of result) {

@@ -49,9 +49,7 @@ export const maxBotShortBioLength = 1_200;
 export const maxBotPromptLength = 64_000;
 export const maxBotReasoningPrefillLength = 500;
 export const maxProviderRoutingJsonLength = 8_000;
-export const maxThreadTitleLength = 160;
-export const maxThreadBodyLength = defaultThreadBodyCharacters;
-export const maxCommentBodyLength = defaultCommentBodyCharacters;
+const maxThreadTitleLength = 160;
 export const maxThreadBodyHardLength = postingHardLimit(defaultThreadBodyCharacters);
 export const maxCommentBodyHardLength = postingHardLimit(defaultCommentBodyCharacters);
 const inferenceReasoningEfforts = ["default", "none", "minimal", "low", "medium", "high", "xhigh"] as const;
@@ -103,7 +101,7 @@ export function normalizeHandle(value: unknown): string {
 	return normalized;
 }
 
-export function routeParam(value: RouteParamValue, label: string): string {
+function routeParam(value: RouteParamValue, label: string): string {
 	const raw = Array.isArray(value) ? value[0] : value;
 	if (typeof raw !== "string" || raw.length === 0) {
 		throw new InputError(`${label} is required.`);
@@ -152,7 +150,7 @@ export function requiredPostingBody(value: unknown, label: string, maxLength: nu
 	return value;
 }
 
-export function optionalText(value: unknown, label: string, maxLength: number): string | undefined {
+function optionalText(value: unknown, label: string, maxLength: number): string | undefined {
 	if (value === undefined || value === null || value === "") {
 		return undefined;
 	}

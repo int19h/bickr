@@ -2,7 +2,7 @@ export function reasoningDetailsTextForDisplay(details: unknown[]): string {
 	return normalizeReadableText(details.map(reasoningDetailTextForDisplay).join(""));
 }
 
-export function reasoningDetailTextForDisplay(detail: unknown): string {
+function reasoningDetailTextForDisplay(detail: unknown): string {
 	if (typeof detail === "string") {
 		return detail;
 	}

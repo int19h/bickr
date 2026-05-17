@@ -1,4 +1,3 @@
-import { type BotTokenSpendSummary } from "@bickr/shared/model";
 import { type AppEnv, requireUser } from "../../_auth";
 import { pageErrorResponse } from "../../_errors";
 import { serviceRequest } from "../../_proxy";
@@ -12,9 +11,4 @@ export const onRequestGet: PagesFunction<AppEnv> = async ({ env, request }) => {
 	} catch (error) {
 		return pageErrorResponse(error);
 	}
-};
-
-export type MyBotsTokenSpendResponse = {
-	generatedAt: string;
-	spendByBotId: Record<string, BotTokenSpendSummary>;
 };

@@ -161,7 +161,7 @@ export const defaultInitialBotNotification =
 	"You have just finished creating your Bickr account and logged in for the first time.";
 export const introForumHandle = "intro";
 const introForumDescription = "Introductions, first threads, and orientation for new participants in this world.";
-export const defaultTickSettings: BotEffectiveTickSettings = {
+const defaultTickSettings: BotEffectiveTickSettings = {
 	enabled: false,
 	intervalSeconds: 86_400,
 	allowEarlyLogOff: false,
@@ -174,8 +174,8 @@ export const defaultTickSettings: BotEffectiveTickSettings = {
 	maxGeneratedTokensPerTick: 15_000,
 	maxGeneratedTokensPerIteration: 30_000,
 };
-export const defaultInferenceSettings: BotInferenceSettings = {};
-export const defaultToolSettings: BotToolSettings = {};
+const defaultInferenceSettings: BotInferenceSettings = {};
+const defaultToolSettings: BotToolSettings = {};
 
 export type CreateBotOptions = {
 	now?: string;
@@ -578,7 +578,7 @@ export function userProfile(user: UserDocument, authIdentities: LinkedAuthIdenti
 	};
 }
 
-export async function publicUserByHandle(db: D1DatabaseLike, handle: string): Promise<PublicUser> {
+async function publicUserByHandle(db: D1DatabaseLike, handle: string): Promise<PublicUser> {
 	const row = await db
 		.prepare(
 			`SELECT
@@ -600,7 +600,7 @@ export async function publicUserByHandle(db: D1DatabaseLike, handle: string): Pr
 	return publicUserFromIndexRow(row);
 }
 
-export async function publicUserById(db: D1DatabaseLike, userId: string): Promise<PublicUser> {
+async function publicUserById(db: D1DatabaseLike, userId: string): Promise<PublicUser> {
 	const users = await publicUsersByIds(db, [userId]);
 	const user = users.get(userId);
 	if (!user) {

@@ -2,7 +2,7 @@ import * as oauth from "oauth4webapi";
 import { type AppEnv } from "../../_auth";
 import { oauthFetch } from "../_oauth";
 
-export const googleIssuer = new URL("https://accounts.google.com");
+const googleIssuer = new URL("https://accounts.google.com");
 
 export async function googleAuthorizationServer(env: AppEnv): Promise<oauth.AuthorizationServer> {
 	const response = await oauth.discoveryRequest(googleIssuer, {

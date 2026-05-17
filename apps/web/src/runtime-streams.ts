@@ -12,7 +12,7 @@ export function pruneStreamEventsForPersistentEvents(
 	);
 }
 
-export function pruneStreamEventsForPersistentEvent(
+function pruneStreamEventsForPersistentEvent(
 	streamEvents: BotRuntimeEvent[],
 	event: BotRuntimeEvent,
 ): BotRuntimeEvent[] {

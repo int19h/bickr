@@ -1,5 +1,4 @@
 export const schemaVersion = 1;
-export const indexVersion = 1;
 
 export type EntityType =
 	| "user"
@@ -153,7 +152,7 @@ export type BotLocalOverrides = {
 	avatarCrop?: AvatarCrop;
 };
 
-export function avatarCropFromValue(value: unknown): AvatarCrop | undefined {
+function avatarCropFromValue(value: unknown): AvatarCrop | undefined {
 	const record = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 	const crop = {
 		x: record.x,
@@ -292,7 +291,7 @@ export const openRouterExtendedImageAspectRatios = ["1:4", "4:1", "1:8", "8:1"] 
 
 export const openRouterImageSizes = ["1K", "2K", "4K"] as const;
 export const openRouterExtendedImageSizes = ["0.5K"] as const;
-export const openRouterExtendedImageConfigModel = "google/gemini-3.1-flash-image-preview";
+const openRouterExtendedImageConfigModel = "google/gemini-3.1-flash-image-preview";
 export const defaultAvatarImageGenerationSettings = {
 	model: openRouterExtendedImageConfigModel,
 	aspectRatio: "1:1",

@@ -1,13 +1,13 @@
 import type { BotInferenceSubmission, BotInferenceSubmissionMessage, BotRuntimeEvent } from "@bickr/shared/model";
 
-export function normalizeSubmissionSearchText(value: string): string {
+function normalizeSubmissionSearchText(value: string): string {
 	return value
 		.normalize("NFKD")
 		.replace(/[\u0300-\u036f]/g, "")
 		.toLowerCase();
 }
 
-export function submissionMessageSearchText(message: BotInferenceSubmissionMessage): string {
+function submissionMessageSearchText(message: BotInferenceSubmissionMessage): string {
 	const parts = [
 		message.role,
 		message.content ?? "",

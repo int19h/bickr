@@ -14,9 +14,9 @@ import {
 import { type D1DatabaseLike, type D1Result } from "./storage";
 import { InputError, normalizeHandle } from "./validation";
 
-export const searchPageSize = 20;
-export const searchSuggestionLimit = 8;
-export const searchEmbeddingModel = "@cf/google/embeddinggemma-300m";
+const searchPageSize = 20;
+const searchSuggestionLimit = 8;
+const searchEmbeddingModel = "@cf/google/embeddinggemma-300m";
 
 const searchVectorTimeoutMs = 10_000;
 const searchVectorRetryMaxAttempts = 3;

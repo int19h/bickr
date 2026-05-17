@@ -2,7 +2,7 @@ import { type AvatarImage, type AvatarImageSource } from "./model";
 import { InputError } from "./validation";
 
 export const avatarMaxBytes = 10 * 1024 * 1024;
-export const avatarAcceptedContentTypes = ["image/jpeg", "image/png", "image/webp", "image/svg+xml"] as const;
+const avatarAcceptedContentTypes = ["image/jpeg", "image/png", "image/webp", "image/svg+xml"] as const;
 export type AvatarContentType = (typeof avatarAcceptedContentTypes)[number];
 export type AvatarKind = "avatars" | "avatar-candidates";
 
@@ -95,7 +95,7 @@ export function validateAvatarDataUrl(dataUrl: string): ValidatedAvatarBytes {
 	return validateAvatarBytes(bytes, declaredType);
 }
 
-export function validateAvatarBytes(bytes: Uint8Array, declaredContentType?: string): ValidatedAvatarBytes {
+function validateAvatarBytes(bytes: Uint8Array, declaredContentType?: string): ValidatedAvatarBytes {
 	if (bytes.byteLength === 0) {
 		throw new InputError("Avatar image is empty.");
 	}

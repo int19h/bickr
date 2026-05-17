@@ -32,7 +32,7 @@ export function subscriptionKeysFromTree(tree: HumanSubscriptionTree): Set<strin
 	return keys;
 }
 
-export function subscriptionTargetsByKey(tree: HumanSubscriptionTree): Map<string, HumanSubscriptionTarget> {
+function subscriptionTargetsByKey(tree: HumanSubscriptionTree): Map<string, HumanSubscriptionTarget> {
 	const targets = new Map<string, HumanSubscriptionTarget>();
 	for (const node of allSubscriptionNodes(tree)) {
 		targets.set(subscriptionTargetKey(node.target), node.target);

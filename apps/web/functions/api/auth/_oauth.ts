@@ -169,7 +169,7 @@ function clearOAuthCookies(response: Response, request: Request, provider: AuthP
 	);
 }
 
-export function sanitizeReturnTo(value: string | null): string {
+function sanitizeReturnTo(value: string | null): string {
 	const fallback = "/";
 	const raw = value?.trim();
 	if (!raw || raw.length > 2048 || !raw.startsWith("/") || raw.startsWith("//") || raw.includes("\\")) {

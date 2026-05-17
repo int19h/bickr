@@ -151,7 +151,7 @@ export async function listOwnerBotTokenSpendSummaries(
 	return botTokenSpendSummariesFromUsageRows(targets, result.results ?? [], now);
 }
 
-export function botTokenSpendSummariesFromUsageRows(
+function botTokenSpendSummariesFromUsageRows(
 	targets: readonly BotTokenSpendSummaryTarget[],
 	rows: readonly BotInferenceUsageSpendRow[],
 	now = new Date(),

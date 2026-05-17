@@ -83,7 +83,7 @@ export function compareMyBotTableRecords(
 	return result || compareHandles(left.bot.handle, right.bot.handle);
 }
 
-export function myBotSpendSortCost(spend: MyBotSpendLoadState | undefined): number | null {
+function myBotSpendSortCost(spend: MyBotSpendLoadState | undefined): number | null {
 	if (spend?.status !== "loaded") {
 		return null;
 	}

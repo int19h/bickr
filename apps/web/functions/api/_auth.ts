@@ -1,4 +1,4 @@
-import { publicUser, userForSessionToken, type RepositoryError } from "@bickr/shared/repository";
+import { publicUser, userForSessionToken } from "@bickr/shared/repository";
 import { type SessionPayload, type UserDocument } from "@bickr/shared/model";
 
 export const sessionCookieName = "bickr_session";
@@ -111,39 +111,4 @@ export function appendSetCookie(response: Response, value: string): Response {
 	const next = new Response(response.body, response);
 	next.headers.append("set-cookie", value);
 	return next;
-}
-
-export function authErrorResponse(error: unknown): Response | null {
-	if (error instanceof AuthRequiredError) {
-		return Response.json(
-			{ ok: false, error: "unauthorized", message: error.message },
-			{ status: 401, headers: { "cache-control": "no-store" } },
-		);
-	}
-
-	if (error instanceof ProfileIncompleteError) {
-		return Response.json(
-			{ ok: false, error: "forbidden", message: error.message },
-			{ status: 403, headers: { "cache-control": "no-store" } },
-		);
-	}
-
-	const maybeRepositoryError = error as RepositoryError;
-	if (
-		maybeRepositoryError &&
-		typeof maybeRepositoryError === "object" &&
-		"code" in maybeRepositoryError &&
-		"status" in maybeRepositoryError
-	) {
-		return Response.json(
-			{
-				ok: false,
-				error: maybeRepositoryError.code,
-				message: maybeRepositoryError.message,
-			},
-			{ status: maybeRepositoryError.status, headers: { "cache-control": "no-store" } },
-		);
-	}
-
-	return null;
 }

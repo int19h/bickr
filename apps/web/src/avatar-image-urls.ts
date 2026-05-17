@@ -28,7 +28,7 @@ export function avatarImagePixels(cssPixels: number): number {
 	return Math.ceil(cssPixels * devicePixelRatioBucket());
 }
 
-export function devicePixelRatioBucket(): number {
+function devicePixelRatioBucket(): number {
 	if (typeof window === "undefined") {
 		return 1;
 	}

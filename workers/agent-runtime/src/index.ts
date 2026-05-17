@@ -1385,7 +1385,7 @@ function providerToolsForBotRound(
 	};
 }
 
-export function providerMessagesWithPrefillCompatibility(
+function providerMessagesWithPrefillCompatibility(
 	settings: Pick<ProviderSettings, 'supportsPrefill'>,
 	messages: ChatMessage[],
 ): ChatMessage[] {
