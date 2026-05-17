@@ -13,8 +13,6 @@ import {
 	type BotImageGenerationSettingsInput,
 	type BotInferenceSettingsInput,
 	type BotInferenceSettings,
-	type BotCompactionMode,
-	type BotInferenceToolCalls,
 	type BotInferenceReasoningEffort,
 	type BotDocument,
 	type BotEffectivePostingSettings,
@@ -22,7 +20,6 @@ import {
 	type BotLocalOverrides,
 	type BotPublicProfile,
 	type BotSummary,
-	type BotStructuredToolCalls,
 	type BotTranslationSettings,
 	type BotTranslationSettingsInput,
 	type BotToolSettings,
@@ -2983,14 +2980,7 @@ function assignOptionalTickBoolean(
 	key: "allowEarlyLogOff",
 	value: boolean | null | undefined,
 ): void {
-	if (value === undefined) {
-		return;
-	}
-	if (value === null) {
-		delete settings[key];
-		return;
-	}
-	settings[key] = value;
+	assignOptionalSetting(settings, key, value);
 }
 
 function assignOptionalTickNumber(
@@ -3005,14 +2995,7 @@ function assignOptionalTickNumber(
 		| "maxGeneratedTokensPerIteration",
 	value: number | null | undefined,
 ): void {
-	if (value === undefined) {
-		return;
-	}
-	if (value === null) {
-		delete settings[key];
-		return;
-	}
-	settings[key] = value;
+	assignOptionalSetting(settings, key, value);
 }
 
 export function mergeInferenceSettings(
@@ -3038,20 +3021,20 @@ export function mergeInferenceSettings(
 		return next;
 	}
 
-	assignInferenceString(next, "openRouterApiKey", patch.openRouterApiKey);
-	assignInferenceString(next, "baseUrl", patch.baseUrl);
-	assignInferenceString(next, "model", patch.model);
-	assignInferenceCompactionMode(next, "compactionMode", patch.compactionMode);
-	assignInferenceBoolean(next, "cacheFriendlyCompaction", patch.cacheFriendlyCompaction);
+	assignTrimmedString(next, "openRouterApiKey", patch.openRouterApiKey);
+	assignTrimmedString(next, "baseUrl", patch.baseUrl);
+	assignTrimmedString(next, "model", patch.model);
+	assignOptionalSetting(next, "compactionMode", patch.compactionMode);
+	assignOptionalSetting(next, "cacheFriendlyCompaction", patch.cacheFriendlyCompaction);
 	assignInferenceDefaultTrueBoolean(next, "recurringPromptEnabled", patch.recurringPromptEnabled);
 	const recurringPromptPatch = Object.prototype.hasOwnProperty.call(patch, "recurringPrompt")
 		? patch.recurringPrompt
 		: patch.reasoningPrefill;
 	assignInferencePreservedString(next, "recurringPrompt", recurringPromptPatch);
-	assignInferenceBoolean(next, "supportsPrefill", patch.supportsPrefill);
+	assignOptionalSetting(next, "supportsPrefill", patch.supportsPrefill);
 	assignInferenceReasoningEffort(next, "reasoningEffort", patch.reasoningEffort);
-	assignInferenceToolCalls(next, "toolCalls", patch.toolCalls);
-	assignInferenceJsonObject(next, "providerRouting", patch.providerRouting);
+	assignOptionalSetting(next, "toolCalls", patch.toolCalls);
+	assignClonedJsonObject(next, "providerRouting", patch.providerRouting);
 	if (patch.imageGeneration !== undefined) {
 		const imageGeneration = mergeImageGenerationSettings(next.imageGeneration, patch.imageGeneration);
 		if (imageGeneration) {
@@ -3068,13 +3051,13 @@ export function mergeInferenceSettings(
 			delete next.translation;
 		}
 	}
-	assignInferenceNumber(next, "temperature", patch.temperature);
-	assignInferenceNumber(next, "topK", patch.topK);
-	assignInferenceNumber(next, "topP", patch.topP);
-	assignInferenceNumber(next, "minP", patch.minP);
-	assignInferenceNumber(next, "frequencyPenalty", patch.frequencyPenalty);
-	assignInferenceNumber(next, "presencePenalty", patch.presencePenalty);
-	assignInferenceNumber(next, "repetitionPenalty", patch.repetitionPenalty);
+	assignOptionalSetting(next, "temperature", patch.temperature);
+	assignOptionalSetting(next, "topK", patch.topK);
+	assignOptionalSetting(next, "topP", patch.topP);
+	assignOptionalSetting(next, "minP", patch.minP);
+	assignOptionalSetting(next, "frequencyPenalty", patch.frequencyPenalty);
+	assignOptionalSetting(next, "presencePenalty", patch.presencePenalty);
+	assignOptionalSetting(next, "repetitionPenalty", patch.repetitionPenalty);
 	if (next.recurringPromptEnabled !== false) {
 		delete next.recurringPromptEnabled;
 	}
@@ -3319,19 +3302,7 @@ function assignToolString<T extends object, K extends keyof T>(
 	key: K,
 	value: string | null | undefined,
 ): void {
-	if (value === undefined) {
-		return;
-	}
-	if (value === null) {
-		delete settings[key];
-		return;
-	}
-	const trimmed = value.trim();
-	if (trimmed) {
-		settings[key] = trimmed as T[K];
-	} else {
-		delete settings[key];
-	}
+	assignTrimmedString(settings, key, value);
 }
 
 function assignToolNumber<T extends object, K extends keyof T>(
@@ -3339,14 +3310,7 @@ function assignToolNumber<T extends object, K extends keyof T>(
 	key: K,
 	value: number | null | undefined,
 ): void {
-	if (value === undefined) {
-		return;
-	}
-	if (value === null) {
-		delete settings[key];
-		return;
-	}
-	settings[key] = value as T[K];
+	assignOptionalSetting(settings, key, value as T[K] | null | undefined);
 }
 
 function assignToolStringList<T extends object, K extends keyof T>(
@@ -3364,9 +3328,9 @@ function assignToolStringList<T extends object, K extends keyof T>(
 	settings[key] = [...value] as T[K];
 }
 
-function assignInferenceString(
-	settings: BotInferenceSettings,
-	key: "openRouterApiKey" | "baseUrl" | "model",
+function assignTrimmedString<T extends object, K extends keyof T>(
+	settings: T,
+	key: K,
 	value: string | null | undefined,
 ): void {
 	if (value === undefined) {
@@ -3378,10 +3342,25 @@ function assignInferenceString(
 	}
 	const trimmed = value.trim();
 	if (trimmed) {
-		settings[key] = trimmed;
+		settings[key] = trimmed as T[K];
 	} else {
 		delete settings[key];
 	}
+}
+
+function assignOptionalSetting<T extends object, K extends keyof T>(
+	settings: T,
+	key: K,
+	value: T[K] | null | undefined,
+): void {
+	if (value === undefined) {
+		return;
+	}
+	if (value === null) {
+		delete settings[key];
+		return;
+	}
+	settings[key] = value;
 }
 
 function assignInferencePreservedString(
@@ -3414,21 +3393,6 @@ function assignInferenceDefaultTrueBoolean(
 	delete settings[key];
 }
 
-function assignInferenceBoolean(
-	settings: BotInferenceSettings,
-	key: "cacheFriendlyCompaction" | "supportsPrefill",
-	value: boolean | null | undefined,
-): void {
-	if (value === undefined) {
-		return;
-	}
-	if (value === null) {
-		delete settings[key];
-		return;
-	}
-	settings[key] = value;
-}
-
 function assignInferenceReasoningEffort<T extends { reasoningEffort?: BotInferenceReasoningEffort }>(
 	settings: T,
 	key: "reasoningEffort",
@@ -3444,54 +3408,9 @@ function assignInferenceReasoningEffort<T extends { reasoningEffort?: BotInferen
 	settings[key] = value;
 }
 
-function assignInferenceToolCalls<T extends { toolCalls?: BotInferenceToolCalls }>(
+function assignClonedJsonObject<T extends object, K extends keyof T>(
 	settings: T,
-	key: "toolCalls",
-	value: BotInferenceToolCalls | null | undefined,
-): void {
-	if (value === undefined) {
-		return;
-	}
-	if (value === null) {
-		delete settings[key];
-		return;
-	}
-	settings[key] = value;
-}
-
-function assignInferenceCompactionMode<T extends { compactionMode?: BotCompactionMode }>(
-	settings: T,
-	key: "compactionMode",
-	value: BotCompactionMode | null | undefined,
-): void {
-	if (value === undefined) {
-		return;
-	}
-	if (value === null) {
-		delete settings[key];
-		return;
-	}
-	settings[key] = value;
-}
-
-function assignStructuredToolCalls<T extends { toolCalls?: BotStructuredToolCalls }>(
-	settings: T,
-	key: "toolCalls",
-	value: BotStructuredToolCalls | null | undefined,
-): void {
-	if (value === undefined) {
-		return;
-	}
-	if (value === null) {
-		delete settings[key];
-		return;
-	}
-	settings[key] = value;
-}
-
-function assignInferenceJsonObject(
-	settings: BotInferenceSettings,
-	key: "providerRouting",
+	key: K,
 	value: JsonObject | null | undefined,
 ): void {
 	if (value === undefined) {
@@ -3501,31 +3420,7 @@ function assignInferenceJsonObject(
 		delete settings[key];
 		return;
 	}
-	settings[key] = cloneJsonObject(value);
-}
-
-type InferenceNumberSettingKey =
-	| "temperature"
-	| "topK"
-	| "topP"
-	| "minP"
-	| "frequencyPenalty"
-	| "presencePenalty"
-	| "repetitionPenalty";
-
-function assignInferenceNumber(
-	settings: BotInferenceSettings,
-	key: InferenceNumberSettingKey,
-	value: number | null | undefined,
-): void {
-	if (value === undefined) {
-		return;
-	}
-	if (value === null) {
-		delete settings[key];
-		return;
-	}
-	settings[key] = value;
+	settings[key] = cloneJsonObject(value) as T[K];
 }
 
 function cloneJsonObject(value: JsonObject): JsonObject {
@@ -3547,71 +3442,19 @@ function mergeImageGenerationSettings(
 		return undefined;
 	}
 	const next: BotImageGenerationSettings = current ? cloneImageGenerationSettings(current) : {};
-	assignImageGenerationString(next, "model", patch.model);
-	assignImageGenerationString(next, "prompt", patch.prompt);
-	assignImageGenerationJsonObject(next, "providerRouting", patch.providerRouting);
-	assignImageGenerationString(next, "aspectRatio", patch.aspectRatio);
-	assignImageGenerationString(next, "imageSize", patch.imageSize);
-	assignImageGenerationNumber(next, "temperature", patch.temperature);
-	assignImageGenerationNumber(next, "topK", patch.topK);
-	assignImageGenerationNumber(next, "topP", patch.topP);
-	assignImageGenerationNumber(next, "minP", patch.minP);
-	assignImageGenerationNumber(next, "frequencyPenalty", patch.frequencyPenalty);
-	assignImageGenerationNumber(next, "presencePenalty", patch.presencePenalty);
-	assignImageGenerationNumber(next, "repetitionPenalty", patch.repetitionPenalty);
+	assignTrimmedString(next, "model", patch.model);
+	assignTrimmedString(next, "prompt", patch.prompt);
+	assignClonedJsonObject(next, "providerRouting", patch.providerRouting);
+	assignTrimmedString(next, "aspectRatio", patch.aspectRatio);
+	assignTrimmedString(next, "imageSize", patch.imageSize);
+	assignOptionalSetting(next, "temperature", patch.temperature);
+	assignOptionalSetting(next, "topK", patch.topK);
+	assignOptionalSetting(next, "topP", patch.topP);
+	assignOptionalSetting(next, "minP", patch.minP);
+	assignOptionalSetting(next, "frequencyPenalty", patch.frequencyPenalty);
+	assignOptionalSetting(next, "presencePenalty", patch.presencePenalty);
+	assignOptionalSetting(next, "repetitionPenalty", patch.repetitionPenalty);
 	return imageGenerationSettingsHasValues(next) ? next : undefined;
-}
-
-function assignImageGenerationString(
-	settings: BotImageGenerationSettings,
-	key: "model" | "prompt" | "aspectRatio" | "imageSize",
-	value: string | null | undefined,
-): void {
-	if (value === undefined) {
-		return;
-	}
-	if (value === null) {
-		delete settings[key];
-		return;
-	}
-	const trimmed = value.trim();
-	if (trimmed) {
-		settings[key] = trimmed;
-	} else {
-		delete settings[key];
-	}
-}
-
-function assignImageGenerationJsonObject(
-	settings: BotImageGenerationSettings,
-	key: "providerRouting",
-	value: JsonObject | null | undefined,
-): void {
-	if (value === undefined) {
-		return;
-	}
-	if (value === null) {
-		delete settings[key];
-		return;
-	}
-	settings[key] = cloneJsonObject(value);
-}
-
-type ImageGenerationNumberSettingKey = Exclude<InferenceNumberSettingKey, never>;
-
-function assignImageGenerationNumber(
-	settings: BotImageGenerationSettings,
-	key: ImageGenerationNumberSettingKey,
-	value: number | null | undefined,
-): void {
-	if (value === undefined) {
-		return;
-	}
-	if (value === null) {
-		delete settings[key];
-		return;
-	}
-	settings[key] = value;
 }
 
 function imageGenerationSettingsHasValues(settings: BotImageGenerationSettings): boolean {
@@ -3649,77 +3492,25 @@ function mergeTranslationSettings(
 	if (patch.enabled !== undefined) {
 		next.enabled = Boolean(patch.enabled);
 	}
-	assignTranslationString(next, "model", patch.model);
-	assignTranslationString(next, "prompt", patch.prompt);
+	assignTrimmedString(next, "model", patch.model);
+	assignTrimmedString(next, "prompt", patch.prompt);
 	if (next.enabled === undefined && hasInferenceText(next.model)) {
 		next.enabled = true;
 	}
 	assignInferenceReasoningEffort(next, "reasoningEffort", patch.reasoningEffort);
-	assignStructuredToolCalls(next, "toolCalls", patch.toolCalls);
-	assignTranslationJsonObject(next, "providerRouting", patch.providerRouting);
-	assignTranslationNumber(next, "temperature", patch.temperature);
-	assignTranslationNumber(next, "topK", patch.topK);
-	assignTranslationNumber(next, "topP", patch.topP);
-	assignTranslationNumber(next, "minP", patch.minP);
-	assignTranslationNumber(next, "frequencyPenalty", patch.frequencyPenalty);
-	assignTranslationNumber(next, "presencePenalty", patch.presencePenalty);
-	assignTranslationNumber(next, "repetitionPenalty", patch.repetitionPenalty);
+	assignOptionalSetting(next, "toolCalls", patch.toolCalls);
+	assignClonedJsonObject(next, "providerRouting", patch.providerRouting);
+	assignOptionalSetting(next, "temperature", patch.temperature);
+	assignOptionalSetting(next, "topK", patch.topK);
+	assignOptionalSetting(next, "topP", patch.topP);
+	assignOptionalSetting(next, "minP", patch.minP);
+	assignOptionalSetting(next, "frequencyPenalty", patch.frequencyPenalty);
+	assignOptionalSetting(next, "presencePenalty", patch.presencePenalty);
+	assignOptionalSetting(next, "repetitionPenalty", patch.repetitionPenalty);
 	if ((next.enabled || hasInferenceText(next.model)) && !hasInferenceText(next.prompt)) {
 		next.prompt = defaultTranslationPrompt;
 	}
 	return translationSettingsHasValues(next) ? next : undefined;
-}
-
-function assignTranslationString(
-	settings: BotTranslationSettings,
-	key: "model" | "prompt",
-	value: string | null | undefined,
-): void {
-	if (value === undefined) {
-		return;
-	}
-	if (value === null) {
-		delete settings[key];
-		return;
-	}
-	const trimmed = value.trim();
-	if (trimmed) {
-		settings[key] = trimmed;
-	} else {
-		delete settings[key];
-	}
-}
-
-function assignTranslationJsonObject(
-	settings: BotTranslationSettings,
-	key: "providerRouting",
-	value: JsonObject | null | undefined,
-): void {
-	if (value === undefined) {
-		return;
-	}
-	if (value === null) {
-		delete settings[key];
-		return;
-	}
-	settings[key] = cloneJsonObject(value);
-}
-
-type TranslationNumberSettingKey = Exclude<InferenceNumberSettingKey, never>;
-
-function assignTranslationNumber(
-	settings: BotTranslationSettings,
-	key: TranslationNumberSettingKey,
-	value: number | null | undefined,
-): void {
-	if (value === undefined) {
-		return;
-	}
-	if (value === null) {
-		delete settings[key];
-		return;
-	}
-	settings[key] = value;
 }
 
 function translationSettingsHasValues(settings: BotTranslationSettings): boolean {

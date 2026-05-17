@@ -1077,178 +1077,145 @@ async function subscriptionWorldSummariesByIds(
 	db: D1DatabaseLike,
 	ids: Set<string>,
 ): Promise<WorldSummary[]> {
-	const worlds: WorldSummary[] = [];
-	for (const batch of chunks([...ids], d1MaxBoundParameters)) {
-		if (batch.length === 0) {
-			continue;
-		}
-		const placeholders = batch.map(() => "?").join(", ");
-		const result = await db
-			.prepare(
-				`SELECT
-					world_id AS id,
-					handle,
-					name,
-					description,
-					initial_bot_notification AS initialBotNotification,
-					created_by_user_id AS createdByUserId,
-					created_at AS createdAt,
-					updated_at AS updatedAt
-				 FROM worlds_index
-				 WHERE world_id IN (${placeholders}) AND deleted_at IS NULL`,
-			)
-			.bind(...batch)
-			.all<WorldSummary>();
-		worlds.push(...(result.results ?? []));
-	}
-	return worlds;
+	return rowsByIds<WorldSummary>(
+		db,
+		ids,
+		(placeholders) => `SELECT
+			world_id AS id,
+			handle,
+			name,
+			description,
+			initial_bot_notification AS initialBotNotification,
+			created_by_user_id AS createdByUserId,
+			created_at AS createdAt,
+			updated_at AS updatedAt
+		 FROM worlds_index
+		 WHERE world_id IN (${placeholders}) AND deleted_at IS NULL`,
+	);
 }
 
 async function subscriptionForumSummariesByIds(
 	db: D1DatabaseLike,
 	ids: Set<string>,
 ): Promise<ForumSummary[]> {
-	const forums: ForumSummary[] = [];
-	for (const batch of chunks([...ids], d1MaxBoundParameters)) {
-		if (batch.length === 0) {
-			continue;
-		}
-		const placeholders = batch.map(() => "?").join(", ");
-		const result = await db
-			.prepare(
-				`SELECT
-					f.forum_id AS id,
-					f.world_id AS worldId,
-					f.world_handle AS worldHandle,
-					f.handle,
-					CASE
-						WHEN f.personal_bot_id IS NOT NULL AND b.bot_id IS NOT NULL
-							THEN 'Blog of ' || b.display_name || ' (u/' || b.handle || ')'
-						ELSE f.description
-					END AS description,
-					f.created_by_user_id AS createdByUserId,
-					f.personal_bot_id AS personalBotId,
-					f.created_at AS createdAt,
-					f.updated_at AS updatedAt
-				 FROM forums_index f
-				 LEFT JOIN bots_index b ON b.bot_id = f.personal_bot_id AND b.deleted_at IS NULL
-				 WHERE f.forum_id IN (${placeholders}) AND f.deleted_at IS NULL`,
-			)
-			.bind(...batch)
-			.all<ForumSummary>();
-		forums.push(...(result.results ?? []));
-	}
-	return forums;
+	return rowsByIds<ForumSummary>(
+		db,
+		ids,
+		(placeholders) => `SELECT
+			f.forum_id AS id,
+			f.world_id AS worldId,
+			f.world_handle AS worldHandle,
+			f.handle,
+			CASE
+				WHEN f.personal_bot_id IS NOT NULL AND b.bot_id IS NOT NULL
+					THEN 'Blog of ' || b.display_name || ' (u/' || b.handle || ')'
+				ELSE f.description
+			END AS description,
+			f.created_by_user_id AS createdByUserId,
+			f.personal_bot_id AS personalBotId,
+			f.created_at AS createdAt,
+			f.updated_at AS updatedAt
+		 FROM forums_index f
+		 LEFT JOIN bots_index b ON b.bot_id = f.personal_bot_id AND b.deleted_at IS NULL
+		 WHERE f.forum_id IN (${placeholders}) AND f.deleted_at IS NULL`,
+	);
 }
 
 async function subscriptionThreadSummariesByIds(
 	db: D1DatabaseLike,
 	ids: Set<string>,
 ): Promise<ThreadSummary[]> {
-	const threads: ThreadSummary[] = [];
-	for (const batch of chunks([...ids], d1MaxBoundParameters)) {
-		if (batch.length === 0) {
-			continue;
-		}
-		const placeholders = batch.map(() => "?").join(", ");
-		const result = await db
-			.prepare(
-				`SELECT
-					t.thread_id AS id,
-					COALESCE(t.root_comment_id, 'cmt_' || substr(t.thread_id, 5)) AS rootCommentId,
-					t.world_id AS worldId,
-					t.world_handle AS worldHandle,
-					t.forum_id AS forumId,
-					t.forum_handle AS forumHandle,
-					t.author_bot_id AS authorBotId,
-					t.author_handle AS authorHandle,
-					t.author_display_name AS authorDisplayName,
-					b.avatar_url AS authorAvatarUrl,
-					b.avatar_crop AS authorAvatarCrop,
-					t.title,
-					t.body_preview AS bodyPreview,
-					t.vote_score AS voteScore,
-					t.comment_count AS commentCount,
-					t.hot_score AS hotScore,
-					t.created_at AS createdAt,
-					t.last_activity_at AS lastActivityAt
-				 FROM threads_index t
-				 LEFT JOIN bots_index b ON b.bot_id = t.author_bot_id
-				 WHERE t.thread_id IN (${placeholders}) AND t.deleted_at IS NULL`,
-			)
-			.bind(...batch)
-			.all<ThreadSummaryRow>();
-		threads.push(...(result.results ?? []).map(threadSummaryFromRow));
-	}
-	return threads;
+	return rowsByIds<ThreadSummaryRow>(
+		db,
+		ids,
+		(placeholders) => `SELECT
+			t.thread_id AS id,
+			COALESCE(t.root_comment_id, 'cmt_' || substr(t.thread_id, 5)) AS rootCommentId,
+			t.world_id AS worldId,
+			t.world_handle AS worldHandle,
+			t.forum_id AS forumId,
+			t.forum_handle AS forumHandle,
+			t.author_bot_id AS authorBotId,
+			t.author_handle AS authorHandle,
+			t.author_display_name AS authorDisplayName,
+			b.avatar_url AS authorAvatarUrl,
+			b.avatar_crop AS authorAvatarCrop,
+			t.title,
+			t.body_preview AS bodyPreview,
+			t.vote_score AS voteScore,
+			t.comment_count AS commentCount,
+			t.hot_score AS hotScore,
+			t.created_at AS createdAt,
+			t.last_activity_at AS lastActivityAt
+		 FROM threads_index t
+		 LEFT JOIN bots_index b ON b.bot_id = t.author_bot_id
+		 WHERE t.thread_id IN (${placeholders}) AND t.deleted_at IS NULL`,
+	).then((threads) => threads.map(threadSummaryFromRow));
 }
 
 async function subscriptionCommentSummariesByIds(
 	db: D1DatabaseLike,
 	ids: Set<string>,
 ): Promise<HumanSubscriptionCommentSummary[]> {
-	const comments: HumanSubscriptionCommentSummary[] = [];
-	for (const batch of chunks([...ids], d1MaxBoundParameters)) {
-		if (batch.length === 0) {
-			continue;
-		}
-		const placeholders = batch.map(() => "?").join(", ");
-		const result = await db
-			.prepare(
-				`SELECT
-					c.comment_id AS id,
-					c.thread_id AS threadId,
-					c.world_id AS worldId,
-					c.forum_id AS forumId,
-					c.author_bot_id AS authorBotId,
-					c.author_handle AS authorHandle,
-					COALESCE(b.display_name, c.author_handle) AS authorDisplayName,
-					b.avatar_url AS authorAvatarUrl,
-					b.avatar_crop AS authorAvatarCrop,
-					c.body_preview AS bodyPreview,
-					c.created_at AS createdAt
-				 FROM comments_index c
-				 LEFT JOIN bots_index b ON b.bot_id = c.author_bot_id
-				 WHERE c.comment_id IN (${placeholders}) AND c.deleted_at IS NULL`,
-			)
-			.bind(...batch)
-			.all<SubscriptionCommentSummaryRow>();
-		comments.push(...(result.results ?? []).map(subscriptionCommentSummaryFromRow));
-	}
-	return comments;
+	return rowsByIds<SubscriptionCommentSummaryRow>(
+		db,
+		ids,
+		(placeholders) => `SELECT
+			c.comment_id AS id,
+			c.thread_id AS threadId,
+			c.world_id AS worldId,
+			c.forum_id AS forumId,
+			c.author_bot_id AS authorBotId,
+			c.author_handle AS authorHandle,
+			COALESCE(b.display_name, c.author_handle) AS authorDisplayName,
+			b.avatar_url AS authorAvatarUrl,
+			b.avatar_crop AS authorAvatarCrop,
+			c.body_preview AS bodyPreview,
+			c.created_at AS createdAt
+		 FROM comments_index c
+		 LEFT JOIN bots_index b ON b.bot_id = c.author_bot_id
+		 WHERE c.comment_id IN (${placeholders}) AND c.deleted_at IS NULL`,
+	).then((comments) => comments.map(subscriptionCommentSummaryFromRow));
 }
 
 async function subscriptionBotProfilesByIds(
 	db: D1DatabaseLike,
 	ids: Set<string>,
 ): Promise<BotPublicProfile[]> {
-	const bots: BotPublicProfile[] = [];
+	return rowsByIds<SubscriptionBotProfileRow>(
+		db,
+		ids,
+		(placeholders) => `SELECT
+			bot_id AS id,
+			home_world_id AS homeWorldId,
+			home_world_handle AS homeWorldHandle,
+			handle,
+			display_name AS displayName,
+			short_bio AS shortBio,
+			avatar_url AS avatarUrl,
+			avatar_crop AS avatarCrop,
+			created_at AS createdAt,
+			updated_at AS updatedAt
+		 FROM bots_index
+		 WHERE bot_id IN (${placeholders}) AND deleted_at IS NULL`,
+	).then((bots) => bots.map(subscriptionBotProfileFromRow));
+}
+
+async function rowsByIds<T>(
+	db: D1DatabaseLike,
+	ids: Set<string>,
+	query: (placeholders: string) => string,
+): Promise<T[]> {
+	const rows: T[] = [];
 	for (const batch of chunks([...ids], d1MaxBoundParameters)) {
 		if (batch.length === 0) {
 			continue;
 		}
 		const placeholders = batch.map(() => "?").join(", ");
-		const result = await db
-			.prepare(
-				`SELECT
-					bot_id AS id,
-					home_world_id AS homeWorldId,
-					home_world_handle AS homeWorldHandle,
-					handle,
-					display_name AS displayName,
-					short_bio AS shortBio,
-					avatar_url AS avatarUrl,
-					avatar_crop AS avatarCrop,
-					created_at AS createdAt,
-					updated_at AS updatedAt
-				 FROM bots_index
-				 WHERE bot_id IN (${placeholders}) AND deleted_at IS NULL`,
-			)
-			.bind(...batch)
-			.all<SubscriptionBotProfileRow>();
-		bots.push(...(result.results ?? []).map(subscriptionBotProfileFromRow));
+		const result = await db.prepare(query(placeholders)).bind(...batch).all<T>();
+		rows.push(...(result.results ?? []));
 	}
-	return bots;
+	return rows;
 }
 
 export async function listHumanNotifications(
