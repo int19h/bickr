@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Fragment, createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type {
 	AriaRole,
 	CSSProperties,
@@ -2578,6 +2578,78 @@ function Topbar({
 		route !== "subscriptions" &&
 		route !== "human-profile" &&
 		route !== "profile";
+	const breadcrumbs: { content: ReactNode; key: string }[] = [];
+	if (world && isWorldScoped) {
+		breadcrumbs.push({
+			key: "world",
+			content:
+				route === "world" ?
+					<span className="current">
+						<Reference kind="world" name={world.handle} />
+					</span>
+				:	<SpaLink to={{ route: "world", worldHandle: world.handle }}>
+						<Reference kind="world" link={false} name={world.handle} />
+					</SpaLink>,
+		});
+	}
+	if (forum && (route === "forum" || route === "thread")) {
+		breadcrumbs.push({
+			key: "forum",
+			content: (
+				<span className={route === "forum" ? "current" : ""}>
+					{route === "forum" ?
+						<Reference kind="forum" name={forum.handle} />
+					:	<SpaLink to={{ route: "forum", worldHandle: forum.worldHandle, forumHandle: forum.handle }}>
+							<Reference kind="forum" link={false} name={forum.handle} />
+						</SpaLink>
+					}
+				</span>
+			),
+		});
+	}
+	if (route === "thread" && thread) {
+		breadcrumbs.push({
+			key: "thread",
+			content: <span className="current truncate">{thread.title}</span>,
+		});
+	}
+	if ((route === "bot-profile" || route === "bot-avatar" || route === "bot-loop" || route === "bot-edit") && bot) {
+		breadcrumbs.push({
+			key: "bot",
+			content:
+				route === "bot-profile" ?
+					<span className="current">
+						<Reference isBot kind="bot" name={bot.handle} />
+					</span>
+				:	<SpaLink to={{ route: "bot-profile", worldHandle: bot.homeWorldHandle, botHandle: bot.handle }}>
+						<Reference isBot kind="bot" link={false} name={bot.handle} />
+					</SpaLink>,
+		});
+	}
+	if (route === "bot-loop") {
+		breadcrumbs.push({ key: "bot-loop", content: <span className="current">Loop</span> });
+	}
+	if (route === "bot-avatar") {
+		breadcrumbs.push({ key: "bot-avatar", content: <span className="current">Avatar</span> });
+	}
+	if (route === "bot-edit") {
+		breadcrumbs.push({ key: "bot-edit", content: <span className="current">Edit</span> });
+	}
+	if (route === "my-bots") {
+		breadcrumbs.push({ key: "my-bots", content: <span className="current">My bots</span> });
+	}
+	if (route === "search") {
+		breadcrumbs.push({ key: "search", content: <span className="current">Search</span> });
+	}
+	if (route === "notifications") {
+		breadcrumbs.push({ key: "notifications", content: <span className="current">Notifications</span> });
+	}
+	if (route === "subscriptions") {
+		breadcrumbs.push({ key: "subscriptions", content: <span className="current">Subscriptions</span> });
+	}
+	if (route === "profile") {
+		breadcrumbs.push({ key: "profile", content: <span className="current">Profile</span> });
+	}
 	return (
 		<header className="topbar">
 			<div className="brand">
@@ -2594,102 +2666,12 @@ function Topbar({
 					bickr
 				</SpaLink>
 				<div className="crumbs">
-					<SpaLink to={{ route: "worlds" }}>
-						Worlds
-					</SpaLink>
-					{world && isWorldScoped && (
-						<>
-							<span className="sep">/</span>
-							{route === "world" ?
-								<span className="current">
-									<Reference kind="world" name={world.handle} />
-								</span>
-							:	<SpaLink to={{ route: "world", worldHandle: world.handle }}>
-									<Reference kind="world" link={false} name={world.handle} />
-								</SpaLink>
-							}
-						</>
-					)}
-					{forum && (route === "forum" || route === "thread") && (
-						<>
-							<span className="sep">/</span>
-							<span className={route === "forum" ? "current" : ""}>
-								{route === "forum" ?
-									<Reference kind="forum" name={forum.handle} />
-								:	<SpaLink to={{ route: "forum", worldHandle: forum.worldHandle, forumHandle: forum.handle }}>
-										<Reference kind="forum" link={false} name={forum.handle} />
-									</SpaLink>
-								}
-							</span>
-						</>
-					)}
-					{route === "thread" && thread && (
-						<>
-							<span className="sep">/</span>
-							<span className="current truncate">{thread.title}</span>
-						</>
-					)}
-					{(route === "bot-profile" || route === "bot-avatar" || route === "bot-loop" || route === "bot-edit") && bot && (
-						<>
-							<span className="sep">/</span>
-							{route === "bot-profile" ?
-								<span className="current">
-									<Reference isBot kind="bot" name={bot.handle} />
-								</span>
-							:	<SpaLink to={{ route: "bot-profile", worldHandle: bot.homeWorldHandle, botHandle: bot.handle }}>
-									<Reference isBot kind="bot" link={false} name={bot.handle} />
-								</SpaLink>
-							}
-						</>
-					)}
-					{route === "bot-loop" && (
-						<>
-							<span className="sep">/</span>
-							<span className="current">Loop</span>
-						</>
-					)}
-					{route === "bot-avatar" && (
-						<>
-							<span className="sep">/</span>
-							<span className="current">Avatar</span>
-						</>
-					)}
-					{route === "bot-edit" && (
-						<>
-							<span className="sep">/</span>
-							<span className="current">Edit</span>
-						</>
-					)}
-					{route === "my-bots" && (
-						<>
-							<span className="sep">/</span>
-							<span className="current">My bots</span>
-						</>
-					)}
-					{route === "search" && (
-						<>
-							<span className="sep">/</span>
-							<span className="current">Search</span>
-						</>
-					)}
-					{route === "notifications" && (
-						<>
-							<span className="sep">/</span>
-							<span className="current">Notifications</span>
-						</>
-					)}
-					{route === "subscriptions" && (
-						<>
-							<span className="sep">/</span>
-							<span className="current">Subscriptions</span>
-						</>
-					)}
-					{route === "profile" && (
-						<>
-							<span className="sep">/</span>
-							<span className="current">Profile</span>
-						</>
-					)}
+					{breadcrumbs.map((breadcrumb, index) => (
+						<Fragment key={breadcrumb.key}>
+							{index > 0 && <span className="sep">/</span>}
+							{breadcrumb.content}
+						</Fragment>
+					))}
 				</div>
 			</div>
 			<div className="right">
