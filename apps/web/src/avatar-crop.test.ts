@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	avatarCropImageStyle,
+	avatarCropOverlayStyle,
 	centeredAvatarCrop,
 	clampAvatarCrop,
 	moveAvatarCrop,
@@ -47,6 +48,18 @@ describe("avatar crop helpers", () => {
 			height: "300%",
 			left: "-25%",
 			top: "-50%",
+		});
+	});
+
+	it("maps the crop overlay onto the measured image box", () => {
+		expect(avatarCropOverlayStyle(
+			{ x: 40, y: 80, size: 160, imageWidth: 320, imageHeight: 480 },
+			{ left: 10, top: 20, width: 240, height: 360 },
+		)).toEqual({
+			width: "120px",
+			height: "120px",
+			left: "40px",
+			top: "80px",
 		});
 	});
 

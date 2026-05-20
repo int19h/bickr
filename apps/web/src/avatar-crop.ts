@@ -2,6 +2,13 @@ import type { AvatarCrop } from "@bickr/shared/model";
 
 export type AvatarCropCorner = "nw" | "ne" | "sw" | "se";
 
+export type AvatarCropDisplayBox = {
+	height: number;
+	left: number;
+	top: number;
+	width: number;
+};
+
 const minimumCropPixels = 32;
 
 export function centeredAvatarCrop(imageWidth: number, imageHeight: number): AvatarCrop {
@@ -84,7 +91,17 @@ export function avatarCropImageStyle(crop: AvatarCrop): Record<string, string> {
 	};
 }
 
-export function avatarCropOverlayStyle(crop: AvatarCrop): Record<string, string> {
+export function avatarCropOverlayStyle(crop: AvatarCrop, displayBox?: AvatarCropDisplayBox): Record<string, string> {
+	if (displayBox) {
+		const scaleX = displayBox.width / crop.imageWidth;
+		const scaleY = displayBox.height / crop.imageHeight;
+		return {
+			height: `${crop.size * scaleY}px`,
+			left: `${displayBox.left + crop.x * scaleX}px`,
+			top: `${displayBox.top + crop.y * scaleY}px`,
+			width: `${crop.size * scaleX}px`,
+		};
+	}
 	return {
 		height: `${(crop.size / crop.imageHeight) * 100}%`,
 		left: `${(crop.x / crop.imageWidth) * 100}%`,

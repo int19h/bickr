@@ -162,6 +162,7 @@ import {
 	normalizedCropDimensions,
 	resizeAvatarCrop,
 	type AvatarCropCorner,
+	type AvatarCropDisplayBox,
 } from "./avatar-crop";
 import {
 	avatarCroppedThumbnailUrl,
@@ -6109,6 +6110,16 @@ type AvatarCropDragState = {
 	type: "move" | "resize";
 };
 
+function sameAvatarCropDisplayBox(left: AvatarCropDisplayBox | null, right: AvatarCropDisplayBox): boolean {
+	return Boolean(
+		left &&
+			Math.abs(left.left - right.left) < 0.5 &&
+			Math.abs(left.top - right.top) < 0.5 &&
+			Math.abs(left.width - right.width) < 0.5 &&
+			Math.abs(left.height - right.height) < 0.5,
+	);
+}
+
 function AvatarCropModal({
 	bot,
 	onClose,
@@ -6120,16 +6131,41 @@ function AvatarCropModal({
 	onSaved: (bot: BotSummary, affectedBots?: BotSummary[]) => void;
 	open: boolean;
 }) {
+	const frameRef = useRef<HTMLDivElement | null>(null);
 	const imageRef = useRef<HTMLImageElement | null>(null);
 	const dragRef = useRef<AvatarCropDragState | null>(null);
 	const [draft, setDraft] = useState<AvatarCrop | null>(null);
+	const [cropDisplayBox, setCropDisplayBox] = useState<AvatarCropDisplayBox | null>(null);
 	const [saving, setSaving] = useState(false);
 	const [imageReady, setImageReady] = useState(false);
 	const [error, setError] = useState("");
 
+	const measureCropDisplayBox = useCallback(() => {
+		const frame = frameRef.current;
+		const image = imageRef.current;
+		if (!frame || !image) {
+			setCropDisplayBox(null);
+			return;
+		}
+		const frameRect = frame.getBoundingClientRect();
+		const imageRect = image.getBoundingClientRect();
+		if (frameRect.width <= 0 || frameRect.height <= 0 || imageRect.width <= 0 || imageRect.height <= 0) {
+			setCropDisplayBox(null);
+			return;
+		}
+		const next = {
+			height: imageRect.height,
+			left: imageRect.left - frameRect.left,
+			top: imageRect.top - frameRect.top,
+			width: imageRect.width,
+		};
+		setCropDisplayBox((current) => sameAvatarCropDisplayBox(current, next) ? current : next);
+	}, []);
+
 	useEffect(() => {
 		if (!open) {
 			setDraft(null);
+			setCropDisplayBox(null);
 			setSaving(false);
 			setImageReady(false);
 			setError("");
@@ -6140,11 +6176,44 @@ function AvatarCropModal({
 	useEffect(() => {
 		if (open) {
 			setDraft(null);
+			setCropDisplayBox(null);
 			setImageReady(false);
 			setError("");
 			dragRef.current = null;
 		}
 	}, [bot.avatarUrl, open]);
+
+	useLayoutEffect(() => {
+		if (!open || !imageReady) {
+			return;
+		}
+		measureCropDisplayBox();
+	}, [draft?.imageHeight, draft?.imageWidth, imageReady, measureCropDisplayBox, open]);
+
+	useEffect(() => {
+		if (!open || !imageReady) {
+			return undefined;
+		}
+		const measure = () => measureCropDisplayBox();
+		window.addEventListener("resize", measure);
+		window.addEventListener("orientationchange", measure);
+		let observer: ResizeObserver | null = null;
+		if (typeof ResizeObserver !== "undefined") {
+			observer = new ResizeObserver(measure);
+			if (frameRef.current) {
+				observer.observe(frameRef.current);
+			}
+			if (imageRef.current) {
+				observer.observe(imageRef.current);
+			}
+		}
+		measure();
+		return () => {
+			window.removeEventListener("resize", measure);
+			window.removeEventListener("orientationchange", measure);
+			observer?.disconnect();
+		};
+	}, [imageReady, measureCropDisplayBox, open]);
 
 	function handleImageLoad(event: ReactSyntheticEvent<HTMLImageElement>): void {
 		const image = event.currentTarget;
@@ -6264,27 +6333,28 @@ function AvatarCropModal({
 		>
 			{bot.avatarUrl ?
 				<div className="avatar-crop-stage">
-					<div className="avatar-crop-frame">
+					<div className="avatar-crop-frame" ref={frameRef}>
 						<img
 							alt=""
 							className="avatar-crop-image"
 							onError={() => {
 								setImageReady(false);
 								setDraft(null);
+								setCropDisplayBox(null);
 								setError("This avatar image could not be loaded.");
 							}}
 							onLoad={handleImageLoad}
 							ref={imageRef}
 							src={bot.avatarUrl}
 						/>
-						{draft && imageReady && (
+						{draft && imageReady && cropDisplayBox && (
 							<div
 								className="avatar-crop-selection"
 								onPointerCancel={endCropDrag}
 								onPointerDown={(event) => beginCropDrag(event, "move")}
 								onPointerMove={updateCropDrag}
 								onPointerUp={endCropDrag}
-								style={avatarCropOverlayStyle(draft)}
+								style={avatarCropOverlayStyle(draft, cropDisplayBox)}
 							>
 								{(["nw", "ne", "sw", "se"] as const).map((corner) => (
 									<span
