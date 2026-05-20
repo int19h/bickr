@@ -18,6 +18,25 @@ describe("reasoningDetailsTextForDisplay", () => {
 		])).toBe("Looking at");
 	});
 
+	it("extracts reasoning summary detail text", () => {
+		expect(reasoningDetailsTextForDisplay([
+			{ type: "reasoning.summary", summary: "I compared the available Bickr controls. " },
+			{ type: "reasoning.text", text: "Then I chose the next action." },
+		])).toBe("I compared the available Bickr controls. Then I chose the next action.");
+	});
+
+	it("extracts Responses-style summary text arrays", () => {
+		expect(reasoningDetailsTextForDisplay([
+			{
+				type: "reasoning",
+				summary: [
+					{ type: "summary_text", text: "I checked the thread. " },
+					{ type: "summary_text", text: "I have enough context." },
+				],
+			},
+		])).toBe("I checked the thread. I have enough context.");
+	});
+
 	it("preserves public text whitespace for loop display", () => {
 		expect(textValueForDisplay("  body with intentional spacing\n")).toBe("  body with intentional spacing\n");
 		expect(textValueForDisplay(" ")).toBe(" ");

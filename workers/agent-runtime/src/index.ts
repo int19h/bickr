@@ -14810,11 +14810,30 @@ function reasoningDetailText(detail: ReasoningDetail): string {
 	if (typeof text === 'string') {
 		return text;
 	}
-	const summary = detail.summary;
+	return reasoningSummaryText(detail.summary);
+}
+
+function reasoningSummaryText(summary: unknown): string {
 	if (typeof summary === 'string') {
 		return summary;
 	}
-	return '';
+	if (!Array.isArray(summary)) {
+		return '';
+	}
+	return summary
+		.map((item) => {
+			if (typeof item === 'string') {
+				return item;
+			}
+			const record = runtimeRecord(item);
+			const text = record.text;
+			if (typeof text === 'string') {
+				return text;
+			}
+			const nestedSummary = record.summary;
+			return typeof nestedSummary === 'string' ? nestedSummary : '';
+		})
+		.join('');
 }
 
 function seenItemFromSource(sourceObjectId: string | undefined): { type: 'thread' | 'comment'; id: string } | null {

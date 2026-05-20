@@ -7,7 +7,30 @@ function reasoningDetailTextForDisplay(detail: unknown): string {
 		return detail;
 	}
 	const record = recordValue(detail);
-	return textValueForDisplay(record.text) ?? textValueForDisplay(record.content) ?? textValueForDisplay(record.reasoning) ?? "";
+	return textValueForDisplay(record.text) ??
+		textValueForDisplay(record.content) ??
+		textValueForDisplay(record.reasoning) ??
+		reasoningSummaryTextForDisplay(record.summary) ??
+		"";
+}
+
+function reasoningSummaryTextForDisplay(summary: unknown): string | undefined {
+	const direct = textValueForDisplay(summary);
+	if (direct !== undefined) {
+		return direct;
+	}
+	if (!Array.isArray(summary)) {
+		return undefined;
+	}
+	const text = summary.map((item) => {
+		const itemText = textValueForDisplay(item);
+		if (itemText !== undefined) {
+			return itemText;
+		}
+		const record = recordValue(item);
+		return textValueForDisplay(record.text) ?? textValueForDisplay(record.summary) ?? "";
+	}).join("");
+	return text.length > 0 ? normalizeReadableText(text) : undefined;
 }
 
 export function textValueForDisplay(value: unknown): string | undefined {
