@@ -98,6 +98,18 @@ import {
 	defaultThreadBodyCharacters,
 	effectivePostingSettings,
 } from "@bickr/shared/posting";
+import {
+	effectiveCompactionModeForModel,
+	effectiveReasoningEffortForModel,
+	effectiveStructuredToolCallsForModel,
+	effectiveSupportsPrefillForModel,
+	effectiveToolCallsForModel,
+	modelSupportsPrefill,
+	modelSupportsReasoningNone,
+	modelSupportsRequiredToolCalls,
+	modelSupportsStructuredOutputs,
+	providerModelPolicy,
+} from "@bickr/shared/openrouter-model-capabilities";
 import { formatCommentRef, formatThreadRef, parseCommentRef, parseThreadRef } from "@bickr/shared/ids";
 import {
 	handleHelpText,
@@ -11354,9 +11366,16 @@ function AgenticLoopInferenceFields({
 	const frequencyPenaltyPlaceholder = effectiveOptionalNumberPlaceholder(fallbackContext?.frequencyPenalty);
 	const presencePenaltyPlaceholder = effectiveOptionalNumberPlaceholder(fallbackContext?.presencePenalty);
 	const repetitionPenaltyPlaceholder = effectiveOptionalNumberPlaceholder(fallbackContext?.repetitionPenalty);
+	const capabilityContext = inferenceCapabilityContextForDraft(draft, inheritedSettings);
 	function patch(update: Partial<InferenceDraft>): void {
 		const updated = { ...draft, ...update };
-		onChange(rebaseInferenceDraftForFallbackChange(updated, fallbackContext, inferenceFallbackContextForDraft(updated, inheritedSettings)));
+		const rebased = rebaseInferenceDraftForFallbackChange(
+			draft,
+			updated,
+			fallbackContext,
+			inferenceFallbackContextForDraft(updated, inheritedSettings),
+		);
+		onChange(normalizeInferenceDraftForCapabilities(rebased, inheritedSettings));
 	}
 
 	return (
@@ -11392,7 +11411,7 @@ function AgenticLoopInferenceFields({
 						value={draft.reasoningEffort}
 					>
 						{reasoningEffortOptions.map((option) => (
-							<option key={option.value} value={option.value}>
+							<option disabled={option.value === "none" && !capabilityContext.supportsReasoningNone} key={option.value} value={option.value}>
 								{option.label}
 							</option>
 						))}
@@ -11405,7 +11424,7 @@ function AgenticLoopInferenceFields({
 						value={draft.toolCalls}
 					>
 						{toolCallOptions.map((option) => (
-							<option key={option.value} value={option.value}>
+							<option disabled={option.value === "require" && !capabilityContext.supportsRequiredToolCalls} key={option.value} value={option.value}>
 								{option.label}
 							</option>
 						))}
@@ -11417,6 +11436,7 @@ function AgenticLoopInferenceFields({
 					<label className="checkbox-line">
 						<input
 							checked={draft.supportsPrefill}
+							disabled={!capabilityContext.supportsPrefill}
 							onChange={(event) => patch({ supportsPrefill: event.target.checked })}
 							type="checkbox"
 						/>
@@ -11430,7 +11450,7 @@ function AgenticLoopInferenceFields({
 						value={draft.compactionMode}
 					>
 						{compactionModeOptions.map((option) => (
-							<option key={option.value} value={option.value}>
+							<option disabled={option.value === "structured_output" && !capabilityContext.supportsStructuredOutputs} key={option.value} value={option.value}>
 								{option.label}
 							</option>
 						))}
@@ -11928,9 +11948,12 @@ function TranslationInferenceFields({
 	const modelListId = useId();
 	const effectiveLoopModel = effectiveInferenceDraftModel(draft);
 	const translationModelSet = draft.translationModel.trim().length > 0;
+	const translationModel = draft.translationModel.trim() || effectiveLoopModel;
+	const translationBaseUrl = effectiveInferenceDraftBaseUrl(draft);
+	const capabilityContext = inferenceCapabilityContext(translationModel, translationBaseUrl);
 	const controlsDisabled = !translationModelSet;
 	function patch(update: Partial<InferenceDraft>): void {
-		onChange({ ...draft, ...update });
+		onChange(normalizeTranslationDraftForCapabilities({ ...draft, ...update }));
 	}
 
 	return (
@@ -11981,7 +12004,7 @@ function TranslationInferenceFields({
 								value={draft.translationReasoningEffort}
 							>
 								{reasoningEffortOptions.map((option) => (
-									<option key={option.value} value={option.value}>
+									<option disabled={option.value === "none" && !capabilityContext.supportsReasoningNone} key={option.value} value={option.value}>
 										{option.label}
 									</option>
 								))}
@@ -11995,7 +12018,7 @@ function TranslationInferenceFields({
 								value={draft.translationToolCalls}
 							>
 								{structuredToolCallOptions.map((option) => (
-									<option key={option.value} value={option.value}>
+									<option disabled={option.value === "require" && !capabilityContext.supportsRequiredToolCalls} key={option.value} value={option.value}>
 										{option.label}
 									</option>
 								))}
@@ -18144,28 +18167,159 @@ function profileDraftChanged(draft: ProfileDraft, profile: UserProfile): boolean
 	);
 }
 
+type InferenceCapabilityContext = {
+	model: string;
+	baseUrl: string;
+	openRouter: boolean;
+	supportsPrefill: boolean;
+	supportsReasoningNone: boolean;
+	supportsRequiredToolCalls: boolean;
+	supportsStructuredOutputs: boolean;
+};
+
+function inferenceCapabilityContextForDraft(
+	draft: InferenceDraft,
+	inherited?: BotInferenceSettings | null,
+): InferenceCapabilityContext {
+	const fallback = inferenceFallbackContextForDraft(draft, inherited);
+	const baseUrl = effectiveInferenceDraftBaseUrl(draft, fallback);
+	const model = effectiveInferenceDraftModel(draft, fallback);
+	return inferenceCapabilityContext(model, baseUrl);
+}
+
+function inferenceCapabilityContext(model: string, baseUrl: string): InferenceCapabilityContext {
+	const openRouter = isOpenRouterProviderBaseUrl(baseUrl);
+	return {
+		model,
+		baseUrl,
+		openRouter,
+		supportsPrefill: modelSupportsPrefill(model, openRouter),
+		supportsReasoningNone: modelSupportsReasoningNone(model, openRouter),
+		supportsRequiredToolCalls: modelSupportsRequiredToolCalls(model, openRouter),
+		supportsStructuredOutputs: modelSupportsStructuredOutputs(model, openRouter),
+	};
+}
+
+function normalizeInferenceDraftForCapabilities(
+	draft: InferenceDraft,
+	inherited?: BotInferenceSettings | null,
+): InferenceDraft {
+	const context = inferenceCapabilityContextForDraft(draft, inherited);
+	const policy = providerModelPolicy(context.model, context.openRouter);
+	return {
+		...draft,
+		compactionMode:
+			draft.compactionMode === "structured_output" && !context.supportsStructuredOutputs ?
+				policy.defaultCompactionMode
+			:	draft.compactionMode,
+		reasoningEffort: draft.reasoningEffort === "none" && !context.supportsReasoningNone ? "minimal" : draft.reasoningEffort,
+		supportsPrefill: context.supportsPrefill ? draft.supportsPrefill : false,
+		toolCalls: draft.toolCalls === "require" && !context.supportsRequiredToolCalls ? "railroad" : draft.toolCalls,
+	};
+}
+
+function normalizeTranslationDraftForCapabilities(
+	draft: InferenceDraft,
+	inherited?: InferenceModelUnlockContext | null,
+): InferenceDraft {
+	const model = draft.translationModel.trim() || effectiveInferenceDraftModel(draft, inherited);
+	const baseUrl = effectiveInferenceDraftBaseUrl(draft, inherited);
+	const context = inferenceCapabilityContext(model, baseUrl);
+	return {
+		...draft,
+		translationReasoningEffort:
+			draft.translationReasoningEffort === "none" && !context.supportsReasoningNone ? "minimal" : draft.translationReasoningEffort,
+		translationToolCalls:
+			draft.translationToolCalls === "require" && !context.supportsRequiredToolCalls ? "railroad" : draft.translationToolCalls,
+	};
+}
+
+function translationDefaultsForSettings(
+	settings: BotInferenceSettings,
+	inherited?: InferenceModelUnlockContext | null,
+): Pick<InferenceDraft, "translationReasoningEffort" | "translationToolCalls"> {
+	const translation = settings.translation;
+	const model = translation?.model?.trim() || effectiveInferenceSettingsModel(settings, inherited);
+	const baseUrl = effectiveInferenceSettingsBaseUrl(settings, inherited);
+	const openRouter = isOpenRouterProviderBaseUrl(baseUrl);
+	const reasoningEffort = effectiveReasoningEffortForModel(model, openRouter, translation?.reasoningEffort);
+	return {
+		translationReasoningEffort: reasoningEffort ?? "default",
+		translationToolCalls: effectiveStructuredToolCallsForModel(model, openRouter, translation?.toolCalls),
+	};
+}
+
+function translationDefaultsForDraft(
+	draft: InferenceDraft,
+	inherited?: InferenceModelUnlockContext | null,
+): Pick<InferenceDraft, "translationReasoningEffort" | "translationToolCalls"> {
+	const model = draft.translationModel.trim() || effectiveInferenceDraftModel(draft, inherited);
+	const baseUrl = effectiveInferenceDraftBaseUrl(draft, inherited);
+	const openRouter = isOpenRouterProviderBaseUrl(baseUrl);
+	const reasoningEffort = effectiveReasoningEffortForModel(model, openRouter, undefined);
+	return {
+		translationReasoningEffort: reasoningEffort ?? "default",
+		translationToolCalls: effectiveStructuredToolCallsForModel(model, openRouter, undefined),
+	};
+}
+
+function inferenceDefaultsForSettings(
+	settings: BotInferenceSettings,
+	inherited?: InferenceModelUnlockContext,
+): Pick<InferenceDraft, "compactionMode" | "supportsPrefill" | "reasoningEffort" | "toolCalls"> {
+	const model = effectiveInferenceSettingsModel(settings, inherited);
+	const baseUrl = effectiveInferenceSettingsBaseUrl(settings, inherited);
+	const openRouter = isOpenRouterProviderBaseUrl(baseUrl);
+	const reasoningEffort = effectiveReasoningEffortForModel(model, openRouter, settings.reasoningEffort ?? inherited?.reasoningEffort);
+	return {
+		compactionMode: effectiveCompactionModeForModel(model, openRouter, settings.compactionMode ?? inherited?.compactionMode),
+		supportsPrefill: effectiveSupportsPrefillForModel(model, openRouter, settings.supportsPrefill ?? inherited?.supportsPrefill),
+		reasoningEffort: reasoningEffort ?? "default",
+		toolCalls: effectiveToolCallsForModel(model, openRouter, settings.toolCalls ?? inherited?.toolCalls),
+	};
+}
+
+function inferenceDefaultsForDraft(
+	draft: InferenceDraft,
+	inherited?: InferenceModelUnlockContext,
+): Pick<InferenceDraft, "compactionMode" | "supportsPrefill" | "reasoningEffort" | "toolCalls"> {
+	const fallback = inferenceFallbackContextForDraft(draft, inherited);
+	const model = effectiveInferenceDraftModel(draft, fallback);
+	const baseUrl = effectiveInferenceDraftBaseUrl(draft, fallback);
+	const openRouter = isOpenRouterProviderBaseUrl(baseUrl);
+	const reasoningEffort = effectiveReasoningEffortForModel(model, openRouter, fallback?.reasoningEffort);
+	return {
+		compactionMode: effectiveCompactionModeForModel(model, openRouter, fallback?.compactionMode),
+		supportsPrefill: effectiveSupportsPrefillForModel(model, openRouter, fallback?.supportsPrefill),
+		reasoningEffort: reasoningEffort ?? "default",
+		toolCalls: effectiveToolCallsForModel(model, openRouter, fallback?.toolCalls),
+	};
+}
+
 function inferenceDraftFromSettings(
 	settings: BotInferenceSettings,
 	inherited?: InferenceModelUnlockContext,
 ): InferenceDraft {
+	const defaults = inferenceDefaultsForSettings(settings, inherited);
+	const translationDefaults = translationDefaultsForSettings(settings, inherited);
 	return {
 		openRouterApiKey: "",
 		clearOpenRouterApiKey: false,
 		openRouterApiKeySet: Boolean(settings.openRouterApiKeySet),
 		baseUrl: settings.baseUrl ?? "",
 		model: settings.model ?? "",
-		compactionMode: settings.compactionMode ?? inherited?.compactionMode ?? "structured_output",
+		compactionMode: defaults.compactionMode,
 		recurringPromptEnabled: settings.recurringPromptEnabled !== false,
 		recurringPrompt: settings.recurringPrompt ?? settings.reasoningPrefill ?? "",
-		supportsPrefill: settings.supportsPrefill ?? inherited?.supportsPrefill ?? true,
-		reasoningEffort: settings.reasoningEffort ?? inherited?.reasoningEffort ?? "default",
-		toolCalls: settings.toolCalls ?? inherited?.toolCalls ?? "require",
+		supportsPrefill: defaults.supportsPrefill,
+		reasoningEffort: defaults.reasoningEffort,
+		toolCalls: defaults.toolCalls,
 		providerRouting: providerRoutingDraftValue(settings.providerRouting),
 		translationEnabled: Boolean(settings.translation?.enabled),
 		translationModel: settings.translation?.model ?? "",
 		translationPrompt: settings.translation?.prompt ?? defaultTranslationPrompt,
-		translationReasoningEffort: settings.translation?.reasoningEffort ?? "default",
-		translationToolCalls: settings.translation?.toolCalls ?? "require",
+		translationReasoningEffort: translationDefaults.translationReasoningEffort,
+		translationToolCalls: translationDefaults.translationToolCalls,
 		translationProviderRouting: providerRoutingDraftValue(settings.translation?.providerRouting),
 		translationTemperature: numericDraftValue(settings.translation?.temperature),
 		translationTopK: numericDraftValue(settings.translation?.topK),
@@ -18206,31 +18360,29 @@ function inferenceDraftChanged(
 		inherited?: InferenceModelUnlockContext;
 	} = {},
 ): boolean {
-	const compactionMode = settings.compactionMode ?? options.inherited?.compactionMode ?? "structured_output";
-	const supportsPrefill = settings.supportsPrefill ?? options.inherited?.supportsPrefill ?? true;
-	const reasoningEffort = settings.reasoningEffort ?? options.inherited?.reasoningEffort ?? "default";
-	const toolCalls = settings.toolCalls ?? options.inherited?.toolCalls ?? "require";
+	const defaults = inferenceDefaultsForSettings(settings, options.inherited);
+	const normalizedDraft = normalizeInferenceDraftForCapabilities(draft, options.inherited);
 	return (
-		Boolean(draft.openRouterApiKey.trim()) ||
-		draft.clearOpenRouterApiKey ||
-		draft.baseUrl.trim() !== (settings.baseUrl ?? "") ||
-		draft.model.trim() !== (settings.model ?? "") ||
-		draft.compactionMode !== compactionMode ||
-		(Boolean(options.includeReasoningPrefill) && draft.recurringPromptEnabled !== (settings.recurringPromptEnabled !== false)) ||
-		(Boolean(options.includeReasoningPrefill) && draft.recurringPrompt !== (settings.recurringPrompt ?? settings.reasoningPrefill ?? "")) ||
-		draft.supportsPrefill !== supportsPrefill ||
-		draft.reasoningEffort !== reasoningEffort ||
-		draft.toolCalls !== toolCalls ||
-		providerRoutingDraftChanged(draft.providerRouting, settings.providerRouting) ||
-		(Boolean(options.includeImageGeneration) && imageGenerationDraftChanged(draft, settings)) ||
-		(Boolean(options.includeTranslation) && translationDraftChanged(draft, settings)) ||
-		draft.temperature.trim() !== numericDraftValue(settings.temperature) ||
-		draft.topK.trim() !== numericDraftValue(settings.topK) ||
-		draft.topP.trim() !== numericDraftValue(settings.topP) ||
-		draft.minP.trim() !== numericDraftValue(settings.minP) ||
-		draft.frequencyPenalty.trim() !== numericDraftValue(settings.frequencyPenalty) ||
-		draft.presencePenalty.trim() !== numericDraftValue(settings.presencePenalty) ||
-		draft.repetitionPenalty.trim() !== numericDraftValue(settings.repetitionPenalty)
+		Boolean(normalizedDraft.openRouterApiKey.trim()) ||
+		normalizedDraft.clearOpenRouterApiKey ||
+		normalizedDraft.baseUrl.trim() !== (settings.baseUrl ?? "") ||
+		normalizedDraft.model.trim() !== (settings.model ?? "") ||
+		normalizedDraft.compactionMode !== defaults.compactionMode ||
+		(Boolean(options.includeReasoningPrefill) && normalizedDraft.recurringPromptEnabled !== (settings.recurringPromptEnabled !== false)) ||
+		(Boolean(options.includeReasoningPrefill) && normalizedDraft.recurringPrompt !== (settings.recurringPrompt ?? settings.reasoningPrefill ?? "")) ||
+		normalizedDraft.supportsPrefill !== defaults.supportsPrefill ||
+		normalizedDraft.reasoningEffort !== defaults.reasoningEffort ||
+		normalizedDraft.toolCalls !== defaults.toolCalls ||
+		providerRoutingDraftChanged(normalizedDraft.providerRouting, settings.providerRouting) ||
+		(Boolean(options.includeImageGeneration) && imageGenerationDraftChanged(normalizedDraft, settings)) ||
+		(Boolean(options.includeTranslation) && translationDraftChanged(normalizedDraft, settings, options.inherited)) ||
+		normalizedDraft.temperature.trim() !== numericDraftValue(settings.temperature) ||
+		normalizedDraft.topK.trim() !== numericDraftValue(settings.topK) ||
+		normalizedDraft.topP.trim() !== numericDraftValue(settings.topP) ||
+		normalizedDraft.minP.trim() !== numericDraftValue(settings.minP) ||
+		normalizedDraft.frequencyPenalty.trim() !== numericDraftValue(settings.frequencyPenalty) ||
+		normalizedDraft.presencePenalty.trim() !== numericDraftValue(settings.presencePenalty) ||
+		normalizedDraft.repetitionPenalty.trim() !== numericDraftValue(settings.repetitionPenalty)
 	);
 }
 
@@ -18251,23 +18403,29 @@ function imageGenerationDraftChanged(draft: InferenceDraft, settings: BotInferen
 	);
 }
 
-function translationDraftChanged(draft: InferenceDraft, settings: BotInferenceSettings): boolean {
+function translationDraftChanged(
+	draft: InferenceDraft,
+	settings: BotInferenceSettings,
+	inherited?: InferenceModelUnlockContext | null,
+): boolean {
+	const normalized = normalizeTranslationDraftForCapabilities(draft, inherited);
+	const defaults = translationDefaultsForSettings(settings, inherited);
 	const draftModel = draft.translationModel.trim();
 	const settingsModel = settings.translation?.model ?? "";
 	return (
-		draft.translationEnabled !== Boolean(settings.translation?.enabled) ||
+		normalized.translationEnabled !== Boolean(settings.translation?.enabled) ||
 		draftModel !== settingsModel ||
-		draft.translationPrompt.trim() !== (settings.translation?.prompt ?? defaultTranslationPrompt) ||
-		nullableReasoningEffortInput(draft.translationReasoningEffort) !== (settings.translation?.reasoningEffort ?? null) ||
-		nullableStructuredToolCallsInput(draft.translationToolCalls) !== (settings.translation?.toolCalls ?? "require") ||
-		providerRoutingDraftChanged(draft.translationProviderRouting, settings.translation?.providerRouting) ||
-		draft.translationTemperature.trim() !== numericDraftValue(settings.translation?.temperature) ||
-		draft.translationTopK.trim() !== numericDraftValue(settings.translation?.topK) ||
-		draft.translationTopP.trim() !== numericDraftValue(settings.translation?.topP) ||
-		draft.translationMinP.trim() !== numericDraftValue(settings.translation?.minP) ||
-		draft.translationFrequencyPenalty.trim() !== numericDraftValue(settings.translation?.frequencyPenalty) ||
-		draft.translationPresencePenalty.trim() !== numericDraftValue(settings.translation?.presencePenalty) ||
-		draft.translationRepetitionPenalty.trim() !== numericDraftValue(settings.translation?.repetitionPenalty)
+		normalized.translationPrompt.trim() !== (settings.translation?.prompt ?? defaultTranslationPrompt) ||
+		normalized.translationReasoningEffort !== defaults.translationReasoningEffort ||
+		normalized.translationToolCalls !== defaults.translationToolCalls ||
+		providerRoutingDraftChanged(normalized.translationProviderRouting, settings.translation?.providerRouting) ||
+		normalized.translationTemperature.trim() !== numericDraftValue(settings.translation?.temperature) ||
+		normalized.translationTopK.trim() !== numericDraftValue(settings.translation?.topK) ||
+		normalized.translationTopP.trim() !== numericDraftValue(settings.translation?.topP) ||
+		normalized.translationMinP.trim() !== numericDraftValue(settings.translation?.minP) ||
+		normalized.translationFrequencyPenalty.trim() !== numericDraftValue(settings.translation?.frequencyPenalty) ||
+		normalized.translationPresencePenalty.trim() !== numericDraftValue(settings.translation?.presencePenalty) ||
+		normalized.translationRepetitionPenalty.trim() !== numericDraftValue(settings.translation?.repetitionPenalty)
 	);
 }
 
@@ -18276,11 +18434,8 @@ function inferenceInputFromDraft(
 	inherited?: InferenceModelUnlockContext,
 	options: { includeReasoningPrefill?: boolean; includeImageGeneration?: boolean; includeTranslation?: boolean } = {},
 ): BotInferenceSettingsInput {
-	const normalized = draft;
-	const inheritedCompactionMode = inherited?.compactionMode ?? "structured_output";
-	const inheritedSupportsPrefill = inherited?.supportsPrefill ?? true;
-	const inheritedReasoningEffort = inherited?.reasoningEffort ?? "default";
-	const inheritedToolCalls = inherited?.toolCalls ?? "require";
+	const normalized = normalizeInferenceDraftForCapabilities(draft, inherited);
+	const inheritedDefaults = inferenceDefaultsForDraft(normalized, inherited);
 	return {
 		...(normalized.openRouterApiKey.trim() ? { openRouterApiKey: normalized.openRouterApiKey.trim() }
 		: normalized.clearOpenRouterApiKey ? { openRouterApiKey: null }
@@ -18288,20 +18443,20 @@ function inferenceInputFromDraft(
 		baseUrl: nullableTextInputMatchingInherited(normalized.baseUrl, inherited?.baseUrl),
 		model: nullableTextInputMatchingInherited(normalized.model, inherited?.model),
 		compactionMode:
-			normalized.compactionMode === inheritedCompactionMode ? null : normalized.compactionMode,
+			normalized.compactionMode === inheritedDefaults.compactionMode ? null : normalized.compactionMode,
 		...(options.includeReasoningPrefill ?
 			{
 				recurringPrompt: nullablePreservedTextInput(normalized.recurringPrompt),
 				recurringPromptEnabled: normalized.recurringPromptEnabled ? null : false,
 			}
 		:	{}),
-		supportsPrefill: normalized.supportsPrefill === inheritedSupportsPrefill ? null : normalized.supportsPrefill,
+		supportsPrefill: normalized.supportsPrefill === inheritedDefaults.supportsPrefill ? null : normalized.supportsPrefill,
 		reasoningEffort:
-			normalized.reasoningEffort === inheritedReasoningEffort ? null : nullableReasoningEffortInput(normalized.reasoningEffort),
-		toolCalls: normalized.toolCalls === inheritedToolCalls ? null : nullableToolCallsInput(normalized.toolCalls),
+			normalized.reasoningEffort === inheritedDefaults.reasoningEffort ? null : nullableReasoningEffortInput(normalized.reasoningEffort),
+		toolCalls: normalized.toolCalls === inheritedDefaults.toolCalls ? null : nullableToolCallsInput(normalized.toolCalls),
 		providerRouting: providerRoutingInputFromDraft(normalized.providerRouting),
 		...(options.includeImageGeneration ? { imageGeneration: imageGenerationInputFromDraft(normalized) } : {}),
-		...(options.includeTranslation ? { translation: translationInputFromDraft(normalized) } : {}),
+		...(options.includeTranslation ? { translation: translationInputFromDraft(normalized, inherited) } : {}),
 		temperature: nullableNumberInputMatchingInherited(normalized.temperature, inherited?.temperature),
 		topK: nullableNumberInputMatchingInherited(normalized.topK, inherited?.topK),
 		topP: nullableNumberInputMatchingInherited(normalized.topP, inherited?.topP),
@@ -18312,22 +18467,33 @@ function inferenceInputFromDraft(
 	};
 }
 
-function translationInputFromDraft(draft: InferenceDraft): BotInferenceSettingsInput["translation"] {
-	const model = nullableTextInput(draft.translationModel);
+function translationInputFromDraft(
+	draft: InferenceDraft,
+	inherited?: InferenceModelUnlockContext | null,
+): BotInferenceSettingsInput["translation"] {
+	const normalized = normalizeTranslationDraftForCapabilities(draft, inherited);
+	const defaults = translationDefaultsForDraft(normalized, inherited);
+	const model = nullableTextInput(normalized.translationModel);
 	return {
-		enabled: draft.translationEnabled,
+		enabled: normalized.translationEnabled,
 		model,
-		prompt: nullableTextInput(draft.translationPrompt) ?? defaultTranslationPrompt,
-		reasoningEffort: nullableReasoningEffortInput(draft.translationReasoningEffort),
-		toolCalls: nullableStructuredToolCallsInput(draft.translationToolCalls),
-		providerRouting: providerRoutingInputFromDraft(draft.translationProviderRouting),
-		temperature: nullableNumberInput(draft.translationTemperature),
-		topK: nullableNumberInput(draft.translationTopK),
-		topP: nullableNumberInput(draft.translationTopP),
-		minP: nullableNumberInput(draft.translationMinP),
-		frequencyPenalty: nullableNumberInput(draft.translationFrequencyPenalty),
-		presencePenalty: nullableNumberInput(draft.translationPresencePenalty),
-		repetitionPenalty: nullableNumberInput(draft.translationRepetitionPenalty),
+		prompt: nullableTextInput(normalized.translationPrompt) ?? defaultTranslationPrompt,
+		reasoningEffort:
+			normalized.translationReasoningEffort === defaults.translationReasoningEffort ?
+				null
+			:	nullableReasoningEffortInput(normalized.translationReasoningEffort),
+		toolCalls:
+			normalized.translationToolCalls === defaults.translationToolCalls ?
+				null
+			:	nullableStructuredToolCallsInput(normalized.translationToolCalls),
+		providerRouting: providerRoutingInputFromDraft(normalized.translationProviderRouting),
+		temperature: nullableNumberInput(normalized.translationTemperature),
+		topK: nullableNumberInput(normalized.translationTopK),
+		topP: nullableNumberInput(normalized.translationTopP),
+		minP: nullableNumberInput(normalized.translationMinP),
+		frequencyPenalty: nullableNumberInput(normalized.translationFrequencyPenalty),
+		presencePenalty: nullableNumberInput(normalized.translationPresencePenalty),
+		repetitionPenalty: nullableNumberInput(normalized.translationRepetitionPenalty),
 	};
 }
 
@@ -18432,28 +18598,29 @@ function botPromptBudgetRequestKey(
 	},
 	inherited?: InferenceModelUnlockContext | null,
 ): string {
+	const inference = normalizeInferenceDraftForCapabilities(draft.inference, inherited);
 	return JSON.stringify({
 		botId,
-		baseUrl: effectiveInferenceDraftBaseUrl(draft.inference, inherited),
-		compactionMode: draft.inference.compactionMode,
-		credential: inferenceDraftCredentialState(draft.inference, inherited),
+		baseUrl: effectiveInferenceDraftBaseUrl(inference, inherited),
+		compactionMode: inference.compactionMode,
+		credential: inferenceDraftCredentialState(inference, inherited),
 		displayName: draft.displayName,
-		model: effectiveInferenceDraftModel(draft.inference, inherited),
+		model: effectiveInferenceDraftModel(inference, inherited),
 		prompt: draft.prompt,
 		allowEarlyLogOff: draft.allowEarlyLogOff,
 		compactionMaxCharacters: draft.compactionMaxCharacters.trim(),
 		compactionSummaryPercent: draft.compactionSummaryPercent.trim(),
 		contextWindowTokens: draft.contextWindowTokens.trim(),
 		commentBodyCharacters: draft.commentBodyCharacters.trim(),
-		providerRouting: providerRoutingDraftFingerprintValue(draft.inference.providerRouting, inherited?.providerRouting),
+		providerRouting: providerRoutingDraftFingerprintValue(inference.providerRouting, inherited?.providerRouting),
 		recurringPrompt:
-			draft.inference.recurringPromptEnabled ?
-				draft.inference.recurringPrompt.trim() ? draft.inference.recurringPrompt : defaultReasoningPrefill(botHandle)
+			inference.recurringPromptEnabled ?
+				inference.recurringPrompt.trim() ? inference.recurringPrompt : defaultReasoningPrefill(botHandle)
 			:	null,
-		recurringPromptEnabled: draft.inference.recurringPromptEnabled,
-		reasoningEffort: draft.inference.reasoningEffort,
-		supportsPrefill: draft.inference.supportsPrefill,
-		toolCalls: draft.inference.toolCalls,
+		recurringPromptEnabled: inference.recurringPromptEnabled,
+		reasoningEffort: inference.reasoningEffort,
+		supportsPrefill: inference.supportsPrefill,
+		toolCalls: inference.toolCalls,
 		shortBio: draft.shortBio,
 		threadBodyCharacters: draft.threadBodyCharacters.trim(),
 		tools: toolInputFromDraft(draft.tools),
@@ -18479,11 +18646,36 @@ function effectiveInferenceDraftModel(draft: InferenceDraft, inherited?: Inferen
 	return defaultProviderModel;
 }
 
+function effectiveInferenceSettingsModel(settings: BotInferenceSettings, inherited?: InferenceModelUnlockContext | null): string {
+	const settingsHasProvider =
+		Boolean(settings.openRouterApiKeySet) ||
+		Boolean(settings.openRouterApiKey?.trim()) ||
+		Boolean(settings.baseUrl?.trim());
+	const inheritedHasProvider =
+		Boolean(inherited?.apiKeySet || inherited?.openRouterApiKeySet) ||
+		Boolean(inherited?.openRouterApiKey?.trim()) ||
+		Boolean(inherited?.baseUrl?.trim());
+	if (settings.model?.trim() && (settingsHasProvider || inheritedHasProvider || !inherited)) {
+		return settings.model.trim();
+	}
+	if (inherited?.model && inheritedHasProvider) {
+		return inherited.model;
+	}
+	return defaultProviderModel;
+}
+
 function effectiveInferenceDraftBaseUrl(
 	draft: InferenceDraft,
 	inherited?: InferenceModelUnlockContext | null,
 ): string {
 	return draft.baseUrl.trim() || inherited?.baseUrl?.trim() || "https://openrouter.ai/api/v1";
+}
+
+function effectiveInferenceSettingsBaseUrl(
+	settings: BotInferenceSettings,
+	inherited?: InferenceModelUnlockContext | null,
+): string {
+	return settings.baseUrl?.trim() || inherited?.baseUrl?.trim() || "https://openrouter.ai/api/v1";
 }
 
 function inferenceDraftCredentialState(
@@ -18694,24 +18886,19 @@ function providerConnectionInheritanceContext(settings?: BotInferenceSettings | 
 }
 
 function rebaseInferenceDraftForFallbackChange(
+	previous: InferenceDraft,
 	next: InferenceDraft,
 	previousFallback: InferenceModelUnlockContext | undefined,
 	nextFallback: InferenceModelUnlockContext | undefined,
 ): InferenceDraft {
-	const previousCompactionMode = previousFallback?.compactionMode ?? "structured_output";
-	const previousSupportsPrefill = previousFallback?.supportsPrefill ?? true;
-	const previousReasoningEffort = previousFallback?.reasoningEffort ?? "default";
-	const previousToolCalls = previousFallback?.toolCalls ?? "require";
-	const nextCompactionMode = nextFallback?.compactionMode ?? "structured_output";
-	const nextSupportsPrefill = nextFallback?.supportsPrefill ?? true;
-	const nextReasoningEffort = nextFallback?.reasoningEffort ?? "default";
-	const nextToolCalls = nextFallback?.toolCalls ?? "require";
+	const previousDefaults = inferenceDefaultsForDraft(previous, previousFallback);
+	const nextDefaults = inferenceDefaultsForDraft(next, nextFallback);
 	return {
 		...next,
-		compactionMode: next.compactionMode === previousCompactionMode ? nextCompactionMode : next.compactionMode,
-		supportsPrefill: next.supportsPrefill === previousSupportsPrefill ? nextSupportsPrefill : next.supportsPrefill,
-		reasoningEffort: next.reasoningEffort === previousReasoningEffort ? nextReasoningEffort : next.reasoningEffort,
-		toolCalls: next.toolCalls === previousToolCalls ? nextToolCalls : next.toolCalls,
+		compactionMode: next.compactionMode === previousDefaults.compactionMode ? nextDefaults.compactionMode : next.compactionMode,
+		supportsPrefill: next.supportsPrefill === previousDefaults.supportsPrefill ? nextDefaults.supportsPrefill : next.supportsPrefill,
+		reasoningEffort: next.reasoningEffort === previousDefaults.reasoningEffort ? nextDefaults.reasoningEffort : next.reasoningEffort,
+		toolCalls: next.toolCalls === previousDefaults.toolCalls ? nextDefaults.toolCalls : next.toolCalls,
 	};
 }
 

@@ -11,6 +11,7 @@
 		"./governance": "./src/governance.ts",
 		"./ids": "./src/ids.ts",
 		"./model": "./src/model.ts",
+		"./openrouter-model-capabilities": "./src/openrouter-model-capabilities.ts",
 		"./posting": "./src/posting.ts",
 		"./repository": "./src/repository.ts",
 		"./runtime-errors": "./src/runtime-errors.ts",

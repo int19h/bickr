@@ -200,6 +200,18 @@ import {
 	defaultCommentBodyCharacters,
 	defaultThreadBodyCharacters,
 } from "../packages/shared/src/posting";
+import {
+	effectiveCompactionModeForModel,
+	effectiveReasoningEffortForModel,
+	effectiveStructuredToolCallsForModel,
+	effectiveSupportsPrefillForModel,
+	effectiveToolCallsForModel,
+	modelSupportsPrefill,
+	modelSupportsRequiredToolCalls,
+	modelSupportsStructuredOutputs,
+	openRouterFreeModel,
+	openRouterModelPolicy,
+} from "../packages/shared/src/openrouter-model-capabilities";
 import { formatCommentRef, formatThreadRef } from "../packages/shared/src/ids";
 import { kvKeys } from "../packages/shared/src/storage";
 import {
@@ -212,6 +224,9 @@ import { sessionCookieName, type AppEnv } from "../apps/web/functions/api/_auth"
 import { oauthCookieNames } from "../apps/web/functions/api/auth/_oauth";
 
 type RouteParams = Record<string, string>;
+
+const customProviderBaseUrl = "http://localhost:11434/v1";
+const capableOpenRouterModel = "openai/gpt-4o-mini";
 
 const schemaSql = `
 CREATE TABLE objects_index (
@@ -1661,7 +1676,7 @@ describe("Bickr Pages Functions", () => {
 	it("builds provider chat requests with explicit tool-call and output controls", () => {
 		const request = providerChatCompletionRequest(
 			{
-				baseUrl: "https://openrouter.ai/api/v1",
+				baseUrl: customProviderBaseUrl,
 				model: "test-model",
 				providerRouting: { max_price: { prompt: 0.25, completion: 0.75 } },
 				temperature: 0.2,
@@ -1689,7 +1704,7 @@ describe("Bickr Pages Functions", () => {
 		expect(
 			providerChatCompletionRequest(
 				{
-					baseUrl: "https://openrouter.ai/api/v1",
+					baseUrl: customProviderBaseUrl,
 					model: "test-model",
 					supportsPrefill: false,
 					temperature: 0.2,
@@ -1709,7 +1724,7 @@ describe("Bickr Pages Functions", () => {
 		expect(
 			providerChatCompletionRequest(
 				{
-					baseUrl: "https://openrouter.ai/api/v1",
+					baseUrl: customProviderBaseUrl,
 					model: "test-model",
 					temperature: 0.2,
 				},
@@ -1731,7 +1746,7 @@ describe("Bickr Pages Functions", () => {
 
 		const railroadRequest = providerChatCompletionRequest(
 			{
-				baseUrl: "https://openrouter.ai/api/v1",
+				baseUrl: customProviderBaseUrl,
 				model: "test-model",
 				temperature: 0.2,
 			},
@@ -1742,7 +1757,7 @@ describe("Bickr Pages Functions", () => {
 		);
 		const atWillRequest = providerChatCompletionRequest(
 			{
-				baseUrl: "https://openrouter.ai/api/v1",
+				baseUrl: customProviderBaseUrl,
 				model: "test-model",
 				temperature: 0.2,
 			},
@@ -1756,7 +1771,7 @@ describe("Bickr Pages Functions", () => {
 
 		const tunedRequest = providerChatCompletionRequest(
 			{
-				baseUrl: "https://openrouter.ai/api/v1",
+				baseUrl: customProviderBaseUrl,
 				model: "test-model",
 				temperature: 0.2,
 				frequencyPenalty: -0.25,
@@ -1767,12 +1782,32 @@ describe("Bickr Pages Functions", () => {
 			toolDefinitions,
 			"I'm u/release-sage. I need to think about how I feel and what I want to do next.",
 			);
-			expect(tunedRequest).toMatchObject({
-				frequency_penalty: -0.25,
-				presence_penalty: 0.5,
-				repetition_penalty: 1.15,
-			});
+		expect(tunedRequest).toMatchObject({
+			frequency_penalty: -0.25,
+			presence_penalty: 0.5,
+			repetition_penalty: 1.15,
 		});
+	});
+
+	it("applies conservative request policy for unknown OpenRouter models", () => {
+		const request = providerChatCompletionRequest(
+			{
+				baseUrl: "https://openrouter.ai/api/v1",
+				model: "unknown/provider-model",
+				temperature: 0.2,
+			},
+			[{ role: "user", content: "hello" }],
+			toolDefinitions,
+			"Continue from here.",
+		);
+
+		expect(request.tool_choice).toBeUndefined();
+		expect(request.reasoning).toBeUndefined();
+		expect(request.messages.at(-1)).toEqual({
+			role: "user",
+			content: "Bickr Terminal is ready for my next step.",
+		});
+	});
 
 		it("appends tool requirement prompt text only for require and railroad modes", () => {
 			const tools = [
@@ -1893,9 +1928,9 @@ describe("Bickr Pages Functions", () => {
 				provider: { sort: "price" },
 				stream: false,
 				temperature: 0.2,
-				reasoning: { effort: "none", exclude: false },
 				parallel_tool_calls: false,
 			});
+			expect(request.reasoning).toBeUndefined();
 			expect(request.tool_choice).toBe("none");
 			expect(request.tools.some((tool) => tool.type === "function" && tool.function.name === "read_thread")).toBe(true);
 			expect(request.tools.some((tool) => tool.type === "function" && tool.function.name === metaCompactionToolName)).toBe(false);
@@ -2175,7 +2210,7 @@ describe("Bickr Pages Functions", () => {
 				}).callProviderForCompaction.bind(runtime);
 
 				const settings = {
-					baseUrl: "https://openrouter.ai/api/v1",
+					baseUrl: customProviderBaseUrl,
 					model: "openai/gpt-5.1-codex-mini",
 					temperature: 0.2,
 				};
@@ -2289,7 +2324,7 @@ describe("Bickr Pages Functions", () => {
 
 				const response = await callProviderForCompaction(
 					{
-						baseUrl: "https://openrouter.ai/api/v1",
+						baseUrl: customProviderBaseUrl,
 						model: "google/gemini-2.5-pro",
 						temperature: 0.2,
 					},
@@ -4499,7 +4534,7 @@ describe("Bickr Pages Functions", () => {
 
 				await compactLoopMessageRows(
 					fakeBotDocument(),
-					{ apiKey: "test-key", baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+					{ apiKey: "test-key", baseUrl: customProviderBaseUrl, model: "test-model", temperature: 0.2 },
 					"run-output-limit-shrink",
 					new AbortController().signal,
 					rows,
@@ -4629,7 +4664,7 @@ describe("Bickr Pages Functions", () => {
 
 				await compactLoopMessageRows(
 					fakeBotDocument(),
-					{ apiKey: "test-key", baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+					{ apiKey: "test-key", baseUrl: customProviderBaseUrl, model: "test-model", temperature: 0.2 },
 					"run-output-limit-tiny-prefix",
 					new AbortController().signal,
 					rows,
@@ -4809,7 +4844,7 @@ describe("Bickr Pages Functions", () => {
 		it("builds translation requests with required tool output", () => {
 			const request = providerTranslationRequest(
 				{
-					baseUrl: "https://openrouter.ai/api/v1",
+					baseUrl: customProviderBaseUrl,
 					model: "openai/gpt-4o-mini",
 					providerRouting: { max_price: { prompt: 0.2, completion: 0.4 } },
 					prompt: "Translate to Pirate.",
@@ -4847,7 +4882,7 @@ describe("Bickr Pages Functions", () => {
 
 			const railroadRequest = providerTranslationRequest(
 				{
-					baseUrl: "https://openrouter.ai/api/v1",
+					baseUrl: customProviderBaseUrl,
 					model: "openai/gpt-4o-mini",
 					prompt: "Translate to Pirate.",
 					temperature: 0,
@@ -4898,7 +4933,7 @@ describe("Bickr Pages Functions", () => {
 	it("builds minimal provider probes for exact prompt-token counts", () => {
 		const request = providerTokenProbeRequest(
 			{
-				baseUrl: "https://openrouter.ai/api/v1",
+				baseUrl: customProviderBaseUrl,
 				model: "test-model",
 				providerRouting: { ignore: ["deepinfra"] },
 				temperature: 0.2,
@@ -4916,7 +4951,7 @@ describe("Bickr Pages Functions", () => {
 
 		const tunedRequest = providerTokenProbeRequest(
 			{
-				baseUrl: "https://openrouter.ai/api/v1",
+				baseUrl: customProviderBaseUrl,
 					model: "test-model",
 					temperature: 0.2,
 					reasoningEffort: "none",
@@ -4933,6 +4968,56 @@ describe("Bickr Pages Functions", () => {
 			presence_penalty: 0.5,
 			repetition_penalty: 1.15,
 		});
+	});
+
+	it("normalizes OpenRouter model capabilities for generated, unknown, free, and custom models", () => {
+		const known = openRouterModelPolicy(capableOpenRouterModel);
+		expect(known).toMatchObject({
+			prefill: true,
+			structuredOutputs: true,
+			requiredToolCalls: true,
+			disabledReasoning: true,
+			defaultCompactionMode: "structured_output",
+			defaultReasoningEffort: "minimal",
+			defaultToolCalls: "require",
+		});
+		expect(modelSupportsPrefill(capableOpenRouterModel, true)).toBe(true);
+		expect(modelSupportsRequiredToolCalls(capableOpenRouterModel, true)).toBe(true);
+		expect(modelSupportsStructuredOutputs(capableOpenRouterModel, true)).toBe(true);
+		expect(effectiveReasoningEffortForModel(capableOpenRouterModel, true, "none")).toBe("none");
+
+		const unknown = openRouterModelPolicy("unknown/provider-model");
+		expect(unknown).toMatchObject({
+			prefill: false,
+			structuredOutputs: false,
+			requiredToolCalls: false,
+			disabledReasoning: false,
+			defaultCompactionMode: "tool_call_cache_friendly",
+			defaultToolCalls: "railroad",
+		});
+		expect(unknown.defaultReasoningEffort).toBeUndefined();
+		expect(effectiveReasoningEffortForModel("unknown/provider-model", true, undefined)).toBeUndefined();
+		expect(effectiveReasoningEffortForModel("unknown/provider-model", true, "none")).toBe("minimal");
+
+		const free = openRouterModelPolicy(openRouterFreeModel);
+		expect(free).toMatchObject({
+			prefill: false,
+			structuredOutputs: false,
+			requiredToolCalls: false,
+			disabledReasoning: false,
+			defaultCompactionMode: "tool_call_cache_friendly",
+			defaultToolCalls: "railroad",
+		});
+		expect(free.defaultReasoningEffort).toBeUndefined();
+		expect(effectiveCompactionModeForModel(openRouterFreeModel, true, "structured_output")).toBe("tool_call_cache_friendly");
+		expect(effectiveSupportsPrefillForModel(openRouterFreeModel, true, true)).toBe(false);
+		expect(effectiveStructuredToolCallsForModel(openRouterFreeModel, true, "require")).toBe("railroad");
+		expect(effectiveToolCallsForModel(openRouterFreeModel, true, "at_will")).toBe("at_will");
+
+		expect(effectiveCompactionModeForModel("local/model", false, undefined)).toBe("structured_output");
+		expect(effectiveReasoningEffortForModel("local/model", false, undefined)).toBe("minimal");
+		expect(effectiveSupportsPrefillForModel("local/model", false, undefined)).toBe(true);
+		expect(effectiveToolCallsForModel("local/model", false, undefined)).toBe("require");
 	});
 
 	it("resolves inference penalty settings from bot overrides before profile defaults", () => {
@@ -4955,6 +5040,13 @@ describe("Bickr Pages Functions", () => {
 				{ inferenceSettings: {} },
 				{ inferenceSettings: {} },
 				{},
+			).toolCalls,
+		).toBe("railroad");
+		expect(
+			effectiveProviderSettingsForBot(
+				{ inferenceSettings: {} },
+				{ inferenceSettings: {} },
+				{ OPENROUTER_BASE_URL: customProviderBaseUrl },
 			).toolCalls,
 		).toBe("require");
 		expect(
@@ -4994,6 +5086,16 @@ describe("Bickr Pages Functions", () => {
 				{},
 			),
 		).toMatchObject({
+			compactionMode: "tool_call_cache_friendly",
+			supportsPrefill: false,
+		});
+		expect(
+			effectiveProviderSettingsForBot(
+				{ inferenceSettings: {} },
+				{ inferenceSettings: {} },
+				{ OPENROUTER_BASE_URL: customProviderBaseUrl },
+			),
+		).toMatchObject({
 			compactionMode: "structured_output",
 			supportsPrefill: true,
 		});
@@ -5015,7 +5117,7 @@ describe("Bickr Pages Functions", () => {
 			),
 		).toMatchObject({
 			compactionMode: "tool_call",
-			supportsPrefill: true,
+			supportsPrefill: false,
 		});
 		expect(
 			effectiveProviderSettingsForBot(
@@ -5023,7 +5125,7 @@ describe("Bickr Pages Functions", () => {
 				{ inferenceSettings: { cacheFriendlyCompaction: true } },
 				{},
 			).compactionMode,
-		).toBe("structured_output");
+		).toBe("tool_call_cache_friendly");
 	});
 
 	it("resolves OpenRouter provider routing from bot overrides before profile defaults", () => {
@@ -5084,11 +5186,11 @@ describe("Bickr Pages Functions", () => {
 		expect(inheritedBlocked).toMatchObject({
 			apiKey: "sk-or-user",
 			baseUrl: "https://openrouter.ai/api/v1",
-			compactionMode: "structured_output",
+			compactionMode: "tool_call_cache_friendly",
 			model: "bot/model",
-			supportsPrefill: true,
+			supportsPrefill: false,
 			temperature: 0.9,
-			toolCalls: "require",
+			toolCalls: "railroad",
 		});
 		expect(inheritedBlocked.providerRouting).toBeUndefined();
 		expect(inheritedBlocked.reasoningEffort).toBeUndefined();
@@ -19504,6 +19606,7 @@ describe("Bickr Pages Functions", () => {
 					BICKR_D1: testEnv.BICKR_D1,
 					BICKR_KV: testEnv.BICKR_KV,
 					OPENROUTER_API_KEY: "test-key",
+					OPENROUTER_BASE_URL: customProviderBaseUrl,
 					OPENROUTER_MODEL: "openai/text-one",
 				},
 			);
@@ -19572,6 +19675,7 @@ describe("Bickr Pages Functions", () => {
 					BICKR_D1: testEnv.BICKR_D1,
 					BICKR_KV: testEnv.BICKR_KV,
 					OPENROUTER_API_KEY: "test-key",
+					OPENROUTER_BASE_URL: customProviderBaseUrl,
 					OPENROUTER_MODEL: "openai/text-one",
 				},
 			);
@@ -19639,6 +19743,7 @@ describe("Bickr Pages Functions", () => {
 					BICKR_D1: testEnv.BICKR_D1,
 					BICKR_KV: testEnv.BICKR_KV,
 					OPENROUTER_API_KEY: "test-key",
+					OPENROUTER_BASE_URL: customProviderBaseUrl,
 					OPENROUTER_MODEL: "openai/text-one",
 				},
 			);
@@ -19715,6 +19820,7 @@ describe("Bickr Pages Functions", () => {
 					BICKR_D1: testEnv.BICKR_D1,
 					BICKR_KV: testEnv.BICKR_KV,
 					OPENROUTER_API_KEY: "test-key",
+					OPENROUTER_BASE_URL: customProviderBaseUrl,
 					OPENROUTER_MODEL: "openai/text-one",
 				},
 			);
@@ -19767,6 +19873,7 @@ describe("Bickr Pages Functions", () => {
 					BICKR_D1: testEnv.BICKR_D1,
 					BICKR_KV: testEnv.BICKR_KV,
 					OPENROUTER_API_KEY: "test-key",
+					OPENROUTER_BASE_URL: customProviderBaseUrl,
 					OPENROUTER_MODEL: "openai/text-one",
 				},
 			);

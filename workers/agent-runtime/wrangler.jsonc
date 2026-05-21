@@ -99,7 +99,7 @@
 			],
 			"vars": {
 				"BICKR_R2_PUBLIC_BASE_URL": "https://assets-test.bickr.social",
-				"OPENROUTER_MODEL": "openai/gpt-oss-120b:free"
+				"OPENROUTER_MODEL": "openrouter/free"
 			},
 			"services": [
 				{

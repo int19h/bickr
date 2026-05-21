@@ -98,6 +98,14 @@ import {
 	requiredText,
 } from '@bickr/shared/validation';
 import {
+	effectiveCompactionModeForModel,
+	effectiveReasoningEffortForModel,
+	effectiveStructuredToolCallsForModel,
+	effectiveSupportsPrefillForModel,
+	effectiveToolCallsForModel,
+	modelSupportsReasoningNone,
+} from '@bickr/shared/openrouter-model-capabilities';
+import {
 	type ApiErrorPayload,
 	type AvatarImage,
 	type BotContextBudget,
@@ -749,8 +757,10 @@ type ProviderToolArrayPruneResult<T> = {
 };
 
 type ContextBudgetPromptParts = {
+	baseUrl: string;
 	fixedSystemMessage: string;
 	fullSystemMessage: string;
+	model: string;
 	reasoningPrefill?: string;
 	providerTools: ProviderToolDefinition[];
 	supportsPrefill: boolean;
@@ -815,7 +825,7 @@ type ProviderChatCompletionRequest = {
 		include_usage: true;
 	};
 	max_completion_tokens: number;
-	reasoning: ProviderReasoningConfig;
+	reasoning?: ProviderReasoningConfig;
 	temperature: number;
 	top_k?: number;
 	top_p?: number;
@@ -834,7 +844,7 @@ type ProviderTokenProbeRequest = {
 	parallel_tool_calls: typeof providerParallelToolCalls;
 	stream: false;
 	max_tokens: 1;
-	reasoning: ProviderReasoningConfig;
+	reasoning?: ProviderReasoningConfig;
 	temperature: number;
 	top_k?: number;
 	top_p?: number;
@@ -854,7 +864,7 @@ type ProviderCompactionRequest = {
 	parallel_tool_calls: false;
 	response_format?: ProviderJsonSchemaResponseFormat;
 	max_completion_tokens: number;
-	reasoning: ProviderReasoningConfig;
+	reasoning?: ProviderReasoningConfig;
 	temperature: number;
 };
 
@@ -920,7 +930,7 @@ type ProviderTranslationRequest = {
 	tool_choice?: typeof providerRequiredToolChoice;
 	parallel_tool_calls: false;
 	max_completion_tokens: number;
-	reasoning: ProviderReasoningConfig;
+	reasoning?: ProviderReasoningConfig;
 	temperature: number;
 	top_k?: number;
 	top_p?: number;
@@ -1273,7 +1283,6 @@ const providerParallelToolCalls = true;
 const providerRailroadNoToolMaxAttempts = 5;
 const providerPromptCompactionMaxAttempts = 3;
 const providerAvatarDescriptionMaxAttempts = 2;
-const providerDefaultReasoning = { effort: 'minimal', exclude: false } as const satisfies ProviderReasoningConfig;
 const providerCompactionNoReasoning = { effort: 'none', exclude: false } as const satisfies ProviderReasoningConfig;
 const providerCompactionMinimalReasoning = { effort: 'minimal', exclude: false } as const satisfies ProviderReasoningConfig;
 const providerTranslationMaxCompletionTokens = 8_192;
@@ -1319,20 +1328,47 @@ const disallowedLogOffSelfCorrectionContent =
 const syntheticLimitLogOffContent = "I need to take a short break from Bickr. I'll log off for now.";
 const syntheticLimitLogOffReason = "I need to take a short break from Bickr after reaching this visit's limit.";
 
-function providerReasoningForSettings(settings: Pick<ProviderSettings, 'reasoningEffort'>): ProviderReasoningConfig {
-	return settings.reasoningEffort ? { effort: settings.reasoningEffort, exclude: false } : providerDefaultReasoning;
+function providerReasoningForSettings(
+	settings: Pick<ProviderSettings, 'model' | 'reasoningEffort'> & { baseUrl?: string },
+): ProviderReasoningConfig | undefined {
+	const effort = effectiveReasoningEffortForModel(settings.model, settingsUseOpenRouter(settings), settings.reasoningEffort);
+	return effort ? { effort, exclude: false } : undefined;
 }
 
 function providerCompactionReasoningForMode(mode: ProviderCompactionReasoningMode): ProviderReasoningConfig {
 	return mode === 'minimal' ? providerCompactionMinimalReasoning : providerCompactionNoReasoning;
 }
 
+function providerCompactionReasoningForSettings(
+	settings: Pick<ProviderSettings, 'baseUrl' | 'model'> | { baseUrl?: string; model: string },
+	mode: ProviderCompactionReasoningMode,
+): ProviderReasoningConfig | undefined {
+	if (mode === 'none') {
+		return providerCompactionReasoningForMode(mode);
+	}
+	const defaultEffort = effectiveReasoningEffortForModel(settings.model, settingsUseOpenRouter(settings), undefined);
+	return defaultEffort ? { effort: defaultEffort, exclude: false } : undefined;
+}
+
+function settingsUseOpenRouter(settings: Pick<ProviderSettings, 'baseUrl'> | { baseUrl?: string }): boolean {
+	return settings.baseUrl !== undefined && isOpenRouterProviderBaseUrl(settings.baseUrl);
+}
+
+function providerNoReasoningModeForSettings(
+	settings: Pick<ProviderSettings, 'baseUrl' | 'model'> | { baseUrl?: string; model: string },
+): ProviderCompactionReasoningMode {
+	return modelSupportsReasoningNone(settings.model, settingsUseOpenRouter(settings)) ? 'none' : 'minimal';
+}
+
 function providerToolChoiceForMode(mode: BotInferenceToolCalls | BotStructuredToolCalls): typeof providerRequiredToolChoice | undefined {
 	return mode === 'require' ? providerRequiredToolChoice : undefined;
 }
 
-function structuredToolCallsMode(mode: BotInferenceToolCalls): BotStructuredToolCalls {
-	return mode === 'require' ? 'require' : 'railroad';
+function providerToolCallsForSettings(
+	settings: Pick<ProviderSettings, 'baseUrl' | 'model' | 'toolCalls'>,
+	value: BotInferenceToolCalls | undefined = settings.toolCalls,
+): BotInferenceToolCalls {
+	return effectiveToolCallsForModel(settings.model, settingsUseOpenRouter(settings), value);
 }
 
 function providerToolNames(tools: readonly ProviderToolDefinition[]): string[] {
@@ -1408,6 +1444,7 @@ type ProviderLoopRequestEventPayloadInput = {
 
 function providerLoopRequestEventPayload(input: ProviderLoopRequestEventPayloadInput): Record<string, unknown> {
 	const toolChoice = providerToolChoiceForMode(input.toolCallsMode);
+	const reasoning = providerReasoningForSettings(input.settings);
 	return {
 		model: input.settings.model,
 		messageCount: input.requestMessages.length,
@@ -1419,7 +1456,7 @@ function providerLoopRequestEventPayload(input: ProviderLoopRequestEventPayloadI
 		promptTokens: input.budgetCheck.promptTokens,
 		allowedPromptTokens: input.budgetCheck.allowedPromptTokens,
 		maxCompletionTokens: providerContextReserveTokens,
-		reasoning: providerReasoningForSettings(input.settings),
+		...(reasoning ? { reasoning } : {}),
 		temperature: input.settings.temperature,
 		openRouterServerTools: {
 			enabled: input.serverTools.enabled,
@@ -1448,12 +1485,13 @@ function providerLoopRequestEventPayload(input: ProviderLoopRequestEventPayloadI
 }
 
 function providerMessagesWithPrefillCompatibility(
-	settings: Pick<ProviderSettings, 'supportsPrefill'>,
+	settings: Pick<ProviderSettings, 'model' | 'supportsPrefill'> & { baseUrl?: string },
 	messages: ChatMessage[],
 ): ChatMessage[] {
 	const prepared = providerMessagesWithInitialUserContext(messages);
 	const last = prepared[prepared.length - 1];
-	return settings.supportsPrefill === false && last?.role === 'assistant' ? [...prepared, providerContinuationMessage()] : prepared;
+	const supportsPrefill = effectiveSupportsPrefillForModel(settings.model, settingsUseOpenRouter(settings), settings.supportsPrefill);
+	return !supportsPrefill && last?.role === 'assistant' ? [...prepared, providerContinuationMessage()] : prepared;
 }
 
 function providerMessagesWithInitialUserContext(messages: ChatMessage[]): ChatMessage[] {
@@ -1477,25 +1515,28 @@ export function providerChatCompletionRequest(
 	messages: ChatMessage[],
 	tools: ProviderToolDefinition[],
 	reasoningPrefill?: string,
-	toolCalls: BotInferenceToolCalls = settings.toolCalls ?? 'require',
+	toolCalls: BotInferenceToolCalls = providerToolCallsForSettings(settings),
 ): ProviderChatCompletionRequest {
 	const requestMessages = providerMessagesWithPrefillCompatibility(
 		settings,
 		providerMessagesWithReasoningPrefill(messages, reasoningPrefill),
 	);
+	const effectiveToolCalls = providerToolCallsForSettings(settings, toolCalls);
+	const toolChoice = providerToolChoiceForMode(effectiveToolCalls);
+	const reasoning = providerReasoningForSettings(settings);
 	return {
 		model: settings.model,
 		messages: sanitizeProviderMessagesForRequest(requestMessages),
 		...(settings.providerRouting ? { provider: settings.providerRouting } : {}),
 		tools,
-		...(providerToolChoiceForMode(toolCalls) ? { tool_choice: providerToolChoiceForMode(toolCalls) } : {}),
+		...(toolChoice ? { tool_choice: toolChoice } : {}),
 		parallel_tool_calls: providerParallelToolCalls,
 		stream: true,
 		stream_options: {
 			include_usage: true,
 		},
 		max_completion_tokens: providerContextReserveTokens,
-		reasoning: providerReasoningForSettings(settings),
+		...(reasoning ? { reasoning } : {}),
 		temperature: settings.temperature,
 		...(settings.topK !== undefined ? { top_k: settings.topK } : {}),
 		...(settings.topP !== undefined ? { top_p: settings.topP } : {}),
@@ -1523,8 +1564,8 @@ const defaultProviderCompactionSummaryLimits: ProviderCompactionSummaryLimits = 
 
 export type ProviderCompactionMode = BotCompactionMode;
 
-function providerCompactionMode(settings: Pick<ProviderSettings, 'compactionMode'>): ProviderCompactionMode {
-	return settings.compactionMode ?? 'structured_output';
+function providerCompactionMode(settings: Pick<ProviderSettings, 'model' | 'compactionMode'> & { baseUrl?: string }): ProviderCompactionMode {
+	return effectiveCompactionModeForModel(settings.model, settingsUseOpenRouter(settings), settings.compactionMode);
 }
 
 function providerCompactionOnlyTools(limits: Pick<ProviderCompactionSummaryLimits, 'minLength' | 'maxLength'>): [ProviderToolDefinition] {
@@ -1814,17 +1855,18 @@ function providerCompactionResponseFormat(
 }
 
 export function providerCompactionRequest(
-	settings: Pick<ProviderSettings, 'model' | 'providerRouting' | 'reasoningEffort' | 'supportsPrefill' | 'toolCalls'>,
+	settings: Pick<ProviderSettings, 'model' | 'providerRouting' | 'reasoningEffort' | 'supportsPrefill' | 'toolCalls'> & { baseUrl?: string },
 	messages: ChatMessage[],
 	limits: Pick<ProviderCompactionSummaryLimits, 'minLength' | 'maxLength' | 'maxCompletionTokens'> = defaultProviderCompactionSummaryLimits,
 	providerTools?: ProviderToolDefinition[],
 	mode: ProviderCompactionMode = 'structured_output',
-	reasoning: ProviderReasoningConfig = providerCompactionNoReasoning,
+	reasoning?: ProviderReasoningConfig,
 ): ProviderCompactionRequest {
-	const toolCalls = structuredToolCallsMode(settings.toolCalls ?? 'require');
-	const effectiveProviderTools = providerTools ?? providerCompactionToolsForMode(limits, undefined, mode);
-	const toolChoice = mode === 'structured_output' ? providerNoToolChoice : providerToolChoiceForMode(toolCalls);
-	const responseFormat = providerCompactionResponseFormat(limits.maxLength, mode);
+	const effectiveMode = effectiveCompactionModeForModel(settings.model, settingsUseOpenRouter(settings), mode);
+	const toolCalls = effectiveStructuredToolCallsForModel(settings.model, settingsUseOpenRouter(settings), settings.toolCalls ?? 'require');
+	const effectiveProviderTools = providerTools ?? providerCompactionToolsForMode(limits, undefined, effectiveMode);
+	const toolChoice = effectiveMode === 'structured_output' ? providerNoToolChoice : providerToolChoiceForMode(toolCalls);
+	const responseFormat = providerCompactionResponseFormat(limits.maxLength, effectiveMode);
 	return {
 		model: settings.model,
 		messages: sanitizeProviderMessagesForRequest(providerMessagesWithPrefillCompatibility(settings, messages)),
@@ -1835,7 +1877,7 @@ export function providerCompactionRequest(
 		parallel_tool_calls: false,
 		...(responseFormat ? { response_format: responseFormat } : {}),
 		max_completion_tokens: limits.maxCompletionTokens,
-		reasoning,
+		...(reasoning ? { reasoning } : {}),
 		temperature: providerCompactionTemperature,
 	};
 }
@@ -1864,8 +1906,10 @@ function contextBudgetPromptParts(bot: BotDocument, settings: ProviderSettings):
 			? standardPrompt(bot)
 			: appendToolRequirementInstruction(standardPrompt(bot), fixedSystemToolInstructionTools);
 	return {
+		baseUrl: settings.baseUrl,
 		fixedSystemMessage,
 		fullSystemMessage,
+		model: settings.model,
 		reasoningPrefill: effectiveReasoningPrefill(bot),
 		providerTools,
 		supportsPrefill: settings.supportsPrefill ?? true,
@@ -1892,7 +1936,7 @@ function estimatedMinimumCompactedPromptTokens(parts: ContextBudgetPromptParts, 
 	return (
 		estimateChatMessagesTokens(
 			providerMessagesWithPrefillCompatibility(
-				{ supportsPrefill: parts.supportsPrefill },
+				{ baseUrl: parts.baseUrl, model: parts.model, supportsPrefill: parts.supportsPrefill },
 				providerMessagesWithReasoningPrefill(
 					[
 						{ role: 'system', content: parts.fullSystemMessage },
@@ -2671,6 +2715,7 @@ export function providerTokenProbeRequest(
 	messages: ChatMessage[],
 	tools: ProviderToolDefinition[],
 ): ProviderTokenProbeRequest {
+	const reasoning = providerReasoningForSettings(settings);
 	return {
 		model: settings.model,
 		messages: sanitizeProviderMessagesForRequest(providerMessagesWithPrefillCompatibility(settings, messages)),
@@ -2680,7 +2725,7 @@ export function providerTokenProbeRequest(
 		parallel_tool_calls: providerParallelToolCalls,
 		stream: false,
 		max_tokens: 1,
-		reasoning: providerReasoningForSettings(settings),
+		...(reasoning ? { reasoning } : {}),
 		temperature: settings.temperature,
 		...(settings.topK !== undefined ? { top_k: settings.topK } : {}),
 		...(settings.topP !== undefined ? { top_p: settings.topP } : {}),
@@ -2712,6 +2757,9 @@ function providerTranslationTools(): [ProviderToolDefinition] {
 }
 
 export function providerTranslationRequest(settings: TranslationProviderSettings, text: string): ProviderTranslationRequest {
+	const toolCalls = effectiveStructuredToolCallsForModel(settings.model, settingsUseOpenRouter(settings), settings.toolCalls ?? 'require');
+	const toolChoice = providerToolChoiceForMode(toolCalls);
+	const reasoning = providerReasoningForSettings(settings);
 	return {
 		model: settings.model,
 		messages: [
@@ -2724,12 +2772,10 @@ export function providerTranslationRequest(settings: TranslationProviderSettings
 		...(settings.providerRouting ? { provider: settings.providerRouting } : {}),
 		stream: false,
 		tools: providerTranslationTools(),
-		...(providerToolChoiceForMode(settings.toolCalls ?? 'require')
-			? { tool_choice: providerToolChoiceForMode(settings.toolCalls ?? 'require') }
-			: {}),
+		...(toolChoice ? { tool_choice: toolChoice } : {}),
 		parallel_tool_calls: false,
 		max_completion_tokens: providerTranslationMaxCompletionTokens,
-		reasoning: providerReasoningForSettings(settings),
+		...(reasoning ? { reasoning } : {}),
 		temperature: settings.temperature,
 		...(settings.topK !== undefined ? { top_k: settings.topK } : {}),
 		...(settings.topP !== undefined ? { top_p: settings.topP } : {}),
@@ -2806,17 +2852,32 @@ export function effectiveProviderSettingsForBot(
 	const providerRouting =
 		bot.inferenceSettings.providerRouting !== undefined ? bot.inferenceSettings.providerRouting : inheritedDefaults.providerRouting;
 	const effectiveProviderRouting = openRouterProviderRouting(baseUrl, providerRouting);
-	const reasoningEffort = bot.inferenceSettings.reasoningEffort ?? inheritedDefaults.reasoningEffort;
-	const toolCalls = bot.inferenceSettings.toolCalls ?? inheritedDefaults.toolCalls ?? 'require';
+	const openRouterBaseUrl = isOpenRouterProviderBaseUrl(baseUrl);
+	const reasoningEffort = effectiveReasoningEffortForModel(
+		model,
+		openRouterBaseUrl,
+		bot.inferenceSettings.reasoningEffort ?? inheritedDefaults.reasoningEffort,
+	);
+	const toolCalls = effectiveToolCallsForModel(model, openRouterBaseUrl, bot.inferenceSettings.toolCalls ?? inheritedDefaults.toolCalls);
+	const compactionMode = effectiveCompactionModeForModel(
+		model,
+		openRouterBaseUrl,
+		bot.inferenceSettings.compactionMode ?? inheritedDefaults.compactionMode,
+	);
+	const supportsPrefill = effectiveSupportsPrefillForModel(
+		model,
+		openRouterBaseUrl,
+		bot.inferenceSettings.supportsPrefill ?? inheritedDefaults.supportsPrefill,
+	);
 
 	return {
 		apiKey: botApiKey ?? userApiKey ?? (hasCustomBaseUrl ? undefined : envApiKey),
 		baseUrl,
 		model,
-		compactionMode: bot.inferenceSettings.compactionMode ?? inheritedDefaults.compactionMode ?? 'structured_output',
+		compactionMode,
 		...(effectiveProviderRouting ? { providerRouting: effectiveProviderRouting } : {}),
-		...(reasoningEffort && reasoningEffort !== 'default' ? { reasoningEffort } : {}),
-		supportsPrefill: bot.inferenceSettings.supportsPrefill ?? inheritedDefaults.supportsPrefill ?? true,
+		...(reasoningEffort ? { reasoningEffort } : {}),
+		supportsPrefill,
 		toolCalls,
 		temperature,
 		...(hasCustomBaseUrl ? { usesCustomBaseUrl: true } : {}),
@@ -2873,20 +2934,27 @@ export function effectiveProviderSettingsForTranslation(
 	const baseUrl = userBaseUrl ?? envBaseUrl ?? fallbackProviderBaseUrl;
 	const model = translationModel ?? userModel ?? envModel ?? fallbackProviderModel;
 	const usingLoopSettings = !translationModel;
+	const openRouterBaseUrl = isOpenRouterProviderBaseUrl(baseUrl);
 	const providerRouting = openRouterProviderRouting(
 		baseUrl,
 		usingLoopSettings ? userSettings.providerRouting : translation.providerRouting,
 	);
-	const reasoningEffort = usingLoopSettings ? userSettings.reasoningEffort : translation.reasoningEffort;
-	const toolCalls = structuredToolCallsMode(
-		usingLoopSettings ? (userSettings.toolCalls ?? 'require') : (translation.toolCalls ?? 'require'),
+	const reasoningEffort = effectiveReasoningEffortForModel(
+		model,
+		openRouterBaseUrl,
+		usingLoopSettings ? userSettings.reasoningEffort : translation.reasoningEffort,
+	);
+	const toolCalls = effectiveStructuredToolCallsForModel(
+		model,
+		openRouterBaseUrl,
+		usingLoopSettings ? userSettings.toolCalls : translation.toolCalls,
 	);
 	return {
 		apiKey: userApiKey ?? (hasCustomBaseUrl ? undefined : envApiKey),
 		baseUrl,
 		model,
 		...(providerRouting ? { providerRouting } : {}),
-		...(reasoningEffort && reasoningEffort !== 'default' ? { reasoningEffort } : {}),
+		...(reasoningEffort ? { reasoningEffort } : {}),
 		toolCalls,
 		prompt: trimmed(translation?.prompt) ?? defaultTranslationPrompt,
 		temperature: usingLoopSettings ? (userSettings.temperature ?? 0.9) : (translation.temperature ?? 0),
@@ -3267,7 +3335,11 @@ export class BotRuntime {
 		this.state.storage.sql.exec(`DELETE FROM runtime_state WHERE key = ?`, key);
 	}
 
-	private compactionReasoningModeForSettings(settings: Pick<ProviderSettings, 'model'>): ProviderCompactionReasoningMode {
+	private compactionReasoningModeForSettings(settings: Pick<ProviderSettings, 'baseUrl' | 'model'>): ProviderCompactionReasoningMode {
+		if (providerNoReasoningModeForSettings(settings) === 'minimal') {
+			this.deleteRuntimeState(compactionReasoningFallbackStateKey);
+			return 'minimal';
+		}
 		const state = this.runtimeStateRecord(compactionReasoningFallbackStateKey);
 		if (!state) {
 			return 'none';
@@ -3559,7 +3631,7 @@ export class BotRuntime {
 				bot.id,
 				notifications,
 				injections,
-				(providerSettings.toolCalls ?? 'require') === 'at_will' ? undefined : this.pendingToolUseReminder(),
+					providerToolCallsForSettings(providerSettings) === 'at_will' ? undefined : this.pendingToolUseReminder(),
 			);
 			const input = builtInput.input;
 			if (mode === 'spotlight') {
@@ -3585,7 +3657,7 @@ export class BotRuntime {
 			let outcome: ProviderLoopOutcome;
 			if (providerSettings.apiKey || providerSettings.usesCustomBaseUrl || this.env.BICKR_SIMULATION_MODE === 'provider') {
 				outcome = await this.runProviderLoop(bot, providerSettings, runId, messages, runContext);
-				if ((providerSettings.toolCalls ?? 'require') !== 'at_will') {
+					if (providerToolCallsForSettings(providerSettings) !== 'at_will') {
 					this.recordToolUseRecoveryOutcome(runId, outcome.toolCallCount);
 				}
 			} else {
@@ -4035,7 +4107,7 @@ export class BotRuntime {
 		let generatedTokensThisIteration = this.loopGeneratedTokenCountSinceLastLogOff();
 		let railroadNoToolAttempts = 0;
 		let toolRequestTurns = 0;
-		const toolCallsMode = settings.toolCalls ?? 'require';
+		const toolCallsMode = providerToolCallsForSettings(settings);
 		const tickSettings = effectiveTickSettings(bot.tickSettings);
 		const maxSuccessfulToolCallsPerIteration = maxSuccessfulToolCallsPerIterationSetting(bot);
 		let spotlightStreakActive = runContext.mode === 'spotlight' && runContext.spotlightActionScope !== undefined;
@@ -4473,14 +4545,14 @@ export class BotRuntime {
 		}
 	}
 
-	private async callProvider(
+		private async callProvider(
 		settings: ProviderSettings,
 		messages: ChatMessage[],
 		tools: ProviderToolDefinition[],
 		runId: string,
 		streamSeq: number,
 		signal: AbortSignal,
-		toolCalls: BotInferenceToolCalls = settings.toolCalls ?? 'require',
+			toolCalls: BotInferenceToolCalls = providerToolCallsForSettings(settings),
 		createdAt = new Date().toISOString(),
 	): Promise<ProviderResponse> {
 		const endpoint = providerChatCompletionsUrl(settings.baseUrl);
@@ -4503,7 +4575,7 @@ export class BotRuntime {
 					await sleep(retryDelayMs, signal);
 				}
 			}
-			const request = providerChatCompletionRequest(requestSettings, messages, tools, undefined, toolCalls);
+				const request = providerChatCompletionRequest(requestSettings, messages, tools, undefined, toolCalls);
 			const body = stringifyProviderRequest(request);
 			calibrationAttempt += 1;
 			lastBody = body;
@@ -4599,7 +4671,7 @@ export class BotRuntime {
 				limits,
 				effectiveProviderTools,
 				mode,
-				providerCompactionReasoningForMode(compactionReasoningMode),
+				providerCompactionReasoningForSettings(requestSettings, compactionReasoningMode),
 			),
 		);
 		let lastValidationError: ProviderStructuredOutputValidationError | null = null;
@@ -4627,7 +4699,7 @@ export class BotRuntime {
 					limits,
 					effectiveProviderTools,
 					mode,
-					providerCompactionReasoningForMode(compactionReasoningMode),
+					providerCompactionReasoningForSettings(requestSettings, compactionReasoningMode),
 				);
 				const body = stringifyProviderRequest(request);
 				calibrationAttempt += 1;
@@ -6397,7 +6469,15 @@ export class BotRuntime {
 		const calibration = this.textTokenCalibration(settings.model);
 		const compactionLimits = providerCompactionSummaryLimitsForChat(bot, [], calibration, providerTools, providerCompactionMode(settings));
 		const minimumCompactedPromptTokens = estimatedMinimumCompactedPromptTokens(
-			{ fixedSystemMessage, fullSystemMessage, reasoningPrefill, providerTools, supportsPrefill: settings.supportsPrefill ?? true },
+			{
+				baseUrl: settings.baseUrl,
+				fixedSystemMessage,
+				fullSystemMessage,
+				model: settings.model,
+				reasoningPrefill,
+				providerTools,
+				supportsPrefill: settings.supportsPrefill ?? true,
+			},
 			calibration,
 		);
 		return {
@@ -8031,7 +8111,7 @@ export class BotRuntime {
 		const threshold = limits.nextCompactionTokens;
 		const requestMessages = providerMessagesWithPrefillCompatibility(
 			settings,
-			this.activeProviderRequestMessages(bot, providerTools, settings.toolCalls ?? 'require'),
+			this.activeProviderRequestMessages(bot, providerTools, providerToolCallsForSettings(settings)),
 		);
 		const estimate = this.estimateProviderPromptTokens(settings, requestMessages, providerTools);
 		if (estimate.promptTokens <= threshold) {
@@ -8068,7 +8148,7 @@ export class BotRuntime {
 			const calibration = this.textTokenCalibration(settings.model);
 			const requestMessages = providerMessagesWithPrefillCompatibility(
 				settings,
-				this.activeProviderRequestMessages(budgetBot, providerTools, settings.toolCalls ?? 'require'),
+				this.activeProviderRequestMessages(budgetBot, providerTools, providerToolCallsForSettings(settings)),
 			);
 			const promptBudgetLimits = providerCompactionSummaryLimitsForChat(
 				budgetBot,
@@ -10755,9 +10835,13 @@ async function fetchProviderAvatarDescriptionWithMode(
 		headers.authorization = `Bearer ${settings.apiKey}`;
 	}
 	const tools = mode === 'structured_output' ? [] : providerAvatarDescriptionTools();
-	const toolCalls = settings.toolCalls === 'railroad' ? 'railroad' : 'require';
+	const requestedToolCalls = settings.toolCalls === 'railroad' ? 'railroad' : 'require';
+	const toolCalls = effectiveStructuredToolCallsForModel(settings.model, settingsUseOpenRouter(settings), requestedToolCalls);
 	const toolChoice = mode === 'structured_output' ? undefined : providerToolChoiceForMode(toolCalls);
 	const responseFormat = providerAvatarDescriptionResponseFormat(mode);
+	const reasoning = mode === 'structured_output'
+		? providerCompactionReasoningForSettings(settings, providerNoReasoningModeForSettings(settings))
+		: providerReasoningForSettings(settings);
 	const finalInstruction =
 		mode === 'structured_output'
 			? 'Bickr Terminal needs a profile image description. I should return the required JSON object with a first-person, in-character description that is highly verbose and full of concrete visual detail. The description should focus only on visible appearance, style, scene, lighting, and composition.'
@@ -10793,10 +10877,10 @@ async function fetchProviderAvatarDescriptionWithMode(
 			...(tools.length > 0 ? { tools } : {}),
 			...(toolChoice ? { tool_choice: toolChoice } : {}),
 			...(tools.length > 0 ? { parallel_tool_calls: false } : {}),
-			...(responseFormat ? { response_format: responseFormat } : {}),
-			max_completion_tokens: 1400,
-			reasoning: mode === 'structured_output' ? providerCompactionNoReasoning : providerReasoningForSettings(settings),
-			temperature: settings.temperature,
+				...(responseFormat ? { response_format: responseFormat } : {}),
+				max_completion_tokens: 1400,
+				...(reasoning ? { reasoning } : {}),
+				temperature: settings.temperature,
 			...(settings.topK !== undefined ? { top_k: settings.topK } : {}),
 			...(settings.topP !== undefined ? { top_p: settings.topP } : {}),
 			...(settings.minP !== undefined ? { min_p: settings.minP } : {}),

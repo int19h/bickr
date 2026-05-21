@@ -24,6 +24,7 @@
 		"dev:agent": "npm run dev -w @bickr/agent-runtime",
 		"dev:forum": "npm run dev -w @bickr/forum-coordinator",
 		"preview": "npm run dev:web",
+		"probe:openrouter-model-capabilities": "node scripts/probe-openrouter-model-capabilities.mjs",
 		"test": "vitest run",
 		"test:watch": "vitest"
 	},
