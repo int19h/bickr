@@ -15,8 +15,10 @@ import {
 	type BotInferenceSettings,
 	type BotInferenceReasoningEffort,
 	type BotDocument,
+	type AddBotGroupMembersInput,
 	type BotEffectivePostingSettings,
 	type BotEffectiveTickSettings,
+	type BotGroupSummary,
 	type BotLocalOverrides,
 	type BotPublicProfile,
 	type BotSummary,
@@ -26,6 +28,7 @@ import {
 	type BotToolSettingsInput,
 	type BotTickSettings,
 	type BotTickSettingsInput,
+	type CreateBotGroupInput,
 	type CreateBotInput,
 	type CreateForumInput,
 	type CreateWorldInput,
@@ -54,6 +57,7 @@ import {
 	type PublicUser,
 	type SessionDocument,
 	type ThreadDocument,
+	type UpdateBotGroupInput,
 	type UpdateBotInput,
 	type UpdateUserProfileInput,
 	type UserDocument,
@@ -1230,6 +1234,7 @@ export async function deleteBot(
 
 	await writeJson(kv, kvKeys.bot(deleted.id), deleted);
 	await upsertBotIndex(db, deleted);
+	await deleteBotGroupMembershipsForBot(db, deleted.id);
 	await disableBotRuntime(db, deleted.id, now);
 	await putObjectIndex(db, deleted, "bot", deleted.homeWorldId);
 	await upsertBotSearchIndex(db, deleted);
@@ -1522,6 +1527,356 @@ export async function listWorldBots(
 	}));
 }
 
+type BotGroupRow = {
+	id: string;
+	worldId: string;
+	ownerUserId: string;
+	customTitle: string | null;
+	createdAt: string;
+	updatedAt: string;
+};
+
+type BotGroupMemberRow = {
+	groupId: string;
+	botId: string;
+};
+
+export async function listBotGroups(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	worldHandle: string,
+	userId: string,
+): Promise<BotGroupSummary[]> {
+	const world = await worldByHandle(db, worldHandle);
+	return botGroupSummariesForOwner(kv, db, world.id, userId);
+}
+
+export async function createBotGroup(
+	_kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	worldHandle: string,
+	userId: string,
+	input: CreateBotGroupInput,
+	now = new Date().toISOString(),
+): Promise<BotGroupSummary> {
+	const world = await worldByHandle(db, worldHandle);
+	const group: BotGroupRow = {
+		id: makeId("grp"),
+		worldId: world.id,
+		ownerUserId: userId,
+		customTitle: input.customTitle ?? null,
+		createdAt: now,
+		updatedAt: now,
+	};
+	await db
+		.prepare(
+			`INSERT INTO bot_groups (
+				group_id, world_id, owner_user_id, custom_title, created_at, updated_at, deleted_at
+			) VALUES (?, ?, ?, ?, ?, ?, NULL)`,
+		)
+		.bind(group.id, group.worldId, group.ownerUserId, group.customTitle, group.createdAt, group.updatedAt)
+		.run();
+	return botGroupSummary(group, []);
+}
+
+export async function updateBotGroup(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	worldHandle: string,
+	userId: string,
+	groupId: string,
+	input: UpdateBotGroupInput,
+	now = new Date().toISOString(),
+): Promise<BotGroupSummary> {
+	const { world } = await botGroupForOwner(db, worldHandle, userId, groupId);
+	await db
+		.prepare(
+			`UPDATE bot_groups
+			 SET custom_title = ?, updated_at = ?
+			 WHERE group_id = ? AND world_id = ? AND owner_user_id = ? AND deleted_at IS NULL`,
+		)
+		.bind(input.customTitle, now, groupId, world.id, userId)
+		.run();
+	return botGroupSummaryForOwner(kv, db, world.id, userId, groupId);
+}
+
+export async function deleteBotGroup(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	worldHandle: string,
+	userId: string,
+	groupId: string,
+	now = new Date().toISOString(),
+): Promise<BotGroupSummary> {
+	const { world } = await botGroupForOwner(db, worldHandle, userId, groupId);
+	const group = await botGroupSummaryForOwner(kv, db, world.id, userId, groupId);
+	await db.batch([
+		db
+			.prepare(
+				`UPDATE bot_groups
+				 SET updated_at = ?, deleted_at = ?
+				 WHERE group_id = ? AND world_id = ? AND owner_user_id = ? AND deleted_at IS NULL`,
+			)
+			.bind(now, now, groupId, world.id, userId),
+		db.prepare(`DELETE FROM bot_group_members WHERE group_id = ? AND world_id = ?`).bind(groupId, world.id),
+	]);
+	return group;
+}
+
+export async function addBotGroupMembers(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	worldHandle: string,
+	userId: string,
+	groupId: string,
+	input: AddBotGroupMembersInput,
+	now = new Date().toISOString(),
+): Promise<BotGroupSummary> {
+	const { world } = await botGroupForOwner(db, worldHandle, userId, groupId);
+	const placeholders = input.botIds.map(() => "?").join(", ");
+	const activeRows = await db
+		.prepare(
+			`SELECT bot_id AS id
+			 FROM bots_index
+			 WHERE home_world_id = ? AND deleted_at IS NULL AND bot_id IN (${placeholders})`,
+		)
+		.bind(world.id, ...input.botIds)
+		.all<{ id: string }>();
+	const activeIds = new Set((activeRows.results ?? []).map((row) => row.id));
+	if (activeIds.size !== input.botIds.length) {
+		throw new RepositoryError("bad_request", "All selected bots must be active bots in this world.", 400);
+	}
+	await db.batch([
+		db
+			.prepare(
+				`INSERT OR IGNORE INTO bot_group_members (group_id, bot_id, world_id, added_at)
+				 SELECT ?, bot_id, ?, ?
+				 FROM bots_index
+				 WHERE home_world_id = ? AND deleted_at IS NULL AND bot_id IN (${placeholders})`,
+			)
+			.bind(groupId, world.id, now, world.id, ...input.botIds),
+		db
+			.prepare(
+				`UPDATE bot_groups
+				 SET updated_at = ?
+				 WHERE group_id = ? AND world_id = ? AND owner_user_id = ? AND deleted_at IS NULL`,
+			)
+			.bind(now, groupId, world.id, userId),
+	]);
+	return botGroupSummaryForOwner(kv, db, world.id, userId, groupId);
+}
+
+export async function removeBotGroupMember(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	worldHandle: string,
+	userId: string,
+	groupId: string,
+	botId: string,
+	now = new Date().toISOString(),
+): Promise<BotGroupSummary> {
+	const { world } = await botGroupForOwner(db, worldHandle, userId, groupId);
+	await db.batch([
+		db.prepare(`DELETE FROM bot_group_members WHERE group_id = ? AND bot_id = ? AND world_id = ?`).bind(groupId, botId, world.id),
+		db
+			.prepare(
+				`UPDATE bot_groups
+				 SET updated_at = ?
+				 WHERE group_id = ? AND world_id = ? AND owner_user_id = ? AND deleted_at IS NULL`,
+			)
+			.bind(now, groupId, world.id, userId),
+	]);
+	return botGroupSummaryForOwner(kv, db, world.id, userId, groupId);
+}
+
+export async function deleteBotGroupMembershipsForBot(db: D1DatabaseLike, botId: string): Promise<void> {
+	await db.prepare(`DELETE FROM bot_group_members WHERE bot_id = ?`).bind(botId).run();
+}
+
+export async function softDeleteBotGroupsForWorld(
+	db: D1DatabaseLike,
+	worldId: string,
+	now = new Date().toISOString(),
+): Promise<void> {
+	await db.batch([
+		db
+			.prepare(`UPDATE bot_groups SET updated_at = ?, deleted_at = ? WHERE world_id = ? AND deleted_at IS NULL`)
+			.bind(now, now, worldId),
+		db.prepare(`DELETE FROM bot_group_members WHERE world_id = ?`).bind(worldId),
+	]);
+}
+
+async function softDeleteBotGroupsForOwner(
+	db: D1DatabaseLike,
+	userId: string,
+	now = new Date().toISOString(),
+): Promise<void> {
+	const rows = await db
+		.prepare(`SELECT group_id AS id, world_id AS worldId FROM bot_groups WHERE owner_user_id = ? AND deleted_at IS NULL`)
+		.bind(userId)
+		.all<{ id: string; worldId: string }>();
+	const groups = rows.results ?? [];
+	if (groups.length === 0) {
+		return;
+	}
+	const placeholders = groups.map(() => "?").join(", ");
+	await db.batch([
+		db
+			.prepare(`UPDATE bot_groups SET updated_at = ?, deleted_at = ? WHERE owner_user_id = ? AND deleted_at IS NULL`)
+			.bind(now, now, userId),
+		db.prepare(`DELETE FROM bot_group_members WHERE group_id IN (${placeholders})`).bind(...groups.map((group) => group.id)),
+	]);
+}
+
+async function botGroupForOwner(
+	db: D1DatabaseLike,
+	worldHandle: string,
+	userId: string,
+	groupId: string,
+): Promise<{ group: BotGroupRow; world: Pick<WorldSummary, "id" | "handle"> }> {
+	const world = await worldByHandle(db, worldHandle);
+	const group = await botGroupRowForOwner(db, world.id, userId, groupId);
+	return { group, world };
+}
+
+async function botGroupSummaryForOwner(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	worldId: string,
+	userId: string,
+	groupId: string,
+): Promise<BotGroupSummary> {
+	const group = await botGroupRowForOwner(db, worldId, userId, groupId);
+	const [summary] = await botGroupSummaries(kv, db, [group], await botGroupMemberRows(db, worldId, [groupId]));
+	if (!summary) {
+		throw new RepositoryError("not_found", "Group not found.", 404);
+	}
+	return summary;
+}
+
+async function botGroupRowForOwner(
+	db: D1DatabaseLike,
+	worldId: string,
+	userId: string,
+	groupId: string,
+): Promise<BotGroupRow> {
+	const group = await db
+		.prepare(
+			`SELECT
+				group_id AS id,
+				world_id AS worldId,
+				owner_user_id AS ownerUserId,
+				custom_title AS customTitle,
+				created_at AS createdAt,
+				updated_at AS updatedAt
+			 FROM bot_groups
+			 WHERE group_id = ? AND world_id = ? AND owner_user_id = ? AND deleted_at IS NULL`,
+		)
+		.bind(groupId, worldId, userId)
+		.first<BotGroupRow>();
+	if (!group) {
+		throw new RepositoryError("not_found", "Group not found.", 404);
+	}
+	return group;
+}
+
+async function botGroupSummariesForOwner(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	worldId: string,
+	userId: string,
+): Promise<BotGroupSummary[]> {
+	const groupsResult = await db
+		.prepare(
+			`SELECT
+				group_id AS id,
+				world_id AS worldId,
+				owner_user_id AS ownerUserId,
+				custom_title AS customTitle,
+				created_at AS createdAt,
+				updated_at AS updatedAt
+			 FROM bot_groups
+			 WHERE world_id = ? AND owner_user_id = ? AND deleted_at IS NULL
+			 ORDER BY created_at ASC, group_id ASC`,
+		)
+		.bind(worldId, userId)
+		.all<BotGroupRow>();
+	const groups = groupsResult.results ?? [];
+	return botGroupSummaries(kv, db, groups, await botGroupMemberRows(db, worldId, groups.map((group) => group.id)));
+}
+
+async function botGroupMemberRows(
+	db: D1DatabaseLike,
+	worldId: string,
+	groupIds: string[],
+): Promise<BotGroupMemberRow[]> {
+	if (groupIds.length === 0) {
+		return [];
+	}
+	const placeholders = groupIds.map(() => "?").join(", ");
+	const result = await db
+		.prepare(
+			`SELECT m.group_id AS groupId, m.bot_id AS botId
+			 FROM bot_group_members m
+			 JOIN bots_index b ON b.bot_id = m.bot_id AND b.home_world_id = m.world_id AND b.deleted_at IS NULL
+			 WHERE m.world_id = ? AND m.group_id IN (${placeholders})
+			 ORDER BY m.group_id ASC, lower(b.handle) ASC, b.handle ASC`,
+		)
+		.bind(worldId, ...groupIds)
+		.all<BotGroupMemberRow>();
+	return result.results ?? [];
+}
+
+async function botGroupSummaries(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	groups: BotGroupRow[],
+	memberRows: BotGroupMemberRow[],
+): Promise<BotGroupSummary[]> {
+	if (groups.length === 0) {
+		return [];
+	}
+	const botIds = [...new Set(memberRows.map((row) => row.botId))];
+	const rawBots = (await Promise.all(botIds.map((botId) => readJson<BotDocument>(kv, kvKeys.bot(botId)))))
+		.filter((bot): bot is BotDocument => Boolean(bot && !bot.deletedAt))
+		.map((bot) => normalizeBotDefaults(bot));
+	const effectiveBots = await effectiveBotDocuments(kv, db, rawBots);
+	const worldPostingSettings = await worldPostingSettingsByIds(db, effectiveBots.map((bot) => bot.homeWorldId));
+	const botSummaries = await attachBotOwners(db, effectiveBots.map((bot) =>
+		botSummary(bot, {
+			includePrompt: false,
+			worldPostingSettings: worldPostingSettings.get(bot.homeWorldId),
+		}),
+	));
+	const botsById = new Map(botSummaries.map((bot) => [bot.id, bot]));
+	const groupBots = new Map<string, BotSummary[]>();
+	for (const row of memberRows) {
+		const bot = botsById.get(row.botId);
+		if (!bot) {
+			continue;
+		}
+		const bots = groupBots.get(row.groupId) ?? [];
+		bots.push(bot);
+		groupBots.set(row.groupId, bots);
+	}
+	return groups.map((group) => botGroupSummary(group, groupBots.get(group.id) ?? []));
+}
+
+function botGroupSummary(group: BotGroupRow, bots: BotSummary[]): BotGroupSummary {
+	const displayTitle = group.customTitle ?? (bots.length > 0 ? bots.map((bot) => `u/${bot.handle}`).join(", ") : "Empty group");
+	return {
+		id: group.id,
+		worldId: group.worldId,
+		ownerUserId: group.ownerUserId,
+		customTitle: group.customTitle,
+		displayTitle,
+		titleSource: group.customTitle ? "custom" : "members",
+		bots,
+		createdAt: group.createdAt,
+		updatedAt: group.updatedAt,
+	};
+}
+
 export async function humanProfileByHandle(
 	kv: KVNamespaceLike,
 	db: D1DatabaseLike,
@@ -1634,6 +1989,7 @@ export async function softDeleteUserProfile(
 		deletedAt: now,
 	};
 	await writeJson(kv, kvKeys.user(deleted.id), deleted);
+	await softDeleteBotGroupsForOwner(db, deleted.id, now);
 	await db
 		.prepare(
 			`UPDATE users_index

@@ -2128,6 +2128,89 @@ fieldset {
 	text-underline-offset: 2px;
 }
 
+.bot-group-head {
+	gap: 12px;
+}
+
+.bot-group-title-wrap {
+	align-items: center;
+	display: inline-flex;
+	gap: 6px;
+	min-width: 0;
+}
+
+.bot-group-title {
+	color: var(--ink-2);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.bot-group-title.generated {
+	color: var(--ink-3);
+}
+
+.bot-group-title-edit-trigger {
+	opacity: 0;
+	transition: opacity 80ms;
+}
+
+.bot-group-section:hover .bot-group-title-edit-trigger,
+.bot-group-title-edit-trigger:focus-visible {
+	opacity: 1;
+}
+
+.bot-group-title-edit {
+	align-items: center;
+	display: flex;
+	flex: 1;
+	gap: 8px;
+	min-width: 0;
+}
+
+.bot-group-title-edit .input {
+	max-width: 360px;
+	min-width: 180px;
+}
+
+.bot-group-create-row {
+	display: flex;
+	justify-content: flex-start;
+	margin-top: 18px;
+}
+
+.bot-group-ghost-card {
+	align-items: center;
+	background: color-mix(in oklch, var(--paper-2) 72%, transparent);
+	border: 1px dashed var(--rule);
+	border-radius: var(--radius-lg);
+	color: var(--ink-4);
+	cursor: pointer;
+	display: flex;
+	flex-direction: column;
+	font-size: 12px;
+	font-weight: 600;
+	gap: 6px;
+	justify-content: center;
+	min-height: 78px;
+	padding: 14px;
+	transition:
+		background 80ms,
+		border-color 80ms,
+		color 80ms;
+}
+
+.bot-group-ghost-card:hover:not(:disabled) {
+	background: color-mix(in oklch, var(--accent) 7%, var(--paper));
+	border-color: var(--ink-5);
+	color: var(--ink-2);
+}
+
+.bot-group-ghost-card:disabled {
+	cursor: default;
+	opacity: 0.6;
+}
+
 .bot-table-bulk-actions {
 	align-items: center;
 	flex-wrap: wrap;
@@ -2893,6 +2976,15 @@ fieldset {
 	margin-inline: 0;
 	min-width: 0;
 	width: auto;
+}
+
+.group-member-card {
+	justify-content: center;
+	min-height: 78px;
+}
+
+.group-member-card .bot-card-title {
+	align-self: center;
 }
 
 .bot-card .actions-overlay {
@@ -6892,6 +6984,15 @@ button.avatar-large-preview:not(:disabled),
 	background: color-mix(in oklch, var(--accent) 6%, var(--paper));
 }
 
+.bot-pick-row.disabled {
+	cursor: default;
+	opacity: 0.74;
+}
+
+.bot-pick-row.disabled:hover {
+	background: color-mix(in oklch, var(--accent) 6%, var(--paper));
+}
+
 .bot-pick-copy {
 	display: grid;
 	min-width: 0;
@@ -6924,6 +7025,28 @@ button.avatar-large-preview:not(:disabled),
 .bot-pick-row .count {
 	color: var(--ink-4);
 	font-size: 11.5px;
+}
+
+.bot-pick-note {
+	color: var(--ink-4);
+	font-size: 11.5px;
+	white-space: nowrap;
+}
+
+.bot-picker-groups {
+	display: grid;
+	gap: 16px;
+}
+
+.bot-picker-group {
+	display: grid;
+	gap: 8px;
+}
+
+.modal-foot .leftnote {
+	color: var(--ink-4);
+	font-size: 11.5px;
+	margin-right: auto;
 }
 
 .spot-panel .spot-status {

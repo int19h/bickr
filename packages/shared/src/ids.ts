@@ -9,6 +9,7 @@ export type IdPrefix =
 	| "pst"
 	| "cmt"
 	| "ntf"
+	| "grp"
 	| "spt"
 	| "act"
 	| "hsb"

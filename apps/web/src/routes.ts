@@ -18,7 +18,7 @@ export type Route =
 	| "human-profile"
 	| "profile";
 
-export type WorldTab = "forums" | "bots" | "activity" | "notifications" | "lore";
+export type WorldTab = "forums" | "bots" | "groups" | "activity" | "notifications" | "lore";
 export type BotProfileTab = "activity" | "follows" | "notifications";
 
 export type SearchRouteState = {
@@ -254,5 +254,5 @@ function positivePage(value: string | null): number {
 
 function worldTabFromSearch(search: string): WorldTab {
 	const tab = new URLSearchParams(search).get("tab");
-	return tab === "bots" || tab === "activity" || tab === "notifications" || tab === "lore" ? tab : "forums";
+	return tab === "bots" || tab === "groups" || tab === "activity" || tab === "notifications" || tab === "lore" ? tab : "forums";
 }

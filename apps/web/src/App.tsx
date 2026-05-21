@@ -28,6 +28,7 @@ import {
 	type BotActivityFeed,
 	type BotActivityItem,
 	type BotFollowGraph,
+	type BotGroupSummary,
 	type BotContextBudget,
 	type BotInferenceSubmissionMessage,
 	type BotLoopMessage,
@@ -450,6 +451,7 @@ type IconName =
 	| "x"
 	| "edit"
 	| "trash"
+	| "minusCircle"
 	| "world"
 	| "forum"
 	| "bot"
@@ -660,6 +662,7 @@ function App() {
 	const [forumsByWorld, setForumsByWorld] = useState<Record<string, ForumSummary[]>>({});
 	const [bots, setBots] = useState<BotSummary[]>([]);
 	const [botsByWorld, setBotsByWorld] = useState<Record<string, BotSummary[]>>({});
+	const [botGroupsByWorld, setBotGroupsByWorld] = useState<Record<string, BotGroupSummary[]>>({});
 	const [threadsByForum, setThreadsByForum] = useState<Record<string, ThreadSummary[]>>({});
 	const [threadDocuments, setThreadDocuments] = useState<Record<string, ThreadDocument>>({});
 	const [route, setRoute] = useState<Route>(initialRoute.route);
@@ -756,12 +759,16 @@ function App() {
 		if (activeWorldHandle) {
 			void loadForums(activeWorldHandle);
 			void loadWorldBots(activeWorldHandle);
+			if (session.authenticated && session.user?.profileComplete) {
+				void loadBotGroups(activeWorldHandle);
+			}
 		}
-	}, [activeWorldHandle]);
+	}, [activeWorldHandle, session.authenticated, session.user?.id, session.user?.profileComplete]);
 
 	useEffect(() => {
 		if (!session.authenticated || !session.user) {
 			setUserProfile(null);
+			setBotGroupsByWorld({});
 			setHumanNotifications({ unreadCount: 0, notifications: [] });
 			setSubscriptions([]);
 			setSubscriptionTreeResponse(null);
@@ -769,6 +776,7 @@ function App() {
 		}
 		if (!session.user.profileComplete) {
 			setUserProfile(null);
+			setBotGroupsByWorld({});
 			setHumanNotifications({ unreadCount: 0, notifications: [] });
 			setSubscriptions([]);
 			setSubscriptionTreeResponse(null);
@@ -813,6 +821,7 @@ function App() {
 	const activeForums = activeWorld ? (forumsByWorld[activeWorld.handle] ?? []) : [];
 	const activeForum = activeForums.find((forum) => forum.handle === activeForumHandle) ?? null;
 	const activeBots = activeWorld ? (botsByWorld[activeWorld.handle] ?? bots.filter((bot) => bot.homeWorldHandle === activeWorld.handle)) : [];
+	const activeBotGroups = activeWorld ? (botGroupsByWorld[activeWorld.handle] ?? []) : [];
 	const activeThreads = activeForum ? (threadsByForum[activeForum.id] ?? []) : [];
 	const activeThread = activeThreadId ? (threadDocuments[activeThreadId] ?? null) : null;
 	const activeBot = useMemo(() => {
@@ -1156,6 +1165,21 @@ function App() {
 			),
 		);
 		return result.data.bots;
+	}
+
+	async function loadBotGroups(worldHandle: string): Promise<BotGroupSummary[]> {
+		const result = await api<{ groups: BotGroupSummary[] }>(
+			`/api/worlds/${encodeURIComponent(worldHandle)}/groups`,
+		);
+		if (!result.ok) {
+			if (result.error !== "unauthorized" && result.error !== "forbidden") {
+				setStatus(result.message);
+			}
+			setBotGroupsByWorld((current) => ({ ...current, [worldHandle]: [] }));
+			return [];
+		}
+		setBotGroupsByWorld((current) => ({ ...current, [worldHandle]: result.data.groups }));
+		return result.data.groups;
 	}
 
 	async function loadThreads(forum: ForumSummary, sort = "hot"): Promise<ThreadSummary[]> {
@@ -1545,6 +1569,15 @@ function App() {
 					}
 					return next;
 				});
+				setBotGroupsByWorld((current) => {
+					const next = { ...current };
+					const renamedGroups = next[worldHandle];
+					delete next[worldHandle];
+					if (renamedGroups) {
+						next[savedWorld.handle] = renamedGroups;
+					}
+					return next;
+				});
 				setBots((current) =>
 					current.map((bot) => bot.homeWorldHandle === worldHandle ? { ...bot, homeWorldHandle: savedWorld.handle } : bot),
 				);
@@ -1589,6 +1622,11 @@ function App() {
 				return next;
 			});
 			setBotsByWorld((current) => {
+				const next = { ...current };
+				delete next[world.handle];
+				return next;
+			});
+			setBotGroupsByWorld((current) => {
 				const next = { ...current };
 				delete next[world.handle];
 				return next;
@@ -1703,6 +1741,113 @@ function App() {
 				navigate({ route: "world", worldHandle: forum.worldHandle });
 			}
 			return `Deleted forum ${forum.handle}.`;
+		});
+	}
+
+	function saveBotGroup(worldHandle: string, group: BotGroupSummary): void {
+		setBotGroupsByWorld((current) => ({
+			...current,
+			[worldHandle]: [
+				...((current[worldHandle] ?? []).some((item) => item.id === group.id) ? [] : [group]),
+				...(current[worldHandle] ?? []).map((item) => item.id === group.id ? group : item),
+			],
+		}));
+	}
+
+	async function createBotGroup(world: WorldView): Promise<boolean> {
+		if (!profileReadyFor("creating groups")) {
+			return false;
+		}
+		return submit(async () => {
+			const result = await api<{ group: BotGroupSummary }>(
+				`/api/worlds/${encodeURIComponent(world.handle)}/groups`,
+				{
+					method: "POST",
+					body: { customTitle: null },
+				},
+			);
+			if (!result.ok) {
+				throw new Error(result.message);
+			}
+			saveBotGroup(world.handle, result.data.group);
+			return "Created group.";
+		});
+	}
+
+	async function updateBotGroupTitle(world: WorldView, group: BotGroupSummary, customTitle: string | null): Promise<boolean> {
+		if (!profileReadyFor("editing groups")) {
+			return false;
+		}
+		return submit(async () => {
+			const result = await api<{ group: BotGroupSummary }>(
+				`/api/worlds/${encodeURIComponent(world.handle)}/groups/${encodeURIComponent(group.id)}`,
+				{
+					method: "PATCH",
+					body: { customTitle },
+				},
+			);
+			if (!result.ok) {
+				throw new Error(result.message);
+			}
+			saveBotGroup(world.handle, result.data.group);
+			return "Saved group title.";
+		});
+	}
+
+	async function deleteBotGroup(world: WorldView, group: BotGroupSummary): Promise<boolean> {
+		if (!profileReadyFor("deleting groups")) {
+			return false;
+		}
+		return submit(async () => {
+			const result = await api<{ group: BotGroupSummary }>(
+				`/api/worlds/${encodeURIComponent(world.handle)}/groups/${encodeURIComponent(group.id)}`,
+				{ method: "DELETE" },
+			);
+			if (!result.ok) {
+				throw new Error(result.message);
+			}
+			setBotGroupsByWorld((current) => ({
+				...current,
+				[world.handle]: (current[world.handle] ?? []).filter((item) => item.id !== group.id),
+			}));
+			return "Deleted group.";
+		});
+	}
+
+	async function addBotGroupMembers(world: WorldView, group: BotGroupSummary, botIds: string[]): Promise<boolean> {
+		if (!profileReadyFor("editing groups")) {
+			return false;
+		}
+		return submit(async () => {
+			const result = await api<{ group: BotGroupSummary }>(
+				`/api/worlds/${encodeURIComponent(world.handle)}/groups/${encodeURIComponent(group.id)}/bots`,
+				{
+					method: "POST",
+					body: { botIds },
+				},
+			);
+			if (!result.ok) {
+				throw new Error(result.message);
+			}
+			saveBotGroup(world.handle, result.data.group);
+			return `Added ${botIds.length} bot${botIds.length === 1 ? "" : "s"} to group.`;
+		});
+	}
+
+	async function removeBotGroupMember(world: WorldView, group: BotGroupSummary, bot: BotSummary): Promise<boolean> {
+		if (!profileReadyFor("editing groups")) {
+			return false;
+		}
+		return submit(async () => {
+			const result = await api<{ group: BotGroupSummary }>(
+				`/api/worlds/${encodeURIComponent(world.handle)}/groups/${encodeURIComponent(group.id)}/bots/${encodeURIComponent(bot.id)}`,
+				{ method: "DELETE" },
+			);
+			if (!result.ok) {
+				throw new Error(result.message);
+			}
+			saveBotGroup(world.handle, result.data.group);
+			return `Removed ${bot.handle} from group.`;
 		});
 	}
 
@@ -1948,6 +2093,19 @@ function App() {
 			}
 			return next;
 		});
+		setBotGroupsByWorld((current) => {
+			const next: Record<string, BotGroupSummary[]> = {};
+			for (const [worldHandle, groups] of Object.entries(current)) {
+				next[worldHandle] = groups.map((group) => {
+					const nextBots = group.bots.map((bot) => {
+						const saved = savedById.get(bot.id);
+						return saved ? { ...saved, lastActiveAt: saved.lastActiveAt ?? bot.lastActiveAt ?? bot.createdAt } : bot;
+					});
+					return botGroupWithBots(group, nextBots);
+				});
+			}
+			return next;
+		});
 		for (const savedBot of savedBots) {
 			const avatarUrl = savedBot.avatarUrl;
 			setThreadsByForum((current) => avatarUrl ? updateThreadSummaryAuthorAvatar(current, savedBot.id, avatarUrl, savedBot.avatarCrop) : current);
@@ -2014,6 +2172,7 @@ function App() {
 			setUserProfile(null);
 			setBots([]);
 			setBotsByWorld({});
+			setBotGroupsByWorld({});
 			setForumsByWorld({});
 			setThreadsByForum({});
 			setThreadDocuments({});
@@ -2049,6 +2208,15 @@ function App() {
 				if (hasOwn(next, worldHandle)) {
 					next[worldHandle] = (next[worldHandle] ?? []).filter((currentBot) => !deletedIds.has(currentBot.id));
 				}
+			}
+			return next;
+		});
+		setBotGroupsByWorld((current) => {
+			const next: Record<string, BotGroupSummary[]> = {};
+			for (const [worldHandle, groups] of Object.entries(current)) {
+				next[worldHandle] = groups.map((group) =>
+					botGroupWithBots(group, group.bots.filter((currentBot) => !deletedIds.has(currentBot.id))),
+				);
 			}
 			return next;
 		});
@@ -2260,10 +2428,14 @@ function App() {
 							busy={busy}
 							currentUserId={session.user.id}
 							forums={activeForums}
+							groups={activeBotGroups}
+							onAddBotGroupMembers={addBotGroupMembers}
 							onCreateBot={openCreateBot}
 							onCreateForum={(payload) => createForum(activeWorld.handle, payload)}
+							onCreateBotGroup={createBotGroup}
 							onDeleteBot={deleteBot}
 							onDeleteForum={deleteForum}
+							onDeleteBotGroup={deleteBotGroup}
 							onDeleteWorld={deleteWorld}
 							onLoadNotifications={fetchHumanNotifications}
 							onMarkAllNotificationsRead={markAllNotificationsRead}
@@ -2274,6 +2446,8 @@ function App() {
 							onRunBotTick={(bot) => void runBotTick(bot)}
 							onStartBot={(bot) => void startBot(bot)}
 							onToggleSubscription={toggleSubscription}
+							onRemoveBotGroupMember={removeBotGroupMember}
+							onUpdateBotGroupTitle={updateBotGroupTitle}
 							onUpdateForum={updateForum}
 							onUpdateWorld={updateWorld}
 							subscribed={isSubscribed("world", activeWorld.id)}
@@ -3676,9 +3850,13 @@ function WorldDetail({
 	busy,
 	currentUserId,
 	forums,
+	groups,
 	onCreateBot,
+	onCreateBotGroup,
 	onCreateForum,
+	onAddBotGroupMembers,
 	onDeleteBot,
+	onDeleteBotGroup,
 	onDeleteForum,
 	onDeleteWorld,
 	onLoadNotifications,
@@ -3690,6 +3868,8 @@ function WorldDetail({
 	onRunBotTick,
 	onStartBot,
 	onToggleSubscription,
+	onRemoveBotGroupMember,
+	onUpdateBotGroupTitle,
 	onUpdateForum,
 	onUpdateWorld,
 	subscribed,
@@ -3700,9 +3880,13 @@ function WorldDetail({
 	busy: boolean;
 	currentUserId: string;
 	forums: ForumSummary[];
+	groups: BotGroupSummary[];
+	onAddBotGroupMembers: (world: WorldView, group: BotGroupSummary, botIds: string[]) => Promise<boolean>;
 	onCreateBot: (world: WorldView) => void;
+	onCreateBotGroup: (world: WorldView) => Promise<boolean>;
 	onCreateForum: (input: CreateForumInput) => Promise<boolean>;
 	onDeleteBot: (bot: BotSummary) => Promise<boolean>;
+	onDeleteBotGroup: (world: WorldView, group: BotGroupSummary) => Promise<boolean>;
 	onDeleteForum: (forum: ForumSummary) => Promise<boolean>;
 	onDeleteWorld: (world: WorldView) => Promise<boolean>;
 	onLoadNotifications: LoadHumanNotifications;
@@ -3714,6 +3898,8 @@ function WorldDetail({
 	onRunBotTick: (bot: BotSummary) => void;
 	onStartBot: (bot: BotSummary) => void;
 	onToggleSubscription: (target: SubscriptionTarget, active: boolean) => Promise<void>;
+	onRemoveBotGroupMember: (world: WorldView, group: BotGroupSummary, bot: BotSummary) => Promise<boolean>;
+	onUpdateBotGroupTitle: (world: WorldView, group: BotGroupSummary, customTitle: string | null) => Promise<boolean>;
 	onUpdateForum: (forum: ForumSummary, input: UpdateForumInput) => Promise<boolean>;
 	onUpdateWorld: (worldHandle: string, input: UpdateWorldInput) => Promise<boolean>;
 	subscribed: boolean;
@@ -3728,6 +3914,7 @@ function WorldDetail({
 	const [confirmForum, setConfirmForum] = useState<ForumSummary | null>(null);
 	const [forumFilter, setForumFilter] = useState("");
 	const [botFilter, setBotFilter] = useState("");
+	const [groupFilter, setGroupFilter] = useState("");
 	const [activityFeed, setActivityFeed] = useState<WorldActivityFeed | null>(null);
 	const [activityFilter, setActivityFilter] = useState("");
 	const [activityKindFilter, setActivityKindFilter] = useState<BotActivityKindFilter>("all");
@@ -3738,6 +3925,7 @@ function WorldDetail({
 	useEffect(() => {
 		setForumFilter("");
 		setBotFilter("");
+		setGroupFilter("");
 		setActivityFilter("");
 		setActivityKindFilter("all");
 	}, [world.id]);
@@ -3875,6 +4063,13 @@ function WorldDetail({
 					Bots <span className="count">{bots.length}</span>
 				</SpaLink>
 				<SpaLink
+					to={{ route: "world", worldHandle: world.handle, worldTab: "groups" }}
+					aria-selected={tab === "groups"}
+					role="tab"
+				>
+					Groups <span className="count">{groups.length}</span>
+				</SpaLink>
+				<SpaLink
 					to={{ route: "world", worldHandle: world.handle, worldTab: "activity" }}
 					aria-selected={tab === "activity"}
 					role="tab"
@@ -3971,6 +4166,23 @@ function WorldDetail({
 							</div>
 							}
 						</>)}
+
+				{tab === "groups" && (
+					<BotGroupsTab
+						bots={bots}
+						busy={busy}
+						currentUserId={currentUserId}
+						filter={groupFilter}
+						groups={groups}
+						onAddMembers={(group, botIds) => onAddBotGroupMembers(world, group, botIds)}
+						onCreateGroup={() => onCreateBotGroup(world)}
+						onDeleteGroup={(group) => onDeleteBotGroup(world, group)}
+						onFilterChange={setGroupFilter}
+						onRemoveMember={(group, bot) => onRemoveBotGroupMember(world, group, bot)}
+						onUpdateTitle={(group, customTitle) => onUpdateBotGroupTitle(world, group, customTitle)}
+						world={world}
+					/>
+				)}
 
 				{tab === "activity" && (
 					<section className="profile-tab-panel" role="tabpanel">
@@ -4123,6 +4335,376 @@ function WorldDetail({
 				title="Delete this bot?"
 			/>
 		</div>
+	);
+}
+
+function BotGroupsTab({
+	bots,
+	busy,
+	currentUserId,
+	filter,
+	groups,
+	onAddMembers,
+	onCreateGroup,
+	onDeleteGroup,
+	onFilterChange,
+	onRemoveMember,
+	onUpdateTitle,
+	world,
+}: {
+	bots: BotSummary[];
+	busy: boolean;
+	currentUserId: string;
+	filter: string;
+	groups: BotGroupSummary[];
+	onAddMembers: (group: BotGroupSummary, botIds: string[]) => Promise<boolean>;
+	onCreateGroup: () => Promise<boolean>;
+	onDeleteGroup: (group: BotGroupSummary) => Promise<boolean>;
+	onFilterChange: (value: string) => void;
+	onRemoveMember: (group: BotGroupSummary, bot: BotSummary) => Promise<boolean>;
+	onUpdateTitle: (group: BotGroupSummary, customTitle: string | null) => Promise<boolean>;
+	world: WorldView;
+}) {
+	const [addTarget, setAddTarget] = useState<BotGroupSummary | null>(null);
+	const [confirmGroup, setConfirmGroup] = useState<BotGroupSummary | null>(null);
+	const toast = useContext(ToastContext);
+	const filteredGroups = useMemo(
+		() => groups.filter((group) => matchesBotGroupFilter(filter, group)),
+		[filter, groups],
+	);
+
+	if (groups.length === 0) {
+		return (
+			<>
+				<EmptyState actionLabel="New group" onAction={() => void onCreateGroup()} title="No groups in this world">
+					Groups collect bots in this world for later access-control setup.
+				</EmptyState>
+			</>
+		);
+	}
+
+	return (
+		<>
+			<FilterBox
+				label="Filter groups"
+				onChange={onFilterChange}
+				placeholder="Filter by group title or bot username"
+				value={filter}
+			/>
+			{filteredGroups.length === 0 ?
+				<div className="empty compact-empty">No groups match this filter.</div>
+			:	<div className="bot-world-groups">
+					{filteredGroups.map((group) => (
+						<BotGroupSection
+							busy={busy}
+							group={group}
+							key={group.id}
+							onAddBots={() => setAddTarget(group)}
+							onDelete={() => setConfirmGroup(group)}
+							onRemoveMember={(bot) => onRemoveMember(group, bot)}
+							onUpdateTitle={(customTitle) => onUpdateTitle(group, customTitle)}
+						/>
+					))}
+				</div>
+			}
+			<div className="bot-group-create-row">
+				<button className="btn primary" disabled={busy} onClick={() => void onCreateGroup()} type="button">
+					<Icon name="plus" size={14} />
+					New group
+				</button>
+			</div>
+			<AddBotsToGroupModal
+				bots={bots}
+				busy={busy}
+				currentUserId={currentUserId}
+				group={addTarget}
+				onAdd={onAddMembers}
+				onClose={() => setAddTarget(null)}
+				world={world}
+			/>
+			<Confirm
+				body={
+					confirmGroup ?
+						<>
+							This will delete <b>{confirmGroup.displayTitle}</b>. The bots themselves will not be deleted.
+						</>
+					:	null
+				}
+				confirmText="Delete group"
+				danger
+				onClose={() => setConfirmGroup(null)}
+				onConfirm={() => {
+					if (confirmGroup) {
+						void onDeleteGroup(confirmGroup).then((ok) => {
+							if (ok) {
+								toast.push("Deleted group.");
+							}
+						});
+					}
+				}}
+				open={Boolean(confirmGroup)}
+				title="Delete this group?"
+			/>
+		</>
+	);
+}
+
+function BotGroupSection({
+	busy,
+	group,
+	onAddBots,
+	onDelete,
+	onRemoveMember,
+	onUpdateTitle,
+}: {
+	busy: boolean;
+	group: BotGroupSummary;
+	onAddBots: () => void;
+	onDelete: () => void;
+	onRemoveMember: (bot: BotSummary) => Promise<boolean>;
+	onUpdateTitle: (customTitle: string | null) => Promise<boolean>;
+}) {
+	const [editing, setEditing] = useState(false);
+	const [draft, setDraft] = useState(group.customTitle ?? "");
+
+	useEffect(() => {
+		if (!editing) {
+			setDraft(group.customTitle ?? "");
+		}
+	}, [editing, group.customTitle, group.id]);
+
+	async function saveTitle(): Promise<void> {
+		const ok = await onUpdateTitle(draft.trim() || null);
+		if (ok) {
+			setEditing(false);
+		}
+	}
+
+	return (
+		<section className="bot-world-group bot-group-section">
+			<div className="bot-world-head bot-group-head">
+				{editing ?
+					<form
+						className="bot-group-title-edit"
+						onSubmit={(event) => {
+							event.preventDefault();
+							void saveTitle();
+						}}
+					>
+						<input
+							aria-label="Group title"
+							className="input"
+							disabled={busy}
+							onChange={(event) => setDraft(event.target.value)}
+							placeholder="Auto title from members"
+							value={draft}
+						/>
+						<button className="btn compact primary" disabled={busy} type="submit">
+							Save
+						</button>
+						<button className="btn compact ghost" disabled={busy} onClick={() => setEditing(false)} type="button">
+							Cancel
+						</button>
+					</form>
+				:	<span className="bot-group-title-wrap">
+						<span className={`bot-group-title ${group.titleSource === "members" ? "generated" : ""}`}>
+							{group.displayTitle}
+						</span>
+						<button
+							aria-label="Edit group title"
+							className="icon-btn bot-group-title-edit-trigger"
+							disabled={busy}
+							onClick={() => setEditing(true)}
+							title="Edit group title"
+							type="button"
+						>
+							<Icon name="edit" size={13} />
+						</button>
+					</span>
+				}
+				<span className="bot-world-head-actions">
+					{group.bots.length} bot{group.bots.length === 1 ? "" : "s"}
+					<button
+						aria-label="Delete group"
+						className="icon-btn danger"
+						disabled={busy}
+						onClick={onDelete}
+						title="Delete group"
+						type="button"
+					>
+						<Icon name="trash" size={13} />
+					</button>
+				</span>
+			</div>
+			<div className="bot-grid">
+				{group.bots.map((bot) => (
+					<GroupMemberBotCard bot={bot} key={bot.id} onRemove={() => onRemoveMember(bot)} />
+				))}
+				<button className="bot-group-ghost-card" disabled={busy} onClick={onAddBots} type="button">
+					<Icon name="plus" size={22} />
+					<span>Add bots</span>
+				</button>
+			</div>
+		</section>
+	);
+}
+
+function GroupMemberBotCard({ bot, onRemove }: { bot: BotSummary; onRemove: () => Promise<boolean> }) {
+	return (
+		<article className="bot-card group-member-card manageable">
+			<div className="actions-overlay">
+				<button className="icon-btn danger" onClick={() => void onRemove()} title="Remove from group" type="button">
+					<Icon name="minusCircle" size={14} />
+				</button>
+			</div>
+			<div className="head">
+				<SpaLink
+					className="bot-avatar-link"
+					title={`Open ${bot.displayName}`}
+					to={{ route: "bot-profile", worldHandle: bot.homeWorldHandle, botHandle: bot.handle }}
+				>
+					<Avatar actor="bot" colorSeed={bot.handle} crop={bot.avatarCrop} displayPixels={48} imageUrl={bot.avatarUrl} name={bot.displayName} />
+				</SpaLink>
+				<div className="bot-card-title">
+					<SpaLink
+						className="name bot-name-link"
+						to={{ route: "bot-profile", worldHandle: bot.homeWorldHandle, botHandle: bot.handle }}
+					>
+						{bot.displayName}
+					</SpaLink>
+					<div className="bot-ref-line">
+						<Reference isBot kind="bot" name={bot.handle} />
+					</div>
+				</div>
+			</div>
+		</article>
+	);
+}
+
+function AddBotsToGroupModal({
+	bots,
+	busy,
+	currentUserId,
+	group,
+	onAdd,
+	onClose,
+	world,
+}: {
+	bots: BotSummary[];
+	busy: boolean;
+	currentUserId: string;
+	group: BotGroupSummary | null;
+	onAdd: (group: BotGroupSummary, botIds: string[]) => Promise<boolean>;
+	onClose: () => void;
+	world: WorldView;
+}) {
+	const [filter, setFilter] = useState("");
+	const [selected, setSelected] = useState<Record<string, boolean>>({});
+
+	useEffect(() => {
+		setFilter("");
+		setSelected({});
+	}, [group?.id]);
+
+	const memberIds = useMemo(() => new Set(group?.bots.map((bot) => bot.id) ?? []), [group]);
+	const visibleBots = useMemo(
+		() => sortBotsForCards(bots.filter((bot) => matchesFilter(filter, bot.displayName, bot.handle))),
+		[bots, filter],
+	);
+	const botGroups = useMemo(() => [
+		{ key: "mine", title: "My bots", bots: visibleBots.filter((bot) => bot.ownerUserId === currentUserId) },
+		{ key: "other", title: "Other bots", bots: visibleBots.filter((bot) => bot.ownerUserId !== currentUserId) },
+	].filter((item) => item.bots.length > 0), [currentUserId, visibleBots]);
+	const selectedIds = Object.keys(selected).filter((botId) => selected[botId] && !memberIds.has(botId));
+
+	async function save(): Promise<void> {
+		if (!group || selectedIds.length === 0) {
+			return;
+		}
+		const ok = await onAdd(group, selectedIds);
+		if (ok) {
+			onClose();
+		}
+	}
+
+	return (
+		<Modal
+			foot={
+				<>
+					<span className="leftnote">
+						{selectedIds.length === 0 ?
+							"Pick at least one new bot."
+						:	`${selectedIds.length} bot${selectedIds.length === 1 ? "" : "s"} selected.`}
+					</span>
+					<button className="btn ghost" disabled={busy} onClick={onClose} type="button">
+						Cancel
+					</button>
+					<button className="btn primary" disabled={busy || selectedIds.length === 0} onClick={() => void save()} type="button">
+						<Icon name="plus" size={13} />
+						Add selected bots
+					</button>
+				</>
+			}
+			onClose={onClose}
+			open={Boolean(group)}
+			title={group ? `Add bots to ${group.displayTitle}` : "Add bots"}
+			wide
+		>
+			<div className="spot-search">
+				<Icon name="search" size={13} />
+				<input
+					aria-label="Filter bots"
+					className="input"
+					onChange={(event) => setFilter(event.target.value)}
+					placeholder="Filter by display name or username"
+					value={filter}
+				/>
+			</div>
+			{bots.length === 0 ?
+				<div className="empty compact-empty">No bots exist in this world yet.</div>
+			: botGroups.length === 0 ?
+				<div className="empty compact-empty">No bots match this filter.</div>
+			:	<div className="bot-picker-groups">
+					{botGroups.map((section) => (
+						<section className="bot-picker-group" key={section.key}>
+							<div className="bot-world-head">
+								<span>{section.title}</span>
+								<span className="bot-world-head-actions">
+									{section.bots.length} bot{section.bots.length === 1 ? "" : "s"}
+								</span>
+							</div>
+							<div className="bot-pick-list">
+								{section.bots.map((bot) => {
+									const alreadyMember = memberIds.has(bot.id);
+									const checked = alreadyMember || Boolean(selected[bot.id]);
+									return (
+										<label className={`bot-pick-row ${checked ? "checked" : ""} ${alreadyMember ? "disabled" : ""}`} key={bot.id}>
+											<input
+												checked={checked}
+												className="cb"
+												disabled={alreadyMember}
+												onChange={(event) => setSelected((current) => ({ ...current, [bot.id]: event.target.checked }))}
+												type="checkbox"
+											/>
+											<Avatar actor="bot" colorSeed={bot.handle} crop={bot.avatarCrop} displayPixels={42} imageUrl={bot.avatarUrl} name={bot.displayName} size="sm" />
+											<span className="bot-pick-copy">
+												<span className="nm">{bot.displayName}</span>
+												<span className="hd">u/{bot.handle}</span>
+											</span>
+											{alreadyMember && <span className="bot-pick-note">Already in group</span>}
+										</label>
+									);
+								})}
+							</div>
+						</section>
+					))}
+				</div>
+			}
+			<div className="mini-label">World</div>
+			<div className="inline-meta">
+				<Reference kind="world" name={world.handle} />
+			</div>
+		</Modal>
 	);
 }
 
@@ -16051,6 +16633,12 @@ function Icon({ name, size = 16 }: { name: IconName; size?: number }) {
 				<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13" />
 			</svg>
 		),
+		minusCircle: (
+			<svg height={size} viewBox="0 0 24 24" width={size} {...stroke}>
+				<circle cx="12" cy="12" r="9" />
+				<path d="M8 12h8" />
+			</svg>
+		),
 		world: (
 			<svg height={size} viewBox="0 0 24 24" width={size} {...stroke}>
 				<circle cx="12" cy="12" r="9" />
@@ -17942,6 +18530,26 @@ function compareBotCardOrder(left: BotSummary, right: BotSummary): number {
 
 function sortBotsForCards<T extends BotSummary>(items: T[]): T[] {
 	return [...items].sort(compareBotCardOrder);
+}
+
+function botGroupWithBots(group: BotGroupSummary, bots: BotSummary[]): BotGroupSummary {
+	const displayTitle =
+		group.customTitle ?? (bots.length > 0 ? bots.map((bot) => `u/${bot.handle}`).join(", ") : "Empty group");
+	return {
+		...group,
+		bots,
+		displayTitle,
+		titleSource: group.customTitle ? "custom" : "members",
+	};
+}
+
+function matchesBotGroupFilter(query: string, group: BotGroupSummary): boolean {
+	return matchesFilter(
+		query,
+		group.displayTitle,
+		group.customTitle,
+		...group.bots.flatMap((bot) => [bot.handle, bot.displayName]),
+	);
 }
 
 function timestampSortValue(value: string | null | undefined): number | null {

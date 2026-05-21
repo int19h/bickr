@@ -69,6 +69,16 @@ import {
 	onRequestGet as worldBots,
 	onRequestPost as createBot,
 } from "../apps/web/functions/api/worlds/[worldHandle]/bots";
+import {
+	onRequestGet as worldBotGroups,
+	onRequestPost as createBotGroupRoute,
+} from "../apps/web/functions/api/worlds/[worldHandle]/groups";
+import {
+	onRequestDelete as deleteBotGroupRoute,
+	onRequestPatch as patchBotGroupRoute,
+} from "../apps/web/functions/api/worlds/[worldHandle]/groups/[groupId]";
+import { onRequestPost as addBotGroupMembersRoute } from "../apps/web/functions/api/worlds/[worldHandle]/groups/[groupId]/bots";
+import { onRequestDelete as removeBotGroupMemberRoute } from "../apps/web/functions/api/worlds/[worldHandle]/groups/[groupId]/bots/[botId]";
 import { onRequestGet as worldActivity } from "../apps/web/functions/api/worlds/[worldHandle]/activity";
 import { onRequestGet as botActivity } from "../apps/web/functions/api/worlds/[worldHandle]/bots/[botHandle]/activity";
 import { onRequestGet as botFollows } from "../apps/web/functions/api/worlds/[worldHandle]/bots/[botHandle]/follows";
@@ -181,6 +191,7 @@ import {
 	type AvatarCrop,
 	type AvatarImage,
 	type BotDocument,
+	type BotGroupSummary,
 	type BotInferenceSubmissionMessage,
 	type BotInferenceSubmissionToolCall,
 	type BotLoopMessage,
@@ -311,6 +322,25 @@ CREATE TABLE bots_index (
 );
 CREATE INDEX bots_index_owner ON bots_index (owner_user_id, deleted_at, updated_at);
 CREATE INDEX bots_index_world ON bots_index (home_world_id, deleted_at, handle);
+CREATE TABLE bot_groups (
+	group_id TEXT PRIMARY KEY,
+	world_id TEXT NOT NULL,
+	owner_user_id TEXT NOT NULL,
+	custom_title TEXT,
+	created_at TEXT NOT NULL,
+	updated_at TEXT NOT NULL,
+	deleted_at TEXT
+);
+CREATE INDEX bot_groups_owner_world ON bot_groups (owner_user_id, world_id, deleted_at, created_at);
+CREATE INDEX bot_groups_world ON bot_groups (world_id, deleted_at, updated_at);
+CREATE TABLE bot_group_members (
+	group_id TEXT NOT NULL,
+	bot_id TEXT NOT NULL,
+	world_id TEXT NOT NULL,
+	added_at TEXT NOT NULL,
+	PRIMARY KEY (group_id, bot_id)
+);
+CREATE INDEX bot_group_members_world_bot ON bot_group_members (world_id, bot_id);
 CREATE VIRTUAL TABLE search_entities_fts USING fts5(
 	entity_type UNINDEXED,
 	entity_id UNINDEXED,
@@ -605,6 +635,8 @@ beforeEach(async () => {
 		DROP TABLE IF EXISTS comments_index;
 		DROP TABLE IF EXISTS threads_index;
 		DROP TABLE IF EXISTS search_entities_fts;
+		DROP TABLE IF EXISTS bot_group_members;
+		DROP TABLE IF EXISTS bot_groups;
 		DROP TABLE IF EXISTS bots_index;
 		DROP TABLE IF EXISTS forums_index;
 		DROP TABLE IF EXISTS worlds_index;
@@ -20318,6 +20350,201 @@ describe("Bickr Pages Functions", () => {
 		} finally {
 			vi.stubGlobal("fetch", originalFetch);
 		}
+	});
+
+	it("creates, edits, lists, and deletes world-scoped bot groups with owned and other-owned bots", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const mine = await createBotForTest(cookie, "group-mine");
+		const otherCookie = await authCookieFor({ subject: "222", login: "group-other-owner", displayName: "Group Other Owner" });
+		const otherOwned = await createBotInWorld(otherCookie, "patch-notes", {
+			handle: "group-other",
+			displayName: "Group Other",
+			shortBio: "Other owned group member.",
+			prompt: "I can be grouped by someone else.",
+		});
+
+		const createResponse = await createBotGroupRoute(
+			contextFor<typeof createBotGroupRoute>(
+				jsonRequest("http://example.com/api/worlds/patch-notes/groups", "POST", { customTitle: "" }, cookie),
+				{ worldHandle: "patch-notes" },
+			),
+		);
+		expect(createResponse.status).toBe(201);
+		const created = (await createResponse.json()) as { data: { group: BotGroupSummary } };
+		expect(created.data.group).toMatchObject({
+			customTitle: null,
+			displayTitle: "Empty group",
+			titleSource: "members",
+			bots: [],
+		});
+
+		const addResponse = await addBotGroupMembersRoute(
+			contextFor<typeof addBotGroupMembersRoute>(
+				jsonRequest(
+					`http://example.com/api/worlds/patch-notes/groups/${created.data.group.id}/bots`,
+					"POST",
+					{ botIds: [otherOwned.id, mine.id, mine.id] },
+					cookie,
+				),
+				{ worldHandle: "patch-notes", groupId: created.data.group.id },
+			),
+		);
+		expect(addResponse.status).toBe(200);
+		const added = (await addResponse.json()) as { data: { group: BotGroupSummary } };
+		expect(added.data.group.bots.map((bot) => bot.handle)).toEqual(["group-mine", "group-other"]);
+		expect(added.data.group.displayTitle).toBe("u/group-mine, u/group-other");
+
+		const titleResponse = await patchBotGroupRoute(
+			contextFor<typeof patchBotGroupRoute>(
+				jsonRequest(
+					`http://example.com/api/worlds/patch-notes/groups/${created.data.group.id}`,
+					"PATCH",
+					{ customTitle: "Favorites" },
+					cookie,
+				),
+				{ worldHandle: "patch-notes", groupId: created.data.group.id },
+			),
+		);
+		const titled = (await titleResponse.json()) as { data: { group: BotGroupSummary } };
+		expect(titled.data.group).toMatchObject({
+			customTitle: "Favorites",
+			displayTitle: "Favorites",
+			titleSource: "custom",
+		});
+
+		const generatedTitleResponse = await patchBotGroupRoute(
+			contextFor<typeof patchBotGroupRoute>(
+				jsonRequest(
+					`http://example.com/api/worlds/patch-notes/groups/${created.data.group.id}`,
+					"PATCH",
+					{ customTitle: "   " },
+					cookie,
+				),
+				{ worldHandle: "patch-notes", groupId: created.data.group.id },
+			),
+		);
+		const generated = (await generatedTitleResponse.json()) as { data: { group: BotGroupSummary } };
+		expect(generated.data.group).toMatchObject({
+			customTitle: null,
+			displayTitle: "u/group-mine, u/group-other",
+			titleSource: "members",
+		});
+
+		const removeResponse = await removeBotGroupMemberRoute(
+			contextFor<typeof removeBotGroupMemberRoute>(
+				new Request(
+					`http://example.com/api/worlds/patch-notes/groups/${created.data.group.id}/bots/${otherOwned.id}`,
+					{ method: "DELETE", headers: { cookie } },
+				),
+				{ worldHandle: "patch-notes", groupId: created.data.group.id, botId: otherOwned.id },
+			),
+		);
+		const removed = (await removeResponse.json()) as { data: { group: BotGroupSummary } };
+		expect(removed.data.group.bots.map((bot) => bot.handle)).toEqual(["group-mine"]);
+		expect(removed.data.group.displayTitle).toBe("u/group-mine");
+
+		const listResponse = await worldBotGroups(
+			contextFor<typeof worldBotGroups>(
+				new Request("http://example.com/api/worlds/patch-notes/groups", { headers: { cookie } }),
+				{ worldHandle: "patch-notes" },
+			),
+		);
+		const listed = (await listResponse.json()) as { data: { groups: BotGroupSummary[] } };
+		expect(listed.data.groups.map((group) => group.id)).toEqual([created.data.group.id]);
+
+		const deleteResponse = await deleteBotGroupRoute(
+			contextFor<typeof deleteBotGroupRoute>(
+				new Request(`http://example.com/api/worlds/patch-notes/groups/${created.data.group.id}`, {
+					method: "DELETE",
+					headers: { cookie },
+				}),
+				{ worldHandle: "patch-notes", groupId: created.data.group.id },
+			),
+		);
+		expect(deleteResponse.status).toBe(200);
+		const emptyListResponse = await worldBotGroups(
+			contextFor<typeof worldBotGroups>(
+				new Request("http://example.com/api/worlds/patch-notes/groups", { headers: { cookie } }),
+				{ worldHandle: "patch-notes" },
+			),
+		);
+		const emptyList = (await emptyListResponse.json()) as { data: { groups: BotGroupSummary[] } };
+		expect(emptyList.data.groups).toEqual([]);
+	});
+
+	it("rejects wrong-world group members and hides groups from other users", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		await createWorldForTest(cookie, "other-groups", "Other Groups");
+		const owned = await createBotForTest(cookie, "group-owned");
+		const wrongWorld = await createBotInWorld(cookie, "other-groups", { handle: "wrong-world-group-bot" });
+		const createResponse = await createBotGroupRoute(
+			contextFor<typeof createBotGroupRoute>(
+				jsonRequest("http://example.com/api/worlds/patch-notes/groups", "POST", { customTitle: null }, cookie),
+				{ worldHandle: "patch-notes" },
+			),
+		);
+		const created = (await createResponse.json()) as { data: { group: BotGroupSummary } };
+
+		const wrongWorldAdd = await addBotGroupMembersRoute(
+			contextFor<typeof addBotGroupMembersRoute>(
+				jsonRequest(
+					`http://example.com/api/worlds/patch-notes/groups/${created.data.group.id}/bots`,
+					"POST",
+					{ botIds: [wrongWorld.id] },
+					cookie,
+				),
+				{ worldHandle: "patch-notes", groupId: created.data.group.id },
+			),
+		);
+		expect(wrongWorldAdd.status).toBe(400);
+
+		const otherCookie = await authCookieFor({ subject: "333", login: "group-viewer", displayName: "Group Viewer" });
+		const otherList = await worldBotGroups(
+			contextFor<typeof worldBotGroups>(
+				new Request("http://example.com/api/worlds/patch-notes/groups", { headers: { cookie: otherCookie } }),
+				{ worldHandle: "patch-notes" },
+			),
+		);
+		const otherGroups = (await otherList.json()) as { data: { groups: BotGroupSummary[] } };
+		expect(otherGroups.data.groups).toEqual([]);
+
+		const otherPatch = await patchBotGroupRoute(
+			contextFor<typeof patchBotGroupRoute>(
+				jsonRequest(
+					`http://example.com/api/worlds/patch-notes/groups/${created.data.group.id}`,
+					"PATCH",
+					{ customTitle: "Not mine" },
+					otherCookie,
+				),
+				{ worldHandle: "patch-notes", groupId: created.data.group.id },
+			),
+		);
+		expect(otherPatch.status).toBe(404);
+
+		const ownerAdd = await addBotGroupMembersRoute(
+			contextFor<typeof addBotGroupMembersRoute>(
+				jsonRequest(
+					`http://example.com/api/worlds/patch-notes/groups/${created.data.group.id}/bots`,
+					"POST",
+					{ botIds: [owned.id] },
+					cookie,
+				),
+				{ worldHandle: "patch-notes", groupId: created.data.group.id },
+			),
+		);
+		expect(ownerAdd.status).toBe(200);
+		const otherRemove = await removeBotGroupMemberRoute(
+			contextFor<typeof removeBotGroupMemberRoute>(
+				new Request(`http://example.com/api/worlds/patch-notes/groups/${created.data.group.id}/bots/${owned.id}`, {
+					method: "DELETE",
+					headers: { cookie: otherCookie },
+				}),
+				{ worldHandle: "patch-notes", groupId: created.data.group.id, botId: owned.id },
+			),
+		);
+		expect(otherRemove.status).toBe(404);
 	});
 });
 

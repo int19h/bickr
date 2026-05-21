@@ -945,6 +945,20 @@ export type BotSummary = {
 	updatedAt: string;
 };
 
+export type BotGroupTitleSource = "custom" | "members";
+
+export type BotGroupSummary = {
+	id: string;
+	worldId: string;
+	ownerUserId: string;
+	customTitle: string | null;
+	displayTitle: string;
+	titleSource: BotGroupTitleSource;
+	bots: BotSummary[];
+	createdAt: string;
+	updatedAt: string;
+};
+
 export type BotPublicProfile = {
 	id: string;
 	homeWorldId: string;
@@ -1633,6 +1647,18 @@ export type UpdateForumInput = Partial<{
 	handle: string;
 	description: string;
 }>;
+
+export type CreateBotGroupInput = {
+	customTitle?: string | null;
+};
+
+export type UpdateBotGroupInput = {
+	customTitle: string | null;
+};
+
+export type AddBotGroupMembersInput = {
+	botIds: string[];
+};
 
 export type CreateBotInput = {
 	handle: string;

@@ -9,6 +9,8 @@ import {
 	type BotToolSettingsInput,
 	type BotTickSettingsInput,
 	type ChirperImportSource,
+	type AddBotGroupMembersInput,
+	type CreateBotGroupInput,
 	type CreateBotInput,
 	type CreateCommentInput,
 	type CreateForumInput,
@@ -26,6 +28,7 @@ import {
 	type JsonObject,
 	type JsonValue,
 	type UpdateBotInput,
+	type UpdateBotGroupInput,
 	type UpdateForumInput,
 	type UpdateUserProfileInput,
 	type UpdateWorldInput,
@@ -46,6 +49,7 @@ export class InputError extends Error {
 }
 
 export const maxBotShortBioLength = 1_200;
+const maxBotGroupTitleLength = 80;
 export const maxBotPromptLength = 64_000;
 export const maxBotReasoningPrefillLength = 500;
 export const maxProviderRoutingJsonLength = 8_000;
@@ -172,6 +176,20 @@ function optionalTextPreservingEmpty(value: unknown, label: string, maxLength: n
 	return trimmed;
 }
 
+function parseBotGroupTitle(value: unknown): string | null {
+	if (value === undefined || value === null) {
+		return null;
+	}
+	if (typeof value !== "string") {
+		throw new InputError("Group title must be text.");
+	}
+	const trimmed = value.trim();
+	if (trimmed.length > maxBotGroupTitleLength) {
+		throw new InputError(`Group title must be ${maxBotGroupTitleLength} characters or fewer.`);
+	}
+	return trimmed || null;
+}
+
 export function parseCreateWorldInput(input: unknown): CreateWorldInput {
 	const record = asRecord(input);
 	return {
@@ -242,6 +260,55 @@ export function parseUpdateForumInput(input: unknown): UpdateForumInput {
 		throw new InputError("At least one forum field must be provided.");
 	}
 	return update;
+}
+
+export function parseCreateBotGroupInput(input: unknown): CreateBotGroupInput {
+	const record = asRecord(input);
+	return {
+		...(record.customTitle === undefined ? {} : { customTitle: parseBotGroupTitle(record.customTitle) }),
+	};
+}
+
+export function parseUpdateBotGroupInput(input: unknown): UpdateBotGroupInput {
+	const record = asRecord(input);
+	if (!Object.hasOwn(record, "customTitle")) {
+		throw new InputError("Group title must be provided.");
+	}
+	return {
+		customTitle: parseBotGroupTitle(record.customTitle),
+	};
+}
+
+export function parseAddBotGroupMembersInput(input: unknown): AddBotGroupMembersInput {
+	const record = asRecord(input);
+	if (!Array.isArray(record.botIds)) {
+		throw new InputError("Bot IDs must be an array.");
+	}
+	const botIds: string[] = [];
+	const seen = new Set<string>();
+	for (const value of record.botIds) {
+		if (typeof value !== "string") {
+			throw new InputError("Bot IDs must be text.");
+		}
+		const botId = value.trim();
+		if (!botId) {
+			throw new InputError("Bot IDs must not be empty.");
+		}
+		if (botId.length > 80) {
+			throw new InputError("Bot IDs must be 80 characters or fewer.");
+		}
+		if (!seen.has(botId)) {
+			botIds.push(botId);
+			seen.add(botId);
+		}
+	}
+	if (botIds.length === 0) {
+		throw new InputError("Pick at least one bot.");
+	}
+	if (botIds.length > 200) {
+		throw new InputError("You can add at most 200 bots at once.");
+	}
+	return { botIds };
 }
 
 export function parseCreateBotInput(input: unknown): CreateBotInput {

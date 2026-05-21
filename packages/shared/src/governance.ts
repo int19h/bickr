@@ -12,7 +12,7 @@ import {
 	mergePostingSettings,
 	postingSettingsHasValues,
 } from "./posting";
-import { RepositoryError } from "./repository";
+import { RepositoryError, softDeleteBotGroupsForWorld } from "./repository";
 import { upsertForumSearchIndex, upsertWorldSearchIndex } from "./search";
 import { readThread, rootCommentForThread, softDeleteComment, softDeleteThread, softDeleteThreadsInForum } from "./social";
 import {
@@ -140,6 +140,7 @@ export async function deleteWorld(
 		const forum = await forumDocumentById(kv, db, row.id);
 		await softDeleteForum(kv, db, forum, now);
 	}
+	await softDeleteBotGroupsForWorld(db, world.id, now);
 
 	const deleted: WorldDocument = {
 		...world,

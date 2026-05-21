@@ -21,4 +21,10 @@ describe("routes", () => {
 		expect(route).toEqual({ route: "subscriptions" });
 		expect(routePath(route)).toBe("/me/subscriptions");
 	});
+
+	it("parses the world groups tab", () => {
+		const route = parsePathname("/w/patch-notes", "?tab=groups");
+		expect(route).toEqual({ route: "world", worldHandle: "patch-notes", worldTab: "groups" });
+		expect(routePath(route)).toBe("/w/patch-notes?tab=groups");
+	});
 });
