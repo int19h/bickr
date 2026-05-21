@@ -1543,6 +1543,8 @@ function providerCompactionToolsForMode(
 		const tools = providerTools ?? toolDefinitionsForProviderRound(limits.maxLength, { includeMetaCompactionTool: true });
 		return tools.some(isMetaCompactionToolDefinition) ? tools : [...tools, metaCompactionToolDefinition(limits.maxLength)];
 	}
+	// Structured-output compaction intentionally keeps the regular loop tool schema,
+	// minus the meta compaction tool, so these requests can reuse the provider's prompt cache.
 	return (providerTools ?? toolDefinitionsForProviderRound(limits.maxLength, { includeMetaCompactionTool: false })).filter(
 		(tool) => !isMetaCompactionToolDefinition(tool),
 	);
@@ -3608,6 +3610,7 @@ export class BotRuntime {
 			return { runId, status: 'completed' };
 		} catch (error) {
 			if (error instanceof TickStoppedError || isAbortError(error)) {
+				this.markPendingCompactionEventsFailed(runId, 'This Bickr visit was stopped.');
 				if (!this.hasTerminalEvent(runId)) {
 					await this.appendEvent(runId, 'tick_stopped', { message: 'This Bickr visit was stopped.' });
 				}
@@ -4005,6 +4008,7 @@ export class BotRuntime {
 	}
 
 	private async markRunStopped(bot: BotDocument, runId: string): Promise<string | null> {
+		this.markPendingCompactionEventsFailed(runId, 'This Bickr visit was stopped.');
 		if (!this.hasTerminalEvent(runId)) {
 			await this.appendEvent(runId, 'tick_stopped', { message: 'This Bickr visit was stopped.' });
 		}
@@ -4662,7 +4666,7 @@ export class BotRuntime {
 					if (error instanceof ProviderCompactionOutputLimitError) {
 						throw new ProviderCompactionRequestError(error, body, error.rawResponse);
 					}
-					if (compactionReasoningMode === 'none' && providerCompactionNoReasoningRejected(error)) {
+					if (compactionReasoningMode === 'none' && providerCompactionNoReasoningRejected(error, request)) {
 						const reason = runtimeErrorText(error);
 						this.rememberCompactionNoReasoningRejection(settings, reason);
 						compactionReasoningMode = 'minimal';
@@ -5051,6 +5055,7 @@ export class BotRuntime {
 		logs: RuntimeFailureLog[] = [],
 	): Promise<BotRuntimeEvent> {
 		const message = stringValue(payload.message) ?? 'Unexpected Bickr visit error.';
+		this.markPendingCompactionEventsFailed(runId, message);
 		const loopMessage = this.appendLoopMessage(
 			runId,
 			{
@@ -5063,6 +5068,44 @@ export class BotRuntime {
 			this.recordLoopMessageLog(loopMessage.seq, log.kind, log.text);
 		}
 		return this.appendEvent(runId, 'tick_failed', payload);
+	}
+
+	private markPendingCompactionEventsFailed(runId: string, error: string): void {
+		const rows = this.state.storage.sql
+			.exec<RuntimeRow>(
+				`SELECT seq, run_id, type, payload_json, token_estimate, compacted_by, created_at
+				 FROM events
+				 WHERE run_id = ?
+				   AND type = 'compaction'
+				 ORDER BY seq ASC`,
+				runId,
+			)
+			.toArray();
+		for (const row of rows) {
+			let payload: Record<string, unknown>;
+			try {
+				payload = runtimeRecord(JSON.parse(row.payload_json) as unknown);
+			} catch {
+				continue;
+			}
+			if (payload.status !== 'pending') {
+				continue;
+			}
+			const event: BotRuntimeEvent = {
+				seq: row.seq,
+				runId: row.run_id,
+				type: row.type,
+				payload,
+				tokenEstimate: row.token_estimate,
+				createdAt: row.created_at,
+				...(row.compacted_by !== null ? { compactedBy: row.compacted_by } : {}),
+			};
+			this.replaceEventPayload(event, {
+				...payload,
+				status: 'failed',
+				error,
+			});
+		}
 	}
 
 	private insertLoopMessage(input: {
@@ -14986,18 +15029,31 @@ function isProviderCompactionOutputLimitFailure(error: unknown): boolean {
 	);
 }
 
-function providerCompactionNoReasoningRejected(error: unknown): boolean {
+function providerCompactionNoReasoningRejected(error: unknown, request?: ProviderCompactionRequest): boolean {
 	if (!(error instanceof ProviderRequestError)) {
 		return false;
 	}
-	if (error.status < 400 || error.status >= 500) {
-		return false;
-	}
 	const text = `${error.message}\n${error.body}`.toLowerCase();
+	if (error.status >= 500 && error.status < 600) {
+		return providerCompactionNoReasoningServerToolCrash(text, request);
+	}
 	return (
+		error.status >= 400 &&
+		error.status < 500 &&
 		/(?:\breasoning\b|reasoning[_ -]?effort)/.test(text) &&
 		/(?:\bnone\b|disabl|unsupported|not supported|invalid|not allowed|must be one of|unrecognized|unknown)/.test(text)
 	);
+}
+
+function providerCompactionNoReasoningServerToolCrash(text: string, request?: ProviderCompactionRequest): boolean {
+	return (
+		requestIncludesOpenRouterServerTools(request) &&
+		/\binternal server error\b/.test(text)
+	);
+}
+
+function requestIncludesOpenRouterServerTools(request?: Pick<ProviderCompactionRequest, 'tools'>): boolean {
+	return request?.tools.some((tool) => tool.type.startsWith('openrouter:')) === true;
 }
 
 export function textTokenCalibrationFromProviderTokenCalibrationSamples(

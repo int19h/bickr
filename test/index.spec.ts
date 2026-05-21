@@ -2236,6 +2236,97 @@ describe("Bickr Pages Functions", () => {
 			}
 		});
 
+		it("falls back to minimal compaction reasoning when OpenRouter server tools hide the rejection as a 500", async () => {
+			const originalFetch = globalThis.fetch;
+			const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+			const runtimeState = new Map<string, unknown>();
+			const opaqueBody = JSON.stringify({
+				error: {
+					message: "Internal Server Error",
+					code: 500,
+				},
+			});
+			const validResponse = {
+				choices: [{
+					message: {
+						content: JSON.stringify({ [providerCompactionSummaryProperty]: "I remember the important parts." }),
+					},
+				}],
+				usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 },
+			};
+			const fetchMock = vi.fn<(_input: RequestInfo | URL, _init?: RequestInit) => Promise<Response>>()
+				.mockResolvedValueOnce(new Response(opaqueBody, { status: 500 }))
+				.mockResolvedValueOnce(Response.json(validResponse));
+			vi.stubGlobal("fetch", fetchMock);
+			try {
+				const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+					appendEvent: async (_runId: string, type: string, payload: Record<string, unknown>) => {
+						events.push({ type, payload });
+						return {
+							seq: events.length,
+							runId: _runId,
+							type,
+							payload,
+							tokenEstimate: 0,
+							createdAt: new Date().toISOString(),
+						};
+					},
+					runtimeStateRecord: (key: string) => {
+						const value = runtimeState.get(key);
+						return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+					},
+					deleteRuntimeState: (key: string) => {
+						runtimeState.delete(key);
+					},
+					setRuntimeState: (key: string, value: unknown) => {
+						runtimeState.set(key, value);
+					},
+					throwIfStopped: vi.fn(),
+				});
+				const callProviderForCompaction = (BotRuntime.prototype as unknown as {
+					callProviderForCompaction: (...args: unknown[]) => Promise<{ content: string; requestBody?: string }>;
+				}).callProviderForCompaction.bind(runtime);
+
+				const response = await callProviderForCompaction(
+					{
+						baseUrl: "https://openrouter.ai/api/v1",
+						model: "google/gemini-2.5-pro",
+						temperature: 0.2,
+					},
+					[{ role: "user", content: "Compact the retained activity." }],
+					"run-compaction-opaque-reasoning-fallback",
+					new AbortController().signal,
+					{ minLength: 1, maxLength: 4000, maxCompletionTokens: 1000 },
+					[
+						...toolDefinitionsForProviderRound(),
+						{ type: "openrouter:web_search", parameters: { max_results: 3 } } satisfies ProviderToolDefinition,
+					],
+				);
+
+				expect(response.content).toBe("I remember the important parts.");
+				expect(fetchMock).toHaveBeenCalledTimes(2);
+				const firstBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as { reasoning?: unknown; tools?: ProviderToolDefinition[] };
+				const secondBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)) as { reasoning?: unknown; tools?: ProviderToolDefinition[] };
+				expect(firstBody.reasoning).toEqual({ effort: "none", exclude: false });
+				expect(secondBody.reasoning).toEqual({ effort: "minimal", exclude: false });
+				expect(firstBody.tools?.some((tool) => tool.type === "openrouter:web_search")).toBe(true);
+				expect([...runtimeState.values()][0]).toMatchObject({
+					model: "google/gemini-2.5-pro",
+					mode: "minimal",
+				});
+				expect(events).toContainEqual({
+					type: "provider_retry",
+					payload: expect.objectContaining({
+						attempt: 2,
+						delayMs: 0,
+						reason: "provider rejected compaction reasoning=none; retrying with minimal",
+					}),
+				});
+			} finally {
+				vi.stubGlobal("fetch", originalFetch);
+			}
+		});
+
 		it("wraps empty loop provider streams with request and response diagnostics", async () => {
 			const emptyChunk = {
 				id: "chatcmpl-empty",
@@ -11227,7 +11318,39 @@ describe("Bickr Pages Functions", () => {
 		const appendedLoopMessages: Array<{ runId: string; message: Record<string, unknown>; origin: string }> = [];
 		const events: Array<{ runId: string; type: string; payload: Record<string, unknown> }> = [];
 		const recordLoopMessageLog = vi.fn();
+		const providerMessage = "Inference request failed with status 400. Response: TextEncodeInput must be Union[TextInputSequence].";
+		const pendingCompactionPayload = { status: "pending", fromSeq: 10, toSeq: 20, messageCount: 3 };
+		const completedCompactionPayload = { status: "complete", summaryMessageSeq: 40 };
+		const updatedCompactions: unknown[] = [];
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			state: {
+				storage: {
+					sql: {
+						exec: vi.fn(() => ({
+							toArray: () => [
+								{
+									seq: 2,
+									run_id: "run-provider-failed",
+									type: "compaction",
+									payload_json: JSON.stringify(pendingCompactionPayload),
+									token_estimate: 8,
+									created_at: "2026-05-20T19:41:40.934Z",
+									compacted_by: null,
+								},
+								{
+									seq: 3,
+									run_id: "run-provider-failed",
+									type: "compaction",
+									payload_json: JSON.stringify(completedCompactionPayload),
+									token_estimate: 8,
+									created_at: "2026-05-20T19:56:34.524Z",
+									compacted_by: null,
+								},
+							],
+						})),
+					},
+				},
+			},
 			appendLoopMessage: (
 				runId: string,
 				message: Record<string, unknown>,
@@ -11249,6 +11372,10 @@ describe("Bickr Pages Functions", () => {
 				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
 			},
 			recordLoopMessageLog,
+			replaceEventPayload: (event: BotRuntimeEvent, payload: unknown) => {
+				updatedCompactions.push({ event, payload });
+				return { ...event, payload };
+			},
 		});
 		const recordTickFailure = (BotRuntime.prototype as unknown as {
 			recordTickFailure: (
@@ -11258,7 +11385,6 @@ describe("Bickr Pages Functions", () => {
 			) => Promise<BotRuntimeEvent>;
 		}).recordTickFailure.bind(runtime);
 
-		const providerMessage = "Inference request failed with status 400. Response: TextEncodeInput must be Union[TextInputSequence].";
 		await expect(
 			recordTickFailure("run-provider-failed", { message: providerMessage }, [
 				{ kind: "provider_request", text: "{\"stream\":true}" },
@@ -11292,6 +11418,21 @@ describe("Bickr Pages Functions", () => {
 		expect(recordLoopMessageLog).toHaveBeenCalledWith(1, "provider_response", "{\"error\":\"provider 500\"}");
 		expect(recordLoopMessageLog).toHaveBeenCalledWith(1, "compaction_request", "{\"messages\":[]}");
 		expect(recordLoopMessageLog).toHaveBeenCalledWith(1, "compaction_response", "{\"error\":\"bad schema\"}");
+		expect(updatedCompactions).toEqual([
+			{
+				event: expect.objectContaining({
+					seq: 2,
+					runId: "run-provider-failed",
+					type: "compaction",
+					payload: pendingCompactionPayload,
+				}),
+				payload: {
+					...pendingCompactionPayload,
+					status: "failed",
+					error: providerMessage,
+				},
+			},
+		]);
 	});
 
 	it("records schema-invalid provider failures as owner notifications", async () => {
