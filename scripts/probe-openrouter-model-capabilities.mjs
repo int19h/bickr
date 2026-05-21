@@ -10,6 +10,13 @@ const defaultOutputPath = path.join(repoRoot, "packages/shared/src/openrouter-mo
 const defaultDevVarsPath = path.join(repoRoot, "workers/agent-runtime/.dev.vars");
 const openRouterModelsUrl = "https://openrouter.ai/api/v1/models";
 const openRouterChatCompletionsUrl = "https://openrouter.ai/api/v1/chat/completions";
+const probeMaxCompletionTokens = 256;
+const pinnedCapabilityEntries = new Map([
+	[
+		"openrouter/free",
+		{ prefill: false, structuredOutputs: false, requiredToolCalls: false, disabledReasoning: false },
+	],
+]);
 
 async function main() {
 	const args = parseArgs(process.argv.slice(2));
@@ -22,29 +29,39 @@ async function main() {
 	const timeoutMs = numberOption(args, "timeout-ms", 20_000);
 	const concurrency = numberOption(args, "concurrency", 1);
 	const dryRun = booleanOption(args, "dry-run");
+	const onlyAffected = booleanOption(args, "only-affected");
 	const modelFilter = stringArrayOption(args, "model");
 	const key = await openRouterApiKey();
 	const limiter = new RequestLimiter(delayMs);
 
 	const existing = await readExistingEntries(outputPath);
+	applyPinnedCapabilityEntries(existing);
 	const models = await fetchOpenRouterTextModels(key);
 	const currentIds = new Set(models.map((model) => model.id));
 	const requestedIds = modelFilter.length > 0 ? new Set(modelFilter) : currentIds;
 	const idsToProbe = models
 		.map((model) => model.id)
 		.filter((id) => requestedIds.has(id))
-		.filter((id) => mode === "full" || !existing.has(id));
+		.filter((id) => !pinnedCapabilityEntries.has(id))
+		.filter((id) => {
+			if (onlyAffected) {
+				const capabilities = existing.get(id);
+				return capabilities !== undefined && !allCapabilitiesSupported(capabilities);
+			}
+			return mode === "full" || !existing.has(id);
+		});
 
-	const next = mode === "full" ? new Map() : new Map(existing);
+	const next = mode === "full" && !onlyAffected ? new Map() : new Map(existing);
 	let completed = 0;
 	console.log(`OpenRouter returned ${models.length} text-output models.`);
-	console.log(`Probing ${idsToProbe.length} model(s) in ${mode} mode with concurrency=${concurrency}, delay=${delayMs}ms.`);
+	console.log(`Probing ${idsToProbe.length} model(s) in ${mode} mode with concurrency=${concurrency}, delay=${delayMs}ms, onlyAffected=${onlyAffected}.`);
+	console.log(`Preserving ${pinnedCapabilityEntries.size} pinned capability entr${pinnedCapabilityEntries.size === 1 ? "y" : "ies"}.`);
 	if (!key) {
 		console.log("No OpenRouter key found; relying on unauthenticated OpenRouter access.");
 	}
 
 	await runWithConcurrency(idsToProbe, Math.max(1, concurrency), async (id) => {
-		const capabilities = await probeModel(id, key, limiter, timeoutMs);
+		const capabilities = await probeModel(id, key, limiter, timeoutMs, onlyAffected ? existing.get(id) : undefined);
 		next.set(id, capabilities);
 		completed += 1;
 		console.log(
@@ -53,6 +70,7 @@ async function main() {
 	});
 
 	if (!dryRun) {
+		applyPinnedCapabilityEntries(next);
 		const written = [...next.entries()].filter(([id]) => mode !== "full" || currentIds.has(id));
 		await writeGeneratedTable(outputPath, written);
 		console.log(`Wrote ${written.length} capability entr${written.length === 1 ? "y" : "ies"} to ${path.relative(repoRoot, outputPath)}.`);
@@ -102,6 +120,19 @@ function booleanOption(options, key) {
 
 function stringArrayOption(options, key) {
 	return options.get(key) ?? [];
+}
+
+function allCapabilitiesSupported(capabilities) {
+	return capabilities.prefill && capabilities.structuredOutputs && capabilities.requiredToolCalls && capabilities.disabledReasoning;
+}
+
+function applyPinnedCapabilityEntries(entries) {
+	// openrouter/free is a multi-dispatch route. A single successful probe only
+	// describes the backend selected for that request, so keep the generated
+	// table aligned with the conservative runtime policy.
+	for (const [model, capabilities] of pinnedCapabilityEntries) {
+		entries.set(model, capabilities);
+	}
 }
 
 async function openRouterApiKey() {
@@ -163,12 +194,16 @@ async function fetchOpenRouterTextModels(apiKey) {
 		.sort((left, right) => left.id.localeCompare(right.id));
 }
 
-async function probeModel(model, apiKey, limiter, timeoutMs) {
+async function probeModel(model, apiKey, limiter, timeoutMs, previous) {
 	return {
-		prefill: await probeCapability(apiKey, limiter, timeoutMs, providerPrefillRequest(model), prefillSupported),
-		structuredOutputs: await probeCapability(apiKey, limiter, timeoutMs, providerStructuredOutputRequest(model), structuredOutputSupported),
-		requiredToolCalls: await probeCapability(apiKey, limiter, timeoutMs, providerRequiredToolCallRequest(model), requiredToolCallSupported),
-		disabledReasoning: await probeCapability(apiKey, limiter, timeoutMs, providerDisabledReasoningRequest(model), responseOk),
+		prefill:
+			previous?.prefill === true ? true : await probeCapability(apiKey, limiter, timeoutMs, providerPrefillRequest(model), prefillSupported),
+		structuredOutputs:
+			previous?.structuredOutputs === true ? true : await probeCapability(apiKey, limiter, timeoutMs, providerStructuredOutputRequest(model), structuredOutputSupported),
+		requiredToolCalls:
+			previous?.requiredToolCalls === true ? true : await probeCapability(apiKey, limiter, timeoutMs, providerRequiredToolCallRequest(model), requiredToolCallSupported),
+		disabledReasoning:
+			previous?.disabledReasoning === true ? true : await probeCapability(apiKey, limiter, timeoutMs, providerDisabledReasoningRequest(model), responseOk),
 	};
 }
 
@@ -235,7 +270,7 @@ function providerPrefillRequest(model) {
 			{ role: "assistant", content: "o" },
 		],
 		stream: false,
-		max_tokens: 4,
+		max_completion_tokens: 32,
 		temperature: 0,
 	};
 }
@@ -245,7 +280,7 @@ function providerStructuredOutputRequest(model) {
 		model,
 		messages: [{ role: "user", content: "Return JSON with ok set to true." }],
 		stream: false,
-		max_tokens: 16,
+		max_completion_tokens: probeMaxCompletionTokens,
 		temperature: 0,
 		response_format: {
 			type: "json_schema",
@@ -268,7 +303,7 @@ function providerRequiredToolCallRequest(model) {
 		model,
 		messages: [{ role: "user", content: "Use the capability_probe tool now." }],
 		stream: false,
-		max_tokens: 16,
+		max_completion_tokens: probeMaxCompletionTokens,
 		temperature: 0,
 		tools: [capabilityProbeTool()],
 		tool_choice: "required",
@@ -281,7 +316,7 @@ function providerDisabledReasoningRequest(model) {
 		model,
 		messages: [{ role: "user", content: "Reply with ok." }],
 		stream: false,
-		max_tokens: 4,
+		max_completion_tokens: 32,
 		temperature: 0,
 		reasoning: { effort: "none", exclude: false },
 	};
