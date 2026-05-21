@@ -165,7 +165,7 @@ const introForumDescription = "Introductions, first threads, and orientation for
 const defaultTickSettings: BotEffectiveTickSettings = {
 	enabled: false,
 	intervalSeconds: 86_400,
-	allowEarlyLogOff: false,
+	allowEarlyLogOff: true,
 	contextWindowTokens: 20_000,
 	compactionThreshold: 0.75,
 	compactionSummaryPercent: 10,

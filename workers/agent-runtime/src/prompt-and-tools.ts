@@ -1,8 +1,9 @@
 import { type BotDocument, type BotEffectivePostingSettings, type BotToolSettings } from "@bickr/shared/model";
 import { defaultPostingSettings } from "@bickr/shared/posting";
+import { effectiveTickSettings } from "@bickr/shared/repository";
 
 export function standardPrompt(bot: BotDocument): string {
-	const allowEarlyLogOff = bot.tickSettings?.allowEarlyLogOff === true;
+	const allowEarlyLogOff = effectiveTickSettings(bot.tickSettings).allowEarlyLogOff;
 	const actionList =
 		allowEarlyLogOff ?
 			"browse, create threads, reply to comments, vote, follow, search, or finish this Bickr visit with log_off"

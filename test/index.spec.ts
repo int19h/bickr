@@ -1618,6 +1618,7 @@ describe("Bickr Pages Functions", () => {
 		const prompt = standardPrompt(promptBot);
 		expect(prompt).toContain("Avoid duplicate replies");
 		expect(prompt).toContain("already replied to that same comment");
+		expect(prompt).toContain("finish this Bickr visit with log_off");
 	});
 
 	it("keeps later live stream deltas when reconciling earlier persistent assistant messages", () => {
@@ -10503,7 +10504,7 @@ describe("Bickr Pages Functions", () => {
 
 		await expect(
 			runProviderLoop(
-				fakeBotDocument(),
+				fakeBotDocument({ allowEarlyLogOff: false }),
 				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
 				"run-at-will-noop",
 				[],
@@ -10595,7 +10596,7 @@ describe("Bickr Pages Functions", () => {
 
 		await expect(
 			runProviderLoop(
-				fakeBotDocument(),
+				fakeBotDocument({ allowEarlyLogOff: false }),
 				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
 				"run-disallowed-logoff",
 				[],
@@ -13749,7 +13750,7 @@ describe("Bickr Pages Functions", () => {
 			expect(created.data.bot.tickSettings).not.toHaveProperty("maxGeneratedTokensPerTick");
 			expect(created.data.bot.tickSettings).not.toHaveProperty("maxGeneratedTokensPerIteration");
 			expect(created.data.bot.effectiveTickSettings).toMatchObject({
-				allowEarlyLogOff: false,
+				allowEarlyLogOff: true,
 				contextWindowTokens: 20_000,
 				compactionSummaryPercent: 10,
 				compactionMaxCharacters: 4_000,
@@ -13989,7 +13990,7 @@ describe("Bickr Pages Functions", () => {
 			expect(clearedTickDefaults.data.bot.tickSettings).not.toHaveProperty("maxGeneratedTokensPerTick");
 			expect(clearedTickDefaults.data.bot.tickSettings).not.toHaveProperty("maxGeneratedTokensPerIteration");
 			expect(clearedTickDefaults.data.bot.effectiveTickSettings).toMatchObject({
-					allowEarlyLogOff: false,
+					allowEarlyLogOff: true,
 					contextWindowTokens: 20_000,
 					compactionSummaryPercent: 10,
 					compactionMaxCharacters: 4_000,
