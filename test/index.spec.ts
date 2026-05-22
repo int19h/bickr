@@ -14,6 +14,7 @@ import { onRequestGet as health } from "../apps/web/functions/api/health";
 import { onRequestGet as searchRoute } from "../apps/web/functions/api/search";
 import { onRequestGet as searchSuggestRoute } from "../apps/web/functions/api/search/suggest";
 import { onRequestGet as meBots } from "../apps/web/functions/api/me/bots";
+import { onRequestPost as spreadBotTicksRoute } from "../apps/web/functions/api/me/bots/spread-ticks";
 import {
 	onRequestDelete as deleteBot,
 	onRequestPatch as patchBot,
@@ -14087,6 +14088,148 @@ describe("Bickr Pages Functions", () => {
 		});
 	});
 
+	it("spreads enabled non-running owned bot ticks and leaves paused or running bots unchanged", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const userId = await userIdForHandle("octocat");
+		async function createScheduledBot(handle: string, intervalSeconds: number, enabled = true): Promise<BotBody> {
+			const response = await createBot(
+				contextFor<typeof createBot>(
+					jsonRequest(
+						"http://example.com/api/worlds/patch-notes/bots",
+						"POST",
+						{
+							handle,
+							displayName: handle,
+							shortBio: `${handle} bot.`,
+							prompt: `You are ${handle}.`,
+							tickSettings: { enabled, intervalSeconds },
+						},
+						cookie,
+					),
+					{ worldHandle: "patch-notes" },
+				),
+			);
+			expect(response.status, await response.clone().text()).toBe(201);
+			const payload = (await response.json()) as { data: { bot: BotBody } };
+			return payload.data.bot;
+		}
+
+		const anchor = await createScheduledBot("spread-anchor", 120);
+		const later = await createScheduledBot("spread-later", 60);
+		const running = await createScheduledBot("spread-running", 90);
+		const paused = await createScheduledBot("spread-paused", 60, false);
+		const otherCookie = await authCookieFor({ subject: "spread-other", login: "spread-other", displayName: "Spread Other" });
+		await createWorldForTest(otherCookie, "spread-other-world", "Spread Other World");
+		const other = await createBotInWorld(otherCookie, "spread-other-world", {
+			handle: "other-spread-bot",
+			displayName: "Other Spread Bot",
+		});
+		const originalRunningDue = "2026-05-21T12:00:10.000Z";
+		const originalOtherDue = "2026-05-21T12:00:20.000Z";
+		const updatedAt = "2026-05-21T11:59:00.000Z";
+		await testEnv.BICKR_D1.batch([
+			testEnv.BICKR_D1.prepare(`UPDATE bot_runtime_index SET next_due_at = ?, updated_at = ? WHERE bot_id = ?`)
+				.bind("2026-05-21T12:01:00.000Z", updatedAt, anchor.id),
+			testEnv.BICKR_D1.prepare(`UPDATE bot_runtime_index SET next_due_at = ?, updated_at = ? WHERE bot_id = ?`)
+				.bind("2026-05-21T12:05:00.000Z", updatedAt, later.id),
+			testEnv.BICKR_D1.prepare(
+				`UPDATE bot_runtime_index
+				 SET status = 'running', active_run_id = 'run-spread-test', lease_expires_at = ?, next_due_at = ?, updated_at = ?
+				 WHERE bot_id = ?`,
+			)
+				.bind("2026-05-21T12:30:00.000Z", originalRunningDue, updatedAt, running.id),
+			testEnv.BICKR_D1.prepare(`UPDATE bot_runtime_index SET next_due_at = ?, updated_at = ? WHERE bot_id = ?`)
+				.bind(originalOtherDue, updatedAt, other.id),
+		]);
+
+		const before = Date.now();
+		const response = await handleAgentRuntimeRequest(
+			new Request(`https://internal.bickr/users/${encodeURIComponent(userId)}/bots/spread-ticks`, {
+				method: "POST",
+				headers: { "x-bickr-user-id": userId },
+			}),
+			{
+				BICKR_D1: testEnv.BICKR_D1,
+				BICKR_KV: testEnv.BICKR_KV,
+			},
+		);
+		const after = Date.now();
+		expect(response.status, await response.clone().text()).toBe(200);
+		const payload = (await response.json()) as {
+			ok: true;
+			data: {
+				spread: {
+					anchorBotId?: string;
+					bots: BotBody[];
+					scheduled: Array<{ botId: string; nextDueAt: string; offsetSeconds: number; orderRelaxed: boolean }>;
+					skipped: { paused: number; running: number };
+				};
+			};
+		};
+
+		expect(payload.data.spread.anchorBotId).toBe(anchor.id);
+		expect(payload.data.spread.scheduled.map((schedule) => schedule.botId)).toEqual([anchor.id, later.id]);
+		expect(payload.data.spread.scheduled[0]).toMatchObject({ botId: anchor.id, offsetSeconds: 0, orderRelaxed: false });
+		expect(payload.data.spread.skipped).toEqual({ paused: 1, running: 1 });
+
+		const rows = await testEnv.BICKR_D1.prepare(
+			`SELECT bot_id AS botId, enabled, status, next_due_at AS nextDueAt
+			 FROM bot_runtime_index
+			 WHERE bot_id IN (?, ?, ?, ?, ?)`,
+		)
+			.bind(anchor.id, later.id, running.id, paused.id, other.id)
+			.all<{ botId: string; enabled: number; status: string; nextDueAt: string | null }>();
+		const byId = new Map((rows.results ?? []).map((row) => [row.botId, row]));
+		const anchorDue = Date.parse(byId.get(anchor.id)?.nextDueAt ?? "");
+		expect(anchorDue).toBeGreaterThanOrEqual(before - 1_000);
+		expect(anchorDue).toBeLessThanOrEqual(after + 1_000);
+		expect(Date.parse(byId.get(later.id)?.nextDueAt ?? "")).toBeGreaterThan(anchorDue);
+		expect(byId.get(running.id)).toMatchObject({ enabled: 1, status: "running", nextDueAt: originalRunningDue });
+		expect(byId.get(paused.id)).toMatchObject({ enabled: 0, status: "idle", nextDueAt: null });
+		expect(byId.get(other.id)).toMatchObject({ nextDueAt: originalOtherDue });
+		expect(payload.data.spread.bots.find((bot) => bot.id === anchor.id)?.nextDueAt).toBe(byId.get(anchor.id)?.nextDueAt);
+	});
+
+	it("proxies spread tick requests to the agent runtime service", async () => {
+		const cookie = await authCookie();
+		const userId = await userIdForHandle("octocat");
+		const proxied: { method?: string; path?: string; userId?: string | null } = {};
+		const response = await spreadBotTicksRoute(
+			contextFor<typeof spreadBotTicksRoute>(
+				jsonRequest("http://example.com/api/me/bots/spread-ticks", "POST", {}, cookie),
+				{},
+				{
+					AGENT_RUNTIME: {
+						fetch: async (request: Request) => {
+							proxied.method = request.method;
+							proxied.path = new URL(request.url).pathname;
+							proxied.userId = request.headers.get("x-bickr-user-id");
+							return Response.json({
+								ok: true,
+								data: {
+									spread: {
+										bots: [],
+										scheduled: [],
+										skipped: { paused: 0, running: 0 },
+										usedApproximateHorizon: false,
+									},
+								},
+							});
+						},
+					} as unknown as Fetcher,
+				},
+			),
+		);
+
+		expect(response.status).toBe(200);
+		expect(proxied).toEqual({
+			method: "POST",
+			path: `/users/${userId}/bots/spread-ticks`,
+			userId,
+		});
+	});
+
 		it("proxies prompt context budget requests to the agent runtime service", async () => {
 			const cookie = await authCookie();
 			await seedWorld(cookie);
@@ -20153,6 +20296,38 @@ describe("Bickr Pages Functions", () => {
 				userId,
 			});
 		}
+
+		const routed: { method?: string; path?: string; userId?: string } = {};
+		const namespace = {
+			idFromName(name: string): DurableObjectId {
+				routed.userId = name;
+				return name as unknown as DurableObjectId;
+			},
+			get(): Fetcher {
+				return {
+					fetch: async (request: Request) => {
+						routed.method = request.method;
+						routed.path = new URL(request.url).pathname;
+						return Response.json({ ok: true });
+					},
+				} as unknown as Fetcher;
+			},
+		};
+		const request = new Request(`https://internal.bickr/users/${userId}/bots/spread-ticks`, {
+			method: "POST",
+			headers: { "x-bickr-user-id": userId },
+		});
+		const response = await agentRuntimeWorker.fetch(
+			request as unknown as Parameters<typeof agentRuntimeWorker.fetch>[0],
+			{ USER_BOTS: namespace } as unknown as Parameters<typeof agentRuntimeWorker.fetch>[1],
+		);
+
+		expect(response.status).toBe(200);
+		expect(routed).toEqual({
+			method: "POST",
+			path: `/users/${userId}/bots/spread-ticks`,
+			userId,
+		});
 	});
 
 	it("previews Chirper imports and reports invalid profiles", async () => {

@@ -42,6 +42,7 @@ import {
 	type BotPublicProfile,
 	type BotRuntimeEvent,
 	type BotRuntimeStatus,
+	type BotTickSpreadResult,
 	type BotTokenSpendSummary,
 	type BotTokenUsageStats,
 	type BotTokenUsageTotals,
@@ -467,6 +468,7 @@ type IconName =
 	| "crop"
 	| "upload"
 	| "refresh"
+	| "clock"
 	| "play"
 	| "sun"
 	| "moon"
@@ -1485,6 +1487,26 @@ function App() {
 		setStatus(
 			`${label}: ${started} started${alreadyRunning ? `, ${alreadyRunning} already running` : ""}${paused ? `, ${paused} paused` : ""}${failed ? `, ${failed} failed` : ""}.`,
 		);
+	}
+
+	async function spreadBotTicks(): Promise<BotTickSpreadResult | null> {
+		if (!profileReadyFor("editing bots")) {
+			return null;
+		}
+		let spread: BotTickSpreadResult | null = null;
+		const ok = await submit(async () => {
+			const result = await api<{ spread: BotTickSpreadResult }>("/api/me/bots/spread-ticks", {
+				method: "POST",
+			});
+			if (!result.ok) {
+				throw new Error(result.message);
+			}
+			spread = result.data.spread;
+			applySavedBots(spread.bots);
+			const skipped = spread.skipped.paused + spread.skipped.running;
+			return `Spread ticks for ${spread.scheduled.length} bot${spread.scheduled.length === 1 ? "" : "s"}${skipped ? `; ${skipped} unchanged` : ""}.`;
+		});
+		return ok ? spread : null;
 	}
 
 	async function startBot(bot: BotSummary): Promise<void> {
@@ -2578,6 +2600,7 @@ function App() {
 							bots={bots}
 							onDeleteBots={deleteBots}
 							onRunBotTicks={(rows) => runBotTicks("selected bots", rows)}
+							onSpreadBotTicks={spreadBotTicks}
 							ownerInferenceSettings={userProfile?.inferenceSettings ?? null}
 							worlds={worldViews}
 						/>
@@ -9502,7 +9525,7 @@ function promptBudgetSegments(
 	];
 }
 
-type MyBotsConfirmAction = "delete" | "tick";
+type MyBotsConfirmAction = "delete" | "spread" | "tick";
 
 type MyBotTableRecord = {
 	bot: BotSummary;
@@ -9517,12 +9540,14 @@ function MyBotsScreen({
 	bots,
 	onDeleteBots,
 	onRunBotTicks,
+	onSpreadBotTicks,
 	ownerInferenceSettings,
 	worlds,
 }: {
 	bots: BotSummary[];
 	onDeleteBots: (bots: BotSummary[]) => Promise<{ deleted: BotSummary[]; failed: BotSummary[] }>;
 	onRunBotTicks: (bots: BotSummary[]) => Promise<void>;
+	onSpreadBotTicks: () => Promise<BotTickSpreadResult | null>;
 	ownerInferenceSettings: BotInferenceSettings | null;
 	worlds: WorldView[];
 }) {
@@ -9624,6 +9649,7 @@ function MyBotsScreen({
 	const overallSpendTotal = useMemo(() => myBotsSpendTotal(groups.flatMap((group) => group.rows)), [groups]);
 	const selectedPausedCount = selectedBots.filter((bot) => !bot.tickSettings.enabled).length;
 	const selectedCount = selectedBots.length;
+	const enabledBotCount = bots.filter((bot) => bot.tickSettings.enabled).length;
 	const allVisibleSelected = visibleBotIds.length > 0 && visibleBotIds.every((id) => selectedBotIds.has(id));
 	const someVisibleSelected = selectedCount > 0;
 
@@ -9722,6 +9748,17 @@ function MyBotsScreen({
 		await onRunBotTicks(selectedBots);
 	}
 
+	async function spreadTicks(): Promise<void> {
+		if (enabledBotCount === 0) {
+			return;
+		}
+		const result = await onSpreadBotTicks();
+		if (result) {
+			const skipped = result.skipped.paused + result.skipped.running;
+			toast.push(`Spread ticks for ${result.scheduled.length} bot${result.scheduled.length === 1 ? "" : "s"}${skipped ? `; ${skipped} unchanged` : ""}.`);
+		}
+	}
+
 	return (
 		<div className="main-inner">
 			<div className="page-header">
@@ -9729,31 +9766,47 @@ function MyBotsScreen({
 					<h1>My bots</h1>
 					<p className="sub">All bots you own across every world.</p>
 				</div>
-				{selectedCount > 0 && (
-					<div className="actions bot-table-bulk-actions">
-						<span className="selection-count">
-							{selectedCount} selected
-						</span>
-						<button className="btn danger" onClick={() => setConfirmAction("delete")} type="button">
-							<Icon name="trash" size={14} />
-							Delete
-						</button>
-						<button
-							className="btn"
-							disabled={selectedPausedCount > 0}
-							onClick={() => setConfirmAction("tick")}
-							title={
-								selectedPausedCount > 0 ?
-									"Paused bots cannot be bulk-run from this page."
-								:	"Run tick for selected bots"
-							}
-							type="button"
-						>
-							<Icon name="refresh" size={14} />
-							Run tick
-						</button>
-					</div>
-				)}
+				<div className="actions bot-table-bulk-actions">
+					{selectedCount > 0 && (
+						<>
+							<span className="selection-count">
+								{selectedCount} selected
+							</span>
+							<button className="btn danger" onClick={() => setConfirmAction("delete")} type="button">
+								<Icon name="trash" size={14} />
+								Delete
+							</button>
+							<button
+								className="btn"
+								disabled={selectedPausedCount > 0}
+								onClick={() => setConfirmAction("tick")}
+								title={
+									selectedPausedCount > 0 ?
+										"Paused bots cannot be bulk-run from this page."
+									:	"Run tick for selected bots"
+								}
+								type="button"
+							>
+								<Icon name="refresh" size={14} />
+								Run tick
+							</button>
+						</>
+					)}
+					<button
+						className="btn"
+						disabled={enabledBotCount === 0}
+						onClick={() => setConfirmAction("spread")}
+						title={
+							enabledBotCount === 0 ?
+								"No active bots have scheduled ticks to spread."
+							:	"Spread active bot ticks across their schedules"
+						}
+						type="button"
+					>
+						<Icon name="clock" size={14} />
+						Spread ticks
+					</button>
+				</div>
 			</div>
 			{bots.length === 0 ?
 				<EmptyState title="You do not own any bots yet">
@@ -9919,12 +9972,18 @@ function MyBotsScreen({
 						<>
 							This will start a tick for {selectedCount} selected bot{selectedCount === 1 ? "" : "s"}.
 						</>
+					: confirmAction === "spread" ?
+						<>
+							This will reschedule {enabledBotCount} active bot{enabledBotCount === 1 ? "" : "s"} so their ticks are spread out. The next scheduled bot becomes due now. Paused or already-running bots stay unchanged.
+						</>
 					:	null
 				}
 				confirmText={
 					confirmAction === "delete" ?
 						`Delete ${selectedCount} bot${selectedCount === 1 ? "" : "s"}`
-					:	`Run ${selectedCount} tick${selectedCount === 1 ? "" : "s"}`
+					: confirmAction === "tick" ?
+						`Run ${selectedCount} tick${selectedCount === 1 ? "" : "s"}`
+					:	"Spread ticks"
 				}
 				danger={confirmAction === "delete"}
 				onClose={() => setConfirmAction(null)}
@@ -9933,10 +9992,16 @@ function MyBotsScreen({
 						void deleteSelectedBots();
 					} else if (confirmAction === "tick") {
 						void runSelectedTicks();
+					} else if (confirmAction === "spread") {
+						void spreadTicks();
 					}
 				}}
 				open={Boolean(confirmAction)}
-				title={confirmAction === "delete" ? "Delete selected bots?" : "Run selected ticks?"}
+				title={
+					confirmAction === "delete" ? "Delete selected bots?"
+					: confirmAction === "tick" ? "Run selected ticks?"
+					: "Spread bot ticks?"
+				}
 			/>
 		</div>
 	);
@@ -16728,6 +16793,12 @@ function Icon({ name, size = 16 }: { name: IconName; size?: number }) {
 		refresh: (
 			<svg height={size} viewBox="0 0 24 24" width={size} {...stroke}>
 				<path d="M20 11a8 8 0 0 0-14.6-4M4 7V3m0 4h4M4 13a8 8 0 0 0 14.6 4M20 17v4m0-4h-4" />
+			</svg>
+		),
+		clock: (
+			<svg height={size} viewBox="0 0 24 24" width={size} {...stroke}>
+				<circle cx="12" cy="12" r="9" />
+				<path d="M12 7v5l3 2" />
 			</svg>
 		),
 		play: (

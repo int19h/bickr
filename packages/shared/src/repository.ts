@@ -22,6 +22,7 @@ import {
 	type BotLocalOverrides,
 	type BotPublicProfile,
 	type BotSummary,
+	type BotTickSpreadResult,
 	type BotTranslationSettings,
 	type BotTranslationSettingsInput,
 	type BotToolSettings,
@@ -82,6 +83,7 @@ import {
 	readJson,
 	writeJson,
 } from "./storage";
+import { planBotTickSpread, type TickSpreadInput } from "./tick-spread";
 import { slugifyHandle } from "./validation";
 
 export class RepositoryError extends Error {
@@ -963,6 +965,78 @@ export async function listUserBots(
 			worldPostingSettings: worldPostingSettings.get(bot.homeWorldId),
 		});
 	}));
+}
+
+type UserBotRuntimeSpreadRow = {
+	botId: string;
+	handle: string;
+	enabled: number;
+	status: string;
+	tickIntervalSeconds: number;
+	nextDueAt: string | null;
+};
+
+export async function spreadUserBotTicks(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	userId: string,
+	now = new Date().toISOString(),
+): Promise<BotTickSpreadResult> {
+	const result = await db
+		.prepare(
+			`SELECT
+				runtime.bot_id AS botId,
+				bots.handle AS handle,
+				runtime.enabled AS enabled,
+				runtime.status AS status,
+				runtime.tick_interval_seconds AS tickIntervalSeconds,
+				runtime.next_due_at AS nextDueAt
+			 FROM bot_runtime_index runtime
+			 JOIN bots_index bots ON bots.bot_id = runtime.bot_id
+			 WHERE runtime.owner_user_id = ?
+			   AND bots.owner_user_id = ?
+			   AND bots.deleted_at IS NULL`,
+		)
+		.bind(userId, userId)
+		.all<UserBotRuntimeSpreadRow>();
+	const rows = result.results ?? [];
+	const schedulableRows = rows.filter((row) => row.enabled === 1 && row.status !== "running");
+	const plan = planBotTickSpread(
+		schedulableRows.map((row): TickSpreadInput => ({
+			botId: row.botId,
+			handle: row.handle,
+			intervalSeconds: row.tickIntervalSeconds,
+			nextDueAt: row.nextDueAt,
+		})),
+		new Date(now),
+	);
+	if (plan.scheduled.length > 0) {
+		const update = db.prepare(
+			`UPDATE bot_runtime_index
+			 SET next_due_at = ?, updated_at = ?
+			 WHERE bot_id = ?
+			   AND owner_user_id = ?
+			   AND enabled = 1
+			   AND status != 'running'`,
+		);
+		await db.batch(
+			plan.scheduled.map((schedule) =>
+				update.bind(schedule.nextDueAt, now, schedule.botId, userId),
+			),
+		);
+	}
+
+	return {
+		bots: await listUserBots(kv, db, userId),
+		scheduled: plan.scheduled,
+		skipped: {
+			paused: rows.filter((row) => row.enabled !== 1).length,
+			running: rows.filter((row) => row.enabled === 1 && row.status === "running").length,
+		},
+		...(plan.anchorBotId ? { anchorBotId: plan.anchorBotId } : {}),
+		...(plan.exactHyperperiodSeconds !== undefined ? { exactHyperperiodSeconds: plan.exactHyperperiodSeconds } : {}),
+		usedApproximateHorizon: plan.usedApproximateHorizon,
+	};
 }
 
 export async function createBot(

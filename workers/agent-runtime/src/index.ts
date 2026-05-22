@@ -34,6 +34,7 @@ import {
 	relinkBotClone,
 	RepositoryError,
 	softDeleteUserProfile,
+	spreadUserBotTicks,
 	unlinkBotClone,
 	updateBot,
 	updateBotAvatar,
@@ -11115,6 +11116,13 @@ export async function handleAgentRuntimeRequest(
 				spendByBotId: Object.fromEntries(summaries.map((summary) => [summary.botId, summary])),
 				coordinator: objectId,
 			});
+		}
+
+		const ownedBotSpreadTicksMatch = /^\/users\/([^/]+)\/bots\/spread-ticks$/.exec(url.pathname);
+		if (ownedBotSpreadTicksMatch && request.method === 'POST') {
+			const userId = requireUserMatch(request, decodeURIComponent(ownedBotSpreadTicksMatch[1] ?? ''));
+			const spread = await spreadUserBotTicks(env.BICKR_KV, env.BICKR_D1, userId);
+			return ok({ spread, coordinator: objectId });
 		}
 
 		const createMatch = /^\/users\/([^/]+)\/worlds\/([^/]+)\/bots$/.exec(url.pathname);

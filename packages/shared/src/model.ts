@@ -1575,6 +1575,25 @@ export type BotTokenSpendSummary = {
 	average: BotTokenSpendAverage;
 };
 
+export type BotTickSpreadScheduledBot = {
+	botId: string;
+	nextDueAt: string;
+	offsetSeconds: number;
+	orderRelaxed: boolean;
+};
+
+export type BotTickSpreadResult = {
+	bots: BotSummary[];
+	scheduled: BotTickSpreadScheduledBot[];
+	skipped: {
+		paused: number;
+		running: number;
+	};
+	anchorBotId?: string;
+	exactHyperperiodSeconds?: number;
+	usedApproximateHorizon: boolean;
+};
+
 export type BotContextBudgetInput = {
 	displayName?: string;
 	prompt: string;
