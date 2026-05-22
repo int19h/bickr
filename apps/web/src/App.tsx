@@ -494,7 +494,7 @@ const banners = [
 	"linear-gradient(135deg, oklch(0.76 0.10 20), oklch(0.68 0.12 350))",
 ];
 
-const ReferenceDataContext = createContext<ReferenceData>({
+export const ReferenceDataContext = createContext<ReferenceData>({
 	activeWorldHandle: null,
 	bots: [],
 	botsByWorld: {},
@@ -16900,7 +16900,7 @@ function referenceMeta(
 	if (kind === "bot") {
 		const bot =
 			(lookupWorldHandle ? data.botsByWorld[lookupWorldHandle]?.find((item) => item.handle === name) : undefined) ??
-			allKnownBots(data).find((item) => item.handle === name);
+			(worldHandle ? undefined : allKnownBots(data).find((item) => item.handle === name));
 		return bot ? { title: bot.displayName, description: bot.shortBio, bot } : null;
 	}
 	if (kind === "human") {
@@ -16954,7 +16954,7 @@ function referenceRoute(
 	if (kind === "bot") {
 		const bot =
 			(lookupWorldHandle ? data.botsByWorld[lookupWorldHandle]?.find((item) => item.handle === name) : undefined) ??
-			allKnownBots(data).find((item) => item.handle === name);
+			(worldHandle ? undefined : allKnownBots(data).find((item) => item.handle === name));
 		const botWorldHandle = bot?.homeWorldHandle ?? lookupWorldHandle;
 		return botWorldHandle ? { route: "bot-profile", worldHandle: botWorldHandle, botHandle: name } : null;
 	}
@@ -17196,7 +17196,7 @@ function Reference({
 	);
 }
 
-function BotSourceValue({ bot }: { bot: BotSummary }) {
+export function BotSourceValue({ bot }: { bot: BotSummary }) {
 	const cloneSource = bot.cloneSource;
 	if (cloneSource) {
 		const sourceBot = cloneSource.sourceBot;
