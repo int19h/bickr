@@ -199,6 +199,16 @@ import {
 } from "./routes";
 import { findBickrContentUrlMatches, type BickrContentUrlMatch } from "./content-links";
 import {
+	defaultFontScalePercent,
+	decreaseFontScalePercent,
+	fontScaleCssValue,
+	fontScalePercents,
+	increaseFontScalePercent,
+	readFontScalePercent,
+	writeFontScalePercent,
+	type FontScalePercent,
+} from "./font-scale";
+import {
 	cycleSubscriptionContainer,
 	filterSubscriptionTree,
 	subscriptionChangesFromDraft,
@@ -688,6 +698,7 @@ function App() {
 	const [threadsLoading, setThreadsLoading] = useState(false);
 	const [threadLoading, setThreadLoading] = useState(false);
 	const [themePreference, setThemePreference] = useState<ThemePreference>(() => readThemePreference());
+	const [fontScalePercent, setFontScalePercent] = useState<FontScalePercent>(() => readStoredFontScalePercent());
 	const [forumLoadedAtById, setForumLoadedAtById] = useState<Record<string, string>>({});
 	const [threadLoadedAtById, setThreadLoadedAtById] = useState<Record<string, string>>({});
 	const [freshThreadRequestVersion, setFreshThreadRequestVersion] = useState(0);
@@ -756,6 +767,12 @@ function App() {
 		media.addEventListener("change", applyTheme);
 		return () => media.removeEventListener("change", applyTheme);
 	}, [themePreference]);
+
+	useLayoutEffect(() => {
+		writeStoredFontScalePercent(fontScalePercent);
+		document.documentElement.style.setProperty("--font-scale", fontScaleCssValue(fontScalePercent));
+		document.documentElement.dataset.fontScalePercent = String(fontScalePercent);
+	}, [fontScalePercent]);
 
 	useEffect(() => {
 		if (activeWorldHandle) {
@@ -2405,8 +2422,10 @@ function App() {
 					activeWorldHandle={activeWorldHandle}
 					busy={busy}
 					bot={activeBot}
+					fontScalePercent={fontScalePercent}
 					forum={activeForum}
 					installAvailable={Boolean(installPromptEvent) && !standaloneDisplay}
+					onFontScale={setFontScalePercent}
 					onMarkAllNotificationsRead={() => void markAllNotificationsRead()}
 					onInstall={() => void promptPwaInstall()}
 					onNotificationClose={(notification) =>
@@ -2742,9 +2761,11 @@ function Topbar({
 	activeWorldHandle,
 	bot,
 	busy,
+	fontScalePercent,
 	forum,
 	installAvailable,
 	notifications,
+	onFontScale,
 	onMarkAllNotificationsRead,
 	onInstall,
 	onNotificationClose,
@@ -2763,9 +2784,11 @@ function Topbar({
 	activeWorldHandle: string | null;
 	bot: BotSummary | null;
 	busy: boolean;
+	fontScalePercent: FontScalePercent;
 	forum: ForumSummary | null;
 	installAvailable: boolean;
 	notifications: HumanNotificationSummary;
+	onFontScale: (scale: FontScalePercent) => void;
 	onMarkAllNotificationsRead: () => void;
 	onInstall: () => void;
 	onNotificationClose: (notification: HumanNotification) => void;
@@ -2890,12 +2913,13 @@ function Topbar({
 					{busy ? "Working..." : status}
 				</span>
 				<ThemeSwitch onChange={onTheme} value={themePreference} />
+				<FontScaleSwitch onChange={onFontScale} value={fontScalePercent} />
 				{installAvailable && (
-					<button aria-label="Install Bickr" className="icon-btn" onClick={onInstall} title="Install Bickr" type="button">
+					<button aria-label="Install Bickr" className="icon-btn topbar-install" onClick={onInstall} title="Install Bickr" type="button">
 						<Icon name="install" size={15} />
 					</button>
 				)}
-				<button className="icon-btn" disabled={busy} onClick={onRefresh} title="Refresh" type="button">
+				<button className="icon-btn topbar-refresh" disabled={busy} onClick={onRefresh} title="Refresh" type="button">
 					<Icon name="refresh" size={15} />
 				</button>
 				<NotificationBell
@@ -3070,6 +3094,49 @@ function ThemeSwitch({
 					<Icon name={choice.icon} size={14} />
 				</button>
 			))}
+		</div>
+	);
+}
+
+function FontScaleSwitch({
+	onChange,
+	value,
+}: {
+	onChange: (scale: FontScalePercent) => void;
+	value: FontScalePercent;
+}) {
+	const minimum = fontScalePercents[0];
+	const maximum = fontScalePercents[fontScalePercents.length - 1];
+
+	return (
+		<div aria-label="Font size" className="font-scale-switch" role="group">
+			<button
+				aria-label={`Decrease font size, currently ${value}%`}
+				disabled={value === minimum}
+				onClick={() => onChange(decreaseFontScalePercent(value))}
+				title="Decrease font size"
+				type="button"
+			>
+				<span aria-hidden="true" className="font-scale-step">A-</span>
+			</button>
+			<button
+				aria-label={`Reset font size to default, currently ${value}%`}
+				className="font-scale-reset"
+				onClick={() => onChange(defaultFontScalePercent)}
+				title={`Font size ${value}%. Reset to 100%.`}
+				type="button"
+			>
+				{value}%
+			</button>
+			<button
+				aria-label={`Increase font size, currently ${value}%`}
+				disabled={value === maximum}
+				onClick={() => onChange(increaseFontScalePercent(value))}
+				title="Increase font size"
+				type="button"
+			>
+				<span aria-hidden="true" className="font-scale-step">A+</span>
+			</button>
 		</div>
 	);
 }
@@ -17848,6 +17915,22 @@ function currentLocationPath(): string {
 function readThemePreference(): ThemePreference {
 	const value = window.localStorage.getItem("bickr.theme");
 	return value === "light" || value === "dark" || value === "system" ? value : "system";
+}
+
+function readStoredFontScalePercent(): FontScalePercent {
+	try {
+		return readFontScalePercent(window.localStorage);
+	} catch {
+		return defaultFontScalePercent;
+	}
+}
+
+function writeStoredFontScalePercent(value: FontScalePercent): void {
+	try {
+		writeFontScalePercent(window.localStorage, value);
+	} catch {
+		// Browser storage can be unavailable; the scale still applies for this render.
+	}
 }
 
 function readStoredBoolean(key: string, fallback: boolean): boolean {
