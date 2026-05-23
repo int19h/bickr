@@ -5157,6 +5157,10 @@ fieldset {
 		display: none;
 	}
 
+	.font-scale-switch .font-scale-reset {
+		display: none;
+	}
+
 	.main-inner {
 		padding: 20px 16px 80px;
 	}
@@ -5293,9 +5297,6 @@ fieldset {
 		width: 24px;
 	}
 
-	.font-scale-switch .font-scale-reset {
-		display: none;
-	}
 }
 
 @media (max-width: 420px) {
