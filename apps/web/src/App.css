@@ -185,7 +185,6 @@ a {
 	flex: 1 1 auto;
 	gap: 10px;
 	min-width: 0;
-	overflow: hidden;
 }
 
 .brand-mark {
@@ -5152,6 +5151,10 @@ fieldset {
 		display: block;
 	}
 
+	.brand-name {
+		display: none;
+	}
+
 	.search,
 	.status-chip {
 		display: none;
@@ -5284,10 +5287,6 @@ fieldset {
 }
 
 @media (max-width: 680px) {
-	.brand-name {
-		display: none;
-	}
-
 	.topbar .right {
 		gap: 6px;
 	}
