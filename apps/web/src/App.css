@@ -182,8 +182,10 @@ a {
 }
 
 .brand {
+	flex: 1 1 auto;
 	gap: 10px;
 	min-width: 0;
+	overflow: hidden;
 }
 
 .brand-mark {
@@ -332,11 +334,13 @@ a {
 .crumbs {
 	border-left: 1px solid var(--rule);
 	color: var(--ink-3);
+	flex: 1 1 auto;
 	font-size: calc(13px * var(--font-scale));
 	font-weight: 400;
 	gap: 8px;
 	margin-left: 16px;
 	min-width: 0;
+	overflow: hidden;
 	padding-left: 16px;
 }
 
@@ -369,6 +373,7 @@ a {
 }
 
 .topbar .right {
+	flex: 0 0 auto;
 	gap: 10px;
 	min-width: 0;
 }
@@ -5289,7 +5294,7 @@ fieldset {
 	}
 
 	.font-scale-switch .font-scale-reset {
-		width: 38px;
+		display: none;
 	}
 }
 
