@@ -17196,7 +17196,7 @@ function ReferencePopover({
 		.join(" ");
 	if (meta.bot) {
 		return (
-			<span className={className} ref={popoverRef} role="tooltip">
+			<span className={className} data-selection-exclude="true" ref={popoverRef} role="tooltip">
 				<BotReferencePopoverAvatar bot={meta.bot} />
 				<span className="ref-pop-content">
 					<span className="ref-pop-title">{meta.bot.displayName}</span>
@@ -17218,7 +17218,7 @@ function ReferencePopover({
 		);
 	}
 	return (
-		<span className={className} ref={popoverRef} role="tooltip">
+		<span className={className} data-selection-exclude="true" ref={popoverRef} role="tooltip">
 			<span className="ref-pop-title">{meta.title}</span>
 			<span className="ref-pop-desc">
 				{typeof meta.description === "string" ?

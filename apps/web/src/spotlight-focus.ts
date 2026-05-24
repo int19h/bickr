@@ -1,4 +1,7 @@
 const commentElementId = (commentId: string) => `comment-${commentId}`;
+const elementNodeType = 1;
+const textNodeType = 3;
+const selectionExcludedSelector = "[data-selection-exclude='true']";
 
 export function quoteSpotlightFocusText(text: string): string {
 	const trimmed = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
@@ -52,5 +55,28 @@ function selectedTextWithinNode(range: Range, node: Node): string {
 	if (range.compareBoundaryPoints(Range.END_TO_END, nodeRange) > 0) {
 		clippedRange.setEnd(nodeRange.endContainer, nodeRange.endOffset);
 	}
-	return clippedRange.toString();
+	return selectedTextFromClonedContents(clippedRange.cloneContents());
+}
+
+export function selectedTextFromClonedContents(fragment: DocumentFragment): string {
+	return selectedTextFromNode(fragment);
+}
+
+function selectedTextFromNode(node: Node): string {
+	if (node.nodeType === textNodeType) {
+		return node.nodeValue ?? "";
+	}
+	if (isElementNode(node)) {
+		if (node.matches(selectionExcludedSelector)) {
+			return "";
+		}
+		if (node.tagName === "BR") {
+			return "\n";
+		}
+	}
+	return Array.from(node.childNodes).map(selectedTextFromNode).join("");
+}
+
+function isElementNode(node: Node): node is Element {
+	return node.nodeType === elementNodeType && "matches" in node && typeof node.matches === "function";
 }
