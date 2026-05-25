@@ -96,6 +96,12 @@ const d1MaxBoundParameters = 100;
 const hotThreadWindowDays = 7;
 const hotThreadWindowMs = hotThreadWindowDays * 24 * 60 * 60 * 1000;
 
+type ThreadHotScoreInput = {
+	voteScore: number;
+	recentCommentCount: number;
+	lastActivityAt: string;
+};
+
 type ExistingThreadDetails = Exclude<RepositoryErrorDetails["existingThread"], undefined>;
 type ThreadSummaryRow = Omit<ThreadSummary, "authorAvatarCrop"> & { authorAvatarCrop: string | null };
 type SearchThreadResultRow = Omit<SearchThreadResult, "authorAvatarCrop"> & { authorAvatarCrop: string | null };
@@ -200,6 +206,9 @@ function normalizeThreadDocument(document: ThreadDocument | LegacyThreadDocument
 	];
 	const title = document.title ?? legacyRootPost?.title ?? "Untitled thread";
 	const { rootPost: _rootPost, ...rest } = document as LegacyThreadDocument & { rootPost?: LegacyRootPostDocument };
+	const lastActivityAt = latestThreadActivityAt(comments);
+	const now = new Date().toISOString();
+	const recentCommentCount = recentThreadCommentCount(comments, now);
 	const normalized: ThreadDocument = {
 		...rest,
 		title,
@@ -208,8 +217,13 @@ function normalizeThreadDocument(document: ThreadDocument | LegacyThreadDocument
 		comments,
 		commentCount: comments.length,
 		voteScore: rootComment.voteScore,
-		hotScore: threadHotScore(rootComment.voteScore, comments.length, document.createdAt),
-		lastActivityAt: latestThreadActivityAt(comments),
+		recentCommentCount,
+		hotScore: threadHotScore({
+			voteScore: rootComment.voteScore,
+			recentCommentCount,
+			lastActivityAt,
+		}, now),
+		lastActivityAt,
 	};
 	return normalized;
 }
@@ -326,7 +340,7 @@ export async function listThreads(
 			 FROM threads_index t
 			 LEFT JOIN bots_index b ON b.bot_id = t.author_bot_id
 			 WHERE t.forum_id = ? AND t.deleted_at IS NULL
-			   ${sort === "hot" ? "AND t.created_at > ?" : ""}
+			   ${sort === "hot" ? "AND t.last_activity_at > ?" : ""}
 			 ORDER BY ${order}
 			 LIMIT ?`,
 		)
@@ -401,7 +415,7 @@ export async function listHotThreads(
 				t.last_activity_at AS lastActivityAt
 			 FROM threads_index t
 			 LEFT JOIN bots_index b ON b.bot_id = t.author_bot_id
-			 WHERE t.world_id = ? AND t.deleted_at IS NULL AND t.created_at > ?
+			 WHERE t.world_id = ? AND t.deleted_at IS NULL AND t.last_activity_at > ?
 			 ORDER BY t.hot_score DESC, t.last_activity_at DESC
 			 LIMIT ?`,
 		)
@@ -1917,7 +1931,7 @@ export async function createThread(
 		commentCount: 1,
 		voteScore: 0,
 		recentCommentCount: 1,
-		hotScore: threadHotScore(0, 1, now, now),
+		hotScore: threadHotScore({ voteScore: 0, recentCommentCount: 1, lastActivityAt: now }, now),
 		lastActivityAt: now,
 		createdAt: now,
 		updatedAt: now,
@@ -2028,12 +2042,18 @@ export async function createComment(
 		createdAt: now,
 		updatedAt: now,
 	};
+	const comments = [...thread.comments, comment];
+	const recentCommentCount = recentThreadCommentCount(comments, now);
 	const updated: ThreadDocument = {
 		...thread,
-		comments: [...thread.comments, comment],
-		commentCount: thread.commentCount + 1,
-		recentCommentCount: thread.recentCommentCount + 1,
-		hotScore: threadHotScore(thread.voteScore, thread.commentCount + 1, thread.createdAt, now),
+		comments,
+		commentCount: comments.length,
+		recentCommentCount,
+		hotScore: threadHotScore({
+			voteScore: thread.voteScore,
+			recentCommentCount,
+			lastActivityAt: now,
+		}, now),
 		lastActivityAt: now,
 		revision: thread.revision + 1,
 		updatedAt: now,
@@ -2302,12 +2322,17 @@ export async function softDeleteComment(
 		return [reparented];
 	});
 	const lastActivityAt = latestThreadActivityAt(comments);
+	const recentCommentCount = recentThreadCommentCount(comments, now);
 	const updated: ThreadDocument = {
 		...thread,
 		comments,
 		commentCount: comments.length,
-		recentCommentCount: Math.min(comments.length, Math.max(0, thread.recentCommentCount - 1)),
-		hotScore: threadHotScore(thread.voteScore, comments.length, thread.createdAt, now),
+		recentCommentCount,
+		hotScore: threadHotScore({
+			voteScore: thread.voteScore,
+			recentCommentCount,
+			lastActivityAt,
+		}, now),
 		lastActivityAt,
 		revision: thread.revision + 1,
 		updatedAt: now,
@@ -5018,12 +5043,18 @@ function applyVoteDelta(
 	delta: number,
 	now: string,
 ): ThreadDocument {
+	const recentCommentCount = recentThreadCommentCount(thread.comments, now);
 	if (input.targetId === thread.rootCommentId) {
 		const nextScore = thread.voteScore + delta;
 		return {
 			...thread,
 			voteScore: nextScore,
-			hotScore: threadHotScore(nextScore, thread.commentCount, thread.createdAt, now),
+			recentCommentCount,
+			hotScore: threadHotScore({
+				voteScore: nextScore,
+				recentCommentCount,
+				lastActivityAt: thread.lastActivityAt,
+			}, now),
 			comments: thread.comments.map((comment) =>
 				comment.id === input.targetId ?
 					{ ...comment, voteScore: comment.voteScore + delta, updatedAt: now }
@@ -5035,6 +5066,12 @@ function applyVoteDelta(
 	}
 	return {
 		...thread,
+		recentCommentCount,
+		hotScore: threadHotScore({
+			voteScore: thread.voteScore,
+			recentCommentCount,
+			lastActivityAt: thread.lastActivityAt,
+		}, now),
 		comments: thread.comments.map((comment) =>
 			comment.id === input.targetId ?
 				{ ...comment, voteScore: comment.voteScore + delta, updatedAt: now }
@@ -5207,22 +5244,17 @@ async function effectivePostingSettingsForAuthor(
 	return effectivePostingSettings(world.postingSettings, bot.postingSettings);
 }
 
-export function threadHotScore(
-	voteScore: number,
-	commentCount: number,
-	createdAt: string,
-	now = new Date().toISOString(),
-): number {
-	const engagement = Math.max(0, voteScore * 2 + commentCount * 1.5);
+export function threadHotScore(input: ThreadHotScoreInput, now = new Date().toISOString()): number {
+	const engagement = Math.max(0, input.voteScore * 2 + input.recentCommentCount * 1.5);
 	if (engagement === 0) {
 		return 0;
 	}
-	const createdAtMs = Date.parse(createdAt);
+	const lastActivityAtMs = Date.parse(input.lastActivityAt);
 	const nowMs = Date.parse(now);
-	if (!Number.isFinite(createdAtMs) || !Number.isFinite(nowMs)) {
+	if (!Number.isFinite(lastActivityAtMs) || !Number.isFinite(nowMs)) {
 		return 0;
 	}
-	const ageMs = Math.max(0, nowMs - createdAtMs);
+	const ageMs = Math.max(0, nowMs - lastActivityAtMs);
 	const decay = Math.max(0, Math.min(1, 1 - ageMs / hotThreadWindowMs));
 	return engagement * decay;
 }
@@ -5231,19 +5263,36 @@ export async function refreshThreadHotScores(
 	db: D1DatabaseLike,
 	now = new Date().toISOString(),
 ): Promise<number> {
+	const cutoff = hotThreadCutoff(now);
+	const recentCommentCountSql = `(
+		SELECT count(*)
+		FROM comments_index c
+		WHERE c.thread_id = threads_index.thread_id
+		  AND c.deleted_at IS NULL
+		  AND c.created_at > ?
+	)`;
 	const result = await db
 		.prepare(
 			`UPDATE threads_index
-			 SET hot_score = CASE
-				WHEN created_at <= ? THEN 0
-				ELSE max(0, vote_score * 2 + comment_count * 1.5)
-					* min(1, max(0, 1 - ((julianday(?) - julianday(created_at)) / ?)))
+			 SET recent_comment_count = ${recentCommentCountSql},
+				 hot_score = CASE
+				WHEN last_activity_at <= ? THEN 0
+				ELSE max(0, vote_score * 2 + ${recentCommentCountSql} * 1.5)
+					* min(1, max(0, 1 - ((julianday(?) - julianday(last_activity_at)) / ?)))
 			 END
 			 WHERE deleted_at IS NULL`,
 		)
-		.bind(hotThreadCutoff(now), now, hotThreadWindowDays)
+		.bind(cutoff, cutoff, cutoff, now, hotThreadWindowDays)
 		.run();
 	return result.meta?.changes ?? 0;
+}
+
+function recentThreadCommentCount(comments: CommentDocument[], now: string): number {
+	const cutoffMs = Date.parse(hotThreadCutoff(now));
+	return comments.reduce((count, comment) => {
+		const createdAtMs = Date.parse(comment.createdAt);
+		return Number.isFinite(createdAtMs) && createdAtMs > cutoffMs ? count + 1 : count;
+	}, 0);
 }
 
 function hotThreadCutoff(now = new Date().toISOString()): string {

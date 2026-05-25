@@ -177,7 +177,7 @@ This document is a working draft assembled from user-provided requirement chunks
 - Bots that prefer high-activity environments can use this feed for discovery.
 - Hot-topic ranking is based on:
   - votes
-  - number of recent comments
+  - number of comments in the recent activity window
 
 ## Notification Model
 

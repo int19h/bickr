@@ -15785,7 +15785,7 @@ describe("Bickr Pages Functions", () => {
 		expect(voteNotice?.urlPath).toBe(`/w/patch-notes/u/cache-critic?tab=activity&activity=vote%3Acomment%3A${thread.data.thread.rootCommentId}`);
 	});
 
-	it("decays and expires hot threads by creation age without hiding recent or direct reads", async () => {
+	it("decays and expires hot threads by recent activity without hiding recent or direct reads", async () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);
 		const forum = await createForumForTest(cookie, "hot-decay");
@@ -15798,22 +15798,28 @@ describe("Bickr Pages Functions", () => {
 				return createThreadForTest(forum.id, author.id, title, `${title} body.`);
 			};
 			const expired = await createAt("2026-05-01T12:00:00.000Z", "Expired hot thread");
+			const revived = await createAt("2026-05-01T00:00:00.000Z", "Revived hot thread");
 			const almostExpired = await createAt("2026-05-01T13:00:00.000Z", "Almost expired hot thread");
 			const halfAge = await createAt("2026-05-05T00:00:00.000Z", "Half age hot thread");
 			const fresh = await createAt(now, "Fresh hot thread");
 
 			vi.setSystemTime(new Date(now));
+			await createCommentForTest(revived.id, author.id, "A fresh comment revives this older thread.");
 			await refreshThreadHotScores(testEnv.BICKR_D1, now);
 
 			const hot = await listThreads(testEnv.BICKR_D1, forum.id, "hot", 10);
 			const hotIds = hot.map((thread) => thread.id);
-			expect(hotIds).toEqual(expect.arrayContaining([fresh.id, halfAge.id, almostExpired.id]));
+			expect(hotIds).toEqual(expect.arrayContaining([fresh.id, halfAge.id, almostExpired.id, revived.id]));
 			expect(hotIds).not.toContain(expired.id);
 			expect((await listHotThreads(testEnv.BICKR_D1, forum.worldId, 10)).map((thread) => thread.id)).not.toContain(expired.id);
 
 			const halfAgeDocument = await readThread(testEnv.BICKR_KV, halfAge.id);
 			expect(hot.find((thread) => thread.id === halfAge.id)?.hotScore).toBeCloseTo(
-				threadHotScore(0, 1, halfAgeDocument.createdAt, now),
+				threadHotScore({
+					voteScore: 0,
+					recentCommentCount: halfAgeDocument.recentCommentCount,
+					lastActivityAt: halfAgeDocument.lastActivityAt,
+				}, now),
 			);
 			const recent = await listThreads(testEnv.BICKR_D1, forum.id, "recent", 10);
 			expect(recent.map((thread) => thread.id)).toContain(expired.id);
@@ -15823,7 +15829,7 @@ describe("Bickr Pages Functions", () => {
 		}
 	});
 
-	it("uses creation-age decay for root votes and comment mutations", async () => {
+	it("uses recent-activity decay for root votes and comment mutations", async () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);
 		const forum = await createForumForTest(cookie, "hot-mutations");
@@ -15844,7 +15850,11 @@ describe("Bickr Pages Functions", () => {
 				targetId: thread.rootCommentId,
 				value: 1,
 			}, voteNow);
-			expect(rootVoted.hotScore).toBeCloseTo(threadHotScore(1, beforeVote.commentCount, beforeVote.createdAt, voteNow));
+			expect(rootVoted.hotScore).toBeCloseTo(threadHotScore({
+				voteScore: 1,
+				recentCommentCount: beforeVote.recentCommentCount,
+				lastActivityAt: beforeVote.lastActivityAt,
+			}, voteNow));
 
 			const commentVoted = await setVote(testEnv.BICKR_KV, testEnv.BICKR_D1, {
 				botId: voter.id,
@@ -15856,9 +15866,15 @@ describe("Bickr Pages Functions", () => {
 
 			const expiredNow = "2026-05-09T12:00:00.000Z";
 			vi.setSystemTime(new Date(expiredNow));
-			await createCommentForTest(thread.id, voter.id, "Expired follow-up.");
-			expect((await readThread(testEnv.BICKR_KV, thread.id)).hotScore).toBe(0);
-			expect((await listHotThreads(testEnv.BICKR_D1, forum.worldId, 10)).map((item) => item.id)).not.toContain(thread.id);
+			await createCommentForTest(thread.id, voter.id, "Fresh follow-up.");
+			const revivedThread = await readThread(testEnv.BICKR_KV, thread.id);
+			expect(revivedThread.hotScore).toBeCloseTo(threadHotScore({
+				voteScore: 1,
+				recentCommentCount: 1,
+				lastActivityAt: expiredNow,
+			}, expiredNow));
+			expect(revivedThread.recentCommentCount).toBe(1);
+			expect((await listHotThreads(testEnv.BICKR_D1, forum.worldId, 10)).map((item) => item.id)).toContain(thread.id);
 		} finally {
 			vi.useRealTimers();
 		}
@@ -15907,7 +15923,11 @@ describe("Bickr Pages Functions", () => {
 
 			const firstRefresh = "2026-05-02T00:00:00.000Z";
 			await runScheduled(firstRefresh);
-			expect(await storedHotScore()).toBeCloseTo(threadHotScore(0, 1, threadDocument.createdAt, firstRefresh));
+			expect(await storedHotScore()).toBeCloseTo(threadHotScore({
+				voteScore: 0,
+				recentCommentCount: threadDocument.recentCommentCount,
+				lastActivityAt: threadDocument.lastActivityAt,
+			}, firstRefresh));
 
 			await runScheduled("2026-05-08T00:00:00.000Z");
 			expect(await storedHotScore()).toBe(0);

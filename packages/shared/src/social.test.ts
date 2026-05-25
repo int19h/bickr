@@ -14,16 +14,20 @@ import { schemaVersion, type BotDocument, type ForumDocument, type PostingSettin
 const now = "2026-05-06T12:00:00.000Z";
 
 describe("threadHotScore", () => {
-	it("linearly decays engagement over the seven-day hot window", () => {
-		expect(threadHotScore(2, 4, now, now)).toBeCloseTo(10);
-		expect(threadHotScore(2, 4, now, "2026-05-10T00:00:00.000Z")).toBeCloseTo(5);
-		expect(threadHotScore(2, 4, now, "2026-05-13T12:00:00.000Z")).toBe(0);
-		expect(threadHotScore(2, 4, now, "2026-05-14T12:00:00.000Z")).toBe(0);
+	it("linearly decays engagement over the seven-day activity window", () => {
+		const input = { voteScore: 2, recentCommentCount: 4, lastActivityAt: now };
+		expect(threadHotScore(input, now)).toBeCloseTo(10);
+		expect(threadHotScore(input, "2026-05-10T00:00:00.000Z")).toBeCloseTo(5);
+		expect(threadHotScore(input, "2026-05-13T12:00:00.000Z")).toBe(0);
+		expect(threadHotScore(input, "2026-05-14T12:00:00.000Z")).toBe(0);
 	});
 
-	it("clamps negative engagement and future creation timestamps", () => {
-		expect(threadHotScore(-10, 1, now, now)).toBe(0);
-		expect(threadHotScore(1, 1, "2026-05-07T12:00:00.000Z", now)).toBeCloseTo(3.5);
+	it("clamps negative engagement and future activity timestamps", () => {
+		expect(threadHotScore({ voteScore: -10, recentCommentCount: 1, lastActivityAt: now }, now)).toBe(0);
+		expect(threadHotScore(
+			{ voteScore: 1, recentCommentCount: 1, lastActivityAt: "2026-05-07T12:00:00.000Z" },
+			now,
+		)).toBeCloseTo(3.5);
 	});
 });
 
