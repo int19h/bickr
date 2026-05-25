@@ -10,6 +10,7 @@
 		"./cloudflare": "./src/cloudflare.ts",
 		"./governance": "./src/governance.ts",
 		"./ids": "./src/ids.ts",
+		"./internal-service": "./src/internal-service.ts",
 		"./model": "./src/model.ts",
 		"./openrouter-model-capabilities": "./src/openrouter-model-capabilities.ts",
 		"./posting": "./src/posting.ts",

@@ -113,7 +113,8 @@
 			"vars": {
 				"BICKR_R2_PUBLIC_BASE_URL": "https://assets-test.bickr.social",
 				"GITHUB_REDIRECT_URI": "https://test.bickr.social/api/auth/github/callback",
-				"GOOGLE_REDIRECT_URI": "https://test.bickr.social/api/auth/google/callback"
+				"GOOGLE_REDIRECT_URI": "https://test.bickr.social/api/auth/google/callback",
+				"TEST_AUTH_ALLOWED_HOSTS": "test.bickr.social,test.bickr.pages.dev"
 			}
 		}
 	}

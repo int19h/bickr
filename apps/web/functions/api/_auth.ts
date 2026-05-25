@@ -19,6 +19,7 @@ export type AppEnv = Env & {
 	GOOGLE_REDIRECT_URI?: string;
 	OAUTH_FETCH?: typeof fetch;
 	CHIRPER_FETCH?: typeof fetch;
+	TEST_AUTH_ALLOWED_HOSTS?: string;
 	TEST_AUTH_SECRET?: string;
 };
 

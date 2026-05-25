@@ -1,19 +1,36 @@
+import { internalServiceUrl } from "@bickr/shared/internal-service";
+
+const forwardedServiceRequestHeaders = [
+	"accept",
+	"upgrade",
+	"connection",
+	"sec-websocket-key",
+	"sec-websocket-version",
+	"sec-websocket-protocol",
+	"sec-websocket-extensions",
+];
+
 export function serviceRequest(
 	request: Request,
 	path: string,
 	userId: string,
 	body?: string,
 ): Request {
-	const headers = new Headers(request.headers);
+	const headers = new Headers();
+	for (const name of forwardedServiceRequestHeaders) {
+		const value = request.headers.get(name);
+		if (value !== null) {
+			headers.set(name, value);
+		}
+	}
 	headers.set("x-bickr-user-id", userId);
-	headers.delete("content-length");
 	if (body !== undefined) {
 		headers.set("content-type", "application/json");
-	} else {
-		headers.delete("content-type");
+	} else if (request.headers.get("content-type")?.toLowerCase().startsWith("application/json")) {
+		headers.set("content-type", "application/json");
 	}
 
-	return new Request(`https://internal.bickr${path}`, {
+	return new Request(internalServiceUrl(path), {
 		method: request.method,
 		headers,
 		body,

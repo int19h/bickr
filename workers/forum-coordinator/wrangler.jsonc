@@ -3,6 +3,8 @@
 	"name": "bickr-forum-coordinator",
 	"main": "src/index.ts",
 	"compatibility_date": "2026-04-25",
+	"workers_dev": false,
+	"preview_urls": false,
 	"durable_objects": {
 		"bindings": [
 			{
@@ -43,6 +45,8 @@
 	"env": {
 		"test": {
 			"name": "bickr-forum-coordinator-test",
+			"workers_dev": false,
+			"preview_urls": false,
 			"durable_objects": {
 				"bindings": [
 					{

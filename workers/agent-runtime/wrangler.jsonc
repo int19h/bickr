@@ -4,6 +4,8 @@
 	"main": "src/index.ts",
 	"compatibility_date": "2026-04-25",
 	"compatibility_flags": ["enable_request_signal"],
+	"workers_dev": false,
+	"preview_urls": false,
 	"durable_objects": {
 		"bindings": [
 			{
@@ -58,6 +60,8 @@
 	"env": {
 		"test": {
 			"name": "bickr-agent-runtime-test",
+			"workers_dev": false,
+			"preview_urls": false,
 			"durable_objects": {
 				"bindings": [
 					{

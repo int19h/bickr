@@ -10,6 +10,7 @@ import { onRequestGet as googleStart } from "../apps/web/functions/api/auth/goog
 import { onRequestGet as googleCallback } from "../apps/web/functions/api/auth/google/callback";
 import { onRequestPost as logout } from "../apps/web/functions/api/auth/logout";
 import { onRequestPost as testLogin } from "../apps/web/functions/api/__test__/login";
+import { onRequestPost as testServiceProxy } from "../apps/web/functions/api/__test__/service-proxy";
 import { onRequestGet as health } from "../apps/web/functions/api/health";
 import { onRequestGet as searchRoute } from "../apps/web/functions/api/search";
 import { onRequestGet as searchSuggestRoute } from "../apps/web/functions/api/search/suggest";
@@ -48,6 +49,7 @@ import {
 import { onRequestPost as translateText } from "../apps/web/functions/api/me/translate";
 import { onRequestDelete as unlinkAuthIdentity } from "../apps/web/functions/api/me/auth/identities/[provider]";
 import { onRequestGet as runtimeHealth } from "../apps/web/functions/api/runtime/health";
+import { serviceRequest as buildServiceRequest } from "../apps/web/functions/api/_proxy";
 import { onRequestGet as session } from "../apps/web/functions/api/session";
 import {
 	onRequestGet as forums,
@@ -11809,6 +11811,153 @@ describe("Bickr Pages Functions", () => {
 		expect(payload.services.forumCoordinator.ok).toBe(true);
 	});
 
+	it("rebuilds Pages service requests from safe protocol headers", () => {
+		const browserRequest = new Request("https://test.bickr.social/api/me/bots/bot_1/runtime/messages", {
+			headers: {
+				accept: "text/event-stream",
+				authorization: "Bearer browser-token",
+				connection: "Upgrade",
+				"content-type": "text/plain",
+				cookie: "bickr_session=browser-session",
+				"sec-websocket-key": "websocket-key",
+				"sec-websocket-protocol": "chat",
+				"sec-websocket-version": "13",
+				upgrade: "websocket",
+				"x-bickr-bot-id": "spoofed-bot",
+				"x-bickr-scheduler": "1",
+				"x-bickr-user-id": "spoofed-user",
+			},
+			method: "GET",
+		});
+		const proxied = buildServiceRequest(browserRequest, "/bots/bot_1/messages", "server-user");
+
+		expect(proxied.url).toBe("https://internal.bickr/bots/bot_1/messages");
+		expect(proxied.headers.get("x-bickr-user-id")).toBe("server-user");
+		expect(proxied.headers.get("accept")).toBe("text/event-stream");
+		expect(proxied.headers.get("upgrade")).toBe("websocket");
+		expect(proxied.headers.get("connection")).toBe("Upgrade");
+		expect(proxied.headers.get("sec-websocket-key")).toBe("websocket-key");
+		expect(proxied.headers.get("sec-websocket-protocol")).toBe("chat");
+		expect(proxied.headers.get("sec-websocket-version")).toBe("13");
+		expect(proxied.headers.get("authorization")).toBeNull();
+		expect(proxied.headers.get("cookie")).toBeNull();
+		expect(proxied.headers.get("x-bickr-bot-id")).toBeNull();
+		expect(proxied.headers.get("x-bickr-scheduler")).toBeNull();
+		expect(proxied.headers.get("content-type")).toBeNull();
+
+		const jsonProxied = buildServiceRequest(
+			new Request("https://test.bickr.social/api/me/profile", {
+				headers: { "content-type": "application/json;charset=UTF-8" },
+				method: "PATCH",
+			}),
+			"/users/server-user/profile",
+			"server-user",
+		);
+		expect(jsonProxied.headers.get("content-type")).toBe("application/json");
+	});
+
+	it("does not forward privileged browser headers through Pages runtime routes", async () => {
+		const cookie = await authCookieFor({
+			displayName: "Header Smuggle",
+			login: "header-smuggle",
+			subject: "header-smuggle",
+		});
+		const userId = await userIdForHandle("header-smuggle");
+		const forwarded: Request[] = [];
+		const response = await runtimeMessagesRoute(
+			contextFor<typeof runtimeMessagesRoute>(
+				new Request("http://example.com/api/me/bots/bot_header/runtime/messages", {
+					headers: {
+						authorization: "Bearer attacker",
+						cookie,
+						"x-bickr-bot-id": "spoofed-bot",
+						"x-bickr-scheduler": "1",
+						"x-bickr-user-id": "spoofed-user",
+					},
+				}),
+				{ botId: "bot_header" },
+				{
+					AGENT_RUNTIME: {
+						fetch: async (request: Request) => {
+							forwarded.push(request);
+							return Response.json({ ok: true, data: { messages: [] } });
+						},
+					} as unknown as Fetcher,
+				},
+			),
+		);
+
+		expect(response.status).toBe(200);
+		expect(forwarded).toHaveLength(1);
+		expect(forwarded[0]!.url).toBe("https://internal.bickr/bots/bot_header/messages");
+		expect(forwarded[0]!.headers.get("x-bickr-user-id")).toBe(userId);
+		expect(forwarded[0]!.headers.get("x-bickr-scheduler")).toBeNull();
+		expect(forwarded[0]!.headers.get("x-bickr-bot-id")).toBeNull();
+		expect(forwarded[0]!.headers.get("authorization")).toBeNull();
+		expect(forwarded[0]!.headers.get("cookie")).toBeNull();
+	});
+
+	it("rejects public-style Worker hosts before honoring internal debug headers", async () => {
+		const spoofedAgent = await agentRuntimeWorker.fetch(
+			new Request("https://bickr-agent-runtime-test.example.workers.dev/health", {
+				headers: {
+					"x-bickr-scheduler": "1",
+					"x-bickr-user-id": "spoofed-user",
+				},
+			}) as unknown as Parameters<typeof agentRuntimeWorker.fetch>[0],
+			{} as unknown as Parameters<typeof agentRuntimeWorker.fetch>[1],
+		);
+		expect(spoofedAgent.status).toBe(404);
+
+		const internalAgent = await agentRuntimeWorker.fetch(
+			new Request("https://internal.bickr/health") as unknown as Parameters<typeof agentRuntimeWorker.fetch>[0],
+			{} as unknown as Parameters<typeof agentRuntimeWorker.fetch>[1],
+		);
+		expect(internalAgent.status).toBe(200);
+
+		const spoofedForumHealth = await forumCoordinatorWorker.fetch(
+			new Request("https://bickr-forum-coordinator-test.example.workers.dev/health", {
+				headers: { "x-bickr-scheduler": "1" },
+			}) as unknown as Parameters<typeof forumCoordinatorWorker.fetch>[0],
+			{} as unknown as Parameters<typeof forumCoordinatorWorker.fetch>[1],
+		);
+		expect(spoofedForumHealth.status).toBe(404);
+
+		const spoofedForumBot = await forumCoordinatorWorker.fetch(
+			jsonRequest(
+				"https://bickr-forum-coordinator-test.example.workers.dev/forums/forum_1/threads",
+				"POST",
+				{ title: "Spoofed thread", body: "Public Worker URL" },
+				undefined,
+				{ "x-bickr-bot-id": "spoofed-bot" },
+			) as unknown as Parameters<typeof forumCoordinatorWorker.fetch>[0],
+			{} as unknown as Parameters<typeof forumCoordinatorWorker.fetch>[1],
+		);
+		expect(spoofedForumBot.status).toBe(404);
+
+		const internalForum = await forumCoordinatorWorker.fetch(
+			new Request("https://internal.bickr/health") as unknown as Parameters<typeof forumCoordinatorWorker.fetch>[0],
+			{} as unknown as Parameters<typeof forumCoordinatorWorker.fetch>[1],
+		);
+		expect(internalForum.status).toBe(200);
+	});
+
+	it("requires scheduler intent for internal vector reindexing", async () => {
+		const response = await handleAgentRuntimeRequest(
+			new Request("https://internal.bickr/search/reindex-vectors", {
+				headers: { "x-bickr-user-id": "service-user" },
+				method: "POST",
+			}),
+			{
+				BICKR_D1: testEnv.BICKR_D1,
+				BICKR_KV: testEnv.BICKR_KV,
+			},
+		);
+
+		expect(response.status).toBe(401);
+		expect(await response.json()).toMatchObject({ ok: false, error: "unauthorized" });
+	});
+
 	it("rejects unauthenticated mutations", async () => {
 		const response = await createWorld(
 			contextFor<typeof createWorld>(
@@ -11846,6 +11995,37 @@ describe("Bickr Pages Functions", () => {
 		expect(remoteHost.status).toBe(404);
 	});
 
+	it("allows test login on configured test hosts with the correct secret", async () => {
+		const response = await testLogin(
+			contextFor<typeof testLogin>(
+				jsonRequest(
+					"https://test.bickr.social/api/__test__/login",
+					"POST",
+					{
+						subject: "configured-test-login",
+						login: "configured-test-login",
+						handle: "configured-test-login",
+						displayName: "Configured Test Login",
+					},
+					undefined,
+					{ "x-test-auth-secret": "test-secret" },
+				),
+				{},
+				{
+					TEST_AUTH_ALLOWED_HOSTS: "test.bickr.social,test.bickr.pages.dev",
+					TEST_AUTH_SECRET: "test-secret",
+				},
+			),
+		);
+
+		expect(response.status).toBe(201);
+		expect(response.headers.getSetCookie().join(";")).toContain(`${sessionCookieName}=`);
+		expect(await response.json()).toMatchObject({
+			ok: true,
+			data: { profile: { handle: "configured-test-login" } },
+		});
+	});
+
 	it("rejects local test login requests with the wrong secret", async () => {
 		const response = await testLogin(
 			contextFor<typeof testLogin>(
@@ -11863,6 +12043,135 @@ describe("Bickr Pages Functions", () => {
 
 		expect(response.status).toBe(401);
 		expect(await response.json()).toMatchObject({ ok: false, error: "unauthorized" });
+	});
+
+	it("protects the test service proxy and allowlists services, paths, and headers", async () => {
+		const disabled = await testServiceProxy(
+			contextFor<typeof testServiceProxy>(
+				jsonRequest(
+					"https://test.bickr.social/api/__test__/service-proxy",
+					"POST",
+					{ service: "agent-runtime", method: "GET", path: "/health" },
+					undefined,
+					{ "x-test-auth-secret": "secret" },
+				),
+			),
+		);
+		expect(disabled.status).toBe(404);
+
+		const wrongSecret = await testServiceProxy(
+			contextFor<typeof testServiceProxy>(
+				jsonRequest(
+					"https://test.bickr.social/api/__test__/service-proxy",
+					"POST",
+					{ service: "agent-runtime", method: "GET", path: "/health" },
+					undefined,
+					{ "x-test-auth-secret": "wrong" },
+				),
+				{},
+				{
+					TEST_AUTH_ALLOWED_HOSTS: "test.bickr.social,test.bickr.pages.dev",
+					TEST_AUTH_SECRET: "secret",
+				},
+			),
+		);
+		expect(wrongSecret.status).toBe(401);
+
+		const unsafePath = await testServiceProxy(
+			contextFor<typeof testServiceProxy>(
+				jsonRequest(
+					"https://test.bickr.social/api/__test__/service-proxy",
+					"POST",
+					{ service: "agent-runtime", method: "GET", path: "//example.com/health" },
+					undefined,
+					{ "x-test-auth-secret": "secret" },
+				),
+				{},
+				{
+					TEST_AUTH_ALLOWED_HOSTS: "test.bickr.social,test.bickr.pages.dev",
+					TEST_AUTH_SECRET: "secret",
+				},
+			),
+		);
+		expect(unsafePath.status).toBe(400);
+
+		const unsafeHeader = await testServiceProxy(
+			contextFor<typeof testServiceProxy>(
+				jsonRequest(
+					"https://test.bickr.social/api/__test__/service-proxy",
+					"POST",
+					{
+						service: "agent-runtime",
+						method: "GET",
+						path: "/health",
+						headers: { cookie: "bickr_session=stolen" },
+					},
+					undefined,
+					{ "x-test-auth-secret": "secret" },
+				),
+				{},
+				{
+					TEST_AUTH_ALLOWED_HOSTS: "test.bickr.social,test.bickr.pages.dev",
+					TEST_AUTH_SECRET: "secret",
+				},
+			),
+		);
+		expect(unsafeHeader.status).toBe(400);
+
+		const proxiedRequests: Request[] = [];
+		const agentRuntime = {
+			fetch: async (request: Request) => {
+				proxiedRequests.push(request);
+				return new Response("healthy", {
+					headers: {
+						"content-type": "text/plain",
+						"set-cookie": "unsafe=1",
+						"x-debug": "hidden",
+					},
+					status: 202,
+				});
+			},
+		} as unknown as Fetcher;
+		const success = await testServiceProxy(
+			contextFor<typeof testServiceProxy>(
+				jsonRequest(
+					"https://test.bickr.social/api/__test__/service-proxy",
+					"POST",
+					{
+						service: "agent-runtime",
+						method: "GET",
+						path: "/health",
+						headers: {
+							accept: "application/json",
+							"x-bickr-scheduler": "1",
+							"x-bickr-user-id": "usr_debug",
+						},
+					},
+					undefined,
+					{ "x-test-auth-secret": "secret" },
+				),
+				{},
+				{
+					AGENT_RUNTIME: agentRuntime,
+					TEST_AUTH_ALLOWED_HOSTS: "test.bickr.social,test.bickr.pages.dev",
+					TEST_AUTH_SECRET: "secret",
+				},
+			),
+		);
+
+		expect(success.status).toBe(202);
+		expect(await success.text()).toBe("healthy");
+		expect(success.headers.get("content-type")).toBe("text/plain");
+		expect(success.headers.get("cache-control")).toBe("no-store");
+		expect(success.headers.get("set-cookie")).toBeNull();
+		expect(success.headers.get("x-debug")).toBeNull();
+		expect(proxiedRequests).toHaveLength(1);
+		expect(proxiedRequests[0]!.url).toBe("https://internal.bickr/health");
+		expect(proxiedRequests[0]!.headers.get("accept")).toBe("application/json");
+		expect(proxiedRequests[0]!.headers.get("x-bickr-scheduler")).toBe("1");
+		expect(proxiedRequests[0]!.headers.get("x-bickr-user-id")).toBe("usr_debug");
+		expect(proxiedRequests[0]!.headers.get("cookie")).toBeNull();
+		expect(proxiedRequests[0]!.headers.get("authorization")).toBeNull();
 	});
 
 	it("supports local test login, session lookup, protected mutations, incomplete setup, and logout", async () => {
@@ -16237,7 +16546,7 @@ describe("Bickr Pages Functions", () => {
 				} as unknown as Fetcher;
 			},
 		};
-		const voteRequest = jsonRequest("http://example.com/votes", "POST", {
+		const voteRequest = jsonRequest("https://internal.bickr/votes", "POST", {
 			commentId: comment.id,
 			value: 1,
 		});

@@ -14,6 +14,7 @@ import { isCloudflareRateLimitError, retryCloudflareOperation } from '@bickr/sha
 import { deleteForum, deleteWorld } from '@bickr/shared/governance';
 import { json } from '@bickr/shared/http';
 import { formatCommentRef, formatThreadRef, parseCommentRef, parseObjectRef, parseThreadRef } from '@bickr/shared/ids';
+import { internalServiceUrl, isTrustedInternalServiceRequest } from '@bickr/shared/internal-service';
 import {
 	botById,
 	botPublicProfile,
@@ -3414,6 +3415,9 @@ export class BotRuntime {
 
 	async fetch(request: Request): Promise<Response> {
 		try {
+			if (!isTrustedInternalServiceRequest(request)) {
+				return agentRuntimeNotFoundResponse();
+			}
 			const url = new URL(request.url);
 			const botId = botIdFromPath(url.pathname);
 			return await this.handleRuntimeHttpRequest(request, url, botId);
@@ -7675,7 +7679,7 @@ export class BotRuntime {
 			() => new RuntimeOperationTimeoutError('The Bickr page request', serviceBindingTimeoutMs),
 			async (timeoutSignal) => {
 				const response = await this.env.FORUM_COORDINATOR_SERVICE.fetch(
-					new Request(`https://internal.bickr${path}`, {
+					new Request(internalServiceUrl(path), {
 						method: 'POST',
 						signal: timeoutSignal,
 						headers: {
@@ -11086,6 +11090,9 @@ export class UserBotsCoordinator {
 	}
 
 	async fetch(request: Request): Promise<Response> {
+		if (!isTrustedInternalServiceRequest(request)) {
+			return agentRuntimeNotFoundResponse();
+		}
 		return handleAgentRuntimeRequest(request, this.env, this.state.id.toString());
 	}
 }
@@ -11118,7 +11125,7 @@ export async function handleAgentRuntimeRequest(
 		}
 
 		if (request.method === 'GET' && url.pathname === '/search/entities') {
-			requireInternalServiceRequest(request);
+			requireAuthenticatedServiceRequest(request);
 			const mode = parseSearchMode(url.searchParams.get('mode'));
 			if (mode !== 'semantic') {
 				throw new InputError('Agent runtime search only supports semantic mode.');
@@ -11138,7 +11145,7 @@ export async function handleAgentRuntimeRequest(
 		}
 
 		if (request.method === 'POST' && url.pathname === '/search/reindex-vectors') {
-			requireInternalServiceRequest(request);
+			requireSchedulerServiceRequest(request);
 			const limit = Number(url.searchParams.get('limit') ?? 100);
 			const result = await reindexSearchVectors(env.BICKR_D1, env, Number.isFinite(limit) ? limit : 100);
 			return ok({ reindex: result, coordinator: objectId });
@@ -11362,6 +11369,9 @@ export async function handleAgentRuntimeRequest(
 export default {
 	async fetch(request, env) {
 		const url = new URL(request.url);
+		if (!isTrustedInternalServiceRequest(request)) {
+			return agentRuntimeNotFoundResponse();
+		}
 
 		if (url.pathname === '/health') {
 			return json({
@@ -11401,14 +11411,7 @@ export default {
 			return env.BOT_RUNTIME.get(objectId).fetch(request);
 		}
 
-		return json(
-			{
-				ok: false,
-				error: 'not_found',
-				runtime: 'agent-runtime-worker',
-			},
-			{ status: 404 },
-		);
+		return agentRuntimeNotFoundResponse();
 	},
 
 	async scheduled(event, env, ctx) {
@@ -11441,7 +11444,7 @@ async function dispatchDueBots(env: Env, scheduledTime: number): Promise<void> {
 					() => new RuntimeOperationTimeoutError('Scheduled Bickr visit dispatch', scheduledDispatchTimeoutMs),
 					(signal) =>
 						env.BOT_RUNTIME.get(id).fetch(
-							new Request(`https://internal.bickr/bots/${encodeURIComponent(row.botId)}/tick`, {
+							new Request(internalServiceUrl(`/bots/${encodeURIComponent(row.botId)}/tick`), {
 								method: 'POST',
 								signal,
 								headers: {
@@ -16605,11 +16608,29 @@ function requireUserMatch(request: Request, pathUserId: string): string {
 	return headerUserId;
 }
 
-function requireInternalServiceRequest(request: Request): void {
-	if (request.headers.get('x-bickr-scheduler') === '1' || request.headers.get('x-bickr-user-id')) {
+function requireAuthenticatedServiceRequest(request: Request): void {
+	if (request.headers.get('x-bickr-user-id')) {
 		return;
 	}
 	throw new RepositoryError('unauthorized', 'Authentication is required.', 401);
+}
+
+function requireSchedulerServiceRequest(request: Request): void {
+	if (request.headers.get('x-bickr-scheduler') === '1') {
+		return;
+	}
+	throw new RepositoryError('unauthorized', 'Authentication is required.', 401);
+}
+
+function agentRuntimeNotFoundResponse(): Response {
+	return json(
+		{
+			ok: false,
+			error: 'not_found',
+			runtime: 'agent-runtime-worker',
+		},
+		{ status: 404 },
+	);
 }
 
 function errorResponse(error: unknown): Response {

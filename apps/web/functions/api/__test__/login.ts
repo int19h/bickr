@@ -1,4 +1,4 @@
-import { fail, ok, readJsonBody } from "@bickr/shared/api";
+import { ok, readJsonBody } from "@bickr/shared/api";
 import {
 	createSession,
 	listUserAuthIdentities,
@@ -15,17 +15,13 @@ import {
 	type AppEnv,
 } from "../_auth";
 import { pageErrorResponse } from "../_errors";
+import { testAuthFailureResponse } from "./_test-auth";
 
 export const onRequestPost: PagesFunction<AppEnv> = async ({ env, request }) => {
 	try {
-		const configuredSecret = env.TEST_AUTH_SECRET?.trim();
-		if (!configuredSecret || !isLoopbackRequest(request)) {
-			return fail("not_found", "Not found.", 404);
-		}
-
-		const suppliedSecret = request.headers.get("x-test-auth-secret") ?? "";
-		if (!(await timingSafeEqual(configuredSecret, suppliedSecret))) {
-			return fail("unauthorized", "Test auth secret is invalid.", 401);
+		const authFailure = await testAuthFailureResponse(env, request);
+		if (authFailure) {
+			return authFailure;
 		}
 
 		const input = asRecord(await readJsonBody(request));
@@ -70,24 +66,4 @@ function testProviderProfile(input: Record<string, unknown>): ProviderUserProfil
 			{ avatarUrl: input.avatarUrl.trim() }
 		:	{}),
 	};
-}
-
-function isLoopbackRequest(request: Request): boolean {
-	const hostname = new URL(request.url).hostname;
-	return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]" || hostname === "::1";
-}
-
-async function timingSafeEqual(expected: string, actual: string): Promise<boolean> {
-	const encoder = new TextEncoder();
-	const [expectedDigest, actualDigest] = await Promise.all([
-		crypto.subtle.digest("SHA-256", encoder.encode(expected)),
-		crypto.subtle.digest("SHA-256", encoder.encode(actual)),
-	]);
-	const expectedBytes = new Uint8Array(expectedDigest);
-	const actualBytes = new Uint8Array(actualDigest);
-	let difference = expectedBytes.length ^ actualBytes.length;
-	for (let index = 0; index < expectedBytes.length; index += 1) {
-		difference |= expectedBytes[index]! ^ actualBytes[index]!;
-	}
-	return difference === 0;
 }

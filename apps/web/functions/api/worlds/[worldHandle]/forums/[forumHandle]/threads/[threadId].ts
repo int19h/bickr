@@ -1,4 +1,5 @@
 import { ok } from "@bickr/shared/api";
+import { internalServiceUrl } from "@bickr/shared/internal-service";
 import { type ApiErrorCode, type ThreadDocument } from "@bickr/shared/model";
 import { RepositoryError } from "@bickr/shared/repository";
 import { forumByHandle, readThreadWithReadState, recordThreadRead, threadWithReadState } from "@bickr/shared/social";
@@ -47,12 +48,14 @@ async function readCoordinatorThread(
 	request: Request,
 	threadId: string,
 ): Promise<ThreadDocument> {
-	const headers = new Headers(request.headers);
-	headers.delete("content-length");
-	headers.delete("content-type");
+	const headers = new Headers();
+	const accept = request.headers.get("accept");
+	if (accept !== null) {
+		headers.set("accept", accept);
+	}
 	const { response, payload } = await fetchServiceJson(
 		env.FORUM_COORDINATOR_SERVICE,
-		new Request(`https://internal.bickr/threads/${encodeURIComponent(threadId)}`, {
+		new Request(internalServiceUrl(`/threads/${encodeURIComponent(threadId)}`), {
 			headers,
 			method: "GET",
 		}),

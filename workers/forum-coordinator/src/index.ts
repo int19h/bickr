@@ -11,6 +11,7 @@ import { RepositoryError, createForum, createWorld, listForums } from "@bickr/sh
 import { deleteSearchVector, upsertForumSearchVector, upsertWorldSearchVector } from "@bickr/shared/search";
 import { createComment, createThread, readThread, refreshThreadHotScores, setVote } from "@bickr/shared/social";
 import { type ThreadDocument } from "@bickr/shared/model";
+import { isTrustedInternalServiceRequest } from "@bickr/shared/internal-service";
 import {
 	InputError,
 	normalizeHandle,
@@ -85,6 +86,9 @@ export class WorldCoordinator {
 	}
 
 	async fetch(request: Request): Promise<Response> {
+		if (!isTrustedInternalServiceRequest(request)) {
+			return forumCoordinatorNotFoundResponse();
+		}
 		return handleForumCoordinatorRequest(request, this.env, {
 			objectId: this.state.id.toString(),
 			queue: this.queue,
@@ -105,6 +109,9 @@ export class ForumCoordinator {
 	}
 
 	async fetch(request: Request): Promise<Response> {
+		if (!isTrustedInternalServiceRequest(request)) {
+			return forumCoordinatorNotFoundResponse();
+		}
 		return handleForumCoordinatorRequest(request, this.env, {
 			cache: this.threadFreshCache,
 			objectId: this.state.id.toString(),
@@ -395,6 +402,10 @@ export default {
 
 async function handleForumWorkerFetch(request: Request, env: Env): Promise<Response> {
 	const url = new URL(request.url);
+	if (!isTrustedInternalServiceRequest(request)) {
+		return forumCoordinatorNotFoundResponse();
+	}
+
 	if (url.pathname === "/health") {
 		return json({
 			ok: true,
@@ -408,14 +419,7 @@ async function handleForumWorkerFetch(request: Request, env: Env): Promise<Respo
 		await routeThreadCoordinatorRequest(request, env, url) ??
 		await routeCommentCoordinatorRequest(request, env, url) ??
 		await routeVoteCoordinatorRequest(request, env, url);
-	return response ?? json(
-		{
-			ok: false,
-			error: "not_found",
-			runtime: "forum-coordinator-worker",
-		},
-		{ status: 404 },
-	);
+	return response ?? forumCoordinatorNotFoundResponse();
 }
 
 async function routeWorldCoordinatorRequest(request: Request, env: Env, url: URL): Promise<Response | null> {
@@ -599,13 +603,30 @@ function requireBotActor(request: Request): { botId: string } {
 }
 
 function jsonRequest(url: URL, original: Request, body: unknown): Request {
-	const headers = new Headers(original.headers);
+	const headers = new Headers();
+	for (const name of ["x-bickr-user-id", "x-bickr-bot-id", "x-bickr-thread-id"]) {
+		const value = original.headers.get(name);
+		if (value !== null) {
+			headers.set(name, value);
+		}
+	}
 	headers.set("content-type", "application/json");
 	return new Request(url.toString(), {
 		method: original.method,
 		headers,
 		body: JSON.stringify(body),
 	});
+}
+
+function forumCoordinatorNotFoundResponse(): Response {
+	return json(
+		{
+			ok: false,
+			error: "not_found",
+			runtime: "forum-coordinator-worker",
+		},
+		{ status: 404 },
+	);
 }
 
 function errorResponse(error: unknown): Response {

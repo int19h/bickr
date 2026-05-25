@@ -1,8 +1,9 @@
 import { json } from "@bickr/shared/http";
+import { internalServiceUrl } from "@bickr/shared/internal-service";
 import { fetchServiceJson } from "../_proxy";
 
 async function serviceHealth(service: Fetcher, path: string): Promise<unknown> {
-	const { response, payload } = await fetchServiceJson(service, new Request(`https://internal.bickr${path}`));
+	const { response, payload } = await fetchServiceJson(service, new Request(internalServiceUrl(path)));
 
 	return {
 		ok: response.ok,
