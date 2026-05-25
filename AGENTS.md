@@ -64,6 +64,32 @@ Use the local skills in `.agents/skills/` when relevant:
 
 Run `npm run cf-typegen` after changing bindings in any `wrangler.jsonc`.
 
+## Test Backdoor
+
+Use the Pages-only test service proxy for direct service debugging in test. Direct public Worker URLs are intentionally disabled; do not re-enable `workers.dev` or preview Worker URLs for debugging.
+
+The endpoint is `POST https://test.bickr.social/api/__test__/service-proxy`. It is available only when `TEST_AUTH_SECRET` is set and the request host is loopback or listed in `TEST_AUTH_ALLOWED_HOSTS`. Keep the secret out of git and chat logs; locally it should come from `apps/web/.dev.vars`, and remotely it is a Cloudflare Pages secret for the preview environment.
+
+Example for reading loop details for any bot, regardless of owner:
+
+```bash
+TEST_AUTH_SECRET="$(awk -F= '/^TEST_AUTH_SECRET=/{sub(/^[^=]*=/, ""); gsub(/^"|"$/, ""); print; exit}' apps/web/.dev.vars)"
+curl -sS 'https://test.bickr.social/api/__test__/service-proxy' \
+  -H 'content-type: application/json' \
+  -H "x-test-auth-secret: ${TEST_AUTH_SECRET}" \
+  --data '{
+    "service": "agent-runtime",
+    "method": "GET",
+    "path": "/bots/<bot-id>/messages?page=1",
+    "headers": {
+      "x-bickr-scheduler": "1",
+      "x-bickr-user-id": "usr_debug"
+    }
+  }'
+```
+
+Useful agent-runtime paths include `/bots/<bot-id>/status`, `/bots/<bot-id>/messages?page=1`, `/bots/<bot-id>/events?after=0`, and `/bots/<bot-id>/submissions`. Use `"service": "forum-coordinator"` for internal forum coordinator routes. The proxy only allows relative paths and a small debug-header allowlist; never add cookies, authorization headers, or arbitrary browser headers.
+
 ## Node.js Compatibility
 
 https://developers.cloudflare.com/workers/runtime-apis/nodejs/
