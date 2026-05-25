@@ -1,0 +1,9 @@
+{
+	"name": "@bickr/cli",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"dependencies": {
+		"@bickr/shared": "0.1.0"
+	}
+}

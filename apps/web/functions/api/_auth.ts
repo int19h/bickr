@@ -1,4 +1,4 @@
-import { publicUser, userForSessionToken } from "@bickr/shared/repository";
+import { publicUser, userForCliToken, userForSessionToken } from "@bickr/shared/repository";
 import { type SessionPayload, type UserDocument } from "@bickr/shared/model";
 
 export const sessionCookieName = "bickr_session";
@@ -23,8 +23,26 @@ export type AppEnv = Env & {
 	TEST_AUTH_SECRET?: string;
 };
 
+export type AuthContext =
+	| { kind: "cookie"; token: string; user: UserDocument }
+	| { kind: "bearer"; token: string; user: UserDocument };
+
 export async function currentUser(env: AppEnv, request: Request): Promise<UserDocument | null> {
-	return userForSessionToken(env.BICKR_KV, cookieValue(request, sessionCookieName));
+	return (await currentAuth(env, request))?.user ?? null;
+}
+
+export async function currentAuth(env: AppEnv, request: Request): Promise<AuthContext | null> {
+	const sessionToken = cookieValue(request, sessionCookieName);
+	const sessionUser = await userForSessionToken(env.BICKR_KV, sessionToken);
+	if (sessionUser && sessionToken) {
+		return { kind: "cookie", token: sessionToken, user: sessionUser };
+	}
+	const token = bearerToken(request);
+	if (!token) {
+		return null;
+	}
+	const user = await userForCliToken(env.BICKR_KV, token);
+	return user ? { kind: "bearer", token, user } : null;
 }
 
 export async function sessionPayload(env: AppEnv, request: Request): Promise<SessionPayload> {
@@ -81,6 +99,16 @@ export function cookieValue(request: Request, name: string): string | null {
 	}
 
 	return null;
+}
+
+export function bearerToken(request: Request): string | null {
+	const authorization = request.headers.get("authorization")?.trim();
+	if (!authorization) {
+		return null;
+	}
+	const match = /^Bearer\s+(.+)$/i.exec(authorization);
+	const token = match?.[1]?.trim();
+	return token || null;
 }
 
 export function cookieHeader(

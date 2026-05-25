@@ -18,6 +18,7 @@
 		"deploy:test:web": "npm run deploy:test -w @bickr/web",
 		"deploy:test:workers": "npm run deploy:test -w @bickr/forum-coordinator && npm run deploy:test -w @bickr/agent-runtime",
 		"migrate:test": "wrangler d1 migrations apply BICKR_D1 --remote --config workers/forum-coordinator/wrangler.jsonc --env test",
+		"bickr": "node --experimental-strip-types packages/cli/src/index.ts",
 		"dev": "npm run dev:full -w @bickr/web",
 		"dev:web": "npm run preview -w @bickr/web",
 		"dev:ui": "npm run dev -w @bickr/web",

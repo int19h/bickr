@@ -3,6 +3,7 @@ import { forumByHandle, listThreadsWithReadState, recordForumRead } from "@bickr
 import { normalizeHandleParam } from "@bickr/shared/validation";
 import { currentUser, type AppEnv } from "../../../../_auth";
 import { pageErrorResponse } from "../../../../_errors";
+import { boundedLimit, boundedOffset } from "../../../../_query";
 
 export const onRequestGet: PagesFunction<AppEnv, "worldHandle" | "forumHandle"> = async ({
 	env,
@@ -15,9 +16,11 @@ export const onRequestGet: PagesFunction<AppEnv, "worldHandle" | "forumHandle"> 
 		const forum = await forumByHandle(env.BICKR_KV, env.BICKR_D1, worldHandle, forumHandle);
 		const url = new URL(request.url);
 		const sort = url.searchParams.get("sort") === "hot" ? "hot" : "recent";
+		const limit = boundedLimit(url.searchParams.get("limit"), 40, 500);
+		const offset = boundedOffset(url.searchParams.get("offset"));
 		const user = await currentUser(env, request);
 		const loadedAt = new Date().toISOString();
-		const threads = await listThreadsWithReadState(env.BICKR_D1, forum.id, user?.id ?? null, sort);
+		const threads = await listThreadsWithReadState(env.BICKR_D1, forum.id, user?.id ?? null, sort, limit, offset);
 		if (user) {
 			await recordForumRead(env.BICKR_D1, user.id, forum.id, loadedAt);
 		}

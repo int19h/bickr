@@ -4,6 +4,8 @@ import { isCloudflareRateLimitError, retryCloudflareOperation } from "./cloudfla
 export const kvKeys = {
 	user: (userId: string) => `v1:user:${userId}`,
 	session: (sessionHash: string) => `v1:session:${sessionHash}`,
+	cliAuthRequest: (requestHash: string) => `v1:cli-auth-request:${requestHash}`,
+	cliToken: (tokenHash: string) => `v1:cli-token:${tokenHash}`,
 	world: (worldId: string) => `v1:world:${worldId}`,
 	forum: (forumId: string) => `v1:forum:${forumId}`,
 	bot: (botId: string) => `v1:bot:${botId}`,

@@ -177,7 +177,10 @@ function sanitizeReturnTo(value: string | null): string {
 	}
 	try {
 		const parsed = new URL(raw, "https://bickr.local");
-		if (parsed.origin !== "https://bickr.local" || parsed.pathname.startsWith("/api/")) {
+		if (
+			parsed.origin !== "https://bickr.local" ||
+			(parsed.pathname.startsWith("/api/") && parsed.pathname !== "/api/cli/auth/approve")
+		) {
 			return fallback;
 		}
 		return `${parsed.pathname}${parsed.search}${parsed.hash}` || fallback;

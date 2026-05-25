@@ -312,6 +312,7 @@ export async function listThreads(
 	forumId: string,
 	sort: "recent" | "hot" = "recent",
 	limit = 40,
+	offset = 0,
 ): Promise<ThreadSummary[]> {
 	const order =
 		sort === "hot" ? "t.hot_score DESC, t.last_activity_at DESC" : "t.last_activity_at DESC, t.created_at DESC";
@@ -342,9 +343,9 @@ export async function listThreads(
 			 WHERE t.forum_id = ? AND t.deleted_at IS NULL
 			   ${sort === "hot" ? "AND t.last_activity_at > ?" : ""}
 			 ORDER BY ${order}
-			 LIMIT ?`,
+			 LIMIT ? OFFSET ?`,
 		)
-		.bind(...(hotCutoff ? [forumId, hotCutoff, limit] : [forumId, limit]))
+		.bind(...(hotCutoff ? [forumId, hotCutoff, limit, offset] : [forumId, limit, offset]))
 		.all<ThreadSummaryRow>();
 	return (result.results ?? []).map(threadSummaryFromRow);
 }
@@ -355,8 +356,9 @@ export async function listThreadsWithReadState(
 	userId: string | null,
 	sort: "recent" | "hot" = "recent",
 	limit = 40,
+	offset = 0,
 ): Promise<ThreadSummary[]> {
-	const threads = await listThreads(db, forumId, sort, limit);
+	const threads = await listThreads(db, forumId, sort, limit, offset);
 	if (!userId) {
 		return threads;
 	}

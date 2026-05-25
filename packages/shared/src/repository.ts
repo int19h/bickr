@@ -159,7 +159,41 @@ export type SessionCreateResult = {
 	session: SessionDocument;
 };
 
+export type CliAuthRequestDocument = {
+	id: string;
+	type: "cliAuthRequest";
+	label: string;
+	userId?: string;
+	approvedAt?: string;
+	consumedAt?: string;
+	createdAt: string;
+	expiresAt: string;
+	updatedAt: string;
+};
+
+export type CliAuthStartResult = {
+	deviceCode: string;
+	request: CliAuthRequestDocument;
+};
+
+export type CliAuthPollResult =
+	| { status: "pending"; expiresAt: string }
+	| { status: "expired"; expiresAt: string }
+	| { status: "complete"; token: string; expiresAt: string };
+
+export type CliTokenDocument = {
+	id: string;
+	type: "cliToken";
+	userId: string;
+	label: string;
+	createdAt: string;
+	expiresAt: string;
+	updatedAt: string;
+};
+
 const sessionTtlSeconds = 60 * 60 * 24 * 30;
+const cliAuthRequestTtlSeconds = 10 * 60;
+const cliTokenTtlSeconds = 60 * 60 * 24 * 90;
 export const defaultInitialBotNotification =
 	"You have just finished creating your Bickr account and logged in for the first time.";
 export const introForumHandle = "intro";
@@ -530,6 +564,138 @@ export async function userForSessionToken(
 
 	const user = await readJson<UserDocument>(kv, kvKeys.user(session.userId));
 	return user && !user.deletedAt ? user : null;
+}
+
+export async function createCliAuthRequest(
+	kv: KVNamespaceLike,
+	input: { label?: string } = {},
+	now = new Date(),
+): Promise<CliAuthStartResult> {
+	const deviceCode = randomToken(24);
+	const requestHash = await sha256Hex(deviceCode);
+	const createdAt = now.toISOString();
+	const expiresAt = new Date(now.getTime() + cliAuthRequestTtlSeconds * 1000).toISOString();
+	const request: CliAuthRequestDocument = {
+		id: `car_${requestHash.slice(0, 32)}`,
+		type: "cliAuthRequest",
+		label: normalizedCliLabel(input.label),
+		createdAt,
+		expiresAt,
+		updatedAt: createdAt,
+	};
+	await writeJson(kv, kvKeys.cliAuthRequest(requestHash), request, { expirationTtl: cliAuthRequestTtlSeconds });
+	return { deviceCode, request };
+}
+
+export async function readCliAuthRequest(
+	kv: KVNamespaceLike,
+	deviceCode: string,
+	now = new Date(),
+): Promise<CliAuthRequestDocument | null> {
+	const request = await readJson<CliAuthRequestDocument>(kv, kvKeys.cliAuthRequest(await sha256Hex(deviceCode)));
+	if (!request || Date.parse(request.expiresAt) <= now.getTime()) {
+		return request ? { ...request, updatedAt: now.toISOString() } : null;
+	}
+	return request;
+}
+
+export async function approveCliAuthRequest(
+	kv: KVNamespaceLike,
+	deviceCode: string,
+	userId: string,
+	now = new Date(),
+): Promise<CliAuthRequestDocument> {
+	const requestHash = await sha256Hex(deviceCode);
+	const request = await readJson<CliAuthRequestDocument>(kv, kvKeys.cliAuthRequest(requestHash));
+	if (!request || Date.parse(request.expiresAt) <= now.getTime()) {
+		throw new RepositoryError("not_found", "CLI login request expired or was not found.", 404);
+	}
+	if (request.consumedAt) {
+		throw new RepositoryError("conflict", "CLI login request has already been completed.", 409);
+	}
+	const updatedAt = now.toISOString();
+	const updated: CliAuthRequestDocument = {
+		...request,
+		userId,
+		approvedAt: request.approvedAt ?? updatedAt,
+		updatedAt,
+	};
+	await writeJson(kv, kvKeys.cliAuthRequest(requestHash), updated, {
+		expirationTtl: Math.max(1, Math.ceil((Date.parse(updated.expiresAt) - now.getTime()) / 1000)),
+	});
+	return updated;
+}
+
+export async function pollCliAuthRequest(
+	kv: KVNamespaceLike,
+	deviceCode: string,
+	now = new Date(),
+): Promise<CliAuthPollResult> {
+	const requestHash = await sha256Hex(deviceCode);
+	const request = await readJson<CliAuthRequestDocument>(kv, kvKeys.cliAuthRequest(requestHash));
+	if (!request) {
+		return { status: "expired", expiresAt: now.toISOString() };
+	}
+	if (Date.parse(request.expiresAt) <= now.getTime()) {
+		return { status: "expired", expiresAt: request.expiresAt };
+	}
+	if (!request.userId || !request.approvedAt) {
+		return { status: "pending", expiresAt: request.expiresAt };
+	}
+	if (request.consumedAt) {
+		return { status: "expired", expiresAt: request.expiresAt };
+	}
+	const token = `bckr_cli_${randomToken(32)}`;
+	const tokenHash = await sha256Hex(token);
+	const createdAt = now.toISOString();
+	const expiresAt = new Date(now.getTime() + cliTokenTtlSeconds * 1000).toISOString();
+	const tokenDocument: CliTokenDocument = {
+		id: `cli_${tokenHash.slice(0, 32)}`,
+		type: "cliToken",
+		userId: request.userId,
+		label: request.label,
+		createdAt,
+		expiresAt,
+		updatedAt: createdAt,
+	};
+	await writeJson(kv, kvKeys.cliToken(tokenHash), tokenDocument, { expirationTtl: cliTokenTtlSeconds });
+	await writeJson(kv, kvKeys.cliAuthRequest(requestHash), {
+		...request,
+		consumedAt: createdAt,
+		updatedAt: createdAt,
+	} satisfies CliAuthRequestDocument, {
+		expirationTtl: Math.max(1, Math.ceil((Date.parse(request.expiresAt) - now.getTime()) / 1000)),
+	});
+	return { status: "complete", token, expiresAt };
+}
+
+export async function userForCliToken(
+	kv: KVNamespaceLike,
+	token: string | null | undefined,
+	now = new Date(),
+): Promise<UserDocument | null> {
+	if (!token) {
+		return null;
+	}
+	const tokenHash = await sha256Hex(token);
+	const document = await readJson<CliTokenDocument>(kv, kvKeys.cliToken(tokenHash));
+	if (!document || Date.parse(document.expiresAt) <= now.getTime()) {
+		return null;
+	}
+	const user = await readJson<UserDocument>(kv, kvKeys.user(document.userId));
+	return user && !user.deletedAt ? user : null;
+}
+
+export async function deleteCliToken(kv: KVNamespaceLike, token: string | null | undefined): Promise<void> {
+	if (!token) {
+		return;
+	}
+	await deleteKey(kv, kvKeys.cliToken(await sha256Hex(token)));
+}
+
+function normalizedCliLabel(value: string | null | undefined): string {
+	const label = value?.trim();
+	return label ? label.slice(0, 120) : "Bickr CLI";
 }
 
 export async function userById(kv: KVNamespaceLike, userId: string): Promise<UserDocument> {

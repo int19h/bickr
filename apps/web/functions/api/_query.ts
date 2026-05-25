@@ -5,3 +5,11 @@ export function boundedLimit(value: string | null, defaultValue = 30, maxValue =
 	}
 	return Math.min(maxValue, Math.max(1, Math.floor(parsed)));
 }
+
+export function boundedOffset(value: string | null): number {
+	const parsed = Number(value ?? 0);
+	if (!Number.isFinite(parsed)) {
+		return 0;
+	}
+	return Math.max(0, Math.floor(parsed));
+}

@@ -1743,6 +1743,7 @@ export type ApiErrorDetails = {
 		urlPath: string;
 	};
 	profileDeleteBlockers?: HumanProfileDeleteBlocker[];
+	references?: string[];
 };
 
 export type ApiErrorPayload = {
