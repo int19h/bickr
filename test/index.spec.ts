@@ -203,6 +203,7 @@ import {
 	type HumanSubscriptionTreeResponse,
 	type NotificationEvent,
 	type SearchResponse,
+	type SpotlightIncludedContent,
 	type SpotlightSyntheticContext,
 	type ThreadDocument,
 	type UserProfile,
@@ -1923,6 +1924,55 @@ describe("Bickr Pages Functions", () => {
 			});
 			expect("content" in reasoningOnlyMessage).toBe(false);
 			expect(toolCallMessage.content).toBeNull();
+		});
+
+		it("flattens deeply nested tool result JSON only in provider requests", () => {
+			const nestedJson = (depth: number): unknown => {
+				let value: unknown = "leaf";
+				for (let index = 0; index < depth; index += 1) {
+					value = { child: value };
+				}
+				return value;
+			};
+			const deepContent = JSON.stringify(nestedJson(40));
+			const shallowContent = JSON.stringify(nestedJson(4));
+			const messages: BotInferenceSubmissionMessage[] = [
+				{
+					role: "assistant",
+					content: null,
+					tool_calls: [
+						{
+							id: "call_deep",
+							type: "function",
+							function: { name: "read_comment_by_id", arguments: "{\"commentRef\":\"c/deep\"}" },
+						},
+						{
+							id: "call_shallow",
+							type: "function",
+							function: { name: "read_comment_by_id", arguments: "{\"commentRef\":\"c/shallow\"}" },
+						},
+					],
+				},
+				{ role: "tool", tool_call_id: "call_deep", content: deepContent },
+				{ role: "tool", tool_call_id: "call_shallow", content: shallowContent },
+			];
+
+			const request = providerCompactionRequest({ model: "test-model" }, messages);
+
+			expect(request.messages[0]).toMatchObject({
+				role: "assistant",
+				content: "",
+				tool_calls: [
+					expect.objectContaining({ id: "call_1" }),
+					expect.objectContaining({ id: "call_2" }),
+				],
+			});
+			expect(request.messages[1]).toMatchObject({ role: "tool", tool_call_id: "call_1" });
+			expect(request.messages[2]).toEqual({ role: "tool", tool_call_id: "call_2", content: shallowContent });
+			const flattened = JSON.parse(request.messages[1]?.content as string) as { text: string };
+			expect(flattened).toEqual({ text: deepContent });
+			expect(JSON.parse(flattened.text) as unknown).toEqual(nestedJson(40));
+			expect(messages[1]?.content).toBe(deepContent);
 		});
 
 		it("builds structured-output provider compaction requests by default over the verbatim compacted chat", () => {
@@ -7135,6 +7185,89 @@ describe("Bickr Pages Functions", () => {
 		expect(profileResultIndex).toBeGreaterThanOrEqual(0);
 		expect(focusMessageIndex).toBeGreaterThan(profileResultIndex);
 		expect(focusMessageIndex).toBe(built.length - 1);
+	});
+
+	it("builds deep spotlight comment chains without re-nesting replies exponentially", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const selfProfile = await createBotForTest(cookie, "spotlight-deep-self");
+		const authorProfile = await createBotForTest(cookie, "spotlight-deep-author");
+		const bot = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, selfProfile.id);
+		const chainLength = 24;
+		const content = Array.from({ length: chainLength }, (_, index): SpotlightIncludedContent => {
+			const id = `cmt_deep_spotlight_${index}`;
+			return {
+				type: "comment",
+				id,
+				commentId: id,
+				threadId: "thr_deep_spotlight",
+				...(index > 0 ? { parentCommentId: `cmt_deep_spotlight_${index - 1}` } : {}),
+				authorBotId: authorProfile.id,
+				authorHandle: authorProfile.handle,
+				authorDisplayName: authorProfile.displayName,
+				body: `Deep spotlight context ${index}. ${"z".repeat(800)}`,
+				createdAt: `2026-05-01T00:${String(index).padStart(2, "0")}:00.000Z`,
+				...(index === chainLength - 1 ? { "My focus is on this comment": true as const } : { ancestorOnly: true }),
+			};
+		});
+		const contexts: SpotlightSyntheticContext[] = [{
+			kind: "spotlight_context",
+			world: { id: bot.homeWorldId, handle: `w/${bot.homeWorldHandle}` },
+			forum: { id: "frm_deep_spotlight", handle: "f/deep-spotlight" },
+			targetType: "comments",
+			focus: "Please pay attention to the deepest comment.",
+			threads: [{
+				id: "thr_deep_spotlight",
+				threadId: "thr_deep_spotlight",
+				title: "Deep comment spotlight",
+				rootCommentId: "cmt_deep_spotlight_0",
+			}],
+			content,
+		}];
+		const messages: Array<Record<string, unknown>> = [];
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			env: {
+				BICKR_D1: testEnv.BICKR_D1,
+				BICKR_KV: testEnv.BICKR_KV,
+			},
+			previousTerminalTickEvent: () => null,
+			appendLoopMessage: (_runId: string, message: Record<string, unknown>) => {
+				messages.push(message);
+				return { seq: messages.length, runId: "run-deep-spotlight", role: message.role, message };
+			},
+			readCommentTreeTokenBudget: async () => 1,
+			syntheticProfilesForUsernames: async () => [],
+			activeLoopMessagesForProvider: () => messages,
+			activeLoopMessageRows: () => [],
+		});
+		const buildMessages = (BotRuntime.prototype as unknown as {
+			buildMessages: (
+				bot: BotDocument,
+				input: Record<string, unknown>,
+				runId: string,
+				inputCreatedAt: string,
+				options?: { setupMode?: "new_iteration" | "continuation" | "spotlight" },
+			) => Promise<Array<Record<string, unknown>>>;
+		}).buildMessages.bind(runtime);
+
+		const start = Date.now();
+		const built = await buildMessages(
+			bot,
+			{ notifications: [], injections: [], spotlightContexts: contexts, ping: false },
+			"run-deep-spotlight",
+			"2026-05-01T00:30:00.000Z",
+			{ setupMode: "spotlight" },
+		);
+		expect(Date.now() - start).toBeLessThan(2_000);
+		expect(built.find((message) => message.content === "My focus: Please pay attention to the deepest comment.")).toBeTruthy();
+		const readResult = built
+			.filter((message) => message.role === "tool")
+			.map((message) => JSON.parse(String(message.content)))
+			.find((result) => result.operation === "read_comment_by_id");
+		expect(readResult).toMatchObject({
+			targetCommentRef: "c/cmt_deep_spotlight_23",
+			content: [{ commentRef: "c/cmt_deep_spotlight_0" }],
+		});
 	});
 
 	it("queues busy spotlight ticks only when the active tick misses the injection", async () => {

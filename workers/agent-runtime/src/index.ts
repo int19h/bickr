@@ -2136,7 +2136,7 @@ function sanitizeProviderMessagesForRequest(messages: readonly ChatMessage[]): C
 }
 
 function sanitizeProviderMessageForRequest(message: ChatMessage): ChatMessage {
-	return ensureAssistantContentForProviderRequest(repairProviderMessageUnicode(message).value);
+	return flattenDeepProviderToolResultContent(ensureAssistantContentForProviderRequest(repairProviderMessageUnicode(message).value));
 }
 
 function sanitizeProviderMessageSequenceForRequest(messages: readonly ChatMessage[]): ChatMessage[] {
@@ -2200,6 +2200,56 @@ function sanitizeProviderMessageSequenceForRequest(messages: readonly ChatMessag
 
 function providerRequestToolCallId(index: number): string {
 	return `call_${index}`;
+}
+
+const providerToolResultJsonMaxStructuredDepth = 32;
+
+function flattenDeepProviderToolResultContent(message: ChatMessage): ChatMessage {
+	if (message.role !== 'tool' || typeof message.content !== 'string') {
+		return message;
+	}
+	const flattenedContent = providerToolResultContentForRequest(message.content);
+	return flattenedContent === message.content ? message : { ...message, content: flattenedContent };
+}
+
+function providerToolResultContentForRequest(content: string): string {
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(content) as unknown;
+	} catch {
+		return content;
+	}
+	if (jsonStructuredDepth(parsed) <= providerToolResultJsonMaxStructuredDepth) {
+		return content;
+	}
+	// Google-backed OpenRouter tool responses reject deeply nested function response
+	// JSON with INVALID_ARGUMENT. Keep the provider-facing shape shallow while
+	// preserving the exact tool result text for the participant.
+	return JSON.stringify({ text: content });
+}
+
+function jsonStructuredDepth(value: unknown): number {
+	let maxDepth = 0;
+	const stack: Array<{ value: unknown; depth: number }> = [{ value, depth: 0 }];
+	while (stack.length > 0) {
+		const current = stack.pop()!;
+		const item = current.value;
+		if (!item || typeof item !== 'object') {
+			continue;
+		}
+		const depth = current.depth + 1;
+		maxDepth = Math.max(maxDepth, depth);
+		if (Array.isArray(item)) {
+			for (const child of item) {
+				stack.push({ value: child, depth });
+			}
+			continue;
+		}
+		for (const child of Object.values(item)) {
+			stack.push({ value: child, depth });
+		}
+	}
+	return maxDepth;
 }
 
 function repairProviderMessageUnicode(message: ChatMessage): InvalidUnicodeRepair<ChatMessage> {
@@ -12833,7 +12883,9 @@ function providerNestedReplies(value: unknown): Record<string, unknown>[] | numb
 	if (typeof value === 'number' && Number.isFinite(value)) {
 		return Math.max(0, Math.floor(value));
 	}
-	return Array.isArray(value) ? providerNestedCommentList(value.map(runtimeRecord).filter(isProviderComment)) : [];
+	return Array.isArray(value)
+		? value.map(runtimeRecord).filter(isProviderComment).map(providerCommentWithoutInternalNestingMetadata)
+		: [];
 }
 
 function providerCollapsedReplyCount(content: Record<string, unknown>[]): number {
