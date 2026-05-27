@@ -138,7 +138,7 @@ async function main(argv: string[]): Promise<void> {
 async function authCommand(ctx: CommandContext, args: string[]): Promise<void> {
 	const [subcommand, ...rest] = args;
 	if (subcommand === "login") {
-		const options = parseCommandOptions(rest);
+		const options = parseCommandOptions(rest, new Set(["no-open"]));
 		const envelope = await ctx.client.request<{
 			deviceCode: string;
 			approveUrl: string;
@@ -155,8 +155,15 @@ async function authCommand(ctx: CommandContext, args: string[]): Promise<void> {
 		} else {
 			process.stderr.write(`Approve this CLI session: ${start.approveUrl}\n`);
 		}
-		if (openBrowser(start.approveUrl)) {
-			process.stderr.write("Opened approval URL in a browser.\n");
+		if (flagBoolean(options.flags, "no-open")) {
+			process.stderr.write("Browser launch skipped. Waiting for approval; open the URL manually.\n");
+		} else {
+			const browser = await openBrowser(start.approveUrl);
+			if (browser.opened) {
+				process.stderr.write("Opened approval URL in a browser.\n");
+			} else {
+				process.stderr.write(`Could not open a browser automatically (${browser.reason}). Waiting for approval; open the URL manually.\n`);
+			}
 		}
 		const intervalMs = Math.max(1, start.pollIntervalSeconds) * 1_000;
 		for (;;) {
@@ -968,7 +975,7 @@ function usage(): string {
 	return `Usage: bickr [--host URL] [--json|--raw] [--format human|json|ndjson] <command>
 
 Core commands:
-  bickr auth login|logout|whoami
+  bickr auth login [--no-open] [--label NAME]
   bickr worlds list
   bickr forums list w/world
   bickr threads list w/world/f/forum --range 1-40

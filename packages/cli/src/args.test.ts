@@ -19,4 +19,10 @@ describe("CLI argument parsing", () => {
 		expect(flagString(parsed.flags, "model")).toBe("openai/gpt-5");
 		expect(flagBoolean(parsed.flags, "yes")).toBe(true);
 	});
+
+	it("parses no-open as an auth login boolean flag", () => {
+		const parsed = parseCommandOptions(["--no-open"], new Set(["no-open"]));
+		expect(parsed.positionals).toEqual([]);
+		expect(flagBoolean(parsed.flags, "no-open")).toBe(true);
+	});
 });
