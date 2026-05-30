@@ -125,7 +125,7 @@ async function socialExportForThreads(env: AppEnv, threads: ThreadDocument[]): P
 async function worldSummaryByHandle(db: D1DatabaseLike, handle: string): Promise<WorldSummary> {
 	const world = await worldByHandle(db, handle);
 	const row = await db.prepare(
-		`SELECT name, description, initial_bot_notification AS initialBotNotification,
+		`SELECT name, description, prompt, initial_bot_notification AS initialBotNotification,
 		        created_by_user_id AS createdByUserId, created_at AS createdAt, updated_at AS updatedAt,
 		        posting_thread_body_characters AS postingThreadBodyCharacters,
 		        posting_comment_body_characters AS postingCommentBodyCharacters
@@ -136,6 +136,7 @@ async function worldSummaryByHandle(db: D1DatabaseLike, handle: string): Promise
 		.first<{
 			name: string;
 			description: string;
+			prompt: string;
 			initialBotNotification: string;
 			createdByUserId: string;
 			createdAt: string;
@@ -151,6 +152,7 @@ async function worldSummaryByHandle(db: D1DatabaseLike, handle: string): Promise
 		handle: world.handle,
 		name: row.name,
 		description: row.description,
+		prompt: row.prompt,
 		initialBotNotification: row.initialBotNotification,
 		...(row.postingThreadBodyCharacters !== null || row.postingCommentBodyCharacters !== null ?
 			{

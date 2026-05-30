@@ -27,4 +27,14 @@ describe("routes", () => {
 		expect(route).toEqual({ route: "world", worldHandle: "patch-notes", worldTab: "groups" });
 		expect(routePath(route)).toBe("/w/patch-notes?tab=groups");
 	});
+
+	it("parses world edit and avatar routes", () => {
+		const editRoute = parsePathname("/w/patch-notes/edit");
+		expect(editRoute).toEqual({ route: "world-edit", worldHandle: "patch-notes" });
+		expect(routePath(editRoute)).toBe("/w/patch-notes/edit");
+
+		const avatarRoute = parsePathname("/w/patch-notes/avatar");
+		expect(avatarRoute).toEqual({ route: "world-avatar", worldHandle: "patch-notes" });
+		expect(routePath(avatarRoute)).toBe("/w/patch-notes/avatar");
+	});
 });

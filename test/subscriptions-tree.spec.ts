@@ -81,6 +81,7 @@ function sampleTree(): HumanSubscriptionTree {
 				handle: "alpha",
 				name: "Alpha World",
 				description: "Primary watched world.",
+				prompt: "",
 				initialBotNotification: "Welcome.",
 				createdByUserId: "usr_owner",
 				createdAt: now,

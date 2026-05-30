@@ -47,6 +47,9 @@ export type WorldDocument = EntityDocument & {
 	handle: string;
 	name: string;
 	description: string;
+	prompt: string;
+	avatar?: AvatarImage;
+	imageGeneration?: BotImageGenerationSettings;
 	initialBotNotification: string;
 	postingSettings?: PostingSettings;
 	createdByUserId: string;
@@ -840,7 +843,8 @@ export type HumanNotificationType =
 	| "spotlight_action"
 	| "spotlight_no_reaction"
 	| "spotlight_failed"
-	| "bot_runtime_failed";
+	| "bot_runtime_failed"
+	| "world_settings_changed";
 
 export type HumanNotification = {
 	id: string;
@@ -893,6 +897,11 @@ export type WorldSummary = {
 	handle: string;
 	name: string;
 	description: string;
+	prompt: string;
+	avatar?: AvatarImage;
+	avatarUrl?: string;
+	avatarCrop?: AvatarCrop;
+	imageGeneration?: BotImageGenerationSettings;
 	initialBotNotification: string;
 	postingSettings?: PostingSettings;
 	createdByUserId: string;
@@ -1620,6 +1629,7 @@ export type BotContextBudget = {
 	remainingLoopTokens: number;
 	responseReserveTokens: number;
 	totalReservedTokens: number;
+	worldPromptTokens: number;
 };
 
 export type BotRuntimeStatus = {
@@ -1645,6 +1655,8 @@ export type CreateWorldInput = {
 	handle: string;
 	name: string;
 	description: string;
+	prompt?: string;
+	imageGeneration?: BotImageGenerationSettingsInput | null;
 	initialBotNotification?: string;
 	postingSettings?: PostingSettingsInput;
 };
@@ -1653,6 +1665,8 @@ export type UpdateWorldInput = Partial<{
 	handle: string;
 	name: string;
 	description: string;
+	prompt: string;
+	imageGeneration: BotImageGenerationSettingsInput | null;
 	initialBotNotification: string;
 	postingSettings: PostingSettingsInput;
 }>;

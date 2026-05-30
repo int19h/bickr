@@ -137,7 +137,10 @@ type PublicUserIndexRow = {
 	updatedAt: string;
 };
 
-type WorldSummaryIndexRow = Omit<WorldSummary, "postingSettings"> & {
+type WorldSummaryIndexRow = Omit<WorldSummary, "avatar" | "avatarCrop" | "avatarUrl" | "imageGeneration" | "postingSettings"> & {
+	avatarCrop: string | null;
+	avatarUrl: string | null;
+	imageGenerationJson: string | null;
 	postingThreadBodyCharacters: number | null;
 	postingCommentBodyCharacters: number | null;
 };
@@ -882,6 +885,10 @@ export async function listWorlds(db: D1DatabaseLike): Promise<WorldListSummary[]
 				w.handle,
 				w.name,
 				w.description,
+				w.prompt,
+				w.avatar_url AS avatarUrl,
+				w.avatar_crop AS avatarCrop,
+				w.image_generation AS imageGenerationJson,
 				w.initial_bot_notification AS initialBotNotification,
 				w.posting_thread_body_characters AS postingThreadBodyCharacters,
 				w.posting_comment_body_characters AS postingCommentBodyCharacters,
@@ -935,6 +942,8 @@ export async function createWorld(
 		handle: input.handle,
 		name: input.name,
 		description: input.description,
+		prompt: input.prompt ?? "",
+		...(input.imageGeneration ? { imageGeneration: mergeImageGenerationSettings(undefined, input.imageGeneration) } : {}),
 		initialBotNotification: input.initialBotNotification ?? defaultInitialBotNotification,
 		...(postingSettingsHasValues(postingSettings) ? { postingSettings } : {}),
 		createdByUserId: userId,
@@ -947,15 +956,19 @@ export async function createWorld(
 	await db
 		.prepare(
 			`INSERT INTO worlds_index (
-				world_id, handle, name, description, initial_bot_notification, created_by_user_id,
+				world_id, handle, name, description, prompt, avatar_url, avatar_crop, image_generation, initial_bot_notification, created_by_user_id,
 				visibility, posting_thread_body_characters, posting_comment_body_characters, created_at, updated_at, deleted_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
 		)
 		.bind(
 			world.id,
 			world.handle,
 			world.name,
 			world.description,
+			world.prompt,
+			world.avatar?.url ?? null,
+			avatarCropJson(world.avatar?.crop),
+			imageGenerationSettingsJson(world.imageGeneration),
 			world.initialBotNotification,
 			world.createdByUserId,
 			world.visibility,
@@ -2154,6 +2167,10 @@ export async function listOwnedWorlds(db: D1DatabaseLike, userId: string): Promi
 				handle,
 				name,
 				description,
+				prompt,
+				avatar_url AS avatarUrl,
+				avatar_crop AS avatarCrop,
+				image_generation AS imageGenerationJson,
 				initial_bot_notification AS initialBotNotification,
 				posting_thread_body_characters AS postingThreadBodyCharacters,
 				posting_comment_body_characters AS postingCommentBodyCharacters,
@@ -2252,6 +2269,7 @@ async function listOwnedForumsByWorld(
 		groupWorldHandle: string;
 		groupWorldName: string;
 		groupWorldDescription: string;
+		groupWorldPrompt: string;
 		groupWorldInitialBotNotification: string;
 		groupWorldPostingThreadBodyCharacters: number | null;
 		groupWorldPostingCommentBodyCharacters: number | null;
@@ -2279,6 +2297,7 @@ async function listOwnedForumsByWorld(
 				w.handle AS groupWorldHandle,
 				w.name AS groupWorldName,
 				w.description AS groupWorldDescription,
+				w.prompt AS groupWorldPrompt,
 				w.initial_bot_notification AS groupWorldInitialBotNotification,
 				w.posting_thread_body_characters AS groupWorldPostingThreadBodyCharacters,
 				w.posting_comment_body_characters AS groupWorldPostingCommentBodyCharacters,
@@ -2299,12 +2318,13 @@ async function listOwnedForumsByWorld(
 	for (const row of result.results ?? []) {
 		let group = groups.get(row.groupWorldId);
 		if (!group) {
-			group = {
+			const createdGroup: HumanOwnedForumGroup = {
 				world: {
 					id: row.groupWorldId,
 					handle: row.groupWorldHandle,
 					name: row.groupWorldName,
 					description: row.groupWorldDescription,
+					prompt: row.groupWorldPrompt,
 					initialBotNotification: row.groupWorldInitialBotNotification,
 					...postingSettingsObject(
 						row.groupWorldPostingThreadBodyCharacters,
@@ -2316,7 +2336,8 @@ async function listOwnedForumsByWorld(
 				},
 				forums: [],
 			};
-			groups.set(row.groupWorldId, group);
+			groups.set(row.groupWorldId, createdGroup);
+			group = createdGroup;
 		}
 		group.forums.push({
 			id: row.id,
@@ -2372,6 +2393,10 @@ async function worldSummariesByIds(
 					handle,
 					name,
 					description,
+					prompt,
+					avatar_url AS avatarUrl,
+					avatar_crop AS avatarCrop,
+					image_generation AS imageGenerationJson,
 					initial_bot_notification AS initialBotNotification,
 					posting_thread_body_characters AS postingThreadBodyCharacters,
 					posting_comment_body_characters AS postingCommentBodyCharacters,
@@ -2464,6 +2489,9 @@ async function foreignBotBlockersForOwnedWorlds(
 		worldHandle: string;
 		worldName: string;
 		worldDescription: string;
+		worldPrompt: string;
+		worldAvatarUrl: string | null;
+		worldAvatarCrop: string | null;
 		worldInitialBotNotification: string;
 		worldPostingThreadBodyCharacters: number | null;
 		worldPostingCommentBodyCharacters: number | null;
@@ -2493,6 +2521,9 @@ async function foreignBotBlockersForOwnedWorlds(
 				w.handle AS worldHandle,
 				w.name AS worldName,
 				w.description AS worldDescription,
+				w.prompt AS worldPrompt,
+				w.avatar_url AS worldAvatarUrl,
+				w.avatar_crop AS worldAvatarCrop,
 				w.initial_bot_notification AS worldInitialBotNotification,
 				w.posting_thread_body_characters AS worldPostingThreadBodyCharacters,
 				w.posting_comment_body_characters AS worldPostingCommentBodyCharacters,
@@ -2535,6 +2566,9 @@ async function foreignBotBlockersForOwnedWorlds(
 					handle: row.worldHandle,
 					name: row.worldName,
 					description: row.worldDescription,
+					prompt: row.worldPrompt,
+					...(row.worldAvatarUrl ? { avatarUrl: row.worldAvatarUrl } : {}),
+					...(avatarCropFromJson(row.worldAvatarCrop) ? { avatarCrop: avatarCropFromJson(row.worldAvatarCrop) } : {}),
 					initialBotNotification: row.worldInitialBotNotification,
 					...postingSettingsObject(
 						row.worldPostingThreadBodyCharacters,
@@ -3120,6 +3154,10 @@ function worldSummary(world: WorldDocument): WorldSummary {
 		handle: world.handle,
 		name: world.name,
 		description: world.description,
+		prompt: world.prompt ?? "",
+		...(world.avatar ? { avatar: world.avatar, avatarUrl: world.avatar.url } : {}),
+		...(world.avatar?.crop ? { avatarCrop: world.avatar.crop } : {}),
+		...(world.imageGeneration ? { imageGeneration: cloneImageGenerationSettings(world.imageGeneration) } : {}),
 		initialBotNotification: world.initialBotNotification,
 		...(postingSettingsHasValues(world.postingSettings) ? { postingSettings: world.postingSettings } : {}),
 		createdByUserId: world.createdByUserId,
@@ -3130,14 +3168,38 @@ function worldSummary(world: WorldDocument): WorldSummary {
 
 function worldSummaryFromIndexRow<T extends WorldSummaryIndexRow>(row: T): Omit<T, keyof WorldSummaryIndexRow> & WorldSummary {
 	const {
+		avatarCrop,
+		avatarUrl,
+		imageGenerationJson,
 		postingThreadBodyCharacters,
 		postingCommentBodyCharacters,
 		...world
 	} = row;
+	const crop = avatarCropFromJson(avatarCrop);
+	const imageGeneration = imageGenerationSettingsFromJson(imageGenerationJson);
 	return {
 		...world,
+		prompt: world.prompt ?? "",
+		...(avatarUrl ? { avatarUrl } : {}),
+		...(crop ? { avatarCrop: crop } : {}),
+		...(imageGeneration ? { imageGeneration } : {}),
 		...postingSettingsObject(postingThreadBodyCharacters, postingCommentBodyCharacters),
 	} as Omit<T, keyof WorldSummaryIndexRow> & WorldSummary;
+}
+
+function imageGenerationSettingsJson(settings: BotImageGenerationSettings | undefined): string | null {
+	return settings ? JSON.stringify(settings) : null;
+}
+
+function imageGenerationSettingsFromJson(value: string | null | undefined): BotImageGenerationSettings | undefined {
+	if (!value) {
+		return undefined;
+	}
+	try {
+		return mergeImageGenerationSettings(undefined, JSON.parse(value) as BotImageGenerationSettingsInput);
+	} catch {
+		return undefined;
+	}
 }
 
 function postingSettingsObject(
@@ -4030,7 +4092,7 @@ function cloneImageGenerationSettings(settings: BotImageGenerationSettings): Bot
 	};
 }
 
-function mergeImageGenerationSettings(
+export function mergeImageGenerationSettings(
 	current: BotImageGenerationSettings | undefined,
 	patch: BotImageGenerationSettingsInput | BotImageGenerationSettings | null,
 ): BotImageGenerationSettings | undefined {

@@ -2,8 +2,9 @@ import { type BotDocument, type BotEffectivePostingSettings, type BotToolSetting
 import { defaultPostingSettings } from "@bickr/shared/posting";
 import { effectiveTickSettings } from "@bickr/shared/repository";
 
-export function standardPrompt(bot: BotDocument): string {
+export function standardPrompt(bot: BotDocument, worldPrompt = ""): string {
 	const allowEarlyLogOff = effectiveTickSettings(bot.tickSettings).allowEarlyLogOff;
+	const setting = worldPrompt.trim();
 	const actionList =
 		allowEarlyLogOff ?
 			"browse, create threads, reply to comments, vote, follow, search, or finish this Bickr visit with log_off"
@@ -40,7 +41,7 @@ Your short bio is:
 ${bot.shortBio}
 
 Your persona is:
-${bot.prompt}`;
+${bot.prompt}${setting ? `\n\nSetting:\n${setting}` : ""}`;
 }
 
 type ToolParameterSchema =

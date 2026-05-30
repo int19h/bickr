@@ -279,6 +279,7 @@ function fixture(options: FixtureOptions): { db: FakeD1; kv: FakeKV } {
 		handle: "primary",
 		name: "Primary",
 		description: "Primary world",
+		prompt: "",
 		initialBotNotification: "Welcome.",
 		...(options.worldPostingSettings ? { postingSettings: options.worldPostingSettings } : {}),
 		createdByUserId: "usr_owner",

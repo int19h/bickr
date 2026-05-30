@@ -1,4 +1,6 @@
 import {
+	avatarCropJson,
+	type AvatarImage,
 	type BotDocument,
 	type ForumDocument,
 	type ForumSummary,
@@ -12,9 +14,16 @@ import {
 	mergePostingSettings,
 	postingSettingsHasValues,
 } from "./posting";
-import { RepositoryError, softDeleteBotGroupsForWorld } from "./repository";
+import { mergeImageGenerationSettings, RepositoryError, softDeleteBotGroupsForWorld } from "./repository";
 import { upsertForumSearchIndex, upsertWorldSearchIndex } from "./search";
-import { readThread, rootCommentForThread, softDeleteComment, softDeleteThread, softDeleteThreadsInForum } from "./social";
+import {
+	readThread,
+	recordWorldSettingsChangedHumanNotifications,
+	rootCommentForThread,
+	softDeleteComment,
+	softDeleteThread,
+	softDeleteThreadsInForum,
+} from "./social";
 import {
 	type D1DatabaseLike,
 	type KVNamespaceLike,
@@ -39,11 +48,15 @@ export async function updateWorld(
 		await assertWorldHandleAvailable(db, world.id, nextHandle);
 	}
 	const postingSettings = mergePostingSettings(world.postingSettings, input.postingSettings);
+	const imageGeneration = input.imageGeneration === undefined ?
+		world.imageGeneration
+	:	mergeImageGenerationSettings(world.imageGeneration, input.imageGeneration);
 	const updated: WorldDocument = {
 		...world,
 		...input,
 		handle: nextHandle,
 		...(postingSettingsHasValues(postingSettings) ? { postingSettings } : { postingSettings: undefined }),
+		...(imageGeneration ? { imageGeneration } : { imageGeneration: undefined }),
 		revision: world.revision + 1,
 		updatedAt: now,
 	};
@@ -55,6 +68,10 @@ export async function updateWorld(
 					 SET handle = ?,
 					     name = ?,
 					     description = ?,
+					     prompt = ?,
+					     avatar_url = ?,
+					     avatar_crop = ?,
+					     image_generation = ?,
 					     initial_bot_notification = ?,
 					     posting_thread_body_characters = ?,
 					     posting_comment_body_characters = ?,
@@ -65,6 +82,10 @@ export async function updateWorld(
 					updated.handle,
 					updated.name,
 					updated.description,
+					updated.prompt,
+					updated.avatar?.url ?? null,
+					avatarCropJson(updated.avatar?.crop),
+					imageGenerationSettingsJson(updated.imageGeneration),
 					updated.initialBotNotification,
 					updated.postingSettings?.threadBodyCharacters ?? null,
 					updated.postingSettings?.commentBodyCharacters ?? null,
@@ -88,6 +109,10 @@ export async function updateWorld(
 				`UPDATE worlds_index
 				 SET name = ?,
 				     description = ?,
+				     prompt = ?,
+				     avatar_url = ?,
+				     avatar_crop = ?,
+				     image_generation = ?,
 				     initial_bot_notification = ?,
 				     posting_thread_body_characters = ?,
 				     posting_comment_body_characters = ?,
@@ -97,6 +122,10 @@ export async function updateWorld(
 			.bind(
 				updated.name,
 				updated.description,
+				updated.prompt,
+				updated.avatar?.url ?? null,
+				avatarCropJson(updated.avatar?.crop),
+				imageGenerationSettingsJson(updated.imageGeneration),
 				updated.initialBotNotification,
 				updated.postingSettings?.threadBodyCharacters ?? null,
 				updated.postingSettings?.commentBodyCharacters ?? null,
@@ -108,6 +137,38 @@ export async function updateWorld(
 	}
 	await putObjectIndex(db, updated, "world", updated.id);
 	await upsertWorldSearchIndex(db, updated);
+	await recordWorldSettingsChangedHumanNotifications(db, { previous: world, updated, editorUserId: userId, now });
+	return worldSummary(updated);
+}
+
+export async function updateWorldAvatar(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	worldHandle: string,
+	userId: string,
+	avatar: AvatarImage | undefined,
+	now = new Date().toISOString(),
+): Promise<WorldSummary> {
+	const world = await worldDocumentByHandle(kv, db, worldHandle);
+	assertWorldOwner(world, userId);
+	const updated: WorldDocument = {
+		...world,
+		...(avatar ? { avatar } : { avatar: undefined }),
+		revision: world.revision + 1,
+		updatedAt: now,
+	};
+	await writeJson(kv, kvKeys.world(updated.id), updated);
+	await db
+		.prepare(
+			`UPDATE worlds_index
+			 SET avatar_url = ?, avatar_crop = ?, updated_at = ?
+			 WHERE world_id = ? AND deleted_at IS NULL`,
+		)
+		.bind(updated.avatar?.url ?? null, avatarCropJson(updated.avatar?.crop), now, updated.id)
+		.run();
+	await putObjectIndex(db, updated, "world", updated.id);
+	await upsertWorldSearchIndex(db, updated);
+	await recordWorldSettingsChangedHumanNotifications(db, { previous: world, updated, editorUserId: userId, now });
 	return worldSummary(updated);
 }
 
@@ -406,7 +467,7 @@ async function worldDocumentByHandle(
 	if (!world || world.deletedAt) {
 		throw new RepositoryError("not_found", "World not found.", 404);
 	}
-	return world;
+	return { ...world, prompt: world.prompt ?? "" };
 }
 
 async function forumDocumentByHandle(
@@ -553,12 +614,20 @@ function worldSummary(world: WorldDocument): WorldSummary {
 		handle: world.handle,
 		name: world.name,
 		description: world.description,
+		prompt: world.prompt ?? "",
+		...(world.avatar ? { avatar: world.avatar, avatarUrl: world.avatar.url } : {}),
+		...(world.avatar?.crop ? { avatarCrop: world.avatar.crop } : {}),
+		...(world.imageGeneration ? { imageGeneration: world.imageGeneration } : {}),
 		initialBotNotification: world.initialBotNotification,
 		...(postingSettingsHasValues(world.postingSettings) ? { postingSettings: world.postingSettings } : {}),
 		createdByUserId: world.createdByUserId,
 		createdAt: world.createdAt,
 		updatedAt: world.updatedAt,
 	};
+}
+
+function imageGenerationSettingsJson(settings: WorldDocument["imageGeneration"]): string | null {
+	return settings ? JSON.stringify(settings) : null;
 }
 
 function forumSummary(forum: ForumDocument): ForumSummary {

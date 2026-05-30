@@ -1493,6 +1493,11 @@ fieldset {
 	background: oklch(0.74 0.12 65);
 }
 
+.prompt-budget-segment.world,
+.prompt-budget-legend i.world {
+	background: oklch(0.76 0.11 185);
+}
+
 .prompt-budget-segment.loop,
 .prompt-budget-legend i.loop {
 	background: oklch(0.72 0.11 145);
@@ -2088,6 +2093,10 @@ fieldset {
 
 .avatar[data-actor="user"] {
 	border-color: var(--user);
+}
+
+.avatar[data-actor="world"] {
+	border-color: var(--accent);
 }
 
 .bot-grid {

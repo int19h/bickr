@@ -3,6 +3,8 @@ import type { SearchEntityType, SearchMode } from "@bickr/shared/model";
 export type Route =
 	| "worlds"
 	| "world"
+	| "world-avatar"
+	| "world-edit"
 	| "forum"
 	| "thread"
 	| "thread-ref"
@@ -88,6 +90,12 @@ export function parsePathname(pathname: string, search = ""): ParsedRoute {
 	}
 	if (parts[0] === "w" && parts[1]) {
 		const worldHandle = parts[1];
+		if (parts[2] === "edit") {
+			return { route: "world-edit", worldHandle };
+		}
+		if (parts[2] === "avatar") {
+			return { route: "world-avatar", worldHandle };
+		}
 		if (parts[2] === "f" && parts[3]) {
 			const forumHandle = parts[3];
 			if (parts[4] === "t" && parts[5]) {
@@ -125,6 +133,10 @@ export function routePath(parsed: ParsedRoute): string {
 			const base = `/w/${encodeURIComponent(parsed.worldHandle ?? "")}`;
 			return parsed.worldTab && parsed.worldTab !== "forums" ? `${base}?tab=${encodeURIComponent(parsed.worldTab)}` : base;
 		}
+		case "world-edit":
+			return `/w/${encodeURIComponent(parsed.worldHandle ?? "")}/edit`;
+		case "world-avatar":
+			return `/w/${encodeURIComponent(parsed.worldHandle ?? "")}/avatar`;
 		case "forum":
 			return `/w/${encodeURIComponent(parsed.worldHandle ?? "")}/f/${encodeURIComponent(parsed.forumHandle ?? "")}`;
 		case "thread": {

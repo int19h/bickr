@@ -120,6 +120,7 @@ import {
 	maxBotPromptLength,
 	maxBotReasoningPrefillLength,
 	maxProviderRoutingJsonLength,
+	maxWorldPromptLength,
 	normalizeHandleText,
 	sanitizeHandleInput,
 } from "@bickr/shared/validation";
@@ -231,6 +232,7 @@ type ApiResult<T> = ApiSuccess<T> | ApiFailure;
 type ContentRefType = "thread" | "comment";
 type OpenContentRefOptions = { replace?: boolean };
 type BotMutationResponse = { bot: BotSummary; affectedBots?: BotSummary[] };
+type WorldMutationResponse = { world: WorldSummary };
 
 type BeforeInstallPromptEvent = Event & {
 	platforms: string[];
@@ -614,6 +616,14 @@ function clientRouteTitle({
 		case "world": {
 			const handle = world?.handle ?? worldHandle;
 			return handle ? titleWithBickr(worldTab === "forums" ? `w/${handle}` : `w/${handle}: ${worldTab}`) : "Bickr";
+		}
+		case "world-edit": {
+			const handle = world?.handle ?? worldHandle;
+			return handle ? titleWithBickr(`w/${handle}: edit`) : titleWithBickr("World edit");
+		}
+		case "world-avatar": {
+			const handle = world?.handle ?? worldHandle;
+			return handle ? titleWithBickr(`w/${handle}: avatar`) : titleWithBickr("World avatar");
 		}
 		case "forum": {
 			const handle = forum?.handle ?? forumHandle;
@@ -1083,7 +1093,18 @@ function App() {
 				setStatus("Forum refreshed");
 				return;
 			}
-			if ((route === "world" || route === "bot-profile" || route === "bot-avatar" || route === "bot-loop" || route === "bot-edit") && activeWorld) {
+			if (
+				(
+					route === "world" ||
+					route === "world-edit" ||
+					route === "world-avatar" ||
+					route === "bot-profile" ||
+					route === "bot-avatar" ||
+					route === "bot-loop" ||
+					route === "bot-edit"
+				) &&
+				activeWorld
+			) {
 				await Promise.all([loadForums(activeWorld.handle), loadWorldBots(activeWorld.handle)]);
 				setStatus("World refreshed");
 				return;
@@ -2107,6 +2128,12 @@ function App() {
 		applySavedBots([savedBot, ...affectedBots]);
 	}
 
+	function applySavedWorld(savedWorld: WorldSummary): void {
+		setWorlds((current) =>
+			current.map((world) => world.id === savedWorld.id ? { ...world, ...savedWorld } : world),
+		);
+	}
+
 	function applySavedBots(savedBots: BotSummary[]): void {
 		if (savedBots.length === 0) {
 			return;
@@ -2490,11 +2517,34 @@ function App() {
 							onRemoveBotGroupMember={removeBotGroupMember}
 							onUpdateBotGroupTitle={updateBotGroupTitle}
 							onUpdateForum={updateForum}
-							onUpdateWorld={updateWorld}
 							subscribed={isSubscribed("world", activeWorld.id)}
 							tab={activeWorldTab}
 							world={activeWorld}
 						/>
+					)}
+					{route === "world-edit" && activeWorld && (
+						<WorldEditPage
+							busy={busy}
+							onBack={() => navigate({ route: "world", worldHandle: activeWorld.handle })}
+							onSave={(input) => updateWorld(activeWorld.handle, input)}
+							onWorldUpdated={applySavedWorld}
+							readonly={activeWorld.createdByUserId !== session.user.id}
+							world={activeWorld}
+						/>
+					)}
+					{route === "world-avatar" && activeWorld && (
+						activeWorld.createdByUserId === session.user.id ?
+							<WorldAvatarGenerationScreen
+								onBack={() => navigate({ route: "world-edit", worldHandle: activeWorld.handle })}
+								onDiscardSettings={() => updateWorld(activeWorld.handle, { imageGeneration: null })}
+								onSaveSettings={(draft) => updateWorld(activeWorld.handle, { imageGeneration: imageGenerationInputFromDraft(draft) })}
+								onWorldUpdated={applySavedWorld}
+								ownerInferenceSettings={userProfile?.inferenceSettings ?? null}
+								world={activeWorld}
+							/>
+						:	<PermissionState title="Avatar generation is owner-only">
+								Only this world's owner can generate its avatar.
+							</PermissionState>
 					)}
 					{route === "forum" && activeWorld && activeForum && (
 						<ForumPage
@@ -2845,6 +2895,12 @@ function Topbar({
 			key: "thread",
 			content: <span className="current truncate">{thread.title}</span>,
 		});
+	}
+	if (route === "world-edit") {
+		breadcrumbs.push({ key: "world-edit", content: <span className="current">Edit</span> });
+	}
+	if (route === "world-avatar") {
+		breadcrumbs.push({ key: "world-avatar", content: <span className="current">Avatar</span> });
 	}
 	if ((route === "bot-profile" || route === "bot-avatar" || route === "bot-loop" || route === "bot-edit") && bot) {
 		breadcrumbs.push({
@@ -3762,42 +3818,48 @@ function CreateWorldModal({
 	);
 }
 
-function EditWorldModal({
+function WorldEditPage({
 	busy,
-	onClose,
+	onBack,
 	onSave,
-	open,
+	onWorldUpdated,
+	readonly,
 	world,
 }: {
 	busy: boolean;
-	onClose: () => void;
+	onBack: () => void;
 	onSave: (input: UpdateWorldInput) => Promise<boolean>;
-	open: boolean;
+	onWorldUpdated: (world: WorldSummary) => void;
+	readonly: boolean;
 	world: WorldView;
 }) {
 	const [handle, setHandle] = useState(world.handle);
 	const [name, setName] = useState(world.name);
 	const [description, setDescription] = useState(world.description);
+	const [prompt, setPrompt] = useState(world.prompt ?? "");
 	const [initialBotNotification, setInitialBotNotification] = useState(world.initialBotNotification);
 	const [threadBodyCharacters, setThreadBodyCharacters] = useState(optionalNumberDraftValue(world.postingSettings?.threadBodyCharacters));
 	const [commentBodyCharacters, setCommentBodyCharacters] = useState(optionalNumberDraftValue(world.postingSettings?.commentBodyCharacters));
+	const [uploadOpen, setUploadOpen] = useState(false);
+	const [cropOpen, setCropOpen] = useState(false);
+	const [deleteAvatarConfirm, setDeleteAvatarConfirm] = useState(false);
+	const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 	const toast = useContext(ToastContext);
 
 	useEffect(() => {
-		if (open) {
-			setHandle(world.handle);
-			setName(world.name);
-			setDescription(world.description);
-			setInitialBotNotification(world.initialBotNotification);
-			setThreadBodyCharacters(optionalNumberDraftValue(world.postingSettings?.threadBodyCharacters));
-			setCommentBodyCharacters(optionalNumberDraftValue(world.postingSettings?.commentBodyCharacters));
-		}
+		setHandle(world.handle);
+		setName(world.name);
+		setDescription(world.description);
+		setPrompt(world.prompt ?? "");
+		setInitialBotNotification(world.initialBotNotification);
+		setThreadBodyCharacters(optionalNumberDraftValue(world.postingSettings?.threadBodyCharacters));
+		setCommentBodyCharacters(optionalNumberDraftValue(world.postingSettings?.commentBodyCharacters));
 	}, [
-		open,
 		world.description,
 		world.handle,
 		world.initialBotNotification,
 		world.name,
+		world.prompt,
 		world.postingSettings?.commentBodyCharacters,
 		world.postingSettings?.threadBodyCharacters,
 	]);
@@ -3808,6 +3870,7 @@ function EditWorldModal({
 		isValidHandleText(handle) &&
 		name.trim().length > 0 &&
 		description.trim().length > 0 &&
+		prompt.length <= maxWorldPromptLength &&
 		initialBotNotification.trim().length > 0 &&
 		(threadBodyCharactersValue === null ||
 			(threadBodyCharactersValue >= 1 && threadBodyCharactersValue <= defaultThreadBodyCharacters)) &&
@@ -3817,15 +3880,20 @@ function EditWorldModal({
 		handle !== world.handle ||
 		name !== world.name ||
 		description !== world.description ||
+		prompt !== (world.prompt ?? "") ||
 		initialBotNotification !== world.initialBotNotification ||
 		threadBodyCharactersValue !== (world.postingSettings?.threadBodyCharacters ?? null) ||
 		commentBodyCharactersValue !== (world.postingSettings?.commentBodyCharacters ?? null);
 
 	async function submit(): Promise<void> {
+		if (readonly) {
+			return;
+		}
 		const ok = await onSave({
 			handle,
 			name,
 			description,
+			prompt,
 			initialBotNotification,
 			postingSettings: {
 				threadBodyCharacters: threadBodyCharactersValue,
@@ -3838,100 +3906,169 @@ function EditWorldModal({
 					Saved <Reference kind="world" name={handle} />
 				</>,
 			);
-			onClose();
+		}
+	}
+
+	async function deleteAvatar(): Promise<void> {
+		const result = await api<WorldMutationResponse>(`/api/worlds/${encodeURIComponent(world.handle)}/avatar`, {
+			method: "DELETE",
+		});
+		if (result.ok) {
+			onWorldUpdated(result.data.world);
+			toast.push("Deleted world avatar.");
+		} else {
+			toast.push(result.message);
 		}
 	}
 
 	return (
-		<Modal
-			foot={
-				<>
-					<span className="help">Routes in this world will move to the new handle.</span>
-					<div className="right">
-						<button className="btn ghost" disabled={busy} onClick={onClose} type="button">
-							Cancel
-						</button>
+		<div className="main-inner">
+			<div className="page-header">
+				<div className="page-title-block">
+					<button className="back-link" onClick={onBack} type="button">
+						{world.name}
+					</button>
+					<h1>
+						<Avatar actor="world" colorSeed={world.handle} crop={world.avatarCrop} imageUrl={world.avatarUrl} name={world.name} size="lg" />
+						<span>{readonly ? "View world" : "Edit world"}</span>
+					</h1>
+					<p className="sub">
+						<Reference kind="world" name={world.handle} />
+						{readonly ? " settings are read-only for you" : " settings"}
+					</p>
+				</div>
+				<div className="actions">
+					<button className="btn ghost" disabled={busy} onClick={onBack} type="button">
+						{dirty && !readonly ? "Discard" : "Back"}
+					</button>
+					{!readonly && (
 						<button className="btn primary" disabled={!dirty || !valid || busy} onClick={() => void submit()} type="button">
 							Save changes
 						</button>
-					</div>
-				</>
-			}
-			onClose={onClose}
-			open={open}
-			title="Edit world"
-			wide
-		>
-			<Field help={handle ? `bickr.local/w/${handle}` : handleHelpText} label="Handle">
-				<div className="input-prefix">
-					<span className="prefix">w/</span>
-					<input
-						className="input"
-						onChange={(event) => setHandle(slugify(event.target.value))}
-						value={handle}
-					/>
+					)}
 				</div>
-			</Field>
-			<Field hint="shown to humans" label="Name">
-				<input
-					autoFocus
-					className="input"
-					maxLength={80}
-					onChange={(event) => setName(event.target.value)}
-					value={name}
-				/>
-			</Field>
-			<Field hint="required" label="Short description">
-				<textarea
-					className="textarea"
-					maxLength={500}
-					onChange={(event) => setDescription(event.target.value)}
-					rows={4}
-					value={description}
-				/>
-			</Field>
-			<Field hint="required" label="Initial participant notification">
-				<textarea
-					className="textarea"
-					maxLength={1_000}
-					onChange={(event) => setInitialBotNotification(event.target.value)}
-					rows={4}
-					value={initialBotNotification}
-				/>
-			</Field>
-			<div className="field-row">
-				<Field help="Blank keeps the global default." label="Thread body characters">
-					<div className="input-suffix">
-						<input
-							className="input"
-							min={1}
-							max={defaultThreadBodyCharacters}
-							onChange={(event) => setThreadBodyCharacters(event.target.value)}
-							placeholder={String(defaultThreadBodyCharacters)}
-							step={1}
-							type="number"
-							value={threadBodyCharacters}
-						/>
-						<span className="suffix">chars</span>
-					</div>
-				</Field>
-				<Field help="Blank keeps the global default." label="Comment body characters">
-					<div className="input-suffix">
-						<input
-							className="input"
-							min={1}
-							max={defaultCommentBodyCharacters}
-							onChange={(event) => setCommentBodyCharacters(event.target.value)}
-							placeholder={String(defaultCommentBodyCharacters)}
-							step={1}
-							type="number"
-							value={commentBodyCharacters}
-						/>
-						<span className="suffix">chars</span>
-					</div>
-				</Field>
 			</div>
-		</Modal>
+
+			<div className="edit-layout">
+				<div>
+					<section className="section">
+						<div className="section-head">
+							<h2>Profile</h2>
+							<span className="meta">shown to human users</span>
+						</div>
+						<div className="avatar-edit-row">
+							<button
+								className="avatar-edit-preview"
+								disabled={!world.avatarUrl}
+								onClick={() => world.avatarUrl ? setLightboxUrl(world.avatarUrl) : undefined}
+								type="button"
+							>
+								<Avatar actor="world" colorSeed={world.handle} crop={world.avatarCrop} imageUrl={world.avatarUrl} name={world.name} size="hero" />
+							</button>
+							<div className="avatar-edit-actions">
+								{readonly ?
+									<button className="btn" disabled type="button">
+										<Icon name="sparkles" size={14} />
+										Generate avatar
+									</button>
+								:	<SpaLink className="btn" to={{ route: "world-avatar", worldHandle: world.handle }}>
+										<Icon name="sparkles" size={14} />
+										Generate avatar
+									</SpaLink>
+								}
+								<button className="btn" disabled={readonly} onClick={() => setUploadOpen(true)} type="button">
+									Upload
+								</button>
+								<button className="btn" disabled={readonly || !world.avatarUrl} onClick={() => setCropOpen(true)} type="button">
+									Crop
+								</button>
+								<button className="btn danger" disabled={readonly || !world.avatarUrl} onClick={() => setDeleteAvatarConfirm(true)} type="button">
+									Delete
+								</button>
+							</div>
+						</div>
+						<Field help={handle ? `bickr.local/w/${handle}` : handleHelpText} label="Handle">
+							<div className="input-prefix">
+								<span className="prefix">w/</span>
+								<input className="input" disabled={readonly} onChange={(event) => setHandle(slugify(event.target.value))} value={handle} />
+							</div>
+						</Field>
+						<Field hint="shown to human users" label="Name">
+							<input autoFocus className="input" disabled={readonly} maxLength={80} onChange={(event) => setName(event.target.value)} value={name} />
+						</Field>
+						<Field hint="shown to human users" label="Short description">
+							<textarea className="textarea" disabled={readonly} maxLength={500} onChange={(event) => setDescription(event.target.value)} rows={4} value={description} />
+						</Field>
+					</section>
+
+					<section className="section">
+						<div className="section-head">
+							<h2>Prompt</h2>
+							<span className="meta">
+								shown to participants · {prompt.length.toLocaleString()} / {maxWorldPromptLength.toLocaleString()} chars
+							</span>
+						</div>
+						<Field help="Optional. Inserted into participant system prompts as Setting.">
+							<textarea
+								className="textarea prompt-editor"
+								disabled={readonly}
+								maxLength={maxWorldPromptLength}
+								onChange={(event) => setPrompt(event.target.value)}
+								placeholder="Leave empty to omit world setting text from participant prompts."
+								value={prompt}
+							/>
+						</Field>
+					</section>
+
+					<section className="section">
+						<div className="section-head">
+							<h2>Settings</h2>
+							<span className="meta">world defaults</span>
+						</div>
+						<Field hint="shown to participants entering the world" label="Initial participant notification">
+							<textarea className="textarea" disabled={readonly} maxLength={1_000} onChange={(event) => setInitialBotNotification(event.target.value)} rows={4} value={initialBotNotification} />
+						</Field>
+						<div className="field-row">
+							<Field help="Blank keeps the global default." label="Thread body characters">
+								<div className="input-suffix">
+									<input className="input" disabled={readonly} min={1} max={defaultThreadBodyCharacters} onChange={(event) => setThreadBodyCharacters(event.target.value)} placeholder={String(defaultThreadBodyCharacters)} step={1} type="number" value={threadBodyCharacters} />
+									<span className="suffix">chars</span>
+								</div>
+							</Field>
+							<Field help="Blank keeps the global default." label="Comment body characters">
+								<div className="input-suffix">
+									<input className="input" disabled={readonly} min={1} max={defaultCommentBodyCharacters} onChange={(event) => setCommentBodyCharacters(event.target.value)} placeholder={String(defaultCommentBodyCharacters)} step={1} type="number" value={commentBodyCharacters} />
+									<span className="suffix">chars</span>
+								</div>
+							</Field>
+						</div>
+					</section>
+				</div>
+			</div>
+
+			<WorldAvatarUploadModal
+				onClose={() => setUploadOpen(false)}
+				onSaved={onWorldUpdated}
+				open={uploadOpen && !readonly}
+				world={world}
+			/>
+			<WorldAvatarCropModal
+				onClose={() => setCropOpen(false)}
+				onSaved={onWorldUpdated}
+				open={cropOpen && !readonly}
+				world={world}
+			/>
+			<Confirm
+				body={<>This removes the avatar for <b>{world.name}</b>.</>}
+				confirmText="Delete avatar"
+				danger
+				onClose={() => setDeleteAvatarConfirm(false)}
+				onConfirm={() => void deleteAvatar()}
+				open={deleteAvatarConfirm && !readonly}
+				title="Delete avatar?"
+			/>
+			<ImageLightbox onClose={() => setLightboxUrl(null)} title={world.name} url={lightboxUrl} />
+		</div>
 	);
 }
 
@@ -3961,7 +4098,6 @@ function WorldDetail({
 	onRemoveBotGroupMember,
 	onUpdateBotGroupTitle,
 	onUpdateForum,
-	onUpdateWorld,
 	subscribed,
 	tab,
 	world,
@@ -3991,14 +4127,12 @@ function WorldDetail({
 	onRemoveBotGroupMember: (world: WorldView, group: BotGroupSummary, bot: BotSummary) => Promise<boolean>;
 	onUpdateBotGroupTitle: (world: WorldView, group: BotGroupSummary, customTitle: string | null) => Promise<boolean>;
 	onUpdateForum: (forum: ForumSummary, input: UpdateForumInput) => Promise<boolean>;
-	onUpdateWorld: (worldHandle: string, input: UpdateWorldInput) => Promise<boolean>;
 	subscribed: boolean;
 	tab: WorldTab;
 	world: WorldView;
 }) {
 	const [forumModalOpen, setForumModalOpen] = useState(false);
 	const [confirmBot, setConfirmBot] = useState<BotSummary | null>(null);
-	const [worldEditOpen, setWorldEditOpen] = useState(false);
 	const [confirmWorld, setConfirmWorld] = useState(false);
 	const [editingForum, setEditingForum] = useState<ForumSummary | null>(null);
 	const [confirmForum, setConfirmForum] = useState<ForumSummary | null>(null);
@@ -4104,12 +4238,12 @@ function WorldDetail({
 							)
 						}
 					/>
+					<SpaLink className="btn" to={{ route: "world-edit", worldHandle: world.handle }}>
+						<Icon name="edit" size={14} />
+						{canManageWorld ? "Edit" : "View"}
+					</SpaLink>
 					{canManageWorld && (
 						<>
-							<button className="btn" disabled={busy} onClick={() => setWorldEditOpen(true)} type="button">
-								<Icon name="edit" size={14} />
-								Edit
-							</button>
 							<button
 								className="btn danger"
 								disabled={busy || !canDeleteWorld}
@@ -4326,14 +4460,6 @@ function WorldDetail({
 				onClose={() => setForumModalOpen(false)}
 				onCreate={onCreateForum}
 				open={forumModalOpen}
-				world={world}
-			/>
-
-			<EditWorldModal
-				busy={busy}
-				onClose={() => setWorldEditOpen(false)}
-				onSave={(input) => onUpdateWorld(world.handle, input)}
-				open={worldEditOpen}
 				world={world}
 			/>
 
@@ -6784,6 +6910,95 @@ function AvatarUploadModal({
 	);
 }
 
+function WorldAvatarUploadModal({
+	onClose,
+	onSaved,
+	open,
+	world,
+}: {
+	onClose: () => void;
+	onSaved: (world: WorldSummary) => void;
+	open: boolean;
+	world: WorldView;
+}) {
+	const [url, setUrl] = useState("");
+	const [file, setFile] = useState<File | null>(null);
+	const [saving, setSaving] = useState(false);
+	const [error, setError] = useState("");
+
+	useEffect(() => {
+		if (!open) {
+			setUrl("");
+			setFile(null);
+			setSaving(false);
+			setError("");
+		}
+	}, [open]);
+
+	async function submitAvatar(): Promise<void> {
+		setSaving(true);
+		setError("");
+		try {
+			const body =
+				file ?
+					(() => {
+						const form = new FormData();
+						form.set("file", file);
+						return form;
+					})()
+				:	{ url: url.trim() };
+			const result = await api<WorldMutationResponse>(`/api/worlds/${encodeURIComponent(world.handle)}/avatar`, {
+				method: "PUT",
+				body,
+			});
+			if (!result.ok) {
+				throw new Error(result.message);
+			}
+			onSaved(result.data.world);
+			onClose();
+		} catch (caught) {
+			setError(caught instanceof Error ? caught.message : "Could not save avatar.");
+		} finally {
+			setSaving(false);
+		}
+	}
+
+	const urlFilled = Boolean(url.trim());
+	const fileFilled = Boolean(file);
+	const canSubmit = urlFilled !== fileFilled;
+	return (
+		<Modal
+			foot={
+				<>
+					<span />
+					<div className="right">
+						<button className="btn ghost" disabled={saving} onClick={onClose} type="button">
+							Cancel
+						</button>
+						<button className="btn primary" disabled={!canSubmit || saving} onClick={() => void submitAvatar()} type="button">
+							{saving ? "Saving..." : "Save avatar"}
+						</button>
+					</div>
+				</>
+			}
+			onClose={onClose}
+			open={open}
+			title="Upload Avatar"
+		>
+			<Field label="Image URL">
+				<input className="input" disabled={fileFilled || saving} onChange={(event) => setUrl(event.target.value)} placeholder="https://example.com/avatar.png" value={url} />
+			</Field>
+			<div className="modal-or-line">
+				<span>or</span>
+			</div>
+			<Field label="Image file">
+				<input accept="image/jpeg,image/png,image/webp,image/svg+xml" className="input" disabled={urlFilled || saving} onChange={(event) => setFile(event.target.files?.[0] ?? null)} type="file" />
+			</Field>
+			{error && <div className="runtime-message error">{error}</div>}
+		</Modal>
+	);
+}
+
 type AvatarCropDragState = {
 	corner?: AvatarCropCorner;
 	imageRect: DOMRect;
@@ -7056,6 +7271,264 @@ function AvatarCropModal({
 					</div>
 				</div>
 			:	<div className="empty compact-empty">This participant does not have an avatar to crop.</div>
+			}
+			{error && <div className="runtime-message error">{error}</div>}
+		</Modal>
+	);
+}
+
+function WorldAvatarCropModal({
+	onClose,
+	onSaved,
+	open,
+	world,
+}: {
+	onClose: () => void;
+	onSaved: (world: WorldSummary) => void;
+	open: boolean;
+	world: WorldView;
+}) {
+	const frameRef = useRef<HTMLDivElement | null>(null);
+	const imageRef = useRef<HTMLImageElement | null>(null);
+	const dragRef = useRef<AvatarCropDragState | null>(null);
+	const [draft, setDraft] = useState<AvatarCrop | null>(null);
+	const [cropDisplayBox, setCropDisplayBox] = useState<AvatarCropDisplayBox | null>(null);
+	const [saving, setSaving] = useState(false);
+	const [imageReady, setImageReady] = useState(false);
+	const [error, setError] = useState("");
+
+	const measureCropDisplayBox = useCallback(() => {
+		const frame = frameRef.current;
+		const image = imageRef.current;
+		if (!frame || !image) {
+			setCropDisplayBox(null);
+			return;
+		}
+		const frameRect = frame.getBoundingClientRect();
+		const imageRect = image.getBoundingClientRect();
+		if (frameRect.width <= 0 || frameRect.height <= 0 || imageRect.width <= 0 || imageRect.height <= 0) {
+			setCropDisplayBox(null);
+			return;
+		}
+		const next = {
+			height: imageRect.height,
+			left: imageRect.left - frameRect.left,
+			top: imageRect.top - frameRect.top,
+			width: imageRect.width,
+		};
+		setCropDisplayBox((current) => sameAvatarCropDisplayBox(current, next) ? current : next);
+	}, []);
+
+	useEffect(() => {
+		if (!open) {
+			setDraft(null);
+			setCropDisplayBox(null);
+			setSaving(false);
+			setImageReady(false);
+			setError("");
+			dragRef.current = null;
+		}
+	}, [open]);
+
+	useEffect(() => {
+		if (open) {
+			setDraft(null);
+			setCropDisplayBox(null);
+			setImageReady(false);
+			setError("");
+			dragRef.current = null;
+		}
+	}, [world.avatarUrl, open]);
+
+	useLayoutEffect(() => {
+		if (!open || !imageReady) {
+			return;
+		}
+		measureCropDisplayBox();
+	}, [draft?.imageHeight, draft?.imageWidth, imageReady, measureCropDisplayBox, open]);
+
+	useEffect(() => {
+		if (!open || !imageReady) {
+			return undefined;
+		}
+		const measure = () => measureCropDisplayBox();
+		window.addEventListener("resize", measure);
+		window.addEventListener("orientationchange", measure);
+		let observer: ResizeObserver | null = null;
+		if (typeof ResizeObserver !== "undefined") {
+			observer = new ResizeObserver(measure);
+			if (frameRef.current) {
+				observer.observe(frameRef.current);
+			}
+			if (imageRef.current) {
+				observer.observe(imageRef.current);
+			}
+		}
+		measure();
+		return () => {
+			window.removeEventListener("resize", measure);
+			window.removeEventListener("orientationchange", measure);
+			observer?.disconnect();
+		};
+	}, [imageReady, measureCropDisplayBox, open]);
+
+	function handleImageLoad(event: ReactSyntheticEvent<HTMLImageElement>): void {
+		const image = event.currentTarget;
+		if (!image.naturalWidth || !image.naturalHeight) {
+			setImageReady(false);
+			setDraft(null);
+			setError("This avatar does not expose usable image dimensions.");
+			return;
+		}
+		const dimensions = normalizedCropDimensions(image.naturalWidth, image.naturalHeight);
+		const existing =
+			world.avatarCrop?.imageWidth === dimensions.imageWidth && world.avatarCrop.imageHeight === dimensions.imageHeight ?
+				world.avatarCrop
+			:	null;
+		setDraft(existing ? clampAvatarCrop(existing) : centeredAvatarCrop(dimensions.imageWidth, dimensions.imageHeight));
+		setImageReady(true);
+		setError("");
+	}
+
+	function beginCropDrag(
+		event: ReactPointerEvent<HTMLElement>,
+		type: AvatarCropDragState["type"],
+		corner?: AvatarCropCorner,
+	): void {
+		if (!draft || !imageRef.current) {
+			return;
+		}
+		const imageRect = imageRef.current.getBoundingClientRect();
+		if (imageRect.width <= 0 || imageRect.height <= 0) {
+			return;
+		}
+		event.preventDefault();
+		event.stopPropagation();
+		event.currentTarget.setPointerCapture(event.pointerId);
+		dragRef.current = {
+			imageRect,
+			pointerId: event.pointerId,
+			startCrop: draft,
+			startX: event.clientX,
+			startY: event.clientY,
+			type,
+			...(corner ? { corner } : {}),
+		};
+	}
+
+	function updateCropDrag(event: ReactPointerEvent<HTMLElement>): void {
+		const drag = dragRef.current;
+		if (!drag || event.pointerId !== drag.pointerId) {
+			return;
+		}
+		event.preventDefault();
+		const dx = ((event.clientX - drag.startX) * drag.startCrop.imageWidth) / drag.imageRect.width;
+		const dy = ((event.clientY - drag.startY) * drag.startCrop.imageHeight) / drag.imageRect.height;
+		setDraft(
+			drag.type === "move" ?
+				moveAvatarCrop(drag.startCrop, dx, dy)
+			:	resizeAvatarCrop(drag.startCrop, drag.corner ?? "se", dx, dy),
+		);
+	}
+
+	function endCropDrag(event: ReactPointerEvent<HTMLElement>): void {
+		const drag = dragRef.current;
+		if (!drag || event.pointerId !== drag.pointerId) {
+			return;
+		}
+		try {
+			event.currentTarget.releasePointerCapture(event.pointerId);
+		} catch {
+			// The pointer may already have been released by the browser when the gesture is cancelled.
+		}
+		dragRef.current = null;
+	}
+
+	async function saveCrop(): Promise<void> {
+		if (!draft) {
+			return;
+		}
+		setSaving(true);
+		setError("");
+		try {
+			const result = await api<WorldMutationResponse>(`/api/worlds/${encodeURIComponent(world.handle)}/avatar/crop`, {
+				method: "PATCH",
+				body: { crop: draft },
+			});
+			if (!result.ok) {
+				throw new Error(result.message);
+			}
+			onSaved(result.data.world);
+			onClose();
+		} catch (caught) {
+			setError(caught instanceof Error ? caught.message : "Could not save avatar crop.");
+		} finally {
+			setSaving(false);
+		}
+	}
+
+	return (
+		<Modal
+			className="avatar-crop-modal"
+			foot={
+				<>
+					<span className="meta">{draft ? `${draft.size} x ${draft.size}` : ""}</span>
+					<div className="right">
+						<button className="btn ghost" disabled={saving} onClick={onClose} type="button">
+							Cancel
+						</button>
+						<button className="btn primary" disabled={!draft || !imageReady || saving} onClick={() => void saveCrop()} type="button">
+							{saving ? "Saving..." : "Save"}
+						</button>
+					</div>
+				</>
+			}
+			onClose={onClose}
+			open={open}
+			title="Crop avatar"
+			wide
+		>
+			{world.avatarUrl ?
+				<div className="avatar-crop-stage">
+					<div className="avatar-crop-frame" ref={frameRef}>
+						<img
+							alt=""
+							className="avatar-crop-image"
+							onError={() => {
+								setImageReady(false);
+								setDraft(null);
+								setCropDisplayBox(null);
+								setError("This avatar image could not be loaded.");
+							}}
+							onLoad={handleImageLoad}
+							ref={imageRef}
+							src={world.avatarUrl}
+						/>
+						{draft && imageReady && cropDisplayBox && (
+							<div
+								className="avatar-crop-selection"
+								onPointerCancel={endCropDrag}
+								onPointerDown={(event) => beginCropDrag(event, "move")}
+								onPointerMove={updateCropDrag}
+								onPointerUp={endCropDrag}
+								style={avatarCropOverlayStyle(draft, cropDisplayBox)}
+							>
+								{(["nw", "ne", "sw", "se"] as const).map((corner) => (
+									<span
+										aria-hidden="true"
+										className={`avatar-crop-handle ${corner}`}
+										key={corner}
+										onPointerCancel={endCropDrag}
+										onPointerDown={(event) => beginCropDrag(event, "resize", corner)}
+										onPointerMove={updateCropDrag}
+										onPointerUp={endCropDrag}
+									/>
+								))}
+							</div>
+						)}
+					</div>
+				</div>
+			:	<div className="empty compact-empty">This world does not have an avatar to crop.</div>
 			}
 			{error && <div className="runtime-message error">{error}</div>}
 		</Modal>
@@ -7496,6 +7969,364 @@ function BotAvatarGenerationScreen({
 			</section>
 			<AvatarGenerationChatLog entries={chatEntries} />
 			<ImageLightbox onClose={() => setLightboxUrl(null)} title={bot.displayName} url={lightboxUrl} />
+		</div>
+	);
+}
+
+function WorldAvatarGenerationScreen({
+	onBack,
+	onDiscardSettings,
+	onSaveSettings,
+	onWorldUpdated,
+	ownerInferenceSettings,
+	world,
+}: {
+	onBack: () => void;
+	onDiscardSettings: () => Promise<boolean>;
+	onSaveSettings: (draft: InferenceDraft) => Promise<boolean>;
+	onWorldUpdated: (world: WorldSummary) => void;
+	ownerInferenceSettings: BotInferenceSettings | null;
+	world: WorldView;
+}) {
+	const initialSettings = defaultAvatarGenerationInferenceSettings(
+		world.imageGeneration ? { imageGeneration: world.imageGeneration } : ownerInferenceSettings ?? {},
+	);
+	const [draft, setDraft] = useState<InferenceDraft>(() => inferenceDraftFromSettings(initialSettings));
+	const [models, setModels] = useState<OpenRouterImageModel[]>([]);
+	const [modelsError, setModelsError] = useState("");
+	const [prompt, setPrompt] = useState(initialSettings.imageGeneration?.prompt ?? "");
+	const [includeCurrentAvatar, setIncludeCurrentAvatar] = useState(Boolean(world.avatarUrl));
+	const [candidate, setCandidate] = useState<AvatarImage | null>(null);
+	const [chatEntries, setChatEntries] = useState<AvatarGenerationChatEntry[]>([]);
+	const [generating, setGenerating] = useState(false);
+	const [activePromptFill, setActivePromptFill] = useState<"description" | "current_avatar" | null>(null);
+	const [saving, setSaving] = useState(false);
+	const [message, setMessage] = useState("");
+	const [error, setError] = useState("");
+	const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+	const [currentAvatarFailed, setCurrentAvatarFailed] = useState(false);
+	const generationAbortRef = useRef<AbortController | null>(null);
+	const promptFillAbortRef = useRef<AbortController | null>(null);
+
+	useEffect(() => {
+		const effectiveSettings = defaultAvatarGenerationInferenceSettings(
+			world.imageGeneration ? { imageGeneration: world.imageGeneration } : ownerInferenceSettings ?? {},
+		);
+		setDraft(inferenceDraftFromSettings(effectiveSettings));
+		setPrompt(effectiveSettings.imageGeneration?.prompt ?? "");
+		setIncludeCurrentAvatar(Boolean(world.avatarUrl));
+		setCurrentAvatarFailed(false);
+		setCandidate(null);
+		setChatEntries([]);
+		setMessage("");
+		setError("");
+	}, [ownerInferenceSettings, world.avatarUrl, world.id, world.imageGeneration]);
+
+	useEffect(() => {
+		return () => {
+			generationAbortRef.current?.abort();
+			promptFillAbortRef.current?.abort();
+		};
+	}, []);
+
+	useEffect(() => {
+		let cancelled = false;
+		void api<{ models: OpenRouterImageModel[] }>("/api/openrouter/image-models").then((result) => {
+			if (cancelled) {
+				return;
+			}
+			if (result.ok) {
+				setModels(result.data.models);
+				setModelsError("");
+			} else {
+				setModelsError(result.message);
+			}
+		});
+		return () => {
+			cancelled = true;
+		};
+	}, []);
+
+	const selectedModel = models.find((model) => model.id === draft.imageGenerationModel);
+	const selectedSupportsImageInput = Boolean(selectedModel?.inputModalities.includes("image"));
+	const selectedSupportsTextOutput = Boolean(selectedModel?.outputModalities.includes("text"));
+	const currentAvatarAvailable = Boolean(world.avatarUrl && !currentAvatarFailed);
+	useEffect(() => {
+		if (!selectedSupportsImageInput || !currentAvatarAvailable) {
+			setIncludeCurrentAvatar(false);
+			return;
+		}
+		setIncludeCurrentAvatar(true);
+	}, [currentAvatarAvailable, selectedSupportsImageInput]);
+
+	const promptAllowed = prompt.trim().length > 0 || (includeCurrentAvatar && currentAvatarAvailable);
+	const imageProviderRoutingError = providerRoutingDraftError(draft.imageGenerationProviderRouting);
+	const imageConfigError = imageGenerationConfigDraftError(draft);
+	const generationSettingsError = modelsError || imageProviderRoutingError || imageConfigError;
+	const candidateCost = generatedAvatarCost(candidate);
+	const promptFillActive = activePromptFill !== null;
+	const currentAvatarPromptFillAvailable = Boolean(
+		!prompt.trim() &&
+		currentAvatarAvailable &&
+		draft.imageGenerationModel.trim() &&
+		selectedSupportsImageInput &&
+		selectedSupportsTextOutput &&
+		!imageProviderRoutingError &&
+		!imageConfigError,
+	);
+	const canGenerate = Boolean(draft.imageGenerationModel.trim()) &&
+		promptAllowed &&
+		!imageProviderRoutingError &&
+		!imageConfigError &&
+		!generating &&
+		!promptFillActive;
+
+	async function fillPrompt(mode: "description" | "current_avatar"): Promise<void> {
+		const controller = new AbortController();
+		promptFillAbortRef.current = controller;
+		setActivePromptFill(mode);
+		setChatEntries([]);
+		setError("");
+		setMessage("");
+		let streamError = "";
+		let finalPrompt = "";
+		try {
+			const body = {
+				mode,
+				...(mode === "description" && prompt.trim() ? { prefill: prompt } : {}),
+				...(mode === "current_avatar" ? { settings: imageGenerationInputFromDraft(draft, prompt) } : {}),
+			};
+			const response = await fetch(`/api/worlds/${encodeURIComponent(world.handle)}/avatar/prompt`, {
+				method: "POST",
+				headers: { accept: "text/event-stream", "content-type": "application/json" },
+				body: JSON.stringify(body),
+				signal: controller.signal,
+			});
+			if (!response.ok || !response.headers.get("content-type")?.includes("text/event-stream")) {
+				throw new Error(await apiResponseErrorMessage(response));
+			}
+			await readAvatarGenerationEventStream(response, (event) => {
+				setChatEntries((current) => applyAvatarGenerationStreamEvent(current, event));
+				if (event.type === "done" && "prompt" in event) {
+					finalPrompt = event.prompt;
+				}
+				if (event.type === "error") {
+					streamError = event.message;
+					setError(event.message);
+				}
+			});
+			if (streamError) {
+				throw new Error(streamError);
+			}
+			if (finalPrompt) {
+				setPrompt(finalPrompt);
+			}
+		} catch (caught) {
+			if (controller.signal.aborted) {
+				setChatEntries((current) => applyAvatarGenerationStreamEvent(current, { type: "aborted", message: "Prompt fill aborted." }));
+			} else {
+				setError(caught instanceof Error ? caught.message : "Could not fill prompt.");
+			}
+		} finally {
+			if (promptFillAbortRef.current === controller) {
+				promptFillAbortRef.current = null;
+			}
+			setActivePromptFill(null);
+		}
+	}
+
+	async function generate(): Promise<void> {
+		const controller = new AbortController();
+		generationAbortRef.current = controller;
+		setGenerating(true);
+		setCandidate(null);
+		setChatEntries([]);
+		setError("");
+		setMessage("");
+		let streamError = "";
+		try {
+			const response = await fetch(`/api/worlds/${encodeURIComponent(world.handle)}/avatar/generate`, {
+				method: "POST",
+				headers: { accept: "text/event-stream", "content-type": "application/json" },
+				body: JSON.stringify({ prompt, includeCurrentAvatar, settings: imageGenerationInputFromDraft(draft, prompt) }),
+				signal: controller.signal,
+			});
+			if (!response.ok || !response.headers.get("content-type")?.includes("text/event-stream")) {
+				throw new Error(await apiResponseErrorMessage(response));
+			}
+			await readAvatarGenerationEventStream(response, (event) => {
+				setChatEntries((current) => applyAvatarGenerationStreamEvent(current, event));
+				if (event.type === "done" && "candidate" in event) {
+					setCandidate(event.candidate);
+				}
+				if (event.type === "error") {
+					streamError = event.message;
+					setError(event.message);
+				}
+			});
+			if (streamError) {
+				throw new Error(streamError);
+			}
+		} catch (caught) {
+			if (controller.signal.aborted) {
+				setChatEntries((current) => applyAvatarGenerationStreamEvent(current, { type: "aborted", message: "Avatar generation aborted." }));
+			} else {
+				setError(caught instanceof Error ? caught.message : "Could not generate avatar.");
+			}
+		} finally {
+			if (generationAbortRef.current === controller) {
+				generationAbortRef.current = null;
+			}
+			setGenerating(false);
+		}
+	}
+
+	function abortGeneration(): void {
+		generationAbortRef.current?.abort();
+		setChatEntries((current) => applyAvatarGenerationStreamEvent(current, { type: "aborted", message: "Avatar generation aborted." }));
+	}
+
+	function abortPromptFill(): void {
+		promptFillAbortRef.current?.abort();
+		setChatEntries((current) => applyAvatarGenerationStreamEvent(current, { type: "aborted", message: "Prompt fill aborted." }));
+	}
+
+	async function save(): Promise<void> {
+		setSaving(true);
+		setError("");
+		setMessage("");
+		try {
+			if (candidate) {
+				const promptToSave = candidate.source?.type === "generated" && candidate.source.prompt ? candidate.source.prompt : prompt;
+				const result = await api<WorldMutationResponse>(`/api/worlds/${encodeURIComponent(world.handle)}/avatar/apply`, {
+					method: "POST",
+					body: { candidate, settings: imageGenerationInputFromDraft(draft, promptToSave) },
+				});
+				if (!result.ok) {
+					throw new Error(result.message);
+				}
+				onWorldUpdated(result.data.world);
+				setCandidate(null);
+				setMessage("Avatar saved.");
+			} else {
+				const ok = await onSaveSettings({ ...draft, imageGenerationPrompt: prompt });
+				if (ok) {
+					setMessage("Image generation settings saved.");
+				}
+			}
+		} catch (caught) {
+			setError(caught instanceof Error ? caught.message : "Could not save avatar.");
+		} finally {
+			setSaving(false);
+		}
+	}
+
+	async function discard(): Promise<void> {
+		const ok = await onDiscardSettings();
+		if (ok) {
+			const effectiveSettings = defaultAvatarGenerationInferenceSettings(ownerInferenceSettings ?? {});
+			setDraft(inferenceDraftFromSettings(effectiveSettings));
+			setPrompt(effectiveSettings.imageGeneration?.prompt ?? "");
+			setMessage("World image generation settings discarded.");
+		}
+	}
+
+	return (
+		<div className="main-inner avatar-generation-screen">
+			<div className="thread-crumb">
+				<SpaLink className="linklike" to={{ route: "world-edit", worldHandle: world.handle }}>
+					<Reference kind="world" link={false} name={world.handle} />
+				</SpaLink>
+				<span>/</span>
+				<span>avatar</span>
+			</div>
+			<div className="page-header">
+				<div>
+					<h1>Generate Avatar</h1>
+					<p>w/{world.handle}</p>
+				</div>
+				<div className="actions">
+					<button className="btn ghost" onClick={onBack} type="button">Back</button>
+					<button className="btn primary" disabled={saving || Boolean(imageProviderRoutingError) || Boolean(imageConfigError) || (!candidate && !draft.imageGenerationModel.trim())} onClick={() => void save()} type="button">
+						{saving ? "Saving..." : "Save"}
+					</button>
+				</div>
+			</div>
+			<section className="section">
+				<div className="section-head">
+					<h2>Image Generation</h2>
+					<button className="btn ghost compact" disabled={saving || !world.imageGeneration} onClick={() => void discard()} type="button">Reset</button>
+				</div>
+				{generationSettingsError && <div className="runtime-message error">{generationSettingsError}</div>}
+				<ImageGenerationBasicFields draft={draft} models={models} onChange={setDraft} />
+				<details className="advanced-panel">
+					<summary>
+						<span className="advanced-panel-summary">
+							<span className="advanced-panel-chevron"><Icon name="chev" size={14} /></span>
+							<span>Advanced generation parameters</span>
+						</span>
+					</summary>
+					<div className="advanced-panel-body">
+						<ImageGenerationAdvancedFields draft={draft} onChange={setDraft} />
+					</div>
+				</details>
+				<div className="field avatar-prompt-field">
+					<div className="avatar-prompt-head">
+						<label htmlFor="world-avatar-generation-prompt">Prompt</label>
+						<div className="avatar-prompt-actions">
+							<button className={`btn compact ${activePromptFill === "current_avatar" ? "danger" : "ghost"}`} disabled={activePromptFill === "current_avatar" ? false : generating || promptFillActive || !currentAvatarPromptFillAvailable} onClick={() => activePromptFill === "current_avatar" ? abortPromptFill() : void fillPrompt("current_avatar")} type="button">
+								{activePromptFill === "current_avatar" ? "Abort" : "Fill from current avatar"}
+							</button>
+							<button className={`btn compact ${activePromptFill === "description" ? "danger" : "ghost"}`} disabled={activePromptFill === "description" ? false : generating || promptFillActive} onClick={() => activePromptFill === "description" ? abortPromptFill() : void fillPrompt("description")} type="button">
+								{activePromptFill === "description" ? "Abort" : "Fill from description"}
+							</button>
+						</div>
+					</div>
+					<textarea className="textarea avatar-prompt" id="world-avatar-generation-prompt" onChange={(event) => setPrompt(event.target.value)} placeholder={includeCurrentAvatar ? "Optional when current avatar is included" : "Describe the avatar to generate"} rows={5} value={prompt} />
+				</div>
+				{error && <div className="runtime-message error">{error}</div>}
+				{message && <div className="runtime-message">{message}</div>}
+			</section>
+			<section className="avatar-compare">
+				<div className="avatar-pane">
+					<div className="avatar-pane-head">
+						<span>Current avatar</span>
+						<label className="checkbox-line">
+							<input checked={includeCurrentAvatar} disabled={!currentAvatarAvailable || !selectedSupportsImageInput} onChange={(event) => setIncludeCurrentAvatar(event.target.checked)} type="checkbox" />
+							<span>Use as input</span>
+						</label>
+					</div>
+					<button className="avatar-large-preview" disabled={!world.avatarUrl || currentAvatarFailed} onClick={() => world.avatarUrl && !currentAvatarFailed ? setLightboxUrl(world.avatarUrl) : undefined} type="button">
+						{world.avatarUrl && !currentAvatarFailed ?
+							<FallbackImage alt="" fallbackSrc={world.avatarUrl} onFinalError={() => setCurrentAvatarFailed(true)} src={avatarPreviewUrl(world.avatar ?? world.avatarUrl)} />
+						:	<Avatar actor="world" colorSeed={world.handle} name={world.name} size="hero" />
+						}
+					</button>
+				</div>
+				<div className="avatar-pane generated">
+					<div className="avatar-pane-head">
+						<span className="avatar-pane-title">
+							<span>Generated avatar</span>
+							{candidateCost !== null && <span className="avatar-generation-cost">{formatTokenCost(candidateCost)}</span>}
+							{candidate && <span className="unsaved-tag">unsaved</span>}
+						</span>
+						<button className={`btn compact generate-avatar-btn ${generating ? "danger" : "primary"}`} disabled={generating ? false : !canGenerate} onClick={() => generating ? abortGeneration() : void generate()} type="button">
+							{generating ? "Abort" : "Generate"}
+						</button>
+					</div>
+					<div className={`avatar-large-preview ${generating ? "busy" : ""}`}>
+						{candidate ?
+							<button className="avatar-preview-click" onClick={() => setLightboxUrl(candidate.url)} type="button">
+								<FallbackImage alt="" fallbackSrc={candidate.url} src={avatarPreviewUrl(candidate)} />
+							</button>
+						:	<span className="empty-generated">{generating ? "Generating..." : "No image generated"}</span>
+						}
+						{generating && <span className="avatar-spinner" />}
+					</div>
+				</div>
+			</section>
+			<AvatarGenerationChatLog entries={chatEntries} />
+			<ImageLightbox onClose={() => setLightboxUrl(null)} title={world.name} url={lightboxUrl} />
 		</div>
 	);
 }
@@ -8706,6 +9537,7 @@ function BotEdit({
 		displayName: effectiveDraftDisplayName,
 		shortBio: effectiveDraftShortBio,
 		prompt: effectiveDraftPrompt,
+		worldPrompt: world?.prompt ?? "",
 	}, inferenceInheritance);
 	const promptBudgetReady =
 		promptBudget.status === "ready" && promptBudget.requestKey === promptBudgetRequestKey ? promptBudget.budget : null;
@@ -9555,10 +10387,11 @@ function promptBudgetSegments(
 ): PromptBudgetChartSegment[] {
 	const fixedSystemTokens = Math.max(0, budget.fixedSystemTokens);
 	const personaPromptTokens = Math.max(0, budget.personaPromptTokens);
+	const worldPromptTokens = Math.max(0, budget.worldPromptTokens);
 	const responseReserveTokens = Math.max(0, budget.responseReserveTokens);
 	const remainingLoopTokens = Math.max(
 		0,
-		contextWindowTokens - fixedSystemTokens - personaPromptTokens - responseReserveTokens,
+		contextWindowTokens - fixedSystemTokens - personaPromptTokens - worldPromptTokens - responseReserveTokens,
 	);
 	return [
 		{
@@ -9574,6 +10407,13 @@ function promptBudgetSegments(
 			label: "Persona",
 			tokens: personaPromptTokens,
 			description: "Prompt text from this editor",
+		},
+		{
+			key: "world",
+			className: "world",
+			label: "World",
+			tokens: worldPromptTokens,
+			description: "World prompt injected as setting text",
 		},
 		{
 			key: "loop",
@@ -16938,7 +17778,7 @@ function Avatar({
 	name,
 	size = "md",
 }: {
-	actor?: "bot" | "user";
+	actor?: "bot" | "user" | "world";
 	colorSeed?: string | number;
 	crop?: AvatarCrop;
 	displayPixels?: number;
@@ -18620,6 +19460,10 @@ function routeWithRenamedWorld(current: ParsedRoute, nextWorldHandle: string): P
 	switch (current.route) {
 		case "world":
 			return { route: "world", worldHandle: nextWorldHandle, worldTab: current.worldTab };
+		case "world-edit":
+			return { route: "world-edit", worldHandle: nextWorldHandle };
+		case "world-avatar":
+			return { route: "world-avatar", worldHandle: nextWorldHandle };
 		case "forum":
 			return { route: "forum", worldHandle: nextWorldHandle, forumHandle: current.forumHandle };
 		case "thread":
@@ -19353,6 +20197,7 @@ function botPromptBudgetRequestKey(
 		displayName: string;
 		inference: InferenceDraft;
 		prompt: string;
+		worldPrompt: string;
 		commentBodyCharacters: string;
 		shortBio: string;
 		threadBodyCharacters: string;
@@ -19369,6 +20214,7 @@ function botPromptBudgetRequestKey(
 		displayName: draft.displayName,
 		model: effectiveInferenceDraftModel(inference, inherited),
 		prompt: draft.prompt,
+		worldPrompt: draft.worldPrompt,
 		allowEarlyLogOff: draft.allowEarlyLogOff,
 		compactionMaxCharacters: draft.compactionMaxCharacters.trim(),
 		compactionSummaryPercent: draft.compactionSummaryPercent.trim(),

@@ -71,6 +71,10 @@ async function pageMetadataForRoute(env: AppEnv, request: Request, route: Parsed
 			return worldsMetadata(env);
 		case "world":
 			return worldMetadata(env, route);
+		case "world-edit":
+			return worldToolMetadata(env, route, "edit");
+		case "world-avatar":
+			return worldToolMetadata(env, route, "avatar");
 		case "forum":
 			return forumMetadata(env, route);
 		case "thread":
@@ -127,6 +131,16 @@ async function worldMetadata(env: AppEnv, route: ParsedRoute): Promise<PageMetad
 		description: worldTabDescription(world, tab),
 		ogType: "website",
 		...(tab === "notifications" ? { robots: noIndex } : {}),
+	};
+}
+
+async function worldToolMetadata(env: AppEnv, route: ParsedRoute, section: "avatar" | "edit"): Promise<PageMetadataCore> {
+	const world = await worldMetadataByHandle(env.BICKR_D1, requiredRoutePart(route.worldHandle, "World"));
+	return {
+		title: pageTitle(`w/${world.handle}: ${section}`),
+		description: section === "avatar" ? `Avatar controls for w/${world.handle}.` : `World settings for w/${world.handle}.`,
+		ogType: "website",
+		robots: noIndex,
 	};
 }
 

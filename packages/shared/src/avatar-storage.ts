@@ -17,7 +17,7 @@ export type R2BucketLike = {
 };
 
 export type StoredAvatarInput = {
-	botId: string;
+	botId?: string;
 	worldId: string;
 	bytes: Uint8Array;
 	contentType: AvatarContentType;
@@ -26,6 +26,7 @@ export type StoredAvatarInput = {
 	now?: string;
 	kind?: AvatarKind;
 	key?: string;
+	target?: "bot" | "world";
 };
 
 export type RemoteAvatarFetch = typeof fetch;
@@ -123,7 +124,7 @@ function validateAvatarBytes(bytes: Uint8Array, declaredContentType?: string): V
 export async function storeAvatarImage(bucket: R2BucketLike, input: StoredAvatarInput): Promise<AvatarImage> {
 	const now = input.now ?? new Date().toISOString();
 	const publicBaseUrl = normalizeAvatarPublicBaseUrl(input.publicBaseUrl);
-	const key = avatarObjectKey(input.worldId, input.botId, input.kind ?? "avatars", input.contentType);
+	const key = avatarObjectKey(input.worldId, input.botId, input.kind ?? "avatars", input.contentType, input.target);
 	const dimensions = avatarDimensions(input.bytes, input.contentType);
 	await bucket.put(input.key ?? key, input.bytes, {
 		httpMetadata: {
@@ -149,12 +150,13 @@ export async function storeAvatarImage(bucket: R2BucketLike, input: StoredAvatar
 export async function promoteAvatarCandidate(
 	bucket: R2BucketLike,
 	input: {
-		botId: string;
+		botId?: string;
 		worldId: string;
 		candidate: AvatarImage;
 		publicBaseUrl: string;
 		source?: AvatarImageSource;
 		now?: string;
+		target?: "bot" | "world";
 	},
 ): Promise<AvatarImage> {
 	const object = await bucket.get(input.candidate.key);
@@ -172,17 +174,19 @@ export async function promoteAvatarCandidate(
 		source: input.source ?? input.candidate.source,
 		now: input.now,
 		kind: "avatars",
+		target: input.target,
 	});
 }
 
 export async function copyAvatarImage(
 	bucket: R2BucketLike,
 	input: {
-		botId: string;
+		botId?: string;
 		worldId: string;
 		sourceAvatar: AvatarImage;
 		publicBaseUrl: string;
 		now?: string;
+		target?: "bot" | "world";
 	},
 ): Promise<AvatarImage> {
 	if (!isAvatarContentType(input.sourceAvatar.contentType)) {
@@ -202,6 +206,7 @@ export async function copyAvatarImage(
 		...(input.sourceAvatar.source ? { source: input.sourceAvatar.source } : {}),
 		now: input.now,
 		kind: "avatars",
+		target: input.target,
 	});
 	return {
 		...avatar,
@@ -209,12 +214,24 @@ export async function copyAvatarImage(
 	};
 }
 
-function avatarObjectKey(worldId: string, botId: string, kind: AvatarKind, contentType: AvatarContentType): string {
+function avatarObjectKey(
+	worldId: string,
+	botId: string | undefined,
+	kind: AvatarKind,
+	contentType: AvatarContentType,
+	target: "bot" | "world" | undefined,
+): string {
 	const extension =
 		contentType === "image/png" ? "png"
 		: contentType === "image/webp" ? "webp"
 		: contentType === "image/svg+xml" ? "svg"
 		: "jpg";
+	if (target === "world") {
+		return `worlds/${encodeURIComponent(worldId)}/world/${kind}/${crypto.randomUUID()}.${extension}`;
+	}
+	if (!botId) {
+		throw new InputError("Bot avatar storage requires a bot ID.");
+	}
 	return `worlds/${encodeURIComponent(worldId)}/bots/${encodeURIComponent(botId)}/${kind}/${crypto.randomUUID()}.${extension}`;
 }
 

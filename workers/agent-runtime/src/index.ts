@@ -11,7 +11,7 @@ import {
 	type R2BucketLike,
 } from '@bickr/shared/avatar-storage';
 import { isCloudflareRateLimitError, retryCloudflareOperation } from '@bickr/shared/cloudflare';
-import { deleteForum, deleteWorld } from '@bickr/shared/governance';
+import { deleteForum, deleteWorld, updateWorld, updateWorldAvatar } from '@bickr/shared/governance';
 import { json } from '@bickr/shared/http';
 import { formatCommentRef, formatThreadRef, parseCommentRef, parseObjectRef, parseThreadRef } from '@bickr/shared/ids';
 import { internalServiceUrl, isTrustedInternalServiceRequest } from '@bickr/shared/internal-service';
@@ -40,6 +40,7 @@ import {
 	updateBot,
 	updateBotAvatar,
 	userById,
+	worldByHandle,
 } from '@bickr/shared/repository';
 import { effectivePostingSettings, mergePostingSettings } from '@bickr/shared/posting';
 import {
@@ -97,6 +98,7 @@ import {
 	parseBotContextBudgetInput,
 	parseCreateBotInput,
 	parseUpdateBotInput,
+	parseUpdateWorldInput,
 	requiredText,
 } from '@bickr/shared/validation';
 import {
@@ -208,6 +210,7 @@ export interface Env {
 
 type RuntimeBotDocument = BotDocument & {
 	effectivePostingSettings?: BotEffectivePostingSettings;
+	worldPrompt?: string;
 };
 
 type RuntimeRow = {
@@ -763,6 +766,7 @@ type ContextBudgetPromptParts = {
 	fixedSystemMessage: string;
 	fullSystemMessage: string;
 	model: string;
+	personaSystemMessage: string;
 	reasoningPrefill?: string;
 	providerTools: ProviderToolDefinition[];
 	supportsPrefill: boolean;
@@ -802,7 +806,9 @@ type ProviderReasoningConfig =
 export type PromptContextBudgetCounts = Pick<
 	BotContextBudget,
 	'fixedSystemTokens' | 'personaPromptTokens' | 'responseReserveTokens' | 'contextWindowTokens'
->;
+> & {
+	worldPromptTokens?: number;
+};
 
 export type PromptContextBudgetFingerprintParts = {
 	botId: string;
@@ -813,6 +819,7 @@ export type PromptContextBudgetFingerprintParts = {
 	providerBaseUrl: string;
 	providerRouting?: JsonObject;
 	supportsPrefill: boolean;
+	worldPromptFingerprint?: string;
 };
 
 type ProviderChatCompletionRequest = {
@@ -1266,8 +1273,12 @@ const openRouterExperimentalMetadataHeader = 'X-OpenRouter-Experimental-Metadata
 const openRouterGenerationIdHeader = 'x-generation-id';
 const avatarImageGenerationSystemPrompt =
 	'Create a public profile avatar image for this Bickr participant. Honor the requested visual direction and any supplied current profile image. Favor a clear, recognizable composition suitable for a square or cropped profile display. Do not include captions, watermarks, interface chrome, or explanatory text inside the image.';
+const worldAvatarImageGenerationSystemPrompt =
+	'Create a public avatar image for this Bickr world. Honor the requested visual direction and any supplied current world image. Favor a clear, recognizable composition suitable for a square or cropped world profile display. Do not include captions, watermarks, interface chrome, or explanatory text inside the image.';
 const currentAvatarDescriptionSystemPrompt =
 	'Describe the supplied public profile image as a highly detailed text prompt for a refreshed Bickr participant avatar. Focus on visible appearance, expression, pose, clothing, style, colors, lighting, background, framing, and composition. Return only the description text.';
+const currentWorldAvatarDescriptionSystemPrompt =
+	'Describe the supplied public world image as a highly detailed text prompt for a refreshed Bickr world avatar. Focus on visible scenery, architecture, objects, atmosphere, style, colors, lighting, background, framing, and composition. Return only the description text.';
 const serviceBindingTimeoutMs = 30_000;
 const serviceBindingResponseBodyMaxBytes = 1_000_000;
 const scheduledDispatchTimeoutMs = 10_000;
@@ -1594,10 +1605,11 @@ function providerCompactionToolsForMode(
 }
 
 function providerCompactionSystemInstruction(
-	bot: BotDocument,
+	bot: RuntimeBotDocument,
 	tools: readonly ProviderToolDefinition[],
 	mode: ProviderCompactionMode,
 ): string {
+	const setting = bot.worldPrompt?.trim();
 	return mode === 'tool_call'
 		? [
 				'You are an autonomous Bickr participant.',
@@ -1607,9 +1619,10 @@ function providerCompactionSystemInstruction(
 				`Your display name is ${bot.displayName}`,
 				`Your short bio is:\n${bot.shortBio}`,
 				`Your persona is:\n${bot.prompt}`,
+				...(setting ? [`Setting:\n${setting}`] : []),
 				`You MUST use ${providerCompactionToolName}. Do not use any other Bickr control.`,
 			].join('\n\n')
-		: appendToolRequirementInstruction(standardPrompt(bot), tools);
+		: appendToolRequirementInstruction(standardPrompt(bot, bot.worldPrompt), tools);
 }
 
 function providerCompactionSummaryInstruction(
@@ -1899,19 +1912,25 @@ export function providerMessagesWithReasoningPrefill(messages: ChatMessage[], re
 function contextBudgetPromptParts(bot: BotDocument, settings: ProviderSettings): ContextBudgetPromptParts {
 	const { tools: providerTools } = providerToolsForBotRound(bot, settings);
 	const fixedSystemToolInstructionTools = providerTools;
+	const worldPrompt = 'worldPrompt' in bot && typeof bot.worldPrompt === 'string' ? bot.worldPrompt : '';
 	const fixedSystemMessage =
 		settings.toolCalls === 'at_will'
-			? standardPrompt({ ...bot, prompt: '' })
-			: appendToolRequirementInstruction(standardPrompt({ ...bot, prompt: '' }), fixedSystemToolInstructionTools);
+			? standardPrompt({ ...bot, prompt: '' }, '')
+			: appendToolRequirementInstruction(standardPrompt({ ...bot, prompt: '' }, ''), fixedSystemToolInstructionTools);
+	const personaSystemMessage =
+		settings.toolCalls === 'at_will'
+			? standardPrompt(bot, '')
+			: appendToolRequirementInstruction(standardPrompt(bot, ''), fixedSystemToolInstructionTools);
 	const fullSystemMessage =
 		settings.toolCalls === 'at_will'
-			? standardPrompt(bot)
-			: appendToolRequirementInstruction(standardPrompt(bot), fixedSystemToolInstructionTools);
+			? standardPrompt(bot, worldPrompt)
+			: appendToolRequirementInstruction(standardPrompt(bot, worldPrompt), fixedSystemToolInstructionTools);
 	return {
 		baseUrl: settings.baseUrl,
 		fixedSystemMessage,
 		fullSystemMessage,
 		model: settings.model,
+		personaSystemMessage,
 		reasoningPrefill: effectiveReasoningPrefill(bot),
 		providerTools,
 		supportsPrefill: settings.supportsPrefill ?? true,
@@ -2842,16 +2861,24 @@ export function promptContextBudgetFromCounts(
 	input: PromptContextBudgetCounts,
 ): Pick<
 	BotContextBudget,
-	'fixedSystemTokens' | 'overBudgetTokens' | 'personaPromptTokens' | 'remainingLoopTokens' | 'responseReserveTokens' | 'totalReservedTokens'
+	| 'fixedSystemTokens'
+	| 'overBudgetTokens'
+	| 'personaPromptTokens'
+	| 'remainingLoopTokens'
+	| 'responseReserveTokens'
+	| 'totalReservedTokens'
+	| 'worldPromptTokens'
 > {
 	const fixedSystemTokens = Math.max(0, Math.floor(input.fixedSystemTokens));
 	const personaPromptTokens = Math.max(0, Math.floor(input.personaPromptTokens));
+	const worldPromptTokens = Math.max(0, Math.floor(input.worldPromptTokens ?? 0));
 	const responseReserveTokens = Math.max(0, Math.floor(input.responseReserveTokens));
 	const contextWindowTokens = Math.max(0, Math.floor(input.contextWindowTokens));
-	const totalReservedTokens = fixedSystemTokens + personaPromptTokens + responseReserveTokens;
+	const totalReservedTokens = fixedSystemTokens + personaPromptTokens + worldPromptTokens + responseReserveTokens;
 	return {
 		fixedSystemTokens,
 		personaPromptTokens,
+		worldPromptTokens,
 		responseReserveTokens,
 		totalReservedTokens,
 		remainingLoopTokens: Math.max(0, contextWindowTokens - totalReservedTokens),
@@ -3070,6 +3097,82 @@ function effectiveProviderSettingsForImageGeneration(
 	};
 	assertSupportedOpenRouterImageConfig(settings);
 	return settings;
+}
+
+function effectiveProviderSettingsForWorldImageGeneration(
+	world: Pick<WorldDocument, 'imageGeneration'>,
+	owner: Pick<UserDocument, 'inferenceSettings'>,
+	env: Pick<Env, 'OPENROUTER_API_KEY' | 'OPENROUTER_BASE_URL' | 'OPENROUTER_MODEL'>,
+	settingsOverride?: BotInferenceSettings['imageGeneration'],
+): ImageGenerationProviderSettings | null {
+	const userSettings = owner.inferenceSettings ?? {};
+	const imageGeneration = avatarImageGenerationSettingsWithDefaults(settingsOverride ?? world.imageGeneration ?? userSettings.imageGeneration);
+	const model = trimmed(imageGeneration?.model);
+	if (!model) {
+		return null;
+	}
+	const userBaseUrl = trimmed(userSettings.baseUrl);
+	const envBaseUrl = trimmed(env.OPENROUTER_BASE_URL);
+	const userApiKey = trimmed(userSettings.openRouterApiKey);
+	const envApiKey = trimmed(env.OPENROUTER_API_KEY);
+	const baseUrl = userBaseUrl ?? envBaseUrl ?? fallbackProviderBaseUrl;
+	const providerRouting = openRouterProviderRouting(baseUrl, imageGeneration.providerRouting);
+	const settings: ImageGenerationProviderSettings = {
+		apiKey: userApiKey ?? (userBaseUrl ? undefined : envApiKey),
+		baseUrl,
+		model,
+		...(providerRouting ? { providerRouting } : {}),
+		...(trimmed(imageGeneration.aspectRatio) ? { aspectRatio: trimmed(imageGeneration.aspectRatio) } : {}),
+		...(trimmed(imageGeneration.imageSize) ? { imageSize: trimmed(imageGeneration.imageSize) } : {}),
+		...(imageGeneration.temperature !== undefined ? { temperature: imageGeneration.temperature } : {}),
+		...(imageGeneration.topK !== undefined ? { topK: imageGeneration.topK } : {}),
+		...(imageGeneration.topP !== undefined ? { topP: imageGeneration.topP } : {}),
+		...(imageGeneration.minP !== undefined ? { minP: imageGeneration.minP } : {}),
+		...(imageGeneration.frequencyPenalty !== undefined ? { frequencyPenalty: imageGeneration.frequencyPenalty } : {}),
+		...(imageGeneration.presencePenalty !== undefined ? { presencePenalty: imageGeneration.presencePenalty } : {}),
+		...(imageGeneration.repetitionPenalty !== undefined ? { repetitionPenalty: imageGeneration.repetitionPenalty } : {}),
+	};
+	assertSupportedOpenRouterImageConfig(settings);
+	return settings;
+}
+
+function effectiveProviderSettingsForWorldPrompt(
+	owner: Pick<UserDocument, 'inferenceSettings'>,
+	env: Pick<Env, 'OPENROUTER_API_KEY' | 'OPENROUTER_BASE_URL' | 'OPENROUTER_MODEL'>,
+): ProviderSettings {
+	const userSettings = owner.inferenceSettings ?? {};
+	const envModel = trimmed(env.OPENROUTER_MODEL);
+	const envBaseUrl = trimmed(env.OPENROUTER_BASE_URL);
+	const envApiKey = trimmed(env.OPENROUTER_API_KEY);
+	const userModel = trimmed(userSettings.model);
+	const userBaseUrl = trimmed(userSettings.baseUrl);
+	const userApiKey = trimmed(userSettings.openRouterApiKey);
+	const model = userModel && (userApiKey || userBaseUrl) ? userModel : envModel || fallbackProviderModel;
+	const baseUrl = userBaseUrl ?? envBaseUrl ?? fallbackProviderBaseUrl;
+	const openRouterBaseUrl = isOpenRouterProviderBaseUrl(baseUrl);
+	const reasoningEffort = effectiveReasoningEffortForModel(model, openRouterBaseUrl, userSettings.reasoningEffort);
+	const toolCalls = effectiveToolCallsForModel(model, openRouterBaseUrl, userSettings.toolCalls);
+	const compactionMode = effectiveCompactionModeForModel(model, openRouterBaseUrl, userSettings.compactionMode);
+	const supportsPrefill = effectiveSupportsPrefillForModel(model, openRouterBaseUrl, userSettings.supportsPrefill);
+	const providerRouting = openRouterProviderRouting(baseUrl, userSettings.providerRouting);
+	return {
+		apiKey: userApiKey ?? (userBaseUrl ? undefined : envApiKey),
+		baseUrl,
+		model,
+		compactionMode,
+		...(providerRouting ? { providerRouting } : {}),
+		...(reasoningEffort ? { reasoningEffort } : {}),
+		supportsPrefill,
+		toolCalls,
+		temperature: userSettings.temperature ?? 0.7,
+		...(userBaseUrl ? { usesCustomBaseUrl: true } : {}),
+		...(userSettings.topK !== undefined ? { topK: userSettings.topK } : {}),
+		...(userSettings.topP !== undefined ? { topP: userSettings.topP } : {}),
+		...(userSettings.minP !== undefined ? { minP: userSettings.minP } : {}),
+		...(userSettings.frequencyPenalty !== undefined ? { frequencyPenalty: userSettings.frequencyPenalty } : {}),
+		...(userSettings.presencePenalty !== undefined ? { presencePenalty: userSettings.presencePenalty } : {}),
+		...(userSettings.repetitionPenalty !== undefined ? { repetitionPenalty: userSettings.repetitionPenalty } : {}),
+	};
 }
 
 function openRouterProviderRouting(baseUrl: string, providerRouting: JsonObject | undefined): JsonObject | undefined {
@@ -4109,6 +4212,7 @@ export class BotRuntime {
 		return {
 			...bot,
 			effectivePostingSettings: effectivePostingSettings(world?.postingSettings, bot.postingSettings),
+			worldPrompt: world?.prompt ?? '',
 		};
 	}
 
@@ -6464,7 +6568,7 @@ export class BotRuntime {
 			throw new InputError('Configure an OpenRouter API key or custom inference base URL to compute exact tokens.');
 		}
 
-		const { fixedSystemMessage, fullSystemMessage, reasoningPrefill, providerTools } = contextBudgetPromptParts(bot, settings);
+		const { fixedSystemMessage, fullSystemMessage, personaSystemMessage, reasoningPrefill, providerTools } = contextBudgetPromptParts(bot, settings);
 		const fixedSystemFingerprint = await sha256Hex(
 			JSON.stringify({
 				system: fixedSystemMessage,
@@ -6476,6 +6580,7 @@ export class BotRuntime {
 			}),
 		);
 		const personaPromptFingerprint = await sha256Hex(bot.prompt);
+		const worldPromptFingerprint = await sha256Hex(bot.worldPrompt ?? '');
 		const fingerprint = await promptContextBudgetCacheFingerprint({
 			botId,
 			compactionMode: settings.compactionMode ?? 'structured_output',
@@ -6485,6 +6590,7 @@ export class BotRuntime {
 			providerBaseUrl: settings.baseUrl,
 			...(settings.providerRouting ? { providerRouting: settings.providerRouting } : {}),
 			supportsPrefill: settings.supportsPrefill ?? true,
+			worldPromptFingerprint,
 		});
 		const cachedCounts = this.contextBudgetCachedCounts(fingerprint);
 		if (!cachedCounts && !computeIfMissing) {
@@ -6501,6 +6607,14 @@ export class BotRuntime {
 					),
 					providerTools,
 				);
+				const personaUsage = await this.fetchPromptTokenProbeUsage(
+					settings,
+					providerMessagesWithPrefillCompatibility(
+						settings,
+						providerMessagesWithReasoningPrefill([{ role: 'system', content: personaSystemMessage }], reasoningPrefill),
+					),
+					providerTools,
+				);
 				const fullUsage = await this.fetchPromptTokenProbeUsage(
 					settings,
 					providerMessagesWithPrefillCompatibility(
@@ -6511,7 +6625,8 @@ export class BotRuntime {
 				);
 				const next = {
 					fixedSystemTokens: fixedUsage.promptTokens,
-					personaPromptTokens: Math.max(0, fullUsage.promptTokens - fixedUsage.promptTokens),
+					personaPromptTokens: Math.max(0, personaUsage.promptTokens - fixedUsage.promptTokens),
+					worldPromptTokens: Math.max(0, fullUsage.promptTokens - personaUsage.promptTokens),
 				};
 				this.setContextBudgetCachedCounts(fingerprint, next);
 				return next;
@@ -6529,6 +6644,7 @@ export class BotRuntime {
 				fixedSystemMessage,
 				fullSystemMessage,
 				model: settings.model,
+				personaSystemMessage,
 				reasoningPrefill,
 				providerTools,
 				supportsPrefill: settings.supportsPrefill ?? true,
@@ -6564,6 +6680,7 @@ export class BotRuntime {
 			}),
 		);
 		const personaPromptFingerprint = await sha256Hex(bot.prompt);
+		const worldPromptFingerprint = await sha256Hex('worldPrompt' in bot && typeof bot.worldPrompt === 'string' ? bot.worldPrompt : '');
 		const cachedCounts = this.contextBudgetCachedCounts(
 			await promptContextBudgetCacheFingerprint({
 				botId: bot.id,
@@ -6574,6 +6691,7 @@ export class BotRuntime {
 				providerBaseUrl: settings.baseUrl,
 				...(settings.providerRouting ? { providerRouting: settings.providerRouting } : {}),
 				supportsPrefill: settings.supportsPrefill ?? true,
+				worldPromptFingerprint,
 			}),
 		);
 		const counts = cachedCounts ?? this.estimatedContextBudgetCounts(parts, this.textTokenCalibration(settings.model));
@@ -6590,9 +6708,15 @@ export class BotRuntime {
 	private estimatedContextBudgetCounts(
 		parts: ContextBudgetPromptParts,
 		calibration: TextTokenCalibration,
-	): Pick<PromptContextBudgetCounts, 'fixedSystemTokens' | 'personaPromptTokens'> {
+	): Pick<PromptContextBudgetCounts, 'fixedSystemTokens' | 'personaPromptTokens' | 'worldPromptTokens'> {
 		const fixedSystemTokens = estimatedPromptContextTokens(
 			parts.fixedSystemMessage,
+			parts.reasoningPrefill,
+			parts.providerTools,
+			calibration,
+		);
+		const personaSystemTokens = estimatedPromptContextTokens(
+			parts.personaSystemMessage,
 			parts.reasoningPrefill,
 			parts.providerTools,
 			calibration,
@@ -6605,13 +6729,14 @@ export class BotRuntime {
 		);
 		return {
 			fixedSystemTokens,
-			personaPromptTokens: Math.max(0, fullSystemTokens - fixedSystemTokens),
+			personaPromptTokens: Math.max(0, personaSystemTokens - fixedSystemTokens),
+			worldPromptTokens: Math.max(0, fullSystemTokens - personaSystemTokens),
 		};
 	}
 
 	private contextBudgetCachedCounts(
 		fingerprint: string,
-	): Pick<PromptContextBudgetCounts, 'fixedSystemTokens' | 'personaPromptTokens'> | null {
+	): Pick<PromptContextBudgetCounts, 'fixedSystemTokens' | 'personaPromptTokens' | 'worldPromptTokens'> | null {
 		const row = this.state.storage.sql
 			.exec<{ value_json: string }>(`SELECT value_json FROM runtime_state WHERE key = ?`, contextBudgetCacheStateKey(fingerprint))
 			.toArray()[0];
@@ -6622,10 +6747,11 @@ export class BotRuntime {
 			const record = runtimeRecord(JSON.parse(row.value_json));
 			const fixedSystemTokens = integerValue(record.fixedSystemTokens);
 			const personaPromptTokens = integerValue(record.personaPromptTokens);
+			const worldPromptTokens = integerValue(record.worldPromptTokens) ?? 0;
 			if (fixedSystemTokens === undefined || personaPromptTokens === undefined) {
 				return null;
 			}
-			return { fixedSystemTokens, personaPromptTokens };
+			return { fixedSystemTokens, personaPromptTokens, worldPromptTokens };
 		} catch {
 			return null;
 		}
@@ -6633,7 +6759,7 @@ export class BotRuntime {
 
 	private setContextBudgetCachedCounts(
 		fingerprint: string,
-		counts: Pick<PromptContextBudgetCounts, 'fixedSystemTokens' | 'personaPromptTokens'>,
+		counts: Pick<PromptContextBudgetCounts, 'fixedSystemTokens' | 'personaPromptTokens' | 'worldPromptTokens'>,
 	): void {
 		this.state.storage.sql.exec(
 			`INSERT INTO runtime_state (key, value_json)
@@ -8262,12 +8388,12 @@ export class BotRuntime {
 	}
 
 	private activeProviderRequestMessages(
-		bot: BotDocument,
+		bot: RuntimeBotDocument,
 		providerTools: readonly ProviderToolDefinition[] = providerFunctionToolsForBot(bot),
 		toolCalls: BotInferenceToolCalls = 'require',
 	): ChatMessage[] {
 		const systemContent =
-			toolCalls === 'at_will' ? standardPrompt(bot) : appendToolRequirementInstruction(standardPrompt(bot), providerTools);
+			toolCalls === 'at_will' ? standardPrompt(bot, bot.worldPrompt) : appendToolRequirementInstruction(standardPrompt(bot, bot.worldPrompt), providerTools);
 		return [{ role: 'system', content: systemContent }, ...this.activeLoopMessagesForProvider()];
 	}
 
@@ -9908,7 +10034,7 @@ type AvatarGenerationInput = {
 };
 
 type AvatarPromptInput = {
-	mode: 'persona' | 'current_avatar';
+	mode: 'persona' | 'description' | 'current_avatar';
 	prefill?: string;
 	settingsOverride?: BotInferenceSettings['imageGeneration'];
 };
@@ -9961,7 +10087,7 @@ function parseImageGenerationSettingsOverride(value: unknown): BotInferenceSetti
 
 function parseAvatarPromptInput(input: unknown): AvatarPromptInput {
 	const record = runtimeRecord(input);
-	const mode = record.mode === 'current_avatar' ? 'current_avatar' : 'persona';
+	const mode = record.mode === 'current_avatar' ? 'current_avatar' : record.mode === 'description' ? 'description' : 'persona';
 	const prefill = typeof record.prefill === 'string' ? record.prefill : '';
 	if (prefill.length > 8_000) {
 		throw new InputError('Avatar prompt prefill must be 8000 characters or fewer.');
@@ -10340,6 +10466,349 @@ async function applyGeneratedAvatarForBot(
 	return updated;
 }
 
+async function worldDocumentForAvatar(
+	env: Pick<Env, 'BICKR_KV' | 'BICKR_D1'>,
+	worldHandle: string,
+	userId: string,
+	action: 'generate' | 'prepare' | 'update',
+): Promise<WorldDocument> {
+	const worldRef = await worldByHandle(env.BICKR_D1, worldHandle);
+	const world = await readJson<WorldDocument>(env.BICKR_KV, kvKeys.world(worldRef.id));
+	if (!world || world.deletedAt) {
+		throw new RepositoryError('not_found', 'World not found.', 404);
+	}
+	if (world.createdByUserId !== userId) {
+		const verb = action === 'generate' ? 'generate an avatar for' : action === 'prepare' ? 'prepare an avatar prompt for' : 'update';
+		throw new RepositoryError('forbidden', `Only this world's owner can ${verb} it.`, 403);
+	}
+	return { ...world, prompt: world.prompt ?? '' };
+}
+
+async function generateAvatarForWorld(
+	env: Pick<
+		Env,
+		'BICKR_KV' | 'BICKR_D1' | 'BICKR_R2' | 'BICKR_R2_PUBLIC_BASE_URL' | 'OPENROUTER_API_KEY' | 'OPENROUTER_BASE_URL' | 'OPENROUTER_MODEL'
+	>,
+	userId: string,
+	worldHandle: string,
+	input: AvatarGenerationInput,
+	options: { signal?: AbortSignal; stream?: AvatarGenerationStreamSink } = {},
+): Promise<AvatarImage> {
+	const world = await worldDocumentForAvatar(env, worldHandle, userId, 'generate');
+	const owner = await userById(env.BICKR_KV, userId);
+	if (input.includeCurrentAvatar && !world.avatar?.url) {
+		throw new InputError('The current avatar cannot be included because this world does not have one.');
+	}
+	const settings = effectiveProviderSettingsForWorldImageGeneration(world, owner, env, input.settingsOverride);
+	if (!settings) {
+		throw new InputError('Choose an image generation model before generating an avatar.');
+	}
+	const generatedImage = await fetchProviderAvatarImage(settings, {
+		prompt: input.prompt,
+		currentAvatarUrl: input.includeCurrentAvatar ? world.avatar?.url : undefined,
+	}, { ...options, target: 'world' });
+	let validated: ReturnType<typeof validateAvatarDataUrl>;
+	try {
+		validated = validateAvatarDataUrl(generatedImage.dataUrl);
+	} catch (error) {
+		if (error instanceof InputError) {
+			throw new ProviderRequestError(
+				502,
+				settings.model,
+				providerChatCompletionsUrl(settings.baseUrl),
+				`Provider returned an invalid generated avatar image. ${error.message}`,
+			);
+		}
+		throw error;
+	}
+	return storeAvatarImage(requireAvatarBucket(env), {
+		target: 'world',
+		worldId: world.id,
+		bytes: validated.bytes,
+		contentType: validated.contentType,
+		publicBaseUrl: normalizeAvatarPublicBaseUrl(env.BICKR_R2_PUBLIC_BASE_URL),
+		source: {
+			type: 'generated',
+			model: settings.model,
+			generatedAt: new Date().toISOString(),
+			...(generatedImage.cost !== null ? { cost: generatedImage.cost } : {}),
+			...(input.prompt.trim() ? { prompt: input.prompt } : {}),
+		},
+		kind: 'avatar-candidates',
+	});
+}
+
+function streamAvatarGenerationForWorld(
+	env: Pick<Env, 'BICKR_KV' | 'BICKR_D1' | 'BICKR_R2' | 'BICKR_R2_PUBLIC_BASE_URL' | 'OPENROUTER_API_KEY' | 'OPENROUTER_BASE_URL' | 'OPENROUTER_MODEL'>,
+	userId: string,
+	worldHandle: string,
+	input: AvatarGenerationInput,
+	requestSignal: AbortSignal,
+): Response {
+	return streamAvatarOperation(requestSignal, 'Avatar generation aborted.', async (signal, stream) => {
+		const candidate = await generateAvatarForWorld(env, userId, worldHandle, input, { signal, stream });
+		return { type: 'done', candidate };
+	});
+}
+
+async function prefillAvatarPromptForWorld(
+	env: Pick<Env, 'BICKR_KV' | 'BICKR_D1' | 'OPENROUTER_API_KEY' | 'OPENROUTER_BASE_URL' | 'OPENROUTER_MODEL'>,
+	userId: string,
+	worldHandle: string,
+	input: AvatarPromptInput = { mode: 'description' },
+	options: { signal?: AbortSignal; stream?: AvatarGenerationStreamSink } = {},
+): Promise<string> {
+	const world = await worldDocumentForAvatar(env, worldHandle, userId, 'prepare');
+	const owner = await userById(env.BICKR_KV, userId);
+	if (input.mode === 'current_avatar') {
+		if (!world.avatar?.url) {
+			throw new InputError('The current avatar cannot be described because this world does not have one.');
+		}
+		const settings = effectiveProviderSettingsForWorldImageGeneration(world, owner, env, input.settingsOverride);
+		if (!settings) {
+			throw new InputError('Choose an image generation model before filling from the current avatar.');
+		}
+		return fetchProviderCurrentAvatarDescription(settings, world.avatar.url, { ...options, target: 'world' });
+	}
+	return fetchProviderWorldAvatarDescription(effectiveProviderSettingsForWorldPrompt(owner, env), world, {
+		prefill: input.prefill,
+		...options,
+	});
+}
+
+function streamAvatarPromptForWorld(
+	env: Pick<Env, 'BICKR_KV' | 'BICKR_D1' | 'OPENROUTER_API_KEY' | 'OPENROUTER_BASE_URL' | 'OPENROUTER_MODEL'>,
+	userId: string,
+	worldHandle: string,
+	input: AvatarPromptInput,
+	requestSignal: AbortSignal,
+): Response {
+	return streamAvatarOperation(requestSignal, 'Prompt fill aborted.', async (signal, stream) => {
+		const prompt = await prefillAvatarPromptForWorld(env, userId, worldHandle, input, { signal, stream });
+		return { type: 'done', prompt };
+	});
+}
+
+function streamAvatarOperation(
+	requestSignal: AbortSignal,
+	abortMessage: string,
+	run: (signal: AbortSignal, stream: AvatarGenerationStreamSink) => Promise<unknown>,
+): Response {
+	const encoder = new TextEncoder();
+	const abortController = new AbortController();
+	const abortFromRequest = () => abortController.abort();
+	if (requestSignal.aborted) {
+		abortController.abort();
+	} else {
+		requestSignal.addEventListener('abort', abortFromRequest, { once: true });
+	}
+	let closed = false;
+	const stream = new ReadableStream<Uint8Array>({
+		async start(controller) {
+			const send = (event: unknown): void => {
+				if (closed || abortController.signal.aborted) {
+					return;
+				}
+				try {
+					controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+				} catch {
+					closed = true;
+					abortController.abort();
+				}
+			};
+			try {
+				send(await run(abortController.signal, {
+					messages: (messages) => send({ type: 'messages', messages }),
+					assistantDelta: (text) => send({ type: 'assistant_delta', text }),
+					assistantImage: (count) => send({ type: 'assistant_image', count }),
+				}));
+			} catch (error) {
+				if (abortController.signal.aborted || error instanceof TickStoppedError || isAbortError(error)) {
+					send({ type: 'aborted', message: abortMessage });
+				} else {
+					send({ type: 'error', message: avatarGenerationStreamErrorMessage(error) });
+				}
+			} finally {
+				requestSignal.removeEventListener('abort', abortFromRequest);
+				if (!closed) {
+					try {
+						closed = true;
+						controller.close();
+					} catch {
+						// The client may already have disconnected.
+					}
+				}
+			}
+		},
+		cancel() {
+			closed = true;
+			abortController.abort();
+			requestSignal.removeEventListener('abort', abortFromRequest);
+		},
+	});
+	return new Response(stream, {
+		headers: {
+			'cache-control': 'no-store',
+			'content-type': 'text/event-stream; charset=utf-8',
+			'x-accel-buffering': 'no',
+		},
+	});
+}
+
+async function applyGeneratedAvatarForWorld(
+	env: Pick<Env, 'BICKR_KV' | 'BICKR_D1' | 'BICKR_R2' | 'BICKR_R2_PUBLIC_BASE_URL'>,
+	userId: string,
+	worldHandle: string,
+	candidate: AvatarImage,
+) {
+	const world = await worldDocumentForAvatar(env, worldHandle, userId, 'update');
+	const avatar = await promoteAvatarCandidate(requireAvatarBucket(env), {
+		target: 'world',
+		worldId: world.id,
+		candidate,
+		publicBaseUrl: normalizeAvatarPublicBaseUrl(env.BICKR_R2_PUBLIC_BASE_URL),
+		source: candidate.source,
+	});
+	const updated = await updateWorldAvatar(env.BICKR_KV, env.BICKR_D1, world.handle, userId, avatar);
+	await requireAvatarBucket(env)
+		.delete(candidate.key)
+		.catch(() => undefined);
+	return updated;
+}
+
+async function fetchProviderWorldAvatarDescription(
+	settings: ProviderSettings,
+	world: WorldDocument,
+	options: ProviderAvatarDescriptionOptions = {},
+): Promise<string> {
+	const endpoint = providerChatCompletionsUrl(settings.baseUrl);
+	const signal = options.signal ?? new AbortController().signal;
+	const headers: Record<string, string> = { 'content-type': 'application/json' };
+	if (settings.apiKey) {
+		headers.authorization = `Bearer ${settings.apiKey}`;
+	}
+	const prefill = options.prefill?.trim();
+	const sourceDescription = [world.description.trim(), world.prompt?.trim()]
+		.filter(Boolean)
+		.join('\n\nAdditional setting detail:\n');
+	if (!sourceDescription) {
+		throw new InputError('Short description or prompt is required before filling from description.');
+	}
+	const messages: ChatMessage[] = [
+		{
+			role: 'system',
+			content:
+				'Write a detailed visual prompt for a public Bickr world avatar. Focus on concrete setting details, landmarks, scenery, atmosphere, lighting, colors, texture, composition, and camera framing. Do not include captions, text overlays, interface chrome, watermarks, or process commentary. Return only the prompt text.',
+		},
+		...(prefill ? [{ role: 'assistant' as const, content: prefill }] : []),
+		{
+			role: 'user',
+			content: `World name: ${world.name}\nShort description:\n${sourceDescription}`,
+		},
+	];
+	await options.stream?.messages(
+		messages.flatMap((message): AvatarGenerationDisplayMessage[] => {
+			if (message.role !== 'system' && message.role !== 'user' && message.role !== 'assistant') {
+				return [];
+			}
+			return [{ role: message.role, content: message.content ?? '' }];
+		}),
+	);
+	const requestBody = {
+		model: settings.model,
+		messages: sanitizeProviderMessagesForRequest(messages),
+		...(settings.providerRouting ? { provider: settings.providerRouting } : {}),
+		stream: Boolean(options.stream),
+		temperature: settings.temperature,
+		...(providerReasoningForSettings(settings) ? { reasoning: providerReasoningForSettings(settings) } : {}),
+		...(settings.topK !== undefined ? { top_k: settings.topK } : {}),
+		...(settings.topP !== undefined ? { top_p: settings.topP } : {}),
+		...(settings.minP !== undefined ? { min_p: settings.minP } : {}),
+		...(settings.frequencyPenalty !== undefined ? { frequency_penalty: settings.frequencyPenalty } : {}),
+		...(settings.presencePenalty !== undefined ? { presence_penalty: settings.presencePenalty } : {}),
+		...(settings.repetitionPenalty !== undefined ? { repetition_penalty: settings.repetitionPenalty } : {}),
+	};
+	const response = await providerFetchWithHeaderTimeout(
+		endpoint,
+		{ method: 'POST', headers, body: JSON.stringify(requestBody) },
+		signal,
+		providerRequestTimeoutMs,
+	);
+	if (!response.ok) {
+		const bodyText = await readProviderErrorBody(response, signal);
+		throw new ProviderRequestError(response.status, settings.model, endpoint, bodyText);
+	}
+	if (options.stream) {
+		return fetchProviderWorldAvatarDescriptionFromStream(settings, endpoint, response, signal, options.stream, Boolean(prefill));
+	}
+	const rawResponse = await readJsonResponseText(
+		response,
+		providerResponseBodyMaxBytes,
+		signal,
+		providerBodyReadTimeoutMs,
+		() => new ProviderResponseBodyTimeoutError(providerBodyReadTimeoutMs),
+	);
+	let payload: unknown;
+	try {
+		payload = JSON.parse(rawResponse) as unknown;
+	} catch {
+		throw new ProviderRequestError(502, settings.model, endpoint, 'Provider world avatar description response was not valid JSON.', {
+			rawResponse,
+		});
+	}
+	const payloadRecord = runtimeRecord(payload);
+	const choices = Array.isArray(payloadRecord.choices) ? payloadRecord.choices : [];
+	const text = normalizeAvatarDescriptionText(providerMessageTextContent(runtimeRecord(runtimeRecord(choices[0]).message).content));
+	if (!text) {
+		throw new ProviderRequestError(502, settings.model, endpoint, 'Provider world avatar description response did not include text.', {
+			rawResponse,
+		});
+	}
+	return text;
+}
+
+async function fetchProviderWorldAvatarDescriptionFromStream(
+	settings: ProviderSettings,
+	endpoint: string,
+	response: Response,
+	signal: AbortSignal,
+	stream: AvatarGenerationStreamSink,
+	hasPrefill: boolean,
+): Promise<string> {
+	if (!response.body) {
+		throw new ProviderRequestError(502, settings.model, endpoint, 'Inference provider did not return a streaming response body.');
+	}
+	let text = '';
+	try {
+		for await (const event of readSse(response.body, signal, providerBodyReadTimeoutMs)) {
+			if (event.data === '[DONE]') {
+				break;
+			}
+			let chunk: unknown;
+			try {
+				chunk = JSON.parse(event.data) as unknown;
+			} catch {
+				continue;
+			}
+			const parsed = providerAvatarImageStreamChunk(chunk);
+			if (parsed.content) {
+				text += parsed.content;
+				await stream.assistantDelta(hasPrefill && text === parsed.content ? `\n\n${parsed.content}` : parsed.content);
+			}
+		}
+	} catch (error) {
+		if (error instanceof ResponseBodySizeLimitError) {
+			throw new ProviderRequestError(502, settings.model, endpoint, 'Provider world avatar description response was too large.');
+		}
+		throw error;
+	}
+	const normalized = normalizeAvatarDescriptionText(text);
+	if (!normalized) {
+		throw new ProviderRequestError(502, settings.model, endpoint, 'Provider world avatar description response did not include text.');
+	}
+	return normalized;
+}
+
 function sortBotsForCascadeDelete(bots: BotSummary[]): BotSummary[] {
 	const byId = new Map(bots.map((bot) => [bot.id, bot]));
 	const depthCache = new Map<string, number>();
@@ -10408,7 +10877,7 @@ type ProviderAvatarImageStreamChunk = {
 async function fetchProviderAvatarImage(
 	settings: ImageGenerationProviderSettings,
 	input: { prompt: string; currentAvatarUrl?: string },
-	options: { signal?: AbortSignal; stream?: AvatarGenerationStreamSink } = {},
+	options: { signal?: AbortSignal; stream?: AvatarGenerationStreamSink; target?: 'participant' | 'world' } = {},
 ): Promise<{ dataUrl: string; cost: number | null }> {
 	const endpoint = providerChatCompletionsUrl(settings.baseUrl);
 	const signal = options.signal ?? new AbortController().signal;
@@ -10416,7 +10885,7 @@ async function fetchProviderAvatarImage(
 	if (settings.apiKey) {
 		headers.authorization = `Bearer ${settings.apiKey}`;
 	}
-	const requestMessages = avatarImageGenerationMessages(input);
+	const requestMessages = avatarImageGenerationMessages(input, options.target);
 	await options.stream?.messages(requestMessages.displayMessages);
 	const imageConfig: JsonObject = {
 		...(settings.aspectRatio ? { aspect_ratio: settings.aspectRatio } : {}),
@@ -10482,12 +10951,15 @@ async function fetchProviderAvatarImage(
 	};
 }
 
-function avatarImageGenerationMessages(input: { prompt: string; currentAvatarUrl?: string }): {
+function avatarImageGenerationMessages(input: { prompt: string; currentAvatarUrl?: string }, target: 'participant' | 'world' = 'participant'): {
 	displayMessages: AvatarGenerationDisplayMessage[];
 	providerMessages: ProviderImageMessage[];
 } {
 	const prompt = input.prompt.trim();
-	const userText = prompt || 'Use the supplied current profile image as visual input for a refreshed public profile avatar.';
+	const systemPrompt = target === 'world' ? worldAvatarImageGenerationSystemPrompt : avatarImageGenerationSystemPrompt;
+	const userText = prompt || (target === 'world'
+		? 'Use the supplied current world image as visual input for a refreshed public world avatar.'
+		: 'Use the supplied current profile image as visual input for a refreshed public profile avatar.');
 	const displayUserMessage = [userText, ...(input.currentAvatarUrl ? ['[current avatar image included]'] : [])].join('\n\n');
 	const content: ProviderImageContentPart[] = [{ type: 'text', text: userText }];
 	if (input.currentAvatarUrl) {
@@ -10495,28 +10967,31 @@ function avatarImageGenerationMessages(input: { prompt: string; currentAvatarUrl
 	}
 	return {
 		displayMessages: [
-			{ role: 'system', content: avatarImageGenerationSystemPrompt },
+			{ role: 'system', content: systemPrompt },
 			{ role: 'user', content: displayUserMessage },
 		],
 		providerMessages: [
-			{ role: 'system', content: avatarImageGenerationSystemPrompt },
+			{ role: 'system', content: systemPrompt },
 			{ role: 'user', content },
 		],
 	};
 }
 
-function currentAvatarDescriptionMessages(currentAvatarUrl: string): {
+function currentAvatarDescriptionMessages(currentAvatarUrl: string, target: 'participant' | 'world' = 'participant'): {
 	displayMessages: AvatarGenerationDisplayMessage[];
 	providerMessages: ProviderImageMessage[];
 } {
-	const userText = 'Bickr Terminal needs a complete visual description of the supplied current profile image for a refreshed public avatar prompt.';
+	const systemPrompt = target === 'world' ? currentWorldAvatarDescriptionSystemPrompt : currentAvatarDescriptionSystemPrompt;
+	const userText = target === 'world'
+		? 'Bickr Terminal needs a complete visual description of the supplied current world image for a refreshed public world avatar prompt.'
+		: 'Bickr Terminal needs a complete visual description of the supplied current profile image for a refreshed public avatar prompt.';
 	return {
 		displayMessages: [
-			{ role: 'system', content: currentAvatarDescriptionSystemPrompt },
+			{ role: 'system', content: systemPrompt },
 			{ role: 'user', content: `${userText}\n\n[current avatar image included]` },
 		],
 		providerMessages: [
-			{ role: 'system', content: currentAvatarDescriptionSystemPrompt },
+			{ role: 'system', content: systemPrompt },
 			{
 				role: 'user',
 				content: [
@@ -10531,7 +11006,7 @@ function currentAvatarDescriptionMessages(currentAvatarUrl: string): {
 async function fetchProviderCurrentAvatarDescription(
 	settings: ImageGenerationProviderSettings,
 	currentAvatarUrl: string,
-	options: { signal?: AbortSignal; stream?: AvatarGenerationStreamSink } = {},
+	options: { signal?: AbortSignal; stream?: AvatarGenerationStreamSink; target?: 'participant' | 'world' } = {},
 ): Promise<string> {
 	const endpoint = providerChatCompletionsUrl(settings.baseUrl);
 	const signal = options.signal ?? new AbortController().signal;
@@ -10548,7 +11023,7 @@ async function fetchProviderCurrentAvatarDescription(
 	if (settings.apiKey) {
 		headers.authorization = `Bearer ${settings.apiKey}`;
 	}
-	const requestMessages = currentAvatarDescriptionMessages(currentAvatarUrl);
+	const requestMessages = currentAvatarDescriptionMessages(currentAvatarUrl, options.target);
 	await options.stream?.messages(requestMessages.displayMessages);
 	const requestBody = {
 		model: settings.model,
@@ -11306,6 +11781,43 @@ export async function handleAgentRuntimeRequest(
 			const affectedBots = await refreshLinkedCloneIndexes(env.BICKR_KV, env.BICKR_D1, bot.id);
 			await Promise.all(affectedBots.map((affectedBot) => upsertBotVector(env, affectedBot)));
 			return ok({ bot, affectedBots, coordinator: objectId });
+		}
+
+		const worldAvatarPromptMatch = /^\/users\/([^/]+)\/worlds\/([^/]+)\/avatar\/prompt$/.exec(url.pathname);
+		if (worldAvatarPromptMatch && request.method === 'POST') {
+			const userId = requireUserMatch(request, decodeURIComponent(worldAvatarPromptMatch[1] ?? ''));
+			const worldHandle = decodeURIComponent(worldAvatarPromptMatch[2] ?? '');
+			const input = parseAvatarPromptInput(await readOptionalJsonBody(request));
+			if (request.headers.get('accept')?.includes('text/event-stream')) {
+				return streamAvatarPromptForWorld(env, userId, worldHandle, input, request.signal);
+			}
+			const prompt = await prefillAvatarPromptForWorld(env, userId, worldHandle, input);
+			return ok({ prompt, coordinator: objectId });
+		}
+
+		const worldAvatarGenerateMatch = /^\/users\/([^/]+)\/worlds\/([^/]+)\/avatar\/generate$/.exec(url.pathname);
+		if (worldAvatarGenerateMatch && request.method === 'POST') {
+			const userId = requireUserMatch(request, decodeURIComponent(worldAvatarGenerateMatch[1] ?? ''));
+			const worldHandle = decodeURIComponent(worldAvatarGenerateMatch[2] ?? '');
+			const input = parseAvatarGenerationInput(await readJsonBody(request));
+			if (request.headers.get('accept')?.includes('text/event-stream')) {
+				return streamAvatarGenerationForWorld(env, userId, worldHandle, input, request.signal);
+			}
+			const candidate = await generateAvatarForWorld(env, userId, worldHandle, input);
+			return ok({ candidate, coordinator: objectId });
+		}
+
+		const worldAvatarApplyMatch = /^\/users\/([^/]+)\/worlds\/([^/]+)\/avatar\/apply$/.exec(url.pathname);
+		if (worldAvatarApplyMatch && request.method === 'POST') {
+			const userId = requireUserMatch(request, decodeURIComponent(worldAvatarApplyMatch[1] ?? ''));
+			const worldHandle = decodeURIComponent(worldAvatarApplyMatch[2] ?? '');
+			const body = runtimeRecord(await readJsonBody(request));
+			let world = await applyGeneratedAvatarForWorld(env, userId, worldHandle, parseAvatarCandidate(body.candidate));
+			if (body.settings !== undefined) {
+				const input = parseUpdateWorldInput({ imageGeneration: body.settings });
+				world = await updateWorld(env.BICKR_KV, env.BICKR_D1, world.handle, userId, input);
+			}
+			return ok({ world, coordinator: objectId });
 		}
 
 		if (botMatch && request.method === 'DELETE') {

@@ -1752,6 +1752,102 @@ export async function recordSpotlightFailureHumanNotification(
 	});
 }
 
+export async function recordWorldSettingsChangedHumanNotifications(
+	db: D1DatabaseLike,
+	input: {
+		previous: WorldDocument;
+		updated: WorldDocument;
+		editorUserId: string;
+		now?: string;
+	},
+): Promise<void> {
+	const now = input.now ?? new Date().toISOString();
+	const changed = worldSettingsChangeLabels(input.previous, input.updated);
+	if (changed.length === 0) {
+		return;
+	}
+	const ownerRows = await db
+		.prepare(
+			`SELECT DISTINCT owner_user_id AS userId
+			 FROM bots_index
+			 WHERE home_world_id = ?
+			   AND deleted_at IS NULL
+			   AND owner_user_id != ?`,
+		)
+		.bind(input.updated.id, input.editorUserId)
+		.all<{ userId: string }>();
+	const users = (ownerRows.results ?? []).map((row) => row.userId).filter(Boolean);
+	if (users.length === 0) {
+		return;
+	}
+	const title = `${input.updated.name} settings changed`;
+	const body = `World settings changed: ${changed.join(", ")}.`;
+	const urlPath = `/w/${encodeURIComponent(input.updated.handle)}/edit`;
+	for (const userId of users) {
+		const existing = await db
+			.prepare(
+				`SELECT notification_id AS id
+				 FROM human_notifications
+				 WHERE user_id = ?
+				   AND world_id = ?
+				   AND notification_type = 'world_settings_changed'
+				   AND read_at IS NULL
+				   AND archived_at IS NULL
+				 ORDER BY created_at DESC
+				 LIMIT 1`,
+			)
+			.bind(userId, input.updated.id)
+			.first<{ id: string }>();
+		if (existing) {
+			await db
+				.prepare(
+					`UPDATE human_notifications
+					 SET title = ?,
+					     body = ?,
+					     url_path = ?,
+					     target_id = ?,
+					     created_at = ?
+					 WHERE notification_id = ?`,
+				)
+				.bind(title, body, urlPath, input.updated.id, now, existing.id)
+				.run();
+			continue;
+		}
+		await insertHumanNotification(db, {
+			userId,
+			worldId: input.updated.id,
+			eventKey: `world_settings_changed:${input.updated.id}:${now}`,
+			notificationType: "world_settings_changed",
+			sourceType: "world",
+			sourceId: input.updated.id,
+			targetType: "world",
+			targetId: input.updated.id,
+			title,
+			body,
+			urlPath,
+			now,
+		});
+	}
+}
+
+function worldSettingsChangeLabels(previous: WorldDocument, updated: WorldDocument): string[] {
+	const labels: string[] = [];
+	if (previous.handle !== updated.handle) labels.push("handle");
+	if (previous.name !== updated.name) labels.push("name");
+	if (previous.description !== updated.description) labels.push("short description");
+	if ((previous.prompt ?? "") !== (updated.prompt ?? "")) labels.push("prompt");
+	if (previous.initialBotNotification !== updated.initialBotNotification) labels.push("initial participant notification");
+	if (JSON.stringify(previous.postingSettings ?? {}) !== JSON.stringify(updated.postingSettings ?? {})) labels.push("posting limits");
+	if ((previous.avatar?.url ?? "") !== (updated.avatar?.url ?? "") ||
+		JSON.stringify(previous.avatar?.crop ?? null) !== JSON.stringify(updated.avatar?.crop ?? null)) {
+		labels.push("avatar");
+	}
+	if (JSON.stringify(previous.imageGeneration ?? {}) !== JSON.stringify(updated.imageGeneration ?? {})) {
+		labels.push("avatar generation settings");
+	}
+	return labels;
+}
+
 async function subscribedUsersForScopes(
 	db: D1DatabaseLike,
 	scopes: SubscriptionScopeTarget[],

@@ -282,6 +282,10 @@ CREATE TABLE worlds_index (
 	handle TEXT NOT NULL UNIQUE,
 	name TEXT NOT NULL,
 	description TEXT NOT NULL,
+	prompt TEXT NOT NULL DEFAULT '',
+	avatar_url TEXT,
+	avatar_crop TEXT,
+	image_generation TEXT,
 	initial_bot_notification TEXT NOT NULL DEFAULT 'You have just finished creating your Bickr account and logged in for the first time.',
 	posting_thread_body_characters INTEGER,
 	posting_comment_body_characters INTEGER,
@@ -1623,6 +1627,18 @@ describe("Bickr Pages Functions", () => {
 		expect(prompt).toContain("Avoid duplicate replies");
 		expect(prompt).toContain("already replied to that same comment");
 		expect(prompt).toContain("finish this Bickr visit with log_off");
+	});
+
+	it("adds only non-empty world prompt text as setting context", () => {
+		const promptBot = {
+			handle: "prompt-tester",
+			displayName: "Prompt Tester",
+			shortBio: "Tests prompts.",
+			prompt: "Stay terse.",
+		} as Parameters<typeof standardPrompt>[0];
+		const prompt = standardPrompt(promptBot, "The city is built on glass canals.");
+		expect(prompt).toContain("Stay terse.\n\nSetting:\nThe city is built on glass canals.");
+		expect(standardPrompt(promptBot, "  ")).not.toContain("Setting:");
 	});
 
 	it("keeps later live stream deltas when reconciling earlier persistent assistant messages", () => {
@@ -5864,6 +5880,9 @@ describe("Bickr Pages Functions", () => {
 		const original = await promptContextBudgetCacheFingerprint(base);
 		await expect(
 			promptContextBudgetCacheFingerprint({ ...base, personaPromptFingerprint: "prompt-b" }),
+		).resolves.not.toBe(original);
+		await expect(
+			promptContextBudgetCacheFingerprint({ ...base, worldPromptFingerprint: "world-b" }),
 		).resolves.not.toBe(original);
 		await expect(
 			promptContextBudgetCacheFingerprint({ ...base, effectiveModel: "anthropic/claude" }),
@@ -11973,6 +11992,96 @@ describe("Bickr Pages Functions", () => {
 		expect(await response.json()).toMatchObject({ ok: false, error: "unauthorized" });
 	});
 
+	it("notifies distinct bot owners when world settings change without spamming unread notifications", async () => {
+		const ownerCookie = await authCookieFor({ subject: "world-settings-owner", login: "world-settings-owner", displayName: "World Owner" });
+		const guestCookie = await authCookieFor({ subject: "world-settings-guest", login: "world-settings-guest", displayName: "World Guest" });
+		await createWorldForTest(ownerCookie, "settings-lab", "Settings Lab");
+		const ownerBot = await createBot(
+			contextFor<typeof createBot>(
+				jsonRequest(
+					"http://example.com/api/worlds/settings-lab/bots",
+					"POST",
+					{ handle: "owner-bot", displayName: "Owner Bot", shortBio: "Owner participant.", prompt: "Watch settings." },
+					ownerCookie,
+				),
+				{ worldHandle: "settings-lab" },
+			),
+		);
+		expect(ownerBot.status, await ownerBot.clone().text()).toBe(201);
+		for (const handle of ["guest-one", "guest-two"]) {
+			const guestBot = await createBot(
+				contextFor<typeof createBot>(
+					jsonRequest(
+						"http://example.com/api/worlds/settings-lab/bots",
+						"POST",
+						{ handle, displayName: handle, shortBio: "Guest participant.", prompt: "Watch settings." },
+						guestCookie,
+					),
+					{ worldHandle: "settings-lab" },
+				),
+			);
+			expect(guestBot.status, await guestBot.clone().text()).toBe(201);
+		}
+		const ownerId = await userIdForHandle("world-settings-owner");
+		const guestId = await userIdForHandle("world-settings-guest");
+
+		const firstPatch = await patchWorld(
+			contextFor<typeof patchWorld>(
+				jsonRequest("http://example.com/api/worlds/settings-lab", "PATCH", { prompt: "A brighter setting." }, ownerCookie),
+				{ worldHandle: "settings-lab" },
+			),
+		);
+		expect(firstPatch.status, await firstPatch.clone().text()).toBe(200);
+		let rows = await testEnv.BICKR_D1.prepare(
+			`SELECT notification_id AS id, user_id AS userId, body, read_at AS readAt
+			 FROM human_notifications
+			 WHERE notification_type = 'world_settings_changed'
+			 ORDER BY created_at ASC`,
+		).all<{ id: string; userId: string; body: string; readAt: string | null }>();
+		expect(rows.results).toHaveLength(1);
+		expect(rows.results?.[0]).toMatchObject({ userId: guestId, readAt: null });
+		expect(rows.results?.[0]?.body).toContain("prompt");
+		expect(rows.results?.some((row) => row.userId === ownerId)).toBe(false);
+		const unreadId = rows.results?.[0]?.id ?? "";
+
+		const secondPatch = await patchWorld(
+			contextFor<typeof patchWorld>(
+				jsonRequest("http://example.com/api/worlds/settings-lab", "PATCH", { description: "Updated visible description." }, ownerCookie),
+				{ worldHandle: "settings-lab" },
+			),
+		);
+		expect(secondPatch.status, await secondPatch.clone().text()).toBe(200);
+		rows = await testEnv.BICKR_D1.prepare(
+			`SELECT notification_id AS id, user_id AS userId, body, read_at AS readAt
+			 FROM human_notifications
+			 WHERE notification_type = 'world_settings_changed'
+			 ORDER BY created_at ASC`,
+		).all<{ id: string; userId: string; body: string; readAt: string | null }>();
+		expect(rows.results).toHaveLength(1);
+		expect(rows.results?.[0]?.id).toBe(unreadId);
+		expect(rows.results?.[0]?.body).toContain("short description");
+
+		await testEnv.BICKR_D1.prepare(`UPDATE human_notifications SET read_at = ? WHERE notification_id = ?`)
+			.bind("2026-05-01T00:00:00.000Z", unreadId)
+			.run();
+		const thirdPatch = await patchWorld(
+			contextFor<typeof patchWorld>(
+				jsonRequest("http://example.com/api/worlds/settings-lab", "PATCH", { name: "Settings Lab Revised" }, ownerCookie),
+				{ worldHandle: "settings-lab" },
+			),
+		);
+		expect(thirdPatch.status, await thirdPatch.clone().text()).toBe(200);
+		rows = await testEnv.BICKR_D1.prepare(
+			`SELECT notification_id AS id, user_id AS userId, body, read_at AS readAt
+			 FROM human_notifications
+			 WHERE notification_type = 'world_settings_changed'
+			 ORDER BY created_at ASC`,
+		).all<{ id: string; userId: string; body: string; readAt: string | null }>();
+		expect(rows.results).toHaveLength(2);
+		expect(rows.results?.[1]).toMatchObject({ userId: guestId, readAt: null });
+		expect(rows.results?.[1]?.body).toContain("name");
+	});
+
 	it("keeps the local test login route disabled unless explicitly configured", async () => {
 		const disabled = await testLogin(
 			contextFor<typeof testLogin>(
@@ -14865,7 +14974,7 @@ describe("Bickr Pages Functions", () => {
 			),
 		);
 		const created = (await createResponse.json()) as { data: { bot: BotBody } };
-		const promptTokens = [200, 260, 210, 285];
+		const promptTokens = [200, 260, 260, 210, 285, 285];
 		const calls: Array<{ content: string }> = [];
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 			env: {
@@ -14901,6 +15010,7 @@ describe("Bickr Pages Functions", () => {
 				nextCompactionTokens: number;
 				personaPromptTokens: number;
 				remainingLoopTokens: number;
+				worldPromptTokens: number;
 			}>;
 		}).promptContextBudget.bind(runtime);
 		const cachedPromptContextBudget = (BotRuntime.prototype as unknown as {
@@ -14909,6 +15019,7 @@ describe("Bickr Pages Functions", () => {
 				fixedSystemTokens: number;
 				personaPromptTokens: number;
 				remainingLoopTokens: number;
+				worldPromptTokens: number;
 			} | null>;
 		}).cachedPromptContextBudget.bind(runtime);
 
@@ -14923,11 +15034,14 @@ describe("Bickr Pages Functions", () => {
 			minimumCompactedPromptTokens: expect.any(Number),
 			nextCompactionTokens: expect.any(Number),
 			personaPromptTokens: 60,
+			worldPromptTokens: 0,
 			remainingLoopTokens: 7_240,
 		});
-		expect(calls).toHaveLength(2);
+		expect(calls).toHaveLength(3);
 		expect(calls[0]?.content).not.toContain("Stay brief.");
 		expect(calls[1]?.content).toContain("Stay brief.");
+		expect(calls[2]?.content).toContain("Stay brief.");
+		expect(calls[2]?.content).not.toContain("Setting:");
 
 		const second = await promptContextBudget(created.data.bot.id, {
 			prompt: "Stay brief.",
@@ -14935,22 +15049,24 @@ describe("Bickr Pages Functions", () => {
 		});
 		expect(second.cached).toBe(true);
 		expect(second.personaPromptTokens).toBe(60);
-		expect(calls).toHaveLength(2);
+		expect(second.worldPromptTokens).toBe(0);
+		expect(calls).toHaveLength(3);
 
 		const cachedCurrent = await cachedPromptContextBudget(created.data.bot.id);
 		expect(cachedCurrent).toMatchObject({
 			cached: true,
 			fixedSystemTokens: 200,
 			personaPromptTokens: 60,
+			worldPromptTokens: 0,
 		});
-		expect(calls).toHaveLength(2);
+		expect(calls).toHaveLength(3);
 
 		const changed = await promptContextBudget(created.data.bot.id, {
 			prompt: "Stay brief with exact counts.",
 			tickSettings: { contextWindowTokens: 10_000 },
 		});
 		expect(changed.cached).toBe(false);
-		expect(calls).toHaveLength(4);
+		expect(calls).toHaveLength(6);
 	});
 
 	it("allows bot prompts up to 64000 characters and rejects longer prompts", async () => {

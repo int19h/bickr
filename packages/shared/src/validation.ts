@@ -51,6 +51,7 @@ export class InputError extends Error {
 export const maxBotShortBioLength = 1_200;
 const maxBotGroupTitleLength = 80;
 export const maxBotPromptLength = 64_000;
+export const maxWorldPromptLength = maxBotPromptLength;
 export const maxBotReasoningPrefillLength = 500;
 export const maxProviderRoutingJsonLength = 8_000;
 const maxThreadTitleLength = 160;
@@ -196,6 +197,15 @@ export function parseCreateWorldInput(input: unknown): CreateWorldInput {
 		handle: normalizeHandle(record.handle),
 		name: requiredText(record.name, "World name", 80),
 		description: requiredText(record.description, "World description", 500),
+		prompt: optionalTextPreservingEmpty(record.prompt, "World prompt", maxWorldPromptLength) ?? "",
+		...((record.imageGeneration === undefined && record.image_generation === undefined) ?
+			{}
+		:	{
+				imageGeneration:
+					aliasedValue(record, "imageGeneration", "image_generation") === null ?
+						null
+					:	parseImageGenerationSettings(aliasedValue(record, "imageGeneration", "image_generation")),
+			}),
 		...(record.initialBotNotification === undefined ?
 			{}
 		:	{
@@ -222,6 +232,13 @@ export function parseUpdateWorldInput(input: unknown): UpdateWorldInput {
 	}
 	if (record.description !== undefined) {
 		update.description = requiredText(record.description, "World description", 500);
+	}
+	if (record.prompt !== undefined) {
+		update.prompt = optionalTextPreservingEmpty(record.prompt, "World prompt", maxWorldPromptLength) ?? "";
+	}
+	if (record.imageGeneration !== undefined || record.image_generation !== undefined) {
+		const imageGeneration = aliasedValue(record, "imageGeneration", "image_generation");
+		update.imageGeneration = imageGeneration === null ? null : parseImageGenerationSettings(imageGeneration);
 	}
 	if (record.initialBotNotification !== undefined) {
 		update.initialBotNotification = requiredText(
