@@ -3956,34 +3956,62 @@ function WorldEditPage({
 							<h2>Profile</h2>
 							<span className="meta">shown to human users</span>
 						</div>
-						<div className="avatar-edit-row">
+						<div className="profile-avatar-column">
 							<button
-								className="avatar-edit-preview"
+								aria-label={world.avatarUrl ? "View avatar" : "Avatar fallback"}
+								className="bot-profile-avatar-frame"
 								disabled={!world.avatarUrl}
 								onClick={() => world.avatarUrl ? setLightboxUrl(world.avatarUrl) : undefined}
 								type="button"
 							>
-								<Avatar actor="world" colorSeed={world.handle} crop={world.avatarCrop} imageUrl={world.avatarUrl} name={world.name} size="hero" />
+								{world.avatarUrl ?
+									<FallbackImage
+										alt=""
+										fallbackSrc={world.avatarUrl}
+										src={cloudflareImageUrl(world.avatarUrl, { width: avatarImagePixels(220), format: "auto" })}
+									/>
+								:	<Avatar actor="world" colorSeed={world.handle} name={world.name} size="hero" />
+								}
 							</button>
-							<div className="avatar-edit-actions">
+							<div className="profile-avatar-actions">
+								<button
+									className="btn icon-only"
+									disabled={readonly || !world.avatarUrl}
+									onClick={() => setCropOpen(true)}
+									title="Crop avatar"
+									type="button"
+								>
+									<Icon name="crop" size={16} />
+								</button>
+								<button
+									className="btn icon-only"
+									disabled={readonly}
+									onClick={() => setUploadOpen(true)}
+									title="Upload avatar"
+									type="button"
+								>
+									<Icon name="upload" size={16} />
+								</button>
 								{readonly ?
-									<button className="btn" disabled type="button">
-										<Icon name="sparkles" size={14} />
-										Generate avatar
+									<button className="btn icon-only" disabled title="Generate avatar" type="button">
+										<Icon name="sparkles" size={16} />
 									</button>
-								:	<SpaLink className="btn" to={{ route: "world-avatar", worldHandle: world.handle }}>
-										<Icon name="sparkles" size={14} />
-										Generate avatar
+								:	<SpaLink
+										className="btn icon-only"
+										title="Generate avatar"
+										to={{ route: "world-avatar", worldHandle: world.handle }}
+									>
+										<Icon name="sparkles" size={16} />
 									</SpaLink>
 								}
-								<button className="btn" disabled={readonly} onClick={() => setUploadOpen(true)} type="button">
-									Upload
-								</button>
-								<button className="btn" disabled={readonly || !world.avatarUrl} onClick={() => setCropOpen(true)} type="button">
-									Crop
-								</button>
-								<button className="btn danger" disabled={readonly || !world.avatarUrl} onClick={() => setDeleteAvatarConfirm(true)} type="button">
-									Delete
+								<button
+									className="btn icon-only danger"
+									disabled={readonly || !world.avatarUrl}
+									onClick={() => setDeleteAvatarConfirm(true)}
+									title="Delete avatar"
+									type="button"
+								>
+									<Icon name="trash" size={16} />
 								</button>
 							</div>
 						</div>
