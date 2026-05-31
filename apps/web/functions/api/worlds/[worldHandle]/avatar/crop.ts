@@ -3,7 +3,7 @@ import { updateWorldAvatar } from "@bickr/shared/governance";
 import { type AvatarCrop, type AvatarImage, type WorldDocument } from "@bickr/shared/model";
 import { RepositoryError, worldByHandle } from "@bickr/shared/repository";
 import { kvKeys, readJson } from "@bickr/shared/storage";
-import { InputError } from "@bickr/shared/validation";
+import { InputError, normalizeHandleParam } from "@bickr/shared/validation";
 import { type AppEnv, requireCompleteUser } from "../../../_auth";
 import { pageErrorResponse } from "../../../_errors";
 
@@ -12,7 +12,7 @@ const maxCropDimension = 100_000;
 export const onRequestPatch: PagesFunction<AppEnv, "worldHandle"> = async ({ env, request, params }) => {
 	try {
 		const user = await requireCompleteUser(env, request);
-		const worldHandle = singleParam(params.worldHandle);
+		const worldHandle = normalizeHandleParam(params.worldHandle, "World handle");
 		const worldRef = await worldByHandle(env.BICKR_D1, worldHandle);
 		const world = await readJson<WorldDocument>(env.BICKR_KV, kvKeys.world(worldRef.id));
 		if (!world || world.deletedAt) {
@@ -83,8 +83,4 @@ function parseAvatarCrop(value: unknown, avatar: AvatarImage): AvatarCrop {
 function withoutAvatarCrop(avatar: AvatarImage): AvatarImage {
 	const { crop: _crop, ...rest } = avatar;
 	return rest;
-}
-
-function singleParam(value: string | string[]): string {
-	return Array.isArray(value) ? (value[0] ?? "") : value;
 }

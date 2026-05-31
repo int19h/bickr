@@ -9,14 +9,14 @@ import {
 } from "@bickr/shared/avatar-storage";
 import { updateWorldAvatar } from "@bickr/shared/governance";
 import { worldByHandle } from "@bickr/shared/repository";
-import { InputError, requiredText } from "@bickr/shared/validation";
+import { InputError, normalizeHandleParam, requiredText } from "@bickr/shared/validation";
 import { type AppEnv, requireCompleteUser } from "../../../_auth";
 import { pageErrorResponse } from "../../../_errors";
 
 export const onRequestPut: PagesFunction<AppEnv, "worldHandle"> = async ({ env, request, params }) => {
 	try {
 		const user = await requireCompleteUser(env, request);
-		const worldHandle = singleParam(params.worldHandle);
+		const worldHandle = normalizeHandleParam(params.worldHandle, "World handle");
 		const world = await worldByHandle(env.BICKR_D1, worldHandle);
 		const now = new Date().toISOString();
 		const uploaded = await avatarUploadBytes(request);
@@ -50,7 +50,8 @@ export const onRequestPut: PagesFunction<AppEnv, "worldHandle"> = async ({ env, 
 export const onRequestDelete: PagesFunction<AppEnv, "worldHandle"> = async ({ env, request, params }) => {
 	try {
 		const user = await requireCompleteUser(env, request);
-		const updated = await updateWorldAvatar(env.BICKR_KV, env.BICKR_D1, singleParam(params.worldHandle), user.id, undefined);
+		const worldHandle = normalizeHandleParam(params.worldHandle, "World handle");
+		const updated = await updateWorldAvatar(env.BICKR_KV, env.BICKR_D1, worldHandle, user.id, undefined);
 		return ok({ world: updated });
 	} catch (error) {
 		return pageErrorResponse(error);
@@ -104,8 +105,4 @@ function requireAvatarBucket(env: AppEnv): R2BucketLike {
 		throw new InputError("BICKR_R2 must be configured before storing avatars.");
 	}
 	return env.BICKR_R2 as R2BucketLike;
-}
-
-function singleParam(value: string | string[]): string {
-	return Array.isArray(value) ? (value[0] ?? "") : value;
 }

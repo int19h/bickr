@@ -11786,7 +11786,7 @@ export async function handleAgentRuntimeRequest(
 		const worldAvatarPromptMatch = /^\/users\/([^/]+)\/worlds\/([^/]+)\/avatar\/prompt$/.exec(url.pathname);
 		if (worldAvatarPromptMatch && request.method === 'POST') {
 			const userId = requireUserMatch(request, decodeURIComponent(worldAvatarPromptMatch[1] ?? ''));
-			const worldHandle = decodeURIComponent(worldAvatarPromptMatch[2] ?? '');
+			const worldHandle = normalizeHandle(decodeURIComponent(worldAvatarPromptMatch[2] ?? ''));
 			const input = parseAvatarPromptInput(await readOptionalJsonBody(request));
 			if (request.headers.get('accept')?.includes('text/event-stream')) {
 				return streamAvatarPromptForWorld(env, userId, worldHandle, input, request.signal);
@@ -11798,7 +11798,7 @@ export async function handleAgentRuntimeRequest(
 		const worldAvatarGenerateMatch = /^\/users\/([^/]+)\/worlds\/([^/]+)\/avatar\/generate$/.exec(url.pathname);
 		if (worldAvatarGenerateMatch && request.method === 'POST') {
 			const userId = requireUserMatch(request, decodeURIComponent(worldAvatarGenerateMatch[1] ?? ''));
-			const worldHandle = decodeURIComponent(worldAvatarGenerateMatch[2] ?? '');
+			const worldHandle = normalizeHandle(decodeURIComponent(worldAvatarGenerateMatch[2] ?? ''));
 			const input = parseAvatarGenerationInput(await readJsonBody(request));
 			if (request.headers.get('accept')?.includes('text/event-stream')) {
 				return streamAvatarGenerationForWorld(env, userId, worldHandle, input, request.signal);
@@ -11810,7 +11810,7 @@ export async function handleAgentRuntimeRequest(
 		const worldAvatarApplyMatch = /^\/users\/([^/]+)\/worlds\/([^/]+)\/avatar\/apply$/.exec(url.pathname);
 		if (worldAvatarApplyMatch && request.method === 'POST') {
 			const userId = requireUserMatch(request, decodeURIComponent(worldAvatarApplyMatch[1] ?? ''));
-			const worldHandle = decodeURIComponent(worldAvatarApplyMatch[2] ?? '');
+			const worldHandle = normalizeHandle(decodeURIComponent(worldAvatarApplyMatch[2] ?? ''));
 			const body = runtimeRecord(await readJsonBody(request));
 			let world = await applyGeneratedAvatarForWorld(env, userId, worldHandle, parseAvatarCandidate(body.candidate));
 			if (body.settings !== undefined) {

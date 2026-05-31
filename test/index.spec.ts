@@ -91,6 +91,9 @@ import {
 	onRequestDelete as deleteWorldRoute,
 	onRequestPatch as patchWorld,
 } from "../apps/web/functions/api/worlds/[worldHandle]";
+import { onRequestPost as applyWorldAvatarRoute } from "../apps/web/functions/api/worlds/[worldHandle]/avatar/apply";
+import { onRequestPost as generateWorldAvatarRoute } from "../apps/web/functions/api/worlds/[worldHandle]/avatar/generate";
+import { onRequestPost as promptWorldAvatarRoute } from "../apps/web/functions/api/worlds/[worldHandle]/avatar/prompt";
 import {
 	default as agentRuntimeWorker,
 	handleAgentRuntimeRequest,
@@ -20910,6 +20913,75 @@ describe("Bickr Pages Functions", () => {
 			path: `/users/${userId}/bots/spread-ticks`,
 			userId,
 		});
+	});
+
+	it("normalizes encoded world handles for world avatar service routes", async () => {
+		const cookie = await authCookie();
+		const userId = await userIdForHandle("octocat");
+		const rawHandle = "Пиздец";
+		const worldHandle = "пиздец";
+		const encodedHandle = encodeURIComponent(rawHandle);
+		const routed: Array<{ method: string; path: string }> = [];
+		const envOverrides: Partial<AppEnv> = {
+			AGENT_RUNTIME: {
+				fetch: async (request: Request) => {
+					routed.push({
+						method: request.method,
+						path: new URL(request.url).pathname,
+					});
+					return Response.json({ ok: true });
+				},
+			} as unknown as Fetcher,
+		};
+		const routes = [
+			{
+				handler: promptWorldAvatarRoute,
+				path: "prompt",
+				body: { mode: "description" },
+			},
+			{
+				handler: generateWorldAvatarRoute,
+				path: "generate",
+				body: { prompt: "A painted city gate.", includeCurrentAvatar: false, settings: { model: "openai/image-output" } },
+			},
+			{
+				handler: applyWorldAvatarRoute,
+				path: "apply",
+				body: {
+					candidate: {
+						url: "https://assets.example/avatar.png",
+						key: "worlds/test/world/avatar-candidates/avatar.png",
+						source: {
+							type: "generated",
+							model: "openai/image-output",
+							generatedAt: new Date().toISOString(),
+						},
+					},
+				},
+			},
+		] as const;
+
+		for (const route of routes) {
+			const response = await route.handler(
+				contextFor<typeof route.handler>(
+					jsonRequest(
+						`http://example.com/api/worlds/${encodedHandle}/avatar/${route.path}`,
+						"POST",
+						route.body,
+						cookie,
+					),
+					{ worldHandle: encodedHandle },
+					envOverrides,
+				),
+			);
+			expect(response.status, await response.clone().text()).toBe(200);
+		}
+
+		expect(routed).toEqual([
+			{ method: "POST", path: `/users/${userId}/worlds/${encodeURIComponent(worldHandle)}/avatar/prompt` },
+			{ method: "POST", path: `/users/${userId}/worlds/${encodeURIComponent(worldHandle)}/avatar/generate` },
+			{ method: "POST", path: `/users/${userId}/worlds/${encodeURIComponent(worldHandle)}/avatar/apply` },
+		]);
 	});
 
 	it("previews Chirper imports and reports invalid profiles", async () => {
