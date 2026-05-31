@@ -242,6 +242,18 @@ describe("provider avatar image streaming", () => {
 		expect(result.usage?.cost).toBe(0.0123);
 	});
 
+	it("preserves whitespace in streamed assistant text chunks", () => {
+		const result = providerAvatarImageStreamChunk({
+			choices: [{
+				delta: {
+					content: " wide-angle ",
+				},
+			}],
+		});
+
+		expect(result.content).toBe(" wide-angle ");
+	});
+
 	it("accepts the imageUrl alias used by some OpenRouter SDK examples", () => {
 		const result = providerAvatarImageStreamChunk({
 			choices: [{

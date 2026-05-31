@@ -11186,7 +11186,7 @@ export function providerAvatarImageStreamChunk(chunk: unknown): ProviderAvatarIm
 	const choices = Array.isArray(record.choices) ? record.choices : [];
 	for (const choice of choices) {
 		const delta = runtimeRecord(runtimeRecord(choice).delta);
-		content += stringValue(delta.content) ?? '';
+		content += providerStreamTextDelta(delta.content);
 		dataUrls.push(...providerImageDataUrlsFromImages(delta.images));
 	}
 	const usage = providerUsageFromValue(record.usage);
@@ -11201,6 +11201,10 @@ export function providerAvatarImageStreamChunk(chunk: unknown): ProviderAvatarIm
 		...(responseModel ? { responseModel } : {}),
 		...(responseProviderName ? { responseProviderName } : {}),
 	};
+}
+
+function providerStreamTextDelta(value: unknown): string {
+	return typeof value === 'string' ? value : '';
 }
 
 async function providerImageOutputModalities(
