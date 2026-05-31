@@ -11908,7 +11908,7 @@ export default {
 			return handleAgentRuntimeRequest(request, env);
 		}
 
-		const userBotsMatch = /^\/users\/([^/]+)\/(?:worlds\/[^/]+\/bots|bots\/[^/]+(?:\/avatar\/(?:prompt|generate|apply)|\/clone\/(?:unlink|relink))?|profile)$/.exec(
+		const userBotsMatch = /^\/users\/([^/]+)\/(?:worlds\/[^/]+\/(?:bots|avatar\/(?:prompt|generate|apply))|bots\/[^/]+(?:\/avatar\/(?:prompt|generate|apply)|\/clone\/(?:unlink|relink))?|profile)$/.exec(
 			url.pathname,
 		);
 		if (userBotsMatch && ['POST', 'PATCH', 'DELETE'].includes(request.method)) {

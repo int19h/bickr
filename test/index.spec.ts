@@ -20838,9 +20838,13 @@ describe("Bickr Pages Functions", () => {
 	it("routes avatar service requests through the user coordinator", async () => {
 		const userId = "usr_avatar_route";
 		const botId = "bot_avatar_route";
+		const worldHandle = "avatar-route-world";
 		const actions = ["prompt", "generate", "apply"] as const;
 
-		for (const action of actions) {
+		for (const path of [
+			...actions.map((action) => `/users/${userId}/bots/${botId}/avatar/${action}`),
+			...actions.map((action) => `/users/${userId}/worlds/${worldHandle}/avatar/${action}`),
+		]) {
 			const routed: { method?: string; path?: string; userId?: string } = {};
 			const namespace = {
 				idFromName(name: string): DurableObjectId {
@@ -20858,7 +20862,7 @@ describe("Bickr Pages Functions", () => {
 				},
 			};
 
-			const request = new Request(`https://internal.bickr/users/${userId}/bots/${botId}/avatar/${action}`, {
+			const request = new Request(`https://internal.bickr${path}`, {
 				method: "POST",
 				headers: { "x-bickr-user-id": userId },
 			});
@@ -20870,7 +20874,7 @@ describe("Bickr Pages Functions", () => {
 			expect(response.status).toBe(200);
 			expect(routed).toEqual({
 				method: "POST",
-				path: `/users/${userId}/bots/${botId}/avatar/${action}`,
+				path,
 				userId,
 			});
 		}
