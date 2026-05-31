@@ -1795,20 +1795,21 @@ fieldset {
 	background: var(--paper-2);
 	border-bottom: 1px solid var(--rule);
 	display: block;
-	height: 86px;
+	aspect-ratio: 21 / 9;
+	height: auto;
+	min-height: 86px;
 }
 
 .world-card .banner.has-avatar {
 	align-items: center;
 	display: flex;
-	height: auto;
 	justify-content: center;
-	min-height: 86px;
 }
 
 .world-card .banner img {
 	display: block;
-	height: auto;
+	height: 100%;
+	object-fit: contain;
 	width: 100%;
 }
 

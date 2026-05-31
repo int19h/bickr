@@ -3699,7 +3699,7 @@ function WorldCard({ world }: { world: WorldView }) {
 			</SpaLink>
 			<span
 				className={`banner ${world.avatarUrl ? "has-avatar" : ""}`}
-				style={world.avatarUrl ? avatarAspectRatioStyle(world.avatar) : { background: banners[world.bannerIdx] }}
+				style={world.avatarUrl ? undefined : { background: banners[world.bannerIdx] }}
 			>
 				{world.avatarUrl && (
 					<FallbackImage
