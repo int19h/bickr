@@ -291,30 +291,51 @@ export const openRouterImageAspectRatios = [
 ] as const;
 
 export const openRouterExtendedImageAspectRatios = ["1:4", "4:1", "1:8", "8:1"] as const;
+export const openRouterGrokImageAspectRatios = ["2:1", "1:2", "19.5:9", "9:19.5", "20:9", "9:20", "auto"] as const;
 
 export const openRouterImageSizes = ["1K", "2K", "4K"] as const;
 export const openRouterExtendedImageSizes = ["0.5K"] as const;
 const openRouterExtendedImageConfigModel = "google/gemini-3.1-flash-image-preview";
+const openRouterGrokImageAspectRatioModelPrefix = "x-ai/grok-imagine-image";
 export const defaultAvatarImageGenerationSettings = {
 	model: openRouterExtendedImageConfigModel,
 	aspectRatio: "1:1",
 	imageSize: "1K",
 } as const satisfies Pick<BotImageGenerationSettings, "model" | "aspectRatio" | "imageSize">;
 
+export const defaultWorldAvatarImageGenerationSettings = {
+	...defaultAvatarImageGenerationSettings,
+	aspectRatio: "21:9",
+} as const satisfies Pick<BotImageGenerationSettings, "model" | "aspectRatio" | "imageSize">;
+
 export function avatarImageGenerationSettingsWithDefaults(
 	settings: BotImageGenerationSettings | undefined,
 ): BotImageGenerationSettings {
+	return imageGenerationSettingsWithDefaults(settings, defaultAvatarImageGenerationSettings);
+}
+
+export function worldAvatarImageGenerationSettingsWithDefaults(
+	settings: BotImageGenerationSettings | undefined,
+): BotImageGenerationSettings {
+	return imageGenerationSettingsWithDefaults(settings, defaultWorldAvatarImageGenerationSettings);
+}
+
+function imageGenerationSettingsWithDefaults(
+	settings: BotImageGenerationSettings | undefined,
+	defaults: Pick<BotImageGenerationSettings, "model" | "aspectRatio" | "imageSize">,
+): BotImageGenerationSettings {
 	return {
 		...settings,
-		model: settings?.model?.trim() || defaultAvatarImageGenerationSettings.model,
-		aspectRatio: settings?.aspectRatio?.trim() || defaultAvatarImageGenerationSettings.aspectRatio,
-		imageSize: settings?.imageSize?.trim() || defaultAvatarImageGenerationSettings.imageSize,
+		model: settings?.model?.trim() || defaults.model,
+		aspectRatio: settings?.aspectRatio?.trim() || defaults.aspectRatio,
+		imageSize: settings?.imageSize?.trim() || defaults.imageSize,
 	};
 }
 
 export type OpenRouterImageAspectRatio =
 	| (typeof openRouterImageAspectRatios)[number]
-	| (typeof openRouterExtendedImageAspectRatios)[number];
+	| (typeof openRouterExtendedImageAspectRatios)[number]
+	| (typeof openRouterGrokImageAspectRatios)[number];
 
 export type OpenRouterImageSize =
 	| (typeof openRouterImageSizes)[number]
@@ -322,7 +343,8 @@ export type OpenRouterImageSize =
 
 export function isOpenRouterImageAspectRatio(value: string): value is OpenRouterImageAspectRatio {
 	return (openRouterImageAspectRatios as readonly string[]).includes(value) ||
-		(openRouterExtendedImageAspectRatios as readonly string[]).includes(value);
+		(openRouterExtendedImageAspectRatios as readonly string[]).includes(value) ||
+		(openRouterGrokImageAspectRatios as readonly string[]).includes(value);
 }
 
 export function isOpenRouterImageSize(value: string): value is OpenRouterImageSize {
@@ -334,12 +356,20 @@ export function isOpenRouterExtendedImageAspectRatio(value: string): value is (t
 	return (openRouterExtendedImageAspectRatios as readonly string[]).includes(value);
 }
 
+export function isOpenRouterGrokImageAspectRatio(value: string): value is (typeof openRouterGrokImageAspectRatios)[number] {
+	return (openRouterGrokImageAspectRatios as readonly string[]).includes(value);
+}
+
 export function isOpenRouterExtendedImageSize(value: string): value is (typeof openRouterExtendedImageSizes)[number] {
 	return (openRouterExtendedImageSizes as readonly string[]).includes(value);
 }
 
 export function supportsOpenRouterExtendedImageConfig(model: string): boolean {
 	return model.trim().split(":")[0] === openRouterExtendedImageConfigModel;
+}
+
+export function supportsOpenRouterGrokImageAspectRatios(model: string): boolean {
+	return model.trim().split(":")[0].startsWith(openRouterGrokImageAspectRatioModelPrefix);
 }
 
 export type BotInferenceSettingsInput = {

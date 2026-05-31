@@ -170,9 +170,12 @@ import {
 	avatarImageGenerationSettingsWithDefaults,
 	isOpenRouterExtendedImageAspectRatio,
 	isOpenRouterExtendedImageSize,
+	isOpenRouterGrokImageAspectRatio,
 	isOpenRouterImageAspectRatio,
 	isOpenRouterImageSize,
 	supportsOpenRouterExtendedImageConfig,
+	supportsOpenRouterGrokImageAspectRatios,
+	worldAvatarImageGenerationSettingsWithDefaults,
 	type ThreadDocument,
 	type ThreadSummary,
 	type UserDocument,
@@ -3109,7 +3112,7 @@ function effectiveProviderSettingsForWorldImageGeneration(
 	settingsOverride?: BotInferenceSettings['imageGeneration'],
 ): ImageGenerationProviderSettings | null {
 	const userSettings = owner.inferenceSettings ?? {};
-	const imageGeneration = avatarImageGenerationSettingsWithDefaults(settingsOverride ?? world.imageGeneration ?? userSettings.imageGeneration);
+	const imageGeneration = worldAvatarImageGenerationSettingsWithDefaults(settingsOverride ?? world.imageGeneration ?? userSettings.imageGeneration);
 	const model = trimmed(imageGeneration?.model);
 	if (!model) {
 		return null;
@@ -3227,6 +3230,11 @@ function assertSupportedOpenRouterImageConfig(settings: ImageGenerationProviderS
 			throw new InputError(
 				'Extended image generation aspect ratios and 0.5K size are only supported by google/gemini-3.1-flash-image-preview.',
 			);
+		}
+	}
+	if (settings.aspectRatio && isOpenRouterGrokImageAspectRatio(settings.aspectRatio)) {
+		if (!supportsOpenRouterGrokImageAspectRatios(settings.model)) {
+			throw new InputError('Grok image generation aspect ratios are only supported by Grok Imagine image models.');
 		}
 	}
 }

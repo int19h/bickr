@@ -15,13 +15,17 @@ import {
 	authProviders,
 	isOpenRouterExtendedImageAspectRatio,
 	isOpenRouterExtendedImageSize,
+	isOpenRouterGrokImageAspectRatio,
 	isOpenRouterImageAspectRatio,
 	isOpenRouterImageSize,
 	openRouterExtendedImageAspectRatios,
 	openRouterExtendedImageSizes,
+	openRouterGrokImageAspectRatios,
 	openRouterImageAspectRatios,
 	openRouterImageSizes,
 	supportsOpenRouterExtendedImageConfig,
+	supportsOpenRouterGrokImageAspectRatios,
+	worldAvatarImageGenerationSettingsWithDefaults,
 	type AvatarCrop,
 	type AvatarImage,
 	type AuthProvider,
@@ -8025,7 +8029,7 @@ function WorldAvatarGenerationScreen({
 	ownerInferenceSettings: BotInferenceSettings | null;
 	world: WorldView;
 }) {
-	const initialSettings = defaultAvatarGenerationInferenceSettings(
+	const initialSettings = defaultWorldAvatarGenerationInferenceSettings(
 		world.imageGeneration ? { imageGeneration: world.imageGeneration } : ownerInferenceSettings ?? {},
 	);
 	const [draft, setDraft] = useState<InferenceDraft>(() => inferenceDraftFromSettings(initialSettings));
@@ -8050,7 +8054,7 @@ function WorldAvatarGenerationScreen({
 	const promptFillAbortRef = useRef<AbortController | null>(null);
 
 	useEffect(() => {
-		const effectiveSettings = defaultAvatarGenerationInferenceSettings(
+		const effectiveSettings = defaultWorldAvatarGenerationInferenceSettings(
 			world.imageGeneration ? { imageGeneration: world.imageGeneration } : ownerInferenceSettings ?? {},
 		);
 		setDraft(inferenceDraftFromSettings(effectiveSettings));
@@ -8300,7 +8304,7 @@ function WorldAvatarGenerationScreen({
 	async function discard(): Promise<void> {
 		const ok = await onDiscardSettings();
 		if (ok) {
-			const effectiveSettings = defaultAvatarGenerationInferenceSettings(ownerInferenceSettings ?? {});
+			const effectiveSettings = defaultWorldAvatarGenerationInferenceSettings(ownerInferenceSettings ?? {});
 			setDraft(inferenceDraftFromSettings(effectiveSettings));
 			setPrompt(effectiveSettings.imageGeneration?.prompt ?? "");
 			setMessage("World image generation settings discarded.");
@@ -8573,6 +8577,13 @@ function defaultAvatarGenerationInferenceSettings(settings: BotInferenceSettings
 	return {
 		...settings,
 		imageGeneration: avatarImageGenerationSettingsWithDefaults(settings.imageGeneration),
+	};
+}
+
+function defaultWorldAvatarGenerationInferenceSettings(settings: BotInferenceSettings): BotInferenceSettings {
+	return {
+		...settings,
+		imageGeneration: worldAvatarImageGenerationSettingsWithDefaults(settings.imageGeneration),
 	};
 }
 
@@ -13373,6 +13384,13 @@ const imageAspectRatioLabels: Record<string, string> = {
 	"4:1": "4:1 - extended wide",
 	"1:8": "1:8 - extended extra tall",
 	"8:1": "8:1 - extended extra wide",
+	"2:1": "2:1 - banner",
+	"1:2": "1:2 - tall banner",
+	"19.5:9": "19.5:9 - phone wide",
+	"9:19.5": "9:19.5 - phone vertical",
+	"20:9": "20:9 - ultrawide phone",
+	"9:20": "9:20 - ultra-tall phone",
+	auto: "Auto - Grok chooses",
 };
 
 const imageSizeLabels: Record<string, string> = {
@@ -13416,6 +13434,9 @@ function imageGenerationConfigDraftError(draft: InferenceDraft): string {
 		!supportsOpenRouterExtendedImageConfig(draft.imageGenerationModel)
 	) {
 		return "Extended image config is only supported by google/gemini-3.1-flash-image-preview.";
+	}
+	if (isOpenRouterGrokImageAspectRatio(aspectRatio) && !supportsOpenRouterGrokImageAspectRatios(draft.imageGenerationModel)) {
+		return "Grok image aspect ratios are only supported by Grok Imagine image models.";
 	}
 	return "";
 }
@@ -13537,10 +13558,14 @@ function ImageGenerationBasicFields({
 				update.imageGenerationImageSize = "";
 			}
 		}
+		if (!supportsOpenRouterGrokImageAspectRatios(model) && isOpenRouterGrokImageAspectRatio(draft.imageGenerationAspectRatio)) {
+			update.imageGenerationAspectRatio = "";
+		}
 		patch(update);
 	}
 	const modelSelected = draft.imageGenerationModel.trim().length > 0;
 	const supportsExtendedConfig = supportsOpenRouterExtendedImageConfig(draft.imageGenerationModel);
+	const supportsGrokAspectRatios = supportsOpenRouterGrokImageAspectRatios(draft.imageGenerationModel);
 	return (
 		<div className="inference-row three">
 			<Field help={loadError || "Only OpenRouter models that advertise image output are listed."} label="Model">
@@ -13558,7 +13583,7 @@ function ImageGenerationBasicFields({
 				</select>
 			</Field>
 			<Field
-				help={<ImageConfigHelp text="OpenRouter uses the selected model's default when this is left blank. Extended ratios are Gemini 3.1 Flash Image Preview-only." />}
+				help={<ImageConfigHelp text="OpenRouter uses the selected model's default when this is left blank. Extended ratios are model-specific." />}
 				label="Aspect ratio"
 			>
 				<select
@@ -13576,6 +13601,13 @@ function ImageGenerationBasicFields({
 					<optgroup label="Gemini 3.1 only">
 						{openRouterExtendedImageAspectRatios.map((ratio) => (
 							<option disabled={!supportsExtendedConfig} key={ratio} value={ratio}>
+								{imageAspectRatioLabel(ratio)}
+							</option>
+						))}
+					</optgroup>
+					<optgroup label="Grok Imagine only">
+						{openRouterGrokImageAspectRatios.map((ratio) => (
+							<option disabled={!supportsGrokAspectRatios} key={ratio} value={ratio}>
 								{imageAspectRatioLabel(ratio)}
 							</option>
 						))}
