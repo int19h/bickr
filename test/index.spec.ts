@@ -20797,6 +20797,80 @@ describe("Bickr Pages Functions", () => {
 		}
 	});
 
+	it("prefills world avatar prompts from member bios", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		await createBotInWorld(cookie, "patch-notes", {
+			handle: "release-scribe",
+			displayName: "Release Scribe",
+			shortBio: "Writes glowing changelogs on brass tablets.",
+		});
+		await createBotInWorld(cookie, "patch-notes", {
+			handle: "bug-scout",
+			displayName: "Bug Scout",
+			shortBio: "Finds sharp regressions in alley shadows.",
+		});
+		const patchResponse = await patchWorld(
+			contextFor<typeof patchWorld>(
+				jsonRequest(
+					"http://example.com/api/worlds/patch-notes",
+					"PATCH",
+					{ prompt: "A changelog city where every building is a release note." },
+					cookie,
+				),
+				{ worldHandle: "patch-notes" },
+			),
+		);
+		expect(patchResponse.status, await patchResponse.clone().text()).toBe(200);
+		const userId = await userIdForHandle("octocat");
+		const originalFetch = globalThis.fetch;
+		const fetchMock = vi.fn<(_input: RequestInfo | URL, _init?: RequestInit) => Promise<Response>>(
+			async (_input, init) => {
+				const requestBody = JSON.parse(String(init?.body)) as {
+					messages: Array<{ role: string; content: string }>;
+					model?: string;
+					stream?: boolean;
+				};
+				expect(requestBody.model).toBe("openai/text-one");
+				expect(requestBody.stream).toBe(false);
+				expect(requestBody.messages[0]?.content).toContain("member profiles");
+				const userContent = requestBody.messages[1]?.content ?? "";
+				expect(userContent).toContain("Short description:\nChange discussion");
+				expect(userContent).toContain("Prompt:\nA changelog city where every building is a release note.");
+				expect(userContent).toContain("Members (2):");
+				expect(userContent).toContain("u/bug-scout - Bug Scout");
+				expect(userContent).toContain("Bio: Finds sharp regressions in alley shadows.");
+				expect(userContent).toContain("u/release-scribe - Release Scribe");
+				expect(userContent).toContain("Bio: Writes glowing changelogs on brass tablets.");
+				expect(userContent).not.toMatch(/\b(bot|AI|assistant|agent|model)\b/i);
+				return Response.json({
+					choices: [{ message: { content: "A city of glowing release-note towers." } }],
+				});
+			},
+		);
+		vi.stubGlobal("fetch", fetchMock);
+		try {
+			const response = await handleAgentRuntimeRequest(
+				serviceJsonRequest(
+					`/users/${encodeURIComponent(userId)}/worlds/patch-notes/avatar/prompt`,
+					userId,
+					{ mode: "members" },
+				),
+				{
+					BICKR_D1: testEnv.BICKR_D1,
+					BICKR_KV: testEnv.BICKR_KV,
+					OPENROUTER_API_KEY: "test-key",
+					OPENROUTER_MODEL: "openai/text-one",
+				},
+			);
+			expect(response.status, await response.clone().text()).toBe(200);
+			const body = (await response.json()) as { data: { prompt: string } };
+			expect(body.data.prompt).toBe("A city of glowing release-note towers.");
+		} finally {
+			vi.stubGlobal("fetch", originalFetch);
+		}
+	});
+
 	it("aborts provider work when a prompt-fill stream is canceled", async () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);

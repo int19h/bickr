@@ -95,6 +95,7 @@ import {
 	type WorldListSummary,
 	type WorldSummary,
 } from "@bickr/shared/model";
+import { worldAvatarMembersPromptUserContent } from "@bickr/shared/avatar-prompts";
 import {
 	defaultCommentBodyCharacters,
 	defaultThreadBodyCharacters,
@@ -2535,6 +2536,7 @@ function App() {
 					{route === "world-avatar" && activeWorld && (
 						activeWorld.createdByUserId === session.user.id ?
 							<WorldAvatarGenerationScreen
+								members={botsByWorld[activeWorld.handle] ?? null}
 								onBack={() => navigate({ route: "world-edit", worldHandle: activeWorld.handle })}
 								onDiscardSettings={() => updateWorld(activeWorld.handle, { imageGeneration: null })}
 								onSaveSettings={(draft) => updateWorld(activeWorld.handle, { imageGeneration: imageGenerationInputFromDraft(draft) })}
@@ -8002,6 +8004,7 @@ function BotAvatarGenerationScreen({
 }
 
 function WorldAvatarGenerationScreen({
+	members,
 	onBack,
 	onDiscardSettings,
 	onSaveSettings,
@@ -8009,6 +8012,7 @@ function WorldAvatarGenerationScreen({
 	ownerInferenceSettings,
 	world,
 }: {
+	members: BotSummary[] | null;
 	onBack: () => void;
 	onDiscardSettings: () => Promise<boolean>;
 	onSaveSettings: (draft: InferenceDraft) => Promise<boolean>;
@@ -8027,7 +8031,7 @@ function WorldAvatarGenerationScreen({
 	const [candidate, setCandidate] = useState<AvatarImage | null>(null);
 	const [chatEntries, setChatEntries] = useState<AvatarGenerationChatEntry[]>([]);
 	const [generating, setGenerating] = useState(false);
-	const [activePromptFill, setActivePromptFill] = useState<"description" | "current_avatar" | null>(null);
+	const [activePromptFill, setActivePromptFill] = useState<"description" | "members" | "current_avatar" | null>(null);
 	const [saving, setSaving] = useState(false);
 	const [message, setMessage] = useState("");
 	const [error, setError] = useState("");
@@ -8102,6 +8106,15 @@ function WorldAvatarGenerationScreen({
 		!imageProviderRoutingError &&
 		!imageConfigError,
 	);
+	const membersPromptSizeTitle = useMemo(() => {
+		if (!members) {
+			return "Member bios are still loading; prompt size will appear here once they are available.";
+		}
+		const source = worldAvatarMembersPromptUserContent(world, members);
+		const characters = Array.from(source).length;
+		const approximateTokens = Math.ceil(characters / 4);
+		return `Will send ${formatExactTokenCount(characters)} characters, about ${formatExactTokenCount(approximateTokens)} tokens, from ${members.length} member bio${members.length === 1 ? "" : "s"}.`;
+	}, [members, world]);
 	const canGenerate = Boolean(draft.imageGenerationModel.trim()) &&
 		promptAllowed &&
 		!imageProviderRoutingError &&
@@ -8109,7 +8122,7 @@ function WorldAvatarGenerationScreen({
 		!generating &&
 		!promptFillActive;
 
-	async function fillPrompt(mode: "description" | "current_avatar"): Promise<void> {
+	async function fillPrompt(mode: "description" | "members" | "current_avatar"): Promise<void> {
 		const controller = new AbortController();
 		promptFillAbortRef.current = controller;
 		setActivePromptFill(mode);
@@ -8121,7 +8134,7 @@ function WorldAvatarGenerationScreen({
 		try {
 			const body = {
 				mode,
-				...(mode === "description" && prompt.trim() ? { prefill: prompt } : {}),
+				...((mode === "description" || mode === "members") && prompt.trim() ? { prefill: prompt } : {}),
 				...(mode === "current_avatar" ? { settings: imageGenerationInputFromDraft(draft, prompt) } : {}),
 			};
 			const response = await fetch(`/api/worlds/${encodeURIComponent(world.handle)}/avatar/prompt`, {
@@ -8307,6 +8320,9 @@ function WorldAvatarGenerationScreen({
 							</button>
 							<button className={`btn compact ${activePromptFill === "description" ? "danger" : "ghost"}`} disabled={activePromptFill === "description" ? false : generating || promptFillActive} onClick={() => activePromptFill === "description" ? abortPromptFill() : void fillPrompt("description")} type="button">
 								{activePromptFill === "description" ? "Abort" : "Fill from description"}
+							</button>
+							<button className={`btn compact ${activePromptFill === "members" ? "danger" : "ghost"}`} disabled={activePromptFill === "members" ? false : generating || promptFillActive || !members} onClick={() => activePromptFill === "members" ? abortPromptFill() : void fillPrompt("members")} title={membersPromptSizeTitle} type="button">
+								{activePromptFill === "members" ? "Abort" : "Fill from members"}
 							</button>
 						</div>
 					</div>

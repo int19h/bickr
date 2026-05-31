@@ -1,4 +1,5 @@
 import { fail, ok, readJsonBody } from '@bickr/shared/api';
+import { worldAvatarMembersPromptUserContent } from '@bickr/shared/avatar-prompts';
 import {
 	avatarMaxBytes,
 	copyAvatarImage,
@@ -27,6 +28,7 @@ import {
 	listOwnedWorlds,
 	listForums,
 	listUserBots,
+	listWorldBots,
 	mergeInferenceSettings,
 	mergeTickSettings,
 	mergeToolSettings,
@@ -10034,7 +10036,7 @@ type AvatarGenerationInput = {
 };
 
 type AvatarPromptInput = {
-	mode: 'persona' | 'description' | 'current_avatar';
+	mode: 'persona' | 'description' | 'members' | 'current_avatar';
 	prefill?: string;
 	settingsOverride?: BotInferenceSettings['imageGeneration'];
 };
@@ -10087,7 +10089,11 @@ function parseImageGenerationSettingsOverride(value: unknown): BotInferenceSetti
 
 function parseAvatarPromptInput(input: unknown): AvatarPromptInput {
 	const record = runtimeRecord(input);
-	const mode = record.mode === 'current_avatar' ? 'current_avatar' : record.mode === 'description' ? 'description' : 'persona';
+	const mode =
+		record.mode === 'current_avatar' ? 'current_avatar'
+		: record.mode === 'description' ? 'description'
+		: record.mode === 'members' ? 'members'
+		: 'persona';
 	const prefill = typeof record.prefill === 'string' ? record.prefill : '';
 	if (prefill.length > 8_000) {
 		throw new InputError('Avatar prompt prefill must be 8000 characters or fewer.');
@@ -10570,6 +10576,13 @@ async function prefillAvatarPromptForWorld(
 		}
 		return fetchProviderCurrentAvatarDescription(settings, world.avatar.url, { ...options, target: 'world' });
 	}
+	if (input.mode === 'members') {
+		const members = await listWorldBots(env.BICKR_KV, env.BICKR_D1, world.handle);
+		return fetchProviderWorldAvatarMembersDescription(effectiveProviderSettingsForWorldPrompt(owner, env), world, members, {
+			prefill: input.prefill,
+			...options,
+		});
+	}
 	return fetchProviderWorldAvatarDescription(effectiveProviderSettingsForWorldPrompt(owner, env), world, {
 		prefill: input.prefill,
 		...options,
@@ -10676,9 +10689,40 @@ async function applyGeneratedAvatarForWorld(
 	return updated;
 }
 
+async function fetchProviderWorldAvatarMembersDescription(
+	settings: ProviderSettings,
+	world: WorldDocument,
+	members: readonly BotSummary[],
+	options: ProviderAvatarDescriptionOptions = {},
+): Promise<string> {
+	return fetchProviderWorldAvatarDescriptionFromUserContent(
+		settings,
+		worldAvatarMembersPromptUserContent(world, members),
+		options,
+	);
+}
+
 async function fetchProviderWorldAvatarDescription(
 	settings: ProviderSettings,
 	world: WorldDocument,
+	options: ProviderAvatarDescriptionOptions = {},
+): Promise<string> {
+	const sourceDescription = [world.description.trim(), world.prompt?.trim()]
+		.filter(Boolean)
+		.join('\n\nAdditional setting detail:\n');
+	if (!sourceDescription) {
+		throw new InputError('Short description or prompt is required before filling from description.');
+	}
+	return fetchProviderWorldAvatarDescriptionFromUserContent(
+		settings,
+		`World name: ${world.name}\nShort description:\n${sourceDescription}`,
+		options,
+	);
+}
+
+async function fetchProviderWorldAvatarDescriptionFromUserContent(
+	settings: ProviderSettings,
+	userContent: string,
 	options: ProviderAvatarDescriptionOptions = {},
 ): Promise<string> {
 	const endpoint = providerChatCompletionsUrl(settings.baseUrl);
@@ -10688,22 +10732,16 @@ async function fetchProviderWorldAvatarDescription(
 		headers.authorization = `Bearer ${settings.apiKey}`;
 	}
 	const prefill = options.prefill?.trim();
-	const sourceDescription = [world.description.trim(), world.prompt?.trim()]
-		.filter(Boolean)
-		.join('\n\nAdditional setting detail:\n');
-	if (!sourceDescription) {
-		throw new InputError('Short description or prompt is required before filling from description.');
-	}
 	const messages: ChatMessage[] = [
 		{
 			role: 'system',
 			content:
-				'Write a detailed visual prompt for a public Bickr world avatar. Focus on concrete setting details, landmarks, scenery, atmosphere, lighting, colors, texture, composition, and camera framing. Do not include captions, text overlays, interface chrome, watermarks, or process commentary. Return only the prompt text.',
+				'Write a detailed visual prompt for a public Bickr world avatar. Synthesize the setting and member profiles into one coherent image illustrating the world. Focus on concrete setting details, landmarks, scenery, atmosphere, lighting, colors, texture, composition, and camera framing. Do not include captions, text overlays, interface chrome, watermarks, or process commentary. Return only the prompt text.',
 		},
 		...(prefill ? [{ role: 'assistant' as const, content: prefill }] : []),
 		{
 			role: 'user',
-			content: `World name: ${world.name}\nShort description:\n${sourceDescription}`,
+			content: userContent,
 		},
 	];
 	await options.stream?.messages(
