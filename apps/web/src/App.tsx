@@ -3697,7 +3697,18 @@ function WorldCard({ world }: { world: WorldView }) {
 			<SpaLink className="card-hit-link" to={{ route: "world", worldHandle: world.handle }}>
 				<span className="sr-only">Open {world.name}</span>
 			</SpaLink>
-			<span className="banner" style={{ background: banners[world.bannerIdx] }} />
+			<span
+				className={`banner ${world.avatarUrl ? "has-avatar" : ""}`}
+				style={world.avatarUrl ? avatarAspectRatioStyle(world.avatar) : { background: banners[world.bannerIdx] }}
+			>
+				{world.avatarUrl && (
+					<FallbackImage
+						alt=""
+						fallbackSrc={world.avatarUrl}
+						src={cloudflareImageUrl(world.avatarUrl, { width: 720, format: "auto" })}
+					/>
+				)}
+			</span>
 			<span className="body">
 				<span className="world-card-title">
 					{world.name}
@@ -4179,6 +4190,8 @@ function WorldDetail({
 	const [activityKindFilter, setActivityKindFilter] = useState<BotActivityKindFilter>("all");
 	const [activityLoading, setActivityLoading] = useState(false);
 	const [activityError, setActivityError] = useState("");
+	const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+	const [worldAvatarFailed, setWorldAvatarFailed] = useState(false);
 	const toast = useContext(ToastContext);
 
 	useEffect(() => {
@@ -4187,7 +4200,12 @@ function WorldDetail({
 		setGroupFilter("");
 		setActivityFilter("");
 		setActivityKindFilter("all");
+		setWorldAvatarFailed(false);
 	}, [world.id]);
+
+	useEffect(() => {
+		setWorldAvatarFailed(false);
+	}, [world.avatarUrl]);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -4247,19 +4265,37 @@ function WorldDetail({
 	return (
 		<div className="main-inner">
 			<div className="page-header">
-				<div className="page-title-block">
-					<TranslatableText as="h1" text={world.name} />
-					<TranslatableText as="p" className="sub" text={world.description} />
-					<div className="inline-meta">
-						<Reference kind="world" name={world.handle} />
-						<span>/</span>
-						<span>
-							<b>{bots.length}</b> bots <span className="muted">({ownedBotCount} mine)</span>
-						</span>
-						<span>/</span>
-						<span>
-							<b>{publicForums.length}</b> forums <span className="muted">({ownedForumCount} mine)</span>
-						</span>
+				<div className={`page-title-block world-title-block ${world.avatarUrl && !worldAvatarFailed ? "with-avatar" : ""}`}>
+					{world.avatarUrl && !worldAvatarFailed && (
+						<button
+							aria-label="View world avatar"
+							className="world-detail-avatar"
+							onClick={() => setLightboxUrl(world.avatarUrl ?? null)}
+							style={avatarAspectRatioStyle(world.avatar)}
+							type="button"
+						>
+							<FallbackImage
+								alt=""
+								fallbackSrc={world.avatarUrl}
+								onFinalError={() => setWorldAvatarFailed(true)}
+								src={cloudflareImageUrl(world.avatarUrl, { width: 520, format: "auto" })}
+							/>
+						</button>
+					)}
+					<div className="world-title-copy">
+						<TranslatableText as="h1" text={world.name} />
+						<TranslatableText as="p" className="sub" text={world.description} />
+						<div className="inline-meta">
+							<Reference kind="world" name={world.handle} />
+							<span>/</span>
+							<span>
+								<b>{bots.length}</b> bots <span className="muted">({ownedBotCount} mine)</span>
+							</span>
+							<span>/</span>
+							<span>
+								<b>{publicForums.length}</b> forums <span className="muted">({ownedForumCount} mine)</span>
+							</span>
+						</div>
 					</div>
 				</div>
 				<div className="actions">
@@ -4585,6 +4621,7 @@ function WorldDetail({
 				open={Boolean(confirmBot)}
 				title="Delete this bot?"
 			/>
+			<ImageLightbox onClose={() => setLightboxUrl(null)} title={world.name} url={lightboxUrl} />
 		</div>
 	);
 }
@@ -18119,6 +18156,13 @@ function FallbackImage({
 			style={style}
 		/>
 	);
+}
+
+function avatarAspectRatioStyle(avatar?: Pick<AvatarImage, "width" | "height">): CSSProperties | undefined {
+	if (!avatar?.width || !avatar.height || avatar.width <= 0 || avatar.height <= 0) {
+		return undefined;
+	}
+	return { aspectRatio: `${avatar.width} / ${avatar.height}` };
 }
 
 function referenceMeta(

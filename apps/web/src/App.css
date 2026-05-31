@@ -1047,6 +1047,38 @@ button:disabled {
 	max-width: 64ch;
 }
 
+.world-title-block.with-avatar {
+	align-items: flex-start;
+	display: grid;
+	gap: 18px;
+	grid-template-columns: minmax(120px, 220px) minmax(0, 1fr);
+}
+
+.world-title-copy {
+	min-width: 0;
+}
+
+.world-detail-avatar {
+	background: var(--paper-2);
+	border: 1px solid var(--rule);
+	border-radius: 8px;
+	cursor: pointer;
+	display: block;
+	overflow: hidden;
+	padding: 0;
+	width: min(220px, 34vw);
+}
+
+.world-detail-avatar:hover {
+	border-color: var(--ink-5);
+}
+
+.world-detail-avatar img {
+	display: block;
+	height: auto;
+	width: 100%;
+}
+
 .actions {
 	gap: 8px;
 }
@@ -1760,9 +1792,24 @@ fieldset {
 }
 
 .world-card .banner {
+	background: var(--paper-2);
 	border-bottom: 1px solid var(--rule);
 	display: block;
 	height: 86px;
+}
+
+.world-card .banner.has-avatar {
+	align-items: center;
+	display: flex;
+	height: auto;
+	justify-content: center;
+	min-height: 86px;
+}
+
+.world-card .banner img {
+	display: block;
+	height: auto;
+	width: 100%;
 }
 
 .world-card .body {
@@ -7213,6 +7260,14 @@ button.avatar-large-preview:not(:disabled),
 	.page-header {
 		align-items: stretch;
 		flex-direction: column;
+	}
+
+	.world-title-block.with-avatar {
+		grid-template-columns: minmax(0, 1fr);
+	}
+
+	.world-detail-avatar {
+		width: min(100%, 280px);
 	}
 
 	.thread-row {
