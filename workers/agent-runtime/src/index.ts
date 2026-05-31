@@ -140,6 +140,7 @@ import {
 	type BotDocument,
 	type BotEffectivePostingSettings,
 	type BotInferenceSettings,
+	type BotInferenceSettingsInput,
 	type BotInferenceReasoningEffort,
 	type BotInferenceToolCalls,
 	type BotCompactionMode,
@@ -3141,24 +3142,32 @@ function effectiveProviderSettingsForWorldImageGeneration(
 function effectiveProviderSettingsForWorldPrompt(
 	owner: Pick<UserDocument, 'inferenceSettings'>,
 	env: Pick<Env, 'OPENROUTER_API_KEY' | 'OPENROUTER_BASE_URL' | 'OPENROUTER_MODEL'>,
+	settingsOverride?: BotInferenceSettingsInput,
 ): ProviderSettings {
 	const userSettings = owner.inferenceSettings ?? {};
+	const requestSettings = settingsOverride ? mergeInferenceSettings(userSettings, settingsOverride) : userSettings;
 	const envModel = trimmed(env.OPENROUTER_MODEL);
 	const envBaseUrl = trimmed(env.OPENROUTER_BASE_URL);
 	const envApiKey = trimmed(env.OPENROUTER_API_KEY);
 	const userModel = trimmed(userSettings.model);
+	const requestModel = trimmed(requestSettings.model);
+	const requestBaseUrl = trimmed(requestSettings.baseUrl);
+	const requestApiKey = trimmed(requestSettings.openRouterApiKey);
 	const userBaseUrl = trimmed(userSettings.baseUrl);
 	const userApiKey = trimmed(userSettings.openRouterApiKey);
-	const model = userModel && (userApiKey || userBaseUrl) ? userModel : envModel || fallbackProviderModel;
-	const baseUrl = userBaseUrl ?? envBaseUrl ?? fallbackProviderBaseUrl;
+	const model =
+		settingsOverride !== undefined ? requestModel ?? envModel ?? fallbackProviderModel
+		: userModel && (userApiKey || userBaseUrl) ? userModel
+		: envModel || fallbackProviderModel;
+	const baseUrl = requestBaseUrl ?? envBaseUrl ?? fallbackProviderBaseUrl;
 	const openRouterBaseUrl = isOpenRouterProviderBaseUrl(baseUrl);
-	const reasoningEffort = effectiveReasoningEffortForModel(model, openRouterBaseUrl, userSettings.reasoningEffort);
-	const toolCalls = effectiveToolCallsForModel(model, openRouterBaseUrl, userSettings.toolCalls);
-	const compactionMode = effectiveCompactionModeForModel(model, openRouterBaseUrl, userSettings.compactionMode);
-	const supportsPrefill = effectiveSupportsPrefillForModel(model, openRouterBaseUrl, userSettings.supportsPrefill);
-	const providerRouting = openRouterProviderRouting(baseUrl, userSettings.providerRouting);
+	const reasoningEffort = effectiveReasoningEffortForModel(model, openRouterBaseUrl, requestSettings.reasoningEffort);
+	const toolCalls = effectiveToolCallsForModel(model, openRouterBaseUrl, requestSettings.toolCalls);
+	const compactionMode = effectiveCompactionModeForModel(model, openRouterBaseUrl, requestSettings.compactionMode);
+	const supportsPrefill = effectiveSupportsPrefillForModel(model, openRouterBaseUrl, requestSettings.supportsPrefill);
+	const providerRouting = openRouterProviderRouting(baseUrl, requestSettings.providerRouting);
 	return {
-		apiKey: userApiKey ?? (userBaseUrl ? undefined : envApiKey),
+		apiKey: requestApiKey ?? (requestBaseUrl ? undefined : envApiKey),
 		baseUrl,
 		model,
 		compactionMode,
@@ -3166,14 +3175,33 @@ function effectiveProviderSettingsForWorldPrompt(
 		...(reasoningEffort ? { reasoningEffort } : {}),
 		supportsPrefill,
 		toolCalls,
-		temperature: userSettings.temperature ?? 0.7,
-		...(userBaseUrl ? { usesCustomBaseUrl: true } : {}),
-		...(userSettings.topK !== undefined ? { topK: userSettings.topK } : {}),
-		...(userSettings.topP !== undefined ? { topP: userSettings.topP } : {}),
-		...(userSettings.minP !== undefined ? { minP: userSettings.minP } : {}),
-		...(userSettings.frequencyPenalty !== undefined ? { frequencyPenalty: userSettings.frequencyPenalty } : {}),
-		...(userSettings.presencePenalty !== undefined ? { presencePenalty: userSettings.presencePenalty } : {}),
-		...(userSettings.repetitionPenalty !== undefined ? { repetitionPenalty: userSettings.repetitionPenalty } : {}),
+		temperature: requestSettings.temperature ?? 0.7,
+		...(requestBaseUrl ? { usesCustomBaseUrl: true } : {}),
+		...(requestSettings.topK !== undefined ? { topK: requestSettings.topK } : {}),
+		...(requestSettings.topP !== undefined ? { topP: requestSettings.topP } : {}),
+		...(requestSettings.minP !== undefined ? { minP: requestSettings.minP } : {}),
+		...(requestSettings.frequencyPenalty !== undefined ? { frequencyPenalty: requestSettings.frequencyPenalty } : {}),
+		...(requestSettings.presencePenalty !== undefined ? { presencePenalty: requestSettings.presencePenalty } : {}),
+		...(requestSettings.repetitionPenalty !== undefined ? { repetitionPenalty: requestSettings.repetitionPenalty } : {}),
+	};
+}
+
+function publicPromptProviderSettings(settings: ProviderSettings): BotInferenceSettings {
+	return {
+		baseUrl: settings.baseUrl,
+		model: settings.model,
+		compactionMode: settings.compactionMode,
+		...(settings.providerRouting ? { providerRouting: settings.providerRouting } : {}),
+		...(settings.reasoningEffort ? { reasoningEffort: settings.reasoningEffort } : {}),
+		supportsPrefill: settings.supportsPrefill,
+		toolCalls: settings.toolCalls,
+		temperature: settings.temperature,
+		...(settings.topK !== undefined ? { topK: settings.topK } : {}),
+		...(settings.topP !== undefined ? { topP: settings.topP } : {}),
+		...(settings.minP !== undefined ? { minP: settings.minP } : {}),
+		...(settings.frequencyPenalty !== undefined ? { frequencyPenalty: settings.frequencyPenalty } : {}),
+		...(settings.presencePenalty !== undefined ? { presencePenalty: settings.presencePenalty } : {}),
+		...(settings.repetitionPenalty !== undefined ? { repetitionPenalty: settings.repetitionPenalty } : {}),
 	};
 }
 
@@ -10038,7 +10066,8 @@ type AvatarGenerationInput = {
 type AvatarPromptInput = {
 	mode: 'persona' | 'description' | 'members' | 'current_avatar';
 	prefill?: string;
-	settingsOverride?: BotInferenceSettings['imageGeneration'];
+	imageSettingsOverride?: BotInferenceSettings['imageGeneration'];
+	promptSettingsOverride?: BotInferenceSettingsInput;
 };
 
 type AvatarGenerationDisplayMessage = {
@@ -10087,6 +10116,13 @@ function parseImageGenerationSettingsOverride(value: unknown): BotInferenceSetti
 	).imageGeneration;
 }
 
+function parseInferenceSettingsOverride(value: unknown): BotInferenceSettingsInput | undefined {
+	if (value === undefined) {
+		return undefined;
+	}
+	return parseUpdateBotInput({ inferenceSettings: value }).inferenceSettings;
+}
+
 function parseAvatarPromptInput(input: unknown): AvatarPromptInput {
 	const record = runtimeRecord(input);
 	const mode =
@@ -10098,14 +10134,16 @@ function parseAvatarPromptInput(input: unknown): AvatarPromptInput {
 	if (prefill.length > 8_000) {
 		throw new InputError('Avatar prompt prefill must be 8000 characters or fewer.');
 	}
-	const settingsOverride = parseImageGenerationSettingsOverride(record.settings);
-	if (mode === 'current_avatar' && !settingsOverride) {
+	const imageSettingsOverride = mode === 'current_avatar' ? parseImageGenerationSettingsOverride(record.settings) : undefined;
+	const promptSettingsOverride = mode === 'description' || mode === 'members' ? parseInferenceSettingsOverride(record.settings) : undefined;
+	if (mode === 'current_avatar' && !imageSettingsOverride) {
 		throw new InputError('Choose an image generation model before filling from the current avatar.');
 	}
 	return {
 		mode,
 		...(prefill.trim() ? { prefill } : {}),
-		...(settingsOverride ? { settingsOverride } : {}),
+		...(imageSettingsOverride ? { imageSettingsOverride } : {}),
+		...(promptSettingsOverride ? { promptSettingsOverride } : {}),
 	};
 }
 
@@ -10490,6 +10528,16 @@ async function worldDocumentForAvatar(
 	return { ...world, prompt: world.prompt ?? '' };
 }
 
+async function worldAvatarPromptSettings(
+	env: Pick<Env, 'BICKR_KV' | 'BICKR_D1' | 'OPENROUTER_API_KEY' | 'OPENROUTER_BASE_URL' | 'OPENROUTER_MODEL'>,
+	userId: string,
+	worldHandle: string,
+): Promise<BotInferenceSettings> {
+	await worldDocumentForAvatar(env, worldHandle, userId, 'prepare');
+	const owner = await userById(env.BICKR_KV, userId);
+	return publicPromptProviderSettings(effectiveProviderSettingsForWorldPrompt(owner, env));
+}
+
 async function generateAvatarForWorld(
 	env: Pick<
 		Env,
@@ -10570,7 +10618,7 @@ async function prefillAvatarPromptForWorld(
 		if (!world.avatar?.url) {
 			throw new InputError('The current avatar cannot be described because this world does not have one.');
 		}
-		const settings = effectiveProviderSettingsForWorldImageGeneration(world, owner, env, input.settingsOverride);
+		const settings = effectiveProviderSettingsForWorldImageGeneration(world, owner, env, input.imageSettingsOverride);
 		if (!settings) {
 			throw new InputError('Choose an image generation model before filling from the current avatar.');
 		}
@@ -10578,12 +10626,12 @@ async function prefillAvatarPromptForWorld(
 	}
 	if (input.mode === 'members') {
 		const members = await listWorldBots(env.BICKR_KV, env.BICKR_D1, world.handle);
-		return fetchProviderWorldAvatarMembersDescription(effectiveProviderSettingsForWorldPrompt(owner, env), world, members, {
+		return fetchProviderWorldAvatarMembersDescription(effectiveProviderSettingsForWorldPrompt(owner, env, input.promptSettingsOverride), world, members, {
 			prefill: input.prefill,
 			...options,
 		});
 	}
-	return fetchProviderWorldAvatarDescription(effectiveProviderSettingsForWorldPrompt(owner, env), world, {
+	return fetchProviderWorldAvatarDescription(effectiveProviderSettingsForWorldPrompt(owner, env, input.promptSettingsOverride), world, {
 		prefill: input.prefill,
 		...options,
 	});
@@ -10885,7 +10933,7 @@ async function prefillAvatarPromptForBot(
 		if (!bot.avatar?.url) {
 			throw new InputError('The current avatar cannot be described because this participant does not have one.');
 		}
-		const settings = effectiveProviderSettingsForImageGeneration(bot, owner, env, input.settingsOverride);
+		const settings = effectiveProviderSettingsForImageGeneration(bot, owner, env, input.imageSettingsOverride);
 		if (!settings) {
 			throw new InputError('Choose an image generation model before filling from the current avatar.');
 		}
@@ -11837,6 +11885,14 @@ export async function handleAgentRuntimeRequest(
 			return ok({ prompt, coordinator: objectId });
 		}
 
+		const worldAvatarPromptSettingsMatch = /^\/users\/([^/]+)\/worlds\/([^/]+)\/avatar\/prompt-settings$/.exec(url.pathname);
+		if (worldAvatarPromptSettingsMatch && request.method === 'GET') {
+			const userId = requireUserMatch(request, decodeURIComponent(worldAvatarPromptSettingsMatch[1] ?? ''));
+			const worldHandle = normalizeHandle(decodeURIComponent(worldAvatarPromptSettingsMatch[2] ?? ''));
+			const settings = await worldAvatarPromptSettings(env, userId, worldHandle);
+			return ok({ settings, coordinator: objectId });
+		}
+
 		const worldAvatarGenerateMatch = /^\/users\/([^/]+)\/worlds\/([^/]+)\/avatar\/generate$/.exec(url.pathname);
 		if (worldAvatarGenerateMatch && request.method === 'POST') {
 			const userId = requireUserMatch(request, decodeURIComponent(worldAvatarGenerateMatch[1] ?? ''));
@@ -11950,10 +12006,11 @@ export default {
 			return handleAgentRuntimeRequest(request, env);
 		}
 
-		const userBotsMatch = /^\/users\/([^/]+)\/(?:worlds\/[^/]+\/(?:bots|avatar\/(?:prompt|generate|apply))|bots\/[^/]+(?:\/avatar\/(?:prompt|generate|apply)|\/clone\/(?:unlink|relink))?|profile)$/.exec(
+		const userBotsMatch = /^\/users\/([^/]+)\/(?:worlds\/[^/]+\/(?:bots|avatar\/(?:prompt|prompt-settings|generate|apply))|bots\/[^/]+(?:\/avatar\/(?:prompt|generate|apply)|\/clone\/(?:unlink|relink))?|profile)$/.exec(
 			url.pathname,
 		);
-		if (userBotsMatch && ['POST', 'PATCH', 'DELETE'].includes(request.method)) {
+		const promptSettingsGet = /^\/users\/[^/]+\/worlds\/[^/]+\/avatar\/prompt-settings$/.test(url.pathname);
+		if (userBotsMatch && (['POST', 'PATCH', 'DELETE'].includes(request.method) || (request.method === 'GET' && promptSettingsGet))) {
 			const userId = decodeURIComponent(userBotsMatch[1] ?? '');
 			const objectId = env.USER_BOTS.idFromName(userId);
 			return env.USER_BOTS.get(objectId).fetch(request);

@@ -20871,6 +20871,104 @@ describe("Bickr Pages Functions", () => {
 		}
 	});
 
+	it("uses request-scoped world avatar prompt fill settings overrides", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const userId = await userIdForHandle("octocat");
+		const originalFetch = globalThis.fetch;
+		const fetchMock = vi.fn<(_input: RequestInfo | URL, _init?: RequestInit) => Promise<Response>>(
+			async (input, init) => {
+				expect(String(input)).toBe("https://openrouter.ai/api/v1/chat/completions");
+				const requestBody = JSON.parse(String(init?.body)) as {
+					model?: string;
+					provider?: { order?: string[] };
+					reasoning?: unknown;
+					temperature?: number;
+					top_k?: number;
+					top_p?: number;
+					min_p?: number;
+					frequency_penalty?: number;
+					presence_penalty?: number;
+					repetition_penalty?: number;
+				};
+				expect(requestBody.model).toBe("override/world-prompt");
+				expect(requestBody.provider).toEqual({ order: ["test-provider"] });
+				expect(requestBody.reasoning).toEqual({ effort: "low", exclude: false });
+				expect(requestBody.temperature).toBe(0.42);
+				expect(requestBody.top_k).toBe(12);
+				expect(requestBody.top_p).toBe(0.8);
+				expect(requestBody.min_p).toBe(0.1);
+				expect(requestBody.frequency_penalty).toBe(0.2);
+				expect(requestBody.presence_penalty).toBe(0.3);
+				expect(requestBody.repetition_penalty).toBe(1.1);
+				return Response.json({
+					choices: [{ message: { content: "A city rendered with overridden prompt-fill settings." } }],
+				});
+			},
+		);
+		vi.stubGlobal("fetch", fetchMock);
+		try {
+			const response = await handleAgentRuntimeRequest(
+				serviceJsonRequest(
+					`/users/${encodeURIComponent(userId)}/worlds/patch-notes/avatar/prompt`,
+					userId,
+					{
+						mode: "description",
+						settings: {
+							model: "override/world-prompt",
+							providerRouting: { order: ["test-provider"] },
+							reasoningEffort: "low",
+							temperature: 0.42,
+							topK: 12,
+							topP: 0.8,
+							minP: 0.1,
+							frequencyPenalty: 0.2,
+							presencePenalty: 0.3,
+							repetitionPenalty: 1.1,
+						},
+					},
+				),
+				{
+					BICKR_D1: testEnv.BICKR_D1,
+					BICKR_KV: testEnv.BICKR_KV,
+					OPENROUTER_API_KEY: "test-key",
+					OPENROUTER_MODEL: "env/default-model",
+				},
+			);
+			expect(response.status, await response.clone().text()).toBe(200);
+			const body = (await response.json()) as { data: { prompt: string } };
+			expect(body.data.prompt).toBe("A city rendered with overridden prompt-fill settings.");
+			expect(fetchMock).toHaveBeenCalledTimes(1);
+		} finally {
+			vi.stubGlobal("fetch", originalFetch);
+		}
+	});
+
+	it("returns effective world avatar prompt fill settings without secrets", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const userId = await userIdForHandle("octocat");
+		const response = await handleAgentRuntimeRequest(
+			serviceGetRequest(`/users/${encodeURIComponent(userId)}/worlds/patch-notes/avatar/prompt-settings`, userId),
+			{
+				BICKR_D1: testEnv.BICKR_D1,
+				BICKR_KV: testEnv.BICKR_KV,
+				OPENROUTER_API_KEY: "test-key",
+				OPENROUTER_BASE_URL: customProviderBaseUrl,
+				OPENROUTER_MODEL: "env/world-prompt",
+			},
+		);
+		expect(response.status, await response.clone().text()).toBe(200);
+		const body = (await response.json()) as { data: { settings: Record<string, unknown> } };
+		expect(body.data.settings).toMatchObject({
+			baseUrl: customProviderBaseUrl,
+			model: "env/world-prompt",
+			temperature: 0.7,
+		});
+		expect(body.data.settings.openRouterApiKey).toBeUndefined();
+		expect(body.data.settings.apiKey).toBeUndefined();
+	});
+
 	it("aborts provider work when a prompt-fill stream is canceled", async () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);
@@ -20951,6 +21049,40 @@ describe("Bickr Pages Functions", () => {
 			expect(response.status).toBe(200);
 			expect(routed).toEqual({
 				method: "POST",
+				path,
+				userId,
+			});
+		}
+
+		{
+			const routed: { method?: string; path?: string; userId?: string } = {};
+			const namespace = {
+				idFromName(name: string): DurableObjectId {
+					routed.userId = name;
+					return name as unknown as DurableObjectId;
+				},
+				get(): Fetcher {
+					return {
+						fetch: async (request: Request) => {
+							routed.method = request.method;
+							routed.path = new URL(request.url).pathname;
+							return Response.json({ ok: true });
+						},
+					} as unknown as Fetcher;
+				},
+			};
+			const path = `/users/${userId}/worlds/${worldHandle}/avatar/prompt-settings`;
+			const request = new Request(`https://internal.bickr${path}`, {
+				method: "GET",
+				headers: { "x-bickr-user-id": userId },
+			});
+			const response = await agentRuntimeWorker.fetch(
+				request as unknown as Parameters<typeof agentRuntimeWorker.fetch>[0],
+				{ USER_BOTS: namespace } as unknown as Parameters<typeof agentRuntimeWorker.fetch>[1],
+			);
+			expect(response.status).toBe(200);
+			expect(routed).toEqual({
+				method: "GET",
 				path,
 				userId,
 			});
@@ -22182,6 +22314,15 @@ function jsonRequest(
 function serviceJsonRequest(path: string, userId: string, body: unknown): Request {
 	return jsonRequest(`https://internal.bickr${path}`, "POST", body, undefined, {
 		"x-bickr-user-id": userId,
+	});
+}
+
+function serviceGetRequest(path: string, userId: string): Request {
+	return new Request(`https://internal.bickr${path}`, {
+		method: "GET",
+		headers: {
+			"x-bickr-user-id": userId,
+		},
 	});
 }
 

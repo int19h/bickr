@@ -2537,6 +2537,7 @@ function App() {
 						activeWorld.createdByUserId === session.user.id ?
 							<WorldAvatarGenerationScreen
 								members={botsByWorld[activeWorld.handle] ?? null}
+								modelSuggestions={ownedBotModels}
 								onBack={() => navigate({ route: "world-edit", worldHandle: activeWorld.handle })}
 								onDiscardSettings={() => updateWorld(activeWorld.handle, { imageGeneration: null })}
 								onSaveSettings={(draft) => updateWorld(activeWorld.handle, { imageGeneration: imageGenerationInputFromDraft(draft) })}
@@ -8003,8 +8004,11 @@ function BotAvatarGenerationScreen({
 	);
 }
 
+type WorldAvatarTextPromptFillMode = "description" | "members";
+
 function WorldAvatarGenerationScreen({
 	members,
+	modelSuggestions,
 	onBack,
 	onDiscardSettings,
 	onSaveSettings,
@@ -8013,6 +8017,7 @@ function WorldAvatarGenerationScreen({
 	world,
 }: {
 	members: BotSummary[] | null;
+	modelSuggestions: string[];
 	onBack: () => void;
 	onDiscardSettings: () => Promise<boolean>;
 	onSaveSettings: (draft: InferenceDraft) => Promise<boolean>;
@@ -8032,6 +8037,10 @@ function WorldAvatarGenerationScreen({
 	const [chatEntries, setChatEntries] = useState<AvatarGenerationChatEntry[]>([]);
 	const [generating, setGenerating] = useState(false);
 	const [activePromptFill, setActivePromptFill] = useState<"description" | "members" | "current_avatar" | null>(null);
+	const [pendingTextPromptFill, setPendingTextPromptFill] = useState<WorldAvatarTextPromptFillMode | null>(null);
+	const [promptFillSettings, setPromptFillSettings] = useState<BotInferenceSettings | null>(null);
+	const [promptFillSettingsError, setPromptFillSettingsError] = useState("");
+	const [promptFillSettingsLoading, setPromptFillSettingsLoading] = useState(false);
 	const [saving, setSaving] = useState(false);
 	const [message, setMessage] = useState("");
 	const [error, setError] = useState("");
@@ -8079,6 +8088,27 @@ function WorldAvatarGenerationScreen({
 		};
 	}, []);
 
+	useEffect(() => {
+		let cancelled = false;
+		setPromptFillSettingsLoading(true);
+		setPromptFillSettingsError("");
+		setPromptFillSettings(null);
+		void api<{ settings: BotInferenceSettings }>(`/api/worlds/${encodeURIComponent(world.handle)}/avatar/prompt-settings`).then((result) => {
+			if (cancelled) {
+				return;
+			}
+			setPromptFillSettingsLoading(false);
+			if (result.ok) {
+				setPromptFillSettings(result.data.settings);
+			} else {
+				setPromptFillSettingsError(result.message);
+			}
+		});
+		return () => {
+			cancelled = true;
+		};
+	}, [world.handle]);
+
 	const selectedModel = models.find((model) => model.id === draft.imageGenerationModel);
 	const selectedSupportsImageInput = Boolean(selectedModel?.inputModalities.includes("image"));
 	const selectedSupportsTextOutput = Boolean(selectedModel?.outputModalities.includes("text"));
@@ -8122,10 +8152,14 @@ function WorldAvatarGenerationScreen({
 		!generating &&
 		!promptFillActive;
 
-	async function fillPrompt(mode: "description" | "members" | "current_avatar"): Promise<void> {
+	async function fillPrompt(
+		mode: "description" | "members" | "current_avatar",
+		promptSettings?: BotInferenceSettingsInput,
+	): Promise<void> {
 		const controller = new AbortController();
 		promptFillAbortRef.current = controller;
 		setActivePromptFill(mode);
+		setPendingTextPromptFill(null);
 		setChatEntries([]);
 		setError("");
 		setMessage("");
@@ -8135,6 +8169,7 @@ function WorldAvatarGenerationScreen({
 			const body = {
 				mode,
 				...((mode === "description" || mode === "members") && prompt.trim() ? { prefill: prompt } : {}),
+				...((mode === "description" || mode === "members") && promptSettings ? { settings: promptSettings } : {}),
 				...(mode === "current_avatar" ? { settings: imageGenerationInputFromDraft(draft, prompt) } : {}),
 			};
 			const response = await fetch(`/api/worlds/${encodeURIComponent(world.handle)}/avatar/prompt`, {
@@ -8318,10 +8353,10 @@ function WorldAvatarGenerationScreen({
 							<button className={`btn compact ${activePromptFill === "current_avatar" ? "danger" : "ghost"}`} disabled={activePromptFill === "current_avatar" ? false : generating || promptFillActive || !currentAvatarPromptFillAvailable} onClick={() => activePromptFill === "current_avatar" ? abortPromptFill() : void fillPrompt("current_avatar")} type="button">
 								{activePromptFill === "current_avatar" ? "Abort" : "Fill from current avatar"}
 							</button>
-							<button className={`btn compact ${activePromptFill === "description" ? "danger" : "ghost"}`} disabled={activePromptFill === "description" ? false : generating || promptFillActive} onClick={() => activePromptFill === "description" ? abortPromptFill() : void fillPrompt("description")} type="button">
+							<button className={`btn compact ${activePromptFill === "description" ? "danger" : "ghost"}`} disabled={activePromptFill === "description" ? false : generating || promptFillActive} onClick={() => activePromptFill === "description" ? abortPromptFill() : setPendingTextPromptFill("description")} type="button">
 								{activePromptFill === "description" ? "Abort" : "Fill from description"}
 							</button>
-							<button className={`btn compact ${activePromptFill === "members" ? "danger" : "ghost"}`} disabled={activePromptFill === "members" ? false : generating || promptFillActive || !members} onClick={() => activePromptFill === "members" ? abortPromptFill() : void fillPrompt("members")} title={membersPromptSizeTitle} type="button">
+							<button className={`btn compact ${activePromptFill === "members" ? "danger" : "ghost"}`} disabled={activePromptFill === "members" ? false : generating || promptFillActive || !members} onClick={() => activePromptFill === "members" ? abortPromptFill() : setPendingTextPromptFill("members")} title={membersPromptSizeTitle} type="button">
 								{activePromptFill === "members" ? "Abort" : "Fill from members"}
 							</button>
 						</div>
@@ -8370,8 +8405,167 @@ function WorldAvatarGenerationScreen({
 				</div>
 			</section>
 			<AvatarGenerationChatLog entries={chatEntries} />
+			<WorldAvatarPromptFillSettingsModal
+				error={promptFillSettingsError}
+				initialSettings={promptFillSettings}
+				loading={promptFillSettingsLoading}
+				mode={pendingTextPromptFill}
+				modelSuggestions={modelSuggestions}
+				onClose={() => setPendingTextPromptFill(null)}
+				onGenerate={(settings) => pendingTextPromptFill ? void fillPrompt(pendingTextPromptFill, settings) : undefined}
+			/>
 			<ImageLightbox onClose={() => setLightboxUrl(null)} title={world.name} url={lightboxUrl} />
 		</div>
+	);
+}
+
+function WorldAvatarPromptFillSettingsModal({
+	error,
+	initialSettings,
+	loading,
+	mode,
+	modelSuggestions,
+	onClose,
+	onGenerate,
+}: {
+	error: string;
+	initialSettings: BotInferenceSettings | null;
+	loading: boolean;
+	mode: WorldAvatarTextPromptFillMode | null;
+	modelSuggestions: string[];
+	onClose: () => void;
+	onGenerate: (settings: BotInferenceSettingsInput) => void;
+}) {
+	const [draft, setDraft] = useState<InferenceDraft>(() => inferenceDraftFromSettings(initialSettings ?? {}));
+	const modelListId = useId();
+	const open = mode !== null;
+	const title = mode === "members" ? "Fill from members" : "Fill from description";
+	const routingError = providerRoutingDraftError(draft.providerRouting);
+	const canGenerate = Boolean(initialSettings && !loading && !routingError && draft.model.trim());
+	const capabilityContext = inferenceCapabilityContextForDraft(draft);
+	const modelOptions = useMemo(
+		() => Array.from(new Set([defaultProviderModel, ...modelSuggestions, draft.model.trim()].filter(Boolean))),
+		[draft.model, modelSuggestions],
+	);
+
+	useEffect(() => {
+		if (open && initialSettings) {
+			setDraft(inferenceDraftFromSettings(initialSettings));
+		}
+	}, [initialSettings, open]);
+
+	function patch(update: Partial<InferenceDraft>): void {
+		setDraft((current) => normalizeInferenceDraftForCapabilities({ ...current, ...update }));
+	}
+
+	function submit(): void {
+		if (!canGenerate) {
+			return;
+		}
+		onGenerate(promptFillSettingsInputFromDraft(draft));
+	}
+
+	return (
+		<Modal
+			className="avatar-prompt-settings-modal"
+			foot={
+				<>
+					<span />
+					<div className="right">
+						<button className="btn ghost" onClick={onClose} type="button">
+							Cancel
+						</button>
+						<button className="btn primary" disabled={!canGenerate} onClick={submit} type="button">
+							Generate
+						</button>
+					</div>
+				</>
+			}
+			onClose={onClose}
+			open={open}
+			title={title}
+			wide
+		>
+			{loading && <div className="runtime-message">Loading generation parameters...</div>}
+			{error && <div className="runtime-message error">{error}</div>}
+			{initialSettings && (
+				<div className="field-stack">
+					<div className="inference-row two">
+						<Field label="Model">
+							<input
+								className="input"
+								list={modelOptions.length > 0 ? modelListId : undefined}
+								onChange={(event) => patch({ model: event.target.value })}
+								value={draft.model}
+							/>
+							{modelOptions.length > 0 && (
+								<datalist id={modelListId}>
+									{modelOptions.map((model) => (
+										<option key={model} value={model} />
+									))}
+								</datalist>
+							)}
+						</Field>
+						<Field label="Base URL">
+							<input
+								className="input"
+								onChange={(event) => patch({ baseUrl: event.target.value })}
+								value={draft.baseUrl}
+							/>
+						</Field>
+					</div>
+					<div className="inference-row two">
+						<Field label="Reasoning">
+							<select
+								className="input reasoning-select"
+								onChange={(event) => patch({ reasoningEffort: event.target.value })}
+								value={draft.reasoningEffort}
+							>
+								{reasoningEffortOptions.map((option) => (
+									<option disabled={option.value === "none" && !capabilityContext.supportsReasoningNone} key={option.value} value={option.value}>
+										{option.label}
+									</option>
+								))}
+							</select>
+						</Field>
+						<Field label="Temperature">
+							<input
+								className="input"
+								max="2"
+								min="0"
+								onChange={(event) => patch({ temperature: event.target.value })}
+								step="0.05"
+								type="number"
+								value={draft.temperature}
+							/>
+						</Field>
+					</div>
+					<div className="inference-row three">
+						<Field label="Top K">
+							<input className="input" min="0" onChange={(event) => patch({ topK: event.target.value })} step="1" type="number" value={draft.topK} />
+						</Field>
+						<Field label="Top P">
+							<input className="input" max="1" min="0" onChange={(event) => patch({ topP: event.target.value })} step="0.01" type="number" value={draft.topP} />
+						</Field>
+						<Field label="Min P">
+							<input className="input" max="1" min="0" onChange={(event) => patch({ minP: event.target.value })} step="0.01" type="number" value={draft.minP} />
+						</Field>
+					</div>
+					<div className="inference-row three">
+						<Field label="Frequency penalty">
+							<input className="input" max="2" min="-2" onChange={(event) => patch({ frequencyPenalty: event.target.value })} step="0.05" type="number" value={draft.frequencyPenalty} />
+						</Field>
+						<Field label="Presence penalty">
+							<input className="input" max="2" min="-2" onChange={(event) => patch({ presencePenalty: event.target.value })} step="0.05" type="number" value={draft.presencePenalty} />
+						</Field>
+						<Field label="Repetition penalty">
+							<input className="input" max="2" min="0" onChange={(event) => patch({ repetitionPenalty: event.target.value })} step="0.05" type="number" value={draft.repetitionPenalty} />
+						</Field>
+					</div>
+					<ProviderRoutingField onChange={(providerRouting) => patch({ providerRouting })} value={draft.providerRouting} />
+				</div>
+			)}
+		</Modal>
 	);
 }
 
@@ -20161,6 +20355,23 @@ function imageGenerationInputFromDraft(draft: InferenceDraft, prompt = draft.ima
 		frequencyPenalty: nullableNumberInput(draft.imageGenerationFrequencyPenalty),
 		presencePenalty: nullableNumberInput(draft.imageGenerationPresencePenalty),
 		repetitionPenalty: nullableNumberInput(draft.imageGenerationRepetitionPenalty),
+	};
+}
+
+function promptFillSettingsInputFromDraft(draft: InferenceDraft): BotInferenceSettingsInput {
+	const normalized = normalizeInferenceDraftForCapabilities(draft);
+	return {
+		baseUrl: nullableTextInput(normalized.baseUrl),
+		model: nullableTextInput(normalized.model),
+		reasoningEffort: nullableReasoningEffortInput(normalized.reasoningEffort),
+		providerRouting: providerRoutingInputFromDraft(normalized.providerRouting),
+		temperature: nullableNumberInput(normalized.temperature),
+		topK: nullableNumberInput(normalized.topK),
+		topP: nullableNumberInput(normalized.topP),
+		minP: nullableNumberInput(normalized.minP),
+		frequencyPenalty: nullableNumberInput(normalized.frequencyPenalty),
+		presencePenalty: nullableNumberInput(normalized.presencePenalty),
+		repetitionPenalty: nullableNumberInput(normalized.repetitionPenalty),
 	};
 }
 
