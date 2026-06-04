@@ -11,6 +11,7 @@ import {
 	avatarImageGenerationSettingsWithDefaults,
 	defaultProviderModel,
 	defaultReasoningPrefill,
+	defaultTextGenerationTemperature,
 	defaultTranslationPrompt,
 	authProviders,
 	isOpenRouterExtendedImageAspectRatio,
@@ -13199,7 +13200,7 @@ function AgenticLoopInferenceFields({
 	const modelListId = useId();
 	const fallbackContext = inferenceFallbackContextForDraft(draft, inheritedSettings);
 	const modelPlaceholder = effectiveInferenceDraftModel(draft, fallbackContext);
-	const temperaturePlaceholder = effectiveNumberPlaceholder(fallbackContext?.temperature, 0.9);
+	const temperaturePlaceholder = effectiveNumberPlaceholder(fallbackContext?.temperature, defaultTextGenerationTemperature);
 	const topKPlaceholder = effectiveOptionalNumberPlaceholder(fallbackContext?.topK);
 	const topPPlaceholder = effectiveNumberPlaceholder(fallbackContext?.topP, 1);
 	const minPPlaceholder = effectiveOptionalNumberPlaceholder(fallbackContext?.minP);

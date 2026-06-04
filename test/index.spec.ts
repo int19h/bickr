@@ -5294,7 +5294,7 @@ describe("Bickr Pages Functions", () => {
 			compactionMode: "tool_call_cache_friendly",
 			model: "bot/model",
 			supportsPrefill: false,
-			temperature: 0.9,
+			temperature: 1,
 			toolCalls: "railroad",
 		});
 		expect(inheritedBlocked.providerRouting).toBeUndefined();
@@ -20963,7 +20963,7 @@ describe("Bickr Pages Functions", () => {
 		expect(body.data.settings).toMatchObject({
 			baseUrl: customProviderBaseUrl,
 			model: "env/world-prompt",
-			temperature: 0.7,
+			temperature: 1,
 		});
 		expect(body.data.settings.openRouterApiKey).toBeUndefined();
 		expect(body.data.settings.apiKey).toBeUndefined();

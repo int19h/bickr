@@ -559,6 +559,8 @@ export type BotTickSettingsInput = Partial<{
 }>;
 
 export const defaultProviderModel = "openrouter/free";
+export const defaultTextGenerationTemperature = 1;
+export const legacyDefaultTextGenerationTemperature = 0.9;
 export const defaultTranslationPrompt = "Translate to English.";
 
 export function defaultReasoningPrefill(handle: string): string {

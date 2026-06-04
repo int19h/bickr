@@ -120,6 +120,8 @@ import {
 	defaultReasoningPrefill,
 	defaultTranslationPrompt,
 	defaultProviderModel,
+	defaultTextGenerationTemperature,
+	legacyDefaultTextGenerationTemperature,
 	type BotInferenceSubmission,
 	type BotInferenceSubmissionMessage,
 	type BotInferenceSubmissionPurpose,
@@ -2911,7 +2913,7 @@ export function effectiveProviderSettingsForBot(
 	const botBaseUrl = trimmed(bot.inferenceSettings.baseUrl);
 	const userApiKey = trimmed(userSettings.openRouterApiKey);
 	const botApiKey = trimmed(bot.inferenceSettings.openRouterApiKey);
-	const botTemperatureIsLegacyDefault = bot.inferenceSettings.temperature === 0.9;
+	const botTemperatureIsLegacyDefault = bot.inferenceSettings.temperature === legacyDefaultTextGenerationTemperature;
 	const hasUserProvider = Boolean(userApiKey || userBaseUrl);
 	const hasBotOrInheritedProvider = Boolean(botApiKey || botBaseUrl || hasUserProvider);
 	const hasCustomBaseUrl = Boolean(botBaseUrl || userBaseUrl);
@@ -2933,7 +2935,7 @@ export function effectiveProviderSettingsForBot(
 				? inheritedDefaults.temperature
 				: bot.inferenceSettings.temperature !== undefined
 					? bot.inferenceSettings.temperature
-					: 0.9;
+					: defaultTextGenerationTemperature;
 	const providerRouting =
 		bot.inferenceSettings.providerRouting !== undefined ? bot.inferenceSettings.providerRouting : inheritedDefaults.providerRouting;
 	const effectiveProviderRouting = openRouterProviderRouting(baseUrl, providerRouting);
@@ -3042,7 +3044,7 @@ export function effectiveProviderSettingsForTranslation(
 		...(reasoningEffort ? { reasoningEffort } : {}),
 		toolCalls,
 		prompt: trimmed(translation?.prompt) ?? defaultTranslationPrompt,
-		temperature: usingLoopSettings ? (userSettings.temperature ?? 0.9) : (translation.temperature ?? 0),
+		temperature: usingLoopSettings ? (userSettings.temperature ?? defaultTextGenerationTemperature) : (translation.temperature ?? 0),
 		...(usingLoopSettings
 			? {
 					...(userSettings.topK !== undefined ? { topK: userSettings.topK } : {}),
@@ -3178,7 +3180,7 @@ function effectiveProviderSettingsForWorldPrompt(
 		...(reasoningEffort ? { reasoningEffort } : {}),
 		supportsPrefill,
 		toolCalls,
-		temperature: requestSettings.temperature ?? 0.7,
+		temperature: requestSettings.temperature ?? defaultTextGenerationTemperature,
 		...(requestBaseUrl ? { usesCustomBaseUrl: true } : {}),
 		...(requestSettings.topK !== undefined ? { topK: requestSettings.topK } : {}),
 		...(requestSettings.topP !== undefined ? { topP: requestSettings.topP } : {}),
