@@ -27,7 +27,7 @@ type GithubUserResponse = {
 
 export const onRequestGet: PagesFunction<AppEnv> = async ({ env, request }) => {
 	const provider = "github";
-	const returnTo = oauthReturnTo(request, provider);
+	const returnTo = await oauthReturnTo(env, request, provider);
 	try {
 		const expectedState = expectedOAuthState(request, provider);
 		if (!expectedState) {

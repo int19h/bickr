@@ -1,5 +1,6 @@
 import * as oauth from "oauth4webapi";
 import { fail } from "@bickr/shared/api";
+import { sha256Hex } from "@bickr/shared/ids";
 import { type AuthProvider } from "@bickr/shared/model";
 import {
 	createSession,
@@ -7,6 +8,7 @@ import {
 	upsertProviderUser,
 	type ProviderUserProfile,
 } from "@bickr/shared/repository";
+import { deleteKey, kvKeys, readJson, writeJson } from "@bickr/shared/storage";
 import {
 	appendSetCookie,
 	clearCookieHeader,
@@ -37,6 +39,18 @@ export type OAuthCookieNames = {
 	nonce: string;
 };
 
+type OAuthReturnToDocument = {
+	type: "oauthReturnTo";
+	provider: AuthProvider;
+	returnTo: string;
+	createdAt: string;
+	expiresAt: string;
+};
+
+const returnToTtlSeconds = 10 * 60;
+const maxReturnToLength = 16_384;
+const maxReturnToCookieLength = 1_500;
+
 export function oauthCookieNames(provider: AuthProvider): OAuthCookieNames {
 	const prefix = `bickr_oauth_${provider}`;
 	return {
@@ -47,7 +61,7 @@ export function oauthCookieNames(provider: AuthProvider): OAuthCookieNames {
 	};
 }
 
-export async function oauthStartResponse(request: Request, config: OAuthStartConfig): Promise<Response> {
+export async function oauthStartResponse(env: AppEnv, request: Request, config: OAuthStartConfig): Promise<Response> {
 	if (!config.clientId) {
 		return fail("server_error", `${providerLabel(config.provider)} OAuth is not configured.`, 500);
 	}
@@ -57,6 +71,7 @@ export async function oauthStartResponse(request: Request, config: OAuthStartCon
 	const codeChallenge = await oauth.calculatePKCECodeChallenge(codeVerifier);
 	const nonce = config.nonce ? oauth.generateRandomNonce() : null;
 	const returnTo = sanitizeReturnTo(new URL(request.url).searchParams.get("returnTo"));
+	await storeOAuthReturnTo(env, config.provider, state, returnTo);
 	const url = new URL(config.authorizationEndpoint);
 	url.searchParams.set("client_id", config.clientId);
 	url.searchParams.set("redirect_uri", config.redirectUri);
@@ -78,7 +93,10 @@ export async function oauthStartResponse(request: Request, config: OAuthStartCon
 	});
 	const cookies = oauthCookieNames(config.provider);
 	response.headers.append("set-cookie", cookieHeader(request, cookies.state, state, { maxAge: 600 }));
-	response.headers.append("set-cookie", cookieHeader(request, cookies.returnTo, returnTo, { maxAge: 600 }));
+	response.headers.append(
+		"set-cookie",
+		cookieHeader(request, cookies.returnTo, returnTo.length <= maxReturnToCookieLength ? returnTo : "/", { maxAge: 600 }),
+	);
 	response.headers.append("set-cookie", cookieHeader(request, cookies.pkce, codeVerifier, { maxAge: 600 }));
 	if (nonce) {
 		response.headers.append("set-cookie", cookieHeader(request, cookies.nonce, nonce, { maxAge: 600 }));
@@ -98,8 +116,9 @@ export function oauthCodeVerifier(request: Request, provider: AuthProvider): str
 	return cookieValue(request, oauthCookieNames(provider).pkce);
 }
 
-export function oauthReturnTo(request: Request, provider: AuthProvider): string {
-	return sanitizeReturnTo(cookieValue(request, oauthCookieNames(provider).returnTo));
+export async function oauthReturnTo(env: AppEnv, request: Request, provider: AuthProvider): Promise<string> {
+	const stored = await consumeOAuthReturnTo(env, provider, expectedOAuthState(request, provider));
+	return stored ?? sanitizeReturnTo(cookieValue(request, oauthCookieNames(provider).returnTo));
 }
 
 export async function completeProviderSession(
@@ -169,10 +188,45 @@ function clearOAuthCookies(response: Response, request: Request, provider: AuthP
 	);
 }
 
+async function storeOAuthReturnTo(
+	env: AppEnv,
+	provider: AuthProvider,
+	state: string,
+	returnTo: string,
+	now = new Date(),
+): Promise<void> {
+	const createdAt = now.toISOString();
+	await writeJson(env.BICKR_KV, kvKeys.oauthReturnTo(provider, await sha256Hex(state)), {
+		type: "oauthReturnTo",
+		provider,
+		returnTo,
+		createdAt,
+		expiresAt: new Date(now.getTime() + returnToTtlSeconds * 1000).toISOString(),
+	} satisfies OAuthReturnToDocument, { expirationTtl: returnToTtlSeconds });
+}
+
+async function consumeOAuthReturnTo(
+	env: AppEnv,
+	provider: AuthProvider,
+	state: string | null,
+	now = new Date(),
+): Promise<string | null> {
+	if (!state) {
+		return null;
+	}
+	const key = kvKeys.oauthReturnTo(provider, await sha256Hex(state));
+	const stored = await readJson<OAuthReturnToDocument>(env.BICKR_KV, key);
+	await deleteKey(env.BICKR_KV, key);
+	if (!stored || stored.provider !== provider || Date.parse(stored.expiresAt) <= now.getTime()) {
+		return null;
+	}
+	return sanitizeReturnTo(stored.returnTo);
+}
+
 function sanitizeReturnTo(value: string | null): string {
 	const fallback = "/";
 	const raw = value?.trim();
-	if (!raw || raw.length > 2048 || !raw.startsWith("/") || raw.startsWith("//") || raw.includes("\\")) {
+	if (!raw || raw.length > maxReturnToLength || !raw.startsWith("/") || raw.startsWith("//") || raw.includes("\\")) {
 		return fallback;
 	}
 	try {

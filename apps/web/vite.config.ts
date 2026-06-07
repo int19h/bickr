@@ -83,7 +83,7 @@ export default defineConfig({
 				clientsClaim: true,
 				globPatterns: ["**/*.{css,html,js,png,svg,woff2,ttf}"],
 				navigateFallback: "/index.html",
-				navigateFallbackDenylist: [/^\/api\//, /^\/c\//, /^\/t\//],
+				navigateFallbackDenylist: [/^\/api\//, /^\/c\//, /^\/t\//, /^\/oauth(?:\/|$)/, /^\/mcp(?:\/|$)/, /^\/\.well-known(?:\/|$)/],
 				skipWaiting: true,
 			},
 		}),

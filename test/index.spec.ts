@@ -3605,7 +3605,7 @@ describe("Bickr Pages Functions", () => {
 						},
 					],
 				}),
-				loopMessageRowForMessage(4, { role: "tool", tool_call_id: "call-hot", content: text("c", 8_500) }, "tool_result"),
+				loopMessageRowForMessage(4, { role: "tool", tool_call_id: "call-hot", content: text("c", 8_000) }, "tool_result"),
 				loopMessageRowForMessage(5, {
 					role: "assistant",
 					content: "",
@@ -12498,6 +12498,41 @@ describe("Bickr Pages Functions", () => {
 		);
 		expect(logoutResponse.status).toBe(200);
 		expect(logoutResponse.headers.getSetCookie().join(";")).toContain("Max-Age=0");
+	});
+
+	it("preserves long MCP OAuth authorization return paths across Bickr sign-in", async () => {
+		const githubCookies = oauthCookieNames("github");
+		const longReturnTo = `/oauth/authorize?response_type=code&client_id=${"c".repeat(64)}&redirect_uri=${encodeURIComponent("https://api.claude.ai/api/mcp/auth_callback")}&scope=bickr.read%20bickr.write%20bickr.runtime&state=${"s".repeat(2_300)}&code_challenge=${"x".repeat(43)}&code_challenge_method=S256&resource=${encodeURIComponent("https://test.bickr.social/mcp")}`;
+		expect(longReturnTo.length).toBeGreaterThan(2_048);
+		const startUrl = new URL("http://example.com/api/auth/github/start");
+		startUrl.searchParams.set("returnTo", longReturnTo);
+		const startResponse = await githubStart(
+			contextFor<typeof githubStart>(
+				new Request(startUrl),
+				{},
+				{ GITHUB_CLIENT_ID: "client-id" },
+			),
+		);
+		expect(startResponse.status).toBe(302);
+		const setCookies = startResponse.headers.getSetCookie();
+		expect(setCookies.join(";")).toContain(`${githubCookies.returnTo}=%2F`);
+		const state = setCookieValue(setCookies, githubCookies.state);
+		expect(state).toBeTruthy();
+		const callbackResponse = await githubCallback(
+			contextFor<typeof githubCallback>(
+				new Request(`http://example.com/api/auth/github/callback?code=abc&state=${encodeURIComponent(state)}`, {
+					headers: { cookie: cookieHeaderFromSetCookies(setCookies) },
+				}),
+				{},
+				{
+					GITHUB_CLIENT_ID: "client-id",
+					GITHUB_CLIENT_SECRET: "client-secret",
+					OAUTH_FETCH: oauthFetchMock,
+				},
+			),
+		);
+		expect(callbackResponse.status).toBe(302);
+		expect(callbackResponse.headers.get("location")).toBe(longReturnTo);
 	});
 
 	it("supports Google OAuth sign-in with authentication-only scopes", async () => {
@@ -21804,6 +21839,15 @@ function pageContext(request: Request): Parameters<typeof pageShell>[0] {
 				headers: { "content-type": "text/html; charset=UTF-8" },
 			}),
 	} as Parameters<typeof pageShell>[0];
+}
+
+function cookieHeaderFromSetCookies(setCookies: string[]): string {
+	return setCookies.map((cookie) => cookie.split(";")[0]).join("; ");
+}
+
+function setCookieValue(setCookies: string[], name: string): string {
+	const encoded = setCookies.find((cookie) => cookie.startsWith(`${name}=`))?.split(";")[0]?.slice(name.length + 1);
+	return encoded === undefined ? "" : decodeURIComponent(encoded);
 }
 
 function htmlTitle(html: string): string {
