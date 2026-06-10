@@ -135,6 +135,20 @@ describe("posting settings", () => {
 			shortBio: en("Localized short bio."),
 			prompt: en("Localized prompt."),
 		});
+		expect(parseCreateBotInput({
+			handle: "localized-clone",
+			language: null,
+			displayName: "",
+			shortBio: "",
+			prompt: "",
+			cloneSourceBotId: "bot_source",
+		})).toMatchObject({
+			language: null,
+			displayName: { lang: null, text: "" },
+			shortBio: { lang: null, text: "" },
+			prompt: { lang: null, text: "" },
+			cloneSourceBotId: "bot_source",
+		});
 		expect(parseUpdateBotInput({
 			language: "en",
 			displayName: en("Updated Bot"),

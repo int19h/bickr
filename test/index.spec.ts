@@ -19469,13 +19469,26 @@ describe("Bickr Pages Functions", () => {
 	it("stores clone provenance and cascades profile and inference values through clone chains", async () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);
-		const source = await createBotForTest(cookie, "clone-source");
-		const patchedSource = await patchBotInferenceForTest(cookie, source.id, {
-			baseUrl: "https://openrouter.ai/api/v1",
-			model: "source/model",
-			temperature: 0.33,
-			compactionMode: "tool_call",
+		const ar = "ar" as LanguageTag;
+		const ja = "ja" as LanguageTag;
+		const source = await createBotInWorld(cookie, "patch-notes", {
+			handle: "clone-source",
+			language: ar,
+			displayName: localizedText("Clone Source", ar),
+			shortBio: localizedText("Source bio.", ar),
+			prompt: localizedText("Source prompt.", ar),
 		});
+		const patchedSource = await patchBotInferenceForTest(
+			cookie,
+			source.id,
+			{
+				baseUrl: "https://openrouter.ai/api/v1",
+				model: "source/model",
+				temperature: 0.33,
+				compactionMode: "tool_call",
+			},
+			ar,
+		);
 		expect(patchedSource.inferenceSettings).toMatchObject({
 			baseUrl: "https://openrouter.ai/api/v1",
 			model: "source/model",
@@ -19487,11 +19500,13 @@ describe("Bickr Pages Functions", () => {
 
 		const middle = await createBotInWorld(cookie, "clone-middle-world", {
 			handle: "clone-middle",
+			language: null,
 			displayName: "",
 			shortBio: "",
 			prompt: "",
 			cloneSourceBotId: source.id,
 		});
+		expect(middle.language).toBe(ar);
 		expect(middle.displayName).toStrictEqual(source.displayName);
 		expect(middle.shortBio).toStrictEqual(source.shortBio);
 		expect(middle.prompt).toStrictEqual(source.prompt);
@@ -19502,9 +19517,10 @@ describe("Bickr Pages Functions", () => {
 			linked: true,
 		});
 		expect(middle.localOverrides).toMatchObject({
-			displayName: lt(""),
-			shortBio: lt(""),
-			prompt: lt(""),
+			language: null,
+			displayName: localizedText("", null),
+			shortBio: localizedText("", null),
+			prompt: localizedText("", null),
 			inferenceSettings: {},
 			hasAvatar: false,
 		});
@@ -19516,13 +19532,15 @@ describe("Bickr Pages Functions", () => {
 
 		const leaf = await createBotInWorld(cookie, "clone-leaf-world", {
 			handle: "clone-leaf",
+			language: null,
 			displayName: "",
 			shortBio: "Leaf override",
 			prompt: "",
 			cloneSourceBotId: middle.id,
 		});
+		expect(leaf.language).toBe(ar);
 		expect(leaf.displayName).toStrictEqual(source.displayName);
-		expect(leaf.shortBio).toStrictEqual(lt("Leaf override"));
+		expect(leaf.shortBio).toStrictEqual(localizedText("Leaf override", ar));
 		expect(leaf.prompt).toStrictEqual(source.prompt);
 		expect(leaf.inferenceSettings).toMatchObject({
 			model: "source/model",
@@ -19536,6 +19554,7 @@ describe("Bickr Pages Functions", () => {
 					`http://example.com/api/me/bots/${source.id}`,
 					"PATCH",
 					{
+						language: ja,
 						displayName: "Clone Source Updated",
 						prompt: "Updated source prompt.",
 						inferenceSettings: {
@@ -19551,13 +19570,16 @@ describe("Bickr Pages Functions", () => {
 		);
 		expect(sourcePatchResponse.status).toBe(200);
 		const patchPayload = (await sourcePatchResponse.json()) as { data: { bot: BotBody; affectedBots: BotBody[] } };
+		expect(patchPayload.data.bot.language).toBe(ja);
 		expect(patchPayload.data.affectedBots.map((bot) => bot.id).sort()).toEqual([leaf.id, middle.id].sort());
 		const effectiveMiddle = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, middle.id);
 		const effectiveLeaf = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, leaf.id);
-		expect(effectiveMiddle.displayName).toStrictEqual(lt("Clone Source Updated"));
-		expect(effectiveMiddle.prompt).toStrictEqual(lt("Updated source prompt."));
-		expect(effectiveLeaf.displayName).toStrictEqual(lt("Clone Source Updated"));
-		expect(effectiveLeaf.shortBio).toStrictEqual(lt("Leaf override"));
+		expect(effectiveMiddle.language).toBe(ja);
+		expect(effectiveMiddle.displayName).toStrictEqual(localizedText("Clone Source Updated", ja));
+		expect(effectiveMiddle.prompt).toStrictEqual(localizedText("Updated source prompt.", ja));
+		expect(effectiveLeaf.language).toBe(ja);
+		expect(effectiveLeaf.displayName).toStrictEqual(localizedText("Clone Source Updated", ja));
+		expect(effectiveLeaf.shortBio).toStrictEqual(localizedText("Leaf override", ja));
 		expect(effectiveLeaf.inferenceSettings).toMatchObject({
 			model: "source/updated",
 			temperature: 0.55,
@@ -21705,6 +21727,7 @@ type BotBody = {
 	homeWorldId: string;
 	homeWorldHandle: string;
 	handle: string;
+	language: LanguageTag | null;
 	displayName: string;
 	shortBio: string;
 	avatar?: AvatarImage;
@@ -21720,6 +21743,7 @@ type BotBody = {
 			id: string;
 			homeWorldHandle: string;
 			handle: string;
+			language: LanguageTag | null;
 			displayName: string;
 			shortBio: string;
 			avatarUrl?: string;
@@ -21727,6 +21751,7 @@ type BotBody = {
 		};
 	};
 	localOverrides?: {
+		language: LanguageTag | null;
 		displayName: string;
 		shortBio: string;
 		prompt?: string;
@@ -22279,6 +22304,7 @@ async function createBotInWorld(
 	worldHandle: string,
 	input: {
 		handle: string;
+		language?: LanguageTag | null;
 		displayName?: string | LocalizedText;
 		shortBio?: string | LocalizedText;
 		prompt?: string | LocalizedText;
@@ -22348,15 +22374,20 @@ async function createBotForTest(cookie: string, handle: string, options: { enabl
 	return payload.data.bot;
 }
 
-async function patchBotInferenceForTest(cookie: string, botId: string, inferenceSettings: Record<string, unknown>): Promise<BotBody> {
+async function patchBotInferenceForTest(
+	cookie: string,
+	botId: string,
+	inferenceSettings: Record<string, unknown>,
+	language: LanguageTag = testLanguage,
+): Promise<BotBody> {
 	const response = await patchBot(
 		contextFor<typeof patchBot>(
-			jsonRequest(
-				`http://example.com/api/me/bots/${botId}`,
-				"PATCH",
-				{ inferenceSettings },
-				cookie,
-			),
+				jsonRequest(
+					`http://example.com/api/me/bots/${botId}`,
+					"PATCH",
+					{ language, inferenceSettings },
+					cookie,
+				),
 			{ botId },
 		),
 	);

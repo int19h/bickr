@@ -1634,6 +1634,7 @@ export async function unlinkBotClone(
 	const effectiveBefore = await effectiveBotDocument(kv, db, bot);
 	const updated: BotDocument = {
 		...bot,
+		language: bot.language ?? effectiveBefore.language,
 		displayName: hasProfileText(bot.displayName) ? bot.displayName : effectiveBefore.displayName,
 		shortBio: hasProfileText(bot.shortBio) ? bot.shortBio : effectiveBefore.shortBio,
 		prompt: hasProfileText(bot.prompt) ? bot.prompt : effectiveBefore.prompt,
@@ -1690,9 +1691,10 @@ export async function relinkBotClone(
 	const sourceEffective = await effectiveBotDocument(kv, db, sourceRaw);
 	const next: BotDocument = {
 		...bot,
-			displayName: localizedTextEqual(bot.displayName, sourceEffective.displayName) ? emptyLocalizedText(bot.language) : bot.displayName,
-			shortBio: localizedTextEqual(bot.shortBio, sourceEffective.shortBio) ? emptyLocalizedText(bot.language) : bot.shortBio,
-			prompt: localizedTextEqual(bot.prompt, sourceEffective.prompt) ? emptyLocalizedText(bot.language) : bot.prompt,
+		language: bot.language === sourceEffective.language ? null : bot.language,
+		displayName: localizedTextEqual(bot.displayName, sourceEffective.displayName) ? emptyLocalizedText(bot.language) : bot.displayName,
+		shortBio: localizedTextEqual(bot.shortBio, sourceEffective.shortBio) ? emptyLocalizedText(bot.language) : bot.shortBio,
+		prompt: localizedTextEqual(bot.prompt, sourceEffective.prompt) ? emptyLocalizedText(bot.language) : bot.prompt,
 		inferenceSettings: inferenceSettingsEqual(bot.inferenceSettings, sourceEffective.inferenceSettings) ?
 			cloneInferenceSettings(undefined)
 		:	bot.inferenceSettings,
@@ -1769,6 +1771,7 @@ export async function backfillInferredCloneSources(
 			const targetRaw = await rawBotById(kv, db, targetId);
 			let updated: BotDocument = {
 				...targetRaw,
+				language: targetRaw.language === sourceEffective.language ? null : targetRaw.language,
 				displayName: localizedTextEqual(targetRaw.displayName, sourceEffective.displayName) ? emptyLocalizedText(targetRaw.language) : targetRaw.displayName,
 				shortBio: localizedTextEqual(targetRaw.shortBio, sourceEffective.shortBio) ? emptyLocalizedText(targetRaw.language) : targetRaw.shortBio,
 				prompt: localizedTextEqual(targetRaw.prompt, sourceEffective.prompt) ? emptyLocalizedText(targetRaw.language) : targetRaw.prompt,
@@ -3020,14 +3023,22 @@ async function effectiveBotDocument(
 	try {
 		const sourceRaw = await sourceRawBotForLinkedClone(kv, db, cloneSource);
 		const sourceEffective = await effectiveBotDocument(kv, db, sourceRaw, context, depth + 1);
+		const effectiveLanguage = normalized.language ?? sourceEffective.language;
 		const inheritedInference = hasInferenceText(normalized.inferenceSettings.model) ?
 			normalized.inferenceSettings
 		:	cloneInferenceSettings(sourceEffective.inferenceSettings);
 		const resolved: BotDocument = {
 			...normalized,
-			displayName: hasProfileText(normalized.displayName) ? normalized.displayName : sourceEffective.displayName,
-			shortBio: hasProfileText(normalized.shortBio) ? normalized.shortBio : sourceEffective.shortBio,
-			prompt: hasProfileText(normalized.prompt) ? normalized.prompt : sourceEffective.prompt,
+			language: effectiveLanguage,
+			displayName: hasProfileText(normalized.displayName) ?
+				localizedTextWithFallbackLang(normalized.displayName, effectiveLanguage)
+			:	sourceEffective.displayName,
+			shortBio: hasProfileText(normalized.shortBio) ?
+				localizedTextWithFallbackLang(normalized.shortBio, effectiveLanguage)
+			:	sourceEffective.shortBio,
+			prompt: hasProfileText(normalized.prompt) ?
+				localizedTextWithFallbackLang(normalized.prompt, effectiveLanguage)
+			:	sourceEffective.prompt,
 			inferenceSettings: inheritedInference,
 			...(normalized.avatar ? { avatar: normalized.avatar } : sourceEffective.avatar ? { avatar: sourceEffective.avatar } : { avatar: undefined }),
 			cloneSource: { ...cloneSource, sourceBot: cloneSourceBotProfile(sourceEffective) },
@@ -3153,6 +3164,10 @@ async function insertBotCloneSource(
 
 function emptyLocalizedText(lang: LanguageTag | null): LocalizedText {
 	return localizedText("", lang);
+}
+
+function localizedTextWithFallbackLang(value: LocalizedText, fallbackLang: LanguageTag | null): LocalizedText {
+	return value.lang ? value : localizedText(value.text, fallbackLang);
 }
 
 function localizedTextEqual(left: LocalizedText, right: LocalizedText): boolean {

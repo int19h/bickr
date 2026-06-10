@@ -472,12 +472,14 @@ export function parseAddBotGroupMembersInput(input: unknown): AddBotGroupMembers
 
 export function parseCreateBotInput(input: unknown): CreateBotInput {
 	const record = asRecord(input);
-	const language = requiredEntityLanguage(record.language, "Bot language");
 	const importSource = parseImportSource(record.importSource);
 	const cloneSourceBotId = optionalText(record.cloneSourceBotId, "Clone source participant", 80);
 	if (cloneSourceBotId && importSource) {
 		throw new InputError("Choose either a clone source or an import source.");
 	}
+	const language =
+		cloneSourceBotId ? parseOptionalNullableLanguageTag(record.language, "Bot language") ?? null
+		: requiredEntityLanguage(record.language, "Bot language");
 	const displayName = cloneSourceBotId ?
 		optionalHumanTextPreservingEmpty(record.displayName ?? record.name, "Bot name", 80, language) ?? ""
 	:	requiredHumanText(record.displayName ?? record.name, "Bot name", 80, language);

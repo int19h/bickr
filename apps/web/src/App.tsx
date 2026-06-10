@@ -1056,6 +1056,13 @@ function languageDirection(language: string | null | undefined): "ltr" | "rtl" {
 	return base && ["ar", "fa", "he", "ps", "ur"].includes(base) ? "rtl" : "ltr";
 }
 
+function textLanguageDomProps(language: string | null | undefined): { dir: "auto"; lang?: string } {
+	return {
+		dir: "auto",
+		...(language ? { lang: language } : {}),
+	};
+}
+
 function localizedDraft(text: string, language: string): LocalizedText {
 	return localizedText(text, languageInputValue(language));
 }
@@ -10439,35 +10446,42 @@ function BotEdit({
 	} = parsedDraft;
 	const inheritedPostingSettings = effectivePostingSettings(world?.postingSettings, undefined);
 	const resolvedContextWindowTokens = contextWindowTokens ?? bot.effectiveTickSettings.contextWindowTokens;
-		const providerRoutingError = providerRoutingDraftError(draft.inference.providerRouting);
-		const translationProviderRoutingError = providerRoutingDraftError(draft.inference.translationProviderRouting);
-		const linkedClone = Boolean(bot.cloneSource?.linked);
-		const savedLanguage = bot.localOverrides?.language ?? bot.language;
-		const savedDisplayName = textValue(bot.localOverrides?.displayName ?? bot.displayName);
-		const savedShortBio = textValue(bot.localOverrides?.shortBio ?? bot.shortBio);
-		const savedPrompt = textValue(bot.localOverrides?.prompt ?? bot.prompt ?? "");
-		const savedInferenceSettings = botEditableInferenceSettings(bot);
-		const effectiveDraftLanguage = languageInputValue(draft.language);
-		const effectiveDraftDisplayName = draft.displayName.trim() || (linkedClone ? textValue(bot.displayName) : "");
-		const effectiveDraftShortBio = draft.shortBio.trim() || (linkedClone ? textValue(bot.shortBio) : "");
-		const effectiveDraftPrompt = draft.prompt.trim() || (linkedClone ? textValue(bot.prompt ?? "") : "");
+	const providerRoutingError = providerRoutingDraftError(draft.inference.providerRouting);
+	const translationProviderRoutingError = providerRoutingDraftError(draft.inference.translationProviderRouting);
+	const linkedClone = Boolean(bot.cloneSource?.linked);
+	const savedLanguage = bot.localOverrides ? bot.localOverrides.language : bot.language;
+	const savedDisplayName = textValue(bot.localOverrides?.displayName ?? bot.displayName);
+	const savedShortBio = textValue(bot.localOverrides?.shortBio ?? bot.shortBio);
+	const savedPrompt = textValue(bot.localOverrides?.prompt ?? bot.prompt ?? "");
+	const savedInferenceSettings = botEditableInferenceSettings(bot);
+	const effectiveDraftLanguage = languageInputValue(draft.language);
+	const effectiveDraftDisplayName = draft.displayName.trim() || (linkedClone ? textValue(bot.displayName) : "");
+	const effectiveDraftShortBio = draft.shortBio.trim() || (linkedClone ? textValue(bot.shortBio) : "");
+	const effectiveDraftPrompt = draft.prompt.trim() || (linkedClone ? textValue(bot.prompt ?? "") : "");
+	const editLanguage = effectiveDraftLanguage ?? bot.language ?? textLang(bot.displayName) ?? defaultLanguageTag;
+	const editTextProps = textLanguageDomProps(editLanguage);
 	const inferenceInheritedSettings = cloneAwareInferenceInheritedSettingsForDraft(bot, draft.inference, ownerInferenceSettings);
 	const inferenceInheritance = cloneAwareInferenceFallbackForDraft(bot, draft.inference, ownerInferenceSettings);
-	const promptBudgetRequestKey = botPromptBudgetRequestKey(bot.id, bot.handle, {
-		...draft,
+	const promptBudgetRequestKey = botPromptBudgetRequestKey(
+		bot.id,
+		bot.handle,
+		{
+			...draft,
 			displayName: effectiveDraftDisplayName,
 			shortBio: effectiveDraftShortBio,
 			prompt: effectiveDraftPrompt,
 			worldPrompt: textValue(world?.prompt),
-		}, inferenceInheritance);
+		},
+		inferenceInheritance,
+	);
 	const promptBudgetReady =
 		promptBudget.status === "ready" && promptBudget.requestKey === promptBudgetRequestKey ? promptBudget.budget : null;
 	const promptBudgetError =
 		promptBudget.status === "error" && promptBudget.requestKey === promptBudgetRequestKey ? promptBudget.message : "";
 	const promptBudgetLoading = promptBudget.status === "loading" && promptBudget.requestKey === promptBudgetRequestKey;
-		const dirty =
-			effectiveDraftLanguage !== savedLanguage ||
-			draft.displayName !== savedDisplayName ||
+	const dirty =
+		effectiveDraftLanguage !== savedLanguage ||
+		draft.displayName !== savedDisplayName ||
 		draft.shortBio !== savedShortBio ||
 		draft.prompt !== savedPrompt ||
 		tickIntervalMinutes !== secondsToMinutes(bot.tickSettings.intervalSeconds) ||
@@ -10486,9 +10500,9 @@ function BotEdit({
 			inherited: inferenceInheritance,
 		}) ||
 		toolDraftChanged(draft.tools, bot.toolSettings);
-		const valid =
-			draft.language.trim().length > 0 &&
-			effectiveDraftDisplayName.length > 0 &&
+	const valid =
+		(linkedClone || draft.language.trim().length > 0) &&
+		effectiveDraftDisplayName.length > 0 &&
 		effectiveDraftShortBio.length > 0 &&
 		effectiveDraftPrompt.length > 0 &&
 		draft.prompt.length <= maxBotPromptLength &&
@@ -10539,7 +10553,7 @@ function BotEdit({
 	}, [bot.id, dirty, promptBudgetRequestKey]);
 
 	async function save(): Promise<void> {
-		const ok = await onSave(bot.id, updateBotInputFromEditDraft(draft, parsedDraft, inferenceInheritance));
+		const ok = await onSave(bot.id, updateBotInputFromEditDraft(draft, parsedDraft, inferenceInheritance, linkedClone));
 		if (ok) {
 			toast.push(
 				<>
@@ -10563,18 +10577,23 @@ function BotEdit({
 		}
 		const requestKey = promptBudgetRequestKey;
 		setPromptBudget({ status: "loading", requestKey });
-			const result = await api<{ budget: BotContextBudget }>(
-				`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/context-budget`,
-				{
-					method: "POST",
-					body: {
-						language: effectiveDraftLanguage ?? defaultLanguageTag,
-						displayName: effectiveDraftDisplayName,
-						prompt: effectiveDraftPrompt,
-						shortBio: effectiveDraftShortBio,
-						inferenceSettings: inferenceInputFromDraft(draft.inference, inferenceInheritance, { includeReasoningPrefill: true }, effectiveDraftLanguage ?? defaultLanguageTag),
-						toolSettings: toolInputFromDraft(draft.tools),
-						postingSettings: {
+		const result = await api<{ budget: BotContextBudget }>(
+			`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/context-budget`,
+			{
+				method: "POST",
+				body: {
+					language: effectiveDraftLanguage ?? defaultLanguageTag,
+					displayName: effectiveDraftDisplayName,
+					prompt: effectiveDraftPrompt,
+					shortBio: effectiveDraftShortBio,
+					inferenceSettings: inferenceInputFromDraft(
+						draft.inference,
+						inferenceInheritance,
+						{ includeReasoningPrefill: true },
+						effectiveDraftLanguage ?? defaultLanguageTag,
+					),
+					toolSettings: toolInputFromDraft(draft.tools),
+					postingSettings: {
 						threadBodyCharacters,
 						commentBodyCharacters,
 					},
@@ -10603,13 +10622,20 @@ function BotEdit({
 	return (
 		<div className="main-inner">
 			<div className="page-header">
-					<div className="page-title-block">
-						<button className="back-link" onClick={onBack} type="button">
-							{textValue(world?.name) || bot.homeWorldHandle}
-						</button>
+				<div className="page-title-block">
+					<button className="back-link" onClick={onBack} type="button">
+						{textValue(world?.name) || bot.homeWorldHandle}
+					</button>
 					<h1>
-						<Avatar actor="bot" colorSeed={bot.handle} crop={bot.avatarCrop} imageUrl={bot.avatarUrl} name={effectiveDraftDisplayName || bot.displayName} size="lg" />
-							<span>{effectiveDraftDisplayName || textValue(bot.displayName)}</span>
+						<Avatar
+							actor="bot"
+							colorSeed={bot.handle}
+							crop={bot.avatarCrop}
+							imageUrl={bot.avatarUrl}
+							name={localizedText(effectiveDraftDisplayName || textValue(bot.displayName), editLanguage)}
+							size="lg"
+						/>
+						<span {...editTextProps}>{effectiveDraftDisplayName || textValue(bot.displayName)}</span>
 					</h1>
 					<p className="sub">
 						<Reference isBot kind="bot" name={bot.handle} /> in{" "}
@@ -10624,7 +10650,7 @@ function BotEdit({
 						Save changes
 					</button>
 				</div>
-				</div>
+			</div>
 
 			<div className="edit-layout">
 				<div>
@@ -10633,6 +10659,7 @@ function BotEdit({
 						busy={busy}
 						dirty={dirty}
 						draft={draft}
+						language={editLanguage}
 						linkedClone={linkedClone}
 						onOpenRename={() => setRenameOpen(true)}
 						personalForumsLoaded={personalForumsLoaded}
@@ -10642,6 +10669,7 @@ function BotEdit({
 					<BotEditPromptSection
 						bot={bot}
 						draft={draft}
+						language={editLanguage}
 						linkedClone={linkedClone}
 						onComputePromptBudget={() => void computePromptBudget()}
 						promptBudgetError={promptBudgetError}
@@ -10889,6 +10917,7 @@ function BotEdit({
 							>
 								<textarea
 									className="textarea recurring-prompt-editor"
+									{...editTextProps}
 									disabled={!draft.inference.recurringPromptEnabled}
 									maxLength={maxBotReasoningPrefillLength}
 									onChange={(event) =>
@@ -11054,7 +11083,7 @@ function BotEdit({
 			<Confirm
 				body={
 					<>
-							This will remove <b>{textValue(bot.displayName)}</b> (<Reference isBot kind="bot" name={bot.handle} />) from
+							This will remove <b {...editTextProps}>{textValue(bot.displayName)}</b> (<Reference isBot kind="bot" name={bot.handle} />) from
 						your active bot list.
 					</>
 				}
@@ -11069,7 +11098,7 @@ function BotEdit({
 				body={
 					cloneLinkConfirm === "unlink" ?
 						<>
-								This copies all inherited profile, avatar, and inference values into <b>{textValue(bot.displayName)}</b>,
+								This copies all inherited profile, avatar, and inference values into <b {...editTextProps}>{textValue(bot.displayName)}</b>,
 							then stops future source changes from cascading into this clone.
 						</>
 					:	<>
@@ -11093,6 +11122,7 @@ function BotEditProfileSection({
 	busy,
 	dirty,
 	draft,
+	language,
 	linkedClone,
 	onOpenRename,
 	personalForumsLoaded,
@@ -11102,11 +11132,13 @@ function BotEditProfileSection({
 	busy: boolean;
 	dirty: boolean;
 	draft: BotEditDraft;
+	language: LanguageTag;
 	linkedClone: boolean;
 	onOpenRename: () => void;
 	personalForumsLoaded: boolean;
 	setDraft: (update: (current: BotEditDraft) => BotEditDraft) => void;
 }) {
+	const textProps = textLanguageDomProps(language);
 	return (
 		<section className="section">
 			<div className="section-head">
@@ -11117,18 +11149,19 @@ function BotEditProfileSection({
 				<div className="field-row">
 					<Field label="Display name">
 						<input
-								className="input"
-								maxLength={80}
-								onChange={(event) => setDraft((current) => ({ ...current, displayName: event.target.value }))}
-								placeholder={linkedClone ? textValue(bot.displayName) : undefined}
-								value={draft.displayName}
-							/>
+							className="input"
+							{...textProps}
+							maxLength={80}
+							onChange={(event) => setDraft((current) => ({ ...current, displayName: event.target.value }))}
+							placeholder={linkedClone ? textValue(bot.displayName) : undefined}
+							value={draft.displayName}
+						/>
 					</Field>
 					<Field help={dirty ? "Save or discard other edits before changing this handle." : "Handle changes require confirmation."} label="Handle">
 						<div className="inline-controls">
-							<div className="input-prefix input-prefix-grow">
+							<div className="input-prefix input-prefix-grow" dir="ltr">
 								<span className="prefix">u/</span>
-								<input className="input" disabled value={bot.handle} />
+								<input className="input" {...textProps} disabled value={bot.handle} />
 							</div>
 							<button
 								className="btn"
@@ -11145,14 +11178,20 @@ function BotEditProfileSection({
 							</button>
 						</div>
 					</Field>
-					</div>
-					<LanguageField onChange={(language) => setDraft((current) => ({ ...current, language }))} value={draft.language} />
-					<Field hint={linkedClone ? "blank inherits source" : "required"} label="Short bio">
-						<textarea
-							className="textarea short-bio-editor"
-							maxLength={1200}
-							onChange={(event) => setDraft((current) => ({ ...current, shortBio: event.target.value }))}
-							placeholder={linkedClone ? textValue(bot.shortBio) : undefined}
+				</div>
+				<LanguageField
+					hint={linkedClone ? "blank inherits source" : undefined}
+					onChange={(language) => setDraft((current) => ({ ...current, language }))}
+					placeholder={linkedClone ? bot.language ?? "source" : undefined}
+					value={draft.language}
+				/>
+				<Field hint={linkedClone ? "blank inherits source" : "required"} label="Short bio">
+					<textarea
+						className="textarea short-bio-editor"
+						{...textProps}
+						maxLength={1200}
+						onChange={(event) => setDraft((current) => ({ ...current, shortBio: event.target.value }))}
+						placeholder={linkedClone ? textValue(bot.shortBio) : undefined}
 						rows={4}
 						value={draft.shortBio}
 					/>
@@ -11165,6 +11204,7 @@ function BotEditProfileSection({
 function BotEditPromptSection({
 	bot,
 	draft,
+	language,
 	linkedClone,
 	onComputePromptBudget,
 	promptBudgetError,
@@ -11175,6 +11215,7 @@ function BotEditPromptSection({
 }: {
 	bot: BotSummary;
 	draft: BotEditDraft;
+	language: LanguageTag;
 	linkedClone: boolean;
 	onComputePromptBudget: () => void;
 	promptBudgetError: string;
@@ -11183,6 +11224,7 @@ function BotEditPromptSection({
 	resolvedContextWindowTokens: number;
 	setDraft: (update: (current: BotEditDraft) => BotEditDraft) => void;
 }) {
+	const textProps = textLanguageDomProps(language);
 	return (
 		<section className="section">
 			<div className="section-head">
@@ -11194,6 +11236,7 @@ function BotEditPromptSection({
 			<Field>
 				<textarea
 					className="textarea prompt-editor"
+					{...textProps}
 					maxLength={maxBotPromptLength}
 					onChange={(event) => setDraft((current) => ({ ...current, prompt: event.target.value }))}
 					placeholder={linkedClone ? textValue(bot.prompt) : undefined}
@@ -15201,8 +15244,8 @@ function CreateBotModal({
 									maxLength={80}
 									onChange={(event) =>
 										setCloneDraft((current) => ({ ...current, displayName: event.target.value }))
-										}
-										placeholder={textValue(selectedCloneSource.displayName)}
+									}
+									placeholder={textValue(selectedCloneSource.displayName)}
 									value={cloneDraft.displayName}
 								/>
 							</Field>
@@ -15210,8 +15253,8 @@ function CreateBotModal({
 								<textarea
 									className="textarea short-bio-editor"
 									maxLength={1200}
-										onChange={(event) => setCloneDraft((current) => ({ ...current, shortBio: event.target.value }))}
-										placeholder={textValue(selectedCloneSource.shortBio)}
+									onChange={(event) => setCloneDraft((current) => ({ ...current, shortBio: event.target.value }))}
+									placeholder={textValue(selectedCloneSource.shortBio)}
 									rows={4}
 									value={cloneDraft.shortBio}
 								/>
@@ -15220,15 +15263,20 @@ function CreateBotModal({
 								<textarea
 									className="textarea"
 									maxLength={maxBotPromptLength}
-										onChange={(event) => setCloneDraft((current) => ({ ...current, prompt: event.target.value }))}
-										placeholder={textValue(selectedCloneSource.prompt)}
+									onChange={(event) => setCloneDraft((current) => ({ ...current, prompt: event.target.value }))}
+									placeholder={textValue(selectedCloneSource.prompt)}
 									rows={6}
 									value={cloneDraft.prompt}
-									/>
-								</Field>
-								<LanguageField onChange={(language) => setCloneDraft((current) => ({ ...current, language }))} value={cloneDraft.language} />
+								/>
+							</Field>
+							<LanguageField
+								hint="blank inherits source"
+								onChange={(language) => setCloneDraft((current) => ({ ...current, language }))}
+								placeholder={selectedCloneSource.language ?? textLang(selectedCloneSource.displayName) ?? "source"}
+								value={cloneDraft.language}
+							/>
 							</div>
-					)}
+						)}
 				</div>
 			)}
 
@@ -19588,26 +19636,32 @@ function Field({
 
 function LanguageField({
 	disabled,
+	hint,
 	label,
 	onChange,
+	placeholder = "en",
 	value,
 }: {
 	disabled?: boolean;
+	hint?: string;
 	label?: string;
 	onChange: (value: string) => void;
+	placeholder?: string;
 	value: string;
 }) {
 	const inputId = useId();
 	const listId = `${inputId}-languages`;
 	const t = useUiText();
 	return (
-		<Field help={t.language.fieldHelp} label={label ?? t.language.fieldLabel}>
+		<Field help={t.language.fieldHelp} hint={hint} label={label ?? t.language.fieldLabel}>
 			<input
 				className="input"
 				disabled={disabled}
+				dir="ltr"
+				lang="en"
 				list={listId}
 				onChange={(event) => onChange(event.target.value)}
-				placeholder="en"
+				placeholder={placeholder}
 				value={value}
 			/>
 			<datalist id={listId}>
@@ -21396,7 +21450,10 @@ function botEditDraftFromBot(bot: BotSummary, ownerInferenceSettings: BotInferen
 	const profileOverrides = bot.localOverrides;
 	const inferenceSettings = botEditableInferenceSettings(bot);
 	return {
-		language: languageDraftValue(profileOverrides?.language ?? bot.language, textLang(profileOverrides?.displayName ?? bot.displayName) ?? defaultLanguageTag),
+		language:
+			profileOverrides ?
+				profileOverrides.language ?? ""
+			:	languageDraftValue(bot.language, textLang(bot.displayName) ?? defaultLanguageTag),
 		displayName: textValue(profileOverrides?.displayName ?? bot.displayName),
 		shortBio: textValue(profileOverrides?.shortBio ?? bot.shortBio),
 		prompt: textValue(profileOverrides?.prompt ?? bot.prompt ?? ""),
@@ -21438,8 +21495,9 @@ function updateBotInputFromEditDraft(
 	draft: BotEditDraft,
 	parsed: BotEditParsedDraft,
 	inferenceInheritance: InferenceModelUnlockContext | undefined,
+	linkedClone: boolean,
 ): UpdateBotInput {
-	const language = languageInputValue(draft.language) ?? defaultLanguageTag;
+	const language = languageInputValue(draft.language) ?? (linkedClone ? null : defaultLanguageTag);
 	return {
 		language,
 		displayName: localizedText(draft.displayName, language),
@@ -21466,7 +21524,7 @@ function updateBotInputFromEditDraft(
 }
 
 function createBotInputFromDraft(draft: BotDraft): CreateBotInput {
-	const language = languageInputValue(draft.language) ?? defaultLanguageTag;
+	const language = languageInputValue(draft.language) ?? (draft.cloneSourceBotId ? null : defaultLanguageTag);
 	return {
 		handle: draft.handle,
 		language,
@@ -21809,13 +21867,13 @@ function isValidBotDraft(draft: BotDraft): boolean {
 }
 
 function isValidCloneBotDraft(draft: BotDraft): boolean {
-	return isValidHandle(draft.handle) && draft.language.trim().length > 0 && draft.prompt.length <= maxBotPromptLength;
+	return isValidHandle(draft.handle) && draft.prompt.length <= maxBotPromptLength;
 }
 
 function botDraftFromExistingBot(bot: BotSummary): BotDraft {
 	return {
 		handle: bot.handle,
-		language: languageDraftValue(bot.language, textLang(bot.displayName) ?? defaultLanguageTag),
+		language: "",
 		displayName: "",
 		shortBio: "",
 		prompt: "",
