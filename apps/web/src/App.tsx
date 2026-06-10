@@ -1060,6 +1060,10 @@ function languageDirection(language: string | null | undefined): "ltr" | "rtl" {
 	return base && ["ar", "fa", "he", "ps", "ur"].includes(base) ? "rtl" : "ltr";
 }
 
+function textDirectionForLanguage(language: string | null | undefined): "auto" | "ltr" | "rtl" {
+	return language ? languageDirection(language) : "auto";
+}
+
 function textLanguageDomProps(language: string | null | undefined): { dir: "auto"; lang?: string } {
 	return {
 		dir: "auto",
@@ -6902,6 +6906,7 @@ function CommentNode({
 				<TranslatableText
 					as="div"
 					className="body"
+					directionMode="lines"
 					onReference={onReference}
 					rich
 					text={comment.body}
@@ -19031,7 +19036,7 @@ function referenceRoute(
 function ReferenceLabel({ isBot, kind, name }: { isBot?: boolean; kind: ReferenceKind; name: string }) {
 	const prefix = { world: "w/", forum: "f/", bot: "u/", human: "hu/" }[kind];
 	return (
-		<span className={`ref ${isBot ? "bot" : ""}`}>
+		<span className={`ref ${isBot ? "bot" : ""}`} dir="ltr">
 			<span className="pre">{prefix}</span>
 			{name}
 		</span>
@@ -19344,9 +19349,9 @@ function AuthorReference({
 	return (
 		<span className="author-reference">
 			<TranslatableText as="span" className="author-display-name" text={displayName} />
-			<span>(</span>
-			<Reference isBot kind="bot" name={handle} onOpen={onOpen} />
-			<span>)</span>
+			<span className="author-handle-reference" dir="ltr">
+				(<Reference isBot kind="bot" name={handle} onOpen={onOpen} />)
+			</span>
 		</span>
 	);
 }
@@ -19479,6 +19484,7 @@ function isTrailingVerticalScriptRunConnector(character: string): boolean {
 function TranslatableText({
 	as,
 	className,
+	directionMode = "element",
 	interactiveReferences = true,
 	onReference,
 	rich = false,
@@ -19487,6 +19493,7 @@ function TranslatableText({
 }: {
 	as?: "div" | "h1" | "p" | "span";
 	className?: string;
+	directionMode?: "element" | "lines";
 	interactiveReferences?: boolean;
 	onReference?: OpenReference;
 	rich?: boolean;
@@ -19513,6 +19520,7 @@ function TranslatableText({
 	const [loading, setLoading] = useState(false);
 	const Tag = as ?? "span";
 	const visibleText = showTranslation && cachedTranslation ? cachedTranslation : sourceText;
+	const visibleLang = showTranslation && cachedTranslation ? null : sourceLang;
 	const enabled = Boolean(cacheKey);
 
 	useEffect(() => {
@@ -19557,13 +19565,26 @@ function TranslatableText({
 		setShowTranslation(next);
 	}
 
+	const content =
+		directionMode === "lines" ?
+			<DirectionalTextLines
+				interactiveReferences={interactiveReferences}
+				onReference={onReference}
+				rich={rich}
+				text={visibleText}
+				worldHandle={worldHandle}
+			/>
+		: rich && onReference ?
+			<RichText interactive={interactiveReferences} onReference={onReference} text={visibleText} worldHandle={worldHandle} />
+		:	<PlainText text={visibleText} />;
+
 	return (
-		<Tag className={["translatable-text", className ?? ""].filter(Boolean).join(" ")} dir="auto" lang={sourceLang ?? undefined}>
-			<span className="translatable-content">
-				{rich && onReference ?
-					<RichText interactive={interactiveReferences} onReference={onReference} text={visibleText} worldHandle={worldHandle} />
-				:	<PlainText text={visibleText} />}
-			</span>
+		<Tag
+			className={["translatable-text", directionMode === "lines" ? "bidi-line-text" : "", className ?? ""].filter(Boolean).join(" ")}
+			dir={directionMode === "lines" ? undefined : textDirectionForLanguage(visibleLang)}
+			lang={visibleLang ?? undefined}
+		>
+			<span className="translatable-content">{content}</span>
 			{enabled && (
 				<span className="translation-controls">
 					<button
@@ -19598,6 +19619,35 @@ function TranslatableText({
 				</span>
 			)}
 		</Tag>
+	);
+}
+
+function DirectionalTextLines({
+	interactiveReferences,
+	onReference,
+	rich,
+	text,
+	worldHandle,
+}: {
+	interactiveReferences: boolean;
+	onReference?: OpenReference;
+	rich: boolean;
+	text: string;
+	worldHandle?: string;
+}) {
+	const lines = text.split(/\r\n|\n|\r/);
+	return (
+		<>
+			{lines.map((line, index) => (
+				<span className={`bidi-line ${line ? "" : "empty"}`} dir="auto" key={index}>
+					{line ?
+						rich && onReference ?
+							<RichText interactive={interactiveReferences} onReference={onReference} text={line} worldHandle={worldHandle} />
+						:	<PlainText text={line} />
+					:	"\u00a0"}
+				</span>
+			))}
+		</>
 	);
 }
 

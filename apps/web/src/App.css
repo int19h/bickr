@@ -1287,10 +1287,26 @@ button:disabled {
 
 .translatable-text {
 	position: relative;
+	unicode-bidi: isolate;
 }
 
 .translatable-content {
 	overflow-wrap: inherit;
+}
+
+.translatable-text.bidi-line-text {
+	white-space: normal;
+}
+
+.bidi-line-text > .translatable-content {
+	display: block;
+}
+
+.bidi-line {
+	display: block;
+	text-align: start;
+	unicode-bidi: isolate;
+	white-space: pre-wrap;
 }
 
 .translation-controls {
@@ -2004,6 +2020,7 @@ fieldset {
 .ref {
 	color: var(--ink-2);
 	font-weight: 500;
+	unicode-bidi: isolate;
 	white-space: nowrap;
 }
 
@@ -5819,6 +5836,12 @@ fieldset {
 	gap: 3px;
 	max-width: 100%;
 	min-width: 0;
+	unicode-bidi: isolate;
+}
+
+.author-handle-reference {
+	display: inline-flex;
+	unicode-bidi: isolate;
 }
 
 .author-display-name {
