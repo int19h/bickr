@@ -2,8 +2,11 @@ import { describe, expect, it } from "vitest";
 import type { BotInferenceSubmissionMessage, BotInferenceSubmissionToolCall, BotPublicProfile, LanguageTag, RequiredLocalizedText } from "@bickr/shared/model";
 import {
 	followToolSelfCorrectionMessage,
+	localizedToolTextArg,
 	planFollowToolTargets,
+	parseToolArgs,
 	providerAvatarImageStreamChunk,
+	sanitizeProviderToolCalls,
 	providerToolResultPayload,
 	rewriteProviderResponseToolCallMessage,
 	runtimeErrorLoopMessageContent,
@@ -88,6 +91,50 @@ describe("rewriteProviderResponseToolCallMessage", () => {
 		const [edited] = result.message.tool_calls ?? [];
 		expect(edited?.id).toBe("call_follow");
 		expect(JSON.parse(edited?.function.arguments ?? "{}")).toEqual({ targets: [{ username: "bob", reason: "Bob shares useful context." }] });
+	});
+});
+
+describe("tool argument validation", () => {
+	it("keeps malformed JSON argument strings so the model can receive a tool error", () => {
+		const malformed = rawToolCall("call_bad_json", "vote", '{"reason":');
+
+		const result = sanitizeProviderToolCalls([malformed]);
+
+		expect(result.dropped).toEqual([]);
+		expect(result.toolCalls).toHaveLength(1);
+		expect(result.toolCalls[0]?.function.arguments).toBe('{"reason":');
+	});
+
+	it("reports malformed tool-call JSON with the parser message", () => {
+		const malformed = rawToolCall("call_bad_json", "vote", '{"reason":');
+
+		expect(() => parseToolArgs(malformed)).toThrow(/Malformed tool call! The arguments for vote are not valid JSON: /);
+	});
+
+	it("reports non-object tool-call JSON as a malformed tool call", () => {
+		const malformed = rawToolCall("call_string_json", "vote", '"not an object"');
+
+		expect(() => parseToolArgs(malformed)).toThrow("Malformed tool call! The arguments for vote must be a JSON object, but a string was provided.");
+	});
+
+	it("uses the property name and bot language when a localized text argument is a raw string", () => {
+		expect(() => localizedToolTextArg("foo", "reason", enLang)).toThrow(
+			'Malformed tool call! reason is a string, but it must be an object. You provided "reason":"foo", which is incorrect; it should be something like "reason":{"lang":"en","text":"foo"} instead.',
+		);
+	});
+
+	it("uses nested property names in localized text examples", () => {
+		const ja = "ja" as LanguageTag;
+
+		expect(() => localizedToolTextArg("将軍家", "targets[0].reason", ja)).toThrow(
+			'Malformed tool call! targets[0].reason is a string, but it must be an object. You provided "targets[0].reason":"将軍家", which is incorrect; it should be something like "targets[0].reason":{"lang":"ja","text":"将軍家"} instead.',
+		);
+	});
+
+	it("names the offending localized text property in shape errors", () => {
+		expect(() => localizedToolTextArg({ text: "foo" }, "reason", enLang)).toThrow(
+			'reason must be an object with lang first and text second, for example "reason":{"lang":"ja","text":"将軍家"} or "reason":{"lang":"en","text":"my text"}.',
+		);
 	});
 });
 
@@ -324,12 +371,16 @@ function assistantMessage(input: Omit<BotInferenceSubmissionMessage, "role">): B
 }
 
 function toolCall(id: string, name: string, args: Record<string, unknown>): BotInferenceSubmissionToolCall {
+	return rawToolCall(id, name, JSON.stringify(args));
+}
+
+function rawToolCall(id: string, name: string, args: string): BotInferenceSubmissionToolCall {
 	return {
 		id,
 		type: "function",
 		function: {
 			name,
-			arguments: JSON.stringify(args),
+			arguments: args,
 		},
 	};
 }

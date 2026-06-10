@@ -1005,6 +1005,16 @@ export type ProviderToolCallSanitization = {
 	repairedTextCount: number;
 };
 
+class ToolCallArgumentValidationError extends Error {
+	readonly code: string;
+
+	constructor(code: string, message: string) {
+		super(message);
+		this.name = 'ToolCallArgumentValidationError';
+		this.code = code;
+	}
+}
+
 type ProviderToolCallHistoryRepairAction = { kind: 'delete'; seq: number } | { kind: 'update'; seq: number; message: ChatMessage };
 
 type ProviderToolCallHistoryRepair = {
@@ -2404,22 +2414,8 @@ export function sanitizeProviderToolCalls(toolCalls: readonly BotInferenceSubmis
 			dropped.push(droppedProviderToolCall(id, name, 'missing_function_name', rawArguments));
 			continue;
 		}
-		if (typeof rawArguments !== 'string') {
-			dropped.push(droppedProviderToolCall(id, name, 'invalid_arguments_json', rawArguments));
-			continue;
-		}
-		let parsed: unknown;
-		try {
-			parsed = JSON.parse(rawArguments) as unknown;
-		} catch {
-			dropped.push(droppedProviderToolCall(id, name, 'invalid_arguments_json', rawArguments));
-			continue;
-		}
-		if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-			dropped.push(droppedProviderToolCall(id, name, 'arguments_not_json_object', rawArguments));
-			continue;
-		}
-		const argumentRepair = repairInvalidUnicodeValue(parsed);
+		const argumentText = providerToolCallArgumentsText(rawArguments);
+		const argumentRepair = repairInvalidUnicodeValue(argumentText);
 		repairedTextCount += argumentRepair.repairCount;
 		if (seenIds.has(id)) {
 			dropped.push(droppedProviderToolCall(id, name, 'duplicate_tool_call', rawArguments));
@@ -2431,11 +2427,21 @@ export function sanitizeProviderToolCalls(toolCalls: readonly BotInferenceSubmis
 			type: 'function',
 			function: {
 				name,
-				arguments: JSON.stringify(argumentRepair.value),
+				arguments: argumentRepair.value,
 			},
 		});
 	}
 	return { toolCalls: sanitized, dropped, repairedTextCount };
+}
+
+function providerToolCallArgumentsText(rawArguments: unknown): string {
+	if (typeof rawArguments === 'string') {
+		return rawArguments;
+	}
+	if (rawArguments === undefined || rawArguments === null) {
+		return '';
+	}
+	return JSON.stringify(rawArguments) ?? '';
 }
 
 function sanitizeProviderResponseToolCalls(response: ProviderResponse): {
@@ -2467,9 +2473,10 @@ function dedupeGeneratedFollowToolCalls(toolCalls: readonly ToolCall[]): { toolC
 			deduped.push(toolCall);
 			continue;
 		}
-		const args = parseToolArgs(toolCall);
+		let args: Record<string, unknown>;
 		let parsed: { targets: FollowToolTarget[]; removedLocalDuplicate: boolean };
 		try {
+			args = parseToolArgs(toolCall);
 			parsed = followToolTargetsForProviderDedupe(args);
 		} catch {
 			deduped.push(toolCall);
@@ -4529,11 +4536,40 @@ export class BotRuntime {
 			const pendingToolCallIds = new Set(response.toolCalls.map((toolCall) => toolCall.id));
 			let persistentFailure: ToolFailurePayload | null = null;
 			let spotlightTickTerminated = false;
+			const appendFailedToolCall = async (
+				toolCall: ToolCall,
+				args: Record<string, unknown>,
+				error: unknown,
+			): Promise<void> => {
+				const failure = toolFailurePayload(toolCall.function.name, args, error);
+				pendingToolCallIds.delete(toolCall.id);
+				consecutiveToolFailures += 1;
+				await this.appendEvent(runId, 'tool_result', {
+					name: toolCall.function.name || 'unknown_tool',
+					args,
+					result: failure,
+					displayContext: { worldHandle: bot.homeWorldHandle },
+					error: true,
+					consecutiveFailures: consecutiveToolFailures,
+				});
+				const toolMessage: ChatMessage = {
+					role: 'tool',
+					tool_call_id: toolCall.id,
+					content: JSON.stringify(failure),
+				};
+				const loopMessage = this.appendLoopMessage(runId, toolMessage, 'tool_failure');
+				this.recordLoopMessageLog(loopMessage.seq, 'tool_call', JSON.stringify(toolCall));
+				this.recordLoopMessageLog(loopMessage.seq, 'tool_result', toolMessage.content ?? '');
+				const acknowledgement = toolFailureAssistantContent(failure);
+				if (consecutiveToolFailures >= 5) {
+					persistentFailure = failure;
+				}
+				toolFailureAcknowledgements.push(acknowledgement);
+			};
 
 			for (const toolCall of response.toolCalls) {
 				this.throwIfStopped(runId, runContext.signal);
 				const assistantLoopMessageSeq = appendAssistantMessageForToolCall(toolCall);
-				const args = parseToolArgs(toolCall);
 				const canonicalName = canonicalToolName(toolCall.function.name);
 				if (canonicalName === providerCompactionToolName) {
 					pendingToolCallIds.delete(toolCall.id);
@@ -4563,6 +4599,13 @@ export class BotRuntime {
 				if (logOffCalled && canonicalName !== 'log_off') {
 					pendingToolCallIds.delete(toolCall.id);
 					await this.dropGeneratedProviderToolCall(runId, requestEvent.seq, assistantLoopMessageSeq, toolCall, 'iteration_limit');
+					continue;
+				}
+				let args: Record<string, unknown>;
+				try {
+					args = parseToolArgs(toolCall);
+				} catch (error) {
+					await appendFailedToolCall(toolCall, malformedToolCallFailureArgs(toolCall), error);
 					continue;
 				}
 				let result: ToolResult;
@@ -4612,29 +4655,7 @@ export class BotRuntime {
 						selfCorrectionAcknowledgements.push(selfCorrection);
 						continue;
 					}
-					pendingToolCallIds.delete(toolCall.id);
-					consecutiveToolFailures += 1;
-					await this.appendEvent(runId, 'tool_result', {
-						name: toolCall.function.name || 'unknown_tool',
-						args,
-						result: failure,
-						displayContext: { worldHandle: bot.homeWorldHandle },
-						error: true,
-						consecutiveFailures: consecutiveToolFailures,
-					});
-					const toolMessage: ChatMessage = {
-						role: 'tool',
-						tool_call_id: toolCall.id,
-						content: JSON.stringify(failure),
-					};
-					const loopMessage = this.appendLoopMessage(runId, toolMessage, 'tool_failure');
-					this.recordLoopMessageLog(loopMessage.seq, 'tool_call', JSON.stringify(toolCall));
-					this.recordLoopMessageLog(loopMessage.seq, 'tool_result', toolMessage.content ?? '');
-					const acknowledgement = toolFailureAssistantContent(failure);
-					if (consecutiveToolFailures >= 5) {
-						persistentFailure = failure;
-					}
-					toolFailureAcknowledgements.push(acknowledgement);
+					await appendFailedToolCall(toolCall, args, error);
 					continue;
 				}
 				const toolMessage: ChatMessage = {
@@ -7263,7 +7284,7 @@ export class BotRuntime {
 	): Promise<ToolResult> {
 		this.throwIfStopped(runId, runContext.signal);
 		const canonicalName = canonicalToolName(name);
-		const normalizedArgs = normalizeToolArgs(canonicalName, args);
+		const normalizedArgs = normalizeToolArgs(canonicalName, args, bot.language);
 		const spotlightScope = runContext.spotlightId ? runContext.spotlightActionScope : undefined;
 		let spotlightMutation = false;
 		let spotlightTickTerminator = false;
@@ -7319,8 +7340,8 @@ export class BotRuntime {
 			case 'create_thread': {
 				const forum = await this.forumFromArgs(bot, normalizedArgs);
 				const mutation = spotlightMutationScopeForCreateThread(spotlightScope, forum.personalBotId);
-				const title = localizedToolTextArg(normalizedArgs.title, 'title');
-				const body = localizedToolTextArg(normalizedArgs.body, 'body');
+				const title = localizedToolTextArg(normalizedArgs.title, 'title', bot.language);
+				const body = localizedToolTextArg(normalizedArgs.body, 'body', bot.language);
 				normalizedArgs.title = title;
 				normalizedArgs.body = body;
 				result = await this.forumService(
@@ -7343,7 +7364,7 @@ export class BotRuntime {
 			}
 			case 'reply_to_comment':
 			case 'make_additional_reply_to_the_same_comment': {
-				const body = localizedToolTextArg(normalizedArgs.body, 'body');
+				const body = localizedToolTextArg(normalizedArgs.body, 'body', bot.language);
 				normalizedArgs.body = body;
 				const parentCommentId = await this.replyTargetCommentId(normalizedArgs);
 				const mutation = spotlightMutationScopeForComment(spotlightScope, parentCommentId);
@@ -7375,7 +7396,7 @@ export class BotRuntime {
 				break;
 			}
 			case 'vote': {
-				const reason = localizedToolTextArg(normalizedArgs.reason, 'reason');
+				const reason = localizedToolTextArg(normalizedArgs.reason, 'reason', bot.language);
 				normalizedArgs.reason = reason;
 				const votes = voteTargetsArg(normalizedArgs.votes);
 				const mutation = spotlightMutationScopeForVotes(spotlightScope, votes);
@@ -7388,7 +7409,7 @@ export class BotRuntime {
 				const followResult = await this.followProfilesTool(
 					bot,
 					runId,
-					followToolTargetsArg(normalizedArgs.targets),
+					followToolTargetsArg(normalizedArgs.targets, bot.language),
 					true,
 					runContext.signal,
 					runContext.spotlightId,
@@ -7408,7 +7429,7 @@ export class BotRuntime {
 				const followResult = await this.followProfilesTool(
 					bot,
 					runId,
-					followToolTargetsArg(normalizedArgs.targets),
+					followToolTargetsArg(normalizedArgs.targets, bot.language),
 					false,
 					runContext.signal,
 					runContext.spotlightId,
@@ -7485,7 +7506,7 @@ export class BotRuntime {
 				break;
 			}
 			case 'log_off':
-				normalizedArgs.reason = localizedToolTextArg(normalizedArgs.reason, 'reason');
+				normalizedArgs.reason = localizedToolTextArg(normalizedArgs.reason, 'reason', bot.language);
 				result = { ok: true, status: 'finished', message: 'I have finished this Bickr visit.' };
 				break;
 			default:
@@ -15169,6 +15190,10 @@ function toolFailureSelfCorrection(failure: Pick<ToolFailurePayload, 'code' | 't
 			return 'I used an ID or handle that Bickr does not recognize, so I need to check the page for the right one before trying again.';
 		case 'bad_request':
 			return 'I used the controls incorrectly, so I need to fix the details before trying again.';
+		case 'invalid_arguments_json':
+			return 'I need to send valid JSON arguments for that tool before trying again.';
+		case 'arguments_not_json_object':
+			return 'I need to send a JSON object as the tool arguments before trying again.';
 		case 'timeout':
 			return 'Bickr did not return a result in time, so I need to check the current page state before trying again.';
 		default:
@@ -16557,16 +16582,50 @@ async function readTickOptions(request: Request): Promise<TickOptions> {
 	};
 }
 
-function parseToolArgs(toolCall: ToolCall): Record<string, unknown> {
-	try {
-		const parsed = JSON.parse(toolCall.function.arguments || '{}') as unknown;
-		return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {};
-	} catch {
+export function parseToolArgs(toolCall: ToolCall): Record<string, unknown> {
+	const rawArguments = toolCall.function.arguments;
+	if (!rawArguments) {
 		return {};
+	}
+	try {
+		const parsed = JSON.parse(rawArguments) as unknown;
+		if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+			return parsed as Record<string, unknown>;
+		}
+		throw new ToolCallArgumentValidationError(
+			'arguments_not_json_object',
+			`Malformed tool call! The arguments for ${canonicalToolName(toolCall.function.name || 'unknown_tool')} must be a JSON object, but ${jsonValueKind(parsed)} was provided.`,
+		);
+	} catch (error) {
+		if (error instanceof ToolCallArgumentValidationError) {
+			throw error;
+		}
+		throw new ToolCallArgumentValidationError(
+			'invalid_arguments_json',
+			`Malformed tool call! The arguments for ${canonicalToolName(toolCall.function.name || 'unknown_tool')} are not valid JSON: ${errorMessage(error)}`,
+		);
 	}
 }
 
-function normalizeToolArgs(name: string, args: Record<string, unknown>): Record<string, unknown> {
+function malformedToolCallFailureArgs(toolCall: ToolCall): Record<string, unknown> {
+	return { rawArguments: toolCall.function.arguments };
+}
+
+function errorMessage(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
+}
+
+function jsonValueKind(value: unknown): string {
+	if (value === null) {
+		return 'null';
+	}
+	if (Array.isArray(value)) {
+		return 'an array';
+	}
+	return `a ${typeof value}`;
+}
+
+function normalizeToolArgs(name: string, args: Record<string, unknown>, language?: LanguageTag | null): Record<string, unknown> {
 	const canonical = canonicalToolName(name);
 	const normalized = { ...args };
 	if ((canonical === 'read_thread' || canonical === 'read_thread_by_id') && ('threadRef' in normalized || 'threadId' in normalized)) {
@@ -16606,7 +16665,7 @@ function normalizeToolArgs(name: string, args: Record<string, unknown>): Record<
 		delete normalized.threadId;
 	}
 	if (canonical === 'follow_profile' || canonical === 'unfollow_profile') {
-		normalized.targets = followToolTargetsFromArgs(normalized);
+		normalized.targets = followToolTargetsFromArgs(normalized, language);
 		delete normalized.username;
 		delete normalized.usernames;
 		delete normalized.reason;
@@ -16656,16 +16715,30 @@ function stringArg(value: unknown, label: string): string {
 	return value.trim();
 }
 
-function localizedToolTextArg(value: unknown, label: string): RequiredLocalizedText {
+export function localizedToolTextArg(value: unknown, label: string, language?: LanguageTag | null): RequiredLocalizedText {
+	if (typeof value === 'string') {
+		throw new ToolCallArgumentValidationError('bad_request', localizedToolTextStringError(value, label, language));
+	}
 	const record = runtimeRecord(value);
 	if (!Object.hasOwn(record, 'lang') || !Object.hasOwn(record, 'text')) {
-		throw new Error(`${label} must be an object with lang first and text second, for example {"lang":"ja","text":"将軍家"} or {"lang":"en","text":"my text"}. lang is required; plain strings are not accepted.`);
+		throw new ToolCallArgumentValidationError('bad_request', `${label} must be an object with lang first and text second, for example ${localizedToolTextPropertyExample(label, 'ja', '将軍家')} or ${localizedToolTextPropertyExample(label, 'en', 'my text')}.`);
 	}
 	const lang = languageTagArg(record.lang, `${label}.lang`);
 	if (typeof record.text !== 'string' || !record.text.trim()) {
-		throw new Error(`${label}.text is required.`);
+		throw new ToolCallArgumentValidationError('bad_request', `${label}.text is required.`);
 	}
 	return { lang, text: record.text };
+}
+
+function localizedToolTextStringError(text: string, label: string, language?: LanguageTag | null): string {
+	const lang = language ?? ('en' as LanguageTag);
+	const provided = `${JSON.stringify(label)}:${JSON.stringify(text)}`;
+	const expected = localizedToolTextPropertyExample(label, lang, text);
+	return `Malformed tool call! ${label} is a string, but it must be an object. You provided ${provided}, which is incorrect; it should be something like ${expected} instead.`;
+}
+
+function localizedToolTextPropertyExample(label: string, lang: string, text: string): string {
+	return `${JSON.stringify(label)}:${JSON.stringify({ lang, text })}`;
 }
 
 function localizedTextValue(value: unknown, fallback = ''): LocalizedText {
@@ -16687,7 +16760,7 @@ function optionalLanguageTagValue(value: unknown): LanguageTag | null {
 
 function languageTagArg(value: unknown, label: string): LanguageTag {
 	if (typeof value !== 'string' || !value.trim() || value.trim().toLowerCase() === 'und') {
-		throw new Error(`${label} must be a specific BCP 47 language tag such as "en", "ja", "zh-Hans", "zh-Hant", "ar", "mn-Mong", or "non"; do not use "und".`);
+		throw new ToolCallArgumentValidationError('bad_request', `${label} must be a specific BCP 47 language tag such as "en", "ja", "zh-Hans", "zh-Hant", "ar", "mn-Mong", or "non"; do not use "und".`);
 	}
 	try {
 		const canonical = Intl.getCanonicalLocales(value.trim())[0];
@@ -16696,7 +16769,7 @@ function languageTagArg(value: unknown, label: string): LanguageTag {
 		}
 		return canonical as LanguageTag;
 	} catch {
-		throw new Error(`${label} must be a valid BCP 47 language tag such as "en", "ja", "zh-Hans", "zh-Hant", "ar", "mn-Mong", or "non".`);
+		throw new ToolCallArgumentValidationError('bad_request', `${label} must be a valid BCP 47 language tag such as "en", "ja", "zh-Hans", "zh-Hant", "ar", "mn-Mong", or "non".`);
 	}
 }
 
@@ -16762,21 +16835,21 @@ function usernamesArg(value: unknown): string[] {
 	return usernames;
 }
 
-function followToolTargetsFromLegacyArgs(args: Record<string, unknown>): FollowToolTarget[] {
+function followToolTargetsFromLegacyArgs(args: Record<string, unknown>, language?: LanguageTag | null): FollowToolTarget[] {
 	const rawUsernames = 'usernames' in args ? args.usernames : 'username' in args ? [args.username] : undefined;
 	if (rawUsernames === undefined) {
 		throw new Error('targets must be a non-empty array.');
 	}
-	const reason = localizedToolTextArg(args.reason, 'reason');
+	const reason = localizedToolTextArg(args.reason, 'reason', language);
 	return usernamesArg(rawUsernames).map((username) => ({ username, reason }));
 }
 
-function followToolTargetsFromArgs(args: Record<string, unknown>): FollowToolTarget[] {
-	return 'targets' in args ? followToolTargetsArg(args.targets) : followToolTargetsFromLegacyArgs(args);
+function followToolTargetsFromArgs(args: Record<string, unknown>, language?: LanguageTag | null): FollowToolTarget[] {
+	return 'targets' in args ? followToolTargetsArg(args.targets, language) : followToolTargetsFromLegacyArgs(args, language);
 }
 
-function followToolTargetsArg(value: unknown): FollowToolTarget[] {
-	const targets = dedupeFollowToolTargets(followToolTargetArrayArg(value));
+function followToolTargetsArg(value: unknown, language?: LanguageTag | null): FollowToolTarget[] {
+	const targets = dedupeFollowToolTargets(followToolTargetArrayArg(value, language));
 	validateFollowToolTargets(targets);
 	return targets;
 }
@@ -16797,11 +16870,11 @@ function followToolTargetsForProviderDedupe(args: Record<string, unknown>): {
 	};
 }
 
-function followToolTargetArrayArg(value: unknown): FollowToolTarget[] {
+function followToolTargetArrayArg(value: unknown, language?: LanguageTag | null): FollowToolTarget[] {
 	if (!Array.isArray(value)) {
 		throw new Error('targets must be a non-empty array.');
 	}
-	const targets = value.map(followToolTargetArg);
+	const targets = value.map((item, index) => followToolTargetArg(item, index, language));
 	if (targets.length === 0) {
 		throw new Error('targets must include at least one participant.');
 	}
@@ -16846,12 +16919,12 @@ function followToolArgsWithTargets(args: Record<string, unknown>, targets: Follo
 	return normalized;
 }
 
-function followToolTargetArg(value: unknown, index: number): FollowToolTarget {
+function followToolTargetArg(value: unknown, index: number, language?: LanguageTag | null): FollowToolTarget {
 	const record = runtimeRecord(value);
 	const label = `targets[${index}]`;
 	return {
 		username: typedHandleArg(record.username ?? record.handle, 'u', `${label}.username`),
-		reason: localizedToolTextArg(record.reason, `${label}.reason`),
+		reason: localizedToolTextArg(record.reason, `${label}.reason`, language),
 	};
 }
 
@@ -16976,6 +17049,9 @@ function toolFailureCode(error: unknown): string {
 	}
 	if (error instanceof InputError) {
 		return 'bad_request';
+	}
+	if (error instanceof ToolCallArgumentValidationError) {
+		return error.code;
 	}
 	if (error instanceof RuntimeOperationTimeoutError) {
 		return 'timeout';
