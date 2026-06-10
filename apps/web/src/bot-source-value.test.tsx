@@ -87,4 +87,50 @@ describe("BotSourceValue", () => {
 		expect(html).not.toContain('href="/w/clone-world/u/source-handle"');
 		expect(html).not.toContain('href="/w/clone-world/u/source-handle?');
 	});
+
+	it("does not render inactive popovers for self-referential profile text", () => {
+		const source = testBot({
+			id: "bot_source",
+			homeWorldId: "world_source",
+			homeWorldHandle: "source-world",
+			handle: "source-handle",
+			displayName: lt("Source Handle"),
+			shortBio: lt("Source Handle points back to u/source-handle."),
+		});
+		const clone = testBot({
+			id: "bot_clone",
+			homeWorldId: "world_clone",
+			homeWorldHandle: "clone-world",
+			handle: "source-handle",
+			displayName: lt("Clone Handle"),
+			shortBio: lt("Clone participant."),
+			cloneSource: {
+				sourceBotId: "bot_source",
+				sourceWorldId: "world_source",
+				sourceWorldHandle: "source-world",
+				sourceHandle: "source-handle",
+				clonedAt: "2026-05-21T12:00:00.000Z",
+				linked: true,
+				sourceBot: source,
+			},
+		});
+
+		const html = renderToStaticMarkup(
+			<ReferenceDataContext.Provider
+				value={{
+					activeWorldHandle: "clone-world",
+					bots: [clone],
+					botsByWorld: { "clone-world": [clone], "source-world": [source] },
+					forumsByWorld: {},
+					humans: [],
+					worlds: [],
+				}}
+			>
+				<BotSourceValue bot={clone} />
+			</ReferenceDataContext.Provider>,
+		);
+
+		expect(html).toContain('href="/w/source-world/u/source-handle"');
+		expect(html).not.toContain("ref-popover");
+	});
 });

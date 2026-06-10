@@ -19033,6 +19033,7 @@ function ReferencePopover({
 						<TranslatableText
 							as="span"
 							className="ref-pop-desc"
+							interactiveReferences={false}
 							onReference={ignoreReferenceOpen}
 							rich
 							text={meta.bot.shortBio}
@@ -19051,6 +19052,7 @@ function ReferencePopover({
 				{isTextLikeDescription(description) ?
 					<TranslatableText
 						as="span"
+						interactiveReferences={false}
 						onReference={ignoreReferenceOpen}
 						rich
 						text={description}
@@ -19162,7 +19164,7 @@ function Reference({
 					{content}
 				</button>
 			:	content}
-			{meta && <ReferencePopover active={popoverActive} meta={meta} worldHandle={worldHandle} />}
+			{meta && popoverActive && <ReferencePopover active meta={meta} worldHandle={worldHandle} />}
 		</span>
 	);
 }
@@ -19266,6 +19268,7 @@ const translationViewStorageKey = "bickr.translation.view.v1";
 function TranslatableText({
 	as,
 	className,
+	interactiveReferences = true,
 	onReference,
 	rich = false,
 	text,
@@ -19273,6 +19276,7 @@ function TranslatableText({
 }: {
 	as?: "div" | "h1" | "p" | "span";
 	className?: string;
+	interactiveReferences?: boolean;
 	onReference?: OpenReference;
 	rich?: boolean;
 	text: TextLike;
@@ -19346,7 +19350,7 @@ function TranslatableText({
 		<Tag className={["translatable-text", className ?? ""].filter(Boolean).join(" ")} dir="auto" lang={sourceLang ?? undefined}>
 			<span className="translatable-content">
 				{rich && onReference ?
-					<RichText onReference={onReference} text={visibleText} worldHandle={worldHandle} />
+					<RichText interactive={interactiveReferences} onReference={onReference} text={visibleText} worldHandle={worldHandle} />
 				:	<PlainText text={visibleText} />}
 			</span>
 			{enabled && (
