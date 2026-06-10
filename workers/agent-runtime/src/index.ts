@@ -6596,18 +6596,19 @@ export class BotRuntime {
 		const inferenceSettings = enforceInferenceModelAccess(
 			mergeInferenceSettings(currentBot.inferenceSettings, input?.inferenceSettings),
 			owner.inferenceSettings,
-		);
-		const toolSettings = mergeToolSettings(currentBot.toolSettings, input?.toolSettings);
-		const postingSettings = mergePostingSettings(currentBot.postingSettings, input?.postingSettings);
-		const bot = await this.botWithEffectivePostingSettings({
-			...currentBot,
-			displayName: input?.displayName ? { lang: currentBot.language, text: input.displayName } : currentBot.displayName,
-			prompt: input?.prompt ? { lang: currentBot.language, text: input.prompt } : currentBot.prompt,
-			shortBio: input?.shortBio ? { lang: currentBot.language, text: input.shortBio } : currentBot.shortBio,
-			inferenceSettings,
-			toolSettings,
-			postingSettings,
-			tickSettings: mergeTickSettings(currentBot.tickSettings, input?.tickSettings),
+			);
+			const toolSettings = mergeToolSettings(currentBot.toolSettings, input?.toolSettings);
+			const postingSettings = mergePostingSettings(currentBot.postingSettings, input?.postingSettings);
+			const inputLanguage = input?.language ?? currentBot.language;
+			const bot = await this.botWithEffectivePostingSettings({
+				...currentBot,
+				displayName: input?.displayName ? { lang: inputLanguage, text: input.displayName } : currentBot.displayName,
+				prompt: input?.prompt ? { lang: inputLanguage, text: input.prompt } : currentBot.prompt,
+				shortBio: input?.shortBio ? { lang: inputLanguage, text: input.shortBio } : currentBot.shortBio,
+				inferenceSettings,
+				toolSettings,
+				postingSettings,
+				tickSettings: mergeTickSettings(currentBot.tickSettings, input?.tickSettings),
 		});
 		const tickSettings = effectiveTickSettings(bot.tickSettings);
 		const settings = this.effectiveProviderSettings(bot, owner);

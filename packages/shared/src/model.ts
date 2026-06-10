@@ -1695,6 +1695,7 @@ export type BotTickSpreadResult = {
 };
 
 export type BotContextBudgetInput = {
+	language?: LanguageTag | null;
 	displayName?: string;
 	prompt: string;
 	shortBio?: string;

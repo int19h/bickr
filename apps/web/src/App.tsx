@@ -10563,17 +10563,18 @@ function BotEdit({
 		}
 		const requestKey = promptBudgetRequestKey;
 		setPromptBudget({ status: "loading", requestKey });
-		const result = await api<{ budget: BotContextBudget }>(
-			`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/context-budget`,
-			{
-				method: "POST",
-				body: {
-					displayName: effectiveDraftDisplayName,
-					prompt: effectiveDraftPrompt,
-					shortBio: effectiveDraftShortBio,
-					inferenceSettings: inferenceInputFromDraft(draft.inference, inferenceInheritance, { includeReasoningPrefill: true }, effectiveDraftLanguage ?? defaultLanguageTag),
-					toolSettings: toolInputFromDraft(draft.tools),
-					postingSettings: {
+			const result = await api<{ budget: BotContextBudget }>(
+				`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/context-budget`,
+				{
+					method: "POST",
+					body: {
+						language: effectiveDraftLanguage ?? defaultLanguageTag,
+						displayName: effectiveDraftDisplayName,
+						prompt: effectiveDraftPrompt,
+						shortBio: effectiveDraftShortBio,
+						inferenceSettings: inferenceInputFromDraft(draft.inference, inferenceInheritance, { includeReasoningPrefill: true }, effectiveDraftLanguage ?? defaultLanguageTag),
+						toolSettings: toolInputFromDraft(draft.tools),
+						postingSettings: {
 						threadBodyCharacters,
 						commentBodyCharacters,
 					},

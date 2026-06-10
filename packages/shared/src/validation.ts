@@ -146,6 +146,41 @@ export function requiredText(value: unknown, label: string, maxLength: number): 
 	return trimmed;
 }
 
+function humanTextValue(value: unknown, label: string, language: LanguageTag | null): unknown {
+	if (!value || typeof value !== "object" || Array.isArray(value)) {
+		return value;
+	}
+	const record = value as Record<string, unknown>;
+	if (!Object.hasOwn(record, "text")) {
+		throw new InputError(`${label}.text is required.`);
+	}
+	if (!Object.hasOwn(record, "lang")) {
+		throw new InputError(`${label}.lang is required when ${label} is an object.`);
+	}
+	const actualLanguage = parseNullableLanguageTag(record.lang, `${label}.lang`);
+	if (actualLanguage !== language) {
+		throw new InputError(`${label}.lang must match the selected language for this entity.`);
+	}
+	return record.text;
+}
+
+function requiredHumanText(value: unknown, label: string, maxLength: number, language: LanguageTag | null): string {
+	return requiredText(humanTextValue(value, label, language), label, maxLength);
+}
+
+function optionalHumanText(value: unknown, label: string, maxLength: number, language: LanguageTag | null): string | undefined {
+	return optionalText(humanTextValue(value, label, language), label, maxLength);
+}
+
+function optionalHumanTextPreservingEmpty(
+	value: unknown,
+	label: string,
+	maxLength: number,
+	language: LanguageTag | null,
+): string | undefined {
+	return optionalTextPreservingEmpty(humanTextValue(value, label, language), label, maxLength);
+}
+
 export function requiredPostingBody(value: unknown, label: string, maxLength: number): string {
 	if (typeof value !== "string") {
 		throw new InputError(`${label} is required.`);
@@ -222,11 +257,11 @@ function requiredEntityLanguage(value: unknown, label: string): LanguageTag {
 }
 
 function localizedRequiredText(value: unknown, label: string, maxLength: number, lang: LanguageTag | null): LocalizedText {
-	return localizedText(requiredText(value, label, maxLength), lang);
+	return localizedText(requiredHumanText(value, label, maxLength, lang), lang);
 }
 
 function localizedOptionalTextPreservingEmpty(value: unknown, label: string, maxLength: number, lang: LanguageTag | null): LocalizedText | undefined {
-	const text = optionalTextPreservingEmpty(value, label, maxLength);
+	const text = optionalHumanTextPreservingEmpty(value, label, maxLength, lang);
 	return text === undefined ? undefined : localizedText(text, lang);
 }
 
@@ -267,10 +302,8 @@ function parseBotGroupTitle(value: unknown, lang: LanguageTag | null): Localized
 	if (value === undefined || value === null) {
 		return null;
 	}
-	if (typeof value !== "string") {
-		throw new InputError("Group title must be text.");
-	}
-	const trimmed = value.trim();
+	const title = optionalHumanTextPreservingEmpty(value, "Group title", maxBotGroupTitleLength, lang) ?? "";
+	const trimmed = title.trim();
 	if (trimmed.length > maxBotGroupTitleLength) {
 		throw new InputError(`Group title must be ${maxBotGroupTitleLength} characters or fewer.`);
 	}
@@ -446,14 +479,14 @@ export function parseCreateBotInput(input: unknown): CreateBotInput {
 		throw new InputError("Choose either a clone source or an import source.");
 	}
 	const displayName = cloneSourceBotId ?
-		optionalTextPreservingEmpty(record.displayName ?? record.name, "Bot name", 80) ?? ""
-	:	requiredText(record.displayName ?? record.name, "Bot name", 80);
+		optionalHumanTextPreservingEmpty(record.displayName ?? record.name, "Bot name", 80, language) ?? ""
+	:	requiredHumanText(record.displayName ?? record.name, "Bot name", 80, language);
 	const shortBio = cloneSourceBotId ?
-		optionalTextPreservingEmpty(record.shortBio, "Short bio", maxBotShortBioLength) ?? ""
-	:	requiredText(record.shortBio, "Short bio", maxBotShortBioLength);
+		optionalHumanTextPreservingEmpty(record.shortBio, "Short bio", maxBotShortBioLength, language) ?? ""
+	:	requiredHumanText(record.shortBio, "Short bio", maxBotShortBioLength, language);
 	const prompt = cloneSourceBotId ?
-		optionalTextPreservingEmpty(record.prompt, "Prompt", maxBotPromptLength) ?? ""
-	:	requiredText(record.prompt, "Prompt", maxBotPromptLength);
+		optionalHumanTextPreservingEmpty(record.prompt, "Prompt", maxBotPromptLength, language) ?? ""
+	:	requiredHumanText(record.prompt, "Prompt", maxBotPromptLength, language);
 	return {
 		handle: normalizeHandle(record.handle),
 		language,
@@ -478,9 +511,11 @@ export function parseUpdateBotInput(input: unknown): UpdateBotInput {
 	const update: UpdateBotInput = {};
 	const language = parseOptionalNullableLanguageTag(record.language, "Bot language");
 	const handle = record.handle === undefined ? undefined : normalizeHandle(record.handle);
-	const displayName = optionalTextPreservingEmpty(record.displayName ?? record.name, "Bot name", 80);
-	const shortBio = optionalTextPreservingEmpty(record.shortBio, "Short bio", maxBotShortBioLength);
-	const prompt = optionalTextPreservingEmpty(record.prompt, "Prompt", maxBotPromptLength);
+	const hasTextUpdate = record.displayName !== undefined || record.name !== undefined || record.shortBio !== undefined || record.prompt !== undefined;
+	const textLanguage = hasTextUpdate ? language ?? requiredEntityLanguage(record.language, "Bot language") : null;
+	const displayName = optionalHumanTextPreservingEmpty(record.displayName ?? record.name, "Bot name", 80, textLanguage);
+	const shortBio = optionalHumanTextPreservingEmpty(record.shortBio, "Short bio", maxBotShortBioLength, textLanguage);
+	const prompt = optionalHumanTextPreservingEmpty(record.prompt, "Prompt", maxBotPromptLength, textLanguage);
 	const inferenceSettings =
 		record.inferenceSettings === undefined ? undefined : parseInferenceSettings(record.inferenceSettings, language ?? null);
 	const toolSettings = record.toolSettings === undefined ? undefined : parseToolSettings(record.toolSettings);
@@ -495,15 +530,12 @@ export function parseUpdateBotInput(input: unknown): UpdateBotInput {
 		update.language = language;
 	}
 	if (displayName !== undefined) {
-		const textLanguage = language ?? requiredEntityLanguage(record.language, "Bot language");
 		update.displayName = localizedText(displayName, textLanguage);
 	}
 	if (shortBio !== undefined) {
-		const textLanguage = language ?? requiredEntityLanguage(record.language, "Bot language");
 		update.shortBio = localizedText(shortBio, textLanguage);
 	}
 	if (prompt !== undefined) {
-		const textLanguage = language ?? requiredEntityLanguage(record.language, "Bot language");
 		update.prompt = localizedText(prompt, textLanguage);
 	}
 	if (inferenceSettings !== undefined) {
@@ -527,17 +559,20 @@ export function parseUpdateBotInput(input: unknown): UpdateBotInput {
 
 export function parseBotContextBudgetInput(input: unknown): BotContextBudgetInput {
 	const record = asRecord(input);
+	const language = parseOptionalNullableLanguageTag(record.language, "Bot language");
+	const textLanguage = language ?? null;
 	const tickSettings =
 		record.tickSettings === undefined ?
 			undefined
 		:	pickContextWindowTickSettings(parseTickSettings(record.tickSettings));
 	return {
-		...(record.displayName === undefined ? {} : { displayName: requiredText(record.displayName, "Bot name", 80) }),
-		prompt: requiredText(record.prompt, "Prompt", maxBotPromptLength),
-		...(record.shortBio === undefined ? {} : { shortBio: requiredText(record.shortBio, "Short bio", maxBotShortBioLength) }),
+		...(language === undefined ? {} : { language }),
+		...(record.displayName === undefined ? {} : { displayName: requiredHumanText(record.displayName, "Bot name", 80, textLanguage) }),
+		prompt: requiredHumanText(record.prompt, "Prompt", maxBotPromptLength, textLanguage),
+		...(record.shortBio === undefined ? {} : { shortBio: requiredHumanText(record.shortBio, "Short bio", maxBotShortBioLength, textLanguage) }),
 		...(record.inferenceSettings === undefined ?
 			{}
-		:	{ inferenceSettings: parseInferenceSettings(record.inferenceSettings, null) }),
+		:	{ inferenceSettings: parseInferenceSettings(record.inferenceSettings, textLanguage) }),
 		...(record.toolSettings === undefined ? {} : { toolSettings: parseToolSettings(record.toolSettings) }),
 		...(record.postingSettings === undefined ?
 			{}
@@ -551,7 +586,9 @@ export function parseUpdateUserProfileInput(input: unknown): UpdateUserProfileIn
 	const update: UpdateUserProfileInput = {};
 	const language = parseOptionalNullableLanguageTag(record.language, "Profile language");
 	const handle = record.handle === undefined ? undefined : normalizeHandle(record.handle);
-	const displayName = optionalText(record.displayName ?? record.name, "Display name", 80);
+	const hasTextUpdate = record.displayName !== undefined || record.name !== undefined;
+	const textLanguage = hasTextUpdate ? language ?? requiredEntityLanguage(record.language, "Profile language") : null;
+	const displayName = optionalHumanText(record.displayName ?? record.name, "Display name", 80, textLanguage);
 	const uiLocale = record.uiLocale === undefined ? undefined : parseUiLocalePreference(record.uiLocale);
 	const avatarUrl =
 		record.avatarUrl === null ? null : optionalText(record.avatarUrl, "Avatar URL", 1_000);
@@ -565,7 +602,6 @@ export function parseUpdateUserProfileInput(input: unknown): UpdateUserProfileIn
 		update.language = language;
 	}
 	if (displayName !== undefined) {
-		const textLanguage = language ?? requiredEntityLanguage(record.language, "Profile language");
 		update.displayName = localizedText(displayName, textLanguage);
 	}
 	if (uiLocale !== undefined) {
@@ -1062,17 +1098,18 @@ function assignOptionalPreservedText<K extends keyof BotInferenceSettingsInput>(
 		settings[key] = null as BotInferenceSettingsInput[K];
 		return;
 	}
-	if (typeof value !== "string") {
+	const textValue = humanTextValue(value, label, lang);
+	if (typeof textValue !== "string") {
 		throw new InputError(`${label} must be text.`);
 	}
-	if (!value.trim()) {
+	if (!textValue.trim()) {
 		settings[key] = null as BotInferenceSettingsInput[K];
 		return;
 	}
-	if (value.length > maxLength) {
+	if (textValue.length > maxLength) {
 		throw new InputError(`${label} must be ${maxLength} characters or fewer.`);
 	}
-	settings[key] = localizedText(value, lang) as BotInferenceSettingsInput[K];
+	settings[key] = localizedText(textValue, lang) as BotInferenceSettingsInput[K];
 }
 
 function assignOptionalNumber<T extends object, K extends keyof T>(
