@@ -6,7 +6,13 @@ import {
 	type MyBotSpendLoadState,
 	type MyBotTableRecordForSort,
 } from "../apps/web/src/my-bots-table";
-import { type BotTokenSpendSummary } from "../packages/shared/src/model";
+import { localizedText, type BotTokenSpendSummary, type LanguageTag } from "../packages/shared/src/model";
+
+const en = "en" as LanguageTag;
+
+function lt(text: string) {
+	return localizedText(text, en);
+}
 
 function spend(cost: number | null, requestCount = 1, unknownCost = cost === null): MyBotSpendLoadState {
 	return {
@@ -37,7 +43,7 @@ function spend(cost: number | null, requestCount = 1, unknownCost = cost === nul
 
 function record(handle: string, state?: MyBotSpendLoadState): MyBotTableRecordForSort {
 	return {
-		bot: { displayName: handle.toUpperCase(), handle },
+		bot: { displayName: lt(handle.toUpperCase()), handle },
 		effectiveModel: "test/model",
 		lastActiveSort: null,
 		nextDueSort: null,

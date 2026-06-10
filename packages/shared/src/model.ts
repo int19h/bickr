@@ -1,5 +1,50 @@
 export const schemaVersion = 1;
 
+export type LanguageTag = string & { readonly __brand: "LanguageTag" };
+
+export type LocalizedText = {
+	lang: LanguageTag | null;
+	text: string;
+};
+
+export type RequiredLocalizedText = {
+	lang: LanguageTag;
+	text: string;
+};
+
+export type UiLocalePreference = "system" | LanguageTag;
+
+export function localizedText(text: string, lang: LanguageTag | null): LocalizedText {
+	return { lang, text };
+}
+
+export function localizedTextString(value: LocalizedText | string | null | undefined): string {
+	if (typeof value === "string") {
+		return value;
+	}
+	return value?.text ?? "";
+}
+
+export function localizedTextLang(value: LocalizedText | string | null | undefined): LanguageTag | null {
+	if (!value || typeof value === "string") {
+		return null;
+	}
+	return value.lang;
+}
+
+export function localizedTextFromStored(value: unknown, fallbackLang: LanguageTag | null = null): LocalizedText {
+	if (typeof value === "string") {
+		return localizedText(value, fallbackLang);
+	}
+	if (value && typeof value === "object" && !Array.isArray(value)) {
+		const record = value as Record<string, unknown>;
+		const text = typeof record.text === "string" ? record.text : "";
+		const lang = typeof record.lang === "string" && record.lang.trim() ? record.lang as LanguageTag : null;
+		return localizedText(text, lang ?? fallbackLang);
+	}
+	return localizedText("", fallbackLang);
+}
+
 export type EntityType =
 	| "user"
 	| "session"
@@ -25,7 +70,9 @@ export type EntityDocument = {
 export type UserDocument = EntityDocument & {
 	type: "user";
 	handle: string;
-	displayName: string;
+	language: LanguageTag | null;
+	uiLocale?: UiLocalePreference;
+	displayName: LocalizedText;
 	avatarUrl?: string;
 	inferenceSettings?: BotInferenceSettings;
 	profileCompletedAt?: string;
@@ -45,12 +92,13 @@ export type SessionDocument = EntityDocument & {
 export type WorldDocument = EntityDocument & {
 	type: "world";
 	handle: string;
-	name: string;
-	description: string;
-	prompt: string;
+	language: LanguageTag | null;
+	name: LocalizedText;
+	description: LocalizedText;
+	prompt: LocalizedText;
 	avatar?: AvatarImage;
 	imageGeneration?: BotImageGenerationSettings;
-	initialBotNotification: string;
+	initialBotNotification: LocalizedText;
 	postingSettings?: PostingSettings;
 	createdByUserId: string;
 	visibility: "public";
@@ -61,7 +109,8 @@ export type ForumDocument = EntityDocument & {
 	worldId: string;
 	worldHandle: string;
 	handle: string;
-	description: string;
+	language: LanguageTag | null;
+	description: LocalizedText;
 	createdByUserId: string;
 	personalBotId?: string;
 };
@@ -137,17 +186,19 @@ export type BotCloneSourceSummary = BotCloneSource & {
 		homeWorldId: string;
 		homeWorldHandle: string;
 		handle: string;
-		displayName: string;
-		shortBio: string;
+		language: LanguageTag | null;
+		displayName: LocalizedText;
+		shortBio: LocalizedText;
 		avatarUrl?: string;
 		avatarCrop?: AvatarCrop;
 	};
 };
 
 export type BotLocalOverrides = {
-	displayName: string;
-	shortBio: string;
-	prompt?: string;
+	language: LanguageTag | null;
+	displayName: LocalizedText;
+	shortBio: LocalizedText;
+	prompt?: LocalizedText;
 	inferenceSettings: BotInferenceSettings;
 	hasAvatar: boolean;
 	avatar?: AvatarImage;
@@ -203,9 +254,10 @@ export type BotDocument = EntityDocument & {
 	homeWorldHandle: string;
 	ownerUserId: string;
 	handle: string;
-	displayName: string;
-	shortBio: string;
-	prompt: string;
+	language: LanguageTag | null;
+	displayName: LocalizedText;
+	shortBio: LocalizedText;
+	prompt: LocalizedText;
 	inferenceSettings: BotInferenceSettings;
 	toolSettings: BotToolSettings;
 	postingSettings?: PostingSettings;
@@ -224,7 +276,7 @@ export type BotInferenceSettings = {
 	compactionMode?: BotCompactionMode;
 	cacheFriendlyCompaction?: boolean;
 	recurringPromptEnabled?: boolean;
-	recurringPrompt?: string;
+	recurringPrompt?: LocalizedText;
 	reasoningPrefill?: string;
 	supportsPrefill?: boolean;
 	reasoningEffort?: BotInferenceReasoningEffort;
@@ -249,7 +301,7 @@ export type BotCompactionMode = "structured_output" | "tool_call" | "tool_call_c
 export type BotTranslationSettings = {
 	enabled?: boolean;
 	model?: string;
-	prompt?: string;
+	prompt?: LocalizedText;
 	reasoningEffort?: BotInferenceReasoningEffort;
 	toolCalls?: BotStructuredToolCalls;
 	providerRouting?: JsonObject;
@@ -264,7 +316,7 @@ export type BotTranslationSettings = {
 
 export type BotImageGenerationSettings = {
 	model?: string;
-	prompt?: string;
+	prompt?: LocalizedText;
 	providerRouting?: JsonObject;
 	aspectRatio?: string;
 	imageSize?: string;
@@ -379,7 +431,7 @@ export type BotInferenceSettingsInput = {
 	compactionMode?: BotCompactionMode | null;
 	cacheFriendlyCompaction?: boolean | null;
 	recurringPromptEnabled?: boolean | null;
-	recurringPrompt?: string | null;
+	recurringPrompt?: LocalizedText | null;
 	reasoningPrefill?: string | null;
 	supportsPrefill?: boolean | null;
 	reasoningEffort?: BotInferenceReasoningEffort | null;
@@ -398,7 +450,7 @@ export type BotInferenceSettingsInput = {
 
 export type BotImageGenerationSettingsInput = Partial<{
 	model: string | null;
-	prompt: string | null;
+	prompt: LocalizedText | null;
 	providerRouting: JsonObject | null;
 	aspectRatio: string | null;
 	imageSize: string | null;
@@ -414,7 +466,7 @@ export type BotImageGenerationSettingsInput = Partial<{
 export type BotTranslationSettingsInput = Partial<{
 	enabled: boolean;
 	model: string | null;
-	prompt: string | null;
+	prompt: LocalizedText | null;
 	reasoningEffort: BotInferenceReasoningEffort | null;
 	toolCalls: BotStructuredToolCalls | null;
 	providerRouting: JsonObject | null;
@@ -576,9 +628,9 @@ export type LegacyRootPostDocument = {
 	forumHandle: string;
 	authorBotId: string;
 	authorHandle: string;
-	authorDisplayName: string;
-	title: string;
-	body: string;
+	authorDisplayName: LocalizedText;
+	title: LocalizedText;
+	body: LocalizedText;
 	url?: string;
 	voteScore: number;
 	createdAt: string;
@@ -592,11 +644,11 @@ export type CommentDocument = {
 	forumId: string;
 	authorBotId: string;
 	authorHandle: string;
-	authorDisplayName: string;
+	authorDisplayName: LocalizedText;
 	authorAvatarUrl?: string;
 	authorAvatarCrop?: AvatarCrop;
 	parentCommentId?: string;
-	body: string;
+	body: LocalizedText;
 	voteScore: number;
 	createdAt: string;
 	updatedAt: string;
@@ -607,7 +659,7 @@ export type CommentDocument = {
 export type VoteDetail = {
 	botId: string;
 	handle: string;
-	displayName: string;
+	displayName: LocalizedText;
 	value: number;
 	createdAt: string;
 	updatedAt: string;
@@ -629,7 +681,7 @@ export type ThreadDocument = EntityDocument & {
 	worldHandle: string;
 	forumId: string;
 	forumHandle: string;
-	title: string;
+	title: LocalizedText;
 	rootCommentId: string;
 	url?: string;
 	comments: CommentDocument[];
@@ -673,27 +725,27 @@ export type NotificationDeliveryReason =
 export type NotificationProfileRef = {
 	id: string;
 	username: string;
-	displayName: string;
-	shortBio?: string;
+	displayName: LocalizedText;
+	shortBio?: LocalizedText;
 };
 
 export type NotificationWorldRef = {
 	id: string;
 	handle: string;
-	name?: string;
+	name?: LocalizedText;
 };
 
 export type NotificationForumRef = {
 	id: string;
 	handle: string;
-	description?: string;
+	description?: LocalizedText;
 };
 
 export type NotificationThreadRef = {
 	id: string;
-	title: string;
+	title: LocalizedText;
 	author?: NotificationProfileRef;
-	text?: string;
+	text?: LocalizedText;
 };
 
 export type NotificationCommentRef = {
@@ -701,7 +753,7 @@ export type NotificationCommentRef = {
 	threadId: string;
 	parentCommentId?: string;
 	author: NotificationProfileRef;
-	text: string;
+	text: LocalizedText;
 };
 
 export type NotificationVoteRef = {
@@ -733,7 +785,7 @@ export type NotificationEvent = {
 	comment?: NotificationCommentRef;
 	replyTo?: NotificationCommentRef | NotificationThreadRef;
 	vote?: NotificationVoteRef;
-	message?: string;
+	message?: LocalizedText;
 	sourceObjectId?: string;
 };
 
@@ -744,7 +796,7 @@ export type NotificationDocument = EntityDocument & {
 	notificationType: NotificationType;
 	status: NotificationStatus;
 	sourceObjectId?: string;
-	message: string;
+	message: LocalizedText;
 	event?: NotificationEvent;
 	deliveredAt?: string;
 	readAt?: string;
@@ -753,7 +805,9 @@ export type NotificationDocument = EntityDocument & {
 export type PublicUser = {
 	id: string;
 	handle: string;
-	displayName: string;
+	language: LanguageTag | null;
+	uiLocale?: UiLocalePreference;
+	displayName: LocalizedText;
 	avatarUrl?: string;
 	profileComplete: boolean;
 	profileCompletedAt?: string;
@@ -811,10 +865,10 @@ export type HumanSubscriptionCommentSummary = {
 	forumId: string;
 	authorBotId: string;
 	authorHandle: string;
-	authorDisplayName: string;
+	authorDisplayName: LocalizedText;
 	authorAvatarUrl?: string;
 	authorAvatarCrop?: AvatarCrop;
-	bodyPreview: string;
+	bodyPreview: LocalizedText;
 	createdAt: string;
 };
 
@@ -886,18 +940,18 @@ export type HumanNotification = {
 	notificationType: HumanNotificationType;
 	actorBotId?: string;
 	actorHandle?: string;
-	actorDisplayName?: string;
+	actorDisplayName?: LocalizedText;
 	worldHandle?: string;
-	worldName?: string;
+	worldName?: LocalizedText;
 	forumId?: string;
 	forumHandle?: string;
-	forumName?: string;
+	forumName?: LocalizedText;
 	sourceType?: string;
 	sourceId?: string;
 	targetType?: string;
 	targetId?: string;
-	title: string;
-	body: string;
+	title: LocalizedText;
+	body: LocalizedText;
 	urlPath: string;
 	spotlightId?: string;
 	spotlightLabel?: string;
@@ -927,14 +981,15 @@ export type HumanNotificationReadScope =
 export type WorldSummary = {
 	id: string;
 	handle: string;
-	name: string;
-	description: string;
-	prompt: string;
+	language: LanguageTag | null;
+	name: LocalizedText;
+	description: LocalizedText;
+	prompt: LocalizedText;
 	avatar?: AvatarImage;
 	avatarUrl?: string;
 	avatarCrop?: AvatarCrop;
 	imageGeneration?: BotImageGenerationSettings;
-	initialBotNotification: string;
+	initialBotNotification: LocalizedText;
 	postingSettings?: PostingSettings;
 	createdByUserId: string;
 	createdAt: string;
@@ -951,7 +1006,8 @@ export type ForumSummary = {
 	worldId: string;
 	worldHandle: string;
 	handle: string;
-	description: string;
+	language: LanguageTag | null;
+	description: LocalizedText;
 	createdByUserId: string;
 	personalBotId?: string;
 	createdAt: string;
@@ -965,12 +1021,13 @@ export type BotSummary = {
 	ownerUserId: string;
 	owner?: PublicUser;
 	handle: string;
-	displayName: string;
-	shortBio: string;
+	language: LanguageTag | null;
+	displayName: LocalizedText;
+	shortBio: LocalizedText;
 	avatar?: AvatarImage;
 	avatarUrl?: string;
 	avatarCrop?: AvatarCrop;
-	prompt?: string;
+	prompt?: LocalizedText;
 	inferenceSettings: BotInferenceSettings;
 	toolSettings?: BotToolSettings;
 	postingSettings: PostingSettings;
@@ -992,7 +1049,8 @@ export type BotGroupSummary = {
 	id: string;
 	worldId: string;
 	ownerUserId: string;
-	customTitle: string | null;
+	language: LanguageTag | null;
+	customTitle: LocalizedText | null;
 	displayTitle: string;
 	titleSource: BotGroupTitleSource;
 	bots: BotSummary[];
@@ -1005,8 +1063,9 @@ export type BotPublicProfile = {
 	homeWorldId: string;
 	homeWorldHandle: string;
 	handle: string;
-	displayName: string;
-	shortBio: string;
+	language: LanguageTag | null;
+	displayName: LocalizedText;
+	shortBio: LocalizedText;
 	avatarUrl?: string;
 	avatarCrop?: AvatarCrop;
 	createdAt: string;
@@ -1025,8 +1084,8 @@ export type SearchResultSource = "substring" | "fts" | "semantic";
 export type SearchWorldContext = {
 	id: string;
 	handle: string;
-	name: string;
-	description: string;
+	name: LocalizedText;
+	description: LocalizedText;
 	matched: boolean;
 };
 
@@ -1042,23 +1101,23 @@ export type SearchResultBase = {
 
 export type SearchWorldResult = SearchResultBase & {
 	type: "world";
-	description: string;
+	description: LocalizedText;
 	handle: string;
-	name: string;
+	name: LocalizedText;
 };
 
 export type SearchForumResult = SearchResultBase & {
 	type: "forum";
-	description: string;
+	description: LocalizedText;
 	handle: string;
 	personalBotId?: string;
 };
 
 export type SearchBotResult = SearchResultBase & {
 	type: "bot";
-	displayName: string;
+	displayName: LocalizedText;
 	handle: string;
-	shortBio: string;
+	shortBio: LocalizedText;
 	avatarUrl?: string;
 	avatarCrop?: AvatarCrop;
 };
@@ -1129,11 +1188,11 @@ export type ThreadSummary = {
 	forumHandle: string;
 	authorBotId: string;
 	authorHandle: string;
-	authorDisplayName: string;
+	authorDisplayName: LocalizedText;
 	authorAvatarUrl?: string;
 	authorAvatarCrop?: AvatarCrop;
-	title: string;
-	bodyPreview: string;
+	title: LocalizedText;
+	bodyPreview: LocalizedText;
 	voteScore: number;
 	commentCount: number;
 	hotScore: number;
@@ -1147,11 +1206,11 @@ export type SearchThreadResult = {
 	commentId?: string;
 	rootCommentId?: string;
 	forumHandle: string;
-	title: string;
-	snippet: string;
+	title: LocalizedText;
+	snippet: LocalizedText;
 	authorBotId: string;
 	authorHandle: string;
-	authorDisplayName: string;
+	authorDisplayName: LocalizedText;
 	authorAvatarUrl?: string;
 	authorAvatarCrop?: AvatarCrop;
 	createdAt: string;
@@ -1161,8 +1220,8 @@ export type SearchThreadResult = {
 export type BotActivityCommentContext = {
 	commentId: string;
 	authorHandle: string;
-	authorDisplayName?: string;
-	bodyPreview: string;
+	authorDisplayName?: LocalizedText;
+	bodyPreview: LocalizedText;
 };
 
 export type BotActivityItem =
@@ -1173,8 +1232,8 @@ export type BotActivityItem =
 			rootCommentId: string;
 			worldHandle: string;
 			forumHandle: string;
-			title: string;
-			bodyPreview: string;
+			title: LocalizedText;
+			bodyPreview: LocalizedText;
 			voteScore: number;
 			commentCount: number;
 			createdAt: string;
@@ -1187,8 +1246,8 @@ export type BotActivityItem =
 			parentCommentId?: string;
 			worldHandle: string;
 			forumHandle: string;
-			threadTitle: string;
-			bodyPreview: string;
+			threadTitle: LocalizedText;
+			bodyPreview: LocalizedText;
 			parentComment?: BotActivityCommentContext;
 			voteScore: number;
 			createdAt: string;
@@ -1203,8 +1262,8 @@ export type BotActivityItem =
 			threadId?: string;
 			worldHandle?: string;
 			forumHandle?: string;
-			title?: string;
-			reason?: string;
+			title?: LocalizedText;
+			reason?: LocalizedText;
 			targetComment?: BotActivityCommentContext;
 			updatedAt: string;
 	  }
@@ -1212,14 +1271,14 @@ export type BotActivityItem =
 			type: "follow";
 			id: string;
 			bot: BotPublicProfile;
-			reason?: string;
+			reason?: LocalizedText;
 			createdAt: string;
 	  }
 	| {
 			type: "unfollow";
 			id: string;
 			bot: BotPublicProfile;
-			reason?: string;
+			reason?: LocalizedText;
 			createdAt: string;
 	  };
 
@@ -1279,11 +1338,11 @@ export type SpotlightIncludedContent = {
 	parentCommentId?: string;
 	authorBotId: string;
 	authorHandle: string;
-	authorDisplayName: string;
-	authorShortBio?: string;
+	authorDisplayName: LocalizedText;
+	authorShortBio?: LocalizedText;
 	authorFollowing?: boolean;
-	title?: string;
-	body: string;
+	title?: LocalizedText;
+	body: LocalizedText;
 	createdAt: string;
 	"My focus is on this comment"?: true;
 	target?: boolean;
@@ -1309,7 +1368,7 @@ export type SpotlightSyntheticContext = {
 	threads?: Array<{
 		id: string;
 		threadId: string;
-		title: string;
+		title: LocalizedText;
 		rootCommentId: string;
 	}>;
 	content: SpotlightIncludedContent[];
@@ -1676,49 +1735,56 @@ export type BotRuntimeStatus = {
 
 export type ChirperImportPreview = {
 	handle: string;
-	displayName: string;
-	shortBio: string;
-	prompt: string;
+	language: LanguageTag | null;
+	displayName: LocalizedText;
+	shortBio: LocalizedText;
+	prompt: LocalizedText;
 	avatarUrl?: string;
 	importSource: ChirperImportSource;
 };
 
 export type CreateWorldInput = {
 	handle: string;
-	name: string;
-	description: string;
-	prompt?: string;
+	language: LanguageTag | null;
+	name: LocalizedText;
+	description: LocalizedText;
+	prompt?: LocalizedText;
 	imageGeneration?: BotImageGenerationSettingsInput | null;
-	initialBotNotification?: string;
+	initialBotNotification?: LocalizedText;
 	postingSettings?: PostingSettingsInput;
 };
 
 export type UpdateWorldInput = Partial<{
 	handle: string;
-	name: string;
-	description: string;
-	prompt: string;
+	language: LanguageTag | null;
+	name: LocalizedText;
+	description: LocalizedText;
+	prompt: LocalizedText;
 	imageGeneration: BotImageGenerationSettingsInput | null;
-	initialBotNotification: string;
+	initialBotNotification: LocalizedText;
 	postingSettings: PostingSettingsInput;
 }>;
 
 export type CreateForumInput = {
 	handle: string;
-	description: string;
+	language: LanguageTag | null;
+	description: LocalizedText;
 };
 
 export type UpdateForumInput = Partial<{
 	handle: string;
-	description: string;
+	language: LanguageTag | null;
+	description: LocalizedText;
 }>;
 
 export type CreateBotGroupInput = {
-	customTitle?: string | null;
+	language: LanguageTag | null;
+	customTitle?: LocalizedText | null;
 };
 
 export type UpdateBotGroupInput = {
-	customTitle: string | null;
+	language: LanguageTag | null;
+	customTitle: LocalizedText | null;
 };
 
 export type AddBotGroupMembersInput = {
@@ -1727,9 +1793,10 @@ export type AddBotGroupMembersInput = {
 
 export type CreateBotInput = {
 	handle: string;
-	displayName: string;
-	shortBio: string;
-	prompt: string;
+	language: LanguageTag | null;
+	displayName: LocalizedText;
+	shortBio: LocalizedText;
+	prompt: LocalizedText;
 	cloneSourceBotId?: string;
 	inferenceSettings?: BotInferenceSettingsInput;
 	toolSettings?: BotToolSettingsInput;
@@ -1740,10 +1807,12 @@ export type CreateBotInput = {
 };
 
 export type UpdateBotInput = Partial<
-	Pick<CreateBotInput, "handle" | "displayName" | "shortBio" | "prompt" | "inferenceSettings" | "toolSettings" | "postingSettings" | "tickSettings">
+	Pick<CreateBotInput, "handle" | "language" | "displayName" | "shortBio" | "prompt" | "inferenceSettings" | "toolSettings" | "postingSettings" | "tickSettings">
 >;
 
 export type UpdateUserProfileInput = Partial<Pick<UserProfile, "handle" | "displayName">> & {
+	language?: LanguageTag | null;
+	uiLocale?: UiLocalePreference;
 	avatarUrl?: string | null;
 	inferenceSettings?: BotInferenceSettingsInput;
 };
@@ -1751,8 +1820,8 @@ export type UpdateUserProfileInput = Partial<Pick<UserProfile, "handle" | "displ
 export type CreateThreadInput = {
 	forumId: string;
 	authorBotId: string;
-	title: string;
-	body: string;
+	title: RequiredLocalizedText;
+	body: RequiredLocalizedText;
 	url?: string;
 };
 
@@ -1760,7 +1829,7 @@ export type CreateCommentInput = {
 	threadId: string;
 	authorBotId: string;
 	parentCommentId?: string;
-	body: string;
+	body: RequiredLocalizedText;
 };
 
 export type VoteInput = {
@@ -1768,7 +1837,7 @@ export type VoteInput = {
 	targetId: string;
 	botId: string;
 	value: -1 | 0 | 1;
-	reason?: string;
+	reason?: RequiredLocalizedText;
 };
 
 export type ApiErrorCode =
@@ -1783,7 +1852,7 @@ export type ApiErrorCode =
 export type ApiErrorDetails = {
 	existingThread?: {
 		id: string;
-		title: string;
+		title: LocalizedText;
 		worldHandle: string;
 		forumHandle: string;
 		urlPath: string;

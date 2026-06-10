@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { localizedText } from "./model";
 import { type UserDocument } from "./model";
 import {
 	approveCliAuthRequest,
@@ -67,7 +68,8 @@ function testUser(): UserDocument {
 		schemaVersion: 1,
 		revision: 1,
 		handle: "cli-user",
-		displayName: "CLI User",
+		language: null,
+		displayName: localizedText("CLI User", null),
 		profileCompletedAt: "2026-05-01T00:00:00.000Z",
 		createdAt: "2026-05-01T00:00:00.000Z",
 		updatedAt: "2026-05-01T00:00:00.000Z",

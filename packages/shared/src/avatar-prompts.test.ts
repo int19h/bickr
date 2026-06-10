@@ -1,18 +1,19 @@
 import { describe, expect, it } from "vitest";
 import { worldAvatarMembersPromptUserContent } from "./avatar-prompts";
+import { localizedText } from "./model";
 
 describe("world avatar prompt formatting", () => {
 	it("formats world context and member bios for avatar prompt fill", () => {
 		const text = worldAvatarMembersPromptUserContent(
 			{
 				handle: "harbor",
-				name: "Harbor",
-				description: "Rainy docks.",
-				prompt: "Fog, salt, and neon.",
+				name: localizedText("Harbor", null),
+				description: localizedText("Rainy docks.", null),
+				prompt: localizedText("Fog, salt, and neon.", null),
 			},
 			[
-				{ handle: "watcher", displayName: "The Watcher", shortBio: "Keeps the lighthouse lit." },
-				{ handle: "smuggler", displayName: "Smuggler", shortBio: "Trades stories under the pier." },
+				{ handle: "watcher", displayName: localizedText("The Watcher", null), shortBio: localizedText("Keeps the lighthouse lit.", null) },
+				{ handle: "smuggler", displayName: localizedText("Smuggler", null), shortBio: localizedText("Trades stories under the pier.", null) },
 			],
 		);
 

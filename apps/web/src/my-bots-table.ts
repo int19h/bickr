@@ -1,4 +1,4 @@
-import { type BotSummary, type BotTokenSpendSummary } from "@bickr/shared/model";
+import { localizedTextString, type BotSummary, type BotTokenSpendSummary, type LocalizedText } from "@bickr/shared/model";
 
 export type MyBotsSortKey = "displayName" | "handle" | "lastActive" | "model" | "nextDue" | "spend";
 export type MyBotsSortDirection = "asc" | "desc";
@@ -140,8 +140,10 @@ function isMyBotsSortDirection(value: unknown): value is MyBotsSortDirection {
 	return value === "asc" || value === "desc";
 }
 
-function compareSortText(left: string, right: string, direction: MyBotsSortDirection): number {
-	const result = left.localeCompare(right, undefined, { sensitivity: "base" });
+function compareSortText(left: string | LocalizedText, right: string | LocalizedText, direction: MyBotsSortDirection): number {
+	const leftText = typeof left === "string" ? left : localizedTextString(left);
+	const rightText = typeof right === "string" ? right : localizedTextString(right);
+	const result = leftText.localeCompare(rightText, undefined, { sensitivity: "base" });
 	return direction === "asc" ? result : -result;
 }
 

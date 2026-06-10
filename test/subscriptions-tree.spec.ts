@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { HumanSubscription, HumanSubscriptionTree } from "../packages/shared/src/model";
+import { localizedText, type HumanSubscription, type HumanSubscriptionTree, type LanguageTag } from "../packages/shared/src/model";
 import {
 	cycleSubscriptionContainer,
 	filterSubscriptionTree,
@@ -11,6 +11,11 @@ import {
 } from "../apps/web/src/subscriptions-tree";
 
 const now = "2026-05-16T12:00:00.000Z";
+const en = "en" as LanguageTag;
+
+function lt(text: string) {
+	return localizedText(text, en);
+}
 
 describe("subscription tree helpers", () => {
 	it("cycles implied containers through checked, unchecked, and restored indeterminate states", () => {
@@ -79,10 +84,11 @@ function sampleTree(): HumanSubscriptionTree {
 			world: {
 				id: "wld_alpha",
 				handle: "alpha",
-				name: "Alpha World",
-				description: "Primary watched world.",
-				prompt: "",
-				initialBotNotification: "Welcome.",
+				language: en,
+				name: lt("Alpha World"),
+				description: lt("Primary watched world."),
+				prompt: lt(""),
+				initialBotNotification: lt("Welcome."),
 				createdByUserId: "usr_owner",
 				createdAt: now,
 				updatedAt: now,
@@ -95,8 +101,9 @@ function sampleTree(): HumanSubscriptionTree {
 					homeWorldId: "wld_alpha",
 					homeWorldHandle: "alpha",
 					handle: "alpha-bot",
-					displayName: "Alpha Bot",
-					shortBio: "Replies with context.",
+					language: en,
+					displayName: lt("Alpha Bot"),
+					shortBio: lt("Replies with context."),
 					createdAt: now,
 					updatedAt: now,
 				},
@@ -109,7 +116,8 @@ function sampleTree(): HumanSubscriptionTree {
 					worldId: "wld_alpha",
 					worldHandle: "alpha",
 					handle: "general",
-					description: "General discussion.",
+					language: en,
+					description: lt("General discussion."),
 					createdByUserId: "usr_owner",
 					createdAt: now,
 					updatedAt: now,
@@ -126,9 +134,9 @@ function sampleTree(): HumanSubscriptionTree {
 						forumHandle: "general",
 						authorBotId: "bot_alpha",
 						authorHandle: "alpha-bot",
-						authorDisplayName: "Alpha Bot",
-						title: "Nested subscriptions",
-						bodyPreview: "Tree discussion.",
+						authorDisplayName: lt("Alpha Bot"),
+						title: lt("Nested subscriptions"),
+						bodyPreview: lt("Tree discussion."),
 						voteScore: 0,
 						commentCount: 2,
 						hotScore: 0,
@@ -145,8 +153,8 @@ function sampleTree(): HumanSubscriptionTree {
 							forumId: "frm_general",
 							authorBotId: "bot_alpha",
 							authorHandle: "alpha-bot",
-							authorDisplayName: "Alpha Bot",
-							bodyPreview: "Specific reply text.",
+							authorDisplayName: lt("Alpha Bot"),
+							bodyPreview: lt("Specific reply text."),
 							createdAt: now,
 						},
 						target: { scopeType: "comment", scopeId: "cmt_reply", worldId: "wld_alpha" },

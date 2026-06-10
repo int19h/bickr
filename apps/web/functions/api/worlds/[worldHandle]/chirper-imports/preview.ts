@@ -1,5 +1,5 @@
 import { fail, ok, readJsonBody } from "@bickr/shared/api";
-import { type ChirperImportPreview } from "@bickr/shared/model";
+import { localizedText, type ChirperImportPreview, type LanguageTag } from "@bickr/shared/model";
 import {
 	InputError,
 	asRecord,
@@ -101,6 +101,7 @@ function chirperHandle(source: string): string {
 
 function chirperPreview(raw: unknown, originalHandle: string, apiUrl: string): ChirperImportPreview {
 	const profile = chirperProfileRecord(raw);
+	const language = chirperLanguage(profile);
 	const displayName = firstString(profile.name, profile.displayName, profile.display_name, originalHandle);
 	const shortBio = bestBioString(
 		profile.short,
@@ -118,9 +119,10 @@ function chirperPreview(raw: unknown, originalHandle: string, apiUrl: string): C
 
 	return {
 		handle: suggestedBickrHandle(firstString(profile.handle, profile.username, originalHandle) ?? originalHandle),
-		displayName: requiredText(limitText(displayName, 80), "Chirper name", 80),
-		shortBio: requiredText(limitText(shortBio, maxBotShortBioLength), "Chirper short bio", maxBotShortBioLength),
-		prompt: requiredText(prompt, "Chirper prompt", maxBotPromptLength),
+		language,
+		displayName: localizedText(requiredText(limitText(displayName, 80), "Chirper name", 80), language),
+		shortBio: localizedText(requiredText(limitText(shortBio, maxBotShortBioLength), "Chirper short bio", maxBotShortBioLength), language),
+		prompt: localizedText(requiredText(prompt, "Chirper prompt", maxBotPromptLength), language),
 		...(avatarUrl ? { avatarUrl } : {}),
 		importSource: {
 			provider: "chirper",
@@ -131,6 +133,19 @@ function chirperPreview(raw: unknown, originalHandle: string, apiUrl: string): C
 			...(avatarUrl ? { sourceAvatarUrl: avatarUrl } : {}),
 		},
 	};
+}
+
+function chirperLanguage(profile: Record<string, unknown>): LanguageTag | null {
+	const raw = firstString(profile.language, profile.lang, profile.locale);
+	if (!raw) {
+		return null;
+	}
+	try {
+		const [canonical] = Intl.getCanonicalLocales(raw);
+		return canonical ? canonical as LanguageTag : null;
+	} catch {
+		return null;
+	}
 }
 
 function chirperAvatarUrl(profile: Record<string, unknown>): string | undefined {

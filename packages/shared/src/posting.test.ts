@@ -10,6 +10,8 @@ import {
 	parseUpdateWorldInput,
 } from "./validation";
 
+const en = (text: string) => ({ lang: "en", text });
+
 describe("posting settings", () => {
 	it("composes defaults, world limits, bot limits, and world plus bot limits", () => {
 		expect(effectivePostingSettings(undefined, undefined)).toEqual({
@@ -35,24 +37,25 @@ describe("posting settings", () => {
 
 	it("accepts posting bodies through the global hard limit and preserves exact text", () => {
 		const body = "  " + "x".repeat(maxThreadBodyHardLength - 4) + "  ";
-		expect(parseCreateThreadInput({ title: "Title", body })).toMatchObject({ body });
-		expect(parseCreateCommentInput({ body: "x".repeat(maxCommentBodyHardLength) })).toMatchObject({
-			body: "x".repeat(maxCommentBodyHardLength),
+		expect(parseCreateThreadInput({ title: en("Title"), body: en(body) })).toMatchObject({ body: en(body) });
+		expect(parseCreateCommentInput({ body: en("x".repeat(maxCommentBodyHardLength)) })).toMatchObject({
+			body: en("x".repeat(maxCommentBodyHardLength)),
 		});
 	});
 
 	it("rejects posting bodies above the global hard limit or containing only whitespace", () => {
-		expect(() => parseCreateThreadInput({ title: "Title", body: "x".repeat(maxThreadBodyHardLength + 1) }))
-			.toThrow(`Thread body must be ${maxThreadBodyHardLength} characters or fewer.`);
-		expect(() => parseCreateCommentInput({ body: "x".repeat(maxCommentBodyHardLength + 1) }))
-			.toThrow(`Comment body must be ${maxCommentBodyHardLength} characters or fewer.`);
-		expect(() => parseCreateThreadInput({ title: "Title", body: "\n\t " })).toThrow("Thread body is required.");
-		expect(() => parseCreateCommentInput({ body: "\n\t " })).toThrow("Comment body is required.");
+		expect(() => parseCreateThreadInput({ title: en("Title"), body: en("x".repeat(maxThreadBodyHardLength + 1)) }))
+			.toThrow(`Thread body.text must be ${maxThreadBodyHardLength} characters or fewer.`);
+		expect(() => parseCreateCommentInput({ body: en("x".repeat(maxCommentBodyHardLength + 1)) }))
+			.toThrow(`Comment body.text must be ${maxCommentBodyHardLength} characters or fewer.`);
+		expect(() => parseCreateThreadInput({ title: en("Title"), body: en("\n\t ") })).toThrow("Thread body.text is required.");
+		expect(() => parseCreateCommentInput({ body: en("\n\t ") })).toThrow("Comment body.text is required.");
 	});
 
 	it("parses world and bot posting settings and null clears", () => {
 		expect(parseCreateWorldInput({
 			handle: "world",
+			language: "en",
 			name: "World",
 			description: "Description",
 			postingSettings: {

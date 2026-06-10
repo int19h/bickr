@@ -11,7 +11,24 @@ import {
 	type McpAuthContext,
 	type McpScope,
 } from "@bickr/shared/mcp-auth";
-import { type AvatarCrop, type AvatarImage, type BotDocument } from "@bickr/shared/model";
+import {
+	avatarImageGenerationSettingsWithDefaults,
+	defaultProviderModel,
+	defaultTextGenerationTemperature,
+	type AvatarCrop,
+	type AvatarImage,
+	type BotDocument,
+	type BotImageGenerationSettings,
+	type BotInferenceSettings,
+	type BotSummary,
+	type BotTickSettings,
+	type BotEffectiveTickSettings,
+	type BotEffectivePostingSettings,
+	type PostingSettings,
+	type WorldSummary,
+	worldAvatarImageGenerationSettingsWithDefaults,
+} from "@bickr/shared/model";
+import { defaultPostingSettings, effectivePostingSettings } from "@bickr/shared/posting";
 import {
 	addBotGroupMembers,
 	botById,
@@ -33,6 +50,7 @@ import {
 	updateBotAvatar,
 	updateUserProfile,
 	userProfile,
+	worldByHandle,
 } from "@bickr/shared/repository";
 import {
 	deactivateHumanSubscription,
@@ -220,10 +238,10 @@ const mcpTools: McpTool[] = [
 		profile: await updateUserProfile(env.BICKR_KV, env.BICKR_D1, auth.user.id, parseUpdateUserProfileInput(args)),
 	})),
 	readTool("list_worlds", "List worlds", "List public Bickr worlds.", {}, async ({ env }) => ({
-		worlds: await listWorlds(env.BICKR_D1),
+		worlds: annotateMcpWorlds(await listWorlds(env.BICKR_D1)),
 	})),
 	readTool("list_my_worlds", "List my worlds", "List Bickr worlds owned by the signed-in human user.", {}, async ({ env, auth }) => ({
-		worlds: await listOwnedWorlds(env.BICKR_D1, auth.user.id),
+		worlds: annotateMcpWorlds(await listOwnedWorlds(env.BICKR_D1, auth.user.id)),
 	})),
 	serviceTool("create_world", "Create world", "Create a Bickr world.", bodySchema({
 		handle: stringSchema("World handle."),
@@ -345,14 +363,18 @@ const mcpTools: McpTool[] = [
 		return `/forums/${encodeURIComponent(forum.id)}/threads/${encodeURIComponent(text(args.threadId, "Thread ID"))}/comments/${encodeURIComponent(text(args.commentId, "Comment ID"))}`;
 	}),
 	readTool("list_my_bots", "List my bots", "List bots owned by the signed-in human user.", {}, async ({ env, auth }) => ({
-		bots: await listUserBots(env.BICKR_KV, env.BICKR_D1, auth.user.id),
+		bots: annotateMcpBots(await listUserBots(env.BICKR_KV, env.BICKR_D1, auth.user.id)),
 	})),
 	readTool("list_world_bots", "List world bots", "List bots in a Bickr world.", {
 		worldHandle: stringSchema("World handle."),
-	}, async ({ env }, args) => ({ bots: await listWorldBots(env.BICKR_KV, env.BICKR_D1, text(args.worldHandle, "World handle")) })),
+	}, async ({ env }, args) => ({ bots: annotateMcpBots(await listWorldBots(env.BICKR_KV, env.BICKR_D1, text(args.worldHandle, "World handle"))) })),
 	readTool("get_bot", "Get bot", "Read one Bickr bot by ID.", {
 		botId: stringSchema("Bot ID."),
-	}, async ({ env }, args) => ({ bot: await botById(env.BICKR_KV, env.BICKR_D1, text(args.botId, "Bot ID")) })),
+	}, async ({ env }, args) => {
+		const bot = await botById(env.BICKR_KV, env.BICKR_D1, text(args.botId, "Bot ID"));
+		const world = await worldByHandle(env.BICKR_D1, bot.homeWorldHandle);
+		return { bot: annotateMcpBot(bot, world.postingSettings) };
+	}),
 	serviceTool("create_bot", "Create bot", "Create a Bickr bot in a world.", bodySchema({
 		worldHandle: stringSchema("World handle."),
 		handle: stringSchema("Bot handle."),
@@ -793,7 +815,447 @@ async function servicePayload(
 		body: body === undefined ? undefined : JSON.stringify(body),
 		signal: request.signal,
 	}));
-	return payload;
+	return annotateMcpPayload(payload);
+}
+
+type ResolvedSettingSource =
+	| "bot"
+	| "source_bot"
+	| "world"
+	| "bickr_default";
+
+type ResolvedSetting<T> = {
+	effective: T;
+	source: ResolvedSettingSource;
+	explanation: string;
+	specified?: T;
+};
+
+type ResolvedSettingMap = Record<string, ResolvedSetting<unknown>>;
+
+function annotateMcpPayload(value: unknown): unknown {
+	if (!value || typeof value !== "object" || Array.isArray(value)) {
+		return value;
+	}
+	const record = value as Record<string, unknown>;
+	const annotated: Record<string, unknown> = { ...record };
+	if (isBotLike(record.bot)) {
+		annotated.bot = annotateMcpBot(record.bot);
+	}
+	if (Array.isArray(record.bots)) {
+		annotated.bots = record.bots.map((item) => isBotLike(item) ? annotateMcpBot(item) : item);
+	}
+	if (isWorldLike(record.world)) {
+		annotated.world = annotateMcpWorld(record.world);
+	}
+	if (Array.isArray(record.worlds)) {
+		annotated.worlds = record.worlds.map((item) => isWorldLike(item) ? annotateMcpWorld(item) : item);
+	}
+	if (record.data && typeof record.data === "object" && !Array.isArray(record.data)) {
+		annotated.data = annotateMcpPayload(record.data);
+	}
+	return annotated;
+}
+
+function annotateMcpWorlds(worlds: WorldSummary[]): Array<WorldSummary & { mcpResolvedSettings: Record<string, ResolvedSettingMap> }> {
+	return worlds.map(annotateMcpWorld);
+}
+
+function annotateMcpWorld(world: WorldSummary): WorldSummary & { mcpResolvedSettings: Record<string, ResolvedSettingMap> } {
+	if ("mcpResolvedSettings" in world) {
+		return world as WorldSummary & { mcpResolvedSettings: Record<string, ResolvedSettingMap> };
+	}
+	return {
+		...world,
+		mcpResolvedSettings: {
+			postingSettings: resolvedWorldPostingSettings(world.postingSettings),
+			imageGeneration: resolvedImageGenerationSettings(
+				world.imageGeneration,
+				worldAvatarImageGenerationSettingsWithDefaults(world.imageGeneration),
+				"world",
+				"bickr_default",
+				"world avatar image generation setting",
+			),
+		},
+	};
+}
+
+function annotateMcpBots<T extends BotDocument | BotSummary>(bots: T[]): Array<T & { mcpResolvedSettings: Record<string, ResolvedSettingMap> }> {
+	return bots.map((bot) => annotateMcpBot(bot));
+}
+
+function annotateMcpBot<T extends BotDocument | BotSummary>(
+	bot: T,
+	worldPostingSettings?: PostingSettings,
+): T & { mcpResolvedSettings: Record<string, ResolvedSettingMap> } {
+	if ("mcpResolvedSettings" in bot) {
+		return bot as T & { mcpResolvedSettings: Record<string, ResolvedSettingMap> };
+	}
+	const local = bot.localOverrides;
+	const specifiedInference = local?.inferenceSettings ?? bot.inferenceSettings;
+	const cloneLinked = bot.cloneSource?.linked === true;
+	const cloneProfile: ResolvedSettingMap = {
+		displayName: resolvedCloneField(
+			local?.displayName,
+			bot.displayName,
+			cloneLinked,
+			"bot display name",
+			sourceBotLabel(bot),
+		),
+		shortBio: resolvedCloneField(local?.shortBio, bot.shortBio, cloneLinked, "bot short bio", sourceBotLabel(bot)),
+		...(bot.prompt !== undefined ? {
+			prompt: resolvedCloneField(local?.prompt, bot.prompt, cloneLinked, "bot prompt", sourceBotLabel(bot)),
+		} : {}),
+	};
+	const mcpResolvedSettings: Record<string, ResolvedSettingMap> = {
+		cloneProfile,
+		inferenceSettings: resolvedInferenceSettings(specifiedInference, bot.inferenceSettings, cloneLinked, sourceBotLabel(bot)),
+		postingSettings: resolvedPostingSettings(
+			bot.postingSettings,
+			"effectivePostingSettings" in bot ? bot.effectivePostingSettings : effectivePostingSettings(worldPostingSettings, bot.postingSettings),
+			worldPostingSettings,
+		),
+		tickSettings: resolvedTickSettings(bot.tickSettings, "effectiveTickSettings" in bot ? bot.effectiveTickSettings : undefined),
+	};
+	if (bot.inferenceSettings.imageGeneration) {
+		mcpResolvedSettings.imageGeneration = resolvedImageGenerationSettings(
+			specifiedInference.imageGeneration,
+			avatarImageGenerationSettingsWithDefaults(bot.inferenceSettings.imageGeneration),
+			cloneLinked ? "source_bot" : "bot",
+			cloneLinked ? "source_bot" : "bickr_default",
+			cloneLinked ? `source bot ${sourceBotLabel(bot)}` : "bot image generation setting",
+		);
+	}
+	if (bot.inferenceSettings.translation) {
+		mcpResolvedSettings.translation = resolvedTranslationSettings(
+			specifiedInference.translation,
+			bot.inferenceSettings.translation,
+			cloneLinked,
+			sourceBotLabel(bot),
+		);
+	}
+	return {
+		...bot,
+		mcpResolvedSettings,
+	};
+}
+
+function resolvedCloneField<T>(
+	specified: T | undefined,
+	effective: T,
+	cloneLinked: boolean,
+	label: string,
+	sourceBot: string,
+): ResolvedSetting<T> {
+	if (!cloneLinked || cloneFieldHasSpecifiedValue(specified)) {
+		return {
+			...(specified !== undefined ? { specified } : {}),
+			effective,
+			source: "bot",
+			explanation: `The effective ${label} is specified on this bot.`,
+		};
+	}
+	return {
+		effective,
+		source: "source_bot",
+		explanation: `This linked clone does not specify a local ${label}, so Bickr inherits it from ${sourceBot}.`,
+	};
+}
+
+function cloneFieldHasSpecifiedValue(value: unknown): boolean {
+	if (value === undefined) {
+		return false;
+	}
+	if (typeof value === "string") {
+		return value.trim() !== "";
+	}
+	if (value && typeof value === "object" && !Array.isArray(value)) {
+		const text = (value as { text?: unknown }).text;
+		if (typeof text === "string") {
+			return text.trim() !== "";
+		}
+	}
+	return true;
+}
+
+function resolvedInferenceSettings(
+	specified: BotInferenceSettings,
+	effective: BotInferenceSettings,
+	cloneLinked: boolean,
+	sourceBot: string,
+): ResolvedSettingMap {
+	const keys = [
+		"baseUrl",
+		"model",
+		"compactionMode",
+		"recurringPromptEnabled",
+		"recurringPrompt",
+		"supportsPrefill",
+		"reasoningEffort",
+		"toolCalls",
+		"providerRouting",
+		"temperature",
+		"topK",
+		"topP",
+		"minP",
+		"frequencyPenalty",
+		"presencePenalty",
+		"repetitionPenalty",
+	] as const;
+	const resolved: ResolvedSettingMap = {};
+	for (const key of keys) {
+		const fallback = inferenceDefault(key);
+		const effectiveSpecified = effective[key] !== undefined;
+		const effectiveValue = effectiveSpecified ? effective[key] : fallback.value;
+		if (effectiveValue === undefined) {
+			continue;
+		}
+		resolved[key] = resolvedField(
+			specified[key],
+			effectiveValue,
+			cloneLinked && effectiveSpecified,
+			`inference setting ${key}`,
+			sourceBot,
+			fallback.explanation,
+		);
+	}
+	if (specified.openRouterApiKeySet || effective.openRouterApiKeySet) {
+		resolved.openRouterApiKeySet = resolvedField(
+			specified.openRouterApiKeySet,
+			effective.openRouterApiKeySet ?? false,
+			cloneLinked,
+			"inference setting openRouterApiKeySet",
+			sourceBot,
+			undefined,
+		);
+	}
+	return resolved;
+}
+
+function inferenceDefault(
+	key: keyof BotInferenceSettings,
+): { value?: unknown; explanation?: string } {
+	switch (key) {
+		case "model":
+			return { value: defaultProviderModel, explanation: "No bot or source bot model is specified, so Bickr uses its default provider model." };
+		case "temperature":
+			return { value: defaultTextGenerationTemperature, explanation: "No bot or source bot temperature is specified, so Bickr uses its default text generation temperature." };
+		default:
+			return {};
+	}
+}
+
+function resolvedImageGenerationSettings(
+	specified: BotImageGenerationSettings | undefined,
+	effective: BotImageGenerationSettings,
+	sourceWhenSpecified: ResolvedSettingSource,
+	sourceWhenInherited: ResolvedSettingSource,
+	sourceLabel: string,
+): ResolvedSettingMap {
+	return {
+		model: resolvedDefaultedField(specified?.model, effective.model, sourceWhenSpecified, sourceWhenInherited, sourceLabel, "Bickr image generation default model"),
+		aspectRatio: resolvedDefaultedField(specified?.aspectRatio, effective.aspectRatio, sourceWhenSpecified, sourceWhenInherited, sourceLabel, "Bickr image generation default aspect ratio"),
+		imageSize: resolvedDefaultedField(specified?.imageSize, effective.imageSize, sourceWhenSpecified, sourceWhenInherited, sourceLabel, "Bickr image generation default image size"),
+	};
+}
+
+function resolvedTranslationSettings(
+	specified: BotInferenceSettings["translation"],
+	effective: NonNullable<BotInferenceSettings["translation"]>,
+	cloneLinked: boolean,
+	sourceBot: string,
+): ResolvedSettingMap {
+	const resolved: ResolvedSettingMap = {};
+	for (const key of ["enabled", "model", "prompt", "reasoningEffort", "toolCalls", "providerRouting", "temperature", "topK", "topP", "minP", "frequencyPenalty", "presencePenalty", "repetitionPenalty"] as const) {
+		const effectiveValue = effective[key];
+		if (effectiveValue !== undefined) {
+			resolved[key] = resolvedField(specified?.[key], effectiveValue, cloneLinked, `translation setting ${key}`, sourceBot, undefined);
+		}
+	}
+	return resolved;
+}
+
+function resolvedPostingSettings(
+	specified: PostingSettings | undefined,
+	effective = defaultPostingSettings,
+	worldSpecified?: PostingSettings,
+): ResolvedSettingMap {
+	return {
+		threadBodyCharacters: resolvedPostingField(
+			"threadBodyCharacters",
+			specified?.threadBodyCharacters,
+			worldSpecified?.threadBodyCharacters,
+			effective,
+		),
+		commentBodyCharacters: resolvedPostingField(
+			"commentBodyCharacters",
+			specified?.commentBodyCharacters,
+			worldSpecified?.commentBodyCharacters,
+			effective,
+		),
+	};
+}
+
+function resolvedWorldPostingSettings(specified: PostingSettings | undefined): ResolvedSettingMap {
+	return {
+		threadBodyCharacters: resolvedWorldPostingField("threadBodyCharacters", specified?.threadBodyCharacters),
+		commentBodyCharacters: resolvedWorldPostingField("commentBodyCharacters", specified?.commentBodyCharacters),
+	};
+}
+
+function resolvedWorldPostingField(
+	key: keyof BotEffectivePostingSettings,
+	specified: number | undefined,
+): ResolvedSetting<number> {
+	if (specified !== undefined) {
+		return {
+			specified,
+			effective: Math.min(specified, defaultPostingSettings[key]),
+			source: "world",
+			explanation: `This world specifies ${key}; Bickr caps the effective value by the global default.`,
+		};
+	}
+	return {
+		effective: defaultPostingSettings[key],
+		source: "bickr_default",
+		explanation: `This world does not specify ${key}, so Bickr uses the global default.`,
+	};
+}
+
+function resolvedPostingField(
+	key: keyof BotEffectivePostingSettings,
+	botSpecified: number | undefined,
+	worldSpecified: number | undefined,
+	effective: BotEffectivePostingSettings,
+): ResolvedSetting<number> {
+	if (botSpecified !== undefined) {
+		return {
+			specified: botSpecified,
+			effective: effective[key],
+			source: "bot",
+			explanation: `This bot specifies ${key}; Bickr still caps it by the world and global posting limits.`,
+		};
+	}
+	if (worldSpecified !== undefined) {
+		return {
+			effective: effective[key],
+			source: "world",
+			explanation: `This bot does not specify ${key}, so Bickr uses the world setting capped by the global default.`,
+		};
+	}
+	return {
+		effective: effective[key],
+		source: "bickr_default",
+		explanation: `Neither the bot nor the world specifies ${key}, so Bickr uses the global default.`,
+	};
+}
+
+function resolvedTickSettings(
+	specified: BotTickSettings,
+	effective: BotEffectiveTickSettings | undefined,
+): ResolvedSettingMap {
+	const resolved: ResolvedSettingMap = {};
+	const effectiveSettings = effective ?? specified as BotEffectiveTickSettings;
+	for (const key of Object.keys(effectiveSettings) as Array<keyof BotEffectiveTickSettings>) {
+		const specifiedValue = specified[key];
+		resolved[key] = specifiedValue === undefined ?
+			{
+				effective: effectiveSettings[key],
+				source: "bickr_default",
+				explanation: `This bot does not specify tick setting ${key}, so Bickr uses the runtime default.`,
+			}
+		:	{
+				specified: specifiedValue,
+				effective: effectiveSettings[key],
+				source: "bot",
+				explanation: `The effective tick setting ${key} is specified on this bot.`,
+			};
+	}
+	return resolved;
+}
+
+function resolvedField<T>(
+	specified: T | undefined,
+	effective: T,
+	cloneLinked: boolean,
+	label: string,
+	sourceBot: string,
+	defaultExplanation: string | undefined,
+): ResolvedSetting<T> {
+	if (specified !== undefined) {
+		return {
+			specified,
+			effective,
+			source: "bot",
+			explanation: `The effective ${label} is specified on this bot.`,
+		};
+	}
+	if (cloneLinked) {
+		return {
+			effective,
+			source: "source_bot",
+			explanation: `This linked clone does not specify local ${label}, so Bickr inherits it from ${sourceBot}.`,
+		};
+	}
+	return {
+		effective,
+		source: "bickr_default",
+		explanation: defaultExplanation ?? `No ${label} is specified on this bot, so Bickr uses its default behavior.`,
+	};
+}
+
+function resolvedDefaultedField<T>(
+	specified: T | undefined,
+	effective: T | undefined,
+	sourceWhenSpecified: ResolvedSettingSource,
+	sourceWhenInherited: ResolvedSettingSource,
+	sourceLabel: string,
+	defaultLabel: string,
+): ResolvedSetting<T | undefined> {
+	if (specified !== undefined) {
+		return {
+			specified,
+			effective,
+			source: sourceWhenSpecified,
+			explanation: `The effective value is specified by ${sourceLabel}.`,
+		};
+	}
+	if (sourceWhenInherited !== "bickr_default") {
+		return {
+			effective,
+			source: sourceWhenInherited,
+			explanation: `No local value is specified, so Bickr inherits the effective value from ${sourceLabel}.`,
+		};
+	}
+	return {
+		effective,
+		source: "bickr_default",
+		explanation: `No value is specified, so Bickr uses ${defaultLabel}.`,
+	};
+}
+
+function sourceBotLabel(bot: Pick<BotDocument | BotSummary, "cloneSource">): string {
+	const source = bot.cloneSource?.sourceBot;
+	return source ? `source bot @${source.handle} (${source.id})` : "the linked source bot";
+}
+
+function isBotLike(value: unknown): value is BotDocument | BotSummary {
+	if (!value || typeof value !== "object" || Array.isArray(value)) {
+		return false;
+	}
+	const record = value as Record<string, unknown>;
+	return (
+		record.type === "bot" ||
+		typeof record.homeWorldId === "string" &&
+			typeof record.homeWorldHandle === "string" &&
+			typeof record.ownerUserId === "string" &&
+			typeof record.handle === "string" &&
+			typeof record.inferenceSettings === "object"
+	);
+}
+
+function isWorldLike(value: unknown): value is WorldSummary {
+	return Boolean(value) && typeof value === "object" && !Array.isArray(value) && (value as { handle?: unknown }).handle !== undefined && (value as { name?: unknown }).name !== undefined;
 }
 
 function toolMetadata(tool: McpTool): Record<string, unknown> {
@@ -810,10 +1272,11 @@ function toolResult(value: unknown): Record<string, unknown> {
 	if (isApiFailure(value)) {
 		return toolError(value);
 	}
-	const structuredContent = jsonCompatible(value);
+	const presented = annotateMcpPayload(value);
+	const structuredContent = jsonCompatible(presented);
 	return {
 		structuredContent,
-		content: [{ type: "text", text: JSON.stringify(value, null, 2) }],
+		content: [{ type: "text", text: JSON.stringify(presented, null, 2) }],
 	};
 }
 

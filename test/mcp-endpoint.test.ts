@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type UserDocument } from "../packages/shared/src/model";
+import { localizedText, type BotDocument, type LanguageTag, type LocalizedText, type UserDocument } from "../packages/shared/src/model";
 import {
 	createMcpAuthorizationCode,
 	exchangeMcpAuthorizationCode,
@@ -13,6 +13,15 @@ import { mcpToolMetadataForTest, onRequestPost } from "../apps/web/functions/mcp
 import { onRequestPost as onRegisterPost } from "../apps/web/functions/oauth/register";
 
 type TestPagesContext = Parameters<typeof onRequestPost>[0];
+const en = "en" as LanguageTag;
+
+function lt(text: string): LocalizedText {
+	return localizedText(text, en);
+}
+
+function localized(value: string | LocalizedText | undefined, fallback: string): LocalizedText {
+	return typeof value === "string" ? lt(value) : value ?? lt(fallback);
+}
 
 describe("MCP endpoint", () => {
 	it("serves protected resource and authorization server metadata", async () => {
@@ -175,6 +184,77 @@ describe("MCP endpoint", () => {
 		});
 	});
 
+	it("includes specified and effective MCP settings with origins for inherited bot values", async () => {
+		const kv = new MapKV();
+		const source = testBot({
+			id: "bot_source",
+			handle: "source-bot",
+			displayName: "Source Bot",
+			shortBio: "Source bio",
+			prompt: "Source prompt",
+			inferenceSettings: {
+				model: "source/model",
+				temperature: 0.2,
+				imageGeneration: {
+					model: "source/image",
+				},
+			},
+		});
+		const clone = testBot({
+			id: "bot_clone",
+			handle: "clone-bot",
+			displayName: "",
+			shortBio: "",
+			prompt: "",
+			inferenceSettings: {},
+			postingSettings: {
+				commentBodyCharacters: 500,
+			},
+		});
+		await kv.put(kvKeys.bot(source.id), JSON.stringify(source));
+		await kv.put(kvKeys.bot(clone.id), JSON.stringify(clone));
+		const accessToken = await issueAccessToken(kv, ["bickr.read"]);
+		const response = await callMcp(kv, accessToken, {
+			jsonrpc: "2.0",
+			id: 1,
+			method: "tools/call",
+			params: {
+				name: "get_bot",
+				arguments: { botId: clone.id },
+			},
+		}, { BICKR_D1: mcpSettingsD1() });
+		const body = await jsonResponse(response);
+		const toolResult = body.result as Record<string, unknown>;
+		const structured = toolResult.structuredContent as { bot: { mcpResolvedSettings: Record<string, Record<string, unknown>> } };
+
+		expect(response.status).toBe(200);
+		expect(structured.bot.mcpResolvedSettings.cloneProfile.displayName).toMatchObject({
+			effective: lt("Source Bot"),
+			source: "source_bot",
+		});
+		expect(structured.bot.mcpResolvedSettings.inferenceSettings.model).toMatchObject({
+			effective: "source/model",
+			source: "source_bot",
+		});
+		expect(structured.bot.mcpResolvedSettings.inferenceSettings.temperature).toMatchObject({
+			effective: 0.2,
+			source: "source_bot",
+		});
+		expect(structured.bot.mcpResolvedSettings.imageGeneration.model).toMatchObject({
+			effective: "source/image",
+			source: "source_bot",
+		});
+		expect(structured.bot.mcpResolvedSettings.postingSettings.commentBodyCharacters).toMatchObject({
+			specified: 500,
+			effective: 500,
+			source: "bot",
+		});
+		expect(structured.bot.mcpResolvedSettings.postingSettings.threadBodyCharacters).toMatchObject({
+			effective: 6000,
+			source: "world",
+		});
+	});
+
 	it("rejects write tools before execution when the token has read scope only", async () => {
 		const kv = new MapKV();
 		const accessToken = await issueAccessToken(kv, ["bickr.read"]);
@@ -289,6 +369,87 @@ function emptyD1(): unknown {
 	};
 }
 
+function mcpSettingsD1(): unknown {
+	const statement = {
+		values: [] as unknown[],
+		bind(...values: unknown[]) {
+			this.values = values;
+			return this;
+		},
+		async first<T>() {
+			const sql = String((this as { sql?: string }).sql ?? "");
+			const firstValue = this.values[0];
+			if (sql.includes("FROM bots_index")) {
+				return (firstValue === "bot_source" || firstValue === "bot_clone" ? { deletedAt: null } : null) as T | null;
+			}
+			if (sql.includes("FROM bot_clone_sources")) {
+				return (firstValue === "bot_clone" ?
+					{
+						sourceBotId: "bot_source",
+						sourceWorldId: "w_mcp",
+						sourceWorldHandle: "mcp-world",
+						sourceHandle: "source-bot",
+						clonedAt: "2026-05-02T00:00:00.000Z",
+						linked: 1,
+						unlinkedAt: null,
+						relinkedAt: null,
+					}
+				:	null) as T | null;
+			}
+			if (sql.includes("FROM worlds_index")) {
+				return {
+					id: "w_mcp",
+					handle: "mcp-world",
+					postingThreadBodyCharacters: 6000,
+					postingCommentBodyCharacters: null,
+				} as T;
+			}
+			return null;
+		},
+		async all<T>() {
+			return { success: true, results: [] as T[] };
+		},
+		async run() {
+			return { success: true, meta: { changes: 0 } };
+		},
+	};
+	return {
+		batch: async () => [],
+		prepare: (sql: string) => ({ ...statement, sql, values: [] }),
+	};
+}
+
+function testBot(
+	overrides: Omit<Partial<BotDocument>, "displayName" | "language" | "prompt" | "shortBio"> &
+		Pick<BotDocument, "id" | "handle"> &
+		Partial<Record<"displayName" | "prompt" | "shortBio", string | LocalizedText>> & { language?: LanguageTag | null },
+): BotDocument {
+	return {
+		id: overrides.id,
+		type: "bot",
+		schemaVersion: 1,
+		revision: 1,
+		homeWorldId: "w_mcp",
+		homeWorldHandle: "mcp-world",
+		ownerUserId: "usr_mcp",
+		handle: overrides.handle,
+		language: overrides.language ?? en,
+		displayName: localized(overrides.displayName, "MCP Bot"),
+		shortBio: localized(overrides.shortBio, "MCP bio"),
+		prompt: localized(overrides.prompt, "MCP prompt"),
+		inferenceSettings: overrides.inferenceSettings ?? {},
+		toolSettings: overrides.toolSettings ?? {},
+		tickSettings: overrides.tickSettings ?? {
+			enabled: false,
+			intervalSeconds: 86_400,
+			compactionThreshold: 0.75,
+		},
+		...(overrides.postingSettings ? { postingSettings: overrides.postingSettings } : {}),
+		createdAt: "2026-05-01T00:00:00.000Z",
+		updatedAt: "2026-05-01T00:00:00.000Z",
+	};
+}
+
 function testUser(): UserDocument {
 	return {
 		id: "usr_mcp",
@@ -296,7 +457,8 @@ function testUser(): UserDocument {
 		schemaVersion: 1,
 		revision: 1,
 		handle: "mcp-user",
-		displayName: "MCP User",
+		language: en,
+		displayName: lt("MCP User"),
 		profileCompletedAt: "2026-05-01T00:00:00.000Z",
 		createdAt: "2026-05-01T00:00:00.000Z",
 		updatedAt: "2026-05-01T00:00:00.000Z",

@@ -5,6 +5,7 @@ import type {
 	PublicUser,
 	ThreadDocument,
 } from "@bickr/shared/model";
+import { localizedTextString } from "@bickr/shared/model";
 import {
 	RepositoryError,
 	humanProfileByHandle,
@@ -174,8 +175,8 @@ async function threadMetadata(env: AppEnv, route: ParsedRoute): Promise<PageMeta
 	const comment = targetComment ?? rootComment;
 	const imageUrl = comment ? comment.authorAvatarUrl ?? await botAvatarUrl(env.BICKR_D1, comment.authorBotId) : undefined;
 	return {
-		title: pageTitle(targetComment ? `u/${targetComment.authorHandle} on ${thread.title}` : thread.title),
-		description: descriptionText(comment?.body ?? "", `${thread.title} in f/${thread.forumHandle}.`),
+		title: pageTitle(targetComment ? `u/${targetComment.authorHandle} on ${localizedTextString(thread.title)}` : localizedTextString(thread.title)),
+		description: descriptionText(localizedTextString(comment?.body), `${localizedTextString(thread.title)} in f/${thread.forumHandle}.`),
 		ogType: "article",
 		...(imageUrl ? { imageUrl, imageAlt: `u/${comment?.authorHandle ?? "participant"} avatar` } : {}),
 	};
@@ -189,7 +190,7 @@ async function botProfileMetadata(env: AppEnv, route: ParsedRoute): Promise<Page
 		title: pageTitle(`u/${bot.handle}${tabLabel}`),
 		description: botProfileDescription(bot, tab, Boolean(route.botActivityId)),
 		ogType: "website",
-		...(bot.avatarUrl ? { imageUrl: bot.avatarUrl, imageAlt: `${bot.displayName} avatar` } : {}),
+		...(bot.avatarUrl ? { imageUrl: bot.avatarUrl, imageAlt: `${localizedTextString(bot.displayName)} avatar` } : {}),
 		...(tab === "notifications" ? { robots: noIndex } : {}),
 	};
 }
@@ -201,7 +202,7 @@ async function botToolMetadata(env: AppEnv, route: ParsedRoute, tool: "avatar" |
 		description: botToolDescription(bot, tool),
 		ogType: "website",
 		robots: noIndex,
-		...(bot.avatarUrl ? { imageUrl: bot.avatarUrl, imageAlt: `${bot.displayName} avatar` } : {}),
+		...(bot.avatarUrl ? { imageUrl: bot.avatarUrl, imageAlt: `${localizedTextString(bot.displayName)} avatar` } : {}),
 	};
 }
 
@@ -223,7 +224,7 @@ async function privateUserMetadata(
 		description: user ? privateUserDescription(user, section) : fallbackDescription,
 		ogType: "website",
 		robots: noIndex,
-		...(user?.avatarUrl ? { imageUrl: user.avatarUrl, imageAlt: `${user.displayName} avatar` } : {}),
+		...(user?.avatarUrl ? { imageUrl: user.avatarUrl, imageAlt: `${localizedTextString(user.displayName)} avatar` } : {}),
 	};
 }
 
@@ -246,9 +247,9 @@ function humanProfileMetadata(profile: HumanProfile): PageMetadataCore {
 	const totals = profile.totals;
 	return {
 		title: pageTitle(`hu/${profile.user.handle}`),
-		description: `${profile.user.displayName} owns ${countLabel(totals.worlds, "world")}, ${countLabel(totals.forums, "forum")}, and ${countLabel(totals.bots, "participant")} on Bickr.`,
+		description: `${localizedTextString(profile.user.displayName)} owns ${countLabel(totals.worlds, "world")}, ${countLabel(totals.forums, "forum")}, and ${countLabel(totals.bots, "participant")} on Bickr.`,
 		ogType: "website",
-		...(profile.user.avatarUrl ? { imageUrl: profile.user.avatarUrl, imageAlt: `${profile.user.displayName} avatar` } : {}),
+		...(profile.user.avatarUrl ? { imageUrl: profile.user.avatarUrl, imageAlt: `${localizedTextString(profile.user.displayName)} avatar` } : {}),
 	};
 }
 
@@ -260,9 +261,9 @@ function botProfileDescription(bot: BotPublicProfile, tab: "activity" | "follows
 		return `Notifications related to u/${bot.handle} in w/${bot.homeWorldHandle}.`;
 	}
 	if (targetedActivity) {
-		return `Activity by u/${bot.handle} in w/${bot.homeWorldHandle}. ${descriptionText(bot.shortBio, "")}`;
+		return `Activity by u/${bot.handle} in w/${bot.homeWorldHandle}. ${descriptionText(localizedTextString(bot.shortBio), "")}`;
 	}
-	return descriptionText(bot.shortBio, `Profile for u/${bot.handle} in w/${bot.homeWorldHandle}.`);
+	return descriptionText(localizedTextString(bot.shortBio), `Profile for u/${bot.handle} in w/${bot.homeWorldHandle}.`);
 }
 
 function botToolDescription(bot: BotPublicProfile, tool: "avatar" | "edit" | "loop"): string {

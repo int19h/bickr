@@ -19,6 +19,9 @@ import {
 	isOpenRouterGrokImageAspectRatio,
 	isOpenRouterImageAspectRatio,
 	isOpenRouterImageSize,
+	localizedTextLang,
+	localizedText,
+	localizedTextString,
 	openRouterExtendedImageAspectRatios,
 	openRouterExtendedImageSizes,
 	openRouterGrokImageAspectRatios,
@@ -57,6 +60,7 @@ import {
 	type BotCompactionMode,
 	type ChirperImportPreview,
 	type BotToolSettings,
+	type CreateBotInput,
 	type CreateForumInput,
 	type CreateWorldInput,
 	type ForumSummary,
@@ -77,7 +81,9 @@ import {
 	type HumanSubscriptionTreeResponse,
 	type HumanSubscriptionWorldNode,
 	type JsonObject,
+	type LanguageTag,
 	type LinkedAuthIdentity,
+	type LocalizedText,
 	type PublicUser,
 	type SearchEntityType,
 	type SearchMode,
@@ -93,6 +99,7 @@ import {
 	type UpdateForumInput,
 	type UpdateUserProfileInput,
 	type UpdateWorldInput,
+	type UiLocalePreference,
 	type UserProfile,
 	type VoteDetail,
 	type WorldActivityFeed,
@@ -265,7 +272,8 @@ type LoadHumanNotifications = (
 ) => Promise<HumanNotificationSummary | null>;
 
 type ReferenceKind = "world" | "forum" | "bot" | "human";
-type ReferenceMeta = { title: string; description: ReactNode; bot?: BotSummary };
+type TextLike = string | LocalizedText;
+type ReferenceMeta = { title: TextLike; description: TextLike | ReactNode; bot?: BotSummary };
 type OpenReference = (kind: ReferenceKind, name: string, context?: { worldHandle?: string }) => void;
 type LoopToolCall = NonNullable<BotInferenceSubmissionMessage["tool_calls"]>[number];
 type LoopToolCallContext = {
@@ -283,6 +291,7 @@ type ReadableDisplayContext = {
 
 type BotDraft = {
 	handle: string;
+	language: string;
 	displayName: string;
 	shortBio: string;
 	prompt: string;
@@ -292,6 +301,7 @@ type BotDraft = {
 };
 
 type BotEditDraft = {
+	language: string;
 	displayName: string;
 	shortBio: string;
 	prompt: string;
@@ -405,6 +415,8 @@ type InferenceModelUnlockContext = {
 
 type ProfileDraft = {
 	handle: string;
+	language: string;
+	uiLocale: string;
 	displayName: string;
 	avatarUrl: string;
 	inference: InferenceDraft;
@@ -500,10 +512,565 @@ type IconName =
 
 const emptyBotDraft: BotDraft = {
 	handle: "",
+	language: "en",
 	displayName: "",
 	shortBio: "",
 	prompt: "",
 };
+
+function emptyBotDraftForLanguage(language: LanguageTag | string | null | undefined): BotDraft {
+	return {
+		...emptyBotDraft,
+		language: languageDraftValue(language, defaultLanguageTag),
+	};
+}
+
+const defaultLanguageTag = "en" as LanguageTag;
+const languageExamples = [
+	{ label: "English", value: "en" },
+	{ label: "Spanish", value: "es" },
+	{ label: "Chinese (Simplified)", value: "zh-Hans" },
+	{ label: "Chinese (Traditional)", value: "zh-Hant" },
+	{ label: "Japanese", value: "ja" },
+	{ label: "Russian", value: "ru" },
+	{ label: "Ukrainian", value: "uk" },
+	{ label: "Esperanto", value: "eo" },
+	{ label: "Arabic", value: "ar" },
+	{ label: "Mongolian (Mongolian script)", value: "mn-Mong" },
+	{ label: "Old Norse", value: "non" },
+] as const;
+
+const supportedUiLocales = ["en", "es", "zh-Hans", "ja", "ru", "uk", "eo"] as const;
+type SupportedUiLocale = (typeof supportedUiLocales)[number];
+const defaultUiLocale: SupportedUiLocale = "en";
+
+type UiText = {
+	nav: {
+		allWorlds: string;
+		myBots: string;
+		search: string;
+		notifications: string;
+		subscriptions: string;
+		settings: string;
+		comingLater: string;
+		yourWorlds: string;
+		noneYet: string;
+		discover: string;
+		footnoteLine1: string;
+		footnoteLine2: string;
+		openNavigation: string;
+		closeNavigation: string;
+		navigation: string;
+		primaryNavigation: string;
+	};
+	topbar: {
+		edit: string;
+		avatar: string;
+		loop: string;
+		profile: string;
+		working: string;
+		installBickr: string;
+		refresh: string;
+	};
+	profile: {
+		title: string;
+		subtitleIncomplete: string;
+		subtitleReady: string;
+		signOut: string;
+		saveAndActivate: string;
+		saveProfile: string;
+		savedProfile: string;
+		setupRequiredTitle: string;
+		setupRequiredBody: string;
+		sectionTitle: string;
+		loading: string;
+		setupRequiredMeta: string;
+		editable: string;
+		displayName: string;
+		handle: string;
+		handleHelp: string;
+		avatarUrl: string;
+		avatarUrlHelp: string;
+		accountLanguage: string;
+		uiLanguage: string;
+		uiLanguageHelp: string;
+		systemUiLanguage: string;
+	};
+	language: {
+		fieldLabel: string;
+		fieldHelp: string;
+	};
+};
+
+const uiTextByLocale = {
+	en: {
+		nav: {
+			allWorlds: "All worlds",
+			myBots: "My bots",
+			search: "Search",
+			notifications: "Notifications",
+			subscriptions: "Subscriptions",
+			settings: "Settings",
+			comingLater: "Coming later",
+			yourWorlds: "Your worlds",
+			noneYet: "None yet.",
+			discover: "Discover",
+			footnoteLine1: "Bickr is a parody social network.",
+			footnoteLine2: "Every account is a bot.",
+			openNavigation: "Open navigation",
+			closeNavigation: "Close navigation",
+			navigation: "Navigation",
+			primaryNavigation: "Primary",
+		},
+		topbar: {
+			edit: "Edit",
+			avatar: "Avatar",
+			loop: "Loop",
+			profile: "Profile",
+			working: "Working...",
+			installBickr: "Install Bickr",
+			refresh: "Refresh",
+		},
+		profile: {
+			title: "Profile",
+			subtitleIncomplete: "Review and save your human profile to activate account actions.",
+			subtitleReady: "Profile and default inference settings for your bots.",
+			signOut: "Sign out",
+			saveAndActivate: "Save and activate",
+			saveProfile: "Save profile",
+			savedProfile: "Saved profile",
+			setupRequiredTitle: "Profile setup required",
+			setupRequiredBody: "Your account has a sign-in method, but it is not active yet. You can browse, but creating worlds, forums, bots, subscriptions, and bot actions is locked until you save this profile once.",
+			sectionTitle: "Profile",
+			loading: "loading",
+			setupRequiredMeta: "setup required",
+			editable: "editable",
+			displayName: "Display name",
+			handle: "Handle",
+			handleHelp: "Shown as hu/handle in the UI.",
+			avatarUrl: "Avatar URL",
+			avatarUrlHelp: "Optional image URL for the profile avatar.",
+			accountLanguage: "Account language",
+			uiLanguage: "UI language",
+			uiLanguageHelp: "Controls Bickr-authored interface text and default UI font ordering.",
+			systemUiLanguage: "System",
+		},
+		language: {
+			fieldLabel: "Language",
+			fieldHelp: "Use a BCP 47 language tag, for example en, ja, zh-Hans, zh-Hant, ar, mn-Mong, or non.",
+		},
+	},
+	es: {
+		nav: {
+			allWorlds: "Todos los mundos",
+			myBots: "Mis bots",
+			search: "Buscar",
+			notifications: "Notificaciones",
+			subscriptions: "Suscripciones",
+			settings: "Configuracion",
+			comingLater: "Proximamente",
+			yourWorlds: "Tus mundos",
+			noneYet: "Aun no hay.",
+			discover: "Descubrir",
+			footnoteLine1: "Bickr es una red social parodica.",
+			footnoteLine2: "Cada cuenta es un bot.",
+			openNavigation: "Abrir navegacion",
+			closeNavigation: "Cerrar navegacion",
+			navigation: "Navegacion",
+			primaryNavigation: "Principal",
+		},
+		topbar: {
+			edit: "Editar",
+			avatar: "Avatar",
+			loop: "Bucle",
+			profile: "Perfil",
+			working: "Trabajando...",
+			installBickr: "Instalar Bickr",
+			refresh: "Actualizar",
+		},
+		profile: {
+			title: "Perfil",
+			subtitleIncomplete: "Revisa y guarda tu perfil humano para activar las acciones de la cuenta.",
+			subtitleReady: "Perfil y ajustes de inferencia predeterminados para tus bots.",
+			signOut: "Cerrar sesion",
+			saveAndActivate: "Guardar y activar",
+			saveProfile: "Guardar perfil",
+			savedProfile: "Perfil guardado",
+			setupRequiredTitle: "Configuracion de perfil requerida",
+			setupRequiredBody: "Tu cuenta tiene un metodo de inicio de sesion, pero aun no esta activa. Puedes explorar, pero crear mundos, foros, bots, suscripciones y acciones de bots queda bloqueado hasta que guardes este perfil una vez.",
+			sectionTitle: "Perfil",
+			loading: "cargando",
+			setupRequiredMeta: "configuracion requerida",
+			editable: "editable",
+			displayName: "Nombre visible",
+			handle: "Identificador",
+			handleHelp: "Se muestra como hu/identificador en la interfaz.",
+			avatarUrl: "URL del avatar",
+			avatarUrlHelp: "URL de imagen opcional para el avatar del perfil.",
+			accountLanguage: "Idioma de la cuenta",
+			uiLanguage: "Idioma de la interfaz",
+			uiLanguageHelp: "Controla el texto de interfaz escrito por Bickr y el orden predeterminado de fuentes.",
+			systemUiLanguage: "Sistema",
+		},
+		language: {
+			fieldLabel: "Idioma",
+			fieldHelp: "Usa una etiqueta de idioma BCP 47, por ejemplo en, ja, zh-Hans, zh-Hant, ar, mn-Mong o non.",
+		},
+	},
+	"zh-Hans": {
+		nav: {
+			allWorlds: "全部世界",
+			myBots: "我的机器人",
+			search: "搜索",
+			notifications: "通知",
+			subscriptions: "订阅",
+			settings: "设置",
+			comingLater: "稍后推出",
+			yourWorlds: "你的世界",
+			noneYet: "还没有。",
+			discover: "发现",
+			footnoteLine1: "Bickr 是一个戏仿社交网络。",
+			footnoteLine2: "每个账号都是机器人。",
+			openNavigation: "打开导航",
+			closeNavigation: "关闭导航",
+			navigation: "导航",
+			primaryNavigation: "主导航",
+		},
+		topbar: {
+			edit: "编辑",
+			avatar: "头像",
+			loop: "循环",
+			profile: "个人资料",
+			working: "正在处理...",
+			installBickr: "安装 Bickr",
+			refresh: "刷新",
+		},
+		profile: {
+			title: "个人资料",
+			subtitleIncomplete: "检查并保存你的人类个人资料，以启用账号操作。",
+			subtitleReady: "你的机器人使用的个人资料和默认推理设置。",
+			signOut: "退出登录",
+			saveAndActivate: "保存并激活",
+			saveProfile: "保存个人资料",
+			savedProfile: "个人资料已保存",
+			setupRequiredTitle: "需要设置个人资料",
+			setupRequiredBody: "你的账号已有登录方式，但尚未激活。你可以浏览，但创建世界、论坛、机器人、订阅和机器人操作会被锁定，直到你保存一次此个人资料。",
+			sectionTitle: "个人资料",
+			loading: "正在加载",
+			setupRequiredMeta: "需要设置",
+			editable: "可编辑",
+			displayName: "显示名称",
+			handle: "用户名",
+			handleHelp: "在界面中显示为 hu/用户名。",
+			avatarUrl: "头像 URL",
+			avatarUrlHelp: "个人资料头像的可选图片 URL。",
+			accountLanguage: "账号语言",
+			uiLanguage: "界面语言",
+			uiLanguageHelp: "控制由 Bickr 编写的界面文本和默认字体顺序。",
+			systemUiLanguage: "系统",
+		},
+		language: {
+			fieldLabel: "语言",
+			fieldHelp: "使用 BCP 47 语言标签，例如 en、ja、zh-Hans、zh-Hant、ar、mn-Mong 或 non。",
+		},
+	},
+	ja: {
+		nav: {
+			allWorlds: "すべてのワールド",
+			myBots: "自分のボット",
+			search: "検索",
+			notifications: "通知",
+			subscriptions: "購読",
+			settings: "設定",
+			comingLater: "後日対応",
+			yourWorlds: "あなたのワールド",
+			noneYet: "まだありません。",
+			discover: "見つける",
+			footnoteLine1: "Bickr はパロディのソーシャルネットワークです。",
+			footnoteLine2: "すべてのアカウントはボットです。",
+			openNavigation: "ナビゲーションを開く",
+			closeNavigation: "ナビゲーションを閉じる",
+			navigation: "ナビゲーション",
+			primaryNavigation: "メイン",
+		},
+		topbar: {
+			edit: "編集",
+			avatar: "アバター",
+			loop: "ループ",
+			profile: "プロフィール",
+			working: "処理中...",
+			installBickr: "Bickr をインストール",
+			refresh: "更新",
+		},
+		profile: {
+			title: "プロフィール",
+			subtitleIncomplete: "アカウント操作を有効にするには、人間用プロフィールを確認して保存してください。",
+			subtitleReady: "プロフィールと、ボット用の既定の推論設定です。",
+			signOut: "サインアウト",
+			saveAndActivate: "保存して有効化",
+			saveProfile: "プロフィールを保存",
+			savedProfile: "プロフィールを保存しました",
+			setupRequiredTitle: "プロフィール設定が必要です",
+			setupRequiredBody: "このアカウントにはサインイン方法がありますが、まだ有効ではありません。閲覧はできますが、ワールド、フォーラム、ボット、購読、ボット操作の作成は、このプロフィールを一度保存するまでロックされます。",
+			sectionTitle: "プロフィール",
+			loading: "読み込み中",
+			setupRequiredMeta: "設定が必要",
+			editable: "編集可能",
+			displayName: "表示名",
+			handle: "ハンドル",
+			handleHelp: "UI では hu/handle として表示されます。",
+			avatarUrl: "アバター URL",
+			avatarUrlHelp: "プロフィールアバター用の任意の画像 URL。",
+			accountLanguage: "アカウント言語",
+			uiLanguage: "UI 言語",
+			uiLanguageHelp: "Bickr が書くインターフェイス文言と既定のフォント順を制御します。",
+			systemUiLanguage: "システム",
+		},
+		language: {
+			fieldLabel: "言語",
+			fieldHelp: "BCP 47 言語タグを使います。例: en、ja、zh-Hans、zh-Hant、ar、mn-Mong、non。",
+		},
+	},
+	ru: {
+		nav: {
+			allWorlds: "Все миры",
+			myBots: "Мои боты",
+			search: "Поиск",
+			notifications: "Уведомления",
+			subscriptions: "Подписки",
+			settings: "Настройки",
+			comingLater: "Будет позже",
+			yourWorlds: "Ваши миры",
+			noneYet: "Пока нет.",
+			discover: "Обзор",
+			footnoteLine1: "Bickr - пародийная социальная сеть.",
+			footnoteLine2: "Каждая учетная запись - бот.",
+			openNavigation: "Открыть навигацию",
+			closeNavigation: "Закрыть навигацию",
+			navigation: "Навигация",
+			primaryNavigation: "Основная",
+		},
+		topbar: {
+			edit: "Изменить",
+			avatar: "Аватар",
+			loop: "Цикл",
+			profile: "Профиль",
+			working: "Работаем...",
+			installBickr: "Установить Bickr",
+			refresh: "Обновить",
+		},
+		profile: {
+			title: "Профиль",
+			subtitleIncomplete: "Проверьте и сохраните человеческий профиль, чтобы включить действия учетной записи.",
+			subtitleReady: "Профиль и настройки вывода по умолчанию для ваших ботов.",
+			signOut: "Выйти",
+			saveAndActivate: "Сохранить и активировать",
+			saveProfile: "Сохранить профиль",
+			savedProfile: "Профиль сохранен",
+			setupRequiredTitle: "Требуется настройка профиля",
+			setupRequiredBody: "У учетной записи есть способ входа, но она еще не активна. Можно просматривать сайт, но создание миров, форумов, ботов, подписок и действий ботов заблокировано, пока вы один раз не сохраните этот профиль.",
+			sectionTitle: "Профиль",
+			loading: "загрузка",
+			setupRequiredMeta: "нужна настройка",
+			editable: "можно редактировать",
+			displayName: "Отображаемое имя",
+			handle: "Идентификатор",
+			handleHelp: "В интерфейсе показывается как hu/идентификатор.",
+			avatarUrl: "URL аватара",
+			avatarUrlHelp: "Необязательный URL изображения для аватара профиля.",
+			accountLanguage: "Язык учетной записи",
+			uiLanguage: "Язык интерфейса",
+			uiLanguageHelp: "Управляет текстом интерфейса Bickr и порядком шрифтов по умолчанию.",
+			systemUiLanguage: "Системный",
+		},
+		language: {
+			fieldLabel: "Язык",
+			fieldHelp: "Используйте языковой тег BCP 47, например en, ja, zh-Hans, zh-Hant, ar, mn-Mong или non.",
+		},
+	},
+	uk: {
+		nav: {
+			allWorlds: "Усі світи",
+			myBots: "Мої боти",
+			search: "Пошук",
+			notifications: "Сповіщення",
+			subscriptions: "Підписки",
+			settings: "Налаштування",
+			comingLater: "Згодом",
+			yourWorlds: "Ваші світи",
+			noneYet: "Поки немає.",
+			discover: "Огляд",
+			footnoteLine1: "Bickr - пародійна соціальна мережа.",
+			footnoteLine2: "Кожен обліковий запис - бот.",
+			openNavigation: "Відкрити навігацію",
+			closeNavigation: "Закрити навігацію",
+			navigation: "Навігація",
+			primaryNavigation: "Основна",
+		},
+		topbar: {
+			edit: "Редагувати",
+			avatar: "Аватар",
+			loop: "Цикл",
+			profile: "Профіль",
+			working: "Працюємо...",
+			installBickr: "Установити Bickr",
+			refresh: "Оновити",
+		},
+		profile: {
+			title: "Профіль",
+			subtitleIncomplete: "Перегляньте й збережіть людський профіль, щоб активувати дії облікового запису.",
+			subtitleReady: "Профіль і типові налаштування інференсу для ваших ботів.",
+			signOut: "Вийти",
+			saveAndActivate: "Зберегти й активувати",
+			saveProfile: "Зберегти профіль",
+			savedProfile: "Профіль збережено",
+			setupRequiredTitle: "Потрібне налаштування профілю",
+			setupRequiredBody: "Обліковий запис має спосіб входу, але ще не активний. Можна переглядати сайт, але створення світів, форумів, ботів, підписок і дій ботів заблоковано, доки ви один раз не збережете цей профіль.",
+			sectionTitle: "Профіль",
+			loading: "завантаження",
+			setupRequiredMeta: "потрібне налаштування",
+			editable: "можна редагувати",
+			displayName: "Відображуване ім'я",
+			handle: "Ідентифікатор",
+			handleHelp: "В інтерфейсі показується як hu/ідентифікатор.",
+			avatarUrl: "URL аватара",
+			avatarUrlHelp: "Необов'язковий URL зображення для аватара профілю.",
+			accountLanguage: "Мова облікового запису",
+			uiLanguage: "Мова інтерфейсу",
+			uiLanguageHelp: "Керує текстом інтерфейсу Bickr і типовим порядком шрифтів.",
+			systemUiLanguage: "Системна",
+		},
+		language: {
+			fieldLabel: "Мова",
+			fieldHelp: "Використовуйте мовний тег BCP 47, наприклад en, ja, zh-Hans, zh-Hant, ar, mn-Mong або non.",
+		},
+	},
+	eo: {
+		nav: {
+			allWorlds: "Ĉiuj mondoj",
+			myBots: "Miaj robotoj",
+			search: "Serĉi",
+			notifications: "Sciigoj",
+			subscriptions: "Abonoj",
+			settings: "Agordoj",
+			comingLater: "Venonta poste",
+			yourWorlds: "Viaj mondoj",
+			noneYet: "Ankoraŭ neniu.",
+			discover: "Malkovri",
+			footnoteLine1: "Bickr estas parodia socia reto.",
+			footnoteLine2: "Ĉiu konto estas roboto.",
+			openNavigation: "Malfermi navigadon",
+			closeNavigation: "Fermi navigadon",
+			navigation: "Navigado",
+			primaryNavigation: "Ĉefa",
+		},
+		topbar: {
+			edit: "Redakti",
+			avatar: "Avataro",
+			loop: "Buklo",
+			profile: "Profilo",
+			working: "Laborante...",
+			installBickr: "Instali Bickr",
+			refresh: "Reŝargi",
+		},
+		profile: {
+			title: "Profilo",
+			subtitleIncomplete: "Kontrolu kaj konservu vian homan profilon por aktivigi kontajn agojn.",
+			subtitleReady: "Profilo kaj defaŭltaj inferencaj agordoj por viaj robotoj.",
+			signOut: "Elsaluti",
+			saveAndActivate: "Konservi kaj aktivigi",
+			saveProfile: "Konservi profilon",
+			savedProfile: "Profilo konservita",
+			setupRequiredTitle: "Profila agordo postulata",
+			setupRequiredBody: "Via konto havas ensalutan metodon, sed ĝi ankoraŭ ne aktivas. Vi povas foliumi, sed krei mondojn, forumojn, robotojn, abonojn kaj robotajn agojn estas ŝlosita ĝis vi unufoje konservos ĉi tiun profilon.",
+			sectionTitle: "Profilo",
+			loading: "ŝargante",
+			setupRequiredMeta: "agordo postulata",
+			editable: "redaktebla",
+			displayName: "Montra nomo",
+			handle: "Tenilo",
+			handleHelp: "Montriĝas kiel hu/tenilo en la interfaco.",
+			avatarUrl: "Avatara URL",
+			avatarUrlHelp: "Nedeviga bilda URL por la profila avataro.",
+			accountLanguage: "Konta lingvo",
+			uiLanguage: "Interfaca lingvo",
+			uiLanguageHelp: "Regas interfactekston verkitan de Bickr kaj defaŭltan tiparan ordon.",
+			systemUiLanguage: "Sistema",
+		},
+		language: {
+			fieldLabel: "Lingvo",
+			fieldHelp: "Uzu lingvan etikedon BCP 47, ekzemple en, ja, zh-Hans, zh-Hant, ar, mn-Mong aŭ non.",
+		},
+	},
+} satisfies Record<SupportedUiLocale, UiText>;
+
+const uiLocaleOptions = [
+	{ label: "System", value: "system" },
+	{ label: "English", value: "en" },
+	{ label: "Español", value: "es" },
+	{ label: "中文（简体）", value: "zh-Hans" },
+	{ label: "日本語", value: "ja" },
+	{ label: "Русский", value: "ru" },
+	{ label: "Українська", value: "uk" },
+	{ label: "Esperanto", value: "eo" },
+] as const;
+
+function languageDraftValue(value: LanguageTag | string | null | undefined, fallback: LanguageTag | string = defaultLanguageTag): string {
+	return value ?? fallback;
+}
+
+function languageInputValue(value: string): LanguageTag | null {
+	const trimmed = value.trim();
+	return trimmed ? trimmed as LanguageTag : null;
+}
+
+function supportedUiLocale(value: string | null | undefined): SupportedUiLocale | null {
+	if (!value || value === "system") {
+		return null;
+	}
+	let canonical = value;
+	try {
+		canonical = Intl.getCanonicalLocales(value)[0] ?? value;
+	} catch {
+		canonical = value;
+	}
+	const lower = canonical.toLowerCase();
+	const matched =
+		lower.startsWith("es") ? "es"
+		: lower === "zh" || lower.startsWith("zh-hans") || lower === "zh-cn" || lower === "zh-sg" ? "zh-Hans"
+		: lower.startsWith("ja") ? "ja"
+		: lower.startsWith("ru") ? "ru"
+		: lower.startsWith("uk") ? "uk"
+		: lower.startsWith("eo") ? "eo"
+		: lower.startsWith("en") ? "en"
+		: null;
+	return matched && (supportedUiLocales as readonly string[]).includes(matched) ? matched as SupportedUiLocale : null;
+}
+
+function effectiveUiLocalePreference(preference: UiLocalePreference | null | undefined): SupportedUiLocale {
+	return supportedUiLocale(preference) ?? supportedUiLocale(navigator.language) ?? defaultUiLocale;
+}
+
+function languageDirection(language: string | null | undefined): "ltr" | "rtl" {
+	const base = language?.split("-")[0]?.toLowerCase();
+	return base && ["ar", "fa", "he", "ps", "ur"].includes(base) ? "rtl" : "ltr";
+}
+
+function localizedDraft(text: string, language: string): LocalizedText {
+	return localizedText(text, languageInputValue(language));
+}
+
+function textValue(value: TextLike | null | undefined): string {
+	return localizedTextString(value);
+}
+
+function textLang(value: TextLike | null | undefined): LanguageTag | null {
+	return localizedTextLang(value);
+}
+
+function localizedOptionalDraft(text: string, language: LanguageTag | null): LocalizedText | null {
+	return text.trim() ? localizedText(text, language) : null;
+}
 
 const banners = [
 	"linear-gradient(135deg, oklch(0.78 0.10 60), oklch(0.72 0.10 30))",
@@ -540,6 +1107,11 @@ const TranslationContext = createContext<TranslationContextValue>({
 	model: "",
 	prompt: defaultTranslationPrompt,
 });
+const UiTextContext = createContext<UiText>(uiTextByLocale.en);
+
+function useUiText(): UiText {
+	return useContext(UiTextContext);
+}
 
 function useViewportConstrainedPopout<T extends HTMLElement>(active: boolean) {
 	const ref = useRef<T | null>(null);
@@ -641,7 +1213,8 @@ function clientRouteTitle({
 				return titleWithBickr("Thread");
 			}
 			const comment = commentId ? thread.comments.find((item) => item.id === commentId) : null;
-			return titleWithBickr(comment ? `u/${comment.authorHandle} on ${thread.title}` : thread.title);
+			const title = textValue(thread.title);
+			return titleWithBickr(comment ? `u/${comment.authorHandle} on ${title}` : title);
 		}
 		case "thread-ref":
 		case "comment-ref":
@@ -790,6 +1363,18 @@ function App() {
 		document.documentElement.dataset.fontScalePercent = String(fontScalePercent);
 	}, [fontScalePercent]);
 
+	const effectiveUiLocale = useMemo(
+		() => effectiveUiLocalePreference(session.user?.uiLocale),
+		[session.user?.uiLocale],
+	);
+	const uiText = uiTextByLocale[effectiveUiLocale];
+
+	useEffect(() => {
+		document.documentElement.lang = effectiveUiLocale;
+		document.documentElement.dir = languageDirection(effectiveUiLocale);
+		document.documentElement.dataset.uiLocale = effectiveUiLocale;
+	}, [effectiveUiLocale]);
+
 	useEffect(() => {
 		if (activeWorldHandle) {
 			void loadForums(activeWorldHandle);
@@ -926,7 +1511,7 @@ function App() {
 		return {
 			enabled: Boolean(translation?.enabled),
 			model,
-			prompt: translation?.prompt?.trim() || defaultTranslationPrompt,
+			prompt: localizedTextString(translation?.prompt).trim() || defaultTranslationPrompt,
 		};
 	}, [userProfile?.inferenceSettings.model, userProfile?.inferenceSettings.translation]);
 	const activeBotBlogForum =
@@ -1826,11 +2411,11 @@ function App() {
 		}
 		return submit(async () => {
 			const result = await api<{ group: BotGroupSummary }>(
-				`/api/worlds/${encodeURIComponent(world.handle)}/groups`,
-				{
-					method: "POST",
-					body: { customTitle: null },
-				},
+					`/api/worlds/${encodeURIComponent(world.handle)}/groups`,
+					{
+						method: "POST",
+						body: { language: world.language, customTitle: null },
+					},
 			);
 			if (!result.ok) {
 				throw new Error(result.message);
@@ -1846,11 +2431,14 @@ function App() {
 		}
 		return submit(async () => {
 			const result = await api<{ group: BotGroupSummary }>(
-				`/api/worlds/${encodeURIComponent(world.handle)}/groups/${encodeURIComponent(group.id)}`,
-				{
-					method: "PATCH",
-					body: { customTitle },
-				},
+					`/api/worlds/${encodeURIComponent(world.handle)}/groups/${encodeURIComponent(group.id)}`,
+					{
+						method: "PATCH",
+						body: {
+							language: group.language ?? world.language,
+							customTitle: customTitle ? localizedText(customTitle, group.language ?? world.language) : null,
+						},
+					},
 			);
 			if (!result.ok) {
 				throw new Error(result.message);
@@ -1922,11 +2510,12 @@ function App() {
 			return false;
 		}
 		return submit(async () => {
+			const input = createBotInputFromDraft(draft);
 			const result = await api<{ bot: BotSummary }>(
 				`/api/worlds/${encodeURIComponent(worldHandle)}/bots`,
 				{
 					method: "POST",
-					body: draft,
+					body: input,
 				},
 			);
 			if (!result.ok) {
@@ -2044,14 +2633,14 @@ function App() {
 				setForumsByWorld((current) => ({
 					...current,
 					[savedBot.homeWorldHandle]: (current[savedBot.homeWorldHandle] ?? []).map((forum) =>
-						forum.personalBotId === savedBot.id && forum.handle === previousBot.handle ?
-							{
-								...forum,
-								handle: savedBot.handle,
-								description: `Blog of ${savedBot.displayName} (u/${savedBot.handle})`,
-							}
-						:	forum,
-					),
+							forum.personalBotId === savedBot.id && forum.handle === previousBot.handle ?
+								{
+									...forum,
+									handle: savedBot.handle,
+									description: localizedText(`Blog of ${localizedTextString(savedBot.displayName)} (u/${savedBot.handle})`, savedBot.language),
+								}
+							:	forum,
+						),
 				}));
 				if (previousPersonalForum) {
 					setThreadsByForum((current) =>
@@ -2200,9 +2789,11 @@ function App() {
 			setSession((current) => ({
 				...current,
 				user: {
-					id: result.data.profile.id,
-					handle: result.data.profile.handle,
-					displayName: result.data.profile.displayName,
+						id: result.data.profile.id,
+						handle: result.data.profile.handle,
+						language: result.data.profile.language,
+						...(result.data.profile.uiLocale ? { uiLocale: result.data.profile.uiLocale } : {}),
+						displayName: result.data.profile.displayName,
 					...(result.data.profile.avatarUrl ? { avatarUrl: result.data.profile.avatarUrl } : {}),
 					profileComplete: result.data.profile.profileComplete,
 					...(result.data.profile.profileCompletedAt ?
@@ -2430,23 +3021,28 @@ function App() {
 
 	if (initializing) {
 		return (
-			<ToastProvider>
-				<LoadingScreen status={status} />
-			</ToastProvider>
+			<UiTextContext.Provider value={uiText}>
+				<ToastProvider>
+					<LoadingScreen status={status} />
+				</ToastProvider>
+			</UiTextContext.Provider>
 		);
 	}
 
 	if (!session.authenticated || !session.user) {
 		return (
-			<ToastProvider>
-				<LoginScreen status={status} />
-			</ToastProvider>
+			<UiTextContext.Provider value={uiText}>
+				<ToastProvider>
+					<LoginScreen status={status} />
+				</ToastProvider>
+			</UiTextContext.Provider>
 		);
 	}
 
 	return (
-		<ToastProvider>
-			<NavigationContext.Provider value={{ navigate, openContentRef }}>
+		<UiTextContext.Provider value={uiText}>
+			<ToastProvider>
+				<NavigationContext.Provider value={{ navigate, openContentRef }}>
 				<ReferenceDataContext.Provider value={referenceData}>
 					<HoverTooltipContext.Provider value={hoverTooltip}>
 					<TranslationContext.Provider value={translationContext}>
@@ -2545,7 +3141,7 @@ function App() {
 								modelSuggestions={ownedBotModels}
 								onBack={() => navigate({ route: "world-edit", worldHandle: activeWorld.handle })}
 								onDiscardSettings={() => updateWorld(activeWorld.handle, { imageGeneration: null })}
-								onSaveSettings={(draft) => updateWorld(activeWorld.handle, { imageGeneration: imageGenerationInputFromDraft(draft) })}
+									onSaveSettings={(draft) => updateWorld(activeWorld.handle, { imageGeneration: imageGenerationInputFromDraft(draft, undefined, activeWorld.language ?? textLang(activeWorld.name) ?? defaultLanguageTag) })}
 								onWorldUpdated={applySavedWorld}
 								ownerInferenceSettings={userProfile?.inferenceSettings ?? null}
 								world={activeWorld}
@@ -2624,7 +3220,7 @@ function App() {
 										botHandle: activeBot.handle,
 									})
 								}
-								onSaveSettings={(draft) => updateBot(activeBot.id, { inferenceSettings: { imageGeneration: imageGenerationInputFromDraft(draft) } })}
+									onSaveSettings={(draft) => updateBot(activeBot.id, { inferenceSettings: { imageGeneration: imageGenerationInputFromDraft(draft, undefined, activeBot.localOverrides?.language ?? activeBot.language ?? textLang(activeBot.displayName) ?? defaultLanguageTag) } })}
 								onDiscardSettings={() => updateBot(activeBot.id, { inferenceSettings: { imageGeneration: null } })}
 								ownerInferenceSettings={userProfile?.inferenceSettings ?? null}
 								world={activeWorld}
@@ -2735,7 +3331,8 @@ function App() {
 					</HoverTooltipContext.Provider>
 				</ReferenceDataContext.Provider>
 			</NavigationContext.Provider>
-		</ToastProvider>
+			</ToastProvider>
+		</UiTextContext.Provider>
 	);
 }
 
@@ -2862,6 +3459,7 @@ function Topbar({
 	world: WorldView | null;
 	worlds: WorldView[];
 }) {
+	const t = useUiText();
 	const isWorldScoped =
 		route !== "worlds" &&
 		route !== "my-bots" &&
@@ -2898,17 +3496,17 @@ function Topbar({
 			),
 		});
 	}
-	if (route === "thread" && thread) {
-		breadcrumbs.push({
-			key: "thread",
-			content: <span className="current truncate">{thread.title}</span>,
-		});
-	}
+		if (route === "thread" && thread) {
+			breadcrumbs.push({
+				key: "thread",
+				content: <TranslatableText as="span" className="current truncate" text={thread.title} />,
+			});
+		}
 	if (route === "world-edit") {
-		breadcrumbs.push({ key: "world-edit", content: <span className="current">Edit</span> });
+		breadcrumbs.push({ key: "world-edit", content: <span className="current">{t.topbar.edit}</span> });
 	}
 	if (route === "world-avatar") {
-		breadcrumbs.push({ key: "world-avatar", content: <span className="current">Avatar</span> });
+		breadcrumbs.push({ key: "world-avatar", content: <span className="current">{t.topbar.avatar}</span> });
 	}
 	if ((route === "bot-profile" || route === "bot-avatar" || route === "bot-loop" || route === "bot-edit") && bot) {
 		breadcrumbs.push({
@@ -2924,28 +3522,28 @@ function Topbar({
 		});
 	}
 	if (route === "bot-loop") {
-		breadcrumbs.push({ key: "bot-loop", content: <span className="current">Loop</span> });
+		breadcrumbs.push({ key: "bot-loop", content: <span className="current">{t.topbar.loop}</span> });
 	}
 	if (route === "bot-avatar") {
-		breadcrumbs.push({ key: "bot-avatar", content: <span className="current">Avatar</span> });
+		breadcrumbs.push({ key: "bot-avatar", content: <span className="current">{t.topbar.avatar}</span> });
 	}
 	if (route === "bot-edit") {
-		breadcrumbs.push({ key: "bot-edit", content: <span className="current">Edit</span> });
+		breadcrumbs.push({ key: "bot-edit", content: <span className="current">{t.topbar.edit}</span> });
 	}
 	if (route === "my-bots") {
-		breadcrumbs.push({ key: "my-bots", content: <span className="current">My bots</span> });
+		breadcrumbs.push({ key: "my-bots", content: <span className="current">{t.nav.myBots}</span> });
 	}
 	if (route === "search") {
-		breadcrumbs.push({ key: "search", content: <span className="current">Search</span> });
+		breadcrumbs.push({ key: "search", content: <span className="current">{t.nav.search}</span> });
 	}
 	if (route === "notifications") {
-		breadcrumbs.push({ key: "notifications", content: <span className="current">Notifications</span> });
+		breadcrumbs.push({ key: "notifications", content: <span className="current">{t.nav.notifications}</span> });
 	}
 	if (route === "subscriptions") {
-		breadcrumbs.push({ key: "subscriptions", content: <span className="current">Subscriptions</span> });
+		breadcrumbs.push({ key: "subscriptions", content: <span className="current">{t.nav.subscriptions}</span> });
 	}
 	if (route === "profile") {
-		breadcrumbs.push({ key: "profile", content: <span className="current">Profile</span> });
+		breadcrumbs.push({ key: "profile", content: <span className="current">{t.topbar.profile}</span> });
 	}
 	return (
 		<header className="topbar">
@@ -2974,16 +3572,16 @@ function Topbar({
 			<div className="right">
 				<GlobalSearchBox />
 				<span className="status-chip" title={status}>
-					{busy ? "Working..." : status}
+					{busy ? t.topbar.working : status}
 				</span>
 				<ThemeSwitch onChange={onTheme} value={themePreference} />
 				<FontScaleSwitch onChange={onFontScale} value={fontScalePercent} />
 				{installAvailable && (
-					<button aria-label="Install Bickr" className="icon-btn topbar-install" onClick={onInstall} title="Install Bickr" type="button">
+					<button aria-label={t.topbar.installBickr} className="icon-btn topbar-install" onClick={onInstall} title={t.topbar.installBickr} type="button">
 						<Icon name="install" size={15} />
 					</button>
 				)}
-				<button className="icon-btn topbar-refresh" disabled={busy} onClick={onRefresh} title="Refresh" type="button">
+				<button className="icon-btn topbar-refresh" disabled={busy} onClick={onRefresh} title={t.topbar.refresh} type="button">
 					<Icon name="refresh" size={15} />
 				</button>
 				<NotificationBell
@@ -2993,7 +3591,7 @@ function Topbar({
 					onOpenNotification={onNotificationOpen}
 					onRefresh={onRefreshNotifications}
 				/>
-				<SpaLink className={`account-btn ${busy ? "disabled" : ""}`} title="Profile" to={{ route: "profile" }}>
+				<SpaLink className={`account-btn ${busy ? "disabled" : ""}`} title={t.topbar.profile} to={{ route: "profile" }}>
 					<Avatar actor="user" colorSeed={user.handle} imageUrl={user.avatarUrl} name={user.displayName} size="sm" />
 					<span>hu/{user.handle}</span>
 				</SpaLink>
@@ -3266,8 +3864,8 @@ function NotificationBell({
 										onOpenNotification(notification);
 									}}
 								>
-									<span className="notification-title">{notification.title}</span>
-									<NotificationBody body={notification.body} />
+										<TranslatableText as="span" className="notification-title" text={notification.title} />
+										<NotificationBody body={notification.body} />
 									<span className="notification-meta" title={timestampTitle(notification.createdAt)}>{notificationMeta(notification)}</span>
 								</a>
 								<button
@@ -3329,8 +3927,8 @@ function ActivityBanner({ label, onClick }: { label: string; onClick: () => void
 	);
 }
 
-function NotificationBody({ body }: { body: string }) {
-	const lines = body.split(/\r?\n/);
+function NotificationBody({ body }: { body: TextLike }) {
+	const lines = textValue(body).split(/\r?\n/);
 	const [firstLine = "", ...detailLines] = lines;
 	return (
 		<span className="notification-body">
@@ -3467,6 +4065,7 @@ function MobileNavigationMenu({
 	const menuId = useId();
 	const wrapRef = useRef<HTMLDivElement | null>(null);
 	const menuRef = useViewportConstrainedPopout<HTMLElement>(open);
+	const t = useUiText();
 
 	useEffect(() => {
 		setOpen(false);
@@ -3502,16 +4101,16 @@ function MobileNavigationMenu({
 			<button
 				aria-controls={menuId}
 				aria-expanded={open}
-				aria-label={open ? "Close navigation" : "Open navigation"}
+				aria-label={open ? t.nav.closeNavigation : t.nav.openNavigation}
 				className="brand-mark mobile-nav-toggle"
 				onClick={() => setOpen((current) => !current)}
-				title="Navigation"
+				title={t.nav.navigation}
 				type="button"
 			>
 				<BickrLogo alt="" />
 			</button>
 			{open && (
-				<nav aria-label="Primary" className="mobile-nav-menu" id={menuId} ref={menuRef}>
+				<nav aria-label={t.nav.primaryNavigation} className="mobile-nav-menu" id={menuId} ref={menuRef}>
 					<SidebarNavigation
 						active={active}
 						onNavigate={() => setOpen(false)}
@@ -3543,6 +4142,7 @@ function SidebarNavigation({
 	const myWorlds = worlds.filter((world) => world.isMine);
 	const discover = worlds.filter((world) => !world.isMine).slice(0, 6);
 	const botTotal = worlds.reduce((total, world) => total + world.myBotCount, 0);
+	const t = useUiText();
 
 	return (
 		<>
@@ -3553,7 +4153,7 @@ function SidebarNavigation({
 					to={{ route: "worlds" }}
 				>
 					<Icon name="world" size={16} />
-					<span>All worlds</span>
+					<span>{t.nav.allWorlds}</span>
 					<span className="count">{worlds.length}</span>
 				</SpaLink>
 				<SpaLink
@@ -3562,7 +4162,7 @@ function SidebarNavigation({
 					to={{ route: "my-bots" }}
 				>
 					<Icon name="bot" size={16} />
-					<span>My bots</span>
+					<span>{t.nav.myBots}</span>
 					<span className="count">{botTotal}</span>
 				</SpaLink>
 				<SpaLink
@@ -3571,7 +4171,7 @@ function SidebarNavigation({
 					to={{ route: "search" }}
 				>
 					<Icon name="search" size={16} />
-					<span>Search</span>
+					<span>{t.nav.search}</span>
 				</SpaLink>
 				<SpaLink
 					className={`nav-item ${route === "notifications" ? "active" : ""}`}
@@ -3579,7 +4179,7 @@ function SidebarNavigation({
 					to={{ route: "notifications" }}
 				>
 					<Icon name="bell" size={16} />
-					<span>Notifications</span>
+					<span>{t.nav.notifications}</span>
 					{unreadNotifications > 0 && <span className="count">{unreadNotifications > 99 ? "99+" : unreadNotifications}</span>}
 				</SpaLink>
 				<SpaLink
@@ -3588,23 +4188,23 @@ function SidebarNavigation({
 					to={{ route: "subscriptions" }}
 				>
 					<Icon name="checklist" size={16} />
-					<span>Subscriptions</span>
+					<span>{t.nav.subscriptions}</span>
 				</SpaLink>
-				<button className="nav-item disabled" disabled title="Coming later" type="button">
+				<button className="nav-item disabled" disabled title={t.nav.comingLater} type="button">
 					<Icon name="settings" size={16} />
-					<span>Settings</span>
+					<span>{t.nav.settings}</span>
 				</button>
 			</div>
 
 			<div className="nav-group">
-				<div className="label">Your worlds</div>
-				{myWorlds.length === 0 && <div className="sidebar-note">None yet.</div>}
+				<div className="label">{t.nav.yourWorlds}</div>
+				{myWorlds.length === 0 && <div className="sidebar-note">{t.nav.noneYet}</div>}
 				{myWorlds.map((world) => (
 					<SpaLink
 						className={`nav-item ${active === world.handle ? "active" : ""}`}
 						key={world.id}
 						onNavigate={onNavigate}
-						title={world.name}
+							title={textValue(world.name)}
 						to={{ route: "world", worldHandle: world.handle }}
 					>
 						<span className="world-swatch" style={{ background: banners[world.bannerIdx] }} />
@@ -3615,13 +4215,13 @@ function SidebarNavigation({
 			</div>
 
 			<div className="nav-group">
-				<div className="label">Discover</div>
+				<div className="label">{t.nav.discover}</div>
 				{discover.map((world) => (
 					<SpaLink
-						className={`nav-item ${active === world.handle ? "active" : ""}`}
-						key={world.id}
-						onNavigate={onNavigate}
-						title={world.name}
+							className={`nav-item ${active === world.handle ? "active" : ""}`}
+							key={world.id}
+							onNavigate={onNavigate}
+							title={textValue(world.name)}
 						to={{ route: "world", worldHandle: world.handle }}
 					>
 						<span className="world-swatch" style={{ background: banners[world.bannerIdx] }} />
@@ -3632,9 +4232,9 @@ function SidebarNavigation({
 			</div>
 
 			<div className="sidebar-footnote">
-				Bickr is a parody social network.
+				{t.nav.footnoteLine1}
 				<br />
-				Every account is a bot.
+				{t.nav.footnoteLine2}
 			</div>
 		</>
 	);
@@ -3695,8 +4295,8 @@ function WorldsScreen({
 function WorldCard({ world }: { world: WorldView }) {
 	return (
 		<article className="world-card">
-			<SpaLink className="card-hit-link" to={{ route: "world", worldHandle: world.handle }}>
-				<span className="sr-only">Open {world.name}</span>
+				<SpaLink className="card-hit-link" to={{ route: "world", worldHandle: world.handle }}>
+					<span className="sr-only">Open {textValue(world.name)}</span>
 			</SpaLink>
 			<span
 				className={`banner ${world.avatarUrl ? "has-avatar" : ""}`}
@@ -3712,7 +4312,7 @@ function WorldCard({ world }: { world: WorldView }) {
 			</span>
 			<span className="body">
 				<span className="world-card-title">
-					{world.name}
+						<TranslatableText as="span" text={world.name} />
 					{world.isMine && <span className="yours-tag">Yours</span>}
 				</span>
 				<TranslatableText as="span" className="world-card-description" text={world.description} />
@@ -3744,6 +4344,7 @@ function CreateWorldModal({
 	open: boolean;
 }) {
 	const [handle, setHandle] = useState("");
+	const [language, setLanguage] = useState(languageDraftValue(defaultLanguageTag));
 	const [name, setName] = useState("");
 	const [description, setDescription] = useState("");
 	const [touchedHandle, setTouchedHandle] = useState(false);
@@ -3756,18 +4357,24 @@ function CreateWorldModal({
 	}, [name, touchedHandle]);
 
 	useEffect(() => {
-		if (!open) {
-			setHandle("");
-			setName("");
-			setDescription("");
-			setTouchedHandle(false);
-		}
+			if (!open) {
+				setHandle("");
+				setLanguage(languageDraftValue(defaultLanguageTag));
+				setName("");
+				setDescription("");
+				setTouchedHandle(false);
+			}
 	}, [open]);
 
 	const valid = isValidHandle(handle) && name.trim().length > 0 && description.trim().length > 0;
 
 	async function submit(): Promise<void> {
-		const ok = await onCreate({ handle, name, description });
+		const ok = await onCreate({
+			handle,
+			language: languageInputValue(language),
+			name: localizedDraft(name, language),
+			description: localizedDraft(description, language),
+		});
 		if (ok) {
 			toast.push(
 				<>
@@ -3809,25 +4416,26 @@ function CreateWorldModal({
 					value={name}
 				/>
 			</Field>
-			<Field help={handle ? `bickr.local/w/${handle}` : handleHelpText} hint="used in URLs" label="Handle">
-				<div className="input-prefix">
-					<span className="prefix">w/</span>
-					<input
+				<Field help={handle ? `bickr.local/w/${handle}` : handleHelpText} hint="used in URLs" label="Handle">
+					<div className="input-prefix">
+						<span className="prefix">w/</span>
+						<input
 						className="input"
 						onChange={(event) => {
 							setTouchedHandle(true);
 							setHandle(slugify(event.target.value));
 						}}
 						placeholder="saltmarsh"
-						value={handle}
-					/>
-				</div>
-			</Field>
-			<Field hint="required" label="Short description">
-				<textarea
-					className="textarea"
-					maxLength={500}
-					onChange={(event) => setDescription(event.target.value)}
+							value={handle}
+						/>
+					</div>
+				</Field>
+				<LanguageField onChange={setLanguage} value={language} />
+				<Field hint="required" label="Short description">
+					<textarea
+						className="textarea"
+						maxLength={500}
+						onChange={(event) => setDescription(event.target.value)}
 					placeholder="A failing literary magazine staffed entirely by bots."
 					rows={4}
 					value={description}
@@ -3851,12 +4459,13 @@ function WorldEditPage({
 	onWorldUpdated: (world: WorldSummary) => void;
 	readonly: boolean;
 	world: WorldView;
-}) {
-	const [handle, setHandle] = useState(world.handle);
-	const [name, setName] = useState(world.name);
-	const [description, setDescription] = useState(world.description);
-	const [prompt, setPrompt] = useState(world.prompt ?? "");
-	const [initialBotNotification, setInitialBotNotification] = useState(world.initialBotNotification);
+	}) {
+		const [handle, setHandle] = useState(world.handle);
+		const [language, setLanguage] = useState(languageDraftValue(world.language, textLang(world.name) ?? defaultLanguageTag));
+		const [name, setName] = useState(textValue(world.name));
+		const [description, setDescription] = useState(textValue(world.description));
+		const [prompt, setPrompt] = useState(textValue(world.prompt));
+		const [initialBotNotification, setInitialBotNotification] = useState(textValue(world.initialBotNotification));
 	const [threadBodyCharacters, setThreadBodyCharacters] = useState(optionalNumberDraftValue(world.postingSettings?.threadBodyCharacters));
 	const [commentBodyCharacters, setCommentBodyCharacters] = useState(optionalNumberDraftValue(world.postingSettings?.commentBodyCharacters));
 	const [uploadOpen, setUploadOpen] = useState(false);
@@ -3865,20 +4474,22 @@ function WorldEditPage({
 	const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 	const toast = useContext(ToastContext);
 
-	useEffect(() => {
-		setHandle(world.handle);
-		setName(world.name);
-		setDescription(world.description);
-		setPrompt(world.prompt ?? "");
-		setInitialBotNotification(world.initialBotNotification);
-		setThreadBodyCharacters(optionalNumberDraftValue(world.postingSettings?.threadBodyCharacters));
-		setCommentBodyCharacters(optionalNumberDraftValue(world.postingSettings?.commentBodyCharacters));
-	}, [
-		world.description,
-		world.handle,
-		world.initialBotNotification,
-		world.name,
-		world.prompt,
+		useEffect(() => {
+			setHandle(world.handle);
+			setLanguage(languageDraftValue(world.language, textLang(world.name) ?? defaultLanguageTag));
+			setName(textValue(world.name));
+			setDescription(textValue(world.description));
+			setPrompt(textValue(world.prompt));
+			setInitialBotNotification(textValue(world.initialBotNotification));
+			setThreadBodyCharacters(optionalNumberDraftValue(world.postingSettings?.threadBodyCharacters));
+			setCommentBodyCharacters(optionalNumberDraftValue(world.postingSettings?.commentBodyCharacters));
+		}, [
+			world.description,
+			world.handle,
+			world.initialBotNotification,
+			world.language,
+			world.name,
+			world.prompt,
 		world.postingSettings?.commentBodyCharacters,
 		world.postingSettings?.threadBodyCharacters,
 	]);
@@ -3893,28 +4504,31 @@ function WorldEditPage({
 		initialBotNotification.trim().length > 0 &&
 		(threadBodyCharactersValue === null ||
 			(threadBodyCharactersValue >= 1 && threadBodyCharactersValue <= defaultThreadBodyCharacters)) &&
-		(commentBodyCharactersValue === null ||
-			(commentBodyCharactersValue >= 1 && commentBodyCharactersValue <= defaultCommentBodyCharacters));
-	const dirty =
-		handle !== world.handle ||
-		name !== world.name ||
-		description !== world.description ||
-		prompt !== (world.prompt ?? "") ||
-		initialBotNotification !== world.initialBotNotification ||
-		threadBodyCharactersValue !== (world.postingSettings?.threadBodyCharacters ?? null) ||
-		commentBodyCharactersValue !== (world.postingSettings?.commentBodyCharacters ?? null);
+			(commentBodyCharactersValue === null ||
+				(commentBodyCharactersValue >= 1 && commentBodyCharactersValue <= defaultCommentBodyCharacters));
+		const savedLanguage = languageInputValue(language);
+		const dirty =
+			handle !== world.handle ||
+			savedLanguage !== world.language ||
+			name !== textValue(world.name) ||
+			description !== textValue(world.description) ||
+			prompt !== textValue(world.prompt) ||
+			initialBotNotification !== textValue(world.initialBotNotification) ||
+			threadBodyCharactersValue !== (world.postingSettings?.threadBodyCharacters ?? null) ||
+			commentBodyCharactersValue !== (world.postingSettings?.commentBodyCharacters ?? null);
 
 	async function submit(): Promise<void> {
 		if (readonly) {
 			return;
-		}
-		const ok = await onSave({
-			handle,
-			name,
-			description,
-			prompt,
-			initialBotNotification,
-			postingSettings: {
+			}
+			const ok = await onSave({
+				handle,
+				language: savedLanguage,
+				name: localizedDraft(name, language),
+				description: localizedDraft(description, language),
+				prompt: localizedDraft(prompt, language),
+				initialBotNotification: localizedDraft(initialBotNotification, language),
+				postingSettings: {
 				threadBodyCharacters: threadBodyCharactersValue,
 				commentBodyCharacters: commentBodyCharactersValue,
 			},
@@ -3943,10 +4557,10 @@ function WorldEditPage({
 	return (
 		<div className="main-inner">
 			<div className="page-header">
-				<div className="page-title-block">
-					<button className="back-link" onClick={onBack} type="button">
-						{world.name}
-					</button>
+					<div className="page-title-block">
+						<button className="back-link" onClick={onBack} type="button">
+							{textValue(world.name)}
+						</button>
 					<h1>
 						<Avatar actor="world" colorSeed={world.handle} crop={world.avatarCrop} imageUrl={world.avatarUrl} name={world.name} size="lg" />
 						<span>{readonly ? "View world" : "Edit world"}</span>
@@ -4040,10 +4654,11 @@ function WorldEditPage({
 								<input className="input" disabled={readonly} onChange={(event) => setHandle(slugify(event.target.value))} value={handle} />
 							</div>
 						</Field>
-						<Field hint="shown to human users" label="Name">
-							<input autoFocus className="input" disabled={readonly} maxLength={80} onChange={(event) => setName(event.target.value)} value={name} />
-						</Field>
-						<Field hint="shown to human users" label="Short description">
+							<Field hint="shown to human users" label="Name">
+								<input autoFocus className="input" disabled={readonly} maxLength={80} onChange={(event) => setName(event.target.value)} value={name} />
+							</Field>
+							<LanguageField disabled={readonly} onChange={setLanguage} value={language} />
+							<Field hint="shown to human users" label="Short description">
 							<textarea className="textarea" disabled={readonly} maxLength={500} onChange={(event) => setDescription(event.target.value)} rows={4} value={description} />
 						</Field>
 					</section>
@@ -4105,8 +4720,8 @@ function WorldEditPage({
 				open={cropOpen && !readonly}
 				world={world}
 			/>
-			<Confirm
-				body={<>This removes the avatar for <b>{world.name}</b>.</>}
+				<Confirm
+					body={<>This removes the avatar for <b>{textValue(world.name)}</b>.</>}
 				confirmText="Delete avatar"
 				danger
 				onClose={() => setDeleteAvatarConfirm(false)}
@@ -4114,7 +4729,7 @@ function WorldEditPage({
 				open={deleteAvatarConfirm && !readonly}
 				title="Delete avatar?"
 			/>
-			<ImageLightbox onClose={() => setLightboxUrl(null)} title={world.name} url={lightboxUrl} />
+				<ImageLightbox onClose={() => setLightboxUrl(null)} title={textValue(world.name)} url={lightboxUrl} />
 		</div>
 	);
 }
@@ -4598,7 +5213,7 @@ function WorldDetail({
 				body={
 					confirmBot ?
 						<>
-							This will remove <b>{confirmBot.displayName}</b> (<Reference isBot kind="bot" name={confirmBot.handle} />)
+								This will remove <b>{textValue(confirmBot.displayName)}</b> (<Reference isBot kind="bot" name={confirmBot.handle} />)
 							from your current bot list.
 						</>
 					:	null
@@ -4622,7 +5237,7 @@ function WorldDetail({
 				open={Boolean(confirmBot)}
 				title="Delete this bot?"
 			/>
-			<ImageLightbox onClose={() => setLightboxUrl(null)} title={world.name} url={lightboxUrl} />
+				<ImageLightbox onClose={() => setLightboxUrl(null)} title={textValue(world.name)} url={lightboxUrl} />
 		</div>
 	);
 }
@@ -4754,12 +5369,12 @@ function BotGroupSection({
 	onUpdateTitle: (customTitle: string | null) => Promise<boolean>;
 }) {
 	const [editing, setEditing] = useState(false);
-	const [draft, setDraft] = useState(group.customTitle ?? "");
+		const [draft, setDraft] = useState(textValue(group.customTitle));
 
 	useEffect(() => {
-		if (!editing) {
-			setDraft(group.customTitle ?? "");
-		}
+			if (!editing) {
+				setDraft(textValue(group.customTitle));
+			}
 	}, [editing, group.customTitle, group.id]);
 
 	async function saveTitle(): Promise<void> {
@@ -4849,7 +5464,7 @@ function GroupMemberBotCard({ bot, onRemove }: { bot: BotSummary; onRemove: () =
 			<div className="head">
 				<SpaLink
 					className="bot-avatar-link"
-					title={`Open ${bot.displayName}`}
+					title={`Open ${textValue(bot.displayName)}`}
 					to={{ route: "bot-profile", worldHandle: bot.homeWorldHandle, botHandle: bot.handle }}
 				>
 					<Avatar actor="bot" colorSeed={bot.handle} crop={bot.avatarCrop} displayPixels={48} imageUrl={bot.avatarUrl} name={bot.displayName} />
@@ -4859,7 +5474,7 @@ function GroupMemberBotCard({ bot, onRemove }: { bot: BotSummary; onRemove: () =
 						className="name bot-name-link"
 						to={{ route: "bot-profile", worldHandle: bot.homeWorldHandle, botHandle: bot.handle }}
 					>
-						{bot.displayName}
+							<TranslatableText as="span" text={bot.displayName} />
 					</SpaLink>
 					<div className="bot-ref-line">
 						<Reference isBot kind="bot" name={bot.handle} />
@@ -4977,7 +5592,7 @@ function AddBotsToGroupModal({
 											/>
 											<Avatar actor="bot" colorSeed={bot.handle} crop={bot.avatarCrop} displayPixels={42} imageUrl={bot.avatarUrl} name={bot.displayName} size="sm" />
 											<span className="bot-pick-copy">
-												<span className="nm">{bot.displayName}</span>
+													<TranslatableText as="span" className="nm" text={bot.displayName} />
 												<span className="hd">u/{bot.handle}</span>
 											</span>
 											{alreadyMember && <span className="bot-pick-note">Already in group</span>}
@@ -5009,22 +5624,28 @@ function CreateForumModal({
 	onCreate: (input: CreateForumInput) => Promise<boolean>;
 	open: boolean;
 	world: WorldView;
-}) {
-	const [handle, setHandle] = useState("");
-	const [description, setDescription] = useState("");
-	const toast = useContext(ToastContext);
+	}) {
+		const [handle, setHandle] = useState("");
+		const [language, setLanguage] = useState(languageDraftValue(world.language, textLang(world.description) ?? defaultLanguageTag));
+		const [description, setDescription] = useState("");
+		const toast = useContext(ToastContext);
 
 	useEffect(() => {
-		if (!open) {
-			setHandle("");
-			setDescription("");
-		}
-	}, [open]);
+			if (!open) {
+				setHandle("");
+				setLanguage(languageDraftValue(world.language, textLang(world.description) ?? defaultLanguageTag));
+				setDescription("");
+			}
+		}, [open, world.description, world.language]);
 
 	const valid = isValidHandle(handle) && description.trim().length > 0;
 
 	async function submit(): Promise<void> {
-		const ok = await onCreate({ handle, description });
+		const ok = await onCreate({
+			handle,
+			language: languageInputValue(language),
+			description: localizedDraft(description, language),
+		});
 		if (ok) {
 			toast.push(
 				<>
@@ -5068,19 +5689,20 @@ function CreateForumModal({
 					/>
 				</div>
 			</Field>
-			<Field hint="required" label="Short description">
-				<textarea
+				<Field hint="required" label="Short description">
+					<textarea
 					className="textarea"
 					maxLength={500}
 					onChange={(event) => setDescription(event.target.value)}
 					placeholder="Submissions in progress, critiques, line edits, and votes to advance."
 					rows={4}
 					value={description}
-				/>
-			</Field>
-		</Modal>
-	);
-}
+					/>
+				</Field>
+				<LanguageField onChange={setLanguage} value={language} />
+			</Modal>
+		);
+	}
 
 function EditForumModal({
 	busy,
@@ -5093,7 +5715,8 @@ function EditForumModal({
 	onClose: () => void;
 	onSave: (forum: ForumSummary, input: UpdateForumInput) => Promise<boolean>;
 }) {
-	const [description, setDescription] = useState("");
+		const [language, setLanguage] = useState(languageDraftValue(defaultLanguageTag));
+		const [description, setDescription] = useState("");
 	const [renameOpen, setRenameOpen] = useState(false);
 	const toast = useContext(ToastContext);
 	const closeEditModal = useCallback(() => {
@@ -5104,23 +5727,28 @@ function EditForumModal({
 		onClose();
 	}, [onClose, renameOpen]);
 
-	useEffect(() => {
-		if (forum) {
-			setDescription(forum.description);
-			setRenameOpen(false);
-		}
-	}, [forum]);
+		useEffect(() => {
+			if (forum) {
+				setLanguage(languageDraftValue(forum.language, textLang(forum.description) ?? defaultLanguageTag));
+				setDescription(textValue(forum.description));
+				setRenameOpen(false);
+			}
+		}, [forum]);
 
 	if (!forum) {
 		return null;
 	}
-	const activeForum = forum;
+		const activeForum = forum;
 
-	const valid = description.trim().length > 0;
-	const dirty = description !== activeForum.description;
+		const valid = description.trim().length > 0;
+		const savedLanguage = languageInputValue(language);
+		const dirty = savedLanguage !== activeForum.language || description !== textValue(activeForum.description);
 
-	async function submit(): Promise<void> {
-		const ok = await onSave(activeForum, { description });
+		async function submit(): Promise<void> {
+			const ok = await onSave(activeForum, {
+				language: savedLanguage,
+				description: localizedDraft(description, language),
+			});
 		if (ok) {
 			toast.push(
 				<>
@@ -5161,17 +5789,18 @@ function EditForumModal({
 					</button>
 				</div>
 			</Field>
-			<Field hint="required" label="Short description">
-				<textarea
+				<Field hint="required" label="Short description">
+					<textarea
 					autoFocus
 					className="textarea"
 					maxLength={500}
 					onChange={(event) => setDescription(event.target.value)}
 					rows={4}
-					value={description}
-				/>
-			</Field>
-			<RenameHandleModal
+						value={description}
+					/>
+				</Field>
+				<LanguageField onChange={setLanguage} value={language} />
+				<RenameHandleModal
 				busy={busy}
 				kind="forum"
 				routeHelp={(handle) => `bickr.local/w/${activeForum.worldHandle}/f/${handle}`}
@@ -5348,7 +5977,7 @@ function ForumDescription({
 	}
 	return (
 		<>
-			Blog of {bot.displayName} (
+				Blog of <TranslatableText as="span" text={bot.displayName} /> (
 			<Reference
 				isBot
 				kind="bot"
@@ -5574,8 +6203,8 @@ function ForumPage({
 								...(result.commentId ? { commentId: result.commentId } : {}),
 							}}
 						>
-							<span className="title">{result.title}</span>
-							<span className="snippet">{result.snippet}</span>
+								<TranslatableText as="span" className="title" text={result.title} />
+								<TranslatableText as="span" className="snippet" text={result.snippet} />
 							<span className="meta">
 								{authorLabel(result.authorDisplayName, result.authorHandle)} / {result.commentId ? "comment" : "thread"} / <TimeAgoLabel value={result.createdAt} />
 							</span>
@@ -5672,7 +6301,7 @@ function ForumPage({
 				body={
 					confirmThread ?
 						<>
-							This will delete <b>{confirmThread.title}</b> and its comments.
+								This will delete <b>{textValue(confirmThread.title)}</b> and its comments.
 						</>
 					:	null
 				}
@@ -5713,7 +6342,7 @@ function ForumThreadRow({
 		<div className={`thread-row ${checked ? "selected" : ""}`}>
 			<SpaLink
 				className="card-hit-link"
-				title={thread.title}
+					title={textValue(thread.title)}
 				to={{
 					route: "thread",
 					worldHandle: thread.worldHandle,
@@ -5721,11 +6350,11 @@ function ForumThreadRow({
 					threadId: thread.id,
 				}}
 			>
-				<span className="sr-only">Open {thread.title}</span>
+					<span className="sr-only">Open {textValue(thread.title)}</span>
 			</SpaLink>
 			<div className="checkcell" onClick={(event) => event.stopPropagation()}>
 				<input
-					aria-label={`Spotlight ${thread.title}`}
+						aria-label={`Spotlight ${textValue(thread.title)}`}
 					checked={checked}
 					className="cb"
 					onChange={(event) => onCheck(event.target.checked)}
@@ -5747,7 +6376,7 @@ function ForumThreadRow({
 							threadId: thread.id,
 						}}
 					>
-						{thread.title}
+							<TranslatableText as="span" text={thread.title} />
 					</SpaLink>
 					{readState?.isNew && <span className="new-mark">new</span>}
 					{!readState?.isNew && readState?.hasNewComments && (
@@ -6090,7 +6719,7 @@ function ThreadPage({
 			<Confirm
 				body={
 					<>
-						This will delete <b>{thread.title}</b> and all comments in the thread.
+							This will delete <b>{textValue(thread.title)}</b> and all comments in the thread.
 					</>
 				}
 				confirmText="Delete thread"
@@ -6408,7 +7037,7 @@ function CommentVoteCount({
 							{votes.map((vote) => (
 								<span className="vote-row" key={vote.botId}>
 									<span className="vote-voter">
-										<strong>{vote.displayName}</strong>
+											<strong>{textValue(vote.displayName)}</strong>
 										<Reference
 											isBot
 											kind="bot"
@@ -6772,7 +7401,7 @@ function BotProfileScreen({
 					inheritingAvatar ?
 						"The inherited avatar can only be deleted in the original profile."
 					:	<>
-							This removes the local avatar for <b>{bot.displayName}</b>. If this is a linked clone, it will use
+								This removes the local avatar for <b>{textValue(bot.displayName)}</b>. If this is a linked clone, it will use
 							the source avatar again.
 						</>
 				}
@@ -6785,7 +7414,7 @@ function BotProfileScreen({
 			/>
 			<ImageLightbox
 				onClose={() => setLightboxUrl(null)}
-				title={bot.displayName}
+					title={textValue(bot.displayName)}
 				url={lightboxUrl}
 			/>
 
@@ -7640,14 +8269,15 @@ function BotAvatarGenerationScreen({
 	onSaveSettings: (draft: InferenceDraft) => Promise<boolean>;
 	ownerInferenceSettings: BotInferenceSettings | null;
 	world: WorldView;
-}) {
-	const initialSettings = defaultAvatarGenerationInferenceSettings(
-		bot.inferenceSettings.imageGeneration ? bot.inferenceSettings : ownerInferenceSettings ?? {},
-	);
+	}) {
+		const botLanguage = bot.localOverrides?.language ?? bot.language ?? textLang(bot.displayName) ?? defaultLanguageTag;
+		const initialSettings = defaultAvatarGenerationInferenceSettings(
+			bot.inferenceSettings.imageGeneration ? bot.inferenceSettings : ownerInferenceSettings ?? {},
+		);
 	const [draft, setDraft] = useState<InferenceDraft>(() => inferenceDraftFromSettings(initialSettings));
 	const [models, setModels] = useState<OpenRouterImageModel[]>([]);
 	const [modelsError, setModelsError] = useState("");
-	const [prompt, setPrompt] = useState(initialSettings.imageGeneration?.prompt ?? "");
+	const [prompt, setPrompt] = useState(textValue(initialSettings.imageGeneration?.prompt));
 	const [includeCurrentAvatar, setIncludeCurrentAvatar] = useState(Boolean(bot.avatarUrl));
 	const [candidate, setCandidate] = useState<AvatarImage | null>(null);
 	const [chatEntries, setChatEntries] = useState<AvatarGenerationChatEntry[]>([]);
@@ -7666,7 +8296,7 @@ function BotAvatarGenerationScreen({
 			bot.inferenceSettings.imageGeneration ? bot.inferenceSettings : ownerInferenceSettings ?? {},
 		);
 		setDraft(inferenceDraftFromSettings(effectiveSettings));
-		setPrompt(effectiveSettings.imageGeneration?.prompt ?? "");
+		setPrompt(textValue(effectiveSettings.imageGeneration?.prompt));
 		setIncludeCurrentAvatar(Boolean(bot.avatarUrl));
 		setCurrentAvatarFailed(false);
 		setCandidate(null);
@@ -7747,7 +8377,7 @@ function BotAvatarGenerationScreen({
 			const body = {
 				mode,
 				...(mode === "persona" && prompt.trim() ? { prefill: prompt } : {}),
-				...(mode === "current_avatar" ? { settings: imageGenerationInputFromDraft(draft, prompt) } : {}),
+					...(mode === "current_avatar" ? { settings: imageGenerationInputFromDraft(draft, prompt, botLanguage) } : {}),
 			};
 			const response = await fetch(`/api/me/bots/${encodeURIComponent(bot.id)}/avatar/prompt`, {
 				method: "POST",
@@ -7812,7 +8442,7 @@ function BotAvatarGenerationScreen({
 				body: JSON.stringify({
 					prompt,
 					includeCurrentAvatar,
-					settings: imageGenerationInputFromDraft(draft, prompt),
+						settings: imageGenerationInputFromDraft(draft, prompt, botLanguage),
 				}),
 				signal: controller.signal,
 			});
@@ -7873,7 +8503,7 @@ function BotAvatarGenerationScreen({
 					method: "POST",
 					body: {
 						candidate,
-						settings: imageGenerationInputFromDraft(draft, promptToSave),
+							settings: imageGenerationInputFromDraft(draft, promptToSave, botLanguage),
 					},
 				});
 				if (!result.ok) {
@@ -7900,7 +8530,7 @@ function BotAvatarGenerationScreen({
 		if (ok) {
 			const effectiveSettings = defaultAvatarGenerationInferenceSettings(ownerInferenceSettings ?? {});
 			setDraft(inferenceDraftFromSettings(effectiveSettings));
-			setPrompt(effectiveSettings.imageGeneration?.prompt ?? "");
+				setPrompt(textValue(effectiveSettings.imageGeneration?.prompt));
 			setMessage("Participant image generation settings discarded.");
 		}
 	}
@@ -8041,7 +8671,7 @@ function BotAvatarGenerationScreen({
 				</div>
 			</section>
 			<AvatarGenerationChatLog entries={chatEntries} />
-			<ImageLightbox onClose={() => setLightboxUrl(null)} title={bot.displayName} url={lightboxUrl} />
+			<ImageLightbox onClose={() => setLightboxUrl(null)} title={textValue(bot.displayName)} url={lightboxUrl} />
 		</div>
 	);
 }
@@ -8066,14 +8696,15 @@ function WorldAvatarGenerationScreen({
 	onWorldUpdated: (world: WorldSummary) => void;
 	ownerInferenceSettings: BotInferenceSettings | null;
 	world: WorldView;
-}) {
-	const initialSettings = defaultWorldAvatarGenerationInferenceSettings(
-		world.imageGeneration ? { imageGeneration: world.imageGeneration } : ownerInferenceSettings ?? {},
-	);
+	}) {
+		const worldLanguage = world.language ?? textLang(world.name) ?? defaultLanguageTag;
+		const initialSettings = defaultWorldAvatarGenerationInferenceSettings(
+			world.imageGeneration ? { imageGeneration: world.imageGeneration } : ownerInferenceSettings ?? {},
+		);
 	const [draft, setDraft] = useState<InferenceDraft>(() => inferenceDraftFromSettings(initialSettings));
 	const [models, setModels] = useState<OpenRouterImageModel[]>([]);
 	const [modelsError, setModelsError] = useState("");
-	const [prompt, setPrompt] = useState(initialSettings.imageGeneration?.prompt ?? "");
+	const [prompt, setPrompt] = useState(textValue(initialSettings.imageGeneration?.prompt));
 	const [includeCurrentAvatar, setIncludeCurrentAvatar] = useState(Boolean(world.avatarUrl));
 	const [candidate, setCandidate] = useState<AvatarImage | null>(null);
 	const [chatEntries, setChatEntries] = useState<AvatarGenerationChatEntry[]>([]);
@@ -8096,7 +8727,7 @@ function WorldAvatarGenerationScreen({
 			world.imageGeneration ? { imageGeneration: world.imageGeneration } : ownerInferenceSettings ?? {},
 		);
 		setDraft(inferenceDraftFromSettings(effectiveSettings));
-		setPrompt(effectiveSettings.imageGeneration?.prompt ?? "");
+		setPrompt(textValue(effectiveSettings.imageGeneration?.prompt));
 		setIncludeCurrentAvatar(Boolean(world.avatarUrl));
 		setCurrentAvatarFailed(false);
 		setCandidate(null);
@@ -8212,7 +8843,7 @@ function WorldAvatarGenerationScreen({
 				mode,
 				...((mode === "description" || mode === "members") && prompt.trim() ? { prefill: prompt } : {}),
 				...((mode === "description" || mode === "members") && promptSettings ? { settings: promptSettings } : {}),
-				...(mode === "current_avatar" ? { settings: imageGenerationInputFromDraft(draft, prompt) } : {}),
+					...(mode === "current_avatar" ? { settings: imageGenerationInputFromDraft(draft, prompt, worldLanguage) } : {}),
 			};
 			const response = await fetch(`/api/worlds/${encodeURIComponent(world.handle)}/avatar/prompt`, {
 				method: "POST",
@@ -8266,7 +8897,7 @@ function WorldAvatarGenerationScreen({
 			const response = await fetch(`/api/worlds/${encodeURIComponent(world.handle)}/avatar/generate`, {
 				method: "POST",
 				headers: { accept: "text/event-stream", "content-type": "application/json" },
-				body: JSON.stringify({ prompt, includeCurrentAvatar, settings: imageGenerationInputFromDraft(draft, prompt) }),
+				body: JSON.stringify({ prompt, includeCurrentAvatar, settings: imageGenerationInputFromDraft(draft, prompt, worldLanguage) }),
 				signal: controller.signal,
 			});
 			if (!response.ok || !response.headers.get("content-type")?.includes("text/event-stream")) {
@@ -8318,7 +8949,7 @@ function WorldAvatarGenerationScreen({
 				const promptToSave = candidate.source?.type === "generated" && candidate.source.prompt ? candidate.source.prompt : prompt;
 				const result = await api<WorldMutationResponse>(`/api/worlds/${encodeURIComponent(world.handle)}/avatar/apply`, {
 					method: "POST",
-					body: { candidate, settings: imageGenerationInputFromDraft(draft, promptToSave) },
+						body: { candidate, settings: imageGenerationInputFromDraft(draft, promptToSave, worldLanguage) },
 				});
 				if (!result.ok) {
 					throw new Error(result.message);
@@ -8344,7 +8975,7 @@ function WorldAvatarGenerationScreen({
 		if (ok) {
 			const effectiveSettings = defaultWorldAvatarGenerationInferenceSettings(ownerInferenceSettings ?? {});
 			setDraft(inferenceDraftFromSettings(effectiveSettings));
-			setPrompt(effectiveSettings.imageGeneration?.prompt ?? "");
+				setPrompt(textValue(effectiveSettings.imageGeneration?.prompt));
 			setMessage("World image generation settings discarded.");
 		}
 	}
@@ -8456,7 +9087,7 @@ function WorldAvatarGenerationScreen({
 				onClose={() => setPendingTextPromptFill(null)}
 				onGenerate={(settings) => pendingTextPromptFill ? void fillPrompt(pendingTextPromptFill, settings) : undefined}
 			/>
-			<ImageLightbox onClose={() => setLightboxUrl(null)} title={world.name} url={lightboxUrl} />
+			<ImageLightbox onClose={() => setLightboxUrl(null)} title={textValue(world.name)} url={lightboxUrl} />
 		</div>
 	);
 }
@@ -8769,20 +9400,20 @@ function BotPublicProfileCard({ bot }: { bot: BotPublicProfile }) {
 	return (
 		<article className="bot-card public-profile-card">
 			<div className="head">
-				<SpaLink
-					className="bot-avatar-link"
-				title={`Open ${bot.displayName}`}
-				to={{ route: "bot-profile", worldHandle: bot.homeWorldHandle, botHandle: bot.handle }}
-			>
+					<SpaLink
+						className="bot-avatar-link"
+					title={`Open ${textValue(bot.displayName)}`}
+					to={{ route: "bot-profile", worldHandle: bot.homeWorldHandle, botHandle: bot.handle }}
+				>
 					<Avatar actor="bot" colorSeed={bot.handle} crop={bot.avatarCrop} displayPixels={48} imageUrl={bot.avatarUrl} name={bot.displayName} />
 			</SpaLink>
 				<div className="bot-card-title">
-					<SpaLink
-						className="name bot-name-link"
-						to={{ route: "bot-profile", worldHandle: bot.homeWorldHandle, botHandle: bot.handle }}
-					>
-						{bot.displayName}
-					</SpaLink>
+						<SpaLink
+							className="name bot-name-link"
+							to={{ route: "bot-profile", worldHandle: bot.homeWorldHandle, botHandle: bot.handle }}
+						>
+							<TranslatableText as="span" text={bot.displayName} />
+						</SpaLink>
 					<div className="bot-ref-line">
 						<Reference isBot kind="bot" name={bot.handle} worldHandle={bot.homeWorldHandle} />
 					</div>
@@ -8842,7 +9473,7 @@ function BotActivityTitle({
 }: {
 	activity: ActivityListItem;
 	onReference: OpenReference;
-	summary: { title: string; body?: string; meta: string };
+		summary: { title: string; body?: string; meta: string };
 }) {
 	const activityType = stringValue((activity as { type?: unknown }).type);
 	switch (activityType) {
@@ -9036,17 +9667,17 @@ function ActivityAuthorLabel({
 	handle,
 	worldHandle,
 }: {
-	displayName: string | undefined;
+	displayName: TextLike | undefined;
 	handle: string;
 	worldHandle?: string;
 }) {
-	const cleanName = displayName?.trim();
+	const cleanName = textValue(displayName).trim();
 	if (!cleanName) {
 		return <Reference isBot kind="bot" name={handle} worldHandle={worldHandle} />;
 	}
 	return (
 		<>
-			{cleanName} (<Reference isBot kind="bot" name={handle} worldHandle={worldHandle} />)
+				<TranslatableText as="span" text={displayName ?? cleanName} /> (<Reference isBot kind="bot" name={handle} worldHandle={worldHandle} />)
 		</>
 	);
 }
@@ -9059,7 +9690,7 @@ function ActivitySourceText({
 }: {
 	className?: string;
 	onReference: OpenReference;
-	text: string;
+		text: TextLike;
 	worldHandle?: string;
 }) {
 	return (
@@ -9133,8 +9764,8 @@ function botActivitySummary(activity: ActivityListItem): { title: string; body?:
 		case "post": {
 			const threadActivity = activity as Extract<BotActivityItem, { type: "thread" }>;
 			return {
-				title: `Thread in f/${threadActivity.forumHandle}: ${threadActivity.title}`,
-				body: threadActivity.bodyPreview,
+				title: `Thread in f/${threadActivity.forumHandle}: ${textValue(threadActivity.title)}`,
+				body: textValue(threadActivity.bodyPreview),
 				meta: `${threadActivity.voteScore} votes / ${threadActivity.commentCount} comments`,
 			};
 		}
@@ -9142,9 +9773,9 @@ function botActivitySummary(activity: ActivityListItem): { title: string; body?:
 			const commentActivity = activity as Extract<BotActivityItem, { type: "comment" }>;
 			const parent = commentActivity.parentComment;
 			return {
-				title: `Replied in "${commentActivity.threadTitle}"`,
+				title: `Replied in "${textValue(commentActivity.threadTitle)}"`,
 				body: joinedBotActivityBody(
-					parent ? `To ${authorLabel(parent.authorDisplayName, parent.authorHandle)}: ${parent.bodyPreview}` : undefined,
+					parent ? `To ${authorLabel(parent.authorDisplayName, parent.authorHandle)}: ${textValue(parent.bodyPreview)}` : undefined,
 					commentActivity.bodyPreview,
 				),
 				meta: `f/${commentActivity.forumHandle} / ${commentActivity.voteScore} votes`,
@@ -9155,10 +9786,10 @@ function botActivitySummary(activity: ActivityListItem): { title: string; body?:
 			const voteTargetType = stringValue((voteActivity as { targetType?: unknown }).targetType) ?? "comment";
 			const target = voteActivity.targetComment;
 			return {
-				title: `${voteActivity.value > 0 ? "Upvoted" : "Downvoted"} ${voteTargetType === "thread" ? "thread" : "comment"}${voteActivity.title ? ` in "${voteActivity.title}"` : ""}`,
+				title: `${voteActivity.value > 0 ? "Upvoted" : "Downvoted"} ${voteTargetType === "thread" ? "thread" : "comment"}${voteActivity.title ? ` in "${textValue(voteActivity.title)}"` : ""}`,
 				body: joinedBotActivityBody(
-					voteActivity.reason ? `Reason: ${voteActivity.reason}` : undefined,
-					target ? `${authorLabel(target.authorDisplayName, target.authorHandle)}: ${target.bodyPreview}` : undefined,
+					voteActivity.reason ? `Reason: ${textValue(voteActivity.reason)}` : undefined,
+					target ? `${authorLabel(target.authorDisplayName, target.authorHandle)}: ${textValue(target.bodyPreview)}` : undefined,
 				),
 				meta: [
 					voteActivity.forumHandle ? `f/${voteActivity.forumHandle}` : null,
@@ -9170,16 +9801,16 @@ function botActivitySummary(activity: ActivityListItem): { title: string; body?:
 		case "follow": {
 			const followActivity = activity as Extract<BotActivityItem, { type: "follow" }>;
 			return {
-				title: `Followed ${followActivity.bot.displayName} (u/${followActivity.bot.handle})`,
-				body: followActivity.reason ?? followActivity.bot.shortBio,
+				title: `Followed ${textValue(followActivity.bot.displayName)} (u/${followActivity.bot.handle})`,
+				body: textValue(followActivity.reason ?? followActivity.bot.shortBio),
 				meta: `w/${followActivity.bot.homeWorldHandle}`,
 			};
 		}
 		case "unfollow": {
 			const followActivity = activity as Extract<BotActivityItem, { type: "unfollow" }>;
 			return {
-				title: `Unfollowed ${followActivity.bot.displayName} (u/${followActivity.bot.handle})`,
-				body: followActivity.reason ?? followActivity.bot.shortBio,
+				title: `Unfollowed ${textValue(followActivity.bot.displayName)} (u/${followActivity.bot.handle})`,
+				body: textValue(followActivity.reason ?? followActivity.bot.shortBio),
 				meta: `w/${followActivity.bot.homeWorldHandle}`,
 			};
 		}
@@ -9187,8 +9818,8 @@ function botActivitySummary(activity: ActivityListItem): { title: string; body?:
 	return { title: "Activity", meta: "" };
 }
 
-function joinedBotActivityBody(...parts: Array<string | undefined>): string | undefined {
-	const body = parts.filter((part): part is string => Boolean(part)).join("\n");
+function joinedBotActivityBody(...parts: Array<TextLike | undefined>): string | undefined {
+	const body = parts.map((part) => textValue(part).trim()).filter(Boolean).join("\n");
 	return body || undefined;
 }
 
@@ -9388,10 +10019,10 @@ function BotLoopScreen({
 			</div>
 			<div className="page-header">
 				<div className="page-title-block">
-					<h1>
-						<Avatar actor="bot" colorSeed={bot.handle} crop={bot.avatarCrop} imageUrl={bot.avatarUrl} name={bot.displayName} size="lg" />
-						<span>{bot.displayName}'s loop</span>
-					</h1>
+						<h1>
+							<Avatar actor="bot" colorSeed={bot.handle} crop={bot.avatarCrop} imageUrl={bot.avatarUrl} name={bot.displayName} size="lg" />
+							<span>{textValue(bot.displayName)}'s loop</span>
+						</h1>
 					<p className="sub">
 						<Reference isBot kind="bot" name={bot.handle} /> in{" "}
 						<Reference kind="world" name={world.handle} />. Internal loop transcript and controls.
@@ -9560,9 +10191,9 @@ function SpotlightPanel({
 											onChange={(event) => setSelectedBots((current) => ({ ...current, [bot.id]: event.target.checked }))}
 											type="checkbox"
 										/>
-										<Avatar actor="bot" colorSeed={bot.handle} crop={bot.avatarCrop} displayPixels={42} imageUrl={bot.avatarUrl} name={bot.displayName} size="sm" />
-										<span className="bot-pick-copy">
-											<span className="nm">{bot.displayName}</span>
+											<Avatar actor="bot" colorSeed={bot.handle} crop={bot.avatarCrop} displayPixels={42} imageUrl={bot.avatarUrl} name={bot.displayName} size="sm" />
+											<span className="bot-pick-copy">
+												<TranslatableText as="span" className="nm" text={bot.displayName} />
 											<span className="hd">
 												u/{bot.handle}
 												{showHomeWorld ? ` / w/${bot.homeWorldHandle}` : ""}
@@ -9672,20 +10303,20 @@ function BotCard({
 				</div>
 			)}
 			<div className="head">
-				<SpaLink
-					className="bot-avatar-link"
-				title={`Open ${bot.displayName}`}
-				to={{ route: "bot-profile", worldHandle: bot.homeWorldHandle, botHandle: bot.handle }}
-			>
+					<SpaLink
+						className="bot-avatar-link"
+					title={`Open ${textValue(bot.displayName)}`}
+					to={{ route: "bot-profile", worldHandle: bot.homeWorldHandle, botHandle: bot.handle }}
+				>
 					<Avatar actor="bot" colorSeed={bot.handle} crop={bot.avatarCrop} displayPixels={48} imageUrl={bot.avatarUrl} name={bot.displayName} />
 			</SpaLink>
 				<div className="bot-card-title">
-					<SpaLink
-						className="name bot-name-link"
-						to={{ route: "bot-profile", worldHandle: bot.homeWorldHandle, botHandle: bot.handle }}
-					>
-						{bot.displayName}
-					</SpaLink>
+						<SpaLink
+							className="name bot-name-link"
+							to={{ route: "bot-profile", worldHandle: bot.homeWorldHandle, botHandle: bot.handle }}
+						>
+							<TranslatableText as="span" text={bot.displayName} />
+						</SpaLink>
 					<div className="bot-ref-line">
 						<Reference isBot kind="bot" name={bot.handle} />
 					</div>
@@ -9770,10 +10401,11 @@ function BotEdit({
 	useEffect(() => {
 		setDraft(botEditDraftFromBot(bot, ownerInferenceSettings));
 	}, [
-		bot.displayName,
-		bot.id,
-		bot.inferenceSettings,
-		bot.localOverrides,
+			bot.displayName,
+			bot.id,
+			bot.inferenceSettings,
+			bot.language,
+			bot.localOverrides,
 		ownerInferenceSettings,
 		bot.prompt,
 		bot.shortBio,
@@ -9807,32 +10439,35 @@ function BotEdit({
 	} = parsedDraft;
 	const inheritedPostingSettings = effectivePostingSettings(world?.postingSettings, undefined);
 	const resolvedContextWindowTokens = contextWindowTokens ?? bot.effectiveTickSettings.contextWindowTokens;
-	const providerRoutingError = providerRoutingDraftError(draft.inference.providerRouting);
-	const translationProviderRoutingError = providerRoutingDraftError(draft.inference.translationProviderRouting);
-	const linkedClone = Boolean(bot.cloneSource?.linked);
-	const savedDisplayName = bot.localOverrides?.displayName ?? bot.displayName;
-	const savedShortBio = bot.localOverrides?.shortBio ?? bot.shortBio;
-	const savedPrompt = bot.localOverrides?.prompt ?? bot.prompt ?? "";
-	const savedInferenceSettings = botEditableInferenceSettings(bot);
-	const effectiveDraftDisplayName = draft.displayName.trim() || (linkedClone ? bot.displayName : "");
-	const effectiveDraftShortBio = draft.shortBio.trim() || (linkedClone ? bot.shortBio : "");
-	const effectiveDraftPrompt = draft.prompt.trim() || (linkedClone ? bot.prompt ?? "" : "");
+		const providerRoutingError = providerRoutingDraftError(draft.inference.providerRouting);
+		const translationProviderRoutingError = providerRoutingDraftError(draft.inference.translationProviderRouting);
+		const linkedClone = Boolean(bot.cloneSource?.linked);
+		const savedLanguage = bot.localOverrides?.language ?? bot.language;
+		const savedDisplayName = textValue(bot.localOverrides?.displayName ?? bot.displayName);
+		const savedShortBio = textValue(bot.localOverrides?.shortBio ?? bot.shortBio);
+		const savedPrompt = textValue(bot.localOverrides?.prompt ?? bot.prompt ?? "");
+		const savedInferenceSettings = botEditableInferenceSettings(bot);
+		const effectiveDraftLanguage = languageInputValue(draft.language);
+		const effectiveDraftDisplayName = draft.displayName.trim() || (linkedClone ? textValue(bot.displayName) : "");
+		const effectiveDraftShortBio = draft.shortBio.trim() || (linkedClone ? textValue(bot.shortBio) : "");
+		const effectiveDraftPrompt = draft.prompt.trim() || (linkedClone ? textValue(bot.prompt ?? "") : "");
 	const inferenceInheritedSettings = cloneAwareInferenceInheritedSettingsForDraft(bot, draft.inference, ownerInferenceSettings);
 	const inferenceInheritance = cloneAwareInferenceFallbackForDraft(bot, draft.inference, ownerInferenceSettings);
 	const promptBudgetRequestKey = botPromptBudgetRequestKey(bot.id, bot.handle, {
 		...draft,
-		displayName: effectiveDraftDisplayName,
-		shortBio: effectiveDraftShortBio,
-		prompt: effectiveDraftPrompt,
-		worldPrompt: world?.prompt ?? "",
-	}, inferenceInheritance);
+			displayName: effectiveDraftDisplayName,
+			shortBio: effectiveDraftShortBio,
+			prompt: effectiveDraftPrompt,
+			worldPrompt: textValue(world?.prompt),
+		}, inferenceInheritance);
 	const promptBudgetReady =
 		promptBudget.status === "ready" && promptBudget.requestKey === promptBudgetRequestKey ? promptBudget.budget : null;
 	const promptBudgetError =
 		promptBudget.status === "error" && promptBudget.requestKey === promptBudgetRequestKey ? promptBudget.message : "";
 	const promptBudgetLoading = promptBudget.status === "loading" && promptBudget.requestKey === promptBudgetRequestKey;
-	const dirty =
-		draft.displayName !== savedDisplayName ||
+		const dirty =
+			effectiveDraftLanguage !== savedLanguage ||
+			draft.displayName !== savedDisplayName ||
 		draft.shortBio !== savedShortBio ||
 		draft.prompt !== savedPrompt ||
 		tickIntervalMinutes !== secondsToMinutes(bot.tickSettings.intervalSeconds) ||
@@ -9851,8 +10486,9 @@ function BotEdit({
 			inherited: inferenceInheritance,
 		}) ||
 		toolDraftChanged(draft.tools, bot.toolSettings);
-	const valid =
-		effectiveDraftDisplayName.length > 0 &&
+		const valid =
+			draft.language.trim().length > 0 &&
+			effectiveDraftDisplayName.length > 0 &&
 		effectiveDraftShortBio.length > 0 &&
 		effectiveDraftPrompt.length > 0 &&
 		draft.prompt.length <= maxBotPromptLength &&
@@ -9935,7 +10571,7 @@ function BotEdit({
 					displayName: effectiveDraftDisplayName,
 					prompt: effectiveDraftPrompt,
 					shortBio: effectiveDraftShortBio,
-					inferenceSettings: inferenceInputFromDraft(draft.inference, inferenceInheritance, { includeReasoningPrefill: true }),
+					inferenceSettings: inferenceInputFromDraft(draft.inference, inferenceInheritance, { includeReasoningPrefill: true }, effectiveDraftLanguage ?? defaultLanguageTag),
 					toolSettings: toolInputFromDraft(draft.tools),
 					postingSettings: {
 						threadBodyCharacters,
@@ -9966,13 +10602,13 @@ function BotEdit({
 	return (
 		<div className="main-inner">
 			<div className="page-header">
-				<div className="page-title-block">
-					<button className="back-link" onClick={onBack} type="button">
-						{world?.name ?? bot.homeWorldHandle}
-					</button>
+					<div className="page-title-block">
+						<button className="back-link" onClick={onBack} type="button">
+							{textValue(world?.name) || bot.homeWorldHandle}
+						</button>
 					<h1>
 						<Avatar actor="bot" colorSeed={bot.handle} crop={bot.avatarCrop} imageUrl={bot.avatarUrl} name={effectiveDraftDisplayName || bot.displayName} size="lg" />
-						<span>{effectiveDraftDisplayName || bot.displayName}</span>
+							<span>{effectiveDraftDisplayName || textValue(bot.displayName)}</span>
 					</h1>
 					<p className="sub">
 						<Reference isBot kind="bot" name={bot.handle} /> in{" "}
@@ -10417,7 +11053,7 @@ function BotEdit({
 			<Confirm
 				body={
 					<>
-						This will remove <b>{bot.displayName}</b> (<Reference isBot kind="bot" name={bot.handle} />) from
+							This will remove <b>{textValue(bot.displayName)}</b> (<Reference isBot kind="bot" name={bot.handle} />) from
 						your active bot list.
 					</>
 				}
@@ -10432,7 +11068,7 @@ function BotEdit({
 				body={
 					cloneLinkConfirm === "unlink" ?
 						<>
-							This copies all inherited profile, avatar, and inference values into <b>{bot.displayName}</b>,
+								This copies all inherited profile, avatar, and inference values into <b>{textValue(bot.displayName)}</b>,
 							then stops future source changes from cascading into this clone.
 						</>
 					:	<>
@@ -10480,12 +11116,12 @@ function BotEditProfileSection({
 				<div className="field-row">
 					<Field label="Display name">
 						<input
-							className="input"
-							maxLength={80}
-							onChange={(event) => setDraft((current) => ({ ...current, displayName: event.target.value }))}
-							placeholder={linkedClone ? bot.displayName : undefined}
-							value={draft.displayName}
-						/>
+								className="input"
+								maxLength={80}
+								onChange={(event) => setDraft((current) => ({ ...current, displayName: event.target.value }))}
+								placeholder={linkedClone ? textValue(bot.displayName) : undefined}
+								value={draft.displayName}
+							/>
 					</Field>
 					<Field help={dirty ? "Save or discard other edits before changing this handle." : "Handle changes require confirmation."} label="Handle">
 						<div className="inline-controls">
@@ -10508,13 +11144,14 @@ function BotEditProfileSection({
 							</button>
 						</div>
 					</Field>
-				</div>
-				<Field hint={linkedClone ? "blank inherits source" : "required"} label="Short bio">
-					<textarea
-						className="textarea short-bio-editor"
-						maxLength={1200}
-						onChange={(event) => setDraft((current) => ({ ...current, shortBio: event.target.value }))}
-						placeholder={linkedClone ? bot.shortBio : undefined}
+					</div>
+					<LanguageField onChange={(language) => setDraft((current) => ({ ...current, language }))} value={draft.language} />
+					<Field hint={linkedClone ? "blank inherits source" : "required"} label="Short bio">
+						<textarea
+							className="textarea short-bio-editor"
+							maxLength={1200}
+							onChange={(event) => setDraft((current) => ({ ...current, shortBio: event.target.value }))}
+							placeholder={linkedClone ? textValue(bot.shortBio) : undefined}
 						rows={4}
 						value={draft.shortBio}
 					/>
@@ -10558,7 +11195,7 @@ function BotEditPromptSection({
 					className="textarea prompt-editor"
 					maxLength={maxBotPromptLength}
 					onChange={(event) => setDraft((current) => ({ ...current, prompt: event.target.value }))}
-					placeholder={linkedClone ? bot.prompt : undefined}
+					placeholder={linkedClone ? textValue(bot.prompt) : undefined}
 					value={draft.prompt}
 				/>
 			</Field>
@@ -11114,13 +11751,13 @@ function MyBotsScreen({
 																<Reference isBot kind="bot" name={bot.handle} worldHandle={bot.homeWorldHandle} />
 															</td>
 															<td className="bot-table-display-cell">
-																<BotProfileHoverLink
-																	bot={bot}
-																	className="bot-table-display-link"
-																	title={`Open ${bot.displayName}`}
-																>
-																	{bot.displayName}
-																</BotProfileHoverLink>
+																	<BotProfileHoverLink
+																		bot={bot}
+																		className="bot-table-display-link"
+																		title={`Open ${textValue(bot.displayName)}`}
+																	>
+																		<TranslatableText as="span" text={bot.displayName} />
+																	</BotProfileHoverLink>
 															</td>
 															<td className="bot-table-time-cell">
 																<TimeAgoLabel suffix value={bot.lastActiveAt ?? bot.createdAt} />
@@ -11491,7 +12128,7 @@ function SubscriptionWorldRows({
 						<Reference kind="world" link={false} name={node.world.handle} />
 					</SpaLink>
 				}
-				meta={node.world.name}
+					meta={<TranslatableText as="span" text={node.world.name} />}
 				node={node}
 				onToggle={onToggle}
 				state={nodeState(node)}
@@ -11504,12 +12141,12 @@ function SubscriptionWorldRows({
 							<Avatar actor="bot" colorSeed={bot.bot.handle} crop={bot.bot.avatarCrop} imageUrl={bot.bot.avatarUrl} name={bot.bot.displayName} size="sm" />
 							<span>
 								<Reference isBot kind="bot" name={bot.bot.handle} worldHandle={bot.bot.homeWorldHandle} />
-								<span className="subscription-tree-display-name">{bot.bot.displayName}</span>
+									<TranslatableText as="span" className="subscription-tree-display-name" text={bot.bot.displayName} />
+								</span>
 							</span>
-						</span>
-					}
-					key={bot.bot.id}
-					meta={bot.bot.shortBio}
+						}
+						key={bot.bot.id}
+						meta={<TranslatableText as="span" text={bot.bot.shortBio} />}
 					node={bot}
 					onToggle={onToggle}
 					state={nodeState(bot)}
@@ -11545,7 +12182,7 @@ function SubscriptionForumRows({
 						<Reference kind="forum" link={false} name={node.forum.handle} />
 					</SpaLink>
 				}
-				meta={node.forum.description}
+					meta={<TranslatableText as="span" text={node.forum.description} />}
 				node={node}
 				onToggle={onToggle}
 				state={nodeState(node)}
@@ -11573,13 +12210,13 @@ function SubscriptionThreadRows({
 }) {
 	return (
 		<>
-			<SubscriptionTreeRow
-				depth={2}
-				label={
-					<SpaLink to={{ route: "thread", worldHandle: node.thread.worldHandle, forumHandle: node.thread.forumHandle, threadId: node.thread.id }}>
-						{node.thread.title}
-					</SpaLink>
-				}
+				<SubscriptionTreeRow
+					depth={2}
+					label={
+						<SpaLink to={{ route: "thread", worldHandle: node.thread.worldHandle, forumHandle: node.thread.forumHandle, threadId: node.thread.id }}>
+							<TranslatableText as="span" text={node.thread.title} />
+						</SpaLink>
+					}
 				meta={
 					<>
 						<span>{node.thread.commentCount} comment{node.thread.commentCount === 1 ? "" : "s"}</span>
@@ -11616,13 +12253,13 @@ function SubscriptionCommentRow({
 	thread: HumanSubscriptionThreadNode["thread"];
 }) {
 	return (
-		<SubscriptionTreeRow
-			depth={3}
-			label={
-				<SpaLink to={{ route: "thread", worldHandle: thread.worldHandle, forumHandle: thread.forumHandle, threadId: thread.id, commentId: node.comment.id }}>
-					{node.comment.bodyPreview || "Comment"}
-				</SpaLink>
-			}
+			<SubscriptionTreeRow
+				depth={3}
+				label={
+					<SpaLink to={{ route: "thread", worldHandle: thread.worldHandle, forumHandle: thread.forumHandle, threadId: thread.id, commentId: node.comment.id }}>
+						{textValue(node.comment.bodyPreview) ? <TranslatableText as="span" text={node.comment.bodyPreview} /> : "Comment"}
+					</SpaLink>
+				}
 			meta={
 				<>
 					<span>u/{node.comment.authorHandle}</span>
@@ -11716,7 +12353,7 @@ function subscriptionCheckboxLabel(node: SubscriptionTreeNode, state: "checked" 
 		case "forum":
 			return `${action} f/${node.forum.handle}`;
 		case "thread":
-			return `${action} thread ${node.thread.title}`;
+			return `${action} thread ${textValue(node.thread.title)}`;
 		case "comment":
 			return `${action} comment by u/${node.comment.authorHandle}`;
 		case "bot":
@@ -11919,8 +12556,8 @@ function AdvancedSearchScreen({ routeState }: { routeState: SearchRouteState }) 
 													</SpaLink>
 												</th>
 												<td>
-													<span className="search-result-primary">{group.world.name}</span>
-													<span className="search-result-secondary">{group.world.description}</span>
+													<TranslatableText as="span" className="search-result-primary" text={group.world.name} />
+													<TranslatableText as="span" className="search-result-secondary" text={group.world.description} />
 												</td>
 												<td>{group.worldResult ? searchRankLabel(group.worldResult) : "context"}</td>
 											</tr>
@@ -12036,12 +12673,12 @@ function searchResultTitle(result: SearchResult): string {
 
 function searchResultMeta(result: SearchResult): string {
 	if (result.type === "world") {
-		return result.name;
+		return textValue(result.name);
 	}
 	if (result.type === "forum") {
-		return result.description;
+		return textValue(result.description);
 	}
-	return `${result.displayName} · ${result.shortBio}`;
+	return `${textValue(result.displayName)} · ${textValue(result.shortBio)}`;
 }
 
 function searchResultTypeLabel(type: SearchEntityType): string {
@@ -12315,7 +12952,7 @@ function NotificationsScreen({
 							<div className="notification-group-head">
 								<div>
 									<h2>{group.title}</h2>
-									{group.meta && <span>{group.meta}</span>}
+										{textValue(group.meta) && <TranslatableText as="span" text={group.meta} />}
 								</div>
 								<div className="notification-group-actions">
 									<span>{group.notifications.length}</span>
@@ -12404,8 +13041,8 @@ function NotificationPageCard({
 					event.preventDefault();
 					onOpenNotification(notification);
 				}}
-			>
-				<span className="notification-title">{notification.title}</span>
+		>
+			<TranslatableText as="span" className="notification-title" text={notification.title} />
 				<NotificationBody body={notification.body} />
 				<span className="notification-meta" title={timestampTitle(notification.createdAt)}>{notificationMeta(notification)}</span>
 			</a>
@@ -12517,7 +13154,7 @@ function HumanProfileScreen({
 			<div className="profile-head human-profile-head">
 				<Avatar actor="user" colorSeed={profile.user.handle} imageUrl={profile.user.avatarUrl} name={profile.user.displayName} size="xl" />
 				<div className="meta">
-					<h1 className="name">{profile.user.displayName}</h1>
+					<TranslatableText as="h1" className="name" text={profile.user.displayName} />
 					<div className="handle">
 						<Reference kind="human" link={false} name={profile.user.handle} />
 					</div>
@@ -12635,10 +13272,10 @@ function HumanWorldList({ emptyMessage, worlds }: { emptyMessage: string; worlds
 			{worlds.map((world) => (
 				<article className="human-entity-row" key={world.id}>
 					<div>
-						<div className="human-entity-title">
-							<SpaLink className="linklike" to={{ route: "world", worldHandle: world.handle }}>
-								{world.name}
-							</SpaLink>
+							<div className="human-entity-title">
+								<SpaLink className="linklike" to={{ route: "world", worldHandle: world.handle }}>
+									<TranslatableText as="span" text={world.name} />
+								</SpaLink>
 							<Reference kind="world" name={world.handle} />
 						</div>
 						<TranslatableText as="div" className="human-entity-desc" text={world.description} />
@@ -12731,7 +13368,7 @@ function ProfileDeleteCascadeSummary({ profile }: { profile: HumanProfile }) {
 	return (
 		<div className="profile-delete-summary">
 			<p>
-				This will delete <b>{profile.user.displayName}</b> (<Reference kind="human" name={profile.user.handle} />)
+				This will delete <b>{textValue(profile.user.displayName)}</b> (<Reference kind="human" name={profile.user.handle} />)
 				and the owned entities below.
 			</p>
 			<details>
@@ -12758,7 +13395,7 @@ function DeleteWorldList({ worlds }: { worlds: WorldSummary[] }) {
 		<ul>
 			{worlds.map((world) => (
 				<li key={world.id}>
-					<Reference kind="world" name={world.handle} /> {world.name}
+					<Reference kind="world" name={world.handle} /> <TranslatableText as="span" text={world.name} />
 				</li>
 			))}
 		</ul>
@@ -12799,7 +13436,7 @@ function DeleteBotGroups({ groups }: { groups: HumanOwnedBotGroup[] }) {
 					<ul>
 						{group.bots.map((bot) => (
 							<li key={bot.id}>
-								<Reference isBot kind="bot" name={bot.handle} worldHandle={bot.homeWorldHandle} /> {bot.displayName}
+								<Reference isBot kind="bot" name={bot.handle} worldHandle={bot.homeWorldHandle} /> <TranslatableText as="span" text={bot.displayName} />
 							</li>
 						))}
 					</ul>
@@ -12852,6 +13489,7 @@ function ProfileScreen({
 	const [message, setMessage] = useState("");
 	const [pendingUnlinkProvider, setPendingUnlinkProvider] = useState<AuthProvider | null>(null);
 	const toast = useContext(ToastContext);
+	const t = useUiText();
 
 	useEffect(() => {
 		let cancelled = false;
@@ -12886,16 +13524,19 @@ function ProfileScreen({
 	const canSave = (dirty || profileIncomplete) && valid && !busy && !loading;
 
 	async function save(): Promise<void> {
+		const language = languageInputValue(draft.language);
 		const saved = await onSave({
 			handle: draft.handle,
-			displayName: draft.displayName,
+			language,
+			uiLocale: draft.uiLocale === "system" ? "system" : languageInputValue(draft.uiLocale) ?? defaultLanguageTag,
+			displayName: localizedText(draft.displayName, language),
 			avatarUrl: draft.avatarUrl.trim() || null,
-			inferenceSettings: inferenceInputFromDraft(draft.inference, undefined, { includeImageGeneration: true, includeTranslation: true }),
+			inferenceSettings: inferenceInputFromDraft(draft.inference, undefined, { includeImageGeneration: true, includeTranslation: true }, language),
 		});
 		if (saved) {
 			setProfile(saved);
 			setDraft(profileDraftFromProfile(saved));
-			toast.push("Saved profile");
+			toast.push(t.profile.savedProfile);
 		}
 	}
 
@@ -12913,20 +13554,20 @@ function ProfileScreen({
 				<div className="page-title-block">
 					<h1>
 						<Avatar actor="user" colorSeed={draft.handle || user.handle} imageUrl={draft.avatarUrl || user.avatarUrl} name={draft.displayName || user.displayName} size="lg" />
-						<span>{draft.displayName || user.displayName}</span>
+						<span>{draft.displayName || textValue(user.displayName)}</span>
 					</h1>
 					<p className="sub">
 						{profileIncomplete ?
-							"Review and save your human profile to activate account actions."
-						:	"Profile and default inference settings for your bots."}
+							t.profile.subtitleIncomplete
+						:	t.profile.subtitleReady}
 					</p>
 				</div>
 				<div className="actions">
 					<button className="btn ghost" disabled={busy} onClick={onSignOut} type="button">
-						Sign out
+						{t.profile.signOut}
 					</button>
 					<button className="btn primary" disabled={!canSave} onClick={() => void save()} type="button">
-						{profileIncomplete ? "Save and activate" : "Save profile"}
+						{profileIncomplete ? t.profile.saveAndActivate : t.profile.saveProfile}
 					</button>
 				</div>
 			</div>
@@ -12935,11 +13576,9 @@ function ProfileScreen({
 				<div className="setup-banner">
 					<Icon name="info" size={16} />
 					<div>
-						<b>Profile setup required</b>
+						<b>{t.profile.setupRequiredTitle}</b>
 						<span>
-							Your account has a sign-in method, but it is not active yet. You can browse, but
-							creating worlds, forums, bots, subscriptions, and bot actions is locked until you
-							save this profile once.
+							{t.profile.setupRequiredBody}
 						</span>
 					</div>
 				</div>
@@ -12949,12 +13588,12 @@ function ProfileScreen({
 				<div>
 					<section className="section">
 						<div className="section-head">
-							<h2>Profile</h2>
-							<span className="meta">{loading ? "loading" : profileIncomplete ? "setup required" : "editable"}</span>
+							<h2>{t.profile.sectionTitle}</h2>
+							<span className="meta">{loading ? t.profile.loading : profileIncomplete ? t.profile.setupRequiredMeta : t.profile.editable}</span>
 						</div>
 						<div className="field-stack">
 							<div className="field-row">
-								<Field label="Display name">
+								<Field label={t.profile.displayName}>
 									<input
 										className="input"
 										maxLength={80}
@@ -12962,7 +13601,7 @@ function ProfileScreen({
 										value={draft.displayName}
 									/>
 								</Field>
-								<Field help="Shown as hu/handle in the UI." label="Handle">
+								<Field help={t.profile.handleHelp} label={t.profile.handle}>
 									<div className="input-prefix">
 										<span className="prefix">hu/</span>
 										<input
@@ -12973,17 +13612,37 @@ function ProfileScreen({
 									</div>
 								</Field>
 							</div>
-							<Field help="Optional image URL for the profile avatar." label="Avatar URL">
-								<input
-									className="input"
+								<Field help={t.profile.avatarUrlHelp} label={t.profile.avatarUrl}>
+									<input
+										className="input"
 									onChange={(event) => setDraft((current) => ({ ...current, avatarUrl: event.target.value }))}
 									placeholder="https://..."
-									value={draft.avatarUrl}
-								/>
-							</Field>
-							{message && <div className="runtime-message">{message}</div>}
-						</div>
-					</section>
+										value={draft.avatarUrl}
+									/>
+								</Field>
+								<div className="field-row">
+									<LanguageField
+										label={t.profile.accountLanguage}
+										onChange={(language) => setDraft((current) => ({ ...current, language }))}
+										value={draft.language}
+									/>
+									<Field help={t.profile.uiLanguageHelp} label={t.profile.uiLanguage}>
+										<select
+											className="input"
+											onChange={(event) => setDraft((current) => ({ ...current, uiLocale: event.target.value }))}
+											value={draft.uiLocale}
+										>
+											{uiLocaleOptions.map((option) => (
+												<option key={option.value} value={option.value}>
+													{option.value === "system" ? t.profile.systemUiLanguage : option.label}
+												</option>
+											))}
+										</select>
+									</Field>
+								</div>
+								{message && <div className="runtime-message">{message}</div>}
+							</div>
+						</section>
 
 					<section className="section">
 						<div className="section-head">
@@ -14265,15 +14924,15 @@ function CreateBotModal({
 	world: WorldView | null;
 }) {
 	const [tab, setTab] = useState<BotCreateTab>("manual");
-	const [manualDraft, setManualDraft] = useState<BotDraft>(emptyBotDraft);
+		const [manualDraft, setManualDraft] = useState<BotDraft>(() => emptyBotDraftForLanguage(world?.language));
 	const [manualTouchedHandle, setManualTouchedHandle] = useState(false);
 	const [selectedCloneId, setSelectedCloneId] = useState<string | null>(null);
-	const [cloneDraft, setCloneDraft] = useState<BotDraft>(emptyBotDraft);
+		const [cloneDraft, setCloneDraft] = useState<BotDraft>(() => emptyBotDraftForLanguage(world?.language));
 	const [cloneSearch, setCloneSearch] = useState("");
 	const [chirperSource, setChirperSource] = useState("");
 	const [importState, setImportState] = useState<ImportState>("idle");
 	const [importError, setImportError] = useState("");
-	const [importDraft, setImportDraft] = useState<BotDraft>(emptyBotDraft);
+		const [importDraft, setImportDraft] = useState<BotDraft>(() => emptyBotDraftForLanguage(world?.language));
 	const toast = useContext(ToastContext);
 	const cloneSources = useMemo(
 		() =>
@@ -14299,19 +14958,19 @@ function CreateBotModal({
 	}, [manualDraft.displayName, manualTouchedHandle]);
 
 	useEffect(() => {
-		if (!open) {
-			setTab("manual");
-			setManualDraft(emptyBotDraft);
-			setManualTouchedHandle(false);
-			setSelectedCloneId(null);
-			setCloneDraft(emptyBotDraft);
-			setCloneSearch("");
-			setChirperSource("");
-			setImportState("idle");
-			setImportError("");
-			setImportDraft(emptyBotDraft);
-		}
-	}, [open]);
+			if (!open) {
+				setTab("manual");
+				setManualDraft(emptyBotDraftForLanguage(world?.language));
+				setManualTouchedHandle(false);
+				setSelectedCloneId(null);
+				setCloneDraft(emptyBotDraftForLanguage(world?.language));
+				setCloneSearch("");
+				setChirperSource("");
+				setImportState("idle");
+				setImportError("");
+				setImportDraft(emptyBotDraftForLanguage(world?.language));
+			}
+		}, [open, world?.language]);
 
 	const manualValid = isValidBotDraft(manualDraft);
 	const cloneValid = selectedCloneId !== null && isValidCloneBotDraft(cloneDraft);
@@ -14340,15 +14999,16 @@ function CreateBotModal({
 			setImportError(result.message);
 			return;
 		}
-		const preview = result.data.preview;
-		setImportDraft({
-			handle: preview.handle,
-			displayName: preview.displayName,
-			shortBio: preview.shortBio,
-			prompt: preview.prompt,
-			avatarUrl: preview.avatarUrl,
-			importSource: preview.importSource,
-		});
+			const preview = result.data.preview;
+			setImportDraft({
+				handle: preview.handle,
+				language: languageDraftValue(preview.language, textLang(preview.displayName) ?? defaultLanguageTag),
+				displayName: textValue(preview.displayName),
+				shortBio: textValue(preview.shortBio),
+				prompt: textValue(preview.prompt),
+				avatarUrl: preview.avatarUrl,
+				importSource: preview.importSource,
+			});
 		setImportState("preview");
 	}
 
@@ -14437,8 +15097,8 @@ function CreateBotModal({
 							value={manualDraft.displayName}
 						/>
 					</Field>
-					<Field help={`bickr.local/w/${world.handle}/u/${manualDraft.handle || "..."}`} hint="used in URLs" label="Handle">
-						<div className="input-prefix">
+						<Field help={`bickr.local/w/${world.handle}/u/${manualDraft.handle || "..."}`} hint="used in URLs" label="Handle">
+							<div className="input-prefix">
 							<span className="prefix">u/</span>
 							<input
 								className="input"
@@ -14448,10 +15108,11 @@ function CreateBotModal({
 								}}
 								placeholder="ginsberg"
 								value={manualDraft.handle}
-							/>
-						</div>
-					</Field>
-					<Field hint="required" label="Short bio">
+								/>
+							</div>
+						</Field>
+						<LanguageField onChange={(language) => setManualDraft((current) => ({ ...current, language }))} value={manualDraft.language} />
+						<Field hint="required" label="Short bio">
 						<textarea
 							className="textarea short-bio-editor"
 							maxLength={1200}
@@ -14504,13 +15165,13 @@ function CreateBotModal({
 											<Avatar actor="bot" colorSeed={bot.handle} crop={bot.avatarCrop} displayPixels={48} imageUrl={bot.avatarUrl} name={bot.displayName} />
 											<span className="clone-source-body">
 												<span className="clone-source-title">
-													<span>{bot.displayName}</span>
+														<TranslatableText as="span" text={bot.displayName} />
 													<span className="clone-source-world">w/{bot.homeWorldHandle}</span>
 												</span>
 												<span className="clone-source-ref">
 													<Reference isBot kind="bot" link={false} name={bot.handle} />
 												</span>
-												<span className="clone-source-bio">{bot.shortBio}</span>
+													<TranslatableText as="span" className="clone-source-bio" text={bot.shortBio} />
 											</span>
 										</button>
 									))}
@@ -14539,8 +15200,8 @@ function CreateBotModal({
 									maxLength={80}
 									onChange={(event) =>
 										setCloneDraft((current) => ({ ...current, displayName: event.target.value }))
-									}
-									placeholder={selectedCloneSource.displayName}
+										}
+										placeholder={textValue(selectedCloneSource.displayName)}
 									value={cloneDraft.displayName}
 								/>
 							</Field>
@@ -14548,8 +15209,8 @@ function CreateBotModal({
 								<textarea
 									className="textarea short-bio-editor"
 									maxLength={1200}
-									onChange={(event) => setCloneDraft((current) => ({ ...current, shortBio: event.target.value }))}
-									placeholder={selectedCloneSource.shortBio}
+										onChange={(event) => setCloneDraft((current) => ({ ...current, shortBio: event.target.value }))}
+										placeholder={textValue(selectedCloneSource.shortBio)}
 									rows={4}
 									value={cloneDraft.shortBio}
 								/>
@@ -14558,13 +15219,14 @@ function CreateBotModal({
 								<textarea
 									className="textarea"
 									maxLength={maxBotPromptLength}
-									onChange={(event) => setCloneDraft((current) => ({ ...current, prompt: event.target.value }))}
-									placeholder={selectedCloneSource.prompt}
+										onChange={(event) => setCloneDraft((current) => ({ ...current, prompt: event.target.value }))}
+										placeholder={textValue(selectedCloneSource.prompt)}
 									rows={6}
 									value={cloneDraft.prompt}
-								/>
-							</Field>
-						</div>
+									/>
+								</Field>
+								<LanguageField onChange={(language) => setCloneDraft((current) => ({ ...current, language }))} value={cloneDraft.language} />
+							</div>
 					)}
 				</div>
 			)}
@@ -14655,9 +15317,10 @@ function CreateBotModal({
 									onChange={(event) => setImportDraft((current) => ({ ...current, prompt: event.target.value }))}
 									rows={6}
 									value={importDraft.prompt}
-								/>
-							</Field>
-						</>
+									/>
+								</Field>
+								<LanguageField onChange={(language) => setImportDraft((current) => ({ ...current, language }))} value={importDraft.language} />
+							</>
 					)}
 				</>
 			)}
@@ -17591,6 +18254,12 @@ function stringValue(value: unknown): string | undefined {
 	if (typeof value === "string" && value.trim()) {
 		return value.trim();
 	}
+	if (value && typeof value === "object" && !Array.isArray(value)) {
+		const text = (value as { text?: unknown }).text;
+		if (typeof text === "string" && text.trim()) {
+			return text.trim();
+		}
+	}
 	if (typeof value === "number" || typeof value === "boolean") {
 		return String(value);
 	}
@@ -18092,13 +18761,14 @@ function Avatar({
 	displayPixels?: number;
 	fit?: "cover" | "contain";
 	imageUrl?: string;
-	name: string;
+	name: TextLike;
 	size?: "sm" | "md" | "lg" | "xl" | "hero";
 }) {
 	const [imageFailed, setImageFailed] = useState(false);
 	useEffect(() => {
 		setImageFailed(false);
 	}, [crop, imageUrl]);
+	const displayName = typeof name === "string" ? name : localizedTextString(name);
 	const className = `avatar ${size === "sm" ? "sm" : size === "lg" ? "lg" : size === "xl" ? "xl" : size === "hero" ? "hero" : ""}`.trim();
 	const cropActive = Boolean(crop && fit === "cover");
 	const targetPixels = avatarImagePixels(avatarDisplayPixels(size, displayPixels));
@@ -18106,7 +18776,7 @@ function Avatar({
 		cropActive && crop ? avatarCroppedThumbnailUrl(imageUrl, targetPixels, crop) : avatarThumbnailUrl(imageUrl, targetPixels, fit)
 	:	"";
 	return (
-		<span className={className} data-actor={actor} style={avatarStyle(colorSeed ?? name)}>
+		<span className={className} data-actor={actor} style={avatarStyle(colorSeed ?? displayName)}>
 			{imageSrc ?
 				<FallbackImage
 					alt=""
@@ -18116,7 +18786,7 @@ function Avatar({
 					src={imageSrc}
 					style={cropActive && crop ? avatarCropImageStyle(crop) as CSSProperties : undefined}
 				/>
-			:	initials(name)
+			:	initials(displayName)
 			}
 		</span>
 	);
@@ -18354,39 +19024,46 @@ function ReferencePopover({
 			<span className={className} data-selection-exclude="true" ref={popoverRef} role="tooltip">
 				<BotReferencePopoverAvatar bot={meta.bot} />
 				<span className="ref-pop-content">
-					<span className="ref-pop-title">{meta.bot.displayName}</span>
+					<TranslatableText as="span" className="ref-pop-title" text={meta.bot.displayName} />
 					<span className="ref-pop-username">
 						<ReferenceLabel isBot kind="bot" name={meta.bot.handle} />
 					</span>
 					{meta.bot.shortBio && (
-						<span className="ref-pop-desc">
-							<RichText
-								interactive={false}
-								onReference={ignoreReferenceOpen}
-								text={meta.bot.shortBio}
-								worldHandle={meta.bot.homeWorldHandle}
-							/>
-						</span>
+						<TranslatableText
+							as="span"
+							className="ref-pop-desc"
+							onReference={ignoreReferenceOpen}
+							rich
+							text={meta.bot.shortBio}
+							worldHandle={meta.bot.homeWorldHandle}
+						/>
 					)}
 				</span>
 			</span>
 		);
 	}
+	const description = meta.description;
 	return (
 		<span className={className} data-selection-exclude="true" ref={popoverRef} role="tooltip">
-			<span className="ref-pop-title">{meta.title}</span>
+			<TranslatableText as="span" className="ref-pop-title" text={meta.title} />
 			<span className="ref-pop-desc">
-				{typeof meta.description === "string" ?
-					<RichText
-						interactive={false}
+				{isTextLikeDescription(description) ?
+					<TranslatableText
+						as="span"
 						onReference={ignoreReferenceOpen}
-						text={meta.description}
+						rich
+						text={description}
 						worldHandle={worldHandle}
 					/>
-				:	meta.description}
+				:	description}
 			</span>
 		</span>
 	);
+}
+
+function isTextLikeDescription(value: ReferenceMeta["description"]): value is TextLike {
+	return typeof value === "string" ||
+		(value !== null && value !== undefined && typeof value === "object" && !Array.isArray(value) && "text" in value);
 }
 
 function BotReferencePopoverAvatar({ bot }: { bot: BotSummary }) {
@@ -18557,13 +19234,13 @@ function AuthorReference({
 	handle,
 	onOpen,
 }: {
-	displayName: string;
+	displayName: TextLike;
 	handle: string;
 	onOpen?: () => void;
 }) {
 	return (
 		<span className="author-reference">
-			<span className="author-display-name">{displayName}</span>
+			<TranslatableText as="span" className="author-display-name" text={displayName} />
 			<span>(</span>
 			<Reference isBot kind="bot" name={handle} onOpen={onOpen} />
 			<span>)</span>
@@ -18597,14 +19274,16 @@ function TranslatableText({
 	className?: string;
 	onReference?: OpenReference;
 	rich?: boolean;
-	text: string;
+	text: TextLike;
 	worldHandle?: string;
 }) {
 	const translationConfig = useContext(TranslationContext);
 	const toast = useContext(ToastContext);
+	const sourceText = typeof text === "string" ? text : localizedTextString(text);
+	const sourceLang = typeof text === "string" ? null : localizedTextLang(text);
 	const cacheKey =
-		translationConfig.enabled && text.trim() ?
-			translationCacheKey(text, translationConfig.model, translationConfig.prompt)
+		translationConfig.enabled && sourceText.trim() ?
+			translationCacheKey(sourceText, translationConfig.model, translationConfig.prompt)
 		:	null;
 	const [cachedTranslation, setCachedTranslation] = useState<string | null>(() =>
 		cacheKey ? readTranslationCacheValue(cacheKey) : null,
@@ -18617,7 +19296,7 @@ function TranslatableText({
 	});
 	const [loading, setLoading] = useState(false);
 	const Tag = as ?? "span";
-	const visibleText = showTranslation && cachedTranslation ? cachedTranslation : text;
+	const visibleText = showTranslation && cachedTranslation ? cachedTranslation : sourceText;
 	const enabled = Boolean(cacheKey);
 
 	useEffect(() => {
@@ -18640,7 +19319,7 @@ function TranslatableText({
 		setLoading(true);
 		const result = await api<{ translation: string }>("/api/me/translate", {
 			method: "POST",
-			body: { text },
+			body: { text: sourceText },
 		});
 		setLoading(false);
 		if (!result.ok) {
@@ -18663,7 +19342,7 @@ function TranslatableText({
 	}
 
 	return (
-		<Tag className={["translatable-text", className ?? ""].filter(Boolean).join(" ")}>
+		<Tag className={["translatable-text", className ?? ""].filter(Boolean).join(" ")} dir="auto" lang={sourceLang ?? undefined}>
 			<span className="translatable-content">
 				{rich && onReference ?
 					<RichText onReference={onReference} text={visibleText} worldHandle={worldHandle} />
@@ -18899,6 +19578,39 @@ function Field({
 			{children}
 			{help && <div className="help">{help}</div>}
 		</div>
+	);
+}
+
+function LanguageField({
+	disabled,
+	label,
+	onChange,
+	value,
+}: {
+	disabled?: boolean;
+	label?: string;
+	onChange: (value: string) => void;
+	value: string;
+}) {
+	const inputId = useId();
+	const listId = `${inputId}-languages`;
+	const t = useUiText();
+	return (
+		<Field help={t.language.fieldHelp} label={label ?? t.language.fieldLabel}>
+			<input
+				className="input"
+				disabled={disabled}
+				list={listId}
+				onChange={(event) => onChange(event.target.value)}
+				placeholder="en"
+				value={value}
+			/>
+			<datalist id={listId}>
+				{languageExamples.map((language) => (
+					<option key={language.value} label={language.label} value={language.value} />
+				))}
+			</datalist>
+		</Field>
 	);
 }
 
@@ -19847,7 +20559,7 @@ function sortBotsForCards<T extends BotSummary>(items: T[]): T[] {
 
 function botGroupWithBots(group: BotGroupSummary, bots: BotSummary[]): BotGroupSummary {
 	const displayTitle =
-		group.customTitle ?? (bots.length > 0 ? bots.map((bot) => `u/${bot.handle}`).join(", ") : "Empty group");
+		textValue(group.customTitle) || (bots.length > 0 ? bots.map((bot) => `u/${bot.handle}`).join(", ") : "Empty group");
 	return {
 		...group,
 		bots,
@@ -19880,12 +20592,12 @@ function normalizeFilterText(value: string): string {
 		.toLowerCase();
 }
 
-function matchesFilter(query: string, ...values: Array<string | null | undefined>): boolean {
+function matchesFilter(query: string, ...values: Array<TextLike | null | undefined>): boolean {
 	const normalizedQuery = normalizeFilterText(query.trim());
 	if (!normalizedQuery) {
 		return true;
 	}
-	return values.some((value) => value !== undefined && value !== null && normalizeFilterText(value).includes(normalizedQuery));
+	return values.some((value) => value !== undefined && value !== null && normalizeFilterText(typeof value === "string" ? value : localizedTextString(value)).includes(normalizedQuery));
 }
 
 function appendUniqueNotifications(
@@ -19908,7 +20620,7 @@ function notificationReadScopeForListScope(scope: HumanNotificationListScope): H
 type NotificationGroup = {
 	key: string;
 	title: string;
-	meta: string;
+	meta: TextLike;
 	readScope: HumanNotificationReadScope;
 	unreadCount: number;
 	notifications: HumanNotification[];
@@ -20064,7 +20776,9 @@ function notificationThreadId(notification: HumanNotification): string | null {
 function profileDraftFromUser(user: PublicUser): ProfileDraft {
 	return {
 		handle: user.handle,
-		displayName: user.displayName,
+		language: languageDraftValue(user.language, textLang(user.displayName) ?? defaultLanguageTag),
+		uiLocale: user.uiLocale ?? "system",
+		displayName: textValue(user.displayName),
 		avatarUrl: user.avatarUrl ?? "",
 		inference: inferenceDraftFromSettings({}),
 	};
@@ -20073,16 +20787,22 @@ function profileDraftFromUser(user: PublicUser): ProfileDraft {
 function profileDraftFromProfile(profile: UserProfile): ProfileDraft {
 	return {
 		handle: profile.handle,
-		displayName: profile.displayName,
+		language: languageDraftValue(profile.language, textLang(profile.displayName) ?? defaultLanguageTag),
+		uiLocale: profile.uiLocale ?? "system",
+		displayName: textValue(profile.displayName),
 		avatarUrl: profile.avatarUrl ?? "",
 		inference: inferenceDraftFromSettings(profile.inferenceSettings),
 	};
 }
 
 function profileDraftChanged(draft: ProfileDraft, profile: UserProfile): boolean {
+	const language = languageInputValue(draft.language);
+	const uiLocale = draft.uiLocale === "system" ? "system" : languageInputValue(draft.uiLocale) ?? defaultLanguageTag;
 	return (
 		draft.handle !== profile.handle ||
-		draft.displayName !== profile.displayName ||
+		language !== profile.language ||
+		uiLocale !== (profile.uiLocale ?? "system") ||
+		draft.displayName !== textValue(profile.displayName) ||
 		draft.avatarUrl.trim() !== (profile.avatarUrl ?? "") ||
 		inferenceDraftChanged(draft.inference, profile.inferenceSettings, { includeImageGeneration: true, includeTranslation: true })
 	);
@@ -20231,14 +20951,14 @@ function inferenceDraftFromSettings(
 		model: settings.model ?? "",
 		compactionMode: defaults.compactionMode,
 		recurringPromptEnabled: settings.recurringPromptEnabled !== false,
-		recurringPrompt: settings.recurringPrompt ?? settings.reasoningPrefill ?? "",
+		recurringPrompt: textValue(settings.recurringPrompt ?? settings.reasoningPrefill ?? ""),
 		supportsPrefill: defaults.supportsPrefill,
 		reasoningEffort: defaults.reasoningEffort,
 		toolCalls: defaults.toolCalls,
 		providerRouting: providerRoutingDraftValue(settings.providerRouting),
 		translationEnabled: Boolean(settings.translation?.enabled),
 		translationModel: settings.translation?.model ?? "",
-		translationPrompt: settings.translation?.prompt ?? defaultTranslationPrompt,
+		translationPrompt: textValue(settings.translation?.prompt) || defaultTranslationPrompt,
 		translationReasoningEffort: translationDefaults.translationReasoningEffort,
 		translationToolCalls: translationDefaults.translationToolCalls,
 		translationProviderRouting: providerRoutingDraftValue(settings.translation?.providerRouting),
@@ -20250,7 +20970,7 @@ function inferenceDraftFromSettings(
 		translationPresencePenalty: numericDraftValue(settings.translation?.presencePenalty),
 		translationRepetitionPenalty: numericDraftValue(settings.translation?.repetitionPenalty),
 		imageGenerationModel: settings.imageGeneration?.model ?? "",
-		imageGenerationPrompt: settings.imageGeneration?.prompt ?? "",
+		imageGenerationPrompt: textValue(settings.imageGeneration?.prompt),
 		imageGenerationProviderRouting: providerRoutingDraftValue(settings.imageGeneration?.providerRouting),
 		imageGenerationAspectRatio: imageGenerationAspectRatioDraftValue(settings.imageGeneration?.aspectRatio),
 		imageGenerationImageSize: imageGenerationImageSizeDraftValue(settings.imageGeneration?.imageSize),
@@ -20290,7 +21010,7 @@ function inferenceDraftChanged(
 		normalizedDraft.model.trim() !== (settings.model ?? "") ||
 		normalizedDraft.compactionMode !== defaults.compactionMode ||
 		(Boolean(options.includeReasoningPrefill) && normalizedDraft.recurringPromptEnabled !== (settings.recurringPromptEnabled !== false)) ||
-		(Boolean(options.includeReasoningPrefill) && normalizedDraft.recurringPrompt !== (settings.recurringPrompt ?? settings.reasoningPrefill ?? "")) ||
+		(Boolean(options.includeReasoningPrefill) && normalizedDraft.recurringPrompt !== textValue(settings.recurringPrompt ?? settings.reasoningPrefill ?? "")) ||
 		normalizedDraft.supportsPrefill !== defaults.supportsPrefill ||
 		normalizedDraft.reasoningEffort !== defaults.reasoningEffort ||
 		normalizedDraft.toolCalls !== defaults.toolCalls ||
@@ -20310,7 +21030,7 @@ function inferenceDraftChanged(
 function imageGenerationDraftChanged(draft: InferenceDraft, settings: BotInferenceSettings): boolean {
 	return (
 		draft.imageGenerationModel.trim() !== (settings.imageGeneration?.model ?? "") ||
-		draft.imageGenerationPrompt.trim() !== (settings.imageGeneration?.prompt ?? "") ||
+		draft.imageGenerationPrompt.trim() !== textValue(settings.imageGeneration?.prompt) ||
 		providerRoutingDraftChanged(draft.imageGenerationProviderRouting, settings.imageGeneration?.providerRouting) ||
 		draft.imageGenerationAspectRatio.trim() !== (settings.imageGeneration?.aspectRatio ?? "") ||
 		draft.imageGenerationImageSize.trim() !== (settings.imageGeneration?.imageSize ?? "") ||
@@ -20336,7 +21056,7 @@ function translationDraftChanged(
 	return (
 		normalized.translationEnabled !== Boolean(settings.translation?.enabled) ||
 		draftModel !== settingsModel ||
-		normalized.translationPrompt.trim() !== (settings.translation?.prompt ?? defaultTranslationPrompt) ||
+		normalized.translationPrompt.trim() !== (textValue(settings.translation?.prompt) || defaultTranslationPrompt) ||
 		normalized.translationReasoningEffort !== defaults.translationReasoningEffort ||
 		normalized.translationToolCalls !== defaults.translationToolCalls ||
 		providerRoutingDraftChanged(normalized.translationProviderRouting, settings.translation?.providerRouting) ||
@@ -20354,6 +21074,7 @@ function inferenceInputFromDraft(
 	draft: InferenceDraft,
 	inherited?: InferenceModelUnlockContext,
 	options: { includeReasoningPrefill?: boolean; includeImageGeneration?: boolean; includeTranslation?: boolean } = {},
+	language: LanguageTag | null = defaultLanguageTag,
 ): BotInferenceSettingsInput {
 	const normalized = normalizeInferenceDraftForCapabilities(draft, inherited);
 	const inheritedDefaults = inferenceDefaultsForDraft(normalized, inherited);
@@ -20367,7 +21088,7 @@ function inferenceInputFromDraft(
 			normalized.compactionMode === inheritedDefaults.compactionMode ? null : normalized.compactionMode,
 		...(options.includeReasoningPrefill ?
 			{
-				recurringPrompt: nullablePreservedTextInput(normalized.recurringPrompt),
+				recurringPrompt: localizedOptionalDraft(normalized.recurringPrompt, language),
 				recurringPromptEnabled: normalized.recurringPromptEnabled ? null : false,
 			}
 		:	{}),
@@ -20376,8 +21097,8 @@ function inferenceInputFromDraft(
 			normalized.reasoningEffort === inheritedDefaults.reasoningEffort ? null : nullableReasoningEffortInput(normalized.reasoningEffort),
 		toolCalls: normalized.toolCalls === inheritedDefaults.toolCalls ? null : nullableToolCallsInput(normalized.toolCalls),
 		providerRouting: providerRoutingInputFromDraft(normalized.providerRouting),
-		...(options.includeImageGeneration ? { imageGeneration: imageGenerationInputFromDraft(normalized) } : {}),
-		...(options.includeTranslation ? { translation: translationInputFromDraft(normalized, inherited) } : {}),
+		...(options.includeImageGeneration ? { imageGeneration: imageGenerationInputFromDraft(normalized, undefined, language) } : {}),
+		...(options.includeTranslation ? { translation: translationInputFromDraft(normalized, inherited, language) } : {}),
 		temperature: nullableNumberInputMatchingInherited(normalized.temperature, inherited?.temperature),
 		topK: nullableNumberInputMatchingInherited(normalized.topK, inherited?.topK),
 		topP: nullableNumberInputMatchingInherited(normalized.topP, inherited?.topP),
@@ -20391,6 +21112,7 @@ function inferenceInputFromDraft(
 function translationInputFromDraft(
 	draft: InferenceDraft,
 	inherited?: InferenceModelUnlockContext | null,
+	language: LanguageTag | null = defaultLanguageTag,
 ): BotInferenceSettingsInput["translation"] {
 	const normalized = normalizeTranslationDraftForCapabilities(draft, inherited);
 	const defaults = translationDefaultsForDraft(normalized, inherited);
@@ -20398,7 +21120,7 @@ function translationInputFromDraft(
 	return {
 		enabled: normalized.translationEnabled,
 		model,
-		prompt: nullableTextInput(normalized.translationPrompt) ?? defaultTranslationPrompt,
+		prompt: localizedText(normalized.translationPrompt.trim() || defaultTranslationPrompt, language),
 		reasoningEffort:
 			normalized.translationReasoningEffort === defaults.translationReasoningEffort ?
 				null
@@ -20418,10 +21140,14 @@ function translationInputFromDraft(
 	};
 }
 
-function imageGenerationInputFromDraft(draft: InferenceDraft, prompt = draft.imageGenerationPrompt): BotInferenceSettingsInput["imageGeneration"] {
+function imageGenerationInputFromDraft(
+	draft: InferenceDraft,
+	prompt = draft.imageGenerationPrompt,
+	language: LanguageTag | null = defaultLanguageTag,
+): BotInferenceSettingsInput["imageGeneration"] {
 	return {
 		model: nullableTextInput(draft.imageGenerationModel),
-		prompt: nullablePreservedTextInput(prompt),
+		prompt: localizedOptionalDraft(prompt, language),
 		providerRouting: providerRoutingInputFromDraft(draft.imageGenerationProviderRouting),
 		aspectRatio: nullableImageGenerationAspectRatioInput(draft.imageGenerationAspectRatio),
 		imageSize: nullableImageGenerationSizeInput(draft.imageGenerationImageSize),
@@ -20665,9 +21391,10 @@ function botEditDraftFromBot(bot: BotSummary, ownerInferenceSettings: BotInferen
 	const profileOverrides = bot.localOverrides;
 	const inferenceSettings = botEditableInferenceSettings(bot);
 	return {
-		displayName: profileOverrides?.displayName ?? bot.displayName,
-		shortBio: profileOverrides?.shortBio ?? bot.shortBio,
-		prompt: profileOverrides?.prompt ?? bot.prompt ?? "",
+		language: languageDraftValue(profileOverrides?.language ?? bot.language, textLang(profileOverrides?.displayName ?? bot.displayName) ?? defaultLanguageTag),
+		displayName: textValue(profileOverrides?.displayName ?? bot.displayName),
+		shortBio: textValue(profileOverrides?.shortBio ?? bot.shortBio),
+		prompt: textValue(profileOverrides?.prompt ?? bot.prompt ?? ""),
 		inference: inferenceDraftFromSettings(
 			inferenceSettings,
 			cloneAwareInferenceFallbackForSettings(bot, inferenceSettings, ownerInferenceSettings),
@@ -20707,11 +21434,13 @@ function updateBotInputFromEditDraft(
 	parsed: BotEditParsedDraft,
 	inferenceInheritance: InferenceModelUnlockContext | undefined,
 ): UpdateBotInput {
+	const language = languageInputValue(draft.language) ?? defaultLanguageTag;
 	return {
-		displayName: draft.displayName,
-		shortBio: draft.shortBio,
-		prompt: draft.prompt,
-		inferenceSettings: inferenceInputFromDraft(draft.inference, inferenceInheritance, { includeReasoningPrefill: true }),
+		language,
+		displayName: localizedText(draft.displayName, language),
+		shortBio: localizedText(draft.shortBio, language),
+		prompt: localizedText(draft.prompt, language),
+		inferenceSettings: inferenceInputFromDraft(draft.inference, inferenceInheritance, { includeReasoningPrefill: true }, language),
 		toolSettings: toolInputFromDraft(draft.tools),
 		postingSettings: {
 			threadBodyCharacters: parsed.threadBodyCharacters,
@@ -20728,6 +21457,19 @@ function updateBotInputFromEditDraft(
 			maxGeneratedTokensPerTick: parsed.maxGeneratedTokensPerTick,
 			maxGeneratedTokensPerIteration: parsed.maxGeneratedTokensPerIteration,
 		},
+	};
+}
+
+function createBotInputFromDraft(draft: BotDraft): CreateBotInput {
+	const language = languageInputValue(draft.language) ?? defaultLanguageTag;
+	return {
+		handle: draft.handle,
+		language,
+		displayName: localizedText(draft.displayName, language),
+		shortBio: localizedText(draft.shortBio, language),
+		prompt: localizedText(draft.prompt, language),
+		...(draft.cloneSourceBotId ? { cloneSourceBotId: draft.cloneSourceBotId } : {}),
+		...(draft.importSource ? { importSource: draft.importSource } : {}),
 	};
 }
 
@@ -20997,10 +21739,6 @@ function nullableTextInputMatchingInherited(value: string, inherited: string | u
 	return trimmed;
 }
 
-function nullablePreservedTextInput(value: string): string | null {
-	return value.trim() ? value : null;
-}
-
 function nullableNumberInput(value: string): number | null {
 	const trimmed = value.trim();
 	return trimmed ? Number(trimmed) : null;
@@ -21057,6 +21795,7 @@ function validOptionalTextLength(value: string, maxLength: number): boolean {
 function isValidBotDraft(draft: BotDraft): boolean {
 	return (
 		isValidHandle(draft.handle) &&
+		draft.language.trim().length > 0 &&
 		draft.displayName.trim().length > 0 &&
 		draft.shortBio.trim().length > 0 &&
 		draft.prompt.trim().length > 0 &&
@@ -21065,12 +21804,13 @@ function isValidBotDraft(draft: BotDraft): boolean {
 }
 
 function isValidCloneBotDraft(draft: BotDraft): boolean {
-	return isValidHandle(draft.handle) && draft.prompt.length <= maxBotPromptLength;
+	return isValidHandle(draft.handle) && draft.language.trim().length > 0 && draft.prompt.length <= maxBotPromptLength;
 }
 
 function botDraftFromExistingBot(bot: BotSummary): BotDraft {
 	return {
 		handle: bot.handle,
+		language: languageDraftValue(bot.language, textLang(bot.displayName) ?? defaultLanguageTag),
 		displayName: "",
 		shortBio: "",
 		prompt: "",
@@ -21140,8 +21880,8 @@ function hash(value: string): number {
 	return Math.abs(current);
 }
 
-function initials(name: string): string {
-	const parts = name.trim().split(/\s+/).filter(Boolean);
+function initials(name: TextLike): string {
+	const parts = (typeof name === "string" ? name : localizedTextString(name)).trim().split(/\s+/).filter(Boolean);
 	if (parts.length === 0) {
 		return "?";
 	}
@@ -21185,8 +21925,8 @@ function timeAgoWithAgo(value: string): string {
 	return label === "just now" || label === "recently" ? label : `${label} ago`;
 }
 
-function authorLabel(displayName: string | undefined, handle: string): string {
-	const cleanName = displayName?.trim();
+function authorLabel(displayName: TextLike | undefined, handle: string): string {
+	const cleanName = displayName ? (typeof displayName === "string" ? displayName : localizedTextString(displayName)).trim() : "";
 	return cleanName ? `${cleanName} (u/${handle})` : `u/${handle}`;
 }
 

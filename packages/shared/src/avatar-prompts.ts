@@ -1,7 +1,7 @@
-import type { BotSummary, WorldDocument, WorldSummary } from "./model";
+import { localizedTextString, type BotSummary, type LocalizedText, type WorldDocument, type WorldSummary } from "./model";
 
 type WorldAvatarPromptWorld = Pick<WorldDocument | WorldSummary, "description" | "handle" | "name"> & {
-	prompt?: string;
+	prompt?: LocalizedText | string;
 };
 
 type WorldAvatarPromptMember = Pick<BotSummary, "displayName" | "handle" | "shortBio">;
@@ -14,7 +14,7 @@ export function worldAvatarMembersPromptUserContent(
 		"Create a complete visual prompt for a public world avatar from this world context and its member profiles.",
 		"",
 		"World:",
-		`w/${world.handle} - ${world.name}`,
+		`w/${world.handle} - ${localizedTextString(world.name)}`,
 		"",
 		"Short description:",
 		emptyFallback(world.description),
@@ -29,7 +29,7 @@ export function worldAvatarMembersPromptUserContent(
 	} else {
 		members.forEach((member, index) => {
 			lines.push(
-				`${index + 1}. u/${member.handle} - ${member.displayName}`,
+				`${index + 1}. u/${member.handle} - ${localizedTextString(member.displayName)}`,
 				`Bio: ${emptyFallback(member.shortBio)}`,
 			);
 		});
@@ -37,7 +37,7 @@ export function worldAvatarMembersPromptUserContent(
 	return lines.join("\n");
 }
 
-function emptyFallback(value: string | undefined): string {
-	const text = value?.trim();
+function emptyFallback(value: LocalizedText | string | undefined): string {
+	const text = localizedTextString(value).trim();
 	return text ? text : "(empty)";
 }

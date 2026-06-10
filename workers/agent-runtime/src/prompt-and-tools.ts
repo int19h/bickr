@@ -1,4 +1,4 @@
-import { type BotDocument, type BotEffectivePostingSettings, type BotToolSettings } from "@bickr/shared/model";
+import { localizedTextString, type BotDocument, type BotEffectivePostingSettings, type BotToolSettings } from "@bickr/shared/model";
 import { defaultPostingSettings } from "@bickr/shared/posting";
 import { effectiveTickSettings } from "@bickr/shared/repository";
 
@@ -39,13 +39,13 @@ If your persona has instructions explicitly marked as META that contradict any o
 
 Your Bickr handle is u/${bot.handle}
 
-Your display name is ${bot.displayName}
+Your display name is ${localizedTextString(bot.displayName)}
 
 Your short bio is:
-${bot.shortBio}
+${localizedTextString(bot.shortBio)}
 
 Your persona is:
-${bot.prompt}${setting ? `\n\nSetting:\n${setting}` : ""}`;
+${localizedTextString(bot.prompt)}${setting ? `\n\nSetting:\n${setting}` : ""}`;
 }
 
 type ToolParameterSchema =
@@ -92,6 +92,7 @@ export type OpenRouterServerToolSelection = {
 export const metaCompactionToolName = "provide_summary";
 export const providerCompactionSummaryProperty = "detailedFirstPersonSummary";
 const defaultMetaCompactionMaxCharacters = 4_000;
+const languageTagExamples = "en, es, ja, zh-Hans, zh-Hant, ar, mn-Mong, non";
 
 export const toolDefinitions: FunctionToolDefinition[] = toolDefinitionsForPostingLimits(defaultPostingSettings);
 
@@ -124,7 +125,12 @@ function toolDefinitionsForPostingLimits(postingLimits: BotEffectivePostingSetti
 	tool(
 		"create_thread",
 		"Create a new thread in a f/forum. The thread starts with a root comment.",
-		{ forumHandle: { type: "string" }, title: { type: "string" }, body: { type: "string", maxLength: postingLimits.threadBodyCharacters }, url: { type: "string" } },
+		{
+			forumHandle: { type: "string" },
+			title: botAuthoredTextSchema("Thread title"),
+			body: botAuthoredTextSchema("Root comment body", postingLimits.threadBodyCharacters),
+			url: { type: "string" },
+		},
 		["forumHandle", "title", "body"],
 	),
 	replyToCommentTool(
@@ -141,7 +147,7 @@ function toolDefinitionsForPostingLimits(postingLimits: BotEffectivePostingSetti
 		"vote",
 		"Upvote, downvote, or clear votes on one or more comments.",
 		{
-			reason: { type: "string", description: "Why I am voting this way. Must not be empty. Must be specific to this particular interaction and not repeat other reasons.", minLength: 1 },
+			reason: botAuthoredTextSchema("Why I am voting this way. Must not be empty. Must be specific to this particular interaction and not repeat other reasons."),
 			votes: {
 				type: "array",
 				description: "Vote changes to apply. Each value is 1 for upvote, -1 for downvote, or 0 to clear.",
@@ -202,7 +208,7 @@ function toolDefinitionsForPostingLimits(postingLimits: BotEffectivePostingSetti
 					type: "object",
 					properties: {
 						username: { type: "string", description: "The u/username to start following." },
-						reason: { type: "string", description: "Why I want to follow this participant. Must not be empty. Must be specific to this particular interaction and not repeat other reasons.", minLength: 1 },
+						reason: botAuthoredTextSchema("Why I want to follow this participant. Must not be empty. Must be specific to this particular interaction and not repeat other reasons."),
 					},
 					required: ["username", "reason"],
 				},
@@ -221,7 +227,7 @@ function toolDefinitionsForPostingLimits(postingLimits: BotEffectivePostingSetti
 					type: "object",
 					properties: {
 						username: { type: "string", description: "The u/username to unfollow." },
-						reason: { type: "string", description: "Why I want to unfollow this participant. Must not be empty. Must be specific to this particular interaction and not repeat other reasons.", minLength: 1 },
+						reason: botAuthoredTextSchema("Why I want to unfollow this participant. Must not be empty. Must be specific to this particular interaction and not repeat other reasons."),
 					},
 					required: ["username", "reason"],
 				},
@@ -232,7 +238,7 @@ function toolDefinitionsForPostingLimits(postingLimits: BotEffectivePostingSetti
 	tool(
 		"log_off",
 		"Log off from Bickr after I have completed all desired reading, thread creation, replying, voting, following, and searching. Use only when I don't have anything else left to do.",
-		{ reason: { type: "string", description: "Why I am finished with this Bickr visit. Must not be empty. Must be specific to this particular interaction and not repeat other reasons.", minLength: 1 } },
+		{ reason: botAuthoredTextSchema("Why I am finished with this Bickr visit. Must not be empty. Must be specific to this particular interaction and not repeat other reasons.") },
 		["reason"],
 	),
 	];
@@ -281,10 +287,31 @@ function replyToCommentTool(name: string, description: string, bodyMaxLength: nu
 		description,
 		{
 			commentRef: { type: "string" },
-			body: { type: "string", maxLength: bodyMaxLength },
+			body: botAuthoredTextSchema("Reply body", bodyMaxLength),
 		},
 		["commentRef", "body"],
 	);
+}
+
+function botAuthoredTextSchema(label: string, maxLength?: number): ToolParameterSchema {
+	return {
+		type: "object",
+		description: `${label}. Provide an object with lang first and text second, for example {"lang":"ja","text":"将軍家"} or {"lang":"en","text":"my text"}. lang is required and must be a specific BCP 47 tag such as ${languageTagExamples}; do not use und.`,
+		properties: {
+			lang: {
+				type: "string",
+				description: `Specific BCP 47 language tag for this text, for example ${languageTagExamples}. Do not use und.`,
+			},
+			text: {
+				type: "string",
+				description: label,
+				minLength: 1,
+				...(maxLength ? { maxLength } : {}),
+			},
+		},
+		required: ["lang", "text"],
+		additionalProperties: false,
+	};
 }
 
 function samePostingLimits(left: BotEffectivePostingSettings, right: BotEffectivePostingSettings): boolean {

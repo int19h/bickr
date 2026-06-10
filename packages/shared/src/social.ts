@@ -1,6 +1,9 @@
 import { formatCommentRef, formatThreadRef, isShortContentId, makeId, makeShortContentId, parseObjectRef } from "./ids";
 import {
 	avatarCropFromJson,
+	localizedText,
+	localizedTextFromStored,
+	localizedTextString,
 	schemaVersion,
 	type AvatarCrop,
 	type BotDocument,
@@ -32,6 +35,7 @@ import {
 	type HumanSubscriptionThreadNode,
 	type HumanSubscriptionTreeResponse,
 	type HumanSubscriptionWorldNode,
+	type LocalizedText,
 	type LegacyRootPostDocument,
 	type LegacyThreadDocument,
 	type NotificationDeliveryReason,
@@ -64,6 +68,8 @@ import {
 	defaultInitialBotNotification,
 	introForumHandle,
 	listUserBots,
+	normalizeForumDefaults,
+	normalizeWorldDefaults,
 	RepositoryError,
 	type RepositoryErrorDetails,
 } from "./repository";
@@ -103,10 +109,47 @@ type ThreadHotScoreInput = {
 };
 
 type ExistingThreadDetails = Exclude<RepositoryErrorDetails["existingThread"], undefined>;
-type ThreadSummaryRow = Omit<ThreadSummary, "authorAvatarCrop"> & { authorAvatarCrop: string | null };
-type SearchThreadResultRow = Omit<SearchThreadResult, "authorAvatarCrop"> & { authorAvatarCrop: string | null };
+type ThreadSummaryRow = Omit<ThreadSummary, "authorAvatarCrop" | "authorDisplayName" | "title" | "bodyPreview"> & {
+	authorAvatarCrop: string | null;
+	authorDisplayName: string;
+	authorDisplayNameLang: string | null;
+	title: string;
+	titleLang: string | null;
+	bodyPreview: string;
+	bodyPreviewLang: string | null;
+};
+type SearchThreadResultRow = Omit<SearchThreadResult, "authorAvatarCrop" | "authorDisplayName" | "title" | "snippet"> & {
+	authorAvatarCrop: string | null;
+	authorDisplayName: string;
+	authorDisplayNameLang: string | null;
+	title: string;
+	titleLang: string | null;
+	snippet: string;
+	snippetLang: string | null;
+};
 type FollowerCountRow = { id: string; followers: number };
 type FollowUsernameRow = { handle: string };
+
+function localizedTextFromIndex(text: string, lang: string | null | undefined): LocalizedText {
+	return localizedTextFromStored({ lang: lang ?? null, text });
+}
+
+function optionalLocalizedTextFromIndex(text: string | null | undefined, lang: string | null | undefined): LocalizedText | undefined {
+	return text ? localizedTextFromIndex(text, lang) : undefined;
+}
+
+function optionalLocalizedTextFromUnknown(value: unknown): LocalizedText | undefined {
+	if (value === undefined || value === null) {
+		return undefined;
+	}
+	const localized = localizedTextFromStored(value);
+	return localized.text ? localized : undefined;
+}
+
+function localizedPreview(value: LocalizedText | string): LocalizedText {
+	const localized = localizedTextFromStored(value);
+	return localizedText(preview(localized.text), localized.lang);
+}
 
 function chunks<T>(items: T[], size: number): T[][] {
 	const result: T[][] = [];
@@ -128,16 +171,42 @@ function withoutAuthorAvatarCrop<T extends { authorAvatarCrop: string | null }>(
 
 function threadSummaryFromRow(row: ThreadSummaryRow): ThreadSummary {
 	const crop = cropFromIndex(row.authorAvatarCrop);
+	const {
+		authorAvatarCrop: _authorAvatarCrop,
+		authorDisplayName,
+		authorDisplayNameLang,
+		title,
+		titleLang,
+		bodyPreview,
+		bodyPreviewLang,
+		...thread
+	} = row;
 	return {
-		...withoutAuthorAvatarCrop(row),
+		...thread,
+		authorDisplayName: localizedTextFromIndex(authorDisplayName, authorDisplayNameLang),
+		title: localizedTextFromIndex(title, titleLang),
+		bodyPreview: localizedTextFromIndex(bodyPreview, bodyPreviewLang),
 		...(crop ? { authorAvatarCrop: crop } : {}),
 	};
 }
 
 function searchThreadResultFromRow(row: SearchThreadResultRow): SearchThreadResult {
 	const crop = cropFromIndex(row.authorAvatarCrop);
+	const {
+		authorAvatarCrop: _authorAvatarCrop,
+		authorDisplayName,
+		authorDisplayNameLang,
+		title,
+		titleLang,
+		snippet,
+		snippetLang,
+		...thread
+	} = row;
 	return {
-		...withoutAuthorAvatarCrop(row),
+		...thread,
+		authorDisplayName: localizedTextFromIndex(authorDisplayName, authorDisplayNameLang),
+		title: localizedTextFromIndex(title, titleLang),
+		snippet: localizedTextFromIndex(snippet, snippetLang),
 		...(crop ? { authorAvatarCrop: crop } : {}),
 	};
 }
@@ -203,8 +272,8 @@ function normalizeThreadDocument(document: ThreadDocument | LegacyThreadDocument
 						parentCommentId: rootComment.id,
 					},
 			),
-	];
-	const title = document.title ?? legacyRootPost?.title ?? "Untitled thread";
+	].map(normalizeCommentDocument);
+	const title = localizedTextFromStored(document.title ?? legacyRootPost?.title ?? "Untitled thread");
 	const { rootPost: _rootPost, ...rest } = document as LegacyThreadDocument & { rootPost?: LegacyRootPostDocument };
 	const lastActivityAt = latestThreadActivityAt(comments);
 	const now = new Date().toISOString();
@@ -246,8 +315,8 @@ function legacyRootComment(
 			forumId: thread.forumId,
 			authorBotId: rootPost.authorBotId,
 			authorHandle: rootPost.authorHandle,
-			authorDisplayName: rootPost.authorDisplayName,
-			body: rootPost.body,
+			authorDisplayName: localizedTextFromStored(rootPost.authorDisplayName),
+			body: localizedTextFromStored(rootPost.body),
 			voteScore: rootPost.voteScore,
 			createdAt: rootPost.createdAt,
 			updatedAt: rootPost.updatedAt,
@@ -264,8 +333,17 @@ function legacyRootComment(
 	throw repositoryError("server_error", "Thread root comment could not be reconstructed.", 500);
 }
 
+function normalizeCommentDocument(comment: CommentDocument): CommentDocument {
+	const raw = comment as CommentDocument & Record<string, unknown>;
+	return {
+		...comment,
+		authorDisplayName: localizedTextFromStored(raw.authorDisplayName),
+		body: localizedTextFromStored(raw.body),
+	};
+}
+
 function threadTitle(thread: ThreadDocument): string {
-	return thread.title;
+	return localizedTextString(thread.title);
 }
 
 export async function forumByHandle(
@@ -304,7 +382,7 @@ async function forumById(
 	if (!forum || forum.deletedAt) {
 		throw repositoryError("not_found", "Forum not found.", 404);
 	}
-	return forum;
+	return normalizeForumDefaults(forum);
 }
 
 export async function listThreads(
@@ -329,10 +407,13 @@ export async function listThreads(
 				t.author_bot_id AS authorBotId,
 				t.author_handle AS authorHandle,
 				t.author_display_name AS authorDisplayName,
+				t.author_display_name_lang AS authorDisplayNameLang,
 				b.avatar_url AS authorAvatarUrl,
 				b.avatar_crop AS authorAvatarCrop,
 				t.title,
+				t.title_lang AS titleLang,
 				t.body_preview AS bodyPreview,
+				t.body_preview_lang AS bodyPreviewLang,
 				t.vote_score AS voteScore,
 				t.comment_count AS commentCount,
 				t.hot_score AS hotScore,
@@ -406,10 +487,13 @@ export async function listHotThreads(
 				t.author_bot_id AS authorBotId,
 				t.author_handle AS authorHandle,
 				t.author_display_name AS authorDisplayName,
+				t.author_display_name_lang AS authorDisplayNameLang,
 				b.avatar_url AS authorAvatarUrl,
 				b.avatar_crop AS authorAvatarCrop,
 				t.title,
+				t.title_lang AS titleLang,
 				t.body_preview AS bodyPreview,
+				t.body_preview_lang AS bodyPreviewLang,
 				t.vote_score AS voteScore,
 				t.comment_count AS commentCount,
 				t.hot_score AS hotScore,
@@ -1093,28 +1177,72 @@ async function subscriptionWorldSummariesByIds(
 	db: D1DatabaseLike,
 	ids: Set<string>,
 ): Promise<WorldSummary[]> {
-	return rowsByIds<WorldSummary>(
+	return rowsByIds<{
+		id: string;
+		handle: string;
+		language: string | null;
+		name: string;
+		nameLang: string | null;
+		description: string;
+		descriptionLang: string | null;
+		prompt: string;
+		promptLang: string | null;
+		initialBotNotification: string;
+		initialBotNotificationLang: string | null;
+		createdByUserId: string;
+		createdAt: string;
+		updatedAt: string;
+	}>(
 		db,
 		ids,
 		(placeholders) => `SELECT
 			world_id AS id,
 			handle,
+			language,
 			name,
+			name_lang AS nameLang,
 			description,
+			description_lang AS descriptionLang,
+			prompt,
+			prompt_lang AS promptLang,
 			initial_bot_notification AS initialBotNotification,
+			initial_bot_notification_lang AS initialBotNotificationLang,
 			created_by_user_id AS createdByUserId,
 			created_at AS createdAt,
 			updated_at AS updatedAt
 		 FROM worlds_index
 		 WHERE world_id IN (${placeholders}) AND deleted_at IS NULL`,
-	);
+	).then((worlds) => worlds.map((row) => ({
+		id: row.id,
+		handle: row.handle,
+		language: row.language as WorldSummary["language"],
+		name: localizedTextFromIndex(row.name, row.nameLang),
+		description: localizedTextFromIndex(row.description, row.descriptionLang),
+		prompt: localizedTextFromIndex(row.prompt, row.promptLang),
+		initialBotNotification: localizedTextFromIndex(row.initialBotNotification, row.initialBotNotificationLang),
+		createdByUserId: row.createdByUserId,
+		createdAt: row.createdAt,
+		updatedAt: row.updatedAt,
+	})));
 }
 
 async function subscriptionForumSummariesByIds(
 	db: D1DatabaseLike,
 	ids: Set<string>,
 ): Promise<ForumSummary[]> {
-	return rowsByIds<ForumSummary>(
+	return rowsByIds<{
+		id: string;
+		worldId: string;
+		worldHandle: string;
+		handle: string;
+		language: string | null;
+		description: string;
+		descriptionLang: string | null;
+		createdByUserId: string;
+		personalBotId: string | null;
+		createdAt: string;
+		updatedAt: string;
+	}>(
 		db,
 		ids,
 		(placeholders) => `SELECT
@@ -1122,11 +1250,17 @@ async function subscriptionForumSummariesByIds(
 			f.world_id AS worldId,
 			f.world_handle AS worldHandle,
 			f.handle,
+			COALESCE(b.language, f.language) AS language,
 			CASE
 				WHEN f.personal_bot_id IS NOT NULL AND b.bot_id IS NOT NULL
 					THEN 'Blog of ' || b.display_name || ' (u/' || b.handle || ')'
 				ELSE f.description
 			END AS description,
+			CASE
+				WHEN f.personal_bot_id IS NOT NULL AND b.bot_id IS NOT NULL
+					THEN b.display_name_lang
+				ELSE f.description_lang
+			END AS descriptionLang,
 			f.created_by_user_id AS createdByUserId,
 			f.personal_bot_id AS personalBotId,
 			f.created_at AS createdAt,
@@ -1134,7 +1268,18 @@ async function subscriptionForumSummariesByIds(
 		 FROM forums_index f
 		 LEFT JOIN bots_index b ON b.bot_id = f.personal_bot_id AND b.deleted_at IS NULL
 		 WHERE f.forum_id IN (${placeholders}) AND f.deleted_at IS NULL`,
-	);
+	).then((forums) => forums.map((row) => ({
+		id: row.id,
+		worldId: row.worldId,
+		worldHandle: row.worldHandle,
+		handle: row.handle,
+		language: row.language as ForumSummary["language"],
+		description: localizedTextFromIndex(row.description, row.descriptionLang),
+		createdByUserId: row.createdByUserId,
+		...(row.personalBotId ? { personalBotId: row.personalBotId } : {}),
+		createdAt: row.createdAt,
+		updatedAt: row.updatedAt,
+	})));
 }
 
 async function subscriptionThreadSummariesByIds(
@@ -1154,10 +1299,13 @@ async function subscriptionThreadSummariesByIds(
 			t.author_bot_id AS authorBotId,
 			t.author_handle AS authorHandle,
 			t.author_display_name AS authorDisplayName,
+			t.author_display_name_lang AS authorDisplayNameLang,
 			b.avatar_url AS authorAvatarUrl,
 			b.avatar_crop AS authorAvatarCrop,
 			t.title,
+			t.title_lang AS titleLang,
 			t.body_preview AS bodyPreview,
+			t.body_preview_lang AS bodyPreviewLang,
 			t.vote_score AS voteScore,
 			t.comment_count AS commentCount,
 			t.hot_score AS hotScore,
@@ -1184,9 +1332,11 @@ async function subscriptionCommentSummariesByIds(
 			c.author_bot_id AS authorBotId,
 			c.author_handle AS authorHandle,
 			COALESCE(b.display_name, c.author_handle) AS authorDisplayName,
+			b.display_name_lang AS authorDisplayNameLang,
 			b.avatar_url AS authorAvatarUrl,
 			b.avatar_crop AS authorAvatarCrop,
 			c.body_preview AS bodyPreview,
+			c.body_preview_lang AS bodyPreviewLang,
 			c.created_at AS createdAt
 		 FROM comments_index c
 		 LEFT JOIN bots_index b ON b.bot_id = c.author_bot_id
@@ -1207,7 +1357,9 @@ async function subscriptionBotProfilesByIds(
 			home_world_handle AS homeWorldHandle,
 			handle,
 			display_name AS displayName,
+			display_name_lang AS displayNameLang,
 			short_bio AS shortBio,
+			short_bio_lang AS shortBioLang,
 			avatar_url AS avatarUrl,
 			avatar_crop AS avatarCrop,
 			created_at AS createdAt,
@@ -1442,7 +1594,7 @@ async function notifyHumanThreadCreated(
 			sourceId: thread.id,
 			targetType: "forum",
 			targetId: thread.forumId,
-			title: `${actor.displayName} created a thread in f/${thread.forumHandle}`,
+			title: `${localizedTextString(actor.displayName)} created a thread in f/${thread.forumHandle}`,
 			body: threadTitle(thread),
 			urlPath: threadUrlPath(thread),
 			now,
@@ -1475,8 +1627,8 @@ async function notifyHumanCommentCreated(
 			sourceId: comment.id,
 			targetType: "thread",
 			targetId: thread.id,
-			title: `${actor.displayName} replied in "${threadTitle(thread)}"`,
-			body: preview(comment.body),
+			title: `${localizedTextString(actor.displayName)} replied in "${threadTitle(thread)}"`,
+			body: localizedPreview(comment.body),
 			urlPath: commentUrlPath(thread, comment.id),
 			now,
 		});
@@ -1510,7 +1662,7 @@ async function notifyHumanVoteCast(
 			sourceId: `comment:${input.targetId}:${actor.id}`,
 			targetType: "comment",
 			targetId: input.targetId,
-			title: `${actor.displayName} ${direction} a comment in`,
+			title: `${localizedTextString(actor.displayName)} ${direction} a comment in`,
 			body: humanNotificationBodyWithReason(threadTitle(thread), input.reason),
 			urlPath: botActivityUrlPath(actor, options.activityId ?? voteActivityId(input.targetId)),
 			...(options.spotlightId ? { spotlightId: options.spotlightId } : {}),
@@ -1542,7 +1694,7 @@ async function notifyHumanFollowCreated(
 			sourceId: `${follower.id}:${followed.id}`,
 			targetType: "bot",
 			targetId: followed.id,
-			title: `${follower.displayName} followed ${followed.displayName}`,
+			title: `${localizedTextString(follower.displayName)} followed ${localizedTextString(followed.displayName)}`,
 			body: humanNotificationBodyWithReason(`u/${follower.handle} followed u/${followed.handle}.`, options.reason),
 			urlPath: botActivityUrlPath(follower, options.activityId),
 			...(options.spotlightId ? { spotlightId: options.spotlightId } : {}),
@@ -1574,7 +1726,7 @@ async function notifyHumanFollowRemoved(
 			sourceId: `${follower.id}:${followed.id}`,
 			targetType: "bot",
 			targetId: followed.id,
-			title: `${follower.displayName} unfollowed ${followed.displayName}`,
+			title: `${localizedTextString(follower.displayName)} unfollowed ${localizedTextString(followed.displayName)}`,
 			body: humanNotificationBodyWithReason(`u/${follower.handle} unfollowed u/${followed.handle}.`, options.reason),
 			urlPath: botActivityUrlPath(follower, options.activityId),
 			...(options.spotlightId ? { spotlightId: options.spotlightId } : {}),
@@ -1655,7 +1807,7 @@ export async function recordSpotlightNoReactionHumanNotification(
 		sourceId: input.spotlightId,
 		targetType: "bot_loop",
 		targetId: input.bot.id,
-		title: `${input.bot.displayName} did not react to the spotlight`,
+		title: `${localizedTextString(input.bot.displayName)} did not react to the spotlight`,
 		body: `u/${input.bot.handle} reviewed the spotlight but did not act on the spotlighted content or its authors.`,
 		urlPath: `/w/${encodeURIComponent(input.bot.homeWorldHandle)}/u/${encodeURIComponent(input.bot.handle)}/loop`,
 		spotlightId: input.spotlightId,
@@ -1678,8 +1830,8 @@ export async function recordBotRuntimeFailureHumanNotification(
 	const repeatedToolFailure = Boolean(input.toolName);
 	const title =
 		repeatedToolFailure ?
-			`${input.bot.displayName} hit repeated tool errors`
-		:	`${input.bot.displayName} loop run failed`;
+			`${localizedTextString(input.bot.displayName)} hit repeated tool errors`
+		:	`${localizedTextString(input.bot.displayName)} loop run failed`;
 	const bodyLines =
 		repeatedToolFailure ?
 			[
@@ -1743,7 +1895,7 @@ export async function recordSpotlightFailureHumanNotification(
 		sourceId: input.spotlightId,
 		targetType: "bot_loop",
 		targetId: input.bot.id,
-		title: `${input.bot.displayName} could not process spotlight`,
+		title: `${localizedTextString(input.bot.displayName)} could not process spotlight`,
 		body: `u/${input.bot.handle} could not finish the spotlight tick: ${input.message}`,
 		urlPath: `/w/${encodeURIComponent(input.bot.homeWorldHandle)}/u/${encodeURIComponent(input.bot.handle)}/loop`,
 		spotlightId: input.spotlightId,
@@ -1780,7 +1932,7 @@ export async function recordWorldSettingsChangedHumanNotifications(
 	if (users.length === 0) {
 		return;
 	}
-	const title = `${input.updated.name} settings changed`;
+	const title = `${localizedTextString(input.updated.name)} settings changed`;
 	const body = `World settings changed: ${changed.join(", ")}.`;
 	const urlPath = `/w/${encodeURIComponent(input.updated.handle)}/edit`;
 	for (const userId of users) {
@@ -1803,13 +1955,15 @@ export async function recordWorldSettingsChangedHumanNotifications(
 				.prepare(
 					`UPDATE human_notifications
 					 SET title = ?,
+					     title_lang = ?,
 					     body = ?,
+					     body_lang = ?,
 					     url_path = ?,
 					     target_id = ?,
 					     created_at = ?
 					 WHERE notification_id = ?`,
 				)
-				.bind(title, body, urlPath, input.updated.id, now, existing.id)
+				.bind(title, null, body, null, urlPath, input.updated.id, now, existing.id)
 				.run();
 			continue;
 		}
@@ -1833,10 +1987,10 @@ export async function recordWorldSettingsChangedHumanNotifications(
 function worldSettingsChangeLabels(previous: WorldDocument, updated: WorldDocument): string[] {
 	const labels: string[] = [];
 	if (previous.handle !== updated.handle) labels.push("handle");
-	if (previous.name !== updated.name) labels.push("name");
-	if (previous.description !== updated.description) labels.push("short description");
-	if ((previous.prompt ?? "") !== (updated.prompt ?? "")) labels.push("prompt");
-	if (previous.initialBotNotification !== updated.initialBotNotification) labels.push("initial participant notification");
+	if (localizedTextString(previous.name) !== localizedTextString(updated.name)) labels.push("name");
+	if (localizedTextString(previous.description) !== localizedTextString(updated.description)) labels.push("short description");
+	if (localizedTextString(previous.prompt) !== localizedTextString(updated.prompt)) labels.push("prompt");
+	if (localizedTextString(previous.initialBotNotification) !== localizedTextString(updated.initialBotNotification)) labels.push("initial participant notification");
 	if (JSON.stringify(previous.postingSettings ?? {}) !== JSON.stringify(updated.postingSettings ?? {})) labels.push("posting limits");
 	if ((previous.avatar?.url ?? "") !== (updated.avatar?.url ?? "") ||
 		JSON.stringify(previous.avatar?.crop ?? null) !== JSON.stringify(updated.avatar?.crop ?? null)) {
@@ -1885,15 +2039,18 @@ async function insertHumanNotification(
 	db: D1DatabaseLike,
 	input: HumanNotificationInput,
 ): Promise<void> {
+	const title = localizedTextFromStored(input.title);
+	const body = localizedTextFromStored(input.body);
+	const actorDisplayName = input.actor ? localizedTextFromStored(input.actor.displayName) : null;
 	await db
 		.prepare(
 			`INSERT OR IGNORE INTO human_notifications (
 				notification_id, user_id, world_id, event_key, notification_type,
-				actor_bot_id, actor_handle, actor_display_name,
+				actor_bot_id, actor_handle, actor_display_name, actor_display_name_lang,
 				source_type, source_id, target_type, target_id,
-				title, body, url_path, spotlight_id, spotlight_label,
+				title, title_lang, body, body_lang, url_path, spotlight_id, spotlight_label,
 				created_at, read_at, archived_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)`,
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)`,
 		)
 		.bind(
 			makeId("hnt"),
@@ -1903,13 +2060,16 @@ async function insertHumanNotification(
 			input.notificationType,
 			input.actor?.id ?? null,
 			input.actor?.handle ?? null,
-			input.actor?.displayName ?? null,
+			actorDisplayName?.text ?? null,
+			actorDisplayName?.lang ?? null,
 			input.sourceType ?? null,
 			input.sourceId ?? null,
 			input.targetType ?? null,
 			input.targetId ?? null,
-			input.title,
-			input.body,
+			title.text,
+			title.lang,
+			body.text,
+			body.lang,
 			input.urlPath,
 			input.spotlightId ?? null,
 			input.spotlightLabel ?? null,
@@ -1923,12 +2083,13 @@ async function insertBotActivityEvent(
 	input: BotActivityEventInput,
 ): Promise<string> {
 	const activityId = input.activityId ?? makeId("act");
+	const reason = input.reason ? localizedTextFromStored(input.reason) : null;
 	await db
 		.prepare(
 			`${input.replace ? "INSERT OR REPLACE" : "INSERT"} INTO bot_activity_events (
 				activity_id, world_id, bot_id, activity_type, target_type, target_id,
-				value, reason, created_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				value, reason, reason_lang, created_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		)
 		.bind(
 			activityId,
@@ -1938,7 +2099,8 @@ async function insertBotActivityEvent(
 			input.targetType,
 			input.targetId,
 			input.value ?? null,
-			input.reason ?? null,
+			reason?.text ?? null,
+			reason?.lang ?? null,
 			input.now,
 		)
 		.run();
@@ -1961,17 +2123,21 @@ async function insertOrAnnotateSpotlightHumanNotification(
 	if (!existing) {
 		await insertHumanNotification(db, input);
 	}
+	const title = localizedTextFromStored(input.title);
+	const body = localizedTextFromStored(input.body);
 	await db
 		.prepare(
 			`UPDATE human_notifications
 			 SET spotlight_id = ?,
 			     spotlight_label = ?,
 			     title = ?,
+			     title_lang = ?,
 			     body = ?,
+			     body_lang = ?,
 			     url_path = ?
 			 WHERE user_id = ? AND event_key = ?`,
 		)
-		.bind(input.spotlightId, input.spotlightLabel, input.title, input.body, input.urlPath, input.userId, input.eventKey)
+		.bind(input.spotlightId, input.spotlightLabel, title.text, title.lang, body.text, body.lang, input.urlPath, input.userId, input.eventKey)
 		.run();
 }
 
@@ -1985,13 +2151,13 @@ export async function createThread(
 	const bot = await botById(kv, db, input.authorBotId);
 	assertBotInWorld(bot, forum.worldId);
 	const postingSettings = await effectivePostingSettingsForAuthor(kv, forum.worldId, bot);
-	requiredPostingBody(input.body, "Thread body", postingHardLimit(postingSettings.threadBodyCharacters));
+	requiredPostingBody(input.body.text, "Thread body", postingHardLimit(postingSettings.threadBodyCharacters));
 
-	const existingThread = await existingActiveThreadWithTitle(db, forum.id, input.title);
+	const existingThread = await existingActiveThreadWithTitle(db, forum.id, input.title.text);
 	if (existingThread) {
 		throw repositoryError(
 			"conflict",
-			`A thread titled "${input.title}" already exists in f/${forum.handle}: ${existingThread.id}.`,
+			`A thread titled "${input.title.text}" already exists in f/${forum.handle}: ${existingThread.id}.`,
 			409,
 			{ existingThread },
 		);
@@ -2047,22 +2213,22 @@ export async function createThread(
 			notificationType: "personal_forum_post",
 			deliveryReason: "personal_forum_post",
 			sourceObjectId: formatThreadRef(thread.id),
-			message: `${bot.displayName} created a thread in your personal forum: "${threadTitle(thread)}".`,
+			message: `${localizedTextString(bot.displayName)} created a thread in your personal forum: "${threadTitle(thread)}".`,
 		});
 	}
-	for (const mentioned of await mentionedBots(kv, db, thread.worldId, bot, `${input.title}\n${input.body}`)) {
+	for (const mentioned of await mentionedBots(kv, db, thread.worldId, bot, `${input.title.text}\n${input.body.text}`)) {
 		addNotificationRecipient(notificationRecipients, {
 			botId: mentioned.id,
 			notificationType: "mention",
 			deliveryReason: "mention",
 			sourceObjectId: formatThreadRef(thread.id),
-			message: `${bot.displayName} mentioned you in "${threadTitle(thread)}".`,
+			message: `${localizedTextString(bot.displayName)} mentioned you in "${threadTitle(thread)}".`,
 		});
 	}
 	await addFollowerActivityRecipients(db, notificationRecipients, bot.id, {
 		notificationType: "followed_activity",
 		sourceObjectId: formatThreadRef(thread.id),
-		message: `${bot.displayName} created "${threadTitle(thread)}".`,
+		message: `${localizedTextString(bot.displayName)} created "${threadTitle(thread)}".`,
 	});
 	await createMergedNotifications(kv, db, thread.worldId, notificationRecipients, {
 		type: "thread_created",
@@ -2087,6 +2253,7 @@ async function existingActiveThreadWithTitle(
 			`SELECT
 				thread_id AS id,
 				title,
+				title_lang AS titleLang,
 				world_handle AS worldHandle,
 				forum_handle AS forumHandle
 			 FROM threads_index
@@ -2095,12 +2262,13 @@ async function existingActiveThreadWithTitle(
 			 LIMIT 1`,
 		)
 		.bind(forumId, title)
-		.first<Omit<ExistingThreadDetails, "urlPath">>();
+		.first<Omit<ExistingThreadDetails, "urlPath" | "title"> & { title: string; titleLang: string | null }>();
 	if (!row) {
 		return null;
 	}
 	return {
 		...row,
+		title: localizedTextFromStored({ lang: row.titleLang, text: row.title }),
 		urlPath: threadUrlPathFromParts(row.worldHandle, row.forumHandle, row.id),
 	};
 }
@@ -2119,7 +2287,7 @@ export async function createComment(
 	const bot = await botById(kv, db, input.authorBotId);
 	assertBotInWorld(bot, thread.worldId);
 	const postingSettings = await effectivePostingSettingsForAuthor(kv, thread.worldId, bot);
-	requiredPostingBody(input.body, "Comment body", postingHardLimit(postingSettings.commentBodyCharacters));
+	requiredPostingBody(input.body.text, "Comment body", postingHardLimit(postingSettings.commentBodyCharacters));
 	const parentCommentId = input.parentCommentId ?? thread.rootCommentId;
 	if (!thread.comments.some((comment) => comment.id === parentCommentId)) {
 		throw repositoryError("not_found", "Parent comment not found.", 404);
@@ -2169,22 +2337,22 @@ export async function createComment(
 			notificationType: "reply",
 			deliveryReason: "direct_reply",
 			sourceObjectId: formatCommentRef(comment.id),
-			message: `${bot.displayName} replied to you in "${threadTitle(updated)}".`,
+			message: `${localizedTextString(bot.displayName)} replied to you in "${threadTitle(updated)}".`,
 		});
 	}
-	for (const mentioned of await mentionedBots(kv, db, updated.worldId, bot, input.body)) {
+	for (const mentioned of await mentionedBots(kv, db, updated.worldId, bot, input.body.text)) {
 		addNotificationRecipient(notificationRecipients, {
 			botId: mentioned.id,
 			notificationType: "mention",
 			deliveryReason: "mention",
 			sourceObjectId: formatCommentRef(comment.id),
-			message: `${bot.displayName} mentioned you in "${threadTitle(updated)}".`,
+			message: `${localizedTextString(bot.displayName)} mentioned you in "${threadTitle(updated)}".`,
 		});
 	}
 	await addFollowerActivityRecipients(db, notificationRecipients, bot.id, {
 		notificationType: "followed_activity",
 		sourceObjectId: formatCommentRef(comment.id),
-		message: `${bot.displayName} commented in "${threadTitle(updated)}".`,
+		message: `${localizedTextString(bot.displayName)} commented in "${threadTitle(updated)}".`,
 	});
 	await createMergedNotifications(kv, db, updated.worldId, notificationRecipients, {
 		type: "comment_created",
@@ -2294,13 +2462,13 @@ export async function setVote(
 				notificationType: "vote",
 				deliveryReason: "vote_on_your_content",
 				sourceObjectId: formatCommentRef(voteInput.targetId),
-				message: `${voter.displayName} ${voteActionText(voteInput.value)} your comment.`,
+				message: `${localizedTextString(voter.displayName)} ${voteActionText(voteInput.value)} your comment.`,
 			});
 		}
 		await addFollowerActivityRecipients(db, notificationRecipients, voter.id, {
 			notificationType: "followed_activity",
 			sourceObjectId: formatCommentRef(voteInput.targetId),
-			message: `${voter.displayName} ${voteActionText(voteInput.value)} a comment in "${threadTitle(updated)}".`,
+			message: `${localizedTextString(voter.displayName)} ${voteActionText(voteInput.value)} a comment in "${threadTitle(updated)}".`,
 		});
 		await createMergedNotifications(kv, db, updated.worldId, notificationRecipients, {
 			type: "vote_cast",
@@ -2465,6 +2633,7 @@ export async function listVotesForTarget(
 				v.bot_id AS botId,
 				b.handle,
 				b.display_name AS displayName,
+				b.display_name_lang AS displayNameLang,
 				v.value,
 				v.created_at AS createdAt,
 				v.updated_at AS updatedAt
@@ -2477,8 +2646,11 @@ export async function listVotesForTarget(
 			 ORDER BY v.updated_at DESC`,
 		)
 		.bind(worldId, targetType, targetId)
-		.all<VoteDetail>();
-	return result.results ?? [];
+		.all<Omit<VoteDetail, "displayName"> & { displayName: string; displayNameLang: string | null }>();
+	return (result.results ?? []).map(({ displayName, displayNameLang, ...row }) => ({
+		...row,
+		displayName: localizedTextFromIndex(displayName, displayNameLang),
+	}));
 }
 
 export async function followBot(
@@ -2487,7 +2659,7 @@ export async function followBot(
 	followerBotId: string,
 	followedBotId: string,
 	now = new Date().toISOString(),
-	options: { reason?: string; spotlightId?: string; spotlightLabel?: string } = {},
+	options: { reason?: LocalizedText | string; spotlightId?: string; spotlightLabel?: string } = {},
 ): Promise<{ activityId?: string; following: boolean }> {
 	if (followerBotId === followedBotId) {
 		throw repositoryError("bad_request", "A bot cannot follow itself.", 400);
@@ -2524,12 +2696,12 @@ export async function followBot(
 			notificationType: "follow",
 			deliveryReason: "profile_followed_you",
 			sourceObjectId: followerBotId,
-			message: `${follower.displayName} followed you.`,
+			message: `${localizedTextString(follower.displayName)} followed you.`,
 		});
 		await addFollowerActivityRecipients(db, notificationRecipients, follower.id, {
 			notificationType: "followed_activity",
 			sourceObjectId: followedBotId,
-			message: `${follower.displayName} followed u/${followed.handle}.`,
+			message: `${localizedTextString(follower.displayName)} followed u/${followed.handle}.`,
 		});
 		await createMergedNotifications(kv, db, follower.homeWorldId, notificationRecipients, {
 			type: "profile_followed",
@@ -2558,7 +2730,7 @@ export async function unfollowBot(
 	followerBotId: string,
 	followedBotId: string,
 	now = new Date().toISOString(),
-	options: { reason?: string; spotlightId?: string; spotlightLabel?: string } = {},
+	options: { reason?: LocalizedText | string; spotlightId?: string; spotlightLabel?: string } = {},
 ): Promise<{ activityId?: string; following: boolean }> {
 	const follower = await botById(kv, db, followerBotId);
 	const followed = await botById(kv, db, followedBotId);
@@ -2586,7 +2758,7 @@ export async function unfollowBot(
 		await addFollowerActivityRecipients(db, notificationRecipients, follower.id, {
 			notificationType: "followed_activity",
 			sourceObjectId: followedBotId,
-			message: `${follower.displayName} unfollowed u/${followed.handle}.`,
+			message: `${localizedTextString(follower.displayName)} unfollowed u/${followed.handle}.`,
 		});
 		await createMergedNotifications(kv, db, follower.homeWorldId, notificationRecipients, {
 			type: "profile_unfollowed",
@@ -2966,8 +3138,11 @@ export async function botFollowGraphByHandle(
 					b.home_world_id AS homeWorldId,
 					b.home_world_handle AS homeWorldHandle,
 					b.handle,
+					b.language,
 					b.display_name AS displayName,
+					b.display_name_lang AS displayNameLang,
 					b.short_bio AS shortBio,
+					b.short_bio_lang AS shortBioLang,
 					b.avatar_url AS avatarUrl,
 					b.avatar_crop AS avatarCrop,
 					b.created_at AS createdAt,
@@ -2982,8 +3157,11 @@ export async function botFollowGraphByHandle(
 					b.home_world_id AS homeWorldId,
 					b.home_world_handle AS homeWorldHandle,
 					b.handle,
+					b.language,
 					b.display_name AS displayName,
+					b.display_name_lang AS displayNameLang,
 					b.short_bio AS shortBio,
+					b.short_bio_lang AS shortBioLang,
 					b.avatar_url AS avatarUrl,
 					b.avatar_crop AS avatarCrop,
 					b.created_at AS createdAt,
@@ -3036,10 +3214,13 @@ export async function searchThreads(
 					t.root_comment_id AS commentId,
 					t.forum_handle AS forumHandle,
 					t.title,
+					t.title_lang AS titleLang,
 					t.body_preview AS snippet,
+					t.body_preview_lang AS snippetLang,
 					t.author_bot_id AS authorBotId,
 					t.author_handle AS authorHandle,
 					t.author_display_name AS authorDisplayName,
+					t.author_display_name_lang AS authorDisplayNameLang,
 					b.avatar_url AS authorAvatarUrl,
 					b.avatar_crop AS authorAvatarCrop,
 					t.created_at AS createdAt,
@@ -3061,10 +3242,13 @@ export async function searchThreads(
 					c.comment_id AS commentId,
 					t.forum_handle AS forumHandle,
 					t.title AS title,
+					t.title_lang AS titleLang,
 					c.body_preview AS snippet,
+					c.body_preview_lang AS snippetLang,
 					c.author_bot_id AS authorBotId,
 					c.author_handle AS authorHandle,
 					COALESCE(b.display_name, c.author_handle) AS authorDisplayName,
+					b.display_name_lang AS authorDisplayNameLang,
 					b.avatar_url AS authorAvatarUrl,
 					b.avatar_crop AS authorAvatarCrop,
 					c.created_at AS createdAt,
@@ -3103,10 +3287,13 @@ export async function searchForumThreads(
 					t.root_comment_id AS commentId,
 					t.forum_handle AS forumHandle,
 					t.title,
+					t.title_lang AS titleLang,
 					t.body_preview AS snippet,
+					t.body_preview_lang AS snippetLang,
 					t.author_bot_id AS authorBotId,
 					t.author_handle AS authorHandle,
 					t.author_display_name AS authorDisplayName,
+					t.author_display_name_lang AS authorDisplayNameLang,
 					b.avatar_url AS authorAvatarUrl,
 					b.avatar_crop AS authorAvatarCrop,
 					t.created_at AS createdAt,
@@ -3128,10 +3315,13 @@ export async function searchForumThreads(
 					c.comment_id AS commentId,
 					t.forum_handle AS forumHandle,
 					t.title AS title,
+					t.title_lang AS titleLang,
 					c.body_preview AS snippet,
+					c.body_preview_lang AS snippetLang,
 					c.author_bot_id AS authorBotId,
 					c.author_handle AS authorHandle,
 					COALESCE(b.display_name, c.author_handle) AS authorDisplayName,
+					b.display_name_lang AS authorDisplayNameLang,
 					b.avatar_url AS authorAvatarUrl,
 					b.avatar_crop AS authorAvatarCrop,
 					c.created_at AS createdAt,
@@ -3164,7 +3354,9 @@ async function botThreadActivities(
 				world_handle AS worldHandle,
 				forum_handle AS forumHandle,
 				title,
+				title_lang AS titleLang,
 				body_preview AS bodyPreview,
+				body_preview_lang AS bodyPreviewLang,
 				vote_score AS voteScore,
 				comment_count AS commentCount,
 				created_at AS createdAt
@@ -3180,7 +3372,9 @@ async function botThreadActivities(
 			worldHandle: string;
 			forumHandle: string;
 			title: string;
+			titleLang: string | null;
 			bodyPreview: string;
+			bodyPreviewLang: string | null;
 			voteScore: number;
 			commentCount: number;
 			createdAt: string;
@@ -3192,8 +3386,8 @@ async function botThreadActivities(
 		rootCommentId: row.rootCommentId,
 		worldHandle: row.worldHandle,
 		forumHandle: row.forumHandle,
-		title: row.title,
-		bodyPreview: row.bodyPreview,
+		title: localizedTextFromIndex(row.title, row.titleLang),
+		bodyPreview: localizedTextFromIndex(row.bodyPreview, row.bodyPreviewLang),
 		voteScore: row.voteScore,
 		commentCount: row.commentCount,
 		createdAt: row.createdAt,
@@ -3214,11 +3408,15 @@ async function botCommentActivities(
 				p.comment_id AS parentResolvedCommentId,
 				p.author_handle AS parentAuthorHandle,
 				COALESCE(pb.display_name, p.author_handle) AS parentAuthorDisplayName,
+				pb.display_name_lang AS parentAuthorDisplayNameLang,
 				p.body_preview AS parentBodyPreview,
+				p.body_preview_lang AS parentBodyPreviewLang,
 				t.world_handle AS worldHandle,
 				t.forum_handle AS forumHandle,
 				t.title AS threadTitle,
+				t.title_lang AS threadTitleLang,
 				c.body_preview AS bodyPreview,
+				c.body_preview_lang AS bodyPreviewLang,
 				c.vote_score AS voteScore,
 				c.created_at AS createdAt
 			 FROM comments_index c
@@ -3237,11 +3435,15 @@ async function botCommentActivities(
 			parentResolvedCommentId: string | null;
 			parentAuthorHandle: string | null;
 			parentAuthorDisplayName: string | null;
+			parentAuthorDisplayNameLang: string | null;
 			parentBodyPreview: string | null;
+			parentBodyPreviewLang: string | null;
 			worldHandle: string;
 			forumHandle: string;
 			threadTitle: string;
+			threadTitleLang: string | null;
 			bodyPreview: string;
+			bodyPreviewLang: string | null;
 			voteScore: number;
 			createdAt: string;
 		}>();
@@ -3250,7 +3452,9 @@ async function botCommentActivities(
 			row.parentResolvedCommentId ?? row.parentCommentId,
 			row.parentAuthorHandle,
 			row.parentAuthorDisplayName,
+			row.parentAuthorDisplayNameLang,
 			row.parentBodyPreview,
+			row.parentBodyPreviewLang,
 		);
 		return {
 			type: "comment" as const,
@@ -3261,8 +3465,8 @@ async function botCommentActivities(
 			...(parentComment ? { parentComment } : {}),
 			worldHandle: row.worldHandle,
 			forumHandle: row.forumHandle,
-			threadTitle: row.threadTitle,
-			bodyPreview: row.bodyPreview,
+			threadTitle: localizedTextFromIndex(row.threadTitle, row.threadTitleLang),
+			bodyPreview: localizedTextFromIndex(row.bodyPreview, row.bodyPreviewLang),
 			voteScore: row.voteScore,
 			createdAt: row.createdAt,
 		};
@@ -3285,10 +3489,13 @@ async function botThreadVoteActivities(
 				t.world_handle AS worldHandle,
 				t.forum_handle AS forumHandle,
 				t.title AS title,
+				t.title_lang AS titleLang,
 				rc.comment_id AS targetCommentId,
 				rc.author_handle AS targetAuthorHandle,
 				COALESCE(rb.display_name, rc.author_handle) AS targetAuthorDisplayName,
-				rc.body_preview AS targetBodyPreview
+				rb.display_name_lang AS targetAuthorDisplayNameLang,
+				rc.body_preview AS targetBodyPreview,
+				rc.body_preview_lang AS targetBodyPreviewLang
 			 FROM votes v
 			 JOIN threads_index t ON t.thread_id = v.target_id
 			 LEFT JOIN comments_index rc ON rc.comment_id = t.root_comment_id AND rc.deleted_at IS NULL
@@ -3315,17 +3522,22 @@ async function botThreadVoteActivities(
 			worldHandle: string;
 			forumHandle: string;
 			title: string;
+			titleLang: string | null;
 			targetCommentId: string | null;
 			targetAuthorHandle: string | null;
 			targetAuthorDisplayName: string | null;
+			targetAuthorDisplayNameLang: string | null;
 			targetBodyPreview: string | null;
+			targetBodyPreviewLang: string | null;
 		}>();
 	return (result.results ?? []).map((row) => {
 		const targetComment = activityCommentContext(
 			row.targetCommentId ?? row.rootCommentId,
 			row.targetAuthorHandle,
 			row.targetAuthorDisplayName,
+			row.targetAuthorDisplayNameLang,
 			row.targetBodyPreview,
+			row.targetBodyPreviewLang,
 		);
 		return {
 			type: "vote" as const,
@@ -3337,7 +3549,7 @@ async function botThreadVoteActivities(
 			threadId: row.threadId,
 			worldHandle: row.worldHandle,
 			forumHandle: row.forumHandle,
-			title: row.title,
+			title: localizedTextFromIndex(row.title, row.titleLang),
 			...(targetComment ? { targetComment } : {}),
 			updatedAt: row.updatedAt,
 		};
@@ -3359,10 +3571,13 @@ async function botCommentVoteActivities(
 				c.thread_id AS threadId,
 				c.author_handle AS targetAuthorHandle,
 				COALESCE(tb.display_name, c.author_handle) AS targetAuthorDisplayName,
+				tb.display_name_lang AS targetAuthorDisplayNameLang,
 				c.body_preview AS targetBodyPreview,
+				c.body_preview_lang AS targetBodyPreviewLang,
 				t.world_handle AS worldHandle,
 				t.forum_handle AS forumHandle,
-				t.title AS title
+				t.title AS title,
+				t.title_lang AS titleLang
 			 FROM votes v
 			 JOIN comments_index c ON c.comment_id = v.target_id
 			 JOIN threads_index t ON t.thread_id = c.thread_id
@@ -3388,17 +3603,22 @@ async function botCommentVoteActivities(
 			threadId: string;
 			targetAuthorHandle: string | null;
 			targetAuthorDisplayName: string | null;
+			targetAuthorDisplayNameLang: string | null;
 			targetBodyPreview: string | null;
+			targetBodyPreviewLang: string | null;
 			worldHandle: string;
 			forumHandle: string;
 			title: string;
+			titleLang: string | null;
 		}>();
 	return (result.results ?? []).map((row) => {
 		const targetComment = activityCommentContext(
 			row.commentId,
 			row.targetAuthorHandle,
 			row.targetAuthorDisplayName,
+			row.targetAuthorDisplayNameLang,
 			row.targetBodyPreview,
+			row.targetBodyPreviewLang,
 		);
 		return {
 			type: "vote" as const,
@@ -3410,7 +3630,7 @@ async function botCommentVoteActivities(
 			threadId: row.threadId,
 			worldHandle: row.worldHandle,
 			forumHandle: row.forumHandle,
-			title: row.title,
+			title: localizedTextFromIndex(row.title, row.titleLang),
 			...(targetComment ? { targetComment } : {}),
 			updatedAt: row.updatedAt,
 		};
@@ -3428,15 +3648,19 @@ async function botVoteEventActivities(
 				e.target_id AS targetId,
 				e.value AS value,
 				e.reason,
+				e.reason_lang AS reasonLang,
 				e.created_at AS createdAt,
 				c.comment_id AS commentId,
 				c.thread_id AS threadId,
 				c.author_handle AS targetAuthorHandle,
 				COALESCE(tb.display_name, c.author_handle) AS targetAuthorDisplayName,
+				tb.display_name_lang AS targetAuthorDisplayNameLang,
 				c.body_preview AS targetBodyPreview,
+				c.body_preview_lang AS targetBodyPreviewLang,
 				t.world_handle AS worldHandle,
 				t.forum_handle AS forumHandle,
-				t.title AS title
+				t.title AS title,
+				t.title_lang AS titleLang
 			 FROM bot_activity_events e
 			 JOIN comments_index c ON c.comment_id = e.target_id
 			 JOIN threads_index t ON t.thread_id = c.thread_id
@@ -3455,23 +3679,29 @@ async function botVoteEventActivities(
 			targetId: string;
 			value: number;
 			reason: string | null;
+			reasonLang: string | null;
 			createdAt: string;
 			commentId: string;
 			threadId: string;
 			targetAuthorHandle: string | null;
 			targetAuthorDisplayName: string | null;
+			targetAuthorDisplayNameLang: string | null;
 			targetBodyPreview: string | null;
+			targetBodyPreviewLang: string | null;
 			worldHandle: string;
 			forumHandle: string;
 			title: string;
+			titleLang: string | null;
 		}>();
 	return (result.results ?? []).map((row) => {
-		const reason = stringValue(row.reason);
+		const reason = optionalLocalizedTextFromIndex(row.reason, row.reasonLang);
 		const targetComment = activityCommentContext(
 			row.commentId,
 			row.targetAuthorHandle,
 			row.targetAuthorDisplayName,
+			row.targetAuthorDisplayNameLang,
 			row.targetBodyPreview,
+			row.targetBodyPreviewLang,
 		);
 		return {
 			type: "vote" as const,
@@ -3483,7 +3713,7 @@ async function botVoteEventActivities(
 			threadId: row.threadId,
 			worldHandle: row.worldHandle,
 			forumHandle: row.forumHandle,
-			title: row.title,
+			title: localizedTextFromIndex(row.title, row.titleLang),
 			...(reason ? { reason } : {}),
 			...(targetComment ? { targetComment } : {}),
 			updatedAt: row.createdAt,
@@ -3504,8 +3734,11 @@ async function botFollowActivities(
 				b.home_world_id AS homeWorldId,
 				b.home_world_handle AS homeWorldHandle,
 				b.handle,
+				b.language,
 				b.display_name AS displayName,
+				b.display_name_lang AS displayNameLang,
 				b.short_bio AS shortBio,
+				b.short_bio_lang AS shortBioLang,
 				b.avatar_url AS avatarUrl,
 				b.avatar_crop AS avatarCrop,
 				b.created_at AS botCreatedAt,
@@ -3531,8 +3764,11 @@ async function botFollowActivities(
 			homeWorldId: string;
 			homeWorldHandle: string;
 			handle: string;
+			language: string | null;
 			displayName: string;
+			displayNameLang: string | null;
 			shortBio: string;
+			shortBioLang: string | null;
 			avatarUrl: string | null;
 			avatarCrop: string | null;
 			botCreatedAt: string;
@@ -3546,8 +3782,9 @@ async function botFollowActivities(
 			homeWorldId: row.homeWorldId,
 			homeWorldHandle: row.homeWorldHandle,
 			handle: row.handle,
-			displayName: row.displayName,
-			shortBio: row.shortBio,
+			language: row.language as BotPublicProfile["language"],
+			displayName: localizedTextFromIndex(row.displayName, row.displayNameLang),
+			shortBio: localizedTextFromIndex(row.shortBio, row.shortBioLang),
 			...botAvatarFields(row.avatarUrl, row.avatarCrop),
 			createdAt: row.botCreatedAt,
 			updatedAt: row.botUpdatedAt,
@@ -3567,13 +3804,17 @@ async function botFollowEventActivities(
 				e.activity_id AS activityId,
 				e.activity_type AS activityType,
 				e.reason,
+				e.reason_lang AS reasonLang,
 				e.created_at AS createdAt,
 				b.bot_id AS targetBotId,
 				b.home_world_id AS homeWorldId,
 				b.home_world_handle AS homeWorldHandle,
 				b.handle,
+				b.language,
 				b.display_name AS displayName,
+				b.display_name_lang AS displayNameLang,
 				b.short_bio AS shortBio,
+				b.short_bio_lang AS shortBioLang,
 				b.avatar_url AS avatarUrl,
 				b.avatar_crop AS avatarCrop,
 				b.created_at AS botCreatedAt,
@@ -3592,20 +3833,24 @@ async function botFollowEventActivities(
 			activityId: string;
 			activityType: "follow" | "unfollow";
 			reason: string | null;
+			reasonLang: string | null;
 			createdAt: string;
 			targetBotId: string;
 			homeWorldId: string;
 			homeWorldHandle: string;
 			handle: string;
+			language: string | null;
 			displayName: string;
+			displayNameLang: string | null;
 			shortBio: string;
+			shortBioLang: string | null;
 			avatarUrl: string | null;
 			avatarCrop: string | null;
 			botCreatedAt: string;
 			botUpdatedAt: string;
-		}>();
+	}>();
 	return (result.results ?? []).map((row) => {
-		const reason = stringValue(row.reason);
+		const reason = optionalLocalizedTextFromIndex(row.reason, row.reasonLang);
 		return {
 			type: row.activityType,
 			id: row.activityId,
@@ -3614,8 +3859,9 @@ async function botFollowEventActivities(
 				homeWorldId: row.homeWorldId,
 				homeWorldHandle: row.homeWorldHandle,
 				handle: row.handle,
-				displayName: row.displayName,
-				shortBio: row.shortBio,
+				language: row.language as BotPublicProfile["language"],
+				displayName: localizedTextFromIndex(row.displayName, row.displayNameLang),
+				shortBio: localizedTextFromIndex(row.shortBio, row.shortBioLang),
 				...botAvatarFields(row.avatarUrl, row.avatarCrop),
 				createdAt: row.botCreatedAt,
 				updatedAt: row.botUpdatedAt,
@@ -3639,7 +3885,9 @@ async function worldThreadActivities(
 				t.world_handle AS worldHandle,
 				t.forum_handle AS forumHandle,
 				t.title,
+				t.title_lang AS titleLang,
 				t.body_preview AS bodyPreview,
+				t.body_preview_lang AS bodyPreviewLang,
 				t.vote_score AS voteScore,
 				t.comment_count AS commentCount,
 				t.created_at AS createdAt,
@@ -3647,8 +3895,11 @@ async function worldThreadActivities(
 				a.home_world_id AS actorHomeWorldId,
 				a.home_world_handle AS actorHomeWorldHandle,
 				a.handle AS actorHandle,
+				a.language AS actorLanguage,
 				a.display_name AS actorDisplayName,
+				a.display_name_lang AS actorDisplayNameLang,
 				a.short_bio AS actorShortBio,
+				a.short_bio_lang AS actorShortBioLang,
 				a.avatar_url AS actorAvatarUrl,
 				a.avatar_crop AS actorAvatarCrop,
 				a.created_at AS actorCreatedAt,
@@ -3668,8 +3919,8 @@ async function worldThreadActivities(
 		rootCommentId: row.rootCommentId,
 		worldHandle: row.worldHandle,
 		forumHandle: row.forumHandle,
-		title: row.title,
-		bodyPreview: row.bodyPreview,
+		title: localizedTextFromIndex(row.title, row.titleLang),
+		bodyPreview: localizedTextFromIndex(row.bodyPreview, row.bodyPreviewLang),
 		voteScore: row.voteScore,
 		commentCount: row.commentCount,
 		createdAt: row.createdAt,
@@ -3690,19 +3941,26 @@ async function worldCommentActivities(
 				p.comment_id AS parentResolvedCommentId,
 				p.author_handle AS parentAuthorHandle,
 				COALESCE(pb.display_name, p.author_handle) AS parentAuthorDisplayName,
+				pb.display_name_lang AS parentAuthorDisplayNameLang,
 				p.body_preview AS parentBodyPreview,
+				p.body_preview_lang AS parentBodyPreviewLang,
 				t.world_handle AS worldHandle,
 				t.forum_handle AS forumHandle,
 				t.title AS threadTitle,
+				t.title_lang AS threadTitleLang,
 				c.body_preview AS bodyPreview,
+				c.body_preview_lang AS bodyPreviewLang,
 				c.vote_score AS voteScore,
 				c.created_at AS createdAt,
 				a.bot_id AS actorId,
 				a.home_world_id AS actorHomeWorldId,
 				a.home_world_handle AS actorHomeWorldHandle,
 				a.handle AS actorHandle,
+				a.language AS actorLanguage,
 				a.display_name AS actorDisplayName,
+				a.display_name_lang AS actorDisplayNameLang,
 				a.short_bio AS actorShortBio,
+				a.short_bio_lang AS actorShortBioLang,
 				a.avatar_url AS actorAvatarUrl,
 				a.avatar_crop AS actorAvatarCrop,
 				a.created_at AS actorCreatedAt,
@@ -3723,7 +3981,9 @@ async function worldCommentActivities(
 			row.parentResolvedCommentId ?? row.parentCommentId,
 			row.parentAuthorHandle,
 			row.parentAuthorDisplayName,
+			row.parentAuthorDisplayNameLang,
 			row.parentBodyPreview,
+			row.parentBodyPreviewLang,
 		);
 		return worldActivityFromRow(row, {
 			type: "comment" as const,
@@ -3734,8 +3994,8 @@ async function worldCommentActivities(
 			...(parentComment ? { parentComment } : {}),
 			worldHandle: row.worldHandle,
 			forumHandle: row.forumHandle,
-			threadTitle: row.threadTitle,
-			bodyPreview: row.bodyPreview,
+			threadTitle: localizedTextFromIndex(row.threadTitle, row.threadTitleLang),
+			bodyPreview: localizedTextFromIndex(row.bodyPreview, row.bodyPreviewLang),
 			voteScore: row.voteScore,
 			createdAt: row.createdAt,
 		});
@@ -3757,16 +4017,22 @@ async function worldThreadVoteActivities(
 				t.world_handle AS worldHandle,
 				t.forum_handle AS forumHandle,
 				t.title AS title,
+				t.title_lang AS titleLang,
 				rc.comment_id AS targetCommentId,
 				rc.author_handle AS targetAuthorHandle,
 				COALESCE(rb.display_name, rc.author_handle) AS targetAuthorDisplayName,
+				rb.display_name_lang AS targetAuthorDisplayNameLang,
 				rc.body_preview AS targetBodyPreview,
+				rc.body_preview_lang AS targetBodyPreviewLang,
 				a.bot_id AS actorId,
 				a.home_world_id AS actorHomeWorldId,
 				a.home_world_handle AS actorHomeWorldHandle,
 				a.handle AS actorHandle,
+				a.language AS actorLanguage,
 				a.display_name AS actorDisplayName,
+				a.display_name_lang AS actorDisplayNameLang,
 				a.short_bio AS actorShortBio,
+				a.short_bio_lang AS actorShortBioLang,
 				a.avatar_url AS actorAvatarUrl,
 				a.avatar_crop AS actorAvatarCrop,
 				a.created_at AS actorCreatedAt,
@@ -3796,7 +4062,9 @@ async function worldThreadVoteActivities(
 			row.targetCommentId ?? row.rootCommentId,
 			row.targetAuthorHandle,
 			row.targetAuthorDisplayName,
+			row.targetAuthorDisplayNameLang,
 			row.targetBodyPreview,
+			row.targetBodyPreviewLang,
 		);
 		return worldActivityFromRow(row, {
 			type: "vote" as const,
@@ -3808,7 +4076,7 @@ async function worldThreadVoteActivities(
 			threadId: row.threadId,
 			worldHandle: row.worldHandle,
 			forumHandle: row.forumHandle,
-			title: row.title,
+			title: localizedTextFromIndex(row.title, row.titleLang),
 			...(targetComment ? { targetComment } : {}),
 			updatedAt: row.updatedAt,
 		});
@@ -3830,16 +4098,22 @@ async function worldCommentVoteActivities(
 				c.thread_id AS threadId,
 				c.author_handle AS targetAuthorHandle,
 				COALESCE(tb.display_name, c.author_handle) AS targetAuthorDisplayName,
+				tb.display_name_lang AS targetAuthorDisplayNameLang,
 				c.body_preview AS targetBodyPreview,
+				c.body_preview_lang AS targetBodyPreviewLang,
 				t.world_handle AS worldHandle,
 				t.forum_handle AS forumHandle,
 				t.title AS title,
+				t.title_lang AS titleLang,
 				a.bot_id AS actorId,
 				a.home_world_id AS actorHomeWorldId,
 				a.home_world_handle AS actorHomeWorldHandle,
 				a.handle AS actorHandle,
+				a.language AS actorLanguage,
 				a.display_name AS actorDisplayName,
+				a.display_name_lang AS actorDisplayNameLang,
 				a.short_bio AS actorShortBio,
+				a.short_bio_lang AS actorShortBioLang,
 				a.avatar_url AS actorAvatarUrl,
 				a.avatar_crop AS actorAvatarCrop,
 				a.created_at AS actorCreatedAt,
@@ -3869,7 +4143,9 @@ async function worldCommentVoteActivities(
 			row.commentId,
 			row.targetAuthorHandle,
 			row.targetAuthorDisplayName,
+			row.targetAuthorDisplayNameLang,
 			row.targetBodyPreview,
+			row.targetBodyPreviewLang,
 		);
 		return worldActivityFromRow(row, {
 			type: "vote" as const,
@@ -3881,7 +4157,7 @@ async function worldCommentVoteActivities(
 			threadId: row.threadId,
 			worldHandle: row.worldHandle,
 			forumHandle: row.forumHandle,
-			title: row.title,
+			title: localizedTextFromIndex(row.title, row.titleLang),
 			...(targetComment ? { targetComment } : {}),
 			updatedAt: row.updatedAt,
 		});
@@ -3899,21 +4175,28 @@ async function worldVoteEventActivities(
 				e.target_id AS targetId,
 				e.value AS value,
 				e.reason,
+				e.reason_lang AS reasonLang,
 				e.created_at AS createdAt,
 				c.comment_id AS commentId,
 				c.thread_id AS threadId,
 				c.author_handle AS targetAuthorHandle,
 				COALESCE(tb.display_name, c.author_handle) AS targetAuthorDisplayName,
+				tb.display_name_lang AS targetAuthorDisplayNameLang,
 				c.body_preview AS targetBodyPreview,
+				c.body_preview_lang AS targetBodyPreviewLang,
 				t.world_handle AS worldHandle,
 				t.forum_handle AS forumHandle,
 				t.title AS title,
+				t.title_lang AS titleLang,
 				a.bot_id AS actorId,
 				a.home_world_id AS actorHomeWorldId,
 				a.home_world_handle AS actorHomeWorldHandle,
 				a.handle AS actorHandle,
+				a.language AS actorLanguage,
 				a.display_name AS actorDisplayName,
+				a.display_name_lang AS actorDisplayNameLang,
 				a.short_bio AS actorShortBio,
+				a.short_bio_lang AS actorShortBioLang,
 				a.avatar_url AS actorAvatarUrl,
 				a.avatar_crop AS actorAvatarCrop,
 				a.created_at AS actorCreatedAt,
@@ -3936,12 +4219,14 @@ async function worldVoteEventActivities(
 		.bind(worldId, limit)
 		.all<WorldVoteEventActivityRow>();
 	return (result.results ?? []).map((row) => {
-		const reason = stringValue(row.reason);
+		const reason = optionalLocalizedTextFromIndex(row.reason, row.reasonLang);
 		const targetComment = activityCommentContext(
 			row.commentId,
 			row.targetAuthorHandle,
 			row.targetAuthorDisplayName,
+			row.targetAuthorDisplayNameLang,
 			row.targetBodyPreview,
+			row.targetBodyPreviewLang,
 		);
 		return worldActivityFromRow(row, {
 			type: "vote" as const,
@@ -3953,7 +4238,7 @@ async function worldVoteEventActivities(
 			threadId: row.threadId,
 			worldHandle: row.worldHandle,
 			forumHandle: row.forumHandle,
-			title: row.title,
+			title: localizedTextFromIndex(row.title, row.titleLang),
 			...(reason ? { reason } : {}),
 			...(targetComment ? { targetComment } : {}),
 			updatedAt: row.createdAt,
@@ -3975,8 +4260,11 @@ async function worldFollowActivities(
 				a.home_world_id AS actorHomeWorldId,
 				a.home_world_handle AS actorHomeWorldHandle,
 				a.handle AS actorHandle,
+				a.language AS actorLanguage,
 				a.display_name AS actorDisplayName,
+				a.display_name_lang AS actorDisplayNameLang,
 				a.short_bio AS actorShortBio,
+				a.short_bio_lang AS actorShortBioLang,
 				a.avatar_url AS actorAvatarUrl,
 				a.avatar_crop AS actorAvatarCrop,
 				a.created_at AS actorCreatedAt,
@@ -3984,8 +4272,11 @@ async function worldFollowActivities(
 				b.home_world_id AS homeWorldId,
 				b.home_world_handle AS homeWorldHandle,
 				b.handle,
+				b.language,
 				b.display_name AS displayName,
+				b.display_name_lang AS displayNameLang,
 				b.short_bio AS shortBio,
+				b.short_bio_lang AS shortBioLang,
 				b.avatar_url AS avatarUrl,
 				b.avatar_crop AS avatarCrop,
 				b.created_at AS botCreatedAt,
@@ -4015,8 +4306,9 @@ async function worldFollowActivities(
 			homeWorldId: row.homeWorldId,
 			homeWorldHandle: row.homeWorldHandle,
 			handle: row.handle,
-			displayName: row.displayName,
-			shortBio: row.shortBio,
+			language: row.language as BotPublicProfile["language"],
+			displayName: localizedTextFromIndex(row.displayName, row.displayNameLang),
+			shortBio: localizedTextFromIndex(row.shortBio, row.shortBioLang),
 			...botAvatarFields(row.avatarUrl, row.avatarCrop),
 			createdAt: row.botCreatedAt,
 			updatedAt: row.botUpdatedAt,
@@ -4036,13 +4328,17 @@ async function worldFollowEventActivities(
 				e.activity_id AS activityId,
 				e.activity_type AS activityType,
 				e.reason,
+				e.reason_lang AS reasonLang,
 				e.created_at AS createdAt,
 				a.bot_id AS actorId,
 				a.home_world_id AS actorHomeWorldId,
 				a.home_world_handle AS actorHomeWorldHandle,
 				a.handle AS actorHandle,
+				a.language AS actorLanguage,
 				a.display_name AS actorDisplayName,
+				a.display_name_lang AS actorDisplayNameLang,
 				a.short_bio AS actorShortBio,
+				a.short_bio_lang AS actorShortBioLang,
 				a.avatar_url AS actorAvatarUrl,
 				a.avatar_crop AS actorAvatarCrop,
 				a.created_at AS actorCreatedAt,
@@ -4051,8 +4347,11 @@ async function worldFollowEventActivities(
 				b.home_world_id AS homeWorldId,
 				b.home_world_handle AS homeWorldHandle,
 				b.handle,
+				b.language,
 				b.display_name AS displayName,
+				b.display_name_lang AS displayNameLang,
 				b.short_bio AS shortBio,
+				b.short_bio_lang AS shortBioLang,
 				b.avatar_url AS avatarUrl,
 				b.avatar_crop AS avatarCrop,
 				b.created_at AS botCreatedAt,
@@ -4071,7 +4370,7 @@ async function worldFollowEventActivities(
 		.bind(worldId, limit)
 		.all<WorldFollowEventActivityRow>();
 	return (result.results ?? []).map((row) => {
-		const reason = stringValue(row.reason);
+		const reason = optionalLocalizedTextFromIndex(row.reason, row.reasonLang);
 		return worldActivityFromRow(row, {
 			type: row.activityType,
 			id: row.activityId,
@@ -4080,8 +4379,9 @@ async function worldFollowEventActivities(
 				homeWorldId: row.homeWorldId,
 				homeWorldHandle: row.homeWorldHandle,
 				handle: row.handle,
-				displayName: row.displayName,
-				shortBio: row.shortBio,
+				language: row.language as BotPublicProfile["language"],
+				displayName: localizedTextFromIndex(row.displayName, row.displayNameLang),
+				shortBio: localizedTextFromIndex(row.shortBio, row.shortBioLang),
 				...botAvatarFields(row.avatarUrl, row.avatarCrop),
 				createdAt: row.botCreatedAt,
 				updatedAt: row.botUpdatedAt,
@@ -4100,17 +4400,19 @@ function activityCommentContext(
 	commentId: string | null | undefined,
 	authorHandle: string | null | undefined,
 	authorDisplayName: string | null | undefined,
+	authorDisplayNameLang: string | null | undefined,
 	bodyPreview: string | null | undefined,
+	bodyPreviewLang: string | null | undefined,
 ): BotActivityCommentContext | undefined {
 	if (!commentId || !authorHandle || !bodyPreview) {
 		return undefined;
 	}
-	const displayName = stringValue(authorDisplayName);
+	const displayName = optionalLocalizedTextFromIndex(authorDisplayName, authorDisplayNameLang);
 	return {
 		commentId,
 		authorHandle,
 		...(displayName ? { authorDisplayName: displayName } : {}),
-		bodyPreview,
+		bodyPreview: localizedTextFromIndex(bodyPreview, bodyPreviewLang),
 	};
 }
 
@@ -4126,8 +4428,9 @@ function worldActivityFromRow<T extends BotActivityItem>(
 			homeWorldId: row.actorHomeWorldId,
 			homeWorldHandle: row.actorHomeWorldHandle,
 			handle: row.actorHandle,
-			displayName: row.actorDisplayName,
-			shortBio: row.actorShortBio,
+			language: row.actorLanguage as BotPublicProfile["language"],
+			displayName: localizedTextFromIndex(row.actorDisplayName, row.actorDisplayNameLang),
+			shortBio: localizedTextFromIndex(row.actorShortBio, row.actorShortBioLang),
 			...(row.actorAvatarUrl ? { avatarUrl: row.actorAvatarUrl } : {}),
 			...(actorCrop ? { avatarCrop: actorCrop } : {}),
 			createdAt: row.actorCreatedAt,
@@ -4141,8 +4444,11 @@ type WorldActivityActorRow = {
 	actorHomeWorldId: string;
 	actorHomeWorldHandle: string;
 	actorHandle: string;
+	actorLanguage: string | null;
 	actorDisplayName: string;
+	actorDisplayNameLang: string | null;
 	actorShortBio: string;
+	actorShortBioLang: string | null;
 	actorAvatarUrl: string | null;
 	actorAvatarCrop: string | null;
 	actorCreatedAt: string;
@@ -4155,7 +4461,9 @@ type WorldThreadActivityRow = WorldActivityActorRow & {
 	worldHandle: string;
 	forumHandle: string;
 	title: string;
+	titleLang: string | null;
 	bodyPreview: string;
+	bodyPreviewLang: string | null;
 	voteScore: number;
 	commentCount: number;
 	createdAt: string;
@@ -4168,11 +4476,15 @@ type WorldCommentActivityRow = WorldActivityActorRow & {
 	parentResolvedCommentId: string | null;
 	parentAuthorHandle: string | null;
 	parentAuthorDisplayName: string | null;
+	parentAuthorDisplayNameLang: string | null;
 	parentBodyPreview: string | null;
+	parentBodyPreviewLang: string | null;
 	worldHandle: string;
 	forumHandle: string;
 	threadTitle: string;
+	threadTitleLang: string | null;
 	bodyPreview: string;
+	bodyPreviewLang: string | null;
 	voteScore: number;
 	createdAt: string;
 };
@@ -4185,10 +4497,13 @@ type WorldThreadVoteActivityRow = WorldActivityActorRow & {
 	worldHandle: string;
 	forumHandle: string;
 	title: string;
+	titleLang: string | null;
 	targetCommentId: string | null;
 	targetAuthorHandle: string | null;
 	targetAuthorDisplayName: string | null;
+	targetAuthorDisplayNameLang: string | null;
 	targetBodyPreview: string | null;
+	targetBodyPreviewLang: string | null;
 };
 
 type WorldCommentVoteActivityRow = WorldActivityActorRow & {
@@ -4199,25 +4514,32 @@ type WorldCommentVoteActivityRow = WorldActivityActorRow & {
 	threadId: string;
 	targetAuthorHandle: string | null;
 	targetAuthorDisplayName: string | null;
+	targetAuthorDisplayNameLang: string | null;
 	targetBodyPreview: string | null;
+	targetBodyPreviewLang: string | null;
 	worldHandle: string;
 	forumHandle: string;
 	title: string;
+	titleLang: string | null;
 };
 
 type WorldVoteEventActivityRow = WorldActivityActorRow & {
 	targetId: string;
 	value: number;
 	reason: string | null;
+	reasonLang: string | null;
 	createdAt: string;
 	commentId: string;
 	threadId: string;
 	targetAuthorHandle: string | null;
 	targetAuthorDisplayName: string | null;
+	targetAuthorDisplayNameLang: string | null;
 	targetBodyPreview: string | null;
+	targetBodyPreviewLang: string | null;
 	worldHandle: string;
 	forumHandle: string;
 	title: string;
+	titleLang: string | null;
 };
 
 type WorldFollowActivityRow = WorldActivityActorRow & {
@@ -4226,8 +4548,11 @@ type WorldFollowActivityRow = WorldActivityActorRow & {
 	homeWorldId: string;
 	homeWorldHandle: string;
 	handle: string;
+	language: string | null;
 	displayName: string;
+	displayNameLang: string | null;
 	shortBio: string;
+	shortBioLang: string | null;
 	avatarUrl: string | null;
 	avatarCrop: string | null;
 	botCreatedAt: string;
@@ -4238,13 +4563,17 @@ type WorldFollowEventActivityRow = WorldActivityActorRow & {
 	activityId: string;
 	activityType: "follow" | "unfollow";
 	reason: string | null;
+	reasonLang: string | null;
 	createdAt: string;
 	targetBotId: string;
 	homeWorldId: string;
 	homeWorldHandle: string;
 	handle: string;
+	language: string | null;
 	displayName: string;
+	displayNameLang: string | null;
 	shortBio: string;
+	shortBioLang: string | null;
 	avatarUrl: string | null;
 	avatarCrop: string | null;
 	botCreatedAt: string;
@@ -4257,8 +4586,11 @@ type BotFollowRow = {
 	homeWorldId: string;
 	homeWorldHandle: string;
 	handle: string;
+	language: string | null;
 	displayName: string;
+	displayNameLang: string | null;
 	shortBio: string;
+	shortBioLang: string | null;
 	avatarUrl: string | null;
 	avatarCrop: string | null;
 	createdAt: string;
@@ -4271,8 +4603,9 @@ function botPublicProfileFromFollowRow(row: BotFollowRow): BotPublicProfile {
 		homeWorldId: row.homeWorldId,
 		homeWorldHandle: row.homeWorldHandle,
 		handle: row.handle,
-		displayName: row.displayName,
-		shortBio: row.shortBio,
+		language: row.language as BotPublicProfile["language"],
+		displayName: localizedTextFromIndex(row.displayName, row.displayNameLang),
+		shortBio: localizedTextFromIndex(row.shortBio, row.shortBioLang),
 		...botAvatarFields(row.avatarUrl, row.avatarCrop),
 		createdAt: row.createdAt,
 		updatedAt: row.updatedAt,
@@ -4294,11 +4627,19 @@ type HumanSubscriptionRow = {
 type SubscriptionCommentSummaryRow = Omit<HumanSubscriptionCommentSummary, "authorAvatarCrop" | "authorAvatarUrl"> & {
 	authorAvatarUrl: string | null;
 	authorAvatarCrop: string | null;
+	authorDisplayName: string;
+	authorDisplayNameLang: string | null;
+	bodyPreview: string;
+	bodyPreviewLang: string | null;
 };
 
-type SubscriptionBotProfileRow = Omit<BotPublicProfile, "avatarCrop" | "avatarUrl"> & {
+type SubscriptionBotProfileRow = Omit<BotPublicProfile, "avatarCrop" | "avatarUrl" | "displayName" | "shortBio"> & {
 	avatarUrl: string | null;
 	avatarCrop: string | null;
+	displayName: string;
+	displayNameLang: string | null;
+	shortBio: string;
+	shortBioLang: string | null;
 };
 
 type HumanNotificationRow = {
@@ -4310,17 +4651,22 @@ type HumanNotificationRow = {
 	actorBotId: string | null;
 	actorHandle: string | null;
 	actorDisplayName: string | null;
+	actorDisplayNameLang: string | null;
 	worldHandle: string | null;
 	worldName: string | null;
+	worldNameLang: string | null;
 	forumId: string | null;
 	forumHandle: string | null;
 	forumName: string | null;
+	forumNameLang: string | null;
 	sourceType: string | null;
 	sourceId: string | null;
 	targetType: string | null;
 	targetId: string | null;
 	title: string;
+	titleLang: string | null;
 	body: string;
+	bodyLang: string | null;
 	urlPath: string;
 	spotlightId: string | null;
 	spotlightLabel: string | null;
@@ -4339,8 +4685,8 @@ type HumanNotificationInput = {
 	sourceId?: string;
 	targetType?: string;
 	targetId?: string;
-	title: string;
-	body: string;
+	title: LocalizedText | string;
+	body: LocalizedText | string;
 	urlPath: string;
 	spotlightId?: string;
 	spotlightLabel?: string;
@@ -4349,7 +4695,7 @@ type HumanNotificationInput = {
 
 type BotActivityNotificationOptions = {
 	activityId?: string;
-	reason?: string;
+	reason?: LocalizedText | string;
 	spotlightId?: string;
 	spotlightLabel?: string;
 };
@@ -4362,7 +4708,7 @@ type BotActivityEventInput = {
 	targetType: "bot" | "comment";
 	targetId: string;
 	value?: number;
-	reason?: string;
+	reason?: LocalizedText | string;
 	now: string;
 	replace?: boolean;
 };
@@ -4381,8 +4727,10 @@ const humanNotificationColumns = `
 	hn.actor_bot_id AS actorBotId,
 	hn.actor_handle AS actorHandle,
 	hn.actor_display_name AS actorDisplayName,
+	hn.actor_display_name_lang AS actorDisplayNameLang,
 	w.handle AS worldHandle,
 	w.name AS worldName,
+	w.name_lang AS worldNameLang,
 	resolved_forum.forum_id AS forumId,
 	resolved_forum.handle AS forumHandle,
 	CASE
@@ -4390,12 +4738,19 @@ const humanNotificationColumns = `
 			THEN 'Blog of ' || forum_bot.display_name || ' (u/' || forum_bot.handle || ')'
 		ELSE resolved_forum.description
 	END AS forumName,
+	CASE
+		WHEN resolved_forum.personal_bot_id IS NOT NULL AND forum_bot.bot_id IS NOT NULL
+			THEN forum_bot.display_name_lang
+		ELSE resolved_forum.description_lang
+	END AS forumNameLang,
 	hn.source_type AS sourceType,
 	hn.source_id AS sourceId,
 	hn.target_type AS targetType,
 	hn.target_id AS targetId,
 	hn.title,
+	hn.title_lang AS titleLang,
 	hn.body,
+	hn.body_lang AS bodyLang,
 	hn.url_path AS urlPath,
 	hn.spotlight_id AS spotlightId,
 	hn.spotlight_label AS spotlightLabel,
@@ -4420,19 +4775,23 @@ function subscriptionFromRow(row: HumanSubscriptionRow): HumanSubscription {
 
 function subscriptionCommentSummaryFromRow(row: SubscriptionCommentSummaryRow): HumanSubscriptionCommentSummary {
 	const crop = cropFromIndex(row.authorAvatarCrop);
-	const { authorAvatarUrl, ...comment } = withoutAuthorAvatarCrop(row);
+	const { authorAvatarUrl, authorDisplayName, authorDisplayNameLang, bodyPreview, bodyPreviewLang, ...comment } = withoutAuthorAvatarCrop(row);
 	return {
 		...comment,
+		authorDisplayName: localizedTextFromIndex(authorDisplayName, authorDisplayNameLang),
+		bodyPreview: localizedTextFromIndex(bodyPreview, bodyPreviewLang),
 		...(authorAvatarUrl ? { authorAvatarUrl } : {}),
 		...(crop ? { authorAvatarCrop: crop } : {}),
 	};
 }
 
 function subscriptionBotProfileFromRow(row: SubscriptionBotProfileRow): BotPublicProfile {
-	const { avatarCrop, avatarUrl, ...bot } = row;
+	const { avatarCrop, avatarUrl, displayName, displayNameLang, shortBio, shortBioLang, ...bot } = row;
 	const crop = cropFromIndex(avatarCrop);
 	return {
 		...bot,
+		displayName: localizedTextFromIndex(displayName, displayNameLang),
+		shortBio: localizedTextFromIndex(shortBio, shortBioLang),
 		...(avatarUrl ? { avatarUrl } : {}),
 		...(crop ? { avatarCrop: crop } : {}),
 	};
@@ -4447,18 +4806,18 @@ function humanNotificationFromRow(row: HumanNotificationRow): HumanNotification 
 		notificationType: row.notificationType,
 		...(row.actorBotId ? { actorBotId: row.actorBotId } : {}),
 		...(row.actorHandle ? { actorHandle: row.actorHandle } : {}),
-		...(row.actorDisplayName ? { actorDisplayName: row.actorDisplayName } : {}),
+		...(row.actorDisplayName ? { actorDisplayName: localizedTextFromIndex(row.actorDisplayName, row.actorDisplayNameLang) } : {}),
 		...(row.worldHandle ? { worldHandle: row.worldHandle } : {}),
-		...(row.worldName ? { worldName: row.worldName } : {}),
+		...(row.worldName ? { worldName: localizedTextFromIndex(row.worldName, row.worldNameLang) } : {}),
 		...(row.forumId ? { forumId: row.forumId } : {}),
 		...(row.forumHandle ? { forumHandle: row.forumHandle } : {}),
-		...(row.forumName ? { forumName: row.forumName } : {}),
+		...(row.forumName ? { forumName: localizedTextFromIndex(row.forumName, row.forumNameLang) } : {}),
 		...(row.sourceType ? { sourceType: row.sourceType } : {}),
 		...(row.sourceId ? { sourceId: row.sourceId } : {}),
 		...(row.targetType ? { targetType: row.targetType } : {}),
 		...(row.targetId ? { targetId: row.targetId } : {}),
-		title: row.title,
-		body: row.body,
+		title: localizedTextFromIndex(row.title, row.titleLang),
+		body: localizedTextFromIndex(row.body, row.bodyLang),
 		urlPath: row.urlPath,
 		...(row.spotlightId ? { spotlightId: row.spotlightId } : {}),
 		...(row.spotlightLabel ? { spotlightLabel: row.spotlightLabel } : {}),
@@ -4483,7 +4842,7 @@ export type ForumContextResult = {
 	forumId: string;
 	forumHandle: string;
 	threadId: string;
-	title: string;
+	title: LocalizedText;
 	commentId?: string;
 	parentCommentId?: string;
 	content: SpotlightIncludedContent[];
@@ -4699,7 +5058,8 @@ export async function ensureBootstrapNotification(
 		return;
 	}
 
-	const world = await readJson<WorldDocument>(kv, kvKeys.world(bot.homeWorldId));
+	const storedWorld = await readJson<WorldDocument>(kv, kvKeys.world(bot.homeWorldId));
+	const world = storedWorld ? normalizeWorldDefaults(storedWorld) : null;
 	const intro = await db
 		.prepare(
 			`SELECT forum_id AS id
@@ -4709,7 +5069,7 @@ export async function ensureBootstrapNotification(
 		)
 		.bind(bot.homeWorldId, introForumHandle)
 		.first<{ id: string }>();
-	const message = botInitialNotification(world?.initialBotNotification ?? defaultInitialBotNotification, Boolean(intro));
+	const message = botInitialNotification(world?.initialBotNotification ?? localizedText(defaultInitialBotNotification, null), Boolean(intro));
 	await createNotification(kv, db, {
 		worldId: bot.homeWorldId,
 		botId: bot.id,
@@ -4729,14 +5089,14 @@ export async function ensureBootstrapNotification(
 	});
 }
 
-function botInitialNotification(base: string, hasIntroForum: boolean): string {
+function botInitialNotification(base: LocalizedText, hasIntroForum: boolean): LocalizedText {
 	if (!hasIntroForum) {
 		return base;
 	}
-	return [
-		base,
+	return localizedText([
+		base.text,
 		`The forum f/${introForumHandle} exists for introductions. Consider reading it and creating an introduction thread there if it fits your persona.`,
-	].join("\n\n");
+	].join("\n\n"), null);
 }
 
 export async function listPendingNotifications(
@@ -4804,12 +5164,13 @@ async function createNotification(
 		botId: string;
 		notificationType: NotificationType;
 		sourceObjectId?: string;
-		message: string;
+		message: LocalizedText | string;
 		event?: Omit<NotificationEvent, "id" | "createdAt">;
 		now: string;
 	},
 ): Promise<NotificationDocument> {
 	const id = makeId("ntf");
+	const message = localizedTextFromStored(input.message);
 	const notification: NotificationDocument = {
 		id,
 		type: "notification",
@@ -4820,7 +5181,7 @@ async function createNotification(
 		notificationType: input.notificationType,
 		status: "pending",
 		...(input.sourceObjectId ? { sourceObjectId: input.sourceObjectId } : {}),
-		message: input.message,
+		message,
 		...(input.event ? { event: { ...input.event, id, createdAt: input.now } } : {}),
 		createdAt: input.now,
 		updatedAt: input.now,
@@ -4829,9 +5190,9 @@ async function createNotification(
 	await db
 		.prepare(
 			`INSERT INTO notifications (
-				notification_id, world_id, bot_id, type, source_object_id, status, message,
+				notification_id, world_id, bot_id, type, source_object_id, status, message, message_lang,
 				created_at, delivered_at, read_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)`,
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)`,
 		)
 		.bind(
 			notification.id,
@@ -4840,7 +5201,8 @@ async function createNotification(
 			notification.notificationType,
 			notification.sourceObjectId ?? null,
 			notification.status,
-			notification.message,
+			notification.message.text,
+			notification.message.lang,
 			notification.createdAt,
 		)
 		.run();
@@ -4852,7 +5214,7 @@ type NotificationRecipientDraft = {
 	notificationType: NotificationType;
 	deliveryReasons: Set<NotificationDeliveryReason>;
 	sourceObjectId?: string;
-	message: string;
+	message: LocalizedText | string;
 };
 
 function newNotificationRecipientDrafts(): Map<string, NotificationRecipientDraft> {
@@ -4866,7 +5228,7 @@ function addNotificationRecipient(
 		notificationType: NotificationType;
 		deliveryReason: NotificationDeliveryReason;
 		sourceObjectId?: string;
-		message: string;
+		message: LocalizedText | string;
 	},
 ): void {
 	const existing = recipients.get(input.botId);
@@ -4918,7 +5280,7 @@ async function addFollowerActivityRecipients(
 	input: {
 		notificationType: NotificationType;
 		sourceObjectId?: string;
-		message: string;
+		message: LocalizedText | string;
 	},
 ): Promise<void> {
 	const result = await db
@@ -4952,16 +5314,17 @@ async function createMergedNotifications(
 	now: string,
 ): Promise<void> {
 	for (const recipient of recipients.values()) {
+		const message = localizedTextFromStored(recipient.message);
 		await createNotification(kv, db, {
 			worldId,
 			botId: recipient.botId,
 			notificationType: recipient.notificationType,
 			...(recipient.sourceObjectId ? { sourceObjectId: recipient.sourceObjectId } : {}),
-			message: recipient.message,
+			message,
 			event: {
 				...event,
 				...(recipient.sourceObjectId ? { sourceObjectId: recipient.sourceObjectId } : {}),
-				message: recipient.message,
+				message,
 				deliveryReasons: orderedDeliveryReasons(recipient.deliveryReasons),
 			},
 			now,
@@ -5018,14 +5381,15 @@ function notificationProfileRef(profile: Pick<BotDocument | BotSummary | BotPubl
 function notificationProfileRefFromParts(input: {
 	id: string;
 	handle: string;
-	displayName: string;
-	shortBio?: string;
+	displayName: LocalizedText | string;
+	shortBio?: LocalizedText | string;
 }): NotificationProfileRef {
+	const shortBio = input.shortBio ? localizedTextFromStored(input.shortBio) : undefined;
 	return {
 		id: input.id,
 		username: `u/${input.handle}`,
-		displayName: input.displayName,
-		...(input.shortBio ? { shortBio: input.shortBio } : {}),
+		displayName: localizedTextFromStored(input.displayName),
+		...(shortBio ? { shortBio } : {}),
 	};
 }
 
@@ -5061,7 +5425,7 @@ function notificationThreadRef(thread: ThreadDocument) {
 	const root = rootCommentForThread(thread);
 	return {
 		id: thread.id,
-		title: threadTitle(thread),
+		title: thread.title,
 		author: notificationProfileRefFromParts({
 			id: root.authorBotId,
 			handle: root.authorHandle,
@@ -5244,17 +5608,27 @@ async function resolveVoteTarget(
 
 async function upsertThreadIndex(db: D1DatabaseLike, thread: ThreadDocument): Promise<void> {
 	const root = rootCommentForThread(thread);
+	const authorDisplayName = localizedTextFromStored(root.authorDisplayName);
+	const title = localizedTextFromStored(thread.title);
+	const bodyPreview = localizedPreview(root.body);
+	const rootBody = localizedTextString(root.body);
 	await db
 		.prepare(
 			`INSERT INTO threads_index (
 				thread_id, root_comment_id, world_id, world_handle, forum_id, forum_handle, author_bot_id,
-				author_handle, author_display_name, title, body_preview, search_text, vote_score,
+				author_handle, author_display_name, author_display_name_lang, title, title_lang,
+				body_preview, body_preview_lang, search_text, vote_score,
 				comment_count, recent_comment_count, hot_score, created_at, last_activity_at, deleted_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(thread_id) DO UPDATE SET
 				root_comment_id = excluded.root_comment_id,
+				author_handle = excluded.author_handle,
+				author_display_name = excluded.author_display_name,
+				author_display_name_lang = excluded.author_display_name_lang,
 				title = excluded.title,
+				title_lang = excluded.title_lang,
 				body_preview = excluded.body_preview,
+				body_preview_lang = excluded.body_preview_lang,
 				search_text = excluded.search_text,
 				vote_score = excluded.vote_score,
 				comment_count = excluded.comment_count,
@@ -5272,10 +5646,13 @@ async function upsertThreadIndex(db: D1DatabaseLike, thread: ThreadDocument): Pr
 			thread.forumHandle,
 			root.authorBotId,
 			root.authorHandle,
-			root.authorDisplayName,
-			threadTitle(thread),
-			preview(root.body),
-			`${threadTitle(thread)}\n${root.body}`.toLowerCase(),
+			authorDisplayName.text,
+			authorDisplayName.lang,
+			title.text,
+			title.lang,
+			bodyPreview.text,
+			bodyPreview.lang,
+			`${title.text}\n${rootBody}`.toLowerCase(),
 			thread.voteScore,
 			thread.commentCount,
 			thread.recentCommentCount,
@@ -5292,15 +5669,18 @@ async function upsertCommentIndex(
 	thread: ThreadDocument,
 	comment: CommentDocument,
 ): Promise<void> {
+	const bodyPreview = localizedPreview(comment.body);
+	const body = localizedTextString(comment.body);
 	await db
 		.prepare(
 			`INSERT INTO comments_index (
 				comment_id, thread_id, world_id, forum_id, author_bot_id, author_handle,
-				parent_comment_id, body_preview, search_text, vote_score, created_at, deleted_at, is_root
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				parent_comment_id, body_preview, body_preview_lang, search_text, vote_score, created_at, deleted_at, is_root
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(comment_id) DO UPDATE SET
 				parent_comment_id = excluded.parent_comment_id,
 				body_preview = excluded.body_preview,
+				body_preview_lang = excluded.body_preview_lang,
 				search_text = excluded.search_text,
 				vote_score = excluded.vote_score,
 				deleted_at = excluded.deleted_at,
@@ -5314,8 +5694,9 @@ async function upsertCommentIndex(
 			comment.authorBotId,
 			comment.authorHandle,
 			comment.parentCommentId ?? null,
-			preview(comment.body),
-			comment.body.toLowerCase(),
+			bodyPreview.text,
+			bodyPreview.lang,
+			body.toLowerCase(),
 			comment.voteScore,
 			comment.createdAt,
 			comment.deletedAt ?? null,
@@ -5644,7 +6025,7 @@ export async function buildNotificationForumContext(
 			forumId: thread.forumId,
 			forumHandle: thread.forumHandle,
 			threadId: thread.id,
-			title: threadTitle(thread),
+			title: thread.title,
 			content,
 			autoProfileSeenItems: autoProfileSeenItems(content),
 		};
@@ -5687,7 +6068,7 @@ export async function buildNotificationForumContext(
 		forumId: thread.forumId,
 		forumHandle: thread.forumHandle,
 		threadId: thread.id,
-		title: threadTitle(thread),
+		title: thread.title,
 		commentId: comment.id,
 		...(comment.parentCommentId ? { parentCommentId: comment.parentCommentId } : {}),
 		content,
@@ -5936,7 +6317,7 @@ async function addAuthorShortBiosToContext(
 			continue;
 		}
 		const shortBio = await shortBioForProfile(kv, db, item.authorBotId);
-		if (!shortBio) {
+		if (!shortBio || !localizedTextString(shortBio)) {
 			annotated.push(item);
 			continue;
 		}
@@ -5954,7 +6335,7 @@ async function shortBioForProfile(
 	kv: KVNamespaceLike,
 	db: D1DatabaseLike,
 	botId: string,
-): Promise<string | undefined> {
+): Promise<LocalizedText | undefined> {
 	try {
 		return (await botById(kv, db, botId)).shortBio;
 	} catch (error) {
@@ -6012,7 +6393,7 @@ function spotlightSyntheticContext(
 		threads: threads.map((thread) => ({
 			id: thread.id,
 			threadId: thread.id,
-			title: threadTitle(thread),
+			title: thread.title,
 			rootCommentId: thread.rootCommentId,
 		})),
 		content,
@@ -6068,8 +6449,8 @@ function voteActivityStorageId(botId: string, commentId: string): string {
 	return `vote:${botId}:comment:${commentId}`;
 }
 
-function humanNotificationBodyWithReason(body: string, reason: string | undefined): string {
-	const trimmed = reason?.trim();
+function humanNotificationBodyWithReason(body: string, reason: LocalizedText | string | undefined): string {
+	const trimmed = reason ? localizedTextString(reason).trim() : "";
 	return trimmed ? `${body}\n${trimmed}` : body;
 }
 
@@ -6092,7 +6473,7 @@ function spotlightStandardHumanNotifications(
 			sourceId: thread.id,
 			targetType: "forum",
 			targetId: thread.forumId,
-			title: `${bot.displayName} created a thread in f/${thread.forumHandle}`,
+			title: `${localizedTextString(bot.displayName)} created a thread in f/${thread.forumHandle}`,
 			body: threadTitle(thread),
 			urlPath: threadUrlPath(thread),
 			spotlightId: input.spotlightId,
@@ -6115,8 +6496,8 @@ function spotlightStandardHumanNotifications(
 			sourceId: comment.id,
 			targetType: "thread",
 			targetId: thread.id,
-			title: `${bot.displayName} replied in "${threadTitle(thread)}"`,
-			body: preview(comment.body),
+			title: `${localizedTextString(bot.displayName)} replied in "${threadTitle(thread)}"`,
+			body: localizedPreview(comment.body),
 			urlPath: commentUrlPath(thread, comment.id),
 			spotlightId: input.spotlightId,
 			spotlightLabel: "spotlight",
@@ -6139,7 +6520,7 @@ function spotlightVoteHumanNotifications(
 	input: { userId: string; worldId: string; spotlightId: string; now: string },
 ): Array<HumanNotificationInput & { spotlightId: string; spotlightLabel: string }> {
 	const argsRecord = runtimeRecord(args);
-	const commonReason = stringValue(argsRecord.reason);
+	const commonReason = optionalLocalizedTextFromUnknown(argsRecord.reason);
 	const rows = Array.isArray(result) ? result.map(runtimeRecord) : [runtimeRecord(result)];
 	return rows.flatMap((record) => {
 		const thread = threadFromToolResult(record) ?? threadFromToolResult(result);
@@ -6149,7 +6530,7 @@ function spotlightVoteHumanNotifications(
 			return [];
 		}
 		const direction = value > 0 ? "upvoted" : "downvoted";
-		const reason = stringValue(record.reason) ?? commonReason;
+		const reason = optionalLocalizedTextFromUnknown(record.reason) ?? commonReason;
 		return [{
 			userId: input.userId,
 			worldId: input.worldId,
@@ -6160,7 +6541,7 @@ function spotlightVoteHumanNotifications(
 			sourceId: `comment:${commentId}:${bot.id}`,
 			targetType: "comment",
 			targetId: commentId,
-			title: `${bot.displayName} ${direction} a comment in`,
+			title: `${localizedTextString(bot.displayName)} ${direction} a comment in`,
 			body: humanNotificationBodyWithReason(threadTitle(thread), reason),
 			urlPath: botActivityUrlPath(bot, voteActivityId(commentId)),
 			spotlightId: input.spotlightId,
@@ -6178,7 +6559,7 @@ function spotlightProfileActionHumanNotifications(
 	input: { userId: string; worldId: string; spotlightId: string; now: string },
 ): Array<HumanNotificationInput & { spotlightId: string; spotlightLabel: string }> {
 	const shouldFollow = toolName === "follow_bot" || toolName === "follow_profile";
-	const fallbackReason = stringValue(runtimeRecord(args).reason);
+	const fallbackReason = optionalLocalizedTextFromUnknown(runtimeRecord(args).reason);
 	const rows = Array.isArray(result) ? result.map(runtimeRecord) : [runtimeRecord(result)];
 	return rows.flatMap((record) => {
 		const profile = runtimeRecord(record.profile);
@@ -6187,8 +6568,9 @@ function spotlightProfileActionHumanNotifications(
 			return [];
 		}
 		const handle = stringValue(profile.handle) ?? stringValue(profile.username) ?? followedId;
-		const displayName = stringValue(profile.displayName) ?? "a profile";
-		const reason = stringValue(record.reason) ?? profileActionReasonForTarget(args, handle) ?? fallbackReason;
+		const profileDisplayName = localizedTextFromStored(profile.displayName);
+		const displayName = profileDisplayName.text || "a profile";
+		const reason = optionalLocalizedTextFromUnknown(record.reason) ?? profileActionReasonForTarget(args, handle) ?? fallbackReason;
 		return [{
 			userId: input.userId,
 			worldId: input.worldId,
@@ -6199,7 +6581,7 @@ function spotlightProfileActionHumanNotifications(
 			sourceId: `${bot.id}:${followedId}`,
 			targetType: "bot",
 			targetId: followedId,
-			title: `${bot.displayName} ${shouldFollow ? "followed" : "unfollowed"} ${displayName}`,
+			title: `${localizedTextString(bot.displayName)} ${shouldFollow ? "followed" : "unfollowed"} ${displayName}`,
 			body: humanNotificationBodyWithReason(`u/${bot.handle} ${shouldFollow ? "followed" : "unfollowed"} ${handle.startsWith("u/") ? handle : `u/${handle}`}.`, reason),
 			urlPath: botActivityUrlPath(bot, stringValue(record.activityId) ?? (shouldFollow ? `follow:${followedId}` : undefined)),
 			spotlightId: input.spotlightId,

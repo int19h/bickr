@@ -35,7 +35,8 @@ export const onRequestPost: PagesFunction<AppEnv> = async ({ env, request }) => 
 					user.id,
 					parseUpdateUserProfileInput({
 						handle: input.handle ?? user.handle,
-						displayName: input.displayName ?? user.displayName,
+						language: input.language ?? user.language ?? "en",
+						displayName: input.displayName ?? user.displayName.text,
 						...(input.avatarUrl !== undefined ? { avatarUrl: input.avatarUrl } : {}),
 						...(input.inferenceSettings !== undefined ?
 							{ inferenceSettings: input.inferenceSettings }

@@ -6,7 +6,9 @@ import type {
 	HumanSubscriptionThreadNode,
 	HumanSubscriptionTree,
 	HumanSubscriptionWorldNode,
+	LocalizedText,
 } from "@bickr/shared/model";
+import { localizedTextString } from "@bickr/shared/model";
 
 export type SubscriptionTreeNode =
 	| HumanSubscriptionWorldNode
@@ -240,8 +242,8 @@ function matchesComment(node: HumanSubscriptionCommentNode, query: string): bool
 	);
 }
 
-function matchesFilter(query: string, ...values: Array<string | null | undefined>): boolean {
-	return values.some((value) => value?.toLowerCase().includes(query));
+function matchesFilter(query: string, ...values: Array<string | LocalizedText | null | undefined>): boolean {
+	return values.some((value) => localizedTextString(value).toLowerCase().includes(query));
 }
 
 function normalizeFilter(query: string): string {

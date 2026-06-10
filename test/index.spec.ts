@@ -194,6 +194,8 @@ import {
 import {
 	defaultAvatarImageGenerationSettings,
 	defaultTranslationPrompt,
+	localizedText,
+	localizedTextString,
 	type AvatarCrop,
 	type AvatarImage,
 	type BotDocument,
@@ -206,7 +208,10 @@ import {
 	type BotTokenSpendSummary,
 	type BotTokenUsageStats,
 	type HumanSubscriptionTreeResponse,
+	type LanguageTag,
+	type LocalizedText,
 	type NotificationEvent,
+	type RequiredLocalizedText,
 	type SearchResponse,
 	type SpotlightIncludedContent,
 	type SpotlightSyntheticContext,
@@ -245,6 +250,19 @@ type RouteParams = Record<string, string>;
 
 const customProviderBaseUrl = "http://localhost:11434/v1";
 const capableOpenRouterModel = "openai/gpt-4o-mini";
+const testLanguage = "en" as LanguageTag;
+
+function lt(text: string): LocalizedText {
+	return localizedText(text, testLanguage);
+}
+
+function unspecifiedLt(text: string): LocalizedText {
+	return localizedText(text, null);
+}
+
+function requiredLt(text: string): RequiredLocalizedText {
+	return { lang: testLanguage, text };
+}
 
 const schemaSql = `
 CREATE TABLE objects_index (
@@ -260,7 +278,10 @@ CREATE INDEX objects_index_world_type ON objects_index (world_id, object_type, d
 CREATE TABLE users_index (
 	user_id TEXT PRIMARY KEY,
 	handle TEXT NOT NULL UNIQUE,
+	language TEXT,
+	ui_locale TEXT,
 	display_name TEXT NOT NULL,
+	display_name_lang TEXT,
 	avatar_url TEXT,
 	profile_completed_at TEXT,
 	created_at TEXT NOT NULL,
@@ -283,13 +304,18 @@ CREATE INDEX provider_identities_user ON provider_identities (user_id);
 CREATE TABLE worlds_index (
 	world_id TEXT PRIMARY KEY,
 	handle TEXT NOT NULL UNIQUE,
+	language TEXT,
 	name TEXT NOT NULL,
+	name_lang TEXT,
 	description TEXT NOT NULL,
+	description_lang TEXT,
 	prompt TEXT NOT NULL DEFAULT '',
+	prompt_lang TEXT,
 	avatar_url TEXT,
 	avatar_crop TEXT,
 	image_generation TEXT,
 	initial_bot_notification TEXT NOT NULL DEFAULT 'You have just finished creating your Bickr account and logged in for the first time.',
+	initial_bot_notification_lang TEXT,
 	posting_thread_body_characters INTEGER,
 	posting_comment_body_characters INTEGER,
 	created_by_user_id TEXT NOT NULL,
@@ -304,7 +330,9 @@ CREATE TABLE forums_index (
 	world_id TEXT NOT NULL,
 	world_handle TEXT NOT NULL,
 	handle TEXT NOT NULL,
+	language TEXT,
 	description TEXT NOT NULL,
+	description_lang TEXT,
 	created_by_user_id TEXT NOT NULL,
 	personal_bot_id TEXT,
 	created_at TEXT NOT NULL,
@@ -319,9 +347,12 @@ CREATE TABLE bots_index (
 	home_world_id TEXT NOT NULL,
 	home_world_handle TEXT NOT NULL,
 	handle TEXT NOT NULL,
+	language TEXT,
 	display_name TEXT NOT NULL,
+	display_name_lang TEXT,
 	owner_user_id TEXT NOT NULL,
 	short_bio TEXT NOT NULL,
+	short_bio_lang TEXT,
 	avatar_url TEXT,
 	avatar_crop TEXT,
 	import_provider TEXT,
@@ -337,7 +368,9 @@ CREATE TABLE bot_groups (
 	group_id TEXT PRIMARY KEY,
 	world_id TEXT NOT NULL,
 	owner_user_id TEXT NOT NULL,
+	language TEXT,
 	custom_title TEXT,
+	custom_title_lang TEXT,
 	created_at TEXT NOT NULL,
 	updated_at TEXT NOT NULL,
 	deleted_at TEXT
@@ -397,8 +430,11 @@ CREATE TABLE threads_index (
 	author_bot_id TEXT NOT NULL,
 	author_handle TEXT NOT NULL,
 	author_display_name TEXT NOT NULL,
+	author_display_name_lang TEXT,
 	title TEXT NOT NULL,
+	title_lang TEXT,
 	body_preview TEXT NOT NULL,
+	body_preview_lang TEXT,
 	search_text TEXT NOT NULL,
 	vote_score INTEGER NOT NULL DEFAULT 0,
 	comment_count INTEGER NOT NULL DEFAULT 0,
@@ -426,6 +462,7 @@ CREATE TABLE comments_index (
 	author_handle TEXT NOT NULL,
 	parent_comment_id TEXT,
 	body_preview TEXT NOT NULL,
+	body_preview_lang TEXT,
 	search_text TEXT NOT NULL,
 	vote_score INTEGER NOT NULL DEFAULT 0,
 	created_at TEXT NOT NULL,
@@ -461,6 +498,7 @@ CREATE TABLE bot_activity_events (
 	target_id TEXT NOT NULL,
 	value INTEGER,
 	reason TEXT,
+	reason_lang TEXT,
 	created_at TEXT NOT NULL
 );
 CREATE TABLE notifications (
@@ -471,6 +509,7 @@ CREATE TABLE notifications (
 	source_object_id TEXT,
 	status TEXT NOT NULL,
 	message TEXT NOT NULL,
+	message_lang TEXT,
 	created_at TEXT NOT NULL,
 	delivered_at TEXT,
 	read_at TEXT
@@ -567,12 +606,15 @@ CREATE TABLE human_notifications (
 	actor_bot_id TEXT,
 	actor_handle TEXT,
 	actor_display_name TEXT,
+	actor_display_name_lang TEXT,
 	source_type TEXT,
 	source_id TEXT,
 	target_type TEXT,
 	target_id TEXT,
 	title TEXT NOT NULL,
+	title_lang TEXT,
 	body TEXT NOT NULL,
+	body_lang TEXT,
 	url_path TEXT NOT NULL,
 	spotlight_id TEXT,
 	spotlight_label TEXT,
@@ -756,14 +798,38 @@ describe("Bickr Pages Functions", () => {
 				expect(property.type).toBeTruthy();
 			}
 		}
+		const expectBotAuthoredTextSchema = (
+			schema: Record<string, unknown> | undefined,
+			description: string,
+			maxLength?: number,
+		) => {
+			expect(schema).toMatchObject({
+				type: "object",
+				additionalProperties: false,
+				required: ["lang", "text"],
+				properties: {
+					lang: {
+						type: "string",
+						description: expect.stringContaining("BCP 47"),
+					},
+					text: {
+						type: "string",
+						description,
+						minLength: 1,
+						...(maxLength ? { maxLength } : {}),
+					},
+				},
+			});
+			expect(schema?.description).toEqual(expect.stringContaining("lang first and text second"));
+			expect(schema?.description).toEqual(expect.stringContaining("do not use und"));
+		};
 
 		const vote = toolDefinitions.find((definition) => definition.function.name === "vote");
 		expect(vote?.function.parameters.required).toEqual(["votes", "reason"]);
-		expect(vote?.function.parameters.properties.reason).toEqual({
-			type: "string",
-			description: "Why I am voting this way. Must not be empty. Must be specific to this particular interaction and not repeat other reasons.",
-			minLength: 1,
-		});
+		expectBotAuthoredTextSchema(
+			vote?.function.parameters.properties.reason,
+			"Why I am voting this way. Must not be empty. Must be specific to this particular interaction and not repeat other reasons.",
+		);
 		expect(vote?.function.parameters.properties.votes).toMatchObject({
 			type: "array",
 			items: {
@@ -804,11 +870,10 @@ describe("Bickr Pages Functions", () => {
 				type: "string",
 				description: "The u/username to start following.",
 			});
-			expect(followTargetItem.properties.reason).toEqual({
-				type: "string",
-				description: "Why I want to follow this participant. Must not be empty. Must be specific to this particular interaction and not repeat other reasons.",
-				minLength: 1,
-			});
+			expectBotAuthoredTextSchema(
+				followTargetItem.properties.reason,
+				"Why I want to follow this participant. Must not be empty. Must be specific to this particular interaction and not repeat other reasons.",
+			);
 		}
 		const unfollow = toolDefinitions.find((definition) => definition.function.name === "unfollow_profile");
 		expect(unfollow?.function.parameters.required).toEqual(["targets"]);
@@ -865,29 +930,35 @@ describe("Bickr Pages Functions", () => {
 
 		const reply = toolDefinitions.find((definition) => definition.function.name === "reply_to_comment");
 		const additionalReply = toolDefinitions.find((definition) => definition.function.name === "make_additional_reply_to_the_same_comment");
-		expect(reply?.function.parameters.properties).toEqual({
-			commentRef: { type: "string" },
-			body: { type: "string", maxLength: defaultCommentBodyCharacters },
-		});
+		expect(reply?.function.parameters.properties.commentRef).toEqual({ type: "string" });
+		expectBotAuthoredTextSchema(
+			reply?.function.parameters.properties.body,
+			"Reply body",
+			defaultCommentBodyCharacters,
+		);
 		expect(additionalReply?.function.parameters.properties).toEqual(reply?.function.parameters.properties);
 		expect(additionalReply?.function.parameters.required).toEqual(["commentRef", "body"]);
 		const createThread = toolDefinitions.find((definition) => definition.function.name === "create_thread");
-		expect(createThread?.function.parameters.properties.body).toEqual({
-			type: "string",
-			maxLength: defaultThreadBodyCharacters,
-		});
+		expectBotAuthoredTextSchema(createThread?.function.parameters.properties.title, "Thread title");
+		expectBotAuthoredTextSchema(
+			createThread?.function.parameters.properties.body,
+			"Root comment body",
+			defaultThreadBodyCharacters,
+		);
 		const customPostingTools = toolDefinitionsForProviderRound(1234, {
 			includeMetaCompactionTool: false,
 			postingLimits: { threadBodyCharacters: 123, commentBodyCharacters: 45 },
 		});
-		expect(customPostingTools.find((definition) => definition.function.name === "create_thread")?.function.parameters.properties.body).toEqual({
-			type: "string",
-			maxLength: 123,
-		});
-		expect(customPostingTools.find((definition) => definition.function.name === "reply_to_comment")?.function.parameters.properties.body).toEqual({
-			type: "string",
-			maxLength: 45,
-		});
+		expectBotAuthoredTextSchema(
+			customPostingTools.find((definition) => definition.function.name === "create_thread")?.function.parameters.properties.body,
+			"Root comment body",
+			123,
+		);
+		expectBotAuthoredTextSchema(
+			customPostingTools.find((definition) => definition.function.name === "reply_to_comment")?.function.parameters.properties.body,
+			"Reply body",
+			45,
+		);
 		const roundTools = toolDefinitionsForProviderRound(1234);
 		expect(roundTools.slice(0, -1)).toEqual(toolDefinitions);
 		const metaTool = roundTools.at(-1);
@@ -909,11 +980,10 @@ describe("Bickr Pages Functions", () => {
 
 		const logOff = toolDefinitions.find((definition) => definition.function.name === "log_off");
 		expect(logOff?.function.parameters.required).toEqual(["reason"]);
-		expect(logOff?.function.parameters.properties.reason).toEqual({
-			type: "string",
-			description: "Why I am finished with this Bickr visit. Must not be empty. Must be specific to this particular interaction and not repeat other reasons.",
-			minLength: 1,
-		});
+		expectBotAuthoredTextSchema(
+			logOff?.function.parameters.properties.reason,
+			"Why I am finished with this Bickr visit. Must not be empty. Must be specific to this particular interaction and not repeat other reasons.",
+		);
 	});
 
 	it("executes bulk vote and profile follow tool calls", async () => {
@@ -964,14 +1034,14 @@ describe("Bickr Pages Functions", () => {
 			{ mode: "normal", signal },
 		).catch((error: unknown) => error);
 		expect(missingReason).toBeInstanceOf(Error);
-		expect((missingReason as Error).message).toContain("reason is required");
+		expect((missingReason as Error).message).toContain("reason must be an object with lang first and text second");
 
 		const voteResult = await executeTool(
 			bot,
 			"run-bulk-votes",
 			"vote",
 			{
-				reason: "The thread is useful and the comment is off-topic.",
+				reason: requiredLt("The thread is useful and the comment is off-topic."),
 				votes: [
 					{ commentId: thread.rootCommentId, value: 1 },
 					{ commentId: comment.id, value: -1 },
@@ -1002,7 +1072,7 @@ describe("Bickr Pages Functions", () => {
 			bot,
 			"run-create-thread-compact-result",
 			"create_thread",
-			{ forumHandle: forum.handle, title: "Compact provider result", body: "This thread body should not be echoed back." },
+			{ forumHandle: forum.handle, title: requiredLt("Compact provider result"), body: requiredLt("This thread body should not be echoed back.") },
 			{ mode: "normal", signal },
 			);
 			expect(createThreadResult.providerResult).toMatchObject({
@@ -1184,8 +1254,8 @@ describe("Bickr Pages Functions", () => {
 		);
 		expect(profilesResult.providerResult).toMatchObject({
 			profiles: [
-				{ username: `u/${firstProfile.handle}`, displayName: firstProfile.displayName, shortBio: expect.any(String), isFollowedByMe: false, isFollowingMe: false, followers: 0 },
-				{ username: `u/${secondProfile.handle}`, displayName: secondProfile.displayName, shortBio: expect.any(String), isFollowedByMe: false, isFollowingMe: false, followers: 0 },
+				{ username: `u/${firstProfile.handle}`, displayName: localizedTextString(firstProfile.displayName), shortBio: expect.any(String), isFollowedByMe: false, isFollowingMe: false, followers: 0 },
+				{ username: `u/${secondProfile.handle}`, displayName: localizedTextString(secondProfile.displayName), shortBio: expect.any(String), isFollowedByMe: false, isFollowingMe: false, followers: 0 },
 			],
 		});
 		for (const profile of (profilesResult.providerResult as { profiles: Array<Record<string, unknown>> }).profiles) {
@@ -1215,9 +1285,9 @@ describe("Bickr Pages Functions", () => {
 			"follow_profile",
 			{
 				targets: [
-					{ username: firstProfile.handle, reason: "Their threads are relevant to my interests." },
-					{ username: `u/${firstProfile.handle}`, reason: "This duplicate should be ignored before following." },
-					{ username: `u/${secondProfile.handle}`, reason: "Their comments add useful context to recent threads." },
+					{ username: firstProfile.handle, reason: requiredLt("Their threads are relevant to my interests.") },
+					{ username: `u/${firstProfile.handle}`, reason: requiredLt("This duplicate should be ignored before following.") },
+					{ username: `u/${secondProfile.handle}`, reason: requiredLt("Their comments add useful context to recent threads.") },
 				],
 			},
 			{ mode: "normal", signal },
@@ -1232,7 +1302,7 @@ describe("Bickr Pages Functions", () => {
 			bot,
 			"run-bulk-follow-again",
 			"follow_profile",
-			{ targets: [{ username: firstProfile.handle, reason: "I want to follow them again." }] },
+			{ targets: [{ username: firstProfile.handle, reason: requiredLt("I want to follow them again.") }] },
 			{ mode: "normal", signal },
 		).catch((error: unknown) => error);
 		expect(redundantFollow).toBeInstanceOf(Error);
@@ -1245,8 +1315,8 @@ describe("Bickr Pages Functions", () => {
 			"unfollow_profile",
 			{
 				targets: [
-					{ username: firstProfile.handle, reason: "I no longer want their activity in my feed." },
-					{ username: secondProfile.handle, reason: "Their recent posts no longer match my interests." },
+					{ username: firstProfile.handle, reason: requiredLt("I no longer want their activity in my feed.") },
+					{ username: secondProfile.handle, reason: requiredLt("Their recent posts no longer match my interests.") },
 				],
 			},
 			{ mode: "normal", signal },
@@ -1260,7 +1330,7 @@ describe("Bickr Pages Functions", () => {
 			bot,
 			"run-bulk-unfollow-again",
 			"unfollow_profile",
-			{ targets: [{ username: firstProfile.handle, reason: "I want to unfollow them again." }] },
+			{ targets: [{ username: firstProfile.handle, reason: requiredLt("I want to unfollow them again.") }] },
 			{ mode: "normal", signal },
 		).catch((error: unknown) => error);
 		expect(redundantUnfollow).toBeInstanceOf(Error);
@@ -1336,7 +1406,7 @@ describe("Bickr Pages Functions", () => {
 			"run-spotlight-mixed-vote",
 			"vote",
 			{
-				reason: "The spotlight target is useful; this ordinary target is also useful.",
+				reason: requiredLt("The spotlight target is useful; this ordinary target is also useful."),
 				votes: [
 					{ commentId: spotlightThread.rootCommentId, value: 1 },
 					{ commentId: unrelatedThread.rootCommentId, value: 1 },
@@ -1366,8 +1436,8 @@ describe("Bickr Pages Functions", () => {
 			"follow_profile",
 			{
 				targets: [
-					{ username: spotlightProfile.handle, reason: "The spotlight profile is relevant." },
-					{ username: unrelatedProfile.handle, reason: "The ordinary profile is relevant too." },
+					{ username: spotlightProfile.handle, reason: requiredLt("The spotlight profile is relevant.") },
+					{ username: unrelatedProfile.handle, reason: requiredLt("The ordinary profile is relevant too.") },
 				],
 			},
 			spotlightRunContext,
@@ -1439,7 +1509,7 @@ describe("Bickr Pages Functions", () => {
 			actorDocument,
 			"run-spotlight-unrelated-post",
 			"create_thread",
-			{ forumHandle: forum.handle, title: "Ordinary thread", body: "This is not in a spotlight author's personal forum." },
+			{ forumHandle: forum.handle, title: requiredLt("Ordinary thread"), body: requiredLt("This is not in a spotlight author's personal forum.") },
 			{
 				mode: "spotlight",
 				setupMode: "spotlight",
@@ -1620,12 +1690,13 @@ describe("Bickr Pages Functions", () => {
 	});
 
 	it("tells participants not to make duplicate replies in the fixed prompt", () => {
-		const promptBot = {
-			handle: "prompt-tester",
-			displayName: "Prompt Tester",
-			shortBio: "Tests prompts.",
-			prompt: "Stay terse.",
-		} as Parameters<typeof standardPrompt>[0];
+			const promptBot = {
+				handle: "prompt-tester",
+				language: testLanguage,
+				displayName: lt("Prompt Tester"),
+				shortBio: lt("Tests prompts."),
+				prompt: lt("Stay terse."),
+			} as Parameters<typeof standardPrompt>[0];
 		const prompt = standardPrompt(promptBot);
 		expect(prompt).toContain("Avoid duplicate replies");
 		expect(prompt).toContain("already replied to that same comment");
@@ -1633,12 +1704,13 @@ describe("Bickr Pages Functions", () => {
 	});
 
 	it("adds only non-empty world prompt text as setting context", () => {
-		const promptBot = {
-			handle: "prompt-tester",
-			displayName: "Prompt Tester",
-			shortBio: "Tests prompts.",
-			prompt: "Stay terse.",
-		} as Parameters<typeof standardPrompt>[0];
+			const promptBot = {
+				handle: "prompt-tester",
+				language: testLanguage,
+				displayName: lt("Prompt Tester"),
+				shortBio: lt("Tests prompts."),
+				prompt: lt("Stay terse."),
+			} as Parameters<typeof standardPrompt>[0];
 		const prompt = standardPrompt(promptBot, "The city is built on glass canals.");
 		expect(prompt).toContain("Stay terse.\n\nSetting:\nThe city is built on glass canals.");
 		expect(standardPrompt(promptBot, "  ")).not.toContain("Setting:");
@@ -1997,14 +2069,13 @@ describe("Bickr Pages Functions", () => {
 		});
 
 		it("builds structured-output provider compaction requests by default over the verbatim compacted chat", () => {
-			const bot = {
+			const bot = fakeBotDocument({
 				id: "bot_release",
 				handle: "release-sage",
 				displayName: "Release Sage",
 				shortBio: "Summarizes release work.",
 				prompt: "Prefer concise changelog memory.",
-				inferenceSettings: {},
-			} as BotDocument;
+			});
 			const compactedMessages: Parameters<typeof providerCompactionMessages>[1] = [
 				{
 					role: "assistant",
@@ -2078,7 +2149,7 @@ describe("Bickr Pages Functions", () => {
 		});
 
 		it("builds isolated tool-call provider compaction requests when selected", () => {
-			const bot = { ...fakeBotDocument({ prompt: "Prefer concise changelog memory." }), handle: "release-sage", displayName: "Release Sage" };
+			const bot = { ...fakeBotDocument({ prompt: "Prefer concise changelog memory." }), handle: "release-sage", displayName: lt("Release Sage") };
 			const compactedMessages: Parameters<typeof providerCompactionMessages>[1] = [
 				{ role: "assistant", content: "I decided to read a thread about changelogs." },
 			];
@@ -3480,7 +3551,7 @@ describe("Bickr Pages Functions", () => {
 				"tool_call_cache_friendly",
 			);
 
-			expect(selected.map((row) => row.seq)).toEqual([1, 2]);
+			expect(selected.map((row) => row.seq)).toEqual([1]);
 		});
 
 		it("allows one over-budget compaction group when the normal prefix would be too small", () => {
@@ -3649,7 +3720,7 @@ describe("Bickr Pages Functions", () => {
 			const rejectedLimits = providerCompactionSummaryLimitsForChat(bot, rejectedMessages, calibration, tools, "structured_output");
 			const compactionOutputSafetyTokens = 512;
 
-			expect(selected.map((row) => row.seq)).toEqual([1, 2, 3, 4]);
+			expect(selected.map((row) => row.seq)).toEqual([1, 2]);
 			expect(selectedLimits.maxCompletionTokens).toBeGreaterThanOrEqual(selectedLimits.maxSummaryTokens + compactionOutputSafetyTokens);
 			expect(rejectedLimits.maxCompletionTokens).toBeLessThan(rejectedLimits.maxSummaryTokens + compactionOutputSafetyTokens);
 		});
@@ -4404,14 +4475,13 @@ describe("Bickr Pages Functions", () => {
 			}).compactLoopMessageRows.bind(runtime);
 
 			await compactLoopMessageRows(
-				{
+				fakeBotDocument({
 					id: "bot_release",
 					handle: "release-sage",
 					displayName: "Release Sage",
 					shortBio: "Summarizes release work.",
 					prompt: "Prefer concise changelog memory.",
-					inferenceSettings: {},
-				} as BotDocument,
+				}),
 				{ apiKey: "test-key", baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
 				"run-compaction-success",
 				new AbortController().signal,
@@ -6012,17 +6082,17 @@ describe("Bickr Pages Functions", () => {
 					type: "comment_created",
 					createdAt: "2026-01-01T00:00:00.000Z",
 					deliveryReasons: ["direct_reply"],
-					message: "Someone replied.",
-					thread: {
-						id: "thr_read",
-						title: "Is it real?",
-					},
-					comment: {
-						id: "cmt_read",
-						threadId: "thr_read",
-						author: { id: "bot_alice", username: "u/alice", displayName: "Alice" },
-						text: "Hello there.",
-					},
+						message: lt("Someone replied."),
+						thread: {
+							id: "thr_read",
+							title: lt("Is it real?"),
+						},
+						comment: {
+							id: "cmt_read",
+							threadId: "thr_read",
+							author: { id: "bot_alice", username: "u/alice", displayName: lt("Alice") },
+							text: lt("Hello there."),
+						},
 				},
 			],
 		});
@@ -6138,13 +6208,14 @@ describe("Bickr Pages Functions", () => {
 		}).buildMessages.bind(runtime);
 
 		const messages = await buildMessages(
-			{
-				handle: "release-sage",
-				displayName: "Release Sage",
-				shortBio: "Reads changelogs.",
-				prompt: "Stay precise.",
-				inferenceSettings: {},
-			} as Parameters<typeof standardPrompt>[0],
+				{
+					handle: "release-sage",
+					language: testLanguage,
+					displayName: lt("Release Sage"),
+					shortBio: lt("Reads changelogs."),
+					prompt: lt("Stay precise."),
+					inferenceSettings: {},
+				} as Parameters<typeof standardPrompt>[0],
 			{
 				notifications: [],
 				injections: ["Check the daily thread."],
@@ -6197,13 +6268,14 @@ describe("Bickr Pages Functions", () => {
 		}).buildMessages.bind(runtime);
 
 		const messages = await buildMessages(
-			{
-				handle: "release-sage",
-				displayName: "Release Sage",
-				shortBio: "Reads changelogs.",
-				prompt: "Stay precise.",
-				inferenceSettings: { recurringPromptEnabled: false },
-			} as Parameters<typeof standardPrompt>[0],
+				{
+					handle: "release-sage",
+					language: testLanguage,
+					displayName: lt("Release Sage"),
+					shortBio: lt("Reads changelogs."),
+					prompt: lt("Stay precise."),
+					inferenceSettings: { recurringPromptEnabled: false },
+				} as Parameters<typeof standardPrompt>[0],
 			{
 				notifications: [],
 				injections: [],
@@ -6252,13 +6324,14 @@ describe("Bickr Pages Functions", () => {
 		}).buildMessages.bind(runtime);
 
 		const messages = await buildMessages(
-			{
-				handle: "release-sage",
-				displayName: "Release Sage",
-				shortBio: "Reads changelogs.",
-				prompt: "Stay precise.",
-				inferenceSettings: {},
-			} as Parameters<typeof standardPrompt>[0],
+				{
+					handle: "release-sage",
+					language: testLanguage,
+					displayName: lt("Release Sage"),
+					shortBio: lt("Reads changelogs."),
+					prompt: lt("Stay precise."),
+					inferenceSettings: {},
+				} as Parameters<typeof standardPrompt>[0],
 			{
 				notifications: [{ message: "This should not be injected again." }],
 				injections: ["Keep reading the daily thread."],
@@ -6291,12 +6364,12 @@ describe("Bickr Pages Functions", () => {
 			createdAt: "2026-05-01T00:00:00.000Z",
 			deliveryReasons: ["followed_profile_activity"],
 			actor: {
-				id: referencedProfile.id,
-				username: `u/${referencedProfile.handle}`,
-				displayName: referencedProfile.displayName,
-				shortBio: "Repeated inside the raw notification.",
-			},
-			message: "Notice Alice commented.",
+					id: referencedProfile.id,
+					username: `u/${referencedProfile.handle}`,
+					displayName: lt(referencedProfile.displayName),
+					shortBio: lt("Repeated inside the raw notification."),
+				},
+				message: lt("Notice Alice commented."),
 		};
 		const profileToolRow = {
 			seq: 1,
@@ -6310,7 +6383,7 @@ describe("Bickr Pages Functions", () => {
 					profiles: [
 						{
 							username: `u/${referencedProfile.handle}`,
-							displayName: referencedProfile.displayName,
+							displayName: lt(referencedProfile.displayName),
 							shortBio: "Already active.",
 						},
 					],
@@ -6383,7 +6456,7 @@ describe("Bickr Pages Functions", () => {
 			.map((message) => JSON.parse(String(message.content)))
 			.find((result) => Array.isArray(result.profiles));
 		expect(profileToolResult).toMatchObject({
-			profiles: [{ username: `u/${referencedProfile.handle}`, displayName: referencedProfile.displayName, shortBio: expect.any(String) }],
+			profiles: [{ username: `u/${referencedProfile.handle}`, displayName: localizedTextString(referencedProfile.displayName), shortBio: expect.any(String) }],
 		});
 	});
 
@@ -6397,81 +6470,81 @@ describe("Bickr Pages Functions", () => {
 			type: "comment_created" as const,
 			createdAt: "2026-05-01T00:00:00.000Z",
 			actor: {
-				id: referencedProfile.id,
-				username: `u/${referencedProfile.handle}`,
-				displayName: referencedProfile.displayName,
-				shortBio: "Raw notification bio should not be shown here.",
-			},
+					id: referencedProfile.id,
+					username: `u/${referencedProfile.handle}`,
+					displayName: lt(referencedProfile.displayName),
+					shortBio: lt("Raw notification bio should not be shown here."),
+				},
 			world: { id: bot.homeWorldId, handle: `w/${bot.homeWorldHandle}` },
 			forum: { id: "frm_notice_dedupe", handle: "f/notice-dedupe" },
 		};
 		const notifications: NotificationEvent[] = [
 			{
 				...baseEvent,
-				id: "ntf_direct",
-				deliveryReasons: ["direct_reply"],
-				sourceObjectId: "cmt_seen",
-				message: "First delivery.",
-				thread: {
-					id: "thr_seen",
-					title: "Already scoped thread",
-					author: { id: referencedProfile.id, username: `u/${referencedProfile.handle}`, displayName: referencedProfile.displayName },
-					text: "Thread text was already shown.",
-				},
-				comment: {
+					id: "ntf_direct",
+					deliveryReasons: ["direct_reply"],
+					sourceObjectId: "cmt_seen",
+					message: lt("First delivery."),
+					thread: {
+						id: "thr_seen",
+						title: lt("Already scoped thread"),
+						author: { id: referencedProfile.id, username: `u/${referencedProfile.handle}`, displayName: lt(referencedProfile.displayName) },
+						text: lt("Thread text was already shown."),
+					},
+					comment: {
 					id: "cmt_seen",
-					threadId: "thr_seen",
-					author: { id: referencedProfile.id, username: `u/${referencedProfile.handle}`, displayName: referencedProfile.displayName },
-					text: "Comment text was already shown.",
+						threadId: "thr_seen",
+						author: { id: referencedProfile.id, username: `u/${referencedProfile.handle}`, displayName: lt(referencedProfile.displayName) },
+						text: lt("Comment text was already shown."),
+					},
+					replyTo: {
+						id: "thr_seen",
+						title: lt("Already scoped thread"),
+						text: lt("Thread text was already shown."),
+					},
 				},
-				replyTo: {
-					id: "thr_seen",
-					title: "Already scoped thread",
-					text: "Thread text was already shown.",
-				},
-			},
 			{
 				...baseEvent,
-				id: "ntf_mention",
-				deliveryReasons: ["mention"],
-				sourceObjectId: "cmt_seen",
-				message: "Duplicate delivery reason.",
-				thread: {
-					id: "thr_seen",
-					title: "Already scoped thread",
-					text: "Thread text was already shown.",
-				},
-				comment: {
+					id: "ntf_mention",
+					deliveryReasons: ["mention"],
+					sourceObjectId: "cmt_seen",
+					message: lt("Duplicate delivery reason."),
+					thread: {
+						id: "thr_seen",
+						title: lt("Already scoped thread"),
+						text: lt("Thread text was already shown."),
+					},
+					comment: {
 					id: "cmt_seen",
-					threadId: "thr_seen",
-					author: { id: referencedProfile.id, username: `u/${referencedProfile.handle}`, displayName: referencedProfile.displayName },
-					text: "Comment text was already shown.",
+						threadId: "thr_seen",
+						author: { id: referencedProfile.id, username: `u/${referencedProfile.handle}`, displayName: lt(referencedProfile.displayName) },
+						text: lt("Comment text was already shown."),
+					},
 				},
-			},
 			{
 				...baseEvent,
-				id: "ntf_new",
-				deliveryReasons: ["followed_profile_activity"],
-				sourceObjectId: "cmt_new",
-				message: "New comment in already scoped thread.",
-				thread: {
-					id: "thr_seen",
-					title: "Already scoped thread",
-					text: "Thread text was already shown.",
-				},
+					id: "ntf_new",
+					deliveryReasons: ["followed_profile_activity"],
+					sourceObjectId: "cmt_new",
+					message: lt("New comment in already scoped thread."),
+					thread: {
+						id: "thr_seen",
+						title: lt("Already scoped thread"),
+						text: lt("Thread text was already shown."),
+					},
 				comment: {
 					id: "cmt_new",
 					threadId: "thr_seen",
-					parentCommentId: "cmt_seen",
-					author: { id: referencedProfile.id, username: `u/${referencedProfile.handle}`, displayName: referencedProfile.displayName },
-					text: "This new comment should be shown once.",
-				},
-				replyTo: {
+						parentCommentId: "cmt_seen",
+						author: { id: referencedProfile.id, username: `u/${referencedProfile.handle}`, displayName: lt(referencedProfile.displayName) },
+						text: lt("This new comment should be shown once."),
+					},
+					replyTo: {
 					id: "cmt_seen",
-					threadId: "thr_seen",
-					author: { id: referencedProfile.id, username: `u/${referencedProfile.handle}`, displayName: referencedProfile.displayName },
-					text: "Comment text was already shown.",
-				},
+						threadId: "thr_seen",
+						author: { id: referencedProfile.id, username: `u/${referencedProfile.handle}`, displayName: lt(referencedProfile.displayName) },
+						text: lt("Comment text was already shown."),
+					},
 			},
 		];
 		const activeRows = [
@@ -6484,7 +6557,7 @@ describe("Bickr Pages Functions", () => {
 					role: "tool",
 					tool_call_id: "call_profiles",
 					content: JSON.stringify({
-						profiles: [{ username: `u/${referencedProfile.handle}`, displayName: referencedProfile.displayName, shortBio: "Already active." }],
+						profiles: [{ username: `u/${referencedProfile.handle}`, displayName: lt(referencedProfile.displayName), shortBio: "Already active." }],
 					}),
 				}),
 				origin: "tool_result",
@@ -6585,7 +6658,7 @@ describe("Bickr Pages Functions", () => {
 			const selfProfile = await createBotForTest(cookie, "notice-budget-self");
 			const bot = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, selfProfile.id);
 			const tokenBudget = 260;
-		const author = { id: selfProfile.id, username: `u/${selfProfile.handle}`, displayName: selfProfile.displayName };
+		const author = { id: selfProfile.id, username: `u/${selfProfile.handle}`, displayName: lt(selfProfile.displayName) };
 		const messages: Array<Record<string, unknown>> = [];
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 			env: {
@@ -6620,11 +6693,11 @@ describe("Bickr Pages Functions", () => {
 					createdAt: "2026-05-01T00:00:00.000Z",
 					deliveryReasons: ["followed_profile_activity"],
 					sourceObjectId: "cmt_budget",
-					message: "Long notification.",
-					world: { id: bot.homeWorldId, handle: `w/${bot.homeWorldHandle}` },
-					forum: { id: "frm_budget", handle: "f/budget" },
-					thread: { id: "thr_budget", title: "Budget thread", author, text: longThreadText },
-					comment: { id: "cmt_budget", threadId: "thr_budget", author, text: longCommentText },
+						message: lt("Long notification."),
+						world: { id: bot.homeWorldId, handle: `w/${bot.homeWorldHandle}` },
+						forum: { id: "frm_budget", handle: "f/budget" },
+						thread: { id: "thr_budget", title: lt("Budget thread"), author, text: lt(longThreadText) },
+						comment: { id: "cmt_budget", threadId: "thr_budget", author, text: lt(longCommentText) },
 				} satisfies NotificationEvent],
 				injections: [],
 				spotlightContexts: [],
@@ -6651,7 +6724,7 @@ describe("Bickr Pages Functions", () => {
 			const selfProfile = await createBotForTest(cookie, "notice-drop-self");
 			const bot = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, selfProfile.id);
 			const tokenBudget = 300;
-		const author = { id: selfProfile.id, username: `u/${selfProfile.handle}`, displayName: selfProfile.displayName };
+			const author = { id: selfProfile.id, username: `u/${selfProfile.handle}`, displayName: lt(selfProfile.displayName) };
 		const messages: Array<Record<string, unknown>> = [];
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 			env: {
@@ -6681,9 +6754,9 @@ describe("Bickr Pages Functions", () => {
 				createdAt: `2026-05-01T00:00:0${index}.000Z`,
 				deliveryReasons: ["followed_profile_activity"],
 				sourceObjectId: `cmt_drop_${index}`,
-				message: `Long notification ${index}.`,
-				thread: { id: `thr_drop_${index}`, title: `Budget thread ${index}`, author, text: `Thread ${index} stays whole.` },
-				comment: { id: `cmt_drop_${index}`, threadId: `thr_drop_${index}`, author, text: `Comment ${index} stays whole.` },
+					message: lt(`Long notification ${index}.`),
+					thread: { id: `thr_drop_${index}`, title: lt(`Budget thread ${index}`), author, text: lt(`Thread ${index} stays whole.`) },
+					comment: { id: `cmt_drop_${index}`, threadId: `thr_drop_${index}`, author, text: lt(`Comment ${index} stays whole.`) },
 			}));
 		await buildMessages(
 			bot,
@@ -7013,23 +7086,23 @@ describe("Bickr Pages Functions", () => {
 				forum: { id: "frm_spotlight", handle: "f/spotlight" },
 				targetType: "comments",
 				focus: "Please pay attention to the target comment.",
-				threads: [{
-					id: "thr_spotlight_comment",
-					threadId: "thr_spotlight_comment",
-					title: "Comment spotlight",
-					rootCommentId: "cmt_spotlight_root",
-				}],
+					threads: [{
+						id: "thr_spotlight_comment",
+						threadId: "thr_spotlight_comment",
+						title: lt("Comment spotlight"),
+						rootCommentId: "cmt_spotlight_root",
+					}],
 				content: [
 					{
 						type: "comment",
 						id: "cmt_spotlight_root",
 						commentId: "cmt_spotlight_root",
-						threadId: "thr_spotlight_comment",
-						title: "Comment spotlight",
-						authorBotId: authorProfile.id,
-						authorHandle: authorProfile.handle,
-						authorDisplayName: authorProfile.displayName,
-						body: "Root context.",
+							threadId: "thr_spotlight_comment",
+							title: lt("Comment spotlight"),
+							authorBotId: authorProfile.id,
+							authorHandle: authorProfile.handle,
+							authorDisplayName: lt(authorProfile.displayName),
+							body: lt("Root context."),
 						createdAt: "2026-05-01T00:00:00.000Z",
 						ancestorOnly: true,
 					},
@@ -7038,11 +7111,11 @@ describe("Bickr Pages Functions", () => {
 						id: "cmt_spotlight_parent",
 						commentId: "cmt_spotlight_parent",
 						threadId: "thr_spotlight_comment",
-						parentCommentId: "cmt_spotlight_root",
-						authorBotId: authorProfile.id,
-						authorHandle: authorProfile.handle,
-						authorDisplayName: authorProfile.displayName,
-						body: "Parent context.",
+							parentCommentId: "cmt_spotlight_root",
+							authorBotId: authorProfile.id,
+							authorHandle: authorProfile.handle,
+							authorDisplayName: lt(authorProfile.displayName),
+							body: lt("Parent context."),
 						createdAt: "2026-05-01T00:01:00.000Z",
 						ancestorOnly: true,
 					},
@@ -7051,11 +7124,11 @@ describe("Bickr Pages Functions", () => {
 						id: "cmt_spotlight",
 						commentId: "cmt_spotlight",
 						threadId: "thr_spotlight_comment",
-						parentCommentId: "cmt_spotlight_parent",
-						authorBotId: authorProfile.id,
-						authorHandle: authorProfile.handle,
-						authorDisplayName: authorProfile.displayName,
-						body: "Target comment.",
+							parentCommentId: "cmt_spotlight_parent",
+							authorBotId: authorProfile.id,
+							authorHandle: authorProfile.handle,
+							authorDisplayName: lt(authorProfile.displayName),
+							body: lt("Target comment."),
 						createdAt: "2026-05-01T00:01:30.000Z",
 						"My focus is on this comment": true,
 					},
@@ -7066,23 +7139,23 @@ describe("Bickr Pages Functions", () => {
 				world: { id: bot.homeWorldId, handle: `w/${bot.homeWorldHandle}` },
 				forum: { id: "frm_spotlight", handle: "f/spotlight" },
 				targetType: "threads",
-				threads: [{
-					id: "thr_spotlight_thread",
-					threadId: "thr_spotlight_thread",
-					title: "Thread spotlight",
-					rootCommentId: "cmt_spotlight_thread_root",
-				}],
+					threads: [{
+						id: "thr_spotlight_thread",
+						threadId: "thr_spotlight_thread",
+						title: lt("Thread spotlight"),
+						rootCommentId: "cmt_spotlight_thread_root",
+					}],
 				content: [
 					{
 						type: "comment",
 						id: "cmt_spotlight_thread_root",
 						commentId: "cmt_spotlight_thread_root",
-						threadId: "thr_spotlight_thread",
-						title: "Thread spotlight",
-						authorBotId: authorProfile.id,
-						authorHandle: authorProfile.handle,
-						authorDisplayName: authorProfile.displayName,
-						body: "Thread target.",
+							threadId: "thr_spotlight_thread",
+							title: lt("Thread spotlight"),
+							authorBotId: authorProfile.id,
+							authorHandle: authorProfile.handle,
+							authorDisplayName: lt(authorProfile.displayName),
+							body: lt("Thread target."),
 						createdAt: "2026-05-01T00:02:00.000Z",
 					},
 					{
@@ -7090,11 +7163,11 @@ describe("Bickr Pages Functions", () => {
 						id: "cmt_spotlight_thread_reply",
 						commentId: "cmt_spotlight_thread_reply",
 						threadId: "thr_spotlight_thread",
-						parentCommentId: "cmt_spotlight_thread_root",
-						authorBotId: authorProfile.id,
-						authorHandle: authorProfile.handle,
-						authorDisplayName: authorProfile.displayName,
-						body: spotlightThreadReplyBody,
+							parentCommentId: "cmt_spotlight_thread_root",
+							authorBotId: authorProfile.id,
+							authorHandle: authorProfile.handle,
+							authorDisplayName: lt(authorProfile.displayName),
+							body: lt(spotlightThreadReplyBody),
 						createdAt: "2026-05-01T00:02:30.000Z",
 					},
 				],
@@ -7200,7 +7273,7 @@ describe("Bickr Pages Functions", () => {
 		expect(toolResults.find((result) => result.operation === "read_thread_by_id")?.context).toContain("body ending in …");
 		expect(JSON.stringify(toolResults.find((result) => result.operation === "read_thread_by_id"))).not.toContain(spotlightThreadReplyBody);
 		expect(toolResults.find((result) => Array.isArray(result.profiles))).toMatchObject({
-			profiles: [{ username: `u/${authorProfile.handle}`, displayName: authorProfile.displayName }],
+			profiles: [{ username: `u/${authorProfile.handle}`, displayName: localizedTextString(authorProfile.displayName) }],
 		});
 		const profileResultIndex = built.findIndex((message) => message.role === "tool" && String(message.content).includes('"profiles"'));
 		const focusMessageIndex = built.findIndex(
@@ -7226,10 +7299,10 @@ describe("Bickr Pages Functions", () => {
 				commentId: id,
 				threadId: "thr_deep_spotlight",
 				...(index > 0 ? { parentCommentId: `cmt_deep_spotlight_${index - 1}` } : {}),
-				authorBotId: authorProfile.id,
-				authorHandle: authorProfile.handle,
-				authorDisplayName: authorProfile.displayName,
-				body: `Deep spotlight context ${index}. ${"z".repeat(800)}`,
+					authorBotId: authorProfile.id,
+					authorHandle: authorProfile.handle,
+					authorDisplayName: lt(authorProfile.displayName),
+					body: lt(`Deep spotlight context ${index}. ${"z".repeat(800)}`),
 				createdAt: `2026-05-01T00:${String(index).padStart(2, "0")}:00.000Z`,
 				...(index === chainLength - 1 ? { "My focus is on this comment": true as const } : { ancestorOnly: true }),
 			};
@@ -7240,11 +7313,11 @@ describe("Bickr Pages Functions", () => {
 			forum: { id: "frm_deep_spotlight", handle: "f/deep-spotlight" },
 			targetType: "comments",
 			focus: "Please pay attention to the deepest comment.",
-			threads: [{
-				id: "thr_deep_spotlight",
-				threadId: "thr_deep_spotlight",
-				title: "Deep comment spotlight",
-				rootCommentId: "cmt_deep_spotlight_0",
+				threads: [{
+					id: "thr_deep_spotlight",
+					threadId: "thr_deep_spotlight",
+					title: lt("Deep comment spotlight"),
+					rootCommentId: "cmt_deep_spotlight_0",
 			}],
 			content,
 		}];
@@ -8197,16 +8270,23 @@ describe("Bickr Pages Functions", () => {
 
 		await expect(
 			runProviderLoop(
-				{
-					id: "bot_stream",
-					handle: "stream-sage",
-					displayName: "Stream Sage",
-					shortBio: "Watches loop streams.",
-					prompt: "Keep stream state coherent.",
-					inferenceSettings: {},
-					toolSettings: {},
-					tickSettings: { maxToolCallsPerTick: 1, maxSuccessfulToolCallsPerIteration: 8, contextWindowTokens: 16_000 },
-				} as BotDocument,
+					{
+						...fakeBotDocument({
+							id: "bot_stream",
+							handle: "stream-sage",
+							displayName: "Stream Sage",
+							shortBio: "Watches loop streams.",
+							prompt: "Keep stream state coherent.",
+						}),
+							tickSettings: {
+								enabled: true,
+								intervalSeconds: 300,
+								compactionThreshold: 0.75,
+								maxToolCallsPerTick: 1,
+								maxSuccessfulToolCallsPerIteration: 8,
+								contextWindowTokens: 16_000,
+							},
+					},
 				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
 				"run-loop-stream",
 				[],
@@ -9030,7 +9110,7 @@ describe("Bickr Pages Functions", () => {
 		).resolves.toMatchObject({ logOffCalled: false });
 
 		expect(executedTools).toEqual([
-			{ name: "follow_profile", args: { targets: [{ username: "alice", reason: "Alice shares useful context." }] } },
+			{ name: "follow_profile", args: { targets: [{ username: "alice", reason: requiredLt("Alice shares useful context.") }] } },
 		]);
 		const providerResponse = appendedLoopMessages.find((message) => Array.isArray(message.message.tool_calls))?.message;
 		expect(providerResponse?.tool_calls).toEqual([
@@ -9135,21 +9215,21 @@ describe("Bickr Pages Functions", () => {
 				name: "follow_profile",
 				args: {
 					targets: [
-						{ username: "alice", reason: "Alice shares useful context." },
-						{ username: "bob", reason: "Bob adds careful replies." },
+						{ username: "alice", reason: requiredLt("Alice shares useful context.") },
+						{ username: "bob", reason: requiredLt("Bob adds careful replies.") },
 					],
 				},
 			},
 			{
 				name: "follow_profile",
-				args: { targets: [{ username: "carol", reason: "Carol tracks relevant threads." }] },
+				args: { targets: [{ username: "carol", reason: requiredLt("Carol tracks relevant threads.") }] },
 			},
 		]);
 		const rewrittenToolCall = appendedLoopMessages
 			.flatMap((message) => (message.message.tool_calls ?? []) as BotInferenceSubmissionToolCall[])
 			.find((toolCall) => toolCall.id === "call-follow-b");
 		const rewrittenArgs = JSON.parse(rewrittenToolCall?.function.arguments ?? "{}") as Record<string, unknown>;
-		expect(rewrittenArgs).toEqual({ targets: [{ username: "carol", reason: "Carol tracks relevant threads." }] });
+		expect(rewrittenArgs).toEqual({ targets: [{ username: "carol", reason: requiredLt("Carol tracks relevant threads.") }] });
 	});
 
 	it("self-corrects one duplicate missing-profile follow request without repeated failures", async () => {
@@ -9972,7 +10052,7 @@ describe("Bickr Pages Functions", () => {
 
 			expect(callProvider).toHaveBeenCalledTimes(2);
 			expect(rewrites).toEqual([{ kind: "drop", toolCallId: "call-log-off-first" }]);
-			expect(executedTools).toEqual([{ name: "log_off", args: { reason: "still done" } }]);
+			expect(executedTools).toEqual([{ name: "log_off", args: { reason: requiredLt("still done") } }]);
 			expect(appendedLoopMessages).toContainEqual(expect.objectContaining({
 				origin: "self_correction",
 				message: expect.objectContaining({
@@ -11729,14 +11809,14 @@ describe("Bickr Pages Functions", () => {
 	});
 
 	it("records schema-invalid provider failures as owner notifications", async () => {
-		const bot = {
-			id: "bot_schema_invalid_notice",
-			ownerUserId: "user_schema_invalid_owner",
-			homeWorldId: "world_schema_invalid",
-			homeWorldHandle: "patch-notes",
-			handle: "release-sage",
-			displayName: "Release Sage",
-		} as BotDocument;
+			const bot = fakeBotDocument({
+				id: "bot_schema_invalid_notice",
+				ownerUserId: "user_schema_invalid_owner",
+				homeWorldId: "world_schema_invalid",
+				homeWorldHandle: "patch-notes",
+				handle: "release-sage",
+				displayName: "Release Sage",
+			});
 		const message =
 			`Inference provider returned schema-invalid compaction tool arguments: Unexpected argument summary; only ${providerCompactionSummaryProperty} is allowed.`;
 
@@ -11764,14 +11844,14 @@ describe("Bickr Pages Functions", () => {
 	});
 
 	it("records empty provider response failures as owner notifications", async () => {
-		const bot = {
-			id: "bot_empty_provider_notice",
-			ownerUserId: "user_empty_provider_owner",
-			homeWorldId: "world_empty_provider",
-			homeWorldHandle: "primary",
-			handle: "donald-trump",
-			displayName: "Donald Trump",
-		} as BotDocument;
+			const bot = fakeBotDocument({
+				id: "bot_empty_provider_notice",
+				ownerUserId: "user_empty_provider_owner",
+				homeWorldId: "world_empty_provider",
+				homeWorldHandle: "primary",
+				handle: "donald-trump",
+				displayName: "Donald Trump",
+			});
 		const message = [
 			"Inference failed before retrying; error from provider:",
 			"Inference provider returned an empty response with no content, reasoning, or tool calls.",
@@ -12315,7 +12395,7 @@ describe("Bickr Pages Functions", () => {
 			data: {
 				profile: {
 					handle: "manual-test-complete",
-					displayName: "Manual Test Complete",
+					displayName: lt("Manual Test Complete"),
 					profileComplete: true,
 				},
 			},
@@ -12465,7 +12545,7 @@ describe("Bickr Pages Functions", () => {
 				authenticated: true,
 				user: {
 					handle: "octocat",
-					displayName: "Octo Cat",
+					displayName: unspecifiedLt("Octo Cat"),
 					profileComplete: false,
 				},
 			},
@@ -12590,7 +12670,7 @@ describe("Bickr Pages Functions", () => {
 			ok: true,
 			data: {
 				profile: {
-					displayName: "Google Octo",
+					displayName: unspecifiedLt("Google Octo"),
 					authIdentities: [
 						{
 							provider: "google",
@@ -12862,7 +12942,7 @@ describe("Bickr Pages Functions", () => {
 		});
 		const initialForums = await listForums(testEnv.BICKR_D1, "patch-notes");
 		expect(initialForums.find((forum) => forum.handle === "intro")).toMatchObject({
-			description: "Introductions, first threads, and orientation for new participants in this world.",
+			description: lt("Introductions, first threads, and orientation for new participants in this world."),
 		});
 
 		const forumResponse = await createForum(
@@ -13368,7 +13448,7 @@ describe("Bickr Pages Functions", () => {
 		expect(response.status, await response.clone().text()).toBe(200);
 		expect(await response.json()).toMatchObject({
 			ok: true,
-			data: { world: { handle: "release-notes", name: "Release Notes" } },
+			data: { world: { handle: "release-notes", name: lt("Release Notes") } },
 		});
 
 		const worldsResponse = await worlds(contextFor<typeof worlds>(new Request("http://example.com/api/worlds")));
@@ -13611,7 +13691,7 @@ describe("Bickr Pages Functions", () => {
 		expect(threadResponse.status, await threadResponse.clone().text()).toBe(200);
 		const payload = (await threadResponse.json()) as { data: { thread: ThreadDocument } };
 		expect(payload.data.thread.forumHandle).toBe("release-log");
-		expect(payload.data.thread.comments.find((comment) => comment.id === payload.data.thread.rootCommentId)?.body).toContain("f/dev-log");
+		expect(localizedTextString(payload.data.thread.comments.find((comment) => comment.id === payload.data.thread.rootCommentId)?.body)).toContain("f/dev-log");
 	});
 
 	it("renames bot handles and matching personal forums without rewriting old authors", async () => {
@@ -13650,16 +13730,16 @@ describe("Bickr Pages Functions", () => {
 		const forumsAfter = await listForums(testEnv.BICKR_D1, "patch-notes");
 		expect(forumsAfter.find((forum) => forum.personalBotId === bot.id)).toMatchObject({
 			handle: "release-oracle",
-			description: "Blog of Release Sage (u/release-oracle)",
+			description: lt("Blog of Release Sage (u/release-oracle)"),
 		});
 
 		const storedThread = await readThread(testEnv.BICKR_KV, thread.id);
 		const root = storedThread.comments.find((comment) => comment.id === storedThread.rootCommentId);
 		expect(storedThread.forumHandle).toBe("release-oracle");
-		expect(root).toMatchObject({
-			authorHandle: "release-sage",
-			body: "Older prose still says u/release-sage and f/release-sage.",
-		});
+	expect(root).toMatchObject({
+		authorHandle: "release-sage",
+		body: lt("Older prose still says u/release-sage and f/release-sage."),
+	});
 
 		const threadResponse = await threadDetail(
 			contextFor<typeof threadDetail>(
@@ -13896,7 +13976,7 @@ describe("Bickr Pages Functions", () => {
 		};
 		expect(payload.data.profile.user).toMatchObject({
 			handle: "profile-owner",
-			displayName: "Profile Owner",
+			displayName: unspecifiedLt("Profile Owner"),
 		});
 		expect(payload.data.profile.user).not.toHaveProperty("authIdentities");
 		expect(payload.data.profile.user).not.toHaveProperty("inferenceSettings");
@@ -14017,7 +14097,7 @@ describe("Bickr Pages Functions", () => {
 			ok: true,
 			data: {
 				authenticated: true,
-				user: { handle: "delete-profile", displayName: "Delete Profile Again" },
+				user: { handle: "delete-profile", displayName: unspecifiedLt("Delete Profile Again") },
 			},
 		});
 	});
@@ -14149,12 +14229,12 @@ describe("Bickr Pages Functions", () => {
 		expect(createResponse.status).toBe(201);
 		const created = (await createResponse.json()) as { data: { bot: BotBody } };
 		expect(created.data.bot.handle).toBe("release-sage");
-		expect(created.data.bot.owner).toMatchObject({ handle: "octocat", displayName: "Octo Cat" });
+		expect(created.data.bot.owner).toMatchObject({ handle: "octocat", displayName: unspecifiedLt("Octo Cat") });
 		expect(created.data.bot.inferenceSettings).toMatchObject({
 			openRouterApiKeySet: true,
 			model: "openrouter/auto",
 			compactionMode: "tool_call_cache_friendly",
-			recurringPrompt: "I'm Release Sage, and I  ",
+			recurringPrompt: lt("I'm Release Sage, and I  "),
 			supportsPrefill: false,
 			providerRouting: {
 				max_price: {
@@ -14262,7 +14342,7 @@ describe("Bickr Pages Functions", () => {
 		expect(worldBotsPayload.data.bots.find((bot) => bot.handle === "release-sage")?.prompt).toBeUndefined();
 		expect(worldBotsPayload.data.bots.find((bot) => bot.handle === "release-sage")?.owner).toMatchObject({
 			handle: "octocat",
-			displayName: "Octo Cat",
+			displayName: unspecifiedLt("Octo Cat"),
 		});
 
 		const clearedToolSettingsResponse = await patchBot(
@@ -14375,7 +14455,7 @@ describe("Bickr Pages Functions", () => {
 		const personalForums = await listForums(testEnv.BICKR_D1, "patch-notes");
 		const personalForum = personalForums.find((forum) => forum.personalBotId === created.data.bot.id);
 		expect(personalForum).toMatchObject({
-			description: "Blog of Release Sage (u/release-sage)",
+			description: lt("Blog of Release Sage (u/release-sage)"),
 			handle: "release-sage",
 		});
 		expect(personalForums.some((forum) => forum.handle === "intro")).toBe(true);
@@ -14385,7 +14465,7 @@ describe("Bickr Pages Functions", () => {
 			await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, created.data.bot.id),
 		);
 		const bootstrapNotifications = await listPendingNotifications(testEnv.BICKR_KV, testEnv.BICKR_D1, created.data.bot.id);
-		expect(bootstrapNotifications.find((notification) => notification.notificationType === "bootstrap")?.message).toContain("f/intro");
+		expect(localizedTextString(bootstrapNotifications.find((notification) => notification.notificationType === "bootstrap")?.message)).toContain("f/intro");
 
 		await testEnv.BICKR_D1.prepare(
 			`UPDATE forums_index SET deleted_at = ?, updated_at = ? WHERE world_handle = ? AND handle = ?`,
@@ -14432,7 +14512,7 @@ describe("Bickr Pages Functions", () => {
 			ok: true,
 			data: { bots: [{ handle: "release-sage", lastActiveAt: created.data.bot.createdAt, nextDueAt: null }] },
 		});
-		expect(listPayload.data.bots.find((bot) => bot.handle === "release-sage")?.prompt).toBe("Treat every patch note like a prophecy.");
+		expect(listPayload.data.bots.find((bot) => bot.handle === "release-sage")?.prompt).toStrictEqual(lt("Treat every patch note like a prophecy."));
 
 		const runtimeBeforePatch = await testEnv.BICKR_D1.prepare(
 			`SELECT next_due_at AS nextDueAt
@@ -14484,7 +14564,7 @@ describe("Bickr Pages Functions", () => {
 			ok: true,
 			data: {
 				bot: {
-					displayName: "Release Oracle",
+					displayName: lt("Release Oracle"),
 					tickSettings: {
 						enabled: true,
 						allowEarlyLogOff: true,
@@ -15331,7 +15411,7 @@ describe("Bickr Pages Functions", () => {
 		};
 		expect(profilePayload.data.profile).toMatchObject({
 			handle: "octo-admin",
-			displayName: "Octo Admin",
+			displayName: lt("Octo Admin"),
 			profileComplete: true,
 				inferenceSettings: {
 					openRouterApiKeySet: true,
@@ -15340,7 +15420,7 @@ describe("Bickr Pages Functions", () => {
 					translation: {
 						enabled: true,
 						model: "openai/gpt-4o-mini",
-						prompt: defaultTranslationPrompt,
+						prompt: unspecifiedLt(defaultTranslationPrompt),
 						toolCalls: "railroad",
 					},
 					supportsPrefill: false,
@@ -15431,7 +15511,7 @@ describe("Bickr Pages Functions", () => {
 		);
 		expect(await sessionResponse.json()).toMatchObject({
 			ok: true,
-			data: { user: { handle: "octo-admin", displayName: "Octo Admin", profileComplete: true } },
+			data: { user: { handle: "octo-admin", displayName: lt("Octo Admin"), profileComplete: true } },
 		});
 
 		const noKeyModelResponse = await patchProfile(
@@ -15460,7 +15540,7 @@ describe("Bickr Pages Functions", () => {
 			expect(noKeyModelPayload.data.profile.inferenceSettings.model).toBeUndefined();
 			expect(noKeyModelPayload.data.profile.inferenceSettings.translation).toMatchObject({
 				enabled: true,
-				prompt: defaultTranslationPrompt,
+				prompt: unspecifiedLt(defaultTranslationPrompt),
 			});
 			expect((noKeyModelPayload.data.profile.inferenceSettings.translation as Record<string, unknown>).model).toBeUndefined();
 		expect(noKeyModelPayload.data.profile.inferenceSettings.openRouterApiKeySet).toBeUndefined();
@@ -15485,7 +15565,7 @@ describe("Bickr Pages Functions", () => {
 				),
 			),
 		);
-		expect(customBaseModelResponse.status).toBe(200);
+		expect(customBaseModelResponse.status, await customBaseModelResponse.clone().text()).toBe(200);
 		expect(await customBaseModelResponse.json()).toMatchObject({
 			ok: true,
 			data: {
@@ -15496,7 +15576,7 @@ describe("Bickr Pages Functions", () => {
 							translation: {
 								enabled: true,
 								model: "local/translator",
-								prompt: "Translate into Scots.",
+								prompt: lt("Translate into Scots."),
 							},
 					},
 				},
@@ -15892,7 +15972,7 @@ describe("Bickr Pages Functions", () => {
 			jsonRequest(
 				`http://example.com/forums/${forum.id}/threads`,
 				"POST",
-				{ title: "Index repair ballad", body: "Every stale row needs a chorus." },
+				{ title: requiredLt("Index repair ballad"), body: requiredLt("Every stale row needs a chorus.") },
 			),
 			{
 				BICKR_D1: testEnv.BICKR_D1,
@@ -15904,7 +15984,7 @@ describe("Bickr Pages Functions", () => {
 		const threadRequest = jsonRequest(
 			`http://example.com/forums/${forum.id}/threads`,
 			"POST",
-			{ title: "Index repair ballad", body: "Every stale row needs a chorus." },
+			{ title: requiredLt("Index repair ballad"), body: requiredLt("Every stale row needs a chorus.") },
 		);
 		threadRequest.headers.set("x-bickr-bot-id", botOneId);
 		const createdThreadResponse = await handleForumCoordinatorRequest(threadRequest, {
@@ -15917,7 +15997,7 @@ describe("Bickr Pages Functions", () => {
 		const commentRequest = jsonRequest(
 			`http://example.com/threads/${thread.data.thread.id}/comments`,
 			"POST",
-			{ body: "This chorus needs a fresher cache." },
+			{ body: requiredLt("This chorus needs a fresher cache.") },
 		);
 		commentRequest.headers.set("x-bickr-bot-id", botTwoId);
 		const commentResponse = await handleForumCoordinatorRequest(commentRequest, {
@@ -15926,9 +16006,9 @@ describe("Bickr Pages Functions", () => {
 		});
 		expect(commentResponse.status).toBe(201);
 		const commentPayload = (await commentResponse.json()) as {
-			data: { thread: { comments: Array<{ id: string; body: string }> } };
+			data: { thread: { comments: Array<{ id: string; body: LocalizedText }> } };
 		};
-		const commentId = commentPayload.data.thread.comments.find((comment) => comment.body === "This chorus needs a fresher cache.")?.id;
+		const commentId = commentPayload.data.thread.comments.find((comment) => localizedTextString(comment.body) === "This chorus needs a fresher cache.")?.id;
 		if (!commentId) {
 			throw new Error("Created comment ID not found.");
 		}
@@ -15936,7 +16016,7 @@ describe("Bickr Pages Functions", () => {
 		const voteRequest = jsonRequest(
 			"http://example.com/votes",
 			"POST",
-			{ commentId: thread.data.thread.rootCommentId, value: 1, reason: "The root comment is useful." },
+			{ commentId: thread.data.thread.rootCommentId, value: 1, reason: requiredLt("The root comment is useful.") },
 		);
 		voteRequest.headers.set("x-bickr-bot-id", botTwoId);
 		const voteResponse = await handleForumCoordinatorRequest(voteRequest, {
@@ -15976,7 +16056,7 @@ describe("Bickr Pages Functions", () => {
 			data: { votes: Array<{ handle: string; displayName: string; value: number }> };
 		};
 		expect(commentVotesPayload.data.votes).toMatchObject([
-			{ handle: "index-bard", displayName: "Index Bard", value: -1 },
+			{ handle: "index-bard", displayName: lt("Index Bard"), value: -1 },
 		]);
 
 		await followBot(testEnv.BICKR_KV, testEnv.BICKR_D1, botTwoId, botOneId, undefined, {
@@ -15991,8 +16071,8 @@ describe("Bickr Pages Functions", () => {
 
 		const botSearch = await searchBots(testEnv.BICKR_KV, testEnv.BICKR_D1, notifications[0]?.worldId ?? "", "stale");
 		expect(botSearch.find((result) => result.handle === "cache-critic")).toMatchObject({
-			displayName: "Cache Critic",
-			shortBio: "Complains about stale reads.",
+			displayName: lt("Cache Critic"),
+			shortBio: lt("Complains about stale reads."),
 			source: "text",
 		});
 		expect(botSearch.some((result) => "prompt" in result || "inferenceSettings" in result)).toBe(false);
@@ -16007,8 +16087,8 @@ describe("Bickr Pages Functions", () => {
 		);
 		expect(profile).toMatchObject({
 			handle: "cache-critic",
-			displayName: "Cache Critic",
-			shortBio: "Complains about stale reads.",
+			displayName: lt("Cache Critic"),
+			shortBio: lt("Complains about stale reads."),
 		});
 		expect("prompt" in profile).toBe(false);
 
@@ -16027,8 +16107,8 @@ describe("Bickr Pages Functions", () => {
 				parentComment: {
 					commentId: thread.data.thread.rootCommentId,
 					authorHandle: "index-bard",
-					authorDisplayName: "Index Bard",
-					bodyPreview: "Every stale row needs a chorus.",
+					authorDisplayName: lt("Index Bard"),
+					bodyPreview: lt("Every stale row needs a chorus."),
 				},
 			}),
 			expect.objectContaining({
@@ -16036,8 +16116,8 @@ describe("Bickr Pages Functions", () => {
 				targetComment: {
 					commentId: thread.data.thread.rootCommentId,
 					authorHandle: "index-bard",
-					authorDisplayName: "Index Bard",
-					bodyPreview: "Every stale row needs a chorus.",
+					authorDisplayName: lt("Index Bard"),
+					bodyPreview: lt("Every stale row needs a chorus."),
 				},
 			}),
 		]));
@@ -16075,17 +16155,17 @@ describe("Bickr Pages Functions", () => {
 						expect.objectContaining({
 							type: "vote",
 							id: `vote:comment:${thread.data.thread.rootCommentId}`,
-							reason: "The root comment is useful.",
+							reason: requiredLt("The root comment is useful."),
 							targetComment: expect.objectContaining({
 								commentId: thread.data.thread.rootCommentId,
 								authorHandle: "index-bard",
-								bodyPreview: "Every stale row needs a chorus.",
+								bodyPreview: lt("Every stale row needs a chorus."),
 							}),
 						}),
 						expect.objectContaining({
 							type: "follow",
 							bot: expect.objectContaining({ handle: "index-bard" }),
-							reason: "Index Bard keeps writing useful index notes.",
+							reason: unspecifiedLt("Index Bard keeps writing useful index notes."),
 						}),
 					]),
 				},
@@ -16155,7 +16235,7 @@ describe("Bickr Pages Functions", () => {
 			const otherThreadRequest = jsonRequest(
 				`http://example.com/forums/${otherForum.id}/threads`,
 				"POST",
-				{ title: "Elsewhere only", body: "This should not appear in patch notes activity." },
+				{ title: requiredLt("Elsewhere only"), body: requiredLt("This should not appear in patch notes activity.") },
 			);
 			otherThreadRequest.headers.set("x-bickr-bot-id", otherBotId);
 			await handleForumCoordinatorRequest(otherThreadRequest, {
@@ -16176,12 +16256,12 @@ describe("Bickr Pages Functions", () => {
 				expect.objectContaining({
 					type: "thread",
 					actor: expect.objectContaining({ handle: "index-bard" }),
-					title: "Index repair ballad",
+					title: lt("Index repair ballad"),
 				}),
 				expect.objectContaining({
 					type: "comment",
 					actor: expect.objectContaining({ handle: "cache-critic" }),
-					bodyPreview: "This chorus needs a fresher cache.",
+					bodyPreview: lt("This chorus needs a fresher cache."),
 				}),
 				expect.objectContaining({
 					type: "vote",
@@ -16197,7 +16277,7 @@ describe("Bickr Pages Functions", () => {
 					type: "unfollow",
 					actor: expect.objectContaining({ handle: "cache-critic" }),
 					bot: expect.objectContaining({ handle: "index-bard" }),
-					reason: "Index Bard no longer needs close tracking.",
+					reason: unspecifiedLt("Index Bard no longer needs close tracking."),
 				}),
 			]));
 			expect(worldActivityFeed.activities.some((item) => item.actor.handle === "offworld-poster")).toBe(false);
@@ -16440,7 +16520,7 @@ describe("Bickr Pages Functions", () => {
 					authorBotId: author.id,
 					authorHandle: author.handle,
 					authorDisplayName: author.displayName,
-					body: "Fresh coordinator comment.",
+					body: lt("Fresh coordinator comment."),
 					voteScore: 0,
 					createdAt: new Date().toISOString(),
 					updatedAt: new Date().toISOString(),
@@ -16481,9 +16561,9 @@ describe("Bickr Pages Functions", () => {
 		expect(freshResponse.status).toBe(200);
 		expect(freshCoordinator).toHaveBeenCalledTimes(1);
 		const freshPayload = (await freshResponse.json()) as {
-			data: { thread: { comments: Array<{ body: string }> } };
+			data: { thread: { comments: Array<{ body: LocalizedText }> } };
 		};
-		expect(freshPayload.data.thread.comments.map((comment) => comment.body)).toEqual([
+		expect(freshPayload.data.thread.comments.map((comment) => localizedTextString(comment.body))).toEqual([
 			"Fresh coordinator comment.",
 		]);
 	});
@@ -16507,7 +16587,7 @@ describe("Bickr Pages Functions", () => {
 		const firstComment = jsonRequest(
 			`http://example.com/threads/${thread.id}/comments`,
 			"POST",
-			{ body: "First fresh comment." },
+			{ body: requiredLt("First fresh comment.") },
 		);
 		firstComment.headers.set("x-bickr-bot-id", replier.id);
 		expect(await handleForumCoordinatorRequest(firstComment, {
@@ -16519,7 +16599,7 @@ describe("Bickr Pages Functions", () => {
 		const secondComment = jsonRequest(
 			`http://example.com/threads/${thread.id}/comments`,
 			"POST",
-			{ body: "Second fresh comment." },
+			{ body: requiredLt("Second fresh comment.") },
 		);
 		secondComment.headers.set("x-bickr-bot-id", replier.id);
 		const secondResponse = await handleForumCoordinatorRequest(secondComment, {
@@ -16527,9 +16607,9 @@ describe("Bickr Pages Functions", () => {
 			BICKR_KV: testEnv.BICKR_KV,
 		}, context);
 		const secondPayload = (await secondResponse.json()) as {
-			data: { thread: { comments: Array<{ body: string }> } };
+			data: { thread: { comments: Array<{ body: LocalizedText }> } };
 		};
-		expect(secondPayload.data.thread.comments.map((comment) => comment.body)).toEqual([
+		expect(secondPayload.data.thread.comments.map((comment) => localizedTextString(comment.body))).toEqual([
 			"The KV copy can lag.",
 			"First fresh comment.",
 			"Second fresh comment.",
@@ -16545,9 +16625,9 @@ describe("Bickr Pages Functions", () => {
 			context,
 		);
 		const cachedPayload = (await cachedRead.json()) as {
-			data: { thread: { comments: Array<{ body: string }> } };
+			data: { thread: { comments: Array<{ body: LocalizedText }> } };
 		};
-		expect(cachedPayload.data.thread.comments.map((comment) => comment.body)).toEqual([
+		expect(cachedPayload.data.thread.comments.map((comment) => localizedTextString(comment.body))).toEqual([
 			"The KV copy can lag.",
 			"First fresh comment.",
 			"Second fresh comment.",
@@ -16600,13 +16680,13 @@ describe("Bickr Pages Functions", () => {
 		const firstRequest = jsonRequest(
 			`http://example.com/comments/${parent.id}/replies`,
 			"POST",
-			{ body: "First concurrent reply." },
+			{ body: requiredLt("First concurrent reply.") },
 		);
 		firstRequest.headers.set("x-bickr-bot-id", firstReplier.id);
 		const secondRequest = jsonRequest(
 			`http://example.com/comments/${parent.id}/replies`,
 			"POST",
-			{ body: "Second concurrent reply." },
+			{ body: requiredLt("Second concurrent reply.") },
 		);
 		secondRequest.headers.set("x-bickr-bot-id", secondReplier.id);
 
@@ -16626,7 +16706,7 @@ describe("Bickr Pages Functions", () => {
 		const updated = await readThread(testEnv.BICKR_KV, thread.id);
 		const replyBodies = updated.comments
 			.filter((comment) => comment.parentCommentId === parent.id)
-			.map((comment) => comment.body);
+			.map((comment) => localizedTextString(comment.body));
 		expect(replyBodies).toEqual([
 			"First concurrent reply.",
 			"Second concurrent reply.",
@@ -16650,13 +16730,13 @@ describe("Bickr Pages Functions", () => {
 		const failedRequest = jsonRequest(
 			`http://example.com/threads/${thread.id}/comments`,
 			"POST",
-			{ body: "This reply should fail.", parentCommentId: "missing-comment" },
+			{ body: requiredLt("This reply should fail."), parentCommentId: "missing-comment" },
 		);
 		failedRequest.headers.set("x-bickr-bot-id", replier.id);
 		const validRequest = jsonRequest(
 			`http://example.com/threads/${thread.id}/comments`,
 			"POST",
-			{ body: "Reply after failed mutation." },
+			{ body: requiredLt("Reply after failed mutation.") },
 		);
 		validRequest.headers.set("x-bickr-bot-id", replier.id);
 
@@ -16674,7 +16754,7 @@ describe("Bickr Pages Functions", () => {
 		expect(failedResponse.status).toBe(404);
 		expect(validResponse.status).toBe(201);
 		const updated = await readThread(testEnv.BICKR_KV, thread.id);
-		expect(updated.comments.map((comment) => comment.body)).toContain("Reply after failed mutation.");
+		expect(updated.comments.map((comment) => localizedTextString(comment.body))).toContain("Reply after failed mutation.");
 	});
 
 	it("routes comment votes through the owning thread coordinator", async () => {
@@ -16798,7 +16878,7 @@ describe("Bickr Pages Functions", () => {
 		);
 		expect(patchForumResponse.status).toBe(200);
 		expect(await patchForumResponse.json()).toMatchObject({
-			data: { forum: { handle: "moderation", description: "Moderation edits landed" } },
+			data: { forum: { handle: "moderation", description: lt("Moderation edits landed") } },
 		});
 
 		const otherForumResponse = await createForum(
@@ -16844,7 +16924,7 @@ describe("Bickr Pages Functions", () => {
 		);
 		expect(patchWorldResponse.status).toBe(200);
 		expect(await patchWorldResponse.json()).toMatchObject({
-			data: { world: { handle: "patch-notes", name: "Patch Notes Edited" } },
+			data: { world: { handle: "patch-notes", name: lt("Patch Notes Edited") } },
 		});
 
 		const blockedWorldDelete = await deleteWorldRoute(
@@ -17160,7 +17240,7 @@ describe("Bickr Pages Functions", () => {
 			expect.objectContaining({
 				comment: expect.objectContaining({
 					id: comment.id,
-					bodyPreview: "Needle subscription comment text.",
+					bodyPreview: lt("Needle subscription comment text."),
 					authorHandle: "watch-replier",
 				}),
 				subscription: expect.objectContaining({ id: "hsb_comment" }),
@@ -17296,17 +17376,17 @@ describe("Bickr Pages Functions", () => {
 		await createCommentForTest(thread.id, author.id, "First ping for u/mention-target.");
 		const firstNotifications = await listPendingNotifications(testEnv.BICKR_KV, testEnv.BICKR_D1, recipient.id);
 		const firstMention = firstNotifications.find((notification) => notification.notificationType === "mention");
-		expect(firstMention?.message).toContain('Mention Author mentioned you in "Mention thread".');
+		expect(localizedTextString(firstMention?.message)).toContain('Mention Author mentioned you in "Mention thread".');
 		expect(firstMention?.event).toMatchObject({
 			type: "comment_created",
 			deliveryReasons: ["mention"],
 			actor: {
 				username: "u/mention-author",
-				displayName: "Mention Author",
-				shortBio: "Mention Author test bot.",
+				displayName: lt("Mention Author"),
+				shortBio: lt("Mention Author test bot."),
 			},
 			comment: {
-				text: "First ping for u/mention-target.",
+				text: lt("First ping for u/mention-target."),
 			},
 		});
 
@@ -17333,8 +17413,8 @@ describe("Bickr Pages Functions", () => {
 		const secondMention = allNotifications
 			.filter((notification) => notification.notificationType === "mention")
 			.at(-1);
-		expect(secondMention?.message).toContain("Mention Author mentioned you");
-		expect(secondMention?.message).not.toContain("Short bio:");
+		expect(localizedTextString(secondMention?.message)).toContain("Mention Author mentioned you");
+		expect(localizedTextString(secondMention?.message)).not.toContain("Short bio:");
 	});
 
 	it("detects u/ mentions for Unicode handles", async () => {
@@ -17426,7 +17506,7 @@ describe("Bickr Pages Functions", () => {
 				expect.objectContaining({
 					type: "unfollow",
 					bot: expect.objectContaining({ handle: target.handle }),
-					reason: "Target posts stopped being relevant.",
+					reason: unspecifiedLt("Target posts stopped being relevant."),
 				}),
 			]),
 		);
@@ -17445,8 +17525,8 @@ describe("Bickr Pages Functions", () => {
 		expect(replyNotifications[0]?.event).toMatchObject({
 			type: "comment_created",
 			deliveryReasons: ["direct_reply", "followed_profile_activity"],
-			comment: { id: reply.id, text: "Actor reply." },
-			replyTo: { id: parent.id, text: "Reader parent." },
+			comment: { id: reply.id, text: lt("Actor reply.") },
+			replyTo: { id: parent.id, text: lt("Reader parent.") },
 		});
 	});
 
@@ -17477,7 +17557,7 @@ describe("Bickr Pages Functions", () => {
 			bot,
 			"run-repeat-blocked",
 			"reply_to_comment",
-			{ commentId: parent.id, body: "Different follow-up." },
+			{ commentId: parent.id, body: requiredLt("Different follow-up.") },
 			{ mode: "normal", signal },
 		).catch((error: unknown) => error);
 
@@ -17494,7 +17574,7 @@ describe("Bickr Pages Functions", () => {
 			"make_additional_reply_to_the_same_comment",
 			{
 				commentId: parent.id,
-				body: "Intentional second reply.",
+				body: requiredLt("Intentional second reply."),
 			},
 			{ mode: "normal", signal },
 		);
@@ -17516,10 +17596,10 @@ describe("Bickr Pages Functions", () => {
 		currentThread = await readThread(testEnv.BICKR_KV, thread.id);
 		expect(
 			currentThread.comments.find((comment) =>
-				comment.parentCommentId === parent.id &&
-				comment.authorBotId === replier.id &&
-				comment.body === "Intentional second reply."
-			),
+					comment.parentCommentId === parent.id &&
+					comment.authorBotId === replier.id &&
+					localizedTextString(comment.body) === "Intentional second reply."
+				),
 		).toBeDefined();
 	});
 
@@ -18210,16 +18290,16 @@ describe("Bickr Pages Functions", () => {
 		if (!reply) {
 			throw new Error("Expected reply notification.");
 		}
-		expect(reply.message).toContain('Context Replier replied to you in "Context thread".');
+		expect(localizedTextString(reply.message)).toContain('Context Replier replied to you in "Context thread".');
 
 		const built = await buildRuntimeLoopInput(testEnv.BICKR_KV, testEnv.BICKR_D1, recipient.id, [reply], []);
 		const loopNotification = built.input.notifications[0];
 		expect(loopNotification).toMatchObject({
 			sourceObjectId: formatCommentRef(child.id),
 			type: "comment_created",
-			thread: { id: thread.id, title: "Context thread" },
-			comment: { id: child.id, threadId: thread.id, parentCommentId: parent.id, text: "Child reply." },
-			replyTo: { id: parent.id, threadId: thread.id, text: "Parent comment." },
+			thread: { id: thread.id, title: lt("Context thread") },
+			comment: { id: child.id, threadId: thread.id, parentCommentId: parent.id, text: lt("Child reply.") },
+			replyTo: { id: parent.id, threadId: thread.id, text: lt("Parent comment.") },
 		});
 		expect(built.autoProfileSeenItems).toEqual([]);
 
@@ -18236,8 +18316,8 @@ describe("Bickr Pages Functions", () => {
 			actor: { username: `u/${replier.handle}`, displayName: replier.displayName },
 			world: { handle: "w/patch-notes" },
 			forum: { handle: `f/${forum.handle}` },
-			thread: { id: thread.id, title: "Context thread" },
-			comment: { id: child.id, threadId: thread.id, parentCommentId: parent.id, text: "Child reply." },
+			thread: { id: thread.id, title: lt("Context thread") },
+			comment: { id: child.id, threadId: thread.id, parentCommentId: parent.id, text: lt("Child reply.") },
 		});
 
 		const followup = await createCommentForTest(
@@ -18259,9 +18339,9 @@ describe("Bickr Pages Functions", () => {
 		const nextReply = (await listPendingNotifications(testEnv.BICKR_KV, testEnv.BICKR_D1, recipient.id))
 			.filter((notification) => notification.notificationType === "reply")
 			.at(-1);
-		expect(nextReply?.message).toContain("Context Replier replied to you");
-		expect(nextReply?.message).not.toContain("Short bio:");
-		expect(nextReply?.message).not.toContain("Follow status:");
+		expect(localizedTextString(nextReply?.message)).toContain("Context Replier replied to you");
+		expect(localizedTextString(nextReply?.message)).not.toContain("Short bio:");
+		expect(localizedTextString(nextReply?.message)).not.toContain("Follow status:");
 		if (!nextReply) {
 			throw new Error("Expected second reply notification.");
 		}
@@ -18740,11 +18820,11 @@ describe("Bickr Pages Functions", () => {
 		const voteNow = new Date().toISOString();
 		const votedThread = await setVote(testEnv.BICKR_KV, testEnv.BICKR_D1, {
 			botId: bot.id,
-			targetType: "comment",
-			targetId: comment.id,
-			value: 1,
-			reason: "This spotlighted reply is worth boosting.",
-		}, voteNow);
+				targetType: "comment",
+				targetId: comment.id,
+				value: 1,
+				reason: requiredLt("This spotlighted reply is worth boosting."),
+			}, voteNow);
 		await recordSpotlightToolHumanNotification(testEnv.BICKR_D1, {
 			bot: botDocument,
 			spotlightId,
@@ -19360,9 +19440,9 @@ describe("Bickr Pages Functions", () => {
 		});
 		expect(cloneBody.data.bot.localOverrides).toMatchObject({
 			hasAvatar: false,
-			displayName: "Avatar Clone",
-			shortBio: "A participant cloned with an avatar.",
-			prompt: "Continue the source persona.",
+			displayName: lt("Avatar Clone"),
+			shortBio: lt("A participant cloned with an avatar."),
+			prompt: lt("Continue the source persona."),
 		});
 
 		const rawStoredClone = await rawBotById(testEnv.BICKR_KV, testEnv.BICKR_D1, cloneBody.data.bot.id);
@@ -19412,9 +19492,9 @@ describe("Bickr Pages Functions", () => {
 			prompt: "",
 			cloneSourceBotId: source.id,
 		});
-		expect(middle.displayName).toBe(source.displayName);
-		expect(middle.shortBio).toBe(source.shortBio);
-		expect(middle.prompt).toBe(source.prompt);
+		expect(middle.displayName).toStrictEqual(source.displayName);
+		expect(middle.shortBio).toStrictEqual(source.shortBio);
+		expect(middle.prompt).toStrictEqual(source.prompt);
 		expect(middle.cloneSource).toMatchObject({
 			sourceBotId: source.id,
 			sourceHandle: source.handle,
@@ -19422,9 +19502,9 @@ describe("Bickr Pages Functions", () => {
 			linked: true,
 		});
 		expect(middle.localOverrides).toMatchObject({
-			displayName: "",
-			shortBio: "",
-			prompt: "",
+			displayName: lt(""),
+			shortBio: lt(""),
+			prompt: lt(""),
 			inferenceSettings: {},
 			hasAvatar: false,
 		});
@@ -19441,9 +19521,9 @@ describe("Bickr Pages Functions", () => {
 			prompt: "",
 			cloneSourceBotId: middle.id,
 		});
-		expect(leaf.displayName).toBe(source.displayName);
-		expect(leaf.shortBio).toBe("Leaf override");
-		expect(leaf.prompt).toBe(source.prompt);
+		expect(leaf.displayName).toStrictEqual(source.displayName);
+		expect(leaf.shortBio).toStrictEqual(lt("Leaf override"));
+		expect(leaf.prompt).toStrictEqual(source.prompt);
 		expect(leaf.inferenceSettings).toMatchObject({
 			model: "source/model",
 			temperature: 0.33,
@@ -19474,10 +19554,10 @@ describe("Bickr Pages Functions", () => {
 		expect(patchPayload.data.affectedBots.map((bot) => bot.id).sort()).toEqual([leaf.id, middle.id].sort());
 		const effectiveMiddle = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, middle.id);
 		const effectiveLeaf = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, leaf.id);
-		expect(effectiveMiddle.displayName).toBe("Clone Source Updated");
-		expect(effectiveMiddle.prompt).toBe("Updated source prompt.");
-		expect(effectiveLeaf.displayName).toBe("Clone Source Updated");
-		expect(effectiveLeaf.shortBio).toBe("Leaf override");
+		expect(effectiveMiddle.displayName).toStrictEqual(lt("Clone Source Updated"));
+		expect(effectiveMiddle.prompt).toStrictEqual(lt("Updated source prompt."));
+		expect(effectiveLeaf.displayName).toStrictEqual(lt("Clone Source Updated"));
+		expect(effectiveLeaf.shortBio).toStrictEqual(lt("Leaf override"));
 		expect(effectiveLeaf.inferenceSettings).toMatchObject({
 			model: "source/updated",
 			temperature: 0.55,
@@ -19562,8 +19642,8 @@ describe("Bickr Pages Functions", () => {
 		const unlinked = (await unlinkResponse.json()) as { data: { bot: BotBody } };
 		expect(unlinked.data.bot.cloneSource).toMatchObject({ sourceBotId: source.id, linked: false });
 		const rawUnlinked = await rawBotById(testEnv.BICKR_KV, testEnv.BICKR_D1, clone.id);
-		expect(rawUnlinked.displayName).toBe(source.displayName);
-		expect(rawUnlinked.prompt).toBe(source.prompt);
+		expect(rawUnlinked.displayName).toStrictEqual(source.displayName);
+		expect(rawUnlinked.prompt).toStrictEqual(source.prompt);
 
 		const relinkResponse = await relinkBotCloneRoute(
 			contextFor<typeof relinkBotCloneRoute>(
@@ -19573,8 +19653,8 @@ describe("Bickr Pages Functions", () => {
 		);
 		expect(relinkResponse.status, await relinkResponse.clone().text()).toBe(200);
 		const rawRelinked = await rawBotById(testEnv.BICKR_KV, testEnv.BICKR_D1, clone.id);
-		expect(rawRelinked.displayName).toBe("");
-		expect(rawRelinked.prompt).toBe("");
+		expect(rawRelinked.displayName).toStrictEqual(lt(""));
+		expect(rawRelinked.prompt).toStrictEqual(lt(""));
 		expect((await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, clone.id)).cloneSource).toMatchObject({
 			sourceBotId: source.id,
 			linked: true,
@@ -19654,13 +19734,13 @@ describe("Bickr Pages Functions", () => {
 		const result = await backfillInferredCloneSources(testEnv.BICKR_KV, testEnv.BICKR_D1, "2026-05-14T00:00:00.000Z");
 		expect(result).toMatchObject({ groups: 1, clonesLinked: 1, clonesSkipped: 0 });
 		const rawDuplicate = await rawBotById(testEnv.BICKR_KV, testEnv.BICKR_D1, duplicate.id);
-		expect(rawDuplicate.displayName).toBe("");
-		expect(rawDuplicate.shortBio).toBe("Different short bio");
-		expect(rawDuplicate.prompt).toBe("");
+		expect(rawDuplicate.displayName).toStrictEqual(lt(""));
+		expect(rawDuplicate.shortBio).toStrictEqual(lt("Different short bio"));
+		expect(rawDuplicate.prompt).toStrictEqual(lt(""));
 		const effectiveDuplicate = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, duplicate.id);
-		expect(effectiveDuplicate.displayName).toBe(source.displayName);
-		expect(effectiveDuplicate.shortBio).toBe("Different short bio");
-		expect(effectiveDuplicate.prompt).toBe(source.prompt);
+		expect(effectiveDuplicate.displayName).toStrictEqual(source.displayName);
+		expect(effectiveDuplicate.shortBio).toStrictEqual(lt("Different short bio"));
+		expect(effectiveDuplicate.prompt).toStrictEqual(source.prompt);
 		expect(effectiveDuplicate.cloneSource).toMatchObject({
 			sourceBotId: source.id,
 			sourceHandle: source.handle,
@@ -20025,7 +20105,7 @@ describe("Bickr Pages Functions", () => {
 		expect(applyBody.data.bot.avatarCrop).toBeUndefined();
 		expect(storedBot.inferenceSettings.imageGeneration).toMatchObject({
 			model: "openai/image-one",
-			prompt: "Paint me as a luminous portrait.",
+			prompt: unspecifiedLt("Paint me as a luminous portrait."),
 			aspectRatio: "1:1",
 			imageSize: "2K",
 		});
@@ -21253,7 +21333,7 @@ describe("Bickr Pages Functions", () => {
 			data: {
 				preview: {
 					handle: "example-bot",
-					displayName: "Example Bot",
+					displayName: unspecifiedLt("Example Bot"),
 					avatarUrl: "https://cdn.chirper.ai/avatars/example.png",
 					importSource: {
 						provider: "chirper",
@@ -21292,11 +21372,11 @@ describe("Bickr Pages Functions", () => {
 		expect(realShape.status).toBe(200);
 		const realShapeBody = (await realShape.json()) as {
 			ok: true;
-			data: { preview: { handle: string; shortBio: string; prompt: string } };
+			data: { preview: { handle: string; shortBio: LocalizedText; prompt: LocalizedText } };
 		};
 		expect(realShapeBody.data.preview.handle).toBe("sejong");
-		expect(realShapeBody.data.preview.shortBio.length).toBeLessThanOrEqual(1200);
-		expect(realShapeBody.data.preview.prompt.length).toBeGreaterThan(12_000);
+		expect(localizedTextString(realShapeBody.data.preview.shortBio).length).toBeLessThanOrEqual(1200);
+		expect(localizedTextString(realShapeBody.data.preview.prompt).length).toBeGreaterThan(12_000);
 
 		const truncatedShort = "Legacy truncated Chirper summary. ".repeat(9);
 		const fullBio = "Full Chirper biography that should be preferred over the legacy short field. ".repeat(13);
@@ -21325,11 +21405,11 @@ describe("Bickr Pages Functions", () => {
 		);
 		const longBioBody = (await longBioShape.json()) as {
 			ok: true;
-			data: { preview: { shortBio: string } };
+			data: { preview: { shortBio: LocalizedText } };
 		};
 		expect(longBioShape.status).toBe(200);
-		expect(longBioBody.data.preview.shortBio).toBe(fullBio.trim());
-		expect(longBioBody.data.preview.shortBio.length).toBeGreaterThan(truncatedShort.trim().length);
+		expect(longBioBody.data.preview.shortBio).toStrictEqual(unspecifiedLt(fullBio.trim()));
+		expect(localizedTextString(longBioBody.data.preview.shortBio).length).toBeGreaterThan(truncatedShort.trim().length);
 
 		const failure = await chirperPreview(
 			contextFor<typeof chirperPreview>(
@@ -21375,6 +21455,7 @@ describe("Bickr Pages Functions", () => {
 						"POST",
 						{
 							handle: "lisp",
+							language: testLanguage,
 							displayName: "Lisp",
 							shortBio: "Parenthetical participant.",
 							prompt: "I speak in carefully nested forms.",
@@ -21479,7 +21560,7 @@ describe("Bickr Pages Functions", () => {
 		);
 		const titled = (await titleResponse.json()) as { data: { group: BotGroupSummary } };
 		expect(titled.data.group).toMatchObject({
-			customTitle: "Favorites",
+			customTitle: lt("Favorites"),
 			displayTitle: "Favorites",
 			titleSource: "custom",
 		});
@@ -22156,7 +22237,7 @@ async function seedWorld(cookie: string): Promise<void> {
 			jsonRequest(
 				"http://example.com/api/worlds",
 				"POST",
-				{ handle: "patch-notes", name: "Patch Notes", description: "Change discussion" },
+				{ handle: "patch-notes", language: testLanguage, name: "Patch Notes", description: "Change discussion" },
 				cookie,
 			),
 		),
@@ -22169,7 +22250,7 @@ async function createWorldForTest(cookie: string, handle: string, name: string):
 			jsonRequest(
 				"http://example.com/api/worlds",
 				"POST",
-				{ handle, name, description: `${name} test world.` },
+				{ handle, language: testLanguage, name, description: `${name} test world.` },
 				cookie,
 			),
 		),
@@ -22183,7 +22264,7 @@ async function createForumForTest(cookie: string, handle: string): Promise<TestF
 			jsonRequest(
 				`http://example.com/api/worlds/patch-notes/forums`,
 				"POST",
-				{ handle, description: `${handle} discussions` },
+				{ handle, language: testLanguage, description: `${handle} discussions` },
 				cookie,
 			),
 			{ worldHandle: "patch-notes" },
@@ -22198,9 +22279,9 @@ async function createBotInWorld(
 	worldHandle: string,
 	input: {
 		handle: string;
-		displayName?: string;
-		shortBio?: string;
-		prompt?: string;
+		displayName?: string | LocalizedText;
+		shortBio?: string | LocalizedText;
+		prompt?: string | LocalizedText;
 		cloneSourceBotId?: string;
 	},
 ): Promise<BotBody> {
@@ -22210,10 +22291,11 @@ async function createBotInWorld(
 				`http://example.com/api/worlds/${worldHandle}/bots`,
 				"POST",
 				{
-					displayName: `${input.handle} display`,
-					shortBio: `${input.handle} bio`,
-					prompt: `${input.handle} prompt`,
+					language: testLanguage,
 					...input,
+					displayName: input.displayName === undefined ? `${input.handle} display` : localizedTextString(input.displayName),
+					shortBio: input.shortBio === undefined ? `${input.handle} bio` : localizedTextString(input.shortBio),
+					prompt: input.prompt === undefined ? `${input.handle} prompt` : localizedTextString(input.prompt),
 				},
 				cookie,
 			),
@@ -22237,6 +22319,7 @@ async function createBotForTest(cookie: string, handle: string, options: { enabl
 				"POST",
 				{
 					handle,
+					language: testLanguage,
 					displayName,
 					shortBio: `${displayName} test bot.`,
 					prompt: `You are ${displayName}.`,
@@ -22287,7 +22370,10 @@ async function createThreadForTest(
 	title: string,
 	body: string,
 ): Promise<TestThread> {
-	const request = jsonRequest(`http://example.com/forums/${forumId}/threads`, "POST", { title, body });
+	const request = jsonRequest(`http://example.com/forums/${forumId}/threads`, "POST", {
+		title: requiredLt(title),
+		body: requiredLt(body),
+	});
 	request.headers.set("x-bickr-bot-id", botId);
 	const response = await handleForumCoordinatorRequest(request, {
 		BICKR_D1: testEnv.BICKR_D1,
@@ -22304,7 +22390,7 @@ async function createCommentForTest(
 	parentCommentId?: string,
 ): Promise<TestComment> {
 	const request = jsonRequest(`http://example.com/threads/${threadId}/comments`, "POST", {
-		body,
+		body: requiredLt(body),
 		...(parentCommentId ? { parentCommentId } : {}),
 	});
 	request.headers.set("x-bickr-bot-id", botId);
@@ -22316,14 +22402,14 @@ async function createCommentForTest(
 		data: {
 			thread: {
 				rootCommentId: string;
-				comments: Array<{ id: string; body: string; parentCommentId?: string }>;
+				comments: Array<{ id: string; body: LocalizedText | string; parentCommentId?: string }>;
 			};
 		};
 	};
 	const effectiveParentCommentId = parentCommentId ?? payload.data.thread.rootCommentId;
 	const comment = [...payload.data.thread.comments]
 		.reverse()
-		.find((item) => item.body === body && item.parentCommentId === effectiveParentCommentId);
+		.find((item) => localizedTextString(item.body) === body && item.parentCommentId === effectiveParentCommentId);
 	if (!comment) {
 		throw new Error("Created comment not found in test response.");
 	}
@@ -22351,8 +22437,38 @@ function jsonRequest(
 	return new Request(url, {
 		method,
 		headers,
-		body: JSON.stringify(body),
+		body: JSON.stringify(apiEntityBodyForTest(url, method, body)),
 	});
+}
+
+function apiEntityBodyForTest(url: string, method: string, body: unknown): unknown {
+	if (!body || typeof body !== "object" || Array.isArray(body)) {
+		return body;
+	}
+	const normalizedMethod = method.toUpperCase();
+	if (normalizedMethod !== "POST" && normalizedMethod !== "PATCH") {
+		return body;
+	}
+	const record = body as Record<string, unknown>;
+	if (Object.hasOwn(record, "language")) {
+		return body;
+	}
+	const path = new URL(url).pathname;
+	if (!path.startsWith("/api/")) {
+		return body;
+	}
+	if (
+		path === "/api/worlds" ||
+		/^\/api\/worlds\/[^/]+$/.test(path) ||
+		/^\/api\/worlds\/[^/]+\/forums(?:\/[^/]+)?$/.test(path) ||
+		/^\/api\/worlds\/[^/]+\/bots$/.test(path) ||
+		/^\/api\/me\/bots\/[^/]+$/.test(path) ||
+		/^\/api\/worlds\/[^/]+\/groups(?:\/[^/]+)?$/.test(path) ||
+		path === "/api/me/profile"
+	) {
+		return { language: testLanguage, ...record };
+	}
+	return body;
 }
 
 function serviceJsonRequest(path: string, userId: string, body: unknown): Request {
@@ -23103,10 +23219,38 @@ function providerResponseWithToolCalls(calls: Array<{ id: string; name: string; 
 			type: "function" as const,
 			function: {
 				name: call.name,
-				arguments: JSON.stringify(call.args),
+				arguments: JSON.stringify(providerToolArgsForTest(call.name, call.args)),
 			},
 		})),
 	};
+}
+
+function providerToolArgsForTest(name: string, args: Record<string, unknown>): Record<string, unknown> {
+	const text = (value: unknown): unknown => typeof value === "string" ? requiredLt(value) : value;
+	switch (name) {
+		case "create_thread":
+			return { ...args, title: text(args.title), body: text(args.body) };
+		case "reply_to_comment":
+		case "make_additional_reply_to_the_same_comment":
+			return { ...args, body: text(args.body) };
+		case "vote":
+		case "log_off":
+			return { ...args, reason: text(args.reason) };
+		case "follow_profile":
+		case "unfollow_profile":
+			return {
+				...args,
+				targets: Array.isArray(args.targets) ?
+					args.targets.map((target) =>
+						target && typeof target === "object" && !Array.isArray(target) ?
+							{ ...target as Record<string, unknown>, reason: text((target as Record<string, unknown>).reason) }
+						:	target,
+					)
+				:	args.targets,
+			};
+		default:
+			return args;
+	}
 }
 
 function providerResponseWithRawToolCalls(calls: Array<{ id: string; name: string; arguments: string }>) {
@@ -23148,22 +23292,38 @@ function additionalReplyToolPresent(tools: ProviderToolDefinition[]): boolean {
 	);
 }
 
-function fakeBotDocument(options: { allowEarlyLogOff?: boolean; contextWindowTokens?: number; compactionSummaryPercent?: number; compactionMaxCharacters?: number; prompt?: string } = {}): BotDocument {
+function fakeBotDocument(
+	options: {
+		allowEarlyLogOff?: boolean;
+		compactionMaxCharacters?: number;
+		compactionSummaryPercent?: number;
+		contextWindowTokens?: number;
+		displayName?: string | LocalizedText;
+		handle?: string;
+		homeWorldHandle?: string;
+		homeWorldId?: string;
+		id?: string;
+		ownerUserId?: string;
+		prompt?: string | LocalizedText;
+		shortBio?: string | LocalizedText;
+	} = {},
+): BotDocument {
 	const now = "2026-05-05T00:00:00.000Z";
 	return {
-		id: "bot_test_budget",
+		id: options.id ?? "bot_test_budget",
 		type: "bot",
 		schemaVersion: 1,
 		revision: 1,
 		createdAt: now,
 		updatedAt: now,
-		homeWorldId: "wld_test",
-		homeWorldHandle: "test-world",
-		ownerUserId: "usr_test",
-		handle: "budget-bot",
-		displayName: "Budget Bot",
-		shortBio: "Tests context budgets.",
-		prompt: options.prompt ?? "Stay concise.",
+		homeWorldId: options.homeWorldId ?? "wld_test",
+		homeWorldHandle: options.homeWorldHandle ?? "test-world",
+		ownerUserId: options.ownerUserId ?? "usr_test",
+		handle: options.handle ?? "budget-bot",
+		language: testLanguage,
+		displayName: typeof options.displayName === "string" ? lt(options.displayName) : options.displayName ?? lt("Budget Bot"),
+		shortBio: typeof options.shortBio === "string" ? lt(options.shortBio) : options.shortBio ?? lt("Tests context budgets."),
+		prompt: typeof options.prompt === "string" ? lt(options.prompt) : options.prompt ?? lt("Stay concise."),
 		inferenceSettings: {},
 		toolSettings: {},
 		tickSettings: {

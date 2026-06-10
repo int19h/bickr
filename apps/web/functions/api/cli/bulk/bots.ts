@@ -1,6 +1,6 @@
 import { fail, ok, readJsonBody } from "@bickr/shared/api";
 import { internalServiceUrl } from "@bickr/shared/internal-service";
-import { type BotSummary, type UpdateBotInput } from "@bickr/shared/model";
+import { localizedTextString, type BotSummary, type UpdateBotInput } from "@bickr/shared/model";
 import { listUserBots, RepositoryError, worldByHandle } from "@bickr/shared/repository";
 import { InputError, normalizeHandle, parseUpdateBotInput, requiredText } from "@bickr/shared/validation";
 import { parsePathname } from "../../../../src/routes";
@@ -44,7 +44,7 @@ export const onRequestPost: PagesFunction<AppEnv> = async ({ env, request }) => 
 			ref: botRef(bot),
 			handle: bot.handle,
 			worldHandle: bot.homeWorldHandle,
-			displayName: bot.displayName,
+			displayName: localizedTextString(bot.displayName),
 			currentModel: bot.inferenceSettings.model ?? null,
 			nextModel: nextModel ?? bot.inferenceSettings.model ?? null,
 			status: "planned",

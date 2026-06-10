@@ -9,9 +9,11 @@ import {
 } from "./ids";
 import { createComment, createThread, threadHotScore } from "./social";
 import { kvKeys, type D1DatabaseLike, type D1PreparedStatementLike, type D1Result, type KVNamespaceLike } from "./storage";
-import { schemaVersion, type BotDocument, type ForumDocument, type PostingSettings, type WorldDocument } from "./model";
+import { schemaVersion, type BotDocument, type ForumDocument, type LanguageTag, type PostingSettings, type RequiredLocalizedText, type WorldDocument } from "./model";
 
 const now = "2026-05-06T12:00:00.000Z";
+const enLang = "en" as LanguageTag;
+const en = (text: string): RequiredLocalizedText => ({ lang: enLang, text });
 
 describe("threadHotScore", () => {
 	it("linearly decays engagement over the seven-day activity window", () => {
@@ -49,15 +51,15 @@ describe("createThread duplicate title guard", () => {
 		await expect(createThread(kv, db, {
 			forumId: "frm_main",
 			authorBotId: "bot_author",
-			title: "Same title",
-			body: "Fresh body",
+			title: en("Same title"),
+			body: en("Fresh body"),
 		}, now)).rejects.toMatchObject({
 			code: "conflict",
 			status: 409,
 			details: {
 				existingThread: {
 					id: "thr_existing",
-					title: "Same title",
+					title: en("Same title"),
 					worldHandle: "primary",
 					forumHandle: "general",
 					urlPath: "/w/primary/f/general/t/thr_existing",
@@ -93,11 +95,11 @@ describe("createThread duplicate title guard", () => {
 		await expect(createThread(kv, db, {
 			forumId: "frm_main",
 			authorBotId: "bot_author",
-			title: "Reusable title",
-			body: "Fresh body",
+			title: en("Reusable title"),
+			body: en("Fresh body"),
 		}, now)).resolves.toMatchObject({
 			forumId: "frm_main",
-			title: "Reusable title",
+			title: en("Reusable title"),
 		});
 		expect(kv.puts.some((key) => /^v1:thread:[a-z2-7]{8}$/.test(key))).toBe(true);
 	});
@@ -109,16 +111,16 @@ describe("createThread duplicate title guard", () => {
 		const thread = await createThread(kv, db, {
 			forumId: "frm_main",
 			authorBotId: "bot_author",
-			title: "Preserve body",
-			body,
+			title: en("Preserve body"),
+			body: en(body),
 		}, now);
 
-		expect(thread.comments[0]?.body).toBe(body);
+		expect(thread.comments[0]?.body.text).toBe(body);
 		await expect(createThread(kv, db, {
 			forumId: "frm_main",
 			authorBotId: "bot_author",
-			title: "Blank body",
-			body: " \n\t ",
+			title: en("Blank body"),
+			body: en(" \n\t "),
 		}, now)).rejects.toMatchObject({
 			name: "InputError",
 			message: "Thread body is required.",
@@ -135,14 +137,14 @@ describe("createThread duplicate title guard", () => {
 		await expect(createThread(kv, db, {
 			forumId: "frm_main",
 			authorBotId: "bot_author",
-			title: "At hard limit",
-			body: "x".repeat(160),
-		}, now)).resolves.toMatchObject({ title: "At hard limit" });
+			title: en("At hard limit"),
+			body: en("x".repeat(160)),
+		}, now)).resolves.toMatchObject({ title: en("At hard limit") });
 		await expect(createThread(kv, db, {
 			forumId: "frm_main",
 			authorBotId: "bot_author",
-			title: "Over hard limit",
-			body: "x".repeat(161),
+			title: en("Over hard limit"),
+			body: en("x".repeat(161)),
 		}, now)).rejects.toMatchObject({
 			name: "InputError",
 			message: "Thread body must be 160 characters or fewer.",
@@ -158,19 +160,19 @@ describe("createThread duplicate title guard", () => {
 		const thread = await createThread(kv, db, {
 			forumId: "frm_main",
 			authorBotId: "bot_author",
-			title: "Comment target",
-			body: "Root body",
+			title: en("Comment target"),
+			body: en("Root body"),
 		}, now);
 
 		await expect(createComment(kv, db, {
 			threadId: thread.id,
 			authorBotId: "bot_author",
-			body: "x".repeat(80),
+			body: en("x".repeat(80)),
 		}, now)).resolves.toMatchObject({ id: thread.id });
 		await expect(createComment(kv, db, {
 			threadId: thread.id,
 			authorBotId: "bot_author",
-			body: "x".repeat(81),
+			body: en("x".repeat(81)),
 		}, now)).rejects.toMatchObject({
 			name: "InputError",
 			message: "Comment body must be 80 characters or fewer.",
@@ -182,15 +184,15 @@ describe("createThread duplicate title guard", () => {
 		const thread = await createThread(kv, db, {
 			forumId: "frm_main",
 			authorBotId: "bot_author",
-			title: "Short refs",
-			body: "Root body",
+			title: en("Short refs"),
+			body: en("Root body"),
 		}, now);
 		const updated = await createComment(kv, db, {
 			threadId: thread.id,
 			authorBotId: "bot_author",
-			body: "Reply body",
+			body: en("Reply body"),
 		}, now, { thread });
-		const reply = updated.comments.find((comment) => comment.body === "Reply body");
+		const reply = updated.comments.find((comment) => comment.body.text === "Reply body");
 
 		expect(isShortContentId(thread.id)).toBe(true);
 		expect(thread.rootCommentId).toBe(thread.id);
@@ -212,8 +214,8 @@ describe("createThread duplicate title guard", () => {
 			const thread = await createThread(kv, db, {
 				forumId: "frm_main",
 				authorBotId: "bot_author",
-				title: "Collision retry",
-				body: "Root body",
+				title: en("Collision retry"),
+				body: en("Root body"),
 			}, now);
 
 			expect(thread.id).toBe("aaaaaaab");
@@ -266,7 +268,8 @@ function fixture(options: FixtureOptions): { db: FakeD1; kv: FakeKV } {
 		worldId: "wld_primary",
 		worldHandle: "primary",
 		handle: "general",
-		description: "General discussion",
+		language: "en" as LanguageTag,
+		description: en("General discussion"),
 		createdByUserId: "usr_owner",
 		createdAt: now,
 		updatedAt: now,
@@ -277,10 +280,11 @@ function fixture(options: FixtureOptions): { db: FakeD1; kv: FakeKV } {
 		schemaVersion,
 		revision: 1,
 		handle: "primary",
-		name: "Primary",
-		description: "Primary world",
-		prompt: "",
-		initialBotNotification: "Welcome.",
+		language: "en" as LanguageTag,
+		name: en("Primary"),
+		description: en("Primary world"),
+		prompt: en(""),
+		initialBotNotification: en("Welcome."),
 		...(options.worldPostingSettings ? { postingSettings: options.worldPostingSettings } : {}),
 		createdByUserId: "usr_owner",
 		visibility: "public",
@@ -296,9 +300,10 @@ function fixture(options: FixtureOptions): { db: FakeD1; kv: FakeKV } {
 		homeWorldHandle: "primary",
 		ownerUserId: "usr_owner",
 		handle: "alice",
-		displayName: "Alice",
-		shortBio: "Test participant",
-		prompt: "Post clearly.",
+		language: "en" as LanguageTag,
+		displayName: en("Alice"),
+		shortBio: en("Test participant"),
+		prompt: en("Post clearly."),
 		inferenceSettings: {},
 		toolSettings: {},
 		...(options.botPostingSettings ? { postingSettings: options.botPostingSettings } : {}),
@@ -394,6 +399,7 @@ class FakeD1 implements D1DatabaseLike {
 			return match ? {
 				id: match.id,
 				title: match.title,
+				titleLang: enLang,
 				worldHandle: match.worldHandle,
 				forumHandle: match.forumHandle,
 			} as T : null;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { BotInferenceSubmissionMessage, BotInferenceSubmissionToolCall, BotPublicProfile } from "@bickr/shared/model";
+import type { BotInferenceSubmissionMessage, BotInferenceSubmissionToolCall, BotPublicProfile, LanguageTag, RequiredLocalizedText } from "@bickr/shared/model";
 import {
 	followToolSelfCorrectionMessage,
 	planFollowToolTargets,
@@ -10,6 +10,9 @@ import {
 	selfCorrectionMessageForToolFailurePayload,
 	type ToolFailurePayload,
 } from "./index";
+
+const enLang = "en" as LanguageTag;
+const en = (text: string): RequiredLocalizedText => ({ lang: enLang, text });
 
 describe("rewriteProviderResponseToolCallMessage", () => {
 	it("removes one offending tool call and preserves unrelated calls", () => {
@@ -337,8 +340,9 @@ function profile(id: string, handle: string): BotPublicProfile {
 		homeWorldId: "wld_primary",
 		homeWorldHandle: "primary",
 		handle,
-		displayName: handle,
-		shortBio: "Test profile",
+		language: enLang,
+		displayName: en(handle),
+		shortBio: en("Test profile"),
 		createdAt: "2026-05-06T12:00:00.000Z",
 		updatedAt: "2026-05-06T12:00:00.000Z",
 	};

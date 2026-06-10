@@ -1,6 +1,8 @@
 import { isCloudflareRateLimitError, retryCloudflareOperation } from "./cloudflare";
 import {
 	avatarCropFromJson,
+	localizedTextFromStored,
+	localizedTextString,
 	type BotSummary,
 	type AvatarCrop,
 	type ForumSummary,
@@ -10,6 +12,7 @@ import {
 	type SearchResult,
 	type SearchResultSource,
 	type WorldSummary,
+	type LocalizedText,
 } from "./model";
 import { type D1DatabaseLike, type D1Result } from "./storage";
 import { InputError, normalizeHandle } from "./validation";
@@ -46,13 +49,13 @@ export type SearchSuggestionOptions = {
 
 type SearchIndexEntity = {
 	deletedAt?: string;
-	description?: string;
-	displayName?: string;
+	description?: LocalizedText | string;
+	displayName?: LocalizedText | string;
 	handle: string;
 	id: string;
-	name?: string;
+	name?: LocalizedText | string;
 	personalBotId?: string;
-	shortBio?: string;
+	shortBio?: LocalizedText | string;
 	type: SearchEntityType;
 	updatedAt: string;
 	worldHandle?: string;
@@ -61,12 +64,15 @@ type SearchIndexEntity = {
 
 type SearchSqlRow = {
 	botDisplayName: string | null;
+	botDisplayNameLang: string | null;
 	botHandle: string | null;
 	botId: string | null;
 	botShortBio: string | null;
+	botShortBioLang: string | null;
 	botAvatarUrl: string | null;
 	botAvatarCrop: string | null;
 	forumDescription: string | null;
+	forumDescriptionLang: string | null;
 	forumHandle: string | null;
 	forumId: string | null;
 	forumPersonalBotId: string | null;
@@ -75,9 +81,11 @@ type SearchSqlRow = {
 	total: number;
 	type: SearchEntityType;
 	worldDescription: string;
+	worldDescriptionLang: string | null;
 	worldHandle: string;
 	worldId: string;
 	worldName: string;
+	worldNameLang: string | null;
 };
 
 type SearchVectorMatch = {
@@ -492,15 +500,20 @@ function searchRowsSql(input: {
 					w.world_id AS worldId,
 					w.handle AS worldHandle,
 					w.name AS worldName,
+					w.name_lang AS worldNameLang,
 					w.description AS worldDescription,
+					w.description_lang AS worldDescriptionLang,
 					NULL AS forumId,
 					NULL AS forumHandle,
 					NULL AS forumDescription,
+					NULL AS forumDescriptionLang,
 					NULL AS forumPersonalBotId,
 					NULL AS botId,
 					NULL AS botHandle,
 					NULL AS botDisplayName,
+					NULL AS botDisplayNameLang,
 					NULL AS botShortBio,
+					NULL AS botShortBioLang,
 					NULL AS botAvatarUrl,
 					NULL AS botAvatarCrop,
 					fts.score AS score,
@@ -516,15 +529,20 @@ function searchRowsSql(input: {
 					w.world_id AS worldId,
 					w.handle AS worldHandle,
 					w.name AS worldName,
+					w.name_lang AS worldNameLang,
 					w.description AS worldDescription,
+					w.description_lang AS worldDescriptionLang,
 					f.forum_id AS forumId,
 					f.handle AS forumHandle,
 					f.description AS forumDescription,
+					f.description_lang AS forumDescriptionLang,
 					f.personal_bot_id AS forumPersonalBotId,
 					NULL AS botId,
 					NULL AS botHandle,
 					NULL AS botDisplayName,
+					NULL AS botDisplayNameLang,
 					NULL AS botShortBio,
+					NULL AS botShortBioLang,
 					NULL AS botAvatarUrl,
 					NULL AS botAvatarCrop,
 					fts.score AS score,
@@ -542,15 +560,20 @@ function searchRowsSql(input: {
 					w.world_id AS worldId,
 					w.handle AS worldHandle,
 					w.name AS worldName,
+					w.name_lang AS worldNameLang,
 					w.description AS worldDescription,
+					w.description_lang AS worldDescriptionLang,
 					NULL AS forumId,
 					NULL AS forumHandle,
 					NULL AS forumDescription,
+					NULL AS forumDescriptionLang,
 					NULL AS forumPersonalBotId,
 					b.bot_id AS botId,
 					b.handle AS botHandle,
 					b.display_name AS botDisplayName,
+					b.display_name_lang AS botDisplayNameLang,
 					b.short_bio AS botShortBio,
+					b.short_bio_lang AS botShortBioLang,
 					b.avatar_url AS botAvatarUrl,
 					b.avatar_crop AS botAvatarCrop,
 					fts.score AS score,
@@ -568,15 +591,20 @@ function searchRowsSql(input: {
 					w.world_id AS worldId,
 					w.handle AS worldHandle,
 					w.name AS worldName,
+					w.name_lang AS worldNameLang,
 					w.description AS worldDescription,
+					w.description_lang AS worldDescriptionLang,
 					NULL AS forumId,
 					NULL AS forumHandle,
 					NULL AS forumDescription,
+					NULL AS forumDescriptionLang,
 					NULL AS forumPersonalBotId,
 					NULL AS botId,
 					NULL AS botHandle,
 					NULL AS botDisplayName,
+					NULL AS botDisplayNameLang,
 					NULL AS botShortBio,
+					NULL AS botShortBioLang,
 					NULL AS botAvatarUrl,
 					NULL AS botAvatarCrop,
 					CASE
@@ -597,15 +625,20 @@ function searchRowsSql(input: {
 					w.world_id AS worldId,
 					w.handle AS worldHandle,
 					w.name AS worldName,
+					w.name_lang AS worldNameLang,
 					w.description AS worldDescription,
+					w.description_lang AS worldDescriptionLang,
 					f.forum_id AS forumId,
 					f.handle AS forumHandle,
 					f.description AS forumDescription,
+					f.description_lang AS forumDescriptionLang,
 					f.personal_bot_id AS forumPersonalBotId,
 					NULL AS botId,
 					NULL AS botHandle,
 					NULL AS botDisplayName,
+					NULL AS botDisplayNameLang,
 					NULL AS botShortBio,
+					NULL AS botShortBioLang,
 					NULL AS botAvatarUrl,
 					NULL AS botAvatarCrop,
 					CASE
@@ -627,15 +660,20 @@ function searchRowsSql(input: {
 					w.world_id AS worldId,
 					w.handle AS worldHandle,
 					w.name AS worldName,
+					w.name_lang AS worldNameLang,
 					w.description AS worldDescription,
+					w.description_lang AS worldDescriptionLang,
 					NULL AS forumId,
 					NULL AS forumHandle,
 					NULL AS forumDescription,
+					NULL AS forumDescriptionLang,
 					NULL AS forumPersonalBotId,
 					b.bot_id AS botId,
 					b.handle AS botHandle,
 					b.display_name AS botDisplayName,
+					b.display_name_lang AS botDisplayNameLang,
 					b.short_bio AS botShortBio,
+					b.short_bio_lang AS botShortBioLang,
 					b.avatar_url AS botAvatarUrl,
 					b.avatar_crop AS botAvatarCrop,
 					CASE
@@ -663,15 +701,20 @@ function searchRowsSql(input: {
 			worldId AS worldId,
 			worldHandle AS worldHandle,
 			worldName AS worldName,
+			worldNameLang AS worldNameLang,
 			worldDescription AS worldDescription,
+			worldDescriptionLang AS worldDescriptionLang,
 			forumId AS forumId,
 			forumHandle AS forumHandle,
 			forumDescription AS forumDescription,
+			forumDescriptionLang AS forumDescriptionLang,
 			forumPersonalBotId AS forumPersonalBotId,
 			botId AS botId,
 			botHandle AS botHandle,
 			botDisplayName AS botDisplayName,
+			botDisplayNameLang AS botDisplayNameLang,
 			botShortBio AS botShortBio,
+			botShortBioLang AS botShortBioLang,
 			botAvatarUrl AS botAvatarUrl,
 			botAvatarCrop AS botAvatarCrop,
 			score,
@@ -843,15 +886,20 @@ async function hydrateSemanticType(
 				w.world_id AS worldId,
 				w.handle AS worldHandle,
 				w.name AS worldName,
+				w.name_lang AS worldNameLang,
 				w.description AS worldDescription,
+				w.description_lang AS worldDescriptionLang,
 				NULL AS forumId,
 				NULL AS forumHandle,
 				NULL AS forumDescription,
+				NULL AS forumDescriptionLang,
 				NULL AS forumPersonalBotId,
 				NULL AS botId,
 				NULL AS botHandle,
 				NULL AS botDisplayName,
+				NULL AS botDisplayNameLang,
 				NULL AS botShortBio,
+				NULL AS botShortBioLang,
 				NULL AS botAvatarUrl,
 				NULL AS botAvatarCrop,
 				0 AS score,
@@ -866,15 +914,20 @@ async function hydrateSemanticType(
 				w.world_id AS worldId,
 				w.handle AS worldHandle,
 				w.name AS worldName,
+				w.name_lang AS worldNameLang,
 				w.description AS worldDescription,
+				w.description_lang AS worldDescriptionLang,
 				f.forum_id AS forumId,
 				f.handle AS forumHandle,
 				f.description AS forumDescription,
+				f.description_lang AS forumDescriptionLang,
 				f.personal_bot_id AS forumPersonalBotId,
 				NULL AS botId,
 				NULL AS botHandle,
 				NULL AS botDisplayName,
+				NULL AS botDisplayNameLang,
 				NULL AS botShortBio,
+				NULL AS botShortBioLang,
 				NULL AS botAvatarUrl,
 				NULL AS botAvatarCrop,
 				0 AS score,
@@ -890,15 +943,20 @@ async function hydrateSemanticType(
 				w.world_id AS worldId,
 				w.handle AS worldHandle,
 				w.name AS worldName,
+				w.name_lang AS worldNameLang,
 				w.description AS worldDescription,
+				w.description_lang AS worldDescriptionLang,
 				NULL AS forumId,
 				NULL AS forumHandle,
 				NULL AS forumDescription,
+				NULL AS forumDescriptionLang,
 				NULL AS forumPersonalBotId,
 				b.bot_id AS botId,
 				b.handle AS botHandle,
 				b.display_name AS botDisplayName,
+				b.display_name_lang AS botDisplayNameLang,
 				b.short_bio AS botShortBio,
+				b.short_bio_lang AS botShortBioLang,
 				b.avatar_url AS botAvatarUrl,
 				b.avatar_crop AS botAvatarCrop,
 				0 AS score,
@@ -933,7 +991,7 @@ async function replaceSearchIndexEntity(db: D1DatabaseLike, entity: SearchIndexE
 				entity.id,
 				entity.type === "world" ? entity.id : entity.worldId ?? null,
 				entity.type === "world" ? entity.handle : entity.worldHandle ?? "",
-				entity.type === "world" ? entity.name ?? "" : "",
+				entity.type === "world" ? localizedTextString(entity.name) : "",
 				entity.type === "forum" ? entity.id : null,
 				entity.type === "forum" ? entity.handle : null,
 				entity.type === "bot" ? entity.id : null,
@@ -953,24 +1011,53 @@ async function searchVectorEntityById(
 	if (type === "world") {
 		const row = await db
 			.prepare(
-				`SELECT world_id AS id, handle, name, description
+				`SELECT
+					world_id AS id,
+					handle,
+					name,
+					name_lang AS nameLang,
+					description,
+					description_lang AS descriptionLang
 				 FROM worlds_index
 				 WHERE world_id = ? AND deleted_at IS NULL`,
 			)
 			.bind(id)
-			.first<Pick<WorldSummary, "description" | "handle" | "id" | "name">>();
-		return row ? { type, world: row } : null;
+			.first<{ id: string; handle: string; name: string; nameLang: string | null; description: string; descriptionLang: string | null }>();
+		return row ? {
+			type,
+			world: {
+				id: row.id,
+				handle: row.handle,
+				name: localizedTextFromStored({ lang: row.nameLang, text: row.name }),
+				description: localizedTextFromStored({ lang: row.descriptionLang, text: row.description }),
+			},
+		} : null;
 	}
 	if (type === "forum") {
 		const row = await db
 			.prepare(
-				`SELECT forum_id AS id, world_id AS worldId, world_handle AS worldHandle, handle, description
+				`SELECT
+					forum_id AS id,
+					world_id AS worldId,
+					world_handle AS worldHandle,
+					handle,
+					description,
+					description_lang AS descriptionLang
 				 FROM forums_index
 				 WHERE forum_id = ? AND deleted_at IS NULL AND personal_bot_id IS NULL`,
 			)
 			.bind(id)
-			.first<Pick<ForumSummary, "description" | "handle" | "id" | "worldHandle" | "worldId">>();
-		return row ? { type, forum: row } : null;
+			.first<{ id: string; worldId: string; worldHandle: string; handle: string; description: string; descriptionLang: string | null }>();
+		return row ? {
+			type,
+			forum: {
+				id: row.id,
+				worldId: row.worldId,
+				worldHandle: row.worldHandle,
+				handle: row.handle,
+				description: localizedTextFromStored({ lang: row.descriptionLang, text: row.description }),
+			},
+		} : null;
 	}
 	const row = await db
 		.prepare(
@@ -980,13 +1067,25 @@ async function searchVectorEntityById(
 				home_world_handle AS homeWorldHandle,
 				handle,
 				display_name AS displayName,
-				short_bio AS shortBio
+				display_name_lang AS displayNameLang,
+				short_bio AS shortBio,
+				short_bio_lang AS shortBioLang
 			 FROM bots_index
 			 WHERE bot_id = ? AND deleted_at IS NULL`,
 		)
 		.bind(id)
-		.first<Pick<BotSummary, "displayName" | "handle" | "homeWorldHandle" | "homeWorldId" | "id" | "shortBio">>();
-	return row ? { type, bot: row } : null;
+		.first<{ id: string; homeWorldId: string; homeWorldHandle: string; handle: string; displayName: string; displayNameLang: string | null; shortBio: string; shortBioLang: string | null }>();
+	return row ? {
+		type,
+		bot: {
+			id: row.id,
+			homeWorldId: row.homeWorldId,
+			homeWorldHandle: row.homeWorldHandle,
+			handle: row.handle,
+			displayName: localizedTextFromStored({ lang: row.displayNameLang, text: row.displayName }),
+			shortBio: localizedTextFromStored({ lang: row.shortBioLang, text: row.shortBio }),
+		},
+	} : null;
 }
 
 async function upsertSearchVector(env: SearchVectorEnv, entity: SearchVectorEntity): Promise<void> {
@@ -1127,12 +1226,12 @@ function searchVectorMetadata(entity: SearchVectorEntity): Record<string, string
 
 function searchVectorText(entity: SearchVectorEntity): string {
 	if (entity.type === "world") {
-		return [entity.world.name, `w/${entity.world.handle}`, entity.world.description].join("\n");
+		return [localizedTextString(entity.world.name), `w/${entity.world.handle}`, localizedTextString(entity.world.description)].join("\n");
 	}
 	if (entity.type === "forum") {
-		return [`f/${entity.forum.handle}`, entity.forum.description].join("\n");
+		return [`f/${entity.forum.handle}`, localizedTextString(entity.forum.description)].join("\n");
 	}
-	return [entity.bot.displayName, `u/${entity.bot.handle}`, entity.bot.shortBio].join("\n");
+	return [localizedTextString(entity.bot.displayName), `u/${entity.bot.handle}`, localizedTextString(entity.bot.shortBio)].join("\n");
 }
 
 function vectorIdForSearchEntity(entity: SearchVectorEntity): string {
@@ -1148,19 +1247,19 @@ function vectorIdForEntity(type: SearchEntityType, id: string): string {
 
 function searchTitle(entity: SearchIndexEntity): string {
 	if (entity.type === "world") {
-		return [`w/${entity.handle}`, entity.name ?? ""].filter(Boolean).join(" ");
+		return [`w/${entity.handle}`, localizedTextString(entity.name)].filter(Boolean).join(" ");
 	}
 	if (entity.type === "forum") {
 		return `f/${entity.handle}`;
 	}
-	return [`u/${entity.handle}`, entity.displayName ?? ""].filter(Boolean).join(" ");
+	return [`u/${entity.handle}`, localizedTextString(entity.displayName)].filter(Boolean).join(" ");
 }
 
 function searchBody(entity: SearchIndexEntity): string {
 	if (entity.type === "bot") {
-		return entity.shortBio ?? "";
+		return localizedTextString(entity.shortBio);
 	}
-	return entity.description ?? "";
+	return localizedTextString(entity.description);
 }
 
 function responseFromRows(
@@ -1183,6 +1282,8 @@ function responseFromRows(
 }
 
 function searchResultFromRow(row: SearchSqlRow, source: SearchResultSource, rank: number): SearchResult {
+	const worldName = localizedTextFromStored({ lang: row.worldNameLang, text: row.worldName });
+	const worldDescription = localizedTextFromStored({ lang: row.worldDescriptionLang, text: row.worldDescription });
 	const base = {
 		id: row.id,
 		rank,
@@ -1192,8 +1293,8 @@ function searchResultFromRow(row: SearchSqlRow, source: SearchResultSource, rank
 		world: {
 			id: row.worldId,
 			handle: row.worldHandle,
-			name: row.worldName,
-			description: row.worldDescription,
+			name: worldName,
+			description: worldDescription,
 			matched: row.type === "world",
 		},
 	};
@@ -1201,16 +1302,16 @@ function searchResultFromRow(row: SearchSqlRow, source: SearchResultSource, rank
 		return {
 			...base,
 			type: "world",
-			description: row.worldDescription,
+			description: worldDescription,
 			handle: row.worldHandle,
-			name: row.worldName,
+			name: worldName,
 		};
 	}
 	if (row.type === "forum") {
 		return {
 			...base,
 			type: "forum",
-			description: row.forumDescription ?? "",
+			description: localizedTextFromStored({ lang: row.forumDescriptionLang, text: row.forumDescription ?? "" }),
 			handle: row.forumHandle ?? "",
 			...(row.forumPersonalBotId ? { personalBotId: row.forumPersonalBotId } : {}),
 		};
@@ -1218,9 +1319,9 @@ function searchResultFromRow(row: SearchSqlRow, source: SearchResultSource, rank
 	return {
 		...base,
 		type: "bot",
-		displayName: row.botDisplayName ?? row.botHandle ?? "",
+		displayName: localizedTextFromStored({ lang: row.botDisplayNameLang, text: row.botDisplayName ?? row.botHandle ?? "" }),
 		handle: row.botHandle ?? "",
-		shortBio: row.botShortBio ?? "",
+		shortBio: localizedTextFromStored({ lang: row.botShortBioLang, text: row.botShortBio ?? "" }),
 		...searchBotAvatarFields(row.botAvatarUrl, row.botAvatarCrop),
 	};
 }

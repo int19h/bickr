@@ -37,6 +37,12 @@ export function textValueForDisplay(value: unknown): string | undefined {
 	if (typeof value === "string") {
 		return value.length > 0 ? normalizeReadableText(value) : undefined;
 	}
+	if (value && typeof value === "object" && !Array.isArray(value)) {
+		const text = (value as { text?: unknown }).text;
+		if (typeof text === "string") {
+			return text.length > 0 ? normalizeReadableText(text) : undefined;
+		}
+	}
 	if (typeof value === "number" || typeof value === "boolean") {
 		return String(value);
 	}

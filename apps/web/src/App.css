@@ -54,8 +54,36 @@
 		"Noto Sans Mongolian", "Noto Sans NKo", "Noto Sans Ol Chiki", "Noto Sans Sundanese",
 		"Noto Sans Syriac", "Noto Sans Tagalog", "Noto Sans Thaana", "Noto Sans Tifinagh",
 		"Noto Sans Vai", "Noto Sans Yi", "Noto Sans Cuneiform", "Noto Sans Egyptian Hieroglyphs",
-		"Noto Sans Math", "UnDotum", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+		"Noto Sans Runic", "Noto Sans Math", "UnDotum", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
 		"Segoe UI", sans-serif;
+	--font-sans-ja: "Noto Sans JP", "Noto Sans", "Noto Sans SC", "Noto Sans TC", "Noto Sans HK",
+		"Noto Sans KR", "Noto Sans Arabic", "Noto Sans Mongolian", "Noto Sans Runic", "UnDotum",
+		ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+	--font-sans-zh-hans: "Noto Sans SC", "Noto Sans", "Noto Sans TC", "Noto Sans HK", "Noto Sans JP",
+		"Noto Sans KR", "Noto Sans Arabic", "Noto Sans Mongolian", "Noto Sans Runic", "UnDotum",
+		ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+	--font-sans-zh-hant: "Noto Sans TC", "Noto Sans HK", "Noto Sans", "Noto Sans SC", "Noto Sans JP",
+		"Noto Sans KR", "Noto Sans Arabic", "Noto Sans Mongolian", "Noto Sans Runic", "UnDotum",
+		ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+	--font-sans-ko: "Noto Sans KR", "UnDotum", "Noto Sans", "Noto Sans JP", "Noto Sans SC",
+		"Noto Sans TC", "Noto Sans Arabic", "Noto Sans Mongolian", "Noto Sans Runic",
+		ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+	--font-sans-arab: "Noto Sans Arabic", "Noto Sans", "Noto Sans JP", "Noto Sans SC", "Noto Sans TC",
+		"Noto Sans Mongolian", "Noto Sans Runic", "UnDotum", ui-sans-serif, system-ui,
+		-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+	--font-sans-hebr: "Noto Sans Hebrew", "Noto Sans", "Noto Sans JP", "Noto Sans SC", "Noto Sans TC",
+		"Noto Sans Arabic", "Noto Sans Mongolian", "Noto Sans Runic", "UnDotum", ui-sans-serif,
+		system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+	--font-sans-deva: "Noto Sans Devanagari", "Noto Sans", "Noto Sans JP", "Noto Sans SC",
+		"Noto Sans TC", "Noto Sans Arabic", "Noto Sans Mongolian", "Noto Sans Runic",
+		"UnDotum", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+		sans-serif;
+	--font-sans-mong: "Noto Sans Mongolian", "Noto Sans", "Noto Sans JP", "Noto Sans SC",
+		"Noto Sans TC", "Noto Sans Arabic", "Noto Sans Runic", "UnDotum", ui-sans-serif,
+		system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+	--font-sans-runr: "Noto Sans Runic", "Noto Sans", "Noto Sans JP", "Noto Sans SC", "Noto Sans TC",
+		"Noto Sans Arabic", "Noto Sans Mongolian", "UnDotum", ui-sans-serif, system-ui,
+		-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
 [data-theme="dark"] {
@@ -98,6 +126,55 @@ body {
 	margin: 0;
 	text-rendering: optimizeLegibility;
 	-webkit-font-smoothing: antialiased;
+}
+
+:lang(ja) {
+	font-family: var(--font-sans-ja);
+}
+
+:lang(zh),
+:lang(zh-Hans),
+:lang(zh-CN),
+:lang(zh-SG) {
+	font-family: var(--font-sans-zh-hans);
+}
+
+:lang(zh-Hant),
+:lang(zh-TW),
+:lang(zh-HK),
+:lang(zh-MO) {
+	font-family: var(--font-sans-zh-hant);
+}
+
+:lang(ko) {
+	font-family: var(--font-sans-ko);
+}
+
+:lang(ar),
+:lang(fa),
+:lang(ur),
+:lang(ps) {
+	font-family: var(--font-sans-arab);
+}
+
+:lang(he),
+:lang(yi) {
+	font-family: var(--font-sans-hebr);
+}
+
+:lang(hi),
+:lang(sa),
+:lang(mr),
+:lang(ne) {
+	font-family: var(--font-sans-deva);
+}
+
+:lang(mn-Mong) {
+	font-family: var(--font-sans-mong);
+}
+
+:lang(non-Runr) {
+	font-family: var(--font-sans-runr);
 }
 
 * {

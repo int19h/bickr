@@ -5,6 +5,10 @@ import {
 	avatarCropFromJson,
 	avatarCropJson,
 	defaultTranslationPrompt,
+	localizedText,
+	localizedTextFromStored,
+	localizedTextLang,
+	localizedTextString,
 	type AvatarImage,
 	type AuthProvider,
 	type BotCloneSource,
@@ -52,6 +56,8 @@ import {
 	type HumanProfileDeleteBlocker,
 	type HumanProfileDeleteEligibility,
 	type JsonObject,
+	type LanguageTag,
+	type LocalizedText,
 	type LinkedAuthIdentity,
 	type PostingSettings,
 	type PostingSettingsInput,
@@ -131,18 +137,35 @@ type PublicUserIndexRow = {
 	id: string;
 	handle: string;
 	displayName: string;
+	language: string | null;
+	uiLocale: string | null;
 	avatarUrl: string | null;
 	profileCompletedAt: string | null;
 	createdAt: string;
 	updatedAt: string;
 };
 
-type WorldSummaryIndexRow = Omit<WorldSummary, "avatar" | "avatarCrop" | "avatarUrl" | "imageGeneration" | "postingSettings"> & {
+type WorldSummaryIndexRow = Omit<WorldSummary, "avatar" | "avatarCrop" | "avatarUrl" | "imageGeneration" | "postingSettings" | "name" | "description" | "prompt" | "initialBotNotification"> & {
+	language: string | null;
+	name: string;
+	description: string;
+	prompt: string;
+	initialBotNotification: string;
 	avatarCrop: string | null;
 	avatarUrl: string | null;
 	imageGenerationJson: string | null;
+	nameLang: string | null;
+	descriptionLang: string | null;
+	promptLang: string | null;
+	initialBotNotificationLang: string | null;
 	postingThreadBodyCharacters: number | null;
 	postingCommentBodyCharacters: number | null;
+};
+
+type ForumSummaryIndexRow = Omit<ForumSummary, "description"> & {
+	language: string | null;
+	description: string;
+	descriptionLang: string | null;
 };
 
 type BotCloneSourceRow = {
@@ -156,6 +179,26 @@ type BotCloneSourceRow = {
 	unlinkedAt: string | null;
 	relinkedAt: string | null;
 };
+
+function languageFromStored(value: string | null | undefined): LanguageTag | null {
+	return value?.trim() ? value as LanguageTag : null;
+}
+
+function uiLocaleFromStored(value: string | null | undefined): UserDocument["uiLocale"] {
+	return value?.trim() ? value as UserDocument["uiLocale"] : undefined;
+}
+
+function localizedTextFromParts(text: string | null | undefined, lang: string | null | undefined): LocalizedText {
+	return localizedText(text ?? "", languageFromStored(lang));
+}
+
+function localizedTextSql(value: LocalizedText): string {
+	return value.text;
+}
+
+function localizedTextLangSql(value: LocalizedText): string | null {
+	return value.lang;
+}
 
 export type SessionCreateResult = {
 	cookieValue: string;
@@ -217,6 +260,14 @@ const defaultTickSettings: BotEffectiveTickSettings = {
 const defaultInferenceSettings: BotInferenceSettings = {};
 const defaultToolSettings: BotToolSettings = {};
 
+function defaultInitialBotNotificationText(lang: LanguageTag | null): LocalizedText {
+	return localizedText(defaultInitialBotNotification, lang);
+}
+
+function introForumDescriptionText(lang: LanguageTag | null): LocalizedText {
+	return localizedText(introForumDescription, lang);
+}
+
 export type CreateBotOptions = {
 	now?: string;
 	prepareAvatar?: (bot: BotDocument) => Promise<AvatarImage | undefined>;
@@ -263,7 +314,8 @@ export async function upsertProviderUser(
 		schemaVersion,
 		revision: 1,
 		handle,
-		displayName,
+		language: null,
+		displayName: localizedText(displayName, null),
 		...(profile.avatarUrl ? { avatarUrl: profile.avatarUrl } : {}),
 		createdAt: now,
 		updatedAt: now,
@@ -273,10 +325,20 @@ export async function upsertProviderUser(
 	await db
 		.prepare(
 			`INSERT INTO users_index (
-				user_id, handle, display_name, avatar_url, profile_completed_at, created_at, updated_at, deleted_at
-			) VALUES (?, ?, ?, ?, NULL, ?, ?, NULL)`,
+				user_id, handle, display_name, display_name_lang, language, ui_locale,
+				avatar_url, profile_completed_at, created_at, updated_at, deleted_at
+			) VALUES (?, ?, ?, ?, ?, NULL, ?, NULL, ?, ?, NULL)`,
 		)
-		.bind(user.id, user.handle, user.displayName, user.avatarUrl ?? null, now, now)
+		.bind(
+			user.id,
+			user.handle,
+			localizedTextSql(user.displayName),
+			localizedTextLangSql(user.displayName),
+			user.language,
+			user.avatarUrl ?? null,
+			now,
+			now,
+		)
 		.run();
 	await db
 		.prepare(
@@ -721,6 +783,8 @@ export function publicUser(user: UserDocument): PublicUser {
 	return {
 		id: user.id,
 		handle: user.handle,
+		language: user.language,
+		...(user.uiLocale ? { uiLocale: user.uiLocale } : {}),
 		displayName: user.displayName,
 		...(user.avatarUrl ? { avatarUrl: user.avatarUrl } : {}),
 		profileComplete: Boolean(user.profileCompletedAt),
@@ -729,10 +793,13 @@ export function publicUser(user: UserDocument): PublicUser {
 }
 
 function publicUserFromIndexRow(row: PublicUserIndexRow): PublicUser {
+	const language = languageFromStored(row.language);
 	return {
 		id: row.id,
 		handle: row.handle,
-		displayName: row.displayName,
+		language,
+		...(uiLocaleFromStored(row.uiLocale) ? { uiLocale: uiLocaleFromStored(row.uiLocale) } : {}),
+		displayName: localizedTextFromParts(row.displayName, language),
 		...(row.avatarUrl ? { avatarUrl: row.avatarUrl } : {}),
 		profileComplete: Boolean(row.profileCompletedAt),
 		...(row.profileCompletedAt ? { profileCompletedAt: row.profileCompletedAt } : {}),
@@ -757,6 +824,8 @@ async function publicUserByHandle(db: D1DatabaseLike, handle: string): Promise<P
 				user_id AS id,
 				handle,
 				display_name AS displayName,
+				language,
+				ui_locale AS uiLocale,
 				avatar_url AS avatarUrl,
 				profile_completed_at AS profileCompletedAt,
 				created_at AS createdAt,
@@ -796,6 +865,8 @@ async function publicUsersByIds(db: D1DatabaseLike, userIds: string[]): Promise<
 					user_id AS id,
 					handle,
 					display_name AS displayName,
+					language,
+					ui_locale AS uiLocale,
 					avatar_url AS avatarUrl,
 					profile_completed_at AS profileCompletedAt,
 					created_at AS createdAt,
@@ -818,6 +889,7 @@ export function botPublicProfile(bot: BotDocument | BotSummary): BotPublicProfil
 		homeWorldId: bot.homeWorldId,
 		homeWorldHandle: bot.homeWorldHandle,
 		handle: bot.handle,
+		language: bot.language,
 		displayName: bot.displayName,
 		shortBio: bot.shortBio,
 		...("avatarUrl" in bot && bot.avatarUrl ? { avatarUrl: bot.avatarUrl } : "avatar" in bot && bot.avatar ? { avatarUrl: bot.avatar.url } : {}),
@@ -852,6 +924,8 @@ export async function updateUserProfile(
 	const updated: UserDocument = {
 		...current,
 		...(input.handle !== undefined ? { handle: input.handle } : {}),
+		...(input.language !== undefined ? { language: input.language } : {}),
+		...(input.uiLocale !== undefined ? { uiLocale: input.uiLocale } : {}),
 		...(input.displayName !== undefined ? { displayName: input.displayName } : {}),
 		...(input.avatarUrl !== undefined ? (input.avatarUrl ? { avatarUrl: input.avatarUrl } : { avatarUrl: undefined }) : {}),
 		inferenceSettings,
@@ -867,10 +941,21 @@ export async function updateUserProfile(
 	await db
 		.prepare(
 			`UPDATE users_index
-			 SET handle = ?, display_name = ?, avatar_url = ?, profile_completed_at = ?, updated_at = ?
+			 SET handle = ?, display_name = ?, display_name_lang = ?, language = ?, ui_locale = ?,
+			     avatar_url = ?, profile_completed_at = ?, updated_at = ?
 			 WHERE user_id = ?`,
 		)
-		.bind(updated.handle, updated.displayName, updated.avatarUrl ?? null, updated.profileCompletedAt ?? null, now, updated.id)
+		.bind(
+			updated.handle,
+			localizedTextSql(updated.displayName),
+			localizedTextLangSql(updated.displayName),
+			updated.language,
+			updated.uiLocale ?? null,
+			updated.avatarUrl ?? null,
+			updated.profileCompletedAt ?? null,
+			now,
+			updated.id,
+		)
 		.run();
 	await putObjectIndex(db, updated, "user");
 
@@ -883,13 +968,18 @@ export async function listWorlds(db: D1DatabaseLike): Promise<WorldListSummary[]
 			`SELECT
 				w.world_id AS id,
 				w.handle,
+				w.language,
 				w.name,
+				w.name_lang AS nameLang,
 				w.description,
+				w.description_lang AS descriptionLang,
 				w.prompt,
+				w.prompt_lang AS promptLang,
 				w.avatar_url AS avatarUrl,
 				w.avatar_crop AS avatarCrop,
 				w.image_generation AS imageGenerationJson,
 				w.initial_bot_notification AS initialBotNotification,
+				w.initial_bot_notification_lang AS initialBotNotificationLang,
 				w.posting_thread_body_characters AS postingThreadBodyCharacters,
 				w.posting_comment_body_characters AS postingCommentBodyCharacters,
 				w.created_by_user_id AS createdByUserId,
@@ -940,11 +1030,12 @@ export async function createWorld(
 		schemaVersion,
 		revision: 1,
 		handle: input.handle,
+		language: input.language,
 		name: input.name,
 		description: input.description,
-		prompt: input.prompt ?? "",
+		prompt: input.prompt ?? localizedText("", input.language),
 		...(input.imageGeneration ? { imageGeneration: mergeImageGenerationSettings(undefined, input.imageGeneration) } : {}),
-		initialBotNotification: input.initialBotNotification ?? defaultInitialBotNotification,
+		initialBotNotification: input.initialBotNotification ?? defaultInitialBotNotificationText(input.language),
 		...(postingSettingsHasValues(postingSettings) ? { postingSettings } : {}),
 		createdByUserId: userId,
 		visibility: "public",
@@ -956,20 +1047,26 @@ export async function createWorld(
 	await db
 		.prepare(
 			`INSERT INTO worlds_index (
-				world_id, handle, name, description, prompt, avatar_url, avatar_crop, image_generation, initial_bot_notification, created_by_user_id,
+				world_id, handle, language, name, name_lang, description, description_lang, prompt, prompt_lang,
+				avatar_url, avatar_crop, image_generation, initial_bot_notification, initial_bot_notification_lang, created_by_user_id,
 				visibility, posting_thread_body_characters, posting_comment_body_characters, created_at, updated_at, deleted_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
 		)
 		.bind(
 			world.id,
 			world.handle,
-			world.name,
-			world.description,
-			world.prompt,
+			world.language,
+			localizedTextSql(world.name),
+			localizedTextLangSql(world.name),
+			localizedTextSql(world.description),
+			localizedTextLangSql(world.description),
+			localizedTextSql(world.prompt),
+			localizedTextLangSql(world.prompt),
 			world.avatar?.url ?? null,
 			avatarCropJson(world.avatar?.crop),
 			imageGenerationSettingsJson(world.imageGeneration),
-			world.initialBotNotification,
+			localizedTextSql(world.initialBotNotification),
+			localizedTextLangSql(world.initialBotNotification),
 			world.createdByUserId,
 			world.visibility,
 			world.postingSettings?.threadBodyCharacters ?? null,
@@ -996,9 +1093,19 @@ export async function listForums(db: D1DatabaseLike, worldHandle: string): Promi
 				f.handle,
 				CASE
 					WHEN f.personal_bot_id IS NOT NULL AND b.bot_id IS NOT NULL
+						THEN b.language
+					ELSE f.language
+				END AS language,
+				CASE
+					WHEN f.personal_bot_id IS NOT NULL AND b.bot_id IS NOT NULL
 						THEN 'Blog of ' || b.display_name || ' (u/' || b.handle || ')'
 					ELSE f.description
 				END AS description,
+				CASE
+					WHEN f.personal_bot_id IS NOT NULL AND b.bot_id IS NOT NULL
+						THEN b.display_name_lang
+					ELSE f.description_lang
+				END AS descriptionLang,
 				f.created_by_user_id AS createdByUserId,
 				f.personal_bot_id AS personalBotId,
 				f.created_at AS createdAt,
@@ -1009,9 +1116,9 @@ export async function listForums(db: D1DatabaseLike, worldHandle: string): Promi
 			 ORDER BY f.handle ASC`,
 		)
 		.bind(world.id)
-		.all<ForumSummary>();
+		.all<ForumSummaryIndexRow>();
 
-	return result.results ?? [];
+	return (result.results ?? []).map(forumSummaryFromIndexRow);
 }
 
 export async function createForum(
@@ -1043,6 +1150,7 @@ export async function createForum(
 		worldId: world.id,
 		worldHandle: world.handle,
 		handle: input.handle,
+		language: input.language,
 		description: input.description,
 		createdByUserId: userId,
 		createdAt: now,
@@ -1053,16 +1161,19 @@ export async function createForum(
 	await db
 		.prepare(
 			`INSERT INTO forums_index (
-				forum_id, world_id, world_handle, handle, description, created_by_user_id, created_at, updated_at, deleted_at
+				forum_id, world_id, world_handle, handle, language, description, description_lang,
+				created_by_user_id, created_at, updated_at, deleted_at
 				, personal_bot_id
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)`,
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)`,
 		)
 		.bind(
 			forum.id,
 			forum.worldId,
 			forum.worldHandle,
 			forum.handle,
-			forum.description,
+			forum.language,
+			localizedTextSql(forum.description),
+			localizedTextLangSql(forum.description),
 			forum.createdByUserId,
 			now,
 			now,
@@ -1268,6 +1379,7 @@ export async function createBot(
 		homeWorldHandle: world.handle,
 		ownerUserId: userId,
 		handle: input.handle,
+		language: input.language,
 		displayName: input.displayName,
 		shortBio: input.shortBio,
 		prompt: input.prompt,
@@ -1578,9 +1690,9 @@ export async function relinkBotClone(
 	const sourceEffective = await effectiveBotDocument(kv, db, sourceRaw);
 	const next: BotDocument = {
 		...bot,
-		displayName: bot.displayName === sourceEffective.displayName ? "" : bot.displayName,
-		shortBio: bot.shortBio === sourceEffective.shortBio ? "" : bot.shortBio,
-		prompt: bot.prompt === sourceEffective.prompt ? "" : bot.prompt,
+			displayName: localizedTextEqual(bot.displayName, sourceEffective.displayName) ? emptyLocalizedText(bot.language) : bot.displayName,
+			shortBio: localizedTextEqual(bot.shortBio, sourceEffective.shortBio) ? emptyLocalizedText(bot.language) : bot.shortBio,
+			prompt: localizedTextEqual(bot.prompt, sourceEffective.prompt) ? emptyLocalizedText(bot.language) : bot.prompt,
 		inferenceSettings: inferenceSettingsEqual(bot.inferenceSettings, sourceEffective.inferenceSettings) ?
 			cloneInferenceSettings(undefined)
 		:	bot.inferenceSettings,
@@ -1657,9 +1769,9 @@ export async function backfillInferredCloneSources(
 			const targetRaw = await rawBotById(kv, db, targetId);
 			let updated: BotDocument = {
 				...targetRaw,
-				displayName: targetRaw.displayName === sourceEffective.displayName ? "" : targetRaw.displayName,
-				shortBio: targetRaw.shortBio === sourceEffective.shortBio ? "" : targetRaw.shortBio,
-				prompt: targetRaw.prompt === sourceEffective.prompt ? "" : targetRaw.prompt,
+				displayName: localizedTextEqual(targetRaw.displayName, sourceEffective.displayName) ? emptyLocalizedText(targetRaw.language) : targetRaw.displayName,
+				shortBio: localizedTextEqual(targetRaw.shortBio, sourceEffective.shortBio) ? emptyLocalizedText(targetRaw.language) : targetRaw.shortBio,
+				prompt: localizedTextEqual(targetRaw.prompt, sourceEffective.prompt) ? emptyLocalizedText(targetRaw.language) : targetRaw.prompt,
 				inferenceSettings: inferenceSettingsEqual(targetRaw.inferenceSettings, sourceEffective.inferenceSettings) ?
 					cloneInferenceSettings(undefined)
 				:	targetRaw.inferenceSettings,
@@ -1784,7 +1896,9 @@ type BotGroupRow = {
 	id: string;
 	worldId: string;
 	ownerUserId: string;
+	language: string | null;
 	customTitle: string | null;
+	customTitleLang: string | null;
 	createdAt: string;
 	updatedAt: string;
 };
@@ -1817,17 +1931,19 @@ export async function createBotGroup(
 		id: makeId("grp"),
 		worldId: world.id,
 		ownerUserId: userId,
-		customTitle: input.customTitle ?? null,
+		language: input.language,
+		customTitle: input.customTitle?.text ?? null,
+		customTitleLang: input.customTitle?.lang ?? null,
 		createdAt: now,
 		updatedAt: now,
 	};
 	await db
 		.prepare(
 			`INSERT INTO bot_groups (
-				group_id, world_id, owner_user_id, custom_title, created_at, updated_at, deleted_at
-			) VALUES (?, ?, ?, ?, ?, ?, NULL)`,
+				group_id, world_id, owner_user_id, language, custom_title, custom_title_lang, created_at, updated_at, deleted_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
 		)
-		.bind(group.id, group.worldId, group.ownerUserId, group.customTitle, group.createdAt, group.updatedAt)
+		.bind(group.id, group.worldId, group.ownerUserId, group.language, group.customTitle, group.customTitleLang, group.createdAt, group.updatedAt)
 		.run();
 	return botGroupSummary(group, []);
 }
@@ -1845,10 +1961,10 @@ export async function updateBotGroup(
 	await db
 		.prepare(
 			`UPDATE bot_groups
-			 SET custom_title = ?, updated_at = ?
+			 SET language = ?, custom_title = ?, custom_title_lang = ?, updated_at = ?
 			 WHERE group_id = ? AND world_id = ? AND owner_user_id = ? AND deleted_at IS NULL`,
 		)
-		.bind(input.customTitle, now, groupId, world.id, userId)
+		.bind(input.language, input.customTitle?.text ?? null, input.customTitle?.lang ?? null, now, groupId, world.id, userId)
 		.run();
 	return botGroupSummaryForOwner(kv, db, world.id, userId, groupId);
 }
@@ -2019,7 +2135,9 @@ async function botGroupRowForOwner(
 				group_id AS id,
 				world_id AS worldId,
 				owner_user_id AS ownerUserId,
+				language,
 				custom_title AS customTitle,
+				custom_title_lang AS customTitleLang,
 				created_at AS createdAt,
 				updated_at AS updatedAt
 			 FROM bot_groups
@@ -2045,7 +2163,9 @@ async function botGroupSummariesForOwner(
 				group_id AS id,
 				world_id AS worldId,
 				owner_user_id AS ownerUserId,
+				language,
 				custom_title AS customTitle,
+				custom_title_lang AS customTitleLang,
 				created_at AS createdAt,
 				updated_at AS updatedAt
 			 FROM bot_groups
@@ -2116,14 +2236,17 @@ async function botGroupSummaries(
 }
 
 function botGroupSummary(group: BotGroupRow, bots: BotSummary[]): BotGroupSummary {
-	const displayTitle = group.customTitle ?? (bots.length > 0 ? bots.map((bot) => `u/${bot.handle}`).join(", ") : "Empty group");
+	const language = languageFromStored(group.language);
+	const customTitle = group.customTitle ? localizedTextFromParts(group.customTitle, group.customTitleLang ?? group.language) : null;
+	const displayTitle = customTitle?.text ?? (bots.length > 0 ? bots.map((bot) => `u/${bot.handle}`).join(", ") : "Empty group");
 	return {
 		id: group.id,
 		worldId: group.worldId,
 		ownerUserId: group.ownerUserId,
-		customTitle: group.customTitle,
+		language,
+		customTitle,
 		displayTitle,
-		titleSource: group.customTitle ? "custom" : "members",
+		titleSource: customTitle ? "custom" : "members",
 		bots,
 		createdAt: group.createdAt,
 		updatedAt: group.updatedAt,
@@ -2165,13 +2288,18 @@ export async function listOwnedWorlds(db: D1DatabaseLike, userId: string): Promi
 			`SELECT
 				world_id AS id,
 				handle,
+				language,
 				name,
+				name_lang AS nameLang,
 				description,
+				description_lang AS descriptionLang,
 				prompt,
+				prompt_lang AS promptLang,
 				avatar_url AS avatarUrl,
 				avatar_crop AS avatarCrop,
 				image_generation AS imageGenerationJson,
 				initial_bot_notification AS initialBotNotification,
+				initial_bot_notification_lang AS initialBotNotificationLang,
 				posting_thread_body_characters AS postingThreadBodyCharacters,
 				posting_comment_body_characters AS postingCommentBodyCharacters,
 				created_by_user_id AS createdByUserId,
@@ -2199,9 +2327,19 @@ export async function listOwnedForumsOutsideOwnedWorlds(
 				f.handle,
 				CASE
 					WHEN f.personal_bot_id IS NOT NULL AND b.bot_id IS NOT NULL
+						THEN b.language
+					ELSE f.language
+				END AS language,
+				CASE
+					WHEN f.personal_bot_id IS NOT NULL AND b.bot_id IS NOT NULL
 						THEN 'Blog of ' || b.display_name || ' (u/' || b.handle || ')'
 					ELSE f.description
 				END AS description,
+				CASE
+					WHEN f.personal_bot_id IS NOT NULL AND b.bot_id IS NOT NULL
+						THEN b.display_name_lang
+					ELSE f.description_lang
+				END AS descriptionLang,
 				f.created_by_user_id AS createdByUserId,
 				f.personal_bot_id AS personalBotId,
 				f.created_at AS createdAt,
@@ -2215,8 +2353,8 @@ export async function listOwnedForumsOutsideOwnedWorlds(
 			 ORDER BY lower(f.world_handle) ASC, lower(f.handle) ASC`,
 		)
 		.bind(userId, userId)
-		.all<ForumSummary>();
-	return result.results ?? [];
+		.all<ForumSummaryIndexRow>();
+	return (result.results ?? []).map(forumSummaryFromIndexRow);
 }
 
 export async function humanProfileDeleteEligibility(
@@ -2264,13 +2402,21 @@ async function listOwnedForumsByWorld(
 	db: D1DatabaseLike,
 	userId: string,
 ): Promise<HumanOwnedForumGroup[]> {
-	type ForumWithWorldRow = ForumSummary & {
+	type ForumWithWorldRow = Omit<ForumSummary, "description" | "language"> & {
+		language: string | null;
+		description: string;
+		descriptionLang: string | null;
 		groupWorldId: string;
 		groupWorldHandle: string;
+		groupWorldLanguage: string | null;
 		groupWorldName: string;
+		groupWorldNameLang: string | null;
 		groupWorldDescription: string;
+		groupWorldDescriptionLang: string | null;
 		groupWorldPrompt: string;
+		groupWorldPromptLang: string | null;
 		groupWorldInitialBotNotification: string;
+		groupWorldInitialBotNotificationLang: string | null;
 		groupWorldPostingThreadBodyCharacters: number | null;
 		groupWorldPostingCommentBodyCharacters: number | null;
 		groupWorldCreatedByUserId: string;
@@ -2286,19 +2432,34 @@ async function listOwnedForumsByWorld(
 				f.handle,
 				CASE
 					WHEN f.personal_bot_id IS NOT NULL AND b.bot_id IS NOT NULL
+						THEN b.language
+					ELSE f.language
+				END AS language,
+				CASE
+					WHEN f.personal_bot_id IS NOT NULL AND b.bot_id IS NOT NULL
 						THEN 'Blog of ' || b.display_name || ' (u/' || b.handle || ')'
 					ELSE f.description
 				END AS description,
+				CASE
+					WHEN f.personal_bot_id IS NOT NULL AND b.bot_id IS NOT NULL
+						THEN b.display_name_lang
+					ELSE f.description_lang
+				END AS descriptionLang,
 				f.created_by_user_id AS createdByUserId,
 				f.personal_bot_id AS personalBotId,
 				f.created_at AS createdAt,
 				f.updated_at AS updatedAt,
 				w.world_id AS groupWorldId,
 				w.handle AS groupWorldHandle,
+				w.language AS groupWorldLanguage,
 				w.name AS groupWorldName,
+				w.name_lang AS groupWorldNameLang,
 				w.description AS groupWorldDescription,
+				w.description_lang AS groupWorldDescriptionLang,
 				w.prompt AS groupWorldPrompt,
+				w.prompt_lang AS groupWorldPromptLang,
 				w.initial_bot_notification AS groupWorldInitialBotNotification,
+				w.initial_bot_notification_lang AS groupWorldInitialBotNotificationLang,
 				w.posting_thread_body_characters AS groupWorldPostingThreadBodyCharacters,
 				w.posting_comment_body_characters AS groupWorldPostingCommentBodyCharacters,
 				w.created_by_user_id AS groupWorldCreatedByUserId,
@@ -2322,10 +2483,14 @@ async function listOwnedForumsByWorld(
 				world: {
 					id: row.groupWorldId,
 					handle: row.groupWorldHandle,
-					name: row.groupWorldName,
-					description: row.groupWorldDescription,
-					prompt: row.groupWorldPrompt,
-					initialBotNotification: row.groupWorldInitialBotNotification,
+					language: languageFromStored(row.groupWorldLanguage),
+					name: localizedTextFromParts(row.groupWorldName, row.groupWorldNameLang ?? row.groupWorldLanguage),
+					description: localizedTextFromParts(row.groupWorldDescription, row.groupWorldDescriptionLang ?? row.groupWorldLanguage),
+					prompt: localizedTextFromParts(row.groupWorldPrompt, row.groupWorldPromptLang ?? row.groupWorldLanguage),
+					initialBotNotification: localizedTextFromParts(
+						row.groupWorldInitialBotNotification,
+						row.groupWorldInitialBotNotificationLang ?? row.groupWorldLanguage,
+					),
 					...postingSettingsObject(
 						row.groupWorldPostingThreadBodyCharacters,
 						row.groupWorldPostingCommentBodyCharacters,
@@ -2344,7 +2509,8 @@ async function listOwnedForumsByWorld(
 			worldId: row.worldId,
 			worldHandle: row.worldHandle,
 			handle: row.handle,
-			description: row.description,
+			language: languageFromStored(row.language),
+			description: localizedTextFromParts(row.description, row.descriptionLang ?? row.language),
 			createdByUserId: row.createdByUserId,
 			...(row.personalBotId ? { personalBotId: row.personalBotId } : {}),
 			createdAt: row.createdAt,
@@ -2391,13 +2557,18 @@ async function worldSummariesByIds(
 				`SELECT
 					world_id AS id,
 					handle,
+					language,
 					name,
+					name_lang AS nameLang,
 					description,
+					description_lang AS descriptionLang,
 					prompt,
+					prompt_lang AS promptLang,
 					avatar_url AS avatarUrl,
 					avatar_crop AS avatarCrop,
 					image_generation AS imageGenerationJson,
 					initial_bot_notification AS initialBotNotification,
+					initial_bot_notification_lang AS initialBotNotificationLang,
 					posting_thread_body_characters AS postingThreadBodyCharacters,
 					posting_comment_body_characters AS postingCommentBodyCharacters,
 					created_by_user_id AS createdByUserId,
@@ -2487,12 +2658,17 @@ async function foreignBotBlockersForOwnedWorlds(
 	type BlockingBotRow = {
 		worldId: string;
 		worldHandle: string;
+		worldLanguage: string | null;
 		worldName: string;
+		worldNameLang: string | null;
 		worldDescription: string;
+		worldDescriptionLang: string | null;
 		worldPrompt: string;
+		worldPromptLang: string | null;
 		worldAvatarUrl: string | null;
 		worldAvatarCrop: string | null;
 		worldInitialBotNotification: string;
+		worldInitialBotNotificationLang: string | null;
 		worldPostingThreadBodyCharacters: number | null;
 		worldPostingCommentBodyCharacters: number | null;
 		worldCreatedByUserId: string;
@@ -2502,14 +2678,20 @@ async function foreignBotBlockersForOwnedWorlds(
 		homeWorldId: string;
 		homeWorldHandle: string;
 		handle: string;
+		language: string | null;
 		displayName: string;
+		displayNameLang: string | null;
 		shortBio: string;
+		shortBioLang: string | null;
 		avatarUrl: string | null;
 		createdAt: string;
 		updatedAt: string;
 		ownerUserId: string;
 		ownerHandle: string | null;
 		ownerDisplayName: string | null;
+		ownerDisplayNameLang: string | null;
+		ownerLanguage: string | null;
+		ownerUiLocale: string | null;
 		ownerAvatarUrl: string | null;
 		ownerProfileCompletedAt: string | null;
 		avatarCrop: string | null;
@@ -2519,12 +2701,17 @@ async function foreignBotBlockersForOwnedWorlds(
 			`SELECT
 				w.world_id AS worldId,
 				w.handle AS worldHandle,
+				w.language AS worldLanguage,
 				w.name AS worldName,
+				w.name_lang AS worldNameLang,
 				w.description AS worldDescription,
+				w.description_lang AS worldDescriptionLang,
 				w.prompt AS worldPrompt,
+				w.prompt_lang AS worldPromptLang,
 				w.avatar_url AS worldAvatarUrl,
 				w.avatar_crop AS worldAvatarCrop,
 				w.initial_bot_notification AS worldInitialBotNotification,
+				w.initial_bot_notification_lang AS worldInitialBotNotificationLang,
 				w.posting_thread_body_characters AS worldPostingThreadBodyCharacters,
 				w.posting_comment_body_characters AS worldPostingCommentBodyCharacters,
 				w.created_by_user_id AS worldCreatedByUserId,
@@ -2534,8 +2721,11 @@ async function foreignBotBlockersForOwnedWorlds(
 				b.home_world_id AS homeWorldId,
 				b.home_world_handle AS homeWorldHandle,
 				b.handle,
+				b.language,
 				b.display_name AS displayName,
+				b.display_name_lang AS displayNameLang,
 				b.short_bio AS shortBio,
+				b.short_bio_lang AS shortBioLang,
 				b.avatar_url AS avatarUrl,
 				b.avatar_crop AS avatarCrop,
 				b.created_at AS createdAt,
@@ -2543,6 +2733,9 @@ async function foreignBotBlockersForOwnedWorlds(
 				b.owner_user_id AS ownerUserId,
 				u.handle AS ownerHandle,
 				u.display_name AS ownerDisplayName,
+				u.display_name_lang AS ownerDisplayNameLang,
+				u.language AS ownerLanguage,
+				u.ui_locale AS ownerUiLocale,
 				u.avatar_url AS ownerAvatarUrl,
 				u.profile_completed_at AS ownerProfileCompletedAt
 			 FROM worlds_index w
@@ -2564,12 +2757,13 @@ async function foreignBotBlockersForOwnedWorlds(
 				world: {
 					id: row.worldId,
 					handle: row.worldHandle,
-					name: row.worldName,
-					description: row.worldDescription,
-					prompt: row.worldPrompt,
+					language: languageFromStored(row.worldLanguage),
+					name: localizedTextFromParts(row.worldName, row.worldNameLang ?? row.worldLanguage),
+					description: localizedTextFromParts(row.worldDescription, row.worldDescriptionLang ?? row.worldLanguage),
+					prompt: localizedTextFromParts(row.worldPrompt, row.worldPromptLang ?? row.worldLanguage),
 					...(row.worldAvatarUrl ? { avatarUrl: row.worldAvatarUrl } : {}),
 					...(avatarCropFromJson(row.worldAvatarCrop) ? { avatarCrop: avatarCropFromJson(row.worldAvatarCrop) } : {}),
-					initialBotNotification: row.worldInitialBotNotification,
+					initialBotNotification: localizedTextFromParts(row.worldInitialBotNotification, row.worldInitialBotNotificationLang ?? row.worldLanguage),
 					...postingSettingsObject(
 						row.worldPostingThreadBodyCharacters,
 						row.worldPostingCommentBodyCharacters,
@@ -2588,8 +2782,9 @@ async function foreignBotBlockersForOwnedWorlds(
 			homeWorldId: row.homeWorldId,
 			homeWorldHandle: row.homeWorldHandle,
 			handle: row.handle,
-			displayName: row.displayName,
-			shortBio: row.shortBio,
+			language: languageFromStored(row.language),
+			displayName: localizedTextFromParts(row.displayName, row.displayNameLang ?? row.language),
+			shortBio: localizedTextFromParts(row.shortBio, row.shortBioLang ?? row.language),
 			...(row.avatarUrl ? { avatarUrl: row.avatarUrl } : {}),
 			...(avatarCrop ? { avatarCrop } : {}),
 			createdAt: row.createdAt,
@@ -2599,7 +2794,9 @@ async function foreignBotBlockersForOwnedWorlds(
 					owner: {
 						id: row.ownerUserId,
 						handle: row.ownerHandle,
-						displayName: row.ownerDisplayName,
+						language: languageFromStored(row.ownerLanguage),
+						...(uiLocaleFromStored(row.ownerUiLocale) ? { uiLocale: uiLocaleFromStored(row.ownerUiLocale) } : {}),
+						displayName: localizedTextFromParts(row.ownerDisplayName, row.ownerDisplayNameLang ?? row.ownerLanguage),
 						...(row.ownerAvatarUrl ? { avatarUrl: row.ownerAvatarUrl } : {}),
 						profileComplete: Boolean(row.ownerProfileCompletedAt),
 						...(row.ownerProfileCompletedAt ? { profileCompletedAt: row.ownerProfileCompletedAt } : {}),
@@ -2731,7 +2928,7 @@ async function personalForumRenameForBotHandle(
 	}
 	return {
 		updated: {
-			...forum,
+			...normalizeForumDefaults(forum),
 			handle: nextHandle,
 			revision: forum.revision + 1,
 			updatedAt: now,
@@ -2882,6 +3079,7 @@ function cloneSourceBotProfile(bot: BotDocument): NonNullable<BotCloneSourceSumm
 		homeWorldId: bot.homeWorldId,
 		homeWorldHandle: bot.homeWorldHandle,
 		handle: bot.handle,
+		language: bot.language,
 		displayName: bot.displayName,
 		shortBio: bot.shortBio,
 		...(bot.avatar ? { avatarUrl: bot.avatar.url } : {}),
@@ -2891,6 +3089,7 @@ function cloneSourceBotProfile(bot: BotDocument): NonNullable<BotCloneSourceSumm
 
 function botLocalOverrides(bot: BotDocument): BotLocalOverrides {
 	return {
+		language: bot.language,
 		displayName: bot.displayName,
 		shortBio: bot.shortBio,
 		prompt: bot.prompt,
@@ -2952,11 +3151,19 @@ async function insertBotCloneSource(
 		.run();
 }
 
-function hasProfileText(value: string | undefined): boolean {
-	return Boolean(value?.trim());
+function emptyLocalizedText(lang: LanguageTag | null): LocalizedText {
+	return localizedText("", lang);
 }
 
-function assertMaterializedProfileFields(displayName: string, shortBio: string, prompt: string): void {
+function localizedTextEqual(left: LocalizedText, right: LocalizedText): boolean {
+	return left.text === right.text && left.lang === right.lang;
+}
+
+function hasProfileText(value: LocalizedText | string | undefined): boolean {
+	return Boolean(localizedTextString(value).trim());
+}
+
+function assertMaterializedProfileFields(displayName: LocalizedText, shortBio: LocalizedText, prompt: LocalizedText): void {
 	if (!hasProfileText(displayName)) {
 		throw new RepositoryError("bad_request", "Bot name is required.", 400);
 	}
@@ -3072,14 +3279,17 @@ async function upsertBotIndex(db: D1DatabaseLike, bot: BotDocument): Promise<voi
 	await db
 		.prepare(
 			`INSERT INTO bots_index (
-				bot_id, home_world_id, home_world_handle, handle, display_name, owner_user_id,
-				short_bio, avatar_url, avatar_crop, import_provider, import_external_handle, created_at, updated_at, deleted_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				bot_id, home_world_id, home_world_handle, handle, language, display_name, display_name_lang, owner_user_id,
+				short_bio, short_bio_lang, avatar_url, avatar_crop, import_provider, import_external_handle, created_at, updated_at, deleted_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(bot_id) DO UPDATE SET
 				home_world_handle = excluded.home_world_handle,
 				handle = excluded.handle,
+				language = excluded.language,
 				display_name = excluded.display_name,
+				display_name_lang = excluded.display_name_lang,
 				short_bio = excluded.short_bio,
+				short_bio_lang = excluded.short_bio_lang,
 				avatar_url = excluded.avatar_url,
 				avatar_crop = excluded.avatar_crop,
 				updated_at = excluded.updated_at,
@@ -3090,9 +3300,12 @@ async function upsertBotIndex(db: D1DatabaseLike, bot: BotDocument): Promise<voi
 			bot.homeWorldId,
 			bot.homeWorldHandle,
 			bot.handle,
-			bot.displayName,
+			bot.language,
+			localizedTextSql(bot.displayName),
+			localizedTextLangSql(bot.displayName),
 			bot.ownerUserId,
-			bot.shortBio,
+			localizedTextSql(bot.shortBio),
+			localizedTextLangSql(bot.shortBio),
 			bot.avatar?.url ?? null,
 			avatarCropJson(bot.avatar?.crop),
 			bot.importSource?.provider ?? null,
@@ -3110,8 +3323,11 @@ function botIndexUpdateStatement(db: D1DatabaseLike, bot: BotDocument): D1Prepar
 			`UPDATE bots_index
 			 SET home_world_handle = ?,
 			     handle = ?,
+			     language = ?,
 			     display_name = ?,
+			     display_name_lang = ?,
 			     short_bio = ?,
+			     short_bio_lang = ?,
 			     avatar_url = ?,
 			     avatar_crop = ?,
 			     updated_at = ?,
@@ -3121,8 +3337,11 @@ function botIndexUpdateStatement(db: D1DatabaseLike, bot: BotDocument): D1Prepar
 		.bind(
 			bot.homeWorldHandle,
 			bot.handle,
-			bot.displayName,
-			bot.shortBio,
+			bot.language,
+			localizedTextSql(bot.displayName),
+			localizedTextLangSql(bot.displayName),
+			localizedTextSql(bot.shortBio),
+			localizedTextLangSql(bot.shortBio),
 			bot.avatar?.url ?? null,
 			avatarCropJson(bot.avatar?.crop),
 			bot.updatedAt,
@@ -3152,9 +3371,10 @@ function worldSummary(world: WorldDocument): WorldSummary {
 	return {
 		id: world.id,
 		handle: world.handle,
+		language: world.language,
 		name: world.name,
 		description: world.description,
-		prompt: world.prompt ?? "",
+		prompt: world.prompt ?? localizedText("", world.language),
 		...(world.avatar ? { avatar: world.avatar, avatarUrl: world.avatar.url } : {}),
 		...(world.avatar?.crop ? { avatarCrop: world.avatar.crop } : {}),
 		...(world.imageGeneration ? { imageGeneration: cloneImageGenerationSettings(world.imageGeneration) } : {}),
@@ -3171,6 +3391,10 @@ function worldSummaryFromIndexRow<T extends WorldSummaryIndexRow>(row: T): Omit<
 		avatarCrop,
 		avatarUrl,
 		imageGenerationJson,
+		nameLang,
+		descriptionLang,
+		promptLang,
+		initialBotNotificationLang,
 		postingThreadBodyCharacters,
 		postingCommentBodyCharacters,
 		...world
@@ -3179,7 +3403,11 @@ function worldSummaryFromIndexRow<T extends WorldSummaryIndexRow>(row: T): Omit<
 	const imageGeneration = imageGenerationSettingsFromJson(imageGenerationJson);
 	return {
 		...world,
-		prompt: world.prompt ?? "",
+		language: languageFromStored(world.language),
+		name: localizedTextFromParts(world.name, nameLang ?? world.language),
+		description: localizedTextFromParts(world.description, descriptionLang ?? world.language),
+		prompt: localizedTextFromParts(world.prompt ?? "", promptLang ?? world.language),
+		initialBotNotification: localizedTextFromParts(world.initialBotNotification, initialBotNotificationLang ?? world.language),
 		...(avatarUrl ? { avatarUrl } : {}),
 		...(crop ? { avatarCrop: crop } : {}),
 		...(imageGeneration ? { imageGeneration } : {}),
@@ -3219,11 +3447,20 @@ function forumSummary(forum: ForumDocument): ForumSummary {
 		worldId: forum.worldId,
 		worldHandle: forum.worldHandle,
 		handle: forum.handle,
+		language: forum.language,
 		description: forum.description,
 		createdByUserId: forum.createdByUserId,
 		...(forum.personalBotId ? { personalBotId: forum.personalBotId } : {}),
 		createdAt: forum.createdAt,
 		updatedAt: forum.updatedAt,
+	};
+}
+
+function forumSummaryFromIndexRow(row: ForumSummaryIndexRow): ForumSummary {
+	return {
+		...row,
+		language: languageFromStored(row.language),
+		description: localizedTextFromParts(row.description, row.descriptionLang ?? row.language),
 	};
 }
 
@@ -3244,6 +3481,7 @@ function botSummary(
 		ownerUserId: bot.ownerUserId,
 		...(options.owner ? { owner: options.owner } : {}),
 		handle: bot.handle,
+		language: bot.language,
 		displayName: bot.displayName,
 		shortBio: bot.shortBio,
 		...(bot.avatar ? { avatar: bot.avatar, avatarUrl: bot.avatar.url } : {}),
@@ -3266,6 +3504,7 @@ function botSummary(
 
 function publicBotLocalOverrides(overrides: BotLocalOverrides): BotLocalOverrides {
 	return {
+		language: overrides.language,
 		displayName: overrides.displayName,
 		shortBio: overrides.shortBio,
 		...(overrides.prompt !== undefined ? { prompt: overrides.prompt } : {}),
@@ -3325,7 +3564,8 @@ async function createPersonalForumForBot(
 		worldId: bot.homeWorldId,
 		worldHandle: bot.homeWorldHandle,
 		handle,
-		description: `Blog of ${bot.displayName} (u/${bot.handle})`,
+		language: bot.language,
+		description: localizedText(`Blog of ${localizedTextString(bot.displayName)} (u/${bot.handle})`, localizedTextLang(bot.displayName)),
 		createdByUserId: userId,
 		personalBotId: bot.id,
 		createdAt: now,
@@ -3336,16 +3576,18 @@ async function createPersonalForumForBot(
 	await db
 		.prepare(
 			`INSERT INTO forums_index (
-				forum_id, world_id, world_handle, handle, description, created_by_user_id,
+				forum_id, world_id, world_handle, handle, language, description, description_lang, created_by_user_id,
 				created_at, updated_at, deleted_at, personal_bot_id
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
 		)
 		.bind(
 			forum.id,
 			forum.worldId,
 			forum.worldHandle,
 			forum.handle,
-			forum.description,
+			forum.language,
+			localizedTextSql(forum.description),
+			localizedTextLangSql(forum.description),
 			forum.createdByUserId,
 			now,
 			now,
@@ -3383,7 +3625,8 @@ async function createIntroForumForWorld(
 		worldId: world.id,
 		worldHandle: world.handle,
 		handle: introForumHandle,
-		description: introForumDescription,
+		language: world.language,
+		description: introForumDescriptionText(world.language),
 		createdByUserId: userId,
 		createdAt: now,
 		updatedAt: now,
@@ -3393,16 +3636,18 @@ async function createIntroForumForWorld(
 	await db
 		.prepare(
 			`INSERT INTO forums_index (
-				forum_id, world_id, world_handle, handle, description, created_by_user_id,
+				forum_id, world_id, world_handle, handle, language, description, description_lang, created_by_user_id,
 				created_at, updated_at, deleted_at, personal_bot_id
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)`,
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)`,
 		)
 		.bind(
 			forum.id,
 			forum.worldId,
 			forum.worldHandle,
 			forum.handle,
-			forum.description,
+			forum.language,
+			localizedTextSql(forum.description),
+			localizedTextLangSql(forum.description),
 			forum.createdByUserId,
 			now,
 			now,
@@ -3550,9 +3795,42 @@ async function disableBotRuntime(db: D1DatabaseLike, botId: string, now: string)
 		.run();
 }
 
+export function normalizeWorldDefaults(world: WorldDocument): WorldDocument {
+	const raw = world as WorldDocument & Record<string, unknown>;
+	const language = languageFromStored(typeof raw.language === "string" ? raw.language : null);
+	return {
+		...world,
+		language,
+		name: localizedTextFromStored(raw.name, language),
+		description: localizedTextFromStored(raw.description, language),
+		prompt: localizedTextFromStored(raw.prompt, language),
+		initialBotNotification: localizedTextFromStored(raw.initialBotNotification, language),
+		...(world.imageGeneration ? { imageGeneration: mergeImageGenerationSettings(undefined, world.imageGeneration) } : { imageGeneration: undefined }),
+		...(postingSettingsHasValues(world.postingSettings) ?
+			{ postingSettings: mergePostingSettings(undefined, world.postingSettings) }
+		:	{ postingSettings: undefined }),
+	};
+}
+
+export function normalizeForumDefaults(forum: ForumDocument): ForumDocument {
+	const raw = forum as ForumDocument & Record<string, unknown>;
+	const language = languageFromStored(typeof raw.language === "string" ? raw.language : null);
+	return {
+		...forum,
+		language,
+		description: localizedTextFromStored(raw.description, language),
+	};
+}
+
 function normalizeBotDefaults(bot: BotDocument): BotDocument {
+	const raw = bot as BotDocument & Record<string, unknown>;
+	const language = languageFromStored(typeof raw.language === "string" ? raw.language : null);
 	return {
 		...bot,
+		language,
+		displayName: localizedTextFromStored(raw.displayName, language),
+		shortBio: localizedTextFromStored(raw.shortBio, language),
+		prompt: localizedTextFromStored(raw.prompt, language),
 		inferenceSettings: mergeInferenceSettings(undefined, bot.inferenceSettings),
 		toolSettings: mergeToolSettings(undefined, bot.toolSettings),
 		...(postingSettingsHasValues(bot.postingSettings) ?
@@ -3563,8 +3841,15 @@ function normalizeBotDefaults(bot: BotDocument): BotDocument {
 }
 
 function normalizeUserDefaults(user: UserDocument): UserDocument {
+	const raw = user as UserDocument & Record<string, unknown>;
+	const language = languageFromStored(typeof raw.language === "string" ? raw.language : null);
 	return {
 		...user,
+		language,
+		...(uiLocaleFromStored(typeof raw.uiLocale === "string" ? raw.uiLocale : null) ?
+			{ uiLocale: uiLocaleFromStored(typeof raw.uiLocale === "string" ? raw.uiLocale : null) }
+		:	{}),
+		displayName: localizedTextFromStored(raw.displayName, language),
 		inferenceSettings: mergeInferenceSettings(undefined, user.inferenceSettings),
 	};
 }
@@ -3663,13 +3948,14 @@ export function mergeInferenceSettings(
 	const next: BotInferenceSettings = {
 		...defaultInferenceSettings,
 		...(current ?? {}),
+		...(current?.recurringPrompt ? { recurringPrompt: normalizedLocalizedText(current.recurringPrompt) } : {}),
 		...(current?.imageGeneration ? { imageGeneration: cloneImageGenerationSettings(current.imageGeneration) } : {}),
 		...(current?.translation ? { translation: cloneTranslationSettings(current.translation) } : {}),
 		...(current?.providerRouting ? { providerRouting: cloneJsonObject(current.providerRouting) } : {}),
 	};
 	delete next.openRouterApiKeySet;
-	if (!next.recurringPrompt && next.reasoningPrefill) {
-		next.recurringPrompt = next.reasoningPrefill;
+	if (!hasInferenceText(next.recurringPrompt) && next.reasoningPrefill) {
+		next.recurringPrompt = localizedText(next.reasoningPrefill, null);
 	}
 	delete next.reasoningPrefill;
 	if (next.recurringPromptEnabled !== false) {
@@ -4024,16 +4310,21 @@ function assignOptionalSetting<T extends object, K extends keyof T>(
 function assignInferencePreservedString(
 	settings: BotInferenceSettings,
 	key: "recurringPrompt",
-	value: string | null | undefined,
+	value: LocalizedText | string | null | undefined,
 ): void {
 	if (value === undefined) {
 		return;
 	}
-	if (value === null || !value.trim()) {
+	if (value === null) {
 		delete settings[key];
 		return;
 	}
-	settings[key] = value;
+	const text = normalizedLocalizedText(value);
+	if (!text.text.trim()) {
+		delete settings[key];
+		return;
+	}
+	settings[key] = text;
 }
 
 function assignInferenceDefaultTrueBoolean(
@@ -4088,6 +4379,7 @@ function cloneJsonObject(value: JsonObject): JsonObject {
 function cloneImageGenerationSettings(settings: BotImageGenerationSettings): BotImageGenerationSettings {
 	return {
 		...settings,
+		...(settings.prompt ? { prompt: normalizedLocalizedText(settings.prompt) } : {}),
 		...(settings.providerRouting ? { providerRouting: cloneJsonObject(settings.providerRouting) } : {}),
 	};
 }
@@ -4101,7 +4393,7 @@ export function mergeImageGenerationSettings(
 	}
 	const next: BotImageGenerationSettings = current ? cloneImageGenerationSettings(current) : {};
 	assignTrimmedString(next, "model", patch.model);
-	assignTrimmedString(next, "prompt", patch.prompt);
+	assignLocalizedTextSetting(next, "prompt", patch.prompt);
 	assignClonedJsonObject(next, "providerRouting", patch.providerRouting);
 	assignTrimmedString(next, "aspectRatio", patch.aspectRatio);
 	assignTrimmedString(next, "imageSize", patch.imageSize);
@@ -4135,6 +4427,7 @@ function imageGenerationSettingsHasValues(settings: BotImageGenerationSettings):
 function cloneTranslationSettings(settings: BotTranslationSettings): BotTranslationSettings {
 	return {
 		...settings,
+		...(settings.prompt ? { prompt: normalizedLocalizedText(settings.prompt) } : {}),
 		...(settings.providerRouting ? { providerRouting: cloneJsonObject(settings.providerRouting) } : {}),
 	};
 }
@@ -4151,7 +4444,7 @@ function mergeTranslationSettings(
 		next.enabled = Boolean(patch.enabled);
 	}
 	assignTrimmedString(next, "model", patch.model);
-	assignTrimmedString(next, "prompt", patch.prompt);
+	assignLocalizedTextSetting(next, "prompt", patch.prompt);
 	if (next.enabled === undefined && hasInferenceText(next.model)) {
 		next.enabled = true;
 	}
@@ -4166,7 +4459,7 @@ function mergeTranslationSettings(
 	assignOptionalSetting(next, "presencePenalty", patch.presencePenalty);
 	assignOptionalSetting(next, "repetitionPenalty", patch.repetitionPenalty);
 	if ((next.enabled || hasInferenceText(next.model)) && !hasInferenceText(next.prompt)) {
-		next.prompt = defaultTranslationPrompt;
+		next.prompt = localizedText(defaultTranslationPrompt, null);
 	}
 	return translationSettingsHasValues(next) ? next : undefined;
 }
@@ -4189,6 +4482,30 @@ function translationSettingsHasValues(settings: BotTranslationSettings): boolean
 	);
 }
 
-function hasInferenceText(value: string | undefined): boolean {
-	return Boolean(value?.trim());
+function normalizedLocalizedText(value: LocalizedText | string): LocalizedText {
+	return localizedTextFromStored(value);
+}
+
+function assignLocalizedTextSetting<T extends { prompt?: LocalizedText }>(
+	settings: T,
+	key: "prompt",
+	value: LocalizedText | string | null | undefined,
+): void {
+	if (value === undefined) {
+		return;
+	}
+	if (value === null) {
+		delete settings[key];
+		return;
+	}
+	const text = normalizedLocalizedText(value);
+	if (text.text.trim()) {
+		settings[key] = text;
+	} else {
+		delete settings[key];
+	}
+}
+
+function hasInferenceText(value: string | LocalizedText | undefined): boolean {
+	return Boolean(localizedTextString(value).trim());
 }

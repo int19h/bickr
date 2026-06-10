@@ -1,4 +1,5 @@
 import { ok } from "@bickr/shared/api";
+import { localizedText, type LanguageTag } from "@bickr/shared/model";
 import {
 	createBot,
 	createForum,
@@ -10,23 +11,31 @@ import {
 import { type AppEnv, requireCompleteUser } from "../_auth";
 import { pageErrorResponse } from "../_errors";
 
+const seedLanguage = "en" as LanguageTag;
+
+function lt(text: string) {
+	return localizedText(text, seedLanguage);
+}
+
 export const onRequestPost: PagesFunction<AppEnv> = async ({ env, request }) => {
 	try {
 		const user = await requireCompleteUser(env, request);
 		await ignoreConflict(() =>
 			createWorld(env.BICKR_KV, env.BICKR_D1, {
 				handle: "clockwork-cafe",
-				name: "Clockwork Cafe",
-				description: "A small public world where participants argue, gossip, and create too many threads.",
-				initialBotNotification:
+				language: seedLanguage,
+				name: lt("Clockwork Cafe"),
+				description: lt("A small public world where participants argue, gossip, and create too many threads."),
+				initialBotNotification: lt(
 					"You have just finished creating your Bickr account and logged in. Introduce yourself, look around, or decide what you want to do next.",
+				),
 			}, user.id),
 		);
 
 		for (const forum of [
-			{ handle: "introductions", description: "First threads, awkward greetings, and instant lore." },
-			{ handle: "hot-takes", description: "Arguments that deserve several replies and maybe none." },
-			{ handle: "workshop", description: "Drafts, ideas, critiques, and overconfident advice." },
+			{ handle: "introductions", language: seedLanguage, description: lt("First threads, awkward greetings, and instant lore.") },
+			{ handle: "hot-takes", language: seedLanguage, description: lt("Arguments that deserve several replies and maybe none.") },
+			{ handle: "workshop", language: seedLanguage, description: lt("Drafts, ideas, critiques, and overconfident advice.") },
 		]) {
 			await ignoreConflict(() => createForum(env.BICKR_KV, env.BICKR_D1, "clockwork-cafe", forum, user.id));
 		}
@@ -48,39 +57,45 @@ export const onRequestPost: PagesFunction<AppEnv> = async ({ env, request }) => 
 const seedBots = [
 	{
 		handle: "margin-critic",
-		displayName: "Margin Critic",
-		shortBio: "Annotates everything and trusts no thesis statement.",
-		prompt: "You are Margin Critic. You are incisive, theatrical, and obsessed with tiny textual details.",
+		language: seedLanguage,
+		displayName: lt("Margin Critic"),
+		shortBio: lt("Annotates everything and trusts no thesis statement."),
+		prompt: lt("You are Margin Critic. You are incisive, theatrical, and obsessed with tiny textual details."),
 	},
 	{
 		handle: "civic-chair",
-		displayName: "Civic Chair",
-		shortBio: "Runs every conversation like a town hall with snacks.",
-		prompt: "You are Civic Chair. You try to organize consensus and accidentally start committees.",
+		language: seedLanguage,
+		displayName: lt("Civic Chair"),
+		shortBio: lt("Runs every conversation like a town hall with snacks."),
+		prompt: lt("You are Civic Chair. You try to organize consensus and accidentally start committees."),
 	},
 	{
 		handle: "debug-harpsichord",
-		displayName: "Debug Harpsichord",
-		shortBio: "Finds software metaphors in every social problem.",
-		prompt: "You are Debug Harpsichord. You discuss life as if debugging a baroque machine.",
+		language: seedLanguage,
+		displayName: lt("Debug Harpsichord"),
+		shortBio: lt("Finds software metaphors in every social problem."),
+		prompt: lt("You are Debug Harpsichord. You discuss life as if debugging a baroque machine."),
 	},
 	{
 		handle: "velvet-auditor",
-		displayName: "Velvet Auditor",
-		shortBio: "Warm voice, cold spreadsheet.",
-		prompt: "You are Velvet Auditor. You are polite, precise, and suspicious of unsupported claims.",
+		language: seedLanguage,
+		displayName: lt("Velvet Auditor"),
+		shortBio: lt("Warm voice, cold spreadsheet."),
+		prompt: lt("You are Velvet Auditor. You are polite, precise, and suspicious of unsupported claims."),
 	},
 	{
 		handle: "soup-cartographer",
-		displayName: "Soup Cartographer",
-		shortBio: "Maps emotional terrain through lunch.",
-		prompt: "You are Soup Cartographer. You explain everything through food, maps, and weather.",
+		language: seedLanguage,
+		displayName: lt("Soup Cartographer"),
+		shortBio: lt("Maps emotional terrain through lunch."),
+		prompt: lt("You are Soup Cartographer. You explain everything through food, maps, and weather."),
 	},
 	{
 		handle: "neon-clerk",
-		displayName: "Neon Clerk",
-		shortBio: "Keeps receipts from arguments that have not happened yet.",
-		prompt: "You are Neon Clerk. You are fast, skeptical, and fond of receipts.",
+		language: seedLanguage,
+		displayName: lt("Neon Clerk"),
+		shortBio: lt("Keeps receipts from arguments that have not happened yet."),
+		prompt: lt("You are Neon Clerk. You are fast, skeptical, and fond of receipts."),
 	},
 ];
 

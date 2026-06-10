@@ -164,8 +164,11 @@ import {
 	type BotTokenUsageTotals,
 	type BotTokenSpendSummary,
 	type JsonObject,
+	type LanguageTag,
+	type LocalizedText,
 	type NotificationDocument,
 	type NotificationEvent,
+	type RequiredLocalizedText,
 	type SearchThreadResult,
 	type SpotlightIncludedContent,
 	type SpotlightSyntheticContext,
@@ -182,6 +185,7 @@ import {
 	type ThreadSummary,
 	type UserDocument,
 	type WorldDocument,
+	localizedTextString,
 } from '@bickr/shared/model';
 import {
 	isOpenRouterProviderBaseUrl,
@@ -395,7 +399,7 @@ type VoteToolTarget = {
 
 type FollowToolTarget = {
 	username: string;
-	reason: string;
+	reason: RequiredLocalizedText;
 };
 
 type FollowToolHistoryTarget = {
@@ -725,11 +729,11 @@ type ReadContentItem = {
 	forumHandle: string;
 	authorBotId: string;
 	authorHandle: string;
-	authorDisplayName: string;
-	authorShortBio?: string;
+	authorDisplayName: LocalizedText | string;
+	authorShortBio?: LocalizedText | string;
 	authorFollowing?: boolean;
-	title?: string;
-	body: string;
+	title?: LocalizedText | string;
+	body: LocalizedText | string;
 	createdAt: string;
 	'My focus is on this comment'?: true;
 	ancestorOnly?: boolean;
@@ -1909,7 +1913,9 @@ export function effectiveReasoningPrefill(bot: Pick<BotDocument, 'handle' | 'inf
 	if (bot.inferenceSettings.recurringPromptEnabled === false) {
 		return undefined;
 	}
-	const custom = bot.inferenceSettings.recurringPrompt ?? bot.inferenceSettings.reasoningPrefill;
+	const custom = bot.inferenceSettings.recurringPrompt ?
+		localizedTextString(bot.inferenceSettings.recurringPrompt)
+	:	bot.inferenceSettings.reasoningPrefill;
 	return custom && custom.trim() ? custom : defaultReasoningPrefill(bot.handle);
 }
 
@@ -1920,11 +1926,12 @@ export function providerMessagesWithReasoningPrefill(messages: ChatMessage[], re
 function contextBudgetPromptParts(bot: BotDocument, settings: ProviderSettings): ContextBudgetPromptParts {
 	const { tools: providerTools } = providerToolsForBotRound(bot, settings);
 	const fixedSystemToolInstructionTools = providerTools;
-	const worldPrompt = 'worldPrompt' in bot && typeof bot.worldPrompt === 'string' ? bot.worldPrompt : '';
+	const worldPrompt = stringValue('worldPrompt' in bot ? bot.worldPrompt : undefined) ?? '';
+	const botWithoutPrompt = { ...bot, prompt: { lang: bot.language, text: '' } };
 	const fixedSystemMessage =
 		settings.toolCalls === 'at_will'
-			? standardPrompt({ ...bot, prompt: '' }, '')
-			: appendToolRequirementInstruction(standardPrompt({ ...bot, prompt: '' }, ''), fixedSystemToolInstructionTools);
+			? standardPrompt(botWithoutPrompt, '')
+			: appendToolRequirementInstruction(standardPrompt(botWithoutPrompt, ''), fixedSystemToolInstructionTools);
 	const personaSystemMessage =
 		settings.toolCalls === 'at_will'
 			? standardPrompt(bot, '')
@@ -3043,7 +3050,7 @@ export function effectiveProviderSettingsForTranslation(
 		...(providerRouting ? { providerRouting } : {}),
 		...(reasoningEffort ? { reasoningEffort } : {}),
 		toolCalls,
-		prompt: trimmed(translation?.prompt) ?? defaultTranslationPrompt,
+		prompt: trimmed(translation?.prompt ? localizedTextString(translation.prompt) : undefined) ?? defaultTranslationPrompt,
 		temperature: usingLoopSettings ? (userSettings.temperature ?? defaultTextGenerationTemperature) : (translation.temperature ?? 0),
 		...(usingLoopSettings
 			? {
@@ -4252,7 +4259,7 @@ export class BotRuntime {
 		return {
 			...bot,
 			effectivePostingSettings: effectivePostingSettings(world?.postingSettings, bot.postingSettings),
-			worldPrompt: world?.prompt ?? '',
+			worldPrompt: stringValue(world?.prompt) ?? '',
 		};
 	}
 
@@ -6594,9 +6601,9 @@ export class BotRuntime {
 		const postingSettings = mergePostingSettings(currentBot.postingSettings, input?.postingSettings);
 		const bot = await this.botWithEffectivePostingSettings({
 			...currentBot,
-			displayName: input?.displayName ?? currentBot.displayName,
-			prompt: input?.prompt ?? currentBot.prompt,
-			shortBio: input?.shortBio ?? currentBot.shortBio,
+			displayName: input?.displayName ? { lang: currentBot.language, text: input.displayName } : currentBot.displayName,
+			prompt: input?.prompt ? { lang: currentBot.language, text: input.prompt } : currentBot.prompt,
+			shortBio: input?.shortBio ? { lang: currentBot.language, text: input.shortBio } : currentBot.shortBio,
 			inferenceSettings,
 			toolSettings,
 			postingSettings,
@@ -6619,7 +6626,7 @@ export class BotRuntime {
 				tools: providerTools,
 			}),
 		);
-		const personaPromptFingerprint = await sha256Hex(bot.prompt);
+		const personaPromptFingerprint = await sha256Hex(localizedTextString(bot.prompt));
 		const worldPromptFingerprint = await sha256Hex(bot.worldPrompt ?? '');
 		const fingerprint = await promptContextBudgetCacheFingerprint({
 			botId,
@@ -6719,8 +6726,8 @@ export class BotRuntime {
 				tools: parts.providerTools,
 			}),
 		);
-		const personaPromptFingerprint = await sha256Hex(bot.prompt);
-		const worldPromptFingerprint = await sha256Hex('worldPrompt' in bot && typeof bot.worldPrompt === 'string' ? bot.worldPrompt : '');
+		const personaPromptFingerprint = await sha256Hex(localizedTextString(bot.prompt));
+		const worldPromptFingerprint = await sha256Hex(stringValue('worldPrompt' in bot ? bot.worldPrompt : undefined) ?? '');
 		const cachedCounts = this.contextBudgetCachedCounts(
 			await promptContextBudgetCacheFingerprint({
 				botId: bot.id,
@@ -7155,13 +7162,13 @@ export class BotRuntime {
 	private async runLocalSimulation(
 		bot: BotDocument,
 		runId: string,
-		input: { notifications: Array<{ message?: string }>; ping: boolean },
+		input: { notifications: Array<{ message?: unknown }>; ping: boolean },
 		runContext: RunContext,
 	): Promise<ProviderLoopOutcome> {
 		this.throwIfStopped(runId, runContext.signal);
 		const hot = await listHotThreads(this.env.BICKR_D1, bot.homeWorldId, 10);
 		const replyTarget = hot.find((thread) => thread.authorBotId !== bot.id);
-		if (replyTarget && !input.notifications.some((notification) => notification.message?.includes('first time'))) {
+		if (replyTarget && !input.notifications.some((notification) => stringValue(notification.message)?.includes('first time'))) {
 			this.throwIfStopped(runId, runContext.signal);
 			this.appendLoopMessage(
 				runId,
@@ -7225,8 +7232,11 @@ export class BotRuntime {
 			'create_thread',
 			{
 				forumHandle: forum.handle,
-				title: `${bot.displayName} has logged in`,
-				body: `${bot.shortBio}\n\n${bot.prompt.slice(0, 300)}`,
+				title: { lang: bot.language ?? ('en' as LanguageTag), text: `${localizedTextString(bot.displayName)} has logged in` },
+				body: {
+					lang: bot.language ?? ('en' as LanguageTag),
+					text: `${localizedTextString(bot.shortBio)}\n\n${localizedTextString(bot.prompt).slice(0, 300)}`,
+				},
 			},
 			runContext,
 		);
@@ -7302,12 +7312,16 @@ export class BotRuntime {
 			case 'create_thread': {
 				const forum = await this.forumFromArgs(bot, normalizedArgs);
 				const mutation = spotlightMutationScopeForCreateThread(spotlightScope, forum.personalBotId);
+				const title = localizedToolTextArg(normalizedArgs.title, 'title');
+				const body = localizedToolTextArg(normalizedArgs.body, 'body');
+				normalizedArgs.title = title;
+				normalizedArgs.body = body;
 				result = await this.forumService(
 					`/forums/${encodeURIComponent(forum.id)}/threads`,
 					bot.id,
 					{
-						title: stringArg(normalizedArgs.title, 'title'),
-						body: stringArg(normalizedArgs.body, 'body'),
+						title,
+						body,
 						...(typeof normalizedArgs.url === 'string' ? { url: normalizedArgs.url } : {}),
 					},
 					runContext.signal,
@@ -7322,14 +7336,15 @@ export class BotRuntime {
 			}
 			case 'reply_to_comment':
 			case 'make_additional_reply_to_the_same_comment': {
-				const body = stringArg(normalizedArgs.body, 'body');
+				const body = localizedToolTextArg(normalizedArgs.body, 'body');
+				normalizedArgs.body = body;
 				const parentCommentId = await this.replyTargetCommentId(normalizedArgs);
 				const mutation = spotlightMutationScopeForComment(spotlightScope, parentCommentId);
 				const threadId = await this.threadIdForComment(parentCommentId);
 				if (canonicalName === 'reply_to_comment') {
 					await this.assertNoPriorReplyToTarget(bot.id, threadId, parentCommentId);
 				}
-				this.assertNoRecentDuplicateReply(bot.id, body);
+				this.assertNoRecentDuplicateReply(bot.id, body.text);
 				const serviceResult = await this.forumService(
 					`/comments/${encodeURIComponent(parentCommentId)}/replies`,
 					bot.id,
@@ -7339,7 +7354,7 @@ export class BotRuntime {
 					runContext.signal,
 				);
 				const serviceRecord = runtimeRecord(serviceResult);
-				const createdComment = replyCommentFromThread(runtimeRecord(serviceRecord.thread), { body, parentCommentId });
+				const createdComment = replyCommentFromThread(runtimeRecord(serviceRecord.thread), { body: body.text, parentCommentId });
 				result = {
 					...serviceRecord,
 					...(createdComment ? { comment: createdComment } : {}),
@@ -7353,7 +7368,7 @@ export class BotRuntime {
 				break;
 			}
 			case 'vote': {
-				const reason = stringArg(normalizedArgs.reason, 'reason');
+				const reason = localizedToolTextArg(normalizedArgs.reason, 'reason');
 				normalizedArgs.reason = reason;
 				const votes = voteTargetsArg(normalizedArgs.votes);
 				const mutation = spotlightMutationScopeForVotes(spotlightScope, votes);
@@ -7463,7 +7478,7 @@ export class BotRuntime {
 				break;
 			}
 			case 'log_off':
-				normalizedArgs.reason = stringArg(normalizedArgs.reason, 'reason');
+				normalizedArgs.reason = localizedToolTextArg(normalizedArgs.reason, 'reason');
 				result = { ok: true, status: 'finished', message: 'I have finished this Bickr visit.' };
 				break;
 			default:
@@ -7516,7 +7531,7 @@ export class BotRuntime {
 		bot: BotDocument,
 		runId: string,
 		votes: VoteToolTarget[],
-		reason: string,
+		reason: RequiredLocalizedText,
 		signal: AbortSignal,
 		spotlightId?: string,
 		spotlightScope?: SpotlightActionScope,
@@ -7640,7 +7655,7 @@ export class BotRuntime {
 			.sort((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt))
 			.map((comment) => ({
 				commentId: comment.id,
-				body: comment.body,
+				body: localizedTextString(comment.body),
 				urlPath: commentUrlPathFromParts(thread.worldHandle, thread.forumHandle, thread.id, comment.id),
 				createdAt: comment.createdAt,
 			}));
@@ -9733,12 +9748,12 @@ function parseSpotlightSyntheticContext(text: string): SpotlightSyntheticContext
 		world: {
 			id: worldId,
 			handle: worldHandle,
-			...(stringValue(world.name) ? { name: stringValue(world.name)! } : {}),
+			...(stringValue(world.name) ? { name: localizedTextValue(world.name) } : {}),
 		},
 		forum: {
 			id: forumId,
 			handle: forumHandle,
-			...(stringValue(forum.description) ? { description: stringValue(forum.description)! } : {}),
+			...(stringValue(forum.description) ? { description: localizedTextValue(forum.description) } : {}),
 		},
 		targetType,
 		...(stringValue(record.focus) ? { focus: stringValue(record.focus)! } : {}),
@@ -9748,7 +9763,7 @@ function parseSpotlightSyntheticContext(text: string): SpotlightSyntheticContext
 					.map((thread) => ({
 						id: stringValue(thread.id) ?? stringValue(thread.threadId) ?? '',
 						threadId: stringValue(thread.threadId) ?? stringValue(thread.id) ?? '',
-						title: stringValue(thread.title) ?? 'untitled',
+						title: localizedTextValue(thread.title, 'untitled'),
 						rootCommentId: stringValue(thread.rootCommentId) ?? '',
 					}))
 					.filter((thread) => thread.id && thread.threadId && thread.rootCommentId)
@@ -9766,10 +9781,10 @@ function spotlightIncludedContentFromRecord(record: Record<string, unknown>): Sp
 	const threadId = stringValue(record.threadId);
 	const authorBotId = stringValue(record.authorBotId);
 	const authorHandle = stringValue(record.authorHandle);
-	const authorDisplayName = stringValue(record.authorDisplayName);
-	const body = stringValue(record.body);
+	const authorDisplayName = localizedTextValue(record.authorDisplayName);
+	const body = localizedTextValue(record.body);
 	const createdAt = stringValue(record.createdAt);
-	if (!type || !id || !threadId || !authorBotId || !authorHandle || !authorDisplayName || body === undefined || !createdAt) {
+	if (!type || !id || !threadId || !authorBotId || !authorHandle || !authorDisplayName.text || !body.text || !createdAt) {
 		return null;
 	}
 	return {
@@ -9781,9 +9796,9 @@ function spotlightIncludedContentFromRecord(record: Record<string, unknown>): Sp
 		authorBotId,
 		authorHandle,
 		authorDisplayName,
-		...(stringValue(record.authorShortBio) ? { authorShortBio: stringValue(record.authorShortBio)! } : {}),
+		...(stringValue(record.authorShortBio) ? { authorShortBio: localizedTextValue(record.authorShortBio) } : {}),
 		...(typeof record.authorFollowing === 'boolean' ? { authorFollowing: record.authorFollowing } : {}),
-		...(stringValue(record.title) ? { title: stringValue(record.title)! } : {}),
+		...(stringValue(record.title) ? { title: localizedTextValue(record.title) } : {}),
 		body,
 		createdAt,
 		...(record['My focus is on this comment'] === true || record.target === true ? { 'My focus is on this comment': true as const } : {}),
@@ -10765,7 +10780,7 @@ async function fetchProviderWorldAvatarDescription(
 	world: WorldDocument,
 	options: ProviderAvatarDescriptionOptions = {},
 ): Promise<string> {
-	const sourceDescription = [world.description.trim(), world.prompt?.trim()]
+	const sourceDescription = [localizedTextString(world.description).trim(), localizedTextString(world.prompt).trim()]
 		.filter(Boolean)
 		.join('\n\nAdditional setting detail:\n');
 	if (!sourceDescription) {
@@ -10773,7 +10788,7 @@ async function fetchProviderWorldAvatarDescription(
 	}
 	return fetchProviderWorldAvatarDescriptionFromUserContent(
 		settings,
-		`World name: ${world.name}\nShort description:\n${sourceDescription}`,
+		`World name: ${localizedTextString(world.name)}\nShort description:\n${sourceDescription}`,
 		options,
 	);
 }
@@ -14408,13 +14423,14 @@ function readBodyTrimCandidates(
 	protectedBodyIds: ReadonlySet<string>,
 ): Array<{ item: ReadContentItem; body: string; codePoints: string[] }> {
 	const candidates: Array<{ item: ReadContentItem; body: string; codePoints: string[] }> = [];
-	const visit = (items: ReadContentItem[]): void => {
-		for (const item of items) {
-			const codePoints = Array.from(item.body);
-			if (!protectedBodyIds.has(item.id) && codePoints.length > 1) {
-				candidates.push({ item, body: item.body, codePoints });
-			}
-			if (Array.isArray(item.replies)) {
+		const visit = (items: ReadContentItem[]): void => {
+			for (const item of items) {
+				const body = stringValue(item.body) ?? '';
+				const codePoints = Array.from(body);
+				if (!protectedBodyIds.has(item.id) && codePoints.length > 1) {
+					candidates.push({ item, body, codePoints });
+				}
+				if (Array.isArray(item.replies)) {
 				visit(item.replies);
 			}
 		}
@@ -14428,15 +14444,21 @@ function applyReadBodyCutoff(candidates: Array<{ item: ReadContentItem; body: st
 	for (const candidate of candidates) {
 		if (candidate.codePoints.length > cutoff) {
 			const prefix = candidate.codePoints.slice(0, cutoff).join('').trimEnd();
-			candidate.item.body = `${prefix}${readBodyTrimEllipsis}`;
-			if (candidate.item.body !== candidate.body) {
+			setReadContentBody(candidate.item, `${prefix}${readBodyTrimEllipsis}`);
+			if (stringValue(candidate.item.body) !== candidate.body) {
 				trimmedBodyCount += 1;
 			}
 		} else {
-			candidate.item.body = candidate.body;
+			setReadContentBody(candidate.item, candidate.body);
 		}
 	}
 	return trimmedBodyCount;
+}
+
+function setReadContentBody(item: ReadContentItem, body: string): void {
+	item.body = item.body && typeof item.body === 'object' && !Array.isArray(item.body)
+		? { ...item.body, text: body }
+		: body;
 }
 
 function deepestPrunableReadReplyDepth(content: ReadContentItem[], protectedParentIds: ReadonlySet<string>, depth = 0): number | null {
@@ -14697,7 +14719,7 @@ function apiErrorDetails(value: unknown): ApiErrorPayload['details'] | undefined
 	return {
 		existingThread: {
 			id,
-			title,
+			title: localizedTextValue(existingThread.title, title),
 			worldHandle,
 			forumHandle,
 			urlPath,
@@ -16627,6 +16649,50 @@ function stringArg(value: unknown, label: string): string {
 	return value.trim();
 }
 
+function localizedToolTextArg(value: unknown, label: string): RequiredLocalizedText {
+	const record = runtimeRecord(value);
+	if (!Object.hasOwn(record, 'lang') || !Object.hasOwn(record, 'text')) {
+		throw new Error(`${label} must be an object with lang first and text second, for example {"lang":"ja","text":"将軍家"} or {"lang":"en","text":"my text"}. lang is required; plain strings are not accepted.`);
+	}
+	const lang = languageTagArg(record.lang, `${label}.lang`);
+	if (typeof record.text !== 'string' || !record.text.trim()) {
+		throw new Error(`${label}.text is required.`);
+	}
+	return { lang, text: record.text };
+}
+
+function localizedTextValue(value: unknown, fallback = ''): LocalizedText {
+	const record = runtimeRecord(value);
+	const text = typeof record.text === 'string' ? record.text : (stringValue(value) ?? fallback);
+	return { lang: optionalLanguageTagValue(record.lang), text };
+}
+
+function optionalLanguageTagValue(value: unknown): LanguageTag | null {
+	if (typeof value !== 'string' || !value.trim() || value.trim().toLowerCase() === 'und') {
+		return null;
+	}
+	try {
+		return (Intl.getCanonicalLocales(value.trim())[0] ?? null) as LanguageTag | null;
+	} catch {
+		return null;
+	}
+}
+
+function languageTagArg(value: unknown, label: string): LanguageTag {
+	if (typeof value !== 'string' || !value.trim() || value.trim().toLowerCase() === 'und') {
+		throw new Error(`${label} must be a specific BCP 47 language tag such as "en", "ja", "zh-Hans", "zh-Hant", "ar", "mn-Mong", or "non"; do not use "und".`);
+	}
+	try {
+		const canonical = Intl.getCanonicalLocales(value.trim())[0];
+		if (!canonical) {
+			throw new Error('invalid language tag');
+		}
+		return canonical as LanguageTag;
+	} catch {
+		throw new Error(`${label} must be a valid BCP 47 language tag such as "en", "ja", "zh-Hans", "zh-Hant", "ar", "mn-Mong", or "non".`);
+	}
+}
+
 function threadRefArg(value: unknown, label: string): string {
 	const text = stringArg(value, label);
 	const threadId = parseThreadRef(text);
@@ -16694,7 +16760,7 @@ function followToolTargetsFromLegacyArgs(args: Record<string, unknown>): FollowT
 	if (rawUsernames === undefined) {
 		throw new Error('targets must be a non-empty array.');
 	}
-	const reason = stringArg(args.reason, 'reason');
+	const reason = localizedToolTextArg(args.reason, 'reason');
 	return usernamesArg(rawUsernames).map((username) => ({ username, reason }));
 }
 
@@ -16757,7 +16823,7 @@ function validateFollowToolTargets(targets: readonly FollowToolTarget[]): void {
 	}
 	const seenReasons = new Set<string>();
 	for (const target of targets) {
-		const reasonKey = target.reason.toLocaleLowerCase();
+		const reasonKey = localizedTextString(target.reason).toLocaleLowerCase();
 		if (seenReasons.has(reasonKey)) {
 			throw new Error('targets contains duplicate reasons; each participant needs a distinct reason.');
 		}
@@ -16778,7 +16844,7 @@ function followToolTargetArg(value: unknown, index: number): FollowToolTarget {
 	const label = `targets[${index}]`;
 	return {
 		username: typedHandleArg(record.username ?? record.handle, 'u', `${label}.username`),
-		reason: stringArg(record.reason, `${label}.reason`),
+		reason: localizedToolTextArg(record.reason, `${label}.reason`),
 	};
 }
 
@@ -16848,7 +16914,7 @@ function toolFailurePayload(name: string, args: Record<string, unknown>, error: 
 			? {
 					existingUrlPath: existingThread.urlPath,
 					existingThreadRef: formatThreadRef(existingThread.id),
-					existingThreadTitle: existingThread.title,
+					existingThreadTitle: stringValue(existingThread.title),
 					existingWorldHandle: existingThread.worldHandle,
 					existingForumHandle: existingThread.forumHandle,
 				}
@@ -16980,6 +17046,12 @@ function uniqueStrings(values: string[]): string[] {
 function stringValue(value: unknown): string | undefined {
 	if (typeof value === 'string' && value.trim()) {
 		return value.trim();
+	}
+	if (value && typeof value === 'object' && !Array.isArray(value)) {
+		const text = (value as { text?: unknown }).text;
+		if (typeof text === 'string' && text.trim()) {
+			return text.trim();
+		}
 	}
 	if (typeof value === 'number' || typeof value === 'boolean') {
 		return String(value);

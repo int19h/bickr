@@ -1,4 +1,4 @@
-import { type BotPublicProfile, type CommentDocument, type ForumSummary, type ThreadDocument, type WorldSummary } from "@bickr/shared/model";
+import { localizedText, type BotPublicProfile, type CommentDocument, type ForumSummary, type LanguageTag, type ThreadDocument, type WorldSummary } from "@bickr/shared/model";
 import { worldByHandle } from "@bickr/shared/repository";
 import { forumByHandle, listThreads, readThread } from "@bickr/shared/social";
 import { type D1DatabaseLike } from "@bickr/shared/storage";
@@ -92,6 +92,7 @@ async function socialExportForThreads(env: AppEnv, threads: ThreadDocument[]): P
 				worldId: forum.worldId,
 				worldHandle: forum.worldHandle,
 				handle: forum.handle,
+				language: forum.language,
 				description: forum.description,
 				createdByUserId: forum.createdByUserId,
 				...(forum.personalBotId ? { personalBotId: forum.personalBotId } : {}),
@@ -125,7 +126,10 @@ async function socialExportForThreads(env: AppEnv, threads: ThreadDocument[]): P
 async function worldSummaryByHandle(db: D1DatabaseLike, handle: string): Promise<WorldSummary> {
 	const world = await worldByHandle(db, handle);
 	const row = await db.prepare(
-		`SELECT name, description, prompt, initial_bot_notification AS initialBotNotification,
+		`SELECT language, name, name_lang AS nameLang, description, description_lang AS descriptionLang,
+		        prompt, prompt_lang AS promptLang,
+		        initial_bot_notification AS initialBotNotification,
+		        initial_bot_notification_lang AS initialBotNotificationLang,
 		        created_by_user_id AS createdByUserId, created_at AS createdAt, updated_at AS updatedAt,
 		        posting_thread_body_characters AS postingThreadBodyCharacters,
 		        posting_comment_body_characters AS postingCommentBodyCharacters
@@ -134,10 +138,15 @@ async function worldSummaryByHandle(db: D1DatabaseLike, handle: string): Promise
 	)
 		.bind(world.id)
 		.first<{
+			language: string | null;
 			name: string;
+			nameLang: string | null;
 			description: string;
+			descriptionLang: string | null;
 			prompt: string;
+			promptLang: string | null;
 			initialBotNotification: string;
+			initialBotNotificationLang: string | null;
 			createdByUserId: string;
 			createdAt: string;
 			updatedAt: string;
@@ -150,10 +159,11 @@ async function worldSummaryByHandle(db: D1DatabaseLike, handle: string): Promise
 	return {
 		id: world.id,
 		handle: world.handle,
-		name: row.name,
-		description: row.description,
-		prompt: row.prompt,
-		initialBotNotification: row.initialBotNotification,
+		language: languageTag(row.language),
+		name: localizedText(row.name, languageTag(row.nameLang ?? row.language)),
+		description: localizedText(row.description, languageTag(row.descriptionLang ?? row.language)),
+		prompt: localizedText(row.prompt, languageTag(row.promptLang ?? row.language)),
+		initialBotNotification: localizedText(row.initialBotNotification, languageTag(row.initialBotNotificationLang ?? row.language)),
 		...(row.postingThreadBodyCharacters !== null || row.postingCommentBodyCharacters !== null ?
 			{
 				postingSettings: {
@@ -211,8 +221,11 @@ async function botProfilesByIds(db: D1DatabaseLike, ids: string[]): Promise<BotP
 				home_world_id AS homeWorldId,
 				home_world_handle AS homeWorldHandle,
 				handle,
+				language,
 				display_name AS displayName,
+				display_name_lang AS displayNameLang,
 				short_bio AS shortBio,
+				short_bio_lang AS shortBioLang,
 				avatar_url AS avatarUrl,
 				avatar_crop AS avatarCrop,
 				created_at AS createdAt,
@@ -222,18 +235,33 @@ async function botProfilesByIds(db: D1DatabaseLike, ids: string[]): Promise<BotP
 			 ORDER BY home_world_handle ASC, handle ASC`,
 		)
 			.bind(...batch)
-			.all<BotPublicProfile & { avatarCrop: string | null }>();
+			.all<Omit<BotPublicProfile, "displayName" | "language" | "shortBio"> & {
+				avatarCrop: string | null;
+				displayName: string;
+				displayNameLang: string | null;
+				language: string | null;
+				shortBio: string;
+				shortBioLang: string | null;
+			}>();
 		for (const row of result.results ?? []) {
-			const { avatarCrop, avatarUrl, ...profile } = row;
+			const { avatarCrop, avatarUrl, displayName, displayNameLang, language, shortBio, shortBioLang, ...profile } = row;
 			const crop = avatarCropFromIndex(avatarCrop);
+			const profileLanguage = languageTag(language);
 			profiles.push({
 				...profile,
+				language: profileLanguage,
+				displayName: localizedText(displayName, languageTag(displayNameLang ?? language)),
+				shortBio: localizedText(shortBio, languageTag(shortBioLang ?? language)),
 				...(avatarUrl ? { avatarUrl } : {}),
 				...(crop ? { avatarCrop: crop } : {}),
 			});
 		}
 	}
 	return profiles;
+}
+
+function languageTag(value: string | null | undefined): LanguageTag | null {
+	return value ? value as LanguageTag : null;
 }
 
 function avatarCropFromIndex(value: string | null): BotPublicProfile["avatarCrop"] | undefined {

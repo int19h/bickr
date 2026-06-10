@@ -14,7 +14,13 @@ import {
 	mergePostingSettings,
 	postingSettingsHasValues,
 } from "./posting";
-import { mergeImageGenerationSettings, RepositoryError, softDeleteBotGroupsForWorld } from "./repository";
+import {
+	mergeImageGenerationSettings,
+	normalizeForumDefaults,
+	normalizeWorldDefaults,
+	RepositoryError,
+	softDeleteBotGroupsForWorld,
+} from "./repository";
 import { upsertForumSearchIndex, upsertWorldSearchIndex } from "./search";
 import {
 	readThread,
@@ -66,13 +72,18 @@ export async function updateWorld(
 				.prepare(
 					`UPDATE worlds_index
 					 SET handle = ?,
+					     language = ?,
 					     name = ?,
+					     name_lang = ?,
 					     description = ?,
+					     description_lang = ?,
 					     prompt = ?,
+					     prompt_lang = ?,
 					     avatar_url = ?,
 					     avatar_crop = ?,
 					     image_generation = ?,
 					     initial_bot_notification = ?,
+					     initial_bot_notification_lang = ?,
 					     posting_thread_body_characters = ?,
 					     posting_comment_body_characters = ?,
 					     updated_at = ?
@@ -80,13 +91,18 @@ export async function updateWorld(
 				)
 				.bind(
 					updated.handle,
-					updated.name,
-					updated.description,
-					updated.prompt,
+					updated.language,
+					updated.name.text,
+					updated.name.lang,
+					updated.description.text,
+					updated.description.lang,
+					updated.prompt.text,
+					updated.prompt.lang,
 					updated.avatar?.url ?? null,
 					avatarCropJson(updated.avatar?.crop),
 					imageGenerationSettingsJson(updated.imageGeneration),
-					updated.initialBotNotification,
+					updated.initialBotNotification.text,
+					updated.initialBotNotification.lang,
 					updated.postingSettings?.threadBodyCharacters ?? null,
 					updated.postingSettings?.commentBodyCharacters ?? null,
 					now,
@@ -107,26 +123,36 @@ export async function updateWorld(
 		await db
 			.prepare(
 				`UPDATE worlds_index
-				 SET name = ?,
+				 SET language = ?,
+				     name = ?,
+				     name_lang = ?,
 				     description = ?,
+				     description_lang = ?,
 				     prompt = ?,
+				     prompt_lang = ?,
 				     avatar_url = ?,
 				     avatar_crop = ?,
 				     image_generation = ?,
 				     initial_bot_notification = ?,
+				     initial_bot_notification_lang = ?,
 				     posting_thread_body_characters = ?,
 				     posting_comment_body_characters = ?,
 				     updated_at = ?
 				 WHERE world_id = ? AND deleted_at IS NULL`,
 			)
 			.bind(
-				updated.name,
-				updated.description,
-				updated.prompt,
+				updated.language,
+				updated.name.text,
+				updated.name.lang,
+				updated.description.text,
+				updated.description.lang,
+				updated.prompt.text,
+				updated.prompt.lang,
 				updated.avatar?.url ?? null,
 				avatarCropJson(updated.avatar?.crop),
 				imageGenerationSettingsJson(updated.imageGeneration),
-				updated.initialBotNotification,
+				updated.initialBotNotification.text,
+				updated.initialBotNotification.lang,
 				updated.postingSettings?.threadBodyCharacters ?? null,
 				updated.postingSettings?.commentBodyCharacters ?? null,
 				now,
@@ -244,8 +270,12 @@ export async function updateForum(
 	if (nextHandle !== forum.handle) {
 		await db.batch([
 			db
-				.prepare(`UPDATE forums_index SET handle = ?, description = ?, updated_at = ? WHERE forum_id = ? AND deleted_at IS NULL`)
-				.bind(updated.handle, updated.description, now, updated.id),
+				.prepare(
+					`UPDATE forums_index
+					 SET handle = ?, language = ?, description = ?, description_lang = ?, updated_at = ?
+					 WHERE forum_id = ? AND deleted_at IS NULL`,
+				)
+				.bind(updated.handle, updated.language, updated.description.text, updated.description.lang, now, updated.id),
 			db
 				.prepare(`UPDATE threads_index SET forum_handle = ? WHERE forum_id = ? AND deleted_at IS NULL`)
 				.bind(updated.handle, updated.id),
@@ -253,8 +283,12 @@ export async function updateForum(
 		await writeForumRenameDocuments(kv, db, forum, updated, now);
 	} else {
 		await db
-			.prepare(`UPDATE forums_index SET description = ?, updated_at = ? WHERE forum_id = ? AND deleted_at IS NULL`)
-			.bind(updated.description, now, updated.id)
+			.prepare(
+				`UPDATE forums_index
+				 SET language = ?, description = ?, description_lang = ?, updated_at = ?
+				 WHERE forum_id = ? AND deleted_at IS NULL`,
+			)
+			.bind(updated.language, updated.description.text, updated.description.lang, now, updated.id)
 			.run();
 		await writeJson(kv, kvKeys.forum(updated.id), updated);
 	}
@@ -467,7 +501,7 @@ async function worldDocumentByHandle(
 	if (!world || world.deletedAt) {
 		throw new RepositoryError("not_found", "World not found.", 404);
 	}
-	return { ...world, prompt: world.prompt ?? "" };
+	return normalizeWorldDefaults(world);
 }
 
 async function forumDocumentByHandle(
@@ -506,7 +540,7 @@ async function forumDocumentById(
 	if (!forum || forum.deletedAt) {
 		throw new RepositoryError("not_found", "Forum not found.", 404);
 	}
-	return forum;
+	return normalizeForumDefaults(forum);
 }
 
 function assertWorldOwner(world: WorldDocument, userId: string): void {
@@ -612,9 +646,10 @@ function worldSummary(world: WorldDocument): WorldSummary {
 	return {
 		id: world.id,
 		handle: world.handle,
+		language: world.language,
 		name: world.name,
 		description: world.description,
-		prompt: world.prompt ?? "",
+		prompt: world.prompt,
 		...(world.avatar ? { avatar: world.avatar, avatarUrl: world.avatar.url } : {}),
 		...(world.avatar?.crop ? { avatarCrop: world.avatar.crop } : {}),
 		...(world.imageGeneration ? { imageGeneration: world.imageGeneration } : {}),
@@ -636,6 +671,7 @@ function forumSummary(forum: ForumDocument): ForumSummary {
 		worldId: forum.worldId,
 		worldHandle: forum.worldHandle,
 		handle: forum.handle,
+		language: forum.language,
 		description: forum.description,
 		createdByUserId: forum.createdByUserId,
 		...(forum.personalBotId ? { personalBotId: forum.personalBotId } : {}),
