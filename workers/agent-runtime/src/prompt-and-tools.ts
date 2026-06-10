@@ -2,9 +2,19 @@ import { localizedTextString, type BotDocument, type BotEffectivePostingSettings
 import { defaultPostingSettings } from "@bickr/shared/posting";
 import { effectiveTickSettings } from "@bickr/shared/repository";
 
+export function nativeLanguageSystemPromptLine(
+	bot: Pick<BotDocument, "includeLanguageInSystemPrompt" | "language">,
+): string | null {
+	if (!bot.includeLanguageInSystemPrompt || !bot.language) {
+		return null;
+	}
+	return `Your native language is ${bot.language} (BCP 47); all your thoughts and all content that you author must be in that language.`;
+}
+
 export function standardPrompt(bot: BotDocument, worldPrompt = ""): string {
 	const allowEarlyLogOff = effectiveTickSettings(bot.tickSettings).allowEarlyLogOff;
 	const setting = worldPrompt.trim();
+	const nativeLanguageLine = nativeLanguageSystemPromptLine(bot);
 	const actionList =
 		allowEarlyLogOff ?
 			"browse, create threads, reply to comments, vote, follow, search, or finish this Bickr visit with log_off"
@@ -39,7 +49,7 @@ If your persona has instructions explicitly marked as META that contradict any o
 
 Your Bickr handle is u/${bot.handle}
 
-Your display name is ${localizedTextString(bot.displayName)}
+${nativeLanguageLine ? `${nativeLanguageLine}\n\n` : ""}Your display name is ${localizedTextString(bot.displayName)}
 
 Your short bio is:
 ${localizedTextString(bot.shortBio)}

@@ -193,6 +193,7 @@ import {
 	metaCompactionToolDefinition,
 	metaCompactionToolName,
 	mutableToolNames,
+	nativeLanguageSystemPromptLine,
 	openRouterServerToolSelection,
 	providerCompactionSummaryProperty,
 	standardPrompt,
@@ -1616,21 +1617,23 @@ function providerCompactionToolsForMode(
 	);
 }
 
-function providerCompactionSystemInstruction(
+export function providerCompactionSystemInstruction(
 	bot: RuntimeBotDocument,
 	tools: readonly ProviderToolDefinition[],
 	mode: ProviderCompactionMode,
 ): string {
 	const setting = bot.worldPrompt?.trim();
+	const nativeLanguageLine = nativeLanguageSystemPromptLine(bot);
 	return mode === 'tool_call'
 		? [
 				'You are an autonomous Bickr participant.',
 				`"user" messages describe your environment as you're interacting with Bickr: elapsed time, page results, notifications, and other environment responses. Your own prior messages are your first-person narration and private memory.`,
 				'Stay in character. All reasoning and memory must be in first person from the perspective of your persona.',
 				`Your Bickr handle is u/${bot.handle}`,
-				`Your display name is ${bot.displayName}`,
-				`Your short bio is:\n${bot.shortBio}`,
-				`Your persona is:\n${bot.prompt}`,
+				...(nativeLanguageLine ? [nativeLanguageLine] : []),
+				`Your display name is ${localizedTextString(bot.displayName)}`,
+				`Your short bio is:\n${localizedTextString(bot.shortBio)}`,
+				`Your persona is:\n${localizedTextString(bot.prompt)}`,
 				...(setting ? [`Setting:\n${setting}`] : []),
 				`You MUST use ${providerCompactionToolName}. Do not use any other Bickr control.`,
 			].join('\n\n')
@@ -6596,19 +6599,22 @@ export class BotRuntime {
 		const inferenceSettings = enforceInferenceModelAccess(
 			mergeInferenceSettings(currentBot.inferenceSettings, input?.inferenceSettings),
 			owner.inferenceSettings,
-			);
-			const toolSettings = mergeToolSettings(currentBot.toolSettings, input?.toolSettings);
-			const postingSettings = mergePostingSettings(currentBot.postingSettings, input?.postingSettings);
-			const inputLanguage = input?.language ?? currentBot.language;
-			const bot = await this.botWithEffectivePostingSettings({
-				...currentBot,
-				displayName: input?.displayName ? { lang: inputLanguage, text: input.displayName } : currentBot.displayName,
-				prompt: input?.prompt ? { lang: inputLanguage, text: input.prompt } : currentBot.prompt,
-				shortBio: input?.shortBio ? { lang: inputLanguage, text: input.shortBio } : currentBot.shortBio,
-				inferenceSettings,
-				toolSettings,
-				postingSettings,
-				tickSettings: mergeTickSettings(currentBot.tickSettings, input?.tickSettings),
+		);
+		const toolSettings = mergeToolSettings(currentBot.toolSettings, input?.toolSettings);
+		const postingSettings = mergePostingSettings(currentBot.postingSettings, input?.postingSettings);
+		const inputLanguage = input?.language ?? currentBot.language;
+		const includeLanguageInSystemPrompt =
+			input?.includeLanguageInSystemPrompt ?? currentBot.includeLanguageInSystemPrompt ?? false;
+		const bot = await this.botWithEffectivePostingSettings({
+			...currentBot,
+			includeLanguageInSystemPrompt,
+			displayName: input?.displayName ? { lang: inputLanguage, text: input.displayName } : currentBot.displayName,
+			prompt: input?.prompt ? { lang: inputLanguage, text: input.prompt } : currentBot.prompt,
+			shortBio: input?.shortBio ? { lang: inputLanguage, text: input.shortBio } : currentBot.shortBio,
+			inferenceSettings,
+			toolSettings,
+			postingSettings,
+			tickSettings: mergeTickSettings(currentBot.tickSettings, input?.tickSettings),
 		});
 		const tickSettings = effectiveTickSettings(bot.tickSettings);
 		const settings = this.effectiveProviderSettings(bot, owner);

@@ -262,6 +262,7 @@ type BotActivityKindFilter = "all" | "posts" | "replies" | "votes" | "follows";
 type HumanProfileTab = "worlds" | "forums" | "bots";
 type BotCreateTab = "manual" | "clone" | "chirper";
 type ImportState = "idle" | "loading" | "preview" | "error";
+type IncludeLanguageInSystemPromptDraft = "include" | "exclude" | "inherit";
 type ThemePreference = "system" | "light" | "dark";
 type NotificationGroupMode = "world" | "bot";
 type LoadHumanNotifications = (
@@ -292,6 +293,7 @@ type ReadableDisplayContext = {
 type BotDraft = {
 	handle: string;
 	language: string;
+	includeLanguageInSystemPrompt: IncludeLanguageInSystemPromptDraft;
 	displayName: string;
 	shortBio: string;
 	prompt: string;
@@ -302,6 +304,7 @@ type BotDraft = {
 
 type BotEditDraft = {
 	language: string;
+	includeLanguageInSystemPrompt: IncludeLanguageInSystemPromptDraft;
 	displayName: string;
 	shortBio: string;
 	prompt: string;
@@ -513,6 +516,7 @@ type IconName =
 const emptyBotDraft: BotDraft = {
 	handle: "",
 	language: "en",
+	includeLanguageInSystemPrompt: "include",
 	displayName: "",
 	shortBio: "",
 	prompt: "",
@@ -10408,11 +10412,12 @@ function BotEdit({
 	useEffect(() => {
 		setDraft(botEditDraftFromBot(bot, ownerInferenceSettings));
 	}, [
-			bot.displayName,
-			bot.id,
-			bot.inferenceSettings,
-			bot.language,
-			bot.localOverrides,
+		bot.displayName,
+		bot.id,
+		bot.includeLanguageInSystemPrompt,
+		bot.inferenceSettings,
+		bot.language,
+		bot.localOverrides,
 		ownerInferenceSettings,
 		bot.prompt,
 		bot.shortBio,
@@ -10450,6 +10455,9 @@ function BotEdit({
 	const translationProviderRoutingError = providerRoutingDraftError(draft.inference.translationProviderRouting);
 	const linkedClone = Boolean(bot.cloneSource?.linked);
 	const savedLanguage = bot.localOverrides ? bot.localOverrides.language : bot.language;
+	const savedIncludeLanguageInSystemPrompt = linkedClone ?
+		bot.localOverrides?.includeLanguageInSystemPrompt ?? null
+	:	bot.includeLanguageInSystemPrompt ?? false;
 	const savedDisplayName = textValue(bot.localOverrides?.displayName ?? bot.displayName);
 	const savedShortBio = textValue(bot.localOverrides?.shortBio ?? bot.shortBio);
 	const savedPrompt = textValue(bot.localOverrides?.prompt ?? bot.prompt ?? "");
@@ -10458,6 +10466,10 @@ function BotEdit({
 	const effectiveDraftDisplayName = draft.displayName.trim() || (linkedClone ? textValue(bot.displayName) : "");
 	const effectiveDraftShortBio = draft.shortBio.trim() || (linkedClone ? textValue(bot.shortBio) : "");
 	const effectiveDraftPrompt = draft.prompt.trim() || (linkedClone ? textValue(bot.prompt ?? "") : "");
+	const effectiveDraftIncludeLanguageInSystemPrompt = effectiveIncludeLanguageInSystemPromptDraft(
+		draft.includeLanguageInSystemPrompt,
+		bot.includeLanguageInSystemPrompt,
+	);
 	const editLanguage = effectiveDraftLanguage ?? bot.language ?? textLang(bot.displayName) ?? defaultLanguageTag;
 	const editTextProps = textLanguageDomProps(editLanguage);
 	const inferenceInheritedSettings = cloneAwareInferenceInheritedSettingsForDraft(bot, draft.inference, ownerInferenceSettings);
@@ -10470,6 +10482,8 @@ function BotEdit({
 			displayName: effectiveDraftDisplayName,
 			shortBio: effectiveDraftShortBio,
 			prompt: effectiveDraftPrompt,
+			language: editLanguage,
+			includeLanguageInSystemPrompt: effectiveDraftIncludeLanguageInSystemPrompt,
 			worldPrompt: textValue(world?.prompt),
 		},
 		inferenceInheritance,
@@ -10481,6 +10495,8 @@ function BotEdit({
 	const promptBudgetLoading = promptBudget.status === "loading" && promptBudget.requestKey === promptBudgetRequestKey;
 	const dirty =
 		effectiveDraftLanguage !== savedLanguage ||
+		includeLanguageInSystemPromptInputFromDraft(draft.includeLanguageInSystemPrompt, linkedClone) !==
+			savedIncludeLanguageInSystemPrompt ||
 		draft.displayName !== savedDisplayName ||
 		draft.shortBio !== savedShortBio ||
 		draft.prompt !== savedPrompt ||
@@ -10582,7 +10598,8 @@ function BotEdit({
 			{
 				method: "POST",
 				body: {
-					language: effectiveDraftLanguage ?? defaultLanguageTag,
+					language: editLanguage,
+					includeLanguageInSystemPrompt: effectiveDraftIncludeLanguageInSystemPrompt,
 					displayName: effectiveDraftDisplayName,
 					prompt: effectiveDraftPrompt,
 					shortBio: effectiveDraftShortBio,
@@ -11183,6 +11200,15 @@ function BotEditProfileSection({
 					hint={linkedClone ? "blank inherits source" : undefined}
 					onChange={(language) => setDraft((current) => ({ ...current, language }))}
 					placeholder={linkedClone ? bot.language ?? "source" : undefined}
+					systemPromptControl={{
+						allowInherit: linkedClone,
+						inheritedValue: linkedClone ?
+							bot.cloneSource?.sourceBot?.includeLanguageInSystemPrompt ?? bot.includeLanguageInSystemPrompt
+						:	null,
+						onChange: (includeLanguageInSystemPrompt) =>
+							setDraft((current) => ({ ...current, includeLanguageInSystemPrompt })),
+						value: draft.includeLanguageInSystemPrompt,
+					}}
 					value={draft.language}
 				/>
 				<Field hint={linkedClone ? "blank inherits source" : "required"} label="Short bio">
@@ -15047,6 +15073,7 @@ function CreateBotModal({
 			setImportDraft({
 				handle: preview.handle,
 				language: languageDraftValue(preview.language, textLang(preview.displayName) ?? defaultLanguageTag),
+				includeLanguageInSystemPrompt: "include",
 				displayName: textValue(preview.displayName),
 				shortBio: textValue(preview.shortBio),
 				prompt: textValue(preview.prompt),
@@ -15155,7 +15182,16 @@ function CreateBotModal({
 								/>
 							</div>
 						</Field>
-						<LanguageField onChange={(language) => setManualDraft((current) => ({ ...current, language }))} value={manualDraft.language} />
+						<LanguageField
+							onChange={(language) => setManualDraft((current) => ({ ...current, language }))}
+							systemPromptControl={{
+								allowInherit: false,
+								onChange: (includeLanguageInSystemPrompt) =>
+									setManualDraft((current) => ({ ...current, includeLanguageInSystemPrompt })),
+								value: manualDraft.includeLanguageInSystemPrompt,
+							}}
+							value={manualDraft.language}
+						/>
 						<Field hint="required" label="Short bio">
 						<textarea
 							className="textarea short-bio-editor"
@@ -15273,6 +15309,13 @@ function CreateBotModal({
 								hint="blank inherits source"
 								onChange={(language) => setCloneDraft((current) => ({ ...current, language }))}
 								placeholder={selectedCloneSource.language ?? textLang(selectedCloneSource.displayName) ?? "source"}
+								systemPromptControl={{
+									allowInherit: true,
+									inheritedValue: selectedCloneSource.includeLanguageInSystemPrompt,
+									onChange: (includeLanguageInSystemPrompt) =>
+										setCloneDraft((current) => ({ ...current, includeLanguageInSystemPrompt })),
+									value: cloneDraft.includeLanguageInSystemPrompt,
+								}}
 								value={cloneDraft.language}
 							/>
 							</div>
@@ -15368,7 +15411,16 @@ function CreateBotModal({
 									value={importDraft.prompt}
 									/>
 								</Field>
-								<LanguageField onChange={(language) => setImportDraft((current) => ({ ...current, language }))} value={importDraft.language} />
+								<LanguageField
+									onChange={(language) => setImportDraft((current) => ({ ...current, language }))}
+									systemPromptControl={{
+										allowInherit: false,
+										onChange: (includeLanguageInSystemPrompt) =>
+											setImportDraft((current) => ({ ...current, includeLanguageInSystemPrompt })),
+										value: importDraft.includeLanguageInSystemPrompt,
+									}}
+									value={importDraft.language}
+								/>
 							</>
 					)}
 				</>
@@ -19747,21 +19799,33 @@ function Field({
 	help,
 	hint,
 	label,
+	labelAction,
 }: {
 	children: ReactNode;
 	className?: string;
 	help?: ReactNode;
 	hint?: string;
 	label?: ReactNode;
+	labelAction?: ReactNode;
 }) {
 	return (
 		<div className={className ? `field ${className}` : "field"}>
-			{label && (
+			{label && labelAction ? (
+				<div className="field-label-row">
+					<label>
+						{label}
+						{hint && <span className="hint">{hint}</span>}
+					</label>
+					{labelAction}
+				</div>
+			) : label ? (
 				<label>
-					{label}
-					{hint && <span className="hint">{hint}</span>}
+					<span className="field-label-main">
+						{label}
+						{hint && <span className="hint">{hint}</span>}
+					</span>
 				</label>
-			)}
+			) : null}
 			{children}
 			{help && <div className="help">{help}</div>}
 		</div>
@@ -19774,6 +19838,7 @@ function LanguageField({
 	label,
 	onChange,
 	placeholder = "en",
+	systemPromptControl,
 	value,
 }: {
 	disabled?: boolean;
@@ -19781,13 +19846,19 @@ function LanguageField({
 	label?: string;
 	onChange: (value: string) => void;
 	placeholder?: string;
+	systemPromptControl?: LanguageSystemPromptControlProps;
 	value: string;
 }) {
 	const inputId = useId();
 	const listId = `${inputId}-languages`;
 	const t = useUiText();
 	return (
-		<Field help={t.language.fieldHelp} hint={hint} label={label ?? t.language.fieldLabel}>
+		<Field
+			help={t.language.fieldHelp}
+			hint={hint}
+			label={label ?? t.language.fieldLabel}
+			labelAction={systemPromptControl ? <LanguageSystemPromptControl {...systemPromptControl} /> : undefined}
+		>
 			<input
 				className="input"
 				disabled={disabled}
@@ -19805,6 +19876,67 @@ function LanguageField({
 			</datalist>
 		</Field>
 	);
+}
+
+type LanguageSystemPromptControlProps = {
+	allowInherit: boolean;
+	disabled?: boolean;
+	inheritedValue?: boolean | null;
+	onChange: (value: IncludeLanguageInSystemPromptDraft) => void;
+	value: IncludeLanguageInSystemPromptDraft;
+};
+
+function LanguageSystemPromptControl({
+	allowInherit,
+	disabled,
+	inheritedValue,
+	onChange,
+	value,
+}: LanguageSystemPromptControlProps) {
+	const checkboxRef = useRef<HTMLInputElement | null>(null);
+	const normalizedValue = allowInherit ? value : value === "include" ? "include" : "exclude";
+	const indeterminate = normalizedValue === "inherit";
+	useEffect(() => {
+		if (checkboxRef.current) {
+			checkboxRef.current.indeterminate = indeterminate;
+		}
+	}, [indeterminate]);
+	const inheritedText =
+		inheritedValue === true ? "inherits checked"
+		: inheritedValue === false ? "inherits unchecked"
+		: "inherits source";
+	const title = indeterminate ? `Add to system prompt (${inheritedText})` : "Add to system prompt";
+	return (
+		<label className="language-system-prompt-control" title={title}>
+			<input
+				aria-checked={indeterminate ? "mixed" : normalizedValue === "include"}
+				checked={normalizedValue === "include"}
+				className="cb"
+				disabled={disabled}
+				onChange={() => {
+					if (!disabled) {
+						onChange(nextIncludeLanguageInSystemPromptDraft(normalizedValue, allowInherit));
+					}
+				}}
+				ref={checkboxRef}
+				type="checkbox"
+			/>
+			<span>Add to system prompt</span>
+		</label>
+	);
+}
+
+function nextIncludeLanguageInSystemPromptDraft(
+	value: IncludeLanguageInSystemPromptDraft,
+	allowInherit: boolean,
+): IncludeLanguageInSystemPromptDraft {
+	if (!allowInherit) {
+		return value === "include" ? "exclude" : "include";
+	}
+	if (value === "inherit") {
+		return "include";
+	}
+	return value === "include" ? "exclude" : "inherit";
 }
 
 const ToastContext = createContext<{ push: (message: ReactNode) => void }>({ push: () => undefined });
@@ -21446,6 +21578,8 @@ function botPromptBudgetRequestKey(
 		compactionSummaryPercent: string;
 		contextWindowTokens: string;
 		displayName: string;
+		language: string;
+		includeLanguageInSystemPrompt: boolean;
 		inference: InferenceDraft;
 		prompt: string;
 		worldPrompt: string;
@@ -21463,6 +21597,8 @@ function botPromptBudgetRequestKey(
 		compactionMode: inference.compactionMode,
 		credential: inferenceDraftCredentialState(inference, inherited),
 		displayName: draft.displayName,
+		language: draft.language,
+		includeLanguageInSystemPrompt: draft.includeLanguageInSystemPrompt,
 		model: effectiveInferenceDraftModel(inference, inherited),
 		prompt: draft.prompt,
 		worldPrompt: draft.worldPrompt,
@@ -21580,14 +21716,46 @@ function inferenceFallbackContextForDraft(
 	return draft.model.trim() ? providerConnectionInheritanceContext(inherited) : inferenceInheritanceContext(inherited);
 }
 
+function includeLanguageInSystemPromptDraftFromStored(
+	value: boolean | null | undefined,
+	linkedClone: boolean,
+): IncludeLanguageInSystemPromptDraft {
+	if (linkedClone && value === null) {
+		return "inherit";
+	}
+	return value ? "include" : "exclude";
+}
+
+function includeLanguageInSystemPromptInputFromDraft(
+	value: IncludeLanguageInSystemPromptDraft,
+	linkedClone: boolean,
+): boolean | null {
+	if (value === "inherit") {
+		return linkedClone ? null : false;
+	}
+	return value === "include";
+}
+
+function effectiveIncludeLanguageInSystemPromptDraft(
+	value: IncludeLanguageInSystemPromptDraft,
+	inheritedValue: boolean | null | undefined,
+): boolean {
+	return value === "inherit" ? inheritedValue === true : value === "include";
+}
+
 function botEditDraftFromBot(bot: BotSummary, ownerInferenceSettings: BotInferenceSettings | null): BotEditDraft {
 	const profileOverrides = bot.localOverrides;
+	const linkedClone = Boolean(bot.cloneSource?.linked);
 	const inferenceSettings = botEditableInferenceSettings(bot);
 	return {
 		language:
 			profileOverrides ?
 				profileOverrides.language ?? ""
 			:	languageDraftValue(bot.language, textLang(bot.displayName) ?? defaultLanguageTag),
+		includeLanguageInSystemPrompt: includeLanguageInSystemPromptDraftFromStored(
+			linkedClone ? profileOverrides?.includeLanguageInSystemPrompt ?? null : bot.includeLanguageInSystemPrompt,
+			linkedClone,
+		),
 		displayName: textValue(profileOverrides?.displayName ?? bot.displayName),
 		shortBio: textValue(profileOverrides?.shortBio ?? bot.shortBio),
 		prompt: textValue(profileOverrides?.prompt ?? bot.prompt ?? ""),
@@ -21634,6 +21802,10 @@ function updateBotInputFromEditDraft(
 	const language = languageInputValue(draft.language) ?? (linkedClone ? null : defaultLanguageTag);
 	return {
 		language,
+		includeLanguageInSystemPrompt: includeLanguageInSystemPromptInputFromDraft(
+			draft.includeLanguageInSystemPrompt,
+			linkedClone,
+		),
 		displayName: localizedText(draft.displayName, language),
 		shortBio: localizedText(draft.shortBio, language),
 		prompt: localizedText(draft.prompt, language),
@@ -21662,6 +21834,10 @@ function createBotInputFromDraft(draft: BotDraft): CreateBotInput {
 	return {
 		handle: draft.handle,
 		language,
+		includeLanguageInSystemPrompt: includeLanguageInSystemPromptInputFromDraft(
+			draft.includeLanguageInSystemPrompt,
+			Boolean(draft.cloneSourceBotId),
+		),
 		displayName: localizedText(draft.displayName, language),
 		shortBio: localizedText(draft.shortBio, language),
 		prompt: localizedText(draft.prompt, language),
@@ -22008,6 +22184,7 @@ function botDraftFromExistingBot(bot: BotSummary): BotDraft {
 	return {
 		handle: bot.handle,
 		language: "",
+		includeLanguageInSystemPrompt: "inherit",
 		displayName: "",
 		shortBio: "",
 		prompt: "",

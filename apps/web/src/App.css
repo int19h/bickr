@@ -1378,7 +1378,8 @@ button:disabled {
 	gap: 14px;
 }
 
-.field > label {
+.field > label,
+.field-label-row {
 	align-items: baseline;
 	color: var(--ink-2);
 	display: flex;
@@ -1387,10 +1388,35 @@ button:disabled {
 	justify-content: space-between;
 }
 
-.field > label .hint {
+.field-label-row > label:first-child {
+	align-items: baseline;
+	display: inline-flex;
+	gap: 8px;
+	min-width: 0;
+}
+
+.field-label-main {
+	align-items: baseline;
+	display: inline-flex;
+	gap: 8px;
+	min-width: 0;
+}
+
+.field > label .hint,
+.field-label-row .hint {
 	color: var(--ink-4);
 	font-size: calc(11px * var(--font-scale));
 	font-weight: 400;
+}
+
+.language-system-prompt-control {
+	align-items: center;
+	color: var(--ink-3);
+	display: inline-flex;
+	flex-shrink: 0;
+	font-size: calc(11px * var(--font-scale));
+	font-weight: 500;
+	gap: 6px;
 }
 
 .field-checkbox-label {

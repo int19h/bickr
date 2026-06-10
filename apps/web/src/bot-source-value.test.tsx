@@ -15,6 +15,7 @@ function testBot(overrides: Partial<BotSummary> & Pick<BotSummary, "handle" | "h
 		homeWorldId: "world_clone",
 		ownerUserId: "usr_owner",
 		language: en,
+		includeLanguageInSystemPrompt: false,
 		displayName: lt("Test Bot"),
 		shortBio: lt("Test participant."),
 		inferenceSettings: {},

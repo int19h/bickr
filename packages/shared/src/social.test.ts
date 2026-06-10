@@ -301,6 +301,7 @@ function fixture(options: FixtureOptions): { db: FakeD1; kv: FakeKV } {
 		ownerUserId: "usr_owner",
 		handle: "alice",
 		language: "en" as LanguageTag,
+		includeLanguageInSystemPrompt: false,
 		displayName: en("Alice"),
 		shortBio: en("Test participant"),
 		prompt: en("Post clearly."),

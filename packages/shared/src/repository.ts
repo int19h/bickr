@@ -200,6 +200,14 @@ function localizedTextLangSql(value: LocalizedText): string | null {
 	return value.lang;
 }
 
+function booleanSql(value: boolean | null | undefined): number {
+	return value ? 1 : 0;
+}
+
+function booleanFromStored(value: number | boolean | null | undefined): boolean {
+	return value === true || value === 1;
+}
+
 export type SessionCreateResult = {
 	cookieValue: string;
 	session: SessionDocument;
@@ -1369,6 +1377,9 @@ export async function createBot(
 	const inheritedPostingSettings = effectivePostingSettings(world.postingSettings, undefined);
 	assertPostingSettingsInputWithinLimits(input.postingSettings, inheritedPostingSettings);
 	const postingSettings = mergePostingSettings(undefined, input.postingSettings);
+	const includeLanguageInSystemPrompt =
+		cloneSource ? input.includeLanguageInSystemPrompt ?? null
+		:	input.includeLanguageInSystemPrompt === null ? false : input.includeLanguageInSystemPrompt ?? true;
 
 	let bot: BotDocument = {
 		id: makeId("bot"),
@@ -1380,6 +1391,7 @@ export async function createBot(
 		ownerUserId: userId,
 		handle: input.handle,
 		language: input.language,
+		includeLanguageInSystemPrompt,
 		displayName: input.displayName,
 		shortBio: input.shortBio,
 		prompt: input.prompt,
@@ -1460,10 +1472,15 @@ export async function updateBot(
 	const inheritedPostingSettings = effectivePostingSettings(worldPostingSettings, undefined);
 	assertPostingSettingsInputWithinLimits(input.postingSettings, inheritedPostingSettings);
 	const postingSettings = mergePostingSettings(bot.postingSettings, input.postingSettings);
+	const includeLanguageInSystemPrompt =
+		input.includeLanguageInSystemPrompt === undefined ?
+			bot.includeLanguageInSystemPrompt ?? (canInheritProfile ? null : false)
+		:	input.includeLanguageInSystemPrompt === null && !canInheritProfile ? false : input.includeLanguageInSystemPrompt;
 	const updated: BotDocument = {
 		...bot,
 		...input,
 		handle: nextHandle,
+		includeLanguageInSystemPrompt,
 		inferenceSettings,
 		toolSettings,
 		...(postingSettingsHasValues(postingSettings) ? { postingSettings } : { postingSettings: undefined }),
@@ -1635,6 +1652,7 @@ export async function unlinkBotClone(
 	const updated: BotDocument = {
 		...bot,
 		language: bot.language ?? effectiveBefore.language,
+		includeLanguageInSystemPrompt: bot.includeLanguageInSystemPrompt ?? effectiveBefore.includeLanguageInSystemPrompt,
 		displayName: hasProfileText(bot.displayName) ? bot.displayName : effectiveBefore.displayName,
 		shortBio: hasProfileText(bot.shortBio) ? bot.shortBio : effectiveBefore.shortBio,
 		prompt: hasProfileText(bot.prompt) ? bot.prompt : effectiveBefore.prompt,
@@ -1689,9 +1707,14 @@ export async function relinkBotClone(
 	}
 	await assertNoCloneCycle(db, bot.id, sourceRaw.id);
 	const sourceEffective = await effectiveBotDocument(kv, db, sourceRaw);
+	const localIncludeLanguageInSystemPrompt = bot.includeLanguageInSystemPrompt ?? false;
 	const next: BotDocument = {
 		...bot,
 		language: bot.language === sourceEffective.language ? null : bot.language,
+		includeLanguageInSystemPrompt:
+			localIncludeLanguageInSystemPrompt === sourceEffective.includeLanguageInSystemPrompt ?
+				null
+			:	localIncludeLanguageInSystemPrompt,
 		displayName: localizedTextEqual(bot.displayName, sourceEffective.displayName) ? emptyLocalizedText(bot.language) : bot.displayName,
 		shortBio: localizedTextEqual(bot.shortBio, sourceEffective.shortBio) ? emptyLocalizedText(bot.language) : bot.shortBio,
 		prompt: localizedTextEqual(bot.prompt, sourceEffective.prompt) ? emptyLocalizedText(bot.language) : bot.prompt,
@@ -1769,9 +1792,14 @@ export async function backfillInferredCloneSources(
 				continue;
 			}
 			const targetRaw = await rawBotById(kv, db, targetId);
+			const targetIncludeLanguageInSystemPrompt = targetRaw.includeLanguageInSystemPrompt ?? false;
 			let updated: BotDocument = {
 				...targetRaw,
 				language: targetRaw.language === sourceEffective.language ? null : targetRaw.language,
+				includeLanguageInSystemPrompt:
+					targetIncludeLanguageInSystemPrompt === sourceEffective.includeLanguageInSystemPrompt ?
+						null
+					:	targetIncludeLanguageInSystemPrompt,
 				displayName: localizedTextEqual(targetRaw.displayName, sourceEffective.displayName) ? emptyLocalizedText(targetRaw.language) : targetRaw.displayName,
 				shortBio: localizedTextEqual(targetRaw.shortBio, sourceEffective.shortBio) ? emptyLocalizedText(targetRaw.language) : targetRaw.shortBio,
 				prompt: localizedTextEqual(targetRaw.prompt, sourceEffective.prompt) ? emptyLocalizedText(targetRaw.language) : targetRaw.prompt,
@@ -3012,6 +3040,7 @@ async function effectiveBotDocument(
 		:	cloneSource ?? undefined;
 		const resolved = {
 			...normalized,
+			includeLanguageInSystemPrompt: normalized.includeLanguageInSystemPrompt ?? false,
 			...(sourceSummary ? { cloneSource: sourceSummary } : {}),
 			...(localOverrides ? { localOverrides } : {}),
 		};
@@ -3024,12 +3053,15 @@ async function effectiveBotDocument(
 		const sourceRaw = await sourceRawBotForLinkedClone(kv, db, cloneSource);
 		const sourceEffective = await effectiveBotDocument(kv, db, sourceRaw, context, depth + 1);
 		const effectiveLanguage = normalized.language ?? sourceEffective.language;
+		const effectiveIncludeLanguageInSystemPrompt =
+			normalized.includeLanguageInSystemPrompt ?? sourceEffective.includeLanguageInSystemPrompt ?? false;
 		const inheritedInference = hasInferenceText(normalized.inferenceSettings.model) ?
 			normalized.inferenceSettings
 		:	cloneInferenceSettings(sourceEffective.inferenceSettings);
 		const resolved: BotDocument = {
 			...normalized,
 			language: effectiveLanguage,
+			includeLanguageInSystemPrompt: effectiveIncludeLanguageInSystemPrompt,
 			displayName: hasProfileText(normalized.displayName) ?
 				localizedTextWithFallbackLang(normalized.displayName, effectiveLanguage)
 			:	sourceEffective.displayName,
@@ -3091,6 +3123,7 @@ function cloneSourceBotProfile(bot: BotDocument): NonNullable<BotCloneSourceSumm
 		homeWorldHandle: bot.homeWorldHandle,
 		handle: bot.handle,
 		language: bot.language,
+		includeLanguageInSystemPrompt: bot.includeLanguageInSystemPrompt,
 		displayName: bot.displayName,
 		shortBio: bot.shortBio,
 		...(bot.avatar ? { avatarUrl: bot.avatar.url } : {}),
@@ -3101,6 +3134,7 @@ function cloneSourceBotProfile(bot: BotDocument): NonNullable<BotCloneSourceSumm
 function botLocalOverrides(bot: BotDocument): BotLocalOverrides {
 	return {
 		language: bot.language,
+		includeLanguageInSystemPrompt: bot.includeLanguageInSystemPrompt,
 		displayName: bot.displayName,
 		shortBio: bot.shortBio,
 		prompt: bot.prompt,
@@ -3295,14 +3329,15 @@ async function upsertBotIndex(db: D1DatabaseLike, bot: BotDocument): Promise<voi
 		.prepare(
 			`INSERT INTO bots_index (
 				bot_id, home_world_id, home_world_handle, handle, language, display_name, display_name_lang, owner_user_id,
-				short_bio, short_bio_lang, avatar_url, avatar_crop, import_provider, import_external_handle, created_at, updated_at, deleted_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				include_language_in_system_prompt, short_bio, short_bio_lang, avatar_url, avatar_crop, import_provider, import_external_handle, created_at, updated_at, deleted_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(bot_id) DO UPDATE SET
 				home_world_handle = excluded.home_world_handle,
 				handle = excluded.handle,
 				language = excluded.language,
 				display_name = excluded.display_name,
 				display_name_lang = excluded.display_name_lang,
+				include_language_in_system_prompt = excluded.include_language_in_system_prompt,
 				short_bio = excluded.short_bio,
 				short_bio_lang = excluded.short_bio_lang,
 				avatar_url = excluded.avatar_url,
@@ -3319,6 +3354,7 @@ async function upsertBotIndex(db: D1DatabaseLike, bot: BotDocument): Promise<voi
 			localizedTextSql(bot.displayName),
 			localizedTextLangSql(bot.displayName),
 			bot.ownerUserId,
+			booleanSql(bot.includeLanguageInSystemPrompt),
 			localizedTextSql(bot.shortBio),
 			localizedTextLangSql(bot.shortBio),
 			bot.avatar?.url ?? null,
@@ -3341,6 +3377,7 @@ function botIndexUpdateStatement(db: D1DatabaseLike, bot: BotDocument): D1Prepar
 			     language = ?,
 			     display_name = ?,
 			     display_name_lang = ?,
+			     include_language_in_system_prompt = ?,
 			     short_bio = ?,
 			     short_bio_lang = ?,
 			     avatar_url = ?,
@@ -3355,6 +3392,7 @@ function botIndexUpdateStatement(db: D1DatabaseLike, bot: BotDocument): D1Prepar
 			bot.language,
 			localizedTextSql(bot.displayName),
 			localizedTextLangSql(bot.displayName),
+			booleanSql(bot.includeLanguageInSystemPrompt),
 			localizedTextSql(bot.shortBio),
 			localizedTextLangSql(bot.shortBio),
 			bot.avatar?.url ?? null,
@@ -3497,6 +3535,7 @@ function botSummary(
 		...(options.owner ? { owner: options.owner } : {}),
 		handle: bot.handle,
 		language: bot.language,
+		includeLanguageInSystemPrompt: bot.includeLanguageInSystemPrompt,
 		displayName: bot.displayName,
 		shortBio: bot.shortBio,
 		...(bot.avatar ? { avatar: bot.avatar, avatarUrl: bot.avatar.url } : {}),
@@ -3520,6 +3559,7 @@ function botSummary(
 function publicBotLocalOverrides(overrides: BotLocalOverrides): BotLocalOverrides {
 	return {
 		language: overrides.language,
+		includeLanguageInSystemPrompt: overrides.includeLanguageInSystemPrompt,
 		displayName: overrides.displayName,
 		shortBio: overrides.shortBio,
 		...(overrides.prompt !== undefined ? { prompt: overrides.prompt } : {}),
@@ -3840,9 +3880,15 @@ export function normalizeForumDefaults(forum: ForumDocument): ForumDocument {
 function normalizeBotDefaults(bot: BotDocument): BotDocument {
 	const raw = bot as BotDocument & Record<string, unknown>;
 	const language = languageFromStored(typeof raw.language === "string" ? raw.language : null);
+	const rawIncludeLanguageInSystemPrompt = raw.includeLanguageInSystemPrompt;
 	return {
 		...bot,
 		language,
+		includeLanguageInSystemPrompt:
+			typeof rawIncludeLanguageInSystemPrompt === "boolean" ? rawIncludeLanguageInSystemPrompt
+			: rawIncludeLanguageInSystemPrompt === null ? null
+			: typeof rawIncludeLanguageInSystemPrompt === "number" ? booleanFromStored(rawIncludeLanguageInSystemPrompt)
+			: null,
 		displayName: localizedTextFromStored(raw.displayName, language),
 		shortBio: localizedTextFromStored(raw.shortBio, language),
 		prompt: localizedTextFromStored(raw.prompt, language),

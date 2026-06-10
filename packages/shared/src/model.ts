@@ -187,6 +187,7 @@ export type BotCloneSourceSummary = BotCloneSource & {
 		homeWorldHandle: string;
 		handle: string;
 		language: LanguageTag | null;
+		includeLanguageInSystemPrompt: boolean | null;
 		displayName: LocalizedText;
 		shortBio: LocalizedText;
 		avatarUrl?: string;
@@ -196,6 +197,7 @@ export type BotCloneSourceSummary = BotCloneSource & {
 
 export type BotLocalOverrides = {
 	language: LanguageTag | null;
+	includeLanguageInSystemPrompt: boolean | null;
 	displayName: LocalizedText;
 	shortBio: LocalizedText;
 	prompt?: LocalizedText;
@@ -255,6 +257,7 @@ export type BotDocument = EntityDocument & {
 	ownerUserId: string;
 	handle: string;
 	language: LanguageTag | null;
+	includeLanguageInSystemPrompt: boolean | null;
 	displayName: LocalizedText;
 	shortBio: LocalizedText;
 	prompt: LocalizedText;
@@ -1022,6 +1025,7 @@ export type BotSummary = {
 	owner?: PublicUser;
 	handle: string;
 	language: LanguageTag | null;
+	includeLanguageInSystemPrompt: boolean | null;
 	displayName: LocalizedText;
 	shortBio: LocalizedText;
 	avatar?: AvatarImage;
@@ -1696,6 +1700,7 @@ export type BotTickSpreadResult = {
 
 export type BotContextBudgetInput = {
 	language?: LanguageTag | null;
+	includeLanguageInSystemPrompt?: boolean | null;
 	displayName?: string;
 	prompt: string;
 	shortBio?: string;
@@ -1795,6 +1800,7 @@ export type AddBotGroupMembersInput = {
 export type CreateBotInput = {
 	handle: string;
 	language: LanguageTag | null;
+	includeLanguageInSystemPrompt?: boolean | null;
 	displayName: LocalizedText;
 	shortBio: LocalizedText;
 	prompt: LocalizedText;
@@ -1808,7 +1814,7 @@ export type CreateBotInput = {
 };
 
 export type UpdateBotInput = Partial<
-	Pick<CreateBotInput, "handle" | "language" | "displayName" | "shortBio" | "prompt" | "inferenceSettings" | "toolSettings" | "postingSettings" | "tickSettings">
+	Pick<CreateBotInput, "handle" | "language" | "includeLanguageInSystemPrompt" | "displayName" | "shortBio" | "prompt" | "inferenceSettings" | "toolSettings" | "postingSettings" | "tickSettings">
 >;
 
 export type UpdateUserProfileInput = Partial<Pick<UserProfile, "handle" | "displayName">> & {

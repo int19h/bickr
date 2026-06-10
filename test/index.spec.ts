@@ -112,6 +112,7 @@ import {
 	providerChatCompletionRequest,
 	providerCompactionMessages,
 	providerCompactionRequest,
+	providerCompactionSystemInstruction,
 	providerCompactionSummaryLimitsForChat,
 	providerMessagesWithReasoningPrefill,
 	providerResponseMessageForHistory,
@@ -351,6 +352,7 @@ CREATE TABLE bots_index (
 	display_name TEXT NOT NULL,
 	display_name_lang TEXT,
 	owner_user_id TEXT NOT NULL,
+	include_language_in_system_prompt INTEGER NOT NULL DEFAULT 0,
 	short_bio TEXT NOT NULL,
 	short_bio_lang TEXT,
 	avatar_url TEXT,
@@ -1693,6 +1695,7 @@ describe("Bickr Pages Functions", () => {
 			const promptBot = {
 				handle: "prompt-tester",
 				language: testLanguage,
+				includeLanguageInSystemPrompt: false,
 				displayName: lt("Prompt Tester"),
 				shortBio: lt("Tests prompts."),
 				prompt: lt("Stay terse."),
@@ -1707,6 +1710,7 @@ describe("Bickr Pages Functions", () => {
 			const promptBot = {
 				handle: "prompt-tester",
 				language: testLanguage,
+				includeLanguageInSystemPrompt: false,
 				displayName: lt("Prompt Tester"),
 				shortBio: lt("Tests prompts."),
 				prompt: lt("Stay terse."),
@@ -1714,6 +1718,27 @@ describe("Bickr Pages Functions", () => {
 		const prompt = standardPrompt(promptBot, "The city is built on glass canals.");
 		expect(prompt).toContain("Stay terse.\n\nSetting:\nThe city is built on glass canals.");
 		expect(standardPrompt(promptBot, "  ")).not.toContain("Setting:");
+	});
+
+	it("includes the native-language prompt line only when enabled with a language", () => {
+		const promptBot = {
+			handle: "prompt-tester",
+			language: "ja" as LanguageTag,
+			includeLanguageInSystemPrompt: true,
+			displayName: localizedText("Prompt Tester", "ja" as LanguageTag),
+			shortBio: localizedText("Tests prompts.", "ja" as LanguageTag),
+			prompt: localizedText("Stay terse.", "ja" as LanguageTag),
+		} as Parameters<typeof standardPrompt>[0];
+		const nativeLanguageLine =
+			"Your native language is ja (BCP 47); all your thoughts and all content that you author must be in that language.";
+		expect(standardPrompt(promptBot)).toContain(nativeLanguageLine);
+		expect(standardPrompt({ ...promptBot, includeLanguageInSystemPrompt: false })).not.toContain(nativeLanguageLine);
+		expect(standardPrompt({ ...promptBot, language: null })).not.toContain(nativeLanguageLine);
+
+		const compactionPrompt = providerCompactionSystemInstruction(promptBot, [], "tool_call");
+		expect(compactionPrompt).toContain(nativeLanguageLine);
+		expect(providerCompactionSystemInstruction({ ...promptBot, includeLanguageInSystemPrompt: false }, [], "tool_call"))
+			.not.toContain(nativeLanguageLine);
 	});
 
 	it("keeps later live stream deltas when reconciling earlier persistent assistant messages", () => {
@@ -15078,6 +15103,7 @@ describe("Bickr Pages Functions", () => {
 					"POST",
 					{
 						handle: "count-sage",
+						language: testLanguage,
 						displayName: "Count Sage",
 						shortBio: "Measures prompts.",
 						prompt: "Stay brief.",
@@ -15092,7 +15118,7 @@ describe("Bickr Pages Functions", () => {
 			),
 		);
 		const created = (await createResponse.json()) as { data: { bot: BotBody } };
-		const promptTokens = [200, 260, 260, 210, 285, 285];
+		const promptTokens = [200, 260, 260, 210, 285, 285, 205, 265, 265];
 		const calls: Array<{ content: string }> = [];
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 			env: {
@@ -15156,6 +15182,9 @@ describe("Bickr Pages Functions", () => {
 			remainingLoopTokens: 7_240,
 		});
 		expect(calls).toHaveLength(3);
+		expect(calls[0]?.content).toContain(
+			"Your native language is en (BCP 47); all your thoughts and all content that you author must be in that language.",
+		);
 		expect(calls[0]?.content).not.toContain("Stay brief.");
 		expect(calls[1]?.content).toContain("Stay brief.");
 		expect(calls[2]?.content).toContain("Stay brief.");
@@ -15185,6 +15214,15 @@ describe("Bickr Pages Functions", () => {
 		});
 		expect(changed.cached).toBe(false);
 		expect(calls).toHaveLength(6);
+
+		const languageSettingChanged = await promptContextBudget(created.data.bot.id, {
+			includeLanguageInSystemPrompt: false,
+			prompt: "Stay brief.",
+			tickSettings: { contextWindowTokens: 10_000 },
+		});
+		expect(languageSettingChanged.cached).toBe(false);
+		expect(calls).toHaveLength(9);
+		expect(calls[6]?.content).not.toContain("Your native language is en");
 	});
 
 	it("allows bot prompts up to 64000 characters and rejects longer prompts", async () => {
@@ -19507,6 +19545,7 @@ describe("Bickr Pages Functions", () => {
 			cloneSourceBotId: source.id,
 		});
 		expect(middle.language).toBe(ar);
+		expect(middle.includeLanguageInSystemPrompt).toBe(true);
 		expect(middle.displayName).toStrictEqual(source.displayName);
 		expect(middle.shortBio).toStrictEqual(source.shortBio);
 		expect(middle.prompt).toStrictEqual(source.prompt);
@@ -19518,12 +19557,37 @@ describe("Bickr Pages Functions", () => {
 		});
 		expect(middle.localOverrides).toMatchObject({
 			language: null,
+			includeLanguageInSystemPrompt: null,
 			displayName: localizedText("", null),
 			shortBio: localizedText("", null),
 			prompt: localizedText("", null),
 			inferenceSettings: {},
 			hasAvatar: false,
 		});
+		const blankLanguageSaveResponse = await patchBot(
+			contextFor<typeof patchBot>(
+				jsonRequest(
+					`http://example.com/api/me/bots/${middle.id}`,
+					"PATCH",
+					{
+						language: null,
+						includeLanguageInSystemPrompt: null,
+						displayName: "",
+						shortBio: "",
+						prompt: "",
+					},
+					cookie,
+				),
+				{ botId: middle.id },
+			),
+		);
+		expect(blankLanguageSaveResponse.status, await blankLanguageSaveResponse.clone().text()).toBe(200);
+		const rawMiddleAfterBlankLanguageSave = await rawBotById(testEnv.BICKR_KV, testEnv.BICKR_D1, middle.id);
+		expect(rawMiddleAfterBlankLanguageSave.language).toBe(null);
+		expect(rawMiddleAfterBlankLanguageSave.includeLanguageInSystemPrompt).toBe(null);
+		expect(rawMiddleAfterBlankLanguageSave.displayName).toStrictEqual(localizedText("", null));
+		expect(rawMiddleAfterBlankLanguageSave.shortBio).toStrictEqual(localizedText("", null));
+		expect(rawMiddleAfterBlankLanguageSave.prompt).toStrictEqual(localizedText("", null));
 		expect(middle.inferenceSettings).toMatchObject({
 			model: "source/model",
 			temperature: 0.33,
@@ -19533,12 +19597,14 @@ describe("Bickr Pages Functions", () => {
 		const leaf = await createBotInWorld(cookie, "clone-leaf-world", {
 			handle: "clone-leaf",
 			language: null,
+			includeLanguageInSystemPrompt: false,
 			displayName: "",
 			shortBio: "Leaf override",
 			prompt: "",
 			cloneSourceBotId: middle.id,
 		});
 		expect(leaf.language).toBe(ar);
+		expect(leaf.includeLanguageInSystemPrompt).toBe(false);
 		expect(leaf.displayName).toStrictEqual(source.displayName);
 		expect(leaf.shortBio).toStrictEqual(localizedText("Leaf override", ar));
 		expect(leaf.prompt).toStrictEqual(source.prompt);
@@ -19555,6 +19621,7 @@ describe("Bickr Pages Functions", () => {
 					"PATCH",
 					{
 						language: ja,
+						includeLanguageInSystemPrompt: false,
 						displayName: "Clone Source Updated",
 						prompt: "Updated source prompt.",
 						inferenceSettings: {
@@ -19571,19 +19638,52 @@ describe("Bickr Pages Functions", () => {
 		expect(sourcePatchResponse.status).toBe(200);
 		const patchPayload = (await sourcePatchResponse.json()) as { data: { bot: BotBody; affectedBots: BotBody[] } };
 		expect(patchPayload.data.bot.language).toBe(ja);
+		expect(patchPayload.data.bot.includeLanguageInSystemPrompt).toBe(false);
 		expect(patchPayload.data.affectedBots.map((bot) => bot.id).sort()).toEqual([leaf.id, middle.id].sort());
 		const effectiveMiddle = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, middle.id);
 		const effectiveLeaf = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, leaf.id);
 		expect(effectiveMiddle.language).toBe(ja);
+		expect(effectiveMiddle.includeLanguageInSystemPrompt).toBe(false);
 		expect(effectiveMiddle.displayName).toStrictEqual(localizedText("Clone Source Updated", ja));
 		expect(effectiveMiddle.prompt).toStrictEqual(localizedText("Updated source prompt.", ja));
 		expect(effectiveLeaf.language).toBe(ja);
+		expect(effectiveLeaf.includeLanguageInSystemPrompt).toBe(false);
 		expect(effectiveLeaf.displayName).toStrictEqual(localizedText("Clone Source Updated", ja));
 		expect(effectiveLeaf.shortBio).toStrictEqual(localizedText("Leaf override", ja));
 		expect(effectiveLeaf.inferenceSettings).toMatchObject({
 			model: "source/updated",
 			temperature: 0.55,
 		});
+
+		const leafOverrideResponse = await patchBot(
+			contextFor<typeof patchBot>(
+				jsonRequest(
+					`http://example.com/api/me/bots/${leaf.id}`,
+					"PATCH",
+					{ includeLanguageInSystemPrompt: true },
+					cookie,
+				),
+				{ botId: leaf.id },
+			),
+		);
+		expect(leafOverrideResponse.status, await leafOverrideResponse.clone().text()).toBe(200);
+		const leafOverridePayload = (await leafOverrideResponse.json()) as { data: { bot: BotBody } };
+		expect(leafOverridePayload.data.bot.includeLanguageInSystemPrompt).toBe(true);
+		const rawLeafOverride = await rawBotById(testEnv.BICKR_KV, testEnv.BICKR_D1, leaf.id);
+		expect(rawLeafOverride.includeLanguageInSystemPrompt).toBe(true);
+	});
+
+	it("normalizes missing language system prompt setting to false for existing non-clones", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const bot = await createBotForTest(cookie, "legacy-language-setting");
+		const raw = await rawBotById(testEnv.BICKR_KV, testEnv.BICKR_D1, bot.id);
+		const legacyRaw = { ...raw } as Partial<BotDocument>;
+		delete legacyRaw.includeLanguageInSystemPrompt;
+		await testEnv.BICKR_KV.put(kvKeys.bot(bot.id), JSON.stringify(legacyRaw));
+
+		expect((await rawBotById(testEnv.BICKR_KV, testEnv.BICKR_D1, bot.id)).includeLanguageInSystemPrompt).toBe(null);
+		expect((await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, bot.id)).includeLanguageInSystemPrompt).toBe(false);
 	});
 
 	it("falls through linked clone inference chains to owner defaults after source defaults", async () => {
@@ -19664,6 +19764,7 @@ describe("Bickr Pages Functions", () => {
 		const unlinked = (await unlinkResponse.json()) as { data: { bot: BotBody } };
 		expect(unlinked.data.bot.cloneSource).toMatchObject({ sourceBotId: source.id, linked: false });
 		const rawUnlinked = await rawBotById(testEnv.BICKR_KV, testEnv.BICKR_D1, clone.id);
+		expect(rawUnlinked.includeLanguageInSystemPrompt).toBe(source.includeLanguageInSystemPrompt);
 		expect(rawUnlinked.displayName).toStrictEqual(source.displayName);
 		expect(rawUnlinked.prompt).toStrictEqual(source.prompt);
 
@@ -19675,6 +19776,7 @@ describe("Bickr Pages Functions", () => {
 		);
 		expect(relinkResponse.status, await relinkResponse.clone().text()).toBe(200);
 		const rawRelinked = await rawBotById(testEnv.BICKR_KV, testEnv.BICKR_D1, clone.id);
+		expect(rawRelinked.includeLanguageInSystemPrompt).toBe(null);
 		expect(rawRelinked.displayName).toStrictEqual(lt(""));
 		expect(rawRelinked.prompt).toStrictEqual(lt(""));
 		expect((await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, clone.id)).cloneSource).toMatchObject({
@@ -19756,10 +19858,12 @@ describe("Bickr Pages Functions", () => {
 		const result = await backfillInferredCloneSources(testEnv.BICKR_KV, testEnv.BICKR_D1, "2026-05-14T00:00:00.000Z");
 		expect(result).toMatchObject({ groups: 1, clonesLinked: 1, clonesSkipped: 0 });
 		const rawDuplicate = await rawBotById(testEnv.BICKR_KV, testEnv.BICKR_D1, duplicate.id);
+		expect(rawDuplicate.includeLanguageInSystemPrompt).toBe(null);
 		expect(rawDuplicate.displayName).toStrictEqual(lt(""));
 		expect(rawDuplicate.shortBio).toStrictEqual(lt("Different short bio"));
 		expect(rawDuplicate.prompt).toStrictEqual(lt(""));
 		const effectiveDuplicate = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, duplicate.id);
+		expect(effectiveDuplicate.includeLanguageInSystemPrompt).toBe(source.includeLanguageInSystemPrompt);
 		expect(effectiveDuplicate.displayName).toStrictEqual(source.displayName);
 		expect(effectiveDuplicate.shortBio).toStrictEqual(lt("Different short bio"));
 		expect(effectiveDuplicate.prompt).toStrictEqual(source.prompt);
@@ -21728,6 +21832,7 @@ type BotBody = {
 	homeWorldHandle: string;
 	handle: string;
 	language: LanguageTag | null;
+	includeLanguageInSystemPrompt: boolean | null;
 	displayName: string;
 	shortBio: string;
 	avatar?: AvatarImage;
@@ -21744,6 +21849,7 @@ type BotBody = {
 			homeWorldHandle: string;
 			handle: string;
 			language: LanguageTag | null;
+			includeLanguageInSystemPrompt: boolean | null;
 			displayName: string;
 			shortBio: string;
 			avatarUrl?: string;
@@ -21752,6 +21858,7 @@ type BotBody = {
 	};
 	localOverrides?: {
 		language: LanguageTag | null;
+		includeLanguageInSystemPrompt: boolean | null;
 		displayName: string;
 		shortBio: string;
 		prompt?: string;
@@ -22305,6 +22412,7 @@ async function createBotInWorld(
 	input: {
 		handle: string;
 		language?: LanguageTag | null;
+		includeLanguageInSystemPrompt?: boolean | null;
 		displayName?: string | LocalizedText;
 		shortBio?: string | LocalizedText;
 		prompt?: string | LocalizedText;
@@ -23352,6 +23460,7 @@ function fakeBotDocument(
 		ownerUserId: options.ownerUserId ?? "usr_test",
 		handle: options.handle ?? "budget-bot",
 		language: testLanguage,
+		includeLanguageInSystemPrompt: false,
 		displayName: typeof options.displayName === "string" ? lt(options.displayName) : options.displayName ?? lt("Budget Bot"),
 		shortBio: typeof options.shortBio === "string" ? lt(options.shortBio) : options.shortBio ?? lt("Tests context budgets."),
 		prompt: typeof options.prompt === "string" ? lt(options.prompt) : options.prompt ?? lt("Stay concise."),

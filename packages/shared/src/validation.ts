@@ -480,6 +480,10 @@ export function parseCreateBotInput(input: unknown): CreateBotInput {
 	const language =
 		cloneSourceBotId ? parseOptionalNullableLanguageTag(record.language, "Bot language") ?? null
 		: requiredEntityLanguage(record.language, "Bot language");
+	const includeLanguageInSystemPrompt =
+		record.includeLanguageInSystemPrompt === undefined ?
+			cloneSourceBotId ? null : true
+		:	parseNullableBoolean(record.includeLanguageInSystemPrompt, "includeLanguageInSystemPrompt");
 	const displayName = cloneSourceBotId ?
 		optionalHumanTextPreservingEmpty(record.displayName ?? record.name, "Bot name", 80, language) ?? ""
 	:	requiredHumanText(record.displayName ?? record.name, "Bot name", 80, language);
@@ -492,6 +496,7 @@ export function parseCreateBotInput(input: unknown): CreateBotInput {
 	return {
 		handle: normalizeHandle(record.handle),
 		language,
+		includeLanguageInSystemPrompt,
 		displayName: localizedText(displayName, language),
 		shortBio: localizedText(shortBio, language),
 		prompt: localizedText(prompt, language),
@@ -512,9 +517,13 @@ export function parseUpdateBotInput(input: unknown): UpdateBotInput {
 	const record = asRecord(input);
 	const update: UpdateBotInput = {};
 	const language = parseOptionalNullableLanguageTag(record.language, "Bot language");
+	const includeLanguageInSystemPrompt =
+		record.includeLanguageInSystemPrompt === undefined ?
+			undefined
+		:	parseNullableBoolean(record.includeLanguageInSystemPrompt, "includeLanguageInSystemPrompt");
 	const handle = record.handle === undefined ? undefined : normalizeHandle(record.handle);
 	const hasTextUpdate = record.displayName !== undefined || record.name !== undefined || record.shortBio !== undefined || record.prompt !== undefined;
-	const textLanguage = hasTextUpdate ? language ?? requiredEntityLanguage(record.language, "Bot language") : null;
+	const textLanguage = hasTextUpdate ? language === undefined ? requiredEntityLanguage(record.language, "Bot language") : language : null;
 	const displayName = optionalHumanTextPreservingEmpty(record.displayName ?? record.name, "Bot name", 80, textLanguage);
 	const shortBio = optionalHumanTextPreservingEmpty(record.shortBio, "Short bio", maxBotShortBioLength, textLanguage);
 	const prompt = optionalHumanTextPreservingEmpty(record.prompt, "Prompt", maxBotPromptLength, textLanguage);
@@ -530,6 +539,9 @@ export function parseUpdateBotInput(input: unknown): UpdateBotInput {
 	}
 	if (language !== undefined) {
 		update.language = language;
+	}
+	if (includeLanguageInSystemPrompt !== undefined) {
+		update.includeLanguageInSystemPrompt = includeLanguageInSystemPrompt;
 	}
 	if (displayName !== undefined) {
 		update.displayName = localizedText(displayName, textLanguage);
@@ -562,6 +574,10 @@ export function parseUpdateBotInput(input: unknown): UpdateBotInput {
 export function parseBotContextBudgetInput(input: unknown): BotContextBudgetInput {
 	const record = asRecord(input);
 	const language = parseOptionalNullableLanguageTag(record.language, "Bot language");
+	const includeLanguageInSystemPrompt =
+		record.includeLanguageInSystemPrompt === undefined ?
+			undefined
+		:	parseNullableBoolean(record.includeLanguageInSystemPrompt, "includeLanguageInSystemPrompt");
 	const textLanguage = language ?? null;
 	const tickSettings =
 		record.tickSettings === undefined ?
@@ -569,6 +585,7 @@ export function parseBotContextBudgetInput(input: unknown): BotContextBudgetInpu
 		:	pickContextWindowTickSettings(parseTickSettings(record.tickSettings));
 	return {
 		...(language === undefined ? {} : { language }),
+		...(includeLanguageInSystemPrompt === undefined ? {} : { includeLanguageInSystemPrompt }),
 		...(record.displayName === undefined ? {} : { displayName: requiredHumanText(record.displayName, "Bot name", 80, textLanguage) }),
 		prompt: requiredHumanText(record.prompt, "Prompt", maxBotPromptLength, textLanguage),
 		...(record.shortBio === undefined ? {} : { shortBio: requiredHumanText(record.shortBio, "Short bio", maxBotShortBioLength, textLanguage) }),
@@ -1222,6 +1239,16 @@ function assignOptionalNullableBoolean<T extends object, K extends keyof T>(
 		throw new InputError(`${String(key)} must be a boolean.`);
 	}
 	settings[key] = Boolean(value) as T[K];
+}
+
+function parseNullableBoolean(value: unknown, label: string): boolean | null {
+	if (value === null) {
+		return null;
+	}
+	if (typeof value !== "boolean") {
+		throw new InputError(`${label} must be a boolean or null.`);
+	}
+	return value;
 }
 
 function assignOptionalEnum<T extends object, K extends keyof T, V extends string>(

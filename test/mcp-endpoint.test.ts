@@ -434,6 +434,7 @@ function testBot(
 		ownerUserId: "usr_mcp",
 		handle: overrides.handle,
 		language: overrides.language ?? en,
+		includeLanguageInSystemPrompt: overrides.includeLanguageInSystemPrompt ?? false,
 		displayName: localized(overrides.displayName, "MCP Bot"),
 		shortBio: localized(overrides.shortBio, "MCP bio"),
 		prompt: localized(overrides.prompt, "MCP prompt"),

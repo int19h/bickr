@@ -93,6 +93,30 @@ describe("posting settings", () => {
 		});
 	});
 
+	it("parses language system prompt settings for bot create and update inputs", () => {
+		expect(parseCreateBotInput({
+			handle: "default-language-prompt",
+			language: "en",
+			displayName: en("Default Language Prompt"),
+			shortBio: en("Default language prompt."),
+			prompt: en("Use the configured language."),
+		}).includeLanguageInSystemPrompt).toBe(true);
+		expect(parseCreateBotInput({
+			handle: "clone-language-prompt",
+			language: null,
+			displayName: "",
+			shortBio: "",
+			prompt: "",
+			cloneSourceBotId: "bot_source",
+		}).includeLanguageInSystemPrompt).toBe(null);
+		expect(parseUpdateBotInput({ includeLanguageInSystemPrompt: true })).toEqual({ includeLanguageInSystemPrompt: true });
+		expect(parseUpdateBotInput({ includeLanguageInSystemPrompt: false })).toEqual({ includeLanguageInSystemPrompt: false });
+		expect(parseUpdateBotInput({ includeLanguageInSystemPrompt: null })).toEqual({ includeLanguageInSystemPrompt: null });
+		expect(() => parseUpdateBotInput({ includeLanguageInSystemPrompt: "" })).toThrow(
+			"includeLanguageInSystemPrompt must be a boolean or null.",
+		);
+	});
+
 	it("accepts localized text objects for human-authored entity forms", () => {
 		expect(parseCreateWorldInput({
 			handle: "localized-world",
@@ -170,6 +194,17 @@ describe("posting settings", () => {
 				translation: { prompt: en("Translate replies.") },
 			},
 		});
+		expect(parseUpdateBotInput({
+			language: null,
+			displayName: { lang: null, text: "" },
+			shortBio: { lang: null, text: "" },
+			prompt: { lang: null, text: "" },
+		})).toMatchObject({
+			language: null,
+			displayName: { lang: null, text: "" },
+			shortBio: { lang: null, text: "" },
+			prompt: { lang: null, text: "" },
+		});
 		expect(parseUpdateUserProfileInput({
 			language: "en",
 			uiLocale: "ja",
@@ -195,6 +230,7 @@ describe("posting settings", () => {
 		});
 		expect(parseBotContextBudgetInput({
 			language: "en",
+			includeLanguageInSystemPrompt: true,
 			displayName: en("Budget Bot"),
 			prompt: en("Count this draft prompt."),
 			shortBio: en("Counts context."),
@@ -204,6 +240,7 @@ describe("posting settings", () => {
 			},
 		})).toMatchObject({
 			language: "en",
+			includeLanguageInSystemPrompt: true,
 			displayName: "Budget Bot",
 			prompt: "Count this draft prompt.",
 			shortBio: "Counts context.",
