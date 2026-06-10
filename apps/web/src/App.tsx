@@ -19312,6 +19312,117 @@ const richTextReferencePattern = new RegExp(
 const translationCacheVersion = 1;
 const translationCacheStorageKey = "bickr.translation.cache.v1";
 const translationViewStorageKey = "bickr.translation.view.v1";
+type VerticalScriptKind = "mong" | "phag";
+
+export type VerticalScriptTextSegment = {
+	text: string;
+	verticalScript: VerticalScriptKind | null;
+};
+
+const mongolianScriptCharacterPattern = /\p{Script=Mongolian}/u;
+const phagsPaScriptCharacterPattern = /\p{Script=Phags_Pa}/u;
+const mongolianScriptExtensionPattern = /\p{Script_Extensions=Mongolian}/u;
+const phagsPaScriptExtensionPattern = /\p{Script_Extensions=Phags_Pa}/u;
+const unicodeLetterPattern = /\p{Letter}/u;
+const unicodeWhitespacePattern = /\s/u;
+const mongolianSupplementalSpacingCharacters = new Set(["\u180E", "\u202F"]);
+const mongolianBlockConnectorPattern = /[\u1800-\u180F]/u;
+
+export function segmentVerticalScriptRuns(text: string): VerticalScriptTextSegment[] {
+	const segments: VerticalScriptTextSegment[] = [];
+	let normalStart = 0;
+	let runStart: number | null = null;
+	let runEnd = 0;
+	let runKind: VerticalScriptKind | null = null;
+
+	function flushRun(): void {
+		if (runStart === null || !runKind) {
+			return;
+		}
+		if (runStart > normalStart) {
+			segments.push({ text: text.slice(normalStart, runStart), verticalScript: null });
+		}
+		if (runEnd > runStart) {
+			segments.push({ text: text.slice(runStart, runEnd), verticalScript: runKind });
+		}
+		normalStart = runEnd;
+		runStart = null;
+		runEnd = 0;
+		runKind = null;
+	}
+
+	for (let index = 0; index < text.length;) {
+		const character = codePointAt(text, index);
+		const end = index + character.length;
+		const characterKind = verticalScriptAnchorKind(character);
+		if (runKind) {
+			if (characterKind === runKind) {
+				runEnd = end;
+			} else if (characterKind) {
+				flushRun();
+				runStart = index;
+				runEnd = end;
+				runKind = characterKind;
+			} else if (isVerticalScriptRunConnector(character)) {
+				if (isTrailingVerticalScriptRunConnector(character)) {
+					runEnd = end;
+				}
+			} else {
+				flushRun();
+			}
+		} else if (characterKind) {
+			runStart = index;
+			runEnd = end;
+			runKind = characterKind;
+		}
+		index = end;
+	}
+	flushRun();
+	if (normalStart < text.length) {
+		segments.push({ text: text.slice(normalStart), verticalScript: null });
+	}
+	return segments.length ? segments : [{ text, verticalScript: null }];
+}
+
+function codePointAt(text: string, index: number): string {
+	const codePoint = text.codePointAt(index);
+	if (codePoint === undefined) {
+		return "";
+	}
+	return String.fromCodePoint(codePoint);
+}
+
+function verticalScriptAnchorKind(character: string): VerticalScriptKind | null {
+	if (!unicodeLetterPattern.test(character)) {
+		return null;
+	}
+	if (mongolianScriptCharacterPattern.test(character)) {
+		return "mong";
+	}
+	if (phagsPaScriptCharacterPattern.test(character)) {
+		return "phag";
+	}
+	return null;
+}
+
+function isVerticalScriptRunConnector(character: string): boolean {
+	return (
+		unicodeWhitespacePattern.test(character) ||
+		mongolianSupplementalSpacingCharacters.has(character) ||
+		mongolianBlockConnectorPattern.test(character) ||
+		mongolianScriptExtensionPattern.test(character) ||
+		phagsPaScriptExtensionPattern.test(character)
+	);
+}
+
+function isTrailingVerticalScriptRunConnector(character: string): boolean {
+	return (
+		mongolianSupplementalSpacingCharacters.has(character) ||
+		mongolianBlockConnectorPattern.test(character) ||
+		(!unicodeWhitespacePattern.test(character) &&
+			(mongolianScriptExtensionPattern.test(character) || phagsPaScriptExtensionPattern.test(character)))
+	);
+}
 
 function TranslatableText({
 	as,
@@ -19438,13 +19549,13 @@ function TranslatableText({
 	);
 }
 
-function PlainText({ text }: { text: string }) {
+export function PlainText({ text }: { text: string }) {
 	const parts: ReactNode[] = [];
 	appendRichTextPlainSegment(parts, text, 0);
 	return <>{parts}</>;
 }
 
-function RichText({
+export function RichText({
 	interactive = true,
 	onReference,
 	text,
@@ -19528,7 +19639,7 @@ function appendRichTextPlainSegment(
 			if (options.linkifyContentUrls) {
 				appendContentUrlLinkedText(parts, line, lineOffset);
 			} else {
-				parts.push(line);
+				appendVerticalScriptText(parts, line, lineOffset);
 			}
 		}
 		lineOffset += line.length;
@@ -19540,13 +19651,36 @@ function appendContentUrlLinkedText(parts: ReactNode[], text: string, offset: nu
 	let cursor = 0;
 	for (const match of matches) {
 		if (match.start > cursor) {
-			parts.push(text.slice(cursor, match.start));
+			appendVerticalScriptText(parts, text.slice(cursor, match.start), offset + cursor);
 		}
 		parts.push(<BickrContentUrlLink key={`url:${offset + match.start}`} match={match} />);
 		cursor = match.end;
 	}
 	if (cursor < text.length) {
-		parts.push(text.slice(cursor));
+		appendVerticalScriptText(parts, text.slice(cursor), offset + cursor);
+	}
+}
+
+function appendVerticalScriptText(parts: ReactNode[], text: string, offset: number): void {
+	let cursor = 0;
+	for (const segment of segmentVerticalScriptRuns(text)) {
+		if (!segment.text) {
+			continue;
+		}
+		if (segment.verticalScript) {
+			parts.push(
+				<span
+					className={`vertical-script-run vertical-script-run-${segment.verticalScript}`}
+					dir="ltr"
+					key={`vs:${offset + cursor}:${segment.verticalScript}`}
+				>
+					{segment.text}
+				</span>,
+			);
+		} else {
+			parts.push(segment.text);
+		}
+		cursor += segment.text.length;
 	}
 }
 
