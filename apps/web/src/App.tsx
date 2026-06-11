@@ -19638,8 +19638,8 @@ function DirectionalTextLines({
 	const lines = text.split(/\r\n|\n|\r/);
 	return (
 		<>
-			{lines.map((line, index) => (
-				<span className={`bidi-line ${line ? "" : "empty"}`} dir="auto" key={index}>
+				{lines.map((line, index) => (
+					<span className={line ? "bidi-line" : "bidi-line bidi-line-empty"} dir="auto" key={index}>
 					{line ?
 						rich && onReference ?
 							<RichText interactive={interactiveReferences} onReference={onReference} text={line} worldHandle={worldHandle} />
