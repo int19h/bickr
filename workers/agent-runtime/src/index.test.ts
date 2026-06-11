@@ -11,6 +11,7 @@ import {
 	rewriteProviderResponseToolCallMessage,
 	runtimeErrorLoopMessageContent,
 	selfCorrectionMessageForToolFailurePayload,
+	syntheticLimitLogOffArgs,
 	type ToolFailurePayload,
 } from "./index";
 
@@ -135,6 +136,24 @@ describe("tool argument validation", () => {
 		expect(() => localizedToolTextArg({ text: "foo" }, "reason", enLang)).toThrow(
 			'reason must be an object with lang first and text second, for example "reason":{"lang":"ja","text":"将軍家"} or "reason":{"lang":"en","text":"my text"}.',
 		);
+	});
+
+	it("uses localized text for synthetic limit log-off reasons", () => {
+		expect(syntheticLimitLogOffArgs()).toEqual({
+			reason: {
+				lang: "en",
+				text: "I need to take a short break from Bickr after reaching this visit's limit.",
+			},
+		});
+	});
+
+	it("preserves bot language in synthetic limit log-off tool args", () => {
+		expect(syntheticLimitLogOffArgs("ja" as LanguageTag)).toEqual({
+			reason: {
+				lang: "ja",
+				text: "I need to take a short break from Bickr after reaching this visit's limit.",
+			},
+		});
 	});
 });
 

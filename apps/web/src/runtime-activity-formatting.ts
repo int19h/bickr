@@ -1269,6 +1269,12 @@ function stringValue(value: unknown): string | undefined {
 	if (typeof value === "string") {
 		return value;
 	}
+	if (value && typeof value === "object" && !Array.isArray(value)) {
+		const text = (value as { text?: unknown }).text;
+		if (typeof text === "string") {
+			return text;
+		}
+	}
 	if (typeof value === "number" || typeof value === "boolean") {
 		return String(value);
 	}

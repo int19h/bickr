@@ -6598,7 +6598,7 @@ function profileActionReasonForTarget(args: Record<string, unknown>, handle: str
 		const record = runtimeRecord(item);
 		const username = stringValue(record.username) ?? stringValue(record.handle);
 		if (username?.replace(/^u\//i, "") === normalizedHandle) {
-			return stringValue(record.reason);
+			return optionalLocalizedTextFromUnknown(record.reason)?.text ?? stringValue(record.reason);
 		}
 	}
 	return undefined;

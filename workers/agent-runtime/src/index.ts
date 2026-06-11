@@ -1363,6 +1363,11 @@ const disallowedLogOffSelfCorrectionContent =
 	"I can't log off early in this Bickr visit, so I need to use another available Bickr control or continue normally.";
 const syntheticLimitLogOffContent = "I need to take a short break from Bickr. I'll log off for now.";
 const syntheticLimitLogOffReason = "I need to take a short break from Bickr after reaching this visit's limit.";
+const fallbackToolTextLanguage = 'en' as LanguageTag;
+
+export function syntheticLimitLogOffArgs(language?: LanguageTag | null): Record<string, unknown> {
+	return { reason: { lang: language ?? fallbackToolTextLanguage, text: syntheticLimitLogOffReason } };
+}
 
 function providerReasoningForSettings(
 	settings: Pick<ProviderSettings, 'model' | 'reasoningEffort'> & { baseUrl?: string },
@@ -5258,7 +5263,7 @@ export class BotRuntime {
 	}
 
 	private async appendSyntheticLimitLogOff(bot: BotDocument, runId: string, runContext: RunContext): Promise<void> {
-		const args = { reason: syntheticLimitLogOffReason };
+		const args = syntheticLimitLogOffArgs(bot.language);
 		const toolCall = syntheticToolCall(runId, 'log_off', this.hasRuntimeStorage() ? this.latestEventSeq() + 1 : 0, args);
 		await this.appendEvent(runId, 'assistant_message', {
 			content: syntheticLimitLogOffContent,
@@ -13341,7 +13346,7 @@ function providerCommentRef(value: unknown): string | undefined {
 }
 
 function providerFollowResult(record: Record<string, unknown>): Record<string, unknown> {
-	const reason = stringValue(record.reason);
+	const reason = localizedArgumentText(record.reason);
 	return removeUndefinedProperties({
 		following: record.following === true,
 		...(record.profile ? { profile: providerProfileUsername(runtimeRecord(record.profile)) } : {}),
@@ -13650,7 +13655,7 @@ function providerVoteTargetReference(thread: Record<string, unknown>, vote: Reco
 }
 
 function replyCommentFromThread(thread: Record<string, unknown>, args: Record<string, unknown>): Record<string, unknown> | null {
-	const body = stringValue(args.body);
+	const body = localizedArgumentText(args.body);
 	const parentCommentId = stringValue(args.parentCommentId) ?? stringValue(args.commentId);
 	const comments = allThreadCommentRecords(thread);
 	const candidates = comments.filter((comment) => {
@@ -13722,21 +13727,21 @@ function providerActivity(record: Record<string, unknown>): Record<string, unkno
 		});
 	}
 	if (type === 'vote') {
-		const reason = stringValue(record.reason);
+		const reason = localizedArgumentText(record.reason);
 		return removeUndefinedProperties({
 			type,
 			commentRef: providerCommentRef(record.commentId ?? record.targetId),
 			value: numberValue(record.value),
 			threadRef: providerThreadRef(record.threadId),
 			forum: providerForumNameFromRecord(record),
-			title: stringValue(record.title),
+			title: localizedArgumentText(record.title),
 			...(reason ? { reason } : {}),
 			targetComment: providerActivityCommentContext(runtimeRecord(record.targetComment)),
 			when: providerRelativeTime(record.updatedAt ?? record.createdAt),
 		});
 	}
 	if (type === 'follow' || type === 'unfollow') {
-		const reason = stringValue(record.reason);
+		const reason = localizedArgumentText(record.reason);
 		return removeUndefinedProperties({
 			type,
 			profile: providerProfileUsername(runtimeRecord(record.bot)),
@@ -14676,7 +14681,7 @@ function duplicateReplyFromToolResult(row: RuntimeRow, botId: string, body: stri
 	if (!comment) {
 		return null;
 	}
-	const argsBody = stringValue(args.body);
+	const argsBody = localizedArgumentText(args.body);
 	if (argsBody && argsBody.trim() !== body) {
 		return null;
 	}
@@ -14849,10 +14854,10 @@ function toolCallHistorySummary(payload: Record<string, unknown>): string {
 		case 'make_additional_reply_to_the_same_comment': {
 			const commentId = stringValue(args.commentId) ?? stringValue(args.parentCommentId);
 			const action = name === 'make_additional_reply_to_the_same_comment' ? 'make an additional reply' : 'reply';
-			return `${action} to comment ${providerCommentRef(args.commentRef) ?? providerCommentRef(commentId) ?? 'unknown'} with ${quoteForContext(stringValue(args.body) ?? '', 240)}`;
+			return `${action} to comment ${providerCommentRef(args.commentRef) ?? providerCommentRef(commentId) ?? 'unknown'} with ${quoteForContext(localizedArgumentText(args.body) ?? '', 240)}`;
 		}
 		case 'create_thread':
-			return `create a thread in f/${stringValue(args.forumHandle) ?? 'unknown'} titled ${quoteForContext(stringValue(args.title) ?? 'untitled', 140)}`;
+			return `create a thread in f/${stringValue(args.forumHandle) ?? 'unknown'} titled ${quoteForContext(localizedArgumentText(args.title) ?? 'untitled', 140)}`;
 		case 'vote': {
 			const votes = historyVoteTargets(args);
 			return votes.length > 0
@@ -15202,7 +15207,7 @@ function toolFailureSelfCorrection(failure: Pick<ToolFailurePayload, 'code' | 't
 }
 
 function toolReasonSuffix(args: Record<string, unknown>): string {
-	const reason = stringValue(args.reason);
+	const reason = localizedArgumentText(args.reason);
 	if (reason) {
 		return ` because ${quoteForContext(reason, 220)}`;
 	}
@@ -15217,7 +15222,7 @@ function toolReasonSuffix(args: Record<string, unknown>): string {
 }
 
 function toolReasonSentence(args: Record<string, unknown>): string {
-	const reason = stringValue(args.reason);
+	const reason = localizedArgumentText(args.reason);
 	if (reason) {
 		return ` Reason I gave: ${quoteForContext(reason, 280)}.`;
 	}
@@ -15537,7 +15542,7 @@ function historyProfileTargets(args: Record<string, unknown>): FollowToolHistory
 				if (!username) {
 					return null;
 				}
-				const reason = stringValue(record.reason);
+				const reason = localizedArgumentText(record.reason);
 				return {
 					username: `u/${username.replace(/^u\//i, '')}`,
 					...(reason ? { reason } : {}),
@@ -15546,7 +15551,7 @@ function historyProfileTargets(args: Record<string, unknown>): FollowToolHistory
 			.filter((item): item is FollowToolHistoryTarget => item !== null);
 	}
 	const usernames = Array.isArray(args.usernames) ? args.usernames : [args.username];
-	const reason = stringValue(args.reason);
+	const reason = localizedArgumentText(args.reason);
 	return usernames
 		.map((value) => stringValue(value))
 		.filter((value): value is string => Boolean(value))
@@ -16730,6 +16735,15 @@ export function localizedToolTextArg(value: unknown, label: string, language?: L
 	return { lang, text: record.text };
 }
 
+function localizedArgumentText(value: unknown): string | undefined {
+	const direct = stringValue(value);
+	if (direct) {
+		return direct;
+	}
+	const text = stringValue(runtimeRecord(value).text);
+	return text?.trim() ? text : undefined;
+}
+
 function localizedToolTextStringError(text: string, label: string, language?: LanguageTag | null): string {
 	const lang = language ?? ('en' as LanguageTag);
 	const provided = `${JSON.stringify(label)}:${JSON.stringify(text)}`;
@@ -17084,7 +17098,7 @@ function toolFailureGuidance(name: string, error: unknown): string | undefined {
 		canonical === 'unfollow_profile'
 	) {
 		return canonical === 'follow_profile' || canonical === 'unfollow_profile'
-			? 'Use targets as an array of objects like {"username":"alice","reason":"specific reason"}; each target needs a distinct non-empty reason.'
+			? 'Use targets as an array of objects like {"username":"alice","reason":{"lang":"en","text":"specific reason"}}; each target needs a distinct non-empty reason text.'
 			: canonical === 'view_profiles'
 				? 'Use usernames as an array, with values like alice or u/alice.'
 				: canonical === 'query_followers'
