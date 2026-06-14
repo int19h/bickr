@@ -65,6 +65,7 @@ import {
 	buildNotificationForumContext,
 	listHotThreads,
 	listPendingNotifications,
+	listWorldPublicProfiles,
 	markBotSeenContent,
 	markBotSeenFromResult,
 	listThreads,
@@ -147,6 +148,7 @@ import {
 	type BotInferenceToolCalls,
 	type BotCompactionMode,
 	type BotFollowUsernameQueryResult,
+	type BotProfileListResult,
 	type BotProfileRelationshipSummary,
 	type BotPublicProfile,
 	type BotActivityFeed,
@@ -789,6 +791,10 @@ type ContextBudgetPromptParts = {
 type ProfileRelationshipFields = Pick<BotProfileRelationshipSummary, 'isFollowedByMe' | 'isFollowingMe' | 'followers'>;
 
 type ProfileRelationshipSearchResult = BotSearchResult & ProfileRelationshipFields;
+
+type ListProfilesToolArgs =
+	| { mode: 'window'; limit: number; offset: number }
+	| { mode: 'random'; limit: number };
 
 type QueryFollowersToolArgs =
 	| { direction: 'followers'; username: string; usernameGlob?: string }
@@ -2429,8 +2435,27 @@ export function sanitizeProviderToolCalls(toolCalls: readonly BotInferenceSubmis
 			continue;
 		}
 		const argumentText = providerToolCallArgumentsText(rawArguments);
-		const argumentRepair = repairInvalidUnicodeValue(argumentText);
-		repairedTextCount += argumentRepair.repairCount;
+		const argumentTextRepair = repairInvalidUnicodeValue(argumentText);
+		repairedTextCount += argumentTextRepair.repairCount;
+		let argumentObject: Record<string, unknown>;
+		if (argumentTextRepair.value) {
+			let parsed: unknown;
+			try {
+				parsed = JSON.parse(argumentTextRepair.value);
+			} catch {
+				dropped.push(droppedProviderToolCall(id, name, 'invalid_arguments_json', rawArguments));
+				continue;
+			}
+			if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+				dropped.push(droppedProviderToolCall(id, name, 'arguments_not_json_object', rawArguments));
+				continue;
+			}
+			const parsedRepair = repairInvalidUnicodeValue(parsed as Record<string, unknown>);
+			repairedTextCount += parsedRepair.repairCount;
+			argumentObject = parsedRepair.value;
+		} else {
+			argumentObject = {};
+		}
 		if (seenIds.has(id)) {
 			dropped.push(droppedProviderToolCall(id, name, 'duplicate_tool_call', rawArguments));
 			continue;
@@ -2441,7 +2466,7 @@ export function sanitizeProviderToolCalls(toolCalls: readonly BotInferenceSubmis
 			type: 'function',
 			function: {
 				name,
-				arguments: argumentRepair.value,
+				arguments: JSON.stringify(argumentObject),
 			},
 		});
 	}
@@ -7469,6 +7494,28 @@ export class BotRuntime {
 			case 'search_profiles':
 				result = await this.searchBotsTool(bot, stringArg(normalizedArgs.query, 'query'), numberArg(normalizedArgs.limit, 10));
 				break;
+			case 'list_profiles': {
+				const query = listProfilesToolArgs(normalizedArgs);
+				if (query.mode === 'window') {
+					normalizedArgs.mode = query.mode;
+					normalizedArgs.limit = query.limit;
+					normalizedArgs.offset = query.offset;
+				} else {
+					normalizedArgs.mode = query.mode;
+					normalizedArgs.limit = query.limit;
+					delete normalizedArgs.offset;
+				}
+				const profileList = await this.listProfilesTool(bot, query);
+				await markBotSeenContent(
+					this.env.BICKR_D1,
+					bot.id,
+					profileList.profiles.map((profile) => ({ type: 'bot', id: profile.id })),
+					'tool:list_profiles',
+					runId,
+				);
+				result = profileList;
+				break;
+			}
 			case 'query_followers': {
 				const query = queryFollowersToolArgs(normalizedArgs);
 				if (query.direction === 'followers') {
@@ -7752,6 +7799,10 @@ export class BotRuntime {
 			}
 		}
 		return this.annotateProfilesFollowRelationships(bot.id, [...byId.values()].slice(0, limit));
+	}
+
+	private async listProfilesTool(bot: BotDocument, args: ListProfilesToolArgs): Promise<BotProfileListResult> {
+		return listWorldPublicProfiles(this.env.BICKR_D1, bot.homeWorldId, bot.id, args);
 	}
 
 	private async annotateProfilesFollowRelationships<T extends BotPublicProfile>(
@@ -12751,6 +12802,9 @@ export function providerToolResultPayload(
 		const profiles = result.map((item) => providerProfile(runtimeRecord(item)));
 		return pruneProviderArrayForBudget(profiles, options.tokenBudget).items;
 	}
+	if (canonical === 'list_profiles') {
+		return providerProfileListResult(runtimeRecord(result), options.tokenBudget);
+	}
 	if (canonical === 'view_profiles') {
 		const record = runtimeRecord(result);
 		const profiles = Array.isArray(record.profiles) ? record.profiles : Array.isArray(result) ? result : [result];
@@ -12839,6 +12893,7 @@ function providerToolResultUsesTokenBudget(name: string): boolean {
 		canonical === 'search_threads' ||
 		canonical === 'search_threads_semantic' ||
 		canonical === 'search_profiles' ||
+		canonical === 'list_profiles' ||
 		canonical === 'view_profiles' ||
 		canonical === 'view_activity'
 	);
@@ -13459,6 +13514,30 @@ function providerProfile(record: Record<string, unknown>): Record<string, unknow
 		isFollowedByMe: record.isFollowedByMe === true,
 		isFollowingMe: record.isFollowingMe === true,
 		followers: numberValue(record.followers) ?? 0,
+	};
+}
+
+function providerProfileListResult(record: Record<string, unknown>, tokenBudget?: number): Record<string, unknown> {
+	const profiles = Array.isArray(record.profiles) ? record.profiles.map((item) => providerProfile(runtimeRecord(item))) : [];
+	const mode = stringValue(record.mode) === 'random' ? 'random' : 'window';
+	const limit = numberValue(record.limit) ?? profiles.length;
+	const total = numberValue(record.total) ?? profiles.length;
+	const pruned = pruneProviderArrayForBudget(profiles, tokenBudget, (items) => ({ profiles: items }));
+	if (mode === 'random') {
+		return {
+			mode,
+			limit,
+			total,
+			profiles: pruned.items,
+		};
+	}
+	return {
+		mode,
+		offset: numberValue(record.offset) ?? 0,
+		limit,
+		total,
+		hasMore: record.hasMore === true,
+		profiles: pruned.items,
 	};
 }
 
@@ -14899,6 +14978,8 @@ function toolCallHistorySummary(payload: Record<string, unknown>): string {
 			const limit = stringValue(args.limit);
 			return `search profiles for ${quoteForContext(stringValue(args.query) ?? '', 160)}${limit ? `, up to ${limit}` : ''}`;
 		}
+		case 'list_profiles':
+			return listProfilesHistorySummary(args);
 		case 'query_followers':
 			return queryFollowersHistorySummary(args);
 		case 'view_profiles':
@@ -14963,6 +15044,19 @@ function toolResultHistorySummary(payload: Record<string, unknown>): string {
 	if (name === 'search_profiles' && Array.isArray(result)) {
 		return `I found ${result.length} profile${result.length === 1 ? '' : 's'}: ${
 			result
+				.slice(0, 12)
+				.map((item) => profileRef(runtimeRecord(item)))
+				.filter(Boolean)
+				.join('; ') || 'none'
+		}.`;
+	}
+	if (name === 'list_profiles') {
+		const record = runtimeRecord(result);
+		const profiles = Array.isArray(record.profiles) ? record.profiles : [];
+		const total = numberValue(record.total) ?? profiles.length;
+		const mode = stringValue(record.mode) === 'random' ? 'randomly selected' : 'listed';
+		return `I ${mode} ${profiles.length} of ${total} profile${total === 1 ? '' : 's'}: ${
+			profiles
 				.slice(0, 12)
 				.map((item) => profileRef(runtimeRecord(item)))
 				.filter(Boolean)
@@ -15435,6 +15529,16 @@ function profileRelationshipTexts(record: Record<string, unknown>): string[] {
 		result.push(record.isFollowingMe ? 'this profile follows me' : 'this profile does not follow me');
 	}
 	return result;
+}
+
+function listProfilesHistorySummary(args: Record<string, unknown>): string {
+	const mode = stringValue(args.mode) === 'random' ? 'random' : 'window';
+	const limit = stringValue(args.limit);
+	if (mode === 'random') {
+		return `list${limit ? ` ${limit}` : ''} randomly selected profiles`;
+	}
+	const offset = stringValue(args.offset);
+	return `list profiles by handle${limit ? `, up to ${limit}` : ''}${offset ? `, starting at offset ${offset}` : ''}`;
 }
 
 function queryFollowersHistorySummary(args: Record<string, unknown>): string {
@@ -16716,6 +16820,16 @@ function normalizeToolArgs(name: string, args: Record<string, unknown>, language
 	if (canonical === 'view_activity' && 'limit' in normalized) {
 		normalized.limit = numberArg(normalized.limit, 10, 20);
 	}
+	if (canonical === 'list_profiles') {
+		const query = listProfilesToolArgs(normalized);
+		normalized.mode = query.mode;
+		normalized.limit = query.limit;
+		if (query.mode === 'window') {
+			normalized.offset = query.offset;
+		} else {
+			delete normalized.offset;
+		}
+	}
 	if (canonical === 'view_profiles' && 'usernames' in normalized) {
 		normalized.usernames = usernamesArg(normalized.usernames);
 	}
@@ -16835,6 +16949,25 @@ function commentRefArg(value: unknown, label: string): string {
 
 function usernameArg(value: unknown): string {
 	return typedHandleArg(value, 'u', 'username');
+}
+
+function listProfilesToolArgs(args: Record<string, unknown>): ListProfilesToolArgs {
+	const mode = stringValue(args.mode);
+	const limit = numberArg(args.limit, 20);
+	if (mode !== 'window' && mode !== 'random') {
+		throw new Error('list_profiles requires mode to be either "window" or "random".');
+	}
+	if (mode === 'random') {
+		if (args.offset !== null && args.offset !== undefined && args.offset !== '') {
+			throw new Error('list_profiles offset is only valid when mode is "window".');
+		}
+		return { mode, limit };
+	}
+	return {
+		mode,
+		limit,
+		offset: nonNegativeIntegerArg(args.offset, 'offset', 0),
+	};
 }
 
 function queryFollowersToolArgs(args: Record<string, unknown>): QueryFollowersToolArgs {
@@ -17118,20 +17251,20 @@ function toolFailureGuidance(name: string, error: unknown): string | undefined {
 	if (canonical === 'list_recent_threads' || canonical === 'create_thread') {
 		return 'Use a forum handle like philosophy or f/philosophy. Do not include unrelated entity prefixes.';
 	}
-	if (
-		canonical === 'view_profiles' ||
-		canonical === 'view_activity' ||
-		canonical === 'query_followers' ||
-		canonical === 'follow_profile' ||
-		canonical === 'unfollow_profile'
-	) {
-		return canonical === 'follow_profile' || canonical === 'unfollow_profile'
-			? 'Use targets as an array of objects like {"username":"alice","reason":{"lang":"en","text":"specific reason"}}; each target needs a distinct non-empty reason text.'
-			: canonical === 'view_profiles'
-				? 'Use usernames as an array, with values like alice or u/alice.'
-				: canonical === 'query_followers'
-					? 'Use exactly one of isFollowing or isFollowedBy with a username like alice or u/alice; usernameGlob is optional.'
-					: 'Use a username like alice or u/alice.';
+	if (canonical === 'list_profiles') {
+		return 'Use mode as "window" or "random". For window mode, offset is optional and must be a nonnegative integer. For random mode, use limit without offset.';
+	}
+	if (canonical === 'follow_profile' || canonical === 'unfollow_profile') {
+		return 'Use targets as an array of objects like {"username":"alice","reason":{"lang":"en","text":"specific reason"}}; each target needs a distinct non-empty reason text.';
+	}
+	if (canonical === 'view_profiles') {
+		return 'Use usernames as an array, with values like alice or u/alice.';
+	}
+	if (canonical === 'query_followers') {
+		return 'Use exactly one of isFollowing or isFollowedBy with a username like alice or u/alice; usernameGlob is optional.';
+	}
+	if (canonical === 'view_activity') {
+		return 'Use a username like alice or u/alice.';
 	}
 	if (canonical === 'read_thread' || canonical === 'read_thread_by_id') {
 		return 'Use a thread ref returned by list_recent_threads, list_hot_threads, search_threads, or a notification.';
@@ -17149,6 +17282,17 @@ function toolFailureGuidance(name: string, error: unknown): string | undefined {
 		return 'Check the target ref or handle from a recent Bickr Terminal result before trying again.';
 	}
 	return undefined;
+}
+
+function nonNegativeIntegerArg(value: unknown, label: string, fallback: number): number {
+	if (value === null || value === undefined || value === '') {
+		return fallback;
+	}
+	const parsed = Number(value);
+	if (!Number.isInteger(parsed) || parsed < 0) {
+		throw new Error(`${label} must be a nonnegative integer.`);
+	}
+	return parsed;
 }
 
 function numberArg(value: unknown, fallback: number, maximum = 50): number {

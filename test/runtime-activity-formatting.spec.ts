@@ -235,6 +235,17 @@ describe("runtimeActivities tool log formatting", () => {
 		expect(profileSearch.body).toContain("7 followers");
 		expect(profileSearch.body).toContain("followed by me");
 		expect(profileSearch.body).toContain("does not follow me");
+		const listedProfiles = toolResultActivity("list_profiles", { mode: "window", limit: 2, offset: 0 }, {
+			mode: "window",
+			offset: 0,
+			limit: 2,
+			total: 3,
+			hasMore: true,
+			profiles: [profile],
+		});
+		expect(listedProfiles.title).toBe("Profile list (1 of 3)");
+		expect(listedProfiles.body).toContain("Offset 0; more profiles available.");
+		expect(listedProfiles.body).toContain("Alice (u/alice)");
 
 		const followerQuery = toolResultActivity("query_followers", { isFollowing: "alice", usernameGlob: "b*" }, {
 			total: 3,

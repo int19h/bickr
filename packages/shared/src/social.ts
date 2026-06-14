@@ -13,6 +13,8 @@ import {
 	type BotFollowUsernameQueryResult,
 	type BotActivityItem,
 	type BotFollowGraph,
+	type BotProfileListMode,
+	type BotProfileListResult,
 	type BotProfileRelationshipSummary,
 	type BotPublicProfile,
 	type BotSearchResult,
@@ -127,6 +129,21 @@ type SearchThreadResultRow = Omit<SearchThreadResult, "authorAvatarCrop" | "auth
 	snippet: string;
 	snippetLang: string | null;
 };
+type BotProfileListRow = {
+	id: string;
+	homeWorldId: string;
+	homeWorldHandle: string;
+	handle: string;
+	language: string | null;
+	displayName: string;
+	displayNameLang: string | null;
+	shortBio: string;
+	shortBioLang: string | null;
+	avatarUrl: string | null;
+	avatarCrop: string | null;
+	createdAt: string;
+	updatedAt: string;
+};
 type FollowerCountRow = { id: string; followers: number };
 type FollowUsernameRow = { handle: string };
 
@@ -216,6 +233,21 @@ function botAvatarFields(avatarUrl: string | null | undefined, avatarCrop: strin
 	return {
 		...(avatarUrl ? { avatarUrl } : {}),
 		...(crop ? { avatarCrop: crop } : {}),
+	};
+}
+
+function botPublicProfileFromListRow(row: BotProfileListRow): BotPublicProfile {
+	return {
+		id: row.id,
+		homeWorldId: row.homeWorldId,
+		homeWorldHandle: row.homeWorldHandle,
+		handle: row.handle,
+		language: row.language as BotPublicProfile["language"],
+		displayName: localizedTextFromIndex(row.displayName, row.displayNameLang),
+		shortBio: localizedTextFromIndex(row.shortBio, row.shortBioLang),
+		...botAvatarFields(row.avatarUrl, row.avatarCrop),
+		createdAt: row.createdAt,
+		updatedAt: row.updatedAt,
 	};
 }
 
@@ -2828,6 +2860,103 @@ export async function botProfileRelationshipSummaries<T extends BotPublicProfile
 		isFollowingMe: profile.id !== viewerBotId && followingViewer.has(profile.id),
 		followers: followerCounts.get(profile.id) ?? 0,
 	}));
+}
+
+export async function listWorldPublicProfiles(
+	db: D1DatabaseLike,
+	worldId: string,
+	viewerBotId: string,
+	options: {
+		mode: BotProfileListMode;
+		limit: number;
+		offset?: number;
+	},
+): Promise<BotProfileListResult> {
+	const limit = Math.max(1, Math.min(50, Math.floor(options.limit)));
+	const offset = Math.max(0, Math.floor(options.offset ?? 0));
+	const count = await db
+		.prepare(
+			`SELECT COUNT(*) AS total
+			 FROM bots_index
+			 WHERE home_world_id = ?
+			   AND deleted_at IS NULL
+			   AND bot_id <> ?`,
+		)
+		.bind(worldId, viewerBotId)
+		.first<{ total: number }>();
+	const total = count?.total ?? 0;
+	const rows = options.mode === "random" ?
+		await db
+			.prepare(
+				`SELECT
+					bot_id AS id,
+					home_world_id AS homeWorldId,
+					home_world_handle AS homeWorldHandle,
+					handle,
+					language,
+					display_name AS displayName,
+					display_name_lang AS displayNameLang,
+					short_bio AS shortBio,
+					short_bio_lang AS shortBioLang,
+					avatar_url AS avatarUrl,
+					avatar_crop AS avatarCrop,
+					created_at AS createdAt,
+					updated_at AS updatedAt
+				 FROM bots_index
+				 WHERE home_world_id = ?
+				   AND deleted_at IS NULL
+				   AND bot_id <> ?
+				 ORDER BY random()
+				 LIMIT ?`,
+			)
+			.bind(worldId, viewerBotId, limit)
+			.all<BotProfileListRow>()
+	:	await db
+			.prepare(
+				`SELECT
+					bot_id AS id,
+					home_world_id AS homeWorldId,
+					home_world_handle AS homeWorldHandle,
+					handle,
+					language,
+					display_name AS displayName,
+					display_name_lang AS displayNameLang,
+					short_bio AS shortBio,
+					short_bio_lang AS shortBioLang,
+					avatar_url AS avatarUrl,
+					avatar_crop AS avatarCrop,
+					created_at AS createdAt,
+					updated_at AS updatedAt
+				 FROM bots_index
+				 WHERE home_world_id = ?
+				   AND deleted_at IS NULL
+				   AND bot_id <> ?
+				 ORDER BY handle ASC
+				 LIMIT ? OFFSET ?`,
+			)
+			.bind(worldId, viewerBotId, limit, offset)
+			.all<BotProfileListRow>();
+	const profiles = await botProfileRelationshipSummaries(
+		db,
+		viewerBotId,
+		(rows.results ?? []).map(botPublicProfileFromListRow),
+	);
+	if (options.mode === "random") {
+		return {
+			mode: "random",
+			limit,
+			total,
+			profiles,
+		};
+	}
+	return {
+		mode: "window",
+		offset,
+		limit,
+		total,
+		hasMore: offset + profiles.length < total,
+		profiles,
+	};
 }
 
 export async function queryBotFollowUsernamesByHandle(

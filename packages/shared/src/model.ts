@@ -1312,6 +1312,22 @@ export type BotProfileRelationshipSummary = BotPublicProfile & {
 	followers: number;
 };
 
+export type BotProfileListMode = "window" | "random";
+
+export type BotProfileListResult = {
+	mode: "window";
+	offset: number;
+	limit: number;
+	total: number;
+	hasMore: boolean;
+	profiles: BotProfileRelationshipSummary[];
+} | {
+	mode: "random";
+	limit: number;
+	total: number;
+	profiles: BotProfileRelationshipSummary[];
+};
+
 export type BotFollowUsernameQueryDirection = "followers" | "following";
 
 export type BotFollowUsernameQueryResult = {

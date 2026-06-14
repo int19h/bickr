@@ -508,6 +508,8 @@ function toolCallTitle(name: string, args: unknown): string {
 			return `Searching threads and comments for "${stringValue(record.query) ?? ""}"`;
 		case "search_profiles":
 			return `Searching profiles for "${stringValue(record.query) ?? ""}"`;
+		case "list_profiles":
+			return stringValue(record.mode) === "random" ? "Listing random profiles" : "Listing profiles";
 		case "query_followers":
 			return queryFollowersTitle(record);
 		case "view_profiles":
@@ -620,6 +622,21 @@ function listToolResultSummary(
 		const query = stringValue(runtimeRecord(args).query) ?? "";
 		const items = result.map((item, index) => profileItem(runtimeRecord(item), index, fallbackWorldHandle));
 		return resultWithDisplay(`Profile search results for "${query}"`, itemsBody(items, "No matching profiles returned."), items);
+	}
+	if (canonical === "list_profiles") {
+		const record = runtimeRecord(result);
+		const profiles = Array.isArray(record.profiles) ? record.profiles.map(runtimeRecord) : [];
+		const items = profiles.map((item, index) => profileItem(item, index, fallbackWorldHandle));
+		const total = numberValue(record.total) ?? profiles.length;
+		const mode = stringValue(record.mode);
+		const title = mode === "random" ? `Random profile list (${profiles.length} of ${total})` : `Profile list (${profiles.length} of ${total})`;
+		const body = [
+			mode === "random" ?
+				"Random selection; later random calls may overlap."
+			:	`Offset ${numberValue(record.offset) ?? 0}${record.hasMore === true ? "; more profiles available." : "."}`,
+			itemsBody(items, "No profiles returned."),
+		].filter(Boolean).join("\n");
+		return resultWithDisplay(title, body, items);
 	}
 	return undefined;
 }

@@ -187,6 +187,16 @@ function toolDefinitionsForPostingLimits(postingLimits: BotEffectivePostingSetti
 		["query"],
 	),
 	tool(
+		"list_profiles",
+		"List other participants' public profiles in my world. Use mode=window with offset/limit to page through a stable u/handle-ordered window. Use mode=random with limit to list that many profiles chosen at random; random mode is not pageable and later random calls may return overlapping profiles.",
+		{
+			mode: { type: "string", enum: ["window", "random"], description: "window for stable offset/limit paging, or random for a non-pageable random selection." },
+			limit: { type: "integer", minimum: 1, maximum: 50, description: "Maximum profiles to return. Defaults to 20 and is capped at 50." },
+			offset: { type: "integer", minimum: 0, description: "Zero-based offset for mode=window. Do not provide offset with mode=random." },
+		},
+		["mode"],
+	),
+	tool(
 		"view_profiles",
 		"View one or more participants' public profiles by u/username. Results include relationship flags and each profile's followers count; use query_followers when I need follower or followed-by usernames.",
 		{ usernames: { type: "array", description: "One or more u/usernames to view.", items: { type: "string" } } },

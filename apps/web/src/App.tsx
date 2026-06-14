@@ -16796,6 +16796,8 @@ function readableToolFailureTitle(name: string): string {
 		case "follow_profile":
 		case "unfollow_profile":
 			return "Follow list not changed";
+		case "list_profiles":
+			return "Profiles not returned";
 		case "query_followers":
 			return "Profile follows not returned";
 		case "log_off":
@@ -16811,6 +16813,8 @@ function readableToolCallTitle(name: string): string {
 			return "Checking notifications";
 		case "view_profiles":
 			return "Opening profiles";
+		case "list_profiles":
+			return "Listing profiles";
 		case "query_followers":
 			return "Querying profile follows";
 		case "list_accessible_forums":
@@ -16852,6 +16856,7 @@ function readableToolResultTitle(name: string): string {
 		case "check_notifications":
 			return "Notifications";
 		case "view_profiles":
+		case "list_profiles":
 			return "Profiles";
 		case "query_followers":
 			return "Profile follows";
@@ -16906,6 +16911,18 @@ function readableToolCallSummary(name: string, args: JsonRecord, result?: unknow
 							)))}
 						</>
 					:	<span>{name === "view_profiles" ? "Opening profile details." : "Updating followed profiles."}</span>}
+				</div>
+			);
+		}
+		case "list_profiles": {
+			const mode = stringValue(args.mode);
+			const limit = numberValue(args.limit);
+			const offset = numberValue(args.offset);
+			return (
+				<div className="tool-text">
+					{mode === "random" ?
+						`Looking at ${limit ? `${limit} ` : ""}randomly selected profiles.`
+					:	`Looking at profiles by handle${limit ? `, up to ${limit}` : ""}${offset ? `, starting at offset ${offset}` : ""}.`}
 				</div>
 			);
 		}
@@ -16994,7 +17011,7 @@ function readableToolResultContent(
 	if (name === "check_notifications") {
 		return <ReadableNotificationEvents displayContext={displayContext} events={arrayValue(recordValue(value).events)} />;
 	}
-	if (name === "view_profiles" || name === "search_profiles") {
+	if (name === "view_profiles" || name === "search_profiles" || name === "list_profiles") {
 		return <ReadableProfiles displayContext={displayContext} value={value} />;
 	}
 	if (name === "query_followers") {
@@ -18324,6 +18341,9 @@ function inferToolNameFromResult(value: unknown): string {
 	const record = recordValue(value);
 	if (Array.isArray(record.events)) {
 		return "check_notifications";
+	}
+	if (Array.isArray(record.profiles) && (record.mode === "window" || record.mode === "random")) {
+		return "list_profiles";
 	}
 	if (Array.isArray(record.profiles)) {
 		return "view_profiles";

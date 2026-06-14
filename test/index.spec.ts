@@ -887,6 +887,26 @@ describe("Bickr Pages Functions", () => {
 				required: ["username", "reason"],
 			},
 		});
+		const listProfiles = toolDefinitions.find((definition) => definition.function.name === "list_profiles");
+		expect(listProfiles?.function.parameters.required).toEqual(["mode"]);
+		expect(listProfiles?.function.description).toContain("offset/limit");
+		expect(listProfiles?.function.description).toContain("random");
+		expect(listProfiles?.function.description).toContain("may return overlapping profiles");
+		expect(listProfiles?.function.parameters.properties).toMatchObject({
+			mode: {
+				type: "string",
+				enum: ["window", "random"],
+			},
+			limit: {
+				type: "integer",
+				minimum: 1,
+				maximum: 50,
+			},
+			offset: {
+				type: "integer",
+				minimum: 0,
+			},
+		});
 		const viewProfiles = toolDefinitions.find((definition) => definition.function.name === "view_profiles");
 		expect(viewProfiles?.function.parameters.required).toEqual(["usernames"]);
 		expect(viewProfiles?.function.parameters.properties.usernames).toEqual({
@@ -996,6 +1016,8 @@ describe("Bickr Pages Functions", () => {
 		const voter = await createBotForTest(cookie, "bulk-voter");
 		const firstProfile = await createBotForTest(cookie, "bulk-target-one");
 		const secondProfile = await createBotForTest(cookie, "bulk-target-two");
+		await createWorldForTest(cookie, "bulk-elsewhere", "Bulk Elsewhere");
+		await createBotInWorld(cookie, "bulk-elsewhere", { handle: "bulk-target-away" });
 		const thread = await createThreadForTest(forum.id, author.id, "Bulk vote target", "Root body.");
 		const comment = await createCommentForTest(thread.id, author.id, "Comment body.");
 		const childComment = await createCommentForTest(thread.id, author.id, "Child comment body.", comment.id);
@@ -1277,6 +1299,65 @@ describe("Bickr Pages Functions", () => {
 		expect(legacyProfileResult.providerResult).toMatchObject({
 			profiles: [{ username: `u/${firstProfile.handle}` }],
 		});
+		const listWindowResult = await executeTool(
+			bot,
+			"run-list-profiles-window",
+			"list_profiles",
+			{ mode: "window", limit: 2, offset: 1 },
+			{ mode: "normal", signal },
+		);
+		expect(listWindowResult.providerResult).toMatchObject({
+			mode: "window",
+			offset: 1,
+			limit: 2,
+			total: 3,
+			hasMore: false,
+			profiles: [
+				{ username: `u/${firstProfile.handle}`, displayName: localizedTextString(firstProfile.displayName), shortBio: expect.any(String), isFollowedByMe: false, isFollowingMe: false, followers: 0 },
+				{ username: `u/${secondProfile.handle}`, displayName: localizedTextString(secondProfile.displayName), shortBio: expect.any(String), isFollowedByMe: false, isFollowingMe: false, followers: 0 },
+			],
+		});
+		const seenProfiles = await testEnv.BICKR_D1
+			.prepare(
+				`SELECT object_id AS id, seen_via AS seenVia
+				 FROM bot_seen_content
+				 WHERE bot_id = ?
+				   AND object_type = 'bot'
+				   AND object_id IN (?, ?)`,
+			)
+			.bind(bot.id, firstProfile.id, secondProfile.id)
+			.all<{ id: string; seenVia: string }>();
+		expect(seenProfiles.results ?? []).toEqual(expect.arrayContaining([
+			{ id: firstProfile.id, seenVia: "tool:list_profiles" },
+			{ id: secondProfile.id, seenVia: "tool:list_profiles" },
+		]));
+		expect(seenProfiles.results ?? []).toHaveLength(2);
+		const randomListResult = await executeTool(
+			bot,
+			"run-list-profiles-random",
+			"list_profiles",
+			{ mode: "random", limit: 2 },
+			{ mode: "normal", signal },
+		);
+		const randomProviderResult = randomListResult.providerResult as { mode: string; limit: number; total: number; profiles: Array<{ username: string }> };
+		expect(randomProviderResult).toMatchObject({
+			mode: "random",
+			limit: 2,
+			total: 3,
+		});
+		expect(randomProviderResult.profiles.length).toBeLessThanOrEqual(2);
+		expect(new Set(randomProviderResult.profiles.map((profile) => profile.username)).size).toBe(randomProviderResult.profiles.length);
+		expect(randomProviderResult.profiles.map((profile) => profile.username)).not.toContain(`u/${bot.handle}`);
+		expect(randomProviderResult.profiles.map((profile) => profile.username)).not.toContain("u/bulk-target-away");
+		const randomOffset = await executeTool(
+			bot,
+			"run-list-profiles-random-offset",
+			"list_profiles",
+			{ mode: "random", limit: 2, offset: 1 },
+			{ mode: "normal", signal },
+		).catch((error: unknown) => error);
+		expect(randomOffset).toBeInstanceOf(Error);
+		expect((randomOffset as Error).message).toContain("offset is only valid");
 		await expect(
 			executeTool(bot, "run-check-notifications", "check_notifications", {}, { mode: "normal", signal }),
 		).resolves.toMatchObject({ providerResult: { events: [] } });
@@ -15724,33 +15805,33 @@ describe("Bickr Pages Functions", () => {
 			vi.setSystemTime(new Date("2026-05-08T00:00:00.000Z"));
 			try {
 				const scope = { commentsWithText: new Set<string>(), threadsWithText: new Set<string>() };
-					const searchResult = providerToolResultPayload(
-						"search_threads",
-						[
-							{ threadId: "thr_new", commentId: "cmt_new", forumHandle: "random", title: "New", authorHandle: "alice", createdAt: "2026-05-08T00:00:00.000Z" },
+				const searchResult = providerToolResultPayload(
+					"search_threads",
+					[
+						{ threadId: "thr_new", commentId: "cmt_new", forumHandle: "random", title: "New", authorHandle: "alice", createdAt: "2026-05-08T00:00:00.000Z" },
 						{ threadId: "thr_mid", commentId: "cmt_mid", forumHandle: "random", title: "Middle", authorHandle: "bob", createdAt: "2026-05-07T00:00:00.000Z" },
 						{ threadId: "thr_old", commentId: "cmt_old", forumHandle: "random", title: "Old", authorHandle: "carol", createdAt: "2026-05-06T00:00:00.000Z" },
 					],
 					{},
 					scope,
 					{ tokenBudget: 45 },
-					) as Array<Record<string, unknown>>;
-					expect(searchResult.map((item) => item.threadRef)).toEqual(["t/thr_new"]);
+				) as Array<Record<string, unknown>>;
+				expect(searchResult.map((item) => item.threadRef)).toEqual(["t/thr_new"]);
 
-					const semanticSearchResult = providerToolResultPayload(
-						"search_threads_semantic",
-						[
-							{ threadId: "thr_semantic_new", commentId: "cmt_semantic_new", forumHandle: "random", title: "New semantic hit", authorHandle: "alice" },
-							{ threadId: "thr_semantic_old", commentId: "cmt_semantic_old", forumHandle: "random", title: "Old semantic hit", authorHandle: "bob" },
-						],
-						{},
-						scope,
-						{ tokenBudget: 45 },
-					) as Array<Record<string, unknown>>;
-					expect(semanticSearchResult.map((item) => item.threadRef)).toEqual(["t/thr_semantic_new"]);
+				const semanticSearchResult = providerToolResultPayload(
+					"search_threads_semantic",
+					[
+						{ threadId: "thr_semantic_new", commentId: "cmt_semantic_new", forumHandle: "random", title: "New semantic hit", authorHandle: "alice" },
+						{ threadId: "thr_semantic_old", commentId: "cmt_semantic_old", forumHandle: "random", title: "Old semantic hit", authorHandle: "bob" },
+					],
+					{},
+					scope,
+					{ tokenBudget: 45 },
+				) as Array<Record<string, unknown>>;
+				expect(semanticSearchResult.map((item) => item.threadRef)).toEqual(["t/thr_semantic_new"]);
 
-					const profilesResult = providerToolResultPayload(
-						"view_profiles",
+				const profilesResult = providerToolResultPayload(
+					"view_profiles",
 					{
 						profiles: [
 							{ handle: "alpha", displayName: "Alpha", shortBio: "Profile alpha." },
@@ -15763,6 +15844,33 @@ describe("Bickr Pages Functions", () => {
 					{ tokenBudget: 45 },
 				) as { profiles: Array<Record<string, unknown>> };
 				expect(profilesResult.profiles.map((item) => item.username)).toEqual(["u/alpha"]);
+
+				const listProfilesResult = providerToolResultPayload(
+					"list_profiles",
+					{
+						mode: "window",
+						offset: 0,
+						limit: 3,
+						total: 3,
+						hasMore: false,
+						profiles: [
+							{ handle: "alpha", displayName: "Alpha", shortBio: "Profile alpha." },
+							{ handle: "beta", displayName: "Beta", shortBio: "Profile beta." },
+							{ handle: "gamma", displayName: "Gamma", shortBio: "Profile gamma." },
+						],
+					},
+					{},
+					scope,
+					{ tokenBudget: 45 },
+				) as { mode: string; offset: number; limit: number; total: number; hasMore: boolean; profiles: Array<Record<string, unknown>> };
+				expect(listProfilesResult).toMatchObject({
+					mode: "window",
+					offset: 0,
+					limit: 3,
+					total: 3,
+					hasMore: false,
+				});
+				expect(listProfilesResult.profiles.map((item) => item.username)).toEqual(["u/alpha"]);
 			} finally {
 				vi.useRealTimers();
 			}
@@ -20231,7 +20339,7 @@ describe("Bickr Pages Functions", () => {
 		expect(applyBody.data.bot.avatarCrop).toBeUndefined();
 		expect(storedBot.inferenceSettings.imageGeneration).toMatchObject({
 			model: "openai/image-one",
-			prompt: unspecifiedLt("Paint me as a luminous portrait."),
+			prompt: lt("Paint me as a luminous portrait."),
 			aspectRatio: "1:1",
 			imageSize: "2K",
 		});
