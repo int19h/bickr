@@ -18,6 +18,7 @@ import {
 	type AvatarCrop,
 	type AvatarImage,
 	type BotDocument,
+	type BotGroupSummary,
 	type BotImageGenerationSettings,
 	type BotInferenceSettings,
 	type BotSummary,
@@ -26,6 +27,7 @@ import {
 	type BotEffectivePostingSettings,
 	type PostingSettings,
 	type WorldSummary,
+	localizedTextLang,
 	worldAvatarImageGenerationSettingsWithDefaults,
 } from "@bickr/shared/model";
 import { defaultPostingSettings, effectivePostingSettings } from "@bickr/shared/posting";
@@ -234,8 +236,15 @@ const mcpTools: McpTool[] = [
 	readTool("get_profile", "Get profile", "Read the signed-in human user's Bickr profile.", {}, async ({ env, auth }) => ({
 		profile: userProfile(auth.user, await listUserAuthIdentities(env.BICKR_D1, auth.user.id)),
 	})),
-	writeTool("update_profile", "Update profile", "Update the signed-in human user's Bickr profile.", openObjectSchema(), async ({ env, auth }, args) => ({
-		profile: await updateUserProfile(env.BICKR_KV, env.BICKR_D1, auth.user.id, parseUpdateUserProfileInput(args)),
+	writeTool("update_profile", "Update profile", "Update the signed-in human user's Bickr profile.", bodySchema({
+		handle: stringSchema("Profile handle."),
+		lang: languageSchema("Selected profile language. Required when displayName is provided."),
+		displayName: localizedTextSchema("Profile display name. lang must match the selected profile language."),
+		uiLocale: uiLocaleSchema("UI language preference."),
+		avatarUrl: nullableStringSchema("Profile avatar URL, or null to clear."),
+		inferenceSettings: inferenceSettingsSchema("Optional profile inference settings patch. Localized prompt fields must use { lang, text }."),
+	}), async ({ env, auth }, args) => ({
+		profile: await updateUserProfile(env.BICKR_KV, env.BICKR_D1, auth.user.id, parseUpdateUserProfileInput(mcpEntityLanguageBody(args))),
 	})),
 	readTool("list_worlds", "List worlds", "List public Bickr worlds.", {}, async ({ env }) => ({
 		worlds: annotateMcpWorlds(await listWorlds(env.BICKR_D1)),
@@ -245,17 +254,19 @@ const mcpTools: McpTool[] = [
 	})),
 	serviceTool("create_world", "Create world", "Create a Bickr world.", bodySchema({
 		handle: stringSchema("World handle."),
-		name: stringSchema("World name."),
-		description: stringSchema("World description."),
-		initialBotNotification: stringSchema("Initial notification for bots created in this world."),
-	}), ["handle", "name", "description"], "write", "forum", "POST", () => "/worlds", (args) => args),
+		lang: requiredLanguageSchema("Selected world language. Use a BCP 47 tag such as \"en\", \"ja\", \"zh-Hant\", or \"ar\"."),
+		name: localizedTextSchema("World name. lang must match the selected world language."),
+		description: localizedTextSchema("World description. lang must match the selected world language."),
+		initialBotNotification: localizedTextSchema("Initial notification for bots created in this world. lang must match the selected world language."),
+	}), ["handle", "lang", "name", "description"], "write", "forum", "POST", () => "/worlds", mcpEntityLanguageBody),
 	serviceTool("update_world", "Update world", "Update a Bickr world owned by the signed-in human user.", bodySchema({
 		worldHandle: stringSchema("Current world handle."),
 		handle: stringSchema("New world handle."),
-		name: stringSchema("World name."),
-		description: stringSchema("World description."),
-		initialBotNotification: stringSchema("Initial notification for new bots."),
-	}), ["worldHandle"], "write", "forum", "PATCH", (args) => `/worlds/${encodeURIComponent(text(args.worldHandle, "World handle"))}`, withoutKeys("worldHandle")),
+		lang: languageSchema("Selected world language. Required when updating localized world text."),
+		name: localizedTextSchema("World name. lang must match the selected world language."),
+		description: localizedTextSchema("World description. lang must match the selected world language."),
+		initialBotNotification: localizedTextSchema("Initial notification for new bots. lang must match the selected world language."),
+	}), ["worldHandle"], "write", "forum", "PATCH", (args) => `/worlds/${encodeURIComponent(text(args.worldHandle, "World handle"))}`, withoutMcpKeys("worldHandle")),
 	serviceTool("delete_world", "Delete world", "Delete a Bickr world owned by the signed-in human user.", bodySchema({
 		worldHandle: stringSchema("World handle."),
 	}), ["worldHandle"], "destructive", "forum", "DELETE", (args) => `/worlds/${encodeURIComponent(text(args.worldHandle, "World handle"))}`),
@@ -265,14 +276,16 @@ const mcpTools: McpTool[] = [
 	serviceTool("create_forum", "Create forum", "Create a forum in a Bickr world.", bodySchema({
 		worldHandle: stringSchema("World handle."),
 		handle: stringSchema("Forum handle."),
-		description: stringSchema("Forum description."),
-	}), ["worldHandle", "handle", "description"], "write", "forum", "POST", (args) => `/worlds/${encodeURIComponent(text(args.worldHandle, "World handle"))}/forums`, withoutKeys("worldHandle")),
+		lang: requiredLanguageSchema("Selected forum language. Use a BCP 47 tag such as \"en\", \"ja\", \"zh-Hant\", or \"ar\"."),
+		description: localizedTextSchema("Forum description. lang must match the selected forum language."),
+	}), ["worldHandle", "handle", "lang", "description"], "write", "forum", "POST", (args) => `/worlds/${encodeURIComponent(text(args.worldHandle, "World handle"))}/forums`, withoutMcpKeys("worldHandle")),
 	serviceTool("update_forum", "Update forum", "Update a Bickr forum.", bodySchema({
 		worldHandle: stringSchema("World handle."),
 		forumHandle: stringSchema("Current forum handle."),
 		handle: stringSchema("New forum handle."),
-		description: stringSchema("Forum description."),
-	}), ["worldHandle", "forumHandle"], "write", "forum", "PATCH", (args) => `/worlds/${encodeURIComponent(text(args.worldHandle, "World handle"))}/forums/${encodeURIComponent(text(args.forumHandle, "Forum handle"))}`, withoutKeys("worldHandle", "forumHandle")),
+		lang: languageSchema("Selected forum language. Required when updating forum description."),
+		description: localizedTextSchema("Forum description. lang must match the selected forum language."),
+	}), ["worldHandle", "forumHandle"], "write", "forum", "PATCH", (args) => `/worlds/${encodeURIComponent(text(args.worldHandle, "World handle"))}/forums/${encodeURIComponent(text(args.forumHandle, "Forum handle"))}`, withoutMcpKeys("worldHandle", "forumHandle")),
 	serviceTool("delete_forum", "Delete forum", "Delete a Bickr forum.", bodySchema({
 		worldHandle: stringSchema("World handle."),
 		forumHandle: stringSchema("Forum handle."),
@@ -313,8 +326,8 @@ const mcpTools: McpTool[] = [
 		worldHandle: stringSchema("World handle."),
 		forumHandle: stringSchema("Forum handle."),
 		botId: stringSchema("Owned bot ID that will author the thread."),
-		title: stringSchema("Thread title."),
-		body: stringSchema("Thread body."),
+		title: requiredLocalizedTextSchema("Thread title authored by the selected bot."),
+		body: requiredLocalizedTextSchema("Thread body authored by the selected bot."),
 		url: stringSchema("Optional canonical URL."),
 	}), ["worldHandle", "forumHandle", "botId", "title", "body"], "POST", async (ctx, args) => {
 		const forum = await forumByHandle(ctx.env.BICKR_KV, ctx.env.BICKR_D1, text(args.worldHandle, "World handle"), text(args.forumHandle, "Forum handle"));
@@ -324,7 +337,7 @@ const mcpTools: McpTool[] = [
 		botId: stringSchema("Owned bot ID that will author the comment."),
 		threadId: stringSchema("Thread ID."),
 		parentCommentId: stringSchema("Optional parent comment ID for a reply."),
-		body: stringSchema("Comment body."),
+		body: requiredLocalizedTextSchema("Comment body authored by the selected bot."),
 	}), ["botId", "threadId", "body"], "POST", async (_ctx, args) => ({
 		service: "forum" as const,
 		path: args.parentCommentId ?
@@ -337,7 +350,7 @@ const mcpTools: McpTool[] = [
 		targetType: enumSchema(["thread", "comment"], "Vote target type."),
 		targetId: stringSchema("Thread or comment ID."),
 		value: enumSchema([-1, 0, 1], "Vote value: -1, 0, or 1."),
-		reason: stringSchema("Optional vote reason."),
+		reason: requiredLocalizedTextSchema("Optional vote reason authored by the selected bot."),
 		threadId: stringSchema("Optional thread ID for freshness when voting on comments."),
 	}), ["botId", "targetType", "targetId", "value"], "POST", async (_ctx, args) => ({
 		service: "forum" as const,
@@ -378,19 +391,21 @@ const mcpTools: McpTool[] = [
 	serviceTool("create_bot", "Create bot", "Create a Bickr bot in a world.", bodySchema({
 		worldHandle: stringSchema("World handle."),
 		handle: stringSchema("Bot handle."),
-		displayName: stringSchema("Bot display name."),
-		shortBio: stringSchema("Bot short bio."),
-		prompt: stringSchema("Bot prompt."),
-		inferenceSettings: objectSchema("Optional inference settings."),
-	}), ["worldHandle", "handle", "displayName", "shortBio", "prompt"], "write", "agent", "POST", (args, _ctx) => `/users/${encodeURIComponent(_ctx.auth.user.id)}/worlds/${encodeURIComponent(text(args.worldHandle, "World handle"))}/bots`, withoutKeys("worldHandle")),
+		lang: requiredLanguageSchema("Selected bot language. Use a BCP 47 tag such as \"en\", \"ja\", \"zh-Hant\", or \"ar\"."),
+		displayName: localizedTextSchema("Bot display name. lang must match the selected bot language."),
+		shortBio: localizedTextSchema("Bot short bio. lang must match the selected bot language."),
+		prompt: localizedTextSchema("Bot prompt. lang must match the selected bot language."),
+		inferenceSettings: inferenceSettingsSchema("Optional inference settings. Localized prompt fields must use { lang, text } with lang matching the selected bot language."),
+	}), ["worldHandle", "handle", "lang", "displayName", "shortBio", "prompt"], "write", "agent", "POST", (args, _ctx) => `/users/${encodeURIComponent(_ctx.auth.user.id)}/worlds/${encodeURIComponent(text(args.worldHandle, "World handle"))}/bots`, withoutMcpKeys("worldHandle")),
 	serviceTool("update_bot", "Update bot", "Update a Bickr bot owned by the signed-in human user.", bodySchema({
 		botId: stringSchema("Bot ID."),
 		handle: stringSchema("Bot handle."),
-		displayName: stringSchema("Bot display name."),
-		shortBio: stringSchema("Bot short bio."),
-		prompt: stringSchema("Bot prompt."),
-		inferenceSettings: objectSchema("Optional inference settings patch."),
-	}), ["botId"], "write", "agent", "PATCH", (args, ctx) => `/users/${encodeURIComponent(ctx.auth.user.id)}/bots/${encodeURIComponent(text(args.botId, "Bot ID"))}`, withoutKeys("botId")),
+		lang: languageSchema("Selected bot language. Required when updating localized bot text."),
+		displayName: localizedTextSchema("Bot display name. lang must match the selected bot language."),
+		shortBio: localizedTextSchema("Bot short bio. lang must match the selected bot language."),
+		prompt: localizedTextSchema("Bot prompt. lang must match the selected bot language."),
+		inferenceSettings: inferenceSettingsSchema("Optional inference settings patch. Localized prompt fields must use { lang, text } with lang matching the selected bot language."),
+	}), ["botId"], "write", "agent", "PATCH", (args, ctx) => `/users/${encodeURIComponent(ctx.auth.user.id)}/bots/${encodeURIComponent(text(args.botId, "Bot ID"))}`, withoutMcpKeys("botId")),
 	serviceTool("delete_bot", "Delete bot", "Delete a Bickr bot owned by the signed-in human user.", bodySchema({
 		botId: stringSchema("Bot ID."),
 	}), ["botId"], "destructive", "agent", "DELETE", (args, ctx) => `/users/${encodeURIComponent(ctx.auth.user.id)}/bots/${encodeURIComponent(text(args.botId, "Bot ID"))}`),
@@ -410,11 +425,20 @@ const mcpTools: McpTool[] = [
 	readTool("list_groups", "List bot groups", "List bot groups owned by the signed-in human user in a world.", { worldHandle: stringSchema("World handle.") }, async ({ env, auth }, args) => ({
 		groups: await listBotGroups(env.BICKR_KV, env.BICKR_D1, text(args.worldHandle, "World handle"), auth.user.id),
 	})),
-	writeTool("create_group", "Create bot group", "Create a Bickr bot group.", bodySchema({ worldHandle: stringSchema("World handle."), customTitle: stringSchema("Optional group title.") }), async ({ env, auth }, args) => ({
-		group: await createBotGroup(env.BICKR_KV, env.BICKR_D1, text(args.worldHandle, "World handle"), auth.user.id, parseCreateBotGroupInput(withoutKeys("worldHandle")(args))),
+	writeTool("create_group", "Create bot group", "Create a Bickr bot group.", withRequired(bodySchema({
+		worldHandle: stringSchema("World handle."),
+		lang: requiredLanguageSchema("Selected group language. Use a BCP 47 tag such as \"en\", \"ja\", \"zh-Hant\", or \"ar\"."),
+		customTitle: nullableLocalizedTextSchema("Optional group title. lang must match the selected group language, or null to use member handles."),
+	}), ["worldHandle", "lang"]), async ({ env, auth }, args) => ({
+		group: await createBotGroup(env.BICKR_KV, env.BICKR_D1, text(args.worldHandle, "World handle"), auth.user.id, parseCreateBotGroupInput(withoutMcpKeys("worldHandle")(args))),
 	})),
-	writeTool("update_group", "Update bot group", "Update a Bickr bot group.", bodySchema({ worldHandle: stringSchema("World handle."), groupId: stringSchema("Group ID."), customTitle: stringSchema("Group title, or null to clear.") }), async ({ env, auth }, args) => ({
-		group: await updateBotGroup(env.BICKR_KV, env.BICKR_D1, text(args.worldHandle, "World handle"), auth.user.id, text(args.groupId, "Group ID"), parseUpdateBotGroupInput(withoutKeys("worldHandle", "groupId")(args))),
+	writeTool("update_group", "Update bot group", "Update a Bickr bot group.", withRequired(bodySchema({
+		worldHandle: stringSchema("World handle."),
+		groupId: stringSchema("Group ID."),
+		lang: requiredLanguageSchema("Selected group language. Use a BCP 47 tag such as \"en\", \"ja\", \"zh-Hant\", or \"ar\"."),
+		customTitle: nullableLocalizedTextSchema("Group title, or null to clear. lang must match the selected group language."),
+	}), ["worldHandle", "groupId", "lang", "customTitle"]), async ({ env, auth }, args) => ({
+		group: await updateBotGroup(env.BICKR_KV, env.BICKR_D1, text(args.worldHandle, "World handle"), auth.user.id, text(args.groupId, "Group ID"), parseUpdateBotGroupInput(withoutMcpKeys("worldHandle", "groupId")(args))),
 	})),
 	writeTool("add_group_bots", "Add bots to group", "Add bots to a Bickr bot group.", bodySchema({ worldHandle: stringSchema("World handle."), groupId: stringSchema("Group ID."), botIds: arraySchema("Bot IDs.") }), async ({ env, auth }, args) => ({
 		group: await addBotGroupMembers(env.BICKR_KV, env.BICKR_D1, text(args.worldHandle, "World handle"), auth.user.id, text(args.groupId, "Group ID"), { botIds: stringArray(args.botIds, "Bot IDs") }),
@@ -516,9 +540,15 @@ const mcpTools: McpTool[] = [
 	...runtimeTools(),
 ];
 
-export function mcpToolMetadataForTest(): Array<{ name: string; annotations: Record<string, unknown>; scopes: McpScope[] }> {
+export function mcpToolMetadataForTest(): Array<{
+	name: string;
+	inputSchema: Record<string, unknown>;
+	annotations: Record<string, unknown>;
+	scopes: McpScope[];
+}> {
 	return mcpTools.map((tool) => ({
 		name: tool.name,
+		inputSchema: tool.inputSchema,
 		annotations: tool.annotations as Record<string, unknown>,
 		scopes: tool.scopes,
 	}));
@@ -531,12 +561,21 @@ function runtimeTools(): McpTool[] {
 			page: integerSchema("Optional page."),
 			after: integerSchema("Optional event sequence cursor."),
 		}, ({ env, request, auth }, args) => servicePayload(env.AGENT_RUNTIME, request, path(args), "GET", auth.user.id));
-	const action = (name: string, title: string, description: string, path: (args: Record<string, unknown>) => string, body?: (args: Record<string, unknown>) => unknown): McpTool =>
-		runtimeTool(name, title, description, bodySchema({
-			botId: stringSchema("Bot ID."),
-			text: stringSchema("Text for inject."),
-			body: objectSchema("Optional runtime action body."),
-		}), async ({ env, request, auth }, args) => servicePayload(env.AGENT_RUNTIME, request, path(args), "POST", auth.user.id, body?.(args)));
+	const runtimeActionSchema = bodySchema({
+		botId: stringSchema("Bot ID."),
+		text: stringSchema("Text for inject_runtime."),
+		body: objectSchema("Optional runtime action body."),
+	});
+	const action = (
+		name: string,
+		title: string,
+		description: string,
+		path: (args: Record<string, unknown>) => string,
+		body?: (args: Record<string, unknown>) => unknown,
+		inputSchema: Record<string, unknown> = runtimeActionSchema,
+	): McpTool =>
+		runtimeTool(name, title, description, inputSchema, async ({ env, request, auth }, args) =>
+			servicePayload(env.AGENT_RUNTIME, request, path(args), "POST", auth.user.id, body?.(args)));
 	return [
 		readRuntime("get_runtime_status", "Get runtime status", "Read one Bickr bot runtime status.", (args) => `/bots/${encodeURIComponent(text(args.botId, "Bot ID"))}/status`),
 		readRuntime("list_runtime_messages", "List runtime messages", "Read one Bickr bot runtime messages.", (args) => `/bots/${encodeURIComponent(text(args.botId, "Bot ID"))}/messages${args.page ? `?page=${encodeURIComponent(String(args.page))}` : ""}`),
@@ -549,7 +588,17 @@ function runtimeTools(): McpTool[] {
 		action("stop_runtime", "Stop runtime", "Stop a Bickr bot runtime.", (args) => `/bots/${encodeURIComponent(text(args.botId, "Bot ID"))}/stop`),
 		action("compact_runtime", "Compact runtime", "Compact a Bickr bot runtime context.", (args) => `/bots/${encodeURIComponent(text(args.botId, "Bot ID"))}/compact`),
 		action("inject_runtime", "Inject runtime text", "Inject text into a Bickr bot runtime.", (args) => `/bots/${encodeURIComponent(text(args.botId, "Bot ID"))}/inject`, (args) => ({ text: text(args.text, "Injection text") })),
-		action("update_runtime_context_budget", "Update runtime context budget", "Update a Bickr bot runtime context budget.", (args) => `/bots/${encodeURIComponent(text(args.botId, "Bot ID"))}/context-budget`, (args) => args.body ?? {}),
+		action(
+			"update_runtime_context_budget",
+			"Update runtime context budget",
+			"Update a Bickr bot runtime context budget.",
+			(args) => `/bots/${encodeURIComponent(text(args.botId, "Bot ID"))}/context-budget`,
+			(args) => mcpEntityLanguageBody(recordValue(args.body, "Context budget body")),
+			withRequired(bodySchema({
+				botId: stringSchema("Bot ID."),
+				body: contextBudgetBodySchema(),
+			}), ["botId", "body"]),
+		),
 	];
 }
 
@@ -851,6 +900,12 @@ function annotateMcpPayload(value: unknown): unknown {
 	if (Array.isArray(record.worlds)) {
 		annotated.worlds = record.worlds.map((item) => isWorldLike(item) ? annotateMcpWorld(item) : item);
 	}
+	if (isBotGroupLike(record.group)) {
+		annotated.group = annotateMcpBotGroup(record.group);
+	}
+	if (Array.isArray(record.groups)) {
+		annotated.groups = record.groups.map((item) => isBotGroupLike(item) ? annotateMcpBotGroup(item) : item);
+	}
 	if (record.data && typeof record.data === "object" && !Array.isArray(record.data)) {
 		annotated.data = annotateMcpPayload(record.data);
 	}
@@ -877,6 +932,15 @@ function annotateMcpWorld(world: WorldSummary): WorldSummary & { mcpResolvedSett
 				"world avatar image generation setting",
 			),
 		},
+	};
+}
+
+function annotateMcpBotGroup(
+	group: BotGroupSummary,
+): BotGroupSummary & { bots: Array<BotSummary & { mcpResolvedSettings: Record<string, ResolvedSettingMap> }> } {
+	return {
+		...group,
+		bots: annotateMcpBots(group.bots),
 	};
 }
 
@@ -1258,6 +1322,15 @@ function isWorldLike(value: unknown): value is WorldSummary {
 	return Boolean(value) && typeof value === "object" && !Array.isArray(value) && (value as { handle?: unknown }).handle !== undefined && (value as { name?: unknown }).name !== undefined;
 }
 
+function isBotGroupLike(value: unknown): value is BotGroupSummary {
+	return Boolean(value) &&
+		typeof value === "object" &&
+		!Array.isArray(value) &&
+		typeof (value as { id?: unknown }).id === "string" &&
+		Array.isArray((value as { bots?: unknown }).bots) &&
+		Object.hasOwn(value as Record<string, unknown>, "customTitle");
+}
+
 function toolMetadata(tool: McpTool): Record<string, unknown> {
 	return {
 		name: tool.name,
@@ -1272,7 +1345,7 @@ function toolResult(value: unknown): Record<string, unknown> {
 	if (isApiFailure(value)) {
 		return toolError(value);
 	}
-	const presented = annotateMcpPayload(value);
+	const presented = exposeMcpLangAliases(annotateMcpPayload(value));
 	const structuredContent = jsonCompatible(presented);
 	return {
 		structuredContent,
@@ -1294,6 +1367,40 @@ function errorPayload(error: unknown): Record<string, unknown> {
 		return { error: error.name, message: error.message };
 	}
 	return { error: "tool_error", message: String(error) };
+}
+
+function exposeMcpLangAliases(value: unknown): unknown {
+	if (Array.isArray(value)) {
+		return value.map(exposeMcpLangAliases);
+	}
+	if (!value || typeof value !== "object") {
+		return value;
+	}
+	const record = value as Record<string, unknown>;
+	const output: Record<string, unknown> = {};
+	for (const [key, item] of Object.entries(record)) {
+		output[key] = exposeMcpLangAliases(item);
+	}
+	if (!Object.hasOwn(output, "lang")) {
+		const lang = mcpLangAlias(record);
+		if (lang !== undefined) {
+			output.lang = lang;
+		}
+	}
+	return output;
+}
+
+function mcpLangAlias(record: Record<string, unknown>): unknown {
+	if (Object.hasOwn(record, "language")) {
+		return record.language;
+	}
+	for (const key of ["name", "displayName", "description", "customTitle", "title", "body", "bodyPreview", "snippet"]) {
+		const lang = localizedTextLang(record[key] as never);
+		if (lang !== null) {
+			return lang;
+		}
+	}
+	return undefined;
 }
 
 function isApiFailure(value: unknown): value is { ok: false; error: string; message: string } {
@@ -1369,12 +1476,57 @@ function withRequired(schema: Record<string, unknown>, required: string[]): Reco
 	return { ...schema, required };
 }
 
-function openObjectSchema(): Record<string, unknown> {
-	return { type: "object", properties: {}, additionalProperties: true };
-}
-
 function stringSchema(description: string): Record<string, unknown> {
 	return { type: "string", description };
+}
+
+function nullableStringSchema(description: string): Record<string, unknown> {
+	return { type: ["string", "null"], description };
+}
+
+function requiredLanguageSchema(description: string): Record<string, unknown> {
+	return {
+		type: "string",
+		description: `${description} Do not use "und"; use a specific BCP 47 language tag, for example "en", "es", "ja", "zh-Hant", "ar", "uk", or "eo".`,
+	};
+}
+
+function languageSchema(description: string): Record<string, unknown> {
+	return {
+		type: ["string", "null"],
+		description: `${description} Use null only when the language is intentionally unspecified or inherited. Do not use "und"; otherwise use a BCP 47 language tag such as "en", "es", "ja", "zh-Hant", "ar", "uk", or "eo".`,
+	};
+}
+
+function localizedTextSchema(description: string): Record<string, unknown> {
+	return {
+		type: "object",
+		description,
+		properties: {
+			lang: requiredLanguageSchema("BCP 47 language tag for this text."),
+			text: stringSchema("Text content."),
+		},
+		required: ["lang", "text"],
+		additionalProperties: false,
+	};
+}
+
+function nullableLocalizedTextSchema(description: string): Record<string, unknown> {
+	return {
+		...localizedTextSchema(description),
+		type: ["object", "null"],
+	};
+}
+
+function requiredLocalizedTextSchema(description: string): Record<string, unknown> {
+	return localizedTextSchema(`${description} Provide an object like {"lang":"ja","text":"将軍家"} or {"lang":"en","text":"my text"}; plain strings are not accepted.`);
+}
+
+function uiLocaleSchema(description: string): Record<string, unknown> {
+	return {
+		type: "string",
+		description: `${description} Use "system" to follow the client/browser language, or a specific BCP 47 tag such as "en", "es", "ja", "zh-Hant", "uk", or "eo".`,
+	};
 }
 
 function integerSchema(description: string): Record<string, unknown> {
@@ -1383,6 +1535,57 @@ function integerSchema(description: string): Record<string, unknown> {
 
 function objectSchema(description: string): Record<string, unknown> {
 	return { type: ["object", "null"], description, additionalProperties: true };
+}
+
+function inferenceSettingsSchema(description: string): Record<string, unknown> {
+	return {
+		type: ["object", "null"],
+		description,
+		properties: {
+			recurringPrompt: nullableLocalizedTextSchema("Optional recurring prompt. lang must match the selected profile, world, or bot language."),
+			reasoningPrefill: nullableLocalizedTextSchema("Legacy alias for recurringPrompt. Prefer recurringPrompt with { lang, text }."),
+			imageGeneration: imageGenerationSettingsSchema("Optional avatar image generation settings."),
+			image_generation: imageGenerationSettingsSchema("Optional avatar image generation settings. Prefer imageGeneration."),
+			translation: translationSettingsSchema("Optional translation settings."),
+		},
+		additionalProperties: true,
+	};
+}
+
+function imageGenerationSettingsSchema(description: string): Record<string, unknown> {
+	return {
+		type: ["object", "null"],
+		description,
+		properties: {
+			prompt: nullableLocalizedTextSchema("Image generation prompt. lang must match the selected entity language."),
+		},
+		additionalProperties: true,
+	};
+}
+
+function translationSettingsSchema(description: string): Record<string, unknown> {
+	return {
+		type: ["object", "null"],
+		description,
+		properties: {
+			prompt: nullableLocalizedTextSchema("Translation prompt. lang must match the selected entity language."),
+		},
+		additionalProperties: true,
+	};
+}
+
+function contextBudgetBodySchema(): Record<string, unknown> {
+	return withRequired(bodySchema({
+		lang: requiredLanguageSchema("Selected bot language for this context budget estimate."),
+		includeLanguageInSystemPrompt: { type: ["boolean", "null"], description: "Whether to include the selected language in the system prompt, or null to inherit." },
+		displayName: localizedTextSchema("Bot display name for the estimate. lang must match the selected bot language."),
+		prompt: localizedTextSchema("Bot prompt for the estimate. lang must match the selected bot language."),
+		shortBio: localizedTextSchema("Bot short bio for the estimate. lang must match the selected bot language."),
+		inferenceSettings: inferenceSettingsSchema("Optional inference settings for the estimate. Localized prompt fields must use { lang, text }."),
+		toolSettings: objectSchema("Optional tool settings for the estimate."),
+		postingSettings: objectSchema("Optional posting settings for the estimate."),
+		tickSettings: objectSchema("Optional tick settings for the estimate."),
+	}), ["lang", "prompt"]);
 }
 
 function arraySchema(description: string): Record<string, unknown> {
@@ -1407,11 +1610,31 @@ function valueString(value: unknown): string | null {
 	return String(value);
 }
 
+function recordValue(value: unknown, label: string): Record<string, unknown> {
+	if (!value || typeof value !== "object" || Array.isArray(value)) {
+		throw new Error(`${label} must be a JSON object.`);
+	}
+	return value as Record<string, unknown>;
+}
+
 function stringArray(value: unknown, label: string): string[] {
 	if (!Array.isArray(value) || !value.every((item) => typeof item === "string" && item.trim())) {
 		throw new Error(`${label} must be an array of strings.`);
 	}
 	return value.map((item) => item.trim());
+}
+
+function mcpEntityLanguageBody(args: Record<string, unknown>): Record<string, unknown> {
+	const body: Record<string, unknown> = { ...args };
+	if (Object.hasOwn(body, "lang")) {
+		body.language = body.lang;
+		delete body.lang;
+	}
+	return body;
+}
+
+function withoutMcpKeys(...keys: string[]): (args: Record<string, unknown>) => Record<string, unknown> {
+	return (args) => mcpEntityLanguageBody(withoutKeys(...keys)(args));
 }
 
 function withoutKeys(...keys: string[]): (args: Record<string, unknown>) => Record<string, unknown> {

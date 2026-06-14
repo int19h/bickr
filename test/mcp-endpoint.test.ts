@@ -23,6 +23,41 @@ function localized(value: string | LocalizedText | undefined, fallback: string):
 	return typeof value === "string" ? lt(value) : value ?? lt(fallback);
 }
 
+function schemaRequired(tools: Map<string, { inputSchema: Record<string, unknown> }>, toolName: string): string[] {
+	const required = tools.get(toolName)?.inputSchema.required;
+	return Array.isArray(required) ? required.filter((item): item is string => typeof item === "string") : [];
+}
+
+function schemaProperty(
+	tools: Map<string, { inputSchema: Record<string, unknown> }>,
+	toolName: string,
+	...path: string[]
+): Record<string, unknown> {
+	let schema = tools.get(toolName)?.inputSchema;
+	for (const segment of path) {
+		if (!schema) {
+			throw new Error(`Missing schema for ${toolName}.${path.join(".")}`);
+		}
+		schema = schemaProperties(schema)[segment] as Record<string, unknown> | undefined;
+	}
+	if (!schema) {
+		throw new Error(`Missing schema for ${toolName}.${path.join(".")}`);
+	}
+	return schema;
+}
+
+function schemaProperties(schema: Record<string, unknown>): Record<string, unknown> {
+	const properties = schema.properties;
+	if (!properties || typeof properties !== "object" || Array.isArray(properties)) {
+		throw new Error("Schema properties are missing.");
+	}
+	return properties as Record<string, unknown>;
+}
+
+function localizedPropertyKeys(tools: Map<string, { inputSchema: Record<string, unknown> }>, toolName: string, ...path: string[]): string[] {
+	return Object.keys(schemaProperties(schemaProperty(tools, toolName, ...path)));
+}
+
 describe("MCP endpoint", () => {
 	it("serves protected resource and authorization server metadata", async () => {
 		const protectedResource = await jsonResponse(await onProtectedResourceGet(pagesContext(new Request("https://bickr.social/.well-known/oauth-protected-resource"))));
@@ -156,6 +191,39 @@ describe("MCP endpoint", () => {
 		}
 	});
 
+	it("advertises lang-aware schemas for authored MCP text", () => {
+		const byName = new Map(mcpToolMetadataForTest().map((tool) => [tool.name, tool]));
+
+		expect(schemaRequired(byName, "create_world")).toEqual(expect.arrayContaining(["handle", "lang", "name", "description"]));
+		expect(schemaProperty(byName, "create_world", "lang")).toMatchObject({ type: "string" });
+		expect(localizedPropertyKeys(byName, "create_world", "name")).toEqual(["lang", "text"]);
+		expect(localizedPropertyKeys(byName, "create_forum", "description")).toEqual(["lang", "text"]);
+		expect(localizedPropertyKeys(byName, "create_thread", "title")).toEqual(["lang", "text"]);
+		expect(localizedPropertyKeys(byName, "create_thread", "body")).toEqual(["lang", "text"]);
+		expect(localizedPropertyKeys(byName, "create_comment", "body")).toEqual(["lang", "text"]);
+		expect(localizedPropertyKeys(byName, "vote", "reason")).toEqual(["lang", "text"]);
+		expect(schemaRequired(byName, "create_bot")).toEqual(expect.arrayContaining(["worldHandle", "handle", "lang", "displayName", "shortBio", "prompt"]));
+		expect(localizedPropertyKeys(byName, "create_bot", "displayName")).toEqual(["lang", "text"]);
+		expect(localizedPropertyKeys(byName, "update_bot", "prompt")).toEqual(["lang", "text"]);
+		expect(schemaRequired(byName, "create_group")).toEqual(expect.arrayContaining(["worldHandle", "lang"]));
+		expect(localizedPropertyKeys(byName, "create_group", "customTitle")).toEqual(["lang", "text"]);
+		expect(localizedPropertyKeys(byName, "update_profile", "displayName")).toEqual(["lang", "text"]);
+		expect(localizedPropertyKeys(byName, "update_runtime_context_budget", "body", "prompt")).toEqual(["lang", "text"]);
+	});
+
+	it("advertises localized prompt fields in nested settings schemas", () => {
+		const byName = new Map(mcpToolMetadataForTest().map((tool) => [tool.name, tool]));
+		const createBotInference = schemaProperty(byName, "create_bot", "inferenceSettings");
+		const inferenceProperties = schemaProperties(createBotInference);
+		const recurringPrompt = inferenceProperties.recurringPrompt as Record<string, unknown>;
+		const imageGeneration = inferenceProperties.imageGeneration as Record<string, unknown>;
+		const translation = inferenceProperties.translation as Record<string, unknown>;
+
+		expect(Object.keys(schemaProperties(recurringPrompt))).toEqual(["lang", "text"]);
+		expect(Object.keys(schemaProperties(schemaProperties(imageGeneration).prompt as Record<string, unknown>))).toEqual(["lang", "text"]);
+		expect(Object.keys(schemaProperties(schemaProperties(translation).prompt as Record<string, unknown>))).toEqual(["lang", "text"]);
+	});
+
 	it("returns structured tool content before compatibility text content", async () => {
 		const kv = new MapKV();
 		const accessToken = await issueAccessToken(kv, ["bickr.read"]);
@@ -178,6 +246,8 @@ describe("MCP endpoint", () => {
 			structuredContent: {
 				profile: {
 					handle: "mcp-user",
+					language: "en",
+					lang: "en",
 				},
 			},
 			content: [{ type: "text" }],
@@ -225,9 +295,11 @@ describe("MCP endpoint", () => {
 		}, { BICKR_D1: mcpSettingsD1() });
 		const body = await jsonResponse(response);
 		const toolResult = body.result as Record<string, unknown>;
-		const structured = toolResult.structuredContent as { bot: { mcpResolvedSettings: Record<string, Record<string, unknown>> } };
+		const structured = toolResult.structuredContent as { bot: { language: string | null; lang: string | null; mcpResolvedSettings: Record<string, Record<string, unknown>> } };
 
 		expect(response.status).toBe(200);
+		expect(structured.bot.language).toBe("en");
+		expect(structured.bot.lang).toBe("en");
 		expect(structured.bot.mcpResolvedSettings.cloneProfile.displayName).toMatchObject({
 			effective: lt("Source Bot"),
 			source: "source_bot",
