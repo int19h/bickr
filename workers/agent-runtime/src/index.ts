@@ -185,6 +185,7 @@ import {
 	type ThreadSummary,
 	type UserDocument,
 	type WorldDocument,
+	localizedTextLang,
 	localizedTextString,
 } from '@bickr/shared/model';
 import {
@@ -1367,6 +1368,14 @@ const fallbackToolTextLanguage = 'en' as LanguageTag;
 
 export function syntheticLimitLogOffArgs(language?: LanguageTag | null): Record<string, unknown> {
 	return { reason: { lang: language ?? fallbackToolTextLanguage, text: syntheticLimitLogOffReason } };
+}
+
+function effectiveAvatarSettingsLanguageForBot(bot: Pick<BotDocument, 'language' | 'displayName'>): LanguageTag | null {
+	return bot.language ?? localizedTextLang(bot.displayName) ?? fallbackToolTextLanguage;
+}
+
+function effectiveAvatarSettingsLanguageForWorld(world: Pick<WorldDocument, 'language' | 'name'>): LanguageTag | null {
+	return world.language ?? localizedTextLang(world.name) ?? fallbackToolTextLanguage;
 }
 
 function providerReasoningForSettings(
@@ -10118,14 +10127,14 @@ type TranslationInput = {
 type AvatarGenerationInput = {
 	prompt: string;
 	includeCurrentAvatar: boolean;
-	settingsOverride?: BotInferenceSettings['imageGeneration'];
+	settings?: unknown;
 };
 
 type AvatarPromptInput = {
 	mode: 'persona' | 'description' | 'members' | 'current_avatar';
 	prefill?: string;
-	imageSettingsOverride?: BotInferenceSettings['imageGeneration'];
-	promptSettingsOverride?: BotInferenceSettingsInput;
+	imageSettings?: unknown;
+	promptSettings?: unknown;
 };
 
 type AvatarGenerationDisplayMessage = {
@@ -10156,29 +10165,31 @@ function parseAvatarGenerationInput(input: unknown): AvatarGenerationInput {
 	if (!prompt.trim() && !includeCurrentAvatar) {
 		throw new InputError('Avatar prompt is required unless the current avatar is included.');
 	}
-	const settingsOverride = parseImageGenerationSettingsOverride(record.settings);
 	return {
 		prompt,
 		includeCurrentAvatar,
-		...(settingsOverride ? { settingsOverride } : {}),
+		...(record.settings !== undefined ? { settings: record.settings } : {}),
 	};
 }
 
-function parseImageGenerationSettingsOverride(value: unknown): BotInferenceSettings['imageGeneration'] | undefined {
+export function parseImageGenerationSettingsOverride(
+	value: unknown,
+	language: LanguageTag | null,
+): BotInferenceSettings['imageGeneration'] | undefined {
 	if (value === undefined) {
 		return undefined;
 	}
 	return mergeInferenceSettings(
 		undefined,
-		parseUpdateBotInput({ inferenceSettings: { imageGeneration: value } }).inferenceSettings,
+		parseUpdateBotInput({ language, inferenceSettings: { imageGeneration: value } }).inferenceSettings,
 	).imageGeneration;
 }
 
-function parseInferenceSettingsOverride(value: unknown): BotInferenceSettingsInput | undefined {
+function parseInferenceSettingsOverride(value: unknown, language: LanguageTag | null): BotInferenceSettingsInput | undefined {
 	if (value === undefined) {
 		return undefined;
 	}
-	return parseUpdateBotInput({ inferenceSettings: value }).inferenceSettings;
+	return parseUpdateBotInput({ language, inferenceSettings: value }).inferenceSettings;
 }
 
 function parseAvatarPromptInput(input: unknown): AvatarPromptInput {
@@ -10192,16 +10203,16 @@ function parseAvatarPromptInput(input: unknown): AvatarPromptInput {
 	if (prefill.length > 8_000) {
 		throw new InputError('Avatar prompt prefill must be 8000 characters or fewer.');
 	}
-	const imageSettingsOverride = mode === 'current_avatar' ? parseImageGenerationSettingsOverride(record.settings) : undefined;
-	const promptSettingsOverride = mode === 'description' || mode === 'members' ? parseInferenceSettingsOverride(record.settings) : undefined;
-	if (mode === 'current_avatar' && !imageSettingsOverride) {
+	const imageSettings = mode === 'current_avatar' ? record.settings : undefined;
+	const promptSettings = mode === 'description' || mode === 'members' ? record.settings : undefined;
+	if (mode === 'current_avatar' && imageSettings === undefined) {
 		throw new InputError('Choose an image generation model before filling from the current avatar.');
 	}
 	return {
 		mode,
 		...(prefill.trim() ? { prefill } : {}),
-		...(imageSettingsOverride ? { imageSettingsOverride } : {}),
-		...(promptSettingsOverride ? { promptSettingsOverride } : {}),
+		...(imageSettings !== undefined ? { imageSettings } : {}),
+		...(promptSettings !== undefined ? { promptSettings } : {}),
 	};
 }
 
@@ -10348,7 +10359,8 @@ async function generateAvatarForBot(
 	if (input.includeCurrentAvatar && !bot.avatar?.url) {
 		throw new InputError('The current avatar cannot be included because this participant does not have one.');
 	}
-	const settings = effectiveProviderSettingsForImageGeneration(bot, owner, env, input.settingsOverride);
+	const settingsOverride = parseImageGenerationSettingsOverride(input.settings, effectiveAvatarSettingsLanguageForBot(bot));
+	const settings = effectiveProviderSettingsForImageGeneration(bot, owner, env, settingsOverride);
 	if (!settings) {
 		throw new InputError('Choose an image generation model before generating an avatar.');
 	}
@@ -10611,7 +10623,8 @@ async function generateAvatarForWorld(
 	if (input.includeCurrentAvatar && !world.avatar?.url) {
 		throw new InputError('The current avatar cannot be included because this world does not have one.');
 	}
-	const settings = effectiveProviderSettingsForWorldImageGeneration(world, owner, env, input.settingsOverride);
+	const settingsOverride = parseImageGenerationSettingsOverride(input.settings, effectiveAvatarSettingsLanguageForWorld(world));
+	const settings = effectiveProviderSettingsForWorldImageGeneration(world, owner, env, settingsOverride);
 	if (!settings) {
 		throw new InputError('Choose an image generation model before generating an avatar.');
 	}
@@ -10676,7 +10689,8 @@ async function prefillAvatarPromptForWorld(
 		if (!world.avatar?.url) {
 			throw new InputError('The current avatar cannot be described because this world does not have one.');
 		}
-		const settings = effectiveProviderSettingsForWorldImageGeneration(world, owner, env, input.imageSettingsOverride);
+		const imageSettingsOverride = parseImageGenerationSettingsOverride(input.imageSettings, effectiveAvatarSettingsLanguageForWorld(world));
+		const settings = effectiveProviderSettingsForWorldImageGeneration(world, owner, env, imageSettingsOverride);
 		if (!settings) {
 			throw new InputError('Choose an image generation model before filling from the current avatar.');
 		}
@@ -10684,12 +10698,14 @@ async function prefillAvatarPromptForWorld(
 	}
 	if (input.mode === 'members') {
 		const members = await listWorldBots(env.BICKR_KV, env.BICKR_D1, world.handle);
-		return fetchProviderWorldAvatarMembersDescription(effectiveProviderSettingsForWorldPrompt(owner, env, input.promptSettingsOverride), world, members, {
+		const promptSettingsOverride = parseInferenceSettingsOverride(input.promptSettings, effectiveAvatarSettingsLanguageForWorld(world));
+		return fetchProviderWorldAvatarMembersDescription(effectiveProviderSettingsForWorldPrompt(owner, env, promptSettingsOverride), world, members, {
 			prefill: input.prefill,
 			...options,
 		});
 	}
-	return fetchProviderWorldAvatarDescription(effectiveProviderSettingsForWorldPrompt(owner, env, input.promptSettingsOverride), world, {
+	const promptSettingsOverride = parseInferenceSettingsOverride(input.promptSettings, effectiveAvatarSettingsLanguageForWorld(world));
+	return fetchProviderWorldAvatarDescription(effectiveProviderSettingsForWorldPrompt(owner, env, promptSettingsOverride), world, {
 		prefill: input.prefill,
 		...options,
 	});
@@ -10991,7 +11007,8 @@ async function prefillAvatarPromptForBot(
 		if (!bot.avatar?.url) {
 			throw new InputError('The current avatar cannot be described because this participant does not have one.');
 		}
-		const settings = effectiveProviderSettingsForImageGeneration(bot, owner, env, input.imageSettingsOverride);
+		const imageSettingsOverride = parseImageGenerationSettingsOverride(input.imageSettings, effectiveAvatarSettingsLanguageForBot(bot));
+		const settings = effectiveProviderSettingsForImageGeneration(bot, owner, env, imageSettingsOverride);
 		if (!settings) {
 			throw new InputError('Choose an image generation model before filling from the current avatar.');
 		}
@@ -11920,10 +11937,17 @@ export async function handleAgentRuntimeRequest(
 			const userId = requireUserMatch(request, decodeURIComponent(avatarApplyMatch[1] ?? ''));
 			const botId = decodeURIComponent(avatarApplyMatch[2] ?? '');
 			const body = runtimeRecord(await readJsonBody(request));
+			const targetBot = await botById(env.BICKR_KV, env.BICKR_D1, botId);
+			if (targetBot.ownerUserId !== userId) {
+				throw new RepositoryError('forbidden', "Only this participant's owner can update its avatar.", 403);
+			}
+			const settingsInput = body.settings === undefined ? undefined : parseUpdateBotInput({
+				language: effectiveAvatarSettingsLanguageForBot(targetBot),
+				inferenceSettings: { imageGeneration: body.settings },
+			});
 			let bot = await applyGeneratedAvatarForBot(env, userId, botId, parseAvatarCandidate(body.candidate));
-			if (body.settings !== undefined) {
-				const input = parseUpdateBotInput({ inferenceSettings: { imageGeneration: body.settings } });
-				bot = await updateBot(env.BICKR_KV, env.BICKR_D1, bot.id, userId, input);
+			if (settingsInput?.inferenceSettings !== undefined) {
+				bot = await updateBot(env.BICKR_KV, env.BICKR_D1, bot.id, userId, { inferenceSettings: settingsInput.inferenceSettings });
 			}
 			await upsertBotVector(env, bot);
 			const affectedBots = await refreshLinkedCloneIndexes(env.BICKR_KV, env.BICKR_D1, bot.id);
@@ -11968,10 +11992,14 @@ export async function handleAgentRuntimeRequest(
 			const userId = requireUserMatch(request, decodeURIComponent(worldAvatarApplyMatch[1] ?? ''));
 			const worldHandle = normalizeHandle(decodeURIComponent(worldAvatarApplyMatch[2] ?? ''));
 			const body = runtimeRecord(await readJsonBody(request));
+			const targetWorld = await worldDocumentForAvatar(env, worldHandle, userId, 'update');
+			const settingsInput = body.settings === undefined ? undefined : parseUpdateWorldInput({
+				language: effectiveAvatarSettingsLanguageForWorld(targetWorld),
+				imageGeneration: body.settings,
+			});
 			let world = await applyGeneratedAvatarForWorld(env, userId, worldHandle, parseAvatarCandidate(body.candidate));
-			if (body.settings !== undefined) {
-				const input = parseUpdateWorldInput({ imageGeneration: body.settings });
-				world = await updateWorld(env.BICKR_KV, env.BICKR_D1, world.handle, userId, input);
+			if (settingsInput?.imageGeneration !== undefined) {
+				world = await updateWorld(env.BICKR_KV, env.BICKR_D1, world.handle, userId, { imageGeneration: settingsInput.imageGeneration });
 			}
 			return ok({ world, coordinator: objectId });
 		}

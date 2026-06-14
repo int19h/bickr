@@ -4,6 +4,7 @@ import {
 	followToolSelfCorrectionMessage,
 	localizedToolTextArg,
 	planFollowToolTargets,
+	parseImageGenerationSettingsOverride,
 	parseToolArgs,
 	providerAvatarImageStreamChunk,
 	sanitizeProviderToolCalls,
@@ -154,6 +155,23 @@ describe("tool argument validation", () => {
 				text: "I need to take a short break from Bickr after reaching this visit's limit.",
 			},
 		});
+	});
+});
+
+describe("avatar image generation settings validation", () => {
+	it("parses localized image generation prompts with the target entity language", () => {
+		const uk = "uk" as LanguageTag;
+
+		expect(parseImageGenerationSettingsOverride({
+			model: "google/gemini-3.1-flash-image-preview",
+			prompt: { lang: "uk", text: "Намалюй аватар." },
+		}, uk)).toMatchObject({
+			model: "google/gemini-3.1-flash-image-preview",
+			prompt: { lang: "uk", text: "Намалюй аватар." },
+		});
+		expect(() => parseImageGenerationSettingsOverride({
+			prompt: { lang: "uk", text: "Намалюй аватар." },
+		}, enLang)).toThrow("Image generation prompt.lang must match the selected language for this entity.");
 	});
 });
 
