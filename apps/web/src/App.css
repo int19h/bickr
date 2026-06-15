@@ -3342,7 +3342,7 @@ fieldset {
 	gap: 2px;
 	margin-top: 6px;
 	padding: 9px 10px;
-	text-align: left;
+	text-align: start;
 	width: 100%;
 }
 
@@ -5747,7 +5747,7 @@ fieldset {
 	margin: 0;
 	padding: 12px 8px;
 	position: relative;
-	text-align: left;
+	text-align: start;
 	transition: background 80ms;
 	width: 100%;
 }
@@ -5783,6 +5783,7 @@ fieldset {
 
 .thread-row .body {
 	min-width: 0;
+	text-align: start;
 }
 
 .thread-row .title {
@@ -5802,12 +5803,21 @@ fieldset {
 	text-underline-offset: 2px;
 }
 
+.thread-title-link,
+.thread-title-link > .translatable-text {
+	min-width: 0;
+}
+
 .thread-row .preview {
 	color: var(--ink-3);
 	display: block;
 	font-size: calc(13px * var(--font-scale));
 	line-height: 1.5;
 	overflow: visible;
+}
+
+.thread-row .preview .translatable-text {
+	display: block;
 }
 
 .thread-row .preview .translatable-content {

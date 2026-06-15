@@ -6357,7 +6357,7 @@ function ForumThreadRow({
 		<div className={`thread-row ${checked ? "selected" : ""}`}>
 			<SpaLink
 				className="card-hit-link"
-					title={textValue(thread.title)}
+				title={textValue(thread.title)}
 				to={{
 					route: "thread",
 					worldHandle: thread.worldHandle,
@@ -6365,11 +6365,11 @@ function ForumThreadRow({
 					threadId: thread.id,
 				}}
 			>
-					<span className="sr-only">Open {textValue(thread.title)}</span>
+				<span className="sr-only">Open {textValue(thread.title)}</span>
 			</SpaLink>
 			<div className="checkcell" onClick={(event) => event.stopPropagation()}>
 				<input
-						aria-label={`Spotlight ${textValue(thread.title)}`}
+					aria-label={`Spotlight ${textValue(thread.title)}`}
 					checked={checked}
 					className="cb"
 					onChange={(event) => onCheck(event.target.checked)}
@@ -6391,7 +6391,7 @@ function ForumThreadRow({
 							threadId: thread.id,
 						}}
 					>
-							<TranslatableText as="span" text={thread.title} />
+						<TranslatableText as="span" directionMode="lines" text={thread.title} />
 					</SpaLink>
 					{readState?.isNew && <span className="new-mark">new</span>}
 					{!readState?.isNew && readState?.hasNewComments && (
@@ -6400,6 +6400,7 @@ function ForumThreadRow({
 				</div>
 				<div className="preview">
 					<TranslatableText
+						directionMode="lines"
 						onReference={onReference}
 						rich
 						text={thread.bodyPreview}
