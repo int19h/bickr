@@ -2,9 +2,22 @@
 import { basename, dirname } from "node:path";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { setTimeout as sleep } from "node:timers/promises";
+import {
+	type BotGroupSummary,
+	type BotSummary,
+	type ForumSummary,
+	type LanguageTag,
+	type LocalizedText,
+	type SearchResult,
+	type ThreadDocument,
+	type ThreadSummary,
+	type UserProfile,
+	type WorldListSummary,
+} from "@bickr/shared/model";
 import { flagBoolean, flagString, parseCommandOptions, parseGlobalArgs, CliUsageError, type GlobalOptions } from "./args.ts";
 import { BickrClient, ApiError, unwrap, type ApiEnvelope } from "./client.ts";
 import { deleteToken, runtimeConfig, saveToken } from "./config.ts";
+import { anyFlagPresent, flagPresent, languageFlag, languageForTextUpdate, languageLabel, localizedInput, localizedValueLang, localizedValueSingleLine, localizedValueText, optionalLocalizedInput, requiredLanguageFlag } from "./localized.ts";
 import { openBrowser } from "./open.ts";
 import { detail, outputContext, printEnvelope, printJson, printValue, table, type OutputContext } from "./output.ts";
 import { parseRange } from "./range.ts";
@@ -15,55 +28,6 @@ type CommandContext = {
 	host: string;
 	output: OutputContext;
 	globals: GlobalOptions;
-};
-
-type WorldSummary = {
-	id: string;
-	handle: string;
-	name: string;
-	description?: string;
-	updatedAt?: string;
-};
-
-type ForumSummary = {
-	id: string;
-	worldHandle: string;
-	handle: string;
-	description?: string;
-	updatedAt?: string;
-};
-
-type BotSummary = {
-	id: string;
-	homeWorldHandle: string;
-	handle: string;
-	displayName: string;
-	shortBio?: string;
-	prompt?: string;
-	avatar?: { url: string; crop?: unknown };
-	avatarUrl?: string;
-	avatarCrop?: unknown;
-	inferenceSettings: { model?: string };
-	tickSettings?: { enabled?: boolean };
-	nextDueAt?: string | null;
-	updatedAt?: string;
-};
-
-type ThreadSummary = {
-	id: string;
-	title: string;
-	authorDisplayName?: string;
-	authorHandle?: string;
-	commentCount?: number;
-	score?: number;
-	updatedAt?: string;
-	createdAt?: string;
-};
-
-type ThreadDocument = ThreadSummary & {
-	body?: string;
-	url?: string;
-	comments?: { id: string; authorHandle?: string; authorDisplayName?: string; body: string; createdAt?: string }[];
 };
 
 const commandBooleanFlags = new Set([
@@ -212,9 +176,10 @@ async function authCommand(ctx: CommandContext, args: string[]): Promise<void> {
 async function worldsCommand(ctx: CommandContext, args: string[]): Promise<void> {
 	const [subcommand, ...rest] = args;
 	if (subcommand === "list") {
-		const envelope = await ctx.client.request<{ worlds: WorldSummary[] }>("/worlds");
+		const envelope = await ctx.client.request<{ worlds: WorldListSummary[] }>("/worlds");
 		printEnvelope(ctx.output, envelope, (data) => table(data.worlds, [
 			{ key: "handle", header: "Handle", value: (world) => `w/${world.handle}` },
+			{ key: "language", header: "Lang", value: (world) => languageLabel(world.language) },
 			{ key: "name", header: "Name", value: (world) => world.name },
 			{ key: "description", header: "Description", value: (world) => world.description },
 			{ key: "updated", header: "Updated", value: (world) => world.updatedAt },
@@ -223,12 +188,16 @@ async function worldsCommand(ctx: CommandContext, args: string[]): Promise<void>
 	}
 	if (subcommand === "create") {
 		const options = parseCommandOptions(rest);
-		const body = await bodyFromFlags(options.flags, () => ({
-			handle: requiredFlag(options.flags, "handle"),
-			name: requiredFlag(options.flags, "name"),
-			description: requiredFlag(options.flags, "description"),
-			...(flagString(options.flags, "initial-notification") ? { initialBotNotification: flagString(options.flags, "initial-notification") } : {}),
-		}));
+		const body = await bodyFromFlags(options.flags, () => {
+			const language = requiredLanguageFlag(options.flags, "World creation");
+			return {
+				handle: requiredFlag(options.flags, "handle"),
+				language,
+				name: localizedInput(requiredFlag(options.flags, "name"), language),
+				description: localizedInput(requiredFlag(options.flags, "description"), language),
+				...(flagString(options.flags, "initial-notification") ? { initialBotNotification: localizedInput(flagString(options.flags, "initial-notification") ?? "", language) } : {}),
+			};
+		});
 		await printMutation(ctx, ctx.client.request("/worlds", { body, method: "POST" }), "World created.");
 		return;
 	}
@@ -236,12 +205,19 @@ async function worldsCommand(ctx: CommandContext, args: string[]): Promise<void>
 		const options = parseCommandOptions(rest);
 		const ref = requiredPosition(options.positionals, 0, "world reference");
 		const worldHandle = await worldHandleForRef(ctx.client, ref);
-		const body = await bodyFromFlags(options.flags, () => compactRecord({
-			handle: flagString(options.flags, "handle"),
-			name: flagString(options.flags, "name"),
-			description: flagString(options.flags, "description"),
-			initialBotNotification: flagString(options.flags, "initial-notification"),
-		}));
+		const body = await bodyFromFlags(options.flags, async () => {
+			const explicitLanguage = languageFlag(options.flags);
+			const hasTextUpdate = anyFlagPresent(options.flags, ["name", "description", "initial-notification"]);
+			const currentLanguage = hasTextUpdate ? (await worldForHandle(ctx, worldHandle)).language : null;
+			const textLanguage = languageForTextUpdate(explicitLanguage, currentLanguage, hasTextUpdate);
+			return compactRecord({
+				handle: flagString(options.flags, "handle"),
+				language: explicitLanguage ?? (hasTextUpdate ? textLanguage : undefined),
+				name: optionalLocalizedInput(flagString(options.flags, "name"), textLanguage, "World name"),
+				description: optionalLocalizedInput(flagString(options.flags, "description"), textLanguage, "World description"),
+				initialBotNotification: optionalLocalizedInput(flagString(options.flags, "initial-notification"), textLanguage, "Initial bot notification"),
+			});
+		});
 		await printMutation(ctx, ctx.client.request(`/worlds/${encodeURIComponent(worldHandle)}`, { body, method: "PATCH" }), "World updated.");
 		return;
 	}
@@ -263,6 +239,7 @@ async function forumsCommand(ctx: CommandContext, args: string[]): Promise<void>
 		const envelope = await ctx.client.request<{ forums: ForumSummary[] }>(`/worlds/${encodeURIComponent(worldHandle)}/forums`);
 		printEnvelope(ctx.output, envelope, (data) => table(data.forums, [
 			{ key: "handle", header: "Handle", value: (forum) => `w/${forum.worldHandle}/f/${forum.handle}` },
+			{ key: "language", header: "Lang", value: (forum) => languageLabel(forum.language) },
 			{ key: "description", header: "Description", value: (forum) => forum.description },
 			{ key: "updated", header: "Updated", value: (forum) => forum.updatedAt },
 		]));
@@ -271,20 +248,31 @@ async function forumsCommand(ctx: CommandContext, args: string[]): Promise<void>
 	if (subcommand === "create") {
 		const options = parseCommandOptions(rest);
 		const worldHandle = await worldHandleForRef(ctx.client, requiredPosition(options.positionals, 0, "world reference"));
-		const body = await bodyFromFlags(options.flags, () => ({
-			handle: requiredFlag(options.flags, "handle"),
-			description: requiredFlag(options.flags, "description"),
-		}));
+		const body = await bodyFromFlags(options.flags, () => {
+			const language = requiredLanguageFlag(options.flags, "Forum creation");
+			return {
+				handle: requiredFlag(options.flags, "handle"),
+				language,
+				description: localizedInput(requiredFlag(options.flags, "description"), language),
+			};
+		});
 		await printMutation(ctx, ctx.client.request(`/worlds/${encodeURIComponent(worldHandle)}/forums`, { body, method: "POST" }), "Forum created.");
 		return;
 	}
 	if (subcommand === "update") {
 		const options = parseCommandOptions(rest);
 		const forum = await forumPartsForRef(ctx.client, requiredPosition(options.positionals, 0, "forum reference"));
-		const body = await bodyFromFlags(options.flags, () => compactRecord({
-			handle: flagString(options.flags, "handle"),
-			description: flagString(options.flags, "description"),
-		}));
+		const body = await bodyFromFlags(options.flags, async () => {
+			const explicitLanguage = languageFlag(options.flags);
+			const hasTextUpdate = flagPresent(options.flags, "description");
+			const currentLanguage = hasTextUpdate ? (await forumForParts(ctx, forum)).language : null;
+			const textLanguage = languageForTextUpdate(explicitLanguage, currentLanguage, hasTextUpdate);
+			return compactRecord({
+				handle: flagString(options.flags, "handle"),
+				language: explicitLanguage ?? (hasTextUpdate ? textLanguage : undefined),
+				description: optionalLocalizedInput(flagString(options.flags, "description"), textLanguage, "Forum description"),
+			});
+		});
 		await printMutation(ctx, ctx.client.request(forumApiPath(forum), { body, method: "PATCH" }), "Forum updated.");
 		return;
 	}
@@ -307,11 +295,12 @@ async function threadsCommand(ctx: CommandContext, args: string[]): Promise<void
 		const threads = await listThreads(ctx, forum, sort, options.flags);
 		printValue(ctx.output, { threads }, () => table(threads, [
 			{ key: "id", header: "Thread", value: (thread) => `t/${thread.id}` },
+			{ key: "language", header: "Lang", value: (thread) => languageLabel(localizedValueLang(thread.title) ?? localizedValueLang(thread.bodyPreview)) },
 			{ key: "title", header: "Title", value: (thread) => thread.title },
 			{ key: "author", header: "Author", value: (thread) => thread.authorDisplayName ?? thread.authorHandle },
 			{ key: "comments", header: "Comments", value: (thread) => thread.commentCount },
-			{ key: "score", header: "Score", value: (thread) => thread.score },
-			{ key: "updated", header: "Updated", value: (thread) => thread.updatedAt ?? thread.createdAt },
+			{ key: "score", header: "Score", value: (thread) => thread.voteScore },
+			{ key: "updated", header: "Updated", value: (thread) => thread.lastActivityAt ?? thread.createdAt },
 		]));
 		return;
 	}
@@ -345,26 +334,38 @@ async function botsCommand(ctx: CommandContext, args: string[]): Promise<void> {
 	if (subcommand === "create") {
 		const options = parseCommandOptions(rest);
 		const worldHandle = await worldHandleForRef(ctx.client, requiredPosition(options.positionals, 0, "world reference"));
-		const body = await bodyFromFlags(options.flags, () => compactRecord({
-			handle: requiredFlag(options.flags, "handle"),
-			displayName: requiredFlag(options.flags, "display-name"),
-			shortBio: requiredFlag(options.flags, "short-bio"),
-			prompt: requiredFlag(options.flags, "prompt"),
-			inferenceSettings: inferencePatchFromFlags(options.flags),
-		}));
+		const body = await bodyFromFlags(options.flags, () => {
+			const language = requiredLanguageFlag(options.flags, "Bot creation");
+			return compactRecord({
+				handle: requiredFlag(options.flags, "handle"),
+				language,
+				displayName: localizedInput(requiredFlag(options.flags, "display-name"), language),
+				shortBio: localizedInput(requiredFlag(options.flags, "short-bio"), language),
+				prompt: localizedInput(requiredFlag(options.flags, "prompt"), language),
+				inferenceSettings: inferencePatchFromFlags(options.flags),
+			});
+		});
 		await printMutation(ctx, ctx.client.request(`/worlds/${encodeURIComponent(worldHandle)}/bots`, { body, method: "POST" }), "Bot created.");
 		return;
 	}
 	if (subcommand === "update") {
 		const options = parseCommandOptions(rest, commandBooleanFlags);
-		const botId = await botIdForRef(ctx.client, requiredPosition(options.positionals, 0, "bot reference"));
-		const body = await bodyFromFlags(options.flags, () => compactRecord({
-			handle: flagString(options.flags, "handle"),
-			displayName: flagString(options.flags, "display-name"),
-			shortBio: flagString(options.flags, "short-bio"),
-			prompt: flagString(options.flags, "prompt"),
-			inferenceSettings: inferencePatchFromFlags(options.flags),
-		}));
+		const botRef = requiredPosition(options.positionals, 0, "bot reference");
+		const botId = await botIdForRef(ctx.client, botRef);
+		const body = await bodyFromFlags(options.flags, async () => {
+			const explicitLanguage = languageFlag(options.flags);
+			const hasTextUpdate = anyFlagPresent(options.flags, ["display-name", "short-bio", "prompt"]);
+			const currentLanguage = hasTextUpdate ? (await readBot(ctx, botRef)).language : null;
+			const textLanguage = languageForTextUpdate(explicitLanguage, currentLanguage, hasTextUpdate);
+			return compactRecord({
+				handle: flagString(options.flags, "handle"),
+				language: explicitLanguage ?? (hasTextUpdate ? textLanguage : undefined),
+				displayName: optionalLocalizedInput(flagString(options.flags, "display-name"), textLanguage, "Bot name"),
+				shortBio: optionalLocalizedInput(flagString(options.flags, "short-bio"), textLanguage, "Short bio"),
+				prompt: optionalLocalizedInput(flagString(options.flags, "prompt"), textLanguage, "Prompt"),
+				inferenceSettings: inferencePatchFromFlags(options.flags),
+			});
+		});
 		await printMutation(ctx, ctx.client.request(`/me/bots/${encodeURIComponent(botId)}`, { body, method: "PATCH" }), "Bot updated.");
 		return;
 	}
@@ -547,14 +548,28 @@ async function groupsCommand(ctx: CommandContext, args: string[]): Promise<void>
 	}
 	if (subcommand === "create") {
 		const worldHandle = await worldHandleForRef(ctx.client, requiredPosition(options.positionals, 0, "world reference"));
-		const body = await bodyFromFlags(options.flags, () => ({ customTitle: flagString(options.flags, "title") ?? null }));
+		const body = await bodyFromFlags(options.flags, () => {
+			const language = requiredLanguageFlag(options.flags, "Group creation");
+			const title = flagString(options.flags, "title");
+			return {
+				language,
+				customTitle: title === undefined ? null : localizedInput(title, language),
+			};
+		});
 		await printMutation(ctx, ctx.client.request(`/worlds/${encodeURIComponent(worldHandle)}/groups`, { body, method: "POST" }), "Group created.");
 		return;
 	}
 	if (subcommand === "update") {
 		const worldHandle = await worldHandleForRef(ctx.client, requiredPosition(options.positionals, 0, "world reference"));
 		const groupId = requiredPosition(options.positionals, 1, "group id");
-		const body = await bodyFromFlags(options.flags, () => ({ customTitle: flagBoolean(options.flags, "clear") ? null : requiredFlag(options.flags, "title") }));
+		const body = await bodyFromFlags(options.flags, async () => {
+			const explicitLanguage = languageFlag(options.flags);
+			const language = explicitLanguage ?? (await groupForId(ctx, worldHandle, groupId)).language;
+			return {
+				language,
+				customTitle: flagBoolean(options.flags, "clear") ? null : localizedInput(requiredFlag(options.flags, "title"), language),
+			};
+		});
 		await printMutation(ctx, ctx.client.request(`/worlds/${encodeURIComponent(worldHandle)}/groups/${encodeURIComponent(groupId)}`, { body, method: "PATCH" }), "Group updated.");
 		return;
 	}
@@ -633,11 +648,12 @@ async function searchCommand(ctx: CommandContext, args: string[]): Promise<void>
 		params.set("page", page);
 	}
 	const envelope = await ctx.client.request<{ search: { results?: unknown[] } }>(`/search?${params.toString()}`);
-	printEnvelope(ctx.output, envelope, (data) => table(data.search.results ?? [], [
+	printEnvelope(ctx.output, envelope, (data) => table((data.search.results ?? []) as SearchResult[], [
 		{ key: "type", header: "Type", value: (row) => recordValue(row, "type") },
 		{ key: "ref", header: "Ref", value: (row) => searchRef(row) },
-		{ key: "name", header: "Name", value: (row) => recordValue(row, "name") ?? recordValue(row, "displayName") ?? recordValue(row, "title") },
-		{ key: "summary", header: "Summary", value: (row) => recordValue(row, "description") ?? recordValue(row, "shortBio") },
+		{ key: "language", header: "Lang", value: (row) => languageLabel(searchResultLanguage(row)) },
+		{ key: "name", header: "Name", value: (row) => searchResultName(row) },
+		{ key: "summary", header: "Summary", value: (row) => searchResultSummary(row) },
 	]));
 }
 
@@ -649,12 +665,19 @@ async function profileCommand(ctx: CommandContext, args: string[]): Promise<void
 	}
 	if (subcommand === "update") {
 		const options = parseCommandOptions(rest, commandBooleanFlags);
-		const body = await bodyFromFlags(options.flags, () => compactRecord({
-			handle: flagString(options.flags, "handle"),
-			displayName: flagString(options.flags, "display-name"),
-			avatarUrl: flagBoolean(options.flags, "clear") ? null : flagString(options.flags, "avatar-url"),
-			inferenceSettings: inferencePatchFromFlags(options.flags),
-		}));
+		const body = await bodyFromFlags(options.flags, async () => {
+			const explicitLanguage = languageFlag(options.flags);
+			const hasTextUpdate = flagPresent(options.flags, "display-name");
+			const currentLanguage = hasTextUpdate ? (await userProfile(ctx)).language : null;
+			const textLanguage = languageForTextUpdate(explicitLanguage, currentLanguage, hasTextUpdate);
+			return compactRecord({
+				handle: flagString(options.flags, "handle"),
+				language: explicitLanguage ?? (hasTextUpdate ? textLanguage : undefined),
+				displayName: optionalLocalizedInput(flagString(options.flags, "display-name"), textLanguage, "Display name"),
+				avatarUrl: flagBoolean(options.flags, "clear") ? null : flagString(options.flags, "avatar-url"),
+				inferenceSettings: inferencePatchFromFlags(options.flags),
+			});
+		});
 		await printMutation(ctx, ctx.client.request("/me/profile", { body, method: "PATCH" }), "Profile updated.");
 		return;
 	}
@@ -770,9 +793,40 @@ async function readBot(ctx: CommandContext, ref: string): Promise<BotSummary> {
 	return publicBot;
 }
 
+async function worldForHandle(ctx: CommandContext, worldHandle: string): Promise<WorldListSummary> {
+	const worlds = unwrap(await ctx.client.request<{ worlds: WorldListSummary[] }>("/worlds")).worlds;
+	const world = worlds.find((candidate) => candidate.handle === worldHandle);
+	if (!world) {
+		throw new Error(`World was not found: w/${worldHandle}`);
+	}
+	return world;
+}
+
+async function forumForParts(ctx: CommandContext, forum: { worldHandle: string; forumHandle: string }): Promise<ForumSummary> {
+	const forums = unwrap(await ctx.client.request<{ forums: ForumSummary[] }>(`/worlds/${encodeURIComponent(forum.worldHandle)}/forums`)).forums;
+	const match = forums.find((candidate) => candidate.handle === forum.forumHandle);
+	if (!match) {
+		throw new Error(`Forum was not found: w/${forum.worldHandle}/f/${forum.forumHandle}`);
+	}
+	return match;
+}
+
+async function groupForId(ctx: CommandContext, worldHandle: string, groupId: string): Promise<BotGroupSummary> {
+	const groups = unwrap(await ctx.client.request<{ groups: BotGroupSummary[] }>(`/worlds/${encodeURIComponent(worldHandle)}/groups`)).groups;
+	const group = groups.find((candidate) => candidate.id === groupId);
+	if (!group) {
+		throw new Error(`Group was not found: ${groupId}`);
+	}
+	return group;
+}
+
+async function userProfile(ctx: CommandContext): Promise<UserProfile> {
+	return unwrap(await ctx.client.request<{ profile: UserProfile }>("/me/profile")).profile;
+}
+
 async function bodyFromFlags(
 	flags: Map<string, string | boolean | string[]>,
-	defaultBody: () => Record<string, unknown> | undefined,
+	defaultBody: () => Record<string, unknown> | undefined | Promise<Record<string, unknown> | undefined>,
 ): Promise<unknown> {
 	const body = flagString(flags, "body");
 	if (body !== undefined) {
@@ -812,6 +866,7 @@ async function pipeResponse(response: Response): Promise<void> {
 function renderBots(bots: BotSummary[]): string {
 	return table(bots, [
 		{ key: "ref", header: "Ref", value: (bot) => `w/${bot.homeWorldHandle}/u/${bot.handle}` },
+		{ key: "language", header: "Lang", value: (bot) => languageLabel(bot.language) },
 		{ key: "name", header: "Name", value: (bot) => bot.displayName },
 		{ key: "model", header: "Model", value: (bot) => bot.inferenceSettings.model },
 		{ key: "nextDue", header: "Next Due", value: (bot) => bot.nextDueAt },
@@ -823,6 +878,7 @@ function renderBot(bot: BotSummary): string {
 	return detail([
 		["Ref", `w/${bot.homeWorldHandle}/u/${bot.handle}`],
 		["ID", bot.id],
+		["Language", bot.language],
 		["Name", bot.displayName],
 		["Short bio", bot.shortBio],
 		["Model", bot.inferenceSettings.model],
@@ -833,18 +889,22 @@ function renderBot(bot: BotSummary): string {
 }
 
 function renderThread(thread: ThreadDocument): string {
-	const comments = thread.comments?.length ? `\n\nComments\n${table(thread.comments, [
+	const rootComment = thread.comments.find((comment) => comment.id === thread.rootCommentId) ?? thread.comments[0];
+	const replies = thread.comments.filter((comment) => comment.id !== rootComment?.id);
+	const comments = replies.length ? `\n\nComments\n${table(replies, [
 		{ key: "id", header: "Comment", value: (comment) => `c/${comment.id}` },
+		{ key: "language", header: "Lang", value: (comment) => languageLabel(localizedValueLang(comment.body)) },
 		{ key: "author", header: "Author", value: (comment) => comment.authorDisplayName ?? comment.authorHandle },
 		{ key: "body", header: "Body", value: (comment) => comment.body },
 	])}` : "";
 	return `${detail([
 		["Thread", `t/${thread.id}`],
+		["Language", localizedValueLang(rootComment?.body) ?? localizedValueLang(thread.title)],
 		["Title", thread.title],
-		["Author", thread.authorDisplayName ?? thread.authorHandle],
+		["Author", rootComment?.authorDisplayName ?? rootComment?.authorHandle],
 		["URL", thread.url],
 		["Created", thread.createdAt],
-	])}\n\n${thread.body ?? ""}${comments}`;
+	])}\n\n${localizedValueText(rootComment?.body) ?? ""}${comments}`;
 }
 
 function renderBulk(bulk: { dryRun: boolean; bots: unknown[]; updatedCount?: number; failedCount?: number; targetCount: number }): string {
@@ -854,6 +914,7 @@ function renderBulk(bulk: { dryRun: boolean; bots: unknown[]; updatedCount?: num
 	:	`Applied: ${bulk.updatedCount ?? 0} updated, ${bulk.failedCount ?? 0} failed.`;
 	return `${header}\n${table(rows, [
 		{ key: "ref", header: "Ref", value: (row) => row.ref },
+		{ key: "language", header: "Lang", value: (row) => row.language },
 		{ key: "name", header: "Name", value: (row) => row.displayName },
 		{ key: "current", header: "Current", value: (row) => row.currentModel },
 		{ key: "next", header: "Next", value: (row) => row.nextModel },
@@ -931,25 +992,35 @@ function apiPath(path: string): string {
 
 function userLabel(value: unknown): string {
 	const record = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
-	return [record.displayName, record.handle ? `u/${record.handle}` : undefined].filter(Boolean).join(" ");
+	return [localizedValueSingleLine(record.displayName), record.handle ? `u/${record.handle}` : undefined].filter(Boolean).join(" ");
 }
 
 function recordValue(value: unknown, key: string): unknown {
 	return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>)[key] : undefined;
 }
 
+function searchResultName(row: SearchResult): LocalizedText | string | undefined {
+	if (row.type === "world") {
+		return row.name;
+	}
+	if (row.type === "bot") {
+		return row.displayName;
+	}
+	return `f/${row.handle}`;
+}
+
+function searchResultSummary(row: SearchResult): LocalizedText | undefined {
+	return row.type === "bot" ? row.shortBio : row.description;
+}
+
+function searchResultLanguage(row: SearchResult): LanguageTag | null | undefined {
+	return localizedValueLang(searchResultName(row)) ?? localizedValueLang(searchResultSummary(row));
+}
+
 function searchRef(row: unknown): string {
-	const type = recordValue(row, "type");
-	const worldHandle = recordValue(row, "worldHandle");
-	const handle = recordValue(row, "handle");
-	if (type === "world" && handle) {
-		return `w/${handle}`;
-	}
-	if (type === "forum" && worldHandle && handle) {
-		return `w/${worldHandle}/f/${handle}`;
-	}
-	if (type === "bot" && worldHandle && handle) {
-		return `w/${worldHandle}/u/${handle}`;
+	const urlPath = recordValue(row, "urlPath");
+	if (typeof urlPath === "string" && urlPath) {
+		return urlPath.replace(/^\/+/, "");
 	}
 	return "";
 }
@@ -985,7 +1056,10 @@ Core commands:
   bickr bots bulk update w/world --model MODEL [--yes]
   bickr export thread w/world/f/forum/t/thread --format json
   bickr export forum w/world/f/forum --range 1-500 --format ndjson
-  bickr api GET /session`;
+  bickr api GET /session
+
+Text writes:
+  Use --language LANG or --lang LANG with create commands and text updates.`;
 }
 
 main(process.argv.slice(2)).catch((error: unknown) => {

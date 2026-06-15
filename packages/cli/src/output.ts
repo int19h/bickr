@@ -1,4 +1,5 @@
 import { type ApiEnvelope } from "./client.ts";
+import { localizedValueSingleLine } from "./localized.ts";
 
 export type OutputContext = {
 	human: boolean;
@@ -70,6 +71,10 @@ export function detail(rows: [string, unknown][]): string {
 function singleLine(value: unknown): string {
 	if (value === undefined || value === null) {
 		return "";
+	}
+	const localized = localizedValueSingleLine(value);
+	if (localized !== undefined) {
+		return localized;
 	}
 	if (typeof value === "object") {
 		return JSON.stringify(value);

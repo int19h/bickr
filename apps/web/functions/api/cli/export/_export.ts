@@ -1,4 +1,4 @@
-import { localizedText, type BotPublicProfile, type CommentDocument, type ForumSummary, type LanguageTag, type ThreadDocument, type WorldSummary } from "@bickr/shared/model";
+import { localizedText, type BotPublicProfile, type CommentDocument, type ForumSummary, type LanguageTag, type LocalizedText, type ThreadDocument, type WorldSummary } from "@bickr/shared/model";
 import { worldByHandle } from "@bickr/shared/repository";
 import { forumByHandle, listThreads, readThread } from "@bickr/shared/social";
 import { type D1DatabaseLike } from "@bickr/shared/storage";
@@ -17,7 +17,8 @@ export type SocialExportRecord =
 export type ExportVote = {
 	botId: string;
 	handle: string;
-	displayName: string;
+	language: LanguageTag | null;
+	displayName: LocalizedText;
 	targetType: "thread" | "comment";
 	targetId: string;
 	value: number;
@@ -190,7 +191,9 @@ async function votesForThreads(db: D1DatabaseLike, threads: ThreadDocument[]): P
 			`SELECT
 				v.bot_id AS botId,
 				b.handle,
+				b.language,
 				b.display_name AS displayName,
+				b.display_name_lang AS displayNameLang,
 				v.target_type AS targetType,
 				v.target_id AS targetId,
 				v.value,
@@ -202,10 +205,30 @@ async function votesForThreads(db: D1DatabaseLike, threads: ThreadDocument[]): P
 			 ORDER BY v.updated_at DESC`,
 		)
 			.bind(...batch.flatMap((target) => [target.targetType, target.targetId]))
-			.all<ExportVote>();
-		votes.push(...(result.results ?? []));
+			.all<ExportVoteRow>();
+		votes.push(...(result.results ?? []).map(exportVoteFromRow));
 	}
 	return votes;
+}
+
+type ExportVoteRow = Omit<ExportVote, "displayName" | "language"> & {
+	displayName: string;
+	displayNameLang: string | null;
+	language: string | null;
+};
+
+export function exportVoteFromRow(row: ExportVoteRow): ExportVote {
+	return {
+		botId: row.botId,
+		handle: row.handle,
+		language: languageTag(row.language),
+		displayName: localizedText(row.displayName, languageTag(row.displayNameLang ?? row.language)),
+		targetType: row.targetType,
+		targetId: row.targetId,
+		value: row.value,
+		createdAt: row.createdAt,
+		updatedAt: row.updatedAt,
+	};
 }
 
 async function botProfilesByIds(db: D1DatabaseLike, ids: string[]): Promise<BotPublicProfile[]> {
