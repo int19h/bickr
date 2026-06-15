@@ -3009,8 +3009,8 @@ async function effectiveBotDocuments(
 	db: D1DatabaseLike,
 	bots: BotDocument[],
 ): Promise<BotDocument[]> {
-	const context = emptyEffectiveBotContext();
-	return Promise.all(bots.map((bot) => effectiveBotDocument(kv, db, bot, context)));
+	const cache = new Map<string, BotDocument>();
+	return Promise.all(bots.map((bot) => effectiveBotDocument(kv, db, bot, { cache, visiting: new Set() })));
 }
 
 async function effectiveBotDocument(

@@ -150,6 +150,7 @@ import {
 	backfillInferredCloneSources,
 	createSession,
 	listForums,
+	listUserBots,
 	rawBotById,
 	updateBotAvatar,
 	updateUserProfile,
@@ -19721,6 +19722,9 @@ describe("Bickr Pages Functions", () => {
 			temperature: 0.33,
 			compactionMode: "tool_call",
 		});
+		const listedIds = (await listUserBots(testEnv.BICKR_KV, testEnv.BICKR_D1, await userIdForHandle("octocat")))
+			.map((bot) => bot.id);
+		expect(listedIds).toEqual(expect.arrayContaining([source.id, middle.id, leaf.id]));
 
 		const sourcePatchResponse = await patchBot(
 			contextFor<typeof patchBot>(
