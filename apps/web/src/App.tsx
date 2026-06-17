@@ -9,6 +9,8 @@ import type {
 } from "react";
 import {
 	avatarImageGenerationSettingsWithDefaults,
+	contextWindowTokensMax,
+	contextWindowTokensMin,
 	defaultProviderModel,
 	defaultReasoningPrefill,
 	defaultTextGenerationTemperature,
@@ -10533,7 +10535,8 @@ function BotEdit({
 		!translationProviderRoutingError &&
 		tickIntervalMinutes >= 1 &&
 		tickIntervalMinutes <= 1440 &&
-		(contextWindowTokens === null || (contextWindowTokens >= 2000 && contextWindowTokens <= 1_000_000)) &&
+		(contextWindowTokens === null ||
+			(contextWindowTokens >= contextWindowTokensMin && contextWindowTokens <= contextWindowTokensMax)) &&
 		(compactionSummaryPercent === null || (compactionSummaryPercent >= 1 && compactionSummaryPercent <= 50)) &&
 		(compactionMaxCharacters === null || (compactionMaxCharacters >= 1 && compactionMaxCharacters <= 1_000_000)) &&
 		(maxToolCallsPerTick === null || (maxToolCallsPerTick >= 1 && maxToolCallsPerTick <= 32)) &&
@@ -10588,7 +10591,8 @@ function BotEdit({
 	async function computePromptBudget(): Promise<void> {
 		if (
 			!effectiveDraftPrompt ||
-			(contextWindowTokens !== null && (contextWindowTokens < 2_000 || contextWindowTokens > 1_000_000)) ||
+			(contextWindowTokens !== null &&
+				(contextWindowTokens < contextWindowTokensMin || contextWindowTokens > contextWindowTokensMax)) ||
 			(threadBodyCharacters !== null &&
 				(threadBodyCharacters < 1 || threadBodyCharacters > inheritedPostingSettings.threadBodyCharacters)) ||
 			(commentBodyCharacters !== null &&
@@ -10759,8 +10763,8 @@ function BotEdit({
 									<div className="input-suffix">
 										<input
 											className="input"
-											min={2000}
-											max={1_000_000}
+											min={contextWindowTokensMin}
+											max={contextWindowTokensMax}
 											onChange={(event) =>
 												setDraft((current) => ({ ...current, contextWindowTokens: event.target.value }))
 											}
@@ -11308,7 +11312,7 @@ function PromptContextBudgetChart({
 	onCompute: () => void;
 }) {
 	const resolvedContextWindowTokens =
-		contextWindowTokens >= 2_000 && contextWindowTokens <= 1_000_000 ?
+		contextWindowTokens >= contextWindowTokensMin && contextWindowTokens <= contextWindowTokensMax ?
 			contextWindowTokens
 		:	budget?.contextWindowTokens ?? 0;
 	const segments = budget ? promptBudgetSegments(budget, resolvedContextWindowTokens) : [];

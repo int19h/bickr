@@ -617,6 +617,8 @@ export const defaultProviderModel = "openrouter/free";
 export const defaultTextGenerationTemperature = 1;
 export const legacyDefaultTextGenerationTemperature = 0.9;
 export const defaultTranslationPrompt = "Translate to English.";
+export const contextWindowTokensMin = 15_000;
+export const contextWindowTokensMax = 1_000_000;
 
 export function defaultReasoningPrefill(handle: string): string {
 	return `I'm u/${handle}. I need to think about how I feel and what I want to do next.`;

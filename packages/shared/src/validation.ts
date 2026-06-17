@@ -37,6 +37,8 @@ import {
 	type RequiredLocalizedText,
 	type UiLocalePreference,
 	type VoteInput,
+	contextWindowTokensMax,
+	contextWindowTokensMin,
 	localizedText,
 } from "./model";
 import {
@@ -1359,8 +1361,8 @@ function parseTickSettings(value: unknown): BotTickSettingsInput {
 		"contextWindowTokens",
 		record.contextWindowTokens,
 		"Context window",
-		2_000,
-		1_000_000,
+		contextWindowTokensMin,
+		contextWindowTokensMax,
 	);
 	assignNumberRangeSetting(settings, "compactionThreshold", record.compactionThreshold, "Compaction threshold", 0.2, 0.95);
 	for (const rule of nullableTickIntegerSettings) {

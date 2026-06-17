@@ -14808,18 +14808,31 @@ describe("Bickr Pages Functions", () => {
 					maxGeneratedTokensPerIteration: 30_000,
 				});
 
-			const invalidCompactionSettings = await patchBot(
-				contextFor<typeof patchBot>(
-					jsonRequest(
-						`http://example.com/api/me/bots/${created.data.bot.id}`,
-						"PATCH",
-						{ tickSettings: { compactionSummaryPercent: 51, compactionMaxCharacters: 0 } },
-						cookie,
-					),
-					{ botId: created.data.bot.id },
+		const invalidCompactionSettings = await patchBot(
+			contextFor<typeof patchBot>(
+				jsonRequest(
+					`http://example.com/api/me/bots/${created.data.bot.id}`,
+					"PATCH",
+					{ tickSettings: { compactionSummaryPercent: 51, compactionMaxCharacters: 0 } },
+					cookie,
 				),
-			);
-			expect(invalidCompactionSettings.status).toBe(400);
+				{ botId: created.data.bot.id },
+			),
+		);
+		expect(invalidCompactionSettings.status).toBe(400);
+
+		const invalidContextBudget = await patchBot(
+			contextFor<typeof patchBot>(
+				jsonRequest(
+					`http://example.com/api/me/bots/${created.data.bot.id}`,
+					"PATCH",
+					{ tickSettings: { contextWindowTokens: 14_999 } },
+					cookie,
+				),
+				{ botId: created.data.bot.id },
+			),
+		);
+		expect(invalidContextBudget.status).toBe(400);
 
 		const pauseResponse = await patchBot(
 			contextFor<typeof patchBot>(
@@ -15251,7 +15264,7 @@ describe("Bickr Pages Functions", () => {
 
 		const first = await promptContextBudget(created.data.bot.id, {
 			prompt: "Stay brief.",
-			tickSettings: { contextWindowTokens: 10_000 },
+			tickSettings: { contextWindowTokens: 15_000 },
 		});
 		expect(first).toMatchObject({
 			cached: false,
@@ -15261,7 +15274,7 @@ describe("Bickr Pages Functions", () => {
 			nextCompactionTokens: expect.any(Number),
 			personaPromptTokens: 60,
 			worldPromptTokens: 0,
-			remainingLoopTokens: 7_240,
+			remainingLoopTokens: 12_240,
 		});
 		expect(calls).toHaveLength(3);
 		expect(calls[0]?.content).toContain(
@@ -15274,7 +15287,7 @@ describe("Bickr Pages Functions", () => {
 
 		const second = await promptContextBudget(created.data.bot.id, {
 			prompt: "Stay brief.",
-			tickSettings: { contextWindowTokens: 10_000 },
+			tickSettings: { contextWindowTokens: 15_000 },
 		});
 		expect(second.cached).toBe(true);
 		expect(second.personaPromptTokens).toBe(60);
@@ -15292,7 +15305,7 @@ describe("Bickr Pages Functions", () => {
 
 		const changed = await promptContextBudget(created.data.bot.id, {
 			prompt: "Stay brief with exact counts.",
-			tickSettings: { contextWindowTokens: 10_000 },
+			tickSettings: { contextWindowTokens: 15_000 },
 		});
 		expect(changed.cached).toBe(false);
 		expect(calls).toHaveLength(6);
@@ -15300,7 +15313,7 @@ describe("Bickr Pages Functions", () => {
 		const languageSettingChanged = await promptContextBudget(created.data.bot.id, {
 			includeLanguageInSystemPrompt: false,
 			prompt: "Stay brief.",
-			tickSettings: { contextWindowTokens: 10_000 },
+			tickSettings: { contextWindowTokens: 15_000 },
 		});
 		expect(languageSettingChanged.cached).toBe(false);
 		expect(calls).toHaveLength(9);
