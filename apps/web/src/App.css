@@ -192,6 +192,35 @@ body {
 	font-family: var(--font-sans-phag);
 }
 
+.vertical-script-block {
+	display: block;
+	max-width: 100%;
+}
+
+.vertical-script-block > .translatable-content {
+	display: block;
+	max-height: min(72vh, 48rem);
+	max-inline-size: min(72vh, 48rem);
+	max-width: 100%;
+	overflow-x: auto;
+	overflow-y: hidden;
+	overflow-wrap: normal;
+	padding-bottom: 6px;
+	scrollbar-width: thin;
+	text-orientation: mixed;
+	unicode-bidi: isolate;
+	white-space: pre-wrap;
+	writing-mode: vertical-lr;
+}
+
+.vertical-script-block-mong > .translatable-content {
+	font-family: var(--font-sans-mong);
+}
+
+.vertical-script-block-phag > .translatable-content {
+	font-family: var(--font-sans-phag);
+}
+
 :lang(non-Runr) {
 	font-family: var(--font-sans-runr);
 }

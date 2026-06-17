@@ -1066,6 +1066,22 @@ function textDirectionForLanguage(language: string | null | undefined): "auto" |
 	return language ? languageDirection(language) : "auto";
 }
 
+function canonicalLanguageTag(value: string): string {
+	try {
+		return Intl.getCanonicalLocales(value)[0] ?? value;
+	} catch {
+		return value;
+	}
+}
+
+function explicitScriptSubtag(language: string | null | undefined): string | null {
+	if (!language) {
+		return null;
+	}
+	const canonical = canonicalLanguageTag(language);
+	return canonical.split("-").find((subtag, index) => index > 0 && /^[A-Z][a-z]{3}$/.test(subtag)) ?? null;
+}
+
 function textLanguageDomProps(language: string | null | undefined): { dir: "auto"; lang?: string } {
 	return {
 		dir: "auto",
@@ -6913,6 +6929,7 @@ function CommentNode({
 					onReference={onReference}
 					rich
 					text={comment.body}
+					verticalScriptLayout="block"
 					worldHandle={worldHandle}
 				/>
 				{comment.replies.length > 0 && (
@@ -19395,6 +19412,7 @@ const translationCacheVersion = 1;
 const translationCacheStorageKey = "bickr.translation.cache.v1";
 const translationViewStorageKey = "bickr.translation.view.v1";
 type VerticalScriptKind = "mong" | "phag";
+type VerticalScriptHandling = "inline" | "none";
 
 export type VerticalScriptTextSegment = {
 	text: string;
@@ -19409,6 +19427,17 @@ const unicodeLetterPattern = /\p{Letter}/u;
 const unicodeWhitespacePattern = /\s/u;
 const mongolianSupplementalSpacingCharacters = new Set(["\u180E", "\u202F"]);
 const mongolianBlockConnectorPattern = /[\u1800-\u180F]/u;
+
+export function verticalBlockScriptKindForLanguage(language: string | null | undefined): VerticalScriptKind | null {
+	const script = explicitScriptSubtag(language);
+	if (script === "Mong") {
+		return "mong";
+	}
+	if (script === "Phag") {
+		return "phag";
+	}
+	return null;
+}
 
 export function segmentVerticalScriptRuns(text: string): VerticalScriptTextSegment[] {
 	const segments: VerticalScriptTextSegment[] = [];
@@ -19506,7 +19535,7 @@ function isTrailingVerticalScriptRunConnector(character: string): boolean {
 	);
 }
 
-function TranslatableText({
+export function TranslatableText({
 	as,
 	className,
 	directionMode = "element",
@@ -19514,6 +19543,7 @@ function TranslatableText({
 	onReference,
 	rich = false,
 	text,
+	verticalScriptLayout = "inline",
 	worldHandle,
 }: {
 	as?: "div" | "h1" | "p" | "span";
@@ -19523,6 +19553,7 @@ function TranslatableText({
 	onReference?: OpenReference;
 	rich?: boolean;
 	text: TextLike;
+	verticalScriptLayout?: "inline" | "block";
 	worldHandle?: string;
 }) {
 	const translationConfig = useContext(TranslationContext);
@@ -19547,6 +19578,12 @@ function TranslatableText({
 	const visibleText = showTranslation && cachedTranslation ? cachedTranslation : sourceText;
 	const visibleLang = showTranslation && cachedTranslation ? null : sourceLang;
 	const enabled = Boolean(cacheKey);
+	const verticalBlockScript =
+		verticalScriptLayout === "block" ? verticalBlockScriptKindForLanguage(visibleLang) : null;
+	const dir =
+		verticalBlockScript ? textDirectionForLanguage(visibleLang)
+		: directionMode === "lines" ? undefined
+		: textDirectionForLanguage(visibleLang);
 
 	useEffect(() => {
 		if (!cacheKey) {
@@ -19591,7 +19628,17 @@ function TranslatableText({
 	}
 
 	const content =
-		directionMode === "lines" ?
+		verticalBlockScript ?
+			rich && onReference ?
+				<RichText
+					interactive={interactiveReferences}
+					onReference={onReference}
+					text={visibleText}
+					verticalScriptHandling="none"
+					worldHandle={worldHandle}
+				/>
+			:	<PlainText text={visibleText} verticalScriptHandling="none" />
+		: directionMode === "lines" ?
 			<DirectionalTextLines
 				interactiveReferences={interactiveReferences}
 				onReference={onReference}
@@ -19605,8 +19652,14 @@ function TranslatableText({
 
 	return (
 		<Tag
-			className={["translatable-text", directionMode === "lines" ? "bidi-line-text" : "", className ?? ""].filter(Boolean).join(" ")}
-			dir={directionMode === "lines" ? undefined : textDirectionForLanguage(visibleLang)}
+			className={[
+				"translatable-text",
+				directionMode === "lines" && !verticalBlockScript ? "bidi-line-text" : "",
+				verticalBlockScript ? "vertical-script-block" : "",
+				verticalBlockScript ? `vertical-script-block-${verticalBlockScript}` : "",
+				className ?? "",
+			].filter(Boolean).join(" ")}
+			dir={dir}
 			lang={visibleLang ?? undefined}
 		>
 			<span className="translatable-content">{content}</span>
@@ -19676,9 +19729,15 @@ function DirectionalTextLines({
 	);
 }
 
-export function PlainText({ text }: { text: string }) {
+export function PlainText({
+	text,
+	verticalScriptHandling = "inline",
+}: {
+	text: string;
+	verticalScriptHandling?: VerticalScriptHandling;
+}) {
 	const parts: ReactNode[] = [];
-	appendRichTextPlainSegment(parts, text, 0);
+	appendRichTextPlainSegment(parts, text, 0, { verticalScriptHandling });
 	return <>{parts}</>;
 }
 
@@ -19686,11 +19745,13 @@ export function RichText({
 	interactive = true,
 	onReference,
 	text,
+	verticalScriptHandling = "inline",
 	worldHandle,
 }: {
 	interactive?: boolean;
 	onReference: OpenReference;
 	text: string;
+	verticalScriptHandling?: VerticalScriptHandling;
 	worldHandle?: string;
 }) {
 	const parts: ReactNode[] = [];
@@ -19700,7 +19761,7 @@ export function RichText({
 		const boundary = match[1] ?? "";
 		const refStart = index + boundary.length;
 		if (refStart > cursor) {
-			appendRichTextPlainSegment(parts, text.slice(cursor, refStart), cursor, { linkifyContentUrls: interactive });
+			appendRichTextPlainSegment(parts, text.slice(cursor, refStart), cursor, { linkifyContentUrls: interactive, verticalScriptHandling });
 		}
 		const handlePrefix = (match[2] ?? "").toLowerCase();
 		const handleName = match[3];
@@ -19727,20 +19788,20 @@ export function RichText({
 			if (id) {
 				parts.push(<ContentReference id={id} interactive={interactive} key={`${refStart}:t:${id}`} type="thread" />);
 			} else {
-				appendRichTextPlainSegment(parts, matchedRefText, refStart, { linkifyContentUrls: interactive });
+				appendRichTextPlainSegment(parts, matchedRefText, refStart, { linkifyContentUrls: interactive, verticalScriptHandling });
 			}
 		} else if (commentBody) {
 			const id = parseCommentRef(`c/${commentBody}`);
 			if (id) {
 				parts.push(<ContentReference id={id} interactive={interactive} key={`${refStart}:c:${id}`} type="comment" />);
 			} else {
-				appendRichTextPlainSegment(parts, matchedRefText, refStart, { linkifyContentUrls: interactive });
+				appendRichTextPlainSegment(parts, matchedRefText, refStart, { linkifyContentUrls: interactive, verticalScriptHandling });
 			}
 		}
 		cursor = index + match[0].length;
 	}
 	if (cursor < text.length) {
-		appendRichTextPlainSegment(parts, text.slice(cursor), cursor, { linkifyContentUrls: interactive });
+		appendRichTextPlainSegment(parts, text.slice(cursor), cursor, { linkifyContentUrls: interactive, verticalScriptHandling });
 	}
 	if (parts.length === 0) {
 		return null;
@@ -19752,7 +19813,7 @@ function appendRichTextPlainSegment(
 	parts: ReactNode[],
 	text: string,
 	offset: number,
-	options: { linkifyContentUrls?: boolean } = {},
+	options: { linkifyContentUrls?: boolean; verticalScriptHandling?: VerticalScriptHandling } = {},
 ): void {
 	const lines = text.split(/\r\n|\n|\r/);
 	let lineOffset = offset;
@@ -19764,31 +19825,45 @@ function appendRichTextPlainSegment(
 		const line = lines[index] ?? "";
 		if (line) {
 			if (options.linkifyContentUrls) {
-				appendContentUrlLinkedText(parts, line, lineOffset);
+				appendContentUrlLinkedText(parts, line, lineOffset, options.verticalScriptHandling ?? "inline");
 			} else {
-				appendVerticalScriptText(parts, line, lineOffset);
+				appendVerticalScriptText(parts, line, lineOffset, options.verticalScriptHandling ?? "inline");
 			}
 		}
 		lineOffset += line.length;
 	}
 }
 
-function appendContentUrlLinkedText(parts: ReactNode[], text: string, offset: number): void {
+function appendContentUrlLinkedText(
+	parts: ReactNode[],
+	text: string,
+	offset: number,
+	verticalScriptHandling: VerticalScriptHandling,
+): void {
 	const matches = findBickrContentUrlMatches(text);
 	let cursor = 0;
 	for (const match of matches) {
 		if (match.start > cursor) {
-			appendVerticalScriptText(parts, text.slice(cursor, match.start), offset + cursor);
+			appendVerticalScriptText(parts, text.slice(cursor, match.start), offset + cursor, verticalScriptHandling);
 		}
 		parts.push(<BickrContentUrlLink key={`url:${offset + match.start}`} match={match} />);
 		cursor = match.end;
 	}
 	if (cursor < text.length) {
-		appendVerticalScriptText(parts, text.slice(cursor), offset + cursor);
+		appendVerticalScriptText(parts, text.slice(cursor), offset + cursor, verticalScriptHandling);
 	}
 }
 
-function appendVerticalScriptText(parts: ReactNode[], text: string, offset: number): void {
+function appendVerticalScriptText(
+	parts: ReactNode[],
+	text: string,
+	offset: number,
+	verticalScriptHandling: VerticalScriptHandling,
+): void {
+	if (verticalScriptHandling === "none") {
+		parts.push(text);
+		return;
+	}
 	let cursor = 0;
 	for (const segment of segmentVerticalScriptRuns(text)) {
 		if (!segment.text) {
