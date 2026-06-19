@@ -20178,11 +20178,11 @@ describe("Bickr Pages Functions", () => {
 		);
 		expect(blankPrompt.status).toBe(400);
 
-		const invalidAspectRatio = await handleAgentRuntimeRequest(
+		const overlongAspectRatio = await handleAgentRuntimeRequest(
 			serviceJsonRequest(
 				`/users/${encodeURIComponent(userId)}/bots/${encodeURIComponent(bot.id)}/avatar/generate`,
 				userId,
-				{ prompt: "Paint me.", includeCurrentAvatar: false, settings: { model: "openai/image-one", aspectRatio: "12:78" } },
+				{ prompt: "Paint me.", includeCurrentAvatar: false, settings: { model: "openai/image-one", aspectRatio: "x".repeat(41) } },
 			),
 			{
 				BICKR_D1: testEnv.BICKR_D1,
@@ -20192,9 +20192,9 @@ describe("Bickr Pages Functions", () => {
 				OPENROUTER_API_KEY: "test-key",
 			},
 		);
-		expect(invalidAspectRatio.status).toBe(400);
-		const invalidAspectRatioBody = (await invalidAspectRatio.json()) as { ok: false; message: string };
-		expect(invalidAspectRatioBody.message).toBe("Image aspect ratio is not supported.");
+		expect(overlongAspectRatio.status).toBe(400);
+		const overlongAspectRatioBody = (await overlongAspectRatio.json()) as { ok: false; message: string };
+		expect(overlongAspectRatioBody.message).toBe("Image aspect ratio must be 40 characters or fewer.");
 
 		const r2 = fakeR2Bucket();
 		const originalFetch = globalThis.fetch;
@@ -20221,17 +20221,21 @@ describe("Bickr Pages Functions", () => {
 					image_config?: Record<string, unknown>;
 					provider?: Record<string, unknown>;
 				};
-				expect(requestBody.modalities).toEqual(["image", "text"]);
-				expect(requestBody.image_config).toEqual({
-					aspect_ratio: defaultAvatarImageGenerationSettings.aspectRatio,
-					image_size: defaultAvatarImageGenerationSettings.imageSize,
-				});
-				if (requestBody.model === defaultAvatarImageGenerationSettings.model) {
-					expect(requestBody.provider).toBeUndefined();
-				} else {
-					expect(requestBody.model).toBe("openai/image-one");
-					expect(requestBody.provider).toEqual({ sort: "price" });
-				}
+					expect(requestBody.modalities).toEqual(["image", "text"]);
+					if (requestBody.model === defaultAvatarImageGenerationSettings.model) {
+						expect(requestBody.image_config).toEqual({
+							aspect_ratio: defaultAvatarImageGenerationSettings.aspectRatio,
+							image_size: defaultAvatarImageGenerationSettings.imageSize,
+						});
+						expect(requestBody.provider).toBeUndefined();
+					} else {
+						expect(requestBody.model).toBe("openai/image-one");
+						expect(requestBody.image_config).toEqual({
+							aspect_ratio: "12:78",
+							image_size: "custom-size",
+						});
+						expect(requestBody.provider).toEqual({ sort: "price" });
+					}
 				return Response.json({
 					choices: [
 						{
@@ -20280,12 +20284,12 @@ describe("Bickr Pages Functions", () => {
 						prompt: "Paint me as a luminous portrait.",
 						includeCurrentAvatar: false,
 						settings: {
-							model: "openai/image-one",
-							providerRouting: { sort: "price" },
-							aspectRatio: "1:1",
-							imageSize: "1K",
+								model: "openai/image-one",
+								providerRouting: { sort: "price" },
+								aspectRatio: "12:78",
+								imageSize: "custom-size",
+							},
 						},
-					},
 				),
 				{
 					BICKR_D1: testEnv.BICKR_D1,

@@ -26,6 +26,7 @@
 		"dev:forum": "npm run dev -w @bickr/forum-coordinator",
 		"preview": "npm run dev:web",
 		"probe:openrouter-model-capabilities": "node scripts/probe-openrouter-model-capabilities.mjs",
+		"probe:openrouter-image-config": "node scripts/probe-openrouter-image-config.mjs",
 		"test": "vitest run",
 		"test:watch": "vitest"
 	},

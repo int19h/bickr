@@ -1,3 +1,5 @@
+import { generatedOpenRouterImageModelConfigEntries } from "./openrouter-image-model-config.generated";
+
 export const schemaVersion = 1;
 
 export type LanguageTag = string & { readonly __brand: "LanguageTag" };
@@ -350,10 +352,17 @@ export const openRouterGrokImageAspectRatios = ["2:1", "1:2", "19.5:9", "9:19.5"
 
 export const openRouterImageSizes = ["1K", "2K", "4K"] as const;
 export const openRouterExtendedImageSizes = ["0.5K"] as const;
-const openRouterExtendedImageConfigModel = "google/gemini-3.1-flash-image-preview";
 const openRouterGrokImageAspectRatioModelPrefix = "x-ai/grok-imagine-image";
+const openRouterDefaultImageConfig = {
+	aspectRatios: openRouterImageAspectRatios,
+	imageSizes: openRouterImageSizes,
+} as const satisfies OpenRouterImageModelConfig;
+const generatedOpenRouterImageModelConfig = new Map<string, OpenRouterImageModelConfig>(
+	generatedOpenRouterImageModelConfigEntries.map(([model, config]) => [model, config]),
+);
+
 export const defaultAvatarImageGenerationSettings = {
-	model: openRouterExtendedImageConfigModel,
+	model: "google/gemini-3.1-flash-image",
 	aspectRatio: "1:1",
 	imageSize: "1K",
 } as const satisfies Pick<BotImageGenerationSettings, "model" | "aspectRatio" | "imageSize">;
@@ -396,6 +405,23 @@ export type OpenRouterImageSize =
 	| (typeof openRouterImageSizes)[number]
 	| (typeof openRouterExtendedImageSizes)[number];
 
+export type OpenRouterImageModelConfig = {
+	aspectRatios: readonly string[];
+	imageSizes: readonly string[];
+};
+
+export function openRouterImageModelConfig(model: string | undefined): OpenRouterImageModelConfig {
+	return generatedOpenRouterImageModelConfig.get(normalizedOpenRouterImageModelId(model)) ?? openRouterDefaultImageConfig;
+}
+
+export function openRouterSuggestedImageAspectRatios(model: string | undefined): readonly string[] {
+	return openRouterImageModelConfig(model).aspectRatios;
+}
+
+export function openRouterSuggestedImageSizes(model: string | undefined): readonly string[] {
+	return openRouterImageModelConfig(model).imageSizes;
+}
+
 export function isOpenRouterImageAspectRatio(value: string): value is OpenRouterImageAspectRatio {
 	return (openRouterImageAspectRatios as readonly string[]).includes(value) ||
 		(openRouterExtendedImageAspectRatios as readonly string[]).includes(value) ||
@@ -420,11 +446,17 @@ export function isOpenRouterExtendedImageSize(value: string): value is (typeof o
 }
 
 export function supportsOpenRouterExtendedImageConfig(model: string): boolean {
-	return model.trim().split(":")[0] === openRouterExtendedImageConfigModel;
+	const config = openRouterImageModelConfig(model);
+	return config.aspectRatios.some((ratio) => isOpenRouterExtendedImageAspectRatio(ratio)) ||
+		config.imageSizes.some((size) => isOpenRouterExtendedImageSize(size));
 }
 
 export function supportsOpenRouterGrokImageAspectRatios(model: string): boolean {
-	return model.trim().split(":")[0].startsWith(openRouterGrokImageAspectRatioModelPrefix);
+	return normalizedOpenRouterImageModelId(model).startsWith(openRouterGrokImageAspectRatioModelPrefix);
+}
+
+function normalizedOpenRouterImageModelId(model: string | undefined): string {
+	return model?.trim().toLowerCase().split(":")[0] ?? "";
 }
 
 export type BotInferenceSettingsInput = {

@@ -16,21 +16,11 @@ import {
 	defaultTextGenerationTemperature,
 	defaultTranslationPrompt,
 	authProviders,
-	isOpenRouterExtendedImageAspectRatio,
-	isOpenRouterExtendedImageSize,
-	isOpenRouterGrokImageAspectRatio,
-	isOpenRouterImageAspectRatio,
-	isOpenRouterImageSize,
 	localizedTextLang,
 	localizedText,
 	localizedTextString,
-	openRouterExtendedImageAspectRatios,
-	openRouterExtendedImageSizes,
-	openRouterGrokImageAspectRatios,
-	openRouterImageAspectRatios,
-	openRouterImageSizes,
-	supportsOpenRouterExtendedImageConfig,
-	supportsOpenRouterGrokImageAspectRatios,
+	openRouterSuggestedImageAspectRatios,
+	openRouterSuggestedImageSizes,
 	worldAvatarImageGenerationSettingsWithDefaults,
 	type AvatarCrop,
 	type AvatarImage,
@@ -14217,20 +14207,11 @@ function ImageConfigHelp({ text }: { text: string }) {
 function imageGenerationConfigDraftError(draft: InferenceDraft): string {
 	const aspectRatio = draft.imageGenerationAspectRatio.trim();
 	const imageSize = draft.imageGenerationImageSize.trim();
-	if (aspectRatio && !isOpenRouterImageAspectRatio(aspectRatio)) {
-		return "Image generation aspect ratio is not supported.";
+	if (aspectRatio.length > 40) {
+		return "Image generation aspect ratio must be 40 characters or fewer.";
 	}
-	if (imageSize && !isOpenRouterImageSize(imageSize)) {
-		return "Image generation size is not supported.";
-	}
-	if (
-		(isOpenRouterExtendedImageAspectRatio(aspectRatio) || isOpenRouterExtendedImageSize(imageSize)) &&
-		!supportsOpenRouterExtendedImageConfig(draft.imageGenerationModel)
-	) {
-		return "Extended image config is only supported by google/gemini-3.1-flash-image-preview.";
-	}
-	if (isOpenRouterGrokImageAspectRatio(aspectRatio) && !supportsOpenRouterGrokImageAspectRatios(draft.imageGenerationModel)) {
-		return "Grok image aspect ratios are only supported by Grok Imagine image models.";
+	if (imageSize.length > 40) {
+		return "Image generation size must be 40 characters or fewer.";
 	}
 	return "";
 }
@@ -14343,23 +14324,13 @@ function ImageGenerationBasicFields({
 		onChange({ ...draft, ...update });
 	}
 	function patchModel(model: string): void {
-		const update: Partial<InferenceDraft> = { imageGenerationModel: model };
-		if (!supportsOpenRouterExtendedImageConfig(model)) {
-			if (isOpenRouterExtendedImageAspectRatio(draft.imageGenerationAspectRatio)) {
-				update.imageGenerationAspectRatio = "";
-			}
-			if (isOpenRouterExtendedImageSize(draft.imageGenerationImageSize)) {
-				update.imageGenerationImageSize = "";
-			}
-		}
-		if (!supportsOpenRouterGrokImageAspectRatios(model) && isOpenRouterGrokImageAspectRatio(draft.imageGenerationAspectRatio)) {
-			update.imageGenerationAspectRatio = "";
-		}
-		patch(update);
+		patch({ imageGenerationModel: model });
 	}
 	const modelSelected = draft.imageGenerationModel.trim().length > 0;
-	const supportsExtendedConfig = supportsOpenRouterExtendedImageConfig(draft.imageGenerationModel);
-	const supportsGrokAspectRatios = supportsOpenRouterGrokImageAspectRatios(draft.imageGenerationModel);
+	const aspectRatioListId = useId();
+	const imageSizeListId = useId();
+	const suggestedAspectRatios = openRouterSuggestedImageAspectRatios(draft.imageGenerationModel);
+	const suggestedImageSizes = openRouterSuggestedImageSizes(draft.imageGenerationModel);
 	return (
 		<div className="inference-row three">
 			<Field help={loadError || "Only OpenRouter models that advertise image output are listed."} label="Model">
@@ -14367,75 +14338,54 @@ function ImageGenerationBasicFields({
 					className="input"
 					onChange={(event) => patchModel(event.target.value)}
 					value={draft.imageGenerationModel}
-				>
-					<option value="">Choose a model</option>
-					{loadedModels.map((model) => (
-						<option key={model.id} value={model.id}>
-							{model.name ? `${model.name} (${model.id})` : model.id}
-						</option>
-					))}
-				</select>
-			</Field>
-			<Field
-				help={<ImageConfigHelp text="OpenRouter uses the selected model's default when this is left blank. Extended ratios are model-specific." />}
-				label="Aspect ratio"
-			>
-				<select
-					className="input"
-					disabled={!modelSelected}
-					onChange={(event) => patch({ imageGenerationAspectRatio: event.target.value })}
-					value={draft.imageGenerationAspectRatio}
-				>
-					<option value="">Default</option>
-					<optgroup label="Standard">
-						{openRouterImageAspectRatios.map((ratio) => (
-							<option key={ratio} value={ratio}>{imageAspectRatioLabel(ratio)}</option>
-						))}
-					</optgroup>
-					<optgroup label="Gemini 3.1 only">
-						{openRouterExtendedImageAspectRatios.map((ratio) => (
-							<option disabled={!supportsExtendedConfig} key={ratio} value={ratio}>
-								{imageAspectRatioLabel(ratio)}
+					>
+						<option value="">Choose a model</option>
+						{loadedModels.map((model) => (
+							<option key={model.id} value={model.id}>
+								{model.name ? `${model.name} (${model.id})` : model.id}
 							</option>
 						))}
-					</optgroup>
-					<optgroup label="Grok Imagine only">
-						{openRouterGrokImageAspectRatios.map((ratio) => (
-							<option disabled={!supportsGrokAspectRatios} key={ratio} value={ratio}>
-								{imageAspectRatioLabel(ratio)}
-							</option>
-						))}
-					</optgroup>
-				</select>
-			</Field>
-			<Field
-				help={<ImageConfigHelp text="OpenRouter uses the selected model's default when this is left blank. 0.5K is Gemini 3.1 Flash Image Preview-only." />}
-				label="Image size"
-			>
-				<select
-					className="input"
-					disabled={!modelSelected}
-					onChange={(event) => patch({ imageGenerationImageSize: event.target.value })}
-					value={draft.imageGenerationImageSize}
+					</select>
+				</Field>
+				<Field
+					help={<ImageConfigHelp text="OpenRouter uses the selected model's default when this is left blank. Suggested ratios are model-specific; custom values are sent as typed." />}
+					label="Aspect ratio"
 				>
-					<option value="">Default</option>
-					<optgroup label="Standard">
-						{openRouterImageSizes.map((size) => (
-							<option key={size} value={size}>{imageSizeLabel(size)}</option>
+					<input
+						className="input"
+						disabled={!modelSelected}
+						list={aspectRatioListId}
+						onChange={(event) => patch({ imageGenerationAspectRatio: event.target.value })}
+						placeholder="Default"
+						value={draft.imageGenerationAspectRatio}
+					/>
+					<datalist id={aspectRatioListId}>
+						{suggestedAspectRatios.map((ratio) => (
+							<option key={ratio} label={imageAspectRatioLabel(ratio)} value={ratio} />
 						))}
-					</optgroup>
-					<optgroup label="Gemini 3.1 only">
-						{openRouterExtendedImageSizes.map((size) => (
-							<option disabled={!supportsExtendedConfig} key={size} value={size}>
-								{imageSizeLabel(size)}
-							</option>
+					</datalist>
+				</Field>
+				<Field
+					help={<ImageConfigHelp text="OpenRouter uses the selected model's default when this is left blank. Suggested sizes are model-specific; custom values are sent as typed." />}
+					label="Image size"
+				>
+					<input
+						className="input"
+						disabled={!modelSelected}
+						list={imageSizeListId}
+						onChange={(event) => patch({ imageGenerationImageSize: event.target.value })}
+						placeholder="Default"
+						value={draft.imageGenerationImageSize}
+					/>
+					<datalist id={imageSizeListId}>
+						{suggestedImageSizes.map((size) => (
+							<option key={size} label={imageSizeLabel(size)} value={size} />
 						))}
-					</optgroup>
-				</select>
-			</Field>
-		</div>
-	);
-}
+					</datalist>
+				</Field>
+			</div>
+		);
+	}
 
 function ImageGenerationAdvancedFields({
 	draft,
@@ -22229,13 +22179,11 @@ function optionalNumberDraftValue(value: number | undefined): string {
 }
 
 function imageGenerationAspectRatioDraftValue(value: string | undefined): string {
-	const trimmed = value?.trim() ?? "";
-	return trimmed && isOpenRouterImageAspectRatio(trimmed) ? trimmed : "";
+	return value?.trim() ?? "";
 }
 
 function imageGenerationImageSizeDraftValue(value: string | undefined): string {
-	const trimmed = value?.trim() ?? "";
-	return trimmed && isOpenRouterImageSize(trimmed) ? trimmed : "";
+	return value?.trim() ?? "";
 }
 
 function nullableTextInput(value: string): string | null {
@@ -22245,12 +22193,12 @@ function nullableTextInput(value: string): string | null {
 
 function nullableImageGenerationAspectRatioInput(value: string): string | null {
 	const trimmed = value.trim();
-	return trimmed && isOpenRouterImageAspectRatio(trimmed) ? trimmed : null;
+	return trimmed || null;
 }
 
 function nullableImageGenerationSizeInput(value: string): string | null {
 	const trimmed = value.trim();
-	return trimmed && isOpenRouterImageSize(trimmed) ? trimmed : null;
+	return trimmed || null;
 }
 
 function nullableTextInputMatchingInherited(value: string, inherited: string | undefined): string | null {
