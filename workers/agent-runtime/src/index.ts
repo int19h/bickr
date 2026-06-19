@@ -13048,6 +13048,7 @@ function providerNotificationEvent(event: Record<string, unknown>, scope: Provid
 	return removeUndefinedProperties({
 		type: stringValue(event.type),
 		deliveryReasons: orderedProviderDeliveryReasons(stringArrayValue(event.deliveryReasons)),
+		message: providerNotificationMessage(event),
 		actor: providerNotificationProfileRef(runtimeRecord(event.actor)),
 		target: providerNotificationTargetRef(event.target, scope),
 		thread: providerNotificationThreadRef(runtimeRecord(event.thread), scope),
@@ -13055,6 +13056,10 @@ function providerNotificationEvent(event: Record<string, unknown>, scope: Provid
 		replyTo: providerNotificationTargetRef(event.replyTo, scope),
 		vote: providerNotificationVoteRef(runtimeRecord(event.vote)),
 	});
+}
+
+function providerNotificationMessage(event: Record<string, unknown>): string | undefined {
+	return stringValue(event.type) === 'bootstrap' ? stringValue(event.message) : undefined;
 }
 
 function providerNotificationTargetRef(value: unknown, scope: ProviderContextContentScope): Record<string, unknown> | string | undefined {
