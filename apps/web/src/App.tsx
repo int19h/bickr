@@ -140,6 +140,7 @@ import {
 	compareMyBotTableRecords,
 	defaultMyBotsSortState,
 	modelColorHue,
+	myBotsRunTickSelection,
 	myBotsSortStorageKey,
 	myBotsSpendTotal,
 	parseMyBotsSortState,
@@ -11565,7 +11566,7 @@ function MyBotsScreen({
 		[selectedRecords],
 	);
 	const overallSpendTotal = useMemo(() => myBotsSpendTotal(groups.flatMap((group) => group.rows)), [groups]);
-	const selectedPausedCount = selectedBots.filter((bot) => !bot.tickSettings.enabled).length;
+	const selectedTickRun = useMemo(() => myBotsRunTickSelection(selectedBots), [selectedBots]);
 	const selectedCount = selectedBots.length;
 	const enabledBotCount = bots.filter((bot) => bot.tickSettings.enabled).length;
 	const allVisibleSelected = visibleBotIds.length > 0 && visibleBotIds.every((id) => selectedBotIds.has(id));
@@ -11660,10 +11661,10 @@ function MyBotsScreen({
 	}
 
 	async function runSelectedTicks(): Promise<void> {
-		if (selectedPausedCount > 0) {
+		if (selectedTickRun.disabled) {
 			return;
 		}
-		await onRunBotTicks(selectedBots);
+		await onRunBotTicks(selectedTickRun.targetBots);
 	}
 
 	async function spreadTicks(): Promise<void> {
@@ -11696,13 +11697,9 @@ function MyBotsScreen({
 							</button>
 							<button
 								className="btn"
-								disabled={selectedPausedCount > 0}
+								disabled={selectedTickRun.disabled}
 								onClick={() => setConfirmAction("tick")}
-								title={
-									selectedPausedCount > 0 ?
-										"Paused bots cannot be bulk-run from this page."
-									:	"Run tick for selected bots"
-								}
+								title={selectedTickRun.title}
 								type="button"
 							>
 								<Icon name="refresh" size={14} />
@@ -11888,7 +11885,10 @@ function MyBotsScreen({
 						</>
 					: confirmAction === "tick" ?
 						<>
-							This will start a tick for {selectedCount} selected bot{selectedCount === 1 ? "" : "s"}.
+							This will start a tick for {selectedTickRun.targetCount} selected active bot{selectedTickRun.targetCount === 1 ? "" : "s"}.
+							{selectedTickRun.pausedCount > 0 && (
+								<> {selectedTickRun.pausedCount} paused selected bot{selectedTickRun.pausedCount === 1 ? "" : "s"} will be skipped.</>
+							)}
 						</>
 					: confirmAction === "spread" ?
 						<>
@@ -11900,7 +11900,7 @@ function MyBotsScreen({
 					confirmAction === "delete" ?
 						`Delete ${selectedCount} bot${selectedCount === 1 ? "" : "s"}`
 					: confirmAction === "tick" ?
-						`Run ${selectedCount} tick${selectedCount === 1 ? "" : "s"}`
+						`Run ${selectedTickRun.targetCount} tick${selectedTickRun.targetCount === 1 ? "" : "s"}`
 					:	"Spread ticks"
 				}
 				danger={confirmAction === "delete"}

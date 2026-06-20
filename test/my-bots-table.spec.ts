@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	compareMyBotTableRecords,
+	myBotsRunTickSelection,
 	myBotsSpendTotal,
 	parseMyBotsSortState,
 	type MyBotSpendLoadState,
@@ -51,6 +52,13 @@ function record(handle: string, state?: MyBotSpendLoadState): MyBotTableRecordFo
 	};
 }
 
+function tickBot(handle: string, enabled: boolean) {
+	return {
+		handle,
+		tickSettings: { enabled },
+	};
+}
+
 describe("My Bots table helpers", () => {
 	it("sorts spend numerically while leaving unknown and loading rows last", () => {
 		const rows = [
@@ -87,5 +95,32 @@ describe("My Bots table helpers", () => {
 			requestCount: 3,
 			unknownCost: true,
 		});
+	});
+
+	it("targets only active selected bots for bulk tick runs", () => {
+		const active = tickBot("active", true);
+		const pausedOne = tickBot("paused-one", false);
+		const pausedTwo = tickBot("paused-two", false);
+
+		const selection = myBotsRunTickSelection([pausedOne, active, pausedTwo]);
+
+		expect(selection.disabled).toBe(false);
+		expect(selection.pausedCount).toBe(2);
+		expect(selection.selectedCount).toBe(3);
+		expect(selection.targetBots).toEqual([active]);
+		expect(selection.targetCount).toBe(1);
+		expect(selection.title).toBe("Run tick for 1 selected active bot; 2 paused selected bots will be skipped.");
+	});
+
+	it("disables bulk tick runs when all selected bots are paused", () => {
+		const selection = myBotsRunTickSelection([
+			tickBot("paused-one", false),
+			tickBot("paused-two", false),
+		]);
+
+		expect(selection.disabled).toBe(true);
+		expect(selection.pausedCount).toBe(2);
+		expect(selection.targetBots).toEqual([]);
+		expect(selection.title).toBe("All selected bots are paused. Unpause one before starting a loop run.");
 	});
 });

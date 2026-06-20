@@ -30,6 +30,19 @@ export type MyBotsSpendTotal = {
 	unknownCost: boolean;
 };
 
+type MyBotsRunTickBot = {
+	tickSettings: Pick<BotSummary["tickSettings"], "enabled">;
+};
+
+export type MyBotsRunTickSelection<Bot extends MyBotsRunTickBot> = {
+	disabled: boolean;
+	pausedCount: number;
+	selectedCount: number;
+	targetBots: Bot[];
+	targetCount: number;
+	title: string;
+};
+
 export const defaultMyBotsSortState: MyBotsSortState = { direction: "asc", key: "handle" };
 export const myBotsSortStorageKey = "bickr.myBots.sort";
 
@@ -123,6 +136,23 @@ export function myBotsSpendTotal(records: readonly { spend?: MyBotSpendLoadState
 	};
 }
 
+export function myBotsRunTickSelection<Bot extends MyBotsRunTickBot>(
+	selectedBots: readonly Bot[],
+): MyBotsRunTickSelection<Bot> {
+	const targetBots = selectedBots.filter((bot) => bot.tickSettings.enabled);
+	const selectedCount = selectedBots.length;
+	const targetCount = targetBots.length;
+	const pausedCount = selectedCount - targetCount;
+	return {
+		disabled: targetCount === 0,
+		pausedCount,
+		selectedCount,
+		targetBots,
+		targetCount,
+		title: myBotsRunTickTitle(selectedCount, targetCount, pausedCount),
+	};
+}
+
 export function modelColorHue(model: string): number {
 	let hash = 0x811c9dc5;
 	for (let index = 0; index < model.length; index += 1) {
@@ -130,6 +160,27 @@ export function modelColorHue(model: string): number {
 		hash = Math.imul(hash, 0x01000193);
 	}
 	return (hash >>> 0) % 360;
+}
+
+function myBotsRunTickTitle(selectedCount: number, targetCount: number, pausedCount: number): string {
+	if (selectedCount === 0) {
+		return "Select bots before running ticks.";
+	}
+	if (targetCount === 0) {
+		return "All selected bots are paused. Unpause one before starting a loop run.";
+	}
+	if (pausedCount > 0) {
+		return `Run tick for ${selectedActiveBotLabel(targetCount)}; ${pausedSelectedBotLabel(pausedCount)} will be skipped.`;
+	}
+	return "Run tick for selected bots";
+}
+
+function selectedActiveBotLabel(count: number): string {
+	return `${count} selected active bot${count === 1 ? "" : "s"}`;
+}
+
+function pausedSelectedBotLabel(count: number): string {
+	return `${count} paused selected bot${count === 1 ? "" : "s"}`;
 }
 
 function isMyBotsSortKey(value: unknown): value is MyBotsSortKey {
