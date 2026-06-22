@@ -4030,6 +4030,7 @@ export function mergeInferenceSettings(
 	assignTrimmedString(next, "baseUrl", patch.baseUrl);
 	assignTrimmedString(next, "model", patch.model);
 	assignOptionalSetting(next, "compactionMode", patch.compactionMode);
+	assignOptionalSetting(next, "promptCacheMode", patch.promptCacheMode);
 	assignOptionalSetting(next, "cacheFriendlyCompaction", patch.cacheFriendlyCompaction);
 	assignInferenceDefaultTrueBoolean(next, "recurringPromptEnabled", patch.recurringPromptEnabled);
 	const recurringPromptPatch = Object.prototype.hasOwnProperty.call(patch, "recurringPrompt")

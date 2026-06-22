@@ -232,6 +232,7 @@ import {
 	effectiveSupportsPrefillForModel,
 	effectiveToolCallsForModel,
 	modelSupportsPrefill,
+	modelSupportsPromptCacheControl,
 	modelSupportsRequiredToolCalls,
 	modelSupportsStructuredOutputs,
 	openRouterFreeModel,
@@ -2022,6 +2023,38 @@ describe("Bickr Pages Functions", () => {
 			presence_penalty: 0.5,
 			repetition_penalty: 1.15,
 		});
+
+		const claudeCacheRequest = providerChatCompletionRequest(
+			{
+				baseUrl: "https://openrouter.ai/api/v1",
+				model: "~anthropic/claude-sonnet-latest",
+				promptCacheMode: "openrouter_anthropic_1h",
+				temperature: 0.2,
+			},
+			[{ role: "user", content: "hello" }],
+			toolDefinitions,
+			undefined,
+			"railroad",
+			"bot:cache-test",
+		);
+		expect(claudeCacheRequest.cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
+		expect(claudeCacheRequest.session_id).toBe("bot:cache-test");
+
+		const nonClaudeCacheRequest = providerChatCompletionRequest(
+			{
+				baseUrl: "https://openrouter.ai/api/v1",
+				model: "openai/gpt-5-mini",
+				promptCacheMode: "openrouter_anthropic_5m",
+				temperature: 0.2,
+			},
+			[{ role: "user", content: "hello" }],
+			toolDefinitions,
+			undefined,
+			"railroad",
+			"bot:cache-test",
+		);
+		expect("cache_control" in nonClaudeCacheRequest).toBe(false);
+		expect("session_id" in nonClaudeCacheRequest).toBe(false);
 	});
 
 	it("applies conservative request policy for unknown OpenRouter models", () => {
@@ -5295,6 +5328,9 @@ describe("Bickr Pages Functions", () => {
 		expect(effectiveSupportsPrefillForModel(openRouterFreeModel, true, true)).toBe(false);
 		expect(effectiveStructuredToolCallsForModel(openRouterFreeModel, true, "require")).toBe("railroad");
 		expect(effectiveToolCallsForModel(openRouterFreeModel, true, "at_will")).toBe("at_will");
+		expect(modelSupportsPromptCacheControl("~anthropic/claude-sonnet-latest", true)).toBe(true);
+		expect(modelSupportsPromptCacheControl("anthropic/claude-opus-4.1", true)).toBe(true);
+		expect(modelSupportsPromptCacheControl("openai/gpt-5-mini", true)).toBe(false);
 
 		expect(effectiveCompactionModeForModel("local/model", false, undefined)).toBe("structured_output");
 		expect(effectiveReasoningEffortForModel("local/model", false, undefined)).toBe("minimal");
@@ -5408,6 +5444,55 @@ describe("Bickr Pages Functions", () => {
 				{},
 			).compactionMode,
 		).toBe("tool_call_cache_friendly");
+	});
+
+	it("resolves prompt-cache mode only for OpenRouter Claude models", () => {
+		expect(
+			effectiveProviderSettingsForBot(
+				{ inferenceSettings: {} },
+				{
+					inferenceSettings: {
+						baseUrl: "https://openrouter.ai/api/v1",
+						model: "~anthropic/claude-sonnet-latest",
+						promptCacheMode: "openrouter_anthropic_5m",
+					},
+				},
+				{},
+			).promptCacheMode,
+		).toBe("openrouter_anthropic_5m");
+		expect(
+			effectiveProviderSettingsForBot(
+				{ inferenceSettings: { model: "~anthropic/claude-sonnet-latest", promptCacheMode: "openrouter_anthropic_1h" } },
+				{
+					inferenceSettings: {
+						baseUrl: "https://openrouter.ai/api/v1",
+						model: "~anthropic/claude-sonnet-latest",
+						promptCacheMode: "openrouter_anthropic_5m",
+					},
+				},
+				{},
+			).promptCacheMode,
+		).toBe("openrouter_anthropic_1h");
+		expect(
+			effectiveProviderSettingsForBot(
+				{
+					inferenceSettings: {
+						baseUrl: "https://openrouter.ai/api/v1",
+						model: "openai/gpt-5-mini",
+						promptCacheMode: "openrouter_anthropic_1h",
+					},
+				},
+				{ inferenceSettings: {} },
+				{},
+			).promptCacheMode,
+		).toBeUndefined();
+		expect(
+			effectiveProviderSettingsForBot(
+				{ inferenceSettings: { baseUrl: customProviderBaseUrl, model: "anthropic/claude-opus-4.1", promptCacheMode: "openrouter_anthropic_1h" } },
+				{ inferenceSettings: {} },
+				{},
+			).promptCacheMode,
+		).toBeUndefined();
 	});
 
 	it("resolves OpenRouter provider routing from bot overrides before profile defaults", () => {

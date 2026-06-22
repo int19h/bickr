@@ -279,6 +279,7 @@ export type BotInferenceSettings = {
 	baseUrl?: string;
 	model?: string;
 	compactionMode?: BotCompactionMode;
+	promptCacheMode?: BotPromptCacheMode;
 	cacheFriendlyCompaction?: boolean;
 	recurringPromptEnabled?: boolean;
 	recurringPrompt?: LocalizedText;
@@ -302,6 +303,7 @@ export type BotInferenceReasoningEffort = "default" | "none" | "minimal" | "low"
 export type BotInferenceToolCalls = "require" | "railroad" | "at_will";
 export type BotStructuredToolCalls = Exclude<BotInferenceToolCalls, "at_will">;
 export type BotCompactionMode = "structured_output" | "tool_call" | "tool_call_cache_friendly";
+export type BotPromptCacheMode = "off" | "openrouter_anthropic_5m" | "openrouter_anthropic_1h";
 
 export type BotTranslationSettings = {
 	enabled?: boolean;
@@ -464,6 +466,7 @@ export type BotInferenceSettingsInput = {
 	baseUrl?: string | null;
 	model?: string | null;
 	compactionMode?: BotCompactionMode | null;
+	promptCacheMode?: BotPromptCacheMode | null;
 	cacheFriendlyCompaction?: boolean | null;
 	recurringPromptEnabled?: boolean | null;
 	recurringPrompt?: LocalizedText | null;

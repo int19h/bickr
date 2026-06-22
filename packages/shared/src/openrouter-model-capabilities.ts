@@ -157,6 +157,14 @@ export function modelSupportsPrefill(model: string | undefined, openRouter: bool
 	return providerModelPolicy(model, openRouter).prefill;
 }
 
+export function modelSupportsPromptCacheControl(model: string | undefined, openRouter: boolean): boolean {
+	if (!openRouter) {
+		return false;
+	}
+	const normalized = normalizedOpenRouterModelId(model);
+	return normalized.startsWith("anthropic/claude") || normalized.startsWith("~anthropic/claude");
+}
+
 function normalizedOpenRouterModelId(model: string | undefined): string {
 	return model?.trim().toLowerCase() ?? "";
 }

@@ -2,6 +2,7 @@ import {
 	type BotImageGenerationSettingsInput,
 	type BotInferenceSettingsInput,
 	type BotCompactionMode,
+	type BotPromptCacheMode,
 	type BotContextBudgetInput,
 	type BotTranslationSettingsInput,
 	type BotToolSettingsInput,
@@ -65,6 +66,7 @@ export const maxCommentBodyHardLength = postingHardLimit(defaultCommentBodyChara
 const inferenceReasoningEfforts = ["default", "none", "minimal", "low", "medium", "high", "xhigh"] as const;
 const inferenceToolCallModes = ["require", "railroad", "at_will"] as const;
 const compactionModes = ["structured_output", "tool_call", "tool_call_cache_friendly"] as const satisfies readonly BotCompactionMode[];
+const promptCacheModes = ["off", "openrouter_anthropic_5m", "openrouter_anthropic_1h"] as const satisfies readonly BotPromptCacheMode[];
 const structuredToolCallModes = ["require", "railroad"] as const;
 const supportedUiLocales = ["en", "es", "zh-Hans", "ja", "ru", "uk", "eo"] as const;
 const languageTagExamples = `"en", "ja", "zh-Hans", "zh-Hant", "ar", "mn-Mong", or "non"`;
@@ -731,6 +733,7 @@ function parseInferenceSettings(value: unknown, language: LanguageTag | null): B
 	assignOptionalText(settings, "baseUrl", record.baseUrl, "Inference base URL", 500);
 	assignOptionalText(settings, "model", record.model, "Inference model", 160);
 	assignOptionalEnum(settings, "compactionMode", aliasedValue(record, "compactionMode", "compaction_mode"), "compactionMode", compactionModes);
+	assignOptionalEnum(settings, "promptCacheMode", aliasedValue(record, "promptCacheMode", "prompt_cache_mode"), "Prompt cache mode", promptCacheModes);
 	assignOptionalNullableBoolean(settings, "cacheFriendlyCompaction", aliasedValue(record, "cacheFriendlyCompaction", "cache_friendly_compaction"));
 	if (record.recurringPromptEnabled !== undefined || record.recurring_prompt_enabled !== undefined) {
 		const enabled = aliasedValue(record, "recurringPromptEnabled", "recurring_prompt_enabled");

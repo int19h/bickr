@@ -110,6 +110,7 @@ import {
 	effectiveStructuredToolCallsForModel,
 	effectiveSupportsPrefillForModel,
 	effectiveToolCallsForModel,
+	modelSupportsPromptCacheControl,
 	modelSupportsReasoningNone,
 } from '@bickr/shared/openrouter-model-capabilities';
 import {
@@ -146,6 +147,7 @@ import {
 	type BotInferenceSettingsInput,
 	type BotInferenceReasoningEffort,
 	type BotInferenceToolCalls,
+	type BotPromptCacheMode,
 	type BotCompactionMode,
 	type BotFollowUsernameQueryResult,
 	type BotProfileListResult,
@@ -798,6 +800,7 @@ export type ProviderSettings = {
 	baseUrl: string;
 	model: string;
 	compactionMode?: BotCompactionMode;
+	promptCacheMode?: BotPromptCacheMode;
 	providerRouting?: JsonObject;
 	reasoningEffort?: Exclude<BotInferenceReasoningEffort, 'default'>;
 	supportsPrefill?: boolean;
@@ -815,6 +818,10 @@ export type ProviderSettings = {
 type ProviderReasoningConfig =
 	| { enabled: true; exclude: false }
 	| { effort: Exclude<BotInferenceReasoningEffort, 'default'>; exclude: false };
+
+type ProviderPromptCacheControl =
+	| { type: 'ephemeral' }
+	| { type: 'ephemeral'; ttl: '1h' };
 
 export type PromptContextBudgetCounts = Pick<
 	BotContextBudget,
@@ -847,6 +854,8 @@ type ProviderChatCompletionRequest = {
 		include_usage: true;
 	};
 	max_completion_tokens: number;
+	cache_control?: ProviderPromptCacheControl;
+	session_id?: string;
 	reasoning?: ProviderReasoningConfig;
 	temperature: number;
 	top_k?: number;
@@ -1403,6 +1412,22 @@ function settingsUseOpenRouter(settings: Pick<ProviderSettings, 'baseUrl'> | { b
 	return settings.baseUrl !== undefined && isOpenRouterProviderBaseUrl(settings.baseUrl);
 }
 
+function providerPromptCacheControl(
+	settings: Pick<ProviderSettings, 'baseUrl' | 'model' | 'promptCacheMode'>,
+): ProviderPromptCacheControl | undefined {
+	if (settings.promptCacheMode === undefined || settings.promptCacheMode === 'off') {
+		return undefined;
+	}
+	if (!modelSupportsPromptCacheControl(settings.model, settingsUseOpenRouter(settings))) {
+		return undefined;
+	}
+	return settings.promptCacheMode === 'openrouter_anthropic_1h' ? { type: 'ephemeral', ttl: '1h' } : { type: 'ephemeral' };
+}
+
+function providerPromptCacheSessionId(botId: string): string {
+	return `bot:${botId}`;
+}
+
 function providerNoReasoningModeForSettings(
 	settings: Pick<ProviderSettings, 'baseUrl' | 'model'> | { baseUrl?: string; model: string },
 ): ProviderCompactionReasoningMode {
@@ -1565,6 +1590,7 @@ export function providerChatCompletionRequest(
 	tools: ProviderToolDefinition[],
 	reasoningPrefill?: string,
 	toolCalls: BotInferenceToolCalls = providerToolCallsForSettings(settings),
+	promptCacheSessionId?: string,
 ): ProviderChatCompletionRequest {
 	const requestMessages = providerMessagesWithPrefillCompatibility(
 		settings,
@@ -1573,6 +1599,7 @@ export function providerChatCompletionRequest(
 	const effectiveToolCalls = providerToolCallsForSettings(settings, toolCalls);
 	const toolChoice = providerToolChoiceForMode(effectiveToolCalls);
 	const reasoning = providerReasoningForSettings(settings);
+	const cacheControl = providerPromptCacheControl(settings);
 	return {
 		model: settings.model,
 		messages: sanitizeProviderMessagesForRequest(requestMessages),
@@ -1585,6 +1612,8 @@ export function providerChatCompletionRequest(
 			include_usage: true,
 		},
 		max_completion_tokens: providerContextReserveTokens,
+		...(cacheControl ? { cache_control: cacheControl } : {}),
+		...(cacheControl && promptCacheSessionId ? { session_id: promptCacheSessionId } : {}),
 		...(reasoning ? { reasoning } : {}),
 		temperature: settings.temperature,
 		...(settings.topK !== undefined ? { top_k: settings.topK } : {}),
@@ -3000,6 +3029,9 @@ export function effectiveProviderSettingsForBot(
 		openRouterBaseUrl,
 		bot.inferenceSettings.compactionMode ?? inheritedDefaults.compactionMode,
 	);
+	const promptCacheMode = modelSupportsPromptCacheControl(model, openRouterBaseUrl)
+		? bot.inferenceSettings.promptCacheMode ?? inheritedDefaults.promptCacheMode
+		: undefined;
 	const supportsPrefill = effectiveSupportsPrefillForModel(
 		model,
 		openRouterBaseUrl,
@@ -3011,6 +3043,7 @@ export function effectiveProviderSettingsForBot(
 		baseUrl,
 		model,
 		compactionMode,
+		...(promptCacheMode && promptCacheMode !== 'off' ? { promptCacheMode } : {}),
 		...(effectiveProviderRouting ? { providerRouting: effectiveProviderRouting } : {}),
 		...(reasoningEffort ? { reasoningEffort } : {}),
 		supportsPrefill,
@@ -3243,6 +3276,7 @@ function publicPromptProviderSettings(settings: ProviderSettings): BotInferenceS
 		baseUrl: settings.baseUrl,
 		model: settings.model,
 		compactionMode: settings.compactionMode,
+		...(settings.promptCacheMode ? { promptCacheMode: settings.promptCacheMode } : {}),
 		...(settings.providerRouting ? { providerRouting: settings.providerRouting } : {}),
 		...(settings.reasoningEffort ? { reasoningEffort: settings.reasoningEffort } : {}),
 		supportsPrefill: settings.supportsPrefill,
@@ -4403,6 +4437,7 @@ export class BotRuntime {
 						runContext.signal,
 						toolCallsMode,
 						requestEvent.createdAt,
+						providerPromptCacheSessionId(bot.id),
 					);
 				} catch (error) {
 					if (error instanceof ProviderResponseInterruptedError) {
@@ -4781,19 +4816,22 @@ export class BotRuntime {
 		}
 	}
 
-		private async callProvider(
+	private async callProvider(
 		settings: ProviderSettings,
 		messages: ChatMessage[],
 		tools: ProviderToolDefinition[],
 		runId: string,
 		streamSeq: number,
 		signal: AbortSignal,
-			toolCalls: BotInferenceToolCalls = providerToolCallsForSettings(settings),
+		toolCalls: BotInferenceToolCalls = providerToolCallsForSettings(settings),
 		createdAt = new Date().toISOString(),
+		promptCacheSessionId?: string,
 	): Promise<ProviderResponse> {
 		const endpoint = providerChatCompletionsUrl(settings.baseUrl);
 		let requestSettings = settings;
-		let lastBody = stringifyProviderRequest(providerChatCompletionRequest(requestSettings, messages, tools, undefined, toolCalls));
+		let lastBody = stringifyProviderRequest(
+			providerChatCompletionRequest(requestSettings, messages, tools, undefined, toolCalls, promptCacheSessionId),
+		);
 		let previousRetryKey: string | null = null;
 		let retryDelayMs = 0;
 		let retryReason: string | null = null;
@@ -4811,7 +4849,7 @@ export class BotRuntime {
 					await sleep(retryDelayMs, signal);
 				}
 			}
-				const request = providerChatCompletionRequest(requestSettings, messages, tools, undefined, toolCalls);
+			const request = providerChatCompletionRequest(requestSettings, messages, tools, undefined, toolCalls, promptCacheSessionId);
 			const body = stringifyProviderRequest(request);
 			calibrationAttempt += 1;
 			lastBody = body;

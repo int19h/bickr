@@ -50,6 +50,7 @@ import {
 	type BotInferenceSettings,
 	type BotInferenceSettingsInput,
 	type BotCompactionMode,
+	type BotPromptCacheMode,
 	type ChirperImportPreview,
 	type BotToolSettings,
 	type CreateBotInput,
@@ -112,6 +113,7 @@ import {
 	effectiveSupportsPrefillForModel,
 	effectiveToolCallsForModel,
 	modelSupportsPrefill,
+	modelSupportsPromptCacheControl,
 	modelSupportsReasoningNone,
 	modelSupportsRequiredToolCalls,
 	modelSupportsStructuredOutputs,
@@ -336,6 +338,7 @@ type InferenceDraft = {
 	baseUrl: string;
 	model: string;
 	compactionMode: BotCompactionMode;
+	promptCacheMode: BotPromptCacheMode;
 	recurringPromptEnabled: boolean;
 	recurringPrompt: string;
 	supportsPrefill: boolean;
@@ -396,6 +399,7 @@ type InferenceModelUnlockContext = {
 	baseUrl?: string;
 	model?: string;
 	compactionMode?: BotCompactionMode;
+	promptCacheMode?: BotPromptCacheMode;
 	providerRouting?: JsonObject;
 	reasoningEffort?: BotInferenceSettings["reasoningEffort"];
 	supportsPrefill?: boolean;
@@ -14018,7 +14022,7 @@ function AgenticLoopInferenceFields({
 					</select>
 				</Field>
 			</div>
-			<div className="inference-row two">
+			<div className="inference-row three">
 				<Field className="checkbox-help-field" help="Turn off for providers that reject tool-enabled requests ending with participant narration.">
 					<label className="checkbox-line">
 						<input
@@ -14038,6 +14042,19 @@ function AgenticLoopInferenceFields({
 					>
 						{compactionModeOptions.map((option) => (
 							<option disabled={option.value === "structured_output" && !capabilityContext.supportsStructuredOutputs} key={option.value} value={option.value}>
+								{option.label}
+							</option>
+						))}
+					</select>
+				</Field>
+				<Field help="OpenRouter prompt caching for Claude loop requests. Writes cost more than normal input tokens." label="Prompt cache">
+					<select
+						className="input"
+						onChange={(event) => patch({ promptCacheMode: event.target.value as BotPromptCacheMode })}
+						value={draft.promptCacheMode}
+					>
+						{promptCacheModeOptions.map((option) => (
+							<option disabled={option.value !== "off" && !capabilityContext.supportsPromptCacheControl} key={option.value} value={option.value}>
 								{option.label}
 							</option>
 						))}
@@ -14233,6 +14250,11 @@ const compactionModeOptions = [
 	{ value: "tool_call", label: "Tool call" },
 	{ value: "tool_call_cache_friendly", label: "Tool call (cache-friendly)" },
 ] as const satisfies readonly { value: BotCompactionMode; label: string }[];
+const promptCacheModeOptions = [
+	{ value: "off", label: "Off" },
+	{ value: "openrouter_anthropic_5m", label: "Claude 5m (1.25x write)" },
+	{ value: "openrouter_anthropic_1h", label: "Claude 1h (2x write)" },
+] as const satisfies readonly { value: BotPromptCacheMode; label: string }[];
 const structuredToolCallOptions = toolCallOptions.filter((option) => option.value !== "at_will");
 
 function ProviderRoutingField({
@@ -21238,6 +21260,7 @@ type InferenceCapabilityContext = {
 	baseUrl: string;
 	openRouter: boolean;
 	supportsPrefill: boolean;
+	supportsPromptCacheControl: boolean;
 	supportsReasoningNone: boolean;
 	supportsRequiredToolCalls: boolean;
 	supportsStructuredOutputs: boolean;
@@ -21260,6 +21283,7 @@ function inferenceCapabilityContext(model: string, baseUrl: string): InferenceCa
 		baseUrl,
 		openRouter,
 		supportsPrefill: modelSupportsPrefill(model, openRouter),
+		supportsPromptCacheControl: modelSupportsPromptCacheControl(model, openRouter),
 		supportsReasoningNone: modelSupportsReasoningNone(model, openRouter),
 		supportsRequiredToolCalls: modelSupportsRequiredToolCalls(model, openRouter),
 		supportsStructuredOutputs: modelSupportsStructuredOutputs(model, openRouter),
@@ -21279,6 +21303,7 @@ function normalizeInferenceDraftForCapabilities(
 				policy.defaultCompactionMode
 			:	draft.compactionMode,
 		reasoningEffort: draft.reasoningEffort === "none" && !context.supportsReasoningNone ? "minimal" : draft.reasoningEffort,
+		promptCacheMode: context.supportsPromptCacheControl ? draft.promptCacheMode : "off",
 		supportsPrefill: context.supportsPrefill ? draft.supportsPrefill : false,
 		toolCalls: draft.toolCalls === "require" && !context.supportsRequiredToolCalls ? "railroad" : draft.toolCalls,
 	};
@@ -21332,13 +21357,15 @@ function translationDefaultsForDraft(
 function inferenceDefaultsForSettings(
 	settings: BotInferenceSettings,
 	inherited?: InferenceModelUnlockContext,
-): Pick<InferenceDraft, "compactionMode" | "supportsPrefill" | "reasoningEffort" | "toolCalls"> {
+): Pick<InferenceDraft, "compactionMode" | "promptCacheMode" | "supportsPrefill" | "reasoningEffort" | "toolCalls"> {
 	const model = effectiveInferenceSettingsModel(settings, inherited);
 	const baseUrl = effectiveInferenceSettingsBaseUrl(settings, inherited);
 	const openRouter = isOpenRouterProviderBaseUrl(baseUrl);
 	const reasoningEffort = effectiveReasoningEffortForModel(model, openRouter, settings.reasoningEffort ?? inherited?.reasoningEffort);
+	const promptCacheMode = settings.promptCacheMode ?? inherited?.promptCacheMode ?? "off";
 	return {
 		compactionMode: effectiveCompactionModeForModel(model, openRouter, settings.compactionMode ?? inherited?.compactionMode),
+		promptCacheMode: modelSupportsPromptCacheControl(model, openRouter) ? promptCacheMode : "off",
 		supportsPrefill: effectiveSupportsPrefillForModel(model, openRouter, settings.supportsPrefill ?? inherited?.supportsPrefill),
 		reasoningEffort: reasoningEffort ?? "default",
 		toolCalls: effectiveToolCallsForModel(model, openRouter, settings.toolCalls ?? inherited?.toolCalls),
@@ -21348,14 +21375,16 @@ function inferenceDefaultsForSettings(
 function inferenceDefaultsForDraft(
 	draft: InferenceDraft,
 	inherited?: InferenceModelUnlockContext,
-): Pick<InferenceDraft, "compactionMode" | "supportsPrefill" | "reasoningEffort" | "toolCalls"> {
+): Pick<InferenceDraft, "compactionMode" | "promptCacheMode" | "supportsPrefill" | "reasoningEffort" | "toolCalls"> {
 	const fallback = inferenceFallbackContextForDraft(draft, inherited);
 	const model = effectiveInferenceDraftModel(draft, fallback);
 	const baseUrl = effectiveInferenceDraftBaseUrl(draft, fallback);
 	const openRouter = isOpenRouterProviderBaseUrl(baseUrl);
 	const reasoningEffort = effectiveReasoningEffortForModel(model, openRouter, fallback?.reasoningEffort);
+	const promptCacheMode = fallback?.promptCacheMode ?? "off";
 	return {
 		compactionMode: effectiveCompactionModeForModel(model, openRouter, fallback?.compactionMode),
+		promptCacheMode: modelSupportsPromptCacheControl(model, openRouter) ? promptCacheMode : "off",
 		supportsPrefill: effectiveSupportsPrefillForModel(model, openRouter, fallback?.supportsPrefill),
 		reasoningEffort: reasoningEffort ?? "default",
 		toolCalls: effectiveToolCallsForModel(model, openRouter, fallback?.toolCalls),
@@ -21375,6 +21404,7 @@ function inferenceDraftFromSettings(
 		baseUrl: settings.baseUrl ?? "",
 		model: settings.model ?? "",
 		compactionMode: defaults.compactionMode,
+		promptCacheMode: defaults.promptCacheMode,
 		recurringPromptEnabled: settings.recurringPromptEnabled !== false,
 		recurringPrompt: textValue(settings.recurringPrompt ?? settings.reasoningPrefill ?? ""),
 		supportsPrefill: defaults.supportsPrefill,
@@ -21434,6 +21464,7 @@ function inferenceDraftChanged(
 		normalizedDraft.baseUrl.trim() !== (settings.baseUrl ?? "") ||
 		normalizedDraft.model.trim() !== (settings.model ?? "") ||
 		normalizedDraft.compactionMode !== defaults.compactionMode ||
+		normalizedDraft.promptCacheMode !== defaults.promptCacheMode ||
 		(Boolean(options.includeReasoningPrefill) && normalizedDraft.recurringPromptEnabled !== (settings.recurringPromptEnabled !== false)) ||
 		(Boolean(options.includeReasoningPrefill) && normalizedDraft.recurringPrompt !== textValue(settings.recurringPrompt ?? settings.reasoningPrefill ?? "")) ||
 		normalizedDraft.supportsPrefill !== defaults.supportsPrefill ||
@@ -21511,6 +21542,8 @@ function inferenceInputFromDraft(
 		model: nullableTextInputMatchingInherited(normalized.model, inherited?.model),
 		compactionMode:
 			normalized.compactionMode === inheritedDefaults.compactionMode ? null : normalized.compactionMode,
+		promptCacheMode:
+			normalized.promptCacheMode === inheritedDefaults.promptCacheMode ? null : nullablePromptCacheModeInput(normalized.promptCacheMode),
 		...(options.includeReasoningPrefill ?
 			{
 				recurringPrompt: localizedOptionalDraft(normalized.recurringPrompt, language),
@@ -22226,6 +22259,10 @@ function nullableReasoningEffortInput(value: string): BotInferenceSettings["reas
 
 function nullableToolCallsInput(value: string): BotInferenceSettings["toolCalls"] | null {
 	return value ? value as BotInferenceSettings["toolCalls"] : null;
+}
+
+function nullablePromptCacheModeInput(value: BotPromptCacheMode): BotInferenceSettings["promptCacheMode"] | null {
+	return value === "off" ? null : value;
 }
 
 function nullableStructuredToolCallsInput(value: string): NonNullable<BotInferenceSettings["translation"]>["toolCalls"] | null {
