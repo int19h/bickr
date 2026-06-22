@@ -11,10 +11,33 @@ const defaultDevVarsPath = path.join(repoRoot, "workers/agent-runtime/.dev.vars"
 const openRouterModelsUrl = "https://openrouter.ai/api/v1/models";
 const openRouterChatCompletionsUrl = "https://openrouter.ai/api/v1/chat/completions";
 const probeMaxCompletionTokens = 256;
+const capabilityNames = ["prefill", "structuredOutputs", "requiredToolCalls", "disabledReasoning", "cacheControl"];
+const capabilityCliNames = new Map([
+	["prefill", "prefill"],
+	["structuredOutputs", "structured-outputs"],
+	["requiredToolCalls", "required-tool-calls"],
+	["disabledReasoning", "disabled-reasoning"],
+	["cacheControl", "cache-control"],
+]);
+const capabilityNameAliases = new Map([
+	["prefill", "prefill"],
+	["structured-outputs", "structuredOutputs"],
+	["structured_outputs", "structuredOutputs"],
+	["structuredOutputs", "structuredOutputs"],
+	["required-tool-calls", "requiredToolCalls"],
+	["required_tool_calls", "requiredToolCalls"],
+	["requiredToolCalls", "requiredToolCalls"],
+	["disabled-reasoning", "disabledReasoning"],
+	["disabled_reasoning", "disabledReasoning"],
+	["disabledReasoning", "disabledReasoning"],
+	["cache-control", "cacheControl"],
+	["cache_control", "cacheControl"],
+	["cacheControl", "cacheControl"],
+]);
 const pinnedCapabilityEntries = new Map([
 	[
 		"openrouter/free",
-		{ prefill: false, structuredOutputs: false, requiredToolCalls: false, disabledReasoning: false },
+		{ prefill: false, structuredOutputs: false, requiredToolCalls: false, disabledReasoning: false, cacheControl: false },
 	],
 ]);
 
@@ -30,6 +53,7 @@ async function main() {
 	const concurrency = numberOption(args, "concurrency", 1);
 	const dryRun = booleanOption(args, "dry-run");
 	const onlyAffected = booleanOption(args, "only-affected");
+	const capabilityFilter = capabilityFilterOption(args);
 	const modelFilter = stringArrayOption(args, "model");
 	const key = await openRouterApiKey();
 	const limiter = new RequestLimiter(delayMs);
@@ -44,29 +68,29 @@ async function main() {
 		.filter((id) => requestedIds.has(id))
 		.filter((id) => !pinnedCapabilityEntries.has(id))
 		.filter((id) => {
+			const capabilities = existing.get(id);
 			if (onlyAffected) {
-				const capabilities = existing.get(id);
-				return capabilities !== undefined && !allCapabilitiesSupported(capabilities);
+				return capabilities !== undefined && capabilitiesNeedProbe(capabilities, capabilityFilter, true);
 			}
-			return mode === "full" || !existing.has(id);
+			return mode === "full" || capabilities === undefined || capabilitiesNeedProbe(capabilities, capabilityFilter, false);
 		});
 
-	const next = mode === "full" && !onlyAffected ? new Map() : new Map(existing);
+	const next = mode === "full" && !onlyAffected && capabilityFilter.size === capabilityNames.length ? new Map() : new Map(existing);
 	let completed = 0;
 	console.log(`OpenRouter returned ${models.length} text-output models.`);
-	console.log(`Probing ${idsToProbe.length} model(s) in ${mode} mode with concurrency=${concurrency}, delay=${delayMs}ms, onlyAffected=${onlyAffected}.`);
+	console.log(
+		`Probing ${idsToProbe.length} model(s) in ${mode} mode with concurrency=${concurrency}, delay=${delayMs}ms, onlyAffected=${onlyAffected}, capabilities=${capabilityFilterLabel(capabilityFilter)}.`,
+	);
 	console.log(`Preserving ${pinnedCapabilityEntries.size} pinned capability entr${pinnedCapabilityEntries.size === 1 ? "y" : "ies"}.`);
 	if (!key) {
 		console.log("No OpenRouter key found; relying on unauthenticated OpenRouter access.");
 	}
 
 	await runWithConcurrency(idsToProbe, Math.max(1, concurrency), async (id) => {
-		const capabilities = await probeModel(id, key, limiter, timeoutMs, onlyAffected ? existing.get(id) : undefined);
+		const capabilities = await probeModel(id, key, limiter, timeoutMs, existing.get(id), capabilityFilter, mode, onlyAffected);
 		next.set(id, capabilities);
 		completed += 1;
-		console.log(
-			`${completed}/${idsToProbe.length} ${id}: prefill=${capabilities.prefill} structured=${capabilities.structuredOutputs} required_tools=${capabilities.requiredToolCalls} reasoning_none=${capabilities.disabledReasoning}`,
-		);
+		console.log(`${completed}/${idsToProbe.length} ${id}: ${capabilitySummary(capabilities)}`);
 	});
 
 	if (!dryRun) {
@@ -122,8 +146,62 @@ function stringArrayOption(options, key) {
 	return options.get(key) ?? [];
 }
 
-function allCapabilitiesSupported(capabilities) {
-	return capabilities.prefill && capabilities.structuredOutputs && capabilities.requiredToolCalls && capabilities.disabledReasoning;
+function capabilityFilterOption(options) {
+	const raw = stringArrayOption(options, "capability");
+	if (raw.length === 0 || raw.includes("all")) {
+		return new Set(capabilityNames);
+	}
+	const filter = new Set();
+	for (const item of raw) {
+		const capability = capabilityNameAliases.get(item);
+		if (!capability) {
+			throw new Error(`Unknown --capability ${JSON.stringify(item)}. Expected all, ${[...capabilityNameAliases.keys()].join(", ")}.`);
+		}
+		filter.add(capability);
+	}
+	return filter;
+}
+
+function capabilityFilterLabel(filter) {
+	return [...filter].map((capability) => capabilityCliNames.get(capability) ?? capability).join(",");
+}
+
+function capabilitiesNeedProbe(capabilities, capabilityFilter, onlyAffected) {
+	for (const capability of capabilityFilter) {
+		if (capabilities[capability] === undefined) {
+			return true;
+		}
+		if (onlyAffected && capabilities[capability] !== true) {
+			return true;
+		}
+	}
+	return false;
+}
+
+function shouldProbeCapability(capability, previous, capabilityFilter, mode, onlyAffected) {
+	if (!previous) {
+		return true;
+	}
+	if (!capabilityFilter.has(capability)) {
+		return false;
+	}
+	if (mode === "full" && !onlyAffected) {
+		return true;
+	}
+	if (previous[capability] === undefined) {
+		return true;
+	}
+	return onlyAffected && previous[capability] !== true;
+}
+
+function capabilitySummary(capabilities) {
+	return [
+		`prefill=${capabilities.prefill}`,
+		`structured=${capabilities.structuredOutputs}`,
+		`required_tools=${capabilities.requiredToolCalls}`,
+		`reasoning_none=${capabilities.disabledReasoning}`,
+		`cache_control=${capabilities.cacheControl}`,
+	].join(" ");
 }
 
 function applyPinnedCapabilityEntries(entries) {
@@ -194,17 +272,39 @@ async function fetchOpenRouterTextModels(apiKey) {
 		.sort((left, right) => left.id.localeCompare(right.id));
 }
 
-async function probeModel(model, apiKey, limiter, timeoutMs, previous) {
+async function probeModel(model, apiKey, limiter, timeoutMs, previous, capabilityFilter, mode, onlyAffected) {
 	return {
-		prefill:
-			previous?.prefill === true ? true : await probeCapability(apiKey, limiter, timeoutMs, providerPrefillRequest(model), prefillSupported),
+		prefill: shouldProbeCapability("prefill", previous, capabilityFilter, mode, onlyAffected)
+			? await probeCapability(apiKey, limiter, timeoutMs, providerPrefillRequest(model), prefillSupported)
+			: Boolean(previous?.prefill),
 		structuredOutputs:
-			previous?.structuredOutputs === true ? true : await probeCapability(apiKey, limiter, timeoutMs, providerStructuredOutputRequest(model), structuredOutputSupported),
+			shouldProbeCapability("structuredOutputs", previous, capabilityFilter, mode, onlyAffected)
+				? await probeCapability(apiKey, limiter, timeoutMs, providerStructuredOutputRequest(model), structuredOutputSupported)
+				: Boolean(previous?.structuredOutputs),
 		requiredToolCalls:
-			previous?.requiredToolCalls === true ? true : await probeCapability(apiKey, limiter, timeoutMs, providerRequiredToolCallRequest(model), requiredToolCallSupported),
+			shouldProbeCapability("requiredToolCalls", previous, capabilityFilter, mode, onlyAffected)
+				? await probeCapability(apiKey, limiter, timeoutMs, providerRequiredToolCallRequest(model), requiredToolCallSupported)
+				: Boolean(previous?.requiredToolCalls),
 		disabledReasoning:
-			previous?.disabledReasoning === true ? true : await probeCapability(apiKey, limiter, timeoutMs, providerDisabledReasoningRequest(model), responseOk),
+			shouldProbeCapability("disabledReasoning", previous, capabilityFilter, mode, onlyAffected)
+				? await probeCapability(apiKey, limiter, timeoutMs, providerDisabledReasoningRequest(model), responseOk)
+				: Boolean(previous?.disabledReasoning),
+		cacheControl:
+			shouldProbeCapability("cacheControl", previous, capabilityFilter, mode, onlyAffected)
+				? await probeCacheControlCapability(model, apiKey, limiter, timeoutMs)
+				: Boolean(previous?.cacheControl),
 	};
+}
+
+async function probeCacheControlCapability(model, apiKey, limiter, timeoutMs) {
+	// OpenRouter currently accepts top-level cache_control on some models where
+	// it is not documented to create a cache entry. Treat the live request as a
+	// confirmation step for documented top-level automatic cache_control models,
+	// not as proof that any 2xx response means caching works.
+	if (!topLevelCacheControlCandidate(model)) {
+		return false;
+	}
+	return probeCapability(apiKey, limiter, timeoutMs, providerCacheControlRequest(model), responseOk);
 }
 
 async function probeCapability(apiKey, limiter, timeoutMs, requestBody, supported) {
@@ -322,6 +422,22 @@ function providerDisabledReasoningRequest(model) {
 	};
 }
 
+function providerCacheControlRequest(model) {
+	return {
+		model,
+		messages: [{ role: "user", content: "Reply with ok." }],
+		stream: false,
+		max_completion_tokens: 16,
+		temperature: 0,
+		cache_control: { type: "ephemeral" },
+	};
+}
+
+function topLevelCacheControlCandidate(model) {
+	const normalized = model.trim().toLowerCase();
+	return normalized.startsWith("anthropic/claude") || normalized.startsWith("~anthropic/claude");
+}
+
 function capabilityProbeTool() {
 	return {
 		type: "function",
@@ -394,6 +510,7 @@ async function writeGeneratedTable(filePath, entries) {
 		"\tstructuredOutputs: boolean;",
 		"\trequiredToolCalls: boolean;",
 		"\tdisabledReasoning: boolean;",
+		"\tcacheControl: boolean;",
 		"};",
 		"",
 		"export type GeneratedOpenRouterModelCapabilityEntry = readonly [string, GeneratedOpenRouterModelCapabilities];",

@@ -11,6 +11,7 @@ export type OpenRouterModelCapabilities = {
 	structuredOutputs: boolean;
 	requiredToolCalls: boolean;
 	disabledReasoning: boolean;
+	cacheControl: boolean;
 };
 
 export type OpenRouterModelPolicy = OpenRouterModelCapabilities & {
@@ -26,6 +27,7 @@ const conservativeOpenRouterModelCapabilities = {
 	structuredOutputs: false,
 	requiredToolCalls: false,
 	disabledReasoning: false,
+	cacheControl: false,
 } as const satisfies OpenRouterModelCapabilities;
 
 const openRouterFreeModelPolicy = {
@@ -39,6 +41,7 @@ const permissiveCustomProviderPolicy = {
 	structuredOutputs: true,
 	requiredToolCalls: true,
 	disabledReasoning: true,
+	cacheControl: false,
 	defaultCompactionMode: "structured_output",
 	defaultReasoningEffort: "minimal",
 	defaultToolCalls: "require",
@@ -161,8 +164,7 @@ export function modelSupportsPromptCacheControl(model: string | undefined, openR
 	if (!openRouter) {
 		return false;
 	}
-	const normalized = normalizedOpenRouterModelId(model);
-	return normalized.startsWith("anthropic/claude") || normalized.startsWith("~anthropic/claude");
+	return openRouterModelCapabilities(model).cacheControl;
 }
 
 function normalizedOpenRouterModelId(model: string | undefined): string {
