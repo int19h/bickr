@@ -236,6 +236,7 @@ import {
 	modelSupportsPrefill,
 	modelSupportsPromptCacheControl,
 	modelSupportsRequiredToolCalls,
+	modelSupportsStructuredCompaction,
 	modelSupportsStructuredOutputs,
 	openRouterFreeModel,
 	openRouterModelPolicy,
@@ -5403,6 +5404,7 @@ describe("Bickr Pages Functions", () => {
 		expect(known).toMatchObject({
 			prefill: true,
 			structuredOutputs: true,
+			structuredOutputCompaction: true,
 			requiredToolCalls: true,
 			disabledReasoning: true,
 			defaultCompactionMode: "structured_output",
@@ -5431,6 +5433,7 @@ describe("Bickr Pages Functions", () => {
 		expect(free).toMatchObject({
 			prefill: false,
 			structuredOutputs: false,
+			structuredOutputCompaction: false,
 			requiredToolCalls: false,
 			disabledReasoning: false,
 			defaultCompactionMode: "tool_call_cache_friendly",
@@ -5444,6 +5447,22 @@ describe("Bickr Pages Functions", () => {
 		expect(modelSupportsPromptCacheControl("~anthropic/claude-sonnet-latest", true)).toBe(true);
 		expect(modelSupportsPromptCacheControl("anthropic/claude-opus-4.1", true)).toBe(true);
 		expect(modelSupportsPromptCacheControl("openai/gpt-5-mini", true)).toBe(false);
+
+		const xiaomiFp8Routing = { only: ["xiaomi/fp8"] };
+		const xiaomiFp8 = openRouterModelPolicy("xiaomi/mimo-v2.5", xiaomiFp8Routing);
+		expect(xiaomiFp8).toMatchObject({
+			structuredOutputs: true,
+			structuredOutputCompaction: false,
+			requiredToolCalls: true,
+			defaultCompactionMode: "tool_call_cache_friendly",
+			defaultToolCalls: "require",
+		});
+		expect(modelSupportsStructuredOutputs("xiaomi/mimo-v2.5", true, xiaomiFp8Routing)).toBe(true);
+		expect(modelSupportsStructuredCompaction("xiaomi/mimo-v2.5", true, xiaomiFp8Routing)).toBe(false);
+		expect(effectiveCompactionModeForModel("xiaomi/mimo-v2.5", true, "structured_output", xiaomiFp8Routing)).toBe(
+			"tool_call_cache_friendly",
+		);
+		expect(effectiveStructuredToolCallsForModel("xiaomi/mimo-v2.5", true, "require", xiaomiFp8Routing)).toBe("require");
 
 		expect(effectiveCompactionModeForModel("local/model", false, undefined)).toBe("structured_output");
 		expect(effectiveReasoningEffortForModel("local/model", false, undefined)).toBe("minimal");
@@ -5557,6 +5576,23 @@ describe("Bickr Pages Functions", () => {
 				{},
 			).compactionMode,
 		).toBe("tool_call_cache_friendly");
+		expect(
+			effectiveProviderSettingsForBot(
+				{
+					inferenceSettings: {
+						baseUrl: "https://openrouter.ai/api/v1",
+						model: "xiaomi/mimo-v2.5",
+						compactionMode: "structured_output",
+						providerRouting: { only: ["xiaomi/fp8"] },
+					},
+				},
+				{ inferenceSettings: {} },
+				{},
+			),
+		).toMatchObject({
+			compactionMode: "tool_call_cache_friendly",
+			providerRouting: { only: ["xiaomi/fp8"] },
+		});
 	});
 
 	it("resolves prompt-cache mode only for OpenRouter Claude models", () => {

@@ -3,6 +3,7 @@ import {
 	type BotInferenceReasoningEffort,
 	type BotInferenceToolCalls,
 	type BotStructuredToolCalls,
+	type JsonObject,
 } from "./model";
 import { generatedOpenRouterModelCapabilityEntries } from "./openrouter-model-capabilities.generated";
 
@@ -15,6 +16,7 @@ export type OpenRouterModelCapabilities = {
 };
 
 export type OpenRouterModelPolicy = OpenRouterModelCapabilities & {
+	structuredOutputCompaction: boolean;
 	defaultCompactionMode: BotCompactionMode;
 	defaultReasoningEffort?: Exclude<BotInferenceReasoningEffort, "default">;
 	defaultToolCalls: BotInferenceToolCalls;
@@ -32,6 +34,7 @@ const conservativeOpenRouterModelCapabilities = {
 
 const openRouterFreeModelPolicy = {
 	...conservativeOpenRouterModelCapabilities,
+	structuredOutputCompaction: false,
 	defaultCompactionMode: "tool_call_cache_friendly",
 	defaultToolCalls: "railroad",
 } as const satisfies OpenRouterModelPolicy;
@@ -39,6 +42,7 @@ const openRouterFreeModelPolicy = {
 const permissiveCustomProviderPolicy = {
 	prefill: true,
 	structuredOutputs: true,
+	structuredOutputCompaction: true,
 	requiredToolCalls: true,
 	disabledReasoning: true,
 	cacheControl: false,
@@ -58,6 +62,11 @@ const generatedOpenRouterModelCapabilities = new Map<string, OpenRouterModelCapa
 	generatedOpenRouterModelCapabilityEntries.map(([model, capabilities]) => [model, capabilities]),
 );
 
+// xiaomi/fp8 accepts the simple JSON-schema probe, but the larger compaction
+// schema path can repeat the input instead of producing a reducing summary.
+const xiaomiFp8ProviderRoute = "xiaomi/fp8";
+const providerSelectionRoutingKeys = ["only", "order"] as const;
+
 export function openRouterModelCapabilities(model: string | undefined): OpenRouterModelCapabilities {
 	const normalized = normalizedOpenRouterModelId(model);
 	if (!normalized) {
@@ -66,7 +75,7 @@ export function openRouterModelCapabilities(model: string | undefined): OpenRout
 	return manualOpenRouterModelPolicies[normalized] ?? generatedOpenRouterModelCapabilities.get(normalized) ?? conservativeOpenRouterModelCapabilities;
 }
 
-export function openRouterModelPolicy(model: string | undefined): OpenRouterModelPolicy {
+export function openRouterModelPolicy(model: string | undefined, providerRouting?: JsonObject): OpenRouterModelPolicy {
 	const normalized = normalizedOpenRouterModelId(model);
 	if (!normalized) {
 		return openRouterFreeModelPolicy;
@@ -79,24 +88,27 @@ export function openRouterModelPolicy(model: string | undefined): OpenRouterMode
 	if (!capabilities) {
 		return openRouterFreeModelPolicy;
 	}
+	const structuredOutputCompaction = supportsStructuredOutputCompaction(normalized, capabilities, providerRouting);
 	return {
 		...capabilities,
-		defaultCompactionMode: capabilities.structuredOutputs ? "structured_output" : "tool_call_cache_friendly",
+		structuredOutputCompaction,
+		defaultCompactionMode: structuredOutputCompaction ? "structured_output" : "tool_call_cache_friendly",
 		defaultReasoningEffort: "minimal",
 		defaultToolCalls: capabilities.requiredToolCalls ? "require" : "railroad",
 	};
 }
 
-export function providerModelPolicy(model: string | undefined, openRouter: boolean): OpenRouterModelPolicy {
-	return openRouter ? openRouterModelPolicy(model) : permissiveCustomProviderPolicy;
+export function providerModelPolicy(model: string | undefined, openRouter: boolean, providerRouting?: JsonObject): OpenRouterModelPolicy {
+	return openRouter ? openRouterModelPolicy(model, providerRouting) : permissiveCustomProviderPolicy;
 }
 
 export function effectiveReasoningEffortForModel(
 	model: string | undefined,
 	openRouter: boolean,
 	value: BotInferenceReasoningEffort | undefined,
+	providerRouting?: JsonObject,
 ): Exclude<BotInferenceReasoningEffort, "default"> | undefined {
-	const policy = providerModelPolicy(model, openRouter);
+	const policy = providerModelPolicy(model, openRouter, providerRouting);
 	if (!value || value === "default") {
 		return policy.defaultReasoningEffort;
 	}
@@ -110,8 +122,9 @@ export function effectiveToolCallsForModel(
 	model: string | undefined,
 	openRouter: boolean,
 	value: BotInferenceToolCalls | undefined,
+	providerRouting?: JsonObject,
 ): BotInferenceToolCalls {
-	const policy = providerModelPolicy(model, openRouter);
+	const policy = providerModelPolicy(model, openRouter, providerRouting);
 	const requested = value ?? policy.defaultToolCalls;
 	return requested === "require" && !policy.requiredToolCalls ? "railroad" : requested;
 }
@@ -120,8 +133,9 @@ export function effectiveStructuredToolCallsForModel(
 	model: string | undefined,
 	openRouter: boolean,
 	value: BotInferenceToolCalls | BotStructuredToolCalls | undefined,
+	providerRouting?: JsonObject,
 ): BotStructuredToolCalls {
-	const toolCalls = effectiveToolCallsForModel(model, openRouter, value);
+	const toolCalls = effectiveToolCallsForModel(model, openRouter, value, providerRouting);
 	return toolCalls === "require" ? "require" : "railroad";
 }
 
@@ -129,8 +143,9 @@ export function effectiveSupportsPrefillForModel(
 	model: string | undefined,
 	openRouter: boolean,
 	value: boolean | undefined,
+	providerRouting?: JsonObject,
 ): boolean {
-	const policy = providerModelPolicy(model, openRouter);
+	const policy = providerModelPolicy(model, openRouter, providerRouting);
 	return policy.prefill ? value ?? true : false;
 }
 
@@ -138,26 +153,31 @@ export function effectiveCompactionModeForModel(
 	model: string | undefined,
 	openRouter: boolean,
 	value: BotCompactionMode | undefined,
+	providerRouting?: JsonObject,
 ): BotCompactionMode {
-	const policy = providerModelPolicy(model, openRouter);
+	const policy = providerModelPolicy(model, openRouter, providerRouting);
 	const requested = value ?? policy.defaultCompactionMode;
-	return requested === "structured_output" && !policy.structuredOutputs ? "tool_call_cache_friendly" : requested;
+	return requested === "structured_output" && !policy.structuredOutputCompaction ? "tool_call_cache_friendly" : requested;
 }
 
-export function modelSupportsReasoningNone(model: string | undefined, openRouter: boolean): boolean {
-	return providerModelPolicy(model, openRouter).disabledReasoning;
+export function modelSupportsReasoningNone(model: string | undefined, openRouter: boolean, providerRouting?: JsonObject): boolean {
+	return providerModelPolicy(model, openRouter, providerRouting).disabledReasoning;
 }
 
-export function modelSupportsRequiredToolCalls(model: string | undefined, openRouter: boolean): boolean {
-	return providerModelPolicy(model, openRouter).requiredToolCalls;
+export function modelSupportsRequiredToolCalls(model: string | undefined, openRouter: boolean, providerRouting?: JsonObject): boolean {
+	return providerModelPolicy(model, openRouter, providerRouting).requiredToolCalls;
 }
 
-export function modelSupportsStructuredOutputs(model: string | undefined, openRouter: boolean): boolean {
-	return providerModelPolicy(model, openRouter).structuredOutputs;
+export function modelSupportsStructuredOutputs(model: string | undefined, openRouter: boolean, providerRouting?: JsonObject): boolean {
+	return providerModelPolicy(model, openRouter, providerRouting).structuredOutputs;
 }
 
-export function modelSupportsPrefill(model: string | undefined, openRouter: boolean): boolean {
-	return providerModelPolicy(model, openRouter).prefill;
+export function modelSupportsStructuredCompaction(model: string | undefined, openRouter: boolean, providerRouting?: JsonObject): boolean {
+	return providerModelPolicy(model, openRouter, providerRouting).structuredOutputCompaction;
+}
+
+export function modelSupportsPrefill(model: string | undefined, openRouter: boolean, providerRouting?: JsonObject): boolean {
+	return providerModelPolicy(model, openRouter, providerRouting).prefill;
 }
 
 export function modelSupportsPromptCacheControl(model: string | undefined, openRouter: boolean): boolean {
@@ -169,4 +189,39 @@ export function modelSupportsPromptCacheControl(model: string | undefined, openR
 
 function normalizedOpenRouterModelId(model: string | undefined): string {
 	return model?.trim().toLowerCase() ?? "";
+}
+
+function supportsStructuredOutputCompaction(
+	normalizedModel: string,
+	capabilities: OpenRouterModelCapabilities,
+	providerRouting: JsonObject | undefined,
+): boolean {
+	if (!capabilities.structuredOutputs) {
+		return false;
+	}
+	if (normalizedModel.startsWith("xiaomi/") && providerRoutingSelectsProvider(providerRouting, xiaomiFp8ProviderRoute)) {
+		return false;
+	}
+	return true;
+}
+
+function providerRoutingSelectsProvider(providerRouting: JsonObject | undefined, providerId: string): boolean {
+	if (!providerRouting) {
+		return false;
+	}
+	const normalizedProviderId = providerId.toLowerCase();
+	if (providerRoutingStringList(providerRouting.ignore).includes(normalizedProviderId)) {
+		return false;
+	}
+	return providerSelectionRoutingKeys.some((key) => providerRoutingStringList(providerRouting[key]).includes(normalizedProviderId));
+}
+
+function providerRoutingStringList(value: unknown): string[] {
+	if (typeof value === "string") {
+		return [value.trim().toLowerCase()].filter(Boolean);
+	}
+	if (!Array.isArray(value)) {
+		return [];
+	}
+	return value.flatMap((item) => (typeof item === "string" ? [item.trim().toLowerCase()] : [])).filter(Boolean);
 }

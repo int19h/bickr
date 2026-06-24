@@ -1662,8 +1662,10 @@ const defaultProviderCompactionSummaryLimits: ProviderCompactionSummaryLimits = 
 
 export type ProviderCompactionMode = BotCompactionMode;
 
-function providerCompactionMode(settings: Pick<ProviderSettings, 'model' | 'compactionMode'> & { baseUrl?: string }): ProviderCompactionMode {
-	return effectiveCompactionModeForModel(settings.model, settingsUseOpenRouter(settings), settings.compactionMode);
+function providerCompactionMode(
+	settings: Pick<ProviderSettings, 'model' | 'compactionMode' | 'providerRouting'> & { baseUrl?: string },
+): ProviderCompactionMode {
+	return effectiveCompactionModeForModel(settings.model, settingsUseOpenRouter(settings), settings.compactionMode, settings.providerRouting);
 }
 
 function providerCompactionOnlyTools(limits: Pick<ProviderCompactionSummaryLimits, 'minLength' | 'maxLength'>): [ProviderToolDefinition] {
@@ -2013,8 +2015,13 @@ export function providerCompactionRequest(
 	mode: ProviderCompactionMode = 'structured_output',
 	reasoning?: ProviderReasoningConfig,
 ): ProviderCompactionRequest {
-	const effectiveMode = effectiveCompactionModeForModel(settings.model, settingsUseOpenRouter(settings), mode);
-	const toolCalls = effectiveStructuredToolCallsForModel(settings.model, settingsUseOpenRouter(settings), settings.toolCalls ?? 'require');
+	const effectiveMode = effectiveCompactionModeForModel(settings.model, settingsUseOpenRouter(settings), mode, settings.providerRouting);
+	const toolCalls = effectiveStructuredToolCallsForModel(
+		settings.model,
+		settingsUseOpenRouter(settings),
+		settings.toolCalls ?? 'require',
+		settings.providerRouting,
+	);
 	const effectiveProviderTools = providerTools ?? providerCompactionToolsForMode(limits, undefined, effectiveMode);
 	const toolChoice = effectiveMode === 'structured_output' ? providerNoToolChoice : providerToolChoiceForMode(toolCalls);
 	const responseFormat = providerCompactionResponseFormat(limits.maxLength, effectiveMode);
@@ -3097,12 +3104,19 @@ export function effectiveProviderSettingsForBot(
 		model,
 		openRouterBaseUrl,
 		bot.inferenceSettings.reasoningEffort ?? inheritedDefaults.reasoningEffort,
+		effectiveProviderRouting,
 	);
-	const toolCalls = effectiveToolCallsForModel(model, openRouterBaseUrl, bot.inferenceSettings.toolCalls ?? inheritedDefaults.toolCalls);
+	const toolCalls = effectiveToolCallsForModel(
+		model,
+		openRouterBaseUrl,
+		bot.inferenceSettings.toolCalls ?? inheritedDefaults.toolCalls,
+		effectiveProviderRouting,
+	);
 	const compactionMode = effectiveCompactionModeForModel(
 		model,
 		openRouterBaseUrl,
 		bot.inferenceSettings.compactionMode ?? inheritedDefaults.compactionMode,
+		effectiveProviderRouting,
 	);
 	const promptCacheMode = modelSupportsPromptCacheControl(model, openRouterBaseUrl)
 		? bot.inferenceSettings.promptCacheMode ?? inheritedDefaults.promptCacheMode
@@ -3111,6 +3125,7 @@ export function effectiveProviderSettingsForBot(
 		model,
 		openRouterBaseUrl,
 		bot.inferenceSettings.supportsPrefill ?? inheritedDefaults.supportsPrefill,
+		effectiveProviderRouting,
 	);
 
 	return {
@@ -3321,11 +3336,11 @@ function effectiveProviderSettingsForWorldPrompt(
 		: envModel || fallbackProviderModel;
 	const baseUrl = requestBaseUrl ?? envBaseUrl ?? fallbackProviderBaseUrl;
 	const openRouterBaseUrl = isOpenRouterProviderBaseUrl(baseUrl);
-	const reasoningEffort = effectiveReasoningEffortForModel(model, openRouterBaseUrl, requestSettings.reasoningEffort);
-	const toolCalls = effectiveToolCallsForModel(model, openRouterBaseUrl, requestSettings.toolCalls);
-	const compactionMode = effectiveCompactionModeForModel(model, openRouterBaseUrl, requestSettings.compactionMode);
-	const supportsPrefill = effectiveSupportsPrefillForModel(model, openRouterBaseUrl, requestSettings.supportsPrefill);
 	const providerRouting = openRouterProviderRouting(baseUrl, requestSettings.providerRouting);
+	const reasoningEffort = effectiveReasoningEffortForModel(model, openRouterBaseUrl, requestSettings.reasoningEffort, providerRouting);
+	const toolCalls = effectiveToolCallsForModel(model, openRouterBaseUrl, requestSettings.toolCalls, providerRouting);
+	const compactionMode = effectiveCompactionModeForModel(model, openRouterBaseUrl, requestSettings.compactionMode, providerRouting);
+	const supportsPrefill = effectiveSupportsPrefillForModel(model, openRouterBaseUrl, requestSettings.supportsPrefill, providerRouting);
 	return {
 		apiKey: requestApiKey ?? (requestBaseUrl ? undefined : envApiKey),
 		baseUrl,

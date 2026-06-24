@@ -116,7 +116,7 @@ import {
 	modelSupportsPromptCacheControl,
 	modelSupportsReasoningNone,
 	modelSupportsRequiredToolCalls,
-	modelSupportsStructuredOutputs,
+	modelSupportsStructuredCompaction,
 	providerModelPolicy,
 } from "@bickr/shared/openrouter-model-capabilities";
 import { formatCommentRef, formatThreadRef, parseCommentRef, parseThreadRef } from "@bickr/shared/ids";
@@ -14041,7 +14041,7 @@ function AgenticLoopInferenceFields({
 						value={draft.compactionMode}
 					>
 						{compactionModeOptions.map((option) => (
-							<option disabled={option.value === "structured_output" && !capabilityContext.supportsStructuredOutputs} key={option.value} value={option.value}>
+							<option disabled={option.value === "structured_output" && !capabilityContext.supportsStructuredCompaction} key={option.value} value={option.value}>
 								{option.label}
 							</option>
 						))}
@@ -21263,7 +21263,7 @@ type InferenceCapabilityContext = {
 	supportsPromptCacheControl: boolean;
 	supportsReasoningNone: boolean;
 	supportsRequiredToolCalls: boolean;
-	supportsStructuredOutputs: boolean;
+	supportsStructuredCompaction: boolean;
 };
 
 function inferenceCapabilityContextForDraft(
@@ -21273,20 +21273,21 @@ function inferenceCapabilityContextForDraft(
 	const fallback = inferenceFallbackContextForDraft(draft, inherited);
 	const baseUrl = effectiveInferenceDraftBaseUrl(draft, fallback);
 	const model = effectiveInferenceDraftModel(draft, fallback);
-	return inferenceCapabilityContext(model, baseUrl);
+	const providerRouting = effectiveInferenceDraftProviderRouting(draft, fallback);
+	return inferenceCapabilityContext(model, baseUrl, providerRouting);
 }
 
-function inferenceCapabilityContext(model: string, baseUrl: string): InferenceCapabilityContext {
+function inferenceCapabilityContext(model: string, baseUrl: string, providerRouting?: JsonObject): InferenceCapabilityContext {
 	const openRouter = isOpenRouterProviderBaseUrl(baseUrl);
 	return {
 		model,
 		baseUrl,
 		openRouter,
-		supportsPrefill: modelSupportsPrefill(model, openRouter),
+		supportsPrefill: modelSupportsPrefill(model, openRouter, providerRouting),
 		supportsPromptCacheControl: modelSupportsPromptCacheControl(model, openRouter),
-		supportsReasoningNone: modelSupportsReasoningNone(model, openRouter),
-		supportsRequiredToolCalls: modelSupportsRequiredToolCalls(model, openRouter),
-		supportsStructuredOutputs: modelSupportsStructuredOutputs(model, openRouter),
+		supportsReasoningNone: modelSupportsReasoningNone(model, openRouter, providerRouting),
+		supportsRequiredToolCalls: modelSupportsRequiredToolCalls(model, openRouter, providerRouting),
+		supportsStructuredCompaction: modelSupportsStructuredCompaction(model, openRouter, providerRouting),
 	};
 }
 
@@ -21294,12 +21295,14 @@ function normalizeInferenceDraftForCapabilities(
 	draft: InferenceDraft,
 	inherited?: BotInferenceSettings | null,
 ): InferenceDraft {
+	const fallback = inferenceFallbackContextForDraft(draft, inherited);
 	const context = inferenceCapabilityContextForDraft(draft, inherited);
-	const policy = providerModelPolicy(context.model, context.openRouter);
+	const providerRouting = effectiveInferenceDraftProviderRouting(draft, fallback);
+	const policy = providerModelPolicy(context.model, context.openRouter, providerRouting);
 	return {
 		...draft,
 		compactionMode:
-			draft.compactionMode === "structured_output" && !context.supportsStructuredOutputs ?
+			draft.compactionMode === "structured_output" && !context.supportsStructuredCompaction ?
 				policy.defaultCompactionMode
 			:	draft.compactionMode,
 		reasoningEffort: draft.reasoningEffort === "none" && !context.supportsReasoningNone ? "minimal" : draft.reasoningEffort,
@@ -21361,14 +21364,20 @@ function inferenceDefaultsForSettings(
 	const model = effectiveInferenceSettingsModel(settings, inherited);
 	const baseUrl = effectiveInferenceSettingsBaseUrl(settings, inherited);
 	const openRouter = isOpenRouterProviderBaseUrl(baseUrl);
-	const reasoningEffort = effectiveReasoningEffortForModel(model, openRouter, settings.reasoningEffort ?? inherited?.reasoningEffort);
+	const providerRouting = effectiveInferenceSettingsProviderRouting(settings, inherited);
+	const reasoningEffort = effectiveReasoningEffortForModel(
+		model,
+		openRouter,
+		settings.reasoningEffort ?? inherited?.reasoningEffort,
+		providerRouting,
+	);
 	const promptCacheMode = settings.promptCacheMode ?? inherited?.promptCacheMode ?? "off";
 	return {
-		compactionMode: effectiveCompactionModeForModel(model, openRouter, settings.compactionMode ?? inherited?.compactionMode),
+		compactionMode: effectiveCompactionModeForModel(model, openRouter, settings.compactionMode ?? inherited?.compactionMode, providerRouting),
 		promptCacheMode: modelSupportsPromptCacheControl(model, openRouter) ? promptCacheMode : "off",
-		supportsPrefill: effectiveSupportsPrefillForModel(model, openRouter, settings.supportsPrefill ?? inherited?.supportsPrefill),
+		supportsPrefill: effectiveSupportsPrefillForModel(model, openRouter, settings.supportsPrefill ?? inherited?.supportsPrefill, providerRouting),
 		reasoningEffort: reasoningEffort ?? "default",
-		toolCalls: effectiveToolCallsForModel(model, openRouter, settings.toolCalls ?? inherited?.toolCalls),
+		toolCalls: effectiveToolCallsForModel(model, openRouter, settings.toolCalls ?? inherited?.toolCalls, providerRouting),
 	};
 }
 
@@ -21380,14 +21389,15 @@ function inferenceDefaultsForDraft(
 	const model = effectiveInferenceDraftModel(draft, fallback);
 	const baseUrl = effectiveInferenceDraftBaseUrl(draft, fallback);
 	const openRouter = isOpenRouterProviderBaseUrl(baseUrl);
-	const reasoningEffort = effectiveReasoningEffortForModel(model, openRouter, fallback?.reasoningEffort);
+	const providerRouting = effectiveInferenceDraftProviderRouting(draft, fallback);
+	const reasoningEffort = effectiveReasoningEffortForModel(model, openRouter, fallback?.reasoningEffort, providerRouting);
 	const promptCacheMode = fallback?.promptCacheMode ?? "off";
 	return {
-		compactionMode: effectiveCompactionModeForModel(model, openRouter, fallback?.compactionMode),
+		compactionMode: effectiveCompactionModeForModel(model, openRouter, fallback?.compactionMode, providerRouting),
 		promptCacheMode: modelSupportsPromptCacheControl(model, openRouter) ? promptCacheMode : "off",
-		supportsPrefill: effectiveSupportsPrefillForModel(model, openRouter, fallback?.supportsPrefill),
+		supportsPrefill: effectiveSupportsPrefillForModel(model, openRouter, fallback?.supportsPrefill, providerRouting),
 		reasoningEffort: reasoningEffort ?? "default",
-		toolCalls: effectiveToolCallsForModel(model, openRouter, fallback?.toolCalls),
+		toolCalls: effectiveToolCallsForModel(model, openRouter, fallback?.toolCalls, providerRouting),
 	};
 }
 
@@ -21804,6 +21814,24 @@ function effectiveInferenceSettingsBaseUrl(
 	inherited?: InferenceModelUnlockContext | null,
 ): string {
 	return settings.baseUrl?.trim() || inherited?.baseUrl?.trim() || "https://openrouter.ai/api/v1";
+}
+
+function effectiveInferenceDraftProviderRouting(
+	draft: Pick<InferenceDraft, "providerRouting">,
+	inherited?: InferenceModelUnlockContext | null,
+): JsonObject | undefined {
+	try {
+		return providerRoutingInputFromDraft(draft.providerRouting) ?? inherited?.providerRouting;
+	} catch {
+		return inherited?.providerRouting;
+	}
+}
+
+function effectiveInferenceSettingsProviderRouting(
+	settings: BotInferenceSettings,
+	inherited?: InferenceModelUnlockContext | null,
+): JsonObject | undefined {
+	return settings.providerRouting ?? inherited?.providerRouting;
 }
 
 function inferenceDraftCredentialState(
