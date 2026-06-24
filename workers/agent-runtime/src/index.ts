@@ -890,9 +890,9 @@ type ProviderCompactionRequest = {
 	messages: ChatMessage[];
 	provider?: JsonObject;
 	stream: false;
-	tools: ProviderToolDefinition[];
+	tools?: ProviderToolDefinition[];
 	tool_choice?: typeof providerRequiredToolChoice | typeof providerNoToolChoice;
-	parallel_tool_calls: false;
+	parallel_tool_calls?: false;
 	response_format?: ProviderJsonSchemaResponseFormat;
 	max_completion_tokens: number;
 	reasoning?: ProviderReasoningConfig;
@@ -1112,6 +1112,7 @@ class ProviderLoopRequestError extends Error {
 }
 
 type ProviderStructuredOutputKind = 'avatar_description' | 'compaction' | 'translation';
+type ProviderStructuredOutputValidationIssue = 'non_reducing_compaction';
 
 class ProviderStructuredOutputValidationError extends Error {
 	readonly rawResponse?: string;
@@ -1119,6 +1120,7 @@ class ProviderStructuredOutputValidationError extends Error {
 	readonly repairMessage: string;
 	readonly requiredToolName: string;
 	readonly outputText?: string;
+	readonly validationIssue?: ProviderStructuredOutputValidationIssue;
 	responseId?: string;
 	responseModel?: string;
 	usage?: ProviderUsage;
@@ -1131,6 +1133,7 @@ class ProviderStructuredOutputValidationError extends Error {
 			requiredToolName?: string;
 			toolCalls?: BotInferenceSubmissionToolCall[];
 			outputText?: string;
+			validationIssue?: ProviderStructuredOutputValidationIssue;
 			responseId?: string;
 			responseModel?: string;
 			usage?: ProviderUsage;
@@ -1145,6 +1148,7 @@ class ProviderStructuredOutputValidationError extends Error {
 		this.rawResponse = options.rawResponse;
 		this.toolCalls = options.toolCalls ?? [];
 		this.outputText = options.outputText;
+		this.validationIssue = options.validationIssue;
 		this.responseId = options.responseId;
 		this.responseModel = options.responseModel;
 		this.usage = options.usage;
@@ -1259,6 +1263,18 @@ class PromptContextCompactionLimitError extends Error {
 		this.name = 'PromptContextCompactionLimitError';
 		this.promptTokens = promptTokens;
 		this.allowedPromptTokens = allowedPromptTokens;
+		this.attempts = attempts;
+	}
+}
+
+export class PersistentCompactionReductionFailureError extends Error {
+	readonly attempts: number;
+
+	constructor(attempts: number) {
+		super(
+			`Context compaction isolated repair failed to produce a shorter summary after ${attempts} attempts. This participant has been paused so it does not keep retrying the same oversized context.`,
+		);
+		this.name = 'PersistentCompactionReductionFailureError';
 		this.attempts = attempts;
 	}
 }
@@ -1650,6 +1666,13 @@ function providerCompactionOnlyTools(limits: Pick<ProviderCompactionSummaryLimit
 	return [metaCompactionToolDefinition(limits.maxLength, limits.minLength)];
 }
 
+function providerCompactionIsolatedRepairTools(
+	limits: Pick<ProviderCompactionSummaryLimits, 'minLength' | 'maxLength'>,
+	mode: ProviderCompactionMode,
+): ProviderToolDefinition[] {
+	return mode === 'structured_output' ? [] : providerCompactionOnlyTools(limits);
+}
+
 function providerCompactionToolsForMode(
 	limits: Pick<ProviderCompactionSummaryLimits, 'minLength' | 'maxLength'>,
 	providerTools: ProviderToolDefinition[] | undefined,
@@ -1669,23 +1692,29 @@ function providerCompactionToolsForMode(
 	);
 }
 
+function providerCompactionPersonaInstruction(bot: Pick<BotDocument, 'displayName' | 'handle' | 'includeLanguageInSystemPrompt' | 'language' | 'prompt' | 'shortBio'>): string {
+	const nativeLanguageLine = nativeLanguageSystemPromptLine(bot);
+	return [
+		`Stay in character. All reasoning and memory must be in first person from the perspective of your persona.`,
+		`Your Bickr handle is u/${bot.handle}`,
+		...(nativeLanguageLine ? [nativeLanguageLine] : []),
+		`Your display name is ${localizedTextString(bot.displayName)}`,
+		`Your short bio is:\n${localizedTextString(bot.shortBio)}`,
+		`Your persona is:\n${localizedTextString(bot.prompt)}`,
+	].join('\n\n');
+}
+
 export function providerCompactionSystemInstruction(
 	bot: RuntimeBotDocument,
 	tools: readonly ProviderToolDefinition[],
 	mode: ProviderCompactionMode,
 ): string {
 	const setting = bot.worldPrompt?.trim();
-	const nativeLanguageLine = nativeLanguageSystemPromptLine(bot);
 	return mode === 'tool_call'
 		? [
 				'You are an autonomous Bickr participant.',
 				`"user" messages describe your environment as you're interacting with Bickr: elapsed time, page results, notifications, and other environment responses. Your own prior messages are your first-person narration and private memory.`,
-				'Stay in character. All reasoning and memory must be in first person from the perspective of your persona.',
-				`Your Bickr handle is u/${bot.handle}`,
-				...(nativeLanguageLine ? [nativeLanguageLine] : []),
-				`Your display name is ${localizedTextString(bot.displayName)}`,
-				`Your short bio is:\n${localizedTextString(bot.shortBio)}`,
-				`Your persona is:\n${localizedTextString(bot.prompt)}`,
+				providerCompactionPersonaInstruction(bot),
 				...(setting ? [`Setting:\n${setting}`] : []),
 				`You MUST use ${providerCompactionToolName}. Do not use any other Bickr control.`,
 			].join('\n\n')
@@ -1715,6 +1744,22 @@ function providerCompactionShortenInstruction(
 	return `META: The previous context compaction attempt produced a summary that was too long. Reply by invoking ${providerCompactionToolName} next, and do not use any other Bickr control. Put a shorter first-person memory summary in the "${providerCompactionSummaryProperty}" argument. Verbatim copying from the input is absolutely prohibited: do not copy any sentence, phrase, paragraph, list item, or passage from the input. Restate the remembered facts in new wording and discard repeated boilerplate. ${lengthInstruction}`;
 }
 
+function providerCompactionIsolatedRepairSystemInstruction(
+	bot: Pick<BotDocument, 'displayName' | 'handle' | 'includeLanguageInSystemPrompt' | 'language' | 'prompt' | 'shortBio'>,
+	limits: Pick<ProviderCompactionSummaryLimits, 'minLength' | 'maxLength'>,
+	mode: ProviderCompactionMode,
+): string {
+	const lengthInstruction = providerCompactionLengthInstruction(limits);
+	const responseInstruction =
+		mode === 'structured_output'
+			? `Don't spend any time thinking about this; respond immediately with JSON summary. Reply with a JSON object matching the required structured output schema, and do not use any Bickr control. Put the replacement first-person memory summary in the "${providerCompactionSummaryProperty}" field.`
+			: `Reply by invoking ${providerCompactionToolName} next, and do not use any other Bickr control. Put the replacement first-person memory summary in the "${providerCompactionSummaryProperty}" argument.`;
+	return [
+		`META: Context compaction repair required. The previous compaction attempt did not reduce the context. ${responseInstruction} Summarize only the input summary being repaired, excluding the system instructions and persona prompt; your response will become the long-term memory of these events, replacing them in context henceforth. Verbatim copying from the input is absolutely prohibited: do not copy any sentence, phrase, paragraph, list item, or passage from the input. Restate the remembered facts in new wording and discard repeated boilerplate. ${lengthInstruction}`,
+		providerCompactionPersonaInstruction(bot),
+	].join('\n\n');
+}
+
 function providerCompactionLengthInstruction(limits: Pick<ProviderCompactionSummaryLimits, 'minLength' | 'maxLength'>): string {
 	return (
 		"You must produce a _summary_ of the events, and it MUST be shorter than the input, so don't just repeat it with minor modifications; you MUST shorten it, even if it's already a summary! " +
@@ -1736,6 +1781,26 @@ function providerCompactionShortenMessages(
 		{ role: 'assistant', content: previousSummary },
 		{ role: 'user', content: providerCompactionShortenInstruction(limits, mode) },
 	];
+}
+
+function providerCompactionIsolatedRepairMessages(
+	bot: Pick<BotDocument, 'displayName' | 'handle' | 'includeLanguageInSystemPrompt' | 'language' | 'prompt' | 'shortBio'>,
+	previousSummary: string,
+	limits: Pick<ProviderCompactionSummaryLimits, 'minLength' | 'maxLength'>,
+	mode: ProviderCompactionMode = 'structured_output',
+): ChatMessage[] {
+	return [
+		{
+			role: 'system',
+			content: providerCompactionIsolatedRepairSystemInstruction(bot, limits, mode),
+		},
+		{ role: 'assistant', content: previousSummary },
+		{ role: 'user', content: 'Produce the replacement memory summary now.' },
+	];
+}
+
+function isNonReducingCompactionValidationError(error: ProviderStructuredOutputValidationError): boolean {
+	return error.validationIssue === 'non_reducing_compaction';
 }
 
 export function providerCompactionMessages(
@@ -1949,14 +2014,20 @@ export function providerCompactionRequest(
 	const effectiveProviderTools = providerTools ?? providerCompactionToolsForMode(limits, undefined, effectiveMode);
 	const toolChoice = effectiveMode === 'structured_output' ? providerNoToolChoice : providerToolChoiceForMode(toolCalls);
 	const responseFormat = providerCompactionResponseFormat(limits.maxLength, effectiveMode);
+	const toolRequestFields =
+		effectiveProviderTools.length > 0
+			? {
+					tools: effectiveProviderTools,
+					...(toolChoice ? { tool_choice: toolChoice } : {}),
+					parallel_tool_calls: false as const,
+				}
+			: {};
 	return {
 		model: settings.model,
 		messages: sanitizeProviderMessagesForRequest(providerMessagesWithPrefillCompatibility(settings, messages)),
 		...(settings.providerRouting ? { provider: settings.providerRouting } : {}),
 		stream: false,
-		tools: effectiveProviderTools,
-		...(toolChoice ? { tool_choice: toolChoice } : {}),
-		parallel_tool_calls: false,
+		...toolRequestFields,
 		...(responseFormat ? { response_format: responseFormat } : {}),
 		max_completion_tokens: limits.maxCompletionTokens,
 		...(reasoning ? { reasoning } : {}),
@@ -4000,6 +4071,30 @@ export class BotRuntime {
 				}
 				return { runId, status: 'failed', error: error.message };
 			}
+			if (error instanceof PersistentCompactionReductionFailureError) {
+				const message = error.message;
+				if (!this.hasTerminalEvent(runId)) {
+					await this.recordTickFailure(runId, {
+						message,
+						paused: true,
+						reason: 'persistent_non_reducing_compaction',
+						attempts: error.attempts,
+					});
+				}
+				const failedAt = new Date().toISOString();
+				await this.pauseBotAfterPersistentCompactionFailure(bot, message, failedAt);
+				await this.setRuntimeIndex(bot, 'failed', null, message, failedAt);
+				try {
+					await recordBotRuntimeFailureHumanNotification(this.env.BICKR_D1, {
+						bot,
+						runId,
+						message,
+					});
+				} catch (notificationError) {
+					console.warn('bot runtime failure notification failed', notificationError);
+				}
+				return { runId, status: 'paused', error: message };
+			}
 			const message = error instanceof Error ? error.message : 'Unexpected Bickr visit error.';
 			if (!this.hasTerminalEvent(runId)) {
 				await this.recordTickFailure(runId, { message }, runtimeFailureLogs(error));
@@ -4928,6 +5023,7 @@ export class BotRuntime {
 		mode: ProviderCompactionMode = 'structured_output',
 		requestSeq = 0,
 		createdAt = new Date().toISOString(),
+		bot?: BotDocument,
 	): Promise<
 		Pick<ProviderResponse, 'usage' | 'responseId' | 'responseModel' | 'responseProviderName' | 'requestBody' | 'rawResponse'> & {
 			content: string;
@@ -4935,6 +5031,7 @@ export class BotRuntime {
 	> {
 		const endpoint = providerChatCompletionsUrl(settings.baseUrl);
 		const effectiveProviderTools = providerTools ?? providerCompactionToolsForMode(limits, undefined, mode);
+		let requestProviderTools = effectiveProviderTools;
 		let requestMessages = messages;
 		let requestSettings = settings;
 		let compactionReasoningMode = this.compactionReasoningModeForSettings(settings);
@@ -4943,13 +5040,14 @@ export class BotRuntime {
 				requestSettings,
 				requestMessages,
 				limits,
-				effectiveProviderTools,
+				requestProviderTools,
 				mode,
 				providerCompactionReasoningForSettings(requestSettings, compactionReasoningMode),
 			),
 		);
 		let lastValidationError: ProviderStructuredOutputValidationError | null = null;
 		let calibrationAttempt = 0;
+		let isolatedReductionRepairAttempts = 0;
 		for (let schemaAttempt = 0; schemaAttempt <= providerStructuredOutputRepairAttempts; schemaAttempt += 1) {
 			let previousRetryKey: string | null = null;
 			let retryDelayMs = 0;
@@ -4971,7 +5069,7 @@ export class BotRuntime {
 					requestSettings,
 					requestMessages,
 					limits,
-					effectiveProviderTools,
+					requestProviderTools,
 					mode,
 					providerCompactionReasoningForSettings(requestSettings, compactionReasoningMode),
 				);
@@ -5052,12 +5150,21 @@ export class BotRuntime {
 				}
 			}
 			if (lastValidationError && schemaAttempt < providerStructuredOutputRepairAttempts) {
-				requestMessages = lastValidationError.outputText
-					? providerCompactionShortenMessages(messages, lastValidationError.outputText, limits, mode)
-					: [...requestMessages, ...structuredOutputRepairMessages(lastValidationError)];
+				if (lastValidationError.outputText && bot && isNonReducingCompactionValidationError(lastValidationError)) {
+					isolatedReductionRepairAttempts += 1;
+					requestProviderTools = providerCompactionIsolatedRepairTools(limits, mode);
+					requestMessages = providerCompactionIsolatedRepairMessages(bot, lastValidationError.outputText, limits, mode);
+				} else {
+					requestMessages = lastValidationError.outputText
+						? providerCompactionShortenMessages(messages, lastValidationError.outputText, limits, mode)
+						: [...requestMessages, ...structuredOutputRepairMessages(lastValidationError)];
+				}
 				continue;
 			}
 			if (lastValidationError) {
+				if (isolatedReductionRepairAttempts > 0 && isNonReducingCompactionValidationError(lastValidationError)) {
+					throw new PersistentCompactionReductionFailureError(isolatedReductionRepairAttempts);
+				}
 				throw new ProviderCompactionRequestError(lastValidationError, lastBody, providerCompactionFailureResponseText(lastValidationError));
 			}
 		}
@@ -8827,6 +8934,7 @@ export class BotRuntime {
 							compactionMode,
 							summaryEvent.seq,
 							summaryEvent.createdAt,
+							bot,
 						)
 					: {
 							content: deterministicCompactionSummary('', recentActivity),
@@ -9533,6 +9641,24 @@ export class BotRuntime {
 			.bind(status, activeRunId, leaseExpiresAt, lastError ?? null, nextDueAt, now, bot.id)
 			.run();
 		return nextDueAt;
+	}
+
+	private async pauseBotAfterPersistentCompactionFailure(bot: BotDocument, message: string, now: string): Promise<void> {
+		try {
+			await updateBot(this.env.BICKR_KV, this.env.BICKR_D1, bot.id, bot.ownerUserId, { tickSettings: { enabled: false } }, now);
+		} catch (error) {
+			console.warn('failed to persist participant pause after compaction reduction failure', bot.id, error);
+			await this.env.BICKR_D1.prepare(
+				`UPDATE bot_runtime_index
+				 SET enabled = 0,
+				     next_due_at = NULL,
+				     last_error = ?,
+				     updated_at = ?
+				 WHERE bot_id = ?`,
+			)
+				.bind(message, now, bot.id)
+				.run();
+		}
 	}
 
 	private nextDue(bot: BotDocument, from = new Date().toISOString()): string {
@@ -12670,6 +12796,7 @@ function providerStructuredOutputPropertyFromRecord(
 				requiredToolName: spec.toolName,
 				toolCalls,
 				outputText: value,
+				validationIssue: 'non_reducing_compaction',
 			},
 		);
 	}
@@ -16022,7 +16149,7 @@ function providerCompactionNoReasoningServerToolCrash(text: string, request?: Pr
 }
 
 function requestIncludesOpenRouterServerTools(request?: Pick<ProviderCompactionRequest, 'tools'>): boolean {
-	return request?.tools.some((tool) => tool.type.startsWith('openrouter:')) === true;
+	return request?.tools?.some((tool) => tool.type.startsWith('openrouter:')) === true;
 }
 
 export function textTokenCalibrationFromProviderTokenCalibrationSamples(

@@ -107,6 +107,7 @@ import {
 	formatRuntimeInputForContext,
 	loopMessageContributesToProviderHistory,
 	oldestRowsForTokenFraction,
+	PersistentCompactionReductionFailureError,
 	promptContextBudgetCacheFingerprint,
 	promptContextBudgetFromCounts,
 	providerChatCompletionRequest,
@@ -2248,8 +2249,9 @@ describe("Bickr Pages Functions", () => {
 			});
 			expect(request.reasoning).toBeUndefined();
 			expect(request.tool_choice).toBe("none");
-			expect(request.tools.some((tool) => tool.type === "function" && tool.function.name === "read_thread")).toBe(true);
-			expect(request.tools.some((tool) => tool.type === "function" && tool.function.name === metaCompactionToolName)).toBe(false);
+			const requestTools = request.tools ?? [];
+			expect(requestTools.some((tool) => tool.type === "function" && tool.function.name === "read_thread")).toBe(true);
+			expect(requestTools.some((tool) => tool.type === "function" && tool.function.name === metaCompactionToolName)).toBe(false);
 			expect(request.response_format).toMatchObject({
 				type: "json_schema",
 				json_schema: {
@@ -2298,8 +2300,9 @@ describe("Bickr Pages Functions", () => {
 			const request = providerCompactionRequest({ model: "test-model" }, messages, limits, undefined, "tool_call");
 
 			expect(request.tool_choice).toBe("required");
-			expect(request.tools).toHaveLength(1);
-			const metaTool = request.tools.find((tool) => tool.type === "function" && tool.function.name === metaCompactionToolName);
+			const requestTools = request.tools ?? [];
+			expect(requestTools).toHaveLength(1);
+			const metaTool = requestTools.find((tool) => tool.type === "function" && tool.function.name === metaCompactionToolName);
 			expect(metaTool).toMatchObject({
 				type: "function",
 				function: {
@@ -2312,7 +2315,7 @@ describe("Bickr Pages Functions", () => {
 				minLength: 1,
 				maxLength: 4000,
 			});
-			expect(request.tools.some((tool) => tool.type === "function" && tool.function.name === "read_thread")).toBe(false);
+			expect(requestTools.some((tool) => tool.type === "function" && tool.function.name === "read_thread")).toBe(false);
 			expect("response_format" in request).toBe(false);
 			expect(messages.at(-2)?.content).toContain("only the recent events being compacted");
 			expect(messages.at(-2)?.content).toContain("excluding the system instructions and persona prompt");
@@ -2362,9 +2365,10 @@ describe("Bickr Pages Functions", () => {
 				"tool_call_cache_friendly",
 			);
 
-			expect(request.tools).toHaveLength(toolDefinitionsForProviderRound().length);
-			expect(request.tools.some((tool) => tool.type === "function" && tool.function.name === "read_thread")).toBe(true);
-			const metaTool = request.tools.find((tool) => tool.type === "function" && tool.function.name === metaCompactionToolName);
+			const requestTools = request.tools ?? [];
+			expect(requestTools).toHaveLength(toolDefinitionsForProviderRound().length);
+			expect(requestTools.some((tool) => tool.type === "function" && tool.function.name === "read_thread")).toBe(true);
+			const metaTool = requestTools.find((tool) => tool.type === "function" && tool.function.name === metaCompactionToolName);
 			expect(metaTool?.type === "function" ? metaTool.function.parameters.properties[providerCompactionSummaryProperty] : undefined).toMatchObject({
 				minLength: 1,
 				maxLength: 4000,
@@ -2400,7 +2404,7 @@ describe("Bickr Pages Functions", () => {
 			expect(limits.nextCompactionTokens).toBe(50_000 - providerContextReserveTokens);
 			expect(limits.compactionInputTokens).toBeGreaterThan(40_000);
 			expect(request.max_completion_tokens).toBe(limits.maxCompletionTokens);
-			expect(request.tools.some((item) => item.type === "function" && item.function.name === metaCompactionToolName)).toBe(false);
+			expect((request.tools ?? []).some((item) => item.type === "function" && item.function.name === metaCompactionToolName)).toBe(false);
 			expect(request.response_format?.json_schema.schema.properties[providerCompactionSummaryProperty]).toMatchObject({
 				minLength: 1,
 				maxLength: 20_000,
@@ -3094,6 +3098,12 @@ describe("Bickr Pages Functions", () => {
 
 		it("retries compaction summaries that do not reduce the estimated context", async () => {
 			const originalFetch = globalThis.fetch;
+			const bot = fakeBotDocument({
+				displayName: "Memory Keeper",
+				handle: "memory-keeper",
+				prompt: "Remember without repeating.",
+				shortBio: "Compacts memory.",
+			});
 			const nonCompactingSummary = "This summary is still longer than the retained context.";
 			const invalidResponse = {
 				id: "compaction-non-reducing",
@@ -3145,22 +3155,111 @@ describe("Bickr Pages Functions", () => {
 						compactedCharacterCount: 20,
 						tokensPerCharacter: 1,
 					},
+					undefined,
+					"structured_output",
+					0,
+					undefined,
+					bot,
 				);
 
 				expect(response.content).toBe("Short.");
 				expect(fetchMock).toHaveBeenCalledTimes(2);
-				const retryBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)) as { messages: BotInferenceSubmissionMessage[] };
+				const retryBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)) as {
+					messages: BotInferenceSubmissionMessage[];
+					tools?: ProviderToolDefinition[];
+				};
 				expect(retryBody.messages).toEqual([
-					{ role: "system", content: "System prompt." },
+					expect.objectContaining({
+						role: "system",
+						content: expect.stringContaining("META: Context compaction repair required."),
+					}),
 					{ role: "user", content: "Bickr Terminal is ready for my next step." },
 					{ role: "assistant", content: nonCompactingSummary },
-					expect.objectContaining({
-						role: "user",
-						content: expect.stringContaining("previous context compaction attempt produced a summary that was too long"),
-					}),
+					{ role: "user", content: "Produce the replacement memory summary now." },
 				]);
-				expect(retryBody.messages.at(-1)?.content).toContain("Verbatim copying from the input is absolutely prohibited");
+				expect(retryBody.tools).toBeUndefined();
+				const retrySystem = retryBody.messages[0]?.content ?? "";
+				expect(retrySystem.startsWith("META: Context compaction repair required.")).toBe(true);
+				expect(retrySystem).toContain("The previous compaction attempt did not reduce the context.");
+				expect(retrySystem).toContain("Verbatim copying from the input is absolutely prohibited");
+				expect(retrySystem).toContain("Your Bickr handle is u/memory-keeper");
+				expect(retrySystem).toContain("Your persona is:\nRemember without repeating.");
+				expect(retrySystem).not.toContain("Make all decisions autonomously");
+				expect(retrySystem).not.toContain("You MUST use one of the following tools");
 				expect(JSON.stringify(retryBody.messages)).not.toContain("Old retained activity");
+			} finally {
+				vi.stubGlobal("fetch", originalFetch);
+			}
+		});
+
+		it("raises a persistent compaction failure after isolated repair keeps failing to reduce context", async () => {
+			const originalFetch = globalThis.fetch;
+			const bot = fakeBotDocument({
+				displayName: "Memory Keeper",
+				handle: "memory-keeper",
+				prompt: "Remember without repeating.",
+				shortBio: "Compacts memory.",
+			});
+			const nonCompactingSummary = "This summary is still longer than the retained context.";
+			const invalidResponse = {
+				id: "compaction-non-reducing",
+				model: "test-model-concrete",
+				choices: [{
+					message: {
+						content: JSON.stringify({ [providerCompactionSummaryProperty]: nonCompactingSummary }),
+					},
+				}],
+				usage: { prompt_tokens: 20, completion_tokens: 12, total_tokens: 32 },
+			};
+			const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(Response.json(invalidResponse)));
+			vi.stubGlobal("fetch", fetchMock);
+			try {
+				const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+					appendEvent: vi.fn(),
+					recordProviderTokenCalibrationSampleFromError: vi.fn(),
+					throwIfStopped: vi.fn(),
+				});
+				const callProviderForCompaction = (BotRuntime.prototype as unknown as {
+					callProviderForCompaction: (...args: unknown[]) => Promise<{ content: string; requestBody?: string }>;
+				}).callProviderForCompaction.bind(runtime);
+
+				const rejection = await callProviderForCompaction(
+					{ baseUrl: "https://provider.example/api/v1", model: "test-model", temperature: 0.2 },
+					[
+						{ role: "system", content: "System prompt." },
+						{ role: "assistant", content: "Old retained activity that should not be repeated in the retry." },
+						{ role: "user", content: "META: Context compaction required." },
+					],
+					"run-compaction-non-reducing-persistent",
+					new AbortController().signal,
+					{
+						minLength: 1,
+						maxLength: 100,
+						maxCompletionTokens: 1000,
+						compactedCharacterCount: 20,
+						tokensPerCharacter: 1,
+					},
+					undefined,
+					"structured_output",
+					0,
+					undefined,
+					bot,
+				).catch((error: unknown) => error);
+				expect(rejection).toBeInstanceOf(PersistentCompactionReductionFailureError);
+				expect(rejection).toMatchObject({ attempts: 4 });
+
+				expect(fetchMock).toHaveBeenCalledTimes(5);
+				const isolatedBodies = fetchMock.mock.calls.slice(1).map((call) => JSON.parse(String(call[1]?.body)) as {
+					messages: BotInferenceSubmissionMessage[];
+					tools?: ProviderToolDefinition[];
+				});
+				expect(isolatedBodies).toHaveLength(4);
+				for (const body of isolatedBodies) {
+					expect(body.tools).toBeUndefined();
+					expect(body.messages[0]?.content).toContain("META: Context compaction repair required.");
+					expect(body.messages[0]?.content).toContain("Verbatim copying from the input is absolutely prohibited");
+					expect(JSON.stringify(body.messages)).not.toContain("Old retained activity");
+				}
 			} finally {
 				vi.stubGlobal("fetch", originalFetch);
 			}
