@@ -1269,13 +1269,17 @@ class PromptContextCompactionLimitError extends Error {
 
 export class PersistentCompactionReductionFailureError extends Error {
 	readonly attempts: number;
+	readonly requestBody: string;
+	readonly responseBody?: string;
 
-	constructor(attempts: number) {
+	constructor(attempts: number, requestBody: string, responseBody?: string) {
 		super(
 			`Context compaction isolated repair failed to produce a shorter summary after ${attempts} attempts. This participant has been paused so it does not keep retrying the same oversized context.`,
 		);
 		this.name = 'PersistentCompactionReductionFailureError';
 		this.attempts = attempts;
+		this.requestBody = requestBody;
+		this.responseBody = responseBody;
 	}
 }
 
@@ -4079,7 +4083,7 @@ export class BotRuntime {
 						paused: true,
 						reason: 'persistent_non_reducing_compaction',
 						attempts: error.attempts,
-					});
+					}, runtimeFailureLogs(error));
 				}
 				const failedAt = new Date().toISOString();
 				await this.pauseBotAfterPersistentCompactionFailure(bot, message, failedAt);
@@ -5163,7 +5167,11 @@ export class BotRuntime {
 			}
 			if (lastValidationError) {
 				if (isolatedReductionRepairAttempts > 0 && isNonReducingCompactionValidationError(lastValidationError)) {
-					throw new PersistentCompactionReductionFailureError(isolatedReductionRepairAttempts);
+					throw new PersistentCompactionReductionFailureError(
+						isolatedReductionRepairAttempts,
+						lastBody,
+						lastValidationError.rawResponse,
+					);
 				}
 				throw new ProviderCompactionRequestError(lastValidationError, lastBody, providerCompactionFailureResponseText(lastValidationError));
 			}
@@ -16784,11 +16792,17 @@ function providerCompactionFailureResponseText(error: unknown): string | undefin
 	return providerFailureResponseText(error);
 }
 
-function runtimeFailureLogs(error: unknown): RuntimeFailureLog[] {
+export function runtimeFailureLogs(error: unknown): RuntimeFailureLog[] {
 	if (error instanceof ProviderLoopRequestError) {
 		return [
 			{ kind: 'provider_request', text: error.requestBody },
 			...(error.responseBody ? [{ kind: 'provider_response' as const, text: error.responseBody }] : []),
+		];
+	}
+	if (error instanceof PersistentCompactionReductionFailureError) {
+		return [
+			{ kind: 'compaction_request', text: error.requestBody },
+			...(error.responseBody ? [{ kind: 'compaction_response' as const, text: error.responseBody }] : []),
 		];
 	}
 	if (error instanceof ProviderCompactionRequestError) {

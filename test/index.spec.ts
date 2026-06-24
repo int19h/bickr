@@ -119,6 +119,7 @@ import {
 	providerResponseMessageForHistory,
 	providerTranslationRequest,
 	repairInvalidUnicodeText,
+	runtimeFailureLogs,
 	sanitizeProviderToolCalls,
 	providerToolResultPayload,
 	providerTokenProbeRequest,
@@ -3254,6 +3255,17 @@ describe("Bickr Pages Functions", () => {
 					tools?: ProviderToolDefinition[];
 				});
 				expect(isolatedBodies).toHaveLength(4);
+				const finalRequest = JSON.parse(String((rejection as PersistentCompactionReductionFailureError).requestBody)) as {
+					messages: BotInferenceSubmissionMessage[];
+					tools?: ProviderToolDefinition[];
+				};
+				const finalResponse = JSON.parse(String((rejection as PersistentCompactionReductionFailureError).responseBody)) as typeof invalidResponse;
+				expect(finalRequest).toEqual(isolatedBodies.at(-1));
+				expect(finalResponse).toEqual(invalidResponse);
+				expect(runtimeFailureLogs(rejection)).toEqual([
+					{ kind: "compaction_request", text: (rejection as PersistentCompactionReductionFailureError).requestBody },
+					{ kind: "compaction_response", text: (rejection as PersistentCompactionReductionFailureError).responseBody },
+				]);
 				for (const body of isolatedBodies) {
 					expect(body.tools).toBeUndefined();
 					expect(body.messages[0]?.content).toContain("META: Context compaction repair required.");
