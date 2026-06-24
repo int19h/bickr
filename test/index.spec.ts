@@ -3159,6 +3159,7 @@ describe("Bickr Pages Functions", () => {
 						content: expect.stringContaining("previous context compaction attempt produced a summary that was too long"),
 					}),
 				]);
+				expect(retryBody.messages.at(-1)?.content).toContain("Verbatim copying from the input is absolutely prohibited");
 				expect(JSON.stringify(retryBody.messages)).not.toContain("Old retained activity");
 			} finally {
 				vi.stubGlobal("fetch", originalFetch);
@@ -3484,6 +3485,7 @@ describe("Bickr Pages Functions", () => {
 						content: expect.stringContaining("previous context compaction attempt produced a summary that was too long"),
 					}),
 				]);
+				expect(retryBody.messages.at(-1)?.content).toContain("Verbatim copying from the input is absolutely prohibited");
 				expect(JSON.stringify(retryBody.messages)).not.toContain("Old retained activity");
 			} finally {
 				vi.stubGlobal("fetch", originalFetch);
