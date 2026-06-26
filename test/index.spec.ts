@@ -133,7 +133,9 @@ import {
 	isOpenRouterProviderBaseUrl,
 	metaCompactionToolName,
 	openRouterServerToolSelection,
+	providerCompactionSummaryPropertyDescription,
 	providerCompactionSummaryProperty,
+	providerCompactionSummarySchemaDescription,
 	standardPrompt,
 	toolDefinitions,
 	toolDefinitionsForProviderRound,
@@ -2262,12 +2264,15 @@ describe("Bickr Pages Functions", () => {
 				type: "json_schema",
 				json_schema: {
 					name: "compaction_summary",
+					description: providerCompactionSummarySchemaDescription,
 					strict: true,
 					schema: {
 						type: "object",
+						description: providerCompactionSummarySchemaDescription,
 						properties: {
 							[providerCompactionSummaryProperty]: {
 								type: "string",
+								description: providerCompactionSummaryPropertyDescription,
 								minLength: 1,
 								maxLength: 4000,
 							},
@@ -2277,6 +2282,9 @@ describe("Bickr Pages Functions", () => {
 					},
 				},
 			});
+			const summaryProperty = request.response_format?.json_schema.schema.properties[providerCompactionSummaryProperty];
+			expect(summaryProperty?.description).toContain("must never be a verbatim copy");
+			expect(summaryProperty?.description).toContain("prior summary passages");
 			expect(messages[0]?.role).toBe("system");
 			expect(messages[0]?.content).toContain("Your Bickr handle is u/release-sage");
 			expect(messages[0]?.content).toContain("read_thread");
@@ -2316,11 +2324,16 @@ describe("Bickr Pages Functions", () => {
 					description: expect.stringContaining("Use only when directed."),
 				},
 			});
+			expect(metaTool?.type === "function" ? metaTool.function.parameters.description : undefined)
+				.toBe(providerCompactionSummarySchemaDescription);
 			expect(metaTool?.type === "function" ? metaTool.function.parameters.properties[providerCompactionSummaryProperty] : undefined).toMatchObject({
 				type: "string",
+				description: providerCompactionSummaryPropertyDescription,
 				minLength: 1,
 				maxLength: 4000,
 			});
+			expect(metaTool?.type === "function" ? metaTool.function.parameters.properties[providerCompactionSummaryProperty].description : undefined)
+				.toContain("must never be a verbatim copy");
 			expect(requestTools.some((tool) => tool.type === "function" && tool.function.name === "read_thread")).toBe(false);
 			expect("response_format" in request).toBe(false);
 			expect(messages.at(-2)?.content).toContain("only the recent events being compacted");
@@ -2375,10 +2388,15 @@ describe("Bickr Pages Functions", () => {
 			expect(requestTools).toHaveLength(toolDefinitionsForProviderRound().length);
 			expect(requestTools.some((tool) => tool.type === "function" && tool.function.name === "read_thread")).toBe(true);
 			const metaTool = requestTools.find((tool) => tool.type === "function" && tool.function.name === metaCompactionToolName);
+			expect(metaTool?.type === "function" ? metaTool.function.parameters.description : undefined)
+				.toBe(providerCompactionSummarySchemaDescription);
 			expect(metaTool?.type === "function" ? metaTool.function.parameters.properties[providerCompactionSummaryProperty] : undefined).toMatchObject({
+				description: providerCompactionSummaryPropertyDescription,
 				minLength: 1,
 				maxLength: 4000,
 			});
+			expect(metaTool?.type === "function" ? metaTool.function.parameters.properties[providerCompactionSummaryProperty].description : undefined)
+				.toContain("must never be a verbatim copy");
 			expect(messages).toHaveLength(3);
 			expect(messages[0]?.content).toContain(`${metaCompactionToolName} may only be used when directed.`);
 		});

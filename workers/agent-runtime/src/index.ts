@@ -193,6 +193,8 @@ import {
 	mutableToolNames,
 	nativeLanguageSystemPromptLine,
 	openRouterServerToolSelection,
+	providerCompactionSummaryPropertyDescription,
+	providerCompactionSummarySchemaDescription,
 	providerCompactionSummaryProperty,
 	standardPrompt,
 	toolDefinitionsForProviderRound,
@@ -909,10 +911,12 @@ type ProviderJsonSchemaResponseFormat = {
 	type: 'json_schema';
 	json_schema: {
 		name: string;
+		description?: string;
 		strict: true;
 		schema: {
 			type: 'object';
-			properties: Record<string, { type: 'string'; minLength?: number; maxLength?: number }>;
+			description?: string;
+			properties: Record<string, { type: 'string'; description?: string; minLength?: number; maxLength?: number }>;
 			required: string[];
 			additionalProperties: false;
 		};
@@ -1953,13 +1957,15 @@ type ProviderSingleStringResponseSpec = {
 	label: string;
 	maxCharacters: number;
 	minCharacters?: number;
+	schemaDescription?: string;
+	propertyDescription?: string;
 	reduction?: ProviderCompactionReductionCheck;
 	toolName?: string;
 };
 
 function providerSingleStringResponseFormat(
 	name: string,
-	spec: Pick<ProviderSingleStringResponseSpec, 'maxCharacters' | 'minCharacters' | 'property'>,
+	spec: Pick<ProviderSingleStringResponseSpec, 'maxCharacters' | 'minCharacters' | 'property' | 'propertyDescription' | 'schemaDescription'>,
 	mode: ProviderCompactionMode = 'structured_output',
 ): ProviderJsonSchemaResponseFormat | undefined {
 	if (mode !== 'structured_output') {
@@ -1969,12 +1975,15 @@ function providerSingleStringResponseFormat(
 		type: 'json_schema',
 		json_schema: {
 			name,
+			...(spec.schemaDescription ? { description: spec.schemaDescription } : {}),
 			strict: true,
 			schema: {
 				type: 'object',
+				...(spec.schemaDescription ? { description: spec.schemaDescription } : {}),
 				properties: {
 					[spec.property]: {
 						type: 'string',
+						...(spec.propertyDescription ? { description: spec.propertyDescription } : {}),
 						minLength: Math.max(1, Math.floor(spec.minCharacters ?? 1)),
 						maxLength: Math.max(1, Math.floor(spec.maxCharacters)),
 					},
@@ -1995,6 +2004,8 @@ function providerCompactionSummarySpec(
 		property: providerCompactionSummaryProperty,
 		label: providerCompactionSummaryProperty,
 		maxCharacters: limits.maxLength,
+		schemaDescription: providerCompactionSummarySchemaDescription,
+		propertyDescription: providerCompactionSummaryPropertyDescription,
 		reduction: providerCompactionReductionCheck(limits),
 		toolName: providerCompactionToolName,
 	};

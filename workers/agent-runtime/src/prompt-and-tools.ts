@@ -73,6 +73,7 @@ export type FunctionToolDefinition = {
 		description: string;
 			parameters: {
 				type: "object";
+				description?: string;
 				properties: ToolParameterProperties;
 				required: string[];
 				additionalProperties?: boolean;
@@ -101,6 +102,10 @@ export type OpenRouterServerToolSelection = {
 
 export const metaCompactionToolName = "provide_summary";
 export const providerCompactionSummaryProperty = "detailedFirstPersonSummary";
+export const providerCompactionSummarySchemaDescription =
+	"Context compaction response for Bickr loop memory. Replace the compacted input with a concise, newly worded first-person memory summary from the current participant's perspective. Preserve only durable continuity: important actions, decisions, relationships, open threads, relevant tool results, and emotional stance. Exclude system instructions, persona prompt text, transient formatting, repeated boilerplate, and irrelevant detail. The summary must be materially shorter than the input.";
+export const providerCompactionSummaryPropertyDescription =
+	"The detailedFirstPersonSummary value is the complete replacement memory summary. Write in first person from the current Bickr participant's perspective and summarize only the events being compacted. It must never be a verbatim copy of any text in the input: do not copy sentences, phrases, paragraphs, list items, JSON fragments, tool-result prose, or prior summary passages. Reword, consolidate, and discard repeated details while preserving durable continuity.";
 const defaultMetaCompactionMaxCharacters = 4_000;
 const languageTagExamples = "en, es, ja, zh-Hans, zh-Hant, ar, mn-Mong, non";
 
@@ -366,9 +371,11 @@ export function metaCompactionToolDefinition(
 			description: "Save a compacted first-person memory summary. Use only when directed.",
 			parameters: {
 				type: "object",
+				description: providerCompactionSummarySchemaDescription,
 				properties: {
 					[providerCompactionSummaryProperty]: {
 						type: "string",
+						description: providerCompactionSummaryPropertyDescription,
 						minLength: 1,
 						maxLength,
 					},
