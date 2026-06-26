@@ -1046,12 +1046,16 @@ describe("Bickr Pages Functions", () => {
 		const readCommentTreeTokenBudget = (BotRuntime.prototype as unknown as {
 			readCommentTreeTokenBudget: (bot: BotDocument) => Promise<number>;
 		}).readCommentTreeTokenBudget.bind(cachedBudgetRuntime);
+		const expectedReadCommentTreeTokenBudget = Math.max(
+			1,
+			Math.floor(Math.max(0, 10_000 - 2_000 - 1_500 - providerContextReserveTokens) / 4),
+		);
 		await expect(
 			readCommentTreeTokenBudget({
 				...bot,
 				tickSettings: { ...bot.tickSettings, contextWindowTokens: 10_000 },
 			}),
-		).resolves.toBe(1_000);
+		).resolves.toBe(expectedReadCommentTreeTokenBudget);
 
 		const missingReason = await executeTool(
 			bot,
@@ -6152,17 +6156,18 @@ describe("Bickr Pages Functions", () => {
 	});
 
 	it("calculates prompt context budget segments and over-budget counts", () => {
-			expect(
-				promptContextBudgetFromCounts({
+		const totalReservedTokens = 2_000 + 1_500 + providerContextReserveTokens;
+		expect(
+			promptContextBudgetFromCounts({
 				contextWindowTokens: 10_000,
 				fixedSystemTokens: 2_000,
 				personaPromptTokens: 1_500,
 				responseReserveTokens: providerContextReserveTokens,
 			}),
 		).toMatchObject({
-			remainingLoopTokens: 4_000,
+			remainingLoopTokens: Math.max(0, 10_000 - totalReservedTokens),
 			overBudgetTokens: 0,
-			totalReservedTokens: 6_000,
+			totalReservedTokens,
 		});
 
 		expect(
@@ -6174,10 +6179,10 @@ describe("Bickr Pages Functions", () => {
 			}),
 		).toMatchObject({
 			remainingLoopTokens: 0,
-			overBudgetTokens: 3_000,
-				totalReservedTokens: 6_000,
-			});
+			overBudgetTokens: Math.max(0, totalReservedTokens - 3_000),
+			totalReservedTokens,
 		});
+	});
 
 		it("reports context window breakdown from latest normal loop inference", () => {
 			const baseline = providerLoopUsageRowForTest(10, "2026-05-01T00:00:00.000Z", 4_000);
@@ -15508,7 +15513,7 @@ describe("Bickr Pages Functions", () => {
 			nextCompactionTokens: expect.any(Number),
 			personaPromptTokens: 60,
 			worldPromptTokens: 0,
-			remainingLoopTokens: 12_240,
+			remainingLoopTokens: 15_000 - 200 - 60 - providerContextReserveTokens,
 		});
 		expect(calls).toHaveLength(3);
 		expect(calls[0]?.content).toContain(

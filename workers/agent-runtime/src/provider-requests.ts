@@ -1,1 +1,1 @@
-export const providerContextReserveTokens = 2_500;
+export const providerContextReserveTokens = 5_000;

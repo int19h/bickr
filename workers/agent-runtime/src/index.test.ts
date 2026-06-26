@@ -97,14 +97,19 @@ describe("rewriteProviderResponseToolCallMessage", () => {
 });
 
 describe("tool argument validation", () => {
-	it("keeps malformed JSON argument strings so the model can receive a tool error", () => {
+	it("drops malformed JSON argument strings before history or execution", () => {
 		const malformed = rawToolCall("call_bad_json", "vote", '{"reason":');
 
 		const result = sanitizeProviderToolCalls([malformed]);
 
-		expect(result.dropped).toEqual([]);
-		expect(result.toolCalls).toHaveLength(1);
-		expect(result.toolCalls[0]?.function.arguments).toBe('{"reason":');
+		expect(result.dropped).toEqual([
+			expect.objectContaining({
+				id: "call_bad_json",
+				name: "vote",
+				reason: "invalid_arguments_json",
+			}),
+		]);
+		expect(result.toolCalls).toHaveLength(0);
 	});
 
 	it("reports malformed tool-call JSON with the parser message", () => {
