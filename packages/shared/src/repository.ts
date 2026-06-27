@@ -256,7 +256,7 @@ const defaultTickSettings: BotEffectiveTickSettings = {
 	enabled: false,
 	intervalSeconds: 86_400,
 	allowEarlyLogOff: true,
-	contextWindowTokens: 20_000,
+	contextWindowTokens: 30_000,
 	compactionThreshold: 0.75,
 	compactionSummaryPercent: 10,
 	compactionMaxCharacters: 4_000,

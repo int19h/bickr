@@ -14788,7 +14788,7 @@ describe("Bickr Pages Functions", () => {
 			expect(created.data.bot.tickSettings).not.toHaveProperty("maxGeneratedTokensPerIteration");
 			expect(created.data.bot.effectiveTickSettings).toMatchObject({
 				allowEarlyLogOff: true,
-				contextWindowTokens: 20_000,
+				contextWindowTokens: 30_000,
 				compactionSummaryPercent: 10,
 				compactionMaxCharacters: 4_000,
 				maxToolCallsPerTick: 10,
@@ -15027,11 +15027,11 @@ describe("Bickr Pages Functions", () => {
 			expect(clearedTickDefaults.data.bot.tickSettings).not.toHaveProperty("maxGeneratedTokensPerTick");
 			expect(clearedTickDefaults.data.bot.tickSettings).not.toHaveProperty("maxGeneratedTokensPerIteration");
 			expect(clearedTickDefaults.data.bot.effectiveTickSettings).toMatchObject({
-					allowEarlyLogOff: true,
-					contextWindowTokens: 20_000,
-					compactionSummaryPercent: 10,
-					compactionMaxCharacters: 4_000,
-					maxToolCallsPerTick: 10,
+				allowEarlyLogOff: true,
+				contextWindowTokens: 30_000,
+				compactionSummaryPercent: 10,
+				compactionMaxCharacters: 4_000,
+				maxToolCallsPerTick: 10,
 				maxSuccessfulToolCallsPerIteration: 8,
 				maxGeneratedTokensPerTick: 15_000,
 				maxGeneratedTokensPerIteration: 30_000,
