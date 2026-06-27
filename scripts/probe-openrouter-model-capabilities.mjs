@@ -11,13 +11,15 @@ const defaultDevVarsPath = path.join(repoRoot, "workers/agent-runtime/.dev.vars"
 const openRouterModelsUrl = "https://openrouter.ai/api/v1/models";
 const openRouterChatCompletionsUrl = "https://openrouter.ai/api/v1/chat/completions";
 const probeMaxCompletionTokens = 256;
-const capabilityNames = ["prefill", "structuredOutputs", "requiredToolCalls", "disabledReasoning", "cacheControl"];
+const contextLengthCapabilityName = "contextLength";
+const capabilityNames = ["prefill", "structuredOutputs", "requiredToolCalls", "disabledReasoning", "cacheControl", contextLengthCapabilityName];
 const capabilityCliNames = new Map([
 	["prefill", "prefill"],
 	["structuredOutputs", "structured-outputs"],
 	["requiredToolCalls", "required-tool-calls"],
 	["disabledReasoning", "disabled-reasoning"],
 	["cacheControl", "cache-control"],
+	[contextLengthCapabilityName, "context-length"],
 ]);
 const capabilityNameAliases = new Map([
 	["prefill", "prefill"],
@@ -33,6 +35,9 @@ const capabilityNameAliases = new Map([
 	["cache-control", "cacheControl"],
 	["cache_control", "cacheControl"],
 	["cacheControl", "cacheControl"],
+	["context-length", contextLengthCapabilityName],
+	["context_length", contextLengthCapabilityName],
+	[contextLengthCapabilityName, contextLengthCapabilityName],
 ]);
 const pinnedCapabilityEntries = new Map([
 	[
@@ -61,6 +66,7 @@ async function main() {
 	const existing = await readExistingEntries(outputPath);
 	applyPinnedCapabilityEntries(existing);
 	const models = await fetchOpenRouterTextModels(key);
+	const modelsById = new Map(models.map((model) => [model.id, model]));
 	const currentIds = new Set(models.map((model) => model.id));
 	const requestedIds = modelFilter.length > 0 ? new Set(modelFilter) : currentIds;
 	const idsToProbe = models
@@ -87,14 +93,34 @@ async function main() {
 	}
 
 	await runWithConcurrency(idsToProbe, Math.max(1, concurrency), async (id) => {
-		const capabilities = await probeModel(id, key, limiter, timeoutMs, existing.get(id), capabilityFilter, mode, onlyAffected);
-		next.set(id, capabilities);
+		const model = modelsById.get(id);
+		const capabilities = await probeModel(
+			model,
+			key,
+			limiter,
+			timeoutMs,
+			existing.get(id),
+			capabilityFilter,
+			mode,
+			onlyAffected,
+		);
+		next.set(id, { ...capabilities, contextLength: modelContextLengthForModel(model) });
 		completed += 1;
 		console.log(`${completed}/${idsToProbe.length} ${id}: ${capabilitySummary(capabilities)}`);
 	});
 
 	if (!dryRun) {
 		applyPinnedCapabilityEntries(next);
+		for (const [id, capabilities] of next) {
+			if (!currentIds.has(id) || pinnedCapabilityEntries.has(id)) {
+				continue;
+			}
+			const contextLength = modelContextLengthForModel(modelsById.get(id));
+			if (contextLength === undefined || capabilities?.contextLength === contextLength) {
+				continue;
+			}
+			next.set(id, { ...capabilities, contextLength });
+		}
 		const written = [...next.entries()].filter(([id]) => mode !== "full" || currentIds.has(id));
 		await writeGeneratedTable(outputPath, written);
 		console.log(`Wrote ${written.length} capability entr${written.length === 1 ? "y" : "ies"} to ${path.relative(repoRoot, outputPath)}.`);
@@ -201,6 +227,7 @@ function capabilitySummary(capabilities) {
 		`required_tools=${capabilities.requiredToolCalls}`,
 		`reasoning_none=${capabilities.disabledReasoning}`,
 		`cache_control=${capabilities.cacheControl}`,
+		`context_length=${capabilities.contextLength}`,
 	].join(" ");
 }
 
@@ -266,32 +293,36 @@ async function fetchOpenRouterTextModels(apiKey) {
 			const id = stringValue(record.id);
 			const architecture = recordValue(record.architecture);
 			const outputModalities = stringArray(architecture.output_modalities);
-			return id && outputModalities.includes("text") ? { id } : null;
+			return id && outputModalities.includes("text") ? { id, contextLength: modelContextLengthForModel(record) } : null;
 		})
 		.filter(Boolean)
 		.sort((left, right) => left.id.localeCompare(right.id));
 }
 
 async function probeModel(model, apiKey, limiter, timeoutMs, previous, capabilityFilter, mode, onlyAffected) {
+	const modelId = model?.id;
+	if (!modelId) {
+		throw new Error("Missing model id.");
+	}
 	return {
 		prefill: shouldProbeCapability("prefill", previous, capabilityFilter, mode, onlyAffected)
-			? await probeCapability(apiKey, limiter, timeoutMs, providerPrefillRequest(model), prefillSupported)
+			? await probeCapability(apiKey, limiter, timeoutMs, providerPrefillRequest(modelId), prefillSupported)
 			: Boolean(previous?.prefill),
 		structuredOutputs:
 			shouldProbeCapability("structuredOutputs", previous, capabilityFilter, mode, onlyAffected)
-				? await probeCapability(apiKey, limiter, timeoutMs, providerStructuredOutputRequest(model), structuredOutputSupported)
+				? await probeCapability(apiKey, limiter, timeoutMs, providerStructuredOutputRequest(modelId), structuredOutputSupported)
 				: Boolean(previous?.structuredOutputs),
 		requiredToolCalls:
 			shouldProbeCapability("requiredToolCalls", previous, capabilityFilter, mode, onlyAffected)
-				? await probeCapability(apiKey, limiter, timeoutMs, providerRequiredToolCallRequest(model), requiredToolCallSupported)
+				? await probeCapability(apiKey, limiter, timeoutMs, providerRequiredToolCallRequest(modelId), requiredToolCallSupported)
 				: Boolean(previous?.requiredToolCalls),
 		disabledReasoning:
 			shouldProbeCapability("disabledReasoning", previous, capabilityFilter, mode, onlyAffected)
-				? await probeCapability(apiKey, limiter, timeoutMs, providerDisabledReasoningRequest(model), responseOk)
+				? await probeCapability(apiKey, limiter, timeoutMs, providerDisabledReasoningRequest(modelId), responseOk)
 				: Boolean(previous?.disabledReasoning),
 		cacheControl:
 			shouldProbeCapability("cacheControl", previous, capabilityFilter, mode, onlyAffected)
-				? await probeCacheControlCapability(model, apiKey, limiter, timeoutMs)
+				? await probeCacheControlCapability(modelId, apiKey, limiter, timeoutMs)
 				: Boolean(previous?.cacheControl),
 	};
 }
@@ -511,6 +542,7 @@ async function writeGeneratedTable(filePath, entries) {
 		"\trequiredToolCalls: boolean;",
 		"\tdisabledReasoning: boolean;",
 		"\tcacheControl: boolean;",
+		"\tcontextLength?: number;",
 		"};",
 		"",
 		"export type GeneratedOpenRouterModelCapabilityEntry = readonly [string, GeneratedOpenRouterModelCapabilities];",
@@ -554,6 +586,16 @@ function stringValue(value) {
 
 function stringArray(value) {
 	return Array.isArray(value) ? value.filter((item) => typeof item === "string") : [];
+}
+
+function modelContextLengthForModel(model) {
+	const contextLength = numberValue(model?.context_length ?? model?.contextLength);
+	return contextLength === undefined ? undefined : Math.max(1, Math.floor(contextLength));
+}
+
+function numberValue(value) {
+	const parsed = typeof value === "number" && Number.isFinite(value) ? value : undefined;
+	return parsed;
 }
 
 await main();

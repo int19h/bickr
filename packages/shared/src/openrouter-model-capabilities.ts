@@ -13,6 +13,7 @@ export type OpenRouterModelCapabilities = {
 	requiredToolCalls: boolean;
 	disabledReasoning: boolean;
 	cacheControl: boolean;
+	contextLength?: number;
 };
 
 export type OpenRouterModelPolicy = OpenRouterModelCapabilities & {
@@ -178,6 +179,27 @@ export function modelSupportsStructuredCompaction(model: string | undefined, ope
 
 export function modelSupportsPrefill(model: string | undefined, openRouter: boolean, providerRouting?: JsonObject): boolean {
 	return providerModelPolicy(model, openRouter, providerRouting).prefill;
+}
+
+export function modelContextWindowTokensForModel(model: string | undefined, openRouter: boolean): number | undefined {
+	const capabilities = openRouterModelCapabilities(model);
+	if (!openRouter || capabilities.contextLength === undefined) {
+		return undefined;
+	}
+	return Math.max(1, Math.floor(capabilities.contextLength));
+}
+
+export function effectiveContextWindowForModel(
+	contextWindowTokens: number,
+	model: string | undefined,
+	openRouter: boolean,
+): number {
+	const modelContextWindowTokens = modelContextWindowTokensForModel(model, openRouter);
+	const normalizedContextWindowTokens = Math.max(1, Math.floor(contextWindowTokens));
+	if (modelContextWindowTokens === undefined) {
+		return normalizedContextWindowTokens;
+	}
+	return Math.max(1, Math.min(modelContextWindowTokens, normalizedContextWindowTokens));
 }
 
 export function modelSupportsPromptCacheControl(model: string | undefined, openRouter: boolean): boolean {
