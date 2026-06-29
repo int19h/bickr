@@ -578,6 +578,45 @@ a {
 	text-underline-offset: 2px;
 }
 
+.notification-swipe-frame {
+	border-radius: var(--radius);
+	min-width: 0;
+	overflow: hidden;
+	position: relative;
+	touch-action: pan-y;
+}
+
+.notification-swipe-dismiss {
+	align-items: center;
+	background: color-mix(in oklch, var(--danger) 86%, black);
+	color: white;
+	display: flex;
+	font-size: calc(12px * var(--font-scale));
+	font-weight: 700;
+	gap: 6px;
+	inset: 0;
+	justify-content: flex-end;
+	opacity: 0;
+	padding: 0 16px;
+	position: absolute;
+	transition: opacity 140ms ease;
+}
+
+.notification-swipe-frame.active .notification-swipe-dismiss {
+	opacity: 1;
+}
+
+.notification-swipe-content {
+	position: relative;
+	transform: translateX(var(--notification-swipe-x, 0px));
+	transition: transform 160ms ease;
+	z-index: 1;
+}
+
+.notification-swipe-frame.dragging .notification-swipe-content {
+	transition: none;
+}
+
 .notification-card {
 	background: var(--paper-2);
 	border: 1px solid var(--rule-soft);

@@ -152,6 +152,11 @@ import {
 	type MyBotsSpendTotal,
 } from "./my-bots-table";
 import {
+	notificationSwipeOffset,
+	notificationSwipeShouldDismiss,
+	notificationSwipeShouldSuppressClick,
+} from "./notification-swipe";
+import {
 	toolInputFromDraft,
 	type BotToolDraft,
 	type OpenRouterDatetimeToolDraft,
@@ -1330,6 +1335,7 @@ function App() {
 	const [activeTooltipId, setActiveTooltipId] = useState<string | null>(null);
 	const [installPromptEvent, setInstallPromptEvent] = useState<BeforeInstallPromptEvent | null>(null);
 	const [standaloneDisplay, setStandaloneDisplay] = useState(() => isStandaloneDisplayMode());
+	const dismissingHumanNotificationRequests = useRef(new Map<string, Promise<boolean>>());
 	const pendingFreshThreadIds = useRef(new Set<string>());
 
 	useEffect(() => {
@@ -2021,7 +2027,7 @@ function App() {
 
 	async function markHumanNotificationReadState(
 		notification: HumanNotification,
-		options: { removeUnread?: boolean; removeFromList?: boolean } = { removeUnread: true },
+		options: { removeUnread?: boolean } = { removeUnread: true },
 	): Promise<string | null> {
 		const result = await api(`/api/me/notifications/${encodeURIComponent(notification.id)}`, {
 			method: "PATCH",
@@ -2033,7 +2039,7 @@ function App() {
 		}
 		const wasUnread = !notification.readAt;
 		const readAt = notification.readAt ?? new Date().toISOString();
-		const removeFromList = options.removeFromList || (wasUnread && options.removeUnread !== false);
+		const removeFromList = wasUnread && options.removeUnread !== false;
 		setHumanNotifications((current) => ({
 			...current,
 			unreadCount: Math.max(0, current.unreadCount - (wasUnread ? 1 : 0)),
@@ -2045,6 +2051,31 @@ function App() {
 					),
 		}));
 		return readAt;
+	}
+
+	async function dismissHumanNotification(notification: HumanNotification): Promise<boolean> {
+		const existing = dismissingHumanNotificationRequests.current.get(notification.id);
+		if (existing) {
+			return existing;
+		}
+		const request = (async () => {
+			const result = await api(`/api/me/notifications/${encodeURIComponent(notification.id)}`, {
+				method: "PATCH",
+				body: { archived: true },
+			});
+			if (!result.ok) {
+				setStatus(result.message);
+				return false;
+			}
+			setHumanNotifications((current) => humanNotificationSummaryWithoutNotification(current, notification));
+			return true;
+		})();
+		dismissingHumanNotificationRequests.current.set(notification.id, request);
+		const dismissed = await request;
+		if (!dismissed) {
+			dismissingHumanNotificationRequests.current.delete(notification.id);
+		}
+		return dismissed;
 	}
 
 	async function openHumanNotification(notification: HumanNotification): Promise<void> {
@@ -3085,9 +3116,7 @@ function App() {
 					onFontScale={setFontScalePercent}
 					onMarkAllNotificationsRead={() => void markAllNotificationsRead()}
 					onInstall={() => void promptPwaInstall()}
-					onNotificationClose={(notification) =>
-						void markHumanNotificationReadState(notification, { removeFromList: true })
-					}
+					onNotificationDismiss={dismissHumanNotification}
 					onNotificationOpen={(notification) => void openHumanNotification(notification)}
 					onRefresh={() => void refreshCurrentRoute()}
 					onRefreshNotifications={(status) => void loadHumanNotifications(status)}
@@ -3137,6 +3166,7 @@ function App() {
 							onDeleteWorld={deleteWorld}
 							onLoadNotifications={fetchHumanNotifications}
 							onMarkAllNotificationsRead={markAllNotificationsRead}
+							onDismissNotification={dismissHumanNotification}
 							onMarkNotificationRead={markHumanNotificationReadState}
 							onOpenBotEdit={openBotEdit}
 							onOpenNotification={(notification) => void openHumanNotification(notification)}
@@ -3223,6 +3253,7 @@ function App() {
 							isOwner={activeBot.ownerUserId === session.user.id}
 							onLoadNotifications={fetchHumanNotifications}
 							onMarkAllNotificationsRead={markAllNotificationsRead}
+							onDismissNotification={dismissHumanNotification}
 							onMarkNotificationRead={markHumanNotificationReadState}
 							onOpenNotification={(notification) => void openHumanNotification(notification)}
 							onAvatarUpdated={applySavedBot}
@@ -3312,6 +3343,7 @@ function App() {
 					{route === "notifications" && (
 						<NotificationsScreen
 							onLoadNotifications={fetchHumanNotifications}
+							onDismiss={dismissHumanNotification}
 							onMarkAllRead={markAllNotificationsRead}
 							onMarkRead={markHumanNotificationReadState}
 							onOpenNotification={(notification) => void openHumanNotification(notification)}
@@ -3451,7 +3483,7 @@ function Topbar({
 	onFontScale,
 	onMarkAllNotificationsRead,
 	onInstall,
-	onNotificationClose,
+	onNotificationDismiss,
 	onNotificationOpen,
 	onRefresh,
 	onRefreshNotifications,
@@ -3474,7 +3506,7 @@ function Topbar({
 	onFontScale: (scale: FontScalePercent) => void;
 	onMarkAllNotificationsRead: () => void;
 	onInstall: () => void;
-	onNotificationClose: (notification: HumanNotification) => void;
+	onNotificationDismiss: (notification: HumanNotification) => Promise<boolean>;
 	onNotificationOpen: (notification: HumanNotification) => void;
 	onRefresh: () => void;
 	onRefreshNotifications: (status?: "unread" | "all") => void;
@@ -3614,7 +3646,7 @@ function Topbar({
 				</button>
 				<NotificationBell
 					notifications={notifications}
-					onCloseNotification={onNotificationClose}
+					onDismissNotification={onNotificationDismiss}
 					onMarkAllRead={onMarkAllNotificationsRead}
 					onOpenNotification={onNotificationOpen}
 					onRefresh={onRefreshNotifications}
@@ -3833,13 +3865,13 @@ function FontScaleSwitch({
 
 function NotificationBell({
 	notifications,
-	onCloseNotification,
+	onDismissNotification,
 	onMarkAllRead,
 	onOpenNotification,
 	onRefresh,
 }: {
 	notifications: HumanNotificationSummary;
-	onCloseNotification: (notification: HumanNotification) => void;
+	onDismissNotification: (notification: HumanNotification) => Promise<boolean>;
 	onMarkAllRead: () => void;
 	onOpenNotification: (notification: HumanNotification) => void;
 	onRefresh: (status?: "unread" | "all") => void;
@@ -3876,9 +3908,10 @@ function NotificationBell({
 					{notifications.notifications.length === 0 ?
 						<div className="notification-empty">No unread notifications.</div>
 					:	notifications.notifications.map((notification) => (
-							<div
-								className={`notification-card ${notification.readAt ? "" : "unread"} ${notification.spotlightId ? "has-spotlight" : ""}`}
+							<NotificationSwipeDismissFrame
+								contentClassName={`notification-card ${notification.readAt ? "" : "unread"} ${notification.spotlightId ? "has-spotlight" : ""}`}
 								key={notification.id}
+								onDismiss={() => onDismissNotification(notification)}
 							>
 								<a
 									className="notification-card-link"
@@ -3902,7 +3935,7 @@ function NotificationBell({
 									onClick={(event) => {
 										event.preventDefault();
 										event.stopPropagation();
-										onCloseNotification(notification);
+										void onDismissNotification(notification);
 									}}
 									title="Close"
 									type="button"
@@ -3910,7 +3943,7 @@ function NotificationBell({
 									<Icon name="x" size={13} />
 								</button>
 								{notification.spotlightId && <SpotlightNotificationBadge />}
-							</div>
+							</NotificationSwipeDismissFrame>
 						))}
 					<button className="notification-load" onClick={() => onRefresh("all")} type="button">
 						Show recent read
@@ -3972,6 +4005,167 @@ function NotificationBody({ body }: { body: TextLike }) {
 
 function SpotlightNotificationBadge() {
 	return <span aria-label="Spotlight" className="notification-spotlight-badge" title="Spotlight">🔦</span>;
+}
+
+type NotificationSwipeGesture = {
+	pointerId: number;
+	startX: number;
+	startY: number;
+	widthPx: number;
+};
+
+function NotificationSwipeDismissFrame({
+	as = "div",
+	children,
+	contentClassName,
+	onDismiss,
+}: {
+	as?: "article" | "div";
+	children: ReactNode;
+	contentClassName: string;
+	onDismiss: () => Promise<boolean>;
+}) {
+	const [dragging, setDragging] = useState(false);
+	const [offset, setOffset] = useState(0);
+	const dismissingRef = useRef(false);
+	const gestureRef = useRef<NotificationSwipeGesture | null>(null);
+	const suppressNextClickRef = useRef(false);
+
+	function capturePointer(element: HTMLElement, pointerId: number): void {
+		try {
+			if (!element.hasPointerCapture(pointerId)) {
+				element.setPointerCapture(pointerId);
+			}
+		} catch {
+			// Pointer capture is a progressive enhancement for mouse drags that leave the card.
+		}
+	}
+
+	function releasePointerCapture(element: HTMLElement, pointerId: number): void {
+		try {
+			if (element.hasPointerCapture(pointerId)) {
+				element.releasePointerCapture(pointerId);
+			}
+		} catch {
+			// The pointer may already be gone after native scroll cancellation.
+		}
+	}
+
+	function swipeInput(event: ReactPointerEvent<HTMLElement>, gesture: NotificationSwipeGesture) {
+		return {
+			deltaX: event.clientX - gesture.startX,
+			deltaY: event.clientY - gesture.startY,
+			widthPx: gesture.widthPx,
+		};
+	}
+
+	function beginSwipe(event: ReactPointerEvent<HTMLElement>): void {
+		if (dismissingRef.current || (event.pointerType === "mouse" && event.button !== 0)) {
+			return;
+		}
+		const bounds = event.currentTarget.getBoundingClientRect();
+		gestureRef.current = {
+			pointerId: event.pointerId,
+			startX: event.clientX,
+			startY: event.clientY,
+			widthPx: bounds.width,
+		};
+		setDragging(false);
+		setOffset(0);
+	}
+
+	function moveSwipe(event: ReactPointerEvent<HTMLElement>): void {
+		const gesture = gestureRef.current;
+		if (!gesture || gesture.pointerId !== event.pointerId) {
+			return;
+		}
+		const input = swipeInput(event, gesture);
+		const nextOffset = notificationSwipeOffset(input);
+		if (nextOffset < 0) {
+			suppressNextClickRef.current = true;
+			capturePointer(event.currentTarget, event.pointerId);
+			setDragging(true);
+			setOffset(nextOffset);
+			event.preventDefault();
+			return;
+		}
+		if (notificationSwipeShouldSuppressClick(input)) {
+			setDragging(false);
+			setOffset(0);
+		}
+	}
+
+	function endSwipe(event: ReactPointerEvent<HTMLElement>): void {
+		const gesture = gestureRef.current;
+		if (!gesture || gesture.pointerId !== event.pointerId) {
+			return;
+		}
+		const input = swipeInput(event, gesture);
+		const shouldDismiss = notificationSwipeShouldDismiss(input);
+		if (notificationSwipeShouldSuppressClick(input)) {
+			suppressNextClickRef.current = true;
+		}
+		gestureRef.current = null;
+		releasePointerCapture(event.currentTarget, event.pointerId);
+		setDragging(false);
+		if (!shouldDismiss) {
+			setOffset(0);
+			return;
+		}
+		dismissingRef.current = true;
+		setOffset(-Math.max(gesture.widthPx, 240));
+		void onDismiss().then((dismissed) => {
+			if (!dismissed) {
+				dismissingRef.current = false;
+				setOffset(0);
+			}
+		});
+	}
+
+	function cancelSwipe(event: ReactPointerEvent<HTMLElement>): void {
+		const gesture = gestureRef.current;
+		if (!gesture || gesture.pointerId !== event.pointerId) {
+			return;
+		}
+		gestureRef.current = null;
+		releasePointerCapture(event.currentTarget, event.pointerId);
+		setDragging(false);
+		setOffset(0);
+	}
+
+	function suppressClickAfterSwipe(event: ReactMouseEvent<HTMLElement>): void {
+		if (!suppressNextClickRef.current) {
+			return;
+		}
+		suppressNextClickRef.current = false;
+		event.preventDefault();
+		event.stopPropagation();
+	}
+
+	const frameClassName = `notification-swipe-frame ${dragging ? "dragging" : ""} ${offset < 0 ? "active" : ""}`;
+	const content = (
+		<>
+			<div aria-hidden="true" className="notification-swipe-dismiss">
+				<Icon name="trash" size={14} />
+				<span>Dismiss</span>
+			</div>
+			<div
+				className={`${contentClassName} notification-swipe-content`}
+				style={{ "--notification-swipe-x": `${offset}px` } as CSSProperties}
+			>
+				{children}
+			</div>
+		</>
+	);
+	const frameProps = {
+		className: frameClassName,
+		onClickCapture: suppressClickAfterSwipe,
+		onPointerCancel: cancelSwipe,
+		onPointerDown: beginSwipe,
+		onPointerMove: moveSwipe,
+		onPointerUp: endSwipe,
+	};
+	return as === "article" ? <article {...frameProps}>{content}</article> : <div {...frameProps}>{content}</div>;
 }
 
 function FilterBox({
@@ -4778,6 +4972,7 @@ function WorldDetail({
 	onDeleteWorld,
 	onLoadNotifications,
 	onMarkAllNotificationsRead,
+	onDismissNotification,
 	onMarkNotificationRead,
 	onOpenBotEdit,
 	onOpenNotification,
@@ -4807,6 +5002,7 @@ function WorldDetail({
 	onDeleteWorld: (world: WorldView) => Promise<boolean>;
 	onLoadNotifications: LoadHumanNotifications;
 	onMarkAllNotificationsRead: (scope?: HumanNotificationReadScope) => Promise<number | null>;
+	onDismissNotification: (notification: HumanNotification) => Promise<boolean>;
 	onMarkNotificationRead: (notification: HumanNotification) => Promise<string | null>;
 	onOpenBotEdit: (bot: BotSummary) => void;
 	onOpenNotification: (notification: HumanNotification) => void;
@@ -5159,16 +5355,17 @@ function WorldDetail({
 				{tab === "notifications" && (
 					<NotificationsScreen
 						embedded
-					grouped={false}
-					listScope={{ scopeType: "world", scopeId: world.id }}
-					onLoadNotifications={onLoadNotifications}
-					onMarkAllRead={onMarkAllNotificationsRead}
-					onMarkRead={onMarkNotificationRead}
-					onOpenNotification={onOpenNotification}
-					subtitle="Recent activity from watched sources in this world."
-					title="Notifications"
-				/>
-			)}
+						grouped={false}
+						listScope={{ scopeType: "world", scopeId: world.id }}
+						onLoadNotifications={onLoadNotifications}
+						onDismiss={onDismissNotification}
+						onMarkAllRead={onMarkAllNotificationsRead}
+						onMarkRead={onMarkNotificationRead}
+						onOpenNotification={onOpenNotification}
+						subtitle="Recent activity from watched sources in this world."
+						title="Notifications"
+					/>
+				)}
 
 			<CreateForumModal
 				busy={busy}
@@ -7096,6 +7293,7 @@ function BotProfileScreen({
 	isOwner,
 	onLoadNotifications,
 	onMarkAllNotificationsRead,
+	onDismissNotification,
 	onMarkNotificationRead,
 	onOpenNotification,
 	onAvatarUpdated,
@@ -7113,6 +7311,7 @@ function BotProfileScreen({
 	isOwner: boolean;
 	onLoadNotifications: LoadHumanNotifications;
 	onMarkAllNotificationsRead: (scope?: HumanNotificationReadScope) => Promise<number | null>;
+	onDismissNotification: (notification: HumanNotification) => Promise<boolean>;
 	onMarkNotificationRead: (notification: HumanNotification) => Promise<string | null>;
 	onOpenNotification: (notification: HumanNotification) => void;
 	onAvatarUpdated: (bot: BotSummary, affectedBots?: BotSummary[]) => void;
@@ -7529,6 +7728,7 @@ function BotProfileScreen({
 							grouped={false}
 							listScope={{ scopeType: "bot", scopeId: bot.id }}
 							onLoadNotifications={onLoadNotifications}
+							onDismiss={onDismissNotification}
 							onMarkAllRead={onMarkAllNotificationsRead}
 							onMarkRead={onMarkNotificationRead}
 							onOpenNotification={onOpenNotification}
@@ -12855,6 +13055,7 @@ function NotificationsScreen({
 	grouped = true,
 	listScope = { scopeType: "all" },
 	onLoadNotifications,
+	onDismiss,
 	onMarkAllRead,
 	onMarkRead,
 	onOpenNotification,
@@ -12865,6 +13066,7 @@ function NotificationsScreen({
 	grouped?: boolean;
 	listScope?: HumanNotificationListScope;
 	onLoadNotifications: LoadHumanNotifications;
+	onDismiss: (notification: HumanNotification) => Promise<boolean>;
 	onMarkAllRead: (scope?: HumanNotificationReadScope) => Promise<number | null>;
 	onMarkRead: (notification: HumanNotification) => Promise<string | null>;
 	onOpenNotification: (notification: HumanNotification) => void;
@@ -12940,6 +13142,15 @@ function NotificationsScreen({
 				item.id === notification.id ? { ...item, readAt } : item,
 			),
 		}));
+	}
+
+	async function dismissNotification(notification: HumanNotification): Promise<boolean> {
+		const dismissed = await onDismiss(notification);
+		if (!dismissed) {
+			return false;
+		}
+		setSummary((current) => humanNotificationSummaryWithoutNotification(current, notification));
+		return true;
 	}
 
 	async function markAllRead(): Promise<void> {
@@ -13059,6 +13270,7 @@ function NotificationsScreen({
 							</div>
 							<NotificationPageList
 								notifications={group.notifications}
+								onDismiss={dismissNotification}
 								onMarkRead={(notification) => void markRead(notification)}
 								onOpenNotification={onOpenNotification}
 							/>
@@ -13067,6 +13279,7 @@ function NotificationsScreen({
 				</div>
 			:	<NotificationPageList
 					notifications={filtered}
+					onDismiss={dismissNotification}
 					onMarkRead={(notification) => void markRead(notification)}
 					onOpenNotification={onOpenNotification}
 				/>
@@ -13088,10 +13301,12 @@ function NotificationsScreen({
 
 function NotificationPageList({
 	notifications,
+	onDismiss,
 	onMarkRead,
 	onOpenNotification,
 }: {
 	notifications: HumanNotification[];
+	onDismiss: (notification: HumanNotification) => Promise<boolean>;
 	onMarkRead: (notification: HumanNotification) => void;
 	onOpenNotification: (notification: HumanNotification) => void;
 }) {
@@ -13101,6 +13316,7 @@ function NotificationPageList({
 				<NotificationPageCard
 					key={notification.id}
 					notification={notification}
+					onDismiss={onDismiss}
 					onMarkRead={onMarkRead}
 					onOpenNotification={onOpenNotification}
 				/>
@@ -13111,16 +13327,20 @@ function NotificationPageList({
 
 function NotificationPageCard({
 	notification,
+	onDismiss,
 	onMarkRead,
 	onOpenNotification,
 }: {
 	notification: HumanNotification;
+	onDismiss: (notification: HumanNotification) => Promise<boolean>;
 	onMarkRead: (notification: HumanNotification) => void;
 	onOpenNotification: (notification: HumanNotification) => void;
 }) {
 	return (
-		<article
-			className={`notification-page-card ${notification.readAt ? "" : "unread"} ${notification.spotlightId ? "has-spotlight" : ""}`}
+		<NotificationSwipeDismissFrame
+			as="article"
+			contentClassName={`notification-page-card ${notification.readAt ? "" : "unread"} ${notification.spotlightId ? "has-spotlight" : ""}`}
+			onDismiss={() => onDismiss(notification)}
 		>
 			<a
 				className="notification-page-link"
@@ -13146,7 +13366,7 @@ function NotificationPageCard({
 					</button>
 				}
 			</div>
-		</article>
+		</NotificationSwipeDismissFrame>
 	);
 }
 
@@ -21133,6 +21353,17 @@ function humanNotificationSummaryWithReadScope(
 		...summary,
 		unreadCount,
 		notifications,
+	};
+}
+
+function humanNotificationSummaryWithoutNotification(
+	summary: HumanNotificationSummary,
+	notification: HumanNotification,
+): HumanNotificationSummary {
+	return {
+		...summary,
+		unreadCount: Math.max(0, summary.unreadCount - (notification.readAt ? 0 : 1)),
+		notifications: summary.notifications.filter((item) => item.id !== notification.id),
 	};
 }
 
