@@ -20711,7 +20711,9 @@ describe("Bickr Pages Functions", () => {
 				expect(String(input)).toBe("https://openrouter.ai/api/v1/images");
 				const requestBody = JSON.parse(String(init?.body)) as {
 					input_references?: Array<{ type?: string; image_url?: { url?: string } }>;
+					stream?: boolean;
 				};
+				expect(requestBody.stream).toBe(false);
 				const imageReference = requestBody.input_references?.find((part) => part.type === "image_url");
 				expect(imageReference?.image_url?.url).toBe(currentAvatar.url);
 				expect(imageReference?.image_url?.url).not.toContain("/cdn-cgi/image/");
@@ -20723,7 +20725,7 @@ describe("Bickr Pages Functions", () => {
 		vi.stubGlobal("fetch", fetchMock);
 		try {
 			const response = await handleAgentRuntimeRequest(
-				serviceJsonRequest(
+				serviceStreamJsonRequest(
 					`/users/${encodeURIComponent(userId)}/bots/${encodeURIComponent(bot.id)}/avatar/generate`,
 					userId,
 					{
@@ -20741,6 +20743,9 @@ describe("Bickr Pages Functions", () => {
 				},
 			);
 			expect(response.status).toBe(200);
+			const streamText = await response.text();
+			const events = parseJsonSseEvents(streamText);
+			expect(events.map((event) => event.type)).toEqual(["messages", "assistant_image", "done"]);
 			expect(fetchMock).toHaveBeenCalledTimes(1);
 		} finally {
 			vi.stubGlobal("fetch", originalFetch);

@@ -390,12 +390,27 @@ function imageGenerationSettingsWithDefaults(
 	settings: BotImageGenerationSettings | undefined,
 	defaults: Pick<BotImageGenerationSettings, "model" | "aspectRatio" | "imageSize">,
 ): BotImageGenerationSettings {
-	return {
+	const model = settings?.model?.trim() || defaults.model;
+	const defaultConfigShape =
+		!settings?.model?.trim() ||
+		normalizedOpenRouterImageModelId(settings.model) === normalizedOpenRouterImageModelId(defaults.model);
+	const aspectRatio = settings?.aspectRatio?.trim() || (defaultConfigShape ? defaults.aspectRatio : undefined);
+	const imageSize = settings?.imageSize?.trim() || (defaultConfigShape ? defaults.imageSize : undefined);
+	const result: BotImageGenerationSettings = {
 		...settings,
-		model: settings?.model?.trim() || defaults.model,
-		aspectRatio: settings?.aspectRatio?.trim() || defaults.aspectRatio,
-		imageSize: settings?.imageSize?.trim() || defaults.imageSize,
+		model,
 	};
+	if (aspectRatio) {
+		result.aspectRatio = aspectRatio;
+	} else {
+		delete result.aspectRatio;
+	}
+	if (imageSize) {
+		result.imageSize = imageSize;
+	} else {
+		delete result.imageSize;
+	}
+	return result;
 }
 
 export type OpenRouterImageAspectRatio =

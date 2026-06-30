@@ -234,10 +234,10 @@ function candidateConfigForModel(model) {
 		return { aspectRatios: maiAspectRatios, imageSizes: [] };
 	}
 	if (id === "openai/gpt-image-1" || id === "openai/gpt-image-1-mini") {
-		return { aspectRatios: [], imageSizes: openAiGptImage1Sizes };
+		return { aspectRatios: standardAspectRatios, imageSizes: openAiGptImage1Sizes };
 	}
 	if (id === "openai/gpt-image-2" || id === "openai/gpt-5.4-image-2") {
-		return { aspectRatios: [], imageSizes: openAiGptImage2Sizes };
+		return { aspectRatios: standardAspectRatios, imageSizes: openAiGptImage2Sizes };
 	}
 	if (id === "google/gemini-3.1-flash-image" || id === "google/gemini-3.1-flash-image-preview") {
 		return { aspectRatios: [...standardAspectRatios, ...gemini31ExtendedAspectRatios], imageSizes: gemini31ImageSizes };

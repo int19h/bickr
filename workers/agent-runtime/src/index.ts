@@ -11400,7 +11400,8 @@ async function fetchProviderAvatarImage(
 	const requestMessages = avatarImageGenerationMessages(input, options.target);
 	await options.stream?.messages(requestMessages.displayMessages);
 	if (openRouterImageApi) {
-		const requestBody = openRouterAvatarImageRequest(settings, requestMessages, input, Boolean(options.stream));
+		const upstreamStream = Boolean(options.stream && !input.currentAvatarUrl);
+		const requestBody = openRouterAvatarImageRequest(settings, requestMessages, input, upstreamStream);
 		const response = await providerFetchWithHeaderTimeout(
 			endpoint,
 			{ method: 'POST', headers, body: JSON.stringify(requestBody) },
@@ -11411,7 +11412,7 @@ async function fetchProviderAvatarImage(
 			const bodyText = await readProviderErrorBody(response, signal);
 			throw new ProviderRequestError(response.status, settings.model, endpoint, bodyText);
 		}
-		if (options.stream) {
+		if (upstreamStream && options.stream) {
 			return fetchOpenRouterAvatarImageFromStream(settings, endpoint, response, signal, options.stream);
 		}
 		let rawResponse: string;
@@ -11438,6 +11439,9 @@ async function fetchProviderAvatarImage(
 		const dataUrl = openRouterImageApiDataUrl(payload);
 		if (!dataUrl) {
 			throw new ProviderRequestError(502, settings.model, endpoint, 'Provider image response did not include an image.', { rawResponse });
+		}
+		if (options.stream) {
+			await options.stream.assistantImage(1);
 		}
 		const usageRecord = runtimeRecord(payload).usage;
 		return {

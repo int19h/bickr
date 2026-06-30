@@ -77,9 +77,20 @@ describe("OpenRouter image aspect ratios", () => {
 		expect(openRouterSuggestedImageAspectRatios("recraft/recraft-v4.1")).not.toContain("21:9");
 		expect(openRouterSuggestedImageSizes("sourceful/riverflow-v2-fast")).toEqual(["1K", "2K", "1024x1024"]);
 		expect(openRouterSuggestedImageSizes("sourceful/riverflow-v2-pro")).toEqual(["1K", "2K", "4K"]);
-		expect(openRouterSuggestedImageAspectRatios("openai/gpt-image-2")).toEqual([]);
+		expect(openRouterSuggestedImageAspectRatios("openai/gpt-image-2")).toEqual([
+			"1:1",
+			"2:3",
+			"3:2",
+			"3:4",
+			"4:3",
+			"4:5",
+			"5:4",
+			"9:16",
+			"16:9",
+			"21:9",
+		]);
 		expect(openRouterSuggestedImageSizes("openai/gpt-image-2")).toEqual(["1024x1024", "1024x1536", "1536x1024", "2560x1440", "3840x2160"]);
-		expect(openRouterSuggestedImageAspectRatios("openai/gpt-image-1-mini")).toEqual([]);
+		expect(openRouterSuggestedImageAspectRatios("openai/gpt-image-1-mini")).toContain("21:9");
 		expect(openRouterSuggestedImageSizes("openai/gpt-image-1-mini")).toEqual(["1024x1024", "1024x1536", "1536x1024"]);
 	});
 
@@ -92,5 +103,18 @@ describe("OpenRouter image aspect ratios", () => {
 			imageSize: "custom-size",
 		});
 		expect(avatarImageGenerationSettingsWithDefaults(undefined).aspectRatio).toBe("1:1");
+	});
+
+	it("does not inject default size and ratio for a different selected image model", () => {
+		expect(avatarImageGenerationSettingsWithDefaults({ model: "openai/gpt-image-2" })).toEqual({
+			model: "openai/gpt-image-2",
+		});
+		expect(avatarImageGenerationSettingsWithDefaults({
+			model: "openai/gpt-image-2",
+			aspectRatio: "16:9",
+		})).toEqual({
+			model: "openai/gpt-image-2",
+			aspectRatio: "16:9",
+		});
 	});
 });
