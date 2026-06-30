@@ -7837,6 +7837,7 @@ describe("Bickr Pages Functions", () => {
 
 		expect(isOpenRouterProviderBaseUrl("https://openrouter.ai/api/v1")).toBe(true);
 		expect(isOpenRouterProviderBaseUrl("https://openrouter.ai/api/v1/chat/completions")).toBe(true);
+		expect(isOpenRouterProviderBaseUrl("https://openrouter.ai/api/v1/images")).toBe(true);
 		expect(isOpenRouterProviderBaseUrl("http://localhost:11434/v1")).toBe(false);
 
 		const selection = openRouterServerToolSelection("https://openrouter.ai/api/v1/", settings);
@@ -20362,7 +20363,7 @@ describe("Bickr Pages Functions", () => {
 		const originalFetch = globalThis.fetch;
 		const fetchMock = vi.fn<(_input: RequestInfo | URL, _init?: RequestInit) => Promise<Response>>(
 			async (input) => {
-				expect(String(input)).toBe("https://openrouter.ai/api/v1/models?output_modalities=image");
+				expect(String(input)).toBe("https://openrouter.ai/api/v1/images/models");
 				return Response.json({
 					data: [
 						{
@@ -20460,50 +20461,28 @@ describe("Bickr Pages Functions", () => {
 		const originalFetch = globalThis.fetch;
 		const fetchMock = vi.fn<(_input: RequestInfo | URL, _init?: RequestInit) => Promise<Response>>(
 			async (input, init) => {
-				if (String(input) === "https://openrouter.ai/api/v1/models?output_modalities=image") {
-					return Response.json({
-						data: [
-							{
-								id: defaultAvatarImageGenerationSettings.model,
-								architecture: { input_modalities: ["text"], output_modalities: ["image", "text"] },
-							},
-							{
-								id: "openai/image-one",
-								architecture: { input_modalities: ["text"], output_modalities: ["image", "text"] },
-							},
-						],
-					});
-				}
-				expect(String(input)).toBe("https://openrouter.ai/api/v1/chat/completions");
+				expect(String(input)).toBe("https://openrouter.ai/api/v1/images");
 				const requestBody = JSON.parse(String(init?.body)) as {
 					model?: string;
-					modalities?: string[];
-					image_config?: Record<string, unknown>;
+					aspect_ratio?: string;
+					size?: string;
 					provider?: Record<string, unknown>;
+					prompt?: string;
 				};
-					expect(requestBody.modalities).toEqual(["image", "text"]);
-					if (requestBody.model === defaultAvatarImageGenerationSettings.model) {
-						expect(requestBody.image_config).toEqual({
-							aspect_ratio: defaultAvatarImageGenerationSettings.aspectRatio,
-							image_size: defaultAvatarImageGenerationSettings.imageSize,
-						});
-						expect(requestBody.provider).toBeUndefined();
-					} else {
-						expect(requestBody.model).toBe("openai/image-one");
-						expect(requestBody.image_config).toEqual({
-							aspect_ratio: "12:78",
-							image_size: "custom-size",
-						});
-						expect(requestBody.provider).toEqual({ sort: "price" });
-					}
+				if (requestBody.model === defaultAvatarImageGenerationSettings.model) {
+					expect(requestBody.aspect_ratio).toBe(defaultAvatarImageGenerationSettings.aspectRatio);
+					expect(requestBody.size).toBe(defaultAvatarImageGenerationSettings.imageSize);
+					expect(requestBody.prompt).toContain("Paint me with defaults.");
+					expect(requestBody.provider).toBeUndefined();
+				} else {
+					expect(requestBody.model).toBe("openai/image-one");
+					expect(requestBody.aspect_ratio).toBe("12:78");
+					expect(requestBody.size).toBe("custom-size");
+					expect(requestBody.prompt).toContain("Paint me as a luminous portrait.");
+					expect(requestBody.provider).toEqual({ sort: "price" });
+				}
 				return Response.json({
-					choices: [
-						{
-							message: {
-								images: [{ image_url: { url: avatarDataUrl(largePngAvatarBytes()) } }],
-							},
-						},
-					],
+					data: [{ b64_json: base64String(largePngAvatarBytes()) }],
 					usage: { prompt_tokens: 10, completion_tokens: 0, total_tokens: 10, cost: 0.0123 },
 				});
 			},
@@ -20636,34 +20615,18 @@ describe("Bickr Pages Functions", () => {
 		const originalFetch = globalThis.fetch;
 		const fetchMock = vi.fn<(_input: RequestInfo | URL, _init?: RequestInit) => Promise<Response>>(
 			async (input, init) => {
-				if (String(input) === "https://openrouter.ai/api/v1/models?output_modalities=image") {
-					return Response.json({
-						data: [
-							{
-								id: "openai/image-one",
-								architecture: { input_modalities: ["text"], output_modalities: ["image", "text"] },
-							},
-						],
-					});
-				}
-				expect(String(input)).toBe("https://openrouter.ai/api/v1/chat/completions");
+				expect(String(input)).toBe("https://openrouter.ai/api/v1/images");
 				const requestBody = JSON.parse(String(init?.body)) as {
 					stream?: boolean;
-					messages?: Array<{ role: string; content: unknown }>;
+					prompt?: string;
 				};
 				expect(requestBody.stream).toBe(true);
-				expect(requestBody.messages?.[0]?.role).toBe("system");
-				expect(requestBody.messages?.[1]?.role).toBe("user");
+				expect(requestBody.prompt).toContain("Bickr participant");
+				expect(requestBody.prompt).toContain("Paint me as a luminous portrait.");
 				return new Response(sseStream([
 					{
-						choices: [{ delta: { content: "Rendering a profile portrait." } }],
-					},
-					{
-						choices: [{
-							delta: {
-								images: [{ image_url: { url: rawDataUrl } }],
-							},
-						}],
+						type: "image_generation.completed",
+						b64_json: rawDataUrl.split(",", 2)[1],
 						usage: { prompt_tokens: 12, completion_tokens: 1, total_tokens: 13, cost: 0.045 },
 					},
 					"[DONE]",
@@ -20697,7 +20660,7 @@ describe("Bickr Pages Functions", () => {
 			const streamText = await response.text();
 			expect(streamText).not.toContain(rawDataUrl);
 			const events = parseJsonSseEvents(streamText);
-			expect(events.map((event) => event.type)).toEqual(["messages", "assistant_delta", "assistant_image", "done"]);
+			expect(events.map((event) => event.type)).toEqual(["messages", "assistant_image", "done"]);
 			expect(events[0]).toMatchObject({
 				type: "messages",
 				messages: [
@@ -20705,9 +20668,8 @@ describe("Bickr Pages Functions", () => {
 					{ role: "user", content: "Paint me as a luminous portrait." },
 				],
 			});
-			expect(events[1]).toEqual({ type: "assistant_delta", text: "Rendering a profile portrait." });
-			expect(events[2]).toEqual({ type: "assistant_image", count: 1 });
-			expect(events[3]).toMatchObject({
+			expect(events[1]).toEqual({ type: "assistant_image", count: 1 });
+			expect(events[2]).toMatchObject({
 				type: "done",
 				candidate: {
 					contentType: "image/png",
@@ -20719,7 +20681,7 @@ describe("Bickr Pages Functions", () => {
 					},
 				},
 			});
-			const candidate = (events[3] as { candidate: NonNullable<BotBody["avatar"]> }).candidate;
+			const candidate = (events[2] as { candidate: NonNullable<BotBody["avatar"]> }).candidate;
 			expect(candidate.url).toContain("/avatar-candidates/");
 			expect(r2.objects.has(candidate.key)).toBe(true);
 		} finally {
@@ -20746,33 +20708,15 @@ describe("Bickr Pages Functions", () => {
 		const originalFetch = globalThis.fetch;
 		const fetchMock = vi.fn<(_input: RequestInfo | URL, _init?: RequestInit) => Promise<Response>>(
 			async (input, init) => {
-				if (String(input) === "https://openrouter.ai/api/v1/models?output_modalities=image") {
-					return Response.json({
-						data: [
-							{
-								id: "openai/image-one",
-								architecture: { input_modalities: ["text", "image"], output_modalities: ["image", "text"] },
-							},
-						],
-					});
-				}
-				expect(String(input)).toBe("https://openrouter.ai/api/v1/chat/completions");
+				expect(String(input)).toBe("https://openrouter.ai/api/v1/images");
 				const requestBody = JSON.parse(String(init?.body)) as {
-					messages?: Array<{ role: string; content: unknown }>;
+					input_references?: Array<{ type?: string; image_url?: { url?: string } }>;
 				};
-				const userContent = requestBody.messages?.find((message) => message.role === "user")?.content;
-				expect(Array.isArray(userContent)).toBe(true);
-				const imagePart = (userContent as Array<{ type?: string; image_url?: { url?: string } }>).find((part) => part.type === "image_url");
-				expect(imagePart?.image_url?.url).toBe(currentAvatar.url);
-				expect(imagePart?.image_url?.url).not.toContain("/cdn-cgi/image/");
+				const imageReference = requestBody.input_references?.find((part) => part.type === "image_url");
+				expect(imageReference?.image_url?.url).toBe(currentAvatar.url);
+				expect(imageReference?.image_url?.url).not.toContain("/cdn-cgi/image/");
 				return Response.json({
-					choices: [
-						{
-							message: {
-								images: [{ image_url: { url: avatarDataUrl() } }],
-							},
-						},
-					],
+					data: [{ b64_json: base64String(pngAvatarBytes()) }],
 				});
 			},
 		);
@@ -20797,7 +20741,7 @@ describe("Bickr Pages Functions", () => {
 				},
 			);
 			expect(response.status).toBe(200);
-			expect(fetchMock).toHaveBeenCalledTimes(2);
+			expect(fetchMock).toHaveBeenCalledTimes(1);
 		} finally {
 			vi.stubGlobal("fetch", originalFetch);
 		}
@@ -20812,24 +20756,9 @@ describe("Bickr Pages Functions", () => {
 		const originalFetch = globalThis.fetch;
 		const fetchMock = vi.fn<(_input: RequestInfo | URL, _init?: RequestInit) => Promise<Response>>(
 			async (input) => {
-				if (String(input) === "https://openrouter.ai/api/v1/models?output_modalities=image") {
-					return Response.json({
-						data: [
-							{
-								id: "openai/svg-image",
-								architecture: { input_modalities: ["text"], output_modalities: ["image"] },
-							},
-						],
-					});
-				}
+				expect(String(input)).toBe("https://openrouter.ai/api/v1/images");
 				return Response.json({
-					choices: [
-						{
-							message: {
-								images: [{ image_url: { url: avatarDataUrl(svgAvatarBytes(), "image/svg+xml") } }],
-							},
-						},
-					],
+					data: [{ b64_json: base64String(svgAvatarBytes()), media_type: "image/svg+xml" }],
 				});
 			},
 		);
@@ -20883,7 +20812,7 @@ describe("Bickr Pages Functions", () => {
 		expect(storedBot.avatar?.contentType).toBe("image/svg+xml");
 	});
 
-	it("uses image-only OpenRouter modalities for image-only avatar models", async () => {
+	it("uses the dedicated OpenRouter image endpoint for avatar generation", async () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);
 		const bot = await createBotForTest(cookie, "avatar-image-only");
@@ -20892,26 +20821,13 @@ describe("Bickr Pages Functions", () => {
 		const originalFetch = globalThis.fetch;
 		const fetchMock = vi.fn<(_input: RequestInfo | URL, _init?: RequestInit) => Promise<Response>>(
 			async (input, init) => {
-				if (String(input) === "https://openrouter.ai/api/v1/models?output_modalities=image") {
-					return Response.json({
-						data: [
-							{
-								id: "image/only",
-								architecture: { input_modalities: ["text"], output_modalities: ["image"] },
-							},
-						],
-					});
-				}
-				const requestBody = JSON.parse(String(init?.body)) as { modalities?: string[] };
-				expect(requestBody.modalities).toEqual(["image"]);
+				expect(String(input)).toBe("https://openrouter.ai/api/v1/images");
+				const requestBody = JSON.parse(String(init?.body)) as { model?: string; modalities?: string[]; prompt?: string };
+				expect(requestBody.model).toBe("image/only");
+				expect(requestBody.modalities).toBeUndefined();
+				expect(requestBody.prompt).toContain("Paint me as a luminous portrait.");
 				return Response.json({
-					choices: [
-						{
-							message: {
-								images: [{ image_url: { url: avatarDataUrl() } }],
-							},
-						},
-					],
+					data: [{ b64_json: base64String(pngAvatarBytes()) }],
 				});
 			},
 		);
@@ -20936,7 +20852,7 @@ describe("Bickr Pages Functions", () => {
 				},
 			);
 			expect(response.status).toBe(200);
-			expect(fetchMock).toHaveBeenCalledTimes(2);
+			expect(fetchMock).toHaveBeenCalledTimes(1);
 		} finally {
 			vi.stubGlobal("fetch", originalFetch);
 		}
@@ -21304,7 +21220,7 @@ describe("Bickr Pages Functions", () => {
 		const originalFetch = globalThis.fetch;
 		const fetchMock = vi.fn<(_input: RequestInfo | URL, _init?: RequestInit) => Promise<Response>>(
 			async (input, init) => {
-				if (String(input) === "https://openrouter.ai/api/v1/models?output_modalities=image") {
+				if (String(input) === "https://openrouter.ai/api/v1/images/models") {
 					return Response.json({
 						data: [
 							{
@@ -21393,7 +21309,7 @@ describe("Bickr Pages Functions", () => {
 		const originalFetch = globalThis.fetch;
 		const fetchMock = vi.fn<(_input: RequestInfo | URL, _init?: RequestInit) => Promise<Response>>(
 			async (input) => {
-				expect(String(input)).toBe("https://openrouter.ai/api/v1/models?output_modalities=image");
+				expect(String(input)).toBe("https://openrouter.ai/api/v1/images/models");
 				return Response.json({
 					data: [
 						{

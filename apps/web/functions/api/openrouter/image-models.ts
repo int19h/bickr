@@ -5,7 +5,7 @@ import { pageErrorResponse } from "../_errors";
 export const onRequestGet: PagesFunction<AppEnv> = async ({ request, env }) => {
 	try {
 		await requireCompleteUser(env, request);
-		const response = await fetch("https://openrouter.ai/api/v1/models?output_modalities=image", {
+		const response = await fetch("https://openrouter.ai/api/v1/images/models", {
 			headers: { accept: "application/json" },
 		});
 		if (!response.ok) {

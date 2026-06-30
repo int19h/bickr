@@ -8,8 +8,8 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "..");
 const defaultOutputPath = path.join(repoRoot, "packages/shared/src/openrouter-image-model-config.generated.ts");
 const defaultDevVarsPath = path.join(repoRoot, "workers/agent-runtime/.dev.vars");
-const openRouterModelsUrl = "https://openrouter.ai/api/v1/models?output_modalities=image";
-const openRouterChatCompletionsUrl = "https://openrouter.ai/api/v1/chat/completions";
+const openRouterModelsUrl = "https://openrouter.ai/api/v1/images/models";
+const openRouterImagesUrl = "https://openrouter.ai/api/v1/images";
 
 const standardAspectRatios = ["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"];
 const maiAspectRatios = ["1:1", "4:3", "3:4", "16:9", "9:16", "3:2", "2:3"];
@@ -17,7 +17,9 @@ const gemini31ExtendedAspectRatios = ["1:4", "4:1", "1:8", "8:1"];
 const grokAspectRatios = ["2:1", "1:2", "19.5:9", "9:19.5", "20:9", "9:20", "auto"];
 const standardImageSizes = ["1K", "2K", "4K"];
 const gemini31ImageSizes = ["0.5K", ...standardImageSizes];
-const dimensionImageSizeCandidates = ["512x512", "1024x1024", "1024x1536", "1536x1024", "2048x2048"];
+const openAiGptImage1Sizes = ["1024x1024", "1024x1536", "1536x1024"];
+const openAiGptImage2Sizes = [...openAiGptImage1Sizes, "2560x1440", "3840x2160"];
+const dimensionImageSizeCandidates = ["512x512", ...openAiGptImage2Sizes, "2048x2048"];
 
 const defaultTargetModels = new Set([
 	"google/gemini-3.1-flash-image",
@@ -35,6 +37,10 @@ const defaultTargetModels = new Set([
 	"recraft/recraft-v4.1",
 	"recraft/recraft-v4.1-pro",
 	"openai/gpt-5-image",
+	"openai/gpt-5.4-image-2",
+	"openai/gpt-image-2",
+	"openai/gpt-image-1",
+	"openai/gpt-image-1-mini",
 ]);
 
 async function main() {
@@ -227,6 +233,12 @@ function candidateConfigForModel(model) {
 	if (id === "microsoft/mai-image-2.5") {
 		return { aspectRatios: maiAspectRatios, imageSizes: [] };
 	}
+	if (id === "openai/gpt-image-1" || id === "openai/gpt-image-1-mini") {
+		return { aspectRatios: [], imageSizes: openAiGptImage1Sizes };
+	}
+	if (id === "openai/gpt-image-2" || id === "openai/gpt-5.4-image-2") {
+		return { aspectRatios: [], imageSizes: openAiGptImage2Sizes };
+	}
 	if (id === "google/gemini-3.1-flash-image" || id === "google/gemini-3.1-flash-image-preview") {
 		return { aspectRatios: [...standardAspectRatios, ...gemini31ExtendedAspectRatios], imageSizes: gemini31ImageSizes };
 	}
@@ -281,11 +293,10 @@ function targetedImageSizes(values) {
 async function probeImageConfig(apiKey, limiter, timeoutMs, model, imageConfig) {
 	const body = {
 		model: model.id,
-		messages: [{ role: "user", content: "Create a simple blue circle icon on a plain white background." }],
-		modalities: model.outputModalities.includes("text") ? ["image", "text"] : ["image"],
+		prompt: "Create a simple blue circle icon on a plain white background.",
 		stream: false,
-		image_config: imageConfig,
-		...(model.outputModalities.includes("text") ? { max_tokens: 16 } : {}),
+		...(imageConfig.aspect_ratio ? { aspect_ratio: imageConfig.aspect_ratio } : {}),
+		...(imageConfig.image_size ? { size: imageConfig.image_size } : {}),
 	};
 	const response = await postOpenRouter(apiKey, limiter, timeoutMs, body);
 	return response.ok ? true : response.unsupported ? false : null;
@@ -302,7 +313,7 @@ async function postOpenRouter(apiKey, limiter, timeoutMs, body) {
 		let response;
 		let text;
 		try {
-			response = await fetch(openRouterChatCompletionsUrl, {
+			response = await fetch(openRouterImagesUrl, {
 				method: "POST",
 				headers,
 				body: JSON.stringify(body),

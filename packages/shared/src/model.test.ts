@@ -77,6 +77,10 @@ describe("OpenRouter image aspect ratios", () => {
 		expect(openRouterSuggestedImageAspectRatios("recraft/recraft-v4.1")).not.toContain("21:9");
 		expect(openRouterSuggestedImageSizes("sourceful/riverflow-v2-fast")).toEqual(["1K", "2K", "1024x1024"]);
 		expect(openRouterSuggestedImageSizes("sourceful/riverflow-v2-pro")).toEqual(["1K", "2K", "4K"]);
+		expect(openRouterSuggestedImageAspectRatios("openai/gpt-image-2")).toEqual([]);
+		expect(openRouterSuggestedImageSizes("openai/gpt-image-2")).toEqual(["1024x1024", "1024x1536", "1536x1024", "2560x1440", "3840x2160"]);
+		expect(openRouterSuggestedImageAspectRatios("openai/gpt-image-1-mini")).toEqual([]);
+		expect(openRouterSuggestedImageSizes("openai/gpt-image-1-mini")).toEqual(["1024x1024", "1024x1536", "1536x1024"]);
 	});
 
 	it("uses a widescreen default aspect ratio for world avatars only", () => {

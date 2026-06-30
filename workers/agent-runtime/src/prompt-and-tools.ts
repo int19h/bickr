@@ -402,7 +402,7 @@ export function isOpenRouterProviderBaseUrl(baseUrl: string): boolean {
 		return false;
 	}
 	const path = url.pathname.replace(/\/+$/, "");
-	return path === "/api/v1" || path === "/api/v1/chat/completions";
+	return path === "/api/v1" || path === "/api/v1/chat/completions" || path === "/api/v1/images";
 }
 
 export function openRouterServerToolSelection(

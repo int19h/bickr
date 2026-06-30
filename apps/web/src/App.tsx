@@ -14419,6 +14419,11 @@ const imageSizeLabels: Record<string, string> = {
 	"1K": "1K - standard",
 	"2K": "2K - higher resolution",
 	"4K": "4K - highest resolution",
+	"1024x1024": "Square (1024x1024)",
+	"1024x1536": "Portrait (1024x1536)",
+	"1536x1024": "Landscape (1536x1024)",
+	"2560x1440": "2K (2560x1440)",
+	"3840x2160": "4K (3840x2160)",
 };
 
 function imageAspectRatioLabel(value: string): string {
@@ -21937,7 +21942,7 @@ function isOpenRouterProviderBaseUrl(baseUrl: string): boolean {
 			return false;
 		}
 		const path = url.pathname.replace(/\/+$/, "");
-		return path === "/api/v1" || path === "/api/v1/chat/completions";
+		return path === "/api/v1" || path === "/api/v1/chat/completions" || path === "/api/v1/images";
 	} catch {
 		return false;
 	}

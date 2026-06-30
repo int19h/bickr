@@ -11390,7 +11390,8 @@ async function fetchProviderAvatarImage(
 	input: { prompt: string; currentAvatarUrl?: string },
 	options: { signal?: AbortSignal; stream?: AvatarGenerationStreamSink; target?: 'participant' | 'world' } = {},
 ): Promise<{ dataUrl: string; cost: number | null }> {
-	const endpoint = providerChatCompletionsUrl(settings.baseUrl);
+	const openRouterImageApi = isOpenRouterProviderBaseUrl(settings.baseUrl);
+	const endpoint = openRouterImageApi ? providerImagesUrl(settings.baseUrl) : providerChatCompletionsUrl(settings.baseUrl);
 	const signal = options.signal ?? new AbortController().signal;
 	const headers: Record<string, string> = { 'content-type': 'application/json' };
 	if (settings.apiKey) {
@@ -11398,6 +11399,52 @@ async function fetchProviderAvatarImage(
 	}
 	const requestMessages = avatarImageGenerationMessages(input, options.target);
 	await options.stream?.messages(requestMessages.displayMessages);
+	if (openRouterImageApi) {
+		const requestBody = openRouterAvatarImageRequest(settings, requestMessages, input, Boolean(options.stream));
+		const response = await providerFetchWithHeaderTimeout(
+			endpoint,
+			{ method: 'POST', headers, body: JSON.stringify(requestBody) },
+			signal,
+			providerImageRequestTimeoutMs,
+		);
+		if (!response.ok) {
+			const bodyText = await readProviderErrorBody(response, signal);
+			throw new ProviderRequestError(response.status, settings.model, endpoint, bodyText);
+		}
+		if (options.stream) {
+			return fetchOpenRouterAvatarImageFromStream(settings, endpoint, response, signal, options.stream);
+		}
+		let rawResponse: string;
+		try {
+			rawResponse = await readJsonResponseText(
+				response,
+				providerImageResponseBodyMaxBytes,
+				signal,
+				providerImageBodyReadTimeoutMs,
+				() => new ProviderResponseBodyTimeoutError(providerImageBodyReadTimeoutMs),
+			);
+		} catch (error) {
+			if (error instanceof ResponseBodySizeLimitError) {
+				throw new ProviderRequestError(502, settings.model, endpoint, 'Provider image response was larger than the supported avatar size.');
+			}
+			throw error;
+		}
+		let payload: unknown;
+		try {
+			payload = JSON.parse(rawResponse) as unknown;
+		} catch {
+			throw new ProviderRequestError(502, settings.model, endpoint, 'Provider image response was not valid JSON.', { rawResponse });
+		}
+		const dataUrl = openRouterImageApiDataUrl(payload);
+		if (!dataUrl) {
+			throw new ProviderRequestError(502, settings.model, endpoint, 'Provider image response did not include an image.', { rawResponse });
+		}
+		const usageRecord = runtimeRecord(payload).usage;
+		return {
+			dataUrl,
+			cost: providerUsageFromValue(usageRecord)?.cost ?? numberValue(runtimeRecord(usageRecord).cost) ?? null,
+		};
+	}
 	const imageConfig: JsonObject = {
 		...(settings.aspectRatio ? { aspect_ratio: settings.aspectRatio } : {}),
 		...(settings.imageSize ? { image_size: settings.imageSize } : {}),
@@ -11460,6 +11507,31 @@ async function fetchProviderAvatarImage(
 		dataUrl,
 		cost: providerUsageFromValue(usageRecord)?.cost ?? numberValue(runtimeRecord(usageRecord).cost) ?? null,
 	};
+}
+
+function openRouterAvatarImageRequest(
+	settings: ImageGenerationProviderSettings,
+	requestMessages: ReturnType<typeof avatarImageGenerationMessages>,
+	input: { currentAvatarUrl?: string },
+	stream: boolean,
+): JsonObject {
+	const prompt = openRouterAvatarImagePrompt(requestMessages);
+	return {
+		model: settings.model,
+		prompt,
+		stream,
+		...(input.currentAvatarUrl ? { input_references: [{ type: 'image_url', image_url: { url: input.currentAvatarUrl } }] } : {}),
+		...(settings.aspectRatio ? { aspect_ratio: settings.aspectRatio } : {}),
+		...(settings.imageSize ? { size: settings.imageSize } : {}),
+		...(settings.providerRouting ? { provider: settings.providerRouting } : {}),
+	};
+}
+
+function openRouterAvatarImagePrompt(requestMessages: ReturnType<typeof avatarImageGenerationMessages>): string {
+	return requestMessages.displayMessages
+		.map((message) => message.content.trim())
+		.filter(Boolean)
+		.join('\n\n');
 }
 
 function avatarImageGenerationMessages(input: { prompt: string; currentAvatarUrl?: string }, target: 'participant' | 'world' = 'participant'): {
@@ -11686,6 +11758,61 @@ async function fetchProviderAvatarImageFromStream(
 	return { dataUrl, cost };
 }
 
+async function fetchOpenRouterAvatarImageFromStream(
+	settings: ImageGenerationProviderSettings,
+	endpoint: string,
+	response: Response,
+	signal: AbortSignal,
+	stream: AvatarGenerationStreamSink,
+): Promise<{ dataUrl: string; cost: number | null }> {
+	if (!response.body) {
+		throw new ProviderRequestError(502, settings.model, endpoint, 'Inference provider did not return a streaming response body.');
+	}
+	let dataUrl: string | null = null;
+	let cost: number | null = null;
+	let imageCount = 0;
+	try {
+		for await (const event of readSse(response.body, signal, providerImageBodyReadTimeoutMs)) {
+			if (event.data === '[DONE]') {
+				break;
+			}
+			let chunk: unknown;
+			try {
+				chunk = JSON.parse(event.data) as unknown;
+			} catch {
+				continue;
+			}
+			const record = runtimeRecord(chunk);
+			const providerError = providerStreamErrorFromChunk(record);
+			if (providerError) {
+				throw providerError;
+			}
+			const usage = providerUsageFromValue(record.usage);
+			if (usage) {
+				cost = usage.cost ?? numberValue(usage.raw.cost) ?? cost;
+			}
+			const type = stringValue(record.type);
+			const eventDataUrl = openRouterImageApiDataUrl({ data: [record] });
+			if (eventDataUrl) {
+				imageCount += 1;
+				await stream.assistantImage(imageCount);
+				if (type === 'image_generation.completed' && !dataUrl) {
+					dataUrl = eventDataUrl;
+				}
+			}
+		}
+	} catch (error) {
+		if (error instanceof ResponseBodySizeLimitError) {
+			throw new ProviderRequestError(502, settings.model, endpoint, 'Provider image response was larger than the supported avatar size.');
+		}
+		throw error;
+	}
+	if (!dataUrl) {
+		throw new ProviderRequestError(502, settings.model, endpoint, 'Provider image response did not include a valid image.');
+	}
+	return { dataUrl, cost };
+}
+
 export function providerAvatarImageStreamChunk(chunk: unknown): ProviderAvatarImageStreamChunk {
 	const record = runtimeRecord(chunk);
 	const providerError = providerStreamErrorFromChunk(record);
@@ -11742,7 +11869,7 @@ async function openRouterImageModelModalities(
 		return null;
 	}
 	try {
-		const response = await fetch('https://openrouter.ai/api/v1/models?output_modalities=image', {
+		const response = await fetch('https://openrouter.ai/api/v1/images/models', {
 			headers: { accept: 'application/json' },
 			...(signal ? { signal } : {}),
 		});
@@ -11772,6 +11899,10 @@ async function openRouterImageModelModalities(
 }
 
 function providerImageDataUrl(payload: unknown): string | null {
+	const imageApiUrl = openRouterImageApiDataUrl(payload);
+	if (imageApiUrl) {
+		return imageApiUrl;
+	}
 	const choices = Array.isArray((payload as { choices?: unknown }).choices) ? (payload as { choices: unknown[] }).choices : [];
 	for (const choice of choices) {
 		const message = runtimeRecord(runtimeRecord(choice).message);
@@ -11781,6 +11912,29 @@ function providerImageDataUrl(payload: unknown): string | null {
 		}
 	}
 	return null;
+}
+
+function openRouterImageApiDataUrl(payload: unknown): string | null {
+	const data = Array.isArray((payload as { data?: unknown }).data) ? (payload as { data: unknown[] }).data : [];
+	for (const item of data) {
+		const record = runtimeRecord(item);
+		const url = dataUrlFromBase64Image(record.b64_json, record.media_type);
+		if (url) {
+			return url;
+		}
+	}
+	return null;
+}
+
+function dataUrlFromBase64Image(base64: unknown, mediaTypeValue: unknown): string | null {
+	if (typeof base64 !== 'string' || !base64.trim()) {
+		return null;
+	}
+	const mediaType = stringValue(mediaTypeValue) ?? 'image/png';
+	if (!mediaType.startsWith('image/')) {
+		return null;
+	}
+	return `data:${mediaType};base64,${base64.trim()}`;
 }
 
 function providerImageDataUrlsFromImages(value: unknown): string[] {
@@ -16158,6 +16312,17 @@ function uniqueSeenContentItems(items: SeenContentItem[]): SeenContentItem[] {
 function providerChatCompletionsUrl(baseUrl: string): string {
 	const normalized = baseUrl.replace(/\/+$/, '');
 	return normalized.endsWith('/chat/completions') ? normalized : `${normalized}/chat/completions`;
+}
+
+function providerImagesUrl(baseUrl: string): string {
+	const normalized = baseUrl.replace(/\/+$/, '');
+	if (normalized.endsWith('/images')) {
+		return normalized;
+	}
+	if (normalized.endsWith('/chat/completions')) {
+		return `${normalized.slice(0, -'/chat/completions'.length)}/images`;
+	}
+	return `${normalized}/images`;
 }
 
 function estimateTextTokens(text: string): number {
