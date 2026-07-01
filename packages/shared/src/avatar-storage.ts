@@ -104,7 +104,7 @@ function validateAvatarBytes(bytes: Uint8Array, declaredContentType?: string): V
 	if (bytes.byteLength > avatarMaxBytes) {
 		throw new InputError("Avatar image must be 10 MB or smaller.");
 	}
-	const detected = detectAvatarContentType(bytes);
+	const detected = avatarContentTypeFromBytes(bytes);
 	if (!detected) {
 		throw new InputError("Avatar image must be JPEG, PNG, WebP, or SVG.");
 	}
@@ -295,7 +295,7 @@ async function readCappedBytes(body: ReadableStream | null, maxBytes: number): P
 	return bytes;
 }
 
-function detectAvatarContentType(bytes: Uint8Array): AvatarContentType | null {
+export function avatarContentTypeFromBytes(bytes: Uint8Array): AvatarContentType | null {
 	if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
 		return "image/jpeg";
 	}

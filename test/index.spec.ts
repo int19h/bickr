@@ -21072,7 +21072,7 @@ describe("Bickr Pages Functions", () => {
 				expect(requestBody.stream).toBe(false);
 				expect(requestBody.prompt).toContain("Paint me as a luminous portrait.");
 				return Response.json({
-					data: [{ b64_json: base64String(pngAvatarBytes()) }],
+					data: [{ b64_json: base64String(jpegAvatarBytes()) }],
 					usage: { prompt_tokens: 12, completion_tokens: 0, total_tokens: 12, cost: 0.034 },
 				});
 			},
@@ -21105,7 +21105,7 @@ describe("Bickr Pages Functions", () => {
 			expect(events[2]).toMatchObject({
 				type: "done",
 				candidate: {
-					contentType: "image/png",
+					contentType: "image/jpeg",
 					source: {
 						type: "generated",
 						model,
@@ -21115,7 +21115,7 @@ describe("Bickr Pages Functions", () => {
 				},
 			});
 			const candidate = (events[2] as { candidate: NonNullable<BotBody["avatar"]> }).candidate;
-			expect(candidate.url).toContain("/avatar-candidates/");
+			expect(candidate.url).toMatch(/\/avatar-candidates\/.+\.jpg$/);
 			expect(r2.objects.has(candidate.key)).toBe(true);
 			expect(fetchMock).toHaveBeenCalledTimes(2);
 		} finally {
@@ -23096,6 +23096,10 @@ function bytesFromR2PutValue(value: unknown): Uint8Array {
 
 function pngAvatarBytes(): Uint8Array {
 	return base64Bytes("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==");
+}
+
+function jpegAvatarBytes(): Uint8Array {
+	return new Uint8Array([0xff, 0xd8, 0xff, 0xd9]);
 }
 
 function largePngAvatarBytes(): Uint8Array {

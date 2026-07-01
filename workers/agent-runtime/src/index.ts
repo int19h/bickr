@@ -1,6 +1,7 @@
 import { fail, ok, readJsonBody } from '@bickr/shared/api';
 import { worldAvatarMembersPromptUserContent } from '@bickr/shared/avatar-prompts';
 import {
+	avatarContentTypeFromBytes,
 	avatarMaxBytes,
 	copyAvatarImage,
 	fetchRemoteAvatarBytes,
@@ -12135,11 +12136,28 @@ function dataUrlFromBase64Image(base64: unknown, mediaTypeValue: unknown): strin
 	if (typeof base64 !== 'string' || !base64.trim()) {
 		return null;
 	}
-	const mediaType = stringValue(mediaTypeValue) ?? 'image/png';
+	const normalizedBase64 = base64.trim();
+	if (/^data:image\/[^;,]+;base64,/i.test(normalizedBase64)) {
+		return normalizedBase64;
+	}
+	const mediaType = avatarContentTypeFromBase64Image(normalizedBase64) ?? stringValue(mediaTypeValue) ?? 'image/png';
 	if (!mediaType.startsWith('image/')) {
 		return null;
 	}
-	return `data:${mediaType};base64,${base64.trim()}`;
+	return `data:${mediaType};base64,${normalizedBase64}`;
+}
+
+function avatarContentTypeFromBase64Image(base64: string): ReturnType<typeof avatarContentTypeFromBytes> {
+	try {
+		const binary = atob(base64);
+		const bytes = new Uint8Array(binary.length);
+		for (let index = 0; index < binary.length; index += 1) {
+			bytes[index] = binary.charCodeAt(index);
+		}
+		return avatarContentTypeFromBytes(bytes);
+	} catch {
+		return null;
+	}
 }
 
 function providerImageDataUrlsFromImages(value: unknown): string[] {
