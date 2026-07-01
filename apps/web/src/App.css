@@ -6546,6 +6546,18 @@ fieldset {
 	grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
+.profile-avatar-editor {
+	align-items: flex-start;
+	display: flex;
+}
+
+.profile-avatar-editor .profile-avatar-column {
+	grid-column: auto;
+	grid-row: auto;
+	max-width: 220px;
+	width: min(100%, 220px);
+}
+
 .btn.icon-only {
 	align-items: center;
 	justify-content: center;

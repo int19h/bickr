@@ -18,7 +18,8 @@ export type Route =
 	| "notifications"
 	| "subscriptions"
 	| "human-profile"
-	| "profile";
+	| "profile"
+	| "profile-avatar";
 
 export type WorldTab = "forums" | "bots" | "groups" | "activity" | "notifications" | "lore";
 export type BotProfileTab = "activity" | "follows" | "notifications";
@@ -74,6 +75,9 @@ export function parsePathname(pathname: string, search = ""): ParsedRoute {
 		return { route: "subscriptions" };
 	}
 	if (parts[0] === "me" && parts[1] === "profile") {
+		if (parts[2] === "avatar") {
+			return { route: "profile-avatar" };
+		}
 		return { route: "profile" };
 	}
 	if (parts[0] === "search") {
@@ -167,6 +171,8 @@ export function routePath(parsed: ParsedRoute): string {
 			return `/hu/${encodeURIComponent(parsed.humanHandle ?? "")}`;
 		case "profile":
 			return "/me/profile";
+		case "profile-avatar":
+			return "/me/profile/avatar";
 	}
 }
 

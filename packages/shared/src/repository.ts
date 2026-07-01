@@ -139,6 +139,7 @@ type PublicUserIndexRow = {
 	displayName: string;
 	language: string | null;
 	uiLocale: string | null;
+	avatarCrop: string | null;
 	avatarUrl: string | null;
 	profileCompletedAt: string | null;
 	createdAt: string;
@@ -324,7 +325,6 @@ export async function upsertProviderUser(
 		handle,
 		language: null,
 		displayName: localizedText(displayName, null),
-		...(profile.avatarUrl ? { avatarUrl: profile.avatarUrl } : {}),
 		createdAt: now,
 		updatedAt: now,
 	};
@@ -343,7 +343,7 @@ export async function upsertProviderUser(
 			localizedTextSql(user.displayName),
 			localizedTextLangSql(user.displayName),
 			user.language,
-			user.avatarUrl ?? null,
+			null,
 			now,
 			now,
 		)
@@ -794,7 +794,8 @@ export function publicUser(user: UserDocument): PublicUser {
 		language: user.language,
 		...(user.uiLocale ? { uiLocale: user.uiLocale } : {}),
 		displayName: user.displayName,
-		...(user.avatarUrl ? { avatarUrl: user.avatarUrl } : {}),
+		...(user.avatar ? { avatar: user.avatar, avatarUrl: user.avatar.url } : {}),
+		...(user.avatar?.crop ? { avatarCrop: user.avatar.crop } : {}),
 		profileComplete: Boolean(user.profileCompletedAt),
 		...(user.profileCompletedAt ? { profileCompletedAt: user.profileCompletedAt } : {}),
 	};
@@ -802,6 +803,7 @@ export function publicUser(user: UserDocument): PublicUser {
 
 function publicUserFromIndexRow(row: PublicUserIndexRow): PublicUser {
 	const language = languageFromStored(row.language);
+	const avatarCrop = avatarCropFromJson(row.avatarCrop);
 	return {
 		id: row.id,
 		handle: row.handle,
@@ -809,6 +811,7 @@ function publicUserFromIndexRow(row: PublicUserIndexRow): PublicUser {
 		...(uiLocaleFromStored(row.uiLocale) ? { uiLocale: uiLocaleFromStored(row.uiLocale) } : {}),
 		displayName: localizedTextFromParts(row.displayName, language),
 		...(row.avatarUrl ? { avatarUrl: row.avatarUrl } : {}),
+		...(avatarCrop ? { avatarCrop } : {}),
 		profileComplete: Boolean(row.profileCompletedAt),
 		...(row.profileCompletedAt ? { profileCompletedAt: row.profileCompletedAt } : {}),
 	};
@@ -835,6 +838,7 @@ async function publicUserByHandle(db: D1DatabaseLike, handle: string): Promise<P
 				language,
 				ui_locale AS uiLocale,
 				avatar_url AS avatarUrl,
+				avatar_crop AS avatarCrop,
 				profile_completed_at AS profileCompletedAt,
 				created_at AS createdAt,
 				updated_at AS updatedAt
@@ -876,6 +880,7 @@ async function publicUsersByIds(db: D1DatabaseLike, userIds: string[]): Promise<
 					language,
 					ui_locale AS uiLocale,
 					avatar_url AS avatarUrl,
+					avatar_crop AS avatarCrop,
 					profile_completed_at AS profileCompletedAt,
 					created_at AS createdAt,
 					updated_at AS updatedAt
@@ -935,22 +940,18 @@ export async function updateUserProfile(
 		...(input.language !== undefined ? { language: input.language } : {}),
 		...(input.uiLocale !== undefined ? { uiLocale: input.uiLocale } : {}),
 		...(input.displayName !== undefined ? { displayName: input.displayName } : {}),
-		...(input.avatarUrl !== undefined ? (input.avatarUrl ? { avatarUrl: input.avatarUrl } : { avatarUrl: undefined }) : {}),
 		inferenceSettings,
 		profileCompletedAt: current.profileCompletedAt ?? now,
 		revision: current.revision + 1,
 		updatedAt: now,
 	};
-	if (input.avatarUrl === null || input.avatarUrl === "") {
-		delete updated.avatarUrl;
-	}
 
 	await writeJson(kv, kvKeys.user(updated.id), updated);
 	await db
 		.prepare(
 			`UPDATE users_index
 			 SET handle = ?, display_name = ?, display_name_lang = ?, language = ?, ui_locale = ?,
-			     avatar_url = ?, profile_completed_at = ?, updated_at = ?
+			     avatar_url = ?, avatar_crop = ?, profile_completed_at = ?, updated_at = ?
 			 WHERE user_id = ?`,
 		)
 		.bind(
@@ -959,7 +960,8 @@ export async function updateUserProfile(
 			localizedTextLangSql(updated.displayName),
 			updated.language,
 			updated.uiLocale ?? null,
-			updated.avatarUrl ?? null,
+			updated.avatar?.url ?? null,
+			avatarCropJson(updated.avatar?.crop),
 			updated.profileCompletedAt ?? null,
 			now,
 			updated.id,
@@ -967,6 +969,34 @@ export async function updateUserProfile(
 		.run();
 	await putObjectIndex(db, updated, "user");
 
+	return userProfile(updated, await listUserAuthIdentities(db, updated.id));
+}
+
+export async function updateUserAvatar(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	userId: string,
+	avatar: AvatarImage | undefined,
+	now = new Date().toISOString(),
+): Promise<UserProfile> {
+	const current = await userById(kv, userId);
+	const { avatar: _avatar, ...withoutAvatar } = current;
+	const updated: UserDocument = {
+		...withoutAvatar,
+		...(avatar ? { avatar } : {}),
+		revision: current.revision + 1,
+		updatedAt: now,
+	};
+	await writeJson(kv, kvKeys.user(updated.id), updated);
+	await db
+		.prepare(
+			`UPDATE users_index
+			 SET avatar_url = ?, avatar_crop = ?, updated_at = ?
+			 WHERE user_id = ? AND deleted_at IS NULL`,
+		)
+		.bind(updated.avatar?.url ?? null, avatarCropJson(updated.avatar?.crop), now, updated.id)
+		.run();
+	await putObjectIndex(db, updated, "user");
 	return userProfile(updated, await listUserAuthIdentities(db, updated.id));
 }
 
@@ -2724,6 +2754,7 @@ async function foreignBotBlockersForOwnedWorlds(
 		ownerLanguage: string | null;
 		ownerUiLocale: string | null;
 		ownerAvatarUrl: string | null;
+		ownerAvatarCrop: string | null;
 		ownerProfileCompletedAt: string | null;
 		avatarCrop: string | null;
 	};
@@ -2768,6 +2799,7 @@ async function foreignBotBlockersForOwnedWorlds(
 				u.language AS ownerLanguage,
 				u.ui_locale AS ownerUiLocale,
 				u.avatar_url AS ownerAvatarUrl,
+				u.avatar_crop AS ownerAvatarCrop,
 				u.profile_completed_at AS ownerProfileCompletedAt
 			 FROM worlds_index w
 			 JOIN bots_index b ON b.home_world_id = w.world_id AND b.deleted_at IS NULL
@@ -2829,6 +2861,7 @@ async function foreignBotBlockersForOwnedWorlds(
 						...(uiLocaleFromStored(row.ownerUiLocale) ? { uiLocale: uiLocaleFromStored(row.ownerUiLocale) } : {}),
 						displayName: localizedTextFromParts(row.ownerDisplayName, row.ownerDisplayNameLang ?? row.ownerLanguage),
 						...(row.ownerAvatarUrl ? { avatarUrl: row.ownerAvatarUrl } : {}),
+						...(avatarCropFromJson(row.ownerAvatarCrop) ? { avatarCrop: avatarCropFromJson(row.ownerAvatarCrop) } : {}),
 						profileComplete: Boolean(row.ownerProfileCompletedAt),
 						...(row.ownerProfileCompletedAt ? { profileCompletedAt: row.ownerProfileCompletedAt } : {}),
 					},
@@ -3902,16 +3935,17 @@ function normalizeBotDefaults(bot: BotDocument): BotDocument {
 }
 
 function normalizeUserDefaults(user: UserDocument): UserDocument {
-	const raw = user as UserDocument & Record<string, unknown>;
+	const { avatarUrl: _legacyAvatarUrl, ...withoutLegacyAvatarUrl } = user as UserDocument & Record<string, unknown> & { avatarUrl?: string };
+	const raw = withoutLegacyAvatarUrl as UserDocument & Record<string, unknown>;
 	const language = languageFromStored(typeof raw.language === "string" ? raw.language : null);
 	return {
-		...user,
+		...withoutLegacyAvatarUrl,
 		language,
 		...(uiLocaleFromStored(typeof raw.uiLocale === "string" ? raw.uiLocale : null) ?
 			{ uiLocale: uiLocaleFromStored(typeof raw.uiLocale === "string" ? raw.uiLocale : null) }
 		:	{}),
 		displayName: localizedTextFromStored(raw.displayName, language),
-		inferenceSettings: mergeInferenceSettings(undefined, user.inferenceSettings),
+		inferenceSettings: mergeInferenceSettings(undefined, raw.inferenceSettings),
 	};
 }
 

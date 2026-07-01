@@ -75,7 +75,7 @@ export type UserDocument = EntityDocument & {
 	language: LanguageTag | null;
 	uiLocale?: UiLocalePreference;
 	displayName: LocalizedText;
-	avatarUrl?: string;
+	avatar?: AvatarImage;
 	inferenceSettings?: BotInferenceSettings;
 	profileCompletedAt?: string;
 };
@@ -863,7 +863,9 @@ export type PublicUser = {
 	language: LanguageTag | null;
 	uiLocale?: UiLocalePreference;
 	displayName: LocalizedText;
+	avatar?: AvatarImage;
 	avatarUrl?: string;
+	avatarCrop?: AvatarCrop;
 	profileComplete: boolean;
 	profileCompletedAt?: string;
 };
@@ -1888,7 +1890,6 @@ export type UpdateBotInput = Partial<
 export type UpdateUserProfileInput = Partial<Pick<UserProfile, "handle" | "displayName">> & {
 	language?: LanguageTag | null;
 	uiLocale?: UiLocalePreference;
-	avatarUrl?: string | null;
 	inferenceSettings?: BotInferenceSettingsInput;
 };
 

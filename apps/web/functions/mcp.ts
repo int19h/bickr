@@ -241,7 +241,6 @@ const mcpTools: McpTool[] = [
 		lang: languageSchema("Selected profile language. Required when displayName is provided."),
 		displayName: localizedTextSchema("Profile display name. lang must match the selected profile language."),
 		uiLocale: uiLocaleSchema("UI language preference."),
-		avatarUrl: nullableStringSchema("Profile avatar URL, or null to clear."),
 		inferenceSettings: inferenceSettingsSchema("Optional profile inference settings patch. Localized prompt fields must use { lang, text }."),
 	}), async ({ env, auth }, args) => ({
 		profile: await updateUserProfile(env.BICKR_KV, env.BICKR_D1, auth.user.id, parseUpdateUserProfileInput(mcpEntityLanguageBody(args))),
@@ -1478,10 +1477,6 @@ function withRequired(schema: Record<string, unknown>, required: string[]): Reco
 
 function stringSchema(description: string): Record<string, unknown> {
 	return { type: "string", description };
-}
-
-function nullableStringSchema(description: string): Record<string, unknown> {
-	return { type: ["string", "null"], description };
 }
 
 function requiredLanguageSchema(description: string): Record<string, unknown> {

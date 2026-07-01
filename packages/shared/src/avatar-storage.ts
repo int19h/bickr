@@ -18,7 +18,8 @@ export type R2BucketLike = {
 
 export type StoredAvatarInput = {
 	botId?: string;
-	worldId: string;
+	userId?: string;
+	worldId?: string;
 	bytes: Uint8Array;
 	contentType: AvatarContentType;
 	publicBaseUrl: string;
@@ -26,7 +27,7 @@ export type StoredAvatarInput = {
 	now?: string;
 	kind?: AvatarKind;
 	key?: string;
-	target?: "bot" | "world";
+	target?: "bot" | "user" | "world";
 };
 
 export type RemoteAvatarFetch = typeof fetch;
@@ -124,21 +125,21 @@ function validateAvatarBytes(bytes: Uint8Array, declaredContentType?: string): V
 export async function storeAvatarImage(bucket: R2BucketLike, input: StoredAvatarInput): Promise<AvatarImage> {
 	const now = input.now ?? new Date().toISOString();
 	const publicBaseUrl = normalizeAvatarPublicBaseUrl(input.publicBaseUrl);
-	const key = avatarObjectKey(input.worldId, input.botId, input.kind ?? "avatars", input.contentType, input.target);
+	const kind = input.kind ?? "avatars";
+	const key = input.key ?? avatarObjectKey(input, kind);
 	const dimensions = avatarDimensions(input.bytes, input.contentType);
-	await bucket.put(input.key ?? key, input.bytes, {
+	await bucket.put(key, input.bytes, {
 		httpMetadata: {
 			contentType: input.contentType,
 			cacheControl:
-				(input.kind ?? "avatars") === "avatars" ?
+				kind === "avatars" ?
 					"public, max-age=31536000, immutable"
 				:	"public, max-age=86400",
 		},
 	});
-	const storedKey = input.key ?? key;
 	return {
-		key: storedKey,
-		url: `${publicBaseUrl}/${storedKey}`,
+		key,
+		url: `${publicBaseUrl}/${key}`,
 		contentType: input.contentType,
 		byteLength: input.bytes.byteLength,
 		...dimensions,
@@ -151,12 +152,13 @@ export async function promoteAvatarCandidate(
 	bucket: R2BucketLike,
 	input: {
 		botId?: string;
-		worldId: string;
+		userId?: string;
+		worldId?: string;
 		candidate: AvatarImage;
 		publicBaseUrl: string;
 		source?: AvatarImageSource;
 		now?: string;
-		target?: "bot" | "world";
+		target?: "bot" | "user" | "world";
 	},
 ): Promise<AvatarImage> {
 	const object = await bucket.get(input.candidate.key);
@@ -167,6 +169,7 @@ export async function promoteAvatarCandidate(
 	const validated = validateAvatarBytes(bytes, input.candidate.contentType);
 	return storeAvatarImage(bucket, {
 		botId: input.botId,
+		userId: input.userId,
 		worldId: input.worldId,
 		bytes: validated.bytes,
 		contentType: validated.contentType,
@@ -215,20 +218,29 @@ export async function copyAvatarImage(
 }
 
 function avatarObjectKey(
-	worldId: string,
-	botId: string | undefined,
+	input: Pick<StoredAvatarInput, "botId" | "contentType" | "target" | "userId" | "worldId">,
 	kind: AvatarKind,
-	contentType: AvatarContentType,
-	target: "bot" | "world" | undefined,
 ): string {
+	const contentType = input.contentType;
 	const extension =
 		contentType === "image/png" ? "png"
 		: contentType === "image/webp" ? "webp"
 		: contentType === "image/svg+xml" ? "svg"
 		: "jpg";
-	if (target === "world") {
+	if (input.target === "user") {
+		if (!input.userId) {
+			throw new InputError("User avatar storage requires a user ID.");
+		}
+		return `users/${encodeURIComponent(input.userId)}/${kind}/${crypto.randomUUID()}.${extension}`;
+	}
+	const worldId = input.worldId;
+	if (!worldId) {
+		throw new InputError("Avatar storage requires a world ID.");
+	}
+	if (input.target === "world") {
 		return `worlds/${encodeURIComponent(worldId)}/world/${kind}/${crypto.randomUUID()}.${extension}`;
 	}
+	const botId = input.botId;
 	if (!botId) {
 		throw new InputError("Bot avatar storage requires a bot ID.");
 	}

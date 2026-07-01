@@ -246,6 +246,7 @@ type ContentRefType = "thread" | "comment";
 type OpenContentRefOptions = { replace?: boolean };
 type BotMutationResponse = { bot: BotSummary; affectedBots?: BotSummary[] };
 type WorldMutationResponse = { world: WorldSummary };
+type UserMutationResponse = { profile: UserProfile };
 
 type BeforeInstallPromptEvent = Event & {
 	platforms: string[];
@@ -423,7 +424,6 @@ type ProfileDraft = {
 	language: string;
 	uiLocale: string;
 	displayName: string;
-	avatarUrl: string;
 	inference: InferenceDraft;
 };
 
@@ -595,8 +595,6 @@ type UiText = {
 		displayName: string;
 		handle: string;
 		handleHelp: string;
-		avatarUrl: string;
-		avatarUrlHelp: string;
 		accountLanguage: string;
 		uiLanguage: string;
 		uiLanguageHelp: string;
@@ -654,8 +652,6 @@ const uiTextByLocale = {
 			displayName: "Display name",
 			handle: "Handle",
 			handleHelp: "Shown as hu/handle in the UI.",
-			avatarUrl: "Avatar URL",
-			avatarUrlHelp: "Optional image URL for the profile avatar.",
 			accountLanguage: "Account language",
 			uiLanguage: "UI language",
 			uiLanguageHelp: "Controls Bickr-authored interface text and default UI font ordering.",
@@ -711,8 +707,6 @@ const uiTextByLocale = {
 			displayName: "Nombre visible",
 			handle: "Identificador",
 			handleHelp: "Se muestra como hu/identificador en la interfaz.",
-			avatarUrl: "URL del avatar",
-			avatarUrlHelp: "URL de imagen opcional para el avatar del perfil.",
 			accountLanguage: "Idioma de la cuenta",
 			uiLanguage: "Idioma de la interfaz",
 			uiLanguageHelp: "Controla el texto de interfaz escrito por Bickr y el orden predeterminado de fuentes.",
@@ -768,8 +762,6 @@ const uiTextByLocale = {
 			displayName: "显示名称",
 			handle: "用户名",
 			handleHelp: "在界面中显示为 hu/用户名。",
-			avatarUrl: "头像 URL",
-			avatarUrlHelp: "个人资料头像的可选图片 URL。",
 			accountLanguage: "账号语言",
 			uiLanguage: "界面语言",
 			uiLanguageHelp: "控制由 Bickr 编写的界面文本和默认字体顺序。",
@@ -825,8 +817,6 @@ const uiTextByLocale = {
 			displayName: "表示名",
 			handle: "ハンドル",
 			handleHelp: "UI では hu/handle として表示されます。",
-			avatarUrl: "アバター URL",
-			avatarUrlHelp: "プロフィールアバター用の任意の画像 URL。",
 			accountLanguage: "アカウント言語",
 			uiLanguage: "UI 言語",
 			uiLanguageHelp: "Bickr が書くインターフェイス文言と既定のフォント順を制御します。",
@@ -882,8 +872,6 @@ const uiTextByLocale = {
 			displayName: "Отображаемое имя",
 			handle: "Идентификатор",
 			handleHelp: "В интерфейсе показывается как hu/идентификатор.",
-			avatarUrl: "URL аватара",
-			avatarUrlHelp: "Необязательный URL изображения для аватара профиля.",
 			accountLanguage: "Язык учетной записи",
 			uiLanguage: "Язык интерфейса",
 			uiLanguageHelp: "Управляет текстом интерфейса Bickr и порядком шрифтов по умолчанию.",
@@ -939,8 +927,6 @@ const uiTextByLocale = {
 			displayName: "Відображуване ім'я",
 			handle: "Ідентифікатор",
 			handleHelp: "В інтерфейсі показується як hu/ідентифікатор.",
-			avatarUrl: "URL аватара",
-			avatarUrlHelp: "Необов'язковий URL зображення для аватара профілю.",
 			accountLanguage: "Мова облікового запису",
 			uiLanguage: "Мова інтерфейсу",
 			uiLanguageHelp: "Керує текстом інтерфейсу Bickr і типовим порядком шрифтів.",
@@ -996,8 +982,6 @@ const uiTextByLocale = {
 			displayName: "Montra nomo",
 			handle: "Tenilo",
 			handleHelp: "Montriĝas kiel hu/tenilo en la interfaco.",
-			avatarUrl: "Avatara URL",
-			avatarUrlHelp: "Nedeviga bilda URL por la profila avataro.",
 			accountLanguage: "Konta lingvo",
 			uiLanguage: "Interfaca lingvo",
 			uiLanguageHelp: "Regas interfactekston verkitan de Bickr kaj defaŭltan tiparan ordon.",
@@ -1275,6 +1259,8 @@ function clientRouteTitle({
 			return titleWithBickr(user ? `hu/${user.handle}: subscriptions` : "Subscriptions");
 		case "profile":
 			return titleWithBickr(user ? `hu/${user.handle}: profile` : "Profile");
+		case "profile-avatar":
+			return titleWithBickr(user ? `hu/${user.handle}: avatar` : "Profile avatar");
 		case "human-profile":
 			return titleWithBickr(humanHandle ? `hu/${humanHandle}` : "Profile");
 		case "search": {
@@ -1429,11 +1415,11 @@ function App() {
 			return undefined;
 		}
 		if (!session.user.profileComplete) {
-			setUserProfile(null);
 			setBotGroupsByWorld({});
 			setHumanNotifications({ unreadCount: 0, notifications: [] });
 			setSubscriptions([]);
 			setSubscriptionTreeResponse(null);
+			void loadUserProfile();
 			return undefined;
 		}
 		void loadUserProfile();
@@ -1448,7 +1434,7 @@ function App() {
 	}, [session.authenticated, session.user?.id]);
 
 	useEffect(() => {
-		if (session.authenticated && session.user && !session.user.profileComplete && route !== "profile") {
+		if (session.authenticated && session.user && !session.user.profileComplete && route !== "profile" && route !== "profile-avatar") {
 			navigate({ route: "profile" }, true);
 		}
 	}, [route, session.authenticated, session.user?.id, session.user?.profileComplete]);
@@ -2833,10 +2819,18 @@ function App() {
 		}
 	}
 
+	function applySavedUserProfile(profile: UserProfile): void {
+		setUserProfile(profile);
+		setSession((current) => ({
+			...current,
+			user: publicUserFromProfile(profile),
+		}));
+	}
+
 	async function updateProfile(draft: UpdateUserProfileInput): Promise<UserProfile | null> {
 		let saved: UserProfile | null = null;
 		const ok = await submit(async () => {
-			const result = await api<{ profile: UserProfile }>("/api/me/profile", {
+			const result = await api<UserMutationResponse>("/api/me/profile", {
 				method: "PATCH",
 				body: draft,
 			});
@@ -2844,22 +2838,7 @@ function App() {
 				throw new Error(result.message);
 			}
 			saved = result.data.profile;
-			setUserProfile(result.data.profile);
-			setSession((current) => ({
-				...current,
-				user: {
-						id: result.data.profile.id,
-						handle: result.data.profile.handle,
-						language: result.data.profile.language,
-						...(result.data.profile.uiLocale ? { uiLocale: result.data.profile.uiLocale } : {}),
-						displayName: result.data.profile.displayName,
-					...(result.data.profile.avatarUrl ? { avatarUrl: result.data.profile.avatarUrl } : {}),
-					profileComplete: result.data.profile.profileComplete,
-					...(result.data.profile.profileCompletedAt ?
-						{ profileCompletedAt: result.data.profile.profileCompletedAt }
-					:	{}),
-				},
-			}));
+			applySavedUserProfile(result.data.profile);
 			return "Saved profile.";
 		});
 		return ok ? saved : null;
@@ -3371,10 +3350,35 @@ function App() {
 						<ProfileScreen
 							busy={busy}
 							onAuthIdentityUnlink={unlinkAuthIdentity}
+							onAvatarUpdated={applySavedUserProfile}
+							onOpenAvatarGeneration={() => navigate({ route: "profile-avatar" })}
 							onSave={updateProfile}
 							onSignOut={() => void logout()}
 							user={session.user}
 						/>
+					)}
+					{route === "profile-avatar" && (
+						userProfile ?
+							<UserAvatarGenerationScreen
+								onBack={() => navigate({ route: "profile" })}
+								onDiscardSettings={async () => Boolean(await updateProfile({ inferenceSettings: { imageGeneration: null } }))}
+								onProfileUpdated={applySavedUserProfile}
+								onSaveSettings={async (draft) =>
+									Boolean(await updateProfile({
+										inferenceSettings: {
+											imageGeneration: imageGenerationInputFromDraft(
+												draft,
+												undefined,
+												userProfile.language ?? textLang(userProfile.displayName) ?? defaultLanguageTag,
+											),
+										},
+									}))
+								}
+								profile={userProfile}
+							/>
+						:	<EmptyState title="Loading profile">
+								Loading profile avatar settings.
+							</EmptyState>
 					)}
 				</main>
 			</div>
@@ -3526,7 +3530,8 @@ function Topbar({
 		route !== "notifications" &&
 		route !== "subscriptions" &&
 		route !== "human-profile" &&
-		route !== "profile";
+		route !== "profile" &&
+		route !== "profile-avatar";
 	const breadcrumbs: { content: ReactNode; key: string }[] = [];
 	if (world && isWorldScoped) {
 		breadcrumbs.push({
@@ -3605,6 +3610,13 @@ function Topbar({
 	if (route === "profile") {
 		breadcrumbs.push({ key: "profile", content: <span className="current">{t.topbar.profile}</span> });
 	}
+	if (route === "profile-avatar") {
+		breadcrumbs.push({
+			key: "profile",
+			content: <SpaLink to={{ route: "profile" }}>{t.topbar.profile}</SpaLink>,
+		});
+		breadcrumbs.push({ key: "profile-avatar", content: <span className="current">{t.topbar.avatar}</span> });
+	}
 	return (
 		<header className="topbar">
 			<div className="brand">
@@ -3652,7 +3664,7 @@ function Topbar({
 					onRefresh={onRefreshNotifications}
 				/>
 				<SpaLink className={`account-btn ${busy ? "disabled" : ""}`} title={t.topbar.profile} to={{ route: "profile" }}>
-					<Avatar actor="user" colorSeed={user.handle} imageUrl={user.avatarUrl} name={user.displayName} size="sm" />
+					<Avatar actor="user" colorSeed={user.handle} crop={user.avatarCrop} imageUrl={user.avatarUrl} name={user.displayName} size="sm" />
 					<span>hu/{user.handle}</span>
 				</SpaLink>
 			</div>
@@ -7932,6 +7944,93 @@ function WorldAvatarUploadModal({
 	);
 }
 
+function UserAvatarUploadModal({
+	onClose,
+	onSaved,
+	open,
+}: {
+	onClose: () => void;
+	onSaved: (profile: UserProfile) => void;
+	open: boolean;
+}) {
+	const [url, setUrl] = useState("");
+	const [file, setFile] = useState<File | null>(null);
+	const [saving, setSaving] = useState(false);
+	const [error, setError] = useState("");
+
+	useEffect(() => {
+		if (!open) {
+			setUrl("");
+			setFile(null);
+			setSaving(false);
+			setError("");
+		}
+	}, [open]);
+
+	async function submitAvatar(): Promise<void> {
+		setSaving(true);
+		setError("");
+		try {
+			const body =
+				file ?
+					(() => {
+						const form = new FormData();
+						form.set("file", file);
+						return form;
+					})()
+				:	{ url: url.trim() };
+			const result = await api<UserMutationResponse>("/api/me/avatar", {
+				method: "PUT",
+				body,
+			});
+			if (!result.ok) {
+				throw new Error(result.message);
+			}
+			onSaved(result.data.profile);
+			onClose();
+		} catch (caught) {
+			setError(caught instanceof Error ? caught.message : "Could not save avatar.");
+		} finally {
+			setSaving(false);
+		}
+	}
+
+	const urlFilled = Boolean(url.trim());
+	const fileFilled = Boolean(file);
+	const canSubmit = urlFilled !== fileFilled;
+	return (
+		<Modal
+			foot={
+				<>
+					<span />
+					<div className="right">
+						<button className="btn ghost" disabled={saving} onClick={onClose} type="button">
+							Cancel
+						</button>
+						<button className="btn primary" disabled={!canSubmit || saving} onClick={() => void submitAvatar()} type="button">
+							{saving ? "Saving..." : "Save avatar"}
+						</button>
+					</div>
+				</>
+			}
+			onClose={onClose}
+			open={open}
+			title="Upload Avatar"
+		>
+			<Field label="Image URL">
+				<input className="input" disabled={fileFilled || saving} onChange={(event) => setUrl(event.target.value)} placeholder="https://example.com/avatar.png" value={url} />
+			</Field>
+			<div className="modal-or-line">
+				<span>or</span>
+			</div>
+			<Field label="Image file">
+				<input accept="image/jpeg,image/png,image/webp,image/svg+xml" className="input" disabled={urlFilled || saving} onChange={(event) => setFile(event.target.files?.[0] ?? null)} type="file" />
+			</Field>
+			{error && <div className="runtime-message error">{error}</div>}
+		</Modal>
+	);
+}
+
 type AvatarCropDragState = {
 	corner?: AvatarCropCorner;
 	imageRect: DOMRect;
@@ -8468,6 +8567,264 @@ function WorldAvatarCropModal({
 	);
 }
 
+function UserAvatarCropModal({
+	onClose,
+	onSaved,
+	open,
+	user,
+}: {
+	onClose: () => void;
+	onSaved: (profile: UserProfile) => void;
+	open: boolean;
+	user: Pick<PublicUser, "avatarCrop" | "avatarUrl" | "displayName" | "handle">;
+}) {
+	const frameRef = useRef<HTMLDivElement | null>(null);
+	const imageRef = useRef<HTMLImageElement | null>(null);
+	const dragRef = useRef<AvatarCropDragState | null>(null);
+	const [draft, setDraft] = useState<AvatarCrop | null>(null);
+	const [cropDisplayBox, setCropDisplayBox] = useState<AvatarCropDisplayBox | null>(null);
+	const [saving, setSaving] = useState(false);
+	const [imageReady, setImageReady] = useState(false);
+	const [error, setError] = useState("");
+
+	const measureCropDisplayBox = useCallback(() => {
+		const frame = frameRef.current;
+		const image = imageRef.current;
+		if (!frame || !image) {
+			setCropDisplayBox(null);
+			return;
+		}
+		const frameRect = frame.getBoundingClientRect();
+		const imageRect = image.getBoundingClientRect();
+		if (frameRect.width <= 0 || frameRect.height <= 0 || imageRect.width <= 0 || imageRect.height <= 0) {
+			setCropDisplayBox(null);
+			return;
+		}
+		const next = {
+			height: imageRect.height,
+			left: imageRect.left - frameRect.left,
+			top: imageRect.top - frameRect.top,
+			width: imageRect.width,
+		};
+		setCropDisplayBox((current) => sameAvatarCropDisplayBox(current, next) ? current : next);
+	}, []);
+
+	useEffect(() => {
+		if (!open) {
+			setDraft(null);
+			setCropDisplayBox(null);
+			setSaving(false);
+			setImageReady(false);
+			setError("");
+			dragRef.current = null;
+		}
+	}, [open]);
+
+	useEffect(() => {
+		if (open) {
+			setDraft(null);
+			setCropDisplayBox(null);
+			setImageReady(false);
+			setError("");
+			dragRef.current = null;
+		}
+	}, [user.avatarUrl, open]);
+
+	useLayoutEffect(() => {
+		if (!open || !imageReady) {
+			return;
+		}
+		measureCropDisplayBox();
+	}, [draft?.imageHeight, draft?.imageWidth, imageReady, measureCropDisplayBox, open]);
+
+	useEffect(() => {
+		if (!open || !imageReady) {
+			return undefined;
+		}
+		const measure = () => measureCropDisplayBox();
+		window.addEventListener("resize", measure);
+		window.addEventListener("orientationchange", measure);
+		let observer: ResizeObserver | null = null;
+		if (typeof ResizeObserver !== "undefined") {
+			observer = new ResizeObserver(measure);
+			if (frameRef.current) {
+				observer.observe(frameRef.current);
+			}
+			if (imageRef.current) {
+				observer.observe(imageRef.current);
+			}
+		}
+		measure();
+		return () => {
+			window.removeEventListener("resize", measure);
+			window.removeEventListener("orientationchange", measure);
+			observer?.disconnect();
+		};
+	}, [imageReady, measureCropDisplayBox, open]);
+
+	function handleImageLoad(event: ReactSyntheticEvent<HTMLImageElement>): void {
+		const image = event.currentTarget;
+		if (!image.naturalWidth || !image.naturalHeight) {
+			setImageReady(false);
+			setDraft(null);
+			setError("This avatar does not expose usable image dimensions.");
+			return;
+		}
+		const dimensions = normalizedCropDimensions(image.naturalWidth, image.naturalHeight);
+		const existing =
+			user.avatarCrop?.imageWidth === dimensions.imageWidth && user.avatarCrop.imageHeight === dimensions.imageHeight ?
+				user.avatarCrop
+			:	null;
+		setDraft(existing ? clampAvatarCrop(existing) : centeredAvatarCrop(dimensions.imageWidth, dimensions.imageHeight));
+		setImageReady(true);
+		setError("");
+	}
+
+	function beginCropDrag(
+		event: ReactPointerEvent<HTMLElement>,
+		type: AvatarCropDragState["type"],
+		corner?: AvatarCropCorner,
+	): void {
+		if (!draft || !imageRef.current) {
+			return;
+		}
+		const imageRect = imageRef.current.getBoundingClientRect();
+		if (imageRect.width <= 0 || imageRect.height <= 0) {
+			return;
+		}
+		event.preventDefault();
+		event.stopPropagation();
+		event.currentTarget.setPointerCapture(event.pointerId);
+		dragRef.current = {
+			imageRect,
+			pointerId: event.pointerId,
+			startCrop: draft,
+			startX: event.clientX,
+			startY: event.clientY,
+			type,
+			...(corner ? { corner } : {}),
+		};
+	}
+
+	function updateCropDrag(event: ReactPointerEvent<HTMLElement>): void {
+		const drag = dragRef.current;
+		if (!drag || event.pointerId !== drag.pointerId) {
+			return;
+		}
+		event.preventDefault();
+		const dx = ((event.clientX - drag.startX) * drag.startCrop.imageWidth) / drag.imageRect.width;
+		const dy = ((event.clientY - drag.startY) * drag.startCrop.imageHeight) / drag.imageRect.height;
+		setDraft(
+			drag.type === "move" ?
+				moveAvatarCrop(drag.startCrop, dx, dy)
+			:	resizeAvatarCrop(drag.startCrop, drag.corner ?? "se", dx, dy),
+		);
+	}
+
+	function endCropDrag(event: ReactPointerEvent<HTMLElement>): void {
+		const drag = dragRef.current;
+		if (!drag || event.pointerId !== drag.pointerId) {
+			return;
+		}
+		try {
+			event.currentTarget.releasePointerCapture(event.pointerId);
+		} catch {
+			// The pointer may already have been released by the browser when the gesture is cancelled.
+		}
+		dragRef.current = null;
+	}
+
+	async function saveCrop(): Promise<void> {
+		if (!draft) {
+			return;
+		}
+		setSaving(true);
+		setError("");
+		try {
+			const result = await api<UserMutationResponse>("/api/me/avatar/crop", {
+				method: "PATCH",
+				body: { crop: draft },
+			});
+			if (!result.ok) {
+				throw new Error(result.message);
+			}
+			onSaved(result.data.profile);
+			onClose();
+		} catch (caught) {
+			setError(caught instanceof Error ? caught.message : "Could not save avatar crop.");
+		} finally {
+			setSaving(false);
+		}
+	}
+
+	return (
+		<Modal
+			className="avatar-crop-modal"
+			foot={
+				<>
+					<span className="meta">{draft ? `${draft.size} x ${draft.size}` : ""}</span>
+					<div className="right">
+						<button className="btn ghost" disabled={saving} onClick={onClose} type="button">
+							Cancel
+						</button>
+						<button className="btn primary" disabled={!draft || !imageReady || saving} onClick={() => void saveCrop()} type="button">
+							{saving ? "Saving..." : "Save"}
+						</button>
+					</div>
+				</>
+			}
+			onClose={onClose}
+			open={open}
+			title="Crop avatar"
+			wide
+		>
+			{user.avatarUrl ?
+				<div className="avatar-crop-stage">
+					<div className="avatar-crop-frame" ref={frameRef}>
+						<img
+							alt=""
+							className="avatar-crop-image"
+							onError={() => {
+								setImageReady(false);
+								setDraft(null);
+								setCropDisplayBox(null);
+								setError("This avatar image could not be loaded.");
+							}}
+							onLoad={handleImageLoad}
+							ref={imageRef}
+							src={user.avatarUrl}
+						/>
+						{draft && imageReady && cropDisplayBox && (
+							<div
+								className="avatar-crop-selection"
+								onPointerCancel={endCropDrag}
+								onPointerDown={(event) => beginCropDrag(event, "move")}
+								onPointerMove={updateCropDrag}
+								onPointerUp={endCropDrag}
+								style={avatarCropOverlayStyle(draft, cropDisplayBox)}
+							>
+								{(["nw", "ne", "sw", "se"] as const).map((corner) => (
+									<span
+										aria-hidden="true"
+										className={`avatar-crop-handle ${corner}`}
+										key={corner}
+										onPointerCancel={endCropDrag}
+										onPointerDown={(event) => beginCropDrag(event, "resize", corner)}
+										onPointerMove={updateCropDrag}
+										onPointerUp={endCropDrag}
+									/>
+								))}
+							</div>
+						)}
+					</div>
+				</div>
+			:	<div className="empty compact-empty">Your profile does not have an avatar to crop.</div>
+			}
+			{error && <div className="runtime-message error">{error}</div>}
+		</Modal>
+	);
+}
+
 function ImageLightbox({
 	onClose,
 	title,
@@ -8903,6 +9260,412 @@ function BotAvatarGenerationScreen({
 			</section>
 			<AvatarGenerationChatLog entries={chatEntries} />
 			<ImageLightbox onClose={() => setLightboxUrl(null)} title={textValue(bot.displayName)} url={lightboxUrl} />
+		</div>
+	);
+}
+
+function UserAvatarGenerationScreen({
+	onBack,
+	onDiscardSettings,
+	onProfileUpdated,
+	onSaveSettings,
+	profile,
+}: {
+	onBack: () => void;
+	onDiscardSettings: () => Promise<boolean>;
+	onProfileUpdated: (profile: UserProfile) => void;
+	onSaveSettings: (draft: InferenceDraft) => Promise<boolean>;
+	profile: UserProfile;
+}) {
+	const profileLanguage = profile.language ?? textLang(profile.displayName) ?? defaultLanguageTag;
+	const initialSettings = defaultAvatarGenerationInferenceSettings(profile.inferenceSettings);
+	const [draft, setDraft] = useState<InferenceDraft>(() => inferenceDraftFromSettings(initialSettings));
+	const [models, setModels] = useState<OpenRouterImageModel[]>([]);
+	const [modelsError, setModelsError] = useState("");
+	const [prompt, setPrompt] = useState(textValue(initialSettings.imageGeneration?.prompt));
+	const [includeCurrentAvatar, setIncludeCurrentAvatar] = useState(Boolean(profile.avatarUrl));
+	const [candidate, setCandidate] = useState<AvatarImage | null>(null);
+	const [chatEntries, setChatEntries] = useState<AvatarGenerationChatEntry[]>([]);
+	const [generating, setGenerating] = useState(false);
+	const [fillingFromCurrentAvatar, setFillingFromCurrentAvatar] = useState(false);
+	const [saving, setSaving] = useState(false);
+	const [message, setMessage] = useState("");
+	const [error, setError] = useState("");
+	const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+	const [currentAvatarFailed, setCurrentAvatarFailed] = useState(false);
+	const generationAbortRef = useRef<AbortController | null>(null);
+	const promptFillAbortRef = useRef<AbortController | null>(null);
+
+	useEffect(() => {
+		const effectiveSettings = defaultAvatarGenerationInferenceSettings(profile.inferenceSettings);
+		setDraft(inferenceDraftFromSettings(effectiveSettings));
+		setPrompt(textValue(effectiveSettings.imageGeneration?.prompt));
+		setIncludeCurrentAvatar(Boolean(profile.avatarUrl));
+		setCurrentAvatarFailed(false);
+		setCandidate(null);
+		setChatEntries([]);
+		setMessage("");
+		setError("");
+	}, [profile.id, profile.inferenceSettings, profile.avatarUrl]);
+
+	useEffect(() => {
+		return () => {
+			generationAbortRef.current?.abort();
+			promptFillAbortRef.current?.abort();
+		};
+	}, []);
+
+	useEffect(() => {
+		let cancelled = false;
+		void api<{ models: OpenRouterImageModel[] }>("/api/openrouter/image-models").then((result) => {
+			if (cancelled) {
+				return;
+			}
+			if (result.ok) {
+				setModels(result.data.models);
+				setModelsError("");
+			} else {
+				setModelsError(result.message);
+			}
+		});
+		return () => {
+			cancelled = true;
+		};
+	}, []);
+
+	const selectedModel = models.find((model) => model.id === draft.imageGenerationModel);
+	const selectedSupportsImageInput = Boolean(selectedModel?.inputModalities.includes("image"));
+	const selectedSupportsTextOutput = Boolean(selectedModel?.outputModalities.includes("text"));
+	const currentAvatarAvailable = Boolean(profile.avatarUrl && !currentAvatarFailed);
+	useEffect(() => {
+		if (!selectedSupportsImageInput || !currentAvatarAvailable) {
+			setIncludeCurrentAvatar(false);
+			return;
+		}
+		setIncludeCurrentAvatar(true);
+	}, [currentAvatarAvailable, selectedSupportsImageInput]);
+
+	const promptAllowed = prompt.trim().length > 0 || (includeCurrentAvatar && currentAvatarAvailable);
+	const imageProviderRoutingError = providerRoutingDraftError(draft.imageGenerationProviderRouting);
+	const imageConfigError = imageGenerationConfigDraftError(draft);
+	const generationSettingsError = modelsError || imageProviderRoutingError || imageConfigError;
+	const candidateCost = generatedAvatarCost(candidate);
+	const currentAvatarPromptFillAvailable = Boolean(
+		!prompt.trim() &&
+		currentAvatarAvailable &&
+		draft.imageGenerationModel.trim() &&
+		selectedSupportsImageInput &&
+		selectedSupportsTextOutput &&
+		!imageProviderRoutingError &&
+		!imageConfigError,
+	);
+	const canGenerate = Boolean(draft.imageGenerationModel.trim()) &&
+		promptAllowed &&
+		!imageProviderRoutingError &&
+		!imageConfigError &&
+		!generating &&
+		!fillingFromCurrentAvatar;
+
+	async function fillFromCurrentAvatar(): Promise<void> {
+		const controller = new AbortController();
+		promptFillAbortRef.current = controller;
+		setFillingFromCurrentAvatar(true);
+		setChatEntries([]);
+		setError("");
+		setMessage("");
+		let streamError = "";
+		let finalPrompt = "";
+		try {
+			const response = await fetch("/api/me/avatar/prompt", {
+				method: "POST",
+				headers: {
+					accept: "text/event-stream",
+					"content-type": "application/json",
+				},
+				body: JSON.stringify({
+					mode: "current_avatar",
+					settings: imageGenerationInputFromDraft(draft, prompt, profileLanguage),
+				}),
+				signal: controller.signal,
+			});
+			if (!response.ok || !response.headers.get("content-type")?.includes("text/event-stream")) {
+				throw new Error(await apiResponseErrorMessage(response));
+			}
+			await readAvatarGenerationEventStream(response, (event) => {
+				setChatEntries((current) => applyAvatarGenerationStreamEvent(current, event));
+				if (event.type === "done" && "prompt" in event) {
+					finalPrompt = event.prompt;
+				}
+				if (event.type === "error") {
+					streamError = event.message;
+					setError(event.message);
+				}
+			});
+			if (streamError) {
+				throw new Error(streamError);
+			}
+			if (finalPrompt) {
+				setPrompt(finalPrompt);
+			}
+		} catch (caught) {
+			if (controller.signal.aborted) {
+				setChatEntries((current) =>
+					applyAvatarGenerationStreamEvent(current, { type: "aborted", message: "Prompt fill aborted." }),
+				);
+			} else {
+				setError(caught instanceof Error ? caught.message : "Could not fill prompt.");
+			}
+		} finally {
+			if (promptFillAbortRef.current === controller) {
+				promptFillAbortRef.current = null;
+			}
+			setFillingFromCurrentAvatar(false);
+		}
+	}
+
+	async function generate(): Promise<void> {
+		const controller = new AbortController();
+		generationAbortRef.current = controller;
+		setGenerating(true);
+		setCandidate(null);
+		setChatEntries([]);
+		setError("");
+		setMessage("");
+		let streamError = "";
+		try {
+			const response = await fetch("/api/me/avatar/generate", {
+				method: "POST",
+				headers: {
+					accept: "text/event-stream",
+					"content-type": "application/json",
+				},
+				body: JSON.stringify({
+					prompt,
+					includeCurrentAvatar,
+					settings: imageGenerationInputFromDraft(draft, prompt, profileLanguage),
+				}),
+				signal: controller.signal,
+			});
+			if (!response.ok || !response.headers.get("content-type")?.includes("text/event-stream")) {
+				throw new Error(await apiResponseErrorMessage(response));
+			}
+			await readAvatarGenerationEventStream(response, (event) => {
+				setChatEntries((current) => applyAvatarGenerationStreamEvent(current, event));
+				if (event.type === "done" && "candidate" in event) {
+					setCandidate(event.candidate);
+				}
+				if (event.type === "error") {
+					streamError = event.message;
+					setError(event.message);
+				}
+			});
+			if (streamError) {
+				throw new Error(streamError);
+			}
+		} catch (caught) {
+			if (controller.signal.aborted) {
+				setChatEntries((current) =>
+					applyAvatarGenerationStreamEvent(current, { type: "aborted", message: "Avatar generation aborted." }),
+				);
+			} else {
+				setError(caught instanceof Error ? caught.message : "Could not generate avatar.");
+			}
+		} finally {
+			if (generationAbortRef.current === controller) {
+				generationAbortRef.current = null;
+			}
+			setGenerating(false);
+		}
+	}
+
+	function abortGeneration(): void {
+		generationAbortRef.current?.abort();
+		setChatEntries((current) =>
+			applyAvatarGenerationStreamEvent(current, { type: "aborted", message: "Avatar generation aborted." }),
+		);
+	}
+
+	function abortPromptFill(): void {
+		promptFillAbortRef.current?.abort();
+		setChatEntries((current) =>
+			applyAvatarGenerationStreamEvent(current, { type: "aborted", message: "Prompt fill aborted." }),
+		);
+	}
+
+	async function save(): Promise<void> {
+		setSaving(true);
+		setError("");
+		setMessage("");
+		try {
+			if (candidate) {
+				const promptToSave = candidate.source?.type === "generated" && candidate.source.prompt ? candidate.source.prompt : prompt;
+				const result = await api<UserMutationResponse>("/api/me/avatar/apply", {
+					method: "POST",
+					body: {
+						candidate,
+						settings: imageGenerationInputFromDraft(draft, promptToSave, profileLanguage),
+					},
+				});
+				if (!result.ok) {
+					throw new Error(result.message);
+				}
+				onProfileUpdated(result.data.profile);
+				setCandidate(null);
+				setMessage("Avatar saved.");
+			} else {
+				const ok = await onSaveSettings({ ...draft, imageGenerationPrompt: prompt });
+				if (ok) {
+					setMessage("Image generation settings saved.");
+				}
+			}
+		} catch (caught) {
+			setError(caught instanceof Error ? caught.message : "Could not save avatar.");
+		} finally {
+			setSaving(false);
+		}
+	}
+
+	async function discard(): Promise<void> {
+		const ok = await onDiscardSettings();
+		if (ok) {
+			const effectiveSettings = defaultAvatarGenerationInferenceSettings(profile.inferenceSettings);
+			setDraft(inferenceDraftFromSettings(effectiveSettings));
+			setPrompt(textValue(effectiveSettings.imageGeneration?.prompt));
+			setMessage("Profile image generation settings discarded.");
+		}
+	}
+
+	return (
+		<div className="main-inner avatar-generation-screen">
+			<div className="thread-crumb">
+				<SpaLink className="linklike" to={{ route: "profile" }}>
+					<Reference kind="human" link={false} name={profile.handle} />
+				</SpaLink>
+				<span>/</span>
+				<span>avatar</span>
+			</div>
+			<div className="page-header">
+				<div>
+					<h1>Generate Avatar</h1>
+					<p>hu/{profile.handle}</p>
+				</div>
+				<div className="actions">
+					<button className="btn ghost" onClick={onBack} type="button">
+						Back
+					</button>
+					<button className="btn primary" disabled={saving || Boolean(imageProviderRoutingError) || Boolean(imageConfigError) || (!candidate && !draft.imageGenerationModel.trim())} onClick={() => void save()} type="button">
+						{saving ? "Saving..." : "Save"}
+					</button>
+				</div>
+			</div>
+			<section className="section">
+				<div className="section-head">
+					<h2>Image Generation</h2>
+					<button className="btn ghost compact" disabled={saving || !profile.inferenceSettings.imageGeneration} onClick={() => void discard()} type="button">
+						Reset
+					</button>
+				</div>
+				{generationSettingsError && <div className="runtime-message error">{generationSettingsError}</div>}
+				<ImageGenerationBasicFields draft={draft} models={models} onChange={setDraft} />
+				<details className="advanced-panel">
+					<summary>
+						<span className="advanced-panel-summary">
+							<span className="advanced-panel-chevron"><Icon name="chev" size={14} /></span>
+							<span>Advanced generation parameters</span>
+						</span>
+					</summary>
+					<div className="advanced-panel-body">
+						<ImageGenerationAdvancedFields draft={draft} onChange={setDraft} />
+					</div>
+				</details>
+				<div className="field avatar-prompt-field">
+					<div className="avatar-prompt-head">
+						<label htmlFor="user-avatar-generation-prompt">Prompt</label>
+						<div className="avatar-prompt-actions">
+							{(currentAvatarPromptFillAvailable || fillingFromCurrentAvatar) && (
+								<button
+									className={`btn compact ${fillingFromCurrentAvatar ? "danger" : "ghost"}`}
+									disabled={fillingFromCurrentAvatar ? false : generating}
+									onClick={() => fillingFromCurrentAvatar ? abortPromptFill() : void fillFromCurrentAvatar()}
+									type="button"
+								>
+									{fillingFromCurrentAvatar ? "Abort" : "Fill from current avatar"}
+								</button>
+							)}
+						</div>
+					</div>
+					<textarea
+						className="textarea avatar-prompt"
+						id="user-avatar-generation-prompt"
+						onChange={(event) => setPrompt(event.target.value)}
+						placeholder={includeCurrentAvatar ? "Optional when current avatar is included" : "Describe the avatar to generate"}
+						rows={5}
+						value={prompt}
+					/>
+				</div>
+				{error && <div className="runtime-message error">{error}</div>}
+				{message && <div className="runtime-message">{message}</div>}
+			</section>
+			<section className="avatar-compare">
+				<div className="avatar-pane">
+					<div className="avatar-pane-head">
+						<span>Current avatar</span>
+						<label className="checkbox-line">
+							<input
+								checked={includeCurrentAvatar}
+								disabled={!currentAvatarAvailable || !selectedSupportsImageInput}
+								onChange={(event) => setIncludeCurrentAvatar(event.target.checked)}
+								type="checkbox"
+							/>
+							<span>Use as input</span>
+						</label>
+					</div>
+					<button
+						className="avatar-large-preview"
+						disabled={!profile.avatarUrl || currentAvatarFailed}
+						onClick={() => profile.avatarUrl && !currentAvatarFailed ? setLightboxUrl(profile.avatarUrl) : undefined}
+						type="button"
+					>
+						{profile.avatarUrl && !currentAvatarFailed ?
+							<FallbackImage
+								alt=""
+								fallbackSrc={profile.avatarUrl}
+								onFinalError={() => setCurrentAvatarFailed(true)}
+								src={avatarPreviewUrl(profile.avatar ?? profile.avatarUrl)}
+							/>
+						:	<Avatar actor="user" colorSeed={profile.handle} name={profile.displayName} size="hero" />
+						}
+					</button>
+				</div>
+				<div className="avatar-pane generated">
+					<div className="avatar-pane-head">
+						<span className="avatar-pane-title">
+							<span>Generated avatar</span>
+							{candidateCost !== null && <span className="avatar-generation-cost">{formatTokenCost(candidateCost)}</span>}
+							{candidate && <span className="unsaved-tag">unsaved</span>}
+						</span>
+						<button
+							className={`btn compact generate-avatar-btn ${generating ? "danger" : "primary"}`}
+							disabled={generating ? false : !canGenerate}
+							onClick={() => generating ? abortGeneration() : void generate()}
+							type="button"
+						>
+							{generating ? "Abort" : "Generate"}
+						</button>
+					</div>
+					<div className={`avatar-large-preview ${generating ? "busy" : ""}`}>
+						{candidate ?
+							<button className="avatar-preview-click" onClick={() => setLightboxUrl(candidate.url)} type="button">
+								<FallbackImage alt="" fallbackSrc={candidate.url} src={avatarPreviewUrl(candidate)} />
+							</button>
+						:	<span className="empty-generated">{generating ? "Generating..." : "No image generated"}</span>
+						}
+						{generating && <span className="avatar-spinner" />}
+					</div>
+				</div>
+			</section>
+			<AvatarGenerationChatLog entries={chatEntries} />
+			<ImageLightbox onClose={() => setLightboxUrl(null)} title={textValue(profile.displayName)} url={lightboxUrl} />
 		</div>
 	);
 }
@@ -13463,7 +14226,7 @@ function HumanProfileScreen({
 	return (
 		<div className="main-inner">
 			<div className="profile-head human-profile-head">
-				<Avatar actor="user" colorSeed={profile.user.handle} imageUrl={profile.user.avatarUrl} name={profile.user.displayName} size="xl" />
+				<Avatar actor="user" colorSeed={profile.user.handle} crop={profile.user.avatarCrop} imageUrl={profile.user.avatarUrl} name={profile.user.displayName} size="xl" />
 				<div className="meta">
 					<TranslatableText as="h1" className="name" text={profile.user.displayName} />
 					<div className="handle">
@@ -13784,12 +14547,16 @@ function filterHumanBotGroups(groups: HumanOwnedBotGroup[], query: string): Huma
 function ProfileScreen({
 	busy,
 	onAuthIdentityUnlink,
+	onAvatarUpdated,
+	onOpenAvatarGeneration,
 	onSave,
 	onSignOut,
 	user,
 }: {
 	busy: boolean;
 	onAuthIdentityUnlink: (provider: AuthProvider) => Promise<UserProfile | null>;
+	onAvatarUpdated: (profile: UserProfile) => void;
+	onOpenAvatarGeneration: () => void;
 	onSave: (draft: UpdateUserProfileInput) => Promise<UserProfile | null>;
 	onSignOut: () => void;
 	user: PublicUser;
@@ -13799,6 +14566,11 @@ function ProfileScreen({
 	const [loading, setLoading] = useState(true);
 	const [message, setMessage] = useState("");
 	const [pendingUnlinkProvider, setPendingUnlinkProvider] = useState<AuthProvider | null>(null);
+	const [uploadOpen, setUploadOpen] = useState(false);
+	const [cropOpen, setCropOpen] = useState(false);
+	const [deleteAvatarConfirm, setDeleteAvatarConfirm] = useState(false);
+	const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+	const [profileAvatarFailed, setProfileAvatarFailed] = useState(false);
 	const toast = useContext(ToastContext);
 	const t = useUiText();
 
@@ -13823,7 +14595,12 @@ function ProfileScreen({
 		};
 	}, [user.id]);
 
+	useEffect(() => {
+		setProfileAvatarFailed(false);
+	}, [profile?.avatarUrl, user.avatarUrl]);
+
 	const profileIncomplete = !(profile?.profileComplete ?? user.profileComplete);
+	const avatarProfile = profile ?? user;
 	const authIdentities = profile?.authIdentities ?? [];
 	const dirty = profile ? profileDraftChanged(draft, profile) : true;
 	const valid =
@@ -13841,7 +14618,6 @@ function ProfileScreen({
 			language,
 			uiLocale: draft.uiLocale === "system" ? "system" : languageInputValue(draft.uiLocale) ?? defaultLanguageTag,
 			displayName: localizedText(draft.displayName, language),
-			avatarUrl: draft.avatarUrl.trim() || null,
 			inferenceSettings: inferenceInputFromDraft(draft.inference, undefined, { includeImageGeneration: true, includeTranslation: true }, language),
 		});
 		if (saved) {
@@ -13859,12 +14635,35 @@ function ProfileScreen({
 		}
 	}
 
+	function applySavedAvatarProfile(saved: UserProfile): void {
+		setProfile(saved);
+		onAvatarUpdated(saved);
+	}
+
+	async function deleteAvatar(): Promise<void> {
+		const result = await api<UserMutationResponse>("/api/me/avatar", { method: "DELETE" });
+		if (result.ok) {
+			applySavedAvatarProfile(result.data.profile);
+			setDeleteAvatarConfirm(false);
+			toast.push("Deleted avatar");
+		} else {
+			setMessage(result.message);
+		}
+	}
+
 	return (
 		<div className="main-inner">
 			<div className="page-header">
 				<div className="page-title-block">
 					<h1>
-						<Avatar actor="user" colorSeed={draft.handle || user.handle} imageUrl={draft.avatarUrl || user.avatarUrl} name={draft.displayName || user.displayName} size="lg" />
+						<Avatar
+							actor="user"
+							colorSeed={draft.handle || user.handle}
+							crop={avatarProfile.avatarCrop}
+							imageUrl={avatarProfile.avatarUrl}
+							name={draft.displayName || user.displayName}
+							size="lg"
+						/>
 						<span>{draft.displayName || textValue(user.displayName)}</span>
 					</h1>
 					<p className="sub">
@@ -13923,14 +14722,53 @@ function ProfileScreen({
 									</div>
 								</Field>
 							</div>
-								<Field help={t.profile.avatarUrlHelp} label={t.profile.avatarUrl}>
-									<input
-										className="input"
-									onChange={(event) => setDraft((current) => ({ ...current, avatarUrl: event.target.value }))}
-									placeholder="https://..."
-										value={draft.avatarUrl}
-									/>
-								</Field>
+								<div className="profile-avatar-editor">
+									<div className="profile-avatar-column">
+										<button
+											aria-label={avatarProfile.avatarUrl && !profileAvatarFailed ? "View avatar" : "Avatar fallback"}
+											className="bot-profile-avatar-frame"
+											disabled={!avatarProfile.avatarUrl || profileAvatarFailed}
+											onClick={() => avatarProfile.avatarUrl && !profileAvatarFailed ? setLightboxUrl(avatarProfile.avatarUrl) : undefined}
+											type="button"
+										>
+											{avatarProfile.avatarUrl && !profileAvatarFailed ?
+												<FallbackImage
+													alt=""
+													fallbackSrc={avatarProfile.avatarUrl}
+													onFinalError={() => setProfileAvatarFailed(true)}
+													src={cloudflareImageUrl(avatarProfile.avatarUrl, { width: avatarImagePixels(220), format: "auto" })}
+												/>
+											:	<Avatar actor="user" colorSeed={draft.handle || user.handle} name={draft.displayName || user.displayName} size="hero" />
+											}
+										</button>
+										<div className="profile-avatar-actions">
+											<button
+												className="btn icon-only"
+												disabled={!avatarProfile.avatarUrl || profileAvatarFailed}
+												onClick={() => setCropOpen(true)}
+												title="Crop avatar"
+												type="button"
+											>
+												<Icon name="crop" size={16} />
+											</button>
+											<button className="btn icon-only" onClick={() => setUploadOpen(true)} title="Upload avatar" type="button">
+												<Icon name="upload" size={16} />
+											</button>
+											<button className="btn icon-only" onClick={onOpenAvatarGeneration} title="Generate avatar" type="button">
+												<Icon name="sparkles" size={16} />
+											</button>
+											<button
+												className="btn icon-only danger"
+												disabled={!avatarProfile.avatarUrl}
+												onClick={() => setDeleteAvatarConfirm(true)}
+												title="Delete avatar"
+												type="button"
+											>
+												<Icon name="trash" size={16} />
+											</button>
+										</div>
+									</div>
+								</div>
 								<div className="field-row">
 									<LanguageField
 										label={t.profile.accountLanguage}
@@ -14041,6 +14879,27 @@ function ProfileScreen({
 				open={Boolean(pendingUnlinkProvider)}
 				title="Unlink sign-in method?"
 			/>
+			<UserAvatarUploadModal
+				onClose={() => setUploadOpen(false)}
+				onSaved={(saved) => applySavedAvatarProfile(saved)}
+				open={uploadOpen}
+			/>
+			<UserAvatarCropModal
+				onClose={() => setCropOpen(false)}
+				onSaved={(saved) => applySavedAvatarProfile(saved)}
+				open={cropOpen}
+				user={avatarProfile}
+			/>
+			<Confirm
+				body="Delete this profile avatar? You can upload or generate a new one later."
+				confirmText="Delete avatar"
+				danger
+				onClose={() => setDeleteAvatarConfirm(false)}
+				onConfirm={() => void deleteAvatar()}
+				open={deleteAvatarConfirm}
+				title="Delete avatar?"
+			/>
+			<ImageLightbox onClose={() => setLightboxUrl(null)} title={draft.displayName || textValue(user.displayName)} url={lightboxUrl} />
 		</div>
 	);
 }
@@ -21456,13 +22315,27 @@ function notificationThreadId(notification: HumanNotification): string | null {
 	}
 }
 
+function publicUserFromProfile(profile: UserProfile): PublicUser {
+	return {
+		id: profile.id,
+		handle: profile.handle,
+		language: profile.language,
+		...(profile.uiLocale ? { uiLocale: profile.uiLocale } : {}),
+		displayName: profile.displayName,
+		...(profile.avatar ? { avatar: profile.avatar } : {}),
+		...(profile.avatarUrl ? { avatarUrl: profile.avatarUrl } : {}),
+		...(profile.avatarCrop ? { avatarCrop: profile.avatarCrop } : {}),
+		profileComplete: profile.profileComplete,
+		...(profile.profileCompletedAt ? { profileCompletedAt: profile.profileCompletedAt } : {}),
+	};
+}
+
 function profileDraftFromUser(user: PublicUser): ProfileDraft {
 	return {
 		handle: user.handle,
 		language: languageDraftValue(user.language, textLang(user.displayName) ?? defaultLanguageTag),
 		uiLocale: user.uiLocale ?? "system",
 		displayName: textValue(user.displayName),
-		avatarUrl: user.avatarUrl ?? "",
 		inference: inferenceDraftFromSettings({}),
 	};
 }
@@ -21473,7 +22346,6 @@ function profileDraftFromProfile(profile: UserProfile): ProfileDraft {
 		language: languageDraftValue(profile.language, textLang(profile.displayName) ?? defaultLanguageTag),
 		uiLocale: profile.uiLocale ?? "system",
 		displayName: textValue(profile.displayName),
-		avatarUrl: profile.avatarUrl ?? "",
 		inference: inferenceDraftFromSettings(profile.inferenceSettings),
 	};
 }
@@ -21486,7 +22358,6 @@ function profileDraftChanged(draft: ProfileDraft, profile: UserProfile): boolean
 		language !== profile.language ||
 		uiLocale !== (profile.uiLocale ?? "system") ||
 		draft.displayName !== textValue(profile.displayName) ||
-		draft.avatarUrl.trim() !== (profile.avatarUrl ?? "") ||
 		inferenceDraftChanged(draft.inference, profile.inferenceSettings, { includeImageGeneration: true, includeTranslation: true })
 	);
 }

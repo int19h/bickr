@@ -39,6 +39,14 @@ import {
 	onRequestGet as getProfile,
 	onRequestPatch as patchProfile,
 } from "../apps/web/functions/api/me/profile";
+import {
+	onRequestDelete as deleteUserAvatarRoute,
+	onRequestPut as uploadUserAvatarRoute,
+} from "../apps/web/functions/api/me/avatar/index";
+import { onRequestPatch as updateUserAvatarCropRoute } from "../apps/web/functions/api/me/avatar/crop";
+import { onRequestPost as applyUserAvatarRoute } from "../apps/web/functions/api/me/avatar/apply";
+import { onRequestPost as generateUserAvatarRoute } from "../apps/web/functions/api/me/avatar/generate";
+import { onRequestPost as promptUserAvatarRoute } from "../apps/web/functions/api/me/avatar/prompt";
 import { onRequestGet as getHumanProfile } from "../apps/web/functions/api/humans/[humanHandle]";
 import { onRequestGet as getNotificationsRoute } from "../apps/web/functions/api/me/notifications";
 import { onRequestPost as markAllNotificationsReadRoute } from "../apps/web/functions/api/me/notifications/read-all";
@@ -160,6 +168,7 @@ import {
 	listUserBots,
 	rawBotById,
 	updateBotAvatar,
+	updateUserAvatar,
 	updateUserProfile,
 	upsertProviderUser,
 	userById,
@@ -216,6 +225,7 @@ import {
 	type BotRuntimeEvent,
 	type BotTokenSpendSummary,
 	type BotTokenUsageStats,
+	type HumanProfile,
 	type HumanSubscriptionTreeResponse,
 	type LanguageTag,
 	type LocalizedText,
@@ -294,6 +304,7 @@ CREATE TABLE users_index (
 	display_name TEXT NOT NULL,
 	display_name_lang TEXT,
 	avatar_url TEXT,
+	avatar_crop TEXT,
 	profile_completed_at TEXT,
 	created_at TEXT NOT NULL,
 	updated_at TEXT NOT NULL,
@@ -739,9 +750,7 @@ describe("Bickr Pages Functions", () => {
 
 	it("rewrites SPA shell metadata with entity titles, descriptions, and account avatars", async () => {
 		const cookie = await authCookie();
-		await updateUserProfile(testEnv.BICKR_KV, testEnv.BICKR_D1, await userIdForHandle("octocat"), {
-			avatarUrl: "https://assets-test.bickr.social/humans/octocat.png",
-		});
+		await setUserAvatarForTest(await userIdForHandle("octocat"), "https://assets-test.bickr.social/humans/octocat.png");
 		await seedWorld(cookie);
 		const forum = await createForumForTest(cookie, "release-room");
 		const author = await createBotForTest(cookie, "release-sage");
@@ -19781,6 +19790,335 @@ describe("Bickr Pages Functions", () => {
 		expect(response.status).toBe(400);
 	});
 
+	it("uploads human user avatars into R2 and exposes avatar URLs through indexes", async () => {
+		const cookie = await authCookie();
+		const userId = await userIdForHandle("octocat");
+		const r2 = fakeR2Bucket();
+		const sourceUrl = "https://images.example/human-avatar.png";
+		const sourceBytes = pngAvatarBytes();
+		const originalFetch = globalThis.fetch;
+		const fetchMock = vi.fn<(_input: RequestInfo | URL, _init?: RequestInit) => Promise<Response>>(
+			async (input) => {
+				expect(String(input)).toBe(sourceUrl);
+				return new Response(sourceBytes, {
+					headers: {
+						"content-type": "image/png",
+						"content-length": String(sourceBytes.byteLength),
+					},
+				});
+			},
+		);
+		vi.stubGlobal("fetch", fetchMock);
+		let avatarUrl = "";
+		try {
+			const response = await uploadUserAvatarRoute(
+				contextFor<typeof uploadUserAvatarRoute>(
+					jsonRequest("http://example.com/api/me/avatar", "PUT", { url: sourceUrl }, cookie),
+					{},
+					{
+						BICKR_R2: r2.bucket,
+						BICKR_R2_PUBLIC_BASE_URL: "https://assets-test.bickr.social",
+					},
+				),
+			);
+			expect(response.status, await response.clone().text()).toBe(200);
+			const body = (await response.json()) as { data: { profile: UserProfile } };
+			avatarUrl = body.data.profile.avatarUrl ?? "";
+			expect(avatarUrl).toMatch(new RegExp(`^https://assets-test\\.bickr\\.social/users/${userId}/avatars/.+\\.png$`));
+			expect(body.data.profile.avatar?.url).toBe(avatarUrl);
+			expect(body.data.profile.avatar?.crop).toBeUndefined();
+			expect(r2.objects.size).toBe(1);
+			const stored = [...r2.objects.values()][0];
+			expect(stored?.bytes).toEqual(sourceBytes);
+			expect(stored?.httpMetadata?.contentType).toBe("image/png");
+			expect(stored?.httpMetadata?.cacheControl).toBe("public, max-age=31536000, immutable");
+		} finally {
+			vi.stubGlobal("fetch", originalFetch);
+		}
+
+		const indexed = await testEnv.BICKR_D1.prepare(`SELECT avatar_url AS avatarUrl, avatar_crop AS avatarCrop FROM users_index WHERE user_id = ?`)
+			.bind(userId)
+			.first<{ avatarUrl: string | null; avatarCrop: string | null }>();
+		expect(indexed?.avatarUrl).toBe(avatarUrl);
+		expect(indexed?.avatarCrop).toBeNull();
+
+		const storedUser = await userById(testEnv.BICKR_KV, userId);
+		expect(storedUser.avatar).toMatchObject({
+			url: avatarUrl,
+			contentType: "image/png",
+			width: 1,
+			height: 1,
+			source: {
+				type: "remote_url",
+				sourceUrl,
+			},
+		});
+
+		const publicResponse = await getHumanProfile(
+			contextFor<typeof getHumanProfile>(
+				new Request("http://example.com/api/humans/octocat", { headers: { cookie } }),
+				{ humanHandle: "octocat" },
+			),
+		);
+		expect(publicResponse.status).toBe(200);
+		const publicBody = (await publicResponse.json()) as { data: { profile: HumanProfile } };
+		expect(publicBody.data.profile.user.avatarUrl).toBe(avatarUrl);
+		expect(publicBody.data.profile.user.avatarCrop).toBeUndefined();
+	});
+
+	it("saves human user avatar crop metadata and clears it on delete", async () => {
+		const cookie = await authCookie();
+		const userId = await userIdForHandle("octocat");
+		const r2 = fakeR2Bucket();
+		const publicBaseUrl = "https://assets-test.bickr.social";
+		const avatar = await storeAvatarImage(r2.bucket, {
+			target: "user",
+			userId,
+			bytes: svgAvatarBytes(),
+			contentType: "image/svg+xml",
+			publicBaseUrl,
+		});
+		await updateUserAvatar(testEnv.BICKR_KV, testEnv.BICKR_D1, userId, avatar);
+
+		const crop: AvatarCrop = { x: 4, y: 8, size: 16, imageWidth: 24, imageHeight: 32 };
+		const cropResponse = await updateUserAvatarCropRoute(
+			contextFor<typeof updateUserAvatarCropRoute>(
+				jsonRequest("http://example.com/api/me/avatar/crop", "PATCH", { crop }, cookie),
+			),
+		);
+		expect(cropResponse.status, await cropResponse.clone().text()).toBe(200);
+		const cropBody = (await cropResponse.json()) as { data: { profile: UserProfile } };
+		expect(cropBody.data.profile.avatarUrl).toBe(avatar.url);
+		expect(cropBody.data.profile.avatarCrop).toEqual(crop);
+		expect(cropBody.data.profile.avatar?.crop).toEqual(crop);
+
+		const indexed = await testEnv.BICKR_D1.prepare(`SELECT avatar_url AS avatarUrl, avatar_crop AS avatarCrop FROM users_index WHERE user_id = ?`)
+			.bind(userId)
+			.first<{ avatarUrl: string | null; avatarCrop: string | null }>();
+		expect(indexed?.avatarUrl).toBe(avatar.url);
+		expect(JSON.parse(indexed?.avatarCrop ?? "{}")).toEqual(crop);
+		expect((await userById(testEnv.BICKR_KV, userId)).avatar?.crop).toEqual(crop);
+
+		const publicResponse = await getHumanProfile(
+			contextFor<typeof getHumanProfile>(
+				new Request("http://example.com/api/humans/octocat", { headers: { cookie } }),
+				{ humanHandle: "octocat" },
+			),
+		);
+		const publicBody = (await publicResponse.json()) as { data: { profile: HumanProfile } };
+		expect(publicBody.data.profile.user.avatarUrl).toBe(avatar.url);
+		expect(publicBody.data.profile.user.avatarCrop).toEqual(crop);
+
+		const deleteResponse = await deleteUserAvatarRoute(
+			contextFor<typeof deleteUserAvatarRoute>(
+				new Request("http://example.com/api/me/avatar", {
+					method: "DELETE",
+					headers: { cookie },
+				}),
+			),
+		);
+		expect(deleteResponse.status, await deleteResponse.clone().text()).toBe(200);
+		const deleteBody = (await deleteResponse.json()) as { data: { profile: UserProfile } };
+		expect(deleteBody.data.profile.avatar).toBeUndefined();
+		expect(deleteBody.data.profile.avatarUrl).toBeUndefined();
+		expect(deleteBody.data.profile.avatarCrop).toBeUndefined();
+
+		const deletedIndexed = await testEnv.BICKR_D1.prepare(`SELECT avatar_url AS avatarUrl, avatar_crop AS avatarCrop FROM users_index WHERE user_id = ?`)
+			.bind(userId)
+			.first<{ avatarUrl: string | null; avatarCrop: string | null }>();
+		expect(deletedIndexed?.avatarUrl).toBeNull();
+		expect(deletedIndexed?.avatarCrop).toBeNull();
+		expect((await userById(testEnv.BICKR_KV, userId)).avatar).toBeUndefined();
+	});
+
+	it("rejects direct human profile avatar URL edits", async () => {
+		const cookie = await authCookie();
+		const response = await patchProfile(
+			contextFor<typeof patchProfile>(
+				jsonRequest("http://example.com/api/me/profile", "PATCH", { avatarUrl: "https://example.com/avatar.png" }, cookie),
+			),
+		);
+		expect(response.status).toBe(400);
+		const body = (await response.json()) as { message: string };
+		expect(body.message).toContain("profile avatar endpoints");
+	});
+
+	it("creates and applies generated human user avatar candidates with profile settings", async () => {
+		await authCookie();
+		const userId = await userIdForHandle("octocat");
+		const r2 = fakeR2Bucket();
+		const publicBaseUrl = "https://assets-test.bickr.social";
+		const existingAvatar = await storeAvatarImage(r2.bucket, {
+			target: "user",
+			userId,
+			bytes: pngAvatarBytes(),
+			contentType: "image/png",
+			publicBaseUrl,
+		});
+		await updateUserAvatar(testEnv.BICKR_KV, testEnv.BICKR_D1, userId, {
+			...existingAvatar,
+			crop: { x: 0, y: 0, size: 1, imageWidth: 1, imageHeight: 1 },
+		});
+
+		const originalFetch = globalThis.fetch;
+		const fetchMock = vi.fn<(_input: RequestInfo | URL, _init?: RequestInit) => Promise<Response>>(
+			async (input, init) => {
+				const url = String(input);
+				if (url === "https://openrouter.ai/api/v1/images/models") {
+					return Response.json({
+						data: [
+							{
+								id: "openai/image-one",
+								architecture: { input_modalities: ["text", "image"], output_modalities: ["text", "image"] },
+							},
+						],
+					});
+				}
+				if (url === "https://openrouter.ai/api/v1/chat/completions") {
+					const requestBody = JSON.parse(String(init?.body)) as {
+						model?: string;
+						modalities?: string[];
+						messages?: Array<{ role: string; content: unknown }>;
+					};
+					expect(requestBody.model).toBe("openai/image-one");
+					expect(requestBody.modalities).toEqual(["text"]);
+					expect(JSON.stringify(requestBody.messages)).toContain(existingAvatar.url);
+					return Response.json({
+						choices: [{ message: { content: "A precise visual prompt from the current avatar." } }],
+					});
+				}
+				expect(url).toBe("https://openrouter.ai/api/v1/images");
+				const requestBody = JSON.parse(String(init?.body)) as {
+					model?: string;
+					aspect_ratio?: string;
+					size?: string;
+					provider?: Record<string, unknown>;
+					prompt?: string;
+				};
+				expect(requestBody.model).toBe("openai/image-one");
+				expect(requestBody.aspect_ratio).toBe("1:1");
+				expect(requestBody.size).toBe("2K");
+				expect(requestBody.provider).toEqual({ sort: "price" });
+				expect(requestBody.prompt).toContain("Paint my profile avatar.");
+				return Response.json({
+					data: [{ b64_json: base64String(pngAvatarBytes()) }],
+					usage: { prompt_tokens: 10, completion_tokens: 0, total_tokens: 10, cost: 0.045 },
+				});
+			},
+		);
+		vi.stubGlobal("fetch", fetchMock);
+		let candidate: AvatarImage;
+		try {
+			const promptResponse = await handleAgentRuntimeRequest(
+				serviceJsonRequest(
+					`/users/${encodeURIComponent(userId)}/avatar/prompt`,
+					userId,
+					{ mode: "current_avatar", settings: { model: "openai/image-one" } },
+				),
+				{
+					BICKR_D1: testEnv.BICKR_D1,
+					BICKR_KV: testEnv.BICKR_KV,
+					OPENROUTER_API_KEY: "test-key",
+				},
+			);
+			expect(promptResponse.status).toBe(200);
+			const promptBody = (await promptResponse.json()) as { data: { prompt: string } };
+			expect(promptBody.data.prompt).toBe("A precise visual prompt from the current avatar.");
+
+			const personaResponse = await handleAgentRuntimeRequest(
+				serviceJsonRequest(
+					`/users/${encodeURIComponent(userId)}/avatar/prompt`,
+					userId,
+					{ mode: "persona", settings: { model: "openai/image-one" } },
+				),
+				{
+					BICKR_D1: testEnv.BICKR_D1,
+					BICKR_KV: testEnv.BICKR_KV,
+					OPENROUTER_API_KEY: "test-key",
+				},
+			);
+			expect(personaResponse.status).toBe(400);
+			const personaBody = (await personaResponse.json()) as { message: string };
+			expect(personaBody.message).toContain("only supports the current avatar");
+
+			const generateResponse = await handleAgentRuntimeRequest(
+				serviceJsonRequest(
+					`/users/${encodeURIComponent(userId)}/avatar/generate`,
+					userId,
+					{
+						prompt: "Paint my profile avatar.",
+						includeCurrentAvatar: false,
+						settings: {
+							model: "openai/image-one",
+							providerRouting: { sort: "price" },
+							aspectRatio: "1:1",
+							imageSize: "2K",
+						},
+					},
+				),
+				{
+					BICKR_D1: testEnv.BICKR_D1,
+					BICKR_KV: testEnv.BICKR_KV,
+					BICKR_R2: r2.bucket,
+					BICKR_R2_PUBLIC_BASE_URL: publicBaseUrl,
+					OPENROUTER_API_KEY: "test-key",
+				},
+			);
+			expect(generateResponse.status, await generateResponse.clone().text()).toBe(200);
+			const generateBody = (await generateResponse.json()) as { data: { candidate: AvatarImage } };
+			candidate = generateBody.data.candidate;
+			expect(candidate.key).toMatch(new RegExp(`^users/${userId}/avatar-candidates/.+\\.png$`));
+			expect(candidate.url).toContain(`/users/${userId}/avatar-candidates/`);
+			expect(candidate.source).toMatchObject({
+				type: "generated",
+				model: "openai/image-one",
+				prompt: "Paint my profile avatar.",
+				cost: 0.045,
+			});
+			expect(r2.objects.has(candidate.key)).toBe(true);
+		} finally {
+			vi.stubGlobal("fetch", originalFetch);
+		}
+
+		const applyResponse = await handleAgentRuntimeRequest(
+			serviceJsonRequest(
+				`/users/${encodeURIComponent(userId)}/avatar/apply`,
+				userId,
+				{
+					candidate,
+					settings: {
+						model: "openai/image-one",
+						prompt: "Paint my profile avatar.",
+						aspectRatio: "4:5",
+						imageSize: "2K",
+					},
+				},
+			),
+			{
+				BICKR_D1: testEnv.BICKR_D1,
+				BICKR_KV: testEnv.BICKR_KV,
+				BICKR_R2: r2.bucket,
+				BICKR_R2_PUBLIC_BASE_URL: publicBaseUrl,
+			},
+		);
+		expect(applyResponse.status, await applyResponse.clone().text()).toBe(200);
+		const applyBody = (await applyResponse.json()) as { data: { profile: UserProfile } };
+		expect(applyBody.data.profile.avatarUrl).toContain(`/users/${userId}/avatars/`);
+		expect(applyBody.data.profile.avatarCrop).toBeUndefined();
+		expect(r2.objects.has(candidate.key)).toBe(false);
+
+		const storedUser = await userById(testEnv.BICKR_KV, userId);
+		expect(storedUser.avatar?.url).toBe(applyBody.data.profile.avatarUrl);
+		expect(storedUser.avatar?.source).toMatchObject({ type: "generated", cost: 0.045 });
+		expect(storedUser.avatar?.crop).toBeUndefined();
+		expect(storedUser.inferenceSettings?.imageGeneration).toMatchObject({
+			model: "openai/image-one",
+			prompt: unspecifiedLt("Paint my profile avatar."),
+			aspectRatio: "4:5",
+			imageSize: "2K",
+		});
+	});
+
 	it("inherits avatar objects and generation metadata when cloning participants across worlds", async () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);
@@ -21672,6 +22010,72 @@ describe("Bickr Pages Functions", () => {
 		});
 	});
 
+	it("proxies human avatar service routes to the agent runtime", async () => {
+		const cookie = await authCookie();
+		const userId = await userIdForHandle("octocat");
+		const routed: Array<{ method: string; path: string }> = [];
+		const envOverrides: Partial<AppEnv> = {
+			AGENT_RUNTIME: {
+				fetch: async (request: Request) => {
+					routed.push({
+						method: request.method,
+						path: new URL(request.url).pathname,
+					});
+					return Response.json({ ok: true });
+				},
+			} as unknown as Fetcher,
+		};
+		const routes = [
+			{
+				handler: promptUserAvatarRoute,
+				path: "prompt",
+				body: { mode: "current_avatar", settings: { model: "openai/image-output" } },
+			},
+			{
+				handler: generateUserAvatarRoute,
+				path: "generate",
+				body: { prompt: "A painted profile portrait.", includeCurrentAvatar: false, settings: { model: "openai/image-output" } },
+			},
+			{
+				handler: applyUserAvatarRoute,
+				path: "apply",
+				body: {
+					candidate: {
+						url: "https://assets.example/avatar.png",
+						key: `users/${userId}/avatar-candidates/avatar.png`,
+						source: {
+							type: "generated",
+							model: "openai/image-output",
+							generatedAt: new Date().toISOString(),
+						},
+					},
+				},
+			},
+		] as const;
+
+		for (const route of routes) {
+			const response = await route.handler(
+				contextFor<typeof route.handler>(
+					jsonRequest(
+						`http://example.com/api/me/avatar/${route.path}`,
+						"POST",
+						route.body,
+						cookie,
+					),
+					{},
+					envOverrides,
+				),
+			);
+			expect(response.status, await response.clone().text()).toBe(200);
+		}
+
+		expect(routed).toEqual([
+			{ method: "POST", path: `/users/${userId}/avatar/prompt` },
+			{ method: "POST", path: `/users/${userId}/avatar/generate` },
+			{ method: "POST", path: `/users/${userId}/avatar/apply` },
+		]);
+	});
+
 	it("normalizes encoded world handles for world avatar service routes", async () => {
 		const cookie = await authCookie();
 		const userId = await userIdForHandle("octocat");
@@ -22398,6 +22802,18 @@ async function setBotAvatarForTest(bot: Pick<BotBody, "id">, avatarUrl: string):
 	await testEnv.BICKR_D1.prepare(`UPDATE bots_index SET avatar_url = ?, updated_at = ? WHERE bot_id = ?`)
 		.bind(avatarUrl, now, bot.id)
 		.run();
+}
+
+async function setUserAvatarForTest(userId: string, avatarUrl: string, crop?: AvatarCrop): Promise<void> {
+	const now = new Date().toISOString();
+	const avatar: AvatarImage = {
+		contentType: "image/png",
+		key: `test/users/${userId}.png`,
+		updatedAt: now,
+		url: avatarUrl,
+		...(crop ? { crop } : {}),
+	};
+	await updateUserAvatar(testEnv.BICKR_KV, testEnv.BICKR_D1, userId, avatar, now);
 }
 
 function decodeHtmlAttribute(value: string): string {

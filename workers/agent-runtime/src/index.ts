@@ -41,6 +41,8 @@ import {
 	unlinkBotClone,
 	updateBot,
 	updateBotAvatar,
+	updateUserAvatar,
+	updateUserProfile,
 	userById,
 	worldByHandle,
 } from '@bickr/shared/repository';
@@ -101,6 +103,7 @@ import {
 	parseBotContextBudgetInput,
 	parseCreateBotInput,
 	parseUpdateBotInput,
+	parseUpdateUserProfileInput,
 	parseUpdateWorldInput,
 	requiredText,
 } from '@bickr/shared/validation';
@@ -1415,6 +1418,10 @@ function effectiveAvatarSettingsLanguageForBot(bot: Pick<BotDocument, 'language'
 
 function effectiveAvatarSettingsLanguageForWorld(world: Pick<WorldDocument, 'language' | 'name'>): LanguageTag | null {
 	return world.language ?? localizedTextLang(world.name) ?? fallbackToolTextLanguage;
+}
+
+function effectiveAvatarSettingsLanguageForUser(user: Pick<UserDocument, 'language' | 'displayName'>): LanguageTag | null {
+	return user.language ?? localizedTextLang(user.displayName) ?? fallbackToolTextLanguage;
 }
 
 function providerReasoningForSettings(
@@ -3323,6 +3330,41 @@ function effectiveProviderSettingsForWorldImageGeneration(
 ): ImageGenerationProviderSettings | null {
 	const userSettings = owner.inferenceSettings ?? {};
 	const imageGeneration = worldAvatarImageGenerationSettingsWithDefaults(settingsOverride ?? world.imageGeneration ?? userSettings.imageGeneration);
+	const model = trimmed(imageGeneration?.model);
+	if (!model) {
+		return null;
+	}
+	const userBaseUrl = trimmed(userSettings.baseUrl);
+	const envBaseUrl = trimmed(env.OPENROUTER_BASE_URL);
+	const userApiKey = trimmed(userSettings.openRouterApiKey);
+	const envApiKey = trimmed(env.OPENROUTER_API_KEY);
+	const baseUrl = userBaseUrl ?? envBaseUrl ?? fallbackProviderBaseUrl;
+	const providerRouting = openRouterProviderRouting(baseUrl, imageGeneration.providerRouting);
+	const settings: ImageGenerationProviderSettings = {
+		apiKey: userApiKey ?? (userBaseUrl ? undefined : envApiKey),
+		baseUrl,
+		model,
+		...(providerRouting ? { providerRouting } : {}),
+		...(trimmed(imageGeneration.aspectRatio) ? { aspectRatio: trimmed(imageGeneration.aspectRatio) } : {}),
+		...(trimmed(imageGeneration.imageSize) ? { imageSize: trimmed(imageGeneration.imageSize) } : {}),
+		...(imageGeneration.temperature !== undefined ? { temperature: imageGeneration.temperature } : {}),
+		...(imageGeneration.topK !== undefined ? { topK: imageGeneration.topK } : {}),
+		...(imageGeneration.topP !== undefined ? { topP: imageGeneration.topP } : {}),
+		...(imageGeneration.minP !== undefined ? { minP: imageGeneration.minP } : {}),
+		...(imageGeneration.frequencyPenalty !== undefined ? { frequencyPenalty: imageGeneration.frequencyPenalty } : {}),
+		...(imageGeneration.presencePenalty !== undefined ? { presencePenalty: imageGeneration.presencePenalty } : {}),
+		...(imageGeneration.repetitionPenalty !== undefined ? { repetitionPenalty: imageGeneration.repetitionPenalty } : {}),
+	};
+	return settings;
+}
+
+function effectiveProviderSettingsForUserImageGeneration(
+	user: Pick<UserDocument, 'inferenceSettings'>,
+	env: Pick<Env, 'OPENROUTER_API_KEY' | 'OPENROUTER_BASE_URL' | 'OPENROUTER_MODEL'>,
+	settingsOverride?: BotInferenceSettings['imageGeneration'],
+): ImageGenerationProviderSettings | null {
+	const userSettings = user.inferenceSettings ?? {};
+	const imageGeneration = avatarImageGenerationSettingsWithDefaults(settingsOverride ?? userSettings.imageGeneration);
 	const model = trimmed(imageGeneration?.model);
 	if (!model) {
 		return null;
@@ -10930,6 +10972,128 @@ async function applyGeneratedAvatarForBot(
 	return updated;
 }
 
+async function generateAvatarForUser(
+	env: Pick<
+		Env,
+		'BICKR_KV' | 'BICKR_D1' | 'BICKR_R2' | 'BICKR_R2_PUBLIC_BASE_URL' | 'OPENROUTER_API_KEY' | 'OPENROUTER_BASE_URL' | 'OPENROUTER_MODEL'
+	>,
+	userId: string,
+	input: AvatarGenerationInput,
+	options: { signal?: AbortSignal; stream?: AvatarGenerationStreamSink } = {},
+): Promise<AvatarImage> {
+	const user = await userById(env.BICKR_KV, userId);
+	if (input.includeCurrentAvatar && !user.avatar?.url) {
+		throw new InputError('The current avatar cannot be included because your profile does not have one.');
+	}
+	const settingsOverride = parseImageGenerationSettingsOverride(input.settings, effectiveAvatarSettingsLanguageForUser(user));
+	const settings = effectiveProviderSettingsForUserImageGeneration(user, env, settingsOverride);
+	if (!settings) {
+		throw new InputError('Choose an image generation model before generating an avatar.');
+	}
+	const generatedImage = await fetchProviderAvatarImage(settings, {
+		prompt: input.prompt,
+		currentAvatarUrl: input.includeCurrentAvatar ? user.avatar?.url : undefined,
+	}, options);
+	let validated: ReturnType<typeof validateAvatarDataUrl>;
+	try {
+		validated = validateAvatarDataUrl(generatedImage.dataUrl);
+	} catch (error) {
+		if (error instanceof InputError) {
+			throw new ProviderRequestError(
+				502,
+				settings.model,
+				providerChatCompletionsUrl(settings.baseUrl),
+				`Provider returned an invalid generated avatar image. ${error.message}`,
+			);
+		}
+		throw error;
+	}
+	return storeAvatarImage(requireAvatarBucket(env), {
+		target: 'user',
+		userId: user.id,
+		bytes: validated.bytes,
+		contentType: validated.contentType,
+		publicBaseUrl: normalizeAvatarPublicBaseUrl(env.BICKR_R2_PUBLIC_BASE_URL),
+		source: {
+			type: 'generated',
+			model: settings.model,
+			generatedAt: new Date().toISOString(),
+			...(generatedImage.cost !== null ? { cost: generatedImage.cost } : {}),
+			...(input.prompt.trim() ? { prompt: input.prompt } : {}),
+		},
+		kind: 'avatar-candidates',
+	});
+}
+
+function streamAvatarGenerationForUser(
+	env: Pick<Env, 'BICKR_KV' | 'BICKR_D1' | 'BICKR_R2' | 'BICKR_R2_PUBLIC_BASE_URL' | 'OPENROUTER_API_KEY' | 'OPENROUTER_BASE_URL' | 'OPENROUTER_MODEL'>,
+	userId: string,
+	input: AvatarGenerationInput,
+	requestSignal: AbortSignal,
+): Response {
+	return streamAvatarOperation(requestSignal, 'Avatar generation aborted.', async (signal, stream) => {
+		const candidate = await generateAvatarForUser(env, userId, input, { signal, stream });
+		return { type: 'done', candidate };
+	});
+}
+
+async function prefillAvatarPromptForUser(
+	env: Pick<Env, 'BICKR_KV' | 'BICKR_D1' | 'OPENROUTER_API_KEY' | 'OPENROUTER_BASE_URL' | 'OPENROUTER_MODEL'>,
+	userId: string,
+	input: AvatarPromptInput,
+	options: { signal?: AbortSignal; stream?: AvatarGenerationStreamSink } = {},
+): Promise<string> {
+	const user = await userById(env.BICKR_KV, userId);
+	if (input.mode !== 'current_avatar') {
+		throw new InputError('Human avatar prompt fill only supports the current avatar.');
+	}
+	if (!user.avatar?.url) {
+		throw new InputError('The current avatar cannot be described because your profile does not have one.');
+	}
+	const imageSettingsOverride = parseImageGenerationSettingsOverride(input.imageSettings, effectiveAvatarSettingsLanguageForUser(user));
+	const settings = effectiveProviderSettingsForUserImageGeneration(user, env, imageSettingsOverride);
+	if (!settings) {
+		throw new InputError('Choose an image generation model before filling from the current avatar.');
+	}
+	return fetchProviderCurrentAvatarDescription(settings, user.avatar.url, options);
+}
+
+function streamAvatarPromptForUser(
+	env: Pick<Env, 'BICKR_KV' | 'BICKR_D1' | 'OPENROUTER_API_KEY' | 'OPENROUTER_BASE_URL' | 'OPENROUTER_MODEL'>,
+	userId: string,
+	input: AvatarPromptInput,
+	requestSignal: AbortSignal,
+): Response {
+	return streamAvatarOperation(requestSignal, 'Prompt fill aborted.', async (signal, stream) => {
+		const prompt = await prefillAvatarPromptForUser(env, userId, input, { signal, stream });
+		return { type: 'done', prompt };
+	});
+}
+
+async function applyGeneratedAvatarForUser(
+	env: Pick<Env, 'BICKR_KV' | 'BICKR_D1' | 'BICKR_R2' | 'BICKR_R2_PUBLIC_BASE_URL'>,
+	userId: string,
+	candidate: AvatarImage,
+) {
+	const user = await userById(env.BICKR_KV, userId);
+	const expectedPrefix = `users/${encodeURIComponent(user.id)}/avatar-candidates/`;
+	if (!candidate.key.startsWith(expectedPrefix)) {
+		throw new InputError('Avatar candidate key is invalid for this profile.');
+	}
+	const avatar = await promoteAvatarCandidate(requireAvatarBucket(env), {
+		target: 'user',
+		userId: user.id,
+		candidate,
+		publicBaseUrl: normalizeAvatarPublicBaseUrl(env.BICKR_R2_PUBLIC_BASE_URL),
+		source: candidate.source,
+	});
+	const profile = await updateUserAvatar(env.BICKR_KV, env.BICKR_D1, user.id, avatar);
+	await requireAvatarBucket(env)
+		.delete(candidate.key)
+		.catch(() => undefined);
+	return profile;
+}
+
 async function worldDocumentForAvatar(
 	env: Pick<Env, 'BICKR_KV' | 'BICKR_D1'>,
 	worldHandle: string,
@@ -12330,6 +12494,42 @@ export async function handleAgentRuntimeRequest(
 			return ok({ spread, coordinator: objectId });
 		}
 
+		const userAvatarPromptMatch = /^\/users\/([^/]+)\/avatar\/prompt$/.exec(url.pathname);
+		if (userAvatarPromptMatch && request.method === 'POST') {
+			const userId = requireUserMatch(request, decodeURIComponent(userAvatarPromptMatch[1] ?? ''));
+			const input = parseAvatarPromptInput(await readOptionalJsonBody(request));
+			if (request.headers.get('accept')?.includes('text/event-stream')) {
+				return streamAvatarPromptForUser(env, userId, input, request.signal);
+			}
+			const prompt = await prefillAvatarPromptForUser(env, userId, input);
+			return ok({ prompt, coordinator: objectId });
+		}
+
+		const userAvatarGenerateMatch = /^\/users\/([^/]+)\/avatar\/generate$/.exec(url.pathname);
+		if (userAvatarGenerateMatch && request.method === 'POST') {
+			const userId = requireUserMatch(request, decodeURIComponent(userAvatarGenerateMatch[1] ?? ''));
+			const input = parseAvatarGenerationInput(await readJsonBody(request));
+			if (request.headers.get('accept')?.includes('text/event-stream')) {
+				return streamAvatarGenerationForUser(env, userId, input, request.signal);
+			}
+			const candidate = await generateAvatarForUser(env, userId, input);
+			return ok({ candidate, coordinator: objectId });
+		}
+
+		const userAvatarApplyMatch = /^\/users\/([^/]+)\/avatar\/apply$/.exec(url.pathname);
+		if (userAvatarApplyMatch && request.method === 'POST') {
+			const userId = requireUserMatch(request, decodeURIComponent(userAvatarApplyMatch[1] ?? ''));
+			const body = runtimeRecord(await readJsonBody(request));
+			const settingsInput = body.settings === undefined ? undefined : parseUpdateUserProfileInput({
+				inferenceSettings: { imageGeneration: body.settings },
+			});
+			let profile = await applyGeneratedAvatarForUser(env, userId, parseAvatarCandidate(body.candidate));
+			if (settingsInput?.inferenceSettings !== undefined) {
+				profile = await updateUserProfile(env.BICKR_KV, env.BICKR_D1, userId, { inferenceSettings: settingsInput.inferenceSettings });
+			}
+			return ok({ profile, coordinator: objectId });
+		}
+
 		const createMatch = /^\/users\/([^/]+)\/worlds\/([^/]+)\/bots$/.exec(url.pathname);
 		if (request.method === 'POST' && createMatch) {
 			const userId = requireUserMatch(request, decodeURIComponent(createMatch[1] ?? ''));
@@ -12600,7 +12800,7 @@ export default {
 			return handleAgentRuntimeRequest(request, env);
 		}
 
-		const userBotsMatch = /^\/users\/([^/]+)\/(?:worlds\/[^/]+\/(?:bots|avatar\/(?:prompt|prompt-settings|generate|apply))|bots\/[^/]+(?:\/avatar\/(?:prompt|generate|apply)|\/clone\/(?:unlink|relink))?|profile)$/.exec(
+		const userBotsMatch = /^\/users\/([^/]+)\/(?:avatar\/(?:prompt|generate|apply)|worlds\/[^/]+\/(?:bots|avatar\/(?:prompt|prompt-settings|generate|apply))|bots\/[^/]+(?:\/avatar\/(?:prompt|generate|apply)|\/clone\/(?:unlink|relink))?|profile)$/.exec(
 			url.pathname,
 		);
 		const promptSettingsGet = /^\/users\/[^/]+\/worlds\/[^/]+\/avatar\/prompt-settings$/.test(url.pathname);

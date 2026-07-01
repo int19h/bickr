@@ -611,11 +611,12 @@ export function parseUpdateUserProfileInput(input: unknown): UpdateUserProfileIn
 	const textLanguage = hasTextUpdate ? language ?? requiredEntityLanguage(record.language, "Profile language") : null;
 	const displayName = optionalHumanText(record.displayName ?? record.name, "Display name", 80, textLanguage);
 	const uiLocale = record.uiLocale === undefined ? undefined : parseUiLocalePreference(record.uiLocale);
-	const avatarUrl =
-		record.avatarUrl === null ? null : optionalText(record.avatarUrl, "Avatar URL", 1_000);
 	const inferenceSettings =
 		record.inferenceSettings === undefined ? undefined : parseInferenceSettings(record.inferenceSettings, language ?? null);
 
+	if (record.avatarUrl !== undefined) {
+		throw new InputError("Profile avatars are managed through the profile avatar endpoints.");
+	}
 	if (handle !== undefined) {
 		update.handle = handle;
 	}
@@ -627,9 +628,6 @@ export function parseUpdateUserProfileInput(input: unknown): UpdateUserProfileIn
 	}
 	if (uiLocale !== undefined) {
 		update.uiLocale = uiLocale;
-	}
-	if (avatarUrl !== undefined) {
-		update.avatarUrl = avatarUrl;
 	}
 	if (inferenceSettings !== undefined) {
 		update.inferenceSettings = inferenceSettings;

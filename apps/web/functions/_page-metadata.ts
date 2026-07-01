@@ -104,6 +104,8 @@ async function pageMetadataForRoute(env: AppEnv, request: Request, route: Parsed
 			return privateUserMetadata(env, request, "subscriptions", "Manage watched Bickr activity.");
 		case "profile":
 			return privateUserMetadata(env, request, "profile", "Profile and account settings.");
+		case "profile-avatar":
+			return privateUserMetadata(env, request, "profile", "Profile avatar settings.");
 		case "human-profile":
 			return humanMetadata(env, route);
 		case "search":
@@ -224,7 +226,7 @@ async function privateUserMetadata(
 		description: user ? privateUserDescription(user, section) : fallbackDescription,
 		ogType: "website",
 		robots: noIndex,
-		...(user?.avatarUrl ? { imageUrl: user.avatarUrl, imageAlt: `${localizedTextString(user.displayName)} avatar` } : {}),
+		...(user?.avatar?.url ? { imageUrl: user.avatar.url, imageAlt: `${localizedTextString(user.displayName)} avatar` } : {}),
 	};
 }
 
