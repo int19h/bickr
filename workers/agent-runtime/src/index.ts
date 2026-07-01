@@ -11564,7 +11564,11 @@ async function fetchProviderAvatarImage(
 	const requestMessages = avatarImageGenerationMessages(input, options.target);
 	await options.stream?.messages(requestMessages.displayMessages);
 	if (openRouterImageApi) {
-		const upstreamStream = Boolean(options.stream && !input.currentAvatarUrl);
+		const upstreamStream = Boolean(
+			options.stream &&
+			!input.currentAvatarUrl &&
+			await openRouterImageApiSupportsStreaming(settings, signal),
+		);
 		const requestBody = openRouterAvatarImageRequest(settings, requestMessages, input, upstreamStream);
 		const response = await providerFetchWithHeaderTimeout(
 			endpoint,
@@ -11576,7 +11580,7 @@ async function fetchProviderAvatarImage(
 			const bodyText = await readProviderErrorBody(response, signal);
 			throw new ProviderRequestError(response.status, settings.model, endpoint, bodyText);
 		}
-		if (upstreamStream && options.stream) {
+		if (upstreamStream && options.stream && isEventStreamResponse(response)) {
 			return fetchOpenRouterAvatarImageFromStream(settings, endpoint, response, signal, options.stream);
 		}
 		let rawResponse: string;
@@ -12013,6 +12017,10 @@ function providerStreamTextDelta(value: unknown): string {
 	return typeof value === 'string' ? value : '';
 }
 
+function isEventStreamResponse(response: Response): boolean {
+	return response.headers.get('content-type')?.toLowerCase().includes('text/event-stream') === true;
+}
+
 async function providerImageOutputModalities(
 	settings: Pick<ImageGenerationProviderSettings, 'baseUrl' | 'model'>,
 	signal?: AbortSignal,
@@ -12029,10 +12037,30 @@ type ProviderImageModelModalities = {
 	output: string[];
 };
 
+type ProviderImageModelCapabilities = ProviderImageModelModalities & {
+	supportsStreaming: boolean;
+};
+
+async function openRouterImageApiSupportsStreaming(
+	settings: Pick<ImageGenerationProviderSettings, 'baseUrl' | 'model'>,
+	signal?: AbortSignal,
+): Promise<boolean> {
+	const capabilities = await openRouterImageModelCapabilities(settings, signal);
+	return capabilities?.supportsStreaming === true;
+}
+
 async function openRouterImageModelModalities(
 	settings: Pick<ImageGenerationProviderSettings, 'baseUrl' | 'model'>,
 	signal?: AbortSignal,
 ): Promise<ProviderImageModelModalities | null> {
+	const capabilities = await openRouterImageModelCapabilities(settings, signal);
+	return capabilities ? { input: capabilities.input, output: capabilities.output } : null;
+}
+
+async function openRouterImageModelCapabilities(
+	settings: Pick<ImageGenerationProviderSettings, 'baseUrl' | 'model'>,
+	signal?: AbortSignal,
+): Promise<ProviderImageModelCapabilities | null> {
 	if (!isOpenRouterProviderBaseUrl(settings.baseUrl)) {
 		return null;
 	}
@@ -12046,15 +12074,20 @@ async function openRouterImageModelModalities(
 		}
 		const payload = (await response.json()) as { data?: unknown };
 		const data = Array.isArray(payload.data) ? payload.data : [];
+		const requestedModel = normalizedProviderModelId(settings.model);
+		if (!requestedModel) {
+			return null;
+		}
 		for (const item of data) {
 			const record = runtimeRecord(item);
-			if (stringValue(record.id) !== settings.model) {
+			if (normalizedProviderModelId(stringValue(record.id)) !== requestedModel) {
 				continue;
 			}
 			const architecture = runtimeRecord(record.architecture);
 			return {
 				input: stringArrayValue(architecture.input_modalities),
 				output: stringArrayValue(architecture.output_modalities),
+				supportsStreaming: record.supports_streaming === true,
 			};
 		}
 	} catch (error) {
@@ -12064,6 +12097,10 @@ async function openRouterImageModelModalities(
 		return null;
 	}
 	return null;
+}
+
+function normalizedProviderModelId(model: string | undefined): string {
+	return model?.trim().toLowerCase().split(':')[0] ?? '';
 }
 
 function providerImageDataUrl(payload: unknown): string | null {

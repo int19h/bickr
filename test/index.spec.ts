@@ -20950,14 +20950,28 @@ describe("Bickr Pages Functions", () => {
 		const userId = await userIdForHandle("octocat");
 		const r2 = fakeR2Bucket();
 		const rawDataUrl = avatarDataUrl();
+		const model = "openai/gpt-image-1";
 		const originalFetch = globalThis.fetch;
 		const fetchMock = vi.fn<(_input: RequestInfo | URL, _init?: RequestInit) => Promise<Response>>(
 			async (input, init) => {
+				if (String(input) === "https://openrouter.ai/api/v1/images/models") {
+					return Response.json({
+						data: [
+							{
+								id: model,
+								architecture: { input_modalities: ["text"], output_modalities: ["image"] },
+								supports_streaming: true,
+							},
+						],
+					});
+				}
 				expect(String(input)).toBe("https://openrouter.ai/api/v1/images");
 				const requestBody = JSON.parse(String(init?.body)) as {
+					model?: string;
 					stream?: boolean;
 					prompt?: string;
 				};
+				expect(requestBody.model).toBe(model);
 				expect(requestBody.stream).toBe(true);
 				expect(requestBody.prompt).toContain("Bickr participant");
 				expect(requestBody.prompt).toContain("Paint me as a luminous portrait.");
@@ -20982,7 +20996,7 @@ describe("Bickr Pages Functions", () => {
 					{
 						prompt: "Paint me as a luminous portrait.",
 						includeCurrentAvatar: false,
-						settings: { model: "openai/image-one" },
+						settings: { model },
 					},
 				),
 				{
@@ -21013,7 +21027,7 @@ describe("Bickr Pages Functions", () => {
 					contentType: "image/png",
 					source: {
 						type: "generated",
-						model: "openai/image-one",
+						model,
 						prompt: "Paint me as a luminous portrait.",
 						cost: 0.045,
 					},
@@ -21022,6 +21036,88 @@ describe("Bickr Pages Functions", () => {
 			const candidate = (events[2] as { candidate: NonNullable<BotBody["avatar"]> }).candidate;
 			expect(candidate.url).toContain("/avatar-candidates/");
 			expect(r2.objects.has(candidate.key)).toBe(true);
+		} finally {
+			vi.stubGlobal("fetch", originalFetch);
+		}
+	});
+
+	it("buffers upstream OpenRouter image requests for non-streaming models while streaming avatar events", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const bot = await createBotForTest(cookie, "avatar-streamed-gemini");
+		const userId = await userIdForHandle("octocat");
+		const r2 = fakeR2Bucket();
+		const model = "google/gemini-3.1-flash-image";
+		const originalFetch = globalThis.fetch;
+		const fetchMock = vi.fn<(_input: RequestInfo | URL, _init?: RequestInit) => Promise<Response>>(
+			async (input, init) => {
+				if (String(input) === "https://openrouter.ai/api/v1/images/models") {
+					return Response.json({
+						data: [
+							{
+								id: model,
+								architecture: { input_modalities: ["text", "image"], output_modalities: ["text", "image"] },
+								supports_streaming: false,
+							},
+						],
+					});
+				}
+				expect(String(input)).toBe("https://openrouter.ai/api/v1/images");
+				const requestBody = JSON.parse(String(init?.body)) as {
+					model?: string;
+					stream?: boolean;
+					prompt?: string;
+				};
+				expect(requestBody.model).toBe(model);
+				expect(requestBody.stream).toBe(false);
+				expect(requestBody.prompt).toContain("Paint me as a luminous portrait.");
+				return Response.json({
+					data: [{ b64_json: base64String(pngAvatarBytes()) }],
+					usage: { prompt_tokens: 12, completion_tokens: 0, total_tokens: 12, cost: 0.034 },
+				});
+			},
+		);
+		vi.stubGlobal("fetch", fetchMock);
+		try {
+			const response = await handleAgentRuntimeRequest(
+				serviceStreamJsonRequest(
+					`/users/${encodeURIComponent(userId)}/bots/${encodeURIComponent(bot.id)}/avatar/generate`,
+					userId,
+					{
+						prompt: "Paint me as a luminous portrait.",
+						includeCurrentAvatar: false,
+						settings: { model },
+					},
+				),
+				{
+					BICKR_D1: testEnv.BICKR_D1,
+					BICKR_KV: testEnv.BICKR_KV,
+					BICKR_R2: r2.bucket,
+					BICKR_R2_PUBLIC_BASE_URL: "https://assets-test.bickr.social",
+					OPENROUTER_API_KEY: "test-key",
+				},
+			);
+			expect(response.status).toBe(200);
+			expect(response.headers.get("content-type")).toContain("text/event-stream");
+			const events = parseJsonSseEvents(await response.text());
+			expect(events.map((event) => event.type)).toEqual(["messages", "assistant_image", "done"]);
+			expect(events[1]).toEqual({ type: "assistant_image", count: 1 });
+			expect(events[2]).toMatchObject({
+				type: "done",
+				candidate: {
+					contentType: "image/png",
+					source: {
+						type: "generated",
+						model,
+						prompt: "Paint me as a luminous portrait.",
+						cost: 0.034,
+					},
+				},
+			});
+			const candidate = (events[2] as { candidate: NonNullable<BotBody["avatar"]> }).candidate;
+			expect(candidate.url).toContain("/avatar-candidates/");
+			expect(r2.objects.has(candidate.key)).toBe(true);
+			expect(fetchMock).toHaveBeenCalledTimes(2);
 		} finally {
 			vi.stubGlobal("fetch", originalFetch);
 		}
