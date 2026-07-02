@@ -12,6 +12,7 @@ import {
 	rewriteProviderResponseToolCallMessage,
 	runtimeErrorLoopMessageContent,
 	selfCorrectionMessageForToolFailurePayload,
+	stripLeakedProviderCommentRefSuffix,
 	syntheticLimitLogOffArgs,
 	type ToolFailurePayload,
 } from "./index";
@@ -122,6 +123,25 @@ describe("tool argument validation", () => {
 		const malformed = rawToolCall("call_string_json", "vote", '"not an object"');
 
 		expect(() => parseToolArgs(malformed)).toThrow("Malformed tool call! The arguments for vote must be a JSON object, but a string was provided.");
+	});
+
+	it("strips the leaked provider commentRef suffix from generated reply bodies", () => {
+		const result = sanitizeProviderToolCalls([
+			toolCall("call_reply", "reply_to_comment", {
+				body: { lang: "en", text: 'I am done here."},commentRef:' },
+				commentRef: "c/target",
+			}),
+		]);
+
+		expect(result.dropped).toEqual([]);
+		expect(JSON.parse(result.toolCalls[0]?.function.arguments ?? "{}")).toEqual({
+			body: { lang: "en", text: "I am done here." },
+			commentRef: "c/target",
+		});
+	});
+
+	it("only strips the leaked provider commentRef sequence when it is a suffix", () => {
+		expect(stripLeakedProviderCommentRefSuffix('quoted "},commentRef: inside text')).toBe('quoted "},commentRef: inside text');
 	});
 
 	it("uses the property name and bot language when a localized text argument is a raw string", () => {

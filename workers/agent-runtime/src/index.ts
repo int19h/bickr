@@ -2599,7 +2599,7 @@ export function sanitizeProviderToolCalls(toolCalls: readonly BotInferenceSubmis
 				dropped.push(droppedProviderToolCall(id, name, 'arguments_not_json_object', rawArguments));
 				continue;
 			}
-			const parsedRepair = repairInvalidUnicodeValue(parsed as Record<string, unknown>);
+			const parsedRepair = repairInvalidUnicodeValue(sanitizeGeneratedPostingToolArgs(name, parsed as Record<string, unknown>));
 			repairedTextCount += parsedRepair.repairCount;
 			argumentObject = parsedRepair.value;
 		} else {
@@ -2630,6 +2630,31 @@ function providerToolCallArgumentsText(rawArguments: unknown): string {
 		return '';
 	}
 	return JSON.stringify(rawArguments) ?? '';
+}
+
+const leakedProviderCommentRefSuffix = '"},commentRef:';
+
+export function stripLeakedProviderCommentRefSuffix(text: string): string {
+	return text.endsWith(leakedProviderCommentRefSuffix) ? text.slice(0, -leakedProviderCommentRefSuffix.length).trimEnd() : text;
+}
+
+function sanitizeGeneratedPostingToolArgs(name: string, args: Record<string, unknown>): Record<string, unknown> {
+	const canonical = canonicalToolName(name);
+	if (canonical !== 'create_thread' && canonical !== 'reply_to_comment' && canonical !== 'make_additional_reply_to_the_same_comment') {
+		return args;
+	}
+	const body = runtimeRecord(args.body);
+	const text = typeof body.text === 'string' ? stripLeakedProviderCommentRefSuffix(body.text) : undefined;
+	if (text === undefined || text === body.text) {
+		return args;
+	}
+	return {
+		...args,
+		body: {
+			...body,
+			text,
+		},
+	};
 }
 
 function sanitizeProviderResponseToolCalls(response: ProviderResponse): {
