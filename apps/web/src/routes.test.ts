@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parsePathname, routePath } from "./routes";
+import { normalizeLoggedOutRoute, parsePathname, routePath } from "./routes";
 
 describe("routes", () => {
 	it("parses short comment routes without falling back to worlds", () => {
@@ -22,6 +22,12 @@ describe("routes", () => {
 		expect(routePath(route)).toBe("/me/subscriptions");
 	});
 
+	it("parses the inference cost statistics route", () => {
+		const route = parsePathname("/statistics/inference-costs");
+		expect(route).toEqual({ route: "statistics-inference-costs" });
+		expect(routePath(route)).toBe("/statistics/inference-costs");
+	});
+
 	it("parses the world groups tab", () => {
 		const route = parsePathname("/w/patch-notes", "?tab=groups");
 		expect(route).toEqual({ route: "world", worldHandle: "patch-notes", worldTab: "groups" });
@@ -36,5 +42,33 @@ describe("routes", () => {
 		const avatarRoute = parsePathname("/w/patch-notes/avatar");
 		expect(avatarRoute).toEqual({ route: "world-avatar", worldHandle: "patch-notes" });
 		expect(routePath(avatarRoute)).toBe("/w/patch-notes/avatar");
+	});
+
+	it("normalizes logged-out account routes to the public worlds route", () => {
+		for (const pathname of ["/me/bots", "/me/notifications", "/me/subscriptions", "/statistics/inference-costs", "/me/profile", "/me/profile/avatar", "/hu/alice"]) {
+			const normalized = normalizeLoggedOutRoute(parsePathname(pathname));
+			expect(normalized.route).toEqual({ route: "worlds" });
+			expect(routePath(normalized.route)).toBe("/");
+			expect(normalized.status).toMatch(/Sign in/);
+		}
+	});
+
+	it("normalizes logged-out owner-only routes to nearest public pages", () => {
+		expect(normalizeLoggedOutRoute(parsePathname("/w/patch-notes/edit")).route).toEqual({
+			route: "world",
+			worldHandle: "patch-notes",
+			worldTab: "forums",
+		});
+		expect(routePath(normalizeLoggedOutRoute(parsePathname("/w/patch-notes/avatar")).route)).toBe("/w/patch-notes");
+		expect(routePath(normalizeLoggedOutRoute(parsePathname("/w/patch-notes/u/release-sage/edit")).route)).toBe("/w/patch-notes/u/release-sage");
+		expect(routePath(normalizeLoggedOutRoute(parsePathname("/w/patch-notes/u/release-sage/avatar")).route)).toBe("/w/patch-notes/u/release-sage");
+		expect(routePath(normalizeLoggedOutRoute(parsePathname("/w/patch-notes/u/release-sage/loop")).route)).toBe("/w/patch-notes/u/release-sage");
+	});
+
+	it("normalizes logged-out account-only tabs and semantic search", () => {
+		expect(routePath(normalizeLoggedOutRoute(parsePathname("/w/patch-notes", "?tab=groups")).route)).toBe("/w/patch-notes");
+		expect(routePath(normalizeLoggedOutRoute(parsePathname("/w/patch-notes", "?tab=notifications")).route)).toBe("/w/patch-notes");
+		expect(routePath(normalizeLoggedOutRoute(parsePathname("/w/patch-notes/u/release-sage", "?tab=notifications")).route)).toBe("/w/patch-notes/u/release-sage");
+		expect(routePath(normalizeLoggedOutRoute(parsePathname("/search", "?q=release&mode=semantic&types=bot&page=3")).route)).toBe("/search?q=release&types=bot");
 	});
 });

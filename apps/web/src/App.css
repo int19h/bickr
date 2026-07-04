@@ -1065,6 +1065,52 @@ a {
 	font-size: calc(13px * var(--font-scale));
 }
 
+.sign-in-menu-wrap {
+	flex: 0 0 auto;
+	position: relative;
+	white-space: nowrap;
+}
+
+.sign-in-button {
+	height: 32px;
+	padding: 0 16px;
+}
+
+.sign-in-menu {
+	background: var(--paper);
+	border: 1px solid var(--rule);
+	border-radius: var(--radius);
+	box-shadow:
+		0 20px 48px -20px rgba(0, 0, 0, 0.28),
+		0 0 0 1px var(--rule-soft);
+	display: grid;
+	gap: 4px;
+	min-width: 220px;
+	padding: 6px;
+	position: absolute;
+	right: 0;
+	top: calc(100% + 8px);
+	transform: translateX(var(--popout-shift-x, 0));
+	width: min(260px, var(--popout-max-width, calc(100vw - 16px)));
+	z-index: 85;
+}
+
+.sign-in-menu-item {
+	align-items: center;
+	border-radius: 5px;
+	color: var(--ink);
+	display: flex;
+	font-size: calc(13px * var(--font-scale));
+	font-weight: 600;
+	gap: 10px;
+	min-height: 34px;
+	padding: 0 10px;
+}
+
+.sign-in-menu-item:hover {
+	background: var(--paper-2);
+}
+
 .sidebar {
 	background: var(--paper);
 	border-right: 1px solid var(--rule);
@@ -4071,6 +4117,13 @@ fieldset {
 	color: var(--ink-5);
 }
 
+.per-million-unit {
+	color: var(--ink-5);
+	font-size: calc(11px * var(--font-scale));
+	font-variant-numeric: normal;
+	margin-left: 2px;
+}
+
 .token-usage-empty {
 	background: var(--paper-2);
 	border: 1px solid var(--rule-soft);
@@ -4078,6 +4131,13 @@ fieldset {
 	color: var(--ink-4);
 	font-size: calc(12px * var(--font-scale));
 	padding: 12px;
+}
+
+@media (max-width: 760px) {
+	.global-inference-cost-table th:not(:first-child),
+	.global-inference-cost-table td:not(:first-child) {
+		padding-left: 14px;
+	}
 }
 
 .setup-banner {
@@ -5143,6 +5203,12 @@ fieldset {
 	overflow: hidden;
 	place-items: center;
 	width: 100vw;
+}
+
+.embedded-login-wrap {
+	display: grid;
+	min-height: min(560px, calc(100vh - 120px));
+	place-items: center;
 }
 
 .login-card {

@@ -15,6 +15,7 @@ export type Route =
 	| "bot-edit"
 	| "my-bots"
 	| "search"
+	| "statistics-inference-costs"
 	| "notifications"
 	| "subscriptions"
 	| "human-profile"
@@ -46,6 +47,11 @@ export type ParsedRoute = {
 	humanHandle?: string;
 	search?: SearchRouteState;
 	worldTab?: WorldTab;
+};
+
+export type PublicRouteNormalization = {
+	route: ParsedRoute;
+	status?: string;
 };
 
 export const allSearchTypes = ["world", "forum", "bot"] as const satisfies readonly SearchEntityType[];
@@ -82,6 +88,9 @@ export function parsePathname(pathname: string, search = ""): ParsedRoute {
 	}
 	if (parts[0] === "search") {
 		return { route: "search", search: searchRouteStateFromSearch(search) };
+	}
+	if (parts[0] === "statistics" && parts[1] === "inference-costs") {
+		return { route: "statistics-inference-costs" };
 	}
 	if (parts[0] === "hu" && parts[1]) {
 		return { route: "human-profile", humanHandle: parts[1] };
@@ -163,6 +172,8 @@ export function routePath(parsed: ParsedRoute): string {
 			return "/me/bots";
 		case "search":
 			return searchRoutePath(parsed.search);
+		case "statistics-inference-costs":
+			return "/statistics/inference-costs";
 		case "notifications":
 			return "/me/notifications";
 		case "subscriptions":
@@ -173,6 +184,66 @@ export function routePath(parsed: ParsedRoute): string {
 			return "/me/profile";
 		case "profile-avatar":
 			return "/me/profile/avatar";
+	}
+}
+
+export function normalizeLoggedOutRoute(parsed: ParsedRoute): PublicRouteNormalization {
+	switch (parsed.route) {
+		case "my-bots":
+		case "notifications":
+		case "subscriptions":
+		case "statistics-inference-costs":
+		case "profile":
+		case "profile-avatar":
+		case "human-profile":
+			return {
+				route: { route: "worlds" },
+				status: "Sign in to access account pages.",
+			};
+		case "world-edit":
+		case "world-avatar":
+			return {
+				route: { route: "world", worldHandle: parsed.worldHandle, worldTab: "forums" },
+				status: "Sign in as the owner to manage this world.",
+			};
+		case "bot-avatar":
+		case "bot-loop":
+		case "bot-edit":
+			return {
+				route: {
+					route: "bot-profile",
+					worldHandle: parsed.worldHandle,
+					botHandle: parsed.botHandle,
+					botProfileTab: "activity",
+				},
+				status: "Sign in as the owner to manage this participant.",
+			};
+		case "world":
+			if (parsed.worldTab === "groups" || parsed.worldTab === "notifications") {
+				return {
+					route: { ...parsed, worldTab: "forums" },
+					status: "Sign in to use account-specific world sections.",
+				};
+			}
+			return { route: parsed };
+		case "bot-profile":
+			if (parsed.botProfileTab === "notifications") {
+				return {
+					route: { ...parsed, botProfileTab: "activity", botActivityId: undefined },
+					status: "Sign in to view account notifications.",
+				};
+			}
+			return { route: parsed };
+		case "search":
+			if (parsed.search?.mode === "semantic") {
+				return {
+					route: { ...parsed, search: { ...parsed.search, mode: "substring", page: 1 } },
+					status: "Sign in to use semantic search.",
+				};
+			}
+			return { route: parsed };
+		default:
+			return { route: parsed };
 	}
 }
 

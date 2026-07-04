@@ -1,9 +1,12 @@
-import { type BotTokenSpendSummary } from "./model";
+import { type BotTokenSpendSummary, type GlobalInferenceCostModelProviderRow, type GlobalInferenceCostPublicStats, type GlobalInferenceCostStats, type GlobalInferenceCostTotals } from "./model";
 import { type D1DatabaseLike } from "./storage";
 
 const dayMs = 24 * 60 * 60 * 1000;
 const tokenSpendWindowDays = 7;
+const globalInferenceCostStatsCacheKey = "global_inference_costs";
 export const botInferenceUsageRetentionDays = 8;
+export const globalInferenceCostStatsCacheMaxAgeMs = dayMs;
+export const globalInferenceCostStatsWindowDays = tokenSpendWindowDays;
 
 export type BotTokenSpendSummaryTarget = {
 	botId: string;
@@ -40,6 +43,24 @@ export type BotInferenceUsageSpendRow = {
 	runId: string;
 	requestedModel: string;
 	cost: number | null;
+};
+
+type GlobalInferenceCostCacheRow = {
+	payloadJson: string;
+};
+
+type GlobalInferenceCostAggregateRow = {
+	model: string;
+	providerName: string;
+	requestCount: number;
+	totalTokens: number;
+	pricedRequestCount: number;
+	pricedTokens: number;
+	unpricedRequestCount: number;
+	unpricedTokens: number;
+	knownCost: number;
+	firstUsedAt: string;
+	lastUsedAt: string;
 };
 
 type SpendAccumulator = {
@@ -123,6 +144,133 @@ export async function pruneBotInferenceUsage(
 		.prepare(`DELETE FROM bot_inference_usage WHERE created_at < ?`)
 		.bind(cutoff)
 		.run();
+}
+
+export async function cachedGlobalInferenceCostStats(db: D1DatabaseLike): Promise<GlobalInferenceCostStats | null> {
+	const row = await db
+		.prepare(
+			`SELECT payload_json AS payloadJson
+			 FROM global_inference_cost_stats_cache
+			 WHERE cache_key = ?`,
+		)
+		.bind(globalInferenceCostStatsCacheKey)
+		.first<GlobalInferenceCostCacheRow>();
+	return row ? parseGlobalInferenceCostStats(row.payloadJson) : null;
+}
+
+export async function refreshGlobalInferenceCostStatsCacheIfStale(
+	db: D1DatabaseLike,
+	now = new Date(),
+	maxAgeMs = globalInferenceCostStatsCacheMaxAgeMs,
+): Promise<GlobalInferenceCostStats> {
+	const cached = await cachedGlobalInferenceCostStats(db);
+	if (cached) {
+		const generatedAtMs = Date.parse(cached.generatedAt);
+		const ageMs = now.getTime() - generatedAtMs;
+		if (Number.isFinite(ageMs) && ageMs >= 0 && ageMs < maxAgeMs) {
+			return cached;
+		}
+	}
+	return recomputeGlobalInferenceCostStatsCache(db, now);
+}
+
+export function publicGlobalInferenceCostStats(stats: GlobalInferenceCostStats | null): GlobalInferenceCostPublicStats | null {
+	if (!stats) {
+		return null;
+	}
+	return {
+		generatedAt: stats.generatedAt,
+		windowStart: stats.windowStart,
+		windowEnd: stats.windowEnd,
+		windowDays: stats.windowDays,
+		rows: stats.rows.flatMap((row) =>
+			row.effectiveCostPerMillionTokens === null ? [] : [{
+				model: row.model,
+				providerName: row.providerName,
+				effectiveCostPerMillionTokens: row.effectiveCostPerMillionTokens,
+			}],
+		),
+	};
+}
+
+export async function recomputeGlobalInferenceCostStatsCache(
+	db: D1DatabaseLike,
+	now = new Date(),
+): Promise<GlobalInferenceCostStats> {
+	const stats = await globalInferenceCostStatsFromUsage(db, now);
+	await db
+		.prepare(
+			`INSERT INTO global_inference_cost_stats_cache (
+				cache_key, generated_at, window_start, window_end, window_days, payload_json
+			) VALUES (?, ?, ?, ?, ?, ?)
+			ON CONFLICT(cache_key) DO UPDATE SET
+				generated_at = excluded.generated_at,
+				window_start = excluded.window_start,
+				window_end = excluded.window_end,
+				window_days = excluded.window_days,
+				payload_json = excluded.payload_json`,
+		)
+		.bind(
+			globalInferenceCostStatsCacheKey,
+			stats.generatedAt,
+			stats.windowStart,
+			stats.windowEnd,
+			stats.windowDays,
+			JSON.stringify(stats),
+		)
+		.run();
+	return stats;
+}
+
+export async function globalInferenceCostStatsFromUsage(
+	db: D1DatabaseLike,
+	now = new Date(),
+): Promise<GlobalInferenceCostStats> {
+	const windowEnd = now.toISOString();
+	const windowStart = new Date(now.getTime() - globalInferenceCostStatsWindowDays * dayMs).toISOString();
+	const result = await db
+		.prepare(
+			`WITH normalized AS (
+				SELECT
+					requested_model AS model,
+					CASE
+						WHEN TRIM(COALESCE(provider_name, '')) = '' THEN 'Unknown provider'
+						ELSE TRIM(provider_name)
+					END AS provider_name,
+					created_at,
+					total_tokens,
+					cost
+				FROM bot_inference_usage
+				WHERE created_at >= ?
+				  AND created_at <= ?
+				  AND total_tokens > 0
+			)
+			SELECT
+				model,
+				provider_name AS providerName,
+				COUNT(*) AS requestCount,
+				COALESCE(SUM(total_tokens), 0) AS totalTokens,
+				COALESCE(SUM(CASE WHEN cost IS NOT NULL THEN 1 ELSE 0 END), 0) AS pricedRequestCount,
+				COALESCE(SUM(CASE WHEN cost IS NOT NULL THEN total_tokens ELSE 0 END), 0) AS pricedTokens,
+				COALESCE(SUM(CASE WHEN cost IS NULL THEN 1 ELSE 0 END), 0) AS unpricedRequestCount,
+				COALESCE(SUM(CASE WHEN cost IS NULL THEN total_tokens ELSE 0 END), 0) AS unpricedTokens,
+				COALESCE(SUM(CASE WHEN cost IS NOT NULL THEN cost ELSE 0 END), 0) AS knownCost,
+				MIN(created_at) AS firstUsedAt,
+				MAX(created_at) AS lastUsedAt
+			 FROM normalized
+			 GROUP BY model, provider_name`,
+		)
+		.bind(windowStart, windowEnd)
+		.all<GlobalInferenceCostAggregateRow>();
+	const rows = (result.results ?? []).map(globalInferenceCostRowFromAggregate).sort(compareGlobalInferenceCostRows);
+	return {
+		generatedAt: windowEnd,
+		windowStart,
+		windowEnd,
+		windowDays: globalInferenceCostStatsWindowDays,
+		totals: globalInferenceCostTotals(rows),
+		rows,
+	};
 }
 
 export async function listOwnerBotTokenSpendSummaries(
@@ -262,6 +410,138 @@ function addSpendRow(total: SpendAccumulator, row: Pick<BotInferenceUsageSpendRo
 
 function spendAccumulatorCost(total: SpendAccumulator): number | null {
 	return total.unknownCost ? null : total.cost;
+}
+
+function globalInferenceCostRowFromAggregate(row: GlobalInferenceCostAggregateRow): GlobalInferenceCostModelProviderRow {
+	const pricedTokens = Math.max(0, Math.round(numberValue(row.pricedTokens)));
+	const knownCost = Math.max(0, numberValue(row.knownCost));
+	return {
+		model: stringValue(row.model) || "unknown/model",
+		providerName: stringValue(row.providerName) || "Unknown provider",
+		requestCount: Math.max(0, Math.round(numberValue(row.requestCount))),
+		totalTokens: Math.max(0, Math.round(numberValue(row.totalTokens))),
+		pricedRequestCount: Math.max(0, Math.round(numberValue(row.pricedRequestCount))),
+		pricedTokens,
+		unpricedRequestCount: Math.max(0, Math.round(numberValue(row.unpricedRequestCount))),
+		unpricedTokens: Math.max(0, Math.round(numberValue(row.unpricedTokens))),
+		knownCost,
+		firstUsedAt: stringValue(row.firstUsedAt) || "",
+		lastUsedAt: stringValue(row.lastUsedAt) || "",
+		effectiveCostPerMillionTokens: pricedTokens > 0 ? (knownCost * 1_000_000) / pricedTokens : null,
+	};
+}
+
+function globalInferenceCostTotals(rows: readonly GlobalInferenceCostModelProviderRow[]): GlobalInferenceCostTotals {
+	return rows.reduce<GlobalInferenceCostTotals>(
+		(total, row) => ({
+			requestCount: total.requestCount + row.requestCount,
+			totalTokens: total.totalTokens + row.totalTokens,
+			pricedRequestCount: total.pricedRequestCount + row.pricedRequestCount,
+			pricedTokens: total.pricedTokens + row.pricedTokens,
+			unpricedRequestCount: total.unpricedRequestCount + row.unpricedRequestCount,
+			unpricedTokens: total.unpricedTokens + row.unpricedTokens,
+			knownCost: total.knownCost + row.knownCost,
+		}),
+		{
+			requestCount: 0,
+			totalTokens: 0,
+			pricedRequestCount: 0,
+			pricedTokens: 0,
+			unpricedRequestCount: 0,
+			unpricedTokens: 0,
+			knownCost: 0,
+		},
+	);
+}
+
+function compareGlobalInferenceCostRows(left: GlobalInferenceCostModelProviderRow, right: GlobalInferenceCostModelProviderRow): number {
+	const leftCost = left.effectiveCostPerMillionTokens;
+	const rightCost = right.effectiveCostPerMillionTokens;
+	if (leftCost !== null && rightCost !== null) {
+		const cost = leftCost - rightCost;
+		if (cost !== 0) {
+			return cost;
+		}
+	} else if (leftCost !== null) {
+		return -1;
+	} else if (rightCost !== null) {
+		return 1;
+	}
+	const pricedTokens = right.pricedTokens - left.pricedTokens;
+	if (pricedTokens !== 0) {
+		return pricedTokens;
+	}
+	const model = left.model.localeCompare(right.model);
+	if (model !== 0) {
+		return model;
+	}
+	return left.providerName.localeCompare(right.providerName);
+}
+
+function parseGlobalInferenceCostStats(value: string): GlobalInferenceCostStats | null {
+	try {
+		const parsed = JSON.parse(value);
+		if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+			return null;
+		}
+		const record = parsed as Record<string, unknown>;
+		const generatedAt = stringValue(record.generatedAt);
+		const windowStart = stringValue(record.windowStart);
+		const windowEnd = stringValue(record.windowEnd);
+		const rows = Array.isArray(record.rows) ? record.rows.map(parsedGlobalInferenceCostRow).filter((row): row is GlobalInferenceCostModelProviderRow => Boolean(row)) : [];
+		if (!generatedAt || !windowStart || !windowEnd) {
+			return null;
+		}
+		return {
+			generatedAt,
+			windowStart,
+			windowEnd,
+			windowDays: Math.max(0, Math.round(numberValue(record.windowDays))),
+			totals: globalInferenceCostTotals(rows),
+			rows,
+		};
+	} catch {
+		return null;
+	}
+}
+
+function parsedGlobalInferenceCostRow(value: unknown): GlobalInferenceCostModelProviderRow | null {
+	if (!value || typeof value !== "object" || Array.isArray(value)) {
+		return null;
+	}
+	const record = value as Record<string, unknown>;
+	const model = stringValue(record.model);
+	const providerName = stringValue(record.providerName);
+	const firstUsedAt = stringValue(record.firstUsedAt);
+	const lastUsedAt = stringValue(record.lastUsedAt);
+	if (!model || !providerName || !firstUsedAt || !lastUsedAt) {
+		return null;
+	}
+	const pricedTokens = Math.max(0, Math.round(numberValue(record.pricedTokens)));
+	const knownCost = Math.max(0, numberValue(record.knownCost));
+	return {
+		model,
+		providerName,
+		requestCount: Math.max(0, Math.round(numberValue(record.requestCount))),
+		totalTokens: Math.max(0, Math.round(numberValue(record.totalTokens))),
+		pricedRequestCount: Math.max(0, Math.round(numberValue(record.pricedRequestCount))),
+		pricedTokens,
+		unpricedRequestCount: Math.max(0, Math.round(numberValue(record.unpricedRequestCount))),
+		unpricedTokens: Math.max(0, Math.round(numberValue(record.unpricedTokens))),
+		knownCost,
+		firstUsedAt,
+		lastUsedAt,
+		effectiveCostPerMillionTokens: pricedTokens > 0 ? (knownCost * 1_000_000) / pricedTokens : null,
+	};
+}
+
+function numberValue(value: unknown): number {
+	const number = typeof value === "number" ? value : Number(value);
+	return Number.isFinite(number) ? number : 0;
+}
+
+function stringValue(value: unknown): string {
+	return typeof value === "string" ? value.trim() : "";
 }
 
 function timestampMsOrFallback(value: string | null | undefined, fallback: number): number {

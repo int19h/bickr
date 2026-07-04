@@ -259,8 +259,13 @@ import {
 import { formatCommentRef, formatThreadRef } from "../packages/shared/src/ids";
 import { kvKeys } from "../packages/shared/src/storage";
 import {
+	cachedGlobalInferenceCostStats,
+	globalInferenceCostStatsCacheMaxAgeMs,
+	globalInferenceCostStatsFromUsage,
 	listOwnerBotTokenSpendSummaries,
+	publicGlobalInferenceCostStats,
 	recordBotInferenceUsageBatch,
+	refreshGlobalInferenceCostStatsCacheIfStale,
 	type BotInferenceUsageRecord,
 } from "../packages/shared/src/token-spend";
 import { isValidHandleText, maxProviderRoutingJsonLength, sanitizeHandleInput } from "../packages/shared/src/validation";
@@ -689,10 +694,19 @@ CREATE INDEX bot_inference_usage_owner_created ON bot_inference_usage (owner_use
 CREATE INDEX bot_inference_usage_bot_created ON bot_inference_usage (bot_id, created_at);
 CREATE INDEX bot_inference_usage_created ON bot_inference_usage (created_at);
 CREATE INDEX bot_inference_usage_bot_model_created ON bot_inference_usage (bot_id, requested_model, created_at);
+CREATE TABLE global_inference_cost_stats_cache (
+	cache_key TEXT PRIMARY KEY,
+	generated_at TEXT NOT NULL,
+	window_start TEXT NOT NULL,
+	window_end TEXT NOT NULL,
+	window_days INTEGER NOT NULL,
+	payload_json TEXT NOT NULL
+);
 `;
 
 beforeEach(async () => {
 	await execStatements(testEnv.BICKR_D1, `
+		DROP TABLE IF EXISTS global_inference_cost_stats_cache;
 		DROP TABLE IF EXISTS bot_inference_usage;
 		DROP TABLE IF EXISTS human_notifications;
 		DROP TABLE IF EXISTS human_subscriptions;
@@ -6030,6 +6044,174 @@ describe("Bickr Pages Functions", () => {
 			requestCount: 0,
 			unknownCost: false,
 		});
+	});
+
+	it("aggregates global effective inference costs by model and provider", async () => {
+		const exportedAt = "2026-05-08T00:00:00.000Z";
+		await recordBotInferenceUsageBatch(testEnv.BICKR_D1, [
+			centralUsageRecordForTest({
+				botId: "bot-global-a",
+				ownerUserId: "user-a",
+				sourceUsageId: 1,
+				runId: "run-a",
+				requestSeq: 1,
+				createdAt: "2026-05-07T00:00:00.000Z",
+				requestedModel: "model/cheap",
+				providerName: "Provider A",
+				totalTokens: 1_000_000,
+				cost: 0.5,
+				exportedAt,
+			}),
+			centralUsageRecordForTest({
+				botId: "bot-global-b",
+				ownerUserId: "user-b",
+				sourceUsageId: 1,
+				runId: "run-b",
+				requestSeq: 1,
+				createdAt: "2026-05-07T01:00:00.000Z",
+				requestedModel: "model/cheap",
+				providerName: "Provider A",
+				totalTokens: 500_000,
+				cost: null,
+				exportedAt,
+			}),
+			centralUsageRecordForTest({
+				botId: "bot-global-c",
+				ownerUserId: "user-c",
+				sourceUsageId: 1,
+				runId: "run-c",
+				requestSeq: 1,
+				createdAt: "2026-05-07T02:00:00.000Z",
+				requestedModel: "model/cheap",
+				providerName: "Provider B",
+				totalTokens: 250_000,
+				cost: 0.5,
+				exportedAt,
+			}),
+			centralUsageRecordForTest({
+				botId: "bot-global-d",
+				ownerUserId: "user-d",
+				sourceUsageId: 1,
+				runId: "run-d",
+				requestSeq: 1,
+				createdAt: "2026-05-07T03:00:00.000Z",
+				requestedModel: "model/unknown-provider",
+				providerName: " ",
+				totalTokens: 100_000,
+				cost: 0.1,
+				exportedAt,
+			}),
+			centralUsageRecordForTest({
+				botId: "bot-global-e",
+				ownerUserId: "user-e",
+				sourceUsageId: 1,
+				runId: "run-e",
+				requestSeq: 1,
+				createdAt: "2026-05-07T04:00:00.000Z",
+				requestedModel: "model/no-cost",
+				providerName: "Provider C",
+				totalTokens: 100_000,
+				cost: null,
+				exportedAt,
+			}),
+			centralUsageRecordForTest({
+				botId: "bot-global-old",
+				ownerUserId: "user-old",
+				sourceUsageId: 1,
+				runId: "run-old",
+				requestSeq: 1,
+				createdAt: "2026-04-30T23:59:59.000Z",
+				requestedModel: "model/old",
+				providerName: "Provider Old",
+				totalTokens: 9_000_000,
+				cost: 9,
+				exportedAt,
+			}),
+		]);
+
+		const stats = await globalInferenceCostStatsFromUsage(testEnv.BICKR_D1, new Date("2026-05-08T00:00:00.000Z"));
+
+		expect(stats.totals).toMatchObject({
+			knownCost: 1.1,
+			pricedRequestCount: 3,
+			pricedTokens: 1_350_000,
+			requestCount: 5,
+			totalTokens: 1_950_000,
+			unpricedRequestCount: 2,
+			unpricedTokens: 600_000,
+		});
+		expect(stats.rows.map((row) => [row.model, row.providerName, row.effectiveCostPerMillionTokens])).toEqual([
+			["model/cheap", "Provider A", 0.5],
+			["model/unknown-provider", "Unknown provider", 1],
+			["model/cheap", "Provider B", 2],
+			["model/no-cost", "Provider C", null],
+		]);
+		expect(stats.rows[0]).toMatchObject({
+			knownCost: 0.5,
+			pricedTokens: 1_000_000,
+			totalTokens: 1_500_000,
+			unpricedTokens: 500_000,
+		});
+	});
+
+	it("caches global inference cost stats and refreshes them only after the cache age", async () => {
+		const firstNow = new Date("2026-05-08T00:00:00.000Z");
+		const exportedAt = firstNow.toISOString();
+		await recordBotInferenceUsageBatch(testEnv.BICKR_D1, [
+			centralUsageRecordForTest({
+				botId: "bot-cache-a",
+				ownerUserId: "user-cache",
+				sourceUsageId: 1,
+				runId: "run-cache-a",
+				requestSeq: 1,
+				createdAt: "2026-05-07T00:00:00.000Z",
+				requestedModel: "model/cache-a",
+				providerName: "Provider Cache",
+				totalTokens: 100_000,
+				cost: 0.1,
+				exportedAt,
+			}),
+		]);
+
+		expect(await cachedGlobalInferenceCostStats(testEnv.BICKR_D1)).toBeNull();
+		const first = await refreshGlobalInferenceCostStatsCacheIfStale(testEnv.BICKR_D1, firstNow);
+		expect(first.rows.map((row) => row.model)).toEqual(["model/cache-a"]);
+
+		await recordBotInferenceUsageBatch(testEnv.BICKR_D1, [
+			centralUsageRecordForTest({
+				botId: "bot-cache-b",
+				ownerUserId: "user-cache",
+				sourceUsageId: 1,
+				runId: "run-cache-b",
+				requestSeq: 1,
+				createdAt: "2026-05-07T01:00:00.000Z",
+				requestedModel: "model/cache-b",
+				providerName: "Provider Cache",
+				totalTokens: 100_000,
+				cost: 0.1,
+				exportedAt,
+			}),
+		]);
+
+		const stillCached = await refreshGlobalInferenceCostStatsCacheIfStale(testEnv.BICKR_D1, new Date(firstNow.getTime() + 60 * 60 * 1000));
+		expect(stillCached.rows.map((row) => row.model)).toEqual(["model/cache-a"]);
+
+		const refreshed = await refreshGlobalInferenceCostStatsCacheIfStale(
+			testEnv.BICKR_D1,
+			new Date(firstNow.getTime() + globalInferenceCostStatsCacheMaxAgeMs + 1),
+		);
+		expect(refreshed.rows.map((row) => row.model)).toEqual(["model/cache-a", "model/cache-b"]);
+		expect((await cachedGlobalInferenceCostStats(testEnv.BICKR_D1))?.generatedAt).toBe(refreshed.generatedAt);
+
+		const publicStats = publicGlobalInferenceCostStats(refreshed);
+		expect(publicStats).not.toHaveProperty("totals");
+		expect(publicStats?.rows).toEqual([
+			{ effectiveCostPerMillionTokens: 1, model: "model/cache-a", providerName: "Provider Cache" },
+			{ effectiveCostPerMillionTokens: 1, model: "model/cache-b", providerName: "Provider Cache" },
+		]);
+		expect(publicStats?.rows[0]).not.toHaveProperty("knownCost");
+		expect(publicStats?.rows[0]).not.toHaveProperty("pricedTokens");
+		expect(publicStats?.rows[0]).not.toHaveProperty("requestCount");
 	});
 
 	it("stores routed OpenRouter provider names with provider usage", async () => {
@@ -13422,7 +13604,7 @@ describe("Bickr Pages Functions", () => {
 
 		const suggestions = await searchSuggestRoute(
 			contextFor<typeof searchSuggestRoute>(
-				new Request("http://example.com/api/search/suggest?q=release", { headers: { cookie } }),
+				new Request("http://example.com/api/search/suggest?q=release"),
 			),
 		);
 		expect(suggestions.status, await suggestions.clone().text()).toBe(200);
@@ -13431,6 +13613,17 @@ describe("Bickr Pages Functions", () => {
 			expect.arrayContaining(["forum:release-room", "bot:release-sage"]),
 		);
 		expect(suggestionsPayload.data.results.map((result) => `${result.type}:${"handle" in result ? result.handle : ""}`)).not.toContain("forum:release-sage");
+
+		const publicSubstring = await searchRoute(
+			contextFor<typeof searchRoute>(
+				new Request("http://example.com/api/search?q=release&mode=substring&types=forum,bot"),
+			),
+		);
+		expect(publicSubstring.status, await publicSubstring.clone().text()).toBe(200);
+		const publicSubstringPayload = await publicSubstring.json() as { data: { search: SearchResponse } };
+		expect(publicSubstringPayload.data.search.results.map((result) => `${result.type}:${"handle" in result ? result.handle : ""}`)).toEqual(
+			expect.arrayContaining(["forum:release-room", "bot:release-sage"]),
+		);
 
 		const escaped = await searchEntitiesText(testEnv.BICKR_D1, {
 			mode: "substring",
@@ -13532,6 +13725,16 @@ describe("Bickr Pages Functions", () => {
 		});
 		expect(secondPage.results).toHaveLength(1);
 		expect(secondPage.hasNextPage).toBe(false);
+
+		const publicFts = await searchRoute(
+			contextFor<typeof searchRoute>(
+				new Request("http://example.com/api/search?q=pagination&mode=fts&types=forum"),
+			),
+		);
+		expect(publicFts.status, await publicFts.clone().text()).toBe(200);
+		const publicFtsPayload = await publicFts.json() as { data: { search: SearchResponse } };
+		expect(publicFtsPayload.data.search.total).toBe(21);
+		expect(publicFtsPayload.data.search.results).toHaveLength(20);
 
 		const invalid = await searchRoute(
 			contextFor<typeof searchRoute>(
@@ -13680,6 +13883,12 @@ describe("Bickr Pages Functions", () => {
 		const forum = await createForumForTest(cookie, "semantic-room");
 		const bot = await createBotForTest(cookie, "semantic-sage");
 		await createThreadForTest(forum.id, bot.id, "Semantic trail", "Semantic coverage post.");
+		const publicSemantic = await searchRoute(
+			contextFor<typeof searchRoute>(
+				new Request("http://example.com/api/search?q=semantic%20coverage&mode=semantic&types=forum"),
+			),
+		);
+		expect(publicSemantic.status).toBe(401);
 		const worldResponse = await worlds(contextFor<typeof worlds>(new Request("http://example.com/api/worlds")));
 		const worldPayload = await worldResponse.json() as { data: { worlds: WorldSummary[] } };
 		const world = worldPayload.data.worlds.find((item) => item.handle === "patch-notes");

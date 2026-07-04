@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
 	contextWindowBarSegments,
+	globalInferenceCostTableHeaders,
+	globalInferenceCostTableRows,
 	interpolateTokenUsageChartValue,
 	tokenUsageModelBreakdownHeaders,
 	tokenUsageModelBreakdownRows,
 	type TokenUsageChartPoint,
 } from "../apps/web/src/token-usage-chart";
-import { type BotTokenUsageModelBreakdown } from "../packages/shared/src/model";
+import { type BotTokenUsageModelBreakdown, type GlobalInferenceCostPublicModelProviderRow } from "../packages/shared/src/model";
 import { loopContinuationRowsForPage } from "../apps/web/src/loop-page-continuations";
 import { loopPagePagerItems } from "../apps/web/src/loop-page-pager";
 
@@ -27,6 +29,14 @@ function modelBreakdown(model: string, providerName: string, totalTokens: number
 		reasoningTokens: 0,
 		requestCount: 1,
 		totalTokens,
+	};
+}
+
+function costRow(model: string, providerName: string): GlobalInferenceCostPublicModelProviderRow {
+	return {
+		effectiveCostPerMillionTokens: 1,
+		model,
+		providerName,
 	};
 }
 
@@ -126,6 +136,30 @@ describe("tokenUsageModelBreakdownRows", () => {
 				modelCell: "google/gemma",
 				provider: "Provider A",
 			},
+		]);
+	});
+});
+
+describe("globalInferenceCostTableRows", () => {
+	it("defines the global inference cost header order", () => {
+		expect([...globalInferenceCostTableHeaders]).toEqual(["Model", "Provider", "$/mtok"]);
+	});
+
+	it("blanks repeated model cells", () => {
+		const rows = globalInferenceCostTableRows([
+			costRow("google/gemini", "Provider A"),
+			costRow("google/gemini", "Provider B"),
+			costRow("openai/gpt", "Provider A"),
+		]);
+
+		expect(rows.map((row) => ({
+			key: row.key,
+			modelCell: row.showModelName ? row.row.model : "",
+			provider: row.row.providerName,
+		}))).toEqual([
+			{ key: "google/gemini\u0000Provider A", modelCell: "google/gemini", provider: "Provider A" },
+			{ key: "google/gemini\u0000Provider B", modelCell: "", provider: "Provider B" },
+			{ key: "openai/gpt\u0000Provider A", modelCell: "openai/gpt", provider: "Provider A" },
 		]);
 	});
 });

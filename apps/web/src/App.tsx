@@ -47,6 +47,7 @@ import {
 	type BotTokenUsageStats,
 	type BotTokenUsageTotals,
 	type CommentDocument,
+	type GlobalInferenceCostPublicStats,
 	type BotInferenceSettings,
 	type BotInferenceSettingsInput,
 	type BotCompactionMode,
@@ -133,6 +134,8 @@ import {
 } from "@bickr/shared/validation";
 import {
 	contextWindowBarSegments,
+	globalInferenceCostTableHeaders,
+	globalInferenceCostTableRows,
 	interpolateTokenUsageChartValue,
 	tokenUsageModelBreakdownHeaders,
 	tokenUsageModelBreakdownRows,
@@ -203,6 +206,7 @@ import {
 import {
 	allSearchTypes,
 	defaultSearchRouteState,
+	normalizeLoggedOutRoute,
 	parsePathname,
 	routePath,
 	type BotProfileTab,
@@ -555,6 +559,8 @@ type UiText = {
 		allWorlds: string;
 		myBots: string;
 		search: string;
+		statistics: string;
+		inferenceCosts: string;
 		notifications: string;
 		subscriptions: string;
 		settings: string;
@@ -612,11 +618,13 @@ const uiTextByLocale = {
 			allWorlds: "All worlds",
 			myBots: "My bots",
 			search: "Search",
+			statistics: "Statistics",
+			inferenceCosts: "Inference costs",
 			notifications: "Notifications",
 			subscriptions: "Subscriptions",
 			settings: "Settings",
 			comingLater: "Coming later",
-			yourWorlds: "Your worlds",
+			yourWorlds: "My worlds",
 			noneYet: "None yet.",
 			discover: "Discover",
 			footnoteLine1: "Bickr is a parody social network.",
@@ -667,11 +675,13 @@ const uiTextByLocale = {
 			allWorlds: "Todos los mundos",
 			myBots: "Mis bots",
 			search: "Buscar",
+			statistics: "Estadisticas",
+			inferenceCosts: "Costes de inferencia",
 			notifications: "Notificaciones",
 			subscriptions: "Suscripciones",
 			settings: "Configuracion",
 			comingLater: "Proximamente",
-			yourWorlds: "Tus mundos",
+			yourWorlds: "Mis mundos",
 			noneYet: "Aun no hay.",
 			discover: "Descubrir",
 			footnoteLine1: "Bickr es una red social parodica.",
@@ -722,11 +732,13 @@ const uiTextByLocale = {
 			allWorlds: "全部世界",
 			myBots: "我的机器人",
 			search: "搜索",
+			statistics: "统计",
+			inferenceCosts: "推理成本",
 			notifications: "通知",
 			subscriptions: "订阅",
 			settings: "设置",
 			comingLater: "稍后推出",
-			yourWorlds: "你的世界",
+			yourWorlds: "我的世界",
 			noneYet: "还没有。",
 			discover: "发现",
 			footnoteLine1: "Bickr 是一个戏仿社交网络。",
@@ -777,11 +789,13 @@ const uiTextByLocale = {
 			allWorlds: "すべてのワールド",
 			myBots: "自分のボット",
 			search: "検索",
+			statistics: "統計",
+			inferenceCosts: "推論コスト",
 			notifications: "通知",
 			subscriptions: "購読",
 			settings: "設定",
 			comingLater: "後日対応",
-			yourWorlds: "あなたのワールド",
+			yourWorlds: "自分のワールド",
 			noneYet: "まだありません。",
 			discover: "見つける",
 			footnoteLine1: "Bickr はパロディのソーシャルネットワークです。",
@@ -832,11 +846,13 @@ const uiTextByLocale = {
 			allWorlds: "Все миры",
 			myBots: "Мои боты",
 			search: "Поиск",
+			statistics: "Статистика",
+			inferenceCosts: "Стоимость вывода",
 			notifications: "Уведомления",
 			subscriptions: "Подписки",
 			settings: "Настройки",
 			comingLater: "Будет позже",
-			yourWorlds: "Ваши миры",
+			yourWorlds: "Мои миры",
 			noneYet: "Пока нет.",
 			discover: "Обзор",
 			footnoteLine1: "Bickr - пародийная социальная сеть.",
@@ -887,11 +903,13 @@ const uiTextByLocale = {
 			allWorlds: "Усі світи",
 			myBots: "Мої боти",
 			search: "Пошук",
+			statistics: "Статистика",
+			inferenceCosts: "Вартість інференсу",
 			notifications: "Сповіщення",
 			subscriptions: "Підписки",
 			settings: "Налаштування",
 			comingLater: "Згодом",
-			yourWorlds: "Ваші світи",
+			yourWorlds: "Мої світи",
 			noneYet: "Поки немає.",
 			discover: "Огляд",
 			footnoteLine1: "Bickr - пародійна соціальна мережа.",
@@ -942,11 +960,13 @@ const uiTextByLocale = {
 			allWorlds: "Ĉiuj mondoj",
 			myBots: "Miaj robotoj",
 			search: "Serĉi",
+			statistics: "Statistiko",
+			inferenceCosts: "Inferencaj kostoj",
 			notifications: "Sciigoj",
 			subscriptions: "Abonoj",
 			settings: "Agordoj",
 			comingLater: "Venonta poste",
-			yourWorlds: "Viaj mondoj",
+			yourWorlds: "Miaj mondoj",
 			noneYet: "Ankoraŭ neniu.",
 			discover: "Malkovri",
 			footnoteLine1: "Bickr estas parodia socia reto.",
@@ -1253,6 +1273,8 @@ function clientRouteTitle({
 		}
 		case "my-bots":
 			return titleWithBickr(user ? `hu/${user.handle}: bots` : "My bots");
+		case "statistics-inference-costs":
+			return titleWithBickr("Inference costs");
 		case "notifications":
 			return titleWithBickr(user ? `hu/${user.handle}: notifications` : "Notifications");
 		case "subscriptions":
@@ -1388,6 +1410,8 @@ function App() {
 		[session.user?.uiLocale],
 	);
 	const uiText = uiTextByLocale[effectiveUiLocale];
+	const currentUser = session.authenticated ? session.user : null;
+	const isAuthenticated = Boolean(currentUser);
 
 	useEffect(() => {
 		document.documentElement.lang = effectiveUiLocale;
@@ -1434,10 +1458,38 @@ function App() {
 	}, [session.authenticated, session.user?.id]);
 
 	useEffect(() => {
-		if (session.authenticated && session.user && !session.user.profileComplete && route !== "profile" && route !== "profile-avatar") {
+		if (currentUser && !currentUser.profileComplete && route !== "profile" && route !== "profile-avatar") {
 			navigate({ route: "profile" }, true);
 		}
-	}, [route, session.authenticated, session.user?.id, session.user?.profileComplete]);
+	}, [route, currentUser?.id, currentUser?.profileComplete]);
+
+	useEffect(() => {
+		if (initializing || isAuthenticated) {
+			return;
+		}
+		const normalized = normalizeLoggedOutRoute(currentParsedRoute());
+		if (routePath(normalized.route) === currentLocationPath()) {
+			return;
+		}
+		if (normalized.status) {
+			setStatus(normalized.status);
+		}
+		navigate(normalized.route, true);
+	}, [
+		activeBotActivityId,
+		activeBotHandle,
+		activeBotProfileTab,
+		activeCommentId,
+		activeForumHandle,
+		activeHumanHandle,
+		activeSearch,
+		activeThreadId,
+		activeWorldHandle,
+		activeWorldTab,
+		initializing,
+		isAuthenticated,
+		route,
+	]);
 
 	const worldViews = useMemo<WorldView[]>(() => {
 		return worlds.map((world) => {
@@ -1627,6 +1679,48 @@ function App() {
 		}
 	}
 
+	function currentParsedRoute(): ParsedRoute {
+		switch (route) {
+			case "world":
+				return { route, worldHandle: activeWorldHandle ?? undefined, worldTab: activeWorldTab };
+			case "world-edit":
+			case "world-avatar":
+				return { route, worldHandle: activeWorldHandle ?? undefined };
+			case "forum":
+				return { route, worldHandle: activeWorldHandle ?? undefined, forumHandle: activeForumHandle ?? undefined };
+			case "thread":
+				return {
+					route,
+					worldHandle: activeWorldHandle ?? undefined,
+					forumHandle: activeForumHandle ?? undefined,
+					threadId: activeThreadId ?? undefined,
+					commentId: activeCommentId ?? undefined,
+				};
+			case "bot-profile":
+				return {
+					route,
+					worldHandle: activeWorldHandle ?? undefined,
+					botHandle: activeBotHandle ?? undefined,
+					botProfileTab: activeBotProfileTab,
+					botActivityId: activeBotActivityId ?? undefined,
+				};
+			case "bot-avatar":
+			case "bot-loop":
+			case "bot-edit":
+				return { route, worldHandle: activeWorldHandle ?? undefined, botHandle: activeBotHandle ?? undefined };
+			case "human-profile":
+				return { route, humanHandle: activeHumanHandle ?? undefined };
+			case "search":
+				return { route, search: activeSearch };
+			case "thread-ref":
+				return { route, threadId: activeThreadId ?? undefined };
+			case "comment-ref":
+				return { route, commentId: activeCommentId ?? undefined };
+			default:
+				return { route };
+		}
+	}
+
 	async function openContentRef(type: ContentRefType, id: string, options: OpenContentRefOptions = {}): Promise<void> {
 		const result = await api<{ path: string }>(
 			`/api/content-refs/${type}/${encodeURIComponent(id)}`,
@@ -1748,10 +1842,12 @@ function App() {
 				api<SessionState>("/api/session"),
 				api<{ worlds: WorldListSummary[] }>("/api/worlds"),
 			]);
+			const nextSession: SessionState =
+				sessionResult.ok ? sessionResult.data : { authenticated: false, user: null };
 
 			if (sessionResult.ok) {
-				setSession(sessionResult.data);
-				if (sessionResult.data.authenticated && sessionResult.data.user?.profileComplete) {
+				setSession(nextSession);
+				if (nextSession.authenticated && nextSession.user?.profileComplete) {
 					await loadUserProfile();
 				} else {
 					setUserProfile(null);
@@ -1774,7 +1870,11 @@ function App() {
 				return nextWorlds[0]?.handle ?? null;
 			});
 
-			await loadBots();
+			if (nextSession.authenticated) {
+				await loadBots();
+			} else {
+				setBots([]);
+			}
 			setStatus("Ready");
 		} catch (error) {
 			setStatus(error instanceof Error ? error.message : "Failed to load app data.");
@@ -3067,16 +3167,6 @@ function App() {
 		);
 	}
 
-	if (!session.authenticated || !session.user) {
-		return (
-			<UiTextContext.Provider value={uiText}>
-				<ToastProvider>
-					<LoginScreen status={status} />
-				</ToastProvider>
-			</UiTextContext.Provider>
-		);
-	}
-
 	return (
 		<UiTextContext.Provider value={uiText}>
 			<ToastProvider>
@@ -3105,12 +3195,13 @@ function App() {
 					status={status}
 					themePreference={themePreference}
 					thread={activeThread}
-					user={session.user}
+					user={currentUser}
 					world={activeWorld}
 					worlds={worldViews}
 				/>
 				<Sidebar
 					active={activeWorldHandle}
+					isAuthenticated={isAuthenticated}
 					unreadNotifications={humanNotifications.unreadCount}
 					route={route}
 					worlds={worldViews}
@@ -3123,16 +3214,17 @@ function App() {
 						)}
 						{route === "worlds" && (
 							<WorldsScreen
-							busy={busy}
-							onCreate={createWorld}
-							worlds={worldViews}
-						/>
-					)}
+								busy={busy}
+								isAuthenticated={isAuthenticated}
+								onCreate={createWorld}
+								worlds={worldViews}
+							/>
+						)}
 					{route === "world" && activeWorld && (
 						<WorldDetail
 							bots={activeBots}
 							busy={busy}
-							currentUserId={session.user.id}
+							currentUserId={currentUser?.id ?? null}
 							forums={activeForums}
 							groups={activeBotGroups}
 							onAddBotGroupMembers={addBotGroupMembers}
@@ -3156,7 +3248,7 @@ function App() {
 							onRemoveBotGroupMember={removeBotGroupMember}
 							onUpdateBotGroupTitle={updateBotGroupTitle}
 							onUpdateForum={updateForum}
-							subscribed={isSubscribed("world", activeWorld.id)}
+							subscribed={currentUser ? isSubscribed("world", activeWorld.id) : false}
 							tab={activeWorldTab}
 							world={activeWorld}
 						/>
@@ -3167,18 +3259,18 @@ function App() {
 							onBack={() => navigate({ route: "world", worldHandle: activeWorld.handle })}
 							onSave={(input) => updateWorld(activeWorld.handle, input)}
 							onWorldUpdated={applySavedWorld}
-							readonly={activeWorld.createdByUserId !== session.user.id}
+							readonly={activeWorld.createdByUserId !== currentUser?.id}
 							world={activeWorld}
 						/>
 					)}
 					{route === "world-avatar" && activeWorld && (
-						activeWorld.createdByUserId === session.user.id ?
+						activeWorld.createdByUserId === currentUser?.id ?
 							<WorldAvatarGenerationScreen
 								members={botsByWorld[activeWorld.handle] ?? null}
 								modelSuggestions={ownedBotModels}
 								onBack={() => navigate({ route: "world-edit", worldHandle: activeWorld.handle })}
 								onDiscardSettings={() => updateWorld(activeWorld.handle, { imageGeneration: null })}
-									onSaveSettings={(draft) => updateWorld(activeWorld.handle, { imageGeneration: imageGenerationInputFromDraft(draft, undefined, activeWorld.language ?? textLang(activeWorld.name) ?? defaultLanguageTag) })}
+								onSaveSettings={(draft) => updateWorld(activeWorld.handle, { imageGeneration: imageGenerationInputFromDraft(draft, undefined, activeWorld.language ?? textLang(activeWorld.name) ?? defaultLanguageTag) })}
 								onWorldUpdated={applySavedWorld}
 								ownerInferenceSettings={userProfile?.inferenceSettings ?? null}
 								world={activeWorld}
@@ -3190,7 +3282,7 @@ function App() {
 					{route === "forum" && activeWorld && activeForum && (
 						<ForumPage
 							forum={activeForum}
-							currentUserId={session.user.id}
+							currentUserId={currentUser?.id ?? null}
 							loadedAt={forumLoadedAtById[activeForum.id]}
 							loading={threadsLoading}
 							onDeleteForum={deleteForum}
@@ -3199,8 +3291,8 @@ function App() {
 							onRefresh={(sort) => loadThreads(activeForum, sort)}
 							onToggleSubscription={toggleSubscription}
 							onUpdateForum={updateForum}
-							ownedBots={bots}
-							subscribed={isSubscribed("forum", activeForum.id)}
+							ownedBots={currentUser ? bots : []}
+							subscribed={currentUser ? isSubscribed("forum", activeForum.id) : false}
 							threads={activeThreads}
 							world={activeWorld}
 						/>
@@ -3208,7 +3300,7 @@ function App() {
 					{route === "thread" && activeWorld && activeForum && (
 						<ThreadPage
 							activityCheckToken={activeThreadId ? threadActivityCheckVersionById[activeThreadId] ?? 0 : 0}
-							currentUserId={session.user.id}
+							currentUserId={currentUser?.id ?? null}
 							forum={activeForum}
 							loadedAt={activeThreadId ? threadLoadedAtById[activeThreadId] : undefined}
 							loading={threadLoading}
@@ -3217,8 +3309,8 @@ function App() {
 							onReference={openReference}
 							onRefresh={() => activeThreadId ? loadThread(activeForum, activeThreadId, { fresh: true }) : Promise.resolve(null)}
 							onToggleSubscription={toggleSubscription}
-							ownedBots={bots}
-							subscriptions={subscriptions}
+							ownedBots={currentUser ? bots : []}
+							subscriptions={currentUser ? subscriptions : []}
 							targetCommentId={activeCommentId}
 							thread={activeThread}
 							threadId={activeThreadId}
@@ -3229,7 +3321,8 @@ function App() {
 						<BotProfileScreen
 							bot={activeBot}
 							blogForum={activeBotBlogForum}
-							isOwner={activeBot.ownerUserId === session.user.id}
+							isAuthenticated={isAuthenticated}
+							isOwner={Boolean(currentUser && activeBot.ownerUserId === currentUser.id)}
 							onLoadNotifications={fetchHumanNotifications}
 							onMarkAllNotificationsRead={markAllNotificationsRead}
 							onDismissNotification={dismissHumanNotification}
@@ -3240,14 +3333,14 @@ function App() {
 							onReference={openReference}
 							onToggleSubscription={toggleSubscription}
 							ownerInferenceSettings={userProfile?.inferenceSettings ?? null}
-							subscribed={isSubscribed("bot", activeBot.id)}
+							subscribed={currentUser ? isSubscribed("bot", activeBot.id) : false}
 							targetActivityId={activeBotActivityId}
 							targetTab={activeBotProfileTab}
 							world={activeWorld}
 						/>
 					)}
 					{route === "bot-avatar" && activeWorld && activeBot && (
-						activeBot.ownerUserId === session.user.id ?
+						activeBot.ownerUserId === currentUser?.id ?
 							<BotAvatarGenerationScreen
 								bot={activeBot}
 								onAvatarUpdated={applySavedBot}
@@ -3268,7 +3361,7 @@ function App() {
 							</PermissionState>
 					)}
 					{route === "bot-loop" && activeWorld && editingBot && (
-						editingBot.ownerUserId === session.user.id ?
+						editingBot.ownerUserId === currentUser?.id ?
 							<BotLoopScreen
 								bot={editingBot}
 								busy={busy}
@@ -3281,7 +3374,7 @@ function App() {
 							</PermissionState>
 					)}
 					{route === "bot-edit" && editingBot && (
-						editingBot.ownerUserId === session.user.id ?
+						editingBot.ownerUserId === currentUser?.id ?
 							<BotEdit
 								bot={editingBot}
 								busy={busy}
@@ -3307,55 +3400,70 @@ function App() {
 							</PermissionState>
 					)}
 					{route === "my-bots" && (
-						<MyBotsScreen
-							bots={bots}
-							onDeleteBots={deleteBots}
-							onRunBotTicks={(rows) => runBotTicks("selected bots", rows)}
-							onSpreadBotTicks={spreadBotTicks}
-							ownerInferenceSettings={userProfile?.inferenceSettings ?? null}
-							worlds={worldViews}
-						/>
+						currentUser ?
+							<MyBotsScreen
+								bots={bots}
+								onDeleteBots={deleteBots}
+								onRunBotTicks={(rows) => runBotTicks("selected bots", rows)}
+								onSpreadBotTicks={spreadBotTicks}
+								ownerInferenceSettings={userProfile?.inferenceSettings ?? null}
+								worlds={worldViews}
+							/>
+						:	<LoginScreen embedded status="Sign in to manage your bots." />
 					)}
 					{route === "search" && (
-						<AdvancedSearchScreen routeState={activeSearch} />
+						<AdvancedSearchScreen isAuthenticated={isAuthenticated} routeState={activeSearch} />
+					)}
+					{route === "statistics-inference-costs" && (
+						currentUser ?
+							<InferenceCostStatisticsScreen />
+						:	<LoginScreen embedded status="Sign in to view statistics." />
 					)}
 					{route === "notifications" && (
-						<NotificationsScreen
-							onLoadNotifications={fetchHumanNotifications}
-							onDismiss={dismissHumanNotification}
-							onMarkAllRead={markAllNotificationsRead}
-							onMarkRead={markHumanNotificationReadState}
-							onOpenNotification={(notification) => void openHumanNotification(notification)}
-						/>
+						currentUser ?
+							<NotificationsScreen
+								onLoadNotifications={fetchHumanNotifications}
+								onDismiss={dismissHumanNotification}
+								onMarkAllRead={markAllNotificationsRead}
+								onMarkRead={markHumanNotificationReadState}
+								onOpenNotification={(notification) => void openHumanNotification(notification)}
+							/>
+						:	<LoginScreen embedded status="Sign in to view notifications." />
 					)}
 					{route === "subscriptions" && (
-						<SubscriptionsScreen
-							onLoad={loadSubscriptionTree}
-							onSaved={(response) => {
-								setSubscriptionTreeResponse(response);
-								setSubscriptions(response.subscriptions);
-							}}
-							response={subscriptionTreeResponse}
-						/>
+						currentUser ?
+							<SubscriptionsScreen
+								onLoad={loadSubscriptionTree}
+								onSaved={(response) => {
+									setSubscriptionTreeResponse(response);
+									setSubscriptions(response.subscriptions);
+								}}
+								response={subscriptionTreeResponse}
+							/>
+						:	<LoginScreen embedded status="Sign in to manage subscriptions." />
 					)}
 					{route === "human-profile" && activeHumanHandle && (
-						<HumanProfileScreen
-							busy={busy}
-							currentUser={session.user}
-							handle={activeHumanHandle}
-							onDeleteProfile={deleteProfile}
-						/>
+						currentUser ?
+							<HumanProfileScreen
+								busy={busy}
+								currentUser={currentUser}
+								handle={activeHumanHandle}
+								onDeleteProfile={deleteProfile}
+							/>
+						:	<LoginScreen embedded status="Sign in to view human profiles." />
 					)}
 					{route === "profile" && (
-						<ProfileScreen
-							busy={busy}
-							onAuthIdentityUnlink={unlinkAuthIdentity}
-							onAvatarUpdated={applySavedUserProfile}
-							onOpenAvatarGeneration={() => navigate({ route: "profile-avatar" })}
-							onSave={updateProfile}
-							onSignOut={() => void logout()}
-							user={session.user}
-						/>
+						currentUser ?
+							<ProfileScreen
+								busy={busy}
+								onAuthIdentityUnlink={unlinkAuthIdentity}
+								onAvatarUpdated={applySavedUserProfile}
+								onOpenAvatarGeneration={() => navigate({ route: "profile-avatar" })}
+								onSave={updateProfile}
+								onSignOut={() => void logout()}
+								user={currentUser}
+							/>
+						:	<LoginScreen embedded status="Sign in to edit your profile." />
 					)}
 					{route === "profile-avatar" && (
 						userProfile ?
@@ -3419,9 +3527,8 @@ function LoadingScreen({ status }: { status: string }) {
 	);
 }
 
-function LoginScreen({ status }: { status: string }) {
-	return (
-		<div className="login-wrap">
+function LoginScreen({ embedded = false, status }: { embedded?: boolean; status: string }) {
+	const card = (
 			<div className="login-card">
 				<div className="brand">
 					<BickrLogo />
@@ -3463,8 +3570,8 @@ function LoginScreen({ status }: { status: string }) {
 				</div>
 				<div className="login-foot">{status}</div>
 			</div>
-		</div>
 	);
+	return embedded ? <div className="main-inner embedded-login-wrap">{card}</div> : <div className="login-wrap">{card}</div>;
 }
 
 function authStartHref(provider: AuthProvider, returnTo?: string): string {
@@ -3519,7 +3626,7 @@ function Topbar({
 	status: string;
 	themePreference: ThemePreference;
 	thread: ThreadDocument | null;
-	user: PublicUser;
+	user: PublicUser | null;
 	world: WorldView | null;
 	worlds: WorldView[];
 }) {
@@ -3620,11 +3727,12 @@ function Topbar({
 	return (
 		<header className="topbar">
 			<div className="brand">
-				<MobileNavigationMenu
-					active={activeWorldHandle}
-					route={route}
-					unreadNotifications={notifications.unreadCount}
-					worlds={worlds}
+					<MobileNavigationMenu
+						active={activeWorldHandle}
+						isAuthenticated={Boolean(user)}
+						route={route}
+						unreadNotifications={notifications.unreadCount}
+						worlds={worlds}
 				/>
 				<SpaLink className="brand-mark desktop-brand-mark" to={{ route: "worlds" }}>
 					<BickrLogo alt="Bickr" />
@@ -3656,17 +3764,22 @@ function Topbar({
 				<button className="icon-btn topbar-refresh" disabled={busy} onClick={onRefresh} title={t.topbar.refresh} type="button">
 					<Icon name="refresh" size={15} />
 				</button>
-				<NotificationBell
-					notifications={notifications}
-					onDismissNotification={onNotificationDismiss}
-					onMarkAllRead={onMarkAllNotificationsRead}
-					onOpenNotification={onNotificationOpen}
-					onRefresh={onRefreshNotifications}
-				/>
-				<SpaLink className={`account-btn ${busy ? "disabled" : ""}`} title={t.topbar.profile} to={{ route: "profile" }}>
-					<Avatar actor="user" colorSeed={user.handle} crop={user.avatarCrop} imageUrl={user.avatarUrl} name={user.displayName} size="sm" />
-					<span>hu/{user.handle}</span>
-				</SpaLink>
+				{user && (
+					<NotificationBell
+						notifications={notifications}
+						onDismissNotification={onNotificationDismiss}
+						onMarkAllRead={onMarkAllNotificationsRead}
+						onOpenNotification={onNotificationOpen}
+						onRefresh={onRefreshNotifications}
+					/>
+				)}
+				{user ?
+					<SpaLink className={`account-btn ${busy ? "disabled" : ""}`} title={t.topbar.profile} to={{ route: "profile" }}>
+						<Avatar actor="user" colorSeed={user.handle} crop={user.avatarCrop} imageUrl={user.avatarUrl} name={user.displayName} size="sm" />
+						<span>hu/{user.handle}</span>
+					</SpaLink>
+				:	<SignInControl />
+				}
 			</div>
 		</header>
 	);
@@ -3871,6 +3984,65 @@ function FontScaleSwitch({
 			>
 				<span aria-hidden="true" className="font-scale-step">A+</span>
 			</button>
+		</div>
+	);
+}
+
+function SignInControl() {
+	const [open, setOpen] = useState(false);
+	const menuId = useId();
+	const wrapRef = useRef<HTMLDivElement | null>(null);
+	const menuRef = useViewportConstrainedPopout<HTMLDivElement>(open);
+
+	useEffect(() => {
+		if (!open) {
+			return undefined;
+		}
+		const handlePointerDown = (event: PointerEvent) => {
+			if (wrapRef.current && event.target instanceof Node && !wrapRef.current.contains(event.target)) {
+				setOpen(false);
+			}
+		};
+		const handleKeyDown = (event: KeyboardEvent) => {
+			if (event.key === "Escape") {
+				setOpen(false);
+			}
+		};
+		document.addEventListener("pointerdown", handlePointerDown);
+		document.addEventListener("keydown", handleKeyDown);
+		return () => {
+			document.removeEventListener("pointerdown", handlePointerDown);
+			document.removeEventListener("keydown", handleKeyDown);
+		};
+	}, [open]);
+
+	return (
+		<div className="sign-in-menu-wrap" ref={wrapRef}>
+			<button
+				aria-controls={menuId}
+				aria-expanded={open}
+				className="btn primary compact sign-in-button"
+				onClick={() => setOpen((current) => !current)}
+				type="button"
+			>
+				Sign in
+			</button>
+			{open && (
+				<div aria-label="Sign in options" className="sign-in-menu" id={menuId} ref={menuRef} role="menu">
+					{authProviders.map((provider) => (
+						<a
+							className="sign-in-menu-item"
+							href={authStartHref(provider)}
+							key={provider}
+							onClick={() => setOpen(false)}
+							role="menuitem"
+						>
+							<Icon name={provider === "github" ? "github" : "google"} size={16} />
+							<span>Continue with {authProviderLabel(provider)}</span>
+						</a>
+					))}
+				</div>
+			)}
 		</div>
 	);
 }
@@ -4283,6 +4455,7 @@ function shouldHandleSpaAnchorClick(
 
 type SidebarNavigationProps = {
 	active: string | null;
+	isAuthenticated: boolean;
 	route: Route;
 	unreadNotifications: number;
 	worlds: WorldView[];
@@ -4291,6 +4464,7 @@ type SidebarNavigationProps = {
 
 function MobileNavigationMenu({
 	active,
+	isAuthenticated,
 	route,
 	unreadNotifications,
 	worlds,
@@ -4347,6 +4521,7 @@ function MobileNavigationMenu({
 				<nav aria-label={t.nav.primaryNavigation} className="mobile-nav-menu" id={menuId} ref={menuRef}>
 					<SidebarNavigation
 						active={active}
+						isAuthenticated={isAuthenticated}
 						onNavigate={() => setOpen(false)}
 						route={route}
 						unreadNotifications={unreadNotifications}
@@ -4368,13 +4543,14 @@ function Sidebar(props: SidebarNavigationProps) {
 
 function SidebarNavigation({
 	active,
+	isAuthenticated,
 	onNavigate,
 	route,
 	unreadNotifications,
 	worlds,
 }: SidebarNavigationProps) {
-	const myWorlds = worlds.filter((world) => world.isMine);
-	const discover = worlds.filter((world) => !world.isMine).slice(0, 6);
+	const myWorlds = isAuthenticated ? worlds.filter((world) => world.isMine) : [];
+	const discover = (isAuthenticated ? worlds.filter((world) => !world.isMine) : worlds).slice(0, 6);
 	const botTotal = worlds.reduce((total, world) => total + world.myBotCount, 0);
 	const t = useUiText();
 
@@ -4390,15 +4566,17 @@ function SidebarNavigation({
 					<span>{t.nav.allWorlds}</span>
 					<span className="count">{worlds.length}</span>
 				</SpaLink>
-				<SpaLink
-					className={`nav-item ${route === "my-bots" ? "active" : ""}`}
-					onNavigate={onNavigate}
-					to={{ route: "my-bots" }}
-				>
-					<Icon name="bot" size={16} />
-					<span>{t.nav.myBots}</span>
-					<span className="count">{botTotal}</span>
-				</SpaLink>
+				{isAuthenticated && (
+					<SpaLink
+						className={`nav-item ${route === "my-bots" ? "active" : ""}`}
+						onNavigate={onNavigate}
+						to={{ route: "my-bots" }}
+					>
+						<Icon name="bot" size={16} />
+						<span>{t.nav.myBots}</span>
+						<span className="count">{botTotal}</span>
+					</SpaLink>
+				)}
 				<SpaLink
 					className={`nav-item ${route === "search" ? "active" : ""}`}
 					onNavigate={onNavigate}
@@ -4407,60 +4585,80 @@ function SidebarNavigation({
 					<Icon name="search" size={16} />
 					<span>{t.nav.search}</span>
 				</SpaLink>
-				<SpaLink
-					className={`nav-item ${route === "notifications" ? "active" : ""}`}
-					onNavigate={onNavigate}
-					to={{ route: "notifications" }}
-				>
-					<Icon name="bell" size={16} />
-					<span>{t.nav.notifications}</span>
-					{unreadNotifications > 0 && <span className="count">{unreadNotifications > 99 ? "99+" : unreadNotifications}</span>}
-				</SpaLink>
-				<SpaLink
-					className={`nav-item ${route === "subscriptions" ? "active" : ""}`}
-					onNavigate={onNavigate}
-					to={{ route: "subscriptions" }}
-				>
-					<Icon name="checklist" size={16} />
-					<span>{t.nav.subscriptions}</span>
-				</SpaLink>
+				{isAuthenticated && (
+					<>
+						<SpaLink
+							className={`nav-item ${route === "notifications" ? "active" : ""}`}
+							onNavigate={onNavigate}
+							to={{ route: "notifications" }}
+						>
+							<Icon name="bell" size={16} />
+							<span>{t.nav.notifications}</span>
+							{unreadNotifications > 0 && <span className="count">{unreadNotifications > 99 ? "99+" : unreadNotifications}</span>}
+						</SpaLink>
+						<SpaLink
+							className={`nav-item ${route === "subscriptions" ? "active" : ""}`}
+							onNavigate={onNavigate}
+							to={{ route: "subscriptions" }}
+						>
+							<Icon name="checklist" size={16} />
+							<span>{t.nav.subscriptions}</span>
+						</SpaLink>
+					</>
+				)}
 				<button className="nav-item disabled" disabled title={t.nav.comingLater} type="button">
 					<Icon name="settings" size={16} />
 					<span>{t.nav.settings}</span>
 				</button>
 			</div>
 
-			<div className="nav-group">
-				<div className="label">{t.nav.yourWorlds}</div>
-				{myWorlds.length === 0 && <div className="sidebar-note">{t.nav.noneYet}</div>}
-				{myWorlds.map((world) => (
+			{isAuthenticated && (
+				<div className="nav-group">
+					<div className="label">{t.nav.statistics}</div>
 					<SpaLink
-						className={`nav-item ${active === world.handle ? "active" : ""}`}
-						key={world.id}
+						className={`nav-item ${route === "statistics-inference-costs" ? "active" : ""}`}
 						onNavigate={onNavigate}
-							title={textValue(world.name)}
-						to={{ route: "world", worldHandle: world.handle }}
+						to={{ route: "statistics-inference-costs" }}
 					>
-						<span className="world-swatch" style={{ background: banners[world.bannerIdx] }} />
-						<span className="truncate">w/{world.handle}</span>
-						<span className="count">{world.myBotCount}</span>
+						<Icon name="info" size={16} />
+						<span>{t.nav.inferenceCosts}</span>
 					</SpaLink>
-				))}
-			</div>
+				</div>
+			)}
+
+			{isAuthenticated && (
+				<div className="nav-group">
+					<div className="label">{t.nav.yourWorlds}</div>
+					{myWorlds.length === 0 && <div className="sidebar-note">{t.nav.noneYet}</div>}
+					{myWorlds.map((world) => (
+						<SpaLink
+							className={`nav-item ${active === world.handle ? "active" : ""}`}
+							key={world.id}
+							onNavigate={onNavigate}
+							title={textValue(world.name)}
+							to={{ route: "world", worldHandle: world.handle }}
+						>
+							<span className="world-swatch" style={{ background: banners[world.bannerIdx] }} />
+							<span className="truncate">w/{world.handle}</span>
+							<span className="count">{world.myBotCount}</span>
+						</SpaLink>
+					))}
+				</div>
+			)}
 
 			<div className="nav-group">
 				<div className="label">{t.nav.discover}</div>
 				{discover.map((world) => (
 					<SpaLink
-							className={`nav-item ${active === world.handle ? "active" : ""}`}
-							key={world.id}
-							onNavigate={onNavigate}
-							title={textValue(world.name)}
+						className={`nav-item ${active === world.handle ? "active" : ""}`}
+						key={world.id}
+						onNavigate={onNavigate}
+						title={textValue(world.name)}
 						to={{ route: "world", worldHandle: world.handle }}
 					>
 						<span className="world-swatch" style={{ background: banners[world.bannerIdx] }} />
 						<span className="truncate">w/{world.handle}</span>
-						<span className="count">{world.myBotCount}</span>
+						<span className="count">{isAuthenticated ? world.myBotCount : world.botCount}</span>
 					</SpaLink>
 				))}
 			</div>
@@ -4476,16 +4674,24 @@ function SidebarNavigation({
 
 function WorldsScreen({
 	busy,
+	isAuthenticated,
 	onCreate,
 	worlds,
 }: {
 	busy: boolean;
+	isAuthenticated: boolean;
 	onCreate: (input: CreateWorldInput) => Promise<boolean>;
 	worlds: WorldView[];
 }) {
 	const [createOpen, setCreateOpen] = useState(false);
 	const [filterMine, setFilterMine] = useState(false);
 	const filtered = filterMine ? worlds.filter((world) => world.isMine) : worlds;
+
+	useEffect(() => {
+		if (!isAuthenticated && filterMine) {
+			setFilterMine(false);
+		}
+	}, [filterMine, isAuthenticated]);
 
 	return (
 		<div className="main-inner">
@@ -4495,23 +4701,31 @@ function WorldsScreen({
 					<p className="sub">Each world is an isolated social setting with its own forums and bots.</p>
 				</div>
 				<div className="actions">
-					<div className="seg" role="tablist">
-						<button aria-pressed={!filterMine} onClick={() => setFilterMine(false)} type="button">
-							All
-						</button>
-						<button aria-pressed={filterMine} onClick={() => setFilterMine(true)} type="button">
-							Mine
-						</button>
-					</div>
-					<button className="btn primary" disabled={busy} onClick={() => setCreateOpen(true)} type="button">
-						<Icon name="plus" size={14} />
-						New world
-					</button>
+					{isAuthenticated && (
+						<>
+							<div className="seg" role="tablist">
+								<button aria-pressed={!filterMine} onClick={() => setFilterMine(false)} type="button">
+									All
+								</button>
+								<button aria-pressed={filterMine} onClick={() => setFilterMine(true)} type="button">
+									Mine
+								</button>
+							</div>
+							<button className="btn primary" disabled={busy} onClick={() => setCreateOpen(true)} type="button">
+								<Icon name="plus" size={14} />
+								New world
+							</button>
+						</>
+					)}
 				</div>
 			</div>
 
 			{filtered.length === 0 ?
-				<EmptyState actionLabel="New world" onAction={() => setCreateOpen(true)} title="No worlds yet">
+				<EmptyState
+					actionLabel={isAuthenticated ? "New world" : undefined}
+					onAction={isAuthenticated ? () => setCreateOpen(true) : undefined}
+					title="No worlds yet"
+				>
 					Create one to start populating it with forums and bots.
 				</EmptyState>
 			:	<div className="world-grid">
@@ -4521,7 +4735,9 @@ function WorldsScreen({
 				</div>
 			}
 
-			<CreateWorldModal busy={busy} onClose={() => setCreateOpen(false)} onCreate={onCreate} open={createOpen} />
+			{isAuthenticated && (
+				<CreateWorldModal busy={busy} onClose={() => setCreateOpen(false)} onCreate={onCreate} open={createOpen} />
+			)}
 		</div>
 	);
 }
@@ -5001,7 +5217,7 @@ function WorldDetail({
 }: {
 	bots: BotSummary[];
 	busy: boolean;
-	currentUserId: string;
+	currentUserId: string | null;
 	forums: ForumSummary[];
 	groups: BotGroupSummary[];
 	onAddBotGroupMembers: (world: WorldView, group: BotGroupSummary, botIds: string[]) => Promise<boolean>;
@@ -5103,11 +5319,15 @@ function WorldDetail({
 		[activityFilter, activityKindFilter, activities],
 	);
 	const activityEmptyMessage = botActivityEmptyMessage(activityFilter, activityKindFilter);
-	const ownedBotCount = bots.filter((bot) => bot.ownerUserId === currentUserId).length;
-	const ownedForumCount = publicForums.filter((forum) => forum.createdByUserId === currentUserId).length;
-	const canManageWorld = world.createdByUserId === currentUserId;
+	const canUseAccountActions = Boolean(currentUserId);
+	const ownedBotCount = currentUserId ? bots.filter((bot) => bot.ownerUserId === currentUserId).length : 0;
+	const ownedForumCount = currentUserId ? publicForums.filter((forum) => forum.createdByUserId === currentUserId).length : 0;
+	const canManageWorld = Boolean(currentUserId && world.createdByUserId === currentUserId);
 	const canDeleteWorld = canManageWorld && bots.length === 0;
 	const botGroups = useMemo(() => {
+		if (!currentUserId) {
+			return [{ key: "all", title: "Bots", bots: filteredBots }];
+		}
 		return [
 			{ key: "mine", title: "My bots", bots: filteredBots.filter((bot) => bot.ownerUserId === currentUserId) },
 			{ key: "other", title: "Other bots", bots: filteredBots.filter((bot) => bot.ownerUserId !== currentUserId) },
@@ -5141,30 +5361,36 @@ function WorldDetail({
 							<Reference kind="world" name={world.handle} />
 							<span>/</span>
 							<span>
-								<b>{bots.length}</b> bots <span className="muted">({ownedBotCount} mine)</span>
+								<b>{bots.length}</b> bots
+								{currentUserId && <span className="muted"> ({ownedBotCount} mine)</span>}
 							</span>
 							<span>/</span>
 							<span>
-								<b>{publicForums.length}</b> forums <span className="muted">({ownedForumCount} mine)</span>
+								<b>{publicForums.length}</b> forums
+								{currentUserId && <span className="muted"> ({ownedForumCount} mine)</span>}
 							</span>
 						</div>
 					</div>
 				</div>
 				<div className="actions">
-					<SubscriptionButton
-						active={subscribed}
-						label="Watch world"
-						onToggle={(active) =>
-							void onToggleSubscription(
-								{ scopeType: "world", scopeId: world.id, worldId: world.id },
-								active,
-							)
-						}
-					/>
-					<SpaLink className="btn" to={{ route: "world-edit", worldHandle: world.handle }}>
-						<Icon name="edit" size={14} />
-						{canManageWorld ? "Edit" : "View"}
-					</SpaLink>
+					{canUseAccountActions && (
+						<SubscriptionButton
+							active={subscribed}
+							label="Watch world"
+							onToggle={(active) =>
+								void onToggleSubscription(
+									{ scopeType: "world", scopeId: world.id, worldId: world.id },
+									active,
+								)
+							}
+						/>
+					)}
+					{canUseAccountActions && (
+						<SpaLink className="btn" to={{ route: "world-edit", worldHandle: world.handle }}>
+							<Icon name="edit" size={14} />
+							{canManageWorld ? "Edit" : "View"}
+						</SpaLink>
+					)}
 					{canManageWorld && (
 						<>
 							<button
@@ -5179,13 +5405,13 @@ function WorldDetail({
 							</button>
 						</>
 					)}
-					{tab === "forums" && (
+					{canUseAccountActions && tab === "forums" && (
 						<button className="btn primary" disabled={busy} onClick={() => setForumModalOpen(true)} type="button">
 							<Icon name="plus" size={14} />
 							New forum
 						</button>
 					)}
-					{tab === "bots" && (
+					{canUseAccountActions && tab === "bots" && (
 						<button className="btn primary" disabled={busy} onClick={() => onCreateBot(world)} type="button">
 							<Icon name="plus" size={14} />
 							New bot
@@ -5209,13 +5435,15 @@ function WorldDetail({
 				>
 					Bots <span className="count">{bots.length}</span>
 				</SpaLink>
-				<SpaLink
-					to={{ route: "world", worldHandle: world.handle, worldTab: "groups" }}
-					aria-selected={tab === "groups"}
-					role="tab"
-				>
-					Groups <span className="count">{groups.length}</span>
-				</SpaLink>
+				{canUseAccountActions && (
+					<SpaLink
+						to={{ route: "world", worldHandle: world.handle, worldTab: "groups" }}
+						aria-selected={tab === "groups"}
+						role="tab"
+					>
+						Groups <span className="count">{groups.length}</span>
+					</SpaLink>
+				)}
 				<SpaLink
 					to={{ route: "world", worldHandle: world.handle, worldTab: "activity" }}
 					aria-selected={tab === "activity"}
@@ -5223,13 +5451,15 @@ function WorldDetail({
 				>
 					Activity <span className="count">{activities.length}</span>
 				</SpaLink>
-				<SpaLink
-					to={{ route: "world", worldHandle: world.handle, worldTab: "notifications" }}
-					aria-selected={tab === "notifications"}
-					role="tab"
-				>
-					Notifications
-				</SpaLink>
+				{canUseAccountActions && (
+					<SpaLink
+						to={{ route: "world", worldHandle: world.handle, worldTab: "notifications" }}
+						aria-selected={tab === "notifications"}
+						role="tab"
+					>
+						Notifications
+					</SpaLink>
+				)}
 				<button aria-selected={tab === "lore"} disabled role="tab" title="Coming later" type="button">
 					Lore <span className="count">-</span>
 				</button>
@@ -5237,7 +5467,11 @@ function WorldDetail({
 
 			{tab === "forums" &&
 				(publicForums.length === 0 ?
-					<EmptyState actionLabel="New forum" onAction={() => setForumModalOpen(true)} title="No forums in this world">
+					<EmptyState
+						actionLabel={canUseAccountActions ? "New forum" : undefined}
+						onAction={canUseAccountActions ? () => setForumModalOpen(true) : undefined}
+						title="No forums in this world"
+					>
 						Forums are subject areas inside a world.
 					</EmptyState>
 				:	<>
@@ -5272,7 +5506,11 @@ function WorldDetail({
 
 				{tab === "bots" &&
 					(bots.length === 0 ?
-						<EmptyState actionLabel="New bot" onAction={() => onCreateBot(world)} title="No bots in this world">
+						<EmptyState
+							actionLabel={canUseAccountActions ? "New bot" : undefined}
+							onAction={canUseAccountActions ? () => onCreateBot(world) : undefined}
+							title="No bots in this world"
+						>
 							Create one from scratch or import a Chirper profile.
 					</EmptyState>
 				:	<>
@@ -5299,10 +5537,10 @@ function WorldDetail({
 													bot={bot}
 													hideWorld
 													key={bot.id}
-													onDelete={bot.ownerUserId === currentUserId ? () => setConfirmBot(bot) : undefined}
-													onEdit={bot.ownerUserId === currentUserId ? () => onOpenBotEdit(bot) : undefined}
-													onRunTick={bot.ownerUserId === currentUserId ? () => onRunBotTick(bot) : undefined}
-													onStart={bot.ownerUserId === currentUserId ? () => onStartBot(bot) : undefined}
+													onDelete={currentUserId && bot.ownerUserId === currentUserId ? () => setConfirmBot(bot) : undefined}
+													onEdit={currentUserId && bot.ownerUserId === currentUserId ? () => onOpenBotEdit(bot) : undefined}
+													onRunTick={currentUserId && bot.ownerUserId === currentUserId ? () => onRunBotTick(bot) : undefined}
+													onStart={currentUserId && bot.ownerUserId === currentUserId ? () => onStartBot(bot) : undefined}
 													showActive
 													world={world}
 												/>
@@ -5314,7 +5552,7 @@ function WorldDetail({
 							}
 						</>)}
 
-				{tab === "groups" && (
+				{tab === "groups" && currentUserId && (
 					<BotGroupsTab
 						bots={bots}
 						busy={busy}
@@ -5364,7 +5602,7 @@ function WorldDetail({
 					</section>
 				)}
 
-				{tab === "notifications" && (
+				{tab === "notifications" && canUseAccountActions && (
 					<NotificationsScreen
 						embedded
 						grouped={false}
@@ -6243,7 +6481,7 @@ function ForumPage({
 	threads,
 	world,
 }: {
-	currentUserId: string;
+	currentUserId: string | null;
 	forum: ForumSummary;
 	loadedAt?: string;
 	loading: boolean;
@@ -6272,7 +6510,8 @@ function ForumPage({
 	const selectedIds = Object.keys(selected).filter((id) => selected[id]);
 	const newCount = threads.filter((thread) => thread.readState?.isNew || thread.readState?.hasNewComments).length;
 	const ownedBotIds = useMemo(() => new Set(ownedBots.map((bot) => bot.id)), [ownedBots]);
-	const canModerateForum = world.createdByUserId === currentUserId || forum.createdByUserId === currentUserId;
+	const canUseAccountActions = Boolean(currentUserId);
+	const canModerateForum = Boolean(currentUserId && (world.createdByUserId === currentUserId || forum.createdByUserId === currentUserId));
 
 	useEffect(() => {
 		const query = search.trim();
@@ -6362,16 +6601,18 @@ function ForumPage({
 					</div>
 				</div>
 				<div className="actions">
-					<SubscriptionButton
-						active={subscribed}
-						label="Watch forum"
-						onToggle={(active) =>
-							void onToggleSubscription(
-								{ scopeType: "forum", scopeId: forum.id, worldId: forum.worldId },
-								active,
-							)
-						}
-					/>
+					{canUseAccountActions && (
+						<SubscriptionButton
+							active={subscribed}
+							label="Watch forum"
+							onToggle={(active) =>
+								void onToggleSubscription(
+									{ scopeType: "forum", scopeId: forum.id, worldId: forum.worldId },
+									active,
+								)
+							}
+						/>
+					)}
 					{canModerateForum && (
 						<>
 							<button className="btn" onClick={() => setEditOpen(true)} type="button">
@@ -6392,10 +6633,12 @@ function ForumPage({
 							New
 						</button>
 					</div>
-					<button className="btn primary" disabled title="Bots create threads from their loop" type="button">
-						<Icon name="plus" size={14} />
-						New thread
-					</button>
+					{canUseAccountActions && (
+						<button className="btn primary" disabled title="Bots create threads from their loop" type="button">
+							<Icon name="plus" size={14} />
+							New thread
+						</button>
+					)}
 				</div>
 			</div>
 
@@ -6450,28 +6693,35 @@ function ForumPage({
 				</section>
 			)}
 
-			<div className="spot-select-head">
-				<label>
-					<input
-						checked={threads.length > 0 && selectedIds.length === threads.length}
-						className="cb"
-						onChange={(event) => {
-							if (event.target.checked) {
-								setSelected(Object.fromEntries(threads.map((thread) => [thread.id, true])));
-							} else {
-								setSelected({});
-							}
-						}}
-						type="checkbox"
-					/>
-					<span>
-						{selectedIds.length > 0 ?
-							`${selectedIds.length} selected for spotlight`
-						:	"Select threads to spotlight for your bots"}
-					</span>
-				</label>
-				<span>{loading ? "Loading threads" : `Showing ${threads.length} threads`}</span>
-			</div>
+			{canUseAccountActions && (
+				<div className="spot-select-head">
+					<label>
+						<input
+							checked={threads.length > 0 && selectedIds.length === threads.length}
+							className="cb"
+							onChange={(event) => {
+								if (event.target.checked) {
+									setSelected(Object.fromEntries(threads.map((thread) => [thread.id, true])));
+								} else {
+									setSelected({});
+								}
+							}}
+							type="checkbox"
+						/>
+						<span>
+							{selectedIds.length > 0 ?
+								`${selectedIds.length} selected for spotlight`
+							:	"Select threads to spotlight for your bots"}
+						</span>
+					</label>
+					<span>{loading ? "Loading threads" : `Showing ${threads.length} threads`}</span>
+				</div>
+			)}
+			{!canUseAccountActions && (
+				<div className="spot-select-head public-list-head">
+					<span>{loading ? "Loading threads" : `Showing ${threads.length} threads`}</span>
+				</div>
+			)}
 
 			<div className="thread-list">
 				{threads.length === 0 && !loading && <div className="empty compact-empty">No threads yet.</div>}
@@ -6479,7 +6729,7 @@ function ForumPage({
 					<ForumThreadRow
 						checked={Boolean(selected[thread.id])}
 						key={thread.id}
-						onCheck={(checked) => setSelected((current) => ({ ...current, [thread.id]: checked }))}
+						onCheck={canUseAccountActions ? (checked) => setSelected((current) => ({ ...current, [thread.id]: checked })) : undefined}
 						onDelete={
 							canModerateForum || ownedBotIds.has(thread.authorBotId) ?
 								() => setConfirmThread(thread)
@@ -6491,7 +6741,7 @@ function ForumPage({
 				))}
 			</div>
 
-			{selectedIds.length > 0 && (
+			{canUseAccountActions && selectedIds.length > 0 && (
 				<SpotlightPanel
 					commentIds={[]}
 					forum={forum}
@@ -6568,8 +6818,8 @@ function ForumThreadRow({
 	onReference,
 	thread,
 }: {
-	checked: boolean;
-	onCheck: (checked: boolean) => void;
+	checked?: boolean;
+	onCheck?: (checked: boolean) => void;
 	onDelete?: () => void;
 	onReference: OpenReference;
 	thread: ThreadSummary;
@@ -6589,15 +6839,17 @@ function ForumThreadRow({
 			>
 				<span className="sr-only">Open {textValue(thread.title)}</span>
 			</SpaLink>
-			<div className="checkcell" onClick={(event) => event.stopPropagation()}>
-				<input
-					aria-label={`Spotlight ${textValue(thread.title)}`}
-					checked={checked}
-					className="cb"
-					onChange={(event) => onCheck(event.target.checked)}
-					type="checkbox"
-				/>
-			</div>
+			{onCheck && (
+				<div className="checkcell" onClick={(event) => event.stopPropagation()}>
+					<input
+						aria-label={`Spotlight ${textValue(thread.title)}`}
+						checked={Boolean(checked)}
+						className="cb"
+						onChange={(event) => onCheck(event.target.checked)}
+						type="checkbox"
+					/>
+				</div>
+			)}
 			<div className="scorecell">
 				<Icon name="arrowUp" size={13} />
 				<div className="score">{thread.voteScore}</div>
@@ -6686,7 +6938,7 @@ function ThreadPage({
 	world,
 }: {
 	activityCheckToken: number;
-	currentUserId: string;
+	currentUserId: string | null;
 	forum: ForumSummary;
 	loadedAt?: string;
 	loading: boolean;
@@ -6714,7 +6966,8 @@ function ThreadPage({
 	const threadCommentIds = useMemo(() => thread?.comments.map((comment) => comment.id) ?? [], [thread?.comments]);
 	const selectedCommentIds = Object.keys(selectedComments).filter((id) => selectedComments[id]);
 	const ownedBotIds = useMemo(() => new Set(ownedBots.map((bot) => bot.id)), [ownedBots]);
-	const canModerateForum = world.createdByUserId === currentUserId || forum.createdByUserId === currentUserId;
+	const canUseAccountActions = Boolean(currentUserId);
+	const canModerateForum = Boolean(currentUserId && (world.createdByUserId === currentUserId || forum.createdByUserId === currentUserId));
 	const commentParentById = useMemo(
 		() => new Map((thread?.comments ?? []).map((comment) => [comment.id, comment.parentCommentId ?? null])),
 		[thread?.comments],
@@ -6806,45 +7059,49 @@ function ThreadPage({
 
 			<header className="thread-title-head">
 				<div className="thread-title-row">
-					<label className="thread-spot-check">
-						<input
-							aria-label="Spotlight this entire thread"
-							checked={threadSelected}
-							className="cb"
-							onPointerDown={() => {
-								pendingSpotlightFocusSeedRef.current = spotlightFocusSeedFromSelection(threadCommentIds);
-							}}
-							onChange={(event) => {
-								const checked = event.target.checked;
-								setThreadSelected(checked);
-								if (checked) {
-									setSpotlightFocusSeed(spotlightFocusSeedFromSelection(threadCommentIds) || pendingSpotlightFocusSeedRef.current);
-									setSelectedComments({});
-								} else {
-									setSpotlightFocusSeed("");
-								}
-								pendingSpotlightFocusSeedRef.current = "";
-							}}
-							title="Spotlight this entire thread"
-							type="checkbox"
-						/>
-					</label>
+					{canUseAccountActions && (
+						<label className="thread-spot-check">
+							<input
+								aria-label="Spotlight this entire thread"
+								checked={threadSelected}
+								className="cb"
+								onPointerDown={() => {
+									pendingSpotlightFocusSeedRef.current = spotlightFocusSeedFromSelection(threadCommentIds);
+								}}
+								onChange={(event) => {
+									const checked = event.target.checked;
+									setThreadSelected(checked);
+									if (checked) {
+										setSpotlightFocusSeed(spotlightFocusSeedFromSelection(threadCommentIds) || pendingSpotlightFocusSeedRef.current);
+										setSelectedComments({});
+									} else {
+										setSpotlightFocusSeed("");
+									}
+									pendingSpotlightFocusSeedRef.current = "";
+								}}
+								title="Spotlight this entire thread"
+								type="checkbox"
+							/>
+						</label>
+					)}
 					<h1>
 						<TranslatableText as="span" text={thread.title} />
 						{thread.readState?.isNew && <span className="new-mark">new</span>}
 					</h1>
 					<div className="thread-title-actions">
-						<SubscriptionButton
-							active={threadSubscribed}
-							label="Watch"
-							onToggle={(active) =>
-								void onToggleSubscription(
-									{ scopeType: "thread", scopeId: thread.id, worldId: thread.worldId },
-									active,
-								)
-							}
-							title="Watch this thread to get notifications when new comments are posted."
-						/>
+						{canUseAccountActions && (
+							<SubscriptionButton
+								active={threadSubscribed}
+								label="Watch"
+								onToggle={(active) =>
+									void onToggleSubscription(
+										{ scopeType: "thread", scopeId: thread.id, worldId: thread.worldId },
+										active,
+									)
+								}
+								title="Watch this thread to get notifications when new comments are posted."
+							/>
+						)}
 						{canDeleteThread && (
 							<button className="btn danger compact" onClick={() => setConfirmThreadDelete(true)} type="button">
 								<Icon name="trash" size={12} />
@@ -6876,14 +7133,14 @@ function ThreadPage({
 						forumHandle={thread.forumHandle}
 						isLastSibling={index === commentTree.length - 1}
 						key={comment.id}
-						onPrepareToggle={(commentId, checked) => {
+						onPrepareToggle={canUseAccountActions ? (commentId, checked) => {
 							const nextSelectedCommentIds =
 								checked ?
 									[...new Set([...selectedCommentIds, commentId])]
 								:	selectedCommentIds.filter((id) => id !== commentId);
 							pendingSpotlightFocusSeedRef.current = checked ? focusSeedForCommentTargets(nextSelectedCommentIds) : "";
-						}}
-						onToggle={(commentId, checked) => {
+						} : undefined}
+						onToggle={canUseAccountActions ? (commentId, checked) => {
 							const nextSelectedCommentIds =
 								checked ?
 									[...new Set([...selectedCommentIds, commentId])]
@@ -6904,10 +7161,10 @@ function ThreadPage({
 								}
 								return next;
 							});
-						}}
+						} : undefined}
 						implied={displayedImpliedCommentIds}
 						onReference={onReference}
-						onToggleSubscription={onToggleSubscription}
+						onToggleSubscription={canUseAccountActions ? onToggleSubscription : undefined}
 						onRequestDelete={
 							canModerateForum || ownedBotIds.has(comment.authorBotId) ?
 								setConfirmComment
@@ -6923,7 +7180,7 @@ function ThreadPage({
 				))}
 			</div>
 
-			{threadSelected && (
+			{canUseAccountActions && threadSelected && (
 				<SpotlightPanel
 					commentIds={[]}
 					forum={forum}
@@ -6938,7 +7195,7 @@ function ThreadPage({
 					world={world}
 				/>
 			)}
-			{selectedCommentIds.length > 0 && (
+			{canUseAccountActions && selectedCommentIds.length > 0 && (
 				<SpotlightPanel
 					commentIds={selectedCommentIds}
 					forum={forum}
@@ -7025,8 +7282,8 @@ function CommentNode({
 	onReference: OpenReference;
 	onPrepareToggle?: (commentId: string, checked: boolean) => void;
 	onRequestDelete?: (comment: CommentDocument) => void;
-	onToggle: (commentId: string, checked: boolean) => void;
-	onToggleSubscription: (target: SubscriptionTarget, active: boolean) => Promise<void>;
+	onToggle?: (commentId: string, checked: boolean) => void;
+	onToggleSubscription?: (target: SubscriptionTarget, active: boolean) => Promise<void>;
 	rootCommentId: string;
 	selected: Record<string, boolean>;
 	subscriptions: HumanSubscription[];
@@ -7055,18 +7312,20 @@ function CommentNode({
 			className={`comment ${isTarget ? "flash" : ""} ${indeterminate ? "implied" : ""} ${isLastSibling ? "last-sibling" : ""} ${hasReplies ? "has-replies" : ""}`}
 			id={commentDomId(comment.id)}
 		>
-			<div className="checkcell">
-				<input
-					aria-label="Spotlight this reply chain"
-					checked={checked}
-					className="cb"
-					ref={checkboxRef}
-					onPointerDown={() => onPrepareToggle?.(comment.id, !checked)}
-					onChange={(event) => onToggle(comment.id, event.target.checked)}
-					title="Spotlight this reply chain"
-					type="checkbox"
-				/>
-			</div>
+			{onToggle && (
+				<div className="checkcell">
+					<input
+						aria-label="Spotlight this reply chain"
+						checked={checked}
+						className="cb"
+						ref={checkboxRef}
+						onPointerDown={() => onPrepareToggle?.(comment.id, !checked)}
+						onChange={(event) => onToggle(comment.id, event.target.checked)}
+						title="Spotlight this reply chain"
+						type="checkbox"
+					/>
+				</div>
+			)}
 			<div className="comment-main">
 				<div className="head">
 					<span className="comment-author-line">
@@ -7109,21 +7368,23 @@ function CommentNode({
 								<Icon name="trash" size={12} />
 							</button>
 						)}
-						<button
-							aria-label={subscribed ? "Stop watching replies" : "Watch replies"}
-							aria-pressed={subscribed}
-							className={`comment-watch ${subscribed ? "active" : ""}`}
-							onClick={() =>
-								void onToggleSubscription(
-									{ scopeType: "comment", scopeId: comment.id, worldId: comment.worldId },
-									!subscribed,
-								)
-							}
-							title={subscribed ? "Stop watching replies" : "Watch replies"}
-							type="button"
-						>
-							<Icon name="bell" size={12} />
-						</button>
+						{onToggleSubscription && (
+							<button
+								aria-label={subscribed ? "Stop watching replies" : "Watch replies"}
+								aria-pressed={subscribed}
+								className={`comment-watch ${subscribed ? "active" : ""}`}
+								onClick={() =>
+									void onToggleSubscription(
+										{ scopeType: "comment", scopeId: comment.id, worldId: comment.worldId },
+										!subscribed,
+									)
+								}
+								title={subscribed ? "Stop watching replies" : "Watch replies"}
+								type="button"
+							>
+								<Icon name="bell" size={12} />
+							</button>
+						)}
 					</span>
 				</div>
 				<TranslatableText
@@ -7302,6 +7563,7 @@ function CommentVoteCount({
 function BotProfileScreen({
 	bot,
 	blogForum,
+	isAuthenticated,
 	isOwner,
 	onLoadNotifications,
 	onMarkAllNotificationsRead,
@@ -7320,6 +7582,7 @@ function BotProfileScreen({
 }: {
 	bot: BotSummary;
 	blogForum: ForumSummary | null;
+	isAuthenticated: boolean;
 	isOwner: boolean;
 	onLoadNotifications: LoadHumanNotifications;
 	onMarkAllNotificationsRead: (scope?: HumanNotificationReadScope) => Promise<number | null>;
@@ -7407,11 +7670,11 @@ function BotProfileScreen({
 	}, [bot.handle, world.handle]);
 
 	useEffect(() => {
-		setActiveTab(targetActivityId ? "activity" : targetTab);
+		setActiveTab(targetActivityId || (!isAuthenticated && targetTab === "notifications") ? "activity" : targetTab);
 		setActivityFilter("");
 		setActivityKindFilter("all");
 		setFollowFilter("");
-	}, [bot.id, targetActivityId, targetTab]);
+	}, [bot.id, isAuthenticated, targetActivityId, targetTab]);
 
 	useEffect(() => {
 		if (!targetActivityId || activeTab !== "activity" || activityLoading || !activityFeed) {
@@ -7425,7 +7688,7 @@ function BotProfileScreen({
 	useEffect(() => {
 		let cancelled = false;
 		setOwnerProfile(null);
-		if (!bot.owner?.handle) {
+		if (!isAuthenticated || !bot.owner?.handle) {
 			return () => {
 				cancelled = true;
 			};
@@ -7438,7 +7701,7 @@ function BotProfileScreen({
 		return () => {
 			cancelled = true;
 		};
-	}, [bot.owner?.handle]);
+	}, [bot.owner?.handle, isAuthenticated]);
 
 	const activities = activityFeed?.activities ?? [];
 	const activityKindCounts = useMemo(() => botActivityKindCounts(activities), [activities]);
@@ -7462,7 +7725,7 @@ function BotProfileScreen({
 	const tabs: Array<{ id: BotProfileTab; label: string; count?: number }> = [
 		{ id: "activity", label: "Activity", count: activities.length },
 		{ id: "follows", label: "Follows", count: following.length + followers.length },
-		{ id: "notifications", label: "Notifications" },
+		...(isAuthenticated ? [{ id: "notifications" as const, label: "Notifications" }] : []),
 	];
 
 	return (
@@ -7559,16 +7822,18 @@ function BotProfileScreen({
 					)}
 				</div>
 				<div className="actions">
-					<SubscriptionButton
-						active={subscribed}
-						label="Watch bot"
-						onToggle={(active) =>
-							void onToggleSubscription(
-								{ scopeType: "bot", scopeId: bot.id, worldId: bot.homeWorldId },
-								active,
-							)
-						}
-					/>
+					{isAuthenticated && (
+						<SubscriptionButton
+							active={subscribed}
+							label="Watch bot"
+							onToggle={(active) =>
+								void onToggleSubscription(
+									{ scopeType: "bot", scopeId: bot.id, worldId: bot.homeWorldId },
+									active,
+								)
+							}
+						/>
+					)}
 					{isOwner ?
 						<>
 							<SpaLink className="btn" to={{ route: "bot-loop", worldHandle: bot.homeWorldHandle, botHandle: bot.handle }}>
@@ -7580,7 +7845,7 @@ function BotProfileScreen({
 								Edit
 							</SpaLink>
 						</>
-					:	<button className="btn" disabled title="Direct messages come later" type="button">
+					:	isAuthenticated && <button className="btn" disabled title="Direct messages come later" type="button">
 							<Icon name="forum" size={14} />
 							Message
 						</button>
@@ -7733,7 +7998,7 @@ function BotProfileScreen({
 					</section>
 				)}
 
-				{activeTab === "notifications" && (
+				{isAuthenticated && activeTab === "notifications" && (
 					<section className="profile-tab-panel" role="tabpanel">
 						<NotificationsScreen
 							embedded
@@ -13421,24 +13686,38 @@ type SearchResultGroup = {
 	worldResult: SearchResult | null;
 };
 
-function AdvancedSearchScreen({ routeState }: { routeState: SearchRouteState }) {
+function publicSearchState(state: SearchRouteState, isAuthenticated: boolean): SearchRouteState {
+	return !isAuthenticated && state.mode === "semantic" ? { ...state, mode: "substring", page: 1 } : state;
+}
+
+function AdvancedSearchScreen({
+	isAuthenticated,
+	routeState,
+}: {
+	isAuthenticated: boolean;
+	routeState: SearchRouteState;
+}) {
 	const { navigate } = useContext(NavigationContext);
-	const [draft, setDraft] = useState<SearchRouteState>(routeState);
+	const effectiveRouteState = useMemo(
+		() => publicSearchState(routeState, isAuthenticated),
+		[isAuthenticated, routeState],
+	);
+	const [draft, setDraft] = useState<SearchRouteState>(effectiveRouteState);
 	const [search, setSearch] = useState<SearchResponse | null>(null);
 	const [loading, setLoading] = useState(false);
 	const [message, setMessage] = useState("");
 	const lastRequestKey = useRef("");
 
 	useEffect(() => {
-		setDraft(routeState);
-		if (!routeState.query.trim()) {
+		setDraft(effectiveRouteState);
+		if (!effectiveRouteState.query.trim()) {
 			setSearch(null);
 			setMessage("");
 			lastRequestKey.current = "";
 			return;
 		}
-		void loadSearch(routeState);
-	}, [routeState]);
+		void loadSearch(effectiveRouteState);
+	}, [effectiveRouteState]);
 
 	async function loadSearch(state: SearchRouteState): Promise<void> {
 		const path = searchApiPath(state);
@@ -13461,7 +13740,7 @@ function AdvancedSearchScreen({ routeState }: { routeState: SearchRouteState }) 
 
 	function submit(page = 1): void {
 		const next = {
-			...draft,
+			...publicSearchState(draft, isAuthenticated),
 			page,
 			query: draft.query.trim(),
 			forum: draft.forum.trim(),
@@ -13480,7 +13759,7 @@ function AdvancedSearchScreen({ routeState }: { routeState: SearchRouteState }) 
 	}
 
 	function patchDraft(patch: Partial<SearchRouteState>): void {
-		setDraft((current) => ({ ...current, ...patch, page: 1 }));
+		setDraft((current) => publicSearchState({ ...current, ...patch, page: 1 }, isAuthenticated));
 	}
 
 	function toggleType(type: SearchEntityType): void {
@@ -13495,6 +13774,7 @@ function AdvancedSearchScreen({ routeState }: { routeState: SearchRouteState }) 
 
 	const groups = useMemo(() => searchResultGroups(search?.results ?? []), [search]);
 	const canSearch = draft.query.trim().length > 0 && draft.types.length > 0 && !loading;
+	const availableModes: SearchMode[] = isAuthenticated ? ["substring", "fts", "semantic"] : ["substring", "fts"];
 
 	return (
 		<div className="main-inner">
@@ -13521,7 +13801,7 @@ function AdvancedSearchScreen({ routeState }: { routeState: SearchRouteState }) 
 				</Field>
 				<Field label="Mode">
 					<div className="seg search-mode-control">
-						{(["substring", "fts", "semantic"] as const).map((mode) => (
+						{availableModes.map((mode) => (
 							<button
 								aria-pressed={draft.mode === mode}
 								className={draft.mode === mode ? "active" : ""}
@@ -13681,6 +13961,90 @@ function searchApiPath(state: SearchRouteState): string {
 		params.set("username", state.username.trim());
 	}
 	return `/api/search?${params}`;
+}
+
+function InferenceCostStatisticsScreen() {
+	const [stats, setStats] = useState<GlobalInferenceCostPublicStats | null>(null);
+	const [loaded, setLoaded] = useState(false);
+	const [message, setMessage] = useState("");
+
+	useEffect(() => {
+		let cancelled = false;
+		setLoaded(false);
+		setMessage("");
+		void api<{ stats: GlobalInferenceCostPublicStats | null }>("/api/statistics/inference-costs").then((result) => {
+			if (cancelled) {
+				return;
+			}
+			setLoaded(true);
+			if (!result.ok) {
+				setMessage(result.message);
+				setStats(null);
+				return;
+			}
+			setStats(result.data.stats);
+		});
+		return () => {
+			cancelled = true;
+		};
+	}, []);
+
+	const rows = stats ? globalInferenceCostTableRows(stats.rows) : [];
+	const costFractionDigits = globalInferenceCostFractionDigits(stats?.rows.map((row) => row.effectiveCostPerMillionTokens) ?? []);
+
+	return (
+		<div className="main-inner inference-costs-page">
+			<div className="section-head">
+				<div>
+					<h1>Inference Costs</h1>
+					<p>Blended provider cost per million priced tokens, cached from recent Bickr usage across all participants.</p>
+				</div>
+			</div>
+			<div className="token-usage-panel inference-cost-panel">
+				<div className="token-usage-head">
+					<div>
+						<h3>Effective Model Cost</h3>
+						<span>
+							{stats ? `Last recomputed ${formatFullDate(stats.generatedAt)}; usage window ${formatShortDate(stats.windowStart)} - ${formatShortDate(stats.windowEnd)}`
+							: loaded ? "No cached snapshot yet"
+							: "Loading cached snapshot"}
+						</span>
+					</div>
+				</div>
+				{message && <div className="token-usage-empty">{message}</div>}
+				{!message && loaded && !stats && (
+					<div className="token-usage-empty">No cached statistics have been recomputed yet. Scheduled maintenance refreshes this snapshot daily.</div>
+				)}
+				{!loaded && <div className="token-usage-empty">Loading cached statistics.</div>}
+				{stats && rows.length === 0 && (
+					<div className="token-usage-empty">No priced inference usage has been recorded in the current retained window.</div>
+				)}
+				{stats && rows.length > 0 && (
+					<table className="token-model-breakdown global-inference-cost-table">
+						<thead>
+							<tr>
+								{globalInferenceCostTableHeaders.map((header) => (
+									<th key={header} scope="col">{header}</th>
+								))}
+							</tr>
+						</thead>
+						<tbody>
+							{rows.map(({ key, row, showModelName }) => (
+								<tr
+									key={key}
+									title={`${row.model} via ${row.providerName}`}
+								>
+									<td className="token-model-name">{showModelName ? row.model : ""}</td>
+									<td className="token-provider-name">{row.providerName}</td>
+									<td>{formatPerMillionTokenCost(row.effectiveCostPerMillionTokens, costFractionDigits)}</td>
+								</tr>
+							))}
+						</tbody>
+					</table>
+				)}
+			</div>
+		</div>
+	);
 }
 
 function searchResultLink(result: SearchResult): ReactNode {
@@ -21728,6 +22092,19 @@ function tokenUsageModelCostFractionDigits(values: readonly (number | null)[]): 
 	}));
 }
 
+function globalInferenceCostFractionDigits(values: readonly (number | null)[]): number {
+	return Math.max(2, ...values.map((value) => {
+		if (value === null || !Number.isFinite(value)) {
+			return 2;
+		}
+		const absoluteValue = Math.abs(value);
+		if (absoluteValue > 0 && absoluteValue < 0.01) {
+			return 4;
+		}
+		return absoluteValue > 0 && absoluteValue < 1 ? 3 : 2;
+	}));
+}
+
 function formatTokenCostParts(value: number | null, fractionDigits: number): ReactNode {
 	if (value === null) {
 		return "-";
@@ -21748,6 +22125,18 @@ function formatTokenCostParts(value: number | null, fractionDigits: number): Rea
 		<>
 			{formatted.slice(0, padStart)}
 			<span className="token-cost-pad">{formatted.slice(padStart)}</span>
+		</>
+	);
+}
+
+function formatPerMillionTokenCost(value: number | null, fractionDigits: number): ReactNode {
+	if (value === null) {
+		return "-";
+	}
+	return (
+		<>
+			{formatTokenCostParts(value, fractionDigits)}
+			<span className="per-million-unit">/mtok</span>
 		</>
 	);
 }

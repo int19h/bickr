@@ -1,4 +1,4 @@
-import { type BotTokenUsageModelBreakdown } from "@bickr/shared/model";
+import { type BotTokenUsageModelBreakdown, type GlobalInferenceCostPublicModelProviderRow } from "@bickr/shared/model";
 
 export type TokenUsageChartMetric = "totalTokens" | "cachedTokens";
 
@@ -31,11 +31,18 @@ export type ContextWindowBarSegments = Readonly<{
 }>;
 
 export const tokenUsageModelBreakdownHeaders = ["Model", "Provider", "Total", "Cached", "Cost"] as const;
+export const globalInferenceCostTableHeaders = ["Model", "Provider", "$/mtok"] as const;
 
 export type TokenUsageModelBreakdownRow = Readonly<{
 	breakdown: BotTokenUsageModelBreakdown;
 	currentModel: boolean;
 	key: string;
+	showModelName: boolean;
+}>;
+
+export type GlobalInferenceCostTableRow = Readonly<{
+	key: string;
+	row: GlobalInferenceCostPublicModelProviderRow;
 	showModelName: boolean;
 }>;
 
@@ -53,6 +60,16 @@ export function tokenUsageModelBreakdownRows(
 			showModelName,
 		};
 	});
+}
+
+export function globalInferenceCostTableRows(
+	rows: readonly GlobalInferenceCostPublicModelProviderRow[],
+): GlobalInferenceCostTableRow[] {
+	return rows.map((row, index) => ({
+		key: `${row.model}\u0000${row.providerName}`,
+		row,
+		showModelName: index === 0 || rows[index - 1]?.model !== row.model,
+	}));
 }
 
 export function contextWindowBarSegments(input: ContextWindowBarInput): ContextWindowBarSegments {

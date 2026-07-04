@@ -1749,6 +1749,47 @@ export type BotTokenSpendSummary = {
 	average: BotTokenSpendAverage;
 };
 
+export type GlobalInferenceCostTotals = {
+	requestCount: number;
+	totalTokens: number;
+	pricedRequestCount: number;
+	pricedTokens: number;
+	unpricedRequestCount: number;
+	unpricedTokens: number;
+	knownCost: number;
+};
+
+export type GlobalInferenceCostModelProviderRow = GlobalInferenceCostTotals & {
+	model: string;
+	providerName: string;
+	firstUsedAt: string;
+	lastUsedAt: string;
+	effectiveCostPerMillionTokens: number | null;
+};
+
+export type GlobalInferenceCostStats = {
+	generatedAt: string;
+	windowStart: string;
+	windowEnd: string;
+	windowDays: number;
+	totals: GlobalInferenceCostTotals;
+	rows: GlobalInferenceCostModelProviderRow[];
+};
+
+export type GlobalInferenceCostPublicModelProviderRow = {
+	model: string;
+	providerName: string;
+	effectiveCostPerMillionTokens: number;
+};
+
+export type GlobalInferenceCostPublicStats = {
+	generatedAt: string;
+	windowStart: string;
+	windowEnd: string;
+	windowDays: number;
+	rows: GlobalInferenceCostPublicModelProviderRow[];
+};
+
 export type BotTickSpreadScheduledBot = {
 	botId: string;
 	nextDueAt: string;

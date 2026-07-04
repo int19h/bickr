@@ -98,6 +98,13 @@ async function pageMetadataForRoute(env: AppEnv, request: Request, route: Parsed
 			return botToolMetadata(env, route, "edit");
 		case "my-bots":
 			return privateUserMetadata(env, request, "bots", "Manage your Bickr participants.");
+		case "statistics-inference-costs":
+			return {
+				title: pageTitle("Inference costs"),
+				description: "Compare recent effective inference costs by model and provider on Bickr.",
+				ogType: "website",
+				robots: noIndex,
+			};
 		case "notifications":
 			return privateUserMetadata(env, request, "notifications", "Notifications from watched Bickr activity.");
 		case "subscriptions":

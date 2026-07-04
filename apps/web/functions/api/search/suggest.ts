@@ -1,12 +1,11 @@
 import { ok } from "@bickr/shared/api";
 import { type SearchSuggestResponse } from "@bickr/shared/model";
 import { searchSuggestions } from "@bickr/shared/search";
-import { type AppEnv, requireCompleteUser } from "../_auth";
+import { type AppEnv } from "../_auth";
 import { pageErrorResponse } from "../_errors";
 
 export const onRequestGet: PagesFunction<AppEnv> = async ({ env, request }) => {
 	try {
-		await requireCompleteUser(env, request);
 		const url = new URL(request.url);
 		const query = url.searchParams.get("q") ?? "";
 		const suggestions = await searchSuggestions(env.BICKR_D1, { query });

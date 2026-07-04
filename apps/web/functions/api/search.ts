@@ -12,10 +12,10 @@ import { serviceRequest } from "./_proxy";
 
 export const onRequestGet: PagesFunction<AppEnv> = async ({ env, request }) => {
 	try {
-		const user = await requireCompleteUser(env, request);
 		const url = new URL(request.url);
 		const mode = parseSearchMode(url.searchParams.get("mode"));
 		if (mode === "semantic") {
+			const user = await requireCompleteUser(env, request);
 			return env.AGENT_RUNTIME.fetch(serviceRequest(request, `/search/entities?${url.searchParams.toString()}`, user.id));
 		}
 		const search = await searchEntitiesText(env.BICKR_D1, {

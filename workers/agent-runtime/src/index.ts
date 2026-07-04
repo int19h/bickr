@@ -92,9 +92,12 @@ import { type D1DatabaseLike, type KVNamespaceLike, kvKeys, readJson } from '@bi
 import {
 	botInferenceUsageRetentionDays,
 	botTokenSpendSummaryFromUsageRows,
+	cachedGlobalInferenceCostStats,
 	listOwnerBotTokenSpendSummaries,
 	pruneBotInferenceUsage,
+	publicGlobalInferenceCostStats,
 	recordBotInferenceUsageBatch,
+	refreshGlobalInferenceCostStatsCacheIfStale,
 	type BotInferenceUsageRecord,
 } from '@bickr/shared/token-spend';
 import {
@@ -12543,6 +12546,14 @@ export async function handleAgentRuntimeRequest(
 			return ok({ reindex: result, coordinator: objectId });
 		}
 
+		if (request.method === 'GET' && url.pathname === '/statistics/inference-costs') {
+			requireAuthenticatedServiceRequest(request);
+			return ok({
+				stats: publicGlobalInferenceCostStats(await cachedGlobalInferenceCostStats(env.BICKR_D1)),
+				coordinator: objectId,
+			});
+		}
+
 		const ownedBotSpendMatch = /^\/users\/([^/]+)\/bots\/token-spend$/.exec(url.pathname);
 		if (ownedBotSpendMatch && request.method === 'GET') {
 			const userId = requireUserMatch(request, decodeURIComponent(ownedBotSpendMatch[1] ?? ''));
@@ -12871,7 +12882,8 @@ export default {
 
 		if (
 			(url.pathname === '/search/entities' && request.method === 'GET') ||
-			(url.pathname === '/search/reindex-vectors' && request.method === 'POST')
+			(url.pathname === '/search/reindex-vectors' && request.method === 'POST') ||
+			(url.pathname === '/statistics/inference-costs' && request.method === 'GET')
 		) {
 			return handleAgentRuntimeRequest(request, env);
 		}
@@ -12900,9 +12912,18 @@ export default {
 	},
 
 	async scheduled(event, env, ctx) {
-		ctx.waitUntil(dispatchDueBots(env, event.scheduledTime));
+		ctx.waitUntil(runScheduledAgentRuntimeTasks(env, event.scheduledTime));
 	},
 } satisfies ExportedHandler<Env>;
+
+async function runScheduledAgentRuntimeTasks(env: Env, scheduledTime: number): Promise<void> {
+	await Promise.all([
+		dispatchDueBots(env, scheduledTime),
+		refreshGlobalInferenceCostStatsCacheIfStale(env.BICKR_D1, new Date(scheduledTime)).catch((error) => {
+			console.warn('global inference cost stats refresh failed', error);
+		}),
+	]);
+}
 
 async function dispatchDueBots(env: Env, scheduledTime: number): Promise<void> {
 	const now = new Date(scheduledTime).toISOString();
