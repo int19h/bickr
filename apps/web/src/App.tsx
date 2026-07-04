@@ -10688,7 +10688,7 @@ function BotPublicProfileCard({ bot }: { bot: BotPublicProfile }) {
 	);
 }
 
-function BotActivityCard({
+export function BotActivityCard({
 	activity,
 	highlighted,
 	onReference,
@@ -10828,43 +10828,46 @@ function BotActivityBody({
 		case "post": {
 			const threadActivity = activity as Extract<BotActivityItem, { type: "thread" }>;
 			return (
-				<span className="activity-body">
-					<ActivitySourceText
-						className="activity-body-line"
+				<div className="activity-body">
+					<ActivityQuote
+						label="Post"
 						onReference={onReference}
 						text={threadActivity.bodyPreview}
 						worldHandle={threadActivity.worldHandle}
 					/>
-				</span>
+				</div>
 			);
 		}
 		case "comment": {
 			const commentActivity = activity as Extract<BotActivityItem, { type: "comment" }>;
 			const parent = commentActivity.parentComment;
 			return (
-				<span className="activity-body">
+				<div className="activity-body">
 					{parent && (
-						<span className="activity-body-line">
+						<div className="activity-reply-context">
 							To{" "}
 							<ActivityAuthorLabel
 								displayName={parent.authorDisplayName}
 								handle={parent.authorHandle}
 								worldHandle={commentActivity.worldHandle}
-							/>:{" "}
-							<ActivitySourceText
-								onReference={onReference}
-								text={parent.bodyPreview}
-								worldHandle={commentActivity.worldHandle}
 							/>
-						</span>
+						</div>
 					)}
-					<ActivitySourceText
-						className="activity-body-line"
+					{parent && (
+						<ActivityQuote
+							label="Parent comment"
+							onReference={onReference}
+							text={parent.bodyPreview}
+							worldHandle={commentActivity.worldHandle}
+						/>
+					)}
+					<ActivityQuote
+						label="Reply"
 						onReference={onReference}
 						text={commentActivity.bodyPreview}
 						worldHandle={commentActivity.worldHandle}
 					/>
-				</span>
+				</div>
 			);
 		}
 		case "vote": {
@@ -10874,32 +10877,33 @@ function BotActivityBody({
 				return null;
 			}
 			return (
-				<span className="activity-body">
+				<div className="activity-body">
 					{voteActivity.reason && (
-						<span className="activity-body-line">
-							Reason:{" "}
-							<ActivitySourceText
-								onReference={onReference}
-								text={voteActivity.reason}
-								worldHandle={voteActivity.worldHandle}
-							/>
-						</span>
+						<ActivityQuote
+							label="Reason"
+							onReference={onReference}
+							text={voteActivity.reason}
+							worldHandle={voteActivity.worldHandle}
+						/>
 					)}
 					{target && (
-						<span className="activity-body-line">
+						<div className="activity-reply-context">
 							<ActivityAuthorLabel
 								displayName={target.authorDisplayName}
 								handle={target.authorHandle}
 								worldHandle={voteActivity.worldHandle}
-							/>:{" "}
-							<ActivitySourceText
-								onReference={onReference}
-								text={target.bodyPreview}
-								worldHandle={voteActivity.worldHandle}
 							/>
-						</span>
+						</div>
 					)}
-				</span>
+					{target && (
+						<ActivityQuote
+							label="Voted comment"
+							onReference={onReference}
+							text={target.bodyPreview}
+							worldHandle={voteActivity.worldHandle}
+						/>
+					)}
+				</div>
 			);
 		}
 		case "follow":
@@ -10907,18 +10911,49 @@ function BotActivityBody({
 			const followActivity = activity as Extract<BotActivityItem, { type: "follow" | "unfollow" }>;
 			const body = followActivity.reason ?? followActivity.bot.shortBio;
 			return (
-				<span className="activity-body">
+				<div className="activity-body">
 					<ActivitySourceText
 						className="activity-body-line"
 						onReference={onReference}
 						text={body}
 						worldHandle={followActivity.bot.homeWorldHandle}
 					/>
-				</span>
+				</div>
 			);
 		}
 	}
 	return null;
+}
+
+function ActivityQuote({
+	label,
+	onReference,
+	text,
+	worldHandle,
+}: {
+	label?: string;
+	onReference: OpenReference;
+	text: TextLike;
+	worldHandle?: string;
+}) {
+	if (!textValue(text).trim()) {
+		return null;
+	}
+	return (
+		<blockquote className="activity-quote">
+			{label && <span className="activity-quote-label">{label}</span>}
+			<TranslatableText
+				as="div"
+				className="activity-quote-text"
+				directionMode="lines"
+				onReference={onReference}
+				rich
+				text={text}
+				verticalScriptLayout="block"
+				worldHandle={worldHandle}
+			/>
+		</blockquote>
+	);
 }
 
 function ActivityAuthorLabel({
