@@ -4614,20 +4614,6 @@ function SidebarNavigation({
 
 			{isAuthenticated && (
 				<div className="nav-group">
-					<div className="label">{t.nav.statistics}</div>
-					<SpaLink
-						className={`nav-item ${route === "statistics-inference-costs" ? "active" : ""}`}
-						onNavigate={onNavigate}
-						to={{ route: "statistics-inference-costs" }}
-					>
-						<Icon name="info" size={16} />
-						<span>{t.nav.inferenceCosts}</span>
-					</SpaLink>
-				</div>
-			)}
-
-			{isAuthenticated && (
-				<div className="nav-group">
 					<div className="label">{t.nav.yourWorlds}</div>
 					{myWorlds.length === 0 && <div className="sidebar-note">{t.nav.noneYet}</div>}
 					{myWorlds.map((world) => (
@@ -4662,6 +4648,20 @@ function SidebarNavigation({
 					</SpaLink>
 				))}
 			</div>
+
+			{isAuthenticated && (
+				<div className="nav-group">
+					<div className="label">{t.nav.statistics}</div>
+					<SpaLink
+						className={`nav-item ${route === "statistics-inference-costs" ? "active" : ""}`}
+						onNavigate={onNavigate}
+						to={{ route: "statistics-inference-costs" }}
+					>
+						<Icon name="info" size={16} />
+						<span>{t.nav.inferenceCosts}</span>
+					</SpaLink>
+				</div>
+			)}
 
 			<div className="sidebar-footnote">
 				{t.nav.footnoteLine1}
