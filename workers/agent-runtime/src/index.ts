@@ -457,6 +457,7 @@ type ProviderResponse = {
 	toolCalls: ToolCall[];
 	requestBody?: string;
 	rawResponse?: string;
+	skippedRawResponse?: string;
 	usage?: ProviderUsage;
 	responseId?: string;
 	responseModel?: string;
@@ -5486,18 +5487,20 @@ export class BotRuntime {
 		let responseModel: string | undefined;
 		let responseProviderName: string | undefined;
 		let rawResponse = '';
+		let skippedRawResponse = '';
 		this.markProviderStreamActive(runId);
 		try {
 			for await (const event of readSse(stream, signal)) {
 				this.throwIfStopped(runId, signal);
 				this.markProviderStreamActive(runId);
-				if (providerResponsePartsAreEmpty(content, reasoning, reasoningDetails, [...toolCalls.values()])) {
+				const rawPreviewCaptured = providerResponsePartsAreEmpty(content, reasoning, reasoningDetails, [...toolCalls.values()]);
+				if (rawPreviewCaptured) {
 					rawResponse = appendRawResponsePreview(rawResponse, event.raw);
 				}
 				if (event.data === '[DONE]') {
 					break;
 				}
-				const chunk = JSON.parse(event.data) as {
+				let chunk: {
 					id?: unknown;
 					model?: unknown;
 					usage?: unknown;
@@ -5518,6 +5521,15 @@ export class BotRuntime {
 						};
 					}>;
 				};
+				try {
+					chunk = JSON.parse(event.data) as typeof chunk;
+				} catch {
+					if (!rawPreviewCaptured) {
+						rawResponse = appendRawResponsePreview(rawResponse, event.raw);
+					}
+					skippedRawResponse = appendRawResponsePreview(skippedRawResponse, event.raw);
+					continue;
+				}
 				responseId = responseId ?? stringValue(chunk.id);
 				responseModel = stringValue(chunk.model) ?? responseModel;
 				usage = providerUsageFromValue(chunk.usage) ?? usage;
@@ -5580,6 +5592,7 @@ export class BotRuntime {
 						reasoningDetails,
 						toolCalls: [...toolCalls.values()].filter((tool) => tool.function.name),
 						...(rawResponse ? { rawResponse } : {}),
+						...(skippedRawResponse ? { skippedRawResponse } : {}),
 						...(usage ? { usage } : {}),
 						...(responseId ? { responseId } : {}),
 						...(responseModel ? { responseModel } : {}),
@@ -5598,6 +5611,7 @@ export class BotRuntime {
 			reasoningDetails: repairInvalidUnicodeValue(reasoningDetails).value,
 			toolCalls: [...toolCalls.values()].filter((tool) => tool.function.name),
 			...(rawResponse ? { rawResponse } : {}),
+			...(skippedRawResponse ? { skippedRawResponse } : {}),
 			...(usage ? { usage } : {}),
 			...(responseId ? { responseId } : {}),
 			...(responseModel ? { responseModel } : {}),
@@ -15138,6 +15152,7 @@ function providerResponseLogPayload(response: ProviderResponse, status: BotLoopM
 		status,
 		...(response.responseId ? { responseId: response.responseId } : {}),
 		...(response.responseModel ? { responseModel: response.responseModel } : {}),
+		...(response.skippedRawResponse ? { rawResponse: response.skippedRawResponse } : {}),
 		message: {
 			role: 'assistant',
 			content: response.content || null,
@@ -17237,14 +17252,49 @@ function isAbortError(error: unknown): boolean {
 	return Boolean(error && typeof error === 'object' && 'name' in error && (error as { name?: unknown }).name === 'AbortError');
 }
 
-async function* readSse(
+type SseEvent = { data: string; raw: string };
+
+const sseEventBoundaryPattern = /\r?\n\r?\n/;
+
+function sseEventData(raw: string): string {
+	return raw
+		.split(/\r?\n/)
+		.filter((line) => line.startsWith('data:'))
+		.map((line) => line.slice(5).trim())
+		.join('\n');
+}
+
+// TODO(#44): move this SSE parser to provider/sse.ts when provider code is split out.
+export async function* readSse(
 	stream: ReadableStream<Uint8Array>,
 	signal?: AbortSignal,
 	idleTimeoutMs = providerStreamIdleTimeoutMs,
-): AsyncGenerator<{ data: string; raw: string }> {
+): AsyncGenerator<SseEvent> {
 	const reader = stream.getReader();
 	const decoder = new TextDecoder();
 	let buffer = '';
+	function* drainCompleteEvents(): Generator<SseEvent> {
+		let boundary = buffer.match(sseEventBoundaryPattern);
+		while (boundary?.index !== undefined) {
+			const raw = buffer.slice(0, boundary.index);
+			const boundaryText = boundary[0];
+			buffer = buffer.slice(boundary.index + boundaryText.length);
+			const data = sseEventData(raw);
+			if (data) {
+				yield { data, raw: `${raw}${boundaryText}` };
+			}
+			boundary = buffer.match(sseEventBoundaryPattern);
+		}
+	}
+	function residualEvent(): SseEvent | null {
+		if (!buffer) {
+			return null;
+		}
+		const raw = buffer;
+		buffer = '';
+		const data = sseEventData(raw);
+		return data ? { data, raw } : null;
+	}
 	try {
 		while (true) {
 			if (signal?.aborted) {
@@ -17255,23 +17305,16 @@ async function* readSse(
 				throw new TickStoppedError();
 			}
 			if (done) {
+				buffer += decoder.decode();
+				yield* drainCompleteEvents();
+				const event = residualEvent();
+				if (event) {
+					yield event;
+				}
 				break;
 			}
 			buffer += decoder.decode(value, { stream: true });
-			let boundary = buffer.indexOf('\n\n');
-			while (boundary >= 0) {
-				const raw = buffer.slice(0, boundary);
-				buffer = buffer.slice(boundary + 2);
-				const data = raw
-					.split('\n')
-					.filter((line) => line.startsWith('data:'))
-					.map((line) => line.slice(5).trim())
-					.join('\n');
-				if (data) {
-					yield { data, raw: `${raw}\n\n` };
-				}
-				boundary = buffer.indexOf('\n\n');
-			}
+			yield* drainCompleteEvents();
 		}
 	} finally {
 		try {
