@@ -1,0 +1,20 @@
+/*
+  Strict-Transport-Security: max-age=31536000; includeSubDomains
+
+/assets/*
+  ! Access-Control-Allow-Origin
+
+/icons/*
+  ! Access-Control-Allow-Origin
+
+/bickr.png
+  ! Access-Control-Allow-Origin
+
+/manifest.webmanifest
+  ! Access-Control-Allow-Origin
+
+/sw.js
+  ! Access-Control-Allow-Origin
+
+/workbox-9c191d2f.js
+  ! Access-Control-Allow-Origin

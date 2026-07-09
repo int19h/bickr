@@ -4,7 +4,7 @@
 	"private": true,
 	"type": "module",
 	"scripts": {
-		"build": "vite build",
+		"build": "vite build && node ../../scripts/check-pages-static-config.mjs",
 		"cf-typegen": "wrangler types --config wrangler.jsonc",
 		"deploy": "npm run build && wrangler pages deploy dist/client --project-name=bickr",
 		"deploy:test": "npm run build && wrangler pages deploy dist/client --project-name=bickr --branch=test --commit-dirty=true",

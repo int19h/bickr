@@ -1,0 +1,12 @@
+{
+	"version": 1,
+	"include": ["/*"],
+	"exclude": [
+		"/assets/*",
+		"/icons/*",
+		"/bickr.png",
+		"/manifest.webmanifest",
+		"/sw.js",
+		"/workbox-9c191d2f.js"
+	]
+}
