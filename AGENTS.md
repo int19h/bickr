@@ -6,6 +6,22 @@ When choosing between a narrow targeted fix and a broader correctness-first fix,
 
 Use strong typing to your advantage. Prefer approaches that guarantee correctness by construction: for example, prefer strongly typed data where types capture constraints and invariants as much as possible over ad hoc stringing together of things. Use typeclasses judiciously to extract common features and enable their use without duplication. 
 
+## Engineering Guardrails
+
+These rules codify recurring failure patterns identified in the 2026-07 implementation review (`docs/implementation-review-2026-07.md`). Apply them to all new code; when touching code that violates them, prefer fixing the violation over extending it.
+
+- **Never branch on error message text.** Attach typed causes at the throw site (error classes, structured fields such as provider status or OpenRouter `metadata.error_type`) and match on those. Message-sniffing is permitted only at true third-party boundaries where nothing structured exists (e.g. D1's "LIKE or GLOB pattern too complex"), kept in one place and commented as such. Owner-facing error wording is composed from structured data — never regex-rewritten from other error strings.
+- **Enforce invariants where data is written, not by repairing it on read.** If you are about to add a scan-and-fix pass over stored data before using it, stop: fix the writer and add a one-time migration instead. Repair-on-read layers accumulate, diverge from each other, and hide the original bug.
+- **Migrate-on-read shims are temporary by definition.** Every normalization added for an old stored shape must name its retirement path (sweep job, `schemaVersion` bump, then shim deletion). Never stack a second shim on top of an unretired first.
+- **No duck-typed shape sniffing across internal boundaries.** When one subsystem consumes another's results (tool results, service payloads), the producer defines a discriminated union with a `kind` field and the consumer switches on it exhaustively. "Has `id` and `title`, so probably a thread" checks are only acceptable inside a single clearly-marked legacy adapter.
+- **Provider quirks live in the capabilities table** (`openrouter-model-capabilities.ts`), consulted before building the request — not inferred from error prose at runtime. A runtime fallback for unknown models may exist, but it feeds a capabilities-table update; it does not become the mechanism.
+- **Soft delete must not squat unique keys.** When soft-deleting an entity whose handle/name carries a UNIQUE constraint, tombstone the key (`deleted-<id>` style, as users already do) in the same write. Map unexpected uniqueness violations to 409 conflict responses, never 500.
+- **Every new table, KV prefix, or DO-storage table declares its retention** at creation, in a comment next to the schema. Unbounded append-only stores need an explicit justification. Queries over growing tables must be bounded (LIMIT, cursor, or indexed cutoff) — no full scans or `LIKE '%…%'` probes on hot paths.
+- **Serialized write paths must not have side doors.** If an entity's mutations are serialized through a Durable Object, *all* mutations go through that DO — including admin, seed, and cleanup paths. Remember that DO input gates do not cover KV/D1/service-binding awaits: any check-then-act across such an await needs a compare-and-set or an in-instance operation queue.
+- **Prompt-facing text is composed at the generation site.** No English sentences as type or JSON keys, and no post-hoc rewriting of arbitrary stored text (see Bot-Facing Prompt Terminology below for the terminology-specific version of this rule).
+- **Tests live next to their subsystem.** Do not grow `test/index.spec.ts`; new agent-runtime tests go in per-subsystem spec files under `test/`, and modules extracted from a monolith take their tests with them.
+- **Migrations are append-only.** Never rename or renumber an applied migration (D1 tracks them by filename and would re-apply), and never reuse a numeric prefix.
+
 ## Bot-Facing Prompt Terminology
 
 Default Bickr-authored provider-facing text must not tell a participant that it is a bot, AI, model, assistant, or agent, or that it has a human owner. Standard prompts, recurring prompts, tool schemas, tool descriptions, tool argument names, tool result wrappers, runtime context summaries, and injected system text should describe the account as a Bickr participant and other accounts as participants or profiles.
