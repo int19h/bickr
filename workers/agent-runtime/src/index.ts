@@ -664,6 +664,8 @@ type TickRunResult = {
 
 type TickMode = 'normal' | 'spotlight';
 type LoopSetupMode = 'new_iteration' | 'continuation' | 'spotlight';
+type RuntimeReleaseStatus = 'idle' | 'failed';
+type ActiveMaintenanceOperation = 'clear_history' | 'manual_compaction';
 
 type TickOptions = {
 	mode?: TickMode;
@@ -671,6 +673,96 @@ type TickOptions = {
 	spotlightId?: string;
 	background?: boolean;
 };
+
+type AdmittedTick = {
+	bot: RuntimeBotDocument;
+	providerSettings: ProviderSettings;
+	runId: string;
+	abortController: AbortController;
+	mode: TickMode;
+	setupMode: LoopSetupMode;
+};
+
+type TickAdmission =
+	| {
+			admitted: true;
+			tick: AdmittedTick;
+		}
+	| {
+			admitted: false;
+			result: TickRunResult;
+		};
+
+export async function claimRuntimeRun(
+	db: D1DatabaseLike,
+	botId: string,
+	runId: string,
+	leaseExpiresAt: string,
+	now: string,
+): Promise<boolean> {
+	const result = await db
+		.prepare(
+			`UPDATE bot_runtime_index
+			 SET status = 'running',
+			     active_run_id = ?,
+			     lease_expires_at = ?,
+			     last_error = NULL,
+			     next_due_at = CASE WHEN enabled = 1 THEN ? ELSE NULL END,
+			     updated_at = ?
+			 WHERE bot_id = ?
+			   AND (status != 'running' OR lease_expires_at IS NULL OR lease_expires_at <= ?)`,
+		)
+		.bind(runId, leaseExpiresAt, leaseExpiresAt, now, botId, now)
+		.run();
+	return result.meta?.changes === 1;
+}
+
+export async function releaseRuntimeRun(
+	db: D1DatabaseLike,
+	input: {
+		botId: string;
+		runId: string;
+		status: RuntimeReleaseStatus;
+		nextDueAt: string | null;
+		lastError: string | null;
+		now: string;
+	},
+): Promise<boolean> {
+	const result = await db
+		.prepare(
+			`UPDATE bot_runtime_index
+			 SET status = ?,
+			     active_run_id = NULL,
+			     lease_expires_at = NULL,
+			     last_error = ?,
+			     next_due_at = ?,
+			     updated_at = ?
+			 WHERE bot_id = ?
+			   AND active_run_id = ?`,
+		)
+		.bind(input.status, input.lastError, input.nextDueAt, input.now, input.botId, input.runId)
+		.run();
+	return result.meta?.changes === 1;
+}
+
+// Duplicated from forum-coordinator for now; #65 will move the shared mutex into packages/shared.
+class ExclusiveOperationQueue {
+	private pending: Promise<void> = Promise.resolve();
+
+	async run<T>(operation: () => Promise<T>): Promise<T> {
+		const ready = this.pending;
+		let release: () => void = () => {};
+		this.pending = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		await ready;
+		try {
+			return await operation();
+		} finally {
+			release();
+		}
+	}
+}
 
 export type LoopNotification = NotificationEvent;
 
@@ -3615,8 +3707,10 @@ export class BotRuntime {
 	private readonly env: Env;
 	private activeAbortController: AbortController | null = null;
 	private activeRunId: string | null = null;
+	private activeMaintenanceOperation: ActiveMaintenanceOperation | null = null;
 	private readonly activeStreamActivity = new Map<string, string>();
 	private ephemeralStreamSeq = 0;
+	private transitionQueue = new ExclusiveOperationQueue();
 
 	constructor(state: DurableObjectState, env: Env) {
 		this.state = state;
@@ -4008,17 +4102,11 @@ export class BotRuntime {
 	}
 
 	private async startBackgroundTick(botId: string, trigger: 'cron' | 'manual' | 'spotlight', options: TickOptions): Promise<TickRunResult> {
-		const current = await this.status(botId);
-		if (this.activeRunId) {
-			return this.busyTickResult(current, trigger, options);
+		const admission = await this.admitTick(botId, trigger, { ...options, background: false });
+		if (!admission.admitted) {
+			return admission.result;
 		}
-		if (current.status === 'running') {
-			return this.busyTickResult(current, trigger, options);
-		}
-		if (!current.enabled) {
-			return pausedTickResult();
-		}
-		const tick = this.runTick(botId, trigger, { ...options, background: false }).catch((error) => {
+		const tick = this.runAdmittedTick(botId, trigger, { ...options, background: false }, admission.tick).catch((error) => {
 			console.error('background bot tick failed', error);
 		});
 		this.state.waitUntil(tick);
@@ -4026,31 +4114,65 @@ export class BotRuntime {
 	}
 
 	private async runTick(botId: string, trigger: 'cron' | 'manual' | 'spotlight', options: TickOptions = {}): Promise<TickRunResult> {
-		const current = await this.status(botId);
-		if (this.activeRunId) {
-			return this.busyTickResult(current, trigger, options);
+		const admission = await this.admitTick(botId, trigger, options);
+		if (!admission.admitted) {
+			return admission.result;
 		}
-		if (current.status === 'running') {
-			return this.busyTickResult(current, trigger, options);
-		}
-		if (!current.enabled) {
-			return pausedTickResult();
-		}
+		return this.runAdmittedTick(botId, trigger, options, admission.tick);
+	}
 
-		const bot = await this.botWithEffectivePostingSettings(await botById(this.env.BICKR_KV, this.env.BICKR_D1, botId));
-		const owner = await userById(this.env.BICKR_KV, bot.ownerUserId);
-		const providerSettings = this.effectiveProviderSettings(bot, owner);
-		const runId = crypto.randomUUID();
-		const now = new Date().toISOString();
-		const abortController = new AbortController();
-		this.activeAbortController = abortController;
-		this.activeRunId = runId;
-		this.clearStopRequest();
-		await this.setRuntimeIndex(bot, 'running', runId, undefined, now);
-		await this.appendEvent(runId, 'tick_started', { trigger, botId, handle: bot.handle });
-		const mode: TickMode = options.mode === 'spotlight' ? 'spotlight' : 'normal';
-		const setupMode: LoopSetupMode =
-			mode === 'spotlight' ? 'spotlight' : this.currentIterationStartedSinceLastLogOff() ? 'continuation' : 'new_iteration';
+	private async admitTick(botId: string, trigger: 'cron' | 'manual' | 'spotlight', options: TickOptions): Promise<TickAdmission> {
+		return this.runtimeTransitionQueue().run(async () => {
+			const current = await this.status(botId);
+			if (this.activeRunId || this.activeMaintenanceOperation) {
+				return { admitted: false, result: this.busyTickResult(current, trigger, options) };
+			}
+			if (current.status === 'running') {
+				return { admitted: false, result: this.busyTickResult(current, trigger, options) };
+			}
+			if (!current.enabled) {
+				return { admitted: false, result: pausedTickResult() };
+			}
+
+			const bot = await this.botWithEffectivePostingSettings(await botById(this.env.BICKR_KV, this.env.BICKR_D1, botId));
+			const owner = await userById(this.env.BICKR_KV, bot.ownerUserId);
+			const providerSettings = this.effectiveProviderSettings(bot, owner);
+			const runId = crypto.randomUUID();
+			const now = new Date().toISOString();
+			const leaseExpiresAt = new Date(Date.parse(now) + runtimeRunLeaseTimeoutMs).toISOString();
+			const claimed = await claimRuntimeRun(this.env.BICKR_D1, bot.id, runId, leaseExpiresAt, now);
+			if (!claimed) {
+				return { admitted: false, result: this.busyTickResult(await this.status(botId), trigger, options) };
+			}
+
+			const abortController = new AbortController();
+			this.activeAbortController = abortController;
+			this.activeRunId = runId;
+			this.clearStopRequest();
+			const mode: TickMode = options.mode === 'spotlight' ? 'spotlight' : 'normal';
+			const setupMode: LoopSetupMode =
+				mode === 'spotlight' ? 'spotlight' : this.currentIterationStartedSinceLastLogOff() ? 'continuation' : 'new_iteration';
+			return {
+				admitted: true,
+				tick: {
+					bot,
+					providerSettings,
+					runId,
+					abortController,
+					mode,
+					setupMode,
+				},
+			};
+		});
+	}
+
+	private async runAdmittedTick(
+		botId: string,
+		trigger: 'cron' | 'manual' | 'spotlight',
+		options: TickOptions,
+		admitted: AdmittedTick,
+	): Promise<TickRunResult> {
+		const { bot, providerSettings, runId, abortController, mode, setupMode } = admitted;
 		const runContext: RunContext = {
 			mode,
 			setupMode,
@@ -4060,6 +4182,9 @@ export class BotRuntime {
 		let startQueuedSpotlightAfterRun = false;
 
 		try {
+			// Inside the try so an event-store failure still releases the claim
+			// and clears the in-memory run slot via the catch/finally below.
+			await this.appendEvent(runId, 'tick_started', { trigger, botId, handle: bot.handle });
 			this.throwIfStopped(runId, abortController.signal);
 			const notifications =
 				setupMode !== 'new_iteration'
@@ -4071,7 +4196,7 @@ export class BotRuntime {
 			this.throwIfStopped(runId, abortController.signal);
 			const injections = this.consumeInjections(mode === 'spotlight' ? (options.injectionIds ?? []) : undefined);
 			if (mode === 'spotlight' && injections.length === 0) {
-				const nextDueAt = await this.setRuntimeIndex(bot, 'idle', null, undefined, new Date().toISOString());
+				const nextDueAt = await this.setRuntimeIndex(bot, 'idle', null, undefined, new Date().toISOString(), runId);
 				await this.appendEvent(runId, 'tick_completed', {
 					...(nextDueAt ? { nextDueAt } : {}),
 					note: 'No pending spotlight injection was available.',
@@ -4085,7 +4210,7 @@ export class BotRuntime {
 				bot.id,
 				notifications,
 				injections,
-					providerToolCallsForSettings(providerSettings) === 'at_will' ? undefined : this.pendingToolUseReminder(),
+				providerToolCallsForSettings(providerSettings) === 'at_will' ? undefined : this.pendingToolUseReminder(),
 			);
 			const input = builtInput.input;
 			if (mode === 'spotlight') {
@@ -4111,7 +4236,7 @@ export class BotRuntime {
 			let outcome: ProviderLoopOutcome;
 			if (providerSettings.apiKey || providerSettings.usesCustomBaseUrl || this.env.BICKR_SIMULATION_MODE === 'provider') {
 				outcome = await this.runProviderLoop(bot, providerSettings, runId, messages, runContext);
-					if (providerToolCallsForSettings(providerSettings) !== 'at_will') {
+				if (providerToolCallsForSettings(providerSettings) !== 'at_will') {
 					this.recordToolUseRecoveryOutcome(runId, outcome.toolCallCount);
 				}
 			} else {
@@ -4130,7 +4255,7 @@ export class BotRuntime {
 			}
 
 			await this.compactIfNeeded(bot, providerSettings, runId, abortController.signal);
-			const nextDueAt = await this.setRuntimeIndex(bot, 'idle', null, undefined, new Date().toISOString());
+			const nextDueAt = await this.setRuntimeIndex(bot, 'idle', null, undefined, new Date().toISOString(), runId);
 			await this.appendEvent(runId, 'tick_completed', { ...(nextDueAt ? { nextDueAt } : {}) });
 			startQueuedSpotlightAfterRun = true;
 			return { runId, status: 'completed' };
@@ -4140,7 +4265,7 @@ export class BotRuntime {
 				if (!this.hasTerminalEvent(runId)) {
 					await this.appendEvent(runId, 'tick_stopped', { message: 'This Bickr visit was stopped.' });
 				}
-				await this.setRuntimeIndex(bot, 'idle', null, undefined, new Date().toISOString());
+				await this.setRuntimeIndex(bot, 'idle', null, undefined, new Date().toISOString(), runId);
 				return { runId, status: 'stopped' };
 			}
 			if (error instanceof PersistentToolFailureError) {
@@ -4151,7 +4276,7 @@ export class BotRuntime {
 						failure: error.failure,
 					});
 				}
-				await this.setRuntimeIndex(bot, 'failed', null, error.message, new Date().toISOString());
+				await this.setRuntimeIndex(bot, 'failed', null, error.message, new Date().toISOString(), runId);
 				try {
 					await recordBotRuntimeFailureHumanNotification(this.env.BICKR_D1, {
 						bot,
@@ -4179,7 +4304,7 @@ export class BotRuntime {
 						toolNames: error.toolNames,
 					});
 				}
-				await this.setRuntimeIndex(bot, 'failed', null, error.message, new Date().toISOString());
+				await this.setRuntimeIndex(bot, 'failed', null, error.message, new Date().toISOString(), runId);
 				try {
 					await recordBotRuntimeFailureHumanNotification(this.env.BICKR_D1, {
 						bot,
@@ -4211,7 +4336,7 @@ export class BotRuntime {
 				}
 				const failedAt = new Date().toISOString();
 				await this.pauseBotAfterPersistentCompactionFailure(bot, message, failedAt);
-				await this.setRuntimeIndex(bot, 'failed', null, message, failedAt);
+				await this.setRuntimeIndex(bot, 'failed', null, message, failedAt, runId);
 				try {
 					await recordBotRuntimeFailureHumanNotification(this.env.BICKR_D1, {
 						bot,
@@ -4227,7 +4352,7 @@ export class BotRuntime {
 			if (!this.hasTerminalEvent(runId)) {
 				await this.recordTickFailure(runId, { message }, runtimeFailureLogs(error));
 			}
-			await this.setRuntimeIndex(bot, 'failed', null, message, new Date().toISOString());
+			await this.setRuntimeIndex(bot, 'failed', null, message, new Date().toISOString(), runId);
 			try {
 				await recordBotRuntimeFailureHumanNotification(this.env.BICKR_D1, {
 					bot,
@@ -4269,6 +4394,29 @@ export class BotRuntime {
 				}
 			}
 		}
+	}
+
+	private async beginMaintenanceOperation(botId: string, operation: ActiveMaintenanceOperation, conflictMessage: string): Promise<void> {
+		await this.runtimeTransitionQueue().run(async () => {
+			const current = await this.status(botId);
+			if (current.status === 'running' || this.activeRunId || this.activeMaintenanceOperation) {
+				throw new RepositoryError('conflict', conflictMessage, 409);
+			}
+			this.activeMaintenanceOperation = operation;
+		});
+	}
+
+	private finishMaintenanceOperation(operation: ActiveMaintenanceOperation): void {
+		if (this.activeMaintenanceOperation === operation) {
+			this.activeMaintenanceOperation = null;
+		}
+	}
+
+	private runtimeTransitionQueue(): ExclusiveOperationQueue {
+		if (!this.transitionQueue) {
+			this.transitionQueue = new ExclusiveOperationQueue();
+		}
+		return this.transitionQueue;
 	}
 
 	private busyTickResult(current: BotRuntimeStatus, trigger: 'cron' | 'manual' | 'spotlight', options: TickOptions): TickRunResult {
@@ -4563,7 +4711,7 @@ export class BotRuntime {
 		if (!this.hasTerminalEvent(runId)) {
 			await this.appendEvent(runId, 'tick_stopped', { message: 'This Bickr visit was stopped.' });
 		}
-		const nextDueAt = await this.setRuntimeIndex(bot, 'idle', null, undefined, new Date().toISOString());
+		const nextDueAt = await this.setRuntimeIndex(bot, 'idle', null, undefined, new Date().toISOString(), runId);
 		this.clearStopRequest(runId);
 		return nextDueAt;
 	}
@@ -8957,26 +9105,27 @@ export class BotRuntime {
 	}
 
 	private async manualCompactLoopMessages(botId: string): Promise<{ fromSeq?: number; toSeq?: number; messageCount: number }> {
-		const current = await this.status(botId);
-		if (current.status === 'running' || this.activeRunId) {
-			throw new RepositoryError('conflict', 'Cannot compact loop history while the bot is running.', 409);
-		}
-		const bot = await botById(this.env.BICKR_KV, this.env.BICKR_D1, botId);
-		const owner = await userById(this.env.BICKR_KV, bot.ownerUserId);
-		const settings = this.effectiveProviderSettings(bot, owner);
-		const runId = crypto.randomUUID();
-		await this.repairActiveProviderToolCallHistory(runId);
-		const rows = this.compactionCandidateRows();
-		if (rows.length === 0) {
-			return { messageCount: 0 };
-		}
-		await this.compactLoopMessageRowsInBatches(bot, settings, runId, new AbortController().signal, rows, 'manual', {});
+		await this.beginMaintenanceOperation(botId, 'manual_compaction', 'Cannot compact loop history while the bot is running.');
 		try {
-			await this.exportRecentProviderUsage(bot);
-		} catch (error) {
-			console.warn('central provider usage export failed', botId, error);
+			const bot = await botById(this.env.BICKR_KV, this.env.BICKR_D1, botId);
+			const owner = await userById(this.env.BICKR_KV, bot.ownerUserId);
+			const settings = this.effectiveProviderSettings(bot, owner);
+			const runId = crypto.randomUUID();
+			await this.repairActiveProviderToolCallHistory(runId);
+			const rows = this.compactionCandidateRows();
+			if (rows.length === 0) {
+				return { messageCount: 0 };
+			}
+			await this.compactLoopMessageRowsInBatches(bot, settings, runId, new AbortController().signal, rows, 'manual', {});
+			try {
+				await this.exportRecentProviderUsage(bot);
+			} catch (error) {
+				console.warn('central provider usage export failed', botId, error);
+			}
+			return { fromSeq: rows[0]?.seq, toSeq: rows[rows.length - 1]?.seq, messageCount: rows.length };
+		} finally {
+			this.finishMaintenanceOperation('manual_compaction');
 		}
-		return { fromSeq: rows[0]?.seq, toSeq: rows[rows.length - 1]?.seq, messageCount: rows.length };
 	}
 
 	private async compactLoopMessageRowsInBatches(
@@ -9531,25 +9680,25 @@ export class BotRuntime {
 	private async clearHistory(
 		botId: string,
 	): Promise<{ events: number; injections: number; runtimeState: number; submissions: number; messages: number; logs: number }> {
-		const current = await this.status(botId);
-		if (current.status === 'running' || this.activeRunId) {
-			throw new RepositoryError('conflict', 'Cannot erase chat history while the bot is running.', 409);
+		await this.beginMaintenanceOperation(botId, 'clear_history', 'Cannot erase chat history while the bot is running.');
+		try {
+			const submissions = this.clearInferenceSubmissions();
+			this.state.storage.sql.exec(`DELETE FROM loop_message_log_chunks`);
+			this.state.storage.sql.exec(`DELETE FROM loop_message_logs`);
+			const logs = this.state.storage.sql.exec<{ count: number }>(`SELECT changes() AS count`).one().count;
+			this.state.storage.sql.exec(`DELETE FROM loop_messages`);
+			const messages = this.state.storage.sql.exec<{ count: number }>(`SELECT changes() AS count`).one().count;
+			this.state.storage.sql.exec(`DELETE FROM events`);
+			const events = this.state.storage.sql.exec<{ count: number }>(`SELECT changes() AS count`).one().count;
+			this.state.storage.sql.exec(`DELETE FROM injections`);
+			const injections = this.state.storage.sql.exec<{ count: number }>(`SELECT changes() AS count`).one().count;
+			this.state.storage.sql.exec(`DELETE FROM runtime_state`);
+			const runtimeState = this.state.storage.sql.exec<{ count: number }>(`SELECT changes() AS count`).one().count;
+			this.broadcastControl({ type: 'history_cleared', botId });
+			return { events, injections, runtimeState, submissions, messages, logs };
+		} finally {
+			this.finishMaintenanceOperation('clear_history');
 		}
-
-		const submissions = this.clearInferenceSubmissions();
-		this.state.storage.sql.exec(`DELETE FROM loop_message_log_chunks`);
-		this.state.storage.sql.exec(`DELETE FROM loop_message_logs`);
-		const logs = this.state.storage.sql.exec<{ count: number }>(`SELECT changes() AS count`).one().count;
-		this.state.storage.sql.exec(`DELETE FROM loop_messages`);
-		const messages = this.state.storage.sql.exec<{ count: number }>(`SELECT changes() AS count`).one().count;
-		this.state.storage.sql.exec(`DELETE FROM events`);
-		const events = this.state.storage.sql.exec<{ count: number }>(`SELECT changes() AS count`).one().count;
-		this.state.storage.sql.exec(`DELETE FROM injections`);
-		const injections = this.state.storage.sql.exec<{ count: number }>(`SELECT changes() AS count`).one().count;
-		this.state.storage.sql.exec(`DELETE FROM runtime_state`);
-		const runtimeState = this.state.storage.sql.exec<{ count: number }>(`SELECT changes() AS count`).one().count;
-		this.broadcastControl({ type: 'history_cleared', botId });
-		return { events, injections, runtimeState, submissions, messages, logs };
 	}
 
 	private async deleteLoopMessage(
@@ -9860,19 +10009,34 @@ export class BotRuntime {
 		activeRunId: string | null,
 		lastError: string | undefined,
 		now: string,
+		ownedByRunId?: string,
 	): Promise<string | null> {
 		const enabled = await this.runtimeIndexEnabled(bot.id, bot.tickSettings.enabled);
 		const leaseExpiresAt = status === 'running' ? new Date(Date.parse(now) + runtimeRunLeaseTimeoutMs).toISOString() : null;
-		const nextDueAt =
-			status === 'running'
-				? enabled
-					? leaseExpiresAt
-					: null
-				: !enabled
-					? null
-					: status === 'idle'
-						? this.nextDue(bot, now)
-						: new Date(Date.parse(now) + runtimeRunLeaseTimeoutMs).toISOString();
+		let nextDueAt: string | null;
+		if (status === 'running') {
+			nextDueAt = enabled ? leaseExpiresAt : null;
+		} else if (!enabled) {
+			nextDueAt = null;
+		} else if (status === 'idle') {
+			nextDueAt = this.nextDue(bot, now);
+		} else {
+			nextDueAt = new Date(Date.parse(now) + runtimeRunLeaseTimeoutMs).toISOString();
+		}
+		if (ownedByRunId !== undefined) {
+			if (status === 'running') {
+				throw new Error('Runtime run ownership guards are only valid for release transitions.');
+			}
+			await releaseRuntimeRun(this.env.BICKR_D1, {
+				botId: bot.id,
+				runId: ownedByRunId,
+				status,
+				nextDueAt,
+				lastError: lastError ?? null,
+				now,
+			});
+			return nextDueAt;
+		}
 		await this.env.BICKR_D1.prepare(
 			`UPDATE bot_runtime_index
 			 SET status = ?, active_run_id = ?, lease_expires_at = ?, last_error = ?, next_due_at = ?, updated_at = ?
