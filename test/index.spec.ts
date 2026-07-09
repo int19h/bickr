@@ -19744,7 +19744,6 @@ describe("Bickr Pages Functions", () => {
 					toolCalls: "at_will" as const,
 				}),
 				runProviderLoop: async () => outcome,
-				setRuntimeIndex: async () => null,
 				startQueuedSpotlightTick: () => {},
 				status: async () => ({ botId: bot.id, enabled: true, status: "idle" as const }),
 				throwIfStopped: (_runId: string, signal: AbortSignal) => {
