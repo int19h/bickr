@@ -1,5 +1,5 @@
 import { ok } from "@bickr/shared/api";
-import { internalServiceUrl } from "@bickr/shared/internal-service";
+import { addInternalServiceAuthHeader, internalServiceUrl } from "@bickr/shared/internal-service";
 import { type ApiErrorCode, type ThreadDocument } from "@bickr/shared/model";
 import { RepositoryError } from "@bickr/shared/repository";
 import { forumByHandle, readThreadWithReadState, recordThreadRead, threadWithReadState } from "@bickr/shared/social";
@@ -53,6 +53,7 @@ async function readCoordinatorThread(
 	if (accept !== null) {
 		headers.set("accept", accept);
 	}
+	addInternalServiceAuthHeader(headers, env.INTERNAL_SERVICE_SECRET);
 	const { response, payload } = await fetchServiceJson(
 		env.FORUM_COORDINATOR_SERVICE,
 		new Request(internalServiceUrl(`/threads/${encodeURIComponent(threadId)}`), {
@@ -106,6 +107,7 @@ export const onRequestDelete: PagesFunction<
 		const forum = await forumByHandle(env.BICKR_KV, env.BICKR_D1, worldHandle, forumHandle);
 		return env.FORUM_COORDINATOR_SERVICE.fetch(
 			serviceRequest(
+				env,
 				request,
 				`/forums/${encodeURIComponent(forum.id)}/threads/${encodeURIComponent(threadId)}`,
 				user.id,

@@ -11,6 +11,7 @@ interface __BaseEnv_Env {
 	TEST_AUTH_ALLOWED_HOSTS?: "test.bickr.social,test.bickr.pages.dev";
 	GITHUB_CLIENT_ID: string;
 	GITHUB_CLIENT_SECRET: string;
+	INTERNAL_SERVICE_SECRET?: string;
 	TEST_AUTH_SECRET: string;
 	GOOGLE_CLIENT_ID: string;
 	GOOGLE_CLIENT_SECRET: string;
@@ -32,6 +33,7 @@ declare namespace Cloudflare {
 		TEST_AUTH_ALLOWED_HOSTS: "test.bickr.social,test.bickr.pages.dev";
 		GITHUB_CLIENT_ID: string;
 		GITHUB_CLIENT_SECRET: string;
+		INTERNAL_SERVICE_SECRET?: string;
 		TEST_AUTH_SECRET: string;
 		GOOGLE_CLIENT_ID: string;
 		GOOGLE_CLIENT_SECRET: string;

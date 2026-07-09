@@ -16,7 +16,7 @@ export const onRequestGet: PagesFunction<AppEnv> = async ({ env, request }) => {
 		const mode = parseSearchMode(url.searchParams.get("mode"));
 		if (mode === "semantic") {
 			const user = await requireCompleteUser(env, request);
-			return env.AGENT_RUNTIME.fetch(serviceRequest(request, `/search/entities?${url.searchParams.toString()}`, user.id));
+			return env.AGENT_RUNTIME.fetch(serviceRequest(env, request, `/search/entities?${url.searchParams.toString()}`, user.id));
 		}
 		const search = await searchEntitiesText(env.BICKR_D1, {
 			...normalizeSearchFilters({

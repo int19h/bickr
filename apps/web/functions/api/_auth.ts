@@ -17,6 +17,7 @@ export type AppEnv = Env & {
 	GOOGLE_CLIENT_ID?: string;
 	GOOGLE_CLIENT_SECRET?: string;
 	GOOGLE_REDIRECT_URI?: string;
+	INTERNAL_SERVICE_SECRET?: string;
 	OAUTH_FETCH?: typeof fetch;
 	CHIRPER_FETCH?: typeof fetch;
 	TEST_AUTH_ALLOWED_HOSTS?: string;

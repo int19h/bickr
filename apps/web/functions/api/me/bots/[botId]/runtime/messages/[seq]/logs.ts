@@ -9,6 +9,7 @@ export const onRequestGet: PagesFunction<AppEnv, "botId" | "seq"> = async ({ env
 		const seq = Array.isArray(params.seq) ? params.seq[0] : params.seq;
 		return env.AGENT_RUNTIME.fetch(
 			serviceRequest(
+				env,
 				request,
 				`/bots/${encodeURIComponent(botId)}/messages/${encodeURIComponent(seq)}/logs`,
 				user.id,

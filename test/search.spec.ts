@@ -43,6 +43,7 @@ import type {
 	TestForum,
 	WorldSummary,
 } from "./helpers/index-harness";
+import { internalServiceAuthHeader } from "@bickr/shared/internal-service";
 
 describe("Search", () => {
 
@@ -537,13 +538,17 @@ describe("Search", () => {
 
 		const serviceResponse = await agentRuntimeWorker.fetch(
 			new Request("https://internal.bickr/search/entities?mode=semantic&q=semantic%20coverage&types=forum", {
-				headers: { "x-bickr-user-id": "semantic-test-user" },
+				headers: {
+					[internalServiceAuthHeader]: "test-internal-service-secret",
+					"x-bickr-user-id": "semantic-test-user",
+				},
 			}) as unknown as Parameters<typeof agentRuntimeWorker.fetch>[0],
 			{
 				BICKR_D1: testEnv.BICKR_D1,
 				BICKR_KV: testEnv.BICKR_KV,
 				AI: bindings.env.AI,
 				BICKR_SEARCH_VECTORIZE: bindings.env.BICKR_SEARCH_VECTORIZE,
+				INTERNAL_SERVICE_SECRET: "test-internal-service-secret",
 			} as unknown as Parameters<typeof agentRuntimeWorker.fetch>[1],
 		);
 		expect(serviceResponse.status, await serviceResponse.clone().text()).toBe(200);

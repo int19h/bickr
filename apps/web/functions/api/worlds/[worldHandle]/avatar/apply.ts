@@ -9,6 +9,7 @@ export const onRequestPost: PagesFunction<AppEnv, "worldHandle"> = async ({ env,
 		const worldHandle = normalizeHandleParam(params.worldHandle, "World handle");
 		return env.AGENT_RUNTIME.fetch(
 			serviceRequest(
+				env,
 				request,
 				`/users/${encodeURIComponent(user.id)}/worlds/${encodeURIComponent(worldHandle)}/avatar/apply`,
 				user.id,

@@ -6,7 +6,7 @@ export const onRequestGet: PagesFunction<AppEnv> = async ({ env, request }) => {
 	try {
 		const user = await requireUser(env, request);
 		return env.AGENT_RUNTIME.fetch(
-			serviceRequest(request, `/users/${encodeURIComponent(user.id)}/bots/token-spend`, user.id),
+			serviceRequest(env, request, `/users/${encodeURIComponent(user.id)}/bots/token-spend`, user.id),
 		);
 	} catch (error) {
 		return pageErrorResponse(error);

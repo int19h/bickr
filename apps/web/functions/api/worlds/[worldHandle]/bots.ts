@@ -20,6 +20,7 @@ export const onRequestPost: PagesFunction<AppEnv, "worldHandle"> = async ({ env,
 		const worldHandle = normalizeHandleParam(params.worldHandle, "World handle");
 		return forwardServiceJsonRequest(
 			env.AGENT_RUNTIME,
+			env,
 			request,
 			`/users/${encodeURIComponent(user.id)}/worlds/${encodeURIComponent(worldHandle)}/bots`,
 			user.id,

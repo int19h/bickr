@@ -12,7 +12,11 @@ import { RepositoryError, createForum, createWorld, listForums } from "@bickr/sh
 import { deleteSearchVector, upsertForumSearchVector, upsertWorldSearchVector } from "@bickr/shared/search";
 import { createComment, createThread, readThread, refreshThreadHotScores, setVote } from "@bickr/shared/social";
 import { type ThreadDocument } from "@bickr/shared/model";
-import { isTrustedInternalServiceRequest } from "@bickr/shared/internal-service";
+import {
+	addInternalServiceAuthHeader,
+	type InternalServiceAuthEnv,
+	isTrustedInternalServiceRequest,
+} from "@bickr/shared/internal-service";
 import {
 	InputError,
 	normalizeHandle,
@@ -32,6 +36,7 @@ export interface Env {
 	AI?: Ai;
 	BICKR_BOT_VECTORIZE?: Vectorize;
 	BICKR_SEARCH_VECTORIZE?: Vectorize;
+	INTERNAL_SERVICE_SECRET?: string;
 	WORLD_COORDINATOR: DurableObjectNamespace;
 	FORUM_COORDINATOR: DurableObjectNamespace;
 }
@@ -87,7 +92,7 @@ export class WorldCoordinator {
 	}
 
 	async fetch(request: Request): Promise<Response> {
-		if (!isTrustedInternalServiceRequest(request)) {
+		if (!isTrustedInternalServiceRequest(request, this.env.INTERNAL_SERVICE_SECRET)) {
 			return forumCoordinatorNotFoundResponse();
 		}
 		return handleForumCoordinatorRequest(request, this.env, {
@@ -110,7 +115,7 @@ export class ForumCoordinator {
 	}
 
 	async fetch(request: Request): Promise<Response> {
-		if (!isTrustedInternalServiceRequest(request)) {
+		if (!isTrustedInternalServiceRequest(request, this.env.INTERNAL_SERVICE_SECRET)) {
 			return forumCoordinatorNotFoundResponse();
 		}
 		return handleForumCoordinatorRequest(request, this.env, {
@@ -403,7 +408,7 @@ export default {
 
 async function handleForumWorkerFetch(request: Request, env: Env): Promise<Response> {
 	const url = new URL(request.url);
-	if (!isTrustedInternalServiceRequest(request)) {
+	if (!isTrustedInternalServiceRequest(request, env.INTERNAL_SERVICE_SECRET)) {
 		return forumCoordinatorNotFoundResponse();
 	}
 
@@ -428,7 +433,7 @@ async function routeWorldCoordinatorRequest(request: Request, env: Env, url: URL
 		const body = await readJsonBody(request.clone());
 		const input = parseCreateWorldInput(body);
 		const objectId = env.WORLD_COORDINATOR.idFromName(input.handle);
-		return env.WORLD_COORDINATOR.get(objectId).fetch(jsonRequest(url, request, body));
+		return env.WORLD_COORDINATOR.get(objectId).fetch(jsonRequest(env, url, request, body));
 	}
 
 	const worldManageMatch = /^\/worlds\/([^/]+)$/.exec(url.pathname);
@@ -447,7 +452,7 @@ async function routeForumCoordinatorRequest(request: Request, env: Env, url: URL
 		const body = await readJsonBody(request.clone());
 		const input = parseCreateForumInput(body);
 		const objectId = env.FORUM_COORDINATOR.idFromName(`${worldHandle}:${input.handle}`);
-		return env.FORUM_COORDINATOR.get(objectId).fetch(jsonRequest(url, request, body));
+		return env.FORUM_COORDINATOR.get(objectId).fetch(jsonRequest(env, url, request, body));
 	}
 
 	const forumManageMatch = /^\/worlds\/([^/]+)\/forums\/([^/]+)$/.exec(url.pathname);
@@ -501,7 +506,7 @@ async function routeVoteCoordinatorRequest(request: Request, env: Env, url: URL)
 	const input = parseVoteInput(body);
 	const threadId = await voteCoordinatorName(env.BICKR_D1, input);
 	const objectId = env.FORUM_COORDINATOR.idFromName(threadId);
-	const forwarded = jsonRequest(url, request, body);
+	const forwarded = jsonRequest(env, url, request, body);
 	forwarded.headers.set("x-bickr-thread-id", threadId);
 	return env.FORUM_COORDINATOR.get(objectId).fetch(forwarded);
 }
@@ -603,7 +608,7 @@ function requireBotActor(request: Request): { botId: string } {
 	return { botId };
 }
 
-function jsonRequest(url: URL, original: Request, body: unknown): Request {
+function jsonRequest(env: InternalServiceAuthEnv, url: URL, original: Request, body: unknown): Request {
 	const headers = new Headers();
 	for (const name of ["x-bickr-user-id", "x-bickr-bot-id", "x-bickr-thread-id"]) {
 		const value = original.headers.get(name);
@@ -612,6 +617,7 @@ function jsonRequest(url: URL, original: Request, body: unknown): Request {
 		}
 	}
 	headers.set("content-type", "application/json");
+	addInternalServiceAuthHeader(headers, env.INTERNAL_SERVICE_SECRET);
 	return new Request(url.toString(), {
 		method: original.method,
 		headers,

@@ -35,6 +35,7 @@ export const onRequestDelete: PagesFunction<AppEnv> = async ({ env, request }) =
 		}
 		const response = await env.AGENT_RUNTIME.fetch(
 			serviceRequest(
+				env,
 				request,
 				`/users/${encodeURIComponent(user.id)}/profile`,
 				user.id,

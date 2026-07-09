@@ -17,7 +17,11 @@ import { isD1UniqueConstraintError } from '@bickr/shared/d1-errors';
 import { deleteForum, deleteWorld, updateWorld, updateWorldAvatar } from '@bickr/shared/governance';
 import { json } from '@bickr/shared/http';
 import { formatCommentRef, formatThreadRef, parseCommentRef, parseObjectRef, parseThreadRef } from '@bickr/shared/ids';
-import { internalServiceUrl, isTrustedInternalServiceRequest } from '@bickr/shared/internal-service';
+import {
+	addInternalServiceAuthHeader,
+	internalServiceUrl,
+	isTrustedInternalServiceRequest,
+} from '@bickr/shared/internal-service';
 import {
 	botById,
 	botPublicProfile,
@@ -228,6 +232,7 @@ export interface Env {
 	BICKR_R2_PUBLIC_BASE_URL?: string;
 	BICKR_BOT_VECTORIZE?: Vectorize;
 	BICKR_SEARCH_VECTORIZE?: Vectorize;
+	INTERNAL_SERVICE_SECRET?: string;
 	OPENROUTER_API_KEY?: string;
 	OPENROUTER_BASE_URL?: string;
 	OPENROUTER_MODEL?: string;
@@ -3909,7 +3914,7 @@ export class BotRuntime {
 
 	async fetch(request: Request): Promise<Response> {
 		try {
-			if (!isTrustedInternalServiceRequest(request)) {
+			if (!isTrustedInternalServiceRequest(request, this.env.INTERNAL_SERVICE_SECRET)) {
 				return agentRuntimeNotFoundResponse();
 			}
 			const url = new URL(request.url);
@@ -8393,14 +8398,16 @@ export class BotRuntime {
 			serviceBindingTimeoutMs,
 			() => new RuntimeOperationTimeoutError('The Bickr page request', serviceBindingTimeoutMs),
 			async (timeoutSignal) => {
+				const headers = new Headers({
+					'content-type': 'application/json',
+					'x-bickr-bot-id': botId,
+				});
+				addInternalServiceAuthHeader(headers, this.env.INTERNAL_SERVICE_SECRET);
 				const response = await this.env.FORUM_COORDINATOR_SERVICE.fetch(
 					new Request(internalServiceUrl(path), {
 						method: 'POST',
 						signal: timeoutSignal,
-						headers: {
-							'content-type': 'application/json',
-							'x-bickr-bot-id': botId,
-						},
+						headers,
 						body: JSON.stringify(body),
 					}),
 				);
@@ -12664,7 +12671,7 @@ export class UserBotsCoordinator {
 	}
 
 	async fetch(request: Request): Promise<Response> {
-		if (!isTrustedInternalServiceRequest(request)) {
+		if (!isTrustedInternalServiceRequest(request, this.env.INTERNAL_SERVICE_SECRET)) {
 			return agentRuntimeNotFoundResponse();
 		}
 		return handleAgentRuntimeRequest(request, this.env, this.state.id.toString());
@@ -13043,7 +13050,7 @@ export async function handleAgentRuntimeRequest(
 export default {
 	async fetch(request, env) {
 		const url = new URL(request.url);
-		if (!isTrustedInternalServiceRequest(request)) {
+		if (!isTrustedInternalServiceRequest(request, env.INTERNAL_SERVICE_SECRET)) {
 			return agentRuntimeNotFoundResponse();
 		}
 
@@ -13123,6 +13130,11 @@ async function dispatchDueBots(env: Env, scheduledTime: number): Promise<void> {
 			const id = env.BOT_RUNTIME.idFromName(row.botId);
 			const parentSignal = new AbortController().signal;
 			try {
+				const headers = new Headers({
+					'content-type': 'application/json',
+					'x-bickr-scheduler': '1',
+				});
+				addInternalServiceAuthHeader(headers, env.INTERNAL_SERVICE_SECRET);
 				await withAbortableTimeout(
 					parentSignal,
 					scheduledDispatchTimeoutMs,
@@ -13132,10 +13144,7 @@ async function dispatchDueBots(env: Env, scheduledTime: number): Promise<void> {
 							new Request(internalServiceUrl(`/bots/${encodeURIComponent(row.botId)}/tick`), {
 								method: 'POST',
 								signal,
-								headers: {
-									'content-type': 'application/json',
-									'x-bickr-scheduler': '1',
-								},
+								headers,
 								body: JSON.stringify({ background: true }),
 							}),
 						),

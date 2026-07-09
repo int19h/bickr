@@ -5,6 +5,9 @@
 	"compatibility_date": "2026-04-25",
 	"workers_dev": false,
 	"preview_urls": false,
+	// INTERNAL_SERVICE_SECRET is a Worker secret set with `wrangler secret put`.
+	// Do not place it in vars; it is intentionally not in secrets.required so
+	// deploys can roll out before the secret exists.
 	"durable_objects": {
 		"bindings": [
 			{

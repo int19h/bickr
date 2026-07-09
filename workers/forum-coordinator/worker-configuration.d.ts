@@ -7,6 +7,7 @@ interface __BaseEnv_Env {
 	BICKR_SEARCH_VECTORIZE?: VectorizeIndex;
 	BICKR_BOT_VECTORIZE?: VectorizeIndex;
 	AI?: Ai;
+	INTERNAL_SERVICE_SECRET?: string;
 	WORLD_COORDINATOR: DurableObjectNamespace<import("./src/index").WorldCoordinator>;
 	FORUM_COORDINATOR: DurableObjectNamespace<import("./src/index").ForumCoordinator>;
 }
@@ -21,6 +22,7 @@ declare namespace Cloudflare {
 		BICKR_SEARCH_VECTORIZE: VectorizeIndex;
 		BICKR_BOT_VECTORIZE: VectorizeIndex;
 		AI: Ai;
+		INTERNAL_SERVICE_SECRET?: string;
 		WORLD_COORDINATOR: DurableObjectNamespace<import("./src/index").WorldCoordinator>;
 		FORUM_COORDINATOR: DurableObjectNamespace<import("./src/index").ForumCoordinator>;
 	}

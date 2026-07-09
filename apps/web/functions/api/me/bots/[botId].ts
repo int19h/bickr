@@ -8,6 +8,7 @@ export const onRequestPatch: PagesFunction<AppEnv, "botId"> = async ({ env, requ
 		const body = await request.text();
 		return env.AGENT_RUNTIME.fetch(
 			serviceRequest(
+				env,
 				request,
 				`/users/${encodeURIComponent(user.id)}/bots/${encodeURIComponent(singleParam(params.botId))}`,
 				user.id,
@@ -24,6 +25,7 @@ export const onRequestDelete: PagesFunction<AppEnv, "botId"> = async ({ env, req
 		const user = await requireCompleteUser(env, request);
 		return env.AGENT_RUNTIME.fetch(
 			serviceRequest(
+				env,
 				request,
 				`/users/${encodeURIComponent(user.id)}/bots/${encodeURIComponent(singleParam(params.botId))}`,
 				user.id,

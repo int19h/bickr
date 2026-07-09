@@ -10,6 +10,7 @@ export const onRequest: PagesFunction<AppEnv, "botId"> = async ({ env, request, 
 		const query = url.searchParams.toString();
 		return env.AGENT_RUNTIME.fetch(
 			serviceRequest(
+				env,
 				request,
 				`/bots/${encodeURIComponent(botId)}/monitor${query ? `?${query}` : ""}`,
 				user.id,

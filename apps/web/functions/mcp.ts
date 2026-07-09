@@ -1,4 +1,8 @@
-import { internalServiceUrl } from "@bickr/shared/internal-service";
+import {
+	addInternalServiceAuthHeader,
+	type InternalServiceAuthEnv,
+	internalServiceUrl,
+} from "@bickr/shared/internal-service";
 import {
 	fetchRemoteAvatarBytes,
 	normalizeAvatarPublicBaseUrl,
@@ -467,7 +471,7 @@ const mcpTools: McpTool[] = [
 			}
 		}
 		if (mode === "semantic") {
-			return servicePayload(env.AGENT_RUNTIME, request, `/search/entities?${params.toString()}`, "GET", auth.user.id);
+			return servicePayload(env.AGENT_RUNTIME, env, request, `/search/entities?${params.toString()}`, "GET", auth.user.id);
 		}
 		return {
 			search: await searchEntitiesText(env.BICKR_D1, {
@@ -559,7 +563,7 @@ function runtimeTools(): McpTool[] {
 			botId: stringSchema("Bot ID."),
 			page: integerSchema("Optional page."),
 			after: integerSchema("Optional event sequence cursor."),
-		}, ({ env, request, auth }, args) => servicePayload(env.AGENT_RUNTIME, request, path(args), "GET", auth.user.id));
+		}, ({ env, request, auth }, args) => servicePayload(env.AGENT_RUNTIME, env, request, path(args), "GET", auth.user.id));
 	const runtimeActionSchema = bodySchema({
 		botId: stringSchema("Bot ID."),
 		text: stringSchema("Text for inject_runtime."),
@@ -574,7 +578,7 @@ function runtimeTools(): McpTool[] {
 		inputSchema: Record<string, unknown> = runtimeActionSchema,
 	): McpTool =>
 		runtimeTool(name, title, description, inputSchema, async ({ env, request, auth }, args) =>
-			servicePayload(env.AGENT_RUNTIME, request, path(args), "POST", auth.user.id, body?.(args)));
+			servicePayload(env.AGENT_RUNTIME, env, request, path(args), "POST", auth.user.id, body?.(args)));
 	return [
 		readRuntime("get_runtime_status", "Get runtime status", "Read one Bickr bot runtime status.", (args) => `/bots/${encodeURIComponent(text(args.botId, "Bot ID"))}/status`),
 		readRuntime("list_runtime_messages", "List runtime messages", "Read one Bickr bot runtime messages.", (args) => `/bots/${encodeURIComponent(text(args.botId, "Bot ID"))}/messages${args.page ? `?page=${encodeURIComponent(String(args.page))}` : ""}`),
@@ -675,6 +679,7 @@ function serviceTool(
 		const resolvedPath = typeof path === "string" ? path : await path(args, ctx);
 		return servicePayload(
 			service === "forum" ? ctx.env.FORUM_COORDINATOR_SERVICE : ctx.env.AGENT_RUNTIME,
+			ctx.env,
 			ctx.request,
 			resolvedPath,
 			method,
@@ -703,7 +708,7 @@ function botActorTool(
 		const botId = text(args.botId, "Bot ID");
 		await requireOwnedBot(ctx, botId);
 		const routed = await route(ctx, args);
-		return servicePayload(ctx.env.FORUM_COORDINATOR_SERVICE, ctx.request, routed.path, method, ctx.auth.user.id, routed.body, {
+		return servicePayload(ctx.env.FORUM_COORDINATOR_SERVICE, ctx.env, ctx.request, routed.path, method, ctx.auth.user.id, routed.body, {
 			"x-bickr-bot-id": botId,
 			...(routed.extraHeaders ?? {}),
 		});
@@ -845,6 +850,7 @@ function withoutAvatarCrop(avatar: AvatarImage): AvatarImage {
 
 async function servicePayload(
 	service: Fetcher,
+	env: InternalServiceAuthEnv,
 	request: Request,
 	path: string,
 	method: string,
@@ -857,6 +863,7 @@ async function servicePayload(
 	if (body !== undefined) {
 		headers.set("content-type", "application/json");
 	}
+	addInternalServiceAuthHeader(headers, env.INTERNAL_SERVICE_SECRET);
 	const { payload } = await fetchServiceJson(service, new Request(internalServiceUrl(path), {
 		method,
 		headers,

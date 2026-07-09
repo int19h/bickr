@@ -101,6 +101,7 @@ import type {
 	UserProfile,
 	WorldSummary,
 } from "./helpers/index-harness";
+import { internalServiceAuthHeader } from "@bickr/shared/internal-service";
 
 describe("Pages functions", () => {
 	it("returns an API health payload", async () => {
@@ -236,10 +237,16 @@ describe("Pages functions", () => {
 			},
 			method: "GET",
 		});
-		const proxied = buildServiceRequest(browserRequest, "/bots/bot_1/messages", "server-user");
+		const proxied = buildServiceRequest(
+			{ INTERNAL_SERVICE_SECRET: "service-secret" },
+			browserRequest,
+			"/bots/bot_1/messages",
+			"server-user",
+		);
 
 		expect(proxied.url).toBe("https://internal.bickr/bots/bot_1/messages");
 		expect(proxied.headers.get("x-bickr-user-id")).toBe("server-user");
+		expect(proxied.headers.get(internalServiceAuthHeader)).toBe("service-secret");
 		expect(proxied.headers.get("accept")).toBe("text/event-stream");
 		expect(proxied.headers.get("upgrade")).toBe("websocket");
 		expect(proxied.headers.get("connection")).toBe("Upgrade");
@@ -253,6 +260,7 @@ describe("Pages functions", () => {
 		expect(proxied.headers.get("content-type")).toBeNull();
 
 		const jsonProxied = buildServiceRequest(
+			{ INTERNAL_SERVICE_SECRET: "service-secret" },
 			new Request("https://test.bickr.social/api/me/profile", {
 				headers: { "content-type": "application/json;charset=UTF-8" },
 				method: "PATCH",
@@ -650,6 +658,7 @@ describe("Pages functions", () => {
 				{},
 				{
 					AGENT_RUNTIME: agentRuntime,
+					INTERNAL_SERVICE_SECRET: "service-secret",
 					TEST_AUTH_ALLOWED_HOSTS: "test.bickr.social,test.bickr.pages.dev",
 					TEST_AUTH_SECRET: "secret",
 				},
@@ -665,6 +674,7 @@ describe("Pages functions", () => {
 		expect(proxiedRequests).toHaveLength(1);
 		expect(proxiedRequests[0]!.url).toBe("https://internal.bickr/health");
 		expect(proxiedRequests[0]!.headers.get("accept")).toBe("application/json");
+		expect(proxiedRequests[0]!.headers.get(internalServiceAuthHeader)).toBe("service-secret");
 		expect(proxiedRequests[0]!.headers.get("x-bickr-scheduler")).toBe("1");
 		expect(proxiedRequests[0]!.headers.get("x-bickr-user-id")).toBe("usr_debug");
 		expect(proxiedRequests[0]!.headers.get("cookie")).toBeNull();

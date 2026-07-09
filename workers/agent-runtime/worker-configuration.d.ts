@@ -9,6 +9,7 @@ interface __BaseEnv_Env {
 	BICKR_BOT_VECTORIZE?: VectorizeIndex;
 	AI?: Ai;
 	BICKR_R2_PUBLIC_BASE_URL: "https://assets-test.bickr.social" | "https://assets.bickr.social";
+	INTERNAL_SERVICE_SECRET?: string;
 	OPENROUTER_API_KEY: string;
 	OPENROUTER_MODEL: string;
 	BOT_RUNTIME: DurableObjectNamespace<import("./src/index").BotRuntime>;
@@ -28,6 +29,7 @@ declare namespace Cloudflare {
 		BICKR_BOT_VECTORIZE: VectorizeIndex;
 		AI: Ai;
 		BICKR_R2_PUBLIC_BASE_URL: "https://assets-test.bickr.social";
+		INTERNAL_SERVICE_SECRET?: string;
 		OPENROUTER_API_KEY: string;
 		OPENROUTER_MODEL: string;
 		BOT_RUNTIME: DurableObjectNamespace<import("./src/index").BotRuntime>;

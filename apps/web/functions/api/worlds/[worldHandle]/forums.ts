@@ -20,6 +20,7 @@ export const onRequestPost: PagesFunction<AppEnv, "worldHandle"> = async ({ env,
 		const worldHandle = normalizeHandleParam(params.worldHandle, "World handle");
 		return forwardServiceJsonRequest(
 			env.FORUM_COORDINATOR_SERVICE,
+			env,
 			request,
 			`/worlds/${encodeURIComponent(worldHandle)}/forums`,
 			user.id,
