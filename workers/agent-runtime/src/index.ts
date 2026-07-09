@@ -13,6 +13,7 @@ import {
 	type R2BucketLike,
 } from '@bickr/shared/avatar-storage';
 import { isCloudflareRateLimitError, retryCloudflareOperation } from '@bickr/shared/cloudflare';
+import { isD1UniqueConstraintError } from '@bickr/shared/d1-errors';
 import { deleteForum, deleteWorld, updateWorld, updateWorldAvatar } from '@bickr/shared/governance';
 import { json } from '@bickr/shared/http';
 import { formatCommentRef, formatThreadRef, parseCommentRef, parseObjectRef, parseThreadRef } from '@bickr/shared/ids';
@@ -18394,6 +18395,9 @@ function errorResponse(error: unknown): Response {
 	}
 	if (error instanceof Error && error.message.includes('application/json')) {
 		return fail('bad_request', error.message, 400);
+	}
+	if (isD1UniqueConstraintError(error)) {
+		return fail('conflict', 'That handle is already in use.', 409);
 	}
 
 	console.error('agent runtime error', error);

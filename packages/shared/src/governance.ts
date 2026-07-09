@@ -10,6 +10,7 @@ import {
 	type WorldDocument,
 	type WorldSummary,
 } from "./model";
+import { tombstoneHandle } from "./handles";
 import {
 	mergePostingSettings,
 	postingSettingsHasValues,
@@ -229,16 +230,19 @@ export async function deleteWorld(
 	}
 	await softDeleteBotGroupsForWorld(db, world.id, now);
 
+	const tombstonedHandle = tombstoneHandle(world.id);
 	const deleted: WorldDocument = {
 		...world,
+		handle: tombstonedHandle,
+		handleAtDeletion: world.handleAtDeletion ?? world.handle,
 		revision: world.revision + 1,
 		updatedAt: now,
 		deletedAt: now,
 	};
 	await writeJson(kv, kvKeys.world(deleted.id), deleted);
 	await db
-		.prepare(`UPDATE worlds_index SET updated_at = ?, deleted_at = ? WHERE world_id = ? AND deleted_at IS NULL`)
-		.bind(now, now, deleted.id)
+		.prepare(`UPDATE worlds_index SET handle = ?, updated_at = ?, deleted_at = ? WHERE world_id = ? AND deleted_at IS NULL`)
+		.bind(tombstonedHandle, now, now, deleted.id)
 		.run();
 	await putObjectIndex(db, deleted, "world", deleted.id);
 	await upsertWorldSearchIndex(db, deleted);
@@ -361,16 +365,19 @@ async function softDeleteForum(
 	now: string,
 ): Promise<ForumDocument> {
 	await softDeleteThreadsInForum(kv, db, forum.id, now);
+	const tombstonedHandle = tombstoneHandle(forum.id);
 	const deleted: ForumDocument = {
 		...forum,
+		handle: tombstonedHandle,
+		handleAtDeletion: forum.handleAtDeletion ?? forum.handle,
 		revision: forum.revision + 1,
 		updatedAt: now,
 		deletedAt: now,
 	};
 	await writeJson(kv, kvKeys.forum(deleted.id), deleted);
 	await db
-		.prepare(`UPDATE forums_index SET updated_at = ?, deleted_at = ? WHERE forum_id = ? AND deleted_at IS NULL`)
-		.bind(now, now, deleted.id)
+		.prepare(`UPDATE forums_index SET handle = ?, updated_at = ?, deleted_at = ? WHERE forum_id = ? AND deleted_at IS NULL`)
+		.bind(tombstonedHandle, now, now, deleted.id)
 		.run();
 	await putObjectIndex(db, deleted, "forum", deleted.worldId);
 	await upsertForumSearchIndex(db, deleted);

@@ -1,4 +1,5 @@
 import { makeId, randomToken, sha256Hex } from "./ids";
+import { tombstoneHandle } from "./handles";
 import {
 	schemaVersion,
 	authProviders,
@@ -1637,8 +1638,11 @@ export async function deleteBot(
 	}
 	const owner = await publicUserById(db, userId);
 	const worldPostingSettings = await worldPostingSettingsById(db, bot.homeWorldId);
+	const tombstonedHandle = tombstoneHandle(bot.id);
 	const deleted: BotDocument = {
 		...bot,
+		handle: tombstonedHandle,
+		handleAtDeletion: bot.handleAtDeletion ?? bot.handle,
 		revision: bot.revision + 1,
 		updatedAt: now,
 		deletedAt: now,
@@ -2436,10 +2440,10 @@ export async function softDeleteUserProfile(
 	now = new Date().toISOString(),
 ): Promise<PublicUser> {
 	const current = await userById(kv, userId);
-	const tombstoneHandle = deletedUserHandle(current.id);
+	const tombstonedHandle = tombstoneHandle(current.id);
 	const deleted: UserDocument = {
 		...current,
-		handle: tombstoneHandle,
+		handle: tombstonedHandle,
 		revision: current.revision + 1,
 		updatedAt: now,
 		deletedAt: now,
@@ -2452,7 +2456,7 @@ export async function softDeleteUserProfile(
 			 SET handle = ?, updated_at = ?, deleted_at = ?
 			 WHERE user_id = ? AND deleted_at IS NULL`,
 		)
-		.bind(tombstoneHandle, now, now, deleted.id)
+		.bind(tombstonedHandle, now, now, deleted.id)
 		.run();
 	await db.prepare(`DELETE FROM provider_identities WHERE user_id = ?`).bind(deleted.id).run();
 	await putObjectIndex(db, deleted, "user");
@@ -2870,10 +2874,6 @@ async function foreignBotBlockersForOwnedWorlds(
 		});
 	}
 	return [...groups.values()];
-}
-
-function deletedUserHandle(userId: string): string {
-	return `deleted-${userId.replace(/[^a-z0-9_-]/gi, "-").slice(0, 24)}`.slice(0, 32);
 }
 
 export async function worldByHandle(
