@@ -1708,6 +1708,17 @@ function providerMessagesWithPrefillCompatibility(
 	return !supportsPrefill && last?.role === 'assistant' ? [...prepared, providerContinuationMessage()] : prepared;
 }
 
+function prepareInferenceSubmissionMessages(
+	settings: Pick<ProviderSettings, 'model' | 'supportsPrefill'> & { baseUrl?: string },
+	messages: ChatMessage[],
+): { requestMessages: ChatMessage[]; storedMessages: ChatMessage[] } {
+	const requestMessages = providerMessagesWithPrefillCompatibility(settings, messages);
+	return {
+		requestMessages,
+		storedMessages: sanitizeProviderMessagesForRequest(requestMessages),
+	};
+}
+
 function providerMessagesWithInitialUserContext(messages: ChatMessage[]): ChatMessage[] {
 	const insertionIndex = messages[0]?.role === 'system' ? 1 : -1;
 	if (insertionIndex < 0 || initialUserContextMessage(messages[insertionIndex])) {
@@ -6838,7 +6849,7 @@ export class BotRuntime {
 		displayMessages?: ChatMessage[];
 		createdAt: string;
 	}): void {
-		const messages = sanitizeProviderMessagesForRequest(providerMessagesWithPrefillCompatibility(input.settings, input.messages));
+		const messages = prepareInferenceSubmissionMessages(input.settings, input.messages).storedMessages;
 		const displayMessages = input.displayMessages ? sanitizeProviderMessagesForRequest(input.displayMessages) : undefined;
 		this.state.storage.sql.exec(
 			`INSERT INTO inference_submissions (
@@ -9011,10 +9022,11 @@ export class BotRuntime {
 		providerTools: ProviderToolDefinition[],
 	): ProviderPromptTokenEstimate {
 		const calibration = this.textTokenCalibration(settings.model);
-		requestMessages = providerMessagesWithPrefillCompatibility(settings, requestMessages);
-		const baseline = this.latestCompatiblePromptTokenBaseline(settings, requestMessages);
+		const preparedMessages = prepareInferenceSubmissionMessages(settings, requestMessages);
+		requestMessages = preparedMessages.requestMessages;
+		const baseline = this.latestCompatiblePromptTokenBaseline(settings, preparedMessages.storedMessages);
 		if (baseline) {
-			const deltaMessages = requestMessages.slice(baseline.messages.length);
+			const deltaMessages = preparedMessages.storedMessages.slice(baseline.messages.length);
 			const estimatedDeltaTokens = estimateChatMessagesTokens(deltaMessages, calibration);
 			return {
 				promptTokens: baseline.promptTokens + estimatedDeltaTokens + providerPromptEstimateSafetyTokens,
