@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { env as testEnv } from "cloudflare:test";
+import { clearKv, resetD1Schema } from "./helpers/d1-schema";
 import {
 	BotRuntime,
 	claimRuntimeRun,
@@ -19,46 +20,6 @@ const ownerId = "usr_tick_admission";
 const botId = "bot_tick_admission";
 const worldId = "wld_tick_admission";
 const now = "2026-07-09T20:00:00.000Z";
-
-const schemaSql = `
-CREATE TABLE bot_runtime_index (
-	bot_id TEXT PRIMARY KEY,
-	owner_user_id TEXT NOT NULL,
-	world_id TEXT NOT NULL,
-	enabled INTEGER NOT NULL,
-	tick_interval_seconds INTEGER NOT NULL,
-	context_window_tokens INTEGER,
-	compaction_threshold REAL NOT NULL,
-	compaction_summary_percent INTEGER NOT NULL DEFAULT 10,
-	compaction_max_characters INTEGER NOT NULL DEFAULT 4000,
-	max_tool_calls_per_tick INTEGER NOT NULL,
-	max_successful_tool_calls_per_iteration INTEGER NOT NULL DEFAULT 8,
-	max_generated_tokens_per_tick INTEGER NOT NULL DEFAULT 15000,
-	max_generated_tokens_per_iteration INTEGER NOT NULL DEFAULT 30000,
-	next_due_at TEXT,
-	status TEXT NOT NULL,
-	active_run_id TEXT,
-	lease_expires_at TEXT,
-	last_error TEXT,
-	created_at TEXT NOT NULL,
-	updated_at TEXT NOT NULL
-);
-CREATE TABLE bots_index (
-	bot_id TEXT PRIMARY KEY,
-	deleted_at TEXT
-);
-CREATE TABLE bot_clone_sources (
-	bot_id TEXT PRIMARY KEY,
-	source_bot_id TEXT NOT NULL,
-	source_world_id TEXT NOT NULL,
-	source_world_handle TEXT NOT NULL,
-	source_handle TEXT NOT NULL,
-	cloned_at TEXT NOT NULL,
-	linked INTEGER NOT NULL DEFAULT 1,
-	unlinked_at TEXT,
-	relinked_at TEXT
-);
-`;
 
 type Deferred<T> = {
 	promise: Promise<T>;
@@ -92,12 +53,7 @@ type TestRuntime = {
 };
 
 beforeEach(async () => {
-	await execStatements(testEnv.BICKR_D1, `
-		DROP TABLE IF EXISTS bot_clone_sources;
-		DROP TABLE IF EXISTS bots_index;
-		DROP TABLE IF EXISTS bot_runtime_index;
-	`);
-	await execStatements(testEnv.BICKR_D1, schemaSql);
+	await resetD1Schema(testEnv.BICKR_D1);
 	await clearKv(testEnv.BICKR_KV);
 });
 
@@ -433,8 +389,27 @@ async function seedBotDocuments(): Promise<void> {
 	};
 	await testEnv.BICKR_KV.put(kvKeys.user(ownerId), JSON.stringify(user));
 	await testEnv.BICKR_KV.put(kvKeys.bot(botId), JSON.stringify(bot));
-	await testEnv.BICKR_D1.prepare(`INSERT INTO bots_index (bot_id, deleted_at) VALUES (?, NULL)`)
-		.bind(botId)
+	await testEnv.BICKR_D1.prepare(
+		`INSERT INTO bots_index (
+			bot_id, home_world_id, home_world_handle, handle, language, display_name, display_name_lang,
+			owner_user_id, include_language_in_system_prompt, short_bio, short_bio_lang, avatar_url, avatar_crop,
+			import_provider, import_external_handle, created_at, updated_at, deleted_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, NULL, NULL, NULL, NULL, ?, ?, NULL)`,
+	)
+		.bind(
+			bot.id,
+			bot.homeWorldId,
+			bot.homeWorldHandle,
+			bot.handle,
+			bot.language,
+			bot.displayName.text,
+			bot.displayName.lang,
+			bot.ownerUserId,
+			bot.shortBio.text,
+			bot.shortBio.lang,
+			bot.createdAt,
+			bot.updatedAt,
+		)
 		.run();
 }
 
@@ -484,24 +459,6 @@ async function runtimeIndexRow(rowBotId: string): Promise<{
 		throw new Error(`Missing runtime row for ${rowBotId}.`);
 	}
 	return row;
-}
-
-async function execStatements(db: D1Database, sql: string): Promise<void> {
-	for (const statement of sql.split(";")) {
-		const trimmed = statement.trim();
-		if (trimmed.length > 0) {
-			await db.prepare(trimmed).run();
-		}
-	}
-}
-
-async function clearKv(kv: KVNamespace): Promise<void> {
-	let cursor: string | undefined;
-	do {
-		const list = await kv.list({ cursor });
-		await Promise.all(list.keys.map((key) => kv.delete(key.name)));
-		cursor = list.list_complete ? undefined : list.cursor;
-	} while (cursor);
 }
 
 async function json<T>(response: Promise<Response> | Response): Promise<T> {
