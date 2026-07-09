@@ -150,8 +150,7 @@ import {
 	type ProviderToolDefinition,
 } from "../../workers/agent-runtime/src/prompt-and-tools";
 import {
-	providerContextPromptReserveTokens,
-	providerContextReserveTokens,
+	providerContextCompletionReserveTokens,
 } from "../../workers/agent-runtime/src/provider-requests";
 import forumCoordinatorWorker, {
 	ExclusiveOperationQueue,
@@ -407,8 +406,7 @@ export {
 	providerCompactionSummaryPropertyDescription,
 	providerCompactionSummarySchemaDescription,
 	providerCompactionSystemInstruction,
-	providerContextPromptReserveTokens,
-	providerContextReserveTokens,
+	providerContextCompletionReserveTokens,
 	providerMessagesWithReasoningPrefill,
 	providerResponseMessageForHistory,
 	providerTokenProbeRequest,

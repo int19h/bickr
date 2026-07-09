@@ -15,6 +15,7 @@ import {
 	oldestRowsForTokenFraction,
 	providerCompactionSummaryLimitsForChat,
 	providerCompactionSummaryProperty,
+	providerContextCompletionReserveTokens,
 	providerPromptEstimateForTokens,
 	providerResponseWithContent,
 	providerTranslationRequest,
@@ -2019,6 +2020,57 @@ describe("Compaction", () => {
 		expect(events[0]?.payload).toMatchObject({
 			contextWindowTokens: 64_000,
 			overBudgetTokens: 0,
+		});
+	});
+
+	it("leaves the completion reserve available at the compaction cutoff", async () => {
+		const bot = fakeBotDocument({ contextWindowTokens: 16_000 });
+		const calibration = { tokensPerCharacter: 0.25, sampleCount: 0 };
+		const limits = providerCompactionSummaryLimitsForChat(bot, [], calibration, toolDefinitionsForProviderRound());
+		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			activeLoopMessagesForProvider: () => [],
+			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+				events.push({ type, payload });
+				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
+			},
+			botWithCurrentRuntimeBudget: async (current: BotDocument) => current,
+			estimateProviderPromptTokens: () => providerPromptEstimateForTokens(limits.nextCompactionTokens),
+			textTokenCalibration: () => calibration,
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const ensureProviderPromptWithinBudget = (BotRuntime.prototype as unknown as {
+			ensureProviderPromptWithinBudget: (
+				bot: BotDocument,
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				runId: string,
+				signal: AbortSignal,
+				providerTools: ProviderToolDefinition[],
+			) => Promise<{ allowedPromptTokens: number; maxCompletionTokens: number; promptTokens: number }>;
+		}).ensureProviderPromptWithinBudget.bind(runtime);
+
+		const result = await ensureProviderPromptWithinBudget(
+			bot,
+			{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+			"run-cutoff-reserve",
+			new AbortController().signal,
+			toolDefinitionsForProviderRound(),
+		);
+
+		expect(result).toMatchObject({
+			allowedPromptTokens: limits.nextCompactionTokens,
+			maxCompletionTokens: providerContextCompletionReserveTokens,
+			promptTokens: limits.nextCompactionTokens,
+		});
+		expect(result.maxCompletionTokens).toBeGreaterThanOrEqual(providerContextCompletionReserveTokens);
+		expect(events[0]?.payload).toMatchObject({
+			allowedPromptTokens: limits.nextCompactionTokens,
+			maxCompletionTokens: providerContextCompletionReserveTokens,
+			promptTokens: limits.nextCompactionTokens,
 		});
 	});
 

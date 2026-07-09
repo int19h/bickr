@@ -53,7 +53,7 @@ import {
 	providerCompactionRequest,
 	providerCompactionSummaryProperty,
 	providerCompactionSystemInstruction,
-	providerContextReserveTokens,
+	providerContextCompletionReserveTokens,
 	providerMessagesWithReasoningPrefill,
 	providerResponseMessageForHistory,
 	providerResponseWithContent,
@@ -346,7 +346,7 @@ describe("Provider requests", () => {
 		}).readCommentTreeTokenBudget.bind(cachedBudgetRuntime);
 		const expectedReadCommentTreeTokenBudget = Math.max(
 			1,
-			Math.floor(Math.max(0, 10_000 - 2_000 - 1_500 - providerContextReserveTokens) / 4),
+			Math.floor(Math.max(0, 10_000 - 2_000 - 1_500 - providerContextCompletionReserveTokens) / 4),
 		);
 		await expect(
 			readCommentTreeTokenBudget({
@@ -1231,7 +1231,7 @@ describe("Provider requests", () => {
 		expect(request.parallel_tool_calls).toBe(true);
 		expect(request.stream).toBe(true);
 		expect(request.stream_options.include_usage).toBe(true);
-		expect(request.max_completion_tokens).toBe(providerContextReserveTokens);
+		expect(request.max_completion_tokens).toBe(providerContextCompletionReserveTokens);
 		expect(request.provider).toEqual({ max_price: { prompt: 0.25, completion: 0.75 } });
 		expect(request.reasoning).toEqual({ effort: "minimal", exclude: false });
 		expect(request.tools).toBe(toolDefinitions);

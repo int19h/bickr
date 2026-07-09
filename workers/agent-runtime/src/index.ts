@@ -211,8 +211,6 @@ import {
 } from './prompt-and-tools';
 import {
 	providerContextCompletionReserveTokens,
-	providerContextPromptReserveTokens,
-	providerContextReserveTokens,
 } from './provider-requests';
 
 export { defaultReasoningPrefill };
@@ -1731,7 +1729,7 @@ export function providerChatCompletionRequest(
 	reasoningPrefill?: string,
 	toolCalls: BotInferenceToolCalls = providerToolCallsForSettings(settings),
 	promptCacheSessionId?: string,
-	maxCompletionTokens = providerContextReserveTokens,
+	maxCompletionTokens = providerContextCompletionReserveTokens,
 ): ProviderChatCompletionRequest {
 	const requestMessages = providerMessagesWithPrefillCompatibility(
 		settings,
@@ -1769,7 +1767,7 @@ export function providerChatCompletionRequest(
 const defaultProviderCompactionSummaryLimits: ProviderCompactionSummaryLimits = {
 	minLength: 1,
 	maxLength: providerCompactionDefaultMaxCharacters,
-	maxCompletionTokens: providerContextReserveTokens,
+	maxCompletionTokens: providerContextCompletionReserveTokens,
 	compactionInputTokens: 1,
 	nextCompactionTokens: 1,
 	compactionRequestOverheadTokens: providerPromptEstimateSafetyTokens,
@@ -2027,13 +2025,13 @@ export function providerCompactionSummaryLimitsForChat(
 }
 
 function providerPromptCompactionCutoffTokens(contextWindowTokens: number, anticipatedSummaryTokens: number): number {
+	const summaryAllowanceTokens = Math.max(1, Math.ceil(anticipatedSummaryTokens));
+	// The normal loop response and the future compaction summary are separate provider requests,
+	// so the cutoff reserves whichever one needs more room. That keeps loop max_completion_tokens
+	// at the completion reserve exactly at the cutoff boundary without prematurely summing both.
 	return Math.max(
 		1,
-		Math.floor(contextWindowTokens) -
-			Math.max(
-				providerContextPromptReserveTokens,
-				Math.max(1, Math.ceil(anticipatedSummaryTokens)),
-			),
+		Math.floor(contextWindowTokens) - Math.max(providerContextCompletionReserveTokens, summaryAllowanceTokens),
 	);
 }
 
@@ -5199,7 +5197,7 @@ export class BotRuntime {
 		signal: AbortSignal,
 		toolCalls: BotInferenceToolCalls = providerToolCallsForSettings(settings),
 		createdAt = new Date().toISOString(),
-		maxCompletionTokens = providerContextReserveTokens,
+		maxCompletionTokens = providerContextCompletionReserveTokens,
 		promptCacheSessionId?: string,
 	): Promise<ProviderResponse> {
 		const endpoint = providerChatCompletionsUrl(settings.baseUrl);
@@ -7063,7 +7061,7 @@ export class BotRuntime {
 			ongoingTokens,
 			freeTokens,
 			compactionCutoffTokens,
-			responseReserveTokens: providerContextReserveTokens,
+			responseReserveTokens: providerContextCompletionReserveTokens,
 		};
 	}
 
@@ -7179,7 +7177,7 @@ export class BotRuntime {
 		const budget = promptContextBudgetFromCounts({
 			...counts,
 			contextWindowTokens: requestContextWindowTokens,
-			responseReserveTokens: providerContextReserveTokens,
+			responseReserveTokens: providerContextCompletionReserveTokens,
 		});
 		const calibration = this.textTokenCalibration(settings.model);
 		const compactionLimits = providerCompactionSummaryLimitsForChat(
@@ -7253,7 +7251,7 @@ export class BotRuntime {
 			promptContextBudgetFromCounts({
 				...counts,
 				contextWindowTokens: requestContextWindowTokens,
-				responseReserveTokens: providerContextReserveTokens,
+				responseReserveTokens: providerContextCompletionReserveTokens,
 			}).remainingLoopTokens,
 		);
 	}

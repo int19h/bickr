@@ -14,7 +14,7 @@ import {
 	promptContextBudgetCacheFingerprint,
 	promptContextBudgetFromCounts,
 	providerCompactionSummaryLimitsForChat,
-	providerContextReserveTokens,
+	providerContextCompletionReserveTokens,
 	providerLoopUsageRowForTest,
 	providerUsageInputForTest,
 	publicGlobalInferenceCostStats,
@@ -610,13 +610,13 @@ describe("Submissions and usage", () => {
 	});
 
 	it("calculates prompt context budget segments and over-budget counts", () => {
-		const totalReservedTokens = 2_000 + 1_500 + providerContextReserveTokens;
+		const totalReservedTokens = 2_000 + 1_500 + providerContextCompletionReserveTokens;
 		expect(
 			promptContextBudgetFromCounts({
 				contextWindowTokens: 10_000,
 				fixedSystemTokens: 2_000,
 				personaPromptTokens: 1_500,
-				responseReserveTokens: providerContextReserveTokens,
+				responseReserveTokens: providerContextCompletionReserveTokens,
 			}),
 		).toMatchObject({
 			remainingLoopTokens: Math.max(0, 10_000 - totalReservedTokens),
@@ -629,7 +629,7 @@ describe("Submissions and usage", () => {
 				contextWindowTokens: 3_000,
 				fixedSystemTokens: 2_000,
 				personaPromptTokens: 1_500,
-				responseReserveTokens: providerContextReserveTokens,
+				responseReserveTokens: providerContextCompletionReserveTokens,
 			}),
 		).toMatchObject({
 			remainingLoopTokens: 0,
@@ -669,7 +669,7 @@ describe("Submissions and usage", () => {
 				freeTokens: 13_500,
 				contextWindowTokens: 20_000,
 				compactionCutoffTokens: expectedLimits.nextCompactionTokens,
-				responseReserveTokens: providerContextReserveTokens,
+				responseReserveTokens: providerContextCompletionReserveTokens,
 			});
 		});
 

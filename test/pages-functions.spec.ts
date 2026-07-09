@@ -62,7 +62,8 @@ import {
 	patchForum,
 	patchProfile,
 	patchWorld,
-	providerContextReserveTokens,
+	providerChatCompletionRequest,
+	providerContextCompletionReserveTokens,
 	readThread,
 	removeBotGroupMemberRoute,
 	routePath,
@@ -2738,7 +2739,7 @@ describe("Pages functions", () => {
 										personaPromptTokens: 100,
 										providerBaseUrl: "https://openrouter.ai/api/v1",
 										remainingLoopTokens: 60_400,
-										responseReserveTokens: providerContextReserveTokens,
+										responseReserveTokens: providerContextCompletionReserveTokens,
 										totalReservedTokens: 3_600,
 									},
 								},
@@ -2912,6 +2913,7 @@ describe("Pages functions", () => {
 				nextCompactionTokens: number;
 				personaPromptTokens: number;
 				remainingLoopTokens: number;
+				responseReserveTokens: number;
 				worldPromptTokens: number;
 			}>;
 		}).promptContextBudget.bind(runtime);
@@ -2937,8 +2939,15 @@ describe("Pages functions", () => {
 			nextCompactionTokens: expect.any(Number),
 			personaPromptTokens: 60,
 			worldPromptTokens: 0,
-			remainingLoopTokens: 15_000 - 200 - 60 - providerContextReserveTokens,
+			remainingLoopTokens: 15_000 - 200 - 60 - providerContextCompletionReserveTokens,
+			responseReserveTokens: providerContextCompletionReserveTokens,
 		});
+		const defaultLoopRequest = providerChatCompletionRequest(
+			{ baseUrl: "https://provider.example/v1", model: "provider/test-model", temperature: 0.2 },
+			[{ role: "user", content: "hello" }],
+			[],
+		);
+		expect(first.responseReserveTokens).toBe(defaultLoopRequest.max_completion_tokens);
 		expect(calls).toHaveLength(3);
 		expect(calls[0]?.content).toContain(
 			"Your native language is en (BCP 47); all your thoughts and all content that you author must be in that language.",
