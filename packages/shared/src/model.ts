@@ -94,6 +94,7 @@ export type SessionDocument = EntityDocument & {
 export type WorldDocument = EntityDocument & {
 	type: "world";
 	handle: string;
+	handleAtDeletion?: string;
 	language: LanguageTag | null;
 	name: LocalizedText;
 	description: LocalizedText;
@@ -111,6 +112,7 @@ export type ForumDocument = EntityDocument & {
 	worldId: string;
 	worldHandle: string;
 	handle: string;
+	handleAtDeletion?: string;
 	language: LanguageTag | null;
 	description: LocalizedText;
 	createdByUserId: string;
@@ -258,6 +260,7 @@ export type BotDocument = EntityDocument & {
 	homeWorldHandle: string;
 	ownerUserId: string;
 	handle: string;
+	handleAtDeletion?: string;
 	language: LanguageTag | null;
 	includeLanguageInSystemPrompt: boolean | null;
 	displayName: LocalizedText;

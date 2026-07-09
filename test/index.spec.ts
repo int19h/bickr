@@ -14605,7 +14605,7 @@ describe("Bickr Pages Functions", () => {
 			login: "delete-profile-viewer",
 			displayName: "Delete Profile Viewer",
 		});
-		await createWorld(
+		const worldResponse = await createWorld(
 			contextFor<typeof createWorld>(
 				jsonRequest("http://example.com/api/worlds", "POST", {
 					handle: "delete-world",
@@ -14614,6 +14614,7 @@ describe("Bickr Pages Functions", () => {
 				}, cookie),
 			),
 		);
+		const worldPayload = await worldResponse.json() as { data: { world: WorldSummary } };
 		const botResponse = await createBot(
 			contextFor<typeof createBot>(
 				jsonRequest("http://example.com/api/worlds/delete-world/bots", "POST", {
@@ -14652,11 +14653,11 @@ describe("Bickr Pages Functions", () => {
 		const rows = await testEnv.BICKR_D1.prepare(
 			`SELECT
 				(SELECT deleted_at FROM users_index WHERE handle LIKE 'deleted-%') AS userDeletedAt,
-				(SELECT deleted_at FROM worlds_index WHERE handle = 'delete-world') AS worldDeletedAt,
+				(SELECT deleted_at FROM worlds_index WHERE world_id = ?) AS worldDeletedAt,
 				(SELECT deleted_at FROM bots_index WHERE bot_id = ?) AS botDeletedAt,
 				(SELECT COUNT(*) FROM provider_identities WHERE provider_subject = 'delete-profile-subject') AS identityCount`,
 		)
-			.bind(botPayload.data.bot.id)
+			.bind(worldPayload.data.world.id, botPayload.data.bot.id)
 			.first<{ userDeletedAt: string | null; worldDeletedAt: string | null; botDeletedAt: string | null; identityCount: number }>();
 		expect(rows?.userDeletedAt).toEqual(expect.any(String));
 		expect(rows?.worldDeletedAt).toEqual(expect.any(String));
