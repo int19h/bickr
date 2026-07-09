@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { env as testEnv } from "cloudflare:test";
+import { clearKv, execD1Statements, resetD1Schema } from "./helpers/d1-schema";
 import migrationSql from "../migrations/0031_tombstone_deleted_handles.sql?raw";
 import { deleteForum, deleteWorld } from "../packages/shared/src/governance";
 import {
@@ -24,222 +25,8 @@ const testLanguage = "en" as LanguageTag;
 const ownerId = "usr_handle_reuse";
 const now = "2026-07-09T00:00:00.000Z";
 
-const schemaSql = `
-CREATE TABLE objects_index (
-	object_id TEXT PRIMARY KEY,
-	object_type TEXT NOT NULL,
-	world_id TEXT,
-	revision INTEGER NOT NULL,
-	index_version INTEGER NOT NULL,
-	updated_at TEXT NOT NULL,
-	deleted_at TEXT
-);
-CREATE INDEX objects_index_world_type ON objects_index (world_id, object_type, deleted_at);
-CREATE TABLE users_index (
-	user_id TEXT PRIMARY KEY,
-	handle TEXT NOT NULL UNIQUE,
-	language TEXT,
-	ui_locale TEXT,
-	display_name TEXT NOT NULL,
-	display_name_lang TEXT,
-	avatar_url TEXT,
-	avatar_crop TEXT,
-	profile_completed_at TEXT,
-	created_at TEXT NOT NULL,
-	updated_at TEXT NOT NULL,
-	deleted_at TEXT
-);
-CREATE TABLE worlds_index (
-	world_id TEXT PRIMARY KEY,
-	handle TEXT NOT NULL UNIQUE,
-	language TEXT,
-	name TEXT NOT NULL,
-	name_lang TEXT,
-	description TEXT NOT NULL,
-	description_lang TEXT,
-	prompt TEXT NOT NULL DEFAULT '',
-	prompt_lang TEXT,
-	avatar_url TEXT,
-	avatar_crop TEXT,
-	image_generation TEXT,
-	initial_bot_notification TEXT NOT NULL,
-	initial_bot_notification_lang TEXT,
-	posting_thread_body_characters INTEGER,
-	posting_comment_body_characters INTEGER,
-	created_by_user_id TEXT NOT NULL,
-	visibility TEXT NOT NULL,
-	created_at TEXT NOT NULL,
-	updated_at TEXT NOT NULL,
-	deleted_at TEXT
-);
-CREATE INDEX worlds_index_visible ON worlds_index (deleted_at, updated_at);
-CREATE TABLE forums_index (
-	forum_id TEXT PRIMARY KEY,
-	world_id TEXT NOT NULL,
-	world_handle TEXT NOT NULL,
-	handle TEXT NOT NULL,
-	language TEXT,
-	description TEXT NOT NULL,
-	description_lang TEXT,
-	created_by_user_id TEXT NOT NULL,
-	personal_bot_id TEXT,
-	created_at TEXT NOT NULL,
-	updated_at TEXT NOT NULL,
-	deleted_at TEXT,
-	UNIQUE (world_id, handle)
-);
-CREATE INDEX forums_index_world ON forums_index (world_id, deleted_at, updated_at);
-CREATE INDEX forums_index_personal_bot ON forums_index (personal_bot_id);
-CREATE TABLE bots_index (
-	bot_id TEXT PRIMARY KEY,
-	home_world_id TEXT NOT NULL,
-	home_world_handle TEXT NOT NULL,
-	handle TEXT NOT NULL,
-	language TEXT,
-	display_name TEXT NOT NULL,
-	display_name_lang TEXT,
-	owner_user_id TEXT NOT NULL,
-	include_language_in_system_prompt INTEGER NOT NULL DEFAULT 0,
-	short_bio TEXT NOT NULL,
-	short_bio_lang TEXT,
-	avatar_url TEXT,
-	avatar_crop TEXT,
-	import_provider TEXT,
-	import_external_handle TEXT,
-	created_at TEXT NOT NULL,
-	updated_at TEXT NOT NULL,
-	deleted_at TEXT,
-	UNIQUE (home_world_id, handle)
-);
-CREATE INDEX bots_index_owner ON bots_index (owner_user_id, deleted_at, updated_at);
-CREATE INDEX bots_index_world ON bots_index (home_world_id, deleted_at, handle);
-CREATE TABLE bot_groups (
-	group_id TEXT PRIMARY KEY,
-	world_id TEXT NOT NULL,
-	owner_user_id TEXT NOT NULL,
-	language TEXT,
-	custom_title TEXT,
-	custom_title_lang TEXT,
-	created_at TEXT NOT NULL,
-	updated_at TEXT NOT NULL,
-	deleted_at TEXT
-);
-CREATE INDEX bot_groups_owner_world ON bot_groups (owner_user_id, world_id, deleted_at, created_at);
-CREATE INDEX bot_groups_world ON bot_groups (world_id, deleted_at, updated_at);
-CREATE TABLE bot_group_members (
-	group_id TEXT NOT NULL,
-	bot_id TEXT NOT NULL,
-	world_id TEXT NOT NULL,
-	added_at TEXT NOT NULL,
-	PRIMARY KEY (group_id, bot_id)
-);
-CREATE INDEX bot_group_members_world_bot ON bot_group_members (world_id, bot_id);
-CREATE TABLE bot_clone_sources (
-	bot_id TEXT PRIMARY KEY,
-	source_bot_id TEXT NOT NULL,
-	source_world_id TEXT NOT NULL,
-	source_world_handle TEXT NOT NULL,
-	source_handle TEXT NOT NULL,
-	cloned_at TEXT NOT NULL,
-	linked INTEGER NOT NULL DEFAULT 1,
-	unlinked_at TEXT,
-	relinked_at TEXT
-);
-CREATE INDEX bot_clone_sources_source_linked ON bot_clone_sources (source_bot_id, linked);
-CREATE TABLE bot_runtime_index (
-	bot_id TEXT PRIMARY KEY,
-	owner_user_id TEXT NOT NULL,
-	world_id TEXT NOT NULL,
-	enabled INTEGER NOT NULL,
-	tick_interval_seconds INTEGER NOT NULL,
-	context_window_tokens INTEGER,
-	compaction_threshold REAL NOT NULL,
-	compaction_summary_percent INTEGER NOT NULL DEFAULT 10,
-	compaction_max_characters INTEGER NOT NULL DEFAULT 4000,
-	max_tool_calls_per_tick INTEGER NOT NULL,
-	max_successful_tool_calls_per_iteration INTEGER NOT NULL DEFAULT 8,
-	max_generated_tokens_per_tick INTEGER NOT NULL DEFAULT 15000,
-	max_generated_tokens_per_iteration INTEGER NOT NULL DEFAULT 30000,
-	next_due_at TEXT,
-	status TEXT NOT NULL,
-	active_run_id TEXT,
-	lease_expires_at TEXT,
-	last_error TEXT,
-	created_at TEXT NOT NULL,
-	updated_at TEXT NOT NULL
-);
-CREATE INDEX bot_runtime_due ON bot_runtime_index (enabled, next_due_at, lease_expires_at);
-CREATE TABLE human_subscriptions (
-	subscription_id TEXT PRIMARY KEY,
-	user_id TEXT NOT NULL,
-	world_id TEXT NOT NULL,
-	scope_type TEXT NOT NULL,
-	scope_id TEXT NOT NULL,
-	active INTEGER NOT NULL,
-	auto_created INTEGER NOT NULL,
-	created_at TEXT NOT NULL,
-	updated_at TEXT NOT NULL,
-	UNIQUE(user_id, scope_type, scope_id)
-);
-CREATE INDEX human_subscriptions_user_active ON human_subscriptions (user_id, active, updated_at);
-CREATE INDEX human_subscriptions_scope_active ON human_subscriptions (scope_type, scope_id, active);
-CREATE TABLE threads_index (
-	thread_id TEXT PRIMARY KEY,
-	root_comment_id TEXT,
-	world_id TEXT NOT NULL,
-	world_handle TEXT NOT NULL,
-	forum_id TEXT NOT NULL,
-	forum_handle TEXT NOT NULL,
-	author_bot_id TEXT NOT NULL,
-	author_handle TEXT NOT NULL,
-	author_display_name TEXT NOT NULL,
-	author_display_name_lang TEXT,
-	title TEXT NOT NULL,
-	title_lang TEXT,
-	body_preview TEXT NOT NULL,
-	body_preview_lang TEXT,
-	search_text TEXT NOT NULL,
-	vote_score INTEGER NOT NULL DEFAULT 0,
-	comment_count INTEGER NOT NULL DEFAULT 0,
-	recent_comment_count INTEGER NOT NULL DEFAULT 0,
-	hot_score REAL NOT NULL DEFAULT 0,
-	created_at TEXT NOT NULL,
-	last_activity_at TEXT NOT NULL,
-	deleted_at TEXT
-);
-CREATE INDEX threads_index_forum_activity ON threads_index (forum_id, deleted_at, last_activity_at);
-CREATE VIRTUAL TABLE search_entities_fts USING fts5(
-	entity_type UNINDEXED,
-	entity_id UNINDEXED,
-	world_id UNINDEXED,
-	world_handle UNINDEXED,
-	world_name UNINDEXED,
-	forum_id UNINDEXED,
-	forum_handle UNINDEXED,
-	bot_id UNINDEXED,
-	bot_handle UNINDEXED,
-	title,
-	body,
-	updated_at UNINDEXED
-);
-`;
-
 beforeEach(async () => {
-	await execStatements(testEnv.BICKR_D1, `
-		DROP TABLE IF EXISTS search_entities_fts;
-		DROP TABLE IF EXISTS threads_index;
-		DROP TABLE IF EXISTS human_subscriptions;
-		DROP TABLE IF EXISTS bot_runtime_index;
-		DROP TABLE IF EXISTS bot_clone_sources;
-		DROP TABLE IF EXISTS bot_group_members;
-		DROP TABLE IF EXISTS bot_groups;
-		DROP TABLE IF EXISTS bots_index;
-		DROP TABLE IF EXISTS forums_index;
-		DROP TABLE IF EXISTS worlds_index;
-		DROP TABLE IF EXISTS users_index;
-		DROP TABLE IF EXISTS objects_index;
-	`);
-	await execStatements(testEnv.BICKR_D1, schemaSql);
+	await resetD1Schema(testEnv.BICKR_D1);
 	await clearKv(testEnv.BICKR_KV);
 	await seedOwner();
 });
@@ -342,7 +129,7 @@ describe("soft-deleted handle reuse", () => {
 			.bind(ownerId, now, now, now)
 			.run();
 
-		await execStatements(testEnv.BICKR_D1, migrationSql);
+		await execD1Statements(testEnv.BICKR_D1, migrationSql);
 
 		await testEnv.BICKR_D1
 			.prepare(
@@ -499,23 +286,4 @@ async function readForumDocument(id: string): Promise<ForumDocument> {
 
 function lt(text: string) {
 	return localizedText(text, testLanguage);
-}
-
-async function clearKv(kv: KVNamespace): Promise<void> {
-	let cursor: string | undefined;
-	do {
-		const list = await kv.list({ cursor });
-		await Promise.all(list.keys.map((key) => kv.delete(key.name)));
-		cursor = list.list_complete ? undefined : list.cursor;
-	} while (cursor);
-}
-
-async function execStatements(db: D1Database, sql: string): Promise<void> {
-	const withoutLineComments = sql.replace(/^\s*--.*$/gm, "");
-	for (const statement of withoutLineComments.split(";")) {
-		const trimmed = statement.trim();
-		if (trimmed.length > 0) {
-			await db.prepare(trimmed).run();
-		}
-	}
 }
