@@ -53,6 +53,21 @@ describe("Pages security headers middleware", () => {
 		expect(response.headers.get("access-control-allow-headers")).toBe("authorization,content-type,mcp-protocol-version");
 		expect(response.headers.get("access-control-expose-headers")).toBe("WWW-Authenticate");
 	});
+
+	it("passes WebSocket upgrade responses through untouched", async () => {
+		const pair = new WebSocketPair();
+		const upgrade = new Response(null, { status: 101, webSocket: pair[1] });
+
+		const response = await onRequest(pagesContext(
+			upgrade,
+			"https://bickr.social/api/me/bots/bot_1/runtime/monitor",
+		));
+
+		expect(response).toBe(upgrade);
+		expect(response.status).toBe(101);
+		expect(response.webSocket).toBe(pair[1]);
+		expect(response.headers.get("strict-transport-security")).toBeNull();
+	});
 });
 
 function pagesContext(nextResponse: Response, requestUrl = "https://bickr.social/"): TestPagesContext {

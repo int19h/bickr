@@ -20,6 +20,12 @@ export const onRequest: PagesFunction<AppEnv> = async (context) => {
 };
 
 export function securityHeadersResponse(response: Response): Response {
+	// WebSocket upgrade responses (the bot loop monitor proxied through
+	// /api/me/bots/:botId/runtime/monitor) must pass through untouched:
+	// reconstructing a 101 response drops the webSocket and throws in workerd.
+	if (response.status === 101 || response.webSocket) {
+		return response;
+	}
 	const headers = new Headers(response.headers);
 	headers.set("Strict-Transport-Security", strictTransportSecurity);
 	if (isHtmlResponse(headers)) {
