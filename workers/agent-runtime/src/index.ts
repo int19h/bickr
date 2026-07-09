@@ -4173,7 +4173,6 @@ export class BotRuntime {
 		admitted: AdmittedTick,
 	): Promise<TickRunResult> {
 		const { bot, providerSettings, runId, abortController, mode, setupMode } = admitted;
-		await this.appendEvent(runId, 'tick_started', { trigger, botId, handle: bot.handle });
 		const runContext: RunContext = {
 			mode,
 			setupMode,
@@ -4183,6 +4182,9 @@ export class BotRuntime {
 		let startQueuedSpotlightAfterRun = false;
 
 		try {
+			// Inside the try so an event-store failure still releases the claim
+			// and clears the in-memory run slot via the catch/finally below.
+			await this.appendEvent(runId, 'tick_started', { trigger, botId, handle: bot.handle });
 			this.throwIfStopped(runId, abortController.signal);
 			const notifications =
 				setupMode !== 'new_iteration'

@@ -102,24 +102,34 @@ beforeEach(async () => {
 });
 
 describe("BotRuntime tick admission", () => {
-	it("admits only one of two concurrent ticks on the same runtime instance", async () => {
+	it("admits only one of two simultaneous ticks racing through admission", async () => {
 		await seedBotRuntimeRow({ status: "idle" });
 		await seedBotDocuments();
 		const harness = testRuntimeHarness();
 
-		const first = harness.runtime.fetch(tickRequest());
-		await harness.tickStarted.promise;
-		const second = harness.runtime.fetch(tickRequest());
+		// Fire both requests before either can be admitted, so they interleave
+		// inside the admission awaits (status/bot/user/claim). This is the race
+		// the transition queue exists to close: without it, both requests pass
+		// the guards and start two provider loops.
+		const responses = [
+			harness.runtime.fetch(tickRequest()),
+			harness.runtime.fetch(tickRequest()),
+		].map((response, index) => response.then((value) => ({ index, value })));
 
-		const secondPayload = await json<TickResponsePayload>(second);
-		expect(secondPayload).toMatchObject({
+		// The winner blocks inside the tick body on releaseTick, so the first
+		// settled response is necessarily the rejected loser.
+		const loser = await Promise.race(responses);
+		const loserPayload = await json<TickResponsePayload>(loser.value);
+		expect(loserPayload).toMatchObject({
 			ok: true,
 			data: { run: { status: "already_running" } },
 		});
+		expect(harness.tickBodies).toHaveLength(1);
 
 		harness.releaseTick.resolve();
-		const firstPayload = await json<TickResponsePayload>(first);
-		expect(firstPayload).toMatchObject({
+		const winner = await responses[1 - loser.index]!;
+		const winnerPayload = await json<TickResponsePayload>(winner.value);
+		expect(winnerPayload).toMatchObject({
 			ok: true,
 			data: { run: { status: "completed" } },
 		});
