@@ -14,7 +14,7 @@ import {
 	providerCompactionSummaryProperty,
 	providerCompactionSummaryPropertyDescription,
 	providerCompactionSummarySchemaDescription,
-	providerContextPromptReserveTokens,
+	providerContextCompletionReserveTokens,
 	runtimeFailureLogs,
 	sseStream,
 	toolDefinitionsForProviderRound,
@@ -236,7 +236,7 @@ describe("Structured output", () => {
 			expect(limits.anticipatedSummaryTokens).toBe(Math.ceil(limits.minLength * limits.tokensPerCharacter));
 			expect(limits.maxSummaryTokens).toBe(Math.ceil(limits.maxLength * limits.tokensPerCharacter));
 			expect(limits.maxCompletionTokens).toBeGreaterThan(5_000);
-			expect(limits.nextCompactionTokens).toBe(50_000 - providerContextPromptReserveTokens);
+			expect(limits.nextCompactionTokens).toBe(50_000 - providerContextCompletionReserveTokens);
 			expect(limits.compactionInputTokens).toBeGreaterThan(40_000);
 			expect(request.max_completion_tokens).toBe(limits.maxCompletionTokens);
 			expect((request.tools ?? []).some((item) => item.type === "function" && item.function.name === metaCompactionToolName)).toBe(false);
@@ -265,7 +265,7 @@ describe("Structured output", () => {
 
 			expect(longPromptLimits.nextCompactionTokens).toBe(shortPromptLimits.nextCompactionTokens);
 			expect(longPromptLimits.compactionInputTokens).toBeLessThan(shortPromptLimits.compactionInputTokens);
-			expect(longPromptLimits.nextCompactionTokens).toBe(20_000 - providerContextPromptReserveTokens);
+			expect(longPromptLimits.nextCompactionTokens).toBe(20_000 - providerContextCompletionReserveTokens);
 		});
 
 		it("wraps failed compaction provider calls with request and response diagnostics", async () => {
