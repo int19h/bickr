@@ -1358,7 +1358,7 @@ export function likePatternForSearchGlob(query: string): string | null {
 
 const likePatternForAdvancedSearch = likePatternForSearchGlob;
 
-function escapeLike(value: string): string {
+export function escapeLike(value: string): string {
 	return value.replace(/[\\%_]/g, (char) => `\\${char}`);
 }
 
