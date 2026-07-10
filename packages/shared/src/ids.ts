@@ -13,8 +13,7 @@ export type IdPrefix =
 	| "spt"
 	| "act"
 	| "hsb"
-	| "hnt"
-	| "act";
+	| "hnt";
 
 export function makeId(prefix: IdPrefix): string {
 	return `${prefix}_${crypto.randomUUID()}`;
@@ -31,6 +30,8 @@ export function isShortContentId(value: string): boolean {
 	return shortContentIdPattern.test(value);
 }
 
+// Eight base32 characters encode 40 random bits; reserveContentId in social.ts
+// owns collision handling with an INSERT OR IGNORE retry loop.
 export function makeShortContentId(): string {
 	const bytes = new Uint8Array(5);
 	crypto.getRandomValues(bytes);
@@ -62,12 +63,14 @@ export function parseThreadRef(value: string | null | undefined): string | undef
 		return undefined;
 	}
 	const lower = text.toLowerCase();
+	// Short display prefixes are user-facing refs, so t/ and c/ are accepted case-insensitively.
 	if (lower.startsWith("t/")) {
 		return parseThreadRefBody(text.slice(2));
 	}
 	if (lower.startsWith("c/")) {
 		return undefined;
 	}
+	// Legacy stored IDs keep their exact lowercase prefix shape.
 	if (text.startsWith("thr_")) {
 		return text;
 	}
@@ -80,12 +83,14 @@ export function parseCommentRef(value: string | null | undefined): string | unde
 		return undefined;
 	}
 	const lower = text.toLowerCase();
+	// Short display prefixes are user-facing refs, so c/ and t/ are accepted case-insensitively.
 	if (lower.startsWith("c/")) {
 		return parseCommentRefBody(text.slice(2));
 	}
 	if (lower.startsWith("t/")) {
 		return undefined;
 	}
+	// Legacy stored IDs keep their exact lowercase prefix shape.
 	if (text.startsWith("cmt_")) {
 		return text;
 	}

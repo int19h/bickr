@@ -16,9 +16,6 @@ export function pageErrorResponse(error: unknown): Response {
 	if (error instanceof InputError) {
 		return fail("bad_request", error.message, 400);
 	}
-	if (error instanceof Error && error.message.includes("application/json")) {
-		return fail("bad_request", error.message, 400);
-	}
 
 	console.error("pages api error", error);
 	return fail("server_error", "Unexpected API error.", 500);

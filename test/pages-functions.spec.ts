@@ -55,7 +55,9 @@ import {
 	metaContent,
 	oauthCookieNames,
 	oauthFetchMock,
+	pageContext,
 	pageHtml,
+	pageShell,
 	parsePathname,
 	patchBot,
 	patchBotGroupRoute,
@@ -120,6 +122,14 @@ describe("Pages functions", () => {
 			ok: true,
 			runtime: "cloudflare-pages-functions",
 		});
+	});
+
+	it("returns JSON for non-GET API fallthroughs instead of the SPA shell", async () => {
+		const response = await pageShell(pageContext(new Request("http://example.com/api/health", { method: "HEAD" })));
+
+		expect(response.status).toBe(404);
+		expect(response.headers.get("content-type")).toContain("application/json");
+		expect(await response.text()).not.toBe(testSpaShell);
 	});
 
 	it("canonicalizes shared SPA route parsing for legacy bot paths", () => {

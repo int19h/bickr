@@ -1523,6 +1523,7 @@ const providerTokenCalibrationRetentionCount = 100;
 const loopMessageLogRetentionCount = 50;
 const loopMessageLogChunkLength = 250_000;
 const loopMessagePageIndexLimit = 100;
+export const runtimeMonitorInitialBackfillLimit = 100;
 const compactionRowTokenFraction = 0.7;
 const providerPromptEstimateSafetyTokens = 512;
 const providerCompactionMaxPromptEstimateTokens = 120_000;
@@ -4331,13 +4332,12 @@ export class BotRuntime {
 		const pair = new WebSocketPair();
 		const [client, server] = Object.values(pair);
 		this.state.acceptWebSocket(server, [botId]);
-		const after = Number(url.searchParams.get('after') ?? 0);
-		const afterMessage = Number(url.searchParams.get('afterMessage') ?? after);
-		const afterEvent = Number(url.searchParams.get('afterEvent') ?? after);
-		for (const message of this.loopMessagesAfter(Number.isFinite(afterMessage) ? afterMessage : 0)) {
+		const messageBackfill = runtimeMonitorBackfillCursor(url, 'afterMessage');
+		const eventBackfill = runtimeMonitorBackfillCursor(url, 'afterEvent');
+		for (const message of this.loopMessagesAfter(messageBackfill.afterSeq, messageBackfill.initialLimit)) {
 			server.send(JSON.stringify({ type: 'loop_message', loopMessage: message }));
 		}
-		for (const event of this.eventsAfter(Number.isFinite(afterEvent) ? afterEvent : 0)) {
+		for (const event of this.eventsAfter(eventBackfill.afterSeq, eventBackfill.initialLimit)) {
 			server.send(JSON.stringify({ type: 'event', event }));
 		}
 		return new Response(null, { status: 101, webSocket: client });
@@ -6297,8 +6297,8 @@ export class BotRuntime {
 		}
 	}
 
-	private loopMessagesAfter(afterSeq: number): BotLoopMessage[] {
-		return this.loopMessageRowsForPage(null, Math.max(0, Math.floor(afterSeq))).map(loopMessageFromRow);
+	private loopMessagesAfter(afterSeq: number, initialLimit?: number): BotLoopMessage[] {
+		return this.loopMessageRowsForPage(null, Math.max(0, Math.floor(afterSeq)), initialLimit).map(loopMessageFromRow);
 	}
 
 	private loopMessagesPage(input: { page: number; after?: number }): BotLoopMessagesResponse {
@@ -6373,10 +6373,32 @@ export class BotRuntime {
 		});
 	}
 
-	private loopMessageRowsForPage(sourceCompactionSeq: number | null, afterSeq: number): LoopMessageRow[] {
+	private loopMessageRowsForPage(sourceCompactionSeq: number | null, afterSeq: number, initialLimit?: number): LoopMessageRow[] {
 		if (sourceCompactionSeq === null) {
 			const filters = ['m.compacted_by IS NULL', 'm.deleted_at IS NULL', ...(afterSeq > 0 ? ['m.seq > ?'] : [])];
 			const params = [...(afterSeq > 0 ? [afterSeq] : [])];
+			const limit = afterSeq > 0 ? undefined : positiveInteger(initialLimit);
+			if (limit !== undefined) {
+				return this.state.storage.sql
+					.exec<LoopMessageRow>(
+						`SELECT *
+						 FROM (
+							SELECT m.seq, m.position, m.run_id, m.role, m.message_json, m.origin, m.status,
+							       m.token_estimate, m.stream_seq, m.display_event_seq, display.type AS display_event_type,
+							       display.payload_json AS display_event_payload_json, m.compacted_by, m.deleted_at, m.created_at,
+							       CASE WHEN EXISTS (SELECT 1 FROM loop_message_logs l WHERE l.message_seq = m.seq) THEN 1 ELSE 0 END AS has_logs
+							FROM loop_messages m
+							LEFT JOIN events display ON display.seq = m.display_event_seq
+							WHERE ${filters.join('\n\t\t\t\t\t\t\t   AND ')}
+							ORDER BY m.position DESC, m.seq DESC
+							LIMIT ?
+						 )
+						 ORDER BY position ASC, seq ASC`,
+						...params,
+						limit,
+					)
+					.toArray();
+			}
 			return this.state.storage.sql
 				.exec<LoopMessageRow>(
 					`SELECT m.seq, m.position, m.run_id, m.role, m.message_json, m.origin, m.status,
@@ -9889,7 +9911,8 @@ export class BotRuntime {
 		return { seq, runId: row.run_id, type: row.type };
 	}
 
-	private eventsAfter(afterSeq: number): BotRuntimeEvent[] {
+	private eventsAfter(afterSeq: number, initialLimit?: number): BotRuntimeEvent[] {
+		const limit = positiveInteger(initialLimit) ?? 240;
 		const rows =
 			afterSeq > 0
 				? this.state.storage.sql
@@ -9911,9 +9934,10 @@ export class BotRuntime {
 							FROM events
 							WHERE type != 'provider_delta'
 							ORDER BY seq DESC
-							LIMIT 240
+							LIMIT ?
 						 )
 						 ORDER BY seq ASC`,
+							limit,
 						)
 						.toArray();
 		return rows.map((row) => ({
@@ -10917,8 +10941,33 @@ function parseAvatarPromptInput(input: unknown): AvatarPromptInput {
 	};
 }
 
-async function readOptionalJsonBody(request: Request): Promise<unknown> {
-	const contentType = request.headers.get('content-type') ?? '';
+export type RuntimeMonitorBackfillCursor = {
+	afterSeq: number;
+	initialLimit?: number;
+};
+
+export function runtimeMonitorBackfillCursor(url: URL, cursorName: 'afterMessage' | 'afterEvent'): RuntimeMonitorBackfillCursor {
+	const afterSeq = positiveCursorValue(url.searchParams.get(cursorName)) ?? positiveCursorValue(url.searchParams.get('after')) ?? 0;
+	return afterSeq > 0 ? { afterSeq } : { afterSeq: 0, initialLimit: runtimeMonitorInitialBackfillLimit };
+}
+
+function positiveCursorValue(value: string | null): number | undefined {
+	const parsed = Number(value);
+	if (!Number.isFinite(parsed) || parsed <= 0) {
+		return undefined;
+	}
+	return Math.floor(parsed);
+}
+
+function positiveInteger(value: number | undefined): number | undefined {
+	if (value === undefined || !Number.isFinite(value)) {
+		return undefined;
+	}
+	return Math.max(1, Math.floor(value));
+}
+
+export async function readOptionalJsonBody(request: Request): Promise<unknown> {
+	const contentType = request.headers.get('content-type')?.toLowerCase() ?? '';
 	if (!contentType.includes('application/json')) {
 		return {};
 	}
@@ -10926,7 +10975,14 @@ async function readOptionalJsonBody(request: Request): Promise<unknown> {
 	if (!text.trim()) {
 		return {};
 	}
-	return JSON.parse(text) as unknown;
+	try {
+		return JSON.parse(text) as unknown;
+	} catch (error) {
+		if (error instanceof SyntaxError) {
+			throw new InputError('Request body must be valid JSON.');
+		}
+		throw error;
+	}
 }
 
 function parseAvatarCandidate(value: unknown): AvatarImage {
@@ -15019,7 +15075,7 @@ function applyProviderBodyPreviewCutoff(
 	}
 }
 
-function providerSafeJsonValue(value: unknown): unknown {
+export function providerSafeJsonValue(value: unknown): unknown {
 	if (Array.isArray(value)) {
 		return value.map(providerSafeJsonValue);
 	}
@@ -15046,24 +15102,34 @@ function providerTimestampKey(key: string): boolean {
 }
 
 const providerPrivateJsonKeys = new Set([
-	'accesstoken',
-	'apikey',
 	'createdbyuserid',
-	'openrouterapikey',
 	'owneruserid',
 	'password',
-	'refreshtoken',
 	'secret',
 	'session',
 	'sessionid',
+	'userid',
+]);
+
+const providerCredentialTokenJsonKeys = new Set([
+	'accesstoken',
+	'apitoken',
+	'authtoken',
+	'bearertoken',
+	'idtoken',
+	'refreshtoken',
 	'sessiontoken',
 	'token',
-	'userid',
 ]);
 
 function providerSafeKey(key: string): string | null {
 	const normalized = key.replace(/[_-]/g, '').toLowerCase();
-	if (providerPrivateJsonKeys.has(normalized) || normalized.endsWith('apikey') || normalized.endsWith('secret') || normalized.endsWith('token')) {
+	if (
+		providerPrivateJsonKeys.has(normalized) ||
+		providerCredentialTokenJsonKeys.has(normalized) ||
+		normalized.endsWith('apikey') ||
+		normalized.endsWith('secret')
+	) {
 		return null;
 	}
 	return key;
@@ -18719,9 +18785,6 @@ function errorResponse(error: unknown): Response {
 		return fail('server_error', error.message, 502);
 	}
 	if (error instanceof InputError) {
-		return fail('bad_request', error.message, 400);
-	}
-	if (error instanceof Error && error.message.includes('application/json')) {
 		return fail('bad_request', error.message, 400);
 	}
 	if (isD1UniqueConstraintError(error)) {
