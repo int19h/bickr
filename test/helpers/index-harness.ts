@@ -1374,6 +1374,7 @@ export function streamedProviderRateLimit(id: string, providerName: string): Rec
 			code: 429,
 			message: "Provider returned error",
 			metadata: {
+				error_type: "provider_rate_limited",
 				provider_name: providerName,
 				raw: `${providerName} is temporarily rate-limited upstream.`,
 			},

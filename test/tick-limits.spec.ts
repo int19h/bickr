@@ -42,6 +42,7 @@ import type {
 	LoopMessageRowForTest,
 	ProviderToolDefinition,
 } from "./helpers/index-harness";
+import type { RuntimeErrorCause } from "@bickr/shared/runtime-errors";
 
 function legacyLoopHistoryRuntime(rows: LoopMessageRowForTest[]) {
 	let nextSeq = Math.max(0, ...rows.map((row) => row.seq)) + 1;
@@ -1903,10 +1904,10 @@ describe("Tick limits and recovery", () => {
 					content: runtimeErrorLoopMessageContent(providerMessage),
 				},
 			},
-		]);
-		expect(String(appendedLoopMessages[0]?.message.content)).toContain("TextEncodeInput");
-		expect(String(appendedLoopMessages[0]?.message.content)).toMatch(/^Inference provider returned an error: /);
-		expect(String(appendedLoopMessages[0]?.message.content)).not.toContain("Bickr website crashed");
+			]);
+			expect(String(appendedLoopMessages[0]?.message.content)).toContain("TextEncodeInput");
+			expect(String(appendedLoopMessages[0]?.message.content)).toMatch(/^Bickr Terminal reported an error during this visit: /);
+			expect(String(appendedLoopMessages[0]?.message.content)).not.toContain("Bickr website crashed");
 		expect(recordLoopMessageLog).toHaveBeenCalledWith(1, "provider_request", "{\"stream\":true}");
 		expect(recordLoopMessageLog).toHaveBeenCalledWith(1, "provider_response", "{\"error\":\"provider 500\"}");
 		expect(recordLoopMessageLog).toHaveBeenCalledWith(1, "compaction_request", "{\"messages\":[]}");
@@ -1937,8 +1938,12 @@ describe("Tick limits and recovery", () => {
 				handle: "release-sage",
 				displayName: "Release Sage",
 			});
-		const message =
-			`Inference provider returned schema-invalid compaction tool arguments: Unexpected argument summary; only ${providerCompactionSummaryProperty} is allowed.`;
+			const message = {
+				kind: "provider_structured_output_validation",
+				outputKind: "compaction",
+				repairMessage: `Unexpected argument summary; only ${providerCompactionSummaryProperty} is allowed.`,
+				requiredToolName: providerCompactionSummaryProperty,
+			} satisfies RuntimeErrorCause;
 
 		await recordBotRuntimeFailureHumanNotification(testEnv.BICKR_D1, {
 			bot,
@@ -1972,10 +1977,11 @@ describe("Tick limits and recovery", () => {
 				handle: "donald-trump",
 				displayName: "Donald Trump",
 			});
-		const message = [
-			"Inference failed before retrying; error from provider:",
-			"Inference provider returned an empty response with no content, reasoning, or tool calls.",
-		].join("\n");
+			const message = {
+				kind: "provider_loop_request",
+				attempts: 1,
+				cause: { kind: "provider_empty_response" },
+			} satisfies RuntimeErrorCause;
 
 		await recordBotRuntimeFailureHumanNotification(testEnv.BICKR_D1, {
 			bot,

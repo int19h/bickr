@@ -69,7 +69,7 @@ describe("runtimeActivities tool log formatting", () => {
 	it("formats owner-facing runtime errors without Terminal story text", () => {
 		const [activity] = runtimeActivities([
 			runtimeEvent("tick_failed", {
-				message: "Inference request failed with status 400. Response: TextEncodeInput must be Union[TextInputSequence].",
+				message: "Inference request failed with status 400: TextEncodeInput must be Union[TextInputSequence].",
 			}),
 		], "sandbox");
 
@@ -80,10 +80,7 @@ describe("runtimeActivities tool log formatting", () => {
 	it("formats empty provider response failures as direct Loop errors", () => {
 		const [activity] = runtimeActivities([
 			runtimeEvent("tick_failed", {
-				message: [
-					"Inference failed before retrying; error from provider:",
-					"Inference provider returned an empty response with no content, reasoning, or tool calls.",
-				].join("\n"),
+				message: "Inference provider returned an empty response with no content, reasoning, or tool calls.",
 			}),
 		], "sandbox");
 

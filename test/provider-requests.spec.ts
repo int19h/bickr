@@ -2341,6 +2341,100 @@ describe("Provider requests", () => {
 		});
 	});
 
+	it("does not reroute provider 429s without structured upstream provider metadata", async () => {
+		vi.useFakeTimers();
+		try {
+			const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+			const provider429WithoutProviderName = {
+				id: "gen-limit-without-provider",
+				object: "chat.completion.chunk",
+				model: "google/gemma-4-31b-it",
+				choices: [],
+				error: {
+					code: 429,
+					message: "Provider returned error",
+					metadata: {
+						error_type: "provider_rate_limited",
+						raw: "An upstream provider is temporarily rate-limited.",
+					},
+				},
+			};
+			const fetchProviderResponse = vi
+				.fn<(_settings: unknown, _endpoint: string, _body: string, _signal: AbortSignal) => Promise<ReadableStream<Uint8Array>>>()
+				.mockResolvedValueOnce(sseStream([provider429WithoutProviderName]))
+				.mockResolvedValueOnce(sseStream([
+					{
+						id: "response-recovered",
+						model: "test/model",
+						choices: [{ delta: { content: "Recovered." } }],
+					},
+					"[DONE]",
+				]));
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				appendEvent: async (_runId: string, type: string, payload: Record<string, unknown>) => {
+					events.push({ type, payload });
+					return {
+						seq: events.length,
+						runId: _runId,
+						type,
+						payload,
+						tokenEstimate: 0,
+						createdAt: new Date().toISOString(),
+					};
+				},
+				broadcastProviderDelta: () => {},
+				clearProviderStreamActive: () => {},
+				fetchProviderResponse,
+				markProviderStreamActive: () => {},
+				throwIfStopped: (_runId: string, signal: AbortSignal) => {
+					if (signal.aborted) {
+						throw new Error("Unexpected abort.");
+					}
+				},
+			});
+			const callProvider = (BotRuntime.prototype as unknown as {
+				callProvider: (
+					settings: Record<string, unknown>,
+					messages: Array<Record<string, unknown>>,
+					tools: Array<Record<string, unknown>>,
+					runId: string,
+					streamSeq: number,
+					signal: AbortSignal,
+				) => Promise<{ content: string; toolCalls: unknown[] }>;
+			}).callProvider.bind(runtime);
+
+			const response = callProvider(
+				{
+					baseUrl: "https://openrouter.ai/api/v1",
+					model: "test/model",
+					temperature: 0.7,
+				},
+				[{ role: "user", content: "Act." }],
+				[],
+				"run-stream-provider-rate-limit-no-provider",
+				77,
+				new AbortController().signal,
+			);
+			await vi.advanceTimersByTimeAsync(90_000);
+
+			await expect(response).resolves.toMatchObject({ content: "Recovered.", toolCalls: [] });
+			const firstBody = JSON.parse(String(fetchProviderResponse.mock.calls[0]?.[2])) as { provider?: Record<string, unknown> };
+			const secondBody = JSON.parse(String(fetchProviderResponse.mock.calls[1]?.[2])) as { provider?: Record<string, unknown> };
+			expect(firstBody.provider).toBeUndefined();
+			expect(secondBody.provider).toBeUndefined();
+			expect(events).toContainEqual({
+				type: "provider_retry",
+				payload: expect.objectContaining({
+					attempt: 2,
+					maxAttempts: 5,
+					reason: "429:Provider returned error (provider_rate_limited)",
+				}),
+			});
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it("accumulates newly reported upstream providers without replacing existing routing", async () => {
 		const fetchProviderResponse = vi
 			.fn<(_settings: unknown, _endpoint: string, _body: string, _signal: AbortSignal) => Promise<ReadableStream<Uint8Array>>>()
@@ -2466,7 +2560,7 @@ describe("Provider requests", () => {
 			name: "ProviderLoopRequestError",
 			attempts: 2,
 		});
-		expect((thrown as Error).message).toContain("Inference request failed with status 429. Response: Provider returned error");
+		expect((thrown as Error).message).toContain("Inference request failed with status 429: Provider returned error (provider_rate_limited)");
 	});
 
 	it("wraps exhausted loop provider retries with request and response diagnostics", async () => {
@@ -2543,10 +2637,10 @@ describe("Provider requests", () => {
 				responseBody: rawResponse,
 			});
 			expect((thrown as Error).message).toContain("Inference failed after 5 provider attempts (4 retries); last error from provider:");
-			expect((thrown as Error).message).toContain("Inference request failed with status 500. Response: Internal Server Error");
+			expect((thrown as Error).message).toContain("Inference request failed with status 500: Internal Server Error");
 			expect((thrown as { requestBody?: string }).requestBody).toContain("\"stream\":true");
 			expect((thrown as { requestBody?: string }).requestBody).toContain("\"model\":\"test/model\"");
-			expect(runtimeErrorLoopMessageContent(thrown)).toMatch(/^Inference failed after 5 provider attempts \(4 retries\); last error from provider:/);
+			expect(runtimeErrorLoopMessageContent(thrown)).toMatch(/^Bickr Terminal tried 5 times to reach the configured service\. Last error: /);
 		} finally {
 			vi.useRealTimers();
 		}

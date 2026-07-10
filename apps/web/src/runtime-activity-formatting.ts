@@ -1,5 +1,4 @@
 import type { BotRuntimeEvent } from "@bickr/shared/model";
-import { ownerRuntimeErrorMessage } from "@bickr/shared/runtime-errors";
 import { parseCommentRef, parseThreadRef } from "@bickr/shared/ids";
 import { handlePatternSource, normalizeHandleText } from "@bickr/shared/validation";
 
@@ -150,7 +149,7 @@ export function runtimeActivities(events: BotRuntimeEvent[], fallbackWorldHandle
 					createdAt: event.createdAt,
 					kind: "provider",
 					title: "Inference retry",
-					body: ownerRuntimeErrorMessage(stringValue(payload.reason)),
+					body: stringValue(payload.reason),
 					meta: `attempt ${stringValue(payload.attempt) ?? "?"}/${stringValue(payload.maxAttempts) ?? "?"} after ${formatDelay(payload.delayMs)}`,
 					raw: event,
 				});
@@ -297,7 +296,8 @@ export function runtimeActivities(events: BotRuntimeEvent[], fallbackWorldHandle
 					createdAt: event.createdAt,
 					kind: "error",
 					title: "Tick failed",
-					body: ownerRuntimeErrorMessage(stringValue(payload.message)) ?? formatPayload(event.payload),
+					// TODO(#39): legacy tick_failed rows only store rendered strings; keep them as-is until the stored event schema carries typed runtime causes.
+					body: stringValue(payload.message) ?? formatPayload(event.payload),
 					raw: event,
 				});
 				break;

@@ -80,7 +80,7 @@ import {
 	effectivePostingSettings,
 	postingHardLimit,
 } from "./posting";
-import { ownerRuntimeErrorMessage } from "./runtime-errors";
+import { ownerFacingRuntimeErrorMessage, type RuntimeErrorCause } from "./runtime-errors";
 import { likePatternForSearchGlob } from "./search";
 import {
 	type D1DatabaseLike,
@@ -1892,7 +1892,7 @@ export async function recordBotRuntimeFailureHumanNotification(
 	input: {
 		bot: BotDocument;
 		runId: string;
-		message: string;
+		message: RuntimeErrorCause | string;
 		toolName?: string;
 		now?: string;
 	},
@@ -1908,12 +1908,12 @@ export async function recordBotRuntimeFailureHumanNotification(
 			[
 				`u/${input.bot.handle} stopped after repeated invalid tool calls.`,
 				input.toolName ? `Last failed tool: ${input.toolName}.` : "",
-				ownerRuntimeErrorMessage(input.message),
+				ownerFacingRuntimeErrorMessage(input.message),
 				"Check the loop and consider changing the bot's model or settings.",
 			]
 		:	[
 				`u/${input.bot.handle}'s loop run stopped with an error.`,
-				ownerRuntimeErrorMessage(input.message),
+				ownerFacingRuntimeErrorMessage(input.message),
 				"Check the loop log and inference settings.",
 			];
 	await insertHumanNotification(db, {
