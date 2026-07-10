@@ -137,6 +137,18 @@ export type NotificationPruneResult = {
 	phase2DeletedRows: number;
 };
 
+// Cloudflare's D1 limits guidance recommends batching large UPDATE/DELETE work;
+// 1k rows per query keeps each mutation small while the 100k run cap drains the
+// current stale backlog in under a week.
+export const botSeenContentPruneBatchSize = 1_000;
+export const botSeenContentPruneMaxRowsPerRun = 100_000;
+
+export type BotSeenContentPruneResult = {
+	deletedRows: number;
+	batches: number;
+	budgetExhausted: boolean;
+};
+
 type ExpiredNotificationRow = {
 	id: string;
 	botId: string;
@@ -5387,6 +5399,57 @@ export async function pruneExpiredNotifications(
 	return result;
 }
 
+export async function pruneExpiredBotSeenContent(
+	db: D1DatabaseLike,
+	options: {
+		now?: string;
+		batchSize?: number;
+		maxRowsPerRun?: number;
+	} = {},
+): Promise<BotSeenContentPruneResult> {
+	const now = options.now ?? new Date().toISOString();
+	const cutoff = botSeenContentRetentionCutoff(now);
+	const batchSize = positiveIntegerOption(options.batchSize ?? botSeenContentPruneBatchSize, "batchSize");
+	const maxRowsPerRun = nonNegativeIntegerOption(options.maxRowsPerRun ?? botSeenContentPruneMaxRowsPerRun, "maxRowsPerRun");
+	const result: BotSeenContentPruneResult = {
+		deletedRows: 0,
+		batches: 0,
+		budgetExhausted: false,
+	};
+
+	while (result.deletedRows < maxRowsPerRun) {
+		const limit = Math.min(batchSize, maxRowsPerRun - result.deletedRows);
+		const deleteResult = await db
+			.prepare(
+				`DELETE FROM bot_seen_content
+				 WHERE last_seen_at < ?
+				 LIMIT ?`,
+			)
+			.bind(cutoff, limit)
+			.run();
+		const deletedRows = deleteResult.meta?.changes ?? 0;
+		if (deletedRows === 0) {
+			break;
+		}
+		result.deletedRows += deletedRows;
+		result.batches += 1;
+		if (deletedRows < limit) {
+			break;
+		}
+	}
+
+	result.budgetExhausted = maxRowsPerRun > 0 && result.deletedRows >= maxRowsPerRun;
+	return result;
+}
+
+function botSeenContentRetentionCutoff(now: string): string {
+	const nowMs = Date.parse(now);
+	if (!Number.isFinite(nowMs)) {
+		throw new Error(`Invalid bot seen-content retention timestamp: ${now}`);
+	}
+	return new Date(nowMs - botSeenContentRetentionDays * secondsPerDay * 1000).toISOString();
+}
+
 function notificationRetentionCutoffs(now: string): Readonly<Record<NotificationStatus, string>> {
 	const nowMs = Date.parse(now);
 	if (!Number.isFinite(nowMs)) {
@@ -5854,6 +5917,11 @@ function voteActionText(value: -1 | 0 | 1): string {
 	}
 	return "cleared my vote on";
 }
+
+// seenSetsForBots intentionally treats bot_seen_content as a timeless dedup set.
+// Pruning this D1-only table means spotlight may re-show content a bot last saw
+// before this retention window; fresher seen rows keep their current behavior.
+export const botSeenContentRetentionDays = 90;
 
 async function botSeenRecentlySet(
 	db: D1DatabaseLike,
