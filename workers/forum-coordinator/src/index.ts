@@ -10,7 +10,7 @@ import {
 } from "@bickr/shared/governance";
 import { RepositoryError, createForum, createWorld, listForums } from "@bickr/shared/repository";
 import { deleteSearchVector, upsertForumSearchVector, upsertWorldSearchVector } from "@bickr/shared/search";
-import { createComment, createThread, readThread, refreshThreadHotScores, setVote } from "@bickr/shared/social";
+import { createComment, createThread, pruneExpiredNotifications, readThread, refreshThreadHotScores, setVote } from "@bickr/shared/social";
 import { type ThreadDocument } from "@bickr/shared/model";
 import {
 	addInternalServiceAuthHeader,
@@ -402,9 +402,23 @@ export default {
 	},
 
 	async scheduled(event, env, ctx) {
-		ctx.waitUntil(refreshThreadHotScores(env.BICKR_D1, new Date(event.scheduledTime).toISOString()));
+		const now = new Date(event.scheduledTime).toISOString();
+		ctx.waitUntil(runDailyForumCoordinatorMaintenance(env, now));
 	},
 } satisfies ExportedHandler<Env>;
+
+async function runDailyForumCoordinatorMaintenance(env: Env, now: string): Promise<void> {
+	const [, notificationPrune] = await Promise.all([
+		refreshThreadHotScores(env.BICKR_D1, now),
+		pruneExpiredNotifications(env.BICKR_KV, env.BICKR_D1, { now }),
+	]);
+	if (notificationPrune.deletedRows > 0 || notificationPrune.kvDeleteFailures > 0) {
+		console.log(JSON.stringify({
+			event: "bot_notification_retention_prune",
+			...notificationPrune,
+		}));
+	}
+}
 
 async function handleForumWorkerFetch(request: Request, env: Env): Promise<Response> {
 	const url = new URL(request.url);

@@ -95,6 +95,136 @@ import type {
 	ThreadListPayload,
 } from "./helpers/index-harness";
 import { internalServiceAuthHeader } from "@bickr/shared/internal-service";
+import { notificationKvTtlSince, pruneExpiredNotifications } from "@bickr/shared/social";
+import type { KVNamespaceLike } from "@bickr/shared/storage";
+
+async function runForumCoordinatorScheduled(scheduledTime: string): Promise<void> {
+	if (!forumCoordinatorWorker.scheduled) {
+		throw new Error("Forum coordinator scheduled handler is missing.");
+	}
+	const pending: Array<Promise<unknown>> = [];
+	const controller = {
+		scheduledTime: Date.parse(scheduledTime),
+		cron: "0 0 * * *",
+		noRetry: () => {},
+	} as ScheduledController;
+	const ctx = {
+		waitUntil: (promise: Promise<unknown>) => {
+			pending.push(promise);
+		},
+		passThroughOnException: () => {},
+	} as ExecutionContext;
+	await forumCoordinatorWorker.scheduled(controller, testEnv as unknown as ForumCoordinatorEnv, ctx);
+	await Promise.all(pending);
+}
+
+type BotNotificationStatus = "pending" | "delivered_to_loop" | "read_or_consumed" | "archived";
+
+async function insertBotNotificationForRetention(input: {
+	id: string;
+	status: BotNotificationStatus;
+	createdAt: string;
+	botId?: string;
+}): Promise<void> {
+	const botId = input.botId ?? "bot_retention";
+	await testEnv.BICKR_KV.put(kvKeys.notification(botId, input.id), JSON.stringify({
+		id: input.id,
+		type: "notification",
+		botId,
+		status: input.status,
+		createdAt: input.createdAt,
+	}));
+	await testEnv.BICKR_D1.prepare(
+		`INSERT INTO notifications (
+			notification_id, world_id, bot_id, type, source_object_id, status, message, message_lang,
+			created_at, delivered_at, read_at
+		) VALUES (?, ?, ?, ?, NULL, ?, ?, NULL, ?, ?, ?)`,
+	)
+		.bind(
+			input.id,
+			"wld_retention",
+			botId,
+			"system",
+			input.status,
+			`Notification ${input.id}`,
+			input.createdAt,
+			input.status === "delivered_to_loop" ? input.createdAt : null,
+			input.status === "read_or_consumed" ? input.createdAt : null,
+		)
+		.run();
+}
+
+async function botNotificationRowIds(): Promise<string[]> {
+	const result = await testEnv.BICKR_D1.prepare(
+		`SELECT notification_id AS id
+		 FROM notifications
+		 ORDER BY notification_id`,
+	).all<{ id: string }>();
+	return (result.results ?? []).map((row) => row.id);
+}
+
+async function botNotificationKvExists(id: string, botId = "bot_retention"): Promise<boolean> {
+	return (await testEnv.BICKR_KV.get(botNotificationKvKey(id, botId))) !== null;
+}
+
+function botNotificationKvKey(id: string, botId = "bot_retention"): string {
+	return kvKeys.notification(botId, id);
+}
+
+function kvWithScriptedDeletes(failingKeys: ReadonlySet<string> = new Set()): KVNamespaceLike & { deletedKeys: string[] } {
+	const deletedKeys: string[] = [];
+	return {
+		deletedKeys,
+		get: (key, options) => testEnv.BICKR_KV.get(key, options),
+		put: (key, value, options) => testEnv.BICKR_KV.put(key, value, options),
+		delete: async (key) => {
+			deletedKeys.push(key);
+			if (failingKeys.has(key)) {
+				throw new Error(`Scripted KV delete failure for ${key}`);
+			}
+			await testEnv.BICKR_KV.delete(key);
+		},
+	};
+}
+
+async function insertHumanNotificationForRetention(id: string, createdAt: string): Promise<void> {
+	await testEnv.BICKR_D1.prepare(
+		`INSERT INTO human_notifications (
+			notification_id, user_id, world_id, event_key, notification_type,
+			actor_bot_id, actor_handle, actor_display_name, title, body, url_path, created_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+	)
+		.bind(
+			id,
+			"usr_retention",
+			"wld_retention",
+			`retention:${id}`,
+			"thread_created",
+			"bot_retention",
+			"retention-bot",
+			"Retention Bot",
+			"Old human notification",
+			"Out of scope",
+			"/",
+			createdAt,
+		)
+		.run();
+}
+
+async function humanNotificationExists(id: string): Promise<boolean> {
+	const row = await testEnv.BICKR_D1.prepare(
+		`SELECT notification_id AS id
+		 FROM human_notifications
+		 WHERE notification_id = ?`,
+	)
+		.bind(id)
+		.first<{ id: string }>();
+	return row !== null;
+}
+
+function daysBefore(now: string, days: number): string {
+	return new Date(Date.parse(now) - days * 24 * 60 * 60 * 1000).toISOString();
+}
 
 describe("Forum coordinator", () => {
 
@@ -614,25 +744,6 @@ describe("Forum coordinator", () => {
 			vi.setSystemTime(new Date("2026-05-01T00:00:00.000Z"));
 			const thread = await createThreadForTest(forum.id, author.id, "Cron refreshed hot thread", "Root body.");
 			const threadDocument = await readThread(testEnv.BICKR_KV, thread.id);
-			const runScheduled = async (scheduledTime: string): Promise<void> => {
-				if (!forumCoordinatorWorker.scheduled) {
-					throw new Error("Forum coordinator scheduled handler is missing.");
-				}
-				const pending: Array<Promise<unknown>> = [];
-				const controller = {
-					scheduledTime: Date.parse(scheduledTime),
-					cron: "0 0 * * *",
-					noRetry: () => {},
-				} as ScheduledController;
-				const ctx = {
-					waitUntil: (promise: Promise<unknown>) => {
-						pending.push(promise);
-					},
-					passThroughOnException: () => {},
-				} as ExecutionContext;
-				await forumCoordinatorWorker.scheduled(controller, testEnv as unknown as ForumCoordinatorEnv, ctx);
-				await Promise.all(pending);
-			};
 			const storedHotScore = async (): Promise<number> => {
 				const row = await testEnv.BICKR_D1.prepare(
 					`SELECT hot_score AS hotScore FROM threads_index WHERE thread_id = ?`,
@@ -646,18 +757,227 @@ describe("Forum coordinator", () => {
 			};
 
 			const firstRefresh = "2026-05-02T00:00:00.000Z";
-			await runScheduled(firstRefresh);
+			await runForumCoordinatorScheduled(firstRefresh);
 			expect(await storedHotScore()).toBeCloseTo(threadHotScore({
 				voteScore: 0,
 				recentCommentCount: threadDocument.recentCommentCount,
 				lastActivityAt: threadDocument.lastActivityAt,
 			}, firstRefresh));
 
-			await runScheduled("2026-05-08T00:00:00.000Z");
+			await runForumCoordinatorScheduled("2026-05-08T00:00:00.000Z");
 			expect(await storedHotScore()).toBe(0);
 		} finally {
 			vi.useRealTimers();
 		}
+	});
+
+	it("prunes expired bot notifications from the forum coordinator cron", async () => {
+		const now = "2026-07-01T00:00:00.000Z";
+		await insertBotNotificationForRetention({
+			id: "ntf_expired_pending",
+			status: "pending",
+			createdAt: daysBefore(now, 91),
+		});
+		await insertBotNotificationForRetention({
+			id: "ntf_expired_delivered",
+			status: "delivered_to_loop",
+			createdAt: daysBefore(now, 31),
+		});
+		await insertBotNotificationForRetention({
+			id: "ntf_expired_read",
+			status: "read_or_consumed",
+			createdAt: daysBefore(now, 31),
+		});
+		await insertBotNotificationForRetention({
+			id: "ntf_expired_archived",
+			status: "archived",
+			createdAt: daysBefore(now, 31),
+		});
+		await insertBotNotificationForRetention({
+			id: "ntf_recent_delivered",
+			status: "delivered_to_loop",
+			createdAt: daysBefore(now, 29),
+		});
+		await insertBotNotificationForRetention({
+			id: "ntf_young_pending",
+			status: "pending",
+			createdAt: daysBefore(now, 89),
+		});
+		await insertHumanNotificationForRetention("hnt_old_out_of_scope", daysBefore(now, 120));
+
+		await runForumCoordinatorScheduled(now);
+
+		expect(await botNotificationRowIds()).toEqual(["ntf_recent_delivered", "ntf_young_pending"]);
+		for (const id of ["ntf_expired_pending", "ntf_expired_delivered", "ntf_expired_read", "ntf_expired_archived"]) {
+			expect(await botNotificationKvExists(id)).toBe(false);
+		}
+		expect(await botNotificationKvExists("ntf_recent_delivered")).toBe(true);
+		expect(await botNotificationKvExists("ntf_young_pending")).toBe(true);
+		expect(await humanNotificationExists("hnt_old_out_of_scope")).toBe(true);
+	});
+
+	it("uses D1-only pruning only for TTL-backed notification rows at or after the cutover", async () => {
+		const now = "2026-08-13T00:00:00.000Z";
+		await insertBotNotificationForRetention({
+			id: "ntf_pre_cutover",
+			status: "delivered_to_loop",
+			createdAt: "2026-07-11T23:59:59.999Z",
+		});
+		await insertBotNotificationForRetention({
+			id: "ntf_at_cutover",
+			status: "delivered_to_loop",
+			createdAt: notificationKvTtlSince,
+		});
+
+		const result = await pruneExpiredNotifications(testEnv.BICKR_KV, testEnv.BICKR_D1, {
+			now,
+			maxRowsPerRun: 0,
+		});
+
+		expect(result).toMatchObject({
+			deletedRows: 1,
+			phase1DeletedRows: 1,
+			phase2DeletedRows: 0,
+			selectedRows: 0,
+			kvDeleteFailures: 0,
+			budgetExhausted: false,
+		});
+		expect(await botNotificationRowIds()).toEqual(["ntf_pre_cutover"]);
+		expect(await botNotificationKvExists("ntf_pre_cutover")).toBe(true);
+		expect(await botNotificationKvExists("ntf_at_cutover")).toBe(true);
+	});
+
+	it("keeps legacy KV deletes below the TTL cutover boundary", async () => {
+		const now = "2026-08-13T00:00:00.000Z";
+		await insertBotNotificationForRetention({
+			id: "ntf_legacy_boundary",
+			status: "delivered_to_loop",
+			createdAt: "2026-07-11T23:59:59.999Z",
+		});
+		await insertBotNotificationForRetention({
+			id: "ntf_ttl_boundary",
+			status: "delivered_to_loop",
+			createdAt: notificationKvTtlSince,
+		});
+		const kv = kvWithScriptedDeletes();
+
+		const result = await pruneExpiredNotifications(kv, testEnv.BICKR_D1, {
+			now,
+			selectLimit: 10,
+			maxRowsPerRun: 10,
+		});
+
+		expect(result).toMatchObject({
+			deletedRows: 2,
+			phase1DeletedRows: 1,
+			phase2DeletedRows: 1,
+			selectedRows: 1,
+			kvDeleteFailures: 0,
+		});
+		expect(kv.deletedKeys).toEqual([botNotificationKvKey("ntf_legacy_boundary")]);
+		expect(await botNotificationRowIds()).toEqual([]);
+		expect(await botNotificationKvExists("ntf_legacy_boundary")).toBe(false);
+		expect(await botNotificationKvExists("ntf_ttl_boundary")).toBe(true);
+	});
+
+	it("retains legacy D1 rows when their KV delete fails", async () => {
+		const now = "2026-07-01T00:00:00.000Z";
+		const failedKey = botNotificationKvKey("ntf_failed_kv_delete");
+		await insertBotNotificationForRetention({
+			id: "ntf_failed_kv_delete",
+			status: "pending",
+			createdAt: daysBefore(now, 100),
+		});
+		await insertBotNotificationForRetention({
+			id: "ntf_successful_kv_delete",
+			status: "pending",
+			createdAt: daysBefore(now, 99),
+		});
+		const failingKv = kvWithScriptedDeletes(new Set([failedKey]));
+
+		const firstRun = await pruneExpiredNotifications(failingKv, testEnv.BICKR_D1, {
+			now,
+			selectLimit: 10,
+			maxRowsPerRun: 10,
+			kvDeleteChunkSize: 2,
+		});
+
+		expect(firstRun).toMatchObject({
+			selectedRows: 2,
+			deletedRows: 1,
+			phase1DeletedRows: 0,
+			phase2DeletedRows: 1,
+			kvDeleteFailures: 1,
+			budgetExhausted: false,
+		});
+		expect(await botNotificationRowIds()).toEqual(["ntf_failed_kv_delete"]);
+		expect(await botNotificationKvExists("ntf_failed_kv_delete")).toBe(true);
+		expect(await botNotificationKvExists("ntf_successful_kv_delete")).toBe(false);
+
+		const retryRun = await pruneExpiredNotifications(kvWithScriptedDeletes(), testEnv.BICKR_D1, {
+			now,
+			selectLimit: 10,
+			maxRowsPerRun: 10,
+		});
+
+		expect(retryRun).toMatchObject({
+			selectedRows: 1,
+			deletedRows: 1,
+			phase2DeletedRows: 1,
+			kvDeleteFailures: 0,
+		});
+		expect(await botNotificationRowIds()).toEqual([]);
+		expect(await botNotificationKvExists("ntf_failed_kv_delete")).toBe(false);
+	});
+
+	it("resumes bot notification pruning after hitting the per-run row budget", async () => {
+		const now = "2026-07-01T00:00:00.000Z";
+		for (let index = 0; index < 5; index += 1) {
+			await insertBotNotificationForRetention({
+				id: `ntf_budget_${index}`,
+				status: "pending",
+				createdAt: new Date(Date.parse(daysBefore(now, 100)) + index * 1000).toISOString(),
+			});
+		}
+
+		const firstRun = await pruneExpiredNotifications(testEnv.BICKR_KV, testEnv.BICKR_D1, {
+			now,
+			selectLimit: 2,
+			maxRowsPerRun: 3,
+			kvDeleteChunkSize: 2,
+		});
+
+		expect(firstRun).toMatchObject({
+			selectedRows: 3,
+			deletedRows: 3,
+			kvDeleteFailures: 0,
+			batches: 2,
+			budgetExhausted: true,
+		});
+		expect(await botNotificationRowIds()).toEqual(["ntf_budget_3", "ntf_budget_4"]);
+		for (const id of ["ntf_budget_0", "ntf_budget_1", "ntf_budget_2"]) {
+			expect(await botNotificationKvExists(id)).toBe(false);
+		}
+		expect(await botNotificationKvExists("ntf_budget_3")).toBe(true);
+		expect(await botNotificationKvExists("ntf_budget_4")).toBe(true);
+
+		const secondRun = await pruneExpiredNotifications(testEnv.BICKR_KV, testEnv.BICKR_D1, {
+			now,
+			selectLimit: 2,
+			maxRowsPerRun: 3,
+			kvDeleteChunkSize: 2,
+		});
+
+		expect(secondRun).toMatchObject({
+			selectedRows: 2,
+			deletedRows: 2,
+			kvDeleteFailures: 0,
+			batches: 1,
+			budgetExhausted: false,
+		});
+		expect(await botNotificationRowIds()).toEqual([]);
+		expect(await botNotificationKvExists("ntf_budget_3")).toBe(false);
+		expect(await botNotificationKvExists("ntf_budget_4")).toBe(false);
 	});
 
 	it("redirects standalone thread and comment refs to canonical forum routes", async () => {
