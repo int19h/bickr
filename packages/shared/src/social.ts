@@ -43,6 +43,7 @@ import {
 	type NotificationDeliveryReason,
 	type NotificationDocument,
 	type NotificationEvent,
+	type NotificationStatus,
 	type NotificationType,
 	type NotificationProfileRef,
 	type SearchThreadResult,
@@ -87,6 +88,7 @@ import {
 	type D1Result,
 	type KVNamespaceLike,
 	kvKeys,
+	deleteKey,
 	putObjectIndex,
 	readJson,
 	writeJson,
@@ -103,6 +105,43 @@ const mentionPattern = new RegExp(
 const d1MaxBoundParameters = 100;
 const hotThreadWindowDays = 7;
 const hotThreadWindowMs = hotThreadWindowDays * 24 * 60 * 60 * 1000;
+const secondsPerDay = 24 * 60 * 60;
+
+export const notificationRetentionSecondsByStatus: Readonly<Record<NotificationStatus, number>> = {
+	pending: 90 * secondsPerDay,
+	delivered_to_loop: 30 * secondsPerDay,
+	read_or_consumed: 30 * secondsPerDay,
+	archived: 30 * secondsPerDay,
+};
+
+export const notificationKvExpirationTtlSeconds = Math.max(...Object.values(notificationRetentionSecondsByStatus));
+// This cutover is intentionally after the expected PR deployment time. Too late
+// is harmless because some TTL-backed rows get extra legacy KV deletes; too early
+// would permanently strand pre-TTL KV documents once their D1 rows are removed.
+export const notificationKvTtlSince = new Date("2026-07-12T00:00:00Z").toISOString();
+export const notificationPruneSelectLimit = 500;
+// Phase 2 only drains the finite pre-TTL legacy set. Live inflow was measured at
+// about 7k rows/day, so the old all-rows 1,900/day design could never catch up.
+// Current Workers docs count KV and D1 calls as subrequests; 8k legacy rows fit
+// under the paid 10k default with 16 selects and about 80 D1 delete batches.
+export const notificationPruneMaxRowsPerRun = 8_000;
+export const notificationPruneKvDeleteChunkSize = 50;
+
+export type NotificationPruneResult = {
+	selectedRows: number;
+	deletedRows: number;
+	kvDeleteFailures: number;
+	batches: number;
+	budgetExhausted: boolean;
+	phase1DeletedRows: number;
+	phase2DeletedRows: number;
+};
+
+type ExpiredNotificationRow = {
+	id: string;
+	botId: string;
+	createdAt: string;
+};
 
 type ThreadHotScoreInput = {
 	voteScore: number;
@@ -5285,6 +5324,219 @@ export async function markNotificationsDelivered(
 	}
 }
 
+export async function pruneExpiredNotifications(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	options: {
+		now?: string;
+		selectLimit?: number;
+		maxRowsPerRun?: number;
+		kvDeleteChunkSize?: number;
+	} = {},
+): Promise<NotificationPruneResult> {
+	const now = options.now ?? new Date().toISOString();
+	const cutoffs = notificationRetentionCutoffs(now);
+	const selectLimit = positiveIntegerOption(options.selectLimit ?? notificationPruneSelectLimit, "selectLimit");
+	const maxRowsPerRun = nonNegativeIntegerOption(options.maxRowsPerRun ?? notificationPruneMaxRowsPerRun, "maxRowsPerRun");
+	const kvDeleteChunkSize = positiveIntegerOption(
+		options.kvDeleteChunkSize ?? notificationPruneKvDeleteChunkSize,
+		"kvDeleteChunkSize",
+	);
+	const result: NotificationPruneResult = {
+		selectedRows: 0,
+		deletedRows: 0,
+		kvDeleteFailures: 0,
+		batches: 0,
+		budgetExhausted: false,
+		phase1DeletedRows: 0,
+		phase2DeletedRows: 0,
+	};
+
+	result.phase1DeletedRows = await deleteTtlBackedNotificationRows(db, cutoffs);
+	result.deletedRows += result.phase1DeletedRows;
+
+	let cursor: ExpiredNotificationCursor | undefined;
+	while (result.selectedRows < maxRowsPerRun) {
+		const remainingBudget = maxRowsPerRun - result.selectedRows;
+		const limit = Math.min(selectLimit, remainingBudget);
+		const rows = await selectLegacyExpiredNotifications(db, cutoffs, limit, cursor);
+		if (rows.length === 0) {
+			break;
+		}
+
+		result.batches += 1;
+		result.selectedRows += rows.length;
+		cursor = legacyNotificationCursor(rows[rows.length - 1]);
+		const kvDeleteResult = await deleteExpiredNotificationKvDocuments(kv, rows, kvDeleteChunkSize);
+		result.kvDeleteFailures += kvDeleteResult.failures;
+		const phase2DeletedRows = await deleteNotificationRows(db, kvDeleteResult.deletedRows.map((row) => row.id));
+		result.phase2DeletedRows += phase2DeletedRows;
+		result.deletedRows += phase2DeletedRows;
+
+		if (rows.length < limit) {
+			break;
+		}
+	}
+
+	result.budgetExhausted = maxRowsPerRun > 0 && result.selectedRows >= maxRowsPerRun;
+	return result;
+}
+
+function notificationRetentionCutoffs(now: string): Readonly<Record<NotificationStatus, string>> {
+	const nowMs = Date.parse(now);
+	if (!Number.isFinite(nowMs)) {
+		throw new Error(`Invalid notification retention timestamp: ${now}`);
+	}
+	return {
+		pending: new Date(nowMs - notificationRetentionSecondsByStatus.pending * 1000).toISOString(),
+		delivered_to_loop: new Date(nowMs - notificationRetentionSecondsByStatus.delivered_to_loop * 1000).toISOString(),
+		read_or_consumed: new Date(nowMs - notificationRetentionSecondsByStatus.read_or_consumed * 1000).toISOString(),
+		archived: new Date(nowMs - notificationRetentionSecondsByStatus.archived * 1000).toISOString(),
+	};
+}
+
+async function deleteTtlBackedNotificationRows(
+	db: D1DatabaseLike,
+	cutoffs: Readonly<Record<NotificationStatus, string>>,
+): Promise<number> {
+	let deletedRows = 0;
+	for (const status of notificationStatuses) {
+		const result = await db
+			.prepare(
+				`DELETE FROM notifications
+				 WHERE status = ?
+				   AND created_at <= ?
+				   AND created_at >= ?`,
+			)
+			.bind(status, cutoffs[status], notificationKvTtlSince)
+			.run();
+		deletedRows += result.meta?.changes ?? 0;
+	}
+	return deletedRows;
+}
+
+const notificationStatuses: readonly NotificationStatus[] = [
+	"pending",
+	"delivered_to_loop",
+	"read_or_consumed",
+	"archived",
+];
+
+type ExpiredNotificationCursor = {
+	createdAt: string;
+	id: string;
+};
+
+function legacyNotificationCursor(row: ExpiredNotificationRow | undefined): ExpiredNotificationCursor | undefined {
+	return row ? { createdAt: row.createdAt, id: row.id } : undefined;
+}
+
+async function selectLegacyExpiredNotifications(
+	db: D1DatabaseLike,
+	cutoffs: Readonly<Record<NotificationStatus, string>>,
+	limit: number,
+	cursor?: ExpiredNotificationCursor,
+): Promise<ExpiredNotificationRow[]> {
+	const result = await db
+		.prepare(
+			`WITH expired_notifications AS (
+				SELECT notification_id AS id, bot_id AS botId, created_at AS createdAt
+				FROM notifications
+				WHERE status = 'pending' AND created_at <= ? AND created_at < ?
+				UNION ALL
+				SELECT notification_id AS id, bot_id AS botId, created_at AS createdAt
+				FROM notifications
+				WHERE status = 'delivered_to_loop' AND created_at <= ? AND created_at < ?
+				UNION ALL
+				SELECT notification_id AS id, bot_id AS botId, created_at AS createdAt
+				FROM notifications
+				WHERE status = 'read_or_consumed' AND created_at <= ? AND created_at < ?
+				UNION ALL
+				SELECT notification_id AS id, bot_id AS botId, created_at AS createdAt
+				FROM notifications
+				WHERE status = 'archived' AND created_at <= ? AND created_at < ?
+			)
+			SELECT id, botId, createdAt
+			FROM expired_notifications
+			WHERE (? IS NULL OR createdAt > ? OR (createdAt = ? AND id > ?))
+			ORDER BY createdAt ASC, id ASC
+			LIMIT ?`,
+		)
+		.bind(
+			cutoffs.pending,
+			notificationKvTtlSince,
+			cutoffs.delivered_to_loop,
+			notificationKvTtlSince,
+			cutoffs.read_or_consumed,
+			notificationKvTtlSince,
+			cutoffs.archived,
+			notificationKvTtlSince,
+			cursor?.createdAt ?? null,
+			cursor?.createdAt ?? null,
+			cursor?.createdAt ?? null,
+			cursor?.id ?? null,
+			limit,
+		)
+		.all<ExpiredNotificationRow>();
+	return result.results ?? [];
+}
+
+async function deleteExpiredNotificationKvDocuments(
+	kv: KVNamespaceLike,
+	rows: ExpiredNotificationRow[],
+	chunkSize: number,
+): Promise<{ deletedRows: ExpiredNotificationRow[]; failures: number }> {
+	let failures = 0;
+	const deletedRows: ExpiredNotificationRow[] = [];
+	for (const batch of chunks(rows, chunkSize)) {
+		const outcomes = await Promise.all(
+			batch.map(async (row) => {
+				try {
+					await deleteKey(kv, kvKeys.notification(row.botId, row.id));
+					return row;
+				} catch {
+					return null;
+				}
+			}),
+		);
+		for (const row of outcomes) {
+			if (row) {
+				deletedRows.push(row);
+			} else {
+				failures += 1;
+			}
+		}
+	}
+	return { deletedRows, failures };
+}
+
+async function deleteNotificationRows(db: D1DatabaseLike, notificationIds: string[]): Promise<number> {
+	let deletedRows = 0;
+	for (const batch of chunks(notificationIds, d1MaxBoundParameters)) {
+		const placeholders = batch.map(() => "?").join(", ");
+		const result = await db
+			.prepare(`DELETE FROM notifications WHERE notification_id IN (${placeholders})`)
+			.bind(...batch)
+			.run();
+		deletedRows += result.meta?.changes ?? batch.length;
+	}
+	return deletedRows;
+}
+
+function positiveIntegerOption(value: number, name: string): number {
+	if (!Number.isInteger(value) || value <= 0) {
+		throw new Error(`${name} must be a positive integer.`);
+	}
+	return value;
+}
+
+function nonNegativeIntegerOption(value: number, name: string): number {
+	if (!Number.isInteger(value) || value < 0) {
+		throw new Error(`${name} must be a non-negative integer.`);
+	}
+	return value;
+}
+
 async function createNotification(
 	kv: KVNamespaceLike,
 	db: D1DatabaseLike,
@@ -5315,7 +5567,12 @@ async function createNotification(
 		createdAt: input.now,
 		updatedAt: input.now,
 	};
-	await writeJson(kv, kvKeys.notification(input.botId, notification.id), notification);
+	// Bot notifications are retained from creation: delivered/read/archived rows
+	// are pruned after 30 days, pending rows after 90 days. KV mirrors use the
+	// max retention TTL so new documents self-clean even if a prune run is delayed.
+	await writeJson(kv, kvKeys.notification(input.botId, notification.id), notification, {
+		expirationTtl: notificationKvExpirationTtlSeconds,
+	});
 	await db
 		.prepare(
 			`INSERT INTO notifications (

@@ -24,6 +24,15 @@ describe("Cloudflare retry helpers", () => {
 		}
 	});
 
+	it("passes expiration TTL options to KV writes", async () => {
+		const kv = new ScriptedKV({});
+
+		await writeJson(kv, "v1:test:key", { ok: true }, { expirationTtl: 90 });
+
+		expect(kv.putCalls).toBe(1);
+		expect(kv.putOptions).toEqual([{ expirationTtl: 90 }]);
+	});
+
 	it("does not retry non-rate-limit KV write failures", async () => {
 		const delays: number[] = [];
 		const restore = setCloudflareRetryTestHooks({
@@ -115,6 +124,7 @@ describe("Cloudflare retry helpers", () => {
 
 class ScriptedKV implements KVNamespaceLike {
 	readonly putValues: string[] = [];
+	readonly putOptions: Array<{ expirationTtl?: number } | undefined> = [];
 	putCalls = 0;
 	deleteCalls = 0;
 	private readonly putErrors: unknown[];
@@ -129,13 +139,14 @@ class ScriptedKV implements KVNamespaceLike {
 		return null;
 	}
 
-	async put(_key: string, value: string): Promise<void> {
+	async put(_key: string, value: string, options?: { expirationTtl?: number }): Promise<void> {
 		this.putCalls += 1;
 		const error = this.putErrors.shift();
 		if (error) {
 			throw error;
 		}
 		this.putValues.push(value);
+		this.putOptions.push(options);
 	}
 
 	async delete(): Promise<void> {

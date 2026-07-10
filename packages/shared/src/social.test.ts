@@ -7,7 +7,13 @@ import {
 	parseObjectRef,
 	parseThreadRef,
 } from "./ids";
-import { createComment, createThread, threadHotScore } from "./social";
+import {
+	createComment,
+	createThread,
+	ensureBootstrapNotification,
+	notificationKvExpirationTtlSeconds,
+	threadHotScore,
+} from "./social";
 import { kvKeys, type D1DatabaseLike, type D1PreparedStatementLike, type D1Result, type KVNamespaceLike } from "./storage";
 import { schemaVersion, type BotDocument, type ForumDocument, type LanguageTag, type PostingSettings, type RequiredLocalizedText, type WorldDocument } from "./model";
 
@@ -227,6 +233,20 @@ describe("createThread duplicate title guard", () => {
 	});
 });
 
+describe("bot notification retention", () => {
+	it("writes notification documents with the maximum retention TTL", async () => {
+		const { db, kv, bot } = fixture({ existingThreads: [] });
+
+		await ensureBootstrapNotification(kv, db, bot, now);
+
+		const notificationPutIndex = kv.puts.findIndex((key) => key.startsWith(`v1:notification:${bot.id}:`));
+		expect(notificationPutIndex).toBeGreaterThanOrEqual(0);
+		expect(kv.putOptions[notificationPutIndex]).toEqual({
+			expirationTtl: notificationKvExpirationTtlSeconds,
+		});
+	});
+});
+
 describe("content refs", () => {
 	it("formats and parses short and legacy refs", () => {
 		expect(formatThreadRef("abcdefgh")).toBe("t/abcdefgh");
@@ -259,7 +279,7 @@ type FixtureOptions = {
 	botPostingSettings?: PostingSettings;
 };
 
-function fixture(options: FixtureOptions): { db: FakeD1; kv: FakeKV } {
+function fixture(options: FixtureOptions): { db: FakeD1; kv: FakeKV; bot: BotDocument } {
 	const forum: ForumDocument = {
 		id: "frm_main",
 		type: "forum",
@@ -324,7 +344,7 @@ function fixture(options: FixtureOptions): { db: FakeD1; kv: FakeKV } {
 		[kvKeys.forum(forum.id), forum],
 		[kvKeys.bot(bot.id), bot],
 	]));
-	return { db: new FakeD1(options.existingThreads, options.reservedContentIds), kv };
+	return { db: new FakeD1(options.existingThreads, options.reservedContentIds), kv, bot };
 }
 
 function mockRandomBytes(sequences: number[][]): () => void {
@@ -339,6 +359,7 @@ function mockRandomBytes(sequences: number[][]): () => void {
 
 class FakeKV implements KVNamespaceLike {
 	readonly puts: string[] = [];
+	readonly putOptions: Array<{ expirationTtl?: number } | undefined> = [];
 	private readonly data: Map<string, unknown>;
 
 	constructor(data: Map<string, unknown>) {
@@ -353,8 +374,9 @@ class FakeKV implements KVNamespaceLike {
 		return value;
 	}
 
-	async put(key: string, value: string): Promise<void> {
+	async put(key: string, value: string, options?: { expirationTtl?: number }): Promise<void> {
 		this.puts.push(key);
+		this.putOptions.push(options);
 		this.data.set(key, value);
 	}
 
