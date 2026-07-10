@@ -1738,7 +1738,6 @@ describe("Compaction", () => {
 					rows: activeMessages.some((message) => String(message.content).includes("Old history")) ? [loopMessageRowForTest(1, "run-old", "Old history that can be compacted.")] : [],
 					overBudgetFallback: false,
 				}),
-			repairActiveProviderToolCallHistory: async () => [],
 			recordInferenceSubmission,
 			recordLoopMessageLog: () => {},
 			recordProviderUsage: () => {},
@@ -1834,7 +1833,6 @@ describe("Compaction", () => {
 						overBudgetFallback: false,
 					};
 				},
-			repairActiveProviderToolCallHistory: async () => [],
 			recordInferenceSubmission: () => {},
 			recordLoopMessageLog: () => {},
 			recordProviderUsage: () => {},
@@ -2147,7 +2145,6 @@ describe("Compaction", () => {
 				estimateProviderPromptTokens: () => providerPromptEstimateForTokens(20_000),
 				textTokenCalibration: () => calibration,
 					compactionRowSelectionForEstimatedBudget: () => ({ rows: [], overBudgetFallback: false }),
-			repairActiveProviderToolCallHistory: async () => [],
 			recordInferenceSubmission,
 			recordProviderUsage: () => {},
 			throwIfStopped: (_runId: string, signal: AbortSignal) => {

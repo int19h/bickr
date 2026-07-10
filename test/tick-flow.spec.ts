@@ -1525,7 +1525,6 @@ describe("Tick flow", () => {
 				promptTokens: 100,
 				requestMessages: [{ role: "assistant", content: "I am ready." }],
 			}),
-			repairActiveProviderToolCallHistory: async () => [],
 			recordInferenceSubmission: () => {},
 			recordLoopMessageLog: () => {},
 			recordProviderUsage: () => {},
@@ -1564,7 +1563,6 @@ describe("Tick flow", () => {
 	it("drops META compaction summary tool calls during normal inference", async () => {
 		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
 		const appendedLoopMessages: Array<{ message: Record<string, unknown>; origin: string }> = [];
-		const rewrites: Array<{ kind: string; toolCallId: string }> = [];
 		const executeTool = vi.fn();
 		const callProvider = vi.fn()
 			.mockResolvedValueOnce(providerResponseWithToolCall("call-meta-summary", metaCompactionToolName, {
@@ -1600,18 +1598,9 @@ describe("Tick flow", () => {
 			loopGeneratedTokenCountSinceLastLogOff: () => 0,
 			prematureLogOffCorrectedSinceLastLogOff: () => false,
 			providerLoopInitialSuccessfulToolCallCount: () => 0,
-			repairActiveProviderToolCallHistory: async () => [],
 			recordInferenceSubmission: () => {},
 			recordLoopMessageLog: () => {},
 			recordProviderUsage: () => {},
-			rewriteProviderResponseLoopMessageToolCall: (_seq: number, rewrite: { kind: string; toolCallId: string }) => {
-				rewrites.push(rewrite);
-				const providerResponse = appendedLoopMessages.find((message) => message.origin === "provider_response" && Array.isArray(message.message.tool_calls));
-				if (providerResponse?.message.tool_calls && rewrite.kind === "drop") {
-					providerResponse.message.tool_calls = (providerResponse.message.tool_calls as BotInferenceSubmissionToolCall[])
-						.filter((toolCall) => toolCall.id !== rewrite.toolCallId);
-				}
-			},
 			successfulMutatingToolCallSinceLastLogOff: () => true,
 			throwIfStopped: (_runId: string, signal: AbortSignal) => {
 				if (signal.aborted) {
@@ -1640,7 +1629,6 @@ describe("Tick flow", () => {
 		).resolves.toMatchObject({ logOffCalled: false });
 
 		expect(executeTool).not.toHaveBeenCalled();
-		expect(rewrites).toEqual([{ kind: "drop", toolCallId: "call-meta-summary" }]);
 		expect(appendedLoopMessages.find((message) => message.origin === "self_correction")?.message.content).toContain(`${metaCompactionToolName} cannot be used at this time`);
 		expect(JSON.stringify(appendedLoopMessages.filter((message) => message.origin !== "self_correction"))).not.toContain(metaCompactionToolName);
 		expect(events).toContainEqual(expect.objectContaining({
@@ -1691,7 +1679,6 @@ describe("Tick flow", () => {
 				executedTools.push({ name, args });
 				return { name, result: { ok: true }, providerResult: { ok: true } };
 			},
-			repairActiveProviderToolCallHistory: async () => [],
 			recordInferenceSubmission: () => {},
 			recordLoopMessageLog: () => {},
 			recordProviderUsage: () => {},
@@ -1791,7 +1778,6 @@ describe("Tick flow", () => {
 				executedTools.push({ name, args });
 				return { name, result: { ok: true }, providerResult: { ok: true } };
 			},
-			repairActiveProviderToolCallHistory: async () => [],
 			recordInferenceSubmission: () => {},
 			recordLoopMessageLog: () => {},
 			recordProviderUsage: () => {},
@@ -1877,7 +1863,6 @@ describe("Tick flow", () => {
 				result: { ok: true, args },
 				providerResult: { ok: true, args },
 			}),
-			repairActiveProviderToolCallHistory: async () => [],
 			recordInferenceSubmission: () => {},
 			recordLoopMessageLog: () => {},
 			recordProviderUsage: () => {},
@@ -1960,7 +1945,6 @@ describe("Tick flow", () => {
 				executedTools.push({ name, args });
 				return { name, result: { ok: true }, providerResult: { ok: true } };
 			},
-			repairActiveProviderToolCallHistory: async () => [],
 			recordInferenceSubmission: () => {},
 			recordLoopMessageLog: () => {},
 			recordProviderUsage: () => {},
@@ -2061,7 +2045,6 @@ describe("Tick flow", () => {
 				executedTools.push({ name, args });
 				return { name, result: { ok: true }, providerResult: { ok: true } };
 			},
-			repairActiveProviderToolCallHistory: async () => [],
 			recordInferenceSubmission: () => {},
 			recordLoopMessageLog: () => {},
 			recordProviderUsage: () => {},
@@ -2116,7 +2099,6 @@ describe("Tick flow", () => {
 	it("self-corrects one duplicate missing-profile follow request without repeated failures", async () => {
 		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
 		const appendedLoopMessages: Array<{ message: Record<string, unknown>; origin: string }> = [];
-		const rewrites: Array<{ kind: string; toolCallId: string }> = [];
 		const callProvider = vi.fn()
 			.mockResolvedValueOnce(providerResponseWithToolCalls([
 				{ id: "call-missing-1", name: "follow_profile", args: { targets: [{ username: "philosopher_king", reason: "This profile looked relevant." }] } },
@@ -2148,13 +2130,9 @@ describe("Tick flow", () => {
 				promptTokens: 100,
 				requestMessages: [{ role: "assistant", content: "I am ready." }],
 			}),
-			repairActiveProviderToolCallHistory: async () => [],
 			recordInferenceSubmission: () => {},
 			recordLoopMessageLog: () => {},
 			recordProviderUsage: () => {},
-			rewriteProviderResponseLoopMessageToolCall: (_seq: number, rewrite: { kind: string; toolCallId: string }) => {
-				rewrites.push(rewrite);
-			},
 			throwIfStopped: (_runId: string, signal: AbortSignal) => {
 				if (signal.aborted) {
 					throw new Error("Unexpected abort.");
@@ -2181,7 +2159,6 @@ describe("Tick flow", () => {
 			),
 		).resolves.toMatchObject({ logOffCalled: false });
 
-		expect(rewrites).toEqual([{ kind: "drop", toolCallId: "call-missing-1" }]);
 		expect(appendedLoopMessages.filter((message) => message.origin === "tool_failure")).toEqual([]);
 		expect(events.filter((event) => event.type === "tool_result")).toEqual([]);
 		const correction = String(appendedLoopMessages.find((message) => message.origin === "self_correction")?.message.content ?? "");
@@ -2196,7 +2173,7 @@ describe("Tick flow", () => {
 		}));
 	});
 
-		it("keeps the full tool schema when the iteration is near its successful control limit", async () => {
+	it("keeps the full tool schema when the iteration is near its successful control limit", async () => {
 		let providerTools: ProviderToolDefinition[] = [];
 		const executedTools: string[] = [];
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
@@ -2232,7 +2209,6 @@ describe("Tick flow", () => {
 			recordInferenceSubmission: () => {},
 			recordLoopMessageLog: () => {},
 			recordProviderUsage: () => {},
-			repairActiveProviderToolCallHistory: async () => [],
 			providerLoopInitialSuccessfulToolCallCount: () => 7,
 			successfulMutatingToolCallSinceLastLogOff: () => true,
 			throwIfStopped: (_runId: string, signal: AbortSignal) => {
@@ -2315,7 +2291,6 @@ describe("Tick flow", () => {
 			recordInferenceSubmission: () => {},
 			recordLoopMessageLog: () => {},
 			recordProviderUsage: () => {},
-			repairActiveProviderToolCallHistory: async () => [],
 			providerLoopInitialSuccessfulToolCallCount: () => 7,
 			successfulMutatingToolCallSinceLastLogOff: () => true,
 			throwIfStopped: (_runId: string, signal: AbortSignal) => {
@@ -2428,7 +2403,6 @@ describe("Tick flow", () => {
 			recordInferenceSubmission: () => {},
 			recordLoopMessageLog: () => {},
 			recordProviderUsage: () => {},
-			repairActiveProviderToolCallHistory: async () => [],
 			successfulMutatingToolCallSinceLastLogOff: () => true,
 			throwIfStopped: (_runId: string, signal: AbortSignal) => {
 				if (signal.aborted) {
@@ -2537,7 +2511,6 @@ describe("Tick flow", () => {
 			recordInferenceSubmission: () => {},
 			recordLoopMessageLog: () => {},
 			recordProviderUsage: () => {},
-			repairActiveProviderToolCallHistory: async () => [],
 			successfulMutatingToolCallSinceLastLogOff: () => true,
 			throwIfStopped: (_runId: string, signal: AbortSignal) => {
 				if (signal.aborted) {
@@ -2642,7 +2615,6 @@ describe("Tick flow", () => {
 			recordInferenceSubmission: () => {},
 			recordLoopMessageLog: () => {},
 			recordProviderUsage: () => {},
-			repairActiveProviderToolCallHistory: async () => [],
 			successfulMutatingToolCallSinceLastLogOff: () => true,
 			throwIfStopped: (_runId: string, signal: AbortSignal) => {
 				if (signal.aborted) {
@@ -2732,7 +2704,6 @@ describe("Tick flow", () => {
 			recordInferenceSubmission: () => {},
 			recordLoopMessageLog: () => {},
 			recordProviderUsage: () => {},
-			repairActiveProviderToolCallHistory: async () => [],
 			providerLoopInitialSuccessfulToolCallCount: () => 6,
 			successfulMutatingToolCallSinceLastLogOff: () => true,
 			throwIfStopped: (_runId: string, signal: AbortSignal) => {

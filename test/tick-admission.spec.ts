@@ -102,7 +102,6 @@ describe("BotRuntime tick admission", () => {
 		const order: string[] = [];
 
 		Object.assign(harness.runtime as object, {
-			repairActiveProviderToolCallHistory: async () => [],
 			compactionCandidateRows: () => [{ seq: 1 }],
 			compactLoopMessageRowsInBatches: async () => {
 				order.push("compact-start");
@@ -271,7 +270,6 @@ function testRuntimeHarness(): RuntimeHarness {
 			}
 			return { runId: admitted.runId, status: "completed" };
 		},
-		repairActiveProviderToolCallHistory: async () => [],
 		exportRecentProviderUsage: async () => {},
 	}) as unknown as RuntimeHarness["runtime"];
 	return { runtime, tickBodies, tickStarted, releaseTick, events };

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { BotInferenceSubmissionMessage, BotInferenceSubmissionToolCall, BotPublicProfile, LanguageTag, RequiredLocalizedText } from "@bickr/shared/model";
+import type { BotInferenceSubmissionToolCall, BotPublicProfile, LanguageTag, RequiredLocalizedText } from "@bickr/shared/model";
 import {
 	followToolSelfCorrectionMessage,
 	localizedToolTextArg,
@@ -9,7 +9,6 @@ import {
 	providerAvatarImageStreamChunk,
 	sanitizeProviderToolCalls,
 	providerToolResultPayload,
-	rewriteProviderResponseToolCallMessage,
 	runtimeErrorLoopMessageContent,
 	selfCorrectionMessageForToolFailurePayload,
 	stripLeakedProviderCommentRefSuffix,
@@ -19,83 +18,6 @@ import {
 
 const enLang = "en" as LanguageTag;
 const en = (text: string): RequiredLocalizedText => ({ lang: enLang, text });
-
-describe("rewriteProviderResponseToolCallMessage", () => {
-	it("removes one offending tool call and preserves unrelated calls", () => {
-		const message = assistantMessage({
-			content: null,
-			tool_calls: [
-				toolCall("call_bad", "follow_profile", { targets: [{ username: "alice", reason: "Alice writes useful posts." }] }),
-				toolCall("call_ok", "read_thread", { threadId: "thr_1" }),
-			],
-		});
-
-		const result = rewriteProviderResponseToolCallMessage(message, { kind: "drop", toolCallId: "call_bad" });
-
-		expect(result.kind).toBe("updated");
-		if (result.kind !== "updated") {
-			return;
-		}
-		expect(result.message.tool_calls).toHaveLength(1);
-		expect(result.message.tool_calls?.[0]?.id).toBe("call_ok");
-	});
-
-	it("keeps provider response text when only the offending tool call is removed", () => {
-		const message = assistantMessage({
-			content: "I should not make the same post twice.",
-			tool_calls: [toolCall("call_bad", "create_thread", { forumHandle: "general", title: "Same" })],
-		});
-
-		const result = rewriteProviderResponseToolCallMessage(message, { kind: "drop", toolCallId: "call_bad" });
-
-		expect(result).toMatchObject({
-			kind: "updated",
-			message: {
-				content: "I should not make the same post twice.",
-			},
-		});
-		if (result.kind === "updated") {
-			expect(result.message.tool_calls).toBeUndefined();
-		}
-	});
-
-	it("soft-deletes an empty provider response when its only tool call is removed", () => {
-		const message = assistantMessage({
-			content: null,
-			tool_calls: [toolCall("call_bad", "reply_to_comment", { commentId: "c_1", body: "Same" })],
-		});
-
-		const result = rewriteProviderResponseToolCallMessage(message, { kind: "drop", toolCallId: "call_bad" });
-
-		expect(result.kind).toBe("deleted");
-	});
-
-	it("edits tool call arguments and preserves the call id", () => {
-		const message = assistantMessage({
-			content: null,
-			tool_calls: [toolCall("call_follow", "follow_profile", {
-				targets: [
-					{ username: "alice", reason: "Alice writes interesting posts." },
-					{ username: "bob", reason: "Bob shares useful context." },
-				],
-			})],
-		});
-
-		const result = rewriteProviderResponseToolCallMessage(message, {
-			kind: "replace_arguments",
-			toolCallId: "call_follow",
-			arguments: JSON.stringify({ targets: [{ username: "bob", reason: "Bob shares useful context." }] }),
-		});
-
-		expect(result.kind).toBe("updated");
-		if (result.kind !== "updated") {
-			return;
-		}
-		const [edited] = result.message.tool_calls ?? [];
-		expect(edited?.id).toBe("call_follow");
-		expect(JSON.parse(edited?.function.arguments ?? "{}")).toEqual({ targets: [{ username: "bob", reason: "Bob shares useful context." }] });
-	});
-});
 
 describe("tool argument validation", () => {
 	it("drops malformed JSON argument strings before history or execution", () => {
@@ -461,10 +383,6 @@ describe("provider-facing text preservation", () => {
 		expect(content).toContain("messages parameter");
 	});
 });
-
-function assistantMessage(input: Omit<BotInferenceSubmissionMessage, "role">): BotInferenceSubmissionMessage {
-	return { role: "assistant", ...input };
-}
 
 function toolCall(id: string, name: string, args: Record<string, unknown>): BotInferenceSubmissionToolCall {
 	return rawToolCall(id, name, JSON.stringify(args));

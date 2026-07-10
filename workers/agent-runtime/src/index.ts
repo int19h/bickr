@@ -362,6 +362,20 @@ type RuntimeFailureLog = {
 	text: string;
 };
 
+type LoopMessageAppendLog = {
+	kind: BotLoopMessageLogKind;
+	text: string;
+};
+
+type LoopMessageGroupEntry = {
+	runId: string;
+	message: ChatMessage;
+	origin: BotLoopMessageOrigin;
+	status?: BotLoopMessageStatus;
+	options?: { streamSeq?: number; displayEventSeq?: number };
+	extraLogs?: LoopMessageAppendLog[];
+};
+
 type ProviderCompactionResponsePayload = {
 	id?: unknown;
 	model?: unknown;
@@ -399,15 +413,6 @@ type ToolResult = {
 	spotlightMutation?: boolean;
 	spotlightTickTerminator?: boolean;
 };
-
-export type ProviderToolCallRewrite =
-	| { kind: 'drop'; toolCallId: string }
-	| { kind: 'replace_arguments'; toolCallId: string; arguments: string };
-
-export type ProviderResponseToolCallRewriteResult =
-	| { kind: 'unchanged'; message: BotInferenceSubmissionMessage }
-	| { kind: 'updated'; message: BotInferenceSubmissionMessage }
-	| { kind: 'deleted' };
 
 type VoteToolTarget = {
 	commentId: string;
@@ -1139,19 +1144,19 @@ class ToolCallArgumentValidationError extends Error {
 	}
 }
 
-type ProviderToolCallHistoryRepairAction = { kind: 'delete'; seq: number } | { kind: 'update'; seq: number; message: ChatMessage };
+type LegacyProviderToolCallHistoryNormalizationOperation =
+	| { kind: 'delete'; seq: number }
+	| { kind: 'update'; seq: number; message: ChatMessage }
+	| { kind: 'insert'; id: string; sourceRow: LoopMessageRow; message: ChatMessage };
 
-type ProviderToolCallHistoryRepair = {
-	actions: ProviderToolCallHistoryRepairAction[];
+type LegacyProviderToolCallHistoryNormalizationOrderItem = { kind: 'existing'; seq: number } | { kind: 'insert'; id: string };
+
+type LegacyProviderToolCallHistoryNormalization = {
+	operations: LegacyProviderToolCallHistoryNormalizationOperation[];
+	order: LegacyProviderToolCallHistoryNormalizationOrderItem[];
 	dropped: DroppedProviderToolCall[];
 	repairedTextCount: number;
 	repairedMessageSeqs: number[];
-};
-
-type ProviderToolCallBundleSplit = {
-	assistantRow: LoopMessageRow;
-	assistantMessage: ChatMessage;
-	pairs: Array<{ toolCall: ToolCall; toolRow: LoopMessageRow }>;
 };
 
 type ToolUseRecoveryState = {
@@ -2472,29 +2477,22 @@ function sanitizeProviderMessageSequenceForRequest(messages: readonly ChatMessag
 	let nextToolCallId = 1;
 	for (let index = 0; index < messages.length; index += 1) {
 		const message = messages[index]!;
-		if (message.role === 'tool') {
-			continue;
-		}
 		if (message.role !== 'assistant' || !Array.isArray(message.tool_calls) || message.tool_calls.length === 0) {
 			sanitized.push(message);
 			continue;
 		}
 
-		const toolCallSanitization = sanitizeProviderToolCalls(message.tool_calls);
-		const retainedToolCalls = toolCallSanitization.toolCalls.map((toolCall) => {
+		const rewrittenIdsByOriginal = new Map<string, string[]>();
+		const retainedToolCalls = message.tool_calls.map((toolCall) => {
 			// Some providers reject long IDs that only differ late in the string. Compact
 			// request-local IDs keep the cacheable prefix stable as new messages append.
 			const id = providerRequestToolCallId(nextToolCallId);
 			nextToolCallId += 1;
-			return id === toolCall.id ? toolCall : { ...toolCall, id };
+			const ids = rewrittenIdsByOriginal.get(toolCall.id) ?? [];
+			ids.push(id);
+			rewrittenIdsByOriginal.set(toolCall.id, ids);
+			return id === toolCall.id ? toolCall : { ...cloneToolCall(toolCall), id };
 		});
-		const rewrittenIdsByOriginal = new Map<string, string>();
-		for (let toolIndex = 0; toolIndex < toolCallSanitization.toolCalls.length; toolIndex += 1) {
-			const original = toolCallSanitization.toolCalls[toolIndex]!;
-			const retained = retainedToolCalls[toolIndex]!;
-			rewrittenIdsByOriginal.set(original.id, retained.id);
-		}
-		const expectedToolCallIds = new Set(rewrittenIdsByOriginal.keys());
 		const toolMessages: ChatMessage[] = [];
 		let scan = index + 1;
 		while (scan < messages.length) {
@@ -2502,25 +2500,21 @@ function sanitizeProviderMessageSequenceForRequest(messages: readonly ChatMessag
 			if (candidate.role !== 'tool') {
 				break;
 			}
-			if (candidate.tool_call_id && expectedToolCallIds.delete(candidate.tool_call_id)) {
+			if (candidate.tool_call_id) {
+				const rewrittenIds = rewrittenIdsByOriginal.get(candidate.tool_call_id);
+				const rewrittenId = rewrittenIds?.shift();
 				toolMessages.push({
 					...candidate,
-					tool_call_id: rewrittenIdsByOriginal.get(candidate.tool_call_id) ?? candidate.tool_call_id,
+					tool_call_id: rewrittenId ?? candidate.tool_call_id,
 				});
+			} else {
+				toolMessages.push(candidate);
 			}
 			scan += 1;
 		}
 
-		if (retainedToolCalls.length > 0) {
-			sanitized.push({ ...message, tool_calls: retainedToolCalls });
-			sanitized.push(...toolMessages);
-		} else {
-			const withoutToolCalls = { ...message };
-			delete withoutToolCalls.tool_calls;
-			if (!isEmptyProviderAssistantMessage(withoutToolCalls)) {
-				sanitized.push(withoutToolCalls);
-			}
-		}
+		sanitized.push({ ...message, tool_calls: retainedToolCalls });
+		sanitized.push(...toolMessages);
 		index = scan - 1;
 	}
 	return sanitized;
@@ -2871,33 +2865,49 @@ function toolCallsEqual(left: readonly ToolCall[], right: readonly ToolCall[]): 
 	return true;
 }
 
-function repairProviderToolCallHistoryRows(rows: readonly LoopMessageRow[]): ProviderToolCallHistoryRepair {
-	const providerRows = rows
-		.map((row) => ({ row, message: loopMessageChatMessageFromRow(row) }))
-		.filter(({ row, message }) => loopMessageContributesToProviderHistory(row.origin, message));
-	const actions: ProviderToolCallHistoryRepairAction[] = [];
-	const actionSeqs = new Set<number>();
-	const consumedToolRowSeqs = new Set<number>();
+function normalizeLegacyProviderToolCallHistoryRows(rows: readonly LoopMessageRow[]): LegacyProviderToolCallHistoryNormalization {
+	const operations: LegacyProviderToolCallHistoryNormalizationOperation[] = [];
+	const order: LegacyProviderToolCallHistoryNormalizationOrderItem[] = [];
+	const deletedSeqs = new Set<number>();
+	const updatedSeqs = new Set<number>();
 	const dropped: DroppedProviderToolCall[] = [];
 	let repairedTextCount = 0;
 	const repairedMessageSeqs = new Set<number>();
 	const deleteRow = (seq: number): void => {
-		if (actionSeqs.has(seq)) {
+		if (deletedSeqs.has(seq)) {
 			return;
 		}
-		actionSeqs.add(seq);
-		actions.push({ kind: 'delete', seq });
+		deletedSeqs.add(seq);
+		operations.push({ kind: 'delete', seq });
 	};
 	const updateRow = (seq: number, message: ChatMessage): void => {
-		if (actionSeqs.has(seq)) {
+		if (deletedSeqs.has(seq) || updatedSeqs.has(seq)) {
 			return;
 		}
-		actionSeqs.add(seq);
-		actions.push({ kind: 'update', seq, message });
+		updatedSeqs.add(seq);
+		operations.push({ kind: 'update', seq, message });
+	};
+	const keepExistingRow = (seq: number): void => {
+		if (!deletedSeqs.has(seq)) {
+			order.push({ kind: 'existing', seq });
+		}
+	};
+	const insertAssistantBeforeTool = (sourceRow: LoopMessageRow, message: ChatMessage, pairIndex: number): void => {
+		const id = `legacy-tool-call-history:${sourceRow.seq}:${pairIndex}`;
+		operations.push({ kind: 'insert', id, sourceRow, message });
+		order.push({ kind: 'insert', id });
 	};
 
-	for (let index = 0; index < providerRows.length; index += 1) {
-		const current = providerRows[index];
+	for (let index = 0; index < rows.length; index += 1) {
+		const row = rows[index];
+		if (!row) {
+			continue;
+		}
+		const current = { row, message: loopMessageChatMessageFromRow(row) };
+		if (!loopMessageContributesToProviderHistory(row.origin, current.message)) {
+			keepExistingRow(row.seq);
+			continue;
+		}
 		if (!current) {
 			continue;
 		}
@@ -2912,17 +2922,14 @@ function repairProviderToolCallHistoryRows(rows: readonly LoopMessageRow[]): Pro
 			repairedMessageSeqs.add(current.row.seq);
 		}
 		if (message.role === 'tool') {
-			if (!consumedToolRowSeqs.has(current.row.seq)) {
-				deleteRow(current.row.seq);
-			} else if (repairedMessage) {
-				updateRow(current.row.seq, repairedMessage);
-			}
+			deleteRow(current.row.seq);
 			continue;
 		}
 		if (message.role !== 'assistant') {
 			if (repairedMessage) {
 				updateRow(current.row.seq, repairedMessage);
 			}
+			keepExistingRow(current.row.seq);
 			continue;
 		}
 
@@ -2941,7 +2948,10 @@ function repairProviderToolCallHistoryRows(rows: readonly LoopMessageRow[]): Pro
 					deleteRow(current.row.seq);
 				} else {
 					updateRow(current.row.seq, repairedMessage);
+					keepExistingRow(current.row.seq);
 				}
+			} else {
+				keepExistingRow(current.row.seq);
 			}
 			continue;
 		}
@@ -2957,61 +2967,112 @@ function repairProviderToolCallHistoryRows(rows: readonly LoopMessageRow[]): Pro
 		for (const toolCall of sanitized.toolCalls) {
 			availableCallCounts.set(toolCall.id, (availableCallCounts.get(toolCall.id) ?? 0) + 1);
 		}
-		const answeredCallCounts = new Map<string, number>();
+		const answeredRowsByCallId = new Map<string, Array<{ row: LoopMessageRow; message: ChatMessage }>>();
 		let lookahead = index + 1;
-		while (lookahead < providerRows.length) {
-			const candidate = providerRows[lookahead];
-			if (!candidate || candidate.message.role !== 'tool') {
+		while (lookahead < rows.length) {
+			const candidateRow = rows[lookahead];
+			if (!candidateRow) {
 				break;
 			}
-			const toolCallId = typeof candidate.message.tool_call_id === 'string' ? candidate.message.tool_call_id : '';
-			const answeredCount = answeredCallCounts.get(toolCallId) ?? 0;
+			const candidateMessage = loopMessageChatMessageFromRow(candidateRow);
+			if (!loopMessageContributesToProviderHistory(candidateRow.origin, candidateMessage) || candidateMessage.role !== 'tool') {
+				break;
+			}
+			let retainedToolMessage = candidateMessage;
+			const candidateRepair = repairProviderMessageUnicode(candidateMessage);
+			if (candidateRepair.repairCount > 0) {
+				retainedToolMessage = candidateRepair.value;
+				repairedTextCount += candidateRepair.repairCount;
+				repairedMessageSeqs.add(candidateRow.seq);
+			}
+			const toolCallId = typeof retainedToolMessage.tool_call_id === 'string' ? retainedToolMessage.tool_call_id : '';
+			const answeredRows = answeredRowsByCallId.get(toolCallId) ?? [];
 			const availableCount = availableCallCounts.get(toolCallId) ?? 0;
-			if (toolCallId && answeredCount < availableCount) {
-				answeredCallCounts.set(toolCallId, answeredCount + 1);
-				consumedToolRowSeqs.add(candidate.row.seq);
+			if (toolCallId && answeredRows.length < availableCount) {
+				answeredRows.push({ row: candidateRow, message: retainedToolMessage });
+				answeredRowsByCallId.set(toolCallId, answeredRows);
+				if (candidateRepair.repairCount > 0) {
+					updateRow(candidateRow.seq, retainedToolMessage);
+				}
 			} else {
-				deleteRow(candidate.row.seq);
+				deleteRow(candidateRow.seq);
 			}
 			lookahead += 1;
 		}
 
-		const remainingAnsweredCallCounts = new Map(answeredCallCounts);
-		const repairedToolCalls: ToolCall[] = [];
+		const pairedToolCalls: Array<{ toolCall: ToolCall; toolRow: LoopMessageRow; toolMessage: ChatMessage }> = [];
 		for (const toolCall of sanitized.toolCalls) {
-			const remainingCount = remainingAnsweredCallCounts.get(toolCall.id) ?? 0;
-			if (remainingCount > 0) {
-				remainingAnsweredCallCounts.set(toolCall.id, remainingCount - 1);
-				repairedToolCalls.push(toolCall);
+			const answeredRows = answeredRowsByCallId.get(toolCall.id) ?? [];
+			const answered = answeredRows.shift();
+			if (answered) {
+				pairedToolCalls.push({ toolCall, toolRow: answered.row, toolMessage: answered.message });
 			} else {
 				dropped.push(droppedProviderToolCall(toolCall.id, toolCall.function.name, 'unanswered_tool_call', toolCall.function.arguments));
 			}
 		}
-		if (toolCallsEqual(originalToolCalls, repairedToolCalls)) {
-			if (repairedMessage) {
-				if (isEmptyProviderAssistantMessage(repairedMessage)) {
-					deleteRow(current.row.seq);
-				} else {
-					updateRow(current.row.seq, repairedMessage);
-				}
+
+		repairedMessage = repairedMessage ?? { ...message };
+		if (pairedToolCalls.length === 0) {
+			delete repairedMessage.tool_calls;
+			if (isEmptyProviderAssistantMessage(repairedMessage)) {
+				deleteRow(current.row.seq);
+			} else {
+				updateRow(current.row.seq, repairedMessage);
+				keepExistingRow(current.row.seq);
 			}
+			index = lookahead - 1;
 			continue;
 		}
 
-		repairedMessage = repairedMessage ?? { ...message };
-		if (repairedToolCalls.length > 0) {
-			repairedMessage.tool_calls = repairedToolCalls;
-		} else {
-			delete repairedMessage.tool_calls;
+		for (let pairIndex = 0; pairIndex < pairedToolCalls.length; pairIndex += 1) {
+			const pair = pairedToolCalls[pairIndex]!;
+			const assistantMessage = providerResponseToolCallMessageForHistory(repairedMessage, pair.toolCall, pairIndex === 0);
+			if (pairIndex === 0) {
+				if (JSON.stringify(loopMessageChatMessageFromRow(current.row)) !== JSON.stringify(assistantMessage)) {
+					updateRow(current.row.seq, assistantMessage);
+				}
+				keepExistingRow(current.row.seq);
+			} else {
+				insertAssistantBeforeTool(current.row, assistantMessage, pairIndex);
+			}
+			if (JSON.stringify(loopMessageChatMessageFromRow(pair.toolRow)) !== JSON.stringify(pair.toolMessage)) {
+				updateRow(pair.toolRow.seq, pair.toolMessage);
+			}
+			keepExistingRow(pair.toolRow.seq);
 		}
-		if (isEmptyProviderAssistantMessage(repairedMessage)) {
-			deleteRow(current.row.seq);
-		} else {
-			updateRow(current.row.seq, repairedMessage);
-		}
+		index = lookahead - 1;
 	}
 
-	return { actions, dropped, repairedTextCount, repairedMessageSeqs: [...repairedMessageSeqs] };
+	return { operations, order, dropped, repairedTextCount, repairedMessageSeqs: [...repairedMessageSeqs] };
+}
+
+function providerToolCallHistoryInvariantViolation(rows: readonly LoopMessageRow[]): string | null {
+	const providerRows = rows
+		.map((row) => ({ row, message: loopMessageChatMessageFromRow(row) }))
+		.filter(({ row, message }) => loopMessageContributesToProviderHistory(row.origin, message));
+	for (let index = 0; index < providerRows.length; index += 1) {
+		const current = providerRows[index]!;
+		const { message } = current;
+		if (message.role === 'tool') {
+			return `tool row ${current.row.seq} has no immediately preceding assistant tool call`;
+		}
+		if (message.role !== 'assistant' || !Array.isArray(message.tool_calls) || message.tool_calls.length === 0) {
+			continue;
+		}
+		if (message.tool_calls.length !== 1) {
+			return `assistant row ${current.row.seq} has ${message.tool_calls.length} tool calls`;
+		}
+		const [toolCall] = message.tool_calls;
+		const next = providerRows[index + 1];
+		if (!next || next.message.role !== 'tool') {
+			return `assistant row ${current.row.seq} is not followed by a tool result`;
+		}
+		if (next.message.tool_call_id !== toolCall.id) {
+			return `assistant row ${current.row.seq} tool call ${toolCall.id} is followed by tool row ${next.row.seq} for ${next.message.tool_call_id ?? 'missing id'}`;
+		}
+		index += 1;
+	}
+	return null;
 }
 
 export function loopMessageContributesToProviderHistory(origin: BotLoopMessageOrigin, message: BotInferenceSubmissionMessage): boolean {
@@ -3053,42 +3114,6 @@ function isEmptyProviderAssistantMessage(message: BotInferenceSubmissionMessage)
 		(!Array.isArray(message.reasoning_details) || message.reasoning_details.length === 0) &&
 		(!Array.isArray(message.tool_calls) || message.tool_calls.length === 0)
 	);
-}
-
-export function rewriteProviderResponseToolCallMessage(
-	message: BotInferenceSubmissionMessage,
-	rewrite: ProviderToolCallRewrite,
-): ProviderResponseToolCallRewriteResult {
-	if (message.role !== 'assistant' || !Array.isArray(message.tool_calls) || message.tool_calls.length === 0) {
-		return { kind: 'unchanged', message };
-	}
-
-	let changed = false;
-	const nextToolCalls: ToolCall[] = [];
-	for (const toolCall of message.tool_calls) {
-		if (toolCall.id !== rewrite.toolCallId) {
-			nextToolCalls.push(cloneToolCall(toolCall));
-			continue;
-		}
-		changed = true;
-		if (rewrite.kind === 'replace_arguments') {
-			nextToolCalls.push(toolCallWithArguments(toolCall, rewrite.arguments));
-		}
-	}
-	if (!changed) {
-		return { kind: 'unchanged', message };
-	}
-
-	const nextMessage: BotInferenceSubmissionMessage = { ...message };
-	if (nextToolCalls.length > 0) {
-		nextMessage.tool_calls = nextToolCalls;
-	} else {
-		delete nextMessage.tool_calls;
-	}
-	if (isEmptyProviderAssistantMessage(nextMessage)) {
-		return { kind: 'deleted' };
-	}
-	return { kind: 'updated', message: nextMessage };
 }
 
 function toolCallWithArguments(toolCall: ToolCall, args: string): ToolCall {
@@ -3717,6 +3742,9 @@ CREATE TABLE IF NOT EXISTS loop_message_log_chunks (
 );
 `;
 
+const legacyProviderToolCallHistoryNormalizedStateKey = 'loop_messages_provider_tool_call_history_normalized_v1';
+const providerToolCallHistoryInvariantViolationStateKey = 'provider_tool_call_history_invariant_violation';
+
 export class BotRuntime {
 	private readonly state: DurableObjectState;
 	private readonly env: Env;
@@ -3742,6 +3770,8 @@ export class BotRuntime {
 			this.ensureInferenceSubmissionColumns();
 			this.ensureLoopMessageColumns();
 			this.migrateLegacyLoopMessages();
+			this.migrateLegacyProviderToolCallHistory();
+			this.observeProviderToolCallHistoryInvariantAfterStartupMigration();
 			this.backfillProviderTokenCalibrationSamples();
 		});
 	}
@@ -3850,6 +3880,103 @@ export class BotRuntime {
 		this.setRuntimeState('loop_messages_legacy_migrated', true);
 	}
 
+	private migrateLegacyProviderToolCallHistory(): void {
+		if (this.runtimeStateBoolean(legacyProviderToolCallHistoryNormalizedStateKey)) {
+			return;
+		}
+		this.runStorageTransactionSync(() => {
+			const normalization = normalizeLegacyProviderToolCallHistoryRows(this.activeLoopMessageRows());
+			const deletedAt = new Date().toISOString();
+			const insertedSeqs = new Map<string, number>();
+			for (const operation of normalization.operations) {
+				if (operation.kind === 'delete') {
+					this.state.storage.sql.exec(
+						`UPDATE loop_messages
+						 SET deleted_at = ?
+						 WHERE seq = ?
+						   AND deleted_at IS NULL`,
+						deletedAt,
+						operation.seq,
+					);
+					continue;
+				}
+				if (operation.kind === 'update') {
+					const messageJson = JSON.stringify(operation.message);
+					this.state.storage.sql.exec(
+						`UPDATE loop_messages
+						 SET message_json = ?, token_estimate = ?
+						 WHERE seq = ?
+						   AND deleted_at IS NULL`,
+						messageJson,
+						estimateTextTokens(messageJson),
+						operation.seq,
+					);
+					continue;
+				}
+				const inserted = this.insertLoopMessage({
+					runId: operation.sourceRow.run_id,
+					message: operation.message,
+					origin: operation.sourceRow.origin,
+					status: operation.sourceRow.status ?? undefined,
+					streamSeq: operation.sourceRow.stream_seq ?? undefined,
+					createdAt: operation.sourceRow.created_at,
+					broadcast: false,
+				});
+				insertedSeqs.set(operation.id, inserted.seq);
+			}
+			this.updateActiveLoopMessagePositions(normalization.order.map((item) => (item.kind === 'existing' ? item.seq : insertedSeqs.get(item.id))).filter(
+				(seq): seq is number => typeof seq === 'number',
+			));
+			this.setRuntimeState(legacyProviderToolCallHistoryNormalizedStateKey, true);
+		});
+	}
+
+	private observeProviderToolCallHistoryInvariantAfterStartupMigration(): void {
+		const violation = providerToolCallHistoryInvariantViolation(this.activeLoopMessageRows());
+		if (!violation) {
+			this.deleteRuntimeState(providerToolCallHistoryInvariantViolationStateKey);
+			return;
+		}
+		const botId = this.botIdForStartupDiagnostics();
+		const objectId = this.state.id.toString();
+		const payload = {
+			botId: botId ?? 'unknown',
+			objectId,
+			violation,
+			detectedAt: new Date().toISOString(),
+		};
+		console.error('BotRuntime provider tool-call history invariant violation after startup migration', payload);
+		this.setRuntimeState(providerToolCallHistoryInvariantViolationStateKey, payload);
+		this.deleteRuntimeState(legacyProviderToolCallHistoryNormalizedStateKey);
+	}
+
+	assertProviderToolCallHistoryInvariantOrThrow(): void {
+		const violation = providerToolCallHistoryInvariantViolation(this.activeLoopMessageRows());
+		if (violation) {
+			throw new Error(`Loop message provider tool-call history invariant failed: ${violation}.`);
+		}
+	}
+
+	private botIdForStartupDiagnostics(): string | null {
+		const row = this.state.storage.sql
+			.exec<{ payload_json: string }>(
+				`SELECT payload_json
+				 FROM events
+				 WHERE type = 'tick_started'
+				 ORDER BY seq DESC
+				 LIMIT 1`,
+			)
+			.toArray()[0];
+		if (!row) {
+			return null;
+		}
+		try {
+			return stringValue(runtimeRecord(JSON.parse(row.payload_json) as unknown).botId) ?? null;
+		} catch {
+			return null;
+		}
+	}
+
 	private runtimeStateBoolean(key: string): boolean {
 		const value = this.runtimeStateValue(key);
 		return value === true;
@@ -3893,6 +4020,13 @@ export class BotRuntime {
 			return;
 		}
 		this.state.storage.sql.exec(`DELETE FROM runtime_state WHERE key = ?`, key);
+	}
+
+	private runStorageTransactionSync<T>(closure: () => T): T {
+		// Some unit-test harnesses stub only the SQL surface; production SQLite
+		// Durable Object storage provides transactionSync.
+		const storage = (this as unknown as { state?: { storage?: { transactionSync?: <Result>(callback: () => Result) => Result } } }).state?.storage;
+		return typeof storage?.transactionSync === 'function' ? storage.transactionSync(closure) : closure();
 	}
 
 	private compactionReasoningModeForSettings(settings: Pick<ProviderSettings, 'baseUrl' | 'model'>): ProviderCompactionReasoningMode {
@@ -4783,7 +4917,6 @@ export class BotRuntime {
 			let requestEvent: BotRuntimeEvent;
 			let malformedOnlyRetried = false;
 			for (;;) {
-				await this.repairActiveProviderToolCallHistory(runId);
 				const budgetCheck = await this.ensureProviderPromptWithinBudget(bot, settings, runId, runContext.signal, providerTools);
 				const requestMessages = budgetCheck.requestMessages;
 				const requestContextWindowTokens = budgetCheck.contextWindowTokens ?? tickSettings.contextWindowTokens;
@@ -4875,49 +5008,73 @@ export class BotRuntime {
 			const tickGeneratedLimitReached = generatedTokensThisTick >= tickSettings.maxGeneratedTokensPerTick;
 			let forceSyntheticLogOff = !spotlightStreakActive && generatedTokensThisIteration >= tickSettings.maxGeneratedTokensPerIteration;
 			const assistantMessage = providerResponseMessageForHistory(response);
-			const assistantToolCallLoopMessageSeqs = new Map<string, number>();
 			let providerResponseLogsRecorded = false;
-			const recordProviderResponseLogs = (assistantLoopMessageSeq: number): void => {
+			let appendedToolCallPairCount = 0;
+			const consumeProviderResponseLogs = (): LoopMessageAppendLog[] => {
 				if (providerResponseLogsRecorded) {
-					return;
+					return [];
 				}
+				const logs: LoopMessageAppendLog[] = [];
 				if (response.requestBody) {
-					this.recordLoopMessageLog(assistantLoopMessageSeq, 'provider_request', response.requestBody);
+					logs.push({ kind: 'provider_request', text: response.requestBody });
 				}
-				this.recordLoopMessageLog(
-					assistantLoopMessageSeq,
-					'provider_response',
-					JSON.stringify(providerResponseLogPayload(response, responseStatus)),
-				);
+				logs.push({ kind: 'provider_response', text: JSON.stringify(providerResponseLogPayload(response, responseStatus)) });
 				providerResponseLogsRecorded = true;
+				return logs;
 			};
-			const appendAssistantMessageForToolCall = (toolCall: ToolCall): number | null => {
-				if (!assistantMessage) {
-					return null;
-				}
-				const existing = assistantToolCallLoopMessageSeqs.get(toolCall.id);
-				if (existing !== undefined) {
-					return existing;
-				}
-				const assistantLoopMessage = this.appendLoopMessage(
-					runId,
-					providerResponseToolCallMessageForHistory(assistantMessage, toolCall, assistantToolCallLoopMessageSeqs.size === 0),
-					'provider_response',
-					responseStatus,
-					{ streamSeq: requestEvent.seq },
-				);
-				assistantToolCallLoopMessageSeqs.set(toolCall.id, assistantLoopMessage.seq);
-				recordProviderResponseLogs(assistantLoopMessage.seq);
-				return assistantLoopMessage.seq;
-			};
+			const appendAssistantToolResultPair = (
+				toolCall: ToolCall,
+				toolMessage: ChatMessage,
+				toolOrigin: BotLoopMessageOrigin,
+					toolStatus: BotLoopMessageStatus = 'complete',
+					toolOptions: { displayEventSeq?: number } = {},
+					recordedToolCall: ToolCall = toolCall,
+				): void => {
+					if (!assistantMessage) {
+						return;
+					}
+					const assistantLoopMessage = providerResponseToolCallMessageForHistory(
+						assistantMessage,
+						recordedToolCall,
+						appendedToolCallPairCount === 0,
+					);
+					this.appendLoopMessageGroup([
+						{
+							runId,
+							message: assistantLoopMessage,
+						origin: 'provider_response',
+						status: responseStatus,
+						options: { streamSeq: requestEvent.seq },
+						extraLogs: consumeProviderResponseLogs(),
+					},
+					{
+						runId,
+						message: toolMessage,
+						origin: toolOrigin,
+						status: toolStatus,
+						options: toolOptions,
+						extraLogs: [
+							{ kind: 'tool_call', text: JSON.stringify(recordedToolCall) },
+							{ kind: 'tool_result', text: toolMessage.content ?? '' },
+						],
+						},
+					]);
+					appendedToolCallPairCount += 1;
+				};
 			const appendAssistantMessageWithoutToolCalls = (): void => {
 				if (!assistantMessage) {
 					return;
 				}
-				const assistantLoopMessage = this.appendLoopMessage(runId, assistantMessage, 'provider_response', responseStatus, {
-					streamSeq: requestEvent.seq,
-				});
-				recordProviderResponseLogs(assistantLoopMessage.seq);
+				this.appendLoopMessageGroup([
+					{
+						runId,
+						message: assistantMessage,
+						origin: 'provider_response',
+						status: responseStatus,
+						options: { streamSeq: requestEvent.seq },
+						extraLogs: consumeProviderResponseLogs(),
+					},
+				]);
 			};
 			if (responseStatus === 'interrupted') {
 				if (response.toolCalls.length > 0) {
@@ -4925,7 +5082,10 @@ export class BotRuntime {
 						runId,
 						response.toolCalls,
 						new Set(response.toolCalls.map((toolCall) => toolCall.id)),
-						appendAssistantMessageForToolCall,
+						(toolCall, toolMessage, content) => {
+							appendAssistantToolResultPair(toolCall, toolMessage, 'tool_failure', 'interrupted', {}, toolCall);
+							return content;
+						},
 					);
 				}
 				throw interruptedError?.originalError instanceof Error ? interruptedError.originalError : new TickStoppedError();
@@ -4986,9 +5146,7 @@ export class BotRuntime {
 					tool_call_id: toolCall.id,
 					content: JSON.stringify(failure),
 				};
-				const loopMessage = this.appendLoopMessage(runId, toolMessage, 'tool_failure');
-				this.recordLoopMessageLog(loopMessage.seq, 'tool_call', JSON.stringify(toolCall));
-				this.recordLoopMessageLog(loopMessage.seq, 'tool_result', toolMessage.content ?? '');
+				appendAssistantToolResultPair(toolCall, toolMessage, 'tool_failure');
 				const acknowledgement = toolFailureAssistantContent(failure);
 				if (consecutiveToolFailures >= 5) {
 					persistentFailure = failure;
@@ -4998,38 +5156,36 @@ export class BotRuntime {
 
 			for (const toolCall of response.toolCalls) {
 				this.throwIfStopped(runId, runContext.signal);
-				const assistantLoopMessageSeq = appendAssistantMessageForToolCall(toolCall);
 				const canonicalName = canonicalToolName(toolCall.function.name);
 				if (canonicalName === providerCompactionToolName) {
 					pendingToolCallIds.delete(toolCall.id);
-					await this.dropGeneratedProviderToolCall(
-						runId,
-						requestEvent.seq,
-						assistantLoopMessageSeq,
-						toolCall,
-						'disallowed_meta_compaction_tool',
-					);
+						await this.dropGeneratedProviderToolCall(
+							runId,
+							requestEvent.seq,
+							toolCall,
+							'disallowed_meta_compaction_tool',
+						);
 					selfCorrectionAcknowledgements.push(metaCompactionToolMisuseSelfCorrection);
 					continue;
 				}
-				if (canonicalName === 'log_off' && !tickSettings.allowEarlyLogOff) {
-					pendingToolCallIds.delete(toolCall.id);
-					await this.dropGeneratedProviderToolCall(runId, requestEvent.seq, assistantLoopMessageSeq, toolCall, 'disallowed_log_off');
-					selfCorrectionAcknowledgements.push(disallowedLogOffSelfCorrectionContent);
-					continue;
-				}
-				if (canonicalName === 'log_off' && !mutatingToolUsedThisIteration && !prematureLogOffCorrectedThisIteration) {
-					pendingToolCallIds.delete(toolCall.id);
-					await this.dropGeneratedProviderToolCall(runId, requestEvent.seq, assistantLoopMessageSeq, toolCall, 'premature_log_off');
-					prematureLogOffCorrectedThisIteration = true;
-					selfCorrectionAcknowledgements.push(prematureLogOffSelfCorrectionContent);
-					continue;
-				}
-				if (logOffCalled && canonicalName !== 'log_off') {
-					pendingToolCallIds.delete(toolCall.id);
-					await this.dropGeneratedProviderToolCall(runId, requestEvent.seq, assistantLoopMessageSeq, toolCall, 'iteration_limit');
-					continue;
-				}
+					if (canonicalName === 'log_off' && !tickSettings.allowEarlyLogOff) {
+						pendingToolCallIds.delete(toolCall.id);
+						await this.dropGeneratedProviderToolCall(runId, requestEvent.seq, toolCall, 'disallowed_log_off');
+						selfCorrectionAcknowledgements.push(disallowedLogOffSelfCorrectionContent);
+						continue;
+					}
+					if (canonicalName === 'log_off' && !mutatingToolUsedThisIteration && !prematureLogOffCorrectedThisIteration) {
+						pendingToolCallIds.delete(toolCall.id);
+						await this.dropGeneratedProviderToolCall(runId, requestEvent.seq, toolCall, 'premature_log_off');
+						prematureLogOffCorrectedThisIteration = true;
+						selfCorrectionAcknowledgements.push(prematureLogOffSelfCorrectionContent);
+						continue;
+					}
+					if (logOffCalled && canonicalName !== 'log_off') {
+						pendingToolCallIds.delete(toolCall.id);
+						await this.dropGeneratedProviderToolCall(runId, requestEvent.seq, toolCall, 'iteration_limit');
+						continue;
+					}
 				let args: Record<string, unknown>;
 				try {
 					args = parseToolArgs(toolCall);
@@ -5042,13 +5198,6 @@ export class BotRuntime {
 					result = await this.executeTool(bot, runId, toolCall.function.name, args, runContext);
 					pendingToolCallIds.delete(toolCall.id);
 					consecutiveToolFailures = 0;
-					if (result.effectiveArgs && assistantLoopMessageSeq !== null) {
-						this.rewriteProviderResponseLoopMessageToolCall(assistantLoopMessageSeq, {
-							kind: 'replace_arguments',
-							toolCallId: toolCall.id,
-							arguments: JSON.stringify(providerToolArgs(result.name, result.effectiveArgs)),
-						});
-					}
 					if (result.name === 'log_off') {
 						logOffCalled = true;
 					}
@@ -5061,15 +5210,15 @@ export class BotRuntime {
 					}
 				} catch (error) {
 					if (error instanceof TickStoppedError || isAbortError(error)) {
-						this.appendInterruptedToolMessages(runId, response.toolCalls, pendingToolCallIds, appendAssistantMessageForToolCall);
+						this.appendInterruptedToolMessages(runId, response.toolCalls, pendingToolCallIds, (interruptedToolCall, toolMessage, content) => {
+							appendAssistantToolResultPair(interruptedToolCall, toolMessage, 'tool_failure', 'interrupted', {}, interruptedToolCall);
+							return content;
+						});
 						throw error;
 					}
 					if (error instanceof SelfCorrectingToolCallError) {
 						pendingToolCallIds.delete(toolCall.id);
 						consecutiveToolFailures = 0;
-						if (assistantLoopMessageSeq !== null) {
-							this.rewriteProviderResponseLoopMessageToolCall(assistantLoopMessageSeq, { kind: 'drop', toolCallId: toolCall.id });
-						}
 						selfCorrectionAcknowledgements.push(...error.selfCorrectionMessages);
 						continue;
 					}
@@ -5078,9 +5227,6 @@ export class BotRuntime {
 					if (selfCorrection) {
 						pendingToolCallIds.delete(toolCall.id);
 						consecutiveToolFailures = 0;
-						if (assistantLoopMessageSeq !== null) {
-							this.rewriteProviderResponseLoopMessageToolCall(assistantLoopMessageSeq, { kind: 'drop', toolCallId: toolCall.id });
-						}
 						selfCorrectionAcknowledgements.push(selfCorrection);
 						continue;
 					}
@@ -5092,26 +5238,21 @@ export class BotRuntime {
 					tool_call_id: toolCall.id,
 					content: JSON.stringify(result.providerResult),
 				};
-				const loopMessage = this.appendLoopMessage(runId, toolMessage, 'tool_result', 'complete', {
-					displayEventSeq: result.displayEventSeq,
-				});
 				const recordedToolCall = result.effectiveArgs
 					? toolCallWithArguments(toolCall, JSON.stringify(providerToolArgs(result.name, result.effectiveArgs)))
 					: toolCall;
-				this.recordLoopMessageLog(loopMessage.seq, 'tool_call', JSON.stringify(recordedToolCall));
-				this.recordLoopMessageLog(loopMessage.seq, 'tool_result', toolMessage.content ?? '');
+				appendAssistantToolResultPair(toolCall, toolMessage, 'tool_result', 'complete', { displayEventSeq: result.displayEventSeq }, recordedToolCall);
 				if (result.selfCorrectionMessages) {
 					selfCorrectionAcknowledgements.push(...result.selfCorrectionMessages);
 				}
 				if (result.spotlightTickTerminator) {
 					spotlightTickTerminated = true;
-					await this.dropPendingGeneratedProviderToolCalls(
-						runId,
-						requestEvent.seq,
-						null,
-						response.toolCalls,
-						pendingToolCallIds,
-						'spotlight_tick_ended',
+						await this.dropPendingGeneratedProviderToolCalls(
+							runId,
+							requestEvent.seq,
+							response.toolCalls,
+							pendingToolCallIds,
+							'spotlight_tick_ended',
 					);
 					break;
 				}
@@ -5121,13 +5262,12 @@ export class BotRuntime {
 					successfulToolCallsThisIteration >= maxSuccessfulToolCallsPerIteration
 				) {
 					forceSyntheticLogOff = true;
-					await this.dropPendingGeneratedProviderToolCalls(
-						runId,
-						requestEvent.seq,
-						null,
-						response.toolCalls,
-						pendingToolCallIds,
-						'iteration_limit',
+						await this.dropPendingGeneratedProviderToolCalls(
+							runId,
+							requestEvent.seq,
+							response.toolCalls,
+							pendingToolCallIds,
+							'iteration_limit',
 					);
 					break;
 				}
@@ -5180,14 +5320,13 @@ export class BotRuntime {
 		runId: string,
 		toolCalls: ToolCall[],
 		pendingToolCallIds: Set<string>,
-		appendAssistantForToolCall?: (toolCall: ToolCall) => number | null,
+		appendToolResultForToolCall?: (toolCall: ToolCall, toolMessage: ChatMessage, content: string) => void,
 	): void {
 		for (const toolCall of toolCalls) {
 			if (!pendingToolCallIds.has(toolCall.id)) {
 				continue;
 			}
 			pendingToolCallIds.delete(toolCall.id);
-			appendAssistantForToolCall?.(toolCall);
 			const content = JSON.stringify({
 				ok: false,
 				code: 'interrupted',
@@ -5198,6 +5337,10 @@ export class BotRuntime {
 				tool_call_id: toolCall.id,
 				content,
 			};
+			if (appendToolResultForToolCall) {
+				appendToolResultForToolCall(toolCall, toolMessage, content);
+				continue;
+			}
 			const loopMessage = this.appendLoopMessage(runId, toolMessage, 'tool_failure', 'interrupted');
 			this.recordLoopMessageLog(loopMessage.seq, 'tool_call', JSON.stringify(toolCall));
 			this.recordLoopMessageLog(loopMessage.seq, 'tool_result', content);
@@ -5667,7 +5810,7 @@ export class BotRuntime {
 		runId: string,
 		streamSeq: number | null,
 		dropped: readonly DroppedProviderToolCall[],
-		phase: 'generated_response' | 'history_repair',
+		phase: 'generated_response',
 		retrying: boolean,
 	): Promise<void> {
 		if (dropped.length === 0) {
@@ -5695,13 +5838,9 @@ export class BotRuntime {
 	private async dropGeneratedProviderToolCall(
 		runId: string,
 		streamSeq: number,
-		assistantLoopMessageSeq: number | null,
 		toolCall: ToolCall,
 		reason: ProviderToolCallDropReason,
 	): Promise<void> {
-		if (assistantLoopMessageSeq !== null && this.hasRuntimeStorage()) {
-			this.rewriteProviderResponseLoopMessageToolCall(assistantLoopMessageSeq, { kind: 'drop', toolCallId: toolCall.id });
-		}
 		await this.recordDroppedProviderToolCalls(
 			runId,
 			streamSeq,
@@ -5714,7 +5853,6 @@ export class BotRuntime {
 	private async dropPendingGeneratedProviderToolCalls(
 		runId: string,
 		streamSeq: number,
-		assistantLoopMessageSeq: number | null,
 		toolCalls: readonly ToolCall[],
 		pendingToolCallIds: Set<string>,
 		reason: ProviderToolCallDropReason,
@@ -5726,9 +5864,6 @@ export class BotRuntime {
 			}
 			pendingToolCallIds.delete(toolCall.id);
 			dropped.push(droppedProviderToolCall(toolCall.id, toolCall.function.name, reason, toolCall.function.arguments));
-			if (assistantLoopMessageSeq !== null && this.hasRuntimeStorage()) {
-				this.rewriteProviderResponseLoopMessageToolCall(assistantLoopMessageSeq, { kind: 'drop', toolCallId: toolCall.id });
-			}
 		}
 		if (dropped.length > 0) {
 			await this.recordDroppedProviderToolCalls(runId, streamSeq, dropped, 'generated_response', false);
@@ -5742,71 +5877,35 @@ export class BotRuntime {
 			content: syntheticLimitLogOffContent,
 			status: 'complete',
 		});
-		this.appendLoopMessage(
-			runId,
-			{
-				role: 'assistant',
-				content: syntheticLimitLogOffContent,
-				tool_calls: [toolCall],
-			},
-			'self_correction',
-			'complete',
-		);
 		const result = await this.executeTool(bot, runId, 'log_off', args, runContext);
 		const toolMessage: ChatMessage = {
 			role: 'tool',
 			tool_call_id: toolCall.id,
 			content: JSON.stringify(result.providerResult),
 		};
-		const loopMessage = this.appendLoopMessage(runId, toolMessage, 'tool_result', 'complete', { displayEventSeq: result.displayEventSeq });
-		this.recordLoopMessageLog(loopMessage.seq, 'tool_call', JSON.stringify(toolCall));
-		this.recordLoopMessageLog(loopMessage.seq, 'tool_result', toolMessage.content ?? '');
-	}
-
-	private rewriteProviderResponseLoopMessageToolCall(seq: number, rewrite: ProviderToolCallRewrite): void {
-		const row = this.state.storage.sql
-			.exec<LoopMessageRow>(
-				`SELECT m.seq, m.position, m.run_id, m.role, m.message_json, m.origin, m.status,
-				        m.token_estimate, m.stream_seq, m.compacted_by, m.deleted_at, m.created_at,
-				        CASE WHEN EXISTS (SELECT 1 FROM loop_message_logs l WHERE l.message_seq = m.seq) THEN 1 ELSE 0 END AS has_logs
-				 FROM loop_messages m
-				 WHERE m.seq = ?
-				   AND m.deleted_at IS NULL
-				 LIMIT 1`,
-				seq,
-			)
-			.toArray()[0];
-		if (!row || row.origin !== 'provider_response') {
-			return;
-		}
-		const result = rewriteProviderResponseToolCallMessage(loopMessageChatMessageFromRow(row), rewrite);
-		if (result.kind === 'unchanged') {
-			return;
-		}
-		if (result.kind === 'deleted') {
-			this.state.storage.sql.exec(
-				`UPDATE loop_messages
-				 SET deleted_at = ?
-				 WHERE seq = ?
-				   AND deleted_at IS NULL`,
-				new Date().toISOString(),
-				seq,
-			);
-			this.broadcastControl({ type: 'loop_messages_reset' });
-			return;
-		}
-		const messageJson = JSON.stringify(result.message);
-		this.state.storage.sql.exec(
-			`UPDATE loop_messages
-			 SET message_json = ?, token_estimate = ?
-			 WHERE seq = ?
-			   AND deleted_at IS NULL`,
-			messageJson,
-			estimateTextTokens(messageJson),
-			seq,
-		);
-		this.recordLoopMessageLog(seq, 'message', messageJson);
-		this.broadcastControl({ type: 'loop_messages_reset' });
+		this.appendLoopMessageGroup([
+			{
+				runId,
+				message: {
+					role: 'assistant',
+					content: syntheticLimitLogOffContent,
+					tool_calls: [toolCall],
+				},
+				origin: 'self_correction',
+				status: 'complete',
+			},
+			{
+				runId,
+				message: toolMessage,
+				origin: 'tool_result',
+				status: 'complete',
+				options: { displayEventSeq: result.displayEventSeq },
+				extraLogs: [
+					{ kind: 'tool_call', text: JSON.stringify(toolCall) },
+					{ kind: 'tool_result', text: toolMessage.content ?? '' },
+				],
+			},
+		]);
 	}
 
 	private appendLoopMessage(
@@ -5826,6 +5925,46 @@ export class BotRuntime {
 			broadcast: true,
 		});
 		this.recordLoopMessageLog(inserted.seq, 'message', JSON.stringify(message));
+		return inserted;
+	}
+
+	private appendLoopMessageGroup(
+		entries: LoopMessageGroupEntry[],
+	): BotLoopMessage[] {
+		const storage = (this as unknown as { state?: { storage?: { transactionSync?: <T>(closure: () => T) => T } } }).state?.storage;
+		if (!this.hasRuntimeStorage() || typeof storage?.transactionSync !== 'function') {
+			// This fallback is for tests without a full Durable Object storage double;
+			// production writes use the transactionSync path below.
+			return entries.map((entry) => {
+				const inserted = this.appendLoopMessage(entry.runId, entry.message, entry.origin, entry.status, entry.options);
+				for (const log of entry.extraLogs ?? []) {
+					this.recordLoopMessageLog(inserted.seq, log.kind, log.text);
+				}
+				return inserted;
+			});
+		}
+		const inserted: BotLoopMessage[] = [];
+		this.runStorageTransactionSync(() => {
+			for (const entry of entries) {
+				const loopMessage = this.insertLoopMessage({
+					runId: entry.runId,
+					message: entry.message,
+					origin: entry.origin,
+					status: entry.status,
+					streamSeq: entry.options?.streamSeq,
+					displayEventSeq: entry.options?.displayEventSeq,
+					broadcast: false,
+				});
+				this.recordLoopMessageLog(loopMessage.seq, 'message', JSON.stringify(entry.message));
+				for (const log of entry.extraLogs ?? []) {
+					this.recordLoopMessageLog(loopMessage.seq, log.kind, log.text);
+				}
+				inserted.push(loopMessage);
+			}
+		});
+		for (const loopMessage of inserted) {
+			this.broadcastLoopMessage(loopMessage);
+		}
 		return inserted;
 	}
 
@@ -6011,175 +6150,7 @@ export class BotRuntime {
 		);
 	}
 
-	private async repairActiveProviderToolCallHistory(runId: string): Promise<DroppedProviderToolCall[]> {
-		if (!this.hasRuntimeStorage()) {
-			return [];
-		}
-		const repair = repairProviderToolCallHistoryRows(this.activeLoopMessageRows());
-		if (repair.actions.length > 0) {
-			const deletedAt = new Date().toISOString();
-			for (const action of repair.actions) {
-				if (action.kind === 'delete') {
-					this.state.storage.sql.exec(
-						`UPDATE loop_messages
-						 SET deleted_at = ?
-						 WHERE seq = ?
-						   AND deleted_at IS NULL`,
-						deletedAt,
-						action.seq,
-					);
-				} else {
-					const messageJson = JSON.stringify(action.message);
-					this.state.storage.sql.exec(
-						`UPDATE loop_messages
-						 SET message_json = ?, token_estimate = ?
-						 WHERE seq = ?
-						   AND deleted_at IS NULL`,
-						messageJson,
-						estimateTextTokens(messageJson),
-						action.seq,
-					);
-				}
-			}
-			this.broadcastControl({ type: 'loop_messages_reset' });
-		}
-		if (repair.repairedTextCount > 0) {
-			await this.recordProviderHistoryRepair(runId, repair.repairedTextCount, repair.repairedMessageSeqs);
-		}
-		if (repair.dropped.length > 0) {
-			await this.recordDroppedProviderToolCalls(runId, null, repair.dropped, 'history_repair', false);
-		}
-		await this.splitActiveProviderToolCallBundles(runId);
-		return repair.dropped;
-	}
-
-	private async splitActiveProviderToolCallBundles(runId: string): Promise<number> {
-		if (!this.hasRuntimeStorage()) {
-			return 0;
-		}
-		let splitCount = 0;
-		const repairedSeqs: number[] = [];
-		const maxSplits = Math.max(1, this.activeLoopMessageRows().length);
-		for (let attempts = 0; attempts < maxSplits; attempts += 1) {
-			const split = this.activeProviderToolCallBundleSplit();
-			if (!split) {
-				break;
-			}
-			const insertedSeqs = this.applyProviderToolCallBundleSplit(split);
-			splitCount += insertedSeqs.length;
-			repairedSeqs.push(split.assistantRow.seq, ...insertedSeqs);
-		}
-		if (splitCount === 0) {
-			return 0;
-		}
-		this.broadcastControl({ type: 'loop_messages_reset' });
-		await this.recordProviderHistoryRepair(runId, splitCount, repairedSeqs, 'split_multi_tool_call_message');
-		return splitCount;
-	}
-
-	private activeProviderToolCallBundleSplit(): ProviderToolCallBundleSplit | null {
-		const rows = this.activeLoopMessageRows();
-		const providerRows = rows
-			.map((row) => ({ row, message: loopMessageChatMessageFromRow(row) }))
-			.filter(({ row, message }) => loopMessageContributesToProviderHistory(row.origin, message));
-		for (let index = 0; index < providerRows.length; index += 1) {
-			const current = providerRows[index];
-			if (
-				!current ||
-				current.message.role !== 'assistant' ||
-				!Array.isArray(current.message.tool_calls) ||
-				current.message.tool_calls.length <= 1
-			) {
-				continue;
-			}
-			const toolCalls = current.message.tool_calls;
-			const expectedIds = new Set(toolCalls.map((toolCall) => toolCall.id));
-			const toolRowsByCallId = new Map<string, LoopMessageRow>();
-			let scan = index + 1;
-			while (scan < providerRows.length && toolRowsByCallId.size < expectedIds.size) {
-				const candidate = providerRows[scan];
-				if (
-					!candidate ||
-					candidate.message.role !== 'tool' ||
-					!candidate.message.tool_call_id ||
-					!expectedIds.has(candidate.message.tool_call_id)
-				) {
-					break;
-				}
-				toolRowsByCallId.set(candidate.message.tool_call_id, candidate.row);
-				scan += 1;
-			}
-			if (toolRowsByCallId.size !== toolCalls.length) {
-				continue;
-			}
-			return {
-				assistantRow: current.row,
-				assistantMessage: current.message,
-				pairs: toolCalls.map((toolCall) => ({ toolCall, toolRow: toolRowsByCallId.get(toolCall.id)! })),
-			};
-		}
-		return null;
-	}
-
-	private applyProviderToolCallBundleSplit(split: ProviderToolCallBundleSplit): number[] {
-		const activeRows = this.activeLoopMessageRows();
-		const insertedSeqs: number[] = [];
-		const originalMessage = providerResponseToolCallMessageForHistory(split.assistantMessage, split.pairs[0]!.toolCall, true);
-		this.updateLoopMessageJson(split.assistantRow.seq, originalMessage);
-		const insertedByToolRowSeq = new Map<number, number>();
-		for (const pair of split.pairs.slice(1)) {
-			const message = providerResponseToolCallMessageForHistory(split.assistantMessage, pair.toolCall, false);
-			const inserted = this.insertLoopMessage({
-				runId: split.assistantRow.run_id,
-				message,
-				origin: split.assistantRow.origin,
-				status: split.assistantRow.status ?? undefined,
-				streamSeq: split.assistantRow.stream_seq ?? undefined,
-				createdAt: split.assistantRow.created_at,
-				broadcast: false,
-			});
-			this.recordLoopMessageLog(inserted.seq, 'message', JSON.stringify(message));
-			insertedSeqs.push(inserted.seq);
-			insertedByToolRowSeq.set(pair.toolRow.seq, inserted.seq);
-		}
-		const toolRowSeqs = new Set(split.pairs.map((pair) => pair.toolRow.seq));
-		const desiredSeqs: number[] = [];
-		for (const row of activeRows) {
-			if (row.seq === split.assistantRow.seq) {
-				desiredSeqs.push(split.assistantRow.seq);
-				for (const pair of split.pairs) {
-					const insertedSeq = insertedByToolRowSeq.get(pair.toolRow.seq);
-					if (insertedSeq !== undefined) {
-						desiredSeqs.push(insertedSeq);
-					}
-					desiredSeqs.push(pair.toolRow.seq);
-				}
-				continue;
-			}
-			if (toolRowSeqs.has(row.seq)) {
-				continue;
-			}
-			desiredSeqs.push(row.seq);
-		}
-		this.repositionActiveLoopMessages(desiredSeqs);
-		return insertedSeqs;
-	}
-
-	private updateLoopMessageJson(seq: number, message: ChatMessage): void {
-		const messageJson = JSON.stringify(message);
-		this.state.storage.sql.exec(
-			`UPDATE loop_messages
-			 SET message_json = ?, token_estimate = ?
-			 WHERE seq = ?
-			   AND deleted_at IS NULL`,
-			messageJson,
-			estimateTextTokens(messageJson),
-			seq,
-		);
-		this.recordLoopMessageLog(seq, 'message', messageJson);
-	}
-
-	private repositionActiveLoopMessages(seqOrder: readonly number[]): void {
+	private updateActiveLoopMessagePositions(seqOrder: readonly number[]): void {
 		if (seqOrder.length === 0) {
 			return;
 		}
@@ -6202,20 +6173,6 @@ export class BotRuntime {
 				seqOrder[index],
 			);
 		}
-	}
-
-	private async recordProviderHistoryRepair(
-		runId: string,
-		count: number,
-		messageSeqs: readonly number[],
-		reason = 'invalid_unicode_text',
-	): Promise<void> {
-		await this.appendEvent(runId, 'provider_history_repaired', {
-			runId,
-			count,
-			messageSeqs: [...messageSeqs],
-			reason,
-		});
 	}
 
 	private loopMessagesAfter(afterSeq: number): BotLoopMessage[] {
@@ -8594,23 +8551,30 @@ export class BotRuntime {
 		if (toolCalls.length !== results.length) {
 			throw new Error('Synthetic tool-call chain must have one result per request.');
 		}
+		const entries: LoopMessageGroupEntry[] = [];
 		for (let index = 0; index < toolCalls.length; index += 1) {
 			const toolCall = toolCalls[index]!;
-			this.appendLoopMessage(
+			entries.push({
 				runId,
-				{
+				message: {
 					role: 'assistant',
 					content: index === 0 ? firstAssistantContent : null,
 					tool_calls: [toolCall],
 				},
 				origin,
 				status,
-			);
+			});
 			const result = results[index];
 			if (result) {
-				this.appendLoopMessage(runId, result, origin, status);
+				entries.push({
+					runId,
+					message: result,
+					origin,
+					status,
+				});
 			}
 		}
+		this.appendLoopMessageGroup(entries);
 	}
 
 	private async syntheticProfilesForUsernames(
@@ -8883,7 +8847,6 @@ export class BotRuntime {
 
 	private async compactIfNeeded(bot: BotDocument, settings: ProviderSettings, runId: string, signal: AbortSignal): Promise<void> {
 		bot = await this.botWithCurrentRuntimeBudget(bot);
-		await this.repairActiveProviderToolCallHistory(runId);
 		const requestContextWindowTokens = effectiveContextWindowTokensForModel(settings, effectiveTickSettings(bot.tickSettings).contextWindowTokens);
 		const contextEstimate = this.currentCompactionContextEstimate(settings.model);
 		const providerTools = providerToolsForBotRound(bot, settings).tools;
@@ -9142,7 +9105,6 @@ export class BotRuntime {
 			const owner = await userById(this.env.BICKR_KV, bot.ownerUserId);
 			const settings = this.effectiveProviderSettings(bot, owner);
 			const runId = crypto.randomUUID();
-			await this.repairActiveProviderToolCallHistory(runId);
 			const rows = this.compactionCandidateRows();
 			if (rows.length === 0) {
 				return { messageCount: 0 };
