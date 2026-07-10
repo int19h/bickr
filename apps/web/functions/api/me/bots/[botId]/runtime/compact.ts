@@ -7,7 +7,7 @@ export const onRequestPost: PagesFunction<AppEnv, "botId"> = async ({ env, reque
 		const user = await requireCompleteUser(env, request);
 		const botId = Array.isArray(params.botId) ? params.botId[0] : params.botId;
 		return env.AGENT_RUNTIME.fetch(
-			serviceRequest(request, `/bots/${encodeURIComponent(botId)}/compact`, user.id),
+			serviceRequest(env, request, `/bots/${encodeURIComponent(botId)}/compact`, user.id),
 		);
 	} catch (error) {
 		return pageErrorResponse(error);

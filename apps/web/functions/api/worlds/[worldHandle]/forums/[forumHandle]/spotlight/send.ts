@@ -30,6 +30,7 @@ export const onRequestPost: PagesFunction<AppEnv, "worldHandle" | "forumHandle">
 					const { response, payload } = await fetchServiceJson(
 						env.AGENT_RUNTIME,
 						serviceRequest(
+							env,
 							request,
 							`/bots/${encodeURIComponent(botId)}/inject`,
 							user.id,
@@ -124,6 +125,7 @@ async function startSpotlightTick(
 	const { response, payload } = await fetchServiceJson(
 		env.AGENT_RUNTIME,
 		serviceRequest(
+			env,
 			request,
 			`/bots/${encodeURIComponent(botId)}/tick`,
 			userId,

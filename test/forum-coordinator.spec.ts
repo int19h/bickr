@@ -94,6 +94,7 @@ import type {
 	ThreadFreshCacheEntryForTest,
 	ThreadListPayload,
 } from "./helpers/index-harness";
+import { internalServiceAuthHeader } from "@bickr/shared/internal-service";
 
 describe("Forum coordinator", () => {
 
@@ -965,6 +966,7 @@ describe("Forum coordinator", () => {
 			value: 1,
 		});
 		voteRequest.headers.set("x-bickr-bot-id", voter.id);
+		voteRequest.headers.set(internalServiceAuthHeader, "test-internal-service-secret");
 
 		const response = await forumCoordinatorWorker.fetch(
 			voteRequest as unknown as Parameters<typeof forumCoordinatorWorker.fetch>[0],
@@ -972,6 +974,7 @@ describe("Forum coordinator", () => {
 				BICKR_D1: testEnv.BICKR_D1,
 				BICKR_KV: testEnv.BICKR_KV,
 				FORUM_COORDINATOR: namespace,
+				INTERNAL_SERVICE_SECRET: "test-internal-service-secret",
 				WORLD_COORDINATOR: namespace,
 			} as unknown as Parameters<typeof forumCoordinatorWorker.fetch>[1],
 		);

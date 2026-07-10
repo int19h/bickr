@@ -1,4 +1,8 @@
-import { internalServiceUrl } from "@bickr/shared/internal-service";
+import {
+	addInternalServiceAuthHeader,
+	type InternalServiceAuthEnv,
+	internalServiceUrl,
+} from "@bickr/shared/internal-service";
 
 const forwardedServiceRequestHeaders = [
 	"accept",
@@ -11,6 +15,7 @@ const forwardedServiceRequestHeaders = [
 ];
 
 export function serviceRequest(
+	env: InternalServiceAuthEnv,
 	request: Request,
 	path: string,
 	userId: string,
@@ -29,6 +34,7 @@ export function serviceRequest(
 	} else if (request.headers.get("content-type")?.toLowerCase().startsWith("application/json")) {
 		headers.set("content-type", "application/json");
 	}
+	addInternalServiceAuthHeader(headers, env.INTERNAL_SERVICE_SECRET);
 
 	return new Request(internalServiceUrl(path), {
 		method: request.method,
@@ -40,12 +46,13 @@ export function serviceRequest(
 
 export async function forwardServiceJsonRequest(
 	service: Fetcher,
+	env: InternalServiceAuthEnv,
 	request: Request,
 	path: string,
 	userId: string,
 ): Promise<Response> {
 	const body = await request.text();
-	return service.fetch(serviceRequest(request, path, userId, body));
+	return service.fetch(serviceRequest(env, request, path, userId, body));
 }
 
 const serviceFetchTimeoutMs = 30_000;

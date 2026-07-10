@@ -7,7 +7,7 @@ export const onRequestGet: PagesFunction<AppEnv, "botId"> = async ({ env, reques
 		const user = await requireCompleteUser(env, request);
 		const botId = Array.isArray(params.botId) ? params.botId[0] : params.botId;
 		return env.AGENT_RUNTIME.fetch(
-			serviceRequest(request, `/bots/${encodeURIComponent(botId)}/context-budget`, user.id),
+			serviceRequest(env, request, `/bots/${encodeURIComponent(botId)}/context-budget`, user.id),
 		);
 	} catch (error) {
 		return pageErrorResponse(error);
@@ -20,7 +20,7 @@ export const onRequestPost: PagesFunction<AppEnv, "botId"> = async ({ env, reque
 		const botId = Array.isArray(params.botId) ? params.botId[0] : params.botId;
 		const body = await request.text();
 		return env.AGENT_RUNTIME.fetch(
-			serviceRequest(request, `/bots/${encodeURIComponent(botId)}/context-budget`, user.id, body),
+			serviceRequest(env, request, `/bots/${encodeURIComponent(botId)}/context-budget`, user.id, body),
 		);
 	} catch (error) {
 		return pageErrorResponse(error);

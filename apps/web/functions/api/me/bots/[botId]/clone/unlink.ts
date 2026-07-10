@@ -7,6 +7,7 @@ export const onRequestPost: PagesFunction<AppEnv, "botId"> = async ({ env, reque
 		const user = await requireCompleteUser(env, request);
 		return env.AGENT_RUNTIME.fetch(
 			serviceRequest(
+				env,
 				request,
 				`/users/${encodeURIComponent(user.id)}/bots/${encodeURIComponent(singleParam(params.botId))}/clone/unlink`,
 				user.id,

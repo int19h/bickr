@@ -1,0 +1,3 @@
+# Dev-only placeholder for local internal service request authentication.
+# Use one generated shared value for all real Cloudflare deployables.
+INTERNAL_SERVICE_SECRET=dev-internal-service-secret

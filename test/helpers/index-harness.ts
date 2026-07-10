@@ -722,6 +722,7 @@ export function contextFor<F extends PagesFunction<AppEnv>>(
 				});
 			},
 		} as unknown as Fetcher,
+		INTERNAL_SERVICE_SECRET: "test-internal-service-secret",
 		FORUM_COORDINATOR_SERVICE: {
 			fetch: async (serviceRequest: Request) => {
 				if (new URL(serviceRequest.url).pathname === "/health") {

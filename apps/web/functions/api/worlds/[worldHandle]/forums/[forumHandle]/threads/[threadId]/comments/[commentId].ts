@@ -17,6 +17,7 @@ export const onRequestDelete: PagesFunction<
 		const forum = await forumByHandle(env.BICKR_KV, env.BICKR_D1, worldHandle, forumHandle);
 		return env.FORUM_COORDINATOR_SERVICE.fetch(
 			serviceRequest(
+				env,
 				request,
 				`/forums/${encodeURIComponent(forum.id)}/threads/${encodeURIComponent(threadId)}/comments/${encodeURIComponent(commentId)}`,
 				user.id,

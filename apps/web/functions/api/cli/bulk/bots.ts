@@ -1,5 +1,5 @@
 import { fail, ok, readJsonBody } from "@bickr/shared/api";
-import { internalServiceUrl } from "@bickr/shared/internal-service";
+import { addInternalServiceAuthHeader, internalServiceUrl } from "@bickr/shared/internal-service";
 import { type BotSummary, type LanguageTag, type LocalizedText, type UpdateBotInput } from "@bickr/shared/model";
 import { listUserBots, RepositoryError, worldByHandle } from "@bickr/shared/repository";
 import { InputError, normalizeHandle, parseUpdateBotInput, requiredText } from "@bickr/shared/validation";
@@ -56,14 +56,16 @@ export const onRequestPost: PagesFunction<AppEnv> = async ({ env, request }) => 
 		const body = JSON.stringify(input.update);
 		for (const item of items) {
 			try {
+				const headers = new Headers({
+					"content-type": "application/json",
+					"x-bickr-user-id": user.id,
+				});
+				addInternalServiceAuthHeader(headers, env.INTERNAL_SERVICE_SECRET);
 				const { response, payload } = await fetchServiceJson(
 					env.AGENT_RUNTIME,
 					new Request(internalServiceUrl(`/users/${encodeURIComponent(user.id)}/bots/${encodeURIComponent(item.botId)}`), {
 						body,
-						headers: {
-							"content-type": "application/json",
-							"x-bickr-user-id": user.id,
-						},
+						headers,
 						method: "PATCH",
 						signal: request.signal,
 					}),

@@ -1,5 +1,5 @@
 import { readJsonBody } from "@bickr/shared/api";
-import { internalServiceUrl } from "@bickr/shared/internal-service";
+import { addInternalServiceAuthHeader, internalServiceUrl } from "@bickr/shared/internal-service";
 import { asRecord, InputError, requiredText } from "@bickr/shared/validation";
 import { type AppEnv } from "../_auth";
 import { pageErrorResponse } from "../_errors";
@@ -45,7 +45,7 @@ export const onRequestPost: PagesFunction<AppEnv> = async ({ env, request }) => 
 		const response = await serviceBinding(env, input.service).fetch(
 			new Request(internalServiceUrl(input.path), {
 				body: input.body,
-				headers: input.headers,
+				headers: serviceProxyHeaders(input.headers, env.INTERNAL_SERVICE_SECRET),
 				method: input.method,
 			}),
 		);
@@ -142,6 +142,12 @@ function parseServiceBody(record: Record<string, unknown>, method: string, heade
 
 	headers.set("content-type", parseContentType(record.contentType ?? "application/json"));
 	return JSON.stringify(record.body);
+}
+
+function serviceProxyHeaders(inputHeaders: Headers, internalServiceSecret: string | undefined): Headers {
+	const headers = new Headers(inputHeaders);
+	addInternalServiceAuthHeader(headers, internalServiceSecret);
+	return headers;
 }
 
 function parseContentType(value: unknown): string {

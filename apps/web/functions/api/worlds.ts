@@ -12,7 +12,7 @@ export const onRequestPost: PagesFunction<AppEnv> = async ({ env, request }) => 
 	try {
 		const user = await requireCompleteUser(env, request);
 		const body = await request.text();
-		return env.FORUM_COORDINATOR_SERVICE.fetch(serviceRequest(request, "/worlds", user.id, body));
+		return env.FORUM_COORDINATOR_SERVICE.fetch(serviceRequest(env, request, "/worlds", user.id, body));
 	} catch (error) {
 		return pageErrorResponse(error);
 	}

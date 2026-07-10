@@ -7,7 +7,7 @@ export const onRequestPost: PagesFunction<AppEnv> = async ({ env, request }) => 
 		const user = await requireUser(env, request);
 		const body = await request.text();
 		return env.AGENT_RUNTIME.fetch(
-			serviceRequest(request, `/users/${encodeURIComponent(user.id)}/translate`, user.id, body),
+			serviceRequest(env, request, `/users/${encodeURIComponent(user.id)}/translate`, user.id, body),
 		);
 	} catch (error) {
 		return pageErrorResponse(error);

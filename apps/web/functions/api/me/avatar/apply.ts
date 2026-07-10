@@ -7,6 +7,7 @@ export const onRequestPost: PagesFunction<AppEnv> = async ({ env, request }) => 
 		const user = await requireUser(env, request);
 		return env.AGENT_RUNTIME.fetch(
 			serviceRequest(
+				env,
 				request,
 				`/users/${encodeURIComponent(user.id)}/avatar/apply`,
 				user.id,

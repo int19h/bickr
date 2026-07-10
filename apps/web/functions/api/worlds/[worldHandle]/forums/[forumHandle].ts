@@ -15,6 +15,7 @@ export const onRequestPatch: PagesFunction<AppEnv, "worldHandle" | "forumHandle"
 		const body = await request.text();
 		return env.FORUM_COORDINATOR_SERVICE.fetch(
 			serviceRequest(
+				env,
 				request,
 				`/worlds/${encodeURIComponent(worldHandle)}/forums/${encodeURIComponent(forumHandle)}`,
 				user.id,
@@ -37,6 +38,7 @@ export const onRequestDelete: PagesFunction<AppEnv, "worldHandle" | "forumHandle
 		const forumHandle = normalizeHandleParam(params.forumHandle, "Forum handle");
 		return env.FORUM_COORDINATOR_SERVICE.fetch(
 			serviceRequest(
+				env,
 				request,
 				`/worlds/${encodeURIComponent(worldHandle)}/forums/${encodeURIComponent(forumHandle)}`,
 				user.id,
