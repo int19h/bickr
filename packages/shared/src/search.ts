@@ -98,6 +98,10 @@ type SearchVectorMatches = {
 	matches: SearchVectorMatch[];
 };
 
+type FtsExpressionOptions = {
+	prefixFinalTerm?: boolean;
+};
+
 function searchBotAvatarFields(avatarUrl: string | null | undefined, avatarCrop: string | null | undefined): { avatarUrl?: string; avatarCrop?: AvatarCrop } {
 	const crop = avatarCropFromJson(avatarCrop);
 	return {
@@ -143,7 +147,7 @@ export function parseSearchMode(value: string | null | undefined): SearchMode {
 	if (value === "fts" || value === "semantic" || value === "substring") {
 		return value;
 	}
-	return "substring";
+	return "fts";
 }
 
 export function parseSearchTypes(value: string | null | undefined): SearchEntityType[] {
@@ -187,18 +191,27 @@ export async function searchSuggestions(
 	db: D1DatabaseLike,
 	options: SearchSuggestionOptions,
 ): Promise<SearchResponse> {
-	return searchEntitiesText(db, {
-		mode: "substring",
+	return searchEntitiesTextInternal(db, {
+		mode: "fts",
 		page: 1,
 		query: options.query,
 		types: searchTypes,
-	}, Math.max(1, Math.min(20, Math.floor(options.limit ?? searchSuggestionLimit))));
+	}, Math.max(1, Math.min(20, Math.floor(options.limit ?? searchSuggestionLimit))), { prefixFinalTerm: true });
 }
 
 export async function searchEntitiesText(
 	db: D1DatabaseLike,
 	options: SearchQueryOptions,
 	overrideLimit?: number,
+): Promise<SearchResponse> {
+	return searchEntitiesTextInternal(db, options, overrideLimit, {});
+}
+
+async function searchEntitiesTextInternal(
+	db: D1DatabaseLike,
+	options: SearchQueryOptions,
+	overrideLimit: number | undefined,
+	ftsOptions: FtsExpressionOptions,
 ): Promise<SearchResponse> {
 	const page = boundedSearchPage(options.page);
 	const types = normalizeSearchTypes(options.types);
@@ -209,7 +222,11 @@ export async function searchEntitiesText(
 	}
 
 	if (options.mode === "fts") {
-		return ftsSearchEntities(db, { ...options, page, query, types }, limit);
+		const ftsQuery = ftsExpressionFromUserSearch(query, ftsOptions);
+		if (!ftsQuery) {
+			return emptySearchResponse(query, page, limit);
+		}
+		return ftsSearchEntities(db, { ...options, page, query, types }, ftsQuery, limit);
 	}
 	return substringSearchEntities(db, { ...options, mode: "substring", page, query, types }, limit);
 }
@@ -421,18 +438,7 @@ async function substringSearchEntities(
 	if (!pattern) {
 		return emptySearchResponse(options.query, options.page, limit);
 	}
-	const normalized = normalizeSearchQuery(options.query);
-	const prefixPattern = `${escapeLike(normalized.replaceAll("*", ""))}%`;
-	const scoreBinds = [
-		normalized,
-		prefixPattern,
-		prefixPattern,
-		normalized,
-		prefixPattern,
-		normalized,
-		prefixPattern,
-		prefixPattern,
-	];
+	const scoreBinds = searchScoreBinds(options.query);
 	const conditions = ["type IN (${typePlaceholders})", "search_text LIKE ? ESCAPE '\\'"];
 	const binds: unknown[] = [pattern];
 	appendSearchFilters(conditions, binds, options);
@@ -454,10 +460,12 @@ async function substringSearchEntities(
 async function ftsSearchEntities(
 	db: D1DatabaseLike,
 	options: SearchQueryOptions & { page: number; query: string; types: readonly SearchEntityType[] },
+	ftsQuery: string,
 	limit: number,
 ): Promise<SearchResponse> {
 	const conditions = ["type IN (${typePlaceholders})"];
 	const binds: unknown[] = [];
+	const scoreBinds = searchScoreBinds(options.query);
 	appendSearchFilters(conditions, binds, options);
 	const sql = searchRowsSql({
 		source: "fts",
@@ -468,12 +476,14 @@ async function ftsSearchEntities(
 	try {
 		const result = await db
 			.prepare(sql)
-			.bind(options.query, ...options.types, ...binds, limit, offset)
+			.bind(ftsQuery, ...scoreBinds, ...options.types, ...binds, limit, offset)
 			.all<SearchSqlRow>();
 		return responseFromRows(options.query, options.page, limit, result.results ?? [], "fts");
 	} catch (error) {
 		if (isFtsSyntaxError(error)) {
-			throw new InputError("FTS query syntax is invalid.");
+			// The expression builder quotes user text, but tokenizer-only edge cases can still
+			// leave SQLite with no valid phrase. Returning no matches avoids a substring scan.
+			return emptySearchResponse(options.query, options.page, limit);
 		}
 		throw error;
 	}
@@ -516,7 +526,12 @@ function searchRowsSql(input: {
 					NULL AS botShortBioLang,
 					NULL AS botAvatarUrl,
 					NULL AS botAvatarCrop,
-					fts.score AS score,
+					CASE
+						WHEN lower(w.handle) = ? THEN 100
+						WHEN lower(w.handle) LIKE ? ESCAPE '\\' THEN 80
+						WHEN lower(w.name) LIKE ? ESCAPE '\\' THEN 70
+						ELSE 0
+					END + fts.score AS score,
 					lower(w.handle) AS sortHandle,
 					lower(w.name) AS sortName
 				 FROM fts_matches fts
@@ -545,7 +560,11 @@ function searchRowsSql(input: {
 					NULL AS botShortBioLang,
 					NULL AS botAvatarUrl,
 					NULL AS botAvatarCrop,
-					fts.score AS score,
+					CASE
+						WHEN lower(f.handle) = ? THEN 100
+						WHEN lower(f.handle) LIKE ? ESCAPE '\\' THEN 80
+						ELSE 0
+					END + fts.score AS score,
 					lower(f.handle) AS sortHandle,
 					lower(f.description) AS sortName
 				 FROM fts_matches fts
@@ -576,7 +595,12 @@ function searchRowsSql(input: {
 					b.short_bio_lang AS botShortBioLang,
 					b.avatar_url AS botAvatarUrl,
 					b.avatar_crop AS botAvatarCrop,
-					fts.score AS score,
+					CASE
+						WHEN lower(b.handle) = ? THEN 100
+						WHEN lower(b.handle) LIKE ? ESCAPE '\\' THEN 80
+						WHEN lower(b.display_name) LIKE ? ESCAPE '\\' THEN 70
+						ELSE 0
+					END + fts.score AS score,
 					lower(b.handle) AS sortHandle,
 					lower(b.display_name) AS sortName
 				 FROM fts_matches fts
@@ -1360,6 +1384,34 @@ const likePatternForAdvancedSearch = likePatternForSearchGlob;
 
 export function escapeLike(value: string): string {
 	return value.replace(/[\\%_]/g, (char) => `\\${char}`);
+}
+
+function searchScoreBinds(query: string): unknown[] {
+	const normalized = normalizeSearchQuery(query);
+	const prefixPattern = `${escapeLike(normalized.replaceAll("*", ""))}%`;
+	return [
+		normalized,
+		prefixPattern,
+		prefixPattern,
+		normalized,
+		prefixPattern,
+		normalized,
+		prefixPattern,
+		prefixPattern,
+	];
+}
+
+function ftsExpressionFromUserSearch(query: string, options: FtsExpressionOptions): string | null {
+	const terms = normalizeSearchText(query).split(" ").filter(Boolean);
+	if (terms.length === 0) {
+		return null;
+	}
+	return terms
+		.map((term, index) => {
+			const quoted = `"${term.replaceAll('"', '""')}"`;
+			return options.prefixFinalTerm && index === terms.length - 1 ? `${quoted} *` : quoted;
+		})
+		.join(" AND ");
 }
 
 function normalizeSearchQuery(query: string): string {

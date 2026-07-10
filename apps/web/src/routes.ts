@@ -58,7 +58,7 @@ export const allSearchTypes = ["world", "forum", "bot"] as const satisfies reado
 
 export const defaultSearchRouteState: SearchRouteState = {
 	forum: "",
-	mode: "substring",
+	mode: "fts",
 	page: 1,
 	query: "",
 	types: [...allSearchTypes],
@@ -237,7 +237,7 @@ export function normalizeLoggedOutRoute(parsed: ParsedRoute): PublicRouteNormali
 		case "search":
 			if (parsed.search?.mode === "semantic") {
 				return {
-					route: { ...parsed, search: { ...parsed.search, mode: "substring", page: 1 } },
+					route: { ...parsed, search: { ...parsed.search, mode: "fts", page: 1 } },
 					status: "Sign in to use semantic search.",
 				};
 			}
@@ -293,7 +293,7 @@ function searchRoutePath(state: SearchRouteState | undefined): string {
 	if (next.query.trim()) {
 		params.set("q", next.query.trim());
 	}
-	if (next.mode !== "substring") {
+	if (next.mode !== "fts") {
 		params.set("mode", next.mode);
 	}
 	if (!sameSearchTypes(next.types, allSearchTypes)) {
@@ -316,7 +316,7 @@ function searchRoutePath(state: SearchRouteState | undefined): string {
 }
 
 function searchModeFromParam(value: string | null): SearchMode {
-	return value === "fts" || value === "semantic" ? value : "substring";
+	return value === "substring" || value === "semantic" ? value : "fts";
 }
 
 function searchTypesFromParam(value: string | null): SearchEntityType[] {

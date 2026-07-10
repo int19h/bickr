@@ -44,6 +44,7 @@ import type {
 	WorldSummary,
 } from "./helpers/index-harness";
 import { internalServiceAuthHeader } from "@bickr/shared/internal-service";
+import { parseSearchMode } from "@bickr/shared/search";
 
 describe("Search", () => {
 
@@ -160,7 +161,7 @@ describe("Search", () => {
 		expect(forumsPayload.data.forums.map((forum) => forum.handle)).toEqual(expect.arrayContaining(["announcements", "intro"]));
 	});
 
-	it("searches active worlds, forums, and bots by substring suggestions, escaped substrings, globs, and exact filters", async () => {
+	it("searches active worlds, forums, and bots by default FTS, explicit substring, suggestions, escaped substrings, globs, and exact filters", async () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);
 		await createWorld(
@@ -183,13 +184,23 @@ describe("Search", () => {
 				),
 			),
 		);
+		await createWorld(
+			contextFor<typeof createWorld>(
+				jsonRequest(
+					"http://example.com/api/worlds",
+					"POST",
+					{ handle: "body-match-lab", name: "Body Match Lab", description: "Mentions release-sage exactly in the description." },
+					cookie,
+				),
+			),
+		);
 		const forum = await createForumForTest(cookie, "release-room");
 		const bot = await createBotForTest(cookie, "release-sage");
 		await createThreadForTest(forum.id, bot.id, "Release notes", "Release notes from u/release-sage.");
 
 		const suggestions = await searchSuggestRoute(
 			contextFor<typeof searchSuggestRoute>(
-				new Request("http://example.com/api/search/suggest?q=release"),
+				new Request("http://example.com/api/search/suggest?q=rel"),
 			),
 		);
 		expect(suggestions.status, await suggestions.clone().text()).toBe(200);
@@ -197,7 +208,22 @@ describe("Search", () => {
 		expect(suggestionsPayload.data.results.map((result) => `${result.type}:${"handle" in result ? result.handle : ""}`)).toEqual(
 			expect.arrayContaining(["forum:release-room", "bot:release-sage"]),
 		);
+		expect(suggestionsPayload.data.results.every((result) => result.source === "fts")).toBe(true);
 		expect(suggestionsPayload.data.results.map((result) => `${result.type}:${"handle" in result ? result.handle : ""}`)).not.toContain("forum:release-sage");
+
+		expect(parseSearchMode(undefined)).toBe("fts");
+		expect(parseSearchMode("text")).toBe("fts");
+
+		const publicDefaultFts = await searchRoute(
+			contextFor<typeof searchRoute>(
+				new Request("http://example.com/api/search?q=release&types=forum,bot"),
+			),
+		);
+		expect(publicDefaultFts.status, await publicDefaultFts.clone().text()).toBe(200);
+		const publicDefaultFtsPayload = await publicDefaultFts.json() as { data: { search: SearchResponse } };
+		const publicDefaultOrder = publicDefaultFtsPayload.data.search.results.map((result) => `${result.type}:${"handle" in result ? result.handle : ""}`);
+		expect(publicDefaultFtsPayload.data.search.results.every((result) => result.source === "fts")).toBe(true);
+		expect(publicDefaultOrder).toEqual(["bot:release-sage", "forum:release-room"]);
 
 		const publicSubstring = await searchRoute(
 			contextFor<typeof searchRoute>(
@@ -206,9 +232,21 @@ describe("Search", () => {
 		);
 		expect(publicSubstring.status, await publicSubstring.clone().text()).toBe(200);
 		const publicSubstringPayload = await publicSubstring.json() as { data: { search: SearchResponse } };
-		expect(publicSubstringPayload.data.search.results.map((result) => `${result.type}:${"handle" in result ? result.handle : ""}`)).toEqual(
-			expect.arrayContaining(["forum:release-room", "bot:release-sage"]),
-		);
+		const publicSubstringOrder = publicSubstringPayload.data.search.results.map((result) => `${result.type}:${"handle" in result ? result.handle : ""}`);
+		expect(publicSubstringPayload.data.search.results.every((result) => result.source === "substring")).toBe(true);
+		expect(publicSubstringOrder).toEqual(["forum:release-room", "bot:release-sage"]);
+		expect(new Set(publicSubstringOrder)).toEqual(new Set(publicDefaultOrder));
+
+		const exactHandleFts = await searchEntitiesText(testEnv.BICKR_D1, {
+			mode: "fts",
+			query: "release-sage",
+			types: ["world", "bot"],
+		});
+		expect(exactHandleFts.results.map((result) => `${result.type}:${"handle" in result ? result.handle : ""}`).slice(0, 2)).toEqual([
+			"bot:release-sage",
+			"world:body-match-lab",
+		]);
+		expect(exactHandleFts.results[0]?.score ?? 0).toBeGreaterThan(exactHandleFts.results[1]?.score ?? 0);
 
 		const escaped = await searchEntitiesText(testEnv.BICKR_D1, {
 			mode: "substring",
@@ -264,7 +302,7 @@ describe("Search", () => {
 		expect(personalForumSearch.results).toEqual([]);
 	});
 
-	it("supports FTS search, syntax errors, and 20-result pagination", async () => {
+	it("supports FTS search, literal operator input, syntax-safe injection, and 20-result pagination", async () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);
 		for (let index = 0; index < 21; index += 1) {
@@ -294,13 +332,21 @@ describe("Search", () => {
 		expect(firstPage.hasNextPage).toBe(true);
 		expect(firstPage.results.every((result) => result.type === "forum" && !result.world.matched)).toBe(true);
 
-		const operatorQuery = await searchEntitiesText(testEnv.BICKR_D1, {
+		const multiTermQuery = await searchEntitiesText(testEnv.BICKR_D1, {
+			mode: "fts",
+			page: 1,
+			query: "Pagination needle",
+			types: ["forum"],
+		});
+		expect(multiTermQuery.total).toBe(21);
+
+		const literalOperatorQuery = await searchEntitiesText(testEnv.BICKR_D1, {
 			mode: "fts",
 			page: 1,
 			query: "Pagination OR needle",
 			types: ["forum"],
 		});
-		expect(operatorQuery.total).toBe(21);
+		expect(literalOperatorQuery.total).toBe(0);
 
 		const secondPage = await searchEntitiesText(testEnv.BICKR_D1, {
 			mode: "fts",
@@ -321,12 +367,16 @@ describe("Search", () => {
 		expect(publicFtsPayload.data.search.total).toBe(21);
 		expect(publicFtsPayload.data.search.results).toHaveLength(20);
 
-		const invalid = await searchRoute(
-			contextFor<typeof searchRoute>(
-				new Request("http://example.com/api/search?q=%22&mode=fts&types=world", { headers: { cookie } }),
-			),
-		);
-		expect(invalid.status).toBe(400);
+		for (const query of ['"', "*", "NEAR(", "(pagination", "-"]) {
+			const invalid = await searchRoute(
+				contextFor<typeof searchRoute>(
+					new Request(`http://example.com/api/search?q=${encodeURIComponent(query)}&mode=fts&types=world`, { headers: { cookie } }),
+				),
+			);
+			expect(invalid.status, await invalid.clone().text()).toBe(200);
+			const invalidPayload = await invalid.json() as { data: { search: SearchResponse } };
+			expect(invalidPayload.data.search.results).toEqual(expect.any(Array));
+		}
 	});
 
 	it("keeps FTS rows current on world, forum, and bot rename and soft-delete paths", async () => {
