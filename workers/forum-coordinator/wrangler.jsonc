@@ -5,6 +5,12 @@
 	"compatibility_date": "2026-04-25",
 	"workers_dev": false,
 	"preview_urls": false,
+	// Workers Logs: without this, cron/scheduled invocation output is
+	// unrecoverable after the fact (observability is not inherited by envs,
+	// so it is repeated under env.test).
+	"observability": {
+		"enabled": true
+	},
 	// INTERNAL_SERVICE_SECRET is a Worker secret set with `wrangler secret put`.
 	// Do not place it in vars; it is intentionally not in secrets.required so
 	// deploys can roll out before the secret exists.
@@ -50,6 +56,9 @@
 			"name": "bickr-forum-coordinator-test",
 			"workers_dev": false,
 			"preview_urls": false,
+			"observability": {
+				"enabled": true
+			},
 			"durable_objects": {
 				"bindings": [
 					{
