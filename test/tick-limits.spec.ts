@@ -1401,8 +1401,8 @@ describe("Tick limits and recovery", () => {
 		const harness = legacyLoopHistoryRuntime(rows);
 		const migrate = (BotRuntime.prototype as unknown as { migrateLegacyProviderToolCallHistory: () => void })
 			.migrateLegacyProviderToolCallHistory.bind(harness.runtime);
-		const assertInvariant = (BotRuntime.prototype as unknown as { assertProviderToolCallHistoryInvariant: () => void })
-			.assertProviderToolCallHistoryInvariant.bind(harness.runtime);
+		const assertInvariant = (BotRuntime.prototype as unknown as { assertProviderToolCallHistoryInvariantOrThrow: () => void })
+			.assertProviderToolCallHistoryInvariantOrThrow.bind(harness.runtime);
 
 		migrate();
 
@@ -1444,8 +1444,8 @@ describe("Tick limits and recovery", () => {
 		const harness = legacyLoopHistoryRuntime(rows);
 		const migrate = (BotRuntime.prototype as unknown as { migrateLegacyProviderToolCallHistory: () => void })
 			.migrateLegacyProviderToolCallHistory.bind(harness.runtime);
-		const assertInvariant = (BotRuntime.prototype as unknown as { assertProviderToolCallHistoryInvariant: () => void })
-			.assertProviderToolCallHistoryInvariant.bind(harness.runtime);
+		const assertInvariant = (BotRuntime.prototype as unknown as { assertProviderToolCallHistoryInvariantOrThrow: () => void })
+			.assertProviderToolCallHistoryInvariantOrThrow.bind(harness.runtime);
 
 		migrate();
 
@@ -1477,8 +1477,8 @@ describe("Tick limits and recovery", () => {
 		const harness = legacyLoopHistoryRuntime(rows);
 		const migrate = (BotRuntime.prototype as unknown as { migrateLegacyProviderToolCallHistory: () => void })
 			.migrateLegacyProviderToolCallHistory.bind(harness.runtime);
-		const assertInvariant = (BotRuntime.prototype as unknown as { assertProviderToolCallHistoryInvariant: () => void })
-			.assertProviderToolCallHistoryInvariant.bind(harness.runtime);
+		const assertInvariant = (BotRuntime.prototype as unknown as { assertProviderToolCallHistoryInvariantOrThrow: () => void })
+			.assertProviderToolCallHistoryInvariantOrThrow.bind(harness.runtime);
 
 		migrate();
 		expect(assertInvariant).not.toThrow();
@@ -1584,6 +1584,23 @@ describe("Tick limits and recovery", () => {
 				expect.objectContaining({ id: "call-valid" }),
 			],
 		});
+	});
+
+	it("keeps the explicit write-site invariant assertion throwing", () => {
+		const rows: LoopMessageRowForTest[] = [
+			loopMessageRowForMessage(1, {
+				role: "assistant",
+				content: null,
+				tool_calls: [
+					{ id: "call-missing-result", type: "function", function: { name: "read_thread", arguments: "{\"threadId\":\"thr_missing\"}" } },
+				],
+			}),
+		];
+		const harness = legacyLoopHistoryRuntime(rows);
+		const assertInvariant = (BotRuntime.prototype as unknown as { assertProviderToolCallHistoryInvariantOrThrow: () => void })
+			.assertProviderToolCallHistoryInvariantOrThrow.bind(harness.runtime);
+
+		expect(assertInvariant).toThrow("assistant row 1 is not followed by a tool result");
 	});
 
 	it("records generated multi-call responses as single-call assistant and tool pairs", async () => {

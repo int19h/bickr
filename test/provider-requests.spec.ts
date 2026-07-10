@@ -1167,6 +1167,102 @@ describe("Provider requests", () => {
 		expect(sql.indexCreatedBeforeDeletedAt()).toBe(false);
 	});
 
+	it("records constructor-detected provider tool-call invariant violations without throwing", async () => {
+		const activeRows = [{
+			seq: 1,
+			position: 1,
+			run_id: "run-constructor-violation",
+			role: "assistant",
+			message_json: JSON.stringify({
+				role: "assistant",
+				content: null,
+				tool_calls: [
+					{ id: "call-missing-tool", type: "function", function: { name: "read_thread", arguments: "{\"threadId\":\"thr_missing\"}" } },
+				],
+			}),
+			origin: "provider_response",
+			status: "complete",
+			token_estimate: 0,
+			stream_seq: null,
+			compacted_by: null,
+			deleted_at: null,
+			created_at: "2026-07-10T00:00:00.000Z",
+			has_logs: 0,
+		}];
+		const runtimeState = new Map<string, string>([
+			["loop_messages_provider_tool_call_history_normalized_v1", "true"],
+			["provider_token_calibration_samples_backfilled", "true"],
+		]);
+		const columnsByTable = new Map<string, string[]>([
+			["injections", ["id", "text", "kind", "source_id", "spotlight_id", "created_at", "consumed_at"]],
+			["provider_usage", ["id", "request_seq", "run_id", "provider_name"]],
+			["inference_submissions", ["id", "event_seq", "run_id", "display_messages_json"]],
+			["loop_messages", ["seq", "position", "run_id", "role", "message_json", "origin", "status", "token_estimate", "stream_seq", "display_event_seq", "compacted_by", "deleted_at", "created_at"]],
+		]);
+		const sql = {
+			runtimeStateValue(key: string): unknown {
+				const value = runtimeState.get(key);
+				return value === undefined ? undefined : JSON.parse(value);
+			},
+			exec<T>(query: string, ...params: unknown[]) {
+				const normalized = query.trim().replace(/\s+/g, " ");
+				const tableInfo = /^PRAGMA table_info\(([^)]+)\)$/.exec(normalized);
+				if (tableInfo) {
+					return { toArray: () => (columnsByTable.get(tableInfo[1] ?? "") ?? []).map((name) => ({ name }) as T) };
+				}
+				if (/SELECT COUNT\(\*\) AS count FROM loop_messages/.test(normalized)) {
+					return { one: () => ({ count: activeRows.length }) as T, toArray: () => [] as T[] };
+				}
+				if (/SELECT value_json FROM runtime_state WHERE key = \?/.test(normalized)) {
+					const value = runtimeState.get(String(params[0]));
+					return { toArray: () => (value === undefined ? [] : [{ value_json: value } as T]) };
+				}
+				if (/INSERT INTO runtime_state/.test(normalized)) {
+					runtimeState.set(String(params[0]), String(params[1]));
+				}
+				if (/DELETE FROM runtime_state WHERE key = \?/.test(normalized)) {
+					runtimeState.delete(String(params[0]));
+				}
+				if (/SELECT m\.seq, m\.position, m\.run_id/.test(normalized)) {
+					return { toArray: () => activeRows as T[] };
+				}
+				if (/SELECT payload_json FROM events WHERE type = 'tick_started'/.test(normalized)) {
+					return { toArray: () => [{ payload_json: JSON.stringify({ botId: "bot_constructor_violation" }) } as T] };
+				}
+				return { one: () => ({} as T), toArray: () => [] as T[] };
+			},
+		};
+		const pending: Promise<void>[] = [];
+		const state = {
+			id: { toString: () => "do_constructor_violation" },
+			blockConcurrencyWhile: (callback: () => Promise<void>) => {
+				pending.push(callback());
+			},
+			storage: { sql },
+		};
+		const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+		try {
+			expect(() => new BotRuntime(state as unknown as DurableObjectState, {} as never)).not.toThrow();
+			await expect(Promise.all(pending)).resolves.toEqual([undefined]);
+			expect(consoleError).toHaveBeenCalledWith(
+				"BotRuntime provider tool-call history invariant violation after startup migration",
+				expect.objectContaining({
+					botId: "bot_constructor_violation",
+					objectId: "do_constructor_violation",
+					violation: expect.stringContaining("assistant row 1 is not followed by a tool result"),
+				}),
+			);
+		} finally {
+			consoleError.mockRestore();
+		}
+		expect(sql.runtimeStateValue("provider_tool_call_history_invariant_violation")).toMatchObject({
+			botId: "bot_constructor_violation",
+			objectId: "do_constructor_violation",
+			violation: expect.stringContaining("assistant row 1 is not followed by a tool result"),
+		});
+		expect(sql.runtimeStateValue("loop_messages_provider_tool_call_history_normalized_v1")).toBeUndefined();
+	});
+
 	it("stores display event sequence when inserting rich tool result loop messages", () => {
 		const displayPayload = {
 			name: "read_thread_by_id",

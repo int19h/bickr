@@ -3743,6 +3743,7 @@ CREATE TABLE IF NOT EXISTS loop_message_log_chunks (
 `;
 
 const legacyProviderToolCallHistoryNormalizedStateKey = 'loop_messages_provider_tool_call_history_normalized_v1';
+const providerToolCallHistoryInvariantViolationStateKey = 'provider_tool_call_history_invariant_violation';
 
 export class BotRuntime {
 	private readonly state: DurableObjectState;
@@ -3770,7 +3771,7 @@ export class BotRuntime {
 			this.ensureLoopMessageColumns();
 			this.migrateLegacyLoopMessages();
 			this.migrateLegacyProviderToolCallHistory();
-			this.assertProviderToolCallHistoryInvariant();
+			this.observeProviderToolCallHistoryInvariantAfterStartupMigration();
 			this.backfillProviderTokenCalibrationSamples();
 		});
 	}
@@ -3930,10 +3931,49 @@ export class BotRuntime {
 		});
 	}
 
-	private assertProviderToolCallHistoryInvariant(): void {
+	private observeProviderToolCallHistoryInvariantAfterStartupMigration(): void {
+		const violation = providerToolCallHistoryInvariantViolation(this.activeLoopMessageRows());
+		if (!violation) {
+			this.deleteRuntimeState(providerToolCallHistoryInvariantViolationStateKey);
+			return;
+		}
+		const botId = this.botIdForStartupDiagnostics();
+		const objectId = this.state.id.toString();
+		const payload = {
+			botId: botId ?? 'unknown',
+			objectId,
+			violation,
+			detectedAt: new Date().toISOString(),
+		};
+		console.error('BotRuntime provider tool-call history invariant violation after startup migration', payload);
+		this.setRuntimeState(providerToolCallHistoryInvariantViolationStateKey, payload);
+		this.deleteRuntimeState(legacyProviderToolCallHistoryNormalizedStateKey);
+	}
+
+	assertProviderToolCallHistoryInvariantOrThrow(): void {
 		const violation = providerToolCallHistoryInvariantViolation(this.activeLoopMessageRows());
 		if (violation) {
 			throw new Error(`Loop message provider tool-call history invariant failed: ${violation}.`);
+		}
+	}
+
+	private botIdForStartupDiagnostics(): string | null {
+		const row = this.state.storage.sql
+			.exec<{ payload_json: string }>(
+				`SELECT payload_json
+				 FROM events
+				 WHERE type = 'tick_started'
+				 ORDER BY seq DESC
+				 LIMIT 1`,
+			)
+			.toArray()[0];
+		if (!row) {
+			return null;
+		}
+		try {
+			return stringValue(runtimeRecord(JSON.parse(row.payload_json) as unknown).botId) ?? null;
+		} catch {
+			return null;
 		}
 	}
 
@@ -3983,6 +4023,8 @@ export class BotRuntime {
 	}
 
 	private runStorageTransactionSync<T>(closure: () => T): T {
+		// Some unit-test harnesses stub only the SQL surface; production SQLite
+		// Durable Object storage provides transactionSync.
 		const storage = (this as unknown as { state?: { storage?: { transactionSync?: <Result>(callback: () => Result) => Result } } }).state?.storage;
 		return typeof storage?.transactionSync === 'function' ? storage.transactionSync(closure) : closure();
 	}
@@ -5891,6 +5933,8 @@ export class BotRuntime {
 	): BotLoopMessage[] {
 		const storage = (this as unknown as { state?: { storage?: { transactionSync?: <T>(closure: () => T) => T } } }).state?.storage;
 		if (!this.hasRuntimeStorage() || typeof storage?.transactionSync !== 'function') {
+			// This fallback is for tests without a full Durable Object storage double;
+			// production writes use the transactionSync path below.
 			return entries.map((entry) => {
 				const inserted = this.appendLoopMessage(entry.runId, entry.message, entry.origin, entry.status, entry.options);
 				for (const log of entry.extraLogs ?? []) {
