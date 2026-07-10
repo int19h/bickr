@@ -28,9 +28,12 @@ import {
 } from "./helpers/index-harness";
 import type {
 	BotDocument,
+	BotInferenceSubmissionMessage,
+	BotInferenceSubmissionToolCall,
 	BotRuntimeEvent,
 	BotTokenSpendSummary,
 	BotTokenUsageStats,
+	ProviderToolDefinition,
 	RecordProviderUsageInputForTest,
 } from "./helpers/index-harness";
 
@@ -879,13 +882,156 @@ describe("Submissions and usage", () => {
 			expect(inferenceSubmissionSummaries()).toEqual([]);
 		});
 
+		it("emits baseline-plus-delta prompt estimates for stored sanitized tool-call prefixes", async () => {
+			const sql = promptEstimateSqlForTest();
+			const baselineLoopMessages = notificationToolPrefixMessages("synthetic_run_baseline_0");
+			const nextLoopMessages = [
+				...baselineLoopMessages,
+				{ role: "assistant" as const, content: "I will check the forum activity next." },
+			];
+			let activeLoopMessages = baselineLoopMessages;
+			const events: BotRuntimeEvent[] = [];
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				state: {
+					storage: {
+						sql,
+					},
+				},
+				activeLoopMessagesForProvider: () => activeLoopMessages,
+				appendEvent: async (runId: string, type: BotRuntimeEvent["type"], payload: unknown) => {
+					const event = runtimeEvent(events.length + 1, runId, type, payload);
+					events.push(event);
+					return event;
+				},
+				botWithCurrentRuntimeBudget: async (bot: BotDocument) => bot,
+				textTokenCalibration: () => ({ tokensPerCharacter: 0.25, sampleCount: 2 }),
+			});
+			const settings = promptEstimateSettings();
+			const bot = fakeBotDocument({ contextWindowTokens: 80_000 });
+			const activeProviderRequestMessages = (BotRuntime.prototype as unknown as {
+				activeProviderRequestMessages: (bot: BotDocument) => BotInferenceSubmissionMessage[];
+			}).activeProviderRequestMessages.bind(runtime);
+			const recordInferenceSubmission = (BotRuntime.prototype as unknown as {
+				recordInferenceSubmission: (input: {
+					seq: number;
+					runId: string;
+					purpose: "loop" | "compaction";
+					settings: ReturnType<typeof promptEstimateSettings>;
+					messages: BotInferenceSubmissionMessage[];
+					createdAt: string;
+				}) => void;
+			}).recordInferenceSubmission.bind(runtime);
+			const ensureProviderPromptWithinBudget = (BotRuntime.prototype as unknown as {
+				ensureProviderPromptWithinBudget: (
+					bot: BotDocument,
+					settings: ReturnType<typeof promptEstimateSettings>,
+					runId: string,
+					signal: AbortSignal,
+					providerTools: ProviderToolDefinition[],
+				) => Promise<unknown>;
+			}).ensureProviderPromptWithinBudget.bind(runtime);
+
+			recordInferenceSubmission({
+				seq: 10,
+				runId: "run-baseline",
+				purpose: "loop",
+				settings,
+				messages: activeProviderRequestMessages(bot),
+				createdAt: "2026-05-01T00:00:00.000Z",
+			});
+			sql.addProviderUsage({ requestSeq: 10, runId: "run-baseline", promptTokens: 2_000 });
+
+			activeLoopMessages = nextLoopMessages;
+			await ensureProviderPromptWithinBudget(bot, settings, "run-next", new AbortController().signal, []);
+
+			const payload = events.find((event) => event.type === "provider_token_estimate")?.payload as Record<string, unknown> | undefined;
+			expect(payload).toMatchObject({
+				source: "baseline_plus_delta",
+				baselinePromptTokens: 2_000,
+				calibrationSampleCount: 2,
+			});
+			expect(payload?.baselineMessageCount).toBeGreaterThan(0);
+			expect(payload?.estimatedDeltaTokens).toBeGreaterThan(0);
+			expect(payload?.promptTokens).toBeGreaterThan(2_000);
+		});
+
+		it("falls back to full prompt estimates for incompatible stored histories", () => {
+			const sql = promptEstimateSqlForTest();
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				state: {
+					storage: {
+						sql,
+					},
+				},
+				textTokenCalibration: () => ({ tokensPerCharacter: 0.25, sampleCount: 1 }),
+			});
+			const settings = promptEstimateSettings();
+			recordPromptEstimateBaseline(runtime, sql, {
+				seq: 20,
+				runId: "run-incompatible",
+				settings,
+				messages: [{ role: "user", content: "Original history." }],
+				promptTokens: 1_500,
+			});
+			const estimateProviderPromptTokens = promptTokenEstimator(runtime);
+
+			const estimate = estimateProviderPromptTokens(settings, [{ role: "user", content: "Diverged history." }], []);
+
+			expect(estimate).toMatchObject({
+				source: "full_estimate",
+				calibrationSampleCount: 1,
+			});
+			expect(estimate.baselinePromptTokens).toBeUndefined();
+			expect(estimate.estimatedDeltaTokens).toBeUndefined();
+		});
+
+		it("matches sanitized prefixes when live messages keep null content and synthetic tool-call ids", () => {
+			const sql = promptEstimateSqlForTest();
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				state: {
+					storage: {
+						sql,
+					},
+				},
+				textTokenCalibration: () => ({ tokensPerCharacter: 0.25, sampleCount: 0 }),
+			});
+			const settings = promptEstimateSettings();
+			const storedPrefix = notificationToolPrefixMessages("synthetic_original_run_0");
+			recordPromptEstimateBaseline(runtime, sql, {
+				seq: 30,
+				runId: "run-sanitized-prefix",
+				settings,
+				messages: storedPrefix,
+				promptTokens: 1_750,
+			});
+			const storedMessages = sql.submissionMessages(30);
+			expect(storedMessages?.find((message) => Array.isArray(message.tool_calls))?.content).toBe("");
+			expect(storedMessages?.flatMap((message) => message.tool_calls?.map((toolCall) => toolCall.id) ?? [])).toEqual(["call_1"]);
+			expect(storedMessages?.filter((message) => message.role === "tool").map((message) => message.tool_call_id)).toEqual(["call_1"]);
+
+			const estimate = promptTokenEstimator(runtime)(
+				settings,
+				[
+					...storedPrefix,
+					{ role: "assistant", content: "I have the latest notifications now." },
+				],
+				[],
+			);
+
+			expect(estimate).toMatchObject({
+				source: "baseline_plus_delta",
+				baselinePromptTokens: 1_750,
+			});
+			expect(estimate.estimatedDeltaTokens).toBeGreaterThan(0);
+		});
+
 		it("streams provider reasoning through live deltas and persistent messages", async () => {
-		type TestProviderResponse = {
-			content: string;
-			reasoning: string;
-			reasoningDetails: Array<Record<string, unknown>>;
-			toolCalls: Array<Record<string, unknown>>;
-		};
+			type TestProviderResponse = {
+				content: string;
+				reasoning: string;
+				reasoningDetails: Array<Record<string, unknown>>;
+				toolCalls: Array<Record<string, unknown>>;
+			};
 		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
 		const deltas: Array<Record<string, unknown>> = [];
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
@@ -912,7 +1058,7 @@ describe("Submissions and usage", () => {
 				signal: AbortSignal,
 			) => Promise<TestProviderResponse>;
 		}).consumeProviderResponse.bind(runtime);
-		const appendProviderMessages = (BotRuntime.prototype as unknown as {
+			const appendProviderMessages = (BotRuntime.prototype as unknown as {
 				appendProviderMessages: (
 					runId: string,
 					response: TestProviderResponse,
@@ -966,14 +1112,198 @@ describe("Submissions and usage", () => {
 					streamSeq: 42,
 				},
 			},
-			{
+				{
 					type: "assistant_message",
 					payload: {
 						content: " Checking now.",
 						status: "complete",
 						streamSeq: 42,
 					},
-			},
+				},
 		]);
 	});
 });
+
+type ProviderPromptTokenEstimateForTest = {
+	promptTokens: number;
+	source: "baseline_plus_delta" | "full_estimate";
+	baselinePromptTokens?: number;
+	baselineMessageCount?: number;
+	estimatedDeltaTokens?: number;
+	calibrationSampleCount: number;
+};
+
+function promptEstimateSettings() {
+	return {
+		baseUrl: "https://openrouter.ai/api/v1",
+		model: "test/prompt-estimate",
+		supportsPrefill: true,
+		temperature: 0.2,
+	};
+}
+
+function promptTokenEstimator(runtime: BotRuntime) {
+	return (BotRuntime.prototype as unknown as {
+		estimateProviderPromptTokens: (
+			settings: ReturnType<typeof promptEstimateSettings>,
+			messages: BotInferenceSubmissionMessage[],
+			providerTools: ProviderToolDefinition[],
+		) => ProviderPromptTokenEstimateForTest;
+	}).estimateProviderPromptTokens.bind(runtime);
+}
+
+function recordPromptEstimateBaseline(
+	runtime: BotRuntime,
+	sql: ReturnType<typeof promptEstimateSqlForTest>,
+	input: {
+		seq: number;
+		runId: string;
+		settings: ReturnType<typeof promptEstimateSettings>;
+		messages: BotInferenceSubmissionMessage[];
+		promptTokens: number;
+	},
+): void {
+	const recordInferenceSubmission = (BotRuntime.prototype as unknown as {
+		recordInferenceSubmission: (record: {
+			seq: number;
+			runId: string;
+			purpose: "loop" | "compaction";
+			settings: ReturnType<typeof promptEstimateSettings>;
+			messages: BotInferenceSubmissionMessage[];
+			createdAt: string;
+		}) => void;
+	}).recordInferenceSubmission.bind(runtime);
+	recordInferenceSubmission({
+		seq: input.seq,
+		runId: input.runId,
+		purpose: "loop",
+		settings: input.settings,
+		messages: input.messages,
+		createdAt: "2026-05-01T00:00:00.000Z",
+	});
+	sql.addProviderUsage({ requestSeq: input.seq, runId: input.runId, promptTokens: input.promptTokens });
+}
+
+function promptEstimateSqlForTest() {
+	type SubmissionRow = {
+		id: string;
+		event_seq: number;
+		run_id: string;
+		purpose: string;
+		model: string;
+		provider_base_url: string;
+		message_count: number;
+		messages_json: string;
+		display_messages_json: string | null;
+		created_at: string;
+	};
+	type ProviderUsageRow = {
+		request_seq: number;
+		run_id: string;
+		prompt_tokens: number;
+	};
+	let submissions: SubmissionRow[] = [];
+	const usages: ProviderUsageRow[] = [];
+	return {
+		addProviderUsage(input: { requestSeq: number; runId: string; promptTokens: number }) {
+			usages.push({
+				request_seq: input.requestSeq,
+				run_id: input.runId,
+				prompt_tokens: input.promptTokens,
+			});
+		},
+		submissionMessages(seq: number): BotInferenceSubmissionMessage[] | null {
+			const row = submissions.find((submission) => submission.event_seq === seq);
+			return row ? (JSON.parse(row.messages_json) as BotInferenceSubmissionMessage[]) : null;
+		},
+		exec<T>(sql: string, ...params: unknown[]) {
+			if (/INSERT INTO inference_submissions/.test(sql)) {
+				const row: SubmissionRow = {
+					id: String(params[0]),
+					event_seq: Number(params[1]),
+					run_id: String(params[2]),
+					purpose: String(params[3]),
+					model: String(params[4]),
+					provider_base_url: String(params[5]),
+					message_count: Number(params[6]),
+					messages_json: String(params[7]),
+					display_messages_json: params[8] === null ? null : String(params[8]),
+					created_at: String(params[9]),
+				};
+				submissions = [...submissions.filter((submission) => submission.event_seq !== row.event_seq), row];
+			} else if (/DELETE FROM inference_submissions\s+WHERE id NOT IN/.test(sql)) {
+				const keep = new Set(
+					[...submissions]
+						.sort((left, right) => right.event_seq - left.event_seq)
+						.slice(0, Number(params[0]))
+						.map((row) => row.id),
+				);
+				submissions = submissions.filter((row) => keep.has(row.id));
+			} else if (/FROM inference_submissions s\s+JOIN provider_usage u/.test(sql)) {
+				const model = String(params[0]);
+				const providerBaseUrl = String(params[1]);
+				const rows = submissions
+					.flatMap((submission) => {
+						if (submission.purpose !== "loop" || submission.model !== model || submission.provider_base_url !== providerBaseUrl) {
+							return [];
+						}
+						return usages
+							.filter((usage) => usage.request_seq === submission.event_seq && usage.run_id === submission.run_id && usage.prompt_tokens > 0)
+							.map((usage) => ({
+								event_seq: submission.event_seq,
+								run_id: submission.run_id,
+								purpose: submission.purpose,
+								messages_json: submission.messages_json,
+								model: submission.model,
+								provider_base_url: submission.provider_base_url,
+								prompt_tokens: usage.prompt_tokens,
+							}));
+					})
+					.sort((left, right) => right.event_seq - left.event_seq)
+					.slice(0, 20);
+				return {
+					one: () => (rows[0] ?? {}) as T,
+					toArray: () => rows as T[],
+				};
+			}
+			return {
+				one: () => ({} as T),
+				toArray: () => [],
+			};
+		},
+	};
+}
+
+function notificationToolPrefixMessages(toolCallId: string): BotInferenceSubmissionMessage[] {
+	return [
+		{
+			role: "assistant",
+			content: null,
+			tool_calls: [toolCallForPromptEstimate(toolCallId, "check_notifications", { after: 0 })],
+		},
+		{
+			role: "tool",
+			tool_call_id: toolCallId,
+			content: deeplyNestedToolResultContent(),
+		},
+	];
+}
+
+function toolCallForPromptEstimate(id: string, name: string, args: Record<string, unknown>): BotInferenceSubmissionToolCall {
+	return {
+		id,
+		type: "function",
+		function: {
+			name,
+			arguments: JSON.stringify(args),
+		},
+	};
+}
+
+function deeplyNestedToolResultContent(): string {
+	let value: unknown = { unreadCount: 1, notifications: [{ id: "ntf_1", text: "New activity." }] };
+	for (let index = 0; index < 40; index += 1) {
+		value = { nested: value };
+	}
+	return JSON.stringify(value);
+}
