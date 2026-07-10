@@ -127,6 +127,13 @@ import {
 	modelSupportsReasoningNone,
 } from '@bickr/shared/openrouter-model-capabilities';
 import {
+	botFacingRuntimeErrorMessage,
+	isRuntimeErrorCause,
+	ownerFacingRuntimeErrorMessage,
+	type ProviderErrorCause,
+	type RuntimeErrorCause,
+} from '@bickr/shared/runtime-errors';
+import {
 	type ApiErrorPayload,
 	type AvatarImage,
 	type BotContextBudget,
@@ -612,11 +619,14 @@ class SelfCorrectingToolCallError extends Error {
 }
 
 class RuntimeOperationTimeoutError extends Error {
+	readonly kind = 'runtime_operation_timeout';
+	readonly operation: string;
 	readonly timeoutMs: number;
 
 	constructor(operation: string, timeoutMs: number) {
 		super(`${operation} did not finish within ${Math.round(timeoutMs / 1000)} seconds.`);
 		this.name = 'RuntimeOperationTimeoutError';
+		this.operation = operation;
 		this.timeoutMs = timeoutMs;
 	}
 }
@@ -1175,8 +1185,10 @@ type ProviderCompactionReasoningFallbackState = {
 };
 
 class ProviderRequestError extends Error {
+	readonly kind = 'provider_request';
 	readonly status: number;
 	readonly body: string;
+	readonly providerError?: ProviderErrorCause;
 	readonly rawResponse?: string;
 	readonly responseId?: string;
 	readonly responseModel?: string;
@@ -1187,13 +1199,14 @@ class ProviderRequestError extends Error {
 		_model: string,
 		_endpoint: string,
 		body: string,
-		options: { rawResponse?: string; responseId?: string; responseModel?: string; usage?: ProviderUsage } = {},
+		options: { providerError?: ProviderErrorCause; rawResponse?: string; responseId?: string; responseModel?: string; usage?: ProviderUsage } = {},
 	) {
 		const suffix = body ? ` Response: ${body}` : '';
 		super(`Inference request failed with status ${status}.${suffix}`);
 		this.name = 'ProviderRequestError';
 		this.status = status;
 		this.body = body;
+		this.providerError = options.providerError;
 		this.rawResponse = options.rawResponse;
 		this.responseId = options.responseId;
 		this.responseModel = options.responseModel;
@@ -1202,6 +1215,7 @@ class ProviderRequestError extends Error {
 }
 
 class ProviderCompactionRequestError extends Error {
+	readonly kind = 'provider_compaction_request';
 	readonly originalError: unknown;
 	readonly requestBody: string;
 	readonly responseBody?: string;
@@ -1216,6 +1230,7 @@ class ProviderCompactionRequestError extends Error {
 }
 
 class ProviderLoopRequestError extends Error {
+	readonly kind = 'provider_loop_request';
 	readonly originalError: unknown;
 	readonly requestBody: string;
 	readonly responseBody?: string;
@@ -1235,6 +1250,8 @@ type ProviderStructuredOutputKind = 'avatar_description' | 'compaction' | 'trans
 type ProviderStructuredOutputValidationIssue = 'non_reducing_compaction';
 
 class ProviderStructuredOutputValidationError extends Error {
+	readonly kind = 'provider_structured_output_validation';
+	readonly structuredOutputKind: ProviderStructuredOutputKind;
 	readonly rawResponse?: string;
 	readonly toolCalls: BotInferenceSubmissionToolCall[];
 	readonly repairMessage: string;
@@ -1263,6 +1280,7 @@ class ProviderStructuredOutputValidationError extends Error {
 			`Inference provider returned schema-invalid ${kind} ${options.requiredToolName ? 'tool arguments' : 'structured output'}: ${repairMessage}`,
 		);
 		this.name = 'ProviderStructuredOutputValidationError';
+		this.structuredOutputKind = kind;
 		this.repairMessage = repairMessage;
 		this.requiredToolName = options.requiredToolName ?? '';
 		this.rawResponse = options.rawResponse;
@@ -1275,7 +1293,21 @@ class ProviderStructuredOutputValidationError extends Error {
 	}
 }
 
+class ProviderAvatarDescriptionValidationError extends Error {
+	readonly kind = 'provider_avatar_description_validation';
+	readonly repairMessage: string;
+	readonly rawResponse?: string;
+
+	constructor(repairMessage: string, options: { rawResponse?: string } = {}) {
+		super(`Inference provider returned schema-invalid avatar_description structured output: ${repairMessage}`);
+		this.name = 'ProviderAvatarDescriptionValidationError';
+		this.repairMessage = repairMessage;
+		this.rawResponse = options.rawResponse;
+	}
+}
+
 class ProviderCompactionOutputLimitError extends Error {
+	readonly kind = 'provider_compaction_output_limit';
 	readonly rawResponse: string;
 	readonly finishReason: string;
 	readonly nativeFinishReason: string;
@@ -1302,6 +1334,7 @@ class ProviderCompactionOutputLimitError extends Error {
 }
 
 class ProviderRequestTimeoutError extends Error {
+	readonly kind = 'provider_request_timeout';
 	readonly timeoutMs: number;
 
 	constructor(timeoutMs: number) {
@@ -1312,6 +1345,7 @@ class ProviderRequestTimeoutError extends Error {
 }
 
 class ProviderResponseBodyTimeoutError extends Error {
+	readonly kind = 'provider_response_body_timeout';
 	readonly timeoutMs: number;
 
 	constructor(timeoutMs: number) {
@@ -1332,6 +1366,7 @@ class ResponseBodySizeLimitError extends Error {
 }
 
 class ProviderEmptyResponseError extends Error {
+	readonly kind = 'provider_empty_response';
 	readonly rawResponse?: string;
 	readonly responseId?: string;
 	readonly responseModel?: string;
@@ -1348,6 +1383,7 @@ class ProviderEmptyResponseError extends Error {
 }
 
 class ProviderStreamIdleTimeoutError extends Error {
+	readonly kind = 'provider_stream_idle_timeout';
 	readonly timeoutMs: number;
 
 	constructor(timeoutMs: number) {
@@ -1358,6 +1394,7 @@ class ProviderStreamIdleTimeoutError extends Error {
 }
 
 class PromptContextBudgetExceededError extends Error {
+	readonly kind = 'prompt_context_budget_exceeded';
 	readonly allowedPromptTokens: number;
 	readonly promptTokens: number;
 
@@ -1372,6 +1409,7 @@ class PromptContextBudgetExceededError extends Error {
 }
 
 class PromptContextCompactionLimitError extends Error {
+	readonly kind = 'prompt_context_compaction_limit';
 	readonly allowedPromptTokens: number;
 	readonly attempts: number;
 	readonly promptTokens: number;
@@ -1388,6 +1426,7 @@ class PromptContextCompactionLimitError extends Error {
 }
 
 export class PersistentCompactionReductionFailureError extends Error {
+	readonly kind = 'persistent_compaction_reduction_failure';
 	readonly attempts: number;
 	readonly requestBody: string;
 	readonly responseBody?: string;
@@ -3088,21 +3127,96 @@ function loopMessageContributesToCompactionProviderInput(row: LoopMessageRow): b
 }
 
 export function runtimeErrorLoopMessageContent(message: unknown): string {
-	const text = runtimeErrorText(message);
-	if (/^Inference failed after \d+ provider attempts\b/.test(text) || /^Inference failed before retrying\b/.test(text)) {
-		return safeContextText(text, 1_200);
-	}
-	return `${runtimeDiagnosticPrefix(text)}: ${safeContextText(text, 1_200)}`;
+	return safeContextText(
+		botFacingRuntimeErrorMessage(runtimeErrorCause(message)) ?? 'Bickr Terminal reported an error during this visit.',
+		1_200,
+	);
 }
 
-function runtimeDiagnosticPrefix(message: string): string {
-	if (/^Inference (provider|request|response|stream)\b/.test(message) || /^Provider\b/.test(message)) {
-		return 'Inference provider returned an error';
+function runtimeErrorCause(error: unknown): RuntimeErrorCause | string {
+	if (error instanceof ProviderRequestError) {
+		return {
+			kind: error.kind,
+			status: error.status,
+			...(error.body ? { body: error.body } : {}),
+			...(error.providerError ? { providerError: error.providerError } : {}),
+		};
 	}
-	if (/^Prompt context\b/.test(message)) {
-		return 'Inference request failed';
+	if (error instanceof ProviderLoopRequestError) {
+		return {
+			kind: error.kind,
+			attempts: error.attempts,
+			cause: runtimeErrorCause(error.originalError),
+		};
 	}
-	return 'Runtime failed';
+	if (error instanceof ProviderCompactionRequestError) {
+		return {
+			kind: error.kind,
+			cause: runtimeErrorCause(error.originalError),
+		};
+	}
+	if (error instanceof ProviderStructuredOutputValidationError) {
+		return {
+			kind: error.kind,
+			outputKind: error.structuredOutputKind,
+			repairMessage: error.repairMessage,
+			...(error.requiredToolName ? { requiredToolName: error.requiredToolName } : {}),
+			...(error.rawResponse ? { rawResponse: error.rawResponse } : {}),
+		};
+	}
+	if (error instanceof ProviderAvatarDescriptionValidationError) {
+		return {
+			kind: error.kind,
+			repairMessage: error.repairMessage,
+			...(error.rawResponse ? { rawResponse: error.rawResponse } : {}),
+		};
+	}
+	if (error instanceof ProviderCompactionOutputLimitError) {
+		return {
+			kind: error.kind,
+			finishReason: error.finishReason,
+			nativeFinishReason: error.nativeFinishReason,
+			rawResponse: error.rawResponse,
+		};
+	}
+	if (error instanceof ProviderEmptyResponseError) {
+		return {
+			kind: error.kind,
+			...(error.rawResponse ? { rawResponse: error.rawResponse } : {}),
+		};
+	}
+	if (
+		error instanceof ProviderRequestTimeoutError ||
+		error instanceof ProviderResponseBodyTimeoutError ||
+		error instanceof ProviderStreamIdleTimeoutError
+	) {
+		return { kind: error.kind, timeoutMs: error.timeoutMs };
+	}
+	if (error instanceof RuntimeOperationTimeoutError) {
+		return { kind: error.kind, timeoutMs: error.timeoutMs, operation: error.operation };
+	}
+	if (error instanceof PromptContextBudgetExceededError) {
+		return {
+			kind: error.kind,
+			promptTokens: error.promptTokens,
+			allowedPromptTokens: error.allowedPromptTokens,
+		};
+	}
+	if (error instanceof PromptContextCompactionLimitError) {
+		return {
+			kind: error.kind,
+			promptTokens: error.promptTokens,
+			allowedPromptTokens: error.allowedPromptTokens,
+			attempts: error.attempts,
+		};
+	}
+	if (error instanceof PersistentCompactionReductionFailureError) {
+		return { kind: error.kind, attempts: error.attempts };
+	}
+	if (isRuntimeErrorCause(error)) {
+		return error;
+	}
+	return runtimeErrorText(error);
 }
 
 function isEmptyProviderAssistantMessage(message: BotInferenceSubmissionMessage): boolean {
@@ -4417,97 +4531,103 @@ export class BotRuntime {
 				await this.setRuntimeIndex(bot, 'idle', null, undefined, new Date().toISOString(), runId);
 				return { runId, status: 'stopped' };
 			}
-			if (error instanceof PersistentToolFailureError) {
-				if (!this.hasTerminalEvent(runId)) {
-					await this.recordTickFailure(runId, {
-						message: error.message,
-						toolName: error.failure.toolName,
-						failure: error.failure,
-					});
-				}
-				await this.setRuntimeIndex(bot, 'failed', null, error.message, new Date().toISOString(), runId);
-				try {
-					await recordBotRuntimeFailureHumanNotification(this.env.BICKR_D1, {
-						bot,
+				if (error instanceof PersistentToolFailureError) {
+					const cause = runtimeErrorCause(error);
+					const message = ownerFacingRuntimeErrorMessage(cause) ?? error.message;
+					if (!this.hasTerminalEvent(runId)) {
+						await this.recordTickFailure(runId, {
+							message,
+							toolName: error.failure.toolName,
+							failure: error.failure,
+						}, [], { cause });
+					}
+					await this.setRuntimeIndex(bot, 'failed', null, message, new Date().toISOString(), runId);
+					try {
+						await recordBotRuntimeFailureHumanNotification(this.env.BICKR_D1, {
+							bot,
 						runId,
 						message: error.failure.message,
 						toolName: error.failure.toolName,
 					});
-					if (runContext.mode === 'spotlight' && runContext.spotlightId) {
-						await recordSpotlightFailureHumanNotification(this.env.BICKR_D1, {
+						if (runContext.mode === 'spotlight' && runContext.spotlightId) {
+							await recordSpotlightFailureHumanNotification(this.env.BICKR_D1, {
+								bot,
+								runId,
+								spotlightId: runContext.spotlightId,
+								message,
+							});
+						}
+					} catch (notificationError) {
+						console.warn('bot runtime failure notification failed', notificationError);
+					}
+					return { runId, status: 'failed', error: message };
+				}
+				if (error instanceof PersistentMissingToolCallError) {
+					const cause = runtimeErrorCause(error);
+					const message = ownerFacingRuntimeErrorMessage(cause) ?? error.message;
+					if (!this.hasTerminalEvent(runId)) {
+						await this.recordTickFailure(runId, {
+							message,
+							toolNames: error.toolNames,
+						}, [], { cause });
+					}
+					await this.setRuntimeIndex(bot, 'failed', null, message, new Date().toISOString(), runId);
+					try {
+						await recordBotRuntimeFailureHumanNotification(this.env.BICKR_D1, {
 							bot,
 							runId,
-							spotlightId: runContext.spotlightId,
-							message: error.message,
+							message: cause,
 						});
+						if (runContext.mode === 'spotlight' && runContext.spotlightId) {
+							await recordSpotlightFailureHumanNotification(this.env.BICKR_D1, {
+								bot,
+								runId,
+								spotlightId: runContext.spotlightId,
+								message,
+							});
+						}
+					} catch (notificationError) {
+						console.warn('bot runtime failure notification failed', notificationError);
 					}
-				} catch (notificationError) {
-					console.warn('bot runtime failure notification failed', notificationError);
+					return { runId, status: 'failed', error: message };
 				}
-				return { runId, status: 'failed', error: error.message };
-			}
-			if (error instanceof PersistentMissingToolCallError) {
-				if (!this.hasTerminalEvent(runId)) {
-					await this.recordTickFailure(runId, {
-						message: error.message,
-						toolNames: error.toolNames,
-					});
-				}
-				await this.setRuntimeIndex(bot, 'failed', null, error.message, new Date().toISOString(), runId);
-				try {
-					await recordBotRuntimeFailureHumanNotification(this.env.BICKR_D1, {
-						bot,
-						runId,
-						message: error.message,
-					});
-					if (runContext.mode === 'spotlight' && runContext.spotlightId) {
-						await recordSpotlightFailureHumanNotification(this.env.BICKR_D1, {
-							bot,
-							runId,
-							spotlightId: runContext.spotlightId,
-							message: error.message,
-						});
+				if (error instanceof PersistentCompactionReductionFailureError) {
+					const cause = runtimeErrorCause(error);
+					const message = ownerFacingRuntimeErrorMessage(cause) ?? error.message;
+					if (!this.hasTerminalEvent(runId)) {
+						await this.recordTickFailure(runId, {
+							message,
+							paused: true,
+							reason: 'persistent_non_reducing_compaction',
+							attempts: error.attempts,
+						}, runtimeFailureLogs(error), { cause });
 					}
-				} catch (notificationError) {
-					console.warn('bot runtime failure notification failed', notificationError);
-				}
-				return { runId, status: 'failed', error: error.message };
-			}
-			if (error instanceof PersistentCompactionReductionFailureError) {
-				const message = error.message;
-				if (!this.hasTerminalEvent(runId)) {
-					await this.recordTickFailure(runId, {
-						message,
-						paused: true,
-						reason: 'persistent_non_reducing_compaction',
-						attempts: error.attempts,
-					}, runtimeFailureLogs(error));
-				}
-				const failedAt = new Date().toISOString();
-				await this.pauseBotAfterPersistentCompactionFailure(bot, message, failedAt);
+					const failedAt = new Date().toISOString();
+					await this.pauseBotAfterPersistentCompactionFailure(bot, message, failedAt);
 				await this.setRuntimeIndex(bot, 'failed', null, message, failedAt, runId);
+					try {
+						await recordBotRuntimeFailureHumanNotification(this.env.BICKR_D1, {
+							bot,
+							runId,
+							message: cause,
+						});
+					} catch (notificationError) {
+						console.warn('bot runtime failure notification failed', notificationError);
+				}
+					return { runId, status: 'paused', error: message };
+				}
+				const cause = runtimeErrorCause(error);
+				const message = ownerFacingRuntimeErrorMessage(cause) ?? 'Unexpected Bickr visit error.';
+				if (!this.hasTerminalEvent(runId)) {
+					await this.recordTickFailure(runId, { message }, runtimeFailureLogs(error), { cause });
+				}
+				await this.setRuntimeIndex(bot, 'failed', null, message, new Date().toISOString(), runId);
 				try {
 					await recordBotRuntimeFailureHumanNotification(this.env.BICKR_D1, {
 						bot,
 						runId,
-						message,
+						message: cause,
 					});
-				} catch (notificationError) {
-					console.warn('bot runtime failure notification failed', notificationError);
-				}
-				return { runId, status: 'paused', error: message };
-			}
-			const message = error instanceof Error ? error.message : 'Unexpected Bickr visit error.';
-			if (!this.hasTerminalEvent(runId)) {
-				await this.recordTickFailure(runId, { message }, runtimeFailureLogs(error));
-			}
-			await this.setRuntimeIndex(bot, 'failed', null, message, new Date().toISOString(), runId);
-			try {
-				await recordBotRuntimeFailureHumanNotification(this.env.BICKR_D1, {
-					bot,
-					runId,
-					message,
-				});
 			} catch (notificationError) {
 				console.warn('bot runtime failure notification failed', notificationError);
 			}
@@ -5972,21 +6092,23 @@ export class BotRuntime {
 		runId: string,
 		payload: Record<string, unknown>,
 		logs: RuntimeFailureLog[] = [],
+		options: { cause?: RuntimeErrorCause | string } = {},
 	): Promise<BotRuntimeEvent> {
-		const message = stringValue(payload.message) ?? 'Unexpected Bickr visit error.';
+		const cause = options.cause ?? stringValue(payload.message) ?? 'Unexpected Bickr visit error.';
+		const message = ownerFacingRuntimeErrorMessage(cause) ?? 'Unexpected Bickr visit error.';
 		this.markPendingCompactionEventsFailed(runId, message);
 		const loopMessage = this.appendLoopMessage(
 			runId,
 			{
 				role: 'user',
-				content: runtimeErrorLoopMessageContent(message),
+				content: runtimeErrorLoopMessageContent(cause),
 			},
 			'runtime_error',
 		);
 		for (const log of logs) {
 			this.recordLoopMessageLog(loopMessage.seq, log.kind, log.text);
 		}
-		return this.appendEvent(runId, 'tick_failed', payload);
+		return this.appendEvent(runId, 'tick_failed', { ...payload, message });
 	}
 
 	private markPendingCompactionEventsFailed(runId: string, error: string): void {
@@ -7512,7 +7634,7 @@ export class BotRuntime {
 		}
 
 		const bodyText = await readProviderErrorBody(response, signal);
-		throw new ProviderRequestError(response.status, settings.model, endpoint, bodyText);
+		throw providerRequestErrorFromBody(response.status, settings.model, endpoint, bodyText);
 	}
 
 	private async fetchProviderCompactionResponse(
@@ -7539,7 +7661,7 @@ export class BotRuntime {
 
 		if (!response.ok) {
 			const bodyText = await readProviderErrorBody(response, signal);
-			throw new ProviderRequestError(response.status, settings.model, endpoint, bodyText);
+			throw providerRequestErrorFromBody(response.status, settings.model, endpoint, bodyText);
 		}
 
 		const headerResponseId = openRouterGenerationIdFromHeaders(response.headers);
@@ -7616,7 +7738,7 @@ export class BotRuntime {
 		);
 		if (!response.ok) {
 			const bodyText = await readProviderErrorBody(response, signal);
-			throw new ProviderRequestError(response.status, settings.model, endpoint, bodyText);
+			throw providerRequestErrorFromBody(response.status, settings.model, endpoint, bodyText);
 		}
 		const payload = runtimeRecord(
 			await readJsonResponse(
@@ -10884,7 +11006,7 @@ async function fetchProviderTranslation(settings: TranslationProviderSettings, t
 		);
 		if (!response.ok) {
 			const bodyText = await readProviderErrorBody(response, signal);
-			throw new ProviderRequestError(response.status, settings.model, endpoint, bodyText);
+			throw providerRequestErrorFromBody(response.status, settings.model, endpoint, bodyText);
 		}
 		const rawResponse = await readJsonResponseText(
 			response,
@@ -11597,7 +11719,7 @@ async function fetchProviderWorldAvatarDescriptionFromUserContent(
 	);
 	if (!response.ok) {
 		const bodyText = await readProviderErrorBody(response, signal);
-		throw new ProviderRequestError(response.status, settings.model, endpoint, bodyText);
+		throw providerRequestErrorFromBody(response.status, settings.model, endpoint, bodyText);
 	}
 	if (options.stream) {
 		return fetchProviderWorldAvatarDescriptionFromStream(settings, endpoint, response, signal, options.stream, Boolean(prefill));
@@ -11765,7 +11887,7 @@ async function fetchProviderAvatarImage(
 		);
 		if (!response.ok) {
 			const bodyText = await readProviderErrorBody(response, signal);
-			throw new ProviderRequestError(response.status, settings.model, endpoint, bodyText);
+			throw providerRequestErrorFromBody(response.status, settings.model, endpoint, bodyText);
 		}
 		if (upstreamStream && options.stream && isEventStreamResponse(response)) {
 			return fetchOpenRouterAvatarImageFromStream(settings, endpoint, response, signal, options.stream);
@@ -11831,7 +11953,7 @@ async function fetchProviderAvatarImage(
 	);
 	if (!response.ok) {
 		const bodyText = await readProviderErrorBody(response, signal);
-		throw new ProviderRequestError(response.status, settings.model, endpoint, bodyText);
+		throw providerRequestErrorFromBody(response.status, settings.model, endpoint, bodyText);
 	}
 	if (options.stream) {
 		return fetchProviderAvatarImageFromStream(settings, endpoint, response, signal, options.stream);
@@ -11989,7 +12111,7 @@ async function fetchProviderCurrentAvatarDescription(
 	);
 	if (!response.ok) {
 		const bodyText = await readProviderErrorBody(response, signal);
-		throw new ProviderRequestError(response.status, settings.model, endpoint, bodyText);
+		throw providerRequestErrorFromBody(response.status, settings.model, endpoint, bodyText);
 	}
 	if (options.stream) {
 		return fetchProviderCurrentAvatarDescriptionFromStream(settings, endpoint, response, signal, options.stream);
@@ -12421,11 +12543,11 @@ async function fetchProviderAvatarDescription(
 }
 
 function providerAvatarDescriptionCanFallbackToToolCall(error: unknown): boolean {
+	if (error instanceof ProviderAvatarDescriptionValidationError) {
+		return true;
+	}
 	if (!(error instanceof ProviderRequestError)) {
 		return false;
-	}
-	if (error.status === 502 && /^The profile image description\b/.test(error.body)) {
-		return true;
 	}
 	return error.status === 400 && /\b(response_format|json_schema|structured)\b/i.test(error.body);
 }
@@ -12504,7 +12626,7 @@ async function fetchProviderAvatarDescriptionWithMode(
 		);
 		if (!response.ok) {
 			const bodyText = await readProviderErrorBody(response, signal);
-			throw new ProviderRequestError(response.status, settings.model, endpoint, bodyText);
+			throw providerRequestErrorFromBody(response.status, settings.model, endpoint, bodyText);
 		}
 		const rawResponse = await readJsonResponseText(
 			response,
@@ -12542,14 +12664,21 @@ async function fetchProviderAvatarDescriptionWithMode(
 			}
 		}
 	}
-	throw new ProviderRequestError(
-		502,
-		settings.model,
-		endpoint,
-		lastValidationError?.repairMessage ?? 'Provider avatar description response did not call the required tool.',
-		lastValidationError ? { rawResponse: lastValidationError.rawResponse } : {},
-	);
-}
+		const repairMessage = lastValidationError?.repairMessage ?? 'Provider avatar description response did not call the required tool.';
+		if (mode === 'structured_output') {
+			throw new ProviderAvatarDescriptionValidationError(
+				repairMessage,
+				lastValidationError ? { rawResponse: lastValidationError.rawResponse } : {},
+			);
+		}
+		throw new ProviderRequestError(
+			502,
+			settings.model,
+			endpoint,
+			repairMessage,
+			lastValidationError ? { rawResponse: lastValidationError.rawResponse } : {},
+		);
+	}
 
 function providerAvatarDescriptionFromResponseMessage(message: unknown, rawResponse: string, mode: ProviderCompactionMode): string {
 	return providerSingleStringResponseFromMessage(message, providerAvatarDescriptionSpec(), rawResponse, mode).trim();
@@ -15100,14 +15229,15 @@ function providerStreamErrorFromChunk(chunk: {
 		return null;
 	}
 	const status = providerErrorStatus(error.code);
-	const message = stringValue(error.message) ?? 'Provider returned error';
-	const metadata = runtimeRecord(error.metadata);
-	const errorType = stringValue(metadata.error_type);
+	const providerError = providerErrorCauseFromPayload(error, status);
+	const message = providerError?.message ?? 'Provider returned error';
+	const errorType = providerError?.errorType;
 	const body = errorType ? `${message} (${errorType})` : message;
 	const responseId = stringValue(chunk.id);
 	const responseModel = stringValue(chunk.model);
 	const usage = providerUsageFromValue(chunk.usage);
 	return new ProviderRequestError(status, responseModel ?? 'unknown', 'stream', body, {
+		...(providerError ? { providerError } : {}),
 		rawResponse: JSON.stringify(chunk),
 		...(responseId ? { responseId } : {}),
 		...(responseModel ? { responseModel } : {}),
@@ -15116,6 +15246,11 @@ function providerStreamErrorFromChunk(chunk: {
 }
 
 function providerErrorStatus(value: unknown): number {
+	const parsed = providerErrorStatusValue(value);
+	return parsed ?? 502;
+}
+
+function providerErrorStatusValue(value: unknown): number | undefined {
 	if (typeof value === 'number' && Number.isFinite(value)) {
 		return Math.max(400, Math.floor(value));
 	}
@@ -15125,7 +15260,7 @@ function providerErrorStatus(value: unknown): number {
 			return Math.max(400, Math.floor(parsed));
 		}
 	}
-	return 502;
+	return undefined;
 }
 
 function providerResponseLogPayload(response: ProviderResponse, status: BotLoopMessageStatus): Record<string, unknown> {
@@ -15859,8 +15994,8 @@ export function formatRuntimeEventForContext(
 			return `I opened Bickr for a ${stringValue(payload.trigger) ?? 'scheduled'} visit.`;
 		case 'tick_completed':
 			return `I finished this Bickr visit${stringValue(payload.nextDueAt) ? ` and expect to return around ${stringValue(payload.nextDueAt)}` : ''}.`;
-		case 'tick_failed':
-			return `${runtimeDiagnosticPrefix(stringValue(payload.message) ?? details.rawPayload ?? '')}: ${safeContextText(stringValue(payload.message) ?? details.rawPayload ?? '', 700)}`;
+			case 'tick_failed':
+				return safeContextText(runtimeErrorLoopMessageContent(stringValue(payload.message) ?? details.rawPayload ?? ''), 700);
 		case 'tick_stopped':
 		case 'tick_stop_requested':
 			return `My Bickr visit stopped: ${safeContextText(stringValue(payload.message) ?? details.rawPayload ?? '', 700)}`;
@@ -17105,6 +17240,48 @@ async function readProviderErrorBody(response: Response, signal: AbortSignal): P
 	}
 }
 
+function providerRequestErrorFromBody(
+	status: number,
+	model: string,
+	endpoint: string,
+	bodyText: string,
+	options: { rawResponse?: string; responseId?: string; responseModel?: string; usage?: ProviderUsage } = {},
+): ProviderRequestError {
+	const providerError = providerErrorCauseFromPayload(parseJsonValue(bodyText), status);
+	return new ProviderRequestError(status, model, endpoint, bodyText, {
+		...(providerError ? { providerError } : {}),
+		...options,
+	});
+}
+
+function providerErrorCauseFromPayload(payload: unknown, fallbackStatus: number): ProviderErrorCause | undefined {
+	const payloadRecord = runtimeRecord(payload);
+	const errorRecord = runtimeRecord(payloadRecord.error);
+	const record = Object.keys(errorRecord).length > 0 ? errorRecord : payloadRecord;
+	if (Object.keys(record).length === 0) {
+		return undefined;
+	}
+	const metadata = runtimeRecord(record.metadata);
+	const status = providerErrorStatusValue(record.code) ?? fallbackStatus;
+	const message = stringValue(record.message);
+	const errorType = stringValue(metadata.error_type);
+	const providerName = normalizedProviderName(
+		stringValue(metadata.provider_name) ?? stringValue(metadata.provider) ?? stringValue(metadata.selected_provider),
+	);
+	const rawText = stringValue(metadata.raw);
+	if (!message && !errorType && !providerName && !rawText && status === fallbackStatus) {
+		return undefined;
+	}
+	return {
+		kind: 'provider_error',
+		status,
+		...(message ? { message } : {}),
+		...(errorType ? { errorType } : {}),
+		...(providerName ? { providerName } : {}),
+		...(rawText ? { rawText } : {}),
+	};
+}
+
 async function readJsonResponse(
 	response: Response,
 	maxBytes: number,
@@ -17468,52 +17645,15 @@ function providerUpstreamRateLimitRetry(error: unknown): ProviderUpstreamRateLim
 	if (!(error instanceof ProviderRequestError)) {
 		return null;
 	}
-	for (const payload of providerErrorPayloads(error)) {
-		const match = providerUpstreamRateLimitRetryFromPayload(
-			payload,
-			error.status,
-			providerRetryKey(error) ?? `${error.status}:${error.body}`,
-		);
-		if (match) {
-			return match;
-		}
-	}
-	return null;
-}
-
-function providerUpstreamRateLimitRetryFromPayload(
-	payload: unknown,
-	fallbackStatus: number,
-	retryKey: string,
-): ProviderUpstreamRateLimitRetry | null {
-	const payloadRecord = runtimeRecord(payload);
-	const errorRecord = runtimeRecord(payloadRecord.error);
-	const record = Object.keys(errorRecord).length > 0 ? errorRecord : payloadRecord;
-	const status = providerErrorStatus(record.code);
-	if (fallbackStatus !== 429 && status !== 429) {
+	const providerError = error.providerError;
+	const status = providerError?.status ?? error.status;
+	if (status !== 429 || !providerError?.providerName) {
 		return null;
 	}
-	if (stringValue(record.message) !== 'Provider returned error') {
-		return null;
-	}
-	const providerName = stringValue(runtimeRecord(record.metadata).provider_name)?.trim();
-	if (!providerName) {
-		return null;
-	}
-	return { providerName, retryKey };
-}
-
-function providerErrorPayloads(error: ProviderRequestError): unknown[] {
-	const payloads: unknown[] = [];
-	const body = parseJsonValue(error.body);
-	if (body !== undefined) {
-		payloads.push(body);
-	}
-	const rawResponse = parseJsonValue(error.rawResponse);
-	if (rawResponse !== undefined) {
-		payloads.push(rawResponse);
-	}
-	return payloads;
+	return {
+		providerName: providerError.providerName,
+		retryKey: providerRetryKey(error) ?? `${error.status}:${error.body}`,
+	};
 }
 
 function parseJsonValue(text: string | undefined): unknown | undefined {
@@ -17599,7 +17739,7 @@ function providerCompactionOutputLimitReached(finishReason: string, nativeFinish
 }
 
 function providerLoopFailureMessage(error: unknown, attempts: number): string {
-	const lastError = runtimeErrorText(error);
+	const lastError = ownerFacingRuntimeErrorMessage(runtimeErrorCause(error)) ?? runtimeErrorText(error);
 	if (attempts > 1) {
 		const retries = attempts - 1;
 		return `Inference failed after ${attempts} provider attempts (${retries} ${retries === 1 ? 'retry' : 'retries'}); last error from provider:\n${lastError}`;

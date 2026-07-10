@@ -83,7 +83,7 @@ describe("Compaction", () => {
 					name: "ProviderCompactionRequestError",
 					message: expect.stringContaining("schema-invalid compaction tool arguments"),
 				});
-				expect(runtimeErrorLoopMessageContent(thrown)).toMatch(/^Inference provider returned an error: /);
+				expect(runtimeErrorLoopMessageContent(thrown)).toMatch(/^Bickr Terminal could not use the configured service response: /);
 				expect(runtimeErrorLoopMessageContent(thrown)).toContain("schema-invalid compaction tool arguments");
 			} finally {
 				vi.stubGlobal("fetch", originalFetch);
