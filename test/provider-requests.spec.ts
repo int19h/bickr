@@ -2561,7 +2561,6 @@ describe("Provider requests", () => {
 				promptTokens: 100,
 				requestMessages: [{ role: "assistant", content: "I am ready." }],
 			}),
-			repairActiveProviderToolCallHistory: async () => [],
 			recordInferenceSubmission: () => {},
 			recordLoopMessageLog: () => {},
 			recordProviderUsage: () => {},
@@ -2698,7 +2697,7 @@ describe("Provider requests", () => {
 		]);
 	});
 
-	it("removes duplicate tool call ids and ambiguous tool results from provider requests", () => {
+	it("compacts duplicate request-local tool call ids without repairing history", () => {
 		const request = providerChatCompletionRequest(
 			{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
 			[
@@ -2725,12 +2724,13 @@ describe("Provider requests", () => {
 		);
 
 		const assistant = request.messages.find((message) => Array.isArray(message.tool_calls));
-		expect(assistant?.tool_calls?.map((toolCall) => toolCall.function.name)).toEqual(["read_thread"]);
+		expect(assistant?.tool_calls?.map((toolCall) => toolCall.id)).toEqual(["call_1", "call_2"]);
+		expect(assistant?.tool_calls?.map((toolCall) => toolCall.function.name)).toEqual(["read_thread", "reply_to_comment"]);
 		expect(request.messages.filter((message) => message.role === "tool").map((message) => message.content)).toEqual([
 			"{\"ok\":true,\"kept\":true}",
+			"{\"ok\":true,\"dropped\":true}",
 		]);
-		expect(JSON.stringify(request.messages)).not.toContain("com_drop");
-		expect(JSON.stringify(request.messages)).not.toContain("dropped");
+		expect(request.messages.filter((message) => message.role === "tool").map((message) => message.tool_call_id)).toEqual(["call_1", "call_2"]);
 	});
 
 	it("adds stable initial user context before prior activity for provider compatibility", () => {

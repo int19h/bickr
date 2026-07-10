@@ -43,6 +43,113 @@ import type {
 	ProviderToolDefinition,
 } from "./helpers/index-harness";
 
+function legacyLoopHistoryRuntime(rows: LoopMessageRowForTest[]) {
+	let nextSeq = Math.max(0, ...rows.map((row) => row.seq)) + 1;
+	let lastInsertSeq = 0;
+	let transactionCount = 0;
+	const runtimeState = new Map<string, string>();
+	const sortedActiveRows = () =>
+		rows
+			.filter((row) => row.deleted_at === null && row.compacted_by === null)
+			.sort((left, right) => left.position - right.position || left.seq - right.seq);
+	const sql = {
+		exec<T>(query: string, ...params: unknown[]) {
+			const normalized = query.trim().replace(/\s+/g, " ");
+			if (/SELECT m\.seq, m\.position, m\.run_id/.test(normalized)) {
+				return { toArray: () => sortedActiveRows() as T[] };
+			}
+			if (/SELECT value_json FROM runtime_state WHERE key = \?/.test(normalized)) {
+				const value = runtimeState.get(String(params[0]));
+				return { toArray: () => (value === undefined ? [] : [{ value_json: value } as T]) };
+			}
+			if (/INSERT INTO runtime_state/.test(normalized)) {
+				runtimeState.set(String(params[0]), String(params[1]));
+			}
+			if (/UPDATE loop_messages SET deleted_at = \?/.test(normalized)) {
+				const row = rows.find((item) => item.seq === Number(params[1]));
+				if (row && !row.deleted_at) {
+					row.deleted_at = String(params[0]);
+				}
+			}
+			if (/UPDATE loop_messages SET message_json = \?, token_estimate = \?/.test(normalized)) {
+				const row = rows.find((item) => item.seq === Number(params[2]));
+				if (row && !row.deleted_at) {
+					row.message_json = String(params[0]);
+					row.token_estimate = Number(params[1]);
+				}
+			}
+			if (/SELECT COALESCE\(MAX\(position\), 0\) \+ 1 AS position FROM loop_messages/.test(normalized)) {
+				const maxPosition = Math.max(0, ...sortedActiveRows().map((row) => row.position));
+				return { one: () => ({ position: maxPosition + 1 }) as T, toArray: () => [] as T[] };
+			}
+			if (/INSERT INTO loop_messages/.test(normalized)) {
+				lastInsertSeq = nextSeq;
+				rows.push({
+					seq: nextSeq,
+					position: Number(params[0]),
+					run_id: String(params[1]),
+					role: params[2] as BotLoopMessage["role"],
+					message_json: String(params[3]),
+					origin: params[4] as BotLoopMessage["origin"],
+					status: params[5] === null || params[5] === undefined ? "complete" : String(params[5]),
+					token_estimate: Number(params[6]),
+					stream_seq: params[7] === null ? null : Number(params[7]),
+					display_event_seq: params[8] === null ? null : Number(params[8]),
+					display_event_type: null,
+					display_event_payload_json: null,
+					compacted_by: null,
+					deleted_at: null,
+					created_at: String(params[9]),
+					has_logs: 0,
+				});
+				nextSeq += 1;
+			}
+			if (/SELECT last_insert_rowid\(\) AS seq/.test(normalized)) {
+				return { one: () => ({ seq: lastInsertSeq }) as T, toArray: () => [] as T[] };
+			}
+			if (/SELECT COALESCE\(MIN\(position\), 1\) AS position/.test(normalized)) {
+				const positions = sortedActiveRows().map((row) => row.position);
+				return { one: () => ({ position: positions.length > 0 ? Math.min(...positions) : 1 }) as T, toArray: () => [] as T[] };
+			}
+			if (normalized.startsWith("UPDATE loop_messages") && normalized.includes("position = ?")) {
+				const row = rows.find((item) => item.seq === Number(params[1]));
+				if (row && !row.deleted_at && row.compacted_by === null) {
+					row.position = Number(params[0]);
+				}
+			}
+			return { one: () => ({} as T), toArray: () => [] as T[] };
+		},
+	};
+	const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+		state: {
+			storage: {
+				sql,
+				transactionSync: <T,>(closure: () => T): T => {
+					transactionCount += 1;
+					const rowSnapshot = rows.map((row) => ({ ...row }));
+					const stateSnapshot = new Map(runtimeState);
+					try {
+						return closure();
+					} catch (error) {
+						rows.splice(0, rows.length, ...rowSnapshot);
+						runtimeState.clear();
+						for (const [key, value] of stateSnapshot) {
+							runtimeState.set(key, value);
+						}
+						throw error;
+					}
+				},
+			},
+		},
+	});
+	return {
+		runtime,
+		activeMessages: () => sortedActiveRows().map((row) => JSON.parse(row.message_json) as BotInferenceSubmissionMessage),
+		runtimeState,
+		transactionCount: () => transactionCount,
+	};
+}
+
 describe("Tick limits and recovery", () => {
 
 		it("does not count failed parallel calls toward the iteration limit", async () => {
@@ -86,7 +193,6 @@ describe("Tick limits and recovery", () => {
 			recordInferenceSubmission: () => {},
 			recordLoopMessageLog: () => {},
 			recordProviderUsage: () => {},
-			repairActiveProviderToolCallHistory: async () => [],
 			providerLoopInitialSuccessfulToolCallCount: () => 6,
 			throwIfStopped: (_runId: string, signal: AbortSignal) => {
 				if (signal.aborted) {
@@ -171,10 +277,6 @@ describe("Tick limits and recovery", () => {
 				recordInferenceSubmission: () => {},
 				recordLoopMessageLog: () => {},
 				recordProviderUsage: () => {},
-				repairActiveProviderToolCallHistory: async () => [],
-				rewriteProviderResponseLoopMessageToolCall: (_seq: number, rewrite: { kind: string; toolCallId: string }) => {
-					rewrites.push(rewrite);
-				},
 				successfulMutatingToolCallSinceLastLogOff: () => false,
 				throwIfStopped: (_runId: string, signal: AbortSignal) => {
 					if (signal.aborted) {
@@ -203,7 +305,7 @@ describe("Tick limits and recovery", () => {
 			).resolves.toMatchObject({ logOffCalled: true });
 
 			expect(callProvider).toHaveBeenCalledTimes(2);
-			expect(rewrites).toEqual([{ kind: "drop", toolCallId: "call-log-off-first" }]);
+			expect(rewrites).toEqual([]);
 			expect(executedTools).toEqual([{ name: "log_off", args: { reason: requiredLt("still done") } }]);
 			expect(appendedLoopMessages).toContainEqual(expect.objectContaining({
 				origin: "self_correction",
@@ -257,7 +359,6 @@ describe("Tick limits and recovery", () => {
 				recordInferenceSubmission: () => {},
 				recordLoopMessageLog: () => {},
 				recordProviderUsage: () => {},
-				repairActiveProviderToolCallHistory: async () => [],
 				successfulMutatingToolCallSinceLastLogOff: () => true,
 				throwIfStopped: (_runId: string, signal: AbortSignal) => {
 					if (signal.aborted) {
@@ -337,7 +438,6 @@ describe("Tick limits and recovery", () => {
 				recordInferenceSubmission: () => {},
 				recordLoopMessageLog: () => {},
 				recordProviderUsage: () => {},
-				repairActiveProviderToolCallHistory: async () => [],
 				successfulMutatingToolCallSinceLastLogOff: () => true,
 				throwIfStopped: (_runId: string, signal: AbortSignal) => {
 					if (signal.aborted) {
@@ -422,7 +522,6 @@ describe("Tick limits and recovery", () => {
 				recordInferenceSubmission: () => {},
 				recordLoopMessageLog: () => {},
 				recordProviderUsage: () => {},
-				repairActiveProviderToolCallHistory: async () => [],
 				successfulMutatingToolCallSinceLastLogOff: () => true,
 				throwIfStopped: (_runId: string, signal: AbortSignal) => {
 					if (signal.aborted) {
@@ -507,7 +606,6 @@ describe("Tick limits and recovery", () => {
 				result: { ok: true },
 				providerResult: { ok: true },
 			}),
-			repairActiveProviderToolCallHistory: async () => [],
 			recordInferenceSubmission: (input: { messages: Array<Record<string, unknown>> }) => {
 				submissions.push(input.messages);
 			},
@@ -580,7 +678,6 @@ describe("Tick limits and recovery", () => {
 				promptTokens: 100,
 				requestMessages: [{ role: "assistant", content: "I am ready." }],
 			}),
-			repairActiveProviderToolCallHistory: async () => [],
 			recordInferenceSubmission: () => {},
 			recordLoopMessageLog: () => {},
 			recordProviderUsage: () => {},
@@ -654,7 +751,6 @@ describe("Tick limits and recovery", () => {
 				result: { ok: true },
 				providerResult: { ok: true },
 			}),
-			repairActiveProviderToolCallHistory: async () => [],
 			recordInferenceSubmission: () => {},
 			recordLoopMessageLog: () => {},
 			recordProviderUsage: () => {},
@@ -735,7 +831,6 @@ describe("Tick limits and recovery", () => {
 				result: { ok: true },
 				providerResult: { ok: true },
 			}),
-			repairActiveProviderToolCallHistory: async () => [],
 			recordInferenceSubmission: () => {},
 			recordLoopMessageLog: () => {},
 			recordProviderUsage: () => {},
@@ -794,7 +889,6 @@ describe("Tick limits and recovery", () => {
 				promptTokens: 100,
 				requestMessages: [{ role: "user", content: "Act." }],
 			}),
-			repairActiveProviderToolCallHistory: async () => [],
 			recordInferenceSubmission: () => {},
 			recordLoopMessageLog: () => {},
 			recordProviderUsage: () => {},
@@ -872,7 +966,6 @@ describe("Tick limits and recovery", () => {
 					) => Array<Record<string, unknown>>;
 				}).activeProviderRequestMessages.bind(runtime)(bot, tools, settings.toolCalls ?? "require"),
 			}),
-			repairActiveProviderToolCallHistory: async () => [],
 			recordInferenceSubmission: () => {},
 			recordLoopMessageLog: () => {},
 			recordProviderUsage: () => {},
@@ -963,7 +1056,6 @@ describe("Tick limits and recovery", () => {
 				executedTools.push(name);
 				return { name, result: { ok: true }, providerResult: { ok: true } };
 			},
-			repairActiveProviderToolCallHistory: async () => [],
 			recordInferenceSubmission: () => {},
 			recordLoopMessageLog: () => {},
 			recordProviderUsage: () => {},
@@ -1059,7 +1151,6 @@ describe("Tick limits and recovery", () => {
 				result: { ok: true },
 				providerResult: { ok: true },
 			}),
-			repairActiveProviderToolCallHistory: async () => [],
 			recordInferenceSubmission: () => {},
 			recordLoopMessageLog: () => {},
 			recordProviderUsage: () => {},
@@ -1153,7 +1244,6 @@ describe("Tick limits and recovery", () => {
 				promptTokens: 100,
 				requestMessages: [{ role: "system", content: "Prompt." }],
 			}),
-			repairActiveProviderToolCallHistory: async () => [],
 			recordInferenceSubmission: () => {},
 			recordLoopMessageLog: () => {},
 			recordProviderUsage: () => {},
@@ -1254,7 +1344,6 @@ describe("Tick limits and recovery", () => {
 				promptTokens: 100,
 				requestMessages: [{ role: "system", content: "Prompt." }],
 			}),
-			repairActiveProviderToolCallHistory: async () => [],
 			recordInferenceSubmission: () => {},
 			recordLoopMessageLog: () => {},
 			recordProviderUsage: () => {},
@@ -1290,7 +1379,7 @@ describe("Tick limits and recovery", () => {
 		expect(providerToolsByCall[0]).toContain("log_off");
 	});
 
-	it("repairs poisoned active history before recording the next inference submission", async () => {
+	it("drops malformed legacy tool-call groups during migration", () => {
 		const rows: LoopMessageRowForTest[] = [
 			loopMessageRowForMessage(1, {
 				role: "assistant",
@@ -1309,90 +1398,21 @@ describe("Tick limits and recovery", () => {
 				content: "{\"ok\":true}",
 			}, "tool_result"),
 		];
-		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
-		const submissions: Array<Array<Record<string, unknown>>> = [];
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
-			state: {
-				storage: {
-					sql: {
-						exec: vi.fn(<T,>(query: string, ...params: unknown[]) => {
-							const normalized = query.trim().replace(/\s+/g, " ");
-							if (/UPDATE loop_messages SET deleted_at = \?/.test(normalized)) {
-								const row = rows.find((item) => item.seq === Number(params[1]));
-								if (row && !row.deleted_at) {
-									row.deleted_at = String(params[0]);
-								}
-							}
-							if (/UPDATE loop_messages SET message_json = \?, token_estimate = \?/.test(normalized)) {
-								const row = rows.find((item) => item.seq === Number(params[2]));
-								if (row && !row.deleted_at) {
-									row.message_json = String(params[0]);
-									row.token_estimate = Number(params[1]);
-								}
-							}
-							return {
-								one: () => ({} as T),
-								toArray: () => [] as T[],
-							};
-						}),
-					},
-				},
-			},
-			activeLoopMessageRows: () => rows.filter((row) => row.deleted_at === null),
-			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
-				events.push({ type, payload });
-				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
-			},
-			appendLoopMessage: () => ({ seq: 99, runId: "run-history-repair", role: "assistant", message: {}, origin: "provider_response", tokenEstimate: 0, createdAt: new Date().toISOString() }),
-			appendProviderMessages: async () => {},
-			broadcastControl: () => {},
-			callProvider: async () => providerResponseWithContent("Clean history is ready."),
-			ensureProviderPromptWithinBudget: async () => ({
-				allowedPromptTokens: 13_500,
-				promptTokens: 100,
-				requestMessages: (BotRuntime.prototype as unknown as { activeLoopMessagesForProvider: () => Array<Record<string, unknown>> }).activeLoopMessagesForProvider.bind(runtime)(),
-			}),
-			recordInferenceSubmission: (input: { messages: Array<Record<string, unknown>> }) => {
-				submissions.push(input.messages);
-			},
-			recordLoopMessageLog: () => {},
-			recordProviderUsage: () => {},
-			throwIfStopped: (_runId: string, signal: AbortSignal) => {
-				if (signal.aborted) {
-					throw new Error("Unexpected abort.");
-				}
-			},
-		});
-		const runProviderLoop = (BotRuntime.prototype as unknown as {
-			runProviderLoop: (
-				bot: BotDocument,
-				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
-				runId: string,
-				messages: Array<Record<string, unknown>>,
-				runContext: { mode: "normal"; signal: AbortSignal },
-			) => Promise<{ logOffCalled: boolean }>;
-		}).runProviderLoop.bind(runtime);
+		const harness = legacyLoopHistoryRuntime(rows);
+		const migrate = (BotRuntime.prototype as unknown as { migrateLegacyProviderToolCallHistory: () => void })
+			.migrateLegacyProviderToolCallHistory.bind(harness.runtime);
+		const assertInvariant = (BotRuntime.prototype as unknown as { assertProviderToolCallHistoryInvariant: () => void })
+			.assertProviderToolCallHistoryInvariant.bind(harness.runtime);
 
-		await expect(
-			runProviderLoop(
-				fakeBotDocument(),
-				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
-				"run-history-repair",
-				[],
-				{ mode: "normal", signal: new AbortController().signal },
-			),
-		).resolves.toMatchObject({ logOffCalled: false });
+		migrate();
 
+		expect(assertInvariant).not.toThrow();
+		expect(harness.activeMessages()).toEqual([]);
 		expect(rows.every((row) => row.deleted_at !== null)).toBe(true);
-		expect(JSON.stringify(submissions[0] ?? [])).not.toContain("{\"threadId\":");
-		expect((submissions[0] ?? []).some((message) => message.role === "tool")).toBe(false);
-		expect(events[0]).toMatchObject({
-			type: "provider_tool_call_dropped",
-			payload: expect.objectContaining({ phase: "history_repair", callIds: ["call-poisoned"] }),
-		});
+		expect([...harness.runtimeState.values()]).toContain("true");
 	});
 
-	it("repairs duplicate tool call ids in active history before provider submission", async () => {
+	it("deduplicates legacy tool-call ids during migration", () => {
 		const rows = [
 			loopMessageRowForMessage(1, {
 				role: "assistant",
@@ -1421,102 +1441,24 @@ describe("Tick limits and recovery", () => {
 				content: "{\"ok\":true,\"dropped\":true}",
 			}, "tool_result"),
 		];
-		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
-		const submissions: Array<Array<Record<string, unknown>>> = [];
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
-			state: {
-				storage: {
-					sql: {
-						exec: vi.fn(<T,>(query: string, ...params: unknown[]) => {
-							const normalized = query.trim().replace(/\s+/g, " ");
-							if (/UPDATE loop_messages SET deleted_at = \?/.test(normalized)) {
-								const row = rows.find((item) => item.seq === Number(params[1]));
-								if (row && !row.deleted_at) {
-									row.deleted_at = String(params[0]);
-								}
-							}
-							if (/UPDATE loop_messages SET message_json = \?, token_estimate = \?/.test(normalized)) {
-								const row = rows.find((item) => item.seq === Number(params[2]));
-								if (row && !row.deleted_at) {
-									row.message_json = String(params[0]);
-									row.token_estimate = Number(params[1]);
-								}
-							}
-							return {
-								one: () => ({} as T),
-								toArray: () => [] as T[],
-							};
-						}),
-					},
-				},
-			},
-			activeLoopMessageRows: () => rows.filter((row) => row.deleted_at === null),
-			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
-				events.push({ type, payload });
-				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
-			},
-			appendLoopMessage: () => ({ seq: 99, runId: "run-duplicate-history-repair", role: "assistant", message: {}, origin: "provider_response", tokenEstimate: 0, createdAt: new Date().toISOString() }),
-			appendProviderMessages: async () => {},
-			broadcastControl: () => {},
-			callProvider: async () => providerResponseWithContent("Clean history is ready."),
-			ensureProviderPromptWithinBudget: async () => ({
-				allowedPromptTokens: 13_500,
-				promptTokens: 100,
-				requestMessages: (BotRuntime.prototype as unknown as { activeLoopMessagesForProvider: () => Array<Record<string, unknown>> }).activeLoopMessagesForProvider.bind(runtime)(),
-			}),
-			recordInferenceSubmission: (input: { messages: Array<Record<string, unknown>> }) => {
-				submissions.push(input.messages);
-			},
-			recordLoopMessageLog: () => {},
-			recordProviderUsage: () => {},
-			throwIfStopped: (_runId: string, signal: AbortSignal) => {
-				if (signal.aborted) {
-					throw new Error("Unexpected abort.");
-				}
-			},
-		});
-		const runProviderLoop = (BotRuntime.prototype as unknown as {
-			runProviderLoop: (
-				bot: BotDocument,
-				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
-				runId: string,
-				messages: Array<Record<string, unknown>>,
-				runContext: { mode: "normal"; signal: AbortSignal },
-			) => Promise<{ logOffCalled: boolean }>;
-		}).runProviderLoop.bind(runtime);
+		const harness = legacyLoopHistoryRuntime(rows);
+		const migrate = (BotRuntime.prototype as unknown as { migrateLegacyProviderToolCallHistory: () => void })
+			.migrateLegacyProviderToolCallHistory.bind(harness.runtime);
+		const assertInvariant = (BotRuntime.prototype as unknown as { assertProviderToolCallHistoryInvariant: () => void })
+			.assertProviderToolCallHistoryInvariant.bind(harness.runtime);
 
-		await expect(
-			runProviderLoop(
-				fakeBotDocument(),
-				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
-				"run-duplicate-history-repair",
-				[],
-				{ mode: "normal", signal: new AbortController().signal },
-			),
-		).resolves.toMatchObject({ logOffCalled: false });
+		migrate();
 
-		const repairedAssistant = JSON.parse(rows[0]!.message_json) as BotInferenceSubmissionMessage;
-		expect(repairedAssistant.tool_calls?.map((toolCall) => toolCall.id)).toEqual(["call-duplicate"]);
-		expect(repairedAssistant.tool_calls?.[0]?.function.name).toBe("read_thread");
+		expect(assertInvariant).not.toThrow();
+		const [assistant, tool] = harness.activeMessages();
+		expect(assistant?.tool_calls?.map((toolCall) => toolCall.id)).toEqual(["call-duplicate"]);
+		expect(assistant?.tool_calls?.[0]?.function.name).toBe("read_thread");
+		expect(tool).toMatchObject({ role: "tool", tool_call_id: "call-duplicate", content: "{\"ok\":true,\"kept\":true}" });
 		expect(rows[1]?.deleted_at).toBeNull();
 		expect(rows[2]?.deleted_at).toMatch(/^20/);
-		const submittedAssistant = submissions[0]?.find((message) => Array.isArray(message.tool_calls)) as BotInferenceSubmissionMessage | undefined;
-		expect(submittedAssistant?.tool_calls?.map((toolCall) => toolCall.id)).toEqual(["call-duplicate"]);
-		expect(submissions[0]?.filter((message) => message.role === "tool").map((message) => message.tool_call_id)).toEqual(["call-duplicate"]);
-		expect(JSON.stringify(submissions[0])).not.toContain("com_drop");
-		expect(events).toContainEqual(expect.objectContaining({
-			type: "provider_tool_call_dropped",
-			payload: expect.objectContaining({
-				phase: "history_repair",
-				callIds: ["call-duplicate"],
-				reason: "duplicate_tool_call",
-			}),
-		}));
 	});
 
-	it("splits legacy multi-call assistant history into interleaved single-call groups", async () => {
-		let nextSeq = 6;
-		let lastInsertSeq = 0;
+	it("splits legacy multi-call assistant history once during migration", () => {
 		const rows: LoopMessageRowForTest[] = [
 			loopMessageRowForMessage(1, {
 				role: "assistant",
@@ -1532,98 +1474,16 @@ describe("Tick limits and recovery", () => {
 			loopMessageRowForMessage(4, { role: "tool", tool_call_id: "call-search-c", content: "{\"ok\":true,\"c\":true}" }, "tool_result"),
 			loopMessageRowForMessage(5, { role: "assistant", content: "After searches." }),
 		];
-		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
-			state: {
-				storage: {
-					sql: {
-						exec: vi.fn(<T,>(query: string, ...params: unknown[]) => {
-							const normalized = query.trim().replace(/\s+/g, " ");
-							if (/INSERT INTO loop_messages/.test(normalized)) {
-								lastInsertSeq = nextSeq;
-								rows.push({
-									seq: nextSeq,
-									position: Number(params[0]),
-									run_id: String(params[1]),
-									role: params[2] as BotLoopMessage["role"],
-									message_json: String(params[3]),
-									origin: params[4] as BotLoopMessage["origin"],
-									status: String(params[5] ?? "complete"),
-									token_estimate: Number(params[6]),
-									stream_seq: params[7] === null ? null : Number(params[7]),
-									display_event_seq: params[8] === null ? null : Number(params[8]),
-									display_event_type: null,
-									display_event_payload_json: null,
-									compacted_by: null,
-									deleted_at: null,
-									created_at: String(params[9]),
-									has_logs: 0,
-								});
-								nextSeq += 1;
-							}
-							if (/SELECT last_insert_rowid\(\) AS seq/.test(normalized)) {
-								return {
-									one: () => ({ seq: lastInsertSeq } as T),
-									toArray: () => [] as T[],
-								};
-							}
-							if (normalized.includes("MAX(position)")) {
-								const activePositions = rows
-									.filter((row) => row.deleted_at === null && row.compacted_by === null && Number.isFinite(row.position))
-									.map((row) => row.position);
-								return {
-									one: () => ({ position: Math.max(0, ...activePositions) + 1 } as T),
-									toArray: () => [] as T[],
-								};
-							}
-							if (normalized.includes("MIN(position)")) {
-								const activePositions = rows
-									.filter((row) => row.deleted_at === null && row.compacted_by === null && Number.isFinite(row.position))
-									.map((row) => row.position);
-								return {
-									one: () => ({ position: Math.min(...activePositions) } as T),
-									toArray: () => [] as T[],
-								};
-							}
-							if (/UPDATE loop_messages SET message_json = \?, token_estimate = \?/.test(normalized)) {
-								const row = rows.find((item) => item.seq === Number(params[2]));
-								if (row && !row.deleted_at) {
-									row.message_json = String(params[0]);
-									row.token_estimate = Number(params[1]);
-								}
-							}
-							if (normalized.startsWith("UPDATE loop_messages") && normalized.includes("position = ?")) {
-								const row = rows.find((item) => item.seq === Number(params[1]));
-								if (row && !row.deleted_at) {
-									row.position = Number(params[0]);
-								}
-							}
-							return {
-								one: () => ({} as T),
-								toArray: () => [] as T[],
-							};
-						}),
-					},
-				},
-			},
-			activeLoopMessageRows: () => rows.filter((row) => row.deleted_at === null).sort((left, right) => left.position - right.position || left.seq - right.seq),
-			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
-				events.push({ type, payload });
-				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
-			},
-			broadcastControl: () => {},
-			recordLoopMessageLog: () => {},
-		});
-		const repairActiveProviderToolCallHistory = (BotRuntime.prototype as unknown as {
-			repairActiveProviderToolCallHistory: (runId: string) => Promise<unknown[]>;
-		}).repairActiveProviderToolCallHistory.bind(runtime);
+		const harness = legacyLoopHistoryRuntime(rows);
+		const migrate = (BotRuntime.prototype as unknown as { migrateLegacyProviderToolCallHistory: () => void })
+			.migrateLegacyProviderToolCallHistory.bind(harness.runtime);
+		const assertInvariant = (BotRuntime.prototype as unknown as { assertProviderToolCallHistoryInvariant: () => void })
+			.assertProviderToolCallHistoryInvariant.bind(harness.runtime);
 
-		await expect(repairActiveProviderToolCallHistory("run-split-history")).resolves.toEqual([]);
+		migrate();
+		expect(assertInvariant).not.toThrow();
 
-		const messages = rows
-			.filter((row) => row.deleted_at === null)
-			.sort((left, right) => left.position - right.position || left.seq - right.seq)
-			.map((row) => JSON.parse(row.message_json) as BotInferenceSubmissionMessage);
+		const messages = harness.activeMessages();
 		expect(messages.map((message) => ({
 			role: message.role,
 			toolCallIds: message.tool_calls?.map((toolCall) => toolCall.id),
@@ -1638,17 +1498,14 @@ describe("Tick limits and recovery", () => {
 			{ role: "tool", toolCallIds: undefined, toolCallId: "call-search-c", content: "{\"ok\":true,\"c\":true}" },
 			{ role: "assistant", toolCallIds: undefined, toolCallId: undefined, content: "After searches." },
 		]);
-		expect(events).toContainEqual(expect.objectContaining({
-			type: "provider_history_repaired",
-			payload: expect.objectContaining({
-				count: 2,
-				messageSeqs: [1, 6, 7],
-				reason: "split_multi_tool_call_message",
-			}),
-		}));
+		const snapshot = JSON.stringify(rows);
+		const transactions = harness.transactionCount();
+		migrate();
+		expect(harness.transactionCount()).toBe(transactions);
+		expect(JSON.stringify(rows)).toBe(snapshot);
 	});
 
-	it("repairs invalid Unicode in active history before provider submission", async () => {
+	it("normalizes invalid Unicode in legacy provider history during migration", () => {
 		const high = "\uD83C";
 		const rows = [
 			loopMessageRowForMessage(1, {
@@ -1672,103 +1529,23 @@ describe("Tick limits and recovery", () => {
 				content: JSON.stringify({ ok: true, text: `bad ${high}` }),
 			}, "tool_result"),
 		];
-		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
-		const submissions: Array<Array<Record<string, unknown>>> = [];
-		const providerMessages: Array<Array<Record<string, unknown>>> = [];
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
-			state: {
-				storage: {
-					sql: {
-						exec: vi.fn(<T,>(query: string, ...params: unknown[]) => {
-							const normalized = query.trim().replace(/\s+/g, " ");
-							if (/UPDATE loop_messages SET message_json = \?, token_estimate = \?/.test(normalized)) {
-								const row = rows.find((item) => item.seq === Number(params[2]));
-								if (row && !row.deleted_at) {
-									row.message_json = String(params[0]);
-									row.token_estimate = Number(params[1]);
-								}
-							}
-							if (/UPDATE loop_messages SET deleted_at = \?/.test(normalized)) {
-								const row = rows.find((item) => item.seq === Number(params[1]));
-								if (row && !row.deleted_at) {
-									row.deleted_at = String(params[0]);
-								}
-							}
-							return {
-								one: () => ({} as T),
-								toArray: () => [] as T[],
-							};
-						}),
-					},
-				},
-			},
-			activeLoopMessageRows: () => rows.filter((row) => row.deleted_at === null),
-			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
-				events.push({ type, payload });
-				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
-			},
-			appendLoopMessage: () => ({ seq: 99, runId: "run-unicode-history-repair", role: "assistant", message: {}, origin: "provider_response", tokenEstimate: 0, createdAt: new Date().toISOString() }),
-			appendProviderMessages: async () => {},
-			broadcastControl: () => {},
-			callProvider: async (_settings: unknown, messages: Array<Record<string, unknown>>) => {
-				providerMessages.push(messages);
-				return providerResponseWithContent("Clean history is ready.");
-			},
-			ensureProviderPromptWithinBudget: async () => ({
-				allowedPromptTokens: 13_500,
-				promptTokens: 100,
-				requestMessages: (BotRuntime.prototype as unknown as { activeLoopMessagesForProvider: () => Array<Record<string, unknown>> }).activeLoopMessagesForProvider.bind(runtime)(),
-			}),
-			recordInferenceSubmission: (input: { messages: Array<Record<string, unknown>> }) => {
-				submissions.push(input.messages);
-			},
-			recordLoopMessageLog: () => {},
-			recordProviderUsage: () => {},
-			throwIfStopped: (_runId: string, signal: AbortSignal) => {
-				if (signal.aborted) {
-					throw new Error("Unexpected abort.");
-				}
-			},
-		});
-		const runProviderLoop = (BotRuntime.prototype as unknown as {
-			runProviderLoop: (
-				bot: BotDocument,
-				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
-				runId: string,
-				messages: Array<Record<string, unknown>>,
-				runContext: { mode: "normal"; signal: AbortSignal },
-			) => Promise<{ logOffCalled: boolean }>;
-		}).runProviderLoop.bind(runtime);
+		const harness = legacyLoopHistoryRuntime(rows);
+		const migrate = (BotRuntime.prototype as unknown as { migrateLegacyProviderToolCallHistory: () => void })
+			.migrateLegacyProviderToolCallHistory.bind(harness.runtime);
 
-		await expect(
-			runProviderLoop(
-				fakeBotDocument(),
-				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
-				"run-unicode-history-repair",
-				[],
-				{ mode: "normal", signal: new AbortController().signal },
-			),
-		).resolves.toMatchObject({ logOffCalled: false });
+		migrate();
 
-		expect(hasLoneSurrogate(submissions[0])).toBe(false);
-		expect(hasLoneSurrogate(providerMessages[0])).toBe(false);
-		expect(JSON.stringify(submissions[0])).not.toContain("\\ud83c");
-		const repairedToolCallMessage = submissions[0]?.find((message) => Array.isArray(message.tool_calls));
+		const messages = harness.activeMessages();
+		expect(hasLoneSurrogate(messages)).toBe(false);
+		expect(JSON.stringify(messages)).not.toContain("\\ud83c");
+		const repairedToolCallMessage = messages.find((message) => Array.isArray(message.tool_calls));
 		const repairedToolCalls = repairedToolCallMessage?.tool_calls as Array<{ function: { arguments: string } }> | undefined;
 		expect(JSON.parse(repairedToolCalls?.[0]?.function.arguments ?? "{}")).toMatchObject({ note: "bad \uFFFD" });
-		const repairedToolResult = submissions[0]?.find((message) => message.role === "tool");
+		const repairedToolResult = messages.find((message) => message.role === "tool");
 		expect(repairedToolResult?.content).toContain("\uFFFD");
-		expect(events).toContainEqual(expect.objectContaining({
-			type: "provider_history_repaired",
-			payload: expect.objectContaining({
-				count: 3,
-				messageSeqs: [1, 2, 3],
-				reason: "invalid_unicode_text",
-			}),
-		}));
 	});
 
-	it("repairs fragmented reasoning details in active provider history", async () => {
+	it("normalizes fragmented reasoning details during migration", () => {
 		const rows = [
 			loopMessageRowForMessage(1, {
 				role: "assistant",
@@ -1791,41 +1568,11 @@ describe("Tick limits and recovery", () => {
 				content: "{\"ok\":true}",
 			}, "tool_result"),
 		];
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
-			state: {
-				storage: {
-					sql: {
-						exec: vi.fn(<T,>(query: string, ...params: unknown[]) => {
-							const normalized = query.trim().replace(/\s+/g, " ");
-							if (/UPDATE loop_messages SET message_json = \?, token_estimate = \?/.test(normalized)) {
-								const row = rows.find((item) => item.seq === Number(params[2]));
-								if (row && !row.deleted_at) {
-									row.message_json = String(params[0]);
-									row.token_estimate = Number(params[1]);
-								}
-							}
-							if (/UPDATE loop_messages SET deleted_at = \?/.test(normalized)) {
-								const row = rows.find((item) => item.seq === Number(params[1]));
-								if (row && !row.deleted_at) {
-									row.deleted_at = String(params[0]);
-								}
-							}
-							return {
-								one: () => ({} as T),
-								toArray: () => [] as T[],
-							};
-						}),
-					},
-				},
-			},
-			activeLoopMessageRows: () => rows.filter((row) => row.deleted_at === null),
-			broadcastControl: () => {},
-		});
-		const repairActiveProviderToolCallHistory = (BotRuntime.prototype as unknown as {
-			repairActiveProviderToolCallHistory: (runId: string) => Promise<unknown[]>;
-		}).repairActiveProviderToolCallHistory.bind(runtime);
+		const harness = legacyLoopHistoryRuntime(rows);
+		const migrate = (BotRuntime.prototype as unknown as { migrateLegacyProviderToolCallHistory: () => void })
+			.migrateLegacyProviderToolCallHistory.bind(harness.runtime);
 
-		await expect(repairActiveProviderToolCallHistory("run-reasoning-repair")).resolves.toEqual([]);
+		migrate();
 
 		expect(rows[0]?.deleted_at).toBeNull();
 		expect(rows[1]?.deleted_at).toBeNull();
@@ -1837,6 +1584,210 @@ describe("Tick limits and recovery", () => {
 				expect.objectContaining({ id: "call-valid" }),
 			],
 		});
+	});
+
+	it("records generated multi-call responses as single-call assistant and tool pairs", async () => {
+		const loopMessageGroups: Array<Array<{ message: BotInferenceSubmissionMessage; origin: string }>> = [];
+		let nextLoopSeq = 0;
+		const callProvider = vi.fn()
+			.mockResolvedValueOnce({
+				...providerResponseWithToolCalls([
+					{ id: "call-read", name: "read_thread", args: { threadId: "thr_test" } },
+					{ id: "call-vote", name: "vote", args: { votes: [{ commentId: "cmt_test", value: 1 }], reason: "Useful context." } },
+				]),
+				content: "I will inspect and vote.",
+			})
+			.mockResolvedValueOnce(providerResponseWithContent("Done."));
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) =>
+				runtimeEvent(type === "provider_request" ? 100 + callProvider.mock.calls.length : 200 + callProvider.mock.calls.length, runId, type as BotRuntimeEvent["type"], payload),
+			appendLoopMessageGroup: (entries: Array<{ message: BotInferenceSubmissionMessage; origin: string }>) => {
+				loopMessageGroups.push(entries);
+				return entries.map((entry) => ({
+					seq: ++nextLoopSeq,
+					runId: "run-multi-call-write",
+					role: entry.message.role,
+					message: entry.message,
+					origin: entry.origin,
+					tokenEstimate: 0,
+					createdAt: new Date().toISOString(),
+				}));
+			},
+			callProvider,
+			ensureProviderPromptWithinBudget: async () => ({
+				allowedPromptTokens: 13_500,
+				promptTokens: 100,
+				requestMessages: [{ role: "assistant", content: "I am ready." }],
+			}),
+			executeTool: async (_bot: unknown, _runId: string, name: string) => ({
+				name,
+				result: { ok: true },
+				providerResult: { ok: true, name },
+			}),
+			loopGeneratedTokenCountSinceLastLogOff: () => 0,
+			prematureLogOffCorrectedSinceLastLogOff: () => false,
+			providerLoopInitialSuccessfulToolCallCount: () => 0,
+			recordInferenceSubmission: () => {},
+			recordProviderUsage: () => {},
+			successfulMutatingToolCallSinceLastLogOff: () => false,
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const runProviderLoop = (BotRuntime.prototype as unknown as {
+			runProviderLoop: (
+				bot: BotDocument,
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				runId: string,
+				messages: Array<Record<string, unknown>>,
+				runContext: { mode: "normal"; signal: AbortSignal },
+			) => Promise<{ logOffCalled: boolean }>;
+		}).runProviderLoop.bind(runtime);
+
+		await expect(
+			runProviderLoop(
+				fakeBotDocument({ allowEarlyLogOff: true }),
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
+				"run-multi-call-write",
+				[],
+				{ mode: "normal", signal: new AbortController().signal },
+			),
+		).resolves.toMatchObject({ logOffCalled: false });
+
+		const toolPairs = loopMessageGroups.filter((group) => group.length === 2 && group[0]?.message.role === "assistant" && group[1]?.message.role === "tool");
+		expect(toolPairs).toHaveLength(2);
+		expect(toolPairs.map((group) => ({
+			assistantContent: group[0]?.message.content,
+			assistantToolCallIds: group[0]?.message.tool_calls?.map((toolCall) => toolCall.id),
+			toolCallId: group[1]?.message.tool_call_id,
+		}))).toEqual([
+			{ assistantContent: "I will inspect and vote.", assistantToolCallIds: ["call-read"], toolCallId: "call-read" },
+			{ assistantContent: null, assistantToolCallIds: ["call-vote"], toolCallId: "call-vote" },
+		]);
+	});
+
+	it("rolls back grouped assistant and tool rows when a transactional write fails", () => {
+		const inserted: Array<{ role: string }> = [];
+		let transactionCount = 0;
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			state: {
+				storage: {
+					sql: {},
+					transactionSync: <T,>(closure: () => T): T => {
+						transactionCount += 1;
+						const snapshot = [...inserted];
+						try {
+							return closure();
+						} catch (error) {
+							inserted.splice(0, inserted.length, ...snapshot);
+							throw error;
+						}
+					},
+				},
+			},
+			appendLoopMessage: () => {
+				throw new Error("appendLoopMessageGroup must use transactionSync when storage is available.");
+			},
+			broadcastLoopMessage: () => {},
+			insertLoopMessage: (input: { message: BotInferenceSubmissionMessage }) => {
+				inserted.push({ role: input.message.role });
+				if (input.message.role === "tool") {
+					throw new Error("simulated tool insert failure");
+				}
+				return {
+					seq: inserted.length,
+					runId: "run-transactional-group",
+					role: input.message.role,
+					message: input.message,
+					origin: "provider_response",
+					tokenEstimate: 0,
+					createdAt: new Date().toISOString(),
+				};
+			},
+			recordLoopMessageLog: () => {},
+		});
+		const appendLoopMessageGroup = (BotRuntime.prototype as unknown as {
+			appendLoopMessageGroup: (entries: Array<{ runId: string; message: BotInferenceSubmissionMessage; origin: string }>) => unknown[];
+		}).appendLoopMessageGroup.bind(runtime);
+
+		expect(() => appendLoopMessageGroup([
+			{ runId: "run-transactional-group", message: { role: "assistant", content: null, tool_calls: [{ id: "call-a", type: "function", function: { name: "read_thread", arguments: "{}" } }] }, origin: "provider_response" },
+			{ runId: "run-transactional-group", message: { role: "tool", tool_call_id: "call-a", content: "{}" }, origin: "tool_result" },
+		])).toThrow("simulated tool insert failure");
+		expect(transactionCount).toBe(1);
+		expect(inserted).toEqual([]);
+	});
+
+	it("runs a provider loop on migrated legacy history without request-time repair", async () => {
+		const rows: LoopMessageRowForTest[] = [
+			loopMessageRowForMessage(1, {
+				role: "assistant",
+				content: "Legacy bundle.",
+				tool_calls: [
+					{ id: "call-a", type: "function", function: { name: "search_threads", arguments: "{\"query\":\"a\"}" } },
+					{ id: "call-b", type: "function", function: { name: "search_threads", arguments: "{\"query\":\"b\"}" } },
+				],
+			}),
+			loopMessageRowForMessage(2, { role: "tool", tool_call_id: "call-a", content: "{\"ok\":true,\"a\":true}" }, "tool_result"),
+			loopMessageRowForMessage(3, { role: "tool", tool_call_id: "call-b", content: "{\"ok\":true,\"b\":true}" }, "tool_result"),
+		];
+		const harness = legacyLoopHistoryRuntime(rows);
+		const migrate = (BotRuntime.prototype as unknown as { migrateLegacyProviderToolCallHistory: () => void })
+			.migrateLegacyProviderToolCallHistory.bind(harness.runtime);
+		migrate();
+		const submissions: BotInferenceSubmissionMessage[][] = [];
+		Object.assign(harness.runtime, {
+			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) =>
+				runtimeEvent(submissions.length + 1, runId, type as BotRuntimeEvent["type"], payload),
+			appendLoopMessageGroup: () => [],
+			callProvider: async () => providerResponseWithContent("Clean migrated history is ready."),
+			ensureProviderPromptWithinBudget: async () => ({
+				allowedPromptTokens: 13_500,
+				promptTokens: 100,
+				requestMessages: (BotRuntime.prototype as unknown as { activeLoopMessagesForProvider: () => BotInferenceSubmissionMessage[] })
+					.activeLoopMessagesForProvider.bind(harness.runtime)(),
+			}),
+			loopGeneratedTokenCountSinceLastLogOff: () => 0,
+			prematureLogOffCorrectedSinceLastLogOff: () => false,
+			providerLoopInitialSuccessfulToolCallCount: () => 0,
+			recordInferenceSubmission: (input: { messages: BotInferenceSubmissionMessage[] }) => {
+				submissions.push(input.messages);
+			},
+			recordProviderUsage: () => {},
+			successfulMutatingToolCallSinceLastLogOff: () => true,
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const runProviderLoop = (BotRuntime.prototype as unknown as {
+			runProviderLoop: (
+				bot: BotDocument,
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				runId: string,
+				messages: Array<Record<string, unknown>>,
+				runContext: { mode: "normal"; signal: AbortSignal },
+			) => Promise<{ logOffCalled: boolean }>;
+		}).runProviderLoop.bind(harness.runtime);
+
+		await expect(
+			runProviderLoop(
+				fakeBotDocument(),
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
+				"run-migrated-history",
+				[],
+				{ mode: "normal", signal: new AbortController().signal },
+			),
+		).resolves.toMatchObject({ logOffCalled: false });
+
+		expect(submissions[0]?.filter((message) => message.role === "assistant").flatMap((message) => message.tool_calls?.map((toolCall) => toolCall.id) ?? []))
+			.toEqual(["call-a", "call-b"]);
+		expect(submissions[0]?.filter((message) => message.role === "tool").map((message) => message.tool_call_id))
+			.toEqual(["call-a", "call-b"]);
+		expect(submissions[0]?.map((message) => message.role)).toEqual(["assistant", "tool", "assistant", "tool"]);
 	});
 
 	it("records tick failures in the loop ledger", async () => {
