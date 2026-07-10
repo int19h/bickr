@@ -126,6 +126,7 @@ export const notificationPruneSelectLimit = 500;
 // under the paid 10k default with 16 selects and about 80 D1 delete batches.
 export const notificationPruneMaxRowsPerRun = 8_000;
 export const notificationPruneKvDeleteChunkSize = 50;
+const notificationKvWriteChunkSize = 50;
 
 export type NotificationPruneResult = {
 	selectedRows: number;
@@ -197,6 +198,7 @@ type BotProfileListRow = {
 };
 type FollowerCountRow = { id: string; followers: number };
 type FollowUsernameRow = { handle: string };
+type NewCommentCountRow = { threadId: string; count: number };
 
 function localizedTextFromIndex(text: string, lang: string | null | undefined): LocalizedText {
 	return localizedTextFromStored({ lang: lang ?? null, text });
@@ -537,20 +539,27 @@ export async function listThreadsWithReadState(
 			},
 		}));
 	}
-	const decorated: ThreadSummary[] = [];
-	for (const thread of threads) {
+	const readStates = threads.map((thread) => {
 		const isNew = Date.parse(thread.createdAt) > Date.parse(seenThroughAt);
-		const hasNewComments = !isNew && Date.parse(thread.lastActivityAt) > Date.parse(seenThroughAt);
-		decorated.push({
-			...thread,
-			readState: {
-				isNew,
-				hasNewComments,
-				newCommentCount: hasNewComments ? await countNewComments(db, thread.id, seenThroughAt) : 0,
-			},
-		});
-	}
-	return decorated;
+		return {
+			thread,
+			isNew,
+			hasNewComments: !isNew && Date.parse(thread.lastActivityAt) > Date.parse(seenThroughAt),
+		};
+	});
+	const newCommentCounts = await countNewCommentsForThreads(
+		db,
+		readStates.filter((state) => state.hasNewComments).map((state) => state.thread.id),
+		seenThroughAt,
+	);
+	return readStates.map(({ thread, isNew, hasNewComments }) => ({
+		...thread,
+		readState: {
+			isNew,
+			hasNewComments,
+			newCommentCount: hasNewComments ? newCommentCounts.get(thread.id) ?? 0 : 0,
+		},
+	}));
 }
 
 export async function listHotThreads(
@@ -1666,23 +1675,22 @@ async function notifyHumanThreadCreated(
 		{ scopeType: "forum", scopeId: thread.forumId },
 		{ scopeType: "bot", scopeId: actor.id },
 	]);
-	for (const userId of users) {
-		await insertHumanNotification(db, {
-			userId,
-			worldId: thread.worldId,
-			eventKey: `thread_created:${thread.id}`,
-			notificationType: "thread_created",
-			actor,
-			sourceType: "thread",
-			sourceId: thread.id,
-			targetType: "forum",
-			targetId: thread.forumId,
-			title: `${localizedTextString(actor.displayName)} created a thread in f/${thread.forumHandle}`,
-			body: threadTitle(thread),
-			urlPath: threadUrlPath(thread),
-			now,
-		});
-	}
+	const notifications: HumanNotificationInput[] = [...users].map((userId) => ({
+		userId,
+		worldId: thread.worldId,
+		eventKey: `thread_created:${thread.id}`,
+		notificationType: "thread_created",
+		actor,
+		sourceType: "thread",
+		sourceId: thread.id,
+		targetType: "forum",
+		targetId: thread.forumId,
+		title: `${localizedTextString(actor.displayName)} created a thread in f/${thread.forumHandle}`,
+		body: threadTitle(thread),
+		urlPath: threadUrlPath(thread),
+		now,
+	}));
+	await insertHumanNotifications(db, notifications);
 }
 
 async function notifyHumanCommentCreated(
@@ -1699,23 +1707,22 @@ async function notifyHumanCommentCreated(
 		{ scopeType: "bot", scopeId: actor.id },
 		...ancestorIds.map((scopeId) => ({ scopeType: "comment" as const, scopeId })),
 	]);
-	for (const userId of users) {
-		await insertHumanNotification(db, {
-			userId,
-			worldId: thread.worldId,
-			eventKey: `comment_created:${comment.id}`,
-			notificationType: "comment_created",
-			actor,
-			sourceType: "comment",
-			sourceId: comment.id,
-			targetType: "thread",
-			targetId: thread.id,
-			title: `${localizedTextString(actor.displayName)} replied in "${threadTitle(thread)}"`,
-			body: localizedPreview(comment.body),
-			urlPath: commentUrlPath(thread, comment.id),
-			now,
-		});
-	}
+	const notifications: HumanNotificationInput[] = [...users].map((userId) => ({
+		userId,
+		worldId: thread.worldId,
+		eventKey: `comment_created:${comment.id}`,
+		notificationType: "comment_created",
+		actor,
+		sourceType: "comment",
+		sourceId: comment.id,
+		targetType: "thread",
+		targetId: thread.id,
+		title: `${localizedTextString(actor.displayName)} replied in "${threadTitle(thread)}"`,
+		body: localizedPreview(comment.body),
+		urlPath: commentUrlPath(thread, comment.id),
+		now,
+	}));
+	await insertHumanNotifications(db, notifications);
 }
 
 async function notifyHumanVoteCast(
@@ -1733,26 +1740,25 @@ async function notifyHumanVoteCast(
 		{ scopeType: "world", scopeId: thread.worldId },
 		{ scopeType: "bot", scopeId: actor.id },
 	]);
-	for (const userId of users) {
-		const direction = input.value > 0 ? "upvoted" : "downvoted";
-		await insertHumanNotification(db, {
-			userId,
-			worldId: thread.worldId,
-			eventKey: `vote_cast:comment:${input.targetId}:${actor.id}:${input.value}:${now}`,
-			notificationType: "vote_cast",
-			actor,
-			sourceType: "vote",
-			sourceId: `comment:${input.targetId}:${actor.id}`,
-			targetType: "comment",
-			targetId: input.targetId,
-			title: `${localizedTextString(actor.displayName)} ${direction} a comment in`,
-			body: humanNotificationBodyWithReason(threadTitle(thread), input.reason),
-			urlPath: botActivityUrlPath(actor, options.activityId ?? voteActivityId(input.targetId)),
-			...(options.spotlightId ? { spotlightId: options.spotlightId } : {}),
-			...(options.spotlightLabel ? { spotlightLabel: options.spotlightLabel } : {}),
-			now,
-		});
-	}
+	const direction = input.value > 0 ? "upvoted" : "downvoted";
+	const notifications: HumanNotificationInput[] = [...users].map((userId) => ({
+		userId,
+		worldId: thread.worldId,
+		eventKey: `vote_cast:comment:${input.targetId}:${actor.id}:${input.value}:${now}`,
+		notificationType: "vote_cast",
+		actor,
+		sourceType: "vote",
+		sourceId: `comment:${input.targetId}:${actor.id}`,
+		targetType: "comment",
+		targetId: input.targetId,
+		title: `${localizedTextString(actor.displayName)} ${direction} a comment in`,
+		body: humanNotificationBodyWithReason(threadTitle(thread), input.reason),
+		urlPath: botActivityUrlPath(actor, options.activityId ?? voteActivityId(input.targetId)),
+		...(options.spotlightId ? { spotlightId: options.spotlightId } : {}),
+		...(options.spotlightLabel ? { spotlightLabel: options.spotlightLabel } : {}),
+		now,
+	}));
+	await insertHumanNotifications(db, notifications);
 }
 
 async function notifyHumanFollowCreated(
@@ -1766,25 +1772,24 @@ async function notifyHumanFollowCreated(
 		{ scopeType: "world", scopeId: follower.homeWorldId },
 		{ scopeType: "bot", scopeId: follower.id },
 	]);
-	for (const userId of users) {
-		await insertHumanNotification(db, {
-			userId,
-			worldId: follower.homeWorldId,
-			eventKey: `bot_followed:${follower.id}:${followed.id}`,
-			notificationType: "bot_followed",
-			actor: follower,
-			sourceType: "follow",
-			sourceId: `${follower.id}:${followed.id}`,
-			targetType: "bot",
-			targetId: followed.id,
-			title: `${localizedTextString(follower.displayName)} followed ${localizedTextString(followed.displayName)}`,
-			body: humanNotificationBodyWithReason(`u/${follower.handle} followed u/${followed.handle}.`, options.reason),
-			urlPath: botActivityUrlPath(follower, options.activityId),
-			...(options.spotlightId ? { spotlightId: options.spotlightId } : {}),
-			...(options.spotlightLabel ? { spotlightLabel: options.spotlightLabel } : {}),
-			now,
-		});
-	}
+	const notifications: HumanNotificationInput[] = [...users].map((userId) => ({
+		userId,
+		worldId: follower.homeWorldId,
+		eventKey: `bot_followed:${follower.id}:${followed.id}`,
+		notificationType: "bot_followed",
+		actor: follower,
+		sourceType: "follow",
+		sourceId: `${follower.id}:${followed.id}`,
+		targetType: "bot",
+		targetId: followed.id,
+		title: `${localizedTextString(follower.displayName)} followed ${localizedTextString(followed.displayName)}`,
+		body: humanNotificationBodyWithReason(`u/${follower.handle} followed u/${followed.handle}.`, options.reason),
+		urlPath: botActivityUrlPath(follower, options.activityId),
+		...(options.spotlightId ? { spotlightId: options.spotlightId } : {}),
+		...(options.spotlightLabel ? { spotlightLabel: options.spotlightLabel } : {}),
+		now,
+	}));
+	await insertHumanNotifications(db, notifications);
 }
 
 async function notifyHumanFollowRemoved(
@@ -1798,25 +1803,24 @@ async function notifyHumanFollowRemoved(
 		{ scopeType: "world", scopeId: follower.homeWorldId },
 		{ scopeType: "bot", scopeId: follower.id },
 	]);
-	for (const userId of users) {
-		await insertHumanNotification(db, {
-			userId,
-			worldId: follower.homeWorldId,
-			eventKey: `bot_unfollowed:${follower.id}:${followed.id}:${now}`,
-			notificationType: "bot_unfollowed",
-			actor: follower,
-			sourceType: "follow",
-			sourceId: `${follower.id}:${followed.id}`,
-			targetType: "bot",
-			targetId: followed.id,
-			title: `${localizedTextString(follower.displayName)} unfollowed ${localizedTextString(followed.displayName)}`,
-			body: humanNotificationBodyWithReason(`u/${follower.handle} unfollowed u/${followed.handle}.`, options.reason),
-			urlPath: botActivityUrlPath(follower, options.activityId),
-			...(options.spotlightId ? { spotlightId: options.spotlightId } : {}),
-			...(options.spotlightLabel ? { spotlightLabel: options.spotlightLabel } : {}),
-			now,
-		});
-	}
+	const notifications: HumanNotificationInput[] = [...users].map((userId) => ({
+		userId,
+		worldId: follower.homeWorldId,
+		eventKey: `bot_unfollowed:${follower.id}:${followed.id}:${now}`,
+		notificationType: "bot_unfollowed",
+		actor: follower,
+		sourceType: "follow",
+		sourceId: `${follower.id}:${followed.id}`,
+		targetType: "bot",
+		targetId: followed.id,
+		title: `${localizedTextString(follower.displayName)} unfollowed ${localizedTextString(followed.displayName)}`,
+		body: humanNotificationBodyWithReason(`u/${follower.handle} unfollowed u/${followed.handle}.`, options.reason),
+		urlPath: botActivityUrlPath(follower, options.activityId),
+		...(options.spotlightId ? { spotlightId: options.spotlightId } : {}),
+		...(options.spotlightLabel ? { spotlightLabel: options.spotlightLabel } : {}),
+		now,
+	}));
+	await insertHumanNotifications(db, notifications);
 }
 
 export async function recordSpotlightToolHumanNotification(
@@ -2122,43 +2126,98 @@ async function insertHumanNotification(
 	db: D1DatabaseLike,
 	input: HumanNotificationInput,
 ): Promise<void> {
+	await insertHumanNotificationRows(db, [humanNotificationInsertRow(input)]);
+}
+
+async function insertHumanNotifications(
+	db: D1DatabaseLike,
+	inputs: HumanNotificationInput[],
+): Promise<void> {
+	if (inputs.length === 0) {
+		return;
+	}
+	await insertHumanNotificationRows(db, inputs.map(humanNotificationInsertRow));
+}
+
+function humanNotificationInsertRow(input: HumanNotificationInput): HumanNotificationInsertRow {
 	const title = localizedTextFromStored(input.title);
 	const body = localizedTextFromStored(input.body);
 	const actorDisplayName = input.actor ? localizedTextFromStored(input.actor.displayName) : null;
-	await db
-		.prepare(
-			`INSERT OR IGNORE INTO human_notifications (
-				notification_id, user_id, world_id, event_key, notification_type,
-				actor_bot_id, actor_handle, actor_display_name, actor_display_name_lang,
-				source_type, source_id, target_type, target_id,
-				title, title_lang, body, body_lang, url_path, spotlight_id, spotlight_label,
-				created_at, read_at, archived_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)`,
-		)
-		.bind(
-			makeId("hnt"),
-			input.userId,
-			input.worldId,
-			input.eventKey,
-			input.notificationType,
-			input.actor?.id ?? null,
-			input.actor?.handle ?? null,
-			actorDisplayName?.text ?? null,
-			actorDisplayName?.lang ?? null,
-			input.sourceType ?? null,
-			input.sourceId ?? null,
-			input.targetType ?? null,
-			input.targetId ?? null,
-			title.text,
-			title.lang,
-			body.text,
-			body.lang,
-			input.urlPath,
-			input.spotlightId ?? null,
-			input.spotlightLabel ?? null,
-			input.now,
-		)
-		.run();
+	return {
+		id: makeId("hnt"),
+		userId: input.userId,
+		worldId: input.worldId,
+		eventKey: input.eventKey,
+		notificationType: input.notificationType,
+		actorBotId: input.actor?.id ?? null,
+		actorHandle: input.actor?.handle ?? null,
+		actorDisplayName: actorDisplayName?.text ?? null,
+		actorDisplayNameLang: actorDisplayName?.lang ?? null,
+		sourceType: input.sourceType ?? null,
+		sourceId: input.sourceId ?? null,
+		targetType: input.targetType ?? null,
+		targetId: input.targetId ?? null,
+		title: title.text,
+		titleLang: title.lang,
+		body: body.text,
+		bodyLang: body.lang,
+		urlPath: input.urlPath,
+		spotlightId: input.spotlightId ?? null,
+		spotlightLabel: input.spotlightLabel ?? null,
+		createdAt: input.now,
+	};
+}
+
+async function insertHumanNotificationRows(
+	db: D1DatabaseLike,
+	rows: HumanNotificationInsertRow[],
+): Promise<void> {
+	if (rows.length === 0) {
+		return;
+	}
+	const parametersPerRow = 21;
+	const maxRowsPerStatement = Math.floor(d1MaxBoundParameters / parametersPerRow);
+	const statements = chunks(rows, maxRowsPerStatement).map((batch) => {
+		const values = batch.map(() => "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)").join(", ");
+		return db
+			.prepare(
+				`INSERT OR IGNORE INTO human_notifications (
+					notification_id, user_id, world_id, event_key, notification_type,
+					actor_bot_id, actor_handle, actor_display_name, actor_display_name_lang,
+					source_type, source_id, target_type, target_id,
+					title, title_lang, body, body_lang, url_path, spotlight_id, spotlight_label,
+					created_at, read_at, archived_at
+				) VALUES ${values}`,
+			)
+			.bind(...batch.flatMap(humanNotificationInsertBindings));
+	});
+	await db.batch(statements);
+}
+
+function humanNotificationInsertBindings(row: HumanNotificationInsertRow): unknown[] {
+	return [
+		row.id,
+		row.userId,
+		row.worldId,
+		row.eventKey,
+		row.notificationType,
+		row.actorBotId,
+		row.actorHandle,
+		row.actorDisplayName,
+		row.actorDisplayNameLang,
+		row.sourceType,
+		row.sourceId,
+		row.targetType,
+		row.targetId,
+		row.title,
+		row.titleLang,
+		row.body,
+		row.bodyLang,
+		row.urlPath,
+		row.spotlightId,
+		row.spotlightLabel,
+		row.createdAt,
+	];
 }
 
 async function insertBotActivityEvent(
@@ -4873,6 +4932,30 @@ type HumanNotificationInput = {
 	now: string;
 };
 
+type HumanNotificationInsertRow = {
+	id: string;
+	userId: string;
+	worldId: string;
+	eventKey: string;
+	notificationType: HumanNotificationType;
+	actorBotId: string | null;
+	actorHandle: string | null;
+	actorDisplayName: string | null;
+	actorDisplayNameLang: string | null;
+	sourceType: string | null;
+	sourceId: string | null;
+	targetType: string | null;
+	targetId: string | null;
+	title: string;
+	titleLang: string | null;
+	body: string;
+	bodyLang: string | null;
+	urlPath: string;
+	spotlightId: string | null;
+	spotlightLabel: string | null;
+	createdAt: string;
+};
+
 type BotActivityNotificationOptions = {
 	activityId?: string;
 	reason?: LocalizedText | string;
@@ -5605,22 +5688,31 @@ function nonNegativeIntegerOption(value: number, name: string): number {
 	return value;
 }
 
+type NotificationCreateInput = {
+	worldId: string;
+	botId: string;
+	notificationType: NotificationType;
+	sourceObjectId?: string;
+	message: LocalizedText | string;
+	event?: Omit<NotificationEvent, "id" | "createdAt">;
+	now: string;
+};
+
 async function createNotification(
 	kv: KVNamespaceLike,
 	db: D1DatabaseLike,
-	input: {
-		worldId: string;
-		botId: string;
-		notificationType: NotificationType;
-		sourceObjectId?: string;
-		message: LocalizedText | string;
-		event?: Omit<NotificationEvent, "id" | "createdAt">;
-		now: string;
-	},
+	input: NotificationCreateInput,
 ): Promise<NotificationDocument> {
+	const notification = notificationDocumentFromInput(input);
+	await writeNotificationDocuments(kv, [notification]);
+	await insertNotificationRows(db, [notification], "insert");
+	return notification;
+}
+
+function notificationDocumentFromInput(input: NotificationCreateInput): NotificationDocument {
 	const id = makeId("ntf");
 	const message = localizedTextFromStored(input.message);
-	const notification: NotificationDocument = {
+	return {
 		id,
 		type: "notification",
 		schemaVersion,
@@ -5635,32 +5727,63 @@ async function createNotification(
 		createdAt: input.now,
 		updatedAt: input.now,
 	};
+}
+
+async function writeNotificationDocuments(
+	kv: KVNamespaceLike,
+	notifications: NotificationDocument[],
+): Promise<void> {
 	// Bot notifications are retained from creation: delivered/read/archived rows
 	// are pruned after 30 days, pending rows after 90 days. KV mirrors use the
 	// max retention TTL so new documents self-clean even if a prune run is delayed.
-	await writeJson(kv, kvKeys.notification(input.botId, notification.id), notification, {
-		expirationTtl: notificationKvExpirationTtlSeconds,
+	for (const batch of chunks(notifications, notificationKvWriteChunkSize)) {
+		await Promise.all(
+			batch.map((notification) =>
+				writeJson(kv, kvKeys.notification(notification.botId, notification.id), notification, {
+					expirationTtl: notificationKvExpirationTtlSeconds,
+				}),
+			),
+		);
+	}
+}
+
+async function insertNotificationRows(
+	db: D1DatabaseLike,
+	notifications: NotificationDocument[],
+	mode: "insert" | "insertOrIgnore",
+): Promise<void> {
+	if (notifications.length === 0) {
+		return;
+	}
+	const parametersPerRow = 9;
+	const maxRowsPerStatement = Math.floor(d1MaxBoundParameters / parametersPerRow);
+	const insertMode = mode === "insertOrIgnore" ? "INSERT OR IGNORE" : "INSERT";
+	const statements = chunks(notifications, maxRowsPerStatement).map((batch) => {
+		const values = batch.map(() => "(?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)").join(", ");
+		return db
+			.prepare(
+				`${insertMode} INTO notifications (
+					notification_id, world_id, bot_id, type, source_object_id, status, message, message_lang,
+					created_at, delivered_at, read_at
+				) VALUES ${values}`,
+			)
+			.bind(...batch.flatMap(notificationInsertBindings));
 	});
-	await db
-		.prepare(
-			`INSERT INTO notifications (
-				notification_id, world_id, bot_id, type, source_object_id, status, message, message_lang,
-				created_at, delivered_at, read_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)`,
-		)
-		.bind(
-			notification.id,
-			notification.worldId,
-			notification.botId,
-			notification.notificationType,
-			notification.sourceObjectId ?? null,
-			notification.status,
-			notification.message.text,
-			notification.message.lang,
-			notification.createdAt,
-		)
-		.run();
-	return notification;
+	await db.batch(statements);
+}
+
+function notificationInsertBindings(notification: NotificationDocument): unknown[] {
+	return [
+		notification.id,
+		notification.worldId,
+		notification.botId,
+		notification.notificationType,
+		notification.sourceObjectId ?? null,
+		notification.status,
+		notification.message.text,
+		notification.message.lang,
+		notification.createdAt,
+	];
 }
 
 type NotificationRecipientDraft = {
@@ -5767,9 +5890,9 @@ async function createMergedNotifications(
 	event: Omit<NotificationEvent, "id" | "createdAt" | "deliveryReasons">,
 	now: string,
 ): Promise<void> {
-	for (const recipient of recipients.values()) {
+	const notifications = [...recipients.values()].map((recipient) => {
 		const message = localizedTextFromStored(recipient.message);
-		await createNotification(kv, db, {
+		return notificationDocumentFromInput({
 			worldId,
 			botId: recipient.botId,
 			notificationType: recipient.notificationType,
@@ -5783,6 +5906,10 @@ async function createMergedNotifications(
 			},
 			now,
 		});
+	});
+	if (notifications.length > 0) {
+		await writeNotificationDocuments(kv, notifications);
+		await insertNotificationRows(db, notifications, "insertOrIgnore");
 	}
 }
 
@@ -6306,6 +6433,37 @@ async function countNewComments(
 		.bind(threadId, seenThroughAt)
 		.first<{ count: number }>();
 	return row?.count ?? 0;
+}
+
+async function countNewCommentsForThreads(
+	db: D1DatabaseLike,
+	threadIds: string[],
+	seenThroughAt: string,
+): Promise<Map<string, number>> {
+	const counts = new Map<string, number>();
+	const uniqueThreadIds = [...new Set(threadIds)];
+	if (uniqueThreadIds.length === 0) {
+		return counts;
+	}
+	const maxThreadIdsPerQuery = d1MaxBoundParameters - 1;
+	for (const batch of chunks(uniqueThreadIds, maxThreadIdsPerQuery)) {
+		const placeholders = batch.map(() => "?").join(", ");
+		const result = await db
+			.prepare(
+				`SELECT thread_id AS threadId, COUNT(*) AS count
+				 FROM comments_index
+				 WHERE thread_id IN (${placeholders})
+				   AND deleted_at IS NULL
+				   AND created_at > ?
+				 GROUP BY thread_id`,
+			)
+			.bind(...batch, seenThroughAt)
+			.all<NewCommentCountRow>();
+		for (const row of result.results ?? []) {
+			counts.set(row.threadId, row.count);
+		}
+	}
+	return counts;
 }
 
 type SpotlightBotDraft = SpotlightBotPreview & {

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { env as testEnv } from "cloudflare:test";
 import { clearKv, execD1Statements, resetD1Schema } from "./helpers/d1-schema";
 import migrationSql from "../migrations/0031_tombstone_deleted_handles.sql?raw";
@@ -8,6 +8,7 @@ import {
 	createForum,
 	createWorld,
 	deleteBot,
+	upsertProviderUser,
 } from "../packages/shared/src/repository";
 import {
 	localizedText,
@@ -181,6 +182,62 @@ describe("soft-deleted handle reuse", () => {
 	});
 });
 
+describe("generated handle collision probes", () => {
+	it("selects the first free generated user handle after an escaped base probe", async () => {
+		await insertUserHandles(["mixed_-case", "mixed_-case-2"]);
+
+		const user = await upsertProviderUser(testEnv.BICKR_KV, testEnv.BICKR_D1, {
+			provider: "github",
+			subject: "special-login",
+			login: "mixed_%/case",
+			displayName: "Special Login",
+		}, now);
+
+		expect(user.handle).toBe("mixed_-case-3");
+	});
+
+	it("falls back to a random user handle suffix after 50 ordered collisions", async () => {
+		await insertUserHandles(collidingHandles("crowded_user", 50));
+		const restore = mockRandomTokenBytes([1, 2, 3, 4]);
+		try {
+			const user = await upsertProviderUser(testEnv.BICKR_KV, testEnv.BICKR_D1, {
+				provider: "github",
+				subject: "crowded-login",
+				login: "crowded_user",
+				displayName: "Crowded Login",
+			}, now);
+
+			expect(user.handle).toBe("crowded_user-AQIDBA");
+		} finally {
+			restore();
+		}
+	});
+
+	it("selects the first free generated personal-forum handle after an escaped base probe", async () => {
+		const world = await createTestWorld("forum-probes");
+		await insertForumHandles(world, ["probe_bot", "probe_bot-2"]);
+
+		const bot = await createTestBot(world.handle, "probe_bot");
+
+		const personalForum = await personalForumForBot(bot.id);
+		expect(personalForum?.handle).toBe("probe_bot-3");
+	});
+
+	it("falls back to a random personal-forum handle suffix after 50 ordered collisions", async () => {
+		const world = await createTestWorld("forum-fallbacks");
+		await insertForumHandles(world, collidingHandles("crowded-forum", 50));
+		const restore = mockRandomTokenBytes([1, 2, 3, 4]);
+		try {
+			const bot = await createTestBot(world.handle, "crowded-forum");
+
+			const personalForum = await personalForumForBot(bot.id);
+			expect(personalForum?.handle).toBe("crowded-forum-AQIDBA");
+		} finally {
+			restore();
+		}
+	});
+});
+
 async function createTestWorld(handle: string) {
 	return createWorld(
 		testEnv.BICKR_KV,
@@ -258,6 +315,61 @@ async function seedOwner(): Promise<void> {
 			user.updatedAt,
 		)
 		.run();
+}
+
+async function insertUserHandles(handles: string[]): Promise<void> {
+	if (handles.length === 0) {
+		return;
+	}
+	await testEnv.BICKR_D1.batch(handles.map((handle, index) =>
+		testEnv.BICKR_D1
+			.prepare(
+				`INSERT INTO users_index (
+					user_id, handle, language, ui_locale, display_name, display_name_lang,
+					avatar_url, avatar_crop, profile_completed_at, created_at, updated_at, deleted_at
+				) VALUES (?, ?, ?, NULL, ?, ?, NULL, NULL, NULL, ?, ?, NULL)`,
+			)
+			.bind(`usr_existing_${index}`, handle, testLanguage, handle, testLanguage, now, now),
+	));
+}
+
+async function insertForumHandles(world: Pick<WorldDocument, "id" | "handle">, handles: string[]): Promise<void> {
+	if (handles.length === 0) {
+		return;
+	}
+	await testEnv.BICKR_D1.batch(handles.map((handle, index) =>
+		testEnv.BICKR_D1
+			.prepare(
+				`INSERT INTO forums_index (
+					forum_id, world_id, world_handle, handle, language, description, description_lang,
+					created_by_user_id, personal_bot_id, created_at, updated_at, deleted_at
+				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, NULL)`,
+			)
+			.bind(`frm_existing_${index}`, world.id, world.handle, handle, testLanguage, `${handle} discussion`, testLanguage, ownerId, now, now),
+	));
+}
+
+async function personalForumForBot(botId: string): Promise<{ id: string; handle: string } | null> {
+	return testEnv.BICKR_D1
+		.prepare(
+			`SELECT forum_id AS id, handle
+			 FROM forums_index
+			 WHERE personal_bot_id = ? AND deleted_at IS NULL`,
+		)
+		.bind(botId)
+		.first<{ id: string; handle: string }>();
+}
+
+function collidingHandles(base: string, count: number): string[] {
+	return Array.from({ length: count }, (_, index) => index === 0 ? base : `${base}-${index + 1}`);
+}
+
+function mockRandomTokenBytes(bytes: number[]): () => void {
+	const spy = vi.spyOn(crypto, "getRandomValues").mockImplementation(((array: Uint8Array) => {
+		array.set(bytes.slice(0, array.length));
+		return array;
+	}) as Crypto["getRandomValues"]);
+	return () => spy.mockRestore();
 }
 
 async function readBotDocument(id: string): Promise<BotDocument> {

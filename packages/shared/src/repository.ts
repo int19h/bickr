@@ -79,7 +79,7 @@ import {
 	mergePostingSettings,
 	postingSettingsHasValues,
 } from "./posting";
-import { upsertBotSearchIndex, upsertForumSearchIndex, upsertWorldSearchIndex } from "./search";
+import { escapeLike, upsertBotSearchIndex, upsertForumSearchIndex, upsertWorldSearchIndex } from "./search";
 import {
 	type D1DatabaseLike,
 	type D1PreparedStatementLike,
@@ -169,6 +169,7 @@ type ForumSummaryIndexRow = Omit<ForumSummary, "description"> & {
 	description: string;
 	descriptionLang: string | null;
 };
+type ExistingHandleRow = { handle: string };
 
 type BotCloneSourceRow = {
 	botId: string;
@@ -3438,19 +3439,28 @@ function botIndexUpdateStatement(db: D1DatabaseLike, bot: BotDocument): D1Prepar
 
 async function uniqueUserHandle(db: D1DatabaseLike, preferred: string): Promise<string> {
 	const base = slugifyHandle(preferred, "user", 24);
+	const existingHandles = await existingUserHandlesForBase(db, base);
 
 	for (let attempt = 0; attempt < 50; attempt += 1) {
-		const handle = attempt === 0 ? base : `${base}-${attempt + 1}`;
-		const existing = await db
-			.prepare(`SELECT user_id AS id FROM users_index WHERE handle = ?`)
-			.bind(handle)
-			.first<{ id: string }>();
-		if (!existing) {
+		const handle = candidateHandle(base, attempt);
+		if (!existingHandles.has(handle)) {
 			return handle;
 		}
 	}
 
 	return `${base}-${randomToken(4)}`;
+}
+
+async function existingUserHandlesForBase(db: D1DatabaseLike, base: string): Promise<Set<string>> {
+	const result = await db
+		.prepare(
+			`SELECT handle
+			 FROM users_index
+			 WHERE handle = ? OR handle LIKE ? ESCAPE '\\'`,
+		)
+		.bind(base, suffixedHandleLikePattern(base))
+		.all<ExistingHandleRow>();
+	return new Set((result.results ?? []).map((row) => row.handle));
 }
 
 function worldSummary(world: WorldDocument): WorldSummary {
@@ -3770,22 +3780,37 @@ async function autoSubscribeUserToBot(
 }
 
 async function uniqueForumHandle(db: D1DatabaseLike, worldId: string, preferred: string): Promise<string> {
+	const existingHandles = await existingForumHandlesForBase(db, worldId, preferred);
 	for (let attempt = 0; attempt < 50; attempt += 1) {
-		const handle = attempt === 0 ? preferred : `${preferred}-${attempt + 1}`;
-		const existing = await db
-			.prepare(
-				`SELECT forum_id AS id
-				 FROM forums_index
-				 WHERE world_id = ? AND handle = ? AND deleted_at IS NULL`,
-			)
-			.bind(worldId, handle)
-			.first<{ id: string }>();
-		if (!existing) {
+		const handle = candidateHandle(preferred, attempt);
+		if (!existingHandles.has(handle)) {
 			return handle;
 		}
 	}
 
 	return `${preferred}-${randomToken(4)}`;
+}
+
+async function existingForumHandlesForBase(db: D1DatabaseLike, worldId: string, base: string): Promise<Set<string>> {
+	const result = await db
+		.prepare(
+			`SELECT handle
+			 FROM forums_index
+			 WHERE world_id = ?
+			   AND deleted_at IS NULL
+			   AND (handle = ? OR handle LIKE ? ESCAPE '\\')`,
+		)
+		.bind(worldId, base, suffixedHandleLikePattern(base))
+		.all<ExistingHandleRow>();
+	return new Set((result.results ?? []).map((row) => row.handle));
+}
+
+function candidateHandle(base: string, attempt: number): string {
+	return attempt === 0 ? base : `${base}-${attempt + 1}`;
+}
+
+function suffixedHandleLikePattern(base: string): string {
+	return `${escapeLike(base)}-%`;
 }
 
 async function upsertBotRuntimeIndex(

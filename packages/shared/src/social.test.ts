@@ -11,13 +11,14 @@ import {
 	createComment,
 	createThread,
 	ensureBootstrapNotification,
+	listThreadsWithReadState,
 	markNotificationsDelivered,
 	notificationKvExpirationTtlSeconds,
 	pruneExpiredBotSeenContent,
 	threadHotScore,
 } from "./social";
 import { kvKeys, type D1DatabaseLike, type D1PreparedStatementLike, type D1Result, type KVNamespaceLike } from "./storage";
-import { schemaVersion, type BotDocument, type ForumDocument, type LanguageTag, type NotificationDocument, type PostingSettings, type RequiredLocalizedText, type WorldDocument } from "./model";
+import { schemaVersion, type BotDocument, type ForumDocument, type LanguageTag, type NotificationDocument, type PostingSettings, type RequiredLocalizedText, type ThreadSummary, type WorldDocument } from "./model";
 
 const now = "2026-05-06T12:00:00.000Z";
 const enLang = "en" as LanguageTag;
@@ -318,6 +319,109 @@ describe("bot notification retention", () => {
 			expirationTtl: notificationKvExpirationTtlSeconds,
 		});
 	});
+
+	it("batches merged bot notification fan-out without changing recipient messages or TTLs", async () => {
+		const { db, kv, bot } = fixture({
+			existingThreads: [],
+			followerBotIds: ["bot_personal", "bot_follower"],
+			forumPersonalBotId: "bot_personal",
+		});
+
+		const thread = await createThread(kv, db, {
+			forumId: "frm_main",
+			authorBotId: bot.id,
+			title: en("Batch notifications"),
+			body: en("Root body"),
+		}, now);
+		const notificationKeys = kv.puts.filter((key) => key.startsWith("v1:notification:"));
+		const notifications = await Promise.all(
+			notificationKeys.map((key) => kv.get(key, { type: "json" }) as Promise<NotificationDocument | null>),
+		);
+
+		expect(notifications).toHaveLength(2);
+		expect(new Set(notifications.map((notification) => notification?.botId))).toEqual(new Set(["bot_personal", "bot_follower"]));
+		const personal = notifications.find((notification) => notification?.botId === "bot_personal");
+		const follower = notifications.find((notification) => notification?.botId === "bot_follower");
+		expect(personal).toMatchObject({
+			notificationType: "personal_forum_post",
+			sourceObjectId: formatThreadRef(thread.id),
+			message: {
+				text: `Alice created a thread in your personal forum: "Batch notifications".`,
+			},
+			event: {
+				type: "thread_created",
+				deliveryReasons: ["personal_forum_post", "followed_profile_activity"],
+			},
+		});
+		expect(follower).toMatchObject({
+			notificationType: "followed_activity",
+			sourceObjectId: formatThreadRef(thread.id),
+			message: {
+				text: `Alice created "Batch notifications".`,
+			},
+			event: {
+				type: "thread_created",
+				deliveryReasons: ["followed_profile_activity"],
+			},
+		});
+		for (const key of notificationKeys) {
+			const index = kv.puts.indexOf(key);
+			expect(kv.putOptions[index]).toEqual({
+				expirationTtl: notificationKvExpirationTtlSeconds,
+			});
+		}
+		const notificationInserts = db.runs.filter((run) => run.query.includes("INSERT OR IGNORE INTO notifications"));
+		expect(notificationInserts).toHaveLength(1);
+		expect(notificationInserts[0]?.bindings).toHaveLength(18);
+	});
+});
+
+describe("thread list read state", () => {
+	it("uses grouped unread comment counts equivalent to the old per-thread computation", async () => {
+		const seenThroughAt = "2026-05-06T12:00:00.000Z";
+		const comments: ReadStateCommentFixture[] = [
+			{ threadId: "thr_active", createdAt: "2026-05-06T12:00:01.000Z" },
+			{ threadId: "thr_active", createdAt: "2026-05-06T12:00:02.000Z" },
+			{ threadId: "thr_active", createdAt: "2026-05-06T11:59:59.000Z" },
+			{ threadId: "thr_active", createdAt: "2026-05-06T12:00:03.000Z", deletedAt: "2026-05-06T12:00:04.000Z" },
+			{ threadId: "thr_missing_count", createdAt: "2026-05-06T12:00:05.000Z", deletedAt: "2026-05-06T12:00:06.000Z" },
+			{ threadId: "thr_new", createdAt: "2026-05-06T12:00:07.000Z" },
+		];
+		const db = new ReadStateFakeD1({
+			seenThroughAt,
+			threads: [
+				readStateThread("thr_seen", "Already seen", "2026-05-06T11:00:00.000Z", "2026-05-06T11:30:00.000Z", 1),
+				readStateThread("thr_active", "Active old thread", "2026-05-06T11:00:00.000Z", "2026-05-06T12:00:02.000Z", 4),
+				readStateThread("thr_missing_count", "Only deleted unseen comments", "2026-05-06T11:00:00.000Z", "2026-05-06T12:00:05.000Z", 2),
+				readStateThread("thr_new", "Brand new thread", "2026-05-06T12:00:07.000Z", "2026-05-06T12:00:07.000Z", 1),
+			],
+			comments,
+		});
+		const oldPerThreadCount = (threadId: string) =>
+			comments.filter((comment) =>
+				comment.threadId === threadId &&
+				!comment.deletedAt &&
+				comment.createdAt > seenThroughAt,
+			).length;
+
+		const threads = await listThreadsWithReadState(db, "frm_read", "usr_reader");
+		const stateById = new Map(threads.map((thread) => [thread.id, thread.readState]));
+
+		expect(stateById.get("thr_seen")).toMatchObject({ isNew: false, hasNewComments: false, newCommentCount: 0 });
+		expect(stateById.get("thr_active")).toMatchObject({
+			isNew: false,
+			hasNewComments: true,
+			newCommentCount: oldPerThreadCount("thr_active"),
+		});
+		expect(stateById.get("thr_missing_count")).toMatchObject({
+			isNew: false,
+			hasNewComments: true,
+			newCommentCount: oldPerThreadCount("thr_missing_count"),
+		});
+		expect(stateById.get("thr_new")).toMatchObject({ isNew: true, hasNewComments: false, newCommentCount: 0 });
+		expect(db.groupedCountQueries).toHaveLength(1);
+		expect(db.singleCountQueries).toHaveLength(0);
+	});
 });
 
 describe("content refs", () => {
@@ -350,6 +454,8 @@ type FixtureOptions = {
 	reservedContentIds?: Set<string>;
 	worldPostingSettings?: PostingSettings;
 	botPostingSettings?: PostingSettings;
+	followerBotIds?: string[];
+	forumPersonalBotId?: string;
 };
 
 function fixture(options: FixtureOptions): { db: FakeD1; kv: FakeKV; bot: BotDocument } {
@@ -364,6 +470,7 @@ function fixture(options: FixtureOptions): { db: FakeD1; kv: FakeKV; bot: BotDoc
 		language: "en" as LanguageTag,
 		description: en("General discussion"),
 		createdByUserId: "usr_owner",
+		...(options.forumPersonalBotId ? { personalBotId: options.forumPersonalBotId } : {}),
 		createdAt: now,
 		updatedAt: now,
 	};
@@ -417,7 +524,7 @@ function fixture(options: FixtureOptions): { db: FakeD1; kv: FakeKV; bot: BotDoc
 		[kvKeys.forum(forum.id), forum],
 		[kvKeys.bot(bot.id), bot],
 	]));
-	return { db: new FakeD1(options.existingThreads, options.reservedContentIds), kv, bot };
+	return { db: new FakeD1(options.existingThreads, options.reservedContentIds, options.followerBotIds), kv, bot };
 }
 
 function mockRandomBytes(sequences: number[][]): () => void {
@@ -462,10 +569,12 @@ class FakeD1 implements D1DatabaseLike {
 	readonly runs: Array<{ query: string; bindings: unknown[] }> = [];
 	readonly contentIds: Set<string>;
 	private readonly existingThreads: ExistingThread[];
+	private readonly followerBotIds: string[];
 
-	constructor(existingThreads: ExistingThread[], reservedContentIds = new Set<string>()) {
+	constructor(existingThreads: ExistingThread[], reservedContentIds = new Set<string>(), followerBotIds: string[] = []) {
 		this.existingThreads = existingThreads;
 		this.contentIds = new Set(reservedContentIds);
+		this.followerBotIds = followerBotIds;
 	}
 
 	prepare(query: string): D1PreparedStatementLike {
@@ -502,6 +611,16 @@ class FakeD1 implements D1DatabaseLike {
 		}
 		return null;
 	}
+
+	all<T>(query: string, _bindings: unknown[]): D1Result<T> {
+		if (query.includes("FROM follows") && query.includes("WHERE followed_bot_id = ?")) {
+			return {
+				success: true,
+				results: this.followerBotIds.map((botId) => ({ botId }) as T),
+			};
+		}
+		return { success: true, results: [] };
+	}
 }
 
 class FakeStatement implements D1PreparedStatementLike {
@@ -527,7 +646,7 @@ class FakeStatement implements D1PreparedStatementLike {
 	}
 
 	async all<T = unknown>(): Promise<D1Result<T>> {
-		return { success: true, results: [] };
+		return this.db.all<T>(this.query, this.bindings);
 	}
 
 	async run(): Promise<D1Result> {
@@ -617,5 +736,156 @@ class FakeSeenContentRetentionStatement implements D1PreparedStatementLike {
 			throw new Error("Expected bot seen-content prune cutoff and limit bindings.");
 		}
 		return { success: true, meta: { changes: this.db.deleteBefore(cutoff, limit) } };
+	}
+}
+
+type ReadStateThreadFixture = Omit<
+	ThreadSummary,
+	"authorAvatarCrop" | "authorAvatarUrl" | "authorDisplayName" | "bodyPreview" | "readState" | "title"
+> & {
+	authorAvatarCrop: string | null;
+	authorAvatarUrl: string | null;
+	authorDisplayName: string;
+	authorDisplayNameLang: string | null;
+	bodyPreview: string;
+	bodyPreviewLang: string | null;
+	title: string;
+	titleLang: string | null;
+};
+
+type ReadStateCommentFixture = {
+	threadId: string;
+	createdAt: string;
+	deletedAt?: string;
+};
+
+function readStateThread(
+	id: string,
+	title: string,
+	createdAt: string,
+	lastActivityAt: string,
+	commentCount: number,
+): ReadStateThreadFixture {
+	return {
+		id,
+		rootCommentId: id,
+		worldId: "wld_read",
+		worldHandle: "read-world",
+		forumId: "frm_read",
+		forumHandle: "read-forum",
+		authorBotId: "bot_author",
+		authorHandle: "alice",
+		authorDisplayName: "Alice",
+		authorDisplayNameLang: enLang,
+		authorAvatarUrl: null,
+		authorAvatarCrop: null,
+		title,
+		titleLang: enLang,
+		bodyPreview: `${title} body`,
+		bodyPreviewLang: enLang,
+		voteScore: 0,
+		commentCount,
+		hotScore: 0,
+		createdAt,
+		lastActivityAt,
+	};
+}
+
+class ReadStateFakeD1 implements D1DatabaseLike {
+	readonly groupedCountQueries: unknown[][] = [];
+	readonly singleCountQueries: unknown[][] = [];
+	private readonly seenThroughAt: string | null;
+	private readonly threads: ReadStateThreadFixture[];
+	private readonly comments: ReadStateCommentFixture[];
+
+	constructor(input: {
+		seenThroughAt: string | null;
+		threads: ReadStateThreadFixture[];
+		comments: ReadStateCommentFixture[];
+	}) {
+		this.seenThroughAt = input.seenThroughAt;
+		this.threads = input.threads;
+		this.comments = input.comments;
+	}
+
+	prepare(query: string): D1PreparedStatementLike {
+		return new ReadStateStatement(this, query);
+	}
+
+	async batch(statements: D1PreparedStatementLike[]): Promise<Array<D1Result>> {
+		const results: D1Result[] = [];
+		for (const statement of statements) {
+			results.push(await statement.run());
+		}
+		return results;
+	}
+
+	first<T>(query: string, bindings: unknown[]): T | null {
+		if (query.includes("FROM user_forum_reads")) {
+			return this.seenThroughAt ? { seenThroughAt: this.seenThroughAt } as T : null;
+		}
+		if (query.includes("FROM comments_index") && query.includes("COUNT(*) AS count") && !query.includes("GROUP BY thread_id")) {
+			this.singleCountQueries.push(bindings);
+			const [threadId, seenThroughAt] = bindings;
+			return { count: this.commentCount(String(threadId), String(seenThroughAt)) } as T;
+		}
+		return null;
+	}
+
+	all<T>(query: string, bindings: unknown[]): D1Result<T> {
+		if (query.includes("FROM threads_index")) {
+			const limit = Number(bindings.at(-2) ?? this.threads.length);
+			const offset = Number(bindings.at(-1) ?? 0);
+			return { success: true, results: this.threads.slice(offset, offset + limit) as T[] };
+		}
+		if (query.includes("FROM comments_index") && query.includes("GROUP BY thread_id")) {
+			this.groupedCountQueries.push(bindings);
+			const seenThroughAt = String(bindings.at(-1));
+			const threadIds = bindings.slice(0, -1).map(String);
+			const rows = threadIds
+				.map((threadId) => ({ threadId, count: this.commentCount(threadId, seenThroughAt) }))
+				.filter((row) => row.count > 0);
+			return { success: true, results: rows as T[] };
+		}
+		return { success: true, results: [] };
+	}
+
+	private commentCount(threadId: string, seenThroughAt: string): number {
+		return this.comments.filter((comment) =>
+			comment.threadId === threadId &&
+			!comment.deletedAt &&
+			comment.createdAt > seenThroughAt,
+		).length;
+	}
+}
+
+class ReadStateStatement implements D1PreparedStatementLike {
+	private bindings: unknown[] = [];
+	private readonly db: ReadStateFakeD1;
+	private readonly query: string;
+
+	constructor(
+		db: ReadStateFakeD1,
+		query: string,
+	) {
+		this.db = db;
+		this.query = query;
+	}
+
+	bind(...values: unknown[]): D1PreparedStatementLike {
+		this.bindings = values;
+		return this;
+	}
+
+	async first<T = unknown>(): Promise<T | null> {
+		return this.db.first<T>(this.query, this.bindings);
+	}
+
+	async all<T = unknown>(): Promise<D1Result<T>> {
+		return this.db.all<T>(this.query, this.bindings);
+	}
+
+	async run(): Promise<D1Result> {
+		return { success: true, meta: { changes: 1 } };
 	}
 }
