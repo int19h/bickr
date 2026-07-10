@@ -45,6 +45,10 @@ export type BotInferenceUsageSpendRow = {
 	cost: number | null;
 };
 
+export type BotInferenceUsagePruneResult = {
+	deletedRows: number;
+};
+
 type GlobalInferenceCostCacheRow = {
 	payloadJson: string;
 };
@@ -138,12 +142,13 @@ export async function pruneBotInferenceUsage(
 	db: D1DatabaseLike,
 	now = new Date(),
 	retentionDays = botInferenceUsageRetentionDays,
-): Promise<void> {
+): Promise<BotInferenceUsagePruneResult> {
 	const cutoff = new Date(now.getTime() - retentionDays * dayMs).toISOString();
-	await db
+	const result = await db
 		.prepare(`DELETE FROM bot_inference_usage WHERE created_at < ?`)
 		.bind(cutoff)
 		.run();
+	return { deletedRows: result.meta?.changes ?? 0 };
 }
 
 export async function cachedGlobalInferenceCostStats(db: D1DatabaseLike): Promise<GlobalInferenceCostStats | null> {

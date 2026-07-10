@@ -1283,7 +1283,13 @@ describe("Tick limits and recovery", () => {
 		const providerToolsByCall: string[][] = [];
 		const sql = {
 			exec<T>(query: string, ...params: unknown[]) {
-				if (/payload_json LIKE '%"name":"log_off"%'/s.test(query)) {
+				if (/SELECT value_json FROM runtime_state WHERE key = \?/.test(query)) {
+					return { toArray: () => [] };
+				}
+				if (/INSERT INTO runtime_state/.test(query)) {
+					return { toArray: () => [] };
+				}
+				if (/WHERE type = 'tool_result'/.test(query) && !/WHERE seq > \?/.test(query)) {
 					return {
 						toArray: () => [{
 							seq: 8,

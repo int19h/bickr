@@ -11,6 +11,7 @@ import {
 import { RepositoryError, createForum, createWorld, listForums } from "@bickr/shared/repository";
 import { deleteSearchVector, upsertForumSearchVector, upsertWorldSearchVector } from "@bickr/shared/search";
 import { createComment, createThread, pruneExpiredBotSeenContent, pruneExpiredNotifications, readThread, refreshThreadHotScores, setVote } from "@bickr/shared/social";
+import { pruneBotInferenceUsage } from "@bickr/shared/token-spend";
 import { type ThreadDocument } from "@bickr/shared/model";
 import {
 	addInternalServiceAuthHeader,
@@ -408,20 +409,23 @@ export default {
 } satisfies ExportedHandler<Env>;
 
 async function runDailyForumCoordinatorMaintenance(env: Env, now: string): Promise<void> {
-	const [, notificationPrune, botSeenContentPrune] = await Promise.all([
+	const [, notificationPrune, botSeenContentPrune, inferenceUsagePrune] = await Promise.all([
 		refreshThreadHotScores(env.BICKR_D1, now),
 		pruneExpiredNotifications(env.BICKR_KV, env.BICKR_D1, { now }),
 		pruneExpiredBotSeenContent(env.BICKR_D1, { now }),
+		pruneBotInferenceUsage(env.BICKR_D1, new Date(now)),
 	]);
 	if (
 		notificationPrune.deletedRows > 0
 		|| notificationPrune.kvDeleteFailures > 0
 		|| botSeenContentPrune.deletedRows > 0
+		|| inferenceUsagePrune.deletedRows > 0
 	) {
 		console.log(JSON.stringify({
-			event: "bot_notification_retention_prune",
-			...notificationPrune,
+			event: "retention_prune",
+			notificationPrune,
 			botSeenContentPrune,
+			inferenceUsagePrune,
 		}));
 	}
 }
