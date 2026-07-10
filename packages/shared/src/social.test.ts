@@ -13,6 +13,7 @@ import {
 	ensureBootstrapNotification,
 	markNotificationsDelivered,
 	notificationKvExpirationTtlSeconds,
+	pruneExpiredBotSeenContent,
 	threadHotScore,
 } from "./social";
 import { kvKeys, type D1DatabaseLike, type D1PreparedStatementLike, type D1Result, type KVNamespaceLike } from "./storage";
@@ -37,6 +38,50 @@ describe("threadHotScore", () => {
 			{ voteScore: 1, recentCommentCount: 1, lastActivityAt: "2026-05-07T12:00:00.000Z" },
 			now,
 		)).toBeCloseTo(3.5);
+	});
+});
+
+describe("pruneExpiredBotSeenContent", () => {
+	it("deletes old seen-content rows in bounded D1 batches and resumes cleanly", async () => {
+		const db = new FakeSeenContentRetentionD1([
+			{ id: "old_1", lastSeenAt: "2026-03-01T00:00:00.000Z" },
+			{ id: "old_2", lastSeenAt: "2026-03-02T00:00:00.000Z" },
+			{ id: "old_3", lastSeenAt: "2026-03-03T00:00:00.000Z" },
+			{ id: "old_4", lastSeenAt: "2026-03-04T00:00:00.000Z" },
+			{ id: "old_5", lastSeenAt: "2026-03-05T00:00:00.000Z" },
+			{ id: "new_1", lastSeenAt: "2026-06-01T00:00:00.000Z" },
+		]);
+
+		const firstRun = await pruneExpiredBotSeenContent(db, {
+			now: "2026-07-01T00:00:00.000Z",
+			batchSize: 2,
+			maxRowsPerRun: 3,
+		});
+
+		expect(firstRun).toEqual({
+			deletedRows: 3,
+			batches: 2,
+			budgetExhausted: true,
+		});
+		expect(db.rows.filter((row) => row.id.startsWith("old_"))).toHaveLength(2);
+		expect(db.rows.map((row) => row.id)).toContain("new_1");
+		expect(db.runs.map((run) => run.bindings[1])).toEqual([2, 1]);
+		expect(db.runs[0]?.query).toContain("DELETE FROM bot_seen_content");
+		expect(db.runs[0]?.query).toContain("WHERE last_seen_at < ?");
+		expect(db.runs[0]?.query).toContain("LIMIT ?");
+
+		const secondRun = await pruneExpiredBotSeenContent(db, {
+			now: "2026-07-01T00:00:00.000Z",
+			batchSize: 2,
+			maxRowsPerRun: 3,
+		});
+
+		expect(secondRun).toEqual({
+			deletedRows: 2,
+			batches: 1,
+			budgetExhausted: false,
+		});
+		expect(db.rows.map((row) => row.id)).toEqual(["new_1"]);
 	});
 });
 
@@ -496,5 +541,81 @@ class FakeStatement implements D1PreparedStatementLike {
 			return { success: true, meta: { changes: 1 } };
 		}
 		return { success: true, meta: { changes: 1 } };
+	}
+}
+
+type SeenContentRetentionFixtureRow = {
+	id: string;
+	lastSeenAt: string;
+};
+
+class FakeSeenContentRetentionD1 implements D1DatabaseLike {
+	readonly runs: Array<{ query: string; bindings: unknown[] }> = [];
+	rows: SeenContentRetentionFixtureRow[];
+
+	constructor(rows: SeenContentRetentionFixtureRow[]) {
+		this.rows = [...rows];
+	}
+
+	prepare(query: string): D1PreparedStatementLike {
+		return new FakeSeenContentRetentionStatement(this, query);
+	}
+
+	async batch(statements: D1PreparedStatementLike[]): Promise<Array<D1Result>> {
+		const results: D1Result[] = [];
+		for (const statement of statements) {
+			results.push(await statement.run());
+		}
+		return results;
+	}
+
+	deleteBefore(cutoff: string, limit: number): number {
+		const deletedIds = new Set(
+			this.rows
+				.filter((row) => row.lastSeenAt < cutoff)
+				.slice(0, limit)
+				.map((row) => row.id),
+		);
+		this.rows = this.rows.filter((row) => !deletedIds.has(row.id));
+		return deletedIds.size;
+	}
+}
+
+class FakeSeenContentRetentionStatement implements D1PreparedStatementLike {
+	private bindings: unknown[] = [];
+	private readonly db: FakeSeenContentRetentionD1;
+	private readonly query: string;
+
+	constructor(
+		db: FakeSeenContentRetentionD1,
+		query: string,
+	) {
+		this.db = db;
+		this.query = query;
+	}
+
+	bind(...values: unknown[]): D1PreparedStatementLike {
+		this.bindings = values;
+		return this;
+	}
+
+	async first<T = unknown>(): Promise<T | null> {
+		return null;
+	}
+
+	async all<T = unknown>(): Promise<D1Result<T>> {
+		return { success: true, results: [] };
+	}
+
+	async run(): Promise<D1Result> {
+		this.db.runs.push({ query: this.query, bindings: this.bindings });
+		if (!this.query.includes("DELETE FROM bot_seen_content")) {
+			throw new Error(`Unexpected query: ${this.query}`);
+		}
+		const [cutoff, limit] = this.bindings;
+		if (typeof cutoff !== "string" || typeof limit !== "number") {
+			throw new Error("Expected bot seen-content prune cutoff and limit bindings.");
+		}
+		return { success: true, meta: { changes: this.db.deleteBefore(cutoff, limit) } };
 	}
 }

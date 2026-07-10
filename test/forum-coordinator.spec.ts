@@ -95,7 +95,7 @@ import type {
 	ThreadListPayload,
 } from "./helpers/index-harness";
 import { internalServiceAuthHeader } from "@bickr/shared/internal-service";
-import { notificationKvTtlSince, pruneExpiredNotifications } from "@bickr/shared/social";
+import { notificationKvTtlSince, pruneExpiredBotSeenContent, pruneExpiredNotifications } from "@bickr/shared/social";
 import type { KVNamespaceLike } from "@bickr/shared/storage";
 
 async function runForumCoordinatorScheduled(scheduledTime: string): Promise<void> {
@@ -220,6 +220,52 @@ async function humanNotificationExists(id: string): Promise<boolean> {
 		.bind(id)
 		.first<{ id: string }>();
 	return row !== null;
+}
+
+async function insertBotSeenContentForRetention(input: {
+	id: string;
+	lastSeenAt: string;
+	botId?: string;
+	objectType?: "thread" | "comment" | "bot";
+}): Promise<void> {
+	const botId = input.botId ?? "bot_seen_retention";
+	const objectType = input.objectType ?? "thread";
+	await testEnv.BICKR_D1.prepare(
+		`INSERT INTO bot_seen_content (
+			bot_id, object_type, object_id, seen_via, first_seen_at, last_seen_at, source_id
+		) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+	)
+		.bind(
+			botId,
+			objectType,
+			input.id,
+			"retention-test",
+			input.lastSeenAt,
+			input.lastSeenAt,
+			null,
+		)
+		.run();
+}
+
+async function botSeenContentRowIds(): Promise<string[]> {
+	const result = await testEnv.BICKR_D1.prepare(
+		`SELECT object_id AS id
+		 FROM bot_seen_content
+		 ORDER BY object_id`,
+	).all<{ id: string }>();
+	return (result.results ?? []).map((row) => row.id);
+}
+
+async function staleBotSeenContentRowCount(now: string): Promise<number> {
+	const cutoff = daysBefore(now, 90);
+	const row = await testEnv.BICKR_D1.prepare(
+		`SELECT COUNT(*) AS count
+		 FROM bot_seen_content
+		 WHERE last_seen_at < ?`,
+	)
+		.bind(cutoff)
+		.first<{ count: number }>();
+	return row?.count ?? 0;
 }
 
 function daysBefore(now: string, days: number): string {
@@ -804,6 +850,14 @@ describe("Forum coordinator", () => {
 			createdAt: daysBefore(now, 89),
 		});
 		await insertHumanNotificationForRetention("hnt_old_out_of_scope", daysBefore(now, 120));
+		await insertBotSeenContentForRetention({
+			id: "thr_seen_expired",
+			lastSeenAt: daysBefore(now, 91),
+		});
+		await insertBotSeenContentForRetention({
+			id: "thr_seen_retained",
+			lastSeenAt: daysBefore(now, 89),
+		});
 
 		await runForumCoordinatorScheduled(now);
 
@@ -814,6 +868,78 @@ describe("Forum coordinator", () => {
 		expect(await botNotificationKvExists("ntf_recent_delivered")).toBe(true);
 		expect(await botNotificationKvExists("ntf_young_pending")).toBe(true);
 		expect(await humanNotificationExists("hnt_old_out_of_scope")).toBe(true);
+		expect(await botSeenContentRowIds()).toEqual(["thr_seen_retained"]);
+	});
+
+	it("prunes bot seen-content rows older than the retention cutoff", async () => {
+		const now = "2026-07-01T00:00:00.000Z";
+		await insertBotSeenContentForRetention({
+			id: "thr_old_seen",
+			lastSeenAt: daysBefore(now, 91),
+		});
+		await insertBotSeenContentForRetention({
+			id: "thr_cutoff_seen",
+			lastSeenAt: daysBefore(now, 90),
+		});
+		await insertBotSeenContentForRetention({
+			id: "thr_recent_seen",
+			lastSeenAt: daysBefore(now, 89),
+		});
+
+		const result = await pruneExpiredBotSeenContent(testEnv.BICKR_D1, {
+			now,
+			batchSize: 10,
+			maxRowsPerRun: 10,
+		});
+
+		expect(result).toEqual({
+			deletedRows: 1,
+			batches: 1,
+			budgetExhausted: false,
+		});
+		expect(await botSeenContentRowIds()).toEqual(["thr_cutoff_seen", "thr_recent_seen"]);
+	});
+
+	it("resumes bot seen-content pruning after hitting the per-run row budget", async () => {
+		const now = "2026-07-01T00:00:00.000Z";
+		for (let index = 0; index < 5; index += 1) {
+			await insertBotSeenContentForRetention({
+				id: `thr_seen_budget_${index}`,
+				lastSeenAt: daysBefore(now, 100 + index),
+			});
+		}
+		await insertBotSeenContentForRetention({
+			id: "thr_seen_budget_recent",
+			lastSeenAt: daysBefore(now, 10),
+		});
+
+		const firstRun = await pruneExpiredBotSeenContent(testEnv.BICKR_D1, {
+			now,
+			batchSize: 2,
+			maxRowsPerRun: 3,
+		});
+
+		expect(firstRun).toEqual({
+			deletedRows: 3,
+			batches: 2,
+			budgetExhausted: true,
+		});
+		expect(await staleBotSeenContentRowCount(now)).toBe(2);
+		expect(await botSeenContentRowIds()).toContain("thr_seen_budget_recent");
+
+		const secondRun = await pruneExpiredBotSeenContent(testEnv.BICKR_D1, {
+			now,
+			batchSize: 2,
+			maxRowsPerRun: 3,
+		});
+
+		expect(secondRun).toEqual({
+			deletedRows: 2,
+			batches: 1,
+			budgetExhausted: false,
+		});
+		expect(await staleBotSeenContentRowCount(now)).toBe(0);
+		expect(await botSeenContentRowIds()).toEqual(["thr_seen_budget_recent"]);
 	});
 
 	it("uses D1-only pruning only for TTL-backed notification rows at or after the cutover", async () => {
