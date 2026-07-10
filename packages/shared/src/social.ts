@@ -5306,7 +5306,12 @@ export async function markNotificationsDelivered(
 	}));
 	await Promise.all(
 		updatedNotifications.map((notification) =>
-			writeJson(kv, kvKeys.notification(notification.botId, notification.id), notification),
+			// KV put replaces the entry including its expiration, so this rewrite
+			// must re-arm the retention TTL or delivered documents would outlive
+			// their phase-1 D1 rows forever.
+			writeJson(kv, kvKeys.notification(notification.botId, notification.id), notification, {
+				expirationTtl: notificationKvExpirationTtlSeconds,
+			}),
 		),
 	);
 	const maxNotificationsPerQuery = d1MaxBoundParameters - 2;

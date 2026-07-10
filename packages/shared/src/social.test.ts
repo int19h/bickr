@@ -11,11 +11,12 @@ import {
 	createComment,
 	createThread,
 	ensureBootstrapNotification,
+	markNotificationsDelivered,
 	notificationKvExpirationTtlSeconds,
 	threadHotScore,
 } from "./social";
 import { kvKeys, type D1DatabaseLike, type D1PreparedStatementLike, type D1Result, type KVNamespaceLike } from "./storage";
-import { schemaVersion, type BotDocument, type ForumDocument, type LanguageTag, type PostingSettings, type RequiredLocalizedText, type WorldDocument } from "./model";
+import { schemaVersion, type BotDocument, type ForumDocument, type LanguageTag, type NotificationDocument, type PostingSettings, type RequiredLocalizedText, type WorldDocument } from "./model";
 
 const now = "2026-05-06T12:00:00.000Z";
 const enLang = "en" as LanguageTag;
@@ -242,6 +243,33 @@ describe("bot notification retention", () => {
 		const notificationPutIndex = kv.puts.findIndex((key) => key.startsWith(`v1:notification:${bot.id}:`));
 		expect(notificationPutIndex).toBeGreaterThanOrEqual(0);
 		expect(kv.putOptions[notificationPutIndex]).toEqual({
+			expirationTtl: notificationKvExpirationTtlSeconds,
+		});
+	});
+
+	it("re-arms the retention TTL when marking notifications delivered", async () => {
+		const { db, kv, bot } = fixture({ existingThreads: [] });
+		const notification: NotificationDocument = {
+			id: "ntf_delivery-ttl",
+			type: "notification",
+			schemaVersion,
+			revision: 1,
+			worldId: bot.homeWorldId,
+			botId: bot.id,
+			notificationType: "reply",
+			status: "pending",
+			message: { lang: enLang, text: "Someone replied to you." },
+			createdAt: now,
+			updatedAt: now,
+		};
+
+		await markNotificationsDelivered(kv, db, [notification], now);
+
+		const deliveryPutIndex = kv.puts.findIndex((key) => key === `v1:notification:${bot.id}:${notification.id}`);
+		expect(deliveryPutIndex).toBeGreaterThanOrEqual(0);
+		// KV put replaces the entry including its expiration; without re-arming
+		// the TTL here, delivered documents would outlive their D1 rows forever.
+		expect(kv.putOptions[deliveryPutIndex]).toEqual({
 			expirationTtl: notificationKvExpirationTtlSeconds,
 		});
 	});
