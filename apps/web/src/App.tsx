@@ -239,13 +239,12 @@ import {
 	type RememberedSubscriptionDescendants,
 	type SubscriptionTreeNode,
 } from "./subscriptions-tree";
+import { api, apiResponseErrorMessage } from "./api";
+import { runApiAction, useApiQuery } from "./use-api";
 import "./App.css";
 
 const bickrLogoSrc = "/bickr.png";
 
-type ApiSuccess<T> = { ok: true; data: T };
-type ApiFailure = { ok: false; error: string; message: string };
-type ApiResult<T> = ApiSuccess<T> | ApiFailure;
 type ContentRefType = "thread" | "comment";
 type OpenContentRefOptions = { replace?: boolean };
 type BotMutationResponse = { bot: BotSummary; affectedBots?: BotSummary[] };
@@ -257,6 +256,10 @@ type BeforeInstallPromptEvent = Event & {
 	prompt: () => Promise<void>;
 	userChoice: Promise<{ outcome: "accepted" | "dismissed"; platform: string }>;
 };
+
+function throwApiError(message: string): never {
+	throw new Error(message);
+}
 
 type SessionState = {
 	authenticated: boolean;
@@ -1722,11 +1725,11 @@ function App() {
 	}
 
 	async function openContentRef(type: ContentRefType, id: string, options: OpenContentRefOptions = {}): Promise<void> {
-		const result = await api<{ path: string }>(
-			`/api/content-refs/${type}/${encodeURIComponent(id)}`,
+		const result = await runApiAction(
+			setStatus,
+			() => api<{ path: string }>(`/api/content-refs/${type}/${encodeURIComponent(id)}`),
 		);
-		if (!result.ok) {
-			setStatus(result.message);
+		if (!result) {
 			return;
 		}
 		const parsed = parsePathname(result.data.path);
@@ -2115,12 +2118,11 @@ function App() {
 		notification: HumanNotification,
 		options: { removeUnread?: boolean } = { removeUnread: true },
 	): Promise<string | null> {
-		const result = await api(`/api/me/notifications/${encodeURIComponent(notification.id)}`, {
+		const result = await runApiAction(setStatus, () => api(`/api/me/notifications/${encodeURIComponent(notification.id)}`, {
 			method: "PATCH",
 			body: { read: true },
-		});
-		if (!result.ok) {
-			setStatus(result.message);
+		}));
+		if (!result) {
 			return null;
 		}
 		const wasUnread = !notification.readAt;
@@ -2145,12 +2147,11 @@ function App() {
 			return existing;
 		}
 		const request = (async () => {
-			const result = await api(`/api/me/notifications/${encodeURIComponent(notification.id)}`, {
+			const result = await runApiAction(setStatus, () => api(`/api/me/notifications/${encodeURIComponent(notification.id)}`, {
 				method: "PATCH",
 				body: { archived: true },
-			});
-			if (!result.ok) {
-				setStatus(result.message);
+			}));
+			if (!result) {
 				return false;
 			}
 			setHumanNotifications((current) => humanNotificationSummaryWithoutNotification(current, notification));
@@ -2181,20 +2182,18 @@ function App() {
 		if (!profileReadyFor("managing notifications")) {
 			return null;
 		}
-		const result = await api<{ readAll: true; readCount: number }>("/api/me/notifications/read-all", {
+		const result = await runApiAction(setStatus, () => api<{ readAll: true; readCount: number }>("/api/me/notifications/read-all", {
 			method: "POST",
 			body: scope,
-		});
-		if (result.ok) {
-			const readAt = new Date().toISOString();
-			setHumanNotifications((current) =>
-				humanNotificationSummaryWithReadScope(current, scope, readAt, result.data.readCount),
-			);
-			return result.data.readCount;
-		} else {
-			setStatus(result.message);
+		}));
+		if (!result) {
 			return null;
 		}
+		const readAt = new Date().toISOString();
+		setHumanNotifications((current) =>
+			humanNotificationSummaryWithReadScope(current, scope, readAt, result.data.readCount),
+		);
+		return result.data.readCount;
 	}
 
 	async function startBotTick(bot: BotSummary): Promise<{ bot: BotSummary; error?: string; status: string }> {
@@ -2269,12 +2268,9 @@ function App() {
 		}
 		let spread: BotTickSpreadResult | null = null;
 		const ok = await submit(async () => {
-			const result = await api<{ spread: BotTickSpreadResult }>("/api/me/bots/spread-ticks", {
+			const result = await runApiAction(throwApiError, () => api<{ spread: BotTickSpreadResult }>("/api/me/bots/spread-ticks", {
 				method: "POST",
-			});
-			if (!result.ok) {
-				throw new Error(result.message);
-			}
+			}));
 			spread = result.data.spread;
 			applySavedBots(spread.bots);
 			const skipped = spread.skipped.paused + spread.skipped.running;
@@ -2315,13 +2311,10 @@ function App() {
 			return false;
 		}
 		return submit(async () => {
-			const result = await api<{ world: WorldSummary }>("/api/worlds", {
+			const result = await runApiAction(throwApiError, () => api<{ world: WorldSummary }>("/api/worlds", {
 				method: "POST",
 				body: input,
-			});
-			if (!result.ok) {
-				throw new Error(result.message);
-			}
+			}));
 			const createdWorld: WorldListSummary = { ...result.data.world, forumCount: 1, botCount: 0 };
 			setWorlds((current) => [createdWorld, ...current.filter((world) => world.id !== createdWorld.id)]);
 			navigate({ route: "world", worldHandle: createdWorld.handle });
@@ -2334,13 +2327,10 @@ function App() {
 			return false;
 		}
 		return submit(async () => {
-			const result = await api<{ world: WorldSummary }>(`/api/worlds/${encodeURIComponent(worldHandle)}`, {
+			const result = await runApiAction(throwApiError, () => api<{ world: WorldSummary }>(`/api/worlds/${encodeURIComponent(worldHandle)}`, {
 				method: "PATCH",
 				body: input,
-			});
-			if (!result.ok) {
-				throw new Error(result.message);
-			}
+			}));
 			const savedWorld = result.data.world;
 			const renamed = savedWorld.handle !== worldHandle;
 			setWorlds((current) =>
@@ -2405,12 +2395,9 @@ function App() {
 			return false;
 		}
 		return submit(async () => {
-			const result = await api<{ world: WorldSummary }>(`/api/worlds/${encodeURIComponent(world.handle)}`, {
+			await runApiAction(throwApiError, () => api<{ world: WorldSummary }>(`/api/worlds/${encodeURIComponent(world.handle)}`, {
 				method: "DELETE",
-			});
-			if (!result.ok) {
-				throw new Error(result.message);
-			}
+			}));
 			setWorlds((current) => current.filter((item) => item.id !== world.id));
 			setForumsByWorld((current) => {
 				const next = { ...current };
@@ -2439,16 +2426,13 @@ function App() {
 			return false;
 		}
 		return submit(async () => {
-			const result = await api<{ forum: ForumSummary }>(
+			const result = await runApiAction(throwApiError, () => api<{ forum: ForumSummary }>(
 				`/api/worlds/${encodeURIComponent(worldHandle)}/forums`,
 				{
 					method: "POST",
 					body: input,
 				},
-			);
-			if (!result.ok) {
-				throw new Error(result.message);
-			}
+			));
 			setWorlds((current) => adjustWorldCounts(current, worldHandle, { forumCount: 1 }));
 			setForumsByWorld((current) => ({
 				...current,
@@ -2465,16 +2449,13 @@ function App() {
 			return false;
 		}
 		return submit(async () => {
-			const result = await api<{ forum: ForumSummary }>(
+			const result = await runApiAction(throwApiError, () => api<{ forum: ForumSummary }>(
 				`/api/worlds/${encodeURIComponent(forum.worldHandle)}/forums/${encodeURIComponent(forum.handle)}`,
 				{
 					method: "PATCH",
 					body: input,
 				},
-			);
-			if (!result.ok) {
-				throw new Error(result.message);
-			}
+			));
 			const savedForum = result.data.forum;
 			const renamed = savedForum.handle !== forum.handle;
 			setForumsByWorld((current) => ({
@@ -2514,13 +2495,10 @@ function App() {
 			return false;
 		}
 		return submit(async () => {
-			const result = await api<{ forum: ForumSummary }>(
+			await runApiAction(throwApiError, () => api<{ forum: ForumSummary }>(
 				`/api/worlds/${encodeURIComponent(forum.worldHandle)}/forums/${encodeURIComponent(forum.handle)}`,
 				{ method: "DELETE" },
-			);
-			if (!result.ok) {
-				throw new Error(result.message);
-			}
+			));
 			setWorlds((current) => adjustWorldCounts(current, forum.worldHandle, { forumCount: -1 }));
 			setForumsByWorld((current) => ({
 				...current,
@@ -2555,16 +2533,13 @@ function App() {
 			return false;
 		}
 		return submit(async () => {
-			const result = await api<{ group: BotGroupSummary }>(
+			const result = await runApiAction(throwApiError, () => api<{ group: BotGroupSummary }>(
 					`/api/worlds/${encodeURIComponent(world.handle)}/groups`,
 					{
 						method: "POST",
 						body: { language: world.language, customTitle: null },
 					},
-			);
-			if (!result.ok) {
-				throw new Error(result.message);
-			}
+			));
 			saveBotGroup(world.handle, result.data.group);
 			return "Created group.";
 		});
@@ -2575,7 +2550,7 @@ function App() {
 			return false;
 		}
 		return submit(async () => {
-			const result = await api<{ group: BotGroupSummary }>(
+			const result = await runApiAction(throwApiError, () => api<{ group: BotGroupSummary }>(
 					`/api/worlds/${encodeURIComponent(world.handle)}/groups/${encodeURIComponent(group.id)}`,
 					{
 						method: "PATCH",
@@ -2584,10 +2559,7 @@ function App() {
 							customTitle: customTitle ? localizedText(customTitle, group.language ?? world.language) : null,
 						},
 					},
-			);
-			if (!result.ok) {
-				throw new Error(result.message);
-			}
+			));
 			saveBotGroup(world.handle, result.data.group);
 			return "Saved group title.";
 		});
@@ -2598,13 +2570,10 @@ function App() {
 			return false;
 		}
 		return submit(async () => {
-			const result = await api<{ group: BotGroupSummary }>(
+			await runApiAction(throwApiError, () => api<{ group: BotGroupSummary }>(
 				`/api/worlds/${encodeURIComponent(world.handle)}/groups/${encodeURIComponent(group.id)}`,
 				{ method: "DELETE" },
-			);
-			if (!result.ok) {
-				throw new Error(result.message);
-			}
+			));
 			setBotGroupsByWorld((current) => ({
 				...current,
 				[world.handle]: (current[world.handle] ?? []).filter((item) => item.id !== group.id),
@@ -2618,16 +2587,13 @@ function App() {
 			return false;
 		}
 		return submit(async () => {
-			const result = await api<{ group: BotGroupSummary }>(
+			const result = await runApiAction(throwApiError, () => api<{ group: BotGroupSummary }>(
 				`/api/worlds/${encodeURIComponent(world.handle)}/groups/${encodeURIComponent(group.id)}/bots`,
 				{
 					method: "POST",
 					body: { botIds },
 				},
-			);
-			if (!result.ok) {
-				throw new Error(result.message);
-			}
+			));
 			saveBotGroup(world.handle, result.data.group);
 			return `Added ${botIds.length} bot${botIds.length === 1 ? "" : "s"} to group.`;
 		});
@@ -2638,13 +2604,10 @@ function App() {
 			return false;
 		}
 		return submit(async () => {
-			const result = await api<{ group: BotGroupSummary }>(
+			const result = await runApiAction(throwApiError, () => api<{ group: BotGroupSummary }>(
 				`/api/worlds/${encodeURIComponent(world.handle)}/groups/${encodeURIComponent(group.id)}/bots/${encodeURIComponent(bot.id)}`,
 				{ method: "DELETE" },
-			);
-			if (!result.ok) {
-				throw new Error(result.message);
-			}
+			));
 			saveBotGroup(world.handle, result.data.group);
 			return `Removed ${bot.handle} from group.`;
 		});
@@ -2656,16 +2619,13 @@ function App() {
 		}
 		return submit(async () => {
 			const input = createBotInputFromDraft(draft);
-			const result = await api<{ bot: BotSummary }>(
+			const result = await runApiAction(throwApiError, () => api<{ bot: BotSummary }>(
 				`/api/worlds/${encodeURIComponent(worldHandle)}/bots`,
 				{
 					method: "POST",
 					body: input,
 				},
-			);
-			if (!result.ok) {
-				throw new Error(result.message);
-			}
+			));
 			const createdBot = {
 				...result.data.bot,
 				lastActiveAt: result.data.bot.lastActiveAt ?? result.data.bot.createdAt,
@@ -2699,13 +2659,10 @@ function App() {
 			return false;
 		}
 		return submit(async () => {
-			const result = await api<{ thread: ThreadDocument }>(
+			await runApiAction(throwApiError, () => api<{ thread: ThreadDocument }>(
 				`/api/worlds/${encodeURIComponent(forum.worldHandle)}/forums/${encodeURIComponent(forum.handle)}/threads/${encodeURIComponent(thread.id)}`,
 				{ method: "DELETE" },
-			);
-			if (!result.ok) {
-				throw new Error(result.message);
-			}
+			));
 			setThreadsByForum((current) => ({
 				...current,
 				[forum.id]: (current[forum.id] ?? []).filter((item) => item.id !== thread.id),
@@ -2727,13 +2684,10 @@ function App() {
 			return false;
 		}
 		return submit(async () => {
-			const result = await api<{ thread: ThreadDocument }>(
+			const result = await runApiAction(throwApiError, () => api<{ thread: ThreadDocument }>(
 				`/api/worlds/${encodeURIComponent(forum.worldHandle)}/forums/${encodeURIComponent(forum.handle)}/threads/${encodeURIComponent(thread.id)}/comments/${encodeURIComponent(comment.id)}`,
 				{ method: "DELETE" },
-			);
-			if (!result.ok) {
-				throw new Error(result.message);
-			}
+			));
 			setThreadDocuments((current) => ({ ...current, [result.data.thread.id]: result.data.thread }));
 			setThreadsByForum((current) => ({
 				...current,
@@ -2764,13 +2718,10 @@ function App() {
 				) ?? null
 			:	null;
 		return submit(async () => {
-			const result = await api<BotMutationResponse>(`/api/me/bots/${encodeURIComponent(botId)}`, {
+			const result = await runApiAction(throwApiError, () => api<BotMutationResponse>(`/api/me/bots/${encodeURIComponent(botId)}`, {
 				method: "PATCH",
 				body: draft,
-			});
-			if (!result.ok) {
-				throw new Error(result.message);
-			}
+			}));
 			const savedBot = result.data.bot;
 			const renamed = Boolean(previousBot && previousBot.handle !== savedBot.handle);
 			applySavedBots([savedBot, ...(result.data.affectedBots ?? [])]);
@@ -2821,12 +2772,9 @@ function App() {
 			return false;
 		}
 		return submit(async () => {
-			const result = await api<BotMutationResponse>(`/api/me/bots/${encodeURIComponent(bot.id)}/clone/unlink`, {
+			const result = await runApiAction(throwApiError, () => api<BotMutationResponse>(`/api/me/bots/${encodeURIComponent(bot.id)}/clone/unlink`, {
 				method: "POST",
-			});
-			if (!result.ok) {
-				throw new Error(result.message);
-			}
+			}));
 			applySavedBots([result.data.bot, ...(result.data.affectedBots ?? [])]);
 			return `Unlinked bot ${result.data.bot.handle}.`;
 		});
@@ -2837,12 +2785,9 @@ function App() {
 			return false;
 		}
 		return submit(async () => {
-			const result = await api<BotMutationResponse>(`/api/me/bots/${encodeURIComponent(bot.id)}/clone/relink`, {
+			const result = await runApiAction(throwApiError, () => api<BotMutationResponse>(`/api/me/bots/${encodeURIComponent(bot.id)}/clone/relink`, {
 				method: "POST",
-			});
-			if (!result.ok) {
-				throw new Error(result.message);
-			}
+			}));
 			applySavedBots([result.data.bot, ...(result.data.affectedBots ?? [])]);
 			return `Relinked bot ${result.data.bot.handle}.`;
 		});
@@ -2853,12 +2798,9 @@ function App() {
 			return false;
 		}
 		return submit(async () => {
-			const result = await api<BotMutationResponse>(`/api/me/bots/${encodeURIComponent(bot.id)}/avatar`, {
+			const result = await runApiAction(throwApiError, () => api<BotMutationResponse>(`/api/me/bots/${encodeURIComponent(bot.id)}/avatar`, {
 				method: "DELETE",
-			});
-			if (!result.ok) {
-				throw new Error(result.message);
-			}
+			}));
 			applySavedBots([result.data.bot, ...(result.data.affectedBots ?? [])]);
 			return `Deleted avatar for ${result.data.bot.handle}.`;
 		});
@@ -2930,13 +2872,10 @@ function App() {
 	async function updateProfile(draft: UpdateUserProfileInput): Promise<UserProfile | null> {
 		let saved: UserProfile | null = null;
 		const ok = await submit(async () => {
-			const result = await api<UserMutationResponse>("/api/me/profile", {
+			const result = await runApiAction(throwApiError, () => api<UserMutationResponse>("/api/me/profile", {
 				method: "PATCH",
 				body: draft,
-			});
-			if (!result.ok) {
-				throw new Error(result.message);
-			}
+			}));
 			saved = result.data.profile;
 			applySavedUserProfile(result.data.profile);
 			return "Saved profile.";
@@ -2947,12 +2886,9 @@ function App() {
 	async function unlinkAuthIdentity(provider: AuthProvider): Promise<UserProfile | null> {
 		let saved: UserProfile | null = null;
 		const ok = await submit(async () => {
-			const result = await api<{ profile: UserProfile }>(`/api/me/auth/identities/${provider}`, {
+			const result = await runApiAction(throwApiError, () => api<{ profile: UserProfile }>(`/api/me/auth/identities/${provider}`, {
 				method: "DELETE",
-			});
-			if (!result.ok) {
-				throw new Error(result.message);
-			}
+			}));
 			saved = result.data.profile;
 			setUserProfile(result.data.profile);
 			return `Unlinked ${authProviderLabel(provider)}.`;
@@ -2962,13 +2898,10 @@ function App() {
 
 	async function deleteProfile(): Promise<boolean> {
 		return submit(async () => {
-			const result = await api<{ deleted: HumanOwnedTotals }>("/api/me/profile", {
+			await runApiAction(throwApiError, () => api<{ deleted: HumanOwnedTotals }>("/api/me/profile", {
 				method: "DELETE",
 				body: { confirmCascade: true },
-			});
-			if (!result.ok) {
-				throw new Error(result.message);
-			}
+			}));
 			setSession({ authenticated: false, user: null });
 			setUserProfile(null);
 			setBots([]);
@@ -3031,12 +2964,9 @@ function App() {
 			return false;
 		}
 		return submit(async () => {
-			const result = await api<{ bot: BotSummary }>(`/api/me/bots/${encodeURIComponent(bot.id)}`, {
+			await runApiAction(throwApiError, () => api<{ bot: BotSummary }>(`/api/me/bots/${encodeURIComponent(bot.id)}`, {
 				method: "DELETE",
-			});
-			if (!result.ok) {
-				throw new Error(result.message);
-			}
+			}));
 			removeDeletedBots([bot]);
 			return `Deleted bot ${bot.handle}.`;
 		});
@@ -4993,15 +4923,14 @@ function WorldEditPage({
 	}
 
 	async function deleteAvatar(): Promise<void> {
-		const result = await api<WorldMutationResponse>(`/api/worlds/${encodeURIComponent(world.handle)}/avatar`, {
+		const result = await runApiAction((message) => toast.push(message), () => api<WorldMutationResponse>(`/api/worlds/${encodeURIComponent(world.handle)}/avatar`, {
 			method: "DELETE",
-		});
-		if (result.ok) {
-			onWorldUpdated(result.data.world);
-			toast.push("Deleted world avatar.");
-		} else {
-			toast.push(result.message);
+		}));
+		if (!result) {
+			return;
 		}
+		onWorldUpdated(result.data.world);
+		toast.push("Deleted world avatar.");
 	}
 
 	return (
@@ -8056,13 +7985,10 @@ function AvatarUploadModal({
 						return form;
 					})()
 				:	{ url: url.trim() };
-			const result = await api<BotMutationResponse>(`/api/me/bots/${encodeURIComponent(bot.id)}/avatar`, {
+			const result = await runApiAction(throwApiError, () => api<BotMutationResponse>(`/api/me/bots/${encodeURIComponent(bot.id)}/avatar`, {
 				method: "PUT",
 				body,
-			});
-			if (!result.ok) {
-				throw new Error(result.message);
-			}
+			}));
 			onSaved(result.data.bot, result.data.affectedBots);
 			onClose();
 		} catch (caught) {
@@ -8157,13 +8083,10 @@ function WorldAvatarUploadModal({
 						return form;
 					})()
 				:	{ url: url.trim() };
-			const result = await api<WorldMutationResponse>(`/api/worlds/${encodeURIComponent(world.handle)}/avatar`, {
+			const result = await runApiAction(throwApiError, () => api<WorldMutationResponse>(`/api/worlds/${encodeURIComponent(world.handle)}/avatar`, {
 				method: "PUT",
 				body,
-			});
-			if (!result.ok) {
-				throw new Error(result.message);
-			}
+			}));
 			onSaved(result.data.world);
 			onClose();
 		} catch (caught) {
@@ -8244,13 +8167,10 @@ function UserAvatarUploadModal({
 						return form;
 					})()
 				:	{ url: url.trim() };
-			const result = await api<UserMutationResponse>("/api/me/avatar", {
+			const result = await runApiAction(throwApiError, () => api<UserMutationResponse>("/api/me/avatar", {
 				method: "PUT",
 				body,
-			});
-			if (!result.ok) {
-				throw new Error(result.message);
-			}
+			}));
 			onSaved(result.data.profile);
 			onClose();
 		} catch (caught) {
@@ -8490,13 +8410,10 @@ function AvatarCropModal({
 		setSaving(true);
 		setError("");
 		try {
-			const result = await api<BotMutationResponse>(`/api/me/bots/${encodeURIComponent(bot.id)}/avatar/crop`, {
+			const result = await runApiAction(throwApiError, () => api<BotMutationResponse>(`/api/me/bots/${encodeURIComponent(bot.id)}/avatar/crop`, {
 				method: "PATCH",
 				body: { crop: draft },
-			});
-			if (!result.ok) {
-				throw new Error(result.message);
-			}
+			}));
 			onSaved(result.data.bot, result.data.affectedBots);
 			onClose();
 		} catch (caught) {
@@ -8748,13 +8665,10 @@ function WorldAvatarCropModal({
 		setSaving(true);
 		setError("");
 		try {
-			const result = await api<WorldMutationResponse>(`/api/worlds/${encodeURIComponent(world.handle)}/avatar/crop`, {
+			const result = await runApiAction(throwApiError, () => api<WorldMutationResponse>(`/api/worlds/${encodeURIComponent(world.handle)}/avatar/crop`, {
 				method: "PATCH",
 				body: { crop: draft },
-			});
-			if (!result.ok) {
-				throw new Error(result.message);
-			}
+			}));
 			onSaved(result.data.world);
 			onClose();
 		} catch (caught) {
@@ -9006,13 +8920,10 @@ function UserAvatarCropModal({
 		setSaving(true);
 		setError("");
 		try {
-			const result = await api<UserMutationResponse>("/api/me/avatar/crop", {
+			const result = await runApiAction(throwApiError, () => api<UserMutationResponse>("/api/me/avatar/crop", {
 				method: "PATCH",
 				body: { crop: draft },
-			});
-			if (!result.ok) {
-				throw new Error(result.message);
-			}
+			}));
 			onSaved(result.data.profile);
 			onClose();
 		} catch (caught) {
@@ -9127,11 +9038,12 @@ function BotAvatarGenerationScreen({
 		const initialSettings = defaultAvatarGenerationInferenceSettings(
 			bot.inferenceSettings.imageGeneration ? bot.inferenceSettings : ownerInferenceSettings ?? {},
 		);
-	const [draft, setDraft] = useState<InferenceDraft>(() => inferenceDraftFromSettings(initialSettings));
-	const [models, setModels] = useState<OpenRouterImageModel[]>([]);
-	const [modelsError, setModelsError] = useState("");
-	const [prompt, setPrompt] = useState(textValue(initialSettings.imageGeneration?.prompt));
-	const [includeCurrentAvatar, setIncludeCurrentAvatar] = useState(Boolean(bot.avatarUrl));
+		const [draft, setDraft] = useState<InferenceDraft>(() => inferenceDraftFromSettings(initialSettings));
+		const modelsQuery = useApiQuery<{ models: OpenRouterImageModel[] }>("/api/openrouter/image-models", []);
+		const models = modelsQuery.data?.models ?? [];
+		const modelsError = modelsQuery.error;
+		const [prompt, setPrompt] = useState(textValue(initialSettings.imageGeneration?.prompt));
+		const [includeCurrentAvatar, setIncludeCurrentAvatar] = useState(Boolean(bot.avatarUrl));
 	const [candidate, setCandidate] = useState<AvatarImage | null>(null);
 	const [chatEntries, setChatEntries] = useState<AvatarGenerationChatEntry[]>([]);
 	const [generating, setGenerating] = useState(false);
@@ -9162,24 +9074,6 @@ function BotAvatarGenerationScreen({
 		return () => {
 			generationAbortRef.current?.abort();
 			promptFillAbortRef.current?.abort();
-		};
-	}, []);
-
-	useEffect(() => {
-		let cancelled = false;
-		void api<{ models: OpenRouterImageModel[] }>("/api/openrouter/image-models").then((result) => {
-			if (cancelled) {
-				return;
-			}
-			if (result.ok) {
-				setModels(result.data.models);
-				setModelsError("");
-			} else {
-				setModelsError(result.message);
-			}
-		});
-		return () => {
-			cancelled = true;
 		};
 	}, []);
 
@@ -9352,16 +9246,13 @@ function BotAvatarGenerationScreen({
 		try {
 			if (candidate) {
 				const promptToSave = candidate.source?.type === "generated" && candidate.source.prompt ? candidate.source.prompt : prompt;
-				const result = await api<BotMutationResponse>(`/api/me/bots/${encodeURIComponent(bot.id)}/avatar/apply`, {
+				const result = await runApiAction(throwApiError, () => api<BotMutationResponse>(`/api/me/bots/${encodeURIComponent(bot.id)}/avatar/apply`, {
 					method: "POST",
 					body: {
 						candidate,
 							settings: imageGenerationInputFromDraft(draft, promptToSave, botLanguage),
 					},
-				});
-				if (!result.ok) {
-					throw new Error(result.message);
-				}
+				}));
 				onAvatarUpdated(result.data.bot, result.data.affectedBots);
 				setCandidate(null);
 				setMessage("Avatar saved.");
@@ -9545,8 +9436,9 @@ function UserAvatarGenerationScreen({
 	const profileLanguage = profile.language ?? textLang(profile.displayName) ?? defaultLanguageTag;
 	const initialSettings = defaultAvatarGenerationInferenceSettings(profile.inferenceSettings);
 	const [draft, setDraft] = useState<InferenceDraft>(() => inferenceDraftFromSettings(initialSettings));
-	const [models, setModels] = useState<OpenRouterImageModel[]>([]);
-	const [modelsError, setModelsError] = useState("");
+	const modelsQuery = useApiQuery<{ models: OpenRouterImageModel[] }>("/api/openrouter/image-models", []);
+	const models = modelsQuery.data?.models ?? [];
+	const modelsError = modelsQuery.error;
 	const [prompt, setPrompt] = useState(textValue(initialSettings.imageGeneration?.prompt));
 	const [includeCurrentAvatar, setIncludeCurrentAvatar] = useState(Boolean(profile.avatarUrl));
 	const [candidate, setCandidate] = useState<AvatarImage | null>(null);
@@ -9577,24 +9469,6 @@ function UserAvatarGenerationScreen({
 		return () => {
 			generationAbortRef.current?.abort();
 			promptFillAbortRef.current?.abort();
-		};
-	}, []);
-
-	useEffect(() => {
-		let cancelled = false;
-		void api<{ models: OpenRouterImageModel[] }>("/api/openrouter/image-models").then((result) => {
-			if (cancelled) {
-				return;
-			}
-			if (result.ok) {
-				setModels(result.data.models);
-				setModelsError("");
-			} else {
-				setModelsError(result.message);
-			}
-		});
-		return () => {
-			cancelled = true;
 		};
 	}, []);
 
@@ -9764,16 +9638,13 @@ function UserAvatarGenerationScreen({
 		try {
 			if (candidate) {
 				const promptToSave = candidate.source?.type === "generated" && candidate.source.prompt ? candidate.source.prompt : prompt;
-				const result = await api<UserMutationResponse>("/api/me/avatar/apply", {
+				const result = await runApiAction(throwApiError, () => api<UserMutationResponse>("/api/me/avatar/apply", {
 					method: "POST",
 					body: {
 						candidate,
 						settings: imageGenerationInputFromDraft(draft, promptToSave, profileLanguage),
 					},
-				});
-				if (!result.ok) {
-					throw new Error(result.message);
-				}
+				}));
 				onProfileUpdated(result.data.profile);
 				setCandidate(null);
 				setMessage("Avatar saved.");
@@ -9960,10 +9831,11 @@ function WorldAvatarGenerationScreen({
 		const initialSettings = defaultWorldAvatarGenerationInferenceSettings(
 			world.imageGeneration ? { imageGeneration: world.imageGeneration } : ownerInferenceSettings ?? {},
 		);
-	const [draft, setDraft] = useState<InferenceDraft>(() => inferenceDraftFromSettings(initialSettings));
-	const [models, setModels] = useState<OpenRouterImageModel[]>([]);
-	const [modelsError, setModelsError] = useState("");
-	const [prompt, setPrompt] = useState(textValue(initialSettings.imageGeneration?.prompt));
+		const [draft, setDraft] = useState<InferenceDraft>(() => inferenceDraftFromSettings(initialSettings));
+		const modelsQuery = useApiQuery<{ models: OpenRouterImageModel[] }>("/api/openrouter/image-models", []);
+		const models = modelsQuery.data?.models ?? [];
+		const modelsError = modelsQuery.error;
+		const [prompt, setPrompt] = useState(textValue(initialSettings.imageGeneration?.prompt));
 	const [includeCurrentAvatar, setIncludeCurrentAvatar] = useState(Boolean(world.avatarUrl));
 	const [candidate, setCandidate] = useState<AvatarImage | null>(null);
 	const [chatEntries, setChatEntries] = useState<AvatarGenerationChatEntry[]>([]);
@@ -9999,24 +9871,6 @@ function WorldAvatarGenerationScreen({
 		return () => {
 			generationAbortRef.current?.abort();
 			promptFillAbortRef.current?.abort();
-		};
-	}, []);
-
-	useEffect(() => {
-		let cancelled = false;
-		void api<{ models: OpenRouterImageModel[] }>("/api/openrouter/image-models").then((result) => {
-			if (cancelled) {
-				return;
-			}
-			if (result.ok) {
-				setModels(result.data.models);
-				setModelsError("");
-			} else {
-				setModelsError(result.message);
-			}
-		});
-		return () => {
-			cancelled = true;
 		};
 	}, []);
 
@@ -10206,13 +10060,10 @@ function WorldAvatarGenerationScreen({
 		try {
 			if (candidate) {
 				const promptToSave = candidate.source?.type === "generated" && candidate.source.prompt ? candidate.source.prompt : prompt;
-				const result = await api<WorldMutationResponse>(`/api/worlds/${encodeURIComponent(world.handle)}/avatar/apply`, {
+				const result = await runApiAction(throwApiError, () => api<WorldMutationResponse>(`/api/worlds/${encodeURIComponent(world.handle)}/avatar/apply`, {
 					method: "POST",
 						body: { candidate, settings: imageGenerationInputFromDraft(draft, promptToSave, worldLanguage) },
-				});
-				if (!result.ok) {
-					throw new Error(result.message);
-				}
+				}));
 				onWorldUpdated(result.data.world);
 				setCandidate(null);
 				setMessage("Avatar saved.");
@@ -15040,14 +14891,13 @@ function ProfileScreen({
 	}
 
 	async function deleteAvatar(): Promise<void> {
-		const result = await api<UserMutationResponse>("/api/me/avatar", { method: "DELETE" });
-		if (result.ok) {
-			applySavedAvatarProfile(result.data.profile);
-			setDeleteAvatarConfirm(false);
-			toast.push("Deleted avatar");
-		} else {
-			setMessage(result.message);
+		const result = await runApiAction(setMessage, () => api<UserMutationResponse>("/api/me/avatar", { method: "DELETE" }));
+		if (!result) {
+			return;
 		}
+		applySavedAvatarProfile(result.data.profile);
+		setDeleteAvatarConfirm(false);
+		toast.push("Deleted avatar");
 	}
 
 	return (
@@ -15802,29 +15652,12 @@ function ImageGenerationBasicFields({
 	models?: OpenRouterImageModel[];
 	onChange: (draft: InferenceDraft) => void;
 }) {
-	const [loadedModels, setLoadedModels] = useState<OpenRouterImageModel[]>(models ?? []);
-	const [loadError, setLoadError] = useState("");
-	useEffect(() => {
-		if (models) {
-			setLoadedModels(models);
-			return undefined;
-		}
-		let cancelled = false;
-		void api<{ models: OpenRouterImageModel[] }>("/api/openrouter/image-models").then((result) => {
-			if (cancelled) {
-				return;
-			}
-			if (result.ok) {
-				setLoadedModels(result.data.models);
-				setLoadError("");
-			} else {
-				setLoadError(result.message);
-			}
-		});
-		return () => {
-			cancelled = true;
-		};
-	}, [models]);
+	const loadedModelsQuery = useApiQuery<{ models: OpenRouterImageModel[] }>(
+		models ? null : "/api/openrouter/image-models",
+		[models],
+	);
+	const loadedModels = models ?? loadedModelsQuery.data?.models ?? [];
+	const loadError = models ? "" : loadedModelsQuery.error;
 	function patch(update: Partial<InferenceDraft>): void {
 		onChange({ ...draft, ...update });
 	}
@@ -16539,23 +16372,24 @@ function CreateBotModal({
 		}
 		setImportState("loading");
 		setImportError("");
-		const result = await api<{ preview: ChirperImportPreview }>(
-			`/api/worlds/${encodeURIComponent(world.handle)}/chirper-imports/preview`,
-			{
+		const result = await runApiAction(
+			(message) => {
+				setImportState("error");
+				setImportError(message);
+			},
+			() => api<{ preview: ChirperImportPreview }>(`/api/worlds/${encodeURIComponent(world.handle)}/chirper-imports/preview`, {
 				method: "POST",
 				body: { source: chirperSource },
-			},
+			}),
 		);
-		if (!result.ok) {
-			setImportState("error");
-			setImportError(result.message);
+		if (!result) {
 			return;
 		}
-			const preview = result.data.preview;
-			setImportDraft({
-				handle: preview.handle,
-				language: languageDraftValue(preview.language, textLang(preview.displayName) ?? defaultLanguageTag),
-				includeLanguageInSystemPrompt: "include",
+		const preview = result.data.preview;
+		setImportDraft({
+			handle: preview.handle,
+			language: languageDraftValue(preview.language, textLang(preview.displayName) ?? defaultLanguageTag),
+			includeLanguageInSystemPrompt: "include",
 				displayName: textValue(preview.displayName),
 				shortBio: textValue(preview.shortBio),
 				prompt: textValue(preview.prompt),
@@ -21617,76 +21451,6 @@ function Confirm({
 			<div className="confirm-body">{body}</div>
 		</Modal>
 	);
-}
-
-async function api<T = unknown>(
-	path: string,
-	options?: { method?: string; body?: unknown },
-): Promise<ApiResult<T>> {
-	const hasBody = options ? Object.prototype.hasOwnProperty.call(options, "body") && options.body !== undefined : false;
-	const body = hasBody && options?.body instanceof FormData ? options.body
-		: hasBody ? JSON.stringify(options?.body)
-		: undefined;
-	const headers = hasBody && !(options?.body instanceof FormData) ? { "content-type": "application/json" } : undefined;
-	let response: Response;
-	try {
-		response = await fetch(path, {
-			body,
-			headers,
-			method: options?.method ?? "GET",
-		});
-	} catch {
-		return {
-			ok: false,
-			error: "network_error",
-			message: "Network request failed.",
-		};
-	}
-	let text: string;
-	try {
-		text = await response.text();
-	} catch {
-		return {
-			ok: false,
-			error: "network_error",
-			message: "Network response could not be read.",
-		};
-	}
-	let payload: unknown = null;
-	try {
-		payload = text ? JSON.parse(text) : null;
-	} catch {
-		return {
-			ok: false,
-			error: "server_error",
-			message: response.ok ? "Response was not JSON." : response.statusText,
-		};
-	}
-	if (payload && typeof payload === "object" && "ok" in payload) {
-		return payload as ApiResult<T>;
-	}
-	if (response.ok) {
-		return { ok: true, data: payload as T };
-	}
-	return { ok: false, error: "server_error", message: response.statusText || "Request failed." };
-}
-
-async function apiResponseErrorMessage(response: Response): Promise<string> {
-	let text = "";
-	try {
-		text = await response.text();
-	} catch {
-		return response.statusText || "Network response could not be read.";
-	}
-	try {
-		const payload = text ? JSON.parse(text) as unknown : null;
-		if (payload && typeof payload === "object" && "message" in payload && typeof (payload as { message?: unknown }).message === "string") {
-			return (payload as { message: string }).message;
-		}
-	} catch {
-		return response.ok ? "Response was not JSON." : response.statusText || text || "Request failed.";
-	}
-	return response.statusText || "Request failed.";
 }
 
 function isStandaloneDisplayMode(): boolean {
