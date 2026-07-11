@@ -1997,7 +1997,6 @@ function App() {
 							...item,
 							commentCount: result.data.thread.commentCount,
 							lastActivityAt: result.data.thread.lastActivityAt,
-							hotScore: result.data.thread.hotScore,
 						}
 					:	item,
 				),

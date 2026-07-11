@@ -33,6 +33,7 @@ import migration0031 from "../../migrations/0031_tombstone_deleted_handles.sql?r
 import migration0032 from "../../migrations/0032_bot_notification_retention_index.sql?raw";
 import migration0033 from "../../migrations/0033_bot_seen_content_retention_index.sql?raw";
 import migration0034 from "../../migrations/0034_backfill_vote_activity_events.sql?raw";
+import migration0035 from "../../migrations/0035_query_time_thread_hot_score.sql?raw";
 
 const migrationSql = [
 	migration0001,
@@ -70,6 +71,7 @@ const migrationSql = [
 	migration0032,
 	migration0033,
 	migration0034,
+	migration0035,
 ];
 
 type D1SchemaRow = {

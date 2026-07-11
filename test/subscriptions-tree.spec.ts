@@ -139,7 +139,6 @@ function sampleTree(): HumanSubscriptionTree {
 						bodyPreview: lt("Tree discussion."),
 						voteScore: 0,
 						commentCount: 2,
-						hotScore: 0,
 						createdAt: now,
 						lastActivityAt: now,
 					},
