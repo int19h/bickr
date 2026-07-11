@@ -8,11 +8,16 @@ import {
 	expect,
 	fakeSearchBindings,
 	it,
+	kvKeys,
 	seedWorld,
 	testEnv,
 } from "./helpers/index-harness";
-import { repairObjectIndexes } from "@bickr/shared/index-repair";
+import {
+	objectIndexRepairMaxRepairsPerRun,
+	repairObjectIndexes,
+} from "@bickr/shared/index-repair";
 import { entityIndexVersions } from "@bickr/shared/index-versions";
+import { schemaVersion } from "@bickr/shared/model";
 
 describe("KV-to-index repair sweep", () => {
 	it("restores a stale thread projection from its newer KV document", async () => {
@@ -127,6 +132,34 @@ describe("KV-to-index repair sweep", () => {
 		expect(second.budgetExhausted).toBe(false);
 	});
 
+	it("stops at its repair budget and resumes after the last repaired row", async () => {
+		const objectIds = await seedDriftedUserObjects(objectIndexRepairMaxRepairsPerRun + 1);
+
+		const first = await repairObjectIndexes({
+			BICKR_D1: testEnv.BICKR_D1,
+			BICKR_KV: testEnv.BICKR_KV,
+		});
+		expect(first).toEqual({
+			scanned: objectIndexRepairMaxRepairsPerRun,
+			repaired: objectIndexRepairMaxRepairsPerRun,
+			budgetExhausted: true,
+		});
+		expect(await objectIndexRepairCursor()).toEqual({
+			afterObjectId: objectIds[objectIndexRepairMaxRepairsPerRun - 1],
+		});
+
+		const second = await repairObjectIndexes({
+			BICKR_D1: testEnv.BICKR_D1,
+			BICKR_KV: testEnv.BICKR_KV,
+		});
+		expect(second).toEqual({
+			scanned: 1,
+			repaired: 1,
+			budgetExhausted: false,
+		});
+		expect(await objectIndexRepairCursor()).toBeNull();
+	});
+
 	it("does not write any indexes for healthy rows", async () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);
@@ -154,4 +187,38 @@ async function objectIndexRows(): Promise<Array<{ id: string; revision: number; 
 		 ORDER BY object_id ASC`,
 	).all<{ id: string; revision: number; indexVersion: number }>();
 	return result.results ?? [];
+}
+
+async function objectIndexRepairCursor(): Promise<{ afterObjectId: string } | null> {
+	return testEnv.BICKR_KV.get<{ afterObjectId: string }>(
+		kvKeys.objectIndexRepairCursor,
+		{ type: "json" },
+	);
+}
+
+async function seedDriftedUserObjects(count: number): Promise<string[]> {
+	const now = "2026-07-11T00:00:00.000Z";
+	const ids = Array.from({ length: count }, (_, index) => `usr_repair_${String(index).padStart(3, "0")}`);
+	await Promise.all(ids.map((id, index) => testEnv.BICKR_KV.put(kvKeys.user(id), JSON.stringify({
+		id,
+		type: "user",
+		schemaVersion,
+		revision: 1,
+		handle: `repair-${String(index).padStart(3, "0")}`,
+		language: null,
+		displayName: { lang: null, text: `Repair ${index}` },
+		createdAt: now,
+		updatedAt: now,
+	}))));
+	for (let offset = 0; offset < ids.length; offset += 50) {
+		await testEnv.BICKR_D1.batch(ids.slice(offset, offset + 50).map((id) =>
+			testEnv.BICKR_D1.prepare(
+				`INSERT INTO objects_index (
+					object_id, object_type, world_id, revision, index_version, updated_at, deleted_at
+				) VALUES (?, 'user', NULL, 0, ?, ?, NULL)`,
+			)
+				.bind(id, entityIndexVersions.user, now),
+		));
+	}
+	return ids;
 }

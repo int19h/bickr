@@ -9,12 +9,16 @@ export type BoundedSweepResult = {
 	budgetExhausted: boolean;
 };
 
+export type BoundedSweepChunkOutcome<Cursor> =
+	| { kind: "continue" }
+	| { kind: "stop"; processedItems: number; cursor: Cursor };
+
 export async function runBoundedSweep<Item, Cursor>(options: {
 	chunkSize: number;
 	maxItemsPerRun: number;
 	initialCursor?: Cursor;
 	loadChunk: (cursor: Cursor | undefined, limit: number) => Promise<BoundedSweepChunk<Item, Cursor>>;
-	processChunk: (items: Item[]) => Promise<void>;
+	processChunk: (items: Item[]) => Promise<BoundedSweepChunkOutcome<Cursor>>;
 	checkpoint: (cursor: Cursor) => Promise<void>;
 	complete: () => Promise<void>;
 }): Promise<BoundedSweepResult> {
@@ -37,7 +41,19 @@ export async function runBoundedSweep<Item, Cursor>(options: {
 			return { scanned, budgetExhausted: false };
 		}
 
-		await options.processChunk(chunk.items);
+		const outcome = await options.processChunk(chunk.items);
+		if (outcome.kind === "stop") {
+			if (
+				!Number.isInteger(outcome.processedItems) ||
+				outcome.processedItems <= 0 ||
+				outcome.processedItems > chunk.items.length
+			) {
+				throw new Error("Sweep early-stop count must cover part or all of the current chunk.");
+			}
+			scanned += outcome.processedItems;
+			await options.checkpoint(outcome.cursor);
+			return { scanned, budgetExhausted: true };
+		}
 		scanned += chunk.items.length;
 		if (chunk.done) {
 			await options.complete();

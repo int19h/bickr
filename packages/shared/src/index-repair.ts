@@ -31,11 +31,13 @@ import {
 } from "./storage";
 import { runBoundedSweep } from "./sweep";
 
-// A daily run performs at most 500 KV document reads. Twenty 25-row chunks
-// keep each D1 query and cursor checkpoint small while guaranteeing that the
-// scan cannot grow without bound as objects_index grows.
+// The notification prune can consume about 8.1k of the shared 10k-subrequest
+// budget. This sweep's healthy path is about 540 subrequests (500 KV reads plus
+// 20 D1 selects and cursor checkpoints); at most 150 repairs at an estimated
+// worst case of 8 subrequests each keeps the combined total around 9.84k.
 export const objectIndexRepairChunkSize = 25;
 export const objectIndexRepairMaxRowsPerRun = 500;
+export const objectIndexRepairMaxRepairsPerRun = 150;
 
 export type ObjectIndexRepairResult = {
 	scanned: number;
@@ -66,9 +68,14 @@ export async function repairObjectIndexes(
 	options: {
 		chunkSize?: number;
 		maxRowsPerRun?: number;
+		maxRepairsPerRun?: number;
 	} = {},
 ): Promise<ObjectIndexRepairResult> {
 	const storedCursor = await readObjectIndexRepairCursor(env.BICKR_KV);
+	const maxRepairsPerRun = positiveInteger(
+		options.maxRepairsPerRun ?? objectIndexRepairMaxRepairsPerRun,
+		"maxRepairsPerRun",
+	);
 	let repaired = 0;
 	const iteration = await runBoundedSweep<ObjectIndexRow, string>({
 		chunkSize: options.chunkSize ?? objectIndexRepairChunkSize,
@@ -89,7 +96,15 @@ export async function repairObjectIndexes(
 				}
 				await repairIndexProjection(env, document, currentIndexVersion);
 				repaired += 1;
+				if (repaired >= maxRepairsPerRun) {
+					return {
+						kind: "stop",
+						processedItems: index + 1,
+						cursor: row.objectId,
+					};
+				}
 			}
+			return { kind: "continue" };
 		},
 		checkpoint: (afterObjectId) => writeJson(
 			env.BICKR_KV,
@@ -221,7 +236,7 @@ async function repairIndexProjection(
 			} else {
 				await upsertBotSearchVector(env, projected);
 			}
-			await putObjectIndex(env.BICKR_D1, document, "bot", indexVersion, document.homeWorldId);
+			await putObjectIndex(env.BICKR_D1, projected, "bot", indexVersion, projected.homeWorldId);
 			return;
 		}
 		case "thread": {
@@ -238,4 +253,11 @@ async function repairIndexProjection(
 
 function isIndexedEntityType(value: string): value is IndexedEntityType {
 	return Object.prototype.hasOwnProperty.call(entityIndexVersions, value);
+}
+
+function positiveInteger(value: number, name: string): number {
+	if (!Number.isInteger(value) || value <= 0) {
+		throw new Error(`${name} must be a positive integer.`);
+	}
+	return value;
 }
