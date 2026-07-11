@@ -107,10 +107,6 @@
 				{
 					"binding": "BICKR_SEARCH_VECTORIZE",
 					"index_name": "bickr-bot-search-test"
-				},
-				{
-					"binding": "BICKR_BOT_VECTORIZE",
-					"index_name": "bickr-bot-search-test"
 				}
 			],
 			"vars": {

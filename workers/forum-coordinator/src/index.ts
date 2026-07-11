@@ -58,14 +58,13 @@ export interface Env {
 	BICKR_D1: D1Database;
 	BICKR_KV: KVNamespace;
 	AI?: Ai;
-	BICKR_BOT_VECTORIZE?: Vectorize;
 	BICKR_SEARCH_VECTORIZE?: Vectorize;
 	INTERNAL_SERVICE_SECRET?: string;
 	WORLD_COORDINATOR: DurableObjectNamespace;
 	FORUM_COORDINATOR: DurableObjectNamespace;
 }
 
-type ForumCoordinatorEnv = Pick<Env, "AI" | "BICKR_BOT_VECTORIZE" | "BICKR_D1" | "BICKR_KV" | "BICKR_SEARCH_VECTORIZE">;
+type ForumCoordinatorEnv = Pick<Env, "AI" | "BICKR_D1" | "BICKR_KV" | "BICKR_SEARCH_VECTORIZE">;
 
 type CoordinatorContext = {
 	cache?: ThreadFreshCacheRef;

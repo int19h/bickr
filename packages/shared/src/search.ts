@@ -137,7 +137,6 @@ type SearchAiLike = {
 
 export type SearchVectorEnv = {
 	AI?: SearchAiLike;
-	BICKR_BOT_VECTORIZE?: SearchVectorizeIndexLike;
 	BICKR_SEARCH_VECTORIZE?: SearchVectorizeIndexLike;
 };
 
@@ -285,7 +284,7 @@ export async function searchEntitiesSemantic(
 		return emptySearchResponse(options.query, page, searchPageSize);
 	}
 
-	const vectorIndex = searchVectorIndex(env);
+	const vectorIndex = env.BICKR_SEARCH_VECTORIZE;
 	if (!env.AI || !vectorIndex) {
 		return emptySearchResponse(options.query, page, searchPageSize);
 	}
@@ -399,14 +398,11 @@ async function deleteSearchVectors(
 	env: SearchVectorEnv,
 	entities: Array<{ id: string; type: SearchEntityType }>,
 ): Promise<void> {
-	const vectorIndex = searchVectorIndex(env);
+	const vectorIndex = env.BICKR_SEARCH_VECTORIZE;
 	if (!vectorIndex || entities.length === 0) {
 		return;
 	}
-	const ids = entities.flatMap((entity) => {
-		const vectorId = entity.type === "bot" ? `bot:${entity.id}` : vectorIdForEntity(entity.type, entity.id);
-		return entity.type === "bot" ? [entity.id, vectorId] : [vectorId];
-	});
+	const ids = entities.map((entity) => vectorIdForEntity(entity.type, entity.id));
 	try {
 		for (let index = 0; index < ids.length; index += searchVectorDeleteBatchSize) {
 			const batch = ids.slice(index, index + searchVectorDeleteBatchSize);
@@ -1193,7 +1189,7 @@ async function upsertSearchVectors(env: SearchVectorEnv, entities: SearchVectorE
 	if (!env.AI) {
 		return;
 	}
-	const vectorIndex = searchVectorIndex(env);
+	const vectorIndex = env.BICKR_SEARCH_VECTORIZE;
 	if (!vectorIndex || entities.length === 0) {
 		return;
 	}
@@ -1237,10 +1233,6 @@ async function embedSearchTexts(ai: SearchAiLike, texts: string[]): Promise<numb
 	return response.data ?? [];
 }
 
-function searchVectorIndex(env: SearchVectorEnv): SearchVectorizeIndexLike | undefined {
-	return env.BICKR_SEARCH_VECTORIZE ?? env.BICKR_BOT_VECTORIZE;
-}
-
 function vectorMatchesToCandidates(matches: SearchVectorMatch[]): SemanticCandidate[] {
 	const byKey = new Map<string, SemanticCandidate>();
 	matches.forEach((match, order) => {
@@ -1264,22 +1256,8 @@ function vectorMatchesToCandidates(matches: SearchVectorMatch[]): SemanticCandid
 function vectorMatchEntity(match: SearchVectorMatch): { id: string; type: SearchEntityType } | null {
 	const metadata = recordMetadata(match.metadata);
 	const metadataType = stringMetadata(metadata, "type");
-	const entityId = stringMetadata(metadata, "entityId") ?? stringMetadata(metadata, "objectId");
-	if (isSearchEntityType(metadataType)) {
-		return { type: metadataType, id: entityId ?? legacyVectorId(match.id, metadataType) };
-	}
-	for (const type of searchTypes) {
-		const prefix = `${type}:`;
-		if (match.id.startsWith(prefix)) {
-			return { type, id: match.id.slice(prefix.length) };
-		}
-	}
-	return null;
-}
-
-function legacyVectorId(id: string, type: SearchEntityType): string {
-	const prefix = `${type}:`;
-	return id.startsWith(prefix) ? id.slice(prefix.length) : id;
+	const entityId = stringMetadata(metadata, "entityId");
+	return isSearchEntityType(metadataType) && entityId ? { type: metadataType, id: entityId } : null;
 }
 
 function recordMetadata(value: unknown): Record<string, unknown> {

@@ -301,7 +301,6 @@ export interface Env {
 	AI?: Ai;
 	BICKR_R2?: R2Bucket;
 	BICKR_R2_PUBLIC_BASE_URL?: string;
-	BICKR_BOT_VECTORIZE?: Vectorize;
 	BICKR_SEARCH_VECTORIZE?: Vectorize;
 	INTERNAL_SERVICE_SECRET?: string;
 	OPENROUTER_API_KEY?: string;
@@ -10617,7 +10616,6 @@ export async function handleAgentRuntimeRequest(
 		| 'BICKR_R2'
 		| 'BICKR_R2_PUBLIC_BASE_URL'
 		| 'AI'
-		| 'BICKR_BOT_VECTORIZE'
 		| 'BICKR_SEARCH_VECTORIZE'
 		| 'OPENROUTER_API_KEY'
 		| 'OPENROUTER_BASE_URL'
@@ -14619,7 +14617,7 @@ type EmbeddingResponse = {
 	shape?: number[];
 };
 
-type BotVectorEnv = Pick<Env, 'AI' | 'BICKR_BOT_VECTORIZE' | 'BICKR_SEARCH_VECTORIZE' | 'BICKR_D1' | 'BICKR_KV'>;
+type BotVectorEnv = Pick<Env, 'AI' | 'BICKR_SEARCH_VECTORIZE' | 'BICKR_D1' | 'BICKR_KV'>;
 
 async function upsertBotVector(env: BotVectorEnv, bot: BotSummary): Promise<void> {
 	await upsertBotSearchVector(env, bot);
@@ -14630,13 +14628,10 @@ async function deleteBotVector(env: BotVectorEnv, botId: string): Promise<void> 
 }
 
 async function vectorSearchBots(env: BotVectorEnv, worldId: string, query: string, limit: number): Promise<BotSearchResult[]> {
-	if (!env.AI || (!env.BICKR_SEARCH_VECTORIZE && !env.BICKR_BOT_VECTORIZE) || !query.trim()) {
+	if (!env.AI || !env.BICKR_SEARCH_VECTORIZE || !query.trim()) {
 		return [];
 	}
-	const vectorIndex = env.BICKR_SEARCH_VECTORIZE ?? env.BICKR_BOT_VECTORIZE;
-	if (!vectorIndex) {
-		return [];
-	}
+	const vectorIndex = env.BICKR_SEARCH_VECTORIZE;
 	try {
 		const vector = await embedText(env, query);
 		if (!vector) {
