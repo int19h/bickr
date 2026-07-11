@@ -167,6 +167,39 @@ export class RuntimeMessageStore {
 			.toArray();
 	}
 
+	softDeleteLoopMessage(seq: number, deletedAt = new Date().toISOString()): { row: LoopMessageRow; deletedAt: string } | null {
+		let result: { row: LoopMessageRow; deletedAt: string } | null = null;
+		const deleteMessage = (): void => {
+			const row = this.loopMessageRow(seq);
+			if (!row) {
+				return;
+			}
+			const effectiveDeletedAt = row.deleted_at ?? deletedAt;
+			if (!row.deleted_at) {
+				if (row.origin === 'compaction') {
+					// Compaction summaries are page-index anchors. Restore their children
+					// so deleting an anchor cannot make otherwise-live history unreachable.
+					this.storage.sql.exec(`UPDATE loop_messages SET compacted_by = NULL WHERE compacted_by = ?`, seq);
+				}
+				this.storage.sql.exec(
+					`UPDATE loop_messages
+					 SET deleted_at = ?
+					 WHERE seq = ?
+					   AND deleted_at IS NULL`,
+					effectiveDeletedAt,
+					seq,
+				);
+			}
+			result = { row, deletedAt: effectiveDeletedAt };
+		};
+		if (typeof this.storage.transactionSync === 'function') {
+			this.storage.transactionSync(deleteMessage);
+		} else {
+			deleteMessage();
+		}
+		return result;
+	}
+
 	updateActiveLoopMessagePositions(seqOrder: readonly number[]): void {
 		if (seqOrder.length === 0) {
 			return;

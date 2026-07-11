@@ -52,6 +52,35 @@ describe('RuntimeMessageStore', () => {
 		expect(store.loopMessagesPage({ page: 2 }).messages.map((message) => message.seq)).toEqual([1, 2]);
 	});
 
+	it('restores compacted children before soft-deleting their summary', () => {
+		insertMessage(storage, 1, 1, { compactedBy: 10 });
+		insertMessage(storage, 2, 2, { compactedBy: 10, origin: 'compaction' });
+		insertMessage(storage, 3, 3, { compactedBy: 2 });
+		insertMessage(storage, 10, 10, { origin: 'compaction' });
+		insertMessage(storage, 11, 11);
+
+		const deleted = store.softDeleteLoopMessage(10, '2026-07-11T00:00:00.000Z');
+
+		expect(deleted).toMatchObject({
+			row: { seq: 10, origin: 'compaction' },
+			deletedAt: '2026-07-11T00:00:00.000Z',
+		});
+		expect(messageCompactedBy(storage, 1)).toBeNull();
+		expect(messageCompactedBy(storage, 2)).toBeNull();
+		expect(store.loopMessagePageIndex().descriptors).toEqual([
+			{ page: 1, sourceCompactionSeq: null },
+			{ page: 2, sourceCompactionSeq: 2, newerPage: 1 },
+		]);
+		const reachableSeqs = store.loopMessagePageIndex().descriptors
+			.flatMap((descriptor) => store.loopMessagesPage({ page: descriptor.page }).messages.map((message) => message.seq))
+			.sort((left, right) => left - right);
+		const liveSeqs = storage.database
+			.prepare(`SELECT seq FROM loop_messages WHERE deleted_at IS NULL ORDER BY seq ASC`)
+			.all()
+			.map((row) => row.seq as number);
+		expect(reachableSeqs).toEqual(liveSeqs);
+	});
+
 	it('repositions active rows in the requested order without moving compacted or deleted rows', () => {
 		insertMessage(storage, 1, 10);
 		insertMessage(storage, 2, 20);
@@ -110,6 +139,10 @@ function insertMessage(
 
 function messagePosition(storage: RuntimeTestStorage, seq: number): number {
 	return storage.database.prepare(`SELECT position FROM loop_messages WHERE seq = ?`).get(seq)?.position as number;
+}
+
+function messageCompactedBy(storage: RuntimeTestStorage, seq: number): number | null {
+	return storage.database.prepare(`SELECT compacted_by FROM loop_messages WHERE seq = ?`).get(seq)?.compacted_by as number | null;
 }
 
 function range(start: number, end: number): number[] {
