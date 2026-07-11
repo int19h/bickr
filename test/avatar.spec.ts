@@ -1449,6 +1449,77 @@ describe("Avatar", () => {
 		});
 	});
 
+	it("builds equivalent bot, user, and world provider requests modulo target framing", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const bot = await createBotForTest(cookie, "avatar-target-equivalence");
+		const userId = await userIdForHandle("octocat");
+		const r2 = fakeR2Bucket();
+		const providerRequests: Array<Record<string, unknown>> = [];
+		const originalFetch = globalThis.fetch;
+		const fetchMock = vi.fn<(_input: RequestInfo | URL, _init?: RequestInit) => Promise<Response>>(
+			async (input, init) => {
+				expect(String(input)).toBe("https://openrouter.ai/api/v1/images");
+				providerRequests.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+				return Response.json({
+					data: [{ b64_json: base64String(pngAvatarBytes()) }],
+					usage: { prompt_tokens: 10, completion_tokens: 0, total_tokens: 10, cost: 0.01 },
+				});
+			},
+		);
+		vi.stubGlobal("fetch", fetchMock);
+		try {
+			const settings = {
+				model: "openai/image-one",
+				providerRouting: { sort: "price" },
+				aspectRatio: "1:1",
+				imageSize: "2K",
+			};
+			const input = { prompt: "Render a shared identity.", includeCurrentAvatar: false, settings };
+			const env = {
+				BICKR_D1: testEnv.BICKR_D1,
+				BICKR_KV: testEnv.BICKR_KV,
+				BICKR_R2: r2.bucket,
+				BICKR_R2_PUBLIC_BASE_URL: "https://assets-test.bickr.social",
+				OPENROUTER_API_KEY: "test-key",
+			};
+			const responses = await Promise.all([
+				handleAgentRuntimeRequest(
+					serviceJsonRequest(`/users/${encodeURIComponent(userId)}/bots/${encodeURIComponent(bot.id)}/avatar/generate`, userId, input),
+					env,
+				),
+				handleAgentRuntimeRequest(
+					serviceJsonRequest(`/users/${encodeURIComponent(userId)}/avatar/generate`, userId, input),
+					env,
+				),
+				handleAgentRuntimeRequest(
+					serviceJsonRequest(`/users/${encodeURIComponent(userId)}/worlds/patch-notes/avatar/generate`, userId, input),
+					env,
+				),
+			]);
+			for (const response of responses) {
+				expect(response.status, await response.clone().text()).toBe(200);
+			}
+		} finally {
+			vi.stubGlobal("fetch", originalFetch);
+		}
+
+		expect(providerRequests).toHaveLength(3);
+		const worldRequest = providerRequests.find((request) => String(request.prompt).includes("public avatar image for this Bickr world"));
+		const participantRequests = providerRequests.filter((request) => request !== worldRequest);
+		expect(participantRequests).toHaveLength(2);
+		const [botOrUserRequest, otherParticipantRequest] = participantRequests;
+		const { prompt: botPrompt, ...botRequestWithoutPrompt } = botOrUserRequest ?? {};
+		const { prompt: userPrompt, ...userRequestWithoutPrompt } = otherParticipantRequest ?? {};
+		const { prompt: worldPrompt, ...worldRequestWithoutPrompt } = worldRequest ?? {};
+		expect(userRequestWithoutPrompt).toEqual(botRequestWithoutPrompt);
+		expect(worldRequestWithoutPrompt).toEqual(botRequestWithoutPrompt);
+		expect(userPrompt).toBe(botPrompt);
+		expect(String(botPrompt)).toContain("public profile avatar image for this Bickr participant");
+		expect(String(worldPrompt)).toContain("public avatar image for this Bickr world");
+		expect(String(worldPrompt)).toContain("Render a shared identity.");
+	});
+
 	it("streams generated avatar chat events and keeps image bytes out of the chat log", async () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);
