@@ -3282,18 +3282,7 @@ export async function botActivityFeedByHandle(
 		throw repositoryError("not_found", "Bot not found.", 404);
 	}
 
-	const [threads, comments, threadVotes, commentVotes, voteEvents, follows, followEvents] = await Promise.all([
-		botThreadActivities(db, bot.id, limit),
-		botCommentActivities(db, bot.id, limit),
-		botThreadVoteActivities(db, bot.id, limit),
-		botCommentVoteActivities(db, bot.id, limit),
-		botVoteEventActivities(db, bot.id, limit),
-		botFollowActivities(db, bot.id, limit),
-		botFollowEventActivities(db, bot.id, limit),
-	]);
-	const activities = [...threads, ...comments, ...threadVotes, ...commentVotes, ...voteEvents, ...follows, ...followEvents]
-		.sort((left, right) => Date.parse(activityDate(right)) - Date.parse(activityDate(left)))
-		.slice(0, limit);
+	const activities = await activityItems(db, { scope: "bot", id: bot.id }, limit);
 	return {
 		bot: botPublicProfile(bot),
 		activities,
@@ -3306,18 +3295,7 @@ export async function worldActivityFeedByHandle(
 	worldHandle: string,
 	limit = 30,
 ): Promise<WorldActivityFeed> {
-	const [threads, comments, threadVotes, commentVotes, voteEvents, follows, followEvents] = await Promise.all([
-		worldThreadActivities(db, worldId, limit),
-		worldCommentActivities(db, worldId, limit),
-		worldThreadVoteActivities(db, worldId, limit),
-		worldCommentVoteActivities(db, worldId, limit),
-		worldVoteEventActivities(db, worldId, limit),
-		worldFollowActivities(db, worldId, limit),
-		worldFollowEventActivities(db, worldId, limit),
-	]);
-	const activities = [...threads, ...comments, ...threadVotes, ...commentVotes, ...voteEvents, ...follows, ...followEvents]
-		.sort((left, right) => Date.parse(activityDate(right)) - Date.parse(activityDate(left)))
-		.slice(0, limit);
+	const activities = await activityItems(db, { scope: "world", id: worldId }, limit);
 	return {
 		world: { id: worldId, handle: worldHandle },
 		activities,
@@ -3547,32 +3525,128 @@ export async function searchForumThreads(
 		.map(searchThreadResultFromRow);
 }
 
-async function botThreadActivities(
+type ActivityScope =
+	| { scope: "bot"; id: string }
+	| { scope: "world"; id: string };
+
+const activityActorColumns = `a.bot_id AS actorId,
+	a.home_world_id AS actorHomeWorldId,
+	a.home_world_handle AS actorHomeWorldHandle,
+	a.handle AS actorHandle,
+	a.language AS actorLanguage,
+	a.display_name AS actorDisplayName,
+	a.display_name_lang AS actorDisplayNameLang,
+	a.short_bio AS actorShortBio,
+	a.short_bio_lang AS actorShortBioLang,
+	a.avatar_url AS actorAvatarUrl,
+	a.avatar_crop AS actorAvatarCrop,
+	a.created_at AS actorCreatedAt,
+	a.updated_at AS actorUpdatedAt`;
+
+type ActivityQuerySource = {
+	actorIdColumn: string;
+	botIdColumn: string;
+	worldIdColumn: string;
+};
+
+function activityQueryScope(scope: ActivityScope, source: ActivityQuerySource): {
+	actorColumns: string;
+	actorJoin: string;
+	predicate: string;
+} {
+	switch (scope.scope) {
+		case "bot":
+			return {
+				actorColumns: "",
+				actorJoin: "",
+				predicate: `${source.botIdColumn} = ?`,
+			};
+		case "world":
+			return {
+				actorColumns: `,\n\t\t\t\t${activityActorColumns}`,
+				actorJoin: `JOIN bots_index a ON a.bot_id = ${source.actorIdColumn}`,
+				predicate: `${source.worldIdColumn} = ? AND a.deleted_at IS NULL`,
+			};
+	}
+}
+
+function activityFromScopeRow<T extends BotActivityItem>(
+	scope: ActivityScope,
+	row: Partial<WorldActivityActorRow>,
+	activity: T,
+): T {
+	if (scope.scope === "bot") {
+		return activity;
+	}
+	return worldActivityFromRow(worldActivityActorRow(row), activity);
+}
+
+function worldActivityActorRow(row: Partial<WorldActivityActorRow>): WorldActivityActorRow {
+	// The world query fragment selects every actor column as one unit. Keeping the
+	// assertion here lets bot rows accurately omit those columns from their type.
+	return row as WorldActivityActorRow;
+}
+
+async function activityItems(
 	db: D1DatabaseLike,
-	botId: string,
+	scope: { scope: "bot"; id: string },
+	limit: number,
+): Promise<BotActivityItem[]>;
+async function activityItems(
+	db: D1DatabaseLike,
+	scope: { scope: "world"; id: string },
+	limit: number,
+): Promise<WorldActivityItem[]>;
+async function activityItems(
+	db: D1DatabaseLike,
+	scope: ActivityScope,
 	limit: number,
 ): Promise<BotActivityItem[]> {
+	const groups = await Promise.all([
+		threadActivities(db, scope, limit),
+		commentActivities(db, scope, limit),
+		voteEventActivities(db, scope, limit),
+		followActivities(db, scope, limit),
+		followEventActivities(db, scope, limit),
+	]);
+	return groups
+		.flat()
+		.sort((left, right) => Date.parse(activityDate(right)) - Date.parse(activityDate(left)))
+		.slice(0, limit);
+}
+
+async function threadActivities(
+	db: D1DatabaseLike,
+	scope: ActivityScope,
+	limit: number,
+): Promise<BotActivityItem[]> {
+	const query = activityQueryScope(scope, {
+		actorIdColumn: "t.author_bot_id",
+		botIdColumn: "t.author_bot_id",
+		worldIdColumn: "t.world_id",
+	});
 	const result = await db
 		.prepare(
 			`SELECT
-				thread_id AS threadId,
-				root_comment_id AS rootCommentId,
-				world_handle AS worldHandle,
-				forum_handle AS forumHandle,
-				title,
-				title_lang AS titleLang,
-				body_preview AS bodyPreview,
-				body_preview_lang AS bodyPreviewLang,
-				vote_score AS voteScore,
-				comment_count AS commentCount,
-				created_at AS createdAt
-			 FROM threads_index
-			 WHERE author_bot_id = ? AND deleted_at IS NULL
-			 ORDER BY created_at DESC
+				t.thread_id AS threadId,
+				t.root_comment_id AS rootCommentId,
+				t.world_handle AS worldHandle,
+				t.forum_handle AS forumHandle,
+				t.title,
+				t.title_lang AS titleLang,
+				t.body_preview AS bodyPreview,
+				t.body_preview_lang AS bodyPreviewLang,
+				t.vote_score AS voteScore,
+				t.comment_count AS commentCount,
+				t.created_at AS createdAt${query.actorColumns}
+			 FROM threads_index t
+			 ${query.actorJoin}
+			 WHERE ${query.predicate} AND t.deleted_at IS NULL
+			 ORDER BY t.created_at DESC
 			 LIMIT ?`,
 		)
-		.bind(botId, limit)
-		.all<{
+		.bind(scope.id, limit)
+		.all<Partial<WorldActivityActorRow> & {
 			threadId: string;
 			rootCommentId: string;
 			worldHandle: string;
@@ -3585,7 +3659,7 @@ async function botThreadActivities(
 			commentCount: number;
 			createdAt: string;
 	}>();
-	return (result.results ?? []).map((row) => ({
+	return (result.results ?? []).map((row) => activityFromScopeRow(scope, row, {
 		type: "thread" as const,
 		id: `thread:${row.threadId}`,
 		threadId: row.threadId,
@@ -3600,11 +3674,16 @@ async function botThreadActivities(
 	}));
 }
 
-async function botCommentActivities(
+async function commentActivities(
 	db: D1DatabaseLike,
-	botId: string,
+	scope: ActivityScope,
 	limit: number,
 ): Promise<BotActivityItem[]> {
+	const query = activityQueryScope(scope, {
+		actorIdColumn: "c.author_bot_id",
+		botIdColumn: "c.author_bot_id",
+		worldIdColumn: "c.world_id",
+	});
 	const result = await db
 		.prepare(
 			`SELECT
@@ -3624,17 +3703,18 @@ async function botCommentActivities(
 				c.body_preview AS bodyPreview,
 				c.body_preview_lang AS bodyPreviewLang,
 				c.vote_score AS voteScore,
-				c.created_at AS createdAt
+				c.created_at AS createdAt${query.actorColumns}
 			 FROM comments_index c
 			 JOIN threads_index t ON t.thread_id = c.thread_id
+			 ${query.actorJoin}
 			 LEFT JOIN comments_index p ON p.comment_id = c.parent_comment_id AND p.deleted_at IS NULL
 			 LEFT JOIN bots_index pb ON pb.bot_id = p.author_bot_id
-			 WHERE c.author_bot_id = ? AND c.is_root = 0 AND c.deleted_at IS NULL AND t.deleted_at IS NULL
+			 WHERE ${query.predicate} AND c.is_root = 0 AND c.deleted_at IS NULL AND t.deleted_at IS NULL
 			 ORDER BY c.created_at DESC
 			 LIMIT ?`,
 		)
-		.bind(botId, limit)
-		.all<{
+		.bind(scope.id, limit)
+		.all<Partial<WorldActivityActorRow> & {
 			commentId: string;
 			threadId: string;
 			parentCommentId: string | null;
@@ -3662,7 +3742,7 @@ async function botCommentActivities(
 			row.parentBodyPreview,
 			row.parentBodyPreviewLang,
 		);
-		return {
+		return activityFromScopeRow(scope, row, {
 			type: "comment" as const,
 			id: `comment:${row.commentId}`,
 			threadId: row.threadId,
@@ -3675,179 +3755,20 @@ async function botCommentActivities(
 			bodyPreview: localizedTextFromIndex(row.bodyPreview, row.bodyPreviewLang),
 			voteScore: row.voteScore,
 			createdAt: row.createdAt,
-		};
+		});
 	});
 }
 
-async function botThreadVoteActivities(
+async function voteEventActivities(
 	db: D1DatabaseLike,
-	botId: string,
+	scope: ActivityScope,
 	limit: number,
 ): Promise<BotActivityItem[]> {
-	const result = await db
-		.prepare(
-			`SELECT
-				v.target_id AS targetId,
-				v.value AS value,
-				v.updated_at AS updatedAt,
-				t.thread_id AS threadId,
-				t.root_comment_id AS rootCommentId,
-				t.world_handle AS worldHandle,
-				t.forum_handle AS forumHandle,
-				t.title AS title,
-				t.title_lang AS titleLang,
-				rc.comment_id AS targetCommentId,
-				rc.author_handle AS targetAuthorHandle,
-				COALESCE(rb.display_name, rc.author_handle) AS targetAuthorDisplayName,
-				rb.display_name_lang AS targetAuthorDisplayNameLang,
-				rc.body_preview AS targetBodyPreview,
-				rc.body_preview_lang AS targetBodyPreviewLang
-			 FROM votes v
-			 JOIN threads_index t ON t.thread_id = v.target_id
-			 LEFT JOIN comments_index rc ON rc.comment_id = t.root_comment_id AND rc.deleted_at IS NULL
-			 LEFT JOIN bots_index rb ON rb.bot_id = rc.author_bot_id
-			 WHERE v.bot_id = ? AND v.target_type = 'thread' AND t.deleted_at IS NULL
-			   AND NOT EXISTS (
-				SELECT 1
-				FROM bot_activity_events e
-				WHERE e.bot_id = v.bot_id
-				  AND e.activity_type = 'vote'
-				  AND e.target_type = 'comment'
-				  AND e.target_id = t.root_comment_id
-			   )
-			 ORDER BY v.updated_at DESC
-			 LIMIT ?`,
-		)
-		.bind(botId, limit)
-		.all<{
-			targetId: string;
-			value: number;
-			updatedAt: string;
-			threadId: string;
-			rootCommentId: string;
-			worldHandle: string;
-			forumHandle: string;
-			title: string;
-			titleLang: string | null;
-			targetCommentId: string | null;
-			targetAuthorHandle: string | null;
-			targetAuthorDisplayName: string | null;
-			targetAuthorDisplayNameLang: string | null;
-			targetBodyPreview: string | null;
-			targetBodyPreviewLang: string | null;
-		}>();
-	return (result.results ?? []).map((row) => {
-		const targetComment = activityCommentContext(
-			row.targetCommentId ?? row.rootCommentId,
-			row.targetAuthorHandle,
-			row.targetAuthorDisplayName,
-			row.targetAuthorDisplayNameLang,
-			row.targetBodyPreview,
-			row.targetBodyPreviewLang,
-		);
-		return {
-			type: "vote" as const,
-			id: `vote:comment:${row.rootCommentId}`,
-			targetType: "comment" as const,
-			commentId: row.rootCommentId,
-			targetId: row.rootCommentId,
-			value: row.value,
-			threadId: row.threadId,
-			worldHandle: row.worldHandle,
-			forumHandle: row.forumHandle,
-			title: localizedTextFromIndex(row.title, row.titleLang),
-			...(targetComment ? { targetComment } : {}),
-			updatedAt: row.updatedAt,
-		};
+	const query = activityQueryScope(scope, {
+		actorIdColumn: "e.bot_id",
+		botIdColumn: "e.bot_id",
+		worldIdColumn: "e.world_id",
 	});
-}
-
-async function botCommentVoteActivities(
-	db: D1DatabaseLike,
-	botId: string,
-	limit: number,
-): Promise<BotActivityItem[]> {
-	const result = await db
-		.prepare(
-			`SELECT
-				v.target_id AS targetId,
-				v.value AS value,
-				v.updated_at AS updatedAt,
-				c.comment_id AS commentId,
-				c.thread_id AS threadId,
-				c.author_handle AS targetAuthorHandle,
-				COALESCE(tb.display_name, c.author_handle) AS targetAuthorDisplayName,
-				tb.display_name_lang AS targetAuthorDisplayNameLang,
-				c.body_preview AS targetBodyPreview,
-				c.body_preview_lang AS targetBodyPreviewLang,
-				t.world_handle AS worldHandle,
-				t.forum_handle AS forumHandle,
-				t.title AS title,
-				t.title_lang AS titleLang
-			 FROM votes v
-			 JOIN comments_index c ON c.comment_id = v.target_id
-			 JOIN threads_index t ON t.thread_id = c.thread_id
-			 LEFT JOIN bots_index tb ON tb.bot_id = c.author_bot_id
-			 WHERE v.bot_id = ? AND v.target_type = 'comment' AND c.deleted_at IS NULL AND t.deleted_at IS NULL
-			   AND NOT EXISTS (
-				SELECT 1
-				FROM bot_activity_events e
-				WHERE e.bot_id = v.bot_id
-				  AND e.activity_type = 'vote'
-				  AND e.target_type = 'comment'
-				  AND e.target_id = v.target_id
-			   )
-			 ORDER BY v.updated_at DESC
-			 LIMIT ?`,
-		)
-		.bind(botId, limit)
-		.all<{
-			targetId: string;
-			value: number;
-			updatedAt: string;
-			commentId: string;
-			threadId: string;
-			targetAuthorHandle: string | null;
-			targetAuthorDisplayName: string | null;
-			targetAuthorDisplayNameLang: string | null;
-			targetBodyPreview: string | null;
-			targetBodyPreviewLang: string | null;
-			worldHandle: string;
-			forumHandle: string;
-			title: string;
-			titleLang: string | null;
-		}>();
-	return (result.results ?? []).map((row) => {
-		const targetComment = activityCommentContext(
-			row.commentId,
-			row.targetAuthorHandle,
-			row.targetAuthorDisplayName,
-			row.targetAuthorDisplayNameLang,
-			row.targetBodyPreview,
-			row.targetBodyPreviewLang,
-		);
-		return {
-			type: "vote" as const,
-			id: `vote:comment:${row.targetId}`,
-			targetType: "comment" as const,
-			targetId: row.targetId,
-			commentId: row.commentId,
-			value: row.value,
-			threadId: row.threadId,
-			worldHandle: row.worldHandle,
-			forumHandle: row.forumHandle,
-			title: localizedTextFromIndex(row.title, row.titleLang),
-			...(targetComment ? { targetComment } : {}),
-			updatedAt: row.updatedAt,
-		};
-	});
-}
-
-async function botVoteEventActivities(
-	db: D1DatabaseLike,
-	botId: string,
-	limit: number,
-): Promise<BotActivityItem[]> {
 	const result = await db
 		.prepare(
 			`SELECT
@@ -3866,12 +3787,13 @@ async function botVoteEventActivities(
 				t.world_handle AS worldHandle,
 				t.forum_handle AS forumHandle,
 				t.title AS title,
-				t.title_lang AS titleLang
+				t.title_lang AS titleLang${query.actorColumns}
 			 FROM bot_activity_events e
+			 ${query.actorJoin}
 			 JOIN comments_index c ON c.comment_id = e.target_id
 			 JOIN threads_index t ON t.thread_id = c.thread_id
 			 LEFT JOIN bots_index tb ON tb.bot_id = c.author_bot_id
-			 WHERE e.bot_id = ?
+			 WHERE ${query.predicate}
 			   AND e.activity_type = 'vote'
 			   AND e.target_type = 'comment'
 			   AND e.value != 0
@@ -3880,8 +3802,8 @@ async function botVoteEventActivities(
 			 ORDER BY e.created_at DESC
 			 LIMIT ?`,
 		)
-		.bind(botId, limit)
-		.all<{
+		.bind(scope.id, limit)
+		.all<Partial<WorldActivityActorRow> & {
 			targetId: string;
 			value: number;
 			reason: string | null;
@@ -3909,9 +3831,11 @@ async function botVoteEventActivities(
 			row.targetBodyPreview,
 			row.targetBodyPreviewLang,
 		);
-		return {
+		return activityFromScopeRow(scope, row, {
 			type: "vote" as const,
-			id: voteActivityId(row.targetId),
+			id: scope.scope === "world"
+				? voteActivityStorageId(worldActivityActorRow(row).actorId, row.targetId)
+				: voteActivityId(row.targetId),
 			targetType: "comment" as const,
 			targetId: row.targetId,
 			commentId: row.commentId,
@@ -3923,15 +3847,20 @@ async function botVoteEventActivities(
 			...(reason ? { reason } : {}),
 			...(targetComment ? { targetComment } : {}),
 			updatedAt: row.createdAt,
-		};
+		});
 	});
 }
 
-async function botFollowActivities(
+async function followActivities(
 	db: D1DatabaseLike,
-	botId: string,
+	scope: ActivityScope,
 	limit: number,
 ): Promise<BotActivityItem[]> {
+	const query = activityQueryScope(scope, {
+		actorIdColumn: "f.follower_bot_id",
+		botIdColumn: "f.follower_bot_id",
+		worldIdColumn: "f.world_id",
+	});
 	const result = await db
 		.prepare(
 			`SELECT
@@ -3948,23 +3877,22 @@ async function botFollowActivities(
 				b.avatar_url AS avatarUrl,
 				b.avatar_crop AS avatarCrop,
 				b.created_at AS botCreatedAt,
-				b.updated_at AS botUpdatedAt
+				b.updated_at AS botUpdatedAt${query.actorColumns}
 			 FROM follows f
+			 ${query.actorJoin}
 			 JOIN bots_index b ON b.bot_id = f.followed_bot_id
-			 WHERE f.follower_bot_id = ? AND b.deleted_at IS NULL
-			   AND NOT EXISTS (
-				SELECT 1
-				FROM bot_activity_events e
-				WHERE e.bot_id = f.follower_bot_id
-				  AND e.activity_type = 'follow'
-				  AND e.target_type = 'bot'
-				  AND e.target_id = f.followed_bot_id
-			   )
+			 LEFT JOIN bot_activity_events existing_event
+				ON existing_event.bot_id = f.follower_bot_id
+				AND existing_event.activity_type = 'follow'
+				AND existing_event.target_type = 'bot'
+				AND existing_event.target_id = f.followed_bot_id
+			 WHERE ${query.predicate} AND b.deleted_at IS NULL
+			   AND existing_event.activity_id IS NULL
 			 ORDER BY f.created_at DESC
 			 LIMIT ?`,
 		)
-		.bind(botId, limit)
-		.all<{
+		.bind(scope.id, limit)
+		.all<Partial<WorldActivityActorRow> & {
 			followedBotId: string;
 			createdAt: string;
 			homeWorldId: string;
@@ -3980,9 +3908,11 @@ async function botFollowActivities(
 			botCreatedAt: string;
 			botUpdatedAt: string;
 		}>();
-	return (result.results ?? []).map((row) => ({
+	return (result.results ?? []).map((row) => activityFromScopeRow(scope, row, {
 		type: "follow" as const,
-		id: `follow:${row.followedBotId}`,
+		id: scope.scope === "world"
+			? `follow:${worldActivityActorRow(row).actorId}:${row.followedBotId}`
+			: `follow:${row.followedBotId}`,
 		bot: {
 			id: row.followedBotId,
 			homeWorldId: row.homeWorldId,
@@ -3999,11 +3929,16 @@ async function botFollowActivities(
 	}));
 }
 
-async function botFollowEventActivities(
+async function followEventActivities(
 	db: D1DatabaseLike,
-	botId: string,
+	scope: ActivityScope,
 	limit: number,
 ): Promise<BotActivityItem[]> {
+	const query = activityQueryScope(scope, {
+		actorIdColumn: "e.bot_id",
+		botIdColumn: "e.bot_id",
+		worldIdColumn: "e.world_id",
+	});
 	const result = await db
 		.prepare(
 			`SELECT
@@ -4024,18 +3959,19 @@ async function botFollowEventActivities(
 				b.avatar_url AS avatarUrl,
 				b.avatar_crop AS avatarCrop,
 				b.created_at AS botCreatedAt,
-				b.updated_at AS botUpdatedAt
+				b.updated_at AS botUpdatedAt${query.actorColumns}
 			 FROM bot_activity_events e
+			 ${query.actorJoin}
 			 JOIN bots_index b ON b.bot_id = e.target_id
-			 WHERE e.bot_id = ?
+			 WHERE ${query.predicate}
 			   AND e.activity_type IN ('follow', 'unfollow')
 			   AND e.target_type = 'bot'
 			   AND b.deleted_at IS NULL
 			 ORDER BY e.created_at DESC
 			 LIMIT ?`,
 		)
-		.bind(botId, limit)
-		.all<{
+		.bind(scope.id, limit)
+		.all<Partial<WorldActivityActorRow> & {
 			activityId: string;
 			activityType: "follow" | "unfollow";
 			reason: string | null;
@@ -4057,527 +3993,7 @@ async function botFollowEventActivities(
 	}>();
 	return (result.results ?? []).map((row) => {
 		const reason = optionalLocalizedTextFromIndex(row.reason, row.reasonLang);
-		return {
-			type: row.activityType,
-			id: row.activityId,
-			bot: {
-				id: row.targetBotId,
-				homeWorldId: row.homeWorldId,
-				homeWorldHandle: row.homeWorldHandle,
-				handle: row.handle,
-				language: row.language as BotPublicProfile["language"],
-				displayName: localizedTextFromIndex(row.displayName, row.displayNameLang),
-				shortBio: localizedTextFromIndex(row.shortBio, row.shortBioLang),
-				...botAvatarFields(row.avatarUrl, row.avatarCrop),
-				createdAt: row.botCreatedAt,
-				updatedAt: row.botUpdatedAt,
-			},
-			...(reason ? { reason } : {}),
-			createdAt: row.createdAt,
-		};
-	});
-}
-
-async function worldThreadActivities(
-	db: D1DatabaseLike,
-	worldId: string,
-	limit: number,
-): Promise<WorldActivityItem[]> {
-	const result = await db
-		.prepare(
-			`SELECT
-				t.thread_id AS threadId,
-				t.root_comment_id AS rootCommentId,
-				t.world_handle AS worldHandle,
-				t.forum_handle AS forumHandle,
-				t.title,
-				t.title_lang AS titleLang,
-				t.body_preview AS bodyPreview,
-				t.body_preview_lang AS bodyPreviewLang,
-				t.vote_score AS voteScore,
-				t.comment_count AS commentCount,
-				t.created_at AS createdAt,
-				a.bot_id AS actorId,
-				a.home_world_id AS actorHomeWorldId,
-				a.home_world_handle AS actorHomeWorldHandle,
-				a.handle AS actorHandle,
-				a.language AS actorLanguage,
-				a.display_name AS actorDisplayName,
-				a.display_name_lang AS actorDisplayNameLang,
-				a.short_bio AS actorShortBio,
-				a.short_bio_lang AS actorShortBioLang,
-				a.avatar_url AS actorAvatarUrl,
-				a.avatar_crop AS actorAvatarCrop,
-				a.created_at AS actorCreatedAt,
-				a.updated_at AS actorUpdatedAt
-			 FROM threads_index t
-			 JOIN bots_index a ON a.bot_id = t.author_bot_id
-			 WHERE t.world_id = ? AND t.deleted_at IS NULL AND a.deleted_at IS NULL
-			 ORDER BY t.created_at DESC
-			 LIMIT ?`,
-		)
-		.bind(worldId, limit)
-		.all<WorldThreadActivityRow>();
-	return (result.results ?? []).map((row) => worldActivityFromRow(row, {
-		type: "thread" as const,
-		id: `thread:${row.threadId}`,
-		threadId: row.threadId,
-		rootCommentId: row.rootCommentId,
-		worldHandle: row.worldHandle,
-		forumHandle: row.forumHandle,
-		title: localizedTextFromIndex(row.title, row.titleLang),
-		bodyPreview: localizedTextFromIndex(row.bodyPreview, row.bodyPreviewLang),
-		voteScore: row.voteScore,
-		commentCount: row.commentCount,
-		createdAt: row.createdAt,
-	}));
-}
-
-async function worldCommentActivities(
-	db: D1DatabaseLike,
-	worldId: string,
-	limit: number,
-): Promise<WorldActivityItem[]> {
-	const result = await db
-		.prepare(
-			`SELECT
-				c.comment_id AS commentId,
-				c.thread_id AS threadId,
-				c.parent_comment_id AS parentCommentId,
-				p.comment_id AS parentResolvedCommentId,
-				p.author_handle AS parentAuthorHandle,
-				COALESCE(pb.display_name, p.author_handle) AS parentAuthorDisplayName,
-				pb.display_name_lang AS parentAuthorDisplayNameLang,
-				p.body_preview AS parentBodyPreview,
-				p.body_preview_lang AS parentBodyPreviewLang,
-				t.world_handle AS worldHandle,
-				t.forum_handle AS forumHandle,
-				t.title AS threadTitle,
-				t.title_lang AS threadTitleLang,
-				c.body_preview AS bodyPreview,
-				c.body_preview_lang AS bodyPreviewLang,
-				c.vote_score AS voteScore,
-				c.created_at AS createdAt,
-				a.bot_id AS actorId,
-				a.home_world_id AS actorHomeWorldId,
-				a.home_world_handle AS actorHomeWorldHandle,
-				a.handle AS actorHandle,
-				a.language AS actorLanguage,
-				a.display_name AS actorDisplayName,
-				a.display_name_lang AS actorDisplayNameLang,
-				a.short_bio AS actorShortBio,
-				a.short_bio_lang AS actorShortBioLang,
-				a.avatar_url AS actorAvatarUrl,
-				a.avatar_crop AS actorAvatarCrop,
-				a.created_at AS actorCreatedAt,
-				a.updated_at AS actorUpdatedAt
-			 FROM comments_index c
-			 JOIN threads_index t ON t.thread_id = c.thread_id
-			 JOIN bots_index a ON a.bot_id = c.author_bot_id
-			 LEFT JOIN comments_index p ON p.comment_id = c.parent_comment_id AND p.deleted_at IS NULL
-			 LEFT JOIN bots_index pb ON pb.bot_id = p.author_bot_id
-			 WHERE c.world_id = ? AND c.is_root = 0 AND c.deleted_at IS NULL AND t.deleted_at IS NULL AND a.deleted_at IS NULL
-			 ORDER BY c.created_at DESC
-			 LIMIT ?`,
-		)
-		.bind(worldId, limit)
-		.all<WorldCommentActivityRow>();
-	return (result.results ?? []).map((row) => {
-		const parentComment = activityCommentContext(
-			row.parentResolvedCommentId ?? row.parentCommentId,
-			row.parentAuthorHandle,
-			row.parentAuthorDisplayName,
-			row.parentAuthorDisplayNameLang,
-			row.parentBodyPreview,
-			row.parentBodyPreviewLang,
-		);
-		return worldActivityFromRow(row, {
-			type: "comment" as const,
-			id: `comment:${row.commentId}`,
-			threadId: row.threadId,
-			commentId: row.commentId,
-			...(row.parentCommentId ? { parentCommentId: row.parentCommentId } : {}),
-			...(parentComment ? { parentComment } : {}),
-			worldHandle: row.worldHandle,
-			forumHandle: row.forumHandle,
-			threadTitle: localizedTextFromIndex(row.threadTitle, row.threadTitleLang),
-			bodyPreview: localizedTextFromIndex(row.bodyPreview, row.bodyPreviewLang),
-			voteScore: row.voteScore,
-			createdAt: row.createdAt,
-		});
-	});
-}
-
-async function worldThreadVoteActivities(
-	db: D1DatabaseLike,
-	worldId: string,
-	limit: number,
-): Promise<WorldActivityItem[]> {
-	const result = await db
-		.prepare(
-			`SELECT
-				v.value AS value,
-				v.updated_at AS updatedAt,
-				t.thread_id AS threadId,
-				t.root_comment_id AS rootCommentId,
-				t.world_handle AS worldHandle,
-				t.forum_handle AS forumHandle,
-				t.title AS title,
-				t.title_lang AS titleLang,
-				rc.comment_id AS targetCommentId,
-				rc.author_handle AS targetAuthorHandle,
-				COALESCE(rb.display_name, rc.author_handle) AS targetAuthorDisplayName,
-				rb.display_name_lang AS targetAuthorDisplayNameLang,
-				rc.body_preview AS targetBodyPreview,
-				rc.body_preview_lang AS targetBodyPreviewLang,
-				a.bot_id AS actorId,
-				a.home_world_id AS actorHomeWorldId,
-				a.home_world_handle AS actorHomeWorldHandle,
-				a.handle AS actorHandle,
-				a.language AS actorLanguage,
-				a.display_name AS actorDisplayName,
-				a.display_name_lang AS actorDisplayNameLang,
-				a.short_bio AS actorShortBio,
-				a.short_bio_lang AS actorShortBioLang,
-				a.avatar_url AS actorAvatarUrl,
-				a.avatar_crop AS actorAvatarCrop,
-				a.created_at AS actorCreatedAt,
-				a.updated_at AS actorUpdatedAt
-			 FROM votes v
-			 JOIN threads_index t ON t.thread_id = v.target_id
-			 JOIN bots_index a ON a.bot_id = v.bot_id
-			 LEFT JOIN comments_index rc ON rc.comment_id = t.root_comment_id AND rc.deleted_at IS NULL
-			 LEFT JOIN bots_index rb ON rb.bot_id = rc.author_bot_id
-			 WHERE v.world_id = ? AND v.target_type = 'thread'
-			   AND t.deleted_at IS NULL AND a.deleted_at IS NULL
-			   AND NOT EXISTS (
-				SELECT 1
-				FROM bot_activity_events e
-				WHERE e.bot_id = v.bot_id
-				  AND e.activity_type = 'vote'
-				  AND e.target_type = 'comment'
-				  AND e.target_id = t.root_comment_id
-			   )
-			 ORDER BY v.updated_at DESC
-			 LIMIT ?`,
-		)
-		.bind(worldId, limit)
-		.all<WorldThreadVoteActivityRow>();
-	return (result.results ?? []).map((row) => {
-		const targetComment = activityCommentContext(
-			row.targetCommentId ?? row.rootCommentId,
-			row.targetAuthorHandle,
-			row.targetAuthorDisplayName,
-			row.targetAuthorDisplayNameLang,
-			row.targetBodyPreview,
-			row.targetBodyPreviewLang,
-		);
-		return worldActivityFromRow(row, {
-			type: "vote" as const,
-			id: `vote:${row.actorId}:comment:${row.rootCommentId}`,
-			targetType: "comment" as const,
-			targetId: row.rootCommentId,
-			commentId: row.rootCommentId,
-			value: row.value,
-			threadId: row.threadId,
-			worldHandle: row.worldHandle,
-			forumHandle: row.forumHandle,
-			title: localizedTextFromIndex(row.title, row.titleLang),
-			...(targetComment ? { targetComment } : {}),
-			updatedAt: row.updatedAt,
-		});
-	});
-}
-
-async function worldCommentVoteActivities(
-	db: D1DatabaseLike,
-	worldId: string,
-	limit: number,
-): Promise<WorldActivityItem[]> {
-	const result = await db
-		.prepare(
-			`SELECT
-				v.target_id AS targetId,
-				v.value AS value,
-				v.updated_at AS updatedAt,
-				c.comment_id AS commentId,
-				c.thread_id AS threadId,
-				c.author_handle AS targetAuthorHandle,
-				COALESCE(tb.display_name, c.author_handle) AS targetAuthorDisplayName,
-				tb.display_name_lang AS targetAuthorDisplayNameLang,
-				c.body_preview AS targetBodyPreview,
-				c.body_preview_lang AS targetBodyPreviewLang,
-				t.world_handle AS worldHandle,
-				t.forum_handle AS forumHandle,
-				t.title AS title,
-				t.title_lang AS titleLang,
-				a.bot_id AS actorId,
-				a.home_world_id AS actorHomeWorldId,
-				a.home_world_handle AS actorHomeWorldHandle,
-				a.handle AS actorHandle,
-				a.language AS actorLanguage,
-				a.display_name AS actorDisplayName,
-				a.display_name_lang AS actorDisplayNameLang,
-				a.short_bio AS actorShortBio,
-				a.short_bio_lang AS actorShortBioLang,
-				a.avatar_url AS actorAvatarUrl,
-				a.avatar_crop AS actorAvatarCrop,
-				a.created_at AS actorCreatedAt,
-				a.updated_at AS actorUpdatedAt
-			 FROM votes v
-			 JOIN comments_index c ON c.comment_id = v.target_id
-			 JOIN threads_index t ON t.thread_id = c.thread_id
-			 JOIN bots_index a ON a.bot_id = v.bot_id
-			 LEFT JOIN bots_index tb ON tb.bot_id = c.author_bot_id
-			 WHERE v.world_id = ? AND v.target_type = 'comment'
-			   AND c.deleted_at IS NULL AND t.deleted_at IS NULL AND a.deleted_at IS NULL
-			   AND NOT EXISTS (
-				SELECT 1
-				FROM bot_activity_events e
-				WHERE e.bot_id = v.bot_id
-				  AND e.activity_type = 'vote'
-				  AND e.target_type = 'comment'
-				  AND e.target_id = v.target_id
-			   )
-			 ORDER BY v.updated_at DESC
-			 LIMIT ?`,
-		)
-		.bind(worldId, limit)
-		.all<WorldCommentVoteActivityRow>();
-	return (result.results ?? []).map((row) => {
-		const targetComment = activityCommentContext(
-			row.commentId,
-			row.targetAuthorHandle,
-			row.targetAuthorDisplayName,
-			row.targetAuthorDisplayNameLang,
-			row.targetBodyPreview,
-			row.targetBodyPreviewLang,
-		);
-		return worldActivityFromRow(row, {
-			type: "vote" as const,
-			id: `vote:${row.actorId}:comment:${row.targetId}`,
-			targetType: "comment" as const,
-			targetId: row.targetId,
-			commentId: row.commentId,
-			value: row.value,
-			threadId: row.threadId,
-			worldHandle: row.worldHandle,
-			forumHandle: row.forumHandle,
-			title: localizedTextFromIndex(row.title, row.titleLang),
-			...(targetComment ? { targetComment } : {}),
-			updatedAt: row.updatedAt,
-		});
-	});
-}
-
-async function worldVoteEventActivities(
-	db: D1DatabaseLike,
-	worldId: string,
-	limit: number,
-): Promise<WorldActivityItem[]> {
-	const result = await db
-		.prepare(
-			`SELECT
-				e.target_id AS targetId,
-				e.value AS value,
-				e.reason,
-				e.reason_lang AS reasonLang,
-				e.created_at AS createdAt,
-				c.comment_id AS commentId,
-				c.thread_id AS threadId,
-				c.author_handle AS targetAuthorHandle,
-				COALESCE(tb.display_name, c.author_handle) AS targetAuthorDisplayName,
-				tb.display_name_lang AS targetAuthorDisplayNameLang,
-				c.body_preview AS targetBodyPreview,
-				c.body_preview_lang AS targetBodyPreviewLang,
-				t.world_handle AS worldHandle,
-				t.forum_handle AS forumHandle,
-				t.title AS title,
-				t.title_lang AS titleLang,
-				a.bot_id AS actorId,
-				a.home_world_id AS actorHomeWorldId,
-				a.home_world_handle AS actorHomeWorldHandle,
-				a.handle AS actorHandle,
-				a.language AS actorLanguage,
-				a.display_name AS actorDisplayName,
-				a.display_name_lang AS actorDisplayNameLang,
-				a.short_bio AS actorShortBio,
-				a.short_bio_lang AS actorShortBioLang,
-				a.avatar_url AS actorAvatarUrl,
-				a.avatar_crop AS actorAvatarCrop,
-				a.created_at AS actorCreatedAt,
-				a.updated_at AS actorUpdatedAt
-			 FROM bot_activity_events e
-			 JOIN bots_index a ON a.bot_id = e.bot_id
-			 JOIN comments_index c ON c.comment_id = e.target_id
-			 JOIN threads_index t ON t.thread_id = c.thread_id
-			 LEFT JOIN bots_index tb ON tb.bot_id = c.author_bot_id
-			 WHERE e.world_id = ?
-			   AND e.activity_type = 'vote'
-			   AND e.target_type = 'comment'
-			   AND e.value != 0
-			   AND a.deleted_at IS NULL
-			   AND c.deleted_at IS NULL
-			   AND t.deleted_at IS NULL
-			 ORDER BY e.created_at DESC
-			 LIMIT ?`,
-		)
-		.bind(worldId, limit)
-		.all<WorldVoteEventActivityRow>();
-	return (result.results ?? []).map((row) => {
-		const reason = optionalLocalizedTextFromIndex(row.reason, row.reasonLang);
-		const targetComment = activityCommentContext(
-			row.commentId,
-			row.targetAuthorHandle,
-			row.targetAuthorDisplayName,
-			row.targetAuthorDisplayNameLang,
-			row.targetBodyPreview,
-			row.targetBodyPreviewLang,
-		);
-		return worldActivityFromRow(row, {
-			type: "vote" as const,
-			id: `vote:${row.actorId}:comment:${row.targetId}`,
-			targetType: "comment" as const,
-			targetId: row.targetId,
-			commentId: row.commentId,
-			value: row.value,
-			threadId: row.threadId,
-			worldHandle: row.worldHandle,
-			forumHandle: row.forumHandle,
-			title: localizedTextFromIndex(row.title, row.titleLang),
-			...(reason ? { reason } : {}),
-			...(targetComment ? { targetComment } : {}),
-			updatedAt: row.createdAt,
-		});
-	});
-}
-
-async function worldFollowActivities(
-	db: D1DatabaseLike,
-	worldId: string,
-	limit: number,
-): Promise<WorldActivityItem[]> {
-	const result = await db
-		.prepare(
-			`SELECT
-				f.followed_bot_id AS followedBotId,
-				f.created_at AS createdAt,
-				a.bot_id AS actorId,
-				a.home_world_id AS actorHomeWorldId,
-				a.home_world_handle AS actorHomeWorldHandle,
-				a.handle AS actorHandle,
-				a.language AS actorLanguage,
-				a.display_name AS actorDisplayName,
-				a.display_name_lang AS actorDisplayNameLang,
-				a.short_bio AS actorShortBio,
-				a.short_bio_lang AS actorShortBioLang,
-				a.avatar_url AS actorAvatarUrl,
-				a.avatar_crop AS actorAvatarCrop,
-				a.created_at AS actorCreatedAt,
-				a.updated_at AS actorUpdatedAt,
-				b.home_world_id AS homeWorldId,
-				b.home_world_handle AS homeWorldHandle,
-				b.handle,
-				b.language,
-				b.display_name AS displayName,
-				b.display_name_lang AS displayNameLang,
-				b.short_bio AS shortBio,
-				b.short_bio_lang AS shortBioLang,
-				b.avatar_url AS avatarUrl,
-				b.avatar_crop AS avatarCrop,
-				b.created_at AS botCreatedAt,
-				b.updated_at AS botUpdatedAt
-			 FROM follows f
-			 JOIN bots_index a ON a.bot_id = f.follower_bot_id
-			 JOIN bots_index b ON b.bot_id = f.followed_bot_id
-			 WHERE f.world_id = ? AND a.deleted_at IS NULL AND b.deleted_at IS NULL
-			   AND NOT EXISTS (
-				SELECT 1
-				FROM bot_activity_events e
-				WHERE e.bot_id = f.follower_bot_id
-				  AND e.activity_type = 'follow'
-				  AND e.target_type = 'bot'
-				  AND e.target_id = f.followed_bot_id
-			   )
-			 ORDER BY f.created_at DESC
-			 LIMIT ?`,
-		)
-		.bind(worldId, limit)
-		.all<WorldFollowActivityRow>();
-	return (result.results ?? []).map((row) => worldActivityFromRow(row, {
-		type: "follow" as const,
-		id: `follow:${row.actorId}:${row.followedBotId}`,
-		bot: {
-			id: row.followedBotId,
-			homeWorldId: row.homeWorldId,
-			homeWorldHandle: row.homeWorldHandle,
-			handle: row.handle,
-			language: row.language as BotPublicProfile["language"],
-			displayName: localizedTextFromIndex(row.displayName, row.displayNameLang),
-			shortBio: localizedTextFromIndex(row.shortBio, row.shortBioLang),
-			...botAvatarFields(row.avatarUrl, row.avatarCrop),
-			createdAt: row.botCreatedAt,
-			updatedAt: row.botUpdatedAt,
-		},
-		createdAt: row.createdAt,
-	}));
-}
-
-async function worldFollowEventActivities(
-	db: D1DatabaseLike,
-	worldId: string,
-	limit: number,
-): Promise<WorldActivityItem[]> {
-	const result = await db
-		.prepare(
-			`SELECT
-				e.activity_id AS activityId,
-				e.activity_type AS activityType,
-				e.reason,
-				e.reason_lang AS reasonLang,
-				e.created_at AS createdAt,
-				a.bot_id AS actorId,
-				a.home_world_id AS actorHomeWorldId,
-				a.home_world_handle AS actorHomeWorldHandle,
-				a.handle AS actorHandle,
-				a.language AS actorLanguage,
-				a.display_name AS actorDisplayName,
-				a.display_name_lang AS actorDisplayNameLang,
-				a.short_bio AS actorShortBio,
-				a.short_bio_lang AS actorShortBioLang,
-				a.avatar_url AS actorAvatarUrl,
-				a.avatar_crop AS actorAvatarCrop,
-				a.created_at AS actorCreatedAt,
-				a.updated_at AS actorUpdatedAt,
-				b.bot_id AS targetBotId,
-				b.home_world_id AS homeWorldId,
-				b.home_world_handle AS homeWorldHandle,
-				b.handle,
-				b.language,
-				b.display_name AS displayName,
-				b.display_name_lang AS displayNameLang,
-				b.short_bio AS shortBio,
-				b.short_bio_lang AS shortBioLang,
-				b.avatar_url AS avatarUrl,
-				b.avatar_crop AS avatarCrop,
-				b.created_at AS botCreatedAt,
-				b.updated_at AS botUpdatedAt
-			 FROM bot_activity_events e
-			 JOIN bots_index a ON a.bot_id = e.bot_id
-			 JOIN bots_index b ON b.bot_id = e.target_id
-			 WHERE e.world_id = ?
-			   AND e.activity_type IN ('follow', 'unfollow')
-			   AND e.target_type = 'bot'
-			   AND a.deleted_at IS NULL
-			   AND b.deleted_at IS NULL
-			 ORDER BY e.created_at DESC
-			 LIMIT ?`,
-		)
-		.bind(worldId, limit)
-		.all<WorldFollowEventActivityRow>();
-	return (result.results ?? []).map((row) => {
-		const reason = optionalLocalizedTextFromIndex(row.reason, row.reasonLang);
-		return worldActivityFromRow(row, {
+		return activityFromScopeRow(scope, row, {
 			type: row.activityType,
 			id: row.activityId,
 			bot: {
@@ -4659,131 +4075,6 @@ type WorldActivityActorRow = {
 	actorAvatarCrop: string | null;
 	actorCreatedAt: string;
 	actorUpdatedAt: string;
-};
-
-type WorldThreadActivityRow = WorldActivityActorRow & {
-	threadId: string;
-	rootCommentId: string;
-	worldHandle: string;
-	forumHandle: string;
-	title: string;
-	titleLang: string | null;
-	bodyPreview: string;
-	bodyPreviewLang: string | null;
-	voteScore: number;
-	commentCount: number;
-	createdAt: string;
-};
-
-type WorldCommentActivityRow = WorldActivityActorRow & {
-	commentId: string;
-	threadId: string;
-	parentCommentId: string | null;
-	parentResolvedCommentId: string | null;
-	parentAuthorHandle: string | null;
-	parentAuthorDisplayName: string | null;
-	parentAuthorDisplayNameLang: string | null;
-	parentBodyPreview: string | null;
-	parentBodyPreviewLang: string | null;
-	worldHandle: string;
-	forumHandle: string;
-	threadTitle: string;
-	threadTitleLang: string | null;
-	bodyPreview: string;
-	bodyPreviewLang: string | null;
-	voteScore: number;
-	createdAt: string;
-};
-
-type WorldThreadVoteActivityRow = WorldActivityActorRow & {
-	value: number;
-	updatedAt: string;
-	threadId: string;
-	rootCommentId: string;
-	worldHandle: string;
-	forumHandle: string;
-	title: string;
-	titleLang: string | null;
-	targetCommentId: string | null;
-	targetAuthorHandle: string | null;
-	targetAuthorDisplayName: string | null;
-	targetAuthorDisplayNameLang: string | null;
-	targetBodyPreview: string | null;
-	targetBodyPreviewLang: string | null;
-};
-
-type WorldCommentVoteActivityRow = WorldActivityActorRow & {
-	targetId: string;
-	value: number;
-	updatedAt: string;
-	commentId: string;
-	threadId: string;
-	targetAuthorHandle: string | null;
-	targetAuthorDisplayName: string | null;
-	targetAuthorDisplayNameLang: string | null;
-	targetBodyPreview: string | null;
-	targetBodyPreviewLang: string | null;
-	worldHandle: string;
-	forumHandle: string;
-	title: string;
-	titleLang: string | null;
-};
-
-type WorldVoteEventActivityRow = WorldActivityActorRow & {
-	targetId: string;
-	value: number;
-	reason: string | null;
-	reasonLang: string | null;
-	createdAt: string;
-	commentId: string;
-	threadId: string;
-	targetAuthorHandle: string | null;
-	targetAuthorDisplayName: string | null;
-	targetAuthorDisplayNameLang: string | null;
-	targetBodyPreview: string | null;
-	targetBodyPreviewLang: string | null;
-	worldHandle: string;
-	forumHandle: string;
-	title: string;
-	titleLang: string | null;
-};
-
-type WorldFollowActivityRow = WorldActivityActorRow & {
-	followedBotId: string;
-	createdAt: string;
-	homeWorldId: string;
-	homeWorldHandle: string;
-	handle: string;
-	language: string | null;
-	displayName: string;
-	displayNameLang: string | null;
-	shortBio: string;
-	shortBioLang: string | null;
-	avatarUrl: string | null;
-	avatarCrop: string | null;
-	botCreatedAt: string;
-	botUpdatedAt: string;
-};
-
-type WorldFollowEventActivityRow = WorldActivityActorRow & {
-	activityId: string;
-	activityType: "follow" | "unfollow";
-	reason: string | null;
-	reasonLang: string | null;
-	createdAt: string;
-	targetBotId: string;
-	homeWorldId: string;
-	homeWorldHandle: string;
-	handle: string;
-	language: string | null;
-	displayName: string;
-	displayNameLang: string | null;
-	shortBio: string;
-	shortBioLang: string | null;
-	avatarUrl: string | null;
-	avatarCrop: string | null;
-	botCreatedAt: string;
-	botUpdatedAt: string;
 };
 
 type BotFollowRow = {
@@ -7043,7 +6334,7 @@ function voteActivityId(commentId: string): string {
 	return `vote:comment:${commentId}`;
 }
 
-function voteActivityStorageId(botId: string, commentId: string): string {
+export function voteActivityStorageId(botId: string, commentId: string): string {
 	return `vote:${botId}:comment:${commentId}`;
 }
 
