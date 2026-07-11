@@ -32,6 +32,7 @@ import migration0030 from "../../migrations/0030_global_inference_cost_stats.sql
 import migration0031 from "../../migrations/0031_tombstone_deleted_handles.sql?raw";
 import migration0032 from "../../migrations/0032_bot_notification_retention_index.sql?raw";
 import migration0033 from "../../migrations/0033_bot_seen_content_retention_index.sql?raw";
+import migration0034 from "../../migrations/0034_backfill_vote_activity_events.sql?raw";
 
 const migrationSql = [
 	migration0001,
@@ -68,6 +69,7 @@ const migrationSql = [
 	migration0031,
 	migration0032,
 	migration0033,
+	migration0034,
 ];
 
 type D1SchemaRow = {
