@@ -2132,7 +2132,7 @@ describe("Provider requests", () => {
 					"[DONE]",
 				]));
 			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
-				appendEvent: async (_runId: string, type: string, payload: Record<string, unknown>) => {
+				appendEvent: (_runId: string, type: string, payload: Record<string, unknown>) => {
 					events.push({ type, payload });
 					return {
 						seq: events.length,
@@ -2223,7 +2223,7 @@ describe("Provider requests", () => {
 					"[DONE]",
 				]));
 			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
-				appendEvent: async (_runId: string, type: string, payload: Record<string, unknown>) => {
+				appendEvent: (_runId: string, type: string, payload: Record<string, unknown>) => {
 					events.push({ type, payload });
 					return {
 						seq: events.length,
@@ -2294,7 +2294,7 @@ describe("Provider requests", () => {
 				"[DONE]",
 			]));
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
-			appendEvent: async (_runId: string, type: string, payload: Record<string, unknown>) => {
+			appendEvent: (_runId: string, type: string, payload: Record<string, unknown>) => {
 				events.push({ type, payload });
 				return {
 					seq: events.length,
@@ -2386,7 +2386,7 @@ describe("Provider requests", () => {
 					"[DONE]",
 				]));
 			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
-				appendEvent: async (_runId: string, type: string, payload: Record<string, unknown>) => {
+				appendEvent: (_runId: string, type: string, payload: Record<string, unknown>) => {
 					events.push({ type, payload });
 					return {
 						seq: events.length,
@@ -2464,7 +2464,7 @@ describe("Provider requests", () => {
 				"[DONE]",
 			]));
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
-			appendEvent: async () => ({
+			appendEvent: () => ({
 				seq: 1,
 				runId: "run-stream-provider-rate-limit-accumulate",
 				type: "provider_retry",
@@ -2521,7 +2521,7 @@ describe("Provider requests", () => {
 			.mockResolvedValueOnce(sseStream([streamedProviderRateLimit("gen-limit-first", "DeepInfra")]))
 			.mockResolvedValueOnce(sseStream([streamedProviderRateLimit("gen-limit-second", "DeepInfra")]));
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
-			appendEvent: async () => ({
+			appendEvent: () => ({
 				seq: 1,
 				runId: "run-stream-provider-rate-limit-repeat",
 				type: "provider_retry",
@@ -2593,7 +2593,7 @@ describe("Provider requests", () => {
 			};
 			const fetchProviderResponse = vi.fn(async () => sseStream([streamedProviderError]));
 			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
-				appendEvent: async (_runId: string, type: string, payload: Record<string, unknown>) => {
+				appendEvent: (_runId: string, type: string, payload: Record<string, unknown>) => {
 					events.push({ type, payload });
 					return {
 						seq: events.length,
@@ -2732,7 +2732,7 @@ describe("Provider requests", () => {
 			streamSeq: number | undefined;
 		}> = [];
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
-			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 				const seq = type === "provider_request" ? 123 : 123 + events.length + 1;
 				events.push({ seq, type, payload });
 				return runtimeEvent(seq, runId, type as BotRuntimeEvent["type"], payload);

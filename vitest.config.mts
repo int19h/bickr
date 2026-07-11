@@ -8,7 +8,7 @@ export default defineConfig({
 				test: {
 					name: "node",
 					environment: "node",
-					include: ["packages/cli/src/**/*.test.ts"],
+					include: ["packages/cli/src/**/*.test.ts", "workers/agent-runtime/src/runtime/**/*.test.ts"],
 					exclude: [...configDefaults.exclude],
 				},
 			},
@@ -20,7 +20,11 @@ export default defineConfig({
 				],
 				test: {
 					name: "cloudflare",
-					exclude: [...configDefaults.exclude, "packages/cli/src/**/*.test.ts"],
+					exclude: [
+						...configDefaults.exclude,
+						"packages/cli/src/**/*.test.ts",
+						"workers/agent-runtime/src/runtime/**/*.test.ts",
+					],
 				},
 			},
 		],

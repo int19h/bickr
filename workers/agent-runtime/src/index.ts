@@ -137,11 +137,8 @@ import {
 	type BotInferenceSubmissionPurpose,
 	type BotInferenceSubmissionSummary,
 	type BotLoopMessage,
-	type BotLoopMessageDisplay,
-	type BotLoopMessagePageSummary,
 	type BotLoopMessagesResponse,
 	type BotLoopMessageLog,
-	type BotLoopMessageLogEncoding,
 	type BotLoopMessageLogKind,
 	type BotLoopMessageLogsResponse,
 	type BotLoopMessageRequestLogMessage,
@@ -226,6 +223,8 @@ import {
 	unicodeSafeSlice,
 } from './provider/sanitize';
 import { createProviderStructuredOutput } from './provider/structured-output';
+import { RuntimeEventsStore } from './runtime/events';
+import { RuntimeMessageStore } from './runtime/message-store';
 import {
 	appendToolRequirementInstruction,
 	defaultProviderCompactionSummaryLimits,
@@ -366,9 +365,6 @@ import {
 	providerStructuredOutputRepairAttempts,
 	inferenceSubmissionRetentionCount,
 	providerTokenCalibrationRetentionCount,
-	loopMessageLogRetentionCount,
-	loopMessageLogChunkLength,
-	loopMessagePageIndexLimit,
 	runtimeMonitorInitialBackfillLimit,
 	dayMs,
 	fallbackProviderModel,
@@ -383,14 +379,10 @@ import type {
 	CompactionMetrics,
 	InferenceSubmissionRow,
 	LoopMessageRow,
-	LoopMessagePageDescriptor,
-	LoopMessagePageIndex,
-	LoopMessageLogRow,
 	RuntimeFailureLog,
 	LoopMessageAppendLog,
 	LoopMessageGroupEntry,
 	ProviderCompactionResponsePayload,
-	LoopMessageLogChunkRow,
 	ChatMessage,
 	ReasoningDetail,
 	ToolCall,
@@ -1961,7 +1953,7 @@ export class BotRuntime {
 		if (!text) {
 			throw new InputError('Injection text is required.');
 		}
-		const event = await this.injectThought(text, {
+		const event = this.injectThought(text, {
 			kind: stringValue(bodyRecord.kind) ?? 'manual',
 			sourceId: stringValue(bodyRecord.sourceId),
 			spotlightId: stringValue(bodyRecord.spotlightId),
@@ -2000,7 +1992,7 @@ export class BotRuntime {
 				return;
 			}
 			if (payload.type === 'inject' && payload.text?.trim()) {
-				const event = await this.injectThought(payload.text.trim());
+				const event = this.injectThought(payload.text.trim());
 				ws.send(JSON.stringify({ type: 'event', event }));
 			}
 		} catch (error) {
@@ -2095,7 +2087,7 @@ export class BotRuntime {
 		try {
 			// Inside the try so an event-store failure still releases the claim
 			// and clears the in-memory run slot via the catch/finally below.
-			await this.appendEvent(runId, 'tick_started', { trigger, botId, handle: bot.handle });
+			this.appendEvent(runId, 'tick_started', { trigger, botId, handle: bot.handle });
 			this.throwIfStopped(runId, abortController.signal);
 			const notifications =
 				setupMode !== 'new_iteration'
@@ -2108,7 +2100,7 @@ export class BotRuntime {
 			const injections = this.consumeInjections(mode === 'spotlight' ? (options.injectionIds ?? []) : undefined);
 			if (mode === 'spotlight' && injections.length === 0) {
 				const nextDueAt = await this.setRuntimeIndex(bot, 'idle', null, undefined, new Date().toISOString(), runId);
-				await this.appendEvent(runId, 'tick_completed', {
+				this.appendEvent(runId, 'tick_completed', {
 					...(nextDueAt ? { nextDueAt } : {}),
 					note: 'No pending spotlight injection was available.',
 				});
@@ -2127,7 +2119,7 @@ export class BotRuntime {
 			if (mode === 'spotlight') {
 				runContext.spotlightActionScope = spotlightActionScopeFromContexts(input.spotlightContexts);
 			}
-			const inputEvent = await this.appendEvent(runId, 'input', input);
+			const inputEvent = this.appendEvent(runId, 'input', input);
 			const builtMessages = await this.buildMessages(bot, input, runId, inputEvent.createdAt, { setupMode });
 			if (setupMode === 'new_iteration') {
 				const deliveredNotificationIds = builtMessages.deliveredNotificationIds;
@@ -2167,14 +2159,14 @@ export class BotRuntime {
 
 			await this.compactIfNeeded(bot, providerSettings, runId, abortController.signal);
 			const nextDueAt = await this.setRuntimeIndex(bot, 'idle', null, undefined, new Date().toISOString(), runId);
-			await this.appendEvent(runId, 'tick_completed', { ...(nextDueAt ? { nextDueAt } : {}) });
+			this.appendEvent(runId, 'tick_completed', { ...(nextDueAt ? { nextDueAt } : {}) });
 			startQueuedSpotlightAfterRun = true;
 			return { runId, status: 'completed' };
 		} catch (error) {
 			if (error instanceof TickStoppedError || isAbortError(error)) {
 				this.markPendingCompactionEventsFailed(runId, 'This Bickr visit was stopped.');
 				if (!this.hasTerminalEvent(runId)) {
-					await this.appendEvent(runId, 'tick_stopped', { message: 'This Bickr visit was stopped.' });
+					this.appendEvent(runId, 'tick_stopped', { message: 'This Bickr visit was stopped.' });
 				}
 				await this.setRuntimeIndex(bot, 'idle', null, undefined, new Date().toISOString(), runId);
 				return { runId, status: 'stopped' };
@@ -2183,7 +2175,7 @@ export class BotRuntime {
 					const cause = runtimeErrorCause(error);
 					const message = ownerFacingRuntimeErrorMessage(cause) ?? error.message;
 					if (!this.hasTerminalEvent(runId)) {
-						await this.recordTickFailure(runId, {
+						this.recordTickFailure(runId, {
 							message,
 							toolName: error.failure.toolName,
 							failure: error.failure,
@@ -2214,7 +2206,7 @@ export class BotRuntime {
 					const cause = runtimeErrorCause(error);
 					const message = ownerFacingRuntimeErrorMessage(cause) ?? error.message;
 					if (!this.hasTerminalEvent(runId)) {
-						await this.recordTickFailure(runId, {
+						this.recordTickFailure(runId, {
 							message,
 							toolNames: error.toolNames,
 						}, [], { cause });
@@ -2243,7 +2235,7 @@ export class BotRuntime {
 					const cause = runtimeErrorCause(error);
 					const message = ownerFacingRuntimeErrorMessage(cause) ?? error.message;
 					if (!this.hasTerminalEvent(runId)) {
-						await this.recordTickFailure(runId, {
+						this.recordTickFailure(runId, {
 							message,
 							paused: true,
 							reason: 'persistent_non_reducing_compaction',
@@ -2267,7 +2259,7 @@ export class BotRuntime {
 				const cause = runtimeErrorCause(error);
 				const message = ownerFacingRuntimeErrorMessage(cause) ?? 'Unexpected Bickr visit error.';
 				if (!this.hasTerminalEvent(runId)) {
-					await this.recordTickFailure(runId, { message }, runtimeFailureLogs(error), { cause });
+					this.recordTickFailure(runId, { message }, runtimeFailureLogs(error), { cause });
 				}
 				await this.setRuntimeIndex(bot, 'failed', null, message, new Date().toISOString(), runId);
 				try {
@@ -2491,7 +2483,7 @@ export class BotRuntime {
 		}
 
 		this.setStopRequest(runId);
-		await this.appendEvent(runId, 'tick_stop_requested', { message: 'This Bickr visit was asked to stop.' });
+		this.appendEvent(runId, 'tick_stop_requested', { message: 'This Bickr visit was asked to stop.' });
 		if (this.activeRunId === runId && this.activeAbortController && !this.activeAbortController.signal.aborted) {
 			this.activeAbortController.abort();
 			return { stopped: true, runId, status: current.status };
@@ -2631,7 +2623,7 @@ export class BotRuntime {
 	private async markRunStopped(bot: BotDocument, runId: string): Promise<string | null> {
 		this.markPendingCompactionEventsFailed(runId, 'This Bickr visit was stopped.');
 		if (!this.hasTerminalEvent(runId)) {
-			await this.appendEvent(runId, 'tick_stopped', { message: 'This Bickr visit was stopped.' });
+			this.appendEvent(runId, 'tick_stopped', { message: 'This Bickr visit was stopped.' });
 		}
 		const nextDueAt = await this.setRuntimeIndex(bot, 'idle', null, undefined, new Date().toISOString(), runId);
 		this.clearStopRequest(runId);
@@ -2694,7 +2686,7 @@ export class BotRuntime {
 				const requestMessages = budgetCheck.requestMessages;
 				const requestContextWindowTokens = budgetCheck.contextWindowTokens ?? tickSettings.contextWindowTokens;
 				const requestMaxCompletionTokens = providerLoopMaxCompletionTokens(requestContextWindowTokens, budgetCheck.promptTokens);
-				requestEvent = await this.appendEvent(runId, 'provider_request', providerLoopRequestEventPayload({
+				requestEvent = this.appendEvent(runId, 'provider_request', providerLoopRequestEventPayload({
 					budgetCheck,
 					generatedTokensThisIteration,
 					generatedTokensThisTick,
@@ -2881,7 +2873,7 @@ export class BotRuntime {
 						throw new PersistentMissingToolCallError(providerToolNames(providerTools));
 					}
 					const acknowledgementContent = toolRequirementSelfCorrection(providerTools);
-					await this.appendEvent(runId, 'assistant_message', {
+					this.appendEvent(runId, 'assistant_message', {
 						content: acknowledgementContent,
 						status: 'complete',
 					});
@@ -2906,7 +2898,7 @@ export class BotRuntime {
 				const failure = toolFailurePayload(toolCall.function.name, args, error);
 				pendingToolCallIds.delete(toolCall.id);
 				consecutiveToolFailures += 1;
-				await this.appendEvent(runId, 'tool_result', {
+				this.appendEvent(runId, 'tool_result', {
 					name: toolCall.function.name || 'unknown_tool',
 					args,
 					result: failure,
@@ -3047,7 +3039,7 @@ export class BotRuntime {
 			}
 			if (toolFailureAcknowledgements.length > 0) {
 				const acknowledgementContent = toolFailureAcknowledgements.join('\n\n');
-				await this.appendEvent(runId, 'assistant_message', {
+				this.appendEvent(runId, 'assistant_message', {
 					content: acknowledgementContent,
 					status: 'complete',
 				});
@@ -3059,7 +3051,7 @@ export class BotRuntime {
 			}
 			if (selfCorrectionAcknowledgements.length > 0) {
 				const acknowledgementContent = selfCorrectionAcknowledgements.join('\n\n');
-				await this.appendEvent(runId, 'assistant_message', {
+				this.appendEvent(runId, 'assistant_message', {
 					content: acknowledgementContent,
 					status: 'complete',
 				});
@@ -3152,7 +3144,7 @@ export class BotRuntime {
 		for (let attempt = 1; attempt <= providerMaxAttempts; attempt += 1) {
 			this.throwIfStopped(runId, signal);
 			if (attempt > 1) {
-				await this.appendEvent(runId, 'provider_retry', {
+				this.appendEvent(runId, 'provider_retry', {
 					attempt,
 					maxAttempts: providerMaxAttempts,
 					delayMs: retryDelayMs,
@@ -3363,7 +3355,7 @@ export class BotRuntime {
 				requestSettings = { ...requestSettings, ...attemptState.settingsPatch };
 			}
 			if (attemptState.retry) {
-				await this.appendEvent(runId, 'provider_retry', {
+				this.appendEvent(runId, 'provider_retry', {
 					attempt: attemptState.retry.attempt,
 					maxAttempts: attemptState.retry.maxAttempts,
 					delayMs: attemptState.retry.delayMs,
@@ -3479,14 +3471,14 @@ export class BotRuntime {
 		streamSeq: number,
 	): Promise<void> {
 		if (response.reasoning) {
-			await this.appendEvent(runId, 'reasoning_message', {
+			this.appendEvent(runId, 'reasoning_message', {
 				content: response.reasoning,
 				status,
 				streamSeq,
 			});
 		}
 		if (response.content) {
-			await this.appendEvent(runId, 'assistant_message', {
+			this.appendEvent(runId, 'assistant_message', {
 				content: response.content,
 				status,
 				streamSeq,
@@ -3510,7 +3502,7 @@ export class BotRuntime {
 			reason: call.reason,
 			argumentsPreview: call.argumentsPreview,
 		}));
-		await this.appendEvent(runId, 'provider_tool_call_dropped', {
+		this.appendEvent(runId, 'provider_tool_call_dropped', {
 			runId,
 			streamSeq,
 			count: calls.length,
@@ -3561,7 +3553,7 @@ export class BotRuntime {
 	private async appendSyntheticLimitLogOff(bot: BotDocument, runId: string, runContext: RunContext): Promise<void> {
 		const args = syntheticLimitLogOffArgs(bot.language);
 		const toolCall = syntheticToolCall(runId, 'log_off', this.hasRuntimeStorage() ? this.latestEventSeq() + 1 : 0, args);
-		await this.appendEvent(runId, 'assistant_message', {
+		this.appendEvent(runId, 'assistant_message', {
 			content: syntheticLimitLogOffContent,
 			status: 'complete',
 		});
@@ -3596,6 +3588,10 @@ export class BotRuntime {
 		]);
 	}
 
+	private runtimeMessageStore(): RuntimeMessageStore {
+		return new RuntimeMessageStore(this.state.storage, (message) => this.broadcastLoopMessage(message));
+	}
+
 	private appendLoopMessage(
 		runId: string,
 		message: ChatMessage,
@@ -3603,65 +3599,58 @@ export class BotRuntime {
 		status: BotLoopMessageStatus = 'complete',
 		options: { streamSeq?: number; displayEventSeq?: number } = {},
 	): BotLoopMessage {
-		const inserted = this.insertLoopMessage({
-			runId,
-			message,
-			origin,
-			status,
-			streamSeq: options.streamSeq,
-			displayEventSeq: options.displayEventSeq,
-			broadcast: true,
-		});
-		this.recordLoopMessageLog(inserted.seq, 'message', JSON.stringify(message));
-		return inserted;
+		return this.runtimeMessageStore().appendLoopMessage(runId, message, origin, status, options);
 	}
 
 	private appendLoopMessageGroup(
 		entries: LoopMessageGroupEntry[],
 	): BotLoopMessage[] {
-		const storage = (this as unknown as { state?: { storage?: { transactionSync?: <T>(closure: () => T) => T } } }).state?.storage;
-		if (!this.hasRuntimeStorage() || typeof storage?.transactionSync !== 'function') {
-			// This fallback is for tests without a full Durable Object storage double;
-			// production writes use the transactionSync path below.
-			return entries.map((entry) => {
-				const inserted = this.appendLoopMessage(entry.runId, entry.message, entry.origin, entry.status, entry.options);
-				for (const log of entry.extraLogs ?? []) {
-					this.recordLoopMessageLog(inserted.seq, log.kind, log.text);
-				}
-				return inserted;
-			});
-		}
-		const inserted: BotLoopMessage[] = [];
-		this.runStorageTransactionSync(() => {
-			for (const entry of entries) {
-				const loopMessage = this.insertLoopMessage({
-					runId: entry.runId,
-					message: entry.message,
-					origin: entry.origin,
-					status: entry.status,
-					streamSeq: entry.options?.streamSeq,
-					displayEventSeq: entry.options?.displayEventSeq,
-					broadcast: false,
+		const hasHarnessOverrides =
+			Object.hasOwn(this, 'appendLoopMessage') || Object.hasOwn(this, 'insertLoopMessage') || Object.hasOwn(this, 'recordLoopMessageLog');
+		if (hasHarnessOverrides || typeof (this as unknown as { state?: DurableObjectState }).state?.storage?.sql?.exec !== 'function') {
+			const storage = (this as unknown as { state?: { storage?: { transactionSync?: <T>(closure: () => T) => T } } }).state?.storage;
+			if (typeof storage?.transactionSync !== 'function') {
+				return entries.map((entry) => {
+					const inserted = this.appendLoopMessage(entry.runId, entry.message, entry.origin, entry.status, entry.options);
+					for (const log of entry.extraLogs ?? []) {
+						this.recordLoopMessageLog(inserted.seq, log.kind, log.text);
+					}
+					return inserted;
 				});
-				this.recordLoopMessageLog(loopMessage.seq, 'message', JSON.stringify(entry.message));
-				for (const log of entry.extraLogs ?? []) {
-					this.recordLoopMessageLog(loopMessage.seq, log.kind, log.text);
-				}
-				inserted.push(loopMessage);
 			}
-		});
-		for (const loopMessage of inserted) {
-			this.broadcastLoopMessage(loopMessage);
+			const inserted: BotLoopMessage[] = [];
+			this.runStorageTransactionSync(() => {
+				for (const entry of entries) {
+					const message = this.insertLoopMessage({
+						runId: entry.runId,
+						message: entry.message,
+						origin: entry.origin,
+						status: entry.status,
+						streamSeq: entry.options?.streamSeq,
+						displayEventSeq: entry.options?.displayEventSeq,
+						broadcast: false,
+					});
+					this.recordLoopMessageLog(message.seq, 'message', JSON.stringify(entry.message));
+					for (const log of entry.extraLogs ?? []) {
+						this.recordLoopMessageLog(message.seq, log.kind, log.text);
+					}
+					inserted.push(message);
+				}
+			});
+			for (const message of inserted) {
+				this.broadcastLoopMessage(message);
+			}
+			return inserted;
 		}
-		return inserted;
+		return this.runtimeMessageStore().appendLoopMessageGroup(entries);
 	}
 
-	private async recordTickFailure(
+	private recordTickFailure(
 		runId: string,
 		payload: Record<string, unknown>,
 		logs: RuntimeFailureLog[] = [],
 		options: { cause?: RuntimeErrorCause | string } = {},
-	): Promise<BotRuntimeEvent> {
+	): BotRuntimeEvent {
 		const cause = options.cause ?? stringValue(payload.message) ?? 'Unexpected Bickr visit error.';
 		const message = ownerFacingRuntimeErrorMessage(cause) ?? 'Unexpected Bickr visit error.';
 		this.markPendingCompactionEventsFailed(runId, message);
@@ -3680,40 +3669,8 @@ export class BotRuntime {
 	}
 
 	private markPendingCompactionEventsFailed(runId: string, error: string): void {
-		const rows = this.state.storage.sql
-			.exec<RuntimeRow>(
-				`SELECT seq, run_id, type, payload_json, token_estimate, compacted_by, created_at
-				 FROM events
-				 WHERE run_id = ?
-				   AND type = 'compaction'
-				 ORDER BY seq ASC`,
-				runId,
-			)
-			.toArray();
-		for (const row of rows) {
-			let payload: Record<string, unknown>;
-			try {
-				payload = runtimeRecord(JSON.parse(row.payload_json) as unknown);
-			} catch {
-				continue;
-			}
-			if (payload.status !== 'pending') {
-				continue;
-			}
-			const event: BotRuntimeEvent = {
-				seq: row.seq,
-				runId: row.run_id,
-				type: row.type,
-				payload,
-				tokenEstimate: row.token_estimate,
-				createdAt: row.created_at,
-				...(row.compacted_by !== null ? { compactedBy: row.compacted_by } : {}),
-			};
-			this.replaceEventPayload(event, {
-				...payload,
-				status: 'failed',
-				error,
-			});
+		for (const event of this.runtimeEventsStore().pendingCompactionEvents(runId)) {
+			this.replaceEventPayload(event, { ...runtimeRecord(event.payload), status: 'failed', error });
 		}
 	}
 
@@ -3728,88 +3685,7 @@ export class BotRuntime {
 		createdAt?: string;
 		broadcast: boolean;
 	}): BotLoopMessage {
-		const now = input.createdAt ?? new Date().toISOString();
-		const messageJson = JSON.stringify(input.message);
-		const tokenEstimate = estimateTextTokens(messageJson);
-		const position = input.position ?? this.nextLoopMessagePosition();
-		const displayEvent = this.loopMessageDisplayEventRow(input.displayEventSeq);
-		this.state.storage.sql.exec(
-			`INSERT INTO loop_messages (position, run_id, role, message_json, origin, status, token_estimate, stream_seq, display_event_seq, compacted_by, created_at)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
-			position,
-			input.runId,
-			input.message.role,
-			messageJson,
-			input.origin,
-			input.status ?? null,
-			tokenEstimate,
-			input.streamSeq ?? null,
-			displayEvent.display_event_seq,
-			now,
-		);
-		const seq = this.state.storage.sql.exec<{ seq: number }>(`SELECT last_insert_rowid() AS seq`).one().seq;
-		const message = loopMessageFromRow({
-			seq,
-			position,
-			run_id: input.runId,
-			role: input.message.role,
-			message_json: messageJson,
-			origin: input.origin,
-			status: input.status ?? null,
-			token_estimate: tokenEstimate,
-			stream_seq: input.streamSeq ?? null,
-			display_event_seq: displayEvent.display_event_seq,
-			display_event_type: displayEvent.display_event_type,
-			display_event_payload_json: displayEvent.display_event_payload_json,
-			compacted_by: null,
-			deleted_at: null,
-			created_at: now,
-			has_logs: 0,
-		});
-		if (input.broadcast) {
-			this.broadcastLoopMessage(message);
-		}
-		return message;
-	}
-
-	private loopMessageDisplayEventRow(
-		displayEventSeq: number | undefined,
-	): Pick<LoopMessageRow, 'display_event_seq' | 'display_event_type' | 'display_event_payload_json'> {
-		if (typeof displayEventSeq !== 'number' || !Number.isInteger(displayEventSeq) || displayEventSeq <= 0) {
-			return {
-				display_event_seq: null,
-				display_event_type: null,
-				display_event_payload_json: null,
-			};
-		}
-		const row = this.state.storage.sql
-			.exec<{ seq: number; type: BotRuntimeEventType; payload_json: string }>(
-				`SELECT seq, type, payload_json
-				 FROM events
-				 WHERE seq = ?
-				 LIMIT 1`,
-				displayEventSeq,
-			)
-			.toArray()[0];
-		if (!row || row.type !== 'tool_result') {
-			return {
-				display_event_seq: null,
-				display_event_type: null,
-				display_event_payload_json: null,
-			};
-		}
-		return {
-			display_event_seq: row.seq,
-			display_event_type: row.type,
-			display_event_payload_json: row.payload_json,
-		};
-	}
-
-	private nextLoopMessagePosition(): number {
-		const row = this.state.storage.sql
-			.exec<{ position: number }>(`SELECT COALESCE(MAX(position), 0) + 1 AS position FROM loop_messages`)
-			.one();
-		return row.position;
+		return this.runtimeMessageStore().insertLoopMessage(input);
 	}
 
 	private broadcastLoopMessage(message: BotLoopMessage): void {
@@ -3817,17 +3693,11 @@ export class BotRuntime {
 	}
 
 	private activeLoopMessageRows(): LoopMessageRow[] {
-		return this.state.storage.sql
-			.exec<LoopMessageRow>(
-				`SELECT m.seq, m.position, m.run_id, m.role, m.message_json, m.origin, m.status,
-				        m.token_estimate, m.stream_seq, m.compacted_by, m.deleted_at, m.created_at,
-				        CASE WHEN EXISTS (SELECT 1 FROM loop_message_logs l WHERE l.message_seq = m.seq) THEN 1 ELSE 0 END AS has_logs
-				 FROM loop_messages m
-				 WHERE m.compacted_by IS NULL
-				   AND m.deleted_at IS NULL
-				 ORDER BY m.position ASC, m.seq ASC`,
-			)
-			.toArray();
+		return this.runtimeMessageStore().activeLoopMessageRows();
+	}
+
+	private nextLoopMessagePosition(): number {
+		return this.runtimeMessageStore().nextLoopMessagePosition();
 	}
 
 	private activeLoopMessagesForProvider(): ChatMessage[] {
@@ -3841,254 +3711,31 @@ export class BotRuntime {
 	}
 
 	private updateActiveLoopMessagePositions(seqOrder: readonly number[]): void {
-		if (seqOrder.length === 0) {
-			return;
-		}
-		const minPosition = this.state.storage.sql
-			.exec<{ position: number }>(
-				`SELECT COALESCE(MIN(position), 1) AS position
-				 FROM loop_messages
-				 WHERE compacted_by IS NULL
-				   AND deleted_at IS NULL`,
-			)
-			.one().position;
-		for (let index = 0; index < seqOrder.length; index += 1) {
-			this.state.storage.sql.exec(
-				`UPDATE loop_messages
-				 SET position = ?
-				 WHERE seq = ?
-				   AND compacted_by IS NULL
-				   AND deleted_at IS NULL`,
-				minPosition + index,
-				seqOrder[index],
-			);
-		}
+		this.runtimeMessageStore().updateActiveLoopMessagePositions(seqOrder);
 	}
 
 	private loopMessagesAfter(afterSeq: number, initialLimit?: number): BotLoopMessage[] {
-		return this.loopMessageRowsForPage(null, Math.max(0, Math.floor(afterSeq)), initialLimit).map(loopMessageFromRow);
+		return this.runtimeMessageStore().loopMessagesAfter(afterSeq, initialLimit);
 	}
 
 	private loopMessagesPage(input: { page: number; after?: number }): BotLoopMessagesResponse {
-		const pageIndex = this.loopMessagePageIndex();
-		const requestedPage = Math.max(1, Math.floor(input.page));
-		const currentDescriptor = pageIndex.descriptors.find((descriptor) => descriptor.page === requestedPage) ??
-			pageIndex.descriptors[pageIndex.descriptors.length - 1] ?? { page: 1, sourceCompactionSeq: null };
-		const after = currentDescriptor.page === 1 ? Math.max(0, Math.floor(input.after ?? 0)) : 0;
-		const rows = this.loopMessageRowsForPage(currentDescriptor.sourceCompactionSeq, after);
-		const summaries = this.loopMessagePageSummaries(pageIndex);
-		const currentSummary = summaries.find((summary) => summary.page === currentDescriptor.page);
-		return {
-			messages: rows.map(loopMessageFromRow),
-			page: {
-				currentPage: currentDescriptor.page,
-				pageCount: pageIndex.descriptors.length,
-				pages: summaries,
-				compactionPageBySeq: Object.fromEntries([...pageIndex.compactionPageBySeq.entries()].map(([seq, page]) => [String(seq), page])),
-				...(currentDescriptor.newerPage ? { newerPage: currentDescriptor.newerPage } : {}),
-				...(currentSummary?.olderPage ? { olderPage: currentSummary.olderPage } : {}),
-			},
-		};
-	}
-
-	private loopMessagePageIndex(): LoopMessagePageIndex {
-		const descriptors: LoopMessagePageDescriptor[] = [];
-		const compactionPageBySeq = new Map<number, number>();
-		const visitedSources = new Set<string>();
-		const appendPage = (sourceCompactionSeq: number | null, newerPage?: number): void => {
-			if (descriptors.length >= loopMessagePageIndexLimit) {
-				return;
-			}
-			const sourceKey = sourceCompactionSeq === null ? 'active' : String(sourceCompactionSeq);
-			if (visitedSources.has(sourceKey)) {
-				return;
-			}
-			visitedSources.add(sourceKey);
-			const descriptor: LoopMessagePageDescriptor = {
-				page: descriptors.length + 1,
-				sourceCompactionSeq,
-				...(newerPage ? { newerPage } : {}),
-			};
-			descriptors.push(descriptor);
-			for (const seq of this.loopMessageCompactionSeqsWithChildren(sourceCompactionSeq)) {
-				if (descriptors.length >= loopMessagePageIndexLimit) {
-					break;
-				}
-				if (compactionPageBySeq.has(seq)) {
-					continue;
-				}
-				compactionPageBySeq.set(seq, descriptors.length + 1);
-				appendPage(seq, descriptor.page);
-			}
-		};
-		appendPage(null);
-		return { descriptors, compactionPageBySeq };
-	}
-
-	private loopMessagePageSummaries(pageIndex: LoopMessagePageIndex): BotLoopMessagePageSummary[] {
-		return pageIndex.descriptors.map((descriptor) => {
-			const summary = this.loopMessagePageCount(descriptor.sourceCompactionSeq);
-			const olderPage = pageIndex.descriptors.find((item) => item.newerPage === descriptor.page)?.page;
-			return {
-				page: descriptor.page,
-				messageCount: summary.messageCount,
-				...(summary.fromSeq !== null ? { fromSeq: summary.fromSeq } : {}),
-				...(summary.toSeq !== null ? { toSeq: summary.toSeq } : {}),
-				...(descriptor.sourceCompactionSeq !== null ? { sourceCompactionSeq: descriptor.sourceCompactionSeq } : {}),
-				...(descriptor.newerPage ? { newerPage: descriptor.newerPage } : {}),
-				...(olderPage ? { olderPage } : {}),
-			};
-		});
-	}
-
-	private loopMessageRowsForPage(sourceCompactionSeq: number | null, afterSeq: number, initialLimit?: number): LoopMessageRow[] {
-		if (sourceCompactionSeq === null) {
-			const filters = ['m.compacted_by IS NULL', 'm.deleted_at IS NULL', ...(afterSeq > 0 ? ['m.seq > ?'] : [])];
-			const params = [...(afterSeq > 0 ? [afterSeq] : [])];
-			const limit = afterSeq > 0 ? undefined : positiveInteger(initialLimit);
-			if (limit !== undefined) {
-				return this.state.storage.sql
-					.exec<LoopMessageRow>(
-						`SELECT *
-						 FROM (
-							SELECT m.seq, m.position, m.run_id, m.role, m.message_json, m.origin, m.status,
-							       m.token_estimate, m.stream_seq, m.display_event_seq, display.type AS display_event_type,
-							       display.payload_json AS display_event_payload_json, m.compacted_by, m.deleted_at, m.created_at,
-							       CASE WHEN EXISTS (SELECT 1 FROM loop_message_logs l WHERE l.message_seq = m.seq) THEN 1 ELSE 0 END AS has_logs
-							FROM loop_messages m
-							LEFT JOIN events display ON display.seq = m.display_event_seq
-							WHERE ${filters.join('\n\t\t\t\t\t\t\t   AND ')}
-							ORDER BY m.position DESC, m.seq DESC
-							LIMIT ?
-						 )
-						 ORDER BY position ASC, seq ASC`,
-						...params,
-						limit,
-					)
-					.toArray();
-			}
-			return this.state.storage.sql
-				.exec<LoopMessageRow>(
-					`SELECT m.seq, m.position, m.run_id, m.role, m.message_json, m.origin, m.status,
-					        m.token_estimate, m.stream_seq, m.display_event_seq, display.type AS display_event_type,
-					        display.payload_json AS display_event_payload_json, m.compacted_by, m.deleted_at, m.created_at,
-					        CASE WHEN EXISTS (SELECT 1 FROM loop_message_logs l WHERE l.message_seq = m.seq) THEN 1 ELSE 0 END AS has_logs
-					 FROM loop_messages m
-					 LEFT JOIN events display ON display.seq = m.display_event_seq
-					 WHERE ${filters.join('\n\t\t\t\t\t   AND ')}
-					 ORDER BY m.position ASC, m.seq ASC
-					 ${afterSeq > 0 ? 'LIMIT 2000' : ''}`,
-					...params,
-				)
-				.toArray();
-		}
-		return this.state.storage.sql
-			.exec<LoopMessageRow>(
-				`SELECT m.seq, m.position, m.run_id, m.role, m.message_json, m.origin, m.status,
-				        m.token_estimate, m.stream_seq, m.display_event_seq, display.type AS display_event_type,
-				        display.payload_json AS display_event_payload_json, m.compacted_by, m.deleted_at, m.created_at,
-				        CASE WHEN EXISTS (SELECT 1 FROM loop_message_logs l WHERE l.message_seq = m.seq) THEN 1 ELSE 0 END AS has_logs
-				 FROM loop_messages m
-				 LEFT JOIN events display ON display.seq = m.display_event_seq
-				 WHERE m.compacted_by = ?
-				   AND m.deleted_at IS NULL
-				 ORDER BY m.position ASC, m.seq ASC`,
-				sourceCompactionSeq,
-			)
-			.toArray();
-	}
-
-	private loopMessageCompactionSeqsWithChildren(sourceCompactionSeq: number | null): number[] {
-		const rows = this.state.storage.sql
-			.exec<{ seq: number }>(
-				`SELECT m.seq
-				 FROM loop_messages m
-				 WHERE m.compacted_by ${sourceCompactionSeq === null ? 'IS NULL' : '= ?'}
-				   AND m.deleted_at IS NULL
-				   AND m.origin = 'compaction'
-				   AND EXISTS (
-					SELECT 1
-					FROM loop_messages child
-					WHERE child.compacted_by = m.seq
-					  AND child.deleted_at IS NULL
-				   )
-				 ORDER BY m.position DESC, m.seq DESC`,
-				...(sourceCompactionSeq === null ? [] : [sourceCompactionSeq]),
-			)
-			.toArray();
-		return rows.map((row) => row.seq).filter((seq) => Number.isInteger(seq));
+		return this.runtimeMessageStore().loopMessagesPage(input);
 	}
 
 	private latestActiveLoopCompactionBoundary(): { messageSeq: number; requestSeq: number; created_at: string } | null {
-		const row = this.state.storage.sql
-			.exec<{ message_seq: number; request_seq: number | null; created_at: string }>(
-				`SELECT m.seq AS message_seq, m.stream_seq AS request_seq, m.created_at
-				 FROM loop_messages m
-				 WHERE m.compacted_by IS NULL
-				   AND m.deleted_at IS NULL
-				   AND m.origin = 'compaction'
-				   AND EXISTS (
-					SELECT 1
-					FROM loop_messages child
-					WHERE child.compacted_by = m.seq
-					  AND child.deleted_at IS NULL
-				   )
-				 ORDER BY m.seq DESC
-				 LIMIT 1`,
-			)
-			.toArray()[0];
-		if (!row || typeof row.message_seq !== 'number' || typeof row.created_at !== 'string') {
-			return null;
-		}
-		const requestSeq = typeof row.request_seq === 'number' ? row.request_seq : row.message_seq;
-		return { messageSeq: row.message_seq, requestSeq, created_at: row.created_at };
-	}
-
-	private loopMessagePageCount(sourceCompactionSeq: number | null): { messageCount: number; fromSeq: number | null; toSeq: number | null } {
-		const rows = this.loopMessageRowsForPage(sourceCompactionSeq, 0);
-		const seqs = rows.map((row) => row.seq);
-		return {
-			messageCount: rows.length,
-			fromSeq: seqs.length > 0 ? Math.min(...seqs) : null,
-			toSeq: seqs.length > 0 ? Math.max(...seqs) : null,
-		};
+		return this.runtimeMessageStore().latestActiveLoopCompactionBoundary();
 	}
 
 	private loopMessageLogsForSeq(seq: number): BotLoopMessageLogsResponse {
-		if (!Number.isInteger(seq) || seq <= 0) {
-			throw new RepositoryError('bad_request', 'Loop message sequence is invalid.', 400);
-		}
-		const row = this.state.storage.sql
-			.exec<LoopMessageRow>(
-				`SELECT m.seq, m.position, m.run_id, m.role, m.message_json, m.origin, m.status,
-				        m.token_estimate, m.stream_seq, m.display_event_seq, display.type AS display_event_type,
-				        display.payload_json AS display_event_payload_json, m.compacted_by, m.deleted_at, m.created_at,
-				        CASE WHEN EXISTS (SELECT 1 FROM loop_message_logs l WHERE l.message_seq = m.seq) THEN 1 ELSE 0 END AS has_logs
-				 FROM loop_messages m
-				 LEFT JOIN events display ON display.seq = m.display_event_seq
-				 WHERE m.seq = ?
-				 LIMIT 1`,
-				seq,
-			)
-			.toArray()[0];
+		const response = this.runtimeMessageStore().loopMessageLogsForSeq(seq);
+		const row = this.runtimeMessageStore().loopMessageRow(seq);
 		if (!row) {
 			throw new RepositoryError('not_found', 'Loop message was not found.', 404);
 		}
-		const logs = this.state.storage.sql
-			.exec<LoopMessageLogRow>(
-				`SELECT id, message_seq, kind, encoding, base_log_id, prefix_length, text_length, chunk_count, created_at
-				 FROM loop_message_logs
-				 WHERE message_seq = ?
-				 ORDER BY id ASC`,
-				seq,
-			)
-			.toArray()
-			.map((log) => loopMessageLogFromRow(log, this.reconstructLoopMessageLogText(log.id)));
 		const requestUsage = row.stream_seq ? this.loopMessageRequestUsage(row.run_id, row.stream_seq) : undefined;
-		const requestMessages = this.loopMessageRequestMessages(logs, requestUsage);
+		const requestMessages = this.loopMessageRequestMessages(response.logs, requestUsage);
 		return {
-			message: loopMessageFromRow(row),
-			logs,
+			...response,
 			...(requestMessages.length > 0 ? { requestMessages } : {}),
 			...(requestUsage ? { requestUsage } : {}),
 		};
@@ -4182,148 +3829,7 @@ export class BotRuntime {
 	}
 
 	private recordLoopMessageLog(messageSeq: number, kind: BotLoopMessageLogKind, text: string): void {
-		const base = this.latestLoopMessageLogBase(kind);
-		const encoded = base ? encodeLoopMessageLog(text, base.text, base.id) : { encoding: 'full' as const, text };
-		const now = new Date().toISOString();
-		const chunks = chunkText(encoded.text, loopMessageLogChunkLength);
-		this.state.storage.sql.exec(
-			`INSERT INTO loop_message_logs (message_seq, kind, encoding, base_log_id, prefix_length, text_length, chunk_count, created_at)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-			messageSeq,
-			kind,
-			encoded.encoding,
-			encoded.baseLogId ?? null,
-			encoded.prefixLength ?? null,
-			text.length,
-			chunks.length,
-			now,
-		);
-		const logId = this.state.storage.sql.exec<{ id: number }>(`SELECT last_insert_rowid() AS id`).one().id;
-		for (let index = 0; index < chunks.length; index += 1) {
-			this.state.storage.sql.exec(
-				`INSERT INTO loop_message_log_chunks (log_id, chunk_index, text) VALUES (?, ?, ?)`,
-				logId,
-				index,
-				chunks[index] ?? '',
-			);
-		}
-		this.pruneLoopMessageLogs();
-	}
-
-	private latestLoopMessageLogBase(kind: BotLoopMessageLogKind): { id: number; text: string } | null {
-		const row = this.state.storage.sql
-			.exec<{ id: number }>(
-				`SELECT id
-				 FROM loop_message_logs
-				 WHERE kind = ?
-				 ORDER BY id DESC
-				 LIMIT 1`,
-				kind,
-			)
-			.toArray()[0];
-		return row ? { id: row.id, text: this.reconstructLoopMessageLogText(row.id) } : null;
-	}
-
-	private reconstructLoopMessageLogText(logId: number, seen = new Set<number>()): string {
-		if (seen.has(logId)) {
-			throw new RepositoryError('server_error', 'Loop message log chain is cyclic.', 500);
-		}
-		seen.add(logId);
-		const row = this.state.storage.sql
-			.exec<LoopMessageLogRow>(
-				`SELECT id, message_seq, kind, encoding, base_log_id, prefix_length, text_length, chunk_count, created_at
-				 FROM loop_message_logs
-				 WHERE id = ?
-				 LIMIT 1`,
-				logId,
-			)
-			.toArray()[0];
-		if (!row) {
-			throw new RepositoryError('not_found', 'Loop message log was not found.', 404);
-		}
-		const encoded = this.state.storage.sql
-			.exec<LoopMessageLogChunkRow>(
-				`SELECT log_id, chunk_index, text
-				 FROM loop_message_log_chunks
-				 WHERE log_id = ?
-				 ORDER BY chunk_index ASC`,
-				logId,
-			)
-			.toArray()
-			.map((chunk) => chunk.text)
-			.join('');
-		if (row.encoding === 'full') {
-			return encoded;
-		}
-		if (!row.base_log_id) {
-			throw new RepositoryError('server_error', 'Delta log is missing its base.', 500);
-		}
-		const base = this.reconstructLoopMessageLogText(row.base_log_id, seen);
-		if (row.encoding === 'append') {
-			return `${base}${encoded}`;
-		}
-		return `${base.slice(0, row.prefix_length ?? 0)}${encoded}`;
-	}
-
-	private pruneLoopMessageLogs(): void {
-		const retainedMessageSeqs = new Set(
-			this.state.storage.sql
-				.exec<{ seq: number }>(
-					`SELECT seq
-					 FROM loop_messages
-					 WHERE compacted_by IS NULL
-					 ORDER BY position DESC, seq DESC
-					 LIMIT ?`,
-					loopMessageLogRetentionCount,
-				)
-				.toArray()
-				.map((row) => row.seq),
-		);
-		if (retainedMessageSeqs.size === 0) {
-			this.state.storage.sql.exec(`DELETE FROM loop_message_log_chunks`);
-			this.state.storage.sql.exec(`DELETE FROM loop_message_logs`);
-			return;
-		}
-		const retainedLogRows = this.state.storage.sql
-			.exec<LoopMessageLogRow>(
-				`SELECT id, message_seq, kind, encoding, base_log_id, prefix_length, text_length, chunk_count, created_at
-				 FROM loop_message_logs
-				 ORDER BY id ASC`,
-			)
-			.toArray();
-		const deleteIds = new Set(retainedLogRows.filter((row) => !retainedMessageSeqs.has(row.message_seq)).map((row) => row.id));
-		for (const row of retainedLogRows) {
-			if (!retainedMessageSeqs.has(row.message_seq) || !row.base_log_id || !deleteIds.has(row.base_log_id)) {
-				continue;
-			}
-			this.materializeLoopMessageLog(row.id);
-		}
-		for (const id of deleteIds) {
-			this.state.storage.sql.exec(`DELETE FROM loop_message_log_chunks WHERE log_id = ?`, id);
-			this.state.storage.sql.exec(`DELETE FROM loop_message_logs WHERE id = ?`, id);
-		}
-	}
-
-	private materializeLoopMessageLog(logId: number): void {
-		const text = this.reconstructLoopMessageLogText(logId);
-		const chunks = chunkText(text, loopMessageLogChunkLength);
-		this.state.storage.sql.exec(
-			`UPDATE loop_message_logs
-			 SET encoding = 'full', base_log_id = NULL, prefix_length = NULL, text_length = ?, chunk_count = ?
-			 WHERE id = ?`,
-			text.length,
-			chunks.length,
-			logId,
-		);
-		this.state.storage.sql.exec(`DELETE FROM loop_message_log_chunks WHERE log_id = ?`, logId);
-		for (let index = 0; index < chunks.length; index += 1) {
-			this.state.storage.sql.exec(
-				`INSERT INTO loop_message_log_chunks (log_id, chunk_index, text) VALUES (?, ?, ?)`,
-				logId,
-				index,
-				chunks[index] ?? '',
-			);
-		}
+		this.runtimeMessageStore().recordLoopMessageLog(messageSeq, kind, text);
 	}
 
 	private async recordProviderUsage(input: {
@@ -5368,7 +4874,7 @@ export class BotRuntime {
 				},
 				'local_simulation',
 			);
-			await this.appendEvent(runId, 'assistant_message', {
+			this.appendEvent(runId, 'assistant_message', {
 				content: `I decide to reply to "${replyTarget.title}".`,
 			});
 			const result = await this.executeTool(
@@ -5399,7 +4905,7 @@ export class BotRuntime {
 				},
 				'local_simulation',
 			);
-			await this.appendEvent(runId, 'assistant_message', {
+			this.appendEvent(runId, 'assistant_message', {
 				content: 'I look for somewhere to create a thread, but I do not find an available forum.',
 			});
 			return { logOffCalled: false, spotlightMutationCount: 0, toolCallCount: 0 };
@@ -5413,7 +4919,7 @@ export class BotRuntime {
 			},
 			'local_simulation',
 		);
-		await this.appendEvent(runId, 'assistant_message', {
+		this.appendEvent(runId, 'assistant_message', {
 			content: `I decide to create a thread in f/${forum.handle}.`,
 		});
 		const result = await this.executeTool(
@@ -5460,7 +4966,7 @@ export class BotRuntime {
 			delete normalizedArgs.parentCommentId;
 			delete normalizedArgs.threadId;
 		}
-		const toolCallEvent = await this.appendEvent(runId, 'tool_call', {
+		const toolCallEvent = this.appendEvent(runId, 'tool_call', {
 			name: canonicalName,
 			args: providerToolArgs(canonicalName, normalizedArgs),
 		});
@@ -5727,7 +5233,7 @@ export class BotRuntime {
 			result,
 			displayContext: { worldHandle: bot.homeWorldHandle },
 		};
-		const toolResultEvent = await this.appendEvent(runId, 'tool_result', toolResultPayload);
+		const toolResultEvent = this.appendEvent(runId, 'tool_result', toolResultPayload);
 		if (canonicalName === 'log_off' && successfulToolResultPayload(toolResultPayload)) {
 			this.setLastSuccessfulLogOffSeq(toolResultEvent.seq, 'tool_result');
 		}
@@ -6523,18 +6029,8 @@ export class BotRuntime {
 	}
 
 	private pruneRuntimeStorageAfterTick(activeRunId: string, now = new Date()): { events: number; providerUsage: number } {
-		const eventCutoff = new Date(now.getTime() - runtimeEventRetentionDays * dayMs).toISOString();
 		const lastLogOffSeq = this.latestSuccessfulLogOffToolResultSeq();
-		this.state.storage.sql.exec(
-			`DELETE FROM events
-			 WHERE created_at < ?
-			   AND run_id != ?
-			   AND seq < ?`,
-			eventCutoff,
-			activeRunId,
-			lastLogOffSeq,
-		);
-		const events = this.state.storage.sql.exec<{ count: number }>(`SELECT changes() AS count`).one().count;
+		const events = this.runtimeEventsStore().pruneEventsAfterTick(activeRunId, lastLogOffSeq, now);
 
 		const usageCutoff = new Date(now.getTime() - botInferenceUsageRetentionDays * dayMs).toISOString();
 		const exportCursor = this.centralProviderUsageExportCursor();
@@ -6556,21 +6052,7 @@ export class BotRuntime {
 	}
 
 	private latestCompactionSummary(): string {
-		const rows = this.state.storage.sql
-			.exec<{ payload_json: string }>(
-				`SELECT payload_json
-				 FROM events
-				 WHERE type = 'compaction'
-				 ORDER BY seq DESC`,
-			)
-			.toArray();
-		for (const row of rows) {
-			const summary = compactedSummaryForContext(JSON.parse(row.payload_json) as unknown);
-			if (summary) {
-				return summary;
-			}
-		}
-		return '';
+		return this.runtimeEventsStore().latestCompactionSummary(compactedSummaryForContext);
 	}
 
 	private consumeInjections(injectionIds?: string[]): string[] {
@@ -6616,7 +6098,7 @@ export class BotRuntime {
 		return rows.map((row) => row.text);
 	}
 
-	private async injectThought(text: string, metadata: InjectionMetadata = {}): Promise<BotRuntimeEvent> {
+	private injectThought(text: string, metadata: InjectionMetadata = {}): BotRuntimeEvent {
 		const now = new Date().toISOString();
 		const id = crypto.randomUUID();
 		this.state.storage.sql.exec(
@@ -6702,7 +6184,7 @@ export class BotRuntime {
 			const overBudgetTokens = Math.max(0, estimate.promptTokens - allowedPromptTokens);
 			const maxCompletionTokens = providerLoopMaxCompletionTokens(requestContextWindowTokens, estimate.promptTokens);
 			if (options.reason === 'prompt_budget') {
-				await this.appendEvent(runId, 'provider_token_estimate', {
+				this.appendEvent(runId, 'provider_token_estimate', {
 					model: settings.model,
 					messageCount: requestMessages.length,
 					toolCount: providerTools.length,
@@ -7102,7 +6584,7 @@ export class BotRuntime {
 				...(overBudgetFallback ? { overBudgetFallback: true } : {}),
 			};
 			if (!summaryEvent) {
-				summaryEvent = await this.appendEvent(runId, 'compaction', {
+				summaryEvent = this.appendEvent(runId, 'compaction', {
 					...compactionEventPayload,
 					status: 'pending',
 				});
@@ -7447,50 +6929,16 @@ export class BotRuntime {
 		return textTokenCalibrationFromProviderTokenCalibrationSamples(rows);
 	}
 
-	private async appendEvent(runId: string, type: BotRuntimeEventType, payload: unknown): Promise<BotRuntimeEvent> {
-		const now = new Date().toISOString();
-		const payloadJson = JSON.stringify(payload);
-		const tokenEstimate = estimateTextTokens(payloadJson);
-		this.state.storage.sql.exec(
-			`INSERT INTO events (run_id, type, payload_json, token_estimate, compacted_by, created_at)
-			 VALUES (?, ?, ?, ?, NULL, ?)`,
-			runId,
-			type,
-			payloadJson,
-			tokenEstimate,
-			now,
-		);
-		const row = this.state.storage.sql.exec<{ seq: number }>(`SELECT last_insert_rowid() AS seq`).one();
-		const event: BotRuntimeEvent = {
-			seq: row.seq,
-			runId,
-			type,
-			payload,
-			tokenEstimate,
-			createdAt: now,
-		};
-		this.broadcast(event);
-		return event;
+	private runtimeEventsStore(): RuntimeEventsStore {
+		return new RuntimeEventsStore(this.state.storage, (event) => this.broadcast(event));
+	}
+
+	private appendEvent(runId: string, type: BotRuntimeEventType, payload: unknown): BotRuntimeEvent {
+		return this.runtimeEventsStore().appendEvent(runId, type, payload);
 	}
 
 	private replaceEventPayload(event: BotRuntimeEvent, payload: unknown): BotRuntimeEvent {
-		const payloadJson = JSON.stringify(payload);
-		const tokenEstimate = estimateTextTokens(payloadJson);
-		this.state.storage.sql.exec(
-			`UPDATE events
-			 SET payload_json = ?, token_estimate = ?
-			 WHERE seq = ?`,
-			payloadJson,
-			tokenEstimate,
-			event.seq,
-		);
-		const updated = {
-			...event,
-			payload,
-			tokenEstimate,
-		};
-		this.broadcast(updated);
-		return updated;
+		return this.runtimeEventsStore().replaceEventPayload(event, payload);
 	}
 
 	private async clearHistory(
@@ -7591,43 +7039,7 @@ export class BotRuntime {
 	}
 
 	private eventsAfter(afterSeq: number, initialLimit?: number): BotRuntimeEvent[] {
-		const limit = positiveInteger(initialLimit) ?? 240;
-		const rows =
-			afterSeq > 0
-				? this.state.storage.sql
-						.exec<RuntimeRow>(
-							`SELECT seq, run_id, type, payload_json, token_estimate, compacted_by, created_at
-						 FROM events
-						 WHERE seq > ?
-						   AND type != 'provider_delta'
-						 ORDER BY seq ASC
-						 LIMIT 2000`,
-							afterSeq,
-						)
-						.toArray()
-				: this.state.storage.sql
-						.exec<RuntimeRow>(
-							`SELECT seq, run_id, type, payload_json, token_estimate, compacted_by, created_at
-						 FROM (
-							SELECT seq, run_id, type, payload_json, token_estimate, compacted_by, created_at
-							FROM events
-							WHERE type != 'provider_delta'
-							ORDER BY seq DESC
-							LIMIT ?
-						 )
-						 ORDER BY seq ASC`,
-							limit,
-						)
-						.toArray();
-		return rows.map((row) => ({
-			seq: row.seq,
-			runId: row.run_id,
-			type: row.type,
-			payload: JSON.parse(row.payload_json) as unknown,
-			tokenEstimate: row.token_estimate,
-			createdAt: row.created_at,
-			...(row.compacted_by ? { compactedBy: row.compacted_by } : {}),
-		}));
+		return this.runtimeEventsStore().eventsAfter(afterSeq, initialLimit);
 	}
 
 	private broadcast(event: BotRuntimeEvent): void {
@@ -7683,7 +7095,7 @@ export class BotRuntime {
 			if (stale) {
 				const message = `The Bickr page stopped responding after ${Math.round(providerStreamIdleTimeoutMs / 1000)} seconds.`;
 				if (!this.hasTerminalEvent(row.activeRunId)) {
-					await this.recordTickFailure(row.activeRunId, {
+					this.recordTickFailure(row.activeRunId, {
 						message,
 						lastEventType: stale.type,
 						lastEventAt: stale.created_at,
@@ -7721,7 +7133,7 @@ export class BotRuntime {
 		if (row?.status === 'running' && row.leaseExpiresAt && Date.parse(row.leaseExpiresAt) <= Date.now()) {
 			const message = 'This Bickr visit took too long and closed before completion.';
 			if (row.activeRunId && !this.hasTerminalEvent(row.activeRunId)) {
-				await this.recordTickFailure(row.activeRunId, {
+				this.recordTickFailure(row.activeRunId, {
 					message,
 					leaseExpiresAt: row.leaseExpiresAt,
 				});
@@ -8551,13 +7963,6 @@ function positiveCursorValue(value: string | null): number | undefined {
 		return undefined;
 	}
 	return Math.floor(parsed);
-}
-
-function positiveInteger(value: number | undefined): number | undefined {
-	if (value === undefined || !Number.isFinite(value)) {
-		return undefined;
-	}
-	return Math.max(1, Math.floor(value));
 }
 
 export async function readOptionalJsonBody(request: Request): Promise<unknown> {
@@ -13344,105 +12749,6 @@ function stringArrayValue(value: unknown): string[] {
 
 function runtimeRecord(value: unknown): Record<string, unknown> {
 	return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
-}
-
-function loopMessageFromRow(row: LoopMessageRow): BotLoopMessage {
-	const display = loopMessageDisplayFromRow(row);
-	return {
-		seq: row.seq,
-		position: row.position,
-		runId: row.run_id,
-		role: row.role,
-		message: loopMessageChatMessageFromRow(row),
-		...(display ? { display } : {}),
-		origin: row.origin,
-		tokenEstimate: row.token_estimate,
-		createdAt: row.created_at,
-		...(row.status ? { status: row.status } : {}),
-		...(row.stream_seq !== null ? { streamSeq: row.stream_seq } : {}),
-		...(row.compacted_by ? { compactedBy: row.compacted_by } : {}),
-		...(row.deleted_at ? { deletedAt: row.deleted_at } : {}),
-		...(row.has_logs ? { hasLogs: true } : {}),
-	};
-}
-
-function loopMessageDisplayFromRow(row: LoopMessageRow): BotLoopMessageDisplay | undefined {
-	const eventSeq = row.display_event_seq;
-	const payloadJson = row.display_event_payload_json;
-	if (typeof eventSeq !== 'number' || !Number.isInteger(eventSeq) || !payloadJson || row.display_event_type !== 'tool_result') {
-		return undefined;
-	}
-	try {
-		const payload = runtimeRecord(JSON.parse(payloadJson) as unknown);
-		const name = stringValue(payload.name);
-		if (!name || !Object.hasOwn(payload, 'result')) {
-			return undefined;
-		}
-		const context = runtimeRecord(payload.displayContext);
-		const worldHandle = stringValue(context.worldHandle);
-		return {
-			kind: 'tool_result',
-			eventSeq,
-			name,
-			args: payload.args,
-			result: payload.result,
-			...(worldHandle ? { context: { worldHandle } } : {}),
-		};
-	} catch {
-		return undefined;
-	}
-}
-
-function loopMessageLogFromRow(row: LoopMessageLogRow, text: string): BotLoopMessageLog {
-	return {
-		id: row.id,
-		messageSeq: row.message_seq,
-		kind: row.kind,
-		encoding: row.encoding,
-		textLength: row.text_length,
-		text,
-		createdAt: row.created_at,
-		...(row.base_log_id ? { baseLogId: row.base_log_id } : {}),
-		...(row.prefix_length !== null ? { prefixLength: row.prefix_length } : {}),
-	};
-}
-
-function encodeLoopMessageLog(
-	text: string,
-	baseText: string,
-	baseLogId: number,
-): { encoding: BotLoopMessageLogEncoding; text: string; baseLogId?: number; prefixLength?: number } {
-	if (text.startsWith(baseText) && text.length > baseText.length) {
-		const suffix = text.slice(baseText.length);
-		if (suffix.length < text.length * 0.9) {
-			return { encoding: 'append', text: suffix, baseLogId };
-		}
-	}
-	const prefixLength = commonPrefixLength(text, baseText);
-	if (prefixLength >= 256 && prefixLength >= text.length * 0.4) {
-		return { encoding: 'replace_tail', text: text.slice(prefixLength), baseLogId, prefixLength };
-	}
-	return { encoding: 'full', text };
-}
-
-function commonPrefixLength(left: string, right: string): number {
-	const limit = Math.min(left.length, right.length);
-	let index = 0;
-	while (index < limit && left.charCodeAt(index) === right.charCodeAt(index)) {
-		index += 1;
-	}
-	return index;
-}
-
-function chunkText(text: string, chunkLength: number): string[] {
-	if (!text) {
-		return [''];
-	}
-	const chunks: string[] = [];
-	for (let index = 0; index < text.length; index += chunkLength) {
-		chunks.push(text.slice(index, index + chunkLength));
-	}
-	return chunks;
 }
 
 function loopMessageContextLine(row: LoopMessageRow): string {

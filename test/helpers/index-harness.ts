@@ -1900,7 +1900,7 @@ export function testRuntimeForToolExecution(): BotRuntime {
 			},
 		},
 		events,
-		appendEvent: async (runId: string, type: string, payload: unknown) => {
+		appendEvent: (runId: string, type: string, payload: unknown) => {
 			seq += 1;
 			const event = {
 				seq,

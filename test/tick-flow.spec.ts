@@ -1502,7 +1502,7 @@ describe("Tick flow", () => {
 	it("rejects empty provider responses without appending them to the loop ledger", async () => {
 		const appendedLoopMessages: Array<{ message: Record<string, unknown>; origin: string }> = [];
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
-			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) =>
+			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) =>
 				runtimeEvent(type === "provider_request" ? 123 : 124, runId, type as BotRuntimeEvent["type"], payload),
 			appendLoopMessage: (
 				_runId: string,
@@ -1576,7 +1576,7 @@ describe("Tick flow", () => {
 			}))
 			.mockResolvedValueOnce(providerResponseWithContent("I will continue normally."));
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
-			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 				events.push({ type, payload });
 				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
 			},
@@ -1651,7 +1651,7 @@ describe("Tick flow", () => {
 		const appendedLoopMessages: Array<{ message: Record<string, unknown>; origin: string }> = [];
 		const executedTools: Array<{ name: string; args: Record<string, unknown> }> = [];
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
-			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 				events.push({ type, payload });
 				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
 			},
@@ -1754,7 +1754,7 @@ describe("Tick flow", () => {
 				return providerResponseWithContent("done");
 			});
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
-			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 				events.push({ type, payload });
 				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
 			},
@@ -1843,7 +1843,7 @@ describe("Tick flow", () => {
 			]))
 			.mockResolvedValueOnce(providerResponseWithContent("done"));
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
-			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) =>
+			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) =>
 				runtimeEvent(appendedLoopMessages.length + callProvider.mock.calls.length + 1, runId, type as BotRuntimeEvent["type"], payload),
 			appendLoopMessage: (_runId: string, message: BotInferenceSubmissionMessage, origin: string) => {
 				appendedLoopMessages.push({ message, origin });
@@ -1924,7 +1924,7 @@ describe("Tick flow", () => {
 			]))
 			.mockResolvedValueOnce(providerResponseWithContent("done"));
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
-			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 				events.push({ type, payload });
 				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
 			},
@@ -2026,7 +2026,7 @@ describe("Tick flow", () => {
 			]))
 			.mockResolvedValueOnce(providerResponseWithContent("done"));
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
-			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) =>
+			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) =>
 				runtimeEvent(type === "provider_request" ? callProvider.mock.calls.length : appendedLoopMessages.length + executedTools.length + 1, runId, type as BotRuntimeEvent["type"], payload),
 			appendLoopMessage: (_runId: string, message: Record<string, unknown>, origin: string) => {
 				appendedLoopMessages.push({ message, origin });
@@ -2113,7 +2113,7 @@ describe("Tick flow", () => {
 			.mockResolvedValueOnce(providerResponseWithContent("done"));
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 			env: testEnv,
-			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 				events.push({ type, payload });
 				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
 			},
@@ -2183,7 +2183,7 @@ describe("Tick flow", () => {
 		let providerTools: ProviderToolDefinition[] = [];
 		const executedTools: string[] = [];
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
-			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) =>
+			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) =>
 				runtimeEvent(type === "provider_request" ? 1 : 2, runId, type as BotRuntimeEvent["type"], payload),
 			appendLoopMessage: (
 				_runId: string,
@@ -2264,7 +2264,7 @@ describe("Tick flow", () => {
 		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
 		const appendedLoopMessages: Array<{ message: Record<string, unknown>; origin: string }> = [];
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
-			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 				events.push({ type, payload });
 				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
 			},
@@ -2367,7 +2367,7 @@ describe("Tick flow", () => {
 				usage: providerUsageForTest(20),
 			});
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
-			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 				events.push({ type, payload });
 				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
 			},
@@ -2477,7 +2477,7 @@ describe("Tick flow", () => {
 		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
 		const executedTools: string[] = [];
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
-			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 				events.push({ type, payload });
 				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
 			},
@@ -2571,7 +2571,7 @@ describe("Tick flow", () => {
 		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
 		const executedTools: string[] = [];
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
-			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 				events.push({ type, payload });
 				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
 			},
@@ -2675,7 +2675,7 @@ describe("Tick flow", () => {
 		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
 		const executedTools: string[] = [];
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
-			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 				events.push({ type, payload });
 				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
 			},
