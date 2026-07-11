@@ -8,7 +8,7 @@ import {
 } from '@bickr/shared/avatar-storage';
 import { isCloudflareRateLimitError, retryCloudflareOperation } from '@bickr/shared/cloudflare';
 import { isD1UniqueConstraintError } from '@bickr/shared/d1-errors';
-import { deleteForum, deleteWorld, updateWorld } from '@bickr/shared/governance';
+import { updateWorld } from '@bickr/shared/governance';
 import { json } from '@bickr/shared/http';
 import { formatCommentRef, formatThreadRef, parseCommentRef, parseObjectRef, parseThreadRef } from '@bickr/shared/ids';
 import {
@@ -7474,7 +7474,7 @@ export async function handleAgentRuntimeRequest(
 		| 'OPENROUTER_API_KEY'
 		| 'OPENROUTER_BASE_URL'
 		| 'OPENROUTER_MODEL'
-	>,
+	> & Partial<Pick<Env, 'FORUM_COORDINATOR_SERVICE' | 'INTERNAL_SERVICE_SECRET'>>,
 	objectId = 'direct',
 ): Promise<Response> {
 	try {
@@ -7810,10 +7810,18 @@ export async function handleAgentRuntimeRequest(
 				await deleteBotVector(env, deleted.id);
 			}
 			for (const forum of ownedForumsOutsideOwnedWorlds) {
-				await deleteForum(env.BICKR_KV, env.BICKR_D1, forum.worldHandle, forum.handle, userId, now);
+				await requestCoordinatorGovernanceDeletion(
+					env,
+					`/worlds/${encodeURIComponent(forum.worldHandle)}/forums/${encodeURIComponent(forum.handle)}`,
+					userId,
+				);
 			}
 			for (const world of ownedWorlds) {
-				await deleteWorld(env.BICKR_KV, env.BICKR_D1, world.handle, userId, now);
+				await requestCoordinatorGovernanceDeletion(
+					env,
+					`/worlds/${encodeURIComponent(world.handle)}`,
+					userId,
+				);
 			}
 			const deletedProfile = await softDeleteUserProfile(env.BICKR_KV, env.BICKR_D1, userId, now);
 			return ok({
@@ -7831,6 +7839,31 @@ export async function handleAgentRuntimeRequest(
 	} catch (error) {
 		return errorResponse(error);
 	}
+}
+
+async function requestCoordinatorGovernanceDeletion(
+	env: Partial<Pick<Env, 'FORUM_COORDINATOR_SERVICE' | 'INTERNAL_SERVICE_SECRET'>>,
+	path: string,
+	userId: string,
+): Promise<void> {
+	if (!env.FORUM_COORDINATOR_SERVICE) {
+		throw new RepositoryError('server_error', 'Forum coordinator service is unavailable.', 500);
+	}
+	const headers = new Headers({ 'x-bickr-user-id': userId });
+	addInternalServiceAuthHeader(headers, env.INTERNAL_SERVICE_SECRET);
+	const response = await env.FORUM_COORDINATOR_SERVICE.fetch(new Request(internalServiceUrl(path), {
+		method: 'DELETE',
+		headers,
+	}));
+	if (response.ok) {
+		return;
+	}
+	const payload = runtimeRecord(await response.json());
+	const apiError = apiErrorPayload(payload);
+	if (apiError) {
+		throw new RepositoryError(repositoryErrorCode(apiError.error), apiError.message, response.status || 500, apiError.details);
+	}
+	throw new RepositoryError('server_error', 'Governance deletion coordinator request failed.', response.status || 500);
 }
 
 export default {

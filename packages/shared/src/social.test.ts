@@ -595,8 +595,12 @@ class FakeD1 implements D1DatabaseLike {
 	}
 
 	first<T>(query: string, bindings: unknown[]): T | null {
-		if (query.includes("FROM forums_index") && query.includes("WHERE forum_id = ?")) {
-			return { deletedAt: null } as T;
+		if (query.includes("FROM forums_index f") && query.includes("WHERE f.forum_id = ?")) {
+			return {
+				worldId: "wld_primary",
+				forumDeletedAt: null,
+				worldDeletedAt: null,
+			} as T;
 		}
 		if (query.includes("FROM bots_index") && query.includes("WHERE bot_id = ?")) {
 			return { deletedAt: null } as T;

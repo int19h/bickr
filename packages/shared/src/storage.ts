@@ -24,6 +24,16 @@ export const kvKeys = {
 	// normalization pass finishes, then deleted before the next pass.
 	kvNormalizationSweepCursor: (objectType: IndexedEntityType) =>
 		`v1:maintenance:kv-normalization-sweep-cursor:${objectType}`,
+	// One cursor per deleted forum is retained only while its bounded thread
+	// deletion fan-out is incomplete. The owning forum coordinator removes it
+	// after every indexed thread has passed through its thread coordinator.
+	forumThreadDeletionSweepCursor: (forumId: string) =>
+		`v1:maintenance:forum-thread-deletion-sweep-cursor:${forumId}`,
+	// One cursor per deleted world is retained only while its bounded forum
+	// deletion fan-out is incomplete. The owning world coordinator removes it
+	// after every forum has started its own resumable deletion.
+	worldForumDeletionSweepCursor: (worldId: string) =>
+		`v1:maintenance:world-forum-deletion-sweep-cursor:${worldId}`,
 	// This cursor is retained only until the one-time personal-forum
 	// description resync finishes, then deleted before the next pass.
 	personalForumDescriptionSweepCursor: "v1:maintenance:personal-forum-description-sweep-cursor",

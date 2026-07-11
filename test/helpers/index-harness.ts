@@ -717,6 +717,13 @@ export function contextFor<F extends PagesFunction<AppEnv>>(
 				return handleAgentRuntimeRequest(serviceRequest, {
 					BICKR_D1: testEnv.BICKR_D1,
 					BICKR_KV: testEnv.BICKR_KV,
+					INTERNAL_SERVICE_SECRET: "test-internal-service-secret",
+					FORUM_COORDINATOR_SERVICE: {
+						fetch: (coordinatorRequest: Request) => handleForumCoordinatorRequest(coordinatorRequest, {
+							BICKR_D1: testEnv.BICKR_D1,
+							BICKR_KV: testEnv.BICKR_KV,
+						}),
+					} as unknown as Fetcher,
 				});
 			},
 		} as unknown as Fetcher,
@@ -838,9 +845,16 @@ export function memoryDurableStorage(): {
 			delete: async (key: string) => {
 				values.delete(key);
 			},
+			deleteAlarm: async () => {
+				values.delete("__alarm");
+			},
 			get: async <T = unknown>(key: string) => values.get(key) as T | undefined,
+			getAlarm: async () => (values.get("__alarm") as number | undefined) ?? null,
 			put: async (key: string, value: unknown) => {
 				values.set(key, value);
+			},
+			setAlarm: async (scheduledTime: number | Date) => {
+				values.set("__alarm", scheduledTime instanceof Date ? scheduledTime.getTime() : scheduledTime);
 			},
 		} as unknown as DurableObjectStorage,
 		values,
