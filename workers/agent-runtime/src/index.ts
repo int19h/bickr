@@ -203,6 +203,28 @@ import {
 	type ProviderSettings,
 } from './provider-requests';
 import {
+	consumeProviderResponse as consumeProviderSseResponse,
+	hasProviderHistoryText,
+	isAbortError,
+	providerFetchWithHeaderTimeout,
+	providerResponseIsEmpty,
+	readJsonResponse,
+	readJsonResponseText,
+	readLimitedText,
+	readProviderErrorBody,
+	readSse,
+	withAbortableTimeout,
+	withStandaloneTimeout,
+} from './provider/sse';
+import {
+	providerIgnoreRetryReason,
+	providerRetryDelayMsForAttempt,
+	providerRetryKey,
+	providerRetryKeyForAttempt,
+	providerRoutingWithIgnoredProvider,
+	providerUpstreamRateLimitRetry,
+} from './provider/retry';
+import {
 	appendToolRequirementInstruction,
 	defaultProviderCompactionSummaryLimits,
 	isNonReducingCompactionValidationError,
@@ -294,7 +316,6 @@ import {
 	ProviderResponseBodyTimeoutError,
 	ResponseBodySizeLimitError,
 	ProviderEmptyResponseError,
-	ProviderStreamIdleTimeoutError,
 	PromptContextBudgetExceededError,
 	PromptContextCompactionLimitError,
 	PersistentCompactionReductionFailureError,
@@ -318,7 +339,6 @@ import {
 	providerBodyReadTimeoutMs,
 	providerStreamIdleTimeoutMs,
 	providerResponseBodyMaxBytes,
-	providerFailureRawResponseMaxCharacters,
 	openRouterGenerationMetadataMaxBytes,
 	openRouterGenerationMetadataTimeoutMs,
 	openRouterExperimentalMetadataHeader,
@@ -335,7 +355,6 @@ import {
 	cloudflareBindingRetryInitialDelayMs,
 	cloudflareBindingRetryMaxDelayMs,
 	providerMaxAttempts,
-	providerRetryBaseDelayMs,
 	providerNoToolChoice,
 	providerTokenProbeToolChoice,
 	providerParallelToolCalls,
@@ -1820,30 +1839,6 @@ function toolCallWithArguments(toolCall: ToolCall, args: string): ToolCall {
 
 function cloneToolCall(toolCall: ToolCall): ToolCall {
 	return toolCallWithArguments(toolCall, toolCall.function.arguments);
-}
-
-function hasProviderHistoryText(value: unknown): value is string {
-	return typeof value === 'string' && value.trim().length > 0;
-}
-
-function providerResponseIsEmpty(response: Pick<ProviderResponse, 'content' | 'reasoning' | 'reasoningDetails' | 'toolCalls'>): boolean {
-	return providerResponsePartsAreEmpty(response.content, response.reasoning, response.reasoningDetails, response.toolCalls);
-}
-
-function providerResponsePartsAreEmpty(
-	content: unknown,
-	reasoning: unknown,
-	reasoningDetails: readonly unknown[],
-	toolCalls: readonly unknown[],
-): boolean {
-	return !hasProviderHistoryText(content) && !hasProviderHistoryText(reasoning) && reasoningDetails.length === 0 && toolCalls.length === 0;
-}
-
-function appendRawResponsePreview(current: string, next: string): string {
-	if (current.length >= providerFailureRawResponseMaxCharacters) {
-		return current;
-	}
-	return `${current}${next}`.slice(0, providerFailureRawResponseMaxCharacters);
 }
 
 export function providerTokenProbeRequest(
@@ -4040,8 +4035,8 @@ export class BotRuntime {
 						continue;
 					}
 				}
-				const retryKey = providerRetryKey(error);
-				if (retryKey && attempt < providerMaxAttempts && (previousRetryKey === null || previousRetryKey === retryKey)) {
+				const retryKey = providerRetryKeyForAttempt(error, previousRetryKey);
+				if (retryKey && attempt < providerMaxAttempts) {
 					previousRetryKey = retryKey;
 					retryDelayMs = providerRetryDelayMsForAttempt(attempt + 1);
 					retryReason = retryKey;
@@ -4262,153 +4257,29 @@ export class BotRuntime {
 		signal: AbortSignal,
 		generationResponseId?: string,
 	): Promise<ProviderResponse> {
-		let content = '';
-		let reasoning = '';
-		const reasoningDetails: ReasoningDetail[] = [];
-		const toolCalls = new Map<number, ToolCall>();
-		let usage: ProviderUsage | undefined;
-		let responseId: string | undefined = generationResponseId;
-		let responseModel: string | undefined;
-		let responseProviderName: string | undefined;
-		let rawResponse = '';
-		let skippedRawResponse = '';
-		this.markProviderStreamActive(runId);
-		try {
-			for await (const event of readSse(stream, signal)) {
-				this.throwIfStopped(runId, signal);
-				this.markProviderStreamActive(runId);
-				const rawPreviewCaptured = providerResponsePartsAreEmpty(content, reasoning, reasoningDetails, [...toolCalls.values()]);
-				if (rawPreviewCaptured) {
-					rawResponse = appendRawResponsePreview(rawResponse, event.raw);
-				}
-				if (event.data === '[DONE]') {
-					break;
-				}
-				let chunk: {
-					id?: unknown;
-					model?: unknown;
-					usage?: unknown;
-					error?: unknown;
-					openrouter_metadata?: unknown;
-					choices?: Array<{
-						delta?: {
-							content?: string;
-							reasoning?: string;
-							reasoning_content?: string;
-							reasoning_details?: ReasoningDetail[];
-							tool_calls?: Array<{
-								index: number;
-								id?: string;
-								type?: 'function';
-								function?: { name?: string; arguments?: string };
-							}>;
-						};
-					}>;
-				};
-				try {
-					chunk = JSON.parse(event.data) as typeof chunk;
-				} catch {
-					if (!rawPreviewCaptured) {
-						rawResponse = appendRawResponsePreview(rawResponse, event.raw);
-					}
-					skippedRawResponse = appendRawResponsePreview(skippedRawResponse, event.raw);
-					continue;
-				}
-				responseId = responseId ?? stringValue(chunk.id);
-				responseModel = stringValue(chunk.model) ?? responseModel;
-				usage = providerUsageFromValue(chunk.usage) ?? usage;
-				responseProviderName = openRouterMetadataProviderName(chunk.openrouter_metadata) ?? responseProviderName;
-				const providerError = providerStreamErrorFromChunk(chunk);
-				if (providerError) {
-					throw providerError;
-				}
-				const delta = chunk.choices?.[0]?.delta;
-				if (!delta) {
-					continue;
-				}
-				if (delta.content) {
-					content += delta.content;
-					this.broadcastProviderDelta(runId, streamSeq, { kind: 'content', text: delta.content });
-				}
-				const plainReasoning = delta.reasoning ?? delta.reasoning_content;
-				let detailsReasoning = '';
-				if (Array.isArray(delta.reasoning_details) && delta.reasoning_details.length > 0) {
-					const mergedReasoningDetails = normalizeReasoningDetailsForProviderHistory([...reasoningDetails, ...delta.reasoning_details]);
-					reasoningDetails.length = 0;
-					reasoningDetails.push(...mergedReasoningDetails);
-					detailsReasoning = reasoningTextFromDetails(delta.reasoning_details);
-				}
-				const deltaReasoning = plainReasoning || detailsReasoning;
-				if (deltaReasoning) {
-					reasoning += deltaReasoning;
-					this.broadcastProviderDelta(runId, streamSeq, { kind: 'reasoning', text: deltaReasoning });
-				}
-				for (const part of delta.tool_calls ?? []) {
-					const current =
-						toolCalls.get(part.index) ??
-						({
-							id: part.id ?? `tool-${part.index}`,
-							type: 'function',
-							function: { name: '', arguments: '' },
-						} satisfies ToolCall);
-					if (part.id) {
-						current.id = part.id;
-					}
-					if (part.function?.name) {
-						current.function.name += part.function.name;
-					}
-					if (part.function?.arguments) {
-						current.function.arguments += part.function.arguments;
-					}
-					toolCalls.set(part.index, current);
-					this.broadcastProviderDelta(runId, streamSeq, { kind: 'tool_call', part });
-				}
-			}
-		} catch (error) {
-			if (error instanceof ProviderStreamIdleTimeoutError) {
-				throw error;
-			}
-			if (error instanceof TickStoppedError || isAbortError(error)) {
-				throw new ProviderResponseInterruptedError(
-					{
-						content,
-						reasoning,
-						reasoningDetails,
-						toolCalls: [...toolCalls.values()].filter((tool) => tool.function.name),
-						...(rawResponse ? { rawResponse } : {}),
-						...(skippedRawResponse ? { skippedRawResponse } : {}),
-						...(usage ? { usage } : {}),
-						...(responseId ? { responseId } : {}),
-						...(responseModel ? { responseModel } : {}),
-						...(responseProviderName ? { responseProviderName } : {}),
-					},
-					error,
-				);
-			}
-			throw error;
-		} finally {
-			this.clearProviderStreamActive(runId);
-		}
-		const response = {
-			content: repairInvalidUnicodeText(content),
-			reasoning: repairInvalidUnicodeText(reasoning),
-			reasoningDetails: repairInvalidUnicodeValue(reasoningDetails).value,
-			toolCalls: [...toolCalls.values()].filter((tool) => tool.function.name),
-			...(rawResponse ? { rawResponse } : {}),
-			...(skippedRawResponse ? { skippedRawResponse } : {}),
-			...(usage ? { usage } : {}),
-			...(responseId ? { responseId } : {}),
-			...(responseModel ? { responseModel } : {}),
-			...(responseProviderName ? { responseProviderName } : {}),
-		};
-		if (providerResponseIsEmpty(response)) {
-			throw new ProviderEmptyResponseError(response.rawResponse, {
-				...(responseId ? { responseId } : {}),
-				...(responseModel ? { responseModel } : {}),
-				...(usage ? { usage } : {}),
-			});
-		}
-		return response;
+		return consumeProviderSseResponse(
+			runId,
+			streamSeq,
+			stream,
+			signal,
+			{
+				stringValue,
+				usageFromValue: providerUsageFromValue,
+				metadataProviderName: openRouterMetadataProviderName,
+				streamErrorFromChunk: providerStreamErrorFromChunk,
+				normalizeReasoningDetails: normalizeReasoningDetailsForProviderHistory,
+				reasoningTextFromDetails,
+				repairInvalidUnicodeText,
+				repairInvalidUnicodeValue,
+				isAbortError,
+				markProviderStreamActive: (activeRunId) => this.markProviderStreamActive(activeRunId),
+				clearProviderStreamActive: (activeRunId) => this.clearProviderStreamActive(activeRunId),
+				throwIfStopped: (activeRunId, activeSignal) => this.throwIfStopped(activeRunId, activeSignal),
+				broadcastProviderDelta: (activeRunId, activeStreamSeq, payload) =>
+					this.broadcastProviderDelta(activeRunId, activeStreamSeq, payload),
+			},
+			generationResponseId,
+		);
 	}
 
 	private async appendProviderMessages(
@@ -13949,35 +13820,6 @@ export function truncateForContext(text: string, maxLength: number): string {
 	return `${unicodeSafeSlice(repaired, Math.max(0, maxLength - 1))}…`;
 }
 
-type ReadTextOptions = {
-	signal?: AbortSignal;
-	timeoutMs?: number;
-	timeoutError?: () => Error;
-};
-
-type ReadTextResult = {
-	text: string;
-	truncated: boolean;
-};
-
-async function readProviderErrorBody(response: Response, signal: AbortSignal): Promise<string> {
-	try {
-		return await readLimitedText(response.body, 1_200, {
-			signal,
-			timeoutMs: providerBodyReadTimeoutMs,
-			timeoutError: () => new ProviderResponseBodyTimeoutError(providerBodyReadTimeoutMs),
-		});
-	} catch (error) {
-		if (error instanceof TickStoppedError || isAbortError(error)) {
-			throw error;
-		}
-		if (error instanceof ProviderResponseBodyTimeoutError) {
-			return 'Timed out while reading provider error response.';
-		}
-		return 'Could not read provider error response.';
-	}
-}
-
 function providerRequestErrorFromBody(
 	status: number,
 	model: string,
@@ -14020,380 +13862,6 @@ function providerErrorCauseFromPayload(payload: unknown, fallbackStatus: number)
 	};
 }
 
-async function readJsonResponse(
-	response: Response,
-	maxBytes: number,
-	signal: AbortSignal,
-	timeoutMs: number,
-	timeoutError: () => Error,
-): Promise<unknown> {
-	return JSON.parse(await readJsonResponseText(response, maxBytes, signal, timeoutMs, timeoutError));
-}
-
-async function readJsonResponseText(
-	response: Response,
-	maxBytes: number,
-	signal: AbortSignal,
-	timeoutMs: number,
-	timeoutError: () => Error,
-): Promise<string> {
-	const result = await readTextFromStream(response.body, maxBytes, {
-		signal,
-		timeoutMs,
-		timeoutError,
-	});
-	if (result.truncated) {
-		throw new ResponseBodySizeLimitError(maxBytes);
-	}
-	return result.text;
-}
-
-async function readLimitedText(
-	stream: ReadableStream<Uint8Array> | null,
-	maxBytes: number,
-	options: ReadTextOptions = {},
-): Promise<string> {
-	const result = await readTextFromStream(stream, maxBytes, options);
-	const trimmed = result.text.trim();
-	return result.truncated ? `${trimmed}...` : trimmed;
-}
-
-async function readTextFromStream(
-	stream: ReadableStream<Uint8Array> | null,
-	maxBytes: number,
-	options: ReadTextOptions = {},
-): Promise<ReadTextResult> {
-	if (!stream) {
-		return { text: '', truncated: false };
-	}
-	const reader = stream.getReader();
-	const decoder = new TextDecoder();
-	let text = '';
-	let bytesRead = 0;
-	let timeout: ReturnType<typeof setTimeout> | undefined;
-	let abortListener: (() => void) | undefined;
-	const cancelReader = (reason: string) => {
-		void reader.cancel(reason).catch(() => {
-			// The stream may already have completed or been canceled by the peer.
-		});
-	};
-	const timeoutMs = options.timeoutMs;
-	const timeoutPromise =
-		timeoutMs === undefined
-			? undefined
-			: new Promise<never>((_, reject) => {
-					timeout = setTimeout(() => {
-						const error = options.timeoutError ? options.timeoutError() : new RuntimeOperationTimeoutError('Response body read', timeoutMs);
-						cancelReader(error.message);
-						reject(error);
-					}, timeoutMs);
-				});
-	let abortPromise: Promise<never> | undefined;
-	if (options.signal) {
-		if (options.signal.aborted) {
-			cancelReader('This Bickr visit was stopped.');
-			throw new TickStoppedError();
-		}
-		abortPromise = new Promise<never>((_, reject) => {
-			abortListener = () => {
-				cancelReader('This Bickr visit was stopped.');
-				reject(new TickStoppedError());
-			};
-			options.signal?.addEventListener('abort', abortListener, { once: true });
-		});
-	}
-	const read = () => Promise.race([reader.read(), ...(timeoutPromise ? [timeoutPromise] : []), ...(abortPromise ? [abortPromise] : [])]);
-	try {
-		while (true) {
-			if (bytesRead >= maxBytes) {
-				const { done } = await read();
-				if (done) {
-					text += decoder.decode();
-					return { text, truncated: false };
-				}
-				cancelReader('Response body byte limit reached.');
-				return { text, truncated: true };
-			}
-			const { done, value } = await read();
-			if (done) {
-				text += decoder.decode();
-				return { text, truncated: false };
-			}
-			const remaining = maxBytes - bytesRead;
-			const chunk = value.byteLength > remaining ? value.slice(0, remaining) : value;
-			bytesRead += chunk.byteLength;
-			const truncated = value.byteLength > remaining;
-			text += decoder.decode(chunk, { stream: !truncated });
-			if (value.byteLength > remaining) {
-				cancelReader('Response body byte limit reached.');
-				return { text, truncated: true };
-			}
-		}
-	} finally {
-		if (timeout !== undefined) {
-			clearTimeout(timeout);
-		}
-		if (options.signal && abortListener) {
-			options.signal.removeEventListener('abort', abortListener);
-		}
-		try {
-			reader.releaseLock();
-		} catch {
-			// A canceled read can still be settling after the caller has moved on.
-		}
-	}
-}
-
-function isAbortError(error: unknown): boolean {
-	return Boolean(error && typeof error === 'object' && 'name' in error && (error as { name?: unknown }).name === 'AbortError');
-}
-
-type SseEvent = { data: string; raw: string };
-
-const sseEventBoundaryPattern = /\r?\n\r?\n/;
-
-function sseEventData(raw: string): string {
-	return raw
-		.split(/\r?\n/)
-		.filter((line) => line.startsWith('data:'))
-		.map((line) => line.slice(5).trim())
-		.join('\n');
-}
-
-// TODO(#44): move this SSE parser to provider/sse.ts when provider code is split out.
-export async function* readSse(
-	stream: ReadableStream<Uint8Array>,
-	signal?: AbortSignal,
-	idleTimeoutMs = providerStreamIdleTimeoutMs,
-): AsyncGenerator<SseEvent> {
-	const reader = stream.getReader();
-	const decoder = new TextDecoder();
-	let buffer = '';
-	function* drainCompleteEvents(): Generator<SseEvent> {
-		let boundary = buffer.match(sseEventBoundaryPattern);
-		while (boundary?.index !== undefined) {
-			const raw = buffer.slice(0, boundary.index);
-			const boundaryText = boundary[0];
-			buffer = buffer.slice(boundary.index + boundaryText.length);
-			const data = sseEventData(raw);
-			if (data) {
-				yield { data, raw: `${raw}${boundaryText}` };
-			}
-			boundary = buffer.match(sseEventBoundaryPattern);
-		}
-	}
-	function residualEvent(): SseEvent | null {
-		if (!buffer) {
-			return null;
-		}
-		const raw = buffer;
-		buffer = '';
-		const data = sseEventData(raw);
-		return data ? { data, raw } : null;
-	}
-	try {
-		while (true) {
-			if (signal?.aborted) {
-				throw new TickStoppedError();
-			}
-			const { done, value } = await readStreamChunk(reader, idleTimeoutMs, () => new ProviderStreamIdleTimeoutError(idleTimeoutMs), signal);
-			if (signal?.aborted) {
-				throw new TickStoppedError();
-			}
-			if (done) {
-				buffer += decoder.decode();
-				yield* drainCompleteEvents();
-				const event = residualEvent();
-				if (event) {
-					yield event;
-				}
-				break;
-			}
-			buffer += decoder.decode(value, { stream: true });
-			yield* drainCompleteEvents();
-		}
-	} finally {
-		try {
-			reader.releaseLock();
-		} catch {
-			// A timed-out read can still be settling after we have rejected the provider stream.
-		}
-	}
-}
-
-async function readStreamChunk(
-	reader: ReadableStreamDefaultReader<Uint8Array>,
-	idleTimeoutMs: number,
-	timeoutError: () => Error = () => new ProviderStreamIdleTimeoutError(idleTimeoutMs),
-	signal?: AbortSignal,
-): Promise<ReadableStreamReadResult<Uint8Array>> {
-	if (signal?.aborted) {
-		void reader.cancel('This Bickr visit was stopped.').catch(() => {
-			// The stream may already be closed or aborted by the provider.
-		});
-		throw new TickStoppedError();
-	}
-	let timeout: ReturnType<typeof setTimeout> | undefined;
-	let abortListener: (() => void) | undefined;
-	const cancelReader = (reason: string) => {
-		void reader.cancel(reason).catch(() => {
-			// The stream may already be closed or aborted by the provider.
-		});
-	};
-	const abortPromise = signal
-		? new Promise<never>((_, reject) => {
-				abortListener = () => {
-					cancelReader('This Bickr visit was stopped.');
-					reject(new TickStoppedError());
-				};
-				signal.addEventListener('abort', abortListener, { once: true });
-			})
-		: undefined;
-	try {
-		return await Promise.race([
-			reader.read(),
-			...(abortPromise ? [abortPromise] : []),
-			new Promise<never>((_, reject) => {
-				timeout = setTimeout(() => {
-					const error = timeoutError();
-					cancelReader(error.message);
-					reject(error);
-				}, idleTimeoutMs);
-			}),
-		]);
-	} finally {
-		if (timeout !== undefined) {
-			clearTimeout(timeout);
-		}
-		if (signal && abortListener) {
-			signal.removeEventListener('abort', abortListener);
-		}
-	}
-}
-
-async function providerFetchWithHeaderTimeout(
-	endpoint: string,
-	init: RequestInit,
-	signal: AbortSignal,
-	timeoutMs: number,
-): Promise<Response> {
-	return withAbortableTimeout(
-		signal,
-		timeoutMs,
-		() => new ProviderRequestTimeoutError(timeoutMs),
-		(timeoutSignal) => fetch(endpoint, { ...init, signal: timeoutSignal }),
-	);
-}
-
-async function withStandaloneTimeout<T>(operation: string, timeoutMs: number, run: () => Promise<T>): Promise<T> {
-	const parent = new AbortController();
-	return withAbortableTimeout(
-		parent.signal,
-		timeoutMs,
-		() => new RuntimeOperationTimeoutError(operation, timeoutMs),
-		() => run(),
-	);
-}
-
-async function withAbortableTimeout<T>(
-	signal: AbortSignal,
-	timeoutMs: number,
-	timeoutError: () => Error,
-	run: (signal: AbortSignal) => Promise<T>,
-): Promise<T> {
-	if (signal.aborted) {
-		throw new TickStoppedError();
-	}
-	const controller = new AbortController();
-	let timedOut = false;
-	let timeout: ReturnType<typeof setTimeout> | undefined;
-	let abortFromParent: (() => void) | undefined;
-	const abortPromise = new Promise<never>((_, reject) => {
-		abortFromParent = () => {
-			controller.abort();
-			reject(new TickStoppedError());
-		};
-		signal.addEventListener('abort', abortFromParent, { once: true });
-	});
-	const timeoutPromise = new Promise<never>((_, reject) => {
-		timeout = setTimeout(() => {
-			timedOut = true;
-			controller.abort();
-			reject(timeoutError());
-		}, timeoutMs);
-	});
-	try {
-		return await Promise.race([run(controller.signal), abortPromise, timeoutPromise]);
-	} catch (error) {
-		if (timedOut) {
-			throw timeoutError();
-		}
-		if (signal.aborted) {
-			throw new TickStoppedError();
-		}
-		throw error;
-	} finally {
-		if (timeout !== undefined) {
-			clearTimeout(timeout);
-		}
-		if (abortFromParent) {
-			signal.removeEventListener('abort', abortFromParent);
-		}
-	}
-}
-
-function isRetryableProviderStatus(status: number): boolean {
-	return (
-		status === 408 ||
-		status === 409 ||
-		status === 425 ||
-		status === 429 ||
-		status === 500 ||
-		status === 502 ||
-		status === 503 ||
-		status === 504 ||
-		status === 529
-	);
-}
-
-function providerRetryKey(error: unknown): string | null {
-	if (
-		error instanceof ProviderRequestTimeoutError ||
-		error instanceof ProviderResponseBodyTimeoutError ||
-		error instanceof ProviderStreamIdleTimeoutError
-	) {
-		return error.message;
-	}
-	if (error instanceof ProviderRequestError && isRetryableProviderStatus(error.status)) {
-		return `${error.status}:${error.body}`;
-	}
-	return null;
-}
-
-type ProviderUpstreamRateLimitRetry = {
-	providerName: string;
-	retryKey: string;
-};
-
-function providerRetryDelayMsForAttempt(attempt: number): number {
-	return jitteredDelay(providerRetryBaseDelayMs * 3 ** Math.max(0, attempt - 2));
-}
-
-function providerUpstreamRateLimitRetry(error: unknown): ProviderUpstreamRateLimitRetry | null {
-	if (!(error instanceof ProviderRequestError)) {
-		return null;
-	}
-	const providerError = error.providerError;
-	const status = providerError?.status ?? error.status;
-	if (status !== 429 || !providerError?.providerName) {
-		return null;
-	}
-	return {
-		providerName: providerError.providerName,
-		retryKey: providerRetryKey(error) ?? `${error.status}:${error.body}`,
-	};
-}
-
 function parseJsonValue(text: string | undefined): unknown | undefined {
 	if (text === undefined || !text.trim()) {
 		return undefined;
@@ -14403,31 +13871,6 @@ function parseJsonValue(text: string | undefined): unknown | undefined {
 	} catch {
 		return undefined;
 	}
-}
-
-function providerRoutingWithIgnoredProvider(
-	providerRouting: JsonObject | undefined,
-	providerName: string,
-): { providerRouting: JsonObject; changed: boolean } {
-	const trimmedProviderName = providerName.trim();
-	const existingIgnore = Array.isArray(providerRouting?.ignore)
-		? providerRouting.ignore.filter((value): value is string => typeof value === 'string').filter((value) => value.trim().length > 0)
-		: [];
-	const existingNames = new Set(existingIgnore.map((value) => value.trim().toLowerCase()));
-	if (existingNames.has(trimmedProviderName.toLowerCase())) {
-		return {
-			providerRouting: { ...(providerRouting ?? {}), ignore: existingIgnore },
-			changed: false,
-		};
-	}
-	return {
-		providerRouting: { ...(providerRouting ?? {}), ignore: [...existingIgnore, trimmedProviderName] },
-		changed: true,
-	};
-}
-
-function providerIgnoreRetryReason(retry: ProviderUpstreamRateLimitRetry): string {
-	return `${retry.retryKey}; ignoring upstream provider ${retry.providerName}`;
 }
 
 function providerFailureResponseText(error: unknown): string | undefined {
@@ -14500,11 +13943,6 @@ export function runtimeFailureLogs(error: unknown): RuntimeFailureLog[] {
 		];
 	}
 	return [];
-}
-
-function jitteredDelay(baseMs: number): number {
-	const factor = 1 + (Math.random() * 2 - 1) / 3;
-	return Math.max(0, Math.round(baseMs * factor));
 }
 
 async function sleep(ms: number, signal: AbortSignal): Promise<void> {

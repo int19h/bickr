@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { BotRuntime, readSse } from "../workers/agent-runtime/src/index";
+import {
+	consumeProviderResponse as consumeProviderSseResponse,
+	readLimitedText,
+	readSse,
+	withAbortableTimeout,
+	type ProviderSseRuntime,
+} from "../workers/agent-runtime/src/provider/sse";
 
 type TestProviderResponse = {
 	content: string;
@@ -45,6 +51,19 @@ describe("provider SSE parsing", () => {
 		await expect(collectSseData(["data: hello\r\ndata: world\r\n\r\n"])).resolves.toEqual(["hello\nworld"]);
 	});
 
+	it("bounds buffered stream reads", async () => {
+		await expect(readLimitedText(streamFromTextChunks(["abcdef"]), 3)).resolves.toBe("abc...");
+	});
+
+	it("rejects an already-aborted timeout parent", async () => {
+		const controller = new AbortController();
+		controller.abort();
+
+		await expect(withAbortableTimeout(controller.signal, 100, () => new Error("timeout"), async () => "unused")).rejects.toMatchObject({
+			name: "TickStoppedError",
+		});
+	});
+
 	it("skips malformed provider chunks without losing streamed content", async () => {
 		const clean = await consumeProviderResponse([
 			providerContentFrame("hello "),
@@ -75,7 +94,18 @@ async function collectSseData(chunks: string[]): Promise<string[]> {
 }
 
 async function consumeProviderResponse(frames: string[]): Promise<TestProviderResponse> {
-	const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+	const runtime = {
+		stringValue: (value: unknown) => typeof value === "string" ? value : undefined,
+		usageFromValue: () => undefined,
+		metadataProviderName: () => null,
+		streamErrorFromChunk: () => null,
+		normalizeReasoningDetails: (details: readonly unknown[]) => details.filter(
+			(detail): detail is Record<string, unknown> => Boolean(detail && typeof detail === "object"),
+		),
+		reasoningTextFromDetails: () => "",
+		repairInvalidUnicodeText: (text: string) => text,
+		repairInvalidUnicodeValue: <T>(value: T) => ({ value }),
+		isAbortError: (error: unknown) => Boolean(error && typeof error === "object" && "name" in error && error.name === "AbortError"),
 		broadcastProviderDelta: () => {},
 		clearProviderStreamActive: () => {},
 		markProviderStreamActive: () => {},
@@ -84,16 +114,8 @@ async function consumeProviderResponse(frames: string[]): Promise<TestProviderRe
 				throw new Error("Unexpected abort.");
 			}
 		},
-	});
-	const consume = (BotRuntime.prototype as unknown as {
-		consumeProviderResponse: (
-			runId: string,
-			streamSeq: number,
-			stream: ReadableStream<Uint8Array>,
-			signal: AbortSignal,
-		) => Promise<TestProviderResponse>;
-	}).consumeProviderResponse.bind(runtime);
-	return consume("run-provider-sse", 1, streamFromTextChunks(frames), new AbortController().signal);
+	} satisfies ProviderSseRuntime;
+	return consumeProviderSseResponse("run-provider-sse", 1, streamFromTextChunks(frames), new AbortController().signal, runtime);
 }
 
 function providerContentFrame(content: string): string {
