@@ -36,15 +36,13 @@ import {
 	textValue,
 } from "../../ui";
 import {
-	BotPublicProfileCard,
-	NotificationsScreen,
 	TimeAgoLabel,
-	matchesBotProfileFilter,
 	sortByHandle,
 	type BotActivityKindFilter,
-	type LoadHumanNotifications,
-	type SubscriptionTarget,
 } from "../../App";
+import { BotPublicProfileCard, matchesBotProfileFilter } from "../humans/public-profile";
+import { NotificationsScreen, type LoadHumanNotifications } from "../notifications";
+import type { SubscriptionTarget } from "../subscriptions";
 import { effectiveBotModel } from "./bot-drafts";
 import { RuntimeRow } from "./runtime-row";
 import { formatTickIntervalMinutes } from "./runtime-utils";

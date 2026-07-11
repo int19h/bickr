@@ -1,0 +1,479 @@
+import {
+	authProviders,
+	localizedText,
+	type AuthProvider,
+	type LinkedAuthIdentity,
+	type PublicUser,
+	type UpdateUserProfileInput,
+	type UserProfile,
+} from "@bickr/shared/model";
+import { useContext, useEffect, useState } from "react";
+import { api } from "../../api";
+import { avatarImagePixels, cloudflareImageUrl } from "../../avatar-image-urls";
+import { AvatarCropModal } from "../../avatar/AvatarCropModal";
+import { AvatarUploadModal } from "../../avatar/AvatarUploadModal";
+import { userAvatarTarget } from "../../avatar/target";
+import { languageDraftValue, languageInputValue, uiLocaleOptions, useUiText } from "../../components/ui-text";
+import { defaultLanguageTag } from "../../language";
+import { providerRoutingDraftError } from "../../settings-drafts/common";
+import {
+	inferenceDraftChanged,
+	inferenceDraftFromSettings,
+	inferenceInputFromDraft,
+	type InferenceDraft,
+} from "../../settings-drafts/inference-draft";
+import { runApiAction } from "../../use-api";
+import { Avatar, Confirm, FallbackImage, Field, Icon, ImageLightbox, ToastContext, textValue } from "../../ui";
+import { RuntimeRow, isValidHandle, slugify } from "../bots";
+import { authProviderLabel, authStartHref } from "../chrome";
+import {
+	AgenticLoopInferenceFields,
+	ImageGenerationInferenceFields,
+	InferenceProviderFields,
+	LanguageField,
+	TimeAgoLabel,
+	TranslationInferenceFields,
+	textLang,
+} from "../../App";
+
+type UserMutationResponse = { profile: UserProfile };
+
+type ProfileDraft = {
+	handle: string;
+	language: string;
+	uiLocale: string;
+	displayName: string;
+	inference: InferenceDraft;
+};
+
+export function ProfileScreen({
+	busy,
+	onAuthIdentityUnlink,
+	onAvatarUpdated,
+	onOpenAvatarGeneration,
+	onSave,
+	onSignOut,
+	user,
+}: {
+	busy: boolean;
+	onAuthIdentityUnlink: (provider: AuthProvider) => Promise<UserProfile | null>;
+	onAvatarUpdated: (profile: UserProfile) => void;
+	onOpenAvatarGeneration: () => void;
+	onSave: (draft: UpdateUserProfileInput) => Promise<UserProfile | null>;
+	onSignOut: () => void;
+	user: PublicUser;
+}) {
+	const [profile, setProfile] = useState<UserProfile | null>(null);
+	const [draft, setDraft] = useState<ProfileDraft>(() => profileDraftFromUser(user));
+	const [loading, setLoading] = useState(true);
+	const [message, setMessage] = useState("");
+	const [pendingUnlinkProvider, setPendingUnlinkProvider] = useState<AuthProvider | null>(null);
+	const [uploadOpen, setUploadOpen] = useState(false);
+	const [cropOpen, setCropOpen] = useState(false);
+	const [deleteAvatarConfirm, setDeleteAvatarConfirm] = useState(false);
+	const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+	const [profileAvatarFailed, setProfileAvatarFailed] = useState(false);
+	const toast = useContext(ToastContext);
+	const t = useUiText();
+
+	useEffect(() => {
+		let cancelled = false;
+		setLoading(true);
+		void api<{ profile: UserProfile }>("/api/me/profile").then((result) => {
+			if (cancelled) {
+				return;
+			}
+			if (result.ok) {
+				setProfile(result.data.profile);
+				setDraft(profileDraftFromProfile(result.data.profile));
+				setMessage("");
+			} else {
+				setMessage(result.message);
+			}
+			setLoading(false);
+		});
+		return () => {
+			cancelled = true;
+		};
+	}, [user.id]);
+
+	useEffect(() => {
+		setProfileAvatarFailed(false);
+	}, [profile?.avatarUrl, user.avatarUrl]);
+
+	const profileIncomplete = !(profile?.profileComplete ?? user.profileComplete);
+	const avatarProfile = profile ?? user;
+	const authIdentities = profile?.authIdentities ?? [];
+	const dirty = profile ? profileDraftChanged(draft, profile) : true;
+	const valid =
+		isValidHandle(draft.handle) &&
+		draft.displayName.trim().length > 0 &&
+		!providerRoutingDraftError(draft.inference.providerRouting) &&
+		!providerRoutingDraftError(draft.inference.imageGenerationProviderRouting) &&
+		!providerRoutingDraftError(draft.inference.translationProviderRouting);
+	const canSave = (dirty || profileIncomplete) && valid && !busy && !loading;
+
+	async function save(): Promise<void> {
+		const language = languageInputValue(draft.language);
+		const saved = await onSave({
+			handle: draft.handle,
+			language,
+			uiLocale: draft.uiLocale === "system" ? "system" : languageInputValue(draft.uiLocale) ?? defaultLanguageTag,
+			displayName: localizedText(draft.displayName, language),
+			inferenceSettings: inferenceInputFromDraft(draft.inference, undefined, { includeImageGeneration: true, includeTranslation: true }, language),
+		});
+		if (saved) {
+			setProfile(saved);
+			setDraft(profileDraftFromProfile(saved));
+			toast.push(t.profile.savedProfile);
+		}
+	}
+
+	async function unlinkAuthIdentity(provider: AuthProvider): Promise<void> {
+		const saved = await onAuthIdentityUnlink(provider);
+		if (saved) {
+			setProfile(saved);
+			toast.push(`Unlinked ${authProviderLabel(provider)}`);
+		}
+	}
+
+	function applySavedAvatarProfile(saved: UserProfile): void {
+		setProfile(saved);
+		onAvatarUpdated(saved);
+	}
+
+	async function deleteAvatar(): Promise<void> {
+		const target = userAvatarTarget(avatarProfile);
+		const result = await runApiAction(setMessage, () => api<UserMutationResponse>(target.endpoints.clear, { method: "DELETE" }));
+		if (!result) {
+			return;
+		}
+		applySavedAvatarProfile(result.data.profile);
+		setDeleteAvatarConfirm(false);
+		toast.push("Deleted avatar");
+	}
+
+	return (
+		<div className="main-inner">
+			<div className="page-header">
+				<div className="page-title-block">
+					<h1>
+						<Avatar
+							actor="user"
+							colorSeed={draft.handle || user.handle}
+							crop={avatarProfile.avatarCrop}
+							imageUrl={avatarProfile.avatarUrl}
+							name={draft.displayName || user.displayName}
+							size="lg"
+						/>
+						<span>{draft.displayName || textValue(user.displayName)}</span>
+					</h1>
+					<p className="sub">
+						{profileIncomplete ?
+							t.profile.subtitleIncomplete
+						:	t.profile.subtitleReady}
+					</p>
+				</div>
+				<div className="actions">
+					<button className="btn ghost" disabled={busy} onClick={onSignOut} type="button">
+						{t.profile.signOut}
+					</button>
+					<button className="btn primary" disabled={!canSave} onClick={() => void save()} type="button">
+						{profileIncomplete ? t.profile.saveAndActivate : t.profile.saveProfile}
+					</button>
+				</div>
+			</div>
+
+			{profileIncomplete && (
+				<div className="setup-banner">
+					<Icon name="info" size={16} />
+					<div>
+						<b>{t.profile.setupRequiredTitle}</b>
+						<span>
+							{t.profile.setupRequiredBody}
+						</span>
+					</div>
+				</div>
+			)}
+
+			<div className="edit-layout">
+				<div>
+					<section className="section">
+						<div className="section-head">
+							<h2>{t.profile.sectionTitle}</h2>
+							<span className="meta">{loading ? t.profile.loading : profileIncomplete ? t.profile.setupRequiredMeta : t.profile.editable}</span>
+						</div>
+						<div className="field-stack">
+							<div className="field-row">
+								<Field label={t.profile.displayName}>
+									<input
+										className="input"
+										maxLength={80}
+										onChange={(event) => setDraft((current) => ({ ...current, displayName: event.target.value }))}
+										value={draft.displayName}
+									/>
+								</Field>
+								<Field help={t.profile.handleHelp} label={t.profile.handle}>
+									<div className="input-prefix">
+										<span className="prefix">hu/</span>
+										<input
+											className="input"
+											onChange={(event) => setDraft((current) => ({ ...current, handle: slugify(event.target.value) }))}
+											value={draft.handle}
+										/>
+									</div>
+								</Field>
+							</div>
+								<div className="profile-avatar-editor">
+									<div className="profile-avatar-column">
+										<button
+											aria-label={avatarProfile.avatarUrl && !profileAvatarFailed ? "View avatar" : "Avatar fallback"}
+											className="bot-profile-avatar-frame"
+											disabled={!avatarProfile.avatarUrl || profileAvatarFailed}
+											onClick={() => avatarProfile.avatarUrl && !profileAvatarFailed ? setLightboxUrl(avatarProfile.avatarUrl) : undefined}
+											type="button"
+										>
+											{avatarProfile.avatarUrl && !profileAvatarFailed ?
+												<FallbackImage
+													alt=""
+													fallbackSrc={avatarProfile.avatarUrl}
+													onFinalError={() => setProfileAvatarFailed(true)}
+													src={cloudflareImageUrl(avatarProfile.avatarUrl, { width: avatarImagePixels(220), format: "auto" })}
+												/>
+											:	<Avatar actor="user" colorSeed={draft.handle || user.handle} name={draft.displayName || user.displayName} size="hero" />
+											}
+										</button>
+										<div className="profile-avatar-actions">
+											<button
+												className="btn icon-only"
+												disabled={!avatarProfile.avatarUrl || profileAvatarFailed}
+												onClick={() => setCropOpen(true)}
+												title="Crop avatar"
+												type="button"
+											>
+												<Icon name="crop" size={16} />
+											</button>
+											<button className="btn icon-only" onClick={() => setUploadOpen(true)} title="Upload avatar" type="button">
+												<Icon name="upload" size={16} />
+											</button>
+											<button className="btn icon-only" onClick={onOpenAvatarGeneration} title="Generate avatar" type="button">
+												<Icon name="sparkles" size={16} />
+											</button>
+											<button
+												className="btn icon-only danger"
+												disabled={!avatarProfile.avatarUrl}
+												onClick={() => setDeleteAvatarConfirm(true)}
+												title="Delete avatar"
+												type="button"
+											>
+												<Icon name="trash" size={16} />
+											</button>
+										</div>
+									</div>
+								</div>
+								<div className="field-row">
+									<LanguageField
+										label={t.profile.accountLanguage}
+										onChange={(language) => setDraft((current) => ({ ...current, language }))}
+										value={draft.language}
+									/>
+									<Field help={t.profile.uiLanguageHelp} label={t.profile.uiLanguage}>
+										<select
+											className="input"
+											onChange={(event) => setDraft((current) => ({ ...current, uiLocale: event.target.value }))}
+											value={draft.uiLocale}
+										>
+											{uiLocaleOptions.map((option) => (
+												<option key={option.value} value={option.value}>
+													{option.value === "system" ? t.profile.systemUiLanguage : option.label}
+												</option>
+											))}
+										</select>
+									</Field>
+								</div>
+								{message && <div className="runtime-message">{message}</div>}
+							</div>
+						</section>
+
+					<section className="section">
+						<div className="section-head">
+							<h2>Inference Provider</h2>
+							<span className="meta">credentials and endpoint</span>
+						</div>
+						<InferenceProviderFields
+							draft={draft.inference}
+							onChange={(inference) => setDraft((current) => ({ ...current, inference }))}
+							scope="profile"
+						/>
+					</section>
+					<section className="section">
+						<div className="section-head">
+							<h2>Inference: Agentic Loop</h2>
+							<span className="meta">used by participants without overrides</span>
+						</div>
+						<AgenticLoopInferenceFields
+							draft={draft.inference}
+							onChange={(inference) => setDraft((current) => ({ ...current, inference }))}
+							scope="profile"
+						/>
+					</section>
+					<section className="section">
+						<div className="section-head">
+							<h2>Inference: Image Generation</h2>
+							<span className="meta">avatar generation defaults</span>
+						</div>
+						<ImageGenerationInferenceFields
+							draft={draft.inference}
+							onChange={(inference) => setDraft((current) => ({ ...current, inference }))}
+						/>
+					</section>
+					<section className="section">
+						<div className="section-head">
+							<h2>Inference: Translation</h2>
+							<span className="meta">inline content translation</span>
+						</div>
+						<TranslationInferenceFields
+							draft={draft.inference}
+							onChange={(inference) => setDraft((current) => ({ ...current, inference }))}
+						/>
+					</section>
+				</div>
+
+				<aside className="edit-aside">
+					<section className="section">
+						<div className="section-head">
+							<h2>Account</h2>
+						</div>
+						<div className="card runtime-card">
+							<RuntimeRow label="User" value={`hu/${draft.handle || user.handle}`} />
+							<RuntimeRow label="Status" value={profileIncomplete ? "setup required" : "active"} />
+							{authProviders.map((provider) => (
+								<AuthIdentityRuntimeRow
+									busy={busy || loading}
+									identity={authIdentities.find((item) => item.provider === provider) ?? null}
+									key={provider}
+									onUnlink={(nextProvider) => setPendingUnlinkProvider(nextProvider)}
+									provider={provider}
+									unlinkable={authIdentities.length > 1}
+								/>
+							))}
+							<RuntimeRow label="API key" value={draft.inference.openRouterApiKeySet ? "saved" : "not set"} />
+							<RuntimeRow label="Created" value={profile ? <TimeAgoLabel value={profile.createdAt} /> : "..."} />
+							<RuntimeRow label="Updated" value={profile ? <TimeAgoLabel value={profile.updatedAt} /> : "..."} />
+						</div>
+					</section>
+				</aside>
+			</div>
+			<Confirm
+				body={
+					pendingUnlinkProvider ?
+						`Remove ${authProviderLabel(pendingUnlinkProvider)} as a sign-in method for this account?`
+					:	"Remove this sign-in method?"
+				}
+				confirmText="Unlink"
+				danger
+				onClose={() => setPendingUnlinkProvider(null)}
+				onConfirm={() => {
+					if (pendingUnlinkProvider) {
+						void unlinkAuthIdentity(pendingUnlinkProvider);
+					}
+				}}
+				open={Boolean(pendingUnlinkProvider)}
+				title="Unlink sign-in method?"
+			/>
+			<AvatarUploadModal
+				onClose={() => setUploadOpen(false)}
+				onSaved={(saved) => applySavedAvatarProfile(saved)}
+				open={uploadOpen}
+				target={userAvatarTarget(avatarProfile)}
+			/>
+			<AvatarCropModal
+				onClose={() => setCropOpen(false)}
+				onSaved={(saved) => applySavedAvatarProfile(saved)}
+				open={cropOpen}
+				target={userAvatarTarget(avatarProfile)}
+			/>
+			<Confirm
+				body="Delete this profile avatar? You can upload or generate a new one later."
+				confirmText="Delete avatar"
+				danger
+				onClose={() => setDeleteAvatarConfirm(false)}
+				onConfirm={() => void deleteAvatar()}
+				open={deleteAvatarConfirm}
+				title="Delete avatar?"
+			/>
+			<ImageLightbox onClose={() => setLightboxUrl(null)} title={draft.displayName || textValue(user.displayName)} url={lightboxUrl} />
+		</div>
+	);
+}
+
+function AuthIdentityRuntimeRow({
+	busy,
+	identity,
+	onUnlink,
+	provider,
+	unlinkable,
+}: {
+	busy: boolean;
+	identity: LinkedAuthIdentity | null;
+	onUnlink: (provider: AuthProvider) => void;
+	provider: AuthProvider;
+	unlinkable: boolean;
+}) {
+	return (
+		<RuntimeRow
+			label={authProviderLabel(provider)}
+			value={
+				<div className="auth-provider-value">
+					<span className="auth-provider-login">{identity ? identity.providerLogin : "not linked"}</span>
+					{identity ?
+						<button
+							className="btn ghost compact"
+							disabled={busy || !unlinkable}
+							onClick={() => onUnlink(provider)}
+							title={unlinkable ? `Unlink ${authProviderLabel(provider)}` : "Link another sign-in method first"}
+							type="button"
+						>
+							Unlink
+						</button>
+					:	<a className={`btn ghost compact ${busy ? "disabled" : ""}`} href={authStartHref(provider, "/me/profile")}>
+							Link
+						</a>
+					}
+				</div>
+			}
+		/>
+	);
+}
+
+function profileDraftFromUser(user: PublicUser): ProfileDraft {
+	return {
+		handle: user.handle,
+		language: languageDraftValue(user.language, textLang(user.displayName) ?? defaultLanguageTag),
+		uiLocale: user.uiLocale ?? "system",
+		displayName: textValue(user.displayName),
+		inference: inferenceDraftFromSettings({}),
+	};
+}
+
+function profileDraftFromProfile(profile: UserProfile): ProfileDraft {
+	return {
+		handle: profile.handle,
+		language: languageDraftValue(profile.language, textLang(profile.displayName) ?? defaultLanguageTag),
+		uiLocale: profile.uiLocale ?? "system",
+		displayName: textValue(profile.displayName),
+		inference: inferenceDraftFromSettings(profile.inferenceSettings),
+	};
+}
+
+function profileDraftChanged(draft: ProfileDraft, profile: UserProfile): boolean {
+	const language = languageInputValue(draft.language);
+	const uiLocale = draft.uiLocale === "system" ? "system" : languageInputValue(draft.uiLocale) ?? defaultLanguageTag;
+	return (
+		draft.handle !== profile.handle ||
+		language !== profile.language ||
+		uiLocale !== (profile.uiLocale ?? "system") ||
+		draft.displayName !== textValue(profile.displayName) ||
+		inferenceDraftChanged(draft.inference, profile.inferenceSettings, { includeImageGeneration: true, includeTranslation: true })
+	);
+}
