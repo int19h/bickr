@@ -951,6 +951,11 @@ describe("Forum coordinator", () => {
 			inferenceUsagePrune: {
 				deletedRows: 1,
 			},
+			indexRepair: {
+				scanned: 0,
+				repaired: 0,
+				budgetExhausted: false,
+			},
 		});
 	});
 
@@ -984,6 +989,7 @@ describe("Forum coordinator", () => {
 		expect(retentionLog).toMatchObject({
 			event: "retention_prune",
 			notificationPrune: { deletedRows: 1 },
+			indexRepair: { scanned: 0, repaired: 0, budgetExhausted: false },
 		});
 		expect((retentionLog?.botSeenContentPrune as { error?: string })?.error).toContain("bot_seen_content");
 	});

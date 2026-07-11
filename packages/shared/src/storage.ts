@@ -1,4 +1,5 @@
 import { type EntityDocument } from "./model";
+import { type IndexedEntityType } from "./index-versions";
 import { isCloudflareRateLimitError, retryCloudflareOperation } from "./cloudflare";
 
 export const kvKeys = {
@@ -16,6 +17,9 @@ export const kvKeys = {
 	forum: (forumId: string) => `v1:forum:${forumId}`,
 	bot: (botId: string) => `v1:bot:${botId}`,
 	thread: (threadId: string) => `v1:thread:${threadId}`,
+	// One bounded maintenance cursor is retained only until a complete
+	// objects_index pass finishes, then deleted before the next pass.
+	objectIndexRepairCursor: "v1:maintenance:object-index-repair-cursor",
 	notification: (botId: string, notificationId: string) =>
 		`v1:notification:${botId}:${notificationId}`,
 };
@@ -80,7 +84,8 @@ function retryKvMutation(operation: string, run: () => Promise<void>): Promise<v
 export async function putObjectIndex(
 	db: D1DatabaseLike,
 	document: EntityDocument,
-	objectType: string,
+	objectType: IndexedEntityType,
+	indexVersion: number,
 	worldId?: string,
 ): Promise<void> {
 	await db
@@ -101,7 +106,7 @@ export async function putObjectIndex(
 			objectType,
 			worldId ?? null,
 			document.revision,
-			1,
+			indexVersion,
 			document.updatedAt,
 			document.deletedAt ?? null,
 		)
