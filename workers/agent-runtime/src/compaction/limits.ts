@@ -1,7 +1,8 @@
 import { effectiveTickSettings } from '@bickr/shared/repository';
 import type { BotDocument, BotInferenceSubmissionMessage } from '@bickr/shared/model';
-import { providerContextCompletionReserveTokens } from '../provider-requests';
+import { providerContextCompletionReserveTokens } from '../constants';
 import { toolDefinitionsForProviderRound, type ProviderToolDefinition } from '../prompt-and-tools';
+import type { ProviderCompactionSummaryLimits } from '../types';
 import {
 	providerCompactionMessages,
 	providerCompactionResponseFormat,
@@ -16,24 +17,6 @@ export type TextTokenCalibration = {
 	tokensPerCharacter: number;
 	sampleCount: number;
 };
-
-export type ProviderCompactionSummaryLimits = {
-	minLength: number;
-	maxLength: number;
-	maxCompletionTokens: number;
-	compactionInputTokens: number;
-	nextCompactionTokens: number;
-	compactionRequestOverheadTokens: number;
-	anticipatedSummaryTokens: number;
-	maxSummaryTokens: number;
-	tokensPerCharacter: number;
-	compactedCharacterCount: number;
-	configuredMaxCharacters: number;
-	compactionSummaryPercent: number;
-};
-
-export type ProviderCompactionValidationLimits = Pick<ProviderCompactionSummaryLimits, 'minLength' | 'maxLength'> &
-	Partial<Pick<ProviderCompactionSummaryLimits, 'compactedCharacterCount' | 'tokensPerCharacter'>>;
 
 export const compactionRowTokenFraction = 0.7;
 export const providerPromptEstimateSafetyTokens = 512;

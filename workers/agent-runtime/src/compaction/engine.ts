@@ -27,9 +27,9 @@ import {
 	toolDefinitionsForProviderRound,
 	type ProviderToolDefinition,
 } from '../prompt-and-tools';
-import { providerContextCompletionReserveTokens } from '../provider-requests';
+import { providerContextCompletionReserveTokens } from '../constants';
+import type { ProviderCompactionSummaryLimits } from '../types';
 import type { CompactionAttemptMessageSet, CompactionAttemptToolSet } from './plan';
-import type { ProviderCompactionSummaryLimits } from './limits';
 
 type ChatMessage = BotInferenceSubmissionMessage;
 
