@@ -38,16 +38,16 @@ import {
 import {
 	BotPublicProfileCard,
 	NotificationsScreen,
-	RuntimeRow,
 	TimeAgoLabel,
-	effectiveBotModel,
-	formatTickIntervalMinutes,
 	matchesBotProfileFilter,
 	sortByHandle,
 	type BotActivityKindFilter,
 	type LoadHumanNotifications,
 	type SubscriptionTarget,
 } from "../../App";
+import { effectiveBotModel } from "./bot-drafts";
+import { RuntimeRow } from "./runtime-row";
+import { formatTickIntervalMinutes } from "./runtime-utils";
 import {
 	BotActivityList,
 	botActivityDomId,

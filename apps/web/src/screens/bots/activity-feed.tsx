@@ -15,9 +15,9 @@ import {
 	TimeAgoLabel,
 	authorLabel,
 	matchesFilter,
-	stringValue,
 	type BotActivityKindFilter,
 } from "../../App";
+import { stringValue } from "./loop-message-values";
 
 type ActivityListItem = BotActivityItem | WorldActivityItem;
 
