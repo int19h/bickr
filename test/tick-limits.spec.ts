@@ -157,7 +157,7 @@ describe("Tick limits and recovery", () => {
 			const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
 			const executedTools: string[] = [];
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
-			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 				events.push({ type, payload });
 				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
 			},
@@ -240,7 +240,7 @@ describe("Tick limits and recovery", () => {
 				.mockResolvedValueOnce(providerResponseWithToolCall("call-log-off-first", "log_off", { reason: "done too early" }))
 				.mockResolvedValueOnce(providerResponseWithToolCall("call-log-off-second", "log_off", { reason: "still done" }));
 			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
-				appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+				appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 					events.push({ type, payload });
 					return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
 				},
@@ -331,7 +331,7 @@ describe("Tick limits and recovery", () => {
 				usage: providerUsageForTest(25, 5),
 			}));
 			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
-				appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) =>
+				appendEvent: (runId: string, type: string, payload: Record<string, unknown>) =>
 					runtimeEvent(callProvider.mock.calls.length + executedTools.length + 1, runId, type as BotRuntimeEvent["type"], payload),
 				appendLoopMessage: (
 					_runId: string,
@@ -407,7 +407,7 @@ describe("Tick limits and recovery", () => {
 				usage: providerUsageForTest(10),
 			}));
 			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
-				appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+				appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 					events.push({ type, payload });
 					return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
 				},
@@ -492,7 +492,7 @@ describe("Tick limits and recovery", () => {
 				usage: providerUsageForTest(50),
 			}));
 			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
-				appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+				appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 					events.push({ type, payload });
 					return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
 				},
@@ -575,7 +575,7 @@ describe("Tick limits and recovery", () => {
 			]))
 			.mockResolvedValueOnce(providerResponseWithToolCall("call-log-off", "log_off", { reason: "clean retry" }));
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
-			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 				events.push({ type, payload });
 				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
 			},
@@ -658,7 +658,7 @@ describe("Tick limits and recovery", () => {
 				{ id: "call-bad-2", name: "read_thread", arguments: "[]" },
 			]));
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
-			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) =>
+			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) =>
 				runtimeEvent(type === "provider_request" ? callProvider.mock.calls.length + 1 : callProvider.mock.calls.length + 100, runId, type as BotRuntimeEvent["type"], payload),
 			appendLoopMessage: (_runId: string, message: Record<string, unknown>, origin: string) => {
 				appendedLoopMessages.push({ message, origin });
@@ -724,7 +724,7 @@ describe("Tick limits and recovery", () => {
 		});
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 			...loopMemory,
-			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 				events.push({ type, payload });
 				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
 			},
@@ -804,7 +804,7 @@ describe("Tick limits and recovery", () => {
 		});
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 			...loopMemory,
-			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 				events.push({ type, payload });
 				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
 			},
@@ -877,7 +877,7 @@ describe("Tick limits and recovery", () => {
 		const callProvider = vi.fn(async () => providerResponseWithContent("Still thinking."));
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 			...loopMemory,
-			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) =>
+			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) =>
 				runtimeEvent(callProvider.mock.calls.length + appendedLoopMessages.length + 1, runId, type as BotRuntimeEvent["type"], payload),
 			appendLoopMessage: (runId: string, message: Record<string, unknown>, origin: string) => {
 				appendedLoopMessages.push({ origin, message });
@@ -930,7 +930,7 @@ describe("Tick limits and recovery", () => {
 		const appendedLoopMessages: Array<{ origin: string; message: Record<string, unknown> }> = [];
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 			activeLoopMessagesForProvider: () => [],
-			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) =>
+			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) =>
 				runtimeEvent(providerToolsByCall.length + appendedLoopMessages.length + 1, runId, type as BotRuntimeEvent["type"], payload),
 			appendLoopMessage: (_runId: string, message: Record<string, unknown>, origin: string) => {
 				appendedLoopMessages.push({ origin, message });
@@ -1011,7 +1011,7 @@ describe("Tick limits and recovery", () => {
 			.mockResolvedValueOnce(providerResponseWithContent("I will keep going."));
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 			activeLoopMessagesForProvider: () => [],
-			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 				events.push({ type, payload });
 				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
 			},
@@ -1110,7 +1110,7 @@ describe("Tick limits and recovery", () => {
 		let providerCall = 0;
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 			activeLoopMessagesForProvider: () => [],
-			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) =>
+			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) =>
 				runtimeEvent(providerCall + 1, runId, type as BotRuntimeEvent["type"], payload),
 			appendLoopMessage: (_runId: string, message: Record<string, unknown>, origin: string) => ({
 				seq: providerCall,
@@ -1224,7 +1224,7 @@ describe("Tick limits and recovery", () => {
 		};
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 			activeLoopMessagesForProvider: () => [],
-			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) =>
+			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) =>
 				runtimeEvent(providerToolsByCall.length + 1, runId, type as BotRuntimeEvent["type"], payload),
 			appendLoopMessage: (_runId: string, message: Record<string, unknown>, origin: string) => ({
 				seq: 1,
@@ -1330,7 +1330,7 @@ describe("Tick limits and recovery", () => {
 		};
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 			activeLoopMessagesForProvider: () => [],
-			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) =>
+			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) =>
 				runtimeEvent(providerToolsByCall.length + 1, runId, type as BotRuntimeEvent["type"], payload),
 			appendLoopMessage: (_runId: string, message: Record<string, unknown>, origin: string) => ({
 				seq: 1,
@@ -1623,7 +1623,7 @@ describe("Tick limits and recovery", () => {
 			})
 			.mockResolvedValueOnce(providerResponseWithContent("Done."));
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
-			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) =>
+			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) =>
 				runtimeEvent(type === "provider_request" ? 100 + callProvider.mock.calls.length : 200 + callProvider.mock.calls.length, runId, type as BotRuntimeEvent["type"], payload),
 			appendLoopMessageGroup: (entries: Array<{ message: BotInferenceSubmissionMessage; origin: string }>) => {
 				loopMessageGroups.push(entries);
@@ -1763,7 +1763,7 @@ describe("Tick limits and recovery", () => {
 		migrate();
 		const submissions: BotInferenceSubmissionMessage[][] = [];
 		Object.assign(harness.runtime, {
-			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) =>
+			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) =>
 				runtimeEvent(submissions.length + 1, runId, type as BotRuntimeEvent["type"], payload),
 			appendLoopMessageGroup: () => [],
 			callProvider: async () => providerResponseWithContent("Clean migrated history is ready."),
@@ -1867,7 +1867,7 @@ describe("Tick limits and recovery", () => {
 					createdAt: new Date().toISOString(),
 				};
 			},
-			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 				events.push({ runId, type, payload });
 				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
 			},
@@ -1882,17 +1882,17 @@ describe("Tick limits and recovery", () => {
 				runId: string,
 				payload: Record<string, unknown>,
 				logs?: Array<{ kind: BotLoopMessageLog["kind"]; text: string }>,
-			) => Promise<BotRuntimeEvent>;
+			) => BotRuntimeEvent;
 		}).recordTickFailure.bind(runtime);
 
-		await expect(
+		expect(
 			recordTickFailure("run-provider-failed", { message: providerMessage }, [
 				{ kind: "provider_request", text: "{\"stream\":true}" },
 				{ kind: "provider_response", text: "{\"error\":\"provider 500\"}" },
 				{ kind: "compaction_request", text: "{\"messages\":[]}" },
 				{ kind: "compaction_response", text: "{\"error\":\"bad schema\"}" },
 			]),
-		).resolves.toMatchObject({ type: "tick_failed" });
+		).toMatchObject({ type: "tick_failed" });
 
 		expect(events).toEqual([
 			{
@@ -2164,7 +2164,7 @@ describe("Tick limits and recovery", () => {
 		const runtime = Object.assign(testRuntimeForToolExecution(), {
 			...loopMemory,
 			appendProviderMessages: async () => {},
-			appendEvent: async (runId: string, type: string, payload: unknown) => {
+			appendEvent: (runId: string, type: string, payload: unknown) => {
 				eventSeq += 1;
 				return {
 					seq: eventSeq,
@@ -2251,7 +2251,7 @@ describe("Tick limits and recovery", () => {
 		const runtime = Object.assign(testRuntimeForToolExecution(), {
 			...loopMemory,
 			appendProviderMessages: async () => {},
-			appendEvent: async (runId: string, type: string, payload: unknown) => {
+			appendEvent: (runId: string, type: string, payload: unknown) => {
 				eventSeq += 1;
 				return {
 					seq: eventSeq,

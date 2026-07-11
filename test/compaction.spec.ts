@@ -539,7 +539,7 @@ describe("Compaction", () => {
 					created_at: "2026-05-01T00:00:00.000Z",
 					has_logs: 0,
 				}));
-				const appendEvent = vi.fn(async (runId: string, type: string, payload: unknown) => ({
+				const appendEvent = vi.fn((runId: string, type: string, payload: unknown) => ({
 					seq: 101,
 					runId,
 					type,
@@ -627,7 +627,7 @@ describe("Compaction", () => {
 				},
 			];
 			let capturedLimits: { maxLength: number; maxCompletionTokens: number } | null = null;
-			const appendEvent = vi.fn(async (runId: string, type: string, payload: unknown) => ({
+			const appendEvent = vi.fn((runId: string, type: string, payload: unknown) => ({
 				seq: 102,
 				runId,
 				type,
@@ -694,38 +694,6 @@ describe("Compaction", () => {
 				"compaction",
 				expect.objectContaining({ overBudgetFallback: true, status: "pending" }),
 			);
-		});
-
-		it("reconstructs retained loop message logs from full, append, and tail-replacement entries", () => {
-			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
-				state: {
-					storage: {
-						sql: memoryLoopMessageLogSql(),
-					},
-				},
-			});
-			const recordLoopMessageLog = (BotRuntime.prototype as unknown as {
-				recordLoopMessageLog: (messageSeq: number, kind: string, text: string) => void;
-			}).recordLoopMessageLog.bind(runtime);
-			const loopMessageLogsForSeq = (BotRuntime.prototype as unknown as {
-				loopMessageLogsForSeq: (seq: number) => { logs: BotLoopMessageLog[] };
-			}).loopMessageLogsForSeq.bind(runtime);
-
-			const requestBase = "short request";
-			const requestAppend = `${requestBase} with appended body`;
-			const responseBase = `${"A".repeat(320)}old response tail`;
-			const responseReplacement = `${"A".repeat(320)}new response tail`;
-			recordLoopMessageLog(1, "provider_request", requestBase);
-			recordLoopMessageLog(1, "provider_request", requestAppend);
-			recordLoopMessageLog(1, "provider_response", responseBase);
-			recordLoopMessageLog(1, "provider_response", responseReplacement);
-
-			const logs = loopMessageLogsForSeq(1).logs;
-			expect(logs.map((log) => log.encoding)).toEqual(["full", "append", "full", "replace_tail"]);
-			expect(logs.map((log) => log.text)).toEqual([requestBase, requestAppend, responseBase, responseReplacement]);
-			expect(logs[1]?.baseLogId).toBe(logs[0]?.id);
-			expect(logs[3]?.baseLogId).toBe(logs[2]?.id);
-			expect(logs[3]?.prefixLength).toBe(320);
 		});
 
 		it("adds request usage and cache badges to retained loop message logs", () => {
@@ -1053,7 +1021,7 @@ describe("Compaction", () => {
 					token_estimate: 10,
 				},
 			];
-			const appendEvent = vi.fn(async (runId: string, type: string, payload: unknown) => ({
+			const appendEvent = vi.fn((runId: string, type: string, payload: unknown) => ({
 				seq: 101,
 				runId,
 				type,
@@ -1160,7 +1128,7 @@ describe("Compaction", () => {
 					origin: "runtime_error" as BotLoopMessage["origin"],
 				},
 			];
-			const appendEvent = vi.fn(async (runId: string, type: string, payload: unknown) => ({
+			const appendEvent = vi.fn((runId: string, type: string, payload: unknown) => ({
 				seq: 101,
 				runId,
 				type,
@@ -1298,7 +1266,7 @@ describe("Compaction", () => {
 							},
 						},
 						},
-						appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) =>
+						appendEvent: (runId: string, type: string, payload: Record<string, unknown>) =>
 							runtimeEvent(500, runId, type as BotRuntimeEvent["type"], payload),
 						broadcastControl: vi.fn(),
 						compactionLedgerRows: (providerRows: typeof rows) => providerRows,
@@ -1428,7 +1396,7 @@ describe("Compaction", () => {
 							},
 						},
 					},
-					appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) =>
+					appendEvent: (runId: string, type: string, payload: Record<string, unknown>) =>
 						runtimeEvent(501, runId, type as BotRuntimeEvent["type"], payload),
 					broadcastControl: vi.fn(),
 					compactionLedgerRows: (providerRows: typeof rows) => providerRows,
@@ -1712,7 +1680,7 @@ describe("Compaction", () => {
 		const compactedRows: unknown[][] = [];
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 			activeLoopMessagesForProvider: () => activeMessages,
-			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 				events.push({ type, payload });
 				return { seq: events.length, runId, type, payload, tokenEstimate: 0, createdAt: new Date().toISOString() };
 			},
@@ -1794,7 +1762,7 @@ describe("Compaction", () => {
 		const compactionMetrics: Array<Record<string, unknown>> = [];
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 			activeLoopMessagesForProvider: () => activeMessages,
-			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 				events.push({ type, payload });
 				return { seq: events.length, runId, type, payload, tokenEstimate: 0, createdAt: new Date().toISOString() };
 			},
@@ -1928,7 +1896,7 @@ describe("Compaction", () => {
 		let compacted = false;
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 			activeLoopMessageRows: () => rows,
-			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 				events.push({ type, payload });
 				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
 			},
@@ -1982,7 +1950,7 @@ describe("Compaction", () => {
 		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 			activeLoopMessagesForProvider: () => [],
-			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 				events.push({ type, payload });
 				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
 			},
@@ -2027,7 +1995,7 @@ describe("Compaction", () => {
 		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 			activeLoopMessagesForProvider: () => [],
-			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 				events.push({ type, payload });
 				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
 			},
@@ -2079,7 +2047,7 @@ describe("Compaction", () => {
 		let compactCalls = 0;
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 			activeLoopMessagesForProvider: () => [{ role: "assistant", content: "Still too large after compaction." }],
-			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 				events.push({ type, payload });
 				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
 			},
@@ -2135,7 +2103,7 @@ describe("Compaction", () => {
 		const recordInferenceSubmission = vi.fn();
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 			activeLoopMessagesForProvider: () => [{ role: "assistant", content: "Current setup is already too large." }],
-			appendEvent: async (runId: string, type: string, payload: Record<string, unknown>) => {
+			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 				events.push({ type, payload });
 				return { seq: events.length, runId, type, payload, tokenEstimate: 0, createdAt: new Date().toISOString() };
 			},

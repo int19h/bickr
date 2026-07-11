@@ -3151,7 +3151,7 @@ describe("Forum coordinator", () => {
 				activeAbortController: null,
 				activeRunId: null,
 				env: testEnv,
-				appendEvent: async (runId: string, type: string, payload: unknown) => {
+				appendEvent: (runId: string, type: string, payload: unknown) => {
 					seq += 1;
 					return runtimeEvent(seq, runId, type as BotRuntimeEvent["type"], payload);
 				},

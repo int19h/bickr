@@ -337,7 +337,7 @@ describe("Structured output", () => {
 			vi.stubGlobal("fetch", fetchMock);
 			try {
 					const runtime = Object.assign(Object.create(BotRuntime.prototype), {
-						appendEvent: async (_runId: string, type: string, payload: Record<string, unknown>) => {
+						appendEvent: (_runId: string, type: string, payload: Record<string, unknown>) => {
 							events.push({ type, payload });
 							return {
 							seq: events.length,
@@ -450,7 +450,7 @@ describe("Structured output", () => {
 			vi.stubGlobal("fetch", fetchMock);
 			try {
 				const runtime = Object.assign(Object.create(BotRuntime.prototype), {
-					appendEvent: async (_runId: string, type: string, payload: Record<string, unknown>) => {
+					appendEvent: (_runId: string, type: string, payload: Record<string, unknown>) => {
 						events.push({ type, payload });
 						return {
 							seq: events.length,
@@ -541,7 +541,7 @@ describe("Structured output", () => {
 			vi.stubGlobal("fetch", fetchMock);
 			try {
 				const runtime = Object.assign(Object.create(BotRuntime.prototype), {
-					appendEvent: async (_runId: string, type: string, payload: Record<string, unknown>) => {
+					appendEvent: (_runId: string, type: string, payload: Record<string, unknown>) => {
 						events.push({ type, payload });
 						return {
 							seq: events.length,
@@ -675,7 +675,7 @@ describe("Structured output", () => {
 			vi.stubGlobal("fetch", fetchMock);
 			try {
 				const runtime = Object.assign(Object.create(BotRuntime.prototype), {
-					appendEvent: async (_runId: string, type: string, payload: Record<string, unknown>) => {
+					appendEvent: (_runId: string, type: string, payload: Record<string, unknown>) => {
 						events.push({ type, payload });
 						return {
 							seq: events.length,

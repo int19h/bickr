@@ -898,7 +898,7 @@ describe("Submissions and usage", () => {
 					},
 				},
 				activeLoopMessagesForProvider: () => activeLoopMessages,
-				appendEvent: async (runId: string, type: BotRuntimeEvent["type"], payload: unknown) => {
+				appendEvent: (runId: string, type: BotRuntimeEvent["type"], payload: unknown) => {
 					const event = runtimeEvent(events.length + 1, runId, type, payload);
 					events.push(event);
 					return event;
@@ -1035,7 +1035,7 @@ describe("Submissions and usage", () => {
 		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
 		const deltas: Array<Record<string, unknown>> = [];
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
-			appendEvent: async (_runId: string, type: string, payload: Record<string, unknown>) => {
+			appendEvent: (_runId: string, type: string, payload: Record<string, unknown>) => {
 				events.push({ type, payload });
 				return runtimeEvent(events.length, _runId, type as BotRuntimeEvent["type"], payload);
 			},
