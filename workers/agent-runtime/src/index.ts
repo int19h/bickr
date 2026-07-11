@@ -99,7 +99,6 @@ import {
 	botTokenSpendSummaryFromUsageRows,
 	cachedGlobalInferenceCostStats,
 	listOwnerBotTokenSpendSummaries,
-	pruneBotInferenceUsage,
 	publicGlobalInferenceCostStats,
 	recordBotInferenceUsageBatch,
 	refreshGlobalInferenceCostStatsCacheIfStale,
@@ -1466,6 +1465,7 @@ const toolUseRecoveryStateKey = 'tool_use_recovery';
 const pendingSpotlightTicksStateKey = 'pending_spotlight_ticks';
 const compactionReasoningFallbackStateKey = 'compaction_reasoning_fallback';
 const centralProviderUsageExportCursorStateKey = 'central_provider_usage_export_cursor';
+const lastLogOffSeqStateKey = 'last_log_off_seq';
 const contextBudgetCacheStateKey = (fingerprint: string): string => `context_budget:${fingerprint}`;
 const runtimeRunLeaseTimeoutMs = 15 * 60_000;
 const providerRequestTimeoutMs = 60_000;
@@ -1494,6 +1494,9 @@ const serviceBindingTimeoutMs = 30_000;
 const serviceBindingResponseBodyMaxBytes = 1_000_000;
 const scheduledDispatchTimeoutMs = 10_000;
 const providerUsageExportBatchSize = 100;
+const runtimeEventRetentionDays = 30;
+const scheduledDispatchSelectLimit = 20;
+const scheduledDispatchBudget = 2_000;
 const vectorBindingTimeoutMs = 10_000;
 const cloudflareBindingRetryMaxAttempts = 3;
 const cloudflareBindingRetryInitialDelayMs = 1_000;
@@ -3745,6 +3748,7 @@ function openRouterProviderRouting(baseUrl: string, providerRouting: JsonObject 
 }
 
 const runtimeSchema = `
+-- Retention: events are pruned after ${runtimeEventRetentionDays} days except active-run rows and seq >= ${lastLogOffSeqStateKey}.
 CREATE TABLE IF NOT EXISTS events (
 	seq INTEGER PRIMARY KEY AUTOINCREMENT,
 	run_id TEXT NOT NULL,
@@ -3769,6 +3773,7 @@ CREATE TABLE IF NOT EXISTS injections (
 	created_at TEXT NOT NULL,
 	consumed_at TEXT
 );
+-- Retention: local provider_usage rows are kept for at least ${botInferenceUsageRetentionDays} days and until id <= ${centralProviderUsageExportCursorStateKey}.
 CREATE TABLE IF NOT EXISTS provider_usage (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
 	run_id TEXT NOT NULL,
@@ -4649,6 +4654,11 @@ export class BotRuntime {
 				await this.exportRecentProviderUsage(bot);
 			} catch (error) {
 				console.warn('central provider usage export failed', botId, error);
+			}
+			try {
+				this.pruneRuntimeStorageAfterTick(runId);
+			} catch (error) {
+				console.warn('bot runtime local retention prune failed', botId, error);
 			}
 			if (this.activeRunId === runId) {
 				this.activeAbortController = null;
@@ -7510,7 +7520,6 @@ export class BotRuntime {
 		if (maxExportedProviderUsageId > initialCursor) {
 			this.setCentralProviderUsageExportCursor(maxExportedProviderUsageId, exportedAt);
 		}
-		await pruneBotInferenceUsage(this.env.BICKR_D1, now);
 	}
 
 	private latestLoopProviderUsage(): ProviderLoopUsageRow | null {
@@ -8154,12 +8163,16 @@ export class BotRuntime {
 		const providerResult = providerToolResultPayload(canonicalName, result, normalizedArgs, this.providerContentInActiveContext(), {
 			tokenBudget: providerResultTokenBudget,
 		});
-		const toolResultEvent = await this.appendEvent(runId, 'tool_result', {
+		const toolResultPayload = {
 			name: canonicalName,
 			args: providerToolArgs(canonicalName, normalizedArgs),
 			result,
 			displayContext: { worldHandle: bot.homeWorldHandle },
-		});
+		};
+		const toolResultEvent = await this.appendEvent(runId, 'tool_result', toolResultPayload);
+		if (canonicalName === 'log_off' && successfulToolResultPayload(toolResultPayload)) {
+			this.setLastSuccessfulLogOffSeq(toolResultEvent.seq, 'tool_result');
+		}
 		return {
 			name: canonicalName,
 			result,
@@ -8852,19 +8865,24 @@ export class BotRuntime {
 			return false;
 		}
 		const lastLogOffSeq = this.latestSuccessfulLogOffToolResultSeq();
-		const row = this.state.storage.sql
-			.exec<{ seq: number }>(
-				`SELECT seq
+		const rows = this.state.storage.sql
+			.exec<RuntimeRow>(
+				`SELECT seq, run_id, type, payload_json, token_estimate, compacted_by, created_at
 				 FROM events
 				 WHERE seq > ?
 				   AND type = 'provider_tool_call_dropped'
-				   AND payload_json LIKE '%"premature_log_off"%'
 				 ORDER BY seq DESC
-				 LIMIT 1`,
+				 LIMIT 50`,
 				lastLogOffSeq,
 			)
-			.toArray()[0];
-		return Boolean(row);
+			.toArray();
+		return rows.some((row) => {
+			try {
+				return providerToolCallDropPayloadHasReason(runtimeRecord(JSON.parse(row.payload_json)), 'premature_log_off');
+			} catch {
+				return false;
+			}
+		});
 	}
 
 	private loopGeneratedTokenCountSinceLastLogOff(): number {
@@ -8888,12 +8906,38 @@ export class BotRuntime {
 	}
 
 	private latestSuccessfulLogOffToolResultSeq(): number {
+		const stored = this.lastLogOffSeqFromState();
+		if (stored !== undefined) {
+			return stored;
+		}
+		const seq = this.backfillLatestSuccessfulLogOffToolResultSeq();
+		this.setLastSuccessfulLogOffSeq(seq, 'lazy_backfill');
+		return seq;
+	}
+
+	private lastLogOffSeqFromState(): number | undefined {
+		const value = this.runtimeStateValue(lastLogOffSeqStateKey);
+		if (value === undefined) {
+			return undefined;
+		}
+		const seq = typeof value === 'number' ? value : integerValue(runtimeRecord(value).seq);
+		return seq === undefined ? undefined : Math.max(0, Math.floor(seq));
+	}
+
+	private setLastSuccessfulLogOffSeq(seq: number, source: 'tool_result' | 'lazy_backfill'): void {
+		this.setRuntimeState(lastLogOffSeqStateKey, {
+			seq: Math.max(0, Math.floor(seq)),
+			source,
+			updatedAt: new Date().toISOString(),
+		});
+	}
+
+	private backfillLatestSuccessfulLogOffToolResultSeq(): number {
 		const rows = this.state.storage.sql
 			.exec<RuntimeRow>(
 				`SELECT seq, run_id, type, payload_json, token_estimate, compacted_by, created_at
 				 FROM events
 				 WHERE type = 'tool_result'
-				   AND payload_json LIKE '%"name":"log_off"%'
 				 ORDER BY seq DESC`,
 			)
 			.toArray();
@@ -8904,6 +8948,39 @@ export class BotRuntime {
 			}
 		}
 		return 0;
+	}
+
+	private pruneRuntimeStorageAfterTick(activeRunId: string, now = new Date()): { events: number; providerUsage: number } {
+		const eventCutoff = new Date(now.getTime() - runtimeEventRetentionDays * dayMs).toISOString();
+		const lastLogOffSeq = this.latestSuccessfulLogOffToolResultSeq();
+		this.state.storage.sql.exec(
+			`DELETE FROM events
+			 WHERE created_at < ?
+			   AND run_id != ?
+			   AND seq < ?`,
+			eventCutoff,
+			activeRunId,
+			lastLogOffSeq,
+		);
+		const events = this.state.storage.sql.exec<{ count: number }>(`SELECT changes() AS count`).one().count;
+
+		const usageCutoff = new Date(now.getTime() - botInferenceUsageRetentionDays * dayMs).toISOString();
+		const exportCursor = this.centralProviderUsageExportCursor();
+		let providerUsage = 0;
+		if (exportCursor > 0) {
+			this.state.storage.sql.exec(
+				`DELETE FROM provider_usage
+				 WHERE created_at < ?
+				   AND id <= ?
+				   AND run_id != ?`,
+				usageCutoff,
+				exportCursor,
+				activeRunId,
+			);
+			providerUsage = this.state.storage.sql.exec<{ count: number }>(`SELECT changes() AS count`).one().count;
+		}
+
+		return { events, providerUsage };
 	}
 
 	private latestCompactionSummary(): string {
@@ -13268,49 +13345,70 @@ async function runScheduledAgentRuntimeTasks(env: Env, scheduledTime: number): P
 	]);
 }
 
-async function dispatchDueBots(env: Env, scheduledTime: number): Promise<void> {
+export async function dispatchDueBots(
+	env: Env,
+	scheduledTime: number,
+	options: { batchSize?: number; maxDispatches?: number } = {},
+): Promise<{ dispatched: number; budgetExhausted: boolean }> {
 	const now = new Date(scheduledTime).toISOString();
-	const result = await env.BICKR_D1.prepare(
-		`SELECT bot_id AS botId
-		 FROM bot_runtime_index
-		 WHERE enabled = 1
-		   AND next_due_at IS NOT NULL
-		   AND next_due_at <= ?
-		   AND (lease_expires_at IS NULL OR lease_expires_at <= ?)
-		 ORDER BY next_due_at ASC
-		 LIMIT 20`,
-	)
-		.bind(now, now)
-		.all<{ botId: string }>();
-	await Promise.all(
-		(result.results ?? []).map(async (row) => {
-			const id = env.BOT_RUNTIME.idFromName(row.botId);
-			const parentSignal = new AbortController().signal;
-			try {
-				const headers = new Headers({
-					'content-type': 'application/json',
-					'x-bickr-scheduler': '1',
-				});
-				addInternalServiceAuthHeader(headers, env.INTERNAL_SERVICE_SECRET);
-				await withAbortableTimeout(
-					parentSignal,
-					scheduledDispatchTimeoutMs,
-					() => new RuntimeOperationTimeoutError('Scheduled Bickr visit dispatch', scheduledDispatchTimeoutMs),
-					(signal) =>
-						env.BOT_RUNTIME.get(id).fetch(
-							new Request(internalServiceUrl(`/bots/${encodeURIComponent(row.botId)}/tick`), {
-								method: 'POST',
-								signal,
-								headers,
-								body: JSON.stringify({ background: true }),
-							}),
-						),
-				);
-			} catch (error) {
-				console.warn('scheduled bot tick dispatch failed', row.botId, error);
-			}
-		}),
-	);
+	const batchSize = Math.max(1, Math.floor(options.batchSize ?? scheduledDispatchSelectLimit));
+	const maxDispatches = Math.max(0, Math.floor(options.maxDispatches ?? scheduledDispatchBudget));
+	let dispatched = 0;
+	while (dispatched < maxDispatches) {
+		const limit = Math.min(batchSize, maxDispatches - dispatched);
+		const result = await env.BICKR_D1.prepare(
+			`SELECT bot_id AS botId
+			 FROM bot_runtime_index
+			 WHERE enabled = 1
+			   AND next_due_at IS NOT NULL
+			   AND next_due_at <= ?
+			   AND (lease_expires_at IS NULL OR lease_expires_at <= ?)
+			 ORDER BY next_due_at ASC
+			 LIMIT ?`,
+		)
+			.bind(now, now, limit)
+			.all<{ botId: string }>();
+		const rows = result.results ?? [];
+		if (rows.length === 0) {
+			break;
+		}
+		// #17's D1 CAS admission is authoritative. If another scheduler or a
+		// stale page double-dispatches a bot, the BotRuntime DO rejects it safely.
+		await Promise.all(
+			rows.map(async (row) => {
+				const id = env.BOT_RUNTIME.idFromName(row.botId);
+				const parentSignal = new AbortController().signal;
+				try {
+					const headers = new Headers({
+						'content-type': 'application/json',
+						'x-bickr-scheduler': '1',
+					});
+					addInternalServiceAuthHeader(headers, env.INTERNAL_SERVICE_SECRET);
+					await withAbortableTimeout(
+						parentSignal,
+						scheduledDispatchTimeoutMs,
+						() => new RuntimeOperationTimeoutError('Scheduled Bickr visit dispatch', scheduledDispatchTimeoutMs),
+						(signal) =>
+							env.BOT_RUNTIME.get(id).fetch(
+								new Request(internalServiceUrl(`/bots/${encodeURIComponent(row.botId)}/tick`), {
+									method: 'POST',
+									signal,
+									headers,
+									body: JSON.stringify({ background: true }),
+								}),
+							),
+					);
+				} catch (error) {
+					console.warn('scheduled bot tick dispatch failed', row.botId, error);
+				}
+			}),
+		);
+		dispatched += rows.length;
+		if (rows.length < limit) {
+			break;
+		}
+	}
+	return { dispatched, budgetExhausted: maxDispatches > 0 && dispatched >= maxDispatches };
 }
 
 function canonicalToolName(name: string): string {
@@ -18386,6 +18484,15 @@ function successfulToolResultPayload(payload: Record<string, unknown>): boolean 
 	}
 	const result = runtimeRecord(payload.result);
 	return result.ok !== false;
+}
+
+function providerToolCallDropPayloadHasReason(payload: Record<string, unknown>, reason: ProviderToolCallDropReason): boolean {
+	const topLevelReasons = stringValue(payload.reason)?.split(',').map((item) => item.trim()).filter(Boolean) ?? [];
+	if (topLevelReasons.includes(reason)) {
+		return true;
+	}
+	const calls = Array.isArray(payload.calls) ? payload.calls : [];
+	return calls.some((call) => stringValue(runtimeRecord(call).reason) === reason);
 }
 
 function toolFailureCode(error: unknown): string {

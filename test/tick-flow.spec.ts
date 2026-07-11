@@ -169,10 +169,16 @@ describe("Tick flow", () => {
 					storage: {
 						sql: {
 							exec<T>(sql: string, ...params: unknown[]) {
-								if (/payload_json LIKE '%"name":"log_off"%'/s.test(sql)) {
+								if (/SELECT value_json FROM runtime_state WHERE key = \?/.test(sql)) {
+									return { toArray: () => [] };
+								}
+								if (/INSERT INTO runtime_state/.test(sql)) {
+									return { toArray: () => [] };
+								}
+								if (/WHERE type = 'tool_result'/s.test(sql)) {
 									return {
 										toArray: () => rows
-											.filter((row) => row.type === "tool_result" && JSON.stringify(row.payload).includes('"name":"log_off"'))
+											.filter((row) => row.type === "tool_result")
 											.sort((left, right) => right.seq - left.seq)
 											.slice(0, 20)
 											.map((row) => ({

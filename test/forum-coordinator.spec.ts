@@ -96,6 +96,7 @@ import type {
 } from "./helpers/index-harness";
 import { internalServiceAuthHeader } from "@bickr/shared/internal-service";
 import { notificationKvTtlSince, pruneExpiredBotSeenContent, pruneExpiredNotifications } from "@bickr/shared/social";
+import { botInferenceUsageRetentionDays } from "@bickr/shared/token-spend";
 import type { KVNamespaceLike } from "@bickr/shared/storage";
 
 async function runForumCoordinatorScheduled(scheduledTime: string): Promise<void> {
@@ -266,6 +267,50 @@ async function staleBotSeenContentRowCount(now: string): Promise<number> {
 		.bind(cutoff)
 		.first<{ count: number }>();
 	return row?.count ?? 0;
+}
+
+async function insertBotInferenceUsageForRetention(input: { sourceUsageId: number; createdAt: string }): Promise<void> {
+	await testEnv.BICKR_D1.prepare(
+		`INSERT INTO bot_inference_usage (
+			bot_id, owner_user_id, home_world_id, home_world_handle, source_usage_id,
+			run_id, request_seq, created_at, requested_model, response_model, model,
+			context_window_tokens, provider_base_url, provider_name, prompt_tokens,
+			completion_tokens, total_tokens, cached_tokens, reasoning_tokens, cost, exported_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+	)
+		.bind(
+			"bot_retention_usage",
+			"usr_retention_usage",
+			"wld_retention",
+			"retention-world",
+			input.sourceUsageId,
+			`run-retention-${input.sourceUsageId}`,
+			input.sourceUsageId,
+			input.createdAt,
+			"test/model",
+			null,
+			"test/model",
+			16_000,
+			"https://provider.example.test",
+			null,
+			100,
+			20,
+			120,
+			0,
+			0,
+			null,
+			input.createdAt,
+		)
+		.run();
+}
+
+async function botInferenceUsageSourceIds(): Promise<number[]> {
+	const result = await testEnv.BICKR_D1.prepare(
+		`SELECT source_usage_id AS sourceUsageId
+		 FROM bot_inference_usage
+		 ORDER BY source_usage_id`,
+	).all<{ sourceUsageId: number }>();
+	return (result.results ?? []).map((row) => row.sourceUsageId);
 }
 
 function daysBefore(now: string, days: number): string {
@@ -858,8 +903,31 @@ describe("Forum coordinator", () => {
 			id: "thr_seen_retained",
 			lastSeenAt: daysBefore(now, 89),
 		});
+		await insertBotInferenceUsageForRetention({
+			sourceUsageId: 1,
+			createdAt: daysBefore(now, botInferenceUsageRetentionDays + 1),
+		});
+		await insertBotInferenceUsageForRetention({
+			sourceUsageId: 2,
+			createdAt: daysBefore(now, botInferenceUsageRetentionDays - 1),
+		});
 
-		await runForumCoordinatorScheduled(now);
+		const consoleLog = vi.spyOn(console, "log").mockImplementation(() => {});
+		let retentionLog: Record<string, unknown> | undefined;
+		try {
+			await runForumCoordinatorScheduled(now);
+			retentionLog = consoleLog.mock.calls
+				.map(([message]) => {
+					try {
+						return JSON.parse(String(message)) as Record<string, unknown>;
+					} catch {
+						return {};
+					}
+				})
+				.find((payload) => payload.event === "retention_prune");
+		} finally {
+			consoleLog.mockRestore();
+		}
 
 		expect(await botNotificationRowIds()).toEqual(["ntf_recent_delivered", "ntf_young_pending"]);
 		for (const id of ["ntf_expired_pending", "ntf_expired_delivered", "ntf_expired_read", "ntf_expired_archived"]) {
@@ -869,6 +937,55 @@ describe("Forum coordinator", () => {
 		expect(await botNotificationKvExists("ntf_young_pending")).toBe(true);
 		expect(await humanNotificationExists("hnt_old_out_of_scope")).toBe(true);
 		expect(await botSeenContentRowIds()).toEqual(["thr_seen_retained"]);
+		expect(await botInferenceUsageSourceIds()).toEqual([2]);
+		expect(retentionLog).toMatchObject({
+			event: "retention_prune",
+			hotScores: { refreshed: true },
+			notificationPrune: {
+				deletedRows: 4,
+				kvDeleteFailures: 0,
+			},
+			botSeenContentPrune: {
+				deletedRows: 1,
+			},
+			inferenceUsagePrune: {
+				deletedRows: 1,
+			},
+		});
+	});
+
+	it("logs the retention_prune summary before a failed maintenance task propagates", async () => {
+		const now = "2026-07-01T00:00:00.000Z";
+		await insertBotNotificationForRetention({
+			id: "ntf_expired_for_failure_run",
+			status: "delivered_to_loop",
+			createdAt: daysBefore(now, 31),
+		});
+		await testEnv.BICKR_D1.prepare(`ALTER TABLE bot_seen_content RENAME TO bot_seen_content_hidden`).run();
+
+		const consoleLog = vi.spyOn(console, "log").mockImplementation(() => {});
+		let retentionLog: Record<string, unknown> | undefined;
+		try {
+			await expect(runForumCoordinatorScheduled(now)).rejects.toThrow();
+			retentionLog = consoleLog.mock.calls
+				.map(([message]) => {
+					try {
+						return JSON.parse(String(message)) as Record<string, unknown>;
+					} catch {
+						return {};
+					}
+				})
+				.find((payload) => payload.event === "retention_prune");
+		} finally {
+			consoleLog.mockRestore();
+			await testEnv.BICKR_D1.prepare(`ALTER TABLE bot_seen_content_hidden RENAME TO bot_seen_content`).run();
+		}
+
+		expect(retentionLog).toMatchObject({
+			event: "retention_prune",
+			notificationPrune: { deletedRows: 1 },
+		});
+		expect((retentionLog?.botSeenContentPrune as { error?: string })?.error).toContain("bot_seen_content");
 	});
 
 	it("prunes bot seen-content rows older than the retention cutoff", async () => {
