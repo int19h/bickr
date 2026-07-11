@@ -137,7 +137,6 @@ type SearchAiLike = {
 
 export type SearchVectorEnv = {
 	AI?: SearchAiLike;
-	BICKR_BOT_VECTORIZE?: SearchVectorizeIndexLike;
 	BICKR_SEARCH_VECTORIZE?: SearchVectorizeIndexLike;
 };
 
@@ -285,7 +284,7 @@ export async function searchEntitiesSemantic(
 		return emptySearchResponse(options.query, page, searchPageSize);
 	}
 
-	const vectorIndex = searchVectorIndex(env);
+	const vectorIndex = env.BICKR_SEARCH_VECTORIZE;
 	if (!env.AI || !vectorIndex) {
 		return emptySearchResponse(options.query, page, searchPageSize);
 	}
@@ -399,7 +398,7 @@ async function deleteSearchVectors(
 	env: SearchVectorEnv,
 	entities: Array<{ id: string; type: SearchEntityType }>,
 ): Promise<void> {
-	const vectorIndex = searchVectorIndex(env);
+	const vectorIndex = env.BICKR_SEARCH_VECTORIZE;
 	if (!vectorIndex || entities.length === 0) {
 		return;
 	}
@@ -1190,7 +1189,7 @@ async function upsertSearchVectors(env: SearchVectorEnv, entities: SearchVectorE
 	if (!env.AI) {
 		return;
 	}
-	const vectorIndex = searchVectorIndex(env);
+	const vectorIndex = env.BICKR_SEARCH_VECTORIZE;
 	if (!vectorIndex || entities.length === 0) {
 		return;
 	}
@@ -1232,10 +1231,6 @@ async function embedSearchTexts(ai: SearchAiLike, texts: string[]): Promise<numb
 		),
 	);
 	return response.data ?? [];
-}
-
-function searchVectorIndex(env: SearchVectorEnv): SearchVectorizeIndexLike | undefined {
-	return env.BICKR_SEARCH_VECTORIZE ?? env.BICKR_BOT_VECTORIZE;
 }
 
 function vectorMatchesToCandidates(matches: SearchVectorMatch[]): SemanticCandidate[] {

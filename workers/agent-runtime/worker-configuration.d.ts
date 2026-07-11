@@ -6,7 +6,6 @@ interface __BaseEnv_Env {
 	BICKR_R2: R2Bucket;
 	BICKR_D1: D1Database;
 	BICKR_SEARCH_VECTORIZE?: VectorizeIndex;
-	BICKR_BOT_VECTORIZE?: VectorizeIndex;
 	AI?: Ai;
 	BICKR_R2_PUBLIC_BASE_URL: "https://assets-test.bickr.social" | "https://assets.bickr.social";
 	INTERNAL_SERVICE_SECRET?: string;
@@ -26,7 +25,6 @@ declare namespace Cloudflare {
 		BICKR_R2: R2Bucket;
 		BICKR_D1: D1Database;
 		BICKR_SEARCH_VECTORIZE: VectorizeIndex;
-		BICKR_BOT_VECTORIZE: VectorizeIndex;
 		AI: Ai;
 		BICKR_R2_PUBLIC_BASE_URL: "https://assets-test.bickr.social";
 		INTERNAL_SERVICE_SECRET?: string;

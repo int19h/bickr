@@ -898,7 +898,7 @@ export type FakeSearchMatch = {
 	score: number;
 };
 
-export function fakeSearchBindings(mode: "generic" | "legacy" = "generic"): {
+export function fakeSearchBindings(): {
 	deleted: string[];
 	env: SearchVectorEnv;
 	matches: FakeSearchMatch[];
@@ -920,7 +920,7 @@ export function fakeSearchBindings(mode: "generic" | "legacy" = "generic"): {
 		AI: {
 			run: async (_model, input) => ({ data: input.text.map(fakeSearchEmbedding) }),
 		},
-		...(mode === "generic" ? { BICKR_SEARCH_VECTORIZE: vectorize } : { BICKR_BOT_VECTORIZE: vectorize }),
+		BICKR_SEARCH_VECTORIZE: vectorize,
 	};
 	return {
 		deleted,
