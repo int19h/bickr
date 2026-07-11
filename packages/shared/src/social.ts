@@ -351,7 +351,7 @@ export function rootCommentForThread(thread: ThreadDocument): CommentDocument {
 }
 
 export function normalizeThreadDefaults(document: ThreadDocument): ThreadDocument {
-	const current = withoutStoredThreadHotScore(document);
+	const current = document;
 	if (!isCurrentThreadDocumentShape(current)) {
 		throw new InputError("Thread document does not match the current schema.");
 	}
@@ -376,11 +376,6 @@ export function normalizeThreadDefaults(document: ThreadDocument): ThreadDocumen
 		lastActivityAt,
 	};
 	return normalized;
-}
-
-function withoutStoredThreadHotScore(document: ThreadDocument): ThreadDocument {
-	const { hotScore: _hotScore, ...current } = document as ThreadDocument & { hotScore?: number };
-	return current;
 }
 
 function isCurrentThreadDocumentShape(document: ThreadDocument): boolean {
