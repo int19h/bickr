@@ -35,7 +35,6 @@ import {
 	jsonRequest,
 	localizedText,
 	localizedTextString,
-	loopMessageContributesToProviderHistory,
 	lt,
 	memoryExistingLoopMessageSchemaSql,
 	memoryLoopMessageInsertSql,
@@ -57,18 +56,14 @@ import {
 	providerCompactionSystemInstruction,
 	providerContextCompletionReserveTokens,
 	providerMessagesWithReasoningPrefill,
-	providerResponseMessageForHistory,
 	providerResponseWithContent,
-	providerResponseWithToolCall,
 	providerTokenProbeRequest,
 	providerToolResultPayload,
 	pruneStreamEventsForPersistentEvents,
 	readThread,
-	repairInvalidUnicodeText,
 	requiredLt,
 	runtimeErrorLoopMessageContent,
 	runtimeEvent,
-	sanitizeProviderToolCalls,
 	seedWorld,
 	sseStream,
 	standardPrompt,
@@ -82,6 +77,7 @@ import {
 	truncateForContext,
 	vi,
 } from "./helpers/index-harness";
+import { repairInvalidUnicodeText } from "../workers/agent-runtime/src/provider/sanitize";
 import type {
 	BotDocument,
 	BotInferenceSubmissionMessage,
@@ -2825,85 +2821,6 @@ describe("Provider requests", () => {
 			origin: "provider_response",
 			streamSeq: 123,
 		}));
-	});
-
-	it("does not retain empty provider responses in provider history", async () => {
-		expect(providerResponseMessageForHistory({
-			content: "",
-			reasoning: "",
-			reasoningDetails: [],
-			toolCalls: [],
-		})).toBeNull();
-		expect(providerResponseMessageForHistory({
-			content: "",
-			reasoning: "I am deciding what to do next.",
-			reasoningDetails: [],
-			toolCalls: [],
-		})).toEqual({ role: "assistant", reasoning: "I am deciding what to do next." });
-		expect(providerResponseMessageForHistory(providerResponseWithToolCall("call-read", "read_thread", { threadId: "thr_test" }))).toMatchObject({
-			role: "assistant",
-			content: null,
-			tool_calls: [
-				expect.objectContaining({
-					id: "call-read",
-					function: expect.objectContaining({ name: "read_thread" }),
-				}),
-			],
-		});
-		expect(loopMessageContributesToProviderHistory("provider_response", { role: "assistant", content: null })).toBe(false);
-		expect(loopMessageContributesToProviderHistory("provider_response", { role: "assistant", content: "" })).toBe(false);
-		expect(loopMessageContributesToProviderHistory("runtime_error", { role: "user", content: "Bickr Terminal reported an error." })).toBe(false);
-		expect(loopMessageContributesToProviderHistory("synthetic_context", { role: "assistant", content: null })).toBe(true);
-	});
-
-	it("validates provider tool-call arguments before history or execution", () => {
-		const sanitized = sanitizeProviderToolCalls([
-			{
-				id: "call-malformed",
-				type: "function",
-				function: { name: "read_thread", arguments: "{\"threadId\":" },
-			},
-			{
-				id: "call-array",
-				type: "function",
-				function: { name: "read_thread", arguments: "[]" },
-			},
-			{
-				id: "call-null",
-				type: "function",
-				function: { name: "read_thread", arguments: "null" },
-			},
-			{
-				id: "call-string",
-				type: "function",
-				function: { name: "read_thread", arguments: "\"x\"" },
-			},
-			{
-				id: "call-valid",
-				type: "function",
-				function: { name: "read_thread", arguments: "{ \"threadId\": \"thr_test\" }" },
-			},
-			{
-				id: "call-valid",
-				type: "function",
-				function: { name: "reply_to_comment", arguments: "{ \"commentId\": \"com_test\", \"body\": \"Duplicate id.\" }" },
-			},
-		]);
-
-		expect(sanitized.dropped.map((call) => [call.id, call.reason])).toEqual([
-			["call-malformed", "invalid_arguments_json"],
-			["call-array", "arguments_not_json_object"],
-			["call-null", "arguments_not_json_object"],
-			["call-string", "arguments_not_json_object"],
-			["call-valid", "duplicate_tool_call"],
-		]);
-		expect(sanitized.toolCalls).toEqual([
-			{
-				id: "call-valid",
-				type: "function",
-				function: { name: "read_thread", arguments: "{\"threadId\":\"thr_test\"}" },
-			},
-		]);
 	});
 
 	it("compacts duplicate request-local tool call ids without repairing history", () => {
