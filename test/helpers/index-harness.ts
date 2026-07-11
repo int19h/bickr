@@ -114,15 +114,11 @@ import {
 	formatRuntimeEventForContext,
 	formatRuntimeInputForContext,
 	loopMessageContributesToProviderHistory,
-	oldestRowsForTokenFraction,
 	PersistentCompactionReductionFailureError,
 	promptContextBudgetCacheFingerprint,
 	promptContextBudgetFromCounts,
 	providerChatCompletionRequest,
-	providerCompactionMessages,
 	providerCompactionRequest,
-	providerCompactionSystemInstruction,
-	providerCompactionSummaryLimitsForChat,
 	providerMessagesWithReasoningPrefill,
 	providerResponseMessageForHistory,
 	providerTranslationRequest,
@@ -137,6 +133,12 @@ import {
 	truncateForContext,
 	toolUseRecoveryReminder,
 } from "../../workers/agent-runtime/src/index";
+import {
+	providerCompactionMessages,
+	providerCompactionSystemInstruction,
+} from "../../workers/agent-runtime/src/compaction/engine";
+import { providerCompactionSummaryLimitsForChat } from "../../workers/agent-runtime/src/compaction/limits";
+import { oldestRowsForTokenFraction } from "../../workers/agent-runtime/src/compaction/selection";
 import {
 	isOpenRouterProviderBaseUrl,
 	metaCompactionToolName,

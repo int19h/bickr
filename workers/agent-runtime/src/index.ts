@@ -207,11 +207,7 @@ import {
 } from '@bickr/shared/model';
 import {
 	isOpenRouterProviderBaseUrl,
-	isMetaCompactionToolDefinition,
-	metaCompactionToolDefinition,
-	metaCompactionToolName,
 	mutableToolNames,
-	nativeLanguageSystemPromptLine,
 	openRouterServerToolSelection,
 	providerCompactionSummaryPropertyDescription,
 	providerCompactionSummarySchemaDescription,
@@ -224,12 +220,63 @@ import {
 	providerContextCompletionReserveTokens,
 } from './provider-requests';
 import {
+	appendToolRequirementInstruction,
+	defaultProviderCompactionSummaryLimits,
+	isNonReducingCompactionValidationError,
+	providerCompactionMessages,
+	providerCompactionMessagesForAttempt,
+	providerCompactionMode,
+	providerCompactionReasoningForSettings,
+	providerCompactionResponseFormat,
+	providerCompactionTemperature,
+	providerCompactionToolName,
+	providerCompactionToolsForAttempt,
+	providerCompactionToolsForMode,
+	providerMessagesWithPrefillCompatibility,
+	providerRequiredToolChoice,
+	providerSingleStringResponseFormat,
+	providerToolChoiceForMode,
+	providerToolNames,
+	settingsUseOpenRouter,
+	structuredOutputRepairMessages,
+	toolRequirementSelfCorrection,
+	type ProviderCompactionMode,
+	type ProviderCompactionReasoningMode,
+	type ProviderJsonSchemaResponseFormat,
+	type ProviderReasoningConfig,
+	type ProviderSingleStringResponseSpec,
+} from './compaction/engine';
+import {
+	chatMessagesCharacterCount,
+	estimateChatMessageTokens,
+	estimateChatMessagesTokens,
+	estimateTextTokensWithCalibration,
+	fallbackTokensPerCharacter,
+	maxCalibratedTokensPerCharacter,
+	minCalibratedTokensPerCharacter,
+	providerCompactionMaxCompletionTokensForRequest,
+	providerCompactionMaxPromptEstimateTokens,
+	providerCompactionRequiredCompletionTokens,
+	providerCompactionSummaryLimitsForChat,
+	providerPromptEstimateSafetyTokens,
+	type ProviderCompactionSummaryLimits,
+	type ProviderCompactionValidationLimits,
+	type TextTokenCalibration,
+} from './compaction/limits';
+import {
+	compactionRowsForEstimatedBudget,
+	compactionRowSelectionForEstimatedBudget,
+	loopMessageChatMessageFromRow,
+	reducedCompactionRowsAfterOutputLimit,
+	type CompactionCandidateEstimate,
+	type CompactionRowSelection,
+	type CompactionSelectionOptions,
+} from './compaction/selection';
+import {
 	CompactionAttemptPlan,
-	type CompactionAttemptMessageSet,
 	type CompactionAttemptRequestState,
-	type CompactionAttemptToolSet,
 	type CompactionAttemptTransitionInput,
-} from './compaction-plan';
+} from './compaction/plan';
 
 export { defaultReasoningPrefill };
 
@@ -266,16 +313,6 @@ type RuntimeRow = {
 	compacted_by: number | null;
 };
 
-type CompactionCandidateEstimate = {
-	row: LoopMessageRow;
-	tokens: number;
-};
-
-type CompactionRowSelection = {
-	rows: LoopMessageRow[];
-	overBudgetFallback: boolean;
-};
-
 type CompactionMetrics = {
 	allowedPromptTokens?: number;
 	compactionMaxCharacters?: number;
@@ -287,29 +324,6 @@ type CompactionMetrics = {
 	overBudgetTokens?: number;
 	threshold?: number;
 };
-
-export type TextTokenCalibration = {
-	tokensPerCharacter: number;
-	sampleCount: number;
-};
-
-export type ProviderCompactionSummaryLimits = {
-	minLength: number;
-	maxLength: number;
-	maxCompletionTokens: number;
-	compactionInputTokens: number;
-	nextCompactionTokens: number;
-	compactionRequestOverheadTokens: number;
-	anticipatedSummaryTokens: number;
-	maxSummaryTokens: number;
-	tokensPerCharacter: number;
-	compactedCharacterCount: number;
-	configuredMaxCharacters: number;
-	compactionSummaryPercent: number;
-};
-
-type ProviderCompactionValidationLimits = Pick<ProviderCompactionSummaryLimits, 'minLength' | 'maxLength'> &
-	Partial<Pick<ProviderCompactionSummaryLimits, 'compactedCharacterCount' | 'tokensPerCharacter'>>;
 
 type InferenceSubmissionRow = {
 	id: string;
@@ -950,10 +964,6 @@ export type ProviderSettings = {
 	repetitionPenalty?: number;
 };
 
-type ProviderReasoningConfig =
-	| { enabled: true; exclude: false }
-	| { effort: Exclude<BotInferenceReasoningEffort, 'default'>; exclude: false };
-
 type ProviderPromptCacheControl =
 	| { type: 'ephemeral' }
 	| { type: 'ephemeral'; ttl: '1h' };
@@ -1038,22 +1048,6 @@ type ProviderTokenCalibrationRequestShape = {
 	messages: ChatMessage[];
 	tools?: readonly ProviderToolDefinition[];
 	response_format?: ProviderJsonSchemaResponseFormat;
-};
-
-type ProviderJsonSchemaResponseFormat = {
-	type: 'json_schema';
-	json_schema: {
-		name: string;
-		description?: string;
-		strict: true;
-		schema: {
-			type: 'object';
-			description?: string;
-			properties: Record<string, { type: 'string'; description?: string; minLength?: number; maxLength?: number }>;
-			required: string[];
-			additionalProperties: false;
-		};
-	};
 };
 
 type TranslationProviderSettings = {
@@ -1181,8 +1175,6 @@ type ToolUseRecoveryState = {
 	lastRunId: string;
 	updatedAt: string;
 };
-
-type ProviderCompactionReasoningMode = 'none' | 'minimal';
 
 type ProviderCompactionReasoningFallbackState = {
 	model: string;
@@ -1511,23 +1503,15 @@ const cloudflareBindingRetryInitialDelayMs = 1_000;
 const cloudflareBindingRetryMaxDelayMs = 4_000;
 const providerMaxAttempts = 5;
 const providerRetryBaseDelayMs = 3_000;
-const providerRequiredToolChoice = 'required' as const;
 const providerNoToolChoice = 'none' as const;
 const providerTokenProbeToolChoice = 'auto' as const;
 const providerParallelToolCalls = true;
 const providerRailroadNoToolMaxAttempts = 5;
 const providerPromptCompactionMaxAttempts = 3;
 const providerAvatarDescriptionMaxAttempts = 2;
-const providerCompactionNoReasoning = { effort: 'none', exclude: false } as const satisfies ProviderReasoningConfig;
-const providerCompactionMinimalReasoning = { effort: 'minimal', exclude: false } as const satisfies ProviderReasoningConfig;
 const providerTranslationMaxCompletionTokens = 8_192;
-const providerCompactionTemperature = 0.2;
-const providerContinuationMessageContent = 'Bickr Terminal is ready for my next step.';
-const providerCompactionToolName = metaCompactionToolName;
 const metaCompactionToolMisuseSelfCorrection = `${providerCompactionToolName} cannot be used at this time, so I need to use another Bickr control or continue normally.`;
 const providerTranslationToolName = 'save_translation';
-const providerCompactionDefaultSummaryPercent = 10;
-const providerCompactionDefaultMaxCharacters = 4_000;
 const providerStructuredOutputRepairAttempts = 4;
 const inferenceSubmissionRetentionCount = 50;
 const providerTokenCalibrationRetentionCount = 100;
@@ -1535,12 +1519,6 @@ const loopMessageLogRetentionCount = 50;
 const loopMessageLogChunkLength = 250_000;
 const loopMessagePageIndexLimit = 100;
 export const runtimeMonitorInitialBackfillLimit = 100;
-const compactionRowTokenFraction = 0.7;
-const providerPromptEstimateSafetyTokens = 512;
-const providerCompactionMaxPromptEstimateTokens = 120_000;
-const fallbackTokensPerCharacter = 0.25;
-const minCalibratedTokensPerCharacter = 1 / 12;
-const maxCalibratedTokensPerCharacter = 1;
 const dayMs = 24 * 60 * 60 * 1000;
 const fallbackProviderModel = defaultProviderModel;
 const fallbackProviderBaseUrl = 'https://openrouter.ai/api/v1';
@@ -1588,25 +1566,6 @@ function providerReasoningForSettings(
 	return effort ? { effort, exclude: false } : undefined;
 }
 
-function providerCompactionReasoningForMode(mode: ProviderCompactionReasoningMode): ProviderReasoningConfig {
-	return mode === 'minimal' ? providerCompactionMinimalReasoning : providerCompactionNoReasoning;
-}
-
-function providerCompactionReasoningForSettings(
-	settings: Pick<ProviderSettings, 'baseUrl' | 'model'> | { baseUrl?: string; model: string },
-	mode: ProviderCompactionReasoningMode,
-): ProviderReasoningConfig | undefined {
-	if (mode === 'none') {
-		return providerCompactionReasoningForMode(mode);
-	}
-	const defaultEffort = effectiveReasoningEffortForModel(settings.model, settingsUseOpenRouter(settings), undefined);
-	return defaultEffort ? { effort: defaultEffort, exclude: false } : undefined;
-}
-
-function settingsUseOpenRouter(settings: Pick<ProviderSettings, 'baseUrl'> | { baseUrl?: string }): boolean {
-	return settings.baseUrl !== undefined && isOpenRouterProviderBaseUrl(settings.baseUrl);
-}
-
 function effectiveContextWindowTokensForModel(settings: Pick<ProviderSettings, 'baseUrl' | 'model'>, contextWindowTokens: number): number {
 	return effectiveContextWindowForModel(contextWindowTokens, settings.model, settingsUseOpenRouter(settings));
 }
@@ -1635,42 +1594,11 @@ function providerNoReasoningModeForSettings(
 		: 'minimal';
 }
 
-function providerToolChoiceForMode(mode: BotInferenceToolCalls | BotStructuredToolCalls): typeof providerRequiredToolChoice | undefined {
-	return mode === 'require' ? providerRequiredToolChoice : undefined;
-}
-
 function providerToolCallsForSettings(
 	settings: Pick<ProviderSettings, 'baseUrl' | 'model' | 'toolCalls'>,
 	value: BotInferenceToolCalls | undefined = settings.toolCalls,
 ): BotInferenceToolCalls {
 	return effectiveToolCallsForModel(settings.model, settingsUseOpenRouter(settings), value);
-}
-
-function providerToolNames(tools: readonly ProviderToolDefinition[]): string[] {
-	return tools.map((definition) => (definition.type === 'function' ? definition.function.name : definition.type));
-}
-
-function providerControlInstructionTools(tools: readonly ProviderToolDefinition[]): ProviderToolDefinition[] {
-	return tools.filter((definition) => !isMetaCompactionToolDefinition(definition));
-}
-
-function toolRequirementInstruction(tools: readonly ProviderToolDefinition[]): string {
-	const controlTools = providerControlInstructionTools(tools);
-	const names = providerToolNames(controlTools).join(', ');
-	const prefix = names ? `You MUST use one of the following tools: ${names}.` : 'You MUST use an available Bickr control.';
-	const metaInstruction = tools.some(isMetaCompactionToolDefinition)
-		? ` ${providerCompactionToolName} may only be used when directed.`
-		: '';
-	return `${prefix}${metaInstruction}`;
-}
-
-function toolRequirementSelfCorrection(tools: readonly ProviderToolDefinition[]): string {
-	const names = providerToolNames(providerControlInstructionTools(tools)).join(', ');
-	return names ? `Actually, I must use one of the following tools: ${names}.` : 'Actually, I must use an available Bickr control.';
-}
-
-function appendToolRequirementInstruction(content: string, tools: readonly ProviderToolDefinition[]): string {
-	return `${content}\n\n${toolRequirementInstruction(tools)}`;
 }
 
 function providerFunctionToolsForBot(
@@ -1759,16 +1687,6 @@ function providerLoopRequestEventPayload(input: ProviderLoopRequestEventPayloadI
 	};
 }
 
-function providerMessagesWithPrefillCompatibility(
-	settings: Pick<ProviderSettings, 'model' | 'supportsPrefill'> & { baseUrl?: string },
-	messages: ChatMessage[],
-): ChatMessage[] {
-	const prepared = providerMessagesWithInitialUserContext(messages);
-	const last = prepared[prepared.length - 1];
-	const supportsPrefill = effectiveSupportsPrefillForModel(settings.model, settingsUseOpenRouter(settings), settings.supportsPrefill);
-	return !supportsPrefill && last?.role === 'assistant' ? [...prepared, providerContinuationMessage()] : prepared;
-}
-
 function prepareInferenceSubmissionMessages(
 	settings: Pick<ProviderSettings, 'model' | 'supportsPrefill'> & { baseUrl?: string },
 	messages: ChatMessage[],
@@ -1778,22 +1696,6 @@ function prepareInferenceSubmissionMessages(
 		requestMessages,
 		storedMessages: sanitizeProviderMessagesForRequest(requestMessages),
 	};
-}
-
-function providerMessagesWithInitialUserContext(messages: ChatMessage[]): ChatMessage[] {
-	const insertionIndex = messages[0]?.role === 'system' ? 1 : -1;
-	if (insertionIndex < 0 || initialUserContextMessage(messages[insertionIndex])) {
-		return messages;
-	}
-	return [...messages.slice(0, insertionIndex), providerContinuationMessage(), ...messages.slice(insertionIndex)];
-}
-
-function providerContinuationMessage(): ChatMessage {
-	return { role: 'user', content: providerContinuationMessageContent };
-}
-
-function initialUserContextMessage(message: ChatMessage | undefined): boolean {
-	return message?.role === 'user' && message.content === providerContinuationMessageContent;
 }
 
 export function providerChatCompletionRequest(
@@ -1838,395 +1740,10 @@ export function providerChatCompletionRequest(
 	};
 }
 
-const defaultProviderCompactionSummaryLimits: ProviderCompactionSummaryLimits = {
-	minLength: 1,
-	maxLength: providerCompactionDefaultMaxCharacters,
-	maxCompletionTokens: providerContextCompletionReserveTokens,
-	compactionInputTokens: 1,
-	nextCompactionTokens: 1,
-	compactionRequestOverheadTokens: providerPromptEstimateSafetyTokens,
-	anticipatedSummaryTokens: 1,
-	maxSummaryTokens: Math.ceil(providerCompactionDefaultMaxCharacters * fallbackTokensPerCharacter),
-	tokensPerCharacter: fallbackTokensPerCharacter,
-	compactedCharacterCount: 0,
-	configuredMaxCharacters: providerCompactionDefaultMaxCharacters,
-	compactionSummaryPercent: providerCompactionDefaultSummaryPercent,
-};
-
-export type ProviderCompactionMode = BotCompactionMode;
-
-function providerCompactionMode(
-	settings: Pick<ProviderSettings, 'model' | 'compactionMode' | 'providerRouting'> & { baseUrl?: string },
-): ProviderCompactionMode {
-	return effectiveCompactionModeForModel(settings.model, settingsUseOpenRouter(settings), settings.compactionMode, settings.providerRouting);
-}
-
-function providerCompactionOnlyTools(limits: Pick<ProviderCompactionSummaryLimits, 'minLength' | 'maxLength'>): [ProviderToolDefinition] {
-	return [metaCompactionToolDefinition(limits.maxLength, limits.minLength)];
-}
-
-function providerCompactionIsolatedRepairTools(
-	limits: Pick<ProviderCompactionSummaryLimits, 'minLength' | 'maxLength'>,
-	mode: ProviderCompactionMode,
-): ProviderToolDefinition[] {
-	return mode === 'structured_output' ? [] : providerCompactionOnlyTools(limits);
-}
-
-function providerCompactionToolsForMode(
-	limits: Pick<ProviderCompactionSummaryLimits, 'minLength' | 'maxLength'>,
-	providerTools: ProviderToolDefinition[] | undefined,
-	mode: ProviderCompactionMode,
-): ProviderToolDefinition[] {
-	if (mode === 'tool_call') {
-		return providerCompactionOnlyTools(limits);
-	}
-	if (mode === 'tool_call_cache_friendly') {
-		const tools = providerTools ?? toolDefinitionsForProviderRound(limits.maxLength, { includeMetaCompactionTool: true });
-		return tools.some(isMetaCompactionToolDefinition) ? tools : [...tools, metaCompactionToolDefinition(limits.maxLength)];
-	}
-	// Structured-output compaction intentionally keeps the regular loop tool schema,
-	// minus the meta compaction tool, so these requests can reuse the provider's prompt cache.
-	return (providerTools ?? toolDefinitionsForProviderRound(limits.maxLength, { includeMetaCompactionTool: false })).filter(
-		(tool) => !isMetaCompactionToolDefinition(tool),
-	);
-}
-
-function providerCompactionPersonaInstruction(bot: Pick<BotDocument, 'displayName' | 'handle' | 'includeLanguageInSystemPrompt' | 'language' | 'prompt' | 'shortBio'>): string {
-	const nativeLanguageLine = nativeLanguageSystemPromptLine(bot);
-	return [
-		`Stay in character. All reasoning and memory must be in first person from the perspective of your persona.`,
-		`Your Bickr handle is u/${bot.handle}`,
-		...(nativeLanguageLine ? [nativeLanguageLine] : []),
-		`Your display name is ${localizedTextString(bot.displayName)}`,
-		`Your short bio is:\n${localizedTextString(bot.shortBio)}`,
-		`Your persona is:\n${localizedTextString(bot.prompt)}`,
-	].join('\n\n');
-}
-
-export function providerCompactionSystemInstruction(
-	bot: RuntimeBotDocument,
-	tools: readonly ProviderToolDefinition[],
-	mode: ProviderCompactionMode,
-): string {
-	const setting = bot.worldPrompt?.trim();
-	return mode === 'tool_call'
-		? [
-				'You are an autonomous Bickr participant.',
-				`"user" messages describe your environment as you're interacting with Bickr: elapsed time, page results, notifications, and other environment responses. Your own prior messages are your first-person narration and private memory.`,
-				providerCompactionPersonaInstruction(bot),
-				...(setting ? [`Setting:\n${setting}`] : []),
-				`You MUST use ${providerCompactionToolName}. Do not use any other Bickr control.`,
-			].join('\n\n')
-		: appendToolRequirementInstruction(standardPrompt(bot, bot.worldPrompt), tools);
-}
-
-function providerCompactionSummaryInstruction(
-	bot: Pick<BotDocument, 'handle'>,
-	limits: Pick<ProviderCompactionSummaryLimits, 'minLength' | 'maxLength'>,
-	mode: ProviderCompactionMode,
-): string {
-	const lengthInstruction = providerCompactionLengthInstruction(limits);
-	if (mode === 'structured_output') {
-		return `META: Context compaction required. Don't spend any time thinking about this; respond immediately with JSON summary. Reply with a JSON object matching the required structured output schema, and do not use any Bickr control. Put a detailed summary of only the recent events being compacted, excluding the system instructions and persona prompt, from the first-person perspective of u/${bot.handle}, in the "${providerCompactionSummaryProperty}" field; your response will become the long-term memory of these events, replacing them in context henceforth. ${lengthInstruction}`;
-	}
-	return `META: Context compaction required. Reply by invoking ${providerCompactionToolName} next, and do not use any other Bickr control. Put a detailed summary of only the recent events being compacted, excluding the system instructions and persona prompt, from the first-person perspective of u/${bot.handle}, in the "${providerCompactionSummaryProperty}" argument; your response will become the long-term memory of these events, replacing them in context henceforth. ${lengthInstruction}`;
-}
-
-function providerCompactionShortenInstruction(
-	limits: Pick<ProviderCompactionSummaryLimits, 'minLength' | 'maxLength'>,
-	mode: ProviderCompactionMode,
-): string {
-	const lengthInstruction = providerCompactionLengthInstruction(limits);
-	if (mode === 'structured_output') {
-		return `META: The previous context compaction attempt produced a summary that was too long. Don't spend any time thinking about this; respond immediately with JSON summary. Reply with a JSON object matching the required structured output schema, and do not use any Bickr control. Put a shorter first-person memory summary in the "${providerCompactionSummaryProperty}" field. Verbatim copying from the input is absolutely prohibited: do not copy any sentence, phrase, paragraph, list item, or passage from the input. Restate the remembered facts in new wording and discard repeated boilerplate. ${lengthInstruction}`;
-	}
-	return `META: The previous context compaction attempt produced a summary that was too long. Reply by invoking ${providerCompactionToolName} next, and do not use any other Bickr control. Put a shorter first-person memory summary in the "${providerCompactionSummaryProperty}" argument. Verbatim copying from the input is absolutely prohibited: do not copy any sentence, phrase, paragraph, list item, or passage from the input. Restate the remembered facts in new wording and discard repeated boilerplate. ${lengthInstruction}`;
-}
-
-function providerCompactionIsolatedRepairSystemInstruction(
-	bot: Pick<BotDocument, 'displayName' | 'handle' | 'includeLanguageInSystemPrompt' | 'language' | 'prompt' | 'shortBio'>,
-	limits: Pick<ProviderCompactionSummaryLimits, 'minLength' | 'maxLength'>,
-	mode: ProviderCompactionMode,
-): string {
-	const lengthInstruction = providerCompactionLengthInstruction(limits);
-	const responseInstruction =
-		mode === 'structured_output'
-			? `Don't spend any time thinking about this; respond immediately with JSON summary. Reply with a JSON object matching the required structured output schema, and do not use any Bickr control. Put the replacement first-person memory summary in the "${providerCompactionSummaryProperty}" field.`
-			: `Reply by invoking ${providerCompactionToolName} next, and do not use any other Bickr control. Put the replacement first-person memory summary in the "${providerCompactionSummaryProperty}" argument.`;
-	return [
-		`META: Context compaction repair required. The previous compaction attempt did not reduce the context. ${responseInstruction} Summarize only the input summary being repaired, excluding the system instructions and persona prompt; your response will become the long-term memory of these events, replacing them in context henceforth. Verbatim copying from the input is absolutely prohibited: do not copy any sentence, phrase, paragraph, list item, or passage from the input. Restate the remembered facts in new wording and discard repeated boilerplate. ${lengthInstruction}`,
-		providerCompactionPersonaInstruction(bot),
-	].join('\n\n');
-}
-
-function providerCompactionLengthInstruction(limits: Pick<ProviderCompactionSummaryLimits, 'minLength' | 'maxLength'>): string {
-	return (
-		"You must produce a _summary_ of the events, and it MUST be shorter than the input, so don't just repeat it with minor modifications; you MUST shorten it, even if it's already a summary! " +
-		(limits.minLength >= limits.maxLength
-			? `Use exactly ${limits.maxLength} characters if possible.`
-			: `Use between ${limits.minLength} and ${limits.maxLength} characters.`)
-	);
-}
-
-function providerCompactionShortenMessages(
-	previousMessages: readonly ChatMessage[],
-	previousSummary: string,
-	limits: Pick<ProviderCompactionSummaryLimits, 'minLength' | 'maxLength'>,
-	mode: ProviderCompactionMode = 'structured_output',
-): ChatMessage[] {
-	const systemMessage = previousMessages.find((message) => message.role === 'system');
-	return [
-		...(systemMessage ? [systemMessage] : []),
-		{ role: 'assistant', content: previousSummary },
-		{ role: 'user', content: providerCompactionShortenInstruction(limits, mode) },
-	];
-}
-
-function providerCompactionIsolatedRepairMessages(
-	bot: Pick<BotDocument, 'displayName' | 'handle' | 'includeLanguageInSystemPrompt' | 'language' | 'prompt' | 'shortBio'>,
-	previousSummary: string,
-	limits: Pick<ProviderCompactionSummaryLimits, 'minLength' | 'maxLength'>,
-	mode: ProviderCompactionMode = 'structured_output',
-): ChatMessage[] {
-	return [
-		{
-			role: 'system',
-			content: providerCompactionIsolatedRepairSystemInstruction(bot, limits, mode),
-		},
-		{ role: 'assistant', content: previousSummary },
-		{ role: 'user', content: 'Produce the replacement memory summary now.' },
-	];
-}
-
-function isNonReducingCompactionValidationError(error: ProviderStructuredOutputValidationError): boolean {
-	return error.validationIssue === 'non_reducing_compaction';
-}
-
-export function providerCompactionMessages(
-	bot: BotDocument,
-	compactedMessages: ChatMessage[],
-	limits: Pick<ProviderCompactionSummaryLimits, 'minLength' | 'maxLength'> = defaultProviderCompactionSummaryLimits,
-	providerTools: ProviderToolDefinition[] = toolDefinitionsForProviderRound(limits.maxLength),
-	mode: ProviderCompactionMode = 'structured_output',
-): ChatMessage[] {
-	const tools = providerCompactionToolsForMode(limits, providerTools, mode);
-	return [
-		{
-			role: 'system',
-			content: providerCompactionSystemInstruction(bot, tools, mode),
-		},
-		...compactedMessages,
-		{
-			role: 'user',
-			content: providerCompactionSummaryInstruction(bot, limits, mode),
-		},
-		...(mode === 'tool_call'
-			? [
-					{
-						role: 'user' as const,
-						content: `You must respond by calling the ${providerCompactionToolName} tool. Put the summary in the "${providerCompactionSummaryProperty}" argument. ${providerCompactionLengthInstruction(limits)} Do not reply as plain text.`,
-					},
-				]
-			: []),
-	];
-}
-
-function providerCompactionMessagesForAttempt(
-	bot: BotDocument | undefined,
-	initialMessages: ChatMessage[],
-	limits: Pick<ProviderCompactionSummaryLimits, 'minLength' | 'maxLength'>,
-	mode: ProviderCompactionMode,
-	messageSet: CompactionAttemptMessageSet,
-): ChatMessage[] {
-	switch (messageSet.kind) {
-		case 'initial':
-			return initialMessages;
-		case 'schema_repair':
-			return [...messageSet.messages];
-		case 'shorten_previous_summary':
-			return providerCompactionShortenMessages(initialMessages, messageSet.previousSummary, limits, mode);
-		case 'isolated_reduction_repair':
-			if (!bot) {
-				throw new Error('Compaction isolated reduction repair requires participant context.');
-			}
-			return providerCompactionIsolatedRepairMessages(bot, messageSet.previousSummary, limits, mode);
-	}
-}
-
-function providerCompactionToolsForAttempt(
-	limits: Pick<ProviderCompactionSummaryLimits, 'minLength' | 'maxLength'>,
-	baseTools: ProviderToolDefinition[],
-	mode: ProviderCompactionMode,
-	toolSet: CompactionAttemptToolSet,
-): ProviderToolDefinition[] {
-	return toolSet === 'isolated_reduction_repair' ? providerCompactionIsolatedRepairTools(limits, mode) : baseTools;
-}
-
-export function providerCompactionSummaryLimitsForChat(
-	bot: BotDocument,
-	compactedMessages: readonly ChatMessage[],
-	calibration: TextTokenCalibration,
-	providerTools?: ProviderToolDefinition[],
-	mode: ProviderCompactionMode = 'structured_output',
-	contextWindowTokensOverride?: number,
-): ProviderCompactionSummaryLimits {
-	const tickSettings = effectiveTickSettings(bot.tickSettings);
-	const contextWindowTokens = Math.max(
-		1,
-		Math.floor(contextWindowTokensOverride === undefined ? tickSettings.contextWindowTokens : contextWindowTokensOverride),
-	);
-	const tokensPerCharacter = Math.max(minCalibratedTokensPerCharacter, calibration.tokensPerCharacter || fallbackTokensPerCharacter);
-	const configuredMaxCharacters = Math.max(1, Math.floor(tickSettings.compactionMaxCharacters));
-	const compactedCharacterCount = chatMessagesCharacterCount(compactedMessages);
-	const compactionSummaryPercent = Math.max(1, Math.min(50, Math.floor(tickSettings.compactionSummaryPercent)));
-	let maxLength = configuredMaxCharacters;
-	let minLength = Math.min(maxLength, Math.max(1, Math.ceil((compactedCharacterCount * compactionSummaryPercent) / 100)));
-	let anticipatedSummaryTokens = Math.max(1, Math.ceil(minLength * tokensPerCharacter));
-	let maxSummaryTokens = Math.max(1, Math.ceil(configuredMaxCharacters * tokensPerCharacter));
-	let compactionRequestOverheadTokens = providerPromptEstimateSafetyTokens;
-	let maxCompletionTokens = Math.max(1, contextWindowTokens - compactionRequestOverheadTokens);
-	let compactionInputTokens = Math.max(1, contextWindowTokens - anticipatedSummaryTokens - compactionRequestOverheadTokens);
-	let nextCompactionTokens = providerPromptCompactionCutoffTokens(contextWindowTokens, anticipatedSummaryTokens);
-
-	for (let iteration = 0; iteration < 3; iteration += 1) {
-		maxLength = configuredMaxCharacters;
-		minLength = Math.min(maxLength, Math.max(1, Math.ceil((compactedCharacterCount * compactionSummaryPercent) / 100)));
-		const effectiveProviderTools = providerCompactionToolsForMode({ minLength, maxLength }, providerTools, mode);
-		anticipatedSummaryTokens = Math.max(1, Math.ceil(minLength * tokensPerCharacter));
-		maxSummaryTokens = Math.max(1, Math.ceil(maxLength * tokensPerCharacter));
-		compactionRequestOverheadTokens = providerCompactionRequestOverheadTokens(
-			bot,
-			{ minLength, maxLength },
-			calibration,
-			effectiveProviderTools,
-			mode,
-		);
-		const messages = providerCompactionMessages(bot, [...compactedMessages], { minLength, maxLength }, effectiveProviderTools, mode);
-		maxCompletionTokens = providerCompactionMaxCompletionTokensForRequest(
-			contextWindowTokens,
-			messages,
-			effectiveProviderTools,
-			calibration,
-			providerCompactionResponseFormat(maxLength, mode),
-		);
-		compactionInputTokens = Math.max(1, contextWindowTokens - anticipatedSummaryTokens - compactionRequestOverheadTokens);
-		nextCompactionTokens = providerPromptCompactionCutoffTokens(contextWindowTokens, anticipatedSummaryTokens);
-	}
-
-	return {
-		minLength,
-		maxLength,
-		maxCompletionTokens,
-		compactionInputTokens,
-		nextCompactionTokens,
-		compactionRequestOverheadTokens,
-		anticipatedSummaryTokens,
-		maxSummaryTokens,
-		tokensPerCharacter,
-		compactedCharacterCount,
-		configuredMaxCharacters,
-		compactionSummaryPercent,
-	};
-}
-
-function providerPromptCompactionCutoffTokens(contextWindowTokens: number, anticipatedSummaryTokens: number): number {
-	const summaryAllowanceTokens = Math.max(1, Math.ceil(anticipatedSummaryTokens));
-	// The normal loop response and the future compaction summary are separate provider requests,
-	// so the cutoff reserves whichever one needs more room. That keeps loop max_completion_tokens
-	// at the completion reserve exactly at the cutoff boundary without prematurely summing both.
-	return Math.max(
-		1,
-		Math.floor(contextWindowTokens) - Math.max(providerContextCompletionReserveTokens, summaryAllowanceTokens),
-	);
-}
-
 function providerLoopMaxCompletionTokens(contextWindowTokens: number, estimatedPromptTokens: number): number {
 	const contextWindow = Math.max(1, Math.floor(contextWindowTokens));
 	const promptTokens = Math.max(0, Math.floor(estimatedPromptTokens));
 	return Math.max(1, Math.min(providerContextCompletionReserveTokens, contextWindow - promptTokens));
-}
-
-function providerCompactionRequestOverheadTokens(
-	bot: BotDocument,
-	limits: Pick<ProviderCompactionSummaryLimits, 'minLength' | 'maxLength'>,
-	calibration: TextTokenCalibration,
-	providerTools: ProviderToolDefinition[] = toolDefinitionsForProviderRound(limits.maxLength),
-	mode: ProviderCompactionMode = 'structured_output',
-): number {
-	const tools = providerCompactionToolsForMode(limits, providerTools, mode);
-	const overheadMessages = providerCompactionMessages(bot, [], limits, tools, mode);
-	const responseFormat = providerCompactionResponseFormat(limits.maxLength, mode);
-	return (
-		estimateChatMessagesTokens(overheadMessages, calibration) +
-		estimateTextTokensWithCalibration(JSON.stringify(tools), calibration) +
-		estimateTextTokensWithCalibration(JSON.stringify(responseFormat ?? {}), calibration) +
-		providerPromptEstimateSafetyTokens
-	);
-}
-
-function providerCompactionMaxCompletionTokensForRequest(
-	contextWindowTokens: number,
-	messages: readonly ChatMessage[],
-	providerTools: readonly ProviderToolDefinition[],
-	calibration: TextTokenCalibration,
-	responseFormat?: ProviderJsonSchemaResponseFormat,
-): number {
-	return Math.max(
-		1,
-		Math.floor(contextWindowTokens) -
-			estimateChatMessagesTokens(messages, calibration) -
-			estimateTextTokensWithCalibration(JSON.stringify(providerTools), calibration) -
-			estimateTextTokensWithCalibration(JSON.stringify(responseFormat ?? {}), calibration) -
-			providerPromptEstimateSafetyTokens,
-	);
-}
-
-function providerCompactionRequiredCompletionTokens(limits: Pick<ProviderCompactionSummaryLimits, 'maxSummaryTokens'>): number {
-	return Math.max(1, Math.ceil(limits.maxSummaryTokens + providerPromptEstimateSafetyTokens));
-}
-
-type ProviderSingleStringResponseSpec = {
-	kind: ProviderStructuredOutputKind;
-	property: string;
-	label: string;
-	maxCharacters: number;
-	minCharacters?: number;
-	schemaDescription?: string;
-	propertyDescription?: string;
-	reduction?: ProviderCompactionReductionCheck;
-	toolName?: string;
-};
-
-function providerSingleStringResponseFormat(
-	name: string,
-	spec: Pick<ProviderSingleStringResponseSpec, 'maxCharacters' | 'minCharacters' | 'property' | 'propertyDescription' | 'schemaDescription'>,
-	mode: ProviderCompactionMode = 'structured_output',
-): ProviderJsonSchemaResponseFormat | undefined {
-	if (mode !== 'structured_output') {
-		return undefined;
-	}
-	return {
-		type: 'json_schema',
-		json_schema: {
-			name,
-			...(spec.schemaDescription ? { description: spec.schemaDescription } : {}),
-			strict: true,
-			schema: {
-				type: 'object',
-				...(spec.schemaDescription ? { description: spec.schemaDescription } : {}),
-				properties: {
-					[spec.property]: {
-						type: 'string',
-						...(spec.propertyDescription ? { description: spec.propertyDescription } : {}),
-						minLength: Math.max(1, Math.floor(spec.minCharacters ?? 1)),
-						maxLength: Math.max(1, Math.floor(spec.maxCharacters)),
-					},
-				},
-				required: [spec.property],
-				additionalProperties: false,
-			},
-		},
-	};
 }
 
 function providerCompactionSummarySpec(
@@ -2243,13 +1760,6 @@ function providerCompactionSummarySpec(
 		reduction: providerCompactionReductionCheck(limits),
 		toolName: providerCompactionToolName,
 	};
-}
-
-function providerCompactionResponseFormat(
-	maxCharacters: number,
-	mode: ProviderCompactionMode = 'structured_output',
-): ProviderJsonSchemaResponseFormat | undefined {
-	return providerSingleStringResponseFormat('compaction_summary', providerCompactionSummarySpec({ maxLength: maxCharacters }), mode);
 }
 
 export function providerCompactionRequest(
@@ -9362,16 +8872,17 @@ export class BotRuntime {
 		mode: ProviderCompactionMode = 'structured_output',
 		contextWindowTokens?: number,
 		requestedModel?: string,
-		options: CompactionSelectionOptions = {},
+		options: CompactionSelectionOptions<LoopMessageRow> = {},
 	): LoopMessageRow[] {
-		return this.compactionRowSelectionForEstimatedBudget(
+		const input = this.compactionSelectionInputForEstimatedBudget(
 			bot,
 			providerTools,
 			mode,
 			contextWindowTokens,
 			requestedModel,
 			options,
-		).rows;
+		);
+		return compactionRowsForEstimatedBudget(input.rows, input.limitTokens, input.options);
 	}
 
 	private compactionRowSelectionForEstimatedBudget(
@@ -9380,22 +8891,41 @@ export class BotRuntime {
 		mode: ProviderCompactionMode = 'structured_output',
 		contextWindowTokens?: number,
 		requestedModel?: string,
-		options: CompactionSelectionOptions = {},
-	): CompactionRowSelection {
+		options: CompactionSelectionOptions<LoopMessageRow> = {},
+	): CompactionRowSelection<LoopMessageRow> {
+		const input = this.compactionSelectionInputForEstimatedBudget(
+			bot,
+			providerTools,
+			mode,
+			contextWindowTokens,
+			requestedModel,
+			options,
+		);
+		return compactionRowSelectionForEstimatedBudget(input.rows, input.limitTokens, input.options);
+	}
+
+	private compactionSelectionInputForEstimatedBudget(
+		bot: BotDocument,
+		providerTools?: ProviderToolDefinition[],
+		mode: ProviderCompactionMode = 'structured_output',
+		contextWindowTokens?: number,
+		requestedModel?: string,
+		options: CompactionSelectionOptions<LoopMessageRow> = {},
+	) {
 		const calibration = this.textTokenCalibration(requestedModel);
 		const rows = this.compactionCandidateEstimates(calibration);
-		return oldestLoopMessageGroupSelectionForPromptLimit(
+		return {
 			rows,
-			this.compactionPromptTokenLimit(
+			limitTokens: this.compactionPromptTokenLimit(
 				bot,
 				rows.map((item) => item.row),
 				calibration,
-					providerTools,
+				providerTools,
 				mode,
 				contextWindowTokens,
 			),
-			{
-				canIncludeRows: (selectedRows) =>
+			options: {
+				canIncludeRows: (selectedRows: readonly LoopMessageRow[]) =>
 					this.compactionRowsLeaveOutputBudget(
 						bot,
 						selectedRows,
@@ -9406,7 +8936,7 @@ export class BotRuntime {
 					),
 				requireMinimumSelectedTokens: options.requireMinimumSelectedTokens ?? true,
 			},
-		);
+		};
 	}
 
 	private async manualCompactLoopMessages(botId: string): Promise<{ fromSeq?: number; toSeq?: number; messageCount: number }> {
@@ -9454,7 +8984,7 @@ export class BotRuntime {
 				row,
 				tokens: estimateChatMessageTokens(loopMessageChatMessageFromRow(row), calibration),
 			}));
-			const selection = oldestLoopMessageGroupSelectionForPromptLimit(
+			const selection = compactionRowSelectionForEstimatedBudget<LoopMessageRow>(
 				estimates,
 				this.compactionPromptTokenLimit(
 					bot,
@@ -9845,7 +9375,7 @@ export class BotRuntime {
 	private currentCompactionContextEstimate(requestedModel?: string): {
 		totalTokens: number;
 		rowTokens: number;
-		rows: CompactionCandidateEstimate[];
+		rows: CompactionCandidateEstimate<LoopMessageRow>[];
 		calibration: TextTokenCalibration;
 	} {
 		const calibration = this.textTokenCalibration(requestedModel);
@@ -9863,7 +9393,7 @@ export class BotRuntime {
 		return this.activeProviderHistoryLoopMessageRows();
 	}
 
-	private compactionCandidateEstimates(calibration = this.textTokenCalibration()): CompactionCandidateEstimate[] {
+	private compactionCandidateEstimates(calibration = this.textTokenCalibration()): CompactionCandidateEstimate<LoopMessageRow>[] {
 		return this.compactionCandidateRows().map((row) => ({
 			row,
 			tokens: estimateChatMessageTokens(loopMessageChatMessageFromRow(row), calibration),
@@ -14027,38 +13557,6 @@ function providerToolCallFromValue(value: unknown, index = 0): BotInferenceSubmi
 	};
 }
 
-function structuredOutputRepairMessages(error: ProviderStructuredOutputValidationError): ChatMessage[] {
-	const content = JSON.stringify({
-		ok: false,
-		code: 'schema_invalid',
-		message: error.repairMessage,
-	});
-	if (error.toolCalls.length === 0) {
-		return [
-			{
-				role: 'assistant',
-				content: error.requiredToolName
-					? `Actually, I must use the ${error.requiredToolName} tool.`
-					: 'Actually, I must reply with the required structured output.',
-			},
-		];
-	}
-	return [
-		{
-			role: 'assistant',
-			content: '',
-			tool_calls: error.toolCalls,
-		},
-		...error.toolCalls.map(
-			(toolCall): ChatMessage => ({
-				role: 'tool',
-				tool_call_id: toolCall.id,
-				content,
-			}),
-		),
-	];
-}
-
 export function providerToolResultPayload(
 	name: string,
 	result: unknown,
@@ -17184,126 +16682,12 @@ function estimateTextTokens(text: string): number {
 	return Math.max(1, Math.ceil(text.length / 4));
 }
 
-function estimateTextTokensWithCalibration(text: string, calibration: TextTokenCalibration): number {
-	return Math.max(1, Math.ceil(text.length * calibration.tokensPerCharacter));
-}
-
-function estimateChatMessageTokens(message: ChatMessage, calibration: TextTokenCalibration): number {
-	return estimateChatMessagesTokens([message], calibration);
-}
-
-function estimateChatMessagesTokens(messages: readonly ChatMessage[], calibration: TextTokenCalibration): number {
-	const characters = chatMessagesCharacterCount(messages);
-	if (characters <= 0) {
-		return 0;
-	}
-	return Math.max(1, Math.ceil(characters * calibration.tokensPerCharacter));
-}
-
 function providerTokenCalibrationRequestCharacterCount(request: ProviderTokenCalibrationRequestShape): number {
 	return (
 		chatMessagesCharacterCount(request.messages) +
 		JSON.stringify(request.tools ?? []).length +
 		JSON.stringify(request.response_format ?? {}).length
 	);
-}
-
-export function oldestRowsForTokenFraction<T>(rows: readonly { row: T; tokens: number }[], fraction: number): T[] {
-	const totalTokens = rows.reduce((total, item) => total + Math.max(0, item.tokens), 0);
-	if (totalTokens <= 0 || fraction <= 0) {
-		return [];
-	}
-	const targetTokens = Math.ceil(totalTokens * Math.min(1, fraction));
-	const selected: T[] = [];
-	let selectedTokens = 0;
-	for (const item of rows) {
-		selected.push(item.row);
-		selectedTokens += Math.max(0, item.tokens);
-		if (selectedTokens >= targetTokens) {
-			break;
-		}
-	}
-	return selected;
-}
-
-const compactionOverBudgetFallbackMinSelectedTokens = 1_000;
-
-function oldestLoopMessageGroupSelectionForPromptLimit(
-	rows: readonly CompactionCandidateEstimate[],
-	limitTokens: number,
-	options: { canIncludeRows?: (rows: readonly LoopMessageRow[]) => boolean; requireMinimumSelectedTokens?: boolean } = {},
-): CompactionRowSelection {
-	const groups = loopMessageCompactionGroups(rows);
-	const promptLimitTokens = Math.max(1, Math.floor(limitTokens));
-	const targetTokens = Math.max(1, Math.ceil(promptLimitTokens * compactionRowTokenFraction));
-	const selected: LoopMessageRow[] = [];
-	let selectedTokens = 0;
-	for (const group of groups) {
-		const nextTokens = selectedTokens + group.tokens;
-		const nextRows = [...selected, ...group.rows];
-		const leavesOutputBudget = options.canIncludeRows?.(nextRows) !== false;
-		if (nextTokens > promptLimitTokens || !leavesOutputBudget) {
-			if (selectedTokens < compactionOverBudgetFallbackMinSelectedTokens && group.rows.length > 0) {
-				return {
-					rows: nextRows,
-					overBudgetFallback: true,
-				};
-			}
-			return {
-				rows: selected,
-				overBudgetFallback: false,
-			};
-		}
-		if (nextTokens >= targetTokens) {
-			return {
-				rows: selectedTokens < compactionOverBudgetFallbackMinSelectedTokens ? nextRows : selected,
-				overBudgetFallback: false,
-			};
-		}
-		selected.push(...group.rows);
-		selectedTokens = nextTokens;
-	}
-	return {
-		rows: options.requireMinimumSelectedTokens && selectedTokens < compactionOverBudgetFallbackMinSelectedTokens ? [] : selected,
-		overBudgetFallback: false,
-	};
-}
-
-function reducedCompactionRowsAfterOutputLimit(rows: readonly LoopMessageRow[], calibration: TextTokenCalibration): LoopMessageRow[] {
-	const estimates = rows.map((row) => ({
-		row,
-		tokens: estimateChatMessageTokens(loopMessageChatMessageFromRow(row), calibration),
-	}));
-	const groups = loopMessageCompactionGroups(estimates);
-	if (groups.length <= 1) {
-		return [...rows];
-	}
-	const totalTokens = groups.reduce((total, group) => total + Math.max(0, group.tokens), 0);
-	const targetTokens = Math.max(1, Math.floor(totalTokens / 2));
-	let selectedGroups: Array<{ rows: LoopMessageRow[]; tokens: number }> = [];
-	let selectedTokens = 0;
-	for (const group of groups) {
-		if (
-			selectedGroups.length > 0 &&
-			selectedTokens >= compactionOverBudgetFallbackMinSelectedTokens &&
-			selectedTokens + group.tokens > targetTokens
-		) {
-			break;
-		}
-		selectedGroups.push(group);
-		selectedTokens += group.tokens;
-		if (selectedTokens >= targetTokens) {
-			break;
-		}
-	}
-	if (selectedGroups.length === 0 || selectedGroups.length >= groups.length) {
-		selectedGroups = groups.slice(0, -1);
-	}
-	const reducedTokens = selectedGroups.reduce((total, group) => total + Math.max(0, group.tokens), 0);
-	if (reducedTokens < compactionOverBudgetFallbackMinSelectedTokens) {
-		return [...rows];
-	}
-	return selectedGroups.flatMap((group) => group.rows);
 }
 
 function isProviderCompactionOutputLimitFailure(error: unknown): boolean {
@@ -17406,28 +16790,6 @@ function chatMessagesArePrefix(prefix: readonly ChatMessage[], messages: readonl
 		}
 	}
 	return true;
-}
-
-function chatMessagesCharacterCount(messages: readonly ChatMessage[]): number {
-	return messages.reduce((total, message) => {
-		const toolCallCharacters = (message.tool_calls ?? []).reduce((sum, toolCall) => {
-			return sum + toolCall.id.length + toolCall.function.name.length + toolCall.function.arguments.length;
-		}, 0);
-		return (
-			total +
-			message.role.length +
-			textLength(message.content) +
-			textLength(message.tool_call_id) +
-			textLength(message.reasoning) +
-			textLength(message.reasoning_content) +
-			(message.reasoning_details ? JSON.stringify(message.reasoning_details).length : 0) +
-			toolCallCharacters
-		);
-	}, 0);
-}
-
-function textLength(value: string | null | undefined): number {
-	return value?.length ?? 0;
 }
 
 function clampNumber(value: number, min: number, max: number): number {
@@ -18733,16 +18095,6 @@ function loopMessageDisplayFromRow(row: LoopMessageRow): BotLoopMessageDisplay |
 	}
 }
 
-function loopMessageChatMessageFromRow(row: Pick<LoopMessageRow, 'message_json'>): ChatMessage {
-	const parsed = JSON.parse(row.message_json) as unknown;
-	const record = runtimeRecord(parsed);
-	const role = record.role;
-	if (role !== 'system' && role !== 'user' && role !== 'assistant' && role !== 'tool') {
-		return { role: 'assistant', content: '' };
-	}
-	return parsed as ChatMessage;
-}
-
 function loopMessageLogFromRow(row: LoopMessageLogRow, text: string): BotLoopMessageLog {
 	return {
 		id: row.id,
@@ -18793,39 +18145,6 @@ function chunkText(text: string, chunkLength: number): string[] {
 		chunks.push(text.slice(index, index + chunkLength));
 	}
 	return chunks;
-}
-
-function loopMessageCompactionGroups(rows: readonly CompactionCandidateEstimate[]): Array<{ rows: LoopMessageRow[]; tokens: number }> {
-	const groups: Array<{ rows: LoopMessageRow[]; tokens: number }> = [];
-	for (let index = 0; index < rows.length; index += 1) {
-		const current = rows[index]!;
-		const message = loopMessageChatMessageFromRow(current.row);
-		if (message.role !== 'assistant' || !message.tool_calls?.length) {
-			groups.push({ rows: [current.row], tokens: current.tokens });
-			continue;
-		}
-		const expectedToolCallIds = new Set(message.tool_calls.map((toolCall) => toolCall.id));
-		const groupRows = [current.row];
-		let tokens = current.tokens;
-		let scan = index + 1;
-		while (scan < rows.length) {
-			const next = rows[scan]!;
-			const nextMessage = loopMessageChatMessageFromRow(next.row);
-			if (nextMessage.role !== 'tool' || !nextMessage.tool_call_id || !expectedToolCallIds.has(nextMessage.tool_call_id)) {
-				break;
-			}
-			groupRows.push(next.row);
-			tokens += next.tokens;
-			expectedToolCallIds.delete(nextMessage.tool_call_id);
-			scan += 1;
-			if (expectedToolCallIds.size === 0) {
-				break;
-			}
-		}
-		groups.push({ rows: groupRows, tokens });
-		index = scan - 1;
-	}
-	return groups;
 }
 
 function loopMessageContextLine(row: LoopMessageRow): string {
@@ -18968,6 +18287,3 @@ function errorResponse(error: unknown): Response {
 	console.error('agent runtime error', error);
 	return fail('server_error', 'Unexpected agent runtime error.', 500);
 }
-type CompactionSelectionOptions = {
-	requireMinimumSelectedTokens?: boolean;
-};

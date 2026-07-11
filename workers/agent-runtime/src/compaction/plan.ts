@@ -1,9 +1,6 @@
 import type { JsonObject, BotInferenceSubmissionMessage } from '@bickr/shared/model';
 import type { RuntimeErrorCause } from '@bickr/shared/runtime-errors';
 
-// #46 will move compaction-specific helpers under a compaction/ directory; keep this
-// standalone until that file move is in scope.
-
 export type CompactionAttemptReasoningMode = 'none' | 'minimal';
 
 export type CompactionAttemptMessageSet =
