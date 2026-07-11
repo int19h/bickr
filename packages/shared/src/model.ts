@@ -726,7 +726,6 @@ export type ThreadDocument = EntityDocument & {
 	commentCount: number;
 	voteScore: number;
 	recentCommentCount: number;
-	hotScore: number;
 	lastActivityAt: string;
 	readState?: ThreadReadState;
 };
@@ -1230,7 +1229,6 @@ export type ThreadSummary = {
 	bodyPreview: LocalizedText;
 	voteScore: number;
 	commentCount: number;
-	hotScore: number;
 	createdAt: string;
 	lastActivityAt: string;
 	readState?: ThreadReadState;

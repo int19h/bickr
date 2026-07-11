@@ -451,7 +451,7 @@ async function runDailyForumCoordinatorMaintenance(env: Env, now: string): Promi
 	// rejected ahead of the conditional log line.
 	console.log(JSON.stringify({
 		event: "retention_prune",
-		hotScores: settledMaintenanceResult(hotScores, () => ({ refreshed: true })),
+		hotScores: settledMaintenanceResult(hotScores, () => ({ recentCommentCountsRefreshed: true })),
 		notificationPrune: settledMaintenanceResult(notificationPrune, (value) => value),
 		botSeenContentPrune: settledMaintenanceResult(botSeenContentPrune, (value) => value),
 		inferenceUsagePrune: settledMaintenanceResult(inferenceUsagePrune, (value) => value),

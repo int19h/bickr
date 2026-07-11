@@ -790,7 +790,6 @@ function readStateThread(
 		bodyPreviewLang: enLang,
 		voteScore: 0,
 		commentCount,
-		hotScore: 0,
 		createdAt,
 		lastActivityAt,
 	};
