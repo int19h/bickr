@@ -10,9 +10,7 @@ import { api } from "../../api";
 import {
 	AuthorReference,
 	Reference,
-	ReferenceDataContext,
 	TranslatableText,
-	personalForumBot,
 	type OpenReference,
 	type WorldView,
 } from "../../components/content";
