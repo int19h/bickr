@@ -432,8 +432,13 @@ describe("content refs", () => {
 		expect(parseCommentRef("C/ABCDEFGH")).toBe("abcdefgh");
 		expect(parseThreadRef("thr_legacy")).toBe("thr_legacy");
 		expect(parseCommentRef("cmt_legacy")).toBe("cmt_legacy");
+		expect(parseThreadRef("THR_legacy")).toBeUndefined();
+		expect(parseCommentRef("CMT_legacy")).toBeUndefined();
 		expect(parseObjectRef("t/ABCDEFGH")).toEqual({ type: "thread", id: "abcdefgh" });
+		expect(parseObjectRef("T/ABCDEFGH")).toEqual({ type: "thread", id: "abcdefgh" });
 		expect(parseObjectRef("c/cmt_legacy")).toEqual({ type: "comment", id: "cmt_legacy" });
+		expect(parseObjectRef("C/cmt_legacy")).toEqual({ type: "comment", id: "cmt_legacy" });
+		expect(parseObjectRef("THR_legacy")).toBeUndefined();
 		expect(parseThreadRef("c/abcdefgh")).toBeUndefined();
 		expect(parseObjectRef("abcdefgh")).toBeUndefined();
 	});

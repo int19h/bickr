@@ -6,6 +6,7 @@ import {
 	createCliAuthRequest,
 	deleteCliToken,
 	pollCliAuthRequest,
+	readCliAuthRequest,
 	userForCliToken,
 } from "./repository";
 import { kvKeys, type KVNamespaceLike } from "./storage";
@@ -34,6 +35,14 @@ describe("CLI auth tokens", () => {
 
 		await deleteCliToken(kv, completed.token);
 		expect(await userForCliToken(kv, completed.token, new Date("2026-05-25T00:05:00.000Z"))).toBeNull();
+	});
+
+	it("treats expired approval-page requests as absent without mutating timestamps on read", async () => {
+		const kv = new MapKV();
+		const started = await createCliAuthRequest(kv, { label: "terminal" }, new Date("2026-05-25T00:00:00.000Z"));
+
+		expect(await readCliAuthRequest(kv, started.deviceCode, new Date("2026-05-25T00:11:00.000Z"))).toBeNull();
+		expect(kv.serializedValues()[0]).toContain('"updatedAt":"2026-05-25T00:00:00.000Z"');
 	});
 });
 

@@ -669,7 +669,7 @@ export async function readCliAuthRequest(
 ): Promise<CliAuthRequestDocument | null> {
 	const request = await readJson<CliAuthRequestDocument>(kv, kvKeys.cliAuthRequest(await sha256Hex(deviceCode)));
 	if (!request || Date.parse(request.expiresAt) <= now.getTime()) {
-		return request ? { ...request, updatedAt: now.toISOString() } : null;
+		return null;
 	}
 	return request;
 }

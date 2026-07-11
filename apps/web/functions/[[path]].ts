@@ -1,9 +1,14 @@
+import { fail } from "@bickr/shared/api";
 import { pageMetadataForRequest, type PageMetadata } from "./_page-metadata";
 import type { AppEnv } from "./api/_auth";
 
 export const onRequest: PagesFunction<AppEnv, "path"> = async (context) => {
 	if (context.request.method !== "GET") {
-		return context.next();
+		const response = await context.next();
+		if (isApiPath(context.request) && isHtmlResponse(response)) {
+			return fail("not_found", "API route not found.", 404);
+		}
+		return response;
 	}
 	if (!shouldRewriteHtml(context.request)) {
 		return context.next();
@@ -87,10 +92,10 @@ class HeadHandler {
 }
 
 function shouldRewriteHtml(request: Request): boolean {
-	const url = new URL(request.url);
-	if (url.pathname === "/api" || url.pathname.startsWith("/api/")) {
+	if (isApiPath(request)) {
 		return false;
 	}
+	const url = new URL(request.url);
 	if (url.pathname.includes(".") && !url.pathname.endsWith("/")) {
 		return false;
 	}
@@ -99,6 +104,11 @@ function shouldRewriteHtml(request: Request): boolean {
 
 function isHtmlResponse(response: Response): boolean {
 	return response.headers.get("content-type")?.toLowerCase().includes("text/html") ?? false;
+}
+
+function isApiPath(request: Request): boolean {
+	const pathname = new URL(request.url).pathname;
+	return pathname === "/api" || pathname.startsWith("/api/");
 }
 
 function metadataTags(metadata: PageMetadata, requestUrl: string): string {
