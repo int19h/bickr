@@ -238,6 +238,7 @@ import {
 	worldAvatarTarget,
 	type AvatarTextPromptFillMode,
 } from "./avatar/target";
+import { defaultLanguageTag } from "./language";
 import "./App.css";
 
 const bickrLogoSrc = "/bickr.png";
@@ -539,7 +540,6 @@ function emptyBotDraftForLanguage(language: LanguageTag | string | null | undefi
 	};
 }
 
-const defaultLanguageTag = "en" as LanguageTag;
 const languageExamples = [
 	{ label: "English", value: "en" },
 	{ label: "Spanish", value: "es" },
@@ -3225,7 +3225,7 @@ function App() {
 								}}
 								onBack={() => navigate({ route: "world-edit", worldHandle: activeWorld.handle })}
 								onDiscardSettings={() => updateWorld(activeWorld.handle, { imageGeneration: null })}
-								onSaveSettings={(draft) => updateWorld(activeWorld.handle, { imageGeneration: imageGenerationInputFromDraft(draft, undefined, activeWorld.language ?? textLang(activeWorld.name) ?? defaultLanguageTag) })}
+								onSaveSettings={(draft, language) => updateWorld(activeWorld.handle, { imageGeneration: imageGenerationInputFromDraft(draft, undefined, language) })}
 								onSaved={applySavedWorld}
 								renderPromptFillSettingsModal={(props) => (
 									<WorldAvatarPromptFillSettingsModal {...props} modelSuggestions={ownedBotModels} />
@@ -3317,7 +3317,7 @@ function App() {
 										botHandle: activeBot.handle,
 									})
 								}
-								onSaveSettings={(draft) => updateBot(activeBot.id, { inferenceSettings: { imageGeneration: imageGenerationInputFromDraft(draft, undefined, activeBot.localOverrides?.language ?? activeBot.language ?? textLang(activeBot.displayName) ?? defaultLanguageTag) } })}
+								onSaveSettings={(draft, language) => updateBot(activeBot.id, { inferenceSettings: { imageGeneration: imageGenerationInputFromDraft(draft, undefined, language) } })}
 								onDiscardSettings={() => updateBot(activeBot.id, { inferenceSettings: { imageGeneration: null } })}
 								onSaved={applySavedBot}
 								target={botAvatarTarget(activeBot, userProfile?.inferenceSettings ?? null)}
@@ -3447,13 +3447,13 @@ function App() {
 								fallbackAvatar={<Avatar actor="user" colorSeed={userProfile.handle} name={userProfile.displayName} size="hero" />}
 								onBack={() => navigate({ route: "profile" })}
 								onDiscardSettings={async () => Boolean(await updateProfile({ inferenceSettings: { imageGeneration: null } }))}
-								onSaveSettings={async (draft) =>
+								onSaveSettings={async (draft, language) =>
 									Boolean(await updateProfile({
 										inferenceSettings: {
 											imageGeneration: imageGenerationInputFromDraft(
 												draft,
 												undefined,
-												userProfile.language ?? textLang(userProfile.displayName) ?? defaultLanguageTag,
+												language,
 											),
 										},
 									}))

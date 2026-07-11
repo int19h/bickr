@@ -1,5 +1,6 @@
 import {
 	avatarImageGenerationSettingsWithDefaults,
+	localizedTextLang,
 	worldAvatarImageGenerationSettingsWithDefaults,
 	type AvatarCrop,
 	type AvatarImage,
@@ -10,6 +11,8 @@ import {
 	type UserProfile,
 	type WorldSummary,
 } from "@bickr/shared/model";
+
+import { defaultLanguageTag } from "../language";
 
 export type AvatarTargetKind = "bot" | "user" | "world";
 
@@ -34,7 +37,7 @@ export type AvatarTargetOwner = {
 	displayName: string | LocalizedText;
 	handle: string;
 	key: string;
-	language: LanguageTag | null;
+	language: LanguageTag;
 };
 
 export type AvatarTargetEndpoints = {
@@ -111,7 +114,7 @@ export function botAvatarTarget(
 			displayName: bot.displayName,
 			handle: bot.handle,
 			key: bot.id,
-			language: bot.localOverrides?.language ?? bot.language ?? null,
+			language: bot.localOverrides?.language ?? bot.language ?? localizedTextLang(bot.displayName) ?? defaultLanguageTag,
 		},
 		endpoints: {
 			upload: `/api/me/bots/${encodeURIComponent(bot.id)}/avatar`,
@@ -164,7 +167,7 @@ export function userAvatarTarget(profile: UserAvatarTargetInput): AvatarTarget<U
 			displayName: profile.displayName,
 			handle: profile.handle,
 			key: profile.id,
-			language: profile.language ?? null,
+			language: profile.language ?? localizedTextLang(profile.displayName) ?? defaultLanguageTag,
 		},
 		endpoints: {
 			upload: "/api/me/avatar",
@@ -208,7 +211,7 @@ export function worldAvatarTarget(
 			displayName: world.name,
 			handle: world.handle,
 			key: world.id,
-			language: world.language ?? null,
+			language: world.language ?? localizedTextLang(world.name) ?? defaultLanguageTag,
 		},
 		endpoints: {
 			upload: `/api/worlds/${encodeURIComponent(world.handle)}/avatar`,
