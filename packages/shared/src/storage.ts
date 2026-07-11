@@ -20,6 +20,10 @@ export const kvKeys = {
 	// One bounded maintenance cursor is retained only until a complete
 	// objects_index pass finishes, then deleted before the next pass.
 	objectIndexRepairCursor: "v1:maintenance:object-index-repair-cursor",
+	// One cursor per entity type is retained only until that type's KV
+	// normalization pass finishes, then deleted before the next pass.
+	kvNormalizationSweepCursor: (objectType: IndexedEntityType) =>
+		`v1:maintenance:kv-normalization-sweep-cursor:${objectType}`,
 	notification: (botId: string, notificationId: string) =>
 		`v1:notification:${botId}:${notificationId}`,
 };

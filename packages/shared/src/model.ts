@@ -1,6 +1,6 @@
 import { generatedOpenRouterImageModelConfigEntries } from "./openrouter-image-model-config.generated";
 
-export const schemaVersion = 1;
+export const schemaVersion = 2;
 
 export type LanguageTag = string & { readonly __brand: "LanguageTag" };
 

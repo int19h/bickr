@@ -31,6 +31,13 @@ import {
 } from "@bickr/shared/validation";
 import { json } from "@bickr/shared/http";
 import { repairObjectIndexes } from "@bickr/shared/index-repair";
+import {
+	kvNormalizationEntityTypes,
+	kvNormalizationSweepMaxRowsPerRun,
+	kvNormalizationSweepMaxWritesPerRun,
+	normalizeKvDocuments,
+	type KvNormalizationEntityType,
+} from "@bickr/shared/kv-normalization-sweep";
 
 export interface Env {
 	BICKR_D1: D1Database;
@@ -455,6 +462,11 @@ async function handleForumWorkerFetch(request: Request, env: Env): Promise<Respo
 		});
 	}
 
+	if (request.method === "POST" && url.pathname === "/maintenance/kv-normalize-sweep") {
+		const input = parseKvNormalizationSweepInput(await readJsonBody(request));
+		return json(await normalizeKvDocuments(env, input.entityType, input.options));
+	}
+
 	const response =
 		await routeWorldCoordinatorRequest(request, env, url) ??
 		await routeForumCoordinatorRequest(request, env, url) ??
@@ -462,6 +474,46 @@ async function handleForumWorkerFetch(request: Request, env: Env): Promise<Respo
 		await routeCommentCoordinatorRequest(request, env, url) ??
 		await routeVoteCoordinatorRequest(request, env, url);
 	return response ?? forumCoordinatorNotFoundResponse();
+}
+
+function parseKvNormalizationSweepInput(body: unknown): {
+	entityType: KvNormalizationEntityType;
+	options: { maxRowsPerRun?: number; maxWritesPerRun?: number };
+} {
+	if (!body || typeof body !== "object" || Array.isArray(body)) {
+		throw new InputError("KV normalization sweep input must be an object.");
+	}
+	const record = body as Record<string, unknown>;
+	const entityType = record.entityType;
+	if (typeof entityType !== "string" || !isKvNormalizationEntityType(entityType)) {
+		throw new InputError(`entityType must be one of: ${kvNormalizationEntityTypes.join(", ")}.`);
+	}
+	return {
+		entityType,
+		options: {
+			...optionalSweepBudget(record, "maxRowsPerRun", kvNormalizationSweepMaxRowsPerRun),
+			...optionalSweepBudget(record, "maxWritesPerRun", kvNormalizationSweepMaxWritesPerRun),
+		},
+	};
+}
+
+function optionalSweepBudget(
+	record: Record<string, unknown>,
+	name: "maxRowsPerRun" | "maxWritesPerRun",
+	maximum: number,
+): { maxRowsPerRun?: number; maxWritesPerRun?: number } {
+	const value = record[name];
+	if (value === undefined) {
+		return {};
+	}
+	if (!Number.isInteger(value) || (value as number) <= 0 || (value as number) > maximum) {
+		throw new InputError(`${name} must be a positive integer no greater than ${maximum}.`);
+	}
+	return { [name]: value as number };
+}
+
+function isKvNormalizationEntityType(value: string): value is KvNormalizationEntityType {
+	return (kvNormalizationEntityTypes as readonly string[]).includes(value);
 }
 
 async function routeWorldCoordinatorRequest(request: Request, env: Env, url: URL): Promise<Response | null> {

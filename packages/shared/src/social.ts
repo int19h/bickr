@@ -341,7 +341,10 @@ export function rootCommentForThread(thread: ThreadDocument): CommentDocument {
 	return root;
 }
 
-function normalizeThreadDocument(document: ThreadDocument | LegacyThreadDocument): ThreadDocument {
+export function normalizeThreadDefaults(document: ThreadDocument | LegacyThreadDocument): ThreadDocument {
+	if (document.schemaVersion >= schemaVersion && !legacyRootPostFromThread(document)) {
+		return document as ThreadDocument;
+	}
 	const legacyRootPost = legacyRootPostFromThread(document);
 	const rootCommentId = document.rootCommentId ?? rootCommentIdForThreadId(document.id);
 	const existingRoot = document.comments.find((comment) => comment.id === rootCommentId);
@@ -366,6 +369,7 @@ function normalizeThreadDocument(document: ThreadDocument | LegacyThreadDocument
 	const recentCommentCount = recentThreadCommentCount(comments, now);
 	const normalized: ThreadDocument = {
 		...rest,
+		schemaVersion,
 		title,
 		rootCommentId: rootComment.id,
 		...(legacyRootPost?.url ? { url: legacyRootPost.url } : {}),
@@ -608,7 +612,7 @@ export async function readThread(kv: KVNamespaceLike, threadId: string): Promise
 	if (!thread || thread.deletedAt) {
 		throw repositoryError("not_found", "Thread not found.", 404);
 	}
-	return normalizeThreadDocument(thread);
+	return normalizeThreadDefaults(thread);
 }
 
 export async function readThreadWithReadState(
@@ -2423,7 +2427,7 @@ export async function createComment(
 	now = new Date().toISOString(),
 	options: { thread?: ThreadDocument } = {},
 ): Promise<ThreadDocument> {
-	const thread = normalizeThreadDocument(options.thread ?? await readThread(kv, input.threadId));
+	const thread = normalizeThreadDefaults(options.thread ?? await readThread(kv, input.threadId));
 	if (thread.id !== input.threadId) {
 		throw repositoryError("not_found", "Thread not found.", 404);
 	}
@@ -2705,7 +2709,7 @@ export async function softDeleteComment(
 	commentId: string,
 	now = new Date().toISOString(),
 ): Promise<ThreadDocument> {
-	thread = normalizeThreadDocument(thread);
+	thread = normalizeThreadDefaults(thread);
 	if (commentId === thread.rootCommentId) {
 		return softDeleteThread(kv, db, thread, now);
 	}
@@ -6173,7 +6177,7 @@ async function resolveVoteTarget(
 	knownThread?: ThreadDocument,
 ): Promise<{ thread: ThreadDocument; authorBotId: string; commentId: string }> {
 	if (input.targetType === "thread") {
-		const thread = normalizeThreadDocument(knownThread?.id === input.targetId ? knownThread : await readThread(kv, input.targetId));
+		const thread = normalizeThreadDefaults(knownThread?.id === input.targetId ? knownThread : await readThread(kv, input.targetId));
 		const root = rootCommentForThread(thread);
 		return { thread, authorBotId: root.authorBotId, commentId: root.id };
 	}
@@ -6185,7 +6189,7 @@ async function resolveVoteTarget(
 	if (!row) {
 		throw repositoryError("not_found", "Comment not found.", 404);
 	}
-	const thread = normalizeThreadDocument(knownThread?.id === row.threadId ? knownThread : await readThread(kv, row.threadId));
+	const thread = normalizeThreadDefaults(knownThread?.id === row.threadId ? knownThread : await readThread(kv, row.threadId));
 	const comment = thread.comments.find((item) => item.id === input.targetId);
 	if (!comment) {
 		throw repositoryError("not_found", "Comment not found.", 404);
@@ -6197,7 +6201,7 @@ export async function upsertThreadIndexProjection(
 	db: D1DatabaseLike,
 	thread: ThreadDocument,
 ): Promise<ThreadDocument> {
-	const normalized = normalizeThreadDocument(thread);
+	const normalized = normalizeThreadDefaults(thread);
 	await upsertThreadIndex(db, normalized);
 	return normalized;
 }
@@ -7239,11 +7243,11 @@ function profileActionReasonForTarget(args: Record<string, unknown>, handle: str
 function threadFromToolResult(result: unknown): ThreadDocument | null {
 	const record = runtimeRecord(result);
 	if (record.type === "thread" && typeof record.id === "string" && Array.isArray(record.comments)) {
-		return normalizeThreadDocument(record as ThreadDocument | LegacyThreadDocument);
+		return normalizeThreadDefaults(record as ThreadDocument | LegacyThreadDocument);
 	}
 	const thread = runtimeRecord(record.thread);
 	if (thread.type === "thread" && typeof thread.id === "string" && Array.isArray(thread.comments)) {
-		return normalizeThreadDocument(thread as ThreadDocument | LegacyThreadDocument);
+		return normalizeThreadDefaults(thread as ThreadDocument | LegacyThreadDocument);
 	}
 	return null;
 }
