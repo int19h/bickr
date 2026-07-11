@@ -478,6 +478,9 @@ function normalizedOpenRouterImageModelId(model: string | undefined): string {
 	return model?.trim().toLowerCase().split(":")[0] ?? "";
 }
 
+export type SettingsPatch<T> = { [K in keyof T]?: T[K] | null };
+
+// Omits the output-only API-key indicator and recursively patches nested settings.
 export type BotInferenceSettingsInput = {
 	openRouterApiKey?: string | null;
 	baseUrl?: string | null;
@@ -502,21 +505,9 @@ export type BotInferenceSettingsInput = {
 	repetitionPenalty?: number | null;
 };
 
-export type BotImageGenerationSettingsInput = Partial<{
-	model: string | null;
-	prompt: LocalizedText | null;
-	providerRouting: JsonObject | null;
-	aspectRatio: string | null;
-	imageSize: string | null;
-	temperature: number | null;
-	topK: number | null;
-	topP: number | null;
-	minP: number | null;
-	frequencyPenalty: number | null;
-	presencePenalty: number | null;
-	repetitionPenalty: number | null;
-}>;
+export type BotImageGenerationSettingsInput = SettingsPatch<BotImageGenerationSettings>;
 
+// Keeps enabled non-nullable so callers cannot clear the translation toggle.
 export type BotTranslationSettingsInput = Partial<{
 	enabled: boolean;
 	model: string | null;
@@ -580,11 +571,13 @@ export type BotToolSettings = {
 	openRouter?: OpenRouterServerToolSettings;
 };
 
+// Keeps enabled non-nullable so callers cannot clear the tool toggle.
 export type OpenRouterDatetimeToolSettingsInput = Partial<{
 	enabled: boolean;
 	timezone: string | null;
 }>;
 
+// Omits the fixed "approximate" discriminator supplied by the settings writer.
 export type OpenRouterWebSearchUserLocationInput = Partial<{
 	city: string | null;
 	region: string | null;
@@ -592,6 +585,7 @@ export type OpenRouterWebSearchUserLocationInput = Partial<{
 	timezone: string | null;
 }>;
 
+// Keeps enabled non-nullable and recursively patches the nested location.
 export type OpenRouterWebSearchToolSettingsInput = Partial<{
 	enabled: boolean;
 	engine: OpenRouterWebSearchEngine | null;
@@ -603,6 +597,7 @@ export type OpenRouterWebSearchToolSettingsInput = Partial<{
 	excludedDomains: string[] | null;
 }>;
 
+// Keeps enabled non-nullable so callers cannot clear the tool toggle.
 export type OpenRouterWebFetchToolSettingsInput = Partial<{
 	enabled: boolean;
 	engine: OpenRouterWebFetchEngine | null;
@@ -612,12 +607,14 @@ export type OpenRouterWebFetchToolSettingsInput = Partial<{
 	blockedDomains: string[] | null;
 }>;
 
+// Recursively patches each nested tool's settings instead of replacing them.
 export type OpenRouterServerToolSettingsInput = Partial<{
 	datetime: OpenRouterDatetimeToolSettingsInput | null;
 	webSearch: OpenRouterWebSearchToolSettingsInput | null;
 	webFetch: OpenRouterWebFetchToolSettingsInput | null;
 }>;
 
+// Recursively patches OpenRouter settings instead of replacing them.
 export type BotToolSettingsInput = Partial<{
 	openRouter: OpenRouterServerToolSettingsInput | null;
 }>;
@@ -629,10 +626,7 @@ export type PostingSettings = Partial<{
 
 export type BotEffectivePostingSettings = Required<PostingSettings>;
 
-export type PostingSettingsInput = Partial<{
-	threadBodyCharacters: number | null;
-	commentBodyCharacters: number | null;
-}>;
+export type PostingSettingsInput = SettingsPatch<PostingSettings>;
 
 export type BotTickSettings = {
 	enabled: boolean;
@@ -650,6 +644,7 @@ export type BotTickSettings = {
 
 export type BotEffectiveTickSettings = Required<BotTickSettings>;
 
+// Keeps required runtime controls non-nullable while optional overrides remain clearable.
 export type BotTickSettingsInput = Partial<{
 	enabled: boolean;
 	intervalSeconds: number;
