@@ -11,6 +11,7 @@ import {
 	type WorldSummary,
 } from "./model";
 import { tombstoneHandle } from "./handles";
+import { entityIndexVersions } from "./index-versions";
 import {
 	mergePostingSettings,
 	postingSettingsHasValues,
@@ -162,8 +163,8 @@ export async function updateWorld(
 			.run();
 		await writeJson(kv, kvKeys.world(updated.id), updated);
 	}
-	await putObjectIndex(db, updated, "world", updated.id);
 	await upsertWorldSearchIndex(db, updated);
+	await putObjectIndex(db, updated, "world", entityIndexVersions.world, updated.id);
 	await recordWorldSettingsChangedHumanNotifications(db, { previous: world, updated, editorUserId: userId, now });
 	return worldSummary(updated);
 }
@@ -193,8 +194,8 @@ export async function updateWorldAvatar(
 		)
 		.bind(updated.avatar?.url ?? null, avatarCropJson(updated.avatar?.crop), now, updated.id)
 		.run();
-	await putObjectIndex(db, updated, "world", updated.id);
 	await upsertWorldSearchIndex(db, updated);
+	await putObjectIndex(db, updated, "world", entityIndexVersions.world, updated.id);
 	await recordWorldSettingsChangedHumanNotifications(db, { previous: world, updated, editorUserId: userId, now });
 	return worldSummary(updated);
 }
@@ -244,8 +245,8 @@ export async function deleteWorld(
 		.prepare(`UPDATE worlds_index SET handle = ?, updated_at = ?, deleted_at = ? WHERE world_id = ? AND deleted_at IS NULL`)
 		.bind(tombstonedHandle, now, now, deleted.id)
 		.run();
-	await putObjectIndex(db, deleted, "world", deleted.id);
 	await upsertWorldSearchIndex(db, deleted);
+	await putObjectIndex(db, deleted, "world", entityIndexVersions.world, deleted.id);
 	return worldSummary(deleted);
 }
 
@@ -296,8 +297,8 @@ export async function updateForum(
 			.run();
 		await writeJson(kv, kvKeys.forum(updated.id), updated);
 	}
-	await putObjectIndex(db, updated, "forum", updated.worldId);
 	await upsertForumSearchIndex(db, updated);
+	await putObjectIndex(db, updated, "forum", entityIndexVersions.forum, updated.worldId);
 	return forumSummary(updated);
 }
 
@@ -379,8 +380,8 @@ async function softDeleteForum(
 		.prepare(`UPDATE forums_index SET handle = ?, updated_at = ?, deleted_at = ? WHERE forum_id = ? AND deleted_at IS NULL`)
 		.bind(tombstonedHandle, now, now, deleted.id)
 		.run();
-	await putObjectIndex(db, deleted, "forum", deleted.worldId);
 	await upsertForumSearchIndex(db, deleted);
+	await putObjectIndex(db, deleted, "forum", entityIndexVersions.forum, deleted.worldId);
 	return deleted;
 }
 
@@ -409,7 +410,7 @@ async function writeWorldRenameDocuments(
 			updatedAt: now,
 		};
 		await writeJson(kv, kvKeys.forum(renamed.id), renamed);
-		await putObjectIndex(db, renamed, "forum", renamed.worldId);
+		await putObjectIndex(db, renamed, "forum", entityIndexVersions.forum, renamed.worldId);
 	}
 
 	const bots = await db
@@ -428,7 +429,7 @@ async function writeWorldRenameDocuments(
 			updatedAt: now,
 		};
 		await writeJson(kv, kvKeys.bot(renamed.id), renamed);
-		await putObjectIndex(db, renamed, "bot", renamed.homeWorldId);
+		await putObjectIndex(db, renamed, "bot", entityIndexVersions.bot, renamed.homeWorldId);
 	}
 
 	const threads = await db
@@ -447,11 +448,11 @@ async function writeWorldRenameDocuments(
 			updatedAt: now,
 		};
 		await writeJson(kv, kvKeys.thread(renamed.id), renamed);
-		await putObjectIndex(db, renamed, "thread", renamed.worldId);
+		await putObjectIndex(db, renamed, "thread", entityIndexVersions.thread, renamed.worldId);
 	}
 
 	if (previous.handle !== updated.handle) {
-		await putObjectIndex(db, updated, "world", updated.id);
+		await putObjectIndex(db, updated, "world", entityIndexVersions.world, updated.id);
 	}
 }
 
@@ -480,11 +481,11 @@ async function writeForumRenameDocuments(
 			updatedAt: now,
 		};
 		await writeJson(kv, kvKeys.thread(renamed.id), renamed);
-		await putObjectIndex(db, renamed, "thread", renamed.worldId);
+		await putObjectIndex(db, renamed, "thread", entityIndexVersions.thread, renamed.worldId);
 	}
 
 	if (previous.handle !== updated.handle) {
-		await putObjectIndex(db, updated, "forum", updated.worldId);
+		await putObjectIndex(db, updated, "forum", entityIndexVersions.forum, updated.worldId);
 	}
 }
 

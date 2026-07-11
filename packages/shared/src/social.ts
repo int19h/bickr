@@ -1,4 +1,5 @@
 import { formatCommentRef, formatThreadRef, isShortContentId, makeId, makeShortContentId, parseObjectRef } from "./ids";
+import { entityIndexVersions } from "./index-versions";
 import {
 	avatarCropFromJson,
 	localizedText,
@@ -2346,7 +2347,7 @@ export async function createThread(
 	await writeJson(kv, kvKeys.thread(thread.id), thread);
 	await upsertThreadIndex(db, thread);
 	await upsertCommentIndex(db, thread, rootComment);
-	await putObjectIndex(db, thread, "thread", thread.worldId);
+	await putObjectIndex(db, thread, "thread", entityIndexVersions.thread, thread.worldId);
 
 	const notificationRecipients = newNotificationRecipientDrafts();
 	if (forum.personalBotId && forum.personalBotId !== bot.id) {
@@ -2670,7 +2671,7 @@ export async function softDeleteThread(
 		)
 		.bind(deleted.id)
 		.run();
-	await putObjectIndex(db, deleted, "thread", deleted.worldId);
+	await putObjectIndex(db, deleted, "thread", entityIndexVersions.thread, deleted.worldId);
 	return deleted;
 }
 
@@ -2759,7 +2760,7 @@ export async function softDeleteComment(
 		.prepare(`DELETE FROM votes WHERE target_type = 'comment' AND target_id = ?`)
 		.bind(commentId)
 		.run();
-	await putObjectIndex(db, updated, "thread", updated.worldId);
+	await putObjectIndex(db, updated, "thread", entityIndexVersions.thread, updated.worldId);
 	return updated;
 }
 
@@ -6192,6 +6193,15 @@ async function resolveVoteTarget(
 	return { thread, authorBotId: comment.authorBotId, commentId: comment.id };
 }
 
+export async function upsertThreadIndexProjection(
+	db: D1DatabaseLike,
+	thread: ThreadDocument,
+): Promise<ThreadDocument> {
+	const normalized = normalizeThreadDocument(thread);
+	await upsertThreadIndex(db, normalized);
+	return normalized;
+}
+
 async function upsertThreadIndex(db: D1DatabaseLike, thread: ThreadDocument): Promise<void> {
 	const root = rootCommentForThread(thread);
 	const authorDisplayName = localizedTextFromStored(root.authorDisplayName);
@@ -6208,6 +6218,11 @@ async function upsertThreadIndex(db: D1DatabaseLike, thread: ThreadDocument): Pr
 			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(thread_id) DO UPDATE SET
 				root_comment_id = excluded.root_comment_id,
+				world_id = excluded.world_id,
+				world_handle = excluded.world_handle,
+				forum_id = excluded.forum_id,
+				forum_handle = excluded.forum_handle,
+				author_bot_id = excluded.author_bot_id,
 				author_handle = excluded.author_handle,
 				author_display_name = excluded.author_display_name,
 				author_display_name_lang = excluded.author_display_name_lang,

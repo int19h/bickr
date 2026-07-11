@@ -1,4 +1,5 @@
 import { makeId, randomToken, sha256Hex } from "./ids";
+import { entityIndexVersions } from "./index-versions";
 import { tombstoneHandle } from "./handles";
 import {
 	schemaVersion,
@@ -332,24 +333,7 @@ export async function upsertProviderUser(
 	};
 
 	await writeJson(kv, kvKeys.user(userId), user);
-	await db
-		.prepare(
-			`INSERT INTO users_index (
-				user_id, handle, display_name, display_name_lang, language, ui_locale,
-				avatar_url, profile_completed_at, created_at, updated_at, deleted_at
-			) VALUES (?, ?, ?, ?, ?, NULL, ?, NULL, ?, ?, NULL)`,
-		)
-		.bind(
-			user.id,
-			user.handle,
-			localizedTextSql(user.displayName),
-			localizedTextLangSql(user.displayName),
-			user.language,
-			null,
-			now,
-			now,
-		)
-		.run();
+	await upsertUserIndexProjection(db, user);
 	await db
 		.prepare(
 			`INSERT INTO provider_identities (
@@ -367,7 +351,7 @@ export async function upsertProviderUser(
 			now,
 		)
 		.run();
-	await putObjectIndex(db, user, "user");
+	await putObjectIndex(db, user, "user", entityIndexVersions.user);
 
 	return user;
 }
@@ -969,7 +953,7 @@ export async function updateUserProfile(
 			updated.id,
 		)
 		.run();
-	await putObjectIndex(db, updated, "user");
+	await putObjectIndex(db, updated, "user", entityIndexVersions.user);
 
 	return userProfile(updated, await listUserAuthIdentities(db, updated.id));
 }
@@ -998,7 +982,7 @@ export async function updateUserAvatar(
 		)
 		.bind(updated.avatar?.url ?? null, avatarCropJson(updated.avatar?.crop), now, updated.id)
 		.run();
-	await putObjectIndex(db, updated, "user");
+	await putObjectIndex(db, updated, "user", entityIndexVersions.user);
 	return userProfile(updated, await listUserAuthIdentities(db, updated.id));
 }
 
@@ -1084,39 +1068,8 @@ export async function createWorld(
 	};
 
 	await writeJson(kv, kvKeys.world(world.id), world);
-	await db
-		.prepare(
-			`INSERT INTO worlds_index (
-				world_id, handle, language, name, name_lang, description, description_lang, prompt, prompt_lang,
-				avatar_url, avatar_crop, image_generation, initial_bot_notification, initial_bot_notification_lang, created_by_user_id,
-				visibility, posting_thread_body_characters, posting_comment_body_characters, created_at, updated_at, deleted_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
-		)
-		.bind(
-			world.id,
-			world.handle,
-			world.language,
-			localizedTextSql(world.name),
-			localizedTextLangSql(world.name),
-			localizedTextSql(world.description),
-			localizedTextLangSql(world.description),
-			localizedTextSql(world.prompt),
-			localizedTextLangSql(world.prompt),
-			world.avatar?.url ?? null,
-			avatarCropJson(world.avatar?.crop),
-			imageGenerationSettingsJson(world.imageGeneration),
-			localizedTextSql(world.initialBotNotification),
-			localizedTextLangSql(world.initialBotNotification),
-			world.createdByUserId,
-			world.visibility,
-			world.postingSettings?.threadBodyCharacters ?? null,
-			world.postingSettings?.commentBodyCharacters ?? null,
-			now,
-			now,
-		)
-		.run();
-	await putObjectIndex(db, world, "world", world.id);
-	await upsertWorldSearchIndex(db, world);
+	await upsertWorldIndexProjection(db, world);
+	await putObjectIndex(db, world, "world", entityIndexVersions.world, world.id);
 	await createIntroForumForWorld(kv, db, world, userId, now);
 
 	return worldSummary(world);
@@ -1198,29 +1151,8 @@ export async function createForum(
 	};
 
 	await writeJson(kv, kvKeys.forum(forum.id), forum);
-	await db
-		.prepare(
-			`INSERT INTO forums_index (
-				forum_id, world_id, world_handle, handle, language, description, description_lang,
-				created_by_user_id, created_at, updated_at, deleted_at
-				, personal_bot_id
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)`,
-		)
-		.bind(
-			forum.id,
-			forum.worldId,
-			forum.worldHandle,
-			forum.handle,
-			forum.language,
-			localizedTextSql(forum.description),
-			localizedTextLangSql(forum.description),
-			forum.createdByUserId,
-			now,
-			now,
-		)
-		.run();
-	await putObjectIndex(db, forum, "forum", forum.worldId);
-	await upsertForumSearchIndex(db, forum);
+	await upsertForumIndexProjection(db, forum);
+	await putObjectIndex(db, forum, "forum", entityIndexVersions.forum, forum.worldId);
 
 	return forumSummary(forum);
 }
@@ -1468,8 +1400,8 @@ export async function createBot(
 			)
 			.run();
 	}
-	await putObjectIndex(db, bot, "bot", bot.homeWorldId);
 	await upsertBotSearchIndex(db, effectiveBot);
+	await putObjectIndex(db, bot, "bot", entityIndexVersions.bot, bot.homeWorldId);
 
 	return botSummary(effectiveBot, {
 		includeToolSettings: true,
@@ -1543,11 +1475,11 @@ export async function updateBot(
 	if (personalForumRename) {
 		await writeJson(kv, kvKeys.forum(personalForumRename.updated.id), personalForumRename.updated);
 		await writePersonalForumThreadRenameDocuments(kv, db, personalForumRename.updated, now);
-		await putObjectIndex(db, personalForumRename.updated, "forum", personalForumRename.updated.worldId);
 		await upsertForumSearchIndex(db, personalForumRename.updated);
+		await putObjectIndex(db, personalForumRename.updated, "forum", entityIndexVersions.forum, personalForumRename.updated.worldId);
 	}
-	await putObjectIndex(db, updated, "bot", updated.homeWorldId);
 	await upsertBotSearchIndex(db, effectiveUpdated);
+	await putObjectIndex(db, updated, "bot", entityIndexVersions.bot, updated.homeWorldId);
 
 	return botSummary(effectiveUpdated, {
 		includeToolSettings: true,
@@ -1578,8 +1510,8 @@ export async function updateBotAvatar(
 	await writeJson(kv, kvKeys.bot(updated.id), updated);
 	const effectiveUpdated = await effectiveBotDocument(kv, db, updated);
 	await upsertBotIndex(db, effectiveUpdated);
-	await putObjectIndex(db, updated, "bot", updated.homeWorldId);
 	await upsertBotSearchIndex(db, effectiveUpdated);
+	await putObjectIndex(db, updated, "bot", entityIndexVersions.bot, updated.homeWorldId);
 
 	return botSummary(effectiveUpdated, {
 		includeToolSettings: true,
@@ -1609,8 +1541,8 @@ export async function deleteBotAvatar(
 	await writeJson(kv, kvKeys.bot(updated.id), updated);
 	const effectiveUpdated = await effectiveBotDocument(kv, db, updated);
 	await upsertBotIndex(db, effectiveUpdated);
-	await putObjectIndex(db, updated, "bot", updated.homeWorldId);
 	await upsertBotSearchIndex(db, effectiveUpdated);
+	await putObjectIndex(db, updated, "bot", entityIndexVersions.bot, updated.homeWorldId);
 
 	return botSummary(effectiveUpdated, {
 		includeToolSettings: true,
@@ -1653,8 +1585,8 @@ export async function deleteBot(
 	await upsertBotIndex(db, deleted);
 	await deleteBotGroupMembershipsForBot(db, deleted.id);
 	await disableBotRuntime(db, deleted.id, now);
-	await putObjectIndex(db, deleted, "bot", deleted.homeWorldId);
 	await upsertBotSearchIndex(db, deleted);
+	await putObjectIndex(db, deleted, "bot", entityIndexVersions.bot, deleted.homeWorldId);
 
 	return botSummary(deleted, { includeToolSettings: true, nextDueAt: null, owner, worldPostingSettings });
 }
@@ -1711,8 +1643,8 @@ export async function unlinkBotClone(
 		.run();
 	const effectiveUpdated = await effectiveBotDocument(kv, db, updated);
 	await upsertBotIndex(db, effectiveUpdated);
-	await putObjectIndex(db, updated, "bot", updated.homeWorldId);
 	await upsertBotSearchIndex(db, effectiveUpdated);
+	await putObjectIndex(db, updated, "bot", entityIndexVersions.bot, updated.homeWorldId);
 
 	return botSummary(effectiveUpdated, {
 		includeToolSettings: true,
@@ -1774,8 +1706,8 @@ export async function relinkBotClone(
 		.run();
 	const effectiveUpdated = await effectiveBotDocument(kv, db, next);
 	await upsertBotIndex(db, effectiveUpdated);
-	await putObjectIndex(db, next, "bot", next.homeWorldId);
 	await upsertBotSearchIndex(db, effectiveUpdated);
+	await putObjectIndex(db, next, "bot", entityIndexVersions.bot, next.homeWorldId);
 
 	return botSummary(effectiveUpdated, {
 		includeToolSettings: true,
@@ -1852,8 +1784,8 @@ export async function backfillInferredCloneSources(
 			await writeJson(kv, kvKeys.bot(updated.id), updated);
 			const effective = await effectiveBotDocument(kv, db, updated);
 			await upsertBotIndex(db, effective);
-			await putObjectIndex(db, updated, "bot", updated.homeWorldId);
 			await upsertBotSearchIndex(db, effective);
+			await putObjectIndex(db, updated, "bot", entityIndexVersions.bot, updated.homeWorldId);
 			clonesLinked += 1;
 		}
 	}
@@ -2460,7 +2392,7 @@ export async function softDeleteUserProfile(
 		.bind(tombstonedHandle, now, now, deleted.id)
 		.run();
 	await db.prepare(`DELETE FROM provider_identities WHERE user_id = ?`).bind(deleted.id).run();
-	await putObjectIndex(db, deleted, "user");
+	await putObjectIndex(db, deleted, "user", entityIndexVersions.user);
 	return publicUser(deleted);
 }
 
@@ -3023,7 +2955,7 @@ async function writePersonalForumThreadRenameDocuments(
 			updatedAt: now,
 		};
 		await writeJson(kv, kvKeys.thread(renamed.id), renamed);
-		await putObjectIndex(db, renamed, "thread", renamed.worldId);
+		await putObjectIndex(db, renamed, "thread", entityIndexVersions.thread, renamed.worldId);
 	}
 }
 
@@ -3327,8 +3259,8 @@ export async function refreshLinkedCloneIndexes(
 			const raw = await rawBotById(kv, db, childId);
 			const effective = await effectiveBotDocument(kv, db, raw);
 			await upsertBotIndex(db, effective);
-			await putObjectIndex(db, raw, "bot", raw.homeWorldId);
 			await upsertBotSearchIndex(db, effective);
+			await putObjectIndex(db, raw, "bot", entityIndexVersions.bot, raw.homeWorldId);
 			const worldPostingSettings = await worldPostingSettingsById(db, raw.homeWorldId);
 			summaries.push(botSummary(effective, {
 				includeToolSettings: true,
@@ -3356,6 +3288,159 @@ async function assertNoCloneCycle(db: D1DatabaseLike, botId: string, sourceBotId
 		currentId = source.sourceBotId;
 	}
 	throw new RepositoryError("conflict", "Clone source chain is too deep.", 409);
+}
+
+export async function upsertUserIndexProjection(
+	db: D1DatabaseLike,
+	user: UserDocument,
+): Promise<UserDocument> {
+	const normalized = normalizeUserDefaults(user);
+	await db
+		.prepare(
+			`INSERT INTO users_index (
+				user_id, handle, display_name, display_name_lang, language, ui_locale,
+				avatar_url, avatar_crop, profile_completed_at, created_at, updated_at, deleted_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT(user_id) DO UPDATE SET
+				handle = excluded.handle,
+				display_name = excluded.display_name,
+				display_name_lang = excluded.display_name_lang,
+				language = excluded.language,
+				ui_locale = excluded.ui_locale,
+				avatar_url = excluded.avatar_url,
+				avatar_crop = excluded.avatar_crop,
+				profile_completed_at = excluded.profile_completed_at,
+				updated_at = excluded.updated_at,
+				deleted_at = excluded.deleted_at`,
+		)
+		.bind(
+			normalized.id,
+			normalized.handle,
+			localizedTextSql(normalized.displayName),
+			localizedTextLangSql(normalized.displayName),
+			normalized.language,
+			normalized.uiLocale ?? null,
+			normalized.avatar?.url ?? null,
+			avatarCropJson(normalized.avatar?.crop),
+			normalized.profileCompletedAt ?? null,
+			normalized.createdAt,
+			normalized.updatedAt,
+			normalized.deletedAt ?? null,
+		)
+		.run();
+	return normalized;
+}
+
+export async function upsertWorldIndexProjection(
+	db: D1DatabaseLike,
+	world: WorldDocument,
+): Promise<WorldDocument> {
+	const normalized = normalizeWorldDefaults(world);
+	await db
+		.prepare(
+			`INSERT INTO worlds_index (
+				world_id, handle, language, name, name_lang, description, description_lang, prompt, prompt_lang,
+				avatar_url, avatar_crop, image_generation, initial_bot_notification, initial_bot_notification_lang,
+				created_by_user_id, visibility, posting_thread_body_characters, posting_comment_body_characters,
+				created_at, updated_at, deleted_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT(world_id) DO UPDATE SET
+				handle = excluded.handle,
+				language = excluded.language,
+				name = excluded.name,
+				name_lang = excluded.name_lang,
+				description = excluded.description,
+				description_lang = excluded.description_lang,
+				prompt = excluded.prompt,
+				prompt_lang = excluded.prompt_lang,
+				avatar_url = excluded.avatar_url,
+				avatar_crop = excluded.avatar_crop,
+				image_generation = excluded.image_generation,
+				initial_bot_notification = excluded.initial_bot_notification,
+				initial_bot_notification_lang = excluded.initial_bot_notification_lang,
+				visibility = excluded.visibility,
+				posting_thread_body_characters = excluded.posting_thread_body_characters,
+				posting_comment_body_characters = excluded.posting_comment_body_characters,
+				updated_at = excluded.updated_at,
+				deleted_at = excluded.deleted_at`,
+		)
+		.bind(
+			normalized.id,
+			normalized.handle,
+			normalized.language,
+			localizedTextSql(normalized.name),
+			localizedTextLangSql(normalized.name),
+			localizedTextSql(normalized.description),
+			localizedTextLangSql(normalized.description),
+			localizedTextSql(normalized.prompt),
+			localizedTextLangSql(normalized.prompt),
+			normalized.avatar?.url ?? null,
+			avatarCropJson(normalized.avatar?.crop),
+			imageGenerationSettingsJson(normalized.imageGeneration),
+			localizedTextSql(normalized.initialBotNotification),
+			localizedTextLangSql(normalized.initialBotNotification),
+			normalized.createdByUserId,
+			normalized.visibility,
+			normalized.postingSettings?.threadBodyCharacters ?? null,
+			normalized.postingSettings?.commentBodyCharacters ?? null,
+			normalized.createdAt,
+			normalized.updatedAt,
+			normalized.deletedAt ?? null,
+		)
+		.run();
+	await upsertWorldSearchIndex(db, normalized);
+	return normalized;
+}
+
+export async function upsertForumIndexProjection(
+	db: D1DatabaseLike,
+	forum: ForumDocument,
+): Promise<ForumDocument> {
+	const normalized = normalizeForumDefaults(forum);
+	await db
+		.prepare(
+			`INSERT INTO forums_index (
+				forum_id, world_id, world_handle, handle, language, description, description_lang,
+				created_by_user_id, created_at, updated_at, deleted_at, personal_bot_id
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT(forum_id) DO UPDATE SET
+				world_handle = excluded.world_handle,
+				handle = excluded.handle,
+				language = excluded.language,
+				description = excluded.description,
+				description_lang = excluded.description_lang,
+				personal_bot_id = excluded.personal_bot_id,
+				updated_at = excluded.updated_at,
+				deleted_at = excluded.deleted_at`,
+		)
+		.bind(
+			normalized.id,
+			normalized.worldId,
+			normalized.worldHandle,
+			normalized.handle,
+			normalized.language,
+			localizedTextSql(normalized.description),
+			localizedTextLangSql(normalized.description),
+			normalized.createdByUserId,
+			normalized.createdAt,
+			normalized.updatedAt,
+			normalized.deletedAt ?? null,
+			normalized.personalBotId ?? null,
+		)
+		.run();
+	await upsertForumSearchIndex(db, normalized);
+	return normalized;
+}
+
+export async function upsertBotIndexProjection(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	bot: BotDocument,
+): Promise<BotDocument> {
+	const effective = await effectiveBotDocument(kv, db, bot);
+	await upsertBotIndex(db, effective);
+	await upsertBotSearchIndex(db, effective);
+	return effective;
 }
 
 async function upsertBotIndex(db: D1DatabaseLike, bot: BotDocument): Promise<void> {
@@ -3671,29 +3756,8 @@ async function createPersonalForumForBot(
 	};
 
 	await writeJson(kv, kvKeys.forum(forum.id), forum);
-	await db
-		.prepare(
-			`INSERT INTO forums_index (
-				forum_id, world_id, world_handle, handle, language, description, description_lang, created_by_user_id,
-				created_at, updated_at, deleted_at, personal_bot_id
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
-		)
-		.bind(
-			forum.id,
-			forum.worldId,
-			forum.worldHandle,
-			forum.handle,
-			forum.language,
-			localizedTextSql(forum.description),
-			localizedTextLangSql(forum.description),
-			forum.createdByUserId,
-			now,
-			now,
-			forum.personalBotId,
-		)
-		.run();
-	await putObjectIndex(db, forum, "forum", forum.worldId);
-	await upsertForumSearchIndex(db, forum);
+	await upsertForumIndexProjection(db, forum);
+	await putObjectIndex(db, forum, "forum", entityIndexVersions.forum, forum.worldId);
 }
 
 async function createIntroForumForWorld(
@@ -3731,28 +3795,8 @@ async function createIntroForumForWorld(
 	};
 
 	await writeJson(kv, kvKeys.forum(forum.id), forum);
-	await db
-		.prepare(
-			`INSERT INTO forums_index (
-				forum_id, world_id, world_handle, handle, language, description, description_lang, created_by_user_id,
-				created_at, updated_at, deleted_at, personal_bot_id
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)`,
-		)
-		.bind(
-			forum.id,
-			forum.worldId,
-			forum.worldHandle,
-			forum.handle,
-			forum.language,
-			localizedTextSql(forum.description),
-			localizedTextLangSql(forum.description),
-			forum.createdByUserId,
-			now,
-			now,
-		)
-		.run();
-	await putObjectIndex(db, forum, "forum", forum.worldId);
-	await upsertForumSearchIndex(db, forum);
+	await upsertForumIndexProjection(db, forum);
+	await putObjectIndex(db, forum, "forum", entityIndexVersions.forum, forum.worldId);
 }
 
 async function autoSubscribeUserToBot(

@@ -30,6 +30,7 @@ import {
 	parseVoteInput,
 } from "@bickr/shared/validation";
 import { json } from "@bickr/shared/http";
+import { repairObjectIndexes } from "@bickr/shared/index-repair";
 
 export interface Env {
 	BICKR_D1: D1Database;
@@ -409,11 +410,12 @@ export default {
 } satisfies ExportedHandler<Env>;
 
 async function runDailyForumCoordinatorMaintenance(env: Env, now: string): Promise<void> {
-	const [hotScores, notificationPrune, botSeenContentPrune, inferenceUsagePrune] = await Promise.allSettled([
+	const [hotScores, notificationPrune, botSeenContentPrune, inferenceUsagePrune, indexRepair] = await Promise.allSettled([
 		refreshThreadHotScores(env.BICKR_D1, now),
 		pruneExpiredNotifications(env.BICKR_KV, env.BICKR_D1, { now }),
 		pruneExpiredBotSeenContent(env.BICKR_D1, { now }),
 		pruneBotInferenceUsage(env.BICKR_D1, new Date(now)),
+		repairObjectIndexes(env),
 	]);
 	// Log unconditionally and before failures propagate: the 2026-07-11 run
 	// deleted ~8k rows but left no log because a sibling Promise.all task
@@ -424,8 +426,9 @@ async function runDailyForumCoordinatorMaintenance(env: Env, now: string): Promi
 		notificationPrune: settledMaintenanceResult(notificationPrune, (value) => value),
 		botSeenContentPrune: settledMaintenanceResult(botSeenContentPrune, (value) => value),
 		inferenceUsagePrune: settledMaintenanceResult(inferenceUsagePrune, (value) => value),
+		indexRepair: settledMaintenanceResult(indexRepair, (value) => value),
 	}));
-	const failure = [hotScores, notificationPrune, botSeenContentPrune, inferenceUsagePrune]
+	const failure = [hotScores, notificationPrune, botSeenContentPrune, inferenceUsagePrune, indexRepair]
 		.find((result): result is PromiseRejectedResult => result.status === "rejected");
 	if (failure) {
 		throw failure.reason;
