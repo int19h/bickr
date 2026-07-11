@@ -2,7 +2,6 @@ import {
 	schemaVersion,
 	type BotDocument,
 	type ForumDocument,
-	type LegacyThreadDocument,
 	type ThreadDocument,
 	type UserDocument,
 	type WorldDocument,
@@ -91,7 +90,6 @@ type KvNormalizationSweepCursor = {
 type NormalizableDocument =
 	| BotDocument
 	| ForumDocument
-	| LegacyThreadDocument
 	| ThreadDocument
 	| UserDocument
 	| WorldDocument;

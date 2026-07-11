@@ -14,7 +14,16 @@ import {
 	type WorldSummary,
 	type LocalizedText,
 } from "./model";
-import { type D1DatabaseLike, type D1Result } from "./storage";
+import {
+	deleteKey,
+	type D1DatabaseLike,
+	type D1Result,
+	kvKeys,
+	type KVNamespaceLike,
+	readJson,
+	writeJson,
+} from "./storage";
+import { runBoundedSweep } from "./sweep";
 import { InputError, normalizeHandle } from "./validation";
 
 const searchPageSize = 20;
@@ -27,6 +36,7 @@ const searchVectorRetryInitialDelayMs = 1_100;
 const searchVectorRetryMaxDelayMs = 8_000;
 const searchVectorDeleteBatchSize = 100;
 const searchVectorReindexBatchSize = 20;
+const searchVectorReindexMaxItemsPerRun = 250;
 const searchTypes = ["world", "forum", "bot"] as const satisfies readonly SearchEntityType[];
 
 type SearchFilters = {
@@ -129,6 +139,38 @@ export type SearchVectorEnv = {
 	AI?: SearchAiLike;
 	BICKR_BOT_VECTORIZE?: SearchVectorizeIndexLike;
 	BICKR_SEARCH_VECTORIZE?: SearchVectorizeIndexLike;
+};
+
+export type SearchVectorReindexEnv = SearchVectorEnv & {
+	BICKR_KV: KVNamespaceLike;
+};
+
+export type SearchVectorReindexResult = {
+	attempted: number;
+	budgetExhausted: boolean;
+	done: boolean;
+};
+
+type SearchVectorReindexCursor = {
+	afterKey: string;
+};
+
+type SearchVectorReindexRow = {
+	cursorKey: string;
+	description: string | null;
+	descriptionLang: string | null;
+	displayName: string | null;
+	displayNameLang: string | null;
+	handle: string;
+	id: string;
+	name: string | null;
+	nameLang: string | null;
+	personalBotId: string | null;
+	shortBio: string | null;
+	shortBioLang: string | null;
+	type: SearchEntityType;
+	worldHandle: string | null;
+	worldId: string | null;
 };
 
 type SemanticCandidate = {
@@ -379,54 +421,170 @@ async function deleteSearchVectors(
 
 export async function reindexSearchVectors(
 	db: D1DatabaseLike,
-	env: SearchVectorEnv,
+	env: SearchVectorReindexEnv,
 	limit = 100,
-): Promise<{ attempted: number }> {
-	const boundedLimit = Math.max(1, Math.min(250, Math.floor(limit)));
-	const rows = await db
-		.prepare(
-			`SELECT world_id AS id, 'world' AS type, updated_at
+): Promise<SearchVectorReindexResult> {
+	const boundedLimit = Math.max(1, Math.min(searchVectorReindexMaxItemsPerRun, Math.floor(limit)));
+	const cursorKey = kvKeys.searchVectorReindexCursor;
+	const storedCursor = await readSearchVectorReindexCursor(env.BICKR_KV, cursorKey);
+	let attempted = 0;
+	const iteration = await runBoundedSweep<SearchVectorReindexRow, string>({
+		chunkSize: searchVectorReindexBatchSize,
+		maxItemsPerRun: boundedLimit,
+		...(storedCursor ? { initialCursor: storedCursor.afterKey } : {}),
+		loadChunk: (cursor, chunkLimit) => loadSearchVectorReindexChunk(db, cursor, chunkLimit),
+		processChunk: async (rows) => {
+			const entities = rows
+				.map(searchVectorEntityFromReindexRow)
+				.filter((entity): entity is SearchVectorEntity => entity !== null);
+			attempted += entities.length;
+			await upsertSearchVectors(env, entities);
+			await deleteSearchVectors(env, rows
+				.filter((row) => row.type === "forum" && row.personalBotId !== null)
+				.map((row) => ({ id: row.id, type: "forum" })));
+			return { kind: "continue" };
+		},
+		checkpoint: (afterKey) => writeJson(
+			env.BICKR_KV,
+			cursorKey,
+			{ afterKey } satisfies SearchVectorReindexCursor,
+		),
+		complete: () => deleteKey(env.BICKR_KV, cursorKey),
+	});
+	return {
+		attempted,
+		budgetExhausted: iteration.budgetExhausted,
+		done: !iteration.budgetExhausted,
+	};
+}
+
+async function loadSearchVectorReindexChunk(
+	db: D1DatabaseLike,
+	afterKey: string | undefined,
+	limit: number,
+): Promise<{ items: SearchVectorReindexRow[]; done: boolean; nextCursor?: string }> {
+	const result = await db.prepare(
+		`SELECT *
+		 FROM (
+			SELECT
+				'0:' || world_id AS cursorKey,
+				world_id AS id,
+				'world' AS type,
+				handle,
+				name,
+				name_lang AS nameLang,
+				description,
+				description_lang AS descriptionLang,
+				NULL AS worldId,
+				NULL AS worldHandle,
+				NULL AS personalBotId,
+				NULL AS displayName,
+				NULL AS displayNameLang,
+				NULL AS shortBio,
+				NULL AS shortBioLang
 			 FROM worlds_index
 			 WHERE deleted_at IS NULL
 			 UNION ALL
-			 SELECT forum_id AS id, 'forum' AS type, updated_at
+			 SELECT
+				'1:' || forum_id AS cursorKey,
+				forum_id AS id,
+				'forum' AS type,
+				handle,
+				NULL AS name,
+				NULL AS nameLang,
+				description,
+				description_lang AS descriptionLang,
+				world_id AS worldId,
+				world_handle AS worldHandle,
+				personal_bot_id AS personalBotId,
+				NULL AS displayName,
+				NULL AS displayNameLang,
+				NULL AS shortBio,
+				NULL AS shortBioLang
 			 FROM forums_index
 			 WHERE deleted_at IS NULL
-			   AND personal_bot_id IS NULL
 			 UNION ALL
-			 SELECT bot_id AS id, 'bot' AS type, updated_at
+			 SELECT
+				'2:' || bot_id AS cursorKey,
+				bot_id AS id,
+				'bot' AS type,
+				handle,
+				NULL AS name,
+				NULL AS nameLang,
+				NULL AS description,
+				NULL AS descriptionLang,
+				home_world_id AS worldId,
+				home_world_handle AS worldHandle,
+				NULL AS personalBotId,
+				display_name AS displayName,
+				display_name_lang AS displayNameLang,
+				short_bio AS shortBio,
+				short_bio_lang AS shortBioLang
 			 FROM bots_index
 			 WHERE deleted_at IS NULL
-			 ORDER BY updated_at DESC
-			 LIMIT ?`,
-		)
-		.bind(boundedLimit)
-		.all<{ id: string; type: SearchEntityType }>();
-	let attempted = 0;
-	const entities: SearchVectorEntity[] = [];
-	for (const row of rows.results ?? []) {
-		const entity = await searchVectorEntityById(db, row.type, row.id);
-		if (entity) {
-			attempted += 1;
-			entities.push(entity);
-		} else if (row.type === "forum") {
-			await deleteSearchVector(env, "forum", row.id);
-		}
+		 )
+		 WHERE cursorKey > ?
+		 ORDER BY cursorKey ASC
+		 LIMIT ?`,
+	)
+		.bind(afterKey ?? "", limit)
+		.all<SearchVectorReindexRow>();
+	const items = result.results ?? [];
+	const nextCursor = items.at(-1)?.cursorKey;
+	return {
+		items,
+		done: items.length < limit,
+		...(nextCursor ? { nextCursor } : {}),
+	};
+}
+
+function searchVectorEntityFromReindexRow(row: SearchVectorReindexRow): SearchVectorEntity | null {
+	if (row.type === "world") {
+		return {
+			type: "world",
+			world: {
+				id: row.id,
+				handle: row.handle,
+				name: localizedTextFromStored({ lang: row.nameLang, text: row.name }),
+				description: localizedTextFromStored({ lang: row.descriptionLang, text: row.description }),
+			},
+		};
 	}
-	await upsertSearchVectors(env, entities);
-	const personalForums = await db
-		.prepare(
-			`SELECT forum_id AS id
-			 FROM forums_index
-			 WHERE deleted_at IS NULL
-			   AND personal_bot_id IS NOT NULL
-			 ORDER BY updated_at DESC
-			 LIMIT ?`,
-		)
-		.bind(boundedLimit)
-		.all<{ id: string }>();
-	await deleteSearchVectors(env, (personalForums.results ?? []).map((row) => ({ id: row.id, type: "forum" })));
-	return { attempted };
+	if (row.type === "forum") {
+		return row.personalBotId ? null : {
+			type: "forum",
+			forum: {
+				id: row.id,
+				worldId: row.worldId ?? "",
+				worldHandle: row.worldHandle ?? "",
+				handle: row.handle,
+				description: localizedTextFromStored({ lang: row.descriptionLang, text: row.description }),
+			},
+		};
+	}
+	return {
+		type: "bot",
+		bot: {
+			id: row.id,
+			homeWorldId: row.worldId ?? "",
+			homeWorldHandle: row.worldHandle ?? "",
+			handle: row.handle,
+			displayName: localizedTextFromStored({ lang: row.displayNameLang, text: row.displayName }),
+			shortBio: localizedTextFromStored({ lang: row.shortBioLang, text: row.shortBio }),
+		},
+	};
+}
+
+async function readSearchVectorReindexCursor(
+	kv: KVNamespaceLike,
+	key: string,
+): Promise<SearchVectorReindexCursor | null> {
+	const value = await readJson<unknown>(kv, key);
+	if (!value || typeof value !== "object" || Array.isArray(value)) {
+		return null;
+	}
+	const afterKey = (value as Record<string, unknown>).afterKey;
+	return typeof afterKey === "string" && afterKey.length > 0 ? { afterKey } : null;
 }
 
 async function substringSearchEntities(
@@ -1025,91 +1183,6 @@ async function replaceSearchIndexEntity(db: D1DatabaseLike, entity: SearchIndexE
 				entity.updatedAt,
 			),
 	]);
-}
-
-async function searchVectorEntityById(
-	db: D1DatabaseLike,
-	type: SearchEntityType,
-	id: string,
-): Promise<SearchVectorEntity | null> {
-	if (type === "world") {
-		const row = await db
-			.prepare(
-				`SELECT
-					world_id AS id,
-					handle,
-					name,
-					name_lang AS nameLang,
-					description,
-					description_lang AS descriptionLang
-				 FROM worlds_index
-				 WHERE world_id = ? AND deleted_at IS NULL`,
-			)
-			.bind(id)
-			.first<{ id: string; handle: string; name: string; nameLang: string | null; description: string; descriptionLang: string | null }>();
-		return row ? {
-			type,
-			world: {
-				id: row.id,
-				handle: row.handle,
-				name: localizedTextFromStored({ lang: row.nameLang, text: row.name }),
-				description: localizedTextFromStored({ lang: row.descriptionLang, text: row.description }),
-			},
-		} : null;
-	}
-	if (type === "forum") {
-		const row = await db
-			.prepare(
-				`SELECT
-					forum_id AS id,
-					world_id AS worldId,
-					world_handle AS worldHandle,
-					handle,
-					description,
-					description_lang AS descriptionLang
-				 FROM forums_index
-				 WHERE forum_id = ? AND deleted_at IS NULL AND personal_bot_id IS NULL`,
-			)
-			.bind(id)
-			.first<{ id: string; worldId: string; worldHandle: string; handle: string; description: string; descriptionLang: string | null }>();
-		return row ? {
-			type,
-			forum: {
-				id: row.id,
-				worldId: row.worldId,
-				worldHandle: row.worldHandle,
-				handle: row.handle,
-				description: localizedTextFromStored({ lang: row.descriptionLang, text: row.description }),
-			},
-		} : null;
-	}
-	const row = await db
-		.prepare(
-			`SELECT
-				bot_id AS id,
-				home_world_id AS homeWorldId,
-				home_world_handle AS homeWorldHandle,
-				handle,
-				display_name AS displayName,
-				display_name_lang AS displayNameLang,
-				short_bio AS shortBio,
-				short_bio_lang AS shortBioLang
-			 FROM bots_index
-			 WHERE bot_id = ? AND deleted_at IS NULL`,
-		)
-		.bind(id)
-		.first<{ id: string; homeWorldId: string; homeWorldHandle: string; handle: string; displayName: string; displayNameLang: string | null; shortBio: string; shortBioLang: string | null }>();
-	return row ? {
-		type,
-		bot: {
-			id: row.id,
-			homeWorldId: row.homeWorldId,
-			homeWorldHandle: row.homeWorldHandle,
-			handle: row.handle,
-			displayName: localizedTextFromStored({ lang: row.displayNameLang, text: row.displayName }),
-			shortBio: localizedTextFromStored({ lang: row.shortBioLang, text: row.shortBio }),
-		},
-	} : null;
 }
 
 async function upsertSearchVector(env: SearchVectorEnv, entity: SearchVectorEntity): Promise<void> {

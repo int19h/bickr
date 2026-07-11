@@ -4122,10 +4122,6 @@ export function mergeInferenceSettings(
 		...(current?.providerRouting ? { providerRouting: cloneJsonObject(current.providerRouting) } : {}),
 	};
 	delete next.openRouterApiKeySet;
-	if (!hasInferenceText(next.recurringPrompt) && next.reasoningPrefill) {
-		next.recurringPrompt = localizedText(next.reasoningPrefill, null);
-	}
-	delete next.reasoningPrefill;
 	if (next.recurringPromptEnabled !== false) {
 		delete next.recurringPromptEnabled;
 	}
@@ -4140,10 +4136,7 @@ export function mergeInferenceSettings(
 	assignOptionalSetting(next, "promptCacheMode", patch.promptCacheMode);
 	assignOptionalSetting(next, "cacheFriendlyCompaction", patch.cacheFriendlyCompaction);
 	assignInferenceDefaultTrueBoolean(next, "recurringPromptEnabled", patch.recurringPromptEnabled);
-	const recurringPromptPatch = Object.prototype.hasOwnProperty.call(patch, "recurringPrompt")
-		? patch.recurringPrompt
-		: patch.reasoningPrefill;
-	assignInferencePreservedString(next, "recurringPrompt", recurringPromptPatch);
+	assignInferencePreservedString(next, "recurringPrompt", patch.recurringPrompt);
 	assignOptionalSetting(next, "supportsPrefill", patch.supportsPrefill);
 	assignInferenceReasoningEffort(next, "reasoningEffort", patch.reasoningEffort);
 	assignOptionalSetting(next, "toolCalls", patch.toolCalls);

@@ -1757,7 +1757,7 @@ export function effectiveReasoningPrefill(bot: Pick<BotDocument, 'handle' | 'inf
 	}
 	const custom = bot.inferenceSettings.recurringPrompt ?
 		localizedTextString(bot.inferenceSettings.recurringPrompt)
-	:	bot.inferenceSettings.reasoningPrefill;
+	:	undefined;
 	return custom && custom.trim() ? custom : defaultReasoningPrefill(bot.handle);
 }
 
@@ -7630,8 +7630,7 @@ export class BotRuntime {
 				'/votes',
 				bot.id,
 				{
-					targetType: 'comment',
-					targetId: vote.commentId,
+					commentId: vote.commentId,
 					value: vote.value,
 					reason,
 					...(targetSpotlightId ? { spotlightId: targetSpotlightId } : {}),

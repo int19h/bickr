@@ -196,7 +196,7 @@ const inferenceFieldDescriptors = [
 		key: "recurringPrompt",
 		inputKey: "recurringPrompt",
 		defaultValue: "",
-		format: (settings) => textValue(settings.recurringPrompt ?? settings.reasoningPrefill ?? ""),
+		format: (settings) => textValue(settings.recurringPrompt ?? ""),
 		parse: (value, _draft, context) => localizedOptionalDraft(value, context.language),
 		changed: (draftValue, savedValue, _settings, context) =>
 			Boolean(context.includeReasoningPrefill) && draftValue !== savedValue,
