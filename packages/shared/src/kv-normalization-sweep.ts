@@ -26,26 +26,58 @@ import { runBoundedSweep } from "./sweep";
 
 export const kvNormalizationEntityTypes = ["thread", "bot", "user", "world", "forum"] as const;
 export type KvNormalizationEntityType = (typeof kvNormalizationEntityTypes)[number];
+export type KvNormalizationNonThreadEntityType = Exclude<KvNormalizationEntityType, "thread">;
+
+export const threadNormalizationOutcomeKinds = [
+	"rewritten",
+	"unchanged",
+	"skipped_recently_updated",
+	"skipped_changed",
+] as const;
+export type ThreadNormalizationOutcome =
+	| { kind: "rewritten" }
+	| { kind: "unchanged" }
+	| { kind: "skipped_recently_updated" }
+	| { kind: "skipped_changed" };
+export type ThreadNormalizationRequest = {
+	threadId: string;
+	expectedRevision: number;
+	expectedUpdatedAt: string;
+};
 
 // A run has this invocation to itself, but KV has a stricter 1,000-operation
 // ceiling than the paid Worker's 10k subrequest ceiling. At the defaults, the
-// healthy path uses at most 500 KV reads, 75 document writes, 10 D1 selects,
-// and about 11 cursor operations. Even if every KV mutation takes all five
-// retry attempts, the total remains below 1,000 external operations.
+// non-thread worst case uses 250 initial KV reads, 250 pre-write rereads, 75
+// document writes, 5 D1 selects, and about 6 cursor operations. Even if every
+// KV mutation takes all five retry attempts, the total remains below 1,000
+// external operations. Thread candidates replace rereads/writes with bounded
+// calls to their coordinator DO, whose KV work runs in separate invocations.
 export const kvNormalizationSweepChunkSize = 50;
-export const kvNormalizationSweepMaxRowsPerRun = 500;
+export const kvNormalizationSweepMaxRowsPerRun = 250;
 export const kvNormalizationSweepMaxWritesPerRun = 75;
+export const kvNormalizationQuietPeriodMs = 6 * 60 * 60 * 1_000;
 
 export type KvNormalizationSweepResult = {
 	scanned: number;
 	rewritten: number;
+	skippedRecentlyUpdated: number;
+	skippedChangedDuringSweep: number;
 	budgetExhausted: boolean;
 	done: boolean;
 };
 
-export type KvNormalizationSweepEnv = {
+export type KvNormalizationSweepBaseEnv = {
 	BICKR_D1: D1DatabaseLike;
 	BICKR_KV: KVNamespaceLike;
+};
+export type KvNormalizationSweepEnv = KvNormalizationSweepBaseEnv & {
+	normalizeThread: (request: ThreadNormalizationRequest) => Promise<ThreadNormalizationOutcome>;
+};
+
+export type KvNormalizationSweepOptions = {
+	maxRowsPerRun?: number;
+	maxWritesPerRun?: number;
+	now?: string;
 };
 
 type ObjectIndexRow = {
@@ -64,13 +96,20 @@ type NormalizableDocument =
 	| UserDocument
 	| WorldDocument;
 
-export async function normalizeKvDocuments(
+export function normalizeKvDocuments(
 	env: KvNormalizationSweepEnv,
 	entityType: KvNormalizationEntityType,
-	options: {
-		maxRowsPerRun?: number;
-		maxWritesPerRun?: number;
-	} = {},
+	options?: KvNormalizationSweepOptions,
+): Promise<KvNormalizationSweepResult>;
+export function normalizeKvDocuments(
+	env: KvNormalizationSweepBaseEnv,
+	entityType: KvNormalizationNonThreadEntityType,
+	options?: KvNormalizationSweepOptions,
+): Promise<KvNormalizationSweepResult>;
+export async function normalizeKvDocuments(
+	env: KvNormalizationSweepBaseEnv & Partial<Pick<KvNormalizationSweepEnv, "normalizeThread">>,
+	entityType: KvNormalizationEntityType,
+	options: KvNormalizationSweepOptions = {},
 ): Promise<KvNormalizationSweepResult> {
 	const maxRowsPerRun = boundedPositiveInteger(
 		options.maxRowsPerRun ?? kvNormalizationSweepMaxRowsPerRun,
@@ -84,7 +123,10 @@ export async function normalizeKvDocuments(
 	);
 	const cursorKey = kvKeys.kvNormalizationSweepCursor(entityType);
 	const storedCursor = await readKvNormalizationSweepCursor(env.BICKR_KV, cursorKey);
+	const nowMs = options.now === undefined ? Date.now() : requiredTimestamp(options.now, "now");
 	let rewritten = 0;
+	let skippedRecentlyUpdated = 0;
+	let skippedChangedDuringSweep = 0;
 	const iteration = await runBoundedSweep<ObjectIndexRow, string>({
 		chunkSize: kvNormalizationSweepChunkSize,
 		maxItemsPerRun: maxRowsPerRun,
@@ -107,8 +149,44 @@ export async function normalizeKvDocuments(
 				if (!schemaLags && JSON.stringify(normalized) === JSON.stringify(document)) {
 					continue;
 				}
-				await writeJson(env.BICKR_KV, documentKey(entityType, row.objectId), normalized);
-				rewritten += 1;
+				if (isWithinKvNormalizationQuietPeriod(document.updatedAt, nowMs)) {
+					skippedRecentlyUpdated += 1;
+					continue;
+				}
+
+				if (document.type === "thread") {
+					if (!env.normalizeThread) {
+						throw new Error("Thread KV normalization requires the owning coordinator operation.");
+					}
+					const outcome = await env.normalizeThread({
+						threadId: row.objectId,
+						expectedRevision: document.revision,
+						expectedUpdatedAt: document.updatedAt,
+					});
+					switch (outcome.kind) {
+						case "rewritten": rewritten += 1; break;
+						case "unchanged": break;
+						case "skipped_recently_updated": skippedRecentlyUpdated += 1; break;
+						case "skipped_changed": skippedChangedDuringSweep += 1; break;
+						default: {
+							const exhaustive: never = outcome;
+							return exhaustive;
+						}
+					}
+				} else {
+					const latest = await readNormalizableDocument(env.BICKR_KV, entityType, row.objectId);
+					if (!latest || !sameDocumentVersion(document, latest)) {
+						skippedChangedDuringSweep += 1;
+						continue;
+					}
+					const latestNormalized = normalizeDocument(latest);
+					const latestSchemaLags = typeof latest.schemaVersion !== "number" || latest.schemaVersion < schemaVersion;
+					if (!latestSchemaLags && JSON.stringify(latestNormalized) === JSON.stringify(latest)) {
+						continue;
+					}
+					await writeJson(env.BICKR_KV, documentKey(entityType, row.objectId), latestNormalized);
+					rewritten += 1;
+				}
 				if (rewritten >= maxWritesPerRun) {
 					return {
 						kind: "stop",
@@ -130,9 +208,24 @@ export async function normalizeKvDocuments(
 	return {
 		scanned: iteration.scanned,
 		rewritten,
+		skippedRecentlyUpdated,
+		skippedChangedDuringSweep,
 		budgetExhausted: iteration.budgetExhausted,
-		done: !iteration.budgetExhausted,
+		done: !iteration.budgetExhausted && skippedRecentlyUpdated === 0 && skippedChangedDuringSweep === 0,
 	};
+}
+
+export function isWithinKvNormalizationQuietPeriod(updatedAt: string, nowMs = Date.now()): boolean {
+	const updatedAtMs = Date.parse(updatedAt);
+	return Number.isFinite(updatedAtMs) && updatedAtMs > nowMs - kvNormalizationQuietPeriodMs;
+}
+
+export function isThreadNormalizationOutcome(value: unknown): value is ThreadNormalizationOutcome {
+	if (!value || typeof value !== "object" || Array.isArray(value)) {
+		return false;
+	}
+	const kind = (value as Record<string, unknown>).kind;
+	return typeof kind === "string" && (threadNormalizationOutcomeKinds as readonly string[]).includes(kind);
 }
 
 async function loadObjectIndexChunk(
@@ -227,4 +320,16 @@ function boundedPositiveInteger(value: number, name: string, maximum: number): n
 		throw new Error(`${name} must be a positive integer no greater than ${maximum}.`);
 	}
 	return value;
+}
+
+function sameDocumentVersion(left: NormalizableDocument, right: NormalizableDocument): boolean {
+	return left.revision === right.revision && left.updatedAt === right.updatedAt;
+}
+
+function requiredTimestamp(value: string, name: string): number {
+	const timestamp = Date.parse(value);
+	if (!Number.isFinite(timestamp)) {
+		throw new Error(`${name} must be an ISO timestamp.`);
+	}
+	return timestamp;
 }
