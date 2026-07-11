@@ -403,10 +403,7 @@ async function deleteSearchVectors(
 	if (!vectorIndex || entities.length === 0) {
 		return;
 	}
-	const ids = entities.flatMap((entity) => {
-		const vectorId = entity.type === "bot" ? `bot:${entity.id}` : vectorIdForEntity(entity.type, entity.id);
-		return entity.type === "bot" ? [entity.id, vectorId] : [vectorId];
-	});
+	const ids = entities.map((entity) => vectorIdForEntity(entity.type, entity.id));
 	try {
 		for (let index = 0; index < ids.length; index += searchVectorDeleteBatchSize) {
 			const batch = ids.slice(index, index + searchVectorDeleteBatchSize);
@@ -1264,22 +1261,8 @@ function vectorMatchesToCandidates(matches: SearchVectorMatch[]): SemanticCandid
 function vectorMatchEntity(match: SearchVectorMatch): { id: string; type: SearchEntityType } | null {
 	const metadata = recordMetadata(match.metadata);
 	const metadataType = stringMetadata(metadata, "type");
-	const entityId = stringMetadata(metadata, "entityId") ?? stringMetadata(metadata, "objectId");
-	if (isSearchEntityType(metadataType)) {
-		return { type: metadataType, id: entityId ?? legacyVectorId(match.id, metadataType) };
-	}
-	for (const type of searchTypes) {
-		const prefix = `${type}:`;
-		if (match.id.startsWith(prefix)) {
-			return { type, id: match.id.slice(prefix.length) };
-		}
-	}
-	return null;
-}
-
-function legacyVectorId(id: string, type: SearchEntityType): string {
-	const prefix = `${type}:`;
-	return id.startsWith(prefix) ? id.slice(prefix.length) : id;
+	const entityId = stringMetadata(metadata, "entityId");
+	return isSearchEntityType(metadataType) && entityId ? { type: metadataType, id: entityId } : null;
 }
 
 function recordMetadata(value: unknown): Record<string, unknown> {

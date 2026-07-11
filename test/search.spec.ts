@@ -513,7 +513,7 @@ describe("Search", () => {
 		expect(afterDelete.results.filter((result) => result.id === worldPayload.data.world.id || result.id === forumPayload.data.forum.id || result.id === botPayload.data.bot.id)).toEqual([]);
 	});
 
-	it("indexes and searches semantic entities with exact-filter hydration, score ordering, and bot vector fallback", async () => {
+	it("indexes and searches semantic entities with exact-filter hydration and score ordering", async () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);
 		const forum = await createForumForTest(cookie, "semantic-room");
@@ -620,19 +620,35 @@ describe("Search", () => {
 			...normalizeSearchFilters({ forum: "missing-forum" }),
 		});
 		expect(filteredOut.results).toEqual([]);
+	});
 
-		const fallback = fakeSearchBindings("legacy");
-		fallback.matches = [{ id: bot.id, metadata: { type: "bot" }, score: 0.77 }];
-		await upsertBotSearchVector(fallback.env, botDocument);
-		expect(fallback.upserted.map((item) => item.id)).toEqual([bot.id]);
-		const fallbackResult = await searchEntitiesSemantic(testEnv.BICKR_D1, fallback.env, {
+	it("round-trips current vector IDs and metadata through upsert, query, and delete", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const bot = await createBotForTest(cookie, "vector-round-trip");
+		const botDocument = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, bot.id);
+		const bindings = fakeSearchBindings();
+
+		await upsertBotSearchVector(bindings.env, botDocument);
+		const written = bindings.upserted[0];
+		expect(written).toMatchObject({
+			id: bot.id,
+			metadata: { entityId: bot.id, type: "bot" },
+		});
+		if (!written) {
+			throw new Error("Current-format vector fixture was not written.");
+		}
+		bindings.matches = [{ id: written.id, metadata: written.metadata, score: 0.77 }];
+
+		const result = await searchEntitiesSemantic(testEnv.BICKR_D1, bindings.env, {
 			mode: "semantic",
-			query: "semantic sage",
+			query: "vector round trip",
 			types: ["bot"],
 		});
-		expect(fallbackResult.results).toMatchObject([{ type: "bot", handle: "semantic-sage", score: 0.77 }]);
-		await deleteSearchVector(fallback.env, "bot", bot.id);
-		expect(fallback.deleted).toEqual([bot.id, `bot:${bot.id}`]);
+		expect(result.results).toMatchObject([{ type: "bot", handle: "vector-round-trip", score: 0.77 }]);
+
+		await deleteSearchVector(bindings.env, "bot", bot.id);
+		expect(bindings.deleted).toEqual([written.id]);
 	});
 
 	it("persists and resumes a stable full-pass vector reindex cursor", async () => {
