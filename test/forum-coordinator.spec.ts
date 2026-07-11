@@ -730,7 +730,7 @@ describe("Forum coordinator", () => {
 		expect(voteNotice?.urlPath).toBe(`/w/patch-notes/u/cache-critic?tab=activity&activity=vote%3Acomment%3A${thread.data.thread.rootCommentId}`);
 	});
 
-	it("decays and expires hot threads by recent activity without hiding recent or direct reads", async () => {
+	it("orders hot threads by the query-time formula and expires threads outside the decay window", async () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);
 		const forum = await createForumForTest(cookie, "hot-decay");
@@ -751,21 +751,35 @@ describe("Forum coordinator", () => {
 			vi.setSystemTime(new Date(now));
 			await createCommentForTest(revived.id, author.id, "A fresh comment revives this older thread.");
 			await refreshThreadHotScores(testEnv.BICKR_D1, now);
+			const inputs = new Map<string, { voteScore: number; recentCommentCount: number; lastActivityAt: string }>([
+				[fresh.id, { voteScore: 1, recentCommentCount: 0, lastActivityAt: now }],
+				[halfAge.id, { voteScore: 4, recentCommentCount: 0, lastActivityAt: "2026-05-05T00:00:00.000Z" }],
+				[almostExpired.id, { voteScore: 100, recentCommentCount: 0, lastActivityAt: "2026-05-01T13:00:00.000Z" }],
+				[revived.id, { voteScore: 0, recentCommentCount: 1, lastActivityAt: now }],
+			]);
+			for (const [threadId, input] of inputs) {
+				await testEnv.BICKR_D1.prepare(
+					`UPDATE threads_index
+					 SET vote_score = ?, recent_comment_count = ?, last_activity_at = ?
+					 WHERE thread_id = ?`,
+				)
+					.bind(input.voteScore, input.recentCommentCount, input.lastActivityAt, threadId)
+					.run();
+			}
 
-			const hot = await listThreads(testEnv.BICKR_D1, forum.id, "hot", 10);
+			const hot = await listThreads(testEnv.BICKR_D1, forum.id, "hot", 10, 0, now);
 			const hotIds = hot.map((thread) => thread.id);
-			expect(hotIds).toEqual(expect.arrayContaining([fresh.id, halfAge.id, almostExpired.id, revived.id]));
+			const expectedIds = [...inputs]
+				.sort(([, left], [, right]) => threadHotScore(right, now) - threadHotScore(left, now))
+				.map(([threadId]) => threadId);
+			expect(hotIds).toEqual(expectedIds);
 			expect(hotIds).not.toContain(expired.id);
-			expect((await listHotThreads(testEnv.BICKR_D1, forum.worldId, 10)).map((thread) => thread.id)).not.toContain(expired.id);
-
-			const halfAgeDocument = await readThread(testEnv.BICKR_KV, halfAge.id);
-			expect(hot.find((thread) => thread.id === halfAge.id)?.hotScore).toBeCloseTo(
-				threadHotScore({
-					voteScore: 0,
-					recentCommentCount: halfAgeDocument.recentCommentCount,
-					lastActivityAt: halfAgeDocument.lastActivityAt,
-				}, now),
-			);
+			expect((await listHotThreads(testEnv.BICKR_D1, forum.worldId, 10, now)).map((thread) => thread.id)).toEqual(expectedIds);
+			expect(threadHotScore({
+				voteScore: 100,
+				recentCommentCount: 100,
+				lastActivityAt: "2026-05-01T12:00:00.000Z",
+			}, now)).toBe(0);
 			const recent = await listThreads(testEnv.BICKR_D1, forum.id, "recent", 10);
 			expect(recent.map((thread) => thread.id)).toContain(expired.id);
 			await expect(readThread(testEnv.BICKR_KV, expired.id)).resolves.toMatchObject({ id: expired.id });
@@ -774,7 +788,7 @@ describe("Forum coordinator", () => {
 		}
 	});
 
-	it("uses recent-activity decay for root votes and comment mutations", async () => {
+	it("maintains query-time hot-score inputs for votes and comment mutations", async () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);
 		const forum = await createForumForTest(cookie, "hot-mutations");
@@ -795,11 +809,8 @@ describe("Forum coordinator", () => {
 				targetId: thread.rootCommentId,
 				value: 1,
 			}, voteNow);
-			expect(rootVoted.hotScore).toBeCloseTo(threadHotScore({
-				voteScore: 1,
-				recentCommentCount: beforeVote.recentCommentCount,
-				lastActivityAt: beforeVote.lastActivityAt,
-			}, voteNow));
+			expect(rootVoted.voteScore).toBe(1);
+			expect(rootVoted.recentCommentCount).toBe(beforeVote.recentCommentCount);
 
 			const commentVoted = await setVote(testEnv.BICKR_KV, testEnv.BICKR_D1, {
 				botId: voter.id,
@@ -807,25 +818,20 @@ describe("Forum coordinator", () => {
 				targetId: reply.id,
 				value: -1,
 			}, voteNow);
-			expect(commentVoted.hotScore).toBeCloseTo(rootVoted.hotScore);
+			expect(commentVoted.voteScore).toBe(rootVoted.voteScore);
 
 			const expiredNow = "2026-05-09T12:00:00.000Z";
 			vi.setSystemTime(new Date(expiredNow));
 			await createCommentForTest(thread.id, voter.id, "Fresh follow-up.");
 			const revivedThread = await readThread(testEnv.BICKR_KV, thread.id);
-			expect(revivedThread.hotScore).toBeCloseTo(threadHotScore({
-				voteScore: 1,
-				recentCommentCount: 1,
-				lastActivityAt: expiredNow,
-			}, expiredNow));
 			expect(revivedThread.recentCommentCount).toBe(1);
-			expect((await listHotThreads(testEnv.BICKR_D1, forum.worldId, 10)).map((item) => item.id)).toContain(thread.id);
+			expect((await listHotThreads(testEnv.BICKR_D1, forum.worldId, 10, expiredNow)).map((item) => item.id)).toContain(thread.id);
 		} finally {
 			vi.useRealTimers();
 		}
 	});
 
-	it("refreshes stored hot scores from the forum coordinator cron", async () => {
+	it("refreshes recent comment counts from the forum coordinator cron", async () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);
 		const forum = await createForumForTest(cookie, "hot-cron");
@@ -834,29 +840,24 @@ describe("Forum coordinator", () => {
 		try {
 			vi.setSystemTime(new Date("2026-05-01T00:00:00.000Z"));
 			const thread = await createThreadForTest(forum.id, author.id, "Cron refreshed hot thread", "Root body.");
-			const threadDocument = await readThread(testEnv.BICKR_KV, thread.id);
-			const storedHotScore = async (): Promise<number> => {
+			const storedRecentCommentCount = async (): Promise<number> => {
 				const row = await testEnv.BICKR_D1.prepare(
-					`SELECT hot_score AS hotScore FROM threads_index WHERE thread_id = ?`,
+					`SELECT recent_comment_count AS recentCommentCount FROM threads_index WHERE thread_id = ?`,
 				)
 					.bind(thread.id)
-					.first<{ hotScore: number }>();
+					.first<{ recentCommentCount: number }>();
 				if (!row) {
 					throw new Error("Thread index row was not found.");
 				}
-				return row.hotScore;
+				return row.recentCommentCount;
 			};
 
 			const firstRefresh = "2026-05-02T00:00:00.000Z";
 			await runForumCoordinatorScheduled(firstRefresh);
-			expect(await storedHotScore()).toBeCloseTo(threadHotScore({
-				voteScore: 0,
-				recentCommentCount: threadDocument.recentCommentCount,
-				lastActivityAt: threadDocument.lastActivityAt,
-			}, firstRefresh));
+			expect(await storedRecentCommentCount()).toBe(1);
 
 			await runForumCoordinatorScheduled("2026-05-08T00:00:00.000Z");
-			expect(await storedHotScore()).toBe(0);
+			expect(await storedRecentCommentCount()).toBe(0);
 		} finally {
 			vi.useRealTimers();
 		}
@@ -940,7 +941,7 @@ describe("Forum coordinator", () => {
 		expect(await botInferenceUsageSourceIds()).toEqual([2]);
 		expect(retentionLog).toMatchObject({
 			event: "retention_prune",
-			hotScores: { refreshed: true },
+			hotScores: { recentCommentCountsRefreshed: true },
 			notificationPrune: {
 				deletedRows: 4,
 				kvDeleteFailures: 0,

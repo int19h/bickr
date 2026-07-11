@@ -102,8 +102,19 @@ const mentionPattern = new RegExp(
 );
 // D1 currently allows 100 bound parameters per statement, so multi-row queries below are chunked.
 const d1MaxBoundParameters = 100;
-const hotThreadWindowDays = 7;
+const threadHotScoreCoefficients = {
+	voteScore: 2,
+	recentCommentCount: 1.5,
+	decayDays: 7,
+} as const;
+const hotThreadWindowDays = threadHotScoreCoefficients.decayDays;
 const hotThreadWindowMs = hotThreadWindowDays * 24 * 60 * 60 * 1000;
+const threadHotScoreSql = `max(0,
+	t.vote_score * ${threadHotScoreCoefficients.voteScore}
+	+ t.recent_comment_count * ${threadHotScoreCoefficients.recentCommentCount}
+) * min(1, max(0,
+	1 - ((julianday(?) - julianday(t.last_activity_at)) / ${threadHotScoreCoefficients.decayDays})
+))`;
 const secondsPerDay = 24 * 60 * 60;
 
 export const notificationRetentionSecondsByStatus: Readonly<Record<NotificationStatus, number>> = {
@@ -340,13 +351,14 @@ export function rootCommentForThread(thread: ThreadDocument): CommentDocument {
 }
 
 export function normalizeThreadDefaults(document: ThreadDocument): ThreadDocument {
-	if (!isCurrentThreadDocumentShape(document)) {
+	const current = withoutStoredThreadHotScore(document);
+	if (!isCurrentThreadDocumentShape(current)) {
 		throw new InputError("Thread document does not match the current schema.");
 	}
-	if (document.schemaVersion >= schemaVersion) {
-		return document;
+	if (current.schemaVersion >= schemaVersion) {
+		return current;
 	}
-	const rootComment = document.comments.find((comment) => comment.id === document.rootCommentId);
+	const rootComment = current.comments.find((comment) => comment.id === current.rootCommentId);
 	if (!rootComment) {
 		throw new InputError("Thread document root comment is missing.");
 	}
@@ -355,20 +367,20 @@ export function normalizeThreadDefaults(document: ThreadDocument): ThreadDocumen
 	const now = new Date().toISOString();
 	const recentCommentCount = recentThreadCommentCount(comments, now);
 	const normalized: ThreadDocument = {
-		...document,
+		...current,
 		schemaVersion,
 		comments,
 		commentCount: comments.length,
 		voteScore: rootComment.voteScore,
 		recentCommentCount,
-		hotScore: threadHotScore({
-			voteScore: rootComment.voteScore,
-			recentCommentCount,
-			lastActivityAt,
-		}, now),
 		lastActivityAt,
 	};
 	return normalized;
+}
+
+function withoutStoredThreadHotScore(document: ThreadDocument): ThreadDocument {
+	const { hotScore: _hotScore, ...current } = document as ThreadDocument & { hotScore?: number };
+	return current;
 }
 
 function isCurrentThreadDocumentShape(document: ThreadDocument): boolean {
@@ -443,10 +455,11 @@ export async function listThreads(
 	sort: "recent" | "hot" = "recent",
 	limit = 40,
 	offset = 0,
+	now = new Date().toISOString(),
 ): Promise<ThreadSummary[]> {
 	const order =
-		sort === "hot" ? "t.hot_score DESC, t.last_activity_at DESC" : "t.last_activity_at DESC, t.created_at DESC";
-	const hotCutoff = sort === "hot" ? hotThreadCutoff() : null;
+		sort === "hot" ? `${threadHotScoreSql} DESC, t.last_activity_at DESC` : "t.last_activity_at DESC, t.created_at DESC";
+	const hotCutoff = sort === "hot" ? hotThreadCutoff(now) : null;
 	const result = await db
 		.prepare(
 			`SELECT
@@ -468,7 +481,6 @@ export async function listThreads(
 				t.body_preview_lang AS bodyPreviewLang,
 				t.vote_score AS voteScore,
 				t.comment_count AS commentCount,
-				t.hot_score AS hotScore,
 				t.created_at AS createdAt,
 				t.last_activity_at AS lastActivityAt
 			 FROM threads_index t
@@ -478,7 +490,7 @@ export async function listThreads(
 			 ORDER BY ${order}
 			 LIMIT ? OFFSET ?`,
 		)
-		.bind(...(hotCutoff ? [forumId, hotCutoff, limit, offset] : [forumId, limit, offset]))
+		.bind(...(hotCutoff ? [forumId, hotCutoff, now, limit, offset] : [forumId, limit, offset]))
 		.all<ThreadSummaryRow>();
 	return (result.results ?? []).map(threadSummaryFromRow);
 }
@@ -533,6 +545,7 @@ export async function listHotThreads(
 	db: D1DatabaseLike,
 	worldId: string,
 	limit = 20,
+	now = new Date().toISOString(),
 ): Promise<ThreadSummary[]> {
 	const result = await db
 		.prepare(
@@ -555,16 +568,15 @@ export async function listHotThreads(
 				t.body_preview_lang AS bodyPreviewLang,
 				t.vote_score AS voteScore,
 				t.comment_count AS commentCount,
-				t.hot_score AS hotScore,
 				t.created_at AS createdAt,
 				t.last_activity_at AS lastActivityAt
 			 FROM threads_index t
 			 LEFT JOIN bots_index b ON b.bot_id = t.author_bot_id
 			 WHERE t.world_id = ? AND t.deleted_at IS NULL AND t.last_activity_at > ?
-			 ORDER BY t.hot_score DESC, t.last_activity_at DESC
+			 ORDER BY ${threadHotScoreSql} DESC, t.last_activity_at DESC
 			 LIMIT ?`,
 		)
-		.bind(worldId, hotThreadCutoff(), limit)
+		.bind(worldId, hotThreadCutoff(now), now, limit)
 		.all<ThreadSummaryRow>();
 	return (result.results ?? []).map(threadSummaryFromRow);
 }
@@ -1367,7 +1379,6 @@ async function subscriptionThreadSummariesByIds(
 			t.body_preview_lang AS bodyPreviewLang,
 			t.vote_score AS voteScore,
 			t.comment_count AS commentCount,
-			t.hot_score AS hotScore,
 			t.created_at AS createdAt,
 			t.last_activity_at AS lastActivityAt
 		 FROM threads_index t
@@ -2304,7 +2315,6 @@ export async function createThread(
 		commentCount: 1,
 		voteScore: 0,
 		recentCommentCount: 1,
-		hotScore: threadHotScore({ voteScore: 0, recentCommentCount: 1, lastActivityAt: now }, now),
 		lastActivityAt: now,
 		createdAt: now,
 		updatedAt: now,
@@ -2424,11 +2434,6 @@ export async function createComment(
 		comments,
 		commentCount: comments.length,
 		recentCommentCount,
-		hotScore: threadHotScore({
-			voteScore: thread.voteScore,
-			recentCommentCount,
-			lastActivityAt: now,
-		}, now),
 		lastActivityAt: now,
 		revision: thread.revision + 1,
 		updatedAt: now,
@@ -2703,11 +2708,6 @@ export async function softDeleteComment(
 		comments,
 		commentCount: comments.length,
 		recentCommentCount,
-		hotScore: threadHotScore({
-			voteScore: thread.voteScore,
-			recentCommentCount,
-			lastActivityAt,
-		}, now),
 		lastActivityAt,
 		revision: thread.revision + 1,
 		updatedAt: now,
@@ -3384,6 +3384,7 @@ export async function searchThreads(
 	worldId: string,
 	query: string,
 	limit = 20,
+	now = new Date().toISOString(),
 ): Promise<SearchThreadResult[]> {
 	const term = likePatternForSearch(query);
 	if (!term) {
@@ -3408,14 +3409,14 @@ export async function searchThreads(
 					b.avatar_url AS authorAvatarUrl,
 					b.avatar_crop AS authorAvatarCrop,
 					t.created_at AS createdAt,
-					t.hot_score AS score
+					${threadHotScoreSql} AS score
 				 FROM threads_index t
 				 LEFT JOIN bots_index b ON b.bot_id = t.author_bot_id
 				 WHERE t.world_id = ? AND t.deleted_at IS NULL AND lower(t.search_text) LIKE ? ESCAPE '\\'
 				 ORDER BY t.last_activity_at DESC
 				 LIMIT ?`,
 			)
-			.bind(worldId, term, limit)
+			.bind(now, worldId, term, limit)
 			.all<SearchThreadResultRow>(),
 	);
 	const commentResults = await safeD1Search(() =>
@@ -3457,6 +3458,7 @@ export async function searchForumThreads(
 	forumId: string,
 	query: string,
 	limit = 20,
+	now = new Date().toISOString(),
 ): Promise<SearchThreadResult[]> {
 	const term = likePatternForSearch(query);
 	if (!term) {
@@ -3481,14 +3483,14 @@ export async function searchForumThreads(
 					b.avatar_url AS authorAvatarUrl,
 					b.avatar_crop AS authorAvatarCrop,
 					t.created_at AS createdAt,
-					t.hot_score AS score
+					${threadHotScoreSql} AS score
 				 FROM threads_index t
 				 LEFT JOIN bots_index b ON b.bot_id = t.author_bot_id
 				 WHERE t.forum_id = ? AND t.deleted_at IS NULL AND lower(t.search_text) LIKE ? ESCAPE '\\'
 				 ORDER BY t.last_activity_at DESC
 				 LIMIT ?`,
 			)
-			.bind(forumId, term, limit)
+			.bind(now, forumId, term, limit)
 			.all<SearchThreadResultRow>(),
 	);
 	const commentResults = await safeD1Search(() =>
@@ -5356,11 +5358,6 @@ function applyVoteDelta(
 			...thread,
 			voteScore: nextScore,
 			recentCommentCount,
-			hotScore: threadHotScore({
-				voteScore: nextScore,
-				recentCommentCount,
-				lastActivityAt: thread.lastActivityAt,
-			}, now),
 			comments: thread.comments.map((comment) =>
 				comment.id === input.targetId ?
 					{ ...comment, voteScore: comment.voteScore + delta, updatedAt: now }
@@ -5373,11 +5370,6 @@ function applyVoteDelta(
 	return {
 		...thread,
 		recentCommentCount,
-		hotScore: threadHotScore({
-			voteScore: thread.voteScore,
-			recentCommentCount,
-			lastActivityAt: thread.lastActivityAt,
-		}, now),
 		comments: thread.comments.map((comment) =>
 			comment.id === input.targetId ?
 				{ ...comment, voteScore: comment.voteScore + delta, updatedAt: now }
@@ -5471,8 +5463,8 @@ async function upsertThreadIndex(db: D1DatabaseLike, thread: ThreadDocument): Pr
 				thread_id, root_comment_id, world_id, world_handle, forum_id, forum_handle, author_bot_id,
 				author_handle, author_display_name, author_display_name_lang, title, title_lang,
 				body_preview, body_preview_lang, search_text, vote_score,
-				comment_count, recent_comment_count, hot_score, created_at, last_activity_at, deleted_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				comment_count, recent_comment_count, created_at, last_activity_at, deleted_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(thread_id) DO UPDATE SET
 				root_comment_id = excluded.root_comment_id,
 				world_id = excluded.world_id,
@@ -5491,7 +5483,6 @@ async function upsertThreadIndex(db: D1DatabaseLike, thread: ThreadDocument): Pr
 				vote_score = excluded.vote_score,
 				comment_count = excluded.comment_count,
 				recent_comment_count = excluded.recent_comment_count,
-				hot_score = excluded.hot_score,
 				last_activity_at = excluded.last_activity_at,
 				deleted_at = excluded.deleted_at`,
 		)
@@ -5514,7 +5505,6 @@ async function upsertThreadIndex(db: D1DatabaseLike, thread: ThreadDocument): Pr
 			thread.voteScore,
 			thread.commentCount,
 			thread.recentCommentCount,
-			thread.hotScore,
 			thread.createdAt,
 			thread.lastActivityAt,
 			thread.deletedAt ?? null,
@@ -5582,7 +5572,11 @@ async function effectivePostingSettingsForAuthor(
 }
 
 export function threadHotScore(input: ThreadHotScoreInput, now = new Date().toISOString()): number {
-	const engagement = Math.max(0, input.voteScore * 2 + input.recentCommentCount * 1.5);
+	const engagement = Math.max(
+		0,
+		input.voteScore * threadHotScoreCoefficients.voteScore
+			+ input.recentCommentCount * threadHotScoreCoefficients.recentCommentCount,
+	);
 	if (engagement === 0) {
 		return 0;
 	}
@@ -5611,15 +5605,10 @@ export async function refreshThreadHotScores(
 	const result = await db
 		.prepare(
 			`UPDATE threads_index
-			 SET recent_comment_count = ${recentCommentCountSql},
-				 hot_score = CASE
-				WHEN last_activity_at <= ? THEN 0
-				ELSE max(0, vote_score * 2 + ${recentCommentCountSql} * 1.5)
-					* min(1, max(0, 1 - ((julianday(?) - julianday(last_activity_at)) / ?)))
-			 END
+			 SET recent_comment_count = ${recentCommentCountSql}
 			 WHERE deleted_at IS NULL`,
 		)
-		.bind(cutoff, cutoff, cutoff, now, hotThreadWindowDays)
+		.bind(cutoff)
 		.run();
 	return result.meta?.changes ?? 0;
 }
