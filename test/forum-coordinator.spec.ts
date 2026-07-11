@@ -940,6 +940,7 @@ describe("Forum coordinator", () => {
 		expect(await botInferenceUsageSourceIds()).toEqual([2]);
 		expect(retentionLog).toMatchObject({
 			event: "retention_prune",
+			hotScores: { refreshed: true },
 			notificationPrune: {
 				deletedRows: 4,
 				kvDeleteFailures: 0,
@@ -951,6 +952,40 @@ describe("Forum coordinator", () => {
 				deletedRows: 1,
 			},
 		});
+	});
+
+	it("logs the retention_prune summary before a failed maintenance task propagates", async () => {
+		const now = "2026-07-01T00:00:00.000Z";
+		await insertBotNotificationForRetention({
+			id: "ntf_expired_for_failure_run",
+			status: "delivered_to_loop",
+			createdAt: daysBefore(now, 31),
+		});
+		await testEnv.BICKR_D1.prepare(`ALTER TABLE bot_seen_content RENAME TO bot_seen_content_hidden`).run();
+
+		const consoleLog = vi.spyOn(console, "log").mockImplementation(() => {});
+		let retentionLog: Record<string, unknown> | undefined;
+		try {
+			await expect(runForumCoordinatorScheduled(now)).rejects.toThrow();
+			retentionLog = consoleLog.mock.calls
+				.map(([message]) => {
+					try {
+						return JSON.parse(String(message)) as Record<string, unknown>;
+					} catch {
+						return {};
+					}
+				})
+				.find((payload) => payload.event === "retention_prune");
+		} finally {
+			consoleLog.mockRestore();
+			await testEnv.BICKR_D1.prepare(`ALTER TABLE bot_seen_content_hidden RENAME TO bot_seen_content`).run();
+		}
+
+		expect(retentionLog).toMatchObject({
+			event: "retention_prune",
+			notificationPrune: { deletedRows: 1 },
+		});
+		expect((retentionLog?.botSeenContentPrune as { error?: string })?.error).toContain("bot_seen_content");
 	});
 
 	it("prunes bot seen-content rows older than the retention cutoff", async () => {
