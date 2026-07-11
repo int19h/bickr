@@ -18,7 +18,6 @@ import {
 	openRouterSuggestedImageAspectRatios,
 	openRouterSuggestedImageSizes,
 	type AvatarCrop,
-	type AvatarImage,
 	type AuthProvider,
 	type BotActivityFeed,
 	type BotActivityItem,
@@ -88,24 +87,18 @@ import {
 	type UpdateWorldInput,
 	type UserProfile,
 	type VoteDetail,
-	type WorldActivityFeed,
 	type WorldActivityItem,
 	type WorldListSummary,
 	type WorldSummary,
 } from "@bickr/shared/model";
 import { worldAvatarMembersPromptUserContent } from "@bickr/shared/avatar-prompts";
-import {
-	defaultCommentBodyCharacters,
-	defaultThreadBodyCharacters,
-	effectivePostingSettings,
-} from "@bickr/shared/posting";
+import { effectivePostingSettings } from "@bickr/shared/posting";
 import { formatCommentRef, formatThreadRef, parseCommentRef, parseThreadRef } from "@bickr/shared/ids";
 import {
 	handleHelpText,
 	isValidHandleText,
 	maxBotPromptLength,
 	maxBotReasoningPrefillLength,
-	maxWorldPromptLength,
 	sanitizeHandleInput,
 } from "@bickr/shared/validation";
 import {
@@ -291,6 +284,9 @@ import {
 	timestampTitle,
 	type ThemePreference,
 } from "./screens/chrome";
+import { WorldsScreen } from "./screens/worlds";
+import { WorldDetail } from "./screens/worlds/world-detail";
+import { WorldEditPage } from "./screens/worlds/world-edit";
 import { AvatarUploadModal } from "./avatar/AvatarUploadModal";
 import { AvatarCropModal } from "./avatar/AvatarCropModal";
 import {
@@ -309,7 +305,6 @@ import "./App.css";
 
 
 type BotMutationResponse = { bot: BotSummary; affectedBots?: BotSummary[] };
-type WorldMutationResponse = { world: WorldSummary };
 type UserMutationResponse = { profile: UserProfile };
 
 type BeforeInstallPromptEvent = Event & {
@@ -327,13 +322,13 @@ type SessionState = {
 	user: PublicUser | null;
 };
 
-type BotActivityKindFilter = "all" | "posts" | "replies" | "votes" | "follows";
+export type BotActivityKindFilter = "all" | "posts" | "replies" | "votes" | "follows";
 type HumanProfileTab = "worlds" | "forums" | "bots";
 type BotCreateTab = "manual" | "clone" | "chirper";
 type ImportState = "idle" | "loading" | "preview" | "error";
 type IncludeLanguageInSystemPromptDraft = "include" | "exclude" | "inherit";
 type NotificationGroupMode = "world" | "bot";
-type LoadHumanNotifications = (
+export type LoadHumanNotifications = (
 	status: "unread" | "all",
 	limit?: number,
 	offset?: number,
@@ -434,7 +429,7 @@ type RuntimeMonitorPayload = {
 	deletedAt?: string;
 };
 
-type SubscriptionTarget = {
+export type SubscriptionTarget = {
 	scopeType: HumanSubscriptionScope;
 	scopeId: string;
 	worldId: string;
@@ -480,12 +475,12 @@ const languageExamples = [
 ] as const;
 
 
-function localizedDraft(text: string, language: string): LocalizedText {
+export function localizedDraft(text: string, language: string): LocalizedText {
 	return localizedText(text, languageInputValue(language));
 }
 
 
-function textLang(value: TextLike | null | undefined): LanguageTag | null {
+export function textLang(value: TextLike | null | undefined): LanguageTag | null {
 	return localizedTextLang(value);
 }
 
@@ -2861,1514 +2856,8 @@ function shouldHandleSpaAnchorClick(
 	);
 }
 
-function WorldsScreen({
-	busy,
-	isAuthenticated,
-	onCreate,
-	worlds,
-}: {
-	busy: boolean;
-	isAuthenticated: boolean;
-	onCreate: (input: CreateWorldInput) => Promise<boolean>;
-	worlds: WorldView[];
-}) {
-	const [createOpen, setCreateOpen] = useState(false);
-	const [filterMine, setFilterMine] = useState(false);
-	const filtered = filterMine ? worlds.filter((world) => world.isMine) : worlds;
 
-	useEffect(() => {
-		if (!isAuthenticated && filterMine) {
-			setFilterMine(false);
-		}
-	}, [filterMine, isAuthenticated]);
-
-	return (
-		<div className="main-inner">
-			<div className="page-header">
-				<div>
-					<h1>Worlds</h1>
-					<p className="sub">Each world is an isolated social setting with its own forums and bots.</p>
-				</div>
-				<div className="actions">
-					{isAuthenticated && (
-						<>
-							<div className="seg" role="tablist">
-								<button aria-pressed={!filterMine} onClick={() => setFilterMine(false)} type="button">
-									All
-								</button>
-								<button aria-pressed={filterMine} onClick={() => setFilterMine(true)} type="button">
-									Mine
-								</button>
-							</div>
-							<button className="btn primary" disabled={busy} onClick={() => setCreateOpen(true)} type="button">
-								<Icon name="plus" size={14} />
-								New world
-							</button>
-						</>
-					)}
-				</div>
-			</div>
-
-			{filtered.length === 0 ?
-				<EmptyState
-					actionLabel={isAuthenticated ? "New world" : undefined}
-					onAction={isAuthenticated ? () => setCreateOpen(true) : undefined}
-					title="No worlds yet"
-				>
-					Create one to start populating it with forums and bots.
-				</EmptyState>
-			:	<div className="world-grid">
-					{filtered.map((world) => (
-						<WorldCard key={world.id} world={world} />
-					))}
-				</div>
-			}
-
-			{isAuthenticated && (
-				<CreateWorldModal busy={busy} onClose={() => setCreateOpen(false)} onCreate={onCreate} open={createOpen} />
-			)}
-		</div>
-	);
-}
-
-function WorldCard({ world }: { world: WorldView }) {
-	return (
-		<article className="world-card">
-				<SpaLink className="card-hit-link" to={{ route: "world", worldHandle: world.handle }}>
-					<span className="sr-only">Open {textValue(world.name)}</span>
-			</SpaLink>
-			<span
-				className={`banner ${world.avatarUrl ? "has-avatar" : ""}`}
-				style={world.avatarUrl ? undefined : { background: banners[world.bannerIdx] }}
-			>
-				{world.avatarUrl && (
-					<FallbackImage
-						alt=""
-						fallbackSrc={world.avatarUrl}
-						src={cloudflareImageUrl(world.avatarUrl, { width: 720, format: "auto" })}
-					/>
-				)}
-			</span>
-			<span className="body">
-				<span className="world-card-title">
-						<TranslatableText as="span" text={world.name} />
-					{world.isMine && <span className="yours-tag">Yours</span>}
-				</span>
-				<TranslatableText as="span" className="world-card-description" text={world.description} />
-				<span className="world-ref-row">
-					<Reference kind="world" link={false} name={world.handle} />
-				</span>
-				<span className="stats">
-					<span>
-						<b>{world.forumCount}</b>forums
-					</span>
-					<span>
-						<b>{world.botCount}</b>bots
-					</span>
-				</span>
-			</span>
-		</article>
-	);
-}
-
-function CreateWorldModal({
-	busy,
-	onClose,
-	onCreate,
-	open,
-}: {
-	busy: boolean;
-	onClose: () => void;
-	onCreate: (input: CreateWorldInput) => Promise<boolean>;
-	open: boolean;
-}) {
-	const [handle, setHandle] = useState("");
-	const [language, setLanguage] = useState(languageDraftValue(defaultLanguageTag));
-	const [name, setName] = useState("");
-	const [description, setDescription] = useState("");
-	const [touchedHandle, setTouchedHandle] = useState(false);
-	const toast = useContext(ToastContext);
-
-	useEffect(() => {
-		if (!touchedHandle) {
-			setHandle(slugify(name));
-		}
-	}, [name, touchedHandle]);
-
-	useEffect(() => {
-			if (!open) {
-				setHandle("");
-				setLanguage(languageDraftValue(defaultLanguageTag));
-				setName("");
-				setDescription("");
-				setTouchedHandle(false);
-			}
-	}, [open]);
-
-	const valid = isValidHandle(handle) && name.trim().length > 0 && description.trim().length > 0;
-
-	async function submit(): Promise<void> {
-		const ok = await onCreate({
-			handle,
-			language: languageInputValue(language),
-			name: localizedDraft(name, language),
-			description: localizedDraft(description, language),
-		});
-		if (ok) {
-			toast.push(
-				<>
-					<span>Created</span>
-					<Reference kind="world" name={handle} />
-				</>,
-			);
-			onClose();
-		}
-	}
-
-	return (
-		<Modal
-			foot={
-				<>
-					<span className="help">World handles can be changed later.</span>
-					<div className="right">
-						<button className="btn ghost" disabled={busy} onClick={onClose} type="button">
-							Cancel
-						</button>
-						<button className="btn primary" disabled={!valid || busy} onClick={() => void submit()} type="button">
-							Create world
-						</button>
-					</div>
-				</>
-			}
-			onClose={onClose}
-			open={open}
-			title="New world"
-			wide
-		>
-			<Field hint="shown to humans" label="Name">
-				<input
-					autoFocus
-					className="input"
-					maxLength={80}
-					onChange={(event) => setName(event.target.value)}
-					placeholder="The Saltmarsh Review"
-					value={name}
-				/>
-			</Field>
-				<Field help={handle ? `bickr.local/w/${handle}` : handleHelpText} hint="used in URLs" label="Handle">
-					<div className="input-prefix">
-						<span className="prefix">w/</span>
-						<input
-						className="input"
-						onChange={(event) => {
-							setTouchedHandle(true);
-							setHandle(slugify(event.target.value));
-						}}
-						placeholder="saltmarsh"
-							value={handle}
-						/>
-					</div>
-				</Field>
-				<LanguageField onChange={setLanguage} value={language} />
-				<Field hint="required" label="Short description">
-					<textarea
-						className="textarea"
-						maxLength={500}
-						onChange={(event) => setDescription(event.target.value)}
-					placeholder="A failing literary magazine staffed entirely by bots."
-					rows={4}
-					value={description}
-				/>
-			</Field>
-		</Modal>
-	);
-}
-
-function WorldEditPage({
-	busy,
-	onBack,
-	onSave,
-	onWorldUpdated,
-	readonly,
-	world,
-}: {
-	busy: boolean;
-	onBack: () => void;
-	onSave: (input: UpdateWorldInput) => Promise<boolean>;
-	onWorldUpdated: (world: WorldSummary) => void;
-	readonly: boolean;
-	world: WorldView;
-	}) {
-		const [handle, setHandle] = useState(world.handle);
-		const [language, setLanguage] = useState(languageDraftValue(world.language, textLang(world.name) ?? defaultLanguageTag));
-		const [name, setName] = useState(textValue(world.name));
-		const [description, setDescription] = useState(textValue(world.description));
-		const [prompt, setPrompt] = useState(textValue(world.prompt));
-		const [initialBotNotification, setInitialBotNotification] = useState(textValue(world.initialBotNotification));
-	const [threadBodyCharacters, setThreadBodyCharacters] = useState(optionalNumberDraftValue(world.postingSettings?.threadBodyCharacters));
-	const [commentBodyCharacters, setCommentBodyCharacters] = useState(optionalNumberDraftValue(world.postingSettings?.commentBodyCharacters));
-	const [uploadOpen, setUploadOpen] = useState(false);
-	const [cropOpen, setCropOpen] = useState(false);
-	const [deleteAvatarConfirm, setDeleteAvatarConfirm] = useState(false);
-	const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
-	const toast = useContext(ToastContext);
-
-		useEffect(() => {
-			setHandle(world.handle);
-			setLanguage(languageDraftValue(world.language, textLang(world.name) ?? defaultLanguageTag));
-			setName(textValue(world.name));
-			setDescription(textValue(world.description));
-			setPrompt(textValue(world.prompt));
-			setInitialBotNotification(textValue(world.initialBotNotification));
-			setThreadBodyCharacters(optionalNumberDraftValue(world.postingSettings?.threadBodyCharacters));
-			setCommentBodyCharacters(optionalNumberDraftValue(world.postingSettings?.commentBodyCharacters));
-		}, [
-			world.description,
-			world.handle,
-			world.initialBotNotification,
-			world.language,
-			world.name,
-			world.prompt,
-		world.postingSettings?.commentBodyCharacters,
-		world.postingSettings?.threadBodyCharacters,
-	]);
-
-	const threadBodyCharactersValue = parseOptionalPositiveInteger(threadBodyCharacters);
-	const commentBodyCharactersValue = parseOptionalPositiveInteger(commentBodyCharacters);
-	const valid =
-		isValidHandleText(handle) &&
-		name.trim().length > 0 &&
-		description.trim().length > 0 &&
-		prompt.length <= maxWorldPromptLength &&
-		initialBotNotification.trim().length > 0 &&
-		(threadBodyCharactersValue === null ||
-			(threadBodyCharactersValue >= 1 && threadBodyCharactersValue <= defaultThreadBodyCharacters)) &&
-			(commentBodyCharactersValue === null ||
-				(commentBodyCharactersValue >= 1 && commentBodyCharactersValue <= defaultCommentBodyCharacters));
-		const savedLanguage = languageInputValue(language);
-		const dirty =
-			handle !== world.handle ||
-			savedLanguage !== world.language ||
-			name !== textValue(world.name) ||
-			description !== textValue(world.description) ||
-			prompt !== textValue(world.prompt) ||
-			initialBotNotification !== textValue(world.initialBotNotification) ||
-			threadBodyCharactersValue !== (world.postingSettings?.threadBodyCharacters ?? null) ||
-			commentBodyCharactersValue !== (world.postingSettings?.commentBodyCharacters ?? null);
-
-	async function submit(): Promise<void> {
-		if (readonly) {
-			return;
-			}
-			const ok = await onSave({
-				handle,
-				language: savedLanguage,
-				name: localizedDraft(name, language),
-				description: localizedDraft(description, language),
-				prompt: localizedDraft(prompt, language),
-				initialBotNotification: localizedDraft(initialBotNotification, language),
-				postingSettings: {
-				threadBodyCharacters: threadBodyCharactersValue,
-				commentBodyCharacters: commentBodyCharactersValue,
-			},
-		});
-		if (ok) {
-			toast.push(
-				<>
-					Saved <Reference kind="world" name={handle} />
-				</>,
-			);
-		}
-	}
-
-	async function deleteAvatar(): Promise<void> {
-		const target = worldAvatarTarget(world, null);
-		const result = await runApiAction((message) => toast.push(message), () => api<WorldMutationResponse>(target.endpoints.clear, {
-			method: "DELETE",
-		}));
-		if (!result) {
-			return;
-		}
-		onWorldUpdated(result.data.world);
-		toast.push("Deleted world avatar.");
-	}
-
-	return (
-		<div className="main-inner">
-			<div className="page-header">
-					<div className="page-title-block">
-						<button className="back-link" onClick={onBack} type="button">
-							{textValue(world.name)}
-						</button>
-					<h1>
-						<Avatar actor="world" colorSeed={world.handle} crop={world.avatarCrop} imageUrl={world.avatarUrl} name={world.name} size="lg" />
-						<span>{readonly ? "View world" : "Edit world"}</span>
-					</h1>
-					<p className="sub">
-						<Reference kind="world" name={world.handle} />
-						{readonly ? " settings are read-only for you" : " settings"}
-					</p>
-				</div>
-				<div className="actions">
-					<button className="btn ghost" disabled={busy} onClick={onBack} type="button">
-						{dirty && !readonly ? "Discard" : "Back"}
-					</button>
-					{!readonly && (
-						<button className="btn primary" disabled={!dirty || !valid || busy} onClick={() => void submit()} type="button">
-							Save changes
-						</button>
-					)}
-				</div>
-			</div>
-
-			<div className="edit-layout">
-				<div>
-					<section className="section">
-						<div className="section-head">
-							<h2>Profile</h2>
-							<span className="meta">shown to human users</span>
-						</div>
-						<div className="profile-avatar-column">
-							<button
-								aria-label={world.avatarUrl ? "View avatar" : "Avatar fallback"}
-								className="bot-profile-avatar-frame"
-								disabled={!world.avatarUrl}
-								onClick={() => world.avatarUrl ? setLightboxUrl(world.avatarUrl) : undefined}
-								type="button"
-							>
-								{world.avatarUrl ?
-									<FallbackImage
-										alt=""
-										fallbackSrc={world.avatarUrl}
-										src={cloudflareImageUrl(world.avatarUrl, { width: avatarImagePixels(220), format: "auto" })}
-									/>
-								:	<Avatar actor="world" colorSeed={world.handle} name={world.name} size="hero" />
-								}
-							</button>
-							<div className="profile-avatar-actions">
-								<button
-									className="btn icon-only"
-									disabled={readonly || !world.avatarUrl}
-									onClick={() => setCropOpen(true)}
-									title="Crop avatar"
-									type="button"
-								>
-									<Icon name="crop" size={16} />
-								</button>
-								<button
-									className="btn icon-only"
-									disabled={readonly}
-									onClick={() => setUploadOpen(true)}
-									title="Upload avatar"
-									type="button"
-								>
-									<Icon name="upload" size={16} />
-								</button>
-								{readonly ?
-									<button className="btn icon-only" disabled title="Generate avatar" type="button">
-										<Icon name="sparkles" size={16} />
-									</button>
-								:	<SpaLink
-										className="btn icon-only"
-										title="Generate avatar"
-										to={{ route: "world-avatar", worldHandle: world.handle }}
-									>
-										<Icon name="sparkles" size={16} />
-									</SpaLink>
-								}
-								<button
-									className="btn icon-only danger"
-									disabled={readonly || !world.avatarUrl}
-									onClick={() => setDeleteAvatarConfirm(true)}
-									title="Delete avatar"
-									type="button"
-								>
-									<Icon name="trash" size={16} />
-								</button>
-							</div>
-						</div>
-						<Field help={handle ? `bickr.local/w/${handle}` : handleHelpText} label="Handle">
-							<div className="input-prefix">
-								<span className="prefix">w/</span>
-								<input className="input" disabled={readonly} onChange={(event) => setHandle(slugify(event.target.value))} value={handle} />
-							</div>
-						</Field>
-							<Field hint="shown to human users" label="Name">
-								<input autoFocus className="input" disabled={readonly} maxLength={80} onChange={(event) => setName(event.target.value)} value={name} />
-							</Field>
-							<LanguageField disabled={readonly} onChange={setLanguage} value={language} />
-							<Field hint="shown to human users" label="Short description">
-							<textarea className="textarea" disabled={readonly} maxLength={500} onChange={(event) => setDescription(event.target.value)} rows={4} value={description} />
-						</Field>
-					</section>
-
-					<section className="section">
-						<div className="section-head">
-							<h2>Prompt</h2>
-							<span className="meta">
-								shown to participants · {prompt.length.toLocaleString()} / {maxWorldPromptLength.toLocaleString()} chars
-							</span>
-						</div>
-						<Field help="Optional. Inserted into participant system prompts as Setting.">
-							<textarea
-								className="textarea prompt-editor"
-								disabled={readonly}
-								maxLength={maxWorldPromptLength}
-								onChange={(event) => setPrompt(event.target.value)}
-								placeholder="Leave empty to omit world setting text from participant prompts."
-								value={prompt}
-							/>
-						</Field>
-					</section>
-
-					<section className="section">
-						<div className="section-head">
-							<h2>Settings</h2>
-							<span className="meta">world defaults</span>
-						</div>
-						<Field hint="shown to participants entering the world" label="Initial participant notification">
-							<textarea className="textarea" disabled={readonly} maxLength={1_000} onChange={(event) => setInitialBotNotification(event.target.value)} rows={4} value={initialBotNotification} />
-						</Field>
-						<div className="field-row">
-							<Field help="Blank keeps the global default." label="Thread body characters">
-								<div className="input-suffix">
-									<input className="input" disabled={readonly} min={1} max={defaultThreadBodyCharacters} onChange={(event) => setThreadBodyCharacters(event.target.value)} placeholder={String(defaultThreadBodyCharacters)} step={1} type="number" value={threadBodyCharacters} />
-									<span className="suffix">chars</span>
-								</div>
-							</Field>
-							<Field help="Blank keeps the global default." label="Comment body characters">
-								<div className="input-suffix">
-									<input className="input" disabled={readonly} min={1} max={defaultCommentBodyCharacters} onChange={(event) => setCommentBodyCharacters(event.target.value)} placeholder={String(defaultCommentBodyCharacters)} step={1} type="number" value={commentBodyCharacters} />
-									<span className="suffix">chars</span>
-								</div>
-							</Field>
-						</div>
-					</section>
-				</div>
-			</div>
-
-			<AvatarUploadModal
-				onClose={() => setUploadOpen(false)}
-				onSaved={onWorldUpdated}
-				open={uploadOpen && !readonly}
-				target={worldAvatarTarget(world, null)}
-			/>
-			<AvatarCropModal
-				onClose={() => setCropOpen(false)}
-				onSaved={onWorldUpdated}
-				open={cropOpen && !readonly}
-				target={worldAvatarTarget(world, null)}
-			/>
-				<Confirm
-					body={<>This removes the avatar for <b>{textValue(world.name)}</b>.</>}
-				confirmText="Delete avatar"
-				danger
-				onClose={() => setDeleteAvatarConfirm(false)}
-				onConfirm={() => void deleteAvatar()}
-				open={deleteAvatarConfirm && !readonly}
-				title="Delete avatar?"
-			/>
-				<ImageLightbox onClose={() => setLightboxUrl(null)} title={textValue(world.name)} url={lightboxUrl} />
-		</div>
-	);
-}
-
-function WorldDetail({
-	bots,
-	busy,
-	currentUserId,
-	forums,
-	groups,
-	onCreateBot,
-	onCreateBotGroup,
-	onCreateForum,
-	onAddBotGroupMembers,
-	onDeleteBot,
-	onDeleteBotGroup,
-	onDeleteForum,
-	onDeleteWorld,
-	onLoadNotifications,
-	onMarkAllNotificationsRead,
-	onDismissNotification,
-	onMarkNotificationRead,
-	onOpenBotEdit,
-	onOpenNotification,
-	onReference,
-	onRunBotTick,
-	onStartBot,
-	onToggleSubscription,
-	onRemoveBotGroupMember,
-	onUpdateBotGroupTitle,
-	onUpdateForum,
-	subscribed,
-	tab,
-	world,
-}: {
-	bots: BotSummary[];
-	busy: boolean;
-	currentUserId: string | null;
-	forums: ForumSummary[];
-	groups: BotGroupSummary[];
-	onAddBotGroupMembers: (world: WorldView, group: BotGroupSummary, botIds: string[]) => Promise<boolean>;
-	onCreateBot: (world: WorldView) => void;
-	onCreateBotGroup: (world: WorldView) => Promise<boolean>;
-	onCreateForum: (input: CreateForumInput) => Promise<boolean>;
-	onDeleteBot: (bot: BotSummary) => Promise<boolean>;
-	onDeleteBotGroup: (world: WorldView, group: BotGroupSummary) => Promise<boolean>;
-	onDeleteForum: (forum: ForumSummary) => Promise<boolean>;
-	onDeleteWorld: (world: WorldView) => Promise<boolean>;
-	onLoadNotifications: LoadHumanNotifications;
-	onMarkAllNotificationsRead: (scope?: HumanNotificationReadScope) => Promise<number | null>;
-	onDismissNotification: (notification: HumanNotification) => Promise<boolean>;
-	onMarkNotificationRead: (notification: HumanNotification) => Promise<string | null>;
-	onOpenBotEdit: (bot: BotSummary) => void;
-	onOpenNotification: (notification: HumanNotification) => void;
-	onReference: OpenReference;
-	onRunBotTick: (bot: BotSummary) => void;
-	onStartBot: (bot: BotSummary) => void;
-	onToggleSubscription: (target: SubscriptionTarget, active: boolean) => Promise<void>;
-	onRemoveBotGroupMember: (world: WorldView, group: BotGroupSummary, bot: BotSummary) => Promise<boolean>;
-	onUpdateBotGroupTitle: (world: WorldView, group: BotGroupSummary, customTitle: string | null) => Promise<boolean>;
-	onUpdateForum: (forum: ForumSummary, input: UpdateForumInput) => Promise<boolean>;
-	subscribed: boolean;
-	tab: WorldTab;
-	world: WorldView;
-}) {
-	const [forumModalOpen, setForumModalOpen] = useState(false);
-	const [confirmBot, setConfirmBot] = useState<BotSummary | null>(null);
-	const [confirmWorld, setConfirmWorld] = useState(false);
-	const [editingForum, setEditingForum] = useState<ForumSummary | null>(null);
-	const [confirmForum, setConfirmForum] = useState<ForumSummary | null>(null);
-	const [forumFilter, setForumFilter] = useState("");
-	const [botFilter, setBotFilter] = useState("");
-	const [groupFilter, setGroupFilter] = useState("");
-	const [activityFeed, setActivityFeed] = useState<WorldActivityFeed | null>(null);
-	const [activityFilter, setActivityFilter] = useState("");
-	const [activityKindFilter, setActivityKindFilter] = useState<BotActivityKindFilter>("all");
-	const [activityLoading, setActivityLoading] = useState(false);
-	const [activityError, setActivityError] = useState("");
-	const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
-	const [worldAvatarFailed, setWorldAvatarFailed] = useState(false);
-	const toast = useContext(ToastContext);
-
-	useEffect(() => {
-		setForumFilter("");
-		setBotFilter("");
-		setGroupFilter("");
-		setActivityFilter("");
-		setActivityKindFilter("all");
-		setWorldAvatarFailed(false);
-	}, [world.id]);
-
-	useEffect(() => {
-		setWorldAvatarFailed(false);
-	}, [world.avatarUrl]);
-
-	useEffect(() => {
-		let cancelled = false;
-		setActivityLoading(true);
-		setActivityError("");
-		setActivityFeed(null);
-		void api<{ feed: WorldActivityFeed }>(
-			`/api/worlds/${encodeURIComponent(world.handle)}/activity?limit=100`,
-		).then((result) => {
-			if (cancelled) {
-				return;
-			}
-			if (result.ok) {
-				setActivityFeed(result.data.feed);
-			} else {
-				setActivityError(result.message);
-			}
-			setActivityLoading(false);
-		});
-		return () => {
-			cancelled = true;
-		};
-	}, [world.handle]);
-
-	const publicForums = useMemo(
-		() => sortByHandle(visibleForums(forums)),
-		[forums],
-	);
-	const filteredForums = useMemo(
-		() => publicForums.filter((forum) => matchesFilter(forumFilter, forum.handle, forum.description)),
-		[forumFilter, publicForums],
-	);
-	const filteredBots = useMemo(
-		() => sortBotsForCards(bots.filter((bot) => matchesFilter(botFilter, bot.handle, bot.displayName, bot.shortBio))),
-		[botFilter, bots],
-	);
-	const activities = activityFeed?.activities ?? [];
-	const activityKindCounts = useMemo(() => botActivityKindCounts(activities), [activities]);
-	const filteredActivities = useMemo(
-		() => activities
-			.filter((activity) => matchesBotActivityKind(activityKindFilter, activity))
-			.filter((activity) => matchesBotActivityFilter(activityFilter, activity)),
-		[activityFilter, activityKindFilter, activities],
-	);
-	const activityEmptyMessage = botActivityEmptyMessage(activityFilter, activityKindFilter);
-	const canUseAccountActions = Boolean(currentUserId);
-	const ownedBotCount = currentUserId ? bots.filter((bot) => bot.ownerUserId === currentUserId).length : 0;
-	const ownedForumCount = currentUserId ? publicForums.filter((forum) => forum.createdByUserId === currentUserId).length : 0;
-	const canManageWorld = Boolean(currentUserId && world.createdByUserId === currentUserId);
-	const canDeleteWorld = canManageWorld && bots.length === 0;
-	const botGroups = useMemo(() => {
-		if (!currentUserId) {
-			return [{ key: "all", title: "Bots", bots: filteredBots }];
-		}
-		return [
-			{ key: "mine", title: "My bots", bots: filteredBots.filter((bot) => bot.ownerUserId === currentUserId) },
-			{ key: "other", title: "Other bots", bots: filteredBots.filter((bot) => bot.ownerUserId !== currentUserId) },
-		].filter((group) => group.bots.length > 0);
-	}, [currentUserId, filteredBots]);
-
-	return (
-		<div className="main-inner">
-			<div className="page-header">
-				<div className={`page-title-block world-title-block ${world.avatarUrl && !worldAvatarFailed ? "with-avatar" : ""}`}>
-					{world.avatarUrl && !worldAvatarFailed && (
-						<button
-							aria-label="View world avatar"
-							className="world-detail-avatar"
-							onClick={() => setLightboxUrl(world.avatarUrl ?? null)}
-							style={avatarAspectRatioStyle(world.avatar)}
-							type="button"
-						>
-							<FallbackImage
-								alt=""
-								fallbackSrc={world.avatarUrl}
-								onFinalError={() => setWorldAvatarFailed(true)}
-								src={cloudflareImageUrl(world.avatarUrl, { width: 520, format: "auto" })}
-							/>
-						</button>
-					)}
-					<div className="world-title-copy">
-						<TranslatableText as="h1" text={world.name} />
-						<TranslatableText as="p" className="sub" text={world.description} />
-						<div className="inline-meta">
-							<Reference kind="world" name={world.handle} />
-							<span>/</span>
-							<span>
-								<b>{bots.length}</b> bots
-								{currentUserId && <span className="muted"> ({ownedBotCount} mine)</span>}
-							</span>
-							<span>/</span>
-							<span>
-								<b>{publicForums.length}</b> forums
-								{currentUserId && <span className="muted"> ({ownedForumCount} mine)</span>}
-							</span>
-						</div>
-					</div>
-				</div>
-				<div className="actions">
-					{canUseAccountActions && (
-						<SubscriptionButton
-							active={subscribed}
-							label="Watch world"
-							onToggle={(active) =>
-								void onToggleSubscription(
-									{ scopeType: "world", scopeId: world.id, worldId: world.id },
-									active,
-								)
-							}
-						/>
-					)}
-					{canUseAccountActions && (
-						<SpaLink className="btn" to={{ route: "world-edit", worldHandle: world.handle }}>
-							<Icon name="edit" size={14} />
-							{canManageWorld ? "Edit" : "View"}
-						</SpaLink>
-					)}
-					{canManageWorld && (
-						<>
-							<button
-								className="btn danger"
-								disabled={busy || !canDeleteWorld}
-								onClick={() => setConfirmWorld(true)}
-								title={canDeleteWorld ? "Delete world" : "Delete all bots in this world first"}
-								type="button"
-							>
-								<Icon name="trash" size={14} />
-								Delete
-							</button>
-						</>
-					)}
-					{canUseAccountActions && tab === "forums" && (
-						<button className="btn primary" disabled={busy} onClick={() => setForumModalOpen(true)} type="button">
-							<Icon name="plus" size={14} />
-							New forum
-						</button>
-					)}
-					{canUseAccountActions && tab === "bots" && (
-						<button className="btn primary" disabled={busy} onClick={() => onCreateBot(world)} type="button">
-							<Icon name="plus" size={14} />
-							New bot
-						</button>
-					)}
-				</div>
-			</div>
-
-			<div className="tabs" role="tablist">
-				<SpaLink
-					to={{ route: "world", worldHandle: world.handle, worldTab: "forums" }}
-					aria-selected={tab === "forums"}
-					role="tab"
-				>
-					Forums <span className="count">{publicForums.length}</span>
-				</SpaLink>
-				<SpaLink
-					to={{ route: "world", worldHandle: world.handle, worldTab: "bots" }}
-					aria-selected={tab === "bots"}
-					role="tab"
-				>
-					Bots <span className="count">{bots.length}</span>
-				</SpaLink>
-				{canUseAccountActions && (
-					<SpaLink
-						to={{ route: "world", worldHandle: world.handle, worldTab: "groups" }}
-						aria-selected={tab === "groups"}
-						role="tab"
-					>
-						Groups <span className="count">{groups.length}</span>
-					</SpaLink>
-				)}
-				<SpaLink
-					to={{ route: "world", worldHandle: world.handle, worldTab: "activity" }}
-					aria-selected={tab === "activity"}
-					role="tab"
-				>
-					Activity <span className="count">{activities.length}</span>
-				</SpaLink>
-				{canUseAccountActions && (
-					<SpaLink
-						to={{ route: "world", worldHandle: world.handle, worldTab: "notifications" }}
-						aria-selected={tab === "notifications"}
-						role="tab"
-					>
-						Notifications
-					</SpaLink>
-				)}
-				<button aria-selected={tab === "lore"} disabled role="tab" title="Coming later" type="button">
-					Lore <span className="count">-</span>
-				</button>
-			</div>
-
-			{tab === "forums" &&
-				(publicForums.length === 0 ?
-					<EmptyState
-						actionLabel={canUseAccountActions ? "New forum" : undefined}
-						onAction={canUseAccountActions ? () => setForumModalOpen(true) : undefined}
-						title="No forums in this world"
-					>
-						Forums are subject areas inside a world.
-					</EmptyState>
-				:	<>
-						<FilterBox
-							label="Filter forums"
-							onChange={setForumFilter}
-							placeholder="Filter by f/handle or forum name"
-							value={forumFilter}
-						/>
-						{filteredForums.length === 0 ?
-							<div className="empty compact-empty">No forums match this filter.</div>
-						:	<div className="list">
-								{filteredForums.map((forum) => (
-									<ForumRow
-										forum={forum}
-										key={forum.id}
-										onDelete={
-											canManageWorld || forum.createdByUserId === currentUserId ?
-												() => setConfirmForum(forum)
-											:	undefined
-										}
-										onEdit={
-											canManageWorld || forum.createdByUserId === currentUserId ?
-												() => setEditingForum(forum)
-											:	undefined
-										}
-									/>
-								))}
-							</div>
-						}
-					</>)}
-
-				{tab === "bots" &&
-					(bots.length === 0 ?
-						<EmptyState
-							actionLabel={canUseAccountActions ? "New bot" : undefined}
-							onAction={canUseAccountActions ? () => onCreateBot(world) : undefined}
-							title="No bots in this world"
-						>
-							Create one from scratch or import a Chirper profile.
-					</EmptyState>
-				:	<>
-						<FilterBox
-							label="Filter bots"
-							onChange={setBotFilter}
-							placeholder="Filter by u/handle or display name"
-							value={botFilter}
-						/>
-						{filteredBots.length === 0 ?
-							<div className="empty compact-empty">No bots match this filter.</div>
-						:	<div className="bot-world-groups">
-								{botGroups.map((group) => (
-									<section className="bot-world-group" key={group.key}>
-										<div className="bot-world-head">
-											<span>{group.title}</span>
-											<span className="bot-world-head-actions">
-												{group.bots.length} bot{group.bots.length === 1 ? "" : "s"}
-											</span>
-										</div>
-										<div className="bot-grid">
-											{group.bots.map((bot) => (
-												<BotCard
-													bot={bot}
-													hideWorld
-													key={bot.id}
-													onDelete={currentUserId && bot.ownerUserId === currentUserId ? () => setConfirmBot(bot) : undefined}
-													onEdit={currentUserId && bot.ownerUserId === currentUserId ? () => onOpenBotEdit(bot) : undefined}
-													onRunTick={currentUserId && bot.ownerUserId === currentUserId ? () => onRunBotTick(bot) : undefined}
-													onStart={currentUserId && bot.ownerUserId === currentUserId ? () => onStartBot(bot) : undefined}
-													showActive
-													world={world}
-												/>
-											))}
-										</div>
-									</section>
-								))}
-							</div>
-							}
-						</>)}
-
-				{tab === "groups" && currentUserId && (
-					<BotGroupsTab
-						bots={bots}
-						busy={busy}
-						currentUserId={currentUserId}
-						filter={groupFilter}
-						groups={groups}
-						onAddMembers={(group, botIds) => onAddBotGroupMembers(world, group, botIds)}
-						onCreateGroup={() => onCreateBotGroup(world)}
-						onDeleteGroup={(group) => onDeleteBotGroup(world, group)}
-						onFilterChange={setGroupFilter}
-						onRemoveMember={(group, bot) => onRemoveBotGroupMember(world, group, bot)}
-						onUpdateTitle={(group, customTitle) => onUpdateBotGroupTitle(world, group, customTitle)}
-						world={world}
-					/>
-				)}
-
-				{tab === "activity" && (
-					<section className="profile-tab-panel" role="tabpanel">
-						<div className="activity-tools">
-							<div className="seg activity-kind-filter" role="tablist">
-								{botActivityKindOptions.map((option) => (
-									<button
-										aria-pressed={activityKindFilter === option.id}
-										disabled={option.id !== "all" && botActivityKindCount(activityKindCounts, option.id, activities) === 0}
-										key={option.id}
-										onClick={() => setActivityKindFilter(option.id)}
-										type="button"
-									>
-										{option.label} <span className="count">{botActivityKindCount(activityKindCounts, option.id, activities)}</span>
-									</button>
-								))}
-							</div>
-							<FilterBox
-								label="Search activity"
-								onChange={setActivityFilter}
-								placeholder="Search activity"
-								value={activityFilter}
-							/>
-						</div>
-						<BotActivityList
-							activities={filteredActivities}
-							emptyMessage={activityEmptyMessage}
-							error={activityError}
-							loading={activityLoading}
-							onReference={onReference}
-						/>
-					</section>
-				)}
-
-				{tab === "notifications" && canUseAccountActions && (
-					<NotificationsScreen
-						embedded
-						grouped={false}
-						listScope={{ scopeType: "world", scopeId: world.id }}
-						onLoadNotifications={onLoadNotifications}
-						onDismiss={onDismissNotification}
-						onMarkAllRead={onMarkAllNotificationsRead}
-						onMarkRead={onMarkNotificationRead}
-						onOpenNotification={onOpenNotification}
-						subtitle="Recent activity from watched sources in this world."
-						title="Notifications"
-					/>
-				)}
-
-			<CreateForumModal
-				busy={busy}
-				onClose={() => setForumModalOpen(false)}
-				onCreate={onCreateForum}
-				open={forumModalOpen}
-				world={world}
-			/>
-
-			<EditForumModal
-				busy={busy}
-				forum={editingForum}
-				onClose={() => setEditingForum(null)}
-				onSave={(forum, input) => onUpdateForum(forum, input)}
-			/>
-
-			<Confirm
-				body={
-					<>
-						This will delete <Reference kind="world" name={world.handle} /> and every forum and thread in it.
-					</>
-				}
-				confirmText="Delete world"
-				danger
-				onClose={() => setConfirmWorld(false)}
-				onConfirm={() => {
-					void onDeleteWorld(world).then((ok) => {
-						if (ok) {
-							toast.push(
-								<>
-									Deleted <Reference kind="world" name={world.handle} />
-								</>,
-							);
-						}
-					});
-				}}
-				open={confirmWorld}
-				title="Delete this world?"
-			/>
-
-			<Confirm
-				body={
-					confirmForum ?
-						<>
-							This will delete <Reference kind="forum" name={confirmForum.handle} /> and every thread in it.
-						</>
-					:	null
-				}
-				confirmText="Delete forum"
-				danger
-				onClose={() => setConfirmForum(null)}
-				onConfirm={() => {
-					if (confirmForum) {
-						void onDeleteForum(confirmForum).then((ok) => {
-							if (ok) {
-								toast.push(
-									<>
-										Deleted <Reference kind="forum" name={confirmForum.handle} />
-									</>,
-								);
-							}
-						});
-					}
-				}}
-				open={Boolean(confirmForum)}
-				title="Delete this forum?"
-			/>
-
-			<Confirm
-				body={
-					confirmBot ?
-						<>
-								This will remove <b>{textValue(confirmBot.displayName)}</b> (<Reference isBot kind="bot" name={confirmBot.handle} />)
-							from your current bot list.
-						</>
-					:	null
-				}
-				confirmText="Delete bot"
-				danger
-				onClose={() => setConfirmBot(null)}
-				onConfirm={() => {
-					if (confirmBot) {
-						void onDeleteBot(confirmBot).then((ok) => {
-							if (ok) {
-								toast.push(
-									<>
-										Deleted <Reference isBot kind="bot" name={confirmBot.handle} />
-									</>,
-								);
-							}
-						});
-					}
-				}}
-				open={Boolean(confirmBot)}
-				title="Delete this bot?"
-			/>
-				<ImageLightbox onClose={() => setLightboxUrl(null)} title={textValue(world.name)} url={lightboxUrl} />
-		</div>
-	);
-}
-
-function BotGroupsTab({
-	bots,
-	busy,
-	currentUserId,
-	filter,
-	groups,
-	onAddMembers,
-	onCreateGroup,
-	onDeleteGroup,
-	onFilterChange,
-	onRemoveMember,
-	onUpdateTitle,
-	world,
-}: {
-	bots: BotSummary[];
-	busy: boolean;
-	currentUserId: string;
-	filter: string;
-	groups: BotGroupSummary[];
-	onAddMembers: (group: BotGroupSummary, botIds: string[]) => Promise<boolean>;
-	onCreateGroup: () => Promise<boolean>;
-	onDeleteGroup: (group: BotGroupSummary) => Promise<boolean>;
-	onFilterChange: (value: string) => void;
-	onRemoveMember: (group: BotGroupSummary, bot: BotSummary) => Promise<boolean>;
-	onUpdateTitle: (group: BotGroupSummary, customTitle: string | null) => Promise<boolean>;
-	world: WorldView;
-}) {
-	const [addTarget, setAddTarget] = useState<BotGroupSummary | null>(null);
-	const [confirmGroup, setConfirmGroup] = useState<BotGroupSummary | null>(null);
-	const toast = useContext(ToastContext);
-	const filteredGroups = useMemo(
-		() => groups.filter((group) => matchesBotGroupFilter(filter, group)),
-		[filter, groups],
-	);
-
-	if (groups.length === 0) {
-		return (
-			<>
-				<EmptyState actionLabel="New group" onAction={() => void onCreateGroup()} title="No groups in this world">
-					Groups collect bots in this world for later access-control setup.
-				</EmptyState>
-			</>
-		);
-	}
-
-	return (
-		<>
-			<FilterBox
-				label="Filter groups"
-				onChange={onFilterChange}
-				placeholder="Filter by group title or bot username"
-				value={filter}
-			/>
-			{filteredGroups.length === 0 ?
-				<div className="empty compact-empty">No groups match this filter.</div>
-			:	<div className="bot-world-groups">
-					{filteredGroups.map((group) => (
-						<BotGroupSection
-							busy={busy}
-							group={group}
-							key={group.id}
-							onAddBots={() => setAddTarget(group)}
-							onDelete={() => setConfirmGroup(group)}
-							onRemoveMember={(bot) => onRemoveMember(group, bot)}
-							onUpdateTitle={(customTitle) => onUpdateTitle(group, customTitle)}
-						/>
-					))}
-				</div>
-			}
-			<div className="bot-group-create-row">
-				<button className="btn primary" disabled={busy} onClick={() => void onCreateGroup()} type="button">
-					<Icon name="plus" size={14} />
-					New group
-				</button>
-			</div>
-			<AddBotsToGroupModal
-				bots={bots}
-				busy={busy}
-				currentUserId={currentUserId}
-				group={addTarget}
-				onAdd={onAddMembers}
-				onClose={() => setAddTarget(null)}
-				world={world}
-			/>
-			<Confirm
-				body={
-					confirmGroup ?
-						<>
-							This will delete <b>{confirmGroup.displayTitle}</b>. The bots themselves will not be deleted.
-						</>
-					:	null
-				}
-				confirmText="Delete group"
-				danger
-				onClose={() => setConfirmGroup(null)}
-				onConfirm={() => {
-					if (confirmGroup) {
-						void onDeleteGroup(confirmGroup).then((ok) => {
-							if (ok) {
-								toast.push("Deleted group.");
-							}
-						});
-					}
-				}}
-				open={Boolean(confirmGroup)}
-				title="Delete this group?"
-			/>
-		</>
-	);
-}
-
-function BotGroupSection({
-	busy,
-	group,
-	onAddBots,
-	onDelete,
-	onRemoveMember,
-	onUpdateTitle,
-}: {
-	busy: boolean;
-	group: BotGroupSummary;
-	onAddBots: () => void;
-	onDelete: () => void;
-	onRemoveMember: (bot: BotSummary) => Promise<boolean>;
-	onUpdateTitle: (customTitle: string | null) => Promise<boolean>;
-}) {
-	const [editing, setEditing] = useState(false);
-		const [draft, setDraft] = useState(textValue(group.customTitle));
-
-	useEffect(() => {
-			if (!editing) {
-				setDraft(textValue(group.customTitle));
-			}
-	}, [editing, group.customTitle, group.id]);
-
-	async function saveTitle(): Promise<void> {
-		const ok = await onUpdateTitle(draft.trim() || null);
-		if (ok) {
-			setEditing(false);
-		}
-	}
-
-	return (
-		<section className="bot-world-group bot-group-section">
-			<div className="bot-world-head bot-group-head">
-				{editing ?
-					<form
-						className="bot-group-title-edit"
-						onSubmit={(event) => {
-							event.preventDefault();
-							void saveTitle();
-						}}
-					>
-						<input
-							aria-label="Group title"
-							className="input"
-							disabled={busy}
-							onChange={(event) => setDraft(event.target.value)}
-							placeholder="Auto title from members"
-							value={draft}
-						/>
-						<button className="btn compact primary" disabled={busy} type="submit">
-							Save
-						</button>
-						<button className="btn compact ghost" disabled={busy} onClick={() => setEditing(false)} type="button">
-							Cancel
-						</button>
-					</form>
-				:	<span className="bot-group-title-wrap">
-						<span className={`bot-group-title ${group.titleSource === "members" ? "generated" : ""}`}>
-							{group.displayTitle}
-						</span>
-						<button
-							aria-label="Edit group title"
-							className="icon-btn bot-group-title-edit-trigger"
-							disabled={busy}
-							onClick={() => setEditing(true)}
-							title="Edit group title"
-							type="button"
-						>
-							<Icon name="edit" size={13} />
-						</button>
-					</span>
-				}
-				<span className="bot-world-head-actions">
-					{group.bots.length} bot{group.bots.length === 1 ? "" : "s"}
-					<button
-						aria-label="Delete group"
-						className="icon-btn danger"
-						disabled={busy}
-						onClick={onDelete}
-						title="Delete group"
-						type="button"
-					>
-						<Icon name="trash" size={13} />
-					</button>
-				</span>
-			</div>
-			<div className="bot-grid">
-				{group.bots.map((bot) => (
-					<GroupMemberBotCard bot={bot} key={bot.id} onRemove={() => onRemoveMember(bot)} />
-				))}
-				<button className="bot-group-ghost-card" disabled={busy} onClick={onAddBots} type="button">
-					<Icon name="plus" size={22} />
-					<span>Add bots</span>
-				</button>
-			</div>
-		</section>
-	);
-}
-
-function GroupMemberBotCard({ bot, onRemove }: { bot: BotSummary; onRemove: () => Promise<boolean> }) {
-	return (
-		<article className="bot-card group-member-card manageable">
-			<div className="actions-overlay">
-				<button className="icon-btn danger" onClick={() => void onRemove()} title="Remove from group" type="button">
-					<Icon name="minusCircle" size={14} />
-				</button>
-			</div>
-			<div className="head">
-				<SpaLink
-					className="bot-avatar-link"
-					title={`Open ${textValue(bot.displayName)}`}
-					to={{ route: "bot-profile", worldHandle: bot.homeWorldHandle, botHandle: bot.handle }}
-				>
-					<Avatar actor="bot" colorSeed={bot.handle} crop={bot.avatarCrop} displayPixels={48} imageUrl={bot.avatarUrl} name={bot.displayName} />
-				</SpaLink>
-				<div className="bot-card-title">
-					<SpaLink
-						className="name bot-name-link"
-						to={{ route: "bot-profile", worldHandle: bot.homeWorldHandle, botHandle: bot.handle }}
-					>
-							<TranslatableText as="span" text={bot.displayName} />
-					</SpaLink>
-					<div className="bot-ref-line">
-						<Reference isBot kind="bot" name={bot.handle} />
-					</div>
-				</div>
-			</div>
-		</article>
-	);
-}
-
-function AddBotsToGroupModal({
-	bots,
-	busy,
-	currentUserId,
-	group,
-	onAdd,
-	onClose,
-	world,
-}: {
-	bots: BotSummary[];
-	busy: boolean;
-	currentUserId: string;
-	group: BotGroupSummary | null;
-	onAdd: (group: BotGroupSummary, botIds: string[]) => Promise<boolean>;
-	onClose: () => void;
-	world: WorldView;
-}) {
-	const [filter, setFilter] = useState("");
-	const [selected, setSelected] = useState<Record<string, boolean>>({});
-
-	useEffect(() => {
-		setFilter("");
-		setSelected({});
-	}, [group?.id]);
-
-	const memberIds = useMemo(() => new Set(group?.bots.map((bot) => bot.id) ?? []), [group]);
-	const visibleBots = useMemo(
-		() => sortBotsForCards(bots.filter((bot) => matchesFilter(filter, bot.displayName, bot.handle))),
-		[bots, filter],
-	);
-	const botGroups = useMemo(() => [
-		{ key: "mine", title: "My bots", bots: visibleBots.filter((bot) => bot.ownerUserId === currentUserId) },
-		{ key: "other", title: "Other bots", bots: visibleBots.filter((bot) => bot.ownerUserId !== currentUserId) },
-	].filter((item) => item.bots.length > 0), [currentUserId, visibleBots]);
-	const selectedIds = Object.keys(selected).filter((botId) => selected[botId] && !memberIds.has(botId));
-
-	async function save(): Promise<void> {
-		if (!group || selectedIds.length === 0) {
-			return;
-		}
-		const ok = await onAdd(group, selectedIds);
-		if (ok) {
-			onClose();
-		}
-	}
-
-	return (
-		<Modal
-			foot={
-				<>
-					<span className="leftnote">
-						{selectedIds.length === 0 ?
-							"Pick at least one new bot."
-						:	`${selectedIds.length} bot${selectedIds.length === 1 ? "" : "s"} selected.`}
-					</span>
-					<button className="btn ghost" disabled={busy} onClick={onClose} type="button">
-						Cancel
-					</button>
-					<button className="btn primary" disabled={busy || selectedIds.length === 0} onClick={() => void save()} type="button">
-						<Icon name="plus" size={13} />
-						Add selected bots
-					</button>
-				</>
-			}
-			onClose={onClose}
-			open={Boolean(group)}
-			title={group ? `Add bots to ${group.displayTitle}` : "Add bots"}
-			wide
-		>
-			<div className="spot-search">
-				<Icon name="search" size={13} />
-				<input
-					aria-label="Filter bots"
-					className="input"
-					onChange={(event) => setFilter(event.target.value)}
-					placeholder="Filter by display name or username"
-					value={filter}
-				/>
-			</div>
-			{bots.length === 0 ?
-				<div className="empty compact-empty">No bots exist in this world yet.</div>
-			: botGroups.length === 0 ?
-				<div className="empty compact-empty">No bots match this filter.</div>
-			:	<div className="bot-picker-groups">
-					{botGroups.map((section) => (
-						<section className="bot-picker-group" key={section.key}>
-							<div className="bot-world-head">
-								<span>{section.title}</span>
-								<span className="bot-world-head-actions">
-									{section.bots.length} bot{section.bots.length === 1 ? "" : "s"}
-								</span>
-							</div>
-							<div className="bot-pick-list">
-								{section.bots.map((bot) => {
-									const alreadyMember = memberIds.has(bot.id);
-									const checked = alreadyMember || Boolean(selected[bot.id]);
-									return (
-										<label className={`bot-pick-row ${checked ? "checked" : ""} ${alreadyMember ? "disabled" : ""}`} key={bot.id}>
-											<input
-												checked={checked}
-												className="cb"
-												disabled={alreadyMember}
-												onChange={(event) => setSelected((current) => ({ ...current, [bot.id]: event.target.checked }))}
-												type="checkbox"
-											/>
-											<Avatar actor="bot" colorSeed={bot.handle} crop={bot.avatarCrop} displayPixels={42} imageUrl={bot.avatarUrl} name={bot.displayName} size="sm" />
-											<span className="bot-pick-copy">
-													<TranslatableText as="span" className="nm" text={bot.displayName} />
-												<span className="hd">u/{bot.handle}</span>
-											</span>
-											{alreadyMember && <span className="bot-pick-note">Already in group</span>}
-										</label>
-									);
-								})}
-							</div>
-						</section>
-					))}
-				</div>
-			}
-			<div className="mini-label">World</div>
-			<div className="inline-meta">
-				<Reference kind="world" name={world.handle} />
-			</div>
-		</Modal>
-	);
-}
-
-function CreateForumModal({
-	busy,
-	onClose,
-	onCreate,
-	open,
-	world,
-}: {
-	busy: boolean;
-	onClose: () => void;
-	onCreate: (input: CreateForumInput) => Promise<boolean>;
-	open: boolean;
-	world: WorldView;
-	}) {
-		const [handle, setHandle] = useState("");
-		const [language, setLanguage] = useState(languageDraftValue(world.language, textLang(world.description) ?? defaultLanguageTag));
-		const [description, setDescription] = useState("");
-		const toast = useContext(ToastContext);
-
-	useEffect(() => {
-			if (!open) {
-				setHandle("");
-				setLanguage(languageDraftValue(world.language, textLang(world.description) ?? defaultLanguageTag));
-				setDescription("");
-			}
-		}, [open, world.description, world.language]);
-
-	const valid = isValidHandle(handle) && description.trim().length > 0;
-
-	async function submit(): Promise<void> {
-		const ok = await onCreate({
-			handle,
-			language: languageInputValue(language),
-			description: localizedDraft(description, language),
-		});
-		if (ok) {
-			toast.push(
-				<>
-					Created <Reference kind="forum" name={handle} />
-				</>,
-			);
-			onClose();
-		}
-	}
-
-	return (
-		<Modal
-			foot={
-				<>
-					<span className="help">
-						Posting to <Reference kind="world" name={world.handle} />
-					</span>
-					<div className="right">
-						<button className="btn ghost" disabled={busy} onClick={onClose} type="button">
-							Cancel
-						</button>
-						<button className="btn primary" disabled={!valid || busy} onClick={() => void submit()} type="button">
-							Create forum
-						</button>
-					</div>
-				</>
-			}
-			onClose={onClose}
-			open={open}
-			title="New forum"
-		>
-			<Field help={`bickr.local/w/${world.handle}/f/${handle || "..."}`} hint="used in URLs" label="Handle">
-				<div className="input-prefix">
-					<span className="prefix">f/</span>
-					<input
-						autoFocus
-						className="input"
-						onChange={(event) => setHandle(slugify(event.target.value))}
-						placeholder="slush-pile"
-						value={handle}
-					/>
-				</div>
-			</Field>
-				<Field hint="required" label="Short description">
-					<textarea
-					className="textarea"
-					maxLength={500}
-					onChange={(event) => setDescription(event.target.value)}
-					placeholder="Submissions in progress, critiques, line edits, and votes to advance."
-					rows={4}
-					value={description}
-					/>
-				</Field>
-				<LanguageField onChange={setLanguage} value={language} />
-			</Modal>
-		);
-	}
-
-function EditForumModal({
+export function EditForumModal({
 	busy,
 	forum,
 	onClose,
@@ -4570,7 +3059,7 @@ function RenameHandleModal({
 	);
 }
 
-function ForumRow({
+export function ForumRow({
 	forum,
 	onDelete,
 	onEdit,
@@ -6360,7 +4849,7 @@ function WorldAvatarPromptFillSettingsModal({
 
 type ActivityListItem = BotActivityItem | WorldActivityItem;
 
-function BotActivityList({
+export function BotActivityList({
 	activities,
 	emptyMessage = "No visible activity yet.",
 	error,
@@ -6924,7 +5413,7 @@ function joinedBotActivityBody(...parts: Array<TextLike | undefined>): string | 
 	return body || undefined;
 }
 
-function matchesBotActivityFilter(query: string, activity: ActivityListItem): boolean {
+export function matchesBotActivityFilter(query: string, activity: ActivityListItem): boolean {
 	const summary = botActivitySummary(activity);
 	const activityType = stringValue((activity as { type?: unknown }).type);
 	const actor = activityActor(activity);
@@ -7024,7 +5513,7 @@ function activityWorldHandle(activity: ActivityListItem): string | undefined {
 	return activityActor(activity)?.homeWorldHandle;
 }
 
-const botActivityKindOptions: Array<{ id: BotActivityKindFilter; label: string }> = [
+export const botActivityKindOptions: Array<{ id: BotActivityKindFilter; label: string }> = [
 	{ id: "all", label: "All" },
 	{ id: "posts", label: "Threads" },
 	{ id: "replies", label: "Replies" },
@@ -7035,7 +5524,7 @@ const botActivityKindOptions: Array<{ id: BotActivityKindFilter; label: string }
 type BotActivitySpecificKind = Exclude<BotActivityKindFilter, "all">;
 type BotActivityKindCounts = Record<BotActivitySpecificKind, number>;
 
-function botActivityKindCounts(activities: ActivityListItem[]): BotActivityKindCounts {
+export function botActivityKindCounts(activities: ActivityListItem[]): BotActivityKindCounts {
 	const counts: BotActivityKindCounts = {
 		posts: 0,
 		replies: 0,
@@ -7048,7 +5537,7 @@ function botActivityKindCounts(activities: ActivityListItem[]): BotActivityKindC
 	return counts;
 }
 
-function botActivityKindCount(
+export function botActivityKindCount(
 	counts: BotActivityKindCounts,
 	filter: BotActivityKindFilter,
 	activities: ActivityListItem[],
@@ -7056,7 +5545,7 @@ function botActivityKindCount(
 	return filter === "all" ? activities.length : counts[filter];
 }
 
-function matchesBotActivityKind(filter: BotActivityKindFilter, activity: ActivityListItem): boolean {
+export function matchesBotActivityKind(filter: BotActivityKindFilter, activity: ActivityListItem): boolean {
 	return filter === "all" || botActivityKind(activity) === filter;
 }
 
@@ -7074,7 +5563,7 @@ function botActivityKind(activity: ActivityListItem): BotActivitySpecificKind {
 	return "follows";
 }
 
-function botActivityEmptyMessage(query: string, filter: BotActivityKindFilter): string {
+export function botActivityEmptyMessage(query: string, filter: BotActivityKindFilter): string {
 	if (query.trim()) {
 		return "No activity matches this search.";
 	}
@@ -7365,105 +5854,6 @@ function SpotlightPanel({
 	);
 }
 
-function BotCard({
-	bot,
-	hideWorld = false,
-	onDelete,
-	onEdit,
-	onRunTick,
-	onStart,
-	showActive = false,
-	world,
-}: {
-	bot: BotSummary;
-	hideWorld?: boolean;
-	onDelete?: () => void;
-	onEdit?: () => void;
-	onRunTick?: () => void;
-	onStart?: () => void;
-	showActive?: boolean;
-	world?: WorldView | null;
-}) {
-	const canManage = Boolean(onDelete || onEdit);
-	const paused = !bot.tickSettings.enabled;
-	const cardClassName = ["bot-card", paused ? "paused" : "", canManage ? "manageable" : ""].filter(Boolean).join(" ");
-	return (
-		<article className={cardClassName}>
-			{canManage && (
-				<div className="actions-overlay">
-					{onEdit && (
-						<button className="icon-btn" onClick={onEdit} title="Edit" type="button">
-							<Icon name="edit" size={14} />
-						</button>
-					)}
-					{onDelete && (
-						<button className="icon-btn danger" onClick={onDelete} title="Delete" type="button">
-							<Icon name="trash" size={14} />
-						</button>
-					)}
-				</div>
-			)}
-			<div className="head">
-					<SpaLink
-						className="bot-avatar-link"
-					title={`Open ${textValue(bot.displayName)}`}
-					to={{ route: "bot-profile", worldHandle: bot.homeWorldHandle, botHandle: bot.handle }}
-				>
-					<Avatar actor="bot" colorSeed={bot.handle} crop={bot.avatarCrop} displayPixels={48} imageUrl={bot.avatarUrl} name={bot.displayName} />
-			</SpaLink>
-				<div className="bot-card-title">
-						<SpaLink
-							className="name bot-name-link"
-							to={{ route: "bot-profile", worldHandle: bot.homeWorldHandle, botHandle: bot.handle }}
-						>
-							<TranslatableText as="span" text={bot.displayName} />
-						</SpaLink>
-					<div className="bot-ref-line">
-						<Reference isBot kind="bot" name={bot.handle} />
-					</div>
-				</div>
-			</div>
-			<TranslatableText as="div" className="tagline" text={bot.shortBio} />
-			<div className="foot">
-				<span className="bot-card-foot-left">
-					{!hideWorld ? (
-						world ? <Reference kind="world" name={world.handle} /> : `w/${bot.homeWorldHandle}`
-					) : showActive ?
-						paused ?
-							<span className="bot-status-label paused">PAUSED</span>
-						:	<span>
-								active <TimeAgoLabel suffix value={bot.lastActiveAt ?? bot.createdAt} />; next tick{" "}
-								<TimeUntilLabel value={bot.nextDueAt} />
-							</span>
-					:	null}
-				</span>
-				<span className="bot-card-foot-action">
-					{paused && onStart ? (
-						<button
-							className="btn compact primary bot-run-tick"
-							onClick={onStart}
-							title="Start this participant"
-							type="button"
-						>
-							<Icon name="play" size={12} />
-							Start
-						</button>
-					) : onRunTick ? (
-						<button
-							className="btn compact bot-run-tick"
-							onClick={onRunTick}
-							title="Run tick now"
-							type="button"
-						>
-							<Icon name="refresh" size={12} />
-							Run now
-						</button>
-					) : null}
-				</span>
-			</div>
-		</article>
-	);
-}
 
 function BotEdit({
 	bot,
@@ -9987,7 +8377,7 @@ function BotProfileHoverLink({
 	);
 }
 
-function NotificationsScreen({
+export function NotificationsScreen({
 	embedded = false,
 	grouped = true,
 	listScope = { scopeType: "all" },
@@ -15861,15 +14251,9 @@ function RuntimeRow({
 
 
 
-function avatarAspectRatioStyle(avatar?: Pick<AvatarImage, "width" | "height">): CSSProperties | undefined {
-	if (!avatar?.width || !avatar.height || avatar.width <= 0 || avatar.height <= 0) {
-		return undefined;
-	}
-	return { aspectRatio: `${avatar.width} / ${avatar.height}` };
-}
 
 
-function LanguageField({
+export function LanguageField({
 	disabled,
 	hint,
 	label,
@@ -16516,7 +14900,7 @@ function formatAverageDays(value: number): string {
 }
 
 
-function TimeAgoLabel({ className, suffix = false, value }: { className?: string; suffix?: boolean; value: string }) {
+export function TimeAgoLabel({ className, suffix = false, value }: { className?: string; suffix?: boolean; value: string }) {
 	return (
 		<span className={className} title={timestampTitle(value)}>
 			{suffix ? timeAgoWithAgo(value) : timeAgo(value)}
@@ -16524,7 +14908,7 @@ function TimeAgoLabel({ className, suffix = false, value }: { className?: string
 	);
 }
 
-function TimeUntilLabel({ value }: { value: string | null | undefined }) {
+export function TimeUntilLabel({ value }: { value: string | null | undefined }) {
 	return <span title={timestampTitle(value)}>{timeUntil(value)}</span>;
 }
 
@@ -16549,7 +14933,7 @@ function parsePositiveInteger(value: string): number {
 	return Number.isFinite(parsed) ? Math.floor(parsed) : 0;
 }
 
-function parseOptionalPositiveInteger(value: string): number | null {
+export function parseOptionalPositiveInteger(value: string): number | null {
 	const trimmed = value.trim();
 	if (!trimmed) {
 		return null;
@@ -16558,7 +14942,7 @@ function parseOptionalPositiveInteger(value: string): number | null {
 	return Number.isFinite(parsed) ? Math.floor(parsed) : 0;
 }
 
-function visibleForums(forums: ForumSummary[]): ForumSummary[] {
+export function visibleForums(forums: ForumSummary[]): ForumSummary[] {
 	return forums.filter((forum) => !forum.personalBotId);
 }
 
@@ -16757,7 +15141,7 @@ function compareHandles(left: string, right: string): number {
 	return left.localeCompare(right, undefined, { sensitivity: "base" });
 }
 
-function sortByHandle<T extends { handle: string }>(items: T[]): T[] {
+export function sortByHandle<T extends { handle: string }>(items: T[]): T[] {
 	return [...items].sort((left, right) => compareHandles(left.handle, right.handle));
 }
 
@@ -16770,7 +15154,7 @@ function compareBotCardOrder(left: BotSummary, right: BotSummary): number {
 	return compareHandles(left.handle, right.handle);
 }
 
-function sortBotsForCards<T extends BotSummary>(items: T[]): T[] {
+export function sortBotsForCards<T extends BotSummary>(items: T[]): T[] {
 	return [...items].sort(compareBotCardOrder);
 }
 
@@ -16783,15 +15167,6 @@ function botGroupWithBots(group: BotGroupSummary, bots: BotSummary[]): BotGroupS
 		displayTitle,
 		titleSource: group.customTitle ? "custom" : "members",
 	};
-}
-
-function matchesBotGroupFilter(query: string, group: BotGroupSummary): boolean {
-	return matchesFilter(
-		query,
-		group.displayTitle,
-		group.customTitle,
-		...group.bots.flatMap((bot) => [bot.handle, bot.displayName]),
-	);
 }
 
 function timestampSortValue(value: string | null | undefined): number | null {
@@ -16809,7 +15184,7 @@ function normalizeFilterText(value: string): string {
 		.toLowerCase();
 }
 
-function matchesFilter(query: string, ...values: Array<TextLike | null | undefined>): boolean {
+export function matchesFilter(query: string, ...values: Array<TextLike | null | undefined>): boolean {
 	const normalizedQuery = normalizeFilterText(query.trim());
 	if (!normalizedQuery) {
 		return true;
@@ -17382,7 +15757,7 @@ function effectiveBotModel(bot: BotSummary, inherited?: BotInferenceSettings | n
 	return defaultProviderModel;
 }
 
-function optionalNumberDraftValue(value: number | undefined): string {
+export function optionalNumberDraftValue(value: number | undefined): string {
 	return value === undefined ? "" : String(value);
 }
 
@@ -17444,12 +15819,12 @@ function botDraftFromExistingBot(bot: BotSummary): BotDraft {
 	};
 }
 
-function isValidHandle(value: string): boolean {
+export function isValidHandle(value: string): boolean {
 	return isValidHandleText(value);
 }
 
 
-function slugify(value: string): string {
+export function slugify(value: string): string {
 	return sanitizeHandleInput(value);
 }
 
