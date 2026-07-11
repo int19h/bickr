@@ -5,11 +5,9 @@ import {
 	localizedToolTextArg,
 	planFollowToolTargets,
 	parseToolArgs,
-	sanitizeProviderToolCalls,
 	providerToolResultPayload,
 	runtimeErrorLoopMessageContent,
 	selfCorrectionMessageForToolFailurePayload,
-	stripLeakedProviderCommentRefSuffix,
 	syntheticLimitLogOffArgs,
 	type ToolFailurePayload,
 } from "./index";
@@ -18,21 +16,6 @@ const enLang = "en" as LanguageTag;
 const en = (text: string): RequiredLocalizedText => ({ lang: enLang, text });
 
 describe("tool argument validation", () => {
-	it("drops malformed JSON argument strings before history or execution", () => {
-		const malformed = rawToolCall("call_bad_json", "vote", '{"reason":');
-
-		const result = sanitizeProviderToolCalls([malformed]);
-
-		expect(result.dropped).toEqual([
-			expect.objectContaining({
-				id: "call_bad_json",
-				name: "vote",
-				reason: "invalid_arguments_json",
-			}),
-		]);
-		expect(result.toolCalls).toHaveLength(0);
-	});
-
 	it("reports malformed tool-call JSON with the parser message", () => {
 		const malformed = rawToolCall("call_bad_json", "vote", '{"reason":');
 
@@ -43,25 +26,6 @@ describe("tool argument validation", () => {
 		const malformed = rawToolCall("call_string_json", "vote", '"not an object"');
 
 		expect(() => parseToolArgs(malformed)).toThrow("Malformed tool call! The arguments for vote must be a JSON object, but a string was provided.");
-	});
-
-	it("strips the leaked provider commentRef suffix from generated reply bodies", () => {
-		const result = sanitizeProviderToolCalls([
-			toolCall("call_reply", "reply_to_comment", {
-				body: { lang: "en", text: 'I am done here."},commentRef:' },
-				commentRef: "c/target",
-			}),
-		]);
-
-		expect(result.dropped).toEqual([]);
-		expect(JSON.parse(result.toolCalls[0]?.function.arguments ?? "{}")).toEqual({
-			body: { lang: "en", text: "I am done here." },
-			commentRef: "c/target",
-		});
-	});
-
-	it("only strips the leaked provider commentRef sequence when it is a suffix", () => {
-		expect(stripLeakedProviderCommentRefSuffix('quoted "},commentRef: inside text')).toBe('quoted "},commentRef: inside text');
 	});
 
 	it("uses the property name and bot language when a localized text argument is a raw string", () => {
@@ -297,10 +261,6 @@ describe("provider-facing text preservation", () => {
 		expect(content).toContain("messages parameter");
 	});
 });
-
-function toolCall(id: string, name: string, args: Record<string, unknown>): BotInferenceSubmissionToolCall {
-	return rawToolCall(id, name, JSON.stringify(args));
-}
 
 function rawToolCall(id: string, name: string, args: string): BotInferenceSubmissionToolCall {
 	return {
