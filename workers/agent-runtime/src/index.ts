@@ -119,7 +119,6 @@ import {
 } from '@bickr/shared/openrouter-model-capabilities';
 import {
 	botFacingRuntimeErrorMessage,
-	isRuntimeErrorCause,
 	ownerFacingRuntimeErrorMessage,
 	type ProviderErrorCause,
 	type RuntimeErrorCause,
@@ -131,7 +130,6 @@ import {
 	type BotContextWindowBreakdown,
 	defaultReasoningPrefill,
 	defaultTranslationPrompt,
-	defaultProviderModel,
 	defaultTextGenerationTemperature,
 	legacyDefaultTextGenerationTemperature,
 	type BotInferenceSubmission,
@@ -155,9 +153,7 @@ import {
 	type BotEffectivePostingSettings,
 	type BotInferenceSettings,
 	type BotInferenceSettingsInput,
-	type BotInferenceReasoningEffort,
 	type BotInferenceToolCalls,
-	type BotCompactionMode,
 	type BotFollowUsernameQueryResult,
 	type BotProfileListResult,
 	type BotProfileRelationshipSummary,
@@ -169,7 +165,6 @@ import {
 	type BotRuntimeStatus,
 	type BotSearchResult,
 	type BotSummary,
-	type BotStructuredToolCalls,
 	type BotTokenUsageBucket,
 	type BotTokenUsageChangeMarker,
 	type BotTokenUsageModelBreakdown,
@@ -204,7 +199,6 @@ import {
 	type ProviderToolDefinition,
 } from './prompt-and-tools';
 import {
-	providerContextCompletionReserveTokens,
 	providerMessageTextContent,
 	type ProviderSettings,
 } from './provider-requests';
@@ -247,8 +241,6 @@ import {
 	providerCompactionRequiredCompletionTokens,
 	providerCompactionSummaryLimitsForChat,
 	providerPromptEstimateSafetyTokens,
-	type ProviderCompactionSummaryLimits,
-	type ProviderCompactionValidationLimits,
 	type TextTokenCalibration,
 } from './compaction/limits';
 import {
@@ -284,404 +276,263 @@ import {
 import { worldDocumentForAvatar } from './avatar/target';
 import {
 	createAvatarProvider,
-	ProviderAvatarDescriptionValidationError,
 	type AvatarProviderRuntime,
 } from './avatar/provider';
 
+import {
+	PersistentToolFailureError,
+	PersistentMissingToolCallError,
+	SelfCorrectingToolCallError,
+	RuntimeOperationTimeoutError,
+	ToolCallArgumentValidationError,
+	ProviderRequestError,
+	ProviderCompactionRequestError,
+	ProviderLoopRequestError,
+	ProviderStructuredOutputValidationError,
+	ProviderCompactionOutputLimitError,
+	ProviderRequestTimeoutError,
+	ProviderResponseBodyTimeoutError,
+	ResponseBodySizeLimitError,
+	ProviderEmptyResponseError,
+	ProviderStreamIdleTimeoutError,
+	PromptContextBudgetExceededError,
+	PromptContextCompactionLimitError,
+	PersistentCompactionReductionFailureError,
+	TickStoppedError,
+	ProviderResponseInterruptedError,
+	runtimeErrorCause,
+	runtimeErrorText,
+} from './errors';
+import {
+	providerContextCompletionReserveTokens,
+	stopRequestStateKey,
+	toolUseRecoveryStateKey,
+	pendingSpotlightTicksStateKey,
+	compactionReasoningFallbackStateKey,
+	centralProviderUsageExportCursorStateKey,
+	lastLogOffSeqStateKey,
+	logOffBackfillPageSize,
+	contextBudgetCacheStateKey,
+	runtimeRunLeaseTimeoutMs,
+	providerRequestTimeoutMs,
+	providerBodyReadTimeoutMs,
+	providerStreamIdleTimeoutMs,
+	providerResponseBodyMaxBytes,
+	providerFailureRawResponseMaxCharacters,
+	openRouterGenerationMetadataMaxBytes,
+	openRouterGenerationMetadataTimeoutMs,
+	openRouterExperimentalMetadataHeader,
+	openRouterGenerationIdHeader,
+	serviceBindingTimeoutMs,
+	serviceBindingResponseBodyMaxBytes,
+	scheduledDispatchTimeoutMs,
+	providerUsageExportBatchSize,
+	runtimeEventRetentionDays,
+	scheduledDispatchSelectLimit,
+	scheduledDispatchBudget,
+	vectorBindingTimeoutMs,
+	cloudflareBindingRetryMaxAttempts,
+	cloudflareBindingRetryInitialDelayMs,
+	cloudflareBindingRetryMaxDelayMs,
+	providerMaxAttempts,
+	providerRetryBaseDelayMs,
+	providerNoToolChoice,
+	providerTokenProbeToolChoice,
+	providerParallelToolCalls,
+	providerRailroadNoToolMaxAttempts,
+	providerPromptCompactionMaxAttempts,
+	providerTranslationMaxCompletionTokens,
+	providerTranslationToolName,
+	providerStructuredOutputRepairAttempts,
+	inferenceSubmissionRetentionCount,
+	providerTokenCalibrationRetentionCount,
+	loopMessageLogRetentionCount,
+	loopMessageLogChunkLength,
+	loopMessagePageIndexLimit,
+	runtimeMonitorInitialBackfillLimit,
+	dayMs,
+	fallbackProviderModel,
+	fallbackProviderBaseUrl,
+	legacyProviderToolCallHistoryNormalizedStateKey,
+	providerToolCallHistoryInvariantViolationStateKey,
+} from './constants';
+import type {
+	Env,
+	RuntimeBotDocument,
+	RuntimeRow,
+	CompactionMetrics,
+	InferenceSubmissionRow,
+	LoopMessageRow,
+	LoopMessagePageDescriptor,
+	LoopMessagePageIndex,
+	LoopMessageLogRow,
+	RuntimeFailureLog,
+	LoopMessageAppendLog,
+	LoopMessageGroupEntry,
+	ProviderCompactionResponsePayload,
+	LoopMessageLogChunkRow,
+	ChatMessage,
+	ReasoningDetail,
+	ToolCall,
+	ToolResult,
+	VoteToolTarget,
+	FollowToolTarget,
+	FollowToolHistoryTarget,
+	FollowToolSkipReason,
+	FollowToolTargetSkip,
+	FollowToolTargetPlan,
+	FollowProfilesToolResult,
+	ProviderUsage,
+	ProviderResponse,
+	ProviderStreamFetchResponse,
+	ProviderPromptBudgetCheck,
+	ProviderPromptTokenEstimate,
+	ProviderUsageRow,
+	ProviderUsageExportRow,
+	ProviderTokenCalibrationSampleRow,
+	ProviderUsageLogRow,
+	ProviderLoopUsageRow,
+	ProviderTokenCalibrationLegacyBackfillRow,
+	PromptTokenBaselineRow,
+	ToolFailurePayload,
+	DuplicateReply,
+	PriorTargetReplies,
+	TickRunResult,
+	TickMode,
+	LoopSetupMode,
+	RuntimeReleaseStatus,
+	ActiveMaintenanceOperation,
+	TickOptions,
+	AdmittedTick,
+	TickAdmission,
+	LoopNotification,
+	LoopInput,
+	RuntimeLoopInputBuild,
+	RuntimeLoopMessages,
+	InjectionMetadata,
+	InjectionRow,
+	QueuedSpotlightTick,
+	PendingSpotlightTick,
+	RunContext,
+	ProviderMessageStatus,
+	ProviderStreamActivity,
+	ReadContentItem,
+	ReadPruneResult,
+	ProviderNotificationPruneResult,
+	ProviderNotificationPayloadResult,
+	ProviderNotificationEventGroup,
+	ProviderToolResultPayloadOptions,
+	ProviderToolArrayPruneResult,
+	ContextBudgetPromptParts,
+	ProfileRelationshipFields,
+	ProfileRelationshipSearchResult,
+	ListProfilesToolArgs,
+	QueryFollowersToolArgs,
+	ProviderPromptCacheControl,
+	PromptContextBudgetCounts,
+	PromptContextBudgetFingerprintParts,
+	TranslationProviderSettings,
+	ProviderLoopOutcome,
+	SpotlightActionScope,
+	SpotlightMutationScope,
+	ProviderToolCallDropReason,
+	DroppedProviderToolCall,
+	ProviderToolCallSanitization,
+	LegacyProviderToolCallHistoryNormalizationOperation,
+	LegacyProviderToolCallHistoryNormalizationOrderItem,
+	LegacyProviderToolCallHistoryNormalization,
+	ToolUseRecoveryState,
+	ProviderCompactionReasoningFallbackState,
+	ProviderCompactionSummaryLimits,
+	ProviderCompactionValidationLimits,
+} from './types';
+
 export { defaultReasoningPrefill };
 export { parseAvatarImageGenerationSettingsOverride as parseImageGenerationSettingsOverride };
+export { PersistentCompactionReductionFailureError, runtimeMonitorInitialBackfillLimit };
+export type { ToolFailurePayload };
 export type { ProviderSettings } from './provider-requests';
 
-export interface Env {
-	BICKR_D1: D1Database;
-	BICKR_KV: KVNamespace;
-	BOT_RUNTIME: DurableObjectNamespace;
-	USER_BOTS: DurableObjectNamespace;
-	FORUM_COORDINATOR_SERVICE: Fetcher;
-	AI?: Ai;
-	BICKR_R2?: R2Bucket;
-	BICKR_R2_PUBLIC_BASE_URL?: string;
-	BICKR_SEARCH_VECTORIZE?: Vectorize;
-	INTERNAL_SERVICE_SECRET?: string;
-	OPENROUTER_API_KEY?: string;
-	OPENROUTER_BASE_URL?: string;
-	OPENROUTER_MODEL?: string;
-	BICKR_SIMULATION_MODE?: string;
-}
-
-type RuntimeBotDocument = BotDocument & {
-	effectivePostingSettings?: BotEffectivePostingSettings;
-	worldPrompt?: string;
-};
-
-type RuntimeRow = {
-	seq: number;
-	run_id: string;
-	type: BotRuntimeEventType;
-	payload_json: string;
-	token_estimate: number;
-	created_at: string;
-	compacted_by: number | null;
-};
-
-type CompactionMetrics = {
-	allowedPromptTokens?: number;
-	compactionMaxCharacters?: number;
-	compactionMaxCompletionTokens?: number;
-	compactionOverBudgetFallback?: boolean;
-	estimatedContextTokens?: number;
-	estimatedPromptTokens?: number;
-	exactPromptTokens?: number;
-	overBudgetTokens?: number;
-	threshold?: number;
-};
-
-type InferenceSubmissionRow = {
-	id: string;
-	event_seq: number;
-	run_id: string;
-	purpose: BotInferenceSubmissionPurpose;
+type ProviderChatCompletionRequest = {
 	model: string;
-	provider_base_url: string;
-	message_count: number;
-	messages_json: string;
-	display_messages_json: string | null;
-	created_at: string;
+	messages: ChatMessage[];
+	provider?: JsonObject;
+	tools: ProviderToolDefinition[];
+	tool_choice?: typeof providerRequiredToolChoice;
+	parallel_tool_calls: typeof providerParallelToolCalls;
+	stream: true;
+	stream_options: {
+		include_usage: true;
+	};
+	max_completion_tokens: number;
+	cache_control?: ProviderPromptCacheControl;
+	session_id?: string;
+	reasoning?: ProviderReasoningConfig;
+	temperature: number;
+	top_k?: number;
+	top_p?: number;
+	min_p?: number;
+	frequency_penalty?: number;
+	presence_penalty?: number;
+	repetition_penalty?: number;
 };
 
-type LoopMessageRow = {
-	seq: number;
-	position: number;
-	run_id: string;
-	role: ChatMessage['role'];
-	message_json: string;
-	origin: BotLoopMessageOrigin;
-	status: BotLoopMessageStatus | null;
-	token_estimate: number;
-	stream_seq: number | null;
-	display_event_seq?: number | null;
-	display_event_type?: BotRuntimeEventType | null;
-	display_event_payload_json?: string | null;
-	compacted_by: number | null;
-	deleted_at: string | null;
-	created_at: string;
-	has_logs?: number;
-};
-
-type LoopMessagePageDescriptor = {
-	page: number;
-	sourceCompactionSeq: number | null;
-	newerPage?: number;
-};
-
-type LoopMessagePageIndex = {
-	descriptors: LoopMessagePageDescriptor[];
-	compactionPageBySeq: Map<number, number>;
-};
-
-type LoopMessageLogRow = {
-	id: number;
-	message_seq: number;
-	kind: BotLoopMessageLogKind;
-	encoding: BotLoopMessageLogEncoding;
-	base_log_id: number | null;
-	prefix_length: number | null;
-	text_length: number;
-	chunk_count: number;
-	created_at: string;
-};
-
-type RuntimeFailureLogKind = Extract<
-	BotLoopMessageLogKind,
-	'provider_request' | 'provider_response' | 'compaction_request' | 'compaction_response'
->;
-
-type RuntimeFailureLog = {
-	kind: RuntimeFailureLogKind;
-	text: string;
-};
-
-type LoopMessageAppendLog = {
-	kind: BotLoopMessageLogKind;
-	text: string;
-};
-
-type LoopMessageGroupEntry = {
-	runId: string;
-	message: ChatMessage;
-	origin: BotLoopMessageOrigin;
-	status?: BotLoopMessageStatus;
-	options?: { streamSeq?: number; displayEventSeq?: number };
-	extraLogs?: LoopMessageAppendLog[];
-};
-
-type ProviderCompactionResponsePayload = {
-	id?: unknown;
-	model?: unknown;
-	usage?: unknown;
-	openrouter_metadata?: unknown;
-	choices?: Array<{
-		finish_reason?: unknown;
-		native_finish_reason?: unknown;
-		message?: {
-			content?: unknown;
-			tool_calls?: BotInferenceSubmissionToolCall[];
-		};
-	}>;
-};
-
-type LoopMessageLogChunkRow = {
-	log_id: number;
-	chunk_index: number;
-	text: string;
-};
-
-type ChatMessage = BotInferenceSubmissionMessage;
-
-type ReasoningDetail = Record<string, unknown>;
-
-type ToolCall = BotInferenceSubmissionToolCall;
-
-type ToolResult = {
-	name: string;
-	result: unknown;
-	providerResult: unknown;
-	displayEventSeq?: number;
-	effectiveArgs?: Record<string, unknown>;
-	selfCorrectionMessages?: string[];
-	spotlightMutation?: boolean;
-	spotlightTickTerminator?: boolean;
-};
-
-type VoteToolTarget = {
-	commentId: string;
-	value: -1 | 0 | 1;
-};
-
-type FollowToolTarget = {
-	username: string;
-	reason: RequiredLocalizedText;
-};
-
-type FollowToolHistoryTarget = {
-	username: string;
-	reason?: string;
-};
-
-export type FollowToolSkipReason = 'already_following' | 'not_following' | 'self_follow' | 'profile_not_found';
-
-export type FollowToolTargetSkip = {
-	username: string;
-	reason: FollowToolSkipReason;
-};
-
-export type FollowToolTargetPlan = {
-	validProfiles: BotPublicProfile[];
-	skipped: FollowToolTargetSkip[];
-};
-
-type FollowProfilesToolResult = {
-	results: unknown[];
-	effectiveTargets: FollowToolTarget[];
-	selfCorrectionMessages: string[];
-	spotlightMutation: SpotlightMutationScope;
-};
-
-type ProviderUsage = {
-	promptTokens: number;
-	completionTokens: number;
-	totalTokens: number;
-	cachedTokens: number;
-	reasoningTokens: number;
-	cost: number | null;
-	raw: Record<string, unknown>;
-};
-
-type ProviderResponse = {
-	content: string;
-	reasoning: string;
-	reasoningDetails: ReasoningDetail[];
-	toolCalls: ToolCall[];
-	requestBody?: string;
-	rawResponse?: string;
-	skippedRawResponse?: string;
-	usage?: ProviderUsage;
-	responseId?: string;
-	responseModel?: string;
-	responseProviderName?: string;
-};
-
-type ProviderStreamFetchResponse =
-	| Readonly<{
-			stream: ReadableStream<Uint8Array>;
-			responseId?: string;
-	  }>
-	| ReadableStream<Uint8Array>;
-
-type ProviderPromptBudgetCheck = {
-	allowedPromptTokens: number;
-	contextWindowTokens?: number;
-	maxCompletionTokens: number;
-	promptTokens: number;
-	requestMessages: ChatMessage[];
-};
-
-type ProviderPromptTokenEstimate = {
-	promptTokens: number;
-	source: 'baseline_plus_delta' | 'full_estimate';
-	baselinePromptTokens?: number;
-	baselineMessageCount?: number;
-	estimatedDeltaTokens?: number;
-	calibrationSampleCount: number;
-};
-
-type ProviderUsageRow = {
-	created_at: string;
-	run_id: string;
+type ProviderTokenProbeRequest = {
 	model: string;
-	requested_model: string;
-	response_model: string | null;
-	provider_name: string | null;
-	context_window_tokens: number;
-	prompt_tokens: number;
-	completion_tokens: number;
-	total_tokens: number;
-	cached_tokens: number;
-	reasoning_tokens: number;
-	cost: number | null;
+	messages: ChatMessage[];
+	provider?: JsonObject;
+	tools: ProviderToolDefinition[];
+	tool_choice: typeof providerTokenProbeToolChoice;
+	parallel_tool_calls: typeof providerParallelToolCalls;
+	stream: false;
+	max_tokens: 1;
+	reasoning?: ProviderReasoningConfig;
+	temperature: number;
+	top_k?: number;
+	top_p?: number;
+	min_p?: number;
+	frequency_penalty?: number;
+	presence_penalty?: number;
+	repetition_penalty?: number;
 };
 
-type ProviderUsageExportRow = ProviderUsageRow & {
-	id: number;
-	request_seq: number;
-	provider_base_url: string;
-};
-
-type ProviderTokenCalibrationSampleRow = {
-	id: number;
-	run_id: string;
-	request_seq: number;
-	attempt: number;
-	purpose: BotInferenceSubmissionPurpose;
-	requested_model: string;
-	response_model: string | null;
-	provider_base_url: string;
-	prompt_tokens: number;
-	request_characters: number;
-	created_at: string;
-};
-
-type ProviderUsageLogRow = ProviderUsageRow & {
-	usage_json: string;
-};
-
-type ProviderLoopUsageRow = ProviderUsageRow & {
-	request_seq: number;
-	provider_base_url: string;
-};
-
-type PromptTokenCalibrationRow = {
-	event_seq: number;
-	run_id: string;
-	purpose: BotInferenceSubmissionPurpose;
-	messages_json: string;
-	prompt_tokens: number;
-};
-
-type ProviderTokenCalibrationLegacyBackfillRow = PromptTokenCalibrationRow & {
-	requested_model: string;
-	response_model: string | null;
-	provider_base_url: string;
-	created_at: string;
-};
-
-type PromptTokenBaselineRow = PromptTokenCalibrationRow & {
+type ProviderCompactionRequest = {
 	model: string;
-	provider_base_url: string;
+	messages: ChatMessage[];
+	provider?: JsonObject;
+	stream: false;
+	tools?: ProviderToolDefinition[];
+	tool_choice?: typeof providerRequiredToolChoice | typeof providerNoToolChoice;
+	parallel_tool_calls?: false;
+	response_format?: ProviderJsonSchemaResponseFormat;
+	max_completion_tokens: number;
+	reasoning?: ProviderReasoningConfig;
+	temperature: number;
 };
 
-export type ToolFailurePayload = {
-	ok: false;
-	code: string;
-	message: string;
-	toolName: string;
-	args: Record<string, unknown>;
-	guidance?: string;
-	existingUrlPath?: string;
-	existingThreadId?: string;
-	existingThreadRef?: string;
-	existingThreadTitle?: string;
-	existingWorldHandle?: string;
-	existingForumHandle?: string;
-	existingCommentId?: string;
-	existingCommentRef?: string;
-	targetCommentId?: string;
-	targetCommentRef?: string;
-	existingReplies?: Array<Omit<PriorReply, 'commentId'> & { commentId?: string; commentRef?: string }>;
+type ProviderTokenCalibrationRequestShape = {
+	messages: ChatMessage[];
+	tools?: readonly ProviderToolDefinition[];
+	response_format?: ProviderJsonSchemaResponseFormat;
 };
 
-class PersistentToolFailureError extends Error {
-	readonly failure: ToolFailurePayload;
-
-	constructor(failure: ToolFailurePayload) {
-		super(`Stopped after 5 consecutive failed tool calls. Last error: ${failure.message}`);
-		this.name = 'PersistentToolFailureError';
-		this.failure = failure;
-	}
-}
-
-class PersistentMissingToolCallError extends Error {
-	readonly toolNames: string[];
-
-	constructor(toolNames: string[]) {
-		super(`Stopped after ${providerRailroadNoToolMaxAttempts} inference responses without a required tool call.`);
-		this.name = 'PersistentMissingToolCallError';
-		this.toolNames = toolNames;
-	}
-}
-
-class SelfCorrectingToolCallError extends Error {
-	readonly selfCorrectionMessages: string[];
-
-	constructor(message: string) {
-		super(message);
-		this.name = 'SelfCorrectingToolCallError';
-		this.selfCorrectionMessages = [message];
-	}
-}
-
-class RuntimeOperationTimeoutError extends Error {
-	readonly kind = 'runtime_operation_timeout';
-	readonly operation: string;
-	readonly timeoutMs: number;
-
-	constructor(operation: string, timeoutMs: number) {
-		super(`${operation} did not finish within ${Math.round(timeoutMs / 1000)} seconds.`);
-		this.name = 'RuntimeOperationTimeoutError';
-		this.operation = operation;
-		this.timeoutMs = timeoutMs;
-	}
-}
-
-type DuplicateReply = {
-	threadId: string;
-	commentId: string;
-	urlPath: string;
-	seq: number;
-};
-
-type PriorReply = {
-	commentId: string;
-	body: string;
-	urlPath: string;
-	createdAt: string;
-};
-
-type PriorTargetReplies = {
-	threadId: string;
-	targetCommentId?: string;
-	targetDescription: string;
-	replies: PriorReply[];
+type ProviderTranslationRequest = {
+	model: string;
+	messages: ChatMessage[];
+	provider?: JsonObject;
+	stream: false;
+	tools: [ProviderToolDefinition];
+	tool_choice?: typeof providerRequiredToolChoice;
+	parallel_tool_calls: false;
+	max_completion_tokens: number;
+	reasoning?: ProviderReasoningConfig;
+	temperature: number;
+	top_k?: number;
+	top_p?: number;
+	min_p?: number;
+	frequency_penalty?: number;
+	presence_penalty?: number;
+	repetition_penalty?: number;
 };
 
 class DuplicateReplyError extends Error {
@@ -706,43 +557,6 @@ class PriorTargetReplyError extends Error {
 		this.prior = prior;
 	}
 }
-
-type TickRunResult = {
-	runId: string;
-	status: 'already_running' | 'completed' | 'failed' | 'paused' | 'queued' | 'started' | 'stopped';
-	error?: string;
-};
-
-type TickMode = 'normal' | 'spotlight';
-type LoopSetupMode = 'new_iteration' | 'continuation' | 'spotlight';
-type RuntimeReleaseStatus = 'idle' | 'failed';
-type ActiveMaintenanceOperation = 'clear_history' | 'manual_compaction';
-
-type TickOptions = {
-	mode?: TickMode;
-	injectionIds?: string[];
-	spotlightId?: string;
-	background?: boolean;
-};
-
-type AdmittedTick = {
-	bot: RuntimeBotDocument;
-	providerSettings: ProviderSettings;
-	runId: string;
-	abortController: AbortController;
-	mode: TickMode;
-	setupMode: LoopSetupMode;
-};
-
-type TickAdmission =
-	| {
-			admitted: true;
-			tick: AdmittedTick;
-		}
-	| {
-			admitted: false;
-			result: TickRunResult;
-		};
 
 export async function claimRuntimeRun(
 	db: D1DatabaseLike,
@@ -815,662 +629,7 @@ class ExclusiveOperationQueue {
 	}
 }
 
-export type LoopNotification = NotificationEvent;
-
-export type LoopInput = {
-	notifications: LoopNotification[];
-	injections: string[];
-	spotlightContexts: SpotlightSyntheticContext[];
-	ping: boolean;
-	toolUseReminder?: string;
-};
-
-export type RuntimeLoopInputBuild = {
-	input: LoopInput;
-	autoProfileSeenItems: SeenContentItem[];
-	notificationSeenItemsById: Record<string, SeenContentItem[]>;
-};
-
-type RuntimeLoopMessages = ChatMessage[] & {
-	deliveredNotificationIds: Set<string>;
-};
-
-type InjectionMetadata = {
-	kind?: string;
-	sourceId?: string;
-	spotlightId?: string;
-};
-
-type InjectionRow = {
-	id: string;
-	text: string;
-	kind: string;
-	sourceId: string | null;
-	spotlightId: string | null;
-};
-
-type QueuedSpotlightTick = {
-	injectionId: string;
-	spotlightId: string;
-	createdAt: string;
-};
-
-type PendingSpotlightTick = {
-	spotlightId: string;
-	injectionIds: string[];
-	entries: QueuedSpotlightTick[];
-};
-
-type RunContext = {
-	mode: TickMode;
-	setupMode: LoopSetupMode;
-	spotlightId?: string;
-	spotlightActionScope?: SpotlightActionScope;
-	signal: AbortSignal;
-};
-
-type ProviderMessageStatus = 'complete' | 'interrupted';
-
-type ProviderStreamActivity = {
-	type: string;
-	created_at: string;
-};
-
-type ReadContentItem = {
-	type: 'comment';
-	id: string;
-	threadId: string;
-	commentId?: string;
-	parentCommentId?: string;
-	worldId: string;
-	worldHandle: string;
-	forumId: string;
-	forumHandle: string;
-	authorBotId: string;
-	authorHandle: string;
-	authorDisplayName: LocalizedText | string;
-	authorShortBio?: LocalizedText | string;
-	authorFollowing?: boolean;
-	title?: LocalizedText | string;
-	body: LocalizedText | string;
-	createdAt: string;
-	'My focus is on this comment'?: true;
-	ancestorOnly?: boolean;
-	replies?: ReadContentItem[] | number;
-};
-
-type ReadPruneResult = {
-	content: ReadContentItem[];
-	tokenEstimate: number;
-	omittedReplyCount: number;
-	trimmedBodyCount: number;
-};
-
-type ProviderNotificationPruneResult = {
-	events: Array<{ notificationIds: string[]; payload: Record<string, unknown> }>;
-	omittedEventCount: number;
-	tokenEstimate: number;
-};
-
-type ProviderNotificationPayloadResult = {
-	payload: Record<string, unknown>;
-	includedEventIds: string[];
-};
-
-type ProviderNotificationEventGroup = {
-	event: Record<string, unknown>;
-	notificationIds: string[];
-};
-
-type ProviderToolResultPayloadOptions = {
-	tokenBudget?: number;
-};
-
-type ProviderToolArrayPruneResult<T> = {
-	items: T[];
-	omittedCount: number;
-	tokenEstimate: number;
-};
-
-type ContextBudgetPromptParts = {
-	baseUrl: string;
-	fixedSystemMessage: string;
-	fullSystemMessage: string;
-	model: string;
-	personaSystemMessage: string;
-	reasoningPrefill?: string;
-	providerTools: ProviderToolDefinition[];
-	supportsPrefill: boolean;
-};
-
-type ProfileRelationshipFields = Pick<BotProfileRelationshipSummary, 'isFollowedByMe' | 'isFollowingMe' | 'followers'>;
-
-type ProfileRelationshipSearchResult = BotSearchResult & ProfileRelationshipFields;
-
-type ListProfilesToolArgs =
-	| { mode: 'window'; limit: number; offset: number }
-	| { mode: 'random'; limit: number };
-
-type QueryFollowersToolArgs =
-	| { direction: 'followers'; username: string; usernameGlob?: string }
-	| { direction: 'following'; username: string; usernameGlob?: string };
-
-type ProviderPromptCacheControl =
-	| { type: 'ephemeral' }
-	| { type: 'ephemeral'; ttl: '1h' };
-
-export type PromptContextBudgetCounts = Pick<
-	BotContextBudget,
-	'fixedSystemTokens' | 'personaPromptTokens' | 'responseReserveTokens' | 'contextWindowTokens'
-> & {
-	worldPromptTokens?: number;
-};
-
-export type PromptContextBudgetFingerprintParts = {
-	botId: string;
-	compactionMode: BotCompactionMode;
-	effectiveModel: string;
-	fixedSystemFingerprint: string;
-	personaPromptFingerprint: string;
-	providerBaseUrl: string;
-	providerRouting?: JsonObject;
-	supportsPrefill: boolean;
-	worldPromptFingerprint?: string;
-};
-
-type ProviderChatCompletionRequest = {
-	model: string;
-	messages: ChatMessage[];
-	provider?: JsonObject;
-	tools: ProviderToolDefinition[];
-	tool_choice?: typeof providerRequiredToolChoice;
-	parallel_tool_calls: typeof providerParallelToolCalls;
-	stream: true;
-	stream_options: {
-		include_usage: true;
-	};
-	max_completion_tokens: number;
-	cache_control?: ProviderPromptCacheControl;
-	session_id?: string;
-	reasoning?: ProviderReasoningConfig;
-	temperature: number;
-	top_k?: number;
-	top_p?: number;
-	min_p?: number;
-	frequency_penalty?: number;
-	presence_penalty?: number;
-	repetition_penalty?: number;
-};
-
-type ProviderTokenProbeRequest = {
-	model: string;
-	messages: ChatMessage[];
-	provider?: JsonObject;
-	tools: ProviderToolDefinition[];
-	tool_choice: typeof providerTokenProbeToolChoice;
-	parallel_tool_calls: typeof providerParallelToolCalls;
-	stream: false;
-	max_tokens: 1;
-	reasoning?: ProviderReasoningConfig;
-	temperature: number;
-	top_k?: number;
-	top_p?: number;
-	min_p?: number;
-	frequency_penalty?: number;
-	presence_penalty?: number;
-	repetition_penalty?: number;
-};
-
-type ProviderCompactionRequest = {
-	model: string;
-	messages: ChatMessage[];
-	provider?: JsonObject;
-	stream: false;
-	tools?: ProviderToolDefinition[];
-	tool_choice?: typeof providerRequiredToolChoice | typeof providerNoToolChoice;
-	parallel_tool_calls?: false;
-	response_format?: ProviderJsonSchemaResponseFormat;
-	max_completion_tokens: number;
-	reasoning?: ProviderReasoningConfig;
-	temperature: number;
-};
-
-type ProviderTokenCalibrationRequestShape = {
-	messages: ChatMessage[];
-	tools?: readonly ProviderToolDefinition[];
-	response_format?: ProviderJsonSchemaResponseFormat;
-};
-
-type TranslationProviderSettings = {
-	apiKey?: string;
-	baseUrl: string;
-	model: string;
-	providerRouting?: JsonObject;
-	reasoningEffort?: Exclude<BotInferenceReasoningEffort, 'default'>;
-	toolCalls?: BotStructuredToolCalls;
-	prompt: string;
-	temperature: number;
-	topK?: number;
-	topP?: number;
-	minP?: number;
-	frequencyPenalty?: number;
-	presencePenalty?: number;
-	repetitionPenalty?: number;
-};
-
-type ProviderTranslationRequest = {
-	model: string;
-	messages: ChatMessage[];
-	provider?: JsonObject;
-	stream: false;
-	tools: [ProviderToolDefinition];
-	tool_choice?: typeof providerRequiredToolChoice;
-	parallel_tool_calls: false;
-	max_completion_tokens: number;
-	reasoning?: ProviderReasoningConfig;
-	temperature: number;
-	top_k?: number;
-	top_p?: number;
-	min_p?: number;
-	frequency_penalty?: number;
-	presence_penalty?: number;
-	repetition_penalty?: number;
-};
-
-type ProviderLoopOutcome = {
-	toolCallCount: number;
-	logOffCalled: boolean;
-	spotlightMutationCount: number;
-};
-
-type SpotlightActionScope = {
-	commentIds: ReadonlySet<string>;
-	authorBotIds: ReadonlySet<string>;
-	authorHandles: ReadonlySet<string>;
-};
-
-type SpotlightMutationScope = {
-	related: boolean;
-	unrelated: boolean;
-};
-
-type ProviderToolCallDropReason =
-	| 'missing_tool_call_id'
-	| 'missing_function_name'
-	| 'invalid_arguments_json'
-	| 'arguments_not_json_object'
-	| 'duplicate_tool_call'
-	| 'disallowed_meta_compaction_tool'
-	| 'disallowed_log_off'
-	| 'premature_log_off'
-	| 'iteration_limit'
-	| 'spotlight_tick_ended'
-	| 'unanswered_tool_call';
-
-export type DroppedProviderToolCall = {
-	id: string;
-	name: string;
-	reason: ProviderToolCallDropReason;
-	argumentsPreview: string;
-};
-
-export type ProviderToolCallSanitization = {
-	toolCalls: BotInferenceSubmissionToolCall[];
-	dropped: DroppedProviderToolCall[];
-	repairedTextCount: number;
-};
-
-class ToolCallArgumentValidationError extends Error {
-	readonly code: string;
-
-	constructor(code: string, message: string) {
-		super(message);
-		this.name = 'ToolCallArgumentValidationError';
-		this.code = code;
-	}
-}
-
-type LegacyProviderToolCallHistoryNormalizationOperation =
-	| { kind: 'delete'; seq: number }
-	| { kind: 'update'; seq: number; message: ChatMessage }
-	| { kind: 'insert'; id: string; sourceRow: LoopMessageRow; message: ChatMessage };
-
-type LegacyProviderToolCallHistoryNormalizationOrderItem = { kind: 'existing'; seq: number } | { kind: 'insert'; id: string };
-
-type LegacyProviderToolCallHistoryNormalization = {
-	operations: LegacyProviderToolCallHistoryNormalizationOperation[];
-	order: LegacyProviderToolCallHistoryNormalizationOrderItem[];
-	dropped: DroppedProviderToolCall[];
-	repairedTextCount: number;
-	repairedMessageSeqs: number[];
-};
-
-type ToolUseRecoveryState = {
-	consecutiveNoToolTicks: number;
-	lastRunId: string;
-	updatedAt: string;
-};
-
-type ProviderCompactionReasoningFallbackState = {
-	model: string;
-	mode: 'minimal';
-	reason: string;
-	updatedAt: string;
-};
-
-class ProviderRequestError extends Error {
-	readonly kind = 'provider_request';
-	readonly status: number;
-	readonly body: string;
-	readonly providerError?: ProviderErrorCause;
-	readonly rawResponse?: string;
-	readonly responseId?: string;
-	readonly responseModel?: string;
-	readonly usage?: ProviderUsage;
-
-	constructor(
-		status: number,
-		_model: string,
-		_endpoint: string,
-		body: string,
-		options: { providerError?: ProviderErrorCause; rawResponse?: string; responseId?: string; responseModel?: string; usage?: ProviderUsage } = {},
-	) {
-		const suffix = body ? ` Response: ${body}` : '';
-		super(`Inference request failed with status ${status}.${suffix}`);
-		this.name = 'ProviderRequestError';
-		this.status = status;
-		this.body = body;
-		this.providerError = options.providerError;
-		this.rawResponse = options.rawResponse;
-		this.responseId = options.responseId;
-		this.responseModel = options.responseModel;
-		this.usage = options.usage;
-	}
-}
-
-class ProviderCompactionRequestError extends Error {
-	readonly kind = 'provider_compaction_request';
-	readonly originalError: unknown;
-	readonly requestBody: string;
-	readonly responseBody?: string;
-
-	constructor(originalError: unknown, requestBody: string, responseBody?: string) {
-		super(runtimeErrorText(originalError));
-		this.name = 'ProviderCompactionRequestError';
-		this.originalError = originalError;
-		this.requestBody = requestBody;
-		this.responseBody = responseBody;
-	}
-}
-
-class ProviderLoopRequestError extends Error {
-	readonly kind = 'provider_loop_request';
-	readonly originalError: unknown;
-	readonly requestBody: string;
-	readonly responseBody?: string;
-	readonly attempts: number;
-
-	constructor(originalError: unknown, requestBody: string, attempts: number, responseBody?: string) {
-		super(providerLoopFailureMessage(originalError, attempts));
-		this.name = 'ProviderLoopRequestError';
-		this.originalError = originalError;
-		this.requestBody = requestBody;
-		this.responseBody = responseBody;
-		this.attempts = attempts;
-	}
-}
-
-type ProviderStructuredOutputKind = 'avatar_description' | 'compaction' | 'translation';
-type ProviderStructuredOutputValidationIssue = 'non_reducing_compaction';
-
-class ProviderStructuredOutputValidationError extends Error {
-	readonly kind = 'provider_structured_output_validation';
-	readonly structuredOutputKind: ProviderStructuredOutputKind;
-	readonly rawResponse?: string;
-	readonly toolCalls: BotInferenceSubmissionToolCall[];
-	readonly repairMessage: string;
-	readonly requiredToolName: string;
-	readonly outputText?: string;
-	readonly validationIssue?: ProviderStructuredOutputValidationIssue;
-	responseId?: string;
-	responseModel?: string;
-	usage?: ProviderUsage;
-
-	constructor(
-		kind: ProviderStructuredOutputKind,
-		repairMessage: string,
-		options: {
-			rawResponse?: string;
-			requiredToolName?: string;
-			toolCalls?: BotInferenceSubmissionToolCall[];
-			outputText?: string;
-			validationIssue?: ProviderStructuredOutputValidationIssue;
-			responseId?: string;
-			responseModel?: string;
-			usage?: ProviderUsage;
-		} = {},
-	) {
-		super(
-			`Inference provider returned schema-invalid ${kind} ${options.requiredToolName ? 'tool arguments' : 'structured output'}: ${repairMessage}`,
-		);
-		this.name = 'ProviderStructuredOutputValidationError';
-		this.structuredOutputKind = kind;
-		this.repairMessage = repairMessage;
-		this.requiredToolName = options.requiredToolName ?? '';
-		this.rawResponse = options.rawResponse;
-		this.toolCalls = options.toolCalls ?? [];
-		this.outputText = options.outputText;
-		this.validationIssue = options.validationIssue;
-		this.responseId = options.responseId;
-		this.responseModel = options.responseModel;
-		this.usage = options.usage;
-	}
-}
-
-class ProviderCompactionOutputLimitError extends Error {
-	readonly kind = 'provider_compaction_output_limit';
-	readonly rawResponse: string;
-	readonly finishReason: string;
-	readonly nativeFinishReason: string;
-	readonly responseId?: string;
-	readonly responseModel?: string;
-	readonly usage?: ProviderUsage;
-
-	constructor(
-		rawResponse: string,
-		finishReason: string,
-		nativeFinishReason: string,
-		options: { responseId?: string; responseModel?: string; usage?: ProviderUsage } = {},
-	) {
-		const details = [finishReason, nativeFinishReason].filter(Boolean).join('/');
-		super(`Inference provider exhausted the compaction output budget${details ? ` (${details})` : ''}.`);
-		this.name = 'ProviderCompactionOutputLimitError';
-		this.rawResponse = rawResponse;
-		this.finishReason = finishReason;
-		this.nativeFinishReason = nativeFinishReason;
-		this.responseId = options.responseId;
-		this.responseModel = options.responseModel;
-		this.usage = options.usage;
-	}
-}
-
-class ProviderRequestTimeoutError extends Error {
-	readonly kind = 'provider_request_timeout';
-	readonly timeoutMs: number;
-
-	constructor(timeoutMs: number) {
-		super(`Inference request did not respond within ${Math.round(timeoutMs / 1000)} seconds.`);
-		this.name = 'ProviderRequestTimeoutError';
-		this.timeoutMs = timeoutMs;
-	}
-}
-
-class ProviderResponseBodyTimeoutError extends Error {
-	readonly kind = 'provider_response_body_timeout';
-	readonly timeoutMs: number;
-
-	constructor(timeoutMs: number) {
-		super(`Inference response body did not finish within ${Math.round(timeoutMs / 1000)} seconds.`);
-		this.name = 'ProviderResponseBodyTimeoutError';
-		this.timeoutMs = timeoutMs;
-	}
-}
-
-class ResponseBodySizeLimitError extends Error {
-	readonly maxBytes: number;
-
-	constructor(maxBytes: number) {
-		super(`Response body exceeded ${maxBytes} bytes.`);
-		this.name = 'ResponseBodySizeLimitError';
-		this.maxBytes = maxBytes;
-	}
-}
-
-class ProviderEmptyResponseError extends Error {
-	readonly kind = 'provider_empty_response';
-	readonly rawResponse?: string;
-	readonly responseId?: string;
-	readonly responseModel?: string;
-	readonly usage?: ProviderUsage;
-
-	constructor(rawResponse?: string, options: { responseId?: string; responseModel?: string; usage?: ProviderUsage } = {}) {
-		super('Inference provider returned an empty response with no content, reasoning, or tool calls.');
-		this.name = 'ProviderEmptyResponseError';
-		this.rawResponse = rawResponse;
-		this.responseId = options.responseId;
-		this.responseModel = options.responseModel;
-		this.usage = options.usage;
-	}
-}
-
-class ProviderStreamIdleTimeoutError extends Error {
-	readonly kind = 'provider_stream_idle_timeout';
-	readonly timeoutMs: number;
-
-	constructor(timeoutMs: number) {
-		super(`Inference stream stopped responding after ${Math.round(timeoutMs / 1000)} seconds.`);
-		this.name = 'ProviderStreamIdleTimeoutError';
-		this.timeoutMs = timeoutMs;
-	}
-}
-
-class PromptContextBudgetExceededError extends Error {
-	readonly kind = 'prompt_context_budget_exceeded';
-	readonly allowedPromptTokens: number;
-	readonly promptTokens: number;
-
-	constructor(promptTokens: number, allowedPromptTokens: number) {
-		super(
-			`Prompt context is too large for this participant's configured context budget: ${promptTokens} prompt tokens exceeds the ${allowedPromptTokens} token prompt limit.`,
-		);
-		this.name = 'PromptContextBudgetExceededError';
-		this.promptTokens = promptTokens;
-		this.allowedPromptTokens = allowedPromptTokens;
-	}
-}
-
-class PromptContextCompactionLimitError extends Error {
-	readonly kind = 'prompt_context_compaction_limit';
-	readonly allowedPromptTokens: number;
-	readonly attempts: number;
-	readonly promptTokens: number;
-
-	constructor(promptTokens: number, allowedPromptTokens: number, attempts: number) {
-		super(
-			`Context compaction did not reduce the provider prompt below the next compaction threshold after ${attempts} attempts: ${promptTokens} prompt tokens still exceeds the ${allowedPromptTokens} token prompt limit. Increase the context budget or reduce the participant prompt, enabled controls, or maximum compacted summary size.`,
-		);
-		this.name = 'PromptContextCompactionLimitError';
-		this.promptTokens = promptTokens;
-		this.allowedPromptTokens = allowedPromptTokens;
-		this.attempts = attempts;
-	}
-}
-
-export class PersistentCompactionReductionFailureError extends Error {
-	readonly kind = 'persistent_compaction_reduction_failure';
-	readonly attempts: number;
-	readonly requestBody: string;
-	readonly responseBody?: string;
-
-	constructor(attempts: number, requestBody: string, responseBody?: string) {
-		super(
-			`Context compaction isolated repair failed to produce a shorter summary after ${attempts} attempts. This participant has been paused so it does not keep retrying the same oversized context.`,
-		);
-		this.name = 'PersistentCompactionReductionFailureError';
-		this.attempts = attempts;
-		this.requestBody = requestBody;
-		this.responseBody = responseBody;
-	}
-}
-
-class TickStoppedError extends Error {
-	constructor() {
-		super('This Bickr visit was stopped.');
-		this.name = 'TickStoppedError';
-	}
-}
-
-class ProviderResponseInterruptedError extends Error {
-	readonly response: ProviderResponse;
-	readonly originalError: unknown;
-
-	constructor(response: ProviderResponse, originalError: unknown) {
-		super(originalError instanceof Error ? originalError.message : 'Provider response was interrupted.');
-		this.name = 'ProviderResponseInterruptedError';
-		this.response = response;
-		this.originalError = originalError;
-	}
-}
-
-const stopRequestStateKey = 'stop_requested_run_id';
-const toolUseRecoveryStateKey = 'tool_use_recovery';
-const pendingSpotlightTicksStateKey = 'pending_spotlight_ticks';
-const compactionReasoningFallbackStateKey = 'compaction_reasoning_fallback';
-const centralProviderUsageExportCursorStateKey = 'central_provider_usage_export_cursor';
-const lastLogOffSeqStateKey = 'last_log_off_seq';
-const logOffBackfillPageSize = 100;
-const contextBudgetCacheStateKey = (fingerprint: string): string => `context_budget:${fingerprint}`;
-const runtimeRunLeaseTimeoutMs = 15 * 60_000;
-const providerRequestTimeoutMs = 60_000;
-const providerBodyReadTimeoutMs = 60_000;
-const providerStreamIdleTimeoutMs = 60_000;
-const providerResponseBodyMaxBytes = 2_000_000;
-const providerFailureRawResponseMaxCharacters = 64_000;
-const openRouterGenerationMetadataMaxBytes = 64_000;
-const openRouterGenerationMetadataTimeoutMs = 5_000;
-const openRouterExperimentalMetadataHeader = 'X-OpenRouter-Experimental-Metadata';
-const openRouterGenerationIdHeader = 'x-generation-id';
-const serviceBindingTimeoutMs = 30_000;
-const serviceBindingResponseBodyMaxBytes = 1_000_000;
-const scheduledDispatchTimeoutMs = 10_000;
-const providerUsageExportBatchSize = 100;
-const runtimeEventRetentionDays = 30;
-const scheduledDispatchSelectLimit = 20;
-const scheduledDispatchBudget = 2_000;
-const vectorBindingTimeoutMs = 10_000;
-const cloudflareBindingRetryMaxAttempts = 3;
-const cloudflareBindingRetryInitialDelayMs = 1_000;
-const cloudflareBindingRetryMaxDelayMs = 4_000;
-const providerMaxAttempts = 5;
-const providerRetryBaseDelayMs = 3_000;
-const providerNoToolChoice = 'none' as const;
-const providerTokenProbeToolChoice = 'auto' as const;
-const providerParallelToolCalls = true;
-const providerRailroadNoToolMaxAttempts = 5;
-const providerPromptCompactionMaxAttempts = 3;
-const providerTranslationMaxCompletionTokens = 8_192;
 const metaCompactionToolMisuseSelfCorrection = `${providerCompactionToolName} cannot be used at this time, so I need to use another Bickr control or continue normally.`;
-const providerTranslationToolName = 'save_translation';
-const providerStructuredOutputRepairAttempts = 4;
-const inferenceSubmissionRetentionCount = 50;
-const providerTokenCalibrationRetentionCount = 100;
-const loopMessageLogRetentionCount = 50;
-const loopMessageLogChunkLength = 250_000;
-const loopMessagePageIndexLimit = 100;
-export const runtimeMonitorInitialBackfillLimit = 100;
-const dayMs = 24 * 60 * 60 * 1000;
-const fallbackProviderModel = defaultProviderModel;
-const fallbackProviderBaseUrl = 'https://openrouter.ai/api/v1';
 
 export function toolUseRecoveryReminder(state: Pick<ToolUseRecoveryState, 'consecutiveNoToolTicks'>): string {
 	const prefix =
@@ -2637,92 +1796,6 @@ export function runtimeErrorLoopMessageContent(message: unknown): string {
 	);
 }
 
-function runtimeErrorCause(error: unknown): RuntimeErrorCause | string {
-	if (error instanceof ProviderRequestError) {
-		return {
-			kind: error.kind,
-			status: error.status,
-			...(error.body ? { body: error.body } : {}),
-			...(error.providerError ? { providerError: error.providerError } : {}),
-		};
-	}
-	if (error instanceof ProviderLoopRequestError) {
-		return {
-			kind: error.kind,
-			attempts: error.attempts,
-			cause: runtimeErrorCause(error.originalError),
-		};
-	}
-	if (error instanceof ProviderCompactionRequestError) {
-		return {
-			kind: error.kind,
-			cause: runtimeErrorCause(error.originalError),
-		};
-	}
-	if (error instanceof ProviderStructuredOutputValidationError) {
-		return {
-			kind: error.kind,
-			outputKind: error.structuredOutputKind,
-			repairMessage: error.repairMessage,
-			...(error.requiredToolName ? { requiredToolName: error.requiredToolName } : {}),
-			...(error.rawResponse ? { rawResponse: error.rawResponse } : {}),
-		};
-	}
-	if (error instanceof ProviderAvatarDescriptionValidationError) {
-		return {
-			kind: error.kind,
-			repairMessage: error.repairMessage,
-			...(error.rawResponse ? { rawResponse: error.rawResponse } : {}),
-		};
-	}
-	if (error instanceof ProviderCompactionOutputLimitError) {
-		return {
-			kind: error.kind,
-			finishReason: error.finishReason,
-			nativeFinishReason: error.nativeFinishReason,
-			rawResponse: error.rawResponse,
-		};
-	}
-	if (error instanceof ProviderEmptyResponseError) {
-		return {
-			kind: error.kind,
-			...(error.rawResponse ? { rawResponse: error.rawResponse } : {}),
-		};
-	}
-	if (
-		error instanceof ProviderRequestTimeoutError ||
-		error instanceof ProviderResponseBodyTimeoutError ||
-		error instanceof ProviderStreamIdleTimeoutError
-	) {
-		return { kind: error.kind, timeoutMs: error.timeoutMs };
-	}
-	if (error instanceof RuntimeOperationTimeoutError) {
-		return { kind: error.kind, timeoutMs: error.timeoutMs, operation: error.operation };
-	}
-	if (error instanceof PromptContextBudgetExceededError) {
-		return {
-			kind: error.kind,
-			promptTokens: error.promptTokens,
-			allowedPromptTokens: error.allowedPromptTokens,
-		};
-	}
-	if (error instanceof PromptContextCompactionLimitError) {
-		return {
-			kind: error.kind,
-			promptTokens: error.promptTokens,
-			allowedPromptTokens: error.allowedPromptTokens,
-			attempts: error.attempts,
-		};
-	}
-	if (error instanceof PersistentCompactionReductionFailureError) {
-		return { kind: error.kind, attempts: error.attempts };
-	}
-	if (isRuntimeErrorCause(error)) {
-		return error;
-	}
-	return runtimeErrorText(error);
-}
-
 function isEmptyProviderAssistantMessage(message: BotInferenceSubmissionMessage): boolean {
 	return (
 		message.role === 'assistant' &&
@@ -3249,9 +2322,6 @@ CREATE TABLE IF NOT EXISTS loop_message_log_chunks (
 	PRIMARY KEY (log_id, chunk_index)
 );
 `;
-
-const legacyProviderToolCallHistoryNormalizedStateKey = 'loop_messages_provider_tool_call_history_normalized_v1';
-const providerToolCallHistoryInvariantViolationStateKey = 'provider_tool_call_history_invariant_violation';
 
 export class BotRuntime {
 	private readonly state: DurableObjectState;
@@ -15406,15 +14476,6 @@ function providerCompactionOutputLimitReached(finishReason: string, nativeFinish
 	return /\blength\b/.test(normalized) || /\bmax[_-]?output[_-]?tokens\b/.test(normalized);
 }
 
-function providerLoopFailureMessage(error: unknown, attempts: number): string {
-	const lastError = ownerFacingRuntimeErrorMessage(runtimeErrorCause(error)) ?? runtimeErrorText(error);
-	if (attempts > 1) {
-		const retries = attempts - 1;
-		return `Inference failed after ${attempts} provider attempts (${retries} ${retries === 1 ? 'retry' : 'retries'}); last error from provider:\n${lastError}`;
-	}
-	return `Inference failed before retrying; error from provider:\n${lastError}`;
-}
-
 function providerCompactionFailureResponseText(error: unknown): string | undefined {
 	return providerFailureResponseText(error);
 }
@@ -15439,10 +14500,6 @@ export function runtimeFailureLogs(error: unknown): RuntimeFailureLog[] {
 		];
 	}
 	return [];
-}
-
-function runtimeErrorText(error: unknown): string {
-	return error instanceof Error ? error.message : String(error);
 }
 
 function jitteredDelay(baseMs: number): number {

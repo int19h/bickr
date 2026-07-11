@@ -6,8 +6,6 @@ import type {
 	JsonObject,
 } from '@bickr/shared/model';
 
-export const providerContextCompletionReserveTokens = 5_000;
-
 export type ProviderSettings = {
 	apiKey?: string;
 	baseUrl: string;

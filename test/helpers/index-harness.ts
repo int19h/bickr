@@ -151,9 +151,7 @@ import {
 	toolDefinitionsForProviderRound,
 	type ProviderToolDefinition,
 } from "../../workers/agent-runtime/src/prompt-and-tools";
-import {
-	providerContextCompletionReserveTokens,
-} from "../../workers/agent-runtime/src/provider-requests";
+import { providerContextCompletionReserveTokens } from "../../workers/agent-runtime/src/constants";
 import forumCoordinatorWorker, {
 	ExclusiveOperationQueue,
 	handleForumCoordinatorRequest,
