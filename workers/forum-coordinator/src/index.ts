@@ -10,12 +10,22 @@ import {
 } from "@bickr/shared/governance";
 import { RepositoryError, createForum, createWorld, listForums } from "@bickr/shared/repository";
 import { deleteSearchVector, upsertForumSearchVector, upsertWorldSearchVector } from "@bickr/shared/search";
-import { createComment, createThread, pruneExpiredBotSeenContent, pruneExpiredNotifications, readThread, refreshThreadHotScores, setVote } from "@bickr/shared/social";
+import {
+	createComment,
+	createThread,
+	normalizeThreadDefaults,
+	pruneExpiredBotSeenContent,
+	pruneExpiredNotifications,
+	readThread,
+	refreshThreadHotScores,
+	setVote,
+} from "@bickr/shared/social";
 import { pruneBotInferenceUsage } from "@bickr/shared/token-spend";
-import { type ThreadDocument } from "@bickr/shared/model";
+import { type LegacyThreadDocument, type ThreadDocument } from "@bickr/shared/model";
 import {
 	addInternalServiceAuthHeader,
 	type InternalServiceAuthEnv,
+	internalServiceUrl,
 	isTrustedInternalServiceRequest,
 } from "@bickr/shared/internal-service";
 import {
@@ -31,6 +41,18 @@ import {
 } from "@bickr/shared/validation";
 import { json } from "@bickr/shared/http";
 import { repairObjectIndexes } from "@bickr/shared/index-repair";
+import {
+	kvNormalizationEntityTypes,
+	kvNormalizationSweepMaxRowsPerRun,
+	kvNormalizationSweepMaxWritesPerRun,
+	isThreadNormalizationOutcome,
+	isWithinKvNormalizationQuietPeriod,
+	normalizeKvDocuments,
+	type KvNormalizationEntityType,
+	type ThreadNormalizationOutcome,
+	type ThreadNormalizationRequest,
+} from "@bickr/shared/kv-normalization-sweep";
+import { kvKeys, readJson, writeJson } from "@bickr/shared/storage";
 
 export interface Env {
 	BICKR_D1: D1Database;
@@ -241,6 +263,14 @@ async function handleThreadCoordinatorMutation(
 	coordinator: CoordinatorContext,
 	url: URL,
 ): Promise<Response | null> {
+	const threadNormalizeMatch = /^\/threads\/([^/]+)\/normalize$/.exec(url.pathname);
+	if (request.method === "POST" && threadNormalizeMatch) {
+		const threadId = decodeURIComponent(threadNormalizeMatch[1] ?? "");
+		const input = parseThreadNormalizationRequest(await readJsonBody(request), threadId);
+		const normalization = await normalizeThreadThroughCoordinator(env, coordinator, input);
+		return ok({ normalization, coordinator: coordinator.objectId });
+	}
+
 	const threadCreateMatch = /^\/forums\/([^/]+)\/threads$/.exec(url.pathname);
 	if (request.method === "POST" && threadCreateMatch) {
 		const actor = requireBotActor(request);
@@ -455,6 +485,16 @@ async function handleForumWorkerFetch(request: Request, env: Env): Promise<Respo
 		});
 	}
 
+	if (request.method === "POST" && url.pathname === "/maintenance/kv-normalize-sweep") {
+		const input = parseKvNormalizationSweepInput(await readJsonBody(request));
+		const sweepEnv = {
+			...env,
+			normalizeThread: (normalizationRequest: ThreadNormalizationRequest) =>
+				requestThreadNormalization(env, normalizationRequest),
+		};
+		return json(await normalizeKvDocuments(sweepEnv, input.entityType, input.options));
+	}
+
 	const response =
 		await routeWorldCoordinatorRequest(request, env, url) ??
 		await routeForumCoordinatorRequest(request, env, url) ??
@@ -462,6 +502,130 @@ async function handleForumWorkerFetch(request: Request, env: Env): Promise<Respo
 		await routeCommentCoordinatorRequest(request, env, url) ??
 		await routeVoteCoordinatorRequest(request, env, url);
 	return response ?? forumCoordinatorNotFoundResponse();
+}
+
+function parseKvNormalizationSweepInput(body: unknown): {
+	entityType: KvNormalizationEntityType;
+	options: { maxRowsPerRun?: number; maxWritesPerRun?: number };
+} {
+	if (!body || typeof body !== "object" || Array.isArray(body)) {
+		throw new InputError("KV normalization sweep input must be an object.");
+	}
+	const record = body as Record<string, unknown>;
+	const entityType = record.entityType;
+	if (typeof entityType !== "string" || !isKvNormalizationEntityType(entityType)) {
+		throw new InputError(`entityType must be one of: ${kvNormalizationEntityTypes.join(", ")}.`);
+	}
+	return {
+		entityType,
+		options: {
+			...optionalSweepBudget(record, "maxRowsPerRun", kvNormalizationSweepMaxRowsPerRun),
+			...optionalSweepBudget(record, "maxWritesPerRun", kvNormalizationSweepMaxWritesPerRun),
+		},
+	};
+}
+
+function optionalSweepBudget(
+	record: Record<string, unknown>,
+	name: "maxRowsPerRun" | "maxWritesPerRun",
+	maximum: number,
+): { maxRowsPerRun?: number; maxWritesPerRun?: number } {
+	const value = record[name];
+	if (value === undefined) {
+		return {};
+	}
+	if (!Number.isInteger(value) || (value as number) <= 0 || (value as number) > maximum) {
+		throw new InputError(`${name} must be a positive integer no greater than ${maximum}.`);
+	}
+	return { [name]: value as number };
+}
+
+function isKvNormalizationEntityType(value: string): value is KvNormalizationEntityType {
+	return (kvNormalizationEntityTypes as readonly string[]).includes(value);
+}
+
+async function requestThreadNormalization(
+	env: Env,
+	input: ThreadNormalizationRequest,
+): Promise<ThreadNormalizationOutcome> {
+	const objectId = env.FORUM_COORDINATOR.idFromName(input.threadId);
+	const headers = new Headers({ "content-type": "application/json" });
+	addInternalServiceAuthHeader(headers, env.INTERNAL_SERVICE_SECRET);
+	const response = await env.FORUM_COORDINATOR.get(objectId).fetch(new Request(
+		internalServiceUrl(`/threads/${encodeURIComponent(input.threadId)}/normalize`),
+		{
+			method: "POST",
+			headers,
+			body: JSON.stringify({
+				expectedRevision: input.expectedRevision,
+				expectedUpdatedAt: input.expectedUpdatedAt,
+			}),
+		},
+	));
+	if (!response.ok) {
+		throw new RepositoryError("server_error", "Thread normalization coordinator request failed.", 500);
+	}
+	const payload: unknown = await response.json();
+	const data = payload && typeof payload === "object" && !Array.isArray(payload) ?
+		(payload as Record<string, unknown>).data
+	:	null;
+	const normalization = data && typeof data === "object" && !Array.isArray(data) ?
+		(data as Record<string, unknown>).normalization
+	:	null;
+	if (!isThreadNormalizationOutcome(normalization)) {
+		throw new RepositoryError("server_error", "Thread normalization coordinator returned an invalid result.", 500);
+	}
+	return normalization;
+}
+
+function parseThreadNormalizationRequest(body: unknown, threadId: string): ThreadNormalizationRequest {
+	if (!body || typeof body !== "object" || Array.isArray(body)) {
+		throw new InputError("Thread normalization input must be an object.");
+	}
+	const record = body as Record<string, unknown>;
+	if (!Number.isInteger(record.expectedRevision)) {
+		throw new InputError("expectedRevision must be an integer.");
+	}
+	if (typeof record.expectedUpdatedAt !== "string" || !record.expectedUpdatedAt) {
+		throw new InputError("expectedUpdatedAt must be a timestamp.");
+	}
+	return {
+		threadId,
+		expectedRevision: record.expectedRevision as number,
+		expectedUpdatedAt: record.expectedUpdatedAt,
+	};
+}
+
+async function normalizeThreadThroughCoordinator(
+	env: ForumCoordinatorEnv,
+	coordinator: CoordinatorContext,
+	input: ThreadNormalizationRequest,
+): Promise<ThreadNormalizationOutcome> {
+	const cached = await readFreshThreadDocument(coordinator, input.threadId);
+	const current = cached ?? await readJson<ThreadDocument | LegacyThreadDocument>(
+		env.BICKR_KV,
+		kvKeys.thread(input.threadId),
+	);
+	if (
+		!current ||
+		current.id !== input.threadId ||
+		current.type !== "thread" ||
+		current.revision !== input.expectedRevision ||
+		current.updatedAt !== input.expectedUpdatedAt
+	) {
+		return { kind: "skipped_changed" };
+	}
+	if (isWithinKvNormalizationQuietPeriod(current.updatedAt)) {
+		return { kind: "skipped_recently_updated" };
+	}
+	const normalized = normalizeThreadDefaults(current);
+	if (JSON.stringify(normalized) !== JSON.stringify(current)) {
+		await writeJson(env.BICKR_KV, kvKeys.thread(input.threadId), normalized);
+		await writeFreshThread(coordinator, normalized);
+		return { kind: "rewritten" };
+	}
+	await writeFreshThread(coordinator, normalized);
+	return { kind: "unchanged" };
 }
 
 async function routeWorldCoordinatorRequest(request: Request, env: Env, url: URL): Promise<Response | null> {
@@ -551,11 +715,19 @@ async function readFreshThread(
 	context: CoordinatorContext,
 	threadId: string,
 ): Promise<ThreadDocument | null> {
+	const thread = await readFreshThreadDocument(context, threadId);
+	if (thread?.deletedAt) {
+		throw new RepositoryError("not_found", "Thread not found.", 404);
+	}
+	return thread;
+}
+
+async function readFreshThreadDocument(
+	context: CoordinatorContext,
+	threadId: string,
+): Promise<ThreadDocument | null> {
 	const memoryEntry = freshCacheEntryForThread(context.cache?.entry ?? null, threadId, Date.now());
 	if (memoryEntry) {
-		if (memoryEntry.thread.deletedAt) {
-			throw new RepositoryError("not_found", "Thread not found.", 404);
-		}
 		return memoryEntry.thread;
 	}
 
@@ -574,9 +746,6 @@ async function readFreshThread(
 
 	if (context.cache) {
 		context.cache.entry = validStoredEntry;
-	}
-	if (validStoredEntry.thread.deletedAt) {
-		throw new RepositoryError("not_found", "Thread not found.", 404);
 	}
 	return validStoredEntry.thread;
 }

@@ -3957,6 +3957,7 @@ export function normalizeWorldDefaults(world: WorldDocument): WorldDocument {
 	const language = languageFromStored(typeof raw.language === "string" ? raw.language : null);
 	return {
 		...world,
+		schemaVersion,
 		language,
 		name: localizedTextFromStored(raw.name, language),
 		description: localizedTextFromStored(raw.description, language),
@@ -3974,17 +3975,19 @@ export function normalizeForumDefaults(forum: ForumDocument): ForumDocument {
 	const language = languageFromStored(typeof raw.language === "string" ? raw.language : null);
 	return {
 		...forum,
+		schemaVersion,
 		language,
 		description: localizedTextFromStored(raw.description, language),
 	};
 }
 
-function normalizeBotDefaults(bot: BotDocument): BotDocument {
+export function normalizeBotDefaults(bot: BotDocument): BotDocument {
 	const raw = bot as BotDocument & Record<string, unknown>;
 	const language = languageFromStored(typeof raw.language === "string" ? raw.language : null);
 	const rawIncludeLanguageInSystemPrompt = raw.includeLanguageInSystemPrompt;
 	return {
 		...bot,
+		schemaVersion,
 		language,
 		includeLanguageInSystemPrompt:
 			typeof rawIncludeLanguageInSystemPrompt === "boolean" ? rawIncludeLanguageInSystemPrompt
@@ -4003,12 +4006,13 @@ function normalizeBotDefaults(bot: BotDocument): BotDocument {
 	};
 }
 
-function normalizeUserDefaults(user: UserDocument): UserDocument {
+export function normalizeUserDefaults(user: UserDocument): UserDocument {
 	const { avatarUrl: _legacyAvatarUrl, ...withoutLegacyAvatarUrl } = user as UserDocument & Record<string, unknown> & { avatarUrl?: string };
 	const raw = withoutLegacyAvatarUrl as UserDocument & Record<string, unknown>;
 	const language = languageFromStored(typeof raw.language === "string" ? raw.language : null);
 	return {
 		...withoutLegacyAvatarUrl,
+		schemaVersion,
 		language,
 		...(uiLocaleFromStored(typeof raw.uiLocale === "string" ? raw.uiLocale : null) ?
 			{ uiLocale: uiLocaleFromStored(typeof raw.uiLocale === "string" ? raw.uiLocale : null) }

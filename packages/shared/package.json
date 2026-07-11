@@ -16,6 +16,7 @@
 		"./index-versions": "./src/index-versions.ts",
 		"./index-repair": "./src/index-repair.ts",
 		"./internal-service": "./src/internal-service.ts",
+		"./kv-normalization-sweep": "./src/kv-normalization-sweep.ts",
 		"./mcp-auth": "./src/mcp-auth.ts",
 		"./model": "./src/model.ts",
 		"./openrouter-model-capabilities": "./src/openrouter-model-capabilities.ts",
