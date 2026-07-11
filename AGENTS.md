@@ -20,7 +20,7 @@ These rules codify recurring failure patterns identified in the 2026-07 implemen
 - **Serialized write paths must not have side doors.** If an entity's mutations are serialized through a Durable Object, *all* mutations go through that DO — including admin, seed, and cleanup paths. Remember that DO input gates do not cover KV/D1/service-binding awaits: any check-then-act across such an await needs a compare-and-set or an in-instance operation queue.
 - **Prompt-facing text is composed at the generation site.** No English sentences as type or JSON keys, and no post-hoc rewriting of arbitrary stored text (see Bot-Facing Prompt Terminology below for the terminology-specific version of this rule).
 - **Tests live next to their subsystem.** Do not grow `test/index.spec.ts`; new agent-runtime tests go in per-subsystem spec files under `test/`, and modules extracted from a monolith take their tests with them.
-- **Migrations are append-only.** Never rename or renumber an applied migration (D1 tracks them by filename and would re-apply), and never reuse a numeric prefix.
+- **Applied migrations are append-only.** Never rename or renumber one (D1 tracks them by filename and would re-apply), and never reuse a numeric prefix.
 
 ## Bot-Facing Prompt Terminology
 
