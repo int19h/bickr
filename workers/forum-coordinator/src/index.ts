@@ -3,6 +3,7 @@ import { isD1UniqueConstraintError } from "@bickr/shared/d1-errors";
 import {
 	deleteComment,
 	deleteForum,
+	deleteForumForWorld,
 	deleteThread,
 	deleteWorld,
 	updateForum,
@@ -19,6 +20,7 @@ import {
 	readThread,
 	refreshThreadHotScores,
 	setVote,
+	softDeleteThreadForForum,
 } from "@bickr/shared/social";
 import { pruneBotInferenceUsage } from "@bickr/shared/token-spend";
 import { type ThreadDocument } from "@bickr/shared/model";
@@ -58,6 +60,12 @@ import {
 	resyncPersonalForumDescriptions,
 } from "@bickr/shared/personal-forum-description-sweep";
 import { kvKeys, readJson, writeJson } from "@bickr/shared/storage";
+import {
+	type ForumThreadDeletionRequest,
+	runForumThreadDeletionSweep,
+	runWorldForumDeletionSweep,
+	type WorldForumDeletionRequest,
+} from "@bickr/shared/governance-deletion-sweep";
 
 export interface Env {
 	BICKR_D1: D1Database;
@@ -69,7 +77,8 @@ export interface Env {
 	FORUM_COORDINATOR: DurableObjectNamespace;
 }
 
-type ForumCoordinatorEnv = Pick<Env, "AI" | "BICKR_D1" | "BICKR_KV" | "BICKR_SEARCH_VECTORIZE">;
+type ForumCoordinatorEnv = Pick<Env, "AI" | "BICKR_D1" | "BICKR_KV" | "BICKR_SEARCH_VECTORIZE"> &
+	Partial<Pick<Env, "FORUM_COORDINATOR" | "INTERNAL_SERVICE_SECRET">>;
 
 type CoordinatorContext = {
 	cache?: ThreadFreshCacheRef;
@@ -90,6 +99,14 @@ type ThreadFreshCacheRef = {
 
 const threadFreshCacheStorageKey = "thread-fresh-cache";
 const threadFreshCacheTtlMs = 5 * 60 * 1000;
+// One task record is retained only until the owning coordinator's bounded
+// governance fan-out completes; completion deletes both the task and alarm.
+const governanceDeletionTaskStorageKey = "governance-deletion-task";
+const governanceDeletionAlarmDelayMs = 1_000;
+
+type GovernanceDeletionTask =
+	| { kind: "forum_threads"; deletedAt: string; forumId: string }
+	| { kind: "world_forums"; deletedAt: string; worldId: string };
 
 export class ExclusiveOperationQueue {
 	private pending: Promise<void> = Promise.resolve();
@@ -129,6 +146,14 @@ export class WorldCoordinator {
 			storage: this.state.storage,
 		});
 	}
+
+	async alarm(alarmInfo?: AlarmInvocationInfo): Promise<void> {
+		await runGovernanceDeletionAlarm(this.env, {
+			objectId: this.state.id.toString(),
+			queue: this.queue,
+			storage: this.state.storage,
+		}, alarmInfo);
+	}
 }
 
 export class ForumCoordinator {
@@ -152,6 +177,15 @@ export class ForumCoordinator {
 			queue: this.queue,
 			storage: this.state.storage,
 		});
+	}
+
+	async alarm(alarmInfo?: AlarmInvocationInfo): Promise<void> {
+		await runGovernanceDeletionAlarm(this.env, {
+			cache: this.threadFreshCache,
+			objectId: this.state.id.toString(),
+			queue: this.queue,
+			storage: this.state.storage,
+		}, alarmInfo);
 	}
 }
 
@@ -217,8 +251,14 @@ async function handleWorldCoordinatorMutation(
 		return ok({ world, coordinator: coordinator.objectId });
 	}
 	if (request.method === "DELETE") {
-		const world = await deleteWorld(env.BICKR_KV, env.BICKR_D1, worldHandle, userId);
+		const deletedAt = new Date().toISOString();
+		const world = await deleteWorld(env.BICKR_KV, env.BICKR_D1, worldHandle, userId, deletedAt);
 		await deleteSearchVector(env, "world", world.id);
+		await startGovernanceDeletionTask(env, coordinator, {
+			kind: "world_forums",
+			deletedAt,
+			worldId: world.id,
+		});
 		return ok({ world, coordinator: coordinator.objectId });
 	}
 	return null;
@@ -230,6 +270,20 @@ async function handleForumCoordinatorMutation(
 	coordinator: CoordinatorContext,
 	url: URL,
 ): Promise<Response | null> {
+	const internalForumDeleteMatch = /^\/forums\/([^/]+)\/soft-delete$/.exec(url.pathname);
+	if (request.method === "POST" && internalForumDeleteMatch) {
+		const forumId = decodeURIComponent(internalForumDeleteMatch[1] ?? "");
+		const input = parseWorldForumDeletionRequest(await readJsonBody(request), forumId);
+		const forum = await deleteForumForWorld(env.BICKR_KV, env.BICKR_D1, input.worldId, forumId, input.deletedAt);
+		await deleteSearchVector(env, "forum", forum.id);
+		await startGovernanceDeletionTask(env, coordinator, {
+			kind: "forum_threads",
+			deletedAt: forum.deletedAt ?? input.deletedAt,
+			forumId: forum.id,
+		}, { runInitialBatch: false });
+		return ok({ forum, coordinator: coordinator.objectId });
+	}
+
 	const forumCreateMatch = /^\/worlds\/([^/]+)\/forums$/.exec(url.pathname);
 	if (request.method === "POST" && forumCreateMatch) {
 		const userId = requireUserHeader(request);
@@ -254,8 +308,14 @@ async function handleForumCoordinatorMutation(
 		return ok({ forum, coordinator: coordinator.objectId });
 	}
 	if (request.method === "DELETE") {
-		const forum = await deleteForum(env.BICKR_KV, env.BICKR_D1, worldHandle, forumHandle, userId);
+		const deletedAt = new Date().toISOString();
+		const forum = await deleteForum(env.BICKR_KV, env.BICKR_D1, worldHandle, forumHandle, userId, deletedAt);
 		await deleteSearchVector(env, "forum", forum.id);
+		await startGovernanceDeletionTask(env, coordinator, {
+			kind: "forum_threads",
+			deletedAt,
+			forumId: forum.id,
+		});
 		return ok({ forum, coordinator: coordinator.objectId });
 	}
 	return null;
@@ -267,6 +327,25 @@ async function handleThreadCoordinatorMutation(
 	coordinator: CoordinatorContext,
 	url: URL,
 ): Promise<Response | null> {
+	const threadSoftDeleteMatch = /^\/threads\/([^/]+)\/soft-delete$/.exec(url.pathname);
+	if (request.method === "POST" && threadSoftDeleteMatch) {
+		const threadId = decodeURIComponent(threadSoftDeleteMatch[1] ?? "");
+		const input = parseForumThreadDeletionRequest(await readJsonBody(request), threadId);
+		const latestThread = await readFreshThreadDocument(coordinator, threadId);
+		const thread = await softDeleteThreadForForum(
+			env.BICKR_KV,
+			env.BICKR_D1,
+			input.forumId,
+			threadId,
+			input.deletedAt,
+			{ ...(latestThread ? { thread: latestThread } : {}) },
+		);
+		if (thread) {
+			await writeFreshThread(coordinator, thread);
+		}
+		return ok({ deletion: { kind: thread ? "deleted" : "missing" }, coordinator: coordinator.objectId });
+	}
+
 	const threadNormalizeMatch = /^\/threads\/([^/]+)\/normalize$/.exec(url.pathname);
 	if (request.method === "POST" && threadNormalizeMatch) {
 		const threadId = decodeURIComponent(threadNormalizeMatch[1] ?? "");
@@ -567,6 +646,195 @@ function isKvNormalizationEntityType(value: string): value is KvNormalizationEnt
 	return (kvNormalizationEntityTypes as readonly string[]).includes(value);
 }
 
+async function startGovernanceDeletionTask(
+	env: ForumCoordinatorEnv,
+	coordinator: CoordinatorContext,
+	task: GovernanceDeletionTask,
+	options: { runInitialBatch?: boolean } = {},
+): Promise<void> {
+	await coordinator.storage?.put(governanceDeletionTaskStorageKey, task);
+	// Arm continuation before doing any fan-out. If this invocation is evicted
+	// or fails between a child deletion and its cursor checkpoint, the alarm
+	// retries the idempotent child operation instead of stranding the task.
+	await coordinator.storage?.setAlarm(Date.now() + governanceDeletionAlarmDelayMs);
+	// World deletion only starts each forum's task here. Its forum coordinator
+	// alarm owns the thread fan-out, avoiding a world invocation that nests a
+	// full thread batch inside every forum in its own bounded batch. Test-only
+	// direct contexts have no durable storage, so they still complete inline.
+	if (options.runInitialBatch === false && coordinator.storage) {
+		return;
+	}
+	await runGovernanceDeletionTask(env, coordinator, task);
+}
+
+export async function runPendingGovernanceDeletionTask(
+	env: ForumCoordinatorEnv,
+	coordinator: CoordinatorContext,
+): Promise<boolean> {
+	const task = await coordinator.storage?.get<GovernanceDeletionTask>(governanceDeletionTaskStorageKey);
+	if (!task) {
+		return false;
+	}
+	assertGovernanceDeletionTask(task);
+	await runGovernanceDeletionTask(env, coordinator, task);
+	return true;
+}
+
+async function runGovernanceDeletionAlarm(
+	env: ForumCoordinatorEnv,
+	coordinator: CoordinatorContext,
+	alarmInfo?: AlarmInvocationInfo,
+): Promise<void> {
+	const operation = () => runPendingGovernanceDeletionTask(env, coordinator);
+	try {
+		if (coordinator.queue) {
+			await coordinator.queue.run(operation);
+		} else {
+			await operation();
+		}
+	} catch (error) {
+		// Cloudflare retries a failed alarm six times. Before that retry budget is
+		// exhausted, replace it with a fresh alarm so the persisted task cannot be
+		// stranded by a prolonged downstream failure.
+		if ((alarmInfo?.retryCount ?? 0) >= 5 && coordinator.storage) {
+			await coordinator.storage.setAlarm(Date.now() + governanceDeletionAlarmDelayMs);
+			return;
+		}
+		throw error;
+	}
+}
+
+async function runGovernanceDeletionTask(
+	env: ForumCoordinatorEnv,
+	coordinator: CoordinatorContext,
+	task: GovernanceDeletionTask,
+): Promise<void> {
+	const result = task.kind === "forum_threads" ?
+		await runForumThreadDeletionSweep({
+			BICKR_D1: env.BICKR_D1,
+			BICKR_KV: env.BICKR_KV,
+			deleteThread: (request) => requestThreadSoftDeletion(env, request),
+		}, task)
+	:	await runWorldForumDeletionSweep({
+			BICKR_D1: env.BICKR_D1,
+			BICKR_KV: env.BICKR_KV,
+			deleteForum: (request) => requestForumSoftDeletion(env, request),
+		}, task);
+
+	if (result.done) {
+		await coordinator.storage?.delete(governanceDeletionTaskStorageKey);
+		await coordinator.storage?.deleteAlarm();
+		return;
+	}
+	if (!coordinator.storage) {
+		return;
+	}
+	await coordinator.storage.setAlarm(Date.now() + governanceDeletionAlarmDelayMs);
+}
+
+async function requestThreadSoftDeletion(
+	env: ForumCoordinatorEnv,
+	input: ForumThreadDeletionRequest,
+): Promise<void> {
+	const request = internalJsonRequest(
+		env,
+		`/threads/${encodeURIComponent(input.threadId)}/soft-delete`,
+		input,
+	);
+	const response = env.FORUM_COORDINATOR ?
+		await env.FORUM_COORDINATOR.get(env.FORUM_COORDINATOR.idFromName(input.threadId)).fetch(request)
+	:	await handleForumCoordinatorRequest(request, env, {
+			cache: { entry: null },
+			objectId: input.threadId,
+			queue: new ExclusiveOperationQueue(),
+		});
+	if (!response.ok) {
+		throw new RepositoryError("server_error", "Thread deletion coordinator request failed.", 500);
+	}
+}
+
+async function requestForumSoftDeletion(
+	env: ForumCoordinatorEnv,
+	input: WorldForumDeletionRequest,
+): Promise<void> {
+	const request = internalJsonRequest(
+		env,
+		`/forums/${encodeURIComponent(input.forumId)}/soft-delete`,
+		input,
+	);
+	const response = env.FORUM_COORDINATOR ?
+		await env.FORUM_COORDINATOR.get(env.FORUM_COORDINATOR.idFromName(input.forumId)).fetch(request)
+	:	await handleForumCoordinatorRequest(request, env, {
+			objectId: input.forumId,
+			queue: new ExclusiveOperationQueue(),
+		});
+	if (!response.ok) {
+		throw new RepositoryError("server_error", "Forum deletion coordinator request failed.", 500);
+	}
+}
+
+function internalJsonRequest(
+	env: Pick<ForumCoordinatorEnv, "INTERNAL_SERVICE_SECRET">,
+	path: string,
+	body: unknown,
+): Request {
+	const headers = new Headers({ "content-type": "application/json" });
+	addInternalServiceAuthHeader(headers, env.INTERNAL_SERVICE_SECRET);
+	return new Request(internalServiceUrl(path), {
+		method: "POST",
+		headers,
+		body: JSON.stringify(body),
+	});
+}
+
+function assertGovernanceDeletionTask(value: GovernanceDeletionTask): void {
+	if (
+		Number.isFinite(Date.parse(value.deletedAt)) && (
+			(value.kind === "forum_threads" && value.forumId) ||
+			(value.kind === "world_forums" && value.worldId)
+		)
+	) {
+		return;
+	}
+	throw new Error("Invalid persisted governance deletion task.");
+}
+
+function parseForumThreadDeletionRequest(body: unknown, threadId: string): ForumThreadDeletionRequest {
+	const record = requiredDeletionRequestRecord(body);
+	return {
+		deletedAt: requiredDeletionRequestString(record, "deletedAt"),
+		forumId: requiredDeletionRequestString(record, "forumId"),
+		threadId,
+	};
+}
+
+function parseWorldForumDeletionRequest(body: unknown, forumId: string): WorldForumDeletionRequest {
+	const record = requiredDeletionRequestRecord(body);
+	return {
+		deletedAt: requiredDeletionRequestString(record, "deletedAt"),
+		forumId,
+		worldId: requiredDeletionRequestString(record, "worldId"),
+	};
+}
+
+function requiredDeletionRequestRecord(body: unknown): Record<string, unknown> {
+	if (!body || typeof body !== "object" || Array.isArray(body)) {
+		throw new InputError("Governance deletion input must be an object.");
+	}
+	return body as Record<string, unknown>;
+}
+
+function requiredDeletionRequestString(record: Record<string, unknown>, name: "deletedAt" | "forumId" | "worldId"): string {
+	const value = record[name];
+	if (typeof value !== "string" || !value) {
+		throw new InputError(`${name} must be a non-empty string.`);
+	}
+	if (name === "deletedAt" && !Number.isFinite(Date.parse(value))) {
+		throw new InputError("deletedAt must be a timestamp.");
+	}
+	return value;
+}
+
 async function requestThreadNormalization(
 	env: Env,
 	input: ThreadNormalizationRequest,
@@ -664,7 +932,14 @@ async function routeWorldCoordinatorRequest(request: Request, env: Env, url: URL
 		return null;
 	}
 	const worldHandle = normalizeHandle(decodeURIComponent(worldManageMatch[1] ?? ""));
-	const objectId = env.WORLD_COORDINATOR.idFromName(worldHandle);
+	const row = await env.BICKR_D1.prepare(
+		`SELECT world_id AS worldId
+		 FROM worlds_index
+		 WHERE handle = ? AND deleted_at IS NULL`,
+	)
+		.bind(worldHandle)
+		.first<{ worldId: string }>();
+	const objectId = env.WORLD_COORDINATOR.idFromName(row?.worldId ?? worldHandle);
 	return env.WORLD_COORDINATOR.get(objectId).fetch(request);
 }
 
@@ -673,16 +948,36 @@ async function routeForumCoordinatorRequest(request: Request, env: Env, url: URL
 	if (request.method === "POST" && forumCreateMatch) {
 		const worldHandle = normalizeHandle(decodeURIComponent(forumCreateMatch[1] ?? ""));
 		const body = await readJsonBody(request.clone());
-		const input = parseCreateForumInput(body);
-		const objectId = env.FORUM_COORDINATOR.idFromName(`${worldHandle}:${input.handle}`);
-		return env.FORUM_COORDINATOR.get(objectId).fetch(jsonRequest(env, url, request, body));
+		parseCreateForumInput(body);
+		const row = await env.BICKR_D1.prepare(
+			`SELECT world_id AS worldId
+			 FROM worlds_index
+			 WHERE handle = ? AND deleted_at IS NULL`,
+		)
+			.bind(worldHandle)
+			.first<{ worldId: string }>();
+		// Forum creation shares the world coordinator with world deletion. A
+		// creation that wins the queue is included in the world sweep; one that
+		// loses observes the deleted world and is rejected.
+		const objectId = env.WORLD_COORDINATOR.idFromName(row?.worldId ?? worldHandle);
+		return env.WORLD_COORDINATOR.get(objectId).fetch(jsonRequest(env, url, request, body));
 	}
 
 	const forumManageMatch = /^\/worlds\/([^/]+)\/forums\/([^/]+)$/.exec(url.pathname);
 	if (forumManageMatch && (request.method === "PATCH" || request.method === "DELETE")) {
 		const worldHandle = normalizeHandle(decodeURIComponent(forumManageMatch[1] ?? ""));
 		const forumHandle = normalizeHandle(decodeURIComponent(forumManageMatch[2] ?? ""));
-		const objectId = env.FORUM_COORDINATOR.idFromName(`${worldHandle}:${forumHandle}`);
+		const row = await env.BICKR_D1.prepare(
+			`SELECT forum_id AS forumId
+			 FROM forums_index
+			 WHERE world_handle = ? AND handle = ? AND deleted_at IS NULL`,
+		)
+			.bind(worldHandle, forumHandle)
+			.first<{ forumId: string }>();
+		// Forum mutations and thread creation share the forum-ID coordinator.
+		// The handle fallback preserves the normal not-found response when there
+		// is no live forum to resolve.
+		const objectId = env.FORUM_COORDINATOR.idFromName(row?.forumId ?? `${worldHandle}:${forumHandle}`);
 		return env.FORUM_COORDINATOR.get(objectId).fetch(request);
 	}
 

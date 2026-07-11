@@ -30,7 +30,6 @@ import {
 	rootCommentForThread,
 	softDeleteComment,
 	softDeleteThread,
-	softDeleteThreadsInForum,
 } from "./social";
 import {
 	type D1DatabaseLike,
@@ -221,14 +220,6 @@ export async function deleteWorld(
 		throw new RepositoryError("forbidden", "Worlds can only be deleted after all bots in them are deleted.", 403);
 	}
 
-	const forums = await db
-		.prepare(`SELECT forum_id AS id FROM forums_index WHERE world_id = ? AND deleted_at IS NULL`)
-		.bind(world.id)
-		.all<{ id: string }>();
-	for (const row of forums.results ?? []) {
-		const forum = await forumDocumentById(kv, db, row.id);
-		await softDeleteForum(kv, db, forum, now);
-	}
 	await softDeleteBotGroupsForWorld(db, world.id, now);
 
 	const tombstonedHandle = tombstoneHandle(world.id);
@@ -312,8 +303,23 @@ export async function deleteForum(
 ): Promise<ForumSummary> {
 	const forum = await forumDocumentByHandle(kv, db, worldHandle, forumHandle);
 	await assertCanModerateForum(db, forum, userId);
-	const deleted = await softDeleteForum(kv, db, forum, now);
+	const deleted = await markForumDeleted(kv, db, forum, now);
 	return forumSummary(deleted);
+}
+
+export async function deleteForumForWorld(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	worldId: string,
+	forumId: string,
+	now: string,
+): Promise<ForumDocument> {
+	const forum = await readJson<ForumDocument>(kv, kvKeys.forum(forumId));
+	if (!forum || forum.id !== forumId || forum.worldId !== worldId) {
+		throw new RepositoryError("not_found", "Forum not found in this world.", 404);
+	}
+	const normalized = normalizeForumDefaults(forum);
+	return markForumDeleted(kv, db, normalized, normalized.deletedAt ?? now);
 }
 
 export async function deleteThread(
@@ -359,15 +365,14 @@ export async function deleteComment(
 	return softDeleteComment(kv, db, thread, commentId, now);
 }
 
-async function softDeleteForum(
+async function markForumDeleted(
 	kv: KVNamespaceLike,
 	db: D1DatabaseLike,
 	forum: ForumDocument,
 	now: string,
 ): Promise<ForumDocument> {
-	await softDeleteThreadsInForum(kv, db, forum.id, now);
 	const tombstonedHandle = tombstoneHandle(forum.id);
-	const deleted: ForumDocument = {
+	const deleted: ForumDocument = forum.deletedAt ? forum : {
 		...forum,
 		handle: tombstonedHandle,
 		handleAtDeletion: forum.handleAtDeletion ?? forum.handle,

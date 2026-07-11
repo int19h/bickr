@@ -11,6 +11,7 @@
 		"./cloudflare": "./src/cloudflare.ts",
 		"./d1-errors": "./src/d1-errors.ts",
 		"./governance": "./src/governance.ts",
+		"./governance-deletion-sweep": "./src/governance-deletion-sweep.ts",
 		"./handles": "./src/handles.ts",
 		"./ids": "./src/ids.ts",
 		"./index-versions": "./src/index-versions.ts",

@@ -431,17 +431,48 @@ async function forumById(
 	forumId: string,
 ): Promise<ForumDocument> {
 	const row = await db
-		.prepare(`SELECT deleted_at AS deletedAt FROM forums_index WHERE forum_id = ?`)
+		.prepare(
+			`SELECT
+				f.world_id AS worldId,
+				f.deleted_at AS forumDeletedAt,
+				w.deleted_at AS worldDeletedAt
+			 FROM forums_index f
+			 JOIN worlds_index w ON w.world_id = f.world_id
+			 WHERE f.forum_id = ?`,
+		)
 		.bind(forumId)
-		.first<{ deletedAt: string | null }>();
-	if (!row || row.deletedAt) {
+		.first<{ forumDeletedAt: string | null; worldDeletedAt: string | null; worldId: string }>();
+	if (!row) {
 		throw repositoryError("not_found", "Forum not found.", 404);
 	}
-	const forum = await readJson<ForumDocument>(kv, kvKeys.forum(forumId));
-	if (!forum || forum.deletedAt) {
+	const [forum, world] = await Promise.all([
+		readJson<ForumDocument>(kv, kvKeys.forum(forumId)),
+		readJson<WorldDocument>(kv, kvKeys.world(row.worldId)),
+	]);
+	if (!forum) {
 		throw repositoryError("not_found", "Forum not found.", 404);
+	}
+	if (!world) {
+		throw repositoryError("not_found", "This forum's world was not found.", 404);
+	}
+	if (row.worldDeletedAt || world.deletedAt) {
+		throw repositoryError("not_found", "This forum's world has been deleted.", 410);
+	}
+	if (row.forumDeletedAt || forum.deletedAt) {
+		throw repositoryError("not_found", "This forum has been deleted.", 410);
 	}
 	return normalizeForumDefaults(forum);
+}
+
+async function assertThreadForumIsLive(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	thread: ThreadDocument,
+): Promise<void> {
+	const forum = await forumById(kv, db, thread.forumId);
+	if (forum.worldId !== thread.worldId) {
+		throw repositoryError("not_found", "Thread not found in this forum.", 404);
+	}
 }
 
 export async function listThreads(
@@ -2469,6 +2500,7 @@ export async function createComment(
 	if (thread.id !== input.threadId) {
 		throw repositoryError("not_found", "Thread not found.", 404);
 	}
+	await assertThreadForumIsLive(kv, db, thread);
 	const bot = await botById(kv, db, input.authorBotId);
 	assertBotInWorld(bot, thread.worldId);
 	const postingSettings = await effectivePostingSettingsForAuthor(kv, thread.worldId, bot);
@@ -2558,6 +2590,7 @@ export async function setVote(
 ): Promise<ThreadDocument> {
 	const voter = await botById(kv, db, input.botId);
 	const target = await resolveVoteTarget(kv, db, input, options.thread);
+	await assertThreadForumIsLive(kv, db, target.thread);
 	assertBotInWorld(voter, target.thread.worldId);
 	const voteInput: VoteInput = {
 		...input,
@@ -2712,27 +2745,30 @@ export async function softDeleteThread(
 	return deleted;
 }
 
-export async function softDeleteThreadsInForum(
+export async function softDeleteThreadForForum(
 	kv: KVNamespaceLike,
 	db: D1DatabaseLike,
 	forumId: string,
+	threadId: string,
 	now = new Date().toISOString(),
-): Promise<number> {
-	const result = await db
-		.prepare(`SELECT thread_id AS id FROM threads_index WHERE forum_id = ? AND deleted_at IS NULL`)
-		.bind(forumId)
-		.all<{ id: string }>();
-	let deletedCount = 0;
-	for (const row of result.results ?? []) {
-		const thread = await readJson<ThreadDocument>(kv, kvKeys.thread(row.id));
-		if (thread && !thread.deletedAt) {
-			await softDeleteThread(kv, db, thread, now);
-		} else {
-			await markThreadIndexesDeleted(db, row.id, now);
-		}
-		deletedCount += 1;
+	options: { thread?: ThreadDocument } = {},
+): Promise<ThreadDocument | null> {
+	const thread = options.thread?.id === threadId ?
+		options.thread
+	:	await readJson<ThreadDocument>(kv, kvKeys.thread(threadId));
+	if (!thread) {
+		await markThreadIndexesDeleted(db, threadId, now);
+		return null;
 	}
-	return deletedCount;
+	if (thread.id !== threadId || thread.forumId !== forumId) {
+		throw repositoryError("not_found", "Thread not found in this forum.", 404);
+	}
+	if (thread.deletedAt) {
+		await markThreadIndexesDeleted(db, thread.id, thread.deletedAt);
+		await putObjectIndex(db, thread, "thread", entityIndexVersions.thread, thread.worldId);
+		return thread;
+	}
+	return softDeleteThread(kv, db, thread, now);
 }
 
 export async function softDeleteComment(
