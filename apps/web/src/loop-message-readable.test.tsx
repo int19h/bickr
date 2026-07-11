@@ -1,7 +1,8 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { BotInferenceSubmissionMessage, BotLoopMessage } from "@bickr/shared/model";
-import { LoopMessageReadableView, loopToolCallsById } from "./App";
+import { LoopMessageReadableView } from "./screens/bots/loop-message-readable";
+import { loopToolCallsById } from "./screens/bots/loop-message-values";
 
 const createdAt = "2026-05-10T12:00:00.000Z";
 
