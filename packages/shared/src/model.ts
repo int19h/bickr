@@ -286,7 +286,6 @@ export type BotInferenceSettings = {
 	cacheFriendlyCompaction?: boolean;
 	recurringPromptEnabled?: boolean;
 	recurringPrompt?: LocalizedText;
-	reasoningPrefill?: string;
 	supportsPrefill?: boolean;
 	reasoningEffort?: BotInferenceReasoningEffort;
 	toolCalls?: BotInferenceToolCalls;
@@ -488,7 +487,6 @@ export type BotInferenceSettingsInput = {
 	cacheFriendlyCompaction?: boolean | null;
 	recurringPromptEnabled?: boolean | null;
 	recurringPrompt?: LocalizedText | null;
-	reasoningPrefill?: string | null;
 	supportsPrefill?: boolean | null;
 	reasoningEffort?: BotInferenceReasoningEffort | null;
 	toolCalls?: BotInferenceToolCalls | null;

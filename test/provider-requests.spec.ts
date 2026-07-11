@@ -1624,7 +1624,7 @@ describe("Provider requests", () => {
 		expect(
 			effectiveReasoningPrefill({
 				handle: "release-sage",
-				inferenceSettings: { reasoningPrefill: "I am Release Sage, and I  " },
+				inferenceSettings: { recurringPrompt: { lang: null, text: "I am Release Sage, and I  " } },
 			}),
 		).toBe("I am Release Sage, and I  ");
 		expect(

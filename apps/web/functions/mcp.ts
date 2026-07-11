@@ -1545,7 +1545,6 @@ function inferenceSettingsSchema(description: string): Record<string, unknown> {
 		description,
 		properties: {
 			recurringPrompt: nullableLocalizedTextSchema("Optional recurring prompt. lang must match the selected profile, world, or bot language."),
-			reasoningPrefill: nullableLocalizedTextSchema("Legacy alias for recurringPrompt. Prefer recurringPrompt with { lang, text }."),
 			imageGeneration: imageGenerationSettingsSchema("Optional avatar image generation settings."),
 			image_generation: imageGenerationSettingsSchema("Optional avatar image generation settings. Prefer imageGeneration."),
 			translation: translationSettingsSchema("Optional translation settings."),

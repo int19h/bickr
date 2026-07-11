@@ -1968,7 +1968,7 @@ describe("Pages functions", () => {
 							openRouterApiKey: "sk-or-bot-secret",
 							model: "openrouter/auto",
 							compactionMode: "tool_call_cache_friendly",
-							reasoningPrefill: "I'm Release Sage, and I  ",
+							recurringPrompt: lt("I'm Release Sage, and I  "),
 							supportsPrefill: false,
 							providerRouting: {
 								max_price: {

@@ -8,7 +8,6 @@ import {
 	forumCoordinatorWorker,
 	it,
 	kvKeys,
-	rawBotById,
 	readThread,
 	seedWorld,
 	testEnv,
@@ -140,7 +139,7 @@ describe("KV document normalization sweep", () => {
 			.toEqual(stored);
 	});
 
-	it("normalizes legacy reasoningPrefill through the same bot read path", async () => {
+	it("round-trips current-format recurringPrompt settings identically with the alias gone", async () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);
 		const bot = await createBotForTest(cookie, "normalize-bot");
@@ -148,26 +147,22 @@ describe("KV document normalization sweep", () => {
 		if (!storedBot) {
 			throw new Error("Test bot document is missing.");
 		}
-		const legacyBot = {
+		const currentBot: BotDocument = {
 			...storedBot,
-			schemaVersion: 1,
-			updatedAt: "2020-01-01T00:00:00.000Z",
 			inferenceSettings: {
 				...storedBot.inferenceSettings,
-				reasoningPrefill: "Remember the migration exactly.  ",
+				recurringPrompt: { lang: null, text: "Remember the current format exactly.  " },
 			},
 		};
-		await testEnv.BICKR_KV.put(kvKeys.bot(bot.id), JSON.stringify(legacyBot));
-		const migrateOnReadResult = await rawBotById(testEnv.BICKR_KV, testEnv.BICKR_D1, bot.id);
+		await testEnv.BICKR_KV.put(kvKeys.bot(bot.id), JSON.stringify(currentBot));
 
 		const result = await normalizeKvDocuments(testEnv, "bot");
-		const swept = await testEnv.BICKR_KV.get(kvKeys.bot(bot.id), { type: "json" });
-		expect(result.rewritten).toBe(1);
-		expect(swept).toEqual(migrateOnReadResult);
-		expect(swept).not.toHaveProperty("inferenceSettings.reasoningPrefill");
+		const swept = await testEnv.BICKR_KV.get<BotDocument>(kvKeys.bot(bot.id), { type: "json" });
+		expect(result).toMatchObject({ rewritten: 0, done: true });
+		expect(swept).toEqual(currentBot);
 		expect(swept).toHaveProperty("inferenceSettings.recurringPrompt", {
 			lang: null,
-			text: "Remember the migration exactly.  ",
+			text: "Remember the current format exactly.  ",
 		});
 	});
 

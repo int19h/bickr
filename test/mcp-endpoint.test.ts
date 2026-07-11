@@ -220,6 +220,7 @@ describe("MCP endpoint", () => {
 		const translation = inferenceProperties.translation as Record<string, unknown>;
 
 		expect(Object.keys(schemaProperties(recurringPrompt))).toEqual(["lang", "text"]);
+		expect(inferenceProperties).not.toHaveProperty("reasoningPrefill");
 		expect(Object.keys(schemaProperties(schemaProperties(imageGeneration).prompt as Record<string, unknown>))).toEqual(["lang", "text"]);
 		expect(Object.keys(schemaProperties(schemaProperties(translation).prompt as Record<string, unknown>))).toEqual(["lang", "text"]);
 	});

@@ -746,7 +746,7 @@ function parseInferenceSettings(value: unknown, language: LanguageTag | null): B
 	assignOptionalPreservedText(
 		settings,
 		"recurringPrompt",
-		aliasedValue(record, "recurringPrompt", "reasoningPrefill"),
+		record.recurringPrompt,
 		"Recurring prompt",
 		maxBotReasoningPrefillLength,
 		language,
