@@ -9,7 +9,6 @@ import {
 	defaultTranslationPrompt,
 	localizedText,
 	localizedTextFromStored,
-	localizedTextLang,
 	localizedTextString,
 	type AvatarImage,
 	type AuthProvider,
@@ -80,6 +79,7 @@ import {
 	mergePostingSettings,
 	postingSettingsHasValues,
 } from "./posting";
+import { personalForumDescription } from "./personal-forums";
 import { escapeLike, upsertBotSearchIndex, upsertForumSearchIndex, upsertWorldSearchIndex } from "./search";
 import {
 	type D1DatabaseLike,
@@ -1084,27 +1084,14 @@ export async function listForums(db: D1DatabaseLike, worldHandle: string): Promi
 				f.world_id AS worldId,
 				f.world_handle AS worldHandle,
 				f.handle,
-				CASE
-					WHEN f.personal_bot_id IS NOT NULL AND b.bot_id IS NOT NULL
-						THEN b.language
-					ELSE f.language
-				END AS language,
-				CASE
-					WHEN f.personal_bot_id IS NOT NULL AND b.bot_id IS NOT NULL
-						THEN 'Blog of ' || b.display_name || ' (u/' || b.handle || ')'
-					ELSE f.description
-				END AS description,
-				CASE
-					WHEN f.personal_bot_id IS NOT NULL AND b.bot_id IS NOT NULL
-						THEN b.display_name_lang
-					ELSE f.description_lang
-				END AS descriptionLang,
+				f.language,
+				f.description,
+				f.description_lang AS descriptionLang,
 				f.created_by_user_id AS createdByUserId,
 				f.personal_bot_id AS personalBotId,
 				f.created_at AS createdAt,
 				f.updated_at AS updatedAt
 			 FROM forums_index f
-			 LEFT JOIN bots_index b ON b.bot_id = f.personal_bot_id AND b.deleted_at IS NULL
 			 WHERE f.world_id = ? AND f.deleted_at IS NULL
 			 ORDER BY f.handle ASC`,
 		)
@@ -1428,8 +1415,6 @@ export async function updateBot(
 	if (nextHandle !== bot.handle) {
 		await assertBotHandleAvailable(db, bot.homeWorldId, bot.id, nextHandle);
 	}
-	const personalForumRename =
-		nextHandle !== bot.handle ? await personalForumRenameForBotHandle(kv, db, bot, nextHandle, now) : null;
 	const inferenceSettings = mergeInferenceSettings(bot.inferenceSettings, input.inferenceSettings);
 	enforceInferenceModelAccess(inferenceSettings, owner.inferenceSettings);
 	const toolSettings = mergeToolSettings(bot.toolSettings, input.toolSettings);
@@ -1455,28 +1440,40 @@ export async function updateBot(
 	if (!canInheritProfile) {
 		assertMaterializedProfileFields(updated.displayName, updated.shortBio, updated.prompt);
 	}
+	const effectiveUpdated = canInheritProfile ? await effectiveBotDocument(kv, db, updated) : updated;
+	const personalForumUpdate = await personalForumUpdateForBotProfile(kv, db, bot, effectiveUpdated, now);
 
 	await writeJson(kv, kvKeys.bot(updated.id), updated);
-	const effectiveUpdated = canInheritProfile ? await effectiveBotDocument(kv, db, updated) : updated;
-	if (personalForumRename) {
+	if (personalForumUpdate) {
 		await db.batch([
 			botIndexUpdateStatement(db, effectiveUpdated),
 			db
-				.prepare(`UPDATE forums_index SET handle = ?, updated_at = ? WHERE forum_id = ? AND deleted_at IS NULL`)
-				.bind(personalForumRename.updated.handle, now, personalForumRename.updated.id),
+				.prepare(
+					`UPDATE forums_index
+					 SET handle = ?, language = ?, description = ?, description_lang = ?, updated_at = ?
+					 WHERE forum_id = ? AND deleted_at IS NULL`,
+				)
+				.bind(
+					personalForumUpdate.updated.handle,
+					personalForumUpdate.updated.language,
+					localizedTextSql(personalForumUpdate.updated.description),
+					localizedTextLangSql(personalForumUpdate.updated.description),
+					now,
+					personalForumUpdate.updated.id,
+				),
 			db
 				.prepare(`UPDATE threads_index SET forum_handle = ? WHERE forum_id = ? AND deleted_at IS NULL`)
-				.bind(personalForumRename.updated.handle, personalForumRename.updated.id),
+				.bind(personalForumUpdate.updated.handle, personalForumUpdate.updated.id),
 		]);
 	} else {
 		await upsertBotIndex(db, effectiveUpdated);
 	}
 	await upsertBotRuntimeIndex(db, updated, now, shouldRescheduleBotRuntime(bot.tickSettings, updated.tickSettings, input.tickSettings));
-	if (personalForumRename) {
-		await writeJson(kv, kvKeys.forum(personalForumRename.updated.id), personalForumRename.updated);
-		await writePersonalForumThreadRenameDocuments(kv, db, personalForumRename.updated, now);
-		await upsertForumSearchIndex(db, personalForumRename.updated);
-		await putObjectIndex(db, personalForumRename.updated, "forum", entityIndexVersions.forum, personalForumRename.updated.worldId);
+	if (personalForumUpdate) {
+		await writeJson(kv, kvKeys.forum(personalForumUpdate.updated.id), personalForumUpdate.updated);
+		await writePersonalForumThreadRenameDocuments(kv, db, personalForumUpdate.updated, now);
+		await upsertForumSearchIndex(db, personalForumUpdate.updated);
+		await putObjectIndex(db, personalForumUpdate.updated, "forum", entityIndexVersions.forum, personalForumUpdate.updated.worldId);
 	}
 	await upsertBotSearchIndex(db, effectiveUpdated);
 	await putObjectIndex(db, updated, "bot", entityIndexVersions.bot, updated.homeWorldId);
@@ -2323,28 +2320,15 @@ export async function listOwnedForumsOutsideOwnedWorlds(
 				f.world_id AS worldId,
 				f.world_handle AS worldHandle,
 				f.handle,
-				CASE
-					WHEN f.personal_bot_id IS NOT NULL AND b.bot_id IS NOT NULL
-						THEN b.language
-					ELSE f.language
-				END AS language,
-				CASE
-					WHEN f.personal_bot_id IS NOT NULL AND b.bot_id IS NOT NULL
-						THEN 'Blog of ' || b.display_name || ' (u/' || b.handle || ')'
-					ELSE f.description
-				END AS description,
-				CASE
-					WHEN f.personal_bot_id IS NOT NULL AND b.bot_id IS NOT NULL
-						THEN b.display_name_lang
-					ELSE f.description_lang
-				END AS descriptionLang,
+				f.language,
+				f.description,
+				f.description_lang AS descriptionLang,
 				f.created_by_user_id AS createdByUserId,
 				f.personal_bot_id AS personalBotId,
 				f.created_at AS createdAt,
 				f.updated_at AS updatedAt
 			 FROM forums_index f
 			 JOIN worlds_index w ON w.world_id = f.world_id AND w.deleted_at IS NULL
-			 LEFT JOIN bots_index b ON b.bot_id = f.personal_bot_id AND b.deleted_at IS NULL
 			 WHERE f.created_by_user_id = ?
 			   AND f.deleted_at IS NULL
 			   AND w.created_by_user_id != ?
@@ -2428,21 +2412,9 @@ async function listOwnedForumsByWorld(
 				f.world_id AS worldId,
 				f.world_handle AS worldHandle,
 				f.handle,
-				CASE
-					WHEN f.personal_bot_id IS NOT NULL AND b.bot_id IS NOT NULL
-						THEN b.language
-					ELSE f.language
-				END AS language,
-				CASE
-					WHEN f.personal_bot_id IS NOT NULL AND b.bot_id IS NOT NULL
-						THEN 'Blog of ' || b.display_name || ' (u/' || b.handle || ')'
-					ELSE f.description
-				END AS description,
-				CASE
-					WHEN f.personal_bot_id IS NOT NULL AND b.bot_id IS NOT NULL
-						THEN b.display_name_lang
-					ELSE f.description_lang
-				END AS descriptionLang,
+				f.language,
+				f.description,
+				f.description_lang AS descriptionLang,
 				f.created_by_user_id AS createdByUserId,
 				f.personal_bot_id AS personalBotId,
 				f.created_at AS createdAt,
@@ -2465,7 +2437,6 @@ async function listOwnedForumsByWorld(
 				w.updated_at AS groupWorldUpdatedAt
 			 FROM forums_index f
 			 JOIN worlds_index w ON w.world_id = f.world_id AND w.deleted_at IS NULL
-			 LEFT JOIN bots_index b ON b.bot_id = f.personal_bot_id AND b.deleted_at IS NULL
 			 WHERE f.created_by_user_id = ?
 			   AND f.deleted_at IS NULL
 			   AND f.personal_bot_id IS NULL
@@ -2865,7 +2836,7 @@ async function botForOwner(
 	return normalizeBotDefaults(bot);
 }
 
-type PersonalForumRename = {
+type PersonalForumUpdate = {
 	updated: ForumDocument;
 };
 
@@ -2888,45 +2859,59 @@ async function assertBotHandleAvailable(
 	}
 }
 
-async function personalForumRenameForBotHandle(
+async function personalForumUpdateForBotProfile(
 	kv: KVNamespaceLike,
 	db: D1DatabaseLike,
-	bot: BotDocument,
-	nextHandle: string,
+	previousBot: BotDocument,
+	updatedBot: BotDocument,
 	now: string,
-): Promise<PersonalForumRename | null> {
+): Promise<PersonalForumUpdate | null> {
 	const row = await db
 		.prepare(
 			`SELECT forum_id AS id, handle
 			 FROM forums_index
 			 WHERE personal_bot_id = ? AND deleted_at IS NULL`,
 		)
-		.bind(bot.id)
+		.bind(previousBot.id)
 		.first<{ id: string; handle: string }>();
-	if (!row || row.handle !== bot.handle) {
+	if (!row) {
 		return null;
 	}
+	const nextForumHandle = row.handle === previousBot.handle ? updatedBot.handle : row.handle;
 
-	const existing = await db
-		.prepare(
-			`SELECT forum_id AS id
-			 FROM forums_index
-			 WHERE world_id = ? AND handle = ? AND deleted_at IS NULL`,
-		)
-		.bind(bot.homeWorldId, nextHandle)
-		.first<{ id: string }>();
-	if (existing && existing.id !== row.id) {
-		throw new RepositoryError("conflict", "A forum with that handle already exists in this world.", 409);
+	if (nextForumHandle !== row.handle) {
+		const existing = await db
+			.prepare(
+				`SELECT forum_id AS id
+				 FROM forums_index
+				 WHERE world_id = ? AND handle = ? AND deleted_at IS NULL`,
+			)
+			.bind(previousBot.homeWorldId, nextForumHandle)
+			.first<{ id: string }>();
+		if (existing && existing.id !== row.id) {
+			throw new RepositoryError("conflict", "A forum with that handle already exists in this world.", 409);
+		}
 	}
 
 	const forum = await readJson<ForumDocument>(kv, kvKeys.forum(row.id));
 	if (!forum || forum.deletedAt) {
 		throw new RepositoryError("server_error", "Personal forum document is missing.", 500);
 	}
+	const current = normalizeForumDefaults(forum);
+	const description = personalForumDescription(updatedBot);
+	if (
+		current.handle === nextForumHandle &&
+		current.language === updatedBot.language &&
+		localizedTextEqual(current.description, description)
+	) {
+		return null;
+	}
 	return {
 		updated: {
-			...normalizeForumDefaults(forum),
-			handle: nextHandle,
+			...current,
+			handle: nextForumHandle,
+			language: updatedBot.language,
+			description,
 			revision: forum.revision + 1,
 			updatedAt: now,
 		},
@@ -3748,7 +3733,7 @@ async function createPersonalForumForBot(
 		worldHandle: bot.homeWorldHandle,
 		handle,
 		language: bot.language,
-		description: localizedText(`Blog of ${localizedTextString(bot.displayName)} (u/${bot.handle})`, localizedTextLang(bot.displayName)),
+		description: personalForumDescription(bot),
 		createdByUserId: userId,
 		personalBotId: bot.id,
 		createdAt: now,

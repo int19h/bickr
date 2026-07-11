@@ -46,30 +46,13 @@ function ForumDescription({
 	forum: ForumSummary;
 	onReference?: OpenReference;
 }) {
-	const data = useContext(ReferenceDataContext);
-	const bot = personalForumBot(forum, data);
-	if (!bot) {
-		return (
-			<TranslatableText
-				onReference={onReference}
-				rich={Boolean(onReference)}
-				text={forum.description}
-				worldHandle={forum.worldHandle}
-			/>
-		);
-	}
 	return (
-		<>
-				Blog of <TranslatableText as="span" text={bot.displayName} /> (
-			<Reference
-				isBot
-				kind="bot"
-				name={bot.handle}
-				onOpen={onReference ? () => onReference("bot", bot.handle, { worldHandle: forum.worldHandle }) : undefined}
-				worldHandle={forum.worldHandle}
-			/>
-			)
-		</>
+		<TranslatableText
+			onReference={onReference}
+			rich={Boolean(onReference)}
+			text={forum.description}
+			worldHandle={forum.worldHandle}
+		/>
 	);
 }
 

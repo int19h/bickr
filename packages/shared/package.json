@@ -20,6 +20,7 @@
 		"./mcp-auth": "./src/mcp-auth.ts",
 		"./model": "./src/model.ts",
 		"./openrouter-model-capabilities": "./src/openrouter-model-capabilities.ts",
+		"./personal-forums": "./src/personal-forums.ts",
 		"./posting": "./src/posting.ts",
 		"./repository": "./src/repository.ts",
 		"./runtime-errors": "./src/runtime-errors.ts",

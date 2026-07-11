@@ -89,6 +89,7 @@ import {
 } from "@bickr/shared/model";
 import { worldAvatarMembersPromptUserContent } from "@bickr/shared/avatar-prompts";
 import { effectivePostingSettings } from "@bickr/shared/posting";
+import { personalForumDescription } from "@bickr/shared/personal-forums";
 import { formatThreadRef, parseCommentRef, parseThreadRef } from "@bickr/shared/ids";
 import {
 	handleHelpText,
@@ -2009,20 +2010,21 @@ function App() {
 			const savedBot = result.data.bot;
 			const renamed = Boolean(previousBot && previousBot.handle !== savedBot.handle);
 			applySavedBots([savedBot, ...(result.data.affectedBots ?? [])]);
-			if (renamed && previousBot) {
+			if (previousBot) {
 				setForumsByWorld((current) => ({
 					...current,
 					[savedBot.homeWorldHandle]: (current[savedBot.homeWorldHandle] ?? []).map((forum) =>
-							forum.personalBotId === savedBot.id && forum.handle === previousBot.handle ?
+							forum.personalBotId === savedBot.id ?
 								{
 									...forum,
-									handle: savedBot.handle,
-									description: localizedText(`Blog of ${localizedTextString(savedBot.displayName)} (u/${savedBot.handle})`, savedBot.language),
+									handle: forum.handle === previousBot.handle ? savedBot.handle : forum.handle,
+									language: savedBot.language,
+									description: personalForumDescription(savedBot),
 								}
 							:	forum,
 						),
 				}));
-				if (previousPersonalForum) {
+				if (renamed && previousPersonalForum) {
 					setThreadsByForum((current) =>
 						renameThreadSummaries(current, {
 							forumId: previousPersonalForum.id,
