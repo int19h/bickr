@@ -24,6 +24,9 @@ export const kvKeys = {
 	// normalization pass finishes, then deleted before the next pass.
 	kvNormalizationSweepCursor: (objectType: IndexedEntityType) =>
 		`v1:maintenance:kv-normalization-sweep-cursor:${objectType}`,
+	// The vector reindex cursor is retained only until a complete pass over the
+	// searchable entity indexes finishes, then deleted before the next pass.
+	searchVectorReindexCursor: "v1:maintenance:search-vector-reindex-cursor",
 	notification: (botId: string, notificationId: string) =>
 		`v1:notification:${botId}:${notificationId}`,
 };

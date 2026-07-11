@@ -45,6 +45,7 @@ import type {
 } from "./helpers/index-harness";
 import { internalServiceAuthHeader } from "@bickr/shared/internal-service";
 import { parseSearchMode } from "@bickr/shared/search";
+import { kvKeys } from "@bickr/shared/storage";
 
 describe("Search", () => {
 
@@ -553,8 +554,13 @@ describe("Search", () => {
 		]);
 		expect(bindings.deleted).toContain(`forum:${personalForum.id}`);
 
-		const reindex = await reindexSearchVectors(testEnv.BICKR_D1, bindings.env, 20);
+		const reindex = await reindexSearchVectors(testEnv.BICKR_D1, {
+			...bindings.env,
+			BICKR_KV: testEnv.BICKR_KV,
+		}, 20);
 		expect(reindex.attempted).toBeGreaterThanOrEqual(3);
+		expect(reindex.done).toBe(true);
+		expect(reindex.budgetExhausted).toBe(false);
 		expect(bindings.deleted).toContain(`forum:${personalForum.id}`);
 
 		bindings.matches = [
@@ -627,5 +633,54 @@ describe("Search", () => {
 		expect(fallbackResult.results).toMatchObject([{ type: "bot", handle: "semantic-sage", score: 0.77 }]);
 		await deleteSearchVector(fallback.env, "bot", bot.id);
 		expect(fallback.deleted).toEqual([bot.id, `bot:${bot.id}`]);
+	});
+
+	it("persists and resumes a stable full-pass vector reindex cursor", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const forum = await createForumForTest(cookie, "reindex-cursor");
+		const bot = await createBotForTest(cookie, "reindex-cursor-bot");
+		const bindings = fakeSearchBindings();
+		const env = {
+			...testEnv,
+			...bindings.env,
+			INTERNAL_SERVICE_SECRET: "test-internal-service-secret",
+		};
+		const firstResponse = await agentRuntimeWorker.fetch(
+			new Request("https://internal.bickr/search/reindex-vectors?limit=1", {
+				method: "POST",
+				headers: {
+					[internalServiceAuthHeader]: "test-internal-service-secret",
+					"x-bickr-scheduler": "1",
+				},
+			}) as unknown as Parameters<typeof agentRuntimeWorker.fetch>[0],
+			env as unknown as Parameters<typeof agentRuntimeWorker.fetch>[1],
+		);
+		const firstPayload = await firstResponse.json() as {
+			data: { reindex: { attempted: number; budgetExhausted: boolean; done: boolean } };
+		};
+		expect(firstResponse.status).toBe(200);
+		expect(firstPayload.data.reindex).toEqual({ attempted: 1, budgetExhausted: true, done: false });
+		expect(await testEnv.BICKR_KV.get(kvKeys.searchVectorReindexCursor, { type: "json" }))
+			.toMatchObject({ afterKey: expect.stringMatching(/^0:/) });
+
+		let attempted = firstPayload.data.reindex.attempted;
+		let final = firstPayload.data.reindex;
+		for (let invocation = 0; invocation < 20 && !final.done; invocation += 1) {
+			final = await reindexSearchVectors(testEnv.BICKR_D1, env, 1);
+			attempted += final.attempted;
+		}
+		expect(final).toMatchObject({ budgetExhausted: false, done: true });
+		expect(attempted).toBeGreaterThanOrEqual(3);
+		expect(await testEnv.BICKR_KV.get(kvKeys.searchVectorReindexCursor, { type: "json" })).toBeNull();
+		expect(bindings.upserted.map((vector) => vector.id)).toEqual(expect.arrayContaining([
+			`world:${forum.worldId}`,
+			`forum:${forum.id}`,
+			bot.id,
+		]));
+
+		const secondPass = await reindexSearchVectors(testEnv.BICKR_D1, env, 250);
+		expect(secondPass).toMatchObject({ budgetExhausted: false, done: true });
+		expect(secondPass.attempted).toBeGreaterThanOrEqual(3);
 	});
 });
