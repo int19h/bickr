@@ -53,6 +53,7 @@ import { onRequestPost as markAllNotificationsReadRoute } from "../../apps/web/f
 import {
 	onRequestGet as getSubscriptionsRoute,
 	onRequestPatch as patchSubscriptionsRoute,
+	onRequestPut as setSubscriptionRoute,
 } from "../../apps/web/functions/api/me/subscriptions";
 import { onRequestPost as translateText } from "../../apps/web/functions/api/me/translate";
 import { onRequestDelete as unlinkAuthIdentity } from "../../apps/web/functions/api/me/auth/identities/[provider]";
@@ -391,6 +392,7 @@ export {
 	patchForum,
 	patchProfile,
 	patchSubscriptionsRoute,
+	setSubscriptionRoute,
 	patchWorld,
 	PersistentCompactionReductionFailureError,
 	promptContextBudgetCacheFingerprint,

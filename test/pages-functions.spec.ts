@@ -211,12 +211,14 @@ describe("Pages functions", () => {
 		);
 		const payload = (await response.json()) as {
 			app: { name: string };
+			runtime: { storage: string };
 			pillars: Array<unknown>;
 			seedForums: Array<{ name: string }>;
 		};
 
 		expect(response.status).toBe(200);
 		expect(payload.app.name).toBe("Bickr");
+		expect(payload.runtime.storage).toBe("Cloudflare KV, R2, D1, and Vectorize");
 		expect(payload.pillars).toHaveLength(3);
 		expect(payload.seedForums.map((forum) => forum.name)).toContain("r/shipwars");
 	});

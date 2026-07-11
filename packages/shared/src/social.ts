@@ -1089,6 +1089,10 @@ export async function applyHumanSubscriptionChanges(
 	for (const change of changes) {
 		latestByKey.set(subscriptionKey(change.scopeType, change.scopeId), change);
 	}
+	await validateHumanSubscriptionTargets(
+		db,
+		[...latestByKey.values()].filter((change) => change.active),
+	);
 
 	const statements: D1PreparedStatementLike[] = [];
 	for (const change of latestByKey.values()) {
@@ -1135,6 +1139,7 @@ export async function upsertHumanSubscription(
 	},
 	now = new Date().toISOString(),
 ): Promise<HumanSubscription> {
+	await validateHumanSubscriptionTargets(db, [input]);
 	const id = makeId("hsb");
 	await db
 		.prepare(
@@ -1180,6 +1185,84 @@ export async function upsertHumanSubscription(
 		throw repositoryError("server_error", "Subscription was not saved.", 500);
 	}
 	return subscriptionFromRow(row);
+}
+
+type HumanSubscriptionTargetInput = Pick<HumanSubscription, "scopeType" | "scopeId" | "worldId">;
+
+type HumanSubscriptionValidationRow = {
+	position: number;
+	scopeType: HumanSubscriptionScope;
+	scopeId: string;
+	claimedWorldId: string;
+	actualWorldId: string | null;
+};
+
+const humanSubscriptionValidationBatchSize = 20;
+
+async function validateHumanSubscriptionTargets(
+	db: D1DatabaseLike,
+	targets: HumanSubscriptionTargetInput[],
+): Promise<void> {
+	for (let start = 0; start < targets.length; start += humanSubscriptionValidationBatchSize) {
+		const batch = targets.slice(start, start + humanSubscriptionValidationBatchSize);
+		const binds: unknown[] = [];
+		const selects = batch.map((target, position) => {
+			binds.push(target.scopeType, target.scopeId, target.worldId, target.scopeId);
+			return `SELECT
+				${position} AS position,
+				? AS scopeType,
+				? AS scopeId,
+				? AS claimedWorldId,
+				${humanSubscriptionScopeWorldIdSql(target.scopeType)} AS actualWorldId`;
+		});
+		const result = await db
+			.prepare(selects.join(" UNION ALL "))
+			.bind(...binds)
+			.all<HumanSubscriptionValidationRow>();
+		const rows = [...(result.results ?? [])].sort((left, right) => left.position - right.position);
+		for (const row of rows) {
+			if (!row.actualWorldId) {
+				throw repositoryError("not_found", `Subscription ${row.scopeType} scope not found.`, 404);
+			}
+			if (row.actualWorldId !== row.claimedWorldId) {
+				throw repositoryError("bad_request", "Subscription scope does not belong to the specified world.", 400);
+			}
+		}
+	}
+}
+
+function humanSubscriptionScopeWorldIdSql(scopeType: HumanSubscriptionScope): string {
+	switch (scopeType) {
+		case "world":
+			return `(SELECT w.world_id
+				FROM worlds_index w
+				WHERE w.world_id = ? AND w.deleted_at IS NULL
+				LIMIT 1)`;
+		case "forum":
+			return `(SELECT f.world_id
+				FROM forums_index f
+				JOIN worlds_index w ON w.world_id = f.world_id AND w.deleted_at IS NULL
+				WHERE f.forum_id = ? AND f.deleted_at IS NULL
+				LIMIT 1)`;
+		case "thread":
+			return `(SELECT t.world_id
+				FROM threads_index t
+				JOIN worlds_index w ON w.world_id = t.world_id AND w.deleted_at IS NULL
+				WHERE t.thread_id = ? AND t.deleted_at IS NULL
+				LIMIT 1)`;
+		case "comment":
+			return `(SELECT c.world_id
+				FROM comments_index c
+				JOIN worlds_index w ON w.world_id = c.world_id AND w.deleted_at IS NULL
+				WHERE c.comment_id = ? AND c.deleted_at IS NULL
+				LIMIT 1)`;
+		case "bot":
+			return `(SELECT b.home_world_id
+				FROM bots_index b
+				JOIN worlds_index w ON w.world_id = b.home_world_id AND w.deleted_at IS NULL
+				WHERE b.bot_id = ? AND b.deleted_at IS NULL
+				LIMIT 1)`;
+	}
 }
 
 export async function deactivateHumanSubscription(
