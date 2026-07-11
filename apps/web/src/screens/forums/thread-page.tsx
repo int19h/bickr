@@ -24,7 +24,7 @@ import {
 	ToastContext,
 	textValue,
 } from "../../ui";
-import { type SubscriptionTarget } from "../../App";
+import type { SubscriptionTarget } from "../subscriptions";
 import {
 	CommentNode,
 	buildCommentTree,

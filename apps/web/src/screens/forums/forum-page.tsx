@@ -28,8 +28,8 @@ import {
 	EditForumModal,
 	TimeAgoLabel,
 	authorLabel,
-	type SubscriptionTarget,
 } from "../../App";
+import type { SubscriptionTarget } from "../subscriptions";
 import { SpotlightPanel } from "./spotlight-panel";
 
 type ForumActivityNotice = {

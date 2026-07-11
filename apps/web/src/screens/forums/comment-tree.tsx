@@ -21,8 +21,8 @@ import {
 } from "../../ui";
 import {
 	TimeAgoLabel,
-	type SubscriptionTarget,
 } from "../../App";
+import type { SubscriptionTarget } from "../subscriptions";
 
 type CommentTreeNode = CommentDocument & {
 	replies: CommentTreeNode[];

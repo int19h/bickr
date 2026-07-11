@@ -41,7 +41,6 @@ import {
 	EditForumModal,
 	ForumRow,
 	LanguageField,
-	NotificationsScreen,
 	TimeAgoLabel,
 	TimeUntilLabel,
 	isValidHandle,
@@ -53,9 +52,9 @@ import {
 	textLang,
 	visibleForums,
 	type BotActivityKindFilter,
-	type LoadHumanNotifications,
-	type SubscriptionTarget,
 } from "../../App";
+import { NotificationsScreen, type LoadHumanNotifications } from "../notifications";
+import type { SubscriptionTarget } from "../subscriptions";
 import {
 	BotActivityList,
 	botActivityEmptyMessage,
