@@ -18,7 +18,6 @@ import {
 	openRouterSuggestedImageAspectRatios,
 	openRouterSuggestedImageSizes,
 	type AvatarCrop,
-	type AvatarImage,
 	type AuthProvider,
 	type BotActivityFeed,
 	type BotActivityItem,
@@ -5856,105 +5855,6 @@ function SpotlightPanel({
 	);
 }
 
-export function BotCard({
-	bot,
-	hideWorld = false,
-	onDelete,
-	onEdit,
-	onRunTick,
-	onStart,
-	showActive = false,
-	world,
-}: {
-	bot: BotSummary;
-	hideWorld?: boolean;
-	onDelete?: () => void;
-	onEdit?: () => void;
-	onRunTick?: () => void;
-	onStart?: () => void;
-	showActive?: boolean;
-	world?: WorldView | null;
-}) {
-	const canManage = Boolean(onDelete || onEdit);
-	const paused = !bot.tickSettings.enabled;
-	const cardClassName = ["bot-card", paused ? "paused" : "", canManage ? "manageable" : ""].filter(Boolean).join(" ");
-	return (
-		<article className={cardClassName}>
-			{canManage && (
-				<div className="actions-overlay">
-					{onEdit && (
-						<button className="icon-btn" onClick={onEdit} title="Edit" type="button">
-							<Icon name="edit" size={14} />
-						</button>
-					)}
-					{onDelete && (
-						<button className="icon-btn danger" onClick={onDelete} title="Delete" type="button">
-							<Icon name="trash" size={14} />
-						</button>
-					)}
-				</div>
-			)}
-			<div className="head">
-					<SpaLink
-						className="bot-avatar-link"
-					title={`Open ${textValue(bot.displayName)}`}
-					to={{ route: "bot-profile", worldHandle: bot.homeWorldHandle, botHandle: bot.handle }}
-				>
-					<Avatar actor="bot" colorSeed={bot.handle} crop={bot.avatarCrop} displayPixels={48} imageUrl={bot.avatarUrl} name={bot.displayName} />
-			</SpaLink>
-				<div className="bot-card-title">
-						<SpaLink
-							className="name bot-name-link"
-							to={{ route: "bot-profile", worldHandle: bot.homeWorldHandle, botHandle: bot.handle }}
-						>
-							<TranslatableText as="span" text={bot.displayName} />
-						</SpaLink>
-					<div className="bot-ref-line">
-						<Reference isBot kind="bot" name={bot.handle} />
-					</div>
-				</div>
-			</div>
-			<TranslatableText as="div" className="tagline" text={bot.shortBio} />
-			<div className="foot">
-				<span className="bot-card-foot-left">
-					{!hideWorld ? (
-						world ? <Reference kind="world" name={world.handle} /> : `w/${bot.homeWorldHandle}`
-					) : showActive ?
-						paused ?
-							<span className="bot-status-label paused">PAUSED</span>
-						:	<span>
-								active <TimeAgoLabel suffix value={bot.lastActiveAt ?? bot.createdAt} />; next tick{" "}
-								<TimeUntilLabel value={bot.nextDueAt} />
-							</span>
-					:	null}
-				</span>
-				<span className="bot-card-foot-action">
-					{paused && onStart ? (
-						<button
-							className="btn compact primary bot-run-tick"
-							onClick={onStart}
-							title="Start this participant"
-							type="button"
-						>
-							<Icon name="play" size={12} />
-							Start
-						</button>
-					) : onRunTick ? (
-						<button
-							className="btn compact bot-run-tick"
-							onClick={onRunTick}
-							title="Run tick now"
-							type="button"
-						>
-							<Icon name="refresh" size={12} />
-							Run now
-						</button>
-					) : null}
-				</span>
-			</div>
-		</article>
-	);
-}
 
 function BotEdit({
 	bot,
@@ -14352,12 +14252,6 @@ function RuntimeRow({
 
 
 
-export function avatarAspectRatioStyle(avatar?: Pick<AvatarImage, "width" | "height">): CSSProperties | undefined {
-	if (!avatar?.width || !avatar.height || avatar.width <= 0 || avatar.height <= 0) {
-		return undefined;
-	}
-	return { aspectRatio: `${avatar.width} / ${avatar.height}` };
-}
 
 
 export function LanguageField({
@@ -15007,7 +14901,7 @@ function formatAverageDays(value: number): string {
 }
 
 
-function TimeAgoLabel({ className, suffix = false, value }: { className?: string; suffix?: boolean; value: string }) {
+export function TimeAgoLabel({ className, suffix = false, value }: { className?: string; suffix?: boolean; value: string }) {
 	return (
 		<span className={className} title={timestampTitle(value)}>
 			{suffix ? timeAgoWithAgo(value) : timeAgo(value)}
@@ -15015,7 +14909,7 @@ function TimeAgoLabel({ className, suffix = false, value }: { className?: string
 	);
 }
 
-function TimeUntilLabel({ value }: { value: string | null | undefined }) {
+export function TimeUntilLabel({ value }: { value: string | null | undefined }) {
 	return <span title={timestampTitle(value)}>{timeUntil(value)}</span>;
 }
 
