@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { localizedText, type LanguageTag } from "@bickr/shared/model";
-import { PlainText, RichText, segmentVerticalScriptRuns, TranslatableText, verticalBlockScriptKindForLanguage } from "./App";
+import { PlainText, RichText, segmentVerticalScriptRuns, TranslatableText, verticalBlockScriptKindForLanguage } from "./components/content";
 
 const en = "en" as LanguageTag;
 const mn = "mn" as LanguageTag;

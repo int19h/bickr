@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { localizedText, type BotSummary, type LanguageTag } from "@bickr/shared/model";
-import { BotSourceValue, ReferenceDataContext } from "./App";
+import { BotSourceValue, ReferenceDataContext } from "./components/content";
 
 const en = "en" as LanguageTag;
 const now = "2026-05-21T12:00:00.000Z";
