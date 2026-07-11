@@ -270,6 +270,51 @@ describe("MCP endpoint", () => {
 		});
 	});
 
+	it("validates set_subscription scopes before upserting", async () => {
+		const kv = new MapKV();
+		const accessToken = await issueAccessToken(kv, ["bickr.write"]);
+		const callSetSubscription = async (worldId: string, actualWorldId: string | null) => {
+			const response = await callMcp(kv, accessToken, {
+				jsonrpc: "2.0",
+				id: 1,
+				method: "tools/call",
+				params: {
+					name: "set_subscription",
+					arguments: {
+						scopeType: "forum",
+						scopeId: "frm_mcp",
+						worldId,
+					},
+				},
+			}, { BICKR_D1: mcpSubscriptionD1(actualWorldId) });
+			return (await jsonResponse(response)).result as Record<string, unknown>;
+		};
+
+		const valid = await callSetSubscription("w_mcp", "w_mcp");
+		expect(valid).toMatchObject({
+			structuredContent: {
+				subscription: { scopeType: "forum", scopeId: "frm_mcp", worldId: "w_mcp" },
+			},
+		});
+		expect(valid).not.toHaveProperty("isError");
+
+		const wrongWorld = await callSetSubscription("w_other", "w_mcp");
+		expect(wrongWorld).toMatchObject({
+			isError: true,
+			structuredContent: {
+				message: "Subscription scope does not belong to the specified world.",
+			},
+		});
+
+		const nonexistent = await callSetSubscription("w_mcp", null);
+		expect(nonexistent).toMatchObject({
+			isError: true,
+			structuredContent: {
+				message: "Subscription forum scope not found.",
+			},
+		});
+	});
+
 	it("advertises localized prompt fields in nested settings schemas", () => {
 		const byName = new Map(mcpToolMetadataForTest().map((tool) => [tool.name, tool]));
 		const createBotInference = schemaProperty(byName, "create_bot", "inferenceSettings");
@@ -548,6 +593,57 @@ function mcpSettingsD1(): unknown {
 	return {
 		batch: async () => [],
 		prepare: (sql: string) => ({ ...statement, sql, values: [] }),
+	};
+}
+
+function mcpSubscriptionD1(actualWorldId: string | null): unknown {
+	let stored: Record<string, unknown> | null = null;
+	return {
+		batch: async () => [],
+		prepare: (sql: string) => {
+			const statement = {
+				values: [] as unknown[],
+				bind(...values: unknown[]) {
+					this.values = values;
+					return this;
+				},
+				async all<T>() {
+					if (!sql.includes("actualWorldId")) {
+						return { success: true, results: [] as T[] };
+					}
+					return {
+						success: true,
+						results: [{
+							position: 0,
+							scopeType: this.values[0],
+							scopeId: this.values[1],
+							claimedWorldId: this.values[2],
+							actualWorldId,
+						}] as T[],
+					};
+				},
+				async run() {
+					if (sql.includes("INSERT INTO human_subscriptions")) {
+						stored = {
+							id: this.values[0],
+							userId: this.values[1],
+							worldId: this.values[2],
+							scopeType: this.values[3],
+							scopeId: this.values[4],
+							active: 1,
+							autoCreated: this.values[5],
+							createdAt: this.values[6],
+							updatedAt: this.values[7],
+						};
+					}
+					return { success: true, meta: { changes: 1 } };
+				},
+				async first<T>() {
+					return stored as T | null;
+				},
+			};
+			return statement;
+		},
 	};
 }
 

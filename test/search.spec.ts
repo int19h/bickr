@@ -651,6 +651,36 @@ describe("Search", () => {
 		expect(bindings.deleted).toEqual([written.id]);
 	});
 
+	it("does not advertise semantic pages or an exact total beyond the Vectorize retrieval window", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const bindings = fakeSearchBindings();
+		const bots: BotBody[] = [];
+		for (let index = 0; index < 55; index += 1) {
+			bots.push(await createBotForTest(cookie, `semantic-window-${index}`));
+		}
+		bindings.matches = bots.map((bot, index) => ({
+			id: bot.id,
+			metadata: { entityId: bot.id, type: "bot" },
+			score: 1 - index / 100,
+		}));
+
+		const beyondWindow = await searchEntitiesSemantic(testEnv.BICKR_D1, bindings.env, {
+			mode: "semantic",
+			page: 4,
+			query: "semantic window",
+			types: ["bot"],
+		});
+
+		expect(beyondWindow).toMatchObject({
+			hasNextPage: false,
+			page: 4,
+			results: [],
+			total: 50,
+			totalRelation: "lower_bound",
+		});
+	});
+
 	it("persists and resumes a stable full-pass vector reindex cursor", async () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);

@@ -63,6 +63,7 @@ import {
 	searchBots,
 	searchThreads,
 	seedWorld,
+	setSubscriptionRoute,
 	setVote,
 	spotlightPreview,
 	spotlightSend,
@@ -1999,6 +2000,59 @@ describe("Forum coordinator", () => {
 				subscription: expect.objectContaining({ id: "hsb_comment" }),
 			}),
 		]);
+	});
+
+	it("validates subscription scopes against their claimed world before upserting", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const forum = await createForumForTest(cookie, "validated-watch");
+
+		const valid = await setSubscriptionRoute(
+			contextFor<typeof setSubscriptionRoute>(
+				jsonRequest(
+					"http://example.com/api/me/subscriptions",
+					"PUT",
+					{ scopeType: "forum", scopeId: forum.id, worldId: forum.worldId },
+					cookie,
+				),
+			),
+		);
+		expect(valid.status, await valid.clone().text()).toBe(200);
+		expect(await valid.json()).toMatchObject({
+			data: { subscription: { scopeType: "forum", scopeId: forum.id, worldId: forum.worldId } },
+		});
+
+		const wrongWorld = await setSubscriptionRoute(
+			contextFor<typeof setSubscriptionRoute>(
+				jsonRequest(
+					"http://example.com/api/me/subscriptions",
+					"PUT",
+					{ scopeType: "forum", scopeId: forum.id, worldId: "w_wrong" },
+					cookie,
+				),
+			),
+		);
+		expect(wrongWorld.status).toBe(400);
+		expect(await wrongWorld.json()).toMatchObject({
+			error: "bad_request",
+			message: "Subscription scope does not belong to the specified world.",
+		});
+
+		const nonexistent = await setSubscriptionRoute(
+			contextFor<typeof setSubscriptionRoute>(
+				jsonRequest(
+					"http://example.com/api/me/subscriptions",
+					"PUT",
+					{ scopeType: "forum", scopeId: "frm_missing", worldId: forum.worldId },
+					cookie,
+				),
+			),
+		);
+		expect(nonexistent.status).toBe(404);
+		expect(await nonexistent.json()).toMatchObject({
+			error: "not_found",
+			message: "Subscription forum scope not found.",
+		});
 	});
 
 	it("applies subscription updates only through the batch update route", async () => {

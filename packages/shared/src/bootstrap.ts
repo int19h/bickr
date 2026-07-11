@@ -30,7 +30,7 @@ export const bootstrapPayload: BootstrapPayload = {
 	runtime: {
 		backend: "Cloudflare Pages Functions + Workers",
 		localDev: "Wrangler Pages multi-worker local runtime",
-		storage: "KV, R2, D1, and Vectorize are planned but not provisioned yet",
+		storage: "Cloudflare KV, R2, D1, and Vectorize",
 	},
 	pillars: [
 		{

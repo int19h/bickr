@@ -2,8 +2,9 @@ import { type AvatarImage, type AvatarImageSource } from "./model";
 import { InputError } from "./validation";
 
 export const avatarMaxBytes = 10 * 1024 * 1024;
-const avatarAcceptedContentTypes = ["image/jpeg", "image/png", "image/webp", "image/svg+xml"] as const;
+const avatarAcceptedContentTypes = ["image/jpeg", "image/png", "image/webp"] as const;
 export type AvatarContentType = (typeof avatarAcceptedContentTypes)[number];
+type DetectedAvatarContentType = AvatarContentType | "image/svg+xml";
 export type AvatarKind = "avatars" | "avatar-candidates";
 
 export type R2BucketLike = {
@@ -106,10 +107,10 @@ function validateAvatarBytes(bytes: Uint8Array, declaredContentType?: string): V
 	}
 	const detected = avatarContentTypeFromBytes(bytes);
 	if (!detected) {
-		throw new InputError("Avatar image must be JPEG, PNG, WebP, or SVG.");
+		throw new InputError("Avatar image must be JPEG, PNG, or WebP.");
 	}
 	if (detected === "image/svg+xml") {
-		validateSvgAvatar(bytes);
+		throw new InputError("SVG avatar images are not supported. Use JPEG, PNG, or WebP.");
 	}
 	const declared = declaredContentType?.split(";")[0]?.trim().toLowerCase();
 	if (declared && isAvatarContentType(declared) && declared !== detected) {
@@ -225,7 +226,6 @@ function avatarObjectKey(
 	const extension =
 		contentType === "image/png" ? "png"
 		: contentType === "image/webp" ? "webp"
-		: contentType === "image/svg+xml" ? "svg"
 		: "jpg";
 	if (input.target === "user") {
 		if (!input.userId) {
@@ -258,8 +258,8 @@ function remoteAvatarUrl(value: string): URL {
 	} catch {
 		throw new InputError("Avatar URL must be a valid URL.");
 	}
-	if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
-		throw new InputError("Avatar URL must use HTTP or HTTPS.");
+	if (parsed.protocol !== "https:") {
+		throw new InputError("Avatar URL must use HTTPS.");
 	}
 	if (parsed.username || parsed.password) {
 		throw new InputError("Avatar URL must not contain credentials.");
@@ -295,7 +295,7 @@ async function readCappedBytes(body: ReadableStream | null, maxBytes: number): P
 	return bytes;
 }
 
-export function avatarContentTypeFromBytes(bytes: Uint8Array): AvatarContentType | null {
+export function avatarContentTypeFromBytes(bytes: Uint8Array): DetectedAvatarContentType | null {
 	if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
 		return "image/jpeg";
 	}
@@ -336,46 +336,7 @@ function avatarDimensions(bytes: Uint8Array, contentType: AvatarContentType): { 
 	if (contentType === "image/webp") {
 		return webpDimensions(bytes);
 	}
-	if (contentType === "image/svg+xml") {
-		return svgDimensions(bytes);
-	}
 	return {};
-}
-
-function validateSvgAvatar(bytes: Uint8Array): void {
-	const text = decodeSvgText(bytes);
-	if (!text) {
-		throw new InputError("SVG avatar image must be UTF-8 encoded.");
-	}
-	const body = svgDocumentBody(text);
-	if (!/^<svg(?:[\s>/]|$)/i.test(body)) {
-		throw new InputError("SVG avatar image must contain an SVG document.");
-	}
-	if (
-		/<!\s*(?:doctype|entity)\b/i.test(text) ||
-		/<\s*(?:script|foreignobject|iframe|object|embed|audio|video|image|canvas|link|base)\b/i.test(text) ||
-		/\son[a-z][\w:-]*\s*=/i.test(text) ||
-		/(?:javascript:|data:|@import\b)/i.test(text)
-	) {
-		throw new InputError("SVG avatar images must not contain active content or embedded resources.");
-	}
-	const urlAttributes = /\b(?:href|xlink:href|src)\s*=\s*(["'])(.*?)\1/gi;
-	for (const match of text.matchAll(urlAttributes)) {
-		const value = (match[2] ?? "").trim();
-		if (value && !value.startsWith("#")) {
-			throw new InputError("SVG avatar images must not reference external resources.");
-		}
-	}
-	if (/\b(?:href|xlink:href|src)\s*=\s*[^"'\s>]/i.test(text)) {
-		throw new InputError("SVG avatar images must quote resource references.");
-	}
-	const urlFunctions = /url\(\s*(["']?)(.*?)\1\s*\)/gi;
-	for (const match of text.matchAll(urlFunctions)) {
-		const value = (match[2] ?? "").trim();
-		if (value && !value.startsWith("#")) {
-			throw new InputError("SVG avatar images must not reference external resources.");
-		}
-	}
 }
 
 function decodeSvgText(bytes: Uint8Array): string | null {
@@ -402,47 +363,6 @@ function svgDocumentBody(text: string): string {
 	return body;
 }
 
-function svgDimensions(bytes: Uint8Array): { width?: number; height?: number } {
-	const text = decodeSvgText(bytes);
-	if (!text) {
-		return {};
-	}
-	const svgTag = /<svg\b([^>]*)>/i.exec(text);
-	if (!svgTag) {
-		return {};
-	}
-	const attrs = svgTag[1] ?? "";
-	const width = svgLengthAttribute(attrs, "width");
-	const height = svgLengthAttribute(attrs, "height");
-	if (width && height) {
-		return { width, height };
-	}
-	const viewBox = /\bviewBox\s*=\s*(["'])(.*?)\1/i.exec(attrs);
-	const numbers = viewBox?.[2]?.trim().split(/[\s,]+/).map((value) => Number(value)) ?? [];
-	const viewBoxWidth = finitePositiveNumber(numbers[2]) ? numbers[2] : undefined;
-	const viewBoxHeight = finitePositiveNumber(numbers[3]) ? numbers[3] : undefined;
-	const resolvedWidth = width ?? viewBoxWidth;
-	const resolvedHeight = height ?? viewBoxHeight;
-	return {
-		...(resolvedWidth !== undefined ? { width: resolvedWidth } : {}),
-		...(resolvedHeight !== undefined ? { height: resolvedHeight } : {}),
-	};
-}
-
-function svgLengthAttribute(attrs: string, name: "width" | "height"): number | undefined {
-	const match = new RegExp(`\\b${name}\\s*=\\s*(["'])(.*?)\\1`, "i").exec(attrs);
-	const value = match?.[2]?.trim();
-	if (!value) {
-		return undefined;
-	}
-	const numberMatch = /^([0-9]+(?:\.[0-9]+)?|\.[0-9]+)(?:px)?$/i.exec(value);
-	const number = numberMatch ? Number(numberMatch[1]) : NaN;
-	return finitePositiveNumber(number) ? number : undefined;
-}
-
-function finitePositiveNumber(value: number | undefined): value is number {
-	return typeof value === "number" && Number.isFinite(value) && value > 0;
-}
 
 function jpegDimensions(bytes: Uint8Array): { width?: number; height?: number } {
 	let index = 2;

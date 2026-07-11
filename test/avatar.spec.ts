@@ -64,7 +64,6 @@ import {
 	testEnv,
 	testLanguage,
 	unlinkBotCloneRoute,
-	unsafeSvgAvatarBytes,
 	unspecifiedLt,
 	updateBotAvatar,
 	updateBotAvatarCrop,
@@ -181,13 +180,13 @@ describe("Avatar", () => {
 		const avatar = await storeAvatarImage(r2.bucket, {
 			botId: bot.id,
 			worldId: bot.homeWorldId,
-			bytes: svgAvatarBytes(),
-			contentType: "image/svg+xml",
+			bytes: pngAvatarBytes(),
+			contentType: "image/png",
 			publicBaseUrl,
 		});
 		await updateBotAvatar(testEnv.BICKR_KV, testEnv.BICKR_D1, bot.id, userId, avatar);
 
-		const crop: AvatarCrop = { x: 4, y: 8, size: 16, imageWidth: 24, imageHeight: 32 };
+		const crop: AvatarCrop = { x: 0, y: 0, size: 1, imageWidth: 1, imageHeight: 1 };
 		const response = await updateBotAvatarCrop(
 			contextFor<typeof updateBotAvatarCrop>(
 				jsonRequest(`http://example.com/api/me/bots/${bot.id}/avatar/crop`, "PATCH", { crop }, cookie),
@@ -234,7 +233,7 @@ describe("Avatar", () => {
 				jsonRequest(
 					`http://example.com/api/me/bots/${bot.id}/avatar/crop`,
 					"PATCH",
-					{ crop: { x: 20, y: 8, size: 16, imageWidth: 24, imageHeight: 32 } },
+					{ crop: { x: 1, y: 0, size: 1, imageWidth: 1, imageHeight: 1 } },
 					cookie,
 				),
 				{ botId: bot.id },
@@ -380,13 +379,13 @@ describe("Avatar", () => {
 		const avatar = await storeAvatarImage(r2.bucket, {
 			target: "user",
 			userId,
-			bytes: svgAvatarBytes(),
-			contentType: "image/svg+xml",
+			bytes: pngAvatarBytes(),
+			contentType: "image/png",
 			publicBaseUrl,
 		});
 		await updateUserAvatar(testEnv.BICKR_KV, testEnv.BICKR_D1, userId, avatar);
 
-		const crop: AvatarCrop = { x: 4, y: 8, size: 16, imageWidth: 24, imageHeight: 32 };
+		const crop: AvatarCrop = { x: 0, y: 0, size: 1, imageWidth: 1, imageHeight: 1 };
 		const cropResponse = await updateUserAvatarCropRoute(
 			contextFor<typeof updateUserAvatarCropRoute>(
 				jsonRequest("http://example.com/api/me/avatar/crop", "PATCH", { crop }, cookie),
@@ -1109,7 +1108,7 @@ describe("Avatar", () => {
 		});
 	});
 
-	it("uploads SVG participant avatars into R2", async () => {
+	it("rejects SVG remote avatar imports with a clear message", async () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);
 		const bot = await createBotForTest(cookie, "avatar-svg");
@@ -1140,33 +1139,23 @@ describe("Avatar", () => {
 					},
 				),
 			);
-			expect(response.status).toBe(200);
-			const body = (await response.json()) as { data: { bot: BotBody } };
-			expect(body.data.bot.avatarUrl).toMatch(/^https:\/\/assets-test\.bickr\.social\/worlds\/.+\/bots\/.+\/avatars\/.+\.svg$/);
-			const stored = [...r2.objects.values()][0];
-			expect(stored?.bytes).toEqual(sourceBytes);
-			expect(stored?.httpMetadata?.contentType).toBe("image/svg+xml");
-			const storedBot = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, bot.id);
-			expect(storedBot.avatar).toMatchObject({
-				contentType: "image/svg+xml",
-				width: 24,
-				height: 32,
-				source: {
-					type: "remote_url",
-					sourceUrl,
-				},
+			expect(response.status).toBe(400);
+			expect(await response.json()).toMatchObject({
+				error: "bad_request",
+				message: "SVG avatar images are not supported. Use JPEG, PNG, or WebP.",
 			});
+			expect(r2.objects.size).toBe(0);
 		} finally {
 			vi.stubGlobal("fetch", originalFetch);
 		}
 	});
 
-	it("rejects SVG avatar uploads with active content", async () => {
+	it("rejects SVG avatar file uploads with a clear message", async () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);
-		const bot = await createBotForTest(cookie, "avatar-unsafe-svg");
+		const bot = await createBotForTest(cookie, "avatar-file-svg");
 		const form = new FormData();
-		form.set("file", new File([unsafeSvgAvatarBytes()], "avatar.svg", { type: "image/svg+xml" }));
+		form.set("file", new File([svgAvatarBytes()], "avatar.svg", { type: "image/svg+xml" }));
 		const response = await uploadBotAvatar(
 			contextFor<typeof uploadBotAvatar>(
 				new Request(`http://example.com/api/me/bots/${bot.id}/avatar`, {
@@ -1182,6 +1171,55 @@ describe("Avatar", () => {
 			),
 		);
 		expect(response.status).toBe(400);
+		expect(await response.json()).toMatchObject({
+			error: "bad_request",
+			message: "SVG avatar images are not supported. Use JPEG, PNG, or WebP.",
+		});
+	});
+
+	it("requires HTTPS for remote avatar imports", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const bot = await createBotForTest(cookie, "avatar-https-only");
+		const r2 = fakeR2Bucket();
+		const fetchMock = vi.fn(async () => new Response(pngAvatarBytes(), {
+			headers: { "content-type": "image/png" },
+		}));
+		const originalFetch = globalThis.fetch;
+		vi.stubGlobal("fetch", fetchMock);
+		try {
+			const rejected = await uploadBotAvatar(
+				contextFor<typeof uploadBotAvatar>(
+					jsonRequest(`http://example.com/api/me/bots/${bot.id}/avatar`, "PUT", { url: "http://images.example/avatar.png" }, cookie),
+					{ botId: bot.id },
+					{
+						BICKR_R2: r2.bucket,
+						BICKR_R2_PUBLIC_BASE_URL: "https://assets-test.bickr.social",
+					},
+				),
+			);
+			expect(rejected.status).toBe(400);
+			expect(await rejected.json()).toMatchObject({ message: "Avatar URL must use HTTPS." });
+			expect(fetchMock).not.toHaveBeenCalled();
+
+			const accepted = await uploadBotAvatar(
+				contextFor<typeof uploadBotAvatar>(
+					jsonRequest(`http://example.com/api/me/bots/${bot.id}/avatar`, "PUT", { url: "https://images.example/avatar.png" }, cookie),
+					{ botId: bot.id },
+					{
+						BICKR_R2: r2.bucket,
+						BICKR_R2_PUBLIC_BASE_URL: "https://assets-test.bickr.social",
+					},
+				),
+			);
+			expect(accepted.status, await accepted.clone().text()).toBe(200);
+			expect(fetchMock).toHaveBeenCalledWith(
+				"https://images.example/avatar.png",
+				expect.objectContaining({ redirect: "follow" }),
+			);
+		} finally {
+			vi.stubGlobal("fetch", originalFetch);
+		}
 	});
 
 	it("rejects unsupported avatar upload file types", async () => {
@@ -1768,7 +1806,7 @@ describe("Avatar", () => {
 		}
 	});
 
-	it("creates and promotes SVG generated avatar candidates", async () => {
+	it("rejects SVG generated avatar candidates", async () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);
 		const bot = await createBotForTest(cookie, "avatar-generated-svg");
@@ -1784,7 +1822,6 @@ describe("Avatar", () => {
 			},
 		);
 		vi.stubGlobal("fetch", fetchMock);
-		let candidate: NonNullable<BotBody["avatar"]>;
 		try {
 			const generateResponse = await handleAgentRuntimeRequest(
 				serviceJsonRequest(
@@ -1804,33 +1841,14 @@ describe("Avatar", () => {
 					OPENROUTER_API_KEY: "test-key",
 				},
 			);
-			expect(generateResponse.status).toBe(200);
-			const generateBody = (await generateResponse.json()) as { data: { candidate: NonNullable<BotBody["avatar"]> } };
-			candidate = generateBody.data.candidate;
-			expect(candidate.contentType).toBe("image/svg+xml");
-			expect(candidate.url).toMatch(/\/avatar-candidates\/.+\.svg$/);
+			expect(generateResponse.status).toBe(502);
+			const body = await generateResponse.json() as { error: string; message: string };
+			expect(body.error).toBe("server_error");
+			expect(body.message).toContain("SVG avatar images are not supported. Use JPEG, PNG, or WebP.");
+			expect(r2.objects.size).toBe(0);
 		} finally {
 			vi.stubGlobal("fetch", originalFetch);
 		}
-
-		const applyResponse = await handleAgentRuntimeRequest(
-			serviceJsonRequest(
-				`/users/${encodeURIComponent(userId)}/bots/${encodeURIComponent(bot.id)}/avatar/apply`,
-				userId,
-				{ candidate },
-			),
-			{
-				BICKR_D1: testEnv.BICKR_D1,
-				BICKR_KV: testEnv.BICKR_KV,
-				BICKR_R2: r2.bucket,
-				BICKR_R2_PUBLIC_BASE_URL: "https://assets-test.bickr.social",
-			},
-		);
-		expect(applyResponse.status).toBe(200);
-		const applyBody = (await applyResponse.json()) as { data: { bot: BotBody } };
-		expect(applyBody.data.bot.avatarUrl).toMatch(/\/avatars\/.+\.svg$/);
-		const storedBot = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, bot.id);
-		expect(storedBot.avatar?.contentType).toBe("image/svg+xml");
 	});
 
 	it("uses the dedicated OpenRouter image endpoint for avatar generation", async () => {
