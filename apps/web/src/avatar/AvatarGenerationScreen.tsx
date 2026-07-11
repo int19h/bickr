@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
-	localizedTextLang,
 	localizedTextString,
 	type AvatarImage,
 	type BotInferenceSettings,
@@ -126,7 +125,7 @@ export function AvatarGenerationScreen<TDraft, TMutationResponse, TSaved>({
 	membersPrompt?: { available: boolean; title: string };
 	onBack: () => void;
 	onDiscardSettings: () => Promise<boolean>;
-	onSaveSettings: (draft: TDraft) => Promise<boolean>;
+	onSaveSettings: (draft: TDraft, language: LanguageTag) => Promise<boolean>;
 	onSaved: (saved: TSaved, affectedBots?: BotSummary[]) => void;
 	renderPromptFillSettingsModal?: (props: PromptFillSettingsModalProps) => ReactNode;
 	target: AvatarTarget<TMutationResponse, TSaved>;
@@ -153,7 +152,7 @@ export function AvatarGenerationScreen<TDraft, TMutationResponse, TSaved>({
 	const [currentAvatarFailed, setCurrentAvatarFailed] = useState(false);
 	const generationAbortRef = useRef<AbortController | null>(null);
 	const promptFillAbortRef = useRef<AbortController | null>(null);
-	const language = target.owner.language ?? localizedTextLang(target.owner.displayName) ?? ("en" as LanguageTag);
+	const language = target.owner.language;
 
 	useEffect(() => {
 		const effectiveSettings = target.generation.defaultSettings;
@@ -356,7 +355,7 @@ export function AvatarGenerationScreen<TDraft, TMutationResponse, TSaved>({
 				setCandidate(null);
 				setMessage("Avatar saved.");
 			} else {
-				const ok = await onSaveSettings(adapter.withPrompt(draft, prompt));
+				const ok = await onSaveSettings(adapter.withPrompt(draft, prompt), language);
 				if (ok) {
 					setMessage("Image generation settings saved.");
 				}

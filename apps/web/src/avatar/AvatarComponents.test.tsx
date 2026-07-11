@@ -7,6 +7,7 @@ import {
 	type UserProfile,
 	type WorldSummary,
 } from "@bickr/shared/model";
+import { parseImageGenerationSettings } from "@bickr/shared/validation";
 
 import { AvatarCropModal } from "./AvatarCropModal";
 import {
@@ -22,6 +23,8 @@ import {
 } from "./target";
 
 const en = "en" as LanguageTag;
+const de = "de" as LanguageTag;
+const ja = "ja" as LanguageTag;
 const now = "2026-07-10T00:00:00.000Z";
 
 function bot(overrides: Partial<BotSummary> = {}): BotSummary {
@@ -58,7 +61,7 @@ function bot(overrides: Partial<BotSummary> = {}): BotSummary {
 	};
 }
 
-function user(): UserProfile {
+function user(overrides: Partial<UserProfile> = {}): UserProfile {
 	return {
 		id: "usr_one",
 		handle: "owner",
@@ -70,10 +73,11 @@ function user(): UserProfile {
 		authIdentities: [],
 		createdAt: now,
 		updatedAt: now,
+		...overrides,
 	};
 }
 
-function world(): WorldSummary {
+function world(overrides: Partial<WorldSummary> = {}): WorldSummary {
 	return {
 		id: "wld_one",
 		handle: "one",
@@ -86,6 +90,7 @@ function world(): WorldSummary {
 		createdAt: now,
 		updatedAt: now,
 		imageGeneration: { model: "world-image-model" },
+		...overrides,
 	};
 }
 
@@ -97,7 +102,7 @@ const adapter: AvatarGenerationDraftAdapter<Draft> = {
 		model: settings.imageGeneration?.model ?? "",
 		prompt: typeof settings.imageGeneration?.prompt === "string" ? settings.imageGeneration.prompt : "",
 	}),
-	imageGenerationInput: (draft, prompt) => ({ model: draft.model || null, prompt: localizedText(prompt, en) }),
+	imageGenerationInput: (draft, prompt, language) => ({ model: draft.model || null, prompt: localizedText(prompt, language) }),
 	model: (draft) => draft.model,
 	providerRoutingError: () => "",
 	renderAdvancedFields: () => <div>advanced fields</div>,
@@ -126,6 +131,37 @@ function renderFamilies<TMutationResponse, TSaved>(target: AvatarTarget<TMutatio
 }
 
 describe("AvatarTarget", () => {
+	it("uses the bot display-name language and then English when no language is explicit", () => {
+		expect(botAvatarTarget(bot({ displayName: localizedText("One", ja), language: null }), null).owner.language).toBe(ja);
+		expect(botAvatarTarget(bot({ displayName: localizedText("One", null), language: null }), null).owner.language).toBe(en);
+	});
+
+	it("uses the user display-name language and then English when no language is explicit", () => {
+		expect(userAvatarTarget(user({ displayName: localizedText("Owner", ja), language: null })).owner.language).toBe(ja);
+		expect(userAvatarTarget(user({ displayName: localizedText("Owner", null), language: null })).owner.language).toBe(en);
+	});
+
+	it("uses the world name language and then English when no language is explicit", () => {
+		expect(worldAvatarTarget(world({ language: null, name: localizedText("World One", ja) }), null).owner.language).toBe(ja);
+		expect(worldAvatarTarget(world({ language: null, name: localizedText("World One", null) }), null).owner.language).toBe(en);
+	});
+
+	it("builds a valid settings-only save payload for a language-less user profile", () => {
+		const target = userAvatarTarget(user({ displayName: localizedText("Eigentümer", de), language: null }));
+		const savePayload = {
+			inferenceSettings: {
+				imageGeneration: adapter.imageGenerationInput(
+					{ model: "user-image-model", prompt: "portrait" },
+					"portrait",
+					target.owner.language,
+				),
+			},
+		};
+
+		expect(savePayload.inferenceSettings.imageGeneration?.prompt).toEqual({ lang: de, text: "portrait" });
+		expect(() => parseImageGenerationSettings(savePayload.inferenceSettings.imageGeneration, target.owner.language)).not.toThrow();
+	});
+
 	it("describes bot endpoints and participant-or-owner generation defaults", () => {
 		const target = botAvatarTarget(
 			bot({ inferenceSettings: { imageGeneration: { model: "bot-image-model" } } }),

@@ -835,7 +835,7 @@ function jsonValue(value: unknown, label: string): JsonValue {
 	throw new InputError(`${label} must contain only JSON values.`);
 }
 
-function parseImageGenerationSettings(value: unknown, language: LanguageTag | null): BotImageGenerationSettingsInput {
+export function parseImageGenerationSettings(value: unknown, language: LanguageTag | null): BotImageGenerationSettingsInput {
 	const record = asRecord(value);
 	const settings: BotImageGenerationSettingsInput = {};
 	assignOptionalPlainText(settings, "model", record.model, "Image generation model", 160);
