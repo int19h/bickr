@@ -16,6 +16,7 @@ import {
 	providerCompactionSummaryLimitsForChat,
 	providerContextCompletionReserveTokens,
 	providerLoopUsageRowForTest,
+	providerUsageForTest,
 	providerUsageInputForTest,
 	publicGlobalInferenceCostStats,
 	recordBotInferenceUsageBatch,
@@ -36,6 +37,7 @@ import type {
 	ProviderToolDefinition,
 	RecordProviderUsageInputForTest,
 } from "./helpers/index-harness";
+import { ProviderResponseInterruptedError } from "../workers/agent-runtime/src/errors";
 
 // TODO(#12): move next to module on extraction.
 describe("Submissions and usage", () => {
@@ -610,6 +612,75 @@ describe("Submissions and usage", () => {
 
 		expect(fetchMock).not.toHaveBeenCalled();
 		expect(sql.providerNames()).toEqual(["api.provider.example"]);
+	});
+
+	it("records billed usage from an interrupted provider stream", async () => {
+		const sql = capturingProviderUsageSql();
+		const providerTools = toolDefinitionsForProviderRound();
+		const interruptedUsage = providerUsageForTest(23, 7);
+		let eventSeq = 0;
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			state: { storage: { sql } },
+			appendEvent: (runId: string, type: BotRuntimeEvent["type"], payload: unknown) => {
+				eventSeq += 1;
+				return runtimeEvent(eventSeq, runId, type, payload);
+			},
+			appendProviderMessages: async () => {},
+			consumeProviderResponse: async () => {
+				throw new ProviderResponseInterruptedError(
+					{
+						content: "Partially generated response.",
+						reasoning: "",
+						reasoningDetails: [],
+						toolCalls: [],
+						usage: interruptedUsage,
+					},
+					new Error("Provider stream ended unexpectedly."),
+				);
+			},
+			ensureProviderPromptWithinBudget: async () => ({
+				allowedPromptTokens: 13_500,
+				maxCompletionTokens: 5_000,
+				promptTokens: 100,
+				providerTools,
+				requestMessages: [{ role: "assistant", content: "I am ready." }],
+			}),
+			fetchProviderResponse: async () => sseStream(["[DONE]"]),
+			loopGeneratedTokenCountSinceLastLogOff: () => 0,
+			prematureLogOffCorrectedSinceLastLogOff: () => false,
+			providerLoopInitialSuccessfulToolCallCount: () => 0,
+			recordDroppedProviderToolCalls: async () => {},
+			recordInferenceSubmission: () => {},
+			recordProviderTokenCalibrationSampleFromError: () => {},
+			successfulMutatingToolCallSinceLastLogOff: () => true,
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const runProviderLoop = (BotRuntime.prototype as unknown as {
+			runProviderLoop: (
+				bot: BotDocument,
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls: "at_will" },
+				runId: string,
+				messages: BotInferenceSubmissionMessage[],
+				runContext: { mode: "normal"; signal: AbortSignal },
+			) => Promise<unknown>;
+		}).runProviderLoop.bind(runtime);
+
+		await expect(
+			runProviderLoop(
+				fakeBotDocument({ allowEarlyLogOff: true }),
+				{ baseUrl: "https://api.provider.example/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
+				"run-interrupted-usage",
+				[],
+				{ mode: "normal", signal: new AbortController().signal },
+			),
+		).rejects.toThrow("Provider stream ended unexpectedly.");
+
+		expect(sql.rows()).toHaveLength(1);
+		expect(sql.rows()[0]?.slice(9, 15)).toEqual([10, 23, 33, 0, 7, null]);
 	});
 
 	it("calculates prompt context budget segments and over-budget counts", () => {

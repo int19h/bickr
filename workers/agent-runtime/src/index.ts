@@ -2652,7 +2652,7 @@ export class BotRuntime {
 		};
 		while (toolRequestTurns < tickSettings.maxToolCallsPerTick) {
 			this.throwIfStopped(runId, runContext.signal);
-			const { tools: providerTools, serverTools } = providerToolsForBotRound(bot, settings);
+			let { tools: providerTools, serverTools } = providerToolsForBotRound(bot, settings);
 			if (providerTools.length === 0) {
 				return finishProviderLoop();
 			}
@@ -2663,6 +2663,7 @@ export class BotRuntime {
 			let malformedOnlyRetried = false;
 			for (;;) {
 				const budgetCheck = await this.ensureProviderPromptWithinBudget(bot, settings, runId, runContext.signal, providerTools);
+				providerTools = budgetCheck.providerTools;
 				const requestMessages = budgetCheck.requestMessages;
 				const requestContextWindowTokens = budgetCheck.contextWindowTokens ?? tickSettings.contextWindowTokens;
 				const requestMaxCompletionTokens = providerLoopMaxCompletionTokens(requestContextWindowTokens, budgetCheck.promptTokens);
@@ -3176,9 +3177,7 @@ export class BotRuntime {
 					settings: requestSettings,
 				});
 				if (error instanceof ProviderResponseInterruptedError) {
-					const interruptedResponse = { ...error.response };
-					delete interruptedResponse.usage;
-					throw new ProviderResponseInterruptedError({ ...interruptedResponse, requestBody: body }, error.originalError);
+					throw new ProviderResponseInterruptedError({ ...error.response, requestBody: body }, error.originalError);
 				}
 				if (error instanceof TickStoppedError || isAbortError(error)) {
 					throw error;
@@ -4863,7 +4862,10 @@ export class BotRuntime {
 				'reply_to_comment',
 				{
 					commentId: replyTarget.rootCommentId,
-					body: `${bot.displayName} weighs in: ${bot.shortBio}`,
+					body: {
+						lang: bot.language ?? ('en' as LanguageTag),
+						text: `${localizedTextString(bot.displayName)} weighs in: ${localizedTextString(bot.shortBio)}`,
+					},
 				},
 				runContext,
 			);
@@ -5590,6 +5592,7 @@ export class BotRuntime {
 							contextWindowTokens: requestContextWindowTokens,
 							maxCompletionTokens,
 							promptTokens: estimate.promptTokens,
+							providerTools,
 							requestMessages,
 						}
 					: null;
@@ -6353,17 +6356,8 @@ export class BotRuntime {
 		if (!Number.isInteger(seq) || seq <= 0) {
 			throw new RepositoryError('bad_request', 'Loop message sequence is invalid.', 400);
 		}
-		const row = this.state.storage.sql
-			.exec<LoopMessageRow>(
-				`SELECT m.seq, m.position, m.run_id, m.role, m.message_json, m.origin, m.status,
-				        m.token_estimate, m.stream_seq, m.compacted_by, m.deleted_at, m.created_at,
-				        CASE WHEN EXISTS (SELECT 1 FROM loop_message_logs l WHERE l.message_seq = m.seq) THEN 1 ELSE 0 END AS has_logs
-				 FROM loop_messages m
-				 WHERE m.seq = ?
-				 LIMIT 1`,
-				seq,
-			)
-			.toArray()[0];
+		const messageStore = this.runtimeMessageStore();
+		const row = messageStore.loopMessageRow(seq);
 		if (!row) {
 			throw new RepositoryError('not_found', 'Loop message was not found.', 404);
 		}
@@ -6371,17 +6365,11 @@ export class BotRuntime {
 		if (current.status === 'running' && current.activeRunId === row.run_id) {
 			throw new RepositoryError('conflict', 'Cannot delete a message from the currently running tick.', 409);
 		}
-		const deletedAt = row.deleted_at ?? new Date().toISOString();
-		if (!row.deleted_at) {
-			this.state.storage.sql.exec(
-				`UPDATE loop_messages
-				 SET deleted_at = ?
-				 WHERE seq = ?
-				   AND deleted_at IS NULL`,
-				deletedAt,
-				seq,
-			);
+		const deleted = messageStore.softDeleteLoopMessage(seq);
+		if (!deleted) {
+			throw new RepositoryError('not_found', 'Loop message was not found.', 404);
 		}
+		const { deletedAt } = deleted;
 		this.broadcastControl({ type: 'loop_message_deleted', seq, deletedAt });
 		return { seq, runId: row.run_id, origin: row.origin, deletedAt };
 	}

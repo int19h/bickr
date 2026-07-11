@@ -2,16 +2,20 @@ import {
 	authCookie,
 	botById,
 	BotRuntime,
+	createForumForTest,
 	createBotForTest,
+	createThreadForTest,
 	defaultReasoningPrefill,
 	describe,
 	effectiveReasoningPrefill,
+	ExclusiveOperationQueue,
 	expect,
 	expectProviderPayloadToOmitIsoTimestamps,
 	expectProviderPayloadToOmitKeys,
 	fakeBotDocument,
 	formatRuntimeEventForContext,
 	formatRuntimeInputForContext,
+	handleForumCoordinatorRequest,
 	it,
 	localizedTextString,
 	lt,
@@ -24,12 +28,14 @@ import {
 	providerResponseWithToolCalls,
 	providerToolResultPayload,
 	providerUsageForTest,
+	readThread,
 	requiredLt,
 	runtimeEvent,
 	seedWorld,
 	standardPrompt,
 	testEnv,
 	testLanguage,
+	toolDefinitionsForProviderRound,
 	toolUseRecoveryReminder,
 	vi,
 } from "./helpers/index-harness";
@@ -45,6 +51,174 @@ import type {
 } from "./helpers/index-harness";
 
 describe("Tick flow", () => {
+	it("completes a keyless local-simulation tick by replying through the coordinator", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const replyingProfile = await createBotForTest(cookie, "local-simulation-replier", { enabled: true });
+		const authorProfile = await createBotForTest(cookie, "local-simulation-author");
+		const forum = await createForumForTest(cookie, "local-simulation");
+		const thread = await createThreadForTest(
+			forum.id,
+			authorProfile.id,
+			"A thread for local simulation",
+			"The local participant should reply here.",
+		);
+		const replyingBot = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, replyingProfile.id);
+		const coordinatorRequests: Array<{ path: string; body: unknown }> = [];
+		const events: BotRuntimeEvent[] = [];
+		let eventSeq = 0;
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			activeAbortController: null,
+			activeMaintenanceOperation: null,
+			activeRunId: null,
+			transitionQueue: new ExclusiveOperationQueue(),
+			env: {
+				BICKR_D1: testEnv.BICKR_D1,
+				BICKR_KV: testEnv.BICKR_KV,
+				BICKR_SIMULATION_MODE: "local",
+				INTERNAL_SERVICE_SECRET: "test-internal-service-secret",
+				FORUM_COORDINATOR_SERVICE: {
+					fetch: async (request: Request) => {
+						coordinatorRequests.push({
+							path: new URL(request.url).pathname,
+							body: await request.clone().json(),
+						});
+						return handleForumCoordinatorRequest(request, {
+							BICKR_D1: testEnv.BICKR_D1,
+							BICKR_KV: testEnv.BICKR_KV,
+						});
+					},
+				},
+			},
+			state: {
+				storage: { sql: memoryRuntimeSql() },
+				waitUntil: () => {},
+			},
+			appendEvent: (runId: string, type: BotRuntimeEvent["type"], payload: unknown) => {
+				eventSeq += 1;
+				const event = runtimeEvent(eventSeq, runId, type, payload);
+				events.push(event);
+				return event;
+			},
+			appendLoopMessage: (runId: string, message: Record<string, unknown>, origin: string) => ({
+				seq: eventSeq + 1,
+				runId,
+				role: message.role,
+				message,
+				origin,
+				tokenEstimate: 0,
+				createdAt: new Date().toISOString(),
+			}),
+			buildMessages: async () => Object.assign([], { deliveredNotificationIds: new Set<string>() }),
+			compactIfNeeded: async () => {},
+			currentIterationStartedSinceLastLogOff: () => true,
+			exportRecentProviderUsage: async () => {},
+			pruneRuntimeStorageAfterTick: () => {},
+			readCommentTreeTokenBudget: async () => 10_000,
+			startQueuedSpotlightTick: () => {},
+		});
+		const runTick = (BotRuntime.prototype as unknown as {
+			runTick: (botId: string, trigger: "manual") => Promise<{ status: string }>;
+		}).runTick.bind(runtime);
+
+		await expect(runTick(replyingBot.id, "manual")).resolves.toMatchObject({ status: "completed" });
+		expect(events.some((event) => event.type === "tick_completed")).toBe(true);
+		expect(coordinatorRequests).toEqual([
+			{
+				path: `/comments/${thread.rootCommentId}/replies`,
+				body: {
+					body: {
+						lang: replyingBot.language,
+						text: `${localizedTextString(replyingBot.displayName)} weighs in: ${localizedTextString(replyingBot.shortBio)}`,
+					},
+				},
+			},
+		]);
+		const updatedThread = await readThread(testEnv.BICKR_KV, thread.id);
+		expect(updatedThread.comments).toContainEqual(expect.objectContaining({
+			authorBotId: replyingBot.id,
+			parentCommentId: thread.rootCommentId,
+			body: {
+				lang: replyingBot.language,
+				text: `${localizedTextString(replyingBot.displayName)} weighs in: ${localizedTextString(replyingBot.shortBio)}`,
+			},
+		}));
+	});
+
+	it("uses the tool schema refreshed by the mid-run prompt budget check", async () => {
+		const refreshedProviderTools = toolDefinitionsForProviderRound(4_000, {
+			postingLimits: { threadBodyCharacters: 654, commentBodyCharacters: 321 },
+		});
+		const callProvider = vi.fn(async () => providerResponseWithContent("The refreshed controls are consistent."));
+		let eventSeq = 0;
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			appendEvent: (runId: string, type: BotRuntimeEvent["type"], payload: unknown) => {
+				eventSeq += 1;
+				return runtimeEvent(eventSeq, runId, type, payload);
+			},
+			appendLoopMessage: () => ({}),
+			appendLoopMessageGroup: () => [],
+			appendProviderMessages: async () => {},
+			callProvider,
+			ensureProviderPromptWithinBudget: async () => ({
+				allowedPromptTokens: 13_500,
+				maxCompletionTokens: 5_000,
+				promptTokens: 100,
+				providerTools: refreshedProviderTools,
+				requestMessages: [{ role: "system", content: "System prompt rebuilt with current participant settings." }],
+			}),
+			loopGeneratedTokenCountSinceLastLogOff: () => 0,
+			prematureLogOffCorrectedSinceLastLogOff: () => false,
+			providerLoopInitialSuccessfulToolCallCount: () => 0,
+			recordDroppedProviderToolCalls: async () => {},
+			recordInferenceSubmission: () => {},
+			recordProviderUsage: async () => {},
+			successfulMutatingToolCallSinceLastLogOff: () => true,
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const runProviderLoop = (BotRuntime.prototype as unknown as {
+			runProviderLoop: (
+				bot: BotDocument,
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls: "at_will" },
+				runId: string,
+				messages: Array<Record<string, unknown>>,
+				runContext: { mode: "normal"; signal: AbortSignal },
+			) => Promise<unknown>;
+		}).runProviderLoop.bind(runtime);
+
+		await expect(
+			runProviderLoop(
+				fakeBotDocument({ allowEarlyLogOff: true }),
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
+				"run-refreshed-tools",
+				[],
+				{ mode: "normal", signal: new AbortController().signal },
+			),
+		).resolves.toMatchObject({ logOffCalled: false });
+
+		expect(callProvider).toHaveBeenCalledWith(
+			expect.anything(),
+			[{ role: "system", content: "System prompt rebuilt with current participant settings." }],
+			refreshedProviderTools,
+			expect.anything(),
+			expect.anything(),
+			expect.anything(),
+			expect.anything(),
+			expect.anything(),
+			expect.anything(),
+			expect.anything(),
+		);
+		const replyTool = refreshedProviderTools.find(
+			(tool) => tool.type === "function" && tool.function.name === "reply_to_comment",
+		);
+		expect(replyTool?.type === "function" ? replyTool.function.parameters.properties.body : undefined).toMatchObject({
+			properties: { text: { maxLength: 321 } },
+		});
+	});
 
 	it("formats runtime history as first-person notes instead of transcript commands", () => {
 		const toolCall = formatRuntimeEventForContext("tool_call", {
@@ -1526,8 +1700,15 @@ describe("Tick flow", () => {
 				reasoningDetails: [],
 				toolCalls: [],
 			}),
-			ensureProviderPromptWithinBudget: async () => ({
+			ensureProviderPromptWithinBudget: async (
+				_bot: BotDocument,
+				_settings: unknown,
+				_runId: string,
+				_signal: AbortSignal,
+				tools: ProviderToolDefinition[],
+			) => ({
 				allowedPromptTokens: 13_500,
+				providerTools: tools,
 				promptTokens: 100,
 				requestMessages: [{ role: "assistant", content: "I am ready." }],
 			}),
@@ -1596,6 +1777,7 @@ describe("Tick flow", () => {
 			callProvider,
 			ensureProviderPromptWithinBudget: async () => ({
 				allowedPromptTokens: 13_500,
+				providerTools: toolDefinitionsForProviderRound(),
 				promptTokens: 100,
 				requestMessages: [{ role: "assistant", content: "I am ready." }],
 			}),
@@ -1678,6 +1860,7 @@ describe("Tick flow", () => {
 			]),
 			ensureProviderPromptWithinBudget: async () => ({
 				allowedPromptTokens: 13_500,
+				providerTools: toolDefinitionsForProviderRound(),
 				promptTokens: 100,
 				requestMessages: [{ role: "assistant", content: "I am ready." }],
 			}),
@@ -1776,6 +1959,7 @@ describe("Tick flow", () => {
 				const history = providerHistory();
 				return {
 					allowedPromptTokens: 13_500,
+					providerTools: toolDefinitionsForProviderRound(),
 					promptTokens: 100,
 					requestMessages: history.length > 0 ? history : [{ role: "assistant", content: "I am ready." }],
 				};
@@ -1861,6 +2045,7 @@ describe("Tick flow", () => {
 			callProvider,
 			ensureProviderPromptWithinBudget: async () => ({
 				allowedPromptTokens: 13_500,
+				providerTools: toolDefinitionsForProviderRound(),
 				promptTokens: 100,
 				requestMessages: [{ role: "assistant", content: "I am ready." }],
 			}),
@@ -1944,6 +2129,7 @@ describe("Tick flow", () => {
 			callProvider,
 			ensureProviderPromptWithinBudget: async () => ({
 				allowedPromptTokens: 13_500,
+				providerTools: toolDefinitionsForProviderRound(),
 				promptTokens: 100,
 				requestMessages: [{ role: "assistant", content: "I am ready." }],
 			}),
@@ -2044,6 +2230,7 @@ describe("Tick flow", () => {
 			callProvider,
 			ensureProviderPromptWithinBudget: async () => ({
 				allowedPromptTokens: 13_500,
+				providerTools: toolDefinitionsForProviderRound(),
 				promptTokens: 100,
 				requestMessages: [{ role: "assistant", content: "I am ready." }],
 			}),
@@ -2133,6 +2320,7 @@ describe("Tick flow", () => {
 			callProvider,
 			ensureProviderPromptWithinBudget: async () => ({
 				allowedPromptTokens: 13_500,
+				providerTools: toolDefinitionsForProviderRound(),
 				promptTokens: 100,
 				requestMessages: [{ role: "assistant", content: "I am ready." }],
 			}),
@@ -2203,8 +2391,15 @@ describe("Tick flow", () => {
 				providerTools = tools;
 				return providerResponseWithToolCall("call-log-off", "log_off", { reason: "I have used enough controls for now." });
 			},
-			ensureProviderPromptWithinBudget: async () => ({
+			ensureProviderPromptWithinBudget: async (
+				_bot: BotDocument,
+				_settings: unknown,
+				_runId: string,
+				_signal: AbortSignal,
+				tools: ProviderToolDefinition[],
+			) => ({
 				allowedPromptTokens: 13_500,
+				providerTools: tools,
 				promptTokens: 100,
 				requestMessages: [{ role: "assistant", content: "I am ready." }],
 			}),
@@ -2288,6 +2483,7 @@ describe("Tick flow", () => {
 			callProvider: async () => providerResponseWithToolCall("call-read", "read_thread", { threadId: "thr_test" }),
 			ensureProviderPromptWithinBudget: async () => ({
 				allowedPromptTokens: 13_500,
+				providerTools: toolDefinitionsForProviderRound(),
 				promptTokens: 100,
 				requestMessages: [{ role: "assistant", content: "I am ready." }],
 			}),
@@ -2391,6 +2587,7 @@ describe("Tick flow", () => {
 			callProvider,
 			ensureProviderPromptWithinBudget: async () => ({
 				allowedPromptTokens: 13_500,
+				providerTools: toolDefinitionsForProviderRound(),
 				promptTokens: 100,
 				requestMessages: [{ role: "assistant", content: "I am ready." }],
 			}),
@@ -2502,6 +2699,7 @@ describe("Tick flow", () => {
 			]),
 			ensureProviderPromptWithinBudget: async () => ({
 				allowedPromptTokens: 13_500,
+				providerTools: toolDefinitionsForProviderRound(),
 				promptTokens: 100,
 				requestMessages: [{ role: "assistant", content: "I am ready." }],
 			}),
@@ -2605,6 +2803,7 @@ describe("Tick flow", () => {
 			]),
 			ensureProviderPromptWithinBudget: async () => ({
 				allowedPromptTokens: 13_500,
+				providerTools: toolDefinitionsForProviderRound(),
 				promptTokens: 100,
 				requestMessages: [{ role: "assistant", content: "I am ready." }],
 			}),
@@ -2700,6 +2899,7 @@ describe("Tick flow", () => {
 			]),
 			ensureProviderPromptWithinBudget: async () => ({
 				allowedPromptTokens: 13_500,
+				providerTools: toolDefinitionsForProviderRound(),
 				promptTokens: 100,
 				requestMessages: [{ role: "assistant", content: "I am ready." }],
 			}),
