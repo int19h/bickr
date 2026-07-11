@@ -30,7 +30,7 @@ export type OpenRouterImageModel = {
 export type AvatarGenerationDraftAdapter<TDraft> = {
 	configError(draft: TDraft): string;
 	fromSettings(settings: BotInferenceSettings): TDraft;
-	imageGenerationInput(draft: TDraft, prompt: string, language: LanguageTag): BotInferenceSettingsInput["imageGeneration"];
+	imageGenerationInput(draft: TDraft, prompt: string, language: LanguageTag | null): BotInferenceSettingsInput["imageGeneration"];
 	model(draft: TDraft): string;
 	providerRoutingError(draft: TDraft): string;
 	renderAdvancedFields(draft: TDraft, onChange: (draft: TDraft) => void): ReactNode;
@@ -125,7 +125,12 @@ export function AvatarGenerationScreen<TDraft, TMutationResponse, TSaved>({
 	membersPrompt?: { available: boolean; title: string };
 	onBack: () => void;
 	onDiscardSettings: () => Promise<boolean>;
-	onSaveSettings: (draft: TDraft, language: LanguageTag) => Promise<boolean>;
+	// Settings-only saves go to the entity PATCH endpoints, which validate
+	// localized text against the language carried in the same request body —
+	// these saves carry none, so localized fields must be stamped null. Only
+	// the generation/apply payloads (validated by the avatar endpoints against
+	// the entity's effective language chain) use target.owner.language.
+	onSaveSettings: (draft: TDraft, language: LanguageTag | null) => Promise<boolean>;
 	onSaved: (saved: TSaved, affectedBots?: BotSummary[]) => void;
 	renderPromptFillSettingsModal?: (props: PromptFillSettingsModalProps) => ReactNode;
 	target: AvatarTarget<TMutationResponse, TSaved>;
@@ -355,7 +360,7 @@ export function AvatarGenerationScreen<TDraft, TMutationResponse, TSaved>({
 				setCandidate(null);
 				setMessage("Avatar saved.");
 			} else {
-				const ok = await onSaveSettings(adapter.withPrompt(draft, prompt), language);
+				const ok = await onSaveSettings(adapter.withPrompt(draft, prompt), null);
 				if (ok) {
 					setMessage("Image generation settings saved.");
 				}

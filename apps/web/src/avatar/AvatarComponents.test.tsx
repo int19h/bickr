@@ -7,7 +7,12 @@ import {
 	type UserProfile,
 	type WorldSummary,
 } from "@bickr/shared/model";
-import { parseImageGenerationSettings } from "@bickr/shared/validation";
+import {
+	parseImageGenerationSettings,
+	parseUpdateBotInput,
+	parseUpdateUserProfileInput,
+	parseUpdateWorldInput,
+} from "@bickr/shared/validation";
 
 import { AvatarCropModal } from "./AvatarCropModal";
 import {
@@ -146,20 +151,33 @@ describe("AvatarTarget", () => {
 		expect(worldAvatarTarget(world({ language: null, name: localizedText("World One", null) }), null).owner.language).toBe(en);
 	});
 
-	it("builds a valid settings-only save payload for a language-less user profile", () => {
-		const target = userAvatarTarget(user({ displayName: localizedText("Eigentümer", de), language: null }));
-		const savePayload = {
-			inferenceSettings: {
-				imageGeneration: adapter.imageGenerationInput(
-					{ model: "user-image-model", prompt: "portrait" },
-					"portrait",
-					target.owner.language,
-				),
-			},
-		};
+	// The settings-only save posts to the entity PATCH endpoints with no
+	// `language` field in the body, and those parsers validate localized text
+	// against the request-body language (null when absent) — NOT the entity's
+	// effective language chain the avatar endpoints use. The regression here
+	// drives the real PATCH parsers, exactly the validators that rejected the
+	// live save (issue #91, second occurrence).
+	it("builds settings-only save payloads that the entity PATCH parsers accept", () => {
+		const imageGeneration = adapter.imageGenerationInput(
+			{ model: "user-image-model", prompt: "portrait" },
+			"portrait",
+			null,
+		);
+		expect(imageGeneration?.prompt).toEqual({ lang: null, text: "portrait" });
+		expect(() => parseUpdateUserProfileInput({ inferenceSettings: { imageGeneration } })).not.toThrow();
+		expect(() => parseUpdateBotInput({ inferenceSettings: { imageGeneration } })).not.toThrow();
+		expect(() => parseUpdateWorldInput({ imageGeneration })).not.toThrow();
+	});
 
-		expect(savePayload.inferenceSettings.imageGeneration?.prompt).toEqual({ lang: de, text: "portrait" });
-		expect(() => parseImageGenerationSettings(savePayload.inferenceSettings.imageGeneration, target.owner.language)).not.toThrow();
+	it("keeps the entity language chain for generation payloads validated by the avatar endpoints", () => {
+		const target = userAvatarTarget(user({ displayName: localizedText("Eigentümer", de), language: null }));
+		const generationSettings = adapter.imageGenerationInput(
+			{ model: "user-image-model", prompt: "portrait" },
+			"portrait",
+			target.owner.language,
+		);
+		expect(generationSettings?.prompt).toEqual({ lang: de, text: "portrait" });
+		expect(() => parseImageGenerationSettings(generationSettings, target.owner.language)).not.toThrow();
 	});
 
 	it("describes bot endpoints and participant-or-owner generation defaults", () => {
