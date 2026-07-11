@@ -594,7 +594,10 @@ describe("Avatar", () => {
 					candidate,
 					settings: {
 						model: "openai/image-one",
-						prompt: "Paint my profile avatar.",
+						// The real client stamps the prompt with the entity's effective
+						// language chain; a plain string here would mask apply-route
+						// language-validation regressions (issue #91, third occurrence).
+						prompt: { text: "Paint my profile avatar.", lang: "en" },
 						aspectRatio: "4:5",
 						imageSize: "2K",
 					},
@@ -619,7 +622,9 @@ describe("Avatar", () => {
 		expect(storedUser.avatar?.crop).toBeUndefined();
 		expect(storedUser.inferenceSettings?.imageGeneration).toMatchObject({
 			model: "openai/image-one",
-			prompt: unspecifiedLt("Paint my profile avatar."),
+			// Stored with the entity's effective language: the client stamps the
+			// apply prompt with the chain and the route parses against it.
+			prompt: { lang: "en", text: "Paint my profile avatar." },
 			aspectRatio: "4:5",
 			imageSize: "2K",
 		});

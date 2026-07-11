@@ -1500,6 +1500,10 @@ function effectiveAvatarSettingsLanguageForBot(bot: Pick<BotDocument, 'language'
 	return bot.language ?? localizedTextLang(bot.displayName) ?? fallbackToolTextLanguage;
 }
 
+function effectiveAvatarSettingsLanguageForUser(user: Pick<UserDocument, 'language' | 'displayName'>): LanguageTag | null {
+	return user.language ?? localizedTextLang(user.displayName) ?? fallbackToolTextLanguage;
+}
+
 function effectiveAvatarSettingsLanguageForWorld(world: Pick<WorldDocument, 'language' | 'name'>): LanguageTag | null {
 	return world.language ?? localizedTextLang(world.name) ?? fallbackToolTextLanguage;
 }
@@ -10708,7 +10712,11 @@ export async function handleAgentRuntimeRequest(
 		if (userAvatarApplyMatch && request.method === 'POST') {
 			const userId = requireUserMatch(request, decodeURIComponent(userAvatarApplyMatch[1] ?? ''));
 			const body = runtimeRecord(await readJsonBody(request));
+			// The client stamps apply settings with the entity's effective language
+			// chain, so the parser must expect that chain — passing it as the parse
+			// language only; it is not persisted (matching the bot/world apply routes).
 			const settingsInput = body.settings === undefined ? undefined : parseUpdateUserProfileInput({
+				language: effectiveAvatarSettingsLanguageForUser(await userById(env.BICKR_KV, userId)),
 				inferenceSettings: { imageGeneration: body.settings },
 			});
 			let profile = await applyGeneratedAvatarForUser(env, userId, parseAvatarCandidateValue(body.candidate));
