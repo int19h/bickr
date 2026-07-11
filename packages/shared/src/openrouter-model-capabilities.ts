@@ -6,6 +6,7 @@ import {
 	type JsonObject,
 } from "./model";
 import { generatedOpenRouterModelCapabilityEntries } from "./openrouter-model-capabilities.generated";
+import type { ProviderErrorCause } from "./runtime-errors";
 
 export type OpenRouterModelCapabilities = {
 	prefill: boolean;
@@ -17,11 +18,23 @@ export type OpenRouterModelCapabilities = {
 };
 
 export type OpenRouterModelPolicy = OpenRouterModelCapabilities & {
+	compactionReasoningNone: boolean;
 	structuredOutputCompaction: boolean;
 	defaultCompactionMode: BotCompactionMode;
 	defaultReasoningEffort?: Exclude<BotInferenceReasoningEffort, "default">;
 	defaultToolCalls: BotInferenceToolCalls;
 };
+
+export type CompactionReasoningNonePolicy = {
+	knownFailure?: "reasoning_rejected" | "server_tool_crash";
+	runtimeFallback: "none" | "unknown_model";
+	source: "custom_provider" | "openrouter_generated" | "openrouter_manual" | "openrouter_unknown";
+	supported: boolean;
+};
+
+export type UnknownModelCompactionReasoningFailure =
+	| { kind: "reasoning_rejected"; reason: "unknown_model_reasoning_none_rejected" }
+	| { kind: "server_tool_crash"; reason: "unknown_model_openrouter_server_tool_crash" };
 
 export const openRouterFreeModel = "openrouter/free";
 
@@ -35,6 +48,7 @@ const conservativeOpenRouterModelCapabilities = {
 
 const openRouterFreeModelPolicy = {
 	...conservativeOpenRouterModelCapabilities,
+	compactionReasoningNone: false,
 	structuredOutputCompaction: false,
 	defaultCompactionMode: "tool_call_cache_friendly",
 	defaultToolCalls: "railroad",
@@ -44,6 +58,7 @@ const permissiveCustomProviderPolicy = {
 	prefill: true,
 	structuredOutputs: true,
 	structuredOutputCompaction: true,
+	compactionReasoningNone: true,
 	requiredToolCalls: true,
 	disabledReasoning: true,
 	cacheControl: false,
@@ -65,6 +80,9 @@ const generatedOpenRouterModelCapabilities = new Map<string, OpenRouterModelCapa
 
 // xiaomi/fp8 accepts the simple JSON-schema probe, but the larger compaction
 // schema path can repeat the input instead of producing a reducing summary.
+// It can also mask compaction reasoning=none rejection as an internal server
+// error when OpenRouter server tools are present, so the compaction plan should
+// select minimal reasoning before constructing that request shape.
 const xiaomiFp8ProviderRoute = "xiaomi/fp8";
 const providerSelectionRoutingKeys = ["only", "order"] as const;
 
@@ -90,8 +108,10 @@ export function openRouterModelPolicy(model: string | undefined, providerRouting
 		return openRouterFreeModelPolicy;
 	}
 	const structuredOutputCompaction = supportsStructuredOutputCompaction(normalized, capabilities, providerRouting);
+	const compactionReasoningNone = supportsCompactionReasoningNone(normalized, capabilities, providerRouting);
 	return {
 		...capabilities,
+		compactionReasoningNone,
 		structuredOutputCompaction,
 		defaultCompactionMode: structuredOutputCompaction ? "structured_output" : "tool_call_cache_friendly",
 		defaultReasoningEffort: "minimal",
@@ -101,6 +121,42 @@ export function openRouterModelPolicy(model: string | undefined, providerRouting
 
 export function providerModelPolicy(model: string | undefined, openRouter: boolean, providerRouting?: JsonObject): OpenRouterModelPolicy {
 	return openRouter ? openRouterModelPolicy(model, providerRouting) : permissiveCustomProviderPolicy;
+}
+
+export function compactionReasoningNonePolicyForModel(
+	model: string | undefined,
+	openRouter: boolean,
+	providerRouting?: JsonObject,
+): CompactionReasoningNonePolicy {
+	if (!openRouter) {
+		return {
+			runtimeFallback: "unknown_model",
+			source: "custom_provider",
+			supported: permissiveCustomProviderPolicy.compactionReasoningNone,
+		};
+	}
+	const normalized = normalizedOpenRouterModelId(model);
+	if (!normalized) {
+		return { runtimeFallback: "none", source: "openrouter_manual", supported: openRouterFreeModelPolicy.compactionReasoningNone };
+	}
+	if (manualOpenRouterModelPolicies[normalized]) {
+		return {
+			runtimeFallback: "none",
+			source: "openrouter_manual",
+			supported: manualOpenRouterModelPolicies[normalized].compactionReasoningNone,
+		};
+	}
+	const capabilities = generatedOpenRouterModelCapabilities.get(normalized);
+	if (!capabilities) {
+		return { runtimeFallback: "none", source: "openrouter_unknown", supported: openRouterFreeModelPolicy.compactionReasoningNone };
+	}
+	const knownFailure = compactionReasoningNoneKnownFailure(normalized, providerRouting);
+	return {
+		...(knownFailure ? { knownFailure } : {}),
+		runtimeFallback: "none",
+		source: "openrouter_generated",
+		supported: supportsCompactionReasoningNone(normalized, capabilities, providerRouting),
+	};
 }
 
 export function effectiveReasoningEffortForModel(
@@ -165,6 +221,10 @@ export function modelSupportsReasoningNone(model: string | undefined, openRouter
 	return providerModelPolicy(model, openRouter, providerRouting).disabledReasoning;
 }
 
+export function modelSupportsCompactionReasoningNone(model: string | undefined, openRouter: boolean, providerRouting?: JsonObject): boolean {
+	return compactionReasoningNonePolicyForModel(model, openRouter, providerRouting).supported;
+}
+
 export function modelSupportsRequiredToolCalls(model: string | undefined, openRouter: boolean, providerRouting?: JsonObject): boolean {
 	return providerModelPolicy(model, openRouter, providerRouting).requiredToolCalls;
 }
@@ -225,6 +285,63 @@ function supportsStructuredOutputCompaction(
 		return false;
 	}
 	return true;
+}
+
+function supportsCompactionReasoningNone(
+	normalizedModel: string,
+	capabilities: OpenRouterModelCapabilities,
+	providerRouting: JsonObject | undefined,
+): boolean {
+	if (compactionReasoningNoneKnownFailure(normalizedModel, providerRouting)) {
+		return false;
+	}
+	return capabilities.disabledReasoning;
+}
+
+function compactionReasoningNoneKnownFailure(
+	normalizedModel: string,
+	providerRouting: JsonObject | undefined,
+): CompactionReasoningNonePolicy["knownFailure"] | undefined {
+	if (normalizedModel.startsWith("xiaomi/") && providerRoutingSelectsProvider(providerRouting, xiaomiFp8ProviderRoute)) {
+		return "server_tool_crash";
+	}
+	return undefined;
+}
+
+export function classifyUnknownModelCompactionReasoningFailure(input: {
+	body?: string;
+	providerError?: ProviderErrorCause;
+	requestIncludesOpenRouterServerTools: boolean;
+	status: number;
+}): UnknownModelCompactionReasoningFailure | null {
+	const text = unknownModelProviderFailureText(input).toLowerCase();
+	if (input.status >= 500 && input.status < 600 && input.requestIncludesOpenRouterServerTools && /\binternal server error\b/.test(text)) {
+		return { kind: "server_tool_crash", reason: "unknown_model_openrouter_server_tool_crash" };
+	}
+	if (
+		input.status >= 400 &&
+		input.status < 500 &&
+		/(?:\breasoning\b|reasoning[_ -]?effort)/.test(text) &&
+		/(?:\bnone\b|disabl|unsupported|not supported|invalid|not allowed|must be one of|unrecognized|unknown)/.test(text)
+	) {
+		return { kind: "reasoning_rejected", reason: "unknown_model_reasoning_none_rejected" };
+	}
+	return null;
+}
+
+function unknownModelProviderFailureText(input: {
+	body?: string;
+	providerError?: Pick<ProviderErrorCause, "errorType" | "message" | "rawText">;
+}): string {
+	// Unknown-model fallback: this is the only place where Bickr matches provider
+	// prose for compaction reasoning=none. Any recurring hit should become an
+	// explicit generated/manual capability entry instead of expanding this helper.
+	return [
+		input.providerError?.errorType,
+		input.providerError?.message,
+		input.providerError?.rawText,
+		input.body,
+	].filter((part): part is string => Boolean(part)).join("\n");
 }
 
 function providerRoutingSelectsProvider(providerRouting: JsonObject | undefined, providerId: string): boolean {

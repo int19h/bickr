@@ -517,6 +517,77 @@ describe("Structured output", () => {
 			}
 		});
 
+		it("starts Xiaomi FP8 routed compaction with minimal reasoning from the capability table", async () => {
+			const originalFetch = globalThis.fetch;
+			const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+			const validResponse = {
+				choices: [{
+					message: {
+						content: "",
+						tool_calls: [{
+							id: "call_xiaomi_fp8_compaction",
+							type: "function",
+							function: {
+								name: metaCompactionToolName,
+								arguments: JSON.stringify({ [providerCompactionSummaryProperty]: "I remember the important parts." }),
+							},
+						}],
+					},
+				}],
+				usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 },
+			};
+			const fetchMock = vi.fn<(_input: RequestInfo | URL, _init?: RequestInit) => Promise<Response>>()
+				.mockResolvedValueOnce(Response.json(validResponse));
+			vi.stubGlobal("fetch", fetchMock);
+			try {
+				const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+					appendEvent: async (_runId: string, type: string, payload: Record<string, unknown>) => {
+						events.push({ type, payload });
+						return {
+							seq: events.length,
+							runId: _runId,
+							type,
+							payload,
+							tokenEstimate: 0,
+							createdAt: new Date().toISOString(),
+						};
+					},
+					recordProviderTokenCalibrationSample: vi.fn(),
+					throwIfStopped: vi.fn(),
+				});
+				const callProviderForCompaction = (BotRuntime.prototype as unknown as {
+					callProviderForCompaction: (...args: unknown[]) => Promise<{ content: string; requestBody?: string }>;
+				}).callProviderForCompaction.bind(runtime);
+
+				const response = await callProviderForCompaction(
+					{
+						baseUrl: "https://openrouter.ai/api/v1",
+						model: "xiaomi/mimo-v2.5",
+						providerRouting: { only: ["xiaomi/fp8"] },
+						temperature: 0.2,
+					},
+					[{ role: "user", content: "Compact the retained activity." }],
+					"run-compaction-xiaomi-fp8-reasoning-policy",
+					new AbortController().signal,
+					{ minLength: 1, maxLength: 4000, maxCompletionTokens: 1000 },
+					[
+						...toolDefinitionsForProviderRound(),
+						{ type: "openrouter:web_search", parameters: { max_results: 3 } } satisfies ProviderToolDefinition,
+					],
+					"tool_call_cache_friendly",
+				);
+
+				expect(response.content).toBe("I remember the important parts.");
+				expect(fetchMock).toHaveBeenCalledTimes(1);
+				const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as { reasoning?: unknown; provider?: unknown };
+				expect(body.provider).toEqual({ only: ["xiaomi/fp8"] });
+				expect(body.reasoning).toEqual({ effort: "minimal", exclude: false });
+				expect(events.some((event) => event.type === "provider_retry")).toBe(false);
+			} finally {
+				vi.stubGlobal("fetch", originalFetch);
+			}
+		});
+
 		it("wraps empty loop provider streams with request and response diagnostics", async () => {
 			const emptyChunk = {
 				id: "chatcmpl-empty",
