@@ -116,6 +116,8 @@ import {
 	requiredText,
 } from '@bickr/shared/validation';
 import {
+	classifyUnknownModelCompactionReasoningFailure,
+	compactionReasoningNonePolicyForModel,
 	effectiveCompactionModeForModel,
 	effectiveReasoningEffortForModel,
 	effectiveContextWindowForModel,
@@ -123,7 +125,6 @@ import {
 	effectiveSupportsPrefillForModel,
 	effectiveToolCallsForModel,
 	modelSupportsPromptCacheControl,
-	modelSupportsReasoningNone,
 } from '@bickr/shared/openrouter-model-capabilities';
 import {
 	botFacingRuntimeErrorMessage,
@@ -222,6 +223,13 @@ import {
 import {
 	providerContextCompletionReserveTokens,
 } from './provider-requests';
+import {
+	CompactionAttemptPlan,
+	type CompactionAttemptMessageSet,
+	type CompactionAttemptRequestState,
+	type CompactionAttemptToolSet,
+	type CompactionAttemptTransitionInput,
+} from './compaction-plan';
 
 export { defaultReasoningPrefill };
 
@@ -1620,9 +1628,11 @@ function providerPromptCacheSessionId(botId: string): string {
 }
 
 function providerNoReasoningModeForSettings(
-	settings: Pick<ProviderSettings, 'baseUrl' | 'model'> | { baseUrl?: string; model: string },
+	settings: Pick<ProviderSettings, 'baseUrl' | 'model' | 'providerRouting'> | { baseUrl?: string; model: string; providerRouting?: JsonObject },
 ): ProviderCompactionReasoningMode {
-	return modelSupportsReasoningNone(settings.model, settingsUseOpenRouter(settings)) ? 'none' : 'minimal';
+	return compactionReasoningNonePolicyForModel(settings.model, settingsUseOpenRouter(settings), settings.providerRouting).supported
+		? 'none'
+		: 'minimal';
 }
 
 function providerToolChoiceForMode(mode: BotInferenceToolCalls | BotStructuredToolCalls): typeof providerRequiredToolChoice | undefined {
@@ -2019,6 +2029,37 @@ export function providerCompactionMessages(
 				]
 			: []),
 	];
+}
+
+function providerCompactionMessagesForAttempt(
+	bot: BotDocument | undefined,
+	initialMessages: ChatMessage[],
+	limits: Pick<ProviderCompactionSummaryLimits, 'minLength' | 'maxLength'>,
+	mode: ProviderCompactionMode,
+	messageSet: CompactionAttemptMessageSet,
+): ChatMessage[] {
+	switch (messageSet.kind) {
+		case 'initial':
+			return initialMessages;
+		case 'schema_repair':
+			return [...messageSet.messages];
+		case 'shorten_previous_summary':
+			return providerCompactionShortenMessages(initialMessages, messageSet.previousSummary, limits, mode);
+		case 'isolated_reduction_repair':
+			if (!bot) {
+				throw new Error('Compaction isolated reduction repair requires participant context.');
+			}
+			return providerCompactionIsolatedRepairMessages(bot, messageSet.previousSummary, limits, mode);
+	}
+}
+
+function providerCompactionToolsForAttempt(
+	limits: Pick<ProviderCompactionSummaryLimits, 'minLength' | 'maxLength'>,
+	baseTools: ProviderToolDefinition[],
+	mode: ProviderCompactionMode,
+	toolSet: CompactionAttemptToolSet,
+): ProviderToolDefinition[] {
+	return toolSet === 'isolated_reduction_repair' ? providerCompactionIsolatedRepairTools(limits, mode) : baseTools;
 }
 
 export function providerCompactionSummaryLimitsForChat(
@@ -4149,7 +4190,7 @@ export class BotRuntime {
 		return typeof storage?.transactionSync === 'function' ? storage.transactionSync(closure) : closure();
 	}
 
-	private compactionReasoningModeForSettings(settings: Pick<ProviderSettings, 'baseUrl' | 'model'>): ProviderCompactionReasoningMode {
+	private compactionReasoningModeForSettings(settings: Pick<ProviderSettings, 'baseUrl' | 'model' | 'providerRouting'>): ProviderCompactionReasoningMode {
 		if (providerNoReasoningModeForSettings(settings) === 'minimal') {
 			this.deleteRuntimeState(compactionReasoningFallbackStateKey);
 			return 'minimal';
@@ -5595,6 +5636,99 @@ export class BotRuntime {
 		throw new ProviderLoopRequestError(new ProviderRequestTimeoutError(providerRequestTimeoutMs), lastBody, providerMaxAttempts);
 	}
 
+	private compactionAttemptInputForError(input: {
+		attemptState: CompactionAttemptRequestState;
+		bot?: BotDocument;
+		error: unknown;
+		request: ProviderCompactionRequest;
+		requestMessages: ChatMessage[];
+		requestSettings: ProviderSettings;
+	}): CompactionAttemptTransitionInput {
+		const cause = runtimeErrorCause(input.error);
+		if (input.error instanceof ProviderCompactionOutputLimitError) {
+			return { kind: 'output_limit', cause };
+		}
+		const reasoningFailure = this.unknownModelCompactionReasoningFailure(input.requestSettings, input.error, input.request);
+		if (input.attemptState.reasoningMode === 'none' && reasoningFailure) {
+			const reason = runtimeErrorText(input.error);
+			this.rememberCompactionNoReasoningRejection(input.requestSettings, reason);
+			return { kind: reasoningFailure.kind, cause, reason };
+		}
+		if (input.error instanceof ProviderStructuredOutputValidationError) {
+			if (input.error.outputText && isNonReducingCompactionValidationError(input.error)) {
+				return {
+					kind: 'success_but_not_shorter',
+					cause,
+					canIsolate: Boolean(input.bot),
+					outputText: input.error.outputText,
+				};
+			}
+			return {
+				kind: 'schema_invalid',
+				cause,
+				...(input.error.outputText ? { outputText: input.error.outputText } : {}),
+				previousMessages: input.requestMessages,
+				repairMessages: structuredOutputRepairMessages(input.error),
+			};
+		}
+		const upstreamLimit = providerUpstreamRateLimitRetry(input.error);
+		if (upstreamLimit) {
+			const routing = providerRoutingWithIgnoredProvider(input.requestSettings.providerRouting, upstreamLimit.providerName);
+			return {
+				kind: 'transport_error',
+				cause,
+				...(routing.changed
+					? {
+							retry: {
+								kind: 'upstream_provider_ignored' as const,
+								providerRouting: routing.providerRouting,
+								reason: providerIgnoreRetryReason(upstreamLimit),
+							},
+						}
+					: {}),
+			};
+		}
+		const retryKey = providerRetryKey(input.error);
+		return {
+			kind: 'transport_error',
+			cause,
+			...(retryKey
+				? {
+						retry: {
+							kind: 'retry_key' as const,
+							retryKey,
+							delayMs: providerRetryDelayMsForAttempt(input.attemptState.providerAttempt + 1),
+							reason: retryKey,
+						},
+					}
+				: {}),
+		};
+	}
+
+	private unknownModelCompactionReasoningFailure(
+		settings: ProviderSettings,
+		error: unknown,
+		request: ProviderCompactionRequest,
+	): ReturnType<typeof classifyUnknownModelCompactionReasoningFailure> {
+		if (!(error instanceof ProviderRequestError)) {
+			return null;
+		}
+		const policy = compactionReasoningNonePolicyForModel(
+			settings.model,
+			settingsUseOpenRouter(settings),
+			settings.providerRouting,
+		);
+		if (policy.runtimeFallback !== 'unknown_model') {
+			return null;
+		}
+		return classifyUnknownModelCompactionReasoningFailure({
+			body: error.body,
+			providerError: error.providerError,
+			requestIncludesOpenRouterServerTools: requestIncludesOpenRouterServerTools(request),
+			status: error.status,
+		});
+	}
+
 	private async callProviderForCompaction(
 		settings: ProviderSettings,
 		messages: ChatMessage[],
@@ -5614,148 +5748,94 @@ export class BotRuntime {
 	> {
 		const endpoint = providerChatCompletionsUrl(settings.baseUrl);
 		const effectiveProviderTools = providerTools ?? providerCompactionToolsForMode(limits, undefined, mode);
-		let requestProviderTools = effectiveProviderTools;
-		let requestMessages = messages;
 		let requestSettings = settings;
-		let compactionReasoningMode = this.compactionReasoningModeForSettings(settings);
-		let lastBody = stringifyProviderRequest(
-			providerCompactionRequest(
+		let plan = CompactionAttemptPlan.start({
+			initialReasoningMode: this.compactionReasoningModeForSettings(settings),
+			maxProviderAttempts: providerMaxAttempts,
+			maxSchemaRepairAttempts: providerStructuredOutputRepairAttempts,
+		});
+		for (;;) {
+			const attemptState = plan.request();
+			this.throwIfStopped(runId, signal);
+			if (attemptState.settingsPatch) {
+				requestSettings = { ...requestSettings, ...attemptState.settingsPatch };
+			}
+			if (attemptState.retry) {
+				await this.appendEvent(runId, 'provider_retry', {
+					attempt: attemptState.retry.attempt,
+					maxAttempts: attemptState.retry.maxAttempts,
+					delayMs: attemptState.retry.delayMs,
+					reason: attemptState.retry.reason,
+				});
+				if (attemptState.retry.delayMs > 0) {
+					await sleep(attemptState.retry.delayMs, signal);
+				}
+			}
+			const requestProviderTools = providerCompactionToolsForAttempt(limits, effectiveProviderTools, mode, attemptState.toolSet);
+			const requestMessages = providerCompactionMessagesForAttempt(bot, messages, limits, mode, attemptState.messageSet);
+			const request = providerCompactionRequest(
 				requestSettings,
 				requestMessages,
 				limits,
 				requestProviderTools,
 				mode,
-				providerCompactionReasoningForSettings(requestSettings, compactionReasoningMode),
-			),
-		);
-		let lastValidationError: ProviderStructuredOutputValidationError | null = null;
-		let calibrationAttempt = 0;
-		let isolatedReductionRepairAttempts = 0;
-		for (let schemaAttempt = 0; schemaAttempt <= providerStructuredOutputRepairAttempts; schemaAttempt += 1) {
-			let previousRetryKey: string | null = null;
-			let retryDelayMs = 0;
-			let retryReason: string | null = null;
-			for (let attempt = 1; attempt <= providerMaxAttempts; attempt += 1) {
-				this.throwIfStopped(runId, signal);
-				if (attempt > 1) {
-					await this.appendEvent(runId, 'provider_retry', {
-						attempt,
-						maxAttempts: providerMaxAttempts,
-						delayMs: retryDelayMs,
-						reason: retryReason,
-					});
-					if (retryDelayMs > 0) {
-						await sleep(retryDelayMs, signal);
-					}
-				}
-				const request = providerCompactionRequest(
-					requestSettings,
-					requestMessages,
-					limits,
-					requestProviderTools,
-					mode,
-					providerCompactionReasoningForSettings(requestSettings, compactionReasoningMode),
-				);
-				const body = stringifyProviderRequest(request);
-				calibrationAttempt += 1;
-				lastBody = body;
-
-				try {
-					const response = await this.fetchProviderCompactionResponse(requestSettings, endpoint, body, signal, limits, mode);
-					if (response.usage) {
-						this.recordProviderTokenCalibrationSample({
-							attempt: calibrationAttempt,
-							createdAt,
-							purpose: 'compaction',
-							request,
-							requestSeq,
-							...(response.responseModel ? { responseModel: response.responseModel } : {}),
-							runId,
-							settings: requestSettings,
-							usage: response.usage,
-						});
-					}
-					return { ...response, requestBody: body };
-				} catch (error) {
-					this.recordProviderTokenCalibrationSampleFromError({
-						attempt: calibrationAttempt,
+				providerCompactionReasoningForSettings(requestSettings, attemptState.reasoningMode),
+			);
+			const body = stringifyProviderRequest(request);
+			try {
+				const response = await this.fetchProviderCompactionResponse(requestSettings, endpoint, body, signal, limits, mode);
+				if (response.usage) {
+					this.recordProviderTokenCalibrationSample({
+						attempt: attemptState.calibrationAttempt,
 						createdAt,
-						error,
 						purpose: 'compaction',
 						request,
 						requestSeq,
+						...(response.responseModel ? { responseModel: response.responseModel } : {}),
 						runId,
 						settings: requestSettings,
+						usage: response.usage,
 					});
-					if (error instanceof TickStoppedError || isAbortError(error)) {
-						throw error;
-					}
-					if (error instanceof ProviderCompactionOutputLimitError) {
-						throw new ProviderCompactionRequestError(error, body, error.rawResponse);
-					}
-					if (compactionReasoningMode === 'none' && providerCompactionNoReasoningRejected(error, request)) {
-						const reason = runtimeErrorText(error);
-						this.rememberCompactionNoReasoningRejection(settings, reason);
-						compactionReasoningMode = 'minimal';
-						previousRetryKey = null;
-						retryDelayMs = 0;
-						retryReason = 'provider rejected compaction reasoning=none; retrying with minimal';
-						if (attempt < providerMaxAttempts) {
-							continue;
-						}
-					}
-					if (error instanceof ProviderStructuredOutputValidationError) {
-						lastValidationError = error;
-						break;
-					}
-					const upstreamLimit = providerUpstreamRateLimitRetry(error);
-					if (upstreamLimit) {
-						const routing = providerRoutingWithIgnoredProvider(requestSettings.providerRouting, upstreamLimit.providerName);
-						if (!routing.changed) {
-							throw new ProviderCompactionRequestError(error, body, providerCompactionFailureResponseText(error));
-						}
-						if (attempt < providerMaxAttempts) {
-							requestSettings = { ...requestSettings, providerRouting: routing.providerRouting };
-							retryDelayMs = 0;
-							retryReason = providerIgnoreRetryReason(upstreamLimit);
-							previousRetryKey = null;
-							continue;
-						}
-					}
-					const retryKey = providerRetryKey(error);
-					if (retryKey && attempt < providerMaxAttempts && (previousRetryKey === null || previousRetryKey === retryKey)) {
-						previousRetryKey = retryKey;
-						retryDelayMs = providerRetryDelayMsForAttempt(attempt + 1);
-						retryReason = retryKey;
-						continue;
-					}
-					throw new ProviderCompactionRequestError(error, body, providerCompactionFailureResponseText(error));
 				}
-			}
-			if (lastValidationError && schemaAttempt < providerStructuredOutputRepairAttempts) {
-				if (lastValidationError.outputText && bot && isNonReducingCompactionValidationError(lastValidationError)) {
-					isolatedReductionRepairAttempts += 1;
-					requestProviderTools = providerCompactionIsolatedRepairTools(limits, mode);
-					requestMessages = providerCompactionIsolatedRepairMessages(bot, lastValidationError.outputText, limits, mode);
-				} else {
-					requestMessages = lastValidationError.outputText
-						? providerCompactionShortenMessages(messages, lastValidationError.outputText, limits, mode)
-						: [...requestMessages, ...structuredOutputRepairMessages(lastValidationError)];
+				plan = plan.transition({ kind: 'success' });
+				return { ...response, requestBody: body };
+			} catch (error) {
+				this.recordProviderTokenCalibrationSampleFromError({
+					attempt: attemptState.calibrationAttempt,
+					createdAt,
+					error,
+					purpose: 'compaction',
+					request,
+					requestSeq,
+					runId,
+					settings: requestSettings,
+				});
+				if (error instanceof TickStoppedError || isAbortError(error)) {
+					throw error;
 				}
-				continue;
-			}
-			if (lastValidationError) {
-				if (isolatedReductionRepairAttempts > 0 && isNonReducingCompactionValidationError(lastValidationError)) {
-					throw new PersistentCompactionReductionFailureError(
-						isolatedReductionRepairAttempts,
-						lastBody,
-						lastValidationError.rawResponse,
-					);
+				const input = this.compactionAttemptInputForError({
+					attemptState,
+					bot,
+					error,
+					request,
+					requestMessages,
+					requestSettings,
+				});
+				plan = plan.transition(input);
+				if (plan.state.kind === 'terminal') {
+					if (plan.state.terminal === 'paused_persistent_reduction_failure') {
+						throw new PersistentCompactionReductionFailureError(
+							plan.state.attempts,
+							body,
+							providerCompactionFailureResponseText(error),
+						);
+					}
+					if (plan.state.terminal === 'failed') {
+						throw new ProviderCompactionRequestError(error, body, providerCompactionFailureResponseText(error));
+					}
 				}
-				throw new ProviderCompactionRequestError(lastValidationError, lastBody, providerCompactionFailureResponseText(lastValidationError));
 			}
 		}
-		throw new ProviderCompactionRequestError(new ProviderRequestTimeoutError(providerRequestTimeoutMs), lastBody);
 	}
 
 	private async consumeProviderResponse(
@@ -9067,46 +9147,7 @@ export class BotRuntime {
 	}
 
 	private async compactIfNeeded(bot: BotDocument, settings: ProviderSettings, runId: string, signal: AbortSignal): Promise<void> {
-		bot = await this.botWithCurrentRuntimeBudget(bot);
-		const requestContextWindowTokens = effectiveContextWindowTokensForModel(settings, effectiveTickSettings(bot.tickSettings).contextWindowTokens);
-		const contextEstimate = this.currentCompactionContextEstimate(settings.model);
-		const providerTools = providerToolsForBotRound(bot, settings).tools;
-		const compactionMode = providerCompactionMode(settings);
-		const limits = this.compactionSummaryLimitsForRows(
-			bot,
-			contextEstimate.rows.map((item) => item.row),
-			contextEstimate.calibration,
-			providerTools,
-			compactionMode,
-			requestContextWindowTokens,
-		);
-		const threshold = limits.nextCompactionTokens;
-		const requestMessages = providerMessagesWithPrefillCompatibility(
-			settings,
-			this.activeProviderRequestMessages(bot, providerTools, providerToolCallsForSettings(settings)),
-		);
-		const estimate = this.estimateProviderPromptTokens(settings, requestMessages, providerTools);
-		if (estimate.promptTokens <= threshold) {
-			return;
-		}
-
-		const compacted = this.compactionRowsForEstimatedBudget(
-			bot,
-			providerTools,
-			compactionMode,
-			requestContextWindowTokens,
-			settings.model,
-		);
-		if (compacted.length === 0) {
-			return;
-		}
-		await this.compactLoopMessageRows(bot, settings, runId, signal, compacted, 'auto', {
-			estimatedContextTokens: contextEstimate.totalTokens,
-			estimatedPromptTokens: estimate.promptTokens,
-			compactionMaxCharacters: limits.maxLength,
-			compactionMaxCompletionTokens: limits.maxCompletionTokens,
-			threshold,
-		});
+		await this.maybeCompact(bot, settings, runId, signal, { reason: 'threshold' });
 	}
 
 	private async ensureProviderPromptWithinBudget(
@@ -9116,9 +9157,26 @@ export class BotRuntime {
 		signal: AbortSignal,
 		providerTools: ProviderToolDefinition[],
 	): Promise<ProviderPromptBudgetCheck> {
+		const result = await this.maybeCompact(bot, settings, runId, signal, { reason: 'prompt_budget', providerTools });
+		if (!result) {
+			throw new Error('Prompt-budget compaction finished without a budget check.');
+		}
+		return result;
+	}
+
+	private async maybeCompact(
+		bot: BotDocument,
+		settings: ProviderSettings,
+		runId: string,
+		signal: AbortSignal,
+		options: { reason: 'threshold' } | { reason: 'prompt_budget'; providerTools: ProviderToolDefinition[] },
+	): Promise<ProviderPromptBudgetCheck | null> {
+		let providerTools = options.reason === 'prompt_budget' ? options.providerTools : undefined;
 		let compactionAttempts = 0;
 		for (;;) {
-			this.throwIfStopped(runId, signal);
+			if (options.reason === 'prompt_budget') {
+				this.throwIfStopped(runId, signal);
+			}
 			const budgetBot = await this.botWithCurrentRuntimeBudget(bot);
 			const tickSettings = effectiveTickSettings(budgetBot.tickSettings);
 			const requestContextWindowTokens = effectiveContextWindowTokensForModel(settings, tickSettings.contextWindowTokens);
@@ -9129,69 +9187,101 @@ export class BotRuntime {
 				settings,
 				this.activeProviderRequestMessages(budgetBot, providerTools, providerToolCallsForSettings(settings)),
 			);
-			const promptBudgetLimits = providerCompactionSummaryLimitsForChat(
-				budgetBot,
-				requestMessages.slice(1),
-				calibration,
-				providerTools,
-				compactionMode,
-				requestContextWindowTokens,
-			);
-			const allowedPromptTokens = promptBudgetLimits.nextCompactionTokens;
+			const thresholdContextEstimate = options.reason === 'threshold' ? this.currentCompactionContextEstimate(settings.model) : null;
+			const limits = thresholdContextEstimate
+				? this.compactionSummaryLimitsForRows(
+						budgetBot,
+						thresholdContextEstimate.rows.map((item) => item.row),
+						thresholdContextEstimate.calibration,
+						providerTools,
+						compactionMode,
+						requestContextWindowTokens,
+					)
+				: providerCompactionSummaryLimitsForChat(
+						budgetBot,
+						requestMessages.slice(1),
+						calibration,
+						providerTools,
+						compactionMode,
+						requestContextWindowTokens,
+					);
+			const allowedPromptTokens = limits.nextCompactionTokens;
 			const estimate = this.estimateProviderPromptTokens(settings, requestMessages, providerTools);
 			const overBudgetTokens = Math.max(0, estimate.promptTokens - allowedPromptTokens);
 			const maxCompletionTokens = providerLoopMaxCompletionTokens(requestContextWindowTokens, estimate.promptTokens);
-			await this.appendEvent(runId, 'provider_token_estimate', {
-				model: settings.model,
-				messageCount: requestMessages.length,
-				toolCount: providerTools.length,
-				contextWindowTokens: requestContextWindowTokens,
-				maxCompletionTokens,
-				compactionMaxCompletionTokens: promptBudgetLimits.maxCompletionTokens,
-				nextCompactionTokens: allowedPromptTokens,
-				promptTokens: estimate.promptTokens,
-				allowedPromptTokens,
-				overBudgetTokens,
-				source: estimate.source,
-				calibrationSampleCount: estimate.calibrationSampleCount,
-				...(estimate.baselinePromptTokens !== undefined ? { baselinePromptTokens: estimate.baselinePromptTokens } : {}),
-				...(estimate.baselineMessageCount !== undefined ? { baselineMessageCount: estimate.baselineMessageCount } : {}),
-				...(estimate.estimatedDeltaTokens !== undefined ? { estimatedDeltaTokens: estimate.estimatedDeltaTokens } : {}),
-			});
-			if (overBudgetTokens === 0) {
-				return {
-					allowedPromptTokens,
+			if (options.reason === 'prompt_budget') {
+				await this.appendEvent(runId, 'provider_token_estimate', {
+					model: settings.model,
+					messageCount: requestMessages.length,
+					toolCount: providerTools.length,
 					contextWindowTokens: requestContextWindowTokens,
 					maxCompletionTokens,
+					compactionMaxCompletionTokens: limits.maxCompletionTokens,
+					nextCompactionTokens: allowedPromptTokens,
 					promptTokens: estimate.promptTokens,
-					requestMessages,
-				};
+					allowedPromptTokens,
+					overBudgetTokens,
+					source: estimate.source,
+					calibrationSampleCount: estimate.calibrationSampleCount,
+					...(estimate.baselinePromptTokens !== undefined ? { baselinePromptTokens: estimate.baselinePromptTokens } : {}),
+					...(estimate.baselineMessageCount !== undefined ? { baselineMessageCount: estimate.baselineMessageCount } : {}),
+					...(estimate.estimatedDeltaTokens !== undefined ? { estimatedDeltaTokens: estimate.estimatedDeltaTokens } : {}),
+				});
 			}
-			if (compactionAttempts >= providerPromptCompactionMaxAttempts) {
+			if (overBudgetTokens === 0) {
+				return options.reason === 'prompt_budget'
+					? {
+							allowedPromptTokens,
+							contextWindowTokens: requestContextWindowTokens,
+							maxCompletionTokens,
+							promptTokens: estimate.promptTokens,
+							requestMessages,
+						}
+					: null;
+			}
+			if (options.reason === 'prompt_budget' && compactionAttempts >= providerPromptCompactionMaxAttempts) {
 				throw new PromptContextCompactionLimitError(estimate.promptTokens, allowedPromptTokens, providerPromptCompactionMaxAttempts);
 			}
-			const compactionSelection = this.compactionRowSelectionForEstimatedBudget(
-				budgetBot,
-				providerTools,
-				compactionMode,
-				requestContextWindowTokens,
-				settings.model,
-				{ requireMinimumSelectedTokens: false },
-			);
+			const compactionSelection =
+				options.reason === 'threshold'
+					? {
+							rows: this.compactionRowsForEstimatedBudget(
+								budgetBot,
+								providerTools,
+								compactionMode,
+								requestContextWindowTokens,
+								settings.model,
+							),
+							overBudgetFallback: false,
+						}
+					: this.compactionRowSelectionForEstimatedBudget(
+							budgetBot,
+							providerTools,
+							compactionMode,
+							requestContextWindowTokens,
+							settings.model,
+							{ requireMinimumSelectedTokens: false },
+						);
 			const rowsToCompact = compactionSelection.rows;
 			if (rowsToCompact.length === 0) {
+				if (options.reason === 'threshold') {
+					return null;
+				}
 				throw new PromptContextBudgetExceededError(estimate.promptTokens, allowedPromptTokens);
 			}
 			compactionAttempts += 1;
 			await this.compactLoopMessageRows(budgetBot, settings, runId, signal, rowsToCompact, 'auto', {
-				allowedPromptTokens,
-				compactionMaxCharacters: promptBudgetLimits.maxLength,
-				compactionMaxCompletionTokens: promptBudgetLimits.maxCompletionTokens,
+				compactionMaxCharacters: limits.maxLength,
+				compactionMaxCompletionTokens: limits.maxCompletionTokens,
 				estimatedPromptTokens: estimate.promptTokens,
-				overBudgetTokens,
 				threshold: allowedPromptTokens,
-				...(compactionSelection.overBudgetFallback ? { compactionOverBudgetFallback: true } : {}),
+				...(options.reason === 'threshold' && thresholdContextEstimate ? { estimatedContextTokens: thresholdContextEstimate.totalTokens } : {}),
+				...(options.reason === 'prompt_budget' ? { allowedPromptTokens, overBudgetTokens } : {}),
+				...(options.reason === 'prompt_budget' && compactionSelection.overBudgetFallback ? { compactionOverBudgetFallback: true } : {}),
 			});
+			if (options.reason === 'threshold') {
+				return null;
+			}
 		}
 	}
 
@@ -17220,29 +17310,6 @@ function isProviderCompactionOutputLimitFailure(error: unknown): boolean {
 	return (
 		error instanceof ProviderCompactionOutputLimitError ||
 		(error instanceof ProviderCompactionRequestError && error.originalError instanceof ProviderCompactionOutputLimitError)
-	);
-}
-
-function providerCompactionNoReasoningRejected(error: unknown, request?: ProviderCompactionRequest): boolean {
-	if (!(error instanceof ProviderRequestError)) {
-		return false;
-	}
-	const text = `${error.message}\n${error.body}`.toLowerCase();
-	if (error.status >= 500 && error.status < 600) {
-		return providerCompactionNoReasoningServerToolCrash(text, request);
-	}
-	return (
-		error.status >= 400 &&
-		error.status < 500 &&
-		/(?:\breasoning\b|reasoning[_ -]?effort)/.test(text) &&
-		/(?:\bnone\b|disabl|unsupported|not supported|invalid|not allowed|must be one of|unrecognized|unknown)/.test(text)
-	);
-}
-
-function providerCompactionNoReasoningServerToolCrash(text: string, request?: ProviderCompactionRequest): boolean {
-	return (
-		requestIncludesOpenRouterServerTools(request) &&
-		/\binternal server error\b/.test(text)
 	);
 }
 

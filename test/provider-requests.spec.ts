@@ -3,6 +3,7 @@ import {
 	botById,
 	BotRuntime,
 	capableOpenRouterModel,
+	compactionReasoningNonePolicyForModel,
 	contextFor,
 	createBotForTest,
 	createBotInWorld,
@@ -39,6 +40,7 @@ import {
 	memoryExistingLoopMessageSchemaSql,
 	memoryLoopMessageInsertSql,
 	metaCompactionToolName,
+	modelSupportsCompactionReasoningNone,
 	modelSupportsPrefill,
 	modelSupportsPromptCacheControl,
 	modelSupportsRequiredToolCalls,
@@ -1691,6 +1693,7 @@ describe("Provider requests", () => {
 			prefill: true,
 			structuredOutputs: true,
 			structuredOutputCompaction: true,
+			compactionReasoningNone: true,
 			requiredToolCalls: true,
 			disabledReasoning: true,
 			defaultCompactionMode: "structured_output",
@@ -1700,12 +1703,14 @@ describe("Provider requests", () => {
 		expect(modelSupportsPrefill(capableOpenRouterModel, true)).toBe(true);
 		expect(modelSupportsRequiredToolCalls(capableOpenRouterModel, true)).toBe(true);
 		expect(modelSupportsStructuredOutputs(capableOpenRouterModel, true)).toBe(true);
+		expect(modelSupportsCompactionReasoningNone(capableOpenRouterModel, true)).toBe(true);
 		expect(effectiveReasoningEffortForModel(capableOpenRouterModel, true, "none")).toBe("none");
 
 		const unknown = openRouterModelPolicy("unknown/provider-model");
 		expect(unknown).toMatchObject({
 			prefill: false,
 			structuredOutputs: false,
+			compactionReasoningNone: false,
 			requiredToolCalls: false,
 			disabledReasoning: false,
 			defaultCompactionMode: "tool_call_cache_friendly",
@@ -1720,6 +1725,7 @@ describe("Provider requests", () => {
 			prefill: false,
 			structuredOutputs: false,
 			structuredOutputCompaction: false,
+			compactionReasoningNone: false,
 			requiredToolCalls: false,
 			disabledReasoning: false,
 			defaultCompactionMode: "tool_call_cache_friendly",
@@ -1739,12 +1745,20 @@ describe("Provider requests", () => {
 		expect(xiaomiFp8).toMatchObject({
 			structuredOutputs: true,
 			structuredOutputCompaction: false,
+			compactionReasoningNone: false,
 			requiredToolCalls: true,
 			defaultCompactionMode: "tool_call_cache_friendly",
 			defaultToolCalls: "require",
 		});
+		expect(compactionReasoningNonePolicyForModel("xiaomi/mimo-v2.5", true, xiaomiFp8Routing)).toMatchObject({
+			knownFailure: "server_tool_crash",
+			runtimeFallback: "none",
+			source: "openrouter_generated",
+			supported: false,
+		});
 		expect(modelSupportsStructuredOutputs("xiaomi/mimo-v2.5", true, xiaomiFp8Routing)).toBe(true);
 		expect(modelSupportsStructuredCompaction("xiaomi/mimo-v2.5", true, xiaomiFp8Routing)).toBe(false);
+		expect(modelSupportsCompactionReasoningNone("xiaomi/mimo-v2.5", true, xiaomiFp8Routing)).toBe(false);
 		expect(effectiveCompactionModeForModel("xiaomi/mimo-v2.5", true, "structured_output", xiaomiFp8Routing)).toBe(
 			"tool_call_cache_friendly",
 		);
@@ -1754,6 +1768,11 @@ describe("Provider requests", () => {
 		expect(effectiveReasoningEffortForModel("local/model", false, undefined)).toBe("minimal");
 		expect(effectiveSupportsPrefillForModel("local/model", false, undefined)).toBe(true);
 		expect(effectiveToolCallsForModel("local/model", false, undefined)).toBe("require");
+		expect(compactionReasoningNonePolicyForModel("local/model", false)).toMatchObject({
+			runtimeFallback: "unknown_model",
+			source: "custom_provider",
+			supported: true,
+		});
 	});
 
 	it("resolves inference penalty settings from bot overrides before profile defaults", () => {
