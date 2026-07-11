@@ -38,21 +38,14 @@ import {
 	ToastContext,
 } from "../../ui";
 import {
-	BotActivityList,
 	EditForumModal,
 	ForumRow,
 	LanguageField,
 	NotificationsScreen,
 	TimeAgoLabel,
 	TimeUntilLabel,
-	botActivityEmptyMessage,
-	botActivityKindCount,
-	botActivityKindCounts,
-	botActivityKindOptions,
 	isValidHandle,
 	localizedDraft,
-	matchesBotActivityFilter,
-	matchesBotActivityKind,
 	matchesFilter,
 	sortBotsForCards,
 	sortByHandle,
@@ -63,6 +56,15 @@ import {
 	type LoadHumanNotifications,
 	type SubscriptionTarget,
 } from "../../App";
+import {
+	BotActivityList,
+	botActivityEmptyMessage,
+	botActivityKindCount,
+	botActivityKindCounts,
+	botActivityKindOptions,
+	matchesBotActivityFilter,
+	matchesBotActivityKind,
+} from "../bots";
 import { BotGroupsTab } from "./groups";
 
 export function WorldDetail({

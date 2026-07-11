@@ -6,7 +6,7 @@ import {
 	type LanguageTag,
 	type WorldActivityItem,
 } from "@bickr/shared/model";
-import { BotActivityCard } from "./App";
+import { BotActivityCard } from "./screens/bots";
 
 const en = "en" as LanguageTag;
 const now = "2026-06-01T12:00:00.000Z";
