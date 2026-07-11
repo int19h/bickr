@@ -6743,7 +6743,10 @@ function AdvancedSearchScreen({
 			{search && (
 				<>
 					<div className="section-head compact search-summary-head">
-						<h2>{search.total} result{search.total === 1 ? "" : "s"}</h2>
+						<h2>
+							{search.totalRelation === "lower_bound" ? "At least " : ""}
+							{search.total} result{search.total === 1 ? "" : "s"}
+						</h2>
 						<span className="meta">Page {search.page}</span>
 					</div>
 					{groups.length === 0 ?

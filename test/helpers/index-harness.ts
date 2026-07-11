@@ -901,7 +901,9 @@ export function fakeSearchBindings(): {
 		deleteByIds: async (ids) => {
 			deleted.push(...ids);
 		},
-		query: async () => ({ matches }),
+		query: async (_vector, options) => ({
+			matches: matches.slice(0, options?.topK ?? matches.length),
+		}),
 		upsert: async (vectors) => {
 			upserted.push(...vectors);
 		},

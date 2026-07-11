@@ -1165,6 +1165,7 @@ export type SearchResponse = {
 	query: string;
 	results: SearchResult[];
 	total: number;
+	totalRelation: "exact" | "lower_bound";
 };
 
 export type SearchSuggestResponse = {

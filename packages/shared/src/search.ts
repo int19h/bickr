@@ -295,10 +295,11 @@ export async function searchEntitiesSemantic(
 	}
 
 	const requested = new Set(types);
+	const topK = Math.max(searchPageSize, Math.min(50, page * searchPageSize + searchPageSize));
 	const matches = await retrySearchBinding("Search vector query", () =>
 		withSearchBindingTimeout("Search vector query", () =>
 			vectorIndex.query(vector, {
-				topK: Math.max(searchPageSize, Math.min(50, page * searchPageSize + searchPageSize)),
+				topK,
 				returnMetadata: "all",
 			}),
 		),
@@ -317,19 +318,20 @@ export async function searchEntitiesSemantic(
 			};
 		})
 		.sort((left, right) => (right.score - left.score) || (left.order - right.order));
-	const total = sorted.length;
+	const retrieved = sorted.length;
 	const offset = (page - 1) * searchPageSize;
 	const results = sorted
 		.slice(offset, offset + searchPageSize)
-		.map((item, index) => searchResultFromRow({ ...item.row, score: item.score, total }, "semantic", offset + index + 1));
+		.map((item, index) => searchResultFromRow({ ...item.row, score: item.score, total: retrieved }, "semantic", offset + index + 1));
 
 	return {
-		hasNextPage: offset + searchPageSize < total,
+		hasNextPage: offset + searchPageSize < retrieved,
 		page,
 		pageSize: searchPageSize,
 		query: options.query,
 		results,
-		total,
+		total: retrieved,
+		totalRelation: matches.matches.length >= topK ? "lower_bound" : "exact",
 	};
 }
 
@@ -1353,6 +1355,7 @@ function responseFromRows(
 		query,
 		results: rows.map((row, index) => searchResultFromRow(row, source, offset + index + 1)),
 		total,
+		totalRelation: "exact",
 	};
 }
 
@@ -1419,6 +1422,7 @@ function emptySearchResponse(query: string, page: number, pageSize: number): Sea
 		query,
 		results: [],
 		total: 0,
+		totalRelation: "exact",
 	};
 }
 
