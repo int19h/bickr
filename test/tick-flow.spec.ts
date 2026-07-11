@@ -2,16 +2,20 @@ import {
 	authCookie,
 	botById,
 	BotRuntime,
+	createForumForTest,
 	createBotForTest,
+	createThreadForTest,
 	defaultReasoningPrefill,
 	describe,
 	effectiveReasoningPrefill,
+	ExclusiveOperationQueue,
 	expect,
 	expectProviderPayloadToOmitIsoTimestamps,
 	expectProviderPayloadToOmitKeys,
 	fakeBotDocument,
 	formatRuntimeEventForContext,
 	formatRuntimeInputForContext,
+	handleForumCoordinatorRequest,
 	it,
 	localizedTextString,
 	lt,
@@ -24,6 +28,7 @@ import {
 	providerResponseWithToolCalls,
 	providerToolResultPayload,
 	providerUsageForTest,
+	readThread,
 	requiredLt,
 	runtimeEvent,
 	seedWorld,
@@ -45,6 +50,99 @@ import type {
 } from "./helpers/index-harness";
 
 describe("Tick flow", () => {
+	it("completes a keyless local-simulation tick by replying through the coordinator", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const replyingProfile = await createBotForTest(cookie, "local-simulation-replier", { enabled: true });
+		const authorProfile = await createBotForTest(cookie, "local-simulation-author");
+		const forum = await createForumForTest(cookie, "local-simulation");
+		const thread = await createThreadForTest(
+			forum.id,
+			authorProfile.id,
+			"A thread for local simulation",
+			"The local participant should reply here.",
+		);
+		const replyingBot = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, replyingProfile.id);
+		const coordinatorRequests: Array<{ path: string; body: unknown }> = [];
+		const events: BotRuntimeEvent[] = [];
+		let eventSeq = 0;
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			activeAbortController: null,
+			activeMaintenanceOperation: null,
+			activeRunId: null,
+			transitionQueue: new ExclusiveOperationQueue(),
+			env: {
+				BICKR_D1: testEnv.BICKR_D1,
+				BICKR_KV: testEnv.BICKR_KV,
+				BICKR_SIMULATION_MODE: "local",
+				INTERNAL_SERVICE_SECRET: "test-internal-service-secret",
+				FORUM_COORDINATOR_SERVICE: {
+					fetch: async (request: Request) => {
+						coordinatorRequests.push({
+							path: new URL(request.url).pathname,
+							body: await request.clone().json(),
+						});
+						return handleForumCoordinatorRequest(request, {
+							BICKR_D1: testEnv.BICKR_D1,
+							BICKR_KV: testEnv.BICKR_KV,
+						});
+					},
+				},
+			},
+			state: {
+				storage: { sql: memoryRuntimeSql() },
+				waitUntil: () => {},
+			},
+			appendEvent: (runId: string, type: BotRuntimeEvent["type"], payload: unknown) => {
+				eventSeq += 1;
+				const event = runtimeEvent(eventSeq, runId, type, payload);
+				events.push(event);
+				return event;
+			},
+			appendLoopMessage: (runId: string, message: Record<string, unknown>, origin: string) => ({
+				seq: eventSeq + 1,
+				runId,
+				role: message.role,
+				message,
+				origin,
+				tokenEstimate: 0,
+				createdAt: new Date().toISOString(),
+			}),
+			buildMessages: async () => Object.assign([], { deliveredNotificationIds: new Set<string>() }),
+			compactIfNeeded: async () => {},
+			currentIterationStartedSinceLastLogOff: () => true,
+			exportRecentProviderUsage: async () => {},
+			pruneRuntimeStorageAfterTick: () => {},
+			readCommentTreeTokenBudget: async () => 10_000,
+			startQueuedSpotlightTick: () => {},
+		});
+		const runTick = (BotRuntime.prototype as unknown as {
+			runTick: (botId: string, trigger: "manual") => Promise<{ status: string }>;
+		}).runTick.bind(runtime);
+
+		await expect(runTick(replyingBot.id, "manual")).resolves.toMatchObject({ status: "completed" });
+		expect(events.some((event) => event.type === "tick_completed")).toBe(true);
+		expect(coordinatorRequests).toEqual([
+			{
+				path: `/comments/${thread.rootCommentId}/replies`,
+				body: {
+					body: {
+						lang: replyingBot.language,
+						text: `${localizedTextString(replyingBot.displayName)} weighs in: ${localizedTextString(replyingBot.shortBio)}`,
+					},
+				},
+			},
+		]);
+		const updatedThread = await readThread(testEnv.BICKR_KV, thread.id);
+		expect(updatedThread.comments).toContainEqual(expect.objectContaining({
+			authorBotId: replyingBot.id,
+			parentCommentId: thread.rootCommentId,
+			body: {
+				lang: replyingBot.language,
+				text: `${localizedTextString(replyingBot.displayName)} weighs in: ${localizedTextString(replyingBot.shortBio)}`,
+			},
+		}));
+	});
 
 	it("formats runtime history as first-person notes instead of transcript commands", () => {
 		const toolCall = formatRuntimeEventForContext("tool_call", {

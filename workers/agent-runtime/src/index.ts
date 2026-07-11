@@ -4863,7 +4863,10 @@ export class BotRuntime {
 				'reply_to_comment',
 				{
 					commentId: replyTarget.rootCommentId,
-					body: `${bot.displayName} weighs in: ${bot.shortBio}`,
+					body: {
+						lang: bot.language ?? ('en' as LanguageTag),
+						text: `${localizedTextString(bot.displayName)} weighs in: ${localizedTextString(bot.shortBio)}`,
+					},
 				},
 				runContext,
 			);
