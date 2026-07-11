@@ -71,7 +71,6 @@ import {
 	type HumanSubscriptionThreadNode,
 	type HumanSubscriptionTreeResponse,
 	type HumanSubscriptionWorldNode,
-	type JsonObject,
 	type LanguageTag,
 	type LinkedAuthIdentity,
 	type LocalizedText,
@@ -104,19 +103,6 @@ import {
 	defaultThreadBodyCharacters,
 	effectivePostingSettings,
 } from "@bickr/shared/posting";
-import {
-	effectiveCompactionModeForModel,
-	effectiveReasoningEffortForModel,
-	effectiveStructuredToolCallsForModel,
-	effectiveSupportsPrefillForModel,
-	effectiveToolCallsForModel,
-	modelSupportsPrefill,
-	modelSupportsPromptCacheControl,
-	modelSupportsReasoningNone,
-	modelSupportsRequiredToolCalls,
-	modelSupportsStructuredCompaction,
-	providerModelPolicy,
-} from "@bickr/shared/openrouter-model-capabilities";
 import { formatCommentRef, formatThreadRef, parseCommentRef, parseThreadRef } from "@bickr/shared/ids";
 import {
 	handleHelpText,
@@ -124,7 +110,6 @@ import {
 	isValidHandleText,
 	maxBotPromptLength,
 	maxBotReasoningPrefillLength,
-	maxProviderRoutingJsonLength,
 	maxWorldPromptLength,
 	normalizeHandleText,
 	sanitizeHandleInput,
@@ -163,6 +148,30 @@ import {
 	type OpenRouterWebFetchToolDraft,
 	type OpenRouterWebSearchToolDraft,
 } from "./tool-settings-draft";
+import {
+	inferenceDefaultsForDraft,
+	inferenceDraftChanged,
+	inferenceDraftFromSettings,
+	inferenceInputFromDraft,
+	normalizeInferenceDraftForCapabilities,
+	promptFillSettingsInputFromDraft,
+	type InferenceDraft,
+	type InferenceModelUnlockContext,
+} from "./settings-drafts/inference-draft";
+import { imageGenerationInputFromDraft } from "./settings-drafts/image-generation-draft";
+import { normalizeTranslationDraftForCapabilities } from "./settings-drafts/translation-draft";
+import {
+	effectiveInferenceDraftBaseUrl,
+	effectiveInferenceDraftModel,
+	inferenceCapabilityContext,
+	inferenceCapabilityContextForDraft,
+	inferenceFallbackContextForDraft,
+	inferenceFallbackContextForSettings,
+	isOpenRouterProviderBaseUrl,
+	numericDraftValue,
+	providerRoutingDraftError,
+	providerRoutingDraftFingerprintValue,
+} from "./settings-drafts/common";
 import { prettyJsonText } from "./inference-submission-formatting";
 import {
 	isLiveProviderLoopMessage,
@@ -342,54 +351,6 @@ type BotEditParsedDraft = {
 	commentBodyCharacters: number | null;
 };
 
-type InferenceDraft = {
-	openRouterApiKey: string;
-	clearOpenRouterApiKey: boolean;
-	openRouterApiKeySet: boolean;
-	baseUrl: string;
-	model: string;
-	compactionMode: BotCompactionMode;
-	promptCacheMode: BotPromptCacheMode;
-	recurringPromptEnabled: boolean;
-	recurringPrompt: string;
-	supportsPrefill: boolean;
-	reasoningEffort: string;
-	toolCalls: string;
-	providerRouting: string;
-	translationEnabled: boolean;
-	translationModel: string;
-	translationPrompt: string;
-	translationReasoningEffort: string;
-	translationToolCalls: string;
-	translationProviderRouting: string;
-	translationTemperature: string;
-	translationTopK: string;
-	translationTopP: string;
-	translationMinP: string;
-	translationFrequencyPenalty: string;
-	translationPresencePenalty: string;
-	translationRepetitionPenalty: string;
-	imageGenerationModel: string;
-	imageGenerationPrompt: string;
-	imageGenerationProviderRouting: string;
-	imageGenerationAspectRatio: string;
-	imageGenerationImageSize: string;
-	imageGenerationTemperature: string;
-	imageGenerationTopK: string;
-	imageGenerationTopP: string;
-	imageGenerationMinP: string;
-	imageGenerationFrequencyPenalty: string;
-	imageGenerationPresencePenalty: string;
-	imageGenerationRepetitionPenalty: string;
-	temperature: string;
-	topK: string;
-	topP: string;
-	minP: string;
-	frequencyPenalty: string;
-	presencePenalty: string;
-	repetitionPenalty: string;
-};
-
 const avatarGenerationDraftAdapter: AvatarGenerationDraftAdapter<InferenceDraft> = {
 	configError: imageGenerationConfigDraftError,
 	fromSettings: inferenceDraftFromSettings,
@@ -406,27 +367,6 @@ type PromptBudgetState =
 	| { status: "loading"; requestKey: string }
 	| { status: "ready"; budget: BotContextBudget; requestKey: string }
 	| { status: "error"; message: string; requestKey: string };
-
-type InferenceModelUnlockContext = {
-	apiKeySet?: boolean;
-	openRouterApiKey?: string;
-	openRouterApiKeySet?: boolean;
-	baseUrl?: string;
-	model?: string;
-	compactionMode?: BotCompactionMode;
-	promptCacheMode?: BotPromptCacheMode;
-	providerRouting?: JsonObject;
-	reasoningEffort?: BotInferenceSettings["reasoningEffort"];
-	supportsPrefill?: boolean;
-	toolCalls?: BotInferenceSettings["toolCalls"];
-	temperature?: number;
-	topK?: number;
-	topP?: number;
-	minP?: number;
-	frequencyPenalty?: number;
-	presencePenalty?: number;
-	repetitionPenalty?: number;
-};
 
 type ProfileDraft = {
 	handle: string;
@@ -1117,10 +1057,6 @@ function worldAvatarMembersPromptSizeTitle(world: WorldSummary, members: BotSumm
 	const characters = Array.from(source).length;
 	const approximateTokens = Math.ceil(characters / 4);
 	return `Will send ${formatExactTokenCount(characters)} characters, about ${formatExactTokenCount(approximateTokens)} tokens, from ${members.length} member bio${members.length === 1 ? "" : "s"}.`;
-}
-
-function localizedOptionalDraft(text: string, language: LanguageTag | null): LocalizedText | null {
-	return text.trim() ? localizedText(text, language) : null;
 }
 
 const banners = [
@@ -20156,397 +20092,6 @@ function profileDraftChanged(draft: ProfileDraft, profile: UserProfile): boolean
 	);
 }
 
-type InferenceCapabilityContext = {
-	model: string;
-	baseUrl: string;
-	openRouter: boolean;
-	supportsPrefill: boolean;
-	supportsPromptCacheControl: boolean;
-	supportsReasoningNone: boolean;
-	supportsRequiredToolCalls: boolean;
-	supportsStructuredCompaction: boolean;
-};
-
-function inferenceCapabilityContextForDraft(
-	draft: InferenceDraft,
-	inherited?: BotInferenceSettings | null,
-): InferenceCapabilityContext {
-	const fallback = inferenceFallbackContextForDraft(draft, inherited);
-	const baseUrl = effectiveInferenceDraftBaseUrl(draft, fallback);
-	const model = effectiveInferenceDraftModel(draft, fallback);
-	const providerRouting = effectiveInferenceDraftProviderRouting(draft, fallback);
-	return inferenceCapabilityContext(model, baseUrl, providerRouting);
-}
-
-function inferenceCapabilityContext(model: string, baseUrl: string, providerRouting?: JsonObject): InferenceCapabilityContext {
-	const openRouter = isOpenRouterProviderBaseUrl(baseUrl);
-	return {
-		model,
-		baseUrl,
-		openRouter,
-		supportsPrefill: modelSupportsPrefill(model, openRouter, providerRouting),
-		supportsPromptCacheControl: modelSupportsPromptCacheControl(model, openRouter),
-		supportsReasoningNone: modelSupportsReasoningNone(model, openRouter, providerRouting),
-		supportsRequiredToolCalls: modelSupportsRequiredToolCalls(model, openRouter, providerRouting),
-		supportsStructuredCompaction: modelSupportsStructuredCompaction(model, openRouter, providerRouting),
-	};
-}
-
-function normalizeInferenceDraftForCapabilities(
-	draft: InferenceDraft,
-	inherited?: BotInferenceSettings | null,
-): InferenceDraft {
-	const fallback = inferenceFallbackContextForDraft(draft, inherited);
-	const context = inferenceCapabilityContextForDraft(draft, inherited);
-	const providerRouting = effectiveInferenceDraftProviderRouting(draft, fallback);
-	const policy = providerModelPolicy(context.model, context.openRouter, providerRouting);
-	return {
-		...draft,
-		compactionMode:
-			draft.compactionMode === "structured_output" && !context.supportsStructuredCompaction ?
-				policy.defaultCompactionMode
-			:	draft.compactionMode,
-		reasoningEffort: draft.reasoningEffort === "none" && !context.supportsReasoningNone ? "minimal" : draft.reasoningEffort,
-		promptCacheMode: context.supportsPromptCacheControl ? draft.promptCacheMode : "off",
-		supportsPrefill: context.supportsPrefill ? draft.supportsPrefill : false,
-		toolCalls: draft.toolCalls === "require" && !context.supportsRequiredToolCalls ? "railroad" : draft.toolCalls,
-	};
-}
-
-function normalizeTranslationDraftForCapabilities(
-	draft: InferenceDraft,
-	inherited?: InferenceModelUnlockContext | null,
-): InferenceDraft {
-	const model = draft.translationModel.trim() || effectiveInferenceDraftModel(draft, inherited);
-	const baseUrl = effectiveInferenceDraftBaseUrl(draft, inherited);
-	const context = inferenceCapabilityContext(model, baseUrl);
-	return {
-		...draft,
-		translationReasoningEffort:
-			draft.translationReasoningEffort === "none" && !context.supportsReasoningNone ? "minimal" : draft.translationReasoningEffort,
-		translationToolCalls:
-			draft.translationToolCalls === "require" && !context.supportsRequiredToolCalls ? "railroad" : draft.translationToolCalls,
-	};
-}
-
-function translationDefaultsForSettings(
-	settings: BotInferenceSettings,
-	inherited?: InferenceModelUnlockContext | null,
-): Pick<InferenceDraft, "translationReasoningEffort" | "translationToolCalls"> {
-	const translation = settings.translation;
-	const model = translation?.model?.trim() || effectiveInferenceSettingsModel(settings, inherited);
-	const baseUrl = effectiveInferenceSettingsBaseUrl(settings, inherited);
-	const openRouter = isOpenRouterProviderBaseUrl(baseUrl);
-	const reasoningEffort = effectiveReasoningEffortForModel(model, openRouter, translation?.reasoningEffort);
-	return {
-		translationReasoningEffort: reasoningEffort ?? "default",
-		translationToolCalls: effectiveStructuredToolCallsForModel(model, openRouter, translation?.toolCalls),
-	};
-}
-
-function translationDefaultsForDraft(
-	draft: InferenceDraft,
-	inherited?: InferenceModelUnlockContext | null,
-): Pick<InferenceDraft, "translationReasoningEffort" | "translationToolCalls"> {
-	const model = draft.translationModel.trim() || effectiveInferenceDraftModel(draft, inherited);
-	const baseUrl = effectiveInferenceDraftBaseUrl(draft, inherited);
-	const openRouter = isOpenRouterProviderBaseUrl(baseUrl);
-	const reasoningEffort = effectiveReasoningEffortForModel(model, openRouter, undefined);
-	return {
-		translationReasoningEffort: reasoningEffort ?? "default",
-		translationToolCalls: effectiveStructuredToolCallsForModel(model, openRouter, undefined),
-	};
-}
-
-function inferenceDefaultsForSettings(
-	settings: BotInferenceSettings,
-	inherited?: InferenceModelUnlockContext,
-): Pick<InferenceDraft, "compactionMode" | "promptCacheMode" | "supportsPrefill" | "reasoningEffort" | "toolCalls"> {
-	const model = effectiveInferenceSettingsModel(settings, inherited);
-	const baseUrl = effectiveInferenceSettingsBaseUrl(settings, inherited);
-	const openRouter = isOpenRouterProviderBaseUrl(baseUrl);
-	const providerRouting = effectiveInferenceSettingsProviderRouting(settings, inherited);
-	const reasoningEffort = effectiveReasoningEffortForModel(
-		model,
-		openRouter,
-		settings.reasoningEffort ?? inherited?.reasoningEffort,
-		providerRouting,
-	);
-	const promptCacheMode = settings.promptCacheMode ?? inherited?.promptCacheMode ?? "off";
-	return {
-		compactionMode: effectiveCompactionModeForModel(model, openRouter, settings.compactionMode ?? inherited?.compactionMode, providerRouting),
-		promptCacheMode: modelSupportsPromptCacheControl(model, openRouter) ? promptCacheMode : "off",
-		supportsPrefill: effectiveSupportsPrefillForModel(model, openRouter, settings.supportsPrefill ?? inherited?.supportsPrefill, providerRouting),
-		reasoningEffort: reasoningEffort ?? "default",
-		toolCalls: effectiveToolCallsForModel(model, openRouter, settings.toolCalls ?? inherited?.toolCalls, providerRouting),
-	};
-}
-
-function inferenceDefaultsForDraft(
-	draft: InferenceDraft,
-	inherited?: InferenceModelUnlockContext,
-): Pick<InferenceDraft, "compactionMode" | "promptCacheMode" | "supportsPrefill" | "reasoningEffort" | "toolCalls"> {
-	const fallback = inferenceFallbackContextForDraft(draft, inherited);
-	const model = effectiveInferenceDraftModel(draft, fallback);
-	const baseUrl = effectiveInferenceDraftBaseUrl(draft, fallback);
-	const openRouter = isOpenRouterProviderBaseUrl(baseUrl);
-	const providerRouting = effectiveInferenceDraftProviderRouting(draft, fallback);
-	const reasoningEffort = effectiveReasoningEffortForModel(model, openRouter, fallback?.reasoningEffort, providerRouting);
-	const promptCacheMode = fallback?.promptCacheMode ?? "off";
-	return {
-		compactionMode: effectiveCompactionModeForModel(model, openRouter, fallback?.compactionMode, providerRouting),
-		promptCacheMode: modelSupportsPromptCacheControl(model, openRouter) ? promptCacheMode : "off",
-		supportsPrefill: effectiveSupportsPrefillForModel(model, openRouter, fallback?.supportsPrefill, providerRouting),
-		reasoningEffort: reasoningEffort ?? "default",
-		toolCalls: effectiveToolCallsForModel(model, openRouter, fallback?.toolCalls, providerRouting),
-	};
-}
-
-function inferenceDraftFromSettings(
-	settings: BotInferenceSettings,
-	inherited?: InferenceModelUnlockContext,
-): InferenceDraft {
-	const defaults = inferenceDefaultsForSettings(settings, inherited);
-	const translationDefaults = translationDefaultsForSettings(settings, inherited);
-	return {
-		openRouterApiKey: "",
-		clearOpenRouterApiKey: false,
-		openRouterApiKeySet: Boolean(settings.openRouterApiKeySet),
-		baseUrl: settings.baseUrl ?? "",
-		model: settings.model ?? "",
-		compactionMode: defaults.compactionMode,
-		promptCacheMode: defaults.promptCacheMode,
-		recurringPromptEnabled: settings.recurringPromptEnabled !== false,
-		recurringPrompt: textValue(settings.recurringPrompt ?? settings.reasoningPrefill ?? ""),
-		supportsPrefill: defaults.supportsPrefill,
-		reasoningEffort: defaults.reasoningEffort,
-		toolCalls: defaults.toolCalls,
-		providerRouting: providerRoutingDraftValue(settings.providerRouting),
-		translationEnabled: Boolean(settings.translation?.enabled),
-		translationModel: settings.translation?.model ?? "",
-		translationPrompt: textValue(settings.translation?.prompt) || defaultTranslationPrompt,
-		translationReasoningEffort: translationDefaults.translationReasoningEffort,
-		translationToolCalls: translationDefaults.translationToolCalls,
-		translationProviderRouting: providerRoutingDraftValue(settings.translation?.providerRouting),
-		translationTemperature: numericDraftValue(settings.translation?.temperature),
-		translationTopK: numericDraftValue(settings.translation?.topK),
-		translationTopP: numericDraftValue(settings.translation?.topP),
-		translationMinP: numericDraftValue(settings.translation?.minP),
-		translationFrequencyPenalty: numericDraftValue(settings.translation?.frequencyPenalty),
-		translationPresencePenalty: numericDraftValue(settings.translation?.presencePenalty),
-		translationRepetitionPenalty: numericDraftValue(settings.translation?.repetitionPenalty),
-		imageGenerationModel: settings.imageGeneration?.model ?? "",
-		imageGenerationPrompt: textValue(settings.imageGeneration?.prompt),
-		imageGenerationProviderRouting: providerRoutingDraftValue(settings.imageGeneration?.providerRouting),
-		imageGenerationAspectRatio: imageGenerationAspectRatioDraftValue(settings.imageGeneration?.aspectRatio),
-		imageGenerationImageSize: imageGenerationImageSizeDraftValue(settings.imageGeneration?.imageSize),
-		imageGenerationTemperature: numericDraftValue(settings.imageGeneration?.temperature),
-		imageGenerationTopK: numericDraftValue(settings.imageGeneration?.topK),
-		imageGenerationTopP: numericDraftValue(settings.imageGeneration?.topP),
-		imageGenerationMinP: numericDraftValue(settings.imageGeneration?.minP),
-		imageGenerationFrequencyPenalty: numericDraftValue(settings.imageGeneration?.frequencyPenalty),
-		imageGenerationPresencePenalty: numericDraftValue(settings.imageGeneration?.presencePenalty),
-		imageGenerationRepetitionPenalty: numericDraftValue(settings.imageGeneration?.repetitionPenalty),
-		temperature: numericDraftValue(settings.temperature),
-		topK: numericDraftValue(settings.topK),
-		topP: numericDraftValue(settings.topP),
-		minP: numericDraftValue(settings.minP),
-		frequencyPenalty: numericDraftValue(settings.frequencyPenalty),
-		presencePenalty: numericDraftValue(settings.presencePenalty),
-		repetitionPenalty: numericDraftValue(settings.repetitionPenalty),
-	};
-}
-
-function inferenceDraftChanged(
-	draft: InferenceDraft,
-	settings: BotInferenceSettings,
-	options: {
-		includeReasoningPrefill?: boolean;
-		includeImageGeneration?: boolean;
-		includeTranslation?: boolean;
-		inherited?: InferenceModelUnlockContext;
-	} = {},
-): boolean {
-	const defaults = inferenceDefaultsForSettings(settings, options.inherited);
-	const normalizedDraft = normalizeInferenceDraftForCapabilities(draft, options.inherited);
-	return (
-		Boolean(normalizedDraft.openRouterApiKey.trim()) ||
-		normalizedDraft.clearOpenRouterApiKey ||
-		normalizedDraft.baseUrl.trim() !== (settings.baseUrl ?? "") ||
-		normalizedDraft.model.trim() !== (settings.model ?? "") ||
-		normalizedDraft.compactionMode !== defaults.compactionMode ||
-		normalizedDraft.promptCacheMode !== defaults.promptCacheMode ||
-		(Boolean(options.includeReasoningPrefill) && normalizedDraft.recurringPromptEnabled !== (settings.recurringPromptEnabled !== false)) ||
-		(Boolean(options.includeReasoningPrefill) && normalizedDraft.recurringPrompt !== textValue(settings.recurringPrompt ?? settings.reasoningPrefill ?? "")) ||
-		normalizedDraft.supportsPrefill !== defaults.supportsPrefill ||
-		normalizedDraft.reasoningEffort !== defaults.reasoningEffort ||
-		normalizedDraft.toolCalls !== defaults.toolCalls ||
-		providerRoutingDraftChanged(normalizedDraft.providerRouting, settings.providerRouting) ||
-		(Boolean(options.includeImageGeneration) && imageGenerationDraftChanged(normalizedDraft, settings)) ||
-		(Boolean(options.includeTranslation) && translationDraftChanged(normalizedDraft, settings, options.inherited)) ||
-		normalizedDraft.temperature.trim() !== numericDraftValue(settings.temperature) ||
-		normalizedDraft.topK.trim() !== numericDraftValue(settings.topK) ||
-		normalizedDraft.topP.trim() !== numericDraftValue(settings.topP) ||
-		normalizedDraft.minP.trim() !== numericDraftValue(settings.minP) ||
-		normalizedDraft.frequencyPenalty.trim() !== numericDraftValue(settings.frequencyPenalty) ||
-		normalizedDraft.presencePenalty.trim() !== numericDraftValue(settings.presencePenalty) ||
-		normalizedDraft.repetitionPenalty.trim() !== numericDraftValue(settings.repetitionPenalty)
-	);
-}
-
-function imageGenerationDraftChanged(draft: InferenceDraft, settings: BotInferenceSettings): boolean {
-	return (
-		draft.imageGenerationModel.trim() !== (settings.imageGeneration?.model ?? "") ||
-		draft.imageGenerationPrompt.trim() !== textValue(settings.imageGeneration?.prompt) ||
-		providerRoutingDraftChanged(draft.imageGenerationProviderRouting, settings.imageGeneration?.providerRouting) ||
-		draft.imageGenerationAspectRatio.trim() !== (settings.imageGeneration?.aspectRatio ?? "") ||
-		draft.imageGenerationImageSize.trim() !== (settings.imageGeneration?.imageSize ?? "") ||
-		draft.imageGenerationTemperature.trim() !== numericDraftValue(settings.imageGeneration?.temperature) ||
-		draft.imageGenerationTopK.trim() !== numericDraftValue(settings.imageGeneration?.topK) ||
-		draft.imageGenerationTopP.trim() !== numericDraftValue(settings.imageGeneration?.topP) ||
-		draft.imageGenerationMinP.trim() !== numericDraftValue(settings.imageGeneration?.minP) ||
-		draft.imageGenerationFrequencyPenalty.trim() !== numericDraftValue(settings.imageGeneration?.frequencyPenalty) ||
-		draft.imageGenerationPresencePenalty.trim() !== numericDraftValue(settings.imageGeneration?.presencePenalty) ||
-		draft.imageGenerationRepetitionPenalty.trim() !== numericDraftValue(settings.imageGeneration?.repetitionPenalty)
-	);
-}
-
-function translationDraftChanged(
-	draft: InferenceDraft,
-	settings: BotInferenceSettings,
-	inherited?: InferenceModelUnlockContext | null,
-): boolean {
-	const normalized = normalizeTranslationDraftForCapabilities(draft, inherited);
-	const defaults = translationDefaultsForSettings(settings, inherited);
-	const draftModel = draft.translationModel.trim();
-	const settingsModel = settings.translation?.model ?? "";
-	return (
-		normalized.translationEnabled !== Boolean(settings.translation?.enabled) ||
-		draftModel !== settingsModel ||
-		normalized.translationPrompt.trim() !== (textValue(settings.translation?.prompt) || defaultTranslationPrompt) ||
-		normalized.translationReasoningEffort !== defaults.translationReasoningEffort ||
-		normalized.translationToolCalls !== defaults.translationToolCalls ||
-		providerRoutingDraftChanged(normalized.translationProviderRouting, settings.translation?.providerRouting) ||
-		normalized.translationTemperature.trim() !== numericDraftValue(settings.translation?.temperature) ||
-		normalized.translationTopK.trim() !== numericDraftValue(settings.translation?.topK) ||
-		normalized.translationTopP.trim() !== numericDraftValue(settings.translation?.topP) ||
-		normalized.translationMinP.trim() !== numericDraftValue(settings.translation?.minP) ||
-		normalized.translationFrequencyPenalty.trim() !== numericDraftValue(settings.translation?.frequencyPenalty) ||
-		normalized.translationPresencePenalty.trim() !== numericDraftValue(settings.translation?.presencePenalty) ||
-		normalized.translationRepetitionPenalty.trim() !== numericDraftValue(settings.translation?.repetitionPenalty)
-	);
-}
-
-function inferenceInputFromDraft(
-	draft: InferenceDraft,
-	inherited?: InferenceModelUnlockContext,
-	options: { includeReasoningPrefill?: boolean; includeImageGeneration?: boolean; includeTranslation?: boolean } = {},
-	language: LanguageTag | null = defaultLanguageTag,
-): BotInferenceSettingsInput {
-	const normalized = normalizeInferenceDraftForCapabilities(draft, inherited);
-	const inheritedDefaults = inferenceDefaultsForDraft(normalized, inherited);
-	return {
-		...(normalized.openRouterApiKey.trim() ? { openRouterApiKey: normalized.openRouterApiKey.trim() }
-		: normalized.clearOpenRouterApiKey ? { openRouterApiKey: null }
-		: {}),
-		baseUrl: nullableTextInputMatchingInherited(normalized.baseUrl, inherited?.baseUrl),
-		model: nullableTextInputMatchingInherited(normalized.model, inherited?.model),
-		compactionMode:
-			normalized.compactionMode === inheritedDefaults.compactionMode ? null : normalized.compactionMode,
-		promptCacheMode:
-			normalized.promptCacheMode === inheritedDefaults.promptCacheMode ? null : nullablePromptCacheModeInput(normalized.promptCacheMode),
-		...(options.includeReasoningPrefill ?
-			{
-				recurringPrompt: localizedOptionalDraft(normalized.recurringPrompt, language),
-				recurringPromptEnabled: normalized.recurringPromptEnabled ? null : false,
-			}
-		:	{}),
-		supportsPrefill: normalized.supportsPrefill === inheritedDefaults.supportsPrefill ? null : normalized.supportsPrefill,
-		reasoningEffort:
-			normalized.reasoningEffort === inheritedDefaults.reasoningEffort ? null : nullableReasoningEffortInput(normalized.reasoningEffort),
-		toolCalls: normalized.toolCalls === inheritedDefaults.toolCalls ? null : nullableToolCallsInput(normalized.toolCalls),
-		providerRouting: providerRoutingInputFromDraft(normalized.providerRouting),
-		...(options.includeImageGeneration ? { imageGeneration: imageGenerationInputFromDraft(normalized, undefined, language) } : {}),
-		...(options.includeTranslation ? { translation: translationInputFromDraft(normalized, inherited, language) } : {}),
-		temperature: nullableNumberInputMatchingInherited(normalized.temperature, inherited?.temperature),
-		topK: nullableNumberInputMatchingInherited(normalized.topK, inherited?.topK),
-		topP: nullableNumberInputMatchingInherited(normalized.topP, inherited?.topP),
-		minP: nullableNumberInputMatchingInherited(normalized.minP, inherited?.minP),
-		frequencyPenalty: nullableNumberInputMatchingInherited(normalized.frequencyPenalty, inherited?.frequencyPenalty),
-		presencePenalty: nullableNumberInputMatchingInherited(normalized.presencePenalty, inherited?.presencePenalty),
-		repetitionPenalty: nullableNumberInputMatchingInherited(normalized.repetitionPenalty, inherited?.repetitionPenalty),
-	};
-}
-
-function translationInputFromDraft(
-	draft: InferenceDraft,
-	inherited?: InferenceModelUnlockContext | null,
-	language: LanguageTag | null = defaultLanguageTag,
-): BotInferenceSettingsInput["translation"] {
-	const normalized = normalizeTranslationDraftForCapabilities(draft, inherited);
-	const defaults = translationDefaultsForDraft(normalized, inherited);
-	const model = nullableTextInput(normalized.translationModel);
-	return {
-		enabled: normalized.translationEnabled,
-		model,
-		prompt: localizedText(normalized.translationPrompt.trim() || defaultTranslationPrompt, language),
-		reasoningEffort:
-			normalized.translationReasoningEffort === defaults.translationReasoningEffort ?
-				null
-			:	nullableReasoningEffortInput(normalized.translationReasoningEffort),
-		toolCalls:
-			normalized.translationToolCalls === defaults.translationToolCalls ?
-				null
-			:	nullableStructuredToolCallsInput(normalized.translationToolCalls),
-		providerRouting: providerRoutingInputFromDraft(normalized.translationProviderRouting),
-		temperature: nullableNumberInput(normalized.translationTemperature),
-		topK: nullableNumberInput(normalized.translationTopK),
-		topP: nullableNumberInput(normalized.translationTopP),
-		minP: nullableNumberInput(normalized.translationMinP),
-		frequencyPenalty: nullableNumberInput(normalized.translationFrequencyPenalty),
-		presencePenalty: nullableNumberInput(normalized.translationPresencePenalty),
-		repetitionPenalty: nullableNumberInput(normalized.translationRepetitionPenalty),
-	};
-}
-
-function imageGenerationInputFromDraft(
-	draft: InferenceDraft,
-	prompt = draft.imageGenerationPrompt,
-	language: LanguageTag | null = defaultLanguageTag,
-): BotInferenceSettingsInput["imageGeneration"] {
-	return {
-		model: nullableTextInput(draft.imageGenerationModel),
-		prompt: localizedOptionalDraft(prompt, language),
-		providerRouting: providerRoutingInputFromDraft(draft.imageGenerationProviderRouting),
-		aspectRatio: nullableImageGenerationAspectRatioInput(draft.imageGenerationAspectRatio),
-		imageSize: nullableImageGenerationSizeInput(draft.imageGenerationImageSize),
-		temperature: nullableNumberInput(draft.imageGenerationTemperature),
-		topK: nullableNumberInput(draft.imageGenerationTopK),
-		topP: nullableNumberInput(draft.imageGenerationTopP),
-		minP: nullableNumberInput(draft.imageGenerationMinP),
-		frequencyPenalty: nullableNumberInput(draft.imageGenerationFrequencyPenalty),
-		presencePenalty: nullableNumberInput(draft.imageGenerationPresencePenalty),
-		repetitionPenalty: nullableNumberInput(draft.imageGenerationRepetitionPenalty),
-	};
-}
-
-function promptFillSettingsInputFromDraft(draft: InferenceDraft): BotInferenceSettingsInput {
-	const normalized = normalizeInferenceDraftForCapabilities(draft);
-	return {
-		baseUrl: nullableTextInput(normalized.baseUrl),
-		model: nullableTextInput(normalized.model),
-		reasoningEffort: nullableReasoningEffortInput(normalized.reasoningEffort),
-		providerRouting: providerRoutingInputFromDraft(normalized.providerRouting),
-		temperature: nullableNumberInput(normalized.temperature),
-		topK: nullableNumberInput(normalized.topK),
-		topP: nullableNumberInput(normalized.topP),
-		minP: nullableNumberInput(normalized.minP),
-		frequencyPenalty: nullableNumberInput(normalized.frequencyPenalty),
-		presencePenalty: nullableNumberInput(normalized.presencePenalty),
-		repetitionPenalty: nullableNumberInput(normalized.repetitionPenalty),
-	};
-}
-
 function toolDraftFromSettings(settings?: BotToolSettings): BotToolDraft {
 	const openRouter = settings?.openRouter;
 	return {
@@ -20598,19 +20143,6 @@ function toolDraftValid(draft: BotToolDraft): boolean {
 
 function isOpenRouterBaseUrlForTools(draftBaseUrl: string, inheritedBaseUrl?: string): boolean {
 	return isOpenRouterProviderBaseUrl(draftBaseUrl.trim() || inheritedBaseUrl?.trim() || "https://openrouter.ai/api/v1");
-}
-
-function isOpenRouterProviderBaseUrl(baseUrl: string): boolean {
-	try {
-		const url = new URL(baseUrl);
-		if (url.protocol !== "https:" || url.hostname !== "openrouter.ai") {
-			return false;
-		}
-		const path = url.pathname.replace(/\/+$/, "");
-		return path === "/api/v1" || path === "/api/v1/chat/completions" || path === "/api/v1/images";
-	} catch {
-		return false;
-	}
 }
 
 function botPromptBudgetRequestKey(
@@ -20666,75 +20198,6 @@ function botPromptBudgetRequestKey(
 	});
 }
 
-function effectiveInferenceDraftModel(draft: InferenceDraft, inherited?: InferenceModelUnlockContext | null): string {
-	const draftHasProvider =
-		Boolean(draft.openRouterApiKey.trim()) ||
-		(draft.openRouterApiKeySet && !draft.clearOpenRouterApiKey) ||
-		Boolean(draft.baseUrl.trim());
-	const inheritedHasProvider =
-		Boolean(inherited?.apiKeySet || inherited?.openRouterApiKeySet) ||
-		Boolean(inherited?.openRouterApiKey?.trim()) ||
-		Boolean(inherited?.baseUrl?.trim());
-	const draftModel = draft.model.trim();
-	if (draftModel && (draftHasProvider || inheritedHasProvider)) {
-		return draftModel;
-	}
-	if (inherited?.model && inheritedHasProvider) {
-		return inherited.model;
-	}
-	return defaultProviderModel;
-}
-
-function effectiveInferenceSettingsModel(settings: BotInferenceSettings, inherited?: InferenceModelUnlockContext | null): string {
-	const settingsHasProvider =
-		Boolean(settings.openRouterApiKeySet) ||
-		Boolean(settings.openRouterApiKey?.trim()) ||
-		Boolean(settings.baseUrl?.trim());
-	const inheritedHasProvider =
-		Boolean(inherited?.apiKeySet || inherited?.openRouterApiKeySet) ||
-		Boolean(inherited?.openRouterApiKey?.trim()) ||
-		Boolean(inherited?.baseUrl?.trim());
-	if (settings.model?.trim() && (settingsHasProvider || inheritedHasProvider || !inherited)) {
-		return settings.model.trim();
-	}
-	if (inherited?.model && inheritedHasProvider) {
-		return inherited.model;
-	}
-	return defaultProviderModel;
-}
-
-function effectiveInferenceDraftBaseUrl(
-	draft: InferenceDraft,
-	inherited?: InferenceModelUnlockContext | null,
-): string {
-	return draft.baseUrl.trim() || inherited?.baseUrl?.trim() || "https://openrouter.ai/api/v1";
-}
-
-function effectiveInferenceSettingsBaseUrl(
-	settings: BotInferenceSettings,
-	inherited?: InferenceModelUnlockContext | null,
-): string {
-	return settings.baseUrl?.trim() || inherited?.baseUrl?.trim() || "https://openrouter.ai/api/v1";
-}
-
-function effectiveInferenceDraftProviderRouting(
-	draft: Pick<InferenceDraft, "providerRouting">,
-	inherited?: InferenceModelUnlockContext | null,
-): JsonObject | undefined {
-	try {
-		return providerRoutingInputFromDraft(draft.providerRouting) ?? inherited?.providerRouting;
-	} catch {
-		return inherited?.providerRouting;
-	}
-}
-
-function effectiveInferenceSettingsProviderRouting(
-	settings: BotInferenceSettings,
-	inherited?: InferenceModelUnlockContext | null,
-): JsonObject | undefined {
-	return settings.providerRouting ?? inherited?.providerRouting;
-}
-
 function inferenceDraftCredentialState(
 	draft: InferenceDraft,
 	inherited?: InferenceModelUnlockContext | null,
@@ -20752,30 +20215,6 @@ function inferenceDraftCredentialState(
 		return "inherited";
 	}
 	return "none";
-}
-
-function inferenceInheritanceContext(settings?: BotInferenceSettings | null): InferenceModelUnlockContext | undefined {
-	if (!settings) {
-		return undefined;
-	}
-	return {
-		...settings,
-		apiKeySet: Boolean(settings.openRouterApiKeySet),
-	};
-}
-
-function inferenceFallbackContextForSettings(
-	settings: Pick<BotInferenceSettings, "model">,
-	inherited?: BotInferenceSettings | null,
-): InferenceModelUnlockContext | undefined {
-	return settings.model?.trim() ? providerConnectionInheritanceContext(inherited) : inferenceInheritanceContext(inherited);
-}
-
-function inferenceFallbackContextForDraft(
-	draft: Pick<InferenceDraft, "model">,
-	inherited?: BotInferenceSettings | null,
-): InferenceModelUnlockContext | undefined {
-	return draft.model.trim() ? providerConnectionInheritanceContext(inherited) : inferenceInheritanceContext(inherited);
 }
 
 function includeLanguageInSystemPromptDraftFromStored(
@@ -20990,18 +20429,6 @@ function cloneAwareInferenceFallbackForDraft(
 	);
 }
 
-function providerConnectionInheritanceContext(settings?: BotInferenceSettings | null): InferenceModelUnlockContext | undefined {
-	if (!settings) {
-		return undefined;
-	}
-	return {
-		apiKeySet: Boolean(settings.openRouterApiKeySet),
-		openRouterApiKey: settings.openRouterApiKey,
-		openRouterApiKeySet: settings.openRouterApiKeySet,
-		baseUrl: settings.baseUrl,
-	};
-}
-
 function rebaseInferenceDraftForFallbackChange(
 	previous: InferenceDraft,
 	next: InferenceDraft,
@@ -21050,152 +20477,8 @@ function effectiveBotModel(bot: BotSummary, inherited?: BotInferenceSettings | n
 	return defaultProviderModel;
 }
 
-function providerRoutingDraftValue(value: JsonObject | undefined): string {
-	return value === undefined ? "" : JSON.stringify(value, null, 2);
-}
-
-function providerRoutingDraftError(value: string): string {
-	const trimmed = value.trim();
-	if (!trimmed) {
-		return "";
-	}
-	if (trimmed.length > maxProviderRoutingJsonLength) {
-		return `Provider routing must be ${maxProviderRoutingJsonLength} characters or fewer.`;
-	}
-	try {
-		const parsed = JSON.parse(trimmed) as unknown;
-		if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-			return "Provider routing must be a JSON object.";
-		}
-		const encoded = JSON.stringify(parsed);
-		if (encoded.length > maxProviderRoutingJsonLength) {
-			return `Provider routing must be ${maxProviderRoutingJsonLength} characters or fewer.`;
-		}
-		return "";
-	} catch {
-		return "Provider routing must be valid JSON.";
-	}
-}
-
-function providerRoutingInputFromDraft(value: string): JsonObject | null {
-	const trimmed = value.trim();
-	if (!trimmed) {
-		return null;
-	}
-	if (trimmed.length > maxProviderRoutingJsonLength) {
-		throw new Error(`Provider routing must be ${maxProviderRoutingJsonLength} characters or fewer.`);
-	}
-	const parsed = JSON.parse(trimmed) as unknown;
-	if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-		throw new Error("Provider routing must be a JSON object.");
-	}
-	const encoded = JSON.stringify(parsed);
-	if (encoded.length > maxProviderRoutingJsonLength) {
-		throw new Error(`Provider routing must be ${maxProviderRoutingJsonLength} characters or fewer.`);
-	}
-	return parsed as JsonObject;
-}
-
-function providerRoutingDraftChanged(draftValue: string, settingsValue: JsonObject | undefined): boolean {
-	try {
-		const draftRouting = providerRoutingInputFromDraft(draftValue);
-		if (draftRouting === null) {
-			return settingsValue !== undefined;
-		}
-		return settingsValue === undefined || canonicalJsonString(draftRouting) !== canonicalJsonString(settingsValue);
-	} catch {
-		return draftValue.trim() !== providerRoutingDraftValue(settingsValue).trim();
-	}
-}
-
-function providerRoutingDraftFingerprintValue(value: string, inherited?: JsonObject): string | null {
-	try {
-		const routing = providerRoutingInputFromDraft(value);
-		return routing === null ? (inherited ? canonicalJsonString(inherited) : null) : canonicalJsonString(routing);
-	} catch {
-		return value.trim();
-	}
-}
-
-function canonicalJsonString(value: JsonObject): string {
-	return JSON.stringify(canonicalJsonValue(value));
-}
-
-function canonicalJsonValue(value: unknown): unknown {
-	if (Array.isArray(value)) {
-		return value.map(canonicalJsonValue);
-	}
-	if (value && typeof value === "object") {
-		const object = value as Record<string, unknown>;
-		return Object.fromEntries(Object.keys(object).sort().map((key) => [key, canonicalJsonValue(object[key])]));
-	}
-	return value;
-}
-
-function numericDraftValue(value: number | undefined): string {
-	return value === undefined ? "" : String(value);
-}
-
 function optionalNumberDraftValue(value: number | undefined): string {
 	return value === undefined ? "" : String(value);
-}
-
-function imageGenerationAspectRatioDraftValue(value: string | undefined): string {
-	return value?.trim() ?? "";
-}
-
-function imageGenerationImageSizeDraftValue(value: string | undefined): string {
-	return value?.trim() ?? "";
-}
-
-function nullableTextInput(value: string): string | null {
-	const trimmed = value.trim();
-	return trimmed ? trimmed : null;
-}
-
-function nullableImageGenerationAspectRatioInput(value: string): string | null {
-	const trimmed = value.trim();
-	return trimmed || null;
-}
-
-function nullableImageGenerationSizeInput(value: string): string | null {
-	const trimmed = value.trim();
-	return trimmed || null;
-}
-
-function nullableTextInputMatchingInherited(value: string, inherited: string | undefined): string | null {
-	const trimmed = value.trim();
-	const inheritedTrimmed = inherited?.trim();
-	if (!trimmed || (inheritedTrimmed && trimmed === inheritedTrimmed)) {
-		return null;
-	}
-	return trimmed;
-}
-
-function nullableNumberInput(value: string): number | null {
-	const trimmed = value.trim();
-	return trimmed ? Number(trimmed) : null;
-}
-
-function nullableNumberInputMatchingInherited(value: string, inherited: number | undefined): number | null {
-	const parsed = nullableNumberInput(value);
-	return parsed !== null && inherited !== undefined && parsed === inherited ? null : parsed;
-}
-
-function nullableReasoningEffortInput(value: string): BotInferenceSettings["reasoningEffort"] | null {
-	return value && value !== "default" ? value as BotInferenceSettings["reasoningEffort"] : null;
-}
-
-function nullableToolCallsInput(value: string): BotInferenceSettings["toolCalls"] | null {
-	return value ? value as BotInferenceSettings["toolCalls"] : null;
-}
-
-function nullablePromptCacheModeInput(value: BotPromptCacheMode): BotInferenceSettings["promptCacheMode"] | null {
-	return value === "off" ? null : value;
-}
-
-function nullableStructuredToolCallsInput(value: string): NonNullable<BotInferenceSettings["translation"]>["toolCalls"] | null {
-	return value === "require" || value === "railroad" ? value : null;
 }
 
 function domainDraftValue(value: string[] | undefined): string {
