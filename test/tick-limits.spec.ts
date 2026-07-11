@@ -31,6 +31,7 @@ import {
 	testEnv,
 	testLoopMessageMemory,
 	testRuntimeForToolExecution,
+	toolDefinitionsForProviderRound,
 	vi,
 } from "./helpers/index-harness";
 import type {
@@ -181,6 +182,7 @@ describe("Tick limits and recovery", () => {
 			]),
 			ensureProviderPromptWithinBudget: async () => ({
 				allowedPromptTokens: 13_500,
+				providerTools: toolDefinitionsForProviderRound(),
 				promptTokens: 100,
 				requestMessages: [{ role: "assistant", content: "I am ready." }],
 			}),
@@ -264,6 +266,7 @@ describe("Tick limits and recovery", () => {
 				callProvider,
 				ensureProviderPromptWithinBudget: async () => ({
 					allowedPromptTokens: 13_500,
+					providerTools: toolDefinitionsForProviderRound(),
 					promptTokens: 100,
 					requestMessages: [{ role: "assistant", content: "I am ready." }],
 				}),
@@ -350,6 +353,7 @@ describe("Tick limits and recovery", () => {
 				callProvider,
 				ensureProviderPromptWithinBudget: async () => ({
 					allowedPromptTokens: 13_500,
+					providerTools: toolDefinitionsForProviderRound(),
 					promptTokens: 100,
 					requestMessages: [{ role: "assistant", content: "I am ready." }],
 				}),
@@ -428,6 +432,7 @@ describe("Tick limits and recovery", () => {
 				callProvider,
 				ensureProviderPromptWithinBudget: async () => ({
 					allowedPromptTokens: 13_500,
+					providerTools: toolDefinitionsForProviderRound(),
 					promptTokens: 100,
 					requestMessages: [{ role: "assistant", content: "I am ready." }],
 				}),
@@ -513,6 +518,7 @@ describe("Tick limits and recovery", () => {
 				callProvider,
 				ensureProviderPromptWithinBudget: async () => ({
 					allowedPromptTokens: 13_500,
+					providerTools: toolDefinitionsForProviderRound(),
 					promptTokens: 100,
 					requestMessages: [{ role: "assistant", content: "I am ready." }],
 				}),
@@ -599,6 +605,7 @@ describe("Tick limits and recovery", () => {
 			callProvider,
 			ensureProviderPromptWithinBudget: async () => ({
 				allowedPromptTokens: 13_500,
+				providerTools: toolDefinitionsForProviderRound(),
 				promptTokens: 100,
 				requestMessages: [{ role: "assistant", content: "I am ready." }],
 			}),
@@ -676,6 +683,7 @@ describe("Tick limits and recovery", () => {
 			callProvider,
 			ensureProviderPromptWithinBudget: async () => ({
 				allowedPromptTokens: 13_500,
+				providerTools: toolDefinitionsForProviderRound(),
 				promptTokens: 100,
 				requestMessages: [{ role: "assistant", content: "I am ready." }],
 			}),
@@ -738,6 +746,7 @@ describe("Tick limits and recovery", () => {
 				tools: ProviderToolDefinition[],
 			) => ({
 				allowedPromptTokens: 13_500,
+				providerTools: tools,
 				promptTokens: 100,
 				requestMessages: (BotRuntime.prototype as unknown as {
 					activeProviderRequestMessages: (
@@ -818,6 +827,7 @@ describe("Tick limits and recovery", () => {
 				tools: ProviderToolDefinition[],
 			) => ({
 				allowedPromptTokens: 13_500,
+				providerTools: tools,
 				promptTokens: 100,
 				requestMessages: (BotRuntime.prototype as unknown as {
 					activeProviderRequestMessages: (
@@ -887,6 +897,7 @@ describe("Tick limits and recovery", () => {
 			callProvider,
 			ensureProviderPromptWithinBudget: async () => ({
 				allowedPromptTokens: 13_500,
+				providerTools: toolDefinitionsForProviderRound(),
 				promptTokens: 100,
 				requestMessages: [{ role: "user", content: "Act." }],
 			}),
@@ -958,6 +969,7 @@ describe("Tick limits and recovery", () => {
 				tools: ProviderToolDefinition[],
 			) => ({
 				allowedPromptTokens: 13_500,
+				providerTools: tools,
 				promptTokens: 100,
 				requestMessages: (BotRuntime.prototype as unknown as {
 					activeProviderRequestMessages: (
@@ -1044,6 +1056,7 @@ describe("Tick limits and recovery", () => {
 				tools: ProviderToolDefinition[],
 			) => ({
 				allowedPromptTokens: 13_500,
+				providerTools: tools,
 				promptTokens: 100,
 				requestMessages: (BotRuntime.prototype as unknown as {
 					activeProviderRequestMessages: (
@@ -1138,6 +1151,7 @@ describe("Tick limits and recovery", () => {
 				tools: ProviderToolDefinition[],
 			) => ({
 				allowedPromptTokens: 13_500,
+				providerTools: tools,
 				promptTokens: 100,
 				requestMessages: (BotRuntime.prototype as unknown as {
 					activeProviderRequestMessages: (
@@ -1242,6 +1256,7 @@ describe("Tick limits and recovery", () => {
 			},
 			ensureProviderPromptWithinBudget: async () => ({
 				allowedPromptTokens: 13_500,
+				providerTools: toolDefinitionsForProviderRound(),
 				promptTokens: 100,
 				requestMessages: [{ role: "system", content: "Prompt." }],
 			}),
@@ -1348,6 +1363,7 @@ describe("Tick limits and recovery", () => {
 			},
 			ensureProviderPromptWithinBudget: async () => ({
 				allowedPromptTokens: 13_500,
+				providerTools: toolDefinitionsForProviderRound(),
 				promptTokens: 100,
 				requestMessages: [{ role: "system", content: "Prompt." }],
 			}),
@@ -1640,6 +1656,7 @@ describe("Tick limits and recovery", () => {
 			callProvider,
 			ensureProviderPromptWithinBudget: async () => ({
 				allowedPromptTokens: 13_500,
+				providerTools: toolDefinitionsForProviderRound(),
 				promptTokens: 100,
 				requestMessages: [{ role: "assistant", content: "I am ready." }],
 			}),
@@ -1769,6 +1786,7 @@ describe("Tick limits and recovery", () => {
 			callProvider: async () => providerResponseWithContent("Clean migrated history is ready."),
 			ensureProviderPromptWithinBudget: async () => ({
 				allowedPromptTokens: 13_500,
+				providerTools: toolDefinitionsForProviderRound(),
 				promptTokens: 100,
 				requestMessages: (BotRuntime.prototype as unknown as { activeLoopMessagesForProvider: () => BotInferenceSubmissionMessage[] })
 					.activeLoopMessagesForProvider.bind(harness.runtime)(),

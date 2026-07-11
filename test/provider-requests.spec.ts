@@ -2763,6 +2763,7 @@ describe("Provider requests", () => {
 			},
 			ensureProviderPromptWithinBudget: async () => ({
 				allowedPromptTokens: 13_500,
+				providerTools: toolDefinitionsForProviderRound(),
 				promptTokens: 100,
 				requestMessages: [{ role: "assistant", content: "I am ready." }],
 			}),

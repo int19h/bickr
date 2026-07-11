@@ -35,6 +35,7 @@ import {
 	standardPrompt,
 	testEnv,
 	testLanguage,
+	toolDefinitionsForProviderRound,
 	toolUseRecoveryReminder,
 	vi,
 } from "./helpers/index-harness";
@@ -142,6 +143,81 @@ describe("Tick flow", () => {
 				text: `${localizedTextString(replyingBot.displayName)} weighs in: ${localizedTextString(replyingBot.shortBio)}`,
 			},
 		}));
+	});
+
+	it("uses the tool schema refreshed by the mid-run prompt budget check", async () => {
+		const refreshedProviderTools = toolDefinitionsForProviderRound(4_000, {
+			postingLimits: { threadBodyCharacters: 654, commentBodyCharacters: 321 },
+		});
+		const callProvider = vi.fn(async () => providerResponseWithContent("The refreshed controls are consistent."));
+		let eventSeq = 0;
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			appendEvent: (runId: string, type: BotRuntimeEvent["type"], payload: unknown) => {
+				eventSeq += 1;
+				return runtimeEvent(eventSeq, runId, type, payload);
+			},
+			appendLoopMessage: () => ({}),
+			appendLoopMessageGroup: () => [],
+			appendProviderMessages: async () => {},
+			callProvider,
+			ensureProviderPromptWithinBudget: async () => ({
+				allowedPromptTokens: 13_500,
+				maxCompletionTokens: 5_000,
+				promptTokens: 100,
+				providerTools: refreshedProviderTools,
+				requestMessages: [{ role: "system", content: "System prompt rebuilt with current participant settings." }],
+			}),
+			loopGeneratedTokenCountSinceLastLogOff: () => 0,
+			prematureLogOffCorrectedSinceLastLogOff: () => false,
+			providerLoopInitialSuccessfulToolCallCount: () => 0,
+			recordDroppedProviderToolCalls: async () => {},
+			recordInferenceSubmission: () => {},
+			recordProviderUsage: async () => {},
+			successfulMutatingToolCallSinceLastLogOff: () => true,
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const runProviderLoop = (BotRuntime.prototype as unknown as {
+			runProviderLoop: (
+				bot: BotDocument,
+				settings: { baseUrl: string; model: string; temperature: number; toolCalls: "at_will" },
+				runId: string,
+				messages: Array<Record<string, unknown>>,
+				runContext: { mode: "normal"; signal: AbortSignal },
+			) => Promise<unknown>;
+		}).runProviderLoop.bind(runtime);
+
+		await expect(
+			runProviderLoop(
+				fakeBotDocument({ allowEarlyLogOff: true }),
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
+				"run-refreshed-tools",
+				[],
+				{ mode: "normal", signal: new AbortController().signal },
+			),
+		).resolves.toMatchObject({ logOffCalled: false });
+
+		expect(callProvider).toHaveBeenCalledWith(
+			expect.anything(),
+			[{ role: "system", content: "System prompt rebuilt with current participant settings." }],
+			refreshedProviderTools,
+			expect.anything(),
+			expect.anything(),
+			expect.anything(),
+			expect.anything(),
+			expect.anything(),
+			expect.anything(),
+			expect.anything(),
+		);
+		const replyTool = refreshedProviderTools.find(
+			(tool) => tool.type === "function" && tool.function.name === "reply_to_comment",
+		);
+		expect(replyTool?.type === "function" ? replyTool.function.parameters.properties.body : undefined).toMatchObject({
+			properties: { text: { maxLength: 321 } },
+		});
 	});
 
 	it("formats runtime history as first-person notes instead of transcript commands", () => {
@@ -1624,8 +1700,15 @@ describe("Tick flow", () => {
 				reasoningDetails: [],
 				toolCalls: [],
 			}),
-			ensureProviderPromptWithinBudget: async () => ({
+			ensureProviderPromptWithinBudget: async (
+				_bot: BotDocument,
+				_settings: unknown,
+				_runId: string,
+				_signal: AbortSignal,
+				tools: ProviderToolDefinition[],
+			) => ({
 				allowedPromptTokens: 13_500,
+				providerTools: tools,
 				promptTokens: 100,
 				requestMessages: [{ role: "assistant", content: "I am ready." }],
 			}),
@@ -1694,6 +1777,7 @@ describe("Tick flow", () => {
 			callProvider,
 			ensureProviderPromptWithinBudget: async () => ({
 				allowedPromptTokens: 13_500,
+				providerTools: toolDefinitionsForProviderRound(),
 				promptTokens: 100,
 				requestMessages: [{ role: "assistant", content: "I am ready." }],
 			}),
@@ -1776,6 +1860,7 @@ describe("Tick flow", () => {
 			]),
 			ensureProviderPromptWithinBudget: async () => ({
 				allowedPromptTokens: 13_500,
+				providerTools: toolDefinitionsForProviderRound(),
 				promptTokens: 100,
 				requestMessages: [{ role: "assistant", content: "I am ready." }],
 			}),
@@ -1874,6 +1959,7 @@ describe("Tick flow", () => {
 				const history = providerHistory();
 				return {
 					allowedPromptTokens: 13_500,
+					providerTools: toolDefinitionsForProviderRound(),
 					promptTokens: 100,
 					requestMessages: history.length > 0 ? history : [{ role: "assistant", content: "I am ready." }],
 				};
@@ -1959,6 +2045,7 @@ describe("Tick flow", () => {
 			callProvider,
 			ensureProviderPromptWithinBudget: async () => ({
 				allowedPromptTokens: 13_500,
+				providerTools: toolDefinitionsForProviderRound(),
 				promptTokens: 100,
 				requestMessages: [{ role: "assistant", content: "I am ready." }],
 			}),
@@ -2042,6 +2129,7 @@ describe("Tick flow", () => {
 			callProvider,
 			ensureProviderPromptWithinBudget: async () => ({
 				allowedPromptTokens: 13_500,
+				providerTools: toolDefinitionsForProviderRound(),
 				promptTokens: 100,
 				requestMessages: [{ role: "assistant", content: "I am ready." }],
 			}),
@@ -2142,6 +2230,7 @@ describe("Tick flow", () => {
 			callProvider,
 			ensureProviderPromptWithinBudget: async () => ({
 				allowedPromptTokens: 13_500,
+				providerTools: toolDefinitionsForProviderRound(),
 				promptTokens: 100,
 				requestMessages: [{ role: "assistant", content: "I am ready." }],
 			}),
@@ -2231,6 +2320,7 @@ describe("Tick flow", () => {
 			callProvider,
 			ensureProviderPromptWithinBudget: async () => ({
 				allowedPromptTokens: 13_500,
+				providerTools: toolDefinitionsForProviderRound(),
 				promptTokens: 100,
 				requestMessages: [{ role: "assistant", content: "I am ready." }],
 			}),
@@ -2301,8 +2391,15 @@ describe("Tick flow", () => {
 				providerTools = tools;
 				return providerResponseWithToolCall("call-log-off", "log_off", { reason: "I have used enough controls for now." });
 			},
-			ensureProviderPromptWithinBudget: async () => ({
+			ensureProviderPromptWithinBudget: async (
+				_bot: BotDocument,
+				_settings: unknown,
+				_runId: string,
+				_signal: AbortSignal,
+				tools: ProviderToolDefinition[],
+			) => ({
 				allowedPromptTokens: 13_500,
+				providerTools: tools,
 				promptTokens: 100,
 				requestMessages: [{ role: "assistant", content: "I am ready." }],
 			}),
@@ -2386,6 +2483,7 @@ describe("Tick flow", () => {
 			callProvider: async () => providerResponseWithToolCall("call-read", "read_thread", { threadId: "thr_test" }),
 			ensureProviderPromptWithinBudget: async () => ({
 				allowedPromptTokens: 13_500,
+				providerTools: toolDefinitionsForProviderRound(),
 				promptTokens: 100,
 				requestMessages: [{ role: "assistant", content: "I am ready." }],
 			}),
@@ -2489,6 +2587,7 @@ describe("Tick flow", () => {
 			callProvider,
 			ensureProviderPromptWithinBudget: async () => ({
 				allowedPromptTokens: 13_500,
+				providerTools: toolDefinitionsForProviderRound(),
 				promptTokens: 100,
 				requestMessages: [{ role: "assistant", content: "I am ready." }],
 			}),
@@ -2600,6 +2699,7 @@ describe("Tick flow", () => {
 			]),
 			ensureProviderPromptWithinBudget: async () => ({
 				allowedPromptTokens: 13_500,
+				providerTools: toolDefinitionsForProviderRound(),
 				promptTokens: 100,
 				requestMessages: [{ role: "assistant", content: "I am ready." }],
 			}),
@@ -2703,6 +2803,7 @@ describe("Tick flow", () => {
 			]),
 			ensureProviderPromptWithinBudget: async () => ({
 				allowedPromptTokens: 13_500,
+				providerTools: toolDefinitionsForProviderRound(),
 				promptTokens: 100,
 				requestMessages: [{ role: "assistant", content: "I am ready." }],
 			}),
@@ -2798,6 +2899,7 @@ describe("Tick flow", () => {
 			]),
 			ensureProviderPromptWithinBudget: async () => ({
 				allowedPromptTokens: 13_500,
+				providerTools: toolDefinitionsForProviderRound(),
 				promptTokens: 100,
 				requestMessages: [{ role: "assistant", content: "I am ready." }],
 			}),

@@ -2652,7 +2652,7 @@ export class BotRuntime {
 		};
 		while (toolRequestTurns < tickSettings.maxToolCallsPerTick) {
 			this.throwIfStopped(runId, runContext.signal);
-			const { tools: providerTools, serverTools } = providerToolsForBotRound(bot, settings);
+			let { tools: providerTools, serverTools } = providerToolsForBotRound(bot, settings);
 			if (providerTools.length === 0) {
 				return finishProviderLoop();
 			}
@@ -2663,6 +2663,7 @@ export class BotRuntime {
 			let malformedOnlyRetried = false;
 			for (;;) {
 				const budgetCheck = await this.ensureProviderPromptWithinBudget(bot, settings, runId, runContext.signal, providerTools);
+				providerTools = budgetCheck.providerTools;
 				const requestMessages = budgetCheck.requestMessages;
 				const requestContextWindowTokens = budgetCheck.contextWindowTokens ?? tickSettings.contextWindowTokens;
 				const requestMaxCompletionTokens = providerLoopMaxCompletionTokens(requestContextWindowTokens, budgetCheck.promptTokens);
@@ -3176,9 +3177,7 @@ export class BotRuntime {
 					settings: requestSettings,
 				});
 				if (error instanceof ProviderResponseInterruptedError) {
-					const interruptedResponse = { ...error.response };
-					delete interruptedResponse.usage;
-					throw new ProviderResponseInterruptedError({ ...interruptedResponse, requestBody: body }, error.originalError);
+					throw new ProviderResponseInterruptedError({ ...error.response, requestBody: body }, error.originalError);
 				}
 				if (error instanceof TickStoppedError || isAbortError(error)) {
 					throw error;
@@ -5593,6 +5592,7 @@ export class BotRuntime {
 							contextWindowTokens: requestContextWindowTokens,
 							maxCompletionTokens,
 							promptTokens: estimate.promptTokens,
+							providerTools,
 							requestMessages,
 						}
 					: null;

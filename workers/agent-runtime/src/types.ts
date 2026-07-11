@@ -257,6 +257,7 @@ export type ProviderPromptBudgetCheck = {
 	contextWindowTokens?: number;
 	maxCompletionTokens: number;
 	promptTokens: number;
+	providerTools: ProviderToolDefinition[];
 	requestMessages: ChatMessage[];
 };
 

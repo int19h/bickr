@@ -1996,6 +1996,7 @@ export function capturingProviderUsageSql() {
 	const inserts: unknown[][] = [];
 	return {
 		providerNames: () => inserts.map((params) => params[8] as string | null),
+		rows: () => inserts,
 		exec<T>(sql: string, ...params: unknown[]) {
 			if (/INSERT INTO provider_usage/.test(sql)) {
 				inserts.push(params);
