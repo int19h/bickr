@@ -117,7 +117,7 @@ describe("KV document normalization sweep", () => {
 		expect(await testEnv.BICKR_KV.get(key, { type: "json" })).toEqual(interleaved);
 	});
 
-	it("round-trips current-format thread documents identically with the legacy shim gone", async () => {
+	it("round-trips current thread documents identically after retiring stored hotScore stripping", async () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);
 		const forum = await createForumForTest(cookie, "normalize-thread");
@@ -125,6 +125,7 @@ describe("KV document normalization sweep", () => {
 		const createdThread = await createThreadForTest(forum.id, author.id, "Current sweep", "Current body.");
 		const stored = await testEnv.BICKR_KV.get<ThreadDocument>(kvKeys.thread(createdThread.id), { type: "json" });
 		expect(stored).not.toBeNull();
+		expect(stored).not.toHaveProperty("hotScore");
 		expect(await readThread(testEnv.BICKR_KV, createdThread.id)).toEqual(stored);
 
 		const result = await normalizeKvDocuments({

@@ -10,6 +10,7 @@ import {
 	type WorldListSummary,
 } from "@bickr/shared/model";
 import { formatCommentRef, formatThreadRef, parseCommentRef, parseThreadRef } from "@bickr/shared/ids";
+import { personalForumTitle } from "@bickr/shared/personal-forums";
 import { handlePatternSource, normalizeHandleText } from "@bickr/shared/validation";
 import { api } from "../api";
 import { cloudflareImageUrl } from "../avatar-image-urls";
@@ -102,7 +103,7 @@ export function referenceMeta(
 		}
 		const bot = personalForumBot(forum, data);
 		return bot ?
-				{ title: `Blog of ${bot.displayName}`, description: `u/${bot.handle} · ${bot.shortBio}` }
+				{ title: personalForumTitle(bot.displayName), description: `u/${bot.handle} · ${bot.shortBio}` }
 			:	{ title: `f/${forum.handle}`, description: forum.description };
 	}
 	if (kind === "bot") {

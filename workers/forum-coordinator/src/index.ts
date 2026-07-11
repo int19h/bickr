@@ -52,6 +52,11 @@ import {
 	type ThreadNormalizationOutcome,
 	type ThreadNormalizationRequest,
 } from "@bickr/shared/kv-normalization-sweep";
+import {
+	personalForumDescriptionSweepMaxRowsPerRun,
+	personalForumDescriptionSweepMaxWritesPerRun,
+	resyncPersonalForumDescriptions,
+} from "@bickr/shared/personal-forum-description-sweep";
 import { kvKeys, readJson, writeJson } from "@bickr/shared/storage";
 
 export interface Env {
@@ -494,6 +499,11 @@ async function handleForumWorkerFetch(request: Request, env: Env): Promise<Respo
 		return json(await normalizeKvDocuments(sweepEnv, input.entityType, input.options));
 	}
 
+	if (request.method === "POST" && url.pathname === "/maintenance/personal-forum-descriptions") {
+		const options = parsePersonalForumDescriptionSweepInput(await readJsonBody(request));
+		return json(await resyncPersonalForumDescriptions(env, options));
+	}
+
 	const response =
 		await routeWorldCoordinatorRequest(request, env, url) ??
 		await routeForumCoordinatorRequest(request, env, url) ??
@@ -501,6 +511,20 @@ async function handleForumWorkerFetch(request: Request, env: Env): Promise<Respo
 		await routeCommentCoordinatorRequest(request, env, url) ??
 		await routeVoteCoordinatorRequest(request, env, url);
 	return response ?? forumCoordinatorNotFoundResponse();
+}
+
+function parsePersonalForumDescriptionSweepInput(body: unknown): {
+	maxRowsPerRun?: number;
+	maxWritesPerRun?: number;
+} {
+	if (!body || typeof body !== "object" || Array.isArray(body)) {
+		throw new InputError("Personal-forum description sweep input must be an object.");
+	}
+	const record = body as Record<string, unknown>;
+	return {
+		...optionalSweepBudget(record, "maxRowsPerRun", personalForumDescriptionSweepMaxRowsPerRun),
+		...optionalSweepBudget(record, "maxWritesPerRun", personalForumDescriptionSweepMaxWritesPerRun),
+	};
 }
 
 function parseKvNormalizationSweepInput(body: unknown): {

@@ -355,15 +355,10 @@ async function forumMetadataByHandle(db: D1Database, worldHandle: string, forumH
 				f.world_id AS worldId,
 				f.world_handle AS worldHandle,
 				f.handle,
-				CASE
-					WHEN f.personal_bot_id IS NOT NULL AND b.bot_id IS NOT NULL
-						THEN 'Blog of ' || b.display_name || ' (u/' || b.handle || ')'
-					ELSE f.description
-				END AS description,
+				f.description,
 				f.personal_bot_id AS personalBotId
 			 FROM forums_index f
 			 JOIN worlds_index w ON w.world_id = f.world_id AND w.deleted_at IS NULL
-			 LEFT JOIN bots_index b ON b.bot_id = f.personal_bot_id AND b.deleted_at IS NULL
 			 WHERE f.world_handle = ? AND f.handle = ? AND f.deleted_at IS NULL`,
 		)
 		.bind(worldHandle, forumHandle)

@@ -351,7 +351,7 @@ export function rootCommentForThread(thread: ThreadDocument): CommentDocument {
 }
 
 export function normalizeThreadDefaults(document: ThreadDocument): ThreadDocument {
-	const current = withoutStoredThreadHotScore(document);
+	const current = document;
 	if (!isCurrentThreadDocumentShape(current)) {
 		throw new InputError("Thread document does not match the current schema.");
 	}
@@ -376,11 +376,6 @@ export function normalizeThreadDefaults(document: ThreadDocument): ThreadDocumen
 		lastActivityAt,
 	};
 	return normalized;
-}
-
-function withoutStoredThreadHotScore(document: ThreadDocument): ThreadDocument {
-	const { hotScore: _hotScore, ...current } = document as ThreadDocument & { hotScore?: number };
-	return current;
 }
 
 function isCurrentThreadDocumentShape(document: ThreadDocument): boolean {
@@ -1321,23 +1316,14 @@ async function subscriptionForumSummariesByIds(
 			f.world_id AS worldId,
 			f.world_handle AS worldHandle,
 			f.handle,
-			COALESCE(b.language, f.language) AS language,
-			CASE
-				WHEN f.personal_bot_id IS NOT NULL AND b.bot_id IS NOT NULL
-					THEN 'Blog of ' || b.display_name || ' (u/' || b.handle || ')'
-				ELSE f.description
-			END AS description,
-			CASE
-				WHEN f.personal_bot_id IS NOT NULL AND b.bot_id IS NOT NULL
-					THEN b.display_name_lang
-				ELSE f.description_lang
-			END AS descriptionLang,
+			f.language,
+			f.description,
+			f.description_lang AS descriptionLang,
 			f.created_by_user_id AS createdByUserId,
 			f.personal_bot_id AS personalBotId,
 			f.created_at AS createdAt,
 			f.updated_at AS updatedAt
 		 FROM forums_index f
-		 LEFT JOIN bots_index b ON b.bot_id = f.personal_bot_id AND b.deleted_at IS NULL
 		 WHERE f.forum_id IN (${placeholders}) AND f.deleted_at IS NULL`,
 	).then((forums) => forums.map((row) => ({
 		id: row.id,
@@ -1516,9 +1502,6 @@ export async function listHumanNotifications(
 					target_comment_thread.forum_id
 				)
 			   AND resolved_forum.deleted_at IS NULL
-			 LEFT JOIN bots_index forum_bot
-				ON forum_bot.bot_id = resolved_forum.personal_bot_id
-			   AND forum_bot.deleted_at IS NULL
 			 WHERE hn.user_id = ? AND hn.archived_at IS NULL ${filter}${scopedWhere.sql}
 			 ORDER BY hn.created_at DESC
 			 LIMIT ? OFFSET ?`,
@@ -4256,16 +4239,8 @@ const humanNotificationColumns = `
 	w.name_lang AS worldNameLang,
 	resolved_forum.forum_id AS forumId,
 	resolved_forum.handle AS forumHandle,
-	CASE
-		WHEN resolved_forum.personal_bot_id IS NOT NULL AND forum_bot.bot_id IS NOT NULL
-			THEN 'Blog of ' || forum_bot.display_name || ' (u/' || forum_bot.handle || ')'
-		ELSE resolved_forum.description
-	END AS forumName,
-	CASE
-		WHEN resolved_forum.personal_bot_id IS NOT NULL AND forum_bot.bot_id IS NOT NULL
-			THEN forum_bot.display_name_lang
-		ELSE resolved_forum.description_lang
-	END AS forumNameLang,
+	resolved_forum.description AS forumName,
+	resolved_forum.description_lang AS forumNameLang,
 	hn.source_type AS sourceType,
 	hn.source_id AS sourceId,
 	hn.target_type AS targetType,

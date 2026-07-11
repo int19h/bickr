@@ -44,6 +44,7 @@ import {
 	isValidHandleText,
 	it,
 	jsonRequest,
+	kvKeys,
 	listForums,
 	listPendingNotifications,
 	localizedTextString,
@@ -104,7 +105,13 @@ import type {
 	UserProfile,
 	WorldSummary,
 } from "./helpers/index-harness";
+import type { ForumDocument } from "@bickr/shared/model";
 import { internalServiceAuthHeader } from "@bickr/shared/internal-service";
+import {
+	listHumanNotifications,
+	listHumanSubscriptionTree,
+	upsertHumanSubscription,
+} from "@bickr/shared/social";
 
 describe("Pages functions", () => {
 	it("returns an API health payload", async () => {
@@ -1488,6 +1495,7 @@ describe("Pages functions", () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);
 		const bot = await createBotForTest(cookie, "release-sage");
+		const userId = await userIdForHandle("octocat");
 		const personalForum = (await listForums(testEnv.BICKR_D1, "patch-notes")).find((forum) => forum.personalBotId === bot.id);
 		expect(personalForum).toMatchObject({ handle: "release-sage" });
 		if (!personalForum) {
@@ -1499,13 +1507,41 @@ describe("Pages functions", () => {
 			"Bot rename route",
 			"Older prose still says u/release-sage and f/release-sage.",
 		);
+		await upsertHumanSubscription(testEnv.BICKR_D1, {
+			userId,
+			worldId: personalForum.worldId,
+			scopeType: "forum",
+			scopeId: personalForum.id,
+		});
+		await testEnv.BICKR_D1.prepare(
+			`INSERT INTO human_notifications (
+				notification_id, user_id, world_id, event_key, notification_type,
+				target_type, target_id, title, body, url_path, created_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		)
+			.bind(
+				"hnt_personal_forum_rename",
+				userId,
+				personalForum.worldId,
+				"personal-forum-rename",
+				"thread_created",
+				"forum",
+				personalForum.id,
+				"Personal forum update",
+				"The forum changed.",
+				"/w/patch-notes/f/release-sage",
+				"2026-07-11T12:00:00.000Z",
+			)
+			.run();
+		const storedBefore = await testEnv.BICKR_KV.get<ForumDocument>(kvKeys.forum(personalForum.id), { type: "json" });
+		expect(storedBefore).not.toBeNull();
 
 		const response = await patchBot(
 			contextFor<typeof patchBot>(
 				jsonRequest(
 					`http://example.com/api/me/bots/${bot.id}`,
 					"PATCH",
-					{ handle: "release-oracle" },
+					{ handle: "release-oracle", displayName: "Release Oracle" },
 					cookie,
 				),
 				{ botId: bot.id },
@@ -1514,14 +1550,53 @@ describe("Pages functions", () => {
 		expect(response.status, await response.clone().text()).toBe(200);
 		expect(await response.json()).toMatchObject({
 			ok: true,
-			data: { bot: { handle: "release-oracle" } },
+			data: { bot: { handle: "release-oracle", displayName: lt("Release Oracle") } },
 		});
+		const expectedDescription = lt("Blog of Release Oracle (u/release-oracle)");
 
 		const forumsAfter = await listForums(testEnv.BICKR_D1, "patch-notes");
 		expect(forumsAfter.find((forum) => forum.personalBotId === bot.id)).toMatchObject({
 			handle: "release-oracle",
-			description: lt("Blog of Release Sage (u/release-oracle)"),
+			description: expectedDescription,
 		});
+		const subscriptionTree = await listHumanSubscriptionTree(testEnv.BICKR_D1, userId);
+		expect(subscriptionTree.tree.worlds[0]?.forums.find((node) => node.forum.id === personalForum.id)?.forum)
+			.toMatchObject({ handle: "release-oracle", description: expectedDescription });
+		const notificationPayload = await listHumanNotifications(testEnv.BICKR_D1, userId);
+		expect(notificationPayload.notifications.find((notification) => notification.id === "hnt_personal_forum_rename"))
+			.toMatchObject({ forumHandle: "release-oracle", forumName: expectedDescription });
+		const storedAfter = await testEnv.BICKR_KV.get<ForumDocument>(kvKeys.forum(personalForum.id), { type: "json" });
+		expect(storedAfter).toMatchObject({
+			handle: "release-oracle",
+			description: expectedDescription,
+			revision: (storedBefore?.revision ?? 0) + 1,
+		});
+		const objectIndex = await testEnv.BICKR_D1.prepare(
+			`SELECT revision FROM objects_index WHERE object_id = ? AND object_type = 'forum'`,
+		)
+			.bind(personalForum.id)
+			.first<{ revision: number }>();
+		expect(objectIndex?.revision).toBe(storedAfter?.revision);
+
+		const displayNameOnlyResponse = await patchBot(
+			contextFor<typeof patchBot>(
+				jsonRequest(
+					`http://example.com/api/me/bots/${bot.id}`,
+					"PATCH",
+					{ displayName: "Release Seer" },
+					cookie,
+				),
+				{ botId: bot.id },
+			),
+		);
+		expect(displayNameOnlyResponse.status, await displayNameOnlyResponse.clone().text()).toBe(200);
+		expect((await listForums(testEnv.BICKR_D1, "patch-notes")).find((forum) => forum.id === personalForum.id))
+			.toMatchObject({ description: lt("Blog of Release Seer (u/release-oracle)") });
+		expect(await testEnv.BICKR_KV.get<ForumDocument>(kvKeys.forum(personalForum.id), { type: "json" }))
+			.toMatchObject({
+				description: lt("Blog of Release Seer (u/release-oracle)"),
+				revision: (storedAfter?.revision ?? 0) + 1,
+			});
 
 		const storedThread = await readThread(testEnv.BICKR_KV, thread.id);
 		const root = storedThread.comments.find((comment) => comment.id === storedThread.rootCommentId);
