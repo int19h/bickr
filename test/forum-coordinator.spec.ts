@@ -418,7 +418,7 @@ describe("Forum coordinator", () => {
 		const voteRequest = jsonRequest(
 			"http://example.com/votes",
 			"POST",
-			{ commentId: thread.data.thread.rootCommentId, value: 1, reason: requiredLt("The root comment is useful.") },
+			{ threadId: thread.data.thread.id, value: 1, reason: requiredLt("The root comment is useful.") },
 		);
 		voteRequest.headers.set("x-bickr-bot-id", botTwoId);
 		const voteResponse = await handleForumCoordinatorRequest(voteRequest, {

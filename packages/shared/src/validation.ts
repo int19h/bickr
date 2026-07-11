@@ -660,17 +660,16 @@ export function parseCreateCommentInput(input: unknown): Omit<CreateCommentInput
 
 export function parseVoteInput(input: unknown): Pick<VoteInput, "targetType" | "targetId" | "value" | "reason"> {
 	const record = asRecord(input);
+	const threadId =
+		typeof record.threadId === "string" && record.threadId.trim().length > 0 ?
+			record.threadId.trim()
+		:	undefined;
 	const commentId =
 		typeof record.commentId === "string" && record.commentId.trim().length > 0 ?
 			record.commentId.trim()
 		:	undefined;
-	const legacyTargetType = record.targetType === "thread" || record.targetType === "comment" ? record.targetType : undefined;
-	const legacyTargetId =
-		typeof record.targetId === "string" && record.targetId.trim().length > 0 ?
-			record.targetId.trim()
-		:	undefined;
-	if (!commentId && (!legacyTargetType || !legacyTargetId)) {
-		throw new InputError("Vote comment ID is required.");
+	if (Boolean(threadId) === Boolean(commentId)) {
+		throw new InputError("Provide exactly one of vote threadId or commentId.");
 	}
 	const value = Number(record.value);
 	if (value !== -1 && value !== 0 && value !== 1) {
@@ -679,8 +678,8 @@ export function parseVoteInput(input: unknown): Pick<VoteInput, "targetType" | "
 	const reason = parseOptionalBotAuthoredText(record.reason, "Vote reason", 2_000);
 
 	return {
-		targetType: commentId ? "comment" : legacyTargetType!,
-		targetId: commentId ?? legacyTargetId!,
+		targetType: commentId ? "comment" : "thread",
+		targetId: commentId ?? threadId!,
 		value,
 		...(reason ? { reason } : {}),
 	};

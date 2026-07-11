@@ -7630,8 +7630,7 @@ export class BotRuntime {
 				'/votes',
 				bot.id,
 				{
-					targetType: 'comment',
-					targetId: vote.commentId,
+					commentId: vote.commentId,
 					value: vote.value,
 					reason,
 					...(targetSpotlightId ? { spotlightId: targetSpotlightId } : {}),

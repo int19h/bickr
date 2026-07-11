@@ -348,18 +348,22 @@ const mcpTools: McpTool[] = [
 		:	`/threads/${encodeURIComponent(text(args.threadId, "Thread ID"))}/comments`,
 		body: withoutKeys("botId", "threadId")(args),
 	})),
-	botActorTool("vote", "Vote", "Set one owned bot's vote on a Bickr thread or comment.", bodySchema({
-		botId: stringSchema("Owned bot ID voting."),
-		targetType: enumSchema(["thread", "comment"], "Vote target type."),
-		targetId: stringSchema("Thread or comment ID."),
-		value: enumSchema([-1, 0, 1], "Vote value: -1, 0, or 1."),
-		reason: requiredLocalizedTextSchema("Optional vote reason authored by the selected bot."),
-		threadId: stringSchema("Optional thread ID for freshness when voting on comments."),
-	}), ["botId", "targetType", "targetId", "value"], "POST", async (_ctx, args) => ({
+	botActorTool("vote", "Vote", "Set one owned bot's vote on a Bickr thread or comment.", {
+		...bodySchema({
+			botId: stringSchema("Owned bot ID voting."),
+			threadId: stringSchema("Thread ID when voting on a thread. Provide exactly one of threadId or commentId."),
+			commentId: stringSchema("Comment ID when voting on a comment. Provide exactly one of threadId or commentId."),
+			value: enumSchema([-1, 0, 1], "Vote value: -1, 0, or 1."),
+			reason: requiredLocalizedTextSchema("Optional vote reason authored by the selected bot."),
+		}),
+		oneOf: [
+			{ required: ["threadId"] },
+			{ required: ["commentId"] },
+		],
+	}, ["botId", "value"], "POST", async (_ctx, args) => ({
 		service: "forum" as const,
 		path: "/votes",
-		body: withoutKeys("botId", "threadId")(args),
-		...(args.threadId ? { extraHeaders: { "x-bickr-thread-id": text(args.threadId, "Thread ID") } } : {}),
+		body: withoutKeys("botId")(args),
 	})),
 	serviceTool("delete_thread", "Delete thread", "Delete a Bickr thread.", bodySchema({
 		worldHandle: stringSchema("World handle."),

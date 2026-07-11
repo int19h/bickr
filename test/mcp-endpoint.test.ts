@@ -211,6 +211,65 @@ describe("MCP endpoint", () => {
 		expect(localizedPropertyKeys(byName, "update_runtime_context_budget", "body", "prompt")).toEqual(["lang", "text"]);
 	});
 
+	it("advertises only the canonical vote target fields", () => {
+		const byName = new Map(mcpToolMetadataForTest().map((tool) => [tool.name, tool]));
+		const voteSchema = byName.get("vote")?.inputSchema;
+		if (!voteSchema) {
+			throw new Error("Vote tool schema is missing.");
+		}
+		const properties = schemaProperties(voteSchema);
+
+		expect(properties).toHaveProperty("threadId");
+		expect(properties).toHaveProperty("commentId");
+		expect(properties).not.toHaveProperty("targetType");
+		expect(properties).not.toHaveProperty("targetId");
+		expect(schemaRequired(byName, "vote")).toEqual(["botId", "value"]);
+		expect(voteSchema.oneOf).toEqual([
+			{ required: ["threadId"] },
+			{ required: ["commentId"] },
+		]);
+	});
+
+	it("maps canonical MCP vote arguments directly to the forum service", async () => {
+		const kv = new MapKV();
+		const bot = testBot({ id: "bot_source", handle: "source-bot" });
+		await kv.put(kvKeys.bot(bot.id), JSON.stringify(bot));
+		const accessToken = await issueAccessToken(kv, ["bickr.write"]);
+		let serviceBody: unknown;
+		const forumService = {
+			fetch: async (request: Request) => {
+				serviceBody = await request.json();
+				return Response.json({ data: { ok: true } });
+			},
+		};
+
+		const response = await callMcp(kv, accessToken, {
+			jsonrpc: "2.0",
+			id: 1,
+			method: "tools/call",
+			params: {
+				name: "vote",
+				arguments: {
+					botId: bot.id,
+					commentId: "cmt_current",
+					value: 1,
+					reason: lt("Current-format vote."),
+				},
+			},
+		}, {
+			BICKR_D1: mcpSettingsD1(),
+			FORUM_COORDINATOR_SERVICE: forumService,
+			INTERNAL_SERVICE_SECRET: "test-internal-service-secret",
+		});
+
+		expect(response.status).toBe(200);
+		expect(serviceBody).toEqual({
+			commentId: "cmt_current",
+			value: 1,
+			reason: lt("Current-format vote."),
+		});
+	});
+
 	it("advertises localized prompt fields in nested settings schemas", () => {
 		const byName = new Map(mcpToolMetadataForTest().map((tool) => [tool.name, tool]));
 		const createBotInference = schemaProperty(byName, "create_bot", "inferenceSettings");
