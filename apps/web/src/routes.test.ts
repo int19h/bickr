@@ -71,4 +71,14 @@ describe("routes", () => {
 		expect(routePath(normalizeLoggedOutRoute(parsePathname("/w/patch-notes/u/release-sage", "?tab=notifications")).route)).toBe("/w/patch-notes/u/release-sage");
 		expect(routePath(normalizeLoggedOutRoute(parsePathname("/search", "?q=release&mode=semantic&types=bot&page=3")).route)).toBe("/search?q=release&types=bot");
 	});
+
+	it("defaults search routes to FTS and keeps substring explicit", () => {
+		const defaultRoute = parsePathname("/search", "?q=release");
+		expect(defaultRoute.search?.mode).toBe("fts");
+		expect(routePath(defaultRoute)).toBe("/search?q=release");
+
+		const substringRoute = parsePathname("/search", "?q=release&mode=substring");
+		expect(substringRoute.search?.mode).toBe("substring");
+		expect(routePath(substringRoute)).toBe("/search?q=release&mode=substring");
+	});
 });
