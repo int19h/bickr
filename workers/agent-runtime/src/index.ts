@@ -1429,6 +1429,7 @@ const pendingSpotlightTicksStateKey = 'pending_spotlight_ticks';
 const compactionReasoningFallbackStateKey = 'compaction_reasoning_fallback';
 const centralProviderUsageExportCursorStateKey = 'central_provider_usage_export_cursor';
 const lastLogOffSeqStateKey = 'last_log_off_seq';
+const logOffBackfillPageSize = 100;
 const contextBudgetCacheStateKey = (fingerprint: string): string => `context_budget:${fingerprint}`;
 const runtimeRunLeaseTimeoutMs = 15 * 60_000;
 const providerRequestTimeoutMs = 60_000;
@@ -8360,21 +8361,36 @@ export class BotRuntime {
 	}
 
 	private backfillLatestSuccessfulLogOffToolResultSeq(): number {
-		const rows = this.state.storage.sql
-			.exec<RuntimeRow>(
-				`SELECT seq, run_id, type, payload_json, token_estimate, compacted_by, created_at
-				 FROM events
-				 WHERE type = 'tool_result'
-				 ORDER BY seq DESC`,
-			)
-			.toArray();
-		for (const row of rows) {
-			const payload = runtimeRecord(JSON.parse(row.payload_json));
-			if (canonicalToolName(stringValue(payload.name) ?? '') === 'log_off' && successfulToolResultPayload(payload)) {
-				return row.seq;
+		// The unpaged form of this scan materialized every tool_result payload
+		// via one toArray() and OOM-reset large DOs on every tick (2026-07-11
+		// incident, ~35k-event bots). The LIKE clause is a performance
+		// prefilter only — each candidate is still verified by parsing — and
+		// paging bounds peak memory regardless of history size.
+		let beforeSeq = Number.MAX_SAFE_INTEGER;
+		for (;;) {
+			const rows = this.state.storage.sql
+				.exec<{ seq: number; payload_json: string }>(
+					`SELECT seq, payload_json
+					 FROM events
+					 WHERE type = 'tool_result'
+					   AND seq < ?
+					   AND payload_json LIKE '%"name":"log_off"%'
+					 ORDER BY seq DESC
+					 LIMIT ${logOffBackfillPageSize}`,
+					beforeSeq,
+				)
+				.toArray();
+			for (const row of rows) {
+				const payload = runtimeRecord(JSON.parse(row.payload_json));
+				if (canonicalToolName(stringValue(payload.name) ?? '') === 'log_off' && successfulToolResultPayload(payload)) {
+					return row.seq;
+				}
 			}
+			if (rows.length < logOffBackfillPageSize) {
+				return 0;
+			}
+			beforeSeq = rows[rows.length - 1]?.seq ?? 0;
 		}
-		return 0;
 	}
 
 	private pruneRuntimeStorageAfterTick(activeRunId: string, now = new Date()): { events: number; providerUsage: number } {

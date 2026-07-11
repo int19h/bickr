@@ -94,11 +94,16 @@ function runtimeHousekeepingSql(input: {
 					toArray: () => [{ count: changes } as T],
 				};
 			}
-			if (/FROM events WHERE type = 'tool_result' ORDER BY seq DESC/.test(normalized)) {
+			if (/FROM events WHERE type = 'tool_result' AND seq < \? AND payload_json LIKE '%"name":"log_off"%' ORDER BY seq DESC LIMIT 100/.test(normalized)) {
 				backfillScans += 1;
+				const beforeSeq = Number(params[0]);
 				return rows<T>(events
-					.filter((row) => row.type === "tool_result")
-					.sort((left, right) => right.seq - left.seq));
+					.filter((row) =>
+						row.type === "tool_result"
+						&& row.seq < beforeSeq
+						&& row.payload_json.includes('"name":"log_off"'))
+					.sort((left, right) => right.seq - left.seq)
+					.slice(0, 100));
 			}
 			if (/FROM events WHERE seq > \? AND type = 'input' LIMIT 1/.test(normalized)) {
 				const afterSeq = Number(params[0]);
@@ -265,6 +270,18 @@ describe("runtime housekeeping", () => {
 		});
 		expect(cursorCounters(runtimeForSql(cursorSql))).toEqual(expected);
 		expect(cursorSql.backfillScans()).toBe(0);
+	});
+
+	// The unpaged backfill materialized every tool_result payload at once and
+	// OOM-reset large DOs on every tick (2026-07-11 incident). Paging is the
+	// fix; this pins that a >1-page candidate history is walked page by page.
+	it("pages the lazy backfill instead of materializing the whole history", () => {
+		const events = Array.from({ length: 120 }, (_, index) =>
+			runtimeEventRow(index + 1, "tool_result", { name: "log_off", result: { ok: index === 0 } }));
+		const sql = runtimeHousekeepingSql({ events, inferenceSubmissions: [], providerUsage: [] });
+		expect(cursorCounters(runtimeForSql(sql)).lastLogOffSeq).toBe(1);
+		expect(sql.backfillScans()).toBe(2);
+		expect(sql.runtimeStateValue("last_log_off_seq")).toMatchObject({ seq: 1, source: "lazy_backfill" });
 	});
 
 	it("prunes old local DO rows without deleting active-run or post-log-off rows", () => {
