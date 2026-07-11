@@ -677,24 +677,6 @@ export function defaultReasoningPrefill(handle: string): string {
 	return `I'm u/${handle}. I need to think about how I feel and what I want to do next.`;
 }
 
-export type LegacyRootPostDocument = {
-	id: string;
-	threadId: string;
-	worldId: string;
-	worldHandle: string;
-	forumId: string;
-	forumHandle: string;
-	authorBotId: string;
-	authorHandle: string;
-	authorDisplayName: LocalizedText;
-	title: LocalizedText;
-	body: LocalizedText;
-	url?: string;
-	voteScore: number;
-	createdAt: string;
-	updatedAt: string;
-};
-
 export type CommentDocument = {
 	id: string;
 	threadId: string;
@@ -749,12 +731,6 @@ export type ThreadDocument = EntityDocument & {
 	hotScore: number;
 	lastActivityAt: string;
 	readState?: ThreadReadState;
-};
-
-export type LegacyThreadDocument = Omit<ThreadDocument, "title" | "rootCommentId"> & {
-	rootPost: LegacyRootPostDocument;
-	title?: string;
-	rootCommentId?: string;
 };
 
 export type NotificationType =

@@ -39,8 +39,6 @@ import {
 	type HumanSubscriptionTreeResponse,
 	type HumanSubscriptionWorldNode,
 	type LocalizedText,
-	type LegacyRootPostDocument,
-	type LegacyThreadDocument,
 	type NotificationDeliveryReason,
 	type NotificationDocument,
 	type NotificationEvent,
@@ -94,7 +92,7 @@ import {
 	readJson,
 	writeJson,
 } from "./storage";
-import { handlePatternSource, normalizeHandle, requiredPostingBody } from "./validation";
+import { handlePatternSource, InputError, normalizeHandle, requiredPostingBody } from "./validation";
 
 const handleBoundaryPatternSource = String.raw`[^\p{Letter}\p{Number}\p{Mark}_/-]`;
 const handleEndBoundaryPatternSource = String.raw`[^\p{Letter}\p{Number}\p{Mark}_-]`;
@@ -341,38 +339,24 @@ export function rootCommentForThread(thread: ThreadDocument): CommentDocument {
 	return root;
 }
 
-export function normalizeThreadDefaults(document: ThreadDocument | LegacyThreadDocument): ThreadDocument {
-	if (document.schemaVersion >= schemaVersion && !legacyRootPostFromThread(document)) {
-		return document as ThreadDocument;
+export function normalizeThreadDefaults(document: ThreadDocument): ThreadDocument {
+	if (!isCurrentThreadDocumentShape(document)) {
+		throw new InputError("Thread document does not match the current schema.");
 	}
-	const legacyRootPost = legacyRootPostFromThread(document);
-	const rootCommentId = document.rootCommentId ?? rootCommentIdForThreadId(document.id);
-	const existingRoot = document.comments.find((comment) => comment.id === rootCommentId);
-	const rootComment = existingRoot ?? legacyRootComment(document, legacyRootPost, rootCommentId);
-	const comments = [
-		rootComment,
-		...document.comments
-			.filter((comment) => comment.id !== rootComment.id)
-			.map((comment) =>
-				comment.parentCommentId ?
-					comment
-				:	{
-						...comment,
-						parentCommentId: rootComment.id,
-					},
-			),
-	].map(normalizeCommentDocument);
-	const title = localizedTextFromStored(document.title ?? legacyRootPost?.title ?? "Untitled thread");
-	const { rootPost: _rootPost, ...rest } = document as LegacyThreadDocument & { rootPost?: LegacyRootPostDocument };
+	if (document.schemaVersion >= schemaVersion) {
+		return document;
+	}
+	const rootComment = document.comments.find((comment) => comment.id === document.rootCommentId);
+	if (!rootComment) {
+		throw new InputError("Thread document root comment is missing.");
+	}
+	const comments = document.comments.map(normalizeCommentDocument);
 	const lastActivityAt = latestThreadActivityAt(comments);
 	const now = new Date().toISOString();
 	const recentCommentCount = recentThreadCommentCount(comments, now);
 	const normalized: ThreadDocument = {
-		...rest,
+		...document,
 		schemaVersion,
-		title,
-		rootCommentId: rootComment.id,
-		...(legacyRootPost?.url ? { url: legacyRootPost.url } : {}),
 		comments,
 		commentCount: comments.length,
 		voteScore: rootComment.voteScore,
@@ -387,40 +371,18 @@ export function normalizeThreadDefaults(document: ThreadDocument | LegacyThreadD
 	return normalized;
 }
 
-function legacyRootPostFromThread(document: ThreadDocument | LegacyThreadDocument): LegacyRootPostDocument | undefined {
-	const rootPost = (document as LegacyThreadDocument).rootPost;
-	return rootPost && typeof rootPost === "object" ? rootPost : undefined;
-}
-
-function legacyRootComment(
-	thread: ThreadDocument | LegacyThreadDocument,
-	rootPost: LegacyRootPostDocument | undefined,
-	rootCommentId: string,
-): CommentDocument {
-	if (rootPost) {
-		return {
-			id: rootCommentId,
-			threadId: thread.id,
-			worldId: thread.worldId,
-			forumId: thread.forumId,
-			authorBotId: rootPost.authorBotId,
-			authorHandle: rootPost.authorHandle,
-			authorDisplayName: localizedTextFromStored(rootPost.authorDisplayName),
-			body: localizedTextFromStored(rootPost.body),
-			voteScore: rootPost.voteScore,
-			createdAt: rootPost.createdAt,
-			updatedAt: rootPost.updatedAt,
-		};
-	}
-	const first = thread.comments[0];
-	if (first) {
-		return {
-			...first,
-			id: rootCommentId,
-			parentCommentId: undefined,
-		};
-	}
-	throw repositoryError("server_error", "Thread root comment could not be reconstructed.", 500);
+function isCurrentThreadDocumentShape(document: ThreadDocument): boolean {
+	const value = document as unknown as Record<string, unknown>;
+	const title = value.title;
+	return (
+		typeof value.rootCommentId === "string" &&
+		value.rootCommentId.length > 0 &&
+		!!title &&
+		typeof title === "object" &&
+		!Array.isArray(title) &&
+		typeof (title as Record<string, unknown>).text === "string" &&
+		Array.isArray(value.comments)
+	);
 }
 
 function normalizeCommentDocument(comment: CommentDocument): CommentDocument {
@@ -489,7 +451,7 @@ export async function listThreads(
 		.prepare(
 			`SELECT
 				t.thread_id AS id,
-				COALESCE(t.root_comment_id, 'cmt_' || substr(t.thread_id, 5)) AS rootCommentId,
+				t.root_comment_id AS rootCommentId,
 				t.world_id AS worldId,
 				t.world_handle AS worldHandle,
 				t.forum_id AS forumId,
@@ -576,7 +538,7 @@ export async function listHotThreads(
 		.prepare(
 			`SELECT
 				t.thread_id AS id,
-				COALESCE(t.root_comment_id, 'cmt_' || substr(t.thread_id, 5)) AS rootCommentId,
+				t.root_comment_id AS rootCommentId,
 				t.world_id AS worldId,
 				t.world_handle AS worldHandle,
 				t.forum_id AS forumId,
@@ -608,7 +570,7 @@ export async function listHotThreads(
 }
 
 export async function readThread(kv: KVNamespaceLike, threadId: string): Promise<ThreadDocument> {
-	const thread = await readJson<ThreadDocument | LegacyThreadDocument>(kv, kvKeys.thread(threadId));
+	const thread = await readJson<ThreadDocument>(kv, kvKeys.thread(threadId));
 	if (!thread || thread.deletedAt) {
 		throw repositoryError("not_found", "Thread not found.", 404);
 	}
@@ -1388,7 +1350,7 @@ async function subscriptionThreadSummariesByIds(
 		ids,
 		(placeholders) => `SELECT
 			t.thread_id AS id,
-			COALESCE(t.root_comment_id, 'cmt_' || substr(t.thread_id, 5)) AS rootCommentId,
+			t.root_comment_id AS rootCommentId,
 			t.world_id AS worldId,
 			t.world_handle AS worldHandle,
 			t.forum_id AS forumId,
@@ -7243,11 +7205,11 @@ function profileActionReasonForTarget(args: Record<string, unknown>, handle: str
 function threadFromToolResult(result: unknown): ThreadDocument | null {
 	const record = runtimeRecord(result);
 	if (record.type === "thread" && typeof record.id === "string" && Array.isArray(record.comments)) {
-		return normalizeThreadDefaults(record as ThreadDocument | LegacyThreadDocument);
+		return normalizeThreadDefaults(record as ThreadDocument);
 	}
 	const thread = runtimeRecord(record.thread);
 	if (thread.type === "thread" && typeof thread.id === "string" && Array.isArray(thread.comments)) {
-		return normalizeThreadDefaults(thread as ThreadDocument | LegacyThreadDocument);
+		return normalizeThreadDefaults(thread as ThreadDocument);
 	}
 	return null;
 }

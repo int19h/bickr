@@ -4,13 +4,10 @@ import {
 	createForumForTest,
 	createThreadForTest,
 	describe,
-	ExclusiveOperationQueue,
 	expect,
 	forumCoordinatorWorker,
-	handleForumCoordinatorRequest,
 	it,
 	kvKeys,
-	memoryDurableStorage,
 	rawBotById,
 	readThread,
 	seedWorld,
@@ -21,7 +18,6 @@ import { normalizeKvDocuments } from "@bickr/shared/kv-normalization-sweep";
 import {
 	type BotDocument,
 	schemaVersion,
-	type LegacyThreadDocument,
 	type ThreadDocument,
 	type UserDocument,
 	type WorldDocument,
@@ -122,120 +118,26 @@ describe("KV document normalization sweep", () => {
 		expect(await testEnv.BICKR_KV.get(key, { type: "json" })).toEqual(interleaved);
 	});
 
-	it("rewrites the legacy thread shape exactly as the migrate-on-read path does", async () => {
+	it("round-trips current-format thread documents identically with the legacy shim gone", async () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);
 		const forum = await createForumForTest(cookie, "normalize-thread");
 		const author = await createBotForTest(cookie, "normalize-thread-author");
-		const createdThread = await createThreadForTest(forum.id, author.id, "Legacy sweep", "Legacy body.");
-		const thread = await readThread(testEnv.BICKR_KV, createdThread.id);
-		const root = thread.comments.find((comment) => comment.id === thread.rootCommentId);
-		if (!root) {
-			throw new Error("Test thread root comment is missing.");
-		}
-		const {
-			title: _title,
-			rootCommentId: _rootCommentId,
-			url: _url,
-			...withoutCurrentRootFields
-		} = thread;
-		const legacyThread: LegacyThreadDocument = {
-			...withoutCurrentRootFields,
-			schemaVersion: 1,
-			updatedAt: "2020-01-01T00:00:00.000Z",
-			comments: thread.comments.filter((comment) => comment.id !== root.id),
-			rootPost: {
-				id: "pst_legacy_sweep",
-				threadId: thread.id,
-				worldId: thread.worldId,
-				worldHandle: thread.worldHandle,
-				forumId: thread.forumId,
-				forumHandle: thread.forumHandle,
-				authorBotId: root.authorBotId,
-				authorHandle: root.authorHandle,
-				authorDisplayName: root.authorDisplayName,
-				title: thread.title,
-				body: root.body,
-				voteScore: root.voteScore,
-				createdAt: "2020-01-01T00:00:00.000Z",
-				updatedAt: "2020-01-01T00:00:00.000Z",
-			},
-		};
-		await testEnv.BICKR_KV.put(kvKeys.thread(thread.id), JSON.stringify(legacyThread));
-		const migrateOnReadResult = await readThread(testEnv.BICKR_KV, thread.id);
-		const storage = memoryDurableStorage();
-		const cache = { entry: null as { thread: ThreadDocument; expiresAt: string; writtenAt: string } | null };
-		const context = {
-			cache,
-			objectId: thread.id,
-			queue: new ExclusiveOperationQueue(),
-			storage: storage.storage,
-		};
-		let coordinatorCalls = 0;
-		let coordinatorName: string | undefined;
-		const sweepKv: KVNamespaceLike = {
-			get: testEnv.BICKR_KV.get.bind(testEnv.BICKR_KV),
-			put: async (key, value, options) => {
-				if (key === kvKeys.thread(thread.id)) {
-					throw new Error("The sweep attempted a direct thread KV write.");
-				}
-				await testEnv.BICKR_KV.put(key, value, options);
-			},
-			delete: testEnv.BICKR_KV.delete.bind(testEnv.BICKR_KV),
-		};
-		const namespace = {
-			idFromName(name: string): DurableObjectId {
-				coordinatorName = name;
-				return name as unknown as DurableObjectId;
-			},
-			get(): Fetcher {
-				return {
-					fetch: async (request: Request) => {
-						coordinatorCalls += 1;
-						expect(new URL(request.url).pathname).toBe(`/threads/${thread.id}/normalize`);
-						expect(request.headers.get(internalServiceAuthHeader)).toBe("test-internal-service-secret");
-						return handleForumCoordinatorRequest(
-							request,
-							{ BICKR_D1: testEnv.BICKR_D1, BICKR_KV: testEnv.BICKR_KV },
-							context,
-						);
-					},
-				} as unknown as Fetcher;
-			},
-		};
-		const workerEnv = {
-			BICKR_D1: testEnv.BICKR_D1,
-			BICKR_KV: sweepKv,
-			FORUM_COORDINATOR: namespace,
-			INTERNAL_SERVICE_SECRET: "test-internal-service-secret",
-			WORLD_COORDINATOR: namespace,
-		};
-		const invokeSweep = () => forumCoordinatorWorker.fetch(
-			new Request("https://internal.bickr/maintenance/kv-normalize-sweep", {
-				method: "POST",
-				headers: {
-					"content-type": "application/json",
-					[internalServiceAuthHeader]: "test-internal-service-secret",
-				},
-				body: JSON.stringify({ entityType: "thread" }),
-			}) as unknown as Parameters<typeof forumCoordinatorWorker.fetch>[0],
-			workerEnv as unknown as Parameters<typeof forumCoordinatorWorker.fetch>[1],
-		);
+		const createdThread = await createThreadForTest(forum.id, author.id, "Current sweep", "Current body.");
+		const stored = await testEnv.BICKR_KV.get<ThreadDocument>(kvKeys.thread(createdThread.id), { type: "json" });
+		expect(stored).not.toBeNull();
+		expect(await readThread(testEnv.BICKR_KV, createdThread.id)).toEqual(stored);
 
-		const response = await invokeSweep();
-		expect(response.status).toBe(200);
-		const result = await response.json() as ReturnType<typeof sweepResult>;
-		const swept = await testEnv.BICKR_KV.get(kvKeys.thread(thread.id), { type: "json" });
-		expect(result).toMatchObject({ rewritten: 1, done: true });
-		expect(coordinatorCalls).toBe(1);
-		expect(coordinatorName).toBe(thread.id);
-		expect(swept).toEqual(migrateOnReadResult);
-		expect(swept).not.toHaveProperty("rootPost");
-		expect(swept).toHaveProperty("schemaVersion", schemaVersion);
-		expect(cache.entry?.thread).toEqual(swept);
-		expect(await readThread(testEnv.BICKR_KV, thread.id)).toEqual(swept);
-		const secondResponse = await invokeSweep();
-		expect((await secondResponse.json() as ReturnType<typeof sweepResult>).rewritten).toBe(0);
+		const result = await normalizeKvDocuments({
+			BICKR_D1: testEnv.BICKR_D1,
+			BICKR_KV: testEnv.BICKR_KV,
+			normalizeThread: async () => {
+				throw new Error("Current-format thread unexpectedly required a rewrite.");
+			},
+		}, "thread");
+		expect(result).toMatchObject({ rewritten: 0, done: true });
+		expect(await testEnv.BICKR_KV.get<ThreadDocument>(kvKeys.thread(createdThread.id), { type: "json" }))
+			.toEqual(stored);
 	});
 
 	it("normalizes legacy reasoningPrefill through the same bot read path", async () => {

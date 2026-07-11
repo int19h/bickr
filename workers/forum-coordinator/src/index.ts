@@ -21,7 +21,7 @@ import {
 	setVote,
 } from "@bickr/shared/social";
 import { pruneBotInferenceUsage } from "@bickr/shared/token-spend";
-import { type LegacyThreadDocument, type ThreadDocument } from "@bickr/shared/model";
+import { type ThreadDocument } from "@bickr/shared/model";
 import {
 	addInternalServiceAuthHeader,
 	type InternalServiceAuthEnv,
@@ -602,7 +602,7 @@ async function normalizeThreadThroughCoordinator(
 	input: ThreadNormalizationRequest,
 ): Promise<ThreadNormalizationOutcome> {
 	const cached = await readFreshThreadDocument(coordinator, input.threadId);
-	const current = cached ?? await readJson<ThreadDocument | LegacyThreadDocument>(
+	const current = cached ?? await readJson<ThreadDocument>(
 		env.BICKR_KV,
 		kvKeys.thread(input.threadId),
 	);
