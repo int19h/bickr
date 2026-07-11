@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CompactionAttemptPlan, type CompactionAttemptPlanConfig } from './compaction-plan';
+import { CompactionAttemptPlan, type CompactionAttemptPlanConfig } from './plan';
 
 const config = {
 	initialReasoningMode: 'none',

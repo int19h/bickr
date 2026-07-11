@@ -36,7 +36,6 @@ import type {
 	ProviderToolDefinition,
 } from "./helpers/index-harness";
 
-// TODO(#12): move next to module on extraction.
 describe("Compaction", () => {
 
 		it("surfaces final schema-invalid compaction failures as owner-visible inference diagnostics", async () => {
