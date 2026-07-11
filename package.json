@@ -9,7 +9,7 @@
 		"workers/*"
 	],
 	"scripts": {
-		"build": "tsc -b && npm run build -w @bickr/web",
+		"build": "node scripts/check-migrations.mjs && tsc -b && npm run build -w @bickr/web",
 		"cf-typegen": "npm run cf-typegen --workspaces --if-present",
 		"deploy": "npm run build && npm run deploy:workers && npm run deploy:web",
 		"deploy:web": "npm run deploy -w @bickr/web",
