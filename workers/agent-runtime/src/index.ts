@@ -6941,7 +6941,7 @@ function notificationProfileRefFromReadContent(item: SpotlightIncludedContent): 
 	};
 }
 
-function parseSpotlightSyntheticContext(text: string): SpotlightSyntheticContext | null {
+export function parseSpotlightSyntheticContext(text: string): SpotlightSyntheticContext | null {
 	let parsed: unknown;
 	try {
 		parsed = JSON.parse(text);
@@ -7020,7 +7020,7 @@ function spotlightIncludedContentFromRecord(record: Record<string, unknown>): Sp
 		...(stringValue(record.title) ? { title: localizedTextValue(record.title) } : {}),
 		body,
 		createdAt,
-		...(record['My focus is on this comment'] === true || record.target === true ? { 'My focus is on this comment': true as const } : {}),
+		...(record.focused === true || record['My focus is on this comment'] === true || record.target === true ? { focused: true as const } : {}),
 		...(record.ancestorOnly === true ? { ancestorOnly: true } : {}),
 		...(record.alreadySeen === true ? { alreadySeen: true } : {}),
 	};
@@ -7159,7 +7159,7 @@ function profileHandleFromUsername(value: unknown): string | null {
 function spotlightSyntheticToolChains(context: SpotlightSyntheticContext): SyntheticReadToolChain[] {
 	if (context.targetType === 'comments') {
 		return context.content
-			.filter((item) => item.type === 'comment' && (item['My focus is on this comment'] || item.target))
+			.filter((item) => item.type === 'comment' && (item.focused || item.target))
 			.map((item) => ({
 				toolName: 'read_comment_by_id',
 				args: { commentId: item.id },
@@ -7258,7 +7258,7 @@ function spotlightReadContentItem(context: SpotlightSyntheticContext, item: Spot
 		...(item.title ? { title: item.title } : {}),
 		body: item.body,
 		createdAt: item.createdAt,
-		...(item['My focus is on this comment'] === true || item.target === true ? { 'My focus is on this comment': true as const } : {}),
+		...(item.focused === true || item.target === true ? { 'My focus is on this comment': true as const } : {}),
 		...(item.ancestorOnly ? { ancestorOnly: true } : {}),
 	};
 }
