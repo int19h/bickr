@@ -1615,7 +1615,8 @@ describe("Tick flow", () => {
 					waitUntilPromises.push(promise);
 				},
 			},
-			status: async () => ({
+			reapStaleRun: async () => false,
+			readStatus: async () => ({
 				botId: "bot-one",
 				enabled: true,
 				status: "running",

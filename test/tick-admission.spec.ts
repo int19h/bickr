@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { env as testEnv } from "cloudflare:test";
 import { clearKv, resetD1Schema } from "./helpers/d1-schema";
+import { ExclusiveOperationQueue } from "@bickr/shared/exclusive-operation-queue";
 import {
 	BotRuntime,
 	claimRuntimeRun,
@@ -230,7 +231,7 @@ function testRuntimeHarness(): RuntimeHarness {
 		activeMaintenanceOperation: null,
 		activeStreamActivity: new Map<string, string>(),
 		ephemeralStreamSeq: 0,
-		transitionQueue: new TestExclusiveOperationQueue(),
+		transitionQueue: new ExclusiveOperationQueue(),
 		botWithEffectivePostingSettings: async (bot: BotDocument) => ({
 			...bot,
 			effectivePostingSettings: {
@@ -273,24 +274,6 @@ function testRuntimeHarness(): RuntimeHarness {
 		exportRecentProviderUsage: async () => {},
 	}) as unknown as RuntimeHarness["runtime"];
 	return { runtime, tickBodies, tickStarted, releaseTick, events };
-}
-
-class TestExclusiveOperationQueue {
-	private pending: Promise<void> = Promise.resolve();
-
-	async run<T>(operation: () => Promise<T>): Promise<T> {
-		const ready = this.pending;
-		let release: () => void = () => {};
-		this.pending = new Promise<void>((resolve) => {
-			release = resolve;
-		});
-		await ready;
-		try {
-			return await operation();
-		} finally {
-			release();
-		}
-	}
 }
 
 function fakeRuntimeState(): DurableObjectState {

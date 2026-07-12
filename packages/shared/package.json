@@ -10,6 +10,7 @@
 		"./bootstrap": "./src/bootstrap.ts",
 		"./cloudflare": "./src/cloudflare.ts",
 		"./d1-errors": "./src/d1-errors.ts",
+		"./exclusive-operation-queue": "./src/exclusive-operation-queue.ts",
 		"./governance": "./src/governance.ts",
 		"./governance-deletion-sweep": "./src/governance-deletion-sweep.ts",
 		"./handles": "./src/handles.ts",

@@ -150,10 +150,10 @@ import {
 } from "../../workers/agent-runtime/src/prompt-and-tools";
 import { providerContextCompletionReserveTokens } from "../../workers/agent-runtime/src/constants";
 import forumCoordinatorWorker, {
-	ExclusiveOperationQueue,
 	handleForumCoordinatorRequest,
 	type Env as ForumCoordinatorEnv,
 } from "../../workers/forum-coordinator/src/index";
+import { ExclusiveOperationQueue } from "../../packages/shared/src/exclusive-operation-queue";
 import { pruneStreamEventsForPersistentEvents } from "../../apps/web/src/runtime-streams";
 import { parsePathname, routePath } from "../../apps/web/src/routes";
 import {

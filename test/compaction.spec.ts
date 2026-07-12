@@ -771,7 +771,7 @@ describe("Compaction", () => {
 			const broadcastControl = vi.fn();
 			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 				state: { storage: { sql } },
-				status: async () => ({ status: "idle" }),
+				readStatus: async () => ({ status: "idle" }),
 				broadcastControl,
 			});
 			const recordLoopMessageLog = (BotRuntime.prototype as unknown as {
