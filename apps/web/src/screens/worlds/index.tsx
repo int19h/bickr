@@ -16,12 +16,8 @@ import {
 	textValue,
 	ToastContext,
 } from "../../ui";
-import {
-	LanguageField,
-	isValidHandle,
-	localizedDraft,
-	slugify,
-} from "../../App";
+import { LanguageField, localizedDraft } from "../../components/form-fields";
+import { isValidHandle, slugify } from "../bots/bot-drafts";
 
 export function WorldsScreen({
 	busy,

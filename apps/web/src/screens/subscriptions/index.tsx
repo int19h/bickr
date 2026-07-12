@@ -25,7 +25,7 @@ import {
 	type SubscriptionTreeNode,
 } from "../../subscriptions-tree";
 import { Avatar, EmptyState, FilterBox, Icon, ToastContext, textValue } from "../../ui";
-import { TimeAgoLabel } from "../../App";
+import { TimeAgoLabel } from "../../components/record-display";
 
 export type SubscriptionTarget = {
 	scopeType: HumanSubscriptionScope;

@@ -1,6 +1,6 @@
 import type { BotTokenUsageStats, BotTokenUsageTotals } from "@bickr/shared/model";
 import type { CSSProperties, ReactNode } from "react";
-import { TimeAgoLabel } from "../../App";
+import { TimeAgoLabel } from "../../components/record-display";
 import {
 	contextWindowBarSegments,
 	interpolateTokenUsageChartValue,

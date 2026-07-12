@@ -12,7 +12,7 @@ import {
 	textValue,
 	ToastContext,
 } from "../../ui";
-import { matchesFilter, sortBotsForCards } from "../../App";
+import { matchesFilter, sortBotsForCards } from "../../components/record-display";
 
 export function BotGroupsTab({
 	bots,

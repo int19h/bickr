@@ -11,7 +11,9 @@ import {
 	type UpdateBotInput,
 } from "@bickr/shared/model";
 import { isValidHandleText, maxBotPromptLength, sanitizeHandleInput } from "@bickr/shared/validation";
-import { parseOptionalPositiveInteger, parsePositiveInteger, providerRoutingPlaceholder, textLang } from "../../App";
+import { parseOptionalPositiveInteger, parsePositiveInteger } from "../../components/record-display";
+import { providerRoutingPlaceholder } from "../../components/inference-fields";
+import { textLang } from "../../components/form-fields";
 import { languageDraftValue, languageInputValue } from "../../components/ui-text";
 import { defaultLanguageTag } from "../../language";
 import {

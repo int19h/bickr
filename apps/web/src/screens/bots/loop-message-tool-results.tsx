@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { ShortDateLabel } from "../../App";
+import { ShortDateLabel } from "../../components/record-display";
 import { textValueForDisplay } from "../../reasoning-formatting";
 import type { ReadableDisplayContext } from "./loop-message-readable";
 import {

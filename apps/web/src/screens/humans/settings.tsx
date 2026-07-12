@@ -30,11 +30,10 @@ import {
 	AgenticLoopInferenceFields,
 	ImageGenerationInferenceFields,
 	InferenceProviderFields,
-	LanguageField,
-	TimeAgoLabel,
 	TranslationInferenceFields,
-	textLang,
-} from "../../App";
+} from "../../components/inference-fields";
+import { LanguageField, textLang } from "../../components/form-fields";
+import { TimeAgoLabel } from "../../components/record-display";
 
 type UserMutationResponse = { profile: UserProfile };
 

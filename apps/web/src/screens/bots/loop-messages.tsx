@@ -6,7 +6,7 @@ import type {
 	BotLoopMessageRequestLogMessage,
 	BotLoopMessageRequestUsage,
 } from "@bickr/shared/model";
-import { TimeAgoLabel } from "../../App";
+import { TimeAgoLabel } from "../../components/record-display";
 import { prettyJsonText } from "../../inference-submission-formatting";
 import { isLiveProviderLoopMessage } from "../../loop-message-streams";
 import { loopPagePagerItems } from "../../loop-page-pager";
