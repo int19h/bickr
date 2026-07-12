@@ -4,6 +4,7 @@ import type {
 	BotLoopMessageOrigin,
 } from '@bickr/shared/model';
 import { loopMessageChatMessageFromRow } from '../compaction/selection';
+import { ToolCallArgumentValidationError } from '../errors';
 import type {
 	DroppedProviderToolCall,
 	FollowToolTarget,
@@ -14,6 +15,7 @@ import type {
 	ProviderResponse,
 	ProviderToolCallDropReason,
 	ProviderToolCallSanitization,
+	RepairedProviderToolCall,
 	ReasoningDetail,
 	ToolCall,
 } from '../types';
@@ -32,6 +34,10 @@ export type ProviderSanitizeRuntime = {
 		removedLocalDuplicate: boolean;
 	};
 	parseToolArgs(toolCall: ToolCall): Record<string, unknown>;
+	parseToolArgsWithDiagnostics(toolCall: ToolCall): {
+		args: Record<string, unknown>;
+		repairs: Array<Pick<RepairedProviderToolCall, 'field' | 'leakedArgumentKey' | 'reason' | 'removedSuffix'>>;
+	};
 	providerToolArgs(name: string, args: Record<string, unknown>): Record<string, unknown>;
 	runtimeRecord(value: unknown): Record<string, unknown>;
 	safeContextText(text: string, limit: number): string;
@@ -323,12 +329,6 @@ function invalidUnicodePath(value: unknown): boolean {
 	return false;
 }
 
-const leakedProviderCommentRefSuffix = '"},commentRef:';
-
-export function stripLeakedProviderCommentRefSuffix(text: string): string {
-	return text.endsWith(leakedProviderCommentRefSuffix) ? text.slice(0, -leakedProviderCommentRefSuffix.length).trimEnd() : text;
-}
-
 export function loopMessageContributesToProviderHistory(
 	origin: BotLoopMessageOrigin,
 	message: ChatMessage,
@@ -371,6 +371,7 @@ export function createProviderSanitize(runtime: ProviderSanitizeRuntime) {
 		followToolArgsWithTargets,
 		followToolTargetsForProviderDedupe,
 		parseToolArgs,
+		parseToolArgsWithDiagnostics,
 		providerToolArgs,
 		runtimeRecord,
 		safeContextText,
@@ -466,6 +467,7 @@ export function createProviderSanitize(runtime: ProviderSanitizeRuntime) {
 	function sanitizeProviderToolCalls(toolCalls: readonly BotInferenceSubmissionToolCall[]): ProviderToolCallSanitization {
 		const sanitized: ToolCall[] = [];
 		const dropped: DroppedProviderToolCall[] = [];
+		const repaired: RepairedProviderToolCall[] = [];
 		const seenIds = new Set<string>();
 		let repairedTextCount = 0;
 		for (const toolCall of toolCalls) {
@@ -492,25 +494,25 @@ export function createProviderSanitize(runtime: ProviderSanitizeRuntime) {
 			const argumentText = providerToolCallArgumentsText(rawArguments);
 			const argumentTextRepair = repairInvalidUnicodeValue(argumentText);
 			repairedTextCount += argumentTextRepair.repairCount;
-			let argumentObject: Record<string, unknown>;
-			if (argumentTextRepair.value) {
-				let parsed: unknown;
-				try {
-					parsed = JSON.parse(argumentTextRepair.value);
-				} catch {
-					dropped.push(droppedProviderToolCall(id, name, 'invalid_arguments_json', rawArguments));
-					continue;
-				}
-				if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+			let parsedArguments: ReturnType<ProviderSanitizeRuntime['parseToolArgsWithDiagnostics']>;
+			try {
+				parsedArguments = parseToolArgsWithDiagnostics({
+					id,
+					type: 'function',
+					function: { name, arguments: argumentTextRepair.value },
+				});
+			} catch (error) {
+				if (error instanceof ToolCallArgumentValidationError && error.code === 'arguments_not_json_object') {
 					dropped.push(droppedProviderToolCall(id, name, 'arguments_not_json_object', rawArguments));
-					continue;
+				} else {
+					dropped.push(droppedProviderToolCall(id, name, 'invalid_arguments_json', rawArguments));
 				}
-				const parsedRepair = repairInvalidUnicodeValue(sanitizeGeneratedPostingToolArgs(name, parsed as Record<string, unknown>));
-				repairedTextCount += parsedRepair.repairCount;
-				argumentObject = parsedRepair.value;
-			} else {
-				argumentObject = {};
+				continue;
 			}
+			const parsedRepair = repairInvalidUnicodeValue(parsedArguments.args);
+			repairedTextCount += parsedRepair.repairCount;
+			const argumentObject = parsedRepair.value;
+			repaired.push(...parsedArguments.repairs.map((repair) => ({ id, name, ...repair })));
 			if (seenIds.has(id)) {
 				dropped.push(droppedProviderToolCall(id, name, 'duplicate_tool_call', rawArguments));
 				continue;
@@ -525,7 +527,7 @@ export function createProviderSanitize(runtime: ProviderSanitizeRuntime) {
 				},
 			});
 		}
-		return { toolCalls: sanitized, dropped, repairedTextCount };
+		return { toolCalls: sanitized, dropped, repaired, repairedTextCount };
 	}
 
 	function providerToolCallArgumentsText(rawArguments: unknown): string {
@@ -538,28 +540,10 @@ export function createProviderSanitize(runtime: ProviderSanitizeRuntime) {
 		return JSON.stringify(rawArguments) ?? '';
 	}
 
-	function sanitizeGeneratedPostingToolArgs(name: string, args: Record<string, unknown>): Record<string, unknown> {
-		const canonical = canonicalToolName(name);
-		if (canonical !== 'create_thread' && canonical !== 'reply_to_comment' && canonical !== 'make_additional_reply_to_the_same_comment') {
-			return args;
-		}
-		const body = runtimeRecord(args.body);
-		const text = typeof body.text === 'string' ? stripLeakedProviderCommentRefSuffix(body.text) : undefined;
-		if (text === undefined || text === body.text) {
-			return args;
-		}
-		return {
-			...args,
-			body: {
-				...body,
-				text,
-			},
-		};
-	}
-
 	function sanitizeProviderResponseToolCalls(response: ProviderResponse): {
 		response: ProviderResponse;
 		dropped: DroppedProviderToolCall[];
+		repaired: RepairedProviderToolCall[];
 		originalToolCallCount: number;
 	} {
 		const originalToolCallCount = response.toolCalls.length;
@@ -567,11 +551,12 @@ export function createProviderSanitize(runtime: ProviderSanitizeRuntime) {
 		const deduped = dedupeGeneratedFollowToolCalls(sanitized.toolCalls);
 		const dropped = [...sanitized.dropped, ...deduped.dropped];
 		if (toolCallsEqual(response.toolCalls, deduped.toolCalls)) {
-			return { response, dropped, originalToolCallCount };
+			return { response, dropped, repaired: sanitized.repaired, originalToolCallCount };
 		}
 		return {
 			response: { ...response, toolCalls: deduped.toolCalls },
 			dropped,
+			repaired: sanitized.repaired,
 			originalToolCallCount,
 		};
 	}

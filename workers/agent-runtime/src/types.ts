@@ -638,7 +638,17 @@ export type DroppedProviderToolCall = {
 export type ProviderToolCallSanitization = {
 	toolCalls: BotInferenceSubmissionToolCall[];
 	dropped: DroppedProviderToolCall[];
+	repaired: RepairedProviderToolCall[];
 	repairedTextCount: number;
+};
+
+export type RepairedProviderToolCall = {
+	id: string;
+	name: string;
+	reason: 'leaked_argument_fragment';
+	field: 'body.text' | 'title' | 'title.text';
+	leakedArgumentKey: string;
+	removedSuffix: string;
 };
 
 export type LegacyProviderToolCallHistoryNormalizationOperation =
@@ -670,7 +680,7 @@ export type ProviderCompactionReasoningFallbackState = {
 };
 
 export type ProviderStructuredOutputKind = 'avatar_description' | 'compaction' | 'translation';
-export type ProviderStructuredOutputValidationIssue = 'non_reducing_compaction';
+export type ProviderStructuredOutputValidationIssue = 'non_reducing_compaction' | 'transcript_like_compaction';
 
 export type ProviderCompactionSummaryLimits = {
 	minLength: number;

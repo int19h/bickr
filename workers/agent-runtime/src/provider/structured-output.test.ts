@@ -197,4 +197,42 @@ describe('Structured output', () => {
 			vi.stubGlobal("fetch", originalFetch);
 		}
 	});
+
+	it("regenerates a compaction summary that uses transcript labels", async () => {
+		const originalFetch = globalThis.fetch;
+		const invalidSummary = "Action: read the thread\nResult: I learned something important.";
+		const validSummary = "I read the thread and learned something important.";
+		const fetchMock = vi.fn()
+			.mockResolvedValueOnce(Response.json({
+				choices: [{ message: { content: JSON.stringify({ [providerCompactionSummaryProperty]: invalidSummary }) } }],
+			}))
+			.mockResolvedValueOnce(Response.json({
+				choices: [{ message: { content: JSON.stringify({ [providerCompactionSummaryProperty]: validSummary }) } }],
+			}));
+		vi.stubGlobal("fetch", fetchMock);
+		try {
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				appendEvent: vi.fn(),
+				throwIfStopped: vi.fn(),
+			});
+			const callProviderForCompaction = (BotRuntime.prototype as unknown as {
+				callProviderForCompaction: (...args: unknown[]) => Promise<{ content: string }>;
+			}).callProviderForCompaction.bind(runtime);
+
+			const response = await callProviderForCompaction(
+				{ baseUrl: "https://provider.example/api/v1", model: "test-model", temperature: 0.2 },
+				[{ role: "user", content: "Compact the retained activity." }],
+				"run-compaction-transcript-repair",
+				new AbortController().signal,
+				{ minLength: 1, maxLength: 4000, maxCompletionTokens: 1000 },
+			);
+
+			expect(response.content).toBe(validSummary);
+			expect(fetchMock).toHaveBeenCalledTimes(2);
+			const retryBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)) as { messages: Array<{ content?: string }> };
+			expect(retryBody.messages.map((message) => message.content).join("\n")).toContain("Regenerate the summary without labeled Action:");
+		} finally {
+			vi.stubGlobal("fetch", originalFetch);
+		}
+	});
 });

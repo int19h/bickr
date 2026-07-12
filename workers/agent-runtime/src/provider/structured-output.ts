@@ -2,6 +2,7 @@ import type { BotInferenceSubmissionToolCall } from '@bickr/shared/model';
 import {
 	defaultProviderCompactionSummaryLimits,
 	providerCompactionToolName,
+	transcriptLikeCompactionSummaryLine,
 	type ProviderCompactionMode,
 	type ProviderSingleStringResponseSpec,
 } from '../compaction/engine';
@@ -423,6 +424,22 @@ export function createProviderStructuredOutput(runtime: ProviderStructuredOutput
 				requiredToolName: spec.toolName,
 				toolCalls,
 			});
+		}
+		if (spec.kind === 'compaction') {
+			const transcriptLine = transcriptLikeCompactionSummaryLine(value);
+			if (transcriptLine) {
+				throw new ProviderStructuredOutputValidationError(
+					spec.kind,
+					`The ${spec.label} argument must be ordinary first-person prose, not a transcript or runtime-event line (${JSON.stringify(transcriptLine)}). Regenerate the summary without labeled Action:, Result:, Input:, or New thought: lines.`,
+					{
+						rawResponse,
+						requiredToolName: spec.toolName,
+						toolCalls,
+						outputText: value,
+						validationIssue: 'transcript_like_compaction',
+					},
+				);
+			}
 		}
 		const minCharacters = Math.max(0, Math.floor(spec.minCharacters ?? 0));
 		if (value.length < minCharacters) {

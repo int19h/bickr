@@ -170,6 +170,21 @@ export function runtimeActivities(events: BotRuntimeEvent[], fallbackWorldHandle
 				});
 				break;
 			}
+			case "provider_tool_call_repaired": {
+				finishRunStreams(streams, event.runId);
+				const count = Math.max(1, Math.floor(numberValue(payload.count) ?? 1));
+				activities.push({
+					id: `event-${event.seq}`,
+					seq: event.seq,
+					createdAt: event.createdAt,
+					kind: "provider",
+					title: "Malformed page-control text repaired",
+					body: `Removed ${count} leaked argument fragment${count === 1 ? "" : "s"} from generated posting text.`,
+					payload: event.payload,
+					raw: event,
+				});
+				break;
+			}
 			case "provider_history_repaired": {
 				finishRunStreams(streams, event.runId);
 				const count = Math.max(1, Math.floor(numberValue(payload.count) ?? 1));

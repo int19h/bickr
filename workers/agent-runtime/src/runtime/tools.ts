@@ -1168,7 +1168,7 @@ function quoteForContext(text: string, limit: number): string {
 }
 
 function safeContextText(text: string, limit: number): string {
-	return truncateForContext(neutralizeTranscriptLikeText(text.replace(/\s+/g, ' ').trim()), limit);
+	return truncateForContext(text.replace(/\s+/g, ' ').trim(), limit);
 }
 
 function truncateForContext(text: string, maxLength: number): string {
@@ -1177,20 +1177,4 @@ function truncateForContext(text: string, maxLength: number): string {
 		return repaired;
 	}
 	return `${unicodeSafeSlice(repaired, Math.max(0, maxLength - 1))}…`;
-}
-
-function neutralizeTranscriptLikeText(text: string): string {
-	return text
-		.split(/\r?\n/)
-		.map((line) => {
-			const trimmed = line.trimStart();
-			const indentation = line.slice(0, line.length - trimmed.length);
-			const match = /^(Action|Result|Input|New thought):\s*/i.exec(trimmed);
-			if (!match) {
-				return line;
-			}
-			const rest = trimmed.slice(match[0].length);
-			return `${indentation}I wrote a transcript-like ${match[1]?.toLowerCase() ?? 'note'} line as text: ${rest}`;
-		})
-		.join('\n');
 }

@@ -16,6 +16,18 @@ import type {
 
 type ToolArgs = Record<string, unknown>;
 
+export type ToolArgumentRepair = {
+	reason: 'leaked_argument_fragment';
+	field: 'body.text' | 'title' | 'title.text';
+	leakedArgumentKey: string;
+	removedSuffix: string;
+};
+
+export type ParsedToolArgs = {
+	args: ToolArgs;
+	repairs: ToolArgumentRepair[];
+};
+
 export type ToolArgCodec<InternalArgs extends ToolArgs, ProviderArgs extends ToolArgs> = {
 	decode(args: ToolArgs): InternalArgs;
 	encode(args: ToolArgs): ProviderArgs;
@@ -262,14 +274,18 @@ function codecHasInternalReference(name: string, args: ToolArgs): boolean {
 }
 
 export function parseToolArgs(toolCall: ToolCall): ToolArgs {
+	return parseToolArgsWithDiagnostics(toolCall).args;
+}
+
+export function parseToolArgsWithDiagnostics(toolCall: ToolCall): ParsedToolArgs {
 	const rawArguments = toolCall.function.arguments;
 	if (!rawArguments) {
-		return {};
+		return { args: {}, repairs: [] };
 	}
 	try {
 		const parsed = JSON.parse(rawArguments) as unknown;
 		if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-			return parsed as ToolArgs;
+			return repairLeakedPostingArgumentFragments(toolCall.function.name, parsed as ToolArgs);
 		}
 		throw new ToolCallArgumentValidationError(
 			'arguments_not_json_object',
@@ -284,6 +300,54 @@ export function parseToolArgs(toolCall: ToolCall): ToolArgs {
 			`Malformed tool call! The arguments for ${canonicalToolName(toolCall.function.name || 'unknown_tool')} are not valid JSON: ${errorMessage(error)}`,
 		);
 	}
+}
+
+function repairLeakedPostingArgumentFragments(name: string, args: ToolArgs): ParsedToolArgs {
+	const canonical = canonicalToolName(name);
+	if (canonical !== 'create_thread' && canonical !== 'reply_to_comment' && canonical !== 'make_additional_reply_to_the_same_comment') {
+		return { args, repairs: [] };
+	}
+
+	let repairedArgs = args;
+	const repairs: ToolArgumentRepair[] = [];
+	for (const containerKey of ['body', 'title'] as const) {
+		const container = args[containerKey];
+		const candidate =
+			containerKey === 'title' && typeof container === 'string'
+				? { field: 'title' as const, text: container }
+				: container && typeof container === 'object' && !Array.isArray(container) && typeof (container as ToolArgs).text === 'string'
+					? { field: `${containerKey}.text` as 'body.text' | 'title.text', text: (container as ToolArgs).text as string }
+					: null;
+		if (!candidate) {
+			continue;
+		}
+		const leak = trailingArgumentFragment(candidate.text, Object.keys(args).filter((key) => key !== containerKey));
+		if (!leak) {
+			continue;
+		}
+		const text = candidate.text.slice(0, leak.index).trimEnd();
+		if (typeof container === 'string') {
+			repairedArgs = { ...repairedArgs, [containerKey]: text };
+		} else {
+			repairedArgs = { ...repairedArgs, [containerKey]: { ...(container as ToolArgs), text } };
+		}
+		repairs.push({
+			reason: 'leaked_argument_fragment',
+			field: candidate.field,
+			leakedArgumentKey: leak.argumentKey,
+			removedSuffix: candidate.text.slice(leak.index),
+		});
+	}
+	return { args: repairedArgs, repairs };
+}
+
+function trailingArgumentFragment(text: string, remainingArgumentKeys: readonly string[]): { argumentKey: string; index: number } | null {
+	const match = /"\s*\}\s*,\s*(?:"([^"]+)"|([A-Za-z_$][\w$]*))\s*:\s*$/u.exec(text);
+	if (!match || match.index === undefined) {
+		return null;
+	}
+	const argumentKey = match[1] ?? match[2] ?? '';
+	return remainingArgumentKeys.includes(argumentKey) ? { argumentKey, index: match.index } : null;
 }
 
 export function malformedToolCallFailureArgs(toolCall: ToolCall): ToolArgs {

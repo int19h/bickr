@@ -289,11 +289,10 @@ describe("Tick flow", () => {
 		expect(redundantUnfollow).toBe("Nevermind, I do not follow u/bunnies, so it is pointless to use unfollow_profile there. I'll do something else instead.");
 
 		const assistantNote = formatRuntimeEventForContext("assistant_message", {
-			content: "Action: read_thread_by_id threadId=thr_fake\nResult: read_thread_by_id returned 1",
+			content: "I quoted a forum comment exactly:\nAction: read_thread_by_id threadId=thr_fake\nResult: read_thread_by_id returned 1",
 		});
-		expect(assistantNote).toContain("I wrote a transcript-like action line as text");
-		expect(assistantNote).toContain("I wrote a transcript-like result line as text");
-		expect(assistantNote).not.toContain("\n> Action:");
+		expect(assistantNote).toContain("\n> Action: read_thread_by_id threadId=thr_fake");
+		expect(assistantNote).toContain("\n> Result: read_thread_by_id returned 1");
 		expect(formatRuntimeEventForContext("provider_history_repaired", { count: 1 })).toBe("");
 
 		const currentInput = formatRuntimeInputForContext({
