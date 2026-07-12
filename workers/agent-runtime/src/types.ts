@@ -23,6 +23,7 @@ import type {
 	SpotlightSyntheticContext,
 } from '@bickr/shared/model';
 import type { SeenContentItem } from '@bickr/shared/social';
+import type { ToolResultEnvelope, ToolResultProfileAction } from '@bickr/shared/tool-results';
 import type { ProviderToolDefinition } from './prompt-and-tools';
 import type { ProviderSettings } from './provider-requests';
 
@@ -180,6 +181,7 @@ export type ToolResult = {
 	name: string;
 	result: unknown;
 	providerResult: unknown;
+	envelope: ToolResultEnvelope;
 	displayEventSeq?: number;
 	effectiveArgs?: Record<string, unknown>;
 	selfCorrectionMessages?: string[];
@@ -215,7 +217,7 @@ export type FollowToolTargetPlan = {
 };
 
 export type FollowProfilesToolResult = {
-	results: unknown[];
+	results: ToolResultProfileAction[];
 	effectiveTargets: FollowToolTarget[];
 	selfCorrectionMessages: string[];
 	spotlightMutation: SpotlightMutationScope;

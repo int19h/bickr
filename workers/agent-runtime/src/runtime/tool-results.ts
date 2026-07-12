@@ -1,6 +1,9 @@
 import { formatCommentRef, formatThreadRef, parseCommentRef, parseThreadRef } from '@bickr/shared/ids';
+import { legacyToolResultEnvelope } from '@bickr/shared/legacy-tool-result-adapter';
+import type { ToolResultEnvelope, ToolResultProfileAction, ToolResultVote } from '@bickr/shared/tool-results';
 import {
 	type BotFollowUsernameQueryResult,
+	type ThreadDocument,
 } from '@bickr/shared/model';
 import type {
 	ChatMessage,
@@ -20,8 +23,10 @@ export function providerToolResultPayload(
 	args: Record<string, unknown> = {},
 	scope: ProviderContextContentScope = emptyProviderContextContentScope(),
 	options: ProviderToolResultPayloadOptions = {},
+	envelope?: ToolResultEnvelope,
 ): unknown {
 	const canonical = canonicalToolName(name);
+	const semanticResult = envelope ?? legacyToolResultEnvelope(canonical, result, args);
 	if (canonical === 'check_notifications') {
 		const record = runtimeRecord(result);
 		return providerCheckNotificationsResult(Array.isArray(record.events) ? record.events : [], scope, options.tokenBudget);
@@ -68,24 +73,22 @@ export function providerToolResultPayload(
 		return providerActivityFeedResult(runtimeRecord(result), options.tokenBudget);
 	}
 	if (canonical === 'follow_profile' || canonical === 'unfollow_profile') {
-		return Array.isArray(result)
-			? result.map((item) => providerFollowResult(runtimeRecord(item)))
-			: providerFollowResult(runtimeRecord(result));
+		if (semanticResult.kind === 'profile_followed' || semanticResult.kind === 'profile_unfollowed') {
+			return semanticResult.profiles.map(providerFollowResult);
+		}
+		return providerSafeJsonValue(result);
 	}
-	if (canonical === 'vote' && Array.isArray(result)) {
-		return result.map((item) => providerVoteResult(runtimeRecord(item)));
+	if (canonical === 'vote' && semanticResult.kind === 'vote_set') {
+		return semanticResult.votes.map(providerVoteResult);
 	}
 	if (canonical === 'read_thread' || canonical === 'read_thread_by_id' || canonical === 'read_comment_by_id') {
 		return providerReadResult(runtimeRecord(result), scope);
 	}
 	if (canonical === 'create_thread') {
-		return providerCreateThreadResult(result);
+		return semanticResult.kind === 'thread_created' ? providerCreateThreadResult(semanticResult) : providerSafeJsonValue(result);
 	}
 	if (canonical === 'reply_to_comment' || canonical === 'make_additional_reply_to_the_same_comment') {
-		return providerReplyCommentResult(result, args);
-	}
-	if (canonical === 'vote') {
-		return providerVoteResult(runtimeRecord(result));
+		return semanticResult.kind === 'comment_created' ? providerReplyCommentResult(semanticResult) : providerSafeJsonValue(result);
 	}
 	if (canonical === 'log_off') {
 		return providerSafeJsonValue(result);
@@ -680,41 +683,34 @@ export function providerCommentRef(value: unknown): string | undefined {
 	return commentId ? formatCommentRef(commentId) : undefined;
 }
 
-function providerFollowResult(record: Record<string, unknown>): Record<string, unknown> {
-	const reason = localizedArgumentText(record.reason);
+function providerFollowResult(action: ToolResultProfileAction): Record<string, unknown> {
+	const reason = localizedArgumentText(action.reason);
 	return removeUndefinedProperties({
-		following: record.following === true,
-		...(record.profile ? { profile: providerProfileUsername(runtimeRecord(record.profile)) } : {}),
+		following: action.following,
+		profile: providerProfileUsername(runtimeRecord(action.profile)),
 		...(reason ? { reason } : {}),
 	});
 }
 
-function providerVoteResult(record: Record<string, unknown>): Record<string, unknown> {
-	const thread = threadRecordFromToolResult(record);
-	const commentId = stringValue(record.commentId) ?? stringValue(record.targetId);
+function providerVoteResult(vote: ToolResultVote): Record<string, unknown> {
 	return removeUndefinedProperties({
-		commentRef: providerCommentRef(commentId),
-		value: numberValue(record.value),
-		...(thread ? { target: providerVoteTargetReference(thread, record) } : {}),
+		commentRef: providerCommentRef(vote.commentId),
+		value: vote.value,
+		target: providerVoteTargetReference(vote.thread, vote),
 	});
 }
 
-function providerCreateThreadResult(result: unknown): Record<string, unknown> {
-	const thread = threadRecordFromToolResult(result) ?? runtimeRecord(result);
+function providerCreateThreadResult(envelope: Extract<ToolResultEnvelope, { kind: 'thread_created' }>): Record<string, unknown> {
 	return {
 		ok: true,
-		thread: providerThreadReference(thread),
+		thread: providerThreadReference(runtimeRecord(envelope.thread)),
 	};
 }
 
-function providerReplyCommentResult(result: unknown, args: Record<string, unknown>): Record<string, unknown> {
-	const record = runtimeRecord(result);
-	const thread = threadRecordFromToolResult(record) ?? runtimeRecord(record.thread);
-	const comment = runtimeRecord(record.comment);
-	const createdComment = stringValue(comment.id) || stringValue(comment.commentId) ? comment : replyCommentFromThread(thread, args);
+function providerReplyCommentResult(envelope: Extract<ToolResultEnvelope, { kind: 'comment_created' }>): Record<string, unknown> {
 	return {
 		ok: true,
-		...(createdComment ? { comment: providerCommentReference(thread, createdComment) } : {}),
+		comment: providerCommentReference(runtimeRecord(envelope.thread), runtimeRecord(envelope.comment)),
 	};
 }
 
@@ -1002,47 +998,15 @@ function providerThreadReference(thread: Record<string, unknown>): Record<string
 	});
 }
 
-function providerVoteTargetReference(thread: Record<string, unknown>, vote: Record<string, unknown>): Record<string, unknown> {
-	const targetId = stringValue(vote.commentId) ?? stringValue(vote.targetId);
-	const comment = allThreadCommentRecords(thread).find((item) => providerCommentId(item) === targetId);
+function providerVoteTargetReference(thread: ThreadDocument, vote: ToolResultVote): Record<string, unknown> {
+	const targetId = vote.commentId;
+	const comment = thread.comments.find((item) => item.id === targetId);
 	return comment
-		? providerCommentReference(thread, comment)
+		? providerCommentReference(runtimeRecord(thread), runtimeRecord(comment))
 		: removeUndefinedProperties({
 				commentRef: providerCommentRef(targetId),
-				threadRef: providerThreadRef(stringValue(thread.id) ?? stringValue(thread.threadId)),
+				threadRef: providerThreadRef(thread.id),
 			});
-}
-
-export function replyCommentFromThread(thread: Record<string, unknown>, args: Record<string, unknown>): Record<string, unknown> | null {
-	const body = localizedArgumentText(args.body);
-	const parentCommentId = stringValue(args.parentCommentId) ?? stringValue(args.commentId);
-	const comments = allThreadCommentRecords(thread);
-	const candidates = comments.filter((comment) => {
-		if (body && stringValue(comment.body) !== body) {
-			return false;
-		}
-		const commentParentId = stringValue(comment.parentCommentId);
-		return parentCommentId ? commentParentId === parentCommentId : !commentParentId;
-	});
-	return (
-		candidates.sort((left, right) => Date.parse(stringValue(right.createdAt) ?? '') - Date.parse(stringValue(left.createdAt) ?? ''))[0] ??
-		null
-	);
-}
-
-function allThreadCommentRecords(thread: Record<string, unknown>): Record<string, unknown>[] {
-	const comments = Array.isArray(thread.comments) ? thread.comments.map(runtimeRecord) : [];
-	const result: Record<string, unknown>[] = [];
-	const visit = (comment: Record<string, unknown>) => {
-		result.push(comment);
-		for (const reply of providerCommentReplies(comment)) {
-			visit(reply);
-		}
-	};
-	for (const comment of comments) {
-		visit(comment);
-	}
-	return result;
 }
 
 function providerActivityFeedResult(record: Record<string, unknown>, tokenBudget?: number): Record<string, unknown> {
@@ -1521,19 +1485,6 @@ function pushReadContentReply(parent: ReadContentItem, reply: ReadContentItem): 
 	}
 	parent.replies = replies;
 }
-
-export function threadRecordFromToolResult(result: unknown): Record<string, unknown> | null {
-	const record = runtimeRecord(result);
-	if (Array.isArray(record.comments) && (stringValue(record.rootCommentId) || stringValue(record.id))) {
-		return record;
-	}
-	const thread = runtimeRecord(record.thread);
-	if (Array.isArray(thread.comments) && (stringValue(thread.rootCommentId) || stringValue(thread.id))) {
-		return thread;
-	}
-	return null;
-}
-
 
 function estimateTextTokens(text: string): number {
 	return Math.max(1, Math.ceil(text.length / 4));

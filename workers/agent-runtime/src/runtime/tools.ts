@@ -9,7 +9,7 @@ import {
 	listThreads,
 	listWorldPublicProfiles,
 	markBotSeenContent,
-	markBotSeenFromResult,
+	markBotSeenFromEnvelope,
 	queryBotFollowUsernamesByHandle,
 	readThread,
 	recordSpotlightToolHumanNotification,
@@ -20,6 +20,13 @@ import {
 } from '@bickr/shared/social';
 import { listForums, RepositoryError } from '@bickr/shared/repository';
 import { normalizeHandleText } from '@bickr/shared/validation';
+import { legacyStoredToolResultEnvelope } from '@bickr/shared/legacy-tool-result-adapter';
+import type {
+	ToolResultContentItem,
+	ToolResultEnvelope,
+	ToolResultProfileAction,
+	ToolResultVote,
+} from '@bickr/shared/tool-results';
 import {
 	localizedTextString,
 	type BotActivityFeed,
@@ -30,6 +37,7 @@ import {
 	type BotSearchResult,
 	type BotRuntimeEvent,
 	type CommentDocument,
+	type LocalizedText,
 	type RequiredLocalizedText,
 	type SearchThreadResult,
 	type ThreadDocument,
@@ -79,8 +87,6 @@ import {
 	pruneReadContentTreeForProviderBudget,
 	readContentItemTree,
 	readResultContext,
-	replyCommentFromThread,
-	threadRecordFromToolResult,
 	type ProviderContextContentScope,
 } from './tool-results';
 
@@ -89,7 +95,7 @@ export type RuntimeToolsRuntime = {
 	appendEvent(runId: string, type: 'tool_call' | 'tool_result', payload: unknown): BotRuntimeEvent;
 	replaceEventPayload(event: BotRuntimeEvent, payload: unknown): BotRuntimeEvent;
 	throwIfStopped(runId: string, signal: AbortSignal): void;
-	forumService(path: string, botId: string, body: unknown, signal: AbortSignal): Promise<unknown>;
+	forumService<T>(path: string, botId: string, body: unknown, signal: AbortSignal): Promise<T>;
 	vectorSearchBots(worldId: string, query: string, limit: number): Promise<BotSearchResult[]>;
 	readCommentTreeTokenBudget(bot: BotDocument): Promise<number>;
 	providerContentInActiveContext(): ProviderContextContentScope;
@@ -119,47 +125,59 @@ export class RuntimeTools {
 		const spotlightScope = runContext.spotlightId ? runContext.spotlightActionScope : undefined;
 		let spotlightMutation = false;
 		let spotlightTickTerminator = false;
-		let spotlightNotificationArgs: Record<string, unknown> | undefined;
-		let spotlightNotificationResult: unknown;
 		const toolCallEvent = this.runtime.appendEvent(runId, 'tool_call', {
 			name: canonicalName,
 			args: providerToolArgs(canonicalName, normalizedArgs),
 		});
 		let result: unknown;
+		let envelope: ToolResultEnvelope;
 		let effectiveArgs: Record<string, unknown> | undefined;
 		let selfCorrectionMessages: string[] | undefined;
 		switch (canonicalName) {
 			case 'check_notifications':
 				result = { events: [] };
+				envelope = { kind: 'opaque', value: result };
 				break;
 			case 'list_accessible_forums':
 				result = (await listForums(this.runtime.env.BICKR_D1, bot.homeWorldHandle)).filter((forum) => !forum.personalBotId);
+				envelope = { kind: 'opaque', value: result };
 				break;
 			case 'list_recent_threads': {
 				const forum = await this.forumFromArgs(bot, normalizedArgs);
-				result = await this.annotateThreadSummariesFollowStatus(
+				const threads = await this.annotateThreadSummariesFollowStatus(
 					bot.id,
 					await listThreads(this.runtime.env.BICKR_D1, forum.id, 'recent', numberArg(normalizedArgs.limit, 20)),
 				);
+				result = threads;
+				envelope = contentReadEnvelope(threads.map(threadSummaryContentItem));
 				break;
 			}
-			case 'list_hot_threads':
-				result = await this.annotateThreadSummariesFollowStatus(
+			case 'list_hot_threads': {
+				const threads = await this.annotateThreadSummariesFollowStatus(
 					bot.id,
 					await listHotThreads(this.runtime.env.BICKR_D1, bot.homeWorldId, numberArg(normalizedArgs.limit, 20)),
 				);
+				result = threads;
+				envelope = contentReadEnvelope(threads.map(threadSummaryContentItem));
 				break;
+			}
 			case 'read_thread':
-			case 'read_thread_by_id':
-				result = await this.threadReadResult(
+			case 'read_thread_by_id': {
+				const readResult = await this.threadReadResult(
 					bot,
 					await readThread(this.runtime.env.BICKR_KV, stringArg(normalizedArgs.threadId, 'threadId')),
 					canonicalName,
 				);
+				result = readResult;
+				envelope = contentReadEnvelope(readResultContentItems(readResult));
 				break;
-			case 'read_comment_by_id':
-				result = await this.readCommentById(bot, stringArg(normalizedArgs.commentId, 'commentId'), canonicalName);
+			}
+			case 'read_comment_by_id': {
+				const readResult = await this.readCommentById(bot, stringArg(normalizedArgs.commentId, 'commentId'), canonicalName);
+				result = readResult;
+				envelope = contentReadEnvelope(readResultContentItems(readResult));
 				break;
+			}
 			case 'create_thread': {
 				const forum = await this.forumFromArgs(bot, normalizedArgs);
 				const mutation = spotlightMutationScopeForCreateThread(spotlightScope, forum.personalBotId);
@@ -167,7 +185,7 @@ export class RuntimeTools {
 				const body = localizedToolTextArg(normalizedArgs.body, 'body', bot.language);
 				normalizedArgs.title = title;
 				normalizedArgs.body = body;
-				result = await this.runtime.forumService(
+				const serviceResult = await this.runtime.forumService<{ thread: ThreadDocument }>(
 					`/forums/${encodeURIComponent(forum.id)}/threads`,
 					bot.id,
 					{
@@ -177,12 +195,10 @@ export class RuntimeTools {
 					},
 					runContext.signal,
 				);
+				result = serviceResult;
+				envelope = { kind: 'thread_created', thread: serviceResult.thread };
 				spotlightMutation = mutation.related;
 				spotlightTickTerminator = mutation.unrelated;
-				if (mutation.related) {
-					spotlightNotificationArgs = normalizedArgs;
-					spotlightNotificationResult = result;
-				}
 				break;
 			}
 			case 'reply_to_comment':
@@ -196,7 +212,7 @@ export class RuntimeTools {
 					await this.assertNoPriorReplyToTarget(bot.id, threadId, parentCommentId);
 				}
 				this.assertNoRecentDuplicateReply(bot.id, body.text);
-				const serviceResult = await this.runtime.forumService(
+				const serviceResult = await this.runtime.forumService<{ thread: ThreadDocument }>(
 					`/comments/${encodeURIComponent(parentCommentId)}/replies`,
 					bot.id,
 					{
@@ -204,18 +220,14 @@ export class RuntimeTools {
 					},
 					runContext.signal,
 				);
-				const serviceRecord = runtimeRecord(serviceResult);
-				const createdComment = replyCommentFromThread(runtimeRecord(serviceRecord.thread), { body: body.text, parentCommentId });
+				const createdComment = createdReplyComment(serviceResult.thread, body, parentCommentId);
 				result = {
-					...serviceRecord,
-					...(createdComment ? { comment: createdComment } : {}),
+					...serviceResult,
+					comment: createdComment,
 				};
+				envelope = { kind: 'comment_created', thread: serviceResult.thread, comment: createdComment };
 				spotlightMutation = mutation.related;
 				spotlightTickTerminator = mutation.unrelated;
-				if (mutation.related) {
-					spotlightNotificationArgs = normalizedArgs;
-					spotlightNotificationResult = result;
-				}
 				break;
 			}
 			case 'vote': {
@@ -223,7 +235,9 @@ export class RuntimeTools {
 				normalizedArgs.reason = reason;
 				const votes = voteTargetsArg(normalizedArgs.votes);
 				const mutation = spotlightMutationScopeForVotes(spotlightScope, votes);
-				result = await this.voteTool(bot, runId, votes, reason, runContext.signal, runContext.spotlightId, spotlightScope);
+				const voteResults = await this.voteTool(bot, runId, votes, reason, runContext.signal, runContext.spotlightId, spotlightScope);
+				result = voteResults;
+				envelope = { kind: 'vote_set', votes: voteResults };
 				spotlightMutation = mutation.related;
 				spotlightTickTerminator = mutation.unrelated;
 				break;
@@ -240,6 +254,7 @@ export class RuntimeTools {
 				);
 				normalizedArgs.targets = followResult.effectiveTargets;
 				result = followResult.results;
+				envelope = { kind: 'profile_followed', profiles: followResult.results };
 				spotlightMutation = followResult.spotlightMutation.related;
 				spotlightTickTerminator = followResult.spotlightMutation.unrelated;
 				if (followResult.selfCorrectionMessages.length > 0) {
@@ -260,6 +275,7 @@ export class RuntimeTools {
 				);
 				normalizedArgs.targets = followResult.effectiveTargets;
 				result = followResult.results;
+				envelope = { kind: 'profile_unfollowed', profiles: followResult.results };
 				spotlightMutation = followResult.spotlightMutation.related;
 				spotlightTickTerminator = followResult.spotlightMutation.unrelated;
 				if (followResult.selfCorrectionMessages.length > 0) {
@@ -269,14 +285,18 @@ export class RuntimeTools {
 				break;
 			}
 			case 'search_threads':
-			case 'search_threads_semantic':
-				result = await this.annotateSearchThreadsFollowStatus(
+			case 'search_threads_semantic': {
+				const threads = await this.annotateSearchThreadsFollowStatus(
 					bot.id,
 					await searchThreads(this.runtime.env.BICKR_D1, bot.homeWorldId, stringArg(normalizedArgs.query, 'query')),
 				);
+				result = threads;
+				envelope = contentReadEnvelope(threads.flatMap(searchThreadContentItems));
 				break;
+			}
 			case 'search_profiles':
 				result = await this.searchBotsTool(bot, stringArg(normalizedArgs.query, 'query'), numberArg(normalizedArgs.limit, 10));
+				envelope = { kind: 'opaque', value: result };
 				break;
 			case 'list_profiles': {
 				const query = listProfilesToolArgs(normalizedArgs);
@@ -289,6 +309,7 @@ export class RuntimeTools {
 					runId,
 				);
 				result = profileList;
+				envelope = { kind: 'opaque', value: result };
 				break;
 			}
 			case 'query_followers': {
@@ -302,6 +323,7 @@ export class RuntimeTools {
 					query.usernameGlob,
 					50,
 				);
+				envelope = { kind: 'opaque', value: result };
 				break;
 			}
 			case 'view_profiles': {
@@ -314,6 +336,7 @@ export class RuntimeTools {
 					runId,
 				);
 				result = { profiles };
+				envelope = { kind: 'opaque', value: result };
 				break;
 			}
 			case 'view_activity': {
@@ -327,11 +350,13 @@ export class RuntimeTools {
 				);
 				await markBotSeenContent(this.runtime.env.BICKR_D1, bot.id, [{ type: 'bot', id: feed.bot.id }], 'tool:view_activity', runId);
 				result = await this.annotateActivityFeedFollowStatus(bot.id, feed);
+				envelope = { kind: 'opaque', value: result };
 				break;
 			}
 			case 'log_off':
 				normalizedArgs.reason = localizedToolTextArg(normalizedArgs.reason, 'reason', bot.language);
 				result = { ok: true, status: 'finished', message: 'I have finished this Bickr visit.' };
+				envelope = { kind: 'opaque', value: result };
 				break;
 			default:
 				throw new Error(`Unknown tool: ${canonicalName}`);
@@ -340,16 +365,14 @@ export class RuntimeTools {
 		if (effectiveArgs) {
 			this.runtime.replaceEventPayload(toolCallEvent, { name: canonicalName, args: providerToolArgs(canonicalName, effectiveArgs) });
 		}
-		await markBotSeenFromResult(this.runtime.env.BICKR_D1, bot.id, result, `tool:${canonicalName}`, runId);
+		await markBotSeenFromEnvelope(this.runtime.env.BICKR_D1, bot.id, envelope, `tool:${canonicalName}`, runId);
 		if (runContext.spotlightId && spotlightMutation && needsPostHocSpotlightHumanNotification(canonicalName)) {
 			try {
 				await recordSpotlightToolHumanNotification(this.runtime.env.BICKR_D1, {
 					bot,
 					spotlightId: runContext.spotlightId,
 					runId,
-					toolName: canonicalName,
-					args: providerToolArgs(canonicalName, spotlightNotificationArgs ?? normalizedArgs),
-					result: spotlightNotificationResult ?? result,
+					envelope,
 				});
 			} catch (error) {
 				console.warn('spotlight notification failed', error);
@@ -360,11 +383,12 @@ export class RuntimeTools {
 			: undefined;
 		const providerResult = providerToolResultPayload(canonicalName, result, normalizedArgs, this.runtime.providerContentInActiveContext(), {
 			tokenBudget: providerResultTokenBudget,
-		});
+		}, envelope);
 		const toolResultPayload = {
 			name: canonicalName,
 			args: providerToolArgs(canonicalName, normalizedArgs),
 			result,
+			envelope,
 			displayContext: { worldHandle: bot.homeWorldHandle },
 		};
 		const toolResultEvent = this.runtime.appendEvent(runId, 'tool_result', toolResultPayload);
@@ -375,6 +399,7 @@ export class RuntimeTools {
 			name: canonicalName,
 			result,
 			providerResult,
+			envelope,
 			displayEventSeq: toolResultEvent.seq,
 			...(effectiveArgs ? { effectiveArgs } : {}),
 			...(selfCorrectionMessages ? { selfCorrectionMessages } : {}),
@@ -391,12 +416,12 @@ export class RuntimeTools {
 		signal: AbortSignal,
 		spotlightId?: string,
 		spotlightScope?: SpotlightActionScope,
-	): Promise<unknown[]> {
-		const results: unknown[] = [];
+	): Promise<ToolResultVote[]> {
+		const results: ToolResultVote[] = [];
 		for (const vote of votes) {
 			this.runtime.throwIfStopped(runId, signal);
 			const targetSpotlightId = spotlightId && spotlightActionScopeIncludesComment(spotlightScope, vote.commentId) ? spotlightId : undefined;
-			const serviceResult = await this.runtime.forumService(
+			const serviceResult = await this.runtime.forumService<{ thread: ThreadDocument }>(
 				'/votes',
 				bot.id,
 				{
@@ -407,7 +432,7 @@ export class RuntimeTools {
 				},
 				signal,
 			);
-			results.push({ ...vote, ...runtimeRecord(serviceResult) });
+			results.push({ ...vote, reason, thread: serviceResult.thread });
 		}
 		return results;
 	}
@@ -445,7 +470,7 @@ export class RuntimeTools {
 			throw new SelfCorrectingToolCallError(selfCorrectionMessages[0] ?? followToolSelfCorrectionMessage(toolName, []));
 		}
 
-		const results: unknown[] = [];
+		const results: ToolResultProfileAction[] = [];
 		let relatedMutationCount = 0;
 		let unrelatedMutationCount = 0;
 		for (const profile of targetPlan.validProfiles) {
@@ -469,7 +494,13 @@ export class RuntimeTools {
 						reason: target.reason,
 						...(targetSpotlightId ? { spotlightId: targetSpotlightId } : {}),
 					});
-			results.push({ username: profile.handle, reason: target.reason, ...follow, profile: { ...profile, following: follow.following } });
+			results.push({
+				username: profile.handle,
+				following: follow.following,
+				profile: { ...profile, following: follow.following },
+				reason: target.reason,
+				...(follow.activityId ? { activityId: follow.activityId } : {}),
+			});
 		}
 		return {
 			results,
@@ -769,6 +800,67 @@ function spotlightMutationScopeForCreateThread(
 	return spotlightMutationScope(spotlightScope, spotlightScope ? 1 : 0, related ? 1 : 0);
 }
 
+function contentReadEnvelope(items: ToolResultContentItem[]): ToolResultEnvelope {
+	return { kind: 'content_read', items: uniqueToolResultContentItems(items) };
+}
+
+function threadSummaryContentItem(thread: ThreadSummary): ToolResultContentItem {
+	return { kind: 'thread', id: thread.id, title: thread.title };
+}
+
+function searchThreadContentItems(result: SearchThreadResult): ToolResultContentItem[] {
+	return [
+		{ kind: 'thread', id: result.threadId, title: result.title },
+		...(result.commentId ? [{ kind: 'comment' as const, id: result.commentId, threadId: result.threadId, body: result.snippet }] : []),
+	];
+}
+
+function readResultContentItems(result: {
+	thread: { id: string; title: LocalizedText | string };
+	content: ReadContentItem[];
+}): ToolResultContentItem[] {
+	const items: ToolResultContentItem[] = [
+		{
+			kind: 'thread',
+			id: result.thread.id,
+			...(typeof result.thread.title === 'string' ? {} : { title: result.thread.title }),
+		},
+	];
+	const visit = (content: ReadContentItem[]): void => {
+		for (const item of content) {
+			items.push({
+				kind: 'comment',
+				id: item.id,
+				threadId: item.threadId,
+				...(typeof item.body === 'string' ? {} : { body: item.body }),
+			});
+			if (Array.isArray(item.replies)) {
+				visit(item.replies);
+			}
+		}
+	};
+	visit(result.content);
+	return items;
+}
+
+function uniqueToolResultContentItems(items: ToolResultContentItem[]): ToolResultContentItem[] {
+	const unique = new Map<string, ToolResultContentItem>();
+	for (const item of items) {
+		unique.set(`${item.kind}:${item.id}`, item);
+	}
+	return [...unique.values()];
+}
+
+function createdReplyComment(thread: ThreadDocument, body: RequiredLocalizedText, parentCommentId: string): CommentDocument {
+	const comment = [...thread.comments]
+		.filter((item) => item.parentCommentId === parentCommentId && localizedTextString(item.body) === body.text)
+		.sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt))[0];
+	if (!comment) {
+		throw new RepositoryError('server_error', 'Created reply was missing from the coordinator result.', 500);
+	}
+	return comment;
+}
+
 function threadReadSummary(thread: ThreadDocument) {
 	const root = rootCommentForThread(thread);
 	return {
@@ -897,10 +989,11 @@ function duplicateReplyFromToolResult(row: RuntimeRow, botId: string, body: stri
 		return null;
 	}
 	const args = runtimeRecord(payload.args);
-	const thread = threadRecordFromToolResult(payload.result);
-	if (!thread) {
+	const envelope = legacyStoredToolResultEnvelope(payload);
+	if (envelope.kind !== 'comment_created') {
 		return null;
 	}
+	const thread = envelope.thread;
 	const comment = matchingSuccessfulReplyComment(thread, botId, body);
 	if (!comment) {
 		return null;
@@ -910,7 +1003,7 @@ function duplicateReplyFromToolResult(row: RuntimeRow, botId: string, body: stri
 		return null;
 	}
 	const threadId = stringValue(thread.id) ?? stringValue(comment.threadId);
-	const commentId = stringValue(comment.id) ?? stringValue(comment.commentId);
+	const commentId = comment.id;
 	const worldHandle = stringValue(thread.worldHandle);
 	const forumHandle = stringValue(thread.forumHandle);
 	if (!threadId || !commentId || !worldHandle || !forumHandle) {
@@ -1044,14 +1137,13 @@ function parsePayloadJson(payloadJson: string): Record<string, unknown> {
 }
 
 function matchingSuccessfulReplyComment(
-	thread: Record<string, unknown>,
+	thread: ThreadDocument,
 	botId: string,
 	body: string,
-): Record<string, unknown> | null {
-	const comments = Array.isArray(thread.comments) ? thread.comments.map(runtimeRecord) : [];
-	const matches = comments.filter((comment) => stringValue(comment.authorBotId) === botId && stringValue(comment.body) === body);
+): CommentDocument | null {
+	const matches = thread.comments.filter((comment) => comment.authorBotId === botId && localizedTextString(comment.body) === body);
 	return (
-		matches.sort((left, right) => Date.parse(stringValue(right.createdAt) ?? '') - Date.parse(stringValue(left.createdAt) ?? ''))[0] ?? null
+		matches.sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt))[0] ?? null
 	);
 }
 
