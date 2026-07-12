@@ -12,6 +12,10 @@ import { updateWorld } from '@bickr/shared/governance';
 import { json } from '@bickr/shared/http';
 import { formatCommentRef, formatThreadRef, parseCommentRef, parseObjectRef, parseThreadRef } from '@bickr/shared/ids';
 import {
+	type ObjectIndexConvergenceTask,
+	runObjectIndexConvergenceBatch,
+} from '@bickr/shared/index-repair';
+import {
 	addInternalServiceAuthHeader,
 	internalServiceUrl,
 	isTrustedInternalServiceRequest,
@@ -7447,6 +7451,7 @@ function requireAvatarBucket(env: Pick<Env, 'BICKR_R2'>): R2BucketLike {
 export class UserBotsCoordinator {
 	private readonly state: DurableObjectState;
 	private readonly env: Env;
+	private readonly queue = new ExclusiveOperationQueue();
 
 	constructor(state: DurableObjectState, env: Env) {
 		this.state = state;
@@ -7457,9 +7462,33 @@ export class UserBotsCoordinator {
 		if (!isTrustedInternalServiceRequest(request, this.env.INTERNAL_SERVICE_SECRET)) {
 			return agentRuntimeNotFoundResponse();
 		}
-		return handleAgentRuntimeRequest(request, this.env, this.state.id.toString());
+		return handleAgentRuntimeRequest(request, this.env, {
+			objectId: this.state.id.toString(),
+			queue: this.queue,
+			storage: this.state.storage,
+		});
+	}
+
+	async alarm(alarmInfo?: AlarmInvocationInfo): Promise<void> {
+		await runUserBotsConvergenceAlarm(this.env, {
+			objectId: this.state.id.toString(),
+			queue: this.queue,
+			storage: this.state.storage,
+		}, alarmInfo);
 	}
 }
+
+export type UserBotsCoordinatorContext = {
+	objectId: string;
+	queue?: { run<T>(operation: () => Promise<T>): Promise<T> };
+	storage?: DurableObjectStorage;
+};
+
+// Retained only while a personal-forum rename/profile projection is stale.
+// A newer participant update replaces it and converges the same forum scope
+// to the newest canonical D1 values.
+const userBotsConvergenceTaskStorageKey = 'object-index-convergence-task';
+const userBotsConvergenceAlarmDelayMs = 1_000;
 
 export async function handleAgentRuntimeRequest(
 	request: Request,
@@ -7475,8 +7504,30 @@ export async function handleAgentRuntimeRequest(
 		| 'OPENROUTER_BASE_URL'
 		| 'OPENROUTER_MODEL'
 	> & Partial<Pick<Env, 'FORUM_COORDINATOR_SERVICE' | 'INTERNAL_SERVICE_SECRET'>>,
-	objectId = 'direct',
+	context: UserBotsCoordinatorContext | string = 'direct',
 ): Promise<Response> {
+	const coordinator = typeof context === 'string' ? { objectId: context } : context;
+	const operation = () => handleAgentRuntimeRequestExclusive(request, env, coordinator);
+	return coordinator.queue ? coordinator.queue.run(operation) : operation();
+}
+
+async function handleAgentRuntimeRequestExclusive(
+	request: Request,
+	env: Pick<
+		Env,
+		| 'BICKR_D1'
+		| 'BICKR_KV'
+		| 'BICKR_R2'
+		| 'BICKR_R2_PUBLIC_BASE_URL'
+		| 'AI'
+		| 'BICKR_SEARCH_VECTORIZE'
+		| 'OPENROUTER_API_KEY'
+		| 'OPENROUTER_BASE_URL'
+		| 'OPENROUTER_MODEL'
+	> & Partial<Pick<Env, 'FORUM_COORDINATOR_SERVICE' | 'INTERNAL_SERVICE_SECRET'>>,
+	coordinator: UserBotsCoordinatorContext,
+): Promise<Response> {
+	const objectId = coordinator.objectId;
 	try {
 		const url = new URL(request.url);
 		const translateMatch = /^\/users\/([^/]+)\/translate$/.exec(url.pathname);
@@ -7635,10 +7686,26 @@ export async function handleAgentRuntimeRequest(
 			const userId = requireUserMatch(request, decodeURIComponent(botMatch[1] ?? ''));
 			const botId = decodeURIComponent(botMatch[2] ?? '');
 			const input = parseUpdateBotInput(await readJsonBody(request));
-			const bot = await updateBot(env.BICKR_KV, env.BICKR_D1, botId, userId, input);
+			const updatedAt = new Date().toISOString();
+			const bot = await updateBot(env.BICKR_KV, env.BICKR_D1, botId, userId, input, updatedAt);
 			await upsertBotVector(env, bot);
 			const affectedBots = await refreshLinkedCloneIndexes(env.BICKR_KV, env.BICKR_D1, bot.id);
 			await Promise.all(affectedBots.map((affectedBot) => upsertBotVector(env, affectedBot)));
+			const personalForum = await env.BICKR_D1.prepare(
+				`SELECT forum_id AS id
+				 FROM forums_index
+				 WHERE personal_bot_id = ? AND deleted_at IS NULL
+				 LIMIT 1`,
+			)
+				.bind(bot.id)
+				.first<{ id: string }>();
+			if (personalForum) {
+				await startUserBotsConvergenceTask(env, coordinator, {
+					kind: 'object_index_convergence',
+					scope: { kind: 'forum', forumId: personalForum.id },
+					updatedAt,
+				});
+			}
 			return ok({ bot, affectedBots, coordinator: objectId });
 		}
 
@@ -7838,6 +7905,74 @@ export async function handleAgentRuntimeRequest(
 		return fail('not_found', 'Agent runtime route not found.', 404);
 	} catch (error) {
 		return errorResponse(error);
+	}
+}
+
+async function startUserBotsConvergenceTask(
+	env: Pick<Env, 'AI' | 'BICKR_D1' | 'BICKR_KV' | 'BICKR_SEARCH_VECTORIZE'>,
+	coordinator: UserBotsCoordinatorContext,
+	task: ObjectIndexConvergenceTask,
+): Promise<void> {
+	if (coordinator.storage) {
+		await coordinator.storage.put(userBotsConvergenceTaskStorageKey, task);
+		// Persist and arm before any external repair work. If this object is
+		// evicted, the alarm resumes from the task's last committed cursor.
+		await coordinator.storage.setAlarm(Date.now() + userBotsConvergenceAlarmDelayMs);
+		return;
+	}
+	await runObjectIndexConvergenceBatch(env, task);
+}
+
+export async function runPendingUserBotsConvergenceTask(
+	env: Pick<Env, 'AI' | 'BICKR_D1' | 'BICKR_KV' | 'BICKR_SEARCH_VECTORIZE'>,
+	coordinator: UserBotsCoordinatorContext,
+	options: {
+		chunkSize?: number;
+		maxRowsPerRun?: number;
+		maxRepairsPerRun?: number;
+	} = {},
+): Promise<boolean> {
+	const task = await coordinator.storage?.get<ObjectIndexConvergenceTask>(userBotsConvergenceTaskStorageKey);
+	if (!task) {
+		return false;
+	}
+	const next = await runObjectIndexConvergenceBatch(env, task, options);
+	if (next) {
+		await coordinator.storage?.put(userBotsConvergenceTaskStorageKey, next);
+	} else {
+		await coordinator.storage?.delete(userBotsConvergenceTaskStorageKey);
+	}
+	return true;
+}
+
+async function runUserBotsConvergenceAlarm(
+	env: Pick<Env, 'AI' | 'BICKR_D1' | 'BICKR_KV' | 'BICKR_SEARCH_VECTORIZE'>,
+	coordinator: UserBotsCoordinatorContext,
+	alarmInfo?: AlarmInvocationInfo,
+): Promise<void> {
+	const operation = async () => {
+		await runPendingUserBotsConvergenceTask(env, coordinator);
+		const pending = await coordinator.storage?.get(userBotsConvergenceTaskStorageKey);
+		if (pending) {
+			await coordinator.storage?.setAlarm(Date.now() + userBotsConvergenceAlarmDelayMs);
+		} else {
+			await coordinator.storage?.deleteAlarm();
+		}
+	};
+	try {
+		if (coordinator.queue) {
+			await coordinator.queue.run(operation);
+		} else {
+			await operation();
+		}
+	} catch (error) {
+		// Replace the platform alarm before its sixth failed delivery exhausts
+		// the automatic retry budget, leaving the durable task intact.
+		if ((alarmInfo?.retryCount ?? 0) >= 5 && coordinator.storage) {
+			await coordinator.storage.setAlarm(Date.now() + userBotsConvergenceAlarmDelayMs);
+			return;
+		}
+		throw error;
 	}
 }
 

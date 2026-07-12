@@ -1,7 +1,6 @@
 import {
 	avatarCropJson,
 	type AvatarImage,
-	type BotDocument,
 	type ForumDocument,
 	type ForumSummary,
 	type ThreadDocument,
@@ -11,6 +10,7 @@ import {
 	type WorldSummary,
 } from "./model";
 import { tombstoneHandle } from "./handles";
+import { objectIndexScopeStaleStatement } from "./object-index-scope";
 import { entityIndexVersions } from "./index-versions";
 import {
 	mergePostingSettings,
@@ -118,8 +118,9 @@ export async function updateWorld(
 			db
 				.prepare(`UPDATE threads_index SET world_handle = ? WHERE world_id = ? AND deleted_at IS NULL`)
 				.bind(updated.handle, updated.id),
+			objectIndexScopeStaleStatement(db, { kind: "world", worldId: updated.id }, { includeScopeRoot: false }),
 		]);
-		await writeWorldRenameDocuments(kv, db, world, updated, now);
+		await writeJson(kv, kvKeys.world(updated.id), updated);
 	} else {
 		await db
 			.prepare(
@@ -275,8 +276,9 @@ export async function updateForum(
 			db
 				.prepare(`UPDATE threads_index SET forum_handle = ? WHERE forum_id = ? AND deleted_at IS NULL`)
 				.bind(updated.handle, updated.id),
+			objectIndexScopeStaleStatement(db, { kind: "forum", forumId: updated.id }, { includeScopeRoot: false }),
 		]);
-		await writeForumRenameDocuments(kv, db, forum, updated, now);
+		await writeJson(kv, kvKeys.forum(updated.id), updated);
 	} else {
 		await db
 			.prepare(
@@ -388,110 +390,6 @@ async function markForumDeleted(
 	await upsertForumSearchIndex(db, deleted);
 	await putObjectIndex(db, deleted, "forum", entityIndexVersions.forum, deleted.worldId);
 	return deleted;
-}
-
-async function writeWorldRenameDocuments(
-	kv: KVNamespaceLike,
-	db: D1DatabaseLike,
-	previous: WorldDocument,
-	updated: WorldDocument,
-	now: string,
-): Promise<void> {
-	await writeJson(kv, kvKeys.world(updated.id), updated);
-
-	const forums = await db
-		.prepare(`SELECT forum_id AS id FROM forums_index WHERE world_id = ? AND deleted_at IS NULL`)
-		.bind(updated.id)
-		.all<{ id: string }>();
-	for (const row of forums.results ?? []) {
-		const forum = await forumDocumentById(kv, db, row.id);
-		if (forum.worldHandle === updated.handle) {
-			continue;
-		}
-		const renamed: ForumDocument = {
-			...forum,
-			worldHandle: updated.handle,
-			revision: forum.revision + 1,
-			updatedAt: now,
-		};
-		await writeJson(kv, kvKeys.forum(renamed.id), renamed);
-		await putObjectIndex(db, renamed, "forum", entityIndexVersions.forum, renamed.worldId);
-	}
-
-	const bots = await db
-		.prepare(`SELECT bot_id AS id FROM bots_index WHERE home_world_id = ? AND deleted_at IS NULL`)
-		.bind(updated.id)
-		.all<{ id: string }>();
-	for (const row of bots.results ?? []) {
-		const bot = await readJson<BotDocument>(kv, kvKeys.bot(row.id));
-		if (!bot || bot.deletedAt || bot.homeWorldHandle === updated.handle) {
-			continue;
-		}
-		const renamed: BotDocument = {
-			...bot,
-			homeWorldHandle: updated.handle,
-			revision: bot.revision + 1,
-			updatedAt: now,
-		};
-		await writeJson(kv, kvKeys.bot(renamed.id), renamed);
-		await putObjectIndex(db, renamed, "bot", entityIndexVersions.bot, renamed.homeWorldId);
-	}
-
-	const threads = await db
-		.prepare(`SELECT thread_id AS id FROM threads_index WHERE world_id = ? AND deleted_at IS NULL`)
-		.bind(updated.id)
-		.all<{ id: string }>();
-	for (const row of threads.results ?? []) {
-		const thread = await readThread(kv, row.id);
-		if (thread.worldHandle === updated.handle) {
-			continue;
-		}
-		const renamed: ThreadDocument = {
-			...thread,
-			worldHandle: updated.handle,
-			revision: thread.revision + 1,
-			updatedAt: now,
-		};
-		await writeJson(kv, kvKeys.thread(renamed.id), renamed);
-		await putObjectIndex(db, renamed, "thread", entityIndexVersions.thread, renamed.worldId);
-	}
-
-	if (previous.handle !== updated.handle) {
-		await putObjectIndex(db, updated, "world", entityIndexVersions.world, updated.id);
-	}
-}
-
-async function writeForumRenameDocuments(
-	kv: KVNamespaceLike,
-	db: D1DatabaseLike,
-	previous: ForumDocument,
-	updated: ForumDocument,
-	now: string,
-): Promise<void> {
-	await writeJson(kv, kvKeys.forum(updated.id), updated);
-
-	const threads = await db
-		.prepare(`SELECT thread_id AS id FROM threads_index WHERE forum_id = ? AND deleted_at IS NULL`)
-		.bind(updated.id)
-		.all<{ id: string }>();
-	for (const row of threads.results ?? []) {
-		const thread = await readThread(kv, row.id);
-		if (thread.forumHandle === updated.handle) {
-			continue;
-		}
-		const renamed: ThreadDocument = {
-			...thread,
-			forumHandle: updated.handle,
-			revision: thread.revision + 1,
-			updatedAt: now,
-		};
-		await writeJson(kv, kvKeys.thread(renamed.id), renamed);
-		await putObjectIndex(db, renamed, "thread", entityIndexVersions.thread, renamed.worldId);
-	}
-
-	if (previous.handle !== updated.handle) {
-		await putObjectIndex(db, updated, "forum", entityIndexVersions.forum, updated.worldId);
-	}
 }
 
 async function worldDocumentByHandle(

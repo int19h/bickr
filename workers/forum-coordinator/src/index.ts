@@ -42,7 +42,11 @@ import {
 	parseVoteInput,
 } from "@bickr/shared/validation";
 import { json } from "@bickr/shared/http";
-import { repairObjectIndexes } from "@bickr/shared/index-repair";
+import {
+	type ObjectIndexConvergenceTask,
+	repairObjectIndexes,
+	runObjectIndexConvergenceBatch,
+} from "@bickr/shared/index-repair";
 import {
 	kvNormalizationEntityTypes,
 	kvNormalizationSweepMaxRowsPerRun,
@@ -100,9 +104,14 @@ type ThreadFreshCacheRef = {
 const threadFreshCacheStorageKey = "thread-fresh-cache";
 const threadFreshCacheTtlMs = 5 * 60 * 1000;
 // One task record is retained only until the owning coordinator's bounded
-// governance fan-out completes; completion deletes both the task and alarm.
+// governance fan-out completes. The shared alarm is deleted once neither a
+// deletion nor an index-convergence task remains.
 const governanceDeletionTaskStorageKey = "governance-deletion-task";
 const governanceDeletionAlarmDelayMs = 1_000;
+// One task record is retained only until every stale object in the renamed
+// scope has been reprojected; a newer rename safely replaces it because the
+// scope repair converges every row to the latest canonical parent handles.
+const objectIndexConvergenceTaskStorageKey = "object-index-convergence-task";
 
 type GovernanceDeletionTask =
 	| { kind: "forum_threads"; deletedAt: string; forumId: string }
@@ -148,7 +157,7 @@ export class WorldCoordinator {
 	}
 
 	async alarm(alarmInfo?: AlarmInvocationInfo): Promise<void> {
-		await runGovernanceDeletionAlarm(this.env, {
+		await runCoordinatorAlarm(this.env, {
 			objectId: this.state.id.toString(),
 			queue: this.queue,
 			storage: this.state.storage,
@@ -180,7 +189,7 @@ export class ForumCoordinator {
 	}
 
 	async alarm(alarmInfo?: AlarmInvocationInfo): Promise<void> {
-		await runGovernanceDeletionAlarm(this.env, {
+		await runCoordinatorAlarm(this.env, {
 			cache: this.threadFreshCache,
 			objectId: this.state.id.toString(),
 			queue: this.queue,
@@ -246,8 +255,16 @@ async function handleWorldCoordinatorMutation(
 	const worldHandle = normalizeHandle(decodeURIComponent(worldMatch[1] ?? ""));
 	if (request.method === "PATCH") {
 		const input = parseUpdateWorldInput(await readJsonBody(request));
-		const world = await updateWorld(env.BICKR_KV, env.BICKR_D1, worldHandle, userId, input);
+		const updatedAt = new Date().toISOString();
+		const world = await updateWorld(env.BICKR_KV, env.BICKR_D1, worldHandle, userId, input, updatedAt);
 		await upsertWorldSearchVector(env, world);
+		if (input.handle && input.handle !== worldHandle) {
+			await startObjectIndexConvergenceTask(env, coordinator, {
+				kind: "object_index_convergence",
+				scope: { kind: "world", worldId: world.id },
+				updatedAt,
+			});
+		}
 		return ok({ world, coordinator: coordinator.objectId });
 	}
 	if (request.method === "DELETE") {
@@ -303,8 +320,16 @@ async function handleForumCoordinatorMutation(
 	const forumHandle = normalizeHandle(decodeURIComponent(forumManageMatch[2] ?? ""));
 	if (request.method === "PATCH") {
 		const input = parseUpdateForumInput(await readJsonBody(request));
-		const forum = await updateForum(env.BICKR_KV, env.BICKR_D1, worldHandle, forumHandle, userId, input);
+		const updatedAt = new Date().toISOString();
+		const forum = await updateForum(env.BICKR_KV, env.BICKR_D1, worldHandle, forumHandle, userId, input, updatedAt);
 		await upsertForumSearchVector(env, forum);
+		if (input.handle && input.handle !== forumHandle) {
+			await startObjectIndexConvergenceTask(env, coordinator, {
+				kind: "object_index_convergence",
+				scope: { kind: "forum", forumId: forum.id },
+				updatedAt,
+			});
+		}
 		return ok({ forum, coordinator: coordinator.objectId });
 	}
 	if (request.method === "DELETE") {
@@ -665,6 +690,7 @@ async function startGovernanceDeletionTask(
 		return;
 	}
 	await runGovernanceDeletionTask(env, coordinator, task);
+	await scheduleCoordinatorAlarmForPendingTasks(coordinator);
 }
 
 export async function runPendingGovernanceDeletionTask(
@@ -680,12 +706,16 @@ export async function runPendingGovernanceDeletionTask(
 	return true;
 }
 
-async function runGovernanceDeletionAlarm(
+async function runCoordinatorAlarm(
 	env: ForumCoordinatorEnv,
 	coordinator: CoordinatorContext,
 	alarmInfo?: AlarmInvocationInfo,
 ): Promise<void> {
-	const operation = () => runPendingGovernanceDeletionTask(env, coordinator);
+	const operation = async () => {
+		await runPendingGovernanceDeletionTask(env, coordinator);
+		await runPendingObjectIndexConvergenceTask(env, coordinator);
+		await scheduleCoordinatorAlarmForPendingTasks(coordinator);
+	};
 	try {
 		if (coordinator.queue) {
 			await coordinator.queue.run(operation);
@@ -723,13 +753,60 @@ async function runGovernanceDeletionTask(
 
 	if (result.done) {
 		await coordinator.storage?.delete(governanceDeletionTaskStorageKey);
-		await coordinator.storage?.deleteAlarm();
 		return;
 	}
+}
+
+async function startObjectIndexConvergenceTask(
+	env: ForumCoordinatorEnv,
+	coordinator: CoordinatorContext,
+	task: ObjectIndexConvergenceTask,
+): Promise<void> {
+	if (coordinator.storage) {
+		await coordinator.storage.put(objectIndexConvergenceTaskStorageKey, task);
+		// Arm before the first external repair batch. Production requests return
+		// after this O(1) checkpoint; only direct test contexts repair inline.
+		await coordinator.storage.setAlarm(Date.now() + governanceDeletionAlarmDelayMs);
+		return;
+	}
+	await runObjectIndexConvergenceBatch(env, task);
+}
+
+export async function runPendingObjectIndexConvergenceTask(
+	env: ForumCoordinatorEnv,
+	coordinator: CoordinatorContext,
+	options: {
+		chunkSize?: number;
+		maxRowsPerRun?: number;
+		maxRepairsPerRun?: number;
+	} = {},
+): Promise<boolean> {
+	const task = await coordinator.storage?.get<ObjectIndexConvergenceTask>(objectIndexConvergenceTaskStorageKey);
+	if (!task) {
+		return false;
+	}
+	const next = await runObjectIndexConvergenceBatch(env, task, options);
+	if (next) {
+		await coordinator.storage?.put(objectIndexConvergenceTaskStorageKey, next);
+	} else {
+		await coordinator.storage?.delete(objectIndexConvergenceTaskStorageKey);
+	}
+	return true;
+}
+
+async function scheduleCoordinatorAlarmForPendingTasks(coordinator: CoordinatorContext): Promise<void> {
 	if (!coordinator.storage) {
 		return;
 	}
-	await coordinator.storage.setAlarm(Date.now() + governanceDeletionAlarmDelayMs);
+	const [deletionTask, convergenceTask] = await Promise.all([
+		coordinator.storage.get(governanceDeletionTaskStorageKey),
+		coordinator.storage.get(objectIndexConvergenceTaskStorageKey),
+	]);
+	if (deletionTask || convergenceTask) {
+		await coordinator.storage.setAlarm(Date.now() + governanceDeletionAlarmDelayMs);
+	} else {
+		await coordinator.storage.deleteAlarm();
+	}
 }
 
 async function requestThreadSoftDeletion(

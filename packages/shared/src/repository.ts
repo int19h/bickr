@@ -1,4 +1,5 @@
 import { makeId, randomToken, sha256Hex } from "./ids";
+import { objectIndexScopeStaleStatement } from "./object-index-scope";
 import { entityIndexVersions } from "./index-versions";
 import { tombstoneHandle } from "./handles";
 import {
@@ -64,7 +65,6 @@ import {
 	type PostingSettingsInput,
 	type PublicUser,
 	type SessionDocument,
-	type ThreadDocument,
 	type UpdateBotGroupInput,
 	type UpdateBotInput,
 	type UpdateUserProfileInput,
@@ -1443,7 +1443,6 @@ export async function updateBot(
 	const effectiveUpdated = canInheritProfile ? await effectiveBotDocument(kv, db, updated) : updated;
 	const personalForumUpdate = await personalForumUpdateForBotProfile(kv, db, bot, effectiveUpdated, now);
 
-	await writeJson(kv, kvKeys.bot(updated.id), updated);
 	if (personalForumUpdate) {
 		await db.batch([
 			botIndexUpdateStatement(db, effectiveUpdated),
@@ -1464,17 +1463,17 @@ export async function updateBot(
 			db
 				.prepare(`UPDATE threads_index SET forum_handle = ? WHERE forum_id = ? AND deleted_at IS NULL`)
 				.bind(personalForumUpdate.updated.handle, personalForumUpdate.updated.id),
+			objectIndexScopeStaleStatement(db, {
+				kind: "forum",
+				forumId: personalForumUpdate.updated.id,
+			}),
 		]);
+		await writeJson(kv, kvKeys.bot(updated.id), updated);
 	} else {
+		await writeJson(kv, kvKeys.bot(updated.id), updated);
 		await upsertBotIndex(db, effectiveUpdated);
 	}
 	await upsertBotRuntimeIndex(db, updated, now, shouldRescheduleBotRuntime(bot.tickSettings, updated.tickSettings, input.tickSettings));
-	if (personalForumUpdate) {
-		await writeJson(kv, kvKeys.forum(personalForumUpdate.updated.id), personalForumUpdate.updated);
-		await writePersonalForumThreadRenameDocuments(kv, db, personalForumUpdate.updated, now);
-		await upsertForumSearchIndex(db, personalForumUpdate.updated);
-		await putObjectIndex(db, personalForumUpdate.updated, "forum", entityIndexVersions.forum, personalForumUpdate.updated.worldId);
-	}
 	await upsertBotSearchIndex(db, effectiveUpdated);
 	await putObjectIndex(db, updated, "bot", entityIndexVersions.bot, updated.homeWorldId);
 
@@ -2916,32 +2915,6 @@ async function personalForumUpdateForBotProfile(
 			updatedAt: now,
 		},
 	};
-}
-
-async function writePersonalForumThreadRenameDocuments(
-	kv: KVNamespaceLike,
-	db: D1DatabaseLike,
-	forum: ForumDocument,
-	now: string,
-): Promise<void> {
-	const threads = await db
-		.prepare(`SELECT thread_id AS id FROM threads_index WHERE forum_id = ? AND deleted_at IS NULL`)
-		.bind(forum.id)
-		.all<{ id: string }>();
-	for (const row of threads.results ?? []) {
-		const thread = await readJson<ThreadDocument>(kv, kvKeys.thread(row.id));
-		if (!thread || thread.deletedAt || thread.forumHandle === forum.handle) {
-			continue;
-		}
-		const renamed: ThreadDocument = {
-			...thread,
-			forumHandle: forum.handle,
-			revision: thread.revision + 1,
-			updatedAt: now,
-		};
-		await writeJson(kv, kvKeys.thread(renamed.id), renamed);
-		await putObjectIndex(db, renamed, "thread", entityIndexVersions.thread, renamed.worldId);
-	}
 }
 
 const maxCloneChainDepth = 16;

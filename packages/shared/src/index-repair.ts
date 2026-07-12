@@ -1,7 +1,9 @@
 import { entityIndexVersions, type IndexedEntityType } from "./index-versions";
+import { type ObjectIndexRepairScope } from "./object-index-scope";
 import {
 	type BotDocument,
 	type ForumDocument,
+	localizedTextFromStored,
 	type ThreadDocument,
 	type UserDocument,
 	type WorldDocument,
@@ -30,6 +32,9 @@ import {
 	writeJson,
 } from "./storage";
 import { runBoundedSweep } from "./sweep";
+import { parseLanguageTag } from "./validation";
+
+export type { ObjectIndexRepairScope } from "./object-index-scope";
 
 // The notification prune can consume about 8.1k of the shared 10k-subrequest
 // budget. This sweep's healthy path is about 540 subrequests (500 KV reads plus
@@ -43,6 +48,14 @@ export type ObjectIndexRepairResult = {
 	scanned: number;
 	repaired: number;
 	budgetExhausted: boolean;
+	afterObjectId?: string;
+};
+
+export type ObjectIndexConvergenceTask = {
+	kind: "object_index_convergence";
+	scope: ObjectIndexRepairScope;
+	updatedAt: string;
+	afterObjectId?: string;
 };
 
 export type ObjectIndexRepairEnv = SearchVectorEnv & {
@@ -55,6 +68,12 @@ type ObjectIndexRow = {
 	objectType: string;
 	revision: number;
 	indexVersion: number;
+	canonicalWorldHandle: string | null;
+	canonicalForumHandle: string | null;
+	indexedForumHandle: string | null;
+	indexedForumLanguage: string | null;
+	indexedForumDescription: string | null;
+	indexedForumDescriptionLang: string | null;
 };
 
 type ObjectIndexRepairCursor = {
@@ -69,31 +88,42 @@ export async function repairObjectIndexes(
 		chunkSize?: number;
 		maxRowsPerRun?: number;
 		maxRepairsPerRun?: number;
+		scope?: ObjectIndexRepairScope;
+		afterObjectId?: string;
+		documentUpdatedAt?: string;
 	} = {},
 ): Promise<ObjectIndexRepairResult> {
-	const storedCursor = await readObjectIndexRepairCursor(env.BICKR_KV);
+	const storedCursor = options.scope ? null : await readObjectIndexRepairCursor(env.BICKR_KV);
+	const initialCursor = options.afterObjectId ?? storedCursor?.afterObjectId;
 	const maxRepairsPerRun = positiveInteger(
 		options.maxRepairsPerRun ?? objectIndexRepairMaxRepairsPerRun,
 		"maxRepairsPerRun",
 	);
 	let repaired = 0;
+	let afterObjectId: string | undefined;
 	const iteration = await runBoundedSweep<ObjectIndexRow, string>({
 		chunkSize: options.chunkSize ?? objectIndexRepairChunkSize,
 		maxItemsPerRun: options.maxRowsPerRun ?? objectIndexRepairMaxRowsPerRun,
-		...(storedCursor ? { initialCursor: storedCursor.afterObjectId } : {}),
-		loadChunk: (cursor, limit) => loadObjectIndexChunk(env.BICKR_D1, cursor, limit),
+		...(initialCursor ? { initialCursor } : {}),
+		loadChunk: (cursor, limit) => loadObjectIndexChunk(env.BICKR_D1, cursor, limit, options.scope),
 		processChunk: async (rows) => {
 			const documents = await Promise.all(rows.map((row) => readIndexedDocument(env.BICKR_KV, row)));
 			for (let index = 0; index < rows.length; index += 1) {
 				const row = rows[index];
-				const document = documents[index];
-				if (!row || !document || !isIndexedEntityType(row.objectType)) {
+				const storedDocument = documents[index];
+				if (!row || !storedDocument || !isIndexedEntityType(row.objectType)) {
 					continue;
 				}
 				const currentIndexVersion = entityIndexVersions[row.objectType];
-				if (document.revision <= row.revision && row.indexVersion >= currentIndexVersion) {
+				if (storedDocument.revision <= row.revision && row.indexVersion >= currentIndexVersion) {
 					continue;
 				}
+				const document = await convergeDerivedRouteFields(
+					env.BICKR_KV,
+					storedDocument,
+					row,
+					options.documentUpdatedAt,
+				);
 				await repairIndexProjection(env, document, currentIndexVersion);
 				repaired += 1;
 				if (repaired >= maxRepairsPerRun) {
@@ -106,46 +136,93 @@ export async function repairObjectIndexes(
 			}
 			return { kind: "continue" };
 		},
-		checkpoint: (afterObjectId) => writeJson(
-			env.BICKR_KV,
-			kvKeys.objectIndexRepairCursor,
-			{ afterObjectId } satisfies ObjectIndexRepairCursor,
-		),
-		complete: () => deleteKey(env.BICKR_KV, kvKeys.objectIndexRepairCursor),
+		checkpoint: async (cursor) => {
+			afterObjectId = cursor;
+			if (!options.scope) {
+				await writeJson(
+					env.BICKR_KV,
+					kvKeys.objectIndexRepairCursor,
+					{ afterObjectId: cursor } satisfies ObjectIndexRepairCursor,
+				);
+			}
+		},
+		complete: async () => {
+			afterObjectId = undefined;
+			if (!options.scope) {
+				await deleteKey(env.BICKR_KV, kvKeys.objectIndexRepairCursor);
+			}
+		},
 	});
 
 	return {
 		scanned: iteration.scanned,
 		repaired,
 		budgetExhausted: iteration.budgetExhausted,
+		...(options.scope && afterObjectId ? { afterObjectId } : {}),
 	};
+}
+
+export async function runObjectIndexConvergenceBatch(
+	env: ObjectIndexRepairEnv,
+	task: ObjectIndexConvergenceTask,
+	options: {
+		chunkSize?: number;
+		maxRowsPerRun?: number;
+		maxRepairsPerRun?: number;
+	} = {},
+): Promise<ObjectIndexConvergenceTask | null> {
+	assertObjectIndexConvergenceTask(task);
+	const result = await repairObjectIndexes(env, {
+		...options,
+		scope: task.scope,
+		...(task.afterObjectId ? { afterObjectId: task.afterObjectId } : {}),
+		documentUpdatedAt: task.updatedAt,
+	});
+	if (!result.budgetExhausted) {
+		return null;
+	}
+	if (!result.afterObjectId) {
+		throw new Error("Scoped object-index repair exhausted its budget without a continuation cursor.");
+	}
+	return { ...task, afterObjectId: result.afterObjectId };
 }
 
 async function loadObjectIndexChunk(
 	db: D1DatabaseLike,
 	cursor: string | undefined,
 	limit: number,
+	scope?: ObjectIndexRepairScope,
 ) {
-	const statement = cursor ?
-		db
-			.prepare(
-				`SELECT object_id AS objectId, object_type AS objectType, revision,
-				        index_version AS indexVersion
-				 FROM objects_index
-				 WHERE object_id > ?
-				 ORDER BY object_id ASC
-				 LIMIT ?`,
-			)
-			.bind(cursor, limit)
-	:	db
-			.prepare(
-				`SELECT object_id AS objectId, object_type AS objectType, revision,
-				        index_version AS indexVersion
-				 FROM objects_index
-				 ORDER BY object_id ASC
-				 LIMIT ?`,
-			)
-			.bind(limit);
+	const { clause, values } = objectIndexScopeClause(scope);
+	const cursorClause = cursor ? " AND oi.object_id > ?" : "";
+	const statement = db
+		.prepare(
+			`SELECT oi.object_id AS objectId,
+			        oi.object_type AS objectType,
+			        oi.revision,
+			        oi.index_version AS indexVersion,
+			        canonical_world.handle AS canonicalWorldHandle,
+			        canonical_forum.handle AS canonicalForumHandle,
+			        object_forum.handle AS indexedForumHandle,
+			        object_forum.language AS indexedForumLanguage,
+			        object_forum.description AS indexedForumDescription,
+			        object_forum.description_lang AS indexedForumDescriptionLang
+			 FROM objects_index oi
+			 LEFT JOIN forums_index object_forum
+			   ON oi.object_type = 'forum' AND object_forum.forum_id = oi.object_id
+			 LEFT JOIN bots_index object_bot
+			   ON oi.object_type = 'bot' AND object_bot.bot_id = oi.object_id
+			 LEFT JOIN threads_index object_thread
+			   ON oi.object_type = 'thread' AND object_thread.thread_id = oi.object_id
+			 LEFT JOIN worlds_index canonical_world
+			   ON canonical_world.world_id = COALESCE(object_forum.world_id, object_bot.home_world_id, object_thread.world_id)
+			 LEFT JOIN forums_index canonical_forum
+			   ON canonical_forum.forum_id = object_thread.forum_id
+			 WHERE (${clause})${cursorClause}
+			 ORDER BY oi.object_id ASC
+			 LIMIT ?`,
+		)
+		.bind(...values, ...(cursor ? [cursor] : []), limit);
 	const result = await statement.all<ObjectIndexRow>();
 	const items = result.results ?? [];
 	const nextCursor = items.at(-1)?.objectId;
@@ -153,6 +230,23 @@ async function loadObjectIndexChunk(
 		items,
 		done: items.length < limit,
 		...(nextCursor ? { nextCursor } : {}),
+	};
+}
+
+function objectIndexScopeClause(scope: ObjectIndexRepairScope | undefined): {
+	clause: string;
+	values: string[];
+} {
+	if (!scope) {
+		return { clause: "1 = 1", values: [] };
+	}
+	if (scope.kind === "world") {
+		return { clause: "oi.world_id = ?", values: [scope.worldId] };
+	}
+	return {
+		clause: `(oi.object_type = 'forum' AND oi.object_id = ?)
+			OR (oi.object_type = 'thread' AND object_thread.forum_id = ?)`,
+		values: [scope.forumId, scope.forumId],
 	};
 }
 
@@ -186,6 +280,96 @@ async function readIndexedDocument(
 		return null;
 	}
 	return value as IndexedDocument;
+}
+
+async function convergeDerivedRouteFields(
+	kv: KVNamespaceLike,
+	document: IndexedDocument,
+	row: ObjectIndexRow,
+	updatedAt = new Date().toISOString(),
+): Promise<IndexedDocument> {
+	// KV remains authoritative for entity-owned content. These route fields are
+	// different: they are denormalized from a parent whose rename batch already
+	// committed in D1. Personal-forum profile fields are likewise derived from
+	// their participant. Reconcile only those fields before projecting the now-
+	// canonical document back into D1, FTS, and Vectorize.
+	let converged: IndexedDocument = document;
+	switch (document.type) {
+		case "forum": {
+			const worldHandle = row.canonicalWorldHandle ?? document.worldHandle;
+			const handle = document.personalBotId ? row.indexedForumHandle ?? document.handle : document.handle;
+			const language = document.personalBotId && row.indexedForumLanguage !== null ?
+				parseLanguageTag(row.indexedForumLanguage)
+			: document.language;
+			const description = document.personalBotId && row.indexedForumDescription !== null ?
+				localizedTextFromStored({
+					text: row.indexedForumDescription,
+					lang: row.indexedForumDescriptionLang,
+				})
+			: document.description;
+			if (
+				worldHandle !== document.worldHandle ||
+				handle !== document.handle ||
+				language !== document.language ||
+				description.text !== document.description.text ||
+				description.lang !== document.description.lang
+			) {
+				converged = {
+					...document,
+					worldHandle,
+					handle,
+					language,
+					description,
+					revision: document.revision + 1,
+					updatedAt,
+				};
+			}
+			break;
+		}
+		case "bot": {
+			const homeWorldHandle = row.canonicalWorldHandle ?? document.homeWorldHandle;
+			if (homeWorldHandle !== document.homeWorldHandle) {
+				converged = { ...document, homeWorldHandle, revision: document.revision + 1, updatedAt };
+			}
+			break;
+		}
+		case "thread": {
+			const worldHandle = row.canonicalWorldHandle ?? document.worldHandle;
+			const forumHandle = row.canonicalForumHandle ?? document.forumHandle;
+			if (worldHandle !== document.worldHandle || forumHandle !== document.forumHandle) {
+				converged = { ...document, worldHandle, forumHandle, revision: document.revision + 1, updatedAt };
+			}
+			break;
+		}
+		case "user":
+		case "world":
+			break;
+		default: {
+			const exhaustive: never = document;
+			return exhaustive;
+		}
+	}
+	if (converged !== document) {
+		await writeJson(kv, indexedDocumentKey(converged.type, converged.id), converged);
+	}
+	return converged;
+}
+
+function assertObjectIndexConvergenceTask(task: ObjectIndexConvergenceTask): void {
+	if (
+		task.kind !== "object_index_convergence" ||
+		!Number.isFinite(Date.parse(task.updatedAt)) ||
+		(task.afterObjectId !== undefined && !task.afterObjectId)
+	) {
+		throw new Error("Invalid persisted object-index convergence task.");
+	}
+	if (
+		(task.scope.kind === "world" && task.scope.worldId) ||
+		(task.scope.kind === "forum" && task.scope.forumId)
+	) {
+		return;
+	}
+	throw new Error("Invalid persisted object-index convergence task scope.");
 }
 
 function indexedDocumentKey(type: IndexedEntityType, id: string): string {

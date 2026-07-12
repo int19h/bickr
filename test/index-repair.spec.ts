@@ -178,6 +178,66 @@ describe("KV-to-index repair sweep", () => {
 		expect(search.upserted).toEqual([]);
 		expect(search.deleted).toEqual([]);
 	});
+
+	it("applies row budgets inside the requested world scope", async () => {
+		const cookie = await authCookie();
+		await createWorldForTest(cookie, "repair-scope-a", "Repair Scope A");
+		await createWorldForTest(cookie, "repair-scope-b", "Repair Scope B");
+		const worlds = await testEnv.BICKR_D1.prepare(
+			`SELECT world_id AS id, handle
+			 FROM worlds_index
+			 WHERE handle IN ('repair-scope-a', 'repair-scope-b')`,
+		).all<{ id: string; handle: string }>();
+		const firstWorld = worlds.results?.find((world) => world.handle === "repair-scope-a");
+		const secondWorld = worlds.results?.find((world) => world.handle === "repair-scope-b");
+		if (!firstWorld || !secondWorld) {
+			throw new Error("Expected both repair-scope worlds.");
+		}
+		await testEnv.BICKR_D1.prepare(
+			`UPDATE objects_index SET index_version = 0 WHERE world_id IN (?, ?)`,
+		)
+			.bind(firstWorld.id, secondWorld.id)
+			.run();
+
+		const first = await repairObjectIndexes({
+			BICKR_D1: testEnv.BICKR_D1,
+			BICKR_KV: testEnv.BICKR_KV,
+		}, {
+			chunkSize: 1,
+			maxRowsPerRun: 1,
+			scope: { kind: "world", worldId: firstWorld.id },
+		});
+		expect(first).toMatchObject({ scanned: 1, budgetExhausted: true });
+		expect(first.afterObjectId).toEqual(expect.any(String));
+
+		let afterObjectId = first.afterObjectId;
+		let done = false;
+		while (!done) {
+			const result = await repairObjectIndexes({
+				BICKR_D1: testEnv.BICKR_D1,
+				BICKR_KV: testEnv.BICKR_KV,
+			}, {
+				chunkSize: 1,
+				maxRowsPerRun: 1,
+				scope: { kind: "world", worldId: firstWorld.id },
+				...(afterObjectId ? { afterObjectId } : {}),
+			});
+			done = !result.budgetExhausted;
+			afterObjectId = result.afterObjectId;
+		}
+
+		const remaining = await testEnv.BICKR_D1.prepare(
+			`SELECT world_id AS worldId, COUNT(*) AS count
+			 FROM objects_index
+			 WHERE world_id IN (?, ?) AND index_version = 0
+			 GROUP BY world_id
+			 ORDER BY world_id`,
+		)
+			.bind(firstWorld.id, secondWorld.id)
+			.all<{ worldId: string; count: number }>();
+		expect(remaining.results).toEqual([{ worldId: secondWorld.id, count: expect.any(Number) }]);
+		expect(remaining.results?.[0]?.count).toBeGreaterThan(0);
+	});
 });
 
 async function objectIndexRows(): Promise<Array<{ id: string; revision: number; indexVersion: number }>> {
