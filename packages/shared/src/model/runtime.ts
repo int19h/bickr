@@ -6,6 +6,7 @@ import type {
 	PostingSettingsInput,
 } from "./entities";
 import type { BotSummary } from "./api";
+import type { ToolResultEnvelope } from "../tool-results";
 
 export const defaultProviderModel = "openrouter/free";
 export const defaultTextGenerationTemperature = 1;
@@ -108,6 +109,7 @@ export type BotLoopMessageDisplay = {
 	name: string;
 	args: unknown;
 	result: unknown;
+	envelope?: ToolResultEnvelope;
 	context?: {
 		worldHandle?: string;
 	};

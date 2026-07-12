@@ -5,17 +5,29 @@ import type {
 	ThreadDocument,
 } from "./model";
 
+// Read results retain the display metadata needed by owner-facing consumers so
+// they never have to re-inspect the raw provider result to build links/cards.
 export type ToolResultContentItem =
 	| {
 			kind: "thread";
 			id: string;
 			title?: LocalizedText;
+			body?: LocalizedText;
+			worldHandle?: string;
+			forumHandle?: string;
+			authorHandle?: string;
+			authorDisplayName?: LocalizedText;
 	  }
 	| {
 			kind: "comment";
 			id: string;
 			threadId: string;
 			body?: LocalizedText;
+			title?: LocalizedText;
+			worldHandle?: string;
+			forumHandle?: string;
+			authorHandle?: string;
+			authorDisplayName?: LocalizedText;
 	  };
 
 export type ToolResultVote = {

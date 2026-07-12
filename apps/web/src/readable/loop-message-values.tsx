@@ -1,10 +1,10 @@
 import { parseCommentRef, parseThreadRef } from "@bickr/shared/ids";
 import type { BotLoopMessage } from "@bickr/shared/model";
 import { useContext, type ReactNode } from "react";
-import { ContentReference, Reference, ReferenceDataContext } from "../../components/content";
-import { SpaLink } from "../../components/navigation";
-import { normalizeReadableText } from "../../reasoning-formatting";
-import type { ParsedRoute } from "../../routes";
+import { ContentReference, Reference, ReferenceDataContext } from "../components/content";
+import { SpaLink } from "../components/navigation";
+import { normalizeReadableText } from "../reasoning-formatting";
+import type { ParsedRoute } from "../routes";
 import type { LoopToolCall, LoopToolCallContext } from "./loop-message-readable";
 
 export type JsonRecord = Record<string, unknown>;

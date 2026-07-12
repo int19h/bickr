@@ -24,7 +24,7 @@ import {
 import { loopContinuationRowsForPage } from "../../loop-page-continuations";
 import { Avatar, Confirm, Icon, textValue } from "../../ui";
 import { effectiveBotModel } from "./bot-drafts";
-import { loopToolCallsById } from "./loop-message-values";
+import { loopToolCallsById } from "../../readable/loop-message-values";
 import { LoopContinuationRow, LoopMessageLogsModal, LoopMessagePager, LoopMessageRow } from "./loop-messages";
 import { RuntimeRow } from "./runtime-row";
 import {

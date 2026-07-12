@@ -919,6 +919,10 @@ describe("Compaction", () => {
 					authorHandle: "alice",
 					authorDisplayName: "Alice",
 				}],
+				envelope: {
+					kind: "content_read",
+					items: [{ kind: "comment", id: "cmt_match", threadId: "thr_rule" }],
+				},
 				displayContext: { worldHandle: "sandbox" },
 			};
 			const rows: LoopMessageRowForTest[] = [
@@ -946,6 +950,7 @@ describe("Compaction", () => {
 				name: "search_threads",
 				args: displayPayload.args,
 				result: displayPayload.result,
+				envelope: displayPayload.envelope,
 				context: { worldHandle: "sandbox" },
 			});
 			expect(legacyMessage?.display).toBeUndefined();

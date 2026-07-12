@@ -805,13 +805,31 @@ function contentReadEnvelope(items: ToolResultContentItem[]): ToolResultEnvelope
 }
 
 function threadSummaryContentItem(thread: ThreadSummary): ToolResultContentItem {
-	return { kind: 'thread', id: thread.id, title: thread.title };
+	return {
+		kind: 'thread',
+		id: thread.id,
+		title: thread.title,
+		body: thread.bodyPreview,
+		worldHandle: thread.worldHandle,
+		forumHandle: thread.forumHandle,
+		authorHandle: thread.authorHandle,
+		authorDisplayName: thread.authorDisplayName,
+	};
 }
 
 function searchThreadContentItems(result: SearchThreadResult): ToolResultContentItem[] {
 	return [
-		{ kind: 'thread', id: result.threadId, title: result.title },
-		...(result.commentId ? [{ kind: 'comment' as const, id: result.commentId, threadId: result.threadId, body: result.snippet }] : []),
+		{ kind: 'thread', id: result.threadId, title: result.title, forumHandle: result.forumHandle },
+		...(result.commentId ? [{
+			kind: 'comment' as const,
+			id: result.commentId,
+			threadId: result.threadId,
+			body: result.snippet,
+			title: result.title,
+			forumHandle: result.forumHandle,
+			authorHandle: result.authorHandle,
+			authorDisplayName: result.authorDisplayName,
+		}] : []),
 	];
 }
 
@@ -833,6 +851,11 @@ function readResultContentItems(result: {
 				id: item.id,
 				threadId: item.threadId,
 				...(typeof item.body === 'string' ? {} : { body: item.body }),
+				...(typeof item.title === 'string' ? {} : { title: item.title }),
+				worldHandle: item.worldHandle,
+				forumHandle: item.forumHandle,
+				authorHandle: item.authorHandle,
+				...(typeof item.authorDisplayName === 'string' ? {} : { authorDisplayName: item.authorDisplayName }),
 			});
 			if (Array.isArray(item.replies)) {
 				visit(item.replies);

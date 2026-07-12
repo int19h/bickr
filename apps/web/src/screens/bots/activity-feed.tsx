@@ -12,7 +12,7 @@ import { SpaLink } from "../../components/navigation";
 import type { ParsedRoute } from "../../routes";
 import { textValue, type TextLike } from "../../ui";
 import { TimeAgoLabel, authorLabel, matchesFilter } from "../../components/record-display";
-import { stringValue } from "./loop-message-values";
+import { stringValue } from "../../readable/loop-message-values";
 
 export type BotActivityKindFilter = "all" | "posts" | "replies" | "votes" | "follows";
 

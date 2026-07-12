@@ -1,29 +1,19 @@
 import { formatThreadRef } from "@bickr/shared/ids";
 import type { BotInferenceSubmissionMessage, BotLoopMessage } from "@bickr/shared/model";
 import type { ReactNode } from "react";
-import { normalizeReadableText, reasoningDetailsTextForDisplay, textValueForDisplay } from "../../reasoning-formatting";
+import { isToolResultEnvelope, legacyToolResultEnvelope } from "@bickr/shared/legacy-tool-result-adapter";
+import type { ToolResultEnvelope } from "@bickr/shared/tool-results";
+import { normalizeReadableText, reasoningDetailsTextForDisplay, textValueForDisplay } from "../reasoning-formatting";
 import {
-	ReadableActivityResult,
-	ReadableFollowResult,
-	ReadableForumList,
 	ReadableGenericFields,
-	ReadableGenericResult,
-	ReadableNotificationEvents,
-	ReadablePostedReplyResult,
 	ReadablePostingReply,
-	ReadableProfiles,
 	ReadableQueryFollowersCall,
-	ReadableQueryFollowersResult,
-	ReadableReadResult,
-	ReadableThreadDocument,
-	ReadableThreadList,
-	ReadableVoteResult,
-} from "./loop-message-tool-results";
+} from "./loop-message-tool-calls";
+import { ReadableToolResultEnvelope } from "./loop-message-tool-results";
 import {
 	ForumReference,
 	ProfileReference,
 	ThreadReference,
-	arrayValue,
 	canonicalDisplayToolName,
 	commentIdFromValue,
 	firstVoteArg,
@@ -206,9 +196,29 @@ export function ReadableToolResult({
 	return (
 		<div className="tool-block readable">
 			<span>{readableToolResultTitle(name)}</span>
-			{readableToolResultContent(name, parsed, args, displayContext)}
+			{readableToolResultContent(toolResultEnvelope(display?.envelope, name, parsed, args), displayContext)}
 		</div>
 	);
+}
+
+/**
+ * Rows written before tool-result envelopes are retired through the shared
+ * legacy adapter. If it cannot prove a semantic kind, it returns `opaque`,
+ * which deliberately renders the original JSON instead of guessing here.
+ */
+export function toolResultEnvelope(
+	storedEnvelope: unknown,
+	name: string,
+	result: unknown,
+	args: JsonRecord,
+): ToolResultEnvelope {
+	if (isToolResultEnvelope(storedEnvelope)) {
+		return storedEnvelope;
+	}
+	if (storedEnvelope !== undefined) {
+		return { kind: "opaque", value: storedEnvelope };
+	}
+	return legacyToolResultEnvelope(name, result, args);
 }
 
 export function readableDisplayContext(display?: BotLoopMessage["display"]): ReadableDisplayContext {
@@ -477,43 +487,8 @@ export function readableToolCallSummary(name: string, args: JsonRecord, result?:
 }
 
 export function readableToolResultContent(
-	name: string,
-	value: unknown,
-	args: JsonRecord = {},
+	envelope: ToolResultEnvelope,
 	displayContext: ReadableDisplayContext = readableDisplayContext(),
 ): ReactNode {
-	if (name === "check_notifications") {
-		return <ReadableNotificationEvents displayContext={displayContext} events={arrayValue(recordValue(value).events)} />;
-	}
-	if (name === "view_profiles" || name === "search_profiles" || name === "list_profiles") {
-		return <ReadableProfiles displayContext={displayContext} value={value} />;
-	}
-	if (name === "query_followers") {
-		return <ReadableQueryFollowersResult displayContext={displayContext} value={value} />;
-	}
-	if (name === "read_thread" || name === "read_thread_by_id" || name === "read_comment_by_id") {
-		return <ReadableReadResult displayContext={displayContext} value={value} />;
-	}
-	if (name === "reply_to_comment") {
-		return <ReadablePostedReplyResult args={args} displayContext={displayContext} value={value} />;
-	}
-	if (name === "create_thread") {
-		return <ReadableThreadDocument args={args} displayContext={displayContext} value={value} />;
-	}
-	if (name === "vote") {
-		return <ReadableVoteResult displayContext={displayContext} value={value} />;
-	}
-	if (name === "follow_profile" || name === "unfollow_profile") {
-		return <ReadableFollowResult displayContext={displayContext} value={value} fallbackFollowing={name === "follow_profile"} />;
-	}
-	if (name === "list_accessible_forums") {
-		return <ReadableForumList displayContext={displayContext} value={value} worldHandle={worldHandleFromRecord(args) ?? displayContext.worldHandle} />;
-	}
-	if (name === "list_recent_threads" || name === "list_hot_threads" || name === "search_threads" || name === "search_threads_semantic") {
-		return <ReadableThreadList displayContext={displayContext} value={value} />;
-	}
-	if (name === "view_activity") {
-		return <ReadableActivityResult displayContext={displayContext} value={value} />;
-	}
-	return <ReadableGenericResult value={value} />;
+	return <ReadableToolResultEnvelope displayContext={displayContext} envelope={envelope} />;
 }
