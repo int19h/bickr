@@ -17,6 +17,12 @@ import {
 	postingSettingsHasValues,
 } from "./posting";
 import {
+	effectiveThreadSettings,
+	mergeThreadSettings,
+	threadSettingsHasValues,
+} from "./thread-policy";
+import {
+	assertThreadSettingsInputWithinLimit,
 	mergeImageGenerationSettings,
 	normalizeForumDefaults,
 	normalizeWorldDefaults,
@@ -55,6 +61,7 @@ export async function updateWorld(
 		await assertWorldHandleAvailable(db, world.id, nextHandle);
 	}
 	const postingSettings = mergePostingSettings(world.postingSettings, input.postingSettings);
+	const threadSettings = mergeThreadSettings(world.threadSettings, input.threadSettings);
 	const imageGeneration = input.imageGeneration === undefined ?
 		world.imageGeneration
 	:	mergeImageGenerationSettings(world.imageGeneration, input.imageGeneration);
@@ -63,6 +70,7 @@ export async function updateWorld(
 		...input,
 		handle: nextHandle,
 		...(postingSettingsHasValues(postingSettings) ? { postingSettings } : { postingSettings: undefined }),
+		...(threadSettingsHasValues(threadSettings) ? { threadSettings } : { threadSettings: undefined }),
 		...(imageGeneration ? { imageGeneration } : { imageGeneration: undefined }),
 		revision: world.revision + 1,
 		updatedAt: now,
@@ -87,6 +95,7 @@ export async function updateWorld(
 					     initial_bot_notification_lang = ?,
 					     posting_thread_body_characters = ?,
 					     posting_comment_body_characters = ?,
+					     thread_comment_limit = ?,
 					     updated_at = ?
 					 WHERE world_id = ? AND deleted_at IS NULL`,
 				)
@@ -106,6 +115,7 @@ export async function updateWorld(
 					updated.initialBotNotification.lang,
 					updated.postingSettings?.threadBodyCharacters ?? null,
 					updated.postingSettings?.commentBodyCharacters ?? null,
+					updated.threadSettings?.commentLimit ?? null,
 					now,
 					updated.id,
 				),
@@ -139,6 +149,7 @@ export async function updateWorld(
 				     initial_bot_notification_lang = ?,
 				     posting_thread_body_characters = ?,
 				     posting_comment_body_characters = ?,
+				     thread_comment_limit = ?,
 				     updated_at = ?
 				 WHERE world_id = ? AND deleted_at IS NULL`,
 			)
@@ -157,6 +168,7 @@ export async function updateWorld(
 				updated.initialBotNotification.lang,
 				updated.postingSettings?.threadBodyCharacters ?? null,
 				updated.postingSettings?.commentBodyCharacters ?? null,
+				updated.threadSettings?.commentLimit ?? null,
 				now,
 				updated.id,
 			)
@@ -253,14 +265,24 @@ export async function updateForum(
 ): Promise<ForumSummary> {
 	const forum = await forumDocumentByHandle(kv, db, worldHandle, forumHandle);
 	await assertCanModerateForum(db, forum, userId);
+	const world = await worldDocumentByHandle(kv, db, worldHandle);
+	if (world.id !== forum.worldId) {
+		throw new RepositoryError("not_found", "Forum not found in this world.", 404);
+	}
+	assertThreadSettingsInputWithinLimit(
+		input.threadSettings,
+		effectiveThreadSettings(world.threadSettings, undefined).commentLimit,
+	);
 	const nextHandle = input.handle ?? forum.handle;
 	if (nextHandle !== forum.handle) {
 		await assertForumHandleAvailable(db, forum.worldId, forum.id, nextHandle);
 	}
+	const threadSettings = mergeThreadSettings(forum.threadSettings, input.threadSettings);
 	const updated: ForumDocument = {
 		...forum,
 		...input,
 		handle: nextHandle,
+		...(threadSettingsHasValues(threadSettings) ? { threadSettings } : { threadSettings: undefined }),
 		revision: forum.revision + 1,
 		updatedAt: now,
 	};
@@ -269,10 +291,18 @@ export async function updateForum(
 			db
 				.prepare(
 					`UPDATE forums_index
-					 SET handle = ?, language = ?, description = ?, description_lang = ?, updated_at = ?
+					 SET handle = ?, language = ?, description = ?, description_lang = ?, thread_comment_limit = ?, updated_at = ?
 					 WHERE forum_id = ? AND deleted_at IS NULL`,
 				)
-				.bind(updated.handle, updated.language, updated.description.text, updated.description.lang, now, updated.id),
+				.bind(
+					updated.handle,
+					updated.language,
+					updated.description.text,
+					updated.description.lang,
+					updated.threadSettings?.commentLimit ?? null,
+					now,
+					updated.id,
+				),
 			db
 				.prepare(`UPDATE threads_index SET forum_handle = ? WHERE forum_id = ? AND deleted_at IS NULL`)
 				.bind(updated.handle, updated.id),
@@ -283,10 +313,17 @@ export async function updateForum(
 		await db
 			.prepare(
 				`UPDATE forums_index
-				 SET language = ?, description = ?, description_lang = ?, updated_at = ?
+				 SET language = ?, description = ?, description_lang = ?, thread_comment_limit = ?, updated_at = ?
 				 WHERE forum_id = ? AND deleted_at IS NULL`,
 			)
-			.bind(updated.language, updated.description.text, updated.description.lang, now, updated.id)
+			.bind(
+				updated.language,
+				updated.description.text,
+				updated.description.lang,
+				updated.threadSettings?.commentLimit ?? null,
+				now,
+				updated.id,
+			)
 			.run();
 		await writeJson(kv, kvKeys.forum(updated.id), updated);
 	}
@@ -566,6 +603,7 @@ function worldSummary(world: WorldDocument): WorldSummary {
 		...(world.imageGeneration ? { imageGeneration: world.imageGeneration } : {}),
 		initialBotNotification: world.initialBotNotification,
 		...(postingSettingsHasValues(world.postingSettings) ? { postingSettings: world.postingSettings } : {}),
+		...(threadSettingsHasValues(world.threadSettings) ? { threadSettings: world.threadSettings } : {}),
 		createdByUserId: world.createdByUserId,
 		createdAt: world.createdAt,
 		updatedAt: world.updatedAt,
@@ -586,6 +624,7 @@ function forumSummary(forum: ForumDocument): ForumSummary {
 		description: forum.description,
 		createdByUserId: forum.createdByUserId,
 		...(forum.personalBotId ? { personalBotId: forum.personalBotId } : {}),
+		...(threadSettingsHasValues(forum.threadSettings) ? { threadSettings: forum.threadSettings } : {}),
 		createdAt: forum.createdAt,
 		updatedAt: forum.updatedAt,
 	};

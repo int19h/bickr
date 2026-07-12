@@ -299,6 +299,7 @@ async function threadsCommand(ctx: CommandContext, args: string[]): Promise<void
 			{ key: "title", header: "Title", value: (thread) => thread.title },
 			{ key: "author", header: "Author", value: (thread) => thread.authorDisplayName ?? thread.authorHandle },
 			{ key: "comments", header: "Comments", value: (thread) => thread.commentCount },
+			{ key: "locked", header: "Locked", value: (thread) => thread.lock ? `yes (${thread.lock.limit})` : "no" },
 			{ key: "score", header: "Score", value: (thread) => thread.voteScore },
 			{ key: "updated", header: "Updated", value: (thread) => thread.lastActivityAt ?? thread.createdAt },
 		]));

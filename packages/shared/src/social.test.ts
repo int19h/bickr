@@ -18,7 +18,7 @@ import {
 	threadHotScore,
 } from "./social";
 import { kvKeys, type D1DatabaseLike, type D1PreparedStatementLike, type D1Result, type KVNamespaceLike } from "./storage";
-import { schemaVersion, type BotDocument, type ForumDocument, type LanguageTag, type NotificationDocument, type PostingSettings, type RequiredLocalizedText, type ThreadSummary, type WorldDocument } from "./model";
+import { schemaVersion, type BotDocument, type ForumDocument, type LanguageTag, type NotificationDocument, type PostingSettings, type RequiredLocalizedText, type ThreadSettings, type ThreadSummary, type WorldDocument } from "./model";
 
 const now = "2026-05-06T12:00:00.000Z";
 const enLang = "en" as LanguageTag;
@@ -230,6 +230,57 @@ describe("createThread duplicate title guard", () => {
 			name: "InputError",
 			message: "Comment body must be 80 characters or fewer.",
 		});
+	});
+
+	it("locks existing threads at the smaller world or forum comment limit only when adding a comment", async () => {
+		const { db, kv } = fixture({
+			existingThreads: [],
+			worldThreadSettings: { commentLimit: 3 },
+			forumThreadSettings: { commentLimit: 2 },
+		});
+		const thread = await createThread(kv, db, {
+			forumId: "frm_main",
+			authorBotId: "bot_author",
+			title: en("Limited thread"),
+			body: en("Root body"),
+		}, now);
+		expect(thread.commentCount).toBe(1);
+
+		const atLimit = await createComment(kv, db, {
+			threadId: thread.id,
+			authorBotId: "bot_author",
+			body: en("Allowed final comment"),
+		}, now, { thread });
+		expect(atLimit.commentCount).toBe(2);
+
+		await expect(createComment(kv, db, {
+			threadId: thread.id,
+			authorBotId: "bot_author",
+			body: en("Rejected after lock"),
+		}, now, { thread: atLimit })).rejects.toMatchObject({
+			code: "conflict",
+			status: 409,
+			message: "Thread is locked after reaching its 2-comment limit.",
+		});
+	});
+
+	it("allows thread creation even when the root comment immediately reaches the configured limit", async () => {
+		const { db, kv } = fixture({
+			existingThreads: [],
+			forumThreadSettings: { commentLimit: 1 },
+		});
+		const thread = await createThread(kv, db, {
+			forumId: "frm_main",
+			authorBotId: "bot_author",
+			title: en("Immediately locked"),
+			body: en("Root body"),
+		}, now);
+		expect(thread.commentCount).toBe(1);
+		await expect(createComment(kv, db, {
+			threadId: thread.id,
+			authorBotId: "bot_author",
+			body: en("No reply allowed"),
+		}, now, { thread })).rejects.toMatchObject({ code: "conflict", status: 409 });
 	});
 
 	it("creates short thread and comment IDs with the root comment sharing the thread ID", async () => {
@@ -461,6 +512,8 @@ type FixtureOptions = {
 	botPostingSettings?: PostingSettings;
 	followerBotIds?: string[];
 	forumPersonalBotId?: string;
+	worldThreadSettings?: ThreadSettings;
+	forumThreadSettings?: ThreadSettings;
 };
 
 function fixture(options: FixtureOptions): { db: FakeD1; kv: FakeKV; bot: BotDocument } {
@@ -476,6 +529,7 @@ function fixture(options: FixtureOptions): { db: FakeD1; kv: FakeKV; bot: BotDoc
 		description: en("General discussion"),
 		createdByUserId: "usr_owner",
 		...(options.forumPersonalBotId ? { personalBotId: options.forumPersonalBotId } : {}),
+		...(options.forumThreadSettings ? { threadSettings: options.forumThreadSettings } : {}),
 		createdAt: now,
 		updatedAt: now,
 	};
@@ -491,6 +545,7 @@ function fixture(options: FixtureOptions): { db: FakeD1; kv: FakeKV; bot: BotDoc
 		prompt: en(""),
 		initialBotNotification: en("Welcome."),
 		...(options.worldPostingSettings ? { postingSettings: options.worldPostingSettings } : {}),
+		...(options.worldThreadSettings ? { threadSettings: options.worldThreadSettings } : {}),
 		createdByUserId: "usr_owner",
 		visibility: "public",
 		createdAt: now,

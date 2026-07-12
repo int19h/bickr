@@ -1105,6 +1105,7 @@ describe("Tick flow", () => {
 					authorFollowing: true,
 					commentCount: 3,
 					voteScore: 7,
+					lock: { kind: "comment_limit", limit: 3 },
 					lastActivityAt: "2026-05-01T00:00:00.000Z",
 				},
 			]);
@@ -1116,6 +1117,8 @@ describe("Tick flow", () => {
 					author: "u/alice",
 					commentCount: 3,
 					voteScore: 7,
+					locked: true,
+					commentLimit: 3,
 					lastActivity: "7 days ago",
 				},
 			]);

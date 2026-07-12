@@ -101,6 +101,7 @@ export type WorldDocument = EntityDocument & {
 	imageGeneration?: BotImageGenerationSettings;
 	initialBotNotification: LocalizedText;
 	postingSettings?: PostingSettings;
+	threadSettings?: ThreadSettings;
 	createdByUserId: string;
 	visibility: "public";
 };
@@ -115,6 +116,7 @@ export type ForumDocument = EntityDocument & {
 	description: LocalizedText;
 	createdByUserId: string;
 	personalBotId?: string;
+	threadSettings?: ThreadSettings;
 };
 
 export type ChirperImportSource = {
@@ -485,6 +487,19 @@ export type PostingSettings = Partial<{
 export type BotEffectivePostingSettings = Required<PostingSettings>;
 
 export type PostingSettingsInput = SettingsPatch<PostingSettings>;
+
+export type ThreadSettings = Partial<{
+	commentLimit: number;
+}>;
+
+export type EffectiveThreadSettings = Required<ThreadSettings>;
+
+export type ThreadSettingsInput = SettingsPatch<ThreadSettings>;
+
+export type ThreadLock = {
+	kind: "comment_limit";
+	limit: number;
+};
 
 export type BotTickSettings = {
 	enabled: boolean;

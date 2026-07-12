@@ -284,6 +284,7 @@ function SubscriptionThreadRows({
 				meta={
 					<>
 						<span>{node.thread.commentCount} comment{node.thread.commentCount === 1 ? "" : "s"}</span>
+						{node.thread.lock && <span className="lock-mark" title={`Locked at ${node.thread.lock.limit} comments`}>locked</span>}
 						<span>u/{node.thread.authorHandle}</span>
 						<TimeAgoLabel suffix value={node.thread.lastActivityAt} />
 					</>

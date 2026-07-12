@@ -344,6 +344,7 @@ export function ForumPage({
 				forum={editOpen ? forum : null}
 				onClose={() => setEditOpen(false)}
 				onSave={onUpdateForum}
+				world={world}
 			/>
 
 			<Confirm
@@ -457,6 +458,7 @@ function ForumThreadRow({
 					{!readState?.isNew && readState?.hasNewComments && (
 						<span className="new-mark">{readState.newCommentCount} new</span>
 					)}
+					{thread.lock && <span className="lock-mark" title={`Locked at ${thread.lock.limit} comments`}>locked</span>}
 				</div>
 				<div className="preview">
 					<TranslatableText

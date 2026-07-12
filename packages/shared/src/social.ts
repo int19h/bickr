@@ -81,6 +81,11 @@ import {
 	effectivePostingSettings,
 	postingHardLimit,
 } from "./posting";
+import {
+	defaultThreadCommentLimit,
+	effectiveThreadSettings,
+	threadLock,
+} from "./thread-policy";
 import { ownerFacingRuntimeErrorMessage, type RuntimeErrorCause } from "./runtime-errors";
 import { likePatternForSearchGlob } from "./search";
 import {
@@ -117,6 +122,15 @@ const threadHotScoreSql = `max(0,
 ) * min(1, max(0,
 	1 - ((julianday(?) - julianday(t.last_activity_at)) / ${threadHotScoreCoefficients.decayDays})
 ))`;
+const effectiveThreadCommentLimitSql = `min(
+	${defaultThreadCommentLimit},
+	coalesce(w.thread_comment_limit, ${defaultThreadCommentLimit}),
+	coalesce(f.thread_comment_limit, ${defaultThreadCommentLimit})
+)`;
+const threadLockCommentLimitSql = `CASE
+	WHEN t.comment_count >= ${effectiveThreadCommentLimitSql} THEN ${effectiveThreadCommentLimitSql}
+	ELSE NULL
+END`;
 const secondsPerDay = 24 * 60 * 60;
 
 export const notificationRetentionSecondsByStatus: Readonly<Record<NotificationStatus, number>> = {
@@ -175,7 +189,7 @@ type ThreadHotScoreInput = {
 };
 
 type ExistingThreadDetails = Exclude<RepositoryErrorDetails["existingThread"], undefined>;
-type ThreadSummaryRow = Omit<ThreadSummary, "authorAvatarCrop" | "authorDisplayName" | "title" | "bodyPreview"> & {
+type ThreadSummaryRow = Omit<ThreadSummary, "authorAvatarCrop" | "authorDisplayName" | "title" | "bodyPreview" | "lock"> & {
 	authorAvatarCrop: string | null;
 	authorDisplayName: string;
 	authorDisplayNameLang: string | null;
@@ -183,6 +197,7 @@ type ThreadSummaryRow = Omit<ThreadSummary, "authorAvatarCrop" | "authorDisplayN
 	titleLang: string | null;
 	bodyPreview: string;
 	bodyPreviewLang: string | null;
+	lockCommentLimit: number | null;
 };
 type SearchThreadResultRow = Omit<SearchThreadResult, "authorAvatarCrop" | "authorDisplayName" | "title" | "snippet"> & {
 	authorAvatarCrop: string | null;
@@ -253,6 +268,7 @@ function threadSummaryFromRow(row: ThreadSummaryRow): ThreadSummary {
 		titleLang,
 		bodyPreview,
 		bodyPreviewLang,
+		lockCommentLimit,
 		...thread
 	} = row;
 	return {
@@ -261,6 +277,7 @@ function threadSummaryFromRow(row: ThreadSummaryRow): ThreadSummary {
 		title: localizedTextFromIndex(title, titleLang),
 		bodyPreview: localizedTextFromIndex(bodyPreview, bodyPreviewLang),
 		...(crop ? { authorAvatarCrop: crop } : {}),
+		...(lockCommentLimit === null ? {} : { lock: { kind: "comment_limit" as const, limit: lockCommentLimit } }),
 	};
 }
 
@@ -462,11 +479,12 @@ async function assertThreadForumIsLive(
 	kv: KVNamespaceLike,
 	db: D1DatabaseLike,
 	thread: ThreadDocument,
-): Promise<void> {
+): Promise<ForumDocument> {
 	const forum = await forumById(kv, db, thread.forumId);
 	if (forum.worldId !== thread.worldId) {
 		throw repositoryError("not_found", "Thread not found in this forum.", 404);
 	}
+	return forum;
 }
 
 export async function listThreads(
@@ -501,9 +519,12 @@ export async function listThreads(
 				t.body_preview_lang AS bodyPreviewLang,
 				t.vote_score AS voteScore,
 				t.comment_count AS commentCount,
+				${threadLockCommentLimitSql} AS lockCommentLimit,
 				t.created_at AS createdAt,
 				t.last_activity_at AS lastActivityAt
 			 FROM threads_index t
+			 JOIN forums_index f ON f.forum_id = t.forum_id AND f.deleted_at IS NULL
+			 JOIN worlds_index w ON w.world_id = t.world_id AND w.deleted_at IS NULL
 			 LEFT JOIN bots_index b ON b.bot_id = t.author_bot_id
 			 WHERE t.forum_id = ? AND t.deleted_at IS NULL
 			   ${sort === "hot" ? "AND t.last_activity_at > ?" : ""}
@@ -588,9 +609,12 @@ export async function listHotThreads(
 				t.body_preview_lang AS bodyPreviewLang,
 				t.vote_score AS voteScore,
 				t.comment_count AS commentCount,
+				${threadLockCommentLimitSql} AS lockCommentLimit,
 				t.created_at AS createdAt,
 				t.last_activity_at AS lastActivityAt
 			 FROM threads_index t
+			 JOIN forums_index f ON f.forum_id = t.forum_id AND f.deleted_at IS NULL
+			 JOIN worlds_index w ON w.world_id = t.world_id AND w.deleted_at IS NULL
 			 LEFT JOIN bots_index b ON b.bot_id = t.author_bot_id
 			 WHERE t.world_id = ? AND t.deleted_at IS NULL AND t.last_activity_at > ?
 			 ORDER BY ${threadHotScoreSql} DESC, t.last_activity_at DESC
@@ -1473,9 +1497,12 @@ async function subscriptionThreadSummariesByIds(
 			t.body_preview_lang AS bodyPreviewLang,
 			t.vote_score AS voteScore,
 			t.comment_count AS commentCount,
+			${threadLockCommentLimitSql} AS lockCommentLimit,
 			t.created_at AS createdAt,
 			t.last_activity_at AS lastActivityAt
 		 FROM threads_index t
+		 JOIN forums_index f ON f.forum_id = t.forum_id AND f.deleted_at IS NULL
+		 JOIN worlds_index w ON w.world_id = t.world_id AND w.deleted_at IS NULL
 		 LEFT JOIN bots_index b ON b.bot_id = t.author_bot_id
 		 WHERE t.thread_id IN (${placeholders}) AND t.deleted_at IS NULL`,
 	).then((threads) => threads.map(threadSummaryFromRow));
@@ -2149,6 +2176,7 @@ function worldSettingsChangeLabels(previous: WorldDocument, updated: WorldDocume
 	if (localizedTextString(previous.prompt) !== localizedTextString(updated.prompt)) labels.push("prompt");
 	if (localizedTextString(previous.initialBotNotification) !== localizedTextString(updated.initialBotNotification)) labels.push("initial participant notification");
 	if (JSON.stringify(previous.postingSettings ?? {}) !== JSON.stringify(updated.postingSettings ?? {})) labels.push("posting limits");
+	if (JSON.stringify(previous.threadSettings ?? {}) !== JSON.stringify(updated.threadSettings ?? {})) labels.push("thread comment limit");
 	if ((previous.avatar?.url ?? "") !== (updated.avatar?.url ?? "") ||
 		JSON.stringify(previous.avatar?.crop ?? null) !== JSON.stringify(updated.avatar?.crop ?? null)) {
 		labels.push("avatar");
@@ -2495,7 +2523,16 @@ export async function createComment(
 	if (thread.id !== input.threadId) {
 		throw repositoryError("not_found", "Thread not found.", 404);
 	}
-	await assertThreadForumIsLive(kv, db, thread);
+	const forum = await assertThreadForumIsLive(kv, db, thread);
+	const effectiveSettings = await effectiveThreadSettingsForForum(kv, forum);
+	const lock = threadLock(thread.comments.length, effectiveSettings);
+	if (lock) {
+		throw repositoryError(
+			"conflict",
+			`Thread is locked after reaching its ${lock.limit}-comment limit.`,
+			409,
+		);
+	}
 	const bot = await botById(kv, db, input.authorBotId);
 	assertBotInWorld(bot, thread.worldId);
 	const postingSettings = await effectivePostingSettingsForAuthor(kv, thread.worldId, bot);
@@ -5641,6 +5678,17 @@ async function effectivePostingSettingsForAuthor(
 		throw repositoryError("server_error", "World document is missing.", 500);
 	}
 	return effectivePostingSettings(world.postingSettings, bot.postingSettings);
+}
+
+async function effectiveThreadSettingsForForum(
+	kv: KVNamespaceLike,
+	forum: ForumDocument,
+): Promise<ReturnType<typeof effectiveThreadSettings>> {
+	const world = await readJson<WorldDocument>(kv, kvKeys.world(forum.worldId));
+	if (!world || world.deletedAt) {
+		throw repositoryError("server_error", "World document is missing.", 500);
+	}
+	return effectiveThreadSettings(world.threadSettings, forum.threadSettings);
 }
 
 export function threadHotScore(input: ThreadHotScoreInput, now = new Date().toISOString()): number {

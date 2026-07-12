@@ -6,6 +6,7 @@ import type {
 	HumanSubscription,
 	ThreadDocument,
 } from "@bickr/shared/model";
+import { effectiveThreadSettings, threadLock } from "@bickr/shared/thread-policy";
 import { api } from "../../api";
 import { spotlightFocusSeedFromSelection } from "../../spotlight-focus";
 import {
@@ -96,6 +97,7 @@ export function ThreadPage({
 		[selectedCommentIds.join("|"), commentParentById],
 	);
 	const rootComment = thread ? threadRootComment(thread) : null;
+	const lock = thread ? threadLock(thread.commentCount, effectiveThreadSettings(world.threadSettings, forum.threadSettings)) : undefined;
 	const focusSeedForCommentTargets = useCallback(
 		(commentIds: string[]) => {
 			const included = new Set([...commentIds, ...impliedAncestorIds(commentIds, commentParentById)]);
@@ -206,6 +208,7 @@ export function ThreadPage({
 					<h1>
 						<TranslatableText as="span" text={thread.title} />
 						{thread.readState?.isNew && <span className="new-mark">new</span>}
+						{lock && <span className="lock-mark" title={`Locked at ${lock.limit} comments`}>locked</span>}
 					</h1>
 					<div className="thread-title-actions">
 						{canUseAccountActions && (

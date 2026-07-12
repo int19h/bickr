@@ -101,6 +101,23 @@ import { internalServiceAuthHeader } from "@bickr/shared/internal-service";
 import { notificationKvTtlSince, pruneExpiredBotSeenContent, pruneExpiredNotifications } from "@bickr/shared/social";
 import { botInferenceUsageRetentionDays } from "@bickr/shared/token-spend";
 import type { KVNamespaceLike } from "@bickr/shared/storage";
+import type { ForumDocument } from "@bickr/shared/model";
+
+async function setForumThreadCommentLimit(forumId: string, commentLimit: number): Promise<void> {
+	const key = kvKeys.forum(forumId);
+	const forum = await testEnv.BICKR_KV.get<ForumDocument>(key, { type: "json" });
+	if (!forum) {
+		throw new Error(`Forum ${forumId} was not found.`);
+	}
+	await testEnv.BICKR_KV.put(key, JSON.stringify({
+		...forum,
+		threadSettings: { commentLimit },
+		revision: forum.revision + 1,
+	}));
+	await testEnv.BICKR_D1.prepare(
+		`UPDATE forums_index SET thread_comment_limit = ? WHERE forum_id = ?`,
+	).bind(commentLimit, forumId).run();
+}
 
 async function runForumCoordinatorScheduled(scheduledTime: string): Promise<void> {
 	if (!forumCoordinatorWorker.scheduled) {
@@ -791,6 +808,32 @@ describe("Forum coordinator", () => {
 		}
 	});
 
+	it("marks thread summaries locked at the effective comment limit", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const forum = await createForumForTest(cookie, "thread-lock-summary");
+		await setForumThreadCommentLimit(forum.id, 2);
+		const author = await createBotForTest(cookie, "thread-lock-author");
+		const thread = await createThreadForTest(forum.id, author.id, "Thread lock summary", "Root body.");
+		await createCommentForTest(thread.id, author.id, "Comment at the limit.");
+
+		await expect(listThreads(testEnv.BICKR_D1, forum.id, "recent", 10)).resolves.toEqual([
+			expect.objectContaining({
+				id: thread.id,
+				commentCount: 2,
+				lock: { kind: "comment_limit", limit: 2 },
+			}),
+		]);
+		await expect(listHotThreads(testEnv.BICKR_D1, forum.worldId, 10)).resolves.toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					id: thread.id,
+					lock: { kind: "comment_limit", limit: 2 },
+				}),
+			]),
+		);
+	});
+
 	it("maintains query-time hot-score inputs for votes and comment mutations", async () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);
@@ -1464,6 +1507,51 @@ describe("Forum coordinator", () => {
 		expect(replyBodies).toEqual([
 			"First concurrent reply.",
 			"Second concurrent reply.",
+		]);
+	});
+
+	it("serializes the final comment slot so only one concurrent reply reaches the cap", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const forum = await createForumForTest(cookie, "thread-lock-serialization");
+		await setForumThreadCommentLimit(forum.id, 2);
+		const author = await createBotForTest(cookie, "thread-lock-root-author");
+		const firstReplier = await createBotForTest(cookie, "thread-lock-first");
+		const secondReplier = await createBotForTest(cookie, "thread-lock-second");
+		const thread = await createThreadForTest(forum.id, author.id, "One final slot", "Root body.");
+		const context = {
+			cache: { entry: null as ThreadFreshCacheEntryForTest | null },
+			objectId: "thread-lock-serialization-test",
+			queue: new ExclusiveOperationQueue(),
+			storage: memoryDurableStorage().storage,
+		};
+		const request = (botId: string, body: string) => {
+			const commentRequest = jsonRequest(
+				`http://example.com/threads/${thread.id}/comments`,
+				"POST",
+				{ body: requiredLt(body) },
+			);
+			commentRequest.headers.set("x-bickr-bot-id", botId);
+			return commentRequest;
+		};
+
+		const responses = await Promise.all([
+			handleForumCoordinatorRequest(request(firstReplier.id, "Claims the final slot."), {
+				BICKR_D1: testEnv.BICKR_D1,
+				BICKR_KV: testEnv.BICKR_KV,
+			}, context),
+			handleForumCoordinatorRequest(request(secondReplier.id, "Arrives after the lock."), {
+				BICKR_D1: testEnv.BICKR_D1,
+				BICKR_KV: testEnv.BICKR_KV,
+			}, context),
+		]);
+
+		expect(responses.map((response) => response.status)).toEqual([201, 409]);
+		const updated = await readThread(testEnv.BICKR_KV, thread.id);
+		expect(updated.commentCount).toBe(2);
+		expect(updated.comments.map((comment) => localizedTextString(comment.body))).toEqual([
+			"Root body.",
+			"Claims the final slot.",
 		]);
 	});
 

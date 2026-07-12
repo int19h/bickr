@@ -6033,6 +6033,22 @@ fieldset {
 	width: 7px;
 }
 
+.lock-mark {
+	align-items: center;
+	background: var(--paper-3);
+	border: 1px solid var(--rule-strong);
+	border-radius: 3px;
+	color: var(--ink-3);
+	display: inline-flex;
+	font-size: calc(10px * var(--font-scale));
+	font-weight: 700;
+	height: 17px;
+	letter-spacing: 0.08em;
+	line-height: 1;
+	padding: 1px 5px;
+	text-transform: uppercase;
+}
+
 .activity-banner {
 	align-items: center;
 	background: color-mix(in oklch, var(--accent) 10%, var(--paper));

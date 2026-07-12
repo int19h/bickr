@@ -722,6 +722,7 @@ function providerForum(record: Record<string, unknown>): Record<string, unknown>
 }
 
 function providerThreadSummary(record: Record<string, unknown>, options: { includeForum?: boolean } = {}): Record<string, unknown> {
+	const lock = runtimeRecord(record.lock);
 	return removeUndefinedProperties({
 		threadRef: providerThreadRef(stringValue(record.threadRef) ?? stringValue(record.threadId) ?? stringValue(record.id)),
 		rootCommentRef: providerCommentRef(record.rootCommentId),
@@ -729,6 +730,8 @@ function providerThreadSummary(record: Record<string, unknown>, options: { inclu
 		title: stringValue(record.title) ?? 'untitled',
 		author: providerAuthorUsername(record),
 		commentCount: numberValue(record.commentCount),
+		locked: lock.kind === 'comment_limit' ? true : undefined,
+		commentLimit: lock.kind === 'comment_limit' ? numberValue(lock.limit) : undefined,
 		voteScore: numberValue(record.voteScore),
 		lastActivity: providerRelativeTime(record.lastActivityAt),
 	});

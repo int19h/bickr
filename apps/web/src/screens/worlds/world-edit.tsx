@@ -4,6 +4,7 @@ import {
 	defaultCommentBodyCharacters,
 	defaultThreadBodyCharacters,
 } from "@bickr/shared/posting";
+import { defaultThreadCommentLimit } from "@bickr/shared/thread-policy";
 import {
 	handleHelpText,
 	isValidHandleText,
@@ -58,6 +59,7 @@ export function WorldEditPage({
 		const [initialBotNotification, setInitialBotNotification] = useState(textValue(world.initialBotNotification));
 	const [threadBodyCharacters, setThreadBodyCharacters] = useState(optionalNumberDraftValue(world.postingSettings?.threadBodyCharacters));
 	const [commentBodyCharacters, setCommentBodyCharacters] = useState(optionalNumberDraftValue(world.postingSettings?.commentBodyCharacters));
+	const [threadCommentLimit, setThreadCommentLimit] = useState(optionalNumberDraftValue(world.threadSettings?.commentLimit));
 	const [uploadOpen, setUploadOpen] = useState(false);
 	const [cropOpen, setCropOpen] = useState(false);
 	const [deleteAvatarConfirm, setDeleteAvatarConfirm] = useState(false);
@@ -73,6 +75,7 @@ export function WorldEditPage({
 			setInitialBotNotification(textValue(world.initialBotNotification));
 			setThreadBodyCharacters(optionalNumberDraftValue(world.postingSettings?.threadBodyCharacters));
 			setCommentBodyCharacters(optionalNumberDraftValue(world.postingSettings?.commentBodyCharacters));
+			setThreadCommentLimit(optionalNumberDraftValue(world.threadSettings?.commentLimit));
 		}, [
 			world.description,
 			world.handle,
@@ -82,10 +85,12 @@ export function WorldEditPage({
 			world.prompt,
 		world.postingSettings?.commentBodyCharacters,
 		world.postingSettings?.threadBodyCharacters,
+		world.threadSettings?.commentLimit,
 	]);
 
 	const threadBodyCharactersValue = parseOptionalPositiveInteger(threadBodyCharacters);
 	const commentBodyCharactersValue = parseOptionalPositiveInteger(commentBodyCharacters);
+	const threadCommentLimitValue = parseOptionalPositiveInteger(threadCommentLimit);
 	const valid =
 		isValidHandleText(handle) &&
 		name.trim().length > 0 &&
@@ -95,7 +100,9 @@ export function WorldEditPage({
 		(threadBodyCharactersValue === null ||
 			(threadBodyCharactersValue >= 1 && threadBodyCharactersValue <= defaultThreadBodyCharacters)) &&
 			(commentBodyCharactersValue === null ||
-				(commentBodyCharactersValue >= 1 && commentBodyCharactersValue <= defaultCommentBodyCharacters));
+				(commentBodyCharactersValue >= 1 && commentBodyCharactersValue <= defaultCommentBodyCharacters)) &&
+		(threadCommentLimitValue === null ||
+			(threadCommentLimitValue >= 1 && threadCommentLimitValue <= defaultThreadCommentLimit));
 		const savedLanguage = languageInputValue(language);
 		const dirty =
 			handle !== world.handle ||
@@ -105,7 +112,8 @@ export function WorldEditPage({
 			prompt !== textValue(world.prompt) ||
 			initialBotNotification !== textValue(world.initialBotNotification) ||
 			threadBodyCharactersValue !== (world.postingSettings?.threadBodyCharacters ?? null) ||
-			commentBodyCharactersValue !== (world.postingSettings?.commentBodyCharacters ?? null);
+			commentBodyCharactersValue !== (world.postingSettings?.commentBodyCharacters ?? null) ||
+			threadCommentLimitValue !== (world.threadSettings?.commentLimit ?? null);
 
 	async function submit(): Promise<void> {
 		if (readonly) {
@@ -122,6 +130,7 @@ export function WorldEditPage({
 				threadBodyCharacters: threadBodyCharactersValue,
 				commentBodyCharacters: commentBodyCharactersValue,
 			},
+			threadSettings: { commentLimit: threadCommentLimitValue },
 		});
 		if (ok) {
 			toast.push(
@@ -294,6 +303,12 @@ export function WorldEditPage({
 								</div>
 							</Field>
 						</div>
+						<Field help="Blank keeps the global default. A thread locks as soon as it reaches this many comments." label="Thread comment limit">
+							<div className="input-suffix">
+								<input className="input" disabled={readonly} min={1} max={defaultThreadCommentLimit} onChange={(event) => setThreadCommentLimit(event.target.value)} placeholder={String(defaultThreadCommentLimit)} step={1} type="number" value={threadCommentLimit} />
+								<span className="suffix">comments</span>
+							</div>
+						</Field>
 					</section>
 				</div>
 			</div>
