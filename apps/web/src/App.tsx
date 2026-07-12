@@ -33,6 +33,7 @@ import {
 import { personalForumDescription } from "@bickr/shared/personal-forums";
 import type { MouseEvent as ReactMouseEvent } from "react";
 import {
+	Suspense,
 	useEffect,
 	useLayoutEffect,
 	useMemo,
@@ -68,7 +69,6 @@ import {
 	writeStoredFontScalePercent,
 } from "./app-routing";
 import "./App.css";
-import { AvatarGenerationScreen } from "./avatar/AvatarGenerationScreen";
 import { botAvatarTarget, userAvatarTarget, worldAvatarTarget } from "./avatar/target";
 import { LoadingScreen, LoginScreen } from "./components/auth-screens";
 import {
@@ -82,7 +82,6 @@ import {
 	type TranslationContextValue,
 	type WorldView,
 } from "./components/content";
-import { WorldAvatarPromptFillSettingsModal, avatarGenerationDraftAdapter } from "./components/inference-fields";
 import {
 	NavigationContext,
 	SpaLink,
@@ -93,8 +92,9 @@ import {
 	UiTextContext,
 	effectiveUiLocalePreference,
 	languageDirection,
-	uiTextByLocale,
+	useUiTextLocale,
 } from "./components/ui-text";
+import { lazyWithRetry } from "./dynamic-import";
 import { fontScaleCssValue, type FontScalePercent } from "./font-scale";
 import {
 	defaultSearchRouteState,
@@ -107,12 +107,6 @@ import {
 	type SearchRouteState,
 	type WorldTab,
 } from "./routes";
-import {
-	BotEdit,
-	BotLoopScreen,
-	BotProfileScreen,
-	CreateBotModal,
-} from "./screens/bots";
 import { createBotInputFromDraft, type BotDraft } from "./screens/bots/bot-drafts";
 import {
 	Sidebar,
@@ -123,17 +117,12 @@ import {
 	type ThemePreference,
 } from "./screens/chrome";
 import { ForumPage, ThreadPage } from "./screens/forums";
-import { HumanProfileScreen } from "./screens/humans/public-profile";
-import { ProfileScreen } from "./screens/humans/settings";
-import { MyBotsScreen } from "./screens/my-bots";
 import {
-	NotificationsScreen,
 	humanNotificationSummaryWithReadScope,
 	humanNotificationSummaryWithoutNotification,
 	notificationThreadId,
-} from "./screens/notifications";
-import { AdvancedSearchScreen, InferenceCostStatisticsScreen } from "./screens/search";
-import { SubscriptionsScreen, type SubscriptionTarget } from "./screens/subscriptions";
+} from "./screens/notifications/state";
+import type { SubscriptionTarget } from "./screens/subscriptions";
 import { WorldsScreen } from "./screens/worlds";
 import { WorldDetail } from "./screens/worlds/world-detail";
 import { WorldEditPage } from "./screens/worlds/world-edit";
@@ -149,6 +138,49 @@ import { runApiAction } from "./use-api";
 
 type BotMutationResponse = { bot: BotSummary; affectedBots?: BotSummary[] };
 type UserMutationResponse = { profile: UserProfile };
+
+const BotAvatarGenerationScreen = lazyWithRetry(() =>
+	import("./avatar/AvatarGenerationRoutes").then((module) => ({ default: module.BotAvatarGenerationScreen })),
+);
+const UserAvatarGenerationScreen = lazyWithRetry(() =>
+	import("./avatar/AvatarGenerationRoutes").then((module) => ({ default: module.UserAvatarGenerationScreen })),
+);
+const WorldAvatarGenerationScreen = lazyWithRetry(() =>
+	import("./avatar/AvatarGenerationRoutes").then((module) => ({ default: module.WorldAvatarGenerationScreen })),
+);
+const BotEdit = lazyWithRetry(() =>
+	import("./screens/bots/edit").then((module) => ({ default: module.BotEdit })),
+);
+const BotLoopScreen = lazyWithRetry(() =>
+	import("./screens/bots/runtime").then((module) => ({ default: module.BotLoopScreen })),
+);
+const BotProfileScreen = lazyWithRetry(() =>
+	import("./screens/bots/profile").then((module) => ({ default: module.BotProfileScreen })),
+);
+const CreateBotModal = lazyWithRetry(() =>
+	import("./screens/bots/create").then((module) => ({ default: module.CreateBotModal })),
+);
+const HumanProfileScreen = lazyWithRetry(() =>
+	import("./screens/humans/public-profile").then((module) => ({ default: module.HumanProfileScreen })),
+);
+const ProfileScreen = lazyWithRetry(() =>
+	import("./screens/humans/settings").then((module) => ({ default: module.ProfileScreen })),
+);
+const MyBotsScreen = lazyWithRetry(() =>
+	import("./screens/my-bots").then((module) => ({ default: module.MyBotsScreen })),
+);
+const NotificationsScreen = lazyWithRetry(() =>
+	import("./screens/notifications").then((module) => ({ default: module.NotificationsScreen })),
+);
+const AdvancedSearchScreen = lazyWithRetry(() =>
+	import("./screens/search").then((module) => ({ default: module.AdvancedSearchScreen })),
+);
+const InferenceCostStatisticsScreen = lazyWithRetry(() =>
+	import("./screens/search").then((module) => ({ default: module.InferenceCostStatisticsScreen })),
+);
+const SubscriptionsScreen = lazyWithRetry(() =>
+	import("./screens/subscriptions").then((module) => ({ default: module.SubscriptionsScreen })),
+);
 
 type BeforeInstallPromptEvent = Event & {
 	platforms: string[];
@@ -274,7 +306,7 @@ function App() {
 		() => effectiveUiLocalePreference(session.user?.uiLocale),
 		[session.user?.uiLocale],
 	);
-	const uiText = uiTextByLocale[effectiveUiLocale];
+	const uiText = useUiTextLocale(effectiveUiLocale);
 	const currentUser = session.authenticated ? session.user : null;
 	const isAuthenticated = Boolean(currentUser);
 
@@ -1967,6 +1999,7 @@ function App() {
 				<ReferenceDataContext.Provider value={referenceData}>
 					<HoverTooltipContext.Provider value={hoverTooltip}>
 					<TranslationContext.Provider value={translationContext}>
+				<Suspense fallback={<LoadingScreen status="Loading screen..." />}>
 				<div className="shell">
 				<Topbar
 					activeWorldHandle={activeWorldHandle}
@@ -2058,8 +2091,7 @@ function App() {
 					)}
 					{route === "world-avatar" && activeWorld && (
 						activeWorld.createdByUserId === currentUser?.id ?
-							<AvatarGenerationScreen
-								adapter={avatarGenerationDraftAdapter}
+							<WorldAvatarGenerationScreen
 								breadcrumb={
 									<div className="thread-crumb">
 										<SpaLink className="linklike" to={{ route: "world-edit", worldHandle: activeWorld.handle }}>
@@ -2078,9 +2110,7 @@ function App() {
 								onDiscardSettings={() => updateWorld(activeWorld.handle, { imageGeneration: null })}
 								onSaveSettings={(draft, language) => updateWorld(activeWorld.handle, { imageGeneration: imageGenerationInputFromDraft(draft, undefined, language) })}
 								onSaved={applySavedWorld}
-								renderPromptFillSettingsModal={(props) => (
-									<WorldAvatarPromptFillSettingsModal {...props} modelSuggestions={ownedBotModels} />
-								)}
+								modelSuggestions={ownedBotModels}
 								target={worldAvatarTarget(activeWorld, userProfile?.inferenceSettings ?? null)}
 							/>
 						:	<PermissionState title="Avatar generation is owner-only">
@@ -2149,8 +2179,7 @@ function App() {
 					)}
 					{route === "bot-avatar" && activeWorld && activeBot && (
 						activeBot.ownerUserId === currentUser?.id ?
-							<AvatarGenerationScreen
-								adapter={avatarGenerationDraftAdapter}
+							<BotAvatarGenerationScreen
 								breadcrumb={
 									<div className="thread-crumb">
 										<SpaLink className="linklike" to={{ route: "bot-profile", worldHandle: activeWorld.handle, botHandle: activeBot.handle }}>
@@ -2284,8 +2313,7 @@ function App() {
 					)}
 					{route === "profile-avatar" && (
 						userProfile ?
-							<AvatarGenerationScreen
-								adapter={avatarGenerationDraftAdapter}
+							<UserAvatarGenerationScreen
 								breadcrumb={
 									<div className="thread-crumb">
 										<SpaLink className="linklike" to={{ route: "profile" }}>
@@ -2319,14 +2347,17 @@ function App() {
 				</main>
 			</div>
 
-			<CreateBotModal
-				busy={busy}
-				onClose={() => setCreateBotWorldHandle(null)}
-				onCreate={(payload) => createBot(createBotWorld?.handle ?? "", payload)}
-				open={Boolean(createBotWorld)}
-				ownedBots={bots}
-				world={createBotWorld}
-			/>
+			{createBotWorld && (
+				<CreateBotModal
+					busy={busy}
+					onClose={() => setCreateBotWorldHandle(null)}
+					onCreate={(payload) => createBot(createBotWorld.handle, payload)}
+					open
+					ownedBots={bots}
+					world={createBotWorld}
+				/>
+			)}
+				</Suspense>
 					</TranslationContext.Provider>
 					</HoverTooltipContext.Provider>
 				</ReferenceDataContext.Provider>

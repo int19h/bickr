@@ -107,18 +107,7 @@ function AvatarGenerationChatLog({ entries }: { entries: AvatarGenerationChatEnt
 	);
 }
 
-export function AvatarGenerationScreen<TDraft, TMutationResponse, TSaved>({
-	adapter,
-	breadcrumb,
-	fallbackAvatar,
-	membersPrompt,
-	onBack,
-	onDiscardSettings,
-	onSaveSettings,
-	onSaved,
-	renderPromptFillSettingsModal,
-	target,
-}: {
+export type AvatarGenerationScreenProps<TDraft, TMutationResponse, TSaved> = {
 	adapter: AvatarGenerationDraftAdapter<TDraft>;
 	breadcrumb: ReactNode;
 	fallbackAvatar: ReactNode;
@@ -134,7 +123,20 @@ export function AvatarGenerationScreen<TDraft, TMutationResponse, TSaved>({
 	onSaved: (saved: TSaved, affectedBots?: BotSummary[]) => void;
 	renderPromptFillSettingsModal?: (props: PromptFillSettingsModalProps) => ReactNode;
 	target: AvatarTarget<TMutationResponse, TSaved>;
-}) {
+};
+
+export function AvatarGenerationScreen<TDraft, TMutationResponse, TSaved>({
+	adapter,
+	breadcrumb,
+	fallbackAvatar,
+	membersPrompt,
+	onBack,
+	onDiscardSettings,
+	onSaveSettings,
+	onSaved,
+	renderPromptFillSettingsModal,
+	target,
+}: AvatarGenerationScreenProps<TDraft, TMutationResponse, TSaved>) {
 	const initialSettings = target.generation.defaultSettings;
 	const [draft, setDraft] = useState<TDraft>(() => adapter.fromSettings(initialSettings));
 	const modelsQuery = useApiQuery<{ models: OpenRouterImageModel[] }>("/api/openrouter/image-models", []);
