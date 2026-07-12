@@ -513,6 +513,7 @@ export function WorldDetail({
 				forum={editingForum}
 				onClose={() => setEditingForum(null)}
 				onSave={(forum, input) => onUpdateForum(forum, input)}
+				world={world}
 			/>
 
 			<Confirm

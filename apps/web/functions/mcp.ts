@@ -36,6 +36,7 @@ import {
 	worldAvatarImageGenerationSettingsWithDefaults,
 } from "@bickr/shared/model";
 import { defaultPostingSettings, effectivePostingSettings } from "@bickr/shared/posting";
+import { defaultThreadCommentLimit } from "@bickr/shared/thread-policy";
 import {
 	addBotGroupMembers,
 	botById,
@@ -277,6 +278,7 @@ const mcpTools: McpTool[] = [
 		name: localizedTextSchema("World name. lang must match the selected world language."),
 		description: localizedTextSchema("World description. lang must match the selected world language."),
 		initialBotNotification: localizedTextSchema("Initial notification for bots created in this world. lang must match the selected world language."),
+		threadSettings: threadSettingsSchema("Optional thread policy. The smaller global, world, or forum comment limit wins."),
 	}), ["handle", "lang", "name", "description"], "write", "forum", "POST", () => "/worlds", mcpEntityLanguageBody, "world"),
 	serviceTool("update_world", "Update world", "Update a Bickr world owned by the signed-in human user.", bodySchema({
 		worldHandle: stringSchema("Current world handle."),
@@ -285,6 +287,7 @@ const mcpTools: McpTool[] = [
 		name: localizedTextSchema("World name. lang must match the selected world language."),
 		description: localizedTextSchema("World description. lang must match the selected world language."),
 		initialBotNotification: localizedTextSchema("Initial notification for new bots. lang must match the selected world language."),
+		threadSettings: threadSettingsSchema("Optional thread policy patch. Set commentLimit to null to restore the global default."),
 	}), ["worldHandle"], "write", "forum", "PATCH", (args) => `/worlds/${encodeURIComponent(text(args.worldHandle, "World handle"))}`, withoutMcpKeys("worldHandle"), "world"),
 	serviceTool("delete_world", "Delete world", "Delete a Bickr world owned by the signed-in human user.", bodySchema({
 		worldHandle: stringSchema("World handle."),
@@ -297,6 +300,7 @@ const mcpTools: McpTool[] = [
 		handle: stringSchema("Forum handle."),
 		lang: requiredLanguageSchema("Selected forum language. Use a BCP 47 tag such as \"en\", \"ja\", \"zh-Hant\", or \"ar\"."),
 		description: localizedTextSchema("Forum description. lang must match the selected forum language."),
+		threadSettings: threadSettingsSchema("Optional forum thread policy. The smaller world or forum comment limit wins."),
 	}), ["worldHandle", "handle", "lang", "description"], "write", "forum", "POST", (args) => `/worlds/${encodeURIComponent(text(args.worldHandle, "World handle"))}/forums`, withoutMcpKeys("worldHandle"), "forum"),
 	serviceTool("update_forum", "Update forum", "Update a Bickr forum.", bodySchema({
 		worldHandle: stringSchema("World handle."),
@@ -304,6 +308,7 @@ const mcpTools: McpTool[] = [
 		handle: stringSchema("New forum handle."),
 		lang: languageSchema("Selected forum language. Required when updating forum description."),
 		description: localizedTextSchema("Forum description. lang must match the selected forum language."),
+		threadSettings: threadSettingsSchema("Optional forum thread policy patch. Set commentLimit to null to inherit the world limit."),
 	}), ["worldHandle", "forumHandle"], "write", "forum", "PATCH", (args) => `/worlds/${encodeURIComponent(text(args.worldHandle, "World handle"))}/forums/${encodeURIComponent(text(args.forumHandle, "Forum handle"))}`, withoutMcpKeys("worldHandle", "forumHandle"), "forum"),
 	serviceTool("delete_forum", "Delete forum", "Delete a Bickr forum.", bodySchema({
 		worldHandle: stringSchema("World handle."),
@@ -1544,6 +1549,22 @@ function uiLocaleSchema(description: string): Record<string, unknown> {
 
 function integerSchema(description: string): Record<string, unknown> {
 	return { type: "integer", description };
+}
+
+function threadSettingsSchema(description: string): Record<string, unknown> {
+	return {
+		type: ["object", "null"],
+		description,
+		properties: {
+			commentLimit: {
+				type: ["integer", "null"],
+				minimum: 1,
+				maximum: defaultThreadCommentLimit,
+				description: "Maximum comments in one thread. Null inherits the broader limit.",
+			},
+		},
+		additionalProperties: false,
+	};
 }
 
 function objectSchema(description: string): Record<string, unknown> {

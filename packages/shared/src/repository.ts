@@ -63,6 +63,8 @@ import {
 	type LinkedAuthIdentity,
 	type PostingSettings,
 	type PostingSettingsInput,
+	type ThreadSettings,
+	type ThreadSettingsInput,
 	type PublicUser,
 	type SessionDocument,
 	type UpdateBotGroupInput,
@@ -79,6 +81,11 @@ import {
 	mergePostingSettings,
 	postingSettingsHasValues,
 } from "./posting";
+import {
+	effectiveThreadSettings,
+	mergeThreadSettings,
+	threadSettingsHasValues,
+} from "./thread-policy";
 import { personalForumDescription } from "./personal-forums";
 import { escapeLike, upsertBotSearchIndex, upsertForumSearchIndex, upsertWorldSearchIndex } from "./search";
 import {
@@ -148,7 +155,7 @@ type PublicUserIndexRow = {
 	updatedAt: string;
 };
 
-type WorldSummaryIndexRow = Omit<WorldSummary, "avatar" | "avatarCrop" | "avatarUrl" | "imageGeneration" | "postingSettings" | "name" | "description" | "prompt" | "initialBotNotification"> & {
+type WorldSummaryIndexRow = Omit<WorldSummary, "avatar" | "avatarCrop" | "avatarUrl" | "imageGeneration" | "postingSettings" | "threadSettings" | "name" | "description" | "prompt" | "initialBotNotification"> & {
 	language: string | null;
 	name: string;
 	description: string;
@@ -163,12 +170,14 @@ type WorldSummaryIndexRow = Omit<WorldSummary, "avatar" | "avatarCrop" | "avatar
 	initialBotNotificationLang: string | null;
 	postingThreadBodyCharacters: number | null;
 	postingCommentBodyCharacters: number | null;
+	threadCommentLimit: number | null;
 };
 
-type ForumSummaryIndexRow = Omit<ForumSummary, "description"> & {
+type ForumSummaryIndexRow = Omit<ForumSummary, "description" | "threadSettings"> & {
 	language: string | null;
 	description: string;
 	descriptionLang: string | null;
+	threadCommentLimit: number | null;
 };
 type ExistingHandleRow = { handle: string };
 
@@ -1006,6 +1015,7 @@ export async function listWorlds(db: D1DatabaseLike): Promise<WorldListSummary[]
 				w.initial_bot_notification_lang AS initialBotNotificationLang,
 				w.posting_thread_body_characters AS postingThreadBodyCharacters,
 				w.posting_comment_body_characters AS postingCommentBodyCharacters,
+				w.thread_comment_limit AS threadCommentLimit,
 				w.created_by_user_id AS createdByUserId,
 				w.created_at AS createdAt,
 				w.updated_at AS updatedAt,
@@ -1048,6 +1058,7 @@ export async function createWorld(
 	}
 
 	const postingSettings = mergePostingSettings(undefined, input.postingSettings);
+	const threadSettings = mergeThreadSettings(undefined, input.threadSettings);
 	const world: WorldDocument = {
 		id: makeId("wld"),
 		type: "world",
@@ -1061,6 +1072,7 @@ export async function createWorld(
 		...(input.imageGeneration ? { imageGeneration: mergeImageGenerationSettings(undefined, input.imageGeneration) } : {}),
 		initialBotNotification: input.initialBotNotification ?? defaultInitialBotNotificationText(input.language),
 		...(postingSettingsHasValues(postingSettings) ? { postingSettings } : {}),
+		...(threadSettingsHasValues(threadSettings) ? { threadSettings } : {}),
 		createdByUserId: userId,
 		visibility: "public",
 		createdAt: now,
@@ -1089,6 +1101,7 @@ export async function listForums(db: D1DatabaseLike, worldHandle: string): Promi
 				f.description_lang AS descriptionLang,
 				f.created_by_user_id AS createdByUserId,
 				f.personal_bot_id AS personalBotId,
+				f.thread_comment_limit AS threadCommentLimit,
 				f.created_at AS createdAt,
 				f.updated_at AS updatedAt
 			 FROM forums_index f
@@ -1121,7 +1134,12 @@ export async function createForum(
 	if (existing) {
 		throw new RepositoryError("conflict", "A forum with that handle already exists in this world.", 409);
 	}
+	assertThreadSettingsInputWithinLimit(
+		input.threadSettings,
+		effectiveThreadSettings(world.threadSettings, undefined).commentLimit,
+	);
 
+	const threadSettings = mergeThreadSettings(undefined, input.threadSettings);
 	const forum: ForumDocument = {
 		id: makeId("frm"),
 		type: "forum",
@@ -1132,6 +1150,7 @@ export async function createForum(
 		handle: input.handle,
 		language: input.language,
 		description: input.description,
+		...(threadSettingsHasValues(threadSettings) ? { threadSettings } : {}),
 		createdByUserId: userId,
 		createdAt: now,
 		updatedAt: now,
@@ -2296,6 +2315,7 @@ export async function listOwnedWorlds(db: D1DatabaseLike, userId: string): Promi
 				initial_bot_notification_lang AS initialBotNotificationLang,
 				posting_thread_body_characters AS postingThreadBodyCharacters,
 				posting_comment_body_characters AS postingCommentBodyCharacters,
+				thread_comment_limit AS threadCommentLimit,
 				created_by_user_id AS createdByUserId,
 				created_at AS createdAt,
 				updated_at AS updatedAt
@@ -2324,6 +2344,7 @@ export async function listOwnedForumsOutsideOwnedWorlds(
 				f.description_lang AS descriptionLang,
 				f.created_by_user_id AS createdByUserId,
 				f.personal_bot_id AS personalBotId,
+				f.thread_comment_limit AS threadCommentLimit,
 				f.created_at AS createdAt,
 				f.updated_at AS updatedAt
 			 FROM forums_index f
@@ -2383,10 +2404,11 @@ async function listOwnedForumsByWorld(
 	db: D1DatabaseLike,
 	userId: string,
 ): Promise<HumanOwnedForumGroup[]> {
-	type ForumWithWorldRow = Omit<ForumSummary, "description" | "language"> & {
+	type ForumWithWorldRow = Omit<ForumSummary, "description" | "language" | "threadSettings"> & {
 		language: string | null;
 		description: string;
 		descriptionLang: string | null;
+		threadCommentLimit: number | null;
 		groupWorldId: string;
 		groupWorldHandle: string;
 		groupWorldLanguage: string | null;
@@ -2400,6 +2422,7 @@ async function listOwnedForumsByWorld(
 		groupWorldInitialBotNotificationLang: string | null;
 		groupWorldPostingThreadBodyCharacters: number | null;
 		groupWorldPostingCommentBodyCharacters: number | null;
+		groupWorldThreadCommentLimit: number | null;
 		groupWorldCreatedByUserId: string;
 		groupWorldCreatedAt: string;
 		groupWorldUpdatedAt: string;
@@ -2416,6 +2439,7 @@ async function listOwnedForumsByWorld(
 				f.description_lang AS descriptionLang,
 				f.created_by_user_id AS createdByUserId,
 				f.personal_bot_id AS personalBotId,
+				f.thread_comment_limit AS threadCommentLimit,
 				f.created_at AS createdAt,
 				f.updated_at AS updatedAt,
 				w.world_id AS groupWorldId,
@@ -2431,6 +2455,7 @@ async function listOwnedForumsByWorld(
 				w.initial_bot_notification_lang AS groupWorldInitialBotNotificationLang,
 				w.posting_thread_body_characters AS groupWorldPostingThreadBodyCharacters,
 				w.posting_comment_body_characters AS groupWorldPostingCommentBodyCharacters,
+				w.thread_comment_limit AS groupWorldThreadCommentLimit,
 				w.created_by_user_id AS groupWorldCreatedByUserId,
 				w.created_at AS groupWorldCreatedAt,
 				w.updated_at AS groupWorldUpdatedAt
@@ -2463,6 +2488,7 @@ async function listOwnedForumsByWorld(
 						row.groupWorldPostingThreadBodyCharacters,
 						row.groupWorldPostingCommentBodyCharacters,
 					),
+					...threadSettingsObject(row.groupWorldThreadCommentLimit),
 					createdByUserId: row.groupWorldCreatedByUserId,
 					createdAt: row.groupWorldCreatedAt,
 					updatedAt: row.groupWorldUpdatedAt,
@@ -2481,6 +2507,7 @@ async function listOwnedForumsByWorld(
 			description: localizedTextFromParts(row.description, row.descriptionLang ?? row.language),
 			createdByUserId: row.createdByUserId,
 			...(row.personalBotId ? { personalBotId: row.personalBotId } : {}),
+			...threadSettingsObject(row.threadCommentLimit),
 			createdAt: row.createdAt,
 			updatedAt: row.updatedAt,
 		});
@@ -2539,6 +2566,7 @@ async function worldSummariesByIds(
 					initial_bot_notification_lang AS initialBotNotificationLang,
 					posting_thread_body_characters AS postingThreadBodyCharacters,
 					posting_comment_body_characters AS postingCommentBodyCharacters,
+					thread_comment_limit AS threadCommentLimit,
 					created_by_user_id AS createdByUserId,
 					created_at AS createdAt,
 					updated_at AS updatedAt
@@ -2614,6 +2642,23 @@ function assertPostingSettingsInputWithinLimits(
 		throw new RepositoryError(
 			"bad_request",
 			`Comment body characters must be an integer between 1 and ${inherited.commentBodyCharacters}.`,
+			400,
+		);
+	}
+}
+
+export function assertThreadSettingsInputWithinLimit(
+	input: ThreadSettingsInput | undefined,
+	inheritedLimit: number,
+): void {
+	if (
+		input?.commentLimit !== undefined &&
+		input.commentLimit !== null &&
+		input.commentLimit > inheritedLimit
+	) {
+		throw new RepositoryError(
+			"bad_request",
+			`Thread comment limit must be an integer between 1 and ${inheritedLimit}.`,
 			400,
 		);
 	}
@@ -2782,19 +2827,20 @@ async function foreignBotBlockersForOwnedWorlds(
 export async function worldByHandle(
 	db: D1DatabaseLike,
 	worldHandle: string,
-): Promise<{ id: string; handle: string; postingSettings?: PostingSettings }> {
+): Promise<{ id: string; handle: string; postingSettings?: PostingSettings; threadSettings?: ThreadSettings }> {
 	const world = await db
 		.prepare(
 			`SELECT
 				world_id AS id,
 				handle,
 				posting_thread_body_characters AS postingThreadBodyCharacters,
-				posting_comment_body_characters AS postingCommentBodyCharacters
+				posting_comment_body_characters AS postingCommentBodyCharacters,
+				thread_comment_limit AS threadCommentLimit
 			 FROM worlds_index
 			 WHERE handle = ? AND deleted_at IS NULL`,
 		)
 		.bind(worldHandle)
-		.first<{ id: string; handle: string; postingThreadBodyCharacters: number | null; postingCommentBodyCharacters: number | null }>();
+		.first<{ id: string; handle: string; postingThreadBodyCharacters: number | null; postingCommentBodyCharacters: number | null; threadCommentLimit: number | null }>();
 	if (!world) {
 		throw new RepositoryError("not_found", "World not found.", 404);
 	}
@@ -2803,6 +2849,7 @@ export async function worldByHandle(
 		id: world.id,
 		handle: world.handle,
 		...postingSettingsObject(world.postingThreadBodyCharacters, world.postingCommentBodyCharacters),
+		...threadSettingsObject(world.threadCommentLimit),
 	};
 }
 
@@ -3300,8 +3347,8 @@ export async function upsertWorldIndexProjection(
 				world_id, handle, language, name, name_lang, description, description_lang, prompt, prompt_lang,
 				avatar_url, avatar_crop, image_generation, initial_bot_notification, initial_bot_notification_lang,
 				created_by_user_id, visibility, posting_thread_body_characters, posting_comment_body_characters,
-				created_at, updated_at, deleted_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				thread_comment_limit, created_at, updated_at, deleted_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(world_id) DO UPDATE SET
 				handle = excluded.handle,
 				language = excluded.language,
@@ -3319,6 +3366,7 @@ export async function upsertWorldIndexProjection(
 				visibility = excluded.visibility,
 				posting_thread_body_characters = excluded.posting_thread_body_characters,
 				posting_comment_body_characters = excluded.posting_comment_body_characters,
+				thread_comment_limit = excluded.thread_comment_limit,
 				updated_at = excluded.updated_at,
 				deleted_at = excluded.deleted_at`,
 		)
@@ -3341,6 +3389,7 @@ export async function upsertWorldIndexProjection(
 			normalized.visibility,
 			normalized.postingSettings?.threadBodyCharacters ?? null,
 			normalized.postingSettings?.commentBodyCharacters ?? null,
+			normalized.threadSettings?.commentLimit ?? null,
 			normalized.createdAt,
 			normalized.updatedAt,
 			normalized.deletedAt ?? null,
@@ -3359,8 +3408,9 @@ export async function upsertForumIndexProjection(
 		.prepare(
 			`INSERT INTO forums_index (
 				forum_id, world_id, world_handle, handle, language, description, description_lang,
-				created_by_user_id, created_at, updated_at, deleted_at, personal_bot_id
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				created_by_user_id, created_at, updated_at, deleted_at, personal_bot_id,
+				thread_comment_limit
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(forum_id) DO UPDATE SET
 				world_handle = excluded.world_handle,
 				handle = excluded.handle,
@@ -3368,6 +3418,7 @@ export async function upsertForumIndexProjection(
 				description = excluded.description,
 				description_lang = excluded.description_lang,
 				personal_bot_id = excluded.personal_bot_id,
+				thread_comment_limit = excluded.thread_comment_limit,
 				updated_at = excluded.updated_at,
 				deleted_at = excluded.deleted_at`,
 		)
@@ -3384,6 +3435,7 @@ export async function upsertForumIndexProjection(
 			normalized.updatedAt,
 			normalized.deletedAt ?? null,
 			normalized.personalBotId ?? null,
+			normalized.threadSettings?.commentLimit ?? null,
 		)
 		.run();
 	await upsertForumSearchIndex(db, normalized);
@@ -3519,6 +3571,7 @@ function worldSummary(world: WorldDocument): WorldSummary {
 		...(world.imageGeneration ? { imageGeneration: cloneImageGenerationSettings(world.imageGeneration) } : {}),
 		initialBotNotification: world.initialBotNotification,
 		...(postingSettingsHasValues(world.postingSettings) ? { postingSettings: world.postingSettings } : {}),
+		...(threadSettingsHasValues(world.threadSettings) ? { threadSettings: world.threadSettings } : {}),
 		createdByUserId: world.createdByUserId,
 		createdAt: world.createdAt,
 		updatedAt: world.updatedAt,
@@ -3536,6 +3589,7 @@ function worldSummaryFromIndexRow<T extends WorldSummaryIndexRow>(row: T): Omit<
 		initialBotNotificationLang,
 		postingThreadBodyCharacters,
 		postingCommentBodyCharacters,
+		threadCommentLimit,
 		...world
 	} = row;
 	const crop = avatarCropFromJson(avatarCrop);
@@ -3551,6 +3605,7 @@ function worldSummaryFromIndexRow<T extends WorldSummaryIndexRow>(row: T): Omit<
 		...(crop ? { avatarCrop: crop } : {}),
 		...(imageGeneration ? { imageGeneration } : {}),
 		...postingSettingsObject(postingThreadBodyCharacters, postingCommentBodyCharacters),
+		...threadSettingsObject(threadCommentLimit),
 	} as Omit<T, keyof WorldSummaryIndexRow> & WorldSummary;
 }
 
@@ -3580,6 +3635,10 @@ function postingSettingsObject(
 	return postingSettingsHasValues(postingSettings) ? { postingSettings } : {};
 }
 
+function threadSettingsObject(commentLimit: number | null | undefined): { threadSettings?: ThreadSettings } {
+	return commentLimit === null || commentLimit === undefined ? {} : { threadSettings: { commentLimit } };
+}
+
 function forumSummary(forum: ForumDocument): ForumSummary {
 	return {
 		id: forum.id,
@@ -3590,16 +3649,19 @@ function forumSummary(forum: ForumDocument): ForumSummary {
 		description: forum.description,
 		createdByUserId: forum.createdByUserId,
 		...(forum.personalBotId ? { personalBotId: forum.personalBotId } : {}),
+		...(threadSettingsHasValues(forum.threadSettings) ? { threadSettings: forum.threadSettings } : {}),
 		createdAt: forum.createdAt,
 		updatedAt: forum.updatedAt,
 	};
 }
 
 function forumSummaryFromIndexRow(row: ForumSummaryIndexRow): ForumSummary {
+	const { threadCommentLimit, ...forum } = row;
 	return {
-		...row,
+		...forum,
 		language: languageFromStored(row.language),
 		description: localizedTextFromParts(row.description, row.descriptionLang ?? row.language),
+		...threadSettingsObject(threadCommentLimit),
 	};
 }
 
@@ -3925,6 +3987,9 @@ export function normalizeWorldDefaults(world: WorldDocument): WorldDocument {
 		...(postingSettingsHasValues(world.postingSettings) ?
 			{ postingSettings: mergePostingSettings(undefined, world.postingSettings) }
 		:	{ postingSettings: undefined }),
+		...(threadSettingsHasValues(world.threadSettings) ?
+			{ threadSettings: mergeThreadSettings(undefined, world.threadSettings) }
+		:	{ threadSettings: undefined }),
 	};
 }
 
@@ -3936,6 +4001,9 @@ export function normalizeForumDefaults(forum: ForumDocument): ForumDocument {
 		schemaVersion,
 		language,
 		description: localizedTextFromStored(raw.description, language),
+		...(threadSettingsHasValues(forum.threadSettings) ?
+			{ threadSettings: mergeThreadSettings(undefined, forum.threadSettings) }
+		:	{ threadSettings: undefined }),
 	};
 }
 

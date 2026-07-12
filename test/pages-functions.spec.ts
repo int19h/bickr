@@ -1438,6 +1438,111 @@ describe("Pages functions", () => {
 		expect(clearedWorldPayload.data.world.postingSettings).toBeUndefined();
 	});
 
+	it("persists cascading thread comment limits in world and forum summaries", async () => {
+		const cookie = await authCookie();
+		const worldResponse = await createWorld(
+			contextFor<typeof createWorld>(
+				jsonRequest(
+					"http://example.com/api/worlds",
+					"POST",
+					{
+						handle: "thread-limit-world",
+						name: "Thread Limit World",
+						description: "Bounded discussions.",
+						threadSettings: { commentLimit: 150 },
+					},
+					cookie,
+				),
+			),
+		);
+		expect(worldResponse.status, await worldResponse.clone().text()).toBe(201);
+		expect(await worldResponse.json()).toMatchObject({
+			data: { world: { threadSettings: { commentLimit: 150 } } },
+		});
+		const tooLargeForumResponse = await createForum(
+			contextFor<typeof createForum>(
+				jsonRequest(
+					"http://example.com/api/worlds/thread-limit-world/forums",
+					"POST",
+					{
+						handle: "too-large",
+						description: "This exceeds the world limit.",
+						threadSettings: { commentLimit: 151 },
+					},
+					cookie,
+				),
+				{ worldHandle: "thread-limit-world" },
+			),
+		);
+		expect(tooLargeForumResponse.status).toBe(400);
+
+		const forumResponse = await createForum(
+			contextFor<typeof createForum>(
+				jsonRequest(
+					"http://example.com/api/worlds/thread-limit-world/forums",
+					"POST",
+					{
+						handle: "bounded",
+						description: "A smaller forum limit.",
+						threadSettings: { commentLimit: 100 },
+					},
+					cookie,
+				),
+				{ worldHandle: "thread-limit-world" },
+			),
+		);
+		expect(forumResponse.status, await forumResponse.clone().text()).toBe(201);
+		const forumPayload = (await forumResponse.json()) as { data: { forum: { id: string; threadSettings?: unknown } } };
+		expect(forumPayload).toMatchObject({
+			data: { forum: { threadSettings: { commentLimit: 100 } } },
+		});
+
+		const listedWorlds = await worlds(contextFor<typeof worlds>(new Request("http://example.com/api/worlds")));
+		expect(await listedWorlds.json()).toMatchObject({
+			data: {
+				worlds: expect.arrayContaining([
+					expect.objectContaining({
+						handle: "thread-limit-world",
+						threadSettings: { commentLimit: 150 },
+					}),
+				]),
+			},
+		});
+		const listedForums = await forums(
+			contextFor<typeof forums>(
+				new Request("http://example.com/api/worlds/thread-limit-world/forums"),
+				{ worldHandle: "thread-limit-world" },
+			),
+		);
+		expect(await listedForums.json()).toMatchObject({
+			data: {
+				forums: expect.arrayContaining([
+					expect.objectContaining({
+						handle: "bounded",
+						threadSettings: { commentLimit: 100 },
+					}),
+				]),
+			},
+		});
+
+		const clearedForum = await patchForum(
+			contextFor<typeof patchForum>(
+				jsonRequest(
+					"http://example.com/api/worlds/thread-limit-world/forums/bounded",
+					"PATCH",
+					{ threadSettings: { commentLimit: null } },
+					cookie,
+				),
+				{ worldHandle: "thread-limit-world", forumHandle: "bounded" },
+			),
+		);
+		expect(clearedForum.status, await clearedForum.clone().text()).toBe(200);
+		const clearedForumPayload = (await clearedForum.json()) as { data: { forum: { threadSettings?: unknown } } };
+		expect(clearedForumPayload.data.forum.threadSettings).toBeUndefined();
+		const storedForum = await testEnv.BICKR_KV.get<ForumDocument>(kvKeys.forum(forumPayload.data.forum.id), { type: "json" });
+		expect(storedForum?.threadSettings).toBeUndefined();
+	});
+
 	it("renames forum handles without rewriting old textual references", async () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);

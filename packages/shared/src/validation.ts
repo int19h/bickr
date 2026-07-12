@@ -24,6 +24,7 @@ import {
 	type OpenRouterWebSearchToolSettingsInput,
 	type OpenRouterWebSearchUserLocationInput,
 	type PostingSettingsInput,
+	type ThreadSettingsInput,
 	type JsonObject,
 	type JsonValue,
 	type LanguageTag,
@@ -46,6 +47,7 @@ import {
 	defaultThreadBodyCharacters,
 	postingHardLimit,
 } from "./posting";
+import { defaultThreadCommentLimit } from "./thread-policy";
 
 export class InputError extends Error {
 	constructor(message: string) {
@@ -342,6 +344,7 @@ export function parseCreateWorldInput(input: unknown): CreateWorldInput {
 		...(record.postingSettings === undefined ?
 			{}
 		:	{ postingSettings: parsePostingSettings(record.postingSettings, defaultPostingSettings) }),
+		...(record.threadSettings === undefined ? {} : { threadSettings: parseThreadSettings(record.threadSettings) }),
 	};
 }
 
@@ -383,6 +386,9 @@ export function parseUpdateWorldInput(input: unknown): UpdateWorldInput {
 	if (record.postingSettings !== undefined) {
 		update.postingSettings = parsePostingSettings(record.postingSettings, defaultPostingSettings);
 	}
+	if (record.threadSettings !== undefined) {
+		update.threadSettings = parseThreadSettings(record.threadSettings);
+	}
 	if (Object.keys(update).length === 0) {
 		throw new InputError("At least one world field must be provided.");
 	}
@@ -396,6 +402,7 @@ export function parseCreateForumInput(input: unknown): CreateForumInput {
 		handle: normalizeHandle(record.handle),
 		language,
 		description: localizedRequiredText(record.description, "Forum description", 500, language),
+		...(record.threadSettings === undefined ? {} : { threadSettings: parseThreadSettings(record.threadSettings) }),
 	};
 }
 
@@ -412,6 +419,9 @@ export function parseUpdateForumInput(input: unknown): UpdateForumInput {
 	if (record.description !== undefined) {
 		const textLanguage = language ?? requiredEntityLanguage(record.language, "Forum language");
 		update.description = localizedRequiredText(record.description, "Forum description", 500, textLanguage);
+	}
+	if (record.threadSettings !== undefined) {
+		update.threadSettings = parseThreadSettings(record.threadSettings);
 	}
 	if (Object.keys(update).length === 0) {
 		throw new InputError("At least one forum field must be provided.");
@@ -955,6 +965,23 @@ function parsePostingSettings(
 		"Comment body characters",
 		1,
 		limits.commentBodyCharacters ?? defaultCommentBodyCharacters,
+	);
+	return settings;
+}
+
+function parseThreadSettings(value: unknown): ThreadSettingsInput {
+	if (value === null) {
+		return { commentLimit: null };
+	}
+	const record = asRecord(value);
+	const settings: ThreadSettingsInput = {};
+	assignOptionalInteger(
+		settings,
+		"commentLimit",
+		record.commentLimit,
+		"Thread comment limit",
+		1,
+		defaultThreadCommentLimit,
 	);
 	return settings;
 }

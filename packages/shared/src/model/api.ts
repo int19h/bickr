@@ -21,6 +21,9 @@ import type {
 	NotificationWorldRef,
 	PostingSettings,
 	PostingSettingsInput,
+	ThreadLock,
+	ThreadSettings,
+	ThreadSettingsInput,
 	RequiredLocalizedText,
 	ThreadReadState,
 	UiLocalePreference,
@@ -217,6 +220,7 @@ export type WorldSummary = {
 	imageGeneration?: BotImageGenerationSettings;
 	initialBotNotification: LocalizedText;
 	postingSettings?: PostingSettings;
+	threadSettings?: ThreadSettings;
 	createdByUserId: string;
 	createdAt: string;
 	updatedAt: string;
@@ -236,6 +240,7 @@ export type ForumSummary = {
 	description: LocalizedText;
 	createdByUserId: string;
 	personalBotId?: string;
+	threadSettings?: ThreadSettings;
 	createdAt: string;
 	updatedAt: string;
 };
@@ -423,6 +428,7 @@ export type ThreadSummary = {
 	bodyPreview: LocalizedText;
 	voteScore: number;
 	commentCount: number;
+	lock?: ThreadLock;
 	createdAt: string;
 	lastActivityAt: string;
 	readState?: ThreadReadState;
@@ -655,6 +661,7 @@ export type CreateWorldInput = {
 	imageGeneration?: BotImageGenerationSettingsInput | null;
 	initialBotNotification?: LocalizedText;
 	postingSettings?: PostingSettingsInput;
+	threadSettings?: ThreadSettingsInput;
 };
 
 export type UpdateWorldInput = Partial<{
@@ -666,18 +673,21 @@ export type UpdateWorldInput = Partial<{
 	imageGeneration: BotImageGenerationSettingsInput | null;
 	initialBotNotification: LocalizedText;
 	postingSettings: PostingSettingsInput;
+	threadSettings: ThreadSettingsInput;
 }>;
 
 export type CreateForumInput = {
 	handle: string;
 	language: LanguageTag | null;
 	description: LocalizedText;
+	threadSettings?: ThreadSettingsInput;
 };
 
 export type UpdateForumInput = Partial<{
 	handle: string;
 	language: LanguageTag | null;
 	description: LocalizedText;
+	threadSettings: ThreadSettingsInput;
 }>;
 
 export type CreateBotGroupInput = {

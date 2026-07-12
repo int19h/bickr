@@ -2,8 +2,9 @@ import type {
 	ForumSummary,
 	UpdateForumInput,
 } from "@bickr/shared/model";
+import { effectiveThreadSettings } from "@bickr/shared/thread-policy";
 import { useCallback, useContext, useEffect, useState } from "react";
-import { Reference, TranslatableText } from "../../components/content";
+import { Reference, TranslatableText, type WorldView } from "../../components/content";
 import {
 	LanguageField,
 	RenameHandleModal,
@@ -23,20 +24,25 @@ import {
 	ToastContext,
 	textValue,
 } from "../../ui";
+import { parseOptionalPositiveInteger } from "../../components/record-display";
+import { optionalNumberDraftValue } from "../bots/bot-drafts";
 
 export function EditForumModal({
 	busy,
 	forum,
 	onClose,
 	onSave,
+	world,
 }: {
 	busy: boolean;
 	forum: ForumSummary | null;
 	onClose: () => void;
 	onSave: (forum: ForumSummary, input: UpdateForumInput) => Promise<boolean>;
+	world: WorldView;
 }) {
 		const [language, setLanguage] = useState(languageDraftValue(defaultLanguageTag));
 		const [description, setDescription] = useState("");
+	const [threadCommentLimit, setThreadCommentLimit] = useState("");
 	const [renameOpen, setRenameOpen] = useState(false);
 	const toast = useContext(ToastContext);
 	const closeEditModal = useCallback(() => {
@@ -51,6 +57,7 @@ export function EditForumModal({
 			if (forum) {
 				setLanguage(languageDraftValue(forum.language, textLang(forum.description) ?? defaultLanguageTag));
 				setDescription(textValue(forum.description));
+				setThreadCommentLimit(optionalNumberDraftValue(forum.threadSettings?.commentLimit));
 				setRenameOpen(false);
 			}
 		}, [forum]);
@@ -61,13 +68,20 @@ export function EditForumModal({
 		const activeForum = forum;
 
 		const valid = description.trim().length > 0;
+		const threadCommentLimitValue = parseOptionalPositiveInteger(threadCommentLimit);
+		const inheritedCommentLimit = effectiveThreadSettings(world.threadSettings, undefined).commentLimit;
+		const settingsValid = threadCommentLimitValue === null ||
+			(threadCommentLimitValue >= 1 && threadCommentLimitValue <= inheritedCommentLimit);
 		const savedLanguage = languageInputValue(language);
-		const dirty = savedLanguage !== activeForum.language || description !== textValue(activeForum.description);
+		const dirty = savedLanguage !== activeForum.language ||
+			description !== textValue(activeForum.description) ||
+			threadCommentLimitValue !== (activeForum.threadSettings?.commentLimit ?? null);
 
 		async function submit(): Promise<void> {
 			const ok = await onSave(activeForum, {
 				language: savedLanguage,
 				description: localizedDraft(description, language),
+				threadSettings: { commentLimit: threadCommentLimitValue },
 			});
 		if (ok) {
 			toast.push(
@@ -88,7 +102,7 @@ export function EditForumModal({
 						<button className="btn ghost" disabled={busy} onClick={closeEditModal} type="button">
 							Cancel
 						</button>
-						<button className="btn primary" disabled={!dirty || !valid || busy} onClick={() => void submit()} type="button">
+						<button className="btn primary" disabled={!dirty || !valid || !settingsValid || busy} onClick={() => void submit()} type="button">
 							Save changes
 						</button>
 					</div>
@@ -120,6 +134,12 @@ export function EditForumModal({
 					/>
 				</Field>
 				<LanguageField onChange={setLanguage} value={language} />
+				<Field help="Blank inherits the world limit. The smaller world or forum limit wins." label="Thread comment limit">
+					<div className="input-suffix">
+						<input className="input" min={1} max={inheritedCommentLimit} onChange={(event) => setThreadCommentLimit(event.target.value)} placeholder={String(inheritedCommentLimit)} step={1} type="number" value={threadCommentLimit} />
+						<span className="suffix">comments</span>
+					</div>
+				</Field>
 				<RenameHandleModal
 				busy={busy}
 				kind="forum"
