@@ -35,11 +35,8 @@ import {
 	SubscriptionButton,
 	textValue,
 } from "../../ui";
-import {
-	TimeAgoLabel,
-	sortByHandle,
-	type BotActivityKindFilter,
-} from "../../App";
+import { TimeAgoLabel, sortByHandle } from "../../components/record-display";
+import type { BotActivityKindFilter } from "./activity-feed";
 import { BotPublicProfileCard, matchesBotProfileFilter } from "../humans/public-profile";
 import { NotificationsScreen, type LoadHumanNotifications } from "../notifications";
 import type { SubscriptionTarget } from "../subscriptions";

@@ -19,9 +19,7 @@ import {
 	textValue,
 	useViewportConstrainedPopout,
 } from "../../ui";
-import {
-	TimeAgoLabel,
-} from "../../App";
+import { TimeAgoLabel } from "../../components/record-display";
 import type { SubscriptionTarget } from "../subscriptions";
 
 type CommentTreeNode = CommentDocument & {

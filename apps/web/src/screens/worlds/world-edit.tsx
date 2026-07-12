@@ -29,14 +29,9 @@ import {
 	ToastContext,
 } from "../../ui";
 import { runApiAction } from "../../use-api";
-import {
-	LanguageField,
-	localizedDraft,
-	optionalNumberDraftValue,
-	parseOptionalPositiveInteger,
-	slugify,
-	textLang,
-} from "../../App";
+import { LanguageField, localizedDraft, textLang } from "../../components/form-fields";
+import { optionalNumberDraftValue, slugify } from "../bots/bot-drafts";
+import { parseOptionalPositiveInteger } from "../../components/record-display";
 
 type WorldMutationResponse = { world: WorldSummary };
 

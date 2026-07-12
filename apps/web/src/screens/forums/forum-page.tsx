@@ -24,11 +24,8 @@ import {
 	ToastContext,
 	textValue,
 } from "../../ui";
-import {
-	EditForumModal,
-	TimeAgoLabel,
-	authorLabel,
-} from "../../App";
+import { EditForumModal } from "./forum-components";
+import { TimeAgoLabel, authorLabel } from "../../components/record-display";
 import type { SubscriptionTarget } from "../subscriptions";
 import { SpotlightPanel } from "./spotlight-panel";
 

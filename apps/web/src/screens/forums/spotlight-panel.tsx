@@ -16,10 +16,7 @@ import {
 	Icon,
 	ToastContext,
 } from "../../ui";
-import {
-	matchesFilter,
-	sortByHandle,
-} from "../../App";
+import { matchesFilter, sortByHandle } from "../../components/record-display";
 
 export function SpotlightPanel({
 	commentIds,

@@ -12,7 +12,7 @@ import type {
 } from "@bickr/shared/model";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../api";
-import { NextDueAtLabel } from "../../App";
+import { NextDueAtLabel } from "../../components/record-display";
 import { Reference, type WorldView } from "../../components/content";
 import { SpaLink } from "../../components/navigation";
 import {

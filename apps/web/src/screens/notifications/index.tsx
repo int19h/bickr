@@ -17,7 +17,7 @@ import {
 	timestampTitle,
 } from "../chrome";
 import { EmptyState, FilterBox, Icon, textValue, type TextLike } from "../../ui";
-import { TimeAgoLabel, compareHandles, matchesFilter } from "../../App";
+import { TimeAgoLabel, compareHandles, matchesFilter } from "../../components/record-display";
 
 export type LoadHumanNotifications = (
 	status: "unread" | "all",

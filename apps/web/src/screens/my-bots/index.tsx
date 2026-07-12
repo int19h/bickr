@@ -22,7 +22,12 @@ import { formatAverageDays, formatTokenCost, formatTokenCostParts } from "../bot
 import { formatFullDate } from "../chrome";
 import { BotProfileHoverLink } from "../search";
 import { Avatar, Confirm, EmptyState, FilterBox, Icon, ToastContext, textValue } from "../../ui";
-import { TimeAgoLabel, TimeUntilLabel, compareHandles, matchesFilter } from "../../App";
+import {
+	TimeAgoLabel,
+	TimeUntilLabel,
+	compareHandles,
+	matchesFilter,
+} from "../../components/record-display";
 
 type MyBotsConfirmAction = "delete" | "spread" | "tick";
 

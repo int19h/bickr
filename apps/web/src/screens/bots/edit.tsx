@@ -14,15 +14,9 @@ import { effectivePostingSettings } from "@bickr/shared/posting";
 import { maxBotPromptLength, maxBotReasoningPrefillLength } from "@bickr/shared/validation";
 import { useContext, useEffect, useState } from "react";
 import { api } from "../../api";
-import {
-	AgenticLoopInferenceFields,
-	InferenceProviderFields,
-	LanguageField,
-	OpenRouterServerToolFields,
-	RenameHandleModal,
-	TimeAgoLabel,
-	textLang,
-} from "../../App";
+import { AgenticLoopInferenceFields, InferenceProviderFields, OpenRouterServerToolFields } from "../../components/inference-fields";
+import { LanguageField, RenameHandleModal, textLang } from "../../components/form-fields";
+import { TimeAgoLabel } from "../../components/record-display";
 import { BotSourceValue, Reference, type WorldView } from "../../components/content";
 import { languageInputValue, textLanguageDomProps } from "../../components/ui-text";
 import { defaultLanguageTag } from "../../language";

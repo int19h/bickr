@@ -37,22 +37,18 @@ import {
 	textValue,
 	ToastContext,
 } from "../../ui";
+import { EditForumModal, ForumRow } from "../forums/forum-components";
+import { LanguageField, localizedDraft, textLang } from "../../components/form-fields";
 import {
-	EditForumModal,
-	ForumRow,
-	LanguageField,
 	TimeAgoLabel,
 	TimeUntilLabel,
-	isValidHandle,
-	localizedDraft,
 	matchesFilter,
 	sortBotsForCards,
 	sortByHandle,
-	slugify,
-	textLang,
-	visibleForums,
-	type BotActivityKindFilter,
-} from "../../App";
+} from "../../components/record-display";
+import { isValidHandle, slugify } from "../bots/bot-drafts";
+import { visibleForums } from "../../app-records";
+import type { BotActivityKindFilter } from "../bots/activity-feed";
 import { NotificationsScreen, type LoadHumanNotifications } from "../notifications";
 import type { SubscriptionTarget } from "../subscriptions";
 import {

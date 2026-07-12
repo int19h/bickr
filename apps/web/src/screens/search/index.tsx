@@ -19,7 +19,7 @@ import {
 } from "../../components/content";
 import { NavigationContext, SpaLink, shouldHandleSpaClick } from "../../components/navigation";
 import { allSearchTypes, routePath, type ParsedRoute, type SearchRouteState } from "../../routes";
-import { currentLocationPath } from "../../App";
+import { currentLocationPath } from "../../app-routing";
 import { formatFullDate, formatShortDate, searchResultMeta } from "../chrome";
 import {
 	formatPerMillionTokenCost,

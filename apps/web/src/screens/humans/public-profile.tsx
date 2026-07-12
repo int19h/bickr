@@ -13,7 +13,8 @@ import { api } from "../../api";
 import { HumanReference, Reference, TranslatableText } from "../../components/content";
 import { SpaLink } from "../../components/navigation";
 import { Avatar, Confirm, EmptyState, FilterBox, Icon, ToastContext, textValue } from "../../ui";
-import { ForumRow, TimeAgoLabel, matchesFilter } from "../../App";
+import { ForumRow } from "../forums/forum-components";
+import { TimeAgoLabel, matchesFilter } from "../../components/record-display";
 
 type HumanProfileTab = "worlds" | "forums" | "bots";
 
