@@ -670,6 +670,7 @@ function loopMessageDisplayFromRow(row: LoopMessageRow): BotLoopMessageDisplay |
 			name,
 			args: payload.args,
 			result: payload.result,
+			...(payload.envelope ? { envelope: payload.envelope as BotLoopMessageDisplay["envelope"] } : {}),
 			...(worldHandle ? { context: { worldHandle } } : {}),
 		};
 	} catch {

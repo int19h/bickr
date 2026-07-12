@@ -185,47 +185,32 @@ function legacyContentItems(result: unknown): ToolResultContentItem[] {
 		const record = legacyRecord(value);
 		const threadId = legacyString(record.threadId);
 		if (typeof record.id === "string" && ((record.type === "thread" && Array.isArray(record.comments)) || "commentCount" in record)) {
-			items.push({ kind: "thread", id: record.id, ...(legacyLocalizedText(record.title) ? { title: legacyLocalizedText(record.title) } : {}) });
+			items.push(legacyThreadContentItem(record.id, record));
 			if (Array.isArray(record.comments)) {
 				for (const commentValue of record.comments) {
 					const comment = legacyRecord(commentValue);
 					if (typeof comment.id === "string") {
-						items.push({
-							kind: "comment",
-							id: comment.id,
-							threadId: record.id,
-							...(legacyLocalizedText(comment.body) ? { body: legacyLocalizedText(comment.body) } : {}),
-						});
+						items.push(legacyCommentContentItem(comment.id, record.id, comment, record));
 					}
 				}
 			}
 		}
 		if (record.type === "comment" && typeof record.id === "string") {
-			items.push({
-				kind: "comment",
-				id: record.id,
-				threadId: threadId ?? "",
-				...(legacyLocalizedText(record.body) ? { body: legacyLocalizedText(record.body) } : {}),
-			});
+			items.push(legacyCommentContentItem(record.id, threadId ?? "", record));
 		}
 		if (threadId) {
-			items.push({ kind: "thread", id: threadId, ...(legacyLocalizedText(record.title) ? { title: legacyLocalizedText(record.title) } : {}) });
+			items.push(legacyThreadContentItem(threadId, record));
 		}
 		const commentId = legacyString(record.commentId);
 		if (commentId) {
-			items.push({ kind: "comment", id: commentId, threadId: threadId ?? "", ...(legacyLocalizedText(record.body) ? { body: legacyLocalizedText(record.body) } : {}) });
+			items.push(legacyCommentContentItem(commentId, threadId ?? "", record));
 		}
 		if (record.rootPost && typeof record.id === "string") {
-			items.push({ kind: "thread", id: record.id, ...(legacyLocalizedText(record.title) ? { title: legacyLocalizedText(record.title) } : {}) });
+			items.push(legacyThreadContentItem(record.id, record));
 			for (const commentValue of Array.isArray(record.comments) ? record.comments : []) {
 				const comment = legacyRecord(commentValue);
 				if (typeof comment.id === "string") {
-					items.push({
-						kind: "comment",
-						id: comment.id,
-						threadId: record.id,
-						...(legacyLocalizedText(comment.body) ? { body: legacyLocalizedText(comment.body) } : {}),
-					});
+					items.push(legacyCommentContentItem(comment.id, record.id, comment, record));
 				}
 			}
 		}
@@ -237,6 +222,50 @@ function legacyContentItems(result: unknown): ToolResultContentItem[] {
 	};
 	visit(result);
 	return uniqueContentItems(items);
+}
+
+function legacyThreadContentItem(id: string, record: Record<string, unknown>): ToolResultContentItem {
+	const title = legacyLocalizedText(record.title);
+	const body = legacyLocalizedText(record.body ?? record.bodyPreview ?? record.snippet);
+	const authorDisplayName = legacyLocalizedText(record.authorDisplayName);
+	const worldHandle = legacyString(record.worldHandle);
+	const forumHandle = legacyString(record.forumHandle);
+	const authorHandle = legacyString(record.authorHandle);
+	return {
+		kind: "thread",
+		id,
+		...(title ? { title } : {}),
+		...(body ? { body } : {}),
+		...(worldHandle ? { worldHandle } : {}),
+		...(forumHandle ? { forumHandle } : {}),
+		...(authorHandle ? { authorHandle } : {}),
+		...(authorDisplayName ? { authorDisplayName } : {}),
+	};
+}
+
+function legacyCommentContentItem(
+	id: string,
+	threadId: string,
+	record: Record<string, unknown>,
+	thread: Record<string, unknown> = {},
+): ToolResultContentItem {
+	const body = legacyLocalizedText(record.body ?? record.snippet);
+	const title = legacyLocalizedText(record.title ?? thread.title);
+	const authorDisplayName = legacyLocalizedText(record.authorDisplayName);
+	const worldHandle = legacyString(record.worldHandle) ?? legacyString(thread.worldHandle);
+	const forumHandle = legacyString(record.forumHandle) ?? legacyString(thread.forumHandle);
+	const authorHandle = legacyString(record.authorHandle);
+	return {
+		kind: "comment",
+		id,
+		threadId,
+		...(body ? { body } : {}),
+		...(title ? { title } : {}),
+		...(worldHandle ? { worldHandle } : {}),
+		...(forumHandle ? { forumHandle } : {}),
+		...(authorHandle ? { authorHandle } : {}),
+		...(authorDisplayName ? { authorDisplayName } : {}),
+	};
 }
 
 function uniqueContentItems(items: ToolResultContentItem[]): ToolResultContentItem[] {
