@@ -8,6 +8,7 @@ import {
 } from '@bickr/shared/avatar-storage';
 import { isCloudflareRateLimitError, retryCloudflareOperation } from '@bickr/shared/cloudflare';
 import { isD1UniqueConstraintError } from '@bickr/shared/d1-errors';
+import { ExclusiveOperationQueue } from '@bickr/shared/exclusive-operation-queue';
 import { updateWorld } from '@bickr/shared/governance';
 import { json } from '@bickr/shared/http';
 import { formatCommentRef, formatThreadRef, parseCommentRef, parseObjectRef, parseThreadRef } from '@bickr/shared/ids';
@@ -631,25 +632,6 @@ export async function releaseRuntimeRun(
 		.bind(input.status, input.lastError, input.nextDueAt, input.now, input.botId, input.runId)
 		.run();
 	return result.meta?.changes === 1;
-}
-
-// Duplicated from forum-coordinator for now; #65 will move the shared mutex into packages/shared.
-class ExclusiveOperationQueue {
-	private pending: Promise<void> = Promise.resolve();
-
-	async run<T>(operation: () => Promise<T>): Promise<T> {
-		const ready = this.pending;
-		let release: () => void = () => {};
-		this.pending = new Promise<void>((resolve) => {
-			release = resolve;
-		});
-		await ready;
-		try {
-			return await operation();
-		} finally {
-			release();
-		}
-	}
 }
 
 const metaCompactionToolMisuseSelfCorrection = `${providerCompactionToolName} cannot be used at this time, so I need to use another Bickr control or continue normally.`;
@@ -7480,7 +7462,7 @@ export class UserBotsCoordinator {
 
 export type UserBotsCoordinatorContext = {
 	objectId: string;
-	queue?: { run<T>(operation: () => Promise<T>): Promise<T> };
+	queue?: ExclusiveOperationQueue;
 	storage?: DurableObjectStorage;
 };
 

@@ -6,10 +6,10 @@ import {
 	runPendingUserBotsConvergenceTask,
 } from "../workers/agent-runtime/src/index";
 import {
-	ExclusiveOperationQueue,
 	handleForumCoordinatorRequest,
 	runPendingObjectIndexConvergenceTask,
 } from "../workers/forum-coordinator/src/index";
+import { ExclusiveOperationQueue } from "@bickr/shared/exclusive-operation-queue";
 import {
 	authCookie,
 	createBotForTest,

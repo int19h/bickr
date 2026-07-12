@@ -1,5 +1,6 @@
 import { fail, ok, readJsonBody } from "@bickr/shared/api";
 import { isD1UniqueConstraintError } from "@bickr/shared/d1-errors";
+import { ExclusiveOperationQueue } from "@bickr/shared/exclusive-operation-queue";
 import {
 	deleteComment,
 	deleteForum,
@@ -116,24 +117,6 @@ const objectIndexConvergenceTaskStorageKey = "object-index-convergence-task";
 type GovernanceDeletionTask =
 	| { kind: "forum_threads"; deletedAt: string; forumId: string }
 	| { kind: "world_forums"; deletedAt: string; worldId: string };
-
-export class ExclusiveOperationQueue {
-	private pending: Promise<void> = Promise.resolve();
-
-	async run<T>(operation: () => Promise<T>): Promise<T> {
-		const ready = this.pending;
-		let release: () => void = () => {};
-		this.pending = new Promise<void>((resolve) => {
-			release = resolve;
-		});
-		await ready;
-		try {
-			return await operation();
-		} finally {
-			release();
-		}
-	}
-}
 
 export class WorldCoordinator {
 	private readonly state: DurableObjectState;
