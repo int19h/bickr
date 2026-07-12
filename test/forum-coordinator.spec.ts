@@ -3169,7 +3169,8 @@ describe("Forum coordinator", () => {
 				}),
 				runProviderLoop: async () => outcome,
 				startQueuedSpotlightTick: () => {},
-				status: async () => ({ botId: bot.id, enabled: true, status: "idle" as const }),
+				reapStaleRun: async () => false,
+				readStatus: async () => ({ botId: bot.id, enabled: true, status: "idle" as const }),
 				throwIfStopped: (_runId: string, signal: AbortSignal) => {
 					if (signal.aborted) {
 						throw new Error("Unexpected abort.");

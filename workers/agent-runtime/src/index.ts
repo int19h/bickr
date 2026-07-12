@@ -582,6 +582,16 @@ const {
 	stringValue,
 });
 
+type RuntimeStatusIndexRow = {
+	enabled: number;
+	status: 'idle' | 'running' | 'failed';
+	activeRunId: string | null;
+	leaseExpiresAt: string | null;
+	nextDueAt: string | null;
+	lastError: string | null;
+	tickIntervalSeconds: number;
+};
+
 export async function claimRuntimeRun(
 	db: D1DatabaseLike,
 	botId: string,
@@ -610,7 +620,7 @@ export async function releaseRuntimeRun(
 	db: D1DatabaseLike,
 	input: {
 		botId: string;
-		runId: string;
+		runId: string | null;
 		status: RuntimeReleaseStatus;
 		nextDueAt: string | null;
 		lastError: string | null;
@@ -627,7 +637,8 @@ export async function releaseRuntimeRun(
 			     next_due_at = ?,
 			     updated_at = ?
 			 WHERE bot_id = ?
-			   AND active_run_id = ?`,
+			   AND status = 'running'
+			   AND active_run_id IS ?`,
 		)
 		.bind(input.status, input.lastError, input.nextDueAt, input.now, input.botId, input.runId)
 		.run();
@@ -1801,7 +1812,7 @@ export class BotRuntime {
 	private async handleRuntimeReadRequest(request: Request, url: URL, botId: string): Promise<Response | null> {
 		if (request.method === 'GET' && url.pathname.endsWith('/status')) {
 			await this.requireOwnerOrInternal(request, botId);
-			return ok({ status: await this.status(botId) });
+			return ok({ status: await this.readStatus(botId) });
 		}
 
 		if (request.method === 'GET' && url.pathname.endsWith('/events')) {
@@ -1992,7 +2003,8 @@ export class BotRuntime {
 
 	private async admitTick(botId: string, trigger: 'cron' | 'manual' | 'spotlight', options: TickOptions): Promise<TickAdmission> {
 		return this.runtimeTransitionQueue().run(async () => {
-			const current = await this.status(botId);
+			await this.reapStaleRun(botId);
+			const current = await this.readStatus(botId);
 			if (this.activeRunId || this.activeMaintenanceOperation) {
 				return { admitted: false, result: this.busyTickResult(current, trigger, options) };
 			}
@@ -2011,7 +2023,7 @@ export class BotRuntime {
 			const leaseExpiresAt = new Date(Date.parse(now) + runtimeRunLeaseTimeoutMs).toISOString();
 			const claimed = await claimRuntimeRun(this.env.BICKR_D1, bot.id, runId, leaseExpiresAt, now);
 			if (!claimed) {
-				return { admitted: false, result: this.busyTickResult(await this.status(botId), trigger, options) };
+				return { admitted: false, result: this.busyTickResult(await this.readStatus(botId), trigger, options) };
 			}
 
 			const abortController = new AbortController();
@@ -2278,7 +2290,8 @@ export class BotRuntime {
 
 	private async beginMaintenanceOperation(botId: string, operation: ActiveMaintenanceOperation, conflictMessage: string): Promise<void> {
 		await this.runtimeTransitionQueue().run(async () => {
-			const current = await this.status(botId);
+			await this.reapStaleRun(botId);
+			const current = await this.readStatus(botId);
 			if (current.status === 'running' || this.activeRunId || this.activeMaintenanceOperation) {
 				throw new RepositoryError('conflict', conflictMessage, 409);
 			}
@@ -2442,7 +2455,8 @@ export class BotRuntime {
 	}
 
 	private async stopTick(botId: string): Promise<{ stopped: boolean; runId?: string; status: BotRuntimeStatus['status'] }> {
-		const current = await this.status(botId);
+		await this.reapStaleRun(botId);
+		const current = await this.readStatus(botId);
 		const runId = current.activeRunId ?? this.activeRunId ?? undefined;
 		if (current.status !== 'running' || !runId) {
 			return { stopped: false, status: current.status };
@@ -6347,7 +6361,7 @@ export class BotRuntime {
 		if (!row) {
 			throw new RepositoryError('not_found', 'Loop message was not found.', 404);
 		}
-		const current = await this.status(botId);
+		const current = await this.readStatus(botId);
 		if (current.status === 'running' && current.activeRunId === row.run_id) {
 			throw new RepositoryError('conflict', 'Cannot delete a message from the currently running tick.', 409);
 		}
@@ -6376,7 +6390,7 @@ export class BotRuntime {
 		if (!row) {
 			throw new RepositoryError('not_found', 'Runtime event was not found.', 404);
 		}
-		const current = await this.status(botId);
+		const current = await this.readStatus(botId);
 		if (current.status === 'running' && current.activeRunId === row.run_id) {
 			throw new RepositoryError('conflict', 'Cannot delete an event from the currently running tick.', 409);
 		}
@@ -6411,8 +6425,8 @@ export class BotRuntime {
 		}
 	}
 
-	private async status(botId: string): Promise<BotRuntimeStatus> {
-		const row = await this.env.BICKR_D1.prepare(
+	private async runtimeStatusIndexRow(botId: string): Promise<RuntimeStatusIndexRow | null> {
+		return this.env.BICKR_D1.prepare(
 			`SELECT
 				enabled,
 				status,
@@ -6425,120 +6439,12 @@ export class BotRuntime {
 			 WHERE bot_id = ?`,
 		)
 			.bind(botId)
-			.first<{
-				enabled: number;
-				status: 'idle' | 'running' | 'failed';
-				activeRunId: string | null;
-				leaseExpiresAt: string | null;
-				nextDueAt: string | null;
-				lastError: string | null;
-				tickIntervalSeconds: number;
-			}>();
+			.first<RuntimeStatusIndexRow>();
+	}
+
+	private async readStatus(botId: string): Promise<BotRuntimeStatus> {
+		const row = await this.runtimeStatusIndexRow(botId);
 		const enabled = row?.enabled === 1;
-		if (row?.status === 'running' && row.activeRunId && this.hasStopRequest(row.activeRunId) && this.activeRunId !== row.activeRunId) {
-			const bot = await botById(this.env.BICKR_KV, this.env.BICKR_D1, botId);
-			const nextDueAt = await this.markRunStopped(bot, row.activeRunId);
-			return {
-				botId,
-				enabled,
-				status: 'idle',
-				...(nextDueAt ? { nextDueAt } : {}),
-			};
-		}
-		if (row?.status === 'running' && row.activeRunId) {
-			const stale = this.staleProviderStream(row.activeRunId);
-			if (stale) {
-				const message = `The Bickr page stopped responding after ${Math.round(providerStreamIdleTimeoutMs / 1000)} seconds.`;
-				if (!this.hasTerminalEvent(row.activeRunId)) {
-					this.recordTickFailure(row.activeRunId, {
-						message,
-						lastEventType: stale.type,
-						lastEventAt: stale.created_at,
-					});
-				}
-				if (this.activeRunId === row.activeRunId) {
-					this.setStopRequest(row.activeRunId);
-					if (this.activeAbortController && !this.activeAbortController.signal.aborted) {
-						this.activeAbortController.abort();
-					}
-					this.activeRunId = null;
-					this.activeAbortController = null;
-				}
-				const now = new Date().toISOString();
-				await this.env.BICKR_D1.prepare(
-					`UPDATE bot_runtime_index
-					 SET status = 'failed',
-					     active_run_id = NULL,
-					     lease_expires_at = NULL,
-					     last_error = ?,
-					     updated_at = ?
-					 WHERE bot_id = ? AND status = 'running' AND active_run_id = ?`,
-				)
-					.bind(message, now, botId, row.activeRunId)
-					.run();
-				return {
-					botId,
-					enabled,
-					status: 'failed',
-					...(enabled && row.nextDueAt ? { nextDueAt: row.nextDueAt } : {}),
-					lastError: message,
-				};
-			}
-		}
-		if (row?.status === 'running' && row.leaseExpiresAt && Date.parse(row.leaseExpiresAt) <= Date.now()) {
-			const message = 'This Bickr visit took too long and closed before completion.';
-			if (row.activeRunId && !this.hasTerminalEvent(row.activeRunId)) {
-				this.recordTickFailure(row.activeRunId, {
-					message,
-					leaseExpiresAt: row.leaseExpiresAt,
-				});
-			}
-			if (
-				row.activeRunId &&
-				this.activeRunId === row.activeRunId &&
-				this.activeAbortController &&
-				!this.activeAbortController.signal.aborted
-			) {
-				this.setStopRequest(row.activeRunId);
-				this.activeAbortController.abort();
-			}
-			const now = new Date().toISOString();
-			const nextDueAt = enabled ? new Date(Date.parse(now) + row.tickIntervalSeconds * 1000).toISOString() : null;
-			if (row.activeRunId) {
-				await this.env.BICKR_D1.prepare(
-					`UPDATE bot_runtime_index
-					 SET status = 'idle',
-					     active_run_id = NULL,
-					     lease_expires_at = NULL,
-					     last_error = ?,
-					     next_due_at = ?,
-					     updated_at = ?
-					 WHERE bot_id = ? AND status = 'running' AND active_run_id = ?`,
-				)
-					.bind(message, nextDueAt, now, botId, row.activeRunId)
-					.run();
-			} else {
-				await this.env.BICKR_D1.prepare(
-					`UPDATE bot_runtime_index
-					 SET status = 'idle',
-					     active_run_id = NULL,
-					     lease_expires_at = NULL,
-					     last_error = ?,
-					     next_due_at = ?,
-					     updated_at = ?
-					 WHERE bot_id = ? AND status = 'running' AND active_run_id IS NULL`,
-				)
-					.bind(message, nextDueAt, now, botId)
-					.run();
-			}
-			return {
-				botId,
-				enabled,
-				status: 'idle',
-				...(nextDueAt ? { nextDueAt } : {}),
-				lastError: message,
-			};
-		}
 		return {
 			botId,
 			enabled,
@@ -6547,6 +6453,107 @@ export class BotRuntime {
 			...(enabled && row?.nextDueAt ? { nextDueAt: row.nextDueAt } : {}),
 			...(row?.lastError ? { lastError: row.lastError } : {}),
 		};
+	}
+
+	private async reapStaleRun(botId: string): Promise<boolean> {
+		const row = await this.runtimeStatusIndexRow(botId);
+		if (row?.status !== 'running') {
+			return false;
+		}
+		// Every branch must win the D1 ownership transition before changing the
+		// local event stream. The active_run_id CAS makes concurrent reapers
+		// idempotent and leaves exactly one winner to append a terminal event.
+		const enabled = row.enabled === 1;
+		const runId = row.activeRunId;
+		if (runId && this.hasStopRequest(runId) && this.activeRunId !== runId) {
+			const now = new Date().toISOString();
+			const nextDueAt = enabled ? new Date(Date.parse(now) + row.tickIntervalSeconds * 1000).toISOString() : null;
+			const reaped = await releaseRuntimeRun(this.env.BICKR_D1, {
+				botId,
+				runId,
+				status: 'idle',
+				nextDueAt,
+				lastError: null,
+				now,
+			});
+			if (!reaped) {
+				return false;
+			}
+			this.markPendingCompactionEventsFailed(runId, 'This Bickr visit was stopped.');
+			if (!this.hasTerminalEvent(runId)) {
+				this.appendEvent(runId, 'tick_stopped', { message: 'This Bickr visit was stopped.' });
+			}
+			this.clearStopRequest(runId);
+			return true;
+		}
+
+		if (runId) {
+			const stale = this.staleProviderStream(runId);
+			if (stale) {
+				const message = `The Bickr page stopped responding after ${Math.round(providerStreamIdleTimeoutMs / 1000)} seconds.`;
+				const reaped = await releaseRuntimeRun(this.env.BICKR_D1, {
+					botId,
+					runId,
+					status: 'failed',
+					nextDueAt: row.nextDueAt,
+					lastError: message,
+					now: new Date().toISOString(),
+				});
+				if (!reaped) {
+					return false;
+				}
+				if (!this.hasTerminalEvent(runId)) {
+					this.recordTickFailure(runId, {
+						message,
+						lastEventType: stale.type,
+						lastEventAt: stale.created_at,
+					});
+				}
+				if (this.activeRunId === runId) {
+					this.setStopRequest(runId);
+					if (this.activeAbortController && !this.activeAbortController.signal.aborted) {
+						this.activeAbortController.abort();
+					}
+					this.activeRunId = null;
+					this.activeAbortController = null;
+				}
+				return true;
+			}
+		}
+
+		if (!row.leaseExpiresAt || Date.parse(row.leaseExpiresAt) > Date.now()) {
+			return false;
+		}
+		const message = 'This Bickr visit took too long and closed before completion.';
+		const now = new Date().toISOString();
+		const nextDueAt = enabled ? new Date(Date.parse(now) + row.tickIntervalSeconds * 1000).toISOString() : null;
+		const reaped = await releaseRuntimeRun(this.env.BICKR_D1, {
+			botId,
+			runId,
+			status: 'idle',
+			nextDueAt,
+			lastError: message,
+			now,
+		});
+		if (!reaped) {
+			return false;
+		}
+		if (runId && !this.hasTerminalEvent(runId)) {
+			this.recordTickFailure(runId, {
+				message,
+				leaseExpiresAt: row.leaseExpiresAt,
+			});
+		}
+		if (
+			runId &&
+			this.activeRunId === runId &&
+			this.activeAbortController &&
+			!this.activeAbortController.signal.aborted
+		) {
+			this.setStopRequest(runId);
+			this.activeAbortController.abort();
+		}
+		return true;
 	}
 
 	private staleProviderStream(runId: string): ProviderStreamActivity | null {
