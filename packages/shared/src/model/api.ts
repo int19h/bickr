@@ -587,7 +587,7 @@ export type SpotlightIncludedContent = {
 	title?: LocalizedText;
 	body: LocalizedText;
 	createdAt: string;
-	"My focus is on this comment"?: true;
+	focused?: true;
 	target?: boolean;
 	ancestorOnly?: boolean;
 	alreadySeen?: boolean;

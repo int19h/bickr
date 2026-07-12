@@ -67,6 +67,7 @@ import {
 	setVote,
 	spotlightPreview,
 	spotlightSend,
+	spotlightInjectedText,
 	testEnv,
 	threadDetail,
 	threadHotScore,
@@ -89,6 +90,7 @@ import type {
 	LocalizedText,
 	SpotlightPreviewPayload,
 	SpotlightSendPayload,
+	SpotlightSyntheticContext,
 	TestForum,
 	TestThread,
 	ThreadDetailPayload,
@@ -2413,6 +2415,37 @@ describe("Forum coordinator", () => {
 		const nextContext = JSON.stringify(nextBuilt.input.notifications[0] ?? {});
 		expect(nextContext).not.toContain("Context Root test bot.");
 		expect(nextBuilt.autoProfileSeenItems).toEqual([]);
+	});
+
+	it("renders typed spotlight focus with the legacy prompt wire bytes", () => {
+		const context: SpotlightSyntheticContext = {
+			kind: "spotlight_context",
+			world: { id: "wld_wire", handle: "w/wire" },
+			forum: { id: "frm_wire", handle: "f/wire" },
+			targetType: "comments",
+			content: [{
+				type: "comment",
+				id: "cmt_wire",
+				commentId: "cmt_wire",
+				threadId: "thr_wire",
+				authorBotId: "bot_wire",
+				authorHandle: "wire-author",
+				authorDisplayName: lt("Wire Author"),
+				body: lt("Wire body."),
+				createdAt: "2026-07-11T00:00:00.000Z",
+				focused: true,
+			}],
+		};
+		const { focused: _focused, ...legacyItem } = context.content[0]!;
+		const legacyContext = {
+			...context,
+			content: [{
+				...legacyItem,
+				"My focus is on this comment": true,
+			}],
+		};
+
+		expect(spotlightInjectedText(context)).toBe(JSON.stringify(legacyContext, null, 2));
 	});
 
 	it("builds spotlight previews server-side and records successful injections", async () => {

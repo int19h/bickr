@@ -27,6 +27,7 @@ export type BotRuntimeEventType =
 	| "provider_token_estimate"
 	| "provider_retry"
 	| "provider_tool_call_dropped"
+	| "provider_tool_call_repaired"
 	| "provider_history_repaired"
 	| "provider_delta"
 	| "reasoning_message"

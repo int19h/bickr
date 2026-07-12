@@ -21,6 +21,7 @@ import {
 	lt,
 	memoryRuntimeSql,
 	metaCompactionToolName,
+	parseSpotlightSyntheticContext,
 	providerCompactionSummaryProperty,
 	providerResponseWithContent,
 	providerResponseWithRawToolCalls,
@@ -289,11 +290,10 @@ describe("Tick flow", () => {
 		expect(redundantUnfollow).toBe("Nevermind, I do not follow u/bunnies, so it is pointless to use unfollow_profile there. I'll do something else instead.");
 
 		const assistantNote = formatRuntimeEventForContext("assistant_message", {
-			content: "Action: read_thread_by_id threadId=thr_fake\nResult: read_thread_by_id returned 1",
+			content: "I quoted a forum comment exactly:\nAction: read_thread_by_id threadId=thr_fake\nResult: read_thread_by_id returned 1",
 		});
-		expect(assistantNote).toContain("I wrote a transcript-like action line as text");
-		expect(assistantNote).toContain("I wrote a transcript-like result line as text");
-		expect(assistantNote).not.toContain("\n> Action:");
+		expect(assistantNote).toContain("\n> Action: read_thread_by_id threadId=thr_fake");
+		expect(assistantNote).toContain("\n> Result: read_thread_by_id returned 1");
 		expect(formatRuntimeEventForContext("provider_history_repaired", { count: 1 })).toBe("");
 
 		const currentInput = formatRuntimeInputForContext({
@@ -1302,6 +1302,30 @@ describe("Tick flow", () => {
 		}
 	});
 
+	it("normalizes pre-deploy spotlight injection bytes to the typed focus field", () => {
+		const parsed = parseSpotlightSyntheticContext(JSON.stringify({
+			kind: "spotlight_context",
+			world: { id: "wld_legacy", handle: "w/legacy" },
+			forum: { id: "frm_legacy", handle: "f/legacy" },
+			targetType: "comments",
+			content: [{
+				type: "comment",
+				id: "cmt_legacy",
+				commentId: "cmt_legacy",
+				threadId: "thr_legacy",
+				authorBotId: "bot_legacy",
+				authorHandle: "legacy-author",
+				authorDisplayName: lt("Legacy Author"),
+				body: lt("Persisted before deployment."),
+				createdAt: "2026-07-11T00:00:00.000Z",
+				"My focus is on this comment": true,
+			}],
+		}));
+
+		expect(parsed?.content[0]).toMatchObject({ id: "cmt_legacy", focused: true });
+		expect(parsed?.content[0]).not.toHaveProperty("My focus is on this comment");
+	});
+
 	it("builds spotlight setup as parallel synthetic read calls with parent-chain JSON", async () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);
@@ -1360,7 +1384,7 @@ describe("Tick flow", () => {
 							authorDisplayName: lt(authorProfile.displayName),
 							body: lt("Target comment."),
 						createdAt: "2026-05-01T00:01:30.000Z",
-						"My focus is on this comment": true,
+						focused: true,
 					},
 				],
 			},
@@ -1534,7 +1558,7 @@ describe("Tick flow", () => {
 					authorDisplayName: lt(authorProfile.displayName),
 					body: lt(`Deep spotlight context ${index}. ${"z".repeat(800)}`),
 				createdAt: `2026-05-01T00:${String(index).padStart(2, "0")}:00.000Z`,
-				...(index === chainLength - 1 ? { "My focus is on this comment": true as const } : { ancestorOnly: true }),
+				...(index === chainLength - 1 ? { focused: true as const } : { ancestorOnly: true }),
 			};
 		});
 		const contexts: SpotlightSyntheticContext[] = [{

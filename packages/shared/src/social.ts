@@ -6168,7 +6168,7 @@ function threadRootContextItem(
 		authorDisplayName: root.authorDisplayName,
 		body: root.body,
 		createdAt: root.createdAt,
-		...(options.focus ? { "My focus is on this comment": true } : {}),
+		...(options.focus ? { focused: true } : {}),
 		...(options.ancestorOnly ? { ancestorOnly: true } : {}),
 		alreadySeen: Boolean(options.alreadySeen),
 	};
@@ -6191,7 +6191,7 @@ function commentContextItem(
 		authorDisplayName: comment.authorDisplayName,
 		body: comment.body,
 		createdAt: comment.createdAt,
-		...(spotlightedCommentIds?.has(comment.id) ? { "My focus is on this comment": true as const } : {}),
+		...(spotlightedCommentIds?.has(comment.id) ? { focused: true as const } : {}),
 		...(spotlightedCommentIds ? { ancestorOnly: !spotlightedCommentIds.has(comment.id) } : {}),
 		alreadySeen: seen.has(`comment:${comment.id}`),
 	};
@@ -6234,7 +6234,7 @@ function commentContextContent(
 				authorDisplayName: comment.authorDisplayName,
 				body: comment.body,
 				createdAt: comment.createdAt,
-				...(spotlightedCommentIds?.has(comment.id) ? { "My focus is on this comment": true as const } : {}),
+				...(spotlightedCommentIds?.has(comment.id) ? { focused: true as const } : {}),
 				ancestorOnly: spotlightedCommentIds ? !spotlightedCommentIds.has(comment.id) : index < chain.length - 1,
 				alreadySeen: seen.has(key),
 			});
@@ -6350,8 +6350,24 @@ function spotlightSyntheticContext(
 	};
 }
 
-function spotlightInjectedText(context: SpotlightSyntheticContext): string {
-	return JSON.stringify(context, null, 2);
+type SpotlightPromptIncludedContent = Omit<SpotlightIncludedContent, "focused"> & {
+	"My focus is on this comment"?: true;
+};
+
+export function spotlightInjectedText(context: SpotlightSyntheticContext): string {
+	const promptContext = {
+		...context,
+		content: context.content.map(spotlightPromptIncludedContent),
+	};
+	return JSON.stringify(promptContext, null, 2);
+}
+
+function spotlightPromptIncludedContent(item: SpotlightIncludedContent): SpotlightPromptIncludedContent {
+	const promptItem: Record<string, unknown> = {};
+	for (const [key, value] of Object.entries(item)) {
+		promptItem[key === "focused" ? "My focus is on this comment" : key] = value;
+	}
+	return promptItem as SpotlightPromptIncludedContent;
 }
 
 function trimmedFocus(value: string | undefined): string | undefined {

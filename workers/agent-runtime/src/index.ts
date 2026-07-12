@@ -216,6 +216,7 @@ import {
 	malformedToolCallFailureArgs,
 	normalizeToolArgs,
 	parseToolArgs,
+	parseToolArgsWithDiagnostics,
 	providerToolArgs,
 	usernameArg,
 } from './runtime/tool-args';
@@ -252,6 +253,7 @@ import {
 	appendToolRequirementInstruction,
 	defaultProviderCompactionSummaryLimits,
 	isNonReducingCompactionValidationError,
+	isTranscriptLikeCompactionValidationError,
 	providerCompactionMessages,
 	providerCompactionMessagesForAttempt,
 	providerCompactionMode,
@@ -454,6 +456,7 @@ import type {
 	SpotlightActionScope,
 	ProviderToolCallDropReason,
 	DroppedProviderToolCall,
+	RepairedProviderToolCall,
 	ToolUseRecoveryState,
 	ProviderCompactionReasoningFallbackState,
 	ProviderCompactionSummaryLimits,
@@ -565,6 +568,7 @@ const {
 	followToolArgsWithTargets,
 	followToolTargetsForProviderDedupe,
 	parseToolArgs,
+	parseToolArgsWithDiagnostics,
 	providerToolArgs,
 	runtimeRecord,
 	safeContextText,
@@ -2726,6 +2730,7 @@ export class BotRuntime {
 					'generated_response',
 					malformedOnlyResponse && !malformedOnlyRetried,
 				);
+				this.recordRepairedProviderToolCalls(runId, requestEvent.seq, sanitized.repaired);
 				if (response.usage) {
 					await this.recordProviderUsage({
 						contextWindowTokens: requestContextWindowTokens,
@@ -3236,6 +3241,20 @@ export class BotRuntime {
 					outputText: input.error.outputText,
 				};
 			}
+			if (input.error.outputText && isTranscriptLikeCompactionValidationError(input.error)) {
+				return {
+					kind: 'schema_invalid',
+					cause,
+					previousMessages: input.requestMessages,
+					repairMessages:
+						input.error.toolCalls.length > 0
+							? structuredOutputRepairMessages(input.error)
+							: [
+									{ role: 'assistant', content: input.error.outputText },
+									{ role: 'user', content: input.error.repairMessage },
+								],
+				};
+			}
 			return {
 				kind: 'schema_invalid',
 				cause,
@@ -3491,6 +3510,26 @@ export class BotRuntime {
 			phase,
 			retrying,
 			calls,
+		});
+	}
+
+	private recordRepairedProviderToolCalls(
+		runId: string,
+		streamSeq: number,
+		repaired: readonly RepairedProviderToolCall[],
+	): void {
+		if (repaired.length === 0) {
+			return;
+		}
+		this.appendEvent(runId, 'provider_tool_call_repaired', {
+			runId,
+			streamSeq,
+			count: repaired.length,
+			callIds: [...new Set(repaired.map((repair) => repair.id).filter(Boolean))],
+			functionNames: [...new Set(repaired.map((repair) => repair.name).filter(Boolean))],
+			reason: 'leaked_argument_fragment',
+			phase: 'generated_response',
+			repairs: repaired,
 		});
 	}
 
@@ -6891,7 +6930,7 @@ function notificationProfileRefFromReadContent(item: SpotlightIncludedContent): 
 	};
 }
 
-function parseSpotlightSyntheticContext(text: string): SpotlightSyntheticContext | null {
+export function parseSpotlightSyntheticContext(text: string): SpotlightSyntheticContext | null {
 	let parsed: unknown;
 	try {
 		parsed = JSON.parse(text);
@@ -6970,7 +7009,7 @@ function spotlightIncludedContentFromRecord(record: Record<string, unknown>): Sp
 		...(stringValue(record.title) ? { title: localizedTextValue(record.title) } : {}),
 		body,
 		createdAt,
-		...(record['My focus is on this comment'] === true || record.target === true ? { 'My focus is on this comment': true as const } : {}),
+		...(record.focused === true || record['My focus is on this comment'] === true || record.target === true ? { focused: true as const } : {}),
 		...(record.ancestorOnly === true ? { ancestorOnly: true } : {}),
 		...(record.alreadySeen === true ? { alreadySeen: true } : {}),
 	};
@@ -7109,7 +7148,7 @@ function profileHandleFromUsername(value: unknown): string | null {
 function spotlightSyntheticToolChains(context: SpotlightSyntheticContext): SyntheticReadToolChain[] {
 	if (context.targetType === 'comments') {
 		return context.content
-			.filter((item) => item.type === 'comment' && (item['My focus is on this comment'] || item.target))
+			.filter((item) => item.type === 'comment' && (item.focused || item.target))
 			.map((item) => ({
 				toolName: 'read_comment_by_id',
 				args: { commentId: item.id },
@@ -7208,7 +7247,7 @@ function spotlightReadContentItem(context: SpotlightSyntheticContext, item: Spot
 		...(item.title ? { title: item.title } : {}),
 		body: item.body,
 		createdAt: item.createdAt,
-		...(item['My focus is on this comment'] === true || item.target === true ? { 'My focus is on this comment': true as const } : {}),
+		...(item.focused === true || item.target === true ? { 'My focus is on this comment': true as const } : {}),
 		...(item.ancestorOnly ? { ancestorOnly: true } : {}),
 	};
 }
@@ -8481,11 +8520,11 @@ function deterministicCompactionSummary(previousSummary: string, recentActivity:
 }
 
 function storedCompactionSummary(summary: string): string {
-	return sanitizeStoredContextSummary(summary);
+	return summary.trim();
 }
 
 function storedMemorySummary(summary: string): string {
-	const sanitized = sanitizeStoredContextSummary(summary);
+	const sanitized = storedCompactionSummary(summary);
 	if (!sanitized || /^I remember\b/i.test(sanitized)) {
 		return sanitized;
 	}
@@ -8493,21 +8532,6 @@ function storedMemorySummary(summary: string): string {
 		return `I remember that ${sanitized}`;
 	}
 	return `I remember ${sanitized}`;
-}
-
-function sanitizeStoredContextSummary(summary: string): string {
-	return summary
-		.split(/\r?\n/)
-		.map((line) => line.trim())
-		.filter((line) => line && !isRuntimeMetaContextLine(line))
-		.map((line) => neutralizeTranscriptLikeText(line))
-		.join('\n');
-}
-
-function isRuntimeMetaContextLine(line: string): boolean {
-	return /^(provider_request|provider_token_probe|provider_token_estimate|provider_retry|provider_tool_call_dropped|provider_history_repaired|tick_started|tick_completed|tick_failed|tick_stopped|tick_stop_requested)\b/.test(
-		line,
-	);
 }
 
 function injectedThoughtAssistantContent(text: string, payload: Record<string, unknown>): string {
@@ -8620,6 +8644,7 @@ export function formatRuntimeEventForContext(
 			const count = integerValue(payload.count) ?? 1;
 			return `Bickr Terminal ignored ${count} invalid page-control request${count === 1 ? '' : 's'}.`;
 		}
+		case 'provider_tool_call_repaired':
 		case 'provider_history_repaired':
 			return '';
 		case 'tick_started':
@@ -9044,7 +9069,7 @@ function notificationContextSummary(context: Record<string, unknown>): string {
 }
 
 function safeContextText(text: string, limit: number): string {
-	return truncateForContext(neutralizeTranscriptLikeText(text.replace(/\s+/g, ' ').trim()), limit);
+	return truncateForContext(text.replace(/\s+/g, ' ').trim(), limit);
 }
 
 function quoteForContext(text: string, limit: number): string {
@@ -9052,29 +9077,13 @@ function quoteForContext(text: string, limit: number): string {
 }
 
 function markdownQuoteForContext(text: string, limit: number): string {
-	const prepared = truncateForContext(neutralizeTranscriptLikeText(text.trim()), limit).trim();
+	const prepared = truncateForContext(text.trim(), limit).trim();
 	if (!prepared) {
 		return '> (empty)';
 	}
 	return prepared
 		.split(/\r?\n/)
 		.map((line) => `> ${line}`)
-		.join('\n');
-}
-
-function neutralizeTranscriptLikeText(text: string): string {
-	return text
-		.split(/\r?\n/)
-		.map((line) => {
-			const trimmed = line.trimStart();
-			const indentation = line.slice(0, line.length - trimmed.length);
-			const match = /^(Action|Result|Input|New thought):\s*/i.exec(trimmed);
-			if (!match) {
-				return line;
-			}
-			const rest = trimmed.slice(match[0].length);
-			return `${indentation}I wrote a transcript-like ${match[1]?.toLowerCase() ?? 'note'} line as text: ${rest}`;
-		})
 		.join('\n');
 }
 

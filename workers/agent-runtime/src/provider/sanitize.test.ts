@@ -3,8 +3,8 @@ import { describe, expect, it } from 'vitest';
 import {
 	createProviderSanitize,
 	loopMessageContributesToProviderHistory,
-	stripLeakedProviderCommentRefSuffix,
 } from './sanitize';
+import { parseToolArgs, parseToolArgsWithDiagnostics } from '../runtime/tool-args';
 
 const { providerResponseMessageForHistory, sanitizeProviderToolCalls } = createProviderSanitize({
 	canonicalToolName: (name) => name,
@@ -12,7 +12,8 @@ const { providerResponseMessageForHistory, sanitizeProviderToolCalls } = createP
 	followToolTargetsForProviderDedupe: () => {
 		throw new Error('not used by these unit tests');
 	},
-	parseToolArgs: (toolCall) => JSON.parse(toolCall.function.arguments) as Record<string, unknown>,
+	parseToolArgs,
+	parseToolArgsWithDiagnostics,
 	providerToolArgs: (_name, args) => args,
 	runtimeRecord: (value) => value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {},
 	safeContextText: (text, limit) => text.slice(0, limit),
@@ -35,23 +36,40 @@ describe('tool argument validation', () => {
 		expect(result.toolCalls).toHaveLength(0);
 	});
 
-	it("strips the leaked provider commentRef suffix from generated reply bodies", () => {
+	it.each([
+		['original', 'I am done here."},commentRef:'],
+		['whitespace', 'I am done here."} ,  commentRef :  '],
+		['quoted key', 'I am done here."}, "commentRef":'],
+	])("strips a leaked fragment of another argument key from generated reply bodies (%s)", (_variant, text) => {
 		const result = sanitizeProviderToolCalls([
 			toolCall("call_reply", "reply_to_comment", {
-				body: { lang: "en", text: 'I am done here."},commentRef:' },
+				body: { lang: "en", text },
 				commentRef: "c/target",
 			}),
 		]);
 
 		expect(result.dropped).toEqual([]);
+		expect(result.repaired).toEqual([
+			expect.objectContaining({
+				id: 'call_reply',
+				name: 'reply_to_comment',
+				reason: 'leaked_argument_fragment',
+				field: 'body.text',
+				leakedArgumentKey: 'commentRef',
+			}),
+		]);
 		expect(JSON.parse(result.toolCalls[0]?.function.arguments ?? "{}")).toEqual({
 			body: { lang: "en", text: "I am done here." },
 			commentRef: "c/target",
 		});
 	});
 
-	it("only strips the leaked provider commentRef sequence when it is a suffix", () => {
-		expect(stripLeakedProviderCommentRefSuffix('quoted "},commentRef: inside text')).toBe('quoted "},commentRef: inside text');
+	it("only strips suffix fragments that name another argument in the same call", () => {
+		const text = 'quoted "},commentRef: inside text';
+		expect(parseToolArgs(toolCall('call_reply', 'reply_to_comment', { body: { lang: 'en', text }, other: true }))).toEqual({
+			body: { lang: 'en', text },
+			other: true,
+		});
 	});
 });
 
